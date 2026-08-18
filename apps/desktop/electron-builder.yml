@@ -74,3 +74,15 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  # One install mode, for all users. The mode page is gone with it, and so is
+  # the failure it produced: an install that resolved to per-machine while the
+  # updater had spawned the installer without elevation, whose silent uninstall
+  # of the old per-machine version then aborted with exit code 2.
+  perMachine: true
+  # Required for the updater to elevate, and not implied by perMachine. The
+  # helper is copied either way — `NsisUtil.copy` only skips it on an explicit
+  # `false` — but the manifest flag the updater reads comes from
+  # `updateInfo != null && isPerMachine && (oneClick || options.packElevateHelper)`
+  # (NsisTarget.js), where an unset option is falsy. Without this line the
+  # build ships elevate.exe and never tells the updater to use it.
+  packElevateHelper: true

@@ -28,6 +28,10 @@ https://lhr.ink/dsh-updates/mac/     latest-mac.yml + the zipped app
 
 **那次点击之后的执行不再打断用户**,这与"不问自装"是两回事。`quitAndInstall(true, true)` 给安装程序传 `/S --force-run`,于是它跳过安装模式页、进度页与完成页——这些页面问的正是那次点击已经回答过的问题——装进它在 `.onInit` 里从注册表 `InstallLocation` 读到的目录,装完再把应用拉起来。两个参数都不可少:assisted 安装器的自动启动分支是 `${if} ${isForceRun} ${andIf} ${Silent}`,所以只给 `/S` 会装好但把用户晾在空屏前。
 
+**Windows 为所有用户安装,因此更新会提权。**`perMachine: true` 加 `packElevateHelper: true` 把 `isAdminRightsRequired` 写进清单,更新器于是通过 `elevate.exe` 启动安装器。在 UAC 为普通设置的机器上,这是**每次安装一次确认框**;在 UAC 设为「从不通知」的机器上则被静默放行,什么也不会出现。没有这次提权,per-machine 的卸旧会中止,安装以 `Failed to uninstall old application files: 2` 失败。
+
+**不会留下任何东西占着旧文件。**退出时对停服务器封了顶(Windows 4 秒,落在安装器自己的耐心之内;别处 10 秒),到点照退,所以卡住的拆除不会留下没有窗口的进程。此后每次启动都会杀掉上一轮留下的服务器——匹配的是本安装那个内置 Node 的完整路径,绝不按 `node` 映像名——而安装器的 `customInit` 会先等最多 10 秒让安装目录下的进程自行退出,再对残留连子进程一起杀。
+
 **macOS 只发现,再交接。**Squirrel.Mac 只为已签名应用暂存更新,而这些构建没有证书,所以 macOS 自己比对版本,改为用系统浏览器打开下载。该提示只出现在启动时或手动检查时,绝不在会话中途。
 
 ### 强制更新
@@ -62,7 +66,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 
 ## 服务器环境
 
-服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。
+服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。**帮助 → 关于** 给出版本与更新源地址。菜单栏文案按 `app.getLocale()` 在中英之间选择;对话框保持中文。
 
 ## Known Limitations and Deferred Work
 

@@ -611,27 +611,125 @@ function mainWindow(): BrowserWindow | undefined {
 }
 
 /**
+ * Menu labels. Electron's `role` menus carry English labels and are not
+ * localized for us, so every item this app shows names itself here. Only the
+ * menu bar is covered: dialogs stay Chinese, which is a deliberate stopping
+ * point rather than a half-done translation of the whole surface.
+ */
+const MENU_TEXT = {
+  zh: {
+    file: '文件', edit: '编辑', view: '视图', window: '窗口', help: '帮助',
+    about: '关于', services: '服务', hide: '隐藏', hideOthers: '隐藏其他', unhide: '全部显示', quit: '退出',
+    undo: '撤销', redo: '重做', cut: '剪切', copy: '复制', paste: '粘贴', selectAll: '全选',
+    reload: '重新加载', forceReload: '强制重新加载', devTools: '开发者工具',
+    resetZoom: '实际大小', zoomIn: '放大', zoomOut: '缩小', fullscreen: '全屏',
+    minimize: '最小化', close: '关闭', front: '前置全部窗口',
+    checkUpdate: '检查更新', openLog: '查看日志',
+  },
+  en: {
+    file: 'File', edit: 'Edit', view: 'View', window: 'Window', help: 'Help',
+    about: 'About', services: 'Services', hide: 'Hide', hideOthers: 'Hide Others', unhide: 'Show All', quit: 'Quit',
+    undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select All',
+    reload: 'Reload', forceReload: 'Force Reload', devTools: 'Developer Tools',
+    resetZoom: 'Actual Size', zoomIn: 'Zoom In', zoomOut: 'Zoom Out', fullscreen: 'Toggle Full Screen',
+    minimize: 'Minimize', close: 'Close', front: 'Bring All to Front',
+    checkUpdate: 'Check for Updates', openLog: 'Open Log',
+  },
+} as const
+
+/**
  * Install the application menu. The standard roles carry the editing and
- * window shortcuts a browser surface needs (copy, paste, zoom, reload); the
- * help submenu holds the two things the app can be asked for directly.
+ * window shortcuts a browser surface needs (copy, paste, zoom, reload), each
+ * with a label of its own; the help submenu holds what the app can be asked
+ * for directly.
  * @param onCheck - runs the manual update check.
  * @param onOpenLog - opens the server log file.
  */
 function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
-  const platformMenu: MenuItemConstructorOptions = process.platform === 'darwin'
-    ? { role: 'appMenu' }
-    : { role: 'fileMenu' }
+  const text = app.getLocale().startsWith('zh') ? MENU_TEXT.zh : MENU_TEXT.en
+  const onAbout = (): void => { void showAbout(text.about) }
+  const appName = app.getName()
+  const first: MenuItemConstructorOptions = process.platform === 'darwin'
+    ? {
+      label: appName,
+      submenu: [
+        { label: `${text.about} ${appName}`, click: onAbout },
+        { type: 'separator' },
+        { role: 'services', label: text.services },
+        { type: 'separator' },
+        { role: 'hide', label: `${text.hide} ${appName}` },
+        { role: 'hideOthers', label: text.hideOthers },
+        { role: 'unhide', label: text.unhide },
+        { type: 'separator' },
+        { role: 'quit', label: `${text.quit} ${appName}` },
+      ],
+    }
+    : { label: text.file, submenu: [{ role: 'quit', label: text.quit }] }
   Menu.setApplicationMenu(Menu.buildFromTemplate([
-    platformMenu,
-    { role: 'editMenu' },
-    { role: 'viewMenu' },
-    { role: 'windowMenu' },
+    first,
+    {
+      label: text.edit,
+      submenu: [
+        { role: 'undo', label: text.undo },
+        { role: 'redo', label: text.redo },
+        { type: 'separator' },
+        { role: 'cut', label: text.cut },
+        { role: 'copy', label: text.copy },
+        { role: 'paste', label: text.paste },
+        { role: 'selectAll', label: text.selectAll },
+      ],
+    },
+    {
+      label: text.view,
+      submenu: [
+        { role: 'reload', label: text.reload },
+        { role: 'forceReload', label: text.forceReload },
+        { role: 'toggleDevTools', label: text.devTools },
+        { type: 'separator' },
+        { role: 'resetZoom', label: text.resetZoom },
+        { role: 'zoomIn', label: text.zoomIn },
+        { role: 'zoomOut', label: text.zoomOut },
+        { type: 'separator' },
+        { role: 'togglefullscreen', label: text.fullscreen },
+      ],
+    },
+    {
+      label: text.window,
+      submenu: process.platform === 'darwin'
+        ? [
+          { role: 'minimize', label: text.minimize },
+          { role: 'zoom', label: text.fullscreen },
+          { type: 'separator' },
+          { role: 'front', label: text.front },
+        ]
+        : [
+          { role: 'minimize', label: text.minimize },
+          { role: 'close', label: text.close },
+        ],
+    },
     {
       role: 'help',
+      label: text.help,
       submenu: [
-        { label: '检查更新', click: onCheck },
-        { label: '查看日志', click: onOpenLog },
+        { label: text.checkUpdate, click: onCheck },
+        { label: text.openLog, click: onOpenLog },
+        { type: 'separator' },
+        { label: text.about, click: onAbout },
       ],
     },
   ]))
+}
+
+/**
+ * The About dialog: what this is, which build, and where its updates come from.
+ * @param title - the localized word for "about", used as the dialog title.
+ */
+async function showAbout(title: string): Promise<void> {
+  await dialog.showMessageBox({
+    type: 'info',
+    title,
+    message: `${app.getName()} ${app.getVersion()}`,
+    detail: `DeepSeek Harness 的桌面客户端,内置 dsh web 服务。\n更新来自 ${FEED_BASE}。`,
+    buttons: ['好'],
+  })
 }

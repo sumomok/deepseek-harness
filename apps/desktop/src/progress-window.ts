@@ -12,6 +12,7 @@
  */
 
 import { BrowserWindow } from 'electron'
+import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 
 /** One `download-progress` sample, in the units the event reports. */
 export interface DownloadProgress {
@@ -29,32 +30,34 @@ export interface DownloadProgress {
  * The progress page. Static except for the numbers pushed into it, so the
  * document is built once per download and never rebuilt.
  * @param version - the version being downloaded, shown in the heading.
+ * @param appearance - which palette to paint, matching the boot page.
  * @returns the `data:` URL to load.
  */
-function progressPage(version: string): string {
+function progressPage(version: string, appearance: Appearance): string {
+  const colors = PALETTES[appearance]
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><title>正在下载</title><style>
   * { box-sizing: border-box; }
   body {
     margin: 0; height: 100vh; padding: 26px 28px;
     display: flex; flex-direction: column; justify-content: center;
-    background: linear-gradient(135deg, #0B101F 0%, #111A33 100%);
-    color: #F2F6FF; font: 13px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif;
+    background: ${colors.gradient};
+    color: ${colors.text}; font: 13px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif;
     user-select: none;
   }
   h1 { margin: 0; font-size: 14px; font-weight: 600; letter-spacing: .01em; }
-  .track { margin: 18px 0 12px; height: 4px; border-radius: 2px; background: #232A3A; overflow: hidden; }
-  .fill { height: 100%; width: 0; border-radius: 2px; background: #3BC8FF; transition: width .2s linear; }
+  .track { margin: 18px 0 12px; height: 4px; border-radius: 2px; background: ${colors.track}; overflow: hidden; }
+  .fill { height: 100%; width: 0; border-radius: 2px; background: ${colors.accent}; transition: width .2s linear; }
   .row { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
   .percent {
     font: 700 20px/1.2 ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    color: #F2F6FF;
+    color: ${colors.text};
   }
   .stats {
-    text-align: right; color: #8B93A7;
+    text-align: right; color: ${colors.muted};
     font: 12px/1.5 ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
   }
-  .note { margin-top: 14px; font-size: 11px; color: #8B93A7; }
+  .note { margin-top: 14px; font-size: 11px; color: ${colors.muted}; }
 </style></head><body>
   <h1>正在下载 v${version}</h1>
   <div class="track"><div class="fill" id="fill"></div></div>
@@ -94,6 +97,7 @@ export function showProgress(version: string): void {
     window.focus()
     return
   }
+  const appearance = resolveAppearance()
   window = new BrowserWindow({
     width: 440,
     height: 200,
@@ -102,7 +106,7 @@ export function showProgress(version: string): void {
     maximizable: false,
     fullscreenable: false,
     autoHideMenuBar: true,
-    backgroundColor: '#0b101f',
+    backgroundColor: PALETTES[appearance].background,
     title: '正在下载更新',
     webPreferences: {
       sandbox: true,
@@ -111,7 +115,7 @@ export function showProgress(version: string): void {
   })
   window.setMenuBarVisibility(false)
   const opened = window
-  void opened.loadURL(progressPage(version))
+  void opened.loadURL(progressPage(version, appearance))
   opened.webContents.once('did-finish-load', () => {
     if (lastSample !== undefined) updateProgress(lastSample)
   })

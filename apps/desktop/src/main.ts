@@ -17,7 +17,8 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, shell } from 'electron'
-import { startServer, type ServerHandle, type ServerSpec } from './server.ts'
+import { startServer, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
+import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { launchGate, setupUpdates } from './updater.ts'
 
 /**
@@ -46,9 +47,47 @@ function resolveSpec(): ServerSpec {
 
 let server: ServerHandle | undefined
 let quitting = false
+/** Set once the log file is known; before that there is nowhere to write. */
+let logLine: (chunk: string) => void = () => {}
 
-/** The window background, matched to the boot page so no white frame flashes. */
-const WINDOW_BACKGROUND = '#0b101f'
+/**
+ * How long a quit waits for the server to stop before exiting regardless.
+ *
+ * Without a deadline a stop that never settles holds the process open forever,
+ * and a windowless zombie is exactly what blocks the next Windows update. The
+ * two platforms bound it differently because the constraint differs:
+ *
+ * - Windows must beat the updater's installer, which allows the old app about
+ *   7.6 s to disappear — 300 ms + 1 s before its first kill, then two rounds of
+ *   1 s + 2 s — before it gives up and shows "cannot be closed"
+ *   (app-builder-lib `templates/nsis/include/allowOnlyOneInstallerInstance.nsh`,
+ *   `_CHECK_APP_RUNNING`). Teardown there is one `taskkill /T /F`, so 4 s is
+ *   already generous, and being late costs the user a dialog.
+ * - POSIX must outlast `STOP_GRACE_MS`, the server's SIGTERM-to-SIGKILL window,
+ *   or the deadline would cut in before the escalation and orphan the very
+ *   process it is trying to reap.
+ */
+const STOP_TIMEOUT_MS = process.platform === 'win32' ? 4_000 : 10_000
+
+/**
+ * Stop the server, giving up after `STOP_TIMEOUT_MS`. The caller exits either
+ * way; a stop that timed out leaves an orphan for the next launch to sweep,
+ * which is recoverable, while waiting forever is not.
+ * @returns resolves when the server stopped or the deadline passed.
+ */
+async function stopServerBounded(): Promise<void> {
+  const handle = server
+  if (handle === undefined) return
+  let timer: NodeJS.Timeout | undefined
+  const deadline = new Promise<'timeout'>((resolve) => {
+    timer = setTimeout(() => { resolve('timeout') }, STOP_TIMEOUT_MS)
+  })
+  const outcome = await Promise.race([handle.stop().then(() => 'stopped' as const), deadline])
+  clearTimeout(timer)
+  if (outcome === 'timeout') {
+    logLine(`[desktop] server did not stop within ${String(STOP_TIMEOUT_MS)}ms; exiting anyway\n`)
+  }
+}
 
 /**
  * The boot page: a self-contained `data:` document (no external resource, no
@@ -56,33 +95,35 @@ const WINDOW_BACKGROUND = '#0b101f'
  * phase at a time — the one actually running — because a checklist of things
  * that have not happened yet is a list of ways to wonder what went wrong.
  * @param version - the app version shown at the bottom of the page.
+ * @param appearance - which palette to paint.
  * @returns the `data:` URL to load.
  */
-function bootPage(version: string): string {
+function bootPage(version: string, appearance: Appearance): string {
+  const colors = PALETTES[appearance]
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><title>DSH Desktop</title><style>
   * { box-sizing: border-box; }
   body {
     margin: 0; height: 100vh; overflow: hidden;
     display: flex; align-items: center; justify-content: center;
-    background: linear-gradient(135deg, #0B101F 0%, #111A33 100%);
-    color: #F2F6FF; font: 13px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif;
+    background: ${colors.gradient};
+    color: ${colors.text}; font: 13px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif;
   }
   /* Dot grid and vignette, both purely decorative and both behind the column. */
   body::before {
     content: ""; position: fixed; inset: 0; pointer-events: none;
-    background-image: radial-gradient(circle, rgba(255,255,255,.02) 1px, transparent 1px);
+    background-image: radial-gradient(circle, ${colors.grid} 1px, transparent 1px);
     background-size: 24px 24px;
   }
   body::after {
     content: ""; position: fixed; inset: 0; pointer-events: none;
-    box-shadow: inset 0 0 180px 40px rgba(4, 7, 16, .55);
+    box-shadow: inset 0 0 180px 40px ${colors.vignette};
   }
   main { position: relative; width: 100%; max-width: 460px; padding: 0 32px; }
   .glow {
     position: absolute; left: 4px; top: -88px; width: 320px; height: 320px;
     pointer-events: none; transform-origin: center;
-    background: radial-gradient(circle, rgba(59, 200, 255, .08) 0%, rgba(59, 200, 255, 0) 68%);
+    background: radial-gradient(circle, ${colors.glow} 0%, transparent 68%);
     animation: breathe 8s ease-in-out infinite;
   }
   @keyframes breathe {
@@ -96,10 +137,10 @@ function bootPage(version: string): string {
      which is the one character a mono stack renders better than a text face. */
   .wordmark .zh {
     font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
-    color: #F2F6FF; letter-spacing: .02em;
+    color: ${colors.text}; letter-spacing: .02em;
   }
   .caret {
-    display: inline-block; margin-left: 8px; color: #3BC8FF;
+    display: inline-block; margin-left: 8px; color: ${colors.accent};
     font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
     animation: blink 1.1s steps(2) infinite;
   }
@@ -110,25 +151,25 @@ function bootPage(version: string): string {
   .phase {
     position: absolute; inset: 0; display: flex; align-items: baseline; gap: 10px;
     font: 13px/2.1 ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    color: #F2F6FF; opacity: 0; transition: opacity .28s ease;
+    color: ${colors.text}; opacity: 0; transition: opacity .28s ease;
   }
   .phase.showing { opacity: 1; }
-  .mark { flex: none; width: 1em; color: #3BC8FF; animation: pulse 1.6s ease-in-out infinite; }
-  .phase.failed .mark { color: #FF5470; animation: none; }
+  .mark { flex: none; width: 1em; color: ${colors.accent}; animation: pulse 1.6s ease-in-out infinite; }
+  .phase.failed .mark { color: ${colors.danger}; animation: none; }
   @keyframes pulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
   .label { font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif; }
-  .elapsed { color: #8B93A7; }
-  .hint { position: relative; margin-top: 16px; font-size: 11px; color: #8B93A7; }
+  .elapsed { color: ${colors.muted}; }
+  .hint { position: relative; margin-top: 16px; font-size: 11px; color: ${colors.muted}; }
   .failure { position: relative; margin-top: 16px; display: none; }
   body.failed .failure { display: block; }
   .summary {
-    font-size: 13px; color: #F2F6FF; word-break: break-all; user-select: text;
+    font-size: 13px; color: ${colors.text}; word-break: break-all; user-select: text;
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden;
   }
-  .lead { margin-top: 12px; font-size: 13px; color: #8B93A7; }
+  .lead { margin-top: 12px; font-size: 13px; color: ${colors.muted}; }
   footer {
     position: fixed; left: 0; right: 0; bottom: 24px; text-align: center;
-    font-size: 11px; color: #8B93A7;
+    font-size: 11px; color: ${colors.muted};
     font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
   }
   @media (prefers-reduced-motion: reduce) {
@@ -205,10 +246,14 @@ interface BootView {
 
 /** Open the window on the boot page and return its update handle. */
 function createBootWindow(): BootView {
+  // Chosen before the window exists: `backgroundColor` is what paints while the
+  // page loads, so resolving the theme here is what prevents a flash of the
+  // opposite one.
+  const appearance = resolveAppearance()
   const window = new BrowserWindow({
     width: 1360,
     height: 900,
-    backgroundColor: WINDOW_BACKGROUND,
+    backgroundColor: PALETTES[appearance].background,
     title: 'DSH Desktop',
     webPreferences: {
       sandbox: true,
@@ -225,7 +270,7 @@ function createBootWindow(): BootView {
       if (target.startsWith('http')) void shell.openExternal(target)
     }
   })
-  void window.loadURL(bootPage(app.getVersion()))
+  void window.loadURL(bootPage(app.getVersion(), appearance))
   let booting = true
   const push = (script: string): void => {
     if (!booting || window.isDestroyed()) return
@@ -280,11 +325,12 @@ if (!locked) {
   })
 
   // Async teardown: hold the first quit, stop the server, then exit for real.
+  // The stop is bounded, so this path always reaches `app.exit`.
   app.on('before-quit', (event) => {
     if (quitting || server === undefined) return
     event.preventDefault()
     quitting = true
-    void server.stop().finally(() => { app.exit(0) })
+    void stopServerBounded().finally(() => { app.exit(0) })
   })
 
   void app.whenReady().then(async () => {
@@ -304,6 +350,7 @@ if (!locked) {
         // Same best-effort contract: the UI keeps running without the file.
       }
     }
+    logLine = sink
     const startedAt = Date.now()
     const ticker = setInterval(() => {
       view.elapsed(Math.round((Date.now() - startedAt) / 1000))
@@ -326,7 +373,7 @@ if (!locked) {
       },
       prepareQuit: async () => {
         quitting = true
-        await server?.stop()
+        await stopServerBounded()
       },
     }
     setupUpdates(host)
@@ -334,6 +381,9 @@ if (!locked) {
     // already in by the time the UI would be shown and it costs nothing.
     const gate = launchGate(host, (message) => { view.block(message) })
     try {
+      // Before starting a new server, take down any left by a run that could
+      // not finish its teardown: they hold the files this install occupies.
+      await sweepOrphanedServers(spec.nodeBin, sink)
       server = await startServer(spec, sink)
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)

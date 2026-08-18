@@ -28,6 +28,10 @@ There is no update service: the manifest *is* the decision procedure, so nginx s
 
 **What follows that click runs without further prompts**, which is a different thing from installing unasked. `quitAndInstall(true, true)` hands the installer `/S --force-run`, so it skips the install-mode, progress, and finish pages that would only re-ask what the click already answered, installs into the directory it reads from the registry's `InstallLocation` during `.onInit`, and starts the app again when it is done. Both flags carry weight: the assisted installer's auto-start branch is `${if} ${isForceRun} ${andIf} ${Silent}`, so `/S` alone would install correctly and leave the user staring at nothing.
 
+**Windows installs for all users, so the update elevates.** `perMachine: true` plus `packElevateHelper: true` puts `isAdminRightsRequired` in the manifest, and the updater then launches the installer through `elevate.exe`. On a machine with ordinary UAC settings that is **one confirmation dialog per install**; on a machine whose UAC is set to "Never notify" it is granted silently and nothing appears. Without the elevation the per-machine uninstall of the old version aborts and the install fails with `Failed to uninstall old application files: 2`.
+
+**Nothing is left holding the old files.** A quit bounds its server stop (4 s on Windows, inside the installer's own patience; 10 s elsewhere) and exits regardless, so a stuck teardown cannot leave a windowless process behind. Each launch then kills any server left by a previous run — matched on the full path of this install's bundled Node binary, never on the `node` image name — and the installer's `customInit` waits up to 10 s for anything under the install directory to exit before tree-killing what remains.
+
 **macOS detects and hands off.** Squirrel.Mac stages an update only for a signed app, and these builds carry no certificate, so macOS compares versions itself and opens the download in the system browser instead. That prompt appears at launch or on a manual check, never mid-session.
 
 ### Mandatory updates
@@ -62,7 +66,7 @@ This bounds what the update feed can promise. TLS authenticates the server and e
 
 ## Server environment
 
-The server starts in the user's home directory with the GUI-inherited environment plus the standard shell PATH entries (macOS GUI apps launch with launchd's minimal PATH). `DEEPSEEK_API_KEY` resolves through the normal credential chain (environment → managed store → `.env`), so a first run without a key still boots into the UI, where the models settings page can store one. Server output is appended to the app's log directory (`dsh-server.log`), which **帮助 → 查看日志** opens; the boot page reports startup phases only and prints no path.
+The server starts in the user's home directory with the GUI-inherited environment plus the standard shell PATH entries (macOS GUI apps launch with launchd's minimal PATH). `DEEPSEEK_API_KEY` resolves through the normal credential chain (environment → managed store → `.env`), so a first run without a key still boots into the UI, where the models settings page can store one. Server output is appended to the app's log directory (`dsh-server.log`), which **帮助 → 查看日志** opens; the boot page reports startup phases only and prints no path. **帮助 → 关于** names the build and its update feed. Menu-bar labels follow `app.getLocale()` (Chinese or English); dialogs stay Chinese.
 
 ## Known Limitations and Deferred Work
 
