@@ -13,6 +13,14 @@ pnpm exec tsx apps/desktop/scripts/package.ts --win        # NSIS installer (x64
 
 产物落在 `apps/desktop/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`、恢复 hoist、物化符号链接),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 win32-x64 成员,再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。
 
+## 关掉窗口,以及被叫回来
+
+**Windows 上关闭按钮会问一次它该是什么意思**:「最小化到托盘」还是「退出应用」,配一个「记住我的选择」。不勾,答案只管这一次;勾上,答案作为 `closeAction` 写进 `desktop-state.json`,此后每次关闭都照办、不再问,直到托盘菜单的「关闭时询问」把它清掉。最小化按钮原样不动——它仍然是普通的任务栏最小化。托盘图标从启动起就在,于是「最小化到托盘」指的是屏幕上已有的东西,窗口隐藏期间 **检查更新** / **退出** 也仍然够得着;菜单是 打开 / 检查更新 / 关闭时询问 / 退出,和菜单栏一样本地化。每一次退出——托盘的、记住的、更新触发的——都走同一条停服务器的 `before-quit` 拆除链;更新对话框会先把窗口显示出来再挂上去,因为挂在隐藏窗口上的窗口模态对话框既看不见也找不到。macOS 保留自己的习惯:关窗把应用留在 Dock 里,`activate` 重开窗口,所以没有菜单栏图标。
+
+**客户端会说哪个会话在等你。**够格的时刻有两个——会话跑完了,以及会话在等批准或等回答——窗口有焦点时两者都不打扰。两者都从壳自己启动的那个服务器上读,走 `/api/events.host` 与 `/api/events.mux`,也就是浏览器 UI 在消费的那两条下行 WebSocket;为此上游没有新增任何东西,而这两条流在重开时会重放仍然挂着的请求,所以每个请求只报一次。Windows 弹系统 toast,点击把窗口抬起来。macOS 显示 Dock 角标并弹跳一次,不往通知中心投任何东西——十来个跑完的 turn 会变成十来条要一一划掉的横幅,而角标只说有几条,并在窗口获得焦点时清零。
+
+**通知打开的是应用,不是会话。**Web UI 没有 URL 路由,壳无处可导航;是侧边栏自己的待交互与已完成标记指认出那个发问的会话。
+
 ## 更新机制
 
 已安装的客户端读一个静态更新源——一个 electron-builder `generic` provider 目录,里面是清单与它们点名的产物:
@@ -84,6 +92,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 
 ## Known Limitations and Deferred Work
 
+- 通知打不开它所说的那个会话:web UI 把选中的会话放在内存里、URL 里什么都不放,壳没有地址可加载。补上这一点需要 web 客户端接受 URL 里的会话;届时壳这边只是 `loadURL` 的一个参数。
 - macOS 无法原地安装更新:未签名构建不在 Squirrel.Mac 愿意暂存的范围内,所以客户端只发现新版本并打开下载。前置条件是代码签名,不是打包工作。
 - Windows arm64 与 Linux 桌面目标未构建;node-pty 预编译已覆盖 win32-arm64,缺口只是打包工作。
 - 开发启动(`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`)用的是检出目录的已构建 CLI 和 PATH 里的 Node,不是暂存资源。

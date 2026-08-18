@@ -12,16 +12,25 @@
  * goes to `dsh-server.log` only: on screen a failure shows one summary line and the
  * path of that file, because a scrolling command-line panel is diagnosis
  * material for the developer who receives the log, not for the person waiting.
+ *
+ * This module is also where the pieces that outlive the window are composed:
+ * the update channel, the Windows tray that the close button can hide into,
+ * and the notifier that watches the running server. All three reach the window
+ * through [[reveal]], and all three quit through the same `before-quit`
+ * teardown, so there is one way back in and one way out.
  * @module @deepseek-ai/dsh-desktop/main
  */
 
-import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, shell } from 'electron'
+import { recordRun } from './desktop-state.ts'
+import { mainWindow, revealMainWindow } from './main-window.ts'
+import { setupNotifications } from './notifications.ts'
 import { startServer, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
+import { guardWindowClose, setupTray } from './tray.ts'
 import { launchGate, setupUpdates } from './updater.ts'
-import { compareVersions } from './version-order.ts'
 
 /**
  * Resolve where the server lives for this launch. Packaged builds use the
@@ -92,52 +101,16 @@ async function stopServerBounded(): Promise<void> {
 }
 
 /**
- * Where the last version that ran is written. An update replaces the whole
- * install directory, so the only place a build can leave a note for its
- * successor is the user data directory — which is also the one directory an
- * update is required to preserve (the uninstaller is invoked with `--updated`,
- * which suppresses its app-data removal).
+ * Windows groups taskbar buttons, jump lists, and — the reason it is set here —
+ * **toast notifications** by an Application User Model ID. A process without
+ * one gets whatever the shortcut that launched it carried, and a launch that
+ * bypassed the shortcut gets nothing, at which point notifications are silently
+ * dropped. The value must be the `appId` from electron-builder.yml, which is
+ * what the installer writes onto the shortcut it creates; the two are the same
+ * fact in the two places that need it, exactly like the update feed URL.
+ * A no-op on every other platform.
  */
-function stateFile(): string {
-  return join(app.getPath('userData'), 'desktop-state.json')
-}
-
-/** What [[stateFile]] holds. */
-interface DesktopState {
-  /** Version of the build that ran last, as `app.getVersion()` reported it. */
-  lastRunVersion?: string
-}
-
-/**
- * Record that this build ran, and report the build that ran before it. The
- * caller uses that to confirm an update actually landed: a Windows update
- * restarts the app by itself, so without a word from the new build the whole
- * operation ends with a window that looks exactly like the one that closed.
- *
- * A missing or unreadable file means no receipt, never a wrong one — a first
- * launch has nothing to compare against.
- * @returns the version that ran before this one, when it was older than this
- * one; undefined on a first run, a re-run of the same build, or a downgrade.
- */
-function recordRun(): string | undefined {
-  const file = stateFile()
-  let previous: string | undefined
-  try {
-    const parsed = JSON.parse(readFileSync(file, 'utf8')) as DesktopState
-    if (typeof parsed.lastRunVersion === 'string') previous = parsed.lastRunVersion
-  } catch {
-    // No state yet, or it did not survive: the write below starts it over, and
-    // a launch must never fail over a note it keeps for itself.
-  }
-  try {
-    writeFileSync(file, `${JSON.stringify({ lastRunVersion: app.getVersion() } satisfies DesktopState)}\n`)
-  } catch {
-    // Same contract in the other direction: an unwritable state file costs the
-    // next launch its receipt and nothing else.
-  }
-  if (previous === undefined || compareVersions(previous, app.getVersion()) >= 0) return undefined
-  return previous
-}
+const APP_USER_MODEL_ID = 'dev.dsh.desktop'
 
 /**
  * The boot page: a self-contained `data:` document (no external resource, no
@@ -329,6 +302,7 @@ function createBootWindow(receipt?: string): BootView {
       if (target.startsWith('http')) void shell.openExternal(target)
     }
   })
+  guardWindowClose(window)
   void window.loadURL(bootPage(app.getVersion(), appearance, receipt))
   let booting = true
   const push = (script: string): void => {
@@ -357,42 +331,54 @@ function createAppWindow(url: string): void {
   view.showApp(url)
 }
 
+/**
+ * Put the app in front of the user: uncover the window it already has, or open
+ * one on the served UI when it has none. Every route back into the app — the
+ * tray icon, a clicked notification, a second launch, the macOS Dock — ends
+ * here, so all of them behave the same whether the window is hidden in the
+ * tray, minimized, merely behind something, or gone.
+ */
+function reveal(): void {
+  if (mainWindow() !== undefined) {
+    revealMainWindow()
+    return
+  }
+  if (server !== undefined) createAppWindow(server.url)
+}
+
 const locked = app.requestSingleInstanceLock()
 if (!locked) {
   app.quit()
 } else {
-  app.on('second-instance', () => {
-    const [window] = BrowserWindow.getAllWindows()
-    if (window !== undefined) {
-      if (window.isMinimized()) window.restore()
-      window.focus()
-    } else if (server !== undefined) {
-      createAppWindow(server.url)
-    }
-  })
+  app.on('second-instance', () => { reveal() })
 
   app.on('window-all-closed', () => {
     // macOS keeps the app (and its server) alive in the Dock; elsewhere the
-    // last window ends the app.
+    // last window ends the app. A window hidden into the Windows tray was
+    // never closed, so this does not fire for it.
     if (process.platform !== 'darwin') app.quit()
   })
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0 && server !== undefined) {
-      createAppWindow(server.url)
-    }
-  })
+  app.on('activate', () => { reveal() })
 
   // Async teardown: hold the first quit, stop the server, then exit for real.
   // The stop is bounded, so this path always reaches `app.exit`.
+  //
+  // `quitting` is raised before the server check, not after it, because the
+  // flag is what tells the tray's close handler to let windows go. A quit with
+  // no server to stop — a launch whose server never came up — must still set
+  // it, or the handler intercepts the close, calls `app.quit()` again, and the
+  // two hold each other in a loop the user cannot get out of.
   app.on('before-quit', (event) => {
-    if (quitting || server === undefined) return
-    event.preventDefault()
+    if (quitting) return
     quitting = true
+    if (server === undefined) return
+    event.preventDefault()
     void stopServerBounded().finally(() => { app.exit(0) })
   })
 
   void app.whenReady().then(async () => {
+    app.setAppUserModelId(APP_USER_MODEL_ID)
     const upgradedFrom = recordRun()
     const view = createBootWindow(upgradedFrom === undefined ? undefined : `已更新到 v${app.getVersion()}`)
     const logDir = app.getPath('logs')
@@ -437,7 +423,8 @@ if (!locked) {
         await stopServerBounded()
       },
     }
-    setupUpdates(host)
+    const checkForUpdates = setupUpdates(host)
+    setupTray({ log: sink, reveal, checkForUpdates, isQuitting: () => quitting })
     // Runs alongside the server boot, so on the ordinary path its verdict is
     // already in by the time the UI would be shown and it costs nothing.
     const gate = launchGate(host, (message) => { view.block(message) })
@@ -458,6 +445,9 @@ if (!locked) {
         server = undefined
         return
       }
+      // After the gate, so a launch that must update first never subscribes to
+      // a server it is about to take down.
+      setupNotifications({ log: sink, reveal }, server.url)
       view.showApp(server.url)
     } catch (error) {
       clearInterval(ticker)

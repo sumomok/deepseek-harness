@@ -13,6 +13,14 @@ pnpm exec tsx apps/desktop/scripts/package.ts --win        # NSIS installer (x64
 
 Products land in `apps/desktop/dist-app/`. The pipeline stages the server by the python/sdk-runtime recipe (legacy hoisted `pnpm deploy`, restore hoists, materialize symlinks), prunes host-compiled native `build/` trees so loads go through the multi-platform prebuilds, fetches the win32-x64 members of platform-split optional dependencies the macOS install skipped, and stages the Node runtime per platform (`--skip-repo-build` / `--skip-deploy` reuse existing artifacts).
 
+## Closing the window, and being called back
+
+**On Windows the close button asks what it should mean**, once: 「最小化到托盘」 or 「退出应用」, with 「记住我的选择」. Unchecked, the answer covers that one close; checked, it goes into `desktop-state.json` as `closeAction` and every later close follows it without asking, until the tray menu's 「关闭时询问」 clears it. The minimize button is untouched — it stays the ordinary taskbar minimize. The tray icon exists from launch, so 「最小化到托盘」 names something already on screen and **检查更新** / **退出** stay reachable while the window is hidden; the menu is 打开 / 检查更新 / 关闭时询问 / 退出, localized like the menu bar. Every quit — from the tray, from a remembered answer, from an update — runs the same `before-quit` teardown that stops the server, and an update dialog shows the window before attaching to it, because a window-modal dialog owned by a hidden window can be neither seen nor found. macOS keeps its own idiom: closing leaves the app in the Dock and `activate` reopens the window, so there is no menu-bar icon.
+
+**The client says when a session wants you back.** Two moments qualify — a session finished running, and a session is waiting for an approval or an answer — and neither interrupts while the window is focused. Both are read from the server the shell already started, over `/api/events.host` and `/api/events.mux`, the same downlink WebSockets the browser UI consumes; nothing was added upstream for this, and the streams replay what is still pending when reopened, so each request announces itself once. Windows shows a system toast that raises the window when clicked. macOS shows a Dock badge and bounces once, and posts nothing to notification centre — a dozen finished turns would be a dozen banners to dismiss, while the badge says how many and clears when the window is focused.
+
+**A notification opens the app, not the session.** The web UI has no URL routing, so the shell has nowhere to navigate; the sidebar's own pending and completed markers identify the session that asked.
+
 ## Updates
 
 Installed clients read a static feed — an electron-builder `generic` provider directory holding the manifests and the artifacts they name:
@@ -84,6 +92,7 @@ The server starts in the user's home directory with the GUI-inherited environmen
 
 ## Known Limitations and Deferred Work
 
+- A notification cannot open the session it is about: the web UI keeps the selected session in memory and puts nothing in the URL, so there is no address for the shell to load. Closing this needs the web client to accept a session in its URL; the shell side is then one `loadURL` argument.
 - macOS cannot install an update in place: unsigned builds are outside what Squirrel.Mac will stage, so the client detects the new version and opens the download. Code signing is the prerequisite, not packaging work.
 - Windows arm64 and Linux desktop targets are unbuilt; node-pty prebuilds cover win32-arm64, so the arm64 gap is packaging work only.
 - A dev launch (`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`) uses the checkout's built CLI and the PATH Node, not the staged resources.

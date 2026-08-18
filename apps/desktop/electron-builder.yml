@@ -58,6 +58,11 @@ win:
   extraResources:
     - from: staging/runtime/win
       to: runtime
+    # The tray icon. The executable's own icon is compiled into the PE and is
+    # not readable back as an image, so the notification area is served the
+    # same source file the builder used, resized in process.
+    - from: build/icon.ico
+      to: icon.ico
   # Generates latest.yml beside the installer and app-update.yml inside the
   # app, which is the feed electron-updater's NsisUpdater downloads from.
   # `channel: latest` is explicit because the default derives the channel from

@@ -29,6 +29,8 @@
 import { app, BrowserWindow, dialog, Menu, shell, type MenuItemConstructorOptions, type MessageBoxOptions } from 'electron'
 import { load } from 'js-yaml'
 import { NsisUpdater } from 'electron-updater'
+import { mainWindow } from './main-window.ts'
+import { menuText } from './menu-text.ts'
 import { compareVersions } from './version-order.ts'
 import { closeProgress, progressVersion, showProgress, updateProgress } from './progress-window.ts'
 
@@ -220,11 +222,18 @@ function requestAttention(window: BrowserWindow | undefined): void {
  * Windows is free to place behind whatever the user is working in — the update
  * prompt then exists without being seen. Attaching it makes it window-modal,
  * so it rides on top of the window it belongs to.
+ *
+ * A window sitting in the tray is brought back first. A window-modal dialog
+ * owned by a hidden window is the worse version of the same fault: it has no
+ * taskbar button of its own, so it can be neither seen nor found — and 「没有
+ * 用户的决定就不会发生安装」 only holds while the user can see what they are
+ * deciding.
  * @param options - the dialog to show.
  * @returns the index of the button the user chose.
  */
 async function ask(options: MessageBoxOptions): Promise<number> {
   const parent = mainWindow()
+  if (parent !== undefined && !parent.isVisible()) parent.show()
   requestAttention(parent)
   const answer = parent === undefined
     ? await dialog.showMessageBox(options)
@@ -238,8 +247,10 @@ async function ask(options: MessageBoxOptions): Promise<number> {
  * Unpackaged launches skip the whole channel — a source-tree run has no
  * installer to replace and no version the feed could outrank.
  * @param host - logging and quit coordination from the main process.
+ * @returns the manual check, so the tray menu offers the same 检查更新 the
+ * help menu does rather than a second entry point with its own rules.
  */
-export function setupUpdates(host: UpdateHost): void {
+export function setupUpdates(host: UpdateHost): () => void {
   const check = app.isPackaged
     ? (reason: CheckReason): void => { void runCheck(host, reason) }
     : (reason: CheckReason): void => {
@@ -253,16 +264,18 @@ export function setupUpdates(host: UpdateHost): void {
         })
       }
     }
+  const manual = (): void => { check('manual') }
   // Built before the packaged check: 「查看日志」 is exactly as useful in a
   // development launch, where startup problems are just as likely.
-  buildMenu(() => { check('manual') }, host.openLog)
-  if (!app.isPackaged) return
+  buildMenu(manual, host.openLog)
+  if (!app.isPackaged) return manual
   const first = setTimeout(() => { check('startup') }, FIRST_CHECK_DELAY_MS)
   const recurring = setInterval(() => { check('scheduled') }, CHECK_INTERVAL_MS)
   app.once('before-quit', () => {
     clearTimeout(first)
     clearInterval(recurring)
   })
+  return manual
 }
 
 /**
@@ -660,38 +673,6 @@ async function reportUpToDate(): Promise<void> {
   })
 }
 
-/** The window that carries the taskbar progress: the app's own, not the progress popup. */
-function mainWindow(): BrowserWindow | undefined {
-  return BrowserWindow.getAllWindows().find(candidate => candidate.isResizable())
-}
-
-/**
- * Menu labels. Electron's `role` menus carry English labels and are not
- * localized for us, so every item this app shows names itself here. Only the
- * menu bar is covered: dialogs stay Chinese, which is a deliberate stopping
- * point rather than a half-done translation of the whole surface.
- */
-const MENU_TEXT = {
-  zh: {
-    file: '文件', edit: '编辑', view: '视图', window: '窗口', help: '帮助',
-    about: '关于', services: '服务', hide: '隐藏', hideOthers: '隐藏其他', unhide: '全部显示', quit: '退出',
-    undo: '撤销', redo: '重做', cut: '剪切', copy: '复制', paste: '粘贴', selectAll: '全选',
-    reload: '重新加载', forceReload: '强制重新加载', devTools: '开发者工具',
-    resetZoom: '实际大小', zoomIn: '放大', zoomOut: '缩小', fullscreen: '全屏',
-    minimize: '最小化', close: '关闭', front: '前置全部窗口',
-    checkUpdate: '检查更新', openLog: '查看日志',
-  },
-  en: {
-    file: 'File', edit: 'Edit', view: 'View', window: 'Window', help: 'Help',
-    about: 'About', services: 'Services', hide: 'Hide', hideOthers: 'Hide Others', unhide: 'Show All', quit: 'Quit',
-    undo: 'Undo', redo: 'Redo', cut: 'Cut', copy: 'Copy', paste: 'Paste', selectAll: 'Select All',
-    reload: 'Reload', forceReload: 'Force Reload', devTools: 'Developer Tools',
-    resetZoom: 'Actual Size', zoomIn: 'Zoom In', zoomOut: 'Zoom Out', fullscreen: 'Toggle Full Screen',
-    minimize: 'Minimize', close: 'Close', front: 'Bring All to Front',
-    checkUpdate: 'Check for Updates', openLog: 'Open Log',
-  },
-} as const
-
 /**
  * Install the application menu. The standard roles carry the editing and
  * window shortcuts a browser surface needs (copy, paste, zoom, reload), each
@@ -701,7 +682,7 @@ const MENU_TEXT = {
  * @param onOpenLog - opens the server log file.
  */
 function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
-  const text = app.getLocale().startsWith('zh') ? MENU_TEXT.zh : MENU_TEXT.en
+  const text = menuText()
   const onAbout = (): void => { void showAbout(text.about) }
   const appName = app.getName()
   const first: MenuItemConstructorOptions = process.platform === 'darwin'
