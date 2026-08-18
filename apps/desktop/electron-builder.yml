@@ -36,6 +36,13 @@ mac:
   extraResources:
     - from: staging/runtime/darwin
       to: runtime
+  # Generates latest-mac.yml beside the zip. src/updater.ts reads that file
+  # itself: Squirrel.Mac only stages an update for a signed app, so macOS
+  # detects the new version and opens the download instead of installing it.
+  publish:
+    - provider: generic
+      url: https://lhr.ink/dsh-updates/mac
+      channel: latest
 win:
   target:
     - target: nsis
@@ -51,6 +58,16 @@ win:
   extraResources:
     - from: staging/runtime/win
       to: runtime
+  # Generates latest.yml beside the installer and app-update.yml inside the
+  # app, which is the feed electron-updater's NsisUpdater downloads from.
+  # `channel: latest` is explicit because the default derives the channel from
+  # the version's prerelease tag: an 0.1.0-rc.N build would otherwise publish
+  # and look for rc.yml, and the channel would rename itself at every stage of
+  # the release cycle. This product has one channel.
+  publish:
+    - provider: generic
+      url: https://lhr.ink/dsh-updates/win
+      channel: latest
 # No per-file details pane: the builder's NSIS template extracts one app-64.7z
 # through a plugin, so the NSIS details list has no File entries to show —
 # progress is the byte-based bar only. Install speed comes from payload size.

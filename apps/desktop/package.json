@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop",
   "description": "Desktop client: an Electron shell that boots the deployed `dsh web` server from its resources on a bundled Node runtime and opens the browser UI in a native window. Packaging pipeline: scripts/package.ts (macOS zip+dmg, Windows NSIS).",
-  "version": "0.1.0-rc.7",
+  "version": "0.1.0-rc.8",
   "private": true,
   "type": "module",
   "main": "lib/main.js",
@@ -13,11 +13,16 @@
     "gen-icons": "node scripts/gen-desktop-icons.mjs",
     "package": "tsx scripts/package.ts"
   },
+  "dependencies": {
+    "electron-updater": "6.8.9",
+    "js-yaml": "^4.1.0"
+  },
   "devDependencies": {
+    "@types/js-yaml": "^4.0.9",
     "@types/node": "^22.0.0",
     "electron": "43.4.0",
     "electron-builder": "26.15.3",
-    "typescript": "^6.0.3",
-    "tsx": "^4.19.0"
+    "tsx": "^4.19.0",
+    "typescript": "^6.0.3"
   }
 }

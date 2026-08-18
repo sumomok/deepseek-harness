@@ -18,7 +18,7 @@ dsh 有两种应用形态——CLI 和由它 serve 的 `dsh web` 浏览器 UI—
 
 ## Verification
 
-PWA 层对着真实启动验证:路由返回期望内容、注入后的 head 恰有一条 manifest link、`127.0.0.1` 上的真实 Chrome 报告 service worker 以 scope `/` 激活且 standalone 清单解析成功。macOS 包在构建机上实际启动并使用。Windows 安装器经交叉构建后做结构校验(win32-x64 预编译、注入的可选变体、捆绑的 node.exe)并复算 NSIS 启动 CRC——对 [0x200, archiveEnd−4) 做 CRC32 与末尾双字比对——该校验在每次 Windows 构建后由流水线强制执行;首次真机安装恰好撞上"integrity check failed"对话框,因此无证书的签名步骤已禁用(`win.signExecutable: false`),此闸保证该故障无法再次出厂。安装器之外的行为分发前仍需真实 Windows 冒烟。裁剪后的载荷按平台各自派生(`server-mac`、`server-win`),macOS 裁剪树须完整启动通过才可出厂——这是共享裁剪规则的闸口,由一次真机故障倒逼:全量裁剪 `.md` 连 agent-preset 的运行时 `SKILL.md` 一并删除,且只在 Windows 载荷上暴露;桌面启动页实时回显主进程预检与每一行服务器日志,启动失败停留在日志页保留可复制输出,而不是退出。
+PWA 层对着真实启动验证:路由返回期望内容、注入后的 head 恰有一条 manifest link、`127.0.0.1` 上的真实 Chrome 报告 service worker 以 scope `/` 激活且 standalone 清单解析成功。macOS 包在构建机上实际启动并使用。Windows 安装器经交叉构建后做结构校验(win32-x64 预编译、注入的可选变体、捆绑的 node.exe)并复算 NSIS 启动 CRC——对 [0x200, archiveEnd−4) 做 CRC32 与末尾双字比对——该校验在每次 Windows 构建后由流水线强制执行;首次真机安装恰好撞上"integrity check failed"对话框,因此无证书的签名步骤已禁用(`win.signExecutable: false`),此闸保证该故障无法再次出厂。安装器之外的行为分发前仍需真实 Windows 冒烟。裁剪后的载荷按平台各自派生(`server-mac`、`server-win`),macOS 裁剪树须完整启动通过才可出厂——这是共享裁剪规则的闸口,由一次真机故障倒逼:全量裁剪 `.md` 连 agent-preset 的运行时 `SKILL.md` 一并删除,且只在 Windows 载荷上暴露;桌面启动页报告启动阶段,失败时留在屏幕上给出日志文件路径而不是退出([更新通道](2026-08-18-desktop-update-channel.md))。
 
 ## Alternatives considered
 
@@ -30,4 +30,4 @@ PWA 层对着真实启动验证:路由返回期望内容、注入后的 head 恰
 
 ## Consequences
 
-三个表面纯靠组合层交付,新增本身就是扩展点的活证:`dsh.bundle` 自动激活、`link:` 装进 profile、index tap、命名路由、deploy-root 暂存配方。代价是背上 Electron 依赖(开发下载约 110 MB,未签名产物约 200 MB)、一份要随 engines 一起升的 Node 运行时钉版,以及一个在本仓库 macOS-only 开发环内无法冒烟的 Windows 产物。会话事件、模型可见面、SDK 投影均未变化,快照面不受影响。签名、公证、自动更新、商店分发、Windows arm64 与 Linux 桌面是记录在包 README 里的刻意非目标。
+三个表面纯靠组合层交付,新增本身就是扩展点的活证:`dsh.bundle` 自动激活、`link:` 装进 profile、index tap、命名路由、deploy-root 暂存配方。代价是背上 Electron 依赖(开发下载约 110 MB,未签名产物约 200 MB)、一份要随 engines 一起升的 Node 运行时钉版,以及一个在本仓库 macOS-only 开发环内无法冒烟的 Windows 产物。会话事件、模型可见面、SDK 投影均未变化,快照面不受影响。签名、公证、商店分发、Windows arm64 与 Linux 桌面是记录在包 README 里的刻意非目标。自动更新原本也在其中,直到[桌面客户端的静态更新源](2026-08-18-desktop-update-channel.md)把它交付出来;未签名产物仍然框住了它能做的事,这也是 macOS 只能发现更新却装不了的原因。

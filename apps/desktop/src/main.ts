@@ -6,11 +6,11 @@
  * preload, no Node integration; everything the UI can do goes through the
  * same `/api` transport the browser uses.
  *
- * Startup is observable by design: the window opens immediately on a boot
- * console that live-tails the main process's preflight checks and every
- * server output line (the same stream `dsh-server.log` persists), and a
- * failed start keeps that console on screen instead of exiting, so a
- * machine-specific fault arrives as a copyable log, not a guess.
+ * The window opens immediately on a boot page that names the three startup
+ * phases and how long the current one has taken. Server output goes to
+ * `dsh-server.log` only: on screen a failure shows one summary line and the
+ * path of that file, because a scrolling command-line panel is diagnosis
+ * material for the developer who receives the log, not for the person waiting.
  * @module @deepseek-ai/dsh-desktop/main
  */
 
@@ -18,6 +18,7 @@ import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, shell } from 'electron'
 import { startServer, type ServerHandle, type ServerSpec } from './server.ts'
+import { launchGate, setupUpdates } from './updater.ts'
 
 /**
  * Resolve where the server lives for this launch. Packaged builds use the
@@ -46,56 +47,187 @@ function resolveSpec(): ServerSpec {
 let server: ServerHandle | undefined
 let quitting = false
 
-/** The boot console shown (and live-updated) until the server URL loads. */
-const BOOT_PAGE = 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
-<html><head><meta charset="utf-8"><title>DSH Desktop</title><style>
-  body { margin: 0; height: 100vh; display: flex; flex-direction: column; background: #10131a; color: #e6ebf5; font: 14px/1.6 system-ui, sans-serif; }
-  header { padding: 22px 26px 10px; }
-  .dot { display: inline-block; width: 8px; height: 8px; margin-right: 8px; border-radius: 50%; background: #3bc8ff; animation: p 1.2s infinite ease-in-out; vertical-align: 1px; }
-  @keyframes p { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } }
-  #status { display: inline; }
-  .failed .dot { background: #ff5470; animation: none; }
-  #log { flex: 1; margin: 8px 26px 10px; padding: 12px 14px; overflow: auto; background: #0b0e15; border: 1px solid #232a3a; border-radius: 8px; font: 12px/1.55 ui-monospace, Menlo, Consolas, monospace; color: #aeb7c9; white-space: pre-wrap; word-break: break-all; }
-  footer { padding: 0 26px 16px; color: #8b93a7; font-size: 12px; user-select: text; }
-</style></head><body>
-<header><span class="dot"></span><span id="status">正在启动 dsh 服务…</span></header>
-<pre id="log"></pre>
-<footer id="meta"></footer>
-<script>
-  const logEl = document.getElementById('log')
-  window.__dsh = {
-    status(text, failed) {
-      document.getElementById('status').textContent = text
-      document.body.classList.toggle('failed', !!failed)
-    },
-    log(text) {
-      const stick = logEl.scrollTop + logEl.clientHeight >= logEl.scrollHeight - 8
-      logEl.textContent = (logEl.textContent + text).slice(-60000)
-      if (stick) logEl.scrollTop = logEl.scrollHeight
-    },
-    meta(text) { document.getElementById('meta').textContent = text },
-  }
-</script></body></html>`)
+/** The window background, matched to the boot page so no white frame flashes. */
+const WINDOW_BACKGROUND = '#0b101f'
 
-/** One window whose boot console the main process can push updates into. */
+/**
+ * The boot page: a self-contained `data:` document (no external resource, no
+ * preload) that the main process drives through `window.__dsh`.
+ * @param version - the app version shown under the wordmark.
+ * @returns the `data:` URL to load.
+ */
+function bootPage(version: string): string {
+  return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
+<html lang="zh"><head><meta charset="utf-8"><title>DSH Desktop</title><style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; height: 100vh; overflow: hidden;
+    display: flex; align-items: center; justify-content: center;
+    background: linear-gradient(135deg, #0B101F 0%, #111A33 100%);
+    color: #F2F6FF; font: 13px/1.6 system-ui, -apple-system, "PingFang SC", sans-serif;
+  }
+  /* Dot grid and vignette, both purely decorative and both behind the column. */
+  body::before {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    background-image: radial-gradient(circle, rgba(255,255,255,.02) 1px, transparent 1px);
+    background-size: 24px 24px;
+  }
+  body::after {
+    content: ""; position: fixed; inset: 0; pointer-events: none;
+    box-shadow: inset 0 0 180px 40px rgba(4, 7, 16, .55);
+  }
+  main { position: relative; width: 100%; max-width: 420px; padding: 0 32px; }
+  .glow {
+    position: absolute; left: 4px; top: -96px; width: 320px; height: 320px;
+    pointer-events: none; transform-origin: center;
+    background: radial-gradient(circle, rgba(59, 200, 255, .08) 0%, rgba(59, 200, 255, 0) 68%);
+    animation: breathe 8s ease-in-out infinite;
+  }
+  @keyframes breathe {
+    0%, 100% { transform: scale(1); opacity: .75; }
+    50% { transform: scale(1.12); opacity: 1; }
+  }
+  .enter { opacity: 0; animation: enter .32s ease-out forwards; }
+  @keyframes enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+  .eyebrow {
+    position: relative; font-size: 11px; letter-spacing: .32em; text-transform: uppercase;
+    color: #8B93A7; animation-delay: 0ms;
+  }
+  .wordmark {
+    position: relative; margin: 10px 0 0; font-size: 44px; font-weight: 700; line-height: 1.1;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
+    color: #F2F6FF; animation-delay: 80ms;
+  }
+  .caret { color: #3BC8FF; animation: blink 1.1s steps(2) infinite; }
+  @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+  .version { position: relative; margin-top: 6px; font-size: 12px; color: #8B93A7; animation-delay: 160ms; }
+  .phases { position: relative; margin-top: 40px; list-style: none; padding: 0; }
+  .phases li {
+    display: flex; align-items: baseline; gap: 10px; line-height: 2.1; font-size: 13px;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
+    color: #3A4358;
+  }
+  .mark { flex: none; width: 1em; color: #3A4358; }
+  li.done .mark { color: #3BC8FF; }
+  li.done { color: #F2F6FF; }
+  li.active .mark { color: #3BC8FF; animation: pulse 1.6s ease-in-out infinite; }
+  li.active { color: #F2F6FF; }
+  li.failed .mark { color: #FF5470; animation: none; }
+  li.failed { color: #F2F6FF; }
+  @keyframes pulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
+  .elapsed { color: #8B93A7; }
+  .hint { position: relative; margin-top: 18px; font-size: 11px; color: #8B93A7; }
+  .failure { position: relative; margin-top: 18px; display: none; }
+  body.failed .failure { display: block; }
+  .summary {
+    font-size: 13px; color: #F2F6FF; word-break: break-all;
+    display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden;
+  }
+  .lead { margin-top: 12px; font-size: 13px; color: #8B93A7; }
+  .path {
+    margin-top: 8px; padding: 8px 12px; border: 1px solid #232A3A; border-radius: 6px;
+    font: 12px/1.5 ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
+    color: #F2F6FF; word-break: break-all; user-select: text;
+  }
+  footer {
+    position: fixed; left: 0; right: 0; bottom: 24px; text-align: center;
+    font-size: 11px; color: #8B93A7; user-select: text; padding: 0 32px;
+  }
+  footer code { font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace; }
+  @media (prefers-reduced-motion: reduce) {
+    .glow, .caret, li.active .mark, .enter { animation: none; }
+    .enter { opacity: 1; }
+  }
+</style></head><body>
+<main>
+  <div class="glow"></div>
+  <div class="eyebrow enter">DeepSeek Harness</div>
+  <div class="wordmark enter">dsh<span class="caret">▮</span></div>
+  <div class="version enter">Desktop v${version}</div>
+  <ul class="phases" id="phases">
+    <li data-phase="0"><span class="mark">◇</span><span class="label">校验运行环境</span><span class="elapsed"></span></li>
+    <li data-phase="1"><span class="mark">◇</span><span class="label">启动 dsh 服务</span><span class="elapsed"></span></li>
+    <li data-phase="2"><span class="mark">◇</span><span class="label">连接界面</span><span class="elapsed"></span></li>
+  </ul>
+  <div class="hint" id="hint" hidden>首次启动会被系统安全扫描拖慢,通常最多一两分钟</div>
+  <div class="failure" id="failure">
+    <div class="summary" id="summary"></div>
+    <div class="lead">完整输出在日志文件里,发给开发者即可定位:</div>
+    <div class="path" id="failure-path"></div>
+  </div>
+</main>
+<footer>日志&nbsp;&nbsp;<code id="meta"></code></footer>
+<script>
+  const rows = [...document.querySelectorAll('#phases li')]
+  let logPath = ''
+  let current = 0
+  setTimeout(() => { document.getElementById('hint').hidden = false }, 8000)
+  window.__dsh = {
+    phase(index) {
+      current = index
+      rows.forEach((row, position) => {
+        row.classList.remove('done', 'active')
+        if (position < index) row.classList.add('done')
+        else if (position === index) row.classList.add('active')
+        row.querySelector('.mark').textContent = position < index ? '◆' : '◇'
+        if (position !== index) row.querySelector('.elapsed').textContent = ''
+      })
+    },
+    elapsed(seconds) {
+      const cell = rows[current]?.querySelector('.elapsed')
+      if (cell) cell.textContent = seconds < 3 ? '' : ' · ' + seconds + 's'
+    },
+    fail(message) {
+      const row = rows[current]
+      if (row) {
+        row.classList.remove('active')
+        row.classList.add('failed')
+        row.querySelector('.mark').textContent = '✕'
+        row.querySelector('.elapsed').textContent = ''
+      }
+      document.getElementById('hint').hidden = true
+      document.getElementById('summary').textContent = message
+      document.getElementById('failure-path').textContent = logPath
+      document.body.classList.add('failed')
+    },
+    block(message) {
+      const hint = document.getElementById('hint')
+      hint.textContent = message
+      hint.hidden = false
+    },
+    meta(path) {
+      logPath = path
+      document.getElementById('meta').textContent = path
+      document.getElementById('failure-path').textContent = path
+    },
+  }
+  window.__dsh.phase(0)
+</script></body></html>`)
+}
+
+/** One window whose boot page the main process can drive. */
 interface BootView {
   window: BrowserWindow
-  /** Append raw log text to the console (no-op after the app UI loaded). */
-  log: (text: string) => void
-  /** Replace the status line; `failed: true` switches the indicator to red. */
-  status: (text: string, failed?: boolean) => void
-  /** Set the footer line (log-file location). */
-  meta: (text: string) => void
-  /** Stop pushing and load the served UI. */
+  /** Mark phases before `index` done, `index` active, and the rest pending. */
+  phase: (index: number) => void
+  /** Update the seconds suffix on the active phase. */
+  elapsed: (seconds: number) => void
+  /** Fail the active phase and show the error summary with the log path. */
+  fail: (message: string) => void
+  /** Replace the hint line with why the app is holding at this phase. */
+  block: (message: string) => void
+  /** Set the log-file path shown in the footer and in the failure block. */
+  meta: (path: string) => void
+  /** Stop driving the boot page and load the served UI. */
   showApp: (url: string) => void
 }
 
-/** Open the window on the boot console and return its update handle. */
+/** Open the window on the boot page and return its update handle. */
 function createBootWindow(): BootView {
   const window = new BrowserWindow({
     width: 1360,
     height: 900,
-    backgroundColor: '#10131a',
+    backgroundColor: WINDOW_BACKGROUND,
     title: 'DSH Desktop',
     webPreferences: {
       sandbox: true,
@@ -112,20 +244,22 @@ function createBootWindow(): BootView {
       if (target.startsWith('http')) void shell.openExternal(target)
     }
   })
-  void window.loadURL(BOOT_PAGE)
+  void window.loadURL(bootPage(app.getVersion()))
   let booting = true
   const push = (script: string): void => {
     if (!booting || window.isDestroyed()) return
     window.webContents.executeJavaScript(script).catch(() => {
-      // The page may still be loading or already gone; the log file has
-      // everything this push carried.
+      // The page may still be loading or already gone; every phase this push
+      // carried is also in the log file.
     })
   }
   return {
     window,
-    log: (text) => { push(`window.__dsh.log(${JSON.stringify(text)})`) },
-    status: (text, failed = false) => { push(`window.__dsh.status(${JSON.stringify(text)}, ${String(failed)})`) },
-    meta: (text) => { push(`window.__dsh.meta(${JSON.stringify(text)})`) },
+    phase: (index) => { push(`window.__dsh.phase(${String(index)})`) },
+    elapsed: (seconds) => { push(`window.__dsh.elapsed(${String(seconds)})`) },
+    fail: (message) => { push(`window.__dsh.fail(${JSON.stringify(message)})`) },
+    block: (message) => { push(`window.__dsh.block(${JSON.stringify(message)})`) },
+    meta: (path) => { push(`window.__dsh.meta(${JSON.stringify(path)})`) },
     showApp: (url) => {
       booting = false
       if (!window.isDestroyed()) void window.loadURL(url)
@@ -182,36 +316,57 @@ if (!locked) {
     } catch {
       // Logging must never block the app; a failed sink drops chunks only.
     }
-    // One stream, two sinks: the durable file and the live boot console.
+    // Every server byte lands in the file; the boot page shows phases only.
     const sink = (chunk: string): void => {
       try {
         appendFileSync(logFile, chunk)
       } catch {
         // Same best-effort contract: the UI keeps running without the file.
       }
-      view.log(chunk)
     }
-    view.meta(`日志文件: ${logFile}`)
+    view.meta(logFile)
     const startedAt = Date.now()
     const ticker = setInterval(() => {
-      view.status(`正在启动 dsh 服务…(${String(Math.round((Date.now() - startedAt) / 1000))}s;首次启动会被系统安全扫描拖慢)`)
+      view.elapsed(Math.round((Date.now() - startedAt) / 1000))
     }, 1000)
     const spec = resolveSpec()
-    sink(`[desktop] ${new Date().toISOString()} packaged=${String(app.isPackaged)} platform=${process.platform} arch=${process.arch}\n`)
+    sink(`[desktop] ${new Date().toISOString()} version=${app.getVersion()} packaged=${String(app.isPackaged)} platform=${process.platform} arch=${process.arch}\n`)
     sink(`[desktop] node runtime: ${spec.nodeBin} (exists: ${String(existsSync(spec.nodeBin) || spec.nodeBin === 'node')})\n`)
     sink(`[desktop] server entry: ${spec.entry} (exists: ${String(existsSync(spec.entry))})\n`)
     sink(`[desktop] server cwd: ${spec.cwd}\n`)
+    view.phase(1)
+    const host = {
+      log: sink,
+      prepareQuit: async () => {
+        quitting = true
+        await server?.stop()
+      },
+    }
+    setupUpdates(host)
+    // Runs alongside the server boot, so on the ordinary path its verdict is
+    // already in by the time the UI would be shown and it costs nothing.
+    const gate = launchGate(host, (message) => { view.block(message) })
     try {
       server = await startServer(spec, sink)
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)
+      view.phase(2)
+      if (await gate) {
+        // A build below the feed's minimumVersion may not reach the UI. The
+        // server goes down with it, so nothing here is usable until the
+        // update the updater is now driving has been installed.
+        sink('[desktop] launch blocked: a mandatory update must be installed first\n')
+        await server.stop()
+        server = undefined
+        return
+      }
       view.showApp(server.url)
     } catch (error) {
       clearInterval(ticker)
       const message = error instanceof Error ? error.message : String(error)
       sink(`[desktop] startup failed: ${message}\n`)
-      // Keep the console on screen: the log above is the diagnosis surface.
-      view.status('dsh 服务启动失败——完整输出在下方与日志文件中,可全选复制', true)
+      // The page keeps the log path on screen; the file carries the output.
+      view.fail(message.split('\n')[0] ?? message)
     }
   })
 }

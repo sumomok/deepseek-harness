@@ -22,6 +22,7 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
+import { verifyNsisIntegrity } from './nsis-integrity.ts'
 
 const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const ROOT = resolve(APP_DIR, '..', '..')
@@ -430,29 +431,6 @@ async function countFiles(dir: string): Promise<number> {
   return total
 }
 
-/**
- * Recompute the NSIS startup integrity check on a built installer: CRC32 over
- * [0x200, archiveEnd - 4) must equal the trailing dword the firstHeader's
- * archive-size field locates (the first 512 bytes and anything appended after
- * the archive are outside the window — that is what keeps real Authenticode
- * signing legal). A mismatch is exactly the "Installer integrity check has
- * failed" dialog on real Windows, so it fails the build here instead.
- * @param path - the NSIS installer to verify.
- */
-async function verifyNsisIntegrity(path: string): Promise<void> {
-  const { crc32 } = await import('node:zlib')
-  const data = await readFile(path)
-  const sigAt = data.indexOf(Buffer.from('efbeadde4e756c6c736f6674496e7374', 'hex'))
-  if (sigAt < 4) throw new Error(`package: ${path} has no NSIS firstHeader signature.`)
-  const archiveEnd = sigAt - 4 + data.readUInt32LE(sigAt + 20)
-  const stored = data.readUInt32LE(archiveEnd - 4)
-  const computed = crc32(data.subarray(0x200, archiveEnd - 4)) >>> 0
-  if (stored !== computed) {
-    throw new Error(`package: ${path} fails the NSIS integrity CRC (stored ${stored.toString(16)}, computed ${computed.toString(16)}) — it would show "Installer integrity check has failed" on Windows.`)
-  }
-  console.log(`package: NSIS integrity CRC verified for ${path}`)
-}
-
 async function main(): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   if (!cli.mac && !cli.win) throw new Error('package: nothing to build — pass --mac and/or --win.')
@@ -486,7 +464,11 @@ async function main(): Promise<void> {
   await deriveServerPayload('darwin')
   await verifyStagedBoot(SERVER_PAYLOADS.darwin)
 
-  const builder = ['--filter', '@deepseek-ai/dsh-desktop', 'exec', 'electron-builder', '--config', 'electron-builder.yml']
+  // `--publish never`: the run() helper sets CI=true, and electron-builder
+  // treats CI plus a `publish` block as a request to upload. Publishing is
+  // scripts/publish-update.ts's job, and the feed's generic provider has no
+  // uploader at all, so the build must only ever emit the manifests.
+  const builder = ['--filter', '@deepseek-ai/dsh-desktop', 'exec', 'electron-builder', '--config', 'electron-builder.yml', '--publish', 'never']
   if (cli.mac) {
     await stageRuntime('darwin')
     await run('electron-builder (mac)', 'pnpm', [...builder, '--mac'])
