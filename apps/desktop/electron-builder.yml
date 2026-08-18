@@ -1,0 +1,44 @@
+# electron-builder configuration for the DSH desktop client. The heavy content
+# ships as resources, not app code: `server/` is the pnpm-deployed `dsh web`
+# closure (see apps/desktop-server), copied by scripts/after-pack.cjs because
+# the builder's extraResources copier hard-excludes node_modules trees, and
+# `runtime/` is the bundled Node binary scripts/package.ts stages per
+# platform. Native modules are the server's own N-API prebuilds (node-pty,
+# koffi), so electron-builder must not rebuild anything against Electron's ABI.
+appId: dev.dsh.desktop
+productName: DSH Desktop
+directories:
+  output: dist-app
+  buildResources: build
+files:
+  - lib/**/*
+  - package.json
+asar: true
+npmRebuild: false
+nodeGypRebuild: false
+afterPack: scripts/after-pack.cjs
+mac:
+  target:
+    - target: zip
+      arch: [arm64]
+    - target: dmg
+      arch: [arm64]
+  # Unsigned development build; Gatekeeper needs a right-click open (or
+  # `xattr -dr com.apple.quarantine`) on other machines.
+  identity: null
+  category: public.app-category.developer-tools
+  icon: build/icon.icns
+  extraResources:
+    - from: staging/runtime/darwin
+      to: runtime
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+  icon: build/icon.ico
+  extraResources:
+    - from: staging/runtime/win
+      to: runtime
+nsis:
+  oneClick: false
+  allowToChangeInstallationDirectory: true

@@ -1,0 +1,19 @@
+# EXPLICIT OPT-IN — LAN exposure for phones and other devices.
+#
+# `dsh web` refuses `--host 0.0.0.0` on purpose: the GUI drives an agent with
+# shell access, so anyone who can reach the port can run code as your user.
+# This overlay makes that trade explicitly: apply it only on a network where
+# every device is yours (and prefer a tailnet or an HTTPS reverse proxy —
+# see apps/pwa/README.md, which also covers why service-worker install
+# needs a secure context).
+#
+#   pnpm dsh web --patch apps/pwa/overlay/lan.patch.yml
+#
+# The /api browser-trust fence samples the machine's LAN IPv4 addresses at
+# bind time (see @deepseek-ai/dsh-web-app), so LAN-IP origins are accepted
+# without extra --trusted-host flags. The webserver row keeps its webStartup
+# injection, so `--port` still works; the fixed fallback port stays 3080.
+- id: webserver
+  config:
+    host: '0.0.0.0'
+    port: !!js ctx.webStartup.port ?? 3080

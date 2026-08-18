@@ -1,0 +1,5 @@
+# @deepseek-ai/dsh-desktop-server
+
+English | [中文](README.zh.md)
+
+Dependency-only deploy root for the desktop app's embedded server: `@deepseek-ai/dsh` closes over the whole `dsh web` runtime (bundles, host plugins, client bundles, and the built web frontend dist). The vendored framework trio (`cordis`, `cosmokit`, `schemastery`) is listed explicitly because pnpm's deployer skips `link:`-overridden packages unless they are direct dependencies the staging step can restore — the same reason python/sdk-runtime lists them. `apps/desktop/scripts/package.ts` runs `pnpm deploy` against this manifest and ships the materialized tree as the Electron app's `resources/server`, launched with a bundled Node runtime. Nothing here is code; see [apps/desktop](../desktop/README.md).

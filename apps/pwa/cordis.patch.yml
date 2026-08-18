@@ -1,0 +1,7 @@
+# The dsh-pwa bundle patch: adding this package to a web profile
+# (`dsh plugin --profile web add @deepseek-ai/dsh-pwa`) activates this layer
+# automatically via the dsh.bundle manifest, mounting the PWA routes and
+# index tap over the running composition.
+- insert:
+    - id: pwa
+      name: '@deepseek-ai/dsh-pwa'
