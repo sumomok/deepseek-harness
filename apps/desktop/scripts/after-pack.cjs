@@ -13,13 +13,10 @@ const { execFileSync } = require('node:child_process')
 const { join } = require('node:path')
 
 module.exports = async function afterPack(context) {
-  const { existsSync } = require('node:fs')
-  // Windows ships the pruned per-target payload scripts/package.ts derives;
-  // macOS ships the full verified staging.
-  const winSource = join(__dirname, '..', 'staging', 'server-win')
-  const source = context.electronPlatformName === 'win32' && existsSync(winSource)
-    ? winSource
-    : join(__dirname, '..', 'staging', 'server')
+  // Each platform ships the pruned payload scripts/package.ts derives and
+  // verifies (the macOS one by a full boot).
+  const source = join(__dirname, '..', 'staging',
+    context.electronPlatformName === 'win32' ? 'server-win' : 'server-mac')
   const resources = context.electronPlatformName === 'darwin'
     ? join(context.appOutDir, `${context.packager.appInfo.productFilename}.app`, 'Contents', 'Resources')
     : join(context.appOutDir, 'resources')

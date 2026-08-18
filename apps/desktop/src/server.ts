@@ -11,8 +11,8 @@ import { spawn, type ChildProcess } from 'node:child_process'
 /** The web-app readiness line; the loopback URL is capture group 1. */
 const URL_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/
 
-/** How long the server may take to print its URL line before startup fails. */
-const STARTUP_TIMEOUT_MS = 120_000
+/** How long the server may take to print its URL line before startup fails; a cold antivirus-scanned first launch is the slow case. */
+const STARTUP_TIMEOUT_MS = 180_000
 
 /** Grace between SIGTERM and SIGKILL on POSIX teardown. */
 const STOP_GRACE_MS = 8_000
@@ -84,6 +84,8 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     cwd: spec.cwd,
     env: augmentedEnv(process.env),
     stdio: ['ignore', 'pipe', 'pipe'],
+    // Without this a console window flashes for the bundled node.exe on Windows.
+    windowsHide: true,
   })
   let collected = ''
   const url = await new Promise<string>((resolve, reject) => {

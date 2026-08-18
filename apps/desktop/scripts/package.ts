@@ -274,17 +274,18 @@ async function verifyStaging(): Promise<void> {
   // graph, so a package the deployer dropped (a link: override the manifest
   // forgot to list directly) fails the build here instead of on first launch.
   await run('staged launcher smoke', process.execPath, [join(SERVER_STAGING, SERVER_ENTRY), '--version'], SERVER_STAGING)
-  // Full boot of the staged server: plugins load through the Loader at boot,
-  // not at launcher import, so only a real `web --port 0` round-trip proves
-  // the deployed closure is complete. The JS tree is shared across target
-  // platforms; only the native prebuild selection differs.
-  await verifyStagedBoot()
 }
 
-/** Boot the staged server once, wait for its URL line, fetch the index, tear it down. */
-async function verifyStagedBoot(): Promise<void> {
-  const child = spawn(process.execPath, [join(SERVER_STAGING, SERVER_ENTRY), 'web', '--port', '0'], {
-    cwd: SERVER_STAGING,
+/**
+ * Boot one staged tree, wait for its URL line, fetch the index, tear it down.
+ * Plugins load through the Loader at boot, not at launcher import, so only a
+ * real `web --port 0` round-trip proves a payload is complete. Run against
+ * the macOS pruned payload it doubles as the gate on the shared prune rules.
+ * @param root - the staged server tree to boot.
+ */
+async function verifyStagedBoot(root: string): Promise<void> {
+  const child = spawn(process.execPath, [join(root, SERVER_ENTRY), 'web', '--port', '0'], {
+    cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
   let collected = ''
@@ -322,59 +323,84 @@ async function verifyStagedBoot(): Promise<void> {
   }
 }
 
-/** The win32-x64 payload staged beside the full server tree. */
-const SERVER_STAGING_WIN = join(STAGING, 'server-win')
+/** Per-target pruned payloads staged beside the full server tree. */
+const SERVER_PAYLOADS = { darwin: join(STAGING, 'server-mac'), win: join(STAGING, 'server-win') } as const
+type PayloadTarget = keyof typeof SERVER_PAYLOADS
 
 /**
- * Non-runtime file suffixes pruned from the Windows payload. Types, sources,
- * source maps, debug symbols, and docs are the bulk of the tree's file count
- * and its deepest paths (`lib/types/**`), and a node_modules forest inside an
- * NSIS installer pays for every file twice on Windows: per-file extraction
- * under antivirus scanning, and the 260-character MAX_PATH ceiling.
+ * Non-runtime file suffixes pruned from every payload. Types, sources, source
+ * maps, debug symbols, and docs are the bulk of the tree's file count and its
+ * deepest paths (`lib/types/**`), and a node_modules forest inside an NSIS
+ * installer pays for every file twice on Windows: per-file extraction under
+ * antivirus scanning, and the 260-character MAX_PATH ceiling.
  */
-const WIN_PRUNE_SUFFIXES = ['.md', '.markdown', '.map', '.pdb', '.ts', '.mts', '.cts', '.tsbuildinfo']
-
-/** Foreign-platform artifact directories for a win32-x64 target, relative to node_modules. */
-const WIN_FOREIGN_DIR_RULES: { parent: string; keep: (name: string) => boolean }[] = [
-  { parent: join('node-pty', 'prebuilds'), keep: name => name === 'win32-x64' },
-  { parent: '@img', keep: name => !name.includes('darwin') && !name.includes('linux') },
-  { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === 'koffi-win32-x64' },
-  { parent: join('@vscode', 'ripgrep'), keep: name => name !== 'bin' },
-  { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name === 'node-addon-require-builtin-win32-x64-msvc' },
-]
+const PRUNE_SUFFIXES = ['.map', '.pdb', '.ts', '.mts', '.cts', '.tsbuildinfo']
 
 /**
- * Derive the pruned Windows server payload from the verified full staging:
- * copy everything except foreign-platform directories and non-runtime file
- * suffixes, then report counts and the longest relative path (the install
- * prefix adds ~50 characters ahead of Windows' 260 limit).
+ * Markdown is pruned only when the basename is a documentation name: shipped
+ * config trees carry runtime markdown (agent-preset `SKILL.md` instruction
+ * files), and deleting those is a behavior bug, not a size win.
  */
-async function deriveWinServer(): Promise<void> {
-  await rm(SERVER_STAGING_WIN, { recursive: true, force: true })
+const DOC_MARKDOWN =
+  /^(readme|changelog|history|security|contributing|code_of_conduct|governance|authors|maintainers|backers|sponsors)\b|\.zh\.md$/i
+
+/** Platform-split artifact directories, relative to node_modules: keep only the target's. */
+const PLATFORM_DIR_RULES: Record<PayloadTarget, { parent: string; keep: (name: string) => boolean }[]> = {
+  win: [
+    { parent: join('node-pty', 'prebuilds'), keep: name => name === 'win32-x64' },
+    { parent: '@img', keep: name => !name.includes('darwin') && !name.includes('linux') },
+    { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === 'koffi-win32-x64' },
+    { parent: join('@vscode', 'ripgrep'), keep: name => name !== 'bin' },
+    { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name === 'node-addon-require-builtin-win32-x64-msvc' },
+  ],
+  darwin: [
+    { parent: join('node-pty', 'prebuilds'), keep: name => name === `darwin-${process.arch}` },
+    { parent: '@img', keep: name => !name.includes('win32') && !name.includes('linux') },
+    { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === `koffi-darwin-${process.arch}` },
+    { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name.startsWith(`node-addon-require-builtin-darwin-${process.arch}`) },
+  ],
+}
+
+/**
+ * Derive one target's pruned server payload from the verified full staging:
+ * copy everything except the other platforms' artifact directories and
+ * non-runtime file suffixes, then report counts and the longest relative path
+ * (the install prefix adds ~50 characters ahead of Windows' 260 limit). The
+ * macOS payload goes through a full boot afterwards, which is what proves the
+ * shared suffix rules cut no runtime content.
+ * @param target - which platform's payload to derive.
+ */
+async function deriveServerPayload(target: PayloadTarget): Promise<void> {
+  const destination = SERVER_PAYLOADS[target]
+  await rm(destination, { recursive: true, force: true })
   const nodeModulesPrefix = join(SERVER_STAGING, 'node_modules') + sep
   const skippedDirs: string[] = []
-  let kept = 0
   let pruned = 0
   const filter = (source: string): boolean => {
     const name = source.slice(source.lastIndexOf(sep) + 1)
     if (source.startsWith(nodeModulesPrefix)) {
       const parentRel = dirname(source.slice(nodeModulesPrefix.length))
-      for (const rule of WIN_FOREIGN_DIR_RULES) {
+      for (const rule of PLATFORM_DIR_RULES[target]) {
         if (parentRel === rule.parent && !rule.keep(name)) {
           skippedDirs.push(join(parentRel, name))
           return false
         }
       }
     }
-    if (WIN_PRUNE_SUFFIXES.some(suffix => name.endsWith(suffix))) {
+    const lower = name.toLowerCase()
+    if (PRUNE_SUFFIXES.some(suffix => lower.endsWith(suffix))) {
       pruned += 1
       return false
     }
-    kept += 1
+    if ((lower.endsWith('.md') || lower.endsWith('.markdown')) && DOC_MARKDOWN.test(lower)) {
+      pruned += 1
+      return false
+    }
     return true
   }
-  await cp(SERVER_STAGING, SERVER_STAGING_WIN, { recursive: true, filter })
-  console.log(`package: win payload derived: kept ${String(kept)} entries, pruned ${String(pruned)} files, dropped platform dirs:\n  ${skippedDirs.sort().join('\n  ')}`)
+  await cp(SERVER_STAGING, destination, { recursive: true, filter })
+  const counted = await countFiles(destination)
+  console.log(`package: ${target} payload derived: ${String(counted)} files, pruned ${String(pruned)}, dropped platform dirs:\n  ${skippedDirs.sort().join('\n  ')}`)
   let longest = ''
   const walk = async (dir: string): Promise<void> => {
     for (const entry of await readdir(dir, { withFileTypes: true })) {
@@ -383,15 +409,25 @@ async function deriveWinServer(): Promise<void> {
       else if (path.length > longest.length) longest = path
     }
   }
-  await walk(SERVER_STAGING_WIN)
-  const relative = longest.slice(SERVER_STAGING_WIN.length + 1)
-  console.log(`package: win payload longest relative path: ${String(relative.length)} chars`)
+  await walk(destination)
+  const relative = longest.slice(destination.length + 1)
+  console.log(`package: ${target} payload longest relative path: ${String(relative.length)} chars`)
   if (relative.length > 180) {
     console.log(`package: WARNING — near Windows' 260-char MAX_PATH once the install prefix is added:\n  ${relative}`)
   }
-  // The pruned tree keeps the whole launcher import graph; only platform
-  // binaries and non-runtime files left, so the resolution smoke still holds.
-  await run('pruned win payload smoke', process.execPath, [join(SERVER_STAGING_WIN, SERVER_ENTRY), '--version'], SERVER_STAGING_WIN)
+  // Resolution smoke on every payload; the macOS payload additionally boots.
+  await run(`pruned ${target} payload smoke`, process.execPath, [join(destination, SERVER_ENTRY), '--version'], destination)
+}
+
+/** Count regular files under a directory. */
+async function countFiles(dir: string): Promise<number> {
+  let total = 0
+  for (const entry of await readdir(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) total += await countFiles(path)
+    else total += 1
+  }
+  return total
 }
 
 /**
@@ -444,6 +480,11 @@ async function main(): Promise<void> {
       rm(join(SERVER_STAGING, name), { force: true })))
   }
   await verifyStaging()
+  // The macOS payload always derives and fully boots: it shares the prune
+  // rules with the Windows payload, so this boot is the gate proving pruning
+  // cut no runtime content before anything ships.
+  await deriveServerPayload('darwin')
+  await verifyStagedBoot(SERVER_PAYLOADS.darwin)
 
   const builder = ['--filter', '@deepseek-ai/dsh-desktop', 'exec', 'electron-builder', '--config', 'electron-builder.yml']
   if (cli.mac) {
@@ -452,7 +493,7 @@ async function main(): Promise<void> {
   }
   if (cli.win) {
     await stageRuntime('win')
-    await deriveWinServer()
+    await deriveServerPayload('win')
     await run('electron-builder (win)', 'pnpm', [...builder, '--win'])
     for (const name of (await readdir(join(APP_DIR, 'dist-app'))).filter(file => file.endsWith('.exe'))) {
       await verifyNsisIntegrity(join(APP_DIR, 'dist-app', name))

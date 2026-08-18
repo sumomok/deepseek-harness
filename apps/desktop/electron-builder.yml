@@ -51,7 +51,9 @@ win:
   extraResources:
     - from: staging/runtime/win
       to: runtime
+# No per-file details pane: the builder's NSIS template extracts one app-64.7z
+# through a plugin, so the NSIS details list has no File entries to show —
+# progress is the byte-based bar only. Install speed comes from payload size.
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
-  include: nsis/installer.nsh

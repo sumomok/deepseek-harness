@@ -18,7 +18,7 @@ dsh 有两种应用形态——CLI 和由它 serve 的 `dsh web` 浏览器 UI—
 
 ## Verification
 
-PWA 层对着真实启动验证:路由返回期望内容、注入后的 head 恰有一条 manifest link、`127.0.0.1` 上的真实 Chrome 报告 service worker 以 scope `/` 激活且 standalone 清单解析成功。macOS 包在构建机上实际启动并使用。Windows 安装器经交叉构建后做结构校验(win32-x64 预编译、注入的可选变体、捆绑的 node.exe)并复算 NSIS 启动 CRC——对 [0x200, archiveEnd−4) 做 CRC32 与末尾双字比对——该校验在每次 Windows 构建后由流水线强制执行;首次真机安装恰好撞上"integrity check failed"对话框,因此无证书的签名步骤已禁用(`win.signExecutable: false`),此闸保证该故障无法再次出厂。安装器之外的行为分发前仍需真实 Windows 冒烟。
+PWA 层对着真实启动验证:路由返回期望内容、注入后的 head 恰有一条 manifest link、`127.0.0.1` 上的真实 Chrome 报告 service worker 以 scope `/` 激活且 standalone 清单解析成功。macOS 包在构建机上实际启动并使用。Windows 安装器经交叉构建后做结构校验(win32-x64 预编译、注入的可选变体、捆绑的 node.exe)并复算 NSIS 启动 CRC——对 [0x200, archiveEnd−4) 做 CRC32 与末尾双字比对——该校验在每次 Windows 构建后由流水线强制执行;首次真机安装恰好撞上"integrity check failed"对话框,因此无证书的签名步骤已禁用(`win.signExecutable: false`),此闸保证该故障无法再次出厂。安装器之外的行为分发前仍需真实 Windows 冒烟。裁剪后的载荷按平台各自派生(`server-mac`、`server-win`),macOS 裁剪树须完整启动通过才可出厂——这是共享裁剪规则的闸口,由一次真机故障倒逼:全量裁剪 `.md` 连 agent-preset 的运行时 `SKILL.md` 一并删除,且只在 Windows 载荷上暴露;桌面启动页实时回显主进程预检与每一行服务器日志,启动失败停留在日志页保留可复制输出,而不是退出。
 
 ## Alternatives considered
 
