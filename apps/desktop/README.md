@@ -66,7 +66,9 @@ This bounds what the update feed can promise. TLS authenticates the server and e
 
 ## Server environment
 
-The server starts in the user's home directory with the GUI-inherited environment plus the standard shell PATH entries (macOS GUI apps launch with launchd's minimal PATH). `DEEPSEEK_API_KEY` resolves through the normal credential chain (environment → managed store → `.env`), so a first run without a key still boots into the UI, where the models settings page can store one. Server output is appended to the app's log directory (`dsh-server.log`), which **帮助 → 查看日志** opens; the boot page reports startup phases only and prints no path. **帮助 → 关于** names the build and its update feed. Menu-bar labels follow `app.getLocale()` (Chinese or English); dialogs stay Chinese.
+The server starts in the user's home directory with the GUI-inherited environment plus the standard shell PATH entries (macOS GUI apps launch with launchd's minimal PATH). `DEEPSEEK_API_KEY` resolves through the normal credential chain (environment → managed store → `.env`), so a first run without a key still boots into the UI, where the models settings page can store one. Server output is appended to the app's log directory (`dsh-server.log`), which **帮助 → 查看日志** opens; the boot page reports startup phases only and prints no path.
+
+**The boot page and the download window follow the app's theme.** Both palettes are the web UI's own tokens, so the splash and the app it hands over to are the same two colors in either mode. The appearance is resolved before the window exists — `backgroundColor` is what paints while the page loads — in this order: the durable `ui-theme.preference` from `~/.dsh/settings.yaml` when it is an explicit `light` or `dark`, otherwise the system (`nativeTheme.shouldUseDarkColors`), which is also what its default `system` means. **An explicit setting wins over the system.** **帮助 → 关于** names the build and its update feed. Menu-bar labels follow `app.getLocale()` (Chinese or English); dialogs stay Chinese.
 
 ## Known Limitations and Deferred Work
 

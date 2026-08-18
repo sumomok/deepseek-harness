@@ -23,8 +23,9 @@ const DSH_HOME_ENV = 'DSH_HOME'
  * Boot-page palettes, taken from the web UI's token sheet
  * (`packages/client/ui-theme/src/styles/design-platform.css`) so the splash and
  * the app it hands over to are the same two colors rather than two designs.
- * Dark keeps the deep-navy treatment this splash already had; only its text and
- * accent are aligned to the shared tokens.
+ * Both modes are treated alike: every surface and text color here is a token
+ * the app itself paints, and what stays boot-page-specific is the composition —
+ * the wordmark, the caret, the dot grid, the vignette, and the accent glow.
  */
 export const PALETTES = {
   light: {
@@ -46,8 +47,10 @@ export const PALETTES = {
     track: '#E6E8EC',
   },
   dark: {
-    background: '#0B101F',
-    gradient: 'linear-gradient(135deg, #0B101F 0%, #111A33 100%)',
+    /** `--dsw-alias-bg-base` (dark) */
+    background: '#151517',
+    /** Second stop is `--dsw-specific-sidebar-fill` (dark), as light's is its own tint. */
+    gradient: 'linear-gradient(135deg, #151517 0%, #1B1B1C 100%)',
     /** `--dsw-alias-label-primary` (dark) */
     text: '#F9FAFB',
     /** `--dsw-alias-label-tertiary` (dark) */
@@ -56,9 +59,10 @@ export const PALETTES = {
     accent: '#679EFE',
     danger: '#FF5470',
     grid: 'rgba(255, 255, 255, .02)',
-    vignette: 'rgba(4, 7, 16, .55)',
-    glow: 'rgba(103, 158, 254, .08)',
-    track: '#232A3A',
+    vignette: 'rgba(0, 0, 0, .45)',
+    glow: 'rgba(103, 158, 254, .10)',
+    /** `--dsw-alias-bg-layer-2` (dark) */
+    track: '#2C2C2E',
   },
 } as const
 

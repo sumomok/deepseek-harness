@@ -87,7 +87,7 @@ macOS 刻意**不用** electron-updater。Squirrel.Mac 只在运行中的应用�
 
 **文件 sink 完全没变**——每个字节仍然落进 `dsh-server.log`,只是不再上屏。诊断材料因此原封不动,只是从等待体验里移了出去。
 
-启动页也不再是恒定的暗色。它带着两套色板,取自 web UI 自己的 token 表(`packages/client/ui-theme/src/styles/design-platform.css`)——背景、主文字、三级文字与那点蓝色强调——于是交接给应用是一次延续,而不是一次切换。painting 哪一套在窗口存在之前就定下:`backgroundColor` 决定页面加载期间显示什么,而晚定正是"闪一下另一个主题"的成因。这个选择会读 web UI 存的那份持久偏好(`~/.dsh/settings.yaml` 的 `ui-theme.preference`),遇到它的默认值 `system` 或任何读不出来的情况,再回落到 `nativeTheme.shouldUseDarkColors`;这就是为什么一个显式选了亮色的用户,在暗色系统上不会被塞一张暗色启动页。下载进度窗共用同一个模块。暗色**刻意**保留原本的深海军蓝处理,而没有改用 web UI 的近黑色,好让这张启动页原有的观感在这次改动里活下来。
+启动页也不再是恒定的暗色。它带着两套色板,取自 web UI 自己的 token 表(`packages/client/ui-theme/src/styles/design-platform.css`)——背景、主文字、三级文字与那点蓝色强调——于是交接给应用是一次延续,而不是一次切换。painting 哪一套在窗口存在之前就定下:`backgroundColor` 决定页面加载期间显示什么,而晚定正是"闪一下另一个主题"的成因。这个选择会读 web UI 存的那份持久偏好(`~/.dsh/settings.yaml` 的 `ui-theme.preference`),遇到它的默认值 `system` 或任何读不出来的情况,再回落到 `nativeTheme.shouldUseDarkColors`;这就是为什么一个显式选了亮色的用户,在暗色系统上不会被塞一张暗色启动页。下载进度窗共用同一个模块。两种模式一视同仁——每一处背景与文字都是应用自己也在用的 token——所以留给启动页专有的是构图而非配色:字标、光标、点阵、暗角与那圈强调色辉光。
 
 ## Verification
 
