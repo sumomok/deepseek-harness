@@ -168,12 +168,12 @@ export function apply(ctx: Context, config: Config): void {
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: '/manifest.webmanifest',
-    handler: async (_req, res) => { send(res, 'application/manifest+json', manifest) },
+    handler: (_req, res) => { send(res, 'application/manifest+json', manifest) },
   }), 'pwa: manifest route')
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: '/sw.js',
-    handler: async (_req, res) => { send(res, 'text/javascript; charset=utf-8', SERVICE_WORKER) },
+    handler: (_req, res) => { send(res, 'text/javascript; charset=utf-8', SERVICE_WORKER) },
   }), 'pwa: service-worker route')
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
