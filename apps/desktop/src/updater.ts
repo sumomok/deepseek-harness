@@ -10,10 +10,12 @@
  * The ordinary path runs in three stages and never interrupts what is running:
  * a silent check, one dialog offering the download, and — after the download
  * finishes in a window the user may close at any time — one dialog offering
- * the install. **Installing is never silent, including on quit**: the app
- * replaces itself only in the seconds after someone clicks the button that
- * says so. A declined install stays on disk and is offered again on the next
- * launch and on demand from the menu, and nowhere else.
+ * the install. **No install happens without the user deciding it**, on quit or
+ * anywhere else: the app replaces itself only in the seconds after someone
+ * clicks the button that says so. What follows that click runs without further
+ * prompts and the app reopens by itself — the installer's wizard would only ask
+ * again what the click already answered. A declined install stays on disk and is
+ * offered again on the next launch and on demand from the menu, and nowhere else.
  *
  * Above that sits one mandatory layer, keyed on the feed's `minimumVersion`:
  * a build older than that line downloads without being asked, and at launch it
@@ -72,10 +74,16 @@ const GATE_TIMEOUT_MS = 15_000
  */
 type CheckReason = 'startup' | 'scheduled' | 'manual'
 
-/** What the updater needs from the app around it. */
+/** What the updater — and the application menu it builds — needs from the app. */
 export interface UpdateHost {
   /** Append one line to the desktop log sink (the `dsh-server.log` stream). */
   log: (line: string) => void
+  /**
+   * Open `dsh-server.log` in whatever the system uses for it. The boot page
+   * stopped printing the path, so the menu item backed by this is the only
+   * route to the log a user can be told to take.
+   */
+  openLog: () => void
   /**
    * Mark the app as quitting and tear the embedded server down. Resolves once
    * the server process tree is gone, which is the precondition for handing
@@ -205,7 +213,9 @@ export function setupUpdates(host: UpdateHost): void {
         })
       }
     }
-  buildMenu(() => { check('manual') })
+  // Built before the packaged check: 「查看日志」 is exactly as useful in a
+  // development launch, where startup problems are just as likely.
+  buildMenu(() => { check('manual') }, host.openLog)
   if (!app.isPackaged) return
   const first = setTimeout(() => { check('startup') }, FIRST_CHECK_DELAY_MS)
   const recurring = setInterval(() => { check('scheduled') }, CHECK_INTERVAL_MS)
@@ -498,7 +508,10 @@ async function offerInstall(host: UpdateHost, version: string, force: boolean): 
   if (!force && postponedVersion === version) return
   postponedVersion = version
   const notes = notesDetail(stagedNotes)
-  const detail = notes === '' ? `当前版本 ${app.getVersion()},安装后为 ${version}。` : `更新内容:\n${notes}`
+  const promise = '点击后应用会关闭,自动完成安装并重新打开;你的会话记录都在。'
+  const detail = notes === ''
+    ? `当前版本 ${app.getVersion()},安装后为 ${version}。\n\n${promise}`
+    : `更新内容:\n${notes}\n\n${promise}`
   const answer = await dialog.showMessageBox({
     type: 'info',
     title: '新版本已下载完毕',
@@ -516,7 +529,17 @@ async function offerInstall(host: UpdateHost, version: string, force: boolean): 
   }
   host.log(`[updater] stopping the server before installing ${version}\n`)
   await host.prepareQuit()
-  nsisUpdater?.quitAndInstall()
+  // (isSilent, isForceRunAfter). Both matter, and only together: electron-updater
+  // turns them into the installer's `/S` and `--force-run`. `/S` is what makes
+  // the click mean what it says — an assisted (oneClick: false) installer
+  // otherwise replays its install-mode, progress, and finish pages, which reads
+  // as a reinstall rather than an update. `$INSTDIR` still comes from the
+  // registry's InstallLocation, read in .onInit before any page, so the silent
+  // run lands in the same directory the app is installed in. `--force-run` is
+  // then required for the relaunch: the assisted installer's auto-start branch
+  // is `${if} ${isForceRun} ${andIf} ${Silent}`, so (true, false) would install
+  // and leave the user staring at nothing.
+  nsisUpdater?.quitAndInstall(true, true)
 }
 
 /**
@@ -590,10 +613,11 @@ function mainWindow(): BrowserWindow | undefined {
 /**
  * Install the application menu. The standard roles carry the editing and
  * window shortcuts a browser surface needs (copy, paste, zoom, reload); the
- * help submenu is where the manual update check lives.
+ * help submenu holds the two things the app can be asked for directly.
  * @param onCheck - runs the manual update check.
+ * @param onOpenLog - opens the server log file.
  */
-function buildMenu(onCheck: () => void): void {
+function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
   const platformMenu: MenuItemConstructorOptions = process.platform === 'darwin'
     ? { role: 'appMenu' }
     : { role: 'fileMenu' }
@@ -604,7 +628,10 @@ function buildMenu(onCheck: () => void): void {
     { role: 'windowMenu' },
     {
       role: 'help',
-      submenu: [{ label: '检查更新', click: onCheck }],
+      submenu: [
+        { label: '检查更新', click: onCheck },
+        { label: '查看日志', click: onOpenLog },
+      ],
     },
   ]))
 }

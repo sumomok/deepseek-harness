@@ -52,8 +52,10 @@ const WINDOW_BACKGROUND = '#0b101f'
 
 /**
  * The boot page: a self-contained `data:` document (no external resource, no
- * preload) that the main process drives through `window.__dsh`.
- * @param version - the app version shown under the wordmark.
+ * preload) that the main process drives through `window.__dsh`. It shows one
+ * phase at a time — the one actually running — because a checklist of things
+ * that have not happened yet is a list of ways to wonder what went wrong.
+ * @param version - the app version shown at the bottom of the page.
  * @returns the `data:` URL to load.
  */
 function bootPage(version: string): string {
@@ -76,9 +78,9 @@ function bootPage(version: string): string {
     content: ""; position: fixed; inset: 0; pointer-events: none;
     box-shadow: inset 0 0 180px 40px rgba(4, 7, 16, .55);
   }
-  main { position: relative; width: 100%; max-width: 420px; padding: 0 32px; }
+  main { position: relative; width: 100%; max-width: 460px; padding: 0 32px; }
   .glow {
-    position: absolute; left: 4px; top: -96px; width: 320px; height: 320px;
+    position: absolute; left: 4px; top: -88px; width: 320px; height: 320px;
     pointer-events: none; transform-origin: center;
     background: radial-gradient(circle, rgba(59, 200, 255, .08) 0%, rgba(59, 200, 255, 0) 68%);
     animation: breathe 8s ease-in-out infinite;
@@ -89,87 +91,75 @@ function bootPage(version: string): string {
   }
   .enter { opacity: 0; animation: enter .32s ease-out forwards; }
   @keyframes enter { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
-  .eyebrow {
-    position: relative; font-size: 11px; letter-spacing: .32em; text-transform: uppercase;
-    color: #8B93A7; animation-delay: 0ms;
+  .wordmark { position: relative; font-size: 40px; font-weight: 700; line-height: 1.15; animation-delay: 0ms; }
+  /* The Chinese glyphs take a real CJK face; only the caret stays monospace,
+     which is the one character a mono stack renders better than a text face. */
+  .wordmark .zh {
+    font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif;
+    color: #F2F6FF; letter-spacing: .02em;
   }
-  .wordmark {
-    position: relative; margin: 10px 0 0; font-size: 44px; font-weight: 700; line-height: 1.1;
+  .caret {
+    display: inline-block; margin-left: 8px; color: #3BC8FF;
     font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    color: #F2F6FF; animation-delay: 80ms;
+    animation: blink 1.1s steps(2) infinite;
   }
-  .caret { color: #3BC8FF; animation: blink 1.1s steps(2) infinite; }
   @keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
-  .version { position: relative; margin-top: 6px; font-size: 12px; color: #8B93A7; animation-delay: 160ms; }
-  .phases { position: relative; margin-top: 40px; list-style: none; padding: 0; }
-  .phases li {
-    display: flex; align-items: baseline; gap: 10px; line-height: 2.1; font-size: 13px;
-    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    color: #3A4358;
+  /* Fixed height and stacked rows: one phase replaces another without the
+     column below it moving. */
+  .phases { position: relative; height: 30px; margin-top: 36px; }
+  .phase {
+    position: absolute; inset: 0; display: flex; align-items: baseline; gap: 10px;
+    font: 13px/2.1 ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
+    color: #F2F6FF; opacity: 0; transition: opacity .28s ease;
   }
-  .mark { flex: none; width: 1em; color: #3A4358; }
-  li.done .mark { color: #3BC8FF; }
-  li.done { color: #F2F6FF; }
-  li.active .mark { color: #3BC8FF; animation: pulse 1.6s ease-in-out infinite; }
-  li.active { color: #F2F6FF; }
-  li.failed .mark { color: #FF5470; animation: none; }
-  li.failed { color: #F2F6FF; }
+  .phase.showing { opacity: 1; }
+  .mark { flex: none; width: 1em; color: #3BC8FF; animation: pulse 1.6s ease-in-out infinite; }
+  .phase.failed .mark { color: #FF5470; animation: none; }
   @keyframes pulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
+  .label { font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif; }
   .elapsed { color: #8B93A7; }
-  .hint { position: relative; margin-top: 18px; font-size: 11px; color: #8B93A7; }
-  .failure { position: relative; margin-top: 18px; display: none; }
+  .hint { position: relative; margin-top: 16px; font-size: 11px; color: #8B93A7; }
+  .failure { position: relative; margin-top: 16px; display: none; }
   body.failed .failure { display: block; }
   .summary {
-    font-size: 13px; color: #F2F6FF; word-break: break-all;
+    font-size: 13px; color: #F2F6FF; word-break: break-all; user-select: text;
     display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; overflow: hidden;
   }
   .lead { margin-top: 12px; font-size: 13px; color: #8B93A7; }
-  .path {
-    margin-top: 8px; padding: 8px 12px; border: 1px solid #232A3A; border-radius: 6px;
-    font: 12px/1.5 ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
-    color: #F2F6FF; word-break: break-all; user-select: text;
-  }
   footer {
     position: fixed; left: 0; right: 0; bottom: 24px; text-align: center;
-    font-size: 11px; color: #8B93A7; user-select: text; padding: 0 32px;
+    font-size: 11px; color: #8B93A7;
+    font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
   }
-  footer code { font-family: ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace; }
   @media (prefers-reduced-motion: reduce) {
-    .glow, .caret, li.active .mark, .enter { animation: none; }
+    .glow, .caret, .mark, .enter { animation: none; }
     .enter { opacity: 1; }
   }
 </style></head><body>
 <main>
   <div class="glow"></div>
-  <div class="eyebrow enter">DeepSeek Harness</div>
-  <div class="wordmark enter">dsh<span class="caret">▮</span></div>
-  <div class="version enter">Desktop v${version}</div>
-  <ul class="phases" id="phases">
-    <li data-phase="0"><span class="mark">◇</span><span class="label">校验运行环境</span><span class="elapsed"></span></li>
-    <li data-phase="1"><span class="mark">◇</span><span class="label">启动 dsh 服务</span><span class="elapsed"></span></li>
-    <li data-phase="2"><span class="mark">◇</span><span class="label">连接界面</span><span class="elapsed"></span></li>
-  </ul>
+  <div class="wordmark enter"><span class="zh">从这里开始</span><span class="caret">▮</span></div>
+  <div class="phases" id="phases">
+    <div class="phase" data-phase="0"><span class="mark">◇</span><span class="label">校验运行环境</span><span class="elapsed"></span></div>
+    <div class="phase" data-phase="1"><span class="mark">◇</span><span class="label">启动 dsh 服务</span><span class="elapsed"></span></div>
+    <div class="phase" data-phase="2"><span class="mark">◇</span><span class="label">连接界面</span><span class="elapsed"></span></div>
+  </div>
   <div class="hint" id="hint" hidden>首次启动会被系统安全扫描拖慢,通常最多一两分钟</div>
   <div class="failure" id="failure">
     <div class="summary" id="summary"></div>
-    <div class="lead">完整输出在日志文件里,发给开发者即可定位:</div>
-    <div class="path" id="failure-path"></div>
+    <div class="lead">完整日志:菜单 帮助 → 查看日志</div>
   </div>
 </main>
-<footer>日志&nbsp;&nbsp;<code id="meta"></code></footer>
+<footer>v${version}</footer>
 <script>
-  const rows = [...document.querySelectorAll('#phases li')]
-  let logPath = ''
+  const rows = [...document.querySelectorAll('.phase')]
   let current = 0
   setTimeout(() => { document.getElementById('hint').hidden = false }, 8000)
   window.__dsh = {
     phase(index) {
       current = index
       rows.forEach((row, position) => {
-        row.classList.remove('done', 'active')
-        if (position < index) row.classList.add('done')
-        else if (position === index) row.classList.add('active')
-        row.querySelector('.mark').textContent = position < index ? '◆' : '◇'
+        row.classList.toggle('showing', position === index)
         if (position !== index) row.querySelector('.elapsed').textContent = ''
       })
     },
@@ -180,25 +170,18 @@ function bootPage(version: string): string {
     fail(message) {
       const row = rows[current]
       if (row) {
-        row.classList.remove('active')
         row.classList.add('failed')
         row.querySelector('.mark').textContent = '✕'
         row.querySelector('.elapsed').textContent = ''
       }
       document.getElementById('hint').hidden = true
       document.getElementById('summary').textContent = message
-      document.getElementById('failure-path').textContent = logPath
       document.body.classList.add('failed')
     },
     block(message) {
       const hint = document.getElementById('hint')
       hint.textContent = message
       hint.hidden = false
-    },
-    meta(path) {
-      logPath = path
-      document.getElementById('meta').textContent = path
-      document.getElementById('failure-path').textContent = path
     },
   }
   window.__dsh.phase(0)
@@ -208,16 +191,14 @@ function bootPage(version: string): string {
 /** One window whose boot page the main process can drive. */
 interface BootView {
   window: BrowserWindow
-  /** Mark phases before `index` done, `index` active, and the rest pending. */
+  /** Show `index` as the running phase and hide every other one. */
   phase: (index: number) => void
-  /** Update the seconds suffix on the active phase. */
+  /** Update the seconds suffix on the running phase. */
   elapsed: (seconds: number) => void
-  /** Fail the active phase and show the error summary with the log path. */
+  /** Fail the running phase and show the error summary. */
   fail: (message: string) => void
   /** Replace the hint line with why the app is holding at this phase. */
   block: (message: string) => void
-  /** Set the log-file path shown in the footer and in the failure block. */
-  meta: (path: string) => void
   /** Stop driving the boot page and load the served UI. */
   showApp: (url: string) => void
 }
@@ -259,7 +240,6 @@ function createBootWindow(): BootView {
     elapsed: (seconds) => { push(`window.__dsh.elapsed(${String(seconds)})`) },
     fail: (message) => { push(`window.__dsh.fail(${JSON.stringify(message)})`) },
     block: (message) => { push(`window.__dsh.block(${JSON.stringify(message)})`) },
-    meta: (path) => { push(`window.__dsh.meta(${JSON.stringify(path)})`) },
     showApp: (url) => {
       booting = false
       if (!window.isDestroyed()) void window.loadURL(url)
@@ -324,7 +304,6 @@ if (!locked) {
         // Same best-effort contract: the UI keeps running without the file.
       }
     }
-    view.meta(logFile)
     const startedAt = Date.now()
     const ticker = setInterval(() => {
       view.elapsed(Math.round((Date.now() - startedAt) / 1000))
@@ -337,6 +316,14 @@ if (!locked) {
     view.phase(1)
     const host = {
       log: sink,
+      openLog: () => {
+        // The boot page no longer prints the path, so this menu item is the
+        // only way to reach the log; a directory reveal still gets the user
+        // there when no application is registered for `.log`.
+        void shell.openPath(logFile).then((failure) => {
+          if (failure !== '') shell.showItemInFolder(logFile)
+        })
+      },
       prepareQuit: async () => {
         quitting = true
         await server?.stop()

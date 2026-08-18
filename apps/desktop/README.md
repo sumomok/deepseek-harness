@@ -24,7 +24,9 @@ https://lhr.ink/dsh-updates/mac/     latest-mac.yml + the zipped app
 
 There is no update service: the manifest *is* the decision procedure, so nginx serving a directory implements all of it. The feed URL lives in two places — `electron-builder.yml`, which generates the manifests and the packaged `app-update.yml`, and `src/updater.ts`, which reads them at runtime — so moving the feed means changing both. `channel: latest` is explicit on both ends; the default names the channel after the running version's prerelease tag, which would rename the channel at every stage of the release cycle.
 
-**Windows installs in place, in three steps.** A silent check (15 s after launch, every four hours, and from **帮助 → 检查更新**) offers the download. Accepting downloads in the background behind a small progress window that can be closed without cancelling. The finished download offers the restart. **Installing is never silent, including on quit**: `autoInstallOnAppQuit` is off, and the app replaces itself only in the seconds after someone clicks 「重启安装」. A declined install stays on disk and is offered again on the next launch and from the menu — nowhere else.
+**Windows installs in place, in three steps.** A silent check (15 s after launch, every four hours, and from **帮助 → 检查更新**) offers the download. Accepting downloads in the background behind a small progress window that can be closed without cancelling. The finished download offers the restart. **No install happens without the user deciding it**, on quit or anywhere else: `autoInstallOnAppQuit` is off, and the app replaces itself only in the seconds after someone clicks 「重启安装」. A declined install stays on disk and is offered again on the next launch and from the menu — nowhere else.
+
+**What follows that click runs without further prompts**, which is a different thing from installing unasked. `quitAndInstall(true, true)` hands the installer `/S --force-run`, so it skips the install-mode, progress, and finish pages that would only re-ask what the click already answered, installs into the directory it reads from the registry's `InstallLocation` during `.onInit`, and starts the app again when it is done. Both flags carry weight: the assisted installer's auto-start branch is `${if} ${isForceRun} ${andIf} ${Silent}`, so `/S` alone would install correctly and leave the user staring at nothing.
 
 **macOS detects and hands off.** Squirrel.Mac stages an update only for a signed app, and these builds carry no certificate, so macOS compares versions itself and opens the download in the system browser instead. That prompt appears at launch or on a manual check, never mid-session.
 
@@ -45,9 +47,10 @@ An unreachable feed **opens** the gate rather than closing it — a network faul
 pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt             # ship the built version
 pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --dry-run   # verify without uploading
 pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --minimum-version 0.1.0-rc.8
+pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republish  # repair a cut-off upload
 ```
 
-The script refuses a `dist-app` that disagrees with `package.json`, re-verifies the installer's NSIS integrity CRC, and asserts the build supersedes what the feed serves. Uploads go **artifacts first, checksummed on both ends, manifests last**, so a client polling mid-publish reads the previous manifest naming the previous artifacts — never a manifest pointing at a file still uploading.
+The script refuses a `dist-app` that disagrees with `package.json`, re-verifies the installer's NSIS integrity CRC, and asserts the build supersedes what the feed serves. Uploads go **artifacts first, checksummed on both ends, manifests last**, so a client polling mid-publish reads the previous manifest naming the previous artifacts — never a manifest pointing at a file still uploading. It also drops manifest entries for artifacts it does not upload: the macOS build lists a dmg beside the zip and only the zip is published, so leaving that entry in would put a 404 in the feed.
 
 On the update host the feed is `/var/www/dsh-updates/{win,mac}`, served by a single appended `location /dsh-updates/` with an `alias`. That nginx has a custom prefix (`/data/third_party/nginx`), is built without the rewrite module, and its master is not under systemd — reload it with `nginx -s reload`, never `systemctl`. The directory carries no BasicAuth because electron-updater sends no credentials.
 
@@ -59,7 +62,7 @@ This bounds what the update feed can promise. TLS authenticates the server and e
 
 ## Server environment
 
-The server starts in the user's home directory with the GUI-inherited environment plus the standard shell PATH entries (macOS GUI apps launch with launchd's minimal PATH). `DEEPSEEK_API_KEY` resolves through the normal credential chain (environment → managed store → `.env`), so a first run without a key still boots into the UI, where the models settings page can store one. Server output is appended to the app's log directory (`dsh-server.log`).
+The server starts in the user's home directory with the GUI-inherited environment plus the standard shell PATH entries (macOS GUI apps launch with launchd's minimal PATH). `DEEPSEEK_API_KEY` resolves through the normal credential chain (environment → managed store → `.env`), so a first run without a key still boots into the UI, where the models settings page can store one. Server output is appended to the app's log directory (`dsh-server.log`), which **帮助 → 查看日志** opens; the boot page reports startup phases only and prints no path.
 
 ## Known Limitations and Deferred Work
 

@@ -11,7 +11,11 @@
  * naming a file that is still uploading.
  *
  * Usage: pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes <file>
- *        [--minimum-version <version>] [--dry-run]
+ *        [--minimum-version <version>] [--republish] [--dry-run]
+ *
+ * `--republish` allows overwriting the version the feed already serves, which
+ * is how a publish cut short by a dropped transfer is repaired: uploads skip
+ * whatever already matches, so the retry pushes only what is missing.
  *
  * `--minimum-version` sets the feed's red line: a client older than that
  * version must update before it can be used. Once set it **carries forward on
@@ -23,8 +27,8 @@
 
 import { spawn } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { existsSync } from 'node:fs'
-import { readFile, writeFile } from 'node:fs/promises'
+import { createReadStream, existsSync } from 'node:fs'
+import { readFile, stat, writeFile } from 'node:fs/promises'
 import { basename, dirname, join, resolve } from 'node:path'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
@@ -45,6 +49,13 @@ const REMOTE_HOST = 'macmini-rescue-server'
  * `scp: Connection closed` partway through.
  */
 const SSH_KEEPALIVE = ['-o', 'ServerAliveInterval=15', '-o', 'ServerAliveCountMax=8']
+
+/**
+ * How many times one file may resume before the publish gives up. Each attempt
+ * starts where the last one stopped, so this bounds a link that keeps dropping,
+ * not the size of the file.
+ */
+const MAX_UPLOAD_ATTEMPTS = 10
 
 /** Document root of the feed on that host, served by nginx under /dsh-updates/. */
 const REMOTE_ROOT = '/var/www/dsh-updates'
@@ -82,6 +93,7 @@ interface Manifest {
 interface Cli {
   notes: string
   minimumVersion: string | undefined
+  republish: boolean
   dryRun: boolean
 }
 
@@ -91,13 +103,19 @@ function parseCli(argv: string[]): Cli {
     options: {
       notes: { type: 'string' },
       'minimum-version': { type: 'string' },
+      republish: { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false },
     },
   })
   if (values.notes === undefined) {
     throw new Error('publish: --notes <file> is required; it carries the release notes shown in the update dialog.')
   }
-  return { notes: values.notes, minimumVersion: values['minimum-version'], dryRun: values['dry-run'] }
+  return {
+    notes: values.notes,
+    minimumVersion: values['minimum-version'],
+    republish: values.republish,
+    dryRun: values['dry-run'],
+  }
 }
 
 /**
@@ -126,9 +144,23 @@ function shellQuote(value: string): string {
   return `'${value.replaceAll('\'', '\'\\\'\'')}'`
 }
 
-/** Run one command on the update server and return its stdout. */
+/**
+ * Run one command on the update server and return its stdout. Every caller
+ * sends an idempotent command (`stat`, `md5sum`, `rm -f`, `mv -f`, `cat`), so a
+ * connection this link drops mid-command is retried rather than fatal.
+ * @param script - the shell command to run on the server.
+ * @returns its stdout.
+ */
 async function remote(script: string): Promise<string> {
-  return capture('ssh', [...SSH_KEEPALIVE, REMOTE_HOST, script])
+  let last: unknown
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    try {
+      return await capture('ssh', [...SSH_KEEPALIVE, REMOTE_HOST, script])
+    } catch (error) {
+      last = error
+    }
+  }
+  throw last
 }
 
 /** MD5 of a local file, for the both-ends comparison after an upload. */
@@ -184,6 +216,26 @@ function artifactsOf(channel: Channel, manifest: Manifest): string[] {
 }
 
 /**
+ * Drop manifest entries naming artifacts this publish does not upload. The
+ * macOS build produces a zip and a dmg and electron-builder lists both, but
+ * only the zip is published — leaving the dmg entry in place puts a 404 in the
+ * feed for any client that reads past the first entry.
+ * @param manifest - the manifest being rewritten.
+ * @param artifacts - absolute paths of everything this channel uploads.
+ * @returns the names that were dropped, for the log.
+ */
+function pruneUnpublishedFiles(manifest: Manifest, artifacts: string[]): string[] {
+  const uploaded = new Set(artifacts.map(path => basename(path)))
+  const files = manifest.files ?? []
+  const kept = files.filter(entry => uploaded.has(decodeURIComponent(entry.url)))
+  if (kept.length === 0) {
+    throw new Error('publish: pruning would empty the manifest file list — the upload set and the manifest disagree.')
+  }
+  manifest.files = kept
+  return files.filter(entry => !kept.includes(entry)).map(entry => entry.url)
+}
+
+/**
  * Copy one file to a channel directory and verify both ends hold the same
  * bytes. scp carries the basename itself, so a name containing spaces needs no
  * quoting on the way up; the verification does quote it, because it runs
@@ -193,23 +245,115 @@ function artifactsOf(channel: Channel, manifest: Manifest): string[] {
  */
 async function upload(path: string, channel: Channel): Promise<void> {
   const name = basename(path)
-  const remotePath = `${REMOTE_ROOT}/${channel.name}/${name}`
+  const finalPath = `${REMOTE_ROOT}/${channel.name}/${name}`
+  // Bytes accumulate in a sibling `.part` and only become the published file
+  // once they hash correctly, so a half-sent file is never briefly readable at
+  // the name a client fetches — which matters most for the manifests, where a
+  // torn write is a feed serving invalid YAML.
+  const partPath = `${finalPath}.part`
   const expected = await localMd5(path)
-  // Skipping a file the server already holds byte for byte makes a publish
-  // resumable: a transfer cut halfway through leaves the finished artifacts
-  // in place, and the retry pushes only what is missing.
-  const published = await remoteMd5(remotePath)
-  if (published === expected) {
-    console.log(`publish: ${name} already on the server with md5 ${expected}`)
+  const total = (await stat(path)).size
+  if (await remoteMd5(finalPath) === expected) {
+    console.log(`publish: ${name} already published, md5 ${expected}`)
     return
   }
-  console.log(`publish: uploading ${name} -> ${channel.name}/`)
-  await capture('scp', [...SSH_KEEPALIVE, '-q', path, `${REMOTE_HOST}:${REMOTE_ROOT}/${channel.name}/`])
-  const actual = await remoteMd5(remotePath)
-  if (actual !== expected) {
-    throw new Error(`publish: ${name} differs after upload (local ${expected}, remote ${actual ?? 'unreadable'}).`)
+  for (let attempt = 1; attempt <= MAX_UPLOAD_ATTEMPTS; attempt += 1) {
+    let present = await remoteSize(partPath)
+    if (present > 0 && present < total) {
+      // Resume only onto bytes that really are this file's beginning. A `.part`
+      // left by a different build is the same name and a plausible length, and
+      // appending to it would produce a file that is corrupt rather than short.
+      const remoteHead = (await remote(`head -c ${String(present)} ${shellQuote(partPath)} | md5sum`)).trim().split(/\s+/)[0]
+      if (remoteHead !== await localMd5Prefix(path, present)) {
+        console.log(`publish: ${name} has an unrelated partial upload; restarting it`)
+        await remote(`rm -f ${shellQuote(partPath)}`)
+        present = 0
+      }
+    } else if (present >= total) {
+      await remote(`rm -f ${shellQuote(partPath)}`)
+      present = 0
+    }
+    if (present < total) {
+      console.log(`publish: uploading ${name} -> ${channel.name}/ from ${String(present)}/${String(total)} bytes (attempt ${String(attempt)})`)
+      try {
+        await appendRemainder(path, partPath, present)
+      } catch (error) {
+        if (attempt === MAX_UPLOAD_ATTEMPTS) throw error
+        console.log(`publish: ${name} interrupted, resuming: ${error instanceof Error ? error.message.split('\n')[0] ?? '' : String(error)}`)
+        continue
+      }
+    }
+    if (await remoteMd5(partPath) === expected) {
+      await remote(`mv -f ${shellQuote(partPath)} ${shellQuote(finalPath)}`)
+      console.log(`publish: verified ${name} md5 ${expected}`)
+      return
+    }
+    console.log(`publish: ${name} did not hash correctly after upload; restarting it`)
+    await remote(`rm -f ${shellQuote(partPath)}`)
   }
-  console.log(`publish: verified ${name} md5 ${expected}`)
+  throw new Error(`publish: ${name} did not finish uploading in ${String(MAX_UPLOAD_ATTEMPTS)} attempts.`)
+}
+
+/**
+ * Parse the manifest the feed currently serves. A manifest that does not parse
+ * is a feed already broken, and the publish about to overwrite it is the
+ * repair — so this reports the damage and moves on rather than refusing to fix
+ * it. The version and red-line guards simply have nothing to compare against.
+ * @param published - the bytes the server returned.
+ * @returns the parsed manifest, or undefined when it is unreadable.
+ */
+function readLiveManifest(published: string): Manifest | undefined {
+  try {
+    return load(published, { schema: CORE_SCHEMA }) as Manifest
+  } catch (error) {
+    console.log(`publish: the published latest.yml does not parse (${error instanceof Error ? error.message.split('\n')[0] ?? '' : String(error)}); replacing it`)
+    return undefined
+  }
+}
+
+/** MD5 of the first `length` bytes of a local file, for the resume check. */
+async function localMd5Prefix(path: string, length: number): Promise<string> {
+  const hash = createHash('md5')
+  for await (const chunk of createReadStream(path, { start: 0, end: length - 1 })) hash.update(chunk as Buffer)
+  return hash.digest('hex')
+}
+
+/**
+ * Append the part of a local file the server does not have yet.
+ *
+ * scp restarts a cut transfer from zero, and this link drops often enough that
+ * a 145 MB installer may never complete that way; the server has no rsync and
+ * is not ours to install packages on. Streaming the remainder into a remote
+ * `cat >>` needs nothing but ssh, and every attempt keeps the ground it took.
+ * @param path - the local file.
+ * @param remotePath - its destination on the update server.
+ * @param start - how many bytes the server already holds.
+ */
+async function appendRemainder(path: string, remotePath: string, start: number): Promise<void> {
+  return new Promise((resolvePromise, reject) => {
+    const child = spawn('ssh', [...SSH_KEEPALIVE, REMOTE_HOST, `cat >> ${shellQuote(remotePath)}`], {
+      stdio: ['pipe', 'ignore', 'pipe'],
+    })
+    let err = ''
+    child.stderr.on('data', (chunk: Buffer) => { err += chunk.toString() })
+    child.once('error', (error) => { reject(new Error(`publish: ssh append failed to spawn: ${error.message}`)) })
+    child.once('exit', (code) => {
+      if (code === 0) resolvePromise()
+      else reject(new Error(`publish: ssh append exited ${String(code)}\n${err.trim()}`))
+    })
+    const source = createReadStream(path, { start })
+    source.once('error', (error) => {
+      child.kill()
+      reject(error)
+    })
+    source.pipe(child.stdin)
+  })
+}
+
+/** Size of a file on the update server; 0 when it is not there. */
+async function remoteSize(remotePath: string): Promise<number> {
+  const output = await remote(`stat -c %s ${shellQuote(remotePath)} 2>/dev/null || echo 0`)
+  return Number.parseInt(output.trim(), 10) || 0
 }
 
 /** MD5 of a file on the update server, or undefined when it is not there. */
@@ -231,10 +375,22 @@ async function main(): Promise<void> {
   // The live manifest is read before anything is written, because it carries
   // the red line this publish inherits when --minimum-version is absent.
   const published = (await remote(`cat ${shellQuote(`${REMOTE_ROOT}/win/latest.yml`)} 2>/dev/null || true`)).trim()
-  const live = published === '' ? undefined : load(published, { schema: CORE_SCHEMA }) as Manifest
+  const live = published === '' ? undefined : readLiveManifest(published)
   console.log(`publish: feed currently serves ${live?.version ?? '(nothing)'}`)
-  if (live !== undefined && compareVersions(version, live.version) <= 0) {
-    throw new Error(`publish: ${version} does not supersede the published ${live.version}; bump apps/desktop/package.json first.`)
+  if (live !== undefined) {
+    const order = compareVersions(version, live.version)
+    if (order < 0) {
+      throw new Error(`publish: ${version} is older than the published ${live.version}; bump apps/desktop/package.json first.`)
+    }
+    // Re-publishing one version is how a half-finished upload gets repaired,
+    // and it is the only operation here that overwrites artifacts a manifest
+    // already vouches for: while the bytes are being replaced they no longer
+    // match the published sha512, so a client downloading in that window fails
+    // its checksum and retries on the next check. That is recoverable and the
+    // window is minutes, but it is not something to reach by accident.
+    if (order === 0 && !cli.republish) {
+      throw new Error(`publish: the feed already serves ${version}; pass --republish to overwrite it (repairing a partial upload), or bump apps/desktop/package.json.`)
+    }
   }
   const minimumVersion = cli.minimumVersion ?? live?.minimumVersion
   if (cli.minimumVersion !== undefined) {
@@ -261,6 +417,10 @@ async function main(): Promise<void> {
     // whole file keeps js-yaml as the only thing that has to understand it.
     manifest.releaseNotes = notes
     if (minimumVersion !== undefined) manifest.minimumVersion = minimumVersion
+    const dropped = pruneUnpublishedFiles(manifest, artifacts)
+    if (dropped.length > 0) {
+      console.log(`publish: dropped unpublished ${channel.manifest} entries: ${dropped.join(', ')}`)
+    }
     // Read without the timestamp type so `releaseDate` stays a string, but
     // write with it, so js-yaml sees that an unquoted ISO date would be
     // ambiguous and quotes it. electron-updater parses the published file with
@@ -282,8 +442,18 @@ async function main(): Promise<void> {
   }
   for (const channel of CHANNELS) await upload(join(DIST, channel.manifest), channel)
 
-  const serving = load(await capture('curl', ['-fsS', `${FEED_BASE}/win/latest.yml`]), { schema: CORE_SCHEMA }) as Manifest
-  console.log(`publish: ${FEED_BASE}/win/latest.yml now serves ${serving.version} (minimumVersion ${serving.minimumVersion ?? 'unset'})`)
+  // Ordering keeps each channel self-consistent, but a transfer that dies
+  // between the two manifests leaves the platforms on different versions.
+  // Reading both back is what turns that into a failure instead of a feed
+  // nobody notices is split.
+  for (const channel of CHANNELS) {
+    const url = `${FEED_BASE}/${channel.name}/${channel.manifest}`
+    const serving = load(await capture('curl', ['-fsS', url]), { schema: CORE_SCHEMA }) as Manifest
+    if (serving.version !== version) {
+      throw new Error(`publish: ${url} serves ${serving.version}, not ${version} — the channels disagree; re-run the publish.`)
+    }
+    console.log(`publish: ${url} now serves ${serving.version} (minimumVersion ${serving.minimumVersion ?? 'unset'})`)
+  }
 }
 
 await main()
