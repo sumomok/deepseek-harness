@@ -7,19 +7,21 @@
  * same `/api` transport the browser uses.
  *
  * The window opens immediately on a boot page that names the three startup
- * phases and how long the current one has taken. Server output goes to
- * `dsh-server.log` only: on screen a failure shows one summary line and the
+ * phases and how long the current one has taken, and — on the first launch
+ * after an update installed itself — which version this now is. Server output
+ * goes to `dsh-server.log` only: on screen a failure shows one summary line and the
  * path of that file, because a scrolling command-line panel is diagnosis
  * material for the developer who receives the log, not for the person waiting.
  * @module @deepseek-ai/dsh-desktop/main
  */
 
-import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
+import { appendFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, shell } from 'electron'
 import { startServer, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { launchGate, setupUpdates } from './updater.ts'
+import { compareVersions } from './version-order.ts'
 
 /**
  * Resolve where the server lives for this launch. Packaged builds use the
@@ -90,15 +92,67 @@ async function stopServerBounded(): Promise<void> {
 }
 
 /**
+ * Where the last version that ran is written. An update replaces the whole
+ * install directory, so the only place a build can leave a note for its
+ * successor is the user data directory — which is also the one directory an
+ * update is required to preserve (the uninstaller is invoked with `--updated`,
+ * which suppresses its app-data removal).
+ */
+function stateFile(): string {
+  return join(app.getPath('userData'), 'desktop-state.json')
+}
+
+/** What [[stateFile]] holds. */
+interface DesktopState {
+  /** Version of the build that ran last, as `app.getVersion()` reported it. */
+  lastRunVersion?: string
+}
+
+/**
+ * Record that this build ran, and report the build that ran before it. The
+ * caller uses that to confirm an update actually landed: a Windows update
+ * restarts the app by itself, so without a word from the new build the whole
+ * operation ends with a window that looks exactly like the one that closed.
+ *
+ * A missing or unreadable file means no receipt, never a wrong one — a first
+ * launch has nothing to compare against.
+ * @returns the version that ran before this one, when it was older than this
+ * one; undefined on a first run, a re-run of the same build, or a downgrade.
+ */
+function recordRun(): string | undefined {
+  const file = stateFile()
+  let previous: string | undefined
+  try {
+    const parsed = JSON.parse(readFileSync(file, 'utf8')) as DesktopState
+    if (typeof parsed.lastRunVersion === 'string') previous = parsed.lastRunVersion
+  } catch {
+    // No state yet, or it did not survive: the write below starts it over, and
+    // a launch must never fail over a note it keeps for itself.
+  }
+  try {
+    writeFileSync(file, `${JSON.stringify({ lastRunVersion: app.getVersion() } satisfies DesktopState)}\n`)
+  } catch {
+    // Same contract in the other direction: an unwritable state file costs the
+    // next launch its receipt and nothing else.
+  }
+  if (previous === undefined || compareVersions(previous, app.getVersion()) >= 0) return undefined
+  return previous
+}
+
+/**
  * The boot page: a self-contained `data:` document (no external resource, no
  * preload) that the main process drives through `window.__dsh`. It shows one
  * phase at a time — the one actually running — because a checklist of things
  * that have not happened yet is a list of ways to wonder what went wrong.
  * @param version - the app version shown at the bottom of the page.
  * @param appearance - which palette to paint.
+ * @param receipt - one line confirming an update, when this launch is the first
+ * of a new version. It is baked into the document rather than pushed into it,
+ * because the push path tolerates a page that has not finished loading by
+ * dropping what it carries, which is right for a phase and wrong for this.
  * @returns the `data:` URL to load.
  */
-function bootPage(version: string, appearance: Appearance): string {
+function bootPage(version: string, appearance: Appearance, receipt: string | undefined): string {
   const colors = PALETTES[appearance]
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
 <html lang="zh"><head><meta charset="utf-8"><title>DSH Desktop</title><style>
@@ -159,6 +213,7 @@ function bootPage(version: string, appearance: Appearance): string {
   @keyframes pulse { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
   .label { font-family: "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", system-ui, sans-serif; }
   .elapsed { color: ${colors.muted}; }
+  .receipt { position: relative; margin-top: 16px; font-size: 11px; color: ${colors.accent}; }
   .hint { position: relative; margin-top: 16px; font-size: 11px; color: ${colors.muted}; }
   .failure { position: relative; margin-top: 16px; display: none; }
   body.failed .failure { display: block; }
@@ -185,6 +240,7 @@ function bootPage(version: string, appearance: Appearance): string {
     <div class="phase" data-phase="1"><span class="mark">◇</span><span class="label">启动 dsh 服务</span><span class="elapsed"></span></div>
     <div class="phase" data-phase="2"><span class="mark">◇</span><span class="label">连接界面</span><span class="elapsed"></span></div>
   </div>
+  ${receipt === undefined ? '' : `<div class="receipt">${receipt}</div>`}
   <div class="hint" id="hint" hidden>首次启动会被系统安全扫描拖慢,通常最多一两分钟</div>
   <div class="failure" id="failure">
     <div class="summary" id="summary"></div>
@@ -244,8 +300,11 @@ interface BootView {
   showApp: (url: string) => void
 }
 
-/** Open the window on the boot page and return its update handle. */
-function createBootWindow(): BootView {
+/**
+ * Open the window on the boot page and return its update handle.
+ * @param receipt - the update confirmation line, when there is one to show.
+ */
+function createBootWindow(receipt?: string): BootView {
   // Chosen before the window exists: `backgroundColor` is what paints while the
   // page loads, so resolving the theme here is what prevents a flash of the
   // opposite one.
@@ -270,7 +329,7 @@ function createBootWindow(): BootView {
       if (target.startsWith('http')) void shell.openExternal(target)
     }
   })
-  void window.loadURL(bootPage(app.getVersion(), appearance))
+  void window.loadURL(bootPage(app.getVersion(), appearance, receipt))
   let booting = true
   const push = (script: string): void => {
     if (!booting || window.isDestroyed()) return
@@ -334,7 +393,8 @@ if (!locked) {
   })
 
   void app.whenReady().then(async () => {
-    const view = createBootWindow()
+    const upgradedFrom = recordRun()
+    const view = createBootWindow(upgradedFrom === undefined ? undefined : `已更新到 v${app.getVersion()}`)
     const logDir = app.getPath('logs')
     const logFile = join(logDir, 'dsh-server.log')
     try {
@@ -360,6 +420,7 @@ if (!locked) {
     sink(`[desktop] node runtime: ${spec.nodeBin} (exists: ${String(existsSync(spec.nodeBin) || spec.nodeBin === 'node')})\n`)
     sink(`[desktop] server entry: ${spec.entry} (exists: ${String(existsSync(spec.entry))})\n`)
     sink(`[desktop] server cwd: ${spec.cwd}\n`)
+    if (upgradedFrom !== undefined) sink(`[desktop] first run after updating from ${upgradedFrom}\n`)
     view.phase(1)
     const host = {
       log: sink,

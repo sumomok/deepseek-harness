@@ -12,10 +12,12 @@
  * finishes in a window the user may close at any time — one dialog offering
  * the install. **No install happens without the user deciding it**, on quit or
  * anywhere else: the app replaces itself only in the seconds after someone
- * clicks the button that says so. What follows that click runs without further
- * prompts and the app reopens by itself — the installer's wizard would only ask
- * again what the click already answered. A declined install stays on disk and is
- * offered again on the next launch and on demand from the menu, and nowhere else.
+ * clicks the button that says so. What follows that click is neither silent nor
+ * a wizard — one progress window, no question to answer, and the app comes back
+ * by itself — because an install with no surface at all cannot report what it is
+ * doing, and the wizard would only ask again what the click already answered. A
+ * declined install stays on disk and is offered again on the next launch and on
+ * demand from the menu, and nowhere else.
  *
  * Above that sits one mandatory layer, keyed on the feed's `minimumVersion`:
  * a build older than that line downloads without being asked, and at launch it
@@ -24,7 +26,7 @@
  * @module @deepseek-ai/dsh-desktop/updater
  */
 
-import { app, BrowserWindow, dialog, Menu, shell, type MenuItemConstructorOptions } from 'electron'
+import { app, BrowserWindow, dialog, Menu, shell, type MenuItemConstructorOptions, type MessageBoxOptions } from 'electron'
 import { load } from 'js-yaml'
 import { NsisUpdater } from 'electron-updater'
 import { compareVersions } from './version-order.ts'
@@ -193,6 +195,44 @@ async function fetchFeed(url: string): Promise<Feed> {
 }
 
 /**
+ * Ask for the user's attention before a dialog they did not open. An update
+ * dialog arrives while the app is in the background as often as not, and a
+ * window-modal dialog that the user cannot see is worse than a floating one:
+ * on Windows the taskbar button flashes until the window is focused, on macOS
+ * the Dock icon bounces once.
+ * @param window - the window the dialog will be attached to, if any.
+ */
+function requestAttention(window: BrowserWindow | undefined): void {
+  if (process.platform === 'darwin') {
+    if (BrowserWindow.getFocusedWindow() === null) app.dock?.bounce('informational')
+    return
+  }
+  if (window === undefined || window.isFocused()) return
+  window.flashFrame(true)
+  window.once('focus', () => {
+    if (!window.isDestroyed()) window.flashFrame(false)
+  })
+}
+
+/**
+ * Show one dialog, attached to the app's own window whenever there is one.
+ * A parentless `showMessageBox` opens an independent top-level window, which
+ * Windows is free to place behind whatever the user is working in — the update
+ * prompt then exists without being seen. Attaching it makes it window-modal,
+ * so it rides on top of the window it belongs to.
+ * @param options - the dialog to show.
+ * @returns the index of the button the user chose.
+ */
+async function ask(options: MessageBoxOptions): Promise<number> {
+  const parent = mainWindow()
+  requestAttention(parent)
+  const answer = parent === undefined
+    ? await dialog.showMessageBox(options)
+    : await dialog.showMessageBox(parent, options)
+  return answer.response
+}
+
+/**
  * Wire the update channel: build the application menu, run the delayed and
  * recurring silent checks, and expose the manual check the menu triggers.
  * Unpackaged launches skip the whole channel — a source-tree run has no
@@ -205,7 +245,7 @@ export function setupUpdates(host: UpdateHost): void {
     : (reason: CheckReason): void => {
       host.log('[updater] skipped: development launches have no installed app to replace\n')
       if (reason === 'manual') {
-        void dialog.showMessageBox({
+        void ask({
           type: 'info',
           message: '开发模式不检查更新',
           detail: '当前是从源码启动的开发实例,更新只对安装后的应用生效。',
@@ -298,7 +338,7 @@ async function blockOnWindows(host: UpdateHost): Promise<void> {
     downloading = false
     closeProgress()
     host.log(`[updater] mandatory download failed: ${error instanceof Error ? error.message : String(error)}\n`)
-    const answer = await dialog.showMessageBox({
+    const answer = await ask({
       type: 'error',
       title: '更新下载失败',
       message: '必须安装的更新没有下载成功',
@@ -307,7 +347,7 @@ async function blockOnWindows(host: UpdateHost): Promise<void> {
       defaultId: 0,
       cancelId: 1,
     })
-    if (answer.response === 0) {
+    if (answer === 0) {
       await blockOnWindows(host)
       return
     }
@@ -323,7 +363,7 @@ async function blockOnWindows(host: UpdateHost): Promise<void> {
 async function blockOnMac(host: UpdateHost): Promise<void> {
   const feed = macFeed
   const artifact = feed?.files?.[0]?.url
-  const answer = await dialog.showMessageBox({
+  const answer = await ask({
     type: 'warning',
     title: `必须更新到 ${feed?.version ?? ''}`,
     message: `当前版本 ${app.getVersion()} 需要更新后才能继续使用`,
@@ -332,11 +372,11 @@ async function blockOnMac(host: UpdateHost): Promise<void> {
     defaultId: 0,
     cancelId: 1,
   })
-  if (answer.response === 0 && artifact !== undefined) {
+  if (answer === 0 && artifact !== undefined) {
     const target = feedFileUrl(FEED_MAC, artifact)
     host.log(`[updater] opening ${target}\n`)
     await shell.openExternal(target)
-    await dialog.showMessageBox({
+    await ask({
       type: 'info',
       message: '下载完成后替换应用',
       detail: '解压得到的 DSH Desktop.app 拖进「应用程序」覆盖旧版本。'
@@ -361,7 +401,7 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
     const message = error instanceof Error ? error.message : String(error)
     host.log(`[updater] check failed: ${message}\n`)
     if (reason === 'manual') {
-      await dialog.showMessageBox({
+      await ask({
         type: 'warning',
         message: '无法检查更新',
         detail: `${message}\n\n稍后再试,或到发布页手动下载新版本。`,
@@ -406,7 +446,7 @@ async function checkWindows(host: UpdateHost, reason: CheckReason): Promise<void
     downloading = true
     showProgress(version)
     host.log(`[updater] mandatory ${version}: downloading without asking\n`)
-    void dialog.showMessageBox({
+    void ask({
       type: 'warning',
       title: `必须更新到 ${version}`,
       message: '这是必须安装的更新,已开始后台下载',
@@ -431,7 +471,7 @@ async function checkWindows(host: UpdateHost, reason: CheckReason): Promise<void
  * @param notes - release notes from the manifest.
  */
 async function offerDownload(host: UpdateHost, version: string, notes: string | undefined): Promise<void> {
-  const answer = await dialog.showMessageBox({
+  const answer = await ask({
     type: 'info',
     title: `发现新版本 ${version}`,
     message: `发现新版本 ${version}`,
@@ -440,7 +480,7 @@ async function offerDownload(host: UpdateHost, version: string, notes: string | 
     defaultId: 0,
     cancelId: 1,
   })
-  if (answer.response !== 0) {
+  if (answer !== 0) {
     declinedVersion = version
     host.log(`[updater] user declined ${version}\n`)
     return
@@ -508,11 +548,11 @@ async function offerInstall(host: UpdateHost, version: string, force: boolean): 
   if (!force && postponedVersion === version) return
   postponedVersion = version
   const notes = notesDetail(stagedNotes)
-  const promise = '点击后应用会关闭,自动完成安装并重新打开;你的会话记录都在。'
+  const promise = '点击后应用会关闭并显示安装进度,完成后自动重新打开;你的会话记录都在。'
   const detail = notes === ''
     ? `当前版本 ${app.getVersion()},安装后为 ${version}。\n\n${promise}`
     : `更新内容:\n${notes}\n\n${promise}`
-  const answer = await dialog.showMessageBox({
+  const answer = await ask({
     type: 'info',
     title: '新版本已下载完毕',
     message: blocking
@@ -523,23 +563,38 @@ async function offerInstall(host: UpdateHost, version: string, force: boolean): 
     defaultId: blocking ? 0 : 1,
     cancelId: blocking ? 0 : 1,
   })
-  if (answer.response !== 0) {
+  if (answer !== 0) {
     host.log(`[updater] ${version} stays downloaded; it installs when the user says so\n`)
     return
   }
   host.log(`[updater] stopping the server before installing ${version}\n`)
   await host.prepareQuit()
-  // (isSilent, isForceRunAfter). Both matter, and only together: electron-updater
-  // turns them into the installer's `/S` and `--force-run`. `/S` is what makes
-  // the click mean what it says — an assisted (oneClick: false) installer
-  // otherwise replays its install-mode, progress, and finish pages, which reads
-  // as a reinstall rather than an update. `$INSTDIR` still comes from the
-  // registry's InstallLocation, read in .onInit before any page, so the silent
-  // run lands in the same directory the app is installed in. `--force-run` is
-  // then required for the relaunch: the assisted installer's auto-start branch
-  // is `${if} ${isForceRun} ${andIf} ${Silent}`, so (true, false) would install
-  // and leave the user staring at nothing.
-  nsisUpdater?.quitAndInstall(true, true)
+  // (isSilent, isForceRunAfter) → the installer's `/S` and `--force-run`.
+  //
+  // isSilent is false on purpose: an install that shows nothing is
+  // indistinguishable from one that failed, and the one surface a silent NSIS
+  // run does still put on screen is its error box — `handleUninstallResult`'s
+  // MessageBox carries no `/SD`, so 「Failed to uninstall old application
+  // files…」 appears even under `/S`, arriving out of nowhere with no window
+  // that could explain it. Visible does not mean a wizard here: the directory
+  // page skips itself for an `--updated` run (`skipPageIfUpdated`, the
+  // template's own macro), `build/installer.nsh` skips the finish page the same
+  // way, and MUI's own `SetAutoClose true` closes the progress window when the
+  // section ends — what is left is one progress bar that needs no click.
+  //
+  // isForceRunAfter is passed for the shape of the call rather than its effect:
+  // `quitAndInstall` forwards it only when isSilent is true and substitutes
+  // `autoRunAppAfterInstall` (default true) otherwise (`BaseUpdater.js`), and
+  // the template's own relaunch is `${if} ${isForceRun} ${andIf} ${Silent}`
+  // (`installSection.nsh`), which a visible run never satisfies whatever is
+  // passed. The relaunch is therefore done by `customFinishPage`, which starts
+  // the app through `ExecShellAsUser` so it drops the installer's elevated
+  // token.
+  //
+  // `$INSTDIR` comes from the registry's InstallLocation, read in `.onInit`
+  // before any page exists, so neither mode can land anywhere but the directory
+  // the app already occupies.
+  nsisUpdater?.quitAndInstall(false, true)
 }
 
 /**
@@ -567,7 +622,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason): Promise<void
     host.log(`[updater] ${version} is available; not interrupting the session\n`)
     return
   }
-  const answer = await dialog.showMessageBox({
+  const answer = await ask({
     type: mandatory ? 'warning' : 'info',
     title: mandatory ? `必须更新到 ${version}` : `发现新版本 ${version}`,
     message: mandatory
@@ -579,14 +634,14 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason): Promise<void
     defaultId: 0,
     cancelId: 1,
   })
-  if (answer.response !== 0) {
+  if (answer !== 0) {
     host.log(`[updater] user postponed ${version}\n`)
     return
   }
   const target = feedFileUrl(FEED_MAC, artifact)
   host.log(`[updater] opening ${target}\n`)
   await shell.openExternal(target)
-  await dialog.showMessageBox({
+  await ask({
     type: 'info',
     message: '下载完成后替换应用',
     detail: '解压得到的 DSH Desktop.app 拖进「应用程序」覆盖旧版本。'
@@ -597,7 +652,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason): Promise<void
 
 /** Confirm to a manual checker that the installed version is current. */
 async function reportUpToDate(): Promise<void> {
-  await dialog.showMessageBox({
+  await ask({
     type: 'info',
     message: '已是最新版本',
     detail: `当前版本 ${app.getVersion()}。`,
@@ -725,7 +780,7 @@ function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
  * @param title - the localized word for "about", used as the dialog title.
  */
 async function showAbout(title: string): Promise<void> {
-  await dialog.showMessageBox({
+  await ask({
     type: 'info',
     title,
     message: `${app.getName()} ${app.getVersion()}`,

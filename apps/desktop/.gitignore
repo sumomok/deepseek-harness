@@ -1,4 +1,10 @@
 .cache/
-build/
+# build/ is electron-builder's buildResources directory: it holds generated
+# icons AND hand-written installer sources, so only the generated members are
+# ignored. installer.nsh is source and must be tracked — a build that silently
+# loses it produces an installer without the customInit/customFinishPage hooks.
+build/icon.icns
+build/icon.ico
+build/icon.iconset/
 dist-app/
 staging/
