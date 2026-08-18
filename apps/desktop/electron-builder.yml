@@ -17,6 +17,11 @@ asar: true
 npmRebuild: false
 nodeGypRebuild: false
 afterPack: scripts/after-pack.cjs
+# Only the languages the product ships; the full Electron locale set is ~50
+# extra files the installer would extract for nothing.
+electronLanguages:
+  - en-US
+  - zh-CN
 mac:
   target:
     - target: zip
@@ -49,3 +54,4 @@ win:
 nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
+  include: nsis/installer.nsh

@@ -58,8 +58,23 @@ function makeLogSink(): (chunk: string) => void {
   }
 }
 
-/** Open one UI window over the served URL. */
-function createWindow(url: string): void {
+/** The boot page shown while the embedded server is still starting. */
+const BOOT_PAGE = 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
+<html><head><meta charset="utf-8"><title>DSH Desktop</title><style>
+  body { margin: 0; height: 100vh; display: grid; place-items: center; background: #10131a; color: #e6ebf5; font: 15px/1.6 system-ui, sans-serif; }
+  .card { text-align: center; }
+  .dot { display: inline-block; width: 9px; height: 9px; margin: 0 3px; border-radius: 50%; background: #3bc8ff; animation: p 1.2s infinite ease-in-out; }
+  .dot:nth-child(2) { animation-delay: .2s } .dot:nth-child(3) { animation-delay: .4s }
+  @keyframes p { 0%, 80%, 100% { opacity: .25 } 40% { opacity: 1 } }
+  .hint { color: #8b93a7; font-size: 13px; margin-top: 10px }
+</style></head><body><div class="card">
+  <div><span class="dot"></span><span class="dot"></span><span class="dot"></span></div>
+  <div style="margin-top:14px">正在启动 dsh 服务…</div>
+  <div class="hint">首次启动可能较慢(系统正在扫描新文件)</div>
+</div></body></html>`)
+
+/** Open one UI window; it shows the boot page until a server URL is loaded into it. */
+function createWindow(url: string | undefined): BrowserWindow {
   const window = new BrowserWindow({
     width: 1360,
     height: 900,
@@ -76,12 +91,13 @@ function createWindow(url: string): void {
     return { action: 'deny' }
   })
   window.webContents.on('will-navigate', (event, target) => {
-    if (!target.startsWith(url)) {
+    if (server === undefined || !target.startsWith(server.url)) {
       event.preventDefault()
-      void shell.openExternal(target)
+      if (target.startsWith('http')) void shell.openExternal(target)
     }
   })
-  void window.loadURL(url)
+  void window.loadURL(url ?? BOOT_PAGE)
+  return window
 }
 
 const locked = app.requestSingleInstanceLock()
@@ -119,9 +135,14 @@ if (!locked) {
   })
 
   void app.whenReady().then(async () => {
+    // The window opens immediately on the boot page: a cold Windows start can
+    // sit in antivirus scanning for a while, and a silent delay reads as a
+    // broken install.
+    const window = createWindow(undefined)
     try {
       server = await startServer(resolveSpec(), makeLogSink())
-      createWindow(server.url)
+      if (!window.isDestroyed()) void window.loadURL(server.url)
+      else createWindow(server.url)
     } catch (error) {
       dialog.showErrorBox(
         'DSH Desktop could not start its server',

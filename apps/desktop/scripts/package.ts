@@ -322,6 +322,78 @@ async function verifyStagedBoot(): Promise<void> {
   }
 }
 
+/** The win32-x64 payload staged beside the full server tree. */
+const SERVER_STAGING_WIN = join(STAGING, 'server-win')
+
+/**
+ * Non-runtime file suffixes pruned from the Windows payload. Types, sources,
+ * source maps, debug symbols, and docs are the bulk of the tree's file count
+ * and its deepest paths (`lib/types/**`), and a node_modules forest inside an
+ * NSIS installer pays for every file twice on Windows: per-file extraction
+ * under antivirus scanning, and the 260-character MAX_PATH ceiling.
+ */
+const WIN_PRUNE_SUFFIXES = ['.md', '.markdown', '.map', '.pdb', '.ts', '.mts', '.cts', '.tsbuildinfo']
+
+/** Foreign-platform artifact directories for a win32-x64 target, relative to node_modules. */
+const WIN_FOREIGN_DIR_RULES: { parent: string; keep: (name: string) => boolean }[] = [
+  { parent: join('node-pty', 'prebuilds'), keep: name => name === 'win32-x64' },
+  { parent: '@img', keep: name => !name.includes('darwin') && !name.includes('linux') },
+  { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === 'koffi-win32-x64' },
+  { parent: join('@vscode', 'ripgrep'), keep: name => name !== 'bin' },
+  { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name === 'node-addon-require-builtin-win32-x64-msvc' },
+]
+
+/**
+ * Derive the pruned Windows server payload from the verified full staging:
+ * copy everything except foreign-platform directories and non-runtime file
+ * suffixes, then report counts and the longest relative path (the install
+ * prefix adds ~50 characters ahead of Windows' 260 limit).
+ */
+async function deriveWinServer(): Promise<void> {
+  await rm(SERVER_STAGING_WIN, { recursive: true, force: true })
+  const nodeModulesPrefix = join(SERVER_STAGING, 'node_modules') + sep
+  const skippedDirs: string[] = []
+  let kept = 0
+  let pruned = 0
+  const filter = (source: string): boolean => {
+    const name = source.slice(source.lastIndexOf(sep) + 1)
+    if (source.startsWith(nodeModulesPrefix)) {
+      const parentRel = dirname(source.slice(nodeModulesPrefix.length))
+      for (const rule of WIN_FOREIGN_DIR_RULES) {
+        if (parentRel === rule.parent && !rule.keep(name)) {
+          skippedDirs.push(join(parentRel, name))
+          return false
+        }
+      }
+    }
+    if (WIN_PRUNE_SUFFIXES.some(suffix => name.endsWith(suffix))) {
+      pruned += 1
+      return false
+    }
+    kept += 1
+    return true
+  }
+  await cp(SERVER_STAGING, SERVER_STAGING_WIN, { recursive: true, filter })
+  console.log(`package: win payload derived: kept ${String(kept)} entries, pruned ${String(pruned)} files, dropped platform dirs:\n  ${skippedDirs.sort().join('\n  ')}`)
+  let longest = ''
+  const walk = async (dir: string): Promise<void> => {
+    for (const entry of await readdir(dir, { withFileTypes: true })) {
+      const path = join(dir, entry.name)
+      if (entry.isDirectory()) await walk(path)
+      else if (path.length > longest.length) longest = path
+    }
+  }
+  await walk(SERVER_STAGING_WIN)
+  const relative = longest.slice(SERVER_STAGING_WIN.length + 1)
+  console.log(`package: win payload longest relative path: ${String(relative.length)} chars`)
+  if (relative.length > 180) {
+    console.log(`package: WARNING — near Windows' 260-char MAX_PATH once the install prefix is added:\n  ${relative}`)
+  }
+  // The pruned tree keeps the whole launcher import graph; only platform
+  // binaries and non-runtime files left, so the resolution smoke still holds.
+  await run('pruned win payload smoke', process.execPath, [join(SERVER_STAGING_WIN, SERVER_ENTRY), '--version'], SERVER_STAGING_WIN)
+}
+
 /**
  * Recompute the NSIS startup integrity check on a built installer: CRC32 over
  * [0x200, archiveEnd - 4) must equal the trailing dword the firstHeader's
@@ -380,6 +452,7 @@ async function main(): Promise<void> {
   }
   if (cli.win) {
     await stageRuntime('win')
+    await deriveWinServer()
     await run('electron-builder (win)', 'pnpm', [...builder, '--win'])
     for (const name of (await readdir(join(APP_DIR, 'dist-app'))).filter(file => file.endsWith('.exe'))) {
       await verifyNsisIntegrity(join(APP_DIR, 'dist-app', name))
