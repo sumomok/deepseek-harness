@@ -18,7 +18,7 @@ Three additive leaves cover the three surfaces, each riding an extension point t
 
 ## Verification
 
-The PWA layer is verified against a live boot: routes serve the expected bodies, the injected head carries exactly one manifest link, and a real Chrome on `127.0.0.1` reports the service worker activated at scope `/` with the standalone manifest parsed. The macOS package is launched and exercised on the build machine. The Windows installer is cross-built and structurally verified only (win32-x64 prebuilds, injected optional variants, bundled node.exe) and needs a smoke test on real Windows before distribution.
+The PWA layer is verified against a live boot: routes serve the expected bodies, the injected head carries exactly one manifest link, and a real Chrome on `127.0.0.1` reports the service worker activated at scope `/` with the standalone manifest parsed. The macOS package is launched and exercised on the build machine. The Windows installer is cross-built and verified structurally (win32-x64 prebuilds, injected optional variants, bundled node.exe) and by recomputing the NSIS startup CRC — CRC32 over [0x200, archiveEnd−4) against the trailing dword — which the pipeline enforces after every Windows build; a first real-Windows install hit exactly that "integrity check failed" dialog, so the certificate-less signing pass is disabled (`win.signExecutable: false`) and the gate exists to keep the failure impossible to ship again. Behavior beyond the installer still needs a smoke test on real Windows before distribution.
 
 ## Alternatives considered
 

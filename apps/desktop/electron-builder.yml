@@ -36,6 +36,13 @@ win:
     - target: nsis
       arch: [x64]
   icon: build/icon.ico
+  # No certificate is configured, so the builder's signing pass can only
+  # damage the output: on a macOS host it rewrites the finished installer
+  # AFTER makensis computed its integrity CRC without registering a PE
+  # certificate entry, and the installer then fails NSIS's startup check on
+  # real Windows. signExecutable: false skips exactly the signing while
+  # keeping the icon and version-metadata editing of the app executable.
+  signExecutable: false
   extraResources:
     - from: staging/runtime/win
       to: runtime

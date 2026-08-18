@@ -322,6 +322,29 @@ async function verifyStagedBoot(): Promise<void> {
   }
 }
 
+/**
+ * Recompute the NSIS startup integrity check on a built installer: CRC32 over
+ * [0x200, archiveEnd - 4) must equal the trailing dword the firstHeader's
+ * archive-size field locates (the first 512 bytes and anything appended after
+ * the archive are outside the window — that is what keeps real Authenticode
+ * signing legal). A mismatch is exactly the "Installer integrity check has
+ * failed" dialog on real Windows, so it fails the build here instead.
+ * @param path - the NSIS installer to verify.
+ */
+async function verifyNsisIntegrity(path: string): Promise<void> {
+  const { crc32 } = await import('node:zlib')
+  const data = await readFile(path)
+  const sigAt = data.indexOf(Buffer.from('efbeadde4e756c6c736f6674496e7374', 'hex'))
+  if (sigAt < 4) throw new Error(`package: ${path} has no NSIS firstHeader signature.`)
+  const archiveEnd = sigAt - 4 + data.readUInt32LE(sigAt + 20)
+  const stored = data.readUInt32LE(archiveEnd - 4)
+  const computed = crc32(data.subarray(0x200, archiveEnd - 4)) >>> 0
+  if (stored !== computed) {
+    throw new Error(`package: ${path} fails the NSIS integrity CRC (stored ${stored.toString(16)}, computed ${computed.toString(16)}) — it would show "Installer integrity check has failed" on Windows.`)
+  }
+  console.log(`package: NSIS integrity CRC verified for ${path}`)
+}
+
 async function main(): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   if (!cli.mac && !cli.win) throw new Error('package: nothing to build — pass --mac and/or --win.')
@@ -358,6 +381,9 @@ async function main(): Promise<void> {
   if (cli.win) {
     await stageRuntime('win')
     await run('electron-builder (win)', 'pnpm', [...builder, '--win'])
+    for (const name of (await readdir(join(APP_DIR, 'dist-app'))).filter(file => file.endsWith('.exe'))) {
+      await verifyNsisIntegrity(join(APP_DIR, 'dist-app', name))
+    }
   }
   const products = (await readdir(join(APP_DIR, 'dist-app'))).filter(name =>
     name.endsWith('.dmg') || name.endsWith('.zip') || name.endsWith('.exe'))
