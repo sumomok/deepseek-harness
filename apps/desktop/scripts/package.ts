@@ -455,19 +455,29 @@ const DOC_MARKDOWN =
  */
 const DOC_SIDECAR = /^readme(\.[a-z-]+)?\.i18n\.yaml$/i
 
-/** Platform-split artifact directories, relative to node_modules: keep only the target's. */
+/**
+ * Platform-split artifact directories, relative to node_modules: keep only the
+ * target's. Both lists must name the same parents: a parent listed for one
+ * target only leaves the other payload carrying binaries it cannot run.
+ *
+ * `@vscode` is the scope, not `@vscode/ripgrep`. The binaries live in sibling
+ * packages (`@vscode/ripgrep-<platform>-<arch>`) that `lib/index.js` resolves at
+ * call time; `@vscode/ripgrep` itself publishes no `bin/`, so a rule addressed
+ * at it matches nothing and both payloads kept both platforms' `rg`.
+ */
 const PLATFORM_DIR_RULES: Record<PayloadTarget, { parent: string; keep: (name: string) => boolean }[]> = {
   win: [
     { parent: join('node-pty', 'prebuilds'), keep: name => name === 'win32-x64' },
     { parent: '@img', keep: name => !name.includes('darwin') && !name.includes('linux') },
     { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === 'koffi-win32-x64' },
-    { parent: join('@vscode', 'ripgrep'), keep: name => name !== 'bin' },
+    { parent: '@vscode', keep: name => !name.startsWith('ripgrep-') || name === 'ripgrep-win32-x64' },
     { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name === 'node-addon-require-builtin-win32-x64-msvc' },
   ],
   darwin: [
     { parent: join('node-pty', 'prebuilds'), keep: name => name === `darwin-${process.arch}` },
     { parent: '@img', keep: name => !name.includes('win32') && !name.includes('linux') },
     { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === `koffi-darwin-${process.arch}` },
+    { parent: '@vscode', keep: name => !name.startsWith('ripgrep-') || name === `ripgrep-darwin-${process.arch}` },
     { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name.startsWith(`node-addon-require-builtin-darwin-${process.arch}`) },
   ],
 }

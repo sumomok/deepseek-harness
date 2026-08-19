@@ -40,13 +40,25 @@ const OURS = '@deepseek-ai'
  * own module graph through it to set `loader.internal`, and a payload that
  * inlined it fails one plugin later with `--expose-internals is required`,
  * naming a flag that was never involved.
+ *
+ * Both platforms' selected variants are named, and the symmetry is load-bearing.
+ * A variant reached only by `require.resolve` or by the dynamic library search
+ * of a `.node` is invisible to the reachability walk, so an unnamed one is
+ * deleted as unreferenced third-party: naming only the Windows side left the
+ * darwin payload without `@img/sharp-libvips-darwin-*` (boot fails in
+ * `sharp.mjs`), `@vscode/ripgrep-darwin-*` (search finds no binary), and
+ * `node-addon-require-builtin-darwin-*`, while the darwin payload still carried
+ * the Windows ripgrep it cannot run. `@koromix/koffi-darwin-*` survived only
+ * because koffi's JavaScript requires it statically.
  */
 const NATIVE = [
   'node-pty',
-  'koffi', '@koromix/koffi-win32-x64',
+  'koffi', '@koromix/koffi-win32-x64', `@koromix/koffi-darwin-${process.arch}`,
   'sharp', '@img/sharp-win32-x64', '@img/colour',
-  '@vscode/ripgrep', '@vscode/ripgrep-win32-x64',
+  `@img/sharp-darwin-${process.arch}`, `@img/sharp-libvips-darwin-${process.arch}`,
+  '@vscode/ripgrep', '@vscode/ripgrep-win32-x64', `@vscode/ripgrep-darwin-${process.arch}`,
   'node-addon-require-builtin', 'node-addon-require-builtin-win32-x64-msvc',
+  `node-addon-require-builtin-darwin-${process.arch}`,
 ]
 
 /**
