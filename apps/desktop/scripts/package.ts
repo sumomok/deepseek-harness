@@ -5,10 +5,12 @@
  * materialize every symlink), stages a real Node runtime per platform, then
  * runs electron-builder for the requested targets.
  *
- * Products land in apps/desktop/dist-app/. macOS builds run and are testable
- * on this machine; Windows builds are cross-packaged (NSIS needs no wine) and
- * carry the win32-x64 N-API prebuilds — they are structurally verified here
- * but must be smoke-tested on a real Windows machine.
+ * Products land in apps/desktop/dist-app/. Each platform's build runs on its
+ * own host and on any other: NSIS needs no wine, so Windows packages cross-build
+ * from macOS, and they carry the win32-x64 N-API prebuilds either way. A
+ * cross-built Windows package is structurally verified only and still has to be
+ * smoke-tested on a real Windows machine; building on Windows is what lets that
+ * smoke test happen against the package just built.
  *
  * Usage: pnpm --filter @deepseek-ai/dsh-desktop run package [--mac] [--win]
  *        [--skip-repo-build] [--skip-deploy]
@@ -80,11 +82,73 @@ async function withWorkspaceStateGuard(action: () => Promise<void>): Promise<voi
   }
 }
 
+/**
+ * Resolve a bare command name against PATH the way the shell would.
+ *
+ * Windows has no executable bit: what makes a file runnable is its extension
+ * being in PATHEXT, and `pnpm`/`npm`/`npx` install as `.cmd` shims with no
+ * extensionless twin. `spawn` without `shell: true` does no PATHEXT expansion,
+ * so `spawn('pnpm', …)` is ENOENT on Windows however well pnpm is installed.
+ * `shell: true` would fix that by handing the line to cmd.exe, which then owns
+ * the quoting of every argument — staging paths here contain spaces. Resolving
+ * the name to a concrete file instead keeps argument passing verbatim.
+ *
+ * PATHEXT candidates come before the bare name: pnpm ships both `pnpm.cmd` and
+ * an extensionless POSIX shell script in the same directory, and only the
+ * former is something CreateProcess can start.
+ *
+ * Returns the command unchanged off Windows, when it is already a path, and
+ * when nothing on PATH matches — the last so the caller still gets spawn's own
+ * ENOENT rather than a message invented here.
+ */
+function resolveCommand(command: string): string {
+  if (process.platform !== 'win32') return command
+  if (command.includes(sep) || command.includes('/')) return command
+  const extensions = (process.env.PATHEXT ?? '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)
+  for (const directory of (process.env.PATH ?? '').split(';').filter(Boolean)) {
+    for (const extension of [...extensions, '']) {
+      const candidate = join(directory, `${command}${extension}`)
+      if (existsSync(candidate)) return candidate
+    }
+  }
+  return command
+}
+
+/**
+ * Wrap a `.cmd`/`.bat` shim in the `cmd.exe` invocation that can start it.
+ *
+ * Node refuses to spawn a batch file directly since the CVE-2024-27980 fix and
+ * fails with `EINVAL`: the file is a script only the command interpreter can
+ * run, and passing argv to an interpreter is what the vulnerability was about.
+ * `shell: true` is Node's own answer, but it joins argv with single spaces and
+ * quotes nothing, so any argument with a space arrives split. Building the
+ * command line here and setting `windowsVerbatimArguments` keeps that quoting
+ * exact and stops Node from quoting the finished line a second time.
+ *
+ * `/d` skips AutoRun commands from the registry, which would otherwise run
+ * inside every build step; `/s` makes cmd.exe strip exactly the outer quote
+ * pair and take the rest verbatim, which is why the whole line is wrapped.
+ */
+function batchInvocation(file: string, args: string[]): { command: string; args: string[] } {
+  const quote = (value: string): string =>
+    /[\s&|<>^"]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value
+  const line = [file, ...args].map(quote).join(' ')
+  return { command: process.env.COMSPEC ?? 'cmd.exe', args: ['/d', '/s', '/c', `"${line}"`] }
+}
+
 /** Run one subprocess with inherited stdio from the repo root; non-zero exit throws. */
 async function run(label: string, command: string, args: string[], cwd: string = ROOT): Promise<void> {
   console.log(`package: ${label}: ${[command, ...args].join(' ')}`)
+  const resolved = resolveCommand(command)
+  const isBatch = /\.(?:cmd|bat)$/i.test(resolved)
+  const invocation = isBatch ? batchInvocation(resolved, args) : { command: resolved, args }
   await new Promise<void>((resolvePromise, reject) => {
-    const child = spawn(command, args, { cwd, stdio: 'inherit', env: { ...process.env, CI: 'true' } })
+    const child = spawn(invocation.command, invocation.args, {
+      cwd,
+      stdio: 'inherit',
+      env: { ...process.env, CI: 'true' },
+      windowsVerbatimArguments: isBatch,
+    })
     child.once('error', (error) => { reject(new Error(`package: ${label} failed to spawn: ${error.message}`)) })
     child.once('exit', (code, signal) => {
       if (code === 0) resolvePromise()
@@ -413,10 +477,15 @@ async function deriveServerPayload(target: PayloadTarget): Promise<void> {
   await walk(destination)
   const relative = longest.slice(destination.length + 1)
   console.log(`package: ${target} payload longest relative path: ${String(relative.length)} chars`)
+  // The binding budget is the installer's own extract staging, not the install
+  // directory: the 7z-out directory under %TEMP% is ~48 characters and the
+  // payload sits below the app's resources/server (17), so a relative path over
+  // ~194 cannot be extracted at all. NSIS is not long-path aware and reports the
+  // failure as a busy file, so the margin is worth watching well before it goes.
   if (relative.length > 180) {
-    console.log(`package: WARNING — near Windows' 260-char MAX_PATH once the install prefix is added:\n  ${relative}`)
+    console.log(`package: WARNING — ${String(194 - relative.length)} chars from the installer's MAX_PATH budget:\n  ${relative}`)
   }
-  // Resolution smoke on every payload; the macOS payload additionally boots.
+  // Resolution smoke on every payload; the host's own payload additionally boots.
   await run(`pruned ${target} payload smoke`, process.execPath, [join(destination, SERVER_ENTRY), '--version'], destination)
 }
 
@@ -458,11 +527,23 @@ async function main(): Promise<void> {
       rm(join(SERVER_STAGING, name), { force: true })))
   }
   await verifyStaging()
-  // The macOS payload always derives and fully boots: it shares the prune
-  // rules with the Windows payload, so this boot is the gate proving pruning
-  // cut no runtime content before anything ships.
-  await deriveServerPayload('darwin')
-  await verifyStagedBoot(SERVER_PAYLOADS.darwin)
+
+  const derived = new Set<PayloadTarget>()
+  const derivePayloadOnce = async (target: PayloadTarget): Promise<void> => {
+    if (derived.has(target)) return
+    await deriveServerPayload(target)
+    derived.add(target)
+  }
+
+  // One payload always derives and fully boots, and it is the one this host can
+  // run: both payloads share the prune rules, so either proves pruning cut no
+  // runtime content. It has to be the host's own — the whole point of pruning
+  // is that a darwin payload carries no win32 koffi or node-pty prebuild, so
+  // booting it on Windows fails on the missing native module rather than on
+  // anything the gate exists to catch.
+  const bootGate: PayloadTarget = process.platform === 'win32' ? 'win' : 'darwin'
+  await derivePayloadOnce(bootGate)
+  await verifyStagedBoot(SERVER_PAYLOADS[bootGate])
 
   // `--publish never`: the run() helper sets CI=true, and electron-builder
   // treats CI plus a `publish` block as a request to upload. Publishing is
@@ -471,11 +552,12 @@ async function main(): Promise<void> {
   const builder = ['--filter', '@deepseek-ai/dsh-desktop', 'exec', 'electron-builder', '--config', 'electron-builder.yml', '--publish', 'never']
   if (cli.mac) {
     await stageRuntime('darwin')
+    await derivePayloadOnce('darwin')
     await run('electron-builder (mac)', 'pnpm', [...builder, '--mac'])
   }
   if (cli.win) {
     await stageRuntime('win')
-    await deriveServerPayload('win')
+    await derivePayloadOnce('win')
     await run('electron-builder (win)', 'pnpm', [...builder, '--win'])
     for (const name of (await readdir(join(APP_DIR, 'dist-app'))).filter(file => file.endsWith('.exe'))) {
       await verifyNsisIntegrity(join(APP_DIR, 'dist-app', name))

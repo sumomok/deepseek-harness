@@ -2,7 +2,15 @@
  * Desktop icon products from the shared PWA renders (apps/pwa/assets):
  * `build/icon.icns` through the macOS sips + iconutil toolchain and
  * `build/icon.ico` as a PNG-payload ICO written directly (Vista+ format, no
- * image dependencies). Run on macOS; `sips`/`iconutil` are system tools.
+ * image dependencies).
+ *
+ * Downscaling goes through whatever the host already ships — `sips` on macOS,
+ * System.Drawing through PowerShell on Windows — so neither platform pulls in
+ * an image library for nine thumbnails. The `.icns` half stays macOS-only:
+ * `iconutil` has no counterpart elsewhere and only a macOS build consumes its
+ * product, so off darwin it is skipped and `.ico` is still written. That is
+ * what lets a Windows package be built on Windows, where it can also be
+ * installed and tested.
  *
  * Usage: node scripts/gen-desktop-icons.mjs
  */
@@ -18,10 +26,36 @@ const SOURCE_512 = join(HERE, '..', '..', 'pwa', 'assets', 'icon-512.png')
 
 mkdirSync(BUILD_DIR, { recursive: true })
 
+/**
+ * Write a square PNG downscale of `source` at `size` px to `out`, using the
+ * host's own imaging: `sips` on macOS, System.Drawing on Windows. The Windows
+ * side asks for high-quality bicubic explicitly — the default is nearest
+ * neighbour, which is visible at 16 px.
+ */
+function resizePng(source, size, out) {
+  if (process.platform === 'darwin') {
+    execFileSync('sips', ['-z', String(size), String(size), source, '--out', out], { stdio: 'ignore' })
+    return
+  }
+  if (process.platform !== 'win32') throw new Error(`gen-desktop-icons: no downscaler for ${process.platform}`)
+  const script = [
+    'Add-Type -AssemblyName System.Drawing;',
+    `$image = [System.Drawing.Image]::FromFile('${source}');`,
+    `$bitmap = New-Object System.Drawing.Bitmap ${String(size)}, ${String(size)};`,
+    '$graphics = [System.Drawing.Graphics]::FromImage($bitmap);',
+    "$graphics.InterpolationMode = 'HighQualityBicubic';",
+    `$graphics.DrawImage($image, 0, 0, ${String(size)}, ${String(size)});`,
+    `$bitmap.Save('${out}', [System.Drawing.Imaging.ImageFormat]::Png);`,
+    '$graphics.Dispose(); $bitmap.Dispose(); $image.Dispose()',
+  ].join(' ')
+  execFileSync('powershell.exe', ['-NoProfile', '-NonInteractive', '-Command', script], { stdio: 'ignore' })
+}
+
 // ── icon.icns ───────────────────────────────────────────────────────────────
 
 const iconset = join(BUILD_DIR, 'icon.iconset')
 rmSync(iconset, { recursive: true, force: true })
+if (process.platform === 'darwin') {
 mkdirSync(iconset)
 /** iconset member sizes; @2x members reuse the double-size render. */
 const MEMBERS = [
@@ -34,18 +68,21 @@ const MEMBERS = [
 for (const [name, size] of MEMBERS) {
   const out = join(iconset, name)
   if (size === 512) copyFileSync(SOURCE_512, out)
-  else execFileSync('sips', ['-z', String(size), String(size), SOURCE_512, '--out', out], { stdio: 'ignore' })
+  else resizePng(SOURCE_512, size, out)
 }
 // 512@2x wants 1024px; reusing the 512 render loses nothing at dev fidelity.
 copyFileSync(SOURCE_512, join(iconset, 'icon_512x512@2x.png'))
 execFileSync('iconutil', ['-c', 'icns', iconset, '-o', join(BUILD_DIR, 'icon.icns')])
 rmSync(iconset, { recursive: true, force: true })
 console.log(`gen-desktop-icons: ${join(BUILD_DIR, 'icon.icns')}`)
+} else {
+  console.log(`gen-desktop-icons: skipping icon.icns on ${process.platform} (iconutil is macOS-only)`)
+}
 
 // ── icon.ico ────────────────────────────────────────────────────────────────
 
 const png256Path = join(BUILD_DIR, 'icon-256.tmp.png')
-execFileSync('sips', ['-z', '256', '256', SOURCE_512, '--out', png256Path], { stdio: 'ignore' })
+resizePng(SOURCE_512, 256, png256Path)
 const png = readFileSync(png256Path)
 rmSync(png256Path)
 const ico = Buffer.alloc(6 + 16 + png.length)

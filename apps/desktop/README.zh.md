@@ -8,7 +8,7 @@
 
 ```sh
 pnpm exec tsx apps/desktop/scripts/package.ts --mac        # zip + dmg (arm64), runnable on this machine
-pnpm exec tsx apps/desktop/scripts/package.ts --win        # NSIS installer (x64), cross-packaged from macOS
+pnpm exec tsx apps/desktop/scripts/package.ts --win        # NSIS installer (x64), native on Windows or cross-packaged
 ```
 
 产物落在 `apps/desktop/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`、恢复 hoist、物化符号链接),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 win32-x64 成员,再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。
@@ -46,7 +46,7 @@ https://lhr.ink/dsh-updates/mac/     latest-mac.yml + the zipped app
 
 **Windows 为所有用户安装,因此更新会提权。**`perMachine: true` 加 `packElevateHelper: true` 把 `isAdminRightsRequired` 写进清单,更新器于是通过 `elevate.exe` 启动安装器。在 UAC 为普通设置的机器上,这是**每次安装一次确认框**;在 UAC 设为「从不通知」的机器上则被静默放行,什么也不会出现。没有这次提权,per-machine 的卸旧会中止——这是走到 `Failed to uninstall old application files: 2` 的两条路之一。
 
-**另一条路是旧卸载器搬不动的那个文件,清场是安装器的活。**更新会带 `--updated` 运行**旧**卸载器,它的卸载段在删除任何东西之前,先把安装目录里的每个文件改名搬进 `$PLUGINSDIR\old-install`。`$PLUGINSDIR` 位于 `%TEMP%`,所以当安装目录与用户配置在不同卷时,每一次改名都是跨卷 `MoveFile`——先复制再删除——而 Windows 不允许删除映像仍被进程映射着的文件。能占住这种文件的进程有三类:应用本身、它的 `node.exe` 服务端,以及 `elevate.exe`——更新器正是从应用自己的 `resources` 目录启动它,并且它会在那儿等到整个安装结束。`customInit`(在 `build/installer.nsh`,按文件名从 `buildResources` 被取用)先立刻杀掉 `elevate.exe`——不带 `/T`,因为安装器是它的子进程——再给应用与服务端 10 秒自行退出,超时后对残留连子进程一起杀。围绕它,退出时对停服务器封了顶(Windows 4 秒,落在安装器自己的耐心之内;别处 10 秒),到点照退;每次启动还会杀掉上一轮留下的服务器,匹配的是本安装那个内置 Node 的完整路径,而不是 `node` 映像名。
+**另一条路是旧卸载器的暂存路径,把它压短的是 `build/installer.nsh`。**更新会带 `--updated` 运行**旧**卸载器,它的卸载段在删除任何东西之前,先把安装目录里的每个文件搬进 `$PLUGINSDIR\old-install`。`$PLUGINSDIR` 位于 `%TEMP%`,所以每个暂存路径都是这个前缀加上该文件相对安装目录的路径——对装到 `D:\soft\DSH Desktop` 的安装,这个前缀长了 34 个字符,而载荷里最深的文件本就在 208 个字符处。261 个字符比 MAX_PATH 多一个,NSIS 又不支持长路径,搬移以 `ERROR_PATH_NOT_FOUND` 失败——模板把它报成 `File is busy`,而事实并非如此。五次重试之后安装器弹出「DSH Desktop 无法关闭」,而「重试」执行的又是同一次注定失败的尝试,因为超长的那条路径每次都是同一条。`customRemoveFiles` 替换掉了这套暂存:安装目录被**整个**改名成它自己的同级兄弟目录再在那里删除,于是它下面每条路径都保持原有长度,而且整个搬移留在同一个卷上。`customInit` 仍然先清掉旧版本的进程——应用本身、它的 `node.exe` 服务端,以及 `elevate.exe`(更新器正是从应用自己的 `resources` 目录启动它,并且它会在那儿等到整个安装结束)——因为活着的进程会让那次删除留下一个暂存目录,并让随后的解压覆盖旧版本仍在读取的文件。它先立刻杀掉 `elevate.exe`(不带 `/T`,因为安装器是它的子进程),再给应用与服务端 10 秒自行退出,超时后对残留连子进程一起杀。围绕它,退出时对停服务器封了顶(Windows 4 秒,落在安装器自己的耐心之内;别处 10 秒),到点照退;每次启动还会杀掉上一轮留下的服务器,匹配的是本安装那个内置 Node 的完整路径,而不是 `node` 映像名。
 
 **新版本自己会报到。**每次启动都把版本记进用户数据目录下的 `desktop-state.json`,而启动时读到一个更旧的版本——这正是「更新装完并自行重启了应用」的样子——就在启动页上留一行:「已更新到 vX.Y.Z」。别的什么都不变,没有要关掉的对话框。
 
@@ -80,7 +80,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 
 ## 信任与签名
 
-产物是未签名的开发构建:macOS Gatekeeper 在非构建机上需要右键打开(或 `xattr -dr com.apple.quarantine`),Windows SmartScreen 会弹未知发布者提示。Windows 包只做了交叉构建与结构校验——交付前务必在真实 Windows 机器上冒烟。
+产物是未签名的开发构建:macOS Gatekeeper 在非构建机上需要右键打开(或 `xattr -dr com.apple.quarantine`),Windows SmartScreen 会弹未知发布者提示。从 macOS 交叉构建出的 Windows 包只做了结构校验——交付前务必在真实 Windows 机器上冒烟;在 Windows 上构建,正是为了让这次冒烟能针对刚构建出的包进行。
 
 这也框定了更新源能承诺什么。TLS 认证服务器,清单里的 sha512 把产物绑定到清单,所以传输途中无法被做手脚。产物本身未签名,于是对 `/var/www/dsh-updates` 的写权限就等于对每个客户端下一个安装程序的写权限,而两个操作系统都不会为收到的东西背书。补上这一环要靠代码签名——Windows 的 Authenticode、macOS 的 Developer ID 加公证——那也正是能让 macOS 改为原地安装而非交接的那件事。
 
