@@ -12,7 +12,7 @@
 # source, not a build product — `.gitignore` lists the generated icons
 # individually so this one stays tracked.
 #
-# Five hooks are defined:
+# Six hooks are defined:
 #
 #   customCheckAppRunning — the entire "is the app still running" step, for the
 #                           installer (installSection.nsh) and the uninstaller
@@ -27,6 +27,10 @@
 #                           asked to, so an update off a build that predates
 #                           customRemoveFiles still works
 #                           (assistedInstaller.nsh).
+#   customInstall         — unpacks the sealed third-party half of the server
+#                           closure, which ships as one archive so its files are
+#                           created once rather than twice (installSection.nsh).
+#                           Windows only.
 #   customFinishPage      — the wizard's finish page, so an update needs no
 #                           click and restarts the app itself.
 
@@ -521,6 +525,37 @@
   FunctionEnd
 
   Page custom dshClearOldInstall
+!macroend
+
+# ── Server dependencies ────────────────────────────────────────────────────────
+#
+# `after-pack` seals the third-party half of the server closure into
+# `resources\server-deps.7z` instead of shipping it as loose files, and this is
+# where it comes back out. An install's cost is its file count: 98% of the copy
+# is per-file overhead, and the installer pays that count twice, once
+# decompressing the app package into %TEMP% and once copying it here. One
+# archive is one file in both passes, so those files are created once rather
+# than twice.
+#
+# The plugin is the same `Nsis7z` the template uses for the app package itself,
+# so nothing new ships to make this work. `customInstall` runs after
+# `installApplicationFiles`, which is when the archive is on disk and the
+# directory it belongs in exists.
+#
+# A failure here leaves an install that cannot start, so unlike the sweep and
+# the pre-clear this one is fatal rather than best-effort: the archive is
+# always present in a Windows build, and its absence means the package is not
+# the one this macro was built for.
+!macro customInstall
+  ${if} ${FileExists} "$INSTDIR\resources\server-deps.7z"
+    DetailPrint "Unpacking server dependencies"
+    SetOutPath "$INSTDIR\resources\server\node_modules"
+    Nsis7z::Extract "$INSTDIR\resources\server-deps.7z"
+    Delete "$INSTDIR\resources\server-deps.7z"
+    SetOutPath "$INSTDIR"
+  ${else}
+    DetailPrint "No server-deps archive; the payload is already unpacked."
+  ${endif}
 !macroend
 
 # ── Finish page ─────────────────────────────────────────────────────────────

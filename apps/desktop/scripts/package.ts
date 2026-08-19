@@ -24,6 +24,7 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
+import { bundleClosure } from './bundle-closure.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 
 const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -477,6 +478,15 @@ async function deriveServerPayload(target: PayloadTarget): Promise<void> {
     return true
   }
   await cp(SERVER_STAGING, destination, { recursive: true, filter })
+  // Collapsing the third-party trees happens here rather than in the package
+  // build, so the workspace's publishable artifacts are untouched and only
+  // this copy changes. It runs before the payload's own smoke test and before
+  // the boot gate, which is what decides whether the result is usable.
+  const collapsed = await bundleClosure(destination)
+  console.log(`package: ${target} payload bundled: ${String(collapsed.bundled)} entry points, ${String(collapsed.removed)} third-party packages removed`)
+  if (collapsed.unbundled.length > 0) {
+    console.log(`package: ${target} payload kept unbundled: ${collapsed.unbundled.join(', ')}`)
+  }
   const counted = await countFiles(destination)
   console.log(`package: ${target} payload derived: ${String(counted)} files, pruned ${String(pruned)}, dropped platform dirs:\n  ${skippedDirs.sort().join('\n  ')}`)
   let longest = ''
