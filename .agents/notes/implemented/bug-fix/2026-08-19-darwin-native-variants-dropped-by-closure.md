@@ -50,6 +50,15 @@ executable bit, so the Windows `after-pack` archiving step failed with `EACCES`
 on a machine that installed the dependency for the first time. The hook sets the
 bit before spawning.
 
+That failure belongs to a class worth naming, because the specific fact
+generalizes badly and the class does not. Anything that depends on a file
+attribute an unpacked dependency carries — an executable bit here, a symlink or
+a case-sensitive name next time — is correct on a development machine that
+installed the dependency incrementally, and wrong only after a clean install.
+Clean installs happen on CI runners and on new machines, which are the two
+places where a failure is least convenient to debug. A dependency newly added to
+the build path is where to expect it.
+
 ## Verification
 
 The boot gate passes and reports 38 client modules over the derived darwin
