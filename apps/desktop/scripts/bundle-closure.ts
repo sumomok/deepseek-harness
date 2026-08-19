@@ -128,7 +128,20 @@ export async function bundleClosure(payload: string): Promise<{ bundled: number;
     const manifestPath = join(dir, 'package.json')
     if (!existsSync(manifestPath)) continue
     const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as Record<string, unknown>
-    const entries = entryPointsOf(manifest).filter(entry => existsSync(join(dir, entry)))
+    const declared = entryPointsOf(manifest).filter(entry => existsSync(join(dir, entry)))
+    // Browser artifacts are left exactly as the client face built them. They
+    // register themselves with `window.__ModuleLoader__.load` when the page
+    // evaluates them, and rebundling one for `platform: 'node'` puts an
+    // `import ... from 'node:module'` on top of it — the registration is still
+    // in the file, and the browser never reaches it. Detected by content
+    // rather than by the `./client` export key, because the name of the entry
+    // is not what makes it a browser artifact.
+    const entries: string[] = []
+    for (const entry of declared) {
+      const source = await readFile(join(dir, entry), 'utf8').catch(() => '')
+      if (source.includes('__ModuleLoader__')) continue
+      entries.push(entry)
+    }
     if (entries.length === 0) continue
     try {
       await build({
