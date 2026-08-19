@@ -27,7 +27,7 @@
 'use strict'
 
 const { execFileSync } = require('node:child_process')
-const { existsSync, readdirSync, rmSync, writeFileSync } = require('node:fs')
+const { chmodSync, existsSync, readdirSync, rmSync, writeFileSync } = require('node:fs')
 const { join } = require('node:path')
 
 /** The scope that stays loose: its packages are what a release changes. */
@@ -65,6 +65,12 @@ module.exports = async function afterPack(context) {
   // it already carries for the app package itself. `-mx=1` keeps the build
   // cheap: this archive rides inside an outer 7z that compresses it again.
   const { path7za } = require('7zip-bin')
+  // 7zip-bin ships no install script and the extracted tarball carries no
+  // executable bit, so on a machine that installed the dependency for the
+  // first time the spawn below fails with EACCES — every CI runner, and any
+  // clean checkout. Setting the bit here is idempotent and costs nothing where
+  // an older install already has it.
+  chmodSync(path7za, 0o755)
   const nodeModules = join(server, 'node_modules')
   const archive = join(resources, 'server-deps.7z')
   const names = thirdPartyIn(nodeModules)
