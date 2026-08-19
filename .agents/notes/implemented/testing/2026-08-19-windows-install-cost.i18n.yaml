@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/testing/2026-08-19-windows-install-cost.md
-2026-08-19-windows-install-cost.md: a4caee09d310f4cdbd358c3cb8e63e72b9748c90
-2026-08-19-windows-install-cost.zh.md: 00bab11c0b7957e5465cebdc79d02fe7c45f641e
+2026-08-19-windows-install-cost.md: c5c0412be017fd85dff8ff26526d7cd6b973e402
+2026-08-19-windows-install-cost.zh.md: 6db482d8888118ddfa965b55e31cec2479a1e564

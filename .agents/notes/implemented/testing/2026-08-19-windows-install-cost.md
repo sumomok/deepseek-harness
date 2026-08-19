@@ -69,7 +69,7 @@ The absolute numbers are warm-cache: the payload had been read minutes earlier, 
 
 The removal path stays as it is, and a future reader who finds "delete everything then extract everything" wasteful has the number that says how much: 8.8%, most of it not the delete.
 
-The payload's file count is the standing lever, and it is the one this repo controls. Of the 12452 files, 12426 are the embedded server closure; of those, 11008 (89%) are third-party packages and 1417 are this repo's own, which tsdown already emits as a couple of files each. The pipeline prunes 19274 files today and anything further is a packaging-structure change rather than a setting — [collapsing the closure's third-party trees](../../proposed/architecture/2026-08-19-self-contained-desktop-closure.md) is where the remaining order of magnitude is.
+The payload's file count is the standing lever, and it is the one this repo controls. Of the 12452 files, 12426 are the embedded server closure; of those, 11008 (89%) are third-party packages and 1417 are this repo's own, which tsdown already emits as a couple of files each. The pipeline prunes 19274 files today and anything further is a packaging-structure change rather than a setting — [collapsing the closure's third-party trees](../architecture/2026-08-19-self-contained-desktop-closure.md) is where the remaining order of magnitude is.
 
 A manual install started while the app is running pays ~11 s that an in-app update does not. That is the process sweep's grace period, and it is a deliberate trade for not killing a running app outright.
 
