@@ -376,9 +376,11 @@ async function verifyStagedBoot(root: string): Promise<void> {
       })
     })
     const response = await fetch(url)
-    if (!response.ok || !(await response.text()).includes('__DSH_BOOT__')) {
+    const index = await response.text()
+    if (!response.ok || !index.includes('__DSH_BOOT__')) {
       throw new Error(`package: staged boot served an unexpected index from ${url}.`)
     }
+    await verifyClientModules(url, index)
     console.log(`package: staged boot verified at ${url}`)
   } finally {
     child.kill('SIGTERM')
@@ -387,6 +389,40 @@ async function verifyStagedBoot(root: string): Promise<void> {
       child.once('exit', () => { clearTimeout(timer); resolvePromise() })
     })
   }
+}
+
+/**
+ * Fetch every client bundle the index names and check it is still a browser
+ * module.
+ *
+ * A server that boots and serves its index says nothing about the forty
+ * modules the page then loads: `client-modules` serves them from
+ * `/plugins/<id>/client.js`, each one registering itself through
+ * `window.__ModuleLoader__.load`. A packaging change that rewrote them for
+ * Node put an `import ... from 'node:module'` on top of each, which no browser
+ * can resolve — the registration was still in the file and the page never
+ * reached it. Nothing server-side noticed: the boot was clean, the index was
+ * the right size, and the log held no error, because the failure happened in
+ * the renderer. This is the assertion that would have caught it.
+ * @param base - the booted server's URL.
+ * @param index - the index HTML, which names every client bundle.
+ */
+async function verifyClientModules(base: string, index: string): Promise<void> {
+  const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)].map(match => match[0]))]
+  if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
+  for (const path of paths) {
+    const target = new URL(path, base)
+    const response = await fetch(target)
+    const body = await response.text()
+    if (!response.ok) throw new Error(`package: client module ${path} answered ${String(response.status)}.`)
+    if (!body.includes('__ModuleLoader__')) {
+      throw new Error(`package: client module ${path} does not register itself; it is not a browser bundle any more.`)
+    }
+    if (/(?:^|[\n;])\s*import\s[^\n]*['"]node:/.test(body)) {
+      throw new Error(`package: client module ${path} imports a Node builtin, which no browser can resolve.`)
+    }
+  }
+  console.log(`package: staged boot checked ${String(paths.length)} client modules`)
 }
 
 /** Per-target pruned payloads staged beside the full server tree. */
