@@ -49,6 +49,18 @@ The plugin model is untouched: the loader still resolves `@deepseek-ai/dsh-agent
 
 **Anything a package resolves dynamically at runtime.** `shiki` loads grammar and theme files by name; packages that do this cannot be fully inlined and must keep whatever their loader reaches for. This is the class of failure the proposal has to find before it ships, and it is why acceptance rests on a real boot rather than on a file count.
 
+## What a prototype found
+
+`apps/desktop/scripts/bundle-closure.mjs` implements this on the deployed closure rather than in the build face — same shape, faster to iterate — and running it against the staged Windows payload settles three things.
+
+**The prize is real.** 12428 files become 3817, a 69% cut, with 666 of 684 entry points bundling cleanly and only `@deepseek-ai/dsh-client-ui-primitives` and `@deepseek-ai/schemastery` failing outright. What remains is 1421 files of this repo's own packages — of which 190 are `README.i18n.yaml`, pure documentation in a runtime payload and a free win — and about 1780 third-party files still reached by a literal import specifier, dominated by `shiki` and `@shikijs/langs` at 805 between them, which load grammars by name and cannot be collapsed this way.
+
+**The byte risk was wrong, and in the useful direction.** The closure went from 135 MB to 106 MB. Tree-shaking removes more than duplication adds, so the "two or three times the JavaScript" this note warned about does not happen and the first download gets smaller rather than larger.
+
+**The blocker is the framework's self-introspection, and it is worse than "some third-party package does something dynamic".** Two breakages fell out immediately and were fixable: a CommonJS dependency calling `require('events')` inside an ESM bundle, fixed with a `createRequire` banner; and everything else resolving cleanly. The third is not. `@deepseek-ai/cordis-plugin-loader` sets `loader.internal` from `ModuleLoader.fromInternal()`, reading the shape of its own module graph, and a bundled graph is not the shape it reads — `cordis-plugin-hmr` then throws `--expose-internals is required` and takes the boot down after the URL line is already printed. Excluding the six `@deepseek-ai/cordis*` packages from bundling does **not** fix it, so whatever the mechanism reaches, it reaches past the framework's own files.
+
+That last finding is the substance of this round rather than an obstacle to it: the design has to say how a bundled closure keeps the loader's view of itself intact, and until it does, the 69% is not collectable. The boot gate earned its place in the acceptance criteria by catching all three, and the index-content assertion caught the one that printed a URL and then served nothing.
+
 ## Alternatives considered
 
 **Bundle each third-party package in place, after `pnpm deploy`.** Rewrite the deployed closure package by package rather than changing how ours are built. Rejected: third-party `exports` maps are arbitrary, consumers import subpaths (`@babel/runtime/helpers/x`, `shiki/langs/js`), and preserving every reachable subpath of 319 packages written by other people is a much larger surface than bundling from our own entry points, where the import graph is ours.
@@ -75,9 +87,11 @@ MAX_PATH headroom improves rather than regresses: collapsing `@earendil-works/pi
 
 ## Risks
 
-**Dynamic resolution inside third-party packages.** The main one. A package that reads its own files by path, or `require`s a name computed at runtime, breaks silently under bundling and may break only on a code path the boot check does not reach. Mitigation is the plugin-set assertion above plus the existing snapshot suite, and the honest position is that this risk is what makes the change a separate round rather than a rider on something else.
+**The framework reading its own module graph.** The one the prototype hit and did not solve; see above. Everything below is secondary to it.
 
-**Byte growth.** Inlining duplicates shared dependencies across packages; 69 MB of JavaScript could become two or three times that. This is the trade the measurement says to take — bytes cost approximately nothing on either medium — but it does grow the first download, which the blockmap does not help. Worth measuring before accepting.
+**Dynamic resolution inside third-party packages.** A package that reads its own files by path, or `require`s a name computed at runtime, breaks silently under bundling and may break only on a code path the boot check does not reach. Mitigation is the plugin-set assertion above plus the existing snapshot suite, and the honest position is that this risk is what makes the change a separate round rather than a rider on something else.
+
+**Byte growth — measured, and it does not happen.** The worry was that inlining duplicates shared dependencies and multiplies the JavaScript. The prototype closure came out at 106 MB against 135 MB: tree-shaking takes out more than duplication puts in. This risk is retired, and the first download gets smaller rather than larger.
 
 **Duplicated dependencies at different versions.** Already true and already correct: five of the nested trees checked hold a *different* version from their top-level twin. Inlining per package preserves exactly the version each package resolved, which is more faithful than the flattening a naive hoist would do.
 

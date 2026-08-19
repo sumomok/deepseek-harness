@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/proposed/architecture/2026-08-19-self-contained-desktop-closure.md
-2026-08-19-self-contained-desktop-closure.md: d05b61e8c1a60a966471dc8d4d2e92797a6da462
-2026-08-19-self-contained-desktop-closure.zh.md: c14519ea3094a59613842f921d6f1e698283202c
+2026-08-19-self-contained-desktop-closure.md: d5ecba5f1e6a73a5b2f08cbc43db1ae511c30cf5
+2026-08-19-self-contained-desktop-closure.zh.md: 913b20e68aa07e47a0d1054efb6784227e34bc10
