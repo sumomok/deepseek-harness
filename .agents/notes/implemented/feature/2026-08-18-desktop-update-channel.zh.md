@@ -40,7 +40,7 @@ Status: implemented
 
 所以 `quitAndInstall(false, true)` 改为可见安装,而向导是被别的手段拿掉的,不是被静默拿掉的:目录页在 `--updated` 时由模板自己的 `skipPageIfUpdated` 跳过,完成页由 `build/installer.nsh` 以同样方式跳过(`MUI_PAGE_CUSTOMFUNCTION_PRE` + `Abort`,每个 MUI 页面都认这一套),而 `SetAutoClose true`——MUI 为它自己的完成页早已在 `.onGUIInit` 里设好——在安装段结束时关掉窗口。留在屏幕上的就是一个进度条。
 
-重新拉起应用于是必须自己做,因为模板的拉起条件是 `${if} ${isForceRun} ${andIf} ${Silent}`(`installSection.nsh`),非静默执行无论怎么传参都满足不了——`quitAndInstall` 在非静默时根本不转发 `isForceRunAfter`,而是替换成 `autoRunAppAfterInstall`(`BaseUpdater.js`)。`customFinishPage` 用 `${StdUtils.ExecShellAsUser}` 自己启动应用,把启动交给 shell,于是应用拿的是用户自己的令牌,而不是继承安装器的提权令牌。这一切都动不到 `$INSTDIR`:它来自注册表 `InstallLocation`,在任何页面存在之前就已在 `.onInit` 里读好。
+重新拉起应用于是必须自己做,因为模板的拉起条件是 `${if} ${isForceRun} ${andIf} ${Silent}`(`installSection.nsh`),非静默执行无论怎么传参都满足不了——`quitAndInstall` 在非静默时根本不转发 `isForceRunAfter`,而是替换成 `autoRunAppAfterInstall`(`BaseUpdater.js`)。`customFinishPage` 用 `${StdUtils.ExecShellAsUser}` 自己启动应用,把启动交给 shell,于是应用拿的是用户自己的令牌,而不是继承安装器的提权令牌。这一切都动不到 `$INSTDIR`:它在任何页面存在之前就已在 `.onInit` 里读好,来源是 `HKLM\SOFTWARE\<APP_GUID>\InstallLocation`——该值缺席时退回 `%ProgramFiles%\DSH Desktop`,所以下游任何一处都不能假定它解析成功([应用运行检查](../bug-fix/2026-08-19-installer-app-running-check.md))。
 
 **对话框挂在它所属的窗口上。**没有 parent 的 `dialog.showMessageBox` 会开一个独立顶层窗口,而 Windows 可以随意把它排到前台窗口后面——真实用户报告过「发现新版本」出现在编辑器底下。现在每个对话框都传应用自己的窗口;应用不在前台时还会先请求注意:Windows 用 `flashFrame`,下次获得焦点时清掉,macOS 用一次 `dock.bounce('informational')`。
 
@@ -52,9 +52,9 @@ Status: implemented
 
 修法是让更新器去申请。`perMachine: true` 给产品单一安装位置并去掉模式页;真正把 `isAdminRightsRequired: true` 写进清单的是 `packElevateHelper: true`,因为写出条件是 `updateInfo != null && isPerMachine && (oneClick || options.packElevateHelper)`(`NsisTarget.js`),而未设置的选项在这里是假值——提权助手无论如何都会被拷进去,所以漏掉这一行,等于发布一个**能**提权却从不告诉任何人的构建。之后更新器从下载文件的清单条目里读这个字段(`DownloadedUpdateHelper.js` 的 `fileInfo.info.isAdminRightsRequired === true`),传给 `doInstall`,并改用 `elevate.exe` 启动安装器而非直接启动(`NsisUpdater.js`)。在普通机器上这是每次安装一次 UAC 确认;在「从不通知」的机器上则是静默放行。
 
-**正在死的应用和卡住的应用长得一模一样。**原先的拆除是:拦下退出、停服务器、再退出——而停这一步没有任何上界,于是一个永不落定的 stop 会把一个没有窗口的进程永久留在那里。安装器只给旧应用大约 7.6 秒消失(300 毫秒 + 1 秒,然后两轮 1 秒 + 2 秒,见 `_CHECK_APP_RUNNING`),超时就放弃并请用户手动关闭。`stopServerBounded` 现在给这段等待封了顶:Windows 上 4 秒,稳稳落在那个预算里;POSIX 上 10 秒,因为它要反过来长于服务器自己 8 秒的 SIGTERM→SIGKILL 升级窗口,否则这个上界会抢在升级之前触发,反而把它本想收掉的进程变成孤儿。
+**正在死的应用和卡住的应用长得一模一样。**原先的拆除是:拦下退出、停服务器、再退出——而停这一步没有任何上界,于是一个永不落定的 stop 会把一个没有窗口的进程永久留在那里。安装器给旧应用 10 秒消失,超时就直接把它停掉。`stopServerBounded` 给这段等待封了顶:Windows 上 4 秒,稳稳落在那个预算里;POSIX 上 10 秒,因为它要反过来长于服务器自己 8 秒的 SIGTERM→SIGKILL 升级窗口,否则这个上界会抢在升级之前触发,反而把它本想收掉的进程变成孤儿。
 
-**杀掉应用并不会杀掉它的服务器。**服务器是安装目录下另一个独立的 `node.exe`,而安装器自带的清理够不到它:PowerShell 分支按 pid 停进程、不带子进程,回退分支则只按应用自己的映像名匹配。一个成了孤儿的服务器,握着卸载器正要删的那些文件。两道防御覆盖它。启动时,在新服务器起来之前,`sweepOrphanedServers` 杀掉可执行文件**恰好是**本安装那个内置 Node 的进程——比的是完整路径而非映像名,因为这台机器上其他任何 `node` 都属于别人。安装器一侧,`build/installer.nsh` 定义 `customInit`,由 app-builder-lib 从 buildResources 目录按名字取用;它给应用与服务端 10 秒自行退出,超时后连子进程一起杀,因为服务端自己的子进程——shell、语言服务器——握着与它同一批文件。
+**杀掉应用并不会杀掉它的服务器。**服务器是安装目录下另一个独立的 `node.exe`,而安装器自带的清理够不到它:PowerShell 分支按 pid 停进程、不带子进程,回退分支则只按应用自己的映像名匹配。一个成了孤儿的服务器,握着卸载器正要删的那些文件。两道防御覆盖它。启动时,在新服务器起来之前,`sweepOrphanedServers` 杀掉可执行文件**恰好是**本安装那个内置 Node 的进程——比的是完整路径而非映像名,因为这台机器上其他任何 `node` 都属于别人。安装器一侧,`build/installer.nsh` 定义 `customCheckAppRunning`,由 app-builder-lib 从 buildResources 目录按名字取用;它给应用与服务端 10 秒自行退出,超时后连子进程一起杀,因为服务端自己的子进程——shell、语言服务器——握着与它同一批文件。
 
 **而更新自己的启动器,正握着被替换目录里的一个文件。**这就是熬过了上面全部防御的那次失败:一次什么都没显示的安装之后弹出「Failed to uninstall old application files…: 2」。因果链全在模板里:
 
@@ -66,7 +66,7 @@ Status: implemented
 
 这也解释了为什么同一个安装程序每次手动「以管理员身份运行」都能成功:手动启动的安装没有 `elevate.exe`。也解释了为什么只有一台机器出问题:装在 `C:\Program Files` 下的改名是同卷改名,不需要删除,也就不在乎谁在运行。
 
-所以 `customInit` **第一件事就是无条件杀掉 `elevate.exe`**,而且刻意**不带** `/T`:安装器是它的子进程,树杀会把它正要修的这次安装一起终结。改为等它则会死锁,因为它在等我们。之后才轮到针对应用与服务端的"先等后树杀"。这些匹配全部基于 `$INSTDIR` 下的可执行路径,这也是"杀一个 `node.exe`"这件事本身能成立的前提。
+所以 `customCheckAppRunning` **第一件事就是无条件杀掉 `elevate.exe`**,而且刻意**不带** `/T`:安装器是它的子进程,树杀会把它正要修的这次安装一起终结。改为等它则会死锁,因为它在等我们。之后才轮到针对应用与服务端的"先等后树杀"。`node.exe` 的匹配基于**已校验的** `$INSTDIR` 下的可执行路径,这也是「杀一个 `node.exe`」这件事本身能成立的前提——「已校验」是什么意思、以及内置检查为何不能被托付这个值,由[应用运行检查](../bug-fix/2026-08-19-installer-app-running-check.md)那篇负责。
 
 整个宏跑在一个 PowerShell 进程里,而不是每轮起一个:查询本身比两轮之间的 500 毫秒还贵,所以轮数不是时间预算。没有 PowerShell 时的回退只能按映像名树杀应用——`node.exe` 这个名字太常见,不能按名字杀——那是降级,不是方案。
 
@@ -129,7 +129,7 @@ macOS 刻意**不用** electron-updater。Squirrel.Mac 只在运行中的应用�
 
 macOS 构建从打包后的 `.app` 启动、走到它的 `dsh web:` 行、该 URL 返回 200,退出后无残留进程。Windows 安装程序过了 NSIS CRC 闸,`app-update.yml` 在打包资源里,`app.asar` 内含 `node_modules/electron-updater`。更新源路由在发布任何东西之前已从公网、对着真实证书链验证过,nginx 重载后也确认了原有的 `/flood/` 路由仍然回 `401`。
 
-没被编译进去的钩子是静默失效的——`!ifmacrodef` 只是不触发——所以两个钩子都用"往宏体里注入 `!error`、读编译器自己的回话"来证明:makensis 分别停在 `Error in macro customInit on macroline 1` 与 `Error in macro customFinishPage on macroline 1`。`build/installer.nsh` 被改名、挪动或新增忽略规则时,要重跑的就是这一项。更新回执则用同一次启动写下的日志行(`first run after updating from …`)来证明,方法是先把状态文件里的版本改旧。
+没被编译进去的钩子是静默失效的——`!ifmacrodef` 只是不触发——所以两个钩子都用"往宏体里注入 `!error`、读编译器自己的回话"来证明:makensis 分别停在 `Error in macro customCheckAppRunning on macroline 1` 与 `Error in macro customFinishPage on macroline 1`。`build/installer.nsh` 被改名、挪动或新增忽略规则时,要重跑的就是这一项。更新回执则用同一次启动写下的日志行(`first run after updating from …`)来证明,方法是先把状态文件里的版本改旧。
 
 ## Alternatives considered
 

@@ -84,6 +84,8 @@ The middle run is what added the rename retry. A directory cannot be renamed whi
 
 The successful run: `D:\soft\DSH Desktop` renamed to `~dsh-old0` and the staged tree deleted 2.0 s later, the install directory down to the one uninstaller left for `uninstallOldVersion`, that uninstaller run once rather than five times, 12452 files extracted, `DisplayVersion` at `0.1.0-rc.12`, no staging directory left beside the install, and the app running with its embedded server.
 
+The process sweep this fix depends on — the old app has to be out of the directory before it can be renamed — is [the app-running check](2026-08-19-installer-app-running-check.md)'s, reused from `customInit` rather than duplicated. That note's `customCheckAppRunning` covers the uninstaller; `customInit` is what covers the installer, whose `CHECK_APP_RUNNING` call is skipped under `${ifNot} ${UAC_IsInnerInstance}`.
+
 ## Alternatives considered
 
 **Replace the process check with `customCheckAppRunning`.** The first reading of the dialog text, and the fix that was in flight when the machine evidence arrived. It cannot work: `CHECK_APP_RUNNING` runs in `installSection.nsh` before `uninstallOldVersion`, so reaching the uninstall loop already proves the process check passed. Recorded here because the message's wording will suggest it again.

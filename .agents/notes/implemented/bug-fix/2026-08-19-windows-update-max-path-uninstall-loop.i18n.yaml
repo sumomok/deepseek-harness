@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-windows-update-max-path-uninstall-loop.md
-2026-08-19-windows-update-max-path-uninstall-loop.md: 1183f990e26626c33b6a7f579367374f795c0b17
-2026-08-19-windows-update-max-path-uninstall-loop.zh.md: b388d8103a055883740ba99af1cb14af8266867a
+2026-08-19-windows-update-max-path-uninstall-loop.md: 0e549d37bb9c142f829d2cea5270b308bc15452d
+2026-08-19-windows-update-max-path-uninstall-loop.zh.md: 4ec9b7f57eaa60ed700dc30270ab74f0d1685460
