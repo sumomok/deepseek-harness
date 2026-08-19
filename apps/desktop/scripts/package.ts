@@ -19,7 +19,7 @@
 import { spawn } from 'node:child_process'
 import { createWriteStream, existsSync } from 'node:fs'
 import { chmod, copyFile, cp, lstat, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { parseArgs } from 'node:util'
@@ -409,6 +409,15 @@ const PRUNE_SUFFIXES = ['.map', '.pdb', '.ts', '.mts', '.cts', '.tsbuildinfo']
 const DOC_MARKDOWN =
   /^(readme|changelog|history|security|contributing|code_of_conduct|governance|authors|maintainers|backers|sponsors)\b|\.zh\.md$/i
 
+/**
+ * The bilingual pairing record that sits beside every README in this
+ * workspace. It is documentation metadata — git blob hashes for the doc-sync
+ * gate — and 190 copies of it ride into the payload because `files` lists the
+ * README and pnpm deploy takes the package as published. Nothing at runtime
+ * reads one, and the install pays for each by file rather than by byte.
+ */
+const DOC_SIDECAR = /^readme(\.[a-z-]+)?\.i18n\.yaml$/i
+
 /** Platform-split artifact directories, relative to node_modules: keep only the target's. */
 const PLATFORM_DIR_RULES: Record<PayloadTarget, { parent: string; keep: (name: string) => boolean }[]> = {
   win: [
@@ -458,6 +467,10 @@ async function deriveServerPayload(target: PayloadTarget): Promise<void> {
       return false
     }
     if ((lower.endsWith('.md') || lower.endsWith('.markdown')) && DOC_MARKDOWN.test(lower)) {
+      pruned += 1
+      return false
+    }
+    if (DOC_SIDECAR.test(basename(lower))) {
       pruned += 1
       return false
     }
