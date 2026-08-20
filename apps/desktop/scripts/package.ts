@@ -26,6 +26,10 @@ import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { bundleClosure } from './bundle-closure.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
+import {
+  snapshotPayload, verifyPrunedPayload, verifyPruneRules,
+  type PayloadPlatform, type PayloadSnapshot, type PlatformDirRule,
+} from './payload-gate.ts'
 
 const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const ROOT = resolve(APP_DIR, '..', '..')
@@ -430,6 +434,16 @@ const SERVER_PAYLOADS = { darwin: join(STAGING, 'server-mac'), win: join(STAGING
 type PayloadTarget = keyof typeof SERVER_PAYLOADS
 
 /**
+ * The machine each payload runs on. Windows packages are x64 whichever host
+ * builds them; a macOS package is built for the host's own architecture, which
+ * is also the only one whose native prebuilds the install carries.
+ */
+const PAYLOAD_PLATFORMS: Record<PayloadTarget, PayloadPlatform> = {
+  win: { platform: 'win32', arch: 'x64' },
+  darwin: { platform: 'darwin', arch: process.arch },
+}
+
+/**
  * Non-runtime file suffixes pruned from every payload. Types, sources, source
  * maps, debug symbols, and docs are the bulk of the tree's file count and its
  * deepest paths (`lib/types/**`), and a node_modules forest inside an NSIS
@@ -464,8 +478,11 @@ const DOC_SIDECAR = /^readme(\.[a-z-]+)?\.i18n\.yaml$/i
  * packages (`@vscode/ripgrep-<platform>-<arch>`) that `lib/index.js` resolves at
  * call time; `@vscode/ripgrep` itself publishes no `bin/`, so a rule addressed
  * at it matches nothing and both payloads kept both platforms' `rg`.
+ *
+ * `verifyPruneRules` fails the build for a rule that drops nothing, which is
+ * what a rule addressed at the wrong directory looks like from the outside.
  */
-const PLATFORM_DIR_RULES: Record<PayloadTarget, { parent: string; keep: (name: string) => boolean }[]> = {
+const PLATFORM_DIR_RULES: Record<PayloadTarget, PlatformDirRule[]> = {
   win: [
     { parent: join('node-pty', 'prebuilds'), keep: name => name === 'win32-x64' },
     { parent: '@img', keep: name => !name.includes('darwin') && !name.includes('linux') },
@@ -490,8 +507,9 @@ const PLATFORM_DIR_RULES: Record<PayloadTarget, { parent: string; keep: (name: s
  * macOS payload goes through a full boot afterwards, which is what proves the
  * shared suffix rules cut no runtime content.
  * @param target - which platform's payload to derive.
+ * @param staged - the full staging's inventory, for the payload gate to compare against.
  */
-async function deriveServerPayload(target: PayloadTarget): Promise<void> {
+async function deriveServerPayload(target: PayloadTarget, staged: PayloadSnapshot): Promise<void> {
   const destination = SERVER_PAYLOADS[target]
   await rm(destination, { recursive: true, force: true })
   const nodeModulesPrefix = join(SERVER_STAGING, 'node_modules') + sep
@@ -503,7 +521,7 @@ async function deriveServerPayload(target: PayloadTarget): Promise<void> {
       const parentRel = dirname(source.slice(nodeModulesPrefix.length))
       for (const rule of PLATFORM_DIR_RULES[target]) {
         if (parentRel === rule.parent && !rule.keep(name)) {
-          skippedDirs.push(join(parentRel, name))
+          skippedDirs.push(join(parentRel, name).split(sep).join('/'))
           return false
         }
       }
@@ -524,6 +542,7 @@ async function deriveServerPayload(target: PayloadTarget): Promise<void> {
     return true
   }
   await cp(SERVER_STAGING, destination, { recursive: true, filter })
+  const afterPlatformPrune = await snapshotPayload(destination)
   // Collapsing the third-party trees happens here rather than in the package
   // build, so the workspace's publishable artifacts are untouched and only
   // this copy changes. It runs before the payload's own smoke test and before
@@ -533,6 +552,17 @@ async function deriveServerPayload(target: PayloadTarget): Promise<void> {
   if (collapsed.unbundled.length > 0) {
     console.log(`package: ${target} payload kept unbundled: ${collapsed.unbundled.join(', ')}`)
   }
+  // Ahead of the smoke test and the boot gate: a package deleted because its
+  // name is only ever built at run time fails those two somewhere unrelated, or
+  // not until a user reaches the feature, and this says which list to add to.
+  await verifyPrunedPayload({
+    target,
+    runsOn: PAYLOAD_PLATFORMS[target],
+    staged,
+    afterPlatformPrune,
+    payload: destination,
+    droppedByRules: skippedDirs,
+  })
   const counted = await countFiles(destination)
   console.log(`package: ${target} payload derived: ${String(counted)} files, pruned ${String(pruned)}, dropped platform dirs:\n  ${skippedDirs.sort().join('\n  ')}`)
   let longest = ''
@@ -596,11 +626,15 @@ async function main(): Promise<void> {
       rm(join(SERVER_STAGING, name), { force: true })))
   }
   await verifyStaging()
+  // Every target's rules, whichever targets this run builds: whether a rule
+  // matches is a property of the rule table and the staged tree.
+  await verifyPruneRules(SERVER_STAGING, PLATFORM_DIR_RULES)
+  const stagedSnapshot = await snapshotPayload(SERVER_STAGING)
 
   const derived = new Set<PayloadTarget>()
   const derivePayloadOnce = async (target: PayloadTarget): Promise<void> => {
     if (derived.has(target)) return
-    await deriveServerPayload(target)
+    await deriveServerPayload(target, stagedSnapshot)
     derived.add(target)
   }
 
