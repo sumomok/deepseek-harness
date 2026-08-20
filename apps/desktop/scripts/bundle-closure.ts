@@ -100,10 +100,30 @@ function entryPointsOf(manifest: Record<string, unknown>): string[] {
   return [...found]
 }
 
-/** Matches an import of `name` — the specifier itself, not the word appearing anywhere. */
+/**
+ * Matches a reference to `name` — the specifier itself, not the word appearing
+ * anywhere. Two forms count, because both make the package a directory the
+ * payload has to keep:
+ *
+ * - a specifier after `from`, `require` or `import`, which is what a bundler
+ *   would follow;
+ * - the literal argument of a resolution call — `import.meta.resolve('open')`,
+ *   `require.resolve('@img/sharp-libvips-darwin-arm64/binary')` — which
+ *   produces a path rather than a module, so nothing is inlined and the
+ *   directory has to be there at run time.
+ *
+ * What neither form reaches is a name that does not appear as a literal: a
+ * template with a substitution (`@img/sharp-${platform}-${arch}`, how sharp and
+ * `@vscode/ripgrep` select their platform package) and the dynamic library
+ * search a `.node` performs on its own. Those are what `NATIVE` is for.
+ */
 function specifierFor(name: string): RegExp {
   const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, match => `\\${match}`)
-  return new RegExp(String.raw`(?:from|require|import)\s*\(?\s*['"]` + escaped + String.raw`(?:/[^'"]*)?['"]`)
+  const literal = String.raw`['"\`]` + escaped + String.raw`(?:/[^'"\`]*)?['"\`]`
+  return new RegExp([
+    String.raw`(?:from|require|import)\s*\(?\s*` + literal,
+    String.raw`(?:import\s*\.\s*meta|[\w$]*[Rr]equire[\w$]*|createRequire\s*\([^()]*\))\s*\.\s*resolve\s*\(\s*` + literal,
+  ].join('|'))
 }
 
 /** Every JavaScript-ish file one package ships, concatenated. */
