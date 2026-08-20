@@ -52,6 +52,8 @@ const publishedRepositoryUrl = 'git+https://github.com/deepseek-ai/deepseek-harn
 const experimentalPackageDirectory = /^packages\/experimental\/[^/]+$/
 /** npm namespace reserved for private experimental packages. */
 const experimentalPackageNamePrefix = '@deepseek-ai/dsh-experimental-'
+/** Product assemblies: each either publishes to npm or ships inside a client build. */
+const appDirectory = /^apps\/[^/]+$/
 /** Directories whose packages this repository publishes: one release member each. */
 const releaseMemberDirectory = /^(?:packages\/(?!experimental\/)[^/]+\/[^/]+|apps\/[^/]+|vendor\/[^/]+)$/
 const localArtifactDirs = new Set(['node_modules'])
@@ -269,12 +271,50 @@ export function checkExperimentalManifest({ dir, manifest }: WorkspaceManifest):
 }
 
 /**
+ * Whether an app ships inside another artifact instead of publishing to npm.
+ *
+ * `apps/*` holds both kinds. `private` is the discriminator because it is also
+ * what stops `npm publish` from ever uploading the package, so a manifest
+ * cannot claim in-tree status here and still reach a registry.
+ * @param entry - one workspace directory and its manifest.
+ * @returns true for an `apps/*` package that declares `"private": true`.
+ */
+function isPrivateApp({ dir, manifest }: WorkspaceManifest): boolean {
+  return appDirectory.test(dir) && manifest.private === true
+}
+
+/**
+ * Private-app manifest requirements enforced in place of release metadata.
+ *
+ * The second rule keeps {@link appPackageFiles} authoritative over which apps
+ * publish: without it, adding `"private": true` to a release member would
+ * silently drop that member out of the release instead of failing here.
+ * @param entry - one workspace directory and its manifest.
+ * @returns One error for each publication claim a never-published app makes.
+ */
+export function checkPrivateAppManifest(entry: WorkspaceManifest): string[] {
+  if (!isPrivateApp(entry)) return []
+  const { dir, manifest } = entry
+  const label = manifest.name ?? dir
+  const errors: string[] = []
+  if (manifest.publishConfig !== undefined) errors.push(`${label}: private app must omit publishConfig`)
+  if (manifest.name !== undefined && appPackageFiles[manifest.name] !== undefined) {
+    errors.push(`${label}: private app must not hold a publication files policy`)
+  }
+  return errors
+}
+
+/**
  * Check one workspace manifest against publication and dsh-package policy.
  * @param workspace - package directory and parsed manifest.
  * @returns path-qualified policy violations.
  */
 export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): string[] {
-  const errors = checkExperimentalManifest({ dir, manifest })
+  const privateApp = isPrivateApp({ dir, manifest })
+  const errors = [
+    ...checkExperimentalManifest({ dir, manifest }),
+    ...checkPrivateAppManifest({ dir, manifest }),
+  ]
   const label = manifest.name ?? dir
   const isLandlockPackageDir = dir.startsWith('native/landlock-run/packages/')
   const isPublicLandlockPackage = isLandlockPackageDir
@@ -294,7 +334,7 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
       || manifest.repository.directory !== expectedDirectory) {
       errors.push(`${label}: published Landlock package repository must use ${repositoryUrl} with directory ${expectedDirectory} for trusted publishing`)
     }
-  } else if (releaseMemberDirectory.test(dir)) {
+  } else if (releaseMemberDirectory.test(dir) && !privateApp) {
     // Release members state that they are publishable: npm refuses a private
     // package, and the repository field is how a consumer finds the source of
     // the package it installed.
@@ -333,7 +373,7 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     }
   }
 
-  if (dir.startsWith('apps/') && manifest.name?.startsWith('@deepseek-ai/')) {
+  if (dir.startsWith('apps/') && !privateApp && manifest.name?.startsWith('@deepseek-ai/')) {
     const expectedFiles = appPackageFiles[manifest.name]
     if (expectedFiles === undefined) {
       errors.push(`${label}: app package has no publication files policy`)
