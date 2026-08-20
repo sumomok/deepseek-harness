@@ -6,9 +6,12 @@
   "ignoreBinaries": [
     "bwrap",
     "icacls",
+    "iconutil",
     "musl-gcc",
+    "powershell.exe",
     "python3",
     "sandbox-exec",
+    "sips",
     "tar",
     "taskkill",
     "where.exe"
@@ -755,6 +758,35 @@
       ],
       "ignoreDependencies": [
         "@deepseek-ai/.+"
+      ]
+    },
+    "apps/desktop": {
+      "entry": [
+        "scripts/after-pack.cjs",
+        "scripts/measure/diff-download.mjs",
+        "scripts/publish-update.ts"
+      ],
+      "project": [
+        "src/**/*.ts",
+        "scripts/**/*.ts",
+        "scripts/**/*.cjs",
+        "scripts/**/*.mjs"
+      ],
+      "ignoreDependencies": [
+        "electron-builder"
+      ]
+    },
+    "apps/desktop-server": {
+      "entry": [],
+      "project": [],
+      "ignoreDependencies": [
+        "@deepseek-ai/.+"
+      ]
+    },
+    "apps/pwa": {
+      "project": [
+        "src/**/*.ts",
+        "scripts/**/*.mjs"
       ]
     },
     "packages/client/modules": {
