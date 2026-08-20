@@ -764,13 +764,15 @@
       "entry": [
         "scripts/after-pack.cjs",
         "scripts/measure/diff-download.mjs",
-        "scripts/publish-update.ts"
+        "scripts/publish-update.ts",
+        "tests/**/*.spec.ts"
       ],
       "project": [
         "src/**/*.ts",
         "scripts/**/*.ts",
         "scripts/**/*.cjs",
-        "scripts/**/*.mjs"
+        "scripts/**/*.mjs",
+        "tests/**/*.ts"
       ],
       "ignoreDependencies": [
         "electron-builder"

@@ -116,8 +116,10 @@ function entryPointsOf(manifest: Record<string, unknown>): string[] {
  * template with a substitution (`@img/sharp-${platform}-${arch}`, how sharp and
  * `@vscode/ripgrep` select their platform package) and the dynamic library
  * search a `.node` performs on its own. Those are what `NATIVE` is for.
+ * @param name - the package name a reference would have to spell out.
+ * @returns a pattern matching either reference form for that name.
  */
-function specifierFor(name: string): RegExp {
+export function specifierFor(name: string): RegExp {
   const escaped = name.replace(/[.*+?^${}()|[\]\\/]/g, match => `\\${match}`)
   const literal = String.raw`['"\`]` + escaped + String.raw`(?:/[^'"\`]*)?['"\`]`
   return new RegExp([
