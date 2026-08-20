@@ -40,7 +40,7 @@ Windows 从未暴露这个故障。它的四个变体全在名单里，而且它
 
 ## 考虑过的替代方案
 
-**教可达性遍历去跟随动态解析。** 让遍历识别 `require.resolve`、`import.meta.resolve` 这类调用点，而不是维护一份保留名单。它够不到这次的故障：`@img/sharp-libvips-darwin-*` 是由 `.node` 通过动态库搜索加载的，任何对 JavaScript 的静态分析都观察不到。同一条限制在 `packages/bundle/web-app/src/index.ts` 的 `import.meta.resolve('open')` 上再次出现。
+**教可达性遍历去跟随动态解析。** 让遍历识别 `require.resolve`、`import.meta.resolve` 这类调用点，而不是维护一份保留名单。扩到那一步能抓到说明符是字面量的调用，却仍然抓不到 `.node` 自己发起的动态库搜索——而这次炸掉的正是这一种：`@img/sharp-libvips-darwin-*` 就是这样被找到的，任何对 JavaScript 的静态分析都观察不到。保留名单无论如何都得留着，遍历扩得再宽也只是让这份名单短一点。
 
 **只补 `@img/sharp-libvips-darwin-arm64` 一个。** 启动闸点名的正是这一个包，最小改动到此为止。另外两个只在使用时才失败——搜索要等某个工具跑起来才碰到 ripgrep，加载器要再晚一个插件才碰到 `node-addon-require-builtin`——所以最小改动等于把两个潜伏故障交到用户手上，而包名差集当时已经把三个都点了出来。
 

@@ -40,7 +40,7 @@ The gate worth adding compares the package names in `staging/server` against eac
 
 ## Alternatives considered
 
-**Teach the reachability walk to follow dynamic resolution.** Give the walk call-site recognition for `require.resolve` and `import.meta.resolve` instead of maintaining a keep list. It does not reach the failure: `@img/sharp-libvips-darwin-*` is loaded by a `.node` through the dynamic library search, which no static analysis of JavaScript observes. The same limit reappears on `import.meta.resolve('open')` in `packages/bundle/web-app/src/index.ts`.
+**Teach the reachability walk to follow dynamic resolution.** Give the walk call-site recognition for `require.resolve` and `import.meta.resolve` instead of maintaining a keep list. Extending it that far catches a call whose specifier is a literal, and still misses the dynamic library search a `.node` performs — the one case that breaks here, because `@img/sharp-libvips-darwin-*` is reached that way and no static analysis of JavaScript observes it. The keep list stays either way; a wider walk only makes it shorter.
 
 **Add `@img/sharp-libvips-darwin-arm64` alone.** The boot gate names exactly that package, and the smallest fix stops there. The other two fail only in use — search reaches ripgrep when a tool runs, and the loader reaches `node-addon-require-builtin` one plugin later — so the smallest fix hands two latent failures to users, while the package-name difference already named all three.
 
