@@ -1,11 +1,30 @@
 /**
  * Update channel of the desktop client. Both platforms read the same
  * electron-builder `generic` feed — a static directory of installers plus a
- * `latest*.yml` manifest — but they end differently: Windows downloads and
- * installs through electron-updater, while macOS only detects the new version
- * and hands the download to the system browser, because Squirrel.Mac refuses
- * to stage an update whose app is unsigned and no certificate is configured
- * for these builds.
+ * `latest*.yml` manifest — and both install from it in place: Windows through
+ * NSIS, macOS through Squirrel.Mac.
+ *
+ * macOS reaches Squirrel only from a code-signed build. Squirrel accepts a
+ * replacement bundle only when it satisfies the **running** app's designated
+ * requirement, and the two kinds of build differ in exactly that: a build
+ * signed by this product's certificate (scripts/sign-mac.cjs) requires
+ * `identifier "dev.dsh.desktop" and certificate root = H"<fingerprint>"`, which
+ * every later build signed by the same certificate satisfies, while an unsigned
+ * build carries the toolchain's ad-hoc linker signature, whose requirement
+ * degrades to a `cdhash` naming that one binary and can never be satisfied
+ * again. The certificate needs no trust on the machine being updated: it
+ * travels inside the signature.
+ *
+ * So the channel has three tiers, and the first that holds is the one that runs:
+ *
+ * 1. **In place** — Windows always, macOS when [[macAppIsSigned]] holds.
+ * 2. **Download page** — an unsigned macOS build (a local build, or a fork
+ *    packaged without a certificate) detects the new version and hands the
+ *    download to the system browser ([[checkGeneric]]).
+ * 3. **Fallback** — an in-place path that fails while running (the updater
+ *    errors, Squirrel refuses the bundle, ShipIt fails) drops to tier 2 for the
+ *    rest of the run and re-runs the same check there, rather than ending it in
+ *    an error box.
  *
  * The ordinary path runs in three stages and never interrupts what is running:
  * a silent check, one dialog offering the download, and — after the download
@@ -26,20 +45,38 @@
  * @module @deepseek-ai/dsh-desktop/updater
  */
 
+import { existsSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, Menu, shell, type MenuItemConstructorOptions, type MessageBoxOptions } from 'electron'
 import { load } from 'js-yaml'
-import { NsisUpdater } from 'electron-updater'
+import { MacUpdater, NsisUpdater, type AppUpdater } from 'electron-updater'
 import { mainWindow } from './main-window.ts'
 import { menuText } from './menu-text.ts'
 import { compareVersions } from './version-order.ts'
-import { closeProgress, progressVersion, showProgress, updateProgress } from './progress-window.ts'
+import { closeProgress, progressVersion, showInstalling, showProgress, updateProgress } from './progress-window.ts'
+
+/**
+ * The published feed, and **the only URL literal this module may contain**.
+ * Anything else — a local feed for an end-to-end test above all — arrives
+ * through `DSH_UPDATE_FEED`, so a test endpoint cannot be committed by
+ * forgetting to undo an edit. That failure mode is silent where it matters: a
+ * build shipped pointing at a machine-local address reports nothing and simply
+ * never finds an update again.
+ *
+ * There is no `app.isPackaged` guard around the override, because the only
+ * builds that can exercise the macOS path at all are packaged and signed ones —
+ * Squirrel replaces a bundle, so a source-tree launch has nothing to test with.
+ * The exposure it adds is nil either way: setting an environment variable in
+ * this app's session already requires owning the session.
+ */
+const FEED_DEFAULT = 'https://lhr.ink/dsh-updates'
 
 /**
  * Base of the static update feed. The per-platform subdirectories match the
  * `publish` blocks in electron-builder.yml, which is what makes one
  * `scripts/publish-update.ts` run serve both platforms.
  */
-const FEED_BASE = 'https://lhr.ink/dsh-updates'
+const FEED_BASE = process.env.DSH_UPDATE_FEED ?? FEED_DEFAULT
 
 /** Windows feed: `latest.yml` plus the NSIS installer and its blockmap. */
 const FEED_WIN = `${FEED_BASE}/win`
@@ -114,8 +151,23 @@ interface Feed {
   minimumVersion?: string
 }
 
-/** The single NsisUpdater instance; its event listeners must be registered once. */
-let nsisUpdater: NsisUpdater | undefined
+/** The single updater instance; its event listeners must be registered once. */
+let updater: AppUpdater | undefined
+
+/**
+ * Whether this macOS bundle carries a real signature, resolved once because the
+ * answer cannot change while the app runs.
+ */
+let macSigned: boolean | undefined
+
+/**
+ * Set when the macOS in-place path failed while running. Every later check in
+ * this run takes the download-page path instead. The demotion is deliberately
+ * blunt — it covers a Squirrel refusal and a dropped connection alike, because
+ * telling those apart means matching on message text — and it lasts only for
+ * the run: the next launch tries the in-place path again.
+ */
+let macInstallUnavailable = false
 
 /** Version of the update already downloaded and waiting to be installed. */
 let stagedVersion: string | undefined
@@ -143,6 +195,36 @@ let offeredVersion: string | undefined
 
 /** The macOS manifest the gate already fetched, so the blocking path does not refetch. */
 let macFeed: Feed | undefined
+
+/**
+ * Whether this macOS bundle is code signed, which is what decides between the
+ * first two tiers.
+ *
+ * The probe is the presence of `Contents/_CodeSignature/CodeResources`: signing
+ * a bundle seals its resources and writes that file, while the ad-hoc linker
+ * signature an unsigned Electron build carries seals nothing and writes
+ * nothing (`Sealed Resources=none`). A `codesign` subprocess would answer the
+ * same question, and this runs on every launch's first check — an `existsSync`
+ * is the version of the question that costs nothing.
+ * @returns true when the bundle was signed with a certificate.
+ */
+function macAppIsSigned(): boolean {
+  // getPath('exe') is <App>.app/Contents/MacOS/<exe>; two levels up is Contents.
+  macSigned ??= existsSync(join(dirname(dirname(app.getPath('exe'))), '_CodeSignature', 'CodeResources'))
+  return macSigned
+}
+
+/**
+ * Whether this build can replace itself where it stands, which is what decides
+ * between [[checkInPlace]] and [[checkGeneric]] and between the two shapes of
+ * the mandatory launch block.
+ * @returns true when the update can be installed without leaving the app.
+ */
+function canInstallInPlace(): boolean {
+  if (process.platform === 'win32') return true
+  if (process.platform !== 'darwin') return false
+  return macAppIsSigned() && !macInstallUnavailable
+}
 
 /**
  * Whether this build is below the publisher's red line. The feed's
@@ -217,17 +299,24 @@ function requestAttention(window: BrowserWindow | undefined): void {
 }
 
 /**
- * Show one dialog, attached to the app's own window whenever there is one.
- * A parentless `showMessageBox` opens an independent top-level window, which
- * Windows is free to place behind whatever the user is working in — the update
- * prompt then exists without being seen. Attaching it makes it window-modal,
- * so it rides on top of the window it belongs to.
+ * Show one dialog, attached to the app's own window on Windows and standing on
+ * its own on macOS.
  *
- * A window sitting in the tray is brought back first. A window-modal dialog
- * owned by a hidden window is the worse version of the same fault: it has no
- * taskbar button of its own, so it can be neither seen nor found — and 「没有
- * 用户的决定就不会发生安装」 only holds while the user can see what they are
- * deciding.
+ * On Windows a parentless `showMessageBox` opens an independent top-level
+ * window, which the shell is free to place behind whatever the user is working
+ * in — the update prompt then exists without being seen. Attaching it makes it
+ * window-modal, so it rides on top of the window it belongs to, and a window
+ * sitting in the tray is brought back first, because a window-modal dialog
+ * owned by a hidden window can be neither seen nor found.
+ *
+ * On macOS attaching it is what must not happen. A parented dialog is an NSAlert
+ * **sheet**, and a sheet ends when anything raises its parent —
+ * `BrowserWindow.focus()` is enough — reporting button index 0 as if it had been
+ * clicked. Every route back into the app calls [[revealMainWindow]] (the Dock
+ * icon, a clicked notification, a second launch), so a sheet here would let a
+ * click on the Dock answer 「重启安装」 and install an update nobody agreed to.
+ * A parentless dialog on macOS is an app-modal alert panel: it comes forward
+ * with the app, and only a button ends it.
  * @param options - the dialog to show.
  * @returns the index of the button the user chose.
  */
@@ -235,7 +324,7 @@ async function ask(options: MessageBoxOptions): Promise<number> {
   const parent = mainWindow()
   if (parent !== undefined && !parent.isVisible()) parent.show()
   requestAttention(parent)
-  const answer = parent === undefined
+  const answer = parent === undefined || process.platform === 'darwin'
     ? await dialog.showMessageBox(options)
     : await dialog.showMessageBox(parent, options)
   return answer.response
@@ -300,12 +389,12 @@ export async function launchGate(host: UpdateHost, onBlock: (message: string) =>
     ])
     if (!verdict) return false
     blocking = true
-    if (process.platform === 'win32') {
+    if (canInstallInPlace()) {
       onBlock('这是必须安装的更新,正在下载新版本…')
-      void blockOnWindows(host)
+      void blockWithInstaller(host)
     } else {
       onBlock('这是必须安装的更新,请下载新版本后继续。')
-      void blockOnMac(host)
+      void blockOnDownloadPage(host)
     }
     return true
   } catch (error) {
@@ -316,16 +405,27 @@ export async function launchGate(host: UpdateHost, onBlock: (message: string) =>
   }
 }
 
-/** Ask the feed whether this build is below the red line. */
+/**
+ * Ask the feed whether this build is below the red line. The verdict is read
+ * through whichever path will act on it, so the gate and the block agree on
+ * what they saw.
+ * @param host - logging and quit coordination from the main process.
+ * @returns true when this build may not open the app.
+ */
 async function resolveGate(host: UpdateHost): Promise<boolean> {
-  if (process.platform === 'win32') {
-    const result = await ensureNsisUpdater(host).checkForUpdates()
-    const minimum = minimumOf(result?.updateInfo)
-    if (!isMandatory(minimum)) return false
-    stagedNotes = typeof result?.updateInfo.releaseNotes === 'string' ? result.updateInfo.releaseNotes : undefined
-    offeredVersion = result?.updateInfo.version
-    host.log(`[updater] mandatory: ${app.getVersion()} is below the feed's minimumVersion ${String(minimum)}\n`)
-    return true
+  if (canInstallInPlace()) {
+    try {
+      const result = await ensureUpdater(host).checkForUpdates()
+      const minimum = minimumOf(result?.updateInfo)
+      if (!isMandatory(minimum)) return false
+      stagedNotes = typeof result?.updateInfo.releaseNotes === 'string' ? result.updateInfo.releaseNotes : undefined
+      offeredVersion = result?.updateInfo.version
+      host.log(`[updater] mandatory: ${app.getVersion()} is below the feed's minimumVersion ${String(minimum)}\n`)
+      return true
+    } catch (error) {
+      if (process.platform !== 'darwin') throw error
+      demoteMac(host, error)
+    }
   }
   const feed = await fetchFeed(`${FEED_MAC}/latest-mac.yml`)
   if (!isMandatory(feed.minimumVersion)) return false
@@ -336,17 +436,32 @@ async function resolveGate(host: UpdateHost): Promise<boolean> {
 }
 
 /**
- * Windows launch block: download without asking, then offer the only way
- * forward. A failed download must still leave a way out, so it offers a retry
- * beside quitting — never a state that can neither proceed nor exit.
+ * Drop macOS to the download-page tier for the rest of this run and say why.
+ * One failure reaches this from both sides — the `error` event and the caller's
+ * own catch — so only the first is reported; the rest are the same failure.
+ * @param host - logging and quit coordination from the main process.
+ * @param error - what the in-place path failed with.
+ */
+function demoteMac(host: UpdateHost, error: unknown): void {
+  if (macInstallUnavailable) return
+  macInstallUnavailable = true
+  const message = error instanceof Error ? error.message : String(error)
+  host.log(`[updater] in-place update unavailable (${message}); this run falls back to the download page\n`)
+}
+
+/**
+ * Launch block with an in-place installer: download without asking, then offer
+ * the only way forward. A failed download must still leave a way out, so it
+ * offers a retry beside quitting — never a state that can neither proceed nor
+ * exit.
  * @param host - logging and quit coordination from the main process.
  */
-async function blockOnWindows(host: UpdateHost): Promise<void> {
-  const updater = ensureNsisUpdater(host)
+async function blockWithInstaller(host: UpdateHost): Promise<void> {
+  const blocked = ensureUpdater(host)
   showProgress(offeredVersion ?? '')
   downloading = true
   try {
-    await updater.downloadUpdate()
+    await blocked.downloadUpdate()
   } catch (error) {
     downloading = false
     closeProgress()
@@ -361,7 +476,7 @@ async function blockOnWindows(host: UpdateHost): Promise<void> {
       cancelId: 1,
     })
     if (answer === 0) {
-      await blockOnWindows(host)
+      await blockWithInstaller(host)
       return
     }
     app.quit()
@@ -369,11 +484,11 @@ async function blockOnWindows(host: UpdateHost): Promise<void> {
 }
 
 /**
- * macOS launch block: an unsigned build cannot install itself, so the only
- * paths are downloading the replacement or quitting.
+ * Launch block without an in-place installer: the only paths are downloading
+ * the replacement in a browser or quitting.
  * @param host - logging and quit coordination from the main process.
  */
-async function blockOnMac(host: UpdateHost): Promise<void> {
+async function blockOnDownloadPage(host: UpdateHost): Promise<void> {
   const feed = macFeed
   const artifact = feed?.files?.[0]?.url
   const answer = await ask({
@@ -386,30 +501,51 @@ async function blockOnMac(host: UpdateHost): Promise<void> {
     cancelId: 1,
   })
   if (answer === 0 && artifact !== undefined) {
-    const target = feedFileUrl(FEED_MAC, artifact)
-    host.log(`[updater] opening ${target}\n`)
-    await shell.openExternal(target)
-    await ask({
-      type: 'info',
-      message: '下载完成后替换应用',
-      detail: '解压得到的 DSH Desktop.app 拖进「应用程序」覆盖旧版本。'
-        + '这些构建未经签名,替换后第一次打开要右键点图标选「打开」,系统才允许运行。',
-      buttons: ['好'],
-    })
+    await openDownloadPage(host, artifact)
   }
   app.quit()
 }
 
 /**
- * Run one update check on the current platform.
+ * Hand one feed artifact to the system browser and say what to do with it. The
+ * two paths that give up on installing in place end here, so the instructions
+ * are written once.
+ * @param host - logging and quit coordination from the main process.
+ * @param artifact - the manifest's `url` for the artifact to download.
+ */
+async function openDownloadPage(host: UpdateHost, artifact: string): Promise<void> {
+  const target = feedFileUrl(FEED_MAC, artifact)
+  host.log(`[updater] opening ${target}\n`)
+  await shell.openExternal(target)
+  await ask({
+    type: 'info',
+    message: '下载完成后替换应用',
+    detail: '解压得到的 DSH Desktop.app 拖进「应用程序」覆盖旧版本。'
+      + '这些构建没有经过 Apple 公证,替换后第一次打开要右键点图标选「打开」,系统才允许运行。',
+    buttons: ['好'],
+  })
+}
+
+/**
+ * Run one update check on whichever tier this build can use, falling back one
+ * tier when the in-place path fails part-way through. The fallback re-runs the
+ * same check rather than deferring it, so one check still ends in one answer.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
  */
 async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
   if (blocking) return
   try {
-    if (process.platform === 'win32') await checkWindows(host, reason)
-    else await checkGeneric(host, reason)
+    if (canInstallInPlace()) {
+      try {
+        await checkInPlace(host, reason)
+        return
+      } catch (error) {
+        if (process.platform !== 'darwin') throw error
+        demoteMac(host, error)
+      }
+    }
+    await checkGeneric(host, reason)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     host.log(`[updater] check failed: ${message}\n`)
@@ -425,14 +561,14 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
 }
 
 /**
- * Windows, stage one: compare against the feed. What the check finds decides
- * which of the later stages the user sees, and a manual check re-enters
+ * In-place tier, stage one: compare against the feed. What the check finds
+ * decides which of the later stages the user sees, and a manual check re-enters
  * whichever stage the update is already in rather than starting over.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
  */
-async function checkWindows(host: UpdateHost, reason: CheckReason): Promise<void> {
-  const updater = ensureNsisUpdater(host)
+async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void> {
+  const checking = ensureUpdater(host)
   if (stagedVersion !== undefined) {
     if (reason === 'manual') await offerInstall(host, stagedVersion, true)
     return
@@ -443,7 +579,7 @@ async function checkWindows(host: UpdateHost, reason: CheckReason): Promise<void
     if (reason === 'manual') showProgress(progressVersion() ?? '')
     return
   }
-  const result = await updater.checkForUpdates()
+  const result = await checking.checkForUpdates()
   const version = result?.updateInfo.version
   if (version === undefined || compareVersions(version, app.getVersion()) <= 0) {
     host.log(`[updater] no update: installed ${app.getVersion()}, feed ${version ?? 'unavailable'}\n`)
@@ -466,7 +602,7 @@ async function checkWindows(host: UpdateHost, reason: CheckReason): Promise<void
       detail: notesDetail(notes) || '下载完成后可以立即重启安装,也可以在下次启动时完成。',
       buttons: ['好'],
     })
-    await updater.downloadUpdate()
+    await checking.downloadUpdate()
     return
   }
   if (reason !== 'manual' && declinedVersion === version) {
@@ -477,8 +613,8 @@ async function checkWindows(host: UpdateHost, reason: CheckReason): Promise<void
 }
 
 /**
- * Windows, stage two: offer the download. Nothing has been transferred yet, so
- * this is the point where an update can be declined at no cost.
+ * In-place tier, stage two: offer the download. Nothing has been transferred
+ * yet, so this is the point where an update can be declined at no cost.
  * @param host - logging and quit coordination from the main process.
  * @param version - the version the feed offers.
  * @param notes - release notes from the manifest.
@@ -501,40 +637,55 @@ async function offerDownload(host: UpdateHost, version: string, notes: string | 
   downloading = true
   showProgress(version)
   host.log(`[updater] downloading ${version}\n`)
-  await nsisUpdater?.downloadUpdate()
+  await updater?.downloadUpdate()
 }
 
 /**
- * Build the Windows updater and register its lifetime listeners.
+ * Build this platform's updater and register its lifetime listeners. The two
+ * classes differ only in which feed and which installer they drive:
+ * `download-progress`, `error` and `update-downloaded` carry the same payloads
+ * from both, so one set of listeners serves both.
+ *
  * `autoInstallOnAppQuit` stays off: this app never replaces itself on the way
- * out, only in the seconds after someone clicks 「重启安装」.
+ * out, only in the seconds after someone clicks 「重启安装」. On macOS the flag
+ * has a second effect — it is also what would let Squirrel pre-fetch the staged
+ * bundle from electron-updater's local proxy during the download instead of
+ * after the click ([[offerInstall]] documents what that costs).
  * @param host - logging and quit coordination from the main process.
  * @returns the configured updater.
  */
-function ensureNsisUpdater(host: UpdateHost): NsisUpdater {
-  if (nsisUpdater !== undefined) return nsisUpdater
-  const updater = new NsisUpdater({ provider: 'generic', url: FEED_WIN, channel: FEED_CHANNEL })
-  updater.autoDownload = false
-  updater.autoInstallOnAppQuit = false
-  updater.logger = {
+function ensureUpdater(host: UpdateHost): AppUpdater {
+  if (updater !== undefined) return updater
+  const built: AppUpdater = process.platform === 'darwin'
+    ? new MacUpdater({ provider: 'generic', url: FEED_MAC, channel: FEED_CHANNEL })
+    : new NsisUpdater({ provider: 'generic', url: FEED_WIN, channel: FEED_CHANNEL })
+  built.autoDownload = false
+  built.autoInstallOnAppQuit = false
+  built.logger = {
     info: (message?: unknown) => { host.log(`[updater] ${String(message)}\n`) },
     warn: (message?: unknown) => { host.log(`[updater] warn: ${String(message)}\n`) },
     error: (message?: unknown) => { host.log(`[updater] error: ${String(message)}\n`) },
     debug: (message: string) => { host.log(`[updater] debug: ${message}\n`) },
   }
-  updater.on('download-progress', (progress) => {
+  built.on('download-progress', (progress) => {
     updateProgress(progress)
     mainWindow()?.setProgressBar(progress.percent / 100)
   })
-  updater.on('error', (error) => {
+  built.on('error', (error) => {
     // A failed download stays silent on the ordinary path: the next scheduled
     // check retries it. The blocking path reports it through its own dialog.
     downloading = false
     closeProgress()
     mainWindow()?.setProgressBar(-1)
     host.log(`[updater] error: ${error.message}\n`)
+    // On macOS this listener is also the only place a failure inside Squirrel
+    // surfaces — the staging and the install run after the promises this module
+    // awaits have already settled.
+    if (process.platform === 'darwin') demoteMac(host, error)
   })
-  updater.on('update-downloaded', (info) => {
+  built.on('update-downloaded', (info) => {
+    // On macOS this is the end of electron-updater's own download, not the end
+    // of the install: Squirrel is handed the file at [[offerInstall]].
     downloading = false
     stagedVersion = info.version
     stagedNotes = typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined
@@ -543,13 +694,33 @@ function ensureNsisUpdater(host: UpdateHost): NsisUpdater {
     host.log(`[updater] downloaded ${info.version}; waiting for an explicit install\n`)
     void offerInstall(host, info.version, blocking)
   })
-  nsisUpdater = updater
-  return updater
+  updater = built
+  return built
 }
 
 /**
- * Windows, stage three: the update is on disk and the only question left is
- * when to install it. The default button is 「暂不」 so a reflexive Enter never
+ * What the install click leads to, which is not the same experience on the two
+ * platforms and is the one thing the dialog must not get wrong.
+ *
+ * Windows hands over to the NSIS installer, which paints its own progress bar
+ * within a second. macOS hands over to Squirrel, and the click is answered by
+ * nothing for around fifteen seconds: about five to stop the server, fetch the
+ * staged zip back from electron-updater's local proxy, unpack it and validate
+ * its signature, then the rest with a bare screen while ShipIt swaps the
+ * bundles — it cannot start until every process of this bundle id has exited,
+ * so nothing of this app can be on screen to say so. Measured 14, 16 and 18
+ * seconds on an idle machine and 42 with the disk saturated, which is why the
+ * wording promises a range and admits it can be longer. Saying it at all is the
+ * only defence: a force-quit during those seconds lands exactly in the window
+ * where the bundle is half replaced.
+ */
+const INSTALL_PROMISE = process.platform === 'darwin'
+  ? '点击后应用会关闭,安装通常要 15 秒上下(机器忙时更久),期间屏幕可能一直没有反应;完成后会自动重新打开,你的会话记录都在。'
+  : '点击后应用会关闭并显示安装进度,完成后自动重新打开;你的会话记录都在。'
+
+/**
+ * In-place tier, stage three: the update is on disk and the only question left
+ * is when to install it. The default button is 「暂不」 so a reflexive Enter never
  * ends a session — except on the blocking path, where restarting is the only
  * way forward and the dialog says exactly that.
  * @param host - logging and quit coordination from the main process.
@@ -561,10 +732,9 @@ async function offerInstall(host: UpdateHost, version: string, force: boolean): 
   if (!force && postponedVersion === version) return
   postponedVersion = version
   const notes = notesDetail(stagedNotes)
-  const promise = '点击后应用会关闭并显示安装进度,完成后自动重新打开;你的会话记录都在。'
   const detail = notes === ''
-    ? `当前版本 ${app.getVersion()},安装后为 ${version}。\n\n${promise}`
-    : `更新内容:\n${notes}\n\n${promise}`
+    ? `当前版本 ${app.getVersion()},安装后为 ${version}。\n\n${INSTALL_PROMISE}`
+    : `更新内容:\n${notes}\n\n${INSTALL_PROMISE}`
   const answer = await ask({
     type: 'info',
     title: '新版本已下载完毕',
@@ -580,8 +750,29 @@ async function offerInstall(host: UpdateHost, version: string, force: boolean): 
     host.log(`[updater] ${version} stays downloaded; it installs when the user says so\n`)
     return
   }
+  if (process.platform === 'darwin') {
+    // Put the notice up before the teardown, so nothing about the next fifteen
+    // seconds is left to be guessed at. The main window goes with the server it
+    // is showing: leaving it up would leave a dead page on screen for the whole
+    // install. Windows gets neither, because the installer's own window is up
+    // within a second of the same click.
+    mainWindow()?.hide()
+    showInstalling(version)
+  }
   host.log(`[updater] stopping the server before installing ${version}\n`)
   await host.prepareQuit()
+  if (process.platform === 'darwin') {
+    // MacUpdater.quitAndInstall takes no arguments — it declares the two the
+    // base class has and ignores both. It returns immediately, and what follows
+    // is Squirrel's: fetch the staged zip from the local proxy electron-updater
+    // is still serving, unpack it, check it against this app's designated
+    // requirement, then run ShipIt, which waits for this process to exit before
+    // it swaps the bundles. The relaunch is Squirrel's `open`, so the new
+    // process inherits neither this one's argv nor its environment.
+    host.log(`[updater] handing ${version} to Squirrel\n`)
+    updater?.quitAndInstall()
+    return
+  }
   // (isSilent, isForceRunAfter) → the installer's `/S` and `--force-run`.
   //
   // isSilent is false on purpose: an install that shows nothing is
@@ -607,16 +798,16 @@ async function offerInstall(host: UpdateHost, version: string, force: boolean): 
   // `$INSTDIR` comes from the registry's InstallLocation, read in `.onInit`
   // before any page exists, so neither mode can land anywhere but the directory
   // the app already occupies.
-  nsisUpdater?.quitAndInstall(false, true)
+  updater?.quitAndInstall(false, true)
 }
 
 /**
- * macOS and every other platform without an in-place installer: read the feed
- * directly and, when it is ahead, open the download in the system browser.
- * Squirrel.Mac only stages updates for a signed app, so an unsigned build can
- * detect a new version but cannot install one. The dialog is confined to
- * startup and manual checks — a scheduled check mid-session only logs, unless
- * the feed's red line makes the update mandatory.
+ * The download-page tier: read the feed directly and, when it is ahead, open
+ * the download in the system browser. This is where an unsigned macOS build
+ * lives — it can see a new version but not replace itself with one — and where
+ * a signed build lands after its in-place path failed. The dialog is confined
+ * to startup and manual checks — a scheduled check mid-session only logs,
+ * unless the feed's red line makes the update mandatory.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
  */
@@ -651,16 +842,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason): Promise<void
     host.log(`[updater] user postponed ${version}\n`)
     return
   }
-  const target = feedFileUrl(FEED_MAC, artifact)
-  host.log(`[updater] opening ${target}\n`)
-  await shell.openExternal(target)
-  await ask({
-    type: 'info',
-    message: '下载完成后替换应用',
-    detail: '解压得到的 DSH Desktop.app 拖进「应用程序」覆盖旧版本。'
-      + '这些构建未经签名,替换后第一次打开要右键点图标选「打开」,系统才允许运行。',
-    buttons: ['好'],
-  })
+  await openDownloadPage(host, artifact)
 }
 
 /** Confirm to a manual checker that the installed version is current. */

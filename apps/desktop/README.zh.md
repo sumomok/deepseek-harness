@@ -32,7 +32,7 @@ https://lhr.ink/dsh-updates/mac/     latest-mac.yml + the zipped app
 
 这里没有更新服务:清单**本身**就是判断过程,所以 nginx 发一个目录已经把它整个实现了。更新源地址存在于两处——生成清单与打包内 `app-update.yml` 的 `electron-builder.yml`,以及运行时读取它们的 `src/updater.ts`——迁移更新源要同时改这两处。`channel: latest` 在两端都显式写出;默认行为会拿运行版本的预发布段给渠道命名,那会让渠道名随发布周期的每个阶段改名。
 
-**Windows 原地安装,分三步。**静默检查(启动后 15 秒、此后每四小时,以及 **帮助 → 检查更新**)先征询下载。同意后在后台下载,配一个可以随手关掉、关掉也不会中断下载的小进度窗。下载完成后再征询重启安装。**没有用户的决定就不会发生安装**,退出时或别的任何时候都一样:`autoInstallOnAppQuit` 关闭,应用只在有人点了「重启安装」之后的几秒里替换自己。被拒绝的安装留在盘上,只会在下次启动与菜单手动检查时再被提起——别处没有。这些对话框全部挂在应用自己的窗口上,应用不在前台时还会先请求注意(Windows 闪任务栏按钮,macOS 弹一次 Dock 图标)——没有 parent 的对话框可以被系统排到用户正在用的东西后面,更新提示就这样存在却没人看见。
+**Windows 原地安装,分三步。**静默检查(启动后 15 秒、此后每四小时,以及 **帮助 → 检查更新**)先征询下载。同意后在后台下载,配一个可以随手关掉、关掉也不会中断下载的小进度窗。下载完成后再征询重启安装。**没有用户的决定就不会发生安装**,退出时或别的任何时候都一样:`autoInstallOnAppQuit` 关闭,应用只在有人点了「重启安装」之后的几秒里替换自己。被拒绝的安装留在盘上,只会在下次启动与菜单手动检查时再被提起——别处没有。在 Windows 上这些对话框全部挂在应用自己的窗口上,因为没有 parent 的对话框可以被系统排到用户正在用的东西后面,更新提示就这样存在却没人看见;在 macOS 上它们刻意不挂 parent,因为那里带 parent 的对话框是 sheet,任何抬起父窗口的动作——比如点一下 Dock 图标——都会像按下它第一个按钮那样把它结束掉。两边都一样:应用不在前台时会先请求注意,Windows 闪任务栏按钮,macOS 弹一次 Dock 图标。
 
 **安装既不静默,也不需要走向导。**可选的形态有三种,只有中间那种既诚实又无需点击:
 
@@ -64,7 +64,9 @@ reg add "HKLM\SOFTWARE\e36966b0-1805-5ec4-9648-404e09da7db1" /v InstallLocation 
 
 键名是 electron-builder 由 `appId` 推出的 GUID,也是安装器读取目录的唯一出处——旁边那个 `Uninstall` 项只带 `DisplayName` 与 `UninstallString`,本来就没有 `InstallLocation`,在那儿看到空值并不说明任何问题。这个值缺失的代价不止那句提示:`uninstallOldVersion` 会把从 `UninstallString` 推出的正确目录当作 `_?=` 交给旧卸载器,而旧卸载器自己的 `initMultiUser` 又在卸载段开始前用同一个空键覆盖掉 `$INSTDIR`——于是它什么也没卸,新版本却装进 `%ProgramFiles%\DSH Desktop` 这个兜底目录,应用被悄悄搬了家,旧的那份留在原地。
 
-**macOS 只发现,再交接。**Squirrel.Mac 只为已签名应用暂存更新,而这些构建没有证书,所以 macOS 自己比对版本,改为用系统浏览器打开下载。该提示只出现在启动时或手动检查时,绝不在会话中途。
+**macOS 同样原地安装,前提是构建已签名。**Squirrel.Mac 只在替换件满足当前运行应用的 designated requirement 时才暂存更新,这正是发布构建要签名的原因(见下方「信任与签名」一节)。三个阶段、几个对话框、以及「重启安装」的规则都与 Windows 一致;不同的是安装本身。它要十五秒上下,其中大部分时间屏幕是空的——Squirrel 在解压与验签,而 ShipIt 要等本应用的所有进程退出才能开始换包——所以那次点击会立起一个常驻的「正在安装 vX」提示把这件事说清楚,并隐藏主窗口,因为它的服务马上就没了。
+
+**没有**签名的构建保持旧行为:自己比对版本,用系统浏览器打开下载,只在启动时或手动检查时,绝不在会话中途。走哪一条由每次检查现场判断:看 `Contents/_CodeSignature/CodeResources` 在不在——签名会写出它,ad-hoc 链接器签名不会。已签名的构建若在运行期失败,本次运行剩余时间降到同一条下载路径,并留下一行日志,而不是让这次检查以错误框收场。
 
 ### 强制更新
 
@@ -92,9 +94,11 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 
 ## 信任与签名
 
-产物是未签名的开发构建:macOS Gatekeeper 在非构建机上需要右键打开(或 `xattr -dr com.apple.quarantine`),Windows SmartScreen 会弹未知发布者提示。Windows 包只做了交叉构建与结构校验——交付前务必在真实 Windows 机器上冒烟。
+**macOS 构建由本项目自己持有的一张自签名证书签署。**`scripts/sign-mac.cjs` 在 `afterPack` 钩子里直接跑 `codesign`,因为 electron-builder 自己的签名过程用 `security find-identity -v` 过滤身份,未信任的自签名证书永远过不了这道过滤。`codesign` 没有这条规则;它真正要求的是身份所在的钥匙串必须在用户的钥匙串搜索列表里,所以脚本每次构建新建一个钥匙串、加进列表、签名,再在 `finally` 里还原搜索列表。身份默认从 `~/Library/Application Support/dsh-desktop-signing/dsh-desktop-signing.p12` 读取,除非 `DSH_MAC_SIGNING_P12` 与 `DSH_MAC_SIGNING_P12_PASSWORD` 另行指定;缺失时**构建失败**,`DSH_MAC_SIGN=0` 是显式索要未签名构建的方式。更新路径校验的就是这张证书,所以它不能轮换:它的指纹就在每个已安装客户端校验的 designated requirement 里。
 
-这也框定了更新源能承诺什么。TLS 认证服务器,清单里的 sha512 把产物绑定到清单,所以传输途中无法被做手脚。产物本身未签名,于是对 `/var/www/dsh-updates` 的写权限就等于对每个客户端下一个安装程序的写权限,而两个操作系统都不会为收到的东西背书。补上这一环要靠代码签名——Windows 的 Authenticode、macOS 的 Developer ID 加公证——那也正是能让 macOS 改为原地安装而非交接的那件事。
+它不是 Developer ID 证书,应用也未公证,所以由**浏览器**下载的副本,Gatekeeper 仍要求右键打开(或 `xattr -dr com.apple.quarantine`);由 Squirrel 装上的更新不带隔离属性,两者都不需要。Windows 产物未签名,SmartScreen 会弹未知发布者提示。Windows 包只做了交叉构建与结构校验——交付前务必在真实 Windows 机器上冒烟。
+
+这也框定了更新源能承诺什么。TLS 认证服务器,清单里的 sha512 把产物绑定到清单,所以传输途中无法被做手脚。产物带的是本项目自己做的签名,不是操作系统会背书的那种,所以对 `/var/www/dsh-updates` 的写权限仍然等于对每个客户端下一个安装程序的写权限——macOS 客户端会拒绝由别的证书签出的 bundle,但对「给它的是这张证书签出的哪一个构建」没有意见。补上这一环要靠 Windows 的 Authenticode 与 macOS 的 Developer ID 加公证。
 
 ## 服务器环境
 
@@ -105,6 +109,6 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 ## Known Limitations and Deferred Work
 
 - 通知打不开它所说的那个会话:web UI 把选中的会话放在内存里、URL 里什么都不放,壳没有地址可加载。补上这一点需要 web 客户端接受 URL 里的会话;届时壳这边只是 `loadURL` 的一个参数。
-- macOS 无法原地安装更新:未签名构建不在 Squirrel.Mac 愿意暂存的范围内,所以客户端只发现新版本并打开下载。前置条件是代码签名,不是打包工作。
+- macOS 已签名但未公证,所以由浏览器下载的副本首次运行仍需右键打开。公证需要 Apple 开发者账号;更新路径不需要。
 - Windows arm64 与 Linux 桌面目标未构建;node-pty 预编译已覆盖 win32-arm64,缺口只是打包工作。
 - 开发启动(`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`)用的是检出目录的已构建 CLI 和 PATH 里的 Node,不是暂存资源。

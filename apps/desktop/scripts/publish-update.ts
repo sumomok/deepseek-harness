@@ -10,6 +10,10 @@
  * sees the previous manifest and the previous artifacts, never a manifest
  * naming a file that is still uploading.
  *
+ * Nothing here deletes, and the feed directory is not to be tidied by hand
+ * either: differential downloads read the blockmap of the version the *client*
+ * is running as well as the new one ([[reportPreviousBlockmap]]).
+ *
  * Usage: pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes <file>
  *        [--minimum-version <version>] [--republish] [--dry-run]
  *
@@ -202,17 +206,43 @@ function artifactsOf(channel: Channel, manifest: Manifest): string[] {
   const primary = manifest.path ?? manifest.files?.[0]?.url
   if (primary === undefined) throw new Error(`publish: ${channel.manifest} names no artifact.`)
   const name = decodeURIComponent(primary)
-  const paths = [join(DIST, name)]
-  // The blockmap is what lets electron-updater download only the changed
-  // chunks of the next Windows installer; without it every update is a full
-  // download, so a missing one is a build problem, not an optional extra.
-  if (channel.name === 'win') paths.push(join(DIST, `${name}.blockmap`))
+  // The blockmap is what lets electron-updater download only the changed chunks
+  // of the next build, on both platforms: the NSIS installer on Windows and the
+  // app zip on macOS. Without it every update is a full download, so a missing
+  // one is a build problem, not an optional extra.
+  const paths = [join(DIST, name), join(DIST, `${name}.blockmap`)]
   for (const path of paths) {
     if (!existsSync(path)) {
       throw new Error(`publish: ${path} is missing — build first: pnpm exec tsx apps/desktop/scripts/package.ts --mac --win`)
     }
   }
   return paths
+}
+
+/**
+ * Report whether the version this publish replaces still has its blockmap in
+ * the feed directory.
+ *
+ * A differential download reads **two** blockmaps: the new build's, and the one
+ * belonging to the version the client is running, whose URL electron-updater
+ * builds by substituting versions into the new artifact's name
+ * (`Provider.getBlockMapFiles`). Every published version's blockmap therefore
+ * has to stay where it was uploaded for as long as anyone might update from it
+ * — which is why nothing in this script deletes, and why removing old builds by
+ * hand turns differential downloads back into full ones with no error anywhere.
+ * @param channel - the platform channel.
+ * @param artifact - the artifact being published, whose name carries the version.
+ * @param version - the version being published.
+ * @param previousVersion - the version the feed serves right now.
+ */
+async function reportPreviousBlockmap(channel: Channel, artifact: string, version: string, previousVersion: string): Promise<void> {
+  const previous = basename(artifact).replaceAll(version, previousVersion)
+  const path = `${REMOTE_ROOT}/${channel.name}/${previous}`
+  if (await remoteSize(path) > 0) {
+    console.log(`publish: ${channel.name}: ${previous} is still served, so ${previousVersion} clients update differentially`)
+    return
+  }
+  console.log(`publish: WARNING — ${channel.name}: ${previous} is not in the feed, so ${previousVersion} clients download the whole artifact.`)
 }
 
 /**
@@ -409,7 +439,9 @@ async function main(): Promise<void> {
     plan.set(channel, artifacts)
     for (const artifact of artifacts) {
       if (artifact.endsWith('.exe')) await verifyNsisIntegrity(artifact)
-      if (!artifact.endsWith('.blockmap')) {
+      if (artifact.endsWith('.blockmap')) {
+        if (live !== undefined) await reportPreviousBlockmap(channel, artifact, version, live.version)
+      } else {
         console.log(`publish: ${basename(artifact)} sha256 ${await localSha256(artifact)}`)
       }
     }
