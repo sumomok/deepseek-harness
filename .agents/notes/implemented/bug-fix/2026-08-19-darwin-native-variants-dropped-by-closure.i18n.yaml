@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-darwin-native-variants-dropped-by-closure.md
-2026-08-19-darwin-native-variants-dropped-by-closure.md: 7e6c56cf04317137c85af54f1d9c8da27c76eace
-2026-08-19-darwin-native-variants-dropped-by-closure.zh.md: b49486a2e45e6b46602fcfe276fb06cfdd515997
+2026-08-19-darwin-native-variants-dropped-by-closure.md: d33511a4e82311f6c825f254811c082416737081
+2026-08-19-darwin-native-variants-dropped-by-closure.zh.md: 3081b918108a082a5618f46d9670452a6f312877
