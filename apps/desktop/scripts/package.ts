@@ -19,11 +19,12 @@
 import { spawn } from 'node:child_process'
 import { createWriteStream, existsSync } from 'node:fs'
 import { chmod, copyFile, cp, lstat, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
-import { dirname, join, resolve, sep } from 'node:path'
+import { basename, dirname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
+import { bundleClosure } from './bundle-closure.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 
 const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
@@ -375,9 +376,11 @@ async function verifyStagedBoot(root: string): Promise<void> {
       })
     })
     const response = await fetch(url)
-    if (!response.ok || !(await response.text()).includes('__DSH_BOOT__')) {
+    const index = await response.text()
+    if (!response.ok || !index.includes('__DSH_BOOT__')) {
       throw new Error(`package: staged boot served an unexpected index from ${url}.`)
     }
+    await verifyClientModules(url, index)
     console.log(`package: staged boot verified at ${url}`)
   } finally {
     child.kill('SIGTERM')
@@ -386,6 +389,40 @@ async function verifyStagedBoot(root: string): Promise<void> {
       child.once('exit', () => { clearTimeout(timer); resolvePromise() })
     })
   }
+}
+
+/**
+ * Fetch every client bundle the index names and check it is still a browser
+ * module.
+ *
+ * A server that boots and serves its index says nothing about the forty
+ * modules the page then loads: `client-modules` serves them from
+ * `/plugins/<id>/client.js`, each one registering itself through
+ * `window.__ModuleLoader__.load`. A packaging change that rewrote them for
+ * Node put an `import ... from 'node:module'` on top of each, which no browser
+ * can resolve — the registration was still in the file and the page never
+ * reached it. Nothing server-side noticed: the boot was clean, the index was
+ * the right size, and the log held no error, because the failure happened in
+ * the renderer. This is the assertion that would have caught it.
+ * @param base - the booted server's URL.
+ * @param index - the index HTML, which names every client bundle.
+ */
+async function verifyClientModules(base: string, index: string): Promise<void> {
+  const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)].map(match => match[0]))]
+  if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
+  for (const path of paths) {
+    const target = new URL(path, base)
+    const response = await fetch(target)
+    const body = await response.text()
+    if (!response.ok) throw new Error(`package: client module ${path} answered ${String(response.status)}.`)
+    if (!body.includes('__ModuleLoader__')) {
+      throw new Error(`package: client module ${path} does not register itself; it is not a browser bundle any more.`)
+    }
+    if (/(?:^|[\n;])\s*import\s[^\n]*['"]node:/.test(body)) {
+      throw new Error(`package: client module ${path} imports a Node builtin, which no browser can resolve.`)
+    }
+  }
+  console.log(`package: staged boot checked ${String(paths.length)} client modules`)
 }
 
 /** Per-target pruned payloads staged beside the full server tree. */
@@ -409,19 +446,38 @@ const PRUNE_SUFFIXES = ['.map', '.pdb', '.ts', '.mts', '.cts', '.tsbuildinfo']
 const DOC_MARKDOWN =
   /^(readme|changelog|history|security|contributing|code_of_conduct|governance|authors|maintainers|backers|sponsors)\b|\.zh\.md$/i
 
-/** Platform-split artifact directories, relative to node_modules: keep only the target's. */
+/**
+ * The bilingual pairing record that sits beside every README in this
+ * workspace. It is documentation metadata — git blob hashes for the doc-sync
+ * gate — and 190 copies of it ride into the payload because `files` lists the
+ * README and pnpm deploy takes the package as published. Nothing at runtime
+ * reads one, and the install pays for each by file rather than by byte.
+ */
+const DOC_SIDECAR = /^readme(\.[a-z-]+)?\.i18n\.yaml$/i
+
+/**
+ * Platform-split artifact directories, relative to node_modules: keep only the
+ * target's. Both lists must name the same parents: a parent listed for one
+ * target only leaves the other payload carrying binaries it cannot run.
+ *
+ * `@vscode` is the scope, not `@vscode/ripgrep`. The binaries live in sibling
+ * packages (`@vscode/ripgrep-<platform>-<arch>`) that `lib/index.js` resolves at
+ * call time; `@vscode/ripgrep` itself publishes no `bin/`, so a rule addressed
+ * at it matches nothing and both payloads kept both platforms' `rg`.
+ */
 const PLATFORM_DIR_RULES: Record<PayloadTarget, { parent: string; keep: (name: string) => boolean }[]> = {
   win: [
     { parent: join('node-pty', 'prebuilds'), keep: name => name === 'win32-x64' },
     { parent: '@img', keep: name => !name.includes('darwin') && !name.includes('linux') },
     { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === 'koffi-win32-x64' },
-    { parent: join('@vscode', 'ripgrep'), keep: name => name !== 'bin' },
+    { parent: '@vscode', keep: name => !name.startsWith('ripgrep-') || name === 'ripgrep-win32-x64' },
     { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name === 'node-addon-require-builtin-win32-x64-msvc' },
   ],
   darwin: [
     { parent: join('node-pty', 'prebuilds'), keep: name => name === `darwin-${process.arch}` },
     { parent: '@img', keep: name => !name.includes('win32') && !name.includes('linux') },
     { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === `koffi-darwin-${process.arch}` },
+    { parent: '@vscode', keep: name => !name.startsWith('ripgrep-') || name === `ripgrep-darwin-${process.arch}` },
     { parent: '.', keep: name => !name.startsWith('node-addon-require-builtin-') || name.startsWith(`node-addon-require-builtin-darwin-${process.arch}`) },
   ],
 }
@@ -461,9 +517,22 @@ async function deriveServerPayload(target: PayloadTarget): Promise<void> {
       pruned += 1
       return false
     }
+    if (DOC_SIDECAR.test(basename(lower))) {
+      pruned += 1
+      return false
+    }
     return true
   }
   await cp(SERVER_STAGING, destination, { recursive: true, filter })
+  // Collapsing the third-party trees happens here rather than in the package
+  // build, so the workspace's publishable artifacts are untouched and only
+  // this copy changes. It runs before the payload's own smoke test and before
+  // the boot gate, which is what decides whether the result is usable.
+  const collapsed = await bundleClosure(destination)
+  console.log(`package: ${target} payload bundled: ${String(collapsed.bundled)} entry points, ${String(collapsed.removed)} third-party packages removed`)
+  if (collapsed.unbundled.length > 0) {
+    console.log(`package: ${target} payload kept unbundled: ${collapsed.unbundled.join(', ')}`)
+  }
   const counted = await countFiles(destination)
   console.log(`package: ${target} payload derived: ${String(counted)} files, pruned ${String(pruned)}, dropped platform dirs:\n  ${skippedDirs.sort().join('\n  ')}`)
   let longest = ''

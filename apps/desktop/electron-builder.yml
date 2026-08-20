@@ -17,12 +17,23 @@ asar: true
 npmRebuild: false
 nodeGypRebuild: false
 afterPack: scripts/after-pack.cjs
-# Only the languages the product ships; the full Electron locale set is ~50
-# extra files the installer would extract for nothing.
-electronLanguages:
-  - en-US
-  - zh-CN
+# Locale trimming is declared per platform in the `mac:` and `win:` sections
+# below: the product ships two languages and the full Electron locale set is ~50
+# extra files the installer would extract for nothing. The two lists cannot be
+# one, because app-builder-lib matches each entry against the locale file's own
+# basename (`removeUnusedLanguagesIfNeeded`, ElectronFramework.js) and the
+# platforms name those files differently — macOS keeps
+# `Contents/Resources/zh_CN.lproj` beside a bare `en.lproj`, Windows keeps
+# `locales/zh-CN.pak` beside `en-US.pak`. A platform list replaces a top-level
+# `electronLanguages` outright instead of merging with it, and a name matching
+# no file is dropped in silence: only a list that matches nothing at all is
+# warned about, and the app is left with whatever the platform ships by default.
+# `src/menu-text.ts` reads `app.getLocale()`, which on macOS resolves against the
+# .lproj set that survives here.
 mac:
+  electronLanguages:
+    - en
+    - zh_CN
   target:
     - target: zip
       arch: [arm64]
@@ -53,6 +64,9 @@ mac:
       url: https://lhr.ink/dsh-updates/mac
       channel: latest
 win:
+  electronLanguages:
+    - en-US
+    - zh-CN
   target:
     - target: nsis
       arch: [x64]
