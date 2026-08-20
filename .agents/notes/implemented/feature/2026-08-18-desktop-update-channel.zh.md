@@ -42,7 +42,7 @@ Status: implemented
 
 重新拉起应用于是必须自己做,因为模板的拉起条件是 `${if} ${isForceRun} ${andIf} ${Silent}`(`installSection.nsh`),非静默执行无论怎么传参都满足不了——`quitAndInstall` 在非静默时根本不转发 `isForceRunAfter`,而是替换成 `autoRunAppAfterInstall`(`BaseUpdater.js`)。`customFinishPage` 用 `${StdUtils.ExecShellAsUser}` 自己启动应用,把启动交给 shell,于是应用拿的是用户自己的令牌,而不是继承安装器的提权令牌。这一切都动不到 `$INSTDIR`:它在任何页面存在之前就已在 `.onInit` 里读好,来源是 `HKLM\SOFTWARE\<APP_GUID>\InstallLocation`——该值缺席时退回 `%ProgramFiles%\DSH Desktop`,所以下游任何一处都不能假定它解析成功([应用运行检查](../bug-fix/2026-08-19-installer-app-running-check.md))。
 
-**对话框挂在它所属的窗口上。**没有 parent 的 `dialog.showMessageBox` 会开一个独立顶层窗口,而 Windows 可以随意把它排到前台窗口后面——真实用户报告过「发现新版本」出现在编辑器底下。现在每个对话框都传应用自己的窗口;应用不在前台时还会先请求注意:Windows 用 `flashFrame`,下次获得焦点时清掉,macOS 用一次 `dock.bounce('informational')`。
+**在 Windows 上,对话框挂在它所属的窗口上。**没有 parent 的 `dialog.showMessageBox` 会开一个独立顶层窗口,而 Windows 可以随意把它排到前台窗口后面——真实用户报告过「发现新版本」出现在编辑器底下。因此 Windows 的对话框都传应用自己的窗口;应用不在前台时还会先请求注意:Windows 用 `flashFrame`,下次获得焦点时清掉,macOS 用一次 `dock.bounce('informational')`。macOS 不传 parent,因为在那里带 parent 的对话框是 sheet,任何抬起父窗口的动作都能替它作答([macOS 应用内更新](2026-08-19-macos-in-app-update-self-signed.md))。
 
 ### 保持可安装:进程生命周期与提权
 
@@ -80,7 +80,9 @@ Status: implemented
 
 ### macOS:发现并交接
 
-macOS 刻意**不用** electron-updater。Squirrel.Mac 只在运行中的应用已签名、且替换件满足同一签名要求时才会暂存更新;这些构建没有证书,所以原地安装再怎么努力也拿不到。与其发一条注定失败的路径,macOS 侧直接读 `latest-mac.yml` 比对版本,当更新源更新时用系统浏览器打开产物地址,并说明拿到之后怎么办——包括未签名应用首次运行时 Gatekeeper 要求的右键打开。
+这是**未签名**的 macOS 构建的行为,已不再是发布版的行为:签名构建通过 `MacUpdater` 就地安装,而这条路径作为它们的回退层保留下来([macOS 应用内更新](2026-08-19-macos-in-app-update-self-signed.md))。
+
+Squirrel.Mac 只在运行中的应用已签名、且替换件满足同一签名要求时才会暂存更新,所以没有证书的构建再怎么努力也拿不到原地安装。与其发一条注定失败的路径,它的检查直接读 `latest-mac.yml` 比对版本,当更新源更新时用系统浏览器打开产物地址,并说明拿到之后怎么办——包括未公证应用首次运行时 Gatekeeper 要求的右键打开。
 
 这个对话框被限制在启动与手动检查两处。会话中途的定时检查即使发现新版本也只写一行日志,因为正在进行的这次会话没有问过。
 
@@ -137,7 +139,7 @@ macOS 构建从打包后的 `.app` 启动、走到它的 `dsh web:` 行、该 UR
 
 **自建更新后端。** 更新 API 能做灰度、按用户分渠道、下载统计。这些都不想要,而清单**本身**已经是判断过程——加一个服务,换来的只是又一个要跑、要盯、要护的进程,而静态文件已经做到的事一样也没多。强制更新是通常需要买一个后端才有的那部分策略,结果它只是一个字段。
 
-**macOS 走 electron-updater。** 这是被硬约束否掉的,不是偏好:Squirrel.Mac 拒绝为未签名应用暂存更新,所以那条代码路径存在的唯一作用就是失败。发现版本并打开下载,是一个未签名构建能诚实给出的上限。
+**macOS 走 electron-updater。** 在这里是被硬约束否掉的,不是偏好:Squirrel.Mac 拒绝为未签名应用暂存更新,所以那条代码路径存在的唯一作用就是失败。发现版本并打开下载,是一个未签名构建能诚实给出的上限——而这条约束后来被签名解除了,那是 [macOS 应用内更新](2026-08-19-macos-in-app-update-self-signed.md) 记录的事。
 
 **在服务器 IP 上走明文 HTTP。** 原定方案,依证据放弃:该主机入站 TCP/80 在防火墙处被丢弃,IP 加 80 端口的更新源每次检查都会超时。主机在 443 上应答,证书对得上解析到它的那个域名,于是 TLS 既是可用的那个选项也是更强的那个——它认证服务器,而 HTTP 做不到。
 
@@ -147,9 +149,9 @@ macOS 构建从打包后的 `.app` 启动、走到它的 `dsh web:` 行、该 UR
 
 ## Consequences
 
-装好的 Windows 客户端以三个显式步骤自更新;装好的 macOS 客户端会告知有新版本并把人送过去。一次 `publish-update.ts` 同时服务两端,而一个 `minimumVersion` 字段就能把二者中任意一个升级为强制,无需再发一版客户端。
+装好的 Windows 客户端以三个显式步骤自更新;未签名的 macOS 客户端会告知有新版本并把人送过去。一次 `publish-update.ts` 同时服务两端,而一个 `minimumVersion` 字段就能把二者中任意一个升级为强制,无需再发一版客户端。
 
-更新源的安全性是诚实但不完整的:TLS 认证**服务器**,清单里的 sha512 把产物绑定到清单,所以没人能在传输途中做手脚——但产物仍未签名,于是对 `/var/www/dsh-updates` 的写权限就等于对每个客户端下一个安装程序的写权限,而两个操作系统都不会为下载到的东西背书。代码签名(Authenticode,以及 Developer ID 加公证)是补上这一环的升级,也正是能让 macOS 改为原地安装而非交接的那件事。
+更新源的安全性是诚实但不完整的:TLS 认证**服务器**,清单里的 sha512 把产物绑定到清单,所以没人能在传输途中做手脚——但产物仍未签名,于是对 `/var/www/dsh-updates` 的写权限就等于对每个客户端下一个安装程序的写权限,而两个操作系统都不会为下载到的东西背书。代码签名是补上这一环的升级。macOS 构建现在已签名,这正是它能就地安装的原因,但用的是本项目自己持有的自签名证书,而不是操作系统会背书的那种;Windows 产物仍未签名。
 
 `minimumVersion` 是一把发布者持有、客户端服从的锁。红线若定在人们实际够不到的版本之上,会把每一份安装都变成砖,所以发布脚本拒绝写入高于本次发布版本的值——但没有任何机制能拦住一条对着装不上的产物发出的错误红线,所以它始终是一个刻意的、极少动用的动作。
 

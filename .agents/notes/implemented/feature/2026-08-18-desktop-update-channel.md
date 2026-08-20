@@ -42,7 +42,7 @@ There is no update service. The manifest *is* the decision procedure: a client f
 
 Restarting the app then has to be done by hand, because the template's relaunch is `${if} ${isForceRun} ${andIf} ${Silent}` (`installSection.nsh`) and a visible run never satisfies it however the flag is passed — `quitAndInstall` does not even forward `isForceRunAfter` unless `isSilent` is set, substituting `autoRunAppAfterInstall` (`BaseUpdater.js`). `customFinishPage` starts the app itself through `${StdUtils.ExecShellAsUser}`, which hands the launch to the shell so the app runs with the user's token instead of inheriting the installer's elevated one. `$INSTDIR` is unaffected by any of this: it is read in `.onInit`, before any page exists, from `HKLM\SOFTWARE\<APP_GUID>\InstallLocation` — with `%ProgramFiles%\DSH Desktop` as the fallback when that value is absent, which is why nothing downstream may assume it resolved ([app-running check](../bug-fix/2026-08-19-installer-app-running-check.md)).
 
-**The dialogs are attached to the window they belong to.** `dialog.showMessageBox` without a parent opens an independent top-level window, which Windows is free to place behind whatever is in front — a real user reported 「发现新版本」 arriving underneath their editor. Every dialog now passes the app's window, and an app that is not focused asks for attention first: `flashFrame` on Windows, cleared on the next focus, and one `dock.bounce('informational')` on macOS.
+**The dialogs are attached to the window they belong to on Windows.** `dialog.showMessageBox` without a parent opens an independent top-level window, which Windows is free to place behind whatever is in front — a real user reported 「发现新版本」 arriving underneath their editor. Windows dialogs therefore pass the app's window, and an app that is not focused asks for attention first: `flashFrame` on Windows, cleared on the next focus, and one `dock.bounce('informational')` on macOS. macOS passes no parent, because there a parented dialog is a sheet that anything raising its parent can answer ([macOS in-app update](2026-08-19-macos-in-app-update-self-signed.md)).
 
 ### Staying installable: process lifecycle and elevation
 
@@ -80,7 +80,9 @@ The line is baked into the boot page's document rather than pushed into it with 
 
 ### macOS: detect and hand off
 
-macOS deliberately does **not** use electron-updater. Squirrel.Mac stages an update only when the running app is signed and the replacement satisfies the same signing requirement; these builds carry no certificate, so an in-place install is not available at any amount of effort. Rather than ship a path that always fails, the macOS check reads `latest-mac.yml` directly, compares versions, and — when the feed is ahead — opens the artifact URL in the system browser and states what to do with it, including the right-click-open that Gatekeeper demands of an unsigned app on its first run.
+This is what an **unsigned** macOS build does, and it is no longer what a released one does: signed builds install in place through `MacUpdater`, and this path survives as the tier they fall back to ([macOS in-app update](2026-08-19-macos-in-app-update-self-signed.md)).
+
+Squirrel.Mac stages an update only when the running app is signed and the replacement satisfies the same signing requirement, so a build carrying no certificate has no in-place install available at any amount of effort. Rather than ship a path that always fails, its check reads `latest-mac.yml` directly, compares versions, and — when the feed is ahead — opens the artifact URL in the system browser and states what to do with it, including the right-click-open that Gatekeeper demands of an un-notarized app on its first run.
 
 That dialog is confined to launch and manual checks. A scheduled check that finds a new version mid-session only writes a log line, because the session in progress did not ask.
 
@@ -137,7 +139,7 @@ A hook that is not compiled in fails silently — `!ifmacrodef` simply does not 
 
 **A self-hosted update backend.** An update API could serve staged rollouts, per-user channels, and download metrics. None of those are wanted, and the manifest already *is* the decision procedure — a service would add a process to run, monitor, and secure in exchange for nothing the static file does not already do. The mandatory layer is the one piece of policy a backend is usually bought for, and it turned out to be a single field.
 
-**macOS through electron-updater.** Rejected on a hard constraint rather than a preference: Squirrel.Mac refuses to stage an update for an unsigned app, so the code path would exist only to fail. Detecting the version and opening the download is the most an unsigned build can honestly offer.
+**macOS through electron-updater.** Rejected here on a hard constraint rather than a preference: Squirrel.Mac refuses to stage an update for an unsigned app, so the code path would exist only to fail. Detecting the version and opening the download is the most an unsigned build can honestly offer — and the constraint was later removed by signing, which is what [the macOS in-app update](2026-08-19-macos-in-app-update-self-signed.md) records.
 
 **Plain HTTP on the server's IP address.** The original plan, abandoned on evidence: inbound TCP/80 is dropped at that host's firewall, so an IP-and-port-80 feed would time out on every check. The host answers on 443 with a certificate valid for the name that resolves to it, so TLS was both the working option and the stronger one — it authenticates the server, which HTTP cannot.
 
@@ -147,9 +149,9 @@ A hook that is not compiled in fails silently — `!ifmacrodef` simply does not 
 
 ## Consequences
 
-An installed Windows client updates itself in three explicit steps; an installed macOS client tells the user a new version exists and takes them to it. One `publish-update.ts` run serves both, and one `minimumVersion` field escalates either into a requirement without a release of the client.
+An installed Windows client updates itself in three explicit steps; an unsigned macOS client tells the user a new version exists and takes them to it. One `publish-update.ts` run serves both, and one `minimumVersion` field escalates either into a requirement without a release of the client.
 
-The feed's security is honest but partial: TLS authenticates the *server* and the manifest's sha512 binds artifact to manifest, so nobody can tamper in transit — but the artifacts remain unsigned, so write access to `/var/www/dsh-updates` is write access to every client's next installer, and neither operating system will vouch for what is downloaded. Code signing (Authenticode, and Developer ID with notarization) is the upgrade that closes it, and is also the thing that would let macOS install in place instead of handing off.
+The feed's security is honest but partial: TLS authenticates the *server* and the manifest's sha512 binds artifact to manifest, so nobody can tamper in transit — but the artifacts remain unsigned, so write access to `/var/www/dsh-updates` is write access to every client's next installer, and neither operating system will vouch for what is downloaded. Code signing is the upgrade that closes it. macOS builds are now signed, which is what lets them install in place, but by a self-signed certificate this project holds rather than one an operating system will vouch for; Windows artifacts remain unsigned.
 
 `minimumVersion` is a lock the publisher holds and clients obey. A line set above a version people can actually reach would brick every install, which is why the publish script refuses to write one above the version it is publishing — but nothing stops a wrong line from being published against an artifact that fails to install, so it stays a deliberate, rarely used act.
 

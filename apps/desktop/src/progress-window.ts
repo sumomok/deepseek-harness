@@ -1,9 +1,10 @@
 /**
- * The download progress window shown while an update downloads. It is built
- * the same way as the boot page — a self-contained `data:` document driven by
- * `executeJavaScript`, with no preload and no IPC channel — and wears the same
- * visual language, so the two moments the app speaks for itself look like one
- * product.
+ * The window the update channel speaks through while it is working: a
+ * determinate bar for the download, and — on macOS only — a standing notice
+ * while Squirrel installs. Both are built the same way as the boot page — a
+ * self-contained `data:` document driven by `executeJavaScript`, with no
+ * preload and no IPC channel — and wear the same visual language, so every
+ * moment the app speaks for itself looks like one product.
  *
  * The window is a view, never a controller: closing it does not cancel the
  * download, and the download does not depend on it being open. That is why it
@@ -27,16 +28,18 @@ export interface DownloadProgress {
 }
 
 /**
- * The progress page. Static except for the numbers pushed into it, so the
- * document is built once per download and never rebuilt.
- * @param version - the version being downloaded, shown in the heading.
+ * The chrome both pages share: the palette, the layout, and the heading. Only
+ * the body below the heading differs.
+ * @param title - the window document's title.
+ * @param heading - the line at the top of the page.
  * @param appearance - which palette to paint, matching the boot page.
+ * @param body - the markup and script below the heading.
  * @returns the `data:` URL to load.
  */
-function progressPage(version: string, appearance: Appearance): string {
+function page(title: string, heading: string, appearance: Appearance, body: string): string {
   const colors = PALETTES[appearance]
   return 'data:text/html;charset=utf-8,' + encodeURIComponent(`<!doctype html>
-<html lang="zh"><head><meta charset="utf-8"><title>正在下载</title><style>
+<html lang="zh"><head><meta charset="utf-8"><title>${title}</title><style>
   * { box-sizing: border-box; }
   body {
     margin: 0; height: 100vh; padding: 26px 28px;
@@ -58,8 +61,28 @@ function progressPage(version: string, appearance: Appearance): string {
     font: 12px/1.5 ui-monospace, "SF Mono", "Cascadia Code", Consolas, Menlo, monospace;
   }
   .note { margin-top: 14px; font-size: 11px; color: ${colors.muted}; }
+  .sweep { width: 40%; animation: sweep 1.5s ease-in-out infinite; }
+  @keyframes sweep {
+    0% { margin-left: -40%; } 100% { margin-left: 100%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .sweep { animation: none; width: 100%; margin-left: 0; opacity: .5; }
+  }
 </style></head><body>
-  <h1>正在下载 v${version}</h1>
+  <h1>${heading}</h1>
+  ${body}
+</body></html>`)
+}
+
+/**
+ * The download page. Static except for the numbers pushed into it, so the
+ * document is built once per download and never rebuilt.
+ * @param version - the version being downloaded, shown in the heading.
+ * @param appearance - which palette to paint.
+ * @returns the `data:` URL to load.
+ */
+function progressPage(version: string, appearance: Appearance): string {
+  return page('正在下载', `正在下载 v${version}`, appearance, `
   <div class="track"><div class="fill" id="fill"></div></div>
   <div class="row">
     <div class="percent" id="percent">0%</div>
@@ -74,7 +97,24 @@ function progressPage(version: string, appearance: Appearance): string {
     document.getElementById('size').textContent = mb(transferred) + ' / ' + mb(total) + ' MB'
     document.getElementById('speed').textContent = mb(bytesPerSecond) + ' MB/s'
   }
-</script></body></html>`)
+</script>`)
+}
+
+/**
+ * The install page: the same surface with an indeterminate bar, because the
+ * installer reports nothing that could fill a determinate one. Its whole job is
+ * the sentence about the wait — macOS hands the screen to Squirrel for those
+ * seconds, and someone who reads a frozen screen as a hang force-quits into the
+ * exact window where the bundle is half replaced.
+ * @param version - the version being installed.
+ * @param appearance - which palette to paint.
+ * @returns the `data:` URL to load.
+ */
+function installingPage(version: string, appearance: Appearance): string {
+  return page('正在安装', `正在安装 v${version}`, appearance, `
+  <div class="track"><div class="fill sweep"></div></div>
+  <div class="note">通常要 15 秒上下,机器忙时更久。这期间屏幕可能一直没有反应,是正常的:
+    不要强制退出,安装完成后应用会自己重新打开,你的会话记录都在。</div>`)
 }
 
 /** The open progress window, if any. */
@@ -87,43 +127,74 @@ let shownVersion: string | undefined
 let lastSample: DownloadProgress | undefined
 
 /**
- * Open the progress window, or focus it when it is already open.
- * @param version - the version being downloaded.
+ * The window both pages share, created on first use and reused afterwards. It
+ * is never `closable: false`, whatever it is showing: a window that refuses to
+ * close cancels `app.quit()`, and the install path quits the app.
+ * @param title - the window's own title.
+ * @param height - the height this page's text needs.
+ * @returns the window, raised and focused.
  */
-export function showProgress(version: string): void {
-  shownVersion = version
-  if (window !== undefined && !window.isDestroyed()) {
-    window.show()
-    window.focus()
-    return
+function raise(title: string, height: number): BrowserWindow {
+  const existing = window
+  if (existing !== undefined && !existing.isDestroyed()) {
+    existing.setTitle(title)
+    existing.setContentSize(440, height)
+    existing.show()
+    existing.focus()
+    return existing
   }
-  const appearance = resolveAppearance()
-  window = new BrowserWindow({
+  const opened = new BrowserWindow({
     width: 440,
-    height: 200,
+    height,
     resizable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
     autoHideMenuBar: true,
-    backgroundColor: PALETTES[appearance].background,
-    title: '正在下载更新',
+    backgroundColor: PALETTES[resolveAppearance()].background,
+    title,
     webPreferences: {
       sandbox: true,
       contextIsolation: true,
     },
   })
-  window.setMenuBarVisibility(false)
-  const opened = window
-  void opened.loadURL(progressPage(version, appearance))
-  opened.webContents.once('did-finish-load', () => {
-    if (lastSample !== undefined) updateProgress(lastSample)
-  })
+  window = opened
+  opened.setMenuBarVisibility(false)
   opened.on('closed', () => {
     // Only the view is gone; the download keeps running and the taskbar keeps
     // showing it, which is why nothing here touches the updater.
     if (window === opened) window = undefined
   })
+  return opened
+}
+
+/**
+ * Open the download window, or focus it when it is already open. A window
+ * already showing this download is only raised, so a manual check mid-download
+ * rejoins the numbers on screen instead of resetting them to zero.
+ * @param version - the version being downloaded.
+ */
+export function showProgress(version: string): void {
+  const rejoining = shownVersion === version && window !== undefined && !window.isDestroyed()
+  shownVersion = version
+  const opened = raise('正在下载更新', 200)
+  if (rejoining) return
+  void opened.loadURL(progressPage(version, resolveAppearance()))
+  opened.webContents.once('did-finish-load', () => {
+    if (lastSample !== undefined) updateProgress(lastSample)
+  })
+}
+
+/**
+ * Replace whatever is on screen with the standing install notice. Called on the
+ * click that installs, so it is the last thing the app puts up before the
+ * installer takes the screen.
+ * @param version - the version being installed.
+ */
+export function showInstalling(version: string): void {
+  shownVersion = undefined
+  lastSample = undefined
+  void raise('正在安装更新', 230).loadURL(installingPage(version, resolveAppearance()))
 }
 
 /**

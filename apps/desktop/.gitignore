@@ -9,3 +9,15 @@ build/icon.ico
 build/icon.iconset/
 dist-app/
 staging/
+# Signing material belongs outside the checkout — scripts/sign-mac.cjs reads it
+# from ~/Library/Application Support/dsh-desktop-signing by default. These
+# patterns are the backstop for a copy landing here anyway: a private key in
+# git history cannot be taken back, and this one anchors the designated
+# requirement every installed build validates against.
+*.p12
+*.pfx
+*.key
+*.pem
+*.keychain
+*.keychain-db
+*.pass

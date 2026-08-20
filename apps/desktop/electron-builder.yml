@@ -28,17 +28,26 @@ mac:
       arch: [arm64]
     - target: dmg
       arch: [arm64]
-  # Unsigned development build; Gatekeeper needs a right-click open (or
-  # `xattr -dr com.apple.quarantine`) on other machines.
+  # The builder must not sign: it resolves identities through
+  # `security find-identity -v`, whose `-v` keeps only identities that pass
+  # trust evaluation, and this product signs with a self-signed certificate
+  # nobody has marked trusted. scripts/sign-mac.cjs runs `codesign` directly
+  # from the afterPack hook instead, which has no such rule. `identity: null` is
+  # what stops the builder's pass from running at all — anything else makes it
+  # search, fail, and warn.
+  #
+  # The result is not notarized, so Gatekeeper still wants a right-click open
+  # (or `xattr -dr com.apple.quarantine`) for a copy downloaded in a browser.
+  # An update installed by Squirrel is not quarantined and needs neither.
   identity: null
   category: public.app-category.developer-tools
   icon: build/icon.icns
   extraResources:
     - from: staging/runtime/darwin
       to: runtime
-  # Generates latest-mac.yml beside the zip. src/updater.ts reads that file
-  # itself: Squirrel.Mac only stages an update for a signed app, so macOS
-  # detects the new version and opens the download instead of installing it.
+  # Generates latest-mac.yml beside the zip, which is the feed
+  # electron-updater's MacUpdater downloads from. `channel: latest` is explicit
+  # for the reason spelled out under `win.publish`.
   publish:
     - provider: generic
       url: https://lhr.ink/dsh-updates/mac
