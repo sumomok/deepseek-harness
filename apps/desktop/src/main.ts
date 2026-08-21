@@ -27,31 +27,42 @@ import { app, BrowserWindow, shell } from 'electron'
 import { recordRun } from './desktop-state.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { setupNotifications } from './notifications.ts'
+import { describeSeed, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
 import { startServer, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import { launchGate, setupUpdates } from './updater.ts'
 
+/** A server launch plus the shipped closure the built-in plugins are seeded from. */
+interface LaunchSpec extends ServerSpec {
+  /** `node_modules` of the shipped server closure, holding the built-in plugin packages. */
+  builtinModules: string
+}
+
 /**
  * Resolve where the server lives for this launch. Packaged builds use the
  * app resources; a source-tree launch (`pnpm --filter @deepseek-ai/dsh-desktop
  * exec electron lib/main.js`) uses the checkout's built CLI on the
- * development Node found in PATH.
+ * development Node found in PATH, with the built-in plugins coming from the
+ * same `apps/desktop-server` closure the packaged payload is deployed from.
  * @returns the launch spec.
  */
-function resolveSpec(): ServerSpec {
+function resolveSpec(): LaunchSpec {
   const home = app.getPath('home')
   if (app.isPackaged) {
-    const resources = process.resourcesPath
+    const modules = join(process.resourcesPath, 'server', 'node_modules')
     return {
-      nodeBin: join(resources, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node'),
-      entry: join(resources, 'server', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+      nodeBin: join(process.resourcesPath, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node'),
+      entry: join(modules, '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+      builtinModules: modules,
       cwd: home,
     }
   }
+  const apps = join(app.getAppPath(), '..')
   return {
     nodeBin: process.env.DSH_DESKTOP_NODE ?? 'node',
-    entry: join(app.getAppPath(), '..', 'cli', 'lib', 'bin.js'),
+    entry: join(apps, 'cli', 'lib', 'bin.js'),
+    builtinModules: join(apps, 'desktop-server', 'node_modules'),
     cwd: home,
   }
 }
@@ -432,6 +443,14 @@ if (!locked) {
       // Before starting a new server, take down any left by a run that could
       // not finish its teardown: they hold the files this install occupies.
       await sweepOrphanedServers(spec.nodeBin, sink)
+      // Before the server reads the profile, not after: `initProfile` writes a
+      // profile once and never revisits it, so a name added later would not
+      // reach this launch's composition.
+      const seeded = describeSeed(seedBuiltinBundles({
+        home: resolveHarnessHome(),
+        serverModules: spec.builtinModules,
+      }))
+      if (seeded !== undefined) sink(seeded)
       server = await startServer(spec, sink)
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)
