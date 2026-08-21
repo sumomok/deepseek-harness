@@ -1,0 +1,7 @@
+# Opt-in Vue probe patch over the shipped Web composition. The row is a
+# `dsh.client` package, so the modules node half picks it up in its scan and
+# the browser loads one more plugin bundle.
+
+- insert:
+    - id: vue-ui-poc
+      name: '@deepseek-ai/dsh-experimental-vue-ui-poc'
