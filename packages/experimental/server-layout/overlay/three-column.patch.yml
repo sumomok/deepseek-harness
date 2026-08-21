@@ -1,0 +1,12 @@
+# Swap the shipped shell for the service-line four-track shell. The two cannot
+# coexist: 'root' is a single slot and its child slots may be declared only
+# once, so the ui-layout row is disabled and this row inserted in its place.
+# A disabled row never reaches the browser boot manifest, so the browser
+# fetches this bundle instead of that one.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'

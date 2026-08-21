@@ -80,6 +80,35 @@ export const CLIENT_NOTES: readonly string[] = [
 // detection is told to skip the data rather than the file.
 export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
   {
+    key: 'content',
+    kind: 'single',
+    scope: 'session-maybe',
+    summary: 'The whole center column, this shell\'s own seat and the reason it exists: the resident work surface between the session list and the chat column.',
+    doc: 'The whole center column, this shell\'s own seat and the reason it exists:\nthe resident work surface between the session list and the chat column.\nEMPTY in every shipped composition — registering here claims the column\noutright, and the shell\'s own placeholder disappears with the first\nregistration.\n\nCurrent-session-optional, matching the chat column: the occupant owns\nboth the no-session and the live-session state without changing its React\nidentity, so it keeps its own state across a session switch. It receives\nno owner props; session facts arrive through the framework hooks of the\n`session-maybe` scope.',
+    registerOptions: [],
+    ownerProps: [
+      '/** Content owner share: empty — the column\'s occupant owns its whole surface. */\nexport interface ContentOwnerProps {}',
+    ],
+    ownerPropsReferences: [],
+    standardProps: [
+      'useSessions: SnapshotSelectorHook<SessionListState>',
+      'useWorkspaces: SnapshotSelectorHook<import(\'./workspaces/service.ts\').WorkspaceListState>',
+      'useSession: MaybeSnapshotSelectorHook<ConversationSnapshot>',
+      'sessionId: SessionId | undefined',
+      'useProjection: UseProjection',
+      'useInput: MaybeSnapshotSelectorHook<InputState>',
+      'inputActions: InputActions | undefined',
+    ],
+    keyDomain: '',
+    hookContext: '',
+    slotInject: '',
+    declaredBy: 'an entry in \'root\' (experimental-server-layout), so it exists while that entry is mounted',
+    occupants: [],
+    replaceRisk: 'none',
+    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'content\', () => ctx.slots.register(\n      { name: \'content\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+    source: 'packages/experimental/server-layout/src/client/index.ts:55',
+  },
+  {
     key: 'conversation',
     kind: 'single',
     scope: 'session-maybe',
@@ -1164,6 +1193,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     declaredBy: 'the runtime itself (built in; always present)',
     occupants: [
       'client-ui-layout AppFrame',
+      'experimental-server-layout ShellFrame',
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'root\', () => ctx.slots.register(\n      { name: \'root\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
