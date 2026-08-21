@@ -172,7 +172,10 @@ async function killTree(child: ChildProcess): Promise<void> {
  * silent past the startup timeout, with the collected output in the message.
  */
 export async function startServer(spec: ServerSpec, logSink: (chunk: string) => void): Promise<ServerHandle> {
-  const child = spawn(spec.nodeBin, [spec.entry, 'web', '--port', '0'], {
+  // The shell's own window is the browser for this server, so `--no-open`
+  // declines the handoff the web app performs by default; without it every
+  // start, including the relaunch after an update, adds a 127.0.0.1 tab.
+  const child = spawn(spec.nodeBin, [spec.entry, 'web', '--port', '0', '--no-open'], {
     cwd: spec.cwd,
     env: augmentedEnv(process.env),
     stdio: ['ignore', 'pipe', 'pipe'],

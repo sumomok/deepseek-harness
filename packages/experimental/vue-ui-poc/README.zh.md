@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-在 web GUI 里承载非 React UI 框架的可行性验证。它向 `conversation.session.header.actions` 贡献一个条目——与 [`dsh-client-ui-jobs`](../../client/ui-jobs/README.md) 使用同一个增量座位——而这个条目的主体是一个 Vue 3 组件。插件协议本身没有任何变化：它是一个普通的双面包，node 半边为空，带 `dsh.client` 声明和 `./client` 产物。
+在 web GUI 里承载非 React UI 框架的可行性验证。它向 `conversation.session.header.actions` 贡献一个条目——与 [`dsh-client-ui-jobs`](../../client/ui-jobs/README.zh.md) 使用同一个增量座位——而这个条目的主体是一个 Vue 3 组件。插件协议本身没有任何变化：它是一个普通的双面包，node 半边为空，带 `dsh.client` 声明和 `./client` 产物。
 
 ## 这个验证证明了什么
 

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-19-self-contained-desktop-closure.md
 2026-08-19-self-contained-desktop-closure.md: 3b7f958b66d043236f7b3e0764490848b03308f9
-2026-08-19-self-contained-desktop-closure.zh.md: 015d7dfd5c97b5cd1d780760b293a74632a876ff
+2026-08-19-self-contained-desktop-closure.zh.md: 849c26e50df5da9a6bb1273a1ff9dbdd5b6bc7b8

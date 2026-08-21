@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-[`dsh-experimental-server-layout`](../../../../packages/experimental/server-layout/README.md) 开出了 `content` 槽——一块位于 session 列表与 chat 栏之间的常驻工作面——但交付时是空的。服务形态产品线需要这一栏展示由部署方自己编写、自己部署的应用，与一个活跃的 agent 会话并排，而这个应用不应成为 harness 构建的一部分。
+[`dsh-experimental-server-layout`](../../../../packages/experimental/server-layout/README.zh.md) 开出了 `content` 槽——一块位于 session 列表与 chat 栏之间的常驻工作面——但交付时是空的。服务形态产品线需要这一栏展示由部署方自己编写、自己部署的应用，与一个活跃的 agent 会话并排，而这个应用不应成为 harness 构建的一部分。
 
 harness 里没有任何东西能提供任意目录。`dsh-host-frontend-static` 占据 webserver 的 fallback 座位，任何未命中都以 HTTP 200 返回 dsh SPA 的 index——这与被托管应用的需求正好相反：那里一个错误的资源路径必须以 404 的形式暴露出来。
 

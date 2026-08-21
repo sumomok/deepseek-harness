@@ -4,7 +4,7 @@
 
 服务形态外壳 content 栏的第一位占用者：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，并由一个铺满该栏的 iframe 呈现。里面的应用由运行 harness 的人自己编写和部署——本包既不构建它，也不关心它用什么框架。
 
-两个半边围绕同一条路径 `/content-app` 定义：node 半边把它注册为指向配置目录的 webserver prefix 路由；browser 半边把一个指向 `/content-app/` 的 iframe 注册进 [`server-layout`](../server-layout/README.md) 的 `content` 槽。`content` 是 `single` + `session-maybe` 槽，因此这个 frame 是该栏唯一的占用者；而一个 frame 能活多久由渲染器的 adoption 规则决定：页面启动时的那一代会**认领**用户打开的第一个会话，因此应用能挺过这一次点击，此后每一次会话变化都会挂载新的 frame，并让应用重新加载。
+两个半边围绕同一条路径 `/content-app` 定义：node 半边把它注册为指向配置目录的 webserver prefix 路由；browser 半边把一个指向 `/content-app/` 的 iframe 注册进 [`server-layout`](../server-layout/README.zh.md) 的 `content` 槽。`content` 是 `single` + `session-maybe` 槽，因此这个 frame 是该栏唯一的占用者；而一个 frame 能活多久由渲染器的 adoption 规则决定：页面启动时的那一代会**认领**用户打开的第一个会话，因此应用能挺过这一次点击，此后每一次会话变化都会挂载新的 frame，并让应用重新加载。
 
 ## 信任边界
 

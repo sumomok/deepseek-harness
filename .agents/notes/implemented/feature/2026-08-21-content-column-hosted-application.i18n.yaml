@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-21-content-column-hosted-application.md
 2026-08-21-content-column-hosted-application.md: e273d569fedc35324f3e31d736f43c5ae1f5bed7
-2026-08-21-content-column-hosted-application.zh.md: ada9add4f6fa62619c26dc7ff39b18bfb1c0091e
+2026-08-21-content-column-hosted-application.zh.md: 0c0dcfbb95ad8ff0b6df9cefd375716da5c9c76e

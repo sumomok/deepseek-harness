@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/vue-ui-poc/README.md
 README.md: 7282915439f0935a945a67cbd50e374ef861c927
-README.zh.md: 7e554cd5e5352aa01ff99188f24127c517603aa3
+README.zh.md: 903165ef7d63b77e67753364cada8cd267414aec

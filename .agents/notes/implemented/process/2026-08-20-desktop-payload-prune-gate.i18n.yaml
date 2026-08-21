@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-20-desktop-payload-prune-gate.md
 2026-08-20-desktop-payload-prune-gate.md: 05b8f27d6e43b0ad89a95eb241514c7babc86119
-2026-08-20-desktop-payload-prune-gate.zh.md: 75c5365db65d47d91010f685302de5c4b41e12b2
+2026-08-20-desktop-payload-prune-gate.zh.md: 95d5fd64c485cdbb4dedc33a05ada205519434eb

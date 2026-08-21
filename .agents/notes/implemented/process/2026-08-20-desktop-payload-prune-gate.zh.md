@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-桌面载荷由两条彼此独立的裁剪把一棵 35000 个文件的暂存闭包切到 3858 个文件，其中较大的一条是[收敛第三方树](../architecture/2026-08-19-self-contained-desktop-closure.md)。`apps/desktop/scripts/package.ts` 里的 `PLATFORM_DIR_RULES` 在拷贝阶段丢掉另一个平台的产物目录；`apps/desktop/scripts/bundle-closure.ts` 里的可达性遍历把每个 `@deepseek-ai/*` 包的依赖内联进去，然后删掉所有已经没人 import 的第三方目录。两条都靠静态证据判断——一个作用在目录名上的谓词，或者跟在 `from`、`require`、`import` 后面的说明符——而且都不会报告自己解释不了的删除。
+桌面载荷由两条彼此独立的裁剪把一棵 35000 个文件的暂存闭包切到 3858 个文件，其中较大的一条是[收敛第三方树](../architecture/2026-08-19-self-contained-desktop-closure.zh.md)。`apps/desktop/scripts/package.ts` 里的 `PLATFORM_DIR_RULES` 在拷贝阶段丢掉另一个平台的产物目录；`apps/desktop/scripts/bundle-closure.ts` 里的可达性遍历把每个 `@deepseek-ai/*` 包的依赖内联进去，然后删掉所有已经没人 import 的第三方目录。两条都靠静态证据判断——一个作用在目录名上的谓词，或者跟在 `from`、`require`、`import` 后面的说明符——而且都不会报告自己解释不了的删除。
 
 名字在运行期才产生的包没有静态证据。有三个在同一天被删掉：
 
@@ -16,7 +16,7 @@ Status: implemented
 | `@img/sharp-libvips-darwin-*`、`@vscode/ripgrep-darwin-*`、`node-addon-require-builtin-darwin-*` | 只被 `require.resolve` 或 `.node` 自己的动态库搜索引用 | 启动在 `sharp.mjs` 里挂；另两个要等到搜索、等到后续插件 | 启动闸恰好加载 sharp |
 | `open` | `import.meta.resolve('open')` 把名字放在 `from`、`require`、`import` 三者之后都不是的位置 | 载荷 import 期 `ERR_MODULE_NOT_FOUND` | 打包直接失败 |
 
-三个里有两个是靠运气抓到的。中间那行里 ripgrep 和 `node-addon-require-builtin` 的删除只在用户搜索、或加载需要它的插件时才失败，本来会一路发到用户手上；[那一次的记录](../bug-fix/2026-08-19-darwin-native-variants-dropped-by-closure.md)正是最早提出要为载荷包名加一道门禁的地方。
+三个里有两个是靠运气抓到的。中间那行里 ripgrep 和 `node-addon-require-builtin` 的删除只在用户搜索、或加载需要它的插件时才失败，本来会一路发到用户手上；[那一次的记录](../bug-fix/2026-08-19-darwin-native-variants-dropped-by-closure.zh.md)正是最早提出要为载荷包名加一道门禁的地方。
 
 ripgrep 那次说明了为什么光靠包名差集不够。`PLATFORM_DIR_RULES` 里写着 `{ parent: '@vscode/ripgrep', keep: name => name !== 'bin' }`，而 `@vscode/ripgrep@1.18.0` 根本不发布 `bin/`：这条规则匹配零个目录，而且从来没匹配到过。它看上去像是管住了 ripgrep，实际上装二进制的那些兄弟包一条规则都没有，还害人多绕了一轮诊断。它的症状也在没人动它的情况下变过——闭包收敛之前，两个载荷各自带着对方平台的 `rg`；收敛之后，darwin 变体被当作不可达删掉，只剩 mac 载荷带着一个用不了的 `rg`。两种状态下这条规则同样是死的。
 
