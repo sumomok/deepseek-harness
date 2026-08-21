@@ -10,7 +10,16 @@
  * neither read nor write the cookies, storage, or caches of the window the
  * user is working in; no Node integration, no `webview`, no devtools; every
  * permission request denied; every download and every window the page tries to
- * open refused.
+ * open refused; no dialogs and no audio.
+ *
+ * The last two are about the machine rather than the page's data. `alert()`,
+ * `confirm()`, and `prompt()` open a native modal attached to a window with
+ * `show: false`, which the user sees as a system dialog from nowhere that
+ * nothing on screen explains, and the page's main thread blocks until it is
+ * dismissed — which is also what strands `fullPage`'s `executeJavaScript`.
+ * Electron's default `autoplayPolicy` is `no-user-gesture-required`, so an
+ * `<audio autoplay>` on a rendered page plays out of the user's speakers; a
+ * capture wants pixels only, so muting costs the render nothing.
  * @module @deepseek-ai/dsh-desktop/render-window
  */
 
@@ -95,6 +104,9 @@ export const renderInHiddenWindow: Renderer = async (request, signal) => {
       nodeIntegration: false,
       webviewTag: false,
       devTools: false,
+      // `alert()`, `confirm()`, and `prompt()` become no-ops instead of a
+      // native modal the user cannot account for and a blocked page thread.
+      disableDialogs: true,
       // A hidden window is a background window, and a throttled one stops
       // painting — which is the frame this render is here to capture.
       backgroundThrottling: false,
@@ -109,6 +121,8 @@ export const renderInHiddenWindow: Renderer = async (request, signal) => {
   }
   signal.addEventListener('abort', destroy, { once: true })
   try {
+    // Before the load, so a page that starts playing on load is already silent.
+    window.webContents.setAudioMuted(true)
     const session = window.webContents.session
     // Both handlers: the asynchronous one covers a page that asks, and the
     // synchronous check is the path a page that merely queries goes down.

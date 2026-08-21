@@ -75,7 +75,16 @@ export interface RenderLimits {
  * cannot occupy the single render slot for a session.
  */
 export const RENDER_LIMITS: RenderLimits = {
-  timeoutMs: 30_000,
+  /**
+   * Below the calling plugin's own budget, and it must stay there.
+   * `@haoran/dsh-screenshot` arms `AbortSignal.timeout(timeoutMs)` — 30 s by
+   * default — at the fetch call, while this deadline is created after
+   * admission, behind the connection, the body read, the JSON parse, the
+   * validation, and the queue check. Equal numbers make the plugin's signal
+   * fire first every time, and the 504 or 503 line this service writes for the
+   * model never reaches it.
+   */
+  timeoutMs: 25_000,
   queueLimit: 4,
   maxDelayMs: 10_000,
   minViewport: 16,
@@ -294,20 +303,33 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
   const token = randomBytes(TOKEN_BYTES).toString('hex')
   /** Requests accepted right now: at most one rendering, the rest waiting. */
   let admitted = 0
-  /** The serialization chain; every accepted render runs after the previous one settles. */
+  /** The serialization chain; every accepted render runs after the previous one is settled or abandoned. */
   let tail: Promise<void> = Promise.resolve()
 
   const runQueued = async (request: RenderRequest): Promise<Buffer> => {
     const controller = new AbortController()
     const job = tail.then(() => {
-      // The deadline covers the wait, so a request whose window passed while it
-      // was queued never opens a window at all.
+      // The deadline covers the wait, so a request the chain reaches after its
+      // own deadline is refused here rather than given a window on a budget
+      // that is already spent.
       if (controller.signal.aborted) throw new RenderTimeout(limits.timeoutMs)
       return renderer(request, controller.signal)
     })
-    // The chain must survive a failed render: swallowing here is what keeps one
-    // rejection from settling every request queued behind it.
-    tail = job.then(() => undefined, () => undefined)
+    // Resolves when this request is abandoned, whatever its renderer goes on
+    // doing.
+    const abandoned = new Promise<void>((resolve) => {
+      controller.signal.addEventListener('abort', () => { resolve() }, { once: true })
+    })
+    // The chain advances when a request is abandoned, not only when its
+    // renderer settles: `webContents.executeJavaScript` never settles once its
+    // window is destroyed, so a chain that waited for the renderer would leave
+    // every later request queued behind a link that never moves, for the life
+    // of the process. Swallowing keeps one rejection from settling everything
+    // queued behind it. An abandoned render may still be running beside the
+    // next one; that is safe because `renderInHiddenWindow` destroys the window
+    // unconditionally on both the abort listener and its `finally`, so the
+    // window and its renderer process are already released.
+    tail = Promise.race([job, abandoned]).then(() => undefined, () => undefined)
     let timer: NodeJS.Timeout | undefined
     const deadline = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {

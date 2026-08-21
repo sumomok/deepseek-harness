@@ -362,7 +362,25 @@ describe('a render that does not produce an image', () => {
     expect(aborted).toBe(true)
   })
 
-  it('counts the wait in the deadline, so a queued request never opens a window', async () => {
+  it('goes on serving after a renderer that never settles once it is abandoned', async () => {
+    const seen: string[] = []
+    const handle = await start(async (request) => {
+      seen.push(request.url)
+      // What `webContents.executeJavaScript` does when its window is destroyed:
+      // it neither resolves nor rejects, and the abort signal reaches nothing.
+      if (seen.length === 1) return new Promise<Buffer>(() => undefined)
+      return PNG
+    }, { timeoutMs: 60 })
+    const abandoned = await post(handle, VALID)
+    expect(abandoned.status).toBe(504)
+    await abandoned.text()
+    const next = await post(handle, { ...VALID, url: 'https://example.test/after' })
+    expect(next.status).toBe(200)
+    expect(Buffer.from(await next.arrayBuffer())).toEqual(PNG)
+    expect(seen).toEqual([VALID.url, 'https://example.test/after'])
+  })
+
+  it('counts the wait in the deadline, so a queued request gets only what is left of its own', async () => {
     const started: string[] = []
     const held = gate()
     const handle = await start(async (request, signal) => {
@@ -377,7 +395,9 @@ describe('a render that does not produce an image', () => {
     const secondResponse = await second
     expect(secondResponse.status).toBe(504)
     await secondResponse.text()
-    expect(started).toEqual([VALID.url])
+    // The chain moved on when the first render was abandoned, so the second one
+    // ran — on the remainder of a window that started when it was accepted.
+    expect(started).toEqual([VALID.url, 'https://example.test/queued'])
     held.open()
     const firstResponse = await first
     expect(firstResponse.status).toBe(504)
