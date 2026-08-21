@@ -8,23 +8,33 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { join, sep } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  BUILTIN_WEB_BUNDLES, describeSeed, resolveHarnessHome, seedBuiltinBundles,
+  BUILTIN_WEB_BUNDLES, describeSeed, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles,
 } from '../src/profile-seed.ts'
 
 let root: string
 let home: string
 let serverModules: string
 
-/** Stage a shipped closure holding `names` as bundle packages. */
-function shipPlugins(names: readonly string[]): void {
+/** Stage a shipped closure holding `names` as bundle packages at `version`. */
+function shipPlugins(names: readonly string[], version = '1.0.0'): void {
   for (const name of names) {
     const dir = join(serverModules, name)
     mkdirSync(dir, { recursive: true })
-    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, dsh: { bundle: { patch: './cordis.patch.yml' } } }))
+    writeFileSync(
+      join(dir, 'package.json'),
+      JSON.stringify({ name, version, dsh: { bundle: { patch: './cordis.patch.yml' } } }),
+    )
   }
+}
+
+/** Put a copy of `name` in the profile's own node_modules, as `dsh plugin add` would. */
+function installIntoProfile(name: string, version: string): void {
+  const dir = join(home, 'profiles', 'web', 'node_modules', name)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version }))
 }
 
 /** Write a profile manifest verbatim. */
@@ -138,7 +148,7 @@ describe('seedBuiltinBundles on an initialized profile', () => {
   it('reports a correct link as unchanged on the second run', () => {
     seedBuiltinBundles({ home, serverModules })
     const again = seedBuiltinBundles({ home, serverModules })
-    expect(again).toEqual({ seeded: [], linked: [], skipped: [], created: false })
+    expect(again).toEqual({ seeded: [], linked: [], skipped: [], shadowed: [], created: false })
   })
 })
 
@@ -203,16 +213,73 @@ describe('resolveHarnessHome', () => {
 
 describe('describeSeed', () => {
   it('says nothing when a run changed nothing', () => {
-    expect(describeSeed({ seeded: [], linked: [], skipped: [], created: false })).toBeUndefined()
+    expect(describeSeed({ seeded: [], linked: [], skipped: [], shadowed: [], created: false })).toBeUndefined()
   })
 
   it('names what was seeded and linked on one line', () => {
-    const line = describeSeed({ seeded: ['dsh-at-file'], linked: ['dsh-at-file'], skipped: [], created: true })
+    const line = describeSeed({ seeded: ['dsh-at-file'], linked: ['dsh-at-file'], skipped: [], shadowed: [], created: true })
     expect(line).toBe('[desktop] profile web: created with built-in bundles dsh-at-file; linked dsh-at-file\n')
   })
 
   it('carries every skip reason', () => {
-    const line = describeSeed({ seeded: [], linked: [], skipped: ['a: why', 'b: why'], created: false })
+    const line = describeSeed({ seeded: [], linked: [], skipped: ['a: why', 'b: why'], shadowed: [], created: false })
     expect(line).toBe('[desktop] profile web: skipped a: why; skipped b: why\n')
+  })
+})
+
+describe('sameLinkTarget', () => {
+  const target = join('/opt', 'app', 'server', 'node_modules', 'dsh-at-file')
+  const linkDir = join('/home', 'me', '.dsh', 'profiles', 'node_modules')
+
+  it('accepts the exact path back', () => {
+    expect(sameLinkTarget(target, target, linkDir)).toBe(true)
+  })
+
+  it('accepts the extended-length form Windows reads a junction back as', () => {
+    expect(sameLinkTarget(`\\\\?\\${target}`, target, linkDir)).toBe(true)
+  })
+
+  it('accepts a trailing separator the link was not created with', () => {
+    expect(sameLinkTarget(`${target}${sep}`, target, linkDir)).toBe(true)
+    expect(sameLinkTarget(`\\\\?\\${target}${sep}`, target, linkDir)).toBe(true)
+  })
+
+  it('resolves a relative read against the link directory, not the working directory', () => {
+    expect(sameLinkTarget('sibling', join(linkDir, 'sibling'), linkDir)).toBe(true)
+  })
+
+  it('rejects a link pointing somewhere else', () => {
+    expect(sameLinkTarget(join('/opt', 'other', 'dsh-at-file'), target, linkDir)).toBe(false)
+  })
+})
+
+describe('seedBuiltinBundles version reporting', () => {
+  it('warns when the profile installed another version of a built-in', () => {
+    installIntoProfile('dsh-at-file', '0.6.3')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.shadowed).toEqual([
+      'profile copy dsh-at-file@0.6.3 shadows the shipped 1.0.0 module; patch layer comes from the shipped copy',
+    ])
+    expect(describeSeed(report)).toContain('warning: profile copy dsh-at-file@0.6.3 shadows the shipped 1.0.0')
+  })
+
+  it('stays quiet when the profile installed the shipped version', () => {
+    installIntoProfile('dsh-better-sidebar', '1.0.0')
+    expect(seedBuiltinBundles({ home, serverModules }).shadowed).toEqual([])
+  })
+
+  it('changes nothing about the profile copy it reports', () => {
+    installIntoProfile('dsh-at-file', '0.6.3')
+    const installed = join(home, 'profiles', 'web', 'node_modules', 'dsh-at-file', 'package.json')
+    const before = readFileSync(installed, 'utf8')
+    seedBuiltinBundles({ home, serverModules })
+    expect(readFileSync(installed, 'utf8')).toBe(before)
+  })
+
+  it('says nothing when the profile copy has no readable manifest', () => {
+    const dir = join(home, 'profiles', 'web', 'node_modules', 'dsh-at-file')
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), '{ oops')
+    expect(seedBuiltinBundles({ home, serverModules }).shadowed).toEqual([])
   })
 })

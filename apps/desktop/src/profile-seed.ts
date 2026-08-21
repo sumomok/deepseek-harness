@@ -67,6 +67,8 @@ export interface SeedReport {
   linked: string[]
   /** One line per name or file the run left alone, each stating why. */
   skipped: string[]
+  /** One line per built-in the profile's own `node_modules` shadows with another version. */
+  shadowed: string[]
   /** True when the run created the profile manifest rather than editing one. */
   created: boolean
 }
@@ -140,6 +142,26 @@ function writeAtomic(path: string, content: string): void {
 }
 
 /**
+ * Whether a link Windows or POSIX reported already resolves to `target`.
+ *
+ * `readlinkSync` does not return the string that created the link. Windows
+ * reads a junction back in its extended-length form — `\\?\C:\dir\`, with the
+ * prefix and a trailing separator `target` never carries — so a plain string
+ * comparison is false for a correct link and the launch deletes and rebuilds it
+ * every time. A relative read resolves against the link's own directory, which
+ * is what a symbolic link means.
+ * @param read - what `readlinkSync` returned for the link.
+ * @param target - the directory the link is supposed to resolve to.
+ * @param linkDir - the directory holding the link, the base of a relative read.
+ * @returns true when the existing link already points at `target`.
+ */
+export function sameLinkTarget(read: string, target: string, linkDir: string): boolean {
+  const canonical = (path: string): string =>
+    resolve(linkDir, path.startsWith('\\\\?\\') ? path.slice(4) : path)
+  return canonical(read) === canonical(target)
+}
+
+/**
  * Point `link` at `target`, replacing a link that points elsewhere. A real
  * directory at that path belongs to whoever created it and is reported instead
  * of removed.
@@ -159,7 +181,7 @@ function ensureLink(link: string, target: string): boolean {
   }
   if (existing !== undefined) {
     if (!existing.isSymbolicLink()) throw new Error(`${link} exists and is not a symlink`)
-    if (readlinkSync(link) === target) return false
+    if (sameLinkTarget(readlinkSync(link), target, dirname(link))) return false
     // unlink removes the reparse point itself on Windows; rmSync would treat a
     // junction as a directory and refuse it.
     unlinkSync(link)
@@ -183,7 +205,7 @@ function ensureLink(link: string, target: string): boolean {
  * @returns what was seeded, linked, and skipped.
  */
 export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
-  const report: SeedReport = { seeded: [], linked: [], skipped: [], created: false }
+  const report: SeedReport = { seeded: [], linked: [], skipped: [], shadowed: [], created: false }
   const bundles = spec.bundles ?? BUILTIN_WEB_BUNDLES
   const available: string[] = []
   for (const name of bundles) {
@@ -215,8 +237,37 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
     } catch (error) {
       report.skipped.push(`${join(modulesDir, name)}: ${String(error)}`)
     }
+    reportShadowing(spec, profileDir, name, report)
   }
   return report
+}
+
+/**
+ * Report a copy of a built-in the profile installed for itself at another
+ * version. Node resolves the profile's own `node_modules` before the flat
+ * fallback, so that copy is the code the Loader imports, while
+ * `resolveBundleDir` still reads the patch layer from the installation — the
+ * row and the module then come from different versions. Reported, never acted
+ * on: the profile's dependencies belong to whoever installed them.
+ */
+function reportShadowing(spec: SeedSpec, profileDir: string, name: string, report: SeedReport): void {
+  const local = join(profileDir, 'node_modules', name, 'package.json')
+  if (!existsSync(local)) return
+  const versionOf = (path: string): string | undefined => {
+    try {
+      return (JSON.parse(readFileSync(path, 'utf8')) as { version?: string }).version
+    } catch {
+      // An unreadable manifest says nothing about a version mismatch, and this
+      // diagnostic must never be the thing that fails a launch.
+      return undefined
+    }
+  }
+  const installed = versionOf(local)
+  const shipped = versionOf(join(spec.serverModules, name, 'package.json'))
+  if (installed === undefined || shipped === undefined || installed === shipped) return
+  report.shadowed.push(
+    `profile copy ${name}@${installed} shadows the shipped ${shipped} module; patch layer comes from the shipped copy`,
+  )
 }
 
 /**
@@ -262,6 +313,7 @@ export function describeSeed(report: SeedReport): string | undefined {
   }
   if (report.linked.length > 0) parts.push(`linked ${report.linked.join(', ')}`)
   for (const line of report.skipped) parts.push(`skipped ${line}`)
+  for (const line of report.shadowed) parts.push(`warning: ${line}`)
   if (parts.length === 0) return undefined
   return `[desktop] profile ${WEB_PROFILE}: ${parts.join('; ')}\n`
 }
