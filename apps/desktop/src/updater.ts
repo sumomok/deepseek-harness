@@ -21,10 +21,12 @@
  * 2. **Download page** — an unsigned macOS build (a local build, or a fork
  *    packaged without a certificate) detects the new version and hands the
  *    download to the system browser ([[checkGeneric]]).
- * 3. **Fallback** — an in-place path that fails while running (the updater
+ * 3. **Fallback** — an in-place path that fails while running (the check
  *    errors, Squirrel refuses the bundle, ShipIt fails) drops to tier 2 for the
  *    rest of the run and re-runs the same check there, rather than ending it in
- *    an error box.
+ *    an error box. A download the network interrupted is not one of those: it
+ *    is retried in place ([[download]]) and, if the retries run out, left for
+ *    the next check on the same tier.
  *
  * The ordinary path runs in three stages and never interrupts what is running:
  * a silent check, one dialog offering the download, and — after the download
@@ -53,7 +55,8 @@ import { MacUpdater, NsisUpdater, type AppUpdater } from 'electron-updater'
 import { mainWindow } from './main-window.ts'
 import { menuText } from './menu-text.ts'
 import { compareVersions } from './version-order.ts'
-import { closeProgress, progressVersion, showInstalling, showProgress, updateProgress } from './progress-window.ts'
+import { closeProgress, progressVersion, showInstalling, showProgress, showRetrying, updateProgress } from './progress-window.ts'
+import { RETRY_DELAYS_MS, classifyDownloadError, describeDownloadError, downloadWithRetry } from './download-retry.ts'
 
 /**
  * The published feed, and **the only URL literal this module may contain**.
@@ -162,10 +165,13 @@ let macSigned: boolean | undefined
 
 /**
  * Set when the macOS in-place path failed while running. Every later check in
- * this run takes the download-page path instead. The demotion is deliberately
- * blunt — it covers a Squirrel refusal and a dropped connection alike, because
- * telling those apart means matching on message text — and it lasts only for
- * the run: the next launch tries the in-place path again.
+ * this run takes the download-page path instead, and the next launch tries the
+ * in-place path again.
+ *
+ * What demotes is a failure that says this build cannot install this update:
+ * a check that could not read the feed, a Squirrel refusal, a signature or
+ * checksum verdict. A download the network interrupted does not, because the
+ * tier it would abandon is the one that will work on the next attempt.
  */
 let macInstallUnavailable = false
 
@@ -175,7 +181,12 @@ let stagedVersion: string | undefined
 /** Release notes of the staged update, for the install dialog. */
 let stagedNotes: string | undefined
 
-/** Whether a download is in flight. */
+/**
+ * Whether a download is in flight, which stays true across a retry's wait: the
+ * transfer is still the current one, and the `error` listener reads this to
+ * tell a download's failure — owned by [[download]] — from a failure anywhere
+ * else in the updater.
+ */
 let downloading = false
 
 /** Version whose download offer was declined during this run. */
@@ -450,37 +461,99 @@ function demoteMac(host: UpdateHost, error: unknown): void {
 }
 
 /**
+ * Transfer one update, absorbing the interruptions a transfer of this size
+ * meets on a working connection.
+ *
+ * The progress window, the taskbar progress and [[downloading]] are opened and
+ * closed here, so the three places that start a download differ only in what
+ * they log and what they do with the answer. Each attempt is a whole download:
+ * electron-updater sends no `Range` header and deletes the partial file on
+ * every failure, so nothing of the interrupted transfer is reused.
+ *
+ * A transient failure that outlives [[RETRY_DELAYS_MS]] returns false and
+ * demotes nothing — a dropped connection says nothing about whether this build
+ * can replace itself, so macOS stays on the in-place tier and the next check
+ * starts over. A fatal failure — a signature refusal, a checksum mismatch, any
+ * `ERR_UPDATER_*` — is thrown after demoting macOS, which is what drops the
+ * caller's check to the download page.
+ * @param host - logging and quit coordination from the main process.
+ * @param version - the version being transferred, for the progress window.
+ * @param run - performs one whole download.
+ * @returns true when the download finished.
+ */
+async function download(host: UpdateHost, version: string, run: () => Promise<void>): Promise<boolean> {
+  downloading = true
+  showProgress(version)
+  try {
+    await downloadWithRetry(run, {
+      sleep: async (ms) => { await new Promise<void>((resolvePromise) => { setTimeout(resolvePromise, ms) }) },
+      onRetry: (attempt, total, delayMs, error) => {
+        host.log(`[updater] download interrupted (${describeDownloadError(error)}); retry ${String(attempt)}/${String(total)} in ${String(Math.round(delayMs / 1000))}s\n`)
+        showRetrying(attempt, total, delayMs)
+      },
+    })
+    return true
+  } catch (error) {
+    downloading = false
+    closeProgress()
+    mainWindow()?.setProgressBar(-1)
+    const detail = describeDownloadError(error)
+    if (classifyDownloadError(error) === 'fatal') {
+      host.log(`[updater] download failed: ${detail}\n`)
+      if (process.platform === 'darwin') demoteMac(host, error)
+      throw error
+    }
+    host.log(`[updater] download gave up after ${String(RETRY_DELAYS_MS.length)} retries: ${detail}\n`)
+    return false
+  }
+}
+
+/**
+ * Tell whoever asked for this check that the transfer did not get through.
+ * Only a manual check gets it: a silent one was not asked for, and the next
+ * check starts the download over anyway.
+ */
+async function reportDownloadFailed(): Promise<void> {
+  await ask({
+    type: 'warning',
+    message: '更新下载失败',
+    detail: '网络多次中断,下载没有完成。稍后再试,或从「帮助 → 检查更新」重新开始。',
+    buttons: ['好'],
+  })
+}
+
+/**
  * Launch block with an in-place installer: download without asking, then offer
  * the only way forward. A failed download must still leave a way out, so it
  * offers a retry beside quitting — never a state that can neither proceed nor
- * exit.
+ * exit. The dialog comes after [[download]] has run its own retries, so the
+ * button is offered for a fault that outlasted them rather than for the first
+ * dropped packet.
  * @param host - logging and quit coordination from the main process.
  */
 async function blockWithInstaller(host: UpdateHost): Promise<void> {
   const blocked = ensureUpdater(host)
-  showProgress(offeredVersion ?? '')
-  downloading = true
   try {
-    await blocked.downloadUpdate()
+    if (await download(host, offeredVersion ?? '', async () => { await blocked.downloadUpdate() })) return
   } catch (error) {
-    downloading = false
-    closeProgress()
-    host.log(`[updater] mandatory download failed: ${error instanceof Error ? error.message : String(error)}\n`)
-    const answer = await ask({
-      type: 'error',
-      title: '更新下载失败',
-      message: '必须安装的更新没有下载成功',
-      detail: '检查网络后重试,或退出应用稍后再启动。',
-      buttons: ['重试', '退出应用'],
-      defaultId: 0,
-      cancelId: 1,
-    })
-    if (answer === 0) {
-      await blockWithInstaller(host)
-      return
-    }
-    app.quit()
+    // [[download]] logged the failure and cleaned up after it; what the
+    // blocking path adds is that this one has no tier to fall back to.
+    host.log(`[updater] mandatory download cannot proceed: ${describeDownloadError(error)}\n`)
   }
+  const answer = await ask({
+    type: 'error',
+    title: '更新下载失败',
+    message: '必须安装的更新没有下载成功',
+    detail: '检查网络后重试,或退出应用稍后再启动。',
+    buttons: ['重试', '退出应用'],
+    defaultId: 0,
+    cancelId: 1,
+  })
+  if (answer === 0) {
+    await blockWithInstaller(host)
+    return
+  }
+  app.quit()
 }
 
 /**
@@ -530,6 +603,11 @@ async function openDownloadPage(host: UpdateHost, artifact: string): Promise<voi
  * Run one update check on whichever tier this build can use, falling back one
  * tier when the in-place path fails part-way through. The fallback re-runs the
  * same check rather than deferring it, so one check still ends in one answer.
+ *
+ * A download the network alone defeated never reaches this catch: [[download]]
+ * absorbs it and ends the check where it stands, because the tier is still the
+ * right one and re-running the check on the download-page tier would answer a
+ * question nobody asked.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
  */
@@ -592,8 +670,6 @@ async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void
   if (isMandatory(minimumOf(result?.updateInfo))) {
     // Mid-session mandatory: start immediately, but let the work in progress
     // finish — the next launch is where the gate stops being negotiable.
-    downloading = true
-    showProgress(version)
     host.log(`[updater] mandatory ${version}: downloading without asking\n`)
     void ask({
       type: 'warning',
@@ -602,14 +678,15 @@ async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void
       detail: notesDetail(notes) || '下载完成后可以立即重启安装,也可以在下次启动时完成。',
       buttons: ['好'],
     })
-    await checking.downloadUpdate()
+    const transferred = await download(host, version, async () => { await checking.downloadUpdate() })
+    if (!transferred && reason === 'manual') await reportDownloadFailed()
     return
   }
   if (reason !== 'manual' && declinedVersion === version) {
     host.log(`[updater] ${version} was declined this run; not asking again\n`)
     return
   }
-  await offerDownload(host, version, notes)
+  await offerDownload(host, version, notes, reason)
 }
 
 /**
@@ -618,8 +695,10 @@ async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void
  * @param host - logging and quit coordination from the main process.
  * @param version - the version the feed offers.
  * @param notes - release notes from the manifest.
+ * @param reason - what started this check, which decides whether a download
+ * that never got through is reported or only logged.
  */
-async function offerDownload(host: UpdateHost, version: string, notes: string | undefined): Promise<void> {
+async function offerDownload(host: UpdateHost, version: string, notes: string | undefined, reason: CheckReason): Promise<void> {
   const answer = await ask({
     type: 'info',
     title: `发现新版本 ${version}`,
@@ -634,10 +713,10 @@ async function offerDownload(host: UpdateHost, version: string, notes: string | 
     host.log(`[updater] user declined ${version}\n`)
     return
   }
-  downloading = true
-  showProgress(version)
   host.log(`[updater] downloading ${version}\n`)
-  await updater?.downloadUpdate()
+  const started = ensureUpdater(host)
+  const transferred = await download(host, version, async () => { await started.downloadUpdate() })
+  if (!transferred && reason === 'manual') await reportDownloadFailed()
 }
 
 /**
@@ -672,13 +751,16 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
     mainWindow()?.setProgressBar(progress.percent / 100)
   })
   built.on('error', (error) => {
-    // A failed download stays silent on the ordinary path: the next scheduled
-    // check retries it. The blocking path reports it through its own dialog.
-    downloading = false
+    host.log(`[updater] error: ${error.message}\n`)
+    // A failure while a download is in flight is delivered twice: here, and to
+    // whoever awaited downloadUpdate(). [[download]] owns that one — it decides
+    // whether to retry, keeps the progress window for the retry to write to,
+    // and demotes only for a failure that installing again cannot fix. Acting
+    // on it here would tear both down for a dropped packet.
+    if (downloading) return
     closeProgress()
     mainWindow()?.setProgressBar(-1)
-    host.log(`[updater] error: ${error.message}\n`)
-    // On macOS this listener is also the only place a failure inside Squirrel
+    // On macOS this listener is the only place a failure inside Squirrel
     // surfaces — the staging and the install run after the promises this module
     // awaits have already settled.
     if (process.platform === 'darwin') demoteMac(host, error)
