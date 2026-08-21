@@ -309,9 +309,11 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
   const runQueued = async (request: RenderRequest): Promise<Buffer> => {
     const controller = new AbortController()
     const job = tail.then(() => {
-      // The deadline covers the wait, so a request the chain reaches after its
-      // own deadline is refused here rather than given a window on a budget
-      // that is already spent.
+      // No window for a request whose deadline passed before the chain reached
+      // it. Deadlines are armed at admission and the chain advances no later
+      // than the head request's own, so this does not fire under that ordering;
+      // what it rules out is a whole render whose result the deadline has
+      // already discarded.
       if (controller.signal.aborted) throw new RenderTimeout(limits.timeoutMs)
       return renderer(request, controller.signal)
     })

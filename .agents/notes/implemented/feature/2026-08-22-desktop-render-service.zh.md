@@ -20,15 +20,17 @@ Status: implemented
 
 **为什么用 HTTP,而不是两个进程本来就共享的那条通道。**插件跑在服务端里,而服务端是一个 spawn 出来的 Node 进程,所以它对壳说的任何话都要跨越进程边界。壳与那个子进程之间已有的那条流承载服务端的日志输出与它的就绪行,把一套带二进制载荷的请求/响应协议复用上去,就等于让壳在一条「这里的每个字节都进 `dsh-server.log`」的管道上再拥有一套分帧。带 bearer token 的 loopback 端口是插件本来就会说的东西,也是另一个平台上的壳不必继承这一个壳的进程布局就能实现的东西。
 
-**协议之所以这么窄,原因是它的安全位置。**监听绑在 loopback 上,机器外的东西够不着它。token 先比长度再用 `timingSafeEqual` 比较,所以别的本地进程扫到端口也用不了这个服务。从不发送任何 CORS 头,除 `POST /render` 以外的方法一律答 404,于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝——这正是让用户自己浏览器里的页面无法借用户之手用上这个服务的东西。每次渲染拿到一个隐藏窗口,跑在一个全新的、非 `persist:` 的 partition 上,所以它的 session 只活在内存里、随窗口一起消失:被渲染的页面读不到也写不了用户工作所在那扇窗的 cookie、存储与缓存。那扇窗没有 Node 集成、没有 `webview`、没有 devtools;它的 session 拒绝每一次权限请求与权限检查,`will-download` 被 preventDefault,`setWindowOpenHandler` 拒绝每一个弹窗。
+**协议之所以这么窄,原因是它的安全位置。**监听绑在 loopback 上,机器外的东西够不着它。token 先比长度再用 `timingSafeEqual` 比较,所以别的本地进程扫到端口也用不了这个服务。从不发送任何 CORS 头,除 `POST /render` 以外的方法一律答 404,于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝——这正是让用户自己浏览器里的页面无法借用户之手用上这个服务的东西。每次渲染拿到一个隐藏窗口,跑在一个全新的、非 `persist:` 的 partition 上,所以它的 session 只活在内存里、随窗口一起消失:被渲染的页面读不到也写不了用户工作所在那扇窗的 cookie、存储与缓存。那扇窗没有 Node 集成、没有 `webview`、没有 devtools;它的 session 拒绝每一次权限请求与权限检查,`will-download` 被 preventDefault,`setWindowOpenHandler` 拒绝每一个弹窗。对话框被禁用,因为在一扇 `show: false` 的窗口上调 `alert()`、`confirm()`、`prompt()`,给出的是一个用户无从解释的原生模态框,背后是一条要等人点掉才会解除阻塞的页面线程——这也正是下面那处 `executeJavaScript` 挂起的第二个入口。窗口是静音的,因为 Electron 默认的 `autoplayPolicy` 是 `no-user-gesture-required`,而截图要的只是像素。
 
-**边界在哪**:同一时刻只渲染一个,最多受理四个请求(一个在渲染、三个在等),再来的答 503,期限 30 秒。期限从受理时刻起算,而不是从渲染开始时算,因为把这段时间花在排队上的请求,从它的调用方看来也一样花了这么久——而排队期间越过期限的请求,一次窗口都不会开就被答复。`fullPage` 截图会测量 `document.documentElement.scrollHeight` 并把窗口调到那个高度,夹到 8192 px 为止,因为无限滚动的文档报出的高度会在测量过程中一直变大。
+**边界在哪**:同一时刻只渲染一个,最多受理四个请求(一个在渲染、三个在等),再来的答 503,期限 25 秒。期限从受理时刻起算,而不是从渲染开始时算,因为把这段时间花在排队上的请求,从它的调用方看来也一样花了这么久。取 25 而不是 30,是因为它必须比调用方自己的预算先到期:`@haoran/dsh-screenshot` 的 `AbortSignal.timeout(timeoutMs)`——默认 30 秒——从 fetch 调用那一刻起算,而本服务的期限在受理之后才创建,中间隔着建连、读请求体、JSON 解析、校验与队列检查。两边取同一个数,每次都是插件自己的信号先触发,本服务为模型写的那一行 503 或 504 永远送不到它手里。`fullPage` 截图会测量 `document.documentElement.scrollHeight` 并把窗口调到那个高度,夹到 8192 px 为止,因为无限滚动的文档报出的高度会在测量过程中一直变大。
 
-**窗口那一半是注入进来的,这正是协议可测的原因。**`startRenderService` 接收一个 `Renderer`——`(request, signal) => Promise<Buffer>`——以及它要执行的边界,后者是显式的 `RenderLimits`,壳自己的数值放在同一个文件顶部的 `RENDER_LIMITS` 里,并在组合这个服务的那一个调用点传入。`apps/desktop/src/render-window.ts` 是 Electron 实现,除了窗口什么都不含。于是 21 个单元用例驱动鉴权、校验、受理、串行、期限,以及那个抵达 renderer 的 abort,全程不需要任何显示设备;而在真实 Electron 下运行的 `scripts/render-smoke.mjs` 覆盖它们够不着的那一件事——一扇从未展示过的窗口到底会不会画、`capturePage` 是否返回被请求的视口,以及整页截图是否确实超出它。
+**串行链在请求被放弃时前进,而不是只在它的 renderer settle 时前进。**`webContents.executeJavaScript` 在窗口被销毁之后永远不会 settle——`loadURL`、`capturePage` 与延时在 abort 后都会 settle,唯独它不会——所以一条等 renderer 的链,能被单个页面在本次进程的整个生命期内卡死:把 `document.documentElement.scrollHeight` 定义成一个不返回的 getter,再请求 `fullPage`,此后每一次渲染都排在一条永不前进的链后面,各自在自己的期限上被答以 504。因此 `runQueued` 让 job 与该请求自己的 abort 赛跑。被放弃的渲染可能比它在链上的那一环活得久,而这不付出任何代价:`renderInHiddenWindow` 在 abort 监听器和 `finally` 两条路径上都无条件销毁窗口,所以窗口与它的渲染进程在下一次渲染开始前就已释放。它确实改变的是每个 job 开头那次拒绝:链现在最迟在头一个请求自己的期限上就会前进,而那个时刻绝不晚于后面任何一个请求的期限,所以排队的请求拿到的是自己那份期限剩下的部分,而不是在窗口打开之前就被拒绝。
+
+**窗口那一半是注入进来的,这正是协议可测的原因。**`startRenderService` 接收一个 `Renderer`——`(request, signal) => Promise<Buffer>`——以及它要执行的边界,后者是显式的 `RenderLimits`,壳自己的数值放在同一个文件顶部的 `RENDER_LIMITS` 里,并在组合这个服务的那一个调用点传入。`apps/desktop/src/render-window.ts` 是 Electron 实现,除了窗口什么都不含。于是 22 个单元用例驱动鉴权、校验、受理、串行、期限、那个抵达 renderer 的 abort,以及链在遇到一个永不 settle 的 renderer 之后仍然活着这一点,全程不需要任何显示设备;而在真实 Electron 下运行的 `scripts/render-smoke.mjs` 覆盖它们够不着的那一件事——一扇从未展示过的窗口到底会不会画、`capturePage` 是否返回被请求的视口,以及整页截图是否确实超出它。
 
 **监听没能打开不是拒绝启动的理由。**壳记一行日志,不带渲染变量地启动服务端,插件随后做的就是它在所有非桌面安装上做的事:去探测系统浏览器。
 
-**插件随载荷一起走。**`apps/desktop-server/package.json` 把 `@haoran/dsh-screenshot` 声明为 `file:./vendor/haoran-dsh-screenshot-0.1.0.tgz`,那个 tarball 与它一起提交,`BUILTIN_WEB_BUNDLES` 列出它的名字,壳便像对另外两个那样把它播种进 web profile。`file:` tarball 正是让这条路走通、而 GitHub 归档 URL 走不通的原因:pnpm 会像对注册表版本那样为它记录 `integrity: sha512-…`,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目。带作用域的名字没有要求任何新代码——播种构造的每一条路径都是 join 出来的,`ensureLink` 本就会创建链接的父目录,也就是 `@haoran` 这个作用域目录——但它确实要求了证明这一点的测试,因为带分隔符的名字正是字符串拼接能一路蒙混过关、直到蒙混不过去的那类东西。`scripts/bundle-closure.ts` 按既有规则完整保留这个包:它的清单声明了 `dsh.bundle`,而载荷里没有任何东西以标识符导入一个 profile bundle。
+**插件随载荷一起走。**`apps/desktop-server/package.json` 把 `@haoran/dsh-screenshot` 声明为 `file:./vendor/haoran-dsh-screenshot-0.1.0.tgz`,那个 tarball 与它一起提交,`BUILTIN_WEB_BUNDLES` 列出它的名字,壳便像对另外两个那样把它播种进 desktop profile。`file:` tarball 正是让这条路走通、而 GitHub 归档 URL 走不通的原因:pnpm 会像对注册表版本那样为它记录 `integrity: sha512-…`,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目。带作用域的名字没有要求任何新代码——播种构造的每一条路径都是 join 出来的,`ensureLink` 本就会创建链接的父目录,也就是 `@haoran` 这个作用域目录——但它确实要求了证明这一点的测试,因为带分隔符的名字正是字符串拼接能一路蒙混过关、直到蒙混不过去的那类东西。`scripts/bundle-closure.ts` 按既有规则完整保留这个包:它的清单声明了 `dsh.bundle`,而载荷里没有任何东西以标识符导入一个 profile bundle。
 
 **打包闸现在问的是这套机制真正回答得了的问题。**`verifyClientModules` 原本要求每个内置插件都出现在所服务 index 所列的客户端模块里,而这对一个只贡献工具、不向页面贡献任何东西的插件是假的。它现在从**载荷里**每个内置插件的清单读 `dsh.client`:声明了的必须被服务,没声明的由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把三个都解析了——而一次没有任何内置插件声明 `dsh.client` 的运行会失败,而不是空洞地通过。
 
@@ -40,7 +42,7 @@ Status: implemented
 
 **Unix domain socket 或命名管道。**比 TCP 端口更紧,因为在 POSIX 上文件系统权限可以取代 token。否决,因为不存在单一的跨平台形式——POSIX 上是路径,Windows 上是 `\\.\pipe\…`——而插件的协议是基于 origin 的 HTTP,所以提供 socket 的壳实现的是另一份协议。
 
-**把 endpoint 与 token 放进壳自己的 `process.env`。**少写一行,spawn 还能白拿。否决:应用此后启动的一切——终端、subagent、用户从 UI 里打开的任何东西——都会继承一个能渲染任意 `file:` URL 的 token。
+**把 endpoint 与 token 放进壳自己的 `process.env`。**少写一行,spawn 还能白拿。否决:应用此后启动的一切——终端、subagent、用户从 UI 里打开的任何东西——都会继承一个能渲染任意 `file:` URL 的 token。只传给那一个子进程,也让这两个变量落在 harness 自己的擦除之后:harness 拥有的每个 spawner 都走 `scrubbedParentEnv()`(`packages/subprocess/subprocess/src/index.ts`),它会剥掉所有 `DSH_` 前缀的名字,所以两个变量都到不了 harness 启动的进程里。不经过这个调用而自行 spawn 的插件不在这条保证之内,README 的限制小节记了这一点。
 
 **在应用自己的 session 里渲染,或在可见窗口里渲染。**共享 session 会让模型指名的页面读到用户已登录 UI 的 cookie;在可见窗口里渲染则会把 agent 看的每一个页面搬到用户屏幕上。
 
@@ -56,7 +58,7 @@ Status: implemented
 
 壳现在会在应用运行期间一直持有一个打开的监听。它绑在 loopback、由 token 把守,并在 `before-quit` 时关闭;这次关闭不被等待,因为退出不该等一次渲染。
 
-渲染是刻意做成串行且浅队列的,所以一个把期限用满才加载完的页面会占住这个位置,排在它后面的请求可能一次窗口都没开就被答以 504。壳的视口下限是每边 16 px,而插件自己的最小值是 1,所以要求更小视口的 `screenshot` 调用在桌面端会被答以 400,在别处则由系统浏览器渲染。
+渲染是刻意做成串行且浅队列的,所以一个把期限用满才加载完的页面会占住这个位置,排在它后面的请求只拿得到自己那份期限剩下的部分。壳的视口下限是每边 16 px,而插件自己的最小值是 1,所以要求更小视口的 `screenshot` 调用在桌面端会被答以 400,在别处则由系统浏览器渲染。
 
 那个 vendored tarball 就是这个插件的更新渠道:一个新版本意味着提交一个新的 tarball 并把标识符移过去,而携带某次构建的安装包拥有该版本,与另外两个内置插件完全一样。`THIRD_PARTY_NOTICES.md` 用一条指向该 tarball 的仓库相对链接来标识它,因为一个没发布的包没有公开 URL 可写——这是该文件里唯一一条链接不指向仓库的条目。
 
