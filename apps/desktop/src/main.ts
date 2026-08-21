@@ -28,13 +28,19 @@ import { recordRun } from './desktop-state.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { setupNotifications } from './notifications.ts'
 import { describeSeed, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
+import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
+import { renderInHiddenWindow } from './render-window.ts'
 import { startServer, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import { launchGate, setupUpdates } from './updater.ts'
 
-/** A server launch plus the shipped closure the built-in plugins are seeded from. */
-interface LaunchSpec extends ServerSpec {
+/**
+ * A server launch plus the shipped closure the built-in plugins are seeded
+ * from. The environment additions are not part of it: they carry the render
+ * service's address, which does not exist yet when the paths are resolved.
+ */
+interface LaunchSpec extends Omit<ServerSpec, 'env'> {
   /** `node_modules` of the shipped server closure, holding the built-in plugin packages. */
   builtinModules: string
 }
@@ -68,6 +74,7 @@ function resolveSpec(): LaunchSpec {
 }
 
 let server: ServerHandle | undefined
+let renderService: RenderServiceHandle | undefined
 let quitting = false
 /** Set once the log file is known; before that there is nowhere to write. */
 let logLine: (chunk: string) => void = () => {}
@@ -109,6 +116,32 @@ async function stopServerBounded(): Promise<void> {
   if (outcome === 'timeout') {
     logLine(`[desktop] server did not stop within ${String(STOP_TIMEOUT_MS)}ms; exiting anyway\n`)
   }
+}
+
+/**
+ * Start the loopback render service and return what the server child needs to
+ * reach it.
+ *
+ * The shell is a Chromium, and lending it to the embedded server is what lets
+ * a screenshot happen on a machine with no browser installed. Failing to open
+ * a loopback listener is not a reason to refuse the launch: a server told
+ * nothing falls back to whatever browser the machine has, which is what every
+ * non-desktop install already does.
+ * @param log - the server log sink; receives one line either way, never the token.
+ * @returns the environment additions for the server process, empty when the service did not start.
+ */
+async function startRenderServiceForServer(log: (chunk: string) => void): Promise<Record<string, string>> {
+  let started: RenderServiceHandle
+  try {
+    started = await startRenderService({ renderer: renderInHiddenWindow, limits: RENDER_LIMITS })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log(`[desktop] render service unavailable (${message}); screenshots fall back to a browser on this machine\n`)
+    return {}
+  }
+  renderService = started
+  log(`[desktop] render service on ${started.endpoint}\n`)
+  return { DSH_DESKTOP_RENDER_ENDPOINT: started.endpoint, DSH_DESKTOP_RENDER_TOKEN: started.token }
 }
 
 /**
@@ -383,6 +416,9 @@ if (!locked) {
   app.on('before-quit', (event) => {
     if (quitting) return
     quitting = true
+    // Best-effort and unawaited: the listener dies with the process anyway, and
+    // this quit must not wait on a render that is still running.
+    void renderService?.close()
     if (server === undefined) return
     event.preventDefault()
     void stopServerBounded().finally(() => { app.exit(0) })
@@ -451,7 +487,10 @@ if (!locked) {
         serverModules: spec.builtinModules,
       }))
       if (seeded !== undefined) sink(seeded)
-      server = await startServer(spec, sink)
+      // Before the spawn, because the address and token reach the server as
+      // environment variables of that child and of nothing else.
+      const renderEnv = await startRenderServiceForServer(sink)
+      server = await startServer({ ...spec, env: renderEnv }, sink)
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)
       view.phase(2)

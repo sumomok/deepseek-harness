@@ -397,7 +397,7 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
     if (!response.ok || !index.includes('__DSH_BOOT__')) {
       throw new Error(`package: staged boot served an unexpected index from ${url}.`)
     }
-    await verifyClientModules(url, index)
+    await verifyClientModules(root, url, index)
     console.log(`package: staged boot verified at ${url}`)
   } finally {
     child.kill('SIGTERM')
@@ -406,6 +406,24 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
       child.once('exit', () => { clearTimeout(timer); resolvePromise() })
     })
   }
+}
+
+/**
+ * Whether a package in the payload has a browser half at all.
+ *
+ * `dsh.client` is what makes the host compose a `/plugins/<name>/client.js`
+ * row for a package; a plugin without it contributes to the agent and never to
+ * the page. Read from the payload's own manifest rather than from a list here,
+ * so adding a built-in of either kind needs no second declaration.
+ * @param root - the staged server tree.
+ * @param name - the package name.
+ * @returns true when the installed manifest declares `dsh.client`.
+ */
+async function servesClientModule(root: string, name: string): Promise<boolean> {
+  const manifest = JSON.parse(await readFile(join(root, 'node_modules', name, 'package.json'), 'utf8')) as {
+    dsh?: { client?: unknown }
+  }
+  return manifest.dsh?.client !== undefined
 }
 
 /**
@@ -421,19 +439,29 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
  * reached it. Nothing server-side noticed: the boot was clean, the index was
  * the right size, and the log held no error, because the failure happened in
  * the renderer. This is the assertion that would have caught it.
+ * @param root - the staged server tree, whose manifests say which built-ins have a browser half.
  * @param base - the booted server's URL.
  * @param index - the index HTML, which names every client bundle.
  */
-async function verifyClientModules(base: string, index: string): Promise<void> {
+async function verifyClientModules(root: string, base: string, index: string): Promise<void> {
   const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)].map(match => match[0]))]
   if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
-  // The built-in plugins reach the page only if the payload carried them, the
-  // seed named them, and the Loader resolved them. Nothing else in this build
-  // fails when one of those three stops being true.
+  // A built-in with a browser half reaches the page only if the payload carried
+  // it, the seed named it, and the Loader resolved it; nothing else in this
+  // build fails when one of those three stops being true. A built-in without
+  // one is proved by this boot happening at all: a bundle the profile names and
+  // the Loader cannot resolve is a hard boot failure, so the server would never
+  // have printed the URL line above.
+  let withClient = 0
   for (const name of BUILTIN_WEB_BUNDLES) {
+    if (!await servesClientModule(root, name)) continue
+    withClient++
     if (!paths.some(path => path.startsWith(`/plugins/${name}/`))) {
       throw new Error(`package: staged boot served no client module for the built-in plugin ${name}.`)
     }
+  }
+  if (withClient === 0) {
+    throw new Error('package: no built-in plugin declares dsh.client, so this check proves nothing — fix the payload or this assertion.')
   }
   for (const path of paths) {
     const target = new URL(path, base)
@@ -674,6 +702,11 @@ async function main(buildHome: string): Promise<void> {
     await stageWindowsVariants()
     await Promise.all(['README.md', 'README.zh.md', 'README.i18n.yaml'].map(name =>
       rm(join(SERVER_STAGING, name), { force: true })))
+    // The deployer copies the manifest's own directory, which carries the
+    // vendored plugin tarball a `file:` dependency was installed from. The
+    // staged tree already holds the installed package; the archive it came
+    // from resolves nothing at run time.
+    await rm(join(SERVER_STAGING, 'vendor'), { recursive: true, force: true })
   }
   await verifyStaging()
   // Every target's rules, whichever targets this run builds: whether a rule

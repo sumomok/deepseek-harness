@@ -51,6 +51,9 @@ function readProfile(): Record<string, unknown> {
   return JSON.parse(readFileSync(join(home, 'profiles', 'web', 'package.json'), 'utf8')) as Record<string, unknown>
 }
 
+/** Every built-in but `dsh-at-file`, which several cases pre-list or block on its own. */
+const withoutAtFile = BUILTIN_WEB_BUNDLES.filter(name => name !== 'dsh-at-file')
+
 /** The bundle list the profile manifest now declares. */
 function bundlesNow(): unknown {
   return (readProfile()['dsh'] as { profile?: { bundles?: unknown } }).profile?.bundles
@@ -104,10 +107,8 @@ describe('seedBuiltinBundles on an initialized profile', () => {
     }, undefined, 2))
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.created).toBe(false)
-    expect(report.seeded).toEqual(['dsh-better-sidebar'])
-    expect(bundlesNow()).toEqual([
-      '@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-at-file', 'dsh-better-sidebar',
-    ])
+    expect(report.seeded).toEqual(withoutAtFile)
+    expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-at-file', ...withoutAtFile])
   })
 
   it('carries dependencies and unknown fields through untouched', () => {
@@ -169,18 +170,19 @@ describe('seedBuiltinBundles on a profile it must not rewrite', () => {
     expect(report.skipped.join('\n')).toContain('declares no dsh.profile.bundles')
   })
 
-  it('reports a real directory sitting where a link belongs, and keeps the other link', () => {
+  it('reports a real directory sitting where a link belongs, and keeps the other links', () => {
     mkdirSync(join(home, 'profiles', 'node_modules', 'dsh-at-file'), { recursive: true })
     const report = seedBuiltinBundles({ home, serverModules })
-    expect(report.linked).toEqual(['dsh-better-sidebar'])
+    expect(report.linked).toEqual(withoutAtFile)
     expect(report.skipped.join('\n')).toContain('is not a symlink')
   })
 
   it('does not name a bundle the shipped closure does not hold', async () => {
     await rm(join(serverModules, 'dsh-better-sidebar'), { recursive: true, force: true })
+    const shipped = BUILTIN_WEB_BUNDLES.filter(name => name !== 'dsh-better-sidebar')
     const report = seedBuiltinBundles({ home, serverModules })
-    expect(report.seeded).toEqual(['dsh-at-file'])
-    expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-at-file'])
+    expect(report.seeded).toEqual(shipped)
+    expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...shipped])
     expect(report.skipped.join('\n')).toContain('not in the shipped server closure')
   })
 
@@ -190,6 +192,44 @@ describe('seedBuiltinBundles on a profile it must not rewrite', () => {
     expect(report).toMatchObject({ seeded: [], linked: [], created: false })
     expect(report.skipped).toHaveLength(BUILTIN_WEB_BUNDLES.length)
     expect(existsSync(join(home, 'profiles'))).toBe(false)
+  })
+})
+
+describe('seedBuiltinBundles on a scoped built-in', () => {
+  const scoped = '@haoran/dsh-screenshot'
+
+  it('ships one in the built-in list, so every path below is exercised for real', () => {
+    expect(BUILTIN_WEB_BUNDLES).toContain(scoped)
+  })
+
+  it('creates the scope directory the flat-fallback link needs', () => {
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.linked).toContain(scoped)
+    const link = join(home, 'profiles', 'node_modules', scoped)
+    expect(lstatSync(join(home, 'profiles', 'node_modules', '@haoran')).isDirectory()).toBe(true)
+    expect(lstatSync(link).isSymbolicLink()).toBe(true)
+    expect(readlinkSync(link)).toBe(join(serverModules, scoped))
+  })
+
+  it('recognizes its own name in a bundle list rather than appending it twice', () => {
+    writeProfile(JSON.stringify({ dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', scoped] } } }, undefined, 2))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.seeded).not.toContain(scoped)
+    expect((bundlesNow() as string[]).filter(name => name === scoped)).toEqual([scoped])
+  })
+
+  it('reports a shadowing profile copy under its full scoped name', () => {
+    installIntoProfile(scoped, '0.0.9')
+    expect(seedBuiltinBundles({ home, serverModules }).shadowed).toEqual([
+      `profile copy ${scoped}@0.0.9 shadows the shipped 1.0.0 module; patch layer comes from the shipped copy`,
+    ])
+  })
+
+  it('skips it by name when the closure does not hold it', async () => {
+    await rm(join(serverModules, scoped), { recursive: true, force: true })
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.seeded).not.toContain(scoped)
+    expect(report.skipped.join('\n')).toContain(`${scoped}: not in the shipped server closure`)
   })
 })
 

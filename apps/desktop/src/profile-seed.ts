@@ -2,12 +2,12 @@
  * Put the plugins the installer ships beside the server closure into the web
  * profile, before the embedded `dsh web` server reads it.
  *
- * The desktop payload carries `dsh-at-file` and `dsh-better-sidebar` inside
- * `resources/server/node_modules` (declared by `apps/desktop-server`), but a
- * profile is user data: `initProfile` writes `$DSH_HOME/profiles/web/` once
- * from the shipped template and never touches an existing file again, and the
- * template names only the two in-box bundles. So nothing in the server would
- * ever mount them. This module supplies the two facts the boot needs and
+ * The desktop payload carries the packages named in {@link BUILTIN_WEB_BUNDLES}
+ * inside `resources/server/node_modules` (declared by `apps/desktop-server`),
+ * but a profile is user data: `initProfile` writes `$DSH_HOME/profiles/web/`
+ * once from the shipped template and never touches an existing file again, and
+ * the template names only the two in-box bundles. So nothing in the server
+ * would ever mount them. This module supplies the two facts the boot needs and
  * nothing else:
  *
  * - the profile manifest's `dsh.profile.bundles` list carries both names, so
@@ -17,7 +17,7 @@
  *   directory as `baseUrl` — finds the package on the ordinary parent walk.
  *   `healProfilesModuleFallback` maintains that same directory for the CLI
  *   app's own dependency closure and leaves names outside it alone, so these
- *   two links survive every boot.
+ *   links survive every boot.
  *
  * Both writes are idempotent and additive. A name already listed is not added
  * twice, a correct link is left as it is, and no existing bundle entry,
@@ -40,8 +40,13 @@ import { dirname, join, resolve } from 'node:path'
  * Plugin packages the desktop installer ships and mounts, in the order they
  * join the bundle stack. They are appended after the template's own bundles,
  * so the in-box web app composes first and these patch over it.
+ *
+ * A scoped name is an ordinary member: every path this module builds from one
+ * — the payload directory, the manifest entry, the flat-fallback link — is
+ * joined rather than concatenated, and the link's scope directory is created
+ * with it.
  */
-export const BUILTIN_WEB_BUNDLES: readonly string[] = ['dsh-at-file', 'dsh-better-sidebar']
+export const BUILTIN_WEB_BUNDLES: readonly string[] = ['dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot']
 
 /** The profile the desktop shell boots (`dsh web` is `--profile web`). */
 const WEB_PROFILE = 'web'

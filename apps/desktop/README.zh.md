@@ -106,16 +106,21 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 
 ## 内置插件
 
-**两个社区插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
+**三个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
 
 | 包名 | 版本 | 提供什么 |
 |---|---|---|
 | `dsh-better-sidebar` | `0.14.0`,来自 npm | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
 | `dsh-at-file` | `v0.6.5`,来自作者仓库该 tag 所指的提交 | 输入框里的 `@` 文件提及 |
+| `@haoran/dsh-screenshot` | `0.1.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染一个页面,把像素交给 agent |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
 
 **`dsh-at-file` 取自 tag 而非注册表**,因为作者在 npm 上只发到 `0.6.3`,而 tag 已经到 `v0.6.5`。分发 `0.6.3` 会与自行装了 `v0.6.5` 的 profile 配不上:一个 bundle 的两半从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`——于是这一行来自 `0.6.3`,代码来自 `v0.6.5`。这条依赖写的是该 tag 所指的**提交**,而不是它的归档 URL:pnpm 不为 GitHub 归档记录完整性哈希,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有完整性字段的 lockfile 条目。提交本身就是它的哈希,于是 lockfile 钉住的是内容。该仓库把构建好的 `lib/` 提交了进去,也没有声明 `prepare` 脚本,所以安装期什么都不构建。
+
+**`@haoran/dsh-screenshot` 没有发布**,所以它的依赖是一条 `file:` 标识符,指向与声明它的清单放在一起的 `apps/desktop-server/vendor/haoran-dsh-screenshot-0.1.0.tgz`。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级这个插件意味着提交一个新的 tarball 并把标识符指过去;没有别的渠道,因为这个插件不在任何注册表上。
+
+**它也是唯一没有浏览器那一半的内置插件。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,而工具是 agent 去调用的,不是页面去加载的。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把三个都解析了。
 
 **`dsh-better-sidebar` 在本宿主上必须是 `0.14.0` 或更高。**`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,模块访问改由 `ctx.modules` 服务提供,这让每个懒加载 chunk 解析外部依赖的方式全面失效——`0.13.1` 会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,终端、编辑器与 Mermaid 面板一起跟着挂掉。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`,并把插件自有的全局共享给它的 chunk 副本,同时移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。
 
@@ -125,7 +130,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 
 **如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile web remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
 
-**要关掉其中一个,就在** `$DSH_HOME/profiles/web/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`:
+**要关掉其中一个,就在** `$DSH_HOME/profiles/web/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`,截图工具是 `screenshot`:
 
 ```yaml
 - id: better-sidebar
@@ -133,6 +138,40 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 ```
 
 改为从 `dsh.profile.bundles` 里删掉名字则只能维持到下次启动,届时会被重新播种。
+
+## 渲染服务
+
+**壳把自己的 Chromium 借给服务端**,所以截图不取决于这台机器上装没装 Chrome 或 Edge。在启动服务端之前,主进程在 `127.0.0.1` 与一个临时端口上打开一个 HTTP 监听、生成一个 32 字节的 token,并把两者放进那一个子进程的环境——`DSH_DESKTOP_RENDER_ENDPOINT` 与 `DSH_DESKTOP_RENDER_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程都继承不到。`@haoran/dsh-screenshot` 每次调用都去读它们。两个都读不到的 harness 改用系统上的无头浏览器渲染,这也正是所有非桌面安装的做法;监听没能打开的那次启动会记一行日志并照常继续,它的截图走的是同一条退路。
+
+请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs? }`。它可能得到的全部回答:
+
+| 回答 | 何时 |
+|---|---|
+| `200 image/png` | 截图本身,PNG 字节 |
+| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内,或 `url` 不是绝对 URL |
+| `401` | 缺少或写错 bearer token |
+| `404` | 其他任何路径或方法 |
+| `422` | 格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL |
+| `500` | 页面加载失败或截图失败;这一行带着 Chromium 的错误码 |
+| `503` | 已经受理了四个请求 |
+| `504` | 该请求越过了 30 秒的期限 |
+
+每个失败响应体都是一行 `text/plain`,因为读它的是一个工具,它会把这句话引进模型看到的消息里。
+
+**每次渲染都拿到一个与应用自己那扇窗毫无共享的隐藏窗口。**它的 session 没有 `persist:` 前缀,所以只活在内存里、随窗口一起消失:被渲染的页面读不到也写不了用户正在用的那扇窗的 cookie、存储与缓存,它存下的东西也活不过这一个请求。没有 Node 集成、没有 `webview`、没有 devtools;每一个权限请求都被拒绝,页面试图发起的每一次下载与每一次开窗也都被拒绝。窗口在响应时、加载失败时与期限到时都会被销毁。
+
+**边界在哪**:同一时刻只渲染一个,同时最多受理四个请求(一个在渲染、三个在等),期限 30 秒且从受理时刻起算,而不是从渲染开始时算——所以把这段时间全花在排队上的请求会被答以 504,窗口一次都没开过。`fullPage` 截图会测量 `document.documentElement.scrollHeight` 并把窗口调到那个高度,夹到 8192 px 为止,因为无限滚动的文档报出的高度会在测量过程中一直变大。
+
+**这台机器上和机器外的其他东西都够不着这个服务。**监听绑在 loopback 上,机器外的东西就够不着;token 以常数时间比较,所以别的本地进程扫到端口也用不了它;而且从不发送任何 CORS 头,同时除 `POST /render` 以外的方法一律答 404,于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝——这正是把用户自己浏览器里的页面挡在外面的东西。
+
+构建之后,这条命令检查单元测试够不着的那一半——隐藏窗口到底画不画:
+
+```sh
+pnpm --filter @deepseek-ai/dsh-desktop run build:ts
+pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
+```
+
+它在真实的 Electron 里渲染一个本地文件,检查视口尺寸、整页截图确实比视口更高,以及 401、422 与 500 三种回答。
 
 ## 服务器环境
 
@@ -146,4 +185,6 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 - macOS 已签名但未公证,所以由浏览器下载的副本首次运行仍需右键打开。公证需要 Apple 开发者账号;更新路径不需要。
 - Windows arm64 与 Linux 桌面目标未构建;node-pty 预编译已覆盖 win32-arm64,缺口只是打包工作。
 - 开发启动(`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`)用的是检出目录的已构建 CLI 和 PATH 里的 Node,不是暂存资源。
+- 渲染服务按次启动、串行工作。同时受理四个请求、只渲染一个,所以一个把 30 秒期限用满才加载完的页面会占住这个位置,排在它后面的请求可能一次窗口都没开就被答以 504。
+- 壳的视口下限是每边 16 px,而 `@haoran/dsh-screenshot` 自己允许到 1。要求更小视口的 `screenshot` 调用在桌面端会被答以 400,在别处则由系统浏览器渲染。
 - 内置插件无法从 profile 侧钉到另一个版本。用 `dsh plugin --profile web add` 安装同名包会在 profile 自己的 `node_modules` 里放一份,Loader 会先找到它,而 `resolveBundleDir` 仍从安装目录读取 patch 层——那样这一行来自一个版本、代码来自另一个版本。

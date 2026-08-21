@@ -117,6 +117,13 @@ export interface ServerSpec {
   entry: string
   /** Working directory the server (and its sessions) start in. */
   cwd: string
+  /**
+   * Variables added to the inherited environment for this child alone — the
+   * render service's endpoint and token. They are deliberately not put on the
+   * shell's own `process.env`, because every other process the user starts
+   * would inherit them from there.
+   */
+  env: Record<string, string>
 }
 
 /** A started server: its UI URL and its bounded stop. */
@@ -177,7 +184,7 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
   // start, including the relaunch after an update, adds a 127.0.0.1 tab.
   const child = spawn(spec.nodeBin, [spec.entry, 'web', '--port', '0', '--no-open'], {
     cwd: spec.cwd,
-    env: augmentedEnv(process.env),
+    env: { ...augmentedEnv(process.env), ...spec.env },
     stdio: ['ignore', 'pipe', 'pipe'],
     // Without this a console window flashes for the bundled node.exe on Windows.
     windowsHide: true,
