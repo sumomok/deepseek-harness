@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-[可安装客户端包](2026-08-18-installable-client-packages.md)出厂时没有更新通道。新构建只有靠人转告、再由对方手动下载重装才能到位,而已装好的那一份根本无从知道自己落后了。桌面客户端还没有用户时,这个 non-goal 是划算的;一旦有人拿到了不是自己构建的包,它就不再划算——此后每一个修复都卡在一个没人会执行的手动步骤后面。
+[可安装客户端包](2026-08-18-installable-client-packages.zh.md)出厂时没有更新通道。新构建只有靠人转告、再由对方手动下载重装才能到位,而已装好的那一份根本无从知道自己落后了。桌面客户端还没有用户时,这个 non-goal 是划算的;一旦有人拿到了不是自己构建的包,它就不再划算——此后每一个修复都卡在一个没人会执行的手动步骤后面。
 
 ## Decision
 
@@ -40,9 +40,9 @@ Status: implemented
 
 所以 `quitAndInstall(false, true)` 改为可见安装,而向导是被别的手段拿掉的,不是被静默拿掉的:目录页在 `--updated` 时由模板自己的 `skipPageIfUpdated` 跳过,完成页由 `build/installer.nsh` 以同样方式跳过(`MUI_PAGE_CUSTOMFUNCTION_PRE` + `Abort`,每个 MUI 页面都认这一套),而 `SetAutoClose true`——MUI 为它自己的完成页早已在 `.onGUIInit` 里设好——在安装段结束时关掉窗口。留在屏幕上的就是一个进度条。
 
-重新拉起应用于是必须自己做,因为模板的拉起条件是 `${if} ${isForceRun} ${andIf} ${Silent}`(`installSection.nsh`),非静默执行无论怎么传参都满足不了——`quitAndInstall` 在非静默时根本不转发 `isForceRunAfter`,而是替换成 `autoRunAppAfterInstall`(`BaseUpdater.js`)。`customFinishPage` 用 `${StdUtils.ExecShellAsUser}` 自己启动应用,把启动交给 shell,于是应用拿的是用户自己的令牌,而不是继承安装器的提权令牌。这一切都动不到 `$INSTDIR`:它在任何页面存在之前就已在 `.onInit` 里读好,来源是 `HKLM\SOFTWARE\<APP_GUID>\InstallLocation`——该值缺席时退回 `%ProgramFiles%\DSH Desktop`,所以下游任何一处都不能假定它解析成功([应用运行检查](../bug-fix/2026-08-19-installer-app-running-check.md))。
+重新拉起应用于是必须自己做,因为模板的拉起条件是 `${if} ${isForceRun} ${andIf} ${Silent}`(`installSection.nsh`),非静默执行无论怎么传参都满足不了——`quitAndInstall` 在非静默时根本不转发 `isForceRunAfter`,而是替换成 `autoRunAppAfterInstall`(`BaseUpdater.js`)。`customFinishPage` 用 `${StdUtils.ExecShellAsUser}` 自己启动应用,把启动交给 shell,于是应用拿的是用户自己的令牌,而不是继承安装器的提权令牌。这一切都动不到 `$INSTDIR`:它在任何页面存在之前就已在 `.onInit` 里读好,来源是 `HKLM\SOFTWARE\<APP_GUID>\InstallLocation`——该值缺席时退回 `%ProgramFiles%\DSH Desktop`,所以下游任何一处都不能假定它解析成功([应用运行检查](../bug-fix/2026-08-19-installer-app-running-check.zh.md))。
 
-**在 Windows 上,对话框挂在它所属的窗口上。**没有 parent 的 `dialog.showMessageBox` 会开一个独立顶层窗口,而 Windows 可以随意把它排到前台窗口后面——真实用户报告过「发现新版本」出现在编辑器底下。因此 Windows 的对话框都传应用自己的窗口;应用不在前台时还会先请求注意:Windows 用 `flashFrame`,下次获得焦点时清掉,macOS 用一次 `dock.bounce('informational')`。macOS 不传 parent,因为在那里带 parent 的对话框是 sheet,任何抬起父窗口的动作都能替它作答([macOS 应用内更新](2026-08-19-macos-in-app-update-self-signed.md))。
+**在 Windows 上,对话框挂在它所属的窗口上。**没有 parent 的 `dialog.showMessageBox` 会开一个独立顶层窗口,而 Windows 可以随意把它排到前台窗口后面——真实用户报告过「发现新版本」出现在编辑器底下。因此 Windows 的对话框都传应用自己的窗口;应用不在前台时还会先请求注意:Windows 用 `flashFrame`,下次获得焦点时清掉,macOS 用一次 `dock.bounce('informational')`。macOS 不传 parent,因为在那里带 parent 的对话框是 sheet,任何抬起父窗口的动作都能替它作答([macOS 应用内更新](2026-08-19-macos-in-app-update-self-signed.zh.md))。
 
 ### 保持可安装:进程生命周期与提权
 
@@ -66,7 +66,7 @@ Status: implemented
 
 这也解释了为什么同一个安装程序每次手动「以管理员身份运行」都能成功:手动启动的安装没有 `elevate.exe`。也解释了为什么只有一台机器出问题:装在 `C:\Program Files` 下的改名是同卷改名,不需要删除,也就不在乎谁在运行。
 
-所以 `customCheckAppRunning` **第一件事就是无条件杀掉 `elevate.exe`**,而且刻意**不带** `/T`:安装器是它的子进程,树杀会把它正要修的这次安装一起终结。改为等它则会死锁,因为它在等我们。之后才轮到针对应用与服务端的"先等后树杀"。`node.exe` 的匹配基于**已校验的** `$INSTDIR` 下的可执行路径,这也是「杀一个 `node.exe`」这件事本身能成立的前提——「已校验」是什么意思、以及内置检查为何不能被托付这个值,由[应用运行检查](../bug-fix/2026-08-19-installer-app-running-check.md)那篇负责。
+所以 `customCheckAppRunning` **第一件事就是无条件杀掉 `elevate.exe`**,而且刻意**不带** `/T`:安装器是它的子进程,树杀会把它正要修的这次安装一起终结。改为等它则会死锁,因为它在等我们。之后才轮到针对应用与服务端的"先等后树杀"。`node.exe` 的匹配基于**已校验的** `$INSTDIR` 下的可执行路径,这也是「杀一个 `node.exe`」这件事本身能成立的前提——「已校验」是什么意思、以及内置检查为何不能被托付这个值,由[应用运行检查](../bug-fix/2026-08-19-installer-app-running-check.zh.md)那篇负责。
 
 整个宏跑在一个 PowerShell 进程里,而不是每轮起一个:查询本身比两轮之间的 500 毫秒还贵,所以轮数不是时间预算。没有 PowerShell 时的回退只能按映像名树杀应用——`node.exe` 这个名字太常见,不能按名字杀——那是降级,不是方案。
 
@@ -80,7 +80,7 @@ Status: implemented
 
 ### macOS:发现并交接
 
-这是**未签名**的 macOS 构建的行为,已不再是发布版的行为:签名构建通过 `MacUpdater` 就地安装,而这条路径作为它们的回退层保留下来([macOS 应用内更新](2026-08-19-macos-in-app-update-self-signed.md))。
+这是**未签名**的 macOS 构建的行为,已不再是发布版的行为:签名构建通过 `MacUpdater` 就地安装,而这条路径作为它们的回退层保留下来([macOS 应用内更新](2026-08-19-macos-in-app-update-self-signed.zh.md))。
 
 Squirrel.Mac 只在运行中的应用已签名、且替换件满足同一签名要求时才会暂存更新,所以没有证书的构建再怎么努力也拿不到原地安装。与其发一条注定失败的路径,它的检查直接读 `latest-mac.yml` 比对版本,当更新源更新时用系统浏览器打开产物地址,并说明拿到之后怎么办——包括未公证应用首次运行时 Gatekeeper 要求的右键打开。
 
@@ -139,7 +139,7 @@ macOS 构建从打包后的 `.app` 启动、走到它的 `dsh web:` 行、该 UR
 
 **自建更新后端。** 更新 API 能做灰度、按用户分渠道、下载统计。这些都不想要,而清单**本身**已经是判断过程——加一个服务,换来的只是又一个要跑、要盯、要护的进程,而静态文件已经做到的事一样也没多。强制更新是通常需要买一个后端才有的那部分策略,结果它只是一个字段。
 
-**macOS 走 electron-updater。** 在这里是被硬约束否掉的,不是偏好:Squirrel.Mac 拒绝为未签名应用暂存更新,所以那条代码路径存在的唯一作用就是失败。发现版本并打开下载,是一个未签名构建能诚实给出的上限——而这条约束后来被签名解除了,那是 [macOS 应用内更新](2026-08-19-macos-in-app-update-self-signed.md) 记录的事。
+**macOS 走 electron-updater。** 在这里是被硬约束否掉的,不是偏好:Squirrel.Mac 拒绝为未签名应用暂存更新,所以那条代码路径存在的唯一作用就是失败。发现版本并打开下载,是一个未签名构建能诚实给出的上限——而这条约束后来被签名解除了,那是 [macOS 应用内更新](2026-08-19-macos-in-app-update-self-signed.zh.md) 记录的事。
 
 **在服务器 IP 上走明文 HTTP。** 原定方案,依证据放弃:该主机入站 TCP/80 在防火墙处被丢弃,IP 加 80 端口的更新源每次检查都会超时。主机在 443 上应答,证书对得上解析到它的那个域名,于是 TLS 既是可用的那个选项也是更强的那个——它认证服务器,而 HTTP 做不到。
 

@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write apps/desktop-server/README.md
 README.md: 4c1eca973433616ec44704cfe83345310879365a
-README.zh.md: c82604b0629e95c6ed7494e10a8562217ab596d2
+README.zh.md: c5b42bf093dac9016e22acb37e843b5014da8e8e

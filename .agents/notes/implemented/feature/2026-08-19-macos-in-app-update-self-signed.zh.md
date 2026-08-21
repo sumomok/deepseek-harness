@@ -6,7 +6,7 @@ Status: implemented
 
 ## Problem
 
-[桌面更新通道](2026-08-18-desktop-update-channel.md)在 Windows 上就地安装,在 macOS 上只做移交:客户端发现新版本后把下载交给浏览器,由用户自己解压、拖进「应用程序」覆盖旧版。那份记录给出的原因是 Squirrel.Mac 只为已签名的应用暂存更新。
+[桌面更新通道](2026-08-18-desktop-update-channel.zh.md)在 Windows 上就地安装,在 macOS 上只做移交:客户端发现新版本后把下载交给浏览器,由用户自己解压、拖进「应用程序」覆盖旧版。那份记录给出的原因是 Squirrel.Mac 只为已签名的应用暂存更新。
 
 原因是准确的,但它底下的机制值得说清楚,因为它决定了修复必须产出什么。Squirrel 只接受满足**当前运行**应用 designated requirement 的替换 bundle。未签名的 Electron 构建带的是工具链链接器留下的 ad-hoc 签名——`flags=0x20002(adhoc,linker-signed)`、`Sealed Resources=none`——它的 designated requirement 退化成 `cdhash H"…"`,锁死单个二进制,此后任何构建都不可能满足。真正的签名会把这条要求变成 `identifier "dev.dsh.desktop" and certificate root = H"<指纹>"`,同一张证书签出的每个构建都满足它。
 
@@ -44,7 +44,7 @@ electron-builder 用不了这张证书。它通过 `security find-identity -v -p
 
 在 macOS 上,带 parent 的 `dialog.showMessageBox` 是 NSAlert **sheet**,而 sheet 会在任何东西抬起其父窗口时结束。`BrowserWindow.focus()` 就足够,随后 Electron 会报告按钮下标 0,如同它被点过一样。
 
-每一条回到应用的路径都会调用 `revealMainWindow()`——Dock 图标、点击通知、二次启动、托盘。在这次改动之前,这只会误答一个移交对话框。而当下标 0 后面接的是就地安装器时,它意味着**点一下 Dock 图标就会装上没人同意的更新**,恰恰是[更新通道](2026-08-18-desktop-update-channel.md)承诺不会发生的那一件事。已手工验证:提示框开着时,仅仅 `open -a` 就启动了下载。
+每一条回到应用的路径都会调用 `revealMainWindow()`——Dock 图标、点击通知、二次启动、托盘。在这次改动之前,这只会误答一个移交对话框。而当下标 0 后面接的是就地安装器时,它意味着**点一下 Dock 图标就会装上没人同意的更新**,恰恰是[更新通道](2026-08-18-desktop-update-channel.zh.md)承诺不会发生的那一件事。已手工验证:提示框开着时,仅仅 `open -a` 就启动了下载。
 
 `ask()` 现在在 macOS 上不传 parent,此时的无父对话框是 app-modal 的告警面板:随应用一起来到前台,只有按钮能结束它。Windows 保留带 parent 的对话框和当初的理由——无父的顶层窗口会被外壳放到用户正在做的事情后面。
 

@@ -82,7 +82,7 @@ dest 249 chars → MoveFileW OK
 
 成功那次:`D:\soft\DSH Desktop` 被改名为 `~dsh-old0`,暂存树在 2.0 秒后删除,安装目录只剩留给 `uninstallOldVersion` 的那一个卸载器,该卸载器只运行一次而不是五次,解压出 12452 个文件,`DisplayVersion` 为 `0.1.0-rc.12`,安装目录旁没有留下暂存目录,应用带着它的内置服务端运行起来。
 
-本次修复所依赖的进程清扫——旧应用必须先离开那个目录,它才能被改名——用的是[应用运行检查](2026-08-19-installer-app-running-check.md)那一份,由 `customInit` 复用而非重复实现。那份 Agent Note 的 `customCheckAppRunning` 覆盖卸载器;覆盖安装器的是 `customInit`,因为安装器那次 `CHECK_APP_RUNNING` 调用被 `${ifNot} ${UAC_IsInnerInstance}` 跳过了。
+本次修复所依赖的进程清扫——旧应用必须先离开那个目录,它才能被改名——用的是[应用运行检查](2026-08-19-installer-app-running-check.zh.md)那一份,由 `customInit` 复用而非重复实现。那份 Agent Note 的 `customCheckAppRunning` 覆盖卸载器;覆盖安装器的是 `customInit`,因为安装器那次 `CHECK_APP_RUNNING` 调用被 `${ifNot} ${UAC_IsInnerInstance}` 跳过了。
 
 ## 备选方案
 

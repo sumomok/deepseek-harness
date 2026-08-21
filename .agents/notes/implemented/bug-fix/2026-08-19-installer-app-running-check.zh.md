@@ -6,13 +6,13 @@ Status: implemented
 
 ## Problem
 
-[桌面客户端](../feature/2026-08-18-desktop-update-channel.md)的一次 Windows 更新停在「DSH Desktop 无法关闭。请手动关闭它,然后单击重试以继续」——也就是 NSIS 的 `appCannotBeClosed`——而那个「重试」按钮回到的正是产出它的那个循环,于是安装既进不去,也只剩取消一条出路。
+[桌面客户端](../feature/2026-08-18-desktop-update-channel.zh.md)的一次 Windows 更新停在「DSH Desktop 无法关闭。请手动关闭它,然后单击重试以继续」——也就是 NSIS 的 `appCannotBeClosed`——而那个「重试」按钮回到的正是产出它的那个循环,于是安装既进不去,也只剩取消一条出路。
 
 真机上的三条观察把它收敛到一件事。失败当刻用管理员 PowerShell 查,安装目录 `D:\soft\DSH Desktop` 下**一个进程也没有**,全机匹配 `*DSH*` 的进程只有一个:安装器自己,跑在 `%LOCALAPPDATA%\@deepseek-aidsh-desktop-updater\pending\` 下。它在手动双击、右键**以管理员身份运行**的安装里同样复现,而那条路径全程没有 `elevate.exe`。而这句提示是 `appCannotBeClosed`,模板只有在自己的检查已经判定「应用在跑」、随后又没能把它停掉之后才会走到。
 
 所以安装器盯着的不是某个卡住的进程,而是一个错的进程集合。
 
-最后这一步并不成立,后来在机器上定了案:以 250ms 采样盯完一次失败安装,记录到五次 `old-uninstaller.exe`,以及一次进程检查都没有,而 `$INSTDIR` 从向导里直接读出来是 `D:\soft\DSH Desktop`。`CHECK_APP_RUNNING` 在安装器这一侧根本不会执行——`installSection.nsh` 里的 `${ifNot} ${UAC_IsInnerInstance}`,对上 section 跑在 inner 实例里的 `perMachine` 安装——所以 `appCannotBeClosed` 是从 `uninstallOldVersion` 的重试上限来的。[卸载暂存路径越过 MAX_PATH](2026-08-19-windows-update-max-path-uninstall-loop.md) 拥有那条链条及其修复。下面描述的过度匹配是真实的、可达的、值得拒绝的;但它不是产生这个对话框的原因。
+最后这一步并不成立,后来在机器上定了案:以 250ms 采样盯完一次失败安装,记录到五次 `old-uninstaller.exe`,以及一次进程检查都没有,而 `$INSTDIR` 从向导里直接读出来是 `D:\soft\DSH Desktop`。`CHECK_APP_RUNNING` 在安装器这一侧根本不会执行——`installSection.nsh` 里的 `${ifNot} ${UAC_IsInnerInstance}`,对上 section 跑在 inner 实例里的 `perMachine` 安装——所以 `appCannotBeClosed` 是从 `uninstallOldVersion` 的重试上限来的。[卸载暂存路径越过 MAX_PATH](2026-08-19-windows-update-max-path-uninstall-loop.zh.md) 拥有那条链条及其修复。下面描述的过度匹配是真实的、可达的、值得拒绝的;但它不是产生这个对话框的原因。
 
 ## Decision
 

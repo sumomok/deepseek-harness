@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-desktop-update-channel.md
 2026-08-18-desktop-update-channel.md: 5a19ae54105ea252df46b97d496e5fe5960fe3e9
-2026-08-18-desktop-update-channel.zh.md: ed5cc811c73a04832f76b2e1b0cf9a17fb468457
+2026-08-18-desktop-update-channel.zh.md: b35b3b88d126a60605493f5d2838cb67fa54a39f
