@@ -1,0 +1,25 @@
+# The content column with two pages the agent can choose between — the
+# composition the keepalive scenario needs. Same two rows as the package's own
+# overlay (the shell replaces ui-layout, content-frame claims the column it
+# opens); only the page list differs, because this scenario has to prove that
+# two sessions can show two different pages at the same time.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-frame
+      name: '@deepseek-ai/dsh-experimental-content-frame'
+      config:
+        root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/
+          - id: reports
+            title: Weekly reports
+            description: Published reports, newest first.
+            url: /content-app/reports/

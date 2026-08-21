@@ -27,13 +27,25 @@
       "path": "../../client/ui-slots"
     },
     {
+      "path": "../../core/session"
+    },
+    {
+      "path": "../../core/system-prompt"
+    },
+    {
+      "path": "../../core/tools"
+    },
+    {
       "path": "../../host/webserver"
     },
     {
-      "path": "../server-layout"
+      "path": "../../runtime-diagnostics/invariants"
     },
     {
-      "path": "../../runtime-diagnostics/invariants"
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../server-layout"
     }
   ]
 }

@@ -5,6 +5,10 @@
 # `root` comes from the environment so one overlay serves any application; a
 # deployment that hosts a fixed one writes the literal absolute path here
 # instead. An unset variable fails the row at load rather than serving nothing.
+#
+# `pages` is what the agent may show. This overlay declares the one page every
+# hosted application has — its entry document — so `content_show` has a real
+# choice out of the box; a deployment with several pages lists them all here.
 - id: ui-layout
   name: '@deepseek-ai/dsh-client-ui-layout'
   disabled: true
@@ -16,3 +20,9 @@
       name: '@deepseek-ai/dsh-experimental-content-frame'
       config:
         root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/
+        defaultPage: home

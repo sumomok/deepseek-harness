@@ -8,10 +8,12 @@
  * is the real loader chain and the real webserver route, so the assertions
  * cover what only a real engine can answer: that the frame lands inside the
  * content track, that the hosted document loads and its own stylesheet applies
- * (the route's content types are what decides that), and which session
- * transitions the frame survives — the session-maybe adoption rule decides
- * that, and it is what determines whether the hosted application keeps its own
- * state.
+ * (the route's content types are what decides that), and that the shell's
+ * default page survives the first session opening — the column is `root`
+ * scoped, so no session transition may remount what it holds.
+ *
+ * The agent-driven side of the column — the tool, the projection, and the
+ * per-session frame cache — is content-show.e2e.ts.
  *
  * An experimental package cannot be a dependency of `apps/web`, so the profile
  * links the loader resolves both rows through are created here rather than by
@@ -60,7 +62,7 @@ async function harnessHomeWithRowLinks(): Promise<string> {
 }
 
 const column = (page: Page, name: string): Locator => page.locator(`[data-shell-column="${name}"]`)
-const contentFrame = (page: Page): Locator => page.locator('iframe[data-content-frame]')
+const contentFrame = (page: Page): Locator => page.locator('iframe[data-content-frame][data-content-active]')
 
 /** One element's rendered box; the shell's tracks are what decides it. */
 async function box(locator: Locator): Promise<{ left: number; right: number; width: number; height: number }> {
@@ -77,10 +79,10 @@ async function openSession(page: Page, index: number): Promise<void> {
   await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
 }
 
-/** Attribute the probe stamps on the live iframe element. */
+/** Attribute the probe stamps on the shown iframe element. */
 const PROBE_ATTRIBUTE = 'data-dsh-probe'
 
-/** Marks the live frame carries while a spec drives navigation around it. */
+/** Marks a frame carries while a spec drives navigation around it. */
 interface FrameProbe {
   /** Stamped on the iframe element: null again once React mounted a new one. */
   element: string | null
@@ -92,8 +94,6 @@ interface FrameProbe {
 
 /** A frame that survived every transition since it was stamped. */
 const KEPT: FrameProbe = { element: 'kept', document: 'kept', loads: 1 }
-/** A frame React mounted anew: the marks are gone and the hosted document ran once. */
-const FRESH: FrameProbe = { element: null, document: undefined, loads: 1 }
 
 /** The hosted document's global, as this spec reads it: the fixture's load counter and the probe's own mark. */
 interface HostedWindow {
@@ -102,14 +102,19 @@ interface HostedWindow {
 }
 
 /**
- * Stamp the live frame and its document, then read both back.
+ * Stamp or read one frame's element and its document.
  * @param page - the browsing page.
  * @param stamp - mark to write, or undefined to read only.
- * @returns the marks, or undefined while no frame with a live document is mounted.
+ * @param selector - which frame; the shown one by default.
+ * @returns the marks, or undefined while no such frame has a live document.
  */
-async function probeFrame(page: Page, stamp: string | undefined): Promise<FrameProbe | undefined> {
-  return await page.evaluate(([mark, attribute]: [string | undefined, string]) => {
-    const element = document.querySelector<HTMLIFrameElement>('iframe[data-content-frame]')
+async function probeFrame(
+  page: Page,
+  stamp: string | undefined,
+  selector = 'iframe[data-content-frame][data-content-active]',
+): Promise<FrameProbe | undefined> {
+  return await page.evaluate(([mark, attribute, query]: [string | undefined, string, string]) => {
+    const element = document.querySelector<HTMLIFrameElement>(query)
     const inner = element?.contentWindow as unknown as HostedWindow | null | undefined
     if (element === null || inner === null || inner === undefined) return undefined
     if (mark !== undefined) {
@@ -121,7 +126,7 @@ async function probeFrame(page: Page, stamp: string | undefined): Promise<FrameP
       document: inner.__dshProbe,
       loads: inner.__contentAppLoads,
     }
-  }, [stamp, PROBE_ATTRIBUTE] as [string | undefined, string])
+  }, [stamp, PROBE_ATTRIBUTE, selector] as [string | undefined, string, string])
 }
 
 describe.skipIf(MODE === 'record')('web e2e: hosted application in the content column', () => {
@@ -153,8 +158,8 @@ describe.skipIf(MODE === 'record')('web e2e: hosted application in the content c
     await column(page, 'content').waitFor({ timeout: 30_000 })
     await contentFrame(page).waitFor({ timeout: 15_000 })
     // The workspace group row precedes its sessions; expanding it lists them.
-    // No session is opened here: the adoption spec below needs the frame in the
-    // session-less incarnation it boots into.
+    // No session is opened here: with none current the column shows the
+    // overlay's `defaultPage`, which is the frame the specs below start from.
     await page.locator('[role="treeitem"]').first().click()
   }, 180_000)
 
@@ -178,7 +183,7 @@ describe.skipIf(MODE === 'record')('web e2e: hosted application in the content c
 
   it('loads the hosted document and applies its own stylesheet', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-frame-document'))
-    const inner = page.frameLocator('iframe[data-content-frame]')
+    const inner = page.frameLocator('iframe[data-content-frame][data-content-active]')
     const heading = inner.locator('#fixture-heading')
     await heading.waitFor({ timeout: 15_000 })
     expect(await heading.textContent()).toBe('Hosted content app')
@@ -187,30 +192,27 @@ describe.skipIf(MODE === 'record')('web e2e: hosted application in the content c
     expect(await heading.evaluate(node => getComputedStyle(node).color)).toBe('rgb(0, 128, 0)')
   }, 90_000)
 
-  it('survives the first session adoption, then remounts on every later transition', async () => {
+  it('keeps a cached frame\'s document alive when a session opens beside it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-frame-identity'))
-    // The session-maybe incarnation the page booted into adopts the first
-    // session that arrives, so the frame and the document inside it survive
-    // that one transition — the hosted application keeps its own state through
-    // the user's first click.
+    // Mark the frame the column shows with no session current — the overlay's
+    // default page — and the document inside it.
     expect(await probeFrame(page, 'kept')).toEqual(KEPT)
+
     await openSession(page, 1)
-    await expect.poll(async () => await probeFrame(page, undefined), { timeout: 15_000 }).toEqual(KEPT)
+    // The session owns its own frame, showing the same default page because
+    // its log names none.
+    await expect.poll(
+      async () => await contentFrame(page).getAttribute('src'), { timeout: 15_000 }).toBe('/content-app/')
 
     // Evidence for the composition, not a failure artifact: the hosted page in
     // the content column with a real session open beside it.
     await page.screenshot({ path: join(REPO_ROOT, '.artifacts', 'web-e2e-content-frame.png') })
 
-    // After adoption the entry behaves like a strict session entry: switching
-    // sessions is a fresh incarnation, so the application reloads and whatever
-    // the user had in it is gone.
-    await openSession(page, 2)
-    await expect.poll(async () => await probeFrame(page, undefined), { timeout: 15_000 }).toEqual(FRESH)
-
-    // Returning to no-session is another incarnation, by the same rule.
-    expect(await probeFrame(page, 'kept')).toEqual(KEPT)
-    await page.getByRole('button', { name: 'New session' }).first().click()
-    await expect.poll(async () => await probeFrame(page, undefined), { timeout: 15_000 }).toEqual(FRESH)
+    // The marked frame is still mounted, merely hidden. The column is a `root`
+    // slot, so the framework never remounts it and nothing it holds is
+    // destroyed by a session transition.
+    expect(await probeFrame(page, undefined, `iframe[data-content-frame][${PROBE_ATTRIBUTE}="kept"]`))
+      .toEqual(KEPT)
   }, 90_000)
 
   it('leaves the console clean', () => {

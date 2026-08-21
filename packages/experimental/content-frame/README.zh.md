@@ -2,13 +2,13 @@
 
 [English](README.md) | 中文
 
-服务形态外壳 content 栏的第一位占用者：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，并由一个铺满该栏的 iframe 呈现。里面的应用由运行 harness 的人自己编写和部署——本包既不构建它，也不关心它用什么框架。
+服务形态外壳 content 栏的第一位占用者，也是 agent 对这一栏的控制权：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，由一个铺满该栏的 iframe 呈现——而栏里放部署方配置的哪一个页面，由 agent 决定。里面的应用由运行 harness 的人自己编写和部署；本包既不构建它，也不关心它用什么框架。
 
-两个半边围绕同一条路径 `/content-app` 定义：node 半边把它注册为指向配置目录的 webserver prefix 路由；browser 半边把一个指向 `/content-app/` 的 iframe 注册进 [`server-layout`](../server-layout/README.zh.md) 的 `content` 槽。`content` 是 `single` + `session-maybe` 槽，因此这个 frame 是该栏唯一的占用者；而一个 frame 能活多久由渲染器的 adoption 规则决定：页面启动时的那一代会**认领**用户打开的第一个会话，因此应用能挺过这一次点击，此后每一次会话变化都会挂载新的 frame，并让应用重新加载。
+四块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`content` projection 把记录下来的 id 对照**当下运行的**页面清单解析，因此浏览器收到的是成品 `{state, url, title}`，自身不做任何解析。browser 半边认领 [`server-layout`](../server-layout/README.zh.md) 的 `content` 槽，并为每个会话各保活一个 frame。
 
 ## 信任边界
 
-**被托管的应用拥有与外壳相同的权限。** 它由 dsh 同源提供，且 iframe 不带 `sandbox` 属性，这使文档与外壳同源：它可以直接调用 dsh HTTP API——会话、工具、设置，浏览器能触及的一切——无需任何额外授权。因此 `root` 必须指向一个「与 harness 本身同等可信」的目录。
+**被托管的页面拥有与外壳相同的权限。** 它们由 dsh 同源提供，且 iframe 不带 `sandbox` 属性，这使每个文档都与外壳同源：它可以直接调用 dsh HTTP API——会话、工具、设置，浏览器能触及的一切——无需任何额外授权。因此 `root` 必须指向一个「与 harness 本身同等可信」的目录。
 
 这是设计本意而非疏漏。content 栏里的第一方应用本就应当与 harness 对话，而 opaque origin 做不到：API 的 Origin 校验会拒绝 `null`，所以不带 `allow-same-origin` 的 `sandbox` 会让这个 frame 什么都做不了，带上它则等于什么都没限制。要托管**不该**拥有这份权限的内容——agent 生成的页面、第三方产物、用户随手投放的东西——需要另一个带沙箱的插件，而不是本包上的一个开关。
 
@@ -24,6 +24,18 @@
 - **目录解析到自身的 `index.html`**，裸前缀也一样；没有 index 的目录是 404。
 - **只接受 GET 与 HEAD**；其余为 405，并带 `Allow: GET, HEAD`。
 - **`cache-control: no-cache`**，因为该目录在固定 URL 下就地更新，缓存住的入口文档会持续提供上一次构建的结果。
+
+第二条 exact 路由 `/content-frame/settings` 把 browser 半边必须遵守的那一个配置值 `cacheSize` 提供给它。它之所以存在，是因为 browser 半边根本收不到任何 cordis 配置：boot manifest 携带的是插件名，不是它们的 `config` 块。settings 文档不可达或不可用时，browser 那一行直接失败，而不是让这一栏跑在一个没人选过的上限上。
+
+## agent 可展示的页面
+
+`pages` 是这一栏在部署里的全部词汇，且至少要有一项——`content_show` 存在的意义就是在其中挑选。每个页面声明 agent 传入的 `id`、用户读到的 `title`、以 agent 的语汇写成的 `description`（它会成为工具描述里的清单行），以及同源的 `url`。带协议或主机名的 URL 会让该行在加载时失败：这个 frame 携带外壳权限，因此只能寻址 dsh 同源地址。
+
+`defaultPage` 指定 agent 尚未选择任何页面时、以及它清空这一栏之后所展示的页面；省略它则这一栏在 agent 填入内容前保持空白。`id` 不得为 `none`，那是工具保留给「清空」的。
+
+## 每个会话各一个活着的 frame
+
+这一栏是 `root` 槽，框架永不重挂它；browser 半边把每个被缓存会话的 iframe 全部挂着，只显示当前那一个。因此用户回到某个会话时，页面还是他离开时的样子——滚动位置、表单状态、文档持有的一切——因为那个元素从未被销毁。`cacheSize` 限定能存活多少个；超出后最久未展示的那个被丢弃，其会话再次回来时重新加载。当前会话的 frame 永远不会是被丢弃的那个。
 
 ## 组合方式
 
@@ -41,23 +53,54 @@
       name: '@deepseek-ai/dsh-experimental-content-frame'
       config:
         root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/
+        defaultPage: home
 ```
 
 用 `dsh --profile web --patch <path>` 应用。overlay 从环境变量读取目录，使同一个文件可以服务任意应用；托管固定应用的部署把字面绝对路径写在那里即可。两个包都必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile web add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
 
+工具与 projection 都是可选子节点：没有 `ctx.tools` 或没有 `ctx.sessionProjections` 的组合仍保留路由并显示空栏，两者缺席都不会让该行失败。
+
 ## Model Experience
 
-无，因为本包只是把一个由部署方配置的目录提供给一个浏览器 iframe，这里没有任何东西抵达模型请求。
+### The `content_show` offer
+
+#### What the model sees
+
+一个工具 `content_show`，一个必填的 `string` 参数 `page`。它的描述以 `id — title — description` 行携带部署方的完整页面清单，因此不需要别的东西告诉模型可以展示什么——本包不贡献任何 system prompt section。
+
+#### Token effect
+
+一段固定描述，加每个配置页面一行清单，出现在工具可见的每一次请求里。十个页面约合十行短文本。
 
 #### KV Cache effect
 
-无；本包既不组装也不发送模型请求。
+描述在该行加载时装配一次，在一个部署内不会变化，因此工具块在各次请求间逐字节一致，前缀得以保持。编辑 `pages` 会改变这个块并使其之后的复用失效——那是一次配置改动，不是会话能触发的事情。
+
+### Tool-call result and column state
+
+#### What the model sees
+
+调用成功时回复恰好是 `Now showing <title> in the content column.` 或 `Content column cleared.`。部署未配置的 id 回复 `Error: unknown page "<id>". Available pages:` 后接完整清单，因此模型从结果里自纠错，而不是靠猜测重试；这次调用不改变任何东西。没有归属会话的调用回复 `Error: content_show requires an owning agent session`。每次成功调用追加的 `content/shown` 事件属于 UI 与重放状态，不是第二条模型消息。
+
+#### Token effect
+
+成功路径小而定形。被拒绝时多付一份清单，这正是让它可自纠错的代价。
+
+#### KV Cache effect
+
+只追加；结果跟在可复用的请求前缀之后，不会使任何已缓存内容失效。
 
 ## Known Limitations and Deferred Work
 
-- **会话变化会让应用重新加载** —— 第一次认领之后，`session-maybe` 的行为与严格 session 作用域一致：此后每一次切换渲染器都会挂载一个新的 frame，被托管应用此前持有的状态随之消失。需要跨切换存活的东西属于应用自己那一侧（它自己的服务端、`localStorage`、dsh API），而不属于它的页面。要让这一栏活得比会话更久，需要一个 `root` 作用域的座位——那是外壳的声明，不归本包改动。
-- **一个应用、一个页面** —— 路由只提供单个配置目录，栏内展示它的入口文档。没有页面切换、没有第二个应用，也无法从外壳寻址被托管应用的子路径。
-- **frame 与外壳之间没有通道** —— 没有 `postMessage` 协议、没有共享状态，被托管的应用无法请求外壳打开某个会话，外壳也无法告知它当前选中了什么。该应用回到 harness 的唯一通路是它自行调用的 dsh HTTP API。
-- **agent 无法驱动这个 frame** —— 没有工具、没有 session 事件、没有 projection。栏内呈现的内容对模型不可见，也无法从 session log 重建。
+- **`content/shown` 是读取时必需的** —— 该事件不带 `ignorable` 标记，因此会话词汇表里没有它的运行时会拒绝整份日志，而不是跳过这条事件。本仓库的任何构建都认识这个类型；单独构建、且排除了本包的运行时则不认识。
+- **一个目录、一个源** —— 路由只提供单个配置目录，且每个页面都必须是 dsh 同源内的路径。没有第二个应用、没有外部 URL，agent 也无法指名部署未配置的页面。
+- **frame 与外壳之间没有通道** —— 没有 `postMessage` 协议、没有共享状态，被托管的页面也无法回报用户在里面做了什么。agent 能把一个页面推到用户眼前，却无法得知之后发生了什么，除非有人告诉它。该页面回到 harness 的唯一通路是它自行调用的 dsh HTTP API。
+- **frame 缓存按浏览器标签页计，且在时间上无上限** —— `cacheSize` 限定的是同时存活多少个 frame，不是存活多久。一个长期打开的标签页会让被缓存的文档持续运行，包括它们持有的轮询与套接字。
+- **settings 路由假定存在 HTTP 载体** —— browser 半边以页面 origin 为基准请求 `/content-frame/settings`。如果某种传输提供了外壳却没有把 harness 暴露在 HTTP 上，该行会失败——与 iframe 自己那条路由的处境相同。
 - **没有面向不可信内容的沙箱档** —— 见上文信任边界。托管不应携带外壳权限的内容属于另一个插件，本包不为此提供开关。
-- **未被 assembled snapshot 覆盖** —— 浏览器侧证据是针对真实组合运行的 Playwright 场景，而非录制的 transcript；snapshot 各条投影的是模型可见与会话输出，而本包两者皆无。
+- **未被 assembled snapshot 覆盖** —— 浏览器侧证据是针对真实组合运行的 Playwright 场景，模型可见文本则由单测逐字钉住；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。

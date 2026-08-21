@@ -393,6 +393,26 @@ Types: [ContentBlock](subsystems/core.md) · [TokenUsage](subsystems/llm-streami
 
 Source: [`packages/compaction/compaction/src/types.ts:33`](../packages/compaction/compaction/src/types.ts)
 
+### `content/*`
+
+<a id="contentshown--log-only"></a>
+
+#### `content/shown` — log-only
+
+```ts persistence-catalog
+/**
+ * Which configured page the agent put in the shell's content column from
+ * this point on, or `null` when it cleared the column. Whole-value
+ * replace: the last event wins and a log with none folds to the cleared
+ * state. The id is recorded as the agent named it, not resolved against
+ * the deployment's page list, so a log written before a page was renamed
+ * still replays as what the agent actually did.
+ */
+'content/shown': { page: string | null }
+```
+
+Source: [`packages/experimental/content-frame/src/types.ts:21`](../packages/experimental/content-frame/src/types.ts)
+
 ### `feedback/*`
 
 <a id="feedbackrecord--log-only"></a>

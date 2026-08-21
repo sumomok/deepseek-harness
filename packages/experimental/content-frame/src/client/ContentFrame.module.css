@@ -1,10 +1,41 @@
-/* The content column is a flex column with a definite height, so the frame
-   grows into whatever width and height the shell's track solves rather than
-   the 300x150 intrinsic box every iframe carries. */
-.frame {
+/* The column stacks its frames on top of each other in a definite-size box, so
+   each fills whatever width and height the shell's track solves rather than the
+   300x150 intrinsic box every iframe carries. Stacking, not flow: every cached
+   frame is mounted at once and only one is visible. */
+.column {
   flex: 1;
   min-height: 0;
+  position: relative;
+}
+
+.frame {
+  position: absolute;
+  inset: 0;
   width: 100%;
-  display: block;
+  height: 100%;
   border: 0;
+}
+
+/* `visibility`, never `display: none`: Blink detaches an iframe removed from
+   the layout tree and reloads its document when it comes back, which would
+   destroy the exact state this column exists to keep. A hidden frame stays
+   attached, keeps running, and only stops taking clicks. */
+.cached {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.notice {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-base);
 }

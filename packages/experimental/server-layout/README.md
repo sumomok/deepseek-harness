@@ -36,7 +36,7 @@ The plugin is not part of any shipped bundle. Compose it as an overlay over the 
 
 ## Registering into the content column
 
-`content` is a `single`, `session-maybe` slot with an empty owner share. It receives no owner props; session facts arrive through the framework hooks of its scope, and its occupant follows the renderer's adoption rule — the incarnation the page boots into keeps its React identity when the first session arrives, and every session change after that mounts a fresh one.
+`content` is a `single`, `root` slot with an empty owner share. It receives no owner props, and it mounts once for the page's lifetime: no session transition remounts it. That is what makes the column able to hold DOM state a switch must not destroy — a live iframe document is the case it was built for — and it puts the session question on the occupant, which reads the current session through the root standard hook `useSessions` and decides for itself what a switch changes.
 
 ```ts ignore-check
 ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurface))
@@ -57,5 +57,6 @@ None; this package neither assembles nor sends a provider request.
 - **No responsive behavior** — the ratio is applied at every width, so a narrow viewport squeezes all four columns rather than folding the session column or stacking. The shipped shell's auto-collapse breakpoint and concession chain have no counterpart here; a deployment that needs them should compose ui-layout instead.
 - **No resize affordance** — column widths are not user-adjustable and not persisted. Ratio and rail width are contract-frozen constants, not configuration.
 - **The content column is a shell only** — this package ships the seat, its empty state, and its geometry. What renders inside belongs to the occupant; [`content-frame`](../content-frame/README.md) is the first one.
+- **A root-scoped column leaks per-session state unless its occupant keys it** — the framework clears nothing on a session switch, so an occupant holding per-session component state must key it by session id itself. That cost buys the column's whole point: DOM the framework may not destroy. The other three columns keep their session scopes.
 - **No browser theme-color metadata** — the shipped shell also maintains a `<meta name="theme-color">` whose content follows the computed body background, which colors surrounding browser UI on mobile. This shell omits it, consistent with having no responsive behavior to serve that surface.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario run against a real composition, not a recorded transcript; the snapshot lanes project model-visible and conversation output, which this package has none of.

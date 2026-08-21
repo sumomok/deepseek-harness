@@ -25,6 +25,7 @@
     "tests/scaffold.ts",
     "tests/server-layout.e2e.ts",
     "tests/content-frame.e2e.ts",
+    "tests/content-show.e2e.ts",
     "tests/vue-ui-poc.e2e.ts",
     "tests/scaffold-hermetic.e2e.ts",
     "tests/startup-rpc-budget.e2e.ts",

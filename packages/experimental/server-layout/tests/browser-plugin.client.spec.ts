@@ -57,8 +57,9 @@ describe('server-layout browser half', () => {
     expect(slots.spec('conversation')).toEqual({ kind: 'single', scope: 'session-maybe' })
     expect(slots.spec('details')).toEqual({ kind: 'single', scope: 'session' })
     expect(slots.spec('shell.overlay')).toEqual({ kind: 'list', scope: 'root' })
-    // Plus this shell's own center column.
-    expect(slots.spec('content')).toEqual({ kind: 'single', scope: 'session-maybe' })
+    // Plus this shell's own center column, root-scoped so no session
+    // transition can remount whatever DOM its occupant holds.
+    expect(slots.spec('content')).toEqual({ kind: 'single', scope: 'root' })
   })
 
   it('arms ctx.layout from the entry inject hook and returns no business face', async () => {

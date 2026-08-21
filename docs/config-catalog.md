@@ -618,19 +618,53 @@ Source: [`packages/experimental/agent-team/src/types.ts:125`](../packages/experi
 Requires: `webServer`
 
 ```ts config-catalog
-/** Plugin config: the hosted application's location. */
+/** Plugin config: the hosted application, and the pages the agent may show from it. */
 export interface Config {
   /**
-   * Absolute path of the directory whose `index.html` the content column
-   * shows. Required with no default: which application a deployment hosts is
+   * Absolute path of the directory the content column's pages are served
+   * from. Required with no default: which application a deployment hosts is
    * the whole decision this plugin exists to carry, and the trust it grants
    * that directory makes an inferred location the wrong kind of convenience.
    */
   root: string
+  /**
+   * The pages the agent may put in the column, in the order the tool
+   * description offers them. At least one is required — `content_show` exists
+   * to choose among these, and an empty list leaves the model a tool it can
+   * never call successfully. Each `url` must be a same-origin path.
+   */
+  pages: ContentPage[]
+  /**
+   * Page shown while a session has shown nothing yet, and after the agent
+   * clears the column. Must name a configured page. Omit to leave the column
+   * empty until the agent fills it.
+   */
+  defaultPage?: string
+  /**
+   * How many sessions' frames the browser keeps alive at once. A cached frame
+   * keeps its live document — scroll position, form state, whatever the page
+   * holds — across a session switch; the least recently shown one is dropped
+   * past this bound, and reloads when its session comes back. Raise it for a
+   * deployment whose users switch between many sessions and whose pages are
+   * expensive to reload; lower it to bound the browser's memory.
+   */
+  cacheSize?: number
+}
+
+/** One page the agent may put in the content column. */
+export interface ContentPage {
+  /** Stable id the agent passes to `content_show`; unique within the deployment. */
+  readonly id: string
+  /** Human-facing name of the page, shown to the user and named back to the agent in the tool result. */
+  readonly title: string
+  /** What the page is for, in the agent's terms — this is what the tool description offers it to choose from. */
+  readonly description: string
+  /** Same-origin path of the page, from the site root (`/content-app/reports/`). */
+  readonly url: string
 }
 ```
 
-Source: [`packages/experimental/content-frame/src/index.ts:30`](../packages/experimental/content-frame/src/index.ts)
+Source: [`packages/experimental/content-frame/src/index.ts:42`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

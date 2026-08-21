@@ -82,9 +82,9 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
   {
     key: 'content',
     kind: 'single',
-    scope: 'session-maybe',
+    scope: 'root',
     summary: 'The whole center column, this shell\'s own seat and the reason it exists: the resident work surface between the session list and the chat column.',
-    doc: 'The whole center column, this shell\'s own seat and the reason it exists:\nthe resident work surface between the session list and the chat column.\nEMPTY in every shipped composition — registering here claims the column\noutright, and the shell\'s own placeholder disappears with the first\nregistration.\n\nCurrent-session-optional, matching the chat column: the occupant owns\nboth the no-session and the live-session state without changing its React\nidentity, so it keeps its own state across a session switch. It receives\nno owner props; session facts arrive through the framework hooks of the\n`session-maybe` scope.',
+    doc: 'The whole center column, this shell\'s own seat and the reason it exists:\nthe resident work surface between the session list and the chat column.\nEMPTY in every shipped composition — registering here claims the column\noutright, and the shell\'s own placeholder disappears with the first\nregistration.\n\nRoot-scoped, unlike the chat column beside it: the occupant mounts once\nfor the page\'s lifetime and no session transition can remount it. The\ncolumn is meant to hold DOM state a session switch must not destroy — an\niframe\'s live document is the case this shell was built for, and under\n`session-maybe` the renderer\'s adoption rule (`SessionMaybeEntry`) kills\nthat document on every switch after the first. The occupant reads the\ncurrent session through the root standard hook (`useSessions`) and\ndecides for itself what a switch changes. It receives no owner props.',
     registerOptions: [],
     ownerProps: [
       '/** Content owner share: empty — the column\'s occupant owns its whole surface. */\nexport interface ContentOwnerProps {}',
@@ -93,11 +93,6 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     standardProps: [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./workspaces/service.ts\').WorkspaceListState>',
-      'useSession: MaybeSnapshotSelectorHook<ConversationSnapshot>',
-      'sessionId: SessionId | undefined',
-      'useProjection: UseProjection',
-      'useInput: MaybeSnapshotSelectorHook<InputState>',
-      'inputActions: InputActions | undefined',
     ],
     keyDomain: '',
     hookContext: '',
@@ -108,7 +103,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'content\', () => ctx.slots.register(\n      { name: \'content\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/experimental/server-layout/src/client/index.ts:53',
+    source: 'packages/experimental/server-layout/src/client/index.ts:56',
   },
   {
     key: 'conversation',

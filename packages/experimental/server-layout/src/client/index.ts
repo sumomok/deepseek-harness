@@ -44,13 +44,16 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * outright, and the shell's own placeholder disappears with the first
      * registration.
      *
-     * Current-session-optional, matching the chat column: the occupant owns
-     * both the no-session and the live-session state without changing its React
-     * identity, so it keeps its own state across a session switch. It receives
-     * no owner props; session facts arrive through the framework hooks of the
-     * `session-maybe` scope.
+     * Root-scoped, unlike the chat column beside it: the occupant mounts once
+     * for the page's lifetime and no session transition can remount it. The
+     * column is meant to hold DOM state a session switch must not destroy — an
+     * iframe's live document is the case this shell was built for, and under
+     * `session-maybe` the renderer's adoption rule (`SessionMaybeEntry`) kills
+     * that document on every switch after the first. The occupant reads the
+     * current session through the root standard hook (`useSessions`) and
+     * decides for itself what a switch changes. It receives no owner props.
      */
-    'content': { kind: 'single'; scope: 'session-maybe'; owner: ContentOwnerProps }
+    'content': { kind: 'single'; scope: 'root'; owner: ContentOwnerProps }
   }
 
   interface LocaleNamespaceMap {
@@ -81,7 +84,7 @@ export function apply(ctx: ClientContext): void {
       locale: NS,
       children: {
         'sidebar': { kind: 'single', scope: 'root' },
-        'content': { kind: 'single', scope: 'session-maybe' },
+        'content': { kind: 'single', scope: 'root' },
         'conversation': { kind: 'single', scope: 'session-maybe' },
         'details': { kind: 'single', scope: 'session' },
         'shell.overlay': { kind: 'list', scope: 'root' },

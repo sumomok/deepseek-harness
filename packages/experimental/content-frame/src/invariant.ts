@@ -5,7 +5,9 @@
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type {} from './types.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-content-frame'
 
@@ -15,13 +17,37 @@ export const name = 'experimental-content-frame-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this package emits no cordis event and owns no mutable
- * durable data — the hosted directory is a read-only input the harness never
- * writes. Its two relationships, the webserver route registration and the
- * content-slot registration, are effects whose install and teardown this
- * package's own specs exercise directly.
+ * Validate one recorded column state before it reaches the durable log.
+ *
+ * Deliberately silent on whether the id names a configured page. The page list
+ * is per-deployment configuration that changes under the log, and the
+ * projection already resolves an id it no longer knows as `missing`: tying the
+ * invariant to the current list would reject history that was valid when it
+ * was written.
  */
-const install: InvariantInstaller = () => {}
+function validateShown(page: unknown, fail: InvariantFailure): void {
+  if (page === null) return
+  if (typeof page !== 'string' || page.length === 0 || page.trim() !== page) {
+    fail('content/shown page must be null or a non-empty, already-trimmed id')
+  }
+}
+
+/** Validate the package-owned event fields and ignore unrelated events. */
+function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
+  if (event.type === 'content/shown') validateShown(event.data.page, fail)
+}
+
+/** Install validation for loaded and newly appended column states. */
+const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
+  for (const session of ctx.sessions.list()) {
+    for (const event of session.events) validateEvent(event, fail)
+  }
+  ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName !== 'session/event') return
+    const event = (args as [Session, SessionEvent])[1]
+    validateEvent(event, fail)
+  }, { global: true })
+}, { inject: ['sessions'] })
 
 /**
  * Register this package's invariant companion.

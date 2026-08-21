@@ -1,13 +1,14 @@
 /**
- * REAL-composition coverage for the hosted application route: a test-only
+ * REAL-composition coverage for this package's two routes: a test-only
  * cordis.yml booted through the vendored Loader mounts the webserver and
  * content-frame rows, and every assertion observes the served HTTP surface —
  * entry document, content types, directory resolution, the loud 404 that must
  * not reach the webserver fallback, traversal and symlink-escape rejection,
- * method gating, and route release on fiber disposal (HMR safety).
+ * method gating, the browser settings document, and route release on fiber
+ * disposal (HMR safety).
  *
- * The config-validation cases call `apply` directly: a rejected root never
- * reaches a served surface, so there is nothing for HTTP to observe.
+ * The config-validation cases call `apply` directly: a rejected configuration
+ * never reaches a served surface, so there is nothing for HTTP to observe.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test — the node half of a dual-face client package is
@@ -23,7 +24,24 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
+import SessionStore from '@deepseek-ai/dsh-session'
+import type { Session } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ContentFrame from '../src/index.ts'
+import type { ContentPage } from '../src/types.ts'
+
+/**
+ * A fresh session from the host store. Reached through `ctx.get` and cast:
+ * this package compiles in the Client aggregate, where the cordis
+ * `Context.sessions` merge names the browser service rather than the host store.
+ * @param ctx - the booted composition.
+ * @returns a new session.
+ */
+function newSession(ctx: Context): Session {
+  return (ctx.get('sessions') as unknown as SessionStore).create()
+}
 
 /** Body the test-owned webserver fallback answers with, to prove the route never delegates a miss. */
 const FALLBACK_BODY = 'DSH-SPA-SHELL'
@@ -48,7 +66,7 @@ interface Answer {
 }
 
 /** Write the application fixture and a two-row cordis.yml, then boot it through the real Loader. */
-async function loadComposition(): Promise<Context> {
+async function loadComposition(withDefaultPage = true): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-content-frame-'))
   const root = join(world, 'app')
   await mkdir(join(root, 'assets'), { recursive: true })
@@ -72,10 +90,23 @@ async function loadComposition(): Promise<Context> {
     '  config:',
     "    host: '127.0.0.1'",
     '    port: 0',
+    // The two optional seams, so this composition also activates the tool and
+    // the projection children rather than only the route.
+    "- name: '@deepseek-ai/dsh-session'",
+    "- name: '@deepseek-ai/dsh-system-prompt'",
+    "- name: '@deepseek-ai/dsh-tools'",
+    "- name: '@deepseek-ai/dsh-session-projection'",
     '- id: content',
     "  name: '@deepseek-ai/dsh-experimental-content-frame'",
     '  config:',
     `    root: '${root}'`,
+    '    cacheSize: 4',
+    ...withDefaultPage ? ['    defaultPage: home'] : [],
+    '    pages:',
+    '      - id: home',
+    '        title: Home',
+    '        description: The entry page.',
+    '        url: /content-app/',
     '',
   ].join('\n'))
 
@@ -85,6 +116,10 @@ async function loadComposition(): Promise<Context> {
   context.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
     ['@deepseek-ai/dsh-host-webserver', HttpServer],
+    ['@deepseek-ai/dsh-session', SessionStore],
+    ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
+    ['@deepseek-ai/dsh-tools', ToolRuntime],
+    ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
     ['@deepseek-ai/dsh-experimental-content-frame', ContentFrame],
   ])
   context.loader.internal = {
@@ -121,6 +156,11 @@ describe('hosted application route', () => {
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
+    // The optional seams the row reaches for are both live in this
+    // composition, so the tool and the projection are part of what booted.
+    expect(loaded.tools.schemas().map(schema => schema.name)).toContain('content_show')
+    expect(loaded.sessionProjections.snapshot(newSession(loaded)).values.content)
+      .toEqual({ state: 'default', url: '/content-app/', title: 'Home' })
     const server = loaded.webServer
     const port = server.port
     // The dsh SPA seat, as a live deployment has it: a miss inside the hosted
@@ -177,13 +217,34 @@ describe('hosted application route', () => {
     expect(await request(port, '/content-app/..%2f..%2fsecret.txt')).toMatchObject({ status: 403 })
     expect(await request(port, '/content-app/', { method: 'POST' })).toMatchObject({ status: 405, allow: 'GET, HEAD' })
 
-    // HMR safety: disposing the row releases the route, and the fallback — not
-    // this package — answers the prefix again.
+    // The browser half's own configuration, served because the boot manifest
+    // carries no `config` block to the browser. Uncached: the row it describes
+    // can be replaced under a running page.
+    expect(await request(port, '/content-frame/settings')).toMatchObject({
+      status: 200,
+      type: 'application/json',
+      cacheControl: 'no-store',
+      body: '{"cacheSize":4,"defaultPage":{"url":"/content-app/","title":"Home"}}',
+    })
+    expect(await request(port, '/content-frame/settings', { method: 'POST' }))
+      .toMatchObject({ status: 405, allow: 'GET, HEAD' })
+
+    // HMR safety: disposing the row releases both routes, and the fallback —
+    // not this package — answers the prefix again.
     const entry = [...loaded.loader.entries()].find(candidate => candidate.options.id === 'content')
     expect(entry).toBeDefined()
     await entry!.fiber?.dispose()
     expect(await request(port, '/content-app/')).toMatchObject({ status: 200, body: FALLBACK_BODY })
+    expect(await request(port, '/content-frame/settings')).toMatchObject({ status: 200, body: FALLBACK_BODY })
     releaseFallback()
+  })
+
+  it('omits the default page from both faces when the deployment configures none', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition(false)
+    expect(await request(loaded.webServer.port, '/content-frame/settings'))
+      .toMatchObject({ status: 200, body: '{"cacheSize":4}' })
+    expect(loaded.sessionProjections.snapshot(newSession(loaded)).values.content)
+      .toEqual({ state: 'empty' })
   })
 
   // fs.symlink needs elevation or developer mode on Windows; the Linux
@@ -195,16 +256,45 @@ describe('hosted application route', () => {
   })
 })
 
-describe('root validation', () => {
+/** The smallest valid page list, so a root case is only about the root. */
+const HOME: ContentPage = { id: 'home', title: 'Home', description: 'The entry page.', url: '/content-app/' }
+
+describe('configuration validation', () => {
   it('rejects a relative, missing, or non-directory root at load', async () => {
     world = await mkdtemp(join(tmpdir(), 'dsh-content-frame-config-'))
     const file = join(world, 'index.html')
     await writeFile(file, '<body></body>')
     const ctx = new Context()
+    const pages = [HOME]
 
-    await expect(ContentFrame.apply(ctx, { root: 'app/dist' })).rejects.toThrow(/must be an absolute path/)
-    await expect(ContentFrame.apply(ctx, { root: join(world, 'nowhere') }))
+    await expect(ContentFrame.apply(ctx, { root: 'app/dist', pages })).rejects.toThrow(/must be an absolute path/)
+    await expect(ContentFrame.apply(ctx, { root: join(world, 'nowhere'), pages }))
       .rejects.toThrow(/is not an existing directory/)
-    await expect(ContentFrame.apply(ctx, { root: file })).rejects.toThrow(/is not an existing directory/)
+    await expect(ContentFrame.apply(ctx, { root: file, pages })).rejects.toThrow(/is not an existing directory/)
+  })
+
+  it('rejects a broken page list before it ever reaches the root check', async () => {
+    world = await mkdtemp(join(tmpdir(), 'dsh-content-frame-pages-'))
+    const ctx = new Context()
+    // Deliberately paired with a root that would also fail: the page list is
+    // checked first, so these messages prove the ordering as well as the rule.
+    const apply = (pages: ContentPage[], extra?: { defaultPage?: string; cacheSize?: number }): Promise<void> =>
+      ContentFrame.apply(ctx, { root: 'relative/never-reached', pages, ...extra })
+
+    await expect(apply([])).rejects.toThrow(/pages must list at least one page/)
+    await expect(apply([{ ...HOME, id: '' }])).rejects.toThrow(/every page needs a non-empty id/)
+    await expect(apply([{ ...HOME, id: 'none' }])).rejects.toThrow(/"none" is reserved for clearing the column/)
+    await expect(apply([HOME, { ...HOME, title: 'Other' }])).rejects.toThrow(/duplicate page id "home"/)
+    await expect(apply([{ ...HOME, url: 'https://example.test/app' }]))
+      .rejects.toThrow(/page "home" url must be a same-origin path/)
+    await expect(apply([{ ...HOME, url: '//example.test/app' }]))
+      .rejects.toThrow(/page "home" url must be a same-origin path/)
+    await expect(apply([HOME], { defaultPage: 'reports' }))
+      .rejects.toThrow(/defaultPage "reports" names no configured page/)
+    await expect(apply([HOME], { cacheSize: 0 })).rejects.toThrow(/cacheSize must be at least 1, received 0/)
+  })
+
+  it('defaults the frame cache bound rather than leaving it unset', () => {
+    expect(ContentFrame.Config({ root: '/app', pages: [HOME] }).cacheSize).toBe(3)
   })
 })

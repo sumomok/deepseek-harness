@@ -88,7 +88,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-user-questions': { kind: 'indirect', reason: 'The package mounts dsh-tool-ask-user; that tool owns the model-visible schema and answer rendering.' },
   'packages/client/ui-trajectory': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/experimental/server-layout': { kind: 'none', reason: 'Browser-side shell frame and viewing state; registers nothing model-facing.' },
-  'packages/experimental/content-frame': { kind: 'none', reason: 'Serves an operator-configured directory to one browser iframe; registers no tool, prompt, or session event.' },
   'packages/experimental/vue-ui-poc': { kind: 'none', reason: 'Browser-side framework-hosting probe; registers nothing model-facing.' },
   'packages/client/ui-workspace': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/ui-directory-picker-browse': { kind: 'none', reason: 'Browser-side directory-browsing surface; registers nothing model-facing.' },

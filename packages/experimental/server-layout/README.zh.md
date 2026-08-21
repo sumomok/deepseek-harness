@@ -36,7 +36,7 @@ content 栏是这条产品线的立身之本，也是本包存在的理由：一
 
 ## 往 content 栏注册
 
-`content` 是 `single`、`session-maybe` 槽，owner 份额为空。它不接收 owner props；session 事实通过该 scope 的框架 hook 抵达，占用者遵循渲染器的 adoption 规则——页面启动时的那一代在第一个 session 到来时保持自己的 React 身份，此后每一次 session 变化都会挂载新的一代。
+`content` 是 `single`、`root` 槽，owner 份额为空。它不接收 owner props，并且在页面的整个生命周期里只挂载一次：任何 session 切换都不会让它重挂。这正是这一栏能够持有「切换不得摧毁的 DOM 状态」的原因——活着的 iframe 文档就是它为之而建的场景——同时也把 session 问题交给了占用者：占用者通过 root scope 的标准 hook `useSessions` 读取当前 session，自行决定一次切换意味着什么。
 
 ```ts ignore-check
 ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurface))
@@ -57,5 +57,6 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 - **没有响应式行为** —— 比例在任何宽度下都照用，因此窄视口会把四栏一起挤扁，而不是折叠 session 栏或改为堆叠。出厂外壳的自动折叠断点与让步链在这里没有对应物；需要它们的部署应当改用 ui-layout。
 - **没有调宽手段** —— 栏宽既不可由用户调整，也不持久化。比例与控制条宽度是约定冻结的常量，不是配置项。
 - **content 栏只是壳** —— 本包交付座位、空态与几何。里面渲染什么归占用者所有；[`content-frame`](../content-frame/README.zh.md) 是第一位。
+- **root scope 的一栏会漏出跨 session 状态，除非占用者自己按 session 分键** —— 框架在 session 切换时不清任何东西，因此持有 per-session 组件状态的占用者必须自己以 session id 分键。这份代价换来的正是这一栏的全部意义：框架不得摧毁的 DOM。另外三栏保持各自的 session scope。
 - **没有浏览器 theme-color 元数据** —— 出厂外壳还维护一个 `<meta name="theme-color">`，其内容跟随计算出的 body 背景色，用于给移动端浏览器 UI 上色。本外壳省略了它，这与「没有响应式行为」是一致的取舍。
 - **未被组装态快照覆盖** —— 浏览器证据是跑在真实组合上的 Playwright 场景，而不是录制的 transcript；快照通道投影的是模型可见与会话输出，而本包两者皆无。

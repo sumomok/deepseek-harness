@@ -1,11 +1,12 @@
 /**
- * content-frame browser half against the real SlotRegistry: the content-column
- * registration and the URL it injects, the wait for the shell's declaration,
- * removal on fiber teardown (HMR safety), the dictionaries, and the invariant
- * companion's ownership reservation.
+ * content-frame browser half against the real SlotRegistry: the settings read
+ * that has to precede the registration, the content-column registration and
+ * the cache bound it injects, the wait for the shell's declaration, removal on
+ * fiber teardown (HMR safety), the dictionaries, and the invariant companion's
+ * ownership reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
@@ -13,19 +14,31 @@ import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-c
 import { apply, inject } from '../src/client/index.ts'
 import { ContentFrame } from '../src/client/ContentFrame.tsx'
 import * as ContentFrameInvariant from '../src/invariant.ts'
-import { CONTENT_APP_SRC } from '../src/route.ts'
+import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
+
+/** The settings document the bench serves. */
+const SETTINGS = { cacheSize: 5, defaultPage: { url: '/content-app/', title: 'Home' } }
+
+/** Answer the node half's settings route with one document. */
+function serveSettings(body: unknown, ok = true): void {
+  vi.stubGlobal('fetch', vi.fn((input: string) => {
+    if (input !== CONTENT_SETTINGS_ROUTE) throw new Error(`unexpected fetch: ${input}`)
+    return Promise.resolve({ ok, status: ok ? 200 : 503, json: () => Promise.resolve(body) })
+  }))
+}
 
 /** Declare the content column the way the service-line shell does. */
 function declareShell(ctx: Context): void {
   ctx.slots.register({
     name: 'root',
-    children: { content: { kind: 'single', scope: 'session-maybe' } },
+    children: { content: { kind: 'single', scope: 'root' } },
   } as never, () => null)
 }
 
 /** Boot the browser half over a real slot tree that declares the content column. */
 async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
+  serveSettings(SETTINGS)
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   declareShell(ctx)
@@ -44,12 +57,17 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   return { ctx, fiber }
 }
 
+afterEach(() => {
+  vi.unstubAllGlobals()
+})
+
 describe('content-frame browser half', () => {
   it('declares the services it binds', () => {
     expect(inject).toEqual(['slots', 'locale'])
   })
 
   it('waits for the shell to declare the content column before claiming it', async () => {
+    serveSettings({ cacheSize: 3 })
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
     ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
@@ -62,15 +80,32 @@ describe('content-frame browser half', () => {
     expect(ctx.slots.entries('content')).toHaveLength(1)
   })
 
-  it('registers the iframe with the same-origin route, and fiber teardown removes it (HMR safety)', async () => {
+  it('registers the column with the served cache bound, and fiber teardown removes it (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
     const [entry] = ctx.slots.entries('content')
     expect(entry?.component).toBe(ContentFrame)
-    // The URL is settled in the apply world: the component receives it as data.
-    expect(entry?.inject?.()).toEqual({ src: CONTENT_APP_SRC })
-    expect(CONTENT_APP_SRC.startsWith('/')).toBe(true)
+    // The bound is settled in the apply world: the component receives it as data.
+    expect(entry?.inject?.()).toEqual(SETTINGS)
 
     await fiber.dispose()
+    expect(ctx.slots.entries('content')).toHaveLength(0)
+  })
+
+  it('fails the row rather than guessing when the settings route is unusable', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SlotRegistry).await()
+    ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
+    for (const [body, ok, message] of [
+      [{ cacheSize: 3 }, false, /answered 503/],
+      [{}, true, /unusable cacheSize: undefined/],
+      [{ cacheSize: 0 }, true, /unusable cacheSize: 0/],
+      [{ cacheSize: 1.5 }, true, /unusable cacheSize: 1.5/],
+    ] as const) {
+      serveSettings(body, ok)
+      // The plugin body itself, not a fiber: a rejecting apply is what fails
+      // the row, and the fiber only reports it.
+      await expect(apply(ctx)).rejects.toThrow(message)
+    }
     expect(ctx.slots.entries('content')).toHaveLength(0)
   })
 
@@ -99,8 +134,6 @@ describe('content-frame invariant companion', () => {
     await fiber.await()
     expect(ContentFrameInvariant.name).toBe('experimental-content-frame-invariant')
     expect(ContentFrameInvariant.inject).toEqual(['invariants'])
-    // Emitting an unrelated event proves the companion installed no audit.
-    expect(() => { (ctx.emit as (event: string) => void)('slots/changed') }).not.toThrow()
     await fiber.dispose()
   })
 })

@@ -1,8 +1,9 @@
 /**
- * @deepseek-ai/dsh-experimental-content-frame — shows one self-hosted static
- * web application in the service-line shell's content column. The node half
- * serves a configured directory under a named webserver route; the browser
- * half claims the `content` slot with an iframe over that route.
+ * @deepseek-ai/dsh-experimental-content-frame — the shell's content column as
+ * a surface the agent drives. The node half serves a configured directory
+ * under a named webserver route, offers the deployment's pages to the model as
+ * `content_show`, and projects what each session's column shows; the browser
+ * half claims the column and keeps one live frame per session.
  *
  * Trust: the route answers on the dsh origin and the iframe carries no
  * `sandbox` attribute, so the document inside it is same-origin with the shell
@@ -17,8 +18,19 @@ import { realpath, stat } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
-import { CONTENT_APP_ROUTE } from './route.ts'
+// Type-only: resolves ctx.sessionProjections for the optional unit child.
+import type {} from '@deepseek-ai/dsh-session-projection'
+import type { ContentPage } from './types.ts'
+import { indexPages } from './pages.ts'
+import { contentProjection } from './projection.ts'
+import { contentShowTool } from './tool.ts'
+import { CONTENT_APP_ROUTE, CONTENT_SETTINGS_ROUTE, type ContentFrameSettings } from './route.ts'
 import { serveContentApp } from './serve.ts'
+
+// The `content/shown` and `content` declarations live in src/types.ts (their
+// one home); this re-export projects the type face onto the package root and
+// keeps the module edge in the emitted index.d.ts.
+export type * from './types.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'content-frame'
@@ -26,19 +38,52 @@ export const name = 'content-frame'
 /** Service required before the route can be claimed. */
 export const inject = ['webServer']
 
-/** Plugin config: the hosted application's location. */
+/** Plugin config: the hosted application, and the pages the agent may show from it. */
 export interface Config {
   /**
-   * Absolute path of the directory whose `index.html` the content column
-   * shows. Required with no default: which application a deployment hosts is
+   * Absolute path of the directory the content column's pages are served
+   * from. Required with no default: which application a deployment hosts is
    * the whole decision this plugin exists to carry, and the trust it grants
    * that directory makes an inferred location the wrong kind of convenience.
    */
   root: string
+  /**
+   * The pages the agent may put in the column, in the order the tool
+   * description offers them. At least one is required — `content_show` exists
+   * to choose among these, and an empty list leaves the model a tool it can
+   * never call successfully. Each `url` must be a same-origin path.
+   */
+  pages: ContentPage[]
+  /**
+   * Page shown while a session has shown nothing yet, and after the agent
+   * clears the column. Must name a configured page. Omit to leave the column
+   * empty until the agent fills it.
+   */
+  defaultPage?: string
+  /**
+   * How many sessions' frames the browser keeps alive at once. A cached frame
+   * keeps its live document — scroll position, form state, whatever the page
+   * holds — across a session switch; the least recently shown one is dropped
+   * past this bound, and reloads when its session comes back. Raise it for a
+   * deployment whose users switch between many sessions and whose pages are
+   * expensive to reload; lower it to bound the browser's memory.
+   */
+  cacheSize?: number
 }
+
+/** Default frame cache size: the current session plus the two before it. */
+const DEFAULT_CACHE_SIZE = 3
 
 export const Config: z<Config> = z.object({
   root: z.string().required(),
+  pages: z.array(z.object({
+    id: z.string().required(),
+    title: z.string().required(),
+    description: z.string().required(),
+    url: z.string().required(),
+  })).required(),
+  defaultPage: z.string(),
+  cacheSize: z.natural().default(DEFAULT_CACHE_SIZE),
 })
 
 /**
@@ -60,13 +105,18 @@ async function resolveRoot(configured: string): Promise<string> {
 }
 
 /**
- * Validate the root and claim the hosted application's route.
+ * Validate the configuration, then claim the route, the tool, and the
+ * projection unit.
  * @param ctx - plugin context carrying the webServer service.
  * @param config - validated {@link Config}.
  */
 export async function apply(ctx: Context, config: Config): Promise<void> {
-  // Loud at load: a root that is not a directory would answer every request
-  // with 404 and leave the column showing an empty iframe and no diagnostic.
+  // Loud at load, all of it: a root that is not a directory would answer every
+  // request with 404, and a broken page list would surface as a tool call the
+  // agent cannot get right — both with no diagnostic pointing at the row.
+  const pages = indexPages(config.pages, config.defaultPage)
+  const cacheSize = config.cacheSize ?? DEFAULT_CACHE_SIZE
+  if (cacheSize < 1) throw new Error(`content-frame: cacheSize must be at least 1, received ${cacheSize}`)
   const root = await resolveRoot(config.root)
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',
@@ -85,4 +135,33 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       await serveContentApp(pathname.slice(CONTENT_APP_ROUTE.length), res, root)
     },
   }), 'content-frame: hosted application route')
+  const fallback = config.defaultPage === undefined ? undefined : pages.get(config.defaultPage)
+  const settings: ContentFrameSettings = {
+    cacheSize,
+    ...fallback === undefined ? {} : { defaultPage: { url: fallback.url, title: fallback.title } },
+  }
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: CONTENT_SETTINGS_ROUTE,
+    handler: (req, res) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        res.writeHead(405, { allow: 'GET, HEAD' })
+        res.end()
+        return
+      }
+      // The browser half reads this once per boot and the values come from the
+      // row it booted with, so a cached copy would outlive its own truth.
+      res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+      res.end(JSON.stringify(settings))
+    },
+  }), 'content-frame: browser settings route')
+  // Both children activate only when their seam is composed: a deployment
+  // without a tool runtime or a projection registry keeps the route, and the
+  // browser shows the empty column.
+  ctx.inject(['tools'], (toolCtx) => {
+    toolCtx.tools.register(contentShowTool(pages))
+  })
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.register(contentProjection(pages, config.defaultPage))
+  })
 }

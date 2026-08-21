@@ -20,11 +20,9 @@ harness 里没有任何东西能提供任意目录。`dsh-host-frontend-static` 
 
 iframe 不带 `sandbox` 属性，因此被托管文档与外壳同源，并以外壳自身的权限触达 dsh HTTP API。这一栏里的第一方应用本就应当与 harness 对话，而 opaque origin 做不到：[API 请求信任校验](../../../../packages/client/connection/src/api-request-trust.ts)会拒绝 `null` origin，所以不带 `allow-same-origin` 的 `sandbox` 会让这个 frame 什么都做不了，而带上它则等于什么都没限制。因此本包选择**声明**这条边界，而不是假装在**强制**它：`root` 必须指向一个与 harness 同等可信的目录。不可信内容——agent 生成的页面、第三方产物——需要另一个带沙箱的插件，而不是本包上的一个开关。
 
-### `session-maybe` 占用者按 adoption 规则存活
+### 这一栏的生命周期是外壳的声明，不是本包的选择
 
-这一栏的生命周期不由本包决定，而由 `dsh-client-ui-renderer` 中的 `SessionMaybeEntry` 决定。页面启动时的那一代会认领第一个到来的会话——identity 在这一次转换中保持——此后每一次会话变化都是新的一代。对 iframe 而言，这意味着被托管应用能挺过用户的第一次点击，之后每次会话切换都会重新加载，页面持有的状态随之丢失。需要跨切换存活的东西属于应用自己那一侧。要让这一栏活得比会话更久，需要一个 `root` 作用域的座位，而那是外壳的声明。
-
-这同时纠正了 `server-layout` 的 README：它此前声称占用者在会话切换时保持 React identity；e2e 从正反两侧钉住了真实规则。
+`content` 出厂时是 `session-maybe`，其占用者按 `dsh-client-ui-renderer` 中 `SessionMaybeEntry` 的 adoption 规则存活：页面启动时的那一代认领第一个到来的会话，此后每一次会话变化都是新的一代，因此被托管文档在用户第一次点击之后的每次切换都会重新加载。要让文档跨切换存活，需要一个 `root` 作用域的座位，而那是外壳的声明——[agent 驱动内容栏那篇 Agent Note](2026-08-21-agent-driven-content-column.zh.md) 改了它，并带来了这个座位才可能实现的 per-session frame 缓存。
 
 ## Alternatives considered
 
@@ -42,7 +40,7 @@ iframe 不带 `sandbox` 属性，因此被托管文档与外壳同源，并以�
 
 content 栏在活跃会话旁展示了一个真实应用，部署方只需修改一个目录和一个 `cordis.yml` 值即可改变它展示的内容。dsh origin 现在会提供并非由 harness 构建的字节，其依据是一条被写明的信任边界，而不是被强制的边界。
 
-被托管应用在第一次之后的每次会话切换都会重新加载，这是框架规则，不是本包的缺陷。没有页面切换、没有 `postMessage` 通道、没有面向 agent 的接口——这一栏展示的内容对模型不可见，也无法从 session log 重建；控制通道属于第二步。
+第一版没有页面切换、没有 `postMessage` 通道、没有面向 agent 的接口——这一栏展示的内容对模型不可见，也无法从 session log 重建。[agent 驱动内容栏那篇 Agent Note](2026-08-21-agent-driven-content-column.zh.md) 就是这第二步：一个工具、一条 session 事件、一份 projection。`postMessage` 通道仍是具名 non-goal。
 
 `overlay/content-column.patch.yml` 把外壳与本包组合在一起，并从 `DSH_CONTENT_APP_ROOT` 读取 `root`，因此同一个文件可以服务任意应用，e2e 也通过这个随包发布的 overlay 提供它的 fixture。
 
@@ -50,4 +48,4 @@ content 栏在活跃会话旁展示了一个真实应用，部署方只需修改
 
 `tests/content-app-route.client.spec.ts` 通过 vendored Loader 启动一份仅供测试的 `cordis.yml`，挂载真实 webserver，并全部经 HTTP 断言：裸前缀与子目录的入口文档解析、content type、百分号转义的文件名、HEAD、在 fallback 存活并能应答别处时仍给出响亮 404、路径穿越与符号链接越界的 403、带 `Allow` 的 405，以及 fiber 释放时的路由回收。`browser-plugin.client.spec.ts` 覆盖等待槽声明、注册及其注入的 URL、teardown 移除与字典；`content-frame.client.spec.tsx` 钉住渲染出的 `src`、locale 标题与缺席的 `sandbox` 属性。
 
-`apps/web/tests/content-frame.e2e.ts` 让随包发布的 overlay 跑在真实组合上：frame 在 content 轨道内的几何、被托管文档及其自带样式表（浏览器对路由 content type 的裁决）、跨切换与新建会话的「先认领后重挂」规则，以及干净的控制台。
+`apps/web/tests/content-frame.e2e.ts` 让随包发布的 overlay 跑在真实组合上：frame 在 content 轨道内的几何、被托管文档及其自带样式表（浏览器对路由 content type 的裁决）、旁边打开一个会话时已缓存的 frame 仍保有它的文档，以及干净的控制台。
