@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-19-installer-app-running-check.md
 2026-08-19-installer-app-running-check.md: 3f8c6d9368ff533786072518ac9490a74691389a
-2026-08-19-installer-app-running-check.zh.md: 006e3ae77141163e87757c3c4dd5e2969176386d
+2026-08-19-installer-app-running-check.zh.md: fadc0369e6a35fe01aeed8718bf9a4efbe494ee3
