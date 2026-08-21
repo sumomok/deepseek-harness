@@ -15,7 +15,7 @@ import type { ReactNode } from 'react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { ShellFrame, type ShellFrameProps } from '../src/client/ShellFrame.tsx'
 import { createPanelStore } from '../src/client/stores.ts'
-import { SESSION_RAIL, solveTracks } from '../src/client/tracks.ts'
+import { CHAT_UNITS, CONTENT_UNITS, SESSION_RAIL, SESSION_UNITS, solveTracks } from '../src/client/tracks.ts'
 import { zh } from '../src/client/locales.ts'
 
 const FRAME = 1680
@@ -80,12 +80,12 @@ afterEach(() => {
 })
 
 describe('ShellFrame', () => {
-  it('lays four resident tracks out on the 4:12:8 ratio with details closed', () => {
+  it('lays four resident tracks out on the 3:16:5 ratio with details closed', () => {
     const { frame } = mountFrame()
     const solved = solveTracks(FRAME, false, false)
     expect(tracks(frame)).toEqual([solved.session, solved.content, solved.chat, 0])
-    expect(solved.content / solved.session).toBeCloseTo(3, 5)
-    expect(solved.content / solved.chat).toBeCloseTo(1.5, 5)
+    expect(solved.content / solved.session).toBeCloseTo(CONTENT_UNITS / SESSION_UNITS, 5)
+    expect(solved.content / solved.chat).toBeCloseTo(CONTENT_UNITS / CHAT_UNITS, 5)
   })
 
   it('renders every column in the fixed order session, content, chat, details', () => {

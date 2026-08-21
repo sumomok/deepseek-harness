@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-服务形态 web 产品线的外壳框架：四条常驻栅格轨道——session 列表、content 内容区、chat 会话区、details 详情带——按固定的 24 份比例 4:12:8 切分。它在组合里**替换** [`dsh-client-ui-layout`](../../client/ui-layout/README.md) 而不是与之并存，因为 `root` 是 single 槽，它的子槽也只能被声明一次。
+服务形态 web 产品线的外壳框架：四条常驻栅格轨道——session 列表、content 内容区、chat 会话区、details 详情带——按固定的 24 份比例 3:16:5 切分。它在组合里**替换** [`dsh-client-ui-layout`](../../client/ui-layout/README.md) 而不是与之并存，因为 `root` 是 single 槽，它的子槽也只能被声明一次。
 
 content 栏是这条产品线的立身之本，也是本包存在的理由：一块位于导航与会话之间的常驻工作面，而出厂三栏外壳没有这个座位。本版本交付的是这一栏本身，而不是它的内容——`content` 槽无人认领时，外壳渲染自己的空态。
 
@@ -14,7 +14,7 @@ content 栏是这条产品线的立身之本，也是本包存在的理由：一
 - **`ctx.layout`** —— 同一个 `ILayout` 面（`toggleSidebar`、`openDetails`、`closeDetails`），在注册 root 条目的同一个同步 effect 里提供，且**先于**注册。这个顺序正是 ui-sidebar 与 ui-conversation 零改动可用的原因：两者都 inject `layout`，也都不等声明就直接往这些子槽注册，因此当服务解开它们的 fiber 时，槽已经存在了。
 - **文档级主题投影** —— `ctx.theme` 解析当前主题但从不碰 DOM；写 root `color-scheme`、body 调色板属性和主题 alias token 的是外壳。少了这一段，组合只会保留宿主 boot 脚本给的基础调色板，并静默地不再响应 Appearance 偏好。
 
-几何是有意不同的。这里没有拖拽把手、没有让步链、没有宽度偏好：轨道宽度是「测得的框架宽度 + 两个布尔」的纯函数（`tracks.ts`），因此任何一次 resize 都复现同一比例，也没有什么需要恢复。折叠后的 session 栏渲染 56px 控制条，并把自己的比例份额让给 content 与 chat，后两者继续按各自的 12:8 瓜分剩余空间。details 带打开时从总宽里取走固定 360px，关闭时取 0，且其子树在零宽下保持挂载。
+几何是有意不同的。这里没有拖拽把手、没有让步链、没有宽度偏好：轨道宽度是「测得的框架宽度 + 两个布尔」的纯函数（`tracks.ts`），因此任何一次 resize 都复现同一比例，也没有什么需要恢复。折叠后的 session 栏渲染 56px 控制条，并把自己的比例份额让给 content 与 chat，后两者继续按各自的 16:5 瓜分剩余空间。details 带打开时从总宽里取走固定 360px，关闭时取 0，且其子树在零宽下保持挂载。
 
 宽度以像素而非 `fr` 下发到 CSS，是因为 session 栏的占位组件要用 `width` owner prop 给自己写内联宽度——`fr` 轨道会让这个数字无从得知，两者就会漂移。
 

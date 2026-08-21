@@ -13,7 +13,7 @@ import {
 const FRAME = 1680
 
 describe('solveTracks', () => {
-  it('splits an expanded frame on the 4:12:8 ratio', () => {
+  it('splits an expanded frame on the 3:16:5 ratio', () => {
     const tracks = solveTracks(FRAME, false, false)
     expect(tracks).toEqual({
       session: (FRAME * SESSION_UNITS) / TOTAL_UNITS,
@@ -23,7 +23,7 @@ describe('solveTracks', () => {
     })
   })
 
-  it('folds the session column to the control rail and leaves 12:8 behind it', () => {
+  it('folds the session column to the control rail and leaves 16:5 behind it', () => {
     const tracks = solveTracks(FRAME, true, false)
     expect(tracks.session).toBe(SESSION_RAIL)
     const body = FRAME - SESSION_RAIL

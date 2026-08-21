@@ -12,11 +12,11 @@
  */
 
 /** Session column's share of the 24-unit ratio. */
-export const SESSION_UNITS = 4
+export const SESSION_UNITS = 3
 /** Content column's share of the 24-unit ratio. */
-export const CONTENT_UNITS = 12
+export const CONTENT_UNITS = 16
 /** Chat column's share of the 24-unit ratio. */
-export const CHAT_UNITS = 8
+export const CHAT_UNITS = 5
 /** The ratio's denominator while the session column is expanded. */
 export const TOTAL_UNITS = SESSION_UNITS + CONTENT_UNITS + CHAT_UNITS
 
@@ -63,7 +63,7 @@ export function solveTracks(frame: number, sessionFolded: boolean, detailsOpen: 
   const columns = width - details
   const session = sessionFolded ? Math.min(SESSION_RAIL, columns) : share(columns, SESSION_UNITS, TOTAL_UNITS)
   // A folded rail leaves its ratio units unclaimed, so content and chat divide
-  // what remains on their own 12:8 — the center never inherits the whole fold.
+  // what remains on their own 16:5 — the center never inherits the whole fold.
   const body = columns - session
   const content = share(body, CONTENT_UNITS, CONTENT_UNITS + CHAT_UNITS)
   return { session, content, chat: body - content, details }

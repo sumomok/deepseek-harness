@@ -34,7 +34,7 @@ const SESSION = 'server-layout-web-e2e'
 /** The shell's contract-frozen geometry, restated: this spec lives in the Host aggregate. */
 const SESSION_RAIL = 56
 /** Ratio units the three resident columns are defined by. */
-const RATIO = { session: 4, content: 12, chat: 8 }
+const RATIO = { session: 3, content: 16, chat: 5 }
 /** Layout tolerance: a real layout pass rounds, and the grid carries 1px borders. */
 const TOLERANCE = 0.02
 
@@ -106,7 +106,7 @@ describe.skipIf(MODE === 'record')('web e2e: service-line three-column shell', (
     await rm(harnessHome, { recursive: true, force: true })
   })
 
-  it('splits the frame on the 4:12:8 ratio with all three columns visible', async () => {
+  it('splits the frame on the 3:16:5 ratio with all three columns visible', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-layout-ratio'))
     const [session, content, chat] = await Promise.all([
       box(column(page, 'session')), box(column(page, 'content')), box(column(page, 'chat')),

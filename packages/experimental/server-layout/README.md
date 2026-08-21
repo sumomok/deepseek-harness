@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-The shell frame for the service-line web product: four resident grid tracks — the session list, a content column, the chat column, and the details band — split on a fixed 24-unit ratio of 4:12:8. It replaces [`dsh-client-ui-layout`](../../client/ui-layout/README.md) in a composition rather than sitting beside it, because `root` is a single slot and its child slots may be declared only once.
+The shell frame for the service-line web product: four resident grid tracks — the session list, a content column, the chat column, and the details band — split on a fixed 24-unit ratio of 3:16:5. It replaces [`dsh-client-ui-layout`](../../client/ui-layout/README.md) in a composition rather than sitting beside it, because `root` is a single slot and its child slots may be declared only once.
 
 The content column is what this product line is built around and the reason the package exists: a resident work surface between navigation and conversation, which the shipped three-column shell has no seat for. This version ships the column, not its contents — an unclaimed `content` slot renders the shell's own empty-state body.
 
@@ -14,7 +14,7 @@ A shell replacement is only a drop-in if it honors everything the shipped one pu
 - **`ctx.layout`** — the same `ILayout` face (`toggleSidebar`, `openDetails`, `closeDetails`), provided in the same synchronous effect that registers the root entry, and provided *first*. That order is what makes ui-sidebar and ui-conversation work unchanged: both inject `layout` and both register into these child slots without waiting for a declaration, so by the time the service resolves their fibers the slots already exist.
 - **The document theme projection** — `ctx.theme` resolves the active theme but never touches the DOM; the shell is what writes root `color-scheme`, the body palette attribute, and the theme's alias tokens. A composition that dropped this would keep its base palette from the host's boot script and silently stop responding to the Appearance preference.
 
-Geometry differs on purpose. There are no drag handles, no concession chain, and no width preferences: the tracks are a pure function of the measured frame width and two booleans (`tracks.ts`), so any resize reproduces the same ratio and nothing has to be restored. A folded session column renders the 56px control rail and leaves its ratio units to content and chat, which keep dividing what is left on their own 12:8. The details band takes a fixed 360px off the top when open and zero when closed, and its subtree stays mounted at that zero width.
+Geometry differs on purpose. There are no drag handles, no concession chain, and no width preferences: the tracks are a pure function of the measured frame width and two booleans (`tracks.ts`), so any resize reproduces the same ratio and nothing has to be restored. A folded session column renders the 56px control rail and leaves its ratio units to content and chat, which keep dividing what is left on their own 16:5. The details band takes a fixed 360px off the top when open and zero when closed, and its subtree stays mounted at that zero width.
 
 Widths reach CSS as pixels rather than `fr` because the session column's occupant renders its own inline width from the `width` owner prop — an `fr` track would leave that number unknowable and the two would drift.
 
