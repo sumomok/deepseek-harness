@@ -1,17 +1,25 @@
 /**
- * Put the plugins the installer ships beside the server closure into the web
- * profile, before the embedded `dsh web` server reads it.
+ * Create the `desktop` profile and put the plugins the installer ships beside
+ * the server closure into it, before the embedded server reads it.
  *
- * The desktop payload carries the packages named in {@link BUILTIN_WEB_BUNDLES}
- * inside `resources/server/node_modules` (declared by `apps/desktop-server`),
- * but a profile is user data: `initProfile` writes `$DSH_HOME/profiles/web/`
- * once from the shipped template and never touches an existing file again, and
- * the template names only the two in-box bundles. So nothing in the server
- * would ever mount them. This module supplies the two facts the boot needs and
+ * The shell boots a profile of its own rather than the `web` profile every
+ * `dsh web` shares, so nothing it writes into `$DSH_HOME` can only be satisfied
+ * from inside the installed application. That makes creating the directory a
+ * precondition of the boot rather than an improvement on it: `desktop` is not
+ * in `PROFILE_TEMPLATES`, so `loadProfile` answers a home this has not run
+ * against with `profile "desktop" does not exist`.
+ *
+ * A profile is otherwise user data — `initProfile` writes it once and never
+ * revisits an existing file — and the template names only the two in-box
+ * bundles, so nothing in the server would ever mount the packages the desktop
+ * payload carries. This module supplies the three facts the boot needs and
  * nothing else:
  *
- * - the profile manifest's `dsh.profile.bundles` list carries both names, so
- *   `loadProfile` applies their `cordis.patch.yml` layers;
+ * - the profile directory holds the manifest, the user patch layer, and the
+ *   pnpm settings, the same three files `initProfile` writes;
+ * - the manifest's `dsh.profile.bundles` list carries every name in
+ *   {@link BUILTIN_WEB_BUNDLES}, so `loadProfile` applies their
+ *   `cordis.patch.yml` layers;
  * - `$DSH_HOME/profiles/node_modules/<name>` links to the payload directory,
  *   so the Loader — which resolves a plugin specifier against the profile
  *   directory as `baseUrl` — finds the package on the ordinary parent walk.
@@ -19,16 +27,26 @@
  *   app's own dependency closure and leaves names outside it alone, so these
  *   links survive every boot.
  *
- * Both writes are idempotent and additive. A name already listed is not added
- * twice, a correct link is left as it is, and no existing bundle entry,
- * dependency, or other manifest field is ever removed or rewritten. Nothing
- * here is fatal: the seed reports what it could not do and the launch
- * continues, because a shell that refuses to start over a profile it does not
- * recognize is worse than one whose sidebar is missing.
+ * A run has two levels. Initializing the profile is required, and a failure is
+ * reported in {@link SeedReport.failed}: the launch still starts the server,
+ * which owns the diagnostic for a profile it cannot load. Naming the built-in
+ * bundles and maintaining the links stay best-effort, because every failure
+ * there leaves a usable app without those plugins, which is the outcome to
+ * prefer over a shell that will not launch. Both writes are idempotent and
+ * additive: a name already listed is not added twice, a correct link is left as
+ * it is, an existing file is never rewritten, and no bundle entry, dependency,
+ * or other manifest field is ever removed.
+ *
+ * The three template files are reproduced here rather than imported.
+ * `apps/desktop` ships as an Electron app whose `node_modules` is packed into
+ * `app.asar`, so depending on a harness package would pull the product closure
+ * in a second time beside the payload that already holds it.
+ * `tests/profile-seed.spec.ts` compares what this writes against what
+ * `initProfile` writes, so an edit to either side fails there.
  *
  * Removing a seeded plugin for good is a profile-level decision, not a shell
- * one: disable its row in `$DSH_HOME/profiles/web/cordis.patch.yml`. Deleting
- * the name from `dsh.profile.bundles` only lasts until the next launch.
+ * one: disable its row in `$DSH_HOME/profiles/desktop/cordis.patch.yml`.
+ * Deleting the name from `dsh.profile.bundles` only lasts until the next launch.
  * @module @deepseek-ai/dsh-desktop/profile-seed
  */
 
@@ -48,11 +66,20 @@ import { dirname, join, resolve } from 'node:path'
  */
 export const BUILTIN_WEB_BUNDLES: readonly string[] = ['dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot']
 
-/** The profile the desktop shell boots (`dsh web` is `--profile web`). */
-const WEB_PROFILE = 'web'
+/**
+ * The profile the desktop shell boots (`dsh --profile desktop`), which no other
+ * dsh installation launches. The CLI's own `web` profile is left untouched.
+ */
+export const DESKTOP_PROFILE = 'desktop'
 
 /** Directory under the Harness home holding every profile (`PROFILES_DIR` in dsh-app-boot). */
 const PROFILES_DIR = 'profiles'
+
+/** The user patch layer inside a profile directory (`PROFILE_PATCH_FILENAME` in dsh-app-boot). */
+const PROFILE_PATCH_FILENAME = 'cordis.patch.yml'
+
+/** The pnpm settings file inside a profile directory. */
+const PROFILE_WORKSPACE_FILENAME = 'pnpm-workspace.yaml'
 
 /** What one seeding run was asked to do. */
 export interface SeedSpec {
@@ -76,6 +103,12 @@ export interface SeedReport {
   shadowed: string[]
   /** True when the run created the profile manifest rather than editing one. */
   created: boolean
+  /**
+   * Why the profile directory could not be initialized, when it could not be.
+   * The one failure a launch cannot absorb: the server refuses to boot a
+   * profile that does not exist.
+   */
+  failed?: string
 }
 
 /** The manifest fields this module reads and writes; every other key is carried through verbatim. */
@@ -109,16 +142,10 @@ function expandHome(path: string): string {
   return path
 }
 
-/**
- * The manifest `initProfile` writes for a fresh `web` profile. Kept byte-identical
- * in structure to `initProfile` (`packages/boot/app-boot/src/profile.ts`) so a
- * profile seeded here and one the server initialized are the same file; the rest
- * of the directory (`cordis.patch.yml`, `pnpm-workspace.yaml`) is left to the
- * server, which writes it on the same boot.
- */
+/** The manifest `initProfile` writes for a fresh profile, with this profile's name and layers. */
 function templateManifest(bundles: readonly string[]): ProfileManifest {
   return {
-    name: `dsh-profile-${WEB_PROFILE}`,
+    name: `dsh-profile-${DESKTOP_PROFILE}`,
     private: true,
     dependencies: {},
     dsh: { profile: { bundles: [...bundles] } },
@@ -127,6 +154,26 @@ function templateManifest(bundles: readonly string[]): ProfileManifest {
 
 /** The shipped template's own bundle list (`PROFILE_TEMPLATES.web` in dsh-app-boot). */
 const WEB_TEMPLATE_BUNDLES: readonly string[] = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
+
+/** The empty user patch layer (`PROFILE_PATCH_TEMPLATE` in dsh-app-boot). */
+const PROFILE_PATCH_TEMPLATE = `# Your patch layer for this dsh profile, applied after every bundle layer:
+# a top-level YAML array of loader patch entries (id-targeted config
+# overrides, disables, and insert lists; \`!!js\` expressions allowed).
+[]
+`
+
+/**
+ * The pnpm settings (`PROFILE_PNPM_WORKSPACE` in dsh-app-boot). `hoisted` is
+ * what lets a peer an out-of-tree plugin does not install fall through to the
+ * healed flat fallback, so a plugin the user adds later shares the
+ * installation's one cordis instead of resolving a copy of its own.
+ */
+const PROFILE_PNPM_WORKSPACE = `packages:
+  - .
+
+nodeLinker: hoisted
+autoInstallPeers: false
+`
 
 /**
  * Replace a file's contents in one step: write a sibling temporary file, then
@@ -144,6 +191,26 @@ function writeAtomic(path: string, content: string): void {
     rmSync(temporary, { force: true })
     throw error
   }
+}
+
+/**
+ * Write whichever of `initProfile`'s three files are absent, leaving every one
+ * that is already there.
+ * @param dir - the profile directory.
+ * @param bundles - the bundle list a manifest written by this call declares.
+ * @returns true when this call wrote the manifest, false when one was already there.
+ * @throws when the directory or any of the three files cannot be written.
+ */
+function initDesktopProfile(dir: string, bundles: readonly string[]): boolean {
+  mkdirSync(dir, { recursive: true })
+  const manifestPath = join(dir, 'package.json')
+  const created = !existsSync(manifestPath)
+  if (created) writeAtomic(manifestPath, `${JSON.stringify(templateManifest(bundles), undefined, 2)}\n`)
+  const patchPath = join(dir, PROFILE_PATCH_FILENAME)
+  if (!existsSync(patchPath)) writeAtomic(patchPath, PROFILE_PATCH_TEMPLATE)
+  const workspacePath = join(dir, PROFILE_WORKSPACE_FILENAME)
+  if (!existsSync(workspacePath)) writeAtomic(workspacePath, PROFILE_PNPM_WORKSPACE)
+  return created
 }
 
 /**
@@ -199,15 +266,12 @@ function ensureLink(link: string, target: string): boolean {
 }
 
 /**
- * Make the shipped built-in plugins part of the web profile.
+ * Make the desktop profile exist and mount the shipped built-in plugins in it.
  *
- * Runs before the server starts, so the profile the server reads already names
- * them. Returns what changed instead of throwing: every failure mode here —
- * an unparsable manifest, a plugin missing from the payload, a profile
- * directory that cannot be written — leaves a usable app without the built-in
- * plugins, which is the outcome to prefer over a shell that will not launch.
+ * Runs before the server starts, so the profile the server reads already exists
+ * and already names them.
  * @param spec - the Harness home, the shipped closure, and the names to seed.
- * @returns what was seeded, linked, and skipped.
+ * @returns what was created, seeded, linked, and skipped.
  */
 export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
   const report: SeedReport = { seeded: [], linked: [], skipped: [], shadowed: [], created: false }
@@ -218,21 +282,23 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
     if (existsSync(join(dir, 'package.json'))) available.push(name)
     else report.skipped.push(`${name}: not in the shipped server closure (${dir})`)
   }
-  if (available.length === 0) return report
 
-  const profileDir = join(spec.home, PROFILES_DIR, WEB_PROFILE)
+  const profileDir = join(spec.home, PROFILES_DIR, DESKTOP_PROFILE)
   const manifestPath = join(profileDir, 'package.json')
   try {
-    if (existsSync(manifestPath)) seedExistingManifest(manifestPath, available, report)
-    else {
-      mkdirSync(profileDir, { recursive: true })
-      writeAtomic(manifestPath, `${JSON.stringify(templateManifest([...WEB_TEMPLATE_BUNDLES, ...available]), undefined, 2)}\n`)
-      report.created = true
-      report.seeded.push(...available)
-    }
+    report.created = initDesktopProfile(profileDir, [...WEB_TEMPLATE_BUNDLES, ...available])
   } catch (error) {
-    report.skipped.push(`${manifestPath}: ${String(error)}`)
+    report.failed = `${profileDir}: ${String(error)}`
     return report
+  }
+  if (report.created) report.seeded.push(...available)
+  else {
+    try {
+      seedExistingManifest(manifestPath, available, report)
+    } catch (error) {
+      report.skipped.push(`${manifestPath}: ${String(error)}`)
+      return report
+    }
   }
 
   const modulesDir = join(spec.home, PROFILES_DIR, 'node_modules')
@@ -279,9 +345,8 @@ function reportShadowing(spec: SeedSpec, profileDir: string, name: string, repor
  * Append the missing names to an existing manifest's bundle list. A manifest
  * that does not parse, or that declares no bundle list at all, is left exactly
  * as it is: the first is something the server reports with the diagnostic it
- * owns, and the second is a composition written by hand, where appending two
- * names would produce a profile that mounts the built-in plugins and nothing
- * else.
+ * owns, and the second is a composition written by hand, where appending the
+ * built-in names would produce a profile that mounts them and nothing else.
  */
 function seedExistingManifest(manifestPath: string, available: readonly string[], report: SeedReport): void {
   let manifest: ProfileManifest
@@ -313,6 +378,7 @@ function seedExistingManifest(manifestPath: string, available: readonly string[]
  */
 export function describeSeed(report: SeedReport): string | undefined {
   const parts: string[] = []
+  if (report.failed !== undefined) parts.push(`could not initialize the profile: ${report.failed}`)
   if (report.seeded.length > 0) {
     parts.push(`${report.created ? 'created with' : 'seeded'} built-in bundles ${report.seeded.join(', ')}`)
   }
@@ -320,5 +386,5 @@ export function describeSeed(report: SeedReport): string | undefined {
   for (const line of report.skipped) parts.push(`skipped ${line}`)
   for (const line of report.shadowed) parts.push(`warning: ${line}`)
   if (parts.length === 0) return undefined
-  return `[desktop] profile ${WEB_PROFILE}: ${parts.join('; ')}\n`
+  return `[desktop] profile ${DESKTOP_PROFILE}: ${parts.join('; ')}\n`
 }

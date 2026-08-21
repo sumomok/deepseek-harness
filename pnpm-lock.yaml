@@ -369,6 +369,9 @@ importers:
       7zip-bin:
         specifier: ^5.2.0
         version: 5.2.0
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:^
+        version: link:../../packages/boot/app-boot
       '@types/js-yaml':
         specifier: ^4.0.9
         version: 4.0.9

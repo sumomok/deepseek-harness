@@ -1,17 +1,18 @@
 /**
- * Seeding the shipped built-in plugins into the web profile: what the shell
- * writes on a fresh home, what it appends to a profile it finds, and the
- * profiles it declines to touch.
+ * Seeding the desktop profile: what the shell writes on a fresh home, that it
+ * writes the same three files `initProfile` writes, what it appends to a
+ * profile it finds, and the profiles it declines to touch.
  * @module
  */
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
+import { lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
+import { initProfile, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  BUILTIN_WEB_BUNDLES, describeSeed, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles,
+  BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, describeSeed, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles,
 } from '../src/profile-seed.ts'
 
 let root: string
@@ -32,14 +33,14 @@ function shipPlugins(names: readonly string[], version = '1.0.0'): void {
 
 /** Put a copy of `name` in the profile's own node_modules, as `dsh plugin add` would. */
 function installIntoProfile(name: string, version: string): void {
-  const dir = join(home, 'profiles', 'web', 'node_modules', name)
+  const dir = join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', name)
   mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version }))
 }
 
 /** Write a profile manifest verbatim. */
 function writeProfile(content: string): string {
-  const dir = join(home, 'profiles', 'web')
+  const dir = join(home, 'profiles', DESKTOP_PROFILE)
   mkdirSync(dir, { recursive: true })
   const path = join(dir, 'package.json')
   writeFileSync(path, content)
@@ -48,7 +49,7 @@ function writeProfile(content: string): string {
 
 /** The parsed profile manifest. */
 function readProfile(): Record<string, unknown> {
-  return JSON.parse(readFileSync(join(home, 'profiles', 'web', 'package.json'), 'utf8')) as Record<string, unknown>
+  return JSON.parse(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, 'package.json'), 'utf8')) as Record<string, unknown>
 }
 
 /** Every built-in but `dsh-at-file`, which several cases pre-list or block on its own. */
@@ -77,7 +78,7 @@ describe('seedBuiltinBundles on a home with no profile', () => {
     expect(report.seeded).toEqual([...BUILTIN_WEB_BUNDLES])
     expect(report.skipped).toEqual([])
     expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...BUILTIN_WEB_BUNDLES])
-    expect(readProfile()).toMatchObject({ name: 'dsh-profile-web', private: true, dependencies: {} })
+    expect(readProfile()).toMatchObject({ name: 'dsh-profile-desktop', private: true, dependencies: {} })
   })
 
   it('links each built-in into the shared flat fallback the Loader walks to', () => {
@@ -90,17 +91,34 @@ describe('seedBuiltinBundles on a home with no profile', () => {
     }
   })
 
-  it('leaves the rest of the profile directory to the server', () => {
+  it('writes the user patch layer and the pnpm settings, which nothing else will', () => {
     seedBuiltinBundles({ home, serverModules })
-    expect(existsSync(join(home, 'profiles', 'web', 'cordis.patch.yml'))).toBe(false)
-    expect(existsSync(join(home, 'profiles', 'web', 'pnpm-workspace.yaml'))).toBe(false)
+    const dir = join(home, 'profiles', DESKTOP_PROFILE)
+    expect(readFileSync(join(dir, 'cordis.patch.yml'), 'utf8')).toContain('[]')
+    expect(readFileSync(join(dir, 'pnpm-workspace.yaml'), 'utf8')).toContain('nodeLinker: hoisted')
+  })
+
+  it('writes byte for byte what initProfile writes', () => {
+    // The shell reproduces these three templates rather than importing a
+    // harness package into an Electron app, so this is the gate that keeps the
+    // copy and the original one text. Same directory basename and same layer
+    // list, so every byte upstream writes is a byte the seed must write.
+    const webTemplate = PROFILE_TEMPLATES['web'] ?? []
+    expect(webTemplate).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+    seedBuiltinBundles({ home, serverModules })
+    const upstream = join(root, 'upstream', DESKTOP_PROFILE)
+    initProfile(upstream, [...webTemplate, ...BUILTIN_WEB_BUNDLES])
+    const seeded = join(home, 'profiles', DESKTOP_PROFILE)
+    for (const name of ['package.json', PROFILE_PATCH_FILENAME, 'pnpm-workspace.yaml']) {
+      expect(readFileSync(join(seeded, name), 'utf8')).toBe(readFileSync(join(upstream, name), 'utf8'))
+    }
   })
 })
 
 describe('seedBuiltinBundles on an initialized profile', () => {
   it('appends only the missing names, after everything already listed', () => {
     writeProfile(JSON.stringify({
-      name: 'dsh-profile-web',
+      name: 'dsh-profile-desktop',
       private: true,
       dependencies: { 'dsh-at-file': '0.6.5' },
       dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-at-file'] } },
@@ -113,7 +131,7 @@ describe('seedBuiltinBundles on an initialized profile', () => {
 
   it('carries dependencies and unknown fields through untouched', () => {
     writeProfile(JSON.stringify({
-      name: 'dsh-profile-web',
+      name: 'dsh-profile-desktop',
       private: true,
       dependencies: { '@haoran/gateway': 'file:../gateway.tgz' },
       packageManager: 'pnpm@11.7.0',
@@ -163,7 +181,7 @@ describe('seedBuiltinBundles on a profile it must not rewrite', () => {
   })
 
   it('leaves a manifest that declares no bundle list alone', () => {
-    const path = writeProfile(JSON.stringify({ name: 'dsh-profile-web', dependencies: {} }, undefined, 2))
+    const path = writeProfile(JSON.stringify({ name: 'dsh-profile-desktop', dependencies: {} }, undefined, 2))
     const before = readFileSync(path, 'utf8')
     const report = seedBuiltinBundles({ home, serverModules })
     expect(readFileSync(path, 'utf8')).toBe(before)
@@ -186,12 +204,27 @@ describe('seedBuiltinBundles on a profile it must not rewrite', () => {
     expect(report.skipped.join('\n')).toContain('not in the shipped server closure')
   })
 
-  it('writes nothing at all when the closure holds neither plugin', async () => {
+  it('still creates the profile when the closure holds no plugin at all', async () => {
     await rm(join(root, 'server'), { recursive: true, force: true })
     const report = seedBuiltinBundles({ home, serverModules })
-    expect(report).toMatchObject({ seeded: [], linked: [], created: false })
+    expect(report).toMatchObject({ seeded: [], linked: [], created: true })
     expect(report.skipped).toHaveLength(BUILTIN_WEB_BUNDLES.length)
-    expect(existsSync(join(home, 'profiles'))).toBe(false)
+    // Without the directory the server refuses to boot the profile at all, so
+    // the app would be gone rather than short of its plugins.
+    expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+  })
+})
+
+describe('seedBuiltinBundles when the profile cannot be written', () => {
+  it('reports the failure rather than throwing at the launch', () => {
+    // A file where the profiles directory belongs: mkdir cannot pass it on any
+    // platform, which is the one failure the seed reports as a failure.
+    mkdirSync(home, { recursive: true })
+    writeFileSync(join(home, 'profiles'), '')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.failed).toContain(join(home, 'profiles', DESKTOP_PROFILE))
+    expect(report).toMatchObject({ seeded: [], linked: [], created: false })
+    expect(describeSeed(report)).toContain('could not initialize the profile')
   })
 })
 
@@ -258,12 +291,12 @@ describe('describeSeed', () => {
 
   it('names what was seeded and linked on one line', () => {
     const line = describeSeed({ seeded: ['dsh-at-file'], linked: ['dsh-at-file'], skipped: [], shadowed: [], created: true })
-    expect(line).toBe('[desktop] profile web: created with built-in bundles dsh-at-file; linked dsh-at-file\n')
+    expect(line).toBe('[desktop] profile desktop: created with built-in bundles dsh-at-file; linked dsh-at-file\n')
   })
 
   it('carries every skip reason', () => {
     const line = describeSeed({ seeded: [], linked: [], skipped: ['a: why', 'b: why'], shadowed: [], created: false })
-    expect(line).toBe('[desktop] profile web: skipped a: why; skipped b: why\n')
+    expect(line).toBe('[desktop] profile desktop: skipped a: why; skipped b: why\n')
   })
 })
 
@@ -310,14 +343,14 @@ describe('seedBuiltinBundles version reporting', () => {
 
   it('changes nothing about the profile copy it reports', () => {
     installIntoProfile('dsh-at-file', '0.6.3')
-    const installed = join(home, 'profiles', 'web', 'node_modules', 'dsh-at-file', 'package.json')
+    const installed = join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', 'dsh-at-file', 'package.json')
     const before = readFileSync(installed, 'utf8')
     seedBuiltinBundles({ home, serverModules })
     expect(readFileSync(installed, 'utf8')).toBe(before)
   })
 
   it('says nothing when the profile copy has no readable manifest', () => {
-    const dir = join(home, 'profiles', 'web', 'node_modules', 'dsh-at-file')
+    const dir = join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', 'dsh-at-file')
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'package.json'), '{ oops')
     expect(seedBuiltinBundles({ home, serverModules }).shadowed).toEqual([])

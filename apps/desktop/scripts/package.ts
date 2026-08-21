@@ -25,7 +25,7 @@ import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
-import { BUILTIN_WEB_BUNDLES, seedBuiltinBundles } from '../src/profile-seed.ts'
+import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { bundleClosure } from './bundle-closure.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import {
@@ -367,7 +367,7 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
   if (seeded.seeded.length !== BUILTIN_WEB_BUNDLES.length) {
     throw new Error(`package: staged boot could not seed the built-in bundles: ${JSON.stringify(seeded)}`)
   }
-  const child = spawn(process.execPath, [join(root, SERVER_ENTRY), 'web', '--port', '0'], {
+  const child = spawn(process.execPath, [join(root, SERVER_ENTRY), '--profile', DESKTOP_PROFILE, '--port', '0'], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
   })

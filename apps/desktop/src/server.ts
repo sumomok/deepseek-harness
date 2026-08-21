@@ -1,12 +1,13 @@
 /**
- * Embedded `dsh web` server lifecycle for the desktop shell: spawn the
- * deployed CLI on the bundled Node runtime, treat the printed URL line as the
- * readiness signal (the same contract the keyless CLI smoke relies on), and
- * own bounded teardown of the server process tree.
+ * Embedded web server lifecycle for the desktop shell: spawn the deployed CLI
+ * on the bundled Node runtime, treat the printed URL line as the readiness
+ * signal (the same contract the keyless CLI smoke relies on), and own bounded
+ * teardown of the server process tree.
  * @module @deepseek-ai/dsh-desktop/server
  */
 
 import { spawn, type ChildProcess } from 'node:child_process'
+import { DESKTOP_PROFILE } from './profile-seed.ts'
 
 /** The web-app readiness line; the loopback URL is capture group 1. */
 const URL_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/
@@ -179,10 +180,13 @@ async function killTree(child: ChildProcess): Promise<void> {
  * silent past the startup timeout, with the collected output in the message.
  */
 export async function startServer(spec: ServerSpec, logSink: (chunk: string) => void): Promise<ServerHandle> {
-  // The shell's own window is the browser for this server, so `--no-open`
-  // declines the handoff the web app performs by default; without it every
-  // start, including the relaunch after an update, adds a 127.0.0.1 tab.
-  const child = spawn(spec.nodeBin, [spec.entry, 'web', '--port', '0', '--no-open'], {
+  // `--profile desktop` rather than the `web` alias: the shell's profile is its
+  // own, and the launcher forwards from the first token it does not recognize,
+  // so the web app still receives the two flags after it. The shell's own
+  // window is the browser for this server, so `--no-open` declines the handoff
+  // the web app performs by default; without it every start, including the
+  // relaunch after an update, adds a 127.0.0.1 tab.
+  const child = spawn(spec.nodeBin, [spec.entry, '--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'], {
     cwd: spec.cwd,
     env: { ...augmentedEnv(process.env), ...spec.env },
     stdio: ['ignore', 'pipe', 'pipe'],
