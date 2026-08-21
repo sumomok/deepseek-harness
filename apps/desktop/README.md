@@ -102,6 +102,30 @@ It is not a Developer ID certificate and the app is not notarized, so Gatekeeper
 
 This bounds what the update feed can promise. TLS authenticates the server and each manifest's sha512 binds artifact to manifest, so nothing can be tampered with in transit. What the artifacts carry is a signature this project made, not one an operating system will vouch for, so write access to `/var/www/dsh-updates` is still write access to every client's next installer — a macOS client will refuse a bundle signed by anything else, but it has no opinion about *which* build signed by this certificate it is given. Closing that gap means Authenticode on Windows and Developer ID plus notarization on macOS.
 
+## Built-in plugins
+
+**Two community plugins ship inside the installer and mount themselves on first launch**, so a fresh install has them without pnpm, a network round trip, or a `dsh plugin add`:
+
+| Package | What it adds |
+|---|---|
+| `dsh-better-sidebar` | A right-hand sidebar with a file tree, an editor, terminal tabs, and a task list |
+| `dsh-at-file` | `@` file mentions in the composer |
+
+They are ordinary dependencies of [apps/desktop-server](../desktop-server/README.md), so `pnpm deploy` puts them in the payload's `server/node_modules` beside everything else the server closes over, and their versions are pinned by the installer that carried them — an update ships whatever version that build declared. `dsh-better-sidebar`'s `node-pty` is pinned to the harness core's own copy through a `pnpm-workspace.yaml` override, because the plugin documents that both halves must resolve to one physical package and the payload's platform prune rules only reach the top-level one.
+
+**The shell puts them into the profile before it starts the server.** A profile is user data: `initProfile` writes `$DSH_HOME/profiles/web/` once from the shipped template — which names the two in-box bundles and nothing else — and never revisits an existing file, so a plugin added to the payload would otherwise never be mounted. `src/profile-seed.ts` supplies exactly the two facts the boot needs: it appends both names to the manifest's `dsh.profile.bundles`, so their `cordis.patch.yml` layers are applied, and it links each into `$DSH_HOME/profiles/node_modules`, the flat fallback the Loader reaches by the ordinary parent walk from the profile directory it resolves plugin specifiers against. Both writes are additive and idempotent: a name already listed is not added twice, a correct link is left alone, and no bundle entry, dependency, or other manifest field is ever removed or rewritten. The manifest is replaced by rename, so an interrupted launch leaves the previous one intact. One line goes to `dsh-server.log` when a launch changed something, and nothing when it did not.
+
+A profile the shell does not recognize is left exactly as it is, and the launch continues without the built-in plugins: an unparsable manifest is left for the server's own diagnostic, a manifest that declares no bundle list is treated as hand-composed, and a real directory sitting where a link belongs is reported rather than removed.
+
+**To turn one off, disable its row** in `$DSH_HOME/profiles/web/cordis.patch.yml` — `dsh-at-file` for the mentions, `better-sidebar` for the sidebar:
+
+```yaml
+- id: better-sidebar
+  disabled: true
+```
+
+Deleting the name from `dsh.profile.bundles` instead only lasts until the next launch, which seeds it again.
+
 ## Server environment
 
 The server starts in the user's home directory with the GUI-inherited environment plus the standard shell PATH entries (macOS GUI apps launch with launchd's minimal PATH). `DEEPSEEK_API_KEY` resolves through the normal credential chain (environment → managed store → `.env`), so a first run without a key still boots into the UI, where the models settings page can store one. Server output is appended to the app's log directory (`dsh-server.log`), which **帮助 → 查看日志** opens; the boot page reports startup phases only and prints no path.
@@ -114,3 +138,4 @@ The server starts in the user's home directory with the GUI-inherited environmen
 - macOS is signed but not notarized, so a browser-downloaded copy still needs a right-click-open on its first run. Notarization needs an Apple Developer account; the update path does not.
 - Windows arm64 and Linux desktop targets are unbuilt; node-pty prebuilds cover win32-arm64, so the arm64 gap is packaging work only.
 - A dev launch (`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`) uses the checkout's built CLI and the PATH Node, not the staged resources.
+- A built-in plugin cannot be pinned to another version from the profile. Installing the same name with `dsh plugin --profile web add` puts a copy in the profile's own `node_modules`, which the Loader finds first, while `resolveBundleDir` still reads the patch layer from the installation — the row would then come from one version and the code from another.

@@ -102,6 +102,30 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 
 这也框定了更新源能承诺什么。TLS 认证服务器,清单里的 sha512 把产物绑定到清单,所以传输途中无法被做手脚。产物带的是本项目自己做的签名,不是操作系统会背书的那种,所以对 `/var/www/dsh-updates` 的写权限仍然等于对每个客户端下一个安装程序的写权限——macOS 客户端会拒绝由别的证书签出的 bundle,但对「给它的是这张证书签出的哪一个构建」没有意见。补上这一环要靠 Windows 的 Authenticode 与 macOS 的 Developer ID 加公证。
 
+## 内置插件
+
+**两个社区插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
+
+| 包名 | 提供什么 |
+|---|---|
+| `dsh-better-sidebar` | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
+| `dsh-at-file` | 输入框里的 `@` 文件提及 |
+
+它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
+
+**壳在启动服务端之前把它们放进 profile。**profile 属于用户数据:`initProfile` 按分发模板写一次 `$DSH_HOME/profiles/web/`——模板只列出两个内置 bundle,别无其他——此后再不碰已存在的文件,所以只是加进载荷的插件永远不会被挂载。`src/profile-seed.ts` 只补上启动所需的两件事:把两个名字追加进清单的 `dsh.profile.bundles`,让它们的 `cordis.patch.yml` 层被应用;把每一个链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。两处写入都是追加式且幂等的:已列出的名字不会重复添加,正确的链接原样保留,任何 bundle 条目、依赖或清单里的其他字段都不会被删除或改写。清单以 rename 替换,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
+
+壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断,没有声明 bundle 列表的清单按手写编排对待,该放链接的位置上是真实目录则如实报告而不是删掉。
+
+**要关掉其中一个,就在** `$DSH_HOME/profiles/web/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`:
+
+```yaml
+- id: better-sidebar
+  disabled: true
+```
+
+改为从 `dsh.profile.bundles` 里删掉名字则只能维持到下次启动,届时会被重新播种。
+
 ## 服务器环境
 
 服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。
@@ -114,3 +138,4 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 - macOS 已签名但未公证,所以由浏览器下载的副本首次运行仍需右键打开。公证需要 Apple 开发者账号;更新路径不需要。
 - Windows arm64 与 Linux 桌面目标未构建;node-pty 预编译已覆盖 win32-arm64,缺口只是打包工作。
 - 开发启动(`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`)用的是检出目录的已构建 CLI 和 PATH 里的 Node,不是暂存资源。
+- 内置插件无法从 profile 侧钉到另一个版本。用 `dsh plugin --profile web add` 安装同名包会在 profile 自己的 `node_modules` 里放一份,Loader 会先找到它,而 `resolveBundleDir` 仍从安装目录读取 patch 层——那样这一行来自一个版本、代码来自另一个版本。
