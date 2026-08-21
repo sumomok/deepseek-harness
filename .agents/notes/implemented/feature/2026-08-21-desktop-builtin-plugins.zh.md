@@ -16,6 +16,12 @@ Status: implemented
 
 **闭包。**`apps/desktop-server/package.json` 在 workspace 包旁边以精确版本声明 `dsh-better-sidebar` 与 `dsh-at-file`,`pnpm deploy` 于是把它们和服务端闭包的其余部分一起物化进 `resources/server/node_modules`。版本归携带该次构建的安装包所有;插件没有独立的更新通道。
 
+**版本。**`dsh-better-sidebar` 是 npm 上的 `0.14.0`,而且这是下限而非偏好:`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,改由 `ctx.modules` 服务提供,而 `0.13.1` 里每个懒加载 chunk 正是靠前者解析外部依赖的。在该版本及之后的任何宿主上,`0.13.1` 都会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,并丢掉终端、编辑器与 Mermaid 面板。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`——本仓库有 `0.1.1-rc.1` 这一版——把插件自有的全局共享给它的 chunk 副本,并移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。它的 `node-pty` 范围没变,所以下面那条 override 照原样继续生效。
+
+`dsh-at-file` 取的是作者仓库的 `v0.6.5`,而不是 npm 的 `0.6.3`,理由正是下面那处分裂解析:一个 bundle 的 patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`。对着一个自行装了 `v0.6.5` 的 profile 分发 `0.6.3`——第一台跑起这个插件的机器正是这个状态——会让 `0.6.3` 的一行配上 `v0.6.5` 的代码。
+
+这条依赖写的是该 tag 所指的提交(`289f19bb`),而不是它的归档 URL。pnpm 不为 GitHub 归档 tarball 记录 `integrity`,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目——`ERR_PNPM_MISSING_TARBALL_INTEGRITY`,它当场让打包运行失败。提交本身就是它的哈希,所以 `resolution: {commit, repo, type: git}` 对内容的钉死程度不亚于注册表的 `integrity`。安装期什么都不构建:该仓库把 `lib/` 提交了进去,也没有声明 `prepare` 脚本。作者在注册表发布 `0.6.5` 或更高版本,就是换回普通版本号的理由。
+
 **播种。**`apps/desktop/src/profile-seed.ts` 在 Electron 主进程里、遗留进程清扫与 `startServer` 之间运行,只补上启动所需的两件事:
 
 - profile 清单的 `dsh.profile.bundles` 列表带上两个名字,追加在已有条目之后,于是 `loadProfile` 会应用各插件的 `cordis.patch.yml` 层;
@@ -23,7 +29,9 @@ Status: implemented
 
 后一半最容易被漏掉。`resolveBundleDir` 解析 bundle 的 **patch 层**时安装目录优先,所以只要列出名字,`loadProfile` 就会成功,那一行也会被插入——然后 `entry.init()` 用这个裸名字从 `baseUrl` 导入插件并失败,因为 profile 逐级向上的路径上没有任何位置放着它。`healProfilesModuleFallback` 为 CLI 应用自己的依赖闭包维护同一个 `profiles/node_modules` 目录,而这两个包不在那个闭包里;它只添加自己知道的名字,其余链接一概不碰,所以壳建的这两条链接每次启动都活着。
 
-两处写入都是追加式且幂等的。已列出的名字不会重复追加,已经指向正确目录的链接原样保留,任何 bundle 条目、依赖或清单里的其他字段都不会被删除或改写。清单以 rename 替换,所以写到一半被打断的启动留下的是原来那份文件,而不是被截断的一份。整次运行如实汇报它做了什么,启动日志写一行,没改动则不写。
+两处写入都是追加式且幂等的。已列出的名字不会重复追加,已经指向正确目录的链接原样保留,任何 bundle 条目、依赖或清单里的其他字段都不会被删除或改写。"已经指向正确目录"由 `sameLinkTarget` 判定:比较前先剥掉 `\\?\` 扩展长度前缀、归一化尾部分隔符,并把相对读取的结果按链接自身所在目录解析——Windows 读回 junction 的形式与创建它的字符串本就不同,裸比较对一条正确的链接也为假,于是每次启动都会删掉重建。上游 `packages/boot/app-boot/src/profile.ts` 里的 `ensureSymlink` 用的是裸比较,存在同一处缺陷。清单以 rename 替换,所以写到一半被打断的启动留下的是原来那份文件,而不是被截断的一份。整次运行如实汇报它做了什么,启动日志写一行,没改动则不写。
+
+**profile 里的副本只报告,绝不改动。**当 profile 自己的 `node_modules` 里有某个内置插件的另一版本时,那一份才是 Loader 导入的代码,而 patch 层依旧来自安装目录。播种会在自己那行日志后追加一条 warning——`profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module; patch layer comes from the shipped copy`——并且什么都不改:profile 的依赖归安装它的人所有,`dsh plugin --profile web remove <name>` 是用户该做的动作,不是壳该做的。
 
 **这里没有任何一处是致命的。**壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断;没有声明 bundle 列表的清单按手写编排对待(往一个不存在的列表里追加两个名字,会得到一个只挂载内置插件、别无其他的 profile);该放链接的位置上是真实目录则如实报告而不是删掉;载荷里没有的插件绝不写进清单——列出却解析不了的 bundle 会让启动硬失败,所以播种只写它看得见的东西。一个因为看不懂 profile 就拒绝启动的壳,比一个少了侧栏的壳更糟。
 
@@ -40,6 +48,14 @@ Status: implemented
 `dsh-better-sidebar` 声明 `node-pty: ^1.1.0`,它自己的 `src/pty-deps.ts` 写明它必须解析到与 harness 内核同一个物理包。内核精确钉在 `1.2.0-beta.15`,并由 `patches/node-pty@1.2.0-beta.15.patch` 为内嵌运行时的 spawn helper 打了补丁,而预发布版本不在 `^1.1.0` 范围内——于是不加干预的安装会产生两份副本。在一个围绕文件数设计的载荷里,这不只是浪费:`PLATFORM_DIR_RULES` 只对顶层的 `node-pty/prebuilds` 生效,所以嵌套的第二份会把每个平台的二进制带进两个载荷并让载荷门禁失败;`prunePlatformBuilds` 只对顶层那份 chmod spawn helper;而嵌套的那份正是侧栏真正加载、却没打补丁的那份。
 
 因此 `pnpm-workspace.yaml` 带上了 `'dsh-better-sidebar>node-pty': '1.2.0-beta.15'`。两个版本 API 兼容:`resize` 多了一个可选的第三参数,`useConpty` 变成了有文档说明的空操作。
+
+## 构建不再改动开发者的 harness home
+
+`verifyStagedBoot` 会真的把派生出的载荷启动起来,而它此前用的是构建机上 `$DSH_HOME` 解析到的那个目录。于是每次构建都跟着两处写入:`prepareProfile` 重写 `~/.dsh/profiles/web/cordis.yml`,`healProfilesModuleFallback` 把全部 171 条扁平兜底符号链接重指到 `apps/desktop/staging/server-mac/node_modules`——下次构建就会删掉的那棵树。什么都没丢——下次 `dsh` 启动会把链接治好——但构建本就不该改动这台机器的 harness 状态,而且同一个 home 也漏进了两次 `--version` 冒烟。
+
+`package.ts` 现在把整次运行包在 `withBuildHome` 里:创建一个 `mkdtemp` home,放到 `process.env` 上(`run()` 展开的、两处 `spawn` 继承的都是它),并在 `finally` 里删除。
+
+这改变了启动门禁所证明的东西,而且是变好了。对着开发者的 home,它加载的是那位开发者恰好装了什么;对着一个全新的 home,它本来只会加载两个内置 bundle。于是门禁通过 `seedBuiltinBundles` 播种自己的 home——与壳调用的是同一个函数——再要求两个内置插件都出现在所服务 index 点名的 client 模块里。载荷自带的那两份能挂载、能服务,现在是一条构建断言,而不是某次手跑冒烟碰巧查到的事。
 
 ## 别让载荷的打包器把它们删掉
 
@@ -64,6 +80,8 @@ Status: implemented
 现在桌面安装在两个平台上首次启动就有侧栏和 `@` 提及,不需要终端。版本归安装包所有:升级一个内置插件意味着发一版桌面构建,而这与载荷其余部分本来就是同一节奏。
 
 播种会在服务端之前写 `$DSH_HOME`。它只限于两处——`profiles/web/package.json` 和 `profiles/node_modules/` 下的链接——而且只做追加,但"壳会动用户数据"这件事本身是这个应用的一个新事实,README 因此写明了它。
+
+`dsh-at-file` 是载荷里唯一一个不来自注册表的依赖。提交钉死是可验证的,但这也意味着这个包是那个仓库树的内容,而不是按 `files` 过滤后的发布产物,于是载荷里带上了它的 `src/`、`tests/` 与构建配置——几个小文件,后缀裁剪大多会清掉。注册表上出现 `0.6.5` 或更高版本时,值得换回去。
 
 `pnpm-workspace.yaml` 的 override 把插件的 `node-pty` 绑到 harness 内核钉住的版本上。挪动内核的钉子就得连同挪动这条 override,而那时要重新核对的是插件自己的兼容窗口,不只是 harness 的。
 

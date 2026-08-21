@@ -13,6 +13,8 @@ pnpm exec tsx apps/desktop/scripts/package.ts --win        # NSIS installer (x64
 
 产物落在 `apps/desktop/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`、恢复 hoist、物化符号链接),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 win32-x64 成员,再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。每份载荷冒烟测试之前先过一道载荷门禁:每条平台规则至少丢弃一个目录,每个平台分包目录都要对得上它所在的 target,活下来的模块不得按名解析已被裁掉的包。
 
+**整个构建跑在自己创建、结束即删的一次性 `$DSH_HOME` 上**,于是它启动的任何服务端都不会改动这台机器自己的 harness 状态——`prepareProfile` 会重写 profile 的根配置,`healProfilesModuleFallback` 会把每一条扁平兜底符号链接重指到这次构建随后就要删掉的暂存树上。启动门禁按壳播种真实 home 的同样方式播种那个临时 home,再要求两个内置插件都出现在所服务 index 点名的 client 模块里,于是它证明的是载荷的性质,而不是构建机自己 profile 的性质。
+
 ## 关掉窗口,以及被叫回来
 
 **Windows 上关闭按钮会问一次它该是什么意思**:「最小化到托盘」还是「退出应用」,配一个「记住我的选择」。不勾,答案只管这一次;勾上,答案作为 `closeAction` 写进 `desktop-state.json`,此后每次关闭都照办、不再问,直到托盘菜单的「关闭时询问」把它清掉。最小化按钮原样不动——它仍然是普通的任务栏最小化。托盘图标从启动起就在,于是「最小化到托盘」指的是屏幕上已有的东西,窗口隐藏期间 **检查更新** / **退出** 也仍然够得着;菜单是 打开 / 检查更新 / 关闭时询问 / 退出,和菜单栏一样本地化。每一次退出——托盘的、记住的、更新触发的——都走同一条停服务器的 `before-quit` 拆除链;更新对话框会先把窗口显示出来再挂上去,因为挂在隐藏窗口上的窗口模态对话框既看不见也找不到。macOS 保留自己的习惯:关窗把应用留在 Dock 里,`activate` 重开窗口,所以没有菜单栏图标。
@@ -106,16 +108,22 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 
 **两个社区插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
 
-| 包名 | 提供什么 |
-|---|---|
-| `dsh-better-sidebar` | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
-| `dsh-at-file` | 输入框里的 `@` 文件提及 |
+| 包名 | 版本 | 提供什么 |
+|---|---|---|
+| `dsh-better-sidebar` | `0.14.0`,来自 npm | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
+| `dsh-at-file` | `v0.6.5`,来自作者仓库该 tag 所指的提交 | 输入框里的 `@` 文件提及 |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
+
+**`dsh-at-file` 取自 tag 而非注册表**,因为作者在 npm 上只发到 `0.6.3`,而 tag 已经到 `v0.6.5`。分发 `0.6.3` 会与自行装了 `v0.6.5` 的 profile 配不上:一个 bundle 的两半从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`——于是这一行来自 `0.6.3`,代码来自 `v0.6.5`。这条依赖写的是该 tag 所指的**提交**,而不是它的归档 URL:pnpm 不为 GitHub 归档记录完整性哈希,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有完整性字段的 lockfile 条目。提交本身就是它的哈希,于是 lockfile 钉住的是内容。该仓库把构建好的 `lib/` 提交了进去,也没有声明 `prepare` 脚本,所以安装期什么都不构建。
+
+**`dsh-better-sidebar` 在本宿主上必须是 `0.14.0` 或更高。**`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,模块访问改由 `ctx.modules` 服务提供,这让每个懒加载 chunk 解析外部依赖的方式全面失效——`0.13.1` 会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,终端、编辑器与 Mermaid 面板一起跟着挂掉。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`,并把插件自有的全局共享给它的 chunk 副本,同时移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。
 
 **壳在启动服务端之前把它们放进 profile。**profile 属于用户数据:`initProfile` 按分发模板写一次 `$DSH_HOME/profiles/web/`——模板只列出两个内置 bundle,别无其他——此后再不碰已存在的文件,所以只是加进载荷的插件永远不会被挂载。`src/profile-seed.ts` 只补上启动所需的两件事:把两个名字追加进清单的 `dsh.profile.bundles`,让它们的 `cordis.patch.yml` 层被应用;把每一个链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。两处写入都是追加式且幂等的:已列出的名字不会重复添加,正确的链接原样保留,任何 bundle 条目、依赖或清单里的其他字段都不会被删除或改写。清单以 rename 替换,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
 
 壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断,没有声明 bundle 列表的清单按手写编排对待,该放链接的位置上是真实目录则如实报告而不是删掉。
+
+**如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile web remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
 
 **要关掉其中一个,就在** `$DSH_HOME/profiles/web/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`:
 
