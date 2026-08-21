@@ -665,7 +665,9 @@
       "entry": [],
       "project": [],
       "ignoreDependencies": [
-        "@deepseek-ai/.+"
+        "@deepseek-ai/.+",
+        "dsh-at-file",
+        "dsh-better-sidebar"
       ]
     },
     "apps/pwa": {

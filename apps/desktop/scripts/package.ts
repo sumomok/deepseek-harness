@@ -552,6 +552,9 @@ async function deriveServerPayload(target: PayloadTarget, staged: PayloadSnapsho
   if (collapsed.unbundled.length > 0) {
     console.log(`package: ${target} payload kept unbundled: ${collapsed.unbundled.join(', ')}`)
   }
+  // The built-in plugins are named by the profile and imported by nobody, so
+  // their survival is exactly what a reachability walk cannot show on its own.
+  console.log(`package: ${target} payload built-in profile bundles: ${collapsed.bundles.join(', ') || '(none)'}`)
   // Ahead of the smoke test and the boot gate: a package deleted because its
   // name is only ever built at run time fails those two somewhere unrelated, or
   // not until a user reaches the feature, and this says which list to add to.

@@ -27,6 +27,16 @@ linkWorkspacePackages: true
 overrides:
   '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:vendor/schemastery'
+  # dsh-better-sidebar declares `node-pty: ^1.1.0` and documents that it must
+  # resolve to the SAME physical package as the harness core, which pins
+  # 1.2.0-beta.15 (patched by patches/node-pty@1.2.0-beta.15.patch). That
+  # prerelease is outside the plugin's range, so without this override the
+  # desktop payload carries two node-pty copies, and the nested one is out of
+  # reach of both the `node-pty/prebuilds` platform prune rules and the
+  # spawn-helper chmod in apps/desktop/scripts/package.ts. The versions are
+  # API-compatible: `resize` gained an optional third argument and `useConpty`
+  # became a no-op.
+  'dsh-better-sidebar>node-pty': '1.2.0-beta.15'
 
 peerDependencyRules:
   allowedVersions:

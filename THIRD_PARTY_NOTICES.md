@@ -56,6 +56,8 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`clsx`](https://github.com/lukeed/clsx) | MIT |
 | [`commander`](https://github.com/tj/commander.js) | MIT |
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
+| [`dsh-at-file`](https://www.npmjs.com/package/dsh-at-file) | MIT |
+| [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) | MIT |
 | [`e2b`](https://github.com/e2b-dev/e2b) | MIT |
 | [`electron-updater`](https://github.com/electron-userland/electron-builder) | MIT |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |

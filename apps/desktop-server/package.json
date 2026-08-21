@@ -108,6 +108,8 @@
     "@deepseek-ai/dsh-web-search-perplexity": "workspace:^",
     "@deepseek-ai/dsh-workflow": "workspace:^",
     "@deepseek-ai/dsh-workflow-worker-thread": "workspace:^",
-    "@deepseek-ai/schemastery": "workspace:^"
+    "@deepseek-ai/schemastery": "workspace:^",
+    "dsh-at-file": "0.6.3",
+    "dsh-better-sidebar": "0.13.1"
   }
 }
