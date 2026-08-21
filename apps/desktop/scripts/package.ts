@@ -23,6 +23,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
@@ -324,7 +325,12 @@ async function stageRuntime(platform: 'darwin' | 'win'): Promise<void> {
     if (!response.ok || response.body === null) {
       throw new Error(`package: Node runtime download failed: ${String(response.status)} ${response.statusText}`)
     }
-    await pipeline(Readable.fromWeb(response.body), createWriteStream(`${cached}.part`))
+    // `fetch` types its body with the DOM lib's ReadableStream and
+    // `Readable.fromWeb` takes node:stream/web's; the two declare the same
+    // runtime object and neither is assignable to the other, so no narrowing
+    // reaches this.
+    const body = response.body as NodeReadableStream<Uint8Array>
+    await pipeline(Readable.fromWeb(body), createWriteStream(`${cached}.part`))
     await copyFile(`${cached}.part`, cached)
     await rm(`${cached}.part`)
   }
@@ -499,7 +505,7 @@ const PAYLOAD_PLATFORMS: Record<PayloadTarget, PayloadPlatform> = {
  * installer pays for every file twice on Windows: per-file extraction under
  * antivirus scanning, and the 260-character MAX_PATH ceiling.
  */
-const PRUNE_SUFFIXES = ['.map', '.pdb', '.ts', '.mts', '.cts', '.tsbuildinfo']
+const PRUNE_SUFFIXES = ['.map', '.pdb', '.ts', '.tsx', '.mts', '.cts', '.jsx', '.tsbuildinfo']
 
 /**
  * Markdown is pruned only when the basename is a documentation name: shipped
