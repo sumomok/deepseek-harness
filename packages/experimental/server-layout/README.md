@@ -36,7 +36,7 @@ The plugin is not part of any shipped bundle. Compose it as an overlay over the 
 
 ## Registering into the content column
 
-`content` is a `single`, `session-maybe` slot with an empty owner share. It receives no owner props; session facts arrive through the framework hooks of its scope, and the occupant keeps its React identity across a session switch.
+`content` is a `single`, `session-maybe` slot with an empty owner share. It receives no owner props; session facts arrive through the framework hooks of its scope, and its occupant follows the renderer's adoption rule — the incarnation the page boots into keeps its React identity when the first session arrives, and every session change after that mounts a fresh one.
 
 ```ts ignore-check
 ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurface))
@@ -56,6 +56,6 @@ None; this package neither assembles nor sends a provider request.
 
 - **No responsive behavior** — the ratio is applied at every width, so a narrow viewport squeezes all four columns rather than folding the session column or stacking. The shipped shell's auto-collapse breakpoint and concession chain have no counterpart here; a deployment that needs them should compose ui-layout instead.
 - **No resize affordance** — column widths are not user-adjustable and not persisted. Ratio and rail width are contract-frozen constants, not configuration.
-- **The content column is a shell only** — this version ships the seat, its empty state, and its geometry. What renders inside it is a later decision, and no package registers into `content` yet.
+- **The content column is a shell only** — this package ships the seat, its empty state, and its geometry. What renders inside belongs to the occupant; [`content-frame`](../content-frame/README.md) is the first one.
 - **No browser theme-color metadata** — the shipped shell also maintains a `<meta name="theme-color">` whose content follows the computed body background, which colors surrounding browser UI on mobile. This shell omits it, consistent with having no responsive behavior to serve that surface.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario run against a real composition, not a recorded transcript; the snapshot lanes project model-visible and conversation output, which this package has none of.

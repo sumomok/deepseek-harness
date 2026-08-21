@@ -1,0 +1,6 @@
+/* A browser applies this sheet only when the route answers `text/css`, so the
+   heading's computed color is the e2e's evidence for the route's MIME table. */
+#fixture-heading {
+  color: rgb(0, 128, 0);
+  font-family: system-ui, sans-serif;
+}

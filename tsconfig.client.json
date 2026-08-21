@@ -25,6 +25,7 @@
     "packages/*/*/tests/**/*.client.ts",
     // Client packages outside packages/client with a local CSS module face.
     "packages/extensions/ui-cordis/src/css-modules.d.ts",
+    "packages/experimental/content-frame/src/css-modules.d.ts",
     "packages/experimental/server-layout/src/css-modules.d.ts",
     "packages/experimental/vue-ui-poc/src/css-modules.d.ts",
     "packages/client/tsdown.client.ts",
@@ -90,6 +91,7 @@
     { "path": "./packages/client/ui-user-questions" },
     { "path": "./packages/client/ui-trajectory" },
     { "path": "./packages/experimental/server-layout" },
+    { "path": "./packages/experimental/content-frame" },
     { "path": "./packages/experimental/vue-ui-poc" },
     { "path": "./packages/session-query/session-log-export" },
     { "path": "./packages/client/ui-theme" },

@@ -7,6 +7,7 @@
 | 包 | 职责 | ctx key |
 |---|---|---|
 | `agent-team/` | 隐式 root Agent Teams roster、持久 peer mailbox、共享任务 DAG 与运行时协调 | `ctx.agentTeams` |
+| `content-frame/` | 托管一份由部署方配置的静态 web 应用，并在服务形态外壳的 content 栏中呈现 | — |
 | `server-layout/` | 服务形态外壳：常驻四轨框架（session、content、chat、details），替换出厂外壳 | `ctx.layout` |
 | `tool-agent-team/` | 按 Agent 作用域提供的 Agent Teams 模型工具与协作指引 | — |
 | `vue-ui-poc/` | 可行性验证：通过一座薄桥把 Vue 3 组件挂进 React slot | — |

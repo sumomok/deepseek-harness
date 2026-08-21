@@ -103,10 +103,12 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     hookContext: '',
     slotInject: '',
     declaredBy: 'an entry in \'root\' (experimental-server-layout), so it exists while that entry is mounted',
-    occupants: [],
-    replaceRisk: 'none',
+    occupants: [
+      'experimental-content-frame ContentFrame',
+    ],
+    replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'content\', () => ctx.slots.register(\n      { name: \'content\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/experimental/server-layout/src/client/index.ts:55',
+    source: 'packages/experimental/server-layout/src/client/index.ts:53',
   },
   {
     key: 'conversation',

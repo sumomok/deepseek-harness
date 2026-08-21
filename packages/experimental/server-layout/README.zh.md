@@ -36,7 +36,7 @@ content 栏是这条产品线的立身之本，也是本包存在的理由：一
 
 ## 往 content 栏注册
 
-`content` 是 `single`、`session-maybe` 槽，owner 份额为空。它不接收 owner props；session 事实通过该 scope 的框架 hook 抵达，占位组件在会话切换时保持自己的 React 身份。
+`content` 是 `single`、`session-maybe` 槽，owner 份额为空。它不接收 owner props；session 事实通过该 scope 的框架 hook 抵达，占用者遵循渲染器的 adoption 规则——页面启动时的那一代在第一个 session 到来时保持自己的 React 身份，此后每一次 session 变化都会挂载新的一代。
 
 ```ts ignore-check
 ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurface))
@@ -56,6 +56,6 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 
 - **没有响应式行为** —— 比例在任何宽度下都照用，因此窄视口会把四栏一起挤扁，而不是折叠 session 栏或改为堆叠。出厂外壳的自动折叠断点与让步链在这里没有对应物；需要它们的部署应当改用 ui-layout。
 - **没有调宽手段** —— 栏宽既不可由用户调整，也不持久化。比例与控制条宽度是约定冻结的常量，不是配置项。
-- **content 栏只是壳** —— 本版本交付座位、空态与几何。里面渲染什么是后续决定，目前没有任何包注册进 `content`。
+- **content 栏只是壳** —— 本包交付座位、空态与几何。里面渲染什么归占用者所有；[`content-frame`](../content-frame/README.md) 是第一位。
 - **没有浏览器 theme-color 元数据** —— 出厂外壳还维护一个 `<meta name="theme-color">`，其内容跟随计算出的 body 背景色，用于给移动端浏览器 UI 上色。本外壳省略了它，这与「没有响应式行为」是一致的取舍。
 - **未被组装态快照覆盖** —— 浏览器证据是跑在真实组合上的 Playwright 场景，而不是录制的 transcript；快照通道投影的是模型可见与会话输出，而本包两者皆无。

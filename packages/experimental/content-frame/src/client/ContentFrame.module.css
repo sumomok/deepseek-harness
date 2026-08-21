@@ -1,0 +1,10 @@
+/* The content column is a flex column with a definite height, so the frame
+   grows into whatever width and height the shell's track solves rather than
+   the 300x150 intrinsic box every iframe carries. */
+.frame {
+  flex: 1;
+  min-height: 0;
+  width: 100%;
+  display: block;
+  border: 0;
+}

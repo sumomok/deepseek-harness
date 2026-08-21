@@ -1,0 +1,18 @@
+# Service-line shell with its content column claimed. Two packages, one file:
+# the shell replaces the shipped ui-layout row (`root` is a single slot, so the
+# two cannot coexist), and this package occupies the column the shell opens.
+#
+# `root` comes from the environment so one overlay serves any application; a
+# deployment that hosts a fixed one writes the literal absolute path here
+# instead. An unset variable fails the row at load rather than serving nothing.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-frame
+      name: '@deepseek-ai/dsh-experimental-content-frame'
+      config:
+        root: !!js process.env.DSH_CONTENT_APP_ROOT

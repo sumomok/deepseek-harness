@@ -611,6 +611,27 @@ export interface Config {
 
 Source: [`packages/experimental/agent-team/src/types.ts:125`](../packages/experimental/agent-team/src/types.ts)
 
+<a id="deepseek-aidsh-experimental-content-frame"></a>
+
+## `@deepseek-ai/dsh-experimental-content-frame`
+
+Requires: `webServer`
+
+```ts config-catalog
+/** Plugin config: the hosted application's location. */
+export interface Config {
+  /**
+   * Absolute path of the directory whose `index.html` the content column
+   * shows. Required with no default: which application a deployment hosts is
+   * the whole decision this plugin exists to carry, and the trust it grants
+   * that directory makes an inferred location the wrong kind of convenience.
+   */
+  root: string
+}
+```
+
+Source: [`packages/experimental/content-frame/src/index.ts:30`](../packages/experimental/content-frame/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 
 ## `@deepseek-ai/dsh-experimental-tool-agent-team`
