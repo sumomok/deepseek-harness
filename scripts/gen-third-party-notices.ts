@@ -75,7 +75,8 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@modelcontextprotocol/server-filesystem': { license: 'MIT / Apache-2.0', repo: 'https://github.com/modelcontextprotocol/servers' },
   // No repository field in the published manifest.
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
-  'dsh-at-file': { repo: 'https://www.npmjs.com/package/dsh-at-file' },
+  // Declared as a GitHub release tarball, which carries no repository field.
+  'dsh-at-file': { repo: 'https://github.com/omdsh-dev/dsh-at-file' },
 }
 
 /**
