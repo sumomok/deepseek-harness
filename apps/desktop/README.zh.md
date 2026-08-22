@@ -156,9 +156,11 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 | `422` | 格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL |
 | `500` | 页面加载失败或截图失败;这一行带着 Chromium 的错误码 |
 | `503` | 已经受理了四个请求 |
-| `504` | 该请求越过了 25 秒的期限 |
+| `504` | 该请求越过了 25 秒的期限;这一行说出渲染当时在等什么 |
 
 每个失败响应体都是一行 `text/plain`,因为读它的是一个工具,它会把这句话引进模型看到的消息里。
+
+**504 会说出页面当时在等什么**,好让调用方分得清是一张卡住的图、一个死掉的代理,还是一个卡死的渲染进程。这一行说出渲染当时处在哪个阶段——在排队、在加载页面,还是已经越过 load 事件、正在等 `delayMs`、测量、调整窗口大小或截图——而在页面还没加载完时,它还会说出主文档的 HTTP 状态码、主框架最终落在哪里(当那不是请求所指的地址时),以及最多三个仍在飞行中的请求及其 Chromium 资源类型:`render timed out after 25000ms: main document 200, load event not fired, 7 requests pending: [image] https://www.gravatar.com/avatar/…, [image] …, [script] … (+4 more)`。每个 URL 截到 96 个字符,整行截到 500 个字符,后者正是 `@haoran/dsh-screenshot` 引进模型消息里的长度。渲染本身不因此改变:壳是从 `did-navigate` 与 session 上那几个非阻塞 `webRequest` 钩子读到这些的,它们只观察请求,不扣住请求。
 
 **每次渲染都拿到一个与应用自己那扇窗毫无共享的隐藏窗口。**它的 session 没有 `persist:` 前缀,所以只活在内存里、随窗口一起消失:被渲染的页面读不到也写不了用户正在用的那扇窗的 cookie、存储与缓存,它存下的东西也活不过这一个请求。没有 Node 集成、没有 `webview`、没有 devtools;每一个权限请求都被拒绝,页面试图发起的每一次下载与每一次开窗也都被拒绝。对话框被禁用,于是 `alert()`、`confirm()`、`prompt()` 既不会在一扇用户看不见的窗口上弹出原生模态框,也不会把它背后的页面线程堵住;窗口是静音的,于是自动播放的 `<audio>` 元素传不到扬声器。窗口在响应时、加载失败时与期限到时都会被销毁。
 
@@ -173,7 +175,7 @@ pnpm --filter @deepseek-ai/dsh-desktop run build:ts
 pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 ```
 
-它在真实的 Electron 里渲染一个本地文件,检查视口尺寸、整页截图确实比视口更高,以及 401、422 与 500 三种回答。
+它在真实的 Electron 里渲染一个本地文件,检查视口尺寸、整页截图确实比视口更高,以及 401、422 与 500 三种回答。最后一个用例让页面去请求一个本地监听——它接受连接却从不回答——这正是证明 `webRequest` 钩子确实通到超时那一行的地方:504 会点出那张图。
 
 ## 服务器环境
 

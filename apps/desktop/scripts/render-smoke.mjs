@@ -5,14 +5,17 @@
  * The unit suite drives the protocol against an injected renderer, which is
  * everything except the part that needs a Chromium — so this is the check that
  * a hidden `BrowserWindow` actually paints, that `capturePage` returns the
- * requested viewport, and that a full-page capture grows past it. It renders a
- * local file, so it needs no network, and it uses the shell's own limits.
+ * requested viewport, that a full-page capture grows past it, and that the
+ * `webRequest` hooks a timed-out render is described from see a real page's
+ * real requests. It renders local files against a listener on this machine, so
+ * it needs no network, and it uses the shell's own limits.
  *
  * Requires `pnpm --filter @deepseek-ai/dsh-desktop run build:ts` first: this
  * runs under Electron, which has no TypeScript loader, so it imports `lib/`.
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
@@ -22,6 +25,9 @@ import { renderInHiddenWindow } from '../lib/render-window.js'
 
 /** The viewport every case renders at. */
 const VIEWPORT = { width: 400, height: 300 }
+
+/** The deadline the hung-image case runs on, so it does not hold the smoke for the shell's own 25 seconds. */
+const HANG_TIMEOUT_MS = 2000
 
 /** The page: a solid block taller than the viewport, so a full-page capture is visibly taller. */
 const PAGE = `<!doctype html><meta charset="utf-8"><title>render smoke</title>
@@ -68,6 +74,67 @@ function check(condition, what) {
 }
 
 /**
+ * A listener that completes the TCP handshake and then never answers — what a
+ * blackholed third-party host looks like from inside a page, minus the wait for
+ * a connect timeout.
+ * @returns {Promise<{ port: number, close: () => Promise<void> }>} the port it accepted on, and its shutdown.
+ */
+async function hangingListener() {
+  const held = new Set()
+  const server = createServer((socket) => {
+    held.add(socket)
+    socket.on('close', () => held.delete(socket))
+  })
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      server.removeListener('error', reject)
+      resolve()
+    })
+  })
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('the hanging listener reported no TCP address')
+  return {
+    port: address.port,
+    close: async () => {
+      // The sockets are open by construction, so nothing closes the listener but this.
+      for (const socket of held) socket.destroy()
+      await new Promise((resolve) => { server.close(resolve) })
+    },
+  }
+}
+
+/**
+ * A page whose only image never answers: the load event never fires, and the
+ * 504 has to name that image rather than only the deadline. This is the one
+ * case that proves the session's `webRequest` hooks reach the service's trace,
+ * which no injected renderer can show.
+ * @param {string} directory - the temporary directory the page is written into.
+ * @returns {Promise<void>} resolves when the case passed; rejects when it did not.
+ */
+async function hungImageCase(directory) {
+  const listener = await hangingListener()
+  const image = `http://127.0.0.1:${listener.port}/hang.png`
+  const page = join(directory, 'hung.html')
+  await writeFile(page, `<!doctype html><meta charset="utf-8"><title>hung image</title><img src="${image}" alt="">`)
+  const service = await startRenderService({
+    renderer: renderInHiddenWindow,
+    limits: { ...RENDER_LIMITS, timeoutMs: HANG_TIMEOUT_MS },
+  })
+  try {
+    const response = await post(service, { url: pathToFileURL(page).href, ...VIEWPORT })
+    check(response.status === 504, `a page whose image never answers answered ${response.status}`)
+    const line = (await response.text()).trim()
+    console.log(`      ${line}`)
+    check(line.includes('load event not fired'), 'the 504 line says the load event never fired')
+    check(line.includes(`[image] ${image}`), 'the 504 line names the image the page is still waiting for')
+  } finally {
+    await service.close()
+    await listener.close()
+  }
+}
+
+/**
  * Render every case against a real Chromium.
  * @returns {Promise<void>} resolves when every case passed; rejects on the first that did not.
  */
@@ -109,6 +176,8 @@ async function run() {
     const unrenderable = await post(service, { url: 'data:text/html,<p>x', ...VIEWPORT })
     check(unrenderable.status === 422, `a data: URL answered ${unrenderable.status}`)
     await unrenderable.text()
+
+    await hungImageCase(directory)
   } finally {
     await service.close()
     await rm(directory, { recursive: true, force: true })

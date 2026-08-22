@@ -8,7 +8,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
 import {
   RENDER_LIMITS, startRenderService,
-  type RenderLimits, type RenderRequest, type RenderServiceHandle, type Renderer,
+  type RenderLimits, type RenderPhase, type RenderRequest, type RenderServiceHandle, type RenderTrace, type Renderer,
 } from '../src/render-service.ts'
 
 /** Stand-in for encoded pixels; the service must hand these back untouched. */
@@ -44,6 +44,43 @@ function recordingRenderer(): { renderer: Renderer; seen: RenderRequest[] } {
       seen.push(request)
       return PNG
     },
+  }
+}
+
+/** The deadline every timeout-line case runs on; short enough to be quick, long enough for the chain to reach the renderer. */
+const TRACE_TIMEOUT_MS = 60
+
+/**
+ * A renderer that hands its trace to `record` and then waits out the deadline,
+ * so what the service answers is a 504 describing exactly what was recorded.
+ * @param record - fills the trace the way the window half would.
+ * @returns the renderer to inject.
+ */
+function tracingRenderer(record: (trace: RenderTrace) => void): Renderer {
+  return async (_request, signal, trace) => {
+    record(trace)
+    await new Promise<never>((_resolve, reject) => {
+      signal.addEventListener('abort', () => { reject(new Error('render aborted')) }, { once: true })
+    })
+    return PNG
+  }
+}
+
+/**
+ * The single line a render whose trace `record` filled is answered with.
+ * @param record - fills the trace the way the window half would.
+ * @param body - the request body, when the URL matters to what the line says.
+ * @returns the 504 body without its trailing newline.
+ */
+async function timedOutLine(record: (trace: RenderTrace) => void, body: unknown = VALID): Promise<string> {
+  const handle = await start(tracingRenderer(record), { timeoutMs: TRACE_TIMEOUT_MS })
+  try {
+    const response = await post(handle, body)
+    expect(response.status).toBe(504)
+    return (await response.text()).trimEnd()
+  } finally {
+    await handle.close()
+    service = undefined
   }
 }
 
@@ -347,7 +384,8 @@ describe('a render that does not produce an image', () => {
 
   it('answers 504 when the deadline passes, and aborts the renderer', async () => {
     let aborted = false
-    const handle = await start(async (_request, signal) => {
+    const handle = await start(async (_request, signal, trace) => {
+      trace.enter('navigating')
       await new Promise<never>((_resolve, reject) => {
         signal.addEventListener('abort', () => {
           aborted = true
@@ -378,6 +416,131 @@ describe('a render that does not produce an image', () => {
     expect(next.status).toBe(200)
     expect(Buffer.from(await next.arrayBuffer())).toEqual(PNG)
     expect(seen).toEqual([VALID.url, 'https://example.test/after'])
+  })
+
+  it('says the render never started when the deadline found it still queued', async () => {
+    expect(await timedOutLine(() => {})).toBe(
+      'render timed out after 60ms: the render had not started (queued behind earlier renders)',
+    )
+  })
+
+  it('says nothing answered yet, and what is in flight, before the main document responds', async () => {
+    const line = await timedOutLine((trace) => {
+      trace.enter('navigating')
+      trace.requestStarted(1, 'https://example.test/page', 'mainFrame')
+      trace.requestStarted(2, 'https://cdn.example.test/app.css', 'stylesheet')
+    })
+    expect(line).toBe(
+      'render timed out after 60ms: no response from the main document yet, 2 requests pending: '
+      + '[mainFrame] https://example.test/page, [stylesheet] https://cdn.example.test/app.css',
+    )
+  })
+
+  it('names the main document status and the first three requests the page is still waiting on', async () => {
+    const line = await timedOutLine((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(VALID.url, 200)
+      for (let n = 0; n < 7; n++) trace.requestStarted(n, `https://www.gravatar.com/avatar/${String(n)}`, 'image')
+    })
+    expect(line).toBe(
+      'render timed out after 60ms: main document 200, load event not fired, 7 requests pending: '
+      + '[image] https://www.gravatar.com/avatar/0, [image] https://www.gravatar.com/avatar/1, '
+      + '[image] https://www.gravatar.com/avatar/2 (+4 more)',
+    )
+  })
+
+  it('says where the main frame landed when that is not where the request pointed', async () => {
+    const line = await timedOutLine((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument('http://127.0.0.1:18099/login?back_url=%2Fissues', 200)
+    }, { ...VALID, url: 'http://127.0.0.1:18099/issues' })
+    expect(line).toBe(
+      'render timed out after 60ms: main document 200 at http://127.0.0.1:18099/login?back_url=%2Fissues, '
+      + 'load event not fired, no requests pending',
+    )
+  })
+
+  it('says a navigation had no HTTP status rather than printing the -1 Electron reports for one', async () => {
+    const url = 'file:///tmp/page.html'
+    const line = await timedOutLine((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(url, -1)
+    }, { ...VALID, url })
+    expect(line).toBe(
+      'render timed out after 60ms: main document with no HTTP status, load event not fired, no requests pending',
+    )
+  })
+
+  it('drops a request from the pending list once it settles', async () => {
+    const line = await timedOutLine((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(VALID.url, 200)
+      trace.requestStarted(1, 'https://example.test/app.js', 'script')
+      trace.requestStarted(2, 'https://example.test/hero.png', 'image')
+      trace.requestSettled(1)
+    })
+    expect(line).toBe(
+      'render timed out after 60ms: main document 200, load event not fired, 1 request pending: '
+      + '[image] https://example.test/hero.png',
+    )
+  })
+
+  it('ignores settling an id it never saw start, which is what a cache hit completes as', async () => {
+    const line = await timedOutLine((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(VALID.url, 200)
+      trace.requestStarted(1, 'https://example.test/app.js', 'script')
+      trace.requestSettled(99)
+    })
+    expect(line).toBe(
+      'render timed out after 60ms: main document 200, load event not fired, 1 request pending: '
+      + '[script] https://example.test/app.js',
+    )
+  })
+
+  it('cuts a pending URL at 96 characters and marks that it cut it', async () => {
+    const long = `https://example.test/${'a'.repeat(200)}.png`
+    const line = await timedOutLine((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(VALID.url, 200)
+      trace.requestStarted(1, long, 'image')
+    })
+    const printed = line.slice(line.indexOf('[image] ') + '[image] '.length)
+    expect(printed).toHaveLength(96)
+    expect(printed.endsWith('…')).toBe(true)
+    expect(long.startsWith(printed.slice(0, -1))).toBe(true)
+  })
+
+  it('says what a loaded page was still doing, and names no requests for it', async () => {
+    const wordings: [RenderPhase, string][] = [
+      ['loaded', 'page loaded, timed out right after the load event'],
+      ['delaying', 'page loaded, timed out while waiting delayMs'],
+      ['measuring', 'page loaded, timed out while measuring the document'],
+      ['resizing', 'page loaded, timed out while resizing the window'],
+      ['capturing', 'page loaded, timed out while capturing'],
+    ]
+    for (const [phase, expected] of wordings) {
+      const line = await timedOutLine((trace) => {
+        trace.enter('navigating')
+        trace.mainDocument(VALID.url, 200)
+        trace.requestStarted(1, 'https://example.test/late.png', 'image')
+        trace.enter(phase)
+      })
+      expect(line).toBe(`render timed out after 60ms: ${expected}`)
+    }
+  })
+
+  it('answers one line inside the 500 characters its caller quotes, however long the URLs are', async () => {
+    const long = (name: string): string => `https://cdn.example.test/${'segment/'.repeat(40)}${name}`
+    const line = await timedOutLine((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(long('landing.html'), 200)
+      for (let n = 0; n < 12; n++) trace.requestStarted(n, long(`asset-${String(n)}.css`), 'stylesheet')
+    })
+    expect(line).not.toContain('\n')
+    expect(line.length).toBeLessThanOrEqual(500)
+    expect(line.startsWith('render timed out after 60ms: main document 200 at https://cdn.example.test/')).toBe(true)
+    expect(line.endsWith('…')).toBe(true)
   })
 
   it('counts the wait in the deadline, so a queued request gets only what is left of its own', async () => {
