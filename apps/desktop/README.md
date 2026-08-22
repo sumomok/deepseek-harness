@@ -156,9 +156,11 @@ The request is `POST /render`, with `authorization: Bearer <token>`, `content-ty
 | `422` | A well-formed URL whose scheme is not `http`, `https`, or `file` |
 | `500` | The page failed to load or the capture failed; the line carries the Chromium error code |
 | `503` | Four requests are already accepted |
-| `504` | The request passed its 25-second deadline |
+| `504` | The request passed its 25-second deadline; the line says what the render was waiting for |
 
 Every failure body is one line of `text/plain`, because its reader is a tool that quotes it into the message the model sees.
+
+**A 504 names what the page was waiting for**, so a caller can tell a hung image from a dead proxy from a wedged renderer. The line says which phase the render was in — queued, loading the page, or already past the load event and waiting out `delayMs`, measuring, resizing, or capturing — and, while the page is still loading, the main document's HTTP status, where the main frame landed when that is not where the request pointed, and up to three of the requests still in flight with their Chromium resource type: `render timed out after 25000ms: main document 200, load event not fired, 7 requests pending: [image] https://www.gravatar.com/avatar/…, [image] …, [script] … (+4 more)`. Each URL is cut at 96 characters and the whole line at 500, which is what `@haoran/dsh-screenshot` quotes into the model's message. The render itself is unchanged by this: the shell reads it from `did-navigate` and the session's non-blocking `webRequest` hooks, which observe requests without holding them.
 
 **Each render gets a hidden window that shares nothing with the app's own.** Its session has no `persist:` prefix, so it lives in memory and dies with the window: a rendered page cannot read or write the cookies, storage, or caches of the window the user is working in, and nothing it stores outlives the request. There is no Node integration, no `webview`, no devtools; every permission request is denied, and every download and every window the page tries to open is refused. Dialogs are disabled, so `alert()`, `confirm()`, and `prompt()` open no native modal on a window the user cannot see and block no page thread behind one, and the window is muted, so an autoplaying `<audio>` element reaches no speakers. The window is destroyed on the reply, on a load failure, and on the deadline.
 
@@ -173,7 +175,7 @@ pnpm --filter @deepseek-ai/dsh-desktop run build:ts
 pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 ```
 
-It renders a local file in a real Electron and checks the viewport size, that a full-page capture is taller than the viewport, and the 401, 422, and 500 answers.
+It renders a local file in a real Electron and checks the viewport size, that a full-page capture is taller than the viewport, and the 401, 422, and 500 answers. Its last case points a page at a local listener that accepts the connection and never answers, which is what proves the `webRequest` hooks reach the timeout line: the 504 names that image.
 
 ## Server environment
 

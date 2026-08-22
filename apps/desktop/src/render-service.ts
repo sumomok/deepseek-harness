@@ -8,9 +8,11 @@
  * (`DSH_DESKTOP_RENDER_ENDPOINT` / `DSH_DESKTOP_RENDER_TOKEN`); a plugin that
  * finds neither falls back to whatever browser the machine has. This module
  * owns the protocol — authentication, validation, admission, the per-request
- * deadline — and nothing about Electron: the window half is
- * [[Renderer]], injected by the caller, which is what lets the protocol be
- * tested without a display.
+ * deadline, and the line a passed deadline is explained with — and nothing
+ * about Electron: the window half is [[Renderer]], injected by the caller,
+ * which is what lets the protocol be tested without a display. It is also what
+ * fills in the [[RenderTrace]] this module hands it, so a 504 can name the
+ * request the page was still waiting on rather than only the deadline.
  *
  * The security position is the whole reason the protocol is this narrow. The
  * listener binds `127.0.0.1` on an ephemeral port, so nothing off the machine
@@ -38,6 +40,27 @@ const RENDER_PATH = '/render'
 
 /** URL schemes a page may be loaded from; anything else is refused with 422. */
 const RENDERABLE_SCHEMES = new Set(['http:', 'https:', 'file:'])
+
+/** How many still-pending requests a timeout line names before it counts the rest. */
+const TIMEOUT_PENDING_LISTED = 3
+
+/** The longest a URL is printed at inside a timeout line, the ellipsis that replaces the tail included. */
+const TIMEOUT_URL_CHARS = 96
+
+/**
+ * The longest timeout line written. `@haoran/dsh-screenshot` quotes the first
+ * 500 characters of an error body into the message the model reads
+ * (`MAX_ERROR_DETAIL`), so a longer line is cut there instead — mid-word, with
+ * nothing saying so. Cutting it here ends it with an ellipsis.
+ */
+const TIMEOUT_LINE_CHARS = 500
+
+/**
+ * The smallest real HTTP status. `did-navigate` reports -1 for a navigation
+ * that carried no HTTP response, so anything below this is the absence of a
+ * status rather than a code worth printing.
+ */
+const MIN_HTTP_STATUS = 100
 
 /**
  * What one deployment of the service bounds. Passed in whole rather than read
@@ -107,6 +130,153 @@ export interface RenderRequest {
 }
 
 /**
+ * How far one render had got. It starts at `queued`; the window half moves it
+ * to `navigating` before the load, to `loaded` when the load event fires, and
+ * then through whichever of the last four the request actually asks for.
+ */
+export type RenderPhase = 'queued' | 'navigating' | 'loaded' | 'delaying' | 'measuring' | 'resizing' | 'capturing'
+
+/** What a render is waiting for in each phase after the load event. */
+const AFTER_LOAD_WAIT: Record<Exclude<RenderPhase, 'queued' | 'navigating'>, string> = {
+  loaded: 'right after the load event',
+  delaying: 'while waiting delayMs',
+  measuring: 'while measuring the document',
+  resizing: 'while resizing the window',
+  capturing: 'while capturing',
+}
+
+/** One request the page started and has not finished. */
+interface PendingRequest {
+  /** The URL Chromium asked for. */
+  url: string
+  /** Chromium's own classification of it — `image`, `script`, `mainFrame`, and the rest. */
+  resourceType: string
+}
+
+/**
+ * Cut a URL to {@link TIMEOUT_URL_CHARS} characters, marking that it was cut.
+ * @param url - the URL to print.
+ * @returns the URL, or its first characters ending in an ellipsis.
+ */
+function truncateUrl(url: string): string {
+  return url.length <= TIMEOUT_URL_CHARS ? url : `${url.slice(0, TIMEOUT_URL_CHARS - 1)}…`
+}
+
+/**
+ * The clause naming what the page was still loading.
+ * @param pending - the requests still in flight, oldest first.
+ * @returns `no requests pending`, or the count and up to {@link TIMEOUT_PENDING_LISTED} of them.
+ */
+function pendingPhrase(pending: PendingRequest[]): string {
+  if (pending.length === 0) return 'no requests pending'
+  const listed = pending.slice(0, TIMEOUT_PENDING_LISTED).map(one => `[${one.resourceType}] ${truncateUrl(one.url)}`)
+  const unlisted = pending.length - listed.length
+  const rest = unlisted === 0 ? '' : ` (+${String(unlisted)} more)`
+  return `${String(pending.length)} ${pending.length === 1 ? 'request' : 'requests'} pending: ${listed.join(', ')}${rest}`
+}
+
+/**
+ * What one render was waiting for when its deadline passed.
+ *
+ * The service creates one per accepted request and hands it to the renderer,
+ * which feeds it from events the page produces anyway. A 504 whose body is
+ * only "it took too long" leaves the model unable to tell a hung image from a
+ * dead proxy from a wedged renderer; this is what lets that line name the host
+ * the page could not reach.
+ *
+ * Nothing recorded here changes what the render does — the window half feeds
+ * it from non-blocking observers only — and the record is read once, from the
+ * deadline timer, before the abort that tears the render down.
+ */
+export class RenderTrace {
+  /** The URL the request named, compared against where the main frame ended up. */
+  private readonly requestedUrl: string
+  private phase: RenderPhase = 'queued'
+  private document: { url: string; status: number } | undefined
+  /** Insertion-ordered, so the requests printed first are the ones stuck longest. */
+  private readonly pending = new Map<number, PendingRequest>()
+
+  constructor(requestedUrl: string) {
+    this.requestedUrl = requestedUrl
+  }
+
+  /**
+   * Record that the render reached a phase.
+   * @param phase - the phase it entered.
+   */
+  enter(phase: RenderPhase): void {
+    this.phase = phase
+  }
+
+  /**
+   * Record where the main frame ended up and what it answered, from `did-navigate`.
+   *
+   * A later navigation replaces an earlier one, so a page that redirects is
+   * described by where it landed.
+   * @param url - the main frame's URL after every redirect it followed.
+   * @param status - the HTTP status, or anything below {@link MIN_HTTP_STATUS} for a navigation that had none.
+   */
+  mainDocument(url: string, status: number): void {
+    this.document = { url, status }
+  }
+
+  /**
+   * Record a request the page has started.
+   * @param id - Chromium's request id, the key {@link RenderTrace.requestSettled} closes it with.
+   * @param url - the URL being requested.
+   * @param resourceType - Chromium's classification of it.
+   */
+  requestStarted(id: number, url: string, resourceType: string): void {
+    this.pending.set(id, { url, resourceType })
+  }
+
+  /**
+   * Record that a request finished, whether it succeeded or failed.
+   *
+   * An id that was never started is a no-op rather than an error: a request
+   * served from the cache never sends headers and so is never started here,
+   * while it does complete, so the two hooks do not see the same set of ids.
+   * @param id - Chromium's request id.
+   */
+  requestSettled(id: number): void {
+    this.pending.delete(id)
+  }
+
+  /**
+   * The one line a 504 answers with.
+   * @param timeoutMs - the deadline that passed.
+   * @returns one line with no newline in it, at most {@link TIMEOUT_LINE_CHARS} characters long.
+   */
+  describeTimeout(timeoutMs: number): string {
+    const line = `render timed out after ${String(timeoutMs)}ms: ${this.waitingFor()}`
+    return line.length <= TIMEOUT_LINE_CHARS ? line : `${line.slice(0, TIMEOUT_LINE_CHARS - 1)}…`
+  }
+
+  /**
+   * What the render was waiting for, from the phase it was in.
+   * @returns the clause after the deadline, without the leading phrase.
+   */
+  private waitingFor(): string {
+    const phase = this.phase
+    if (phase === 'queued') return 'the render had not started (queued behind earlier renders)'
+    if (phase === 'navigating') return `${this.mainDocumentPhrase()}, ${pendingPhrase([...this.pending.values()])}`
+    return `page loaded, timed out ${AFTER_LOAD_WAIT[phase]}`
+  }
+
+  /**
+   * What the main frame had answered by the deadline.
+   * @returns the clause naming the status and, when it is not where the request pointed, where it landed.
+   */
+  private mainDocumentPhrase(): string {
+    const document = this.document
+    if (document === undefined) return 'no response from the main document yet'
+    const status = document.status >= MIN_HTTP_STATUS ? String(document.status) : 'with no HTTP status'
+    const landed = document.url === this.requestedUrl ? '' : ` at ${truncateUrl(document.url)}`
+    return `main document ${status}${landed}, load event not fired`
+  }
+}
+
+/**
  * Turns one accepted request into PNG bytes.
  *
  * The service enforces the deadline and aborts `signal` when it passes; an
@@ -114,9 +284,10 @@ export interface RenderRequest {
  * release it on that signal, because nothing else will.
  * @param request - the accepted, fully resolved request.
  * @param signal - aborted when the request's deadline passes or the service closes.
+ * @param trace - the record this render feeds, which is what a 504 for it says.
  * @returns the encoded PNG.
  */
-export type Renderer = (request: RenderRequest, signal: AbortSignal) => Promise<Buffer>
+export type Renderer = (request: RenderRequest, signal: AbortSignal, trace: RenderTrace) => Promise<Buffer>
 
 /** How to run one render service. */
 export interface RenderServiceSpec {
@@ -136,10 +307,14 @@ export interface RenderServiceHandle {
   close: () => Promise<void>
 }
 
-/** Thrown when an accepted request passes its deadline; the only thing that answers 504. */
+/**
+ * Thrown when an accepted request passes its deadline; the only thing that
+ * answers 504. Its message is the whole 504 body, so it is built from the
+ * request's own {@link RenderTrace} rather than from the deadline alone.
+ */
 class RenderTimeout extends Error {
-  constructor(timeoutMs: number) {
-    super(`render timed out after ${String(timeoutMs)}ms`)
+  constructor(message: string) {
+    super(message)
     this.name = 'RenderTimeout'
   }
 }
@@ -308,14 +483,16 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
 
   const runQueued = async (request: RenderRequest): Promise<Buffer> => {
     const controller = new AbortController()
+    const trace = new RenderTrace(request.url)
     const job = tail.then(() => {
       // No window for a request whose deadline passed before the chain reached
       // it. Deadlines are armed at admission and the chain advances no later
       // than the head request's own, so this does not fire under that ordering;
       // what it rules out is a whole render whose result the deadline has
-      // already discarded.
-      if (controller.signal.aborted) throw new RenderTimeout(limits.timeoutMs)
-      return renderer(request, controller.signal)
+      // already discarded. The trace is still `queued`, which is what its line
+      // says.
+      if (controller.signal.aborted) throw new RenderTimeout(trace.describeTimeout(limits.timeoutMs))
+      return renderer(request, controller.signal, trace)
     })
     // Resolves when this request is abandoned, whatever its renderer goes on
     // doing.
@@ -335,8 +512,12 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
     let timer: NodeJS.Timeout | undefined
     const deadline = new Promise<never>((_resolve, reject) => {
       timer = setTimeout(() => {
+        // Read before the abort, not after: the abort destroys the render's
+        // window, and its session then reports every request that was still in
+        // flight as failed — emptying the very list this line exists to name.
+        const message = trace.describeTimeout(limits.timeoutMs)
         controller.abort()
-        reject(new RenderTimeout(limits.timeoutMs))
+        reject(new RenderTimeout(message))
       }, limits.timeoutMs)
     })
     try {

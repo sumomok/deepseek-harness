@@ -20,6 +20,12 @@
  * Electron's default `autoplayPolicy` is `no-user-gesture-required`, so an
  * `<audio autoplay>` on a rendered page plays out of the user's speakers; a
  * capture wants pixels only, so muting costs the render nothing.
+ *
+ * It also feeds the service's [[RenderTrace]] with where the render got to,
+ * where the main frame landed, and which requests are still in flight, from
+ * `did-navigate` and the session's non-blocking `webRequest` hooks. Those
+ * observe; the blocking hooks hold each request until their callback runs, so
+ * a diagnostic built on them would change the timing it reports.
  * @module @deepseek-ai/dsh-desktop/render-window
  */
 
@@ -83,10 +89,11 @@ async function fullPageHeight(window: BrowserWindow, request: RenderRequest): Pr
  * else in this process holds a reference to.
  * @param request - the accepted request.
  * @param signal - aborted when the service's deadline passes.
+ * @param trace - fed the phase this render is in, the main frame's landing, and the requests still in flight.
  * @returns the encoded PNG.
  * @throws when the page fails to load, when the render is aborted, or when the capture fails.
  */
-export const renderInHiddenWindow: Renderer = async (request, signal) => {
+export const renderInHiddenWindow: Renderer = async (request, signal, trace) => {
   const window = new BrowserWindow({
     show: false,
     // The requested size is the viewport, not the window frame around it.
@@ -130,17 +137,44 @@ export const renderInHiddenWindow: Renderer = async (request, signal) => {
     session.setPermissionCheckHandler(() => false)
     session.on('will-download', (event) => { event.preventDefault() })
     window.webContents.setWindowOpenHandler(() => ({ action: 'deny' }))
+    // Where the main frame ended up, which is how a redirect to a login page
+    // becomes visible in the line a timed-out render is answered with.
+    // `httpResponseCode` is -1 for a navigation that carried no HTTP response.
+    window.webContents.on('did-navigate', (_event, url, httpResponseCode) => {
+      trace.mainDocument(url, httpResponseCode)
+    })
+    // The non-blocking hooks only. `onBeforeRequest` and the other blocking
+    // ones hold each request until their callback runs, so a diagnostic built
+    // on them would change the timing it is here to report; these three
+    // observe. `onSendHeaders` fires before the connection is made, so a
+    // request stuck in TCP connect counts as pending — which is the case this
+    // exists for. A response served from the cache reaches `onCompleted`
+    // without ever having sent headers, so the ids the hooks see are not the
+    // same set; settling an id that was never started is a no-op.
+    session.webRequest.onSendHeaders((details) => {
+      trace.requestStarted(details.id, details.url, details.resourceType)
+    })
+    session.webRequest.onCompleted((details) => { trace.requestSettled(details.id) })
+    session.webRequest.onErrorOccurred((details) => { trace.requestSettled(details.id) })
+    trace.enter('navigating')
     // Resolves on did-finish-load and rejects on did-fail-load, whose error
     // message carries the Chromium error code (`ERR_FILE_NOT_FOUND`).
     await window.loadURL(request.url)
-    if (request.delayMs > 0) await delay(request.delayMs, signal)
+    trace.enter('loaded')
+    if (request.delayMs > 0) {
+      trace.enter('delaying')
+      await delay(request.delayMs, signal)
+    }
     if (request.fullPage) {
+      trace.enter('measuring')
       const height = await fullPageHeight(window, request)
       if (height !== request.height) {
+        trace.enter('resizing')
         window.setContentSize(request.width, height)
         await delay(RESIZE_SETTLE_MS, signal)
       }
     }
+    trace.enter('capturing')
     return (await window.webContents.capturePage()).toPNG()
   } finally {
     signal.removeEventListener('abort', destroy)
