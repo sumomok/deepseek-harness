@@ -24,6 +24,18 @@ The same tool also returned an image whose size depended on the machine. `captur
 
 The two fields do different things and the difference is the reason both exist. `render-window.ts` sets cookies through `session.cookies.set` on the render's own in-memory session before the load, so they cover every request the page makes — a signed-in page whose images all 401 is not the page anyone asked to see. Headers go on `loadURL(url, { extraHeaders })`, which is the main-frame navigation only, which is what a bearer token or a host override wants. Every isolation property is unchanged: the per-render `partition:` session, denied permissions, no downloads, no dialogs, muted, destroyed on every exit. The caller supplies the credential and the shell keeps none of it.
 
+**The cookie is set at path `/`, and the path is explicit because the default is a directory.** `session.cookies.set` called without `path` leaves Chromium applying RFC 6265's default-path, which is the directory of the URL the cookie is set from — not the site. Rendering `/deep/page.html` with `cookies: { probe: 'yes' }` and `headers: { 'x-note': 'hello' }` against a real Electron, the server saw:
+
+```
+/deep/page.html   cookie=probe=yes    x-note=hello
+/api/pixel.png    cookie=(none)
+/deep/sib.png     cookie=probe=yes
+```
+
+A cookie scoped to `/deep/` covers the document and its neighbours and reaches nothing under another top-level path, while the render still succeeds and still returns a plausible-looking image. That is the primary use case: an application serves its pages from `/app/…` and its data from `/api/…`, so a directory-scoped cookie arrives at the API signed out and the capture is the empty or signed-out page this field exists to stop returning.
+
+`path: '/'` rather than a prefix computed from the URL, because the caller named a cookie for the site and not for a directory, and a real session cookie is issued with `Path=/`. Nothing is widened by it: the session is the render's own in-memory one loading a single page, so a site-wide cookie has no other page to reach, and it dies with the window. `domain` stays unset, which keeps the cookie host-only — the caller supplied a credential for the host it named. The caller cannot change either, because the cookie-octet grammar refuses the `;` that would begin an attribute.
+
 **A successful render says when it is not the page that was asked for.** The service already knew: `RenderTrace` records the main frame's landing from `did-navigate`, and [the timeout line](2026-08-22-render-timeout-diagnostics.md) names it. `RenderTrace.landedElsewhere()` now exposes it, `runQueued` reads it after the render, and a 200 carries `x-dsh-render-landed-url` when the frame ended somewhere other than the requested URL — percent-encoded outside printable ASCII, cut at 96 characters, and compared after URL normalization so the trailing slash Chromium adds to an origin is not a redirect. The plugin turns the header into one sentence in the tool result:
 
 ```
@@ -53,7 +65,7 @@ Use the screenshot tool to look at any page as pixels — your own HTML or CSS w
 | Field | Direction | Meaning |
 |---|---|---|
 | `headers` | request | Name→value map; applied to the main-frame navigation |
-| `cookies` | request | Name→value map; set on the render's session before the load, covering subresources |
+| `cookies` | request | Name→value map; set on the render's session before the load at path `/`, covering every request the page makes |
 | `x-dsh-render-landed-url` | response, 200 | Where the main frame ended, when that is not the requested URL |
 
 The plugin sends `headers` and `cookies` only when a call carried them, so a request that names neither is byte-identical to the one rc.18 sent. A shell that cannot honour them must refuse the request; the README states that as the contract a shell implements against.
@@ -92,6 +104,6 @@ An install without the shell's render service is now a narrower deployment than 
 
 `apps/desktop/tests/render-service.spec.ts` covers the new validation — non-map fields, non-string values, invalid token names, a `cookie` header, CR/LF in a header value and a semicolon or comma in a cookie value, the shared count and byte bounds, the `file:` refusal, and that the renderer receives the maps only when the request carried them — plus the landing header: present with the URL when the trace landed elsewhere, absent when it stayed, percent-encoded for non-ASCII, and cut for a long one.
 
-`apps/desktop/scripts/render-smoke.mjs` covers what no injected renderer can. It serves a page that redirects anyone without a session to `/login` and renders it three ways against a real Chromium: without a session (200 plus the landing header), with a cookie, and with a header (200, no header). Its viewport case now asserts the capture is exactly the requested size, which on a Retina Mac is the assertion that the resize runs.
+`apps/desktop/scripts/render-smoke.mjs` covers what no injected renderer can. It serves a page that redirects anyone without a session to `/login` and renders it three ways against a real Chromium: without a session (200 plus the landing header), with a cookie, and with a header (200, no header). A second site case serves a page at `/app/issues/page` with one image beside it and one at `/api/pixel.png`, and asserts what that server received rather than what came back as pixels: the cookie is on the document and on both images, and an extra header is on the navigation and on neither image. Asserting on the pixels would pass under a directory-scoped cookie, since a page whose images 401 still encodes to a PNG. Its viewport case asserts the capture is exactly the requested size, which on a Retina Mac is the assertion that the resize runs.
 
 The plugin's own suite covers `outputPath` (written inside the workspace, the overwrite report, refusals for a path outside it and for a call with no session), the system-browser refusal for a call carrying a session, the landing sentence in the rendered result, and that `applyScreenshotTool` registers the prompt section beside the tool.

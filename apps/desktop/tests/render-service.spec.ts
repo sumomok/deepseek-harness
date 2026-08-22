@@ -303,7 +303,9 @@ describe('request validation', () => {
       // newline-separated string.
       { ...VALID, headers: { 'x-note': 'one\ntwo: three' } },
       { ...VALID, headers: { 'x-note': 'tab\rreturn' } },
-      // A semicolon ends a cookie and starts its attributes.
+      // A semicolon ends a cookie and starts its attributes, which is what
+      // keeps `Path` and `Domain` out of a caller's reach: the window half
+      // decides both.
       { ...VALID, cookies: { session: 'abc; Path=/' } },
       { ...VALID, cookies: { session: 'a,b' } },
     ]

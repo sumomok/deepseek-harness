@@ -76,17 +76,26 @@ function extraHeaders(headers: Record<string, string>): string {
  *
  * They are set through the cookie store rather than sent as a header because
  * that is what makes them reach the page's subresources too: a signed-in page
- * whose images all 401 is not the page the caller asked to see. The session is
- * the window's in-memory one, so they are gone when the window is.
+ * whose images all 401 is not the page the caller asked to see.
+ *
+ * `path` is given explicitly because Chromium otherwise applies RFC 6265's
+ * default-path, which is the *directory* of `url` rather than the site: a
+ * cookie set for `/app/issues/list` would cover `/app/issues/` and reach none
+ * of the `/api/…` requests the page makes. The caller named a cookie for the
+ * site rather than for a directory, and a real session cookie is issued with
+ * `Path=/`. A site-wide cookie reaches no further than this render either way:
+ * the session is the window's own in-memory one loading a single page, and it
+ * is gone when the window is. No `domain` is set, which keeps the cookie
+ * host-only — the caller supplied a credential for this host and no other.
  * @param session - the render's own session.
- * @param url - the page being rendered, which the cookies are scoped to.
+ * @param url - the page being rendered, whose host the cookies are scoped to.
  * @param cookies - the accepted request's cookies, by name.
  * @returns resolves once every cookie is stored.
  * @throws when Chromium refuses a cookie for this URL.
  */
 async function applyCookies(session: Session, url: string, cookies: Record<string, string>): Promise<void> {
   for (const [name, value] of Object.entries(cookies)) {
-    await session.cookies.set({ url, name, value })
+    await session.cookies.set({ url, name, value, path: '/' })
   }
 }
 

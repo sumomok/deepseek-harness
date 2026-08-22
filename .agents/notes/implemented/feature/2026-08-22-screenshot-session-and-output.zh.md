@@ -24,6 +24,18 @@ macOS 那一边出于同样的原因写了 `/tmp/redmine_proxy.py`,随后彻底�
 
 这两个字段做的事不一样,而这个不一样正是两个都要有的理由。`render-window.ts` 在加载之前通过 `session.cookies.set` 把 cookie 设到这次渲染自己的内存 session 上,于是它们覆盖页面发出的每一个请求——一个图片全部 401 的已登录页面,不是任何人想看的那个页面。headers 走 `loadURL(url, { extraHeaders })`,那只是主框架那一次导航,而那正是 bearer token 或 Host 覆写想要的位置。每一条隔离性质都没有变:每次渲染独有的 `partition:` session、拒绝一切权限、不许下载、不许对话框、静音、在每一条退出路径上销毁。凭据由调用方提供,壳一点也不留。
 
+**cookie 设在路径 `/` 上,而路径之所以要显式给出,是因为默认值是一个目录。**`session.cookies.set` 不带 `path` 调用时,Chromium 套用的是 RFC 6265 的默认路径,也就是这个 cookie 是从哪个 URL 设进去的、那个 URL 所在的目录——而不是整个站点。在真实 Electron 上以 `cookies: { probe: 'yes' }` 与 `headers: { 'x-note': 'hello' }` 渲染 `/deep/page.html`,服务器看到的是:
+
+```
+/deep/page.html   cookie=probe=yes    x-note=hello
+/api/pixel.png    cookie=(none)
+/deep/sib.png     cookie=probe=yes
+```
+
+作用域是 `/deep/` 的 cookie 覆盖文档和它的邻居,碰不到另一个顶层路径下的任何东西,而渲染照样成功、照样返回一张看上去很像样的图。这正是那个首要用例:应用把页面放在 `/app/…`、把数据放在 `/api/…`,于是一个按目录划定作用域的 cookie 到了 API 那边就是未登录状态,截下来的正是这个字段本来要终结的那张空白页或未登录页。
+
+用 `path: '/'` 而不是从 URL 算出来的某个前缀,是因为调用方指名的是一个属于这个站点的 cookie,而不是属于某个目录的 cookie,而真实的会话 cookie 就是以 `Path=/` 下发的。它也没有把任何东西放宽:session 是这次渲染自己的内存 session、只加载一个页面,所以一个站点级的 cookie 再没有别的页面可去,并且随窗口一起消亡。`domain` 保持不设,于是 cookie 是 host-only 的——调用方提供的凭据是给它指名的那台主机的。这两者调用方都改不了,因为 cookie-octet 文法会拒掉那个用来起头写属性的 `;`。
+
 **成功的渲染会说出"这不是你要的那个页面"。**服务本来就知道:`RenderTrace` 从 `did-navigate` 记下主框架的落点,[超时那一行](2026-08-22-render-timeout-diagnostics.zh.md)会点出它。现在 `RenderTrace.landedElsewhere()` 把它暴露出来,`runQueued` 在渲染之后读它,当主框架落在请求所指之外时,200 便带上 `x-dsh-render-landed-url`——可见 ASCII 之外做百分号编码,截到 96 个字符,并在 URL 归一化之后比较,所以 Chromium 给源地址补的那个斜杠不算重定向。插件把这个响应头变成工具结果里的一句话:
 
 ```
@@ -53,7 +65,7 @@ Use the screenshot tool to look at any page as pixels — your own HTML or CSS w
 | 字段 | 方向 | 含义 |
 |---|---|---|
 | `headers` | 请求 | name→value 映射;挂在主框架那一次导航上 |
-| `cookies` | 请求 | name→value 映射;加载前设到这次渲染的 session 上,覆盖子资源 |
+| `cookies` | 请求 | name→value 映射;加载前设到这次渲染的 session 上、路径为 `/`,覆盖页面发出的每一个请求 |
 | `x-dsh-render-landed-url` | 响应,200 | 主框架最终落在哪里,当那不是请求所指的地址时 |
 
 只有调用带了 `headers` 与 `cookies` 时插件才发它们,所以一个两者都不提的请求与 rc.18 发出的那一个逐字节相同。一个无法履行它们的壳必须拒绝该请求;README 把这一条写成壳所实现的契约。
@@ -92,6 +104,6 @@ Use the screenshot tool to look at any page as pixels — your own HTML or CSS w
 
 `apps/desktop/tests/render-service.spec.ts` 覆盖新的校验——不是映射的字段、不是字符串的值、不合 token 的名字、一个 `cookie` 头、头部值里的 CR/LF 与 cookie 值里的分号或逗号、两者共享的条目数与字节边界、`file:` 的拒绝,以及只有当请求真的带了映射时 renderer 才收到它们——另加落点响应头:trace 落在别处时带着 URL 出现、停在原地时不出现、非 ASCII 时做百分号编码、过长时被截断。
 
-`apps/desktop/scripts/render-smoke.mjs` 覆盖任何注入的 renderer 都够不着的那一半。它起一个站点:任何没有会话的访问都被重定向到 `/login`,并对着真实 Chromium 用三种方式渲染它——不带会话(200 加落点响应头)、带 cookie、带 header(200,没有那个头)。它的视口用例现在断言截图正好是被请求的尺寸,而在 Retina Mac 上,这一条就是"缩放确实跑了"的断言。
+`apps/desktop/scripts/render-smoke.mjs` 覆盖任何注入的 renderer 都够不着的那一半。它起一个站点:任何没有会话的访问都被重定向到 `/login`,并对着真实 Chromium 用三种方式渲染它——不带会话(200 加落点响应头)、带 cookie、带 header(200,没有那个头)。第二个站点用例把页面放在 `/app/issues/page`,一张图在它旁边、另一张在 `/api/pixel.png`,断言的是那个服务器收到了什么,而不是回来的像素:cookie 出现在文档和两张图上,额外的 header 只出现在那次导航上、两张图都没有。对像素做断言在按目录划定作用域的 cookie 下同样会通过,因为一个图片全部 401 的页面照样编码得出一张 PNG。它的视口用例断言截图正好是被请求的尺寸,而在 Retina Mac 上,这一条就是"缩放确实跑了"的断言。
 
 插件自己的测试覆盖 `outputPath`(写在工作区内、替换的报告、路径在工作区之外与调用没有会话这两种拒绝)、带会话调用在系统浏览器后端上的拒绝、渲染结果里那句落点说明,以及 `applyScreenshotTool` 确实在工具旁边注册了那段提示词 section。
