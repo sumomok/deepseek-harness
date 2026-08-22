@@ -10,12 +10,17 @@
  * sees the previous manifest and the previous artifacts, never a manifest
  * naming a file that is still uploading.
  *
- * Nothing here deletes, and the feed directory is not to be tidied by hand
- * either: differential downloads read the blockmap of the version the *client*
- * is running as well as the new one ([[reportPreviousBlockmap]]).
+ * A publish whose manifests came back served then prunes the directories it
+ * wrote: the newest [[KEPT_ARTIFACT_VERSIONS]] versions keep their artifacts
+ * and the newest [[KEPT_BLOCKMAP_VERSIONS]] keep their blockmaps, at different
+ * depths because an update fetches only one of the two from the feed
+ * ([[selectPrunable]] carries the electron-updater reading). Nothing is deleted
+ * until both manifests are read back from the feed, so a publish that failed
+ * deletes nothing; `--no-prune` skips it and `--dry-run` prints the decision
+ * without making it.
  *
  * Usage: pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes <file>
- *        [--minimum-version <version>] [--republish] [--dry-run]
+ *        [--minimum-version <version>] [--republish] [--no-prune] [--dry-run]
  *
  * `--republish` allows overwriting the version the feed already serves, which
  * is how a publish cut short by a dropped transfer is repaired: uploads skip
@@ -39,6 +44,7 @@ import { fileURLToPath } from 'node:url'
 import { CORE_SCHEMA, DEFAULT_SCHEMA, dump, load } from 'js-yaml'
 import { compareVersions } from '../src/version-order.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
+import { KEPT_ARTIFACT_VERSIONS, KEPT_BLOCKMAP_VERSIONS, selectPrunable } from './prune-feed.ts'
 
 const APP_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 const DIST = join(APP_DIR, 'dist-app')
@@ -98,6 +104,8 @@ interface Cli {
   notes: string
   minimumVersion: string | undefined
   republish: boolean
+  /** Whether the published channels are pruned to the retention windows afterwards. */
+  prune: boolean
   dryRun: boolean
 }
 
@@ -108,6 +116,7 @@ function parseCli(argv: string[]): Cli {
       notes: { type: 'string' },
       'minimum-version': { type: 'string' },
       republish: { type: 'boolean', default: false },
+      'no-prune': { type: 'boolean', default: false },
       'dry-run': { type: 'boolean', default: false },
     },
   })
@@ -118,6 +127,7 @@ function parseCli(argv: string[]): Cli {
     notes: values.notes,
     minimumVersion: values['minimum-version'],
     republish: values.republish,
+    prune: !values['no-prune'],
     dryRun: values['dry-run'],
   }
 }
@@ -223,13 +233,16 @@ function artifactsOf(channel: Channel, manifest: Manifest): string[] {
  * Report whether the version this publish replaces still has its blockmap in
  * the feed directory.
  *
- * A differential download reads **two** blockmaps: the new build's, and the one
- * belonging to the version the client is running, whose URL electron-updater
- * builds by substituting versions into the new artifact's name
- * (`Provider.getBlockMapFiles`). Every published version's blockmap therefore
- * has to stay where it was uploaded for as long as anyone might update from it
- * — which is why nothing in this script deletes, and why removing old builds by
- * hand turns differential downloads back into full ones with no error anywhere.
+ * A differential download needs two blockmaps but fetches only one of them from
+ * the feed. The new build's is always downloaded; the running version's is read
+ * from the client's own cache (`current.blockmap`) and fetched from the feed —
+ * at the URL `Provider.getBlockMapFiles` builds by substituting versions into
+ * the new artifact's name — only when that cached copy is missing. Every
+ * completed in-app update leaves the new blockmap in that cache, so the feed's
+ * copy is what a fresh install or a cleared cache falls back to. It is still
+ * worth having: a client that has to fetch it and cannot downloads the whole
+ * artifact instead, with no error anywhere. [[pruneChannel]] therefore keeps
+ * blockmaps [[KEPT_BLOCKMAP_VERSIONS]] versions deep, far past the artifacts.
  * @param channel - the platform channel.
  * @param artifact - the artifact being published, whose name carries the version.
  * @param version - the version being published.
@@ -401,6 +414,70 @@ async function remoteMd5(remotePath: string): Promise<string | undefined> {
   return output.trim().split(/\s+/)[0] || undefined
 }
 
+/**
+ * Delete one channel's files that fall outside the retention windows.
+ *
+ * The directory is listed first and the whole decision — kept, unrecognized,
+ * deleted — is logged before anything goes, so the record of a prune is
+ * complete whether or not the delete that follows succeeds. Deletion is one
+ * `rm` naming every file explicitly and quoted; each name came from `ls` of
+ * this directory and is refused if it carries a path separator, so a prune
+ * reaches nothing outside the channel it was given.
+ * @param channel - the platform channel to prune.
+ * @param version - the version just published, which anchors both windows.
+ * @param publishedNames - the names this publish uploaded or rewrote there.
+ * @param dryRun - print the decision and delete nothing.
+ */
+async function pruneChannel(channel: Channel, version: string, publishedNames: string[], dryRun: boolean): Promise<void> {
+  const dir = `${REMOTE_ROOT}/${channel.name}`
+  const listing = await remote(`ls -1 ${shellQuote(dir)}`)
+  const names = listing.split('\n').map(line => line.trim()).filter(line => line !== '')
+  const selection = selectPrunable(names, version, publishedNames)
+  const targets = [...selection.deleteArtifacts, ...selection.deleteBlockmaps]
+  const offender = targets.find(name => name.includes('/'))
+  if (offender !== undefined) {
+    throw new Error(`publish: ${JSON.stringify(offender)} names a path rather than a file in ${dir}; nothing was deleted.`)
+  }
+  console.log(`publish: ${channel.name}: keeping ${String(selection.keep.length)} of ${String(names.length)} file(s): ${selection.keep.join(', ')}`)
+  if (selection.unparsed.length > 0) {
+    console.log(`publish: ${channel.name}: leaving ${String(selection.unparsed.length)} unrecognized name(s) alone: ${selection.unparsed.join(', ')}`)
+  }
+  if (targets.length === 0) {
+    console.log(`publish: ${channel.name}: nothing to prune — artifacts are kept ${String(KEPT_ARTIFACT_VERSIONS)} versions deep, blockmaps ${String(KEPT_BLOCKMAP_VERSIONS)}.`)
+    return
+  }
+  const verb = dryRun ? 'would delete' : 'deleting'
+  console.log(`publish: ${channel.name}: ${verb} ${String(selection.deleteArtifacts.length)} artifact(s) and ${String(selection.deleteBlockmaps.length)} blockmap(s): ${targets.join(', ')}`)
+  if (dryRun) return
+  await remote(`rm -f -- ${targets.map(name => shellQuote(`${dir}/${name}`)).join(' ')}`)
+  console.log(`publish: ${channel.name}: deleted ${String(targets.length)} file(s)`)
+}
+
+/**
+ * Prune every channel this publish wrote, one independently of the other.
+ *
+ * The manifests are already served by the time this runs, so a prune that
+ * fails has nothing to undo: it is reported and the publish stands, and the
+ * next one tries again with one more version of backlog.
+ * @param cli - the parsed command line.
+ * @param version - the version just published.
+ * @param plan - each channel with the local artifact paths it uploaded.
+ */
+async function pruneFeed(cli: Cli, version: string, plan: Map<Channel, string[]>): Promise<void> {
+  if (!cli.prune) {
+    console.log('publish: --no-prune — the feed keeps every version it already holds.')
+    return
+  }
+  for (const [channel, artifacts] of plan) {
+    const publishedNames = [...artifacts.map(artifact => basename(artifact)), channel.manifest]
+    try {
+      await pruneChannel(channel, version, publishedNames, cli.dryRun)
+    } catch (error) {
+      console.log(`publish: WARNING — ${channel.name}: pruning failed, so the feed keeps every old file: ${error instanceof Error ? error.message.split('\n')[0] ?? '' : String(error)}`)
+    }
+  }
+}
+
 async function main(): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   const notesPath = resolve(cli.notes)
@@ -473,6 +550,7 @@ async function main(): Promise<void> {
 
   if (cli.dryRun) {
     console.log('publish: dry run — local manifests carry the notes, nothing was uploaded.')
+    await pruneFeed(cli, version, plan)
     return
   }
 
@@ -495,6 +573,11 @@ async function main(): Promise<void> {
     }
     console.log(`publish: ${url} now serves ${serving.version} (minimumVersion ${serving.minimumVersion ?? 'unset'})`)
   }
+
+  // Both manifests are served and name this version, so every artifact a
+  // client can now be told to fetch is up. Only past this line does deleting
+  // an older one mean anything but breaking the publish that is in flight.
+  await pruneFeed(cli, version, plan)
 }
 
 await main()

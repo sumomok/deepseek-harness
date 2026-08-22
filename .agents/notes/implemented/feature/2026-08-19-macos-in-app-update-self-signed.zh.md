@@ -69,7 +69,7 @@ electron-builder 用不了这张证书。它通过 `security find-identity -v -p
 
 `FEED_BASE` 读 `DSH_UPDATE_FEED`,默认是已发布的 feed。要点不是可配置性,而是让生产 URL 成为本模块唯一的 URL 字面量,这样测试端点就无法因为忘了还原而被提交。指向本机地址的构建发出去以后什么都不报,只是从此再也找不到更新。
 
-`publish-update.ts` 现在为两个通道都上传 blockmap,而不只是 Windows。差量下载读的是**两份** blockmap——新构建的,以及客户端当前版本的那份,后者的 URL 由 electron-updater 把新产物名里的版本号替换出来。因此每个已发布版本的 blockmap 都必须留在 feed 里,只要还可能有人从它升级;脚本里没有任何删除动作,并且现在会报告被替换的那个版本的 blockmap 是否还在。
+`publish-update.ts` 现在为两个通道都上传 blockmap,而不只是 Windows。差量下载要用**两份** blockmap——新构建的,以及客户端当前版本的那份——但无条件从 feed 取的只有新的那份:旧的先读客户端自己的缓存,只有那份缓存没了,才去 electron-updater 把新产物名里的版本号替换出来的那个 URL 下载。所以 feed 上那份是全新安装或缓存被清时的兜底;脚本会报告被替换的那个版本的 blockmap 是否还在,并且在清理时把 blockmap 留得比产物深得多([更新源保留策略](../process/2026-08-22-desktop-feed-retention.zh.md))。
 
 ## Alternatives considered
 

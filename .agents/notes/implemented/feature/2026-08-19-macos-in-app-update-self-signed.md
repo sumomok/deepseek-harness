@@ -69,7 +69,7 @@ Most of that time the screen is bare, because ShipIt waits for every process of 
 
 `FEED_BASE` reads `DSH_UPDATE_FEED`, defaulting to the published feed. The point is not configurability: it is that the production URL is the module's only URL literal, so a local test endpoint cannot be committed by forgetting to undo an edit. A build shipped pointing at a machine-local address reports nothing and simply never finds an update again.
 
-`publish-update.ts` uploads the blockmap for both channels, not just Windows. A differential download reads **two** blockmaps — the new build's, and the one belonging to the version the client is running, whose URL electron-updater builds by substituting versions into the new artifact's name. Every published version's blockmap therefore has to stay in the feed for as long as anyone might update from it; nothing in the script deletes, and it now reports whether the version it replaces still has its blockmap.
+`publish-update.ts` uploads the blockmap for both channels, not just Windows. A differential download needs **two** blockmaps — the new build's, and the one belonging to the version the client is running — but fetches only the new one from the feed unconditionally: the old one is read from the client's own cache first and downloaded, at the URL electron-updater builds by substituting versions into the new artifact's name, only when that cached copy is gone. The feed's copy is therefore what a fresh install or a cleared cache falls back to; the script reports whether the version it replaces still has its blockmap, and keeps blockmaps far deeper than artifacts when it prunes ([feed retention](../process/2026-08-22-desktop-feed-retention.md)).
 
 ## Alternatives considered
 
