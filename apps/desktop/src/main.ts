@@ -27,36 +27,54 @@ import { app, BrowserWindow, shell } from 'electron'
 import { recordRun } from './desktop-state.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { setupNotifications } from './notifications.ts'
+import { describeSeed, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
+import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
+import { renderInHiddenWindow } from './render-window.ts'
 import { startServer, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import { launchGate, setupUpdates } from './updater.ts'
 
 /**
+ * A server launch plus the shipped closure the built-in plugins are seeded
+ * from. The environment additions are not part of it: they carry the render
+ * service's address, which does not exist yet when the paths are resolved.
+ */
+interface LaunchSpec extends Omit<ServerSpec, 'env'> {
+  /** `node_modules` of the shipped server closure, holding the built-in plugin packages. */
+  builtinModules: string
+}
+
+/**
  * Resolve where the server lives for this launch. Packaged builds use the
  * app resources; a source-tree launch (`pnpm --filter @deepseek-ai/dsh-desktop
  * exec electron lib/main.js`) uses the checkout's built CLI on the
- * development Node found in PATH.
+ * development Node found in PATH, with the built-in plugins coming from the
+ * same `apps/desktop-server` closure the packaged payload is deployed from.
  * @returns the launch spec.
  */
-function resolveSpec(): ServerSpec {
+function resolveSpec(): LaunchSpec {
   const home = app.getPath('home')
   if (app.isPackaged) {
-    const resources = process.resourcesPath
+    const modules = join(process.resourcesPath, 'server', 'node_modules')
     return {
-      nodeBin: join(resources, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node'),
-      entry: join(resources, 'server', 'node_modules', '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+      nodeBin: join(process.resourcesPath, 'runtime', process.platform === 'win32' ? 'node.exe' : 'node'),
+      entry: join(modules, '@deepseek-ai', 'dsh', 'lib', 'bin.js'),
+      builtinModules: modules,
       cwd: home,
     }
   }
+  const apps = join(app.getAppPath(), '..')
   return {
     nodeBin: process.env.DSH_DESKTOP_NODE ?? 'node',
-    entry: join(app.getAppPath(), '..', 'cli', 'lib', 'bin.js'),
+    entry: join(apps, 'cli', 'lib', 'bin.js'),
+    builtinModules: join(apps, 'desktop-server', 'node_modules'),
     cwd: home,
   }
 }
 
 let server: ServerHandle | undefined
+let renderService: RenderServiceHandle | undefined
 let quitting = false
 /** Set once the log file is known; before that there is nowhere to write. */
 let logLine: (chunk: string) => void = () => {}
@@ -98,6 +116,32 @@ async function stopServerBounded(): Promise<void> {
   if (outcome === 'timeout') {
     logLine(`[desktop] server did not stop within ${String(STOP_TIMEOUT_MS)}ms; exiting anyway\n`)
   }
+}
+
+/**
+ * Start the loopback render service and return what the server child needs to
+ * reach it.
+ *
+ * The shell is a Chromium, and lending it to the embedded server is what lets
+ * a screenshot happen on a machine with no browser installed. Failing to open
+ * a loopback listener is not a reason to refuse the launch: a server told
+ * nothing falls back to whatever browser the machine has, which is what every
+ * non-desktop install already does.
+ * @param log - the server log sink; receives one line either way, never the token.
+ * @returns the environment additions for the server process, empty when the service did not start.
+ */
+async function startRenderServiceForServer(log: (chunk: string) => void): Promise<Record<string, string>> {
+  let started: RenderServiceHandle
+  try {
+    started = await startRenderService({ renderer: renderInHiddenWindow, limits: RENDER_LIMITS })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log(`[desktop] render service unavailable (${message}); screenshots fall back to a browser on this machine\n`)
+    return {}
+  }
+  renderService = started
+  log(`[desktop] render service on ${started.endpoint}\n`)
+  return { DSH_DESKTOP_RENDER_ENDPOINT: started.endpoint, DSH_DESKTOP_RENDER_TOKEN: started.token }
 }
 
 /**
@@ -372,6 +416,9 @@ if (!locked) {
   app.on('before-quit', (event) => {
     if (quitting) return
     quitting = true
+    // Best-effort and unawaited: the listener dies with the process anyway, and
+    // this quit must not wait on a render that is still running.
+    void renderService?.close()
     if (server === undefined) return
     event.preventDefault()
     void stopServerBounded().finally(() => { app.exit(0) })
@@ -432,7 +479,18 @@ if (!locked) {
       // Before starting a new server, take down any left by a run that could
       // not finish its teardown: they hold the files this install occupies.
       await sweepOrphanedServers(spec.nodeBin, sink)
-      server = await startServer(spec, sink)
+      // Before the server reads the profile, not after: `initProfile` writes a
+      // profile once and never revisits it, so a name added later would not
+      // reach this launch's composition.
+      const seeded = describeSeed(seedBuiltinBundles({
+        home: resolveHarnessHome(),
+        serverModules: spec.builtinModules,
+      }))
+      if (seeded !== undefined) sink(seeded)
+      // Before the spawn, because the address and token reach the server as
+      // environment variables of that child and of nothing else.
+      const renderEnv = await startRenderServiceForServer(sink)
+      server = await startServer({ ...spec, env: renderEnv }, sink)
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)
       view.phase(2)

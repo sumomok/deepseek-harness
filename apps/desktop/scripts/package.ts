@@ -18,12 +18,15 @@
 
 import { spawn } from 'node:child_process'
 import { createWriteStream, existsSync } from 'node:fs'
-import { chmod, copyFile, cp, lstat, mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
 import { pipeline } from 'node:stream/promises'
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
+import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { bundleClosure } from './bundle-closure.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import {
@@ -322,7 +325,12 @@ async function stageRuntime(platform: 'darwin' | 'win'): Promise<void> {
     if (!response.ok || response.body === null) {
       throw new Error(`package: Node runtime download failed: ${String(response.status)} ${response.statusText}`)
     }
-    await pipeline(Readable.fromWeb(response.body), createWriteStream(`${cached}.part`))
+    // `fetch` types its body with the DOM lib's ReadableStream and
+    // `Readable.fromWeb` takes node:stream/web's; the two declare the same
+    // runtime object and neither is assignable to the other, so no narrowing
+    // reaches this.
+    const body = response.body as NodeReadableStream<Uint8Array>
+    await pipeline(Readable.fromWeb(body), createWriteStream(`${cached}.part`))
     await copyFile(`${cached}.part`, cached)
     await rm(`${cached}.part`)
   }
@@ -351,10 +359,21 @@ async function verifyStaging(): Promise<void> {
  * Plugins load through the Loader at boot, not at launcher import, so only a
  * real `web --port 0` round-trip proves a payload is complete. Run against
  * the macOS pruned payload it doubles as the gate on the shared prune rules.
+ *
+ * The boot runs against `buildHome`, seeded exactly as the desktop shell seeds
+ * a real one, so what it checks is the payload rather than whatever the build
+ * machine's own profile happens to hold. Booting against the developer's home
+ * is what this check used to do, and it covered the built-in plugins only by
+ * the accident of that developer having installed them.
  * @param root - the staged server tree to boot.
+ * @param buildHome - this build's throwaway `$DSH_HOME`.
  */
-async function verifyStagedBoot(root: string): Promise<void> {
-  const child = spawn(process.execPath, [join(root, SERVER_ENTRY), 'web', '--port', '0'], {
+async function verifyStagedBoot(root: string, buildHome: string): Promise<void> {
+  const seeded = seedBuiltinBundles({ home: buildHome, serverModules: join(root, 'node_modules') })
+  if (seeded.seeded.length !== BUILTIN_WEB_BUNDLES.length) {
+    throw new Error(`package: staged boot could not seed the built-in bundles: ${JSON.stringify(seeded)}`)
+  }
+  const child = spawn(process.execPath, [join(root, SERVER_ENTRY), '--profile', DESKTOP_PROFILE, '--port', '0'], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
@@ -384,7 +403,7 @@ async function verifyStagedBoot(root: string): Promise<void> {
     if (!response.ok || !index.includes('__DSH_BOOT__')) {
       throw new Error(`package: staged boot served an unexpected index from ${url}.`)
     }
-    await verifyClientModules(url, index)
+    await verifyClientModules(root, url, index)
     console.log(`package: staged boot verified at ${url}`)
   } finally {
     child.kill('SIGTERM')
@@ -393,6 +412,24 @@ async function verifyStagedBoot(root: string): Promise<void> {
       child.once('exit', () => { clearTimeout(timer); resolvePromise() })
     })
   }
+}
+
+/**
+ * Whether a package in the payload has a browser half at all.
+ *
+ * `dsh.client` is what makes the host compose a `/plugins/<name>/client.js`
+ * row for a package; a plugin without it contributes to the agent and never to
+ * the page. Read from the payload's own manifest rather than from a list here,
+ * so adding a built-in of either kind needs no second declaration.
+ * @param root - the staged server tree.
+ * @param name - the package name.
+ * @returns true when the installed manifest declares `dsh.client`.
+ */
+async function servesClientModule(root: string, name: string): Promise<boolean> {
+  const manifest = JSON.parse(await readFile(join(root, 'node_modules', name, 'package.json'), 'utf8')) as {
+    dsh?: { client?: unknown }
+  }
+  return manifest.dsh?.client !== undefined
 }
 
 /**
@@ -408,12 +445,30 @@ async function verifyStagedBoot(root: string): Promise<void> {
  * reached it. Nothing server-side noticed: the boot was clean, the index was
  * the right size, and the log held no error, because the failure happened in
  * the renderer. This is the assertion that would have caught it.
+ * @param root - the staged server tree, whose manifests say which built-ins have a browser half.
  * @param base - the booted server's URL.
  * @param index - the index HTML, which names every client bundle.
  */
-async function verifyClientModules(base: string, index: string): Promise<void> {
+async function verifyClientModules(root: string, base: string, index: string): Promise<void> {
   const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)].map(match => match[0]))]
   if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
+  // A built-in with a browser half reaches the page only if the payload carried
+  // it, the seed named it, and the Loader resolved it; nothing else in this
+  // build fails when one of those three stops being true. A built-in without
+  // one is proved by this boot happening at all: a bundle the profile names and
+  // the Loader cannot resolve is a hard boot failure, so the server would never
+  // have printed the URL line above.
+  let withClient = 0
+  for (const name of BUILTIN_WEB_BUNDLES) {
+    if (!await servesClientModule(root, name)) continue
+    withClient++
+    if (!paths.some(path => path.startsWith(`/plugins/${name}/`))) {
+      throw new Error(`package: staged boot served no client module for the built-in plugin ${name}.`)
+    }
+  }
+  if (withClient === 0) {
+    throw new Error('package: no built-in plugin declares dsh.client, so this check proves nothing — fix the payload or this assertion.')
+  }
   for (const path of paths) {
     const target = new URL(path, base)
     const response = await fetch(target)
@@ -450,7 +505,7 @@ const PAYLOAD_PLATFORMS: Record<PayloadTarget, PayloadPlatform> = {
  * installer pays for every file twice on Windows: per-file extraction under
  * antivirus scanning, and the 260-character MAX_PATH ceiling.
  */
-const PRUNE_SUFFIXES = ['.map', '.pdb', '.ts', '.mts', '.cts', '.tsbuildinfo']
+const PRUNE_SUFFIXES = ['.map', '.pdb', '.ts', '.tsx', '.mts', '.cts', '.jsx', '.tsbuildinfo']
 
 /**
  * Markdown is pruned only when the basename is a documentation name: shipped
@@ -552,6 +607,9 @@ async function deriveServerPayload(target: PayloadTarget, staged: PayloadSnapsho
   if (collapsed.unbundled.length > 0) {
     console.log(`package: ${target} payload kept unbundled: ${collapsed.unbundled.join(', ')}`)
   }
+  // The built-in plugins are named by the profile and imported by nobody, so
+  // their survival is exactly what a reachability walk cannot show on its own.
+  console.log(`package: ${target} payload built-in profile bundles: ${collapsed.bundles.join(', ') || '(none)'}`)
   // Ahead of the smoke test and the boot gate: a package deleted because its
   // name is only ever built at run time fails those two somewhere unrelated, or
   // not until a user reaches the feature, and this says which list to add to.
@@ -599,7 +657,33 @@ async function countFiles(dir: string): Promise<number> {
   return total
 }
 
-async function main(): Promise<void> {
+/**
+ * Give this build its own throwaway `$DSH_HOME` and remove it afterwards.
+ *
+ * Every server this pipeline starts — the two `--version` smokes and the full
+ * `web` boot — resolves the Harness home the ordinary way, and the ordinary way
+ * is the developer's `~/.dsh`. `prepareProfile` rewrites the profile's root
+ * config there and `healProfilesModuleFallback` re-points every flat-fallback
+ * symlink at this build's staging tree, which is deleted at the start of the
+ * next run. Nothing is lost — the next `dsh` launch heals the links — but a
+ * build has no business editing the machine's harness state at all.
+ *
+ * The override goes on `process.env` because that is what every child inherits:
+ * `run()` spreads it, and the two `spawn` calls take it as it is.
+ * @param action - the build to run against the throwaway home.
+ */
+async function withBuildHome(action: (home: string) => Promise<void>): Promise<void> {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-desktop-build-'))
+  process.env.DSH_HOME = home
+  console.log(`package: build DSH_HOME: ${home}`)
+  try {
+    await action(home)
+  } finally {
+    await rm(home, { recursive: true, force: true })
+  }
+}
+
+async function main(buildHome: string): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
   if (!cli.mac && !cli.win) throw new Error('package: nothing to build — pass --mac and/or --win.')
   if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'])
@@ -624,6 +708,11 @@ async function main(): Promise<void> {
     await stageWindowsVariants()
     await Promise.all(['README.md', 'README.zh.md', 'README.i18n.yaml'].map(name =>
       rm(join(SERVER_STAGING, name), { force: true })))
+    // The deployer copies the manifest's own directory, which carries the
+    // vendored plugin tarball a `file:` dependency was installed from. The
+    // staged tree already holds the installed package; the archive it came
+    // from resolves nothing at run time.
+    await rm(join(SERVER_STAGING, 'vendor'), { recursive: true, force: true })
   }
   await verifyStaging()
   // Every target's rules, whichever targets this run builds: whether a rule
@@ -646,7 +735,7 @@ async function main(): Promise<void> {
   // anything the gate exists to catch.
   const bootGate: PayloadTarget = process.platform === 'win32' ? 'win' : 'darwin'
   await derivePayloadOnce(bootGate)
-  await verifyStagedBoot(SERVER_PAYLOADS[bootGate])
+  await verifyStagedBoot(SERVER_PAYLOADS[bootGate], buildHome)
 
   // `--publish never`: the run() helper sets CI=true, and electron-builder
   // treats CI plus a `publish` block as a request to upload. Publishing is
@@ -671,4 +760,4 @@ async function main(): Promise<void> {
   console.log(`package: products in apps/desktop/dist-app:\n  ${products.sort().join('\n  ')}`)
 }
 
-await main()
+await withBuildHome(main)

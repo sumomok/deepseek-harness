@@ -36,6 +36,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript) | MIT |
 | [`@babel/code-frame`](https://github.com/babel/babel) | MIT |
 | [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi) | MIT |
+| [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.1.0.tgz) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
 | [`@jridgewell/gen-mapping`](https://github.com/jridgewell/sourcemaps) | MIT |
 | [`@modelcontextprotocol/sdk`](https://github.com/modelcontextprotocol/typescript-sdk) | MIT |
@@ -56,6 +57,8 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`clsx`](https://github.com/lukeed/clsx) | MIT |
 | [`commander`](https://github.com/tj/commander.js) | MIT |
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
+| [`dsh-at-file`](https://github.com/omdsh-dev/dsh-at-file) | MIT |
+| [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) | MIT |
 | [`e2b`](https://github.com/e2b-dev/e2b) | MIT |
 | [`electron-updater`](https://github.com/electron-userland/electron-builder) | MIT |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |

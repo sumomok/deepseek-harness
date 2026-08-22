@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-Desktop client: an Electron shell whose main process starts the embedded `dsh web` server — the pnpm-deployed closure of [apps/desktop-server](../desktop-server/README.md) running on a bundled real Node runtime (never Electron's own Node, so the server keeps the tested engines line, `node:sqlite`, and the stock N-API prebuilds) — passes `--no-open` so the server never hands the address to the system browser, waits for the `dsh web:` URL line, and opens the served UI in a native window. The window is a plain browser surface: no preload, no Node integration; external links open in the system browser. Quitting tears the server process tree down (SIGTERM with a kill escalation; `taskkill /T` on Windows).
+Desktop client: an Electron shell whose main process starts the embedded web server — the pnpm-deployed closure of [apps/desktop-server](../desktop-server/README.md) running on a bundled real Node runtime (never Electron's own Node, so the server keeps the tested engines line, `node:sqlite`, and the stock N-API prebuilds) — passes `--no-open` so the server never hands the address to the system browser, waits for the `dsh web:` URL line, and opens the served UI in a native window. The window is a plain browser surface: no preload, no Node integration; external links open in the system browser. Quitting tears the server process tree down (SIGTERM with a kill escalation; `taskkill /T` on Windows).
 
 ## Building installable packages
 
@@ -12,6 +12,8 @@ pnpm exec tsx apps/desktop/scripts/package.ts --win        # NSIS installer (x64
 ```
 
 Products land in `apps/desktop/dist-app/`. The pipeline stages the server by the python/sdk-runtime recipe (legacy hoisted `pnpm deploy`, restore hoists, materialize symlinks), prunes host-compiled native `build/` trees so loads go through the multi-platform prebuilds, fetches the win32-x64 members of platform-split optional dependencies the macOS install skipped, and stages the Node runtime per platform (`--skip-repo-build` / `--skip-deploy` reuse existing artifacts). A payload gate runs before each payload's smoke test: every platform rule must drop at least one directory, every platform-split directory must name the target it ships in, and no surviving module may resolve a pruned package by name.
+
+**The whole build runs against a throwaway `$DSH_HOME`** it creates and deletes, so no server it starts edits the machine's own harness state — `prepareProfile` rewrites a profile's root config and `healProfilesModuleFallback` re-points every flat-fallback symlink at the staging tree this build is about to delete. The boot gate seeds that home exactly as the shell seeds a real one and then requires both built-in plugins among the client modules the served index names, so what it proves is a property of the payload rather than of the build machine's own profile.
 
 ## Closing the window, and being called back
 
@@ -102,6 +104,77 @@ It is not a Developer ID certificate and the app is not notarized, so Gatekeeper
 
 This bounds what the update feed can promise. TLS authenticates the server and each manifest's sha512 binds artifact to manifest, so nothing can be tampered with in transit. What the artifacts carry is a signature this project made, not one an operating system will vouch for, so write access to `/var/www/dsh-updates` is still write access to every client's next installer — a macOS client will refuse a bundle signed by anything else, but it has no opinion about *which* build signed by this certificate it is given. Closing that gap means Authenticode on Windows and Developer ID plus notarization on macOS.
 
+## Built-in plugins
+
+**Three plugins ship inside the installer and mount themselves on first launch**, so a fresh install has them without pnpm, a network round trip, or a `dsh plugin add`:
+
+| Package | Version | What it adds |
+|---|---|---|
+| `dsh-better-sidebar` | `0.14.0`, from npm | A right-hand sidebar with a file tree, an editor, terminal tabs, and a task list |
+| `dsh-at-file` | `v0.6.5`, from the author's repository at that tag's commit | `@` file mentions in the composer |
+| `@haoran/dsh-screenshot` | `0.1.0`, from a tarball committed in this repository | A `screenshot` tool that renders a page and hands the agent the pixels |
+
+They are ordinary dependencies of [apps/desktop-server](../desktop-server/README.md), so `pnpm deploy` puts them in the payload's `server/node_modules` beside everything else the server closes over, and their versions are pinned by the installer that carried them — an update ships whatever version that build declared. `dsh-better-sidebar`'s `node-pty` is pinned to the harness core's own copy through a `pnpm-workspace.yaml` override, because the plugin documents that both halves must resolve to one physical package and the payload's platform prune rules only reach the top-level one.
+
+**`dsh-at-file` comes from a tag, not the registry**, because the author's npm releases stop at `0.6.3` while the tag is at `v0.6.5`. Shipping `0.6.3` would pair badly with a profile that installed `v0.6.5` itself: the two halves of a bundle resolve from different places — the patch layer installation-first through `resolveBundleDir`, the module by the ordinary parent walk, which reaches the profile's own `node_modules` first — so the row would come from `0.6.3` and the code from `v0.6.5`. The dependency names the tag's **commit**, not its archive URL: pnpm records no integrity hash for a GitHub archive, because those bytes are not guaranteed stable, and `pnpm deploy` refuses a lockfile entry without one. A commit is its own hash, so the lockfile pins the contents. The repository commits its built `lib/` and declares no `prepare` script, so nothing is built at install time.
+
+**`@haoran/dsh-screenshot` is unpublished**, so its dependency is a `file:` specifier naming `apps/desktop-server/vendor/haoran-dsh-screenshot-0.1.0.tgz`, committed beside the manifest that declares it. pnpm records a `file:` tarball with an `integrity` hash exactly as it records a registry one, which is what `pnpm deploy` requires and what a GitHub archive URL cannot offer. Updating the plugin means committing a new tarball and pointing the specifier at it; there is no other channel, because the plugin is not on any registry.
+
+**It is also the only built-in with no browser half.** `dsh.client` in a package's manifest is what makes the server compose a `/plugins/<name>/client.js` row for it, and a tool is something the agent calls rather than something the page loads. The build's boot gate reads that declaration from the payload instead of a list: every built-in that has a browser half must be among the client modules the served index names, and the boot itself is the proof for the rest — a bundle the profile names and the Loader cannot resolve is a hard boot failure, so a server that printed its URL line resolved all three.
+
+**`dsh-better-sidebar` must be `0.14.0` or newer on this host.** `0.1.0-rc.8` stopped exposing the `window.__DSH_MODULES__` page global and moved module access to a `ctx.modules` service, which broke how every lazily loaded chunk resolved its external dependencies — `0.13.1` fails with `[dsh-better-sidebar] chunk "terminal": client module system unavailable`, taking the terminal, editor, and Mermaid panes with it. `0.14.0` injects `@deepseek-ai/dsh-client-modules` and shares the plugin's own globals with its chunk copies, and drops the `dsh-client-web-react` and `dsh-client-schema-form` peers that rc.8 removed.
+
+**The shell boots its own profile, `desktop`, and creates it before it starts the server.** `desktop` has no shipped template, so nothing creates it on demand and the server refuses to boot a profile that does not exist; `src/profile-seed.ts` runs first and writes the three files `initProfile` writes — the manifest, `cordis.patch.yml`, and the `pnpm-workspace.yaml` whose `hoisted` linker is what lets a plugin installed later share the installation's one cordis. The manifest lists `@deepseek-ai/dsh-base`, `@deepseek-ai/dsh-web-app`, and the three built-ins, so `loadProfile` applies each plugin's `cordis.patch.yml` layer, and each built-in is linked into `$DSH_HOME/profiles/node_modules`, the flat fallback the Loader reaches by the ordinary parent walk from the profile directory it resolves plugin specifiers against. Every write is additive and idempotent: a name already listed is not added twice, a correct link is left alone, an existing file is never rewritten, and no bundle entry, dependency, or other manifest field is ever removed. The manifest is written by rename, so an interrupted launch leaves the previous one intact. One line goes to `dsh-server.log` when a launch changed something, and nothing when it did not.
+
+A profile the shell does not recognize is left exactly as it is, and the launch continues without the built-in plugins: an unparsable manifest is left for the server's own diagnostic, a manifest that declares no bundle list is treated as hand-composed, and a real directory sitting where a link belongs is reported rather than removed. A profile directory that cannot be written at all is the one thing the launch cannot work around; the log line says so, and the server's own diagnostic follows it.
+
+**The desktop's profile is separate from the CLI's; the rest of the harness home is not.** Sessions, credentials, and model settings live at the root of `$DSH_HOME`, so a terminal `dsh web` and the desktop window read the same ones. What is separate is which plugins are mounted: `dsh web` composes `$DSH_HOME/profiles/web/`, which the desktop never writes to. To give the CLI these plugins as well, install them there with `dsh plugin --profile web add <package>`. Coming the other way, the three above are already in the desktop profile; anything else you added to `web` is listed under `dependencies` in `~/.dsh/profiles/web/package.json`, and `dsh plugin --profile desktop add <package>` puts one of those in the desktop's.
+
+**If you installed one of these plugins yourself before this build**, the profile's own `node_modules` still holds that copy, and the Loader finds it before the shipped one while the patch layer keeps coming from the payload. The launch says so — `warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module` — and changes nothing, because the profile's dependencies belong to whoever installed them. `dsh plugin --profile desktop remove <name>` drops the profile's copy and leaves the shipped one, which is the state a fresh install has.
+
+**To turn one off, disable its row** in `$DSH_HOME/profiles/desktop/cordis.patch.yml` — `dsh-at-file` for the mentions, `better-sidebar` for the sidebar, `screenshot` for the capture tool:
+
+```yaml
+- id: better-sidebar
+  disabled: true
+```
+
+Deleting the name from `dsh.profile.bundles` instead only lasts until the next launch, which seeds it again.
+
+## The render service
+
+**The shell lends its own Chromium to the server**, so a screenshot does not depend on whether the machine has Chrome or Edge installed. Before it spawns the server, the main process opens an HTTP listener on `127.0.0.1` and an ephemeral port, mints a 32-byte token, and puts both in the environment of that one child — `DSH_DESKTOP_RENDER_ENDPOINT` and `DSH_DESKTOP_RENDER_TOKEN`, never on the shell's own `process.env`, so no other process the user starts inherits them. `@haoran/dsh-screenshot` reads them on every call. A harness that finds neither renders through a headless system browser instead, which is what every non-desktop install does; a launch whose listener could not be opened logs one line and continues, and its screenshots take that same fallback.
+
+The request is `POST /render`, with `authorization: Bearer <token>`, `content-type: application/json`, and the body `{ url, width, height, fullPage?, delayMs? }`. Everything it can be answered with:
+
+| Answer | When |
+|---|---|
+| `200 image/png` | The capture, as PNG bytes |
+| `400` | Not JSON, not an object, a body over 64 KB, a field of the wrong type, `width` or `height` outside 16–4096, `delayMs` outside 0–10000, or a `url` that is not absolute |
+| `401` | Missing or wrong bearer token |
+| `404` | Any other path or method |
+| `422` | A well-formed URL whose scheme is not `http`, `https`, or `file` |
+| `500` | The page failed to load or the capture failed; the line carries the Chromium error code |
+| `503` | Four requests are already accepted |
+| `504` | The request passed its 25-second deadline |
+
+Every failure body is one line of `text/plain`, because its reader is a tool that quotes it into the message the model sees.
+
+**Each render gets a hidden window that shares nothing with the app's own.** Its session has no `persist:` prefix, so it lives in memory and dies with the window: a rendered page cannot read or write the cookies, storage, or caches of the window the user is working in, and nothing it stores outlives the request. There is no Node integration, no `webview`, no devtools; every permission request is denied, and every download and every window the page tries to open is refused. Dialogs are disabled, so `alert()`, `confirm()`, and `prompt()` open no native modal on a window the user cannot see and block no page thread behind one, and the window is muted, so an autoplaying `<audio>` element reaches no speakers. The window is destroyed on the reply, on a load failure, and on the deadline.
+
+**What bounds it**: one render at a time, four accepted requests at once (one rendering and three waiting), and a 25-second deadline measured from acceptance rather than from the start of the render. It has to stay under `@haoran/dsh-screenshot`'s own 30-second budget: the plugin arms `AbortSignal.timeout` at the fetch call while this deadline starts after admission, so equal numbers make the plugin give up first and none of the answers above reach the model. A `fullPage` capture measures `document.documentElement.scrollHeight` and resizes to it, clamped at 8192 px, because a document with an infinite scroller reports a height that grows while it is measured.
+
+**Three mechanisms bound who reaches the service.** The listener binds loopback, so nothing off the machine connects to it at all. The token is compared in constant time, so a local process that finds the port cannot use the service without it. No CORS header is ever sent while every method other than `POST /render` answers 404, so the preflight that an `authorization` header and a JSON content type force a browser to send is refused — which is what keeps a page in the user's own browser out.
+
+After a build, this checks the half the unit suite cannot — that a hidden window paints at all:
+
+```sh
+pnpm --filter @deepseek-ai/dsh-desktop run build:ts
+pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
+```
+
+It renders a local file in a real Electron and checks the viewport size, that a full-page capture is taller than the viewport, and the 401, 422, and 500 answers.
+
 ## Server environment
 
 The server starts in the user's home directory with the GUI-inherited environment plus the standard shell PATH entries (macOS GUI apps launch with launchd's minimal PATH). `DEEPSEEK_API_KEY` resolves through the normal credential chain (environment → managed store → `.env`), so a first run without a key still boots into the UI, where the models settings page can store one. Server output is appended to the app's log directory (`dsh-server.log`), which **帮助 → 查看日志** opens; the boot page reports startup phases only and prints no path.
@@ -114,3 +187,7 @@ The server starts in the user's home directory with the GUI-inherited environmen
 - macOS is signed but not notarized, so a browser-downloaded copy still needs a right-click-open on its first run. Notarization needs an Apple Developer account; the update path does not.
 - Windows arm64 and Linux desktop targets are unbuilt; node-pty prebuilds cover win32-arm64, so the arm64 gap is packaging work only.
 - A dev launch (`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`) uses the checkout's built CLI and the PATH Node, not the staged resources.
+- The render service is per-launch and serial. Four requests are accepted at a time and one renders, so a page that takes the whole 25-second deadline to load holds the slot and the requests queued behind it get only what is left of their own deadline.
+- The shell's viewport floor is 16 px per edge, where `@haoran/dsh-screenshot` itself allows 1. A `screenshot` call for a smaller viewport is answered 400 on the desktop and rendered by a system browser everywhere else.
+- A built-in plugin cannot be pinned to another version from the profile. Installing the same name with `dsh plugin --profile desktop add` puts a copy in the profile's own `node_modules`, which the Loader finds first, while `resolveBundleDir` still reads the patch layer from the installation — the row would then come from one version and the code from another.
+- `dsh-better-sidebar` starts its terminals on the shell's own environment: both `pty.spawn` calls pass `env: { ...process.env }` rather than the `scrubbedParentEnv()` in `packages/subprocess/subprocess/src/index.ts` that every harness spawner goes through, which drops every `DSH_`-prefixed name and every name matching `KEY|PASSWORD|SECRET|TOKEN`. The plugin registers eight terminal tools the model can call (`terminal_create`, `terminal_send`, `terminal_read`, and the rest), so the model can read that unfiltered environment through one of them. A Windows GUI process inherits the user's environment variables, so a `DEEPSEEK_API_KEY` set with `setx` is in that terminal; a macOS GUI process gets launchd's environment, which usually is not.

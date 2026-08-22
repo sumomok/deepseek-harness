@@ -108,6 +108,9 @@
     "@deepseek-ai/dsh-web-search-perplexity": "workspace:^",
     "@deepseek-ai/dsh-workflow": "workspace:^",
     "@deepseek-ai/dsh-workflow-worker-thread": "workspace:^",
-    "@deepseek-ai/schemastery": "workspace:^"
+    "@deepseek-ai/schemastery": "workspace:^",
+    "@haoran/dsh-screenshot": "file:./vendor/haoran-dsh-screenshot-0.1.0.tgz",
+    "dsh-at-file": "github:omdsh-dev/dsh-at-file#289f19bb83f80a95df49f567eeef42462d4da92f",
+    "dsh-better-sidebar": "0.14.0"
   }
 }

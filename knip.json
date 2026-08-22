@@ -648,6 +648,7 @@
         "scripts/after-pack.cjs",
         "scripts/measure/diff-download.mjs",
         "scripts/publish-update.ts",
+        "scripts/render-smoke.mjs",
         "tests/**/*.spec.ts"
       ],
       "project": [
@@ -665,7 +666,10 @@
       "entry": [],
       "project": [],
       "ignoreDependencies": [
-        "@deepseek-ai/.+"
+        "@deepseek-ai/.+",
+        "@haoran/dsh-screenshot",
+        "dsh-at-file",
+        "dsh-better-sidebar"
       ]
     },
     "apps/pwa": {

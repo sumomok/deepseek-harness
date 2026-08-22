@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-桌面客户端:Electron 壳,主进程启动内嵌的 `dsh web` 服务器——即 [apps/desktop-server](../desktop-server/README.zh.md) 经 pnpm deploy 物化的闭包,跑在随包捆绑的真实 Node 运行时上(绝不用 Electron 内建 Node,服务端因此保持在被测试的 engines 线上,`node:sqlite` 与原装 N-API 预编译产物照常工作)——传入 `--no-open` 使服务端不把地址交给系统浏览器,等到 `dsh web:` URL 行后在原生窗口里打开所服务的 UI。窗口是纯浏览器面:无 preload、无 Node 集成;外部链接交给系统浏览器。退出时拆除整棵服务器进程树(SIGTERM + 超时升级;Windows 走 `taskkill /T`)。
+桌面客户端:Electron 壳,主进程启动内嵌的 web 服务器——即 [apps/desktop-server](../desktop-server/README.zh.md) 经 pnpm deploy 物化的闭包,跑在随包捆绑的真实 Node 运行时上(绝不用 Electron 内建 Node,服务端因此保持在被测试的 engines 线上,`node:sqlite` 与原装 N-API 预编译产物照常工作)——传入 `--no-open` 使服务端不把地址交给系统浏览器,等到 `dsh web:` URL 行后在原生窗口里打开所服务的 UI。窗口是纯浏览器面:无 preload、无 Node 集成;外部链接交给系统浏览器。退出时拆除整棵服务器进程树(SIGTERM + 超时升级;Windows 走 `taskkill /T`)。
 
 ## 构建安装包
 
@@ -12,6 +12,8 @@ pnpm exec tsx apps/desktop/scripts/package.ts --win        # NSIS installer (x64
 ```
 
 产物落在 `apps/desktop/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`、恢复 hoist、物化符号链接),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 win32-x64 成员,再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。每份载荷冒烟测试之前先过一道载荷门禁:每条平台规则至少丢弃一个目录,每个平台分包目录都要对得上它所在的 target,活下来的模块不得按名解析已被裁掉的包。
+
+**整个构建跑在自己创建、结束即删的一次性 `$DSH_HOME` 上**,于是它启动的任何服务端都不会改动这台机器自己的 harness 状态——`prepareProfile` 会重写 profile 的根配置,`healProfilesModuleFallback` 会把每一条扁平兜底符号链接重指到这次构建随后就要删掉的暂存树上。启动门禁按壳播种真实 home 的同样方式播种那个临时 home,再要求两个内置插件都出现在所服务 index 点名的 client 模块里,于是它证明的是载荷的性质,而不是构建机自己 profile 的性质。
 
 ## 关掉窗口,以及被叫回来
 
@@ -102,6 +104,77 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 
 这也框定了更新源能承诺什么。TLS 认证服务器,清单里的 sha512 把产物绑定到清单,所以传输途中无法被做手脚。产物带的是本项目自己做的签名,不是操作系统会背书的那种,所以对 `/var/www/dsh-updates` 的写权限仍然等于对每个客户端下一个安装程序的写权限——macOS 客户端会拒绝由别的证书签出的 bundle,但对「给它的是这张证书签出的哪一个构建」没有意见。补上这一环要靠 Windows 的 Authenticode 与 macOS 的 Developer ID 加公证。
 
+## 内置插件
+
+**三个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
+
+| 包名 | 版本 | 提供什么 |
+|---|---|---|
+| `dsh-better-sidebar` | `0.14.0`,来自 npm | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
+| `dsh-at-file` | `v0.6.5`,来自作者仓库该 tag 所指的提交 | 输入框里的 `@` 文件提及 |
+| `@haoran/dsh-screenshot` | `0.1.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染一个页面,把像素交给 agent |
+
+它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
+
+**`dsh-at-file` 取自 tag 而非注册表**,因为作者在 npm 上只发到 `0.6.3`,而 tag 已经到 `v0.6.5`。分发 `0.6.3` 会与自行装了 `v0.6.5` 的 profile 配不上:一个 bundle 的两半从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`——于是这一行来自 `0.6.3`,代码来自 `v0.6.5`。这条依赖写的是该 tag 所指的**提交**,而不是它的归档 URL:pnpm 不为 GitHub 归档记录完整性哈希,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有完整性字段的 lockfile 条目。提交本身就是它的哈希,于是 lockfile 钉住的是内容。该仓库把构建好的 `lib/` 提交了进去,也没有声明 `prepare` 脚本,所以安装期什么都不构建。
+
+**`@haoran/dsh-screenshot` 没有发布**,所以它的依赖是一条 `file:` 标识符,指向与声明它的清单放在一起的 `apps/desktop-server/vendor/haoran-dsh-screenshot-0.1.0.tgz`。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级这个插件意味着提交一个新的 tarball 并把标识符指过去;没有别的渠道,因为这个插件不在任何注册表上。
+
+**它也是唯一没有浏览器那一半的内置插件。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,而工具是 agent 去调用的,不是页面去加载的。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把三个都解析了。
+
+**`dsh-better-sidebar` 在本宿主上必须是 `0.14.0` 或更高。**`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,模块访问改由 `ctx.modules` 服务提供,这让每个懒加载 chunk 解析外部依赖的方式全面失效——`0.13.1` 会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,终端、编辑器与 Mermaid 面板一起跟着挂掉。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`,并把插件自有的全局共享给它的 chunk 副本,同时移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。
+
+**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与三个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是追加式且幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,任何 bundle 条目、依赖或清单里的其他字段都不会被删除。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
+
+壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断,没有声明 bundle 列表的清单按手写编排对待,该放链接的位置上是真实目录则如实报告而不是删掉。profile 目录根本写不出来是启动唯一绕不过去的失败;日志那一行会说明,随后是服务端自己的诊断。
+
+**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这三个在桌面 profile 里已经有了;你此前额外加进 `web` 的插件列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里,用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。
+
+**如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile desktop remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
+
+**要关掉其中一个,就在** `$DSH_HOME/profiles/desktop/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`,截图工具是 `screenshot`:
+
+```yaml
+- id: better-sidebar
+  disabled: true
+```
+
+改为从 `dsh.profile.bundles` 里删掉名字则只能维持到下次启动,届时会被重新播种。
+
+## 渲染服务
+
+**壳把自己的 Chromium 借给服务端**,所以截图不取决于这台机器上装没装 Chrome 或 Edge。在启动服务端之前,主进程在 `127.0.0.1` 与一个临时端口上打开一个 HTTP 监听、生成一个 32 字节的 token,并把两者放进那一个子进程的环境——`DSH_DESKTOP_RENDER_ENDPOINT` 与 `DSH_DESKTOP_RENDER_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程都继承不到。`@haoran/dsh-screenshot` 每次调用都去读它们。两个都读不到的 harness 改用系统上的无头浏览器渲染,这也正是所有非桌面安装的做法;监听没能打开的那次启动会记一行日志并照常继续,它的截图走的是同一条退路。
+
+请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs? }`。它可能得到的全部回答:
+
+| 回答 | 何时 |
+|---|---|
+| `200 image/png` | 截图本身,PNG 字节 |
+| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内,或 `url` 不是绝对 URL |
+| `401` | 缺少或写错 bearer token |
+| `404` | 其他任何路径或方法 |
+| `422` | 格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL |
+| `500` | 页面加载失败或截图失败;这一行带着 Chromium 的错误码 |
+| `503` | 已经受理了四个请求 |
+| `504` | 该请求越过了 25 秒的期限 |
+
+每个失败响应体都是一行 `text/plain`,因为读它的是一个工具,它会把这句话引进模型看到的消息里。
+
+**每次渲染都拿到一个与应用自己那扇窗毫无共享的隐藏窗口。**它的 session 没有 `persist:` 前缀,所以只活在内存里、随窗口一起消失:被渲染的页面读不到也写不了用户正在用的那扇窗的 cookie、存储与缓存,它存下的东西也活不过这一个请求。没有 Node 集成、没有 `webview`、没有 devtools;每一个权限请求都被拒绝,页面试图发起的每一次下载与每一次开窗也都被拒绝。对话框被禁用,于是 `alert()`、`confirm()`、`prompt()` 既不会在一扇用户看不见的窗口上弹出原生模态框,也不会把它背后的页面线程堵住;窗口是静音的,于是自动播放的 `<audio>` 元素传不到扬声器。窗口在响应时、加载失败时与期限到时都会被销毁。
+
+**边界在哪**:同一时刻只渲染一个,同时最多受理四个请求(一个在渲染、三个在等),期限 25 秒且从受理时刻起算,而不是从渲染开始时算。这个数必须小于 `@haoran/dsh-screenshot` 自己的 30 秒预算:插件的 `AbortSignal.timeout` 从 fetch 调用那一刻起算,而本服务的期限在受理之后才开始,所以两边取同一个数就会是插件先放弃,上面那些回答一个也到不了模型手里。`fullPage` 截图会测量 `document.documentElement.scrollHeight` 并把窗口调到那个高度,夹到 8192 px 为止,因为无限滚动的文档报出的高度会在测量过程中一直变大。
+
+**三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时除 `POST /render` 以外的方法一律答 404,于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝——这正是把用户自己浏览器里的页面挡在外面的东西。
+
+构建之后,这条命令检查单元测试够不着的那一半——隐藏窗口到底画不画:
+
+```sh
+pnpm --filter @deepseek-ai/dsh-desktop run build:ts
+pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
+```
+
+它在真实的 Electron 里渲染一个本地文件,检查视口尺寸、整页截图确实比视口更高,以及 401、422 与 500 三种回答。
+
 ## 服务器环境
 
 服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。
@@ -114,3 +187,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 - macOS 已签名但未公证,所以由浏览器下载的副本首次运行仍需右键打开。公证需要 Apple 开发者账号;更新路径不需要。
 - Windows arm64 与 Linux 桌面目标未构建;node-pty 预编译已覆盖 win32-arm64,缺口只是打包工作。
 - 开发启动(`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`)用的是检出目录的已构建 CLI 和 PATH 里的 Node,不是暂存资源。
+- 渲染服务按次启动、串行工作。同时受理四个请求、只渲染一个,所以一个把 25 秒期限用满才加载完的页面会占住这个位置,排在它后面的请求只拿得到自己那份期限剩下的部分。
+- 壳的视口下限是每边 16 px,而 `@haoran/dsh-screenshot` 自己允许到 1。要求更小视口的 `screenshot` 调用在桌面端会被答以 400,在别处则由系统浏览器渲染。
+- 内置插件无法从 profile 侧钉到另一个版本。用 `dsh plugin --profile desktop add` 安装同名包会在 profile 自己的 `node_modules` 里放一份,Loader 会先找到它,而 `resolveBundleDir` 仍从安装目录读取 patch 层——那样这一行来自一个版本、代码来自另一个版本。
+- `dsh-better-sidebar` 用壳自己的环境启动终端:两处 `pty.spawn` 传的都是 `env: { ...process.env }`,而不是所有 harness spawner 都会走的 `packages/subprocess/subprocess/src/index.ts` 里的 `scrubbedParentEnv()`,后者会剥掉所有 `DSH_` 前缀的变量以及名字匹配 `KEY|PASSWORD|SECRET|TOKEN` 的变量。该插件注册了八个模型可以调用的终端工具(`terminal_create`、`terminal_send`、`terminal_read` 等),所以模型可以经由其中之一读到那份未经过滤的环境。Windows 的 GUI 进程继承用户级环境变量,因此用 `setx` 设过的 `DEEPSEEK_API_KEY` 会出现在那个终端里;macOS 的 GUI 进程拿到的是 launchd 的环境,通常不含它。

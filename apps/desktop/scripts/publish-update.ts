@@ -376,6 +376,15 @@ async function appendRemainder(path: string, remotePath: string, start: number):
       child.kill()
       reject(error)
     })
+    // A transfer cut at the far end — the remote `cat` gone, the connection
+    // dropped — surfaces as EPIPE on this pipe and nowhere else. It is an
+    // 'error' event on a socket, so leaving it unhandled ends the process
+    // instead of the attempt, and the caller's resume never runs.
+    child.stdin.once('error', (error: Error) => {
+      source.destroy()
+      child.kill()
+      reject(new Error(`publish: ssh append interrupted: ${error.message}`))
+    })
     source.pipe(child.stdin)
   })
 }
