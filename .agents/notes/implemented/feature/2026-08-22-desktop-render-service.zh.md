@@ -16,7 +16,7 @@ Status: implemented
 
 壳为它启动的服务端跑一个 loopback 渲染服务,安装包则携带使用这个服务的插件。
 
-**服务本身。**`apps/desktop/src/render-service.ts` 在 `app.whenReady()` 里、`startServer` 之前,于 `127.0.0.1` 与一个临时端口上打开 `http.createServer`,并生成一个 32 字节的 token。两者经由新增的 `ServerSpec.env` 抵达服务端进程,即 `DSH_DESKTOP_RENDER_ENDPOINT` 与 `DSH_DESKTOP_RENDER_TOKEN`,在 spawn 处铺在继承环境之上——而不是经由壳自己的 `process.env`,因为用户从应用里启动的其他每一个进程都会从那里继承。`POST /render` 收 `{ url, width, height, fullPage?, delayMs? }`,答 `200 image/png`,或在 400(请求格式不对)、401(缺少或写错 token)、404(其他任何路径或方法)、422(格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL)、500(页面没加载起来,带着 Chromium 的错误码)、503(队列已满)、504(越过期限)下答一行 `text/plain`。这就是插件 README 写明的协议;壳是去实现它,而不是另定一份。
+**服务本身。**`apps/desktop/src/render-service.ts` 在 `app.whenReady()` 里、`startServer` 之前,于 `127.0.0.1` 与一个临时端口上打开 `http.createServer`,并生成一个 32 字节的 token。两者经由新增的 `ServerSpec.env` 抵达服务端进程,即 `DSH_DESKTOP_RENDER_ENDPOINT` 与 `DSH_DESKTOP_RENDER_TOKEN`,在 spawn 处铺在继承环境之上——而不是经由壳自己的 `process.env`,因为用户从应用里启动的其他每一个进程都会从那里继承。`POST /render` 收 `{ url, width, height, fullPage?, delayMs? }`,答 `200 image/png`,或在 400(请求格式不对)、401(缺少或写错 token)、404(其他任何路径或方法)、422(格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL)、500(页面没加载起来,带着 Chromium 的错误码)、503(队列已满)、504(越过期限,这一行会说出渲染当时在等什么——那一行归[超时诊断 Agent Note](2026-08-22-render-timeout-diagnostics.zh.md) 管)下答一行 `text/plain`。这就是插件 README 写明的协议;壳是去实现它,而不是另定一份。
 
 **为什么用 HTTP,而不是两个进程本来就共享的那条通道。**插件跑在服务端里,而服务端是一个 spawn 出来的 Node 进程,所以它对壳说的任何话都要跨越进程边界。壳与那个子进程之间已有的那条流承载服务端的日志输出与它的就绪行,把一套带二进制载荷的请求/响应协议复用上去,就等于让壳在一条「这里的每个字节都进 `dsh-server.log`」的管道上再拥有一套分帧。带 bearer token 的 loopback 端口是插件本来就会说的东西,也是另一个平台上的壳不必继承这一个壳的进程布局就能实现的东西。
 
@@ -26,7 +26,7 @@ Status: implemented
 
 **串行链在请求被放弃时前进,而不是只在它的 renderer settle 时前进。**`webContents.executeJavaScript` 在窗口被销毁之后永远不会 settle——`loadURL`、`capturePage` 与延时在 abort 后都会 settle,唯独它不会——所以一条等 renderer 的链,能被单个页面在本次进程的整个生命期内卡死:把 `document.documentElement.scrollHeight` 定义成一个不返回的 getter,再请求 `fullPage`,此后每一次渲染都排在一条永不前进的链后面,各自在自己的期限上被答以 504。因此 `runQueued` 让 job 与该请求自己的 abort 赛跑。被放弃的渲染可能比它在链上的那一环活得久,而这不付出任何代价:`renderInHiddenWindow` 在 abort 监听器和 `finally` 两条路径上都无条件销毁窗口,所以窗口与它的渲染进程在下一次渲染开始前就已释放。它确实改变的是每个 job 开头那次拒绝:链现在最迟在头一个请求自己的期限上就会前进,而那个时刻绝不晚于后面任何一个请求的期限,所以排队的请求拿到的是自己那份期限剩下的部分,而不是在窗口打开之前就被拒绝。
 
-**窗口那一半是注入进来的,这正是协议可测的原因。**`startRenderService` 接收一个 `Renderer`——`(request, signal) => Promise<Buffer>`——以及它要执行的边界,后者是显式的 `RenderLimits`,壳自己的数值放在同一个文件顶部的 `RENDER_LIMITS` 里,并在组合这个服务的那一个调用点传入。`apps/desktop/src/render-window.ts` 是 Electron 实现,除了窗口什么都不含。于是 22 个单元用例驱动鉴权、校验、受理、串行、期限、那个抵达 renderer 的 abort,以及链在遇到一个永不 settle 的 renderer 之后仍然活着这一点,全程不需要任何显示设备;而在真实 Electron 下运行的 `scripts/render-smoke.mjs` 覆盖它们够不着的那一件事——一扇从未展示过的窗口到底会不会画、`capturePage` 是否返回被请求的视口,以及整页截图是否确实超出它。
+**窗口那一半是注入进来的,这正是协议可测的原因。**`startRenderService` 接收一个 `Renderer`——`(request, signal, trace) => Promise<Buffer>`——以及它要执行的边界,后者是显式的 `RenderLimits`,壳自己的数值放在同一个文件顶部的 `RENDER_LIMITS` 里,并在组合这个服务的那一个调用点传入。`apps/desktop/src/render-window.ts` 是 Electron 实现,除了窗口什么都不含。于是 32 个单元用例驱动鉴权、校验、受理、串行、期限、越过期限那一行怎么写、那个抵达 renderer 的 abort,以及链在遇到一个永不 settle 的 renderer 之后仍然活着这一点,全程不需要任何显示设备;而在真实 Electron 下运行的 `scripts/render-smoke.mjs` 覆盖它们够不着的那些事——一扇从未展示过的窗口到底会不会画、`capturePage` 是否返回被请求的视口、整页截图是否确实超出它,以及一个指向永不回答的监听的页面超时后,那个请求会不会被点名。
 
 **监听没能打开不是拒绝启动的理由。**壳记一行日志,不带渲染变量地启动服务端,插件随后做的就是它在所有非桌面安装上做的事:去探测系统浏览器。
 
