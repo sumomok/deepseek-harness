@@ -1,6 +1,6 @@
 /**
- * The retry policy for an interrupted update download, and the classification
- * that decides which failures it applies to.
+ * The retry policy for an interrupted update transfer — a download or a check
+ * — and the classification that decides which failures it applies to.
  *
  * electron-updater retries nothing and keeps nothing of a failed transfer: any
  * error out of `executeDownload` unlinks the partial file and empties the
@@ -32,6 +32,18 @@ export type DownloadFailure = 'transient' | 'fatal'
  * spread and synchronized ones are not a load it can meet badly.
  */
 export const RETRY_DELAYS_MS: readonly number[] = [2_000, 6_000, 18_000]
+
+/**
+ * Delay before each retry of an update check; the length of the list is the
+ * number of retries.
+ *
+ * A check transfers one small manifest, so an interruption costs a request
+ * rather than the whole artifact and the plan is tighter than
+ * [[RETRY_DELAYS_MS]]. Four seconds of waiting keeps the plan inside the
+ * fifteen the mandatory launch gate allows, so a gate that meets a dropped
+ * connection reaches its verdict from a retry rather than from its own timeout.
+ */
+export const CHECK_RETRY_DELAYS_MS: readonly number[] = [1_000, 3_000]
 
 /**
  * Node and libuv codes for a connection that failed to open, was cut, or timed
@@ -135,9 +147,12 @@ function statusIsTransient(status: number): boolean {
  * `Error` — is fatal, so an unrecognized failure ends the download instead of
  * re-transferring the artifact three more times on a guess.
  *
- * The answer is meaningful for the failures of `downloadUpdate` only. A failed
- * `checkForUpdates` wraps its cause in `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`,
- * which this classifies fatal, and the check path has its own fallback for it.
+ * Both a download and a check are classified here. A check carries one edge of
+ * its own: electron-updater wraps a 404 on the channel file as
+ * `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`, which stays fatal, so a feed that has
+ * no manifest for this channel is neither retried nor survived by the macOS
+ * in-place tier. Every other check failure arrives as the error the request
+ * itself failed with.
  * @param error - the value a download attempt failed with.
  * @returns whether the failure is transient or fatal.
  */
@@ -172,7 +187,7 @@ export function describeDownloadError(error: unknown): string {
   return line.length > MESSAGE_LOG_LIMIT ? `${line.slice(0, MESSAGE_LOG_LIMIT)}…` : line
 }
 
-/** What [[downloadWithRetry]] needs from its caller besides the download itself. */
+/** What [[withRetry]] needs from its caller besides the attempt itself. */
 export interface RetryHooks {
   /**
    * Report one interruption that is about to be retried. Called once per
@@ -180,7 +195,7 @@ export interface RetryHooks {
    * @param attempt - which retry this is, counting from 1.
    * @param total - how many retries the plan allows.
    * @param delayMs - the wait before this retry.
-   * @param error - what interrupted the download.
+   * @param error - what interrupted the attempt.
    */
   onRetry: (attempt: number, total: number, delayMs: number, error: unknown) => void
   /**
@@ -192,26 +207,25 @@ export interface RetryHooks {
 }
 
 /**
- * Run one download, repeating it on transient failures along
- * [[RETRY_DELAYS_MS]].
+ * Run one transfer, repeating it on transient failures along `delays`.
  *
  * A fatal failure is not retried, and an exhausted plan stops retrying; both
  * reject with the error the last attempt failed with, so the caller sees the
  * failure itself and can classify it again with [[classifyDownloadError]] to
  * decide what its own surface does about it.
- * @param run - performs one whole download; called once per attempt.
+ * @param run - performs one whole attempt; called once per attempt.
+ * @param delays - the wait before each retry; its length is the retry count.
  * @param hooks - reporting and the clock.
- * @returns a promise that resolves when an attempt completed.
+ * @returns a promise that resolves with what the completed attempt returned.
  */
-export async function downloadWithRetry(run: () => Promise<void>, hooks: RetryHooks): Promise<void> {
+export async function withRetry<T>(run: () => Promise<T>, delays: readonly number[], hooks: RetryHooks): Promise<T> {
   for (let attempt = 1; ; attempt++) {
     try {
-      await run()
-      return
+      return await run()
     } catch (error) {
-      const delayMs = RETRY_DELAYS_MS[attempt - 1]
+      const delayMs = delays[attempt - 1]
       if (delayMs === undefined || classifyDownloadError(error) === 'fatal') throw error
-      hooks.onRetry(attempt, RETRY_DELAYS_MS.length, delayMs, error)
+      hooks.onRetry(attempt, delays.length, delayMs, error)
       await hooks.sleep(delayMs)
     }
   }

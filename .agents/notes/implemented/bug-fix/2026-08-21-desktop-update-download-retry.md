@@ -20,9 +20,9 @@ An interrupted download is attempted again — three more times, at 2 s, 6 s and
 
 ### The policy is a module with no electron in it
 
-`apps/desktop/src/download-retry.ts` holds the whole decision: `classifyDownloadError`, `describeDownloadError`, `RETRY_DELAYS_MS`, and `downloadWithRetry(run, { onRetry, sleep })`, whose `sleep` is injected so the plan is exercised against an instant clock. `updater.ts` and `progress-window.ts` import electron and are not unit-testable; nothing in the policy needed to be there.
+`apps/desktop/src/download-retry.ts` holds the whole decision: `classifyDownloadError`, `describeDownloadError`, `RETRY_DELAYS_MS`, and `withRetry(run, delays, { onRetry, sleep })`, whose `sleep` is injected so the plan is exercised against an instant clock. `updater.ts` and `progress-window.ts` import electron and are not unit-testable; nothing in the policy needed to be there.
 
-`downloadWithRetry` calls `run` once per attempt — each attempt is a whole download, since nothing of the previous one survives — and rejects with the error the last attempt failed with, both when a failure is fatal and when the plan runs out. The caller classifies that error again to decide what its own surface does.
+`withRetry` calls `run` once per attempt — each attempt is a whole download, since nothing of the previous one survives — and rejects with the error the last attempt failed with, both when a failure is fatal and when the plan runs out. The caller classifies that error again to decide what its own surface does.
 
 ### What is retried
 
@@ -33,7 +33,7 @@ The classifier is fail-closed: a failure is transient only when it matches a kno
 | `transient` | `ECONNABORTED`, `ECONNREFUSED`, `ECONNRESET`, `EAI_AGAIN`, `EHOSTUNREACH`, `ENETDOWN`, `ENETRESET`, `ENETUNREACH`, `ENOTFOUND`, `EPIPE`, `ESOCKETTIMEDOUT`, `ETIMEDOUT`; any message naming a `net::ERR_…` reason, which is how Electron's `net` module reports every failure and is the executor the download runs on; `Request timed out` and `Request has been aborted by the server` from `HttpExecutor`; Node's `socket hang up`; a 5xx, 408, 425 or 429, whether it arrives as an `HttpError` code or in `doDownload`'s `Cannot download "<url>", status <n>` text |
 | `fatal` | any `ERR_UPDATER_*` code, `ERR_UPDATER_INVALID_SIGNATURE` among them; `ERR_CHECKSUM_MISMATCH` from `DigestTransform`; any other 4xx; `Too many redirects`; a full disk; everything unrecognized |
 
-`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND` wraps a network fault at check time and is classified fatal, which is correct here because the classifier answers for the failures of `downloadUpdate` only — a failed `checkForUpdates` has the tier fallback of its own.
+`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND` wraps a network fault at check time and is classified fatal, which is correct here because the classifier answers for the failures of `downloadUpdate` only — a failed `checkForUpdates` has the tier fallback of its own. That last clause was wrong about what the fallback costs, and [the check-retry note](2026-08-22-desktop-update-check-retry.md) supersedes it: the check path's fallback demoted macOS for the rest of the run, so checks now run through this same classifier behind a retry plan of their own.
 
 ### One place starts a download, one place decides what a failure means
 

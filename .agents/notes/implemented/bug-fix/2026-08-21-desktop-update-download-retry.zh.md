@@ -20,9 +20,9 @@ electron-updater 既不重试也不续传。全量下载不发 `Range` 头,而 `
 
 ### 策略单独成模块,里面没有 electron
 
-`apps/desktop/src/download-retry.ts` 装着整个判断:`classifyDownloadError`、`describeDownloadError`、`RETRY_DELAYS_MS`,以及 `downloadWithRetry(run, { onRetry, sleep })`——`sleep` 由调用方注入,于是这套计划可以对着一只瞬时时钟跑测试。`updater.ts` 与 `progress-window.ts` 引入 electron,做不了单测;而策略里没有任何东西非待在那儿不可。
+`apps/desktop/src/download-retry.ts` 装着整个判断:`classifyDownloadError`、`describeDownloadError`、`RETRY_DELAYS_MS`,以及 `withRetry(run, delays, { onRetry, sleep })`——`sleep` 由调用方注入,于是这套计划可以对着一只瞬时时钟跑测试。`updater.ts` 与 `progress-window.ts` 引入 electron,做不了单测;而策略里没有任何东西非待在那儿不可。
 
-`downloadWithRetry` 每次尝试调用一次 `run`——每次尝试都是一整个下载,因为上一次什么都没留下——并以最后一次尝试失败时的那个错误 reject,无论是失败本身致命,还是计划用尽。调用方再对这个错误分类一次,决定自己那块界面怎么办。
+`withRetry` 每次尝试调用一次 `run`——每次尝试都是一整个下载,因为上一次什么都没留下——并以最后一次尝试失败时的那个错误 reject,无论是失败本身致命,还是计划用尽。调用方再对这个错误分类一次,决定自己那块界面怎么办。
 
 ### 什么会重试
 
@@ -33,7 +33,7 @@ electron-updater 既不重试也不续传。全量下载不发 `Range` 头,而 `
 | `transient` | `ECONNABORTED`、`ECONNREFUSED`、`ECONNRESET`、`EAI_AGAIN`、`EHOSTUNREACH`、`ENETDOWN`、`ENETRESET`、`ENETUNREACH`、`ENOTFOUND`、`EPIPE`、`ESOCKETTIMEDOUT`、`ETIMEDOUT`;任何点名 `net::ERR_…` 原因的消息——Electron 的 `net` 模块就是这样报告每一次失败的,而下载正跑在这个执行器上;`HttpExecutor` 的 `Request timed out` 与 `Request has been aborted by the server`;Node 的 `socket hang up`;5xx、408、425 或 429,无论它以 `HttpError` 的 code 形式到达,还是写在 `doDownload` 的 `Cannot download "<url>", status <n>` 文本里 |
 | `fatal` | 任何 `ERR_UPDATER_*` code,`ERR_UPDATER_INVALID_SIGNATURE` 也在其中;`DigestTransform` 抛出的 `ERR_CHECKSUM_MISMATCH`;其余的 4xx;`Too many redirects`;磁盘写满;以及一切不认识的失败 |
 
-`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND` 包的是检查阶段的网络故障,在这里被判为致命,而这是对的:分类器只对 `downloadUpdate` 的失败负责——`checkForUpdates` 失败有它自己的层级回退。
+`ERR_UPDATER_CHANNEL_FILE_NOT_FOUND` 包的是检查阶段的网络故障,在这里被判为致命,而这是对的:分类器只对 `downloadUpdate` 的失败负责——`checkForUpdates` 失败有它自己的层级回退。最后这半句判错了那个回退的代价,[检查重试那篇](2026-08-22-desktop-update-check-retry.zh.md)取而代之:检查路径的回退会把 macOS 降级到本次运行结束,所以检查现在也走这同一个分类器,并配有自己的重试计划。
 
 ### 下载只从一处开始,失败的含义也只在一处判定
 
