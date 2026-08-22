@@ -15,6 +15,7 @@
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -135,6 +136,78 @@ async function hungImageCase(directory) {
 }
 
 /**
+ * A site that answers one page to a caller with a session and redirects
+ * everyone else to its sign-in page — the case both `cookies` and `headers`
+ * exist for, and the case a returned screenshot has to say something about
+ * when the render lands on the sign-in page instead.
+ * @returns {Promise<{ origin: string, close: () => Promise<void> }>} the origin it serves and its shutdown.
+ */
+async function sessionSite() {
+  const server = createHttpServer((request, response) => {
+    const path = request.url ?? '/'
+    const signedIn = (request.headers.cookie ?? '').includes('session=abc') || request.headers['x-session'] === 'abc'
+    if (path.startsWith('/issues') && !signedIn) {
+      response.writeHead(302, { location: '/login' })
+      response.end()
+      return
+    }
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    response.end(`<!doctype html><meta charset="utf-8"><title>${signedIn ? 'issues' : 'sign in'}</title><p>${path}`)
+  })
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      server.removeListener('error', reject)
+      resolve()
+    })
+  })
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('the session site reported no TCP address')
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    close: async () => {
+      server.closeAllConnections()
+      await new Promise((resolve) => { server.close(resolve) })
+    },
+  }
+}
+
+/**
+ * Render a page behind a session three ways: without one, with a cookie, and
+ * with a header. Only a real Chromium shows that the cookie store and the
+ * navigation headers actually reach the request, and that `did-navigate`
+ * reports the redirect the service turns into its landing header.
+ * @param {{ endpoint: string, token: string }} service - the running service.
+ * @returns {Promise<void>} resolves when the case passed; rejects when it did not.
+ */
+async function sessionCase(service) {
+  const site = await sessionSite()
+  try {
+    const issues = `${site.origin}/issues`
+
+    const anonymous = await post(service, { url: issues, ...VIEWPORT })
+    check(anonymous.status === 200, `a page behind a session answered ${anonymous.status} without one`)
+    check(
+      anonymous.headers.get('x-dsh-render-landed-url') === `${site.origin}/login`,
+      `the reply says where the render actually landed: ${anonymous.headers.get('x-dsh-render-landed-url')}`,
+    )
+    await anonymous.arrayBuffer()
+
+    const withCookie = await post(service, { url: issues, ...VIEWPORT, cookies: { session: 'abc' } })
+    check(withCookie.status === 200, `the same page with a cookie answered ${withCookie.status}`)
+    check(withCookie.headers.get('x-dsh-render-landed-url') === null, 'a cookie reaches the request, so the render stays on the page it asked for')
+    await withCookie.arrayBuffer()
+
+    const withHeader = await post(service, { url: issues, ...VIEWPORT, headers: { 'x-session': 'abc' } })
+    check(withHeader.status === 200, `the same page with a header answered ${withHeader.status}`)
+    check(withHeader.headers.get('x-dsh-render-landed-url') === null, 'an extra header reaches the navigation too')
+    await withHeader.arrayBuffer()
+  } finally {
+    await site.close()
+  }
+}
+
+/**
  * Render every case against a real Chromium.
  * @returns {Promise<void>} resolves when every case passed; rejects on the first that did not.
  */
@@ -151,14 +224,15 @@ async function run() {
     check(viewport.status === 200, `viewport render answered ${viewport.status}`)
     check(viewport.headers.get('content-type') === 'image/png', 'viewport render is image/png')
     const captured = pngSize(Buffer.from(await viewport.arrayBuffer()))
-    const scale = captured.width / VIEWPORT.width
-    check(Number.isInteger(scale) && scale >= 1, `capture is ${captured.width}x${captured.height} at scale ${scale}`)
-    check(captured.height === VIEWPORT.height * scale, 'capture height is the requested viewport height')
+    check(
+      captured.width === VIEWPORT.width && captured.height === VIEWPORT.height,
+      `capture is exactly the requested viewport: ${captured.width}x${captured.height}`,
+    )
 
     const full = await post(service, { url, ...VIEWPORT, fullPage: true })
     check(full.status === 200, `full-page render answered ${full.status}`)
     const fullSize = pngSize(Buffer.from(await full.arrayBuffer()))
-    check(fullSize.width === captured.width, `full-page capture keeps the width (${fullSize.width})`)
+    check(fullSize.width === VIEWPORT.width, `full-page capture keeps the requested width (${fullSize.width})`)
     check(fullSize.height > captured.height, `full-page capture is taller: ${fullSize.height} > ${captured.height}`)
 
     const delayed = await post(service, { url, ...VIEWPORT, delayMs: 200 })
@@ -177,6 +251,7 @@ async function run() {
     check(unrenderable.status === 422, `a data: URL answered ${unrenderable.status}`)
     await unrenderable.text()
 
+    await sessionCase(service)
     await hungImageCase(directory)
   } finally {
     await service.close()

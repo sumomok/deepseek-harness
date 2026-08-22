@@ -274,6 +274,84 @@ describe('request validation', () => {
     expect(seen).toEqual([])
   })
 
+  it('refuses a headers or cookies field that is not a map of strings', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const cases: [unknown, string][] = [
+      [{ ...VALID, headers: 'authorization: Bearer x' }, 'headers must be a JSON object of string values'],
+      [{ ...VALID, headers: ['a'] }, 'headers must be a JSON object of string values'],
+      [{ ...VALID, cookies: 42 }, 'cookies must be a JSON object of string values'],
+      [{ ...VALID, headers: { 'x-count': 7 } }, 'headers.x-count must be a string'],
+      [{ ...VALID, cookies: { session: null } }, 'cookies.session must be a string'],
+      [{ ...VALID, headers: { 'x bad': 'v' } }, 'headers name "x bad" is not a valid token'],
+      [{ ...VALID, cookies: { 'bad;name': 'v' } }, 'cookies name "bad;name" is not a valid token'],
+      [{ ...VALID, headers: { '': 'v' } }, 'headers name "" is not a valid token'],
+    ]
+    for (const [body, expected] of cases) {
+      const response = await post(handle, body)
+      expect(response.status).toBe(400)
+      expect(await response.text()).toContain(expected)
+    }
+    expect(seen).toEqual([])
+  })
+
+  it('refuses a value carrying a character that would mean something else on the wire', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const cases: unknown[] = [
+      // A newline would append a header nobody sent: loadURL takes them as one
+      // newline-separated string.
+      { ...VALID, headers: { 'x-note': 'one\ntwo: three' } },
+      { ...VALID, headers: { 'x-note': 'tab\rreturn' } },
+      // A semicolon ends a cookie and starts its attributes.
+      { ...VALID, cookies: { session: 'abc; Path=/' } },
+      { ...VALID, cookies: { session: 'a,b' } },
+    ]
+    for (const body of cases) {
+      const response = await post(handle, body)
+      expect(response.status).toBe(400)
+      expect(await response.text()).toContain('carries a character its grammar does not allow')
+    }
+    expect(seen).toEqual([])
+  })
+
+  it('points a cookie header at the field that actually applies it', async () => {
+    const handle = await start(recordingRenderer().renderer)
+    const response = await post(handle, { ...VALID, headers: { Cookie: 'session=abc' } })
+    expect(response.status).toBe(400)
+    expect(await response.text()).toContain('send cookies in the cookies field')
+  })
+
+  it('bounds how many extra fields one request may carry, counting both maps together', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer, { maxExtraFields: 3 })
+    const three = { ...VALID, headers: { a: '1', b: '2' }, cookies: { c: '3' } }
+    const accepted = await post(handle, three)
+    expect(accepted.status).toBe(200)
+    await accepted.arrayBuffer()
+
+    const response = await post(handle, { ...three, cookies: { c: '3', d: '4' } })
+    expect(response.status).toBe(400)
+    expect(await response.text()).toContain('at most 3 headers and cookies together')
+    expect(seen).toHaveLength(1)
+  })
+
+  it('bounds how large those names and values may come to', async () => {
+    const handle = await start(recordingRenderer().renderer, { maxExtraBytes: 64 })
+    const response = await post(handle, { ...VALID, cookies: { session: 'x'.repeat(64) } })
+    expect(response.status).toBe(400)
+    expect(await response.text()).toContain('at most 64 bytes together')
+  })
+
+  it('refuses a session on a scheme that carries none', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const response = await post(handle, { ...VALID, url: 'file:///tmp/page.html', cookies: { session: 'abc' } })
+    expect(response.status).toBe(422)
+    expect(await response.text()).toContain('headers and cookies apply to an http or https request; file: carries neither')
+    expect(seen).toEqual([])
+  })
+
   it('refuses a well-formed URL whose scheme is not renderable', async () => {
     const { renderer, seen } = recordingRenderer()
     const handle = await start(renderer)
@@ -316,6 +394,79 @@ describe('a rendered request', () => {
       { url: VALID.url, width: 800, height: 600, fullPage: false, delayMs: 0 },
       { url: VALID.url, width: 800, height: 600, fullPage: true, delayMs: 250 },
     ])
+  })
+
+  it('hands the renderer the headers and cookies it was sent, and no empty maps', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    await (await post(handle, { ...VALID, headers: { 'X-Api-Key': 'k' }, cookies: { _redmine_session: 'abc' } })).arrayBuffer()
+    await (await post(handle, { ...VALID, headers: {}, cookies: {} })).arrayBuffer()
+    expect(seen).toEqual([
+      {
+        url: VALID.url,
+        width: 800,
+        height: 600,
+        fullPage: false,
+        delayMs: 0,
+        headers: { 'X-Api-Key': 'k' },
+        cookies: { _redmine_session: 'abc' },
+      },
+      { url: VALID.url, width: 800, height: 600, fullPage: false, delayMs: 0 },
+    ])
+  })
+})
+
+describe('where the render landed', () => {
+  /**
+   * Render one page with a renderer that records `landed` as the main frame's
+   * landing, and answer with the response.
+   * @param landed - the URL `did-navigate` would have reported.
+   * @param body - the request body.
+   * @returns the 200 response, its body unread.
+   */
+  async function renderLandingAt(landed: string, body: unknown = VALID): Promise<Response> {
+    const handle = await start(async (_request, _signal, trace) => {
+      trace.mainDocument(landed, 200)
+      return PNG
+    })
+    return post(handle, body)
+  }
+
+  it('names the landing on a successful render, so a sign-in page is not read as the page asked for', async () => {
+    const response = await renderLandingAt('http://127.0.0.1:30010/login?back_url=%2Fissues', { ...VALID, url: 'http://127.0.0.1:30010/issues' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-dsh-render-landed-url')).toBe('http://127.0.0.1:30010/login?back_url=%2Fissues')
+    await response.arrayBuffer()
+  })
+
+  it('says nothing when the frame stayed where it was sent, normalization included', async () => {
+    const stayed = await renderLandingAt(VALID.url)
+    expect(stayed.headers.get('x-dsh-render-landed-url')).toBeNull()
+    await stayed.arrayBuffer()
+
+    // Chromium reports the URL it loaded, so an origin without a path comes
+    // back with one; that is not a redirect.
+    const normalized = await renderLandingAt('https://example.test/', { ...VALID, url: 'https://example.test' })
+    expect(normalized.headers.get('x-dsh-render-landed-url')).toBeNull()
+    await normalized.arrayBuffer()
+  })
+
+  it('percent-encodes a landing a header value cannot carry, and cuts a long one', async () => {
+    const encoded = await renderLandingAt('https://example.test/搜索?q=1')
+    expect(encoded.headers.get('x-dsh-render-landed-url')).toBe('https://example.test/%E6%90%9C%E7%B4%A2?q=1')
+    await encoded.arrayBuffer()
+
+    const long = await renderLandingAt(`https://example.test/${'a'.repeat(200)}`)
+    const header = long.headers.get('x-dsh-render-landed-url') ?? ''
+    expect(header.endsWith('%E2%80%A6')).toBe(true)
+    await long.arrayBuffer()
+  })
+
+  it('says nothing about a render that never reported a main document', async () => {
+    const handle = await start(recordingRenderer().renderer)
+    const response = await post(handle, VALID)
+    expect(response.headers.get('x-dsh-render-landed-url')).toBeNull()
+    await response.arrayBuffer()
   })
 })
 

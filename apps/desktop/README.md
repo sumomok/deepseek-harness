@@ -117,7 +117,7 @@ This bounds what the update feed can promise. TLS authenticates the server and e
 |---|---|---|
 | `dsh-better-sidebar` | `0.14.0`, from npm | A right-hand sidebar with a file tree, an editor, terminal tabs, and a task list |
 | `dsh-at-file` | `v0.6.5`, from the author's repository at that tag's commit | `@` file mentions in the composer |
-| `@haoran/dsh-screenshot` | `0.1.0`, from a tarball committed in this repository | A `screenshot` tool that renders a page and hands the agent the pixels |
+| `@haoran/dsh-screenshot` | `0.1.4`, from a tarball committed in this repository | A `screenshot` tool that renders any page — a login-protected one included, with `cookies` or `headers` — hands the agent the pixels, and writes the PNG to a file when asked |
 | `@haoran/dsh-llm-permission-gateway` | `0.1.3`, from a tarball committed in this repository | The 自动审查 permission preset, and a review model that judges every side-effecting tool call while it is selected |
 
 They are ordinary dependencies of [apps/desktop-server](../desktop-server/README.md), so `pnpm deploy` puts them in the payload's `server/node_modules` beside everything else the server closes over, and their versions are pinned by the installer that carried them — an update ships whatever version that build declared. `dsh-better-sidebar`'s `node-pty` is pinned to the harness core's own copy through a `pnpm-workspace.yaml` override, because the plugin documents that both halves must resolve to one physical package and the payload's platform prune rules only reach the top-level one.
@@ -155,20 +155,26 @@ Deleting the name from `dsh.profile.bundles` instead only lasts until the next l
 
 **The shell lends its own Chromium to the server**, so a screenshot does not depend on whether the machine has Chrome or Edge installed. Before it spawns the server, the main process opens an HTTP listener on `127.0.0.1` and an ephemeral port, mints a 32-byte token, and puts both in the environment of that one child — `DSH_DESKTOP_RENDER_ENDPOINT` and `DSH_DESKTOP_RENDER_TOKEN`, never on the shell's own `process.env`, so no other process the user starts inherits them. `@haoran/dsh-screenshot` reads them on every call. A harness that finds neither renders through a headless system browser instead, which is what every non-desktop install does; a launch whose listener could not be opened logs one line and continues, and its screenshots take that same fallback.
 
-The request is `POST /render`, with `authorization: Bearer <token>`, `content-type: application/json`, and the body `{ url, width, height, fullPage?, delayMs? }`. Everything it can be answered with:
+The request is `POST /render`, with `authorization: Bearer <token>`, `content-type: application/json`, and the body `{ url, width, height, fullPage?, delayMs?, headers?, cookies? }`. Everything it can be answered with:
 
 | Answer | When |
 |---|---|
-| `200 image/png` | The capture, as PNG bytes |
-| `400` | Not JSON, not an object, a body over 64 KB, a field of the wrong type, `width` or `height` outside 16–4096, `delayMs` outside 0–10000, or a `url` that is not absolute |
+| `200 image/png` | The capture, as PNG bytes, at exactly the requested viewport size |
+| `400` | Not JSON, not an object, a body over 64 KB, a field of the wrong type, `width` or `height` outside 16–4096, `delayMs` outside 0–10000, a `url` that is not absolute, or a `headers`/`cookies` entry outside its bounds or its grammar |
 | `401` | Missing or wrong bearer token |
 | `404` | Any other path or method |
-| `422` | A well-formed URL whose scheme is not `http`, `https`, or `file` |
+| `422` | A well-formed URL whose scheme is not `http`, `https`, or `file`, or `headers`/`cookies` on a `file:` URL |
 | `500` | The page failed to load or the capture failed; the line carries the Chromium error code |
 | `503` | Four requests are already accepted |
 | `504` | The request passed its 25-second deadline; the line says what the render was waiting for |
 
 Every failure body is one line of `text/plain`, because its reader is a tool that quotes it into the message the model sees.
+
+**A request may carry the session the page needs.** `cookies` is a name→value map set on the render's own session before the load, so it reaches the page's subresources as well as its document — a signed-in page whose images all 401 is not the page anyone asked to see. `headers` is a name→value map put on the main-frame navigation only, which is what a bearer token or a host override needs; a `cookie` header is refused by name and pointed at `cookies`, since one sent that way would cover the document and nothing in it. Both are bounded together at 24 entries and 8 KB, names must be HTTP tokens, header values are visible ASCII plus space and tab (a newline would append a header nobody sent, because `loadURL` takes them as one newline-separated string), and cookie values are RFC 6265 cookie-octets. The caller supplies the credential and the shell keeps none: they live on a session that dies with the window.
+
+**A `200` says where the render landed** when the main frame ended somewhere other than the requested URL, on `x-dsh-render-landed-url`, percent-encoded outside printable ASCII and cut at 96 characters. A screenshot of a sign-in page is a correct render of the wrong page and the pixels do not say which of the two it is; the plugin turns this header into one sentence in the tool result naming `cookies` and `headers`. No header is sent when the frame stayed where it was pointed, comparing normalized URLs, so the trailing slash Chromium adds to an origin is not a redirect.
+
+**The capture is the size that was asked for.** `capturePage` returns a bitmap at the display's scale factor — 2 on a Retina Mac, 1 on most Windows machines — so a request for 1440x900 would otherwise answer a different image on each. The window keeps that native scale, because forcing one is a process-wide switch that would reach the user's own window, and the capture is resized to the requested CSS pixels before it is encoded: a full-page one to the requested width and the height it measured. Downsampling a 2x capture costs nothing a 1x render would have had.
 
 **A 504 names what the page was waiting for**, so a caller can tell a hung image from a dead proxy from a wedged renderer. The line says which phase the render was in — queued, loading the page, or already past the load event and waiting out `delayMs`, measuring, resizing, or capturing — and, while the page is still loading, the main document's HTTP status, where the main frame landed when that is not where the request pointed, and up to three of the requests still in flight with their Chromium resource type: `render timed out after 25000ms: main document 200, load event not fired, 7 requests pending: [image] https://www.gravatar.com/avatar/…, [image] …, [script] … (+4 more)`. Each URL is cut at 96 characters and the whole line at 500, which is what `@haoran/dsh-screenshot` quotes into the model's message. The render itself is unchanged by this: the shell reads it from `did-navigate` and the session's non-blocking `webRequest` hooks, which observe requests without holding them.
 
@@ -185,7 +191,7 @@ pnpm --filter @deepseek-ai/dsh-desktop run build:ts
 pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 ```
 
-It renders a local file in a real Electron and checks the viewport size, that a full-page capture is taller than the viewport, and the 401, 422, and 500 answers. Its last case points a page at a local listener that accepts the connection and never answers, which is what proves the `webRequest` hooks reach the timeout line: the 504 names that image.
+It renders a local file in a real Electron and checks that the capture is exactly the requested viewport whatever the display's scale factor is, that a full-page capture is taller than it, and the 401, 422, and 500 answers. One case serves a page that redirects everyone without a session to its sign-in page, and checks all three outcomes against a real Chromium: without a session the reply carries the landing header, with a cookie and with a header it does not. Its last case points a page at a local listener that accepts the connection and never answers, which is what proves the `webRequest` hooks reach the timeout line: the 504 names that image.
 
 ## Server environment
 
@@ -201,5 +207,6 @@ The server starts in the user's home directory with the GUI-inherited environmen
 - A dev launch (`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`) uses the checkout's built CLI and the PATH Node, not the staged resources.
 - The render service is per-launch and serial. Four requests are accepted at a time and one renders, so a page that takes the whole 25-second deadline to load holds the slot and the requests queued behind it get only what is left of their own deadline.
 - The shell's viewport floor is 16 px per edge, where `@haoran/dsh-screenshot` itself allows 1. A `screenshot` call for a smaller viewport is answered 400 on the desktop and rendered by a system browser everywhere else.
+- Only the shell's render service can carry `headers` and `cookies`. The plugin's other backend is a one-shot `--screenshot` browser command line with no way to set either, so on an install without this service such a call is refused rather than rendered logged out.
 - A built-in plugin cannot be pinned to another version from the profile. Installing the same name with `dsh plugin --profile desktop add` puts a copy in the profile's own `node_modules`, which the Loader finds first, while `resolveBundleDir` still reads the patch layer from the installation — the row would then come from one version and the code from another.
 - `dsh-better-sidebar` starts its terminals on the shell's own environment: both `pty.spawn` calls pass `env: { ...process.env }` rather than the `scrubbedParentEnv()` in `packages/subprocess/subprocess/src/index.ts` that every harness spawner goes through, which drops every `DSH_`-prefixed name and every name matching `KEY|PASSWORD|SECRET|TOKEN`. The plugin registers eight terminal tools the model can call (`terminal_create`, `terminal_send`, `terminal_read`, and the rest), so the model can read that unfiltered environment through one of them. A Windows GUI process inherits the user's environment variables, so a `DEEPSEEK_API_KEY` set with `setx` is in that terminal; a macOS GUI process gets launchd's environment, which usually is not.

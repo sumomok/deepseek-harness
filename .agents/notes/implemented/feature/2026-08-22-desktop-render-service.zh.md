@@ -30,7 +30,7 @@ Status: implemented
 
 **监听没能打开不是拒绝启动的理由。**壳记一行日志,不带渲染变量地启动服务端,插件随后做的就是它在所有非桌面安装上做的事:去探测系统浏览器。
 
-**插件随载荷一起走。**`apps/desktop-server/package.json` 把 `@haoran/dsh-screenshot` 声明为 `file:./vendor/haoran-dsh-screenshot-0.1.0.tgz`,那个 tarball 与它一起提交,`BUILTIN_WEB_BUNDLES` 列出它的名字,壳便像对另外两个那样把它播种进 desktop profile。`file:` tarball 正是让这条路走通、而 GitHub 归档 URL 走不通的原因:pnpm 会像对注册表版本那样为它记录 `integrity: sha512-…`,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目。带作用域的名字没有要求任何新代码——播种构造的每一条路径都是 join 出来的,`ensureLink` 本就会创建链接的父目录,也就是 `@haoran` 这个作用域目录——但它确实要求了证明这一点的测试,因为带分隔符的名字正是字符串拼接能一路蒙混过关、直到蒙混不过去的那类东西。`scripts/bundle-closure.ts` 按既有规则完整保留这个包:它的清单声明了 `dsh.bundle`,而载荷里没有任何东西以标识符导入一个 profile bundle。
+**插件随载荷一起走。**`apps/desktop-server/package.json` 把 `@haoran/dsh-screenshot` 声明为 `file:./vendor/haoran-dsh-screenshot-0.1.4.tgz`,那个 tarball 与它一起提交,`BUILTIN_WEB_BUNDLES` 列出它的名字,壳便像对另外两个那样把它播种进 desktop profile。`file:` tarball 正是让这条路走通、而 GitHub 归档 URL 走不通的原因:pnpm 会像对注册表版本那样为它记录 `integrity: sha512-…`,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目。带作用域的名字没有要求任何新代码——播种构造的每一条路径都是 join 出来的,`ensureLink` 本就会创建链接的父目录,也就是 `@haoran` 这个作用域目录——但它确实要求了证明这一点的测试,因为带分隔符的名字正是字符串拼接能一路蒙混过关、直到蒙混不过去的那类东西。`scripts/bundle-closure.ts` 按既有规则完整保留这个包:它的清单声明了 `dsh.bundle`,而载荷里没有任何东西以标识符导入一个 profile bundle。
 
 **打包闸现在问的是这套机制真正回答得了的问题。**`verifyClientModules` 原本要求每个内置插件都出现在所服务 index 所列的客户端模块里,而这对一个只贡献工具、不向页面贡献任何东西的插件是假的。它现在从**载荷里**每个内置插件的清单读 `dsh.client`:声明了的必须被服务,没声明的由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把三个都解析了——而一次没有任何内置插件声明 `dsh.client` 的运行会失败,而不是空洞地通过。
 
