@@ -64,7 +64,7 @@ import { dirname, join, resolve } from 'node:path'
  * joined rather than concatenated, and the link's scope directory is created
  * with it.
  */
-export const BUILTIN_WEB_BUNDLES: readonly string[] = ['dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot']
+export const BUILTIN_WEB_BUNDLES: readonly string[] = ['dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway']
 
 /**
  * The profile the desktop shell boots (`dsh --profile desktop`), which no other

@@ -32,7 +32,7 @@ Status: implemented
 
 初始化目录是必需的,因为 `desktop` 不在 `PROFILE_TEMPLATES` 里,`loadProfile` 对一个从未建过它的 home 给出的答复是 `profile "desktop" does not exist`。做不到时报告里带一行 `failed` 供日志记录,启动照常拉起服务端,由服务端给出它加载不了这个 profile 的诊断。此后的一切——写上 bundle 名字、维护链接——仍是尽力而为,因为其中每一处失败留下的都是一个少了些插件、但仍可用的应用。
 
-后一半最容易被漏掉。`resolveBundleDir` 解析 bundle 的 **patch 层**时安装目录优先,所以只要列出名字,`loadProfile` 就会成功,那一行也会被插入——然后 `entry.init()` 用这个裸名字从 `baseUrl` 导入插件并失败,因为 profile 逐级向上的路径上没有任何位置放着它。`healProfilesModuleFallback` 为 CLI 应用自己的依赖闭包维护同一个 `profiles/node_modules` 目录,而这两个包不在那个闭包里;它只添加自己知道的名字,其余链接一概不碰,所以壳建的这两条链接每次启动都活着。
+后一半最容易被漏掉。`resolveBundleDir` 解析 bundle 的 **patch 层**时安装目录优先,所以只要列出名字,`loadProfile` 就会成功,那一行也会被插入——然后 `entry.init()` 用这个裸名字从 `baseUrl` 导入插件并失败,因为 profile 逐级向上的路径上没有任何位置放着它。`healProfilesModuleFallback` 为 CLI 应用自己的依赖闭包维护同一个 `profiles/node_modules` 目录,而这两个包不在那个闭包里;它只添加自己知道的名字,其余链接一概不碰,所以壳自己建的那些链接每次启动都活着。
 
 两处写入都是追加式且幂等的。已列出的名字不会重复追加,已经指向正确目录的链接原样保留,任何 bundle 条目、依赖或清单里的其他字段都不会被删除或改写。"已经指向正确目录"由 `sameLinkTarget` 判定:比较前先剥掉 `\\?\` 扩展长度前缀、归一化尾部分隔符,并把相对读取的结果按链接自身所在目录解析——Windows 读回 junction 的形式与创建它的字符串本就不同,裸比较对一条正确的链接也为假,于是每次启动都会删掉重建。上游 `packages/boot/app-boot/src/profile.ts` 里的 `ensureSymlink` 用的是裸比较,存在同一处缺陷。清单以 rename 替换,所以写到一半被打断的启动留下的是原来那份文件,而不是被截断的一份。整次运行如实汇报它做了什么,启动日志写一行,没改动则不写。
 
@@ -100,7 +100,7 @@ Status: implemented
 
 播种会在服务端之前写 `$DSH_HOME`。它只限于 `profiles/desktop/` 与 `profiles/node_modules/` 下的链接,而且只做追加,但"壳会动用户数据"这件事本身是这个应用的一个事实,README 写明了它。
 
-用户在自己 `web` profile 里做的定制不会跟着到桌面客户端,后者挂载的是 `desktop`。没有任何东西需要先清理:此前没有任何已发布版本播种过 `web`——rc.16 的 `app.asar` 里没有 `profile-seed`——所以不存在哪个共享 profile 带着只有应用才解析得了的名字。三个内置插件也不用管,桌面端自带。真正需要用户重做一遍的,是他自己装进 `web` 的那些,也就是 `~/.dsh/profiles/web/package.json` 里的 `dependencies` 列表;用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。README 记的就是这一条。
+用户在自己 `web` profile 里做的定制不会跟着到桌面客户端,后者挂载的是 `desktop`。没有任何东西需要先清理:此前没有任何已发布版本播种过 `web`——rc.16 的 `app.asar` 里没有 `profile-seed`——所以不存在哪个共享 profile 带着只有应用才解析得了的名字。内置插件也不用管,桌面端自带。真正需要用户重做一遍的,是他自己装进 `web` 的那些,也就是 `~/.dsh/profiles/web/package.json` 里的 `dependencies` 列表;用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。README 记的就是这一条。
 
 `dsh-at-file` 是载荷里唯一一个不来自注册表的依赖。提交钉死是可验证的,但这也意味着这个包是那个仓库树的内容,而不是按 `files` 过滤后的发布产物,于是载荷里带上了它的 `src/`、`tests/` 与构建配置——几个小文件,后缀裁剪大多会清掉。注册表上出现 `0.6.5` 或更高版本时,值得换回去。
 

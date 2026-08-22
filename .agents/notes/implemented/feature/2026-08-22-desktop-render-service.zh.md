@@ -60,6 +60,6 @@ Status: implemented
 
 渲染是刻意做成串行且浅队列的,所以一个把期限用满才加载完的页面会占住这个位置,排在它后面的请求只拿得到自己那份期限剩下的部分。壳的视口下限是每边 16 px,而插件自己的最小值是 1,所以要求更小视口的 `screenshot` 调用在桌面端会被答以 400,在别处则由系统浏览器渲染。
 
-那个 vendored tarball 就是这个插件的更新渠道:一个新版本意味着提交一个新的 tarball 并把标识符移过去,而携带某次构建的安装包拥有该版本,与另外两个内置插件完全一样。`THIRD_PARTY_NOTICES.md` 用一条指向该 tarball 的仓库相对链接来标识它,因为一个没发布的包没有公开 URL 可写——这是该文件里唯一一条链接不指向仓库的条目。
+那个 vendored tarball 就是这个插件的更新渠道:一个新版本意味着提交一个新的 tarball 并把标识符移过去,而携带某次构建的安装包拥有该版本,与其余每个内置插件完全一样。`THIRD_PARTY_NOTICES.md` 用一条指向该 tarball 的仓库相对链接来标识它,因为一个没发布的包没有公开 URL 可写——它是该文件里链接不指向仓库的那几条之一。
 
-载荷现在带三个 profile bundle,构建会把它们打印出来:`package: darwin payload built-in profile bundles: @haoran/dsh-screenshot, dsh-at-file, dsh-better-sidebar`。deployer 会把 `apps/desktop-server/vendor/` 连同清单一起复制进暂存树,所以打包步骤把它和已经在丢弃的 README 文件一起删掉:暂存树里已有装好的包,而它来自的那个归档在运行期什么都解析不了。
+载荷把它作为又一个 profile bundle 带上,构建会在 `package: <target> payload built-in profile bundles:` 那一行点名它保留的每个 bundle。deployer 会把 `apps/desktop-server/vendor/` 连同清单一起复制进暂存树,所以打包步骤把它和已经在丢弃的 README 文件一起删掉:暂存树里已有装好的包,而它来自的那个归档在运行期什么都解析不了。

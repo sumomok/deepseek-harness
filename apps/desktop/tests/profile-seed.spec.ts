@@ -129,6 +129,29 @@ describe('seedBuiltinBundles on an initialized profile', () => {
     expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-at-file', ...withoutAtFile])
   })
 
+  it('gives a profile from an earlier build the bundle that build did not ship', () => {
+    // The rc.17 desktop profile, and the state every machine that installed it
+    // is in: the manifest names the built-ins of its own build, and its patch
+    // layer is whatever its owner has written there since.
+    const shippedThen = ['dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot']
+    writeProfile(JSON.stringify({
+      name: 'dsh-profile-desktop',
+      private: true,
+      dependencies: {},
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...shippedThen] } },
+    }, undefined, 2))
+    const patch = join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME)
+    const written = '# mine\n- id: better-sidebar\n  disabled: true\n'
+    writeFileSync(patch, written)
+
+    const report = seedBuiltinBundles({ home, serverModules })
+
+    expect(report.seeded).toEqual(BUILTIN_WEB_BUNDLES.filter(name => !shippedThen.includes(name)))
+    expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...shippedThen, ...report.seeded])
+    // The patch layer is the user's own file; a new built-in never edits it.
+    expect(readFileSync(patch, 'utf8')).toBe(written)
+  })
+
   it('carries dependencies and unknown fields through untouched', () => {
     writeProfile(JSON.stringify({
       name: 'dsh-profile-desktop',

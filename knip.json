@@ -667,6 +667,7 @@
       "project": [],
       "ignoreDependencies": [
         "@deepseek-ai/.+",
+        "@haoran/dsh-llm-permission-gateway",
         "@haoran/dsh-screenshot",
         "dsh-at-file",
         "dsh-better-sidebar"

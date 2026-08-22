@@ -106,29 +106,32 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 
 ## 内置插件
 
-**三个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
+**四个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
 
 | 包名 | 版本 | 提供什么 |
 |---|---|---|
 | `dsh-better-sidebar` | `0.14.0`,来自 npm | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
 | `dsh-at-file` | `v0.6.5`,来自作者仓库该 tag 所指的提交 | 输入框里的 `@` 文件提及 |
 | `@haoran/dsh-screenshot` | `0.1.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染一个页面,把像素交给 agent |
+| `@haoran/dsh-llm-permission-gateway` | `0.1.3`,来自提交进本仓库的 tarball | 自动审查这个权限预设,以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型 |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
 
+**这个网关随包挂载,但自动审查不是默认值。**插件自带它的权限预设,所以预设控件里会在 `read-only`、`workspace-write`、`danger-full-access` 旁边多出一项自动审查。没有任何东西会替你选中它:编排出来的默认值是 `workspace-write` 加 `ask`,新会话被钉住的仍然是它。选中自动审查会把操作系统沙箱关掉——文件系统与命令不再有操作系统层面的围墙——并把一个审查模型放到那个位置上,由它逐个判断有副作用的工具调用,只在自己拿不准或审查失败时才弹审批框。此后安全性取决于那个模型的判断质量,而不再取决于沙箱。这个预设写在插件自己的 patch 层里,而不是写在你的 profile 里,所以它恰好在这个 bundle 挂载期间存在,两者同来同去。两条红线——凭据外泄,以及对权限系统自身的改动——编译在插件里,配置关不掉。
+
 **`dsh-at-file` 取自 tag 而非注册表**,因为作者在 npm 上只发到 `0.6.3`,而 tag 已经到 `v0.6.5`。分发 `0.6.3` 会与自行装了 `v0.6.5` 的 profile 配不上:一个 bundle 的两半从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`——于是这一行来自 `0.6.3`,代码来自 `v0.6.5`。这条依赖写的是该 tag 所指的**提交**,而不是它的归档 URL:pnpm 不为 GitHub 归档记录完整性哈希,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有完整性字段的 lockfile 条目。提交本身就是它的哈希,于是 lockfile 钉住的是内容。该仓库把构建好的 `lib/` 提交了进去,也没有声明 `prepare` 脚本,所以安装期什么都不构建。
 
-**`@haoran/dsh-screenshot` 没有发布**,所以它的依赖是一条 `file:` 标识符,指向与声明它的清单放在一起的 `apps/desktop-server/vendor/haoran-dsh-screenshot-0.1.0.tgz`。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级这个插件意味着提交一个新的 tarball 并把标识符指过去;没有别的渠道,因为这个插件不在任何注册表上。
+**两个 `@haoran/` 插件都没有发布**,所以它们各自的依赖都是一条 `file:` 标识符,指向与声明它们的清单放在一起的 `apps/desktop-server/vendor/` 下的 tarball。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去;没有别的渠道,因为两个都不在任何注册表上。
 
-**它也是唯一没有浏览器那一半的内置插件。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,而工具是 agent 去调用的,不是页面去加载的。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把三个都解析了。
+**它们两个都没有浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,而工具是 agent 去调用的,不是页面去加载的。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把四个都解析了。
 
 **`dsh-better-sidebar` 在本宿主上必须是 `0.14.0` 或更高。**`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,模块访问改由 `ctx.modules` 服务提供,这让每个懒加载 chunk 解析外部依赖的方式全面失效——`0.13.1` 会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,终端、编辑器与 Mermaid 面板一起跟着挂掉。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`,并把插件自有的全局共享给它的 chunk 副本,同时移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。
 
-**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与三个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是追加式且幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,任何 bundle 条目、依赖或清单里的其他字段都不会被删除。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
+**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与四个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是追加式且幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,任何 bundle 条目、依赖或清单里的其他字段都不会被删除。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
 
 壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断,没有声明 bundle 列表的清单按手写编排对待,该放链接的位置上是真实目录则如实报告而不是删掉。profile 目录根本写不出来是启动唯一绕不过去的失败;日志那一行会说明,随后是服务端自己的诊断。
 
-**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这三个在桌面 profile 里已经有了;你此前额外加进 `web` 的插件列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里,用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。
+**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这四个在桌面 profile 里已经有了;你此前额外加进 `web` 的插件列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里,用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。
 
 **如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile desktop remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
 
@@ -140,6 +143,8 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --republi
 ```
 
 改为从 `dsh.profile.bundles` 里删掉名字则只能维持到下次启动,届时会被重新播种。
+
+**网关是唯一一个不该单独禁用其行的内置插件。**它的 patch 层贡献了两行——门本身,以及那张加入自动审查的预设表——单独禁用门这一行,会让预设留在控件里而背后空无一物:此时再选中它,就是把沙箱关掉而不放任何审查进去,严格差于 `danger-full-access`。先把会话切到别的预设;若还想让它从控件里消失,就在你自己的 `cordis.patch.yml` 里重述 `permission` 行的 `presets` 而不带 `yolo-access`——以 id 为目标的 patch 会替换整个 `config`,所以那次重述必须把你要保留的预设一并写全。
 
 ## 渲染服务
 

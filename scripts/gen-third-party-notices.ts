@@ -77,8 +77,9 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
   // Declared as a GitHub release tarball, which carries no repository field.
   'dsh-at-file': { repo: 'https://github.com/omdsh-dev/dsh-at-file' },
-  // Unpublished and vendored as a tarball, so the archive committed here is the
+  // Unpublished and vendored as tarballs, so the archives committed here are the
   // only source of record there is to name.
+  '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz' },
   '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.1.0.tgz' },
 }
 
