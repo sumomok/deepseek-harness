@@ -38,6 +38,7 @@ import {
 import { TurnTailNodeView } from '../src/client/chat/TurnTailNodeView.tsx'
 import { TurnProcessNodeView } from '../src/client/chat/TurnProcessNodeView.tsx'
 import { SystemPromptNodeView } from '../src/client/chat/SystemPromptRow.tsx'
+import type { UserActionOwnerProps } from '../src/client/contract/slots.ts'
 import { formatRunDuration } from '../src/client/chat/message-chrome.ts'
 import { ChatSnapshotBuilder } from '../src/client/conversation-nodes/chat-snapshot-builder.ts'
 import type { TurnProcessSpec } from '../src/client/contract/turn-process.ts'
@@ -273,6 +274,7 @@ function makeHarness(
   }> = []
   const renderCommandSlot = ((_key: string, _owner: object, opts?: { fallback?: React.ReactNode }) =>
     opts?.fallback ?? null) as unknown as React.ComponentProps<typeof CommandNodeView>['renderSlot']
+  const userActionOwners: UserActionOwnerProps[] = []
   const renderTurnTail = ((_key: string, _owner: object) => null) as unknown as
     React.ComponentProps<typeof TurnTailNodeView>['renderSlotChain']
   const renderTurnTailSlot = (() => null) as unknown as
@@ -283,6 +285,11 @@ function makeHarness(
     hookContext?: unknown
   }) => {
     if (nodeSlotOverride !== undefined) return nodeSlotOverride(key as never, owner as never, opts as never)
+    if (key === 'conversation.chat.user-actions') {
+      const actionOwner = owner as UserActionOwnerProps
+      userActionOwners.push(actionOwner)
+      return <span data-testid={`user-action-${actionOwner.seq}`} data-user-action-text={actionOwner.text} />
+    }
     if (key !== 'conversation.chat.node') return opts?.fallback ?? null
     const nodeOwner = owner as RoutedChatNodeOwner
     const turnData = opts?.hookContext as
@@ -426,7 +433,7 @@ function makeHarness(
     set, setSession: session.set, setChat: chatSource.set, ChatView, props,
     openDetails, openFile, loadOlder, loadThrough, openView,
     setOutline: (value: unknown) => { outlineValue = value },
-    chatScroll, forkAt, setSelection, toolOwners,
+    chatScroll, forkAt, setSelection, toolOwners, userActionOwners,
     setTranscriptView: (mode: TranscriptViewMode) => { transcriptView.set(mode) },
     setNodeRenderer: (renderer: React.ComponentProps<typeof ChatNodeSeat>['renderSlot']) => {
       nodeSlotOverride = renderer
@@ -494,6 +501,18 @@ function installScrollMetrics(element: HTMLElement, initialHeight: number, clien
 }
 
 describe('Chat node rendering', () => {
+  it('offers the user-actions seat on user and steering bubbles only, addressed by log position and rendered text', () => {
+    const h = makeHarness({ nodes: [user(1, 'first ask'), assistant(2, 'answer'), steering(3, 'mid-turn note', 1)] })
+    const view = render(<h.ChatView {...h.props} />)
+    // The assistant tail owns a separate seat, so it contributes no entry here.
+    expect(h.userActionOwners).toEqual([
+      { seq: 1, text: 'first ask' },
+      { seq: 3, text: 'mid-turn note' },
+    ])
+    expect(view.getByTestId('user-action-1').getAttribute('data-user-action-text')).toBe('first ask')
+    expect(view.getByTestId('user-action-3').getAttribute('data-user-action-text')).toBe('mid-turn note')
+    expect(view.queryByTestId('user-action-2')).toBeNull()
+  })
 
   it('threads the injected file-mention vocabulary into the closing prose only', () => {
     const wrote = (seq: number, callId: string): ToolResultNode => ({
