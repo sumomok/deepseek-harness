@@ -121,7 +121,7 @@ const REPORT_CONSOLE_SAMPLES = 3
 /**
  * The bytes {@link REPORT_HEADER} may reach, which every cap below is chosen
  * against: with every list full and every string over its cap, the encoded
- * header measures 4.3 KB, so no page can reach this ceiling and the schema has
+ * header measures 4.2 KB, so no page can reach this ceiling and the schema has
  * room to grow. Bounding it by construction rather than by cutting the finished
  * header is the whole point — a header cut to fit is JSON no reader can parse.
  */
