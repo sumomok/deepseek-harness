@@ -13,13 +13,13 @@
  * name from configuration read at boot, so every `@deepseek-ai/*` package stays
  * a resolvable directory with an entry in it: they are external to one another
  * and only their dependencies are inlined. The same holds for the out-of-scope
- * plugin packages the installer ships (`dsh-better-sidebar`, `dsh-at-file`),
- * which a profile names in `dsh.profile.bundles` and nothing imports: they are
- * recognized by the `dsh.bundle` declaration in their own manifest and kept
- * whole, because they are published pre-bundled and their browser halves must
- * stay exactly as their client build left them. What is left of a third-party
- * package after that is deleted, but only if nothing reachable still imports
- * it.
+ * plugin packages the installer ships (`dsh-better-sidebar`, `dsh-at-file`, and
+ * the `@haoran/*` built-ins), which a profile names in `dsh.profile.bundles` and
+ * nothing imports: they are recognized by the `dsh.bundle` declaration in their
+ * own manifest and kept whole, because they arrive pre-bundled and the browser
+ * half of one that has it must stay exactly as its client build left it. What
+ * is left of a third-party package after that is deleted, but only if nothing
+ * reachable still imports it.
  *
  * This runs on the derived payload rather than in the package build, which is
  * what keeps the 219 publishable npm artifacts exactly as they are: nothing

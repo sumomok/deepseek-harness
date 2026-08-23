@@ -668,7 +668,9 @@
       "ignoreDependencies": [
         "@deepseek-ai/.+",
         "@haoran/dsh-default-model",
+        "@haoran/dsh-edit-rerun",
         "@haoran/dsh-llm-permission-gateway",
+        "@haoran/dsh-quote-message",
         "@haoran/dsh-screenshot",
         "dsh-at-file",
         "dsh-better-sidebar"
