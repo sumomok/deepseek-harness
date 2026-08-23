@@ -474,9 +474,27 @@ describe('where the render landed', () => {
   }
 
   it('names the landing on a successful render, so a sign-in page is not read as the page asked for', async () => {
-    const response = await renderLandingAt('http://127.0.0.1:30010/login?back_url=%2Fissues', { ...VALID, url: 'http://127.0.0.1:30010/issues' })
+    const landed = 'http://127.0.0.1:30010/login?back_url=%2Fissues'
+    const response = await renderLandingAt(landed, { ...VALID, url: 'http://127.0.0.1:30010/issues' })
     expect(response.status).toBe(200)
-    expect(response.headers.get('x-dsh-render-landed-url')).toBe('http://127.0.0.1:30010/login?back_url=%2Fissues')
+    const header = response.headers.get('x-dsh-render-landed-url') ?? ''
+    // The escape the URL itself carries is escaped again, so the reader's
+    // decode returns the URL Chromium reported rather than one with a space in
+    // it.
+    expect(header).toBe('http://127.0.0.1:30010/login?back_url=%252Fissues')
+    expect(decodeURIComponent(header)).toBe(landed)
+    await response.arrayBuffer()
+  })
+
+  it('gives a landing carrying every kind of escape back to a reader that decodes it', async () => {
+    const landed = 'https://example.test/a%20b?q=100%&bad=%zz&名=值#%'
+    const response = await renderLandingAt(landed)
+    const header = response.headers.get('x-dsh-render-landed-url') ?? ''
+    // A bare `%zz` is what makes this more than tidiness: `decodeURIComponent`
+    // throws on it, so a header that passed it through would cost the reader
+    // the whole landing rather than one character of it.
+    expect(header).not.toMatch(/%(?![0-9A-F]{2})/)
+    expect(decodeURIComponent(header)).toBe(landed)
     await response.arrayBuffer()
   })
 
@@ -972,21 +990,50 @@ describe('the report every answer carries', () => {
     expect(report.requestedUrl.endsWith('…')).toBe(true)
   })
 
-  it('bounds the header in the bytes it costs, not the characters, so a page in Chinese fits too', async () => {
-    const long = `https://例え.test/${'搜索'.repeat(1000)}`
+  it('bounds the header in the bytes it costs, not the characters, whatever those bytes cost', async () => {
+    // Both fillers cost three header bytes per source byte: a character outside
+    // printable ASCII because it is escaped, and `%` because it is escaped too.
+    // A cap counted in characters would put either page over the ceiling.
+    for (const filler of ['搜索', '%%']) {
+      const long = `https://例え.test/${filler.repeat(1000)}`
+      const response = await timedOut((trace) => {
+        trace.enter('navigating')
+        trace.mainDocument(long, 200)
+        trace.pageTitle(filler.repeat(500))
+        for (let n = 0; n < 100; n++) trace.requestStarted(n, `${long}${String(n)}`, filler)
+        for (let n = 0; n < 50; n++) trace.consoleMessage('error', filler.repeat(500))
+      }, { ...VALID, url: long })
+      const header = response.headers.get('x-dsh-render-report') ?? ''
+      await response.text()
+      expect(Buffer.byteLength(header, 'utf8')).toBeLessThanOrEqual(REPORT_HEADER_BYTES)
+      const report = JSON.parse(decodeURIComponent(header)) as RenderReport
+      expect(report.console.samples[0]?.endsWith('…')).toBe(true)
+      expect(report.mainDocument?.title?.endsWith('…')).toBe(true)
+    }
+  })
+
+  it('gives every string back to a reader that decodes it, escapes and all', async () => {
+    const url = 'https://example.test/a%20b?q=100%&bad=%zz&名=值'
+    const title = '100% done — %E4 %zz 完成'
     const response = await timedOut((trace) => {
       trace.enter('navigating')
-      trace.mainDocument(long, 200)
-      trace.pageTitle('标题'.repeat(500))
-      for (let n = 0; n < 100; n++) trace.requestStarted(n, `${long}${String(n)}`, '图片')
-      for (let n = 0; n < 50; n++) trace.consoleMessage('error', '错误'.repeat(500))
-    }, { ...VALID, url: long })
+      trace.mainDocument(url, 200)
+      trace.pageTitle(title)
+      trace.requestStarted(1, url, 'image')
+      trace.consoleMessage('error', title)
+    }, { ...VALID, url })
     const header = response.headers.get('x-dsh-render-report') ?? ''
     await response.text()
-    expect(Buffer.byteLength(header, 'utf8')).toBeLessThanOrEqual(REPORT_HEADER_BYTES)
+    // Every `%` on the wire opens a real escape, which is what keeps
+    // `decodeURIComponent` from throwing on the `%zz` the page carried.
+    expect(header).not.toMatch(/%(?![0-9A-F]{2})/)
+    expect(header).toContain('a%2520b')
     const report = JSON.parse(decodeURIComponent(header)) as RenderReport
-    expect(report.console.samples[0]?.endsWith('…')).toBe(true)
-    expect(report.mainDocument?.title?.endsWith('…')).toBe(true)
+    expect(report.requestedUrl).toBe(url)
+    expect(report.mainDocument?.url).toBe(url)
+    expect(report.mainDocument?.title).toBe(title)
+    expect(report.pending[0]?.url).toBe(url)
+    expect(report.console.samples[0]).toBe(title)
   })
 })
 

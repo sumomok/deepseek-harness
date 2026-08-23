@@ -76,8 +76,9 @@ const COOKIE_VALUE = /^[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]*$/
  * Response header naming where the main frame ended up, written only when that
  * is not the URL the request asked for. It is what lets a caller say "this is
  * the sign-in page, not the page you asked for" about a render that succeeded;
- * a 504 says the same thing in its line. Percent-encoded outside printable
- * ASCII, because a header value carries no other encoding.
+ * a 504 says the same thing in its line. Percent-encoded by
+ * {@link headerSafeText}, because a header value carries no other encoding, so
+ * a reader gets the URL back through `decodeURIComponent`.
  */
 const LANDED_URL_HEADER = 'x-dsh-render-landed-url'
 
@@ -96,7 +97,8 @@ const TIMEOUT_URL_CHARS = 96
 const TIMEOUT_LINE_CHARS = 500
 
 /**
- * Response header carrying the whole [[RenderReport]] as percent-encoded JSON.
+ * Response header carrying the whole [[RenderReport]] as JSON, percent-encoded
+ * by {@link headerSafeText} and read back with `decodeURIComponent`.
  *
  * A header rather than a body, because the two answers that need the report
  * most already own their body: a 200 carries PNG bytes and a 504 carries the
@@ -147,6 +149,13 @@ const REPORT_TAG_BYTES = 32
 
 /** What marks a string the report cut, so a reader can tell a cut value from a short one. */
 const REPORT_CUT = '…'
+
+/**
+ * The one printable-ASCII byte {@link headerSafeText} escapes anyway: an
+ * unescaped `%` in a header value is an escape sequence the reader's
+ * `decodeURIComponent` would act on.
+ */
+const PERCENT = 0x25
 
 /**
  * The shortest deadline a request may ask for. A render opens a window, loads a
@@ -389,7 +398,8 @@ export interface ReportedCapture {
 /**
  * What one render did, whichever way it ended.
  *
- * It travels on {@link REPORT_HEADER} as percent-encoded JSON, on the 200, on
+ * It travels on {@link REPORT_HEADER} as JSON that `decodeURIComponent`
+ * returns whole, on the 200, on
  * the 500 a failed render is refused with, and on the 504 — never on a refusal
  * that no render was started for. Every list is capped in count and every
  * string in length, so the encoded header stays under
@@ -530,16 +540,24 @@ function sameUrl(left: string, right: string): boolean {
 
 /**
  * Percent-encode text for a header value: every byte outside printable ASCII
- * escaped, existing escapes left alone. Never throws — a lone surrogate
+ * escaped, and `%` with them.
+ *
+ * Escaping `%` is what makes the result exactly what `decodeURIComponent`
+ * inverts, which is the only reader a header value like this has. Passing a
+ * literal `%` through would hand that reader an escape the text never had: a
+ * URL carrying `%20` would arrive with a space in it, and one carrying `%zz`
+ * would throw the reader's decode. Never throws itself — a lone surrogate
  * encodes as the replacement character's bytes rather than failing the reply
  * this header is only an annotation on.
  * @param text - the URL or JSON document to put on the wire.
- * @returns the header value.
+ * @returns the header value, which `decodeURIComponent` returns `text` for.
  */
 function headerSafeText(text: string): string {
   let encoded = ''
   for (const byte of Buffer.from(text, 'utf8')) {
-    encoded += byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`
+    encoded += byte >= 0x20 && byte <= 0x7e && byte !== PERCENT
+      ? String.fromCharCode(byte)
+      : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`
   }
   return encoded
 }
@@ -551,7 +569,9 @@ function headerSafeText(text: string): string {
  * An upper bound rather than the exact length — a control character is counted
  * at its longest JSON escape — because what the caps have to hold is the worst
  * case, and a bound proved from the caps alone is what lets the header be
- * built and never measured.
+ * built and never measured. A `%` costs three, like a byte outside printable
+ * ASCII: {@link headerSafeText} escapes it so the reader's decode returns the
+ * text it was given.
  * @param text - the string that would go into the report.
  * @returns the largest number of header bytes it can come to.
  */
@@ -560,6 +580,7 @@ function encodedCost(text: string): number {
   for (const byte of Buffer.from(text, 'utf8')) {
     if (byte < 0x20) cost += 6
     else if (byte === 0x22 || byte === 0x5c) cost += 2
+    else if (byte === PERCENT) cost += 3
     else if (byte <= 0x7e) cost += 1
     else cost += 3
   }
