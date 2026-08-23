@@ -43,6 +43,8 @@ afterEach(() => {
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: ChatNodeViewProps['t'] = makeTranslate(zh, commonZh)
 const renderMessageImages: AssistantMarkdownProps['renderMessageImages'] = () => null
+// These arms assert bubble chrome, so the contributed-action seat stays empty.
+const renderUserActions: ChatNodeViewProps['renderUserActions'] = () => null
 const RETRY_ID = 'retry-fixture' as Extract<ConversationNode, { kind: 'model-retry' }>['retryId']
 
 interface MessageItemProps {
@@ -68,7 +70,9 @@ function MessageItem({ node, t: translate, referenceLabels }: MessageItemProps) 
         ? { ...node, referenceLabels }
         : node,
   }
-  const props = { node: viewNode, t: translate, renderMessageImages } as ChatNodeViewProps
+  const props = {
+    node: viewNode, t: translate, renderMessageImages, renderUserActions,
+  } as ChatNodeViewProps
   switch (node.kind) {
     case 'user':
     case 'steering':
