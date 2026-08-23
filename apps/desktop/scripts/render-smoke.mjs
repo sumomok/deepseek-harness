@@ -5,16 +5,19 @@
  * The unit suite drives the protocol against an injected renderer, which is
  * everything except the part that needs a Chromium — so this is the check that
  * a hidden `BrowserWindow` actually paints, that `capturePage` returns the
- * requested viewport, that a full-page capture grows past it, and that the
- * `webRequest` hooks a timed-out render is described from see a real page's
- * real requests. It renders local files against a listener on this machine, so
- * it needs no network, and it uses the shell's own limits.
+ * requested viewport, that a full-page capture grows past it, that a request's
+ * cookies reach every request the page makes while its headers reach only the
+ * navigation, and that the `did-navigate` and `webRequest` hooks a timed-out
+ * render is described from see a real redirect and a real page's real
+ * requests. It renders local files and pages from listeners on this machine,
+ * so it needs no network, and it uses the shell's own limits.
  *
  * Requires `pnpm --filter @deepseek-ai/dsh-desktop run build:ts` first: this
  * runs under Electron, which has no TypeScript loader, so it imports `lib/`.
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { createServer as createHttpServer } from 'node:http'
 import { createServer } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
@@ -33,6 +36,22 @@ const HANG_TIMEOUT_MS = 2000
 const PAGE = `<!doctype html><meta charset="utf-8"><title>render smoke</title>
 <style>body { margin: 0 } .block { height: 900px; background: linear-gradient(#123, #abc) }</style>
 <div class="block">render smoke</div>`
+
+/**
+ * The paths the subresource case serves: a page under a nested directory, an
+ * image beside it, and an image under a different top-level path. The last is
+ * the one a cookie scoped to the page's own directory never reaches, and it is
+ * how an application that serves its pages from `/app/…` and its data from
+ * `/api/…` is laid out.
+ */
+const NESTED = { page: '/app/issues/page', sibling: '/app/issues/sibling.png', api: '/api/pixel.png' }
+
+/** The nested page, whose two images the load event waits for. */
+const NESTED_PAGE = `<!doctype html><meta charset="utf-8"><title>nested</title>
+<img src="${NESTED.api}" alt=""><img src="${NESTED.sibling}" alt="">`
+
+/** A 1x1 PNG, the smallest subresource a page can make a server answer. */
+const PIXEL = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==', 'base64')
 
 /** The eight bytes every PNG starts with. */
 const PNG_SIGNATURE = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
@@ -135,6 +154,178 @@ async function hungImageCase(directory) {
 }
 
 /**
+ * A site that answers one page to a caller with a session and redirects
+ * everyone else to its sign-in page — the case both `cookies` and `headers`
+ * exist for, and the case a returned screenshot has to say something about
+ * when the render lands on the sign-in page instead. It also serves
+ * {@link NESTED}, and records what every request it received carried, which is
+ * the only place the session a render actually sent can be observed.
+ * @param {string} [hangingImage] - an image the sign-in page loads, so a render sent there never fires its load event.
+ * @returns {Promise<{ origin: string, observed: { path: string, cookie: boolean, header: boolean }[], close: () => Promise<void> }>} the origin it serves, what it received, and its shutdown.
+ */
+async function sessionSite(hangingImage) {
+  /** @type {{ path: string, cookie: boolean, header: boolean }[]} */
+  const observed = []
+  const server = createHttpServer((request, response) => {
+    const path = new URL(request.url ?? '/', 'http://site.invalid').pathname
+    const cookie = (request.headers.cookie ?? '').includes('session=abc')
+    const header = request.headers['x-session'] === 'abc'
+    observed.push({ path, cookie, header })
+    const signedIn = cookie || header
+    if (path.startsWith('/issues') && !signedIn) {
+      response.writeHead(302, { location: '/login' })
+      response.end()
+      return
+    }
+    if (path.endsWith('.png')) {
+      // The assertions are about requests reaching this handler, so nothing may
+      // be answered out of a cache.
+      response.writeHead(200, { 'content-type': 'image/png', 'cache-control': 'no-store' })
+      response.end(PIXEL)
+      return
+    }
+    const hung = path === '/login' && hangingImage !== undefined ? `<img src="${hangingImage}" alt="">` : ''
+    response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
+    response.end(path === NESTED.page
+      ? NESTED_PAGE
+      : `<!doctype html><meta charset="utf-8"><title>${signedIn ? 'issues' : 'sign in'}</title><p>${path}${hung}`)
+  })
+  await new Promise((resolve, reject) => {
+    server.once('error', reject)
+    server.listen(0, '127.0.0.1', () => {
+      server.removeListener('error', reject)
+      resolve()
+    })
+  })
+  const address = server.address()
+  if (address === null || typeof address === 'string') throw new Error('the session site reported no TCP address')
+  return {
+    origin: `http://127.0.0.1:${address.port}`,
+    observed,
+    close: async () => {
+      server.closeAllConnections()
+      await new Promise((resolve) => { server.close(resolve) })
+    },
+  }
+}
+
+/**
+ * Render a page behind a session three ways: without one, with a cookie, and
+ * with a header. Only a real Chromium shows that the cookie store and the
+ * navigation headers actually reach the request, and that `did-navigate`
+ * reports the redirect the service turns into its landing header.
+ * @param {{ endpoint: string, token: string }} service - the running service.
+ * @returns {Promise<void>} resolves when the case passed; rejects when it did not.
+ */
+async function sessionCase(service) {
+  const site = await sessionSite()
+  try {
+    const issues = `${site.origin}/issues`
+
+    const anonymous = await post(service, { url: issues, ...VIEWPORT })
+    check(anonymous.status === 200, `a page behind a session answered ${anonymous.status} without one`)
+    check(
+      anonymous.headers.get('x-dsh-render-landed-url') === `${site.origin}/login`,
+      `the reply says where the render actually landed: ${anonymous.headers.get('x-dsh-render-landed-url')}`,
+    )
+    await anonymous.arrayBuffer()
+
+    const withCookie = await post(service, { url: issues, ...VIEWPORT, cookies: { session: 'abc' } })
+    check(withCookie.status === 200, `the same page with a cookie answered ${withCookie.status}`)
+    check(withCookie.headers.get('x-dsh-render-landed-url') === null, 'a cookie reaches the request, so the render stays on the page it asked for')
+    await withCookie.arrayBuffer()
+
+    const withHeader = await post(service, { url: issues, ...VIEWPORT, headers: { 'x-session': 'abc' } })
+    check(withHeader.status === 200, `the same page with a header answered ${withHeader.status}`)
+    check(withHeader.headers.get('x-dsh-render-landed-url') === null, 'an extra header reaches the navigation too')
+    await withHeader.arrayBuffer()
+  } finally {
+    await site.close()
+  }
+}
+
+/**
+ * A render sent to a sign-in page that then never finishes loading: the one
+ * case where the two halves of the 504 line meet, since only a real Chromium
+ * both follows the redirect `did-navigate` reports and leaves the image the
+ * pending list names in flight.
+ * @returns {Promise<void>} resolves when the case passed; rejects when it did not.
+ */
+async function redirectTimeoutCase() {
+  const listener = await hangingListener()
+  const site = await sessionSite(`http://127.0.0.1:${listener.port}/avatar.png`)
+  const service = await startRenderService({
+    renderer: renderInHiddenWindow,
+    limits: { ...RENDER_LIMITS, timeoutMs: HANG_TIMEOUT_MS },
+  })
+  try {
+    const response = await post(service, { url: `${site.origin}/issues`, ...VIEWPORT })
+    check(response.status === 504, `a render redirected to a page that never loads answered ${response.status}`)
+    const line = (await response.text()).trim()
+    console.log(`      ${line}`)
+    check(line.includes(`at ${site.origin}/login`), 'the 504 line says the render landed on the sign-in page')
+    check(
+      line.includes('pass cookies or headers to capture it with a session'),
+      'the 504 line says what to send to reach the page that was asked for',
+    )
+  } finally {
+    await service.close()
+    await site.close()
+    await listener.close()
+  }
+}
+
+/**
+ * What the last request the site received for one path carried.
+ * @param {{ path: string, cookie: boolean, header: boolean }[]} observed - every request the site received, in order.
+ * @param {string} path - the path asked about.
+ * @returns {{ path: string, cookie: boolean, header: boolean }} that request's session markers.
+ * @throws when the site never received a request for that path, which is itself the failure.
+ */
+function lastRequest(observed, path) {
+  const seen = observed.findLast(entry => entry.path === path)
+  if (seen === undefined) throw new Error(`FAILED: the site received no request for ${path}`)
+  return seen
+}
+
+/**
+ * Render a page served from a nested path whose subresources are under a
+ * different top-level one, and check what the site saw rather than what came
+ * back as pixels.
+ *
+ * `session.cookies.set` with no `path` applies RFC 6265's default-path — the
+ * directory of the URL it is set from — so a cookie set from `/app/issues/…`
+ * covers `/app/issues/` and reaches no `/api/…` request the page makes. The
+ * render still succeeds and still looks signed in, which is why a case that
+ * serves everything from one directory passes either way. The header half is
+ * the counterpart: `extraHeaders` rides the main-frame navigation and reaches
+ * no subresource at all, which is why a session belongs in `cookies`.
+ * @param {{ endpoint: string, token: string }} service - the running service.
+ * @returns {Promise<void>} resolves when the case passed; rejects when it did not.
+ */
+async function subresourceCase(service) {
+  const site = await sessionSite()
+  try {
+    const page = `${site.origin}${NESTED.page}`
+
+    const withCookie = await post(service, { url: page, ...VIEWPORT, cookies: { session: 'abc' } })
+    check(withCookie.status === 200, `a page under a nested path answered ${withCookie.status} with a cookie`)
+    await withCookie.arrayBuffer()
+    check(lastRequest(site.observed, NESTED.page).cookie, 'the cookie reaches the document')
+    check(lastRequest(site.observed, NESTED.sibling).cookie, "the cookie reaches a subresource under the page's own directory")
+    check(lastRequest(site.observed, NESTED.api).cookie, 'the cookie reaches a subresource under another top-level path')
+
+    const withHeader = await post(service, { url: page, ...VIEWPORT, headers: { 'x-session': 'abc' } })
+    check(withHeader.status === 200, `the same page answered ${withHeader.status} with a header`)
+    await withHeader.arrayBuffer()
+    check(lastRequest(site.observed, NESTED.page).header, 'an extra header reaches the navigation')
+    check(!lastRequest(site.observed, NESTED.api).header, 'an extra header reaches no subresource')
+  } finally {
+    await site.close()
+  }
+}
+
+/**
  * Render every case against a real Chromium.
  * @returns {Promise<void>} resolves when every case passed; rejects on the first that did not.
  */
@@ -151,14 +342,15 @@ async function run() {
     check(viewport.status === 200, `viewport render answered ${viewport.status}`)
     check(viewport.headers.get('content-type') === 'image/png', 'viewport render is image/png')
     const captured = pngSize(Buffer.from(await viewport.arrayBuffer()))
-    const scale = captured.width / VIEWPORT.width
-    check(Number.isInteger(scale) && scale >= 1, `capture is ${captured.width}x${captured.height} at scale ${scale}`)
-    check(captured.height === VIEWPORT.height * scale, 'capture height is the requested viewport height')
+    check(
+      captured.width === VIEWPORT.width && captured.height === VIEWPORT.height,
+      `capture is exactly the requested viewport: ${captured.width}x${captured.height}`,
+    )
 
     const full = await post(service, { url, ...VIEWPORT, fullPage: true })
     check(full.status === 200, `full-page render answered ${full.status}`)
     const fullSize = pngSize(Buffer.from(await full.arrayBuffer()))
-    check(fullSize.width === captured.width, `full-page capture keeps the width (${fullSize.width})`)
+    check(fullSize.width === VIEWPORT.width, `full-page capture keeps the requested width (${fullSize.width})`)
     check(fullSize.height > captured.height, `full-page capture is taller: ${fullSize.height} > ${captured.height}`)
 
     const delayed = await post(service, { url, ...VIEWPORT, delayMs: 200 })
@@ -177,7 +369,10 @@ async function run() {
     check(unrenderable.status === 422, `a data: URL answered ${unrenderable.status}`)
     await unrenderable.text()
 
+    await sessionCase(service)
+    await subresourceCase(service)
     await hungImageCase(directory)
+    await redirectTimeoutCase()
   } finally {
     await service.close()
     await rm(directory, { recursive: true, force: true })

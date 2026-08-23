@@ -80,7 +80,7 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   // Unpublished and vendored as tarballs, so the archives committed here are the
   // only source of record there is to name.
   '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz' },
-  '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.1.0.tgz' },
+  '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.1.4.tgz' },
 }
 
 /**

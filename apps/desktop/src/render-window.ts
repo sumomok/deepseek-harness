@@ -21,6 +21,17 @@
  * `<audio autoplay>` on a rendered page plays out of the user's speakers; a
  * capture wants pixels only, so muting costs the render nothing.
  *
+ * The isolation is also what makes a request's own headers and cookies safe to
+ * honour: they are set on this window's in-memory session, so a caller renders
+ * a page as whoever it has credentials for without either the credential or
+ * anything the page stores reaching the session the user is signed in to.
+ *
+ * A capture is returned at the CSS-pixel size the request asked for. The
+ * window keeps the display's own scale factor — forcing one is a process-wide
+ * switch that would reach the user's visible window — so a 2x capture is
+ * downsampled here instead, which is why the same request produces the same
+ * image on any display.
+ *
  * It also feeds the service's [[RenderTrace]] with where the render got to,
  * where the main frame landed, and which requests are still in flight, from
  * `did-navigate` and the session's non-blocking `webRequest` hooks. Those
@@ -31,6 +42,7 @@
 
 import { randomUUID } from 'node:crypto'
 import { BrowserWindow } from 'electron'
+import type { NativeImage, Session } from 'electron'
 import type { RenderRequest, Renderer } from './render-service.ts'
 
 /**
@@ -49,6 +61,43 @@ const MAX_FULL_PAGE_HEIGHT = 8192
  * shown is exactly the case where the renderer may not schedule frames.
  */
 const RESIZE_SETTLE_MS = 150
+
+/**
+ * The extra-header string `loadURL` takes: one `Name: value` per line.
+ * @param headers - the accepted request's headers.
+ * @returns the joined value, which the service has already checked carries no newline.
+ */
+function extraHeaders(headers: Record<string, string>): string {
+  return Object.entries(headers).map(([name, value]) => `${name}: ${value}`).join('\n')
+}
+
+/**
+ * Put the request's cookies on this render's own session before the load.
+ *
+ * They are set through the cookie store rather than sent as a header because
+ * that is what makes them reach the page's subresources too: a signed-in page
+ * whose images all 401 is not the page the caller asked to see.
+ *
+ * `path` is given explicitly because Chromium otherwise applies RFC 6265's
+ * default-path, which is the *directory* of `url` rather than the site: a
+ * cookie set for `/app/issues/list` would cover `/app/issues/` and reach none
+ * of the `/api/…` requests the page makes. The caller named a cookie for the
+ * site rather than for a directory, and a real session cookie is issued with
+ * `Path=/`. A site-wide cookie reaches no further than this render either way:
+ * the session is the window's own in-memory one loading a single page, and it
+ * is gone when the window is. No `domain` is set, which keeps the cookie
+ * host-only — the caller supplied a credential for this host and no other.
+ * @param session - the render's own session.
+ * @param url - the page being rendered, whose host the cookies are scoped to.
+ * @param cookies - the accepted request's cookies, by name.
+ * @returns resolves once every cookie is stored.
+ * @throws when Chromium refuses a cookie for this URL.
+ */
+async function applyCookies(session: Session, url: string, cookies: Record<string, string>): Promise<void> {
+  for (const [name, value] of Object.entries(cookies)) {
+    await session.cookies.set({ url, name, value, path: '/' })
+  }
+}
 
 /**
  * Wait, or fail as soon as the render is abandoned.
@@ -79,6 +128,26 @@ async function fullPageHeight(window: BrowserWindow, request: RenderRequest): Pr
   const measured = await window.webContents.executeJavaScript('document.documentElement.scrollHeight') as unknown
   if (typeof measured !== 'number' || !Number.isFinite(measured)) return request.height
   return Math.min(Math.max(Math.ceil(measured), request.height), MAX_FULL_PAGE_HEIGHT)
+}
+
+/**
+ * Bring a capture to the CSS-pixel size that was asked for.
+ *
+ * `capturePage` returns a bitmap at the display's scale factor, so the same
+ * request produces 900x700 on a 1x display and 1800x1400 on a Retina one —
+ * neither the number the caller asked for nor a fact about the page. The
+ * window keeps its native scale, because forcing one would apply to every
+ * window in the process including the user's own; the capture is downsampled
+ * instead, which loses nothing a 1x render would have had.
+ * @param image - what `capturePage` returned.
+ * @param width - the requested viewport width in CSS pixels.
+ * @param height - the content height the window was set to, in CSS pixels.
+ * @returns the image at exactly that size, or the original when it is already that size.
+ */
+function atRequestedSize(image: NativeImage, width: number, height: number): NativeImage {
+  const captured = image.getSize()
+  if (captured.width === width && captured.height === height) return image
+  return image.resize({ width, height, quality: 'best' })
 }
 
 /**
@@ -156,26 +225,31 @@ export const renderInHiddenWindow: Renderer = async (request, signal, trace) => 
     })
     session.webRequest.onCompleted((details) => { trace.requestSettled(details.id) })
     session.webRequest.onErrorOccurred((details) => { trace.requestSettled(details.id) })
+    // Before the navigation, so the first request already carries the session.
+    if (request.cookies !== undefined) await applyCookies(session, request.url, request.cookies)
     trace.enter('navigating')
     // Resolves on did-finish-load and rejects on did-fail-load, whose error
     // message carries the Chromium error code (`ERR_FILE_NOT_FOUND`).
-    await window.loadURL(request.url)
+    await window.loadURL(request.url, request.headers === undefined ? {} : { extraHeaders: extraHeaders(request.headers) })
     trace.enter('loaded')
     if (request.delayMs > 0) {
       trace.enter('delaying')
       await delay(request.delayMs, signal)
     }
+    // The CSS-pixel height the capture is brought back to: the viewport, or
+    // what a full-page render measured and resized the window to.
+    let contentHeight = request.height
     if (request.fullPage) {
       trace.enter('measuring')
-      const height = await fullPageHeight(window, request)
-      if (height !== request.height) {
+      contentHeight = await fullPageHeight(window, request)
+      if (contentHeight !== request.height) {
         trace.enter('resizing')
-        window.setContentSize(request.width, height)
+        window.setContentSize(request.width, contentHeight)
         await delay(RESIZE_SETTLE_MS, signal)
       }
     }
     trace.enter('capturing')
-    return (await window.webContents.capturePage()).toPNG()
+    return atRequestedSize(await window.webContents.capturePage(), request.width, contentHeight).toPNG()
   } finally {
     signal.removeEventListener('abort', destroy)
     destroy()

@@ -22,7 +22,11 @@
  * so a page in the user's browser cannot reach it either: the preflight its
  * `authorization` and JSON content type force is refused. Renders are one at a
  * time behind a bounded queue and a hard deadline, so a caller cannot make the
- * shell hold an unbounded number of windows open.
+ * shell hold an unbounded number of windows open. A request may carry headers
+ * and cookies for the page it names — bounded in count and size, checked
+ * against their own grammars — and those go onto the render's own throwaway
+ * session, never the user's; the caller supplies them, so this service never
+ * holds a credential of its own.
  * @module @deepseek-ai/dsh-desktop/render-service
  */
 
@@ -41,6 +45,32 @@ const RENDER_PATH = '/render'
 /** URL schemes a page may be loaded from; anything else is refused with 422. */
 const RENDERABLE_SCHEMES = new Set(['http:', 'https:', 'file:'])
 
+/** The two schemes a request may attach headers or cookies to; a `file:` load carries neither. */
+const SESSION_SCHEMES = new Set(['http:', 'https:'])
+
+/** RFC 9110 token: every character an HTTP header name and a cookie name may contain. */
+const TOKEN = /^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/
+
+/**
+ * Header field values: visible ASCII, space, and tab. The exclusion that
+ * matters is CR and LF — `loadURL` takes its extra headers as one newline-
+ * separated string, so a value carrying a newline would append headers of the
+ * caller's choosing.
+ */
+const HEADER_VALUE = /^[\t\x20-\x7e]*$/
+
+/** RFC 6265 cookie-octet: no controls, whitespace, quotes, commas, semicolons, or backslashes. */
+const COOKIE_VALUE = /^[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]*$/
+
+/**
+ * Response header naming where the main frame ended up, written only when that
+ * is not the URL the request asked for. It is what lets a caller say "this is
+ * the sign-in page, not the page you asked for" about a render that succeeded;
+ * a 504 says the same thing in its line. Percent-encoded outside printable
+ * ASCII, because a header value carries no other encoding.
+ */
+const LANDED_URL_HEADER = 'x-dsh-render-landed-url'
+
 /** How many still-pending requests a timeout line names before it counts the rest. */
 const TIMEOUT_PENDING_LISTED = 3
 
@@ -54,6 +84,21 @@ const TIMEOUT_URL_CHARS = 96
  * nothing saying so. Cutting it here ends it with an ellipsis.
  */
 const TIMEOUT_LINE_CHARS = 500
+
+/**
+ * What a render that ended somewhere other than the URL it was pointed at can
+ * be retried with, in the words `@haoran/dsh-screenshot` uses when the same
+ * redirect ends in a 200, so a caller is told the same thing whichever way the
+ * render ends.
+ *
+ * It is printed before the pending list, not at the end of the line.
+ * Everything ahead of it is bounded — the deadline, a status, a landing URL cut
+ * at {@link TIMEOUT_URL_CHARS}, and fixed wording, under 250 characters
+ * together — while the pending list grows with the page, so a clause printed
+ * after that list is what {@link TIMEOUT_LINE_CHARS} drops on exactly the
+ * pages whose renders are hardest to explain.
+ */
+const REDIRECT_HINT = 'pass cookies or headers to capture it with a session'
 
 /**
  * The smallest real HTTP status. `did-navigate` reports -1 for a navigation
@@ -90,6 +135,14 @@ export interface RenderLimits {
   maxViewport: number
   /** The largest request body that is read; a longer one is refused with 400 instead of buffered. */
   maxBodyBytes: number
+  /**
+   * How many extra headers and cookies one request may carry, counted
+   * together: they are one budget because they cost the same thing — entries
+   * copied onto a page load this service performs on a caller's behalf.
+   */
+  maxExtraFields: number
+  /** The largest those names and values may come to, in UTF-8 bytes, across both maps. */
+  maxExtraBytes: number
 }
 
 /**
@@ -113,6 +166,11 @@ export const RENDER_LIMITS: RenderLimits = {
   minViewport: 16,
   maxViewport: 4096,
   maxBodyBytes: 64 * 1024,
+  // Enough for a session cookie set, a CSRF token, an authorization header, and
+  // the odd host override; far below what the body cap already allows, so the
+  // refusal a caller gets names the field rather than the byte count.
+  maxExtraFields: 24,
+  maxExtraBytes: 8 * 1024,
 }
 
 /** One accepted render, with every optional field of the request resolved. */
@@ -127,6 +185,19 @@ export interface RenderRequest {
   fullPage: boolean
   /** How long to wait after the page finished loading, for work that starts on load. */
   delayMs: number
+  /**
+   * Extra headers for the main-frame request, absent when the request named
+   * none. They ride the navigation only: subresources the page then loads are
+   * ordinary requests, which is why a session belongs in {@link RenderRequest.cookies}.
+   */
+  headers?: Record<string, string>
+  /**
+   * Cookies to set on the render's own session before the load, by name,
+   * absent when the request named none. Unlike headers these reach every
+   * request the page makes, which is what renders a signed-in page complete
+   * rather than a signed-in document full of broken images.
+   */
+  cookies?: Record<string, string>
 }
 
 /**
@@ -163,6 +234,36 @@ function truncateUrl(url: string): string {
 }
 
 /**
+ * Whether two URLs name the same page after normalization. Chromium reports
+ * the URL it actually loaded, so `http://host:30010` comes back as
+ * `http://host:30010/`; comparing the raw strings would call that a redirect.
+ * @param left - one URL.
+ * @param right - the other.
+ * @returns true when both parse to the same normalized URL, or are identical.
+ */
+function sameUrl(left: string, right: string): boolean {
+  if (left === right) return true
+  if (!URL.canParse(left) || !URL.canParse(right)) return false
+  return new URL(left).href === new URL(right).href
+}
+
+/**
+ * Percent-encode a URL for a header value: every byte outside printable ASCII
+ * escaped, existing escapes left alone. Never throws — a lone surrogate
+ * encodes as the replacement character's bytes rather than failing the reply
+ * this header is only an annotation on.
+ * @param url - the URL to put on the wire.
+ * @returns the header value.
+ */
+function headerSafeUrl(url: string): string {
+  let encoded = ''
+  for (const byte of Buffer.from(url, 'utf8')) {
+    encoded += byte >= 0x20 && byte <= 0x7e ? String.fromCharCode(byte) : `%${byte.toString(16).toUpperCase().padStart(2, '0')}`
+  }
+  return encoded
+}
+
+/**
  * The clause naming what the page was still loading.
  * @param pending - the requests still in flight, oldest first.
  * @returns `no requests pending`, or the count and up to {@link TIMEOUT_PENDING_LISTED} of them.
@@ -191,13 +292,24 @@ function pendingPhrase(pending: PendingRequest[]): string {
 export class RenderTrace {
   /** The URL the request named, compared against where the main frame ended up. */
   private readonly requestedUrl: string
+  /**
+   * Whether a retry of this request could carry a session at all, which is what
+   * makes {@link REDIRECT_HINT} worth printing: `resolveRequest` answers 422 to
+   * headers or cookies on a `file:` URL, so naming them for one would be advice
+   * the service refuses.
+   */
+  private readonly sessionScheme: boolean
   private phase: RenderPhase = 'queued'
   private document: { url: string; status: number } | undefined
   /** Insertion-ordered, so the requests printed first are the ones stuck longest. */
   private readonly pending = new Map<number, PendingRequest>()
 
+  /**
+   * @param requestedUrl - the absolute URL the request named, as `resolveRequest` accepted it.
+   */
   constructor(requestedUrl: string) {
     this.requestedUrl = requestedUrl
+    this.sessionScheme = SESSION_SCHEMES.has(new URL(requestedUrl).protocol)
   }
 
   /**
@@ -243,6 +355,20 @@ export class RenderTrace {
   }
 
   /**
+   * Where the main frame ended up, when that is not where the request pointed.
+   *
+   * A render that succeeds needs this as much as one that times out: a
+   * screenshot of a sign-in page is a correct render of the wrong page, and
+   * nothing in the pixels says which of the two it is.
+   * @returns the landing URL, cut to {@link TIMEOUT_URL_CHARS}, or undefined when the frame stayed where it was sent.
+   */
+  landedElsewhere(): string | undefined {
+    const document = this.document
+    if (document === undefined || sameUrl(document.url, this.requestedUrl)) return undefined
+    return truncateUrl(document.url)
+  }
+
+  /**
    * The one line a 504 answers with.
    * @param timeoutMs - the deadline that passed.
    * @returns one line with no newline in it, at most {@link TIMEOUT_LINE_CHARS} characters long.
@@ -259,8 +385,8 @@ export class RenderTrace {
   private waitingFor(): string {
     const phase = this.phase
     if (phase === 'queued') return 'the render had not started (queued behind earlier renders)'
-    if (phase === 'navigating') return `${this.mainDocumentPhrase()}, ${pendingPhrase([...this.pending.values()])}`
-    return `page loaded, timed out ${AFTER_LOAD_WAIT[phase]}`
+    if (phase === 'navigating') return `${this.mainDocumentPhrase()}${this.redirectHint()}, ${pendingPhrase([...this.pending.values()])}`
+    return `page loaded${this.landingPhrase()}, timed out ${AFTER_LOAD_WAIT[phase]}${this.redirectHint()}`
   }
 
   /**
@@ -271,8 +397,26 @@ export class RenderTrace {
     const document = this.document
     if (document === undefined) return 'no response from the main document yet'
     const status = document.status >= MIN_HTTP_STATUS ? String(document.status) : 'with no HTTP status'
-    const landed = document.url === this.requestedUrl ? '' : ` at ${truncateUrl(document.url)}`
-    return `main document ${status}${landed}, load event not fired`
+    return `main document ${status}${this.landingPhrase()}, load event not fired`
+  }
+
+  /**
+   * Where the main frame ended, printed after whichever phrase names the render's state.
+   * @returns ` at <url>`, or nothing when the frame stayed where it was sent.
+   */
+  private landingPhrase(): string {
+    const elsewhere = this.landedElsewhere()
+    return elsewhere === undefined ? '' : ` at ${elsewhere}`
+  }
+
+  /**
+   * What to do about a render the site sent somewhere else, which is the only
+   * thing in this line the caller can act on rather than only report.
+   * @returns the {@link REDIRECT_HINT} clause, or nothing when the frame stayed put or the URL takes no session.
+   */
+  private redirectHint(): string {
+    if (!this.sessionScheme || this.landedElsewhere() === undefined) return ''
+    return `, ${REDIRECT_HINT}`
   }
 }
 
@@ -319,6 +463,13 @@ class RenderTimeout extends Error {
   }
 }
 
+/** What one completed render answers with: its pixels, and where the page turned out to be. */
+interface RenderOutcome {
+  png: Buffer
+  /** The main frame's landing, when the render ended somewhere other than the requested URL. */
+  landedUrl?: string
+}
+
 /** A rejected request: the status to answer and the one line explaining it. */
 interface Rejection {
   ok: false
@@ -337,6 +488,17 @@ interface RenderBody {
   height?: unknown
   fullPage?: unknown
   delayMs?: unknown
+  headers?: unknown
+  cookies?: unknown
+}
+
+/** One validated extra map, or the reason it is not one. `undefined` is a map the request did not send. */
+type MapResolution = { ok: true; map: Record<string, string> | undefined } | Rejection
+
+/** What the extra maps of one request have spent of their shared bounds so far. */
+interface ExtraBudget {
+  fields: number
+  bytes: number
 }
 
 /**
@@ -367,6 +529,65 @@ function viewportEdge(value: unknown, limits: RenderLimits): number | undefined 
   if (typeof value !== 'number' || !Number.isInteger(value)) return undefined
   if (value < limits.minViewport || value > limits.maxViewport) return undefined
   return value
+}
+
+/**
+ * Validate one string→string map from the body against the shared extra bounds.
+ *
+ * An empty object resolves to `undefined`: a request that sent `{}` asked for
+ * nothing, and the renderer is told about headers and cookies only when there
+ * are some. Names and values are checked against their own grammars rather
+ * than merely for being strings, because both end up in a request this service
+ * makes on the caller's behalf — a newline in a header value would append a
+ * header nobody sent.
+ * @param value - the field as the body carried it.
+ * @param field - `headers` or `cookies`, named in every refusal.
+ * @param valuePattern - the grammar values of this field must match.
+ * @param limits - the bounds to enforce.
+ * @param budget - the shared count and byte total, advanced by this call.
+ * @returns the validated map, undefined for an absent or empty one, or the refusal.
+ */
+function extraFields(
+  value: unknown,
+  field: 'headers' | 'cookies',
+  valuePattern: RegExp,
+  limits: RenderLimits,
+  budget: ExtraBudget,
+): MapResolution {
+  if (value === undefined) return { ok: true, map: undefined }
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return { ok: false, status: 400, message: `${field} must be a JSON object of string values` }
+  }
+  const entries = Object.entries(value as Record<string, unknown>)
+  if (entries.length === 0) return { ok: true, map: undefined }
+  const map: Record<string, string> = {}
+  for (const [name, item] of entries) {
+    budget.fields++
+    if (budget.fields > limits.maxExtraFields) {
+      return { ok: false, status: 400, message: `a request may carry at most ${String(limits.maxExtraFields)} headers and cookies together` }
+    }
+    if (!TOKEN.test(name)) {
+      return { ok: false, status: 400, message: `${field} name ${JSON.stringify(name)} is not a valid token` }
+    }
+    // Cookies set through the `cookies` field reach every request the page
+    // makes; one smuggled through `headers` would reach only the navigation,
+    // which looks like a session that half worked.
+    if (field === 'headers' && name.toLowerCase() === 'cookie') {
+      return { ok: false, status: 400, message: 'send cookies in the cookies field, which applies them to the whole render, not as a cookie header' }
+    }
+    if (typeof item !== 'string') {
+      return { ok: false, status: 400, message: `${field}.${name} must be a string` }
+    }
+    if (!valuePattern.test(item)) {
+      return { ok: false, status: 400, message: `${field}.${name} carries a character its grammar does not allow` }
+    }
+    budget.bytes += Buffer.byteLength(name, 'utf8') + Buffer.byteLength(item, 'utf8')
+    if (budget.bytes > limits.maxExtraBytes) {
+      return { ok: false, status: 400, message: `the headers and cookies of one request may be at most ${String(limits.maxExtraBytes)} bytes together` }
+    }
+    map[name] = item
+  }
+  return { ok: true, map }
 }
 
 /**
@@ -401,7 +622,26 @@ function resolveRequest(raw: unknown, limits: RenderLimits): Resolution {
   if (typeof delayMs !== 'number' || !Number.isInteger(delayMs) || delayMs < 0 || delayMs > limits.maxDelayMs) {
     return { ok: false, status: 400, message: `delayMs must be an integer between 0 and ${String(limits.maxDelayMs)}` }
   }
-  return { ok: true, request: { url: body.url, width, height, fullPage, delayMs } }
+  const budget: ExtraBudget = { fields: 0, bytes: 0 }
+  const headers = extraFields(body.headers, 'headers', HEADER_VALUE, limits, budget)
+  if (!headers.ok) return headers
+  const cookies = extraFields(body.cookies, 'cookies', COOKIE_VALUE, limits, budget)
+  if (!cookies.ok) return cookies
+  if ((headers.map !== undefined || cookies.map !== undefined) && !SESSION_SCHEMES.has(scheme)) {
+    return { ok: false, status: 422, message: `headers and cookies apply to an http or https request; ${scheme} carries neither` }
+  }
+  return {
+    ok: true,
+    request: {
+      url: body.url,
+      width,
+      height,
+      fullPage,
+      delayMs,
+      ...headers.map === undefined ? {} : { headers: headers.map },
+      ...cookies.map === undefined ? {} : { cookies: cookies.map },
+    },
+  }
 }
 
 /**
@@ -452,15 +692,16 @@ function fail(response: ServerResponse, status: number, message: string): void {
 /**
  * Answer with the encoded image.
  * @param response - the response to write.
- * @param png - the PNG bytes the renderer produced.
+ * @param rendered - the PNG bytes and, when the main frame ended somewhere else, where.
  */
-function sendPng(response: ServerResponse, png: Buffer): void {
+function sendPng(response: ServerResponse, rendered: RenderOutcome): void {
   response.writeHead(200, {
     'content-type': 'image/png',
-    'content-length': String(png.byteLength),
+    'content-length': String(rendered.png.byteLength),
     'cache-control': 'no-store',
+    ...rendered.landedUrl === undefined ? {} : { [LANDED_URL_HEADER]: headerSafeUrl(rendered.landedUrl) },
   })
-  response.end(png)
+  response.end(rendered.png)
 }
 
 /**
@@ -481,7 +722,7 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
   /** The serialization chain; every accepted render runs after the previous one is settled or abandoned. */
   let tail: Promise<void> = Promise.resolve()
 
-  const runQueued = async (request: RenderRequest): Promise<Buffer> => {
+  const runQueued = async (request: RenderRequest): Promise<RenderOutcome> => {
     const controller = new AbortController()
     const trace = new RenderTrace(request.url)
     const job = tail.then(() => {
@@ -521,7 +762,12 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
       }, limits.timeoutMs)
     })
     try {
-      return await Promise.race([job, deadline])
+      const png = await Promise.race([job, deadline])
+      // Read after the render rather than during it: `did-navigate` fires for
+      // every redirect the main frame follows, so the landing is only settled
+      // once the load is done.
+      const landedUrl = trace.landedElsewhere()
+      return { png, ...landedUrl === undefined ? {} : { landedUrl } }
     } finally {
       clearTimeout(timer)
     }

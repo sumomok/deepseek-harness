@@ -117,7 +117,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-prun
 |---|---|---|
 | `dsh-better-sidebar` | `0.14.0`,来自 npm | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
 | `dsh-at-file` | `v0.6.5`,来自作者仓库该 tag 所指的提交 | 输入框里的 `@` 文件提及 |
-| `@haoran/dsh-screenshot` | `0.1.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染一个页面,把像素交给 agent |
+| `@haoran/dsh-screenshot` | `0.1.4`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面——带 `cookies` 或 `headers` 时也包括登录墙后的页面——把像素交给 agent,并在要求时把 PNG 写成文件 |
 | `@haoran/dsh-llm-permission-gateway` | `0.1.3`,来自提交进本仓库的 tarball | 自动审查这个权限预设,以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型 |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
@@ -155,20 +155,26 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-prun
 
 **壳把自己的 Chromium 借给服务端**,所以截图不取决于这台机器上装没装 Chrome 或 Edge。在启动服务端之前,主进程在 `127.0.0.1` 与一个临时端口上打开一个 HTTP 监听、生成一个 32 字节的 token,并把两者放进那一个子进程的环境——`DSH_DESKTOP_RENDER_ENDPOINT` 与 `DSH_DESKTOP_RENDER_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程都继承不到。`@haoran/dsh-screenshot` 每次调用都去读它们。两个都读不到的 harness 改用系统上的无头浏览器渲染,这也正是所有非桌面安装的做法;监听没能打开的那次启动会记一行日志并照常继续,它的截图走的是同一条退路。
 
-请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs? }`。它可能得到的全部回答:
+请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs?, headers?, cookies? }`。它可能得到的全部回答:
 
 | 回答 | 何时 |
 |---|---|
-| `200 image/png` | 截图本身,PNG 字节 |
-| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内,或 `url` 不是绝对 URL |
+| `200 image/png` | 截图本身,PNG 字节,尺寸正好是请求的视口 |
+| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内、`url` 不是绝对 URL,或某个 `headers`/`cookies` 条目越界或不合它的文法 |
 | `401` | 缺少或写错 bearer token |
 | `404` | 其他任何路径或方法 |
-| `422` | 格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL |
+| `422` | 格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL,或在 `file:` URL 上带了 `headers`/`cookies` |
 | `500` | 页面加载失败或截图失败;这一行带着 Chromium 的错误码 |
 | `503` | 已经受理了四个请求 |
 | `504` | 该请求越过了 25 秒的期限;这一行说出渲染当时在等什么 |
 
 每个失败响应体都是一行 `text/plain`,因为读它的是一个工具,它会把这句话引进模型看到的消息里。
+
+**一个请求可以带上页面所需的会话。**`cookies` 是 name→value 的映射,在加载之前设到这次渲染自己的 session 上,作用域是路径 `/` 与页面所在的主机,因此它不只覆盖文档,也覆盖页面的子资源——一个图片全部 401 的已登录页面,不是任何人想看的那个页面。路径之所以显式给出,是因为不给的话 Chromium 会套用 RFC 6265 的默认路径——那是页面被送出来的那个目录,而不是整个站点:为 `/app/issues/list` 设的 cookie 只覆盖 `/app/issues/`,页面发往 `/api/…` 的请求一个也碰不到。`headers` 是 name→value 的映射,只挂在主框架那一次导航上,这正是 bearer token 或 Host 覆写需要的位置;`cookie` 头会被指名拒绝并指向 `cookies`,因为那样送进去的 cookie 只覆盖文档、覆盖不到文档里的任何东西。两者合起来受同一组边界约束:最多 24 个条目、共 8 KB,名字必须是 HTTP token,头部值限于可见 ASCII 加空格与制表符(换行会凭空追加一个谁也没发过的头,因为 `loadURL` 把它们当作一整个以换行分隔的字符串),cookie 值限于 RFC 6265 的 cookie-octet。凭据由调用方提供,壳自己一个也不留:它们活在随窗口一起消亡的 session 上。
+
+**当主框架最终落在请求所指之外时,`200` 会说出它落在哪里**,放在 `x-dsh-render-landed-url` 上,可见 ASCII 之外的部分做百分号编码,并截到 96 个字符。一张登录页的截图是「正确地渲染了错误的页面」,而像素本身说不出它是哪一种;插件把这个响应头变成工具结果里的一句话,点名 `cookies` 与 `headers`。主框架停在原地时不发这个头,比较的是归一化之后的 URL,所以 Chromium 给源地址补上的那个斜杠不算重定向。
+
+**截图的尺寸就是请求的尺寸。**`capturePage` 返回的位图带着显示器的缩放系数——Retina Mac 上是 2,多数 Windows 机器上是 1——所以同一个 1440x900 的请求本会在两边给出不同的图像。窗口保留它原本的缩放系数,因为强制指定是一个进程级开关,会波及用户自己那个窗口;截图则在编码之前被缩放到请求的 CSS 像素:整页截图缩放到请求的宽度与它测得的高度。把一张 2x 的截图降采样,不会损失 1x 渲染本来就有的任何东西。
 
 **504 会说出页面当时在等什么**,好让调用方分得清是一张卡住的图、一个死掉的代理,还是一个卡死的渲染进程。这一行说出渲染当时处在哪个阶段——在排队、在加载页面,还是已经越过 load 事件、正在等 `delayMs`、测量、调整窗口大小或截图——而在页面还没加载完时,它还会说出主文档的 HTTP 状态码、主框架最终落在哪里(当那不是请求所指的地址时),以及最多三个仍在飞行中的请求及其 Chromium 资源类型:`render timed out after 25000ms: main document 200, load event not fired, 7 requests pending: [image] https://www.gravatar.com/avatar/…, [image] …, [script] … (+4 more)`。每个 URL 截到 96 个字符,整行截到 500 个字符,后者正是 `@haoran/dsh-screenshot` 引进模型消息里的长度。渲染本身不因此改变:壳是从 `did-navigate` 与 session 上那几个非阻塞 `webRequest` 钩子读到这些的,它们只观察请求,不扣住请求。
 
@@ -185,7 +191,7 @@ pnpm --filter @deepseek-ai/dsh-desktop run build:ts
 pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 ```
 
-它在真实的 Electron 里渲染一个本地文件,检查视口尺寸、整页截图确实比视口更高,以及 401、422 与 500 三种回答。最后一个用例让页面去请求一个本地监听——它接受连接却从不回答——这正是证明 `webRequest` 钩子确实通到超时那一行的地方:504 会点出那张图。
+它在真实的 Electron 里渲染一个本地文件,检查截图尺寸无论显示器缩放系数是多少都正好是请求的视口、整页截图确实比它更高,以及 401、422 与 500 三种回答。有一个用例起一个站点:任何没有会话的访问都被重定向到它的登录页,并在真实 Chromium 上核对三种结果——不带会话时回答里有落点响应头,带 cookie 与带 header 时都没有。下一个用例把页面放在 `/app/issues/` 下,一张图在它旁边、另一张在 `/api/` 下,断言的是这个站点收到了什么,而不是回来的像素:cookie 出现在全部三个请求上,而额外的 header 只出现在那次导航上、两张图都没有。最后一个用例让页面去请求一个本地监听——它接受连接却从不回答——这正是证明 `webRequest` 钩子确实通到超时那一行的地方:504 会点出那张图。
 
 ## 服务器环境
 
@@ -201,5 +207,6 @@ pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 - 开发启动(`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`)用的是检出目录的已构建 CLI 和 PATH 里的 Node,不是暂存资源。
 - 渲染服务按次启动、串行工作。同时受理四个请求、只渲染一个,所以一个把 25 秒期限用满才加载完的页面会占住这个位置,排在它后面的请求只拿得到自己那份期限剩下的部分。
 - 壳的视口下限是每边 16 px,而 `@haoran/dsh-screenshot` 自己允许到 1。要求更小视口的 `screenshot` 调用在桌面端会被答以 400,在别处则由系统浏览器渲染。
+- 只有壳的渲染服务能带上 `headers` 与 `cookies`。插件的另一个后端是一次性的 `--screenshot` 浏览器命令行,没有任何设置它们的办法,所以在没有这个服务的安装上,这样的调用会被拒绝,而不是以未登录状态渲染出来。
 - 内置插件无法从 profile 侧钉到另一个版本。用 `dsh plugin --profile desktop add` 安装同名包会在 profile 自己的 `node_modules` 里放一份,Loader 会先找到它,而 `resolveBundleDir` 仍从安装目录读取 patch 层——那样这一行来自一个版本、代码来自另一个版本。
 - `dsh-better-sidebar` 用壳自己的环境启动终端:两处 `pty.spawn` 传的都是 `env: { ...process.env }`,而不是所有 harness spawner 都会走的 `packages/subprocess/subprocess/src/index.ts` 里的 `scrubbedParentEnv()`,后者会剥掉所有 `DSH_` 前缀的变量以及名字匹配 `KEY|PASSWORD|SECRET|TOKEN` 的变量。该插件注册了八个模型可以调用的终端工具(`terminal_create`、`terminal_send`、`terminal_read` 等),所以模型可以经由其中之一读到那份未经过滤的环境。Windows 的 GUI 进程继承用户级环境变量,因此用 `setx` 设过的 `DEEPSEEK_API_KEY` 会出现在那个终端里;macOS 的 GUI 进程拿到的是 launchd 的环境,通常不含它。

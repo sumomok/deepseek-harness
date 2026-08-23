@@ -41,7 +41,7 @@ Where the main frame landed is appended to the status when it is not where the r
 
 **Capture the partial page on timeout and answer 200 with what had painted.** Often the most useful answer of all — a page whose avatars hang has usually already laid out. Rejected here as a different decision: it changes what the protocol means by success, so a caller can no longer read 200 as "this is the page", and it needs its own answer for how a partial capture is labelled. Deferred, not refused.
 
-**Report the diagnostic on a response header for successful renders too**, so a slow-but-successful render also says what it waited for. Rejected for now: the plugin reads the body of a failure and the bytes of a success, so nothing would read the header without a plugin change, and the plugin is a vendored tarball this repository does not own.
+**Report the diagnostic on a response header for successful renders too**, so a slow-but-successful render also says what it waited for. Rejected for now: the plugin reads the body of a failure and the bytes of a success, so nothing would read the header without a plugin change, and the plugin is a vendored tarball this repository does not own. [The session and output note](2026-08-22-screenshot-session-and-output.md) reverses this for the one fact that matters — where the main frame landed — by shipping both halves together.
 
 **Leave the 504 alone and tell the model to retry with a longer deadline.** Rejected: the shell's deadline is pinned below the plugin's own 30-second budget, so there is nothing to lengthen, and a retry against a blackholed host produces the same 504 more slowly.
 
