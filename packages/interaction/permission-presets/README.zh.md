@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-`dsh-permission-presets` 为部署提供一个面向用户的 Permissions 选择器，把两个独立的执行旋钮——沙箱模式与审批策略——捆绑为具名预设。选择预设会同时应用沙箱模式与审批策略，而每个旋钮各自保留自己的值，因此沙箱执行、审批、提示词叙述与回放都读取各自的设置。默认表提供 `workspace-write`（workspace-write ＋ ask）与 `danger-full-access`（danger-full-access ＋ never）；不匹配任何预设的旋钮组合会读回推导出的 `custom`，客户端可以显示它，但不能选择它。该服务还拥有 `permission` 设置命名空间，其默认值只在之后创建会话时生效；两个可选子功能——`permissions` 会话投影单元与 `/permission` 命令——向 Web 客户端暴露同一表面。挂载它需要具有约束能力的 bash 执行器与审批服务；它自身不拥有任何执行权。
+`dsh-permission-presets` 为部署提供一个面向用户的 Permissions 选择器，把两个独立的执行旋钮——沙箱模式与审批策略——捆绑为具名预设。选择预设会同时应用沙箱模式与审批策略，而每个旋钮各自保留自己的值，因此沙箱执行、审批、提示词叙述与回放都读取各自的设置。默认表提供 `workspace-write`（workspace-write ＋ ask）与 `danger-full-access`（danger-full-access ＋ never）；不匹配任何预设的旋钮组合会读回推导出的 `custom`，客户端可以显示它，但不能选择它。表项还可以携带展示信息：`name`、`description` 与 `glyph`——即选择器显示设计集中的哪一个 glyph，取值为 `read-only`、`workspace-write` 或 `danger-full-access`；预设 id 本身就是 glyph 名称时无需配置。该服务还拥有 `permission` 设置命名空间，其默认值只在之后创建会话时生效；两个可选子功能——`permissions` 会话投影单元与 `/permission` 命令——向 Web 客户端暴露同一表面。挂载它需要具有约束能力的 bash 执行器与审批服务；它自身不拥有任何执行权。
 
 ## 目录
 
@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 配置预设
 
-插件配置定义预设表与新会话的默认值。每个预设名称把一个沙箱模式与一个审批策略捆绑为一组；`name` 与 `description` 是可选的客户端呈现。
+插件配置定义预设表与新会话的默认值。每个预设名称把一个沙箱模式与一个审批策略捆绑为一组；`name`、`description` 与 `glyph` 是可选的客户端呈现。
 
 ```yaml
 - name: '@deepseek-ai/dsh-permission-presets'

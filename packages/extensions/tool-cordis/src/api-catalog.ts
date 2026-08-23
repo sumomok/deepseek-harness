@@ -4560,12 +4560,16 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PrepareSessionOptions = (CreateSessionOptions & {\n    readonly seedSource?: undefined;\n}) | RestoredSessionOptions;',
   },
   {
+    name: 'PresetGlyph',
+    declaration: 'export type PresetGlyph = \'read-only\' | \'workspace-write\' | \'danger-full-access\';',
+  },
+  {
     name: 'PresetOption',
-    declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n}',
+    declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n    glyph?: PresetGlyph;\n}',
   },
   {
     name: 'PresetSpec',
-    declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n}',
+    declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n    glyph?: PresetGlyph;\n}',
   },
   {
     name: 'PresetTrust',
