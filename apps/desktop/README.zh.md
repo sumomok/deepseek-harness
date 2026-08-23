@@ -155,20 +155,45 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-prun
 
 **壳把自己的 Chromium 借给服务端**,所以截图不取决于这台机器上装没装 Chrome 或 Edge。在启动服务端之前,主进程在 `127.0.0.1` 与一个临时端口上打开一个 HTTP 监听、生成一个 32 字节的 token,并把两者放进那一个子进程的环境——`DSH_DESKTOP_RENDER_ENDPOINT` 与 `DSH_DESKTOP_RENDER_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程都继承不到。`@haoran/dsh-screenshot` 每次调用都去读它们。两个都读不到的 harness 改用系统上的无头浏览器渲染,这也正是所有非桌面安装的做法;监听没能打开的那次启动会记一行日志并照常继续,它的截图走的是同一条退路。
 
-请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs?, headers?, cookies? }`。它可能得到的全部回答:
+请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs?, timeoutMs?, onTimeout?, blockHosts?, headers?, cookies? }`。它可能得到的全部回答:
 
 | 回答 | 何时 |
 |---|---|
-| `200 image/png` | 截图本身,PNG 字节,尺寸正好是请求的视口 |
-| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内、`url` 不是绝对 URL,或某个 `headers`/`cookies` 条目越界或不合它的文法 |
+| `200 image/png` | 截图本身,PNG 字节,尺寸正好是请求的视口——或者,对一个发了 `onTimeout: "capture"` 的请求,是期限越过时页面已经画出来的那一帧 |
+| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内、`timeoutMs` 不在 1000–120000 内、`onTimeout` 不是 `fail` 或 `capture`、某个 `blockHosts` 条目不是主机模式或命中了页面自己的主机、`url` 不是绝对 URL,或某个 `headers`/`cookies` 条目越界或不合它的文法 |
 | `401` | 缺少或写错 bearer token |
 | `404` | 其他任何路径或方法 |
 | `422` | 格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL,或在 `file:` URL 上带了 `headers`/`cookies` |
 | `500` | 页面加载失败或截图失败;这一行带着 Chromium 的错误码 |
 | `503` | 已经受理了四个请求 |
-| `504` | 该请求越过了 25 秒的期限;这一行说出渲染当时在等什么 |
+| `504` | 该请求越过了自己的期限且没有像素可答;这一行说出渲染当时在等什么 |
 
 每个失败响应体都是一行 `text/plain`,因为读它的是一个工具,它会把这句话引进模型看到的消息里。
+
+**每一个真的开始渲染过的回答都带着一份报告**,放在 `x-dsh-render-report` 上:整份记录以 JSON 形式、可见 ASCII 之外做百分号编码,出现在 200、拒绝一次失败渲染的 500,以及 504 上。而一个根本没有开始渲染的拒绝——校验的 400 或 422、401、404、503——不带它。之所以放在响应头而不是响应体里,是因为最需要它的那两个回答的响应体已经被占了;调用方无论渲染以哪种方式结束,都读同一个结构。
+
+| 字段 | 它说什么 |
+|---|---|
+| `version` | `1`;不认识这个数字的读者应当忽略其余部分 |
+| `outcome` | `complete`、`timeout`(504 与部分截图的 200 都是它)或 `failed` |
+| `phase` | `queued`、`navigating`、`loaded`、`delaying`、`measuring`、`resizing`、`capturing` |
+| `elapsedMs`、`deadlineMs` | 该请求被受理了多久,对照它当时运行在哪个期限之下 |
+| `requestedUrl`、`mainDocument` | 请求的是什么,以及主框架最终落在哪里的 `{ url, status, redirected, title }`——在它报告导航之前是 `null` |
+| `loadEventFired`、`firstPaint` | load 事件有没有触发,以及窗口有没有画出过一帧 |
+| `requests` | `{ total, completed, failed, pending, blocked }`,统计真正上了线的请求,以及单独统计被 `blockHosts` 取消的那些 |
+| `pending`、`failed` | 各至多 5 条:最旧的在前的 `{ url, type, ageMs }`,以及按失败顺序排的 `{ url, type, error, status }` |
+| `hosts` | 至多 5 条 `{ host, pending, failed, blocked, maxAgeMs }`,在飞行中的最多的排在最前——这正是调用方该填进 `blockHosts` 的东西 |
+| `console` | `{ errors, warnings, samples }`,其中至多引用 3 条错误消息 |
+| `mainFrameError`、`renderer` | 来自 `did-fail-load` 的 `{ code, description }`,以及来自渲染进程的 `{ gone, unresponsive }` |
+| `capture` | 这个回答所带像素的 `{ partial, width, height }`,不带像素时为 `null` |
+
+这个响应头是靠构造方式定死上界的,而不是截断到某个长度——被截断的头是谁也解析不了的 JSON:每个列表都限了条数,每个 URL、主机与标题限在编码后的 96 字节、每条消息限在 160 字节,每个被截的字符串都以省略号结尾。所有列表都填满时,这个头是 4.3 KB,在 6 KB 的天花板之下。上界数的是编码后的字节而不是字符,所以一个 URL 与标题都是中文的页面同样落在这个天花板之内——在那里,一个可见 ASCII 之外的字符要花三个字节。
+
+**期限属于请求自己。**`timeoutMs` 从受理时刻起算,取值 1000 到 120000;不给这个字段的请求拿到 25 秒,也就是这个字段存在之前写的每一个调用方拿到的数。越界的数会被拒绝而不是被悄悄挪动,因为一个要了三分钟、却被默默给了两分钟的调用方,会按它发出去的那个数装好自己的 abort,并在答案到达之前先放弃。给了这个字段的调用方则反过来持有这段关系:`@haoran/dsh-screenshot` 把自己的 fetch abort 装在 `timeoutMs + 5000` 上,所以壳的回答总是先到。
+
+**`onTimeout: "capture"` 把一次越过的期限变成像素。**在期限那一刻,壳对窗口已经画出来的东西做一次 `capturePage()`,并以 200 回答这张图,同时带着 `outcome: "timeout"` 与 `capture.partial: true`——一个头像卡住的页面通常已经把其余部分排好版了,那张图加上这份报告,是比一句话更好的答案。只有主动要了它的请求才可能收到部分截图,所以把 200 读作「这就是加载完的页面」的调用方永远不会读错。这次截图上限 3 秒,而这次渲染无论如何都被放弃;它失败或超过上限时,回答就是那个照旧的 504 加它的报告。队列在期限越过的那一刻就往前走,而不是等截图结束,所以一次卡住的截图只耽误它自己。
+
+**`blockHosts` 就是报告点名的那个补救办法。**它是至多 32 条主机模式的列表——精确主机,或匹配该后缀的子域(不含后缀本身)的 `*.suffix`,每条至多 253 个字符,匹配时不分大小写——命中的请求在 `onBeforeRequest` 里于发出之前被取消,并计入 `requests.blocked`。命中当前被渲染页面自己主机的模式会被一个点名它的 400 拒绝,因为一次把自己文档取消掉的渲染只会失败,且说不出任何理由。这是壳唯一注册的阻塞式 `webRequest` 钩子,而且只对真的带了这个字段的请求注册:没写 `blockHosts` 的渲染,时序与没有这个特性时完全一致。
 
 **一个请求可以带上页面所需的会话。**`cookies` 是 name→value 的映射,在加载之前设到这次渲染自己的 session 上,作用域是路径 `/` 与页面所在的主机,因此它不只覆盖文档,也覆盖页面的子资源——一个图片全部 401 的已登录页面,不是任何人想看的那个页面。路径之所以显式给出,是因为不给的话 Chromium 会套用 RFC 6265 的默认路径——那是页面被送出来的那个目录,而不是整个站点:为 `/app/issues/list` 设的 cookie 只覆盖 `/app/issues/`,页面发往 `/api/…` 的请求一个也碰不到。`headers` 是 name→value 的映射,只挂在主框架那一次导航上,这正是 bearer token 或 Host 覆写需要的位置;`cookie` 头会被指名拒绝并指向 `cookies`,因为那样送进去的 cookie 只覆盖文档、覆盖不到文档里的任何东西。两者合起来受同一组边界约束:最多 24 个条目、共 8 KB,名字必须是 HTTP token,头部值限于可见 ASCII 加空格与制表符(换行会凭空追加一个谁也没发过的头,因为 `loadURL` 把它们当作一整个以换行分隔的字符串),cookie 值限于 RFC 6265 的 cookie-octet。凭据由调用方提供,壳自己一个也不留:它们活在随窗口一起消亡的 session 上。
 
@@ -176,11 +201,11 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-prun
 
 **截图的尺寸就是请求的尺寸。**`capturePage` 返回的位图带着显示器的缩放系数——Retina Mac 上是 2,多数 Windows 机器上是 1——所以同一个 1440x900 的请求本会在两边给出不同的图像。窗口保留它原本的缩放系数,因为强制指定是一个进程级开关,会波及用户自己那个窗口;截图则在编码之前被缩放到请求的 CSS 像素:整页截图缩放到请求的宽度与它测得的高度。把一张 2x 的截图降采样,不会损失 1x 渲染本来就有的任何东西。
 
-**504 会说出页面当时在等什么**,好让调用方分得清是一张卡住的图、一个死掉的代理,还是一个卡死的渲染进程。这一行说出渲染当时处在哪个阶段——在排队、在加载页面,还是已经越过 load 事件、正在等 `delayMs`、测量、调整窗口大小或截图——而在页面还没加载完时,它还会说出主文档的 HTTP 状态码、主框架最终落在哪里(当那不是请求所指的地址时),以及最多三个仍在飞行中的请求及其 Chromium 资源类型:`render timed out after 25000ms: main document 200, load event not fired, 7 requests pending: [image] https://www.gravatar.com/avatar/…, [image] …, [script] … (+4 more)`。每个 URL 截到 96 个字符,整行截到 500 个字符,后者正是 `@haoran/dsh-screenshot` 引进模型消息里的长度。渲染本身不因此改变:壳是从 `did-navigate` 与 session 上那几个非阻塞 `webRequest` 钩子读到这些的,它们只观察请求,不扣住请求。
+**504 会说出页面当时在等什么**,好让调用方分得清是一张卡住的图、一个死掉的代理,还是一个卡死的渲染进程。这一行说出渲染当时处在哪个阶段——在排队、在加载页面,还是已经越过 load 事件、正在等 `delayMs`、测量、调整窗口大小或截图——而在页面还没加载完时,它还会说出主文档的 HTTP 状态码、主框架最终落在哪里(当那不是请求所指的地址时),以及最多三个仍在飞行中的请求及其 Chromium 资源类型:`render timed out after 25000ms: main document 200, load event not fired, 7 requests pending: [image] https://www.gravatar.com/avatar/…, [image] …, [script] … (+4 more)`。每个 URL 截到 96 个字符,整行截到 500 个字符,后者正是 `@haoran/dsh-screenshot` 引进模型消息里的长度;报告响应头以结构的形式说同一件事。渲染本身不因这一切改变:壳是从主进程事件——`did-navigate`、`did-redirect-navigation`、`page-title-updated`、`ready-to-show`、`did-fail-load`、`console-message`、`render-process-gone`、`unresponsive`——与 session 上那几个非阻塞 `webRequest` 钩子读到这些的,它们只观察请求,不扣住请求。
 
 **每次渲染都拿到一个与应用自己那扇窗毫无共享的隐藏窗口。**它的 session 没有 `persist:` 前缀,所以只活在内存里、随窗口一起消失:被渲染的页面读不到也写不了用户正在用的那扇窗的 cookie、存储与缓存,它存下的东西也活不过这一个请求。没有 Node 集成、没有 `webview`、没有 devtools;每一个权限请求都被拒绝,页面试图发起的每一次下载与每一次开窗也都被拒绝。对话框被禁用,于是 `alert()`、`confirm()`、`prompt()` 既不会在一扇用户看不见的窗口上弹出原生模态框,也不会把它背后的页面线程堵住;窗口是静音的,于是自动播放的 `<audio>` 元素传不到扬声器。窗口在响应时、加载失败时与期限到时都会被销毁。
 
-**边界在哪**:同一时刻只渲染一个,同时最多受理四个请求(一个在渲染、三个在等),期限 25 秒且从受理时刻起算,而不是从渲染开始时算。这个数必须小于 `@haoran/dsh-screenshot` 自己的 30 秒预算:插件的 `AbortSignal.timeout` 从 fetch 调用那一刻起算,而本服务的期限在受理之后才开始,所以两边取同一个数就会是插件先放弃,上面那些回答一个也到不了模型手里。`fullPage` 截图会测量 `document.documentElement.scrollHeight` 并把窗口调到那个高度,夹到 8192 px 为止,因为无限滚动的文档报出的高度会在测量过程中一直变大。
+**边界在哪**:同一时刻只渲染一个,同时最多受理四个请求(一个在渲染、三个在等),期限从受理时刻起算而不是从渲染开始时算——用的是请求自己的 `timeoutMs`,默认 25 秒、至多 120 秒——以及在那个期限上给部分截图的 3 秒。`fullPage` 截图会测量 `document.documentElement.scrollHeight` 并把窗口调到那个高度,夹到 8192 px 为止,因为无限滚动的文档报出的高度会在测量过程中一直变大。
 
 **三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时除 `POST /render` 以外的方法一律答 404,于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝——这正是把用户自己浏览器里的页面挡在外面的东西。
 
@@ -191,7 +216,7 @@ pnpm --filter @deepseek-ai/dsh-desktop run build:ts
 pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 ```
 
-它在真实的 Electron 里渲染一个本地文件,检查截图尺寸无论显示器缩放系数是多少都正好是请求的视口、整页截图确实比它更高,以及 401、422 与 500 三种回答。有一个用例起一个站点:任何没有会话的访问都被重定向到它的登录页,并在真实 Chromium 上核对三种结果——不带会话时回答里有落点响应头,带 cookie 与带 header 时都没有。下一个用例把页面放在 `/app/issues/` 下,一张图在它旁边、另一张在 `/api/` 下,断言的是这个站点收到了什么,而不是回来的像素:cookie 出现在全部三个请求上,而额外的 header 只出现在那次导航上、两张图都没有。最后一个用例让页面去请求一个本地监听——它接受连接却从不回答——这正是证明 `webRequest` 钩子确实通到超时那一行的地方:504 会点出那张图。
+它在真实的 Electron 里渲染一个本地文件,检查截图尺寸无论显示器缩放系数是多少都正好是请求的视口、整页截图确实比它更高,以及 401、422 与 500 三种回答。有一个用例起一个站点:任何没有会话的访问都被重定向到它的登录页,并在真实 Chromium 上核对三种结果——不带会话时回答里有落点响应头,带 cookie 与带 header 时都没有。下一个用例把页面放在 `/app/issues/` 下,一张图在它旁边、另一张在 `/api/` 下,断言的是这个站点收到了什么,而不是回来的像素:cookie 出现在全部三个请求上,而额外的 header 只出现在那次导航上、两张图都没有。一个调用 `console.error` 的页面证明 `console-message` 与页面标题确实进到了报告里。其余用例让页面去请求一个本地监听——它接受连接却从不回答——这正是任何注入渲染器都替代不了的部分:在 `onTimeout: "capture"` 之下回答是一个 200,它的 PNG 解出来正好是请求的尺寸,报告写着 `outcome: "timeout"` 并点名那个卡住的主机;用 `blockHosts` 点名同一个主机,它会在不到十分之一秒内完成、`requests.blocked` 为 1;什么都不做时,504 在它那一行与它的报告里都点出那张图。
 
 ## 服务器环境
 
@@ -205,7 +230,8 @@ pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 - macOS 已签名但未公证,所以由浏览器下载的副本首次运行仍需右键打开。公证需要 Apple 开发者账号;更新路径不需要。
 - Windows arm64 与 Linux 桌面目标未构建;node-pty 预编译已覆盖 win32-arm64,缺口只是打包工作。
 - 开发启动(`pnpm --filter @deepseek-ai/dsh-desktop exec electron lib/main.js`)用的是检出目录的已构建 CLI 和 PATH 里的 Node,不是暂存资源。
-- 渲染服务按次启动、串行工作。同时受理四个请求、只渲染一个,所以一个把 25 秒期限用满才加载完的页面会占住这个位置,排在它后面的请求只拿得到自己那份期限剩下的部分。
+- 渲染服务按次启动、串行工作。同时受理四个请求、只渲染一个,所以一个把自己的期限用满才加载完的页面会占住这个位置,排在它后面的请求只拿得到自己那份期限剩下的部分——把 `timeoutMs` 提到 120 秒天花板的调用方,花掉的也是排在它后面那些请求的时间。
+- 部分截图就是合成器当时画出来的那一帧:一个还在取样式表的页面,得到的是没有样式的文档,而不是画了一半的页面。有没有画出过任何东西(`firstPaint`)、load 事件有没有触发,由报告说出来;像素本身说不出。
 - 壳的视口下限是每边 16 px,而 `@haoran/dsh-screenshot` 自己允许到 1。要求更小视口的 `screenshot` 调用在桌面端会被答以 400,在别处则由系统浏览器渲染。
 - 只有壳的渲染服务能带上 `headers` 与 `cookies`。插件的另一个后端是一次性的 `--screenshot` 浏览器命令行,没有任何设置它们的办法,所以在没有这个服务的安装上,这样的调用会被拒绝,而不是以未登录状态渲染出来。
 - 内置插件无法从 profile 侧钉到另一个版本。用 `dsh plugin --profile desktop add` 安装同名包会在 profile 自己的 `node_modules` 里放一份,Loader 会先找到它,而 `resolveBundleDir` 仍从安装目录读取 patch 层——那样这一行来自一个版本、代码来自另一个版本。

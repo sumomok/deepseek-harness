@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-22-render-timeout-diagnostics.md
-2026-08-22-render-timeout-diagnostics.md: 5eab9e087427826dd6b487d176793d77977099a9
-2026-08-22-render-timeout-diagnostics.zh.md: 10c1b6a03af31fbc27ab7144da727cd4164944b2
+2026-08-22-render-timeout-diagnostics.md: d9d7e5ab6c93ba050b31688776fda478593a95a8
+2026-08-22-render-timeout-diagnostics.zh.md: 81f4913eedfb53665e7200b71a445025a6805219
