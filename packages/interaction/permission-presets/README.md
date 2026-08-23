@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-permission-presets` gives a deployment one user-facing Permissions selector that bundles two independent enforcement knobs — the sandbox mode and the approval policy — into named presets. Selecting a preset applies the sandbox mode and approval policy together, while each knob keeps its own value, so sandbox execution, approval, prompt narration, and replay each read their own setting. The default table ships `workspace-write` (workspace-write + ask) and `danger-full-access` (danger-full-access + never); a knob combination matching no preset reads back as the derived `custom`, which clients may display but never select. The service also owns the `permission` settings namespace whose default applies only when a later session is created, and two optional children — a `permissions` session projection and the `/permission` command — expose the same surface to the Web client. Mounting it requires a confining bash executor and the approval service; it owns no enforcement itself.
+`dsh-permission-presets` gives a deployment one user-facing Permissions selector that bundles two independent enforcement knobs — the sandbox mode and the approval policy — into named presets. Selecting a preset applies the sandbox mode and approval policy together, while each knob keeps its own value, so sandbox execution, approval, prompt narration, and replay each read their own setting. The default table ships `workspace-write` (workspace-write + ask) and `danger-full-access` (danger-full-access + never); a knob combination matching no preset reads back as the derived `custom`, which clients may display but never select. A table entry may also carry presentation: `name`, `description`, and `glyph` — which design-set glyph the selector shows, one of `read-only`, `workspace-write`, or `danger-full-access`; a preset whose id is itself a glyph name needs none. The service also owns the `permission` settings namespace whose default applies only when a later session is created, and two optional children — a `permissions` session projection and the `/permission` command — expose the same surface to the Web client. Mounting it requires a confining bash executor and the approval service; it owns no enforcement itself.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Choose this service when a deployment wants to offer users one Permissions selec
 
 ### Configuring presets
 
-The plugin config defines the preset table and the default for fresh sessions. Each preset name bundles one sandbox mode with one approval policy; `name` and `description` are optional client presentation.
+The plugin config defines the preset table and the default for fresh sessions. Each preset name bundles one sandbox mode with one approval policy; `name`, `description`, and `glyph` are optional client presentation.
 
 ```yaml
 - name: '@deepseek-ai/dsh-permission-presets'

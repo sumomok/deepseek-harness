@@ -194,6 +194,26 @@ describe('PermissionPresetService', () => {
     expect(() => ctx.permissionPresets.optionOf('plan')).toThrow(/unknown preset/)
   })
 
+  it('carries a configured design-set glyph into the option and rejects any other name at load', async () => {
+    const ctx = await mounted({
+      config: {
+        presets: {
+          'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+          'read-only': { sandbox: 'read-only', approval: 'ask', glyph: 'read-only' },
+          'yolo-access': { sandbox: 'danger-full-access', approval: 'ask', name: 'Reviewed full access', glyph: 'danger-full-access' },
+        },
+      },
+    })
+    expect(ctx.permissionPresets.optionOf('yolo-access')).toEqual({
+      value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access',
+    })
+    // A preset naming no glyph keeps the option it always had.
+    expect(ctx.permissionPresets.optionOf('workspace-write')).toEqual({ value: 'workspace-write', name: 'workspace-write' })
+    // The glyph set is closed: the client draws artwork, not a host-named file.
+    const outside = { presets: { plain: { sandbox: 'workspace-write', approval: 'ask', glyph: 'sparkles' } } } as unknown as Config
+    await expect(mounted({ config: outside })).rejects.toThrow(/\$\.presets\.plain\.glyph expected .* but got "sparkles"/)
+  })
+
   it('rejects a table entry named custom (reserved for the derived state)', async () => {
     await expect(mounted({ config: { presets: { custom: { sandbox: 'read-only', approval: 'ask' } } } }))
       .rejects.toThrow(/reserved for the derived not-a-preset state/)
