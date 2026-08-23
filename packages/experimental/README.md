@@ -11,5 +11,7 @@ This group contains prototypes and internal-only Cordis plugins that use the rep
 | `server-layout/` | Service-line shell: a permanent four-track frame (session, content, chat, details) replacing the shipped one | `ctx.layout` |
 | `tool-agent-team/` | Scoped model-facing Agent Teams tools and collaboration guidance | — |
 | `vue-ui-poc/` | Feasibility probe: a Vue 3 component hosted in a React slot through a thin bridge | — |
+| `vue2-echarts-content-poc/` | Placement: puts the Vue 2.7 ECharts panel in the service-line shell's content column | — |
+| `vue2-echarts-poc/` | Component library: an ECharts bar chart written as a Vue 2.7 component, bridged into React | — |
 
 The [subtree rules](AGENTS.md) define dependency isolation, release exclusion, and promotion.

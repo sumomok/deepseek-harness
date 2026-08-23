@@ -57,6 +57,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`commander`](https://github.com/tj/commander.js) | MIT |
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
 | [`e2b`](https://github.com/e2b-dev/e2b) | MIT |
+| [`echarts`](https://github.com/apache/echarts) | Apache-2.0 |
 | [`electron-updater`](https://github.com/electron-userland/electron-builder) | MIT |
 | [`eventsource-parser`](https://github.com/rexxars/eventsource-parser) | MIT |
 | [`fflate`](https://github.com/101arrowz/fflate) | MIT |
@@ -89,7 +90,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`turndown`](https://github.com/mixmark-io/turndown) | MIT |
 | [`typescript`](https://github.com/microsoft/TypeScript) | Apache-2.0 |
 | [`use-sync-external-store`](https://github.com/facebook/react) | MIT |
-| [`vue`](https://github.com/vuejs/core) | MIT |
+| [`vue`](https://github.com/vuejs/vue) | MIT |
 | [`ws`](https://github.com/websockets/ws) | MIT |
 | [`yaml`](https://github.com/eemeli/yaml) | ISC |
 | [`zod`](https://github.com/colinhacks/zod) | MIT |

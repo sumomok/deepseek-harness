@@ -11,5 +11,7 @@
 | `server-layout/` | 服务形态外壳：常驻四轨框架（session、content、chat、details），替换出厂外壳 | `ctx.layout` |
 | `tool-agent-team/` | 按 Agent 作用域提供的 Agent Teams 模型工具与协作指引 | — |
 | `vue-ui-poc/` | 可行性验证：通过一座薄桥把 Vue 3 组件挂进 React slot | — |
+| `vue2-echarts-content-poc/` | placement：把 Vue 2.7 ECharts 面板放进服务形态外壳的 content 栏 | — |
+| `vue2-echarts-poc/` | 组件库：以 Vue 2.7 组件写成、经桥接入 React 的 ECharts 柱状图 | — |
 
 [子树规则](AGENTS.md)规定依赖隔离、发布排除与 promotion。

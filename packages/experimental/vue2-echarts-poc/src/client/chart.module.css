@@ -1,0 +1,97 @@
+/* Tokens only: the DOM around the chart reads the same theme variables React
+   components do. The canvas itself carries its own palette — a canvas resolves
+   no CSS custom properties (see echarts-chart.ts). */
+
+/* --- The demo panel (React, ChartPanel.tsx) --- */
+
+.panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  height: 100%;
+  min-height: 0;
+  padding: 16px;
+  box-sizing: border-box;
+}
+
+.chartSlot {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+}
+
+/* The bridge's host element, which belongs to Vue2Bridge rather than to this
+   file: an inline span would collapse the chart's height. */
+.chartSlot > span {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.button {
+  align-self: flex-start;
+  min-height: 28px;
+  padding: 2px 12px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  line-height: 22px;
+  cursor: pointer;
+}
+
+.button:hover {
+  background: var(--dsw-alias-bg-layer-3);
+}
+
+.button:focus-visible {
+  outline: 2px solid var(--dsw-alias-label-secondary);
+  outline-offset: 2px;
+}
+
+/* --- The chart body (Vue 2.7, echarts-chart.ts) --- */
+
+.chartBody {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  width: 100%;
+  color: var(--dsw-alias-label-primary);
+}
+
+.caption {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.title {
+  color: var(--dsw-alias-label-primary);
+  font-weight: 600;
+}
+
+.clicks {
+  min-width: 20px;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+
+.selected {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.chart {
+  flex: 1 1 auto;
+  min-height: 240px;
+  width: 100%;
+}

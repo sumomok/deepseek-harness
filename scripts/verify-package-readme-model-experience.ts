@@ -89,6 +89,8 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-trajectory': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/experimental/server-layout': { kind: 'none', reason: 'Browser-side shell frame and viewing state; registers nothing model-facing.' },
   'packages/experimental/vue-ui-poc': { kind: 'none', reason: 'Browser-side framework-hosting probe; registers nothing model-facing.' },
+  'packages/experimental/vue2-echarts-poc': { kind: 'none', reason: 'Browser-side chart components hosted in a Vue 2.7 bridge; registers nothing model-facing.' },
+  'packages/experimental/vue2-echarts-content-poc': { kind: 'none', reason: 'Browser-side placement of a chart panel into a shell column; registers nothing model-facing.' },
   'packages/client/ui-workspace': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/ui-directory-picker-browse': { kind: 'none', reason: 'Browser-side directory-browsing surface; registers nothing model-facing.' },
   'packages/client/ui-directory-picker-native': { kind: 'none', reason: 'Browser-side surface driving the host OS chooser; registers nothing model-facing.' },

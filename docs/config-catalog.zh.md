@@ -3294,6 +3294,8 @@ export interface Config {
 - `@deepseek-ai/dsh-cordis-client-runner`（[`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts)）
 - `@deepseek-ai/dsh-experimental-server-layout`（[`packages/experimental/server-layout/src/index.ts`](../packages/experimental/server-layout/src/index.ts)）
 - `@deepseek-ai/dsh-experimental-vue-ui-poc`（[`packages/experimental/vue-ui-poc/src/index.ts`](../packages/experimental/vue-ui-poc/src/index.ts)）
+- `@deepseek-ai/dsh-experimental-vue2-echarts-content-poc`（[`packages/experimental/vue2-echarts-content-poc/src/index.ts`](../packages/experimental/vue2-echarts-content-poc/src/index.ts)）
+- `@deepseek-ai/dsh-experimental-vue2-echarts-poc`（[`packages/experimental/vue2-echarts-poc/src/index.ts`](../packages/experimental/vue2-echarts-poc/src/index.ts)）
 - `@deepseek-ai/dsh-fs-e2b` — 需要 `e2b`（[`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts)）
 - `@deepseek-ai/dsh-fs-observation-policy`（[`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts)）
 - `@deepseek-ai/dsh-goal-round-driver` — 需要 `agents` · `goals` · `sessions`（[`packages/goal/goal-round-driver/src/index.ts`](../packages/goal/goal-round-driver/src/index.ts)）
