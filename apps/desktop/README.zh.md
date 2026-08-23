@@ -117,7 +117,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-prun
 |---|---|---|
 | `dsh-better-sidebar` | `0.14.0`,来自 npm | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
 | `dsh-at-file` | `v0.6.5`,来自作者仓库该 tag 所指的提交 | 输入框里的 `@` 文件提及 |
-| `@haoran/dsh-screenshot` | `0.1.4`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面——带 `cookies` 或 `headers` 时也包括登录墙后的页面——把像素交给 agent,并在要求时把 PNG 写成文件 |
+| `@haoran/dsh-screenshot` | `0.2.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面——带 `cookies` 或 `headers` 时也包括登录墙后的页面——把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写成文件 |
 | `@haoran/dsh-llm-permission-gateway` | `0.1.3`,来自提交进本仓库的 tarball | 自动审查这个权限预设,以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型 |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。

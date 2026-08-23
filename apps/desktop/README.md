@@ -117,7 +117,7 @@ This bounds what the update feed can promise. TLS authenticates the server and e
 |---|---|---|
 | `dsh-better-sidebar` | `0.14.0`, from npm | A right-hand sidebar with a file tree, an editor, terminal tabs, and a task list |
 | `dsh-at-file` | `v0.6.5`, from the author's repository at that tag's commit | `@` file mentions in the composer |
-| `@haoran/dsh-screenshot` | `0.1.4`, from a tarball committed in this repository | A `screenshot` tool that renders any page — a login-protected one included, with `cookies` or `headers` — hands the agent the pixels, and writes the PNG to a file when asked |
+| `@haoran/dsh-screenshot` | `0.2.0`, from a tarball committed in this repository | A `screenshot` tool that renders any page — a login-protected one included, with `cookies` or `headers` — hands the agent the pixels with a report of what the render did, returns a partial capture when the page runs out of time, and writes the PNG to a file when asked |
 | `@haoran/dsh-llm-permission-gateway` | `0.1.3`, from a tarball committed in this repository | The 自动审查 permission preset, and a review model that judges every side-effecting tool call while it is selected |
 
 They are ordinary dependencies of [apps/desktop-server](../desktop-server/README.md), so `pnpm deploy` puts them in the payload's `server/node_modules` beside everything else the server closes over, and their versions are pinned by the installer that carried them — an update ships whatever version that build declared. `dsh-better-sidebar`'s `node-pty` is pinned to the harness core's own copy through a `pnpm-workspace.yaml` override, because the plugin documents that both halves must resolve to one physical package and the payload's platform prune rules only reach the top-level one.
