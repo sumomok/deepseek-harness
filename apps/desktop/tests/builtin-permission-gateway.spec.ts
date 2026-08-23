@@ -26,6 +26,7 @@ interface PresetSpec {
   approval: string
   name?: string
   description?: string
+  glyph?: string
 }
 
 /** The composed-entry fields these cases read. */
@@ -88,12 +89,13 @@ describe('the composed preset table', () => {
     expect(Object.keys(presets)).toEqual([...Object.keys(presetsOf(baseOnly)), 'yolo-access'])
   })
 
-  it('says in the picker what selecting it gives up', () => {
+  it('says in the picker what selecting it gives up, under the full-access shield', () => {
     expect(presets['yolo-access']).toEqual({
       sandbox: 'danger-full-access',
       approval: 'ask',
       name: '自动审查',
       description: expect.stringContaining('沙箱完全关闭') as string,
+      glyph: 'danger-full-access',
     })
   })
 
