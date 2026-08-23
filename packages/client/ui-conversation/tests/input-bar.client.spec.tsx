@@ -54,7 +54,15 @@ interface BenchOptions {
   modelEntry?: React.ReactNode
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
   lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
-  permissions?: { options: { value: string; name: string; description?: string }[]; currentValue: string }
+  permissions?: {
+    options: {
+      value: string
+      name: string
+      description?: string
+      glyph?: 'read-only' | 'workspace-write' | 'danger-full-access'
+    }[]
+    currentValue: string
+  }
   /** The `imageLimits` projection value (absent = no attachment service). */
   imageLimits?: {
     maxImageBytes: number
@@ -1364,6 +1372,31 @@ describe('command launcher chrome and control seats', () => {
     fireEvent.click(trigger)
     expect(view.getAllByRole('menuitem').map(item => item.textContent))
       .toEqual(['Review Only', 'Project Files', 'Operator Mode', 'Custom Mode', '__proto__'])
+  })
+
+  it('draws the glyph an option names, falls back to its value, then to the bare shield', () => {
+    const permissions = {
+      options: [
+        { value: 'read-only', name: 'read-only' },
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+        { value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access' as const },
+        { value: 'house-style', name: 'House Style' },
+      ],
+      currentValue: 'yolo-access',
+    }
+    const { view } = bench({ permissions })
+    const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
+    fireEvent.click(trigger)
+    const icons = view.getAllByRole('menuitem').map(item => item.querySelector('svg')?.innerHTML)
+    // A named glyph draws the same artwork as the built-in row that owns it.
+    expect(icons[3]).toBe(icons[2])
+    expect(icons[0]).not.toBe(icons[2])
+    expect(icons[1]).not.toBe(icons[2])
+    // Outside the design set: the bare shield outline, one path, no inner mark.
+    expect(view.getAllByRole('menuitem')[4]?.querySelectorAll('svg path')).toHaveLength(1)
+    // The trigger resolves the current option through the same glyph choice.
+    expect(trigger.querySelector('svg')?.innerHTML).toBe(icons[2])
   })
 
   it('requires explicit risk acknowledgement before submitting full access', async () => {

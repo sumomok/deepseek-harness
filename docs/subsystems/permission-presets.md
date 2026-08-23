@@ -8,7 +8,7 @@ Source: [`packages/interaction/permission-presets/src/index.ts`](../../packages/
 
 ## The preset table
 
-A preset is a table key mapping to one sandbox/approval bundle plus optional client presentation; the default table ships `workspace-write` (`workspace-write` + `ask`) and `danger-full-access` (`danger-full-access` + `never`).
+A preset is a table key mapping to one sandbox/approval bundle plus optional client presentation — a label, a description, and one glyph from the selector's closed design set; the default table ships `workspace-write` (`workspace-write` + `ask`) and `danger-full-access` (`danger-full-access` + `never`).
 
 ```ts type-equiv
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -21,7 +21,18 @@ interface PresetSpec {
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
 }
+```
+
+```ts type-equiv
+/**
+ * One glyph of the permission selector's design set. The set is closed: a
+ * presentation layer draws exactly these three, so a host names one instead of
+ * supplying artwork.
+ */
+type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
 ```
 
 ```ts type-equiv
@@ -47,7 +58,7 @@ The service requires a confining `ctx.shell` executor and `ctx.approval`, and mi
 
 `current(session)` derives the effective preset from the optionally registered `permissions` projection. The unit folds the session's sandbox mode, approval policy, and recorded selection; values absent within that state fall back to the executor's configured mode and the approval service config, then `ask`. A missing registry or projection key fails explicitly. The service prefers a still-matching selection, then the first matching table entry in declaration order, and otherwise returns `CUSTOM_PRESET` (`'custom'`). `custom` is derived-only: clients may display it as the current value, but it is never a switch target or an event payload.
 
-`names` lists the switchable presets in table declaration order; `optionOf(name)` builds the option a client renders for a table key (label falls back to the key) or for `custom`, and throws for any other name.
+`names` lists the switchable presets in table declaration order; `optionOf(name)` builds the option a client renders for a table key (label falls back to the key, glyph passes through unchanged) or for `custom`, and throws for any other name.
 
 ```ts type-equiv
 /** The select-option shape a presentation layer advertises for one preset (or for the derived `custom` state). */
@@ -58,6 +69,8 @@ interface PresetOption {
   name: string
   /** One user-facing sentence on what the value means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
 }
 ```
 
