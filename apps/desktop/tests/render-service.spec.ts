@@ -602,13 +602,37 @@ describe('a render that does not produce an image', () => {
     )
   })
 
-  it('says where the main frame landed when that is not where the request pointed', async () => {
+  it('says where the main frame landed when that is not where the request pointed, and what to retry with', async () => {
     const line = await timedOutLine((trace) => {
       trace.enter('navigating')
       trace.mainDocument('http://127.0.0.1:18099/login?back_url=%2Fissues', 200)
     }, { ...VALID, url: 'http://127.0.0.1:18099/issues' })
     expect(line).toBe(
       'render timed out after 60ms: main document 200 at http://127.0.0.1:18099/login?back_url=%2Fissues, '
+      + 'load event not fired, pass cookies or headers to capture it with a session, no requests pending',
+    )
+  })
+
+  it('names the landing and the retry on a page that loaded somewhere else and then timed out capturing', async () => {
+    const line = await timedOutLine((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument('http://127.0.0.1:18099/login', 200)
+      trace.enter('capturing')
+    }, { ...VALID, url: 'http://127.0.0.1:18099/issues' })
+    expect(line).toBe(
+      'render timed out after 60ms: page loaded at http://127.0.0.1:18099/login, timed out while capturing, '
+      + 'pass cookies or headers to capture it with a session',
+    )
+  })
+
+  it('says where a file: render landed without offering it a session the service would refuse', async () => {
+    const url = 'file:///tmp/index.html'
+    const line = await timedOutLine((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument('file:///tmp/other.html', -1)
+    }, { ...VALID, url })
+    expect(line).toBe(
+      'render timed out after 60ms: main document with no HTTP status at file:///tmp/other.html, '
       + 'load event not fired, no requests pending',
     )
   })
@@ -683,7 +707,7 @@ describe('a render that does not produce an image', () => {
     }
   })
 
-  it('answers one line inside the 500 characters its caller quotes, however long the URLs are', async () => {
+  it('answers one line inside the 500 characters its caller quotes, cutting the pending list and not the retry', async () => {
     const long = (name: string): string => `https://cdn.example.test/${'segment/'.repeat(40)}${name}`
     const line = await timedOutLine((trace) => {
       trace.enter('navigating')
@@ -693,6 +717,10 @@ describe('a render that does not produce an image', () => {
     expect(line).not.toContain('\n')
     expect(line.length).toBeLessThanOrEqual(500)
     expect(line.startsWith('render timed out after 60ms: main document 200 at https://cdn.example.test/')).toBe(true)
+    // The whole hint, with the pending list opening after it: everything a
+    // caller can act on is ahead of the only clause that grows with the page,
+    // so the cut this line needs lands in that list.
+    expect(line).toContain('pass cookies or headers to capture it with a session, 12 requests pending: ')
     expect(line.endsWith('…')).toBe(true)
   })
 

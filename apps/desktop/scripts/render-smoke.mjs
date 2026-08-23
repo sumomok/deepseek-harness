@@ -7,10 +7,10 @@
  * a hidden `BrowserWindow` actually paints, that `capturePage` returns the
  * requested viewport, that a full-page capture grows past it, that a request's
  * cookies reach every request the page makes while its headers reach only the
- * navigation, and that the `webRequest` hooks a timed-out render is described
- * from see a real page's real requests. It renders local files and pages from
- * listeners on this machine, so it needs no network, and it uses the shell's
- * own limits.
+ * navigation, and that the `did-navigate` and `webRequest` hooks a timed-out
+ * render is described from see a real redirect and a real page's real
+ * requests. It renders local files and pages from listeners on this machine,
+ * so it needs no network, and it uses the shell's own limits.
  *
  * Requires `pnpm --filter @deepseek-ai/dsh-desktop run build:ts` first: this
  * runs under Electron, which has no TypeScript loader, so it imports `lib/`.
@@ -160,9 +160,10 @@ async function hungImageCase(directory) {
  * when the render lands on the sign-in page instead. It also serves
  * {@link NESTED}, and records what every request it received carried, which is
  * the only place the session a render actually sent can be observed.
+ * @param {string} [hangingImage] - an image the sign-in page loads, so a render sent there never fires its load event.
  * @returns {Promise<{ origin: string, observed: { path: string, cookie: boolean, header: boolean }[], close: () => Promise<void> }>} the origin it serves, what it received, and its shutdown.
  */
-async function sessionSite() {
+async function sessionSite(hangingImage) {
   /** @type {{ path: string, cookie: boolean, header: boolean }[]} */
   const observed = []
   const server = createHttpServer((request, response) => {
@@ -183,10 +184,11 @@ async function sessionSite() {
       response.end(PIXEL)
       return
     }
+    const hung = path === '/login' && hangingImage !== undefined ? `<img src="${hangingImage}" alt="">` : ''
     response.writeHead(200, { 'content-type': 'text/html; charset=utf-8' })
     response.end(path === NESTED.page
       ? NESTED_PAGE
-      : `<!doctype html><meta charset="utf-8"><title>${signedIn ? 'issues' : 'sign in'}</title><p>${path}`)
+      : `<!doctype html><meta charset="utf-8"><title>${signedIn ? 'issues' : 'sign in'}</title><p>${path}${hung}`)
   })
   await new Promise((resolve, reject) => {
     server.once('error', reject)
@@ -239,6 +241,37 @@ async function sessionCase(service) {
     await withHeader.arrayBuffer()
   } finally {
     await site.close()
+  }
+}
+
+/**
+ * A render sent to a sign-in page that then never finishes loading: the one
+ * case where the two halves of the 504 line meet, since only a real Chromium
+ * both follows the redirect `did-navigate` reports and leaves the image the
+ * pending list names in flight.
+ * @returns {Promise<void>} resolves when the case passed; rejects when it did not.
+ */
+async function redirectTimeoutCase() {
+  const listener = await hangingListener()
+  const site = await sessionSite(`http://127.0.0.1:${listener.port}/avatar.png`)
+  const service = await startRenderService({
+    renderer: renderInHiddenWindow,
+    limits: { ...RENDER_LIMITS, timeoutMs: HANG_TIMEOUT_MS },
+  })
+  try {
+    const response = await post(service, { url: `${site.origin}/issues`, ...VIEWPORT })
+    check(response.status === 504, `a render redirected to a page that never loads answered ${response.status}`)
+    const line = (await response.text()).trim()
+    console.log(`      ${line}`)
+    check(line.includes(`at ${site.origin}/login`), 'the 504 line says the render landed on the sign-in page')
+    check(
+      line.includes('pass cookies or headers to capture it with a session'),
+      'the 504 line says what to send to reach the page that was asked for',
+    )
+  } finally {
+    await service.close()
+    await site.close()
+    await listener.close()
   }
 }
 
@@ -339,6 +372,7 @@ async function run() {
     await sessionCase(service)
     await subresourceCase(service)
     await hungImageCase(directory)
+    await redirectTimeoutCase()
   } finally {
     await service.close()
     await rm(directory, { recursive: true, force: true })

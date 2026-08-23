@@ -44,6 +44,10 @@ The main frame ended at http://10.0.0.4:30010/login?back_url=/issues, not the re
 
 它放在结果正文里而不是错误里,因为这次渲染成功了;插件对引用错误响应体的那条 500 字符纪律不适用于它,落点长度改由壳来限。一张登录页的截图被不加评论地交回去,正是把两个会话推上代理那条路的东西。
 
+**超时的渲染也会说同一件事,用同一套措辞。**[超时那一行](2026-08-22-render-timeout-diagnostics.zh.md)点出主框架落在哪里——`main document 200 at http://10.0.0.4:30010/login?back_url=/issues`——并在它旁边带上重试方式:`pass cookies or headers to capture it with a session`,与成功那句话结尾的措辞一模一样,于是无论这次渲染怎么结束,调用方读到的都是同一条指示。条件是服务真正知道的那件事,`RenderTrace.landedElsewhere()`,而不是这是不是一张登录页。导航走掉的 `file:` 渲染只说出落点就打住,因为 `resolveRequest` 对这个 scheme 上的 headers 或 cookies 答的是 422,而服务自己会拒绝的建议比不给建议更糟。load 之后的阶段同样点出落点——`page loaded at http://127.0.0.1:18099/login, timed out while capturing`——于是重试方式绝不会脱离它所依据的那个事实单独出现。
+
+**这句话摆在行里的哪个位置,才是这次的决定。**它印在待完成请求列表之前,而不是行尾。它前面的每一样都是有界的——超时时长、一个状态码、截到 96 字符的落点 URL,以及固定措辞,加起来不到 250 字符——而那份列表随页面增长,同时 `TIMEOUT_LINE_CHARS` 在 500 处截掉行尾,因为插件从一份错误响应体里也就引用这么多。因此追加在列表之后的重试方式,恰恰会在卡住的渲染最难解释的那些页面上被丢掉:在途请求最多的那些。把它放在前面,最坏情况下的代价是第三条待完成 URL 的尾巴,而那是这一行里最便宜的损失,因为 URL 是从尾部截的,而说清哪个请求卡住的主机名在它的头部。按事故本身的形状量过,带上重试方式的那一行是 353 个字符;单元测试驱动的最坏情况——一个被截断的落点 URL 加十二条长 URL——会撞上 500 的截断,而整句重试方式和待完成列表的开头仍在它前面。
+
 **系统浏览器后端选择拒绝,而不是假装。**`renderScreenshot` 负责选后端,而带着 headers 或 cookies 的调用在 `--headless=new --screenshot` 这条命令行上会以一句话失败,点名这个后端做不到什么。悄悄把它们丢掉,交回来的恰恰是这次改动要消灭的那件产物。
 
 **`outputPath` 把 PNG 写成文件。**图像块没有变,仍然是模型去看的那样东西;文件则是后续工作能用的那样东西。相对路径按调用会话的工作区(`exec.agent.session.header.cwd`)解析,与 harness 里其他每一个写文件的工具一致,而解析出来的路径必须留在工作区之内。工作区内缺失的父目录会被创建,已存在的文件会被替换,结果会说出它写了哪条路径、以及有没有替换掉什么。没有会话的调用根本不能要文件,因为没有工作区可以安放它。
@@ -56,7 +60,7 @@ The main frame ended at http://10.0.0.4:30010/login?back_url=/issues, not the re
 Use the screenshot tool to look at any page as pixels — your own HTML or CSS work, or a live site you need to see, including one behind a login: pass cookies or headers to render it with a session, and outputPath to save the PNG as a file as well.
 ```
 
-`ctx.systemPrompt.section({ name: 'tool:screenshot', order: 100, … })` 用的正是 `tool:read`、`tool:write`、`tool:edit` 用的那个公开注册表,order 也相同;插件把 `systemPrompt` 加进它的 `inject`,并对 `@deepseek-ai/dsh-system-prompt` 加了一条 peer 依赖。`packages/` 里什么都没改。这个工具配得上这一行、而别的插件工具不配,原因是这次失败是被测出来的而不是被假设的:两个会话、两个平台、同一堵墙,每一边都花了大约一小时,用代理和文件打捞器把那个缺掉的参数重造了一遍。
+`ctx.systemPrompt.section({ name: 'tool:screenshot', order: 100, … })` 用的正是 `tool:read`、`tool:write`、`tool:edit` 用的那个公开注册表,order 也相同;插件把 `systemPrompt` 加进它的 `inject`,并对 `@deepseek-ai/dsh-system-prompt` 加了一条 peer 依赖。`packages/` 里什么都没改。这个工具配得上这一行、而别的插件工具不配,原因是这次失败是被测出来的而不是被假设的:两个会话、两个平台、同一堵墙,每一边都花了大约一小时,用代理和文件打捞器把那个缺掉的参数重造了一遍。这次量到的东西可以推广成什么——新增参数却不同时改描述等于没有新增、失败信息是补回遗漏参数最省成本的位置、提示词 section 需要一条记录在案的理由——写在[工具实操手册](../../../../docs/cookbook/adding-a-tool.zh.md)里。
 
 **截图就是被请求的那个尺寸。**`render-window.ts` 在编码之前把截到的 `NativeImage` 缩放到请求的 CSS 像素——`image.resize({ width, height, quality: 'best' })`,对着 `electron@43.4.0` 的 `electron.d.ts` 核对过(`resize(options: ResizeOptions): NativeImage`,`quality` 取 `good | better | best` 之一)——而当截图本来就是那个尺寸时跳过缩放。整页截图缩放到请求的宽度,以及它测得并据此设过窗口的那个内容高度。窗口保留显示器自己的缩放系数:`--force-device-scale-factor` 是进程级的,会为了修一张截图而改变用户看得见的那扇窗。把 2x 的截图降采样到 1x,不会丢掉 1x 渲染本来就有的任何东西。
 
@@ -80,6 +84,12 @@ Use the screenshot tool to look at any page as pixels — your own HTML or CSS w
 
 **只在失败时报告落点。**[超时诊断那一篇](2026-08-22-render-timeout-diagnostics.zh.md)否决过"成功路径上的响应头",理由是没有人会读它——插件是本仓库并不拥有的一个 vendored tarball。那个理由不成立了:这次改动把两半一起发出去,而成功路径正是事故真正走的那一条,因为跳向登录页的重定向渲染得很快、答的是 200。
 
+**把重试方式追加在超时那一行的末尾。**最容易想到的位置,也正是 500 字符的截断打败的那一个:一个有十来条在途请求的页面会把这行撑爆,而被丢掉的就是行尾——于是建议恰好从最需要它的那些渲染里消失。按上面那笔账否决。
+
+**给重试方式预留位置,把待完成列表截到刚好放得下。**两半都能保证,诊断信息的阅读顺序也保住了。作为"为排序已经做到的事再造一套机器"被否决:重试方式在列表之前时,截断唯一可能落下的位置就是列表内部,而这正是预留位置本来要安排的结果。
+
+**识别登录页。**否决:服务知道主框架落在哪里,却对那个页面上有什么一无所知,于是识别器只会把一个猜测印成事实——同意页、地区闸和错误页同样会重定向。`landedElsewhere()` 才是这次渲染量到的东西。
+
 **落在别处就拒绝这次渲染,而不是报告它。**很诱人,而且是错的:登录页有时正是调用方想拍的那个页面,跳向同意页或地区页的重定向也并不总是失败。告诉调用方它拿到的是什么,由它来决定。
 
 **`cookies` 用一个 `Cookie:` 头字符串。**一个字段而不是两个,也更接近调用方从 devtools 里复制出来的东西。否决:cookie 头只覆盖文档、覆盖不到文档里的任何东西,于是已登录页面回来时每一张图片、每一份样式表都在 401——这是比登录页更糟的一件产物,因为它看上去像渲染出了 bug。name→value 映射也正是 `session.cookies.set` 要的形状,于是没有任何东西需要去解析一个 cookie 头。
@@ -91,6 +101,8 @@ Use the screenshot tool to look at any page as pixels — your own HTML or CSS w
 ## Consequences
 
 工具结果现在会在抵达模型的正文里点出一个第三方主机与一次登录重定向。这正是要点——它是"页面没渲染出来"与"站点把这次渲染送去了它的登录页"之间的差别——而这也值得直说:被报告的落点 URL 是页面自己产生的。
+
+一次被重定向的渲染的 504 长了 53 个字符,而且全在待完成列表之前,于是本来就已经撞上 500 截断的行,末尾那条待完成 URL 会少显示这么多。这个取舍是刻意的:URL 是从尾部截的,那里是它最不具辨识度的部分,而它让出位置换来的重试方式,是这一行里调用方唯一能据以行动的东西。
 
 插件现在会携带调用方提供的凭据。它们活在随渲染窗口一起消亡的 session 上,什么都不持久化,壳也不生成任何自己的凭据;README 里与 `@haoran/dsh-llm-permission-gateway` 的配对说明已经更新,写明 `screenshot` 调用也因为这个理由值得审查模型的注意。权限闸像审别的调用一样审它。
 
@@ -104,6 +116,8 @@ Use the screenshot tool to look at any page as pixels — your own HTML or CSS w
 
 `apps/desktop/tests/render-service.spec.ts` 覆盖新的校验——不是映射的字段、不是字符串的值、不合 token 的名字、一个 `cookie` 头、头部值里的 CR/LF 与 cookie 值里的分号或逗号、两者共享的条目数与字节边界、`file:` 的拒绝,以及只有当请求真的带了映射时 renderer 才收到它们——另加落点响应头:trace 落在别处时带着 URL 出现、停在原地时不出现、非 ASCII 时做百分号编码、过长时被截断。
 
-`apps/desktop/scripts/render-smoke.mjs` 覆盖任何注入的 renderer 都够不着的那一半。它起一个站点:任何没有会话的访问都被重定向到 `/login`,并对着真实 Chromium 用三种方式渲染它——不带会话(200 加落点响应头)、带 cookie、带 header(200,没有那个头)。第二个站点用例把页面放在 `/app/issues/page`,一张图在它旁边、另一张在 `/api/pixel.png`,断言的是那个服务器收到了什么,而不是回来的像素:cookie 出现在文档和两张图上,额外的 header 只出现在那次导航上、两张图都没有。对像素做断言在按目录划定作用域的 cookie 下同样会通过,因为一个图片全部 401 的页面照样编码得出一张 PNG。它的视口用例断言截图正好是被请求的尺寸,而在 Retina Mac 上,这一条就是"缩放确实跑了"的断言。
+同一套测试把超时那一行当作完整字符串来断言:导航期间的落点与重试方式、load 之后的落点与重试方式(`page loaded at …, timed out while capturing`)、只说落点而不给重试方式的 `file:` 渲染,以及截断用例——一个被截断的落点 URL 加十二条长的待完成 URL,此时 `pass cookies or headers to capture it with a session, 12 requests pending: ` 必须完整出现在一行以省略号结尾的 500 字符里。一旦重试方式被挪到列表之后,这一条断言就会失败,而这正是这个位置要挡住的回归。
+
+`apps/desktop/scripts/render-smoke.mjs` 覆盖任何注入的 renderer 都够不着的那一半。它起一个站点:任何没有会话的访问都被重定向到 `/login`,并对着真实 Chromium 用三种方式渲染它——不带会话(200 加落点响应头)、带 cookie、带 header(200,没有那个头)。第二个站点用例把页面放在 `/app/issues/page`,一张图在它旁边、另一张在 `/api/pixel.png`,断言的是那个服务器收到了什么,而不是回来的像素:cookie 出现在文档和两张图上,额外的 header 只出现在那次导航上、两张图都没有。对像素做断言在按目录划定作用域的 cookie 下同样会通过,因为一个图片全部 401 的页面照样编码得出一张 PNG。它的视口用例断言截图正好是被请求的尺寸,而在 Retina Mac 上,这一条就是"缩放确实跑了"的断言。还有一个用例是真实重定向与真实在途请求唯一相遇的地方:它渲染的登录页会加载一张来自永不作答的监听器的图片,于是在 2 秒的截止时间下,504 那一行同时带着 Chromium 通过 `did-navigate` 报出的落点和重试方式,而 `render-smoke` 会把这一行打印出来。
 
 插件自己的测试覆盖 `outputPath`(写在工作区内、替换的报告、路径在工作区之外与调用没有会话这两种拒绝)、带会话调用在系统浏览器后端上的拒绝、渲染结果里那句落点说明,以及 `applyScreenshotTool` 确实在工具旁边注册了那段提示词 section。

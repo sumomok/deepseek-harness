@@ -86,6 +86,21 @@ const TIMEOUT_URL_CHARS = 96
 const TIMEOUT_LINE_CHARS = 500
 
 /**
+ * What a render that ended somewhere other than the URL it was pointed at can
+ * be retried with, in the words `@haoran/dsh-screenshot` uses when the same
+ * redirect ends in a 200, so a caller is told the same thing whichever way the
+ * render ends.
+ *
+ * It is printed before the pending list, not at the end of the line.
+ * Everything ahead of it is bounded — the deadline, a status, a landing URL cut
+ * at {@link TIMEOUT_URL_CHARS}, and fixed wording, under 250 characters
+ * together — while the pending list grows with the page, so a clause printed
+ * after that list is what {@link TIMEOUT_LINE_CHARS} drops on exactly the
+ * pages whose renders are hardest to explain.
+ */
+const REDIRECT_HINT = 'pass cookies or headers to capture it with a session'
+
+/**
  * The smallest real HTTP status. `did-navigate` reports -1 for a navigation
  * that carried no HTTP response, so anything below this is the absence of a
  * status rather than a code worth printing.
@@ -277,13 +292,24 @@ function pendingPhrase(pending: PendingRequest[]): string {
 export class RenderTrace {
   /** The URL the request named, compared against where the main frame ended up. */
   private readonly requestedUrl: string
+  /**
+   * Whether a retry of this request could carry a session at all, which is what
+   * makes {@link REDIRECT_HINT} worth printing: `resolveRequest` answers 422 to
+   * headers or cookies on a `file:` URL, so naming them for one would be advice
+   * the service refuses.
+   */
+  private readonly sessionScheme: boolean
   private phase: RenderPhase = 'queued'
   private document: { url: string; status: number } | undefined
   /** Insertion-ordered, so the requests printed first are the ones stuck longest. */
   private readonly pending = new Map<number, PendingRequest>()
 
+  /**
+   * @param requestedUrl - the absolute URL the request named, as `resolveRequest` accepted it.
+   */
   constructor(requestedUrl: string) {
     this.requestedUrl = requestedUrl
+    this.sessionScheme = SESSION_SCHEMES.has(new URL(requestedUrl).protocol)
   }
 
   /**
@@ -359,8 +385,8 @@ export class RenderTrace {
   private waitingFor(): string {
     const phase = this.phase
     if (phase === 'queued') return 'the render had not started (queued behind earlier renders)'
-    if (phase === 'navigating') return `${this.mainDocumentPhrase()}, ${pendingPhrase([...this.pending.values()])}`
-    return `page loaded, timed out ${AFTER_LOAD_WAIT[phase]}`
+    if (phase === 'navigating') return `${this.mainDocumentPhrase()}${this.redirectHint()}, ${pendingPhrase([...this.pending.values()])}`
+    return `page loaded${this.landingPhrase()}, timed out ${AFTER_LOAD_WAIT[phase]}${this.redirectHint()}`
   }
 
   /**
@@ -371,9 +397,26 @@ export class RenderTrace {
     const document = this.document
     if (document === undefined) return 'no response from the main document yet'
     const status = document.status >= MIN_HTTP_STATUS ? String(document.status) : 'with no HTTP status'
+    return `main document ${status}${this.landingPhrase()}, load event not fired`
+  }
+
+  /**
+   * Where the main frame ended, printed after whichever phrase names the render's state.
+   * @returns ` at <url>`, or nothing when the frame stayed where it was sent.
+   */
+  private landingPhrase(): string {
     const elsewhere = this.landedElsewhere()
-    const landed = elsewhere === undefined ? '' : ` at ${elsewhere}`
-    return `main document ${status}${landed}, load event not fired`
+    return elsewhere === undefined ? '' : ` at ${elsewhere}`
+  }
+
+  /**
+   * What to do about a render the site sent somewhere else, which is the only
+   * thing in this line the caller can act on rather than only report.
+   * @returns the {@link REDIRECT_HINT} clause, or nothing when the frame stayed put or the URL takes no session.
+   */
+  private redirectHint(): string {
+    if (!this.sessionScheme || this.landedElsewhere() === undefined) return ''
+    return `, ${REDIRECT_HINT}`
   }
 }
 
