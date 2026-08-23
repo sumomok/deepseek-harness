@@ -560,7 +560,11 @@ async function readRepositoryState(cli: Cli, tag: string): Promise<RepositorySta
     headSha: (await git('rev-parse', 'HEAD')).trim(),
     localTagSha: await localTagCommit(tag),
     remoteTagSha: hasOrigin ? await remoteTagCommit(tag) : undefined,
-    dirty: (await git('status', '--porcelain')).trim() !== '',
+    // Tracked files only. A release run leaves its own logs in the worktree and
+    // an ignored `.env` lives there permanently; neither reaches the build, and
+    // refusing on them would refuse every publish. This is the `git describe
+    // --dirty` definition.
+    dirty: (await git('status', '--porcelain', '--untracked-files=no')).trim() !== '',
     hasOrigin,
   }
 }
@@ -586,7 +590,28 @@ function announceReleaseTag(plan: ReleaseTagPlan, version: string): void {
       console.log(`publish: will tag HEAD ${plan.tag} once the feed serves ${version}`)
       return
     case 'push-existing':
-      console.log(`publish: ${plan.tag} already names HEAD; it will be pushed once the feed serves ${version}`)
+      console.log(`publish: ${plan.tag} already names HEAD here; it will be pushed once the feed serves ${version}`)
+      return
+    case 'fetch-existing':
+      console.log(`publish: origin already carries ${plan.tag} at HEAD; it will be fetched once the feed serves ${version}`)
+      return
+    case 'already-on-origin':
+      console.log(`publish: origin and this repository already carry ${plan.tag} at HEAD; nothing will be created or pushed`)
+  }
+}
+
+/**
+ * What the tag step would do, for the dry-run log.
+ * @param plan - what [[planReleaseTag]] decided.
+ * @returns the line to print, or undefined when the step does nothing to print.
+ */
+function dryRunTagLine(plan: ReleaseTagPlan): string | undefined {
+  switch (plan.action) {
+    case 'create': return `would tag HEAD ${plan.tag} and push it to origin.`
+    case 'push-existing': return `${plan.tag} already names HEAD here; would push it to origin.`
+    case 'fetch-existing': return `origin already carries ${plan.tag} at HEAD; would fetch it.`
+    case 'already-on-origin': return `origin already carries ${plan.tag} at HEAD; would run no git at all.`
+    case 'skip': case 'refuse': return undefined
   }
 }
 
@@ -594,20 +619,34 @@ function announceReleaseTag(plan: ReleaseTagPlan, version: string): void {
 type TagOutcome = 'tagged' | 'skipped' | 'failed'
 
 /**
- * Tag the shipped commit and push it, after the feed is serving the release.
+ * Carry out the tagging plan, after the feed is serving the release: create
+ * and push, push what is already here, fetch what `origin` already published,
+ * or run no git at all when both sides already name HEAD.
  *
  * Nothing here can undo the publish, so a git failure is reported as exactly
- * what it is — a published release missing its tag — with the commands that
- * finish it by hand, and the exit code carries the failure out.
+ * what it is — a published release whose tag did not follow — with the command
+ * that finishes it by hand, and the exit code carries the failure out.
  * @param plan - what [[planReleaseTag]] decided before the upload.
  * @param version - the version now serving.
  * @param notesPath - the release-notes file, which becomes the tag message.
  * @returns what happened, for the closing summary.
  */
 async function applyReleaseTag(plan: ReleaseTagPlan, version: string, notesPath: string): Promise<TagOutcome> {
-  if (plan.action !== 'create' && plan.action !== 'push-existing') return 'skipped'
+  if (plan.action === 'skip' || plan.action === 'refuse') return 'skipped'
+  if (plan.action === 'already-on-origin') {
+    console.log(`publish: ${plan.tag} already names HEAD on origin and here; nothing to create or push`)
+    return 'tagged'
+  }
   let created = plan.action === 'push-existing'
   try {
+    if (plan.action === 'fetch-existing') {
+      // origin published this tag from another clone or worktree. Creating a
+      // second annotated object for the same name here would only produce a
+      // push origin rejects; copying origin's is what makes the two agree.
+      await git('fetch', 'origin', 'tag', plan.tag)
+      console.log(`publish: fetched ${plan.tag} from origin, which already names HEAD`)
+      return 'tagged'
+    }
     if (!created) {
       await git('tag', '-a', plan.tag, '-F', notesPath)
       created = true
@@ -617,10 +656,16 @@ async function applyReleaseTag(plan: ReleaseTagPlan, version: string, notesPath:
     console.log(`publish: pushed ${plan.tag} to origin`)
     return 'tagged'
   } catch (error) {
-    const manual = created
-      ? `git push origin ${plan.tag}`
-      : `git tag -a ${plan.tag} -F ${notesPath} && git push origin ${plan.tag}`
-    console.log(`publish: ${version} IS PUBLISHED — every artifact and both manifests are live and serving it. Only the release tag failed: ${firstLine(error)}`)
+    const fetching = plan.action === 'fetch-existing'
+    const manual = fetching
+      ? `git fetch origin tag ${plan.tag}`
+      : created
+        ? `git push origin ${plan.tag}`
+        : `git tag -a ${plan.tag} -F ${notesPath} && git push origin ${plan.tag}`
+    const failure = fetching
+      ? `, and origin already carries ${plan.tag}. Only this repository's copy of the tag failed`
+      : '. Only the release tag failed'
+    console.log(`publish: ${version} IS PUBLISHED — every artifact and both manifests are live and serving it${failure}: ${firstLine(error)}`)
     console.log(`publish: finish the tag by hand: ${manual}`)
     process.exitCode = 1
     return 'failed'
@@ -719,8 +764,8 @@ async function main(): Promise<void> {
   if (cli.dryRun) {
     console.log('publish: dry run — local manifests carry the notes, nothing was uploaded.')
     await pruneFeed(cli, version, plan)
-    if (tagPlan.action === 'create') console.log(`publish: dry run — would tag HEAD ${tagPlan.tag} and push it to origin.`)
-    if (tagPlan.action === 'push-existing') console.log(`publish: dry run — ${tagPlan.tag} already names HEAD; would push it to origin.`)
+    const tagLine = dryRunTagLine(tagPlan)
+    if (tagLine !== undefined) console.log(`publish: dry run — ${tagLine}`)
     return
   }
 

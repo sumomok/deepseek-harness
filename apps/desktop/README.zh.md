@@ -13,7 +13,7 @@ pnpm exec tsx apps/desktop/scripts/package.ts --win        # NSIS installer (x64
 
 产物落在 `apps/desktop/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`、恢复 hoist、物化符号链接),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 win32-x64 成员,再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。每份载荷冒烟测试之前先过一道载荷门禁:每条平台规则至少丢弃一个目录,每个平台分包目录都要对得上它所在的 target,活下来的模块不得按名解析已被裁掉的包。
 
-**一次运行只构建被点名的平台,绝不去猜它能猜到的那个**:`--mac`、`--win`,或者两者都要;两个都不给的运行会在构建任何东西之前停下。运行结束时它会检查该版本为这些平台该交付的每一个文件——mac 的 zip 与 dmg、Windows 安装程序,以及各自的 `.blockmap`——都在 `dist-app` 里且非空,打印通过校验的清单,并点名其中缺失或为空的文件。`dist-app` 从不清空,过去每个版本的产物也都还在,光看目录列表分不出「某个平台压根没构建」和「某个平台的产物只是旧的」;期望的文件名是 electron-builder 对已声明 target 的默认命名,放在 `scripts/artifact-names.ts`,由 `tests/artifact-names.spec.ts` 对着 `electron-builder.yml` 钉住。
+**一次运行只构建被点名的平台,绝不去猜它能猜到的那个**:`--mac`、`--win`,或者两者都要;两个都不给的运行会在构建任何东西之前停下。运行结束时它会检查该版本为这些平台该交付的每一个文件——mac 的 zip 与 dmg、Windows 安装程序,以及各自的 `.blockmap`——都在 `dist-app` 里、非空、而且**是本次运行开始之后写下的**,打印通过校验的清单,并点名其中缺失、为空或属于遗留的文件。`dist-app` 从不清空,过去每个版本的产物都还在;而修完一个问题重打同一个版本时,该版本自己的文件早已顶着完全相同的名字躺在那里:光看「在不在」分不出「某个平台压根没构建」和「某个平台的产物是上一次运行留下的」。期望的文件名是 electron-builder 对已声明 target 的默认命名,放在 `scripts/artifact-names.ts`,由 `tests/artifact-names.spec.ts` 对着 `electron-builder.yml` 钉住。
 
 **整个构建跑在自己创建、结束即删的一次性 `$DSH_HOME` 上**,于是它启动的任何服务端都不会改动这台机器自己的 harness 状态——`prepareProfile` 会重写 profile 的根配置,`healProfilesModuleFallback` 会把每一条扁平兜底符号链接重指到这次构建随后就要删掉的暂存树上。启动门禁按壳播种真实 home 的同样方式播种那个临时 home,再要求两个内置插件都出现在所服务 index 点名的 client 模块里,于是它证明的是载荷的性质,而不是构建机自己 profile 的性质。
 
@@ -102,7 +102,9 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **更新源自己会清理,而且两类文件留的深度不同。**等两个清单都从更新源回读到新版本之后,脚本会列出各渠道目录,按两条规则裁掉多余的:**最新的两个版本留产物,最新的十个版本留 `.blockmap`**。更新过程中真正会从更新源取的只有其中一类——electron-updater 会下载新版本的 blockmap,但旧版本的那份先读客户端自己的缓存,只有缓存里没有了才回落到更新源;而旧**产物**它同样只从那个缓存里打开,从不走网络。所以留在服务器上的旧产物(138–174 MB 一个)是给回滚和手动下载用的,旧 blockmap(145–181 KB 一个)则是给缓存丢了的客户端兜底;两者留同样深,等于用前者的价钱买后者的好处。发布成功之前不删任何东西;版本按 semver 优先级排序而不是按名字排(`0.1.0-rc.9` 比 `0.1.0-rc.10` 旧);清单以及本次发布上传的一切永远不进候选;解析不出版本的名字只记一行日志、原样留着。`--no-prune` 跳过整个步骤;`--dry-run` 会把「会删什么、会留什么」原样打印出来,并且什么都不删。这套判断在 `scripts/prune-feed.ts`——一个纯函数,由 `tests/prune-feed.spec.ts` 脱离服务器测试。
 
-**发布成功之后会给所交付的 commit 打 tag。**等两个清单都回读到、清理步骤也跑完之后,本次发布被打上 `desktop-v<version>` ——带注解,消息就是这次的发布说明,于是 `git tag -n` 就能看到发布了什么——并把该 tag 推到 `origin`。这件事能不能成,在第一个字节上传之前就已判定:工作树有任何未提交改动、`desktop-v<version>` 在本地或 `origin` 上已经指向别的 commit、或者根本没有 `origin`,都会直接拒绝本次发布——此时产物还只在本地,重跑不花什么代价。若 tag 在后段失败,它会明说产物**已经**发布、只有 tag 没打成,打印出手工补上的 `git tag -a … && git push origin …`,并以非零码退出。`--no-tag` 跳过该步骤连同它的前置校验;`--dry-run` 打印它会打什么 tag、不推送任何东西;`--republish` 时若 tag 已指向 HEAD,则推送该 tag 而不是再造一个。这套判断在 `scripts/release-tag.ts`——一个纯函数,由 `tests/release-tag.spec.ts` 脱离仓库测试。
+**发布成功之后会给所交付的 commit 打 tag。**等两个清单都回读到、清理步骤也跑完之后,本次发布被打上 `desktop-v<version>` ——带注解,消息就是这次的发布说明,于是 `git tag -n` 就能看到发布了什么——并把该 tag 推到 `origin`。这件事能不能成,在第一个字节上传之前就已判定:已跟踪文件有未提交改动、`desktop-v<version>` 在本地或 `origin` 上已经指向别的 commit、或者根本没有 `origin`,都会直接拒绝本次发布——此时产物还只在本地,重跑不花什么代价。未跟踪文件在这里不算未提交改动——发布运行自己会把日志写进工作树,被忽略的 `.env` 也长期躺在那里,两者都改不了构建所编译的东西。
+
+**由哪一侧已经持有该 tag 来决定跑什么**,而 `origin` 是权威的一侧,因为其他每一个克隆读的都是它:两侧都没有,就在本地创建并推送;只有本仓库在 HEAD 上持有,就推送;只有 `origin` 在 HEAD 上持有,就把它 fetch 下来——因为为一个 `origin` 已经发布的名字在本地再造一个带注解的对象,推上去只会被 git 拒绝;两侧都在 HEAD 上持有,就一条 git 都不跑。后两种正是同一个仓库的多个工作树轮流发布时的常态。若打 tag 这一步在更新源已经开始下发之后失败,它会明说产物**已经**发布、只是 tag 没跟上,打印出手工补上的那一条命令,并以非零码退出。`--no-tag` 跳过该步骤连同它的前置校验;`--dry-run` 打印它会打什么 tag,不碰任何东西。这套判断在 `scripts/release-tag.ts`——一个纯函数,由 `tests/release-tag.spec.ts` 脱离仓库测试。
 
 更新源在主机上的路径是 `/var/www/dsh-updates/{win,mac}`,由追加的单个带 `alias` 的 `location /dsh-updates/` 提供。那台 nginx 使用自定义前缀(`/data/third_party/nginx`),编译时不含 rewrite 模块,且 master 不归 systemd 管——重载请用 `nginx -s reload`,绝不要用 `systemctl`。该目录不套 BasicAuth,因为 electron-updater 不会带凭据。
 

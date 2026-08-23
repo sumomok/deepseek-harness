@@ -33,7 +33,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
-import { auditArtifacts, expectedArtifacts } from './artifact-names.ts'
+import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import {
@@ -702,26 +702,30 @@ async function withBuildHome(action: (home: string) => Promise<void>): Promise<v
  * Check that this run left every artifact it owed in `dist-app`.
  *
  * `dist-app` is never cleared, so a listing of it proves nothing: the previous
- * version's files are still there, and a platform whose build silently did not
- * run looks the same as one whose build did. Naming the files this version and
- * these platforms owe, and requiring each to be there with content, is what
- * separates the two.
+ * version's files are still there, and a repackage of this version after a fix
+ * finds this version's own files there too. Naming what these platforms owe and
+ * requiring each file to be present, non-empty, and written since this run
+ * started is what separates a build from a leftover.
  * @param cli - the parsed command line, which names the platforms built.
+ * @param startedAt - epoch milliseconds at which this run began; anything older is a leftover.
  */
-async function verifyProducts(cli: Cli): Promise<void> {
+async function verifyProducts(cli: Cli, startedAt: number): Promise<void> {
   const dist = join(APP_DIR, 'dist-app')
   const { version } = JSON.parse(await readFile(join(APP_DIR, 'package.json'), 'utf8')) as { version: string }
   const expected = expectedArtifacts(version, { mac: cli.mac, win: cli.win })
-  const sizes = new Map<string, number>()
+  const files = new Map<string, ArtifactFile>()
   for (const name of expected) {
     const path = join(dist, name)
-    if (existsSync(path)) sizes.set(name, (await stat(path)).size)
+    if (!existsSync(path)) continue
+    const stats = await stat(path)
+    files.set(name, { bytes: stats.size, mtimeMs: stats.mtimeMs })
   }
-  const audit = auditArtifacts(expected, sizes)
-  if (audit.missing.length > 0 || audit.empty.length > 0) {
+  const audit = auditArtifacts(expected, files, startedAt)
+  if (audit.missing.length > 0 || audit.empty.length > 0 || audit.stale.length > 0) {
     const damage = [
       ...audit.missing.map(name => `${name} (missing)`),
       ...audit.empty.map(name => `${name} (empty)`),
+      ...audit.stale.map(name => `${name} (stale: built before this run)`),
     ]
     throw new Error(`package: the build owes ${String(damage.length)} file(s) apps/desktop/dist-app does not have: ${damage.join(', ')}`)
   }
@@ -730,6 +734,9 @@ async function verifyProducts(cli: Cli): Promise<void> {
 }
 
 async function main(buildHome: string): Promise<void> {
+  // Anchors the staleness check in verifyProducts: every artifact this run
+  // produces is written after this point.
+  const startedAt = Date.now()
   const cli = parseCli(process.argv.slice(2))
   if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'])
   await run('desktop tsc', 'pnpm', ['--filter', '@deepseek-ai/dsh-desktop', 'run', 'build:ts'])
@@ -800,7 +807,7 @@ async function main(buildHome: string): Promise<void> {
       await verifyNsisIntegrity(join(APP_DIR, 'dist-app', name))
     }
   }
-  await verifyProducts(cli)
+  await verifyProducts(cli, startedAt)
 }
 
 await withBuildHome(main)

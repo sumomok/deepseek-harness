@@ -10,7 +10,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { CORE_SCHEMA, load } from 'js-yaml'
 import { describe, expect, it } from 'vitest'
-import { auditArtifacts, expectedArtifacts } from '../scripts/artifact-names.ts'
+import { auditArtifacts, expectedArtifacts, type ArtifactFile } from '../scripts/artifact-names.ts'
 
 /** The parts of electron-builder.yml the artifact names follow from. */
 interface BuilderConfig {
@@ -87,39 +87,89 @@ describe('expectedArtifacts', () => {
 
 describe('auditArtifacts', () => {
   const expected = expectedArtifacts(VERSION, { mac: true, win: true })
+  const STARTED_AT = 1_000_000
 
-  it('verifies every expected file when each is there with content', () => {
-    const audit = auditArtifacts(expected, new Map(expected.map(name => [name, 1024])))
+  /**
+   * A directory holding each named file, written after this run began.
+   * @param names - the files present.
+   * @param bytes - the size each one has.
+   * @returns what the directory holds, for the audit.
+   */
+  function built(names: string[], bytes = 1024): Map<string, ArtifactFile> {
+    return new Map(names.map(name => [name, { bytes, mtimeMs: STARTED_AT + 1 }]))
+  }
+
+  it('verifies every expected file when each was written by this run with content', () => {
+    const audit = auditArtifacts(expected, built(expected), STARTED_AT)
     expect(audit.verified.map(entry => entry.name)).toEqual(expected)
     expect(audit.verified.every(entry => entry.bytes === 1024)).toBe(true)
     expect(audit.missing).toEqual([])
     expect(audit.empty).toEqual([])
+    expect(audit.stale).toEqual([])
   })
 
   it('reports the platform whose build never ran, artifact and blockmap alike', () => {
     const win = expectedArtifacts(VERSION, { mac: false, win: true })
-    const audit = auditArtifacts(expected, new Map(win.map(name => [name, 1024])))
+    const audit = auditArtifacts(expected, built(win), STARTED_AT)
     expect(audit.missing).toEqual(expectedArtifacts(VERSION, { mac: true, win: false }))
     expect(audit.verified.map(entry => entry.name)).toEqual(win)
   })
 
   it('reports a file that is there at zero bytes separately from a missing one', () => {
-    const sizes = new Map(expected.map(name => [name, 1024]))
-    sizes.set(expected[0] ?? '', 0)
-    const audit = auditArtifacts(expected, sizes)
+    const files = built(expected)
+    files.set(expected[0] ?? '', { bytes: 0, mtimeMs: STARTED_AT + 1 })
+    const audit = auditArtifacts(expected, files, STARTED_AT)
     expect(audit.empty).toEqual([expected[0]])
+    expect(audit.missing).toEqual([])
+    expect(audit.stale).toEqual([])
+  })
+
+  it('reports this version\'s own file from an earlier run as stale, not as a product', () => {
+    // Repackaging one version after a fix: the previous run's artifacts carry
+    // exactly the expected names, so only their age separates them.
+    const files = built(expected)
+    const leftover = expected[4] ?? ''
+    files.set(leftover, { bytes: 138_000_000, mtimeMs: STARTED_AT - 1 })
+    const audit = auditArtifacts(expected, files, STARTED_AT)
+    expect(audit.stale).toEqual([leftover])
+    expect(audit.verified.map(entry => entry.name)).not.toContain(leftover)
     expect(audit.missing).toEqual([])
   })
 
+  it('reports a whole platform left over from an earlier run of the same version', () => {
+    const mac = expectedArtifacts(VERSION, { mac: true, win: false })
+    const win = expectedArtifacts(VERSION, { mac: false, win: true })
+    const files = new Map([
+      ...built(mac),
+      ...new Map(win.map(name => [name, { bytes: 1024, mtimeMs: STARTED_AT - 60_000 }] as const)),
+    ])
+    const audit = auditArtifacts(expected, files, STARTED_AT)
+    expect(audit.stale).toEqual(win)
+    expect(audit.verified.map(entry => entry.name)).toEqual(mac)
+  })
+
+  it('accepts a file written exactly when the run started', () => {
+    const audit = auditArtifacts(expected, new Map(expected.map(name => [name, { bytes: 1, mtimeMs: STARTED_AT }])), STARTED_AT)
+    expect(audit.stale).toEqual([])
+    expect(audit.verified.length).toBe(expected.length)
+  })
+
   it('ignores whatever else the directory holds, including older versions', () => {
-    const sizes = new Map(expected.map(name => [name, 1024]))
-    sizes.set('DSH Desktop Setup 0.1.0-rc.19.exe', 138_000_000)
-    const audit = auditArtifacts(expected, sizes)
+    const files = built(expected)
+    files.set('DSH Desktop Setup 0.1.0-rc.19.exe', { bytes: 138_000_000, mtimeMs: STARTED_AT - 1 })
+    const audit = auditArtifacts(expected, files, STARTED_AT)
     expect(audit.verified.map(entry => entry.name)).toEqual(expected)
+    expect(audit.stale).toEqual([])
   })
 
   it('accounts for every expected name exactly once', () => {
-    const audit = auditArtifacts(expected, new Map([[expected[0] ?? '', 0], [expected[1] ?? '', 7]]))
-    expect([...audit.verified.map(entry => entry.name), ...audit.missing, ...audit.empty].sort()).toEqual([...expected].sort())
+    const files = new Map<string, ArtifactFile>([
+      [expected[0] ?? '', { bytes: 0, mtimeMs: STARTED_AT + 1 }],
+      [expected[1] ?? '', { bytes: 7, mtimeMs: STARTED_AT + 1 }],
+      [expected[2] ?? '', { bytes: 7, mtimeMs: STARTED_AT - 1 }],
+    ])
+    const audit = auditArtifacts(expected, files, STARTED_AT)
+    const accounted = [...audit.verified.map(entry => entry.name), ...audit.missing, ...audit.empty, ...audit.stale]
+    expect([...accounted].sort()).toEqual([...expected].sort())
   })
 })

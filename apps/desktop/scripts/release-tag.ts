@@ -35,7 +35,12 @@ export interface RepositoryState {
   localTagSha: string | undefined
   /** What the tag resolves to on `origin`, or undefined when it is not published there. */
   remoteTagSha: string | undefined
-  /** Whether `git status --porcelain` reported anything at all. */
+  /**
+   * Whether any tracked file differs from HEAD (`git status --porcelain --untracked-files=no`,
+   * the definition `git describe --dirty` uses). Untracked files are excluded: a release run
+   * writes its own logs into the worktree and an ignored `.env` sits there permanently, and
+   * neither can change what the build compiles.
+   */
   dirty: boolean
   /** Whether an `origin` remote exists to push the tag to. */
   hasOrigin: boolean
@@ -51,10 +56,14 @@ export interface ReleaseTagInputs {
 
 /** What the publish does about the release tag. */
 export type ReleaseTagPlan =
-  /** Create the annotated tag at HEAD, then push it. */
+  /** Nobody carries the tag yet: create the annotated tag at HEAD, then push it. */
   | { action: 'create'; tag: string }
-  /** The tag already names HEAD in this repository; push it without touching it. */
+  /** Only this repository carries the tag, at HEAD: push it without touching it. */
   | { action: 'push-existing'; tag: string }
+  /** Only `origin` carries the tag, at HEAD: copy it here, with nothing to push. */
+  | { action: 'fetch-existing'; tag: string }
+  /** Both sides carry the tag at HEAD: the release is already tagged, and no git runs. */
+  | { action: 'already-on-origin'; tag: string }
   /** Tagging is off; the publish neither creates nor pushes anything. */
   | { action: 'skip'; reason: string }
   /** Tagging cannot follow this publish, so the publish must not start. */
@@ -77,9 +86,13 @@ function short(sha: string): string {
  * rather than to salvage a half-finished release.
  *
  * A tag that already names HEAD is not an error: a `--republish` repairing a
- * cut-off upload runs the whole publish again, and the tag it created the
- * first time is the one this release wants. It is pushed again, which is a
- * no-op once `origin` holds it.
+ * cut-off upload runs the whole publish again, and the tag the first run made
+ * is the one this release wants. Which side already carries it decides the
+ * action, and `origin` is authoritative — it is the copy every other clone
+ * reads. Creating a second annotated tag object for a name `origin` already
+ * publishes only produces a push git rejects, which is the state several
+ * worktrees of one repository reach routinely: one of them tagged and pushed,
+ * the others have never seen the tag.
  * @param inputs - the version being published and what git reports, if it was read.
  * @returns the tagging action, or the refusal that stops the publish.
  */
@@ -92,7 +105,7 @@ export function planReleaseTag(inputs: ReleaseTagInputs): ReleaseTagPlan {
   if (repository.dirty) {
     return {
       action: 'refuse',
-      reason: `the working tree has uncommitted changes, so ${tag} would not name the source this build came from — commit or stash them, or pass --no-tag.`,
+      reason: `the working tree has uncommitted changes to tracked files, so ${tag} would not name the source this build came from — commit or stash them, or pass --no-tag.`,
     }
   }
   if (!repository.hasOrigin) {
@@ -113,6 +126,10 @@ export function planReleaseTag(inputs: ReleaseTagInputs): ReleaseTagPlan {
       reason: `${tag} already exists on origin at ${short(repository.remoteTagSha)} but HEAD is ${short(repository.headSha)} — publish from that commit, or delete the tag with git push origin :refs/tags/${tag}, or pass --no-tag.`,
     }
   }
-  if (repository.localTagSha === undefined) return { action: 'create', tag }
-  return { action: 'push-existing', tag }
+  // Past the refusals both copies either name HEAD or do not exist, so the two
+  // presences alone decide the action.
+  const onOrigin = repository.remoteTagSha !== undefined
+  const here = repository.localTagSha !== undefined
+  if (onOrigin) return here ? { action: 'already-on-origin', tag } : { action: 'fetch-existing', tag }
+  return here ? { action: 'push-existing', tag } : { action: 'create', tag }
 }

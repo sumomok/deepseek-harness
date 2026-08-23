@@ -33,21 +33,27 @@ describe('planReleaseTag', () => {
     expect(planReleaseTag({ version: VERSION, repository: repository() })).toEqual({ action: 'create', tag: TAG })
   })
 
-  it('pushes a tag that already names HEAD instead of creating it again', () => {
-    // What a --republish repairing a cut-off upload sees: the first run tagged
-    // this commit, and that tag is the one this release wants.
+  it('pushes a tag only this repository carries, at HEAD, instead of creating it again', () => {
+    // What a --republish repairing a cut-off upload sees in the worktree that
+    // tagged first: the tag it made is the one this release wants.
     const plan = planReleaseTag({ version: VERSION, repository: repository({ localTagSha: HEAD }) })
     expect(plan).toEqual({ action: 'push-existing', tag: TAG })
   })
 
-  it('pushes an existing tag that origin already carries at the same commit', () => {
-    const plan = planReleaseTag({ version: VERSION, repository: repository({ localTagSha: HEAD, remoteTagSha: HEAD }) })
-    expect(plan).toEqual({ action: 'push-existing', tag: TAG })
+  it('fetches the tag origin already carries at HEAD rather than creating a second one', () => {
+    // Another worktree of this repository published the tag. Creating an
+    // annotated object here for the same name only produces a push origin
+    // rejects, so origin's copy is the one to take.
+    const plan = planReleaseTag({ version: VERSION, repository: repository({ remoteTagSha: HEAD }) })
+    expect(plan).toEqual({ action: 'fetch-existing', tag: TAG })
   })
 
-  it('creates the tag locally when only origin carries it, at HEAD', () => {
-    const plan = planReleaseTag({ version: VERSION, repository: repository({ remoteTagSha: HEAD }) })
-    expect(plan).toEqual({ action: 'create', tag: TAG })
+  it('runs no git when both sides already carry the tag at HEAD', () => {
+    // The two tag objects may differ — one made here, one made through the
+    // GitHub API — while both peel to HEAD. Pushing would be rejected and
+    // nothing needs doing, so the release is simply already tagged.
+    const plan = planReleaseTag({ version: VERSION, repository: repository({ localTagSha: HEAD, remoteTagSha: HEAD }) })
+    expect(plan).toEqual({ action: 'already-on-origin', tag: TAG })
   })
 
   it('skips everything, including preflight, when --no-tag turned the step off', () => {
@@ -59,8 +65,15 @@ describe('planReleaseTag', () => {
   it('refuses a dirty working tree, because the tag would not name what was built', () => {
     const plan = planReleaseTag({ version: VERSION, repository: repository({ dirty: true }) })
     expect(plan.action).toBe('refuse')
-    expect(plan.action === 'refuse' && plan.reason).toContain('uncommitted changes')
+    expect(plan.action === 'refuse' && plan.reason).toContain('uncommitted changes to tracked files')
     expect(plan.action === 'refuse' && plan.reason).toContain('--no-tag')
+  })
+
+  it('is untroubled by untracked files, which the caller excludes from dirty', () => {
+    // `dirty` is `git status --porcelain --untracked-files=no`: the release
+    // run's own logs and an ignored .env sit in the worktree permanently and
+    // change nothing the build compiles.
+    expect(planReleaseTag({ version: VERSION, repository: repository({ dirty: false }) })).toEqual({ action: 'create', tag: TAG })
   })
 
   it('refuses a repository with no origin to push to', () => {
