@@ -706,8 +706,8 @@ importers:
         specifier: link:../../vendor/schemastery
         version: link:../../vendor/schemastery
       '@haoran/dsh-default-model':
-        specifier: file:./vendor/haoran-dsh-default-model-0.1.1.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.1.tgz
+        specifier: file:./vendor/haoran-dsh-default-model-0.1.2.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz
       '@haoran/dsh-edit-rerun':
         specifier: file:./vendor/haoran-dsh-edit-rerun-0.1.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-edit-rerun-0.1.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)
@@ -10683,9 +10683,9 @@ packages:
       '@modelcontextprotocol/sdk':
         optional: true
 
-  '@haoran/dsh-default-model@file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.1.tgz':
-    resolution: {integrity: sha512-OlmGtW9B6RQ5/rkWGNTVH+UyUCdm7SHpjUJ36gx7FAyhoRKb3Fly7cKEXvSp++A9vuCh1XqoDzt3d3QG0fAaCQ==, tarball: file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.1.tgz}
-    version: 0.1.1
+  '@haoran/dsh-default-model@file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz':
+    resolution: {integrity: sha512-d+wWTO/d/ldWQTdUkHvTkNEZXNgUOcTaXy5RX9FZnuZ0w1Q9KTtPwiaaBC9KIug6Szsl0zCI4tS7Q0Q3sVQwKA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz}
+    version: 0.1.2
 
   '@haoran/dsh-edit-rerun@file:apps/desktop-server/vendor/haoran-dsh-edit-rerun-0.1.0.tgz':
     resolution: {integrity: sha512-tAm3IIsBwKfOIjL5Y6dLnIMyiQtdKBPsEZxYZr4my5YsNes4Y39gZuAQt8LO8RBUgPj3FZKTDlUUiSyPEyjxaw==, tarball: file:apps/desktop-server/vendor/haoran-dsh-edit-rerun-0.1.0.tgz}
@@ -17347,7 +17347,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@haoran/dsh-default-model@file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.1.tgz': {}
+  '@haoran/dsh-default-model@file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz': {}
 
   '@haoran/dsh-edit-rerun@file:apps/desktop-server/vendor/haoran-dsh-edit-rerun-0.1.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)':
     optionalDependencies:

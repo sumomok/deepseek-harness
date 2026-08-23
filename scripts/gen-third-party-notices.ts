@@ -79,7 +79,7 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   'dsh-at-file': { repo: 'https://github.com/omdsh-dev/dsh-at-file' },
   // Unpublished and vendored as tarballs, so the archives committed here are the
   // only source of record there is to name.
-  '@haoran/dsh-default-model': { repo: 'apps/desktop-server/vendor/haoran-dsh-default-model-0.1.1.tgz' },
+  '@haoran/dsh-default-model': { repo: 'apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz' },
   '@haoran/dsh-edit-rerun': { repo: 'apps/desktop-server/vendor/haoran-dsh-edit-rerun-0.1.0.tgz' },
   '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz' },
   '@haoran/dsh-quote-message': { repo: 'apps/desktop-server/vendor/haoran-dsh-quote-message-0.1.0.tgz' },

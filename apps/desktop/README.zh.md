@@ -121,7 +121,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-prun
 | `@haoran/dsh-llm-permission-gateway` | `0.1.3`,来自提交进本仓库的 tarball | 自动审查这个权限预设,以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型 |
 | `@haoran/dsh-quote-message` | `0.1.0`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,或者用 `@message` 挑一整条消息,引用 chip 在你发送时展开成一段点明来源的 markdown 引用块 |
 | `@haoran/dsh-edit-rerun` | `0.1.0`,来自提交进本仓库的 tarball | 改写更早的那个问题并从那里重跑:每个已完成回合的操作行多出两个按钮,它们 fork 出一个历史止于该回合之前的子会话并预填输入框,原对话保持原样 |
-| `@haoran/dsh-default-model` | `0.1.1`,来自提交进本仓库的 tarball | 出厂默认模型:全新安装的第一个会话开在 `deepseek-v4-flash-vision-exp` 上,选择器把它列为 `default · DeepSeek-V4-Flash-Vision` |
+| `@haoran/dsh-default-model` | `0.1.2`,来自提交进本仓库的 tarball | 出厂默认模型:全新安装的第一个会话开在 `deepseek-v4-flash-vision-exp` 上,选择器把它列为 `default` |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
 
