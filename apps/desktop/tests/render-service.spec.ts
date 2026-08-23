@@ -7,15 +7,33 @@
 
 import { afterEach, describe, expect, it } from 'vitest'
 import {
-  RENDER_LIMITS, startRenderService,
-  type RenderLimits, type RenderPhase, type RenderRequest, type RenderServiceHandle, type RenderTrace, type Renderer,
+  blockedByPattern, REPORT_HEADER_BYTES, RENDER_LIMITS, startRenderService,
+  type Capture, type CaptureNow, type RenderLimits, type RenderPhase, type RenderReport,
+  type RenderRequest, type RenderServiceHandle, type RenderTrace, type Renderer,
 } from '../src/render-service.ts'
 
 /** Stand-in for encoded pixels; the service must hand these back untouched. */
 const PNG = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x01, 0x02])
 
+/** What every renderer here answers with, at the size {@link VALID} asks for. */
+const CAPTURE: Capture = { png: PNG, width: 800, height: 600 }
+
 /** A request every field of which is valid, used wherever the body is not what is under test. */
 const VALID = { url: 'https://example.test/page', width: 800, height: 600 }
+
+/** The two fields `resolveRequest` fills in for a request that names neither, on the shell's own limits. */
+const RESOLVED = { timeoutMs: RENDER_LIMITS.timeoutMs, onTimeout: 'fail' as const }
+
+/**
+ * The report one answer carries.
+ * @param response - the answer to read.
+ * @returns the parsed report; fails the test when the header is missing.
+ */
+function reportOf(response: Response): RenderReport {
+  const header = response.headers.get('x-dsh-render-report')
+  expect(header).not.toBeNull()
+  return JSON.parse(decodeURIComponent(header ?? '')) as RenderReport
+}
 
 let service: RenderServiceHandle | undefined
 
@@ -35,14 +53,14 @@ async function start(renderer: Renderer, limits: Partial<RenderLimits> = {}): Pr
   return service
 }
 
-/** A renderer that answers every request with {@link PNG} and records what it was asked for. */
+/** A renderer that answers every request with {@link CAPTURE} and records what it was asked for. */
 function recordingRenderer(): { renderer: Renderer; seen: RenderRequest[] } {
   const seen: RenderRequest[] = []
   return {
     seen,
     renderer: async (request) => {
       seen.push(request)
-      return PNG
+      return CAPTURE
     },
   }
 }
@@ -62,7 +80,7 @@ function tracingRenderer(record: (trace: RenderTrace) => void): Renderer {
     await new Promise<never>((_resolve, reject) => {
       signal.addEventListener('abort', () => { reject(new Error('render aborted')) }, { once: true })
     })
-    return PNG
+    return CAPTURE
   }
 }
 
@@ -393,8 +411,28 @@ describe('a rendered request', () => {
     await (await post(handle, VALID)).arrayBuffer()
     await (await post(handle, { ...VALID, fullPage: true, delayMs: 250 })).arrayBuffer()
     expect(seen).toEqual([
-      { url: VALID.url, width: 800, height: 600, fullPage: false, delayMs: 0 },
-      { url: VALID.url, width: 800, height: 600, fullPage: true, delayMs: 250 },
+      { url: VALID.url, width: 800, height: 600, fullPage: false, delayMs: 0, ...RESOLVED },
+      { url: VALID.url, width: 800, height: 600, fullPage: true, delayMs: 250, ...RESOLVED },
+    ])
+  })
+
+  it('resolves the deadline and what a passed one does, and hands block patterns on lowercased', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    await (await post(handle, { ...VALID, timeoutMs: 90_000, onTimeout: 'capture', blockHosts: ['WWW.Gravatar.com', '*.Cdn.test'] })).arrayBuffer()
+    await (await post(handle, { ...VALID, blockHosts: [] })).arrayBuffer()
+    expect(seen).toEqual([
+      {
+        url: VALID.url,
+        width: 800,
+        height: 600,
+        fullPage: false,
+        delayMs: 0,
+        timeoutMs: 90_000,
+        onTimeout: 'capture',
+        blockHosts: ['www.gravatar.com', '*.cdn.test'],
+      },
+      { url: VALID.url, width: 800, height: 600, fullPage: false, delayMs: 0, ...RESOLVED },
     ])
   })
 
@@ -410,10 +448,11 @@ describe('a rendered request', () => {
         height: 600,
         fullPage: false,
         delayMs: 0,
+        ...RESOLVED,
         headers: { 'X-Api-Key': 'k' },
         cookies: { _redmine_session: 'abc' },
       },
-      { url: VALID.url, width: 800, height: 600, fullPage: false, delayMs: 0 },
+      { url: VALID.url, width: 800, height: 600, fullPage: false, delayMs: 0, ...RESOLVED },
     ])
   })
 })
@@ -429,15 +468,33 @@ describe('where the render landed', () => {
   async function renderLandingAt(landed: string, body: unknown = VALID): Promise<Response> {
     const handle = await start(async (_request, _signal, trace) => {
       trace.mainDocument(landed, 200)
-      return PNG
+      return CAPTURE
     })
     return post(handle, body)
   }
 
   it('names the landing on a successful render, so a sign-in page is not read as the page asked for', async () => {
-    const response = await renderLandingAt('http://127.0.0.1:30010/login?back_url=%2Fissues', { ...VALID, url: 'http://127.0.0.1:30010/issues' })
+    const landed = 'http://127.0.0.1:30010/login?back_url=%2Fissues'
+    const response = await renderLandingAt(landed, { ...VALID, url: 'http://127.0.0.1:30010/issues' })
     expect(response.status).toBe(200)
-    expect(response.headers.get('x-dsh-render-landed-url')).toBe('http://127.0.0.1:30010/login?back_url=%2Fissues')
+    const header = response.headers.get('x-dsh-render-landed-url') ?? ''
+    // The escape the URL itself carries is escaped again, so the reader's
+    // decode returns the URL Chromium reported rather than one with a space in
+    // it.
+    expect(header).toBe('http://127.0.0.1:30010/login?back_url=%252Fissues')
+    expect(decodeURIComponent(header)).toBe(landed)
+    await response.arrayBuffer()
+  })
+
+  it('gives a landing carrying every kind of escape back to a reader that decodes it', async () => {
+    const landed = 'https://example.test/a%20b?q=100%&bad=%zz&名=值#%'
+    const response = await renderLandingAt(landed)
+    const header = response.headers.get('x-dsh-render-landed-url') ?? ''
+    // A bare `%zz` is what makes this more than tidiness: `decodeURIComponent`
+    // throws on it, so a header that passed it through would cost the reader
+    // the whole landing rather than one character of it.
+    expect(header).not.toMatch(/%(?![0-9A-F]{2})/)
+    expect(decodeURIComponent(header)).toBe(landed)
     await response.arrayBuffer()
   })
 
@@ -481,7 +538,7 @@ describe('admission', () => {
       peak = Math.max(peak, running)
       await new Promise(resolve => setTimeout(resolve, 5))
       running--
-      return PNG
+      return CAPTURE
     })
     const responses = await Promise.all([post(handle, VALID), post(handle, VALID), post(handle, VALID)])
     for (const response of responses) {
@@ -497,7 +554,7 @@ describe('admission', () => {
     const handle = await start(async () => {
       started++
       await held.wait
-      return PNG
+      return CAPTURE
     }, { queueLimit: 2 })
     const statuses: number[] = []
     const posts = [0, 1, 2, 3].map(async () => {
@@ -515,7 +572,7 @@ describe('admission', () => {
   })
 
   it('accepts a later request once the queue drained', async () => {
-    const handle = await start(async () => PNG, { queueLimit: 1 })
+    const handle = await start(async () => CAPTURE, { queueLimit: 1 })
     for (let attempt = 0; attempt < 3; attempt++) {
       const response = await post(handle, VALID)
       expect(response.status).toBe(200)
@@ -545,7 +602,7 @@ describe('a render that does not produce an image', () => {
           reject(new Error('render aborted'))
         }, { once: true })
       })
-      return PNG
+      return CAPTURE
     }, { timeoutMs: 60 })
     const response = await post(handle, VALID)
     expect(response.status).toBe(504)
@@ -559,8 +616,8 @@ describe('a render that does not produce an image', () => {
       seen.push(request.url)
       // What `webContents.executeJavaScript` does when its window is destroyed:
       // it neither resolves nor rejects, and the abort signal reaches nothing.
-      if (seen.length === 1) return new Promise<Buffer>(() => undefined)
-      return PNG
+      if (seen.length === 1) return new Promise<Capture>(() => undefined)
+      return CAPTURE
     }, { timeoutMs: 60 })
     const abandoned = await post(handle, VALID)
     expect(abandoned.status).toBe(504)
@@ -654,7 +711,7 @@ describe('a render that does not produce an image', () => {
       trace.mainDocument(VALID.url, 200)
       trace.requestStarted(1, 'https://example.test/app.js', 'script')
       trace.requestStarted(2, 'https://example.test/hero.png', 'image')
-      trace.requestSettled(1)
+      trace.requestCompleted(1, 200)
     })
     expect(line).toBe(
       'render timed out after 60ms: main document 200, load event not fired, 1 request pending: '
@@ -667,7 +724,7 @@ describe('a render that does not produce an image', () => {
       trace.enter('navigating')
       trace.mainDocument(VALID.url, 200)
       trace.requestStarted(1, 'https://example.test/app.js', 'script')
-      trace.requestSettled(99)
+      trace.requestCompleted(99, 200)
     })
     expect(line).toBe(
       'render timed out after 60ms: main document 200, load event not fired, 1 request pending: '
@@ -731,7 +788,7 @@ describe('a render that does not produce an image', () => {
       started.push(request.url)
       await held.wait
       signal.throwIfAborted()
-      return PNG
+      return CAPTURE
     }, { timeoutMs: 80, queueLimit: 4 })
     const first = post(handle, VALID)
     await until(() => started.length === 1, 'the first render to start')
@@ -746,5 +803,457 @@ describe('a render that does not produce an image', () => {
     const firstResponse = await first
     expect(firstResponse.status).toBe(504)
     await firstResponse.text()
+  })
+})
+
+describe('the report every answer carries', () => {
+  /**
+   * The answer a render whose trace `record` filled times out with.
+   * @param record - fills the trace the way the window half would.
+   * @param body - the request body.
+   * @returns the response, its body unread.
+   */
+  async function timedOut(record: (trace: RenderTrace) => void, body: unknown = VALID): Promise<Response> {
+    const handle = await start(tracingRenderer(record), { timeoutMs: TRACE_TIMEOUT_MS })
+    return post(handle, body)
+  }
+
+  it('says what a complete render did, and what size it came back at', async () => {
+    const handle = await start(async (_request, _signal, trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(VALID.url, 200)
+      trace.pageTitle('Issues')
+      trace.firstPaint()
+      trace.requestStarted(1, VALID.url, 'mainFrame')
+      trace.requestCompleted(1, 200)
+      trace.enter('capturing')
+      return CAPTURE
+    })
+    const response = await post(handle, VALID)
+    expect(response.status).toBe(200)
+    const report = reportOf(response)
+    await response.arrayBuffer()
+    expect(report.version).toBe(1)
+    expect(report.outcome).toBe('complete')
+    expect(report.phase).toBe('capturing')
+    expect(report.deadlineMs).toBe(RENDER_LIMITS.timeoutMs)
+    expect(report.elapsedMs).toBeGreaterThanOrEqual(0)
+    expect(report.requestedUrl).toBe(VALID.url)
+    expect(report.mainDocument).toEqual({ url: VALID.url, status: 200, redirected: false, title: 'Issues' })
+    expect(report.loadEventFired).toBe(true)
+    expect(report.firstPaint).toBe(true)
+    expect(report.requests).toEqual({ total: 1, completed: 1, failed: 0, pending: 0, blocked: 0 })
+    expect(report.capture).toEqual({ partial: false, width: 800, height: 600 })
+  })
+
+  it('says why a render produced no image at all, on the 500 that refuses it', async () => {
+    const handle = await start(async (_request, _signal, trace) => {
+      trace.enter('navigating')
+      trace.mainFrameFailed(-6, 'ERR_FILE_NOT_FOUND')
+      throw new Error('ERR_FILE_NOT_FOUND (-6) loading file:///missing.html')
+    })
+    const response = await post(handle, VALID)
+    expect(response.status).toBe(500)
+    const report = reportOf(response)
+    expect(await response.text()).toContain('render failed: ERR_FILE_NOT_FOUND (-6)')
+    expect(report.outcome).toBe('failed')
+    expect(report.mainFrameError).toEqual({ code: -6, description: 'ERR_FILE_NOT_FOUND' })
+    expect(report.capture).toBeNull()
+    expect(report.loadEventFired).toBe(false)
+  })
+
+  it('names the hosts a timed-out render is waiting on, worst first, and counts the rest', async () => {
+    const response = await timedOut((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(VALID.url, 200)
+      for (let n = 0; n < 7; n++) trace.requestStarted(n, `https://www.gravatar.com/avatar/${String(n)}`, 'image')
+      trace.requestStarted(100, 'https://cdn.example.test/app.css', 'stylesheet')
+      trace.requestStarted(101, 'https://cdn.example.test/late.js', 'script')
+      trace.requestStarted(102, 'https://api.example.test/whoami', 'xhr')
+      trace.requestFailed(102, 'net::ERR_CONNECTION_REFUSED')
+      trace.requestStarted(103, 'https://api.example.test/list', 'xhr')
+      trace.requestCompleted(103, 503)
+    })
+    expect(response.status).toBe(504)
+    const report = reportOf(response)
+    await response.text()
+    expect(report.outcome).toBe('timeout')
+    expect(report.phase).toBe('navigating')
+    expect(report.requests).toEqual({ total: 11, completed: 0, failed: 2, pending: 9, blocked: 0 })
+    expect(report.pending).toHaveLength(5)
+    expect(report.pending[0]).toMatchObject({ url: 'https://www.gravatar.com/avatar/0', type: 'image' })
+    expect(report.pending[0]?.ageMs).toBeGreaterThanOrEqual(0)
+    expect(report.hosts).toEqual([
+      { host: 'www.gravatar.com', pending: 7, failed: 0, blocked: 0, maxAgeMs: expect.any(Number) },
+      { host: 'cdn.example.test', pending: 2, failed: 0, blocked: 0, maxAgeMs: expect.any(Number) },
+      { host: 'api.example.test', pending: 0, failed: 2, blocked: 0, maxAgeMs: 0 },
+    ])
+    expect(report.failed).toEqual([
+      { url: 'https://api.example.test/whoami', type: 'xhr', error: 'net::ERR_CONNECTION_REFUSED', status: null },
+      { url: 'https://api.example.test/list', type: 'xhr', error: null, status: 503 },
+    ])
+  })
+
+  it('counts what the page logged and quotes the first three errors', async () => {
+    const response = await timedOut((trace) => {
+      trace.enter('navigating')
+      for (let n = 0; n < 5; n++) trace.consoleMessage('error', `boom ${String(n)}`)
+      trace.consoleMessage('warning', 'deprecated')
+      trace.consoleMessage('info', 'hello')
+      trace.consoleMessage('debug', 'noise')
+    })
+    const report = reportOf(response)
+    await response.text()
+    expect(report.console).toEqual({ errors: 5, warnings: 1, samples: ['boom 0', 'boom 1', 'boom 2'] })
+  })
+
+  it('records the redirect, the title, the paint, and what became of the render process', async () => {
+    const response = await timedOut((trace) => {
+      trace.enter('navigating')
+      trace.mainDocumentRedirected()
+      trace.mainDocument('http://127.0.0.1:30010/login', -1)
+      trace.pageTitle('sign in')
+      trace.pageTitle('')
+      trace.firstPaint()
+      trace.rendererGone('crashed')
+      trace.rendererUnresponsive()
+    }, { ...VALID, url: 'http://127.0.0.1:30010/issues' })
+    const report = reportOf(response)
+    await response.text()
+    expect(report.mainDocument).toEqual({ url: 'http://127.0.0.1:30010/login', status: null, redirected: true, title: 'sign in' })
+    expect(report.firstPaint).toBe(true)
+    expect(report.renderer).toEqual({ gone: 'crashed', unresponsive: true })
+  })
+
+  it('counts a blocked request as blocked and not as one the page is waiting for', async () => {
+    const response = await timedOut((trace) => {
+      trace.enter('navigating')
+      trace.requestBlocked('https://www.gravatar.com/avatar/1')
+      trace.requestBlocked('https://www.gravatar.com/avatar/2')
+      // What Chromium reports for a cancelled request, under an id that never
+      // sent headers.
+      trace.requestFailed(7, 'net::ERR_BLOCKED_BY_CLIENT')
+    })
+    const report = reportOf(response)
+    await response.text()
+    expect(report.requests).toEqual({ total: 0, completed: 0, failed: 0, pending: 0, blocked: 2 })
+    expect(report.hosts).toEqual([{ host: 'www.gravatar.com', pending: 0, failed: 0, blocked: 2, maxAgeMs: 0 }])
+  })
+
+  it('sends no report with a refusal no render was started for', async () => {
+    const held = gate()
+    const handle = await start(async () => {
+      await held.wait
+      return CAPTURE
+    }, { queueLimit: 1 })
+    const running = post(handle, VALID)
+    const busy = await post(handle, VALID)
+    expect(busy.status).toBe(503)
+    expect(busy.headers.get('x-dsh-render-report')).toBeNull()
+    await busy.text()
+    held.open()
+    await (await running).arrayBuffer()
+
+    const refusals: [unknown, number][] = [[{ ...VALID, width: 1 }, 400], [{ ...VALID, url: 'ftp://host/x' }, 422]]
+    for (const [body, status] of refusals) {
+      const response = await post(handle, body)
+      expect(response.status).toBe(status)
+      expect(response.headers.get('x-dsh-render-report')).toBeNull()
+      await response.text()
+    }
+  })
+
+  it('keeps the header under its ceiling and still parseable when the page is at its worst', async () => {
+    const long = `https://cdn.example.test/${'segment/'.repeat(250)}`
+    const response = await timedOut((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(long, 200)
+      trace.pageTitle('t'.repeat(2000))
+      trace.mainFrameFailed(-105, 'ERR_NAME_NOT_RESOLVED '.repeat(50))
+      for (let n = 0; n < 100; n++) trace.requestStarted(n, `${long}${String(n)}.png`, 'image')
+      for (let n = 200; n < 260; n++) {
+        trace.requestStarted(n, `${long}${String(n)}.js`, 'script')
+        trace.requestFailed(n, `net::ERR_${'X'.repeat(200)}`)
+      }
+      for (let n = 0; n < 50; n++) trace.consoleMessage('error', `boom ${'y'.repeat(2000)}`)
+    }, { ...VALID, url: `https://example.test/${'a'.repeat(2000)}` })
+    const header = response.headers.get('x-dsh-render-report') ?? ''
+    await response.text()
+    expect(Buffer.byteLength(header, 'utf8')).toBeLessThanOrEqual(REPORT_HEADER_BYTES)
+    const report = JSON.parse(decodeURIComponent(header)) as RenderReport
+    expect(report.requests).toEqual({ total: 160, completed: 0, failed: 60, pending: 100, blocked: 0 })
+    expect(report.pending).toHaveLength(5)
+    expect(report.failed).toHaveLength(5)
+    expect(report.console.errors).toBe(50)
+    expect(report.console.samples).toHaveLength(3)
+    for (const one of report.pending) expect(one.url.endsWith('…')).toBe(true)
+    expect(report.requestedUrl.endsWith('…')).toBe(true)
+  })
+
+  it('bounds the header in the bytes it costs, not the characters, whatever those bytes cost', async () => {
+    // Both fillers cost three header bytes per source byte: a character outside
+    // printable ASCII because it is escaped, and `%` because it is escaped too.
+    // A cap counted in characters would put either page over the ceiling.
+    for (const filler of ['搜索', '%%']) {
+      const long = `https://例え.test/${filler.repeat(1000)}`
+      const response = await timedOut((trace) => {
+        trace.enter('navigating')
+        trace.mainDocument(long, 200)
+        trace.pageTitle(filler.repeat(500))
+        for (let n = 0; n < 100; n++) trace.requestStarted(n, `${long}${String(n)}`, filler)
+        for (let n = 0; n < 50; n++) trace.consoleMessage('error', filler.repeat(500))
+      }, { ...VALID, url: long })
+      const header = response.headers.get('x-dsh-render-report') ?? ''
+      await response.text()
+      expect(Buffer.byteLength(header, 'utf8')).toBeLessThanOrEqual(REPORT_HEADER_BYTES)
+      const report = JSON.parse(decodeURIComponent(header)) as RenderReport
+      expect(report.console.samples[0]?.endsWith('…')).toBe(true)
+      expect(report.mainDocument?.title?.endsWith('…')).toBe(true)
+    }
+  })
+
+  it('gives every string back to a reader that decodes it, escapes and all', async () => {
+    const url = 'https://example.test/a%20b?q=100%&bad=%zz&名=值'
+    const title = '100% done — %E4 %zz 完成'
+    const response = await timedOut((trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(url, 200)
+      trace.pageTitle(title)
+      trace.requestStarted(1, url, 'image')
+      trace.consoleMessage('error', title)
+    }, { ...VALID, url })
+    const header = response.headers.get('x-dsh-render-report') ?? ''
+    await response.text()
+    // Every `%` on the wire opens a real escape, which is what keeps
+    // `decodeURIComponent` from throwing on the `%zz` the page carried.
+    expect(header).not.toMatch(/%(?![0-9A-F]{2})/)
+    expect(header).toContain('a%2520b')
+    const report = JSON.parse(decodeURIComponent(header)) as RenderReport
+    expect(report.requestedUrl).toBe(url)
+    expect(report.mainDocument?.url).toBe(url)
+    expect(report.mainDocument?.title).toBe(title)
+    expect(report.pending[0]?.url).toBe(url)
+    expect(report.console.samples[0]).toBe(title)
+  })
+})
+
+describe('a request that names its own deadline', () => {
+  it('runs on what it asked for rather than on the deployment default', async () => {
+    const handle = await start(async () => {
+      await new Promise(resolve => setTimeout(resolve, 200))
+      return CAPTURE
+    }, { timeoutMs: 60 })
+    const answered = await post(handle, { ...VALID, timeoutMs: 2000 })
+    expect(answered.status).toBe(200)
+    await answered.arrayBuffer()
+    expect(reportOf(answered).deadlineMs).toBe(2000)
+
+    const passed = await post(handle, VALID)
+    expect(passed.status).toBe(504)
+    expect(await passed.text()).toContain('render timed out after 60ms')
+  })
+
+  it('refuses a deadline outside the bounds instead of quietly moving it', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const cases: unknown[] = [
+      { ...VALID, timeoutMs: 999 },
+      { ...VALID, timeoutMs: 120_001 },
+      { ...VALID, timeoutMs: 1500.5 },
+      { ...VALID, timeoutMs: '3000' },
+      { ...VALID, timeoutMs: null },
+    ]
+    for (const body of cases) {
+      const response = await post(handle, body)
+      expect(response.status).toBe(400)
+      expect(await response.text()).toContain('timeoutMs must be an integer between 1000 and 120000')
+    }
+    expect(seen).toEqual([])
+
+    for (const timeoutMs of [1000, RENDER_LIMITS.maxTimeoutMs]) {
+      const response = await post(handle, { ...VALID, timeoutMs })
+      expect(response.status).toBe(200)
+      await response.arrayBuffer()
+    }
+    expect(seen.map(request => request.timeoutMs)).toEqual([1000, RENDER_LIMITS.maxTimeoutMs])
+  })
+
+  it('refuses an onTimeout it does not implement', async () => {
+    const handle = await start(recordingRenderer().renderer)
+    for (const onTimeout of ['retry', '', 1, null]) {
+      const response = await post(handle, { ...VALID, onTimeout })
+      expect(response.status).toBe(400)
+      expect(await response.text()).toContain('onTimeout must be "fail" or "capture"')
+    }
+  })
+})
+
+describe('the hosts a request refuses to reach', () => {
+  it('matches an exact host in any case and a suffix pattern only below it', () => {
+    expect(blockedByPattern(['www.gravatar.com'], 'https://WWW.Gravatar.com/avatar/1')).toBe(true)
+    expect(blockedByPattern(['www.gravatar.com'], 'https://gravatar.com/avatar/1')).toBe(false)
+    expect(blockedByPattern(['*.gravatar.com'], 'https://www.gravatar.com/avatar/1')).toBe(true)
+    expect(blockedByPattern(['*.gravatar.com'], 'https://a.b.gravatar.com/avatar/1')).toBe(true)
+    expect(blockedByPattern(['*.gravatar.com'], 'https://gravatar.com/avatar/1')).toBe(false)
+    expect(blockedByPattern(['*.gravatar.com'], 'https://notgravatar.com/avatar/1')).toBe(false)
+    expect(blockedByPattern(['127.0.0.1'], 'http://127.0.0.1:8080/hang.png')).toBe(true)
+    expect(blockedByPattern(['example.test'], 'file:///tmp/page.html')).toBe(false)
+    expect(blockedByPattern([], 'https://example.test/')).toBe(false)
+  })
+
+  it('refuses a list that is not one, an entry that is not a host, and more than it will match', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const cases: [unknown, string][] = [
+      [{ ...VALID, blockHosts: 'gravatar.com' }, 'blockHosts must be an array of host patterns'],
+      [{ ...VALID, blockHosts: { host: 'gravatar.com' } }, 'blockHosts must be an array of host patterns'],
+      [{ ...VALID, blockHosts: ['a.test', 7] }, 'blockHosts[1] must be a string'],
+      [{ ...VALID, blockHosts: [`${'a'.repeat(254)}`] }, 'blockHosts[0] is longer than 253 characters'],
+      [{ ...VALID, blockHosts: Array.from({ length: 33 }, (_entry, n) => `h${String(n)}.test`) }, 'blockHosts may name at most 32 host patterns'],
+      [{ ...VALID, blockHosts: ['https://gravatar.com'] }, 'blockHosts pattern "https://gravatar.com" must be a host or *.suffix'],
+      [{ ...VALID, blockHosts: ['gravatar.com:443'] }, 'blockHosts pattern "gravatar.com:443" must be a host or *.suffix'],
+      [{ ...VALID, blockHosts: ['a.test/path'] }, 'blockHosts pattern "a.test/path" must be a host or *.suffix'],
+      [{ ...VALID, blockHosts: ['*'] }, 'blockHosts pattern "*" must be a host or *.suffix'],
+      [{ ...VALID, blockHosts: ['a.*.test'] }, 'blockHosts pattern "a.*.test" must be a host or *.suffix'],
+      [{ ...VALID, blockHosts: [''] }, 'blockHosts pattern "" must be a host or *.suffix'],
+    ]
+    for (const [body, expected] of cases) {
+      const response = await post(handle, body)
+      expect(response.status).toBe(400)
+      expect(await response.text()).toContain(expected)
+    }
+    expect(seen).toEqual([])
+  })
+
+  it('refuses a pattern that would cancel the page being rendered', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const exact = await post(handle, { ...VALID, url: 'https://a.example.test/page', blockHosts: ['cdn.test', 'A.Example.test'] })
+    expect(exact.status).toBe(400)
+    expect(await exact.text()).toContain('blockHosts pattern "A.Example.test" matches a.example.test, the host of the page being rendered')
+
+    const suffix = await post(handle, { ...VALID, url: 'https://a.example.test/page', blockHosts: ['*.example.test'] })
+    expect(suffix.status).toBe(400)
+    expect(await suffix.text()).toContain('blockHosts pattern "*.example.test" matches a.example.test, the host of the page being rendered')
+    expect(seen).toEqual([])
+
+    // The suffix form does not match the apex, so a page served from it may
+    // block its own subdomains.
+    const apex = await post(handle, { ...VALID, url: 'https://example.test/page', blockHosts: ['*.example.test'] })
+    expect(apex.status).toBe(200)
+    await apex.arrayBuffer()
+    expect(seen).toHaveLength(1)
+  })
+})
+
+describe('a deadline the caller asked to be answered with pixels', () => {
+  /** What a partial capture hands back, distinct from {@link CAPTURE} so the reply can be told apart. */
+  const PARTIAL: Capture = { png: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0xff]), width: 800, height: 600 }
+
+  /**
+   * A renderer that offers `capture` and then waits out the deadline.
+   * @param capture - what the service gets when it takes the offer.
+   * @param record - fills the trace the way the window half would.
+   * @returns the renderer to inject.
+   */
+  function offering(capture: CaptureNow, record: (trace: RenderTrace) => void = () => {}): Renderer {
+    return async (_request, signal, trace, offerCapture) => {
+      record(trace)
+      offerCapture(capture)
+      await new Promise<never>((_resolve, reject) => {
+        signal.addEventListener('abort', () => { reject(new Error('render aborted')) }, { once: true })
+      })
+      return CAPTURE
+    }
+  }
+
+  it('answers 200 with what had painted, labelled a timeout', async () => {
+    const handle = await start(offering(async () => PARTIAL, (trace) => {
+      trace.enter('navigating')
+      trace.mainDocument(VALID.url, 200)
+      trace.firstPaint()
+      trace.requestStarted(1, 'https://www.gravatar.com/avatar/1', 'image')
+    }), { timeoutMs: TRACE_TIMEOUT_MS })
+    const response = await post(handle, { ...VALID, onTimeout: 'capture' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('content-type')).toBe('image/png')
+    const report = reportOf(response)
+    expect(Buffer.from(await response.arrayBuffer())).toEqual(PARTIAL.png)
+    expect(report.outcome).toBe('timeout')
+    expect(report.capture).toEqual({ partial: true, width: 800, height: 600 })
+    expect(report.loadEventFired).toBe(false)
+    expect(report.firstPaint).toBe(true)
+    expect(report.requests.pending).toBe(1)
+    expect(report.hosts[0]?.host).toBe('www.gravatar.com')
+  })
+
+  it('names the landing on a partial capture, the way a complete render does', async () => {
+    const handle = await start(offering(async () => PARTIAL, (trace) => {
+      trace.mainDocument('http://127.0.0.1:30010/login', 200)
+    }), { timeoutMs: TRACE_TIMEOUT_MS })
+    const response = await post(handle, { ...VALID, url: 'http://127.0.0.1:30010/issues', onTimeout: 'capture' })
+    expect(response.status).toBe(200)
+    expect(response.headers.get('x-dsh-render-landed-url')).toBe('http://127.0.0.1:30010/login')
+    await response.arrayBuffer()
+  })
+
+  it('takes no capture at all for a request that asked to fail', async () => {
+    let taken = 0
+    const handle = await start(offering(async () => {
+      taken++
+      return PARTIAL
+    }), { timeoutMs: TRACE_TIMEOUT_MS })
+    const response = await post(handle, VALID)
+    expect(response.status).toBe(504)
+    await response.text()
+    expect(taken).toBe(0)
+  })
+
+  it('falls back to the 504 when the capture fails or when the renderer offered none', async () => {
+    const throwing = await start(offering(async () => { throw new Error('window destroyed') }), { timeoutMs: TRACE_TIMEOUT_MS })
+    const failed = await post(throwing, { ...VALID, onTimeout: 'capture' })
+    expect(failed.status).toBe(504)
+    expect(await failed.text()).toContain('render timed out after 60ms')
+    expect(reportOf(failed).capture).toBeNull()
+    await throwing.close()
+    service = undefined
+
+    const silent = await start(tracingRenderer(() => {}), { timeoutMs: TRACE_TIMEOUT_MS })
+    const never = await post(silent, { ...VALID, onTimeout: 'capture' })
+    expect(never.status).toBe(504)
+    await never.text()
+  })
+
+  it('goes on serving while a capture that never settles runs out its own cap', async () => {
+    const started: string[] = []
+    const handle = await start(async (request, signal, _trace, offerCapture) => {
+      started.push(request.url)
+      if (started.length === 1) {
+        offerCapture(() => new Promise<Capture>(() => undefined))
+        return new Promise<Capture>(() => undefined)
+      }
+      signal.throwIfAborted()
+      return CAPTURE
+    }, { timeoutMs: TRACE_TIMEOUT_MS, captureOnTimeoutMs: 400 })
+    const answered: string[] = []
+    const first = post(handle, { ...VALID, onTimeout: 'capture' }).then((response) => {
+      answered.push('first')
+      return response
+    })
+    await until(() => started.length === 1, 'the first render to start')
+    const second = await post(handle, { ...VALID, url: 'https://example.test/after' }).then((response) => {
+      answered.push('second')
+      return response
+    })
+    // The queue moved on the moment the deadline passed, so this answered while
+    // the first request was still inside its capture cap.
+    expect(second.status).toBe(200)
+    expect(answered).toEqual(['second'])
+    expect(Buffer.from(await second.arrayBuffer())).toEqual(PNG)
+    const timedOut = await first
+    expect(timedOut.status).toBe(504)
+    await timedOut.text()
+    expect(answered).toEqual(['second', 'first'])
+    expect(started).toEqual([VALID.url, 'https://example.test/after'])
   })
 })

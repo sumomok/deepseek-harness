@@ -32,18 +32,28 @@
  * downsampled here instead, which is why the same request produces the same
  * image on any display.
  *
- * It also feeds the service's [[RenderTrace]] with where the render got to,
- * where the main frame landed, and which requests are still in flight, from
- * `did-navigate` and the session's non-blocking `webRequest` hooks. Those
- * observe; the blocking hooks hold each request until their callback runs, so
- * a diagnostic built on them would change the timing it reports.
+ * It also feeds the service's [[RenderTrace]] with everything the render's
+ * report is built from — where the render got to, where the main frame landed
+ * and what it was called, whether anything painted, what the page logged, what
+ * became of the render process, and every request the page made — all from
+ * main-process events and the session's non-blocking `webRequest` hooks. Those
+ * observe; the blocking hooks hold each request until their callback runs, so a
+ * diagnostic built on them would change the timing it reports. The one blocking
+ * hook here is registered only for a request that carries `blockHosts`, where
+ * cancelling is the point rather than a side effect, so a render that names
+ * none is timed exactly as it was before.
+ *
+ * The window is also lent to the service as a capture it can take at any
+ * moment, which is what lets a deadline answer with the pixels a page had
+ * already painted instead of only a 504.
  * @module @deepseek-ai/dsh-desktop/render-window
  */
 
 import { randomUUID } from 'node:crypto'
 import { BrowserWindow } from 'electron'
 import type { NativeImage, Session } from 'electron'
-import type { RenderRequest, Renderer } from './render-service.ts'
+import { blockedByPattern } from './render-service.ts'
+import type { Capture, RenderRequest, Renderer } from './render-service.ts'
 
 /**
  * The tallest full-page capture produced. A document with an infinite scroller
@@ -158,11 +168,14 @@ function atRequestedSize(image: NativeImage, width: number, height: number): Nat
  * else in this process holds a reference to.
  * @param request - the accepted request.
  * @param signal - aborted when the service's deadline passes.
- * @param trace - fed the phase this render is in, the main frame's landing, and the requests still in flight.
- * @returns the encoded PNG.
+ * @param trace - fed everything the render's report is built from: its phase, the main frame's landing and
+ * title, what the page logged, and every request it made.
+ * @param offerCapture - handed the capture this window can take at any moment, which is what a deadline
+ * carrying `onTimeout: 'capture'` answers with.
+ * @returns the capture, at the CSS-pixel size the request asked for.
  * @throws when the page fails to load, when the render is aborted, or when the capture fails.
  */
-export const renderInHiddenWindow: Renderer = async (request, signal, trace) => {
+export const renderInHiddenWindow: Renderer = async (request, signal, trace, offerCapture) => {
   const window = new BrowserWindow({
     show: false,
     // The requested size is the viewport, not the window frame around it.
@@ -196,6 +209,19 @@ export const renderInHiddenWindow: Renderer = async (request, signal, trace) => 
     if (!window.isDestroyed()) window.destroy()
   }
   signal.addEventListener('abort', destroy, { once: true })
+  // The CSS-pixel height a capture is brought back to: the viewport, or what a
+  // full-page render measured and resized the window to. A capture taken at the
+  // deadline reads whatever it is at that moment, which for a page that never
+  // reached the measurement is the viewport the request asked for.
+  let contentHeight = request.height
+  /**
+   * Take the window as it stands.
+   * @returns the encoded PNG and the CSS-pixel size it is at.
+   */
+  const captureNow = async (): Promise<Capture> => {
+    const image = atRequestedSize(await window.webContents.capturePage(), request.width, contentHeight)
+    return { png: image.toPNG(), width: request.width, height: contentHeight }
+  }
   try {
     // Before the load, so a page that starts playing on load is already silent.
     window.webContents.setAudioMuted(true)
@@ -212,19 +238,50 @@ export const renderInHiddenWindow: Renderer = async (request, signal, trace) => 
     window.webContents.on('did-navigate', (_event, url, httpResponseCode) => {
       trace.mainDocument(url, httpResponseCode)
     })
-    // The non-blocking hooks only. `onBeforeRequest` and the other blocking
-    // ones hold each request until their callback runs, so a diagnostic built
-    // on them would change the timing it is here to report; these three
-    // observe. `onSendHeaders` fires before the connection is made, so a
-    // request stuck in TCP connect counts as pending — which is the case this
-    // exists for. A response served from the cache reaches `onCompleted`
-    // without ever having sent headers, so the ids the hooks see are not the
-    // same set; settling an id that was never started is a no-op.
+    window.webContents.on('did-redirect-navigation', (details) => {
+      if (details.isMainFrame) trace.mainDocumentRedirected()
+    })
+    window.webContents.on('page-title-updated', (_event, title) => { trace.pageTitle(title) })
+    // Electron exposes no first-paint event; `ready-to-show` is the frame it
+    // has, and it fires for a window that is never shown only because
+    // `paintWhenInitiallyHidden` is set. It is what says whether a capture
+    // taken at the deadline can carry anything at all.
+    window.once('ready-to-show', () => { trace.firstPaint() })
+    window.webContents.on('did-fail-load', (_event, errorCode, errorDescription, _validatedURL, isMainFrame) => {
+      if (isMainFrame) trace.mainFrameFailed(errorCode, errorDescription)
+    })
+    // The deprecated positional arguments beside `details` carry the same
+    // message with a numeric level; `details.level` is the named one.
+    window.webContents.on('console-message', (details) => { trace.consoleMessage(details.level, details.message) })
+    window.webContents.on('render-process-gone', (_event, details) => { trace.rendererGone(details.reason) })
+    window.webContents.on('unresponsive', () => { trace.rendererUnresponsive() })
+    // The one blocking hook, and only for a request that asked for it.
+    // `onBeforeRequest` holds every request until its callback runs, so a
+    // render that named no `blockHosts` registers nothing and keeps the timing
+    // the rest of these hooks report. Cancelling here is before the connection
+    // is made, so a blocked host costs the render nothing at all.
+    if (request.blockHosts !== undefined) {
+      const patterns = request.blockHosts
+      session.webRequest.onBeforeRequest((details, callback) => {
+        const cancel = blockedByPattern(patterns, details.url)
+        if (cancel) trace.requestBlocked(details.url)
+        callback({ cancel })
+      })
+    }
+    // The non-blocking hooks. These three observe rather than hold, which is
+    // what keeps them out of the timing they report. `onSendHeaders` fires
+    // before the connection is made, so a request stuck in TCP connect counts
+    // as pending — which is the case this exists for. A response served from
+    // the cache reaches `onCompleted` without ever having sent headers, and a
+    // request cancelled above reaches `onErrorOccurred` the same way, so the
+    // ids the hooks see are not the same set; settling an id that was never
+    // started is a no-op.
     session.webRequest.onSendHeaders((details) => {
       trace.requestStarted(details.id, details.url, details.resourceType)
     })
-    session.webRequest.onCompleted((details) => { trace.requestSettled(details.id) })
-    session.webRequest.onErrorOccurred((details) => { trace.requestSettled(details.id) })
+    session.webRequest.onCompleted((details) => { trace.requestCompleted(details.id, details.statusCode) })
+    session.webRequest.onErrorOccurred((details) => { trace.requestFailed(details.id, details.error) })
+    offerCapture(captureNow)
     // Before the navigation, so the first request already carries the session.
     if (request.cookies !== undefined) await applyCookies(session, request.url, request.cookies)
     trace.enter('navigating')
@@ -232,13 +289,14 @@ export const renderInHiddenWindow: Renderer = async (request, signal, trace) => 
     // message carries the Chromium error code (`ERR_FILE_NOT_FOUND`).
     await window.loadURL(request.url, request.headers === undefined ? {} : { extraHeaders: extraHeaders(request.headers) })
     trace.enter('loaded')
+    // A page that set its title before the listener above was registered still
+    // has it here, and a `file:` page whose title Chromium synthesized has one
+    // at all only through this read.
+    trace.pageTitle(window.webContents.getTitle())
     if (request.delayMs > 0) {
       trace.enter('delaying')
       await delay(request.delayMs, signal)
     }
-    // The CSS-pixel height the capture is brought back to: the viewport, or
-    // what a full-page render measured and resized the window to.
-    let contentHeight = request.height
     if (request.fullPage) {
       trace.enter('measuring')
       contentHeight = await fullPageHeight(window, request)
@@ -249,7 +307,7 @@ export const renderInHiddenWindow: Renderer = async (request, signal, trace) => 
       }
     }
     trace.enter('capturing')
-    return atRequestedSize(await window.webContents.capturePage(), request.width, contentHeight).toPNG()
+    return await captureNow()
   } finally {
     signal.removeEventListener('abort', destroy)
     destroy()

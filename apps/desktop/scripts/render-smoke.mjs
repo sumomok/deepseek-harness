@@ -7,10 +7,13 @@
  * a hidden `BrowserWindow` actually paints, that `capturePage` returns the
  * requested viewport, that a full-page capture grows past it, that a request's
  * cookies reach every request the page makes while its headers reach only the
- * navigation, and that the `did-navigate` and `webRequest` hooks a timed-out
- * render is described from see a real redirect and a real page's real
- * requests. It renders local files and pages from listeners on this machine,
- * so it needs no network, and it uses the shell's own limits.
+ * navigation, that the `did-navigate` and `webRequest` hooks a timed-out render
+ * is described from see a real redirect and a real page's real requests, that a
+ * deadline can answer with the pixels a real page had painted, that
+ * `blockHosts` really cancels a request Chromium was about to make, and that a
+ * real page's `console.error` reaches the report. It renders local files and
+ * pages from listeners on this machine, so it needs no network, and it uses the
+ * shell's own limits.
  *
  * Requires `pnpm --filter @deepseek-ai/dsh-desktop run build:ts` first: this
  * runs under Electron, which has no TypeScript loader, so it imports `lib/`.
@@ -93,6 +96,18 @@ function check(condition, what) {
 }
 
 /**
+ * The render report one answer carries.
+ * @param {Response} response - the answer to read.
+ * @returns {import('../lib/render-service.js').RenderReport} the parsed report.
+ * @throws when the answer carries no report, which is itself the failure.
+ */
+function reportOf(response) {
+  const header = response.headers.get('x-dsh-render-report')
+  if (header === null) throw new Error('FAILED: the answer carries no x-dsh-render-report header')
+  return JSON.parse(decodeURIComponent(header))
+}
+
+/**
  * A listener that completes the TCP handshake and then never answers — what a
  * blackholed third-party host looks like from inside a page, minus the wait for
  * a connect timeout.
@@ -143,10 +158,13 @@ async function hungImageCase(directory) {
   try {
     const response = await post(service, { url: pathToFileURL(page).href, ...VIEWPORT })
     check(response.status === 504, `a page whose image never answers answered ${response.status}`)
+    const report = reportOf(response)
     const line = (await response.text()).trim()
     console.log(`      ${line}`)
     check(line.includes('load event not fired'), 'the 504 line says the load event never fired')
     check(line.includes(`[image] ${image}`), 'the 504 line names the image the page is still waiting for')
+    check(report.outcome === 'timeout' && report.capture === null, 'the 504 carries a report of a timeout that produced no pixels')
+    check(report.pending[0]?.url === image, 'the report names that image too')
   } finally {
     await service.close()
     await listener.close()
@@ -326,6 +344,78 @@ async function subresourceCase(service) {
 }
 
 /**
+ * A page whose only image hangs, rendered twice: once under a deadline it
+ * cannot meet with `onTimeout: capture`, and once with that host in
+ * `blockHosts`.
+ *
+ * Only a real Chromium shows the two halves this exists for — that
+ * `capturePage` on a window whose page never finished loading returns the
+ * frame it had painted, and that cancelling in `onBeforeRequest` really stops
+ * the request the first render sat waiting for.
+ * @param {{ endpoint: string, token: string }} service - the running service, on the shell's own deadline.
+ * @param {string} directory - the temporary directory the page is written into.
+ * @returns {Promise<void>} resolves when the case passed; rejects when it did not.
+ */
+async function partialCaptureCase(service, directory) {
+  const listener = await hangingListener()
+  const image = `http://127.0.0.1:${listener.port}/hang.png`
+  const page = join(directory, 'partial.html')
+  await writeFile(page, `<!doctype html><meta charset="utf-8"><title>partial</title>
+<style>body { margin: 0; background: #123 }</style><p>painted<img src="${image}" alt="">`)
+  const url = pathToFileURL(page).href
+  try {
+    const partial = await post(service, { url, ...VIEWPORT, timeoutMs: HANG_TIMEOUT_MS, onTimeout: 'capture' })
+    check(partial.status === 200, `a page whose image never answers, asked to capture, answered ${partial.status}`)
+    const partialReport = reportOf(partial)
+    const captured = pngSize(Buffer.from(await partial.arrayBuffer()))
+    console.log(`      outcome=${partialReport.outcome} painted=${String(partialReport.firstPaint)} pending=${String(partialReport.requests.pending)} host=${partialReport.hosts[0]?.host ?? 'none'}`)
+    check(partialReport.outcome === 'timeout', 'the report labels the capture a timeout')
+    check(partialReport.capture?.partial === true, 'the report says the image is partial')
+    check(partialReport.loadEventFired === false, 'the report says the load event never fired')
+    check(
+      captured.width === VIEWPORT.width && captured.height === VIEWPORT.height,
+      `the partial capture is the requested viewport: ${captured.width}x${captured.height}`,
+    )
+    check(partialReport.requests.pending >= 1, `the report counts the request still in flight (${String(partialReport.requests.pending)})`)
+    check(partialReport.hosts[0]?.host === '127.0.0.1', 'the report names the host the page is waiting on')
+
+    const blocked = await post(service, { url, ...VIEWPORT, timeoutMs: HANG_TIMEOUT_MS, blockHosts: ['127.0.0.1'] })
+    check(blocked.status === 200, `the same page with that host blocked answered ${blocked.status}`)
+    const blockedReport = reportOf(blocked)
+    await blocked.arrayBuffer()
+    console.log(`      outcome=${blockedReport.outcome} blocked=${String(blockedReport.requests.blocked)} elapsed=${String(blockedReport.elapsedMs)}ms`)
+    check(blockedReport.outcome === 'complete', 'blocking the host lets the render finish inside its deadline')
+    check(blockedReport.requests.blocked >= 1, `the report counts what it cancelled (${String(blockedReport.requests.blocked)})`)
+    check(blockedReport.loadEventFired === true, 'the load event fires once nothing is waiting on that host')
+    check(blockedReport.capture?.partial === false, 'a complete render says its capture is not partial')
+  } finally {
+    await listener.close()
+  }
+}
+
+/**
+ * A page that logs an error, which is the only way to see that
+ * `console-message` reaches the report at all.
+ * @param {{ endpoint: string, token: string }} service - the running service.
+ * @param {string} directory - the temporary directory the page is written into.
+ * @returns {Promise<void>} resolves when the case passed; rejects when it did not.
+ */
+async function consoleCase(service, directory) {
+  const page = join(directory, 'noisy.html')
+  await writeFile(page, `<!doctype html><meta charset="utf-8"><title>noisy</title>
+<script>console.error('smoke: the page said this'); console.warn('smoke: and this')</script><p>noisy`)
+  const response = await post(service, { url: pathToFileURL(page).href, ...VIEWPORT })
+  check(response.status === 200, `a page that logs an error answered ${response.status}`)
+  const report = reportOf(response)
+  await response.arrayBuffer()
+  console.log(`      errors=${String(report.console.errors)} warnings=${String(report.console.warnings)} sample=${report.console.samples[0] ?? 'none'}`)
+  check(report.console.errors >= 1, 'the report counts the error the page logged')
+  check(report.console.samples[0]?.includes('the page said this') === true, 'the report quotes the message')
+  check(report.console.warnings >= 1, 'the report counts the warning too')
+  check(report.mainDocument?.title === 'noisy', `the report carries the page title: ${report.mainDocument?.title ?? 'none'}`)
+}
+
+/**
  * Render every case against a real Chromium.
  * @returns {Promise<void>} resolves when every case passed; rejects on the first that did not.
  */
@@ -341,6 +431,13 @@ async function run() {
     const viewport = await post(service, { url, ...VIEWPORT })
     check(viewport.status === 200, `viewport render answered ${viewport.status}`)
     check(viewport.headers.get('content-type') === 'image/png', 'viewport render is image/png')
+    const viewportReport = reportOf(viewport)
+    check(viewportReport.outcome === 'complete', 'the render report says the page completed')
+    check(
+      viewportReport.capture?.width === VIEWPORT.width && viewportReport.capture.height === VIEWPORT.height,
+      `the report names the size it captured: ${String(viewportReport.capture?.width)}x${String(viewportReport.capture?.height)}`,
+    )
+    check(viewportReport.firstPaint, 'the report says the window painted')
     const captured = pngSize(Buffer.from(await viewport.arrayBuffer()))
     check(
       captured.width === VIEWPORT.width && captured.height === VIEWPORT.height,
@@ -371,6 +468,8 @@ async function run() {
 
     await sessionCase(service)
     await subresourceCase(service)
+    await consoleCase(service, directory)
+    await partialCaptureCase(service, directory)
     await hungImageCase(directory)
     await redirectTimeoutCase()
   } finally {
