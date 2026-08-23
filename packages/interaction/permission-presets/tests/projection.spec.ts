@@ -67,6 +67,22 @@ describe('permissions projection unit', () => {
     expect(changes).toHaveLength(3)
   })
 
+  it('serves a configured glyph through the wire schema', async () => {
+    const { ctx, session } = await harness({
+      config: {
+        presets: {
+          'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+          'yolo-access': { sandbox: 'danger-full-access', approval: 'ask', glyph: 'danger-full-access' },
+        },
+      },
+    })
+    const value = ctx.sessionProjections.snapshot(session).values.permissions
+    expect(value?.options).toEqual([
+      { value: 'workspace-write', name: 'workspace-write' },
+      { value: 'yolo-access', name: 'yolo-access', glyph: 'danger-full-access' },
+    ])
+  })
+
   it('appends custom as a current-only option when the knobs match no preset', async () => {
     const { ctx, session } = await harness()
     session.append('sandbox/mode', { mode: 'read-only' })
