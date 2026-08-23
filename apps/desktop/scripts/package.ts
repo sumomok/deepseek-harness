@@ -373,7 +373,11 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
   if (seeded.seeded.length !== BUILTIN_WEB_BUNDLES.length) {
     throw new Error(`package: staged boot could not seed the built-in bundles: ${JSON.stringify(seeded)}`)
   }
-  const child = spawn(process.execPath, [join(root, SERVER_ENTRY), '--profile', DESKTOP_PROFILE, '--port', '0'], {
+  // `--no-open` declines the handoff the web app performs by default: this
+  // server answers one fetch and is killed seconds later, so the tab it would
+  // open lands on a port that is already gone. A build should not reach for the
+  // developer's browser, and the shell declines the same handoff for its own.
+  const child = spawn(process.execPath, [join(root, SERVER_ENTRY), '--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'], {
     cwd: root,
     stdio: ['ignore', 'pipe', 'pipe'],
   })
