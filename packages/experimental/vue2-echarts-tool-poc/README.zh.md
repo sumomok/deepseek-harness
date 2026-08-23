@@ -54,7 +54,7 @@ pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-ch
 
 其余一切原样通过：模型写普通 ECharts 正是本包的意义，一个会重写文档的 sanitizer 会毁掉它。
 
-report 路由接受任何能抵达 dsh 源的一方发来的判定，与 HTTP API 的其余部分一致。一次汇报只能结算一个已经在等它的调用，最坏的后果是用户正看着的某一张图上多出一行错误的判定文字。
+report 路由只接同站点、只收 JSON：被浏览器标为 `sec-fetch-site: cross-site` 的请求以 403 拒绝，未声明 `application/json` 的以 415 拒绝，两者都发生在读取正文之前，于是跨源页面无法把一次判定作为免预检的简单请求发出来。越过这道闸之后，它接受任何能抵达 dsh 源的一方发来的判定，与 HTTP API 的其余部分一致；一次汇报只能结算一个已经在等它的调用，最坏的后果是用户正看着的某一张图上多出一行错误的判定文字。
 
 ## Model Experience
 

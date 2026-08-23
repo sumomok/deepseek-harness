@@ -32,6 +32,8 @@ Status: implemented
 
 ECharts 在两条不同的通道上报告两种结果，组件也是：`setOption` 对它拒绝的文档同步抛出，那就是失败判定；被接受的文档异步绘制，因此成功判定等其后第一个 `finished` 事件。结算是一次性的：条目在其等待者被 resolve 之前就被移除，所以第二次汇报、已超时调用的汇报、以及本宿主从未跑过的调用的汇报，是同一个答案——没有谁在等。
 
+这条路由只接同站点、只收 JSON，因为一次判定会变成模型可见的工具结果文本：被浏览器标为 `sec-fetch-site: cross-site` 的请求以 403 拒绝，未声明 `application/json` 的以 415 拒绝，两者都在读取正文之前——前者正是外壳自己的 `/api` 闸所拒的标记（`dsh-client-connection` 的 `api-request-trust.ts`），后者把这条路由移出跨源页面无需预检即可 POST 的 CORS 简单请求集合。
+
 图表在判定说它画出来了之前已完成布局但不可见。用 `visibility` 而不是 `display`：ECharts 按已布局元素来定 canvas 尺寸，被 display 隐藏的宿主会交给它一个零尺寸的元素——那样判定说的就不是用户最终看到的那张图。
 
 超时不是错误。无论如何图表都在会话记录里，而且可能根本没有浏览器开着，因此调用回答 `Shown; not verified`；只有被拒绝的文档才是工具错误，并带上引擎自己的消息，好让重试能对。
@@ -64,13 +66,15 @@ option 是模型输出，与外壳同源绘制。它既不是标记也不是代�
 
 一个每次渲染都交给图表一份新 sanitize 对象的行，会让图表不停地重新应用、重新汇报、重新渲染；sanitize 后的 option 按原始参数字符串做了 memo，那是这一行除判定之外唯一的派生状态。
 
+这道闸只看请求头，因而只对浏览器成立：不带 `sec-fetch-site` 的非浏览器客户端照样能抵达这条路由，与外壳的 `/api` 闸一样，所以一次性结算仍是任何一次汇报所能做之事的边界。
+
 工具 bundle 原始 13 kB、gzip 后 5 kB，既不带 Vue 也不带 ECharts：manifest 的 `dsh.client.external` 让组件行仍是一次通过 loader 模块表解析的 import，这也正是模块图里只有一份 Vue 运行时的原因。
 
 ## Testing
 
 `echarts-option.client.spec.tsx` 在假引擎上驱动直通图表：什么抵达 `setOption`、判定的两条边、什么都不报的游离 `finished`、React commit 上的重新应用、截图开关、以及配色重建。`chart-types.client.spec.ts` 锁定支持集合与点计数器。
 
-`show-chart-tool.client.spec.ts` 用假汇报方把工具跑过真实的工具注册表：描述、参数 schema 与每一行结果文本逐字锁定、每一种触上限的拒绝、ok/error/超时判定、被忽略的重复汇报与未知 id、取消，以及挂载与未挂载存储两种情况下的截图——包括那条关联断言：用执行自身之外的任何 id 发出的判定都抵达不了任何调用。`show-chart-routes.client.spec.ts` 用真实 Loader 启动一份只供测试的 cordis.yml，读服务出来的 HTTP 表面：设置文档、结算活调用的一次判定投递、畸形或超大 body 得到的拒绝、方法门禁、以及 fiber 释放时的路由回收。
+`show-chart-tool.client.spec.ts` 用假汇报方把工具跑过真实的工具注册表：描述、参数 schema 与每一行结果文本逐字锁定、每一种触上限的拒绝、ok/error/超时判定、被忽略的重复汇报与未知 id、取消，以及挂载与未挂载存储两种情况下的截图——包括那条关联断言：用执行自身之外的任何 id 发出的判定都抵达不了任何调用。`show-chart-routes.client.spec.ts` 用真实 Loader 启动一份只供测试的 cordis.yml，读服务出来的 HTTP 表面：设置文档、结算活调用的一次判定投递、跨站点、非 JSON、畸形或超大 body 得到的拒绝、方法门禁、以及 fiber 释放时的路由回收。
 
 `sanitize.client.spec.ts` 锁定那三处改写，以及别的什么都不动。`show-chart-row.client.spec.tsx` 在一个会记录的图表上驱动那一行：running 与 settled 两种切片、sanitize 后 option 的稳定同一性、确认前不可见、错误行、每个 call id 一次汇报、以及截图开关。`browser-plugin.client.spec.ts` 证明按 key 的认领、注入的截图开关、设置文档不可用时的响亮失败、以及 fiber 拆卸时的移除。
 

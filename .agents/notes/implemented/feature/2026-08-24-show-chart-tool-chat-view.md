@@ -32,6 +32,8 @@ The tool body blocks on the browser painting *this call id*. `exec.callId` is th
 
 ECharts reports its two outcomes on different channels, so the component does too: `setOption` throws synchronously on a document it refuses, which is the failure verdict, and a document it accepts paints asynchronously, so the success verdict waits for the first `finished` event after it. Settlement is single-shot: the entry is removed before its waiter resolves, so a second report, a report for a call that already timed out, and a report for a call this host never ran are all the same answer — nothing was waiting.
 
+The route is same-site and JSON-only, because a verdict becomes model-visible tool-result text: a request a browser labels `sec-fetch-site: cross-site` is refused 403 and one that does not declare `application/json` is refused 415, both before the body is read — the first is the marker the shell's own `/api` fence refuses (`dsh-client-connection`'s `api-request-trust.ts`), the second withdraws the route from the CORS-simple set a cross-origin page can post without a preflight.
+
 The chart is laid out but invisible until a verdict says it painted. `visibility`, not `display`: ECharts sizes its canvas from a laid-out element, and a display-hidden host would hand it a zero-sized one — the verdict would then be about a chart nobody sees.
 
 A timeout is not an error. The chart is in the transcript either way and no browser may be open at all, so the call answers `Shown; not verified`; only a refused document is a tool error, carrying the engine's own message so the retry can be right.
@@ -64,13 +66,15 @@ The component row now exports a second chart. `EChartsBar` and `EChartsOptionCha
 
 A row that hands the chart a freshly sanitized object on every render would make the chart re-apply, re-report, and re-render without end; the sanitized option is memoized on the raw argument string, which is the row's one piece of derived state besides the verdict.
 
+That fence is header-only and therefore browser-only: a non-browser client omitting `sec-fetch-site` still reaches the route, exactly as with the shell's `/api` fence, so single-shot settlement remains the bound on what any report can do.
+
 The tool bundle is 13 kB raw and 5 kB gzipped, carrying neither Vue nor ECharts: the manifest's `dsh.client.external` keeps the component row an import resolved through the loader's module table, which is also what keeps one Vue runtime in the graph.
 
 ## Testing
 
 `echarts-option.client.spec.tsx` drives the pass-through chart over a fake engine: what reaches `setOption`, both verdict edges, the stray `finished` that reports nothing, re-application on a React commit, the capture switch, and the palette rebuild. `chart-types.client.spec.ts` pins the supported set and the point counter.
 
-`show-chart-tool.client.spec.ts` runs the tool through the real tool registry with a fake reporter: the description, the parameter schema and every result line verbatim, each bound refusal, the ok/error/timeout verdicts, a duplicate report and an unknown id both ignored, cancellation, and the screenshot with and without a mounted store — including the correlation assertion, that a verdict under any id but the execution's own reaches no call. `show-chart-routes.client.spec.ts` boots a test-only cordis.yml through the real Loader and reads the served HTTP surface: the settings document, a posted verdict settling a live call, the refusals a malformed or oversized body gets, method gating, and route release on fiber disposal.
+`show-chart-tool.client.spec.ts` runs the tool through the real tool registry with a fake reporter: the description, the parameter schema and every result line verbatim, each bound refusal, the ok/error/timeout verdicts, a duplicate report and an unknown id both ignored, cancellation, and the screenshot with and without a mounted store — including the correlation assertion, that a verdict under any id but the execution's own reaches no call. `show-chart-routes.client.spec.ts` boots a test-only cordis.yml through the real Loader and reads the served HTTP surface: the settings document, a posted verdict settling a live call, the refusals a cross-site, non-JSON, malformed, or oversized body gets, method gating, and route release on fiber disposal.
 
 `sanitize.client.spec.ts` pins the three rewrites and that nothing else moves. `show-chart-row.client.spec.tsx` drives the row over a recorded chart: the running and settled slices, the sanitized option's stable identity, hidden-until-verified, the error row, one report per call id, and the capture switch. `browser-plugin.client.spec.ts` proves the keyed claim, the injected capture switch, the loud failure on an unusable settings document, and removal on fiber teardown.
 

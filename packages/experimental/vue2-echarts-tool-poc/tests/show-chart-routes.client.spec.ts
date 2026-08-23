@@ -3,8 +3,8 @@
  * cordis.yml booted through the vendored Loader mounts the webserver, the tool
  * runtime, and the show-chart row, and every assertion observes the served HTTP
  * surface — the browser settings document, the verdict a posted report settles,
- * the refusals a malformed or oversized body gets, method gating, and route
- * release on fiber disposal (HMR safety).
+ * the refusals a cross-site, non-JSON, malformed, or oversized body gets,
+ * method gating, and route release on fiber disposal (HMR safety).
  *
  * The config-validation cases call `apply` directly: a rejected configuration
  * never reaches a served surface, so there is nothing for HTTP to observe.
@@ -180,6 +180,41 @@ describe('show-chart routes', () => {
     ]) {
       const answer = await postReport(ctx, body)
       expect({ body, status: answer.status }).toEqual({ body, status: 400 })
+    }
+  })
+
+  it('refuses a report a browser labelled cross-site', async () => {
+    const ctx = await loadComposition()
+    const answer = await call(ctx, SHOW_CHART_REPORT_ROUTE, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+      body: JSON.stringify({ callId: 'c', verdict: { ok: true, seriesCount: 1, pointCount: 1 } }),
+    })
+    expect(answer.status).toBe(403)
+    expect(JSON.parse(answer.body)).toEqual({ error: 'show-chart: the report route serves same-site requests only' })
+  })
+
+  it('takes a report a browser labelled same-origin', async () => {
+    const ctx = await loadComposition()
+    const answer = await call(ctx, SHOW_CHART_REPORT_ROUTE, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'same-origin' },
+      body: JSON.stringify({ callId: 'c', verdict: { ok: true, seriesCount: 1, pointCount: 1 } }),
+    })
+    expect(answer.status).toBe(200)
+    expect(JSON.parse(answer.body)).toEqual({ accepted: false })
+  })
+
+  it('refuses a report that is not sent as JSON', async () => {
+    const ctx = await loadComposition()
+    const report = JSON.stringify({ callId: 'c', verdict: { ok: true, seriesCount: 1, pointCount: 1 } })
+    // `text/plain` is the CORS-simple content type a cross-origin page can post
+    // without a preflight; a request carrying none at all is refused the same way.
+    for (const headers of [{ 'content-type': 'text/plain;charset=UTF-8' }, {}]) {
+      const answer = await call(ctx, SHOW_CHART_REPORT_ROUTE, { method: 'POST', headers, body: report })
+      expect(answer.status).toBe(415)
+      expect(JSON.parse(answer.body))
+        .toEqual({ error: 'show-chart: the report route accepts application/json only' })
     }
   })
 

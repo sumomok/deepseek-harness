@@ -54,7 +54,7 @@ Both halves meet on two routes this package owns, `/show-chart/settings` (the ca
 
 Everything else passes through unchanged: a model writing ordinary ECharts is the point, and a sanitizer that rewrote the document would defeat it.
 
-The report route accepts a verdict from anything that can reach the dsh origin, exactly as the rest of the HTTP API does. A report can only settle a call already waiting for one, and its worst outcome is a wrong verdict line on one chart the user is looking at.
+The report route is same-site and JSON-only: a request a browser labels `sec-fetch-site: cross-site` is refused 403 and one that does not declare `application/json` is refused 415, both before the body is read, so a cross-origin page cannot post a verdict as a preflight-free simple request. Past that fence it accepts a verdict from anything that can reach the dsh origin, exactly as the rest of the HTTP API does; a report can only settle a call already waiting for one, and its worst outcome is a wrong verdict line on one chart the user is looking at.
 
 ## Model Experience
 

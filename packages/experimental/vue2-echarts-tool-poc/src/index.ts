@@ -9,12 +9,12 @@
  * the option through the Vue 2.7 component row.
  *
  * Trust: `option` is model output rendered by a real engine inside the shell's
- * own origin, and the report route accepts a verdict from anything that can
- * reach that origin. Both are bounded rather than trusted — the browser half
- * sanitizes the option before painting it (see its `sanitize.ts` and the
- * package README's trust section), a report changes nothing but the outcome of
- * a call already waiting for one, and the deployment's byte and point ceilings
- * apply before any of it.
+ * own origin, and the report route accepts a same-site JSON verdict from
+ * anything that can reach that origin. Both are bounded rather than trusted —
+ * the browser half sanitizes the option before painting it (see its
+ * `sanitize.ts` and the package README's trust section), a report changes
+ * nothing but the outcome of a call already waiting for one, and the
+ * deployment's byte and point ceilings apply before any of it.
  * @module @deepseek-ai/dsh-experimental-vue2-echarts-tool-poc
  */
 
@@ -112,6 +112,31 @@ function answerJson(res: ServerResponse, status: number, body: unknown): void {
 }
 
 /**
+ * Refuse a report a browser labelled cross-site, or one that is not sent as
+ * JSON. Applied before the body is read: a verdict reaches the model as tool
+ * result text, so the route stays a same-site JSON channel rather than a
+ * document any page can post to. `cross-site` is the same marker the shell's
+ * own /api fence refuses (`dsh-client-connection`'s `api-request-trust.ts`);
+ * requiring the content type withdraws the route from the CORS-simple set a
+ * cross-origin page can post without a preflight.
+ * @param req - the incoming request.
+ * @param res - the response, answered here when the request is refused.
+ * @returns true when the request was refused and the handler must stop.
+ */
+function rejectUntrustedReport(req: IncomingMessage, res: ServerResponse): boolean {
+  if (req.headers['sec-fetch-site'] === 'cross-site') {
+    answerJson(res, 403, { error: 'show-chart: the report route serves same-site requests only' })
+    return true
+  }
+  const contentType = req.headers['content-type']
+  if (contentType === undefined || !contentType.toLowerCase().trimStart().startsWith('application/json')) {
+    answerJson(res, 415, { error: 'show-chart: the report route accepts application/json only' })
+    return true
+  }
+  return false
+}
+
+/**
  * Read one request body, refusing anything past the bound before buffering it.
  * @param req - the incoming request.
  * @param limit - largest accepted body in bytes.
@@ -180,6 +205,7 @@ export function apply(ctx: Context, config: Config): void {
         rejectMethod(res, 'POST')
         return
       }
+      if (rejectUntrustedReport(req, res)) return
       // A capture is a whole PNG in base64, so the bound follows the store's own
       // per-image ceiling; with screenshots off nothing legitimate carries one.
       const imageBytes = policy.screenshot ? ctx.get('attachments')?.imageLimits.maxImageBytes ?? 0 : 0
