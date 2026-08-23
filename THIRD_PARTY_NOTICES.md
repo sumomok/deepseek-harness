@@ -36,7 +36,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript) | MIT |
 | [`@babel/code-frame`](https://github.com/babel/babel) | MIT |
 | [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi) | MIT |
-| [`@haoran/dsh-default-model`](apps/desktop-server/vendor/haoran-dsh-default-model-0.1.1.tgz) | MIT |
+| [`@haoran/dsh-default-model`](apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz) | MIT |
 | [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz) | MIT |
 | [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.2.0.tgz) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
@@ -51,6 +51,9 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@opentelemetry/sdk-logs`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
 | [`@shikijs/langs`](https://github.com/shikijs/shiki) | MIT |
 | [`@standard-schema/spec`](https://github.com/standard-schema/standard-schema) | MIT |
+| [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.1.0.tgz) | MIT |
+| [`@sumomok/dsh-edit-rerun`](apps/desktop-server/vendor/sumomok-dsh-edit-rerun-0.1.0.tgz) | MIT |
+| [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.1.0.tgz) | MIT |
 | [`@tanstack/react-virtual`](https://github.com/TanStack/virtual) | MIT |
 | [`@types/mdast`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@vscode/ripgrep`](https://github.com/microsoft/vscode-ripgrep) | MIT |

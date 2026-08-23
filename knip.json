@@ -670,6 +670,9 @@
         "@haoran/dsh-default-model",
         "@haoran/dsh-llm-permission-gateway",
         "@haoran/dsh-screenshot",
+        "@sumomok/dsh-balance",
+        "@sumomok/dsh-edit-rerun",
+        "@sumomok/dsh-quote-message",
         "dsh-at-file",
         "dsh-better-sidebar"
       ]
