@@ -705,6 +705,9 @@ importers:
       '@deepseek-ai/schemastery':
         specifier: link:../../vendor/schemastery
         version: link:../../vendor/schemastery
+      '@haoran/dsh-default-model':
+        specifier: file:./vendor/haoran-dsh-default-model-0.1.1.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.1.tgz
       '@haoran/dsh-llm-permission-gateway':
         specifier: file:./vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)
@@ -10674,6 +10677,10 @@ packages:
       '@modelcontextprotocol/sdk':
         optional: true
 
+  '@haoran/dsh-default-model@file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.1.tgz':
+    resolution: {integrity: sha512-OlmGtW9B6RQ5/rkWGNTVH+UyUCdm7SHpjUJ36gx7FAyhoRKb3Fly7cKEXvSp++A9vuCh1XqoDzt3d3QG0fAaCQ==, tarball: file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.1.tgz}
+    version: 0.1.1
+
   '@haoran/dsh-llm-permission-gateway@file:apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz':
     resolution: {integrity: sha512-Hp7IsyQm+0iSSAOB06RvCsp9mBFzXlsnmhnsPm6mp1EPekgfd8E71M2maFD9Idry9g7uyTVEx/kHsiiMf/unAw==, tarball: file:apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz}
     version: 0.1.3
@@ -17275,6 +17282,8 @@ snapshots:
       - bufferutil
       - supports-color
       - utf-8-validate
+
+  '@haoran/dsh-default-model@file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.1.tgz': {}
 
   '@haoran/dsh-llm-permission-gateway@file:apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)':
     dependencies:
