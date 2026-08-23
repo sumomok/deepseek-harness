@@ -12,13 +12,19 @@
  * smoke-tested on a real Windows machine; building on Windows is what lets that
  * smoke test happen against the package just built.
  *
- * Usage: pnpm --filter @deepseek-ai/dsh-desktop run package [--mac] [--win]
+ * The platforms are named on the command line and never inferred, and the run
+ * ends by checking that every file this version and these platforms owe is in
+ * `dist-app` with content ([[expectedArtifacts]]): the directory accumulates
+ * across versions, so nothing else distinguishes a platform that did not build
+ * from one whose artifacts are simply older.
+ *
+ * Usage: pnpm --filter @deepseek-ai/dsh-desktop run package --mac | --win | --mac --win
  *        [--skip-repo-build] [--skip-deploy]
  */
 
 import { spawn } from 'node:child_process'
 import { createWriteStream, existsSync } from 'node:fs'
-import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises'
+import { chmod, copyFile, cp, lstat, mkdir, mkdtemp, readdir, readFile, realpath, rm, stat, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { basename, dirname, join, resolve, sep } from 'node:path'
 import { Readable } from 'node:stream'
@@ -27,6 +33,7 @@ import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
+import { auditArtifacts, expectedArtifacts } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
 import { verifyNsisIntegrity } from './nsis-integrity.ts'
 import {
@@ -64,8 +71,12 @@ function parseCli(argv: string[]): Cli {
       'skip-deploy': { type: 'boolean', default: false },
     },
   })
-  const mac = values.mac || (!values.mac && !values.win && process.platform === 'darwin')
-  return { mac, win: values.win, skipRepoBuild: values['skip-repo-build'], skipDeploy: values['skip-deploy'] }
+  // Each platform costs about fifteen minutes, and a run that quietly built
+  // one of the two exits 0 and looks exactly like a run that built both.
+  if (!values.mac && !values.win) {
+    throw new Error('package: name the platforms to build — --mac, --win, or --mac --win.')
+  }
+  return { mac: values.mac, win: values.win, skipRepoBuild: values['skip-repo-build'], skipDeploy: values['skip-deploy'] }
 }
 
 /**
@@ -687,9 +698,39 @@ async function withBuildHome(action: (home: string) => Promise<void>): Promise<v
   }
 }
 
+/**
+ * Check that this run left every artifact it owed in `dist-app`.
+ *
+ * `dist-app` is never cleared, so a listing of it proves nothing: the previous
+ * version's files are still there, and a platform whose build silently did not
+ * run looks the same as one whose build did. Naming the files this version and
+ * these platforms owe, and requiring each to be there with content, is what
+ * separates the two.
+ * @param cli - the parsed command line, which names the platforms built.
+ */
+async function verifyProducts(cli: Cli): Promise<void> {
+  const dist = join(APP_DIR, 'dist-app')
+  const { version } = JSON.parse(await readFile(join(APP_DIR, 'package.json'), 'utf8')) as { version: string }
+  const expected = expectedArtifacts(version, { mac: cli.mac, win: cli.win })
+  const sizes = new Map<string, number>()
+  for (const name of expected) {
+    const path = join(dist, name)
+    if (existsSync(path)) sizes.set(name, (await stat(path)).size)
+  }
+  const audit = auditArtifacts(expected, sizes)
+  if (audit.missing.length > 0 || audit.empty.length > 0) {
+    const damage = [
+      ...audit.missing.map(name => `${name} (missing)`),
+      ...audit.empty.map(name => `${name} (empty)`),
+    ]
+    throw new Error(`package: the build owes ${String(damage.length)} file(s) apps/desktop/dist-app does not have: ${damage.join(', ')}`)
+  }
+  const listing = audit.verified.map(({ name, bytes }) => `${name} (${(bytes / 1e6).toFixed(1)} MB)`)
+  console.log(`package: verified ${String(listing.length)} product(s) of ${version} in apps/desktop/dist-app:\n  ${listing.join('\n  ')}`)
+}
+
 async function main(buildHome: string): Promise<void> {
   const cli = parseCli(process.argv.slice(2))
-  if (!cli.mac && !cli.win) throw new Error('package: nothing to build — pass --mac and/or --win.')
   if (!cli.skipRepoBuild) await run('repo build', 'pnpm', ['run', 'build'])
   await run('desktop tsc', 'pnpm', ['--filter', '@deepseek-ai/dsh-desktop', 'run', 'build:ts'])
   await run('icons', 'node', [join(APP_DIR, 'scripts', 'gen-desktop-icons.mjs')], APP_DIR)
@@ -759,9 +800,7 @@ async function main(buildHome: string): Promise<void> {
       await verifyNsisIntegrity(join(APP_DIR, 'dist-app', name))
     }
   }
-  const products = (await readdir(join(APP_DIR, 'dist-app'))).filter(name =>
-    name.endsWith('.dmg') || name.endsWith('.zip') || name.endsWith('.exe'))
-  console.log(`package: products in apps/desktop/dist-app:\n  ${products.sort().join('\n  ')}`)
+  await verifyProducts(cli)
 }
 
 await withBuildHome(main)
