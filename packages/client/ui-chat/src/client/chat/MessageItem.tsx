@@ -273,7 +273,7 @@ export function PendingSubmissionBubble({ submission, renderMessageImages, t }: 
 
 /** User and admitted-steering keyed Chat renderer. */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, renderMessageImages, useChat, t,
+  node, renderMessageImages, renderUserActions, useChat, t,
 }: ChatNodeViewProps<'user' | 'steering'>) {
   const data = node.data
   // The transcript's last user-authored row keeps its actions row shown, the
@@ -298,6 +298,7 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
           time={data.time}
           clock="start"
           className={css.actions}
+          extraActions={renderUserActions({ seq: data.seq, text })}
           t={t}
         />
       )}

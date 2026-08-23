@@ -1,4 +1,5 @@
 /** Chat-owned Slot declarations and composed component props. */
+import type { ReactNode } from 'react'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type {
   ConversationTurnDataMap, MessageImageLoader, MessageImagesOwnerProps, RenderMessageImages, TurnLocation,
@@ -31,6 +32,22 @@ export interface TurnTailOwnerProps {
 export interface AssistantActionOwnerProps {
   messageId: MessageId
 }
+
+/**
+ * Owner currency of the user-message action strip: where the addressed message
+ * sits in the durable log, plus the text its bubble rendered. A user message
+ * carries no message id — `messageId` is the assistant-side identity space —
+ * so `seq` addresses it.
+ */
+export interface UserActionOwnerProps {
+  /** Log position of the `user/message` event this strip addresses. */
+  seq: number
+  /** The message's joined text, the same string the built-in copy action writes. */
+  text: string
+}
+
+/** Slot-backed renderer for the actions one user-side message offers. */
+export type RenderUserActions = (owner: UserActionOwnerProps) => ReactNode
 
 /** Optional prose file-mention provider consumed by Chat. */
 export interface ChatFileMentions {
@@ -67,6 +84,12 @@ export interface ChatNodeOwnerProps {
   inspectCall: (callId: ToolCallId) => void
   forkAt: (seq: number) => void
   renderMessageImages: RenderMessageImages
+  /**
+   * Render the contributed actions of one user-side message. A chat node
+   * decides whether its message has a durable position to address; the pending
+   * steering bubble has none and receives no strip.
+   */
+  renderUserActions: RenderUserActions
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
   /** Turn-process state when this Node belongs to a projected Turn. */
   turnProcess?: TurnProcessOwnerProps | undefined
@@ -130,7 +153,7 @@ export interface ChatViewInjected {
 /** Full Chat view props. */
 export type ChatViewSlotProps =
   PropsRuntime<'conversation.view'>
-  & PropsRenderSlots<'conversation.chat.node' | 'conversation.message.images'>
+  & PropsRenderSlots<'conversation.chat.node' | 'conversation.message.images' | 'conversation.chat.user-actions'>
   & PropsStore<ChatStore>
   & InjectFace<ChatViewInjected>
   & PropsLocale<'chat'>
@@ -200,6 +223,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * that entry. With no entries, the standard action row remains unchanged.
      */
     'conversation.chat.assistant-actions': { kind: 'list'; scope: 'session'; owner: AssistantActionOwnerProps }
+    /**
+     * Action strip attached to one user or admitted-steering message, rendered
+     * inside that message's IconActions row. The chat view declares this seat
+     * and hands every node a `renderUserActions` share: the `user` and
+     * `steering` entries both render it, and a child key has exactly one
+     * declaring entry. The render site passes the addressed message's log
+     * position and rendered text, so contributors add per-message actions
+     * without importing the chat implementation. Entries render by ascending
+     * `order`.
+     */
+    'conversation.chat.user-actions': { kind: 'list'; scope: 'session'; owner: UserActionOwnerProps }
     /**
      * Whole details-panel body for the selected Tool call. The component receives
      * the running or settled block and optional workspace root. A registration
