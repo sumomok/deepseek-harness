@@ -1,0 +1,201 @@
+/**
+ * @deepseek-ai/dsh-experimental-vue2-echarts-tool-poc — charts the agent draws
+ * inside the conversation, with the browser's answer wired back into the tool
+ * result.
+ *
+ * The node half offers `show_chart` to the model, serves the browser half its
+ * settings, and takes each call's render verdict on a second route; the browser
+ * half owns the `show_chart` key of the transcript's tool-view slot and paints
+ * the option through the Vue 2.7 component row.
+ *
+ * Trust: `option` is model output rendered by a real engine inside the shell's
+ * own origin, and the report route accepts a verdict from anything that can
+ * reach that origin. Both are bounded rather than trusted — the browser half
+ * sanitizes the option before painting it (see its `sanitize.ts` and the
+ * package README's trust section), a report changes nothing but the outcome of
+ * a call already waiting for one, and the deployment's byte and point ceilings
+ * apply before any of it.
+ * @module @deepseek-ai/dsh-experimental-vue2-echarts-tool-poc
+ */
+
+import { Buffer } from 'node:buffer'
+import type { IncomingMessage, ServerResponse } from 'node:http'
+import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-host-webserver'
+import { PendingCharts } from './pending.ts'
+import {
+  parseShowChartReport,
+  SHOW_CHART_REPORT_ROUTE,
+  SHOW_CHART_SETTINGS_ROUTE,
+  type ShowChartReportAck,
+  type ShowChartSettings,
+} from './route.ts'
+import { showChartTool, type ShowChartPolicy } from './tool.ts'
+
+export type {
+  ShowChartReport,
+  ShowChartReportAck,
+  ShowChartSettings,
+} from './route.ts'
+export { SHOW_CHART_REPORT_ROUTE, SHOW_CHART_SETTINGS_ROUTE } from './route.ts'
+
+/** Stable Cordis plugin name. */
+export const name = 'show-chart'
+
+/** Service required before the two routes can be claimed. */
+export const inject = ['webServer']
+
+/** Plugin config: the bounds one deployment puts on a model-supplied chart. */
+export interface Config {
+  /**
+   * Largest `option` a call may carry, as UTF-8 bytes of its JSON form. The
+   * ceiling exists because the document is model output that reaches a real
+   * rendering engine in the user's browser; raise it for a deployment charting
+   * long category labels, lower it to keep a runaway call cheap.
+   */
+  maxOptionBytes?: number
+  /**
+   * Largest total of `series[i].data` entries a call may carry. Bounds what the
+   * browser has to paint and what a screenshot has to encode; the ceiling a
+   * deployment sets is also stated in the tool description, so a first call can
+   * respect it.
+   */
+  maxPoints?: number
+  /**
+   * How long the tool waits for a browser to report what it painted. Past it
+   * the call answers unverified rather than failing: the chart is in the
+   * transcript either way, and no browser may be open at all.
+   */
+  verdictTimeoutMs?: number
+  /**
+   * Whether a painted chart is captured as a PNG and returned to the model as
+   * an image block. Off by default: it needs an image-capable model and costs
+   * image tokens on every call.
+   */
+  screenshot?: boolean
+}
+
+/** Largest `option` accepted when a deployment configures none. */
+const DEFAULT_MAX_OPTION_BYTES = 65536
+/** Largest point total accepted when a deployment configures none. */
+const DEFAULT_MAX_POINTS = 2000
+/** Verdict deadline used when a deployment configures none. */
+const DEFAULT_VERDICT_TIMEOUT_MS = 8000
+
+export const Config: z<Config> = z.object({
+  maxOptionBytes: z.natural().default(DEFAULT_MAX_OPTION_BYTES),
+  maxPoints: z.natural().default(DEFAULT_MAX_POINTS),
+  verdictTimeoutMs: z.natural().default(DEFAULT_VERDICT_TIMEOUT_MS),
+  screenshot: z.boolean().default(false),
+})
+
+/**
+ * Bytes a verdict-only report can possibly need: one call id, two integers or
+ * one engine message, and the JSON around them. A protocol bound, not a
+ * deployment choice — nothing a browser may legitimately post is larger.
+ */
+const MAX_VERDICT_BYTES = 8 * 1024
+
+/** Answer a request whose method the route does not serve. */
+function rejectMethod(res: ServerResponse, allow: string): void {
+  // `allow` because these routes own their exact paths: nothing else can answer
+  // the method the caller asked for, so the response states the complete set.
+  res.writeHead(405, { allow })
+  res.end()
+}
+
+/** Answer one JSON document with no caching; both routes serve request-local truth. */
+function answerJson(res: ServerResponse, status: number, body: unknown): void {
+  res.writeHead(status, { 'content-type': 'application/json', 'cache-control': 'no-store' })
+  res.end(JSON.stringify(body))
+}
+
+/**
+ * Read one request body, refusing anything past the bound before buffering it.
+ * @param req - the incoming request.
+ * @param limit - largest accepted body in bytes.
+ * @returns the decoded JSON, or `undefined` when the body is oversized or not JSON.
+ */
+async function readJsonBody(req: IncomingMessage, limit: number): Promise<unknown> {
+  const chunks: Buffer[] = []
+  let size = 0
+  for await (const chunk of req) {
+    const bytes = chunk as Buffer
+    size += bytes.byteLength
+    if (size > limit) return undefined
+    chunks.push(bytes)
+  }
+  try {
+    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
+  } catch (_bodyIsNotJson) {
+    // The only thing a malformed body can mean here is a caller that is not
+    // this package's browser half; the 400 below says so.
+    return undefined
+  }
+}
+
+/** Reject a configured bound that would make the tool unusable, at load. */
+function requirePositive(field: keyof Config, value: number): number {
+  if (value < 1) throw new Error(`show-chart: ${field} must be at least 1, received ${value}`)
+  return value
+}
+
+/**
+ * Validate the configuration, then claim the two routes and the tool.
+ * @param ctx - plugin context carrying the webServer service.
+ * @param config - validated {@link Config}.
+ */
+export function apply(ctx: Context, config: Config): void {
+  // Loud at load: a zero ceiling would refuse every call the model can make,
+  // with no diagnostic pointing at the row that set it.
+  const policy: ShowChartPolicy = {
+    maxOptionBytes: requirePositive('maxOptionBytes', config.maxOptionBytes ?? DEFAULT_MAX_OPTION_BYTES),
+    maxPoints: requirePositive('maxPoints', config.maxPoints ?? DEFAULT_MAX_POINTS),
+    verdictTimeoutMs: requirePositive('verdictTimeoutMs', config.verdictTimeoutMs ?? DEFAULT_VERDICT_TIMEOUT_MS),
+    screenshot: config.screenshot ?? false,
+  }
+  const pending = new PendingCharts()
+  const settings: ShowChartSettings = { screenshot: policy.screenshot }
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: SHOW_CHART_SETTINGS_ROUTE,
+    handler: (req, res) => {
+      if (req.method !== 'GET' && req.method !== 'HEAD') {
+        rejectMethod(res, 'GET, HEAD')
+        return
+      }
+      // The browser half reads this once per boot and the value comes from the
+      // row it booted with, so a cached copy would outlive its own truth.
+      answerJson(res, 200, settings)
+    },
+  }), 'show-chart: browser settings route')
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: SHOW_CHART_REPORT_ROUTE,
+    handler: async (req, res) => {
+      if (req.method !== 'POST') {
+        rejectMethod(res, 'POST')
+        return
+      }
+      // A capture is a whole PNG in base64, so the bound follows the store's own
+      // per-image ceiling; with screenshots off nothing legitimate carries one.
+      const imageBytes = policy.screenshot ? ctx.get('attachments')?.imageLimits.maxImageBytes ?? 0 : 0
+      const report = parseShowChartReport(await readJsonBody(req, MAX_VERDICT_BYTES + Math.ceil(imageBytes / 3) * 4))
+      if (report === undefined) {
+        answerJson(res, 400, { error: 'show-chart: expected a JSON body with callId and verdict' })
+        return
+      }
+      const ack: ShowChartReportAck = { accepted: pending.report(report) }
+      answerJson(res, 200, ack)
+    },
+  }), 'show-chart: render report route')
+
+  // The tool activates only when a tool runtime is composed: a deployment
+  // without one keeps the routes, and the model is offered nothing.
+  ctx.inject(['tools'], (toolCtx) => {
+    toolCtx.tools.register(showChartTool(toolCtx, policy, pending))
+  })
+}

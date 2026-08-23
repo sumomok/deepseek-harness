@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-一个组件库行：一张真实的 ECharts 柱状图，以 **Vue 2.7** 组件写成，并被包装到 React 里随处可渲染。本包不认识任何布局，也不注册任何 slot——它的浏览器半边只注册字典并导出组件。渲染在哪里由 placement 插件决定，[`vue2-echarts-content-poc`](../vue2-echarts-content-poc/README.zh.md) 就是本分支上的那一个。
+一个组件库行：真实的 ECharts 图表，以 **Vue 2.7** 组件写成，并被包装到 React 里随处可渲染。本包不认识任何布局，也不注册任何 slot——它的浏览器半边只注册字典并导出组件。渲染在哪里由 placement 插件决定：[`vue2-echarts-content-poc`](../vue2-echarts-content-poc/README.zh.md) 把演示面板放进服务线外壳的 content 栏，[`vue2-echarts-tool-poc`](../vue2-echarts-tool-poc/README.zh.md) 则在会话记录里画出模型给的 option。
 
 它是 [`vue-ui-poc`](../vue-ui-poc/README.zh.md) 的 Vue 2 对应物，后者对 Vue 3 验证同一个问题。
 
@@ -20,12 +20,17 @@ slot 系统只接受 React 函数组件，因此 Vue 树通过 `Vue2Bridge`—�
 
 ## 这一行的对外面
 
-`./client` 导出两个 React 组件，分层安排，好让 placement 各取所需：
+`./client` 导出三个 React 组件，分层安排，好让 placement 各取所需：
 
 - **`EChartsBar`** —— 纯粹、由数据驱动。props 是 `title`、`categories`、`values`，以及可选的 `dark`、`selectedLabel`、`onSelect`。它不解析任何文案、不指名任何 slot，因此同一个导出既服务常驻栏，也服务渲染工具调用数据的会话卡片。
+- **`EChartsOption`** —— 直通式图表：进去一份完整的 ECharts option，出来一份判定。props 是 `option`，以及可选的 `dark`、`capture`、`onVerdict`、`onCapture`。option 以 `notMerge` 应用且从不被检查，因此判断什么能安全绘制属于交出它的那一方。`setOption` 抛出时 `onVerdict` 同步答 `{ ok: false, error }`；引擎接受的文档则在其后第一个 `finished` 事件上答 `{ ok: true, seriesCount, pointCount }`。`capture` 多加一次 `getDataURL`，经 `onCapture` 恰在判定之前送出，好让消费方把两者一并发给宿主。
 - **`ChartPanel`** —— 建在 `EChartsBar` 之上的演示外壳，也是 placement 实际注册的组件。它从本包的 locale 座位解析文案，铺一组固定的七柱周数据，用「换一组数据」按钮替换它，并把最后点中的柱子作为 `selectedLabel` 递回去。每一次交互两个方向都在跨界：Vue 数点击，React 在它周围重渲染。
 
-`Vue2Bridge`、`EChartsBarChart`（Vue 组件）与 `NS`（字典命名空间）同样导出，并附带 Vue 2.7 的 API 表面：`Vue` 加上 `defineComponent`、`h`、`ref`、`computed`、`watch`、`onMounted`、`onBeforeUnmount`、`nextTick`。
+`Vue2Bridge`、两个 Vue 组件（`EChartsBarChart`、`EChartsOptionChart`）与 `NS`（字典命名空间）同样导出，并附带 Vue 2.7 的 API 表面：`Vue` 加上 `defineComponent`、`h`、`ref`、`computed`、`watch`、`onMounted`、`onBeforeUnmount`、`nextTick`。
+
+### 支持的 series 集合
+
+`SUPPORTED_SERIES_TYPES` 是 `['bar', 'line', 'pie']`，只有一个家：[`src/chart-types.ts`](src/chart-types.ts)，一个什么都不 import 的模块。客户端通过一张按它加键的模块表推导出自己的 `echarts.use` 注册，因此加一种类型会让构建失败，直到把对应的 ECharts 图表模块写在旁边。同一个常量也从包根导出，好让校验模型给的 option 的宿主插件，拒绝的正是浏览器画不出的那些——`countSeriesPoints` 同理，宿主的上限和浏览器的判定读的是同一个计数器。`ChartVerdict` 出于同样的理由在两个入口都导出。
 
 ### 一张模块图里只能有一份 Vue 运行时
 
@@ -47,9 +52,9 @@ Vue 2 的响应式不跨运行时副本。observer、`Dep` 与渲染 watcher 都
 
 ## 产物体积
 
-Vue 与 ECharts 都不在外壳的共享模块表里，因此本包的 `lib/client.js` 把两者都带上：原始 1.30 MB，gzip 后 290 kB。React 与 Cordis/slot 层保持 external，通过 loader 注入的 `require` 解析。
+Vue 与 ECharts 都不在外壳的共享模块表里，因此本包的 `lib/client.js` 把两者都带上：原始 1.47 MB，gzip 后 337 kB。React 与 Cordis/slot 层保持 external，通过 loader 注入的 `require` 解析。
 
-有两项构建决定让它停在这个体积而不是更大。`vue` 被钉到 `vue/dist/vue.runtime.esm.js`，即 runtime-only 的 ESM 构建，因为完整构建会把模板编译器拖进一个只用 `h()` 渲染、运行期从不编译模板的 bundle。`process.env.NODE_ENV` 被 define 成 `"production"`，这既剔除了 Vue 2 的开发分支，也是这个 bundle 能跑起来的前提：Vue 2 的 ESM 构建在每条响应式路径上都把这个名字当裸全局读，缺了 define 浏览器会在第一次挂载时抛 `process is not defined`。ECharts 走 `echarts/core`，只注册柱状图、grid、tooltip 与 canvas 渲染器。
+有两项构建决定让它停在这个体积而不是更大。`vue` 被钉到 `vue/dist/vue.runtime.esm.js`，即 runtime-only 的 ESM 构建，因为完整构建会把模板编译器拖进一个只用 `h()` 渲染、运行期从不编译模板的 bundle。`process.env.NODE_ENV` 被 define 成 `"production"`，这既剔除了 Vue 2 的开发分支，也是这个 bundle 能跑起来的前提：Vue 2 的 ESM 构建在每条响应式路径上都把这个名字当裸全局读，缺了 define 浏览器会在第一次挂载时抛 `process is not defined`。ECharts 走 `echarts/core`，只注册三种受支持的图表类型、grid、tooltip、legend、title 与 canvas 渲染器。
 
 ## Model Experience
 
@@ -61,8 +66,8 @@ Vue 与 ECharts 都不在外壳的共享模块表里，因此本包的 `lib/clie
 
 ## Known Limitations and Deferred Work
 
-- **只有演示数据** —— `ChartPanel` 铺的是固定的七柱周数据，并在浏览器里随机替换。没有任何东西抵达宿主、session log 或模型；携带真实数据的 placement 应当用 `EChartsBar` 这个导出。
-- **没有接主题** —— `ChartPanel` 永远传 `dark: false`。canvas 解析不了 CSS 自定义属性，因此图表的两套配色是 `echarts-chart.ts` 里的字面值，而不是它周围 DOM 读的那些 `--dsw-*` token，并且没有任何东西在两者之间切换。要接上实时主题，需要在 placement 的 register 处放一个注册方私有的 observable，那是 placement 的决定，不是这一行的。
+- **只有演示数据** —— `ChartPanel` 铺的是固定的七柱周数据，并在浏览器里随机替换。没有任何东西抵达宿主、session log 或模型；携带真实数据的 placement 用的是 `EChartsBar` 与 `EChartsOption` 这两个导出。
+- **没有接主题** —— `ChartPanel` 永远传 `dark: false`。canvas 解析不了 CSS 自定义属性，因此图表的两套配色是 `echarts-host.ts` 里的字面值，而不是它周围 DOM 读的那些 `--dsw-*` token，本行内也没有任何东西在两者之间切换。用哪套配色构建图表是 placement 的决定。
 - **Vue 2.7 已终止维护** —— 2.7 是 Vue 2 的最后一条线，不再有新版本。本包的意义是证明既有的 Vue 2 组件树可以被托管，而不是推荐新写。
 - **单文件组件不在支持路径上** —— 仓库的 Vitest 配置没有 Vue 插件，任何触到 SFC 的 spec 都会解析失败，而 `.vue` 也落在覆盖率闸的 `packages/*/*/src/**/*.{ts,tsx}` 之外。本包使用 `defineComponent` + `h()`；完整分析记在 [`vue-ui-poc`](../vue-ui-poc/README.zh.md)。
 - **一座桥只挂一个组件** —— 桥只挂载单个 Vue 组件并传一份 prop 记录。slot 子内容、跨桥的 Vue `provide`/`inject`、`<Teleport>`、Vue Router 与 Vuex 都未探索。

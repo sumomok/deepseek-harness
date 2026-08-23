@@ -1,0 +1,17 @@
+# `show_chart` on top of the shipped Web surface. Two rows, no layout change:
+#
+# - `vue2-echarts-poc` carries the components, the Vue 2.7 runtime, and the
+#   ECharts build. It must be present: it is the module this row's bundle
+#   requires through the loader's module table.
+# - `vue2-echarts-tool-poc` offers the tool, serves its two routes, and claims
+#   the `show_chart` key of the transcript's tool-view slot.
+#
+# The official `ui-layout` stays, because the chart renders inside the
+# conversation rather than in a column — this is the composition that also works
+# on `develop`. Screenshots are off; add `config: { screenshot: true }` to the
+# row below for a deployment whose model accepts image input.
+- insert:
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: show-chart
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc'

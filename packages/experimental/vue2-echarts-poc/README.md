@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-A component library row: a real ECharts bar chart written as a **Vue 2.7** component, wrapped so React can render it anywhere. The package knows nothing about layouts and registers no slot — its browser half registers its dictionaries and exports the components. Where they render is a placement plugin's decision; [`vue2-echarts-content-poc`](../vue2-echarts-content-poc/README.md) is the one this branch ships.
+A component library row: real ECharts charts written as **Vue 2.7** components, wrapped so React can render them anywhere. The package knows nothing about layouts and registers no slot — its browser half registers its dictionaries and exports the components. Where they render is a placement plugin's decision; [`vue2-echarts-content-poc`](../vue2-echarts-content-poc/README.md) puts the demo panel in the service-line shell's content column, and [`vue2-echarts-tool-poc`](../vue2-echarts-tool-poc/README.md) paints a model-supplied option inside the conversation transcript.
 
 It is the Vue 2 counterpart of [`vue-ui-poc`](../vue-ui-poc/README.md), which probes the same question for Vue 3.
 
@@ -20,12 +20,17 @@ The record is copied and frozen on the way in. Vue 2's observer walks every obje
 
 ## The row surface
 
-`./client` exports two React components, and they are layered so a placement can pick the one it needs:
+`./client` exports three React components, layered so a placement can pick the one it needs:
 
 - **`EChartsBar`** — pure and data-driven. Its props are `title`, `categories`, `values`, and the optional `dark`, `selectedLabel`, and `onSelect`. It resolves no copy and names no slot, so the same export serves a resident column and a conversation-transcript card rendering tool-call data.
+- **`EChartsOption`** — the pass-through chart: one complete ECharts option in, one verdict out. Its props are `option` and the optional `dark`, `capture`, `onVerdict`, and `onCapture`. The option is applied with `notMerge` and never inspected, so deciding what is safe to paint belongs to whoever supplied it. `onVerdict` answers `{ ok: false, error }` synchronously when `setOption` throws, and `{ ok: true, seriesCount, pointCount }` on the first `finished` event after a document the engine accepted; `capture` adds one `getDataURL` read delivered through `onCapture` just ahead of that verdict, so a consumer sends both to a host in one message.
 - **`ChartPanel`** — the demo wrapper over `EChartsBar`, and the component a placement registers. It resolves its copy from this package's locale seat, seeds a fixed seven-bar week, replaces it from a Randomize button, and feeds the last clicked bar back down as `selectedLabel`. Both directions cross on every interaction: Vue counts the click and React re-renders around it.
 
-`Vue2Bridge`, `EChartsBarChart` (the Vue component), and `NS` (the dictionary namespace) are exported too, alongside the Vue 2.7 API surface: `Vue` plus `defineComponent`, `h`, `ref`, `computed`, `watch`, `onMounted`, `onBeforeUnmount`, and `nextTick`.
+`Vue2Bridge`, both Vue components (`EChartsBarChart`, `EChartsOptionChart`), and `NS` (the dictionary namespace) are exported too, alongside the Vue 2.7 API surface: `Vue` plus `defineComponent`, `h`, `ref`, `computed`, `watch`, `onMounted`, `onBeforeUnmount`, and `nextTick`.
+
+### The supported series set
+
+`SUPPORTED_SERIES_TYPES` is `['bar', 'line', 'pie']`, and it has one home: [`src/chart-types.ts`](src/chart-types.ts), a module that imports nothing. The client derives its `echarts.use` registration from it through a keyed module table, so adding a type fails the build until its ECharts chart module is named beside it. The same constant is exported from the package root, so a host plugin validating a model-supplied option rejects exactly what the browser cannot paint — as does `countSeriesPoints`, the point counter both the host's bound and the browser's verdict read. `ChartVerdict` is exported from both entries for the same reason.
 
 ### One Vue runtime per module graph
 
@@ -47,9 +52,9 @@ The package must be resolvable from the profile directory, which for an out-of-t
 
 ## Bundle cost
 
-Neither Vue nor ECharts is in the shell's shared module table, so this package's `lib/client.js` carries both: 1.30 MB raw, 290 kB gzipped. React and the Cordis/slot layers stay external and resolve through the loader's injected `require`.
+Neither Vue nor ECharts is in the shell's shared module table, so this package's `lib/client.js` carries both: 1.47 MB raw, 337 kB gzipped. React and the Cordis/slot layers stay external and resolve through the loader's injected `require`.
 
-Two build decisions keep it at that size rather than larger. `vue` is pinned to `vue/dist/vue.runtime.esm.js`, the runtime-only ESM build, because the full build drags the template compiler into a bundle that renders through `h()` and compiles no template. And `process.env.NODE_ENV` is defined as `"production"`, which both removes Vue 2's development branches and is required for the bundle to run at all: Vue 2's ESM build reads that name as a bare global on every reactivity path, so without the define the browser throws `process is not defined` at the first mount. ECharts is imported through `echarts/core` with only the bar chart, the grid, the tooltip, and the canvas renderer registered.
+Two build decisions keep it at that size rather than larger. `vue` is pinned to `vue/dist/vue.runtime.esm.js`, the runtime-only ESM build, because the full build drags the template compiler into a bundle that renders through `h()` and compiles no template. And `process.env.NODE_ENV` is defined as `"production"`, which both removes Vue 2's development branches and is required for the bundle to run at all: Vue 2's ESM build reads that name as a bare global on every reactivity path, so without the define the browser throws `process is not defined` at the first mount. ECharts is imported through `echarts/core` with only the three supported chart types, the grid, the tooltip, the legend, the title, and the canvas renderer registered.
 
 ## Model Experience
 
@@ -61,8 +66,8 @@ None; the package never assembles or sends provider requests.
 
 ## Known Limitations and Deferred Work
 
-- **Demo data only** — `ChartPanel` plots a fixed seven-bar week and randomizes it in the browser. Nothing reaches a host, a session log, or a model; `EChartsBar` is the export a data-carrying placement would use.
-- **No theme plumbing** — `ChartPanel` always passes `dark: false`. A canvas resolves no CSS custom properties, so the chart's two palettes are literal values in `echarts-chart.ts` rather than the `--dsw-*` tokens the DOM around it reads, and nothing switches between them. Reaching the live theme means a registrant-private observable at the placement's register site, which is the placement's decision, not this row's.
+- **Demo data only** — `ChartPanel` plots a fixed seven-bar week and randomizes it in the browser. Nothing reaches a host, a session log, or a model; `EChartsBar` and `EChartsOption` are the exports a data-carrying placement uses.
+- **No theme plumbing** — `ChartPanel` always passes `dark: false`. A canvas resolves no CSS custom properties, so the chart's two palettes are literal values in `echarts-host.ts` rather than the `--dsw-*` tokens the DOM around it reads, and nothing in this row switches between them. Which palette a chart is built with is the placement's decision.
 - **Vue 2.7 is end-of-life** — 2.7 is the last Vue 2 line and receives no further releases. The package exists to prove that an existing Vue 2 component tree can be hosted, not to recommend building new ones.
 - **Single-file components are not on the supported path** — the repository's Vitest configuration has no Vue plugin, so any spec reaching an SFC fails to parse, and `.vue` sits outside the coverage gate's `packages/*/*/src/**/*.{ts,tsx}` glob. This package uses `defineComponent` + `h()`; [`vue-ui-poc`](../vue-ui-poc/README.md) records the full analysis.
 - **One bridge, one component** — the bridge mounts a single Vue component and passes it one prop record. Slot children, Vue `provide`/`inject` across bridges, `<Teleport>`, Vue Router, and Vuex are all unexplored.

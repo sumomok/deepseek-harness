@@ -72,8 +72,13 @@ vi.mock('echarts/core', () => ({
   init: (element: unknown, theme: unknown) => echarts.init(element, theme),
   use: (parts: unknown) => { echarts.used.push(parts) },
 }))
-vi.mock('echarts/charts', () => ({ BarChart: 'BarChart' }))
-vi.mock('echarts/components', () => ({ GridComponent: 'GridComponent', TooltipComponent: 'TooltipComponent' }))
+vi.mock('echarts/charts', () => ({ BarChart: 'BarChart', LineChart: 'LineChart', PieChart: 'PieChart' }))
+vi.mock('echarts/components', () => ({
+  GridComponent: 'GridComponent',
+  LegendComponent: 'LegendComponent',
+  TitleComponent: 'TitleComponent',
+  TooltipComponent: 'TooltipComponent',
+}))
 vi.mock('echarts/renderers', () => ({ CanvasRenderer: 'CanvasRenderer' }))
 
 /** Latest ResizeObserver callback, so a spec can deliver a resize jsdom never will. */
@@ -127,7 +132,7 @@ describe('EChartsBar', () => {
 
   it('defaults the light palette, an empty selection line, and an ignored click', () => {
     render(<EChartsBar title="Sales" categories={CATEGORIES} values={VALUES} />)
-    expect((chart().theme as { color: string[] }).color).toEqual(['#4c6ef5'])
+    expect((chart().theme as { color: string[] }).color[0]).toBe('#4c6ef5')
     expect(screen.getByText('0').nextElementSibling?.textContent).toBe('')
     // The default onSelect swallows the click; the Vue counter still moves.
     expect(() => { chart().handlers.get('click')?.({ name: 'b', value: 2 }) }).not.toThrow()
@@ -169,7 +174,7 @@ describe('EChartsBar', () => {
     // ECharts resolves a theme only at construction.
     expect(echarts.charts).toHaveLength(2)
     expect(light.disposed).toBe(true)
-    expect((chart().theme as { color: string[] }).color).toEqual(['#7aa2f7'])
+    expect((chart().theme as { color: string[] }).color[0]).toBe('#7aa2f7')
   })
 
   it('resizes the chart from its element observer and releases both on unmount', () => {

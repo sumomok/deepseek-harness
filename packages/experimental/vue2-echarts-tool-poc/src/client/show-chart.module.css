@@ -1,0 +1,49 @@
+/* Tokens only: the DOM around the chart reads the same theme variables React
+   components do. The canvas itself carries its own palette — a canvas resolves
+   no CSS custom properties (see the component row's echarts-host.ts). */
+
+.row {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 4px 0;
+}
+
+.caption {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* The chart keeps its box while it paints: `visibility` rather than `display`,
+   because ECharts sizes its canvas from a laid-out element and a display-none
+   host would give it a zero-sized one. */
+.stage {
+  display: flex;
+  height: 280px;
+  min-width: 0;
+}
+
+.stage[data-verified='no'] {
+  visibility: hidden;
+}
+
+/* The bridge's host element, which belongs to Vue2Bridge rather than to this
+   file: an inline span would collapse the chart's height. */
+.stage > span {
+  display: flex;
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.error {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: var(--dsw-alias-bg-layer-2);
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+}

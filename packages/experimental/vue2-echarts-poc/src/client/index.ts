@@ -11,8 +11,9 @@
  * and take `Vue` and the composition API from the re-exports below, never
  * `import 'vue'` for itself.
  *
- * The value exports are that row surface: the two React components, the bridge,
- * the dictionary namespace, and the Vue 2.7 API a consuming package needs.
+ * The value exports are that row surface: the three React components, the
+ * bridge, the chart vocabulary, the dictionary namespace, and the Vue 2.7 API a
+ * consuming package needs.
  * @module @deepseek-ai/dsh-experimental-vue2-echarts-poc/client
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -30,14 +31,24 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 export { NS } from './locales.ts'
 export { ChartPanel } from './ChartPanel.tsx'
 export { EChartsBar } from './EChartsBar.tsx'
+export { EChartsOption } from './EChartsOption.tsx'
 export { Vue2Bridge } from './vue2-bridge.tsx'
 export { EChartsBarChart } from './echarts-chart.ts'
+export { EChartsOptionChart } from './echarts-option-chart.ts'
 
 export type { ChartPanelProps } from './ChartPanel.tsx'
 export type { EChartsBarProps } from './EChartsBar.tsx'
+export type { EChartsOptionProps } from './EChartsOption.tsx'
 export type { EChartsBarChartProps } from './echarts-chart.ts'
+export type { EChartsOptionChartProps } from './echarts-option-chart.ts'
 export type { Vue2BridgeProps } from './vue2-bridge.tsx'
 export type { Vue2EchartsPocKey } from './locales.ts'
+
+// The chart vocabulary, so a browser consumer names the verdict and the
+// supported series set from the same module it requests the components
+// through, without reaching into this package's node half.
+export { countSeriesPoints, SUPPORTED_SERIES_TYPES } from '../chart-types.ts'
+export type { ChartVerdict, SupportedSeriesType } from '../chart-types.ts'
 
 /**
  * The Vue 2.7 API surface, re-exported so a consuming package builds its

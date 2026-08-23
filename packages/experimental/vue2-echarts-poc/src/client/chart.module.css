@@ -95,3 +95,15 @@
   min-height: 240px;
   width: 100%;
 }
+
+/* --- The pass-through chart body (Vue 2.7, echarts-option-chart.ts) --- */
+
+/* No caption and no chrome: the option document is the whole picture, and the
+   consumer owns whatever frames it. */
+.optionBody {
+  display: flex;
+  flex: 1 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  width: 100%;
+}

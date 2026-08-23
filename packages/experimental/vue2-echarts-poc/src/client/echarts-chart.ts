@@ -1,5 +1,5 @@
 /**
- * The chart's Vue half: a Vue 2.7 component whose inputs are strings, two
+ * The demo chart's Vue half: a Vue 2.7 component whose inputs are strings, two
  * arrays of plain data, a boolean, and one callback, and whose only state is a
  * Vue `ref`.
  *
@@ -9,18 +9,13 @@
  * while the selection label above it changes. Copy arrives already translated —
  * the locale registry is a React-side concern.
  *
- * ECharts resolves a theme only at construction, so the palette watcher
- * disposes the instance and builds a new one; every other input is applied to
- * the live instance with `setOption`.
+ * The instance lifecycle — palette rebuild, resize, disposal — belongs to
+ * `echarts-host.ts`; this component owns the option document and the click.
  */
-import { defineComponent, h, onBeforeUnmount, onMounted, ref, watch, type PropType } from 'vue'
-import * as echarts from 'echarts/core'
-import { BarChart } from 'echarts/charts'
-import { GridComponent, TooltipComponent } from 'echarts/components'
-import { CanvasRenderer } from 'echarts/renderers'
+import { defineComponent, h, onMounted, ref, watch, type PropType } from 'vue'
+import type * as echarts from 'echarts/core'
+import { attachChart } from './echarts-host.ts'
 import css from './chart.module.css'
-
-echarts.use([BarChart, GridComponent, TooltipComponent, CanvasRenderer])
 
 /** Complete prop record {@link EChartsBarChart} requires; the bridge's contract with React. */
 export interface EChartsBarChartProps {
@@ -37,28 +32,6 @@ export interface EChartsBarChartProps {
   /** Reports each bar click to the React side. */
   onSelect: (category: string, value: number) => void
 }
-
-/**
- * Chart palettes. A canvas reads no CSS custom properties, so the two palettes
- * are literal here rather than the `--dsw-*` tokens the surrounding DOM styles
- * from; they are chosen to sit on the shell's two base surfaces.
- */
-const PALETTE = {
-  light: {
-    color: ['#4c6ef5'],
-    backgroundColor: 'transparent',
-    textStyle: { color: '#4c5157' },
-    categoryAxis: { axisLine: { lineStyle: { color: '#d5d9de' } }, splitLine: { show: false } },
-    valueAxis: { splitLine: { lineStyle: { color: '#eceef1' } } },
-  },
-  dark: {
-    color: ['#7aa2f7'],
-    backgroundColor: 'transparent',
-    textStyle: { color: '#b9c0c8' },
-    categoryAxis: { axisLine: { lineStyle: { color: '#3b4048' } }, splitLine: { show: false } },
-    valueAxis: { splitLine: { lineStyle: { color: '#2c3037' } } },
-  },
-} as const
 
 /** Build the complete option document for one prop record. */
 function barOption(props: EChartsBarChartProps): echarts.EChartsCoreOption {
@@ -101,38 +74,21 @@ export const EChartsBarChart = defineComponent({
     const clicks = ref(0)
     const host = ref<HTMLDivElement | null>(null)
 
-    const build = (element: HTMLDivElement): echarts.ECharts => {
-      const chart = echarts.init(element, PALETTE[props.dark ? 'dark' : 'light'])
-      chart.on('click', (event: echarts.ECElementEvent) => {
-        clicks.value += 1
-        props.onSelect(event.name, Number(event.value))
-      })
-      chart.setOption(barOption(props))
-      return chart
-    }
-
     onMounted(() => {
       // Vue has written the template ref by mounted time: the chart div renders
       // unconditionally, which is what the cast records.
       const element = host.value as HTMLDivElement
-      let chart = build(element)
-
-      watch(() => props.dark, () => {
-        chart.dispose()
-        chart = build(element)
+      const chart = attachChart(element, () => props.dark, (created) => {
+        created.on('click', (event: echarts.ECElementEvent) => {
+          clicks.value += 1
+          props.onSelect(event.name, Number(event.value))
+        })
+        created.setOption(barOption(props))
       })
       watch(
         () => [props.title, props.categories, props.values] as const,
-        () => { chart.setOption(barOption(props)) },
+        () => { chart().setOption(barOption(props)) },
       )
-
-      const observer = new ResizeObserver(() => { chart.resize() })
-      observer.observe(element)
-
-      onBeforeUnmount(() => {
-        observer.disconnect()
-        chart.dispose()
-      })
     })
 
     return () => h('div', { class: css.chartBody }, [

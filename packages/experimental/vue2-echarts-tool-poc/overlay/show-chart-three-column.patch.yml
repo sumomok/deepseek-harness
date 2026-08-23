@@ -1,0 +1,27 @@
+# `show_chart` under the service-line shell: the chart in the conversation AND
+# the demo panel in the content column, from the same component row.
+#
+# - `ui-layout` is disabled and `server-layout` inserted in its place: 'root' is
+#   a single slot and its child slots may be declared only once, so the shipped
+#   shell and the service-line shell cannot coexist.
+# - `vue2-echarts-poc` carries the components, the Vue 2.7 runtime, and the
+#   ECharts build; both rows below require it through the loader's module table.
+# - `vue2-echarts-content-poc` puts the demo panel in the content column.
+# - `vue2-echarts-tool-poc` offers `show_chart` and claims its key in the
+#   transcript's tool-view slot, which the shipped conversation still owns.
+#
+# The pair is the point: one Vue runtime, two placements, and neither package
+# knows about the other.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: vue2-echarts-content-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-content-poc'
+    - id: show-chart
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc'

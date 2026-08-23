@@ -686,6 +686,46 @@ export interface Config {
 
 来源：[`packages/experimental/tool-agent-team/src/index.ts:17`](../packages/experimental/tool-agent-team/src/index.ts)
 
+<a id="deepseek-aidsh-experimental-vue2-echarts-tool-poc"></a>
+
+## `@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc`
+
+需要：`webServer`
+
+```ts config-catalog
+/** Plugin config: the bounds one deployment puts on a model-supplied chart. */
+export interface Config {
+  /**
+   * Largest `option` a call may carry, as UTF-8 bytes of its JSON form. The
+   * ceiling exists because the document is model output that reaches a real
+   * rendering engine in the user's browser; raise it for a deployment charting
+   * long category labels, lower it to keep a runaway call cheap.
+   */
+  maxOptionBytes?: number
+  /**
+   * Largest total of `series[i].data` entries a call may carry. Bounds what the
+   * browser has to paint and what a screenshot has to encode; the ceiling a
+   * deployment sets is also stated in the tool description, so a first call can
+   * respect it.
+   */
+  maxPoints?: number
+  /**
+   * How long the tool waits for a browser to report what it painted. Past it
+   * the call answers unverified rather than failing: the chart is in the
+   * transcript either way, and no browser may be open at all.
+   */
+  verdictTimeoutMs?: number
+  /**
+   * Whether a painted chart is captured as a PNG and returned to the model as
+   * an image block. Off by default: it needs an image-capable model and costs
+   * image tokens on every call.
+   */
+  screenshot?: boolean
+}
+```
+
+来源：[`packages/experimental/vue2-echarts-tool-poc/src/index.ts:50`](../packages/experimental/vue2-echarts-tool-poc/src/index.ts)
+
 <a id="deepseek-aidsh-file-reference-local"></a>
 
 ## `@deepseek-ai/dsh-file-reference-local`
