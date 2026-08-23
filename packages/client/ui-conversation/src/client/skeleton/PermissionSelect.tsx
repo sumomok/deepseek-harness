@@ -10,8 +10,10 @@ import css from './PermissionSelect.module.css'
 const FULL_ACCESS = 'danger-full-access'
 
 /* Shield glyphs (design set 1556): check = read-only, pencil = workspace
-   write, exclamation = full access. currentColor so the trigger and menu
-   rows tint them with their own text color. */
+   write, exclamation = full access, bare outline = every other key. An option
+   selects one by name; the fallback keeps each row's icon the same size.
+   currentColor so the trigger and menu rows tint them with their own text
+   color. */
 
 const shieldOutline = 'M8.20554 0.899994L14.7901 3.36857V7.01026C14.7901 12 11.0466 14.2103 8.20554 15.3C5.36446 14.2103 1.62012 12 1.62012 7.01026V3.36857L8.20554 0.899994Z'
 
@@ -40,9 +42,19 @@ const permissionGlyphs = {
   ),
 } as Record<string, ReactNode>
 
-/** Glyph for a permission option value; host-configured names outside the design set get none. */
-function permissionGlyph(value: string): ReactNode | undefined {
-  return permissionGlyphs[value]
+const bareShield = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+    <path d={shieldOutline} stroke="currentColor" strokeWidth="1.31831" strokeLinejoin="round" />
+  </svg>
+)
+
+/**
+ * Resolve one design-set glyph.
+ * @param key - an option's own `glyph`, or its value when it names none.
+ * @returns the named glyph, or the bare shield outline for any other key.
+ */
+function permissionGlyph(key: string): ReactNode {
+  return permissionGlyphs[key] ?? bareShield
 }
 
 /**
@@ -90,10 +102,11 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
 
   const items: MenuEntry[] = value.options
     .filter(o => o.value !== 'custom')
-    .map((option) => {
-      const icon = permissionGlyph(option.value)
-      return { id: option.value, label: optionLabel(option), ...icon === undefined ? {} : { icon } }
-    })
+    .map(option => ({
+      id: option.value,
+      label: optionLabel(option),
+      icon: permissionGlyph(option.glyph ?? option.value),
+    }))
 
   const submit = (id: string): void => {
     setPick(id)
@@ -143,9 +156,7 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
             disabled={locked || busy}
             onClick={() => { setOpen(!open) }}
           >
-            {permissionGlyph(currentValue) !== undefined && (
-              <span className={css.triggerIcon} aria-hidden>{permissionGlyph(currentValue)}</span>
-            )}
+            <span className={css.triggerIcon} aria-hidden>{permissionGlyph(current?.glyph ?? currentValue)}</span>
             <span className={css.triggerLabel}>{current === undefined ? displayName(currentValue) : optionLabel(current)}</span>
             {/* Same glyph + open rotation as the sibling ModelSelect trigger. */}
             <span className={clsx(css.chevron, open && css.chevronOpen)} aria-hidden>
