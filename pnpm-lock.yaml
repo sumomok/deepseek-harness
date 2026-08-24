@@ -712,8 +712,8 @@ importers:
         specifier: file:./vendor/haoran-dsh-llm-permission-gateway-0.1.4.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.4.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)
       '@haoran/dsh-screenshot':
-        specifier: file:./vendor/haoran-dsh-screenshot-0.2.0.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)
+        specifier: file:./vendor/haoran-dsh-screenshot-0.3.0.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)
       '@sumomok/dsh-balance':
         specifier: file:./vendor/sumomok-dsh-balance-0.1.0.tgz
         version: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.1.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-credentials@packages+credentials+credentials)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-launch-environment@packages+util+launch-environment)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
@@ -10698,9 +10698,9 @@ packages:
       '@deepseek-ai/dsh-tools': ^0.1.0-rc.7
       '@deepseek-ai/schemastery': ^3.18.1
 
-  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.2.0.tgz':
-    resolution: {integrity: sha512-cZYrcA5+KNYBojaX1/rtupxFpAYyypO/DlH5tiXWYVa9pymg96Kfgf7QcHG/HtOh1HSShbtbbcOs3/UovkMuYg==, tarball: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.2.0.tgz}
-    version: 0.2.0
+  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.3.0.tgz':
+    resolution: {integrity: sha512-LVXN76O1w2zjRAOBkNeChydSdDrUu7pHGVmEFwNtq/bn3H3FDvkoDNrq+Lhqt9RZNX4H156RQRTUHuPb6cjhuw==, tarball: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.3.0.tgz}
+    version: 0.3.0
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
       '@deepseek-ai/dsh-attachment': ^0.1.0-rc.7
@@ -17395,7 +17395,7 @@ snapshots:
       '@deepseek-ai/dsh-tools': link:packages/core/tools
       '@deepseek-ai/schemastery': link:vendor/schemastery
 
-  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)':
+  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)':
     dependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-attachment': link:packages/attachment/attachment

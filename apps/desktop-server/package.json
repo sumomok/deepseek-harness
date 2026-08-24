@@ -111,7 +111,7 @@
     "@deepseek-ai/schemastery": "workspace:^",
     "@haoran/dsh-default-model": "file:./vendor/haoran-dsh-default-model-0.1.2.tgz",
     "@haoran/dsh-llm-permission-gateway": "file:./vendor/haoran-dsh-llm-permission-gateway-0.1.4.tgz",
-    "@haoran/dsh-screenshot": "file:./vendor/haoran-dsh-screenshot-0.2.0.tgz",
+    "@haoran/dsh-screenshot": "file:./vendor/haoran-dsh-screenshot-0.3.0.tgz",
     "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.1.0.tgz",
     "@sumomok/dsh-quote-message": "file:./vendor/sumomok-dsh-quote-message-0.2.2.tgz",
     "dsh-at-file": "github:omdsh-dev/dsh-at-file#289f19bb83f80a95df49f567eeef42462d4da92f",
