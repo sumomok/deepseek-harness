@@ -126,8 +126,8 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 | `dsh-at-file` | `v0.6.5`,来自作者仓库该 tag 所指的提交 | 输入框里的 `@` 文件提及 |
 | `@haoran/dsh-screenshot` | `0.2.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面——带 `cookies` 或 `headers` 时也包括登录墙后的页面——把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写成文件 |
 | `@haoran/dsh-llm-permission-gateway` | `0.1.4`,来自提交进本仓库的 tarball | 自动审查这个权限预设——在权限选择器里带上完全权限那枚盾形图标——以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型 |
-| `@sumomok/dsh-quote-message` | `0.2.1`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,引用 chip 在你发送时展开成一段 markdown 引用块,而对话里它显示成你这条消息上方独立的一张卡片,超过四行折起 |
-| `@sumomok/dsh-edit-rerun` | `0.2.0`,来自提交进本仓库的 tarball | 改写更早的那个问题并从那里重跑:你自己那条问题下方多出一个「修改」按钮,该回合的操作行上另有两个,它们都 fork 出一个历史止于该回合之前的子会话并预填输入框,原对话保持原样 |
+| `@sumomok/dsh-quote-message` | `0.2.2`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,引用 chip 在你发送时展开成一段 markdown 引用块,而对话里它显示成你这条消息上方的一段引文——左侧一条细线,引用文字用次级墨色,超过三行折起 |
+| `@sumomok/dsh-edit-rerun` | `0.2.1`,来自提交进本仓库的 tarball | 改写更早的那个问题并从那里重跑:你自己那条问题下方多出一个「修改」按钮,该回合的操作行上另有两个,它们都 fork 出一个历史止于该回合之前的子会话,并按会话日志里记下的原文预填输入框,原对话保持原样 |
 | `@sumomok/dsh-balance` | `0.1.0`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 公布的 CNY 与 USD 价格 |
 | `@haoran/dsh-default-model` | `0.1.2`,来自提交进本仓库的 tarball | 出厂默认模型:全新安装的第一个会话开在 `deepseek-v4-flash-vision-exp` 上,选择器把它列为 `default` |
 

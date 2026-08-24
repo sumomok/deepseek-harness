@@ -83,8 +83,8 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.4.tgz' },
   '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.2.0.tgz' },
   '@sumomok/dsh-balance': { repo: 'apps/desktop-server/vendor/sumomok-dsh-balance-0.1.0.tgz' },
-  '@sumomok/dsh-edit-rerun': { repo: 'apps/desktop-server/vendor/sumomok-dsh-edit-rerun-0.2.0.tgz' },
-  '@sumomok/dsh-quote-message': { repo: 'apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.1.tgz' },
+  '@sumomok/dsh-edit-rerun': { repo: 'apps/desktop-server/vendor/sumomok-dsh-edit-rerun-0.2.1.tgz' },
+  '@sumomok/dsh-quote-message': { repo: 'apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.2.tgz' },
 }
 
 /**
