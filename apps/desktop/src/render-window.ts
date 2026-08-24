@@ -24,7 +24,16 @@
  * The isolation is also what makes a request's own headers and cookies safe to
  * honour: they are set on this window's in-memory session, so a caller renders
  * a page as whoever it has credentials for without either the credential or
- * anything the page stores reaching the session the user is signed in to.
+ * anything the page stores reaching the session the user is signed in to. The
+ * partition name carries a fresh UUID per render, so that session is new for
+ * every request and unreachable from any other: one render's cookies are gone
+ * with its window, and the next render starts signed out unless it carries its
+ * own. Nothing here writes a cookie value anywhere but that store.
+ *
+ * A request's `userAgent` is set on both the session and the web contents
+ * before the load, so the document, its subresources, and `navigator.userAgent`
+ * all report it. A render that names none reports Electron's default, which
+ * names Electron and this shell to every page the agent looks at.
  *
  * A capture is returned at the CSS-pixel size the request asked for. The
  * window keeps the display's own scale factor — forcing one is a process-wide
@@ -53,7 +62,7 @@ import { randomUUID } from 'node:crypto'
 import { BrowserWindow } from 'electron'
 import type { NativeImage, Session } from 'electron'
 import { blockedByPattern } from './render-service.ts'
-import type { Capture, RenderRequest, Renderer } from './render-service.ts'
+import type { Capture, RenderCookie, RenderRequest, Renderer } from './render-service.ts'
 
 /**
  * The tallest full-page capture produced. A document with an infinite scroller
@@ -82,30 +91,54 @@ function extraHeaders(headers: Record<string, string>): string {
 }
 
 /**
+ * The URL one cookie is stored from.
+ *
+ * `session.cookies.set` requires a URL and checks the cookie against it, so
+ * this is built from the cookie's own domain and path rather than from the page
+ * being rendered: one request carries the cookies of every host its page talks
+ * to, and scoping them all to the page's host would have Chromium refuse the
+ * ones meant for its API host. The scheme follows `secure`, which is the only
+ * attribute Chromium checks that URL's scheme against.
+ * @param cookie - the accepted cookie.
+ * @returns the URL to store it from.
+ */
+export function cookieOrigin(cookie: RenderCookie): string {
+  return `${cookie.secure ? 'https' : 'http'}://${cookie.domain.replace(/^\./, '')}${cookie.path}`
+}
+
+/**
  * Put the request's cookies on this render's own session before the load.
  *
  * They are set through the cookie store rather than sent as a header because
  * that is what makes them reach the page's subresources too: a signed-in page
  * whose images all 401 is not the page the caller asked to see.
  *
- * `path` is given explicitly because Chromium otherwise applies RFC 6265's
- * default-path, which is the *directory* of `url` rather than the site: a
- * cookie set for `/app/issues/list` would cover `/app/issues/` and reach none
- * of the `/api/…` requests the page makes. The caller named a cookie for the
- * site rather than for a directory, and a real session cookie is issued with
- * `Path=/`. A site-wide cookie reaches no further than this render either way:
- * the session is the window's own in-memory one loading a single page, and it
- * is gone when the window is. No `domain` is set, which keeps the cookie
- * host-only — the caller supplied a credential for this host and no other.
+ * `path` is always given, because Chromium otherwise applies RFC 6265's
+ * default-path — the *directory* of the URL a cookie is stored from rather than
+ * the site — so a cookie stored from `/app/issues/list` would cover
+ * `/app/issues/` and reach none of the `/api/…` requests the page makes. The
+ * service settles it to `/` for a cookie that names none, which is what a real
+ * session cookie is issued with. `domain` makes the cookie cover that host's
+ * subdomains, which is what a jar exported from a browser means by it. Neither
+ * reaches past this render: the session is the window's own in-memory one,
+ * loading a single page, and it is gone when the window is.
  * @param session - the render's own session.
- * @param url - the page being rendered, whose host the cookies are scoped to.
- * @param cookies - the accepted request's cookies, by name.
+ * @param cookies - the accepted request's cookies.
  * @returns resolves once every cookie is stored.
- * @throws when Chromium refuses a cookie for this URL.
+ * @throws when Chromium refuses a cookie for the URL it is stored from.
  */
-async function applyCookies(session: Session, url: string, cookies: Record<string, string>): Promise<void> {
-  for (const [name, value] of Object.entries(cookies)) {
-    await session.cookies.set({ url, name, value, path: '/' })
+async function applyCookies(session: Session, cookies: readonly RenderCookie[]): Promise<void> {
+  for (const cookie of cookies) {
+    await session.cookies.set({
+      url: cookieOrigin(cookie),
+      name: cookie.name,
+      value: cookie.value,
+      domain: cookie.domain,
+      path: cookie.path,
+      secure: cookie.secure,
+      httpOnly: cookie.httpOnly,
+      ...cookie.expirationDate === undefined ? {} : { expirationDate: cookie.expirationDate },
+    })
   }
 }
 
@@ -281,9 +314,17 @@ export const renderInHiddenWindow: Renderer = async (request, signal, trace, off
     })
     session.webRequest.onCompleted((details) => { trace.requestCompleted(details.id, details.statusCode) })
     session.webRequest.onErrorOccurred((details) => { trace.requestFailed(details.id, details.error) })
+    // On both, and before the navigation: the web contents override is what the
+    // document and its subresources send and what `navigator.userAgent` reads,
+    // and the session override covers a request this partition makes outside
+    // them. Left alone, both report Electron and the shell's own product.
+    if (request.userAgent !== undefined) {
+      session.setUserAgent(request.userAgent)
+      window.webContents.setUserAgent(request.userAgent)
+    }
     offerCapture(captureNow)
     // Before the navigation, so the first request already carries the session.
-    if (request.cookies !== undefined) await applyCookies(session, request.url, request.cookies)
+    if (request.cookies !== undefined) await applyCookies(session, request.cookies)
     trace.enter('navigating')
     // Resolves on did-finish-load and rejects on did-fail-load, whose error
     // message carries the Chromium error code (`ERR_FILE_NOT_FOUND`).

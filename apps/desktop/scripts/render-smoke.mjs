@@ -7,7 +7,10 @@
  * a hidden `BrowserWindow` actually paints, that `capturePage` returns the
  * requested viewport, that a full-page capture grows past it, that a request's
  * cookies reach every request the page makes while its headers reach only the
- * navigation, that the `did-navigate` and `webRequest` hooks a timed-out render
+ * navigation, that the next render starts from an empty cookie store because
+ * each holds its own non-persistent partition, that a request's `userAgent`
+ * reaches the document and its subresources while a render naming none reports
+ * Electron, that the `did-navigate` and `webRequest` hooks a timed-out render
  * is described from see a real redirect and a real page's real requests, that a
  * deadline can answer with the pixels a real page had painted, that
  * `blockHosts` really cancels a request Chromium was about to make, and that a
@@ -179,16 +182,16 @@ async function hungImageCase(directory) {
  * {@link NESTED}, and records what every request it received carried, which is
  * the only place the session a render actually sent can be observed.
  * @param {string} [hangingImage] - an image the sign-in page loads, so a render sent there never fires its load event.
- * @returns {Promise<{ origin: string, observed: { path: string, cookie: boolean, header: boolean }[], close: () => Promise<void> }>} the origin it serves, what it received, and its shutdown.
+ * @returns {Promise<{ origin: string, observed: { path: string, cookie: boolean, header: boolean, userAgent: string }[], close: () => Promise<void> }>} the origin it serves, what it received, and its shutdown.
  */
 async function sessionSite(hangingImage) {
-  /** @type {{ path: string, cookie: boolean, header: boolean }[]} */
+  /** @type {{ path: string, cookie: boolean, header: boolean, userAgent: string }[]} */
   const observed = []
   const server = createHttpServer((request, response) => {
     const path = new URL(request.url ?? '/', 'http://site.invalid').pathname
     const cookie = (request.headers.cookie ?? '').includes('session=abc')
     const header = request.headers['x-session'] === 'abc'
-    observed.push({ path, cookie, header })
+    observed.push({ path, cookie, header, userAgent: request.headers['user-agent'] ?? '' })
     const signedIn = cookie || header
     if (path.startsWith('/issues') && !signedIn) {
       response.writeHead(302, { location: '/login' })
@@ -228,6 +231,23 @@ async function sessionSite(hangingImage) {
 }
 
 /**
+ * The session cookie {@link sessionSite} accepts, scoped to the origin it is
+ * serving on. The domain is the cookie's own, not the page's, which is what the
+ * service builds the URL it stores the cookie from.
+ * @param {string} origin - the site's origin.
+ * @returns {{ name: string, value: string, domain: string, path: string }} the cookie to send.
+ */
+function cookieFor(origin) {
+  return { name: 'session', value: 'abc', domain: new URL(origin).hostname, path: '/' }
+}
+
+/**
+ * A user agent with nothing of this shell in it, which is the point of the
+ * field: Electron's default names Electron and the app to every page rendered.
+ */
+const CLEAN_USER_AGENT = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
+
+/**
  * Render a page behind a session three ways: without one, with a cookie, and
  * with a header. Only a real Chromium shows that the cookie store and the
  * navigation headers actually reach the request, and that `did-navigate`
@@ -248,10 +268,22 @@ async function sessionCase(service) {
     )
     await anonymous.arrayBuffer()
 
-    const withCookie = await post(service, { url: issues, ...VIEWPORT, cookies: { session: 'abc' } })
+    const withCookie = await post(service, { url: issues, ...VIEWPORT, cookies: [cookieFor(site.origin)] })
     check(withCookie.status === 200, `the same page with a cookie answered ${withCookie.status}`)
     check(withCookie.headers.get('x-dsh-render-landed-url') === null, 'a cookie reaches the request, so the render stays on the page it asked for')
     await withCookie.arrayBuffer()
+
+    // The same service, the next request: a render starts from an empty cookie
+    // store however the one before it ended, because each holds its own
+    // non-persistent partition and nothing outlives the window.
+    const after = await post(service, { url: issues, ...VIEWPORT })
+    check(after.status === 200, `the next render without a cookie answered ${after.status}`)
+    check(
+      after.headers.get('x-dsh-render-landed-url') === `${site.origin}/login`,
+      "the render after a signed-in one is signed out again: the partition's cookies did not outlive it",
+    )
+    check(!lastRequest(site.observed, '/issues').cookie, 'and the site received no cookie on it')
+    await after.arrayBuffer()
 
     const withHeader = await post(service, { url: issues, ...VIEWPORT, headers: { 'x-session': 'abc' } })
     check(withHeader.status === 200, `the same page with a header answered ${withHeader.status}`)
@@ -326,7 +358,7 @@ async function subresourceCase(service) {
   try {
     const page = `${site.origin}${NESTED.page}`
 
-    const withCookie = await post(service, { url: page, ...VIEWPORT, cookies: { session: 'abc' } })
+    const withCookie = await post(service, { url: page, ...VIEWPORT, cookies: [cookieFor(site.origin)] })
     check(withCookie.status === 200, `a page under a nested path answered ${withCookie.status} with a cookie`)
     await withCookie.arrayBuffer()
     check(lastRequest(site.observed, NESTED.page).cookie, 'the cookie reaches the document')
@@ -338,6 +370,43 @@ async function subresourceCase(service) {
     await withHeader.arrayBuffer()
     check(lastRequest(site.observed, NESTED.page).header, 'an extra header reaches the navigation')
     check(!lastRequest(site.observed, NESTED.api).header, 'an extra header reaches no subresource')
+  } finally {
+    await site.close()
+  }
+}
+
+/**
+ * Render a page under a user agent the request names, and one under the shell's
+ * own default.
+ *
+ * The assertion is about what the site received rather than what came back as
+ * pixels: only a real Chromium shows that the override reaches the document,
+ * the subresources under another path, and the page's own `navigator`, and that
+ * a render naming none still says Electron.
+ * @param {{ endpoint: string, token: string }} service - the running service.
+ * @returns {Promise<void>} resolves when the case passed; rejects when it did not.
+ */
+async function userAgentCase(service) {
+  const site = await sessionSite()
+  try {
+    const page = `${site.origin}${NESTED.page}`
+
+    const named = await post(service, { url: page, ...VIEWPORT, userAgent: CLEAN_USER_AGENT })
+    check(named.status === 200, `a render naming a user agent answered ${named.status}`)
+    await named.arrayBuffer()
+    check(lastRequest(site.observed, NESTED.page).userAgent === CLEAN_USER_AGENT, 'the document is requested under the user agent that was named')
+    check(lastRequest(site.observed, NESTED.api).userAgent === CLEAN_USER_AGENT, 'so is a subresource under another top-level path')
+    check(
+      !site.observed.some(entry => entry.userAgent.includes('Electron')),
+      'no request of that render names Electron',
+    )
+
+    const byDefault = await post(service, { url: page, ...VIEWPORT })
+    check(byDefault.status === 200, `a render naming none answered ${byDefault.status}`)
+    await byDefault.arrayBuffer()
+    const fallback = lastRequest(site.observed, NESTED.page).userAgent
+    console.log(`      default user agent: ${fallback}`)
+    check(fallback.includes('Electron'), 'a render that names none reports Electron, which is what the field exists to replace')
   } finally {
     await site.close()
   }
@@ -468,6 +537,7 @@ async function run() {
 
     await sessionCase(service)
     await subresourceCase(service)
+    await userAgentCase(service)
     await consoleCase(service, directory)
     await partialCaptureCase(service, directory)
     await hungImageCase(directory)

@@ -36,7 +36,15 @@
  * and cookies for the page it names — bounded in count and size, checked
  * against their own grammars — and those go onto the render's own throwaway
  * session, never the user's; the caller supplies them, so this service never
- * holds a credential of its own.
+ * holds a credential of its own. That session is a fresh non-persistent
+ * partition per render, created with the window and destroyed with it, so one
+ * render's cookies reach neither the next render nor the disk. A cookie value
+ * is never quoted back into a refusal, a log line, or the report header for the
+ * same reason it never persists.
+ *
+ * A request may also name the `userAgent` it renders under. Electron's default
+ * carries the shell's own product tokens, which tells every page the agent
+ * looks at what it is being looked at by.
  * @module @deepseek-ai/dsh-desktop/render-service
  */
 
@@ -71,6 +79,29 @@ const HEADER_VALUE = /^[\t\x20-\x7e]*$/
 
 /** RFC 6265 cookie-octet: no controls, whitespace, quotes, commas, semicolons, or backslashes. */
 const COOKIE_VALUE = /^[\x21\x23-\x2b\x2d-\x3a\x3c-\x5b\x5d-\x7e]*$/
+
+/**
+ * A cookie's `domain`: a host, optionally with the leading dot RFC 6265 allows
+ * and ignores. No wildcard, unlike a block pattern: a domain cookie already
+ * covers that host's subdomains, so `*.` would be a second spelling of it.
+ */
+const COOKIE_DOMAIN = /^\.?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/
+
+/**
+ * A cookie's `path`: absolute, and made of bytes a path carries on the wire.
+ * `;` is excluded with the controls, because a path carrying one would end the
+ * cookie's attribute list early.
+ */
+const COOKIE_PATH = /^\/[\x21\x23-\x3a\x3c-\x7e]*$/
+
+/** How many cookies one request may set; each is one entry in the shared extra budget. */
+const MAX_COOKIES = 32
+
+/**
+ * The longest a `userAgent` may be. Chrome's own is about 130 characters, so
+ * this holds every real one and still bounds what one header can cost.
+ */
+const MAX_USER_AGENT_CHARS = 512
 
 /**
  * Response header naming where the main frame ended up, written only when that
@@ -320,12 +351,46 @@ export interface RenderRequest {
    */
   headers?: Record<string, string>
   /**
-   * Cookies to set on the render's own session before the load, by name,
-   * absent when the request named none. Unlike headers these reach every
-   * request the page makes, which is what renders a signed-in page complete
-   * rather than a signed-in document full of broken images.
+   * Cookies to set on the render's own session before the load, absent when
+   * the request named none. Unlike headers these reach every request the page
+   * makes, which is what renders a signed-in page complete rather than a
+   * signed-in document full of broken images.
    */
-  cookies?: Record<string, string>
+  cookies?: RenderCookie[]
+  /**
+   * What the render reports as its user agent, absent when the request named
+   * none. A request that names one gets it on the render's own session and its
+   * web contents, so the page and every subresource it loads see the same
+   * string; a request that names none renders under Electron's default, which
+   * carries the shell's own product tokens.
+   */
+  userAgent?: string
+}
+
+/**
+ * One cookie a request sets before its page loads.
+ *
+ * The members are Chromium's own, so a caller writes what it exported from a
+ * browser rather than a translation of it. `domain` is required because that
+ * is what the cookie is scoped to: the URL `session.cookies.set` needs is
+ * built from this cookie's own domain and path, not from the page, so one
+ * request can carry the cookies of every host its page talks to.
+ */
+export interface RenderCookie {
+  /** The cookie's name, an RFC 9110 token. */
+  name: string
+  /** Its value, RFC 6265 cookie-octets. */
+  value: string
+  /** The host it is scoped to, with or without RFC 6265's leading dot; it covers that host's subdomains. */
+  domain: string
+  /** The path prefix it is sent for, defaulting to `/` so it reaches every request the page makes. */
+  path: string
+  /** Whether it is sent only over https. */
+  secure: boolean
+  /** Whether script on the page is kept from reading it. */
+  httpOnly: boolean
+  /** When it expires, in seconds since the epoch; absent makes it a session cookie, which is what a render wants. */
+  expirationDate?: number
 }
 
 /** What a request asks the service to do when its deadline passes. */
@@ -1149,6 +1214,7 @@ interface RenderBody {
   blockHosts?: unknown
   headers?: unknown
   cookies?: unknown
+  userAgent?: unknown
 }
 
 /** One validated block list, or the reason it is not one. `undefined` is a list the request did not send. */
@@ -1156,6 +1222,12 @@ type BlockResolution = { ok: true; patterns: string[] | undefined } | Rejection
 
 /** One validated extra map, or the reason it is not one. `undefined` is a map the request did not send. */
 type MapResolution = { ok: true; map: Record<string, string> | undefined } | Rejection
+
+/** One validated cookie list, or the reason it is not one. `undefined` is a list the request did not send. */
+type CookieResolution = { ok: true; cookies: RenderCookie[] | undefined } | Rejection
+
+/** One validated user agent, or the reason it is not one. `undefined` is a field the request did not send. */
+type UserAgentResolution = { ok: true; userAgent: string | undefined } | Rejection
 
 /** What the extra maps of one request have spent of their shared bounds so far. */
 interface ExtraBudget {
@@ -1194,31 +1266,27 @@ function viewportEdge(value: unknown, limits: RenderLimits): number | undefined 
 }
 
 /**
- * Validate one string→string map from the body against the shared extra bounds.
+ * Validate the extra headers from the body against the shared extra bounds.
  *
  * An empty object resolves to `undefined`: a request that sent `{}` asked for
- * nothing, and the renderer is told about headers and cookies only when there
- * are some. Names and values are checked against their own grammars rather
- * than merely for being strings, because both end up in a request this service
- * makes on the caller's behalf — a newline in a header value would append a
- * header nobody sent.
+ * nothing, and the renderer is told about headers only when there are some.
+ * Names and values are checked against their own grammars rather than merely
+ * for being strings, because both end up in a request this service makes on the
+ * caller's behalf — a newline in a header value would append a header nobody
+ * sent.
  * @param value - the field as the body carried it.
- * @param field - `headers` or `cookies`, named in every refusal.
- * @param valuePattern - the grammar values of this field must match.
  * @param limits - the bounds to enforce.
  * @param budget - the shared count and byte total, advanced by this call.
  * @returns the validated map, undefined for an absent or empty one, or the refusal.
  */
 function extraFields(
   value: unknown,
-  field: 'headers' | 'cookies',
-  valuePattern: RegExp,
   limits: RenderLimits,
   budget: ExtraBudget,
 ): MapResolution {
   if (value === undefined) return { ok: true, map: undefined }
   if (typeof value !== 'object' || value === null || Array.isArray(value)) {
-    return { ok: false, status: 400, message: `${field} must be a JSON object of string values` }
+    return { ok: false, status: 400, message: 'headers must be a JSON object of string values' }
   }
   const entries = Object.entries(value as Record<string, unknown>)
   if (entries.length === 0) return { ok: true, map: undefined }
@@ -1229,19 +1297,19 @@ function extraFields(
       return { ok: false, status: 400, message: `a request may carry at most ${String(limits.maxExtraFields)} headers and cookies together` }
     }
     if (!TOKEN.test(name)) {
-      return { ok: false, status: 400, message: `${field} name ${JSON.stringify(name)} is not a valid token` }
+      return { ok: false, status: 400, message: `headers name ${JSON.stringify(name)} is not a valid token` }
     }
     // Cookies set through the `cookies` field reach every request the page
     // makes; one smuggled through `headers` would reach only the navigation,
     // which looks like a session that half worked.
-    if (field === 'headers' && name.toLowerCase() === 'cookie') {
+    if (name.toLowerCase() === 'cookie') {
       return { ok: false, status: 400, message: 'send cookies in the cookies field, which applies them to the whole render, not as a cookie header' }
     }
     if (typeof item !== 'string') {
-      return { ok: false, status: 400, message: `${field}.${name} must be a string` }
+      return { ok: false, status: 400, message: `headers.${name} must be a string` }
     }
-    if (!valuePattern.test(item)) {
-      return { ok: false, status: 400, message: `${field}.${name} carries a character its grammar does not allow` }
+    if (!HEADER_VALUE.test(item)) {
+      return { ok: false, status: 400, message: `headers.${name} carries a character its grammar does not allow` }
     }
     budget.bytes += Buffer.byteLength(name, 'utf8') + Buffer.byteLength(item, 'utf8')
     if (budget.bytes > limits.maxExtraBytes) {
@@ -1250,6 +1318,121 @@ function extraFields(
     map[name] = item
   }
   return { ok: true, map }
+}
+
+/**
+ * Validate one cookie from the body, with every optional attribute settled.
+ *
+ * Every member is checked against its own grammar rather than merely for its
+ * type, because all of them end up in a store this service writes on the
+ * caller's behalf: a `;` in a path or a control character in a value is how one
+ * cookie becomes two.
+ * @param entry - one element of the `cookies` array, still unknown.
+ * @param index - its position, named in every refusal so a caller can find it.
+ * @returns the settled cookie, or the refusal.
+ */
+function cookieAt(entry: unknown, index: number): { ok: true; cookie: RenderCookie } | Rejection {
+  const at = `cookies[${String(index)}]`
+  if (typeof entry !== 'object' || entry === null || Array.isArray(entry)) {
+    return { ok: false, status: 400, message: `${at} must be a JSON object with name, value, and domain` }
+  }
+  const raw = entry as Record<string, unknown>
+  if (typeof raw.name !== 'string' || !TOKEN.test(raw.name)) {
+    return { ok: false, status: 400, message: `${at}.name must be a token, not ${JSON.stringify(raw.name)}` }
+  }
+  if (typeof raw.value !== 'string') return { ok: false, status: 400, message: `${at}.value must be a string` }
+  if (!COOKIE_VALUE.test(raw.value)) {
+    // The value itself is never quoted back: it is the credential this whole
+    // field carries, and a refusal travels into logs and tool results.
+    return { ok: false, status: 400, message: `${at}.value carries a character a cookie may not carry` }
+  }
+  if (typeof raw.domain !== 'string' || !COOKIE_DOMAIN.test(raw.domain.toLowerCase())) {
+    return { ok: false, status: 400, message: `${at}.domain must be a host, optionally with a leading dot, not ${JSON.stringify(raw.domain)}` }
+  }
+  const path = raw.path ?? '/'
+  if (typeof path !== 'string' || !COOKIE_PATH.test(path)) {
+    return { ok: false, status: 400, message: `${at}.path must be an absolute path starting with /, not ${JSON.stringify(raw.path)}` }
+  }
+  const secure = raw.secure ?? false
+  if (typeof secure !== 'boolean') return { ok: false, status: 400, message: `${at}.secure must be a boolean` }
+  const httpOnly = raw.httpOnly ?? false
+  if (typeof httpOnly !== 'boolean') return { ok: false, status: 400, message: `${at}.httpOnly must be a boolean` }
+  if (raw.expirationDate !== undefined && (typeof raw.expirationDate !== 'number' || !Number.isFinite(raw.expirationDate) || raw.expirationDate <= 0)) {
+    return { ok: false, status: 400, message: `${at}.expirationDate must be seconds since the epoch, not ${JSON.stringify(raw.expirationDate)}` }
+  }
+  return {
+    ok: true,
+    cookie: {
+      name: raw.name,
+      value: raw.value,
+      domain: raw.domain.toLowerCase(),
+      path,
+      secure,
+      httpOnly,
+      ...raw.expirationDate === undefined ? {} : { expirationDate: raw.expirationDate },
+    },
+  }
+}
+
+/**
+ * Validate the cookies a request sets before its page loads.
+ *
+ * An empty array resolves to `undefined`, like an empty header map: a request
+ * that sent `[]` asked for nothing. Each cookie is one entry in the extra
+ * budget it shares with the headers, and its name, value, domain, and path are
+ * what it costs in bytes — an attribute a caller writes is a byte this service
+ * stores.
+ * @param value - the field as the body carried it.
+ * @param limits - the bounds to enforce.
+ * @param budget - the shared count and byte total, advanced by this call.
+ * @returns the settled cookies, undefined for an absent or empty list, or the refusal.
+ */
+function cookieList(value: unknown, limits: RenderLimits, budget: ExtraBudget): CookieResolution {
+  if (value === undefined) return { ok: true, cookies: undefined }
+  if (!Array.isArray(value)) return { ok: false, status: 400, message: 'cookies must be an array of cookie objects' }
+  if (value.length === 0) return { ok: true, cookies: undefined }
+  if (value.length > MAX_COOKIES) {
+    return { ok: false, status: 400, message: `cookies may carry at most ${String(MAX_COOKIES)} cookies` }
+  }
+  const cookies: RenderCookie[] = []
+  for (const [index, entry] of (value as unknown[]).entries()) {
+    budget.fields++
+    if (budget.fields > limits.maxExtraFields) {
+      return { ok: false, status: 400, message: `a request may carry at most ${String(limits.maxExtraFields)} headers and cookies together` }
+    }
+    const resolved = cookieAt(entry, index)
+    if (!resolved.ok) return resolved
+    const { name, value: item, domain, path } = resolved.cookie
+    budget.bytes += Buffer.byteLength(`${name}${item}${domain}${path}`, 'utf8')
+    if (budget.bytes > limits.maxExtraBytes) {
+      return { ok: false, status: 400, message: `the headers and cookies of one request may be at most ${String(limits.maxExtraBytes)} bytes together` }
+    }
+    cookies.push(resolved.cookie)
+  }
+  return { ok: true, cookies }
+}
+
+/**
+ * Validate the user agent a request renders under.
+ *
+ * The grammar is the header one, for the same reason: this string is written
+ * into a request header, and one carrying a newline would append a header
+ * nobody sent. An empty string is refused rather than treated as "the default",
+ * because a caller that wants the default omits the field.
+ * @param value - the field as the body carried it.
+ * @returns the user agent, undefined for an absent field, or the refusal.
+ */
+function userAgentOf(value: unknown): UserAgentResolution {
+  if (value === undefined) return { ok: true, userAgent: undefined }
+  if (typeof value !== 'string') return { ok: false, status: 400, message: 'userAgent must be a string' }
+  if (value === '') return { ok: false, status: 400, message: 'userAgent must be a non-empty string; omit it to render under the default' }
+  if (value.length > MAX_USER_AGENT_CHARS) {
+    return { ok: false, status: 400, message: `userAgent may be at most ${String(MAX_USER_AGENT_CHARS)} characters` }
+  }
+  if (!HEADER_VALUE.test(value)) {
+    return { ok: false, status: 400, message: 'userAgent carries a character a header value may not carry' }
+  }
+  return { ok: true, userAgent: value }
 }
 
 /**
@@ -1347,13 +1530,15 @@ function resolveRequest(raw: unknown, limits: RenderLimits): Resolution {
   const blockHosts = blockHostPatterns(body.blockHosts, body.url)
   if (!blockHosts.ok) return blockHosts
   const budget: ExtraBudget = { fields: 0, bytes: 0 }
-  const headers = extraFields(body.headers, 'headers', HEADER_VALUE, limits, budget)
+  const headers = extraFields(body.headers, limits, budget)
   if (!headers.ok) return headers
-  const cookies = extraFields(body.cookies, 'cookies', COOKIE_VALUE, limits, budget)
+  const cookies = cookieList(body.cookies, limits, budget)
   if (!cookies.ok) return cookies
-  if ((headers.map !== undefined || cookies.map !== undefined) && !SESSION_SCHEMES.has(scheme)) {
+  if ((headers.map !== undefined || cookies.cookies !== undefined) && !SESSION_SCHEMES.has(scheme)) {
     return { ok: false, status: 422, message: `headers and cookies apply to an http or https request; ${scheme} carries neither` }
   }
+  const userAgent = userAgentOf(body.userAgent)
+  if (!userAgent.ok) return userAgent
   return {
     ok: true,
     request: {
@@ -1366,7 +1551,8 @@ function resolveRequest(raw: unknown, limits: RenderLimits): Resolution {
       onTimeout,
       ...blockHosts.patterns === undefined ? {} : { blockHosts: blockHosts.patterns },
       ...headers.map === undefined ? {} : { headers: headers.map },
-      ...cookies.map === undefined ? {} : { cookies: cookies.map },
+      ...cookies.cookies === undefined ? {} : { cookies: cookies.cookies },
+      ...userAgent.userAgent === undefined ? {} : { userAgent: userAgent.userAgent },
     },
   }
 }

@@ -24,6 +24,12 @@ const VALID = { url: 'https://example.test/page', width: 800, height: 600 }
 /** The two fields `resolveRequest` fills in for a request that names neither, on the shell's own limits. */
 const RESOLVED = { timeoutMs: RENDER_LIMITS.timeoutMs, onTimeout: 'fail' as const }
 
+/** A cookie every member of which is valid, used wherever one member is what is under test. */
+const COOKIE = { name: 'session', value: 'abc', domain: 'example.test' }
+
+/** What {@link COOKIE} becomes once the service settles the attributes it names none of. */
+const SETTLED_COOKIE = { ...COOKIE, path: '/', secure: false, httpOnly: false }
+
 /**
  * The report one answer carries.
  * @param response - the answer to read.
@@ -292,18 +298,42 @@ describe('request validation', () => {
     expect(seen).toEqual([])
   })
 
-  it('refuses a headers or cookies field that is not a map of strings', async () => {
+  it('refuses a headers field that is not a map of strings', async () => {
     const { renderer, seen } = recordingRenderer()
     const handle = await start(renderer)
     const cases: [unknown, string][] = [
       [{ ...VALID, headers: 'authorization: Bearer x' }, 'headers must be a JSON object of string values'],
       [{ ...VALID, headers: ['a'] }, 'headers must be a JSON object of string values'],
-      [{ ...VALID, cookies: 42 }, 'cookies must be a JSON object of string values'],
       [{ ...VALID, headers: { 'x-count': 7 } }, 'headers.x-count must be a string'],
-      [{ ...VALID, cookies: { session: null } }, 'cookies.session must be a string'],
       [{ ...VALID, headers: { 'x bad': 'v' } }, 'headers name "x bad" is not a valid token'],
-      [{ ...VALID, cookies: { 'bad;name': 'v' } }, 'cookies name "bad;name" is not a valid token'],
       [{ ...VALID, headers: { '': 'v' } }, 'headers name "" is not a valid token'],
+    ]
+    for (const [body, expected] of cases) {
+      const response = await post(handle, body)
+      expect(response.status).toBe(400)
+      expect(await response.text()).toContain(expected)
+    }
+    expect(seen).toEqual([])
+  })
+
+  it('refuses a cookie list that is not one, and every member that breaks its own grammar', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const cases: [unknown, string][] = [
+      [{ ...VALID, cookies: 42 }, 'cookies must be an array of cookie objects'],
+      [{ ...VALID, cookies: { session: 'abc' } }, 'cookies must be an array of cookie objects'],
+      [{ ...VALID, cookies: ['session=abc'] }, 'cookies[0] must be a JSON object with name, value, and domain'],
+      [{ ...VALID, cookies: [{ ...COOKIE, name: 'bad;name' }] }, 'cookies[0].name must be a token, not "bad;name"'],
+      [{ ...VALID, cookies: [{ ...COOKIE, name: 7 }] }, 'cookies[0].name must be a token, not 7'],
+      [{ ...VALID, cookies: [{ ...COOKIE, value: null }] }, 'cookies[0].value must be a string'],
+      [{ ...VALID, cookies: [COOKIE, { ...COOKIE, domain: 'not a host' }] }, 'cookies[1].domain must be a host, optionally with a leading dot, not "not a host"'],
+      [{ ...VALID, cookies: [{ name: 'session', value: 'abc' }] }, 'cookies[0].domain must be a host'],
+      [{ ...VALID, cookies: [{ ...COOKIE, path: 'app' }] }, 'cookies[0].path must be an absolute path starting with /, not "app"'],
+      [{ ...VALID, cookies: [{ ...COOKIE, secure: 'yes' }] }, 'cookies[0].secure must be a boolean'],
+      [{ ...VALID, cookies: [{ ...COOKIE, httpOnly: 1 }] }, 'cookies[0].httpOnly must be a boolean'],
+      [{ ...VALID, cookies: [{ ...COOKIE, expirationDate: 'tomorrow' }] }, 'cookies[0].expirationDate must be seconds since the epoch, not "tomorrow"'],
+      [{ ...VALID, cookies: [{ ...COOKIE, expirationDate: 0 }] }, 'cookies[0].expirationDate must be seconds since the epoch, not 0'],
+      [{ ...VALID, cookies: Array.from({ length: 33 }, () => COOKIE) }, 'cookies may carry at most 32 cookies'],
     ]
     for (const [body, expected] of cases) {
       const response = await post(handle, body)
@@ -316,21 +346,45 @@ describe('request validation', () => {
   it('refuses a value carrying a character that would mean something else on the wire', async () => {
     const { renderer, seen } = recordingRenderer()
     const handle = await start(renderer)
-    const cases: unknown[] = [
+    const cases: [unknown, string][] = [
       // A newline would append a header nobody sent: loadURL takes them as one
       // newline-separated string.
-      { ...VALID, headers: { 'x-note': 'one\ntwo: three' } },
-      { ...VALID, headers: { 'x-note': 'tab\rreturn' } },
-      // A semicolon ends a cookie and starts its attributes, which is what
-      // keeps `Path` and `Domain` out of a caller's reach: the window half
-      // decides both.
-      { ...VALID, cookies: { session: 'abc; Path=/' } },
-      { ...VALID, cookies: { session: 'a,b' } },
+      [{ ...VALID, headers: { 'x-note': 'one\ntwo: three' } }, 'headers.x-note carries a character its grammar does not allow'],
+      [{ ...VALID, headers: { 'x-note': 'tab\rreturn' } }, 'headers.x-note carries a character its grammar does not allow'],
+      // A semicolon ends a cookie and starts its attributes, so a value
+      // carrying one would set attributes the caller never named.
+      [{ ...VALID, cookies: [{ ...COOKIE, value: 'abc; Path=/' }] }, 'cookies[0].value carries a character a cookie may not carry'],
+      [{ ...VALID, cookies: [{ ...COOKIE, value: 'a,b' }] }, 'cookies[0].value carries a character a cookie may not carry'],
+      [{ ...VALID, cookies: [{ ...COOKIE, path: '/app;x' }] }, 'cookies[0].path must be an absolute path'],
     ]
-    for (const body of cases) {
+    for (const [body, expected] of cases) {
       const response = await post(handle, body)
       expect(response.status).toBe(400)
-      expect(await response.text()).toContain('carries a character its grammar does not allow')
+      expect(await response.text()).toContain(expected)
+    }
+    expect(seen).toEqual([])
+  })
+
+  it('never quotes a cookie value back into the refusal it caused', async () => {
+    const handle = await start(recordingRenderer().renderer)
+    const response = await post(handle, { ...VALID, cookies: [{ ...COOKIE, value: 'super;secret' }] })
+    expect(response.status).toBe(400)
+    expect(await response.text()).not.toContain('secret')
+  })
+
+  it('refuses a user agent that is not a header value', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const cases: [unknown, string][] = [
+      [{ ...VALID, userAgent: 7 }, 'userAgent must be a string'],
+      [{ ...VALID, userAgent: '' }, 'userAgent must be a non-empty string; omit it to render under the default'],
+      [{ ...VALID, userAgent: 'x'.repeat(513) }, 'userAgent may be at most 512 characters'],
+      [{ ...VALID, userAgent: 'Mozilla/5.0\nx-injected: 1' }, 'userAgent carries a character a header value may not carry'],
+    ]
+    for (const [body, expected] of cases) {
+      const response = await post(handle, body)
+      expect(response.status).toBe(400)
+      expect(await response.text()).toContain(expected)
     }
     expect(seen).toEqual([])
   })
@@ -342,15 +396,15 @@ describe('request validation', () => {
     expect(await response.text()).toContain('send cookies in the cookies field')
   })
 
-  it('bounds how many extra fields one request may carry, counting both maps together', async () => {
+  it('bounds how many extra fields one request may carry, counting headers and cookies together', async () => {
     const { renderer, seen } = recordingRenderer()
     const handle = await start(renderer, { maxExtraFields: 3 })
-    const three = { ...VALID, headers: { a: '1', b: '2' }, cookies: { c: '3' } }
+    const three = { ...VALID, headers: { a: '1', b: '2' }, cookies: [COOKIE] }
     const accepted = await post(handle, three)
     expect(accepted.status).toBe(200)
     await accepted.arrayBuffer()
 
-    const response = await post(handle, { ...three, cookies: { c: '3', d: '4' } })
+    const response = await post(handle, { ...three, cookies: [COOKIE, { ...COOKIE, name: 'other' }] })
     expect(response.status).toBe(400)
     expect(await response.text()).toContain('at most 3 headers and cookies together')
     expect(seen).toHaveLength(1)
@@ -358,7 +412,7 @@ describe('request validation', () => {
 
   it('bounds how large those names and values may come to', async () => {
     const handle = await start(recordingRenderer().renderer, { maxExtraBytes: 64 })
-    const response = await post(handle, { ...VALID, cookies: { session: 'x'.repeat(64) } })
+    const response = await post(handle, { ...VALID, cookies: [{ ...COOKIE, value: 'x'.repeat(64) }] })
     expect(response.status).toBe(400)
     expect(await response.text()).toContain('at most 64 bytes together')
   })
@@ -366,7 +420,7 @@ describe('request validation', () => {
   it('refuses a session on a scheme that carries none', async () => {
     const { renderer, seen } = recordingRenderer()
     const handle = await start(renderer)
-    const response = await post(handle, { ...VALID, url: 'file:///tmp/page.html', cookies: { session: 'abc' } })
+    const response = await post(handle, { ...VALID, url: 'file:///tmp/page.html', cookies: [COOKIE] })
     expect(response.status).toBe(422)
     expect(await response.text()).toContain('headers and cookies apply to an http or https request; file: carries neither')
     expect(seen).toEqual([])
@@ -436,11 +490,11 @@ describe('a rendered request', () => {
     ])
   })
 
-  it('hands the renderer the headers and cookies it was sent, and no empty maps', async () => {
+  it('hands the renderer the headers and cookies it was sent, and no empty ones', async () => {
     const { renderer, seen } = recordingRenderer()
     const handle = await start(renderer)
-    await (await post(handle, { ...VALID, headers: { 'X-Api-Key': 'k' }, cookies: { _redmine_session: 'abc' } })).arrayBuffer()
-    await (await post(handle, { ...VALID, headers: {}, cookies: {} })).arrayBuffer()
+    await (await post(handle, { ...VALID, headers: { 'X-Api-Key': 'k' }, cookies: [{ ...COOKIE, name: '_redmine_session' }] })).arrayBuffer()
+    await (await post(handle, { ...VALID, headers: {}, cookies: [] })).arrayBuffer()
     expect(seen).toEqual([
       {
         url: VALID.url,
@@ -450,10 +504,27 @@ describe('a rendered request', () => {
         delayMs: 0,
         ...RESOLVED,
         headers: { 'X-Api-Key': 'k' },
-        cookies: { _redmine_session: 'abc' },
+        cookies: [{ ...SETTLED_COOKIE, name: '_redmine_session' }],
       },
       { url: VALID.url, width: 800, height: 600, fullPage: false, delayMs: 0, ...RESOLVED },
     ])
+  })
+
+  it('settles the attributes a cookie names none of, and keeps the ones it does', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const named = { name: 'sid', value: 'xyz', domain: '.Example.test', path: '/app', secure: true, httpOnly: true, expirationDate: 1_800_000_000 }
+    await (await post(handle, { ...VALID, cookies: [COOKIE, named] })).arrayBuffer()
+    expect(seen[0]?.cookies).toEqual([SETTLED_COOKIE, { ...named, domain: '.example.test' }])
+  })
+
+  it('hands the renderer the user agent it was sent, and nothing when it was sent none', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const userAgent = 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/150.0.0.0 Safari/537.36'
+    await (await post(handle, { ...VALID, userAgent })).arrayBuffer()
+    await (await post(handle, VALID)).arrayBuffer()
+    expect(seen.map(request => request.userAgent)).toEqual([userAgent, undefined])
   })
 })
 

@@ -167,12 +167,12 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **壳把自己的 Chromium 借给服务端**,所以截图不取决于这台机器上装没装 Chrome 或 Edge。在启动服务端之前,主进程在 `127.0.0.1` 与一个临时端口上打开一个 HTTP 监听、生成一个 32 字节的 token,并把两者放进那一个子进程的环境——`DSH_DESKTOP_RENDER_ENDPOINT` 与 `DSH_DESKTOP_RENDER_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程都继承不到。`@haoran/dsh-screenshot` 每次调用都去读它们。两个都读不到的 harness 改用系统上的无头浏览器渲染,这也正是所有非桌面安装的做法;监听没能打开的那次启动会记一行日志并照常继续,它的截图走的是同一条退路。
 
-请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs?, timeoutMs?, onTimeout?, blockHosts?, headers?, cookies? }`。它可能得到的全部回答:
+请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs?, timeoutMs?, onTimeout?, blockHosts?, headers?, cookies?, userAgent? }`。它可能得到的全部回答:
 
 | 回答 | 何时 |
 |---|---|
 | `200 image/png` | 截图本身,PNG 字节,尺寸正好是请求的视口——或者,对一个发了 `onTimeout: "capture"` 的请求,是期限越过时页面已经画出来的那一帧 |
-| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内、`timeoutMs` 不在 1000–120000 内、`onTimeout` 不是 `fail` 或 `capture`、某个 `blockHosts` 条目不是主机模式或命中了页面自己的主机、`url` 不是绝对 URL,或某个 `headers`/`cookies` 条目越界或不合它的文法 |
+| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内、`timeoutMs` 不在 1000–120000 内、`onTimeout` 不是 `fail` 或 `capture`、某个 `blockHosts` 条目不是主机模式或命中了页面自己的主机、`url` 不是绝对 URL、某个 `headers` 或 `cookies` 条目越界或不合它的文法,或 `userAgent` 为空、超过 512 个字符、不是一个头部值 |
 | `401` | 缺少或写错 bearer token |
 | `404` | 其他任何路径或方法 |
 | `422` | 格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL,或在 `file:` URL 上带了 `headers`/`cookies` |
@@ -209,7 +209,11 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **`blockHosts` 就是报告点名的那个补救办法。**它是至多 32 条主机模式的列表——精确主机,或匹配该后缀的子域(不含后缀本身)的 `*.suffix`,每条至多 253 个字符,匹配时不分大小写——命中的请求在 `onBeforeRequest` 里于发出之前被取消,并计入 `requests.blocked`。命中当前被渲染页面自己主机的模式会被一个点名它的 400 拒绝,因为一次把自己文档取消掉的渲染只会失败,且说不出任何理由。这是壳唯一注册的阻塞式 `webRequest` 钩子,而且只对真的带了这个字段的请求注册:没写 `blockHosts` 的渲染,时序与没有这个特性时完全一致。
 
-**一个请求可以带上页面所需的会话。**`cookies` 是 name→value 的映射,在加载之前设到这次渲染自己的 session 上,作用域是路径 `/` 与页面所在的主机,因此它不只覆盖文档,也覆盖页面的子资源——一个图片全部 401 的已登录页面,不是任何人想看的那个页面。路径之所以显式给出,是因为不给的话 Chromium 会套用 RFC 6265 的默认路径——那是页面被送出来的那个目录,而不是整个站点:为 `/app/issues/list` 设的 cookie 只覆盖 `/app/issues/`,页面发往 `/api/…` 的请求一个也碰不到。`headers` 是 name→value 的映射,只挂在主框架那一次导航上,这正是 bearer token 或 Host 覆写需要的位置;`cookie` 头会被指名拒绝并指向 `cookies`,因为那样送进去的 cookie 只覆盖文档、覆盖不到文档里的任何东西。两者合起来受同一组边界约束:最多 24 个条目、共 8 KB,名字必须是 HTTP token,头部值限于可见 ASCII 加空格与制表符(换行会凭空追加一个谁也没发过的头,因为 `loadURL` 把它们当作一整个以换行分隔的字符串),cookie 值限于 RFC 6265 的 cookie-octet。凭据由调用方提供,壳自己一个也不留:它们活在随窗口一起消亡的 session 上。
+**一个请求可以带上页面所需的会话。**`cookies` 是至多 32 条 `{ name, value, domain, path?, secure?, httpOnly?, expirationDate? }` 的数组——成员就是 Chromium 自己的那一套,所以调用方从浏览器里导出什么就发什么——在加载之前设到这次渲染自己的 session 上。它们不只覆盖文档,也覆盖页面的子资源,这正是要害:一个图片全部 401 的已登录页面,不是任何人想看的那个页面。`domain` 是必填的,每条 cookie 的作用域由它决定,所以一个请求可以带上页面要访问的每一台主机的 cookie;`path` 默认是 `/`,而不是 RFC 6265 的默认路径——那是 cookie 被存进来的那个目录,而不是整个站点:停在 `/app/issues/` 的 cookie,页面发往 `/api/…` 的请求一个也碰不到。`headers` 是 name→value 的映射,只挂在主框架那一次导航上,这正是 bearer token 或 Host 覆写需要的位置;`cookie` 头会被指名拒绝并指向 `cookies`,因为那样送进去的 cookie 只覆盖文档、覆盖不到文档里的任何东西。cookie 与头部合起来受同一组边界约束:最多 24 个条目、共 8 KB,名字必须是 HTTP token,头部值限于可见 ASCII 加空格与制表符(换行会凭空追加一个谁也没发过的头,因为 `loadURL` 把它们当作一整个以换行分隔的字符串),cookie 值限于 RFC 6265 的 cookie-octet。拒绝信息从不把 cookie 的值回引出来,因为那个值正是这个字段要携带的凭据。
+
+**每次渲染各自持有一份 cookie 存储。**窗口的 partition 名字带一个新的 UUID,且没有 `persist:` 前缀,所以这个 session 随窗口创建、只活在内存里、随窗口销毁:凭据由调用方提供,壳自己一个也不留,上一次渲染的 cookie 下一次读不到,也没有任何东西落到磁盘上。后半句由 smoke 证明而不是假设——先带着会话 cookie 渲染一次,再对同一个 URL 不带 cookie 渲染一次,站点照旧用它的登录跳转来回答。
+
+**`userAgent` 决定这次渲染自称是谁。**Electron 自己的默认值是 `…Chrome/150.0.7871.224 Electron/43.4.0 Safari/537.36`,它等于告诉 agent 看的每一个页面:看你的是这个壳——有些站点还会因此回一个不一样的页面。写了这个字段的请求会在加载之前把它同时设到 session 与 web contents 上,于是文档、它的子资源以及 `navigator.userAgent` 报的都是它;没写的请求保持默认值。它必须是一个非空、至多 512 个字符的头部值。
 
 **当主框架最终落在请求所指之外时,`200` 会说出它落在哪里**,放在 `x-dsh-render-landed-url` 上,与报告用同一套百分号编码,并截到 96 个字符。一张登录页的截图是「正确地渲染了错误的页面」,而像素本身说不出它是哪一种;插件把这个响应头变成工具结果里的一句话,点名 `cookies` 与 `headers`。主框架停在原地时不发这个头,比较的是归一化之后的 URL,所以 Chromium 给源地址补上的那个斜杠不算重定向。
 
