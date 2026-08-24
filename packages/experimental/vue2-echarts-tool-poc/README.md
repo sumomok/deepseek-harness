@@ -58,6 +58,8 @@ Clicking the compact card does not select that chart in the column: nothing carr
 
 A call may name a stable chart `id` (trimmed, non-empty, at most 64 characters). Reusing an earlier chart's id means *this call replaces that chart*: both calls stay in the transcript, because the log is what happened, but the older row collapses to a one-line notice with no canvas, no engine, and no verdict behind it. A call naming no id is its own chart and can supersede nothing.
 
+The `id` description also says when reuse is the required answer rather than an available one: a user asking to change, extend, or fix a chart already drawn — quoting it, naming its title, or otherwise pointing at it — is asking for that chart's id, because a new id draws a second chart beside the old one instead of updating it.
+
 Which row is current is not something a row can see — it would have to read the calls after itself. The node half projects it instead, under the `showCharts` key: a pure fold of the session log into every recorded chart call (`chartId`, `callId`, `title`, `seq`) plus the call currently owning each chart id. The browser row reads it through the framework's `useProjection` seat and resolves nothing of its own.
 
 The fold recognizes both shapes a chart call takes in the log: a top-level `tool/call`, whose `arguments` is raw JSON, and a Code Mode `tool/code-dispatch-start`, whose `arguments` is already decoded and whose call id is the `subCallId`. A model reaching the tool through `run_code` logs only the second.

@@ -125,8 +125,10 @@ export function showChartTool(ctx: Context, policy: ShowChartPolicy, pending: Pe
         type: 'string',
         description: 'Stable id of the chart, at most '
           + `${MAX_CHART_ID_LENGTH} characters. Reuse an earlier chart's id when correcting or `
-          + 'updating it: the newer call replaces the older one where the user is reading. Omit it '
-          + 'for a chart that stands on its own.',
+          + 'updating it: the newer call replaces the older one where the user is reading. When the '
+          + 'user asks to change, extend, or fix a chart already drawn — quoting it, naming its '
+          + 'title, or otherwise pointing at it — send that chart\'s own id; a new id draws a second '
+          + 'chart beside the old one instead. Omit it for a chart that stands on its own.',
       },
       title: {
         type: 'string',

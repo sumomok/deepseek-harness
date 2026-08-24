@@ -58,6 +58,8 @@ pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-ch
 
 一次调用可以声明一个稳定的图表 `id`（去掉首尾空白后非空，至多 64 个字符）。复用先前那张图的 id 意味着**这次调用取代那张图**：两次调用都留在会话记录里，因为日志就是发生过的事；但较早那一行会收缩成一行提示，背后没有 canvas、没有引擎、也没有判定。没有声明 id 的调用是它自己那张图，取代不了任何东西。
 
+`id` 的描述里还写明了什么时候复用不是一个可选项而是唯一正确的答案：用户要求改动、扩充或修正一张已经画出来的图——引用它、说出它的标题、或者以别的方式指着它——要的就是那张图的 id；换一个新 id 只会在旧图旁边再画一张，而不是把它更新掉。
+
 哪一行是当前那张，不是一行自己能看见的——它得读到自己之后的调用。改由宿主半边投影出来，键名 `showCharts`：把 session log 纯函数式地折成每一次记录在案的图表调用（`chartId`、`callId`、`title`、`seq`），外加每个图表 id 当前归属的那次调用。浏览器那一行经框架的 `useProjection` 座位读它，自己不解析任何东西。
 
 这个折叠认得图表调用在日志里的两种形态：顶层 `tool/call`，其 `arguments` 是原始 JSON；以及 Code Mode 的 `tool/code-dispatch-start`，其 `arguments` 已经解码、call id 是 `subCallId`。模型经 `run_code` 调到这个工具时，日志里只有后一种。

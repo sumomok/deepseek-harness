@@ -123,7 +123,10 @@ describe('show_chart model-visible surface', () => {
           type: 'string',
           description: 'Stable id of the chart, at most 64 characters. Reuse an earlier chart\'s id '
             + 'when correcting or updating it: the newer call replaces the older one where the user '
-            + 'is reading. Omit it for a chart that stands on its own.',
+            + 'is reading. When the user asks to change, extend, or fix a chart already drawn — '
+            + 'quoting it, naming its title, or otherwise pointing at it — send that chart\'s own '
+            + 'id; a new id draws a second chart beside the old one instead. Omit it for a chart '
+            + 'that stands on its own.',
         },
         title: { type: 'string', description: 'Short caption shown with the chart. Omit for none.' },
         option: {
