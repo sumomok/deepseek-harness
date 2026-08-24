@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-content-column",
   "description": "Browser half of the content surface: claims the service-line shell's content column, lists the session's entries in a switcher strip, and dispatches the selected one to a keyed per-kind slot",
-  "version": "0.1.1-rc.1",
+  "version": "0.1.1-rc.2",
   "private": true,
   "repository": {
     "type": "git",

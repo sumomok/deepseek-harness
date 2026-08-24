@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-content-surface",
   "description": "Host half of the content surface: extractors turn logged session events into one per-session stream of typed content entries, published as the contentSurface projection",
-  "version": "0.1.1-rc.1",
+  "version": "0.1.1-rc.2",
   "private": true,
   "repository": {
     "type": "git",

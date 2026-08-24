@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc",
   "description": "The show_chart tool: the agent hands over an ECharts option, the conversation transcript paints it as a Vue 2.7 chart, and the browser's render verdict comes back into the tool result",
-  "version": "0.1.1-rc.1",
+  "version": "0.1.1-rc.2",
   "private": true,
   "repository": {
     "type": "git",
