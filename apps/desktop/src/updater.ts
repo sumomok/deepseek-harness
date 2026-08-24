@@ -87,6 +87,9 @@ const FEED_WIN = `${FEED_BASE}/win`
 /** macOS feed: `latest-mac.yml` plus the zipped app. */
 const FEED_MAC = `${FEED_BASE}/mac`
 
+/** Where the Help menu's "Report an Issue" lands: a prefilled new-issue page. */
+const ISSUE_NEW_URL = 'https://github.com/sumomok/deepseek-harness/issues/new'
+
 /**
  * The one channel this product publishes, set explicitly on both ends: the
  * default derives it from the running version's prerelease tag, which would
@@ -1058,6 +1061,7 @@ function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
       submenu: [
         { label: text.checkUpdate, click: onCheck },
         { label: text.openLog, click: onOpenLog },
+        { label: text.reportIssue, click: () => { void shell.openExternal(ISSUE_NEW_URL) } },
         { type: 'separator' },
         { label: text.about, click: onAbout },
       ],
