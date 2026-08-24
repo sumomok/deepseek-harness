@@ -13,7 +13,9 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ContentSurfaceView } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { ShowChartRow, type ShowChartRowProps } from '../src/client/ShowChartRow.tsx'
+import css from '../src/client/show-chart.module.css'
 import { SHOW_CHART_REPORT_ROUTE } from '../src/route.ts'
 import type { ShowChartsView } from '../src/types.ts'
 import { en } from '../src/client/locales.ts'
@@ -91,24 +93,35 @@ function settled(args: unknown, callId = CALL_ID): ToolCallBlock {
   }
 }
 
+/** The two projection values a row reads, as one composition publishes them. */
+interface Published {
+  /** The `showCharts` value the host published, if any. */
+  charts?: ShowChartsView
+  /** The `contentSurface` value, published exactly where a content column is composed. */
+  surface?: ContentSurfaceView
+}
+
 /**
- * The framework's projection seat, stubbed with one session's value.
- * @param charts - the `showCharts` value the host published, if any.
- * @returns the hook the runtime share carries.
+ * The framework's projection seat, stubbed with one session's values.
+ * @param published - what the host published for this session.
+ * @returns the hook the runtime share carries, selector overload included.
  */
-function projections(charts: ShowChartsView | undefined): ShowChartRowProps['useProjection'] {
-  return (key: string) => (key === 'showCharts' ? charts : undefined)
+function projections(published: Published): ShowChartRowProps['useProjection'] {
+  return (key: string, selector?: (value: unknown) => unknown) => {
+    const value = key === 'showCharts' ? published.charts : key === 'contentSurface' ? published.surface : undefined
+    return selector === undefined ? value : selector(value)
+  }
 }
 
 /** Mount one row over the owner share the transcript supplies. */
-function mount(block: ToolCallBlock, screenshot = false, charts?: ShowChartsView): void {
+function mount(block: ToolCallBlock, screenshot = false, published: Published = {}): void {
   const props = {
     callId: block.callId,
     toolName: 'show_chart',
     block,
     openFile: () => {},
     screenshot,
-    useProjection: projections(charts),
+    useProjection: projections(published),
     t,
   } as unknown as ShowChartRowProps
   render(<ShowChartRow {...props} />)
@@ -119,6 +132,16 @@ const chart = (): ChartProps => bridge.renders[bridge.renders.length - 1] as Cha
 
 /** The row's chart stage, as the CSS reveals or hides it. */
 const stage = (): HTMLElement | null => document.querySelector('[data-show-chart-stage]')
+
+/** The compact card a row shows once a content column has the picture. */
+const delegatedCard = (): HTMLElement | null => document.querySelector('[data-show-chart-delegated]')
+
+/** A `contentSurface` value, which is published exactly where a content column is composed. */
+const COLUMN: ContentSurfaceView = { entries: [] }
+
+/** The class that takes the stage out of the conversation's layout flow. */
+const OFFSTAGE = css.offstage
+if (OFFSTAGE === undefined) throw new Error('offstage class missing from show-chart.module.css')
 
 /** Answer the chart's paint the way the component row does: capture, then verdict. */
 async function paint(dataUrl?: string): Promise<void> {
@@ -243,8 +266,7 @@ describe('ShowChartRow', () => {
 
   it('collapses to a notice when a later call redrew this chart', () => {
     mount(running({ id: 'revenue', title: 'Weekly revenue', option: OPTION }), false, {
-      entries: [],
-      latest: { revenue: 'call_01_chart' },
+      charts: { entries: [], latest: { revenue: 'call_01_chart' } },
     })
     expect(screen.getByText('Weekly revenue: updated by a later call.')).toBeDefined()
     // No stage, no engine, and therefore no verdict to report: the call this
@@ -256,29 +278,27 @@ describe('ShowChartRow', () => {
 
   it('draws the call that currently owns the chart id', () => {
     mount(running({ id: 'revenue', option: OPTION }), false, {
-      entries: [],
-      latest: { revenue: CALL_ID },
+      charts: { entries: [], latest: { revenue: CALL_ID } },
     })
     expect(bridge.renders).not.toHaveLength(0)
     expect(stage()).not.toBeNull()
   })
 
   it('draws a call whose own id is the chart, when the projection lists it', () => {
-    mount(running({ option: OPTION }), false, { entries: [], latest: { [CALL_ID]: CALL_ID } })
+    mount(running({ option: OPTION }), false, { charts: { entries: [], latest: { [CALL_ID]: CALL_ID } } })
     expect(bridge.renders).not.toHaveLength(0)
   })
 
   it('draws the chart while the projection has not carried this session yet', () => {
     // A composition without a projection registry publishes no value at all,
     // and a live one lags its log by a frame; neither is a superseded row.
-    mount(running({ id: 'revenue', option: OPTION }), false, undefined)
+    mount(running({ id: 'revenue', option: OPTION }), false, {})
     expect(bridge.renders).not.toHaveLength(0)
   })
 
   it('draws the chart while the projection lists other charts only', () => {
     mount(running({ id: 'revenue', option: OPTION }), false, {
-      entries: [],
-      latest: { traffic: 'call_02_chart' },
+      charts: { entries: [], latest: { traffic: 'call_02_chart' } },
     })
     expect(bridge.renders).not.toHaveLength(0)
   })
@@ -289,5 +309,75 @@ describe('ShowChartRow', () => {
     await expect(paint()).resolves.toBeUndefined()
     // The waiting call's own deadline answers it instead.
     expect(stage()?.dataset.verified).toBe('yes')
+  })
+
+  it('keeps the whole chart in the conversation where no content column is composed', async () => {
+    mount(running({ title: 'Weekly revenue', option: OPTION }))
+    await paint()
+    expect(delegatedCard()).toBeNull()
+    expect(stage()?.dataset.verified).toBe('yes')
+  })
+})
+
+describe('ShowChartRow beside a content column', () => {
+  it('paints off the flow while the call waits, and says so in one line', () => {
+    mount(running({ title: 'Weekly revenue', option: OPTION }), false, { surface: COLUMN })
+    expect(delegatedCard()?.dataset.showChartDelegated).toBe('pending')
+    expect(delegatedCard()?.textContent).toBe('Weekly revenue: drawing…')
+    // The engine still mounts — no other placement answers this call — but its
+    // stage is out of the conversation's layout flow.
+    expect(bridge.renders).not.toHaveLength(0)
+    expect(stage()?.dataset.verified).toBe('no')
+    expect(stage()?.className.split(' ')).toContain(OFFSTAGE)
+    // The full-height caption line the shipped layout draws is not there.
+    expect(screen.queryByText(en['row.rendering'])).toBeNull()
+  })
+
+  it('drops the engine once the verdict is in, and reports it exactly once', async () => {
+    mount(running({ title: 'Weekly revenue', option: OPTION }), true, { surface: COLUMN })
+    await paint('data:image/png;base64,FAKE')
+    expect(delegatedCard()?.dataset.showChartDelegated).toBe('shown')
+    expect(delegatedCard()?.textContent).toBe('Weekly revenue: shown in the content panel.')
+    // Nothing left to paint in the conversation: the column has the picture.
+    expect(stage()).toBeNull()
+    expect(posted).toEqual([{
+      callId: CALL_ID,
+      verdict: PAINTED,
+      dataUrl: 'data:image/png;base64,FAKE',
+    }])
+  })
+
+  it('names the chart from its own copy when the call gave no title', async () => {
+    mount(running({ option: OPTION }), false, { surface: COLUMN })
+    await paint()
+    expect(delegatedCard()?.textContent).toBe('Chart: shown in the content panel.')
+  })
+
+  it('keeps a failed chart in the conversation — the column cannot show what did not paint', async () => {
+    mount(running({ title: 'Weekly revenue', option: OPTION }), false, { surface: COLUMN })
+    const props = chart()
+    await act(async () => { props.onVerdict({ ok: false, error: 'Series data is not an array' }) })
+    expect(delegatedCard()).toBeNull()
+    expect(screen.getByText('Weekly revenue')).toBeDefined()
+    expect(screen.getByText('The chart did not render: Series data is not an array')).toBeDefined()
+    expect(posted).toEqual([{ callId: CALL_ID, verdict: { ok: false, error: 'Series data is not an array' } }])
+  })
+
+  it('collapses a superseded row to its own notice rather than to the compact card', () => {
+    mount(running({ id: 'revenue', title: 'Weekly revenue', option: OPTION }), false, {
+      charts: { entries: [], latest: { revenue: 'call_01_chart' } },
+      surface: COLUMN,
+    })
+    expect(screen.getByText('Weekly revenue: updated by a later call.')).toBeDefined()
+    expect(delegatedCard()).toBeNull()
+    expect(bridge.renders).toHaveLength(0)
+  })
+
+  it('shows the unreadable row for arguments no column could route either', () => {
+    mount({ ...(running('x') as Extract<ToolCallBlock, { name: string }>), argsRaw: 'not json' }, false, {
+      surface: COLUMN,
+    })
+    expect(screen.getByText(en['row.unreadable'])).toBeDefined()
+    expect(delegatedCard()).toBeNull()
   })
 })

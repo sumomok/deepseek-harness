@@ -10,6 +10,8 @@ export const zh = {
   'row.failed': '图表未能绘制：{error}',
   'row.unreadable': '这次调用的参数读不出图表。',
   'row.superseded': '{title}：已由后面一次调用重新绘制。',
+  'row.delegating': '{title}：正在绘制…',
+  'row.delegated': '{title}：已在内容区展示。',
 } satisfies Record<string, string>
 
 /** The showChart namespace key union. */
@@ -22,4 +24,6 @@ export const en = {
   'row.failed': 'The chart did not render: {error}',
   'row.unreadable': 'This call carries no readable chart arguments.',
   'row.superseded': '{title}: updated by a later call.',
+  'row.delegating': '{title}: drawing…',
+  'row.delegated': '{title}: shown in the content panel.',
 } satisfies Record<ShowChartKey, string>

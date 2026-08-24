@@ -10,6 +10,12 @@
  * (two calls, one id), and a second chart, so the switcher has to show three
  * entries rather than four.
  *
+ * With a column on display the conversation stops repeating it: each chart row
+ * collapses to one line, and the engine that still has to paint for the call's
+ * verdict does so off the layout flow and unmounts. Only a real browser can
+ * show that the round trip survives the collapse, so the spec watches the
+ * verdict route itself.
+ *
  * Then the one thing only a real browser can answer: whether the hosted
  * document survives being pushed aside. Selecting a chart hides the page seat
  * rather than unmounting it, and a second session mounts its own frame beside
@@ -25,7 +31,7 @@ import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Browser, ConsoleMessage, Locator, Page } from 'playwright'
+import type { Browser, ConsoleMessage, Locator, Page, Request } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
@@ -62,6 +68,9 @@ const COMPOSER_PLACEHOLDER = 'Message the agent'
 /** Attribute the spec stamps on a live iframe element. */
 const PROBE_ATTRIBUTE = 'data-dsh-probe'
 
+/** The route a transcript chart row posts its render verdict to. */
+const REPORT_ROUTE = '/show-chart/report'
+
 /** Switcher keys the column mints, as `<kind> <entryId>`. */
 const PAGE_ENTRY = 'page home'
 const REPORTS_ENTRY = 'page reports'
@@ -70,6 +79,13 @@ const COVERAGE_ENTRY = 'chart coverage'
 
 /** The line the transcript's superseded row shows, which the switcher must NOT list. */
 const DEMO_DRAFT_TITLE = 'Coverage, first draft'
+
+/** The seeded chart calls, by call id and the caption each one carries. */
+const DEMO_OLD_CALL = 'call_00_demo_old'
+const DEMO_NEW_CALL = 'call_00_demo_new'
+const COVERAGE_CALL = 'call_00_coverage'
+const DEMO_NEW_TITLE = 'Coverage'
+const COVERAGE_TITLE = 'Traffic sources'
 
 /** A bar option small enough to read and large enough to paint. */
 const OPTION = {
@@ -127,9 +143,17 @@ function shownPage(page: string): string {
 }
 
 const column = (page: Page, name: string): Locator => page.locator(`[data-shell-column="${name}"]`)
+const callRow = (page: Page, callId: string): Locator => page.locator(`[data-chat-call-id="${callId}"]`)
 const switcherEntry = (page: Page, key: string): Locator => page.locator(`[data-content-surface-entry="${key}"]`)
 const activeSeat = (page: Page): Locator => page.locator('[data-content-surface-seat][data-content-surface-active]')
 const activeFrame = (page: Page): Locator => page.locator('iframe[data-content-frame][data-content-active]')
+
+/** One element's rendered box. */
+async function box(locator: Locator): Promise<{ width: number; height: number }> {
+  const rect = await locator.boundingBox()
+  if (rect === null) throw new Error('element is not rendered')
+  return rect
+}
 
 /** Save one screenshot under the repository's artifact directory. */
 async function evidence(page: Page, name: string): Promise<void> {
@@ -207,6 +231,8 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
   let harnessHome: string
   let tripwire: ReturnType<typeof watchConsole>
   const consoleErrors: string[] = []
+  /** Every call id a transcript row reported a render verdict for. */
+  const reported = new Set<string>()
   const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
 
   beforeAll(async () => {
@@ -220,9 +246,9 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
     // call is superseded, and the newest entry a chart.
     await seedSession(scaffold, withEvents(fixture, [
       shownPage('home'),
-      ...chartCall('call_00_demo_old', 'demo', DEMO_DRAFT_TITLE),
-      ...chartCall('call_00_demo_new', 'demo', 'Coverage'),
-      ...chartCall('call_00_coverage', 'coverage', 'Traffic sources'),
+      ...chartCall(DEMO_OLD_CALL, 'demo', DEMO_DRAFT_TITLE),
+      ...chartCall(DEMO_NEW_CALL, 'demo', DEMO_NEW_TITLE),
+      ...chartCall(COVERAGE_CALL, 'coverage', COVERAGE_TITLE),
     ]), MIXED_SESSION)
     // A second session with a stream of its own, on the other configured page.
     await seedSession(scaffold, withEvents(fixture, [shownPage('reports')]), PAGE_SESSION)
@@ -232,6 +258,11 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
     tripwire = watchConsole(page)
     page.on('console', (message: ConsoleMessage) => {
       if (message.type() === 'error') consoleErrors.push(message.text())
+    })
+    page.on('request', (request: Request) => {
+      if (request.method() !== 'POST' || !request.url().endsWith(REPORT_ROUTE)) return
+      const posted = JSON.parse(request.postData() ?? '{}') as { callId?: string }
+      if (posted.callId !== undefined) reported.add(posted.callId)
     })
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
     await column(page, 'content').waitFor({ timeout: 30_000 })
@@ -263,6 +294,32 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
     const box = await canvas.boundingBox()
     expect({ wide: (box?.width ?? 0) > 0, tall: (box?.height ?? 0) > 0 }).toEqual({ wide: true, tall: true })
     await evidence(page, 'content-surface-newest-chart')
+  }, 120_000)
+
+  it('hands the picture to the column and leaves the conversation a compact card', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-content-surface-compact-chat'))
+
+    for (const [callId, title] of [[DEMO_NEW_CALL, DEMO_NEW_TITLE], [COVERAGE_CALL, COVERAGE_TITLE]] as const) {
+      const card = callRow(page, callId).locator('[data-show-chart-delegated="shown"]')
+      await card.waitFor({ timeout: 30_000 })
+      expect(await card.textContent()).toBe(`${title}: shown in the content panel.`)
+      // The row a chart would occupy is now one line of text: no canvas left
+      // behind, and none of the 340px the shipped layout gives a chart.
+      expect(await callRow(page, callId).locator('canvas').count()).toBe(0)
+      expect((await box(callRow(page, callId))).height).toBeLessThan(100)
+    }
+
+    // Not even the off-flow stage the engine painted on: it is unmounted the
+    // moment the call it belongs to has its verdict.
+    await expect.poll(async () => await column(page, 'chat').locator('[data-show-chart-stage]').count(), {
+      timeout: 15_000,
+    }).toBe(0)
+
+    // The verdict round trip still runs from here, because no other placement
+    // reports one: exactly the two current charts answered their own calls, and
+    // the superseded row answered nothing.
+    expect([...reported].sort()).toEqual([COVERAGE_CALL, DEMO_NEW_CALL].sort())
+    await evidence(page, 'content-surface-compact-chat')
   }, 120_000)
 
   it('keeps the hosted document alive while a chart holds the column', async () => {

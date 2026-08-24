@@ -20,6 +20,14 @@
  * laid-out element — a hidden-by-layout host would hand it a zero-sized one and
  * the verdict would never be about the chart the user ends up seeing.
  *
+ * Where a content column is composed, the same chart is already on display
+ * beside the conversation, so the row hands the picture over and keeps only a
+ * compact card. It still mounts the engine, because the verdict and the capture
+ * are the call's and no other placement reports them — off the layout flow at a
+ * fixed size, so a conversation full of charts costs no height, and unmounted
+ * the moment the verdict is in. A failed chart is the exception: the column
+ * cannot show what did not paint, so the error line stays in the conversation.
+ *
  * One report per call id, guarded here rather than at the host: a re-render, a
  * palette rebuild, and a second `finished` all reach the same guard, and the
  * host ignores whatever slips past it anyway.
@@ -29,6 +37,8 @@ import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import { EChartsOption, type ChartVerdict } from '@deepseek-ai/dsh-experimental-vue2-echarts-poc/client'
+// Type-only: pulls the content surface's `contentSurface` SessionProjectionMap merge.
+import type {} from '@deepseek-ai/dsh-experimental-content-surface/types'
 // Type-only: pulls this package's own `showCharts` SessionProjectionMap merge.
 import type {} from '../types.ts'
 import { parseChartCall } from '../chart-call.ts'
@@ -78,6 +88,10 @@ export function ShowChartRow({ callId, block, screenshot, useProjection, t }: Sh
     return parsed === undefined ? undefined : { ...parsed, option: sanitizeChartOption(parsed.option) }
   }, [argsRaw])
   const charts = useProjection('showCharts')
+  // The presence of the projection is the whole question, so the selector reads
+  // it as one boolean: every entry the column lists moves it, and the row has
+  // no business re-rendering for a page another package put there.
+  const delegated = useProjection('contentSurface', view => view !== undefined)
   const [verdict, setVerdict] = useState<ChartVerdict | undefined>(undefined)
   // Read once: the shell writes the marker before the client tree boots, and a
   // row that watched it would be subscribing to the document from a slot.
@@ -116,25 +130,52 @@ export function ShowChartRow({ callId, block, screenshot, useProjection, t }: Sh
     })
   }
 
+  // A document the engine refused: the column has no chart to show either, so
+  // the conversation keeps the engine's own message where the call sits.
+  if (verdict?.ok === false) {
+    return (
+      <div className={css.row}>
+        <p className={css.caption}>{caption}</p>
+        <p className={css.error} data-show-chart-error>{t('row.failed', { error: verdict.error })}</p>
+      </div>
+    )
+  }
+
+  const engine = (
+    <EChartsOption
+      option={call.option}
+      dark={dark}
+      capture={screenshot}
+      onCapture={(dataUrl) => { captured.current = dataUrl }}
+      onVerdict={sendVerdict}
+    />
+  )
+
+  if (delegated) {
+    return (
+      <div className={css.row}>
+        <p className={css.delegated} data-show-chart-delegated={verdict === undefined ? 'pending' : 'shown'}>
+          {verdict === undefined ? t('row.delegating', { title: caption }) : t('row.delegated', { title: caption })}
+        </p>
+        {/* Off the flow at a fixed size while the call waits for its verdict,
+            and gone once it has one: the picture belongs to the column, the
+            verdict and the capture belong to this call. */}
+        {verdict === undefined && (
+          <div className={`${css.stage} ${css.offstage}`} data-show-chart-stage data-verified="no">
+            {engine}
+          </div>
+        )}
+      </div>
+    )
+  }
+
   return (
     <div className={css.row}>
       <p className={css.caption}>{caption}</p>
-      {verdict?.ok === false
-        ? <p className={css.error} data-show-chart-error>{t('row.failed', { error: verdict.error })}</p>
-        : (
-          <>
-            {verdict === undefined && <p className={css.caption}>{t('row.rendering')}</p>}
-            <div className={css.stage} data-show-chart-stage data-verified={verdict === undefined ? 'no' : 'yes'}>
-              <EChartsOption
-                option={call.option}
-                dark={dark}
-                capture={screenshot}
-                onCapture={(dataUrl) => { captured.current = dataUrl }}
-                onVerdict={sendVerdict}
-              />
-            </div>
-          </>
-        )}
+      {verdict === undefined && <p className={css.caption}>{t('row.rendering')}</p>}
+      <div className={css.stage} data-show-chart-stage data-verified={verdict === undefined ? 'no' : 'yes'}>
+        {engine}
+      </div>
     </div>
   )
 }

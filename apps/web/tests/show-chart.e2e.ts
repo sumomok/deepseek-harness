@@ -11,10 +11,15 @@
  * slice, the row sanitizes the option and paints it, and only a real engine can
  * answer whether a sized canvas came out.
  *
+ * The two compositions differ in exactly one way, which is the point of running
+ * both: under the shipped layout the chart IS the transcript row, and under the
+ * service-line shell the column has it and each row keeps one compact line.
+ *
  * The last two calls share one chart id. That pair covers the whole supersede
  * path end to end: the host folds both calls into the `showCharts` projection,
  * the browser reads it through the standard projection hook, and the older row
- * collapses to a notice while the newer one paints.
+ * collapses to a notice while the newer one paints — or, beside a column,
+ * while the newer one hands its picture over.
  *
  * The live await path — a tool body blocked on the browser's verdict — is
  * covered by the package's host specs against a fake reporter; a keyless replay
@@ -262,6 +267,23 @@ async function assertChartsInTranscript(page: Page): Promise<void> {
   }
 }
 
+/**
+ * Every current chart collapsed to its compact card, with nothing of the
+ * picture left in the conversation.
+ * @param page - the browsing page.
+ * @param calls - the current calls, by call id and the caption each carries.
+ */
+async function assertCompactRows(page: Page, calls: readonly (readonly [string, string])[]): Promise<void> {
+  for (const [callId, title] of calls) {
+    const card = callRow(page, callId).locator('[data-show-chart-delegated="shown"]')
+    await card.waitFor({ timeout: 30_000 })
+    expect(await card.textContent()).toBe(`${title}: shown in the content panel.`)
+    expect(await callRow(page, callId).locator('canvas').count()).toBe(0)
+  }
+  // The off-flow stage each row painted on is unmounted with its verdict.
+  expect(await page.locator('[data-shell-column="chat"] [data-show-chart-stage]').count()).toBe(0)
+}
+
 describe.skipIf(MODE === 'record')('web e2e: show_chart under the shipped layout', () => {
   let world: World | undefined
 
@@ -310,10 +332,9 @@ describe.skipIf(MODE === 'record')('web e2e: show_chart under the service-line s
     world = undefined
   })
 
-  it('paints the transcript charts and the column\'s newest chart from one component row', async () => {
+  it('paints the column\'s newest chart and compacts every transcript row', async () => {
     const page = (world as World).page
     onTestFailed(() => saveFailureShot(page, 'web-e2e-show-chart-three-column'))
-    await assertChartsInTranscript(page)
 
     // The other placement of the same row, in the column only this shell opens:
     // one Vue runtime, two consumers, and no page kind in this composition.
@@ -321,13 +342,21 @@ describe.skipIf(MODE === 'record')('web e2e: show_chart under the service-line s
     await panel.waitFor({ timeout: 30_000 })
     const painted = await box(panel)
     expect({ wide: painted.width > 0, tall: painted.height > 0 }).toEqual({ wide: true, tall: true })
+
+    // And the conversation stops repeating what the column shows.
+    await assertCompactRows(page, [[BAR_CALL, BAR_TITLE], [PIE_CALL, PIE_TITLE], [DEMO_NEW_CALL, DEMO_NEW_TITLE]])
     await evidence(page, 'web-e2e-show-chart-three-column')
   }, 120_000)
 
   it('collapses the chart a later call redrew under this shell too', async () => {
     const page = (world as World).page
     onTestFailed(() => saveFailureShot(page, 'web-e2e-show-chart-supersede-three-column'))
-    await assertSupersededRow(page)
+    const older = callRow(page, DEMO_OLD_CALL)
+    await older.getByText(SUPERSEDED_NOTICE, { exact: true }).waitFor({ timeout: 30_000 })
+    // The supersede notice, not the compact card: this row answers no call and
+    // mounts no engine, whether or not a column has the current chart.
+    expect(await older.locator('[data-show-chart-delegated]').count()).toBe(0)
+    expect(await older.locator('canvas').count()).toBe(0)
     await evidence(page, 'web-e2e-show-chart-supersede-three-column')
   }, 120_000)
 

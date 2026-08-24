@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 `show_chart`: the agent hands over a complete ECharts option, the conversation transcript paints it as a live **Vue 2.7** chart where the call sits, and what the browser actually painted comes back into the tool result.
 
-The components come from [`vue2-echarts-poc`](../vue2-echarts-poc/README.md), which knows no layout. This package knows no layout either — it claims two keyed slots and no column: the `show_chart` key of the transcript's `tool.call.toolview` slot, which the shipped conversation owns, and the `chart` kind of the [content surface](../content-surface/README.md)'s column, which exists only where a composition opens one. The same row therefore renders under the shipped shell and under the service-line one, and gains the column when there is a column to gain.
+The components come from [`vue2-echarts-poc`](../vue2-echarts-poc/README.md), which knows no layout. This package knows no layout either — it claims two keyed slots and no column: the `show_chart` key of the transcript's `tool.call.toolview` slot, which the shipped conversation owns, and the `chart` kind of the [content surface](../content-surface/README.md)'s column, which exists only where a composition opens one. The same row therefore renders under the shipped shell and under the service-line one, and where there is a column to gain it takes the column and gives the conversation back its space.
 
 ## Composition
 
@@ -43,6 +43,16 @@ A call passes through three gates, in order, and each one can end it.
 Until a verdict arrives the chart is laid out but invisible (`visibility: hidden`, because ECharts sizes its canvas from a laid-out element). A failure verdict replaces it with a one-line localized error carrying the engine's own message.
 
 Both halves meet on two routes this package owns, `/show-chart/settings` (the capture switch, read once per boot) and `/show-chart/report` (the verdict).
+
+## Where the chart is drawn
+
+Under the shipped layout the transcript row *is* the chart: a 340px stage where the call sits, revealed by its verdict.
+
+Where a content column is composed, the column already shows the session's charts full height, so the row hands the picture over and keeps one compact line — `<title>: shown in the content panel.` It still mounts the engine, because the verdict and the screenshot belong to this call and the column's seat reports neither; the stage is `position: fixed` off to the side at a real size while the call waits, and unmounted the moment the verdict is in. Fixed rather than `display: none`, for the same reason the shipped stage uses `visibility`.
+
+The row reads which case it is from the presence of the `contentSurface` projection: published exactly where a content column is composed, absent everywhere else. Two rows are exempt. A **superseded** row keeps its own notice, because it answers no call and mounts no engine either way. A **failed** chart keeps the error line in the conversation, because the column has nothing to show for a document that did not paint.
+
+Clicking the compact card does not select that chart in the column: nothing carries a selection between the two packages' components.
 
 ## One chart, several calls
 
@@ -103,6 +113,8 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **The verdict comes from the first client that reports** — several browsers may show the same session, and whichever paints first answers the call. They are painting the same document, so the counts agree; a browser whose engine refused a document another accepted would not.
 - **A screenshot needs a vision-capable model** — the image block enters context whether or not the route accepts images, and costs image tokens on every later request. It is off by default for both reasons.
 - **The column shows one chart per id, and never reports a verdict** — the `chart` seat draws the selected entry and nothing else. The call it would answer settled when the transcript row answered it, so a chart the user merely selects again reports nothing and captures nothing.
+- **The compact card is not a link into the column** — beside a content column the transcript row is one line of text, and clicking it selects nothing. The two components live in different packages with no channel between them, and a component may not subscribe to anything of its own.
+- **A compact row still pays for its engine once** — the picture is the column's, but the call's verdict is not, so every current chart builds one ECharts instance off-screen and disposes it on the verdict. A transcript replayed with hundreds of charts pays that cost per row as it scrolls into view.
 - **A chart entry carries its whole option** — the column's projection stores the option document per live chart id, so it rides the wire value and the persisted checkpoint. `maxOptionBytes` is what bounds it.
 - **The chart reads the palette once** — the row reads `body[data-ds-dark-theme]` when it mounts. A theme switch repaints the shell around a chart that keeps the palette it was built with, until the transcript remounts the row.
 - **The report route assumes an HTTP carrier** — the browser half posts to `/show-chart/report` relative to the page origin. A transport that serves the shell without exposing the harness over HTTP would leave every call unverified.

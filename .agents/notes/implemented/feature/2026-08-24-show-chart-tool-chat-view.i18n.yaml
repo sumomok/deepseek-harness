@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-show-chart-tool-chat-view.md
-2026-08-24-show-chart-tool-chat-view.md: 9437f43e7c91aba9f821e5055d16de8b0a5ebdba
-2026-08-24-show-chart-tool-chat-view.zh.md: 619a9c430d73db0f8de78053e7ef14ef03f5dad9
+2026-08-24-show-chart-tool-chat-view.md: fbcddfd1b5c83aa6e44ba4f9fc5465ddfb6ec6d6
+2026-08-24-show-chart-tool-chat-view.zh.md: 479540e3a6de0565aaca66f282981f545be2910b

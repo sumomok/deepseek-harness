@@ -29,6 +29,20 @@
   visibility: hidden;
 }
 
+/* The stage of a row whose picture the content column shows: still a laid-out
+   box of a real size, because the engine has to paint before it can report what
+   it painted, but out of the flow so the conversation spends no height on a
+   chart the column is already showing. Fixed and off to the side rather than
+   `display: none`, which would zero the canvas and make the verdict about
+   nothing. */
+.offstage {
+  position: fixed;
+  top: 0;
+  left: -20000px;
+  width: 520px;
+  height: 340px;
+}
+
 /* The bridge's host element, which belongs to Vue2Bridge rather than to this
    file: an inline span would collapse the chart's height. */
 .stage > span {
@@ -37,8 +51,10 @@
   min-width: 0;
 }
 
-/* A row a later call replaced: one muted line, no stage and no engine. */
-.superseded {
+/* A row a later call replaced, and a row whose chart the content column shows:
+   one muted line where the full stage would be. */
+.superseded,
+.delegated {
   margin: 0;
   padding: 6px 10px;
   border: 1px dashed var(--dsw-alias-border-l2);

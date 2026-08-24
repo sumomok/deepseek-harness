@@ -62,6 +62,8 @@ The option is model output painted same-origin with the shell. It is not markup 
 
 `show_chart` is `develop`-mergeable: no dependency on the service-line shell, and the overlay that composes it leaves the shipped layout alone.
 
+Where a content column is composed, the chart is no longer drawn in the transcript: [the row hands the picture to the column](2026-08-24-chart-row-compacts-beside-the-column.md) and keeps a compact card, while everything below about the verdict, the capture, and the report stays exactly where this note put it.
+
 The component row now exports a second chart. `EChartsBar` and `EChartsOptionChart` share `echarts-host.ts` — the module registration derived from the supported set, the two palettes, and the instance lifecycle (`attachChart`: build on the current palette, rebuild on a palette change because ECharts resolves a theme only at construction, resize with the element, dispose on unmount). `EChartsBar` keeps its own component: its Vue-owned click counter is the bridge's proof, and rebuilding it on the pass-through chart would delete that evidence to save a dozen lines.
 
 A row that hands the chart a freshly sanitized object on every render would make the chart re-apply, re-report, and re-render without end; the sanitized option is memoized on the raw argument string, which is the row's one piece of derived state besides the verdict.
@@ -78,4 +80,4 @@ The tool bundle is 13 kB raw and 5 kB gzipped, carrying neither Vue nor ECharts:
 
 `sanitize.client.spec.ts` pins the three rewrites and that nothing else moves. `show-chart-row.client.spec.tsx` drives the row over a recorded chart: the running and settled slices, the sanitized option's stable identity, hidden-until-verified, the error row, one report per call id, and the capture switch. `browser-plugin.client.spec.ts` proves the keyed claim, the injected capture switch, the loud failure on an unusable settings document, and removal on fiber teardown.
 
-`apps/web/tests/show-chart.e2e.ts` boots both overlays against the real Web composition with a seeded log carrying two settled calls, and asserts a sized canvas inside each call's own transcript row plus, under the service-line shell, the content column's panel beside them. The live await path — a tool body blocked on a browser verdict — is covered by the host specs with a fake reporter; a keyless replay lane runs no model and therefore issues no live call.
+`apps/web/tests/show-chart.e2e.ts` boots both overlays against the real Web composition with a seeded log carrying four settled calls. Under the shipped layout it asserts a sized canvas inside each call's own transcript row; under the service-line shell it asserts the content column's panel and the compact card each row leaves behind. The live await path — a tool body blocked on a browser verdict — is covered by the host specs with a fake reporter; a keyless replay lane runs no model and therefore issues no live call.

@@ -62,6 +62,8 @@ option 是模型输出，与外壳同源绘制。它既不是标记也不是代�
 
 `show_chart` 可并回 `develop`：不依赖服务线外壳，组合它的那份 overlay 也不动已发布的布局。
 
+组合了 content 栏的地方，图表不再画在会话记录里：[那一行把画面交给栏](2026-08-24-chart-row-compacts-beside-the-column.zh.md)、只留一张紧凑卡，而本文下面关于判定、截图与回报的一切仍留在本文安置它们的位置。
+
 组件行现在导出第二张图。`EChartsBar` 与 `EChartsOptionChart` 共用 `echarts-host.ts`——按支持集合推导的模块注册、两套配色、以及实例生命周期（`attachChart`：按当前配色构建、配色变化时重建，因为 ECharts 只在构造时解析主题、随元素 resize、卸载时 dispose）。`EChartsBar` 保留自己的组件：它那个由 Vue 拥有的点击计数器是桥的证据，把它重建在直通图表之上会为省十来行而删掉那份证据。
 
 一个每次渲染都交给图表一份新 sanitize 对象的行，会让图表不停地重新应用、重新汇报、重新渲染；sanitize 后的 option 按原始参数字符串做了 memo，那是这一行除判定之外唯一的派生状态。
@@ -78,4 +80,4 @@ option 是模型输出，与外壳同源绘制。它既不是标记也不是代�
 
 `sanitize.client.spec.ts` 锁定那三处改写，以及别的什么都不动。`show-chart-row.client.spec.tsx` 在一个会记录的图表上驱动那一行：running 与 settled 两种切片、sanitize 后 option 的稳定同一性、确认前不可见、错误行、每个 call id 一次汇报、以及截图开关。`browser-plugin.client.spec.ts` 证明按 key 的认领、注入的截图开关、设置文档不可用时的响亮失败、以及 fiber 拆卸时的移除。
 
-`apps/web/tests/show-chart.e2e.ts` 用两份 overlay 在真实 Web 组合上启动，session log 里种了两次已结算的调用，断言每次调用自己的会话行里都有一块有尺寸的 canvas，并且在服务线外壳下 content 栏的面板与它们并存。活的等待路径——工具体阻塞在浏览器判定上——由宿主 spec 用假汇报方覆盖；无密钥的回放通道不跑模型，因此不会发出任何活的调用。
+`apps/web/tests/show-chart.e2e.ts` 用两份 overlay 在真实 Web 组合上启动，session log 里种了四次已结算的调用。已发布布局下它断言每次调用自己的会话行里都有一块有尺寸的 canvas；服务线外壳下它断言 content 栏的面板，以及每一行留下的那张紧凑卡。活的等待路径——工具体阻塞在浏览器判定上——由宿主 spec 用假汇报方覆盖；无密钥的回放通道不跑模型，因此不会发出任何活的调用。
