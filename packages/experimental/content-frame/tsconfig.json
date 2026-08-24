@@ -45,7 +45,10 @@
       "path": "../../session/session-projection"
     },
     {
-      "path": "../server-layout"
+      "path": "../content-column"
+    },
+    {
+      "path": "../content-surface"
     }
   ]
 }

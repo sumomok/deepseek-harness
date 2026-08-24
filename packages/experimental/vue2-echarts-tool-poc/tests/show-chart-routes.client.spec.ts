@@ -28,6 +28,7 @@ import SessionStore from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import * as ShowChart from '../src/index.ts'
 import { FakeAttachments } from './fake-attachments.client.ts'
 import { SHOW_CHART_REPORT_ROUTE, SHOW_CHART_SETTINGS_ROUTE } from '../src/route.ts'
@@ -59,12 +60,13 @@ async function loadComposition(screenshot = false): Promise<Context> {
     '  config:',
     "    host: '127.0.0.1'",
     '    port: 0',
-    // Both optional seams, so this composition activates the tool child and
-    // the projection child rather than only the routes.
+    // Every optional seam, so this composition activates the tool child, the
+    // projection child, and the chart extractor rather than only the routes.
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: '@deepseek-ai/dsh-session'",
     "- name: '@deepseek-ai/dsh-session-projection'",
+    "- name: '@deepseek-ai/dsh-experimental-content-surface'",
     '- id: show-chart',
     "  name: '@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc'",
     '  config:',
@@ -83,6 +85,7 @@ async function loadComposition(screenshot = false): Promise<Context> {
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-session', SessionStore],
     ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
+    ['@deepseek-ai/dsh-experimental-content-surface', ContentSurfaceRegistry],
     ['@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc', ShowChart],
   ])
   context.loader.internal = {
@@ -342,5 +345,30 @@ describe('show-chart configuration', () => {
       expect(() => { ShowChart.apply(new Context(), config) })
         .toThrow(`show-chart: ${field} must be at least 1, received 0`)
     }
+  })
+})
+
+describe('show-chart content column contribution', () => {
+  it('publishes the session\'s charts as content entries, one per chart id', async () => {
+    const ctx = await loadComposition()
+    const session = (ctx.get('sessions') as unknown as SessionStore).create()
+    const call = (callId: string, id: string, title: string): void => {
+      session.append('tool/call', {
+        turn: 1,
+        step: 1,
+        callId: CallId(callId),
+        name: 'show_chart',
+        arguments: JSON.stringify({ id, title, option: { series: [{ type: 'bar', data: [1] }] } }),
+      })
+    }
+    call('call_1', 'sales', 'First draft')
+    call('call_2', 'sales', 'Final')
+    call('call_3', 'traffic', 'Traffic')
+
+    // Three calls, two entries: the redraw replaced its own row rather than
+    // adding a second one, and the newest chart leads.
+    expect(ctx.sessionProjections.snapshot(session).values.contentSurface?.entries
+      .map(entry => [entry.kind, entry.entryId, entry.title]))
+      .toEqual([['chart', 'traffic', 'Traffic'], ['chart', 'sales', 'Final']])
   })
 })

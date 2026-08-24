@@ -99,12 +99,47 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     slotInject: '',
     declaredBy: 'an entry in \'root\' (experimental-server-layout), so it exists while that entry is mounted',
     occupants: [
-      'experimental-content-frame ContentFrame',
-      'experimental-vue2-echarts-content-poc ChartPanel',
+      'experimental-content-column ContentSurface',
     ],
     replaceRisk: 'shadows-shipped-ui',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'content\', () => ctx.slots.register(\n      { name: \'content\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
     source: 'packages/experimental/server-layout/src/client/index.ts:56',
+  },
+  {
+    key: 'content.surface.kind',
+    kind: 'keyed',
+    scope: 'root',
+    summary: 'Keyed content-column renderer, dispatched by an entry\'s `kind`.',
+    doc: 'Keyed content-column renderer, dispatched by an entry\'s `kind`. Register\nwith `key: \'<kind>\'` to own how one kind of content draws in the column;\nthe key domain is open — it is whatever kind a host extractor produces —\nso there is no compile-time key set and an unclaimed kind renders the\ncolumn\'s own "nothing renders this" notice.\n\nRoot-scoped, like the column itself: every registered kind\'s seat mounts\nonce for the page\'s lifetime and is hidden rather than unmounted while\nanother kind is on display, so a renderer holding DOM the column must not\ndestroy — a live iframe is the case this router was built around — keeps\nit across both an entry switch and a session switch. A seat is therefore\nrendered far more often than it is selected, and reads `entry` to know\nwhich it is.',
+    registerOptions: [
+      {
+        name: 'key',
+        requirement: 'required',
+        type: 'string',
+        doc: 'Your cell key: the entry renders where the owner dispatches this exact key. Registering an already-occupied key replaces that occupant.',
+      },
+    ],
+    ownerProps: [
+      '/**\n * Owner share of one kind seat. Both members are plain data, and an entry is\n * never present without the session it belongs to.\n */\nexport interface ContentSurfaceKindOwnerProps {\n  /** The session whose surface the column shows, or undefined while none is current. */\n  sessionId: string | undefined\n  /**\n   * The selected entry while it belongs to this seat\'s kind; undefined while\n   * another kind is on display or the session has no entries. A seat receiving\n   * undefined keeps whatever it holds — it is hidden, not gone.\n   */\n  entry: ContentSurfaceEntry | undefined\n}',
+    ],
+    ownerPropsReferences: [
+      'ContentSurfaceEntry',
+    ],
+    standardProps: [
+      'useSessions: SnapshotSelectorHook<SessionListState>',
+      'useWorkspaces: SnapshotSelectorHook<import(\'./workspaces/service.ts\').WorkspaceListState>',
+    ],
+    keyDomain: 'open: any string the owner dispatches (no compile-time key set), already taken: chart, page',
+    hookContext: '',
+    slotInject: '',
+    declaredBy: 'an entry in \'content\' (experimental-content-column), so it exists while that entry is mounted',
+    occupants: [
+      'experimental-content-frame ContentFrame key \'page\'',
+      'experimental-vue2-echarts-tool-poc ChartSurface key \'chart\'',
+    ],
+    replaceRisk: 'shadows-shipped-ui',
+    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'content.surface.kind\', () => ctx.slots.register(\n      { name: \'content.surface.kind\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+    source: 'packages/experimental/content-column/src/client/index.ts:44',
   },
   {
     key: 'conversation',

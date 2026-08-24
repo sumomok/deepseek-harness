@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-两个包。`vue2-echarts-poc` 携带 Vue 2.7 运行时、桥、ECharts 组件、两个 React 组件与字典，不注册任何 slot。`vue2-echarts-content-poc` 是摆放：一次 `slots.inject('content', …)` 调用外加一个 overlay。
+两种角色，其中组件那一侧自成一个包。`vue2-echarts-poc` 携带 Vue 2.7 运行时、桥、ECharts 组件、两个 React 组件与字典，不注册任何 slot。摆放是一次 `slots.inject(<key>, …)` 调用外加一个 overlay，跟着「拥有它所画数据」的那个功能走——今天各个摆放注册进去的是[content-surface 路由器](2026-08-24-content-surface-router.zh.md)。
 
 ### 桥持有的是 Vue 根实例，不是容器
 
@@ -26,7 +26,7 @@ Status: implemented
 
 ### 组件与摆放是两个包
 
-`ChartPanel` 与 `EChartsBar` 都不指名任何 slot，也不从布局里解析任何东西；`EChartsBar` 连文案都不解析，因此在会话 transcript 里渲染工具调用数据的摆放可以传自己的字符串。留在本分支上的只是那十一行摆放。把组件合并到别处，是一次包位置的搬迁加一个同样大小的新摆放，而不是重写。
+`ChartPanel` 与 `EChartsBar` 都不指名任何 slot，也不从布局里解析任何东西；`EChartsBar` 连文案都不解析，因此在会话 transcript 里渲染工具调用数据的摆放可以传自己的字符串。留在本分支上的只是摆放本身，无论落在哪里都是十来行。把组件合并到别处，是一次包位置的搬迁加一个同样大小的新摆放，而不是重写。
 
 ### 仓库里第一次包行级模块请求
 
@@ -60,4 +60,4 @@ Status: implemented
 
 `chart-panel.client.spec.tsx` 用记录器替换 ECharts 与 `ResizeObserver`，因为 jsdom 既没有 canvas 也没有布局。它覆盖 `EChartsBar` 的数据通路与每个可选输入的默认值、同时推动 Vue 计数与 React 状态的那次点击、施加到活实例上的数据变更、触发重建的配色变更、observer 驱动的 resize，以及卸载时成对的释放——随后是 `ChartPanel` 的种子周数据、选中回声与「换一组数据」。
 
-`apps/web/tests/vue2-echarts-content-poc.e2e.ts` 带着摆放的 overlay 启动真实 Web 组合：`[data-shell-column="content"]` 里一张有尺寸的 `<canvas>`、一次抵达两个框架的柱子点击，以及按下「换一组数据」之后 canvas 仍是同一个元素、Vue 计数仍保留着那次点击。两个包各自的 `browser-plugin.client.spec.ts` 证明其注册随 fiber 一同释放。
+`apps/web/tests/show-chart.e2e.ts` 与 `apps/web/tests/content-surface.e2e.ts` 启动真实 Web 组合，证明这座桥在会话记录里与 content 栏里都画出了有尺寸的 `<canvas>`。`ChartPanel` 自己的浏览器侧证据随渲染它的演示摆放一同离开；该组件保留它的 jsdom spec，不再有任何摆放。

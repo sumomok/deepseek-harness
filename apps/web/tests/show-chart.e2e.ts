@@ -2,13 +2,14 @@
  * Web e2e scenario: `show_chart` calls painted as live Vue 2.7 ECharts charts
  * inside the conversation transcript.
  *
- * Two compositions, because the placement claims a keyed tool-view rather than
- * a column and is therefore layout-independent: the shipped Web surface plus
- * the tool's own overlay (what `develop` would run), and the service-line shell
- * where the same component row also fills the content column. The seeded log
- * carries four settled calls, so what the assertions read is the replay path —
- * the transcript hands each row its call slice, the row sanitizes the option and
- * paints it, and only a real engine can answer whether a sized canvas came out.
+ * Two compositions, because the transcript placement claims a keyed tool-view
+ * and is therefore layout-independent: the shipped Web surface plus the tool's
+ * own overlay (what `develop` would run), and the service-line shell where the
+ * same component row also fills the content column through the column's own
+ * keyed kind slot. The seeded log carries four settled calls, so what the
+ * assertions read is the replay path — the transcript hands each row its call
+ * slice, the row sanitizes the option and paints it, and only a real engine can
+ * answer whether a sized canvas came out.
  *
  * The last two calls share one chart id. That pair covers the whole supersede
  * path end to end: the host folds both calls into the `showCharts` projection,
@@ -44,7 +45,8 @@ const THREE_COLUMN_OVERLAY = join(TOOL_DIR, 'overlay/show-chart-three-column.pat
 const ROWS = [
   ['@deepseek-ai/dsh-experimental-server-layout', join(REPO_ROOT, 'packages/experimental/server-layout')],
   ['@deepseek-ai/dsh-experimental-vue2-echarts-poc', join(REPO_ROOT, 'packages/experimental/vue2-echarts-poc')],
-  ['@deepseek-ai/dsh-experimental-vue2-echarts-content-poc', join(REPO_ROOT, 'packages/experimental/vue2-echarts-content-poc')],
+  ['@deepseek-ai/dsh-experimental-content-surface', join(REPO_ROOT, 'packages/experimental/content-surface')],
+  ['@deepseek-ai/dsh-experimental-content-column', join(REPO_ROOT, 'packages/experimental/content-column')],
   ['@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc', TOOL_DIR],
 ] as const
 
@@ -308,14 +310,14 @@ describe.skipIf(MODE === 'record')('web e2e: show_chart under the service-line s
     world = undefined
   })
 
-  it('paints the transcript charts and the content panel from one component row', async () => {
+  it('paints the transcript charts and the column\'s newest chart from one component row', async () => {
     const page = (world as World).page
     onTestFailed(() => saveFailureShot(page, 'web-e2e-show-chart-three-column'))
     await assertChartsInTranscript(page)
 
     // The other placement of the same row, in the column only this shell opens:
-    // one Vue runtime, two consumers.
-    const panel = page.locator('[data-shell-column="content"] canvas').first()
+    // one Vue runtime, two consumers, and no page kind in this composition.
+    const panel = page.locator('[data-content-surface-seat="chart"] canvas').first()
     await panel.waitFor({ timeout: 30_000 })
     const painted = await box(panel)
     expect({ wide: painted.width > 0, tall: painted.height > 0 }).toEqual({ wide: true, tall: true })

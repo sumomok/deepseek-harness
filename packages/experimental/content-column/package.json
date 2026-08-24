@@ -1,12 +1,12 @@
 {
-  "name": "@deepseek-ai/dsh-experimental-vue2-echarts-content-poc",
-  "description": "Placement plugin: puts the Vue 2.7 ECharts panel in the service-line shell's content column",
+  "name": "@deepseek-ai/dsh-experimental-content-column",
+  "description": "Browser half of the content surface: claims the service-line shell's content column, lists the session's entries in a switcher strip, and dispatches the selected one to a keyed per-kind slot",
   "version": "0.1.1-rc.1",
   "private": true,
   "repository": {
     "type": "git",
     "url": "git+https://github.com/deepseek-ai/deepseek-harness.git",
-    "directory": "packages/experimental/vue2-echarts-content-poc"
+    "directory": "packages/experimental/content-column"
   },
   "type": "module",
   "main": "lib/index.js",
@@ -29,13 +29,10 @@
   },
   "dsh": {
     "client": {
-      "external": [
-        "@deepseek-ai/dsh-experimental-vue2-echarts-poc/client"
-      ],
       "inject": [
+        "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-experimental-server-layout",
-        "@deepseek-ai/dsh-experimental-vue2-echarts-poc"
+        "@deepseek-ai/dsh-experimental-server-layout"
       ],
       "platform": "web"
     }
@@ -47,17 +44,23 @@
   "license": "MIT",
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
+    "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
     "@deepseek-ai/dsh-experimental-server-layout": "workspace:^",
-    "@deepseek-ai/dsh-experimental-vue2-echarts-poc": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
+    "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+    "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
     "@deepseek-ai/dsh-experimental-server-layout": "workspace:^",
-    "@deepseek-ai/dsh-experimental-vue2-echarts-poc": "workspace:^",
-    "@deepseek-ai/dsh-invariants": "workspace:^"
+    "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@types/react": "~18.3.1",
+    "react": "^18.2.0"
   },
   "files": [
     "lib/index.js",

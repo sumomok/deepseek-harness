@@ -29,7 +29,10 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the tool package's `tool.call.toolview` SlotMap declaration.
 import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
+// Type-only: pulls the content column's `content.surface.kind` SlotMap declaration.
+import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 import { SHOW_CHART_SETTINGS_ROUTE, type ShowChartSettings } from '../route.ts'
+import { ChartSurface } from './ChartSurface.tsx'
 import { ShowChartRow, type ShowChartFace } from './ShowChartRow.tsx'
 import { en, NS, zh, type ShowChartKey } from './locales.ts'
 
@@ -40,6 +43,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
   }
 }
 
+export type { ChartSurfaceProps } from './ChartSurface.tsx'
 export type { ShowChartFace, ShowChartRowProps } from './ShowChartRow.tsx'
 export { sanitizeChartOption } from './sanitize.ts'
 
@@ -85,4 +89,13 @@ export async function apply(ctx: ClientContext): Promise<void> {
     // data; the row reads none of its own.
     inject: () => face,
   }, ShowChartRow))
+  // The second placement, and the reason both are `slots.inject`: a composition
+  // without the content column never declares this key, and this row simply
+  // never installs.
+  ctx.slots.inject('content.surface.kind', () => ctx.slots.register({
+    name: 'content.surface.kind',
+    // The literal, not this package's `CHART_KIND`, for the same catalog reason.
+    key: 'chart',
+    locale: NS,
+  }, ChartSurface))
 }

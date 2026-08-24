@@ -2,9 +2,9 @@
 
 English | [中文](README.zh.md)
 
-The first occupant of the service-line shell's content column, and the agent's control over it: a directory of static files on the host, served under one dsh route, shown in an iframe that fills the column — with the agent choosing which of the deployment's pages is in it. The application inside is written and deployed by whoever runs the harness; this package neither builds it nor knows what framework it uses.
+The `page` kind of the service-line shell's content column, and the agent's control over it: a directory of static files on the host, served under one dsh route, shown in an iframe that fills the column — with the agent choosing which of the deployment's pages is in it. The application inside is written and deployed by whoever runs the harness; this package neither builds it nor knows what framework it uses.
 
-Four pieces, one decision each. The node half serves the configured directory under `/content-app`. `content_show` offers the deployment's page list to the model and appends `content/shown` when it chooses. The `content` projection resolves that recorded id against the page list running now, so the browser receives a finished `{state, url, title}` and resolves nothing. The browser half claims [`server-layout`](../server-layout/README.md)'s `content` slot and keeps one live frame per session.
+Five pieces, one decision each. The node half serves the configured directory under `/content-app`. `content_show` offers the deployment's page list to the model and appends `content/shown` when it chooses. The `page` extractor turns each shown id into an entry of [`content-surface`](../content-surface/README.md)'s stream, resolved against the page list running now. The `content` projection resolves the last recorded id the same way, for a consumer that wants the column's current page rather than its history. The browser half claims the `page` key of the column's kind slot and keeps one live frame per (session, page) pair.
 
 ## Trust boundary
 
@@ -31,15 +31,15 @@ A second, exact route — `/content-frame/settings` — serves the browser half 
 
 `pages` is the deployment's whole vocabulary for the column, and at least one entry is required — `content_show` exists to choose among them. Each page declares an `id` the agent passes, a `title` the user reads, a `description` written in the agent's terms (it becomes the catalogue line in the tool description), and a same-origin `url`. A URL that names a scheme or a host fails the row at load: the frame carries the shell's authority, so it may only address the dsh origin.
 
-`defaultPage` names the page shown before the agent has chosen anything and after it clears the column; omitting it leaves the column empty until the agent fills it. `id` may not be `none`, which the tool reserves for clearing.
+`defaultPage` names the page the `content` projection reports before the agent has chosen anything and after it clears the column. **The column itself does not show it** — it lists what a session produced, and a default page is not something any session produced, so a session that has shown nothing gets the column's empty-state notice. `id` may not be `none`, which the tool reserves for clearing.
 
-## One live frame per session
+## One live frame per session and page
 
-The column is a `root` slot, so the framework never remounts it, and the browser half keeps every cached session's iframe mounted at once with all but the current one hidden. A session the user returns to therefore finds its page exactly as it left it — scroll position, form state, whatever the document holds — because the element was never destroyed. `cacheSize` bounds how many survive; past it the least recently shown one is dropped and reloads when its session comes back. The current session's frame is never the one dropped.
+The column's kind slot is `root`-scoped and the column keeps this seat mounted even while another kind is on display, so the browser half keeps every cached frame mounted at once with all but the current one hidden. A page the user returns to therefore looks exactly as it was left — scroll position, form state, whatever the document holds — because the element was never destroyed, across a switch to another page, to a chart, or to another session. `cacheSize` bounds how many survive, counted over (session, page) pairs; past it the least recently shown one is dropped and reloads when it comes back. The frame on display is never the one dropped.
 
 ## Composition
 
-Neither this package nor the shell is part of any shipped bundle. `overlay/content-column.patch.yml` composes both over the Web surface — the shell replaces `ui-layout`, and this row claims the column it opens:
+Neither this package nor the shell is part of any shipped bundle. `overlay/content-column.patch.yml` composes all four over the Web surface — the shell replaces `ui-layout`, `content-surface` folds the session's logged events into the entry stream, `content-column` claims the column the shell opens, and this row contributes the `page` kind:
 
 ```yaml
 - id: ui-layout
@@ -49,6 +49,10 @@ Neither this package nor the shell is part of any shipped bundle. `overlay/conte
 - insert:
     - id: server-layout
       name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
     - id: content-frame
       name: '@deepseek-ai/dsh-experimental-content-frame'
       config:
@@ -61,9 +65,9 @@ Neither this package nor the shell is part of any shipped bundle. `overlay/conte
         defaultPage: home
 ```
 
-`dsh --profile web --patch <path>` applies it. The overlay reads the directory from the environment so one file serves any application; a deployment that hosts a fixed one writes the literal absolute path in its place. Both packages must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
+`dsh --profile web --patch <path>` applies it. The overlay reads the directory from the environment so one file serves any application; a deployment that hosts a fixed one writes the literal absolute path in its place. Every package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
 
-The tool and the projection are optional children: a composition without `ctx.tools` or without `ctx.sessionProjections` keeps the route and shows the empty column, and neither absence fails the row.
+The tool, the projection, and the page extractor are optional children: a composition without `ctx.tools`, `ctx.sessionProjections`, or `ctx.contentSurface` keeps the route and shows nothing in the column, and no absence fails the row.
 
 ## Model Experience
 
@@ -100,6 +104,7 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **`content/shown` is required on read** — the event carries no `ignorable` marker, so a runtime whose session vocabulary does not include it refuses the whole log rather than skipping the event. Any build of this repository knows the type; a separately built runtime that excluded this package would not.
 - **One directory, one origin** — the route serves a single configured directory, and every page must be a path inside the dsh origin. There is no second application, no external URL, and no way for the agent to name a page the deployment did not configure.
 - **No channel between the frame and the shell** — no `postMessage` protocol, no shared state, and no way for the hosted page to report back what the user did in it. The agent can put a page in front of the user; it cannot learn what happened next except by being told. The page's only route back into the harness is the dsh HTTP API, which it reaches on its own.
+- **The `content` projection has no in-tree consumer** — the column reads the entry stream instead, and `content` remains only as the resolved current-page value (`shown`/`default`/`empty`/`missing`) for anything else reading the wire. It is the one place `defaultPage` still shows up.
 - **The frame cache is per browser tab and unbounded in time** — `cacheSize` bounds how many frames stay alive, not how long. A tab left open keeps its cached documents running, including whatever polling or sockets they hold.
 - **The settings route assumes an HTTP carrier** — the browser half fetches `/content-frame/settings` relative to the page origin. A transport that serves the shell without exposing the harness over HTTP would fail the row, the same way the iframe's own route would.
 - **No sandboxed profile for untrusted content** — see the trust boundary above. Hosting content that must not carry the shell's authority is a separate plugin that this one does not provide a flag for.

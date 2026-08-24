@@ -1,23 +1,24 @@
 /**
- * Package-owned invariant companion for `@deepseek-ai/dsh-experimental-vue2-echarts-content-poc`.
- * @module @deepseek-ai/dsh-experimental-vue2-echarts-content-poc/invariant
+ * Package-owned invariant companion for `@deepseek-ai/dsh-experimental-content-column`.
+ * @module @deepseek-ai/dsh-experimental-content-column/invariant
  */
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
 import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 
-const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-vue2-echarts-content-poc'
+const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-content-column'
 
 /** Cordis companion plugin name. */
-export const name = 'experimental-vue2-echarts-content-poc-invariant'
+export const name = 'experimental-content-column-invariant'
 /** Service required before the companion can reserve package ownership. */
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this package owns no event stream and no mutable
- * durable data. Its only relationship — the content-column registration and its
- * removal on teardown — is a slot effect this package's own tests exercise.
+ * No runtime invariant: this package is a browser placement. Its host half is
+ * an empty plugin, it appends no session event, and it owns no mutable durable
+ * data — the entry stream it draws belongs to `content-surface`, which
+ * validates every published value against the projection unit's own schema.
  */
 const install: InvariantInstaller = () => {}
 

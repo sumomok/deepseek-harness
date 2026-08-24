@@ -33,6 +33,20 @@ const viewSchema: ZodType<ContentPageView> = zod.discriminatedUnion('state', [
 ])
 
 /**
+ * Resolve one recorded page id against the page list running now. Shared with
+ * the content-surface `page` extractor, which resolves the same recorded ids
+ * into the same two arms and must not drift from this one.
+ * @param page - the id a `content/shown` event recorded.
+ * @param pages - the validated page index.
+ * @returns the shown page, or the `missing` arm when the deployment retired it.
+ */
+export function resolveShownPage(page: string, pages: PageIndex): ContentPageView {
+  const found = pages.get(page)
+  if (found === undefined) return { state: 'missing', page }
+  return { state: 'shown', page, url: found.url, title: found.title }
+}
+
+/**
  * Resolve one folded id against the page list running now.
  * @param state - the last recorded id, or null for the cleared column.
  * @param pages - the validated page index.
@@ -47,9 +61,7 @@ function resolveView(state: string | null, pages: PageIndex, defaultPage: string
     if (fallback === undefined) return { state: 'empty' }
     return { state: 'default', url: fallback.url, title: fallback.title }
   }
-  const page = pages.get(state)
-  if (page === undefined) return { state: 'missing', page: state }
-  return { state: 'shown', page: state, url: page.url, title: page.title }
+  return resolveShownPage(state, pages)
 }
 
 /**

@@ -1,17 +1,20 @@
 # `show_chart` under the service-line shell: the chart in the conversation AND
-# the demo panel in the content column, from the same component row.
+# the session's charts in the content column, from the same component row.
 #
 # - `ui-layout` is disabled and `server-layout` inserted in its place: 'root' is
 #   a single slot and its child slots may be declared only once, so the shipped
 #   shell and the service-line shell cannot coexist.
+# - `content-surface` folds the session's logged events into the entry stream
+#   and `content-column` claims the column the shell opens, routing it by entry
+#   kind. Neither hosts an application, so `content-frame` is absent here and
+#   the `page` kind simply never occurs.
 # - `vue2-echarts-poc` carries the components, the Vue 2.7 runtime, and the
-#   ECharts build; both rows below require it through the loader's module table.
-# - `vue2-echarts-content-poc` puts the demo panel in the content column.
-# - `vue2-echarts-tool-poc` offers `show_chart` and claims its key in the
-#   transcript's tool-view slot, which the shipped conversation still owns.
+#   ECharts build; the row below requires it through the loader's module table.
+# - `vue2-echarts-tool-poc` offers `show_chart`, claims its key in the
+#   transcript's tool-view slot, and claims the `chart` kind in the column.
 #
-# The pair is the point: one Vue runtime, two placements, and neither package
-# knows about the other.
+# The pair is the point: one Vue runtime, two placements of the same component,
+# and the column's router knows about neither.
 - id: ui-layout
   name: '@deepseek-ai/dsh-client-ui-layout'
   disabled: true
@@ -19,9 +22,11 @@
 - insert:
     - id: server-layout
       name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
     - id: vue2-echarts-poc
       name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
-    - id: vue2-echarts-content-poc
-      name: '@deepseek-ai/dsh-experimental-vue2-echarts-content-poc'
     - id: show-chart
       name: '@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc'

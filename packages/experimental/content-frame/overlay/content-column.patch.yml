@@ -1,6 +1,9 @@
-# Service-line shell with its content column claimed. Two packages, one file:
-# the shell replaces the shipped ui-layout row (`root` is a single slot, so the
-# two cannot coexist), and this package occupies the column the shell opens.
+# Service-line shell with a hosted application in its content column. Four
+# packages, one file: the shell replaces the shipped ui-layout row (`root` is a
+# single slot, so the two cannot coexist), `content-surface` folds the session's
+# logged events into the entry stream, `content-column` claims the column the
+# shell opens and routes it by entry kind, and this package contributes the
+# `page` kind and the application behind it.
 #
 # `root` comes from the environment so one overlay serves any application; a
 # deployment that hosts a fixed one writes the literal absolute path here
@@ -9,6 +12,9 @@
 # `pages` is what the agent may show. This overlay declares the one page every
 # hosted application has — its entry document — so `content_show` has a real
 # choice out of the box; a deployment with several pages lists them all here.
+# The column shows a page only after the agent has shown one: it lists what a
+# session produced, and `defaultPage` is a value of the `content` projection
+# rather than an entry in that stream.
 - id: ui-layout
   name: '@deepseek-ai/dsh-client-ui-layout'
   disabled: true
@@ -16,6 +22,10 @@
 - insert:
     - id: server-layout
       name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
     - id: content-frame
       name: '@deepseek-ai/dsh-experimental-content-frame'
       config:

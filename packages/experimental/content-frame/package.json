@@ -32,7 +32,7 @@
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-runtime",
-        "@deepseek-ai/dsh-experimental-server-layout"
+        "@deepseek-ai/dsh-experimental-content-column"
       ],
       "platform": "web"
     }
@@ -50,7 +50,8 @@
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
-    "@deepseek-ai/dsh-experimental-server-layout": "workspace:^",
+    "@deepseek-ai/dsh-experimental-content-column": "workspace:^",
+    "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
@@ -65,7 +66,8 @@
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
-    "@deepseek-ai/dsh-experimental-server-layout": "workspace:^",
+    "@deepseek-ai/dsh-experimental-content-column": "workspace:^",
+    "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",

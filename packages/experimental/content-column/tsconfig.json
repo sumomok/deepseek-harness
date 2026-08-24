@@ -12,19 +12,22 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../client/locale"
+    },
+    {
       "path": "../../client/runtime"
     },
     {
       "path": "../../client/ui-slots"
     },
     {
-      "path": "../server-layout"
-    },
-    {
-      "path": "../vue2-echarts-poc"
-    },
-    {
       "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../content-surface"
+    },
+    {
+      "path": "../server-layout"
     }
   ]
 }

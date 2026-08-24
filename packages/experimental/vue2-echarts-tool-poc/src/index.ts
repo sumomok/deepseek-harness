@@ -27,8 +27,11 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: resolves ctx.contentSurface for the optional extractor child.
+import type {} from '@deepseek-ai/dsh-experimental-content-surface'
 import { PendingCharts } from './pending.ts'
 import { showChartsProjection } from './projection.ts'
+import { chartExtractor } from './surface.ts'
 import {
   parseShowChartReport,
   SHOW_CHART_REPORT_ROUTE,
@@ -229,14 +232,18 @@ export function apply(ctx: Context, config: Config): void {
     },
   }), 'show-chart: render report route')
 
-  // Both children activate only when their seam is composed: a deployment
-  // without a tool runtime keeps the routes and offers the model nothing, and
-  // one without a projection registry paints every row as the call that drew
-  // it — no supersede, and nothing else changes.
+  // Every child activates only when its seam is composed: a deployment without
+  // a tool runtime keeps the routes and offers the model nothing, one without a
+  // projection registry paints every row as the call that drew it — no
+  // supersede, and nothing else changes — and one without the content column's
+  // router keeps the charts in the conversation only.
   ctx.inject(['tools'], (toolCtx) => {
     toolCtx.tools.register(showChartTool(toolCtx, policy, pending))
   })
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(showChartsProjection())
+  })
+  ctx.inject(['contentSurface'], (surfaceCtx) => {
+    surfaceCtx.contentSurface.register(chartExtractor())
   })
 }

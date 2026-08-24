@@ -36,6 +36,7 @@
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-runtime",
         "@deepseek-ai/dsh-client-ui-tool",
+        "@deepseek-ai/dsh-experimental-content-column",
         "@deepseek-ai/dsh-experimental-vue2-echarts-poc"
       ],
       "platform": "web"
@@ -56,6 +57,8 @@
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-tool": "workspace:^",
+    "@deepseek-ai/dsh-experimental-content-column": "workspace:^",
+    "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
     "@deepseek-ai/dsh-experimental-vue2-echarts-poc": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
@@ -74,6 +77,8 @@
     "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/dsh-client-ui-tool": "workspace:^",
+    "@deepseek-ai/dsh-experimental-content-column": "workspace:^",
+    "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
     "@deepseek-ai/dsh-experimental-vue2-echarts-poc": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",

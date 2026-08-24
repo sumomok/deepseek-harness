@@ -4,14 +4,14 @@
 
 `show_chart`：agent 交出一份完整的 ECharts option，会话记录就在这次调用所在的位置把它画成一张活的 **Vue 2.7** 图表，浏览器究竟画出了什么再回到工具结果里。
 
-组件来自 [`vue2-echarts-poc`](../vue2-echarts-poc/README.zh.md)，那个包不认识任何布局。本包同样不认识：它认领的是会话记录 `tool.call.toolview` 槽位上的 `show_chart` 这个 key，而那个槽位属于已发布的会话区，因此同一行在已发布外壳和服务线外壳下都渲染。
+组件来自 [`vue2-echarts-poc`](../vue2-echarts-poc/README.zh.md)，那个包不认识任何布局。本包同样不认识——它认领两个 keyed 槽位而不认领任何一栏：会话记录 `tool.call.toolview` 槽位上的 `show_chart` key（那个槽位属于已发布的会话区），以及 [content surface](../content-surface/README.zh.md) 那一栏的 `chart` kind（只有当某个组合开出这一栏时它才存在）。因此同一行在已发布外壳和服务线外壳下都渲染，并在有栏可占时顺带占上。
 
 ## 组合方式
 
 两份 overlay，都叠在已发布的 Web 表面之上：
 
 - [`overlay/show-chart.patch.yml`](overlay/show-chart.patch.yml) 装上组件行和本行，并保留官方的 `ui-layout`。这就是 `develop` 形状的那份组合。
-- [`overlay/show-chart-three-column.patch.yml`](overlay/show-chart-three-column.patch.yml) 用服务线外壳换掉 `ui-layout`，并加上 [`vue2-echarts-content-poc`](../vue2-echarts-content-poc/README.zh.md)：会话里有图表，content 栏里有演示面板，共用一份 Vue 运行时。
+- [`overlay/show-chart-three-column.patch.yml`](overlay/show-chart-three-column.patch.yml) 用服务线外壳换掉 `ui-layout`，并加上 content surface 的两半：会话里有图表，content 栏里有本 session 的图表，共用一份 Vue 运行时。那里不组合任何托管应用，因此这一栏的 `page` kind 永不出现。
 
 `dsh --profile web --patch <路径>` 应用其中任意一份；启动器自己的参数在前，应用参数跟在后面：
 
@@ -19,7 +19,7 @@
 pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-chart.patch.yml --no-open
 ```
 
-两个包都必须能从 profile 目录解析到，对树外插件而言意味着 `dsh plugin --profile web add <路径>` 或等价的链接——release bundle 不得声明实验包。
+所有包都必须能从 profile 目录解析到，对树外插件而言意味着 `dsh plugin --profile web add <路径>` 或等价的链接——release bundle 不得声明实验包。
 
 ## 配置
 
@@ -102,6 +102,8 @@ report 路由只接同站点、只收 JSON：被浏览器标为 `sec-fetch-site:
 - **只能是 JSON** —— option 要跨过工具调用边界，因此任何以函数表达的 ECharts 特性（`formatter` 回调、`symbolSize` 函数、自定义 series 渲染器）根本发不过来。
 - **判定来自第一个汇报的客户端** —— 可能有多个浏览器在看同一个 session，谁先画完谁回答这次调用。它们画的是同一份文档，所以计数一致；但如果某个浏览器的引擎拒绝了另一个接受的文档，就不一致了。
 - **截图需要有视觉能力的模型** —— 无论线路是否接受图像，图像块都会进入上下文，并在之后每次请求上按图像计价。默认关闭正是这两个原因。
+- **栏里每个 id 只有一张图，且从不回报判定** —— `chart` 座位只画选中的那条 entry。它本会回答的那次调用，早在会话记录那一行回答时就结算了，因此用户仅仅是再次选中某张图时，它既不回报也不截图。
+- **一条 chart entry 携带完整 option** —— 这一栏的 projection 按存活 chart id 存下 option 文档，因此它会随 wire 值与持久化 checkpoint 一同流动。约束它的是 `maxOptionBytes`。
 - **图表只读一次配色** —— 那一行在挂载时读 `body[data-ds-dark-theme]`。切换主题会重绘图表周围的外壳，而图表保持它被构建时的那套配色，直到会话记录重新挂载这一行。
 - **report 路由假定有 HTTP 载体** —— 浏览器半边相对页面源 POST 到 `/show-chart/report`。一种提供外壳却不通过 HTTP 暴露 harness 的传输会让每次调用都停在未确认。
 - **模型不会被告知某张图被取代了** —— 取代是浏览器侧的渲染决定。较早那次调用的工具结果仍是它结算时的样子，没有任何东西会回头改它。

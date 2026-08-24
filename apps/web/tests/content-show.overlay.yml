@@ -1,8 +1,9 @@
 # The content column with two pages the agent can choose between — the
-# composition the keepalive scenario needs. Same two rows as the package's own
-# overlay (the shell replaces ui-layout, content-frame claims the column it
-# opens); only the page list differs, because this scenario has to prove that
-# two sessions can show two different pages at the same time.
+# composition the keepalive scenario needs. Same four rows as the package's own
+# overlay (the shell replaces ui-layout, content-surface publishes the entry
+# stream, content-column claims the column it opens, content-frame contributes
+# the page kind); only the page list differs, because this scenario has to
+# prove that two sessions can show two different pages at the same time.
 - id: ui-layout
   name: '@deepseek-ai/dsh-client-ui-layout'
   disabled: true
@@ -10,6 +11,10 @@
 - insert:
     - id: server-layout
       name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
     - id: content-frame
       name: '@deepseek-ai/dsh-experimental-content-frame'
       config:

@@ -4,14 +4,14 @@ English | [中文](README.zh.md)
 
 `show_chart`: the agent hands over a complete ECharts option, the conversation transcript paints it as a live **Vue 2.7** chart where the call sits, and what the browser actually painted comes back into the tool result.
 
-The components come from [`vue2-echarts-poc`](../vue2-echarts-poc/README.md), which knows no layout. This package knows no layout either: it claims the `show_chart` key of the transcript's `tool.call.toolview` slot, which the shipped conversation owns, so the same row renders under the shipped shell and under the service-line one.
+The components come from [`vue2-echarts-poc`](../vue2-echarts-poc/README.md), which knows no layout. This package knows no layout either — it claims two keyed slots and no column: the `show_chart` key of the transcript's `tool.call.toolview` slot, which the shipped conversation owns, and the `chart` kind of the [content surface](../content-surface/README.md)'s column, which exists only where a composition opens one. The same row therefore renders under the shipped shell and under the service-line one, and gains the column when there is a column to gain.
 
 ## Composition
 
 Two overlays, both over the shipped Web surface:
 
 - [`overlay/show-chart.patch.yml`](overlay/show-chart.patch.yml) inserts the component row and this one, and leaves the official `ui-layout` in place. This is the `develop`-shaped composition.
-- [`overlay/show-chart-three-column.patch.yml`](overlay/show-chart-three-column.patch.yml) replaces `ui-layout` with the service-line shell and adds [`vue2-echarts-content-poc`](../vue2-echarts-content-poc/README.md): charts in the conversation and the demo panel in the content column, from one Vue runtime.
+- [`overlay/show-chart-three-column.patch.yml`](overlay/show-chart-three-column.patch.yml) replaces `ui-layout` with the service-line shell and adds both halves of the content surface: charts in the conversation and the session's charts in the content column, from one Vue runtime. No hosted application is composed there, so the column's `page` kind never occurs.
 
 `dsh --profile web --patch <path>` applies either one; the launcher's flags come first, so an app flag follows them:
 
@@ -19,7 +19,7 @@ Two overlays, both over the shipped Web surface:
 pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-chart.patch.yml --no-open
 ```
 
-Both packages must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
+Every package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
 
 ## Configuration
 
@@ -102,6 +102,8 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **JSON only** — the option crosses a tool-call boundary, so an ECharts feature expressed as a function (a `formatter` callback, a `symbolSize` function, a custom series renderer) cannot be sent at all.
 - **The verdict comes from the first client that reports** — several browsers may show the same session, and whichever paints first answers the call. They are painting the same document, so the counts agree; a browser whose engine refused a document another accepted would not.
 - **A screenshot needs a vision-capable model** — the image block enters context whether or not the route accepts images, and costs image tokens on every later request. It is off by default for both reasons.
+- **The column shows one chart per id, and never reports a verdict** — the `chart` seat draws the selected entry and nothing else. The call it would answer settled when the transcript row answered it, so a chart the user merely selects again reports nothing and captures nothing.
+- **A chart entry carries its whole option** — the column's projection stores the option document per live chart id, so it rides the wire value and the persisted checkpoint. `maxOptionBytes` is what bounds it.
 - **The chart reads the palette once** — the row reads `body[data-ds-dark-theme]` when it mounts. A theme switch repaints the shell around a chart that keeps the palette it was built with, until the transcript remounts the row.
 - **The report route assumes an HTTP carrier** — the browser half posts to `/show-chart/report` relative to the page origin. A transport that serves the shell without exposing the harness over HTTP would leave every call unverified.
 - **The model is not told a chart was superseded** — the replacement is a browser-side render decision. The tool result of the older call is whatever it was when the call settled, and nothing revisits it.

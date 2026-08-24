@@ -1,9 +1,10 @@
 /**
  * show-chart browser half against the real SlotRegistry: the settings read that
- * has to precede the registration, the keyed tool-view claim and the capture
- * switch it injects, the wait for the tool package's declaration, removal on
- * fiber teardown (HMR safety), the dictionaries, and the invariant companion's
- * ownership reservation.
+ * has to precede the registrations, the keyed tool-view claim and the capture
+ * switch it injects, the keyed content-column claim beside it, the wait for
+ * each declaration (and the composition where only one of them exists),
+ * removal on fiber teardown (HMR safety), the dictionaries, and the invariant
+ * companion's ownership reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -12,6 +13,7 @@ import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
+import { ChartSurface } from '../src/client/ChartSurface.tsx'
 import { ShowChartRow } from '../src/client/ShowChartRow.tsx'
 import * as ShowChartInvariant from '../src/invariant.ts'
 import { SHOW_CHART_SETTINGS_ROUTE } from '../src/route.ts'
@@ -33,6 +35,25 @@ function declareToolViews(ctx: Context): void {
   } as never, () => null)
 }
 
+/**
+ * Declare both keyed slots this row claims, the way a composition carrying the
+ * conversation and the content column does.
+ */
+function declareBothSlots(ctx: Context): void {
+  ctx.slots.register({
+    name: 'root',
+    children: {
+      'tool.call.toolview': { kind: 'keyed', scope: 'session' },
+      'content.surface.kind': { kind: 'keyed', scope: 'root' },
+    },
+  } as never, () => null)
+}
+
+/** The component claiming one content-column kind, if any. */
+function kindClaimant(ctx: Context, key: string): unknown {
+  return ctx.slots.entries('content.surface.kind').find(entry => entry.options.key === key)?.component
+}
+
 /** The entry claiming one tool-view key, if any. */
 function claim(ctx: Context, key: string): ReturnType<Context['slots']['entries']>[number] | undefined {
   return ctx.slots.entries('tool.call.toolview').find(entry => entry.options.key === key)
@@ -48,7 +69,7 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   serveSettings({ screenshot: false })
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
-  declareToolViews(ctx)
+  declareBothSlots(ctx)
   // The locale plugin binds a settings scope, which reads the connection handle
   // and the forwarded-event port.
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
@@ -91,6 +112,25 @@ describe('show-chart browser half', () => {
     const { ctx } = await bench()
     expect(claimant(ctx, 'show_chart')).toBe(ShowChartRow)
     expect(claimant(ctx, 'bash')).toBeUndefined()
+  })
+
+  it('claims the chart kind of the content column when a composition opens one', async () => {
+    const { ctx, fiber } = await bench()
+    expect(kindClaimant(ctx, 'chart')).toBe(ChartSurface)
+
+    await fiber.dispose()
+    expect(kindClaimant(ctx, 'chart')).toBeUndefined()
+  })
+
+  it('claims the transcript row alone under a composition with no content column', async () => {
+    serveSettings({ screenshot: false })
+    const ctx = new Context()
+    await ctx.plugin(SlotRegistry).await()
+    declareToolViews(ctx)
+    ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
+    await ctx.plugin({ inject: [...inject], apply }).await()
+    expect(claimant(ctx, 'show_chart')).toBe(ShowChartRow)
+    expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
   })
 
   it('injects the capture switch its node half serves', async () => {

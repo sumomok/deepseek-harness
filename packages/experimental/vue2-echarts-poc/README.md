@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-A component library row: real ECharts charts written as **Vue 2.7** components, wrapped so React can render them anywhere. The package knows nothing about layouts and registers no slot — its browser half registers its dictionaries and exports the components. Where they render is a placement plugin's decision; [`vue2-echarts-content-poc`](../vue2-echarts-content-poc/README.md) puts the demo panel in the service-line shell's content column, and [`vue2-echarts-tool-poc`](../vue2-echarts-tool-poc/README.md) paints a model-supplied option inside the conversation transcript.
+A component library row: real ECharts charts written as **Vue 2.7** components, wrapped so React can render them anywhere. The package knows nothing about layouts and registers no slot — its browser half registers its dictionaries and exports the components. Where they render is a placement plugin's decision; [`vue2-echarts-tool-poc`](../vue2-echarts-tool-poc/README.md) paints a model-supplied option both inside the conversation transcript and in the service-line shell's content column.
 
 It is the Vue 2 counterpart of [`vue-ui-poc`](../vue-ui-poc/README.md), which probes the same question for Vue 3.
 
@@ -46,7 +46,7 @@ and take `Vue` and the composition API from the re-exports above. The rule is wh
 
 ## Composition
 
-The plugin is not part of any shipped bundle, and on its own it draws nothing: it is a library row plus its dictionaries. Compose it with the placement that renders its components — [`overlay/vue2-echarts-content.patch.yml`](../vue2-echarts-content-poc/overlay/vue2-echarts-content.patch.yml) mounts both rows and the shell that opens the column they land in.
+The plugin is not part of any shipped bundle, and on its own it draws nothing: it is a library row plus its dictionaries. Compose it with the placement that renders its components — [`overlay/show-chart.patch.yml`](../vue2-echarts-tool-poc/overlay/show-chart.patch.yml) mounts both rows over the shipped surface, and [`overlay/show-chart-three-column.patch.yml`](../vue2-echarts-tool-poc/overlay/show-chart-three-column.patch.yml) adds the service-line shell and the content column beside it.
 
 The package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
 

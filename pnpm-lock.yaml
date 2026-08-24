@@ -4516,6 +4516,39 @@ importers:
         specifier: workspace:^
         version: link:../../subagent/subagent-spawn-in-process
 
+  packages/experimental/content-column:
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-client-locale':
+        specifier: workspace:^
+        version: link:../../client/locale
+      '@deepseek-ai/dsh-client-runtime':
+        specifier: workspace:^
+        version: link:../../client/runtime
+      '@deepseek-ai/dsh-client-test-runtime':
+        specifier: workspace:^
+        version: link:../../test-support/client-runtime
+      '@deepseek-ai/dsh-client-ui-slots':
+        specifier: workspace:^
+        version: link:../../client/ui-slots
+      '@deepseek-ai/dsh-experimental-content-surface':
+        specifier: workspace:^
+        version: link:../content-surface
+      '@deepseek-ai/dsh-experimental-server-layout':
+        specifier: workspace:^
+        version: link:../server-layout
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@types/react':
+        specifier: ~18.3.1
+        version: 18.3.31
+      react:
+        specifier: ^18.2.0
+        version: 18.3.1
+
   packages/experimental/content-frame:
     dependencies:
       '@deepseek-ai/schemastery':
@@ -4546,9 +4579,12 @@ importers:
       '@deepseek-ai/dsh-client-ui-slots':
         specifier: workspace:^
         version: link:../../client/ui-slots
-      '@deepseek-ai/dsh-experimental-server-layout':
+      '@deepseek-ai/dsh-experimental-content-column':
         specifier: workspace:^
-        version: link:../server-layout
+        version: link:../content-column
+      '@deepseek-ai/dsh-experimental-content-surface':
+        specifier: workspace:^
+        version: link:../content-surface
       '@deepseek-ai/dsh-host-webserver':
         specifier: workspace:^
         version: link:../../host/webserver
@@ -4573,6 +4609,25 @@ importers:
       react:
         specifier: ^18.2.0
         version: 18.3.1
+
+  packages/experimental/content-surface:
+    dependencies:
+      zod:
+        specifier: ^4.4.3
+        version: 4.4.3
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-invariants':
+        specifier: workspace:^
+        version: link:../../runtime-diagnostics/invariants
+      '@deepseek-ai/dsh-session':
+        specifier: workspace:^
+        version: link:../../core/session
+      '@deepseek-ai/dsh-session-projection':
+        specifier: workspace:^
+        version: link:../../session/session-projection
 
   packages/experimental/server-layout:
     devDependencies:
@@ -4693,24 +4748,6 @@ importers:
         specifier: ^18.2.0
         version: 18.3.1
 
-  packages/experimental/vue2-echarts-content-poc:
-    devDependencies:
-      '@deepseek-ai/cordis':
-        specifier: workspace:^
-        version: link:../../../vendor/cordis
-      '@deepseek-ai/dsh-client-runtime':
-        specifier: workspace:^
-        version: link:../../client/runtime
-      '@deepseek-ai/dsh-experimental-server-layout':
-        specifier: workspace:^
-        version: link:../server-layout
-      '@deepseek-ai/dsh-experimental-vue2-echarts-poc':
-        specifier: workspace:^
-        version: link:../vue2-echarts-poc
-      '@deepseek-ai/dsh-invariants':
-        specifier: workspace:^
-        version: link:../../runtime-diagnostics/invariants
-
   packages/experimental/vue2-echarts-poc:
     dependencies:
       echarts:
@@ -4781,6 +4818,12 @@ importers:
       '@deepseek-ai/dsh-client-ui-tool':
         specifier: workspace:^
         version: link:../../client/ui-tool
+      '@deepseek-ai/dsh-experimental-content-column':
+        specifier: workspace:^
+        version: link:../content-column
+      '@deepseek-ai/dsh-experimental-content-surface':
+        specifier: workspace:^
+        version: link:../content-surface
       '@deepseek-ai/dsh-experimental-vue2-echarts-poc':
         specifier: workspace:^
         version: link:../vue2-echarts-poc

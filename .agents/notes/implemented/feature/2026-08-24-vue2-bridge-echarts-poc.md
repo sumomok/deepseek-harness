@@ -12,7 +12,7 @@ A second question came with it. The visible surface for this branch is the servi
 
 ## Decision
 
-Two packages. `vue2-echarts-poc` carries the Vue 2.7 runtime, the bridge, the ECharts component, two React components, and the dictionaries; it registers no slot. `vue2-echarts-content-poc` is the placement: one `slots.inject('content', …)` call and an overlay.
+Two roles, and the component one is its own package. `vue2-echarts-poc` carries the Vue 2.7 runtime, the bridge, the ECharts component, two React components, and the dictionaries; it registers no slot. A placement is a `slots.inject(<key>, …)` call and an overlay, and lives with whatever feature owns the data it draws — [the content-surface router](2026-08-24-content-surface-router.md) is what the placements register into today.
 
 ### The bridge owns a Vue root, not a container
 
@@ -26,7 +26,7 @@ The record is copied and frozen on the way in. Vue 2's observer walks every obje
 
 ### Component and placement are separate packages
 
-`ChartPanel` and `EChartsBar` name no slot and resolve nothing from a layout; `EChartsBar` resolves no copy either, so a placement that renders tool-call data in a conversation transcript passes its own strings. What stays on this branch is the eleven-line placement row. Merging the components elsewhere is a package move plus a new placement of the same size, not a rewrite.
+`ChartPanel` and `EChartsBar` name no slot and resolve nothing from a layout; `EChartsBar` resolves no copy either, so a placement that renders tool-call data in a conversation transcript passes its own strings. What stays on this branch is the placement, a dozen lines wherever it sits. Merging the components elsewhere is a package move plus a new placement of the same size, not a rewrite.
 
 ### The first package-row module request in the repository
 
@@ -60,4 +60,4 @@ A `develop`-side placement is a separate small plugin whenever it is wanted; the
 
 `chart-panel.client.spec.tsx` replaces ECharts and `ResizeObserver` with recorders, because jsdom has neither canvas nor layout. It covers `EChartsBar`'s data path and each optional input's default, the click that moves Vue's counter and React's state together, a data change applied to the live instance, a palette change rebuilding it, the observer-driven resize, and the disposal pair on unmount — then `ChartPanel`'s seeded week, its selection echo, and Randomize.
 
-`apps/web/tests/vue2-echarts-content-poc.e2e.ts` boots the real Web composition with the placement's overlay: a sized `<canvas>` inside `[data-shell-column="content"]`, a bar click that reaches both frameworks, and a Randomize press after which the canvas is the same element and the Vue counter still holds its click. Each package's `browser-plugin.client.spec.ts` proves its registration disposes with the fiber.
+`apps/web/tests/show-chart.e2e.ts` and `apps/web/tests/content-surface.e2e.ts` boot real Web compositions and prove a sized `<canvas>` comes out of the bridge in the transcript and in the content column. `ChartPanel`'s own browser evidence went with the demo placement that rendered it; the component keeps its jsdom spec and no placement.

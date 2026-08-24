@@ -17,12 +17,6 @@ export const CONTENT_SETTINGS_ROUTE = '/content-frame/settings'
 
 /** The browser-facing half of this plugin's configuration. */
 export interface ContentFrameSettings {
-  /** How many sessions' frames the column keeps alive at once; at least 1. */
+  /** How many (session, page) frames the column keeps alive at once; at least 1. */
   cacheSize: number
-  /**
-   * The resolved `defaultPage`, for the one state no projection covers: no
-   * session is current at all, so there is no per-session value to read.
-   * Absent when the deployment configured no default.
-   */
-  defaultPage?: { url: string; title: string }
 }

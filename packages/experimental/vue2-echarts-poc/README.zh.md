@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-一个组件库行：真实的 ECharts 图表，以 **Vue 2.7** 组件写成，并被包装到 React 里随处可渲染。本包不认识任何布局，也不注册任何 slot——它的浏览器半边只注册字典并导出组件。渲染在哪里由 placement 插件决定：[`vue2-echarts-content-poc`](../vue2-echarts-content-poc/README.zh.md) 把演示面板放进服务线外壳的 content 栏，[`vue2-echarts-tool-poc`](../vue2-echarts-tool-poc/README.zh.md) 则在会话记录里画出模型给的 option。
+一个组件库行：真实的 ECharts 图表，以 **Vue 2.7** 组件写成，并被包装到 React 里随处可渲染。本包不认识任何布局，也不注册任何 slot——它的浏览器半边只注册字典并导出组件。渲染在哪里由 placement 插件决定：[`vue2-echarts-tool-poc`](../vue2-echarts-tool-poc/README.zh.md) 在会话记录里、也在服务线外壳的 content 栏里画出模型给的 option。
 
 它是 [`vue-ui-poc`](../vue-ui-poc/README.zh.md) 的 Vue 2 对应物，后者对 Vue 3 验证同一个问题。
 
@@ -46,7 +46,7 @@ Vue 2 的响应式不跨运行时副本。observer、`Dep` 与渲染 watcher 都
 
 ## 组合方式
 
-该插件不属于任何已发布 bundle，单独装上也画不出任何东西：它是一个库行加它的字典。要和渲染它组件的 placement 一起组合——[`overlay/vue2-echarts-content.patch.yml`](../vue2-echarts-content-poc/overlay/vue2-echarts-content.patch.yml) 会装上这两行，以及开出它们落脚那一栏的外壳。
+该插件不属于任何已发布 bundle，单独装上也画不出任何东西：它是一个库行加它的字典。要和渲染它组件的 placement 一起组合——[`overlay/show-chart.patch.yml`](../vue2-echarts-tool-poc/overlay/show-chart.patch.yml) 在已发布形态上装上这两行，[`overlay/show-chart-three-column.patch.yml`](../vue2-echarts-tool-poc/overlay/show-chart-three-column.patch.yml) 则在旁边再加上服务线外壳与 content 栏。
 
 该包必须能从 profile 目录解析到，对树外插件而言意味着 `dsh plugin --profile web add <路径>` 或等价的链接——release bundle 不得声明实验包。
 

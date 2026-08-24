@@ -33,6 +33,7 @@ import { EChartsOption, type ChartVerdict } from '@deepseek-ai/dsh-experimental-
 import type {} from '../types.ts'
 import { parseChartCall } from '../chart-call.ts'
 import { SHOW_CHART_REPORT_ROUTE, type ShowChartReport } from '../route.ts'
+import { darkPalette } from './palette.ts'
 import { sanitizeChartOption } from './sanitize.ts'
 import css from './show-chart.module.css'
 
@@ -44,14 +45,6 @@ export interface ShowChartFace {
 
 /** Composed props: the toolview runtime share, the injected face, and this package's locale seat. */
 export type ShowChartRowProps = ToolCallViewProps & ShowChartFace & PropsLocale<'showChart'>
-
-/**
- * The dark-palette marker on `document.body`. Written by whichever shell is
- * composed — `dsh-client-ui-layout`'s theme presenter under the shipped
- * surface, `dsh-experimental-server-layout`'s under the service-line one — so
- * the row reads the attribute rather than depending on either package.
- */
-const DARK_ATTRIBUTE = 'data-ds-dark-theme'
 
 /** The raw argument JSON of a call in either lifecycle form. */
 function argumentsOf(block: ToolCallBlock): string | undefined {
@@ -88,7 +81,7 @@ export function ShowChartRow({ callId, block, screenshot, useProjection, t }: Sh
   const [verdict, setVerdict] = useState<ChartVerdict | undefined>(undefined)
   // Read once: the shell writes the marker before the client tree boots, and a
   // row that watched it would be subscribing to the document from a slot.
-  const [dark] = useState(() => document.body.hasAttribute(DARK_ATTRIBUTE))
+  const [dark] = useState(darkPalette)
   const captured = useRef<string | undefined>(undefined)
   const reported = useRef<string | undefined>(undefined)
 

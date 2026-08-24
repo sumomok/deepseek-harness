@@ -302,6 +302,21 @@
       "source": "packages/schedule/schedule/src/types.ts"
     },
     {
+      "doc": "docs/subsystems/content-surface.md",
+      "symbol": "ContentSurfaceExtractor",
+      "source": "packages/experimental/content-surface/src/extractor.ts"
+    },
+    {
+      "doc": "docs/subsystems/content-surface.md",
+      "symbol": "ContentSurfaceRecord",
+      "source": "packages/experimental/content-surface/src/types.ts"
+    },
+    {
+      "doc": "docs/subsystems/content-surface.md",
+      "symbol": "ContentSurfaceEntry",
+      "source": "packages/experimental/content-surface/src/types.ts"
+    },
+    {
       "doc": "docs/subsystems/agent-team.md",
       "symbol": "TeamMemberSnapshot",
       "source": "packages/experimental/agent-team/src/types.ts"

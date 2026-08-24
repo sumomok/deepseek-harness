@@ -1,18 +1,20 @@
 /**
- * Web e2e scenario: the agent-driven content column and its per-session frames.
+ * Web e2e scenario: the agent-driven page kind of the content column, and its
+ * per-session frames.
  *
- * The composition is the shipped Web surface plus an overlay mounting both
+ * The composition is the shipped Web surface plus an overlay mounting the three
  * experimental rows with a two-page deployment. Two sessions are seeded with
  * different `content/shown` events, so what the assertions read is the whole
- * host path — a durable log, the `content` projection resolving each recorded
- * id against the configured pages, the tail page carrying it to the browser —
- * and then the one thing only a real browser can answer: whether the frame a
- * user comes back to is the SAME element, still holding the same live
- * document. That is what the column's `root` scope and its frame cache exist
- * for, and no unit test can observe it.
+ * host path — a durable log, the `page` extractor recording each shown id, the
+ * `contentSurface` projection resolving it against the configured pages, the
+ * tail page carrying it to the browser — and then the one thing only a real
+ * browser can answer: whether the frame a user comes back to is the SAME
+ * element, still holding the same live document. That is what the column's
+ * `root` scope and the page seat's frame cache exist for, and no unit test can
+ * observe it.
  *
  * An experimental package cannot be a dependency of `apps/web`, so the profile
- * links the loader resolves both rows through are created here rather than by
+ * links the loader resolves the rows through are created here rather than by
  * `healProfilesModuleFallback`.
  */
 
@@ -30,9 +32,11 @@ const MODE = webSnapshotMode()
 const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
 const OVERLAY = fileURLToPath(new URL('./content-show.overlay.yml', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
-/** Both experimental rows the overlay inserts, as package name and source directory. */
+/** Every experimental row the overlay inserts, as package name and source directory. */
 const ROWS = [
   ['@deepseek-ai/dsh-experimental-server-layout', join(REPO_ROOT, 'packages/experimental/server-layout')],
+  ['@deepseek-ai/dsh-experimental-content-surface', join(REPO_ROOT, 'packages/experimental/content-surface')],
+  ['@deepseek-ai/dsh-experimental-content-column', join(REPO_ROOT, 'packages/experimental/content-column')],
   ['@deepseek-ai/dsh-experimental-content-frame', FRAME_DIR],
 ] as const
 /** The hosted application this scenario serves; the overlay reads it from the environment. */
@@ -202,9 +206,9 @@ describe.skipIf(MODE === 'record')('web e2e: the agent-driven content column', (
 
   it('shows nothing until a session says what to show', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-show-empty'))
-    // This deployment configures no default page, so a shell with no session
-    // open explains the empty column rather than guessing at one.
-    await page.locator('[data-content-notice]').waitFor({ timeout: 15_000 })
+    // The column lists what a session produced, so a shell with no session open
+    // explains the empty stream rather than guessing at a page.
+    await page.locator('[data-content-surface-empty]').waitFor({ timeout: 15_000 })
     expect(await activeFrame(page).count()).toBe(0)
   }, 90_000)
 

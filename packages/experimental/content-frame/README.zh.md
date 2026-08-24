@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-服务形态外壳 content 栏的第一位占用者，也是 agent 对这一栏的控制权：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，由一个铺满该栏的 iframe 呈现——而栏里放部署方配置的哪一个页面，由 agent 决定。里面的应用由运行 harness 的人自己编写和部署；本包既不构建它，也不关心它用什么框架。
+服务形态外壳 content 栏的 `page` 类型，也是 agent 对这一栏的控制权：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，由一个铺满该栏的 iframe 呈现——而栏里放部署方配置的哪一个页面，由 agent 决定。里面的应用由运行 harness 的人自己编写和部署；本包既不构建它，也不关心它用什么框架。
 
-四块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`content` projection 把记录下来的 id 对照**当下运行的**页面清单解析，因此浏览器收到的是成品 `{state, url, title}`，自身不做任何解析。browser 半边认领 [`server-layout`](../server-layout/README.zh.md) 的 `content` 槽，并为每个会话各保活一个 frame。
+五块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。
 
 ## 信任边界
 
@@ -31,15 +31,15 @@
 
 `pages` 是这一栏在部署里的全部词汇，且至少要有一项——`content_show` 存在的意义就是在其中挑选。每个页面声明 agent 传入的 `id`、用户读到的 `title`、以 agent 的语汇写成的 `description`（它会成为工具描述里的清单行），以及同源的 `url`。带协议或主机名的 URL 会让该行在加载时失败：这个 frame 携带外壳权限，因此只能寻址 dsh 同源地址。
 
-`defaultPage` 指定 agent 尚未选择任何页面时、以及它清空这一栏之后所展示的页面；省略它则这一栏在 agent 填入内容前保持空白。`id` 不得为 `none`，那是工具保留给「清空」的。
+`defaultPage` 指定 `content` projection 在 agent 尚未选择任何页面时、以及它清空这一栏之后所报告的页面。**这一栏本身不展示它**——它列出的是某个会话产生了什么，而默认页面并非任何会话产生的东西，因此什么都没展示过的会话得到的是这一栏的空状态提示。`id` 不得为 `none`，那是工具保留给「清空」的。
 
-## 每个会话各一个活着的 frame
+## 每个（会话，页面）各一个活着的 frame
 
-这一栏是 `root` 槽，框架永不重挂它；browser 半边把每个被缓存会话的 iframe 全部挂着，只显示当前那一个。因此用户回到某个会话时，页面还是他离开时的样子——滚动位置、表单状态、文档持有的一切——因为那个元素从未被销毁。`cacheSize` 限定能存活多少个；超出后最久未展示的那个被丢弃，其会话再次回来时重新加载。当前会话的 frame 永远不会是被丢弃的那个。
+这一栏的 kind 槽是 `root` 作用域，且别的 kind 上台时这一栏仍保持本座位挂载，因此 browser 半边把每个被缓存的 frame 全部挂着，只显示当前那一个。用户回到某个页面时，它还是被离开时的样子——滚动位置、表单状态、文档持有的一切——因为那个元素从未被销毁；换页面、换成图表、换会话都一样。`cacheSize` 限定能存活多少个，按（会话，页面）组合计；超出后最久未展示的那个被丢弃，再次回来时重新加载。正在展示的 frame 永远不会是被丢弃的那个。
 
 ## 组合方式
 
-本包与外壳都不属于任何出厂 bundle。`overlay/content-column.patch.yml` 把两者一并叠加到 Web 形态上——外壳替换 `ui-layout`，本行占据它开出的那一栏：
+本包与外壳都不属于任何出厂 bundle。`overlay/content-column.patch.yml` 把四者一并叠加到 Web 形态上——外壳替换 `ui-layout`，`content-surface` 把该会话已记录的事件折叠成 entry 流，`content-column` 占据外壳开出的那一栏，本行贡献 `page` 类型：
 
 ```yaml
 - id: ui-layout
@@ -49,6 +49,10 @@
 - insert:
     - id: server-layout
       name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
     - id: content-frame
       name: '@deepseek-ai/dsh-experimental-content-frame'
       config:
@@ -61,9 +65,9 @@
         defaultPage: home
 ```
 
-用 `dsh --profile web --patch <path>` 应用。overlay 从环境变量读取目录，使同一个文件可以服务任意应用；托管固定应用的部署把字面绝对路径写在那里即可。两个包都必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile web add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
+用 `dsh --profile web --patch <path>` 应用。overlay 从环境变量读取目录，使同一个文件可以服务任意应用；托管固定应用的部署把字面绝对路径写在那里即可。所有包都必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile web add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
 
-工具与 projection 都是可选子节点：没有 `ctx.tools` 或没有 `ctx.sessionProjections` 的组合仍保留路由并显示空栏，两者缺席都不会让该行失败。
+工具、projection 与 page extractor 都是可选子节点：没有 `ctx.tools`、`ctx.sessionProjections` 或 `ctx.contentSurface` 的组合仍保留路由，只是这一栏里什么都不显示；任何一项缺席都不会让该行失败。
 
 ## Model Experience
 
@@ -100,6 +104,7 @@
 - **`content/shown` 是读取时必需的** —— 该事件不带 `ignorable` 标记，因此会话词汇表里没有它的运行时会拒绝整份日志，而不是跳过这条事件。本仓库的任何构建都认识这个类型；单独构建、且排除了本包的运行时则不认识。
 - **一个目录、一个源** —— 路由只提供单个配置目录，且每个页面都必须是 dsh 同源内的路径。没有第二个应用、没有外部 URL，agent 也无法指名部署未配置的页面。
 - **frame 与外壳之间没有通道** —— 没有 `postMessage` 协议、没有共享状态，被托管的页面也无法回报用户在里面做了什么。agent 能把一个页面推到用户眼前，却无法得知之后发生了什么，除非有人告诉它。该页面回到 harness 的唯一通路是它自行调用的 dsh HTTP API。
+- **`content` projection 在树内没有消费者** —— 这一栏改读 entry 流，`content` 只作为「已解析的当前页面」值（`shown`/`default`/`empty`/`missing`）留给其他读取 wire 的一方。它也是 `defaultPage` 唯一还会出现的地方。
 - **frame 缓存按浏览器标签页计，且在时间上无上限** —— `cacheSize` 限定的是同时存活多少个 frame，不是存活多久。一个长期打开的标签页会让被缓存的文档持续运行，包括它们持有的轮询与套接字。
 - **settings 路由假定存在 HTTP 载体** —— browser 半边以页面 origin 为基准请求 `/content-frame/settings`。如果某种传输提供了外壳却没有把 harness 暴露在 HTTP 上，该行会失败——与 iframe 自己那条路由的处境相同。
 - **没有面向不可信内容的沙箱档** —— 见上文信任边界。托管不应携带外壳权限的内容属于另一个插件，本包不为此提供开关。

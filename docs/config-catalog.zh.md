@@ -637,18 +637,21 @@ export interface Config {
    */
   pages: ContentPage[]
   /**
-   * Page shown while a session has shown nothing yet, and after the agent
-   * clears the column. Must name a configured page. Omit to leave the column
-   * empty until the agent fills it.
+   * Page the `content` projection reports while a session has shown nothing
+   * yet, and after the agent clears the column. Must name a configured page.
+   * Omit to leave that value empty until the agent fills it. The content
+   * column itself does not show it: the column is a stream of what a session
+   * produced, and a default page is not something any session produced.
    */
   defaultPage?: string
   /**
-   * How many sessions' frames the browser keeps alive at once. A cached frame
-   * keeps its live document — scroll position, form state, whatever the page
-   * holds — across a session switch; the least recently shown one is dropped
-   * past this bound, and reloads when its session comes back. Raise it for a
-   * deployment whose users switch between many sessions and whose pages are
-   * expensive to reload; lower it to bound the browser's memory.
+   * How many frames the browser keeps alive at once, counted over (session,
+   * page) pairs. A cached frame keeps its live document — scroll position,
+   * form state, whatever the page holds — across a switch to another page,
+   * another content kind, or another session; the least recently shown one is
+   * dropped past this bound, and reloads when it comes back. Raise it for a
+   * deployment whose users move between many pages and sessions and whose
+   * pages are expensive to reload; lower it to bound the browser's memory.
    */
   cacheSize?: number
 }
@@ -666,7 +669,7 @@ export interface ContentPage {
 }
 ```
 
-来源：[`packages/experimental/content-frame/src/index.ts:42`](../packages/experimental/content-frame/src/index.ts)
+来源：[`packages/experimental/content-frame/src/index.ts:45`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 
@@ -724,7 +727,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/experimental/vue2-echarts-tool-poc/src/index.ts:60`](../packages/experimental/vue2-echarts-tool-poc/src/index.ts)
+来源：[`packages/experimental/vue2-echarts-tool-poc/src/index.ts:63`](../packages/experimental/vue2-echarts-tool-poc/src/index.ts)
 
 <a id="deepseek-aidsh-file-reference-local"></a>
 
@@ -3332,9 +3335,10 @@ export interface Config {
 - `@deepseek-ai/dsh-command-goal` — 需要 `commands` · `goals`（[`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts)）
 - `@deepseek-ai/dsh-commands`（[`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts)）
 - `@deepseek-ai/dsh-cordis-client-runner`（[`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts)）
+- `@deepseek-ai/dsh-experimental-content-column`（[`packages/experimental/content-column/src/index.ts`](../packages/experimental/content-column/src/index.ts)）
+- `@deepseek-ai/dsh-experimental-content-surface`（[`packages/experimental/content-surface/src/index.ts`](../packages/experimental/content-surface/src/index.ts)）
 - `@deepseek-ai/dsh-experimental-server-layout`（[`packages/experimental/server-layout/src/index.ts`](../packages/experimental/server-layout/src/index.ts)）
 - `@deepseek-ai/dsh-experimental-vue-ui-poc`（[`packages/experimental/vue-ui-poc/src/index.ts`](../packages/experimental/vue-ui-poc/src/index.ts)）
-- `@deepseek-ai/dsh-experimental-vue2-echarts-content-poc`（[`packages/experimental/vue2-echarts-content-poc/src/index.ts`](../packages/experimental/vue2-echarts-content-poc/src/index.ts)）
 - `@deepseek-ai/dsh-experimental-vue2-echarts-poc`（[`packages/experimental/vue2-echarts-poc/src/index.ts`](../packages/experimental/vue2-echarts-poc/src/index.ts)）
 - `@deepseek-ai/dsh-fs-e2b` — 需要 `e2b`（[`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts)）
 - `@deepseek-ai/dsh-fs-observation-policy`（[`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts)）

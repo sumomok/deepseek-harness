@@ -29,6 +29,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import * as ContentFrame from '../src/index.ts'
 import type { ContentPage } from '../src/types.ts'
 
@@ -90,12 +91,13 @@ async function loadComposition(withDefaultPage = true): Promise<Context> {
     '  config:',
     "    host: '127.0.0.1'",
     '    port: 0',
-    // The two optional seams, so this composition also activates the tool and
-    // the projection children rather than only the route.
+    // Every optional seam, so this composition also activates the tool, the
+    // projection, and the content-column children rather than only the route.
     "- name: '@deepseek-ai/dsh-session'",
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
     "- name: '@deepseek-ai/dsh-session-projection'",
+    "- name: '@deepseek-ai/dsh-experimental-content-surface'",
     '- id: content',
     "  name: '@deepseek-ai/dsh-experimental-content-frame'",
     '  config:',
@@ -120,6 +122,7 @@ async function loadComposition(withDefaultPage = true): Promise<Context> {
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
     ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
+    ['@deepseek-ai/dsh-experimental-content-surface', ContentSurfaceRegistry],
     ['@deepseek-ai/dsh-experimental-content-frame', ContentFrame],
   ])
   context.loader.internal = {
@@ -156,11 +159,15 @@ describe('hosted application route', () => {
       .filter(entry => entry.fiber === undefined && !entry.disabled)
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
-    // The optional seams the row reaches for are both live in this
-    // composition, so the tool and the projection are part of what booted.
+    // The optional seams the row reaches for are all live in this composition,
+    // so the tool, the projection, and the page extractor are part of what booted.
     expect(loaded.tools.schemas().map(schema => schema.name)).toContain('content_show')
-    expect(loaded.sessionProjections.snapshot(newSession(loaded)).values.content)
+    const session = newSession(loaded)
+    expect(loaded.sessionProjections.snapshot(session).values.content)
       .toEqual({ state: 'default', url: '/content-app/', title: 'Home' })
+    session.append('content/shown', { page: 'home' })
+    expect(loaded.sessionProjections.snapshot(session).values.contentSurface)
+      .toEqual({ entries: [{ kind: 'page', entryId: 'home', seq: session.seq - 1, title: 'Home', payload: { state: 'shown', page: 'home', url: '/content-app/', title: 'Home' } }] })
     const server = loaded.webServer
     const port = server.port
     // The dsh SPA seat, as a live deployment has it: a miss inside the hosted
@@ -224,7 +231,7 @@ describe('hosted application route', () => {
       status: 200,
       type: 'application/json',
       cacheControl: 'no-store',
-      body: '{"cacheSize":4,"defaultPage":{"url":"/content-app/","title":"Home"}}',
+      body: '{"cacheSize":4}',
     })
     expect(await request(port, '/content-frame/settings', { method: 'POST' }))
       .toMatchObject({ status: 405, allow: 'GET, HEAD' })

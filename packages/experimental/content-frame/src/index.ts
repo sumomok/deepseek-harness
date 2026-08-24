@@ -20,9 +20,12 @@ import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
 import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: resolves ctx.contentSurface for the optional extractor child.
+import type {} from '@deepseek-ai/dsh-experimental-content-surface'
 import type { ContentPage } from './types.ts'
 import { indexPages } from './pages.ts'
 import { contentProjection } from './projection.ts'
+import { pageExtractor } from './surface.ts'
 import { contentShowTool } from './tool.ts'
 import { CONTENT_APP_ROUTE, CONTENT_SETTINGS_ROUTE, type ContentFrameSettings } from './route.ts'
 import { serveContentApp } from './serve.ts'
@@ -55,18 +58,21 @@ export interface Config {
    */
   pages: ContentPage[]
   /**
-   * Page shown while a session has shown nothing yet, and after the agent
-   * clears the column. Must name a configured page. Omit to leave the column
-   * empty until the agent fills it.
+   * Page the `content` projection reports while a session has shown nothing
+   * yet, and after the agent clears the column. Must name a configured page.
+   * Omit to leave that value empty until the agent fills it. The content
+   * column itself does not show it: the column is a stream of what a session
+   * produced, and a default page is not something any session produced.
    */
   defaultPage?: string
   /**
-   * How many sessions' frames the browser keeps alive at once. A cached frame
-   * keeps its live document — scroll position, form state, whatever the page
-   * holds — across a session switch; the least recently shown one is dropped
-   * past this bound, and reloads when its session comes back. Raise it for a
-   * deployment whose users switch between many sessions and whose pages are
-   * expensive to reload; lower it to bound the browser's memory.
+   * How many frames the browser keeps alive at once, counted over (session,
+   * page) pairs. A cached frame keeps its live document — scroll position,
+   * form state, whatever the page holds — across a switch to another page,
+   * another content kind, or another session; the least recently shown one is
+   * dropped past this bound, and reloads when it comes back. Raise it for a
+   * deployment whose users move between many pages and sessions and whose
+   * pages are expensive to reload; lower it to bound the browser's memory.
    */
   cacheSize?: number
 }
@@ -135,11 +141,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       await serveContentApp(pathname.slice(CONTENT_APP_ROUTE.length), res, root)
     },
   }), 'content-frame: hosted application route')
-  const fallback = config.defaultPage === undefined ? undefined : pages.get(config.defaultPage)
-  const settings: ContentFrameSettings = {
-    cacheSize,
-    ...fallback === undefined ? {} : { defaultPage: { url: fallback.url, title: fallback.title } },
-  }
+  const settings: ContentFrameSettings = { cacheSize }
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: CONTENT_SETTINGS_ROUTE,
@@ -155,13 +157,16 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       res.end(JSON.stringify(settings))
     },
   }), 'content-frame: browser settings route')
-  // Both children activate only when their seam is composed: a deployment
-  // without a tool runtime or a projection registry keeps the route, and the
-  // browser shows the empty column.
+  // Every child activates only when its seam is composed: a deployment without
+  // a tool runtime, without a projection registry, or without the content
+  // column's router keeps the route, and the browser shows nothing.
   ctx.inject(['tools'], (toolCtx) => {
     toolCtx.tools.register(contentShowTool(pages))
   })
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(contentProjection(pages, config.defaultPage))
+  })
+  ctx.inject(['contentSurface'], (surfaceCtx) => {
+    surfaceCtx.contentSurface.register(pageExtractor(pages))
   })
 }

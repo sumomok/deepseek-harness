@@ -614,6 +614,19 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'contentSurface',
+    summary: '`ctx.contentSurface`: the extractor table behind the content column\'s entry stream, and the owner of the `contentSurface` projection unit.',
+    description: '`ctx.contentSurface`: the extractor table behind the content column\'s entry stream, and the owner of the `contentSurface` projection unit.\n\n**Registration timing is free.** The projection registry fixes a unit\'s fold and its `stateVersion` at registration and caches one folded cell per session, so a table read live inside one long-lived unit would leave every cell built before a late extractor arrived permanently missing that kind\'s history. This registry therefore registers a NEW unit for every table change: the registry drops the old unit\'s cells with it, and each session\'s next touch refolds `init` over its whole in-memory log through the new table. `stateVersion` is derived from the table for the same reason, so a persisted checkpoint written under a different set of kinds is discarded rather than forward-applied.\n\nThe one cost is push latency: the registry publishes a changed value only while driving an event, so a browser already connected when a kind row is hot-loaded reads the previous stream until that session\'s next event.',
+    methods: [
+      {
+        signature: 'register<D>(extractor: ContentSurfaceExtractor<D>): () => void',
+        description: 'Register one kind\'s extractor. The registration is an effect on the calling context\'s fiber: disposing the fiber (or calling the returned disposer) removes the kind, and every session\'s stream refolds without it.',
+        parameters: [{ name: 'extractor', description: 'the kind, its data version, and its two pure functions.' }],
+        returns: 'the exact disposer that unregisters this extractor.',
+      },
+    ],
+  },
+  {
     key: 'credentials',
     summary: 'Abstract credential service over two key spaces that answer two questions.',
     description: 'Abstract credential service over two key spaces that answer two questions.\n\nA CredentialRef answers "what is behind this environment-variable name", layered over the process environment, the provider-managed store, and `.env` files. One seam-wide rule binds that half: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.\n\nA CredentialKey answers "what credential does this plugin hold for this id". Nothing can layer here — an authorization grant has no environment to be read from — so presence of the record is the whole fact, and modifyRecord is the only write path because a correct write depends on the current value (a token refresh is read-decide-replace under one lock).',
@@ -3119,6 +3132,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ContentBlockType',
     declaration: 'export type ContentBlockType = keyof ContentBlockMap;',
+  },
+  {
+    name: 'ContentSurfaceDraft',
+    declaration: 'export interface ContentSurfaceDraft<D> {\n    readonly entryId: string;\n    readonly data: D;\n}',
+  },
+  {
+    name: 'ContentSurfaceExtractor',
+    declaration: 'export interface ContentSurfaceExtractor<D> {\n    readonly kind: string;\n    readonly dataVersion: number;\n    read(event: SessionEvent): ContentSurfaceDraft<D> | undefined;\n    resolve(data: D): ContentSurfaceResolved;\n}',
+  },
+  {
+    name: 'ContentSurfaceResolved',
+    declaration: 'export interface ContentSurfaceResolved {\n    readonly title: string;\n    readonly payload: unknown;\n}',
   },
   {
     name: 'ContextFormed',

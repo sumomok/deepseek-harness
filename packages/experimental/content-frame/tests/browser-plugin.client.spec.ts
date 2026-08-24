@@ -1,7 +1,7 @@
 /**
  * content-frame browser half against the real SlotRegistry: the settings read
- * that has to precede the registration, the content-column registration and
- * the cache bound it injects, the wait for the shell's declaration, removal on
+ * that has to precede the registration, the `page` kind registration and the
+ * cache bound it injects, the wait for the column's declaration, removal on
  * fiber teardown (HMR safety), the dictionaries, and the invariant companion's
  * ownership reservation.
  */
@@ -18,7 +18,7 @@ import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
 /** The settings document the bench serves. */
-const SETTINGS = { cacheSize: 5, defaultPage: { url: '/content-app/', title: 'Home' } }
+const SETTINGS = { cacheSize: 5 }
 
 /** Answer the node half's settings route with one document. */
 function serveSettings(body: unknown, ok = true): void {
@@ -28,11 +28,11 @@ function serveSettings(body: unknown, ok = true): void {
   }))
 }
 
-/** Declare the content column the way the service-line shell does. */
-function declareShell(ctx: Context): void {
+/** Declare the content column's kind slot the way the router does. */
+function declareColumn(ctx: Context): void {
   ctx.slots.register({
     name: 'root',
-    children: { content: { kind: 'single', scope: 'root' } },
+    children: { 'content.surface.kind': { kind: 'keyed', scope: 'root' } },
   } as never, () => null)
 }
 
@@ -41,7 +41,7 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   serveSettings(SETTINGS)
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
-  declareShell(ctx)
+  declareColumn(ctx)
   // The locale plugin binds a settings scope, which reads the connection handle
   // and the forwarded-event port.
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
@@ -66,29 +66,30 @@ describe('content-frame browser half', () => {
     expect(inject).toEqual(['slots', 'locale'])
   })
 
-  it('waits for the shell to declare the content column before claiming it', async () => {
+  it('waits for the column to declare its kind slot before claiming the page key', async () => {
     serveSettings({ cacheSize: 3 })
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
     ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
-    expect(ctx.slots.entries('content')).toHaveLength(0)
+    expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
 
-    declareShell(ctx)
+    declareColumn(ctx)
     await Promise.resolve()
-    expect(ctx.slots.entries('content')).toHaveLength(1)
+    expect(ctx.slots.entries('content.surface.kind')).toHaveLength(1)
   })
 
-  it('registers the column with the served cache bound, and fiber teardown removes it (HMR safety)', async () => {
+  it('registers the page key with the served cache bound, and fiber teardown removes it (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
-    const [entry] = ctx.slots.entries('content')
+    const [entry] = ctx.slots.entries('content.surface.kind')
     expect(entry?.component).toBe(ContentFrame)
+    expect(entry?.options.key).toBe('page')
     // The bound is settled in the apply world: the component receives it as data.
     expect(entry?.inject?.()).toEqual(SETTINGS)
 
     await fiber.dispose()
-    expect(ctx.slots.entries('content')).toHaveLength(0)
+    expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
   })
 
   it('fails the row rather than guessing when the settings route is unusable', async () => {
@@ -106,7 +107,7 @@ describe('content-frame browser half', () => {
       // the row, and the fiber only reports it.
       await expect(apply(ctx)).rejects.toThrow(message)
     }
-    expect(ctx.slots.entries('content')).toHaveLength(0)
+    expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {

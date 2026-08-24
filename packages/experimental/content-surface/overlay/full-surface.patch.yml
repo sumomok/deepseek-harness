@@ -1,0 +1,45 @@
+# Every content kind at once: the service-line shell, this router, a hosted
+# application contributing the `page` kind, and `show_chart` contributing the
+# `chart` kind. This is the composition the column was designed for — two
+# unrelated packages producing content for one seat, with the switcher strip
+# choosing between them.
+#
+# - `ui-layout` is disabled and `server-layout` inserted in its place: 'root' is
+#   a single slot and its child slots may be declared only once.
+# - `content-surface` publishes the entry stream and `content-column` claims the
+#   column and declares the kind slot. Both feature rows below inject the
+#   service on the host and the slot in the browser, so both halves must be
+#   present for either kind to appear.
+# - `content-frame` serves the application `DSH_CONTENT_APP_ROOT` names and
+#   offers its pages to the agent as `content_show`; an unset variable fails the
+#   row at load rather than serving nothing.
+# - `vue2-echarts-poc` carries the Vue 2.7 runtime and the ECharts build that
+#   the `show-chart` row requires through the loader's module table.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: content-frame
+      name: '@deepseek-ai/dsh-experimental-content-frame'
+      config:
+        root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/
+          - id: reports
+            title: Weekly reports
+            description: Published reports, newest first.
+            url: /content-app/reports/
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: show-chart
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc'

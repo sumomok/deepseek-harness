@@ -59,21 +59,32 @@ function entryOf(call: ChartCall, callId: string, seq: number): ShowChartEntry {
   }
 }
 
+/** One recognized chart call: the arguments, and the call id the log recorded for them. */
+export interface RecordedChartCall {
+  /** The call's chart arguments. */
+  readonly call: ChartCall
+  /** A top-level `callId`, or a code-mode `subCallId`. */
+  readonly callId: string
+}
+
 /**
  * Read the chart one committed event recorded, in either of the two log shapes.
+ *
+ * Shared with the content-surface `chart` extractor, so the transcript row, the
+ * supersede rule, and the content column all count exactly the same calls.
  * @param event - the committed session event.
- * @returns the entry, or `undefined` when the event records no readable chart call.
+ * @returns the call, or `undefined` when the event records no readable chart call.
  */
-function chartEntry(event: SessionEvent): ShowChartEntry | undefined {
+export function readChartEvent(event: SessionEvent): RecordedChartCall | undefined {
   if (event.type === 'tool/call') {
     if (event.data.name !== SHOW_CHART_TOOL_NAME) return undefined
     const call = parseChartCall(event.data.arguments)
-    return call === undefined ? undefined : entryOf(call, event.data.callId, event.seq)
+    return call === undefined ? undefined : { call, callId: event.data.callId }
   }
   if (event.type === 'tool/code-dispatch-start') {
     if (event.data.name !== SHOW_CHART_TOOL_NAME) return undefined
     const call = readChartCall(event.data.arguments)
-    return call === undefined ? undefined : entryOf(call, event.data.subCallId, event.seq)
+    return call === undefined ? undefined : { call, callId: event.data.subCallId }
   }
   return undefined
 }
@@ -100,8 +111,8 @@ export function showChartsProjection(): ShowChartsProjectionDefinition {
     stateSchema,
     init: () => [],
     apply: (state: ShowChartEntry[], event: SessionEvent) => {
-      const entry = chartEntry(event)
-      return entry === undefined ? state : [...state, entry]
+      const recorded = readChartEvent(event)
+      return recorded === undefined ? state : [...state, entryOf(recorded.call, recorded.callId, event.seq)]
     },
     wire: { viewSchema, view: resolveView },
     stateVersion: 1,

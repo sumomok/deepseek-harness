@@ -1,0 +1,99 @@
+/* The column is a switcher strip over a stage. The stage is a definite-size
+   box that stacks every mounted kind seat on top of the others, so each fills
+   the track the shell solved rather than the intrinsic box its content
+   carries. */
+.column {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--dsw-alias-bg-base);
+}
+
+.switcher {
+  flex: none;
+  display: flex;
+  gap: 6px;
+  overflow-x: auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--dsw-alias-border-l2);
+}
+
+.entry {
+  flex: none;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  max-width: 240px;
+  padding: 4px 10px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
+}
+
+.entry:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
+}
+
+.selected {
+  border-color: var(--dsw-alias-button-ghost-active-border);
+  background: var(--dsw-alias-button-ghost-active-fill);
+  color: var(--dsw-alias-label-primary);
+}
+
+.entryTitle {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.entryKind {
+  flex: none;
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.stage {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+}
+
+.seat {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+}
+
+/* `visibility`, never `display: none`: Blink detaches an iframe removed from
+   the layout tree and reloads its document when it comes back, and a canvas
+   engine sizing itself from a zero-box host paints nothing. A hidden seat
+   stays laid out, keeps running, and only stops taking clicks. */
+.hidden {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+.notice {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--dsw-alias-label-secondary);
+  background: var(--dsw-alias-bg-base);
+}

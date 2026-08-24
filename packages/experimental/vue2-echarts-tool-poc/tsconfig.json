@@ -51,6 +51,12 @@
       "path": "../../session/session-projection"
     },
     {
+      "path": "../content-column"
+    },
+    {
+      "path": "../content-surface"
+    },
+    {
       "path": "../vue2-echarts-poc"
     }
   ]
