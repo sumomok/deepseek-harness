@@ -717,9 +717,6 @@ importers:
       '@sumomok/dsh-balance':
         specifier: file:./vendor/sumomok-dsh-balance-0.1.0.tgz
         version: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.1.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-credentials@packages+credentials+credentials)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-launch-environment@packages+util+launch-environment)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
-      '@sumomok/dsh-edit-rerun':
-        specifier: file:./vendor/sumomok-dsh-edit-rerun-0.2.1.tgz
-        version: file:apps/desktop-server/vendor/sumomok-dsh-edit-rerun-0.2.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)
       '@sumomok/dsh-quote-message':
         specifier: file:./vendor/sumomok-dsh-quote-message-0.2.2.tgz
         version: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.2.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -12192,34 +12189,6 @@ packages:
       react:
         optional: true
 
-  '@sumomok/dsh-edit-rerun@file:apps/desktop-server/vendor/sumomok-dsh-edit-rerun-0.2.1.tgz':
-    resolution: {integrity: sha512-rKMlSbFEYuAG0bpiWjYk1Hz18YDxGXm/9Jx1ajvs+GJmFZTA+foVk2oZyt7z17KWwYZFSKx11szAGdRrA9zSRw==, tarball: file:apps/desktop-server/vendor/sumomok-dsh-edit-rerun-0.2.1.tgz}
-    version: 0.2.1
-    engines: {node: ^22.19 || >=24}
-    peerDependencies:
-      '@deepseek-ai/cordis': '>=4.0.1-rc.1 <5.0.0-0'
-      '@deepseek-ai/dsh-client-locale': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-runtime': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.0-rc.1 <0.2.0-0'
-      react: ^18.2.0
-    peerDependenciesMeta:
-      '@deepseek-ai/cordis':
-        optional: true
-      '@deepseek-ai/dsh-client-locale':
-        optional: true
-      '@deepseek-ai/dsh-client-runtime':
-        optional: true
-      '@deepseek-ai/dsh-client-ui-conversation':
-        optional: true
-      '@deepseek-ai/dsh-client-ui-primitives':
-        optional: true
-      '@deepseek-ai/dsh-client-ui-slots':
-        optional: true
-      react:
-        optional: true
-
   '@sumomok/dsh-quote-message@file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.2.tgz':
     resolution: {integrity: sha512-E6fQWKW05YsF9BspJKq3DW+I05J7nCE8C3waTSRhU9gfkYrd7S0WAyw8uil025ewepxF54BA9MkKprWmXSns1A==, tarball: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.2.tgz}
     version: 0.2.2
@@ -18553,16 +18522,6 @@ snapshots:
       '@deepseek-ai/dsh-settings': link:packages/settings/settings
       '@deepseek-ai/dsh-typert-protocol': link:packages/typert/protocol
       '@deepseek-ai/schemastery': link:vendor/schemastery
-      react: 18.3.1
-
-  '@sumomok/dsh-edit-rerun@file:apps/desktop-server/vendor/sumomok-dsh-edit-rerun-0.2.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)':
-    optionalDependencies:
-      '@deepseek-ai/cordis': link:vendor/cordis
-      '@deepseek-ai/dsh-client-locale': link:packages/client/locale
-      '@deepseek-ai/dsh-client-runtime': link:packages/client/runtime
-      '@deepseek-ai/dsh-client-ui-conversation': link:packages/client/ui-conversation
-      '@deepseek-ai/dsh-client-ui-primitives': link:packages/client/ui-primitives
-      '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
       react: 18.3.1
 
   '@sumomok/dsh-quote-message@file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.2.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':

@@ -1,11 +1,12 @@
 /**
  * Seeding the desktop profile: what the shell writes on a fresh home, that it
  * writes the same three files `initProfile` writes, what it appends to a
- * profile it finds, and the profiles it declines to touch.
+ * profile it finds, what it takes back out when a built-in is withdrawn, and
+ * the profiles it declines to touch.
  * @module
  */
 
-import { lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
+import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
@@ -13,6 +14,7 @@ import { initProfile, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES } from '@deepsee
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, describeSeed, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles,
+  WITHDRAWN_WEB_BUNDLES,
 } from '../src/profile-seed.ts'
 
 let root: string
@@ -190,7 +192,7 @@ describe('seedBuiltinBundles on an initialized profile', () => {
   it('reports a correct link as unchanged on the second run', () => {
     seedBuiltinBundles({ home, serverModules })
     const again = seedBuiltinBundles({ home, serverModules })
-    expect(again).toEqual({ seeded: [], linked: [], skipped: [], shadowed: [], created: false })
+    expect(again).toEqual({ seeded: [], linked: [], pruned: [], unlinked: [], skipped: [], shadowed: [], created: false })
   })
 })
 
@@ -235,6 +237,115 @@ describe('seedBuiltinBundles on a profile it must not rewrite', () => {
     // Without the directory the server refuses to boot the profile at all, so
     // the app would be gone rather than short of its plugins.
     expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+  })
+})
+
+describe('seedBuiltinBundles on a built-in this build withdrew', () => {
+  const gone = WITHDRAWN_WEB_BUNDLES[0]!
+  /** The flat-fallback link an earlier launch of this shell made for it. */
+  const linkPath = (): string => join(home, 'profiles', 'node_modules', gone)
+
+  /** The profile an earlier build left: the withdrawn name listed, and its link into that build's closure. */
+  function profileFromTheBuildThatShippedIt(target: string): void {
+    writeProfile(JSON.stringify({
+      name: 'dsh-profile-desktop',
+      private: true,
+      dependencies: {},
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...BUILTIN_WEB_BUNDLES, gone] } },
+    }, undefined, 2))
+    mkdirSync(join(home, 'profiles', 'node_modules', gone, '..'), { recursive: true })
+    symlinkSync(target, linkPath(), 'junction')
+  }
+
+  it('names one, so every path below is exercised for real', () => {
+    expect(WITHDRAWN_WEB_BUNDLES.length).toBeGreaterThan(0)
+    expect(BUILTIN_WEB_BUNDLES).not.toContain(gone)
+  })
+
+  it('drops the name and the link an upgrade in place would leave dangling', () => {
+    // The payload the link pointed into was replaced by this build, which no
+    // longer holds the package: the target is gone, and the name the manifest
+    // still carries would fail the boot at `resolveBundleDir`.
+    profileFromTheBuildThatShippedIt(join(serverModules, gone))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.pruned).toEqual([gone])
+    expect(report.unlinked).toEqual([gone])
+    expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...BUILTIN_WEB_BUNDLES])
+    expect(existsSync(linkPath())).toBe(false)
+    expect(lstatSync(linkPath(), { throwIfNoEntry: false })).toBeUndefined()
+  })
+
+  it('drops a link an installation that moved left pointing at nothing', () => {
+    profileFromTheBuildThatShippedIt(join(root, 'an-old-app', 'server', 'node_modules', gone))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.unlinked).toEqual([gone])
+    expect(report.pruned).toEqual([gone])
+  })
+
+  it('says both in the one line the launch logs', () => {
+    profileFromTheBuildThatShippedIt(join(serverModules, gone))
+    const line = describeSeed(seedBuiltinBundles({ home, serverModules }))
+    expect(line).toContain(`dropped withdrawn built-in ${gone}`)
+    expect(line).toContain(`unlinked ${gone}`)
+  })
+
+  it('keeps the bundle entry when the profile installed a copy of its own', () => {
+    // `dsh plugin --profile desktop add` puts the package under the profile's
+    // own node_modules, where `resolveBundleDir` still finds it. The shell's
+    // own link goes; the plugin the user installed keeps working.
+    profileFromTheBuildThatShippedIt(join(serverModules, gone))
+    installIntoProfile(gone, '0.2.1')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.unlinked).toEqual([gone])
+    expect(report.pruned).toEqual([])
+    expect(bundlesNow()).toContain(gone)
+  })
+
+  it('leaves a link into anything but this build\'s closure alone, and keeps the name with it', () => {
+    const elsewhere = join(root, 'checkout', gone)
+    mkdirSync(elsewhere, { recursive: true })
+    writeFileSync(join(elsewhere, 'package.json'), JSON.stringify({ name: gone, version: '9.9.9' }))
+    profileFromTheBuildThatShippedIt(elsewhere)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.unlinked).toEqual([])
+    expect(report.pruned).toEqual([])
+    expect(readlinkSync(linkPath())).toBe(elsewhere)
+    expect(bundlesNow()).toContain(gone)
+  })
+
+  it('leaves a real directory where the link belongs, and the name that resolves through it', () => {
+    const dir = join(home, 'profiles', 'node_modules', gone)
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: gone, version: '0.2.1' }))
+    writeProfile(JSON.stringify({
+      dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', ...BUILTIN_WEB_BUNDLES, gone] } },
+    }, undefined, 2))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report).toMatchObject({ pruned: [], unlinked: [] })
+    expect(bundlesNow()).toContain(gone)
+  })
+
+  it('repairs nothing on a home that never had it', () => {
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report).toMatchObject({ pruned: [], unlinked: [] })
+  })
+
+  it('leaves it alone while the payload still carries it', () => {
+    // The two lists disagreeing is a build error, not a profile to repair: the
+    // name still resolves from the installation, so nothing is broken.
+    shipPlugins([gone])
+    profileFromTheBuildThatShippedIt(join(serverModules, gone))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report).toMatchObject({ pruned: [], unlinked: [] })
+    expect(bundlesNow()).toContain(gone)
+  })
+
+  it('leaves a hand-composed manifest that lists no bundles alone', () => {
+    const path = writeProfile(JSON.stringify({ name: 'dsh-profile-desktop', dependencies: {} }, undefined, 2))
+    const before = readFileSync(path, 'utf8')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.pruned).toEqual([])
+    expect(readFileSync(path, 'utf8')).toBe(before)
   })
 })
 
@@ -309,17 +420,30 @@ describe('resolveHarnessHome', () => {
 
 describe('describeSeed', () => {
   it('says nothing when a run changed nothing', () => {
-    expect(describeSeed({ seeded: [], linked: [], skipped: [], shadowed: [], created: false })).toBeUndefined()
+    expect(describeSeed({
+      seeded: [], linked: [], pruned: [], unlinked: [], skipped: [], shadowed: [], created: false,
+    })).toBeUndefined()
   })
 
   it('names what was seeded and linked on one line', () => {
-    const line = describeSeed({ seeded: ['dsh-at-file'], linked: ['dsh-at-file'], skipped: [], shadowed: [], created: true })
+    const line = describeSeed({
+      seeded: ['dsh-at-file'], linked: ['dsh-at-file'], pruned: [], unlinked: [], skipped: [], shadowed: [], created: true,
+    })
     expect(line).toBe('[desktop] profile desktop: created with built-in bundles dsh-at-file; linked dsh-at-file\n')
   })
 
   it('carries every skip reason', () => {
-    const line = describeSeed({ seeded: [], linked: [], skipped: ['a: why', 'b: why'], shadowed: [], created: false })
+    const line = describeSeed({
+      seeded: [], linked: [], pruned: [], unlinked: [], skipped: ['a: why', 'b: why'], shadowed: [], created: false,
+    })
     expect(line).toBe('[desktop] profile desktop: skipped a: why; skipped b: why\n')
+  })
+
+  it('names a withdrawn built-in it dropped and unlinked', () => {
+    const line = describeSeed({
+      seeded: [], linked: [], pruned: ['@x/gone'], unlinked: ['@x/gone'], skipped: [], shadowed: [], created: false,
+    })
+    expect(line).toBe('[desktop] profile desktop: dropped withdrawn built-in @x/gone; unlinked @x/gone\n')
   })
 })
 

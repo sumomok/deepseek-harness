@@ -32,10 +32,16 @@
  * which owns the diagnostic for a profile it cannot load. Naming the built-in
  * bundles and maintaining the links stay best-effort, because every failure
  * there leaves a usable app without those plugins, which is the outcome to
- * prefer over a shell that will not launch. Both writes are idempotent and
- * additive: a name already listed is not added twice, a correct link is left as
- * it is, an existing file is never rewritten, and no bundle entry, dependency,
- * or other manifest field is ever removed.
+ * prefer over a shell that will not launch. Both writes are idempotent: a name
+ * already listed is not added twice, a correct link is left as it is, an
+ * existing file is never rewritten, and no dependency or other manifest field
+ * is ever touched.
+ *
+ * The one thing a run removes is a built-in this build withdrew — a name in
+ * {@link WITHDRAWN_WEB_BUNDLES} that an earlier build seeded and this payload
+ * no longer carries. `loadProfile` resolves every `dsh.profile.bundles` entry
+ * and throws on one it cannot resolve, so an upgrade that just stopped
+ * shipping a package would leave every profile it had seeded unbootable.
  *
  * The three template files are reproduced here rather than imported.
  * `apps/desktop` ships as an Electron app whose `node_modules` is packed into
@@ -44,9 +50,9 @@
  * `tests/profile-seed.spec.ts` compares what this writes against what
  * `initProfile` writes, so an edit to either side fails there.
  *
- * Removing a seeded plugin for good is a profile-level decision, not a shell
- * one: disable its row in `$DSH_HOME/profiles/desktop/cordis.patch.yml`.
- * Deleting the name from `dsh.profile.bundles` only lasts until the next launch.
+ * Turning a shipped plugin off is a profile-level decision, not a shell one:
+ * disable its row in `$DSH_HOME/profiles/desktop/cordis.patch.yml`. Deleting
+ * the name from `dsh.profile.bundles` only lasts until the next launch.
  * @module @deepseek-ai/dsh-desktop/profile-seed
  */
 
@@ -66,9 +72,26 @@ import { dirname, join, resolve } from 'node:path'
  */
 export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   'dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway',
-  '@sumomok/dsh-quote-message', '@sumomok/dsh-edit-rerun', '@sumomok/dsh-balance',
-  '@haoran/dsh-default-model',
+  '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-default-model',
 ]
+
+/**
+ * Plugin packages an earlier build seeded and this payload no longer carries.
+ *
+ * A name here is one the shell put into a profile itself, which makes the shell
+ * the only thing that can take it back out: the server resolves every
+ * `dsh.profile.bundles` entry against the installation and the profile, and a
+ * name that resolves in neither place fails the boot outright.
+ *
+ * A run removes such a name only where leaving it would be that failure, and
+ * removes the flat-fallback link only where it is the one this shell would have
+ * made. A copy the user installed themselves keeps both its link and its bundle
+ * entry, under the ownership that put it there.
+ *
+ * An entry stays here while any build that seeded it may still be installed;
+ * dropping one only stops repairing the profiles that still name it.
+ */
+export const WITHDRAWN_WEB_BUNDLES: readonly string[] = ['@sumomok/dsh-edit-rerun']
 
 /**
  * The profile the desktop shell boots (`dsh --profile desktop`), which no other
@@ -101,6 +124,10 @@ export interface SeedReport {
   seeded: string[]
   /** Flat-fallback links created or re-pointed this run. */
   linked: string[]
+  /** Withdrawn built-ins whose name this run removed from `dsh.profile.bundles`. */
+  pruned: string[]
+  /** Withdrawn built-ins whose flat-fallback link this run removed. */
+  unlinked: string[]
   /** One line per name or file the run left alone, each stating why. */
   skipped: string[]
   /** One line per built-in the profile's own `node_modules` shadows with another version. */
@@ -278,7 +305,7 @@ function ensureLink(link: string, target: string): boolean {
  * @returns what was created, seeded, linked, and skipped.
  */
 export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
-  const report: SeedReport = { seeded: [], linked: [], skipped: [], shadowed: [], created: false }
+  const report: SeedReport = { seeded: [], linked: [], pruned: [], unlinked: [], skipped: [], shadowed: [], created: false }
   const bundles = spec.bundles ?? BUILTIN_WEB_BUNDLES
   const available: string[] = []
   for (const name of bundles) {
@@ -314,7 +341,116 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
     }
     reportShadowing(spec, profileDir, name, report)
   }
+  pruneWithdrawnBundles(spec, profileDir, report)
   return report
+}
+
+/**
+ * Take the built-ins this build withdrew back out of a profile an earlier build
+ * seeded them into.
+ *
+ * A name this payload still carries is not withdrawn on this build whatever
+ * {@link WITHDRAWN_WEB_BUNDLES} says, and needs no repair: it still resolves
+ * from the installation.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with what this removed.
+ */
+function pruneWithdrawnBundles(spec: SeedSpec, profileDir: string, report: SeedReport): void {
+  const modulesDir = join(spec.home, PROFILES_DIR, 'node_modules')
+  const orphaned: string[] = []
+  for (const name of WITHDRAWN_WEB_BUNDLES) {
+    if (existsSync(join(spec.serverModules, name, 'package.json'))) continue
+    const link = join(modulesDir, name)
+    try {
+      if (removeSeededLink(link, join(spec.serverModules, name))) report.unlinked.push(name)
+    } catch (error) {
+      report.skipped.push(`${link}: ${String(error)}`)
+    }
+    if (!resolvesForProfile(spec, profileDir, name)) orphaned.push(name)
+  }
+  if (orphaned.length === 0) return
+  const manifestPath = join(profileDir, 'package.json')
+  try {
+    dropBundleNames(manifestPath, orphaned, report)
+  } catch (error) {
+    report.skipped.push(`${manifestPath}: ${String(error)}`)
+  }
+}
+
+/**
+ * Remove a flat-fallback link this shell made for a package it no longer ships.
+ *
+ * Only two links qualify: one that no longer resolves to anything, and one that
+ * points exactly where this build's closure would hold the package — between
+ * them, every link an earlier launch of this shell left behind. Anything else
+ * at that path, a real directory included, belongs to whoever created it.
+ * @param link - the flat-fallback path for the withdrawn name.
+ * @param shipped - where this build's closure would hold that package.
+ * @returns true when the link was removed.
+ * @throws when the path cannot be unlinked.
+ */
+function removeSeededLink(link: string, shipped: string): boolean {
+  let existing
+  try {
+    existing = lstatSync(link)
+  } catch {
+    // Absent, which is every home that never installed a build shipping it.
+    return false
+  }
+  if (!existing.isSymbolicLink()) return false
+  // existsSync follows the link, so this is false exactly when it dangles.
+  if (existsSync(link) && !sameLinkTarget(readlinkSync(link), shipped, dirname(link))) return false
+  unlinkSync(link)
+  return true
+}
+
+/**
+ * Whether the server could still resolve a bundle name for this profile.
+ *
+ * The three directories `resolveBundleDir` reaches through its two anchors: the
+ * installation's own closure, the profile's `node_modules`, and the flat
+ * fallback beside it. `existsSync` follows symbolic links, so a dangling one
+ * counts as the absence it is.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param name - the bundle package name.
+ * @returns true when at least one of the three holds the package.
+ */
+function resolvesForProfile(spec: SeedSpec, profileDir: string, name: string): boolean {
+  return [
+    join(spec.serverModules, name),
+    join(profileDir, 'node_modules', name),
+    join(spec.home, PROFILES_DIR, 'node_modules', name),
+  ].some(dir => existsSync(join(dir, 'package.json')))
+}
+
+/**
+ * Drop bundle names from an existing manifest's list, leaving every other field.
+ * @param manifestPath - the profile manifest.
+ * @param names - the names to remove.
+ * @param report - the run's report, extended with what was removed.
+ * @throws when the manifest cannot be replaced.
+ */
+function dropBundleNames(manifestPath: string, names: readonly string[], report: SeedReport): void {
+  let manifest: ProfileManifest
+  try {
+    manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ProfileManifest
+  } catch {
+    // Unreadable: either this run wrote it and it parses, or the seeding pass
+    // above read the same file and already reported it for the server.
+    return
+  }
+  const bundles = manifest.dsh?.profile?.bundles
+  if (!Array.isArray(bundles)) return
+  const dropped = bundles.filter(name => names.includes(name))
+  if (dropped.length === 0) return
+  const updated: ProfileManifest = {
+    ...manifest,
+    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: bundles.filter(name => !names.includes(name)) } },
+  }
+  writeAtomic(manifestPath, `${JSON.stringify(updated, undefined, 2)}\n`)
+  report.pruned.push(...dropped)
 }
 
 /**
@@ -387,6 +523,8 @@ export function describeSeed(report: SeedReport): string | undefined {
     parts.push(`${report.created ? 'created with' : 'seeded'} built-in bundles ${report.seeded.join(', ')}`)
   }
   if (report.linked.length > 0) parts.push(`linked ${report.linked.join(', ')}`)
+  if (report.pruned.length > 0) parts.push(`dropped withdrawn built-in ${report.pruned.join(', ')}`)
+  if (report.unlinked.length > 0) parts.push(`unlinked ${report.unlinked.join(', ')}`)
   for (const line of report.skipped) parts.push(`skipped ${line}`)
   for (const line of report.shadowed) parts.push(`warning: ${line}`)
   if (parts.length === 0) return undefined
