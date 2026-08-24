@@ -5,10 +5,13 @@
  * @module
  */
 
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
-  blockedByPattern, REPORT_HEADER_BYTES, RENDER_LIMITS, startRenderService,
-  type Capture, type CaptureNow, type RenderLimits, type RenderPhase, type RenderReport,
+  blockedByPattern, LOGIN_GRANT_PATH, LOGIN_NONCE_TTL_MS, LOGIN_PARTITION_PREFIX, LOGIN_PATH,
+  LOGIN_SESSIONS_PATH, LOGIN_WINDOW, loginPartitionDomain, REPORT_HEADER_BYTES, RENDER_LIMITS,
+  startRenderService,
+  type Capture, type CaptureNow, type ClearLoginSession, type LoginOpener, type LoginOutcome,
+  type LoginRequest, type RenderLimits, type RenderPhase, type RenderReport,
   type RenderRequest, type RenderServiceHandle, type RenderTrace, type Renderer,
 } from '../src/render-service.ts'
 
@@ -41,6 +44,44 @@ function reportOf(response: Response): RenderReport {
   return JSON.parse(decodeURIComponent(header ?? '')) as RenderReport
 }
 
+/** The login partition every login case uses. */
+const PARTITION = `${LOGIN_PARTITION_PREFIX}example.test`
+
+/** A grant every field of which is valid, used wherever one field is what is under test. */
+const GRANT = { url: 'https://example.test/private', partition: PARTITION }
+
+/** What a login opener that opens nothing answers with. */
+const LANDED: LoginOutcome = { landedUrl: 'https://example.test/private', sameSite: true }
+
+/** The halves a case that is not about signing in still has to supply. */
+interface LoginHalves {
+  openLogin: LoginOpener
+  clearLoginSession: ClearLoginSession
+  /** Every sign-in the service asked for, in order. */
+  opened: LoginRequest[]
+  /** Every partition the service asked to be erased, in order. */
+  cleared: string[]
+}
+
+/**
+ * Login halves that record what they were asked for and answer at once.
+ * @param open - what the opener does instead of opening a window.
+ * @returns the halves plus the two records.
+ */
+function recordingLogin(open?: (request: LoginRequest, signal: AbortSignal) => Promise<LoginOutcome>): LoginHalves {
+  const opened: LoginRequest[] = []
+  const cleared: string[] = []
+  return {
+    opened,
+    cleared,
+    openLogin: async (request, signal) => {
+      opened.push(request)
+      return open === undefined ? LANDED : await open(request, signal)
+    },
+    clearLoginSession: async (partition) => { cleared.push(partition) },
+  }
+}
+
 let service: RenderServiceHandle | undefined
 
 afterEach(async () => {
@@ -54,9 +95,39 @@ afterEach(async () => {
  * @param limits - the bounds to change for this test.
  * @returns the listening handle, closed by the shared teardown.
  */
-async function start(renderer: Renderer, limits: Partial<RenderLimits> = {}): Promise<RenderServiceHandle> {
-  service = await startRenderService({ renderer, limits: { ...RENDER_LIMITS, ...limits } })
+async function start(
+  renderer: Renderer,
+  limits: Partial<RenderLimits> = {},
+  login: LoginHalves = recordingLogin(),
+): Promise<RenderServiceHandle> {
+  service = await startRenderService({
+    renderer,
+    openLogin: login.openLogin,
+    clearLoginSession: login.clearLoginSession,
+    limits: { ...RENDER_LIMITS, ...limits },
+  })
   return service
+}
+
+/** POST or DELETE a body to one of this service's routes with its own token and content type. */
+async function call(handle: RenderServiceHandle, method: string, path: string, body: unknown): Promise<Response> {
+  return fetch(`${handle.endpoint}${path}`, {
+    method,
+    headers: { authorization: `Bearer ${handle.token}`, 'content-type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+}
+
+/**
+ * Mint one nonce, failing the test when the grant is refused.
+ * @param handle - the service to ask.
+ * @param body - the grant body, when it is not the valid one.
+ * @returns the minted nonce.
+ */
+async function grantNonce(handle: RenderServiceHandle, body: unknown = GRANT): Promise<string> {
+  const response = await call(handle, 'POST', LOGIN_GRANT_PATH, body)
+  expect(response.status).toBe(200)
+  return ((await response.json()) as { nonce: string }).nonce
 }
 
 /** A renderer that answers every request with {@link CAPTURE} and records what it was asked for. */
@@ -138,7 +209,13 @@ describe('the listener', () => {
     const first = await start(recordingRenderer().renderer)
     expect(first.endpoint).toMatch(/^http:\/\/127\.0\.0\.1:\d+$/)
     expect(first.token).toMatch(/^[0-9a-f]{64}$/)
-    const second = await startRenderService({ renderer: recordingRenderer().renderer, limits: RENDER_LIMITS })
+    const secondLogin = recordingLogin()
+    const second = await startRenderService({
+      renderer: recordingRenderer().renderer,
+      openLogin: secondLogin.openLogin,
+      clearLoginSession: secondLogin.clearLoginSession,
+      limits: RENDER_LIMITS,
+    })
     expect(second.token).not.toBe(first.token)
     await second.close()
   })
@@ -210,7 +287,11 @@ describe('routing', () => {
   it('answers 404 for every other method and path, without asking for a token', async () => {
     const { renderer, seen } = recordingRenderer()
     const handle = await start(renderer)
-    const routes: [string, string][] = [['GET', '/render'], ['DELETE', '/render'], ['POST', '/'], ['POST', '/screenshot']]
+    const routes: [string, string][] = [
+      ['GET', '/render'], ['DELETE', '/render'], ['POST', '/'], ['POST', '/screenshot'],
+      ['GET', LOGIN_PATH], ['DELETE', LOGIN_PATH], ['GET', LOGIN_GRANT_PATH],
+      ['POST', LOGIN_SESSIONS_PATH], ['GET', LOGIN_SESSIONS_PATH],
+    ]
     for (const [method, path] of routes) {
       const response = await fetch(`${handle.endpoint}${path}`, { method })
       expect(response.status).toBe(404)
@@ -1326,5 +1407,235 @@ describe('a deadline the caller asked to be answered with pixels', () => {
     await timedOut.text()
     expect(answered).toEqual(['second', 'first'])
     expect(started).toEqual([VALID.url, 'https://example.test/after'])
+  })
+})
+
+describe('the sign-in window a grant pays for', () => {
+  it('refuses every login route without the token, before it reads a body', async () => {
+    const login = recordingLogin()
+    const handle = await start(recordingRenderer().renderer, {}, login)
+    const routes: [string, string, unknown][] = [
+      ['POST', LOGIN_GRANT_PATH, GRANT],
+      ['POST', LOGIN_PATH, { nonce: '0'.repeat(64) }],
+      ['DELETE', LOGIN_SESSIONS_PATH, { partition: PARTITION }],
+    ]
+    for (const [method, path, body] of routes) {
+      const response = await fetch(`${handle.endpoint}${path}`, {
+        method,
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      expect(response.status).toBe(401)
+      expect(await response.text()).toContain('Bearer')
+    }
+    expect(login.opened).toEqual([])
+    expect(login.cleared).toEqual([])
+  })
+
+  it('opens no window for a nonce nobody minted', async () => {
+    const login = recordingLogin()
+    const handle = await start(recordingRenderer().renderer, {}, login)
+    const response = await call(handle, 'POST', LOGIN_PATH, { nonce: 'a'.repeat(64) })
+    expect(response.status).toBe(403)
+    expect(await response.text()).toContain(LOGIN_GRANT_PATH)
+    expect(login.opened).toEqual([])
+  })
+
+  it('refuses a nonce that is not the value the grant answers with', async () => {
+    const login = recordingLogin()
+    const handle = await start(recordingRenderer().renderer, {}, login)
+    for (const nonce of [undefined, '', 'short', 'A'.repeat(64), 'g'.repeat(64), '0'.repeat(63)]) {
+      const response = await call(handle, 'POST', LOGIN_PATH, { nonce })
+      expect(response.status).toBe(400)
+      await response.text()
+    }
+    expect(login.opened).toEqual([])
+  })
+
+  it('mints a nonce without opening anything, and opens the granted pair when it is spent', async () => {
+    const login = recordingLogin()
+    const handle = await start(recordingRenderer().renderer, {}, login)
+    const minted = await call(handle, 'POST', LOGIN_GRANT_PATH, GRANT)
+    expect(minted.status).toBe(200)
+    const body = (await minted.json()) as { nonce: string; expiresInMs: number }
+    expect(body.nonce).toMatch(/^[0-9a-f]{64}$/)
+    expect(body.expiresInMs).toBe(LOGIN_NONCE_TTL_MS)
+    expect(login.opened).toEqual([])
+    const opened = await call(handle, 'POST', LOGIN_PATH, { nonce: body.nonce })
+    expect(opened.status).toBe(200)
+    expect(await opened.json()).toEqual(LANDED)
+    expect(login.opened).toEqual([{ url: GRANT.url, partition: PARTITION }])
+  })
+
+  it('spends a nonce exactly once', async () => {
+    const login = recordingLogin()
+    const handle = await start(recordingRenderer().renderer, {}, login)
+    const nonce = await grantNonce(handle)
+    expect((await call(handle, 'POST', LOGIN_PATH, { nonce })).status).toBe(200)
+    const replay = await call(handle, 'POST', LOGIN_PATH, { nonce })
+    expect(replay.status).toBe(403)
+    await replay.text()
+    expect(login.opened).toHaveLength(1)
+  })
+
+  it('opens nothing for a nonce older than its time to live', async () => {
+    const login = recordingLogin()
+    const handle = await start(recordingRenderer().renderer, {}, login)
+    const nonce = await grantNonce(handle)
+    const expired = Date.now() + LOGIN_NONCE_TTL_MS + 1
+    const clock = vi.spyOn(Date, 'now').mockReturnValue(expired)
+    try {
+      const response = await call(handle, 'POST', LOGIN_PATH, { nonce })
+      expect(response.status).toBe(403)
+      expect(await response.text()).toContain(String(LOGIN_NONCE_TTL_MS))
+    } finally {
+      clock.mockRestore()
+    }
+    expect(login.opened).toEqual([])
+  })
+
+  it('refuses a grant whose page is not on the site its partition stores', async () => {
+    const login = recordingLogin()
+    const handle = await start(recordingRenderer().renderer, {}, login)
+    const bodies: unknown[] = [
+      { url: 'https://elsewhere.test/login', partition: PARTITION },
+      { url: 'https://example.test.evil.test/login', partition: PARTITION },
+      { url: 'file:///tmp/login.html', partition: PARTITION },
+      { url: 'not a url', partition: PARTITION },
+      { url: GRANT.url },
+    ]
+    for (const body of bodies) {
+      const response = await call(handle, 'POST', LOGIN_GRANT_PATH, body)
+      expect(response.status).toBeGreaterThanOrEqual(400)
+      await response.text()
+    }
+    // A subdomain is the sign-in host a site usually puts the form on.
+    const nonce = await grantNonce(handle, { url: 'https://accounts.example.test/login', partition: PARTITION })
+    expect((await call(handle, 'POST', LOGIN_PATH, { nonce })).status).toBe(200)
+    expect(login.opened).toEqual([{ url: 'https://accounts.example.test/login', partition: PARTITION }])
+  })
+
+  it('refuses every partition outside the login space, on both routes that name one', async () => {
+    const login = recordingLogin()
+    const handle = await start(recordingRenderer().renderer, {}, login)
+    const partitions: unknown[] = [
+      'persist:dsh-web', 'persist:', '', 'example.test', LOGIN_PARTITION_PREFIX,
+      `${LOGIN_PARTITION_PREFIX}EXAMPLE.test`, `${LOGIN_PARTITION_PREFIX}../other`,
+      `${LOGIN_PARTITION_PREFIX}${'a'.repeat(300)}`, 7, null,
+    ]
+    for (const partition of partitions) {
+      const granted = await call(handle, 'POST', LOGIN_GRANT_PATH, { url: GRANT.url, partition })
+      expect(granted.status).toBeGreaterThanOrEqual(400)
+      await granted.text()
+      const cleared = await call(handle, 'DELETE', LOGIN_SESSIONS_PATH, { partition })
+      expect(cleared.status).toBeGreaterThanOrEqual(400)
+      await cleared.text()
+    }
+    expect(login.opened).toEqual([])
+    expect(login.cleared).toEqual([])
+  })
+
+  it('erases the partition a sign-out names', async () => {
+    const login = recordingLogin()
+    const handle = await start(recordingRenderer().renderer, {}, login)
+    const response = await call(handle, 'DELETE', LOGIN_SESSIONS_PATH, { partition: PARTITION })
+    expect(response.status).toBe(200)
+    expect(await response.json()).toEqual({ partition: PARTITION, cleared: true })
+    expect(login.cleared).toEqual([PARTITION])
+  })
+
+  it('refuses a second window while one is open, without spending its nonce', async () => {
+    const held = gate()
+    const login = recordingLogin(async (_request, signal) => {
+      await held.wait
+      expect(signal.aborted).toBe(false)
+      return LANDED
+    })
+    const handle = await start(recordingRenderer().renderer, {}, login)
+    const first = call(handle, 'POST', LOGIN_PATH, { nonce: await grantNonce(handle) })
+    await until(() => login.opened.length === 1, 'the first window to open')
+    const second = await grantNonce(handle)
+    const refused = await call(handle, 'POST', LOGIN_PATH, { nonce: second })
+    expect(refused.status).toBe(503)
+    await refused.text()
+    held.open()
+    expect((await first).status).toBe(200)
+    // The refusal left the nonce alone, so the caller can open the window it
+    // already has consent for once the first one is out of the way.
+    expect((await call(handle, 'POST', LOGIN_PATH, { nonce: second })).status).toBe(200)
+    expect(login.opened).toHaveLength(2)
+  })
+
+  it('closes a window nobody finished, and says so', async () => {
+    const login = recordingLogin(async (_request, signal) => {
+      await new Promise<void>((resolve) => { signal.addEventListener('abort', () => { resolve() }, { once: true }) })
+      return LANDED
+    })
+    const handle = await start(recordingRenderer().renderer, { loginTimeoutMs: 40 }, login)
+    const response = await call(handle, 'POST', LOGIN_PATH, { nonce: await grantNonce(handle) })
+    expect(response.status).toBe(504)
+    expect(await response.text()).toContain('sign-in window')
+    // The slot is free again, which a caller that retries depends on.
+    expect((await call(handle, 'POST', LOGIN_PATH, { nonce: await grantNonce(handle) })).status).toBe(504)
+  })
+
+  it('is not the app window: the shell tells them apart by isResizable', () => {
+    expect(LOGIN_WINDOW.resizable).toBe(false)
+    expect(LOGIN_WINDOW.show).toBe(false)
+    expect(LOGIN_WINDOW.title).toBe('')
+  })
+
+  it('reads the site a partition is keyed by back out of its name', () => {
+    expect(loginPartitionDomain(PARTITION)).toBe('example.test')
+    expect(loginPartitionDomain(`${LOGIN_PARTITION_PREFIX}bbc.co.uk`)).toBe('bbc.co.uk')
+  })
+})
+
+describe('a render that names a login partition', () => {
+  it('hands the partition to the window half', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const response = await post(handle, { ...VALID, partition: PARTITION })
+    expect(response.status).toBe(200)
+    await response.arrayBuffer()
+    expect(seen).toEqual([{ ...VALID, ...RESOLVED, fullPage: false, delayMs: 0, partition: PARTITION }])
+  })
+
+  it('renders without one when the request names none', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const response = await post(handle, VALID)
+    expect(response.status).toBe(200)
+    await response.arrayBuffer()
+    expect(seen[0]?.partition).toBeUndefined()
+  })
+
+  it('refuses a partition outside the login space', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    for (const partition of ['persist:dsh-web', 'render:1234', `${LOGIN_PARTITION_PREFIX}Example.test`, 7]) {
+      const response = await post(handle, { ...VALID, partition })
+      expect(response.status).toBeGreaterThanOrEqual(400)
+      await response.text()
+    }
+    expect(seen).toEqual([])
+  })
+
+  it('refuses to write a caller’s own cookies into a store that outlives the request', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const response = await post(handle, { ...VALID, partition: PARTITION, cookies: [COOKIE] })
+    expect(response.status).toBe(422)
+    expect(await response.text()).toContain('may not also carry cookies')
+    expect(seen).toEqual([])
+  })
+
+  it('refuses a partition on a page that carries no session', async () => {
+    const { renderer, seen } = recordingRenderer()
+    const handle = await start(renderer)
+    const response = await post(handle, { ...VALID, url: 'file:///tmp/page.html', partition: PARTITION })
+    expect(response.status).toBe(422)
+    await response.text()
+    expect(seen).toEqual([])
   })
 })

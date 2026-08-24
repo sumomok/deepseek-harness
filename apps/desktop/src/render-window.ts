@@ -12,6 +12,13 @@
  * permission request denied; every download and every window the page tries to
  * open refused; no dialogs and no audio.
  *
+ * A request that names a login partition renders in that store instead, which
+ * is the one thing here that outlives its window: it is what a sign-in the user
+ * completed in [[@deepseek-ai/dsh-desktop/login-window]] was saved into, and
+ * capturing the page signed in is the whole reason it was. Everything else on
+ * this list still applies to that render, and the service refuses a request
+ * naming a partition and cookies together.
+ *
  * The last two are about the machine rather than the page's data. `alert()`,
  * `confirm()`, and `prompt()` open a native modal attached to a window with
  * `show: false`, which the user sees as a system dialog from nowhere that
@@ -28,7 +35,8 @@
  * partition name carries a fresh UUID per render, so that session is new for
  * every request and unreachable from any other: one render's cookies are gone
  * with its window, and the next render starts signed out unless it carries its
- * own. Nothing here writes a cookie value anywhere but that store.
+ * own or names a login partition. Nothing here writes a cookie value anywhere
+ * but that store.
  *
  * A request's `userAgent` is set on both the session and the web contents
  * before the load, so the document, its subresources, and `navigator.userAgent`
@@ -232,10 +240,14 @@ export const renderInHiddenWindow: Renderer = async (request, signal, trace, off
       // A hidden window is a background window, and a throttled one stops
       // painting — which is the frame this render is here to capture.
       backgroundThrottling: false,
-      // No `persist:` prefix: the session lives in memory and dies with the
-      // window, so nothing a rendered page stores outlives the request or
-      // reaches the session the user's own window runs in.
-      partition: `render:${randomUUID()}`,
+      // No `persist:` prefix, and a fresh name per render: the session lives in
+      // memory and dies with the window, so nothing a rendered page stores
+      // outlives the request or reaches the session the user's own window runs
+      // in. The one exception is a render that names a login partition — the
+      // store a sign-in was saved into, which is what renders that page signed
+      // in; the service admits only names inside that space, and a render
+      // naming one may carry no cookies of its own.
+      partition: request.partition ?? `render:${randomUUID()}`,
     },
   })
   const destroy = (): void => {

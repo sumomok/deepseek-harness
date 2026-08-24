@@ -7,8 +7,9 @@
  * a hidden `BrowserWindow` actually paints, that `capturePage` returns the
  * requested viewport, that a full-page capture grows past it, that a request's
  * cookies reach every request the page makes while its headers reach only the
- * navigation, that the next render starts from an empty cookie store because
- * each holds its own non-persistent partition, that a request's `userAgent`
+ * navigation, that the next render naming no partition starts from an empty
+ * cookie store because each such render holds its own non-persistent partition,
+ * that a request's `userAgent`
  * reaches the document and its subresources while a render naming none reports
  * Electron, that the `did-navigate` and `webRequest` hooks a timed-out render
  * is described from see a real redirect and a real page's real requests, that a
@@ -31,6 +32,7 @@ import { pathToFileURL } from 'node:url'
 import { app } from 'electron'
 import { RENDER_LIMITS, startRenderService } from '../lib/render-service.js'
 import { renderInHiddenWindow } from '../lib/render-window.js'
+import { clearLoginSession, openLoginWindow } from '../lib/login-window.js'
 
 /** The viewport every case renders at. */
 const VIEWPORT = { width: 400, height: 300 }
@@ -156,6 +158,8 @@ async function hungImageCase(directory) {
   await writeFile(page, `<!doctype html><meta charset="utf-8"><title>hung image</title><img src="${image}" alt="">`)
   const service = await startRenderService({
     renderer: renderInHiddenWindow,
+    openLogin: openLoginWindow,
+    clearLoginSession,
     limits: { ...RENDER_LIMITS, timeoutMs: HANG_TIMEOUT_MS },
   })
   try {
@@ -273,14 +277,17 @@ async function sessionCase(service) {
     check(withCookie.headers.get('x-dsh-render-landed-url') === null, 'a cookie reaches the request, so the render stays on the page it asked for')
     await withCookie.arrayBuffer()
 
-    // The same service, the next request: a render starts from an empty cookie
+    // The same service, the next request, naming no partition: such a render
+    // starts from an empty cookie
     // store however the one before it ended, because each holds its own
-    // non-persistent partition and nothing outlives the window.
+    // non-persistent partition and nothing outlives the window. A render that
+    // names a login partition is the deliberate exception; the protocol suite
+    // owns that field, this smoke owns the engine.
     const after = await post(service, { url: issues, ...VIEWPORT })
     check(after.status === 200, `the next render without a cookie answered ${after.status}`)
     check(
       after.headers.get('x-dsh-render-landed-url') === `${site.origin}/login`,
-      "the render after a signed-in one is signed out again: the partition's cookies did not outlive it",
+      "the render after a signed-in one, naming no partition, is signed out again: the partition's cookies did not outlive it",
     )
     check(!lastRequest(site.observed, '/issues').cookie, 'and the site received no cookie on it')
     await after.arrayBuffer()
@@ -306,6 +313,8 @@ async function redirectTimeoutCase() {
   const site = await sessionSite(`http://127.0.0.1:${listener.port}/avatar.png`)
   const service = await startRenderService({
     renderer: renderInHiddenWindow,
+    openLogin: openLoginWindow,
+    clearLoginSession,
     limits: { ...RENDER_LIMITS, timeoutMs: HANG_TIMEOUT_MS },
   })
   try {
@@ -493,7 +502,12 @@ async function run() {
   const page = join(directory, 'page.html')
   await writeFile(page, PAGE)
   const url = pathToFileURL(page).href
-  const service = await startRenderService({ renderer: renderInHiddenWindow, limits: RENDER_LIMITS })
+  const service = await startRenderService({
+    renderer: renderInHiddenWindow,
+    openLogin: openLoginWindow,
+    clearLoginSession,
+    limits: RENDER_LIMITS,
+  })
   try {
     console.log(`render-smoke: service on ${service.endpoint}`)
 

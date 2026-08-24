@@ -28,9 +28,9 @@
  * listener binds `127.0.0.1` on an ephemeral port, so nothing off the machine
  * can reach it. Every request carries a 32-byte token compared in constant
  * time, so another local process cannot use it by finding the port. No CORS
- * header is ever sent and every method other than `POST /render` answers 404,
- * so a page in the user's browser cannot reach it either: the preflight its
- * `authorization` and JSON content type force is refused. Renders are one at a
+ * header is ever sent and every method and path outside the four routes below
+ * answers 404, so a page in the user's browser cannot reach it either: the
+ * preflight its `authorization` and JSON content type force is refused. Renders are one at a
  * time behind a bounded queue and a hard deadline, so a caller cannot make the
  * shell hold an unbounded number of windows open. A request may carry headers
  * and cookies for the page it names — bounded in count and size, checked
@@ -38,13 +38,44 @@
  * session, never the user's; the caller supplies them, so this service never
  * holds a credential of its own. That session is a fresh non-persistent
  * partition per render, created with the window and destroyed with it, so one
- * render's cookies reach neither the next render nor the disk. A cookie value
- * is never quoted back into a refusal, a log line, or the report header for the
- * same reason it never persists.
+ * render's cookies reach neither the next render nor the disk — except for the
+ * one carve-out below. A cookie value is never quoted back into a refusal, a
+ * log line, or the report header, whichever partition it lives in.
  *
  * A request may also name the `userAgent` it renders under. Electron's default
  * carries the shell's own product tokens, which tells every page the agent
  * looks at what it is being looked at by.
+ *
+ * ## The login carve-out
+ *
+ * A page behind a sign-in wall cannot be captured from a partition that starts
+ * empty every time, and a caller cannot be asked for the cookies when the whole
+ * point is that nobody has exported them. So three more routes exist, and they
+ * are the only reason anything this service touches persists:
+ *
+ * - `POST {@link LOGIN_GRANT_PATH}` names a page and a login partition and gets
+ *   a single-use nonce back. It opens nothing.
+ * - `POST {@link LOGIN_PATH}` spends that nonce and opens a visible window at
+ *   the page the grant named, on the partition the grant named, and answers
+ *   when the user closes it. A body carrying anything but a live nonce opens no
+ *   window, so this route cannot be aimed: the pair was fixed when the nonce was
+ *   minted, the nonce is gone once spent, and it expires in
+ *   {@link LOGIN_NONCE_TTL_MS}.
+ * - `DELETE {@link LOGIN_SESSIONS_PATH}` erases everything one login partition
+ *   holds.
+ *
+ * `POST {@link RENDER_PATH}` may then name that same partition, which is what
+ * captures the page signed in. Every partition these three routes and that
+ * field accept is `{@link LOGIN_PARTITION_PREFIX}<registrable-domain>`, checked
+ * against {@link LOGIN_PARTITION_DOMAIN}: a caller can neither read nor erase
+ * the partition the user's own window runs in, nor invent one outside that
+ * space. A render naming a partition may not also carry cookies — a caller's
+ * own jar written into a store that outlives the request is a credential this
+ * service would be persisting on someone's behalf, which is the one thing it
+ * does not do.
+ *
+ * Nothing here reads what a login partition holds. The routes name a partition,
+ * Chromium owns the bytes, and no answer of this service carries a cookie.
  * @module @deepseek-ai/dsh-desktop/render-service
  */
 
@@ -57,8 +88,74 @@ const LOOPBACK_HOST = '127.0.0.1'
 /** Token length in bytes, hex-encoded onto the wire (64 characters). */
 const TOKEN_BYTES = 32
 
-/** The one route this service answers. Every other path and method is a 404. */
-const RENDER_PATH = '/render'
+/** The route that renders a page. */
+export const RENDER_PATH = '/render'
+
+/** The route that mints the single-use nonce one sign-in window is opened with. */
+export const LOGIN_GRANT_PATH = '/login-grant'
+
+/** The route that spends a nonce and opens the window. */
+export const LOGIN_PATH = '/login'
+
+/** The route that erases what one login partition holds. */
+export const LOGIN_SESSIONS_PATH = '/login-sessions'
+
+/**
+ * The prefix every partition this service will open, render in, or erase must
+ * carry. It is fixed rather than configurable: it is what keeps a caller off
+ * the partition the user's own window runs in, and off every other partition
+ * this shell may come to hold.
+ */
+export const LOGIN_PARTITION_PREFIX = 'persist:dsh-render-login-'
+
+/**
+ * What may follow {@link LOGIN_PARTITION_PREFIX}: a registrable domain, as the
+ * caller computed it. Lowercase, because a partition name is compared byte for
+ * byte and two cases of one domain would be two stores.
+ */
+export const LOGIN_PARTITION_DOMAIN = /^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)*$/
+
+/** The longest a login partition name may be, which bounds what one caller can make this shell hold. */
+const MAX_LOGIN_PARTITION_CHARS = LOGIN_PARTITION_PREFIX.length + 253
+
+/** Nonce length in bytes, hex-encoded onto the wire (64 characters). */
+const LOGIN_NONCE_BYTES = 32
+
+/**
+ * How long a minted nonce may be spent for. It is short because the caller
+ * that asked for it opens the window in the same turn: the window a user is
+ * shown must be the one the consent they just gave was about, and a nonce that
+ * outlived that turn would open a window for a decision nobody remembers
+ * making.
+ */
+export const LOGIN_NONCE_TTL_MS = 30_000
+
+/**
+ * How many nonces may be outstanding at once. A grant that opens no window
+ * leaves its nonce behind until it expires, so the table is bounded rather
+ * than trusted to drain.
+ */
+const MAX_LOGIN_NONCES = 8
+
+/**
+ * The shape of the sign-in window, stated here rather than beside its
+ * constructor so the protocol suite can check it without a display.
+ *
+ * `resizable: false` is load-bearing twice over: it is what tells this window
+ * apart from the app's own, which
+ * [[@deepseek-ai/dsh-desktop/main-window]] finds by `isResizable()`, and a
+ * sign-in form has no layout worth resizing for.
+ */
+export const LOGIN_WINDOW = {
+  show: false,
+  useContentSize: true,
+  width: 520,
+  height: 680,
+  resizable: false,
+  // The title the strip overwrites on the first navigation; a window that is
+  // shown before its first `did-navigate` must not carry the app's name.
+  title: '',
+} as const
 
 /** URL schemes a page may be loaded from; anything else is refused with 422. */
 const RENDERABLE_SCHEMES = new Set(['http:', 'https:', 'file:'])
@@ -280,6 +377,13 @@ export interface RenderLimits {
   maxExtraFields: number
   /** The largest those names and values may come to, in UTF-8 bytes, across both maps. */
   maxExtraBytes: number
+  /**
+   * How long one sign-in window may stay open before the shell closes it and
+   * answers the caller. It is a person's deadline rather than a page's — they
+   * have to read a form, find a password, and clear a second factor — so it is
+   * measured in minutes where every other bound here is in seconds.
+   */
+  loginTimeoutMs: number
 }
 
 /**
@@ -315,6 +419,10 @@ export const RENDER_LIMITS: RenderLimits = {
   // refusal a caller gets names the field rather than the byte count.
   maxExtraFields: 24,
   maxExtraBytes: 8 * 1024,
+  // Ten minutes: long enough to find a password manager and a phone, short
+  // enough that a window the user walked away from does not hold the login
+  // slot for the life of the session.
+  loginTimeoutMs: 10 * 60_000,
 }
 
 /** One accepted render, with every optional field of the request resolved. */
@@ -365,6 +473,14 @@ export interface RenderRequest {
    * carries the shell's own product tokens.
    */
   userAgent?: string
+  /**
+   * The login partition this render reads its session from, absent for the
+   * ordinary render — which is every render that does not follow a sign-in.
+   * A request that names one renders in a store the shell keeps between
+   * requests, so the page comes up signed in; a request that names none renders
+   * in a fresh partition that dies with its window.
+   */
+  partition?: string
 }
 
 /**
@@ -1124,10 +1240,48 @@ export type OfferCapture = (capture: CaptureNow) => void
  */
 export type Renderer = (request: RenderRequest, signal: AbortSignal, trace: RenderTrace, offerCapture: OfferCapture) => Promise<Capture>
 
+/** One sign-in window to open, as the grant that minted its nonce fixed it. */
+export interface LoginRequest {
+  /** The page the window opens at, which is the sign-in wall a capture hit. */
+  url: string
+  /** The persistent partition this sign-in is stored in. */
+  partition: string
+}
+
+/** How one sign-in window ended. */
+export interface LoginOutcome {
+  /** Where the window was when the user closed it. */
+  landedUrl: string
+  /** Whether that landing is still on the site the partition is keyed by. */
+  sameSite: boolean
+}
+
+/**
+ * The window half of the login route, injected for the same reason
+ * {@link Renderer} is: it cannot run outside a live Electron main process, and
+ * everything this module owns about a sign-in — the nonce, the partition
+ * grammar, the deadline — can then be driven without a display.
+ * @param request - the page to open and the partition to store the sign-in in.
+ * @param signal - aborted when the login deadline passes or the service closes.
+ * @returns where the window was when it closed.
+ */
+export type LoginOpener = (request: LoginRequest, signal: AbortSignal) => Promise<LoginOutcome>
+
+/**
+ * The Electron half of signing out: erase everything one login partition holds.
+ * @param partition - a partition name this service already checked.
+ * @returns resolves once the partition is empty.
+ */
+export type ClearLoginSession = (partition: string) => Promise<void>
+
 /** How to run one render service. */
 export interface RenderServiceSpec {
   /** The window half that produces the pixels. */
   renderer: Renderer
+  /** The window half that shows a sign-in. */
+  openLogin: LoginOpener
+  /** The half that erases one login partition. */
+  clearLoginSession: ClearLoginSession
   /** The bounds this deployment enforces. */
   limits: RenderLimits
 }
@@ -1215,6 +1369,7 @@ interface RenderBody {
   headers?: unknown
   cookies?: unknown
   userAgent?: unknown
+  partition?: unknown
 }
 
 /** One validated block list, or the reason it is not one. `undefined` is a list the request did not send. */
@@ -1228,6 +1383,9 @@ type CookieResolution = { ok: true; cookies: RenderCookie[] | undefined } | Reje
 
 /** One validated user agent, or the reason it is not one. `undefined` is a field the request did not send. */
 type UserAgentResolution = { ok: true; userAgent: string | undefined } | Rejection
+
+/** One validated login partition, or the reason it is not one. `undefined` is a field the request did not send. */
+type PartitionResolution = { ok: true; partition: string | undefined } | Rejection
 
 /** What the extra maps of one request have spent of their shared bounds so far. */
 interface ExtraBudget {
@@ -1436,6 +1594,43 @@ function userAgentOf(value: unknown): UserAgentResolution {
 }
 
 /**
+ * Check one login partition name against the only grammar this service opens,
+ * renders in, or erases.
+ *
+ * Everything outside `{@link LOGIN_PARTITION_PREFIX}<registrable-domain>` is
+ * refused, which is what keeps a caller off the partition the user's own window
+ * runs in and off any other store this shell holds. The domain is the caller's
+ * own computation — this service has no public-suffix list and needs none: what
+ * it enforces is that the name is in the login space and nothing else.
+ * @param value - the field as the body carried it.
+ * @returns the partition, undefined for an absent field, or the refusal.
+ */
+function loginPartitionOf(value: unknown): PartitionResolution {
+  if (value === undefined) return { ok: true, partition: undefined }
+  if (typeof value !== 'string') return { ok: false, status: 400, message: 'partition must be a string' }
+  if (value.length > MAX_LOGIN_PARTITION_CHARS) {
+    return { ok: false, status: 400, message: `partition may be at most ${String(MAX_LOGIN_PARTITION_CHARS)} characters` }
+  }
+  if (!value.startsWith(LOGIN_PARTITION_PREFIX)) {
+    return { ok: false, status: 422, message: `partition must start with ${LOGIN_PARTITION_PREFIX}` }
+  }
+  const domain = value.slice(LOGIN_PARTITION_PREFIX.length)
+  if (!LOGIN_PARTITION_DOMAIN.test(domain)) {
+    return { ok: false, status: 422, message: `partition must name a lowercase registrable domain after ${LOGIN_PARTITION_PREFIX}` }
+  }
+  return { ok: true, partition: value }
+}
+
+/**
+ * The registrable domain one login partition is keyed by.
+ * @param partition - a partition name this service already accepted.
+ * @returns the domain after the prefix.
+ */
+export function loginPartitionDomain(partition: string): string {
+  return partition.slice(LOGIN_PARTITION_PREFIX.length)
+}
+
+/**
  * Validate the hosts a request wants cancelled.
  *
  * The page's own host is refused rather than ignored: a request that blocks
@@ -1539,6 +1734,19 @@ function resolveRequest(raw: unknown, limits: RenderLimits): Resolution {
   }
   const userAgent = userAgentOf(body.userAgent)
   if (!userAgent.ok) return userAgent
+  const partition = loginPartitionOf(body.partition)
+  if (!partition.ok) return partition
+  if (partition.partition !== undefined) {
+    if (!SESSION_SCHEMES.has(scheme)) {
+      return { ok: false, status: 422, message: `a login partition holds an http or https session; ${scheme} reads none` }
+    }
+    // Refused rather than merged: a caller's own jar written into a store that
+    // outlives the request would persist a credential on that caller's behalf,
+    // which is the one thing the login carve-out does not extend to.
+    if (cookies.cookies !== undefined) {
+      return { ok: false, status: 422, message: 'a render naming a partition may not also carry cookies; the partition is the session' }
+    }
+  }
   return {
     ok: true,
     request: {
@@ -1553,8 +1761,91 @@ function resolveRequest(raw: unknown, limits: RenderLimits): Resolution {
       ...headers.map === undefined ? {} : { headers: headers.map },
       ...cookies.cookies === undefined ? {} : { cookies: cookies.cookies },
       ...userAgent.userAgent === undefined ? {} : { userAgent: userAgent.userAgent },
+      ...partition.partition === undefined ? {} : { partition: partition.partition },
     },
   }
+}
+
+/** One accepted grant, or the reason it is not one. */
+type GrantResolution = { ok: true; url: string; partition: string } | Rejection
+
+/** One accepted body naming a login partition and nothing else, or the reason it is not one. */
+type PartitionBodyResolution = { ok: true; partition: string } | Rejection
+
+/** One accepted body naming a nonce, or the reason it is not one. */
+type NonceResolution = { ok: true; nonce: string } | Rejection
+
+/**
+ * Turn a parsed body into a grant this service will mint a nonce for.
+ *
+ * The page and the partition are checked against each other, not only
+ * separately: the window opens at the page and the sign-in is stored under the
+ * partition's domain, so a pair that disagrees would file one site's cookies
+ * under another site's name — and the caller would then render that other site
+ * signed in as this one.
+ * @param raw - the parsed body.
+ * @returns the accepted pair, or the status and message to answer with.
+ */
+function resolveGrant(raw: unknown): GrantResolution {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { ok: false, status: 400, message: 'body must be a JSON object' }
+  }
+  const body = raw as { url?: unknown; partition?: unknown }
+  if (typeof body.url !== 'string' || body.url === '' || !URL.canParse(body.url)) {
+    return { ok: false, status: 400, message: 'url must be an absolute URL' }
+  }
+  const scheme = new URL(body.url).protocol
+  if (!SESSION_SCHEMES.has(scheme)) {
+    return { ok: false, status: 422, message: `a sign-in is an http or https page; ${scheme} carries no session` }
+  }
+  const partition = loginPartitionOf(body.partition)
+  if (!partition.ok) return partition
+  if (partition.partition === undefined) {
+    return { ok: false, status: 400, message: 'partition must name the login partition this sign-in is stored in' }
+  }
+  const domain = loginPartitionDomain(partition.partition)
+  const host = hostOf(body.url)
+  if (host !== domain && !host.endsWith(`.${domain}`)) {
+    return { ok: false, status: 422, message: `url host ${host} is not ${domain} or a subdomain of it, which is what this partition stores` }
+  }
+  return { ok: true, url: body.url, partition: partition.partition }
+}
+
+/**
+ * Turn a parsed body into the login partition it names.
+ * @param raw - the parsed body.
+ * @returns the partition, or the status and message to answer with.
+ */
+function resolvePartitionBody(raw: unknown): PartitionBodyResolution {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { ok: false, status: 400, message: 'body must be a JSON object' }
+  }
+  const partition = loginPartitionOf((raw as { partition?: unknown }).partition)
+  if (!partition.ok) return partition
+  if (partition.partition === undefined) {
+    return { ok: false, status: 400, message: 'partition must name the login partition to clear' }
+  }
+  return { ok: true, partition: partition.partition }
+}
+
+/**
+ * Turn a parsed body into the nonce it names.
+ *
+ * The nonce is checked for its shape here so a malformed one is a 400 rather
+ * than a lookup miss: the two are different mistakes, and only one of them is
+ * worth telling a caller to retry the grant for.
+ * @param raw - the parsed body.
+ * @returns the nonce, or the status and message to answer with.
+ */
+function resolveNonce(raw: unknown): NonceResolution {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+    return { ok: false, status: 400, message: 'body must be a JSON object' }
+  }
+  const nonce = (raw as { nonce?: unknown }).nonce
+  if (typeof nonce !== 'string' || nonce.length !== LOGIN_NONCE_BYTES * 2 || !/^[0-9a-f]+$/.test(nonce)) {
+    return { ok: false, status: 400, message: `nonce must be the ${String(LOGIN_NONCE_BYTES * 2)}-character value ${LOGIN_GRANT_PATH} answered with` }
+  }
+  return { ok: true, nonce }
 }
 
 /**
@@ -1631,6 +1922,52 @@ function sendPng(response: ServerResponse, rendered: Rendered): void {
 }
 
 /**
+ * Answer with a status and a JSON body, which is what the three login routes
+ * return: none of them produces pixels, and their callers read fields.
+ * @param response - the response to write.
+ * @param status - the HTTP status.
+ * @param value - the body, serialized as JSON.
+ */
+function sendJson(response: ServerResponse, status: number, value: unknown): void {
+  const body = Buffer.from(JSON.stringify(value), 'utf8')
+  response.writeHead(status, { 'content-type': 'application/json', 'content-length': body.byteLength })
+  response.end(body)
+}
+
+/**
+ * One outstanding grant: the exact sign-in a nonce may be spent on.
+ *
+ * The pair is fixed here rather than read from the call that spends it, which
+ * is what makes the nonce a permission to open one specific window instead of a
+ * second copy of the bearer token.
+ */
+interface LoginGrant {
+  /** The page the window opens at. */
+  url: string
+  /** The partition the sign-in is stored in. */
+  partition: string
+  /** When this grant stops being spendable, as `Date.now()` ms. */
+  expiresAt: number
+}
+
+/** What the four routes are, once method and path have been read. */
+type Route = 'render' | 'login-grant' | 'login' | 'login-sessions'
+
+/**
+ * Which route one request names.
+ * @param method - the HTTP method.
+ * @param path - the request path.
+ * @returns the route, or undefined for the 404 every other method and path gets.
+ */
+function routeOf(method: string, path: string): Route | undefined {
+  if (method === 'POST' && path === RENDER_PATH) return 'render'
+  if (method === 'POST' && path === LOGIN_GRANT_PATH) return 'login-grant'
+  if (method === 'POST' && path === LOGIN_PATH) return 'login'
+  if (method === 'DELETE' && path === LOGIN_SESSIONS_PATH) return 'login-sessions'
+  return undefined
+}
+
+/**
  * Take the capture a timed-out render answers with, or nothing.
  *
  * Capped and swallowing every failure, because this runs after the deadline has
@@ -1669,6 +2006,16 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
   const token = randomBytes(TOKEN_BYTES).toString('hex')
   /** Requests accepted right now: at most one rendering, the rest waiting. */
   let admitted = 0
+  /** Nonces minted and not yet spent, by nonce. */
+  const grants = new Map<string, LoginGrant>()
+  /** Whether a sign-in window is open; a second one is refused rather than queued. */
+  let signingIn = false
+  /**
+   * Aborted by {@link RenderServiceHandle.close}. A sign-in window waits on a
+   * person rather than on a page, so dropping its socket would leave a window
+   * on screen with nothing left to answer.
+   */
+  const closing = new AbortController()
   /** The serialization chain; every accepted render runs after the previous one is settled or abandoned. */
   let tail: Promise<void> = Promise.resolve()
 
@@ -1757,11 +2104,73 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
     }
   }
 
+  /**
+   * Mint a nonce for one granted sign-in.
+   *
+   * Expired grants are dropped here rather than on a timer: the table is only
+   * read on the two calls that touch it, so nothing has to keep the process
+   * awake to keep it small.
+   * @param grant - the page and partition the nonce may be spent on.
+   * @returns the nonce, or undefined when too many are already outstanding.
+   */
+  const mintNonce = (grant: Omit<LoginGrant, 'expiresAt'>): string | undefined => {
+    const now = Date.now()
+    for (const [key, held] of grants) {
+      if (held.expiresAt <= now) grants.delete(key)
+    }
+    if (grants.size >= MAX_LOGIN_NONCES) return undefined
+    const nonce = randomBytes(LOGIN_NONCE_BYTES).toString('hex')
+    grants.set(nonce, { ...grant, expiresAt: now + LOGIN_NONCE_TTL_MS })
+    return nonce
+  }
+
+  /**
+   * Spend one nonce.
+   *
+   * Deleted whether or not it had expired, so a nonce is spendable at most once
+   * however late the call arrives.
+   * @param nonce - the value the caller sent.
+   * @returns the grant it was minted for, or undefined when it is unknown or expired.
+   */
+  const spendNonce = (nonce: string): LoginGrant | undefined => {
+    const grant = grants.get(nonce)
+    grants.delete(nonce)
+    if (grant === undefined || grant.expiresAt <= Date.now()) return undefined
+    return grant
+  }
+
+  /**
+   * Open the window one spent nonce paid for, under the login deadline.
+   * @param grant - the page and partition the nonce was minted for.
+   * @param response - the response to answer.
+   * @returns resolves once the window is closed and the answer is written.
+   */
+  const runLogin = async (grant: LoginGrant, response: ServerResponse): Promise<void> => {
+    const controller = new AbortController()
+    const signal = AbortSignal.any([controller.signal, closing.signal])
+    const timer = setTimeout(() => { controller.abort() }, limits.loginTimeoutMs)
+    try {
+      const outcome = await spec.openLogin({ url: grant.url, partition: grant.partition }, signal)
+      if (signal.aborted) {
+        fail(response, 504, closing.signal.aborted
+          ? 'the sign-in window was closed because the shell is shutting down'
+          : `the sign-in window was closed after ${String(Math.round(limits.loginTimeoutMs / 1000))}s without being finished`)
+        return
+      }
+      sendJson(response, 200, outcome)
+    } finally {
+      clearTimeout(timer)
+      signingIn = false
+    }
+  }
+
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     try {
       const path = new URL(request.url ?? '/', `http://${LOOPBACK_HOST}`).pathname
-      if (request.method !== 'POST' || path !== RENDER_PATH) {
-        fail(response, 404, `no route for ${request.method ?? 'unknown'} ${path}`)
+      const method = request.method ?? 'unknown'
+      const route = routeOf(method, path)
+      if (route === undefined) {
+        fail(response, 404, `no route for ${method} ${path}`)
         return
       }
       if (!authorized(request.headers.authorization, token)) {
@@ -1782,6 +2191,51 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
         parsed = JSON.parse(body)
       } catch (error) {
         fail(response, 400, `body must be JSON: ${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
+      if (route === 'login-grant') {
+        const grant = resolveGrant(parsed)
+        if (!grant.ok) {
+          fail(response, grant.status, grant.message)
+          return
+        }
+        const nonce = mintNonce({ url: grant.url, partition: grant.partition })
+        if (nonce === undefined) {
+          fail(response, 503, `busy: ${String(MAX_LOGIN_NONCES)} sign-in grants are already outstanding`)
+          return
+        }
+        sendJson(response, 200, { nonce, expiresInMs: LOGIN_NONCE_TTL_MS })
+        return
+      }
+      if (route === 'login') {
+        const asked = resolveNonce(parsed)
+        if (!asked.ok) {
+          fail(response, asked.status, asked.message)
+          return
+        }
+        // Checked before the nonce is spent, so a refused second window does
+        // not also burn the grant the caller would have to mint again.
+        if (signingIn) {
+          fail(response, 503, 'busy: a sign-in window is already open')
+          return
+        }
+        const grant = spendNonce(asked.nonce)
+        if (grant === undefined) {
+          fail(response, 403, `no window opens for this nonce: it was spent already or older than ${String(LOGIN_NONCE_TTL_MS)}ms. Ask again at ${LOGIN_GRANT_PATH}`)
+          return
+        }
+        signingIn = true
+        await runLogin(grant, response)
+        return
+      }
+      if (route === 'login-sessions') {
+        const asked = resolvePartitionBody(parsed)
+        if (!asked.ok) {
+          fail(response, asked.status, asked.message)
+          return
+        }
+        await spec.clearLoginSession(asked.partition)
+        sendJson(response, 200, { partition: asked.partition, cleared: true })
         return
       }
       const resolution = resolveRequest(parsed, limits)
@@ -1831,6 +2285,10 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
     endpoint: `http://${LOOPBACK_HOST}:${String(address.port)}`,
     token,
     close: async () => {
+      // Before the sockets: a sign-in window is on screen until something takes
+      // it down, and the request holding it is one of the sockets below.
+      closing.abort()
+      grants.clear()
       // Sockets an agent left open would otherwise hold the listener open past
       // the quit that asked for it to close.
       server.closeAllConnections()

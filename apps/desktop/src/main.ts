@@ -30,6 +30,7 @@ import { setupNotifications } from './notifications.ts'
 import { describeSeed, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
 import { renderInHiddenWindow } from './render-window.ts'
+import { clearLoginSession, openLoginWindow } from './login-window.ts'
 import { startServer, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
@@ -133,7 +134,12 @@ async function stopServerBounded(): Promise<void> {
 async function startRenderServiceForServer(log: (chunk: string) => void): Promise<Record<string, string>> {
   let started: RenderServiceHandle
   try {
-    started = await startRenderService({ renderer: renderInHiddenWindow, limits: RENDER_LIMITS })
+    started = await startRenderService({
+      renderer: renderInHiddenWindow,
+      openLogin: openLoginWindow,
+      clearLoginSession,
+      limits: RENDER_LIMITS,
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     log(`[desktop] render service unavailable (${message}); screenshots fall back to a browser on this machine\n`)
