@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-desktop",
   "description": "Desktop client: an Electron shell that boots the deployed `dsh web` server from its resources on a bundled Node runtime and opens the browser UI in a native window. Packaging pipeline: scripts/package.ts (macOS zip+dmg, Windows NSIS).",
-  "version": "0.1.0-rc.21",
+  "version": "0.1.0-rc.22",
   "private": true,
   "type": "module",
   "main": "lib/main.js",
