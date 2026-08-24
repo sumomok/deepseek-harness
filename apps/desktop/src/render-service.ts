@@ -221,7 +221,7 @@ const BLOCK_HOST = /^(?:\*\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-
  * after that list is what {@link TIMEOUT_LINE_CHARS} drops on exactly the
  * pages whose renders are hardest to explain.
  */
-const REDIRECT_HINT = 'pass cookies or headers to capture it with a session'
+const REDIRECT_HINT = 'pass cookieJar or headers to capture it with a session'
 
 /**
  * The smallest real HTTP status. `did-navigate` reports -1 for a navigation

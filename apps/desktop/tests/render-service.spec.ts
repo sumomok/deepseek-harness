@@ -737,7 +737,7 @@ describe('a render that does not produce an image', () => {
     }, { ...VALID, url: 'http://127.0.0.1:18099/issues' })
     expect(line).toBe(
       'render timed out after 60ms: main document 200 at http://127.0.0.1:18099/login?back_url=%2Fissues, '
-      + 'load event not fired, pass cookies or headers to capture it with a session, no requests pending',
+      + 'load event not fired, pass cookieJar or headers to capture it with a session, no requests pending',
     )
   })
 
@@ -749,7 +749,7 @@ describe('a render that does not produce an image', () => {
     }, { ...VALID, url: 'http://127.0.0.1:18099/issues' })
     expect(line).toBe(
       'render timed out after 60ms: page loaded at http://127.0.0.1:18099/login, timed out while capturing, '
-      + 'pass cookies or headers to capture it with a session',
+      + 'pass cookieJar or headers to capture it with a session',
     )
   })
 
@@ -848,7 +848,7 @@ describe('a render that does not produce an image', () => {
     // The whole hint, with the pending list opening after it: everything a
     // caller can act on is ahead of the only clause that grows with the page,
     // so the cut this line needs lands in that list.
-    expect(line).toContain('pass cookies or headers to capture it with a session, 12 requests pending: ')
+    expect(line).toContain('pass cookieJar or headers to capture it with a session, 12 requests pending: ')
     expect(line.endsWith('…')).toBe(true)
   })
 

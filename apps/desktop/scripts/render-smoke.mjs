@@ -315,7 +315,7 @@ async function redirectTimeoutCase() {
     console.log(`      ${line}`)
     check(line.includes(`at ${site.origin}/login`), 'the 504 line says the render landed on the sign-in page')
     check(
-      line.includes('pass cookies or headers to capture it with a session'),
+      line.includes('pass cookieJar or headers to capture it with a session'),
       'the 504 line says what to send to reach the page that was asked for',
     )
   } finally {
