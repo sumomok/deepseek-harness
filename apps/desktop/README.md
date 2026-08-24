@@ -122,7 +122,7 @@ This bounds what the update feed can promise. TLS authenticates the server and e
 
 | Package | Version | What it adds |
 |---|---|---|
-| `dsh-better-sidebar` | `0.14.0`, from npm | A right-hand sidebar with a file tree, an editor, terminal tabs, and a task list |
+| `dsh-better-sidebar` | `0.15.2`, from npm | A right-hand sidebar with a file tree, an editor, terminal tabs, and a task list |
 | `dsh-at-file` | `v0.6.5`, from the author's repository at that tag's commit | `@` file mentions in the composer |
 | `@haoran/dsh-screenshot` | `0.2.0`, from a tarball committed in this repository | A `screenshot` tool that renders any page — a login-protected one included, with `cookies` or `headers` — hands the agent the pixels with a report of what the render did, returns a partial capture when the page runs out of time, and writes the PNG to a file when asked |
 | `@haoran/dsh-llm-permission-gateway` | `0.1.4`, from a tarball committed in this repository | The 自动审查 permission preset — carrying the full-access shield in the preset control — and a review model that judges every side-effecting tool call while it is selected |
