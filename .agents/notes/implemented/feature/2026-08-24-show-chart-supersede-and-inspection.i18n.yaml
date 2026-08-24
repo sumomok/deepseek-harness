@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-show-chart-supersede-and-inspection.md
-2026-08-24-show-chart-supersede-and-inspection.md: b4ab55655e58155da24c11957186f2e9fdd36a9d
-2026-08-24-show-chart-supersede-and-inspection.zh.md: b458b804396b95caf3f93d35b0d60afacac9871f
+2026-08-24-show-chart-supersede-and-inspection.md: 971d6e6ab6b2a0d5b76e1041bea17f6d6287075e
+2026-08-24-show-chart-supersede-and-inspection.zh.md: f3e453837ab2fba48a6b2c818c96c20bb34f47a1

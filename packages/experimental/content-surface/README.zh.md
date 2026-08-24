@@ -60,15 +60,31 @@ projection registry 在注册那一刻固定一个 unit 的 fold 与 `stateVersi
 
 用 `dsh --profile web --patch <path>` 应用，由 `DSH_CONTENT_APP_ROOT` 指出被托管的应用。所有包都必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile web add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
 
-projection 是可选子节点：没有 `ctx.sessionProjections` 的装配保留 extractor 表、不发布任何内容，这一栏显示空状态。
+两个子节点都是可选的。没有 `ctx.sessionProjections` 的装配保留 extractor 表、不发布任何内容，这一栏显示空状态；没有 `ctx.systemPrompt` 的装配保留该表、不贡献任何指引。两者互不为前提，本行的组合方式在哪种情况下都一样。
 
 ## Model Experience
 
-None, as this row only re-reads events other packages already logged; nothing here reaches a model request.
+### System prompt: working with content already on display
+
+#### What the model sees
+
+一个 section `content:on-display`：只要组合中有系统提示词注册表就会注册，且与注册了哪些 kind 无关——这条规则说的是**用户**指着什么，因此 extractor 表为空并不构成把它扣下的理由。文本不指名任何 kind、任何工具、任何参数，因此日后新增的 kind 无需改动此处即可继承它，而各工具的 schema 继续各自交代自己的身份字段怎么写。它的 order 是 `200`，位于 `100–199` 工具指引区间之后，因此它是对照各工具刚说过的话被读到的；[Agent Note](../../../.agents/notes/implemented/feature/2026-08-24-content-on-display-rule.zh.md) 载有让措辞与位置都成为有意选择的那次实测。
+
+##### The section, verbatim
+
+```markdown
+# Working with content already on display
+
+When the user refers to something you have already produced and put on display — quoting it, naming its title, or otherwise pointing at it — and asks for a change, update that same piece of content in place through the tool that produced it, reusing its identity, rather than producing a new one beside it.
+```
+
+#### Token effect
+
+约 70 个词的静态文本，随组合中每个 agent 的每一轮的每次请求携带，无论该会话是否曾展示过任何东西。这里没有任何依赖数据的内容，因此开销不随 entry 流增长。
 
 #### KV Cache effect
 
-None; this package neither assembles nor sends a provider request.
+前缀稳定：文本是静态的，且排在今天注册的所有 section 之后，因此组装出的提示词只是多了一段恒定的尾巴，它前面的前缀不受影响。加载或卸载本行会改变提示词并从那段尾巴起失效重用；任何 order 高于 `200` 的 section 会把这一段往前挤，并从它落到的位置起失效重用。
 
 ## Known Limitations and Deferred Work
 
@@ -76,6 +92,7 @@ None; this package neither assembles nor sends a provider request.
 - **派生的 `stateVersion` 可能碰撞** —— 表的签名被哈希进 31 位，因此两种不同组合原则上可能共用同一个版本、进而共用 checkpoint。真发生时的补救是给涉及的任一 kind 递增 `dataVersion`。
 - **热加载的 kind 不会主动推送** —— projection registry 没有重新发布的调用，因此在该行加载前就连上的浏览器会一直读到旧的流，直到该会话的下一条事件。
 - **无法控制顺序** —— entry 按最后记录它的 seq 排列，kind 无法要求排在最前或最后。
+- **这条规则的位置只是约定** —— order `200` 位于文档记载的 `100–199` 工具指引区间之后，但没有任何机制为它预留：日后某个 section 取更高的 order，就会无声地把这条规则挤离提示词末尾，而它正是在末尾被实测的。`apps/web/tests/content-surface.e2e.ts` 会对着真实组合断言这条尾巴，因此至少 Web 形态会响亮地失败。
 - **一条事件只归一个 kind** —— 第一个认得某条事件的 extractor 赢走它，而没有任何机制能发现两个 kind 在读同一条事件。派生自不同工具调用或不同事件类型的 kind 不会相撞。
 - **被工具链拆离了它的浏览器半边** —— 一个包若宿主入口声明了 Cordis 服务、`src/client` 又触及客户端运行时，两个 face 的 Context 合并会落进同一个 Typert 程序，使生成器因重复 key 而失败。把服务留在这里、把这一栏放进 [`content-column`](../content-column/README.zh.md)，正是为了避开这一点；两者总是一起组合，单独一个都不成事。
 - **未被 assembled snapshot 覆盖** —— 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。

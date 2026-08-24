@@ -60,15 +60,31 @@ Neither this package nor the shell is part of any shipped bundle. [`overlay/full
 
 `dsh --profile web --patch <path>` applies it, with `DSH_CONTENT_APP_ROOT` naming the hosted application. Every package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
 
-The projection is an optional child: an assembly without `ctx.sessionProjections` keeps the extractor table, publishes nothing, and the column shows its empty state.
+Both children are optional. An assembly without `ctx.sessionProjections` keeps the extractor table, publishes nothing, and the column shows its empty state; an assembly without `ctx.systemPrompt` keeps the table and contributes no guidance. Neither is a precondition for the other, and the row is composed the same way either way.
 
 ## Model Experience
 
-None, as this row only re-reads events other packages already logged; nothing here reaches a model request.
+### System prompt: working with content already on display
+
+#### What the model sees
+
+One section, `content:on-display`, registered whenever a system-prompt registry is composed and independent of which kinds are — the rule is about what the **user** points at, so an empty extractor table is not a reason to withhold it. The text names no kind, no tool, and no argument, so a kind added later inherits it with no edit here while each tool's own schema keeps saying how its identity is spelled. It orders at `200`, past the `100–199` tool-guidance band, so it is read against whatever each tool just said; [the Agent Note](../../../.agents/notes/implemented/feature/2026-08-24-content-on-display-rule.md) carries the measurement that made both the wording and the position deliberate.
+
+##### The section, verbatim
+
+```markdown
+# Working with content already on display
+
+When the user refers to something you have already produced and put on display — quoting it, naming its title, or otherwise pointing at it — and asks for a change, update that same piece of content in place through the tool that produced it, reusing its identity, rather than producing a new one beside it.
+```
+
+#### Token effect
+
+About 70 words of static text, carried in every request of every turn of every agent in the composition, whether or not that session has ever put anything on display. Nothing here is data-dependent, so the cost does not grow with the entry stream.
 
 #### KV Cache effect
 
-None; this package neither assembles nor sends a provider request.
+Prefix-stable: the text is static and orders after every section registered today, so the assembled prompt gains a constant tail and the prefix ahead of it is untouched. Loading or unloading this row changes the prompt and invalidates reuse from that tail; a section registered at an order above `200` would push this one earlier and invalidate reuse from wherever it lands.
 
 ## Known Limitations and Deferred Work
 
@@ -76,6 +92,7 @@ None; this package neither assembles nor sends a provider request.
 - **A derived `stateVersion` can collide** — the table's signature is hashed into 31 bits, so two different compositions could in principle share a version and thereby a checkpoint. The remedy if it ever happens is a `dataVersion` bump on any kind involved.
 - **A hot-loaded kind does not push** — the projection registry has no republish call, so a browser connected before the row loaded reads the previous stream until that session's next event.
 - **No ordering control** — entries are ordered by the seq that last recorded them, and a kind cannot ask to lead or trail.
+- **The rule's position is a convention** — order `200` is past the documented `100–199` tool-guidance band, but nothing reserves it: a later section taking a higher order silently moves the rule off the end of the prompt, which is where it was measured. `apps/web/tests/content-surface.e2e.ts` asserts the tail against a real composition, so the Web surface at least fails loudly.
 - **One event, one kind** — the first extractor that recognizes an event wins it, and nothing detects two kinds reading the same event. Kinds derived from distinct tool calls or distinct event types do not collide.
 - **Split from its browser half by the toolchain** — a package whose host entry declares a Cordis service and whose `src/client` reaches the client runtime puts both faces' Context merges in one Typert program, which fails the generator on a duplicated key. Keeping the service here and the column in [`content-column`](../content-column/README.md) is what avoids that; the two are composed together and neither is useful alone.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.

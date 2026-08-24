@@ -14,12 +14,20 @@
  * fact another package already logs — `content/shown` for a page, a
  * `show_chart` call for a chart — so replay reconstructs the whole column from
  * the log the agent actually wrote.
+ *
+ * One model-visible contribution, the prompt section below: what an entry
+ * stream needs the model to understand is that a piece of content stays one
+ * piece of content across turns, which is the same sentence for every kind.
+ * It reaches the model through the assembled system prompt, which the routed
+ * request header already records, so it adds no session event either.
  * @module @deepseek-ai/dsh-experimental-content-surface
  */
 
 import { Context, Service } from '@deepseek-ai/cordis'
 // Type-only: resolves ctx.sessionProjections for the optional projection child.
 import type {} from '@deepseek-ai/dsh-session-projection'
+// Type-only: resolves ctx.systemPrompt for the optional prompt-section child.
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import { eraseExtractor, type ContentSurfaceExtractor, type ErasedExtractor } from './extractor.ts'
 import { contentSurfaceProjection } from './projection.ts'
 
@@ -38,6 +46,29 @@ export type {
   ContentSurfaceExtractor,
   ContentSurfaceResolved,
 } from './extractor.ts'
+
+/**
+ * Prompt order of the on-display rule. It sits past the `100–199` tool-guidance
+ * band because it is read against whatever each tool just said about its own
+ * arguments: the rule tells the model WHEN to reuse an identity, and each tool
+ * schema owns what that identity is called. Nothing registers a later section
+ * today, so this is the last thing the assembled prompt says.
+ */
+const ON_DISPLAY_SECTION_ORDER = 200
+
+/**
+ * The rule that makes a follow-up land on the entry already in the column.
+ *
+ * Kind-agnostic and tool-agnostic on purpose: it names no chart, no page, and
+ * no argument, so a kind registered later inherits it with no edit here, and it
+ * stays true in a composition whose kinds this package has never heard of. The
+ * producing tools keep their own trigger wording; the two layers were measured
+ * together and neither is redundant, which the
+ * [Agent Note](../../../../.agents/notes/implemented/feature/2026-08-24-content-on-display-rule.md)
+ * records with the numbers.
+ */
+const ON_DISPLAY_RULE = '# Working with content already on display\n\n'
+  + 'When the user refers to something you have already produced and put on display — quoting it, naming its title, or otherwise pointing at it — and asks for a change, update that same piece of content in place through the tool that produced it, reusing its identity, rather than producing a new one beside it.'
 
 /**
  * `ctx.contentSurface`: the extractor table behind the content column's entry
@@ -82,6 +113,17 @@ export class ContentSurfaceRegistry extends Service {
           this.host = undefined
         }
       }, 'content-surface: contentSurface projection unit')
+    })
+    // Optional for the same reason, and unconditional in the table: the rule
+    // describes what the user does, not what any kind can draw, so gating it on
+    // a registered kind would make the prompt depend on hot-load timing while
+    // saving nothing a real composition ever spends.
+    ctx.inject(['systemPrompt'], (promptCtx: Context) => {
+      promptCtx.systemPrompt.section({
+        name: 'content:on-display',
+        order: ON_DISPLAY_SECTION_ORDER,
+        text: ON_DISPLAY_RULE,
+      })
     })
   }
 

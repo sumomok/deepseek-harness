@@ -18,7 +18,9 @@ export const inject = ['invariants']
  * No runtime invariant: this package appends no session event and owns no
  * mutable durable data. Its entries are a pure fold over events other packages
  * own and validate, and the projection registry already validates every value
- * this row publishes against the unit's own `viewSchema`.
+ * this row publishes against the unit's own `viewSchema`. Its prompt section is
+ * a registration effect, which is not an owned relationship an invariant may
+ * assert; `apps/web/tests/content-surface.e2e.ts` covers the assembled result.
  */
 const install: InvariantInstaller = () => {}
 

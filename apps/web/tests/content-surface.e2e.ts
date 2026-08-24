@@ -22,6 +22,11 @@
  * the first — under either transition, an iframe that is the SAME element is
  * the whole proof, and no unit test can observe it.
  *
+ * The surface's prompt rule is asserted here too, because the claim it makes is
+ * about the whole assembled prompt: the rule was measured at the end of it, and
+ * only a composition carrying every shipped section can answer where the row's
+ * order actually put it. That assertion drives no model and opens no page.
+ *
  * An experimental package cannot be a dependency of `apps/web`, so the profile
  * links the loader resolves the rows through are created here rather than by
  * `healProfilesModuleFallback`.
@@ -79,6 +84,12 @@ const COVERAGE_ENTRY = 'chart coverage'
 
 /** The line the transcript's superseded row shows, which the switcher must NOT list. */
 const DEMO_DRAFT_TITLE = 'Coverage, first draft'
+
+/** The prompt section the surface contributes, verbatim, and the name it registers under. */
+const ON_DISPLAY_SECTION = 'content:on-display'
+const ON_DISPLAY_RULE = `# Working with content already on display
+
+When the user refers to something you have already produced and put on display — quoting it, naming its title, or otherwise pointing at it — and asks for a change, update that same piece of content in place through the tool that produced it, reusing its identity, rather than producing a new one beside it.`
 
 /** The seeded chart calls, by call id and the caption each one carries. */
 const DEMO_OLD_CALL = 'call_00_demo_old'
@@ -276,6 +287,13 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
     await rm(harnessHome, { recursive: true, force: true })
     if (inheritedAppRoot === undefined) delete process.env.DSH_CONTENT_APP_ROOT
     else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
+  })
+
+  it('ends the assembled prompt with the on-display rule', async () => {
+    // Every shipped section of the Web surface is registered by now, so this is
+    // the composition's own answer to where order 200 lands.
+    const assembly = await scaffold.ctx.systemPrompt.assemble()
+    expect(assembly.sections.at(-1)).toEqual({ name: ON_DISPLAY_SECTION, text: ON_DISPLAY_RULE })
   })
 
   it('lists one entry per chart and page, and shows the newest', async () => {

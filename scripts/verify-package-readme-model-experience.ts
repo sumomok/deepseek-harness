@@ -90,7 +90,6 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/experimental/server-layout': { kind: 'none', reason: 'Browser-side shell frame and viewing state; registers nothing model-facing.' },
   'packages/experimental/vue-ui-poc': { kind: 'none', reason: 'Browser-side framework-hosting probe; registers nothing model-facing.' },
   'packages/experimental/vue2-echarts-poc': { kind: 'none', reason: 'Browser-side chart components hosted in a Vue 2.7 bridge; registers nothing model-facing.' },
-  'packages/experimental/content-surface': { kind: 'none', reason: 'The entry stream only re-reads events other packages already logged; it registers no tool, prompt, or result of its own.' },
   'packages/experimental/content-column': { kind: 'none', reason: 'Browser-side content column and its kind seats; registers nothing model-facing.' },
   'packages/client/ui-workspace': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/client/ui-directory-picker-browse': { kind: 'none', reason: 'Browser-side directory-browsing surface; registers nothing model-facing.' },

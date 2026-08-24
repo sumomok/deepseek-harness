@@ -34,6 +34,8 @@ Both calls stay in the transcript — the log is what happened, and no row edits
 
 The mechanism does not make the model reach for it. In a session with a chart already on screen, the user quoted its caption and asked for a bar series alongside the line; the model minted `gold-7d-change` beside the existing `gold-7d` and drew a second chart, where the user expected the one they were pointing at to change. The same model, in the same session, reused an id unprompted when the screenshot instruction asked it to — so the mechanism was reachable and only the trigger was missing. The `id` description now names that trigger: a request to change, extend, or fix a chart already drawn — quoted, named by its title, or otherwise pointed at — carries that chart's own id, because a new id draws a second chart beside the old one. Only a genuinely new chart gets a new id.
 
+That clause is one of two layers. [The content-surface rule](2026-08-24-content-on-display-rule.md) states the same thing for every content tool, in the system prompt and without chart vocabulary; the two were measured against this session together, and the clause alone recovers half of the failures while the pair recovers all of them.
+
 ### The `showCharts` projection is what a row cannot see for itself
 
 A row renders one call slice. Deciding whether a later call took its chart id requires reading the calls after it, which no row can do. The node half projects it instead, through the session-projection seam: `showCharts` folds the log into `entries` — one `{ chartId, callId, title, seq }` per recorded chart call, in log order — and the view derives `latest`, the call currently owning each chart id.
