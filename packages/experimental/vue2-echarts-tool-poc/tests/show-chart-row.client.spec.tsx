@@ -15,6 +15,7 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import { ShowChartRow, type ShowChartRowProps } from '../src/client/ShowChartRow.tsx'
 import { SHOW_CHART_REPORT_ROUTE } from '../src/route.ts'
+import type { ShowChartsView } from '../src/types.ts'
 import { en } from '../src/client/locales.ts'
 
 /** What the row handed the chart on its last render. */
@@ -90,14 +91,24 @@ function settled(args: unknown, callId = CALL_ID): ToolCallBlock {
   }
 }
 
+/**
+ * The framework's projection seat, stubbed with one session's value.
+ * @param charts - the `showCharts` value the host published, if any.
+ * @returns the hook the runtime share carries.
+ */
+function projections(charts: ShowChartsView | undefined): ShowChartRowProps['useProjection'] {
+  return (key: string) => (key === 'showCharts' ? charts : undefined)
+}
+
 /** Mount one row over the owner share the transcript supplies. */
-function mount(block: ToolCallBlock, screenshot = false): void {
+function mount(block: ToolCallBlock, screenshot = false, charts?: ShowChartsView): void {
   const props = {
     callId: block.callId,
     toolName: 'show_chart',
     block,
     openFile: () => {},
     screenshot,
+    useProjection: projections(charts),
     t,
   } as unknown as ShowChartRowProps
   render(<ShowChartRow {...props} />)
@@ -228,6 +239,48 @@ describe('ShowChartRow', () => {
     document.body.setAttribute('data-ds-dark-theme', '')
     mount(running({ option: OPTION }))
     expect(chart().dark).toBe(true)
+  })
+
+  it('collapses to a notice when a later call redrew this chart', () => {
+    mount(running({ id: 'revenue', title: 'Weekly revenue', option: OPTION }), false, {
+      entries: [],
+      latest: { revenue: 'call_01_chart' },
+    })
+    expect(screen.getByText('Weekly revenue: updated by a later call.')).toBeDefined()
+    // No stage, no engine, and therefore no verdict to report: the call this
+    // row would answer settled long ago.
+    expect(stage()).toBeNull()
+    expect(bridge.renders).toHaveLength(0)
+    expect(posted).toEqual([])
+  })
+
+  it('draws the call that currently owns the chart id', () => {
+    mount(running({ id: 'revenue', option: OPTION }), false, {
+      entries: [],
+      latest: { revenue: CALL_ID },
+    })
+    expect(bridge.renders).not.toHaveLength(0)
+    expect(stage()).not.toBeNull()
+  })
+
+  it('draws a call whose own id is the chart, when the projection lists it', () => {
+    mount(running({ option: OPTION }), false, { entries: [], latest: { [CALL_ID]: CALL_ID } })
+    expect(bridge.renders).not.toHaveLength(0)
+  })
+
+  it('draws the chart while the projection has not carried this session yet', () => {
+    // A composition without a projection registry publishes no value at all,
+    // and a live one lags its log by a frame; neither is a superseded row.
+    mount(running({ id: 'revenue', option: OPTION }), false, undefined)
+    expect(bridge.renders).not.toHaveLength(0)
+  })
+
+  it('draws the chart while the projection lists other charts only', () => {
+    mount(running({ id: 'revenue', option: OPTION }), false, {
+      entries: [],
+      latest: { traffic: 'call_02_chart' },
+    })
+    expect(bridge.renders).not.toHaveLength(0)
   })
 
   it('survives a report the node half never answers', async () => {

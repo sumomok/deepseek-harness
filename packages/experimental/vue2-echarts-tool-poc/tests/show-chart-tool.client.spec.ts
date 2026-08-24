@@ -34,6 +34,10 @@ const POLICY: ShowChartPolicy = {
 }
 
 const BAR = { series: [{ type: 'bar', data: [1, 2, 3] }] }
+/** The instruction that rides beside a stored capture, verbatim. */
+const SCREENSHOT_INSTRUCTION = 'A screenshot of the painted chart is attached — inspect it for layout '
+  + 'problems (overlapping legend, labels, or axes; clipped text) and, if any, call show_chart again '
+  + 'with a corrected option, reusing the same id.'
 /** A one-by-one transparent PNG, as a browser capture arrives. */
 const PNG_DATA_URL = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=='
 
@@ -97,10 +101,12 @@ describe('show_chart model-visible surface', () => {
       'Draw a chart inside the conversation the user is reading. Pass a complete ECharts option '
       + 'document as JSON in `option`; it renders where this call appears in the transcript, and the '
       + 'result reports what was painted.\n\n'
-      + 'Supported series types: bar, line, pie. JSON only — no functions and no expressions. '
+      + 'Supported series types: bar, line, pie, radar. JSON only — no functions and no expressions. '
       + 'Put the numbers inline in series[].data; at most 2000 data points across all series. '
       + 'Tooltips render as rich text, so tooltip markup is shown literally. The UI picks the theme; '
-      + 'set explicit colors only when a specific color carries meaning.',
+      + 'set explicit colors only when a specific color carries meaning.\n\n'
+      + 'The chart is drawn in a conversation column roughly 500×340 CSS pixels. Put the legend at the '
+      + 'bottom and let ECharts place the chart itself; absolute `grid` offsets collide at that size.',
     )
   })
 
@@ -113,6 +119,12 @@ describe('show_chart model-visible surface', () => {
     expect(definition.parameters).toEqual({
       type: 'object',
       properties: {
+        id: {
+          type: 'string',
+          description: 'Stable id of the chart, at most 64 characters. Reuse an earlier chart\'s id '
+            + 'when correcting or updating it: the newer call replaces the older one where the user '
+            + 'is reading. Omit it for a chart that stands on its own.',
+        },
         title: { type: 'string', description: 'Short caption shown with the chart. Omit for none.' },
         option: {
           type: 'object',
@@ -121,7 +133,7 @@ describe('show_chart model-visible surface', () => {
           properties: {
             series: {
               type: 'array',
-              description: 'One entry per series; each declares a "type" of bar, line, pie and inline "data".',
+              description: 'One entry per series; each declares a "type" of bar, line, pie, radar and inline "data".',
               items: {},
             },
           },
@@ -160,7 +172,7 @@ describe('show_chart deployment bounds', () => {
     const { run } = await bench()
     const result = await run({ option: { series: [{ type: 'sankey', data: [] }] } })
     expect(text(result)).toBe(
-      'Error: show_chart: unsupported series type "sankey" at series[0]. Supported types: bar, line, pie.',
+      'Error: show_chart: unsupported series type "sankey" at series[0]. Supported types: bar, line, pie, radar.',
     )
   })
 
@@ -218,8 +230,14 @@ describe('show_chart render verdict', () => {
     const { run } = await bench({ verdictTimeoutMs: 20 })
     const result = await run({ option: BAR })
     expect(result.isError).toBe(false)
-    expect(text(result)).toBe('Shown; not verified (no client reported within 0.02s)')
-    expect(unverifiedText(8000)).toBe('Shown; not verified (no client reported within 8s)')
+    expect(text(result)).toBe(
+      'Shown; not verified (no client reported within 0.02s). The chart is in the transcript and '
+      + 'paints when the user views it — do not re-issue the same chart because of this.',
+    )
+    expect(unverifiedText(8000)).toBe(
+      'Shown; not verified (no client reported within 8s). The chart is in the transcript and '
+      + 'paints when the user views it — do not re-issue the same chart because of this.',
+    )
   })
 
   it('ignores a second report for the same call', async () => {
@@ -253,6 +271,9 @@ describe('show_chart screenshot', () => {
     expect(result.isError).toBe(false)
     expect(result.content).toEqual([
       { type: 'text', text: 'Rendered: chart — 1 series, 3 points' },
+      // The picture alone reads as confirmation; the sentence is what makes the
+      // model look at it.
+      { type: 'text', text: SCREENSHOT_INSTRUCTION },
       {
         type: 'image',
         attachment: {
@@ -429,10 +450,66 @@ describe('show_chart output rendering', () => {
     })
     expect(rendered).toEqual([
       { type: 'text', text: 'Rendered: chart — 1 series, 3 points' },
+      { type: 'text', text: SCREENSHOT_INSTRUCTION },
       {
         type: 'image',
         attachment: { attachmentId: 'sha256-x', mediaType: 'image/png', bytes: 12, width: 2, height: 2 },
       },
     ])
+  })
+
+  it('asks for nothing extra when no capture was stored', async () => {
+    const { definition } = await bench()
+    expect(definition.output.render({ option: BAR }, {
+      status: 'rendered',
+      text: 'Rendered: chart — 1 series, 3 points',
+    })).toEqual([{ type: 'text', text: 'Rendered: chart — 1 series, 3 points' }])
+  })
+
+  it('keeps the settled card titled by the verdict line alone', async () => {
+    const { definition } = await bench()
+    const rendered = definition.output.render({ option: BAR }, {
+      status: 'rendered',
+      text: 'Rendered: chart — 1 series, 3 points',
+      image: { attachmentId: 'sha256-x', mediaType: 'image/png', bytes: 12, width: 2, height: 2 },
+    })
+    expect(definition.presentResult?.({ option: BAR }, { content: rendered, isError: false })).toEqual({
+      card: 'generic',
+      title: 'Rendered: chart — 1 series, 3 points',
+    })
+  })
+})
+
+describe('show_chart chart identity', () => {
+  it('draws a chart whose id names an earlier one, so the newer call can replace it', async () => {
+    const { pending, run } = await bench()
+    const result = await run({ id: 'weekly-revenue', title: 'Weekly revenue', option: BAR }, (callId) => {
+      pending.report({ callId, verdict: { ok: true, seriesCount: 1, pointCount: 3 } })
+    })
+    expect(result.isError).toBe(false)
+    expect(text(result)).toBe('Rendered: Weekly revenue — 1 series, 3 points')
+  })
+
+  it('refuses a blank id before waiting for any browser', async () => {
+    const { run } = await bench()
+    const result = await run({ id: '   ', option: BAR })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toBe(
+      'Error: show_chart: id must not be blank. Omit it for a new chart, or pass the id of the chart this call replaces.',
+    )
+  })
+
+  it('refuses an id past the length ceiling', async () => {
+    const { run } = await bench()
+    const result = await run({ id: 'x'.repeat(65), option: BAR })
+    expect(text(result)).toBe(
+      'Error: show_chart: id is 65 characters; at most 64 are accepted. Use a short stable id such as "weekly-revenue".',
+    )
+  })
+
+  it('refuses the id before it measures the option, so the first fault named is the first one', async () => {
+    const { run } = await bench({ maxPoints: 1 })
+    const result = await run({ id: '', option: BAR })
+    expect(text(result)).toContain('id must not be blank')
   })
 })

@@ -6,9 +6,14 @@
  * a column and is therefore layout-independent: the shipped Web surface plus
  * the tool's own overlay (what `develop` would run), and the service-line shell
  * where the same component row also fills the content column. The seeded log
- * carries two settled calls, so what the assertions read is the replay path —
+ * carries four settled calls, so what the assertions read is the replay path —
  * the transcript hands each row its call slice, the row sanitizes the option and
  * paints it, and only a real engine can answer whether a sized canvas came out.
+ *
+ * The last two calls share one chart id. That pair covers the whole supersede
+ * path end to end: the host folds both calls into the `showCharts` projection,
+ * the browser reads it through the standard projection hook, and the older row
+ * collapses to a notice while the newer one paints.
  *
  * The live await path — a tool body blocked on the browser's verdict — is
  * covered by the package's host specs against a fake reporter; a keyless replay
@@ -49,11 +54,21 @@ const ARTIFACTS = join(REPO_ROOT, '.artifacts')
 /** The composer's own English placeholder — the signal that a session is open. */
 const COMPOSER_PLACEHOLDER = 'Message the agent'
 
-/** The two seeded calls, by id and caption. */
+/** The four seeded calls, by call id and caption. */
 const BAR_CALL = 'call_00_chart_bar'
 const PIE_CALL = 'call_00_chart_pie'
+const DEMO_OLD_CALL = 'call_00_chart_demo_old'
+const DEMO_NEW_CALL = 'call_00_chart_demo_new'
 const BAR_TITLE = 'Weekly revenue'
 const PIE_TITLE = 'Traffic sources'
+const DEMO_OLD_TITLE = 'Coverage, first draft'
+const DEMO_NEW_TITLE = 'Coverage'
+
+/** The chart id the last two calls share, so the newer one replaces the older row. */
+const DEMO_ID = 'demo'
+
+/** The superseded row's English copy, as this package's dictionary states it. */
+const SUPERSEDED_NOTICE = `${DEMO_OLD_TITLE}: updated by a later call.`
 
 /** The bar option the seeded call carries. */
 const BAR_OPTION = {
@@ -79,6 +94,24 @@ const PIE_OPTION = {
   }],
 }
 
+/** The line option the older `demo` call carries; a later call replaces it. */
+const DEMO_OLD_OPTION = {
+  animation: false,
+  xAxis: { type: 'category', data: ['Q1', 'Q2', 'Q3'] },
+  yAxis: { type: 'value' },
+  series: [{ type: 'line', name: DEMO_OLD_TITLE, data: [3, 5, 4] }],
+}
+
+/** The radar option the newer `demo` call carries — a different chart under the same id. */
+const DEMO_NEW_OPTION = {
+  animation: false,
+  legend: { bottom: 0 },
+  radar: {
+    indicator: [{ name: 'Speed', max: 100 }, { name: 'Reach', max: 100 }, { name: 'Cost', max: 100 }],
+  },
+  series: [{ type: 'radar', name: DEMO_NEW_TITLE, data: [{ value: [80, 60, 40], name: DEMO_NEW_TITLE }] }],
+}
+
 /**
  * Prepare a harness home whose profile fallback resolves every experimental row.
  * @returns the harness home the scaffold should adopt.
@@ -94,8 +127,8 @@ async function harnessHomeWithRowLinks(): Promise<string> {
 }
 
 /** One settled `show_chart` call, as the log records it. */
-function chartCall(callId: string, title: string, option: unknown, points: number): string[] {
-  const args = JSON.stringify({ title, option })
+function chartCall(callId: string, title: string, option: unknown, points: number, id?: string): string[] {
+  const args = JSON.stringify({ ...id === undefined ? {} : { id }, title, option })
   return [
     JSON.stringify({
       type: 'tool/call',
@@ -116,7 +149,9 @@ function chartCall(callId: string, title: string, option: unknown, points: numbe
 }
 
 /**
- * Splice two settled chart calls into a recorded session, inside its open step.
+ * Splice four settled chart calls into a recorded session, inside its open step.
+ * The last two share one chart id, older first, so the transcript carries both
+ * a superseded row and the call that replaced it.
  * @param fixtureText - the committed seed fixture.
  * @returns the fixture text to seed.
  */
@@ -128,6 +163,8 @@ function withChartCalls(fixtureText: string): string {
     ...lines.slice(0, closing),
     ...chartCall(BAR_CALL, BAR_TITLE, BAR_OPTION, 5),
     ...chartCall(PIE_CALL, PIE_TITLE, PIE_OPTION, 3),
+    ...chartCall(DEMO_OLD_CALL, DEMO_OLD_TITLE, DEMO_OLD_OPTION, 3, DEMO_ID),
+    ...chartCall(DEMO_NEW_CALL, DEMO_NEW_TITLE, DEMO_NEW_OPTION, 3, DEMO_ID),
     ...lines.slice(closing),
   ].join('\n')
 }
@@ -193,14 +230,31 @@ async function closeWorld(world: World | undefined): Promise<void> {
   await rm(world.harnessHome, { recursive: true, force: true })
 }
 
-/** Both charts painted a sized canvas inside their own transcript rows. */
+/** One call's row painted a sized canvas. */
+async function assertPainted(page: Page, callId: string): Promise<void> {
+  await verifiedStage(page, callId).waitFor({ timeout: 30_000 })
+  const painted = await box(callRow(page, callId).locator('canvas').first())
+  expect({ callId, wide: painted.width > 0, tall: painted.height > 0 })
+    .toEqual({ callId, wide: true, tall: true })
+}
+
+/**
+ * The `demo` id belongs to the newer call: the older row collapsed to the
+ * notice with no engine behind it, and the newer one painted.
+ */
+async function assertSupersededRow(page: Page): Promise<void> {
+  const older = callRow(page, DEMO_OLD_CALL)
+  await older.getByText(SUPERSEDED_NOTICE, { exact: true }).waitFor({ timeout: 30_000 })
+  // No canvas at all in the superseded row: it mounts no chart, so it also
+  // reports no verdict for a call that settled long ago.
+  expect(await older.locator('canvas').count()).toBe(0)
+  await assertPainted(page, DEMO_NEW_CALL)
+}
+
+/** Both id-less charts painted a sized canvas inside their own transcript rows. */
 async function assertChartsInTranscript(page: Page): Promise<void> {
   for (const [callId, title] of [[BAR_CALL, BAR_TITLE], [PIE_CALL, PIE_TITLE]] as const) {
-    await verifiedStage(page, callId).waitFor({ timeout: 30_000 })
-    const canvas = callRow(page, callId).locator('canvas').first()
-    const painted = await box(canvas)
-    expect({ callId, wide: painted.width > 0, tall: painted.height > 0 })
-      .toEqual({ callId, wide: true, tall: true })
+    await assertPainted(page, callId)
     // The caption the call carried, in the row that owns the call id.
     expect(await callRow(page, callId).getByText(title, { exact: true }).count()).toBeGreaterThan(0)
   }
@@ -225,6 +279,13 @@ describe.skipIf(MODE === 'record')('web e2e: show_chart under the shipped layout
     // Two rows, two engines: neither call borrowed the other's canvas.
     expect(await page.locator('[data-show-chart-stage] canvas').count()).toBeGreaterThanOrEqual(2)
     await evidence(page, 'web-e2e-show-chart-official')
+  }, 120_000)
+
+  it('collapses the chart a later call redrew and paints the call that replaced it', async () => {
+    const page = (world as World).page
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-show-chart-supersede'))
+    await assertSupersededRow(page)
+    await evidence(page, 'web-e2e-show-chart-supersede')
   }, 120_000)
 
   it('leaves the console clean', () => {
@@ -259,6 +320,13 @@ describe.skipIf(MODE === 'record')('web e2e: show_chart under the service-line s
     const painted = await box(panel)
     expect({ wide: painted.width > 0, tall: painted.height > 0 }).toEqual({ wide: true, tall: true })
     await evidence(page, 'web-e2e-show-chart-three-column')
+  }, 120_000)
+
+  it('collapses the chart a later call redrew under this shell too', async () => {
+    const page = (world as World).page
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-show-chart-supersede-three-column'))
+    await assertSupersededRow(page)
+    await evidence(page, 'web-e2e-show-chart-supersede-three-column')
   }, 120_000)
 
   it('leaves the console clean', () => {

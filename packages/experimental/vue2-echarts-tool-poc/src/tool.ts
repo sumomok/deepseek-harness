@@ -4,8 +4,8 @@
  *
  * Three layers answer one call, in order, and each one can end it:
  *
- * 1. The deployment bounds and the supported series set (`validate.ts`). A
- *    refusal here costs one round trip and reaches no browser.
+ * 1. The chart id, the deployment bounds, and the supported series set
+ *    (`validate.ts`). A refusal here costs one round trip and reaches no browser.
  * 2. The render verdict. The call blocks on the browser that painted this call
  *    id until it answers or the deadline passes, so `Rendered:` means a real
  *    engine accepted the document, and `Render failed:` carries the engine's
@@ -15,7 +15,10 @@
  *
  * The call id the tool waits on is `exec.callId` — the same value the transcript
  * hands the row that renders this call, which is what lets a browser answer for
- * exactly one call.
+ * exactly one call. The optional `id` is a different identity: it names the
+ * chart across calls, so a corrected call replaces the row an earlier one drew.
+ * Which row that is comes out of the `showCharts` projection, not from here —
+ * this tool records the id and nothing else.
  * @module @deepseek-ai/dsh-experimental-vue2-echarts-tool-poc/src/tool
  */
 
@@ -24,9 +27,10 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { MAX_CHART_ID_LENGTH, SHOW_CHART_TOOL_NAME } from './chart-call.ts'
 import type { PendingCharts } from './pending.ts'
 import { storeChartImage, type ChartImageValue } from './screenshot.ts'
-import { SUPPORTED_SERIES_LIST, validateChartOption, type ChartOptionArgument } from './validate.ts'
+import { SUPPORTED_SERIES_LIST, validateChartId, validateChartOption, type ChartOptionArgument } from './validate.ts'
 
 /** Everything one deployment's `show_chart` reads from its plugin row. */
 export interface ShowChartPolicy {
@@ -65,8 +69,19 @@ export function describeShowChart(maxPoints: number): string {
     + `Supported series types: ${SUPPORTED_SERIES_LIST}. JSON only — no functions and no expressions. `
     + `Put the numbers inline in series[].data; at most ${maxPoints} data points across all series. `
     + 'Tooltips render as rich text, so tooltip markup is shown literally. The UI picks the theme; '
-    + 'set explicit colors only when a specific color carries meaning.'
+    + 'set explicit colors only when a specific color carries meaning.\n\n'
+    + 'The chart is drawn in a conversation column roughly 500×340 CSS pixels. Put the legend at the '
+    + 'bottom and let ECharts place the chart itself; absolute `grid` offsets collide at that size.'
 }
+
+/**
+ * What the model is asked to do with an attached screenshot. Appended to the
+ * result only when a capture was actually stored: the picture without the
+ * instruction is read as confirmation and never looked at.
+ */
+const SCREENSHOT_INSTRUCTION = 'A screenshot of the painted chart is attached — inspect it for layout '
+  + 'problems (overlapping legend, labels, or axes; clipped text) and, if any, call show_chart again '
+  + 'with a corrected option, reusing the same id.'
 
 /**
  * Build the result line for a call no browser answered.
@@ -74,7 +89,9 @@ export function describeShowChart(maxPoints: number): string {
  * @returns the model-facing line.
  */
 export function unverifiedText(verdictTimeoutMs: number): string {
-  return `Shown; not verified (no client reported within ${verdictTimeoutMs / 1000}s)`
+  return `Shown; not verified (no client reported within ${verdictTimeoutMs / 1000}s). `
+    + 'The chart is in the transcript and paints when the user views it — do not re-issue the same '
+    + 'chart because of this.'
 }
 
 /** Re-brand a stored capture into the durable reference an image block carries. */
@@ -101,9 +118,16 @@ function imageBlock(image: ChartImageValue): ContentBlock {
  */
 export function showChartTool(ctx: Context, policy: ShowChartPolicy, pending: PendingCharts): ToolDefinition {
   return defineTool({
-    name: 'show_chart',
+    name: SHOW_CHART_TOOL_NAME,
     description: describeShowChart(policy.maxPoints),
     parameters: {
+      id: {
+        type: 'string',
+        description: 'Stable id of the chart, at most '
+          + `${MAX_CHART_ID_LENGTH} characters. Reuse an earlier chart's id when correcting or `
+          + 'updating it: the newer call replaces the older one where the user is reading. Omit it '
+          + 'for a chart that stands on its own.',
+      },
       title: {
         type: 'string',
         description: 'Short caption shown with the chart. Omit for none.',
@@ -149,16 +173,21 @@ export function showChartTool(ctx: Context, policy: ShowChartPolicy, pending: Pe
           },
         },
       },
+      // Two text blocks rather than one: the verdict line alone titles the
+      // settled call card, and the instruction is for the model only.
       render: (_args, value) => [
         { type: 'text', text: value.text },
-        ...value.image === undefined ? [] : [imageBlock(value.image)],
+        ...value.image === undefined
+          ? []
+          : [{ type: 'text' as const, text: SCREENSHOT_INSTRUCTION }, imageBlock(value.image)],
       ],
     },
     // The tool writes nothing and only waits on a browser, so two charts in one
     // step paint and report side by side instead of queueing two deadlines.
     isConcurrencySafe: () => true,
     async execute(args, exec): Promise<ShowChartValue> {
-      const refusal = validateChartOption(args.option as ChartOptionArgument, policy)
+      const refusal = validateChartId(args.id)
+        ?? validateChartOption(args.option as ChartOptionArgument, policy)
       if (refusal !== undefined) throw new Error(refusal)
 
       const report = await pending.settle(exec.callId, policy.verdictTimeoutMs, exec.signal)

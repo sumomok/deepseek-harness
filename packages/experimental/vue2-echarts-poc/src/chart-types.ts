@@ -14,7 +14,7 @@
  * supported set: the client's module registration is derived from it, and a
  * host validating an option rejects everything outside it.
  */
-export const SUPPORTED_SERIES_TYPES = ['bar', 'line', 'pie'] as const
+export const SUPPORTED_SERIES_TYPES = ['bar', 'line', 'pie', 'radar'] as const
 
 /** One member of {@link SUPPORTED_SERIES_TYPES}. */
 export type SupportedSeriesType = typeof SUPPORTED_SERIES_TYPES[number]

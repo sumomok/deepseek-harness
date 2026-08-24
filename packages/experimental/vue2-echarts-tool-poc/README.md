@@ -34,15 +34,25 @@ Both packages must be resolvable from the profile directory, which for an out-of
 
 A call passes through three gates, in order, and each one can end it.
 
-**Bounds and supported types.** Before any browser is involved: the option's byte size, a non-empty `series`, every `series[i].type` in the supported set, and the total point count. A refusal costs one round trip, changes nothing, and names both the offending value and the correction.
+**Bounds and supported types.** Before any browser is involved: the chart `id` when the call names one, the option's byte size, a non-empty `series`, every `series[i].type` in the supported set, and the total point count. A refusal costs one round trip, changes nothing, and names both the offending value and the correction.
 
 **The render verdict.** The tool then blocks on the browser painting *this call id* — `exec.callId`, which is the same string the transcript hands the row through `ToolCallOwnerProps.callId`. ECharts reports its two outcomes on different channels, so the row does too: a document `setOption` throws on becomes `{ ok: false, error }` synchronously, and a document it accepts becomes `{ ok: true, seriesCount, pointCount }` on the first `finished` event after it. Settlement is single-shot: a second report for the same id, a report for a call that already timed out, and a report for a call this host never ran all answer `{ accepted: false }` and change nothing.
 
-**The screenshot.** With `screenshot: true` the row also captures `chart.getDataURL({ pixelRatio: 1 })` and sends it with the verdict; the host commits it through the attachment service and appends an image block, the same lifecycle `read_image` uses. Bytes never ride the session log inline. A capture the store refuses is dropped and the verdict stands.
+**The screenshot.** With `screenshot: true` the row also captures `chart.getDataURL({ pixelRatio: 2 })` and sends it with the verdict; the host commits it through the attachment service and appends an image block, the same lifecycle `read_image` uses. Bytes never ride the session log inline. A capture the store refuses is dropped and the verdict stands. The result carries one more sentence beside the picture, asking the model to inspect it for layout faults — an attached chart with nothing asked of it reads as confirmation and is not looked at.
 
 Until a verdict arrives the chart is laid out but invisible (`visibility: hidden`, because ECharts sizes its canvas from a laid-out element). A failure verdict replaces it with a one-line localized error carrying the engine's own message.
 
 Both halves meet on two routes this package owns, `/show-chart/settings` (the capture switch, read once per boot) and `/show-chart/report` (the verdict).
+
+## One chart, several calls
+
+A call may name a stable chart `id` (trimmed, non-empty, at most 64 characters). Reusing an earlier chart's id means *this call replaces that chart*: both calls stay in the transcript, because the log is what happened, but the older row collapses to a one-line notice with no canvas, no engine, and no verdict behind it. A call naming no id is its own chart and can supersede nothing.
+
+Which row is current is not something a row can see — it would have to read the calls after itself. The node half projects it instead, under the `showCharts` key: a pure fold of the session log into every recorded chart call (`chartId`, `callId`, `title`, `seq`) plus the call currently owning each chart id. The browser row reads it through the framework's `useProjection` seat and resolves nothing of its own.
+
+The fold recognizes both shapes a chart call takes in the log: a top-level `tool/call`, whose `arguments` is raw JSON, and a Code Mode `tool/code-dispatch-start`, whose `arguments` is already decoded and whose call id is the `subCallId`. A model reaching the tool through `run_code` logs only the second.
+
+The projection unit activates only when a projection registry is composed. Without one the tool and the rows work unchanged and every chart is simply the call that drew it.
 
 ## Trust
 
@@ -62,7 +72,7 @@ The report route is same-site and JSON-only: a request a browser labels `sec-fet
 
 #### What the model sees
 
-One tool, `show_chart`, with an optional `title` string and a required `option` object whose `series` array is required. The description states the supported series types, the JSON-only rule, the configured point ceiling, that tooltips render as rich text, and that the UI picks the theme. This package contributes no system-prompt section.
+One tool, `show_chart`, with an optional `id` string, an optional `title` string, and a required `option` object whose `series` array is required. The description states the supported series types, the JSON-only rule, the configured point ceiling, that tooltips render as rich text, that the UI picks the theme, and the size of the conversation column the chart is drawn in — roughly 500×340 CSS pixels, which is what makes bottom legends and automatic layout the right defaults. This package contributes no system-prompt section.
 
 #### Token effect
 
@@ -76,11 +86,11 @@ The description is assembled once when the row loads and varies only with `maxPo
 
 #### What the model sees
 
-A verified call answers `Rendered: <title or "chart"> — <n> series, <m> points`, and with `screenshot: true` also carries one image block that enters model context from the next request onward. A call no browser answered in time answers `Shown; not verified (no client reported within <s>s)` — not an error, because the chart is in the transcript either way and no browser may be open at all. A browser that could not paint the document answers `Error: Render failed: <the engine's own message>`, so the next call can be right. Each bound refusal answers `Error: show_chart: …` naming the offending value, the limit, and the correction.
+A verified call answers `Rendered: <title or "chart"> — <n> series, <m> points`, and with `screenshot: true` also carries the inspection sentence and one image block, both entering model context from the next request onward. A call no browser answered in time answers `Shown; not verified (no client reported within <s>s).` followed by the sentence that keeps the model from re-issuing the same chart: the chart is in the transcript and paints when the user views it. It is not an error — no browser may be open at all. A browser that could not paint the document answers `Error: Render failed: <the engine's own message>`, so the next call can be right. Each refusal answers `Error: show_chart: …` naming the offending value, the limit, and the correction.
 
 #### Token effect
 
-One short line per call. A screenshot adds one image, priced as an image on every subsequent request.
+One short line per call, two when a screenshot rides along. A screenshot adds one image, priced as an image on every subsequent request.
 
 #### KV Cache effect
 
@@ -88,11 +98,13 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 
 ## Known Limitations and Deferred Work
 
-- **Three series types** — `bar`, `line`, and `pie`. The set is [`SUPPORTED_SERIES_TYPES`](../vue2-echarts-poc/src/chart-types.ts) in the component row, which registers exactly those ECharts modules; adding one is a constant plus a module entry, and the tool description and its refusals follow automatically.
+- **Four series types** — `bar`, `line`, `pie`, and `radar`. The set is [`SUPPORTED_SERIES_TYPES`](../vue2-echarts-poc/src/chart-types.ts) in the component row, which registers exactly those ECharts modules; adding one is a constant plus a module entry, and the tool description and its refusals follow automatically.
 - **JSON only** — the option crosses a tool-call boundary, so an ECharts feature expressed as a function (a `formatter` callback, a `symbolSize` function, a custom series renderer) cannot be sent at all.
 - **The verdict comes from the first client that reports** — several browsers may show the same session, and whichever paints first answers the call. They are painting the same document, so the counts agree; a browser whose engine refused a document another accepted would not.
 - **A screenshot needs a vision-capable model** — the image block enters context whether or not the route accepts images, and costs image tokens on every later request. It is off by default for both reasons.
 - **The chart reads the palette once** — the row reads `body[data-ds-dark-theme]` when it mounts. A theme switch repaints the shell around a chart that keeps the palette it was built with, until the transcript remounts the row.
 - **The report route assumes an HTTP carrier** — the browser half posts to `/show-chart/report` relative to the page origin. A transport that serves the shell without exposing the harness over HTTP would leave every call unverified.
+- **The model is not told a chart was superseded** — the replacement is a browser-side render decision. The tool result of the older call is whatever it was when the call settled, and nothing revisits it.
+- **The projection grows with the session's chart calls** — one small entry per call, kept for the life of the session, and its `title` is carried as the model wrote it. Nothing trims either; a session that draws hundreds of charts pushes a correspondingly larger value to the browser.
 - **No interaction reaches the model** — a click, a legend toggle, or a zoom stays in the browser. The agent can put a chart in front of the user; it cannot learn what the user did with it.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition, and the model-visible text is pinned verbatim in unit tests; the snapshot lanes replay the shipped composition, which does not compose an experimental row.

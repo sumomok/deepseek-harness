@@ -19,7 +19,9 @@ export const inject = ['invariants']
  * durable data. A `show_chart` call appends nothing of its own — the tool
  * result is the loop's, and the durable screenshot is the attachment service's
  * — and the pending-verdict table is process-local state whose single-shot
- * settlement this package's own tests exercise.
+ * settlement this package's own tests exercise. The `showCharts` projection
+ * owns no data either: it is a pure fold over the loop's own tool events,
+ * recomputed from them on every replay.
  */
 const install: InvariantInstaller = () => {}
 

@@ -8,8 +8,14 @@
  * business.
  */
 import * as echarts from 'echarts/core'
-import { BarChart, LineChart, PieChart } from 'echarts/charts'
-import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from 'echarts/components'
+import { BarChart, LineChart, PieChart, RadarChart } from 'echarts/charts'
+import {
+  GridComponent,
+  LegendComponent,
+  RadarComponent,
+  TitleComponent,
+  TooltipComponent,
+} from 'echarts/components'
 import { CanvasRenderer } from 'echarts/renderers'
 import { onBeforeUnmount, watch } from 'vue'
 import { SUPPORTED_SERIES_TYPES, type SupportedSeriesType } from '../chart-types.ts'
@@ -26,15 +32,19 @@ const SERIES_MODULES: Readonly<Record<SupportedSeriesType, EChartsPart>> = {
   bar: BarChart,
   line: LineChart,
   pie: PieChart,
+  radar: RadarChart,
 }
 
 // Registered once for the whole bundle. The shared components carry the axis
 // grid, tooltips, the legend, and the title because a pass-through option may
-// name any of them, and the canvas renderer because this row paints to canvas.
+// name any of them, the radar coordinate system because a radar series is
+// drawn on one and its chart module does not carry it, and the canvas renderer
+// because this row paints to canvas.
 echarts.use([
   ...SUPPORTED_SERIES_TYPES.map(type => SERIES_MODULES[type]),
   GridComponent,
   LegendComponent,
+  RadarComponent,
   TitleComponent,
   TooltipComponent,
   CanvasRenderer,

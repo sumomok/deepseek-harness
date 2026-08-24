@@ -20,7 +20,7 @@ interface FakeChart {
   theme: unknown
   options: Record<string, unknown>[]
   handlers: Map<string, () => void>
-  captures: number
+  captures: { pixelRatio: number }[]
   disposed: boolean
   /** Applied when set: the next `setOption` throws it instead of accepting. */
   reject: Error | undefined
@@ -33,7 +33,7 @@ const echarts = vi.hoisted(() => {
     theme: unknown
     options: Record<string, unknown>[]
     handlers: Map<string, () => void>
-    captures: number
+    captures: { pixelRatio: number }[]
     disposed: boolean
     reject: Error | undefined
     applied: Record<string, unknown> | undefined
@@ -45,7 +45,7 @@ const echarts = vi.hoisted(() => {
         theme,
         options: [] as Record<string, unknown>[],
         handlers: new Map<string, () => void>(),
-        captures: 0,
+        captures: [] as { pixelRatio: number }[],
         disposed: false,
         reject: undefined as Error | undefined,
         applied: undefined as Record<string, unknown> | undefined,
@@ -55,8 +55,8 @@ const echarts = vi.hoisted(() => {
           chart.applied = option
         },
         getOption() { return chart.applied ?? {} },
-        getDataURL() {
-          chart.captures += 1
+        getDataURL(options: { pixelRatio: number }) {
+          chart.captures.push(options)
           return 'data:image/png;base64,FAKE'
         },
         on(name: string, handler: () => void) { chart.handlers.set(name, handler) },
@@ -74,10 +74,16 @@ vi.mock('echarts/core', () => ({
   init: (element: unknown, theme: unknown) => echarts.init(element, theme),
   use: () => { echarts.use() },
 }))
-vi.mock('echarts/charts', () => ({ BarChart: 'BarChart', LineChart: 'LineChart', PieChart: 'PieChart' }))
+vi.mock('echarts/charts', () => ({
+  BarChart: 'BarChart',
+  LineChart: 'LineChart',
+  PieChart: 'PieChart',
+  RadarChart: 'RadarChart',
+}))
 vi.mock('echarts/components', () => ({
   GridComponent: 'GridComponent',
   LegendComponent: 'LegendComponent',
+  RadarComponent: 'RadarComponent',
   TitleComponent: 'TitleComponent',
   TooltipComponent: 'TooltipComponent',
 }))
@@ -108,6 +114,10 @@ function finishPaint(target: FakeChart = chart()): void {
 
 const BAR_OPTION = { series: [{ type: 'bar', data: [1, 2, 3] }] }
 const PIE_OPTION = { series: [{ type: 'pie', data: [{ value: 1 }, { value: 2 }] }] }
+const RADAR_OPTION = {
+  radar: { indicator: [{ name: 'Speed' }, { name: 'Range' }, { name: 'Cost' }] },
+  series: [{ type: 'radar', data: [{ value: [80, 60, 40] }] }],
+}
 
 describe('EChartsOption', () => {
   it('applies the option it was given, replacing rather than merging', () => {
@@ -185,15 +195,25 @@ describe('EChartsOption', () => {
   it('never reads a data URL while capture is off', () => {
     render(<EChartsOption option={BAR_OPTION} />)
     finishPaint()
-    expect(chart().captures).toBe(0)
+    expect(chart().captures).toEqual([])
   })
 
   it('reads one data URL after the paint while capture is on', () => {
     const onCapture = vi.fn<(dataUrl: string) => void>()
     render(<EChartsOption option={BAR_OPTION} capture onCapture={onCapture} />)
     finishPaint()
-    expect(chart().captures).toBe(1)
+    // Two device pixels per CSS pixel: the capture is read for a model to look
+    // at, and a one-to-one raster of this column is too coarse to read back.
+    expect(chart().captures).toEqual([{ pixelRatio: 2 }])
     expect(onCapture).toHaveBeenCalledWith('data:image/png;base64,FAKE')
+  })
+
+  it('paints a radar option, whose series type the row registers a module for', () => {
+    const onVerdict = vi.fn<(verdict: ChartVerdict) => void>()
+    render(<EChartsOption option={RADAR_OPTION} onVerdict={onVerdict} />)
+    expect(chart().options).toEqual([RADAR_OPTION])
+    finishPaint()
+    expect(onVerdict).toHaveBeenCalledWith({ ok: true, seriesCount: 1, pointCount: 1 })
   })
 
   it('defaults to the light palette, no verdict reader, and no capture', () => {
@@ -201,7 +221,7 @@ describe('EChartsOption', () => {
     expect((chart().theme as { color: string[] }).color[0]).toBe('#4c6ef5')
     // The defaulted callbacks swallow both edges; neither path throws.
     expect(() => { finishPaint() }).not.toThrow()
-    expect(chart().captures).toBe(0)
+    expect(chart().captures).toEqual([])
   })
 
   it('rebuilds the instance on the dark palette', async () => {

@@ -4,9 +4,11 @@
  * result.
  *
  * The node half offers `show_chart` to the model, serves the browser half its
- * settings, and takes each call's render verdict on a second route; the browser
- * half owns the `show_chart` key of the transcript's tool-view slot and paints
- * the option through the Vue 2.7 component row.
+ * settings, takes each call's render verdict on a second route, and projects
+ * the session's chart calls under `showCharts`; the browser half owns the
+ * `show_chart` key of the transcript's tool-view slot, paints the option
+ * through the Vue 2.7 component row, and reads that projection to tell a
+ * current chart from one a later call replaced.
  *
  * Trust: `option` is model output rendered by a real engine inside the shell's
  * own origin, and the report route accepts a same-site JSON verdict from
@@ -23,7 +25,10 @@ import type { IncomingMessage, ServerResponse } from 'node:http'
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
+// Type-only: resolves ctx.sessionProjections for the optional unit child.
+import type {} from '@deepseek-ai/dsh-session-projection'
 import { PendingCharts } from './pending.ts'
+import { showChartsProjection } from './projection.ts'
 import {
   parseShowChartReport,
   SHOW_CHART_REPORT_ROUTE,
@@ -39,6 +44,11 @@ export type {
   ShowChartSettings,
 } from './route.ts'
 export { SHOW_CHART_REPORT_ROUTE, SHOW_CHART_SETTINGS_ROUTE } from './route.ts'
+
+// The `showCharts` declarations live in src/types.ts (their one home); this
+// re-export projects the type face onto the package root and keeps the module
+// edge in the emitted index.d.ts.
+export type * from './types.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'show-chart'
@@ -219,9 +229,14 @@ export function apply(ctx: Context, config: Config): void {
     },
   }), 'show-chart: render report route')
 
-  // The tool activates only when a tool runtime is composed: a deployment
-  // without one keeps the routes, and the model is offered nothing.
+  // Both children activate only when their seam is composed: a deployment
+  // without a tool runtime keeps the routes and offers the model nothing, and
+  // one without a projection registry paints every row as the call that drew
+  // it — no supersede, and nothing else changes.
   ctx.inject(['tools'], (toolCtx) => {
     toolCtx.tools.register(showChartTool(toolCtx, policy, pending))
+  })
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.register(showChartsProjection())
   })
 }

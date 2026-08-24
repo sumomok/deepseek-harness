@@ -10,8 +10,8 @@ import { describe, expect, it } from 'vitest'
 import { countSeriesPoints, SUPPORTED_SERIES_TYPES } from '../src/chart-types.ts'
 
 describe('SUPPORTED_SERIES_TYPES', () => {
-  it('is the bar/line/pie set, in the order a description lists it', () => {
-    expect(SUPPORTED_SERIES_TYPES).toEqual(['bar', 'line', 'pie'])
+  it('is the bar/line/pie/radar set, in the order a description lists it', () => {
+    expect(SUPPORTED_SERIES_TYPES).toEqual(['bar', 'line', 'pie', 'radar'])
   })
 })
 

@@ -72,10 +72,16 @@ vi.mock('echarts/core', () => ({
   init: (element: unknown, theme: unknown) => echarts.init(element, theme),
   use: (parts: unknown) => { echarts.used.push(parts) },
 }))
-vi.mock('echarts/charts', () => ({ BarChart: 'BarChart', LineChart: 'LineChart', PieChart: 'PieChart' }))
+vi.mock('echarts/charts', () => ({
+  BarChart: 'BarChart',
+  LineChart: 'LineChart',
+  PieChart: 'PieChart',
+  RadarChart: 'RadarChart',
+}))
 vi.mock('echarts/components', () => ({
   GridComponent: 'GridComponent',
   LegendComponent: 'LegendComponent',
+  RadarComponent: 'RadarComponent',
   TitleComponent: 'TitleComponent',
   TooltipComponent: 'TooltipComponent',
 }))

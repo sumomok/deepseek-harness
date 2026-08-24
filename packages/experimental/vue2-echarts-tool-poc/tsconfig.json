@@ -33,7 +33,7 @@
       "path": "../../client/ui-tool"
     },
     {
-      "path": "../../llm/llm"
+      "path": "../../core/session"
     },
     {
       "path": "../../core/tools"
@@ -42,10 +42,16 @@
       "path": "../../host/webserver"
     },
     {
-      "path": "../vue2-echarts-poc"
+      "path": "../../llm/llm"
     },
     {
       "path": "../../runtime-diagnostics/invariants"
+    },
+    {
+      "path": "../../session/session-projection"
+    },
+    {
+      "path": "../vue2-echarts-poc"
     }
   ]
 }

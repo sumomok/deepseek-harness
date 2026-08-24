@@ -76,6 +76,9 @@ export async function apply(ctx: ClientContext): Promise<void> {
   const face: ShowChartFace = { screenshot: settings.screenshot }
   ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
     name: 'tool.call.toolview',
+    // The literal, not this package's `SHOW_CHART_TOOL_NAME`: the client-slot
+    // catalog generator reads keyed registrations by static string, and an
+    // identifier here drops this row's key from the generated catalog.
     key: 'show_chart',
     locale: NS,
     // Configuration is settled in the apply world and handed over as plain

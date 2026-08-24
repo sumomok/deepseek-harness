@@ -20,9 +20,12 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import { CallId } from '@deepseek-ai/dsh-llm/brand'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
+import SessionStore from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import * as ShowChart from '../src/index.ts'
@@ -47,7 +50,7 @@ interface Answer {
   body: string
 }
 
-/** Write a three-row cordis.yml and boot it through the real Loader. */
+/** Write a five-row cordis.yml and boot it through the real Loader. */
 async function loadComposition(screenshot = false): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-show-chart-'))
   const configPath = join(world, 'cordis.yml')
@@ -56,10 +59,12 @@ async function loadComposition(screenshot = false): Promise<Context> {
     '  config:',
     "    host: '127.0.0.1'",
     '    port: 0',
-    // The optional seam, so this composition also activates the tool child
-    // rather than only the routes.
+    // Both optional seams, so this composition activates the tool child and
+    // the projection child rather than only the routes.
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
+    "- name: '@deepseek-ai/dsh-session'",
+    "- name: '@deepseek-ai/dsh-session-projection'",
     '- id: show-chart',
     "  name: '@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc'",
     '  config:',
@@ -76,6 +81,8 @@ async function loadComposition(screenshot = false): Promise<Context> {
     ['@deepseek-ai/dsh-host-webserver', HttpServer],
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
+    ['@deepseek-ai/dsh-session', SessionStore],
+    ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
     ['@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc', ShowChart],
   ])
   context.loader.internal = {
@@ -273,6 +280,25 @@ describe('show-chart routes', () => {
   it('offers the tool only while a tool runtime is composed', async () => {
     const ctx = await loadComposition()
     expect(ctx.tools.schemas().map(schema => schema.name)).toContain('show_chart')
+  })
+
+  it('projects the session\'s charts only while a projection registry is composed', async () => {
+    const ctx = await loadComposition()
+    // The store is reached through `ctx.get` and cast: this package compiles in
+    // the Client aggregate, where the cordis `Context.sessions` merge names the
+    // browser service rather than the host store.
+    const session = (ctx.get('sessions') as unknown as SessionStore).create()
+    session.append('tool/call', {
+      turn: 1,
+      step: 1,
+      callId: CallId('call_1'),
+      name: 'show_chart',
+      arguments: JSON.stringify({ id: 'revenue', option: { series: [{ type: 'bar', data: [1] }] } }),
+    })
+    expect(ctx.sessionProjections.snapshot(session).values.showCharts).toEqual({
+      entries: [{ chartId: 'revenue', callId: 'call_1', title: null, seq: 0 }],
+      latest: { revenue: 'call_1' },
+    })
   })
 
   it('releases both routes when the fiber disposes (HMR safety)', async () => {

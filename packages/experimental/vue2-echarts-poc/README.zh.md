@@ -23,14 +23,14 @@ slot 系统只接受 React 函数组件，因此 Vue 树通过 `Vue2Bridge`—�
 `./client` 导出三个 React 组件，分层安排，好让 placement 各取所需：
 
 - **`EChartsBar`** —— 纯粹、由数据驱动。props 是 `title`、`categories`、`values`，以及可选的 `dark`、`selectedLabel`、`onSelect`。它不解析任何文案、不指名任何 slot，因此同一个导出既服务常驻栏，也服务渲染工具调用数据的会话卡片。
-- **`EChartsOption`** —— 直通式图表：进去一份完整的 ECharts option，出来一份判定。props 是 `option`，以及可选的 `dark`、`capture`、`onVerdict`、`onCapture`。option 以 `notMerge` 应用且从不被检查，因此判断什么能安全绘制属于交出它的那一方。`setOption` 抛出时 `onVerdict` 同步答 `{ ok: false, error }`；引擎接受的文档则在其后第一个 `finished` 事件上答 `{ ok: true, seriesCount, pointCount }`。`capture` 多加一次 `getDataURL`，经 `onCapture` 恰在判定之前送出，好让消费方把两者一并发给宿主。
+- **`EChartsOption`** —— 直通式图表：进去一份完整的 ECharts option，出来一份判定。props 是 `option`，以及可选的 `dark`、`capture`、`onVerdict`、`onCapture`。option 以 `notMerge` 应用且从不被检查，因此判断什么能安全绘制属于交出它的那一方。`setOption` 抛出时 `onVerdict` 同步答 `{ ok: false, error }`；引擎接受的文档则在其后第一个 `finished` 事件上答 `{ ok: true, seriesCount, pointCount }`。`capture` 多加一次 `getDataURL`，按每 CSS 像素两个设备像素读取，经 `onCapture` 恰在判定之前送出，好让消费方把两者一并发给宿主。像素翻倍是因为这张图是给模型回看的：在对话栏给图表的尺寸下，一比一的 PNG 会让坐标轴标签和图例条目糊到读不出来。
 - **`ChartPanel`** —— 建在 `EChartsBar` 之上的演示外壳，也是 placement 实际注册的组件。它从本包的 locale 座位解析文案，铺一组固定的七柱周数据，用「换一组数据」按钮替换它，并把最后点中的柱子作为 `selectedLabel` 递回去。每一次交互两个方向都在跨界：Vue 数点击，React 在它周围重渲染。
 
 `Vue2Bridge`、两个 Vue 组件（`EChartsBarChart`、`EChartsOptionChart`）与 `NS`（字典命名空间）同样导出，并附带 Vue 2.7 的 API 表面：`Vue` 加上 `defineComponent`、`h`、`ref`、`computed`、`watch`、`onMounted`、`onBeforeUnmount`、`nextTick`。
 
 ### 支持的 series 集合
 
-`SUPPORTED_SERIES_TYPES` 是 `['bar', 'line', 'pie']`，只有一个家：[`src/chart-types.ts`](src/chart-types.ts)，一个什么都不 import 的模块。客户端通过一张按它加键的模块表推导出自己的 `echarts.use` 注册，因此加一种类型会让构建失败，直到把对应的 ECharts 图表模块写在旁边。同一个常量也从包根导出，好让校验模型给的 option 的宿主插件，拒绝的正是浏览器画不出的那些——`countSeriesPoints` 同理，宿主的上限和浏览器的判定读的是同一个计数器。`ChartVerdict` 出于同样的理由在两个入口都导出。
+`SUPPORTED_SERIES_TYPES` 是 `['bar', 'line', 'pie', 'radar']`，只有一个家：[`src/chart-types.ts`](src/chart-types.ts)，一个什么都不 import 的模块。客户端通过一张按它加键的模块表推导出自己的 `echarts.use` 注册，因此加一种类型会让构建失败，直到把对应的 ECharts 图表模块写在旁边。画在自己坐标系上的系列还要连那套坐标组件一起注册——目前是 `radar`，`RadarComponent` 就和 grid、legend 一起放在共享组件表里。同一个常量也从包根导出，好让校验模型给的 option 的宿主插件，拒绝的正是浏览器画不出的那些——`countSeriesPoints` 同理，宿主的上限和浏览器的判定读的是同一个计数器。`ChartVerdict` 出于同样的理由在两个入口都导出。
 
 ### 一张模块图里只能有一份 Vue 运行时
 
@@ -52,9 +52,9 @@ Vue 2 的响应式不跨运行时副本。observer、`Dep` 与渲染 watcher 都
 
 ## 产物体积
 
-Vue 与 ECharts 都不在外壳的共享模块表里，因此本包的 `lib/client.js` 把两者都带上：原始 1.47 MB，gzip 后 337 kB。React 与 Cordis/slot 层保持 external，通过 loader 注入的 `require` 解析。
+Vue 与 ECharts 都不在外壳的共享模块表里，因此本包的 `lib/client.js` 把两者都带上：原始 1.50 MB，gzip 后 342 kB。React 与 Cordis/slot 层保持 external，通过 loader 注入的 `require` 解析。
 
-有两项构建决定让它停在这个体积而不是更大。`vue` 被钉到 `vue/dist/vue.runtime.esm.js`，即 runtime-only 的 ESM 构建，因为完整构建会把模板编译器拖进一个只用 `h()` 渲染、运行期从不编译模板的 bundle。`process.env.NODE_ENV` 被 define 成 `"production"`，这既剔除了 Vue 2 的开发分支，也是这个 bundle 能跑起来的前提：Vue 2 的 ESM 构建在每条响应式路径上都把这个名字当裸全局读，缺了 define 浏览器会在第一次挂载时抛 `process is not defined`。ECharts 走 `echarts/core`，只注册三种受支持的图表类型、grid、tooltip、legend、title 与 canvas 渲染器。
+有两项构建决定让它停在这个体积而不是更大。`vue` 被钉到 `vue/dist/vue.runtime.esm.js`，即 runtime-only 的 ESM 构建，因为完整构建会把模板编译器拖进一个只用 `h()` 渲染、运行期从不编译模板的 bundle。`process.env.NODE_ENV` 被 define 成 `"production"`，这既剔除了 Vue 2 的开发分支，也是这个 bundle 能跑起来的前提：Vue 2 的 ESM 构建在每条响应式路径上都把这个名字当裸全局读，缺了 define 浏览器会在第一次挂载时抛 `process is not defined`。ECharts 走 `echarts/core`，只注册四种受支持的图表类型、grid、tooltip、legend、title、radar 坐标系与 canvas 渲染器。
 
 ## Model Experience
 

@@ -14,7 +14,8 @@
  * an accepted `setOption`, never a stray one from a resize or a hover.
  *
  * The optional capture is delivered ahead of the success verdict, so a consumer
- * sending both to a host does it in one message.
+ * sending both to a host does it in one message. It is read at
+ * {@link CAPTURE_PIXEL_RATIO} device pixels per CSS pixel.
  */
 import { defineComponent, h, onMounted, ref, watch, type PropType } from 'vue'
 import type * as echarts from 'echarts/core'
@@ -35,6 +36,14 @@ export interface EChartsOptionChartProps {
   /** Receives the painted PNG data URL; called only while `capture` is true. */
   onCapture: (dataUrl: string) => void
 }
+
+/**
+ * Device pixel ratio of a capture. Two, because the capture is read for a
+ * consumer that hands the PNG to a model: at the conversation column's CSS
+ * size, a one-to-one raster leaves axis labels and legend entries too coarse to
+ * read back, and doubling the raster is the cheapest way to keep them legible.
+ */
+const CAPTURE_PIXEL_RATIO = 2
 
 /** The message a thrown value carries, for the failure verdict's text. */
 function messageOf(error: unknown): string {
@@ -99,7 +108,7 @@ export const EChartsOptionChart = defineComponent({
           awaitingPaint = false
           // Capture first: a consumer that sends both across one wire has the
           // picture in hand by the time the verdict arrives.
-          if (props.capture) props.onCapture(created.getDataURL({ pixelRatio: 1 }))
+          if (props.capture) props.onCapture(created.getDataURL({ pixelRatio: CAPTURE_PIXEL_RATIO }))
           const series = appliedSeries(created)
           props.onVerdict({ ok: true, seriesCount: series.length, pointCount: countSeriesPoints(series) })
         })

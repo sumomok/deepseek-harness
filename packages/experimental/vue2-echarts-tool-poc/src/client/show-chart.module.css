@@ -21,7 +21,7 @@
    host would give it a zero-sized one. */
 .stage {
   display: flex;
-  height: 280px;
+  height: 340px;
   min-width: 0;
 }
 
@@ -35,6 +35,17 @@
   display: flex;
   flex: 1 1 auto;
   min-width: 0;
+}
+
+/* A row a later call replaced: one muted line, no stage and no engine. */
+.superseded {
+  margin: 0;
+  padding: 6px 10px;
+  border: 1px dashed var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
 }
 
 .error {

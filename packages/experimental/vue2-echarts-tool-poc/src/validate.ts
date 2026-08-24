@@ -1,6 +1,7 @@
 /**
- * What `show_chart` decides about an option before any browser sees it: the
- * bounds a deployment sets, and the series types the component row can paint.
+ * What `show_chart` decides about a call before any browser sees it: the chart
+ * id it may name, the bounds a deployment sets on its option, and the series
+ * types the component row can paint.
  *
  * Every rejection here is model-facing text, so each one names the offending
  * value and the correction. Nothing in this module touches a browser, an
@@ -10,6 +11,7 @@
 
 import { Buffer } from 'node:buffer'
 import { countSeriesPoints, SUPPORTED_SERIES_TYPES } from '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+import { chartIdOf, MAX_CHART_ID_LENGTH } from './chart-call.ts'
 
 /** The supported series types as one model-facing list, used by both the description and the refusals. */
 export const SUPPORTED_SERIES_LIST = SUPPORTED_SERIES_TYPES.join(', ')
@@ -26,6 +28,22 @@ export interface ChartLimits {
 export interface ChartOptionArgument {
   /** The series list; the schema enforces the array, this module enforces its contents. */
   readonly series: readonly unknown[]
+}
+
+/**
+ * Decide whether one model-supplied chart id may name a chart.
+ * @param id - the `id` argument, absent when the call named none.
+ * @returns the model-facing refusal, or `undefined` when the call may proceed.
+ */
+export function validateChartId(id: string | undefined): string | undefined {
+  if (id === undefined) return undefined
+  if (chartIdOf(id) === undefined) {
+    return 'show_chart: id must not be blank. Omit it for a new chart, or pass the id of the chart this call replaces.'
+  }
+  if (id.length > MAX_CHART_ID_LENGTH) {
+    return `show_chart: id is ${id.length} characters; at most ${MAX_CHART_ID_LENGTH} are accepted. Use a short stable id such as "weekly-revenue".`
+  }
+  return undefined
 }
 
 /** Name one series' declared type in a refusal. */

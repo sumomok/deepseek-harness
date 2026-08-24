@@ -722,7 +722,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/vue2-echarts-tool-poc/src/index.ts:50`](../packages/experimental/vue2-echarts-tool-poc/src/index.ts)
+Source: [`packages/experimental/vue2-echarts-tool-poc/src/index.ts:60`](../packages/experimental/vue2-echarts-tool-poc/src/index.ts)
 
 <a id="deepseek-aidsh-file-reference-local"></a>
 

@@ -9,6 +9,7 @@ export const zh = {
   'row.rendering': '正在绘制图表…',
   'row.failed': '图表未能绘制：{error}',
   'row.unreadable': '这次调用的参数读不出图表。',
+  'row.superseded': '{title}：已由后面一次调用重新绘制。',
 } satisfies Record<string, string>
 
 /** The showChart namespace key union. */
@@ -20,4 +21,5 @@ export const en = {
   'row.rendering': 'Drawing the chart…',
   'row.failed': 'The chart did not render: {error}',
   'row.unreadable': 'This call carries no readable chart arguments.',
+  'row.superseded': '{title}: updated by a later call.',
 } satisfies Record<ShowChartKey, string>
