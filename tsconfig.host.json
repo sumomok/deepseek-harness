@@ -96,9 +96,9 @@
     "apps/web/stress-tests/reasoning-chunks.stress.ts",
     "apps/cli/tests/**/*.ts",
     "apps/desktop/tests/**/*.ts",
-    // Imported by apps/desktop/tests; the app project covers src only, so this
-    // packaging module belongs to no other program.
-    "apps/desktop/scripts/bundle-closure.ts",
+    // The app project covers src only, so the packaging pipeline belongs to no
+    // other program.
+    "apps/desktop/scripts/**/*.ts",
     "examples/*/src/**/*.ts",
     "examples/*/start.ts",
     "examples/*/tests/**/*.ts",

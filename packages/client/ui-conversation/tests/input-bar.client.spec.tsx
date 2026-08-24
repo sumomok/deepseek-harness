@@ -58,7 +58,15 @@ interface BenchOptions {
   modelEntry?: React.ReactNode
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
   lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
-  permissions?: { options: { value: string; name: string; description?: string }[]; currentValue: string }
+  permissions?: {
+    options: {
+      value: string
+      name: string
+      description?: string
+      glyph?: 'read-only' | 'workspace-write' | 'danger-full-access'
+    }[]
+    currentValue: string
+  }
   /** The `imageLimits` projection value (absent = no attachment service). */
   imageLimits?: {
     maxImageBytes: number
@@ -1506,43 +1514,49 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view } = bench({ permissions, command })
     const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    // Product-label display is presentation only; the menu ids stay machine names.
-    expect(trigger.textContent).toBe('仅可查看')
+    // Title-case display is presentation only; the menu ids stay machine names.
+    expect(trigger.textContent).toBe('Read Only')
     expect([...trigger.querySelectorAll('svg')]
       .every(icon => icon.closest('[aria-hidden="true"]') !== null)).toBe(true)
     fireEvent.click(trigger)
     const items = view.getAllByRole('menuitem')
-    expect(items.map(o => o.textContent)).toEqual(['仅可查看', '可写入工作区', '完全权限'])
+    expect(items.map(o => o.textContent)).toEqual(['Read Only', 'Workspace Write', 'Full access'])
     fireEvent.click(items[1]!)
     // Optimistic pick + disable until admission resolves (command stub resolves true).
     const busy = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    expect(busy.textContent).toBe('可写入工作区')
+    expect(busy.textContent).toBe('Workspace Write')
     expect(busy.disabled).toBe(true)
     expect(command).toHaveBeenCalledWith('/permission workspace-write')
     await act(async () => {})
     expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).disabled).toBe(false)
   })
 
-  it('the Access chip preserves host labels for built-in preset values', () => {
+  it('draws the glyph an option names, falls back to its value, then to the bare shield', () => {
     const permissions = {
       options: [
-        { value: 'read-only', name: 'Review Only' },
-        { value: 'workspace-write', name: 'Project Files' },
-        { value: 'danger-full-access', name: 'Operator Mode' },
-        { value: 'custom-mode', name: 'custom-mode' },
-        { value: '__proto__', name: '__proto__' },
+        { value: 'read-only', name: 'read-only' },
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+        { value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access' as const },
+        { value: 'house-style', name: 'House Style' },
       ],
-      currentValue: 'workspace-write',
+      currentValue: 'yolo-access',
     }
     const { view } = bench({ permissions })
     const trigger = view.getByLabelText(/^访问模式/) as HTMLButtonElement
-    expect(trigger.textContent).toBe('Project Files')
     fireEvent.click(trigger)
-    expect(view.getAllByRole('menuitem').map(item => item.textContent))
-      .toEqual(['Review Only', 'Project Files', 'Operator Mode', 'Custom Mode', '__proto__'])
+    const icons = view.getAllByRole('menuitem').map(item => item.querySelector('svg')?.innerHTML)
+    // A named glyph draws the same artwork as the built-in row that owns it.
+    expect(icons[3]).toBe(icons[2])
+    expect(icons[0]).not.toBe(icons[2])
+    expect(icons[1]).not.toBe(icons[2])
+    // Outside the design set: the bare shield outline, one path, no inner mark.
+    expect(view.getAllByRole('menuitem')[4]?.querySelectorAll('svg path')).toHaveLength(1)
+    // The trigger resolves the current option through the same glyph choice.
+    expect(trigger.querySelector('svg')?.innerHTML).toBe(icons[2])
   })
 
-  it('requires explicit risk acknowledgement before submitting full access', async () => {
+  it('requires explicit risk acknowledgement before submitting Full access', async () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1553,11 +1567,11 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view } = bench({ permissions, command })
     fireEvent.click(view.getByLabelText(/^访问模式/))
-    fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
 
     expect(command).not.toHaveBeenCalled()
-    expect(view.getByRole('dialog', { name: '确认启用完全权限？' })).toBeTruthy()
-    const enable = view.getByRole('button', { name: '启用完全权限' }) as HTMLButtonElement
+    expect(view.getByRole('dialog', { name: '确认启用 Full access？' })).toBeTruthy()
+    const enable = view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement
     expect(enable.disabled).toBe(true)
 
     fireEvent.click(view.getByRole('checkbox', { name: '我已了解风险，并愿意继续' }))
@@ -1567,11 +1581,11 @@ describe('command launcher chrome and control seats', () => {
     expect(command).toHaveBeenCalledOnce()
     expect(command).toHaveBeenCalledWith('/permission danger-full-access')
     expect(view.queryByRole('dialog')).toBeNull()
-    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('完全权限')
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Full access')
     await act(async () => {})
   })
 
-  it('cancels a full access selection without changing permission and resets acknowledgement', () => {
+  it('cancels a Full access selection without changing permission and resets acknowledgement', () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1583,21 +1597,21 @@ describe('command launcher chrome and control seats', () => {
     const { view } = bench({ permissions, command })
     const openConfirmation = () => {
       fireEvent.click(view.getByLabelText(/^访问模式/))
-      fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
+      fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
     }
 
     openConfirmation()
     fireEvent.click(view.getByRole('checkbox'))
     fireEvent.click(view.getByRole('button', { name: '取消' }))
     expect(command).not.toHaveBeenCalled()
-    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('可写入工作区')
+    expect((view.getByLabelText(/^访问模式/) as HTMLButtonElement).textContent).toBe('Workspace Write')
 
     openConfirmation()
     expect((view.getByRole('checkbox') as HTMLInputElement).checked).toBe(false)
-    expect((view.getByRole('button', { name: '启用完全权限' }) as HTMLButtonElement).disabled).toBe(true)
+    expect((view.getByRole('button', { name: '启用 Full access' }) as HTMLButtonElement).disabled).toBe(true)
   })
 
-  it('revokes an open full access confirmation when the task locks', () => {
+  it('revokes an open Full access confirmation when the task locks', () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1608,14 +1622,14 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view, session } = bench({ permissions, command })
     fireEvent.click(view.getByLabelText(/^访问模式/))
-    fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
     fireEvent.click(view.getByRole('checkbox'))
     act(() => { session.set(snapshotOf({ removed: true })) })
     expect(view.queryByRole('dialog')).toBeNull()
     expect(command).not.toHaveBeenCalled()
   })
 
-  it('resets an open full access confirmation when switching tasks', () => {
+  it('resets an open Full access confirmation when switching tasks', () => {
     const command = vi.fn(() => Promise.resolve(true))
     const permissions = {
       options: [
@@ -1626,7 +1640,7 @@ describe('command launcher chrome and control seats', () => {
     }
     const { view, props } = bench({ permissions, command })
     fireEvent.click(view.getByLabelText(/^访问模式/))
-    fireEvent.click(view.getByRole('menuitem', { name: '完全权限' }))
+    fireEvent.click(view.getByRole('menuitem', { name: 'Full access' }))
     fireEvent.click(view.getByRole('checkbox'))
     view.rerender(<InputBar {...props} sessionId={'s2' as SessionId} />)
     expect(view.queryByRole('dialog')).toBeNull()

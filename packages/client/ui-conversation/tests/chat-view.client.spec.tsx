@@ -8,8 +8,8 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testi
 import { useEffect } from 'react'
 import type {
   AssistantMessageNode, CommandNode, CompactionSummaryNode, ConversationNode, ConversationSnapshot,
-  ModelRetryNode, RunningToolCall, SessionId, SessionListState, ToolCallBlock, ToolResultNode, TurnErrorNode,
-  TurnMaxTokensNode, UserMessageNode, WorkspaceListState,
+  ModelRetryNode, RunningToolCall, SessionId, SessionListState, SteeringMessageNode, ToolCallBlock,
+  ToolResultNode, TurnErrorNode, TurnMaxTokensNode, UserMessageNode, WorkspaceListState,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { bindSnapshotSelector } from '@deepseek-ai/dsh-client-test-runtime'
 import {
@@ -31,6 +31,7 @@ import {
   TurnMaxTokensNodeView, UnknownNodeView, UserMessageNodeView,
 } from '../src/client/chat/MessageItem.tsx'
 import { TurnTailNodeView } from '../src/client/chat/TurnTailNodeView.tsx'
+import type { UserActionOwnerProps } from '../src/client/contract/slots.ts'
 import { formatRunDuration } from '../src/client/chat/message-chrome.ts'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
@@ -87,6 +88,14 @@ function makeSource(init?: Partial<ConversationSnapshot>) {
 
 const user = (seq: number, text: string): UserMessageNode => ({
   kind: 'user',
+  seq,
+  time: seq * 1000,
+  content: [{ type: 'text', text }] as never,
+  source: null,
+})
+const steering = (seq: number, text: string): SteeringMessageNode => ({
+  kind: 'steering',
+  messageId: `msg-${seq}` as SteeringMessageNode['messageId'],
   seq,
   time: seq * 1000,
   content: [{ type: 'text', text }] as never,
@@ -176,6 +185,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   }> = []
   const renderCommandSlot = ((_key: string, _owner: object, opts?: { fallback?: React.ReactNode }) =>
     opts?.fallback ?? null) as unknown as React.ComponentProps<typeof CommandNodeView>['renderSlot']
+  const userActionOwners: UserActionOwnerProps[] = []
   const renderTurnTail = ((_key: string, _owner: object) => null) as unknown as
     React.ComponentProps<typeof TurnTailNodeView>['renderSlotChain']
   const renderTurnTailSlot = (() => null) as unknown as
@@ -184,6 +194,11 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     fallback?: React.ReactNode
     hookContext?: unknown
   }) => {
+    if (key === 'conversation.chat.user-actions') {
+      const actionOwner = owner as UserActionOwnerProps
+      userActionOwners.push(actionOwner)
+      return <span data-testid={`user-action-${actionOwner.seq}`} data-user-action-text={actionOwner.text} />
+    }
     if (key !== 'conversation.chat.node') return opts?.fallback ?? null
     const nodeOwner = owner as RoutedChatNodeOwner
     const nodeKey = opts?.hookContext as string | undefined
@@ -295,7 +310,7 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
   const setSelection = (next: SelectionTarget | null): void => { chat.actions.select(next) }
   return {
     set, ChatView, props, openDetails, openFile, loadOlder, inspectCall,
-    chatScroll, forkAt, setSelection, toolOwners,
+    chatScroll, forkAt, setSelection, toolOwners, userActionOwners,
   }
 }
 
@@ -326,6 +341,19 @@ function installScrollMetrics(element: HTMLElement, initialHeight: number, clien
 }
 
 describe('Chat node rendering', () => {
+  it('offers the user-actions seat on user and steering bubbles only, addressed by log position and rendered text', () => {
+    const h = makeHarness({ nodes: [user(1, 'first ask'), assistant(2, 'answer'), steering(3, 'mid-turn note')] })
+    const view = render(<h.ChatView {...h.props} />)
+    // The assistant tail owns a separate seat, so it contributes no entry here.
+    expect(h.userActionOwners).toEqual([
+      { seq: 1, text: 'first ask' },
+      { seq: 3, text: 'mid-turn note' },
+    ])
+    expect(view.getByTestId('user-action-1').getAttribute('data-user-action-text')).toBe('first ask')
+    expect(view.getByTestId('user-action-3').getAttribute('data-user-action-text')).toBe('mid-turn note')
+    expect(view.queryByTestId('user-action-2')).toBeNull()
+  })
+
 
   it('threads the injected file-mention vocabulary into the closing prose only', () => {
     const wrote = (seq: number, callId: string, path: string): ToolResultNode => ({

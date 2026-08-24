@@ -51,12 +51,12 @@ import { existsSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, Menu, shell, type MenuItemConstructorOptions, type MessageBoxOptions } from 'electron'
 import { load } from 'js-yaml'
-import { MacUpdater, NsisUpdater, type AppUpdater } from 'electron-updater'
+import { MacUpdater, NsisUpdater, type AppUpdater, type UpdateCheckResult } from 'electron-updater'
 import { mainWindow } from './main-window.ts'
 import { menuText } from './menu-text.ts'
 import { compareVersions } from './version-order.ts'
 import { closeProgress, progressVersion, showInstalling, showProgress, showRetrying, updateProgress } from './progress-window.ts'
-import { RETRY_DELAYS_MS, classifyDownloadError, describeDownloadError, downloadWithRetry } from './download-retry.ts'
+import { CHECK_RETRY_DELAYS_MS, RETRY_DELAYS_MS, classifyDownloadError, describeDownloadError, withRetry } from './download-retry.ts'
 
 /**
  * The published feed, and **the only URL literal this module may contain**.
@@ -86,6 +86,9 @@ const FEED_WIN = `${FEED_BASE}/win`
 
 /** macOS feed: `latest-mac.yml` plus the zipped app. */
 const FEED_MAC = `${FEED_BASE}/mac`
+
+/** Where the Help menu's "Report an Issue" lands: a prefilled new-issue page. */
+const ISSUE_NEW_URL = 'https://github.com/sumomok/deepseek-harness/issues/new'
 
 /**
  * The one channel this product publishes, set explicitly on both ends: the
@@ -188,6 +191,15 @@ let stagedNotes: string | undefined
  * else in the updater.
  */
 let downloading = false
+
+/**
+ * Whether a check is in flight, which stays true across a retry's wait. The
+ * `error` listener reads this to leave a check's failure to whoever called
+ * [[checkFeedWithRetry]]: every failed attempt raises the event, and demoting
+ * on the first would take the in-place tier away before the retry that would
+ * have answered.
+ */
+let checkInFlight = false
 
 /** Version whose download offer was declined during this run. */
 let declinedVersion: string | undefined
@@ -426,7 +438,7 @@ export async function launchGate(host: UpdateHost, onBlock: (message: string) =>
 async function resolveGate(host: UpdateHost): Promise<boolean> {
   if (canInstallInPlace()) {
     try {
-      const result = await ensureUpdater(host).checkForUpdates()
+      const result = await checkFeedWithRetry(host, ensureUpdater(host))
       const minimum = minimumOf(result?.updateInfo)
       if (!isMandatory(minimum)) return false
       stagedNotes = typeof result?.updateInfo.releaseNotes === 'string' ? result.updateInfo.releaseNotes : undefined
@@ -435,7 +447,10 @@ async function resolveGate(host: UpdateHost): Promise<boolean> {
       return true
     } catch (error) {
       if (process.platform !== 'darwin') throw error
-      demoteMac(host, error)
+      // A check the retries could not get through says nothing about whether
+      // this build can replace itself, so the tier survives it and the raw
+      // manifest read below still decides this launch.
+      if (classifyDownloadError(error) === 'fatal') demoteMac(host, error)
     }
   }
   const feed = await fetchFeed(`${FEED_MAC}/latest-mac.yml`)
@@ -458,6 +473,33 @@ function demoteMac(host: UpdateHost, error: unknown): void {
   macInstallUnavailable = true
   const message = error instanceof Error ? error.message : String(error)
   host.log(`[updater] in-place update unavailable (${message}); this run falls back to the download page\n`)
+}
+
+/**
+ * Ask the feed for its manifest, repeating a check the network interrupted.
+ *
+ * A check transfers one small manifest, so an interruption costs a request and
+ * the retries are worth spending before anything downgrades: the tier is what a
+ * failed check used to cost, and it is not recoverable until the next launch.
+ * [[checkInFlight]] is held for the whole plan so the `error` event each failed
+ * attempt raises is left to this function's caller, which sees the failure once
+ * the retries are spent and classifies it there.
+ * @param host - logging and quit coordination from the main process.
+ * @param instance - the updater to ask.
+ * @returns what electron-updater answered, or null when it answered nothing.
+ */
+async function checkFeedWithRetry(host: UpdateHost, instance: AppUpdater): Promise<UpdateCheckResult | null> {
+  checkInFlight = true
+  try {
+    return await withRetry(async () => instance.checkForUpdates(), CHECK_RETRY_DELAYS_MS, {
+      sleep: async (ms) => { await new Promise<void>((resolvePromise) => { setTimeout(resolvePromise, ms) }) },
+      onRetry: (attempt, total, delayMs, error) => {
+        host.log(`[updater] check interrupted (${describeDownloadError(error)}); retry ${String(attempt)}/${String(total)} in ${String(Math.round(delayMs / 1000))}s\n`)
+      },
+    })
+  } finally {
+    checkInFlight = false
+  }
 }
 
 /**
@@ -485,7 +527,7 @@ async function download(host: UpdateHost, version: string, run: () => Promise<vo
   downloading = true
   showProgress(version)
   try {
-    await downloadWithRetry(run, {
+    await withRetry(run, RETRY_DELAYS_MS, {
       sleep: async (ms) => { await new Promise<void>((resolvePromise) => { setTimeout(resolvePromise, ms) }) },
       onRetry: (attempt, total, delayMs, error) => {
         host.log(`[updater] download interrupted (${describeDownloadError(error)}); retry ${String(attempt)}/${String(total)} in ${String(Math.round(delayMs / 1000))}s\n`)
@@ -620,7 +662,10 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
         return
       } catch (error) {
         if (process.platform !== 'darwin') throw error
-        demoteMac(host, error)
+        // Same rule as the gate: a transient failure that outlived the retries
+        // costs this check, which [[checkGeneric]] answers below, not the tier
+        // for the rest of the run.
+        if (classifyDownloadError(error) === 'fatal') demoteMac(host, error)
       }
     }
     await checkGeneric(host, reason)
@@ -657,7 +702,7 @@ async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void
     if (reason === 'manual') showProgress(progressVersion() ?? '')
     return
   }
-  const result = await checking.checkForUpdates()
+  const result = await checkFeedWithRetry(host, checking)
   const version = result?.updateInfo.version
   if (version === undefined || compareVersions(version, app.getVersion()) <= 0) {
     host.log(`[updater] no update: installed ${app.getVersion()}, feed ${version ?? 'unavailable'}\n`)
@@ -758,6 +803,9 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
     // and demotes only for a failure that installing again cannot fix. Acting
     // on it here would tear both down for a dropped packet.
     if (downloading) return
+    // The same ownership for a check: [[checkFeedWithRetry]] is mid-plan and
+    // its caller decides once the retries are spent.
+    if (checkInFlight) return
     closeProgress()
     mainWindow()?.setProgressBar(-1)
     // On macOS this listener is the only place a failure inside Squirrel
@@ -1013,6 +1061,7 @@ function buildMenu(onCheck: () => void, onOpenLog: () => void): void {
       submenu: [
         { label: text.checkUpdate, click: onCheck },
         { label: text.openLog, click: onOpenLog },
+        { label: text.reportIssue, click: () => { void shell.openExternal(ISSUE_NEW_URL) } },
         { type: 'separator' },
         { label: text.about, click: onAbout },
       ],

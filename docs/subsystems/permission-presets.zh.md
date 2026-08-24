@@ -8,7 +8,7 @@
 
 ## 预设表
 
-预设是一个表键，映射到一个沙箱／审批组合，外加可选的客户端展示信息；默认预设表自带 `workspace-write`（`workspace-write` + `ask`）和 `danger-full-access`（`danger-full-access` + `never`）。
+预设是一个表键，映射到一个沙箱／审批组合，外加可选的客户端展示信息——label、description，以及选择器封闭设计集中的一个 glyph；默认预设表自带 `workspace-write`（`workspace-write` + `ask`）和 `danger-full-access`（`danger-full-access` + `never`）。
 
 ```ts type-equiv
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -21,7 +21,18 @@ interface PresetSpec {
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
 }
+```
+
+```ts type-equiv
+/**
+ * One glyph of the permission selector's design set. The set is closed: a
+ * presentation layer draws exactly these three, so a host names one instead of
+ * supplying artwork.
+ */
+type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
 ```
 
 ```ts type-equiv
@@ -34,9 +45,8 @@ interface Config {
    */
   presets?: Record<string, PresetSpec>
   /**
-   * Default for fresh sessions and eligible confirmed blank reuse. When
-   * omitted, the preset matching the composed sandbox and approval defaults
-   * is used.
+   * Default for new sessions. When omitted, the preset matching the composed
+   * sandbox and approval defaults is used.
    */
   defaultPreset?: string
 }
@@ -48,7 +58,7 @@ interface Config {
 
 `current(events)` 从 knob 派生实际生效的预设，而不是只看自身事件：它折叠会话的生效沙箱模式（回退到执行器配置的模式）与生效审批策略（先回退到审批服务配置，再回退到 `ask`），优先取仍然匹配的已记录选择，其次取声明顺序中第一个匹配的表项，否则返回 `CUSTOM_PRESET`（`'custom'`）。`custom` 只是派生值：客户端可以把它显示为当前值，但它绝不是切换目标，也绝不出现在事件 payload 中。
 
-`names` 按预设表声明顺序列出可切换的预设；`optionOf(name)` 为某个表键（label 回退为该键）或 `custom` 构建客户端渲染的选项，传入其他任何名称都会抛出异常。
+`names` 按预设表声明顺序列出可切换的预设；`optionOf(name)` 为某个表键（label 回退为该键，glyph 原样传出）或 `custom` 构建客户端渲染的选项，传入其他任何名称都会抛出异常。
 
 ```ts type-equiv
 /** The select-option shape a presentation layer advertises for one preset (or for the derived `custom` state). */
@@ -59,6 +69,8 @@ interface PresetOption {
   name: string
   /** One user-facing sentence on what the value means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
 }
 ```
 
@@ -91,17 +103,6 @@ Owns the deployment's permission presets and their write path. Requires a confin
  * @returns the effective preset name, or `custom` when nothing matches.
  */
 current(events: readonly SessionEvent[]): string
-
-/**
- * Advance one blank session after the host has confirmed it as the exact
- * Web New Session reuse target. Only a still-effective
- * default-origin selection advances; a started session, an explicit pick,
- * legacy origin-less data, or independently changed knobs remain pinned.
- * This is the permission-side half of the Web candidate selection and the
- * host's blankness, membership, cwd, and archive verification.
- * @param session - the live session selected for Workspace blank reuse.
- */
-refreshDefaultForReuse(session: Session): void
 
 /**
  * Build the whole select value for one folded knob state: every table

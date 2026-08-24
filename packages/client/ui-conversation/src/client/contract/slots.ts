@@ -57,6 +57,9 @@ export interface MessageImagesOwnerProps {
 /** Slot-backed renderer used by chat nodes without importing an attachment implementation. */
 export type RenderMessageImages = (owner: Omit<MessageImagesOwnerProps, 'loadImage'>) => ReactNode
 
+/** Slot-backed renderer for the actions one user-side message offers. */
+export type RenderUserActions = (owner: UserActionOwnerProps) => ReactNode
+
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface SlotMap {
     /**
@@ -149,6 +152,21 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
       kind: 'list'
       scope: 'session'
       owner: AssistantActionOwnerProps
+    }
+    /**
+     * Action strip attached to one user or admitted-steering message, rendered
+     * inside that message's IconActions row. The chat view declares this seat
+     * and hands every node a `renderUserActions` share: the `user` and
+     * `steering` entries both render it, and a child key has exactly one
+     * declaring entry. The render site passes the addressed message's log
+     * position and rendered text, so contributors add per-message actions
+     * without importing the conversation implementation. Entries render by
+     * ascending `order`.
+     */
+    'conversation.chat.user-actions': {
+      kind: 'list'
+      scope: 'session'
+      owner: UserActionOwnerProps
     }
     /**
      * The body of the details panel for the tool call the user selected —
@@ -400,6 +418,19 @@ export interface AssistantActionOwnerProps {
   messageId: MessageId
 }
 
+/**
+ * Owner currency of the user-message action strip: where the addressed message
+ * sits in the durable log, plus the text its bubble rendered. A user message
+ * carries no message id — `messageId` is the assistant-side identity space —
+ * so `seq` addresses it.
+ */
+export interface UserActionOwnerProps {
+  /** Log position of the `user/message` event this strip addresses. */
+  seq: number
+  /** The message's joined text, the same string the built-in copy action writes. */
+  text: string
+}
+
 /** Hook constrained to business data published on the current Chat Node's Turn. */
 export type UseChatNodeTurnData = <Key extends Extract<keyof ConversationTurnDataMap, string>>(
   key: Key,
@@ -423,6 +454,12 @@ export interface ChatNodeOwnerProps {
   forkAt: (seq: number) => void
   /** Render a historical image group through the attachment slot. */
   renderMessageImages: RenderMessageImages
+  /**
+   * Render the contributed actions of one user-side message. A chat node
+   * decides whether its message has a durable position to address; the pending
+   * steering bubble has none and receives no strip.
+   */
+  renderUserActions: RenderUserActions
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
 }
 
@@ -787,7 +824,7 @@ export interface ChatViewInjected {
 /** Full chat-view component props: runtime & its Tool/command/tail render shares & store & injected & locale seat. */
 export type ChatViewSlotProps =
   PropsRuntime<'conversation.view'>
-  & PropsRenderSlots<'conversation.chat.node' | 'conversation.message.images'>
+  & PropsRenderSlots<'conversation.chat.node' | 'conversation.message.images' | 'conversation.chat.user-actions'>
   & PropsStore<ChatStore> & ChatViewInjected & PropsLocale<'conversation'>
 
 /** Full props of the attachment plugin's composer entry. */

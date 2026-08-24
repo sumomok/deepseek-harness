@@ -1,16 +1,17 @@
 /**
- * Which update-download failures are retried, how the plan spaces the
+ * Which update-transfer failures are retried, how each plan spaces the
  * attempts, and what the caller is left holding when it runs out.
  * @module
  */
 
 import { describe, expect, it, vi } from 'vitest'
 import {
+  CHECK_RETRY_DELAYS_MS,
   RETRY_DELAYS_MS,
   classifyDownloadError,
   describeDownloadError,
-  downloadWithRetry,
   type RetryHooks,
+  withRetry,
 } from '../src/download-retry.ts'
 
 /**
@@ -118,11 +119,11 @@ describe('describeDownloadError', () => {
   })
 })
 
-describe('downloadWithRetry', () => {
+describe('withRetry', () => {
   it('runs the download once when it succeeds', async () => {
     const run = vi.fn(async () => {})
     const { hooks, delays, reports } = recorder()
-    await downloadWithRetry(run, hooks)
+    await withRetry(run, RETRY_DELAYS_MS, hooks)
     expect(run).toHaveBeenCalledTimes(1)
     expect(delays).toEqual([])
     expect(reports).toEqual([])
@@ -135,7 +136,7 @@ describe('downloadWithRetry', () => {
       if (attempts < 3) throw coded('ECONNRESET', 'read ECONNRESET')
     })
     const { hooks, delays, reports } = recorder()
-    await downloadWithRetry(run, hooks)
+    await withRetry(run, RETRY_DELAYS_MS, hooks)
     expect(run).toHaveBeenCalledTimes(3)
     expect(delays).toEqual(RETRY_DELAYS_MS.slice(0, 2))
     expect(reports).toEqual([
@@ -154,7 +155,7 @@ describe('downloadWithRetry', () => {
     let attempts = 0
     const run = vi.fn(async () => { throw failures[attempts++] })
     const { hooks, delays, reports } = recorder()
-    await expect(downloadWithRetry(run, hooks)).rejects.toBe(failures[RETRY_DELAYS_MS.length])
+    await expect(withRetry(run, RETRY_DELAYS_MS, hooks)).rejects.toBe(failures[RETRY_DELAYS_MS.length])
     expect(run).toHaveBeenCalledTimes(RETRY_DELAYS_MS.length + 1)
     expect(delays).toEqual([...RETRY_DELAYS_MS])
     expect(reports.map(report => report[0])).toEqual([1, 2, 3])
@@ -164,7 +165,7 @@ describe('downloadWithRetry', () => {
     const failure = coded('ERR_UPDATER_INVALID_SIGNATURE', 'not signed by the application owner')
     const run = vi.fn(async () => { throw failure })
     const { hooks, delays, reports } = recorder()
-    await expect(downloadWithRetry(run, hooks)).rejects.toBe(failure)
+    await expect(withRetry(run, RETRY_DELAYS_MS, hooks)).rejects.toBe(failure)
     expect(run).toHaveBeenCalledTimes(1)
     expect(delays).toEqual([])
     expect(reports).toEqual([])
@@ -178,9 +179,48 @@ describe('downloadWithRetry', () => {
       throw attempts === 1 ? coded('ECONNRESET', 'read ECONNRESET') : failure
     })
     const { hooks, delays } = recorder()
-    await expect(downloadWithRetry(run, hooks)).rejects.toBe(failure)
+    await expect(withRetry(run, RETRY_DELAYS_MS, hooks)).rejects.toBe(failure)
     expect(run).toHaveBeenCalledTimes(2)
     expect(delays).toEqual([RETRY_DELAYS_MS[0]])
+  })
+
+  it('hands back what the attempt that completed returned', async () => {
+    const run = vi.fn(async () => 'the manifest')
+    const { hooks } = recorder()
+    await expect(withRetry(run, RETRY_DELAYS_MS, hooks)).resolves.toBe('the manifest')
+  })
+
+  it('spaces a retried check along the check plan, not the download plan', async () => {
+    let attempts = 0
+    const run = vi.fn(async () => {
+      attempts += 1
+      if (attempts < 3) throw new Error('net::ERR_EMPTY_RESPONSE')
+      return 'the manifest'
+    })
+    const { hooks, delays, reports } = recorder()
+    await expect(withRetry(run, CHECK_RETRY_DELAYS_MS, hooks)).resolves.toBe('the manifest')
+    expect(delays).toEqual(CHECK_RETRY_DELAYS_MS.slice(0, 2))
+    expect(reports.map(report => report[1])).toEqual([CHECK_RETRY_DELAYS_MS.length, CHECK_RETRY_DELAYS_MS.length])
+  })
+})
+
+describe('CHECK_RETRY_DELAYS_MS', () => {
+  it('is a bounded, strictly increasing plan', () => {
+    expect(CHECK_RETRY_DELAYS_MS.length).toBeGreaterThan(0)
+    expect([...CHECK_RETRY_DELAYS_MS]).toEqual([...CHECK_RETRY_DELAYS_MS].sort((a, b) => a - b))
+    expect(new Set(CHECK_RETRY_DELAYS_MS).size).toBe(CHECK_RETRY_DELAYS_MS.length)
+  })
+
+  it('fits inside the launch gate, which races the plan and opens on its own timeout', () => {
+    // GATE_TIMEOUT_MS in src/updater.ts. A plan that outlasts it would let the
+    // gate answer from the timeout instead of from a retried check.
+    expect(CHECK_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)).toBeLessThan(15_000)
+  })
+
+  it('is tighter than the download plan, whose attempts each re-transfer the artifact', () => {
+    const checkTotal = CHECK_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
+    const downloadTotal = RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
+    expect(checkTotal).toBeLessThan(downloadTotal)
   })
 })
 

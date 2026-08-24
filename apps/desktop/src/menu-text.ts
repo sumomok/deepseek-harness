@@ -20,7 +20,7 @@ const MENU_TEXT = {
     reload: '重新加载', forceReload: '强制重新加载', devTools: '开发者工具',
     resetZoom: '实际大小', zoomIn: '放大', zoomOut: '缩小', fullscreen: '全屏',
     minimize: '最小化', close: '关闭', front: '前置全部窗口',
-    checkUpdate: '检查更新', openLog: '查看日志',
+    checkUpdate: '检查更新', openLog: '查看日志', reportIssue: '提交 Issue',
     open: '打开', askOnClose: '关闭时询问',
   },
   en: {
@@ -30,7 +30,7 @@ const MENU_TEXT = {
     reload: 'Reload', forceReload: 'Force Reload', devTools: 'Developer Tools',
     resetZoom: 'Actual Size', zoomIn: 'Zoom In', zoomOut: 'Zoom Out', fullscreen: 'Toggle Full Screen',
     minimize: 'Minimize', close: 'Close', front: 'Bring All to Front',
-    checkUpdate: 'Check for Updates', openLog: 'Open Log',
+    checkUpdate: 'Check for Updates', openLog: 'Open Log', reportIssue: 'Report an Issue',
     open: 'Open', askOnClose: 'Ask When Closing',
   },
 } as const

@@ -12,9 +12,14 @@
  * The shape is decided by the plugin model. Cordis resolves plugins by package
  * name from configuration read at boot, so every `@deepseek-ai/*` package stays
  * a resolvable directory with an entry in it: they are external to one another
- * and only their dependencies are inlined. What is left of a third-party
- * package after that is deleted, but only if nothing reachable still imports
- * it.
+ * and only their dependencies are inlined. The same holds for the out-of-scope
+ * plugin packages the installer ships (`dsh-better-sidebar`, `dsh-at-file`, and
+ * the `@haoran/*` built-ins), which a profile names in `dsh.profile.bundles` and
+ * nothing imports: they are recognized by the `dsh.bundle` declaration in their
+ * own manifest and kept whole, because they arrive pre-bundled and the browser
+ * half of one that has it must stay exactly as its client build left it. What
+ * is left of a third-party package after that is deleted, but only if nothing
+ * reachable still imports it.
  *
  * This runs on the derived payload rather than in the package build, which is
  * what keeps the 219 publishable npm artifacts exactly as they are: nothing
@@ -26,6 +31,12 @@ import { build } from 'esbuild'
 import { existsSync } from 'node:fs'
 import { readdir, readFile, rm } from 'node:fs/promises'
 import { join } from 'node:path'
+
+/** The manifest fields this module reads. */
+interface PackageManifest {
+  dsh?: { bundle?: { patch?: string } }
+  [key: string]: unknown
+}
 
 /** The scope whose packages stay resolvable by name, because the loader names them. */
 const OURS = '@deepseek-ai'
@@ -70,6 +81,23 @@ const BANNER = [
   "import { createRequire as __dshCreateRequire } from 'node:module';",
   'const require = __dshCreateRequire(import.meta.url);',
 ].join('\n')
+
+/**
+ * Whether a package is a profile bundle: its manifest declares `dsh.bundle`,
+ * which is what makes a profile able to name it in `dsh.profile.bundles` and
+ * what makes the Loader import it by that bare name at boot. Nothing in the
+ * payload references such a package by a specifier, so without this it reads
+ * as unreachable third-party and is deleted.
+ * @param nodeModules - the payload's node_modules directory.
+ * @param name - the package name to test.
+ * @returns true when the installed manifest declares a bundle patch layer.
+ */
+async function declaresBundle(nodeModules: string, name: string): Promise<boolean> {
+  const manifestPath = join(nodeModules, name, 'package.json')
+  if (!existsSync(manifestPath)) return false
+  const manifest = JSON.parse(await readFile(manifestPath, 'utf8')) as PackageManifest
+  return manifest.dsh?.bundle?.patch !== undefined
+}
 
 /** Every package directory under one node_modules, scope-aware. */
 async function packagesIn(nodeModules: string): Promise<string[]> {
@@ -147,13 +175,20 @@ async function textOf(nodeModules: string, name: string): Promise<string> {
 /**
  * Bundle one derived payload in place and drop what nothing imports any more.
  * @param payload - the derived payload directory, mutated in place.
- * @returns what changed, for the caller to report.
+ * @returns what changed, plus the out-of-scope profile bundles kept whole, for
+ * the caller to report.
  */
-export async function bundleClosure(payload: string): Promise<{ bundled: number; unbundled: string[]; removed: number }> {
+export async function bundleClosure(
+  payload: string,
+): Promise<{ bundled: number; unbundled: string[]; removed: number; bundles: string[] }> {
   const nodeModules = join(payload, 'node_modules')
   const all = await packagesIn(nodeModules)
   const ours = all.filter(name => name.startsWith(`${OURS}/`))
-  const external = [...ours, ...NATIVE]
+  const bundles: string[] = []
+  for (const name of all) {
+    if (!name.startsWith(`${OURS}/`) && await declaresBundle(nodeModules, name)) bundles.push(name)
+  }
+  const external = [...ours, ...bundles, ...NATIVE]
 
   let bundled = 0
   const unbundled: string[] = []
@@ -203,8 +238,9 @@ export async function bundleClosure(payload: string): Promise<{ bundled: number;
   // dependencies with it — `@babel/code-frame` stays because something imports
   // it, and it needs `picocolors`, which nothing else names — so deleting on a
   // single scan leaves a kept package without its own.
-  const thirdParty = all.filter(name => !name.startsWith(`${OURS}/`) && !NATIVE.includes(name))
-  const kept = new Set([...ours, ...NATIVE])
+  const thirdParty = all.filter(name =>
+    !name.startsWith(`${OURS}/`) && !NATIVE.includes(name) && !bundles.includes(name))
+  const kept = new Set([...ours, ...bundles, ...NATIVE])
   const frontier = [...kept]
   while (frontier.length > 0) {
     const text = await textOf(nodeModules, frontier.pop() as string)
@@ -217,5 +253,5 @@ export async function bundleClosure(payload: string): Promise<{ bundled: number;
 
   const removable = thirdParty.filter(name => !kept.has(name))
   for (const name of removable) await rm(join(nodeModules, name), { recursive: true, force: true })
-  return { bundled, unbundled, removed: removable.length }
+  return { bundled, unbundled, removed: removable.length, bundles }
 }

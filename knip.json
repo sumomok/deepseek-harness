@@ -648,6 +648,7 @@
         "scripts/after-pack.cjs",
         "scripts/measure/diff-download.mjs",
         "scripts/publish-update.ts",
+        "scripts/render-smoke.mjs",
         "tests/**/*.spec.ts"
       ],
       "project": [
@@ -665,7 +666,14 @@
       "entry": [],
       "project": [],
       "ignoreDependencies": [
-        "@deepseek-ai/.+"
+        "@deepseek-ai/.+",
+        "@haoran/dsh-default-model",
+        "@haoran/dsh-llm-permission-gateway",
+        "@haoran/dsh-screenshot",
+        "@sumomok/dsh-balance",
+        "@sumomok/dsh-quote-message",
+        "dsh-at-file",
+        "dsh-better-sidebar"
       ]
     },
     "apps/pwa": {

@@ -131,7 +131,7 @@ describe('PermissionPresetService', () => {
     const session = freshSession('sess-set')
     ctx.permissionPresets.set(session, 'danger-full-access')
     expect(session.events.map(e => [e.type, e.data])).toEqual([
-      ['permission/preset', { preset: 'danger-full-access', origin: 'selection' }],
+      ['permission/preset', { preset: 'danger-full-access' }],
       ['sandbox/mode', { mode: 'danger-full-access' }],
       ['approval/policy', { policy: 'never' }],
     ])
@@ -154,7 +154,7 @@ describe('PermissionPresetService', () => {
     ctx.permissionPresets.set(session, 'danger-full-access')
     const tail = session.events.slice(4)
     expect(tail.map(e => [e.type, e.data])).toEqual([
-      ['permission/preset', { preset: 'danger-full-access', origin: 'selection' }],
+      ['permission/preset', { preset: 'danger-full-access' }],
       ['sandbox/mode', { mode: 'danger-full-access' }],
     ])
   })
@@ -171,6 +171,26 @@ describe('PermissionPresetService', () => {
     const bare = await mounted({ config: { presets: { plain: { sandbox: 'workspace-write', approval: 'ask' } } } })
     expect(bare.permissionPresets.optionOf('plain')).toEqual({ value: 'plain', name: 'plain' })
     expect(() => ctx.permissionPresets.optionOf('plan')).toThrow(/unknown preset/)
+  })
+
+  it('carries a configured design-set glyph into the option and rejects any other name at load', async () => {
+    const ctx = await mounted({
+      config: {
+        presets: {
+          'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+          'read-only': { sandbox: 'read-only', approval: 'ask', glyph: 'read-only' },
+          'yolo-access': { sandbox: 'danger-full-access', approval: 'ask', name: 'Reviewed full access', glyph: 'danger-full-access' },
+        },
+      },
+    })
+    expect(ctx.permissionPresets.optionOf('yolo-access')).toEqual({
+      value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access',
+    })
+    // A preset naming no glyph keeps the option it always had.
+    expect(ctx.permissionPresets.optionOf('workspace-write')).toEqual({ value: 'workspace-write', name: 'workspace-write' })
+    // The glyph set is closed: the client draws artwork, not a host-named file.
+    const outside = { presets: { plain: { sandbox: 'workspace-write', approval: 'ask', glyph: 'sparkles' } } } as unknown as Config
+    await expect(mounted({ config: outside })).rejects.toThrow(/\$\.presets\.plain\.glyph expected .* but got "sparkles"/)
   })
 
   it('rejects a table entry named custom (reserved for the derived state)', async () => {
@@ -197,105 +217,20 @@ describe('new-session default', () => {
     const ctx = await mountedStore()
     const first = ctx.sessions.create(SessionId('first'))
     expect(first.events.map(event => [event.type, event.data])).toEqual([
-      ['permission/preset', { preset: 'workspace-write', origin: 'default' }],
+      ['permission/preset', { preset: 'workspace-write' }],
       ['sandbox/mode', { mode: 'workspace-write' }],
       ['approval/policy', { policy: 'ask' }],
     ])
-    first.append('turn/start', { turn: 1 })
 
     await ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
       defaultPreset: 'danger-full-access',
     })
-    ctx.permissionPresets.refreshDefaultForReuse(first)
     expect(ctx.permissionPresets.defaultPreset).toBe('danger-full-access')
     const second = ctx.sessions.create(SessionId('second'))
     expect(ctx.permissionPresets.current(first.events)).toBe('workspace-write')
     expect(ctx.permissionPresets.current(second.events)).toBe('danger-full-access')
     expect(second.events.map(event => event.type)).toEqual([
       'permission/preset', 'sandbox/mode', 'approval/policy',
-    ])
-  })
-
-  it('advances a confirmed reusable blank session that still carries its default', async () => {
-    const ctx = await mountedStore()
-    const blank = ctx.sessions.create(SessionId('blank-placeholder'))
-    expect(ctx.permissionPresets.current(blank.events)).toBe('workspace-write')
-
-    await ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
-      defaultPreset: 'danger-full-access',
-    })
-    expect(ctx.permissionPresets.current(blank.events)).toBe('workspace-write')
-    ctx.permissionPresets.refreshDefaultForReuse(blank)
-
-    expect(ctx.permissionPresets.current(blank.events)).toBe('danger-full-access')
-    expect(blank.events.map(event => [event.type, event.data])).toEqual([
-      ['permission/preset', { preset: 'workspace-write', origin: 'default' }],
-      ['sandbox/mode', { mode: 'workspace-write' }],
-      ['approval/policy', { policy: 'ask' }],
-      ['permission/preset', { preset: 'danger-full-access', origin: 'default' }],
-      ['sandbox/mode', { mode: 'danger-full-access' }],
-      ['approval/policy', { policy: 'never' }],
-    ])
-  })
-
-  it('leaves explicit, inferred, legacy, absent, and independently changed selections unchanged', async () => {
-    const ctx = await mountedStore()
-    const picked = ctx.sessions.create(SessionId('blank-explicit-pick'))
-    ctx.permissionPresets.set(picked, 'danger-full-access')
-    const pickedEvents = [...picked.events]
-
-    const restored = ctx.sessions.create(SessionId('blank-restored'), { seed: [] })
-    expect(ctx.permissionPresets.current(restored.events)).toBe('workspace-write')
-    const restoredEvents = [...restored.events]
-
-    const drifted = ctx.sessions.create(SessionId('blank-drifted-knob'))
-    drifted.append('sandbox/mode', { mode: 'read-only' })
-    const driftedEvents = [...drifted.events]
-
-    const legacy = freshSession('blank-originless-selection')
-    legacy.append('permission/preset', { preset: 'workspace-write' })
-    legacy.append('sandbox/mode', { mode: 'workspace-write' })
-    legacy.append('approval/policy', { policy: 'ask' })
-    const legacyEvents = [...legacy.events]
-
-    const absent = freshSession('blank-without-selection')
-
-    await ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
-      defaultPreset: 'danger-full-access',
-    })
-    await ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
-      defaultPreset: 'workspace-write',
-    })
-    ctx.permissionPresets.refreshDefaultForReuse(picked)
-    ctx.permissionPresets.refreshDefaultForReuse(restored)
-    ctx.permissionPresets.refreshDefaultForReuse(drifted)
-    ctx.permissionPresets.refreshDefaultForReuse(legacy)
-    ctx.permissionPresets.refreshDefaultForReuse(absent)
-
-    expect(picked.events).toEqual(pickedEvents)
-    expect(restored.events).toEqual(restoredEvents)
-    expect(drifted.events).toEqual(driftedEvents)
-    expect(legacy.events).toEqual(legacyEvents)
-    expect(absent.events).toEqual([])
-  })
-
-  it('refreshes a cold default-origin placeholder after resume', async () => {
-    const ctx = await mountedStore()
-    const source = ctx.sessions.create(SessionId('cold-placeholder-source'))
-    const stored = [...source.events]
-    await ctx.settings.update(PERMISSION_SETTINGS_NAMESPACE, {
-      defaultPreset: 'danger-full-access',
-    })
-    const resumed = ctx.sessions.create(SessionId('cold-placeholder-resumed'), { seed: stored })
-    expect(ctx.permissionPresets.current(resumed.events)).toBe('workspace-write')
-
-    ctx.permissionPresets.refreshDefaultForReuse(resumed)
-
-    expect(ctx.permissionPresets.current(resumed.events)).toBe('danger-full-access')
-    expect(resumed.events.slice(-3).map(event => [event.type, event.data])).toEqual([
-      ['permission/preset', { preset: 'danger-full-access', origin: 'default' }],
-      ['sandbox/mode', { mode: 'danger-full-access' }],
-      ['approval/policy', { policy: 'never' }],
     ])
   })
 

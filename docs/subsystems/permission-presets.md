@@ -8,7 +8,7 @@ Source: [`packages/interaction/permission-presets/src/index.ts`](../../packages/
 
 ## The preset table
 
-A preset is a table key mapping to one sandbox/approval bundle plus optional client presentation; the default table ships `workspace-write` (`workspace-write` + `ask`) and `danger-full-access` (`danger-full-access` + `never`).
+A preset is a table key mapping to one sandbox/approval bundle plus optional client presentation — a label, a description, and one glyph from the selector's closed design set; the default table ships `workspace-write` (`workspace-write` + `ask`) and `danger-full-access` (`danger-full-access` + `never`).
 
 ```ts type-equiv
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -21,7 +21,18 @@ interface PresetSpec {
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
 }
+```
+
+```ts type-equiv
+/**
+ * One glyph of the permission selector's design set. The set is closed: a
+ * presentation layer draws exactly these three, so a host names one instead of
+ * supplying artwork.
+ */
+type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
 ```
 
 ```ts type-equiv
@@ -34,9 +45,8 @@ interface Config {
    */
   presets?: Record<string, PresetSpec>
   /**
-   * Default for fresh sessions and eligible confirmed blank reuse. When
-   * omitted, the preset matching the composed sandbox and approval defaults
-   * is used.
+   * Default for new sessions. When omitted, the preset matching the composed
+   * sandbox and approval defaults is used.
    */
   defaultPreset?: string
 }
@@ -48,7 +58,7 @@ The service requires a confining `ctx.shell` executor and `ctx.approval`, and mi
 
 `current(events)` derives the effective preset from the knobs, not from its own event alone: it folds the session's effective sandbox mode (falling back to the executor's configured mode) and effective approval policy (falling back to the approval service config, then `ask`), prefers a still-matching recorded selection, then the first matching table entry in declaration order, and otherwise returns `CUSTOM_PRESET` (`'custom'`). `custom` is derived-only: clients may display it as the current value, but it is never a switch target or an event payload.
 
-`names` lists the switchable presets in table declaration order; `optionOf(name)` builds the option a client renders for a table key (label falls back to the key) or for `custom`, and throws for any other name.
+`names` lists the switchable presets in table declaration order; `optionOf(name)` builds the option a client renders for a table key (label falls back to the key, glyph passes through unchanged) or for `custom`, and throws for any other name.
 
 ```ts type-equiv
 /** The select-option shape a presentation layer advertises for one preset (or for the derived `custom` state). */
@@ -59,6 +69,8 @@ interface PresetOption {
   name: string
   /** One user-facing sentence on what the value means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
 }
 ```
 
@@ -91,17 +103,6 @@ Owns the deployment's permission presets and their write path. Requires a confin
  * @returns the effective preset name, or `custom` when nothing matches.
  */
 current(events: readonly SessionEvent[]): string
-
-/**
- * Advance one blank session after the host has confirmed it as the exact
- * Web New Session reuse target. Only a still-effective
- * default-origin selection advances; a started session, an explicit pick,
- * legacy origin-less data, or independently changed knobs remain pinned.
- * This is the permission-side half of the Web candidate selection and the
- * host's blankness, membership, cwd, and archive verification.
- * @param session - the live session selected for Workspace blank reuse.
- */
-refreshDefaultForReuse(session: Session): void
 
 /**
  * Build the whole select value for one folded knob state: every table
