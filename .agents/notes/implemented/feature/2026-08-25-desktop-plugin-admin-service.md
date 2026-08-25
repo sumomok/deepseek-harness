@@ -66,7 +66,7 @@ The plugin decides which profile a package belongs to, because that decision is 
 
 A desktop user updates a plugin they installed, from Settings, with two clicks and one native confirmation, on a machine with no terminal and no package manager. What they cannot do from there is install something new — that is a catalogue with a different list and a different fence, and it belongs in a tab of its own.
 
-The installer grows by about 19 MB per platform. pnpm publishes as one tarball carrying natives for all four of its platforms, so a macOS build ships the Windows ones too; splitting them would mean re-deriving pnpm's own packaging, and the payload gate does not sweep `runtime/`.
+The payload grows by about 19 MB per platform, which is about 4-5 MB once the artifacts are compressed. pnpm publishes as one tarball carrying natives for all four of its platforms, so a macOS build ships the Windows ones too; splitting them would mean re-deriving pnpm's own packaging, and the payload gate does not sweep `runtime/`.
 
 The shell now owns a surface that installs packages, and the audit for it is three lines of validation plus a native dialog rather than a review of the plugin that calls it. `apps/desktop/README.md` states the protocol, which is what a second implementation would build against.
 
