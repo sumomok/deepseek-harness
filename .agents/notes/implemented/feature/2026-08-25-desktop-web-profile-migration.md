@@ -1,0 +1,69 @@
+# Agent Note: The plugins the web profile holds come across to the desktop once
+
+Status: implemented
+
+English | [中文](2026-08-25-desktop-web-profile-migration.zh.md)
+
+## Problem
+
+The desktop shell up to 0.1.0-rc.16 booted `bin.js web`, which is `--profile web` — the profile every CLI launch on that home composes. [rc.17 gave it a profile of its own](2026-08-21-desktop-builtin-plugins.md) and `apps/desktop/src/profile-seed.ts` creates it, for reasons that still hold: nothing but the desktop launches `desktop`, so no reference into the installed application is left in a profile a bare `dsh web` has to load.
+
+Nothing carried the user's own plugins across that switch. A profile is user data, `initProfile` writes it once and never revisits an existing file, and the seed adds the built-ins this build ships and nothing else. Someone who had run `dsh plugin --profile web add <package>` — the only way a plugin reached a desktop install before rc.17, and still the way anything outside the seven built-ins reaches one — had those plugins composed on rc.16 and not composed on rc.17. The field case is an upgrade from rc.14 straight to rc.22: the desktop profile was created fresh with the seven built-ins, and the customer's own plugins stayed in `~/.dsh/profiles/web/`, still installed, still listed there, mounted by nothing the desktop runs.
+
+Two constraints shape any answer. `loadProfile` resolves every `dsh.profile.bundles` entry and throws on one it cannot resolve, so a name added to that list and later unresolvable does not degrade the app — it ends the boot. And the machines this is for have no package manager: the premise of the desktop client is a person who does not have a terminal, so nothing in the shell may run an install.
+
+## Decision
+
+The shell migrates the `web` profile's user plugins into the desktop profile once, automatically, and keeps checking the entries it added on every launch afterwards.
+
+**A record, not the profile's absence, is what makes it run once.** `web-migration.json` in the desktop profile holds `{ from: "web", migrated: [...] }`, and the migration runs when that file is absent. Gating on creating the profile would reach only fresh installs and miss every machine already on rc.17 through rc.22 — the ones this exists for, whose desktop profile exists, holds the built-ins, and has never seen the plugins its owner installed. Gating on the record reaches both, and the names it holds are what the repair below re-checks.
+
+**What comes across.** Every name in the web profile's `dsh.profile.bundles` that is not one of the two in-box bundles the desktop template already lists, not in `BUILTIN_WEB_BUNDLES`, and not in `WITHDRAWN_WEB_BUNDLES`. A built-in, a withdrawn name, and each of the two refusals below are logged with the name and the reason, because this feature exists at all because a customer's `dsh-server.log` had to be read to work out where their plugins went. The two in-box bundles are the exception: they are in every web profile ever created, so a line about them would be on the first launch of every install and would say nothing about the profile being read.
+
+**A link, never a copy and never an install.** `~/.dsh/profiles/desktop/node_modules/<name>` becomes a link to `~/.dsh/profiles/web/node_modules/<name>` — the web profile's path, not what that path currently resolves to. pnpm may hold the package anywhere and put a link of its own there; pointing past it would pin the desktop to today's copy, where the path keeps answering with whatever `dsh plugin --profile web add <package>@latest` installs next. The web profile stays the one place the package lives and the one place it is updated. `ensureLink` already makes the link, which is a junction on Windows and needs an absolute target, and already creates a scoped name's parent directory.
+
+The desktop manifest then gets the name appended to `dsh.profile.bundles` and the version specifier the web manifest declared for it copied into `dependencies`, so a later `dsh plugin --profile desktop install` reconciles against the same version rather than dropping the name. This is the one thing in the seed that writes a dependency entry, and the module doc's promise that no dependency or other manifest field is ever touched now carries that carve-out explicitly.
+
+**Only a name that resolves is written.** The link is made first, and two refusals come before it: a name the web profile lists but never installed, and a package that declares no `dsh.bundle`. `loadProfile` throws on both — the first at `resolveBundleDir`, the second at the missing `dsh.bundle` — so admitting either would put a boot failure into the profile in exchange for a plugin that was not going to load. A manifest write that fails leaves the links made and no record written, which is the state the next launch retries from.
+
+**The patch layer is copied verbatim or not at all.** At migration time, if the desktop's `cordis.patch.yml` is still byte for byte the empty template the seed writes and the web profile's is not, the web file replaces it — bytes, so comments and `!!js` tags survive. An edited desktop copy is left alone and the log names the plugins whose rows to carry over by hand. `pnpm-workspace.yaml` follows the same rule. Nothing is merged: a patch layer is YAML the loader's own schema reads, and combining two of them means implementing that schema a second time, in an Electron main process that deliberately depends on no harness package.
+
+**Every launch re-checks what the migration added.** These entries point into a directory the user owns and can empty — reinstalling or deleting the `web` profile leaves the links dangling — and one unresolvable entry ends the boot. So on every seeding run, not only the migrating one, each recorded name is resolved the way `resolveBundleDir` resolves it; a name that resolves nowhere loses its bundle entry, its link, and its place in the record, and the launch logs `dropped migrated <name>: no longer resolves in the web profile`. This is the withdrawn-built-in prune applied to the other class of entry the shell puts in a profile it does not own. A name the user has since taken over — a copy under the desktop profile's own `node_modules`, a link of their own at that path, or a package this build started shipping — resolves, so it is left exactly as it is.
+
+**A record that is gone is rebuilt rather than replayed.** A migration whose name is already listed and whose link is the one this shell would have made is recorded again without touching the manifest. Without that, a marker deleted by hand — or the vanishingly unlikely write that fails right after the manifest write succeeded — would leave entries pointing into the web profile that nothing re-checks, which is exactly the brick the paragraph above prevents.
+
+**Peer versions are not this feature's problem.** A plugin installed under an older harness may not suit this one. Its unmet peers fall through to `$DSH_HOME/profiles/node_modules`, which the running installation heals, so it shares this build's cordis instead of resolving a second one — but whether its code matches this build's API is not a question a link can answer, and the runtime peer fallback does not validate it. Adding a check here would be guessing at a compatibility relation nothing in the repository models.
+
+## Alternatives considered
+
+**Tell the user instead of migrating.** A line in the log, or a notice in the window, naming the plugins that are in `web` and not in `desktop` and the command that would move them. Rejected on the audience: the desktop client's premise is a person without a terminal, and `dsh plugin --profile desktop add` is a terminal command against a registry on a machine that has no pnpm. A notice that cannot be acted on is the same outcome as silence, with more words.
+
+**Copy the package directories instead of linking.** No dependence on a directory the user can delete, so no repair pass and no dangling entries. Rejected because it forks the package: the copy stops receiving `dsh plugin --profile web` updates and nothing in the shell would ever update it, so a plugin migrated once would be frozen at whatever version was installed on migration day, in a directory no tool the user has knows about. The repair pass costs one resolution per recorded name per launch and keeps one copy.
+
+**Run `pnpm install` in the desktop profile from the web manifest's dependencies.** The outcome the profile system already models — real dependencies, resolved peers, `dsh plugin` reconciles them normally. Rejected outright: the shell may not run package installs. There is no pnpm on the machine, the profile's own `pnpm-workspace.yaml` disables `autoInstallPeers` for reasons the flat fallback depends on, and an install during a launch would put a network operation between the user and their window.
+
+**Seed the desktop profile from the web profile at creation time only.** Much less code — one branch in `initDesktopProfile`, no record file, no repair. Rejected because it solves the case that is not the problem. The customer whose report started this had a desktop profile already; creation had happened three versions ago.
+
+**Merge the two patch layers.** The complete answer to configuration rather than a first-file-wins rule: the user's desktop rows and their web rows both applying. Rejected because the merge is not textual — the layers are id-targeted patch entries where an id in both files means one row, not two — and doing it properly means parsing YAML with the loader's schema and re-emitting it with `!!js` tags and comments intact. That is `@deepseek-ai/dsh-app-boot`'s job, and this module deliberately reproduces the three templates rather than depend on it, because an Electron app that depends on a harness package packs the product closure into `app.asar` a second time. The refusal names the plugins to carry over, which is the honest version of what a merge would have to be reviewed for anyway.
+
+**Keep the record outside the profile, in the app's userData.** It is the shell's own bookkeeping, not user data, and it would survive a user deleting the profile. Rejected because surviving that deletion is wrong: a deleted profile is a user asking for the seeded state again, and the record is only meaningful about entries in the profile it sits in. Two files that can disagree about one profile's contents is a bug waiting for the machine that has both.
+
+## Consequences
+
+A customer upgrading from any build before this one gets their plugins back on the first launch, with no action and no terminal. What they get is the composition they had on rc.16: the same packages, at the same installed versions, from the same directory.
+
+The desktop profile now holds entries whose package lives outside it, and the shell owns keeping them valid. That is a per-launch cost of one `existsSync` per recorded name and a repair path that runs when one fails.
+
+`dsh plugin --profile web add <package>@latest` updates a migrated plugin for both profiles, and `dsh plugin --profile web remove <package>` removes it from the web profile and leaves the desktop's entry dangling until the next launch drops it — one launch of a plugin the user removed, then the log line saying it went.
+
+Nothing keeps the two profiles in step after that one run. A plugin added to `web` later does not appear in `desktop`; the README says so and names the command.
+
+A plugin that installed cleanly under an older harness and misbehaves under this one is not caught here, and a user who hits it disables its row in `cordis.patch.yml` or updates it in the `web` profile.
+
+## Testing
+
+`apps/desktop/tests/profile-seed.spec.ts` drives the whole feature against a staged `$DSH_HOME` with no Electron: the fresh-install migration, the rc.17-to-rc.22 field case with a desktop profile an earlier build created and no record, the second launch that changes nothing, each of the five refusals with its logged reason, a link made at the web profile's path rather than at what that path resolves to, the dependency specifier copied and the one the desktop declared for itself left alone, the patch layer and the pnpm settings copied while pristine and refused once edited, a scoped name through the link and both manifest fields, and the record rebuilt from its own links after being deleted by hand.
+
+The repair has its own block: the package removed from the web profile, the web profile deleted wholesale, the second launch after a repair, and the three ways a name resolves again — the profile's own copy, a link the user re-pointed, and a package this build started shipping.
+
+Two of those cases assert the property the whole feature is bounded by rather than the report: every name the desktop manifest lists resolves through `resolveBundleDir` from `@deepseek-ai/dsh-app-boot`, which is the call `loadProfile` makes for each of them and the one that ends the boot when it throws.

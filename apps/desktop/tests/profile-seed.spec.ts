@@ -1,21 +1,32 @@
 /**
  * Seeding the desktop profile: what the shell writes on a fresh home, that it
  * writes the same three files `initProfile` writes, what it appends to a
- * profile it finds, what it takes back out when a built-in is withdrawn, and
- * the profiles it declines to touch.
+ * profile it finds, what it brings over from the `web` profile once and takes
+ * back out when that profile stops holding it, what it takes back out when a
+ * built-in is withdrawn, and the profiles it declines to touch.
  * @module
  */
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
+} from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join, sep } from 'node:path'
-import { initProfile, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES } from '@deepseek-ai/dsh-app-boot'
+import { initProfile, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, describeSeed, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles,
-  WITHDRAWN_WEB_BUNDLES,
+  BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, describeSeed, MIGRATION_MARKER_FILENAME, resolveHarnessHome, sameLinkTarget,
+  seedBuiltinBundles, type SeedReport, WEB_PROFILE, WITHDRAWN_WEB_BUNDLES,
 } from '../src/profile-seed.ts'
+
+/** A report of a run that changed nothing, for the cases that name one field at a time. */
+function nothingHappened(): SeedReport {
+  return {
+    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], staleMigrations: [],
+    skipped: [], shadowed: [], created: false,
+  }
+}
 
 let root: string
 let home: string
@@ -60,6 +71,79 @@ const withoutAtFile = BUILTIN_WEB_BUNDLES.filter(name => name !== 'dsh-at-file')
 /** The bundle list the profile manifest now declares. */
 function bundlesNow(): unknown {
   return (readProfile()['dsh'] as { profile?: { bundles?: unknown } }).profile?.bundles
+}
+
+/** The two names the shipped `web` template lists, which every web profile carries. */
+const webTemplate = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
+
+/** A user plugin name and version this suite installs into the `web` profile. */
+const userPlugin = 'dsh-hello-world'
+
+/** The desktop profile's link path for `name`, the one the migration maintains. */
+function migratedLink(name: string): string {
+  return join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', name)
+}
+
+/** Where the `web` profile holds `name`, which is what that link points at. */
+function webPackage(name: string): string {
+  return join(home, 'profiles', WEB_PROFILE, 'node_modules', name)
+}
+
+/**
+ * Stage the `web` profile `dsh plugin --profile web add` would leave: the three
+ * files `initProfile` writes, `names` listed as bundles after the template's
+ * own two and declared as dependencies, and a package behind each of them.
+ */
+function writeWebProfile(names: readonly string[], options: { install?: readonly string[] } = {}): void {
+  const dir = join(home, 'profiles', WEB_PROFILE)
+  initProfile(dir, [...webTemplate, ...names])
+  const manifest = JSON.parse(readFileSync(join(dir, 'package.json'), 'utf8')) as Record<string, unknown>
+  manifest['dependencies'] = Object.fromEntries(names.map(name => [name, '^1.2.3']))
+  writeFileSync(join(dir, 'package.json'), `${JSON.stringify(manifest, undefined, 2)}\n`)
+  for (const name of options.install ?? names) installIntoWeb(name)
+}
+
+/** Put a bundle package for `name` where the `web` profile's hoisted linker puts one. */
+function installIntoWeb(name: string, manifest: Record<string, unknown> = { dsh: { bundle: { patch: './cordis.patch.yml' } } }): void {
+  const dir = webPackage(name)
+  mkdirSync(dir, { recursive: true })
+  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version: '1.2.3', ...manifest }))
+}
+
+/**
+ * Stage the desktop profile an rc.17-to-rc.22 build left: the manifest that
+ * build's seed wrote, its three files, and no migration record.
+ */
+function desktopProfileFromAnEarlierBuild(): void {
+  initProfile(join(home, 'profiles', DESKTOP_PROFILE), [...webTemplate, ...BUILTIN_WEB_BUNDLES])
+}
+
+/** The names the migration record holds, or undefined when there is no record. */
+function migratedNow(): unknown {
+  const path = join(home, 'profiles', DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME)
+  if (!existsSync(path)) return undefined
+  return (JSON.parse(readFileSync(path, 'utf8')) as { migrated?: unknown }).migrated
+}
+
+/**
+ * Resolve every name the desktop profile lists the way the server does, so a
+ * profile this suite calls bootable is one `loadProfile` would not throw on.
+ */
+function unresolvableBundles(): string[] {
+  // The in-box bundles the real installation always carries beside the payload.
+  shipPlugins(webTemplate)
+  const installAnchor = join(root, 'server', 'package.json')
+  writeFileSync(installAnchor, JSON.stringify({ name: 'dsh' }))
+  const profileDir = join(home, 'profiles', DESKTOP_PROFILE)
+  return (bundlesNow() as string[]).filter((name) => {
+    try {
+      resolveBundleDir('dsh', name, installAnchor, profileDir)
+      return false
+    } catch {
+      // The one failure this is about: `loadProfile` throws it and the boot ends.
+      return true
+    }
+  })
 }
 
 beforeEach(async () => {
@@ -192,7 +276,7 @@ describe('seedBuiltinBundles on an initialized profile', () => {
   it('reports a correct link as unchanged on the second run', () => {
     seedBuiltinBundles({ home, serverModules })
     const again = seedBuiltinBundles({ home, serverModules })
-    expect(again).toEqual({ seeded: [], linked: [], pruned: [], unlinked: [], skipped: [], shadowed: [], created: false })
+    expect(again).toEqual(nothingHappened())
   })
 })
 
@@ -349,6 +433,306 @@ describe('seedBuiltinBundles on a built-in this build withdrew', () => {
   })
 })
 
+describe('seedBuiltinBundles migrating the web profile', () => {
+  it('brings a user plugin across on a home whose desktop profile does not exist yet', () => {
+    writeWebProfile([userPlugin])
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.created).toBe(true)
+    expect(report.migrated).toEqual([userPlugin])
+    expect(bundlesNow()).toEqual([...webTemplate, ...BUILTIN_WEB_BUNDLES, userPlugin])
+    expect(readlinkSync(migratedLink(userPlugin))).toBe(webPackage(userPlugin))
+    expect(migratedNow()).toEqual([userPlugin])
+    expect(describeSeed(report)).toContain(`migrated ${userPlugin} from the web profile`)
+  })
+
+  it('migrates into a desktop profile an earlier build already created', () => {
+    // The field case every machine upgrading from rc.17 through rc.22 is in:
+    // the desktop profile exists and holds the built-ins, nothing has recorded
+    // a migration, and the plugins its owner installed are still only in the
+    // profile the shell stopped booting.
+    desktopProfileFromAnEarlierBuild()
+    writeWebProfile([userPlugin])
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.created).toBe(false)
+    expect(report.migrated).toEqual([userPlugin])
+    expect(bundlesNow()).toEqual([...webTemplate, ...BUILTIN_WEB_BUNDLES, userPlugin])
+    expect(unresolvableBundles()).toEqual([])
+  })
+
+  it('composes the migrated plugin where the server looks for it', () => {
+    // `resolveBundleDir` is what `loadProfile` calls for every name in the
+    // list, so a name it answers is a name the boot gets past.
+    desktopProfileFromAnEarlierBuild()
+    writeWebProfile([userPlugin])
+    seedBuiltinBundles({ home, serverModules })
+    shipPlugins(webTemplate)
+    const installAnchor = join(root, 'server', 'package.json')
+    writeFileSync(installAnchor, JSON.stringify({ name: 'dsh' }))
+    const resolved = resolveBundleDir('dsh', userPlugin, installAnchor, join(home, 'profiles', DESKTOP_PROFILE))
+    expect(readFileSync(join(resolved, 'package.json'), 'utf8')).toContain('"version":"1.2.3"')
+  })
+
+  it('runs once, and leaves the launch after it nothing to do', () => {
+    writeWebProfile([userPlugin])
+    seedBuiltinBundles({ home, serverModules })
+    const manifest = join(home, 'profiles', DESKTOP_PROFILE, 'package.json')
+    const before = readFileSync(manifest, 'utf8')
+    const again = seedBuiltinBundles({ home, serverModules })
+    expect(again).toEqual(nothingHappened())
+    expect(describeSeed(again)).toBeUndefined()
+    expect(readFileSync(manifest, 'utf8')).toBe(before)
+  })
+
+  it('passes over the names this build already composes, each with its reason', () => {
+    const withdrawn = WITHDRAWN_WEB_BUNDLES[0]!
+    writeWebProfile(['dsh-at-file', withdrawn, userPlugin])
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.migrated).toEqual([userPlugin])
+    expect(report.skipped.join('\n')).not.toContain('@deepseek-ai/dsh-base')
+    expect(report.skipped.join('\n')).not.toContain('@deepseek-ai/dsh-web-app')
+    expect(report.skipped).toContain('dsh-at-file: covered by built-in')
+    expect(report.skipped).toContain(`${withdrawn}: withdrawn, not migrated`)
+    expect(bundlesNow()).not.toContain(withdrawn)
+  })
+
+  it('leaves a name the desktop profile already lists to whoever put it there', () => {
+    writeWebProfile([userPlugin])
+    writeProfile(JSON.stringify({
+      name: 'dsh-profile-desktop',
+      private: true,
+      dependencies: {},
+      dsh: { profile: { bundles: [...webTemplate, userPlugin] } },
+    }, undefined, 2))
+    installIntoProfile(userPlugin, '9.9.9')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.migrated).toEqual([])
+    expect(report.skipped).toContain(`${userPlugin}: already in the desktop profile`)
+    expect((bundlesNow() as string[]).filter(name => name === userPlugin)).toEqual([userPlugin])
+    expect(migratedNow()).toEqual([])
+  })
+
+  it('records the run and says nothing on a home that has no web profile', () => {
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.migrated).toEqual([])
+    expect(report.skipped).toEqual([])
+    expect(migratedNow()).toEqual([])
+    expect(describeSeed(report)).not.toContain('web profile')
+  })
+
+  it('records the run and says nothing when the web profile carries only the template', () => {
+    // Every web profile lists the two in-box bundles, and a line saying they
+    // were passed over would be on the first launch of every install.
+    writeWebProfile([])
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.migrated).toEqual([])
+    expect(report.copied).toEqual([])
+    expect(report.skipped).toEqual([])
+    expect(migratedNow()).toEqual([])
+  })
+
+  it('links at the web profile\'s own path rather than at what it resolves to', () => {
+    // pnpm may hold the package anywhere and put a link of its own at that
+    // path. Pointing past it would pin the desktop to today's copy, where the
+    // path keeps answering with whatever the web profile installs next.
+    writeWebProfile([userPlugin], { install: [] })
+    const store = join(root, 'store', userPlugin)
+    mkdirSync(store, { recursive: true })
+    writeFileSync(join(store, 'package.json'), JSON.stringify({
+      name: userPlugin, version: '1.2.3', dsh: { bundle: { patch: './cordis.patch.yml' } },
+    }))
+    mkdirSync(join(home, 'profiles', WEB_PROFILE, 'node_modules'), { recursive: true })
+    symlinkSync(store, webPackage(userPlugin), 'junction')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.migrated).toEqual([userPlugin])
+    expect(readlinkSync(migratedLink(userPlugin))).toBe(webPackage(userPlugin))
+  })
+
+  it('copies the version the web profile declared into the desktop dependencies', () => {
+    writeWebProfile([userPlugin])
+    seedBuiltinBundles({ home, serverModules })
+    expect(readProfile()['dependencies']).toEqual({ [userPlugin]: '^1.2.3' })
+  })
+
+  it('leaves a version the desktop profile declares for itself', () => {
+    writeWebProfile([userPlugin])
+    writeProfile(JSON.stringify({
+      name: 'dsh-profile-desktop',
+      private: true,
+      dependencies: { [userPlugin]: 'file:../mine.tgz' },
+      dsh: { profile: { bundles: [...webTemplate] } },
+    }, undefined, 2))
+    seedBuiltinBundles({ home, serverModules })
+    expect(readProfile()['dependencies']).toEqual({ [userPlugin]: 'file:../mine.tgz' })
+    expect(bundlesNow()).toContain(userPlugin)
+  })
+
+  it('takes the web patch layer over while the desktop one is still the template', () => {
+    writeWebProfile([userPlugin])
+    const rows = '# mine\n- id: hello-world\n  config:\n    greeting: !!js/eval "1 + 1"\n'
+    writeFileSync(join(home, 'profiles', WEB_PROFILE, PROFILE_PATCH_FILENAME), rows)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.copied).toEqual([PROFILE_PATCH_FILENAME])
+    expect(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8')).toBe(rows)
+    expect(describeSeed(report)).toContain(`copied ${PROFILE_PATCH_FILENAME} from the web profile`)
+  })
+
+  it('keeps a desktop patch layer its owner edited, and says what to carry over', () => {
+    desktopProfileFromAnEarlierBuild()
+    const mine = '# mine\n- id: better-sidebar\n  disabled: true\n'
+    writeFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), mine)
+    writeWebProfile([userPlugin])
+    writeFileSync(join(home, 'profiles', WEB_PROFILE, PROFILE_PATCH_FILENAME), '- id: hello-world\n  disabled: true\n')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8')).toBe(mine)
+    expect(report.copied).toEqual([])
+    expect(describeSeed(report)).toContain(
+      `${PROFILE_PATCH_FILENAME}: the desktop copy is already edited; carry the web profile's rows for ${userPlugin} over by hand`,
+    )
+  })
+
+  it('takes the web pnpm settings over under the same rule', () => {
+    writeWebProfile([userPlugin])
+    const settings = 'packages:\n  - .\n\nnodeLinker: hoisted\nautoInstallPeers: false\nonlyBuiltDependencies:\n  - esbuild\n'
+    writeFileSync(join(home, 'profiles', WEB_PROFILE, 'pnpm-workspace.yaml'), settings)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.copied).toEqual(['pnpm-workspace.yaml'])
+    expect(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, 'pnpm-workspace.yaml'), 'utf8')).toBe(settings)
+  })
+
+  it('copies neither file on a run that migrated nothing', () => {
+    writeWebProfile(['dsh-at-file'])
+    writeFileSync(join(home, 'profiles', WEB_PROFILE, PROFILE_PATCH_FILENAME), '- id: at-file\n  disabled: true\n')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.copied).toEqual([])
+    expect(readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8')).toContain('[]')
+  })
+
+  it('migrates a scoped name through the link, the manifest, and the dependencies', () => {
+    const scoped = '@acme/dsh-widgets'
+    writeWebProfile([scoped])
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.migrated).toEqual([scoped])
+    expect(lstatSync(join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', '@acme')).isDirectory()).toBe(true)
+    expect(lstatSync(migratedLink(scoped)).isSymbolicLink()).toBe(true)
+    expect(readlinkSync(migratedLink(scoped))).toBe(webPackage(scoped))
+    expect(bundlesNow()).toContain(scoped)
+    expect(readProfile()['dependencies']).toEqual({ [scoped]: '^1.2.3' })
+  })
+
+  it('does not name a plugin the web profile lists but never installed', () => {
+    writeWebProfile([userPlugin], { install: [] })
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.migrated).toEqual([])
+    expect(report.skipped.join('\n')).toContain(`${userPlugin}: not installed in the web profile`)
+    expect(bundlesNow()).not.toContain(userPlugin)
+    expect(lstatSync(migratedLink(userPlugin), { throwIfNoEntry: false })).toBeUndefined()
+    expect(migratedNow()).toEqual([])
+  })
+
+  it('does not name a package that is no bundle at all', () => {
+    // `loadProfile` throws on a listed name whose package declares no
+    // `dsh.bundle`, exactly as it throws on one it cannot resolve.
+    writeWebProfile([userPlugin], { install: [] })
+    installIntoWeb(userPlugin, {})
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.migrated).toEqual([])
+    expect(report.skipped.join('\n')).toContain('declares no dsh.bundle')
+    expect(bundlesNow()).not.toContain(userPlugin)
+  })
+
+  it('migrates nothing into a hand-composed manifest that lists no bundles', () => {
+    writeWebProfile([userPlugin])
+    const path = writeProfile(JSON.stringify({ name: 'dsh-profile-desktop', dependencies: {} }, undefined, 2))
+    const before = readFileSync(path, 'utf8')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.migrated).toEqual([])
+    expect(readFileSync(path, 'utf8')).toBe(before)
+    expect(migratedNow()).toBeUndefined()
+  })
+})
+
+describe('seedBuiltinBundles on a migration that stopped resolving', () => {
+  /** Migrate one user plugin into a desktop profile an earlier build created. */
+  function migrated(): void {
+    desktopProfileFromAnEarlierBuild()
+    writeWebProfile([userPlugin])
+    expect(seedBuiltinBundles({ home, serverModules }).migrated).toEqual([userPlugin])
+  }
+
+  it('drops the name and the link when the web profile stopped holding the package', () => {
+    migrated()
+    rmSync(webPackage(userPlugin), { recursive: true, force: true })
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.staleMigrations).toEqual([userPlugin])
+    expect(bundlesNow()).toEqual([...webTemplate, ...BUILTIN_WEB_BUNDLES])
+    expect(lstatSync(migratedLink(userPlugin), { throwIfNoEntry: false })).toBeUndefined()
+    expect(migratedNow()).toEqual([])
+    expect(describeSeed(report)).toContain(`dropped migrated ${userPlugin}: no longer resolves in the web profile`)
+  })
+
+  it('keeps the profile bootable when the web profile is deleted wholesale', () => {
+    // The link points into a directory this shell does not own, and
+    // `loadProfile` ends the boot on one entry it cannot resolve.
+    migrated()
+    rmSync(join(home, 'profiles', WEB_PROFILE), { recursive: true, force: true })
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.staleMigrations).toEqual([userPlugin])
+    expect(unresolvableBundles()).toEqual([])
+  })
+
+  it('repairs once and stays quiet afterwards', () => {
+    migrated()
+    rmSync(join(home, 'profiles', WEB_PROFILE), { recursive: true, force: true })
+    seedBuiltinBundles({ home, serverModules })
+    expect(seedBuiltinBundles({ home, serverModules })).toEqual(nothingHappened())
+  })
+
+  it('leaves a migrated name the profile now holds a copy of', () => {
+    migrated()
+    unlinkSync(migratedLink(userPlugin))
+    installIntoProfile(userPlugin, '3.0.0')
+    rmSync(join(home, 'profiles', WEB_PROFILE), { recursive: true, force: true })
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.staleMigrations).toEqual([])
+    expect(bundlesNow()).toContain(userPlugin)
+  })
+
+  it('leaves a link its owner re-pointed at a checkout of their own', () => {
+    migrated()
+    const checkout = join(root, 'checkout', userPlugin)
+    mkdirSync(checkout, { recursive: true })
+    writeFileSync(join(checkout, 'package.json'), JSON.stringify({ name: userPlugin, version: '4.0.0' }))
+    unlinkSync(migratedLink(userPlugin))
+    symlinkSync(checkout, migratedLink(userPlugin), 'junction')
+    rmSync(join(home, 'profiles', WEB_PROFILE), { recursive: true, force: true })
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.staleMigrations).toEqual([])
+    expect(readlinkSync(migratedLink(userPlugin))).toBe(checkout)
+    expect(bundlesNow()).toContain(userPlugin)
+  })
+
+  it('leaves a migrated name this build started shipping itself', () => {
+    migrated()
+    rmSync(join(home, 'profiles', WEB_PROFILE), { recursive: true, force: true })
+    shipPlugins([userPlugin])
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.staleMigrations).toEqual([])
+    expect(bundlesNow()).toContain(userPlugin)
+  })
+
+  it('rebuilds a record deleted by hand from the links it made', () => {
+    // Without this the plugin keeps working and nothing would ever take it back
+    // out, which is the state the repair above exists to prevent.
+    migrated()
+    unlinkSync(join(home, 'profiles', DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.migrated).toEqual([])
+    expect(report.skipped).not.toContain(`${userPlugin}: already in the desktop profile`)
+    expect(migratedNow()).toEqual([userPlugin])
+    expect((bundlesNow() as string[]).filter(name => name === userPlugin)).toEqual([userPlugin])
+  })
+})
+
 describe('seedBuiltinBundles when the profile cannot be written', () => {
   it('reports the failure rather than throwing at the launch', () => {
     // A file where the profiles directory belongs: mkdir cannot pass it on any
@@ -420,29 +804,37 @@ describe('resolveHarnessHome', () => {
 
 describe('describeSeed', () => {
   it('says nothing when a run changed nothing', () => {
-    expect(describeSeed({
-      seeded: [], linked: [], pruned: [], unlinked: [], skipped: [], shadowed: [], created: false,
-    })).toBeUndefined()
+    expect(describeSeed(nothingHappened())).toBeUndefined()
   })
 
   it('names what was seeded and linked on one line', () => {
-    const line = describeSeed({
-      seeded: ['dsh-at-file'], linked: ['dsh-at-file'], pruned: [], unlinked: [], skipped: [], shadowed: [], created: true,
-    })
+    const line = describeSeed({ ...nothingHappened(), seeded: ['dsh-at-file'], linked: ['dsh-at-file'], created: true })
     expect(line).toBe('[desktop] profile desktop: created with built-in bundles dsh-at-file; linked dsh-at-file\n')
   })
 
   it('carries every skip reason', () => {
-    const line = describeSeed({
-      seeded: [], linked: [], pruned: [], unlinked: [], skipped: ['a: why', 'b: why'], shadowed: [], created: false,
-    })
+    const line = describeSeed({ ...nothingHappened(), skipped: ['a: why', 'b: why'] })
     expect(line).toBe('[desktop] profile desktop: skipped a: why; skipped b: why\n')
   })
 
+  it('names what it migrated and what it copied out of the web profile', () => {
+    const line = describeSeed({ ...nothingHappened(), migrated: ['dsh-hello-world', '@x/b'], copied: ['cordis.patch.yml'] })
+    expect(line).toBe(
+      '[desktop] profile desktop: migrated dsh-hello-world, @x/b from the web profile; '
+      + 'copied cordis.patch.yml from the web profile\n',
+    )
+  })
+
+  it('gives each migration it took back out its own reason', () => {
+    const line = describeSeed({ ...nothingHappened(), staleMigrations: ['dsh-hello-world', '@x/b'] })
+    expect(line).toBe(
+      '[desktop] profile desktop: dropped migrated dsh-hello-world: no longer resolves in the web profile; '
+      + 'dropped migrated @x/b: no longer resolves in the web profile\n',
+    )
+  })
+
   it('names a withdrawn built-in it dropped and unlinked', () => {
-    const line = describeSeed({
-      seeded: [], linked: [], pruned: ['@x/gone'], unlinked: ['@x/gone'], skipped: [], shadowed: [], created: false,
-    })
+    const line = describeSeed({ ...nothingHappened(), pruned: ['@x/gone'], unlinked: ['@x/gone'] })
     expect(line).toBe('[desktop] profile desktop: dropped withdrawn built-in @x/gone; unlinked @x/gone\n')
   })
 })

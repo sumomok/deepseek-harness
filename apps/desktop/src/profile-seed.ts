@@ -34,14 +34,39 @@
  * there leaves a usable app without those plugins, which is the outcome to
  * prefer over a shell that will not launch. Both writes are idempotent: a name
  * already listed is not added twice, a correct link is left as it is, an
- * existing file is never rewritten, and no dependency or other manifest field
- * is ever touched.
+ * existing file is never rewritten, and the one-time migration below is the
+ * only thing here that writes a `dependencies` entry or replaces a file this
+ * module wrote.
  *
  * The one thing a run removes is a built-in this build withdrew — a name in
  * {@link WITHDRAWN_WEB_BUNDLES} that an earlier build seeded and this payload
  * no longer carries. `loadProfile` resolves every `dsh.profile.bundles` entry
  * and throws on one it cannot resolve, so an upgrade that just stopped
  * shipping a package would leave every profile it had seeded unbootable.
+ *
+ * The plugins a user installed into the CLI's shared `web` profile move across
+ * once, because every desktop build before `desktop` existed composed that
+ * profile and the switch left them behind. {@link MIGRATION_MARKER_FILENAME}
+ * inside the desktop profile records that the migration ran and which names it
+ * added, and the run is gated on that file rather than on creating the profile:
+ * a home whose desktop profile an earlier build already created is migrated on
+ * its first launch under this one.
+ *
+ * A migrated name is linked, never installed and never copied — the desktop
+ * profile's `node_modules` gets a link to the package inside
+ * `profiles/web/node_modules`, so the web profile stays the one place the
+ * package lives and a later `dsh plugin --profile web` update reaches both.
+ * The machines this runs on have no package manager, so nothing here may run an
+ * install. Only a name that resolves once its link exists is added to
+ * `dsh.profile.bundles`, and every later run takes back out a name that stopped
+ * resolving: reinstalling or deleting the web profile must not leave a desktop
+ * that will not boot.
+ *
+ * What the migration does not check is whether a package installed under an
+ * older host suits this one. Its unmet peers fall through to
+ * `$DSH_HOME/profiles/node_modules`, which the running installation heals, so
+ * it shares this build's cordis; whether its code matches this build's API is
+ * not a question a link can answer.
  *
  * The three template files are reproduced here rather than imported.
  * `apps/desktop` ships as an Electron app whose `node_modules` is packed into
@@ -99,6 +124,23 @@ export const WITHDRAWN_WEB_BUNDLES: readonly string[] = ['@sumomok/dsh-edit-reru
  */
 export const DESKTOP_PROFILE = 'desktop'
 
+/**
+ * The profile every `dsh web` shares, and the one the shell itself composed
+ * before {@link DESKTOP_PROFILE} existed. It is the source of the one-time
+ * migration and is never written to.
+ */
+export const WEB_PROFILE = 'web'
+
+/**
+ * The shell's record of the one-time migration out of the `web` profile, inside
+ * the desktop profile directory.
+ *
+ * Its presence is what makes the migration run once, and the names it holds are
+ * the entries a later run re-checks: they are the ones this shell put into a
+ * profile pointing at a directory it does not own.
+ */
+export const MIGRATION_MARKER_FILENAME = 'web-migration.json'
+
 /** Directory under the Harness home holding every profile (`PROFILES_DIR` in dsh-app-boot). */
 const PROFILES_DIR = 'profiles'
 
@@ -128,6 +170,12 @@ export interface SeedReport {
   pruned: string[]
   /** Withdrawn built-ins whose flat-fallback link this run removed. */
   unlinked: string[]
+  /** User plugin names this run brought over from the `web` profile. */
+  migrated: string[]
+  /** Profile files this run copied verbatim out of the `web` profile, by filename. */
+  copied: string[]
+  /** Migrated names this run took back out, because they stopped resolving. */
+  staleMigrations: string[]
   /** One line per name or file the run left alone, each stating why. */
   skipped: string[]
   /** One line per built-in the profile's own `node_modules` shadows with another version. */
@@ -144,8 +192,16 @@ export interface SeedReport {
 
 /** The manifest fields this module reads and writes; every other key is carried through verbatim. */
 interface ProfileManifest {
-  dsh?: { profile?: { bundles?: string[] } }
+  dsh?: { profile?: { bundles?: string[] }; bundle?: unknown }
   [key: string]: unknown
+}
+
+/** The shell's own record of what the one-time `web` migration put into this profile. */
+interface MigrationMarker {
+  /** The profile the names came from, so the file says what it is. */
+  from: string
+  /** The bundle names this shell added, in the order it added them. */
+  migrated: string[]
 }
 
 /**
@@ -211,9 +267,9 @@ autoInstallPeers: false
  * rename it over the target. A launch interrupted mid-write then leaves the
  * previous manifest intact rather than a truncated one the server cannot parse.
  * @param path - the file to replace.
- * @param content - its new contents.
+ * @param content - its new contents; bytes rather than text for a file copied verbatim.
  */
-function writeAtomic(path: string, content: string): void {
+function writeAtomic(path: string, content: string | Uint8Array): void {
   const temporary = `${path}.${String(process.pid)}.tmp`
   writeFileSync(temporary, content)
   try {
@@ -305,7 +361,10 @@ function ensureLink(link: string, target: string): boolean {
  * @returns what was created, seeded, linked, and skipped.
  */
 export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
-  const report: SeedReport = { seeded: [], linked: [], pruned: [], unlinked: [], skipped: [], shadowed: [], created: false }
+  const report: SeedReport = {
+    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], staleMigrations: [],
+    skipped: [], shadowed: [], created: false,
+  }
   const bundles = spec.bundles ?? BUILTIN_WEB_BUNDLES
   const available: string[] = []
   for (const name of bundles) {
@@ -341,8 +400,326 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
     }
     reportShadowing(spec, profileDir, name, report)
   }
+  migrateWebBundles(spec, profileDir, report)
+  dropStaleMigrations(spec, profileDir, report)
   pruneWithdrawnBundles(spec, profileDir, report)
   return report
+}
+
+/**
+ * Read and parse a profile manifest, or answer undefined when there is none to
+ * read. Absent and unparsable are the same answer here: both are a profile
+ * whose composition this run cannot reason about, and the pass that owns the
+ * diagnostic for an unparsable desktop manifest has already reported it.
+ * @param path - the manifest path.
+ * @returns the parsed manifest, or undefined.
+ */
+function tryReadManifest(path: string): ProfileManifest | undefined {
+  try {
+    return JSON.parse(readFileSync(path, 'utf8')) as ProfileManifest
+  } catch {
+    // Absent on every home without that profile, malformed on one whose owner
+    // edited it by hand; neither is a state this module repairs.
+    return undefined
+  }
+}
+
+/**
+ * A manifest's `dependencies` map, or an empty one when the field is absent or
+ * holds something other than a JSON object. The values stay `unknown`: a
+ * hand-edited manifest may carry anything there, and only a string is copied.
+ * @param manifest - the manifest to read, if there is one.
+ * @returns the dependency map.
+ */
+function dependenciesOf(manifest: ProfileManifest | undefined): Record<string, unknown> {
+  const value = manifest?.['dependencies']
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
+  return value as Record<string, unknown>
+}
+
+/** Whether `link` is a symbolic link this shell would have made, resolving to `target`. */
+function linksTo(link: string, target: string): boolean {
+  try {
+    return lstatSync(link).isSymbolicLink() && sameLinkTarget(readlinkSync(link), target, dirname(link))
+  } catch {
+    // Absent, or a real directory whose readlink fails: neither is this
+    // shell's link, which is the only thing the answer is about.
+    return false
+  }
+}
+
+/**
+ * Why a name in the `web` profile's bundle list is one this build already
+ * composes, or undefined when it is a user plugin to bring across.
+ *
+ * The two in-box bundles are not among these. They are in the desktop template
+ * and in every web profile ever created, so passing over them says nothing
+ * about the profile being read and is left out of the log.
+ * @param name - the bundle package name from the web profile.
+ * @returns the reason to log, or undefined.
+ */
+function migrationRefusal(name: string): string | undefined {
+  if (BUILTIN_WEB_BUNDLES.includes(name)) return 'covered by built-in'
+  if (WITHDRAWN_WEB_BUNDLES.includes(name)) return 'withdrawn, not migrated'
+  return undefined
+}
+
+/**
+ * Why the package a `web` bundle name points at cannot be mounted from the
+ * desktop profile, or undefined when it can.
+ *
+ * Both refusals are boot failures if the name were added anyway: `loadProfile`
+ * throws on an entry it cannot resolve, and on one whose package declares no
+ * `dsh.bundle`.
+ * @param dir - where the web profile holds the package.
+ * @returns the reason to log, or undefined.
+ */
+function migrationAdmission(dir: string): string | undefined {
+  const manifest = tryReadManifest(join(dir, 'package.json'))
+  if (manifest === undefined) return `not installed in the web profile (${dir})`
+  if (manifest.dsh?.bundle === undefined) return 'declares no dsh.bundle, which the server refuses as a bundle layer'
+  return undefined
+}
+
+/**
+ * Bring the plugins a user installed into the shared `web` profile across,
+ * once, and record what was brought.
+ *
+ * The record — not the profile's absence — is what makes this run once, so the
+ * homes this matters most for are reached: a desktop profile an earlier build
+ * created holds the built-ins and nothing the user ever added, and its owner
+ * lost those plugins on the launch that switched profiles.
+ *
+ * A name is linked into the desktop profile's own `node_modules` and only then
+ * added to `dsh.profile.bundles`, so no entry this writes is one the server
+ * cannot resolve. The link points at the web profile's path rather than at what
+ * that path resolves to: the web profile stays the copy that is updated, and a
+ * later `dsh plugin --profile web` reaches the desktop through it.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with what was migrated and refused.
+ */
+function migrateWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport): void {
+  const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
+  if (existsSync(markerPath)) return
+  const manifestPath = join(profileDir, 'package.json')
+  const manifest = tryReadManifest(manifestPath)
+  const listed = manifest?.dsh?.profile?.bundles
+  if (manifest === undefined || !Array.isArray(listed)) return
+  const webDir = join(spec.home, PROFILES_DIR, WEB_PROFILE)
+  const webManifest = tryReadManifest(join(webDir, 'package.json'))
+  const candidates = webManifest?.dsh?.profile?.bundles
+  // Every name the marker records, and the subset this run put in the manifest.
+  const recorded: string[] = []
+  const added: string[] = []
+  for (const name of Array.isArray(candidates) ? candidates : []) {
+    if (recorded.includes(name) || WEB_TEMPLATE_BUNDLES.includes(name)) continue
+    const source = join(webDir, 'node_modules', name)
+    const refusal = migrationRefusal(name)
+    if (refusal !== undefined) {
+      report.skipped.push(`${name}: ${refusal}`)
+      continue
+    }
+    if (listed.includes(name)) {
+      // A name already listed whose link is this shell's own is a migration
+      // whose record was lost, not a plugin the user installed themselves:
+      // recording it again restores the repair below without changing anything.
+      if (linksTo(join(profileDir, 'node_modules', name), source)) recorded.push(name)
+      else report.skipped.push(`${name}: already in the desktop profile`)
+      continue
+    }
+    const admission = migrationAdmission(source)
+    if (admission !== undefined) {
+      report.skipped.push(`${name}: ${admission}`)
+      continue
+    }
+    try {
+      ensureLink(join(profileDir, 'node_modules', name), source)
+    } catch (error) {
+      report.skipped.push(`${name}: ${String(error)}`)
+      continue
+    }
+    recorded.push(name)
+    added.push(name)
+  }
+  if (added.length > 0) {
+    try {
+      recordMigratedBundles(manifestPath, manifest, listed, added, webManifest)
+    } catch (error) {
+      // The links are made and nothing names them, which is the state the next
+      // launch retries from; writing no marker is what lets it.
+      report.skipped.push(`${manifestPath}: ${String(error)}`)
+      return
+    }
+    copyPristineProfileFile(webDir, profileDir, PROFILE_PATCH_FILENAME, PROFILE_PATCH_TEMPLATE, added, report)
+    copyPristineProfileFile(webDir, profileDir, PROFILE_WORKSPACE_FILENAME, PROFILE_PNPM_WORKSPACE, added, report)
+  }
+  writeMigrationMarker(markerPath, recorded, report)
+  report.migrated.push(...added)
+}
+
+/**
+ * Add the migrated names to the desktop manifest's bundle list, and give each
+ * one the version specifier the web profile declared for it.
+ *
+ * The specifier is what a later `dsh plugin --profile desktop install` would
+ * reconcile against; a name the web manifest declares no dependency for, and
+ * one the desktop manifest already declares, are both left as they are.
+ * @param manifestPath - the desktop profile manifest.
+ * @param manifest - its parsed contents, as read this run.
+ * @param listed - the bundle list it currently declares.
+ * @param names - the migrated names, in bundle order.
+ * @param webManifest - the web profile's manifest, if it parsed.
+ * @throws when the manifest cannot be replaced.
+ */
+function recordMigratedBundles(
+  manifestPath: string, manifest: ProfileManifest, listed: readonly string[], names: readonly string[],
+  webManifest: ProfileManifest | undefined,
+): void {
+  const declared = dependenciesOf(webManifest)
+  const dependencies = { ...dependenciesOf(manifest) }
+  let copied = false
+  for (const name of names) {
+    const specifier = declared[name]
+    if (typeof specifier !== 'string' || dependencies[name] !== undefined) continue
+    dependencies[name] = specifier
+    copied = true
+  }
+  const updated: ProfileManifest = {
+    ...manifest,
+    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: [...listed, ...names] } },
+  }
+  if (copied) updated['dependencies'] = dependencies
+  writeAtomic(manifestPath, `${JSON.stringify(updated, undefined, 2)}\n`)
+}
+
+/**
+ * Replace one of the profile files this module writes a template for with the
+ * web profile's own, while the desktop copy is still that template byte for
+ * byte and the web copy is not.
+ *
+ * The file is copied rather than merged. A patch layer carries comments and
+ * `!!js` tags that only the loader's own YAML schema reads, so parsing one to
+ * combine it with another would be a second implementation of that schema; an
+ * edited desktop copy is therefore left alone with the names to carry over
+ * named in the log.
+ * @param webDir - the web profile directory.
+ * @param profileDir - the desktop profile directory.
+ * @param filename - the file to copy, the same name in both profiles.
+ * @param template - the contents this module writes for a fresh profile.
+ * @param names - the migrated names, for the line that says what to carry by hand.
+ * @param report - the run's report, extended with the decision.
+ */
+function copyPristineProfileFile(
+  webDir: string, profileDir: string, filename: string, template: string, names: readonly string[],
+  report: SeedReport,
+): void {
+  const target = join(profileDir, filename)
+  let bytes
+  try {
+    bytes = readFileSync(join(webDir, filename))
+  } catch {
+    // No web profile, or a profile whose owner deleted the file: either way
+    // there is nothing of theirs to carry over.
+    return
+  }
+  if (bytes.toString('utf8') === template) return
+  try {
+    if (readFileSync(target, 'utf8') !== template) {
+      report.skipped.push(
+        `${filename}: the desktop copy is already edited; carry the web profile's rows for ${names.join(', ')} over by hand`,
+      )
+      return
+    }
+    writeAtomic(target, bytes)
+  } catch (error) {
+    report.skipped.push(`${target}: ${String(error)}`)
+    return
+  }
+  report.copied.push(filename)
+}
+
+/**
+ * Write the migration record. A failure is reported rather than thrown: the
+ * profile is already migrated and usable, and the next launch rebuilds the
+ * record from the links it finds.
+ * @param path - the marker path inside the desktop profile.
+ * @param migrated - every name this shell has migrated into the profile.
+ * @param report - the run's report, extended with a failure to write.
+ */
+function writeMigrationMarker(path: string, migrated: readonly string[], report: SeedReport): void {
+  const marker: MigrationMarker = { from: WEB_PROFILE, migrated: [...migrated] }
+  try {
+    writeAtomic(path, `${JSON.stringify(marker, undefined, 2)}\n`)
+  } catch (error) {
+    report.skipped.push(`${path}: ${String(error)}`)
+  }
+}
+
+/**
+ * The names the migration record holds, or undefined on a profile that has not
+ * been migrated.
+ *
+ * A marker that exists but does not parse answers with no names: its presence
+ * is what says the migration ran, and a record this cannot read is one it
+ * cannot repair from either.
+ * @param path - the marker path inside the desktop profile.
+ * @returns the recorded names, or undefined when there is no record.
+ */
+function readMigratedNames(path: string): string[] | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    // No marker at all on a home that has not migrated; an unreadable one is
+    // still a marker, and existsSync is what tells the two apart.
+    return existsSync(path) ? [] : undefined
+  }
+  const migrated = (parsed as MigrationMarker | null)?.migrated
+  return Array.isArray(migrated) ? migrated.filter(name => typeof name === 'string') : []
+}
+
+/**
+ * Take back out a migrated name that stopped resolving, on every run.
+ *
+ * The migration points the desktop profile at a directory the user owns and can
+ * empty: removing or reinstalling the `web` profile leaves the links this shell
+ * made dangling, and `loadProfile` fails the whole boot on one entry it cannot
+ * resolve. The names the record holds are exactly the entries whose target is
+ * outside this installation, so they are exactly the ones to re-check.
+ *
+ * A name that resolves again from anywhere — the user's own copy in the desktop
+ * profile, a link they made themselves, a package this build now ships — is
+ * left alone with its entry.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with what this removed.
+ */
+function dropStaleMigrations(spec: SeedSpec, profileDir: string, report: SeedReport): void {
+  const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
+  const recorded = readMigratedNames(markerPath)
+  if (recorded === undefined) return
+  const stale = recorded.filter(name => !resolvesForProfile(spec, profileDir, name))
+  if (stale.length === 0) return
+  const webModules = join(spec.home, PROFILES_DIR, WEB_PROFILE, 'node_modules')
+  for (const name of stale) {
+    const link = join(profileDir, 'node_modules', name)
+    try {
+      removeSeededLink(link, join(webModules, name))
+    } catch (error) {
+      report.skipped.push(`${link}: ${String(error)}`)
+    }
+  }
+  const manifestPath = join(profileDir, 'package.json')
+  try {
+    dropBundleNames(manifestPath, stale)
+  } catch (error) {
+    // The entry stays, and so does the record that will retry it next launch.
+    report.skipped.push(`${manifestPath}: ${String(error)}`)
+    return
+  }
+  writeMigrationMarker(markerPath, recorded.filter(name => !stale.includes(name)), report)
+  report.staleMigrations.push(...stale)
 }
 
 /**
@@ -372,7 +749,7 @@ function pruneWithdrawnBundles(spec: SeedSpec, profileDir: string, report: SeedR
   if (orphaned.length === 0) return
   const manifestPath = join(profileDir, 'package.json')
   try {
-    dropBundleNames(manifestPath, orphaned, report)
+    report.pruned.push(...dropBundleNames(manifestPath, orphaned))
   } catch (error) {
     report.skipped.push(`${manifestPath}: ${String(error)}`)
   }
@@ -429,28 +806,24 @@ function resolvesForProfile(spec: SeedSpec, profileDir: string, name: string): b
  * Drop bundle names from an existing manifest's list, leaving every other field.
  * @param manifestPath - the profile manifest.
  * @param names - the names to remove.
- * @param report - the run's report, extended with what was removed.
+ * @returns the names that were in the list and are no longer.
  * @throws when the manifest cannot be replaced.
  */
-function dropBundleNames(manifestPath: string, names: readonly string[], report: SeedReport): void {
-  let manifest: ProfileManifest
-  try {
-    manifest = JSON.parse(readFileSync(manifestPath, 'utf8')) as ProfileManifest
-  } catch {
-    // Unreadable: either this run wrote it and it parses, or the seeding pass
-    // above read the same file and already reported it for the server.
-    return
-  }
+function dropBundleNames(manifestPath: string, names: readonly string[]): string[] {
+  const manifest = tryReadManifest(manifestPath)
+  // Unreadable: either this run wrote it and it parses, or the seeding pass
+  // above read the same file and already reported it for the server.
+  if (manifest === undefined) return []
   const bundles = manifest.dsh?.profile?.bundles
-  if (!Array.isArray(bundles)) return
+  if (!Array.isArray(bundles)) return []
   const dropped = bundles.filter(name => names.includes(name))
-  if (dropped.length === 0) return
+  if (dropped.length === 0) return []
   const updated: ProfileManifest = {
     ...manifest,
     dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: bundles.filter(name => !names.includes(name)) } },
   }
   writeAtomic(manifestPath, `${JSON.stringify(updated, undefined, 2)}\n`)
-  report.pruned.push(...dropped)
+  return dropped
 }
 
 /**
@@ -523,8 +896,13 @@ export function describeSeed(report: SeedReport): string | undefined {
     parts.push(`${report.created ? 'created with' : 'seeded'} built-in bundles ${report.seeded.join(', ')}`)
   }
   if (report.linked.length > 0) parts.push(`linked ${report.linked.join(', ')}`)
+  if (report.migrated.length > 0) parts.push(`migrated ${report.migrated.join(', ')} from the web profile`)
+  if (report.copied.length > 0) parts.push(`copied ${report.copied.join(', ')} from the web profile`)
   if (report.pruned.length > 0) parts.push(`dropped withdrawn built-in ${report.pruned.join(', ')}`)
   if (report.unlinked.length > 0) parts.push(`unlinked ${report.unlinked.join(', ')}`)
+  for (const name of report.staleMigrations) {
+    parts.push(`dropped migrated ${name}: no longer resolves in the web profile`)
+  }
   for (const line of report.skipped) parts.push(`skipped ${line}`)
   for (const line of report.shadowed) parts.push(`warning: ${line}`)
   if (parts.length === 0) return undefined
