@@ -48,7 +48,10 @@ function shipPlugins(names: readonly string[], version = '1.0.0'): void {
 function installIntoProfile(name: string, version: string): void {
   const dir = join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', name)
   mkdirSync(dir, { recursive: true })
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name, version }))
+  writeFileSync(
+    join(dir, 'package.json'),
+    JSON.stringify({ name, version, dsh: { bundle: { patch: './cordis.patch.yml' } } }),
+  )
 }
 
 /** Write a profile manifest verbatim. */
@@ -663,7 +666,7 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
     migrated()
     rmSync(webPackage(userPlugin), { recursive: true, force: true })
     const report = seedBuiltinBundles({ home, serverModules })
-    expect(report.staleMigrations).toEqual([userPlugin])
+    expect(report.staleMigrations).toEqual([`${userPlugin}: no longer resolves in the web profile`])
     expect(bundlesNow()).toEqual([...webTemplate, ...BUILTIN_WEB_BUNDLES])
     expect(lstatSync(migratedLink(userPlugin), { throwIfNoEntry: false })).toBeUndefined()
     expect(migratedNow()).toEqual([])
@@ -676,7 +679,7 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
     migrated()
     rmSync(join(home, 'profiles', WEB_PROFILE), { recursive: true, force: true })
     const report = seedBuiltinBundles({ home, serverModules })
-    expect(report.staleMigrations).toEqual([userPlugin])
+    expect(report.staleMigrations).toEqual([`${userPlugin}: no longer resolves in the web profile`])
     expect(unresolvableBundles()).toEqual([])
   })
 
@@ -701,7 +704,9 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
     migrated()
     const checkout = join(root, 'checkout', userPlugin)
     mkdirSync(checkout, { recursive: true })
-    writeFileSync(join(checkout, 'package.json'), JSON.stringify({ name: userPlugin, version: '4.0.0' }))
+    writeFileSync(join(checkout, 'package.json'), JSON.stringify({
+      name: userPlugin, version: '4.0.0', dsh: { bundle: { patch: './cordis.patch.yml' } },
+    }))
     unlinkSync(migratedLink(userPlugin))
     symlinkSync(checkout, migratedLink(userPlugin), 'junction')
     rmSync(join(home, 'profiles', WEB_PROFILE), { recursive: true, force: true })
@@ -718,6 +723,37 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.staleMigrations).toEqual([])
     expect(bundlesNow()).toContain(userPlugin)
+  })
+
+  it('drops a migrated name whose installed version stopped being a bundle', () => {
+    // Updating the package in the web profile can replace it with one that
+    // declares no `dsh.bundle`. It still resolves, so resolution alone says
+    // nothing is wrong, and `loadProfile` still ends the boot over it — and a
+    // `dsh plugin --profile web` reconcile repairs the web manifest, never this
+    // one.
+    migrated()
+    installIntoWeb(userPlugin, {})
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.staleMigrations).toEqual([`${userPlugin}: its installed version no longer declares dsh.bundle`])
+    expect(bundlesNow()).toEqual([...webTemplate, ...BUILTIN_WEB_BUNDLES])
+    expect(lstatSync(migratedLink(userPlugin), { throwIfNoEntry: false })).toBeUndefined()
+    expect(migratedNow()).toEqual([])
+    expect(unresolvableBundles()).toEqual([])
+    expect(describeSeed(report)).toContain(
+      `dropped migrated ${userPlugin}: its installed version no longer declares dsh.bundle`,
+    )
+  })
+
+  it('does not bring one back when the bundle version returns', () => {
+    // The record is what makes the migration a one-time move, so a name it has
+    // dropped is one the user adds back themselves.
+    migrated()
+    installIntoWeb(userPlugin, {})
+    seedBuiltinBundles({ home, serverModules })
+    installIntoWeb(userPlugin)
+    const again = seedBuiltinBundles({ home, serverModules })
+    expect(again).toEqual(nothingHappened())
+    expect(bundlesNow()).not.toContain(userPlugin)
   })
 
   it('rebuilds a record deleted by hand from the links it made', () => {
@@ -826,10 +862,13 @@ describe('describeSeed', () => {
   })
 
   it('gives each migration it took back out its own reason', () => {
-    const line = describeSeed({ ...nothingHappened(), staleMigrations: ['dsh-hello-world', '@x/b'] })
+    const line = describeSeed({ ...nothingHappened(), staleMigrations: [
+      'dsh-hello-world: no longer resolves in the web profile',
+      '@x/b: its installed version no longer declares dsh.bundle',
+    ] })
     expect(line).toBe(
       '[desktop] profile desktop: dropped migrated dsh-hello-world: no longer resolves in the web profile; '
-      + 'dropped migrated @x/b: no longer resolves in the web profile\n',
+      + 'dropped migrated @x/b: its installed version no longer declares dsh.bundle\n',
     )
   })
 

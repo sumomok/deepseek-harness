@@ -28,7 +28,7 @@ Status: implemented
 
 **patch 层要么逐字节复制,要么根本不动。**迁移当时,若桌面这份 `cordis.patch.yml` 还逐字节等于播种写下的空模板、而 web profile 那份不是,web 的文件就会替换它——按字节,所以注释与 `!!js` 标签都活着过来。桌面那份若已被改过则原样保留,日志会点名该手工搬哪些插件的行。`pnpm-workspace.yaml` 同理。任何情况下都不做合并:patch 层是 loader 自有 schema 才读得懂的 YAML,把两份合起来意味着把那套 schema 再实现一遍——而且是在一个刻意不依赖任何 harness 包的 Electron 主进程里。
 
-**每次启动都会复核迁移加过的东西。**这些条目指向的是归用户所有、也能被用户清空的目录——重装或删掉 `web` profile 都会让链接悬空——而一个解析不到的条目就会终止启动。所以在每一次播种运行上(不只是执行迁移的那一次),记录里的每个名字都按 `resolveBundleDir` 的方式去解析;哪儿都解析不到的名字会失去它的 bundle 条目、它的链接,以及它在记录里的位置,启动日志写下 `dropped migrated <name>: no longer resolves in the web profile`。这就是把「撤下内置插件」那道清理,套用到壳放进一个自己并不拥有的 profile 里的另一类条目上。用户后来自己接管的名字——桌面 profile 自有 `node_modules` 下的副本、他自己在那个路径上建的链接,或本次构建开始随包分发的包——都解析得到,于是原样保留。
+**每次启动都会复核迁移加过的东西,而且是对着启动可能终止的那两条路一起复核。**这些条目指向的是归用户所有、还会被他不断改动的包,而 `loadProfile` 在两种情况下会为一个条目抛错:哪儿都解析不到,或者解析到的包没有声明 `dsh.bundle`。删掉或重装 `web` profile 造出的是前一种;在那边升级这个包——用 `dsh plugin --profile web`,或者即将到来的更新按钮——可能造出后一种,而 web 侧的对账修的是 web 的清单,从来不是这一份。所以只看解析,会让一次启动失败原地立着、却什么都不报。于是 `bundleDefect` 只有一个:收名字的那道检查读它,取名字回来的那道检查也读它;每一次播种运行都拿记录里的每个名字对着它量一遍,有缺陷的那个会失去它的 bundle 条目、它的链接,以及它在记录里的位置,并按情况写下 `dropped migrated <name>: no longer resolves in the web profile` 或 `dropped migrated <name>: its installed version no longer declares dsh.bundle`。这就是把「撤下内置插件」那道清理,套用到壳放进一个自己并不拥有的 profile 里的另一类条目上。用户后来自己接管的名字——桌面 profile 自有 `node_modules` 下的副本、他自己在那个路径上建的链接,或本次构建开始随包分发的包——都仍然挂得起来,于是原样保留。被删掉的名字不会因为那个包又回来而回来:正是那条记录让这次搬运只发生一次,要它回来就用 `dsh plugin --profile desktop add`。
 
 **记录没了就重建,而不是重放。**若某个名字已经在列表里、而它那条链接正是本壳会建的那一条,就把它重新记进记录,清单一个字都不动。没有这一步,一份被手工删掉的标记文件——或者清单写入刚成功、标记写入却失败这种概率极低的情形——就会留下一批指向 web profile、却没有任何东西再去复核的条目,而那恰恰是上一段要防的那种砖。
 
@@ -52,7 +52,7 @@ Status: implemented
 
 桌面 profile 现在带着一批「包住在它外面」的条目,而让这些条目保持有效是壳的责任。代价是每次启动、每个记录名字一次 `existsSync`,外加一条在有名字失效时才跑的修复路径。
 
-`dsh plugin --profile web add <包>@latest` 会同时为两个 profile 更新一个迁移过来的插件;`dsh plugin --profile web remove <包>` 会把它从 web profile 移除,并让桌面那条条目悬空到下一次启动把它删掉——用户删掉的插件多活一次启动,然后是那行说明它已经走了的日志。
+`dsh plugin --profile web add <包>@latest` 会同时为两个 profile 更新一个迁移过来的插件;而这次更新出岔子的两种方式收在同一道修复里:`dsh plugin --profile web remove <包>` 会让桌面那条条目悬空,升级到一个不再是 bundle 的版本则会留下一条解析得到、却仍然挂不起来的条目。两种情况下,下一次启动都会删掉那个条目并说明是哪一种,而且那个包再回来时,插件也不会自己回来。
 
 这一次运行之后,两个 profile 不再有任何东西保持同步。此后加进 `web` 的插件不会出现在 `desktop` 里;README 明说了这一点,并给出了命令。
 
@@ -62,6 +62,6 @@ Status: implemented
 
 `apps/desktop/tests/profile-seed.spec.ts` 在一个搭出来的 `$DSH_HOME` 上、不碰 Electron 地驱动整个功能:全新安装的迁移、desktop profile 由更早构建建出且没有记录的 rc.17 到 rc.22 现场案例、什么都不改的第二次启动、五种拒收各自连同它写进日志的理由、建在 web profile 路径上而非该路径解析结果上的链接、被抄过去的依赖版本与桌面自己声明因而被保留的那一个、还是模板时被复制、已被改过则被拒绝的 patch 层与 pnpm 设置、带 scope 的名字走完链接与清单两个字段,以及记录被手工删掉后从它自己建的链接重建回来。
 
-修复有自己的一组用例:包被从 web profile 里删掉、web profile 被整个删掉、一次修复之后的第二次启动,以及名字重新解析得到的三种方式——profile 自有的副本、被用户改指过的链接,以及本次构建开始随包分发的包。
+修复有自己的一组用例:包被从 web profile 里删掉、web profile 被整个删掉、包被原地升级成一个没有声明 `dsh.bundle` 的版本、此后 bundle 版本又回来而刻意不再迁移、一次修复之后的第二次启动,以及名字仍然挂得起来的三种方式——profile 自有的副本、被用户改指过的链接,以及本次构建开始随包分发的包。
 
 其中两条断言的是整个功能的边界属性而不是报告本身:桌面清单列出的每一个名字,都能经 `@deepseek-ai/dsh-app-boot` 的 `resolveBundleDir` 解析得到——`loadProfile` 对每个名字调的就是它,而它一抛错启动就结束。
