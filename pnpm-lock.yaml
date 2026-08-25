@@ -712,8 +712,8 @@ importers:
         specifier: file:./vendor/haoran-dsh-llm-permission-gateway-0.1.5.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.5.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)
       '@haoran/dsh-plugin-updates':
-        specifier: file:./vendor/haoran-dsh-plugin-updates-0.1.0.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
+        specifier: file:./vendor/haoran-dsh-plugin-updates-0.1.1.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
       '@haoran/dsh-screenshot':
         specifier: file:./vendor/haoran-dsh-screenshot-0.4.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.4.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-commands@packages+interaction+commands)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-user-questions@packages+interaction+user-questions)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
@@ -10701,9 +10701,9 @@ packages:
       '@deepseek-ai/dsh-tools': ^0.1.0-rc.7
       '@deepseek-ai/schemastery': ^3.18.1
 
-  '@haoran/dsh-plugin-updates@file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.0.tgz':
-    resolution: {integrity: sha512-37GJhO+kcr3Cg9VBQfzzehnRTdBwzvosYtSt4dfGoVn5HIKCv1H1aRqgvVggPrSxfDJl28Usg3n2MenpGvLm8w==, tarball: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.0.tgz}
-    version: 0.1.0
+  '@haoran/dsh-plugin-updates@file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.1.tgz':
+    resolution: {integrity: sha512-TFLjyZJncDmnZDyf+7Ld2GQHGs0uMzE6P2mOEvIA3Sm765cjYiXX8FlP0Cf/EeQTAkNwXF8ASqY3LyDpDFkfPA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.1.tgz}
+    version: 0.1.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1-rc.1
       '@deepseek-ai/dsh-api-remotes': '>=0.1.0-rc.1 <0.2.0-0'
@@ -17482,7 +17482,7 @@ snapshots:
       '@deepseek-ai/dsh-tools': link:packages/core/tools
       '@deepseek-ai/schemastery': link:vendor/schemastery
 
-  '@haoran/dsh-plugin-updates@file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)':
+  '@haoran/dsh-plugin-updates@file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-runtime@packages+client+runtime)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)':
     dependencies:
       semver: 7.8.5
       zod: 4.4.3

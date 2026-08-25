@@ -128,7 +128,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 | `@haoran/dsh-llm-permission-gateway` | `0.1.5`,来自提交进本仓库的 tarball | 自动审查这个权限预设——在权限选择器里带上完全权限那枚盾形图标——以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型。向你提问不算其中之一:`ask_user_question` 不经审查直接放行,因为它的全部效果就是把一段文字摆在你面前等你回答,审查它只会多一次模型调用,并在它本来要显示的那个提问前面再加一道提示 |
 | `@sumomok/dsh-quote-message` | `0.2.2`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,引用 chip 在你发送时展开成一段 markdown 引用块,而对话里它显示成你这条消息上方的一段引文——左侧一条细线,引用文字用次级墨色,超过三行折起 |
 | `@sumomok/dsh-balance` | `0.1.0`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 公布的 CNY 与 USD 价格 |
-| `@haoran/dsh-plugin-updates` | `0.1.0`,来自提交进本仓库的 tarball | 插件设置里的「更新」页:把你自己装的插件与各自最新的发布版本列在一起,每行一个按钮,经由随安装包分发的那个包管理器安装,还有一步把上一次更新撤回。内置插件不在这份名单里——壳给它们种下的是没有依赖条目的 bundle 项,它们随应用更新而更新 |
+| `@haoran/dsh-plugin-updates` | `0.1.1`,来自提交进本仓库的 tarball | 插件设置里的「更新」页:把你自己装的插件与各自最新的发布版本列在一起,每行一个按钮,经由随安装包分发的那个包管理器安装,还有一步把上一次更新撤回。内置插件不在这份名单里——壳给它们种下的是没有依赖条目的 bundle 项,它们随应用更新而更新 |
 | `@haoran/dsh-default-model` | `0.1.2`,来自提交进本仓库的 tarball | 出厂默认模型:全新安装的第一个会话开在 `deepseek-v4-flash-vision-exp` 上,选择器把它列为 `default` |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
