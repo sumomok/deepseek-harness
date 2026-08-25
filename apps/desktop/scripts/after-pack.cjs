@@ -3,12 +3,12 @@
  * here runs after the builder has laid the bundle out and before the dmg/zip/
  * NSIS targets seal it.
  *
- * Both platforms start by copying the staged server closure into the app's
- * resources. extraResources cannot carry it — the builder's copier hard-excludes
- * node_modules trees — and `cp -R` preserves the executable bits node-pty's
- * macOS spawn-helper needs (the hook host is always the macOS build machine,
- * for Windows targets too). What each does next is platform-specific and
- * mutually exclusive.
+ * Both platforms start by copying the staged server closure and the staged
+ * package manager into the app's resources. extraResources cannot carry either
+ * — the builder's copier hard-excludes node_modules trees, and both trees have
+ * one — and `cp -R` preserves the executable bits node-pty's macOS spawn-helper
+ * needs (the hook host is always the macOS build machine, for Windows targets
+ * too). What each does next is platform-specific and mutually exclusive.
  *
  * macOS then signs the app (scripts/sign-mac.cjs), which must see the finished
  * bundle: the signature seals every resource, so anything written afterwards
@@ -74,6 +74,18 @@ module.exports = async function afterPack(context) {
   const server = join(resources, 'server')
   execFileSync('cp', ['-R', source, server])
   console.log(`after-pack: copied ${source} into ${server}`)
+
+  // Beside the bundled Node that runs it: src/plugin-admin-service.ts spawns
+  // `runtime/pnpm/bin/pnpm.mjs` under `runtime/node`, which is how a machine
+  // with no package manager updates a plugin. `runtime/` itself is already
+  // there, from the platform's extraResources entry.
+  const pnpmSource = join(__dirname, '..', 'staging', 'pnpm')
+  if (!existsSync(pnpmSource)) throw new Error(`after-pack: no staged package manager at ${pnpmSource}`)
+  const pnpm = join(resources, 'runtime', 'pnpm')
+  rmSync(pnpm, { recursive: true, force: true })
+  execFileSync('cp', ['-R', pnpmSource, pnpm])
+  if (!existsSync(join(pnpm, 'bin', 'pnpm.mjs'))) throw new Error(`after-pack: ${pnpm} carries no bin/pnpm.mjs`)
+  console.log(`after-pack: copied ${pnpmSource} into ${pnpm}`)
 
   if (isMac) {
     signMacApp({ appPath, log: line => { console.log(line) } })

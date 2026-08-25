@@ -63,3 +63,7 @@ Rendering is serial and shallow-queued by design, so a page that takes the full 
 The vendored tarball is that plugin's update channel: a new version means committing a new tarball and moving the specifier, and the installer that carried a build owns the version, exactly as it does for every other built-in. `THIRD_PARTY_NOTICES.md` names it through a repository-relative link to that tarball, because an unpublished package has no public URL to name — one of the entries in that file whose link is not a repository.
 
 The payload carries it as another profile bundle, and the build names every bundle it kept on a `package: <target> payload built-in profile bundles:` line. The deployer copies `apps/desktop-server/vendor/` into the staged tree along with the manifest, so the packaging step removes it beside the README files it already drops: the staged tree holds the installed package, and the archive it came from resolves nothing at run time.
+
+## Related
+
+- [The plugin admin service](2026-08-25-desktop-plugin-admin-service.md) is the shell'''s second loopback service, opened the same way and with a token of its own. The two now share the loopback address, the token mint, the constant-time comparison, the capped body read, and the two answer writers, which moved out of `render-service.ts` into `apps/desktop/src/loopback-service.ts`. Nothing about the render protocol changed with them.

@@ -120,9 +120,10 @@ export interface ServerSpec {
   cwd: string
   /**
    * Variables added to the inherited environment for this child alone — the
-   * render service's endpoint and token. They are deliberately not put on the
-   * shell's own `process.env`, because every other process the user starts
-   * would inherit them from there.
+   * endpoint and token of each loopback service the shell lends it, the
+   * renderer and the plugin admin. They are deliberately not put on the shell's
+   * own `process.env`, because every other process the user starts — pnpm
+   * included — would inherit them from there.
    */
   env: Record<string, string>
 }

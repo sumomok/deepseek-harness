@@ -144,6 +144,19 @@ export const MIGRATION_MARKER_FILENAME = 'web-migration.json'
 /** Directory under the Harness home holding every profile (`PROFILES_DIR` in dsh-app-boot). */
 const PROFILES_DIR = 'profiles'
 
+/**
+ * Where one profile's directory is, under a Harness home.
+ *
+ * The same join `loadProfile` performs, exported so nothing else in the shell
+ * spells this path itself.
+ * @param home - the Harness home, from {@link resolveHarnessHome}.
+ * @param profile - the profile name.
+ * @returns the absolute profile directory.
+ */
+export function profileDirectory(home: string, profile: string): string {
+  return join(home, PROFILES_DIR, profile)
+}
+
 /** The user patch layer inside a profile directory (`PROFILE_PATCH_FILENAME` in dsh-app-boot). */
 const PROFILE_PATCH_FILENAME = 'cordis.patch.yml'
 
@@ -373,7 +386,7 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
     else report.skipped.push(`${name}: not in the shipped server closure (${dir})`)
   }
 
-  const profileDir = join(spec.home, PROFILES_DIR, DESKTOP_PROFILE)
+  const profileDir = profileDirectory(spec.home, DESKTOP_PROFILE)
   const manifestPath = join(profileDir, 'package.json')
   try {
     report.created = initDesktopProfile(profileDir, [...WEB_TEMPLATE_BUNDLES, ...available])
@@ -435,6 +448,22 @@ function dependenciesOf(manifest: ProfileManifest | undefined): Record<string, u
   const value = manifest?.['dependencies']
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return {}
   return value as Record<string, unknown>
+}
+
+/**
+ * The package names one profile's manifest declares as its own dependencies.
+ *
+ * These are the packages the profile installed, as opposed to the bundles it
+ * merely lists: a built-in the shell seeded is named in `dsh.profile.bundles`
+ * and resolves from the installation, so it never appears here. That makes this
+ * set the one a package manager may act on for this profile, and the reason
+ * {@link seedBuiltinBundles} may not add to it.
+ * @param profileDir - the profile directory.
+ * @returns the declared names, sorted; empty for a profile whose manifest is absent or unreadable.
+ */
+export function profileDependencyNames(profileDir: string): string[] {
+  const declared = dependenciesOf(tryReadManifest(join(profileDir, 'package.json')))
+  return Object.keys(declared).filter(name => typeof declared[name] === 'string').sort()
 }
 
 /** Whether `link` is a symbolic link this shell would have made, resolving to `target`. */
@@ -520,7 +549,7 @@ function migrateWebBundles(spec: SeedSpec, profileDir: string, report: SeedRepor
   const manifest = tryReadManifest(manifestPath)
   const listed = manifest?.dsh?.profile?.bundles
   if (manifest === undefined || !Array.isArray(listed)) return
-  const webDir = join(spec.home, PROFILES_DIR, WEB_PROFILE)
+  const webDir = profileDirectory(spec.home, WEB_PROFILE)
   const webManifest = tryReadManifest(join(webDir, 'package.json'))
   const candidates = webManifest?.dsh?.profile?.bundles
   // Every name the marker records, and the subset this run put in the manifest.
@@ -725,7 +754,7 @@ function dropStaleMigrations(spec: SeedSpec, profileDir: string, report: SeedRep
     if (reason !== undefined) stale.set(name, reason)
   }
   if (stale.size === 0) return
-  const webModules = join(spec.home, PROFILES_DIR, WEB_PROFILE, 'node_modules')
+  const webModules = join(profileDirectory(spec.home, WEB_PROFILE), 'node_modules')
   for (const name of stale.keys()) {
     const link = join(profileDir, 'node_modules', name)
     try {
@@ -864,7 +893,7 @@ function resolvesForProfile(spec: SeedSpec, profileDir: string, name: string): b
  * @returns the names that were in the list and are no longer.
  * @throws when the manifest cannot be replaced.
  */
-function dropBundleNames(manifestPath: string, names: readonly string[]): string[] {
+export function dropBundleNames(manifestPath: string, names: readonly string[]): string[] {
   const manifest = tryReadManifest(manifestPath)
   // Unreadable: either this run wrote it and it parses, or the seeding pass
   // above read the same file and already reported it for the server.

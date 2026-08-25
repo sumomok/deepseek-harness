@@ -79,14 +79,9 @@
  * @module @deepseek-ai/dsh-desktop/render-service
  */
 
-import { randomBytes, timingSafeEqual } from 'node:crypto'
+import { randomBytes } from 'node:crypto'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
-
-/** The only address the listener binds; there is no configuration that widens it. */
-const LOOPBACK_HOST = '127.0.0.1'
-
-/** Token length in bytes, hex-encoded onto the wire (64 characters). */
-const TOKEN_BYTES = 32
+import { authorized, listenLoopback, LOOPBACK_HOST, mintToken, readBody, sendJson, sendText } from './loopback-service.ts'
 
 /** The route that renders a page. */
 export const RENDER_PATH = '/render'
@@ -1394,24 +1389,6 @@ interface ExtraBudget {
 }
 
 /**
- * Whether an `authorization` header carries exactly this service's token.
- *
- * The comparison is length-checked first and then constant-time, so the reply
- * timing says nothing about how much of a guessed token was right.
- * @param header - the request's `authorization` header, if it sent one.
- * @param token - the token this service accepts.
- * @returns true when the header is `Bearer <token>` for that exact token.
- */
-function authorized(header: string | undefined, token: string): boolean {
-  if (header === undefined) return false
-  const offered = /^Bearer[ ]+(\S+)$/i.exec(header.trim())?.[1]
-  if (offered === undefined) return false
-  const left = Buffer.from(offered, 'utf8')
-  const right = Buffer.from(token, 'utf8')
-  return left.byteLength === right.byteLength && timingSafeEqual(left, right)
-}
-
-/**
  * One integer viewport edge inside the configured bounds.
  * @param value - the JSON value the request carried.
  * @param limits - the bounds to apply.
@@ -1849,29 +1826,6 @@ function resolveNonce(raw: unknown): NonceResolution {
 }
 
 /**
- * Read a request body, keeping at most `maxBodyBytes` of it.
- *
- * An oversized upload is read to its end and discarded rather than cut off:
- * memory stays bounded either way, and destroying the request mid-upload would
- * take the socket down with it, so the caller would get a dropped connection
- * where it should get the sentence saying what was wrong.
- * @param request - the incoming request.
- * @param maxBodyBytes - the largest body to accept.
- * @returns the body text, or undefined when the request sent more than the cap.
- */
-async function readBody(request: IncomingMessage, maxBodyBytes: number): Promise<string | undefined> {
-  const chunks: Buffer[] = []
-  let size = 0
-  for await (const chunk of request) {
-    const bytes = chunk as Buffer
-    size += bytes.byteLength
-    if (size <= maxBodyBytes) chunks.push(bytes)
-  }
-  if (size > maxBodyBytes) return undefined
-  return Buffer.concat(chunks).toString('utf8')
-}
-
-/**
  * The report header of one answer, or nothing for an answer no render was
  * started for.
  * @param report - the render's report, when there was a render.
@@ -1891,18 +1845,7 @@ function reportHeader(report: RenderReport | undefined): Record<string, string> 
  * @param report - the render's report, for the two failures a render reached: the 500 and the 504.
  */
 function fail(response: ServerResponse, status: number, message: string, report?: RenderReport): void {
-  if (response.headersSent) {
-    response.end()
-    return
-  }
-  const body = Buffer.from(`${message}\n`, 'utf8')
-  response.writeHead(status, {
-    'content-type': 'text/plain; charset=utf-8',
-    'content-length': String(body.byteLength),
-    'cache-control': 'no-store',
-    ...reportHeader(report),
-  })
-  response.end(body)
+  sendText(response, status, message, reportHeader(report))
 }
 
 /**
@@ -1919,19 +1862,6 @@ function sendPng(response: ServerResponse, rendered: Rendered): void {
     ...reportHeader(rendered.report),
   })
   response.end(rendered.png)
-}
-
-/**
- * Answer with a status and a JSON body, which is what the three login routes
- * return: none of them produces pixels, and their callers read fields.
- * @param response - the response to write.
- * @param status - the HTTP status.
- * @param value - the body, serialized as JSON.
- */
-function sendJson(response: ServerResponse, status: number, value: unknown): void {
-  const body = Buffer.from(JSON.stringify(value), 'utf8')
-  response.writeHead(status, { 'content-type': 'application/json', 'content-length': body.byteLength })
-  response.end(body)
 }
 
 /**
@@ -1994,7 +1924,7 @@ async function captureAtDeadline(capture: CaptureNow | undefined, capMs: number)
 /**
  * Start the loopback render service and listen on an ephemeral port.
  *
- * The token is generated here rather than accepted from the caller, so there
+ * The token comes from {@link mintToken} rather than from the caller, so there
  * is no way to run this service with a value that came from anywhere but
  * `randomBytes`.
  * @param spec - the renderer to drive and the bounds to enforce.
@@ -2003,7 +1933,7 @@ async function captureAtDeadline(capture: CaptureNow | undefined, capMs: number)
  */
 export async function startRenderService(spec: RenderServiceSpec): Promise<RenderServiceHandle> {
   const { limits, renderer } = spec
-  const token = randomBytes(TOKEN_BYTES).toString('hex')
+  const token = mintToken()
   /** Requests accepted right now: at most one rendering, the rest waiting. */
   let admitted = 0
   /** Nonces minted and not yet spent, by nonce. */
@@ -2270,19 +2200,9 @@ export async function startRenderService(spec: RenderServiceSpec): Promise<Rende
     // `handle` answers every failure itself, so nothing here can reject.
     void handle(request, response)
   })
-  await new Promise<void>((resolve, reject) => {
-    server.once('error', reject)
-    server.listen(0, LOOPBACK_HOST, () => {
-      server.removeListener('error', reject)
-      resolve()
-    })
-  })
-  const address = server.address()
-  if (address === null || typeof address === 'string') {
-    throw new Error('render service: the loopback listener reported no TCP address')
-  }
+  const endpoint = await listenLoopback(server, 'render service')
   return {
-    endpoint: `http://${LOOPBACK_HOST}:${String(address.port)}`,
+    endpoint,
     token,
     close: async () => {
       // Before the sockets: a sign-in window is on screen until something takes

@@ -23,10 +23,15 @@
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, dialog, shell } from 'electron'
 import { recordRun } from './desktop-state.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { setupNotifications } from './notifications.ts'
+import {
+  ENDPOINT_ENV as PLUGIN_ADMIN_ENDPOINT_ENV, PLUGIN_ADMIN_LIMITS, resolvePnpmLauncher, spawnPnpm,
+  startPluginAdminService, TOKEN_ENV as PLUGIN_ADMIN_TOKEN_ENV,
+  type ConfirmRequest, type PluginAdminHandle,
+} from './plugin-admin-service.ts'
 import { describeSeed, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
 import { renderInHiddenWindow } from './render-window.ts'
@@ -38,8 +43,9 @@ import { launchGate, setupUpdates } from './updater.ts'
 
 /**
  * A server launch plus the shipped closure the built-in plugins are seeded
- * from. The environment additions are not part of it: they carry the render
- * service's address, which does not exist yet when the paths are resolved.
+ * from. The environment additions are not part of it: they carry the two
+ * loopback services' addresses, which do not exist yet when the paths are
+ * resolved.
  */
 interface LaunchSpec extends Omit<ServerSpec, 'env'> {
   /** `node_modules` of the shipped server closure, holding the built-in plugin packages. */
@@ -76,6 +82,7 @@ function resolveSpec(): LaunchSpec {
 
 let server: ServerHandle | undefined
 let renderService: RenderServiceHandle | undefined
+let pluginAdminService: PluginAdminHandle | undefined
 let quitting = false
 /** Set once the log file is known; before that there is nowhere to write. */
 let logLine: (chunk: string) => void = () => {}
@@ -148,6 +155,76 @@ async function startRenderServiceForServer(log: (chunk: string) => void): Promis
   renderService = started
   log(`[desktop] render service on ${started.endpoint}\n`)
   return { DSH_DESKTOP_RENDER_ENDPOINT: started.endpoint, DSH_DESKTOP_RENDER_TOKEN: started.token }
+}
+
+/**
+ * Put one plugin-admin confirmation on screen.
+ *
+ * A native modal rather than anything the web UI draws: the page asking for an
+ * install is the page a compromised plugin would draw its own confirmation in,
+ * and this window is the one it cannot paint over. It is parented to the main
+ * window when there is one, so it is modal to the app rather than a dialog the
+ * user can lose behind it.
+ * @param request - what the service wants asked.
+ * @returns true when the user chose the confirming button.
+ */
+async function confirmPluginAdmin(request: ConfirmRequest): Promise<boolean> {
+  const options = {
+    type: 'question' as const,
+    title: request.title,
+    message: request.message,
+    ...request.detail === undefined ? {} : { detail: request.detail },
+    buttons: [request.confirmLabel, request.cancelLabel],
+    defaultId: 0,
+    // Dismissing the dialog installs nothing and restarts nothing.
+    cancelId: 1,
+  }
+  const window = mainWindow()
+  const answer = window === undefined
+    ? await dialog.showMessageBox(options)
+    : await dialog.showMessageBox(window, options)
+  return answer.response === 0
+}
+
+/**
+ * Start the loopback plugin-admin service and return what the server child
+ * needs to reach it.
+ *
+ * The shell ships a package manager the machine does not have, and lending it
+ * is what lets a plugin be updated from the Settings window. Failing to open a
+ * loopback listener is not a reason to refuse the launch: a server told nothing
+ * reports the capability unavailable and hides the tab, which is what every
+ * non-desktop install already does.
+ * @param spec - this launch's paths, for the pnpm the packaged build ships.
+ * @param log - the server log sink; receives one line either way, never the token.
+ * @returns the environment additions for the server process, empty when the service did not start.
+ */
+async function startPluginAdminForServer(spec: LaunchSpec, log: (chunk: string) => void): Promise<Record<string, string>> {
+  const launcher = resolvePnpmLauncher({
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    nodeBin: spec.nodeBin,
+  })
+  let started: PluginAdminHandle
+  try {
+    started = await startPluginAdminService({
+      home: resolveHarnessHome(),
+      run: spawnPnpm(launcher),
+      confirm: confirmPluginAdmin,
+      relaunch: () => {
+        app.relaunch()
+        app.quit()
+      },
+      limits: PLUGIN_ADMIN_LIMITS,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log(`[desktop] plugin admin service unavailable (${message}); plugin updates are not offered\n`)
+    return {}
+  }
+  pluginAdminService = started
+  log(`[desktop] plugin admin service on ${started.endpoint}, pnpm: ${[launcher.command, ...launcher.prefixArgs].join(' ')}\n`)
+  return { [PLUGIN_ADMIN_ENDPOINT_ENV]: started.endpoint, [PLUGIN_ADMIN_TOKEN_ENV]: started.token }
 }
 
 /**
@@ -425,6 +502,7 @@ if (!locked) {
     // Best-effort and unawaited: the listener dies with the process anyway, and
     // this quit must not wait on a render that is still running.
     void renderService?.close()
+    void pluginAdminService?.close()
     if (server === undefined) return
     event.preventDefault()
     void stopServerBounded().finally(() => { app.exit(0) })
@@ -496,7 +574,8 @@ if (!locked) {
       // Before the spawn, because the address and token reach the server as
       // environment variables of that child and of nothing else.
       const renderEnv = await startRenderServiceForServer(sink)
-      server = await startServer({ ...spec, env: renderEnv }, sink)
+      const pluginAdminEnv = await startPluginAdminForServer(spec, sink)
+      server = await startServer({ ...spec, env: { ...renderEnv, ...pluginAdminEnv } }, sink)
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)
       view.phase(2)

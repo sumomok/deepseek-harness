@@ -252,6 +252,35 @@ pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 
 它在真实的 Electron 里渲染一个本地文件,检查截图尺寸无论显示器缩放系数是多少都正好是请求的视口、整页截图确实比它更高,以及 401、422 与 500 三种回答。有一个用例起一个站点:任何没有会话的访问都被重定向到它的登录页,并在真实 Chromium 上核对三种结果——不带会话时回答里有落点响应头,带 cookie 与带 header 时都没有。下一个用例把页面放在 `/app/issues/` 下,一张图在它旁边、另一张在 `/api/` 下,断言的是这个站点收到了什么,而不是回来的像素:cookie 出现在全部三个请求上,而额外的 header 只出现在那次导航上、两张图都没有。一个调用 `console.error` 的页面证明 `console-message` 与页面标题确实进到了报告里。其余用例让页面去请求一个本地监听——它接受连接却从不回答——这正是任何注入渲染器都替代不了的部分:在 `onTimeout: "capture"` 之下回答是一个 200,它的 PNG 解出来正好是请求的尺寸,报告写着 `outcome: "timeout"` 并点名那个卡住的主机;用 `blockHosts` 点名同一个主机,它会在不到十分之一秒内完成、`requests.blocked` 为 1;什么都不做时,504 在它那一行与它的报告里都点出那张图。
 
+## 插件管理服务
+
+**壳把自己的包管理器借给服务端**,所以用户自己装的插件,在一台既没有 pnpm 也没有终端的机器上也能更新。它是渲染服务之外的第二个本机服务,有自己独立的 token,打开的方式与传递的方式完全一样:在 `127.0.0.1` 与一个临时端口上的 HTTP 监听、一个 32 字节的 token,两者都只放进服务端那一个子进程的环境——`DSH_DESKTOP_PLUGIN_ADMIN_ENDPOINT` 与 `DSH_DESKTOP_PLUGIN_ADMIN_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程继承不到,这个服务自己拉起的 pnpm 也继承不到。`@haoran/dsh-plugin-updates` 每次调用都去读它们。两个都读不到的 harness 会报告该能力不可用,并且根本不在设置里放出那个标签页,这正是服务器上所有 `dsh web` 的做法。两个服务分开,是因为它们借出的权力不同:渲染 token 换来的是一扇隐藏窗口里的像素,把它扩大到覆盖安装,就等于让每一个持有它的人都能改变这个应用运行的是什么。
+
+四条路由都是 `POST`,都带 `authorization: Bearer <token>` 与 `content-type: application/json`:`/outdated` 接受 `{ profile }`,回答 `pnpm outdated --json` 报告了什么;`/peers` 接受 `{ profile, name, version }`,回答那个已发布版本声明了哪些 peer 范围;`/update` 接受 `{ profile, name, version, warning? }`,在用户确认之后安装;`/relaunch` 接受 `{}`,在用户确认之后重启应用。它们可能得到的全部回答:
+
+| 回答 | 何时 |
+|---|---|
+| `200 application/json` | 路由跑完了。读取类回答带着 pnpm 自己那份解析后的 JSON,外加 `exitCode`、`signal` 与截断过的 `stderr`;`/update` 与 `/relaunch` 还带 `confirmed`,`/update` 另带 `installedVersion`、`stillBundle` 与 `droppedFromBundles` |
+| `400` | 不是 JSON、不是对象、请求体超过 16 KB、`profile` 不在 `desktop` 与 `web` 之内、`name` 不是一个包名、`version` 不是一个确切的已发布版本,或 `warning` 不是字符串 |
+| `401` | 缺少或写错 bearer token |
+| `404` | 四条路由以外的任何路径或方法 |
+| `422` | 格式正确但点名了一个该 profile 自己的清单没有作为依赖声明的包 |
+| `503` | 已经有一次安装在跑 |
+
+每个失败响应体都是一行 `text/plain`,因为读它的是一个插件,它会把这句话放进设置页面里。
+
+**调用方点名的是一个包,而不是一个 specifier。**`profile` 是拿去和那份只有两个名字的清单比对,而不是拼进路径,所以任何 `..` 与任何绝对路径都点不到一个目录。`version` 必须是一个裸的确切 semver,所以 `latest`、`^1.2.3`、`git+ssh://…`、`file:../…` 以及 tarball URL 全都在到达参数数组之前被拒——而 pnpm 在那个位置对它们统统照单全收。`name` 必须是该 profile 清单自己 `dependencies` 里的一个键,并且**在处理函数里**每次调用都从硬盘重新读取,而不是采信请求、也不是启动时缓存一次。壳植入的内置插件写在 `dsh.profile.bundles` 里而没有依赖项,所以它们天然落在可更新集合之外,该 profile 从未装过的包也一样。
+
+**没有键盘前的那个人点头,什么都装不上。**`/update` 与 `/relaunch` 在做任何事之前,先以主窗口为父窗口打开 `dialog.showMessageBox`,所以那个确认框是一扇原生窗口,web UI 既盖不住它、也替不了它作答。`/update` 会显示插件、版本,以及——当调用方给了的时候——它那行 `warning`,先剥掉控制字符再截断,因为那段文字是一个插件写的、却要拿给用户看。同一时刻只跑一次安装;第二次会被答以 503 而不是排队,于是两个对话框不会就同一个目录发问,两次 pnpm 也不会争抢它的 lockfile。
+
+**它运行的 pnpm 就是安装包自带的那份。**`scripts/package.ts` 用 `npm pack` 把仓库自己 `packageManager` 钉住的那个 `pnpm` 版本暂存到 `staging/pnpm`,再由 `scripts/after-pack.cjs` 把它拷到自带 Node 旁边的 `resources/runtime/pnpm`——extraResources 搬不了它,因为 pnpm 自己的目录树里有一个 `node_modules`,而构建器的拷贝器硬性排除这类目录。服务随后在 `runtime/node` 下运行 `runtime/pnpm/bin/pnpm.mjs`,参数放在数组里,绝不经过 shell。只有不带这份资源的开发启动,才会退回到 PATH 上的 `pnpm`。这里从不自己去请求任何仓库地址,所以这台机器自己的 `.npmrc`——它的镜像、代理与凭据——就是每个请求真正经过的东西,和这台机器上其他所有安装完全一样。
+
+**说明一次安装成没成的是硬盘上的版本,而不是退出码。**`pnpm add` 会在正确装完的同时以 `ERR_PNPM_IGNORED_BUILDS` 退出码 1 结束——在任何还没回答过它那个构建审批问题的 profile 上都会,而这个壳植入的每一个 profile 都是如此:它们的 `pnpm-workspace.yaml` 里没有 `allowBuilds`,而任何依赖树里带有安装脚本的插件都会触发。所以 `/update` 事后重新读一遍那个包自己的清单,回答 `installedVersion`,由调用方拿它和自己要的版本比对。退出码仍然一并报告,因为它说的是 pnpm 抱怨了什么;它说的不是这次安装到底发生了没有。
+
+**不再是 bundle 的包会被取出来。**安装成功之后,服务会重新读一遍被更新那个包的清单;一个不再声明 `dsh.bundle` 的版本仍然解析得到,于是 `loadProfile` 过得了解析这一关,却在之后拒绝这个层,而那会终结整次启动。这个名字会被从该 profile 的 `dsh.profile.bundles` 里移除、并在回答里说出来,这与 `seedBuiltinBundles` 为一个丢了 bundle 的迁移名字所做的修复是同一件事,理由也一样:名字是壳放进那份列表的,所以也该由壳取出来。依赖项保持不动,因为包还装着,而这件事说的是 Loader 挂载什么。
+
+**三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时四条路由以外的任何路径与方法一律答 404——而且这一判定在看 token 之前就做完,所以一个没有凭据的调用方对这里提供什么一无所知——于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝。
+
 ## 服务器环境
 
 服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。
@@ -272,3 +301,7 @@ pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 - 登录 partition 不会被壳过期或回收。用户登录留下的东西一直躺在磁盘上,直到有谁对那个 partition 调用 `DELETE /login-sessions`。
 - 内置插件无法从 profile 侧钉到另一个版本。用 `dsh plugin --profile desktop add` 安装同名包会在 profile 自己的 `node_modules` 里放一份,Loader 会先找到它,而 `resolveBundleDir` 仍从安装目录读取 patch 层——那样这一行来自一个版本、代码来自另一个版本。
 - `dsh-better-sidebar` 用壳自己的环境启动终端:两处 `pty.spawn` 传的都是 `env: { ...process.env }`,而不是所有 harness spawner 都会走的 `packages/subprocess/subprocess/src/index.ts` 里的 `scrubbedParentEnv()`,后者会剥掉所有 `DSH_` 前缀的变量以及名字匹配 `KEY|PASSWORD|SECRET|TOKEN` 的变量。该插件注册了八个模型可以调用的终端工具(`terminal_create`、`terminal_send`、`terminal_read` 等),所以模型可以经由其中之一读到那份未经过滤的环境。Windows 的 GUI 进程继承用户级环境变量,因此用 `setx` 设过的 `DEEPSEEK_API_KEY` 会出现在那个终端里;macOS 的 GUI 进程拿到的是 launchd 的环境,通常不含它。
+- 插件管理服务只更新 profile 自己装过的东西。应用自带的内置插件根本无法从这里更新,这是构造使然而非规则:壳把它们植入 `dsh.profile.bundles` 且不写任何依赖项,它们随应用更新而移动。
+- 装好的插件更新要下次启动才生效。没有任何东西会就地重载一个插件,所以被更新的那一行会这么说,并给出一个重启按钮。
+- 只有一次更新可以撤销。`$DSH_HOME/dsh-plugin-updates/` 下的记录只保留最近一次,下一次更新会把它替换掉。
+- 自带的 pnpm 是构建时钉住的版本,只有仓库自己的 `packageManager` 变了才会跟着变。它给每个平台的载荷增加约 19 MB,其中包含它全部四个平台的原生模块,因为它以单个 tarball 发布。
