@@ -16,7 +16,7 @@ Two things make the answer narrower than "add an install button". A profile is u
 
 ## Decision
 
-The shell opens a **second loopback service**, beside [the render service](2026-08-22-desktop-render-service.md) and with a token of its own, and lends the server the package manager the installer ships. `apps/desktop/src/plugin-admin-service.ts` owns it; `@haoran/dsh-plugin-updates` is the plugin that consumes it and draws the Settings tab.
+The shell opens a **second loopback service**, beside [the render service](2026-08-22-desktop-render-service.md) and with a token of its own, and lends the server the package manager the installer ships. `apps/desktop/src/plugin-admin-service.ts` owns it; `@haoran/dsh-plugin-updates` is the plugin that consumes it and draws the Settings tab, and it ships as a built-in from 0.1.0-rc.23, so a fresh install has the tab without having to install something first.
 
 **Two services, not one widened service.** The render token buys pixels from a hidden window and the screenshot tool holds it on every call. Adding install routes behind that same token would have made every holder of it able to change what the application runs. So the shell mints a second 32-byte token, listens on a second ephemeral loopback port, and passes both to the server child alone through `DSH_DESKTOP_PLUGIN_ADMIN_ENDPOINT` and `DSH_DESKTOP_PLUGIN_ADMIN_TOKEN` — never on the shell's own `process.env`, which is also what keeps them out of the environment of the pnpm this service spawns. What the two services share is `apps/desktop/src/loopback-service.ts`: the loopback address, `mintToken`, the constant-time `authorized`, the capped `readBody`, the two answer writers, and `listenLoopback`. Nothing about a route lives there.
 

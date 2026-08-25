@@ -16,7 +16,7 @@ Status: implemented
 
 ## Decision
 
-壳打开**第二个本机服务**,与[渲染服务](2026-08-22-desktop-render-service.zh.md)并列、带着自己独立的 token,把安装包自带的那份包管理器借给服务端。`apps/desktop/src/plugin-admin-service.ts` 拥有它;`@haoran/dsh-plugin-updates` 是消费它并画出设置标签页的那个插件。
+壳打开**第二个本机服务**,与[渲染服务](2026-08-22-desktop-render-service.zh.md)并列、带着自己独立的 token,把安装包自带的那份包管理器借给服务端。`apps/desktop/src/plugin-admin-service.ts` 拥有它;`@haoran/dsh-plugin-updates` 是消费它并画出设置标签页的那个插件,并从 0.1.0-rc.23 起作为内置插件分发,所以全新安装不必先装什么就已经有这个标签页。
 
 **两个服务,而不是一个被扩大的服务。**渲染 token 换来的是一扇隐藏窗口里的像素,截图工具每次调用都握着它。把安装路由挂在同一个 token 之后,就等于让每一个持有它的人都能改变这个应用运行的是什么。所以壳另铸一个 32 字节的 token,在另一个临时 loopback 端口上监听,并把两者只经由 `DSH_DESKTOP_PLUGIN_ADMIN_ENDPOINT` 与 `DSH_DESKTOP_PLUGIN_ADMIN_TOKEN` 传给服务端那一个子进程——绝不放进壳自己的 `process.env`,这也正是让它们进不了这个服务自己拉起的 pnpm 的环境的原因。两个服务共享的是 `apps/desktop/src/loopback-service.ts`:loopback 地址、`mintToken`、常数时间的 `authorized`、带上限的 `readBody`、两个回答写入器,以及 `listenLoopback`。任何与路由有关的东西都不在那里。
 

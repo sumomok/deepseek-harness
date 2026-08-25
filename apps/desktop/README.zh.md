@@ -118,16 +118,17 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 ## 内置插件
 
-**七个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
+**八个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
 
 | 包名 | 版本 | 提供什么 |
 |---|---|---|
 | `dsh-better-sidebar` | `0.15.2`,来自 npm | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
 | `dsh-at-file` | `v0.6.5`,来自作者仓库该 tag 所指的提交 | 输入框里的 `@` 文件提及 |
-| `@haoran/dsh-screenshot` | `0.3.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面——点名插件配置里的一个 cookie 罐时也包括登录墙后的页面,凭据因此不进会话日志——把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写进工作区内。配置还决定 user agent(默认是稳定版 Chrome 的字符串,不是壳自己的)与由哪个后端渲染 |
+| `@haoran/dsh-screenshot` | `0.4.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面,登录墙后的页面也包括在内——截回来的图是一堵登录墙时,它变成一个问题,你的回答要么打开一个由你自己完成登录的窗口,要么复用这台机器上已有的登录,随后在那个站点自己的分区里重新截一次。没有这个回答就什么都不复用,cookie 的值从不作为工具参数或返回值出现,已存的登录在设置页的一个小节和 `/screenshot-logout <域名>` 里管理。它把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写进工作区内;配置决定 cookie 罐、user agent(默认是稳定版 Chrome 的字符串,不是壳自己的)与由哪个后端渲染 |
 | `@haoran/dsh-llm-permission-gateway` | `0.1.4`,来自提交进本仓库的 tarball | 自动审查这个权限预设——在权限选择器里带上完全权限那枚盾形图标——以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型 |
 | `@sumomok/dsh-quote-message` | `0.2.2`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,引用 chip 在你发送时展开成一段 markdown 引用块,而对话里它显示成你这条消息上方的一段引文——左侧一条细线,引用文字用次级墨色,超过三行折起 |
 | `@sumomok/dsh-balance` | `0.1.0`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 公布的 CNY 与 USD 价格 |
+| `@haoran/dsh-plugin-updates` | `0.1.0`,来自提交进本仓库的 tarball | 插件设置里的「更新」页:把你自己装的插件与各自最新的发布版本列在一起,每行一个按钮,经由随安装包分发的那个包管理器安装,还有一步把上一次更新撤回。内置插件不在这份名单里——壳给它们种下的是没有依赖条目的 bundle 项,它们随应用更新而更新 |
 | `@haoran/dsh-default-model` | `0.1.2`,来自提交进本仓库的 tarball | 出厂默认模型:全新安装的第一个会话开在 `deepseek-v4-flash-vision-exp` 上,选择器把它列为 `default` |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
@@ -136,25 +137,25 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **`dsh-at-file` 取自 tag 而非注册表**,因为作者在 npm 上只发到 `0.6.3`,而 tag 已经到 `v0.6.5`。分发 `0.6.3` 会与自行装了 `v0.6.5` 的 profile 配不上:一个 bundle 的两半从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`——于是这一行来自 `0.6.3`,代码来自 `v0.6.5`。这条依赖写的是该 tag 所指的**提交**,而不是它的归档 URL:pnpm 不为 GitHub 归档记录完整性哈希,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有完整性字段的 lockfile 条目。提交本身就是它的哈希,于是 lockfile 钉住的是内容。该仓库把构建好的 `lib/` 提交了进去,也没有声明 `prepare` 脚本,所以安装期什么都不构建。
 
-**五个随仓库 vendor 的插件都没有发布**,所以它们各自的依赖都是一条 `file:` 标识符,指向与声明它们的清单放在一起的 `apps/desktop-server/vendor/` 下的 tarball。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去;没有别的渠道,因为五个都不在任何注册表上。
+**六个随仓库 vendor 的插件都没有发布**,所以它们各自的依赖都是一条 `file:` 标识符,指向与声明它们的清单放在一起的 `apps/desktop-server/vendor/` 下的 tarball。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去;没有别的渠道,因为六个都不在任何注册表上。
 
-**七个里有四个带浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,`dsh-at-file`、`dsh-better-sidebar`、`@sumomok/dsh-quote-message` 与 `@sumomok/dsh-balance` 声明了它。另外三个没有:工具是 agent 去调用的,默认模型是 loader 去读的编排,都不是页面去加载的。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把七个都解析了。
+**八个里有六个带浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,`dsh-at-file`、`dsh-better-sidebar`、`@haoran/dsh-screenshot`、`@haoran/dsh-plugin-updates`、`@sumomok/dsh-quote-message` 与 `@sumomok/dsh-balance` 声明了它。另外两个没有:权限预设与默认模型都是 loader 去读的编排,页面从不加载。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把八个都解析了。
 
 **`dsh-better-sidebar` 在本宿主上必须是 `0.14.0` 或更高。**`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,模块访问改由 `ctx.modules` 服务提供,这让每个懒加载 chunk 解析外部依赖的方式全面失效——`0.13.1` 会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,终端、编辑器与 Mermaid 面板一起跟着挂掉。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`,并把插件自有的全局共享给它的 chunk 副本,同时移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。
 
-**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与七个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,而下面那次一次性迁移是唯一会写入依赖条目、或改写壳自己写过的文件的动作。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
+**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与八个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,而下面那次一次性迁移是唯一会写入依赖条目、或改写壳自己写过的文件的动作。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
 
 壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断,没有声明 bundle 列表的清单按手写编排对待,该放链接的位置上是真实目录则如实报告而不是删掉。profile 目录根本写不出来是启动唯一绕不过去的失败;日志那一行会说明,随后是服务端自己的诊断。
 
 **本次构建撤下的内置插件,会从已经有它的 profile 里取回去。**服务端会解析 `dsh.profile.bundles` 里的每一个名字,解析不到就直接让启动失败;所以只是「不再随包分发某个包」的升级,会让旧构建播种过的每一个 profile 都启动不了。`src/profile-seed.ts` 里的 `WITHDRAWN_WEB_BUNDLES` 列出这些包:一次启动会把这样的名字从清单里删掉,并移除它自己为它建的扁平兜底链接。只清理壳自己留下的东西:指向本次载荷以外任何位置的链接会保留,包只要仍能解析,它的 bundle 条目也会保留——你用 `dsh plugin --profile desktop add` 装的副本继续照它自己的归属工作。`@sumomok/dsh-edit-rerun` 是第一条:它出现在 0.1.0-rc.21 发布前的构建里,在该版本发布之前被撤下。
 
-**你装进 CLI `web` profile 的插件会被一次性搬过来。**0.1.0-rc.17 之前的每一版启动的都是 `web`,而 rc.17 到 rc.22 的每一版建出的 desktop profile 里只有那七个内置插件、没有你自己加过的东西;从这两类版本升上来,你自己的插件都还留在壳不再编排的那个 profile 里。带上本功能的构建首次启动时会读 `~/.dsh/profiles/web/package.json`,取出它 `dsh.profile.bundles` 里每一个既不是那两个随附 bundle、也不是上面的内置插件、也不在撤下名单里的名字:`~/.dsh/profiles/desktop/node_modules/<name>` 会得到一条指向 web profile 自有副本的链接,该名字被追加进桌面清单的 `dsh.profile.bundles`,web profile 为它声明的版本被抄进 `dependencies`。不安装、也不复制——包仍然只住在 web profile 那一处,所以 `dsh plugin --profile web add <包>@latest` 更新的仍是两个 profile 共同挂载的那一份,而一台没有包管理器的机器也不需要有。桌面 profile 里的 `web-migration.json` 记下搬过来的是哪些名字,也正是它让这件事只发生一次;启动日志会点名每一个被迁移的插件,以及每一个被略过的插件和它的理由。
+**你装进 CLI `web` profile 的插件会被一次性搬过来。**0.1.0-rc.17 之前的每一版启动的都是 `web`,而 rc.17 到 rc.22 的每一版建出的 desktop profile 里只有那一版的内置插件、没有你自己加过的东西;从这两类版本升上来,你自己的插件都还留在壳不再编排的那个 profile 里。带上本功能的构建首次启动时会读 `~/.dsh/profiles/web/package.json`,取出它 `dsh.profile.bundles` 里每一个既不是那两个随附 bundle、也不是上面的内置插件、也不在撤下名单里的名字:`~/.dsh/profiles/desktop/node_modules/<name>` 会得到一条指向 web profile 自有副本的链接,该名字被追加进桌面清单的 `dsh.profile.bundles`,web profile 为它声明的版本被抄进 `dependencies`。不安装、也不复制——包仍然只住在 web profile 那一处,所以 `dsh plugin --profile web add <包>@latest` 更新的仍是两个 profile 共同挂载的那一份,而一台没有包管理器的机器也不需要有。桌面 profile 里的 `web-migration.json` 记下搬过来的是哪些名字,也正是它让这件事只发生一次;启动日志会点名每一个被迁移的插件,以及每一个被略过的插件和它的理由。
 
 **你的 `web` patch 层会跟着一起过来,除非你已经写过自己的。**只要 `~/.dsh/profiles/desktop/cordis.patch.yml` 还是壳写下的那份空模板,web profile 的那份就会逐字节替换它——注释、`!!js` 表达式,一并带过来——`pnpm-workspace.yaml` 同理。一旦你改过桌面这一份,两个文件都不会被动,日志会点名该手工搬哪些插件的行:`skipped cordis.patch.yml: the desktop copy is already edited; carry the web profile's rows for dsh-toolbox over by hand`。任何情况下都不会做合并——patch 层是只有 loader 自己那套 YAML schema 才读得懂的东西,把两份合起来等于把那套 schema 再实现一遍。
 
 **迁移过来的插件一旦会被服务端拒收,就会被取回去。**那个包待在归你所有、而且你还会不断改动的目录里:清空或重装 `web` profile 会让链接悬空,而在那边升级这个包,可能把它换成一个根本不再是插件 bundle 的版本。这两种服务端都会终止启动,而 `dsh plugin --profile web` 修的是那个 profile 的清单,从来不是桌面这一份。所以每次启动都会拿 `web-migration.json` 里的名字对着这两条重新核对,并把名字、链接与那条记录一并删除——包没了是 `dropped migrated dsh-toolbox: no longer resolves in the web profile`,还在但已经不是 bundle 是 `dropped migrated dsh-toolbox: its installed version no longer declares dsh.bundle`。这样被删掉的插件,即便日后又变回 bundle 也不会被重新捡回来,因为正是那条记录让这次迁移只是一次性的搬运;要它回来就用 `dsh plugin --profile desktop add <包>`。你后来自己接管的名字会保留它的条目:无论那是 `dsh plugin --profile desktop add` 装的副本、你自己在那个路径上建的链接,还是本次构建开始随包分发的包。不做检查的是「在更老的 harness 下装的插件是否配得上这一版」:它未满足的 peer 会逐级落到本安装修复的扁平兜底目录,所以它共用本次构建的那一份 cordis,但它的代码是否对得上本次构建的 API,这里没有任何东西答得上来。要么在 `web` profile 里升级它,要么把它那一行禁用掉。
 
-**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这七个在桌面 profile 里已经有了,其余的也在你首次启动本版时由上面那次迁移搬了过来;此后你再加进 `web` 的插件列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里,用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。
+**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这八个在桌面 profile 里已经有了,其余的也在你首次启动本版时由上面那次迁移搬了过来;此后你再加进 `web` 的插件列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里,用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。
 
 **如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile desktop remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
 
