@@ -53,11 +53,15 @@
  */
 
 import { spawn } from 'node:child_process'
-import { readFileSync } from 'node:fs'
+import { readFileSync, realpathSync, rmSync } from 'node:fs'
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http'
 import { join } from 'node:path'
 import { authorized, listenLoopback, mintToken, readBody, sendJson, sendText } from './loopback-service.ts'
-import { dropBundleNames, profileDependencyNames, profileDirectory } from './profile-seed.ts'
+import {
+  addBundleName, bundleDefect, defectDetail, DESKTOP_PROFILE, dropBundleNames, ensureLink,
+  MIGRATION_MARKER_FILENAME, profileDependencyNames, profileDependencySpec, profileDirectory,
+  readMigrationMarker, removeLink, WEB_PROFILE, writeMigrationMarker, type DefectiveEntry, type MigrationMarker,
+} from './profile-seed.ts'
 import { augmentedEnv } from './server.ts'
 
 /** Environment variable naming this service's origin, set on the server child alone. */
@@ -77,6 +81,18 @@ export const UPDATE_PATH = '/update'
 
 /** The route that confirms with the user and restarts the application. */
 export const RELAUNCH_PATH = '/relaunch'
+
+/** The route that re-runs the defect predicate for one defective plugin. */
+export const RECHECK_PATH = '/recheck'
+
+/** The route that confirms with the user and runs the repair ladder for one defective plugin. */
+export const REPAIR_PATH = '/repair'
+
+/** The route that drops a defective or removed plugin's record and link. */
+export const FORGET_PATH = '/forget'
+
+/** The route that re-admits a removed plugin. */
+export const ENABLE_PATH = '/enable'
 
 /**
  * The profiles this service will act in.
@@ -311,8 +327,8 @@ interface Rejection {
   message: string
 }
 
-/** What the four routes are, once method and path have been read. */
-type Route = 'outdated' | 'peers' | 'update' | 'relaunch'
+/** What the eight routes are, once method and path have been read. */
+type Route = 'outdated' | 'peers' | 'update' | 'relaunch' | 'recheck' | 'repair' | 'forget' | 'enable'
 
 /**
  * Which route one request names.
@@ -326,6 +342,10 @@ function routeOf(method: string, path: string): Route | undefined {
   if (path === PEERS_PATH) return 'peers'
   if (path === UPDATE_PATH) return 'update'
   if (path === RELAUNCH_PATH) return 'relaunch'
+  if (path === RECHECK_PATH) return 'recheck'
+  if (path === REPAIR_PATH) return 'repair'
+  if (path === FORGET_PATH) return 'forget'
+  if (path === ENABLE_PATH) return 'enable'
   return undefined
 }
 
@@ -335,6 +355,19 @@ interface AdminBody {
   name?: unknown
   version?: unknown
   warning?: unknown
+}
+
+/**
+ * The bare package name one of the migration-repair routes names, checked
+ * against nothing but its own shape here: each route reads the marker itself
+ * to decide whether that name is one it will act on.
+ * @param value - the field as the body carried it.
+ * @returns the name, or the refusal.
+ */
+function migratedNameOf(value: unknown): { ok: true; name: string } | Rejection {
+  if (typeof value !== 'string') return { ok: false, status: 400, message: 'name must be a string' }
+  if (!PACKAGE_NAME.test(value)) return { ok: false, status: 400, message: `name ${JSON.stringify(value)} is not a package name` }
+  return { ok: true, name: value }
 }
 
 /**
@@ -429,6 +462,54 @@ function exitFields(result: PnpmResult, limits: PluginAdminLimits): Record<strin
     ...result.failure === undefined ? {} : { failure: result.failure },
     ...stderr === '' ? {} : { stderr },
   }
+}
+
+/**
+ * A dependency specifier shaped like a git, URL, or local reference rather than
+ * a bare semver range — `pnpm add <spec>` accepts the whole thing as the
+ * install target, where a semver range needs the package name in front of it.
+ */
+const NON_SEMVER_SPEC = /^(?:git\+|git:|github:|file:|link:|workspace:|https?:)/i
+
+/**
+ * The `pnpm add` arguments that reinstall one dependency at the specifier its
+ * owning profile declared for it.
+ * @param name - the package name.
+ * @param specifier - the specifier the profile's manifest declares.
+ * @returns the arguments after `add`.
+ */
+function reinstallArgs(name: string, specifier: string): string[] {
+  return NON_SEMVER_SPEC.test(specifier) || specifier.includes('://')
+    ? ['add', specifier]
+    : ['add', `${name}@${specifier}`]
+}
+
+/**
+ * Run a defective package's own `build` script once, in its real directory —
+ * resolved through the profile's link with `realpathSync`, because the package
+ * itself, not the link, is where a `package.json` script runs — then remove
+ * the `node_modules` and lockfile that build produced. Runtime dependencies
+ * keep resolving from the profile's own hoisted tree afterward, exactly as
+ * they did before the repair.
+ * @param run - how to invoke pnpm.
+ * @param packageDir - the package's directory as linked into the owning profile.
+ * @param timeoutMs - the wall-clock budget for each of the two pnpm calls this makes.
+ * @returns a failure reason when the package declares no `build` script or the build failed; undefined when it ran.
+ */
+async function runPackageBuildScript(run: RunPnpm, packageDir: string, timeoutMs: number): Promise<string | undefined> {
+  const realDir = realpathSync(packageDir)
+  let manifest: { scripts?: Record<string, unknown> }
+  try {
+    manifest = JSON.parse(readFileSync(join(realDir, 'package.json'), 'utf8')) as typeof manifest
+  } catch (error) {
+    return `${realDir}: package.json unreadable (${error instanceof Error ? error.message : String(error)})`
+  }
+  if (typeof manifest.scripts?.['build'] !== 'string') return `${packageDir} declares no build script`
+  await run({ args: ['install'], cwd: realDir, timeoutMs })
+  const built = await run({ args: ['run', 'build'], cwd: realDir, timeoutMs })
+  rmSync(join(realDir, 'node_modules'), { recursive: true, force: true })
+  rmSync(join(realDir, 'pnpm-lock.yaml'), { force: true })
+  return built.code === 0 ? undefined : `build failed (exit ${String(built.code)}): ${built.stderr.trim().slice(0, 400)}`
 }
 
 /**
@@ -612,6 +693,186 @@ export async function startPluginAdminService(spec: PluginAdminSpec): Promise<Pl
     if (confirmed) spec.relaunch()
   }
 
+  const desktopProfileDir = profileDirectory(spec.home, DESKTOP_PROFILE)
+  const markerPath = join(desktopProfileDir, MIGRATION_MARKER_FILENAME)
+
+  /**
+   * The marker, read fresh from disk, when `name` is in its `defective` list —
+   * user-visible state a person can change through any of these four routes
+   * between two requests, so nothing here trusts an earlier read.
+   */
+  const findDefective = (name: string): MigrationMarker | undefined => {
+    const marker = readMigrationMarker(markerPath)
+    return marker !== undefined && marker.defective.some(entry => entry.name === name) ? marker : undefined
+  }
+
+  /** The marker, read fresh from disk, when `name` is in its `removed` list. */
+  const findRemoved = (name: string): MigrationMarker | undefined => {
+    const marker = readMigrationMarker(markerPath)
+    return marker !== undefined && marker.removed.includes(name) ? marker : undefined
+  }
+
+  /** Re-add `name` to `dsh.profile.bundles` and record it as migrated, dropping it from `from`. */
+  const promote = (marker: MigrationMarker, name: string, from: 'defective' | 'removed'): void => {
+    addBundleName(desktopProfileDir, spec.home, name)
+    writeMigrationMarker(markerPath, {
+      ...marker,
+      migrated: [...marker.migrated, name],
+      defective: from === 'defective' ? marker.defective.filter(entry => entry.name !== name) : marker.defective,
+      removed: from === 'removed' ? marker.removed.filter(entry => entry !== name) : marker.removed,
+    })
+  }
+
+  /**
+   * Answer `{ok:false, reason}` for a name still defective after `/recheck` or
+   * `/repair`, persisting the fresh reason into the marker either way — a
+   * plain sentence from `/repair`'s own build-script ladder, or one {@link
+   * defectDetail} reads straight off the predicate. `kind` is undefined when
+   * the predicate answered `missing` — not a kind the marker ever persists —
+   * so the entry keeps whichever kind it already had.
+   */
+  const stillDefective = (
+    marker: MigrationMarker, name: string, reason: string, kind: DefectiveEntry['kind'] | undefined, response: ServerResponse,
+  ): void => {
+    const priorKind = marker.defective.find(entry => entry.name === name)?.kind ?? 'entry-missing'
+    writeMigrationMarker(markerPath, {
+      ...marker,
+      defective: marker.defective.map(entry => entry.name === name
+        ? { ...entry, kind: kind ?? priorKind, detail: reason, at: Date.now() }
+        : entry),
+    })
+    sendJson(response, 200, { ok: false, reason })
+  }
+
+  const runRecheck = (name: string, response: ServerResponse): void => {
+    const marker = findDefective(name)
+    if (marker === undefined) {
+      sendText(response, 422, `${name} is not a defective plugin this profile is tracking`)
+      return
+    }
+    const dir = join(desktopProfileDir, 'node_modules', name)
+    const defect = bundleDefect(dir)
+    if (defect === undefined) {
+      try {
+        promote(marker, name, 'defective')
+      } catch (error) {
+        sendText(response, 500, `${name}: ${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
+      sendJson(response, 200, { ok: true, restartRequired: true })
+      return
+    }
+    const reason = defect === 'missing' ? `no longer installed (${dir})` : defectDetail(defect, dir)
+    stillDefective(marker, name, reason, defect === 'missing' ? undefined : defect, response)
+  }
+
+  const runRepair = async (name: string, response: ServerResponse): Promise<void> => {
+    const marker = findDefective(name)
+    if (marker === undefined) {
+      sendText(response, 422, `${name} is not a defective plugin this profile is tracking`)
+      return
+    }
+    const confirmed = await spec.confirm({
+      title: '修复插件',
+      message: `尝试修复 ${name}？`,
+      detail: '将重新下载并执行该插件自带的构建脚本。',
+      confirmLabel: '修复',
+      cancelLabel: '取消',
+    })
+    if (!confirmed) {
+      sendJson(response, 200, { ok: false, reason: 'cancelled' })
+      return
+    }
+    const webDir = profileDirectory(spec.home, WEB_PROFILE)
+    const packageDir = join(webDir, 'node_modules', name)
+    const specifier = profileDependencySpec(webDir, name)
+    if (specifier === undefined) {
+      sendJson(response, 200, { ok: false, reason: `${name}: the web profile declares no version for it to reinstall` })
+      return
+    }
+    await spec.run({ args: reinstallArgs(name, specifier), cwd: webDir, timeoutMs: limits.updateTimeoutMs })
+    let defect = bundleDefect(packageDir)
+    if (defect === 'entry-missing') {
+      const buildFailure = await runPackageBuildScript(spec.run, packageDir, limits.updateTimeoutMs)
+      if (buildFailure !== undefined) {
+        stillDefective(marker, name, buildFailure, undefined, response)
+        return
+      }
+      defect = bundleDefect(packageDir)
+    }
+    if (defect === undefined) {
+      try {
+        promote(marker, name, 'defective')
+      } catch (error) {
+        sendText(response, 500, `${name}: ${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
+      sendJson(response, 200, { ok: true, restartRequired: true })
+      return
+    }
+    const reason = defect === 'missing' ? `no longer installed (${packageDir})` : defectDetail(defect, packageDir)
+    stillDefective(marker, name, reason, defect === 'missing' ? undefined : defect, response)
+  }
+
+  const runForget = (name: string, response: ServerResponse): void => {
+    const marker = readMigrationMarker(markerPath)
+    const inDefective = marker?.defective.some(entry => entry.name === name) ?? false
+    const inRemoved = marker?.removed.includes(name) ?? false
+    if (marker === undefined || (!inDefective && !inRemoved)) {
+      sendText(response, 422, `${name} is not a defective or removed plugin this profile is tracking`)
+      return
+    }
+    try {
+      removeLink(join(desktopProfileDir, 'node_modules', name))
+    } catch (error) {
+      sendText(response, 500, `${name}: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    writeMigrationMarker(markerPath, {
+      ...marker,
+      defective: marker.defective.filter(entry => entry.name !== name),
+      removed: marker.removed.filter(entry => entry !== name),
+    })
+    sendJson(response, 200, { ok: true })
+  }
+
+  const runEnable = (name: string, response: ServerResponse): void => {
+    const marker = findRemoved(name)
+    if (marker === undefined) {
+      sendText(response, 422, `${name} is not a removed plugin this profile is tracking`)
+      return
+    }
+    const webDir = profileDirectory(spec.home, WEB_PROFILE)
+    const source = join(webDir, 'node_modules', name)
+    const defect = bundleDefect(source)
+    if (defect === 'missing') {
+      sendText(response, 422, `${name} is no longer installed in the web profile (${source})`)
+      return
+    }
+    try {
+      ensureLink(join(desktopProfileDir, 'node_modules', name), source)
+    } catch (error) {
+      sendText(response, 500, `${name}: ${error instanceof Error ? error.message : String(error)}`)
+      return
+    }
+    if (defect === undefined) {
+      try {
+        promote(marker, name, 'removed')
+      } catch (error) {
+        sendText(response, 500, `${name}: ${error instanceof Error ? error.message : String(error)}`)
+        return
+      }
+      sendJson(response, 200, { ok: true, restartRequired: true })
+      return
+    }
+    writeMigrationMarker(markerPath, {
+      ...marker,
+      defective: [...marker.defective, { name, kind: defect, detail: defectDetail(defect, source), at: Date.now() }],
+      removed: marker.removed.filter(entry => entry !== name),
+    })
+    sendJson(response, 200, { ok: false, reason: defectDetail(defect, source) })
+  }
+
   const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     try {
       const path = new URL(request.url ?? '/', 'http://127.0.0.1').pathname
@@ -650,6 +911,34 @@ export async function startPluginAdminService(spec: PluginAdminSpec): Promise<Pl
         return
       }
       const fields = parsed as AdminBody
+      if (route === 'recheck' || route === 'repair' || route === 'forget' || route === 'enable') {
+        const named = migratedNameOf(fields.name)
+        if (!named.ok) {
+          sendText(response, named.status, named.message)
+          return
+        }
+        if (route === 'forget') {
+          runForget(named.name, response)
+          return
+        }
+        // The same one-at-a-time rule as `/update`: `/repair` spawns pnpm in
+        // the web profile, and racing it against a second repair-ladder call
+        // or an `/update` in the same profile would race pnpm's own lockfile
+        // write.
+        if (mutating) {
+          sendText(response, 503, 'busy: a plugin operation is already running')
+          return
+        }
+        mutating = true
+        try {
+          if (route === 'recheck') runRecheck(named.name, response)
+          else if (route === 'repair') await runRepair(named.name, response)
+          else runEnable(named.name, response)
+        } finally {
+          mutating = false
+        }
+        return
+      }
       const profile = profileOf(fields.profile)
       if (!profile.ok) {
         sendText(response, profile.status, profile.message)

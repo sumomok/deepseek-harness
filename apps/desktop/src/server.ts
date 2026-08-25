@@ -137,6 +137,25 @@ export interface ServerHandle {
 }
 
 /**
+ * Thrown when the server process exited before printing its URL line.
+ *
+ * {@link output} carries the boot attempt's whole collected stdout and stderr,
+ * not the truncated tail {@link Error.message} shows: a boot-failure
+ * quarantine pass needs the loader's own `failed to import loader entry` line,
+ * which the message's last 15 lines may not include.
+ */
+export class ServerExitedBeforeUrl extends Error {
+  /** Every stdout/stderr chunk this boot attempt produced, concatenated whole. */
+  readonly output: string
+
+  constructor(message: string, output: string) {
+    super(message)
+    this.name = 'ServerExitedBeforeUrl'
+    this.output = output
+  }
+}
+
+/**
  * GUI-launched processes on macOS inherit launchd's minimal PATH, which would
  * strip the agent's shell of the user's ordinary tools. Return env with the
  * standard interactive locations appended when missing.
@@ -223,7 +242,10 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     })
     child.once('exit', (code, signal) => {
       settle(() => {
-        reject(new Error(`dsh server exited before its URL line (${code === null ? `signal ${signal ?? 'unknown'}` : `code ${String(code)}`}).\n${tail(collected)}`))
+        reject(new ServerExitedBeforeUrl(
+          `dsh server exited before its URL line (${code === null ? `signal ${signal ?? 'unknown'}` : `code ${String(code)}`}).\n${tail(collected)}`,
+          collected,
+        ))
       })
     })
   })
@@ -234,4 +256,47 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
 function tail(collected: string): string {
   const lines = collected.trimEnd().split('\n')
   return lines.slice(-15).join('\n')
+}
+
+/**
+ * Move a migrated bundle a failed boot's output blames into quarantine, when
+ * one is there to blame. Injected, so the retry below is testable without a
+ * real profile on disk.
+ * @param home - the Harness home for this launch.
+ * @param output - the boot attempt's whole collected stdout and stderr.
+ * @returns the quarantined name and detail, or undefined when nothing in the output named a plugin to quarantine.
+ */
+export type QuarantineLoadFailure = (home: string, output: string) => { name: string; detail: string } | undefined
+
+/**
+ * Start the embedded server, retrying once when a boot exits before its URL
+ * line and `quarantine` finds a migrated plugin this shell can blame for that
+ * boot's own output.
+ *
+ * A migrated package can fail to load in ways manifest-level admission cannot
+ * catch — an unbuilt git install with no `lib/` and no `prepare` script is the
+ * field case — and the boot must not brick over one. The retry runs with the
+ * same spec after `quarantine` has already dropped the blamed name from
+ * `dsh.profile.bundles`, exactly once: a second failure, or a first failure
+ * `quarantine` finds nothing to blame in, is left for the caller exactly as
+ * {@link startServer} would leave it.
+ * @param spec - launch paths and working directory.
+ * @param logSink - receives every server stdout/stderr chunk, from both attempts.
+ * @param quarantine - moves a blamed migrated name into quarantine; see {@link QuarantineLoadFailure}.
+ * @param home - the Harness home, passed to `quarantine` unchanged.
+ * @returns the running server handle.
+ * @throws the retry's own failure, or the first failure when `quarantine` found nothing to blame in it.
+ */
+export async function startServerWithQuarantine(
+  spec: ServerSpec, logSink: (chunk: string) => void, quarantine: QuarantineLoadFailure, home: string,
+): Promise<ServerHandle> {
+  try {
+    return await startServer(spec, logSink)
+  } catch (error) {
+    if (!(error instanceof ServerExitedBeforeUrl)) throw error
+    const quarantined = quarantine(home, error.output)
+    if (quarantined === undefined) throw error
+    logSink(`[desktop] disabled migrated ${quarantined.name} after it failed to load; retrying startup\n`)
+    return await startServer(spec, logSink)
+  }
 }

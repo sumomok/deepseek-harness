@@ -32,11 +32,11 @@ import {
   startPluginAdminService, TOKEN_ENV as PLUGIN_ADMIN_TOKEN_ENV,
   type ConfirmRequest, type PluginAdminHandle,
 } from './plugin-admin-service.ts'
-import { describeSeed, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
+import { describeSeed, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
 import { renderInHiddenWindow } from './render-window.ts'
 import { clearLoginSession, openLoginWindow } from './login-window.ts'
-import { startServer, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
+import { startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import { launchGate, setupUpdates } from './updater.ts'
@@ -575,7 +575,9 @@ if (!locked) {
       // environment variables of that child and of nothing else.
       const renderEnv = await startRenderServiceForServer(sink)
       const pluginAdminEnv = await startPluginAdminForServer(spec, sink)
-      server = await startServer({ ...spec, env: { ...renderEnv, ...pluginAdminEnv } }, sink)
+      server = await startServerWithQuarantine(
+        { ...spec, env: { ...renderEnv, ...pluginAdminEnv } }, sink, quarantineLoadFailureFromOutput, resolveHarnessHome(),
+      )
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)
       view.phase(2)

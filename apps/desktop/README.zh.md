@@ -143,19 +143,38 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **`dsh-better-sidebar` 在本宿主上必须是 `0.14.0` 或更高。**`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,模块访问改由 `ctx.modules` 服务提供,这让每个懒加载 chunk 解析外部依赖的方式全面失效——`0.13.1` 会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,终端、编辑器与 Mermaid 面板一起跟着挂掉。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`,并把插件自有的全局共享给它的 chunk 副本,同时移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。
 
-**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与八个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,而下面那次一次性迁移是唯一会写入依赖条目、或改写壳自己写过的文件的动作。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
+**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与八个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,而下面的 web profile 同步是唯一会写入依赖条目、或改写壳自己写过的文件的动作。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
 
 壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断,没有声明 bundle 列表的清单按手写编排对待,该放链接的位置上是真实目录则如实报告而不是删掉。profile 目录根本写不出来是启动唯一绕不过去的失败;日志那一行会说明,随后是服务端自己的诊断。
 
 **本次构建撤下的内置插件,会从已经有它的 profile 里取回去。**服务端会解析 `dsh.profile.bundles` 里的每一个名字,解析不到就直接让启动失败;所以只是「不再随包分发某个包」的升级,会让旧构建播种过的每一个 profile 都启动不了。`src/profile-seed.ts` 里的 `WITHDRAWN_WEB_BUNDLES` 列出这些包:一次启动会把这样的名字从清单里删掉,并移除它自己为它建的扁平兜底链接。只清理壳自己留下的东西:指向本次载荷以外任何位置的链接会保留,包只要仍能解析,它的 bundle 条目也会保留——你用 `dsh plugin --profile desktop add` 装的副本继续照它自己的归属工作。`@sumomok/dsh-edit-rerun` 是第一条:它出现在 0.1.0-rc.21 发布前的构建里,在该版本发布之前被撤下。
 
-**你装进 CLI `web` profile 的插件会被一次性搬过来。**0.1.0-rc.17 之前的每一版启动的都是 `web`,而 rc.17 到 rc.22 的每一版建出的 desktop profile 里只有那一版的内置插件、没有你自己加过的东西;从这两类版本升上来,你自己的插件都还留在壳不再编排的那个 profile 里。带上本功能的构建首次启动时会读 `~/.dsh/profiles/web/package.json`,取出它 `dsh.profile.bundles` 里每一个既不是那两个随附 bundle、也不是上面的内置插件、也不在撤下名单里的名字:`~/.dsh/profiles/desktop/node_modules/<name>` 会得到一条指向 web profile 自有副本的链接,该名字被追加进桌面清单的 `dsh.profile.bundles`,web profile 为它声明的版本被抄进 `dependencies`。不安装、也不复制——包仍然只住在 web profile 那一处,所以 `dsh plugin --profile web add <包>@latest` 更新的仍是两个 profile 共同挂载的那一份,而一台没有包管理器的机器也不需要有。桌面 profile 里的 `web-migration.json` 记下搬过来的是哪些名字,也正是它让这件事只发生一次;启动日志会点名每一个被迁移的插件,以及每一个被略过的插件和它的理由。
+**你装进 CLI `web` profile 的插件,每次启动都会与桌面 profile 保持同步。**0.1.0-rc.17 之前的每一版启动的都是 `web`,而 rc.17 到 rc.22 的每一版建出的 desktop profile 里只有那一版的内置插件、没有你自己加过的东西;从这两类版本升上来,你自己的插件都还留在壳不再编排的那个 profile 里——此后你再装进 `web` 的插件,也会照同样的方式在下一次启动时抵达 `desktop`。每次启动都会读 `~/.dsh/profiles/web/package.json`,取出它 `dsh.profile.bundles` 里每一个既不是那两个随附 bundle、也不是上面的内置插件、也不在撤下名单里、也还没被记过的名字:`~/.dsh/profiles/desktop/node_modules/<name>` 会得到一条指向 web profile 自有副本的链接,只有在这个包能干净挂载的前提下,该名字才会被追加进桌面清单的 `dsh.profile.bundles`,web profile 为它声明的版本才会被抄进 `dependencies`。不安装、也不复制——包仍然只住在 web profile 那一处,所以 `dsh plugin --profile web add <包>@latest` 更新的仍是两个 profile 共同挂载的那一份,而一台没有包管理器的机器也不需要有。桌面 profile 里的 `web-migration.json` 是壳自己那份「同步了什么」的记录,`@haoran/dsh-plugin-updates` 读的正是这份跨组件契约:
 
-**你的 `web` patch 层会跟着一起过来,除非你已经写过自己的。**只要 `~/.dsh/profiles/desktop/cordis.patch.yml` 还是壳写下的那份空模板,web profile 的那份就会逐字节替换它——注释、`!!js` 表达式,一并带过来——`pnpm-workspace.yaml` 同理。一旦你改过桌面这一份,两个文件都不会被动,日志会点名该手工搬哪些插件的行:`skipped cordis.patch.yml: the desktop copy is already edited; carry the web profile's rows for dsh-toolbox over by hand`。任何情况下都不会做合并——patch 层是只有 loader 自己那套 YAML schema 才读得懂的东西,把两份合起来等于把那套 schema 再实现一遍。
+```json
+{
+  "from": "web",
+  "migrated": ["dsh-toolbox"],
+  "defective": [{ "name": "dsh-broken", "kind": "entry-missing", "detail": "…", "at": 1756100000000 }],
+  "removed": ["dsh-taken-off-desktop"]
+}
+```
 
-**迁移过来的插件一旦会被服务端拒收,就会被取回去。**那个包待在归你所有、而且你还会不断改动的目录里:清空或重装 `web` profile 会让链接悬空,而在那边升级这个包,可能把它换成一个根本不再是插件 bundle 的版本。这两种服务端都会终止启动,而 `dsh plugin --profile web` 修的是那个 profile 的清单,从来不是桌面这一份。所以每次启动都会拿 `web-migration.json` 里的名字对着这两条重新核对,并把名字、链接与那条记录一并删除——包没了是 `dropped migrated dsh-toolbox: no longer resolves in the web profile`,还在但已经不是 bundle 是 `dropped migrated dsh-toolbox: its installed version no longer declares dsh.bundle`。这样被删掉的插件,即便日后又变回 bundle 也不会被重新捡回来,因为正是那条记录让这次迁移只是一次性的搬运;要它回来就用 `dsh plugin --profile desktop add <包>`。你后来自己接管的名字会保留它的条目:无论那是 `dsh plugin --profile desktop add` 装的副本、你自己在那个路径上建的链接,还是本次构建开始随包分发的包。不做检查的是「在更老的 harness 下装的插件是否配得上这一版」:它未满足的 peer 会逐级落到本安装修复的扁平兜底目录,所以它共用本次构建的那一份 cordis,但它的代码是否对得上本次构建的 API,这里没有任何东西答得上来。要么在 `web` profile 里升级它,要么把它那一行禁用掉。
+只有 `from` 与 `migrated` 两个字段的旧版标记文件,读出来 `defective` 与 `removed` 就是空数组。只有一个 profile 迄今第一次跑同步——也就是完全找不到 `web-migration.json` 的那一次——才会把下面那段里的 `cordis.patch.yml` 与 `pnpm-workspace.yaml` 整份复制过来;此后每一次同步都对这两个文件原样不动,不会覆盖你此后做过的任何编辑。
 
-**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这八个在桌面 profile 里已经有了,其余的也在你首次启动本版时由上面那次迁移搬了过来;此后你再加进 `web` 的插件列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里,用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。
+**挂载不了的插件会被禁用,既不会被丢掉,也不会拖垮启动。**一个还在开发中的包,可能是还没跑构建步骤的 git 安装、不再声明 `dsh.bundle` 的版本,或是服务端自己的 loader 在 import 时就直接抛错的东西——三种不同的现场情况,只要 `dsh.profile.bundles` 点了这个插件的名,哪一种都会终止启动。所以处在这类状态的名字会保留链接——可查看、可修复——但不进 `dsh.profile.bundles`,它的条目会挪进标记文件的 `defective` 列表,归为三种 kind 之一:`entry-missing`(清单的 `exports` 或 `main` 指的入口文件盘上没有——未构建的 git 安装就是这种)、`not-a-bundle`(装着的版本不再声明 `dsh.bundle`),或 `load-failed`(服务端自己的 loader 在 import 它时就抛了错——从那次启动自己的输出里截获,见下文)。日志那一行是 `disabled migrated <name>: <reason>`,一个名字一行,理由按 kind 各不相同。
+
+**删掉桌面这一侧的链接是一次「移除」,不是丢失。**web profile 里那份副本还健康,而你把它在 `~/.dsh/profiles/desktop/node_modules/` 下的链接删掉,这个名字就会挪进标记文件的 `removed` 列表——`removed <name>: no longer linked in the desktop profile; still installed in the web profile, so it will not return on its own`——并且留在那儿:一块墓碑,不会被自动重新同步回来。web 那份副本也没了的名字,则会被从标记文件里彻底删掉,不留任何记录。
+
+**你的 `web` patch 层会在第一次同步时跟着一起过来,除非你已经写过自己的。**只要 `~/.dsh/profiles/desktop/cordis.patch.yml` 还是壳写下的那份空模板,web profile 的那份就会逐字节替换它——注释、`!!js` 表达式,一并带过来——`pnpm-workspace.yaml` 同理。一旦你改过桌面这一份,两个文件都不会被动,日志会点名该手工搬哪些插件的行:`skipped cordis.patch.yml: the desktop copy is already edited; carry the web profile's rows for dsh-toolbox over by hand`。任何情况下都不会做合并——patch 层是只有 loader 自己那套 YAML schema 才读得懂的东西,把两份合起来等于把那套 schema 再实现一遍。
+
+**迁移过来的插件一旦会被服务端拒收,就会照同一套办法从 bundle 列表里取出去。**那个包待在归你所有、而且你还会不断改动的目录里:清空或重装 `web` profile 会让链接悬空,而在那边升级这个包,可能把它换成一个根本不再是插件 bundle 的版本。所以每次启动都会拿 `migrated` 里的每一个名字对着同一个 `bundleDefect` 重新核对,并按核对结果把它禁用为 defective、立成墓碑归入 removed,或者彻底不再追踪——`dropped migrated dsh-toolbox: no longer resolves in the web profile` 是唯一没有任何东西可留的情形,因为桌面这边的链接与 web 那份副本都没了。你后来自己接管的名字会保留它的条目:无论那是 `dsh plugin --profile desktop add` 装的副本、你自己在那个路径上建的链接,还是本次构建开始随包分发的包。不做检查的是「在更老的 harness 下装的插件是否配得上这一版」:它未满足的 peer 会逐级落到本安装修复的扁平兜底目录,所以它共用本次构建的那一份 cordis,但它的代码是否对得上本次构建的 API,这里没有任何东西答得上来。
+
+**启动仍然失败的情形会被隔离,并重试一次。**准入能拦下未构建的安装和不再是 bundle 的包,却拦不住服务端自己的 loader 拒绝导入的每一种方式——现场案例是一个提交了 `src/*.ts`、完全没有 `lib/` 的 git 安装,报错是 `Cannot find module '…/lib/index.js'`。当内嵌服务端在打印 URL 行之前就退出,壳会在那次启动自己的输出里扫描 loader 那句确切的 `failed to import loader entry <id> (<module>)`;当 `<module>` 是这个壳同步过的名字,它就会带着 kind `load-failed` 挪进 `defective`,壳记下 `disabled migrated <name> after it failed to load; retrying startup`,再重新启动一次服务端,只有这一次。输出里点不到名的模块,或者第二次仍然失败,都会走到原来那个启动失败页。
+
+**Settings 会展示 defective 或 removed 的插件,并提供操作入口**,走的是插件管理回环服务上另外四条路由——完整协议见下文「插件管理服务」一节。
+
+**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这八个在桌面 profile 里已经有了,其余的也由上面那个同步持续搬过来;此后你再加进 `web` 的插件,要么在你下次启动时自然抵达 `desktop`,要么用 `dsh plugin --profile desktop add <包>` 立刻装进桌面 profile,它列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里。
 
 **如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile desktop remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
 
@@ -257,16 +276,16 @@ pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 
 **壳把自己的包管理器借给服务端**,所以用户自己装的插件,在一台既没有 pnpm 也没有终端的机器上也能更新。它是渲染服务之外的第二个本机服务,有自己独立的 token,打开的方式与传递的方式完全一样:在 `127.0.0.1` 与一个临时端口上的 HTTP 监听、一个 32 字节的 token,两者都只放进服务端那一个子进程的环境——`DSH_DESKTOP_PLUGIN_ADMIN_ENDPOINT` 与 `DSH_DESKTOP_PLUGIN_ADMIN_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程继承不到,这个服务自己拉起的 pnpm 也继承不到。`@haoran/dsh-plugin-updates` 每次调用都去读它们。两个都读不到的 harness 会报告该能力不可用,并且根本不在设置里放出那个标签页,这正是服务器上所有 `dsh web` 的做法。两个服务分开,是因为它们借出的权力不同:渲染 token 换来的是一扇隐藏窗口里的像素,把它扩大到覆盖安装,就等于让每一个持有它的人都能改变这个应用运行的是什么。
 
-四条路由都是 `POST`,都带 `authorization: Bearer <token>` 与 `content-type: application/json`:`/outdated` 接受 `{ profile }`,回答 `pnpm outdated --json` 报告了什么;`/peers` 接受 `{ profile, name, version }`,回答那个已发布版本声明了哪些 peer 范围;`/update` 接受 `{ profile, name, version, warning? }`,在用户确认之后安装;`/relaunch` 接受 `{}`,在用户确认之后重启应用。它们可能得到的全部回答:
+这八条路由都是 `POST`,都带 `authorization: Bearer <token>` 与 `content-type: application/json`。四条更新一个已装的依赖:`/outdated` 接受 `{ profile }`,回答 `pnpm outdated --json` 报告了什么;`/peers` 接受 `{ profile, name, version }`,回答那个已发布版本声明了哪些 peer 范围;`/update` 接受 `{ profile, name, version, warning? }`,在用户确认之后安装;`/relaunch` 接受 `{}`,在用户确认之后重启应用。另外四条处理桌面端那道 web profile 持续同步挂载不了的插件,一律作用在 `desktop` profile 上,各自只收 `{ name }`:`/recheck` 拿 `bundleDefect` 重新核对已链接的包,现在能干净挂载就把它提升为 `migrated`——重新加回 `dsh.profile.bundles`,抄入 web profile 声明的版本——挂载不了就把最新理由记下来;`/repair` 先弹一个原生对话框确认(「尝试修复 `<name>`?将重新下载并执行该插件自带的构建脚本。」/取消),再走那道梯子:按 web profile 自己声明的 specifier 重装(semver 范围用 `pnpm add <name>@<spec>`,git、URL 或本地路径用 `pnpm add <spec>`)、重新核对,如果这个包仍然点着一个盘上没有的入口文件,就在它的真实目录里(经链接 `realpathSync` 出来,因为构建脚本得在文件真正在的地方跑)跑它自己的 `build` 脚本,再删掉那次构建产生的 `node_modules` 与 lockfile,让 profile 自有的 hoisted 目录树继续是运行期依赖解析的那一处,随后再核对一次;`/forget` 直接删掉一个 defective 或 removed 名字的记录和它的链接;`/enable` 重新准入一个 removed 的名字,它的 web 副本还健康就落回 `migrated`,不健康就落进 `defective`。这八条可能得到的全部回答:
 
 | 回答 | 何时 |
 |---|---|
-| `200 application/json` | 路由跑完了。读取类回答带着 pnpm 自己那份解析后的 JSON,外加 `exitCode`、`signal` 与截断过的 `stderr`;`/update` 与 `/relaunch` 还带 `confirmed`,`/update` 另带 `installedVersion`、`stillBundle` 与 `droppedFromBundles` |
+| `200 application/json` | 路由跑完了。读取类回答带着 pnpm 自己那份解析后的 JSON,外加 `exitCode`、`signal` 与截断过的 `stderr`;`/update` 与 `/relaunch` 还带 `confirmed`,`/update` 另带 `installedVersion`、`stillBundle` 与 `droppedFromBundles`,四条修复路由则各带 `ok`,外加 `restartRequired`(`ok: true` 时)或 `reason`(`ok: false` 时) |
 | `400` | 不是 JSON、不是对象、请求体超过 16 KB、`profile` 不在 `desktop` 与 `web` 之内、`name` 不是一个包名、`version` 不是一个确切的已发布版本,或 `warning` 不是字符串 |
 | `401` | 缺少或写错 bearer token |
-| `404` | 四条路由以外的任何路径或方法 |
-| `422` | 格式正确但点名了一个该 profile 自己的清单没有作为依赖声明的包 |
-| `503` | 已经有一次安装在跑 |
+| `404` | 八条路由以外的任何路径或方法 |
+| `422` | 格式正确但点名了一个该 profile 自己的清单没有作为依赖声明的包;或者对四条修复路由之一,点名的名字不在那条路由作用的标记列表里(`/recheck`、`/repair` 是 `defective`,`/forget` 是 `defective` 或 `removed`,`/enable` 是 `removed`) |
+| `503` | 已经有一次安装、或四条修复路由之一在跑 |
 
 每个失败响应体都是一行 `text/plain`,因为读它的是一个插件,它会把这句话放进设置页面里。
 
@@ -280,7 +299,9 @@ pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 
 **不再是 bundle 的包会被取出来。**安装成功之后,服务会重新读一遍被更新那个包的清单;一个不再声明 `dsh.bundle` 的版本仍然解析得到,于是 `loadProfile` 过得了解析这一关,却在之后拒绝这个层,而那会终结整次启动。这个名字会被从该 profile 的 `dsh.profile.bundles` 里移除、并在回答里说出来,这与 `seedBuiltinBundles` 为一个丢了 bundle 的迁移名字所做的修复是同一件事,理由也一样:名字是壳放进那份列表的,所以也该由壳取出来。依赖项保持不动,因为包还装着,而这件事说的是 Loader 挂载什么。
 
-**三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时四条路由以外的任何路径与方法一律答 404——而且这一判定在看 token 之前就做完,所以一个没有凭据的调用方对这里提供什么一无所知——于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝。
+**四条修复路由每次调用都从硬盘重新读写 `web-migration.json`,绝不采信任何缓存副本**,因为这是一个人能在两次请求之间、通过这四条路由中的任意一条改动的状态——先 recheck,再 repair,再从另一扇窗口 recheck 一次。`/recheck` 与 `/repair` 无论怎么收场,都会把一份更新过的 `detail` 写回 `defective` 条目,于是设置页面显示的「仍然坏着」永远是最新的理由,包括修复梯子自己给出的那句——`<path> declares no build script` 或 `build failed (exit 1): <stderr>`——而不是这个名字第一次被判定 defective 时的理由。这四条路由没有一条会拿调用方传来的参数去跑 pnpm:`/repair` 的重装请求永远问的是 web profile 自己清单声明的那个 specifier,在处理函数里从硬盘读出来,与 `/update` 的包围栏做法一样,绝不取自请求本身。
+
+**三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时八条路由以外的任何路径与方法一律答 404——而且这一判定在看 token 之前就做完,所以一个没有凭据的调用方对这里提供什么一无所知——于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝。
 
 ## 服务器环境
 

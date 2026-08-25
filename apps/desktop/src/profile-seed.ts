@@ -34,39 +34,52 @@
  * there leaves a usable app without those plugins, which is the outcome to
  * prefer over a shell that will not launch. Both writes are idempotent: a name
  * already listed is not added twice, a correct link is left as it is, an
- * existing file is never rewritten, and the one-time migration below is the
+ * existing file is never rewritten, and syncing the `web` profile below is the
  * only thing here that writes a `dependencies` entry or replaces a file this
  * module wrote.
  *
- * The one thing a run removes is a built-in this build withdrew — a name in
- * {@link WITHDRAWN_WEB_BUNDLES} that an earlier build seeded and this payload
- * no longer carries. `loadProfile` resolves every `dsh.profile.bundles` entry
- * and throws on one it cannot resolve, so an upgrade that just stopped
+ * The one thing a run removes on its own is a built-in this build withdrew — a
+ * name in {@link WITHDRAWN_WEB_BUNDLES} that an earlier build seeded and this
+ * payload no longer carries. `loadProfile` resolves every `dsh.profile.bundles`
+ * entry and throws on one it cannot resolve, so an upgrade that just stopped
  * shipping a package would leave every profile it had seeded unbootable.
  *
- * The plugins a user installed into the CLI's shared `web` profile move across
- * once, because every desktop build before `desktop` existed composed that
- * profile and the switch left them behind. {@link MIGRATION_MARKER_FILENAME}
- * inside the desktop profile records that the migration ran and which names it
- * added, and the run is gated on that file rather than on creating the profile:
- * a home whose desktop profile an earlier build already created is migrated on
- * its first launch under this one.
+ * **The plugins a user installed into the CLI's shared `web` profile stay in
+ * step with the desktop profile on every launch**, because every build before
+ * `desktop` existed composed that profile and nothing else ever wrote to it.
+ * {@link MIGRATION_MARKER_FILENAME} inside the desktop profile is the shell's
+ * own bookkeeping for this: which names it has migrated, which it has found
+ * defective, and which it has tombstoned as removed. A name is linked, never
+ * installed and never copied — the desktop profile's `node_modules` gets a
+ * link to the package inside `profiles/web/node_modules`, so the web profile
+ * stays the one place the package lives and a later `dsh plugin --profile web`
+ * update reaches both. The machines this runs on have no package manager, so
+ * nothing here may run an install.
  *
- * A migrated name is linked, never installed and never copied — the desktop
- * profile's `node_modules` gets a link to the package inside
- * `profiles/web/node_modules`, so the web profile stays the one place the
- * package lives and a later `dsh plugin --profile web` update reaches both.
- * The machines this runs on have no package manager, so nothing here may run an
- * install. Only a name that resolves once its link exists is added to
- * `dsh.profile.bundles`, and every later run takes back out a name that stopped
- * resolving: reinstalling or deleting the web profile must not leave a desktop
- * that will not boot.
+ * **A defective package never aborts the boot.** `loadProfile` resolves every
+ * `dsh.profile.bundles` entry and ends the boot on one it cannot import, and a
+ * package this shell admits from the `web` profile is user data this shell did
+ * not build or vet — an unbuilt git install with no `lib/` and no `prepare`
+ * script is a real field case. {@link bundleDefect} is the one predicate every
+ * admission, every per-boot revalidation, and the plugin-admin service's own
+ * repair routes read, and a defective name never reaches the bundle list: its
+ * link is kept (so it stays inspectable and repairable) and it is recorded in
+ * the marker's `defective` list instead, visible and disabled rather than
+ * silently gone. Deleting the desktop link while the web profile still holds a
+ * healthy copy tombstones the name into the marker's `removed` list instead of
+ * dropping it outright, which is what keeps a plugin the user deliberately took
+ * off the desktop from coming back on its own; a name whose web copy is also
+ * gone is dropped with nothing left to show. A boot that still fails because a
+ * migrated plugin's import throws — the case manifest-level admission cannot
+ * catch — is `server.ts` and `main.ts`'s to quarantine from that boot's own
+ * output, using {@link quarantineLoadFailureFromOutput} to move the blamed name
+ * into `defective` and retry once.
  *
- * What the migration does not check is whether a package installed under an
- * older host suits this one. Its unmet peers fall through to
+ * **Peer versions are not this module's problem.** A package installed under an
+ * older host suits it or it does not: its unmet peers fall through to
  * `$DSH_HOME/profiles/node_modules`, which the running installation heals, so
- * it shares this build's cordis; whether its code matches this build's API is
- * not a question a link can answer.
+ * it shares this build's cordis, but whether its code matches this build's API
+ * is not a question a link can answer.
  *
  * The three template files are reproduced here rather than imported.
  * `apps/desktop` ships as an Electron app whose `node_modules` is packed into
@@ -81,7 +94,10 @@
  * @module @deepseek-ai/dsh-desktop/profile-seed
  */
 
-import { existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync, writeFileSync } from 'node:fs'
+import {
+  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync,
+  writeFileSync,
+} from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
@@ -127,18 +143,19 @@ export const DESKTOP_PROFILE = 'desktop'
 
 /**
  * The profile every `dsh web` shares, and the one the shell itself composed
- * before {@link DESKTOP_PROFILE} existed. It is the source of the one-time
- * migration and is never written to.
+ * before {@link DESKTOP_PROFILE} existed. It is the source every synced plugin
+ * comes from and is never written to.
  */
 export const WEB_PROFILE = 'web'
 
 /**
- * The shell's record of the one-time migration out of the `web` profile, inside
- * the desktop profile directory.
+ * The shell's record of what it has synced out of the `web` profile, inside the
+ * desktop profile directory.
  *
- * Its presence is what makes the migration run once, and the names it holds are
- * the entries a later run re-checks: they are the ones this shell put into a
- * profile pointing at a directory it does not own.
+ * Its presence is what a fresh install has none of, and a first sync copies the
+ * patch layer and pnpm settings verbatim only while it is still absent; every
+ * later sync updates the three lists it holds without touching either file
+ * again.
  */
 export const MIGRATION_MARKER_FILENAME = 'web-migration.json'
 
@@ -184,12 +201,16 @@ export interface SeedReport {
   pruned: string[]
   /** Withdrawn built-ins whose flat-fallback link this run removed. */
   unlinked: string[]
-  /** User plugin names this run brought over from the `web` profile. */
+  /** User plugin names this run newly admitted from the `web` profile. */
   migrated: string[]
   /** Profile files this run copied verbatim out of the `web` profile, by filename. */
   copied: string[]
-  /** One line per migrated name this run took back out, each stating why. */
-  staleMigrations: string[]
+  /** One line per name this run recorded or updated as defective, each stating why. */
+  disabled: string[]
+  /** One line per name this run tombstoned into `removed`, each stating why. */
+  removed: string[]
+  /** One line per name this run stopped tracking altogether, each stating why. */
+  dropped: string[]
   /** One line per name or file the run left alone, each stating why. */
   skipped: string[]
   /** One line per built-in the profile's own `node_modules` shadows with another version. */
@@ -210,12 +231,42 @@ interface ProfileManifest {
   [key: string]: unknown
 }
 
-/** The shell's own record of what the one-time `web` migration put into this profile. */
-interface MigrationMarker {
-  /** The profile the names came from, so the file says what it is. */
+/** Why a package cannot be mounted as a bundle layer, from {@link bundleDefect}. */
+export type BundleDefectKind = 'missing' | 'not-a-bundle' | 'entry-missing'
+
+/**
+ * A name the marker records as unable to mount as a bundle layer.
+ *
+ * `missing` — no package at all — is never one of these: there is nothing here
+ * to show as a residual, disabled plugin, so a name whose package disappears
+ * entirely is dropped from the marker or tombstoned into `removed`, never
+ * recorded as defective.
+ */
+export interface DefectiveEntry {
+  /** The package name. */
+  name: string
+  /** Why it cannot be mounted; `load-failed` is a boot quarantine, not {@link bundleDefect}'s own answer. */
+  kind: Exclude<BundleDefectKind, 'missing'> | 'load-failed'
+  /** One plain English sentence: what a person reading it should do or expect. */
+  detail: string
+  /** `Date.now()` when this shell first recorded the defect, in epoch milliseconds. */
+  at: number
+}
+
+/**
+ * The shell's own record of what it has synced out of the `web` profile:
+ * cross-component contract read by `@haoran/dsh-plugin-updates` as well as this
+ * shell, so its field names and the meaning of each list are load-bearing.
+ */
+export interface MigrationMarker {
+  /** The profile the names came from. */
   from: string
-  /** The bundle names this shell added, in the order it added them. */
+  /** Names currently linked, mounted, and in `dsh.profile.bundles`. */
   migrated: string[]
+  /** Names linked but kept out of `dsh.profile.bundles` because they cannot mount. */
+  defective: DefectiveEntry[]
+  /** Names the desktop profile no longer links, whose web copy is still healthy — never re-synced on their own. */
+  removed: string[]
 }
 
 /**
@@ -343,7 +394,7 @@ export function sameLinkTarget(read: string, target: string, linkDir: string): b
  * @returns `true` when the link was created or re-pointed, `false` when it was already correct.
  * @throws when the path exists as something other than a symbolic link.
  */
-function ensureLink(link: string, target: string): boolean {
+export function ensureLink(link: string, target: string): boolean {
   let existing
   try {
     existing = lstatSync(link)
@@ -367,6 +418,27 @@ function ensureLink(link: string, target: string): boolean {
 }
 
 /**
+ * Remove a symbolic link this shell made, if one is there.
+ *
+ * Unconditional, unlike {@link ensureLink}'s own cleanup: this is for a caller
+ * that has already decided the link should go — `/forget` on a defective or
+ * removed name — rather than one repointing it. A real directory at that path,
+ * or nothing at all, is left alone.
+ * @param link - the link path.
+ * @throws when the path is a symbolic link that cannot be removed.
+ */
+export function removeLink(link: string): void {
+  let existing
+  try {
+    existing = lstatSync(link)
+  } catch {
+    // Nothing there, which is already the outcome this call wants.
+    return
+  }
+  if (existing.isSymbolicLink()) unlinkSync(link)
+}
+
+/**
  * Make the desktop profile exist and mount the shipped built-in plugins in it.
  *
  * Runs before the server starts, so the profile the server reads already exists
@@ -376,8 +448,8 @@ function ensureLink(link: string, target: string): boolean {
  */
 export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
   const report: SeedReport = {
-    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], staleMigrations: [],
-    skipped: [], shadowed: [], created: false,
+    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], disabled: [], removed: [],
+    dropped: [], skipped: [], shadowed: [], created: false,
   }
   const bundles = spec.bundles ?? BUILTIN_WEB_BUNDLES
   const available: string[] = []
@@ -414,8 +486,7 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
     }
     reportShadowing(spec, profileDir, name, report)
   }
-  migrateWebBundles(spec, profileDir, report)
-  dropStaleMigrations(spec, profileDir, report)
+  syncWebBundles(spec, profileDir, report)
   pruneWithdrawnBundles(spec, profileDir, report)
   return report
 }
@@ -458,13 +529,26 @@ function dependenciesOf(manifest: ProfileManifest | undefined): Record<string, u
  * merely lists: a built-in the shell seeded is named in `dsh.profile.bundles`
  * and resolves from the installation, so it never appears here. That makes this
  * set the one a package manager may act on for this profile, and the reason
- * {@link seedBuiltinBundles} may not add to it.
+ * {@link seedBuiltinBundles} may not add to it directly.
  * @param profileDir - the profile directory.
  * @returns the declared names, sorted; empty for a profile whose manifest is absent or unreadable.
  */
 export function profileDependencyNames(profileDir: string): string[] {
   const declared = dependenciesOf(tryReadManifest(join(profileDir, 'package.json')))
   return Object.keys(declared).filter(name => typeof declared[name] === 'string').sort()
+}
+
+/**
+ * The version specifier a profile's manifest declares for one of its own
+ * dependencies — the spec pnpm recorded when it was installed, and the one a
+ * reinstall should ask pnpm for again.
+ * @param profileDir - the profile directory.
+ * @param name - the dependency name.
+ * @returns the specifier, or undefined when the profile declares none for that name.
+ */
+export function profileDependencySpec(profileDir: string, name: string): string | undefined {
+  const value = dependenciesOf(tryReadManifest(join(profileDir, 'package.json')))[name]
+  return typeof value === 'string' ? value : undefined
 }
 
 /** Whether `link` is a symbolic link this shell would have made, resolving to `target`. */
@@ -480,7 +564,7 @@ function linksTo(link: string, target: string): boolean {
 
 /**
  * Why a name in the `web` profile's bundle list is one this build already
- * composes, or undefined when it is a user plugin to bring across.
+ * composes, or undefined when it is a user plugin to sync.
  *
  * The two in-box bundles are not among these. They are in the desktop template
  * and in every web profile ever created, so passing over them says nothing
@@ -495,145 +579,216 @@ function migrationRefusal(name: string): string | undefined {
 }
 
 /**
- * Why the package at `dir` cannot be a bundle layer, or undefined when it can.
- *
- * The two defects are the two ways `loadProfile` ends a boot over one entry:
- * `resolveBundleDir` finds no package, or the package it finds declares no
- * `dsh.bundle`. Both the check that admits a name and the check that takes one
- * back out read this, so neither can come to disagree with the other about what
- * the server accepts.
- * @param dir - the package directory to inspect, which need not exist.
- * @returns which defect the package has, or undefined when it has neither.
+ * Condition keys `entryCandidates` reads inside an `exports` target, in the
+ * order Node itself prefers them.
  */
-function bundleDefect(dir: string): 'missing' | 'not-a-bundle' | undefined {
-  const manifest = tryReadManifest(join(dir, 'package.json'))
-  if (manifest === undefined) return 'missing'
-  return manifest.dsh?.bundle === undefined ? 'not-a-bundle' : undefined
+const ENTRY_CONDITIONS = ['default', 'import', 'require', 'node'] as const
+
+/**
+ * The string targets one `exports` value names, allowing exactly one level of
+ * nested conditions.
+ * @param value - the `exports` value to read — a string, a conditions object, or neither.
+ * @param nested - whether a conditions object found here may itself hold conditions.
+ * @returns the target paths named, in {@link ENTRY_CONDITIONS} order; empty when `value` names none.
+ */
+function conditionTargets(value: unknown, nested: boolean): string[] {
+  if (typeof value === 'string') return [value]
+  if (!nested || value === null || typeof value !== 'object' || Array.isArray(value)) return []
+  const record = value as Record<string, unknown>
+  const targets: string[] = []
+  for (const key of ENTRY_CONDITIONS) {
+    const inner = record[key]
+    if (inner !== undefined) targets.push(...conditionTargets(inner, false))
+  }
+  return targets
 }
 
 /**
- * Why the package a `web` bundle name points at cannot be mounted from the
- * desktop profile, or undefined when it can.
- * @param dir - where the web profile holds the package.
- * @returns the reason to log, or undefined.
+ * The `"."` entry an `exports` field names, or undefined when it names no root
+ * entry at all — a subpath-only `exports` naming nothing for the bare package
+ * specifier.
+ * @param exportsField - the manifest's `exports` value.
+ * @returns the root entry's own value, ready for {@link conditionTargets}.
  */
-function migrationAdmission(dir: string): string | undefined {
-  switch (bundleDefect(dir)) {
-    case 'missing': return `not installed in the web profile (${dir})`
-    case 'not-a-bundle': return 'declares no dsh.bundle, which the server refuses as a bundle layer'
-    default: return undefined
+function rootExportEntry(exportsField: unknown): unknown {
+  if (typeof exportsField === 'string') return exportsField
+  if (exportsField === null || typeof exportsField !== 'object' || Array.isArray(exportsField)) return undefined
+  const record = exportsField as Record<string, unknown>
+  if ('.' in record) return record['.']
+  // No `.` key and no subpath key either: the object itself is the condition
+  // map for the root entry, the shorthand Node accepts for a package with no
+  // subpath exports at all.
+  return Object.keys(record).some(key => key.startsWith('.')) ? undefined : record
+}
+
+/**
+ * Where a bundle's entry file could be, in the order Node itself resolves a
+ * bare import of the package: `exports`'s root entry when the manifest
+ * declares one, else `main`, else the bare default.
+ * @param manifest - the package manifest.
+ * @returns candidate paths relative to the package directory; empty only when
+ * `exports` exists but names no root entry Node would ever reach.
+ */
+function entryCandidates(manifest: ProfileManifest): string[] {
+  const exportsField = manifest['exports']
+  if (exportsField !== undefined) {
+    const root = rootExportEntry(exportsField)
+    return root === undefined ? [] : conditionTargets(root, true)
+  }
+  const main = manifest['main']
+  return typeof main === 'string' ? [main] : ['index.js']
+}
+
+/**
+ * Whether none of a package's entry candidates exist on disk.
+ * @param dir - the package directory.
+ * @param manifest - its parsed manifest.
+ * @returns true when every candidate {@link entryCandidates} names is absent —
+ * including when there were no candidates to check at all.
+ */
+function hasMissingEntry(dir: string, manifest: ProfileManifest): boolean {
+  return entryCandidates(manifest).every(candidate => !existsSync(join(dir, candidate)))
+}
+
+/**
+ * Why the package at `dir` cannot be a bundle layer, or undefined when it can.
+ *
+ * The three defects are the three ways a bundle entry can end a boot:
+ * `resolveBundleDir` finds no package, the package it finds declares no
+ * `dsh.bundle`, or the package declares one but its own entry file was never
+ * built — the field case is an unbuilt git install with `src/*.ts` and no
+ * `lib/` at all. Every admission and revalidation in this module, and the
+ * plugin-admin service's `/recheck` and `/repair` routes, read this one
+ * function, so none of them can come to disagree about what the server
+ * accepts.
+ * @param dir - the package directory to inspect, which need not exist.
+ * @returns which defect the package has, or undefined when it has none.
+ */
+export function bundleDefect(dir: string): BundleDefectKind | undefined {
+  const manifest = tryReadManifest(join(dir, 'package.json'))
+  if (manifest === undefined) return 'missing'
+  if (manifest.dsh?.bundle === undefined) return 'not-a-bundle'
+  return hasMissingEntry(dir, manifest) ? 'entry-missing' : undefined
+}
+
+/**
+ * The one plain-English sentence a defect kind is reported with, for the
+ * marker's `detail` field and the launch log.
+ * @param kind - the defect {@link bundleDefect} found; `missing` is answered
+ * for completeness, though no caller persists it as a `DefectiveEntry.kind`.
+ * @param dir - the package directory the defect was found in.
+ * @returns the sentence.
+ */
+export function defectDetail(kind: BundleDefectKind, dir: string): string {
+  if (kind === 'missing') return `not installed (${dir})`
+  if (kind === 'not-a-bundle') return 'the installed package declares no dsh.bundle, which the server refuses as a bundle layer'
+  const manifest = tryReadManifest(join(dir, 'package.json'))
+  const candidates = manifest === undefined ? [] : entryCandidates(manifest)
+  return candidates.length === 0
+    ? 'the installed package names no entry file the server could import'
+    : `the installed package has no built entry file (looked for ${candidates.join(', ')} in ${dir}); its build script has not been run`
+}
+
+/** An empty marker, for a profile with no record yet. */
+function emptyMarker(): MigrationMarker {
+  return { from: WEB_PROFILE, migrated: [], defective: [], removed: [] }
+}
+
+/** Whether a value parses as a {@link DefectiveEntry} the marker file can carry. */
+function isDefectiveEntry(value: unknown): value is DefectiveEntry {
+  if (value === null || typeof value !== 'object') return false
+  const record = value as Record<string, unknown>
+  return typeof record['name'] === 'string' && typeof record['kind'] === 'string'
+    && ['entry-missing', 'not-a-bundle', 'load-failed'].includes(record['kind'])
+    && typeof record['detail'] === 'string' && typeof record['at'] === 'number'
+}
+
+/**
+ * Read the migration marker, tolerating both an absent file and the pre-sync
+ * format that carried only `from` and `migrated`.
+ * @param path - the marker path inside a desktop profile.
+ * @returns the marker with every list defaulted to empty, or undefined when the file does not exist at all.
+ */
+export function readMigrationMarker(path: string): MigrationMarker | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(readFileSync(path, 'utf8'))
+  } catch {
+    // No marker at all on a profile that has never synced; an unreadable one
+    // is still a marker, and existsSync is what tells the two apart.
+    return existsSync(path) ? emptyMarker() : undefined
+  }
+  const raw = parsed as Partial<Record<keyof MigrationMarker, unknown>> | null
+  return {
+    from: typeof raw?.['from'] === 'string' ? raw['from'] : WEB_PROFILE,
+    migrated: Array.isArray(raw?.['migrated']) ? raw['migrated'].filter((v): v is string => typeof v === 'string') : [],
+    defective: Array.isArray(raw?.['defective']) ? raw['defective'].filter(isDefectiveEntry) : [],
+    removed: Array.isArray(raw?.['removed']) ? raw['removed'].filter((v): v is string => typeof v === 'string') : [],
   }
 }
 
 /**
- * Bring the plugins a user installed into the shared `web` profile across,
- * once, and record what was brought.
- *
- * The record — not the profile's absence — is what makes this run once, so the
- * homes this matters most for are reached: a desktop profile an earlier build
- * created holds the built-ins and nothing the user ever added, and its owner
- * lost those plugins on the launch that switched profiles.
- *
- * A name is linked into the desktop profile's own `node_modules` and only then
- * added to `dsh.profile.bundles`, so no entry this writes is one the server
- * cannot resolve. The link points at the web profile's path rather than at what
- * that path resolves to: the web profile stays the copy that is updated, and a
- * later `dsh plugin --profile web` reaches the desktop through it.
- * @param spec - the run's home and shipped closure.
- * @param profileDir - the desktop profile directory.
- * @param report - the run's report, extended with what was migrated and refused.
+ * Replace the migration marker in one step.
+ * @param path - the marker path inside a desktop profile.
+ * @param marker - its new contents.
+ * @throws when the file cannot be replaced.
  */
-function migrateWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport): void {
-  const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
-  if (existsSync(markerPath)) return
+export function writeMigrationMarker(path: string, marker: MigrationMarker): void {
+  writeAtomic(path, `${JSON.stringify(marker, undefined, 2)}\n`)
+}
+
+/**
+ * Append one name to a profile manifest's `dsh.profile.bundles`, copying the
+ * web profile's own dependency specifier for it when the manifest declares
+ * none of its own. A name already listed is left exactly as it is.
+ * @param profileDir - the profile directory whose manifest gains the name.
+ * @param home - the Harness home, for the web profile's declared specifier.
+ * @param name - the bundle name to add.
+ * @throws when the manifest cannot be read as one with a bundle list, or cannot be replaced.
+ */
+export function addBundleName(profileDir: string, home: string, name: string): void {
   const manifestPath = join(profileDir, 'package.json')
   const manifest = tryReadManifest(manifestPath)
   const listed = manifest?.dsh?.profile?.bundles
-  if (manifest === undefined || !Array.isArray(listed)) return
-  const webDir = profileDirectory(spec.home, WEB_PROFILE)
-  const webManifest = tryReadManifest(join(webDir, 'package.json'))
-  const candidates = webManifest?.dsh?.profile?.bundles
-  // Every name the marker records, and the subset this run put in the manifest.
-  const recorded: string[] = []
-  const added: string[] = []
-  for (const name of Array.isArray(candidates) ? candidates : []) {
-    if (recorded.includes(name) || WEB_TEMPLATE_BUNDLES.includes(name)) continue
-    const source = join(webDir, 'node_modules', name)
-    const refusal = migrationRefusal(name)
-    if (refusal !== undefined) {
-      report.skipped.push(`${name}: ${refusal}`)
-      continue
-    }
-    if (listed.includes(name)) {
-      // A name already listed whose link is this shell's own is a migration
-      // whose record was lost, not a plugin the user installed themselves:
-      // recording it again restores the repair below without changing anything.
-      if (linksTo(join(profileDir, 'node_modules', name), source)) recorded.push(name)
-      else report.skipped.push(`${name}: already in the desktop profile`)
-      continue
-    }
-    const admission = migrationAdmission(source)
-    if (admission !== undefined) {
-      report.skipped.push(`${name}: ${admission}`)
-      continue
-    }
-    try {
-      ensureLink(join(profileDir, 'node_modules', name), source)
-    } catch (error) {
-      report.skipped.push(`${name}: ${String(error)}`)
-      continue
-    }
-    recorded.push(name)
-    added.push(name)
+  if (manifest === undefined || !Array.isArray(listed)) {
+    throw new Error(`${manifestPath}: unreadable, or declares no dsh.profile.bundles list`)
   }
-  if (added.length > 0) {
-    try {
-      recordMigratedBundles(manifestPath, manifest, listed, added, webManifest)
-    } catch (error) {
-      // The links are made and nothing names them, which is the state the next
-      // launch retries from; writing no marker is what lets it.
-      report.skipped.push(`${manifestPath}: ${String(error)}`)
-      return
-    }
-    copyPristineProfileFile(webDir, profileDir, PROFILE_PATCH_FILENAME, PROFILE_PATCH_TEMPLATE, added, report)
-    copyPristineProfileFile(webDir, profileDir, PROFILE_WORKSPACE_FILENAME, PROFILE_PNPM_WORKSPACE, added, report)
-  }
-  writeMigrationMarker(markerPath, recorded, report)
-  report.migrated.push(...added)
+  if (listed.includes(name)) return
+  const webManifest = tryReadManifest(join(profileDirectory(home, WEB_PROFILE), 'package.json'))
+  updateTrackedBundles(manifestPath, manifest, listed, [name], dependenciesOf(webManifest), [])
 }
 
 /**
- * Add the migrated names to the desktop manifest's bundle list, and give each
- * one the version specifier the web profile declared for it.
- *
- * The specifier is what a later `dsh plugin --profile desktop install` would
- * reconcile against; a name the web manifest declares no dependency for, and
- * one the desktop manifest already declares, are both left as they are.
- * @param manifestPath - the desktop profile manifest.
+ * Write a profile manifest's bundle list and dependency map in one pass:
+ * `additions` appended and given the web profile's declared version where the
+ * manifest names none of its own, `removals` dropped. Both may be empty; the
+ * caller only calls this when at least one is not.
+ * @param manifestPath - the manifest to replace.
  * @param manifest - its parsed contents, as read this run.
  * @param listed - the bundle list it currently declares.
- * @param names - the migrated names, in bundle order.
- * @param webManifest - the web profile's manifest, if it parsed.
+ * @param additions - names to append, in order.
+ * @param declaredVersions - the source profile's own `dependencies` map, read once for every addition.
+ * @param removals - names to drop.
  * @throws when the manifest cannot be replaced.
  */
-function recordMigratedBundles(
-  manifestPath: string, manifest: ProfileManifest, listed: readonly string[], names: readonly string[],
-  webManifest: ProfileManifest | undefined,
+function updateTrackedBundles(
+  manifestPath: string, manifest: ProfileManifest, listed: readonly string[], additions: readonly string[],
+  declaredVersions: Record<string, unknown>, removals: readonly string[],
 ): void {
-  const declared = dependenciesOf(webManifest)
+  const kept = listed.filter(name => !removals.includes(name))
   const dependencies = { ...dependenciesOf(manifest) }
-  let copied = false
-  for (const name of names) {
-    const specifier = declared[name]
+  let dependenciesChanged = false
+  for (const name of additions) {
+    const specifier = declaredVersions[name]
     if (typeof specifier !== 'string' || dependencies[name] !== undefined) continue
     dependencies[name] = specifier
-    copied = true
+    dependenciesChanged = true
   }
   const updated: ProfileManifest = {
     ...manifest,
-    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: [...listed, ...names] } },
+    dsh: { ...manifest.dsh, profile: { ...manifest.dsh?.profile, bundles: [...kept, ...additions] } },
   }
-  if (copied) updated['dependencies'] = dependencies
+  if (dependenciesChanged) updated['dependencies'] = dependencies
   writeAtomic(manifestPath, `${JSON.stringify(updated, undefined, 2)}\n`)
 }
 
@@ -684,115 +839,251 @@ function copyPristineProfileFile(
 }
 
 /**
- * Write the migration record. A failure is reported rather than thrown: the
- * profile is already migrated and usable, and the next launch rebuilds the
- * record from the links it finds.
- * @param path - the marker path inside the desktop profile.
- * @param migrated - every name this shell has migrated into the profile.
- * @param report - the run's report, extended with a failure to write.
- */
-function writeMigrationMarker(path: string, migrated: readonly string[], report: SeedReport): void {
-  const marker: MigrationMarker = { from: WEB_PROFILE, migrated: [...migrated] }
-  try {
-    writeAtomic(path, `${JSON.stringify(marker, undefined, 2)}\n`)
-  } catch (error) {
-    report.skipped.push(`${path}: ${String(error)}`)
-  }
-}
-
-/**
- * The names the migration record holds, or undefined on a profile that has not
- * been migrated.
+ * Where the server would resolve a bundle name for this profile, or undefined
+ * when it would resolve nowhere.
  *
- * A marker that exists but does not parse answers with no names: its presence
- * is what says the migration ran, and a record this cannot read is one it
- * cannot repair from either.
- * @param path - the marker path inside the desktop profile.
- * @returns the recorded names, or undefined when there is no record.
- */
-function readMigratedNames(path: string): string[] | undefined {
-  let parsed: unknown
-  try {
-    parsed = JSON.parse(readFileSync(path, 'utf8'))
-  } catch {
-    // No marker at all on a home that has not migrated; an unreadable one is
-    // still a marker, and existsSync is what tells the two apart.
-    return existsSync(path) ? [] : undefined
-  }
-  const migrated = (parsed as MigrationMarker | null)?.migrated
-  return Array.isArray(migrated) ? migrated.filter(name => typeof name === 'string') : []
-}
-
-/**
- * Take back out a migrated name the server would now refuse, on every run.
- *
- * The migration points the desktop profile at a package the user owns and keeps
- * changing: emptying or reinstalling the `web` profile leaves the links this
- * shell made dangling, and updating the package there can replace it with a
- * version that is no longer a bundle at all. `loadProfile` ends the whole boot
- * on either, and a `dsh plugin --profile web` reconcile repairs the web
- * manifest and never this one. The names the record holds are exactly the
- * entries whose package is outside this installation, so they are exactly the
- * ones to re-check, against the same {@link bundleDefect} the migration admits
- * a name by.
- *
- * A name that still mounts from anywhere — the user's own copy in the desktop
- * profile, a link they made themselves, a package this build now ships — is
- * left alone with its entry. A name that goes is not brought back: the record
- * is what makes the migration a one-time move, and re-adding the plugin is
- * `dsh plugin --profile desktop add`.
+ * The three directories `resolveBundleDir` reaches through its two anchors, in
+ * its own order: the installation's own closure, the profile's `node_modules`,
+ * and the flat fallback beside it. `existsSync` follows symbolic links, so a
+ * dangling one counts as the absence it is.
  * @param spec - the run's home and shipped closure.
  * @param profileDir - the desktop profile directory.
- * @param report - the run's report, extended with what this removed.
+ * @param name - the bundle package name.
+ * @returns the directory the server would read the package from, or undefined.
  */
-function dropStaleMigrations(spec: SeedSpec, profileDir: string, report: SeedReport): void {
-  const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
-  const recorded = readMigratedNames(markerPath)
-  if (recorded === undefined) return
-  const stale = new Map<string, string>()
-  for (const name of recorded) {
-    const reason = migrationDefect(spec, profileDir, name)
-    if (reason !== undefined) stale.set(name, reason)
+function resolvedBundleDir(spec: SeedSpec, profileDir: string, name: string): string | undefined {
+  return [
+    join(spec.serverModules, name),
+    join(profileDir, 'node_modules', name),
+    join(spec.home, PROFILES_DIR, 'node_modules', name),
+  ].find(dir => existsSync(join(dir, 'package.json')))
+}
+
+/**
+ * Whether the server could still resolve a bundle name for this profile.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param name - the bundle package name.
+ * @returns true when at least one of the three directories holds the package.
+ */
+function resolvesForProfile(spec: SeedSpec, profileDir: string, name: string): boolean {
+  return resolvedBundleDir(spec, profileDir, name) !== undefined
+}
+
+/** Where {@link reviewMigrated} found a currently migrated name to stand. */
+type MigratedReview =
+  | { status: 'healthy' }
+  | { status: 'defective'; kind: Exclude<BundleDefectKind, 'missing'>; detail: string }
+  | { status: 'removed' }
+  | { status: 'dropped' }
+
+/**
+ * Where a currently migrated name now stands: still mountable, mountable but
+ * defective, gone from the desktop side while the web profile still holds a
+ * healthy copy, or gone from both.
+ *
+ * Resolution reads the same three directories every other bundle name resolves
+ * through, not just the web profile's own copy: a user who took the package
+ * over — a copy under the desktop profile's own `node_modules`, a link they
+ * repointed themselves, or a package this build started shipping — still
+ * mounts, and none of those is this function's business to disturb.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param webDir - the web profile directory, the source a migrated link points at.
+ * @param name - a name the marker's `migrated` list holds.
+ * @returns which of the four the name is in.
+ */
+function reviewMigrated(spec: SeedSpec, profileDir: string, webDir: string, name: string): MigratedReview {
+  const resolved = resolvedBundleDir(spec, profileDir, name)
+  if (resolved !== undefined) {
+    const defect = bundleDefect(resolved)
+    if (defect === undefined || defect === 'missing') return { status: 'healthy' }
+    return { status: 'defective', kind: defect, detail: defectDetail(defect, resolved) }
   }
-  if (stale.size === 0) return
-  const webModules = join(profileDirectory(spec.home, WEB_PROFILE), 'node_modules')
-  for (const name of stale.keys()) {
-    const link = join(profileDir, 'node_modules', name)
-    try {
-      removeSeededLink(link, join(webModules, name))
-    } catch (error) {
-      report.skipped.push(`${link}: ${String(error)}`)
+  const webCopy = join(webDir, 'node_modules', name)
+  return bundleDefect(webCopy) === undefined ? { status: 'removed' } : { status: 'dropped' }
+}
+
+/**
+ * Bring the plugins a user installed into the shared `web` profile across, and
+ * keep the desktop composition in step with what the web profile currently
+ * holds, on every launch.
+ *
+ * Every recorded name is revalidated first, against the same {@link
+ * bundleDefect} its own admission read: one still healthy is left alone, one
+ * now defective is taken out of `dsh.profile.bundles` and recorded in the
+ * marker's `defective` list with its link kept, one whose desktop link is gone
+ * while the web copy is still healthy is tombstoned into `removed`, and one
+ * gone from both sides is dropped with nothing left to track. A name already
+ * in `defective` or `removed` is left exactly where it is — only `/recheck`,
+ * `/repair`, and `/enable` on the plugin-admin service move one of those back.
+ *
+ * Every name the web profile's own bundle list now carries and this marker has
+ * not yet seen is admitted next: linked, and — when {@link bundleDefect} finds
+ * nothing wrong — added to `dsh.profile.bundles` with the web profile's
+ * declared version copied into `dependencies`; a defective one keeps its link
+ * and is recorded in `defective` instead. The wholesale copy of the patch layer
+ * and pnpm settings only ever happens on the very first sync a profile ever
+ * runs, so a later launch never overwrites edits either profile's owner has
+ * made since.
+ * @param spec - the run's home and shipped closure.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with what was migrated, disabled, removed, dropped, and refused.
+ */
+function syncWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport): void {
+  const manifestPath = join(profileDir, 'package.json')
+  const manifest = tryReadManifest(manifestPath)
+  const listed = manifest?.dsh?.profile?.bundles
+  if (manifest === undefined || !Array.isArray(listed)) return
+
+  const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
+  const firstSync = !existsSync(markerPath)
+  const marker = readMigrationMarker(markerPath) ?? emptyMarker()
+  const webDir = profileDirectory(spec.home, WEB_PROFILE)
+  const webManifest = tryReadManifest(join(webDir, 'package.json'))
+  const candidateNames = webManifest?.dsh?.profile?.bundles
+  const declaredVersions = dependenciesOf(webManifest)
+
+  const migrated = new Set(marker.migrated)
+  const defective = new Map(marker.defective.map(entry => [entry.name, entry]))
+  const removed = new Set(marker.removed)
+  const bundleAdditions: string[] = []
+  const bundleRemovals: string[] = []
+
+  for (const name of marker.migrated) {
+    const review = reviewMigrated(spec, profileDir, webDir, name)
+    if (review.status === 'healthy') continue
+    migrated.delete(name)
+    bundleRemovals.push(name)
+    if (review.status === 'defective') {
+      defective.set(name, { name, kind: review.kind, detail: review.detail, at: Date.now() })
+      report.disabled.push(`${name}: ${review.detail}`)
+    } else if (review.status === 'removed') {
+      removed.add(name)
+      report.removed.push(`${name}: no longer linked in the desktop profile; still installed in the web profile, so it will not return on its own`)
+    } else {
+      // Nothing tracks this name any more and nothing resolves through its
+      // link either, so the link itself is now cruft this shell made and
+      // nobody else has any reason to keep: `removeLink` takes it only if it
+      // is still the symbolic link this shell left, and leaves a real
+      // directory — the user's own copy — untouched.
+      try {
+        removeLink(join(profileDir, 'node_modules', name))
+      } catch (error) {
+        report.skipped.push(`${join(profileDir, 'node_modules', name)}: ${String(error)}`)
+      }
+      report.dropped.push(`${name}: no longer resolves in the web profile`)
     }
   }
-  const manifestPath = join(profileDir, 'package.json')
-  try {
-    dropBundleNames(manifestPath, [...stale.keys()])
-  } catch (error) {
-    // The entry stays, and so does the record that will retry it next launch.
-    report.skipped.push(`${manifestPath}: ${String(error)}`)
-    return
+
+  for (const name of Array.isArray(candidateNames) ? candidateNames : []) {
+    if (WEB_TEMPLATE_BUNDLES.includes(name)) continue
+    if (migrated.has(name) || defective.has(name) || removed.has(name)) continue
+    const refusal = migrationRefusal(name)
+    if (refusal !== undefined) { report.skipped.push(`${name}: ${refusal}`); continue }
+    const source = join(webDir, 'node_modules', name)
+    const defect = bundleDefect(source)
+    if (defect === 'missing') { report.skipped.push(`${name}: not installed in the web profile (${source})`); continue }
+    const link = join(profileDir, 'node_modules', name)
+    const alreadyListed = listed.includes(name)
+    if (alreadyListed) {
+      // A migration whose bundle entry survived a lost or deleted record: only
+      // this shell's own link recovers it, never a name the profile lists for
+      // some other reason.
+      if (!linksTo(link, source)) { report.skipped.push(`${name}: already in the desktop profile`); continue }
+      if (defect === undefined) migrated.add(name)
+      else { defective.set(name, { name, kind: defect, detail: defectDetail(defect, source), at: Date.now() }); bundleRemovals.push(name) }
+      continue
+    }
+    try {
+      ensureLink(link, source)
+    } catch (error) {
+      report.skipped.push(`${name}: ${String(error)}`)
+      continue
+    }
+    if (defect === undefined) {
+      migrated.add(name)
+      bundleAdditions.push(name)
+      report.migrated.push(name)
+    } else {
+      defective.set(name, { name, kind: defect, detail: defectDetail(defect, source), at: Date.now() })
+    }
+    if (defect !== undefined) report.disabled.push(`${name}: ${defectDetail(defect, source)}`)
   }
-  writeMigrationMarker(markerPath, recorded.filter(name => !stale.has(name)), report)
-  for (const [name, reason] of stale) report.staleMigrations.push(`${name}: ${reason}`)
+
+  if (bundleAdditions.length > 0 || bundleRemovals.length > 0) {
+    try {
+      updateTrackedBundles(manifestPath, manifest, listed, bundleAdditions, declaredVersions, bundleRemovals)
+    } catch (error) {
+      // The links are made (or already were) and nothing names the change;
+      // writing no marker either is what lets the next launch retry from here.
+      report.skipped.push(`${manifestPath}: ${String(error)}`)
+      return
+    }
+  }
+  if (firstSync && report.migrated.length > 0) {
+    copyPristineProfileFile(webDir, profileDir, PROFILE_PATCH_FILENAME, PROFILE_PATCH_TEMPLATE, report.migrated, report)
+    copyPristineProfileFile(webDir, profileDir, PROFILE_WORKSPACE_FILENAME, PROFILE_PNPM_WORKSPACE, report.migrated, report)
+  }
+  const nextMarker: MigrationMarker = {
+    from: WEB_PROFILE, migrated: [...migrated], defective: [...defective.values()], removed: [...removed],
+  }
+  if (JSON.stringify(nextMarker) !== JSON.stringify(marker)) {
+    try {
+      writeMigrationMarker(markerPath, nextMarker)
+    } catch (error) {
+      report.skipped.push(`${markerPath}: ${String(error)}`)
+    }
+  }
 }
 
 /**
- * Why a migrated name would now end the boot, or undefined while it still
- * mounts.
- *
- * The two answers are separate lines in the log because they are separate
- * things for a user to do something about: one says the package left the web
- * profile, the other says the version now installed there is not a plugin the
- * server can mount.
- * @param spec - the run's home and shipped closure.
- * @param profileDir - the desktop profile directory.
- * @param name - a bundle name the migration record holds.
- * @returns the reason to log, or undefined.
+ * The loader's own message for one entry it failed to import, matched exactly
+ * so a message shaped differently is left for the ordinary failure page rather
+ * than parsed loosely: `failed to import loader entry <id> (<module>): <why>`.
  */
-function migrationDefect(spec: SeedSpec, profileDir: string, name: string): string | undefined {
-  const dir = resolvedBundleDir(spec, profileDir, name)
-  if (dir === undefined) return 'no longer resolves in the web profile'
-  return bundleDefect(dir) === undefined ? undefined : 'its installed version no longer declares dsh.bundle'
+const LOAD_FAILURE_LINE = /failed to import loader entry \S+ \(([^()]+)\):\s*(.+)/
+
+/**
+ * Move the first migrated bundle a failed boot's output blames into the
+ * marker's `defective` list, so a retried boot does not carry it back into the
+ * loader.
+ *
+ * Reads {@link MIGRATION_MARKER_FILENAME} straight from disk rather than trust
+ * anything carried over from earlier in the same launch: the caller runs this
+ * only after the server has already exited, and the marker on disk is the only
+ * record left of what this shell migrated.
+ * @param home - the Harness home for this launch.
+ * @param output - the boot attempt's whole collected stdout and stderr.
+ * @returns the quarantined name and the loader's own detail line; undefined
+ * when nothing in the output names a plugin this shell migrated, or the
+ * profile manifest could not be rewritten.
+ */
+export function quarantineLoadFailureFromOutput(home: string, output: string): { name: string; detail: string } | undefined {
+  const profileDir = profileDirectory(home, DESKTOP_PROFILE)
+  const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
+  const marker = readMigrationMarker(markerPath)
+  if (marker === undefined) return undefined
+  for (const line of output.split('\n')) {
+    const match = LOAD_FAILURE_LINE.exec(line)
+    const name = match?.[1]
+    const detail = match?.[2]?.trim()
+    if (name === undefined || detail === undefined || detail === '' || !marker.migrated.includes(name)) continue
+    try {
+      dropBundleNames(join(profileDir, 'package.json'), [name])
+    } catch {
+      // The manifest could not be rewritten; retrying would carry the same
+      // name into the loader again, so this boot is not one to retry.
+      return undefined
+    }
+    writeMigrationMarker(markerPath, {
+      ...marker,
+      migrated: marker.migrated.filter(existing => existing !== name),
+      defective: [...marker.defective, { name, kind: 'load-failed', detail, at: Date.now() }],
+    })
+    return { name, detail }
+  }
+  return undefined
 }
 
 /**
@@ -853,38 +1144,6 @@ function removeSeededLink(link: string, shipped: string): boolean {
   if (existsSync(link) && !sameLinkTarget(readlinkSync(link), shipped, dirname(link))) return false
   unlinkSync(link)
   return true
-}
-
-/**
- * Where the server would resolve a bundle name for this profile, or undefined
- * when it would resolve nowhere.
- *
- * The three directories `resolveBundleDir` reaches through its two anchors, in
- * its own order: the installation's own closure, the profile's `node_modules`,
- * and the flat fallback beside it. `existsSync` follows symbolic links, so a
- * dangling one counts as the absence it is.
- * @param spec - the run's home and shipped closure.
- * @param profileDir - the desktop profile directory.
- * @param name - the bundle package name.
- * @returns the directory the server would read the package from, or undefined.
- */
-function resolvedBundleDir(spec: SeedSpec, profileDir: string, name: string): string | undefined {
-  return [
-    join(spec.serverModules, name),
-    join(profileDir, 'node_modules', name),
-    join(spec.home, PROFILES_DIR, 'node_modules', name),
-  ].find(dir => existsSync(join(dir, 'package.json')))
-}
-
-/**
- * Whether the server could still resolve a bundle name for this profile.
- * @param spec - the run's home and shipped closure.
- * @param profileDir - the desktop profile directory.
- * @param name - the bundle package name.
- * @returns true when at least one of the three directories holds the package.
- */
-function resolvesForProfile(spec: SeedSpec, profileDir: string, name: string): boolean {
-  return resolvedBundleDir(spec, profileDir, name) !== undefined
 }
 
 /**
@@ -985,7 +1244,9 @@ export function describeSeed(report: SeedReport): string | undefined {
   if (report.copied.length > 0) parts.push(`copied ${report.copied.join(', ')} from the web profile`)
   if (report.pruned.length > 0) parts.push(`dropped withdrawn built-in ${report.pruned.join(', ')}`)
   if (report.unlinked.length > 0) parts.push(`unlinked ${report.unlinked.join(', ')}`)
-  for (const line of report.staleMigrations) parts.push(`dropped migrated ${line}`)
+  for (const line of report.disabled) parts.push(`disabled migrated ${line}`)
+  for (const line of report.removed) parts.push(`removed ${line}`)
+  for (const line of report.dropped) parts.push(`dropped migrated ${line}`)
   for (const line of report.skipped) parts.push(`skipped ${line}`)
   for (const line of report.shadowed) parts.push(`warning: ${line}`)
   if (parts.length === 0) return undefined
