@@ -159,7 +159,7 @@ A profile the shell does not recognize is left exactly as it is, and the launch 
 
 **If you installed one of these plugins yourself before this build**, the profile's own `node_modules` still holds that copy, and the Loader finds it before the shipped one while the patch layer keeps coming from the payload. The launch says so — `warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module` — and changes nothing, because the profile's dependencies belong to whoever installed them. `dsh plugin --profile desktop remove <name>` drops the profile's copy and leaves the shipped one, which is the state a fresh install has.
 
-**To turn one off, disable its row** in `$DSH_HOME/profiles/desktop/cordis.patch.yml` — `dsh-at-file` for the mentions, `better-sidebar` for the sidebar, `screenshot` for the capture tool, `ui-quote-message` for quoting, `balance` for the balance chip:
+**To turn one off, disable its row** in `$DSH_HOME/profiles/desktop/cordis.patch.yml` — `dsh-at-file` for the mentions, `better-sidebar` for the sidebar, `screenshot` for the capture tool, `ui-quote-message` for quoting, `balance` for the balance chip, `plugin-updates` for the Updates tab:
 
 ```yaml
 - id: better-sidebar

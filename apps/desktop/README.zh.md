@@ -159,7 +159,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile desktop remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
 
-**要关掉其中一个,就在** `$DSH_HOME/profiles/desktop/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`,截图工具是 `screenshot`,引用是 `ui-quote-message`,余额 chip 是 `balance`:
+**要关掉其中一个,就在** `$DSH_HOME/profiles/desktop/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`,截图工具是 `screenshot`,引用是 `ui-quote-message`,余额 chip 是 `balance`,更新页是 `plugin-updates`:
 
 ```yaml
 - id: better-sidebar
