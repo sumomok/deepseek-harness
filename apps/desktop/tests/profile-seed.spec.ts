@@ -811,6 +811,43 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
     expect(bundlesNow()).toContain(userPlugin)
   })
 
+  it('self-heals an already-bricked machine: a pre-fix marker that admitted an entry-missing package becomes defective next boot', () => {
+    // The exact field case: an earlier build's `bundleDefect` never checked for
+    // an entry file, so it linked and listed `@yuxianglin/dsh-bridge-browser`
+    // even though only `src/*.ts` was ever committed — package.json present,
+    // `dsh.bundle` declared, `main: lib/index.js`, no `lib/` on disk at all —
+    // and every boot since has thrown importing it. The desktop manifest and
+    // the pre-sync marker both already name it, exactly as that build left them.
+    const broken = '@yuxianglin/dsh-bridge-browser'
+    writeWebProfile([broken], { install: [] })
+    installIntoWeb(broken, { dsh: { bundle: { patch: './cordis.patch.yml' } }, main: 'lib/index.js' }, false)
+    writeProfile(JSON.stringify({
+      name: 'dsh-profile-desktop', private: true, dependencies: { [broken]: '^1.0.0' },
+      dsh: { profile: { bundles: [...webTemplate, ...BUILTIN_WEB_BUNDLES, broken] } },
+    }, undefined, 2))
+    mkdirSync(join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', '@yuxianglin'), { recursive: true })
+    symlinkSync(webPackage(broken), migratedLink(broken), 'junction')
+    writeFileSync(
+      join(home, 'profiles', DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME),
+      JSON.stringify({ from: WEB_PROFILE, migrated: [broken] }),
+    )
+
+    const report = seedBuiltinBundles({ home, serverModules })
+
+    // Boot safety: the name that used to end every boot is out of the list.
+    expect(bundlesNow()).not.toContain(broken)
+    // Inspectable and repairable: the link that resolves it stays.
+    expect(lstatSync(migratedLink(broken)).isSymbolicLink()).toBe(true)
+    expect(readlinkSync(migratedLink(broken))).toBe(webPackage(broken))
+    // The path in the message is the desktop-side link `resolvedBundleDir`
+    // resolved through, not the web copy it points at.
+    const detail = `the installed package has no built entry file (looked for lib/index.js in ${migratedLink(broken)}); its build script has not been run`
+    expect(report.disabled).toEqual([`${broken}: ${detail}`])
+    expect(migratedNow()).toEqual([])
+    expect(defectiveNow()).toEqual([{ name: broken, kind: 'entry-missing', detail, at: expect.any(Number) as number }])
+    expect(unresolvableBundles()).toEqual([])
+  })
+
   it('disables a migrated name whose installed version stopped being a bundle, keeping it visible and repairable', () => {
     // Updating the package in the web profile can replace it with one that
     // declares no `dsh.bundle`. It still resolves, so resolution alone says
