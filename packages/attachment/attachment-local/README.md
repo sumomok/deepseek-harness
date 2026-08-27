@@ -10,6 +10,8 @@ Request versions live below `<DSH_HOME>/attachments/v1/request-images/`. `readIm
 
 `DSH_HOME` resolves through the shared path policy: explicit config, `$DSH_HOME`, then `~/.dsh`. Session logs contain only the reference and verified metadata, never this host path. `readImage` forwards optional cancellation into the filesystem read, observes it around verification, and preserves it instead of wrapping it as `ATTACHMENT_READ_FAILED`.
 
+Text files admit at most 10 files and 10MiB of aggregate UTF-8 bytes per message; each file may use up to 1MiB. Admission rejects a NUL byte or invalid UTF-8 anywhere in the file (`NOT_TEXT_FILE`) and an unusable display name after path- and control-character stripping (`INVALID_FILE_NAME`); it stores the submitted bytes unchanged — there is no normalized or request-projected form, unlike images. Objects share the same content-addressed `objects/` tree as images: both kinds are digest-keyed blobs, and only the reference — image metadata versus a display name — differs by kind.
+
 ## Model Experience
 
 Indirectly, through durable replay of historical user images and structured model image output after restart and fork.
