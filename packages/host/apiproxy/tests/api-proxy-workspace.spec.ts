@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -115,6 +115,13 @@ async function harness(
 function stageDir(root: string, name: string): string {
   const path = join(root, name)
   mkdirSync(path)
+  return path
+}
+
+/** Stage one file under the harness root so it resolves for an open-target existence check. */
+function stageFile(root: string, name: string): string {
+  const path = join(root, name)
+  writeFileSync(path, '')
   return path
 }
 
@@ -239,24 +246,37 @@ describe('host.openPath', () => {
 
   it('opens through the injected native boundary', async () => {
     const opened: string[] = []
-    const { api } = await harness(undefined, undefined, {
+    const { api, root } = await harness(undefined, undefined, {
       openPath: async (path) => { opened.push(path) },
     })
-    expect((await api.host.openPath(request({ path: '/tmp/a.txt' }), new AbortController().signal)).result)
+    const target = stageFile(root, 'a.txt')
+    expect((await api.host.openPath(request({ path: target }), new AbortController().signal)).result)
       .toEqual({ ok: true, value: { opened: true } })
-    expect(opened).toEqual(['/tmp/a.txt'])
+    expect(opened).toEqual([target])
   })
 
   it('propagates abort into the native boundary as a cancelled RPC error', async () => {
-    const { api } = await harness(undefined, undefined, {
+    const { api, root } = await harness(undefined, undefined, {
       openPath: (_path, signal) => new Promise((_resolve, reject) => {
         signal.addEventListener('abort', () => { reject(new Error('aborted')) }, { once: true })
       }),
     })
+    const target = stageFile(root, 'a.txt')
     const abort = new AbortController()
-    const pending = api.host.openPath(request({ path: '/tmp/a.txt' }), abort.signal)
+    const pending = api.host.openPath(request({ path: target }), abort.signal)
     abort.abort()
     expect((await pending).result).toMatchObject({ ok: false, error: { code: 'cancelled' } })
+  })
+
+  it('answers not-found for a path that does not resolve on disk, without invoking the native boundary', async () => {
+    const opened: string[] = []
+    const { api, root } = await harness(undefined, undefined, {
+      openPath: async (path) => { opened.push(path) },
+    })
+    const missing = join(root, 'missing.txt')
+    const response = await api.host.openPath(request({ path: missing }), new AbortController().signal)
+    expect(response.result).toMatchObject({ ok: false, error: { code: 'not-found', details: { path: missing } } })
+    expect(opened).toEqual([])
   })
 })
 

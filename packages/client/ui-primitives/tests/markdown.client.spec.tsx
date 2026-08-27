@@ -256,7 +256,7 @@ describe('MarkdownText', () => {
     }
   })
 
-  it('neutralizes raw HTML, unsafe or relative links, and unsupported images', () => {
+  it('neutralizes raw HTML and unsupported images, and renders an unsafe or relative link destination as inert text', () => {
     const markdown = [
       '<script>globalThis.compromised = true</script>',
       '<img src="x" onerror="globalThis.compromised = true">',
@@ -272,8 +272,11 @@ describe('MarkdownText', () => {
 
     expect(container.querySelector('script')).toBeNull()
     expect(container.querySelector('img')).toBeNull()
+    // A disallowed destination is neither dropped nor a live link: the link
+    // text and the destination both stay visible, as plain text.
     const neutralized = [...container.querySelectorAll('p')]
-      .find(paragraph => paragraph.textContent === 'script relative')
+      .find(paragraph => paragraph.textContent === 'script (javascript:alert(1)) relative (/settings)')
+    expect(neutralized).toBeTruthy()
     expect(neutralized?.querySelector('a')).toBeNull()
     expect(screen.getByRole('link', { name: 'mail' }).getAttribute('target')).toBeNull()
     expect(screen.getByRole('link', { name: 'web' }).getAttribute('rel')).toBe('noopener noreferrer')

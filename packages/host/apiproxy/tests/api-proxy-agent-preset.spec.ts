@@ -5,7 +5,7 @@
  * rebuilding it differently would replay tool calls the new agent cannot make.
  */
 
-import { mkdtempSync, realpathSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, realpathSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
@@ -37,12 +37,15 @@ function stubAgent(session: Session): Agent {
  * A roster whose `mount` is a no-op: this spec is about the gateway's identity
  * rules, and the composition itself is covered by the real-composition test in
  * `apps/cli`. Ids listed in `userIds` present as locally authored; the rest
- * ship with the deployment.
+ * ship with the deployment. `baseDir` is a bare literal by default (every
+ * caller but the open-directory suite only reads the id/trust fields back);
+ * that suite passes a real directory since opening now checks the resolved
+ * directory exists on disk.
  */
-function roster(ids: readonly string[], userIds: readonly string[] = []): unknown {
+function roster(ids: readonly string[], userIds: readonly string[] = [], baseDir = '/presets'): unknown {
   const trustOf = (id: string): 'system' | 'user' => (userIds.includes(id) ? 'user' : 'system')
   const presetOf = (id: string): object =>
-    ({ id, trust: trustOf(id), path: `/presets/${id}/agent.cordis.yml` })
+    ({ id, trust: trustOf(id), path: `${baseDir}/${id}/agent.cordis.yml` })
   return {
     defaultId: ids[0],
     list: () => Promise.resolve(ids.map(presetOf)),
@@ -104,7 +107,7 @@ const services = new Map<string, Record<string, unknown>>()
 async function harness(
   presets?: readonly string[],
   persistence?: unknown,
-  options: { userIds?: readonly string[]; defaults?: Record<string, unknown> } = {},
+  options: { userIds?: readonly string[]; defaults?: Record<string, unknown>; presetsDir?: string } = {},
 ) {
   const cwd = realpathSync(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-preset-')))
   const ctx = new Context()
@@ -112,7 +115,11 @@ async function harness(
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(UserQuestionService)
   ctx.provide('sessionPersistence', (persistence ?? { list: () => Promise.resolve([]) }) as never)
-  if (presets !== undefined) ctx.provide('agentPresets', roster(presets, options.userIds) as never)
+  if (presets !== undefined) {
+    ctx.provide('agentPresets', roster(
+      presets, options.userIds, options.presetsDir,
+    ) as never)
+  }
 
   const factory: AgentFactory = {
     async createAgent(_ownerCtx, options) {
@@ -546,9 +553,15 @@ describe('authoring over the wire', () => {
 
 describe('opening a preset directory', () => {
   it('hands the resolved directory to the native opener', async () => {
+    // openDocument's open-target path now checks the resolved directory
+    // exists on disk, so the roster resolves into a real staged directory
+    // rather than the bare `/presets` literal the rest of this file uses.
     const opened: string[] = []
+    const presetsDir = mkdtempSync(join(tmpdir(), 'dsh-apiproxy-preset-dir-'))
+    mkdirSync(join(presetsDir, 'my-preset'))
     const { api } = await harness(['standard', 'my-preset'], undefined, {
       userIds: ['my-preset'],
+      presetsDir,
       defaults: { openPath: (path: string) => { opened.push(path); return Promise.resolve() } },
     })
 
@@ -559,7 +572,7 @@ describe('opening a preset directory', () => {
     if (!response.result.ok) throw new Error('unreachable')
     expect(response.result.value).toEqual({ opened: true })
     // The id selected the directory; the browser supplied no path.
-    expect(opened).toEqual(['/presets/my-preset'])
+    expect(opened).toEqual([join(presetsDir, 'my-preset')])
   })
 
   it('answers the path as text where the deployment has no opener', async () => {

@@ -92,6 +92,11 @@ export interface RpcErrorDetailsMap {
   'subagent-not-resumable': { childSessionId: SessionId }
   'subagent-unauthorized': { childSessionId: SessionId }
   'subagent-delivery-unavailable': { childSessionId: SessionId }
+  /**
+   * The Host's native path opener (`host.openPath` and the settings-document
+   * text-editor handoff) was given a path that does not resolve on disk.
+   */
+  'not-found': { path: string }
   'internal': {}
 }
 

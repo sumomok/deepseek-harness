@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
 import { SessionRuntime } from '../src/client/sessions/service.ts'
 import { WorkspaceManager } from '../src/client/workspaces/manager.ts'
-import { DirectoryBrowseError, WorkspaceCreateError, WorkspaceRuntime } from '../src/client/workspaces/service.ts'
+import { DirectoryBrowseError, PathOpenError, WorkspaceCreateError, WorkspaceRuntime } from '../src/client/workspaces/service.ts'
 import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
 
 const sid = (id: string): SessionId => id as SessionId
@@ -358,6 +358,23 @@ describe('WorkspaceRuntime', () => {
     expect(api.callsOf('host.openPath')).toEqual([{ path: '/w/alpha/a.ts' }])
     api.onOpenPath = () => Promise.resolve(err({ code: 'internal', message: 'boom', details: {} }))
     await expect(workspaces.openPath('/missing')).rejects.toThrow(/path open failed/)
+  })
+
+  it('carries the Host not-found code so a caller can distinguish it from every other open failure', async () => {
+    const ctx = new Context()
+    const api = new FakeApiClient()
+    const sessions = new SessionRuntime(ctx, api, fakeRemote())
+    const workspaces = new WorkspaceRuntime(ctx, api, sessions)
+    const notFound = { code: 'not-found', message: 'path does not exist: /w/gone.ts', details: { path: '/w/gone.ts' } } as const
+    api.onOpenPath = () => Promise.resolve(err(notFound))
+    let caught: unknown
+    try {
+      await workspaces.openPath('/w/gone.ts')
+    } catch (error: unknown) {
+      caught = error
+    }
+    expect(caught).toBeInstanceOf(PathOpenError)
+    expect((caught as PathOpenError).rpcError).toEqual(notFound)
   })
 
   it('deletes a Workspace or preserves it when the Host rejects deletion', async () => {
