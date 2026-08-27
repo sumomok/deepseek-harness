@@ -69,6 +69,8 @@ kind: "package-reference"
 
 服务族运行同一条准入与存储流程：每个入口都强制执行源批次限制与规范 base64，在发布任何成员前准备提供方无关的规范化附件，再按输入顺序持久提交而不产生部分结果。`readImageRequest` 派生确定性的路由尺寸变体，其身份包含附件 id、变换版本、像素与字节预算及编码参数。纯函数导出 `requestImageDimensions` 会按总像素预算计算每个投影保持宽高比的尺寸，使提供方与请求定价共享同一套几何计算。`imageHostPath` 只向需要执行世界映射的受信任同进程消费方暴露实现拥有的宿主位置。调用方组合有序批次，而实现拥有压缩并发、缓存与 singleflight。读取和投影保留调用方的取消语义。失败带有稳定且机器可读的错误码，运行时即可识别可由调用方修正的准入子集，让每个协议适配器映射自己的词汇；各操作的确切约定见 [`src/index.ts`](src/index.ts) 与 [`src/error.ts`](src/error.ts)。
 
+文本文件复用同一服务边界，逐一镜像图片的形态：`validateFile`/`saveFiles`/`saveFile`/`readFile` 与 `FileAttachmentRef`/`SaveFileAttachment`/`StoredFileAttachment` 分别对应图片侧的同名成员。`FileAttachmentRef` 始终携带 `name`（文件卡片除此之外没有可展示的内容）；它不携带媒体类型、宽度或高度——这些概念对文本不适用。`admitEncodedFiles(attachments, files)` 是文件的 wire 入口：其上传形式 `EncodedFileAttachment` 携带纯 UTF-8 文本而非 base64（不存在需要规范化的二进制传输歧义），准入阶段会把文本重新编码为字节，使 `saveFiles` 无论传输方式如何都在字节层面校验每次上传。`AttachmentError.code` 的 `FileAdmissionErrorCode` 子集（`TOO_MANY_FILES`、`FILES_TOO_LARGE`、`FILE_TOO_LARGE`、`NOT_TEXT_FILE`、`INVALID_FILE_NAME`）标记可由调用方修正的文件输入失败；`isFileAdmissionError` 在运行时识别该子集。
+
 ### 源码地图
 
 | 文件 | 职责 |
@@ -109,10 +111,10 @@ kind: "package-reference"
 <a id="known-limitations-and-deferred-work"></a>
 
 
-这些限制描述了图片附件能做什么、不能做什么；它们是当前包约束，而非任务积压。
+这些限制描述了图片与文件附件能做什么、不能做什么；它们是当前包约束，而非任务积压。
 
-- **仅支持光栅图片**——接受 PNG、JPEG、WebP 与 GIF；通用文件、音频和视频暂不支持。
-- **图片永远不会被删除**——已存储的图片无限期保留；没有任何机制自动移除它们。
+- **仅支持光栅图片与 UTF-8 文本文件**——接受 PNG、JPEG、WebP、GIF 图片，以及任意扩展名的 UTF-8 文本文件；音频和视频暂不支持。
+- **附件永远不会被删除**——已存储的图片与文件无限期保留；没有任何机制自动移除它们。
 - **未发送的草稿不会保存**——输入区草稿在提交消息前一直留在浏览器中。
 
 <a id="dev-note"></a>
@@ -127,8 +129,8 @@ kind: "package-reference"
 
 恢复和 fork 后的会话可能共享不可变对象，因此任何保留策略都需要一个能考虑会话血缘的引用模型，之后才能回收对象。目前尚未记录任何决定；本地后端当前保留一切。
 
-#### 未来：非图片附件与助手侧输出
+#### 未来：非文本/图片附件与助手侧输出
 
-通用文件、音频与视频需要单独的生命周期与提供方契约；角色无关的 `ImageBlock` 也把助手侧图片输出留作前瞻兼容——当前生产适配器声明只输出文本，因此只有用户内容携带图片。两个方向都尚未决定。
+音频与视频需要单独的生命周期与提供方契约；角色无关的 `ImageBlock` 也把助手侧图片输出留作前瞻兼容——当前生产适配器声明只输出文本，因此只有用户内容携带图片。两个方向都尚未决定。
 
 </details>

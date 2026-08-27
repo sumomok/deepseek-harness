@@ -6,9 +6,18 @@ import { dirname, join, parse, resolve } from 'node:path'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import sharp from 'sharp'
-import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentLimits, ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
 import type { NormalizationPolicy } from '../src/normalization.ts'
-import { commitPreparedImageFile, prepareImageFile, readImageFile, saveImageFile } from '../src/store.ts'
+import {
+  commitPreparedImageFile,
+  commitPreparedTextFile,
+  prepareImageFile,
+  prepareTextFile,
+  readImageFile,
+  readTextFile,
+  saveImageFile,
+  saveTextFile,
+} from '../src/store.ts'
 
 const fsControl = vi.hoisted(() => ({
   readSignals: [] as AbortSignal[],
@@ -280,5 +289,99 @@ describe('local attachment store', () => {
       ...prepared,
       data: Uint8Array.of(...prepared.data, 0),
     })).rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
+  })
+})
+
+const FILE_LIMITS: FileAttachmentLimits = {
+  maxFileBytes: 1024,
+  maxFilesPerMessage: 2,
+  maxMessageFileBytes: 2048,
+}
+
+function utf8(text: string): Uint8Array {
+  return new TextEncoder().encode(text)
+}
+
+describe('local attachment store: text files', () => {
+  it('publishes one private content-addressed object and deduplicates equal bytes', async () => {
+    const storageRoot = await root()
+    const data = utf8('hello world')
+    const first = await saveTextFile(storageRoot, { data, name: '/private/tmp/notes.txt' }, FILE_LIMITS)
+    const second = await saveTextFile(storageRoot, { data, name: 'renamed.txt' }, FILE_LIMITS)
+    const sha256 = createHash('sha256').update(data).digest('hex')
+    const object = join(storageRoot, 'objects', sha256.slice(0, 2), sha256)
+
+    expect(first).toEqual({
+      attachmentId: `sha256:${sha256}`,
+      name: 'notes.txt',
+      bytes: data.byteLength,
+    })
+    expect(second.attachmentId).toBe(first.attachmentId)
+    expect(second.name).toBe('renamed.txt')
+    expect(new Uint8Array(await readFile(object))).toEqual(data)
+    await expect(readTextFile(storageRoot, first)).resolves.toEqual({ ref: first, data })
+  })
+
+  it('shares the same content-addressed object space as images', async () => {
+    // Both kinds are digest-keyed blobs in one `objects/` tree; only the
+    // reference (image metadata vs display name) differs by kind.
+    const storageRoot = await root()
+    const data = utf8('shared object space')
+    const ref = await saveTextFile(storageRoot, { data, name: 'shared.txt' }, FILE_LIMITS)
+    const sha256 = createHash('sha256').update(data).digest('hex')
+    expect(String(ref.attachmentId)).toBe(`sha256:${sha256}`)
+    expect(join(storageRoot, 'objects', sha256.slice(0, 2), sha256))
+      .toBe(join(storageRoot, 'objects', String(ref.attachmentId).slice('sha256:'.length, 'sha256:'.length + 2), sha256))
+  })
+
+  it('rejects oversized files, non-text bytes, and unusable names', async () => {
+    const storageRoot = await root()
+    await expect(saveTextFile(storageRoot, { data: utf8('x'.repeat(2000)), name: 'big.txt' }, FILE_LIMITS))
+      .rejects.toMatchObject({ code: 'FILE_TOO_LARGE' })
+    await expect(saveTextFile(storageRoot, { data: Uint8Array.of(0x89, 0x50, 0x4e, 0x47, 0x00), name: 'x.png' }, FILE_LIMITS))
+      .rejects.toMatchObject({ code: 'NOT_TEXT_FILE' })
+    await expect(saveTextFile(storageRoot, { data: utf8('hi'), name: ' ' }, FILE_LIMITS))
+      .rejects.toMatchObject({ code: 'INVALID_FILE_NAME' })
+  })
+
+  it('fails closed when a file object is missing, corrupted, or addressed by an invalid reference', async () => {
+    const storageRoot = await root()
+    const ref = await saveTextFile(storageRoot, { data: utf8('verify me'), name: 'notes.txt' }, FILE_LIMITS)
+    const sha256 = String(ref.attachmentId).slice('sha256:'.length)
+    const object = join(storageRoot, 'objects', sha256.slice(0, 2), sha256)
+    await chmod(object, 0o600)
+    await writeFile(object, utf8('tampered'))
+    await expect(readTextFile(storageRoot, ref)).rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
+    await expect(readTextFile(storageRoot, { ...ref, attachmentId: 'bad' as never }))
+      .rejects.toMatchObject({ code: 'INVALID_ATTACHMENT_REF' })
+
+    const missingRoot = await root()
+    await mkdir(missingRoot, { recursive: true })
+    await expect(readTextFile(missingRoot, ref)).rejects.toMatchObject({ code: 'ATTACHMENT_NOT_FOUND' })
+
+    const unreadableRoot = await root()
+    const otherSha256 = createHash('sha256').update(utf8('unreadable')).digest('hex')
+    const target = join(unreadableRoot, 'objects', otherSha256.slice(0, 2), otherSha256)
+    await mkdir(target, { recursive: true })
+    await expect(readTextFile(unreadableRoot, { ...ref, attachmentId: `sha256:${otherSha256}` as never }))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_READ_FAILED' })
+  })
+
+  it('rejects prepared bytes that no longer match their content-addressed reference', async () => {
+    const storageRoot = await root()
+    const prepared = await prepareTextFile({ data: utf8('hello'), name: 'notes.txt' }, FILE_LIMITS)
+
+    await expect(commitPreparedTextFile(storageRoot, {
+      ...prepared,
+      data: Uint8Array.of(...prepared.data, 0x21),
+    })).rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
+  })
+
+  it('rejects a reference whose declared byte count no longer matches the digest-verified object', async () => {
+    const storageRoot = await root()
+    const ref = await saveTextFile(storageRoot, { data: utf8('hello'), name: 'notes.txt' }, FILE_LIMITS)
+
+    await expect(readTextFile(storageRoot, { ...ref, bytes: ref.bytes + 1 }))
+      .rejects.toMatchObject({ code: 'ATTACHMENT_CORRUPT' })
   })
 })

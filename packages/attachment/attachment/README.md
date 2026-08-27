@@ -69,6 +69,8 @@ This section explains the design decisions behind the seam and the service opera
 
 The service family runs one admission-and-storage flow: every entry point enforces source batch limits and canonical base64, prepares provider-independent normalized attachments before publishing any member, and commits them durably in input order without partial results. `readImageRequest` derives deterministic route-sized variants whose identity includes the attachment id, transform version, pixel and byte budgets, and encoder settings. The pure `requestImageDimensions` export computes each projection's aspect-preserving dimensions from a total-pixel budget, so providers and request pricing share one geometry. `imageHostPath` exposes an implementation-owned host location only to trusted same-process consumers that need execution-world mapping. Callers compose ordered batches while the implementation owns compression concurrency, caching, and singleflight. Reads and projections preserve caller cancellation. Failures carry stable machine-readable codes, and the caller-correctable admission subset is recognizable at runtime so each protocol adapter maps its own vocabulary; the exact per-operation contracts live in [`src/index.ts`](src/index.ts) and [`src/error.ts`](src/error.ts).
 
+Text files follow the same seam, mirrored: `validateFile`/`saveFiles`/`saveFile`/`readFile` and `FileAttachmentRef`/`SaveFileAttachment`/`StoredFileAttachment` parallel their image counterparts one for one. A `FileAttachmentRef` always carries a `name` (a file card has nothing else to show); it carries no media type, width, or height — those concepts do not apply to text. `admitEncodedFiles(attachments, files)` is the file wire entry: its upload form, `EncodedFileAttachment`, carries plain UTF-8 text rather than base64 (there is no binary transport ambiguity to canonicalize), and admission re-encodes it to bytes so `saveFiles` validates every upload at the byte level regardless of transport. `AttachmentError.code`'s `FileAdmissionErrorCode` subset (`TOO_MANY_FILES`, `FILES_TOO_LARGE`, `FILE_TOO_LARGE`, `NOT_TEXT_FILE`, `INVALID_FILE_NAME`) marks caller-correctable file-input failures; `isFileAdmissionError` recognizes that subset at runtime.
+
 ### Source map
 
 | File | Role |
@@ -109,10 +111,10 @@ Adding an image changes the provider request and therefore invalidates the affec
 <a id="known-limitations-and-deferred-work"></a>
 
 
-These limits describe what image attachments can and cannot do; they are current package constraints, not a task backlog.
+These limits describe what image and file attachments can and cannot do; they are current package constraints, not a task backlog.
 
-- **Raster images only** — PNG, JPEG, WebP, and GIF are accepted; generic files, audio, and video are not supported yet.
-- **Images are never deleted** — stored images are retained indefinitely; nothing removes them automatically.
+- **Raster images and UTF-8 text files only** — PNG, JPEG, WebP, and GIF images, plus UTF-8 text files of any extension, are accepted; audio and video are not supported yet.
+- **Attachments are never deleted** — stored images and files are retained indefinitely; nothing removes them automatically.
 - **Unsent drafts are not saved** — a composer draft stays in the browser until you submit the message.
 
 <a id="dev-note"></a>
@@ -127,8 +129,8 @@ This Dev Note is working context for maintainers: undecided directions and open 
 
 Resumed and forked sessions may share immutable objects, so any retention policy needs a reference model that accounts for session lineage before objects can be collected. No decision is recorded yet; the local backend currently retains everything.
 
-#### Future: non-image attachments and assistant-side output
+#### Future: non-text/image attachments and assistant-side output
 
-Generic files, audio, and video would need separate lifecycle and provider contracts, and the role-neutral `ImageBlock` leaves assistant-side image output as forward compatibility — current production adapters declare text-only output, so only user content carries images. Both directions are undecided.
+Audio and video would need separate lifecycle and provider contracts, and the role-neutral `ImageBlock` leaves assistant-side image output as forward compatibility — current production adapters declare text-only output, so only user content carries images. Both directions are undecided.
 
 </details>
