@@ -20,7 +20,7 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
-import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   SessionEvent,
   SessionId,
@@ -1091,6 +1091,13 @@ function projectionValuesOf(log: readonly SessionEvent[]): Record<string, unknow
     maxImageDimension: 2000,
     mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
   }
+  // Always present (attachment service composed): the file-admission
+  // counterpart of imageLimits, mirrored the same way.
+  values['fileLimits'] = {
+    maxFileBytes: 1024 * 1024,
+    maxFilesPerMessage: 10,
+    maxMessageFileBytes: 10 * 1024 * 1024,
+  }
   return values
 }
 
@@ -1538,6 +1545,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     String(FIXTURE_IMAGE_REF.attachmentId),
     { attachment: FIXTURE_IMAGE_REF, data: FIXTURE_IMAGE_DATA },
   ]])
+  const fileAttachments = new Map<string, { attachment: FileAttachmentRef; text: string }>()
   /** Credential store double: set/unset flip the describe badge, values never read back. */
   const fixtureCredentials = new Map<string, true>([
     // The assembled fixture represents an already-configured shipped
@@ -2508,6 +2516,15 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
         const durable: ContentBlock[] = content.map((block) => {
           if (block.type === 'text') return block
+          if (block.type === 'file') {
+            const attachment: FileAttachmentRef = {
+              attachmentId: `fixture:${randomUuid()}` as AttachmentIdType,
+              name: block.name,
+              bytes: new TextEncoder().encode(block.text).byteLength,
+            }
+            fileAttachments.set(String(attachment.attachmentId), { attachment, text: block.text })
+            return { type: 'file', attachment }
+          }
           const attachment: ImageAttachmentRef = {
             attachmentId: `fixture:${randomUuid()}` as AttachmentIdType,
             mediaType: block.mediaType,
@@ -2580,6 +2597,27 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
           return err(request, {
             code: 'attachment-error',
             message: 'fixture attachment is not referenced by this session',
+            details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
+          })
+        }
+        return ok(request, stored)
+      },
+      file: (request) => {
+        const stored = fileAttachments.get(String(request.payload.attachmentId))
+        if (stored === undefined) {
+          return err(request, {
+            code: 'attachment-error',
+            message: 'fixture file attachment missing',
+            details: { reason: 'ATTACHMENT_NOT_FOUND' },
+          })
+        }
+        if (!logReferencesAttachment(
+          logs.get(request.payload.sessionId) ?? [],
+          String(request.payload.attachmentId),
+        )) {
+          return err(request, {
+            code: 'attachment-error',
+            message: 'fixture file attachment is not referenced by this session',
             details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
           })
         }
@@ -3185,6 +3223,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'session.fork': return this.api.sessions.fork(request)
       case 'session.prompt': return this.api.sessions.prompt(request)
       case 'session.attachment': return this.api.sessions.attachment(request)
+      case 'session.file': return this.api.sessions.file(request)
       case 'session.updateQueue': return this.api.sessions.updateQueue(request)
       case 'session.cancel': return this.api.sessions.cancel(request)
       case 'subagent.list': return this.api.subagents.list(request)

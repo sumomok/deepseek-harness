@@ -75,6 +75,45 @@ export interface ImageRequestPolicy {
   maxBytes: number
 }
 
+/** Deployment-resolved limits used by text-file upload admission. */
+export interface FileAttachmentLimits {
+  maxFilesPerMessage: number
+  maxMessageFileBytes: number
+  /** Maximum encoded UTF-8 bytes accepted for one submitted file. */
+  maxFileBytes: number
+}
+
+/** Durable, serializable reference to one immutable stored text file. */
+export interface FileAttachmentRef {
+  /** Opaque storage identifier; never a filesystem path or bearer URL. */
+  attachmentId: AttachmentId
+  /** Display name stripped of local path information; always present, unlike an image's optional name. */
+  name: string
+  /** Exact stored UTF-8 byte length. */
+  bytes: number
+}
+
+/** Wire-form text-file upload accompanying one wire request; plain text, never base64. */
+export interface EncodedFileAttachment {
+  /** Display name; it is never interpreted as a path. */
+  name: string
+  /** Complete file content. */
+  text: string
+}
+
+/** Request to validate and durably commit one text file. */
+export interface SaveFileAttachment {
+  data: Uint8Array
+  /** Display name; it is never interpreted as a path. */
+  name: string
+}
+
+/** Stored file bytes returned after reference and digest verification. */
+export interface StoredFileAttachment {
+  ref: FileAttachmentRef
+  data: Uint8Array
+}
+
 /** Cached request version derived from one provider-independent normalized attachment. */
 export interface RequestImageAttachment {
   /** Cache and upload-index key over the attachment id, policy, and fixed encoder parameters. */

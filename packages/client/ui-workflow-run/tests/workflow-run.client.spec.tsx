@@ -295,6 +295,8 @@ function panelProps(data: WorkflowRunChatData, sessions = listState(), openSessi
     inspectCall: () => {},
     forkAt: () => {},
     renderMessageImages: () => null,
+    loadFile: () => Promise.reject(new Error('loadFile not stubbed')),
+    openReferent: () => Promise.resolve(),
     renderUserActions: () => null,
     fileMentions: () => undefined,
     openSession,

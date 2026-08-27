@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  resolveWorkspacePath, type ISessions, type SessionId,
+  dispatchReferentOpen, resolveWorkspacePath, type ISessions, type ReferentRef, type SessionId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: the ctx.settingsScope Context merge. Cross-plugin collaboration
 // goes through the service, never a value import (client bundle purity gate).
@@ -293,6 +293,7 @@ export function apply(ctx: Context): void {
         return {
           keyboard: undefined,
           addImages: undefined,
+          addFiles: undefined,
           removeImage: undefined,
           draftImages: undefined,
           resolveSubmitMode: (running, gesture, steeringAvailable) =>
@@ -321,6 +322,17 @@ export function apply(ctx: Context): void {
               // and naming it beats echoing the rejected MIME type back.
               return t('image.unsupportedType')
             }
+            return error instanceof Error ? error.message : String(error)
+          }
+        },
+        addFiles: (files) => {
+          try {
+            const drafts = conversation.createDraftFiles(files)
+            if (!shell.addImages(drafts.map(draft => draft.id))) {
+              conversation.releaseDraftImages(drafts)
+            }
+            return null
+          } catch (error: unknown) {
             return error instanceof Error ? error.message : String(error)
           }
         },
@@ -398,12 +410,34 @@ export function apply(ctx: Context): void {
           layout.openDetails()
         },
         fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
+        // referent/open first: wraps the pre-existing openPath action as the
+        // waterfall's terminus, so every consumer this one closure already
+        // reaches (tool rows, produced-file chips, mentions, and the file
+        // card below) becomes interceptable without a per-consumer change.
+        // Zero listeners exist yet: with none registered the waterfall
+        // reaches its terminus immediately and this call is byte-identical
+        // to the un-wrapped openPath it replaces.
         openFile: (path) => {
           const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
-          return workspaces.openPath(resolveWorkspacePath(cwd, path))
+          const target = resolveWorkspacePath(cwd, path)
+          const ref: ReferentRef = {
+            // ProducedFiles opens the session workspace root as '.'; every
+            // other path this closure ever receives names a file (mirrors
+            // ChatView.tsx's own isFolderOpenPath heuristic for the same
+            // reason: no richer file/dir signal reaches this closure).
+            kind: path === '.' ? 'dir' : 'file',
+            target,
+            raw: path,
+            sessionId,
+            source: 'chat-view.openFile',
+            provenance: 'structured',
+          }
+          return dispatchReferentOpen(ctx, ref, () => workspaces.openPath(target))
         },
         loadOlder: () => { void scoped.loadOlder() },
         loadImage: attachment => conversation.resolveImage(sessionId, attachment),
+        loadFile: attachment => conversation.resolveFile(sessionId, attachment),
+        openReferent: (ref, onDefault) => dispatchReferentOpen(ctx, { ...ref, sessionId }, onDefault),
         // Unregistered 'trajectory' id is safe: the tab ring falls back to
         // the first view, and the untouched inspect target stays inert.
         inspectCall: (callId) => {

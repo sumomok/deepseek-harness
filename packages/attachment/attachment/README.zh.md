@@ -8,6 +8,8 @@
 
 `admitEncodedImages(attachments, images)` 是每个接受浏览器上传的 RPC 端点（会话 prompt 端点与命令执行器）共用的 wire 入口：它对每个成员强制执行规范 base64，随后把批量准入——限额、校验、有序提交——委托给 `saveImages`。base64 上传形式为 `EncodedImageAttachment`，从 `@deepseek-ai/dsh-attachment/types` 导出，供 wire 契约引用。
 
+文本文件复用同一服务边界，逐一镜像图片的形态：`validateFile`/`saveFiles`/`saveFile`/`readFile` 与 `FileAttachmentRef`/`SaveFileAttachment`/`StoredFileAttachment` 分别对应图片侧的同名成员。`FileAttachmentRef` 始终携带 `name`（文件卡片除此之外没有可展示的内容）；它不携带媒体类型、宽度或高度——这些概念对文本不适用。`admitEncodedFiles(attachments, files)` 是文件的 wire 入口：其上传形式 `EncodedFileAttachment` 携带纯 UTF-8 文本而非 base64（不存在需要规范化的二进制传输歧义），准入阶段会把文本重新编码为字节，使 `saveFiles` 无论传输方式如何都在字节层面校验每次上传。`AttachmentError.code` 的 `FileAdmissionErrorCode` 子集（`TOO_MANY_FILES`、`FILES_TOO_LARGE`、`FILE_TOO_LARGE`、`NOT_TEXT_FILE`、`INVALID_FILE_NAME`）标记可由调用方修正的文件输入失败；`isFileAdmissionError` 在运行时识别该子集。
+
 ## 模型体验
 
 该包通过角色无关的核心 `ImageBlock`，以及把持久引用解析为确定请求版本的提供方适配器，间接影响模型。请求描述会公开完整附件 ID 和实际请求尺寸。
@@ -18,6 +20,6 @@
 
 ## 已知限制与待完成工作
 
-- 第一版仅接受 PNG、JPEG、WebP 和 GIF。
+- 第一版仅接受 PNG、JPEG、WebP、GIF 图片，以及任意扩展名的 UTF-8 文本文件。
 - 保留策略与垃圾回收尚未实现，因为恢复和 fork 后的会话可能共享不可变对象。
-- 通用文件、音频、视频和持久的未发送草稿需要单独的生命周期与提供方契约。
+- 音频、视频和持久的未发送草稿需要单独的生命周期与提供方契约。

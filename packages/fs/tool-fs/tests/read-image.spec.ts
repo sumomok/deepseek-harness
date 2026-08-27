@@ -21,7 +21,10 @@ import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import * as FsPolicy from '@deepseek-ai/dsh-fs-observation-policy'
 import LocalAttachmentStore from '@deepseek-ai/dsh-attachment-local'
 import { AttachmentError, AttachmentId, AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type {
+  FileAttachmentLimits, FileAttachmentRef, ImageAttachmentLimits, ImageAttachmentRef,
+  SaveFileAttachment, SaveImageAttachment, StoredFileAttachment, StoredImageAttachment,
+} from '@deepseek-ai/dsh-attachment'
 import * as ToolFs from '@deepseek-ai/dsh-tool-fs'
 import {
   applyReadImageTool,
@@ -34,6 +37,13 @@ import {
 const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
 /** 3x3 red PNG used to trip a tiny configured pixel limit. */
 const PNG_3X3 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAMAAAADCAIAAADZSiLoAAAAEElEQVR4nGP4z8AAQQxYWACPjgj4kWPEuQAAAABJRU5ErkJggg==', 'base64')
+
+/** File-admission limits for local test-only AttachmentStore subclasses; none of these tests exercise file content. */
+const TEST_FILE_LIMITS: FileAttachmentLimits = Object.freeze({
+  maxFileBytes: 1024,
+  maxFilesPerMessage: 1,
+  maxMessageFileBytes: 1024,
+})
 
 const testToolSignal = new AbortController().signal
 
@@ -343,6 +353,8 @@ describe('argument and service preconditions', () => {
         mediaTypes: Object.freeze(['image/jpeg'] as const),
       })
 
+      readonly fileLimits: FileAttachmentLimits = TEST_FILE_LIMITS
+
       validateImage(_input: SaveImageAttachment): Promise<void> {
         throw new Error('unreachable: admission refuses before validation')
       }
@@ -353,6 +365,18 @@ describe('argument and service preconditions', () => {
 
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('unreachable in this test')
+      }
+
+      validateFile(_input: SaveFileAttachment): Promise<void> {
+        throw new Error('not used')
+      }
+
+      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
+        throw new Error('not used')
+      }
+
+      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
+        throw new Error('not used')
       }
     }
     const ctx = await setup({ attachments: false })
@@ -420,6 +444,8 @@ describe('image admission failures', () => {
         mediaTypes: Object.freeze(['image/png'] as const),
       })
 
+      readonly fileLimits: FileAttachmentLimits = TEST_FILE_LIMITS
+
       validateImage(_input: SaveImageAttachment): Promise<void> {
         return Promise.resolve()
       }
@@ -430,6 +456,18 @@ describe('image admission failures', () => {
 
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('unreachable in this test')
+      }
+
+      validateFile(_input: SaveFileAttachment): Promise<void> {
+        throw new Error('not used')
+      }
+
+      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
+        throw new Error('not used')
+      }
+
+      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
+        throw new Error('not used')
       }
     }
     await writeFile(join(dir, 'red.png'), PNG_1X1)
@@ -488,6 +526,8 @@ describe('image admission failures', () => {
         mediaTypes: Object.freeze(['image/png'] as const),
       })
 
+      readonly fileLimits: FileAttachmentLimits = TEST_FILE_LIMITS
+
       validateImage(_input: SaveImageAttachment): Promise<void> {
         return Promise.resolve()
       }
@@ -498,6 +538,18 @@ describe('image admission failures', () => {
 
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('unreachable in this test')
+      }
+
+      validateFile(_input: SaveFileAttachment): Promise<void> {
+        throw new Error('not used')
+      }
+
+      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
+        throw new Error('not used')
+      }
+
+      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
+        throw new Error('not used')
       }
     }
     await writeFile(join(dir, 'red.png'), PNG_1X1)
@@ -521,6 +573,8 @@ describe('image admission failures', () => {
         mediaTypes: Object.freeze(['image/png'] as const),
       })
 
+      readonly fileLimits: FileAttachmentLimits = TEST_FILE_LIMITS
+
       validateImage(_input: SaveImageAttachment): Promise<void> {
         return Promise.resolve()
       }
@@ -538,6 +592,18 @@ describe('image admission failures', () => {
 
       readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
         throw new Error('unreachable in this test')
+      }
+
+      validateFile(_input: SaveFileAttachment): Promise<void> {
+        throw new Error('not used')
+      }
+
+      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
+        throw new Error('not used')
+      }
+
+      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
+        throw new Error('not used')
       }
     }
     await writeFile(join(dir, 'red.png'), PNG_1X1)

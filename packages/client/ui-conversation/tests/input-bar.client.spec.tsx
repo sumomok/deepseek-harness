@@ -40,6 +40,12 @@ const NATIVE_SET_START = Object.getOwnPropertyDescriptor(Range.prototype, 'setSt
 const SCTX = {} as ClientContext
 const SID = 's1' as SessionId
 
+// Real PNG magic bytes: content sniffing (partitionDroppedFiles, the paste
+// path's client-side pre-check) treats a lone non-NUL byte as valid UTF-8 —
+// indistinguishable from text — so a pasted/dropped "image" fixture needs
+// genuine binary leading bytes to keep sniffing to the image path.
+const PNG_MAGIC = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
 function snapshotOf(overrides: Partial<ConversationSnapshot> = {}): ConversationSnapshot {
   return {
     sessionId: SID, views: EMPTY_CONVERSATION_VIEWS, chat: EMPTY_CHAT_SNAPSHOT,
@@ -76,6 +82,12 @@ interface BenchOptions {
     maxImageDimension: number
     mediaTypes: readonly ('image/png' | 'image/jpeg' | 'image/webp' | 'image/gif')[]
   }
+  /** The `fileLimits` projection value (absent = no attachment service). */
+  fileLimits?: {
+    maxFilesPerMessage: number
+    maxMessageFileBytes: number
+    maxFileBytes: number
+  }
   draft?: string
   running?: boolean
   subagent?: Exclude<ConversationSnapshot['subagent'], null>
@@ -98,6 +110,7 @@ interface BenchOptions {
   rightItems?: React.ReactNode
   attachments?: readonly ComposerAttachment[]
   addImages?: (files: readonly File[]) => string | null
+  addFiles?: (files: readonly File[]) => string | null
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
   toggleCommandMenu?: (selection: { start: number; end: number }) => void
@@ -174,11 +187,16 @@ function bench(over?: BenchOptions) {
     useProjection: ((key: string, selector?: (v: unknown) => unknown) =>
       (selector ?? (v => v))(key === 'permissions'
         ? over?.permissions
-        : key === 'plan' ? over?.plan : key === 'imageLimits' ? over?.imageLimits : undefined)),
+        : key === 'plan'
+          ? over?.plan
+          : key === 'imageLimits'
+            ? over?.imageLimits
+            : key === 'fileLimits' ? over?.fileLimits : undefined)),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
     addImages: over?.addImages ?? (() => null),
+    addFiles: over?.addFiles ?? (() => null),
     removeImage,
     draftImages: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
@@ -242,10 +260,13 @@ function attachmentOwner(slotCalls: readonly { key: string; owner: unknown }[]):
 }
 
 describe('image draft rail', () => {
-  it('collects clipboard files while preserving text from a mixed paste', () => {
+  it('collects clipboard files while preserving text from a mixed paste', async () => {
     const addImages = vi.fn(() => null)
     const { textarea, shell } = bench({ addImages })
-    const image = new File([Uint8Array.of(1, 2, 3)], 'pixel.png', { type: 'image/png' })
+    // Real PNG magic bytes: a paste now routes its files through a content
+    // sniff (partitionDroppedFiles) before addImages/addFiles, and a lone
+    // non-NUL byte decodes as valid UTF-8 — indistinguishable from text.
+    const image = new File([PNG_MAGIC], 'pixel.png', { type: 'image/png' })
     fireEvent.paste(textarea, {
       clipboardData: {
         items: [
@@ -255,8 +276,25 @@ describe('image draft rail', () => {
         getData: () => '同时粘贴的文字',
       },
     })
-    expect(addImages).toHaveBeenCalledWith([image])
     expect(shell.snapshot.draft).toBe('同时粘贴的文字')
+    // The sniff resolves on a microtask after File.arrayBuffer(); addImages
+    // fires once that split completes.
+    await vi.waitFor(() => { expect(addImages).toHaveBeenCalledWith([image]) })
+  })
+
+  it('routes a text-sniffable pasted file to addFiles instead of addImages', async () => {
+    const addImages = vi.fn(() => null)
+    const addFiles = vi.fn(() => null)
+    const { textarea } = bench({ addImages, addFiles })
+    const note = new File(['plain text content'], 'note.txt', { type: 'text/plain' })
+    fireEvent.paste(textarea, {
+      clipboardData: {
+        items: [{ kind: 'file', type: 'text/plain', getAsFile: () => note }],
+        getData: () => '',
+      },
+    })
+    await vi.waitFor(() => { expect(addFiles).toHaveBeenCalledWith([note]) })
+    expect(addImages).not.toHaveBeenCalled()
   })
 
   it('pre-checks projected limits at intake: whole-batch refusal with product copy, none added', () => {
@@ -297,6 +335,45 @@ describe('image draft rail', () => {
     const fits = png(16, 'fits.png')
     intake(within, [fits])
     expect(within.props.addImages).toHaveBeenCalledWith([fits])
+    expect(within.view.queryByRole('alert')).toBeNull()
+  })
+
+  it('pre-checks projected file limits at intake: whole-batch refusal with product copy, none added', () => {
+    const limits = {
+      maxFilesPerMessage: 2,
+      maxMessageFileBytes: 2 * 1024 * 1024,
+      maxFileBytes: 1024 * 1024,
+    }
+    const txt = (bytes: number, name: string) => new File([new Uint8Array(bytes)], name, { type: 'text/plain' })
+    const intake = (result: ReturnType<typeof bench>, files: File[]) => {
+      act(() => { attachmentOwner(result.slotCalls).onAddFiles(files) })
+    }
+    // Count: three at once over a two-file limit → the whole batch refused.
+    const overCount = bench({ addFiles: vi.fn(() => null), fileLimits: limits })
+    intake(overCount, [txt(8, 'a.txt'), txt(8, 'b.txt'), txt(8, 'c.txt')])
+    expect(overCount.view.getByRole('alert').textContent).toContain('一条消息最多添加 2 个文件')
+    expect(overCount.props.addFiles).not.toHaveBeenCalled()
+    cleanup()
+    // Per-file bytes.
+    const overFile = bench({ addFiles: vi.fn(() => null), fileLimits: limits })
+    intake(overFile, [txt(1024 * 1024 + 1, 'big.txt')])
+    expect(overFile.view.getByRole('alert').textContent).toContain('单个文件不能超过 1MB')
+    expect(overFile.props.addFiles).not.toHaveBeenCalled()
+    cleanup()
+    // Aggregate bytes across the existing chip row plus the new batch — a
+    // held IMAGE draft must not count toward the file total (kind-scoped).
+    const heldImage = { kind: 'image' as const, id: 'draft-img' as DraftAttachmentId, file: new File([PNG_MAGIC], 'held.png', { type: 'image/png' }), previewUrl: 'blob:held-img' }
+    const heldFile = { kind: 'file' as const, id: 'draft-1' as DraftAttachmentId, file: txt(1024 * 1024 * 1.5, 'held.txt') }
+    const overTotal = bench({ addFiles: vi.fn(() => null), fileLimits: limits, attachments: [heldImage, heldFile] })
+    intake(overTotal, [txt(1024 * 1024, 'more.txt')])
+    expect(overTotal.view.getByRole('alert').textContent).toContain('文件总大小超过 2MB')
+    expect(overTotal.props.addFiles).not.toHaveBeenCalled()
+    cleanup()
+    // Within every limit: the batch passes through to addFiles.
+    const within = bench({ addFiles: vi.fn(() => null), fileLimits: limits })
+    const fits = txt(16, 'fits.txt')
+    intake(within, [fits])
+    expect(within.props.addFiles).toHaveBeenCalledWith([fits])
     expect(within.view.queryByRole('alert')).toBeNull()
   })
 
@@ -346,6 +423,10 @@ describe('image draft rail', () => {
     const model = bench({ promptError: attachmentError('MODEL_DOES_NOT_SUPPORT_IMAGES') })
     expect(model.view.getByRole('alert').textContent).toContain('当前模型不支持图片，请切换支持图片的模型')
     cleanup()
+    const fileLimits = { maxFilesPerMessage: 5, maxMessageFileBytes: 10 * 1024 * 1024, maxFileBytes: 1024 * 1024 }
+    const fileReason = bench({ promptError: attachmentError('TOO_MANY_FILES'), fileLimits })
+    expect(fileReason.view.getByRole('alert').textContent).toContain('一条消息最多添加 5 个文件')
+    cleanup()
     const unknown = bench({ promptError: attachmentError('ATTACHMENT_NOT_REFERENCED') })
     expect(unknown.view.getByRole('alert').textContent).toContain('图片发送失败（ATTACHMENT_NOT_REFERENCED）')
     cleanup()
@@ -388,22 +469,25 @@ describe('image draft rail', () => {
     vi.useFakeTimers()
     try {
       const addImages = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
-      const { view, textarea } = bench({ addImages })
-      const paste = () => {
-        fireEvent.paste(textarea, {
-          clipboardData: {
-            items: [{ kind: 'file', type: 'text/plain', getAsFile: () => new File(['x'], 'note.txt', { type: 'text/plain' }) }],
-            getData: () => '',
-          },
+      const result = bench({ addImages })
+      // Direct slot-owner call (not a real paste): this test's subject is
+      // toast fade/re-announce timing, independent of intake mechanics — a
+      // real paste's own content sniff is covered separately (mixed-paste
+      // and text-routing cases above).
+      const reject = () => {
+        act(() => {
+          attachmentOwner(result.slotCalls).onAddImages([
+            new File([new ArrayBuffer(64)], 'note.pdf', { type: 'application/pdf' }),
+          ])
         })
       }
-      paste()
-      expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+      reject()
+      expect(result.view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
       act(() => { vi.advanceTimersByTime(4000) })
-      expect(view.queryByRole('alert')).toBeNull()
+      expect(result.view.queryByRole('alert')).toBeNull()
       // The identical rejection re-announces: the toast is keyed per show.
-      paste()
-      expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+      reject()
+      expect(result.view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
     } finally {
       vi.useRealTimers()
     }

@@ -2,11 +2,13 @@ import { describe, expect, it, vi } from 'vitest'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
   AttachmentStore,
+  FileAttachmentRef,
   ImageAttachmentRef,
   ImageRequestPolicy,
   RequestImageAttachment,
+  StoredFileAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import { CallId, createMessage, createUserMessage, OFFLOADED_IMAGE_TEXT } from '@deepseek-ai/dsh-llm'
+import { CallId, createMessage, createUserMessage, lowerFileBlockText, OFFLOADED_IMAGE_TEXT } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { toPiContext } from '../src/context.ts'
 import { toPiAssistant } from '../src/replay.ts'
@@ -17,6 +19,12 @@ const ref: ImageAttachmentRef = {
   bytes: 1,
   width: 1,
   height: 1,
+}
+
+const fileRef: FileAttachmentRef = {
+  attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+  name: 'notes.txt',
+  bytes: 8,
 }
 
 function requestImage(value: ImageAttachmentRef, data: Uint8Array): RequestImageAttachment {
@@ -42,8 +50,14 @@ function projectionStore(
   ) => Promise<RequestImageAttachment> = vi.fn((value: ImageAttachmentRef) => (
     Promise.resolve(requestImage(value, Uint8Array.of(1)))
   )),
+  readFile: (
+    value: FileAttachmentRef,
+    signal?: AbortSignal,
+  ) => Promise<StoredFileAttachment> = vi.fn((value: FileAttachmentRef) => (
+    Promise.resolve({ ref: value, data: new TextEncoder().encode('line one') })
+  )),
 ): AttachmentStore {
-  return { readImageRequest } as unknown as AttachmentStore
+  return { readImageRequest, readFile } as unknown as AttachmentStore
 }
 
 const attachments = projectionStore()
@@ -108,6 +122,21 @@ describe('pi-ai request context conversion', () => {
       toolCallId: callId,
       content: [{ type: 'image', attachment: ref }],
     }])]))).toThrow(/durable attachment service/)
+
+    expect(() => toPiContext(request([user([{ type: 'file', attachment: fileRef }])])))
+      .toThrow(/durable attachment service/)
+  })
+
+  it('resolves a user file block into its lowered text alongside plain text content', async () => {
+    const context = await toPiContext(request([
+      user([{ type: 'text', text: 'see attached' }, { type: 'file', attachment: fileRef }]),
+    ]), attachments)
+
+    expect(context.messages).toEqual([{
+      role: 'user',
+      content: `see attached${lowerFileBlockText('notes.txt', 'line one', fileRef.bytes)}`,
+      timestamp: 0,
+    }])
   })
 
   it('resolves user and tool-result images while preserving explicit fallbacks', async () => {

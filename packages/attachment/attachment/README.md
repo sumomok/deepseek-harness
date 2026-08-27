@@ -8,6 +8,8 @@ Unsent composer images remain browser-owned temporary drafts. `validateImage` ru
 
 `admitEncodedImages(attachments, images)` is the shared wire entry used by every RPC endpoint that accepts browser uploads (the session prompt endpoint and the command executor): it enforces canonical base64 on every member, then delegates batch admission — limits, validation, ordered commit — to `saveImages`. The base64 upload form is `EncodedImageAttachment`, exported from `@deepseek-ai/dsh-attachment/types` so wire contracts can reference it.
 
+Text files follow the same seam, mirrored: `validateFile`/`saveFiles`/`saveFile`/`readFile` and `FileAttachmentRef`/`SaveFileAttachment`/`StoredFileAttachment` parallel their image counterparts one for one. A `FileAttachmentRef` always carries a `name` (a file card has nothing else to show); it carries no media type, width, or height — those concepts do not apply to text. `admitEncodedFiles(attachments, files)` is the file wire entry: its upload form, `EncodedFileAttachment`, carries plain UTF-8 text rather than base64 (there is no binary transport ambiguity to canonicalize), and admission re-encodes it to bytes so `saveFiles` validates every upload at the byte level regardless of transport. `AttachmentError.code`'s `FileAdmissionErrorCode` subset (`TOO_MANY_FILES`, `FILES_TOO_LARGE`, `FILE_TOO_LARGE`, `NOT_TEXT_FILE`, `INVALID_FILE_NAME`) marks caller-correctable file-input failures; `isFileAdmissionError` recognizes that subset at runtime.
+
 ## Model Experience
 
 Indirectly, through the role-neutral core `ImageBlock` and provider adapters that resolve its durable reference into an exact request version. Request descriptors expose the complete attachment id and actual request dimensions.
@@ -18,6 +20,6 @@ Adding an image changes the provider request and therefore invalidates the affec
 
 ## Known Limitations and Deferred Work
 
-- Version one accepts PNG, JPEG, WebP, and GIF only.
+- Version one accepts PNG, JPEG, WebP, and GIF images, plus UTF-8 text files of any extension.
 - Retention and garbage collection are deferred because resumed and forked sessions may share immutable objects.
-- Generic files, audio, video, and persistent unsent drafts require separate lifecycle and provider contracts.
+- Audio, video, and persistent unsent drafts require separate lifecycle and provider contracts.

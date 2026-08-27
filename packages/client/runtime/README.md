@@ -80,6 +80,10 @@ A `turn/end` whose reason is `max-tokens` projects one `turn-max-tokens` node at
 
 Each resident `Session` owns a `modelSelection` snapshot containing the current `ModelSelection`, provider-grouped directory, provider-local failures, and the `idle`/`loading`/`ready`/`selecting`/`error` state. History establishes or refreshes the current selection, opening a selector refreshes the directory, and selection failures preserve the last selection and usable groups. Directory and selection operations share a monotonically increasing generation so an older response cannot overwrite a newer selection. A reconnect rebuild restores the selection reported by the Host without replacing unchanged selection substructure.
 
+## The `referent/open` seam
+
+`dispatchReferentOpen(ctx, ref, onDefault)` dispatches one ROOT-scope cordis waterfall event, `referent/open`, that every "open this reference" user gesture in the browser conversation UI runs through before falling back to its own default action. `ReferentRef` carries a reference only — `kind` (merge-extensible through `ReferentKindMap`, seeded with `file`/`dir`/`url`), `target`, `raw`, an optional `attachment` and `sessionId`, `source`, and `provenance` (`'structured' | 'model-text' | 'tool-output' | 'user-text'`) — never the referenced content. A listener claims the click by returning without calling `next()`; calling `next()` delegates to the next-registered listener or, once none remain, to the caller-supplied default. A listener that throws or rejects is caught, logged, and treated as an implicit `next()` call, so a click always resolves to some open action; `dispatchReferentOpen` memoizes the default action's own promise so a listener that throws only after successfully delegating never re-runs the default or masks its real failure. Dispatch sites are user-gesture handlers only, never automatic delivery, since a claim is trusted to run side effects.
+
 ## Model Experience
 
 None, as the session object layer selects the provider/model route used by a later Host request but adds no model-visible content.

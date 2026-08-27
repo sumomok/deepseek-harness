@@ -6,6 +6,7 @@
  * @module @deepseek-ai/dsh-token-meter/estimate
  */
 
+import { DEFAULT_MAX_LOWERED_FILE_CHARS } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, Message } from '@deepseek-ai/dsh-llm'
 import type { EpochHeader } from '@deepseek-ai/dsh-session'
 
@@ -38,6 +39,15 @@ export function estimateContent(blocks: readonly ContentBlock[]): number {
         break
       case 'tool-result':
         tokens += estimateContent(block.content) + BLOCK_OVERHEAD
+        break
+      case 'file':
+        // Priced by the model-visible lowered text (request materialization
+        // caps at DEFAULT_MAX_LOWERED_FILE_CHARS), not the small durable
+        // reference's own JSON size — unlike an image, a file's exact
+        // request-time text is already known without a provider-specific
+        // formula, so the generic structural-JSON default below would
+        // undercount it badly.
+        tokens += Math.ceil(Math.min(block.attachment.bytes, DEFAULT_MAX_LOWERED_FILE_CHARS) / CHARS_PER_TOKEN) + BLOCK_OVERHEAD
         break
       default:
         // ContentBlockMap is merge-extensible; unknown blocks retain a

@@ -13,7 +13,10 @@ import {
   type Stream,
 } from '@agentclientprotocol/sdk'
 import AttachmentStore, { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type {
+  FileAttachmentLimits, FileAttachmentRef, ImageAttachmentLimits, ImageAttachmentRef,
+  SaveImageAttachment, StoredFileAttachment, StoredImageAttachment,
+} from '@deepseek-ai/dsh-attachment'
 import { type GenerateOptions, LlmAdapter, type LlmResolvedModelInfo, type StreamChunk } from '@deepseek-ai/dsh-llm'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import { mountAgentLoopTestDependencies } from '@deepseek-ai/dsh-agent-loop-testkit'
@@ -86,9 +89,16 @@ const IMAGE_LIMITS: ImageAttachmentLimits = {
   mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
 }
 
+const FILE_LIMITS: FileAttachmentLimits = {
+  maxFileBytes: 1024,
+  maxFilesPerMessage: 4,
+  maxMessageFileBytes: 2048,
+}
+
 /** In-memory durable store for ACP wire-order and lifecycle tests. */
 class MemoryAttachmentStore extends AttachmentStore {
   readonly imageLimits = IMAGE_LIMITS
+  readonly fileLimits = FILE_LIMITS
   readonly saved: SaveImageAttachment[] = []
   readonly objects = new Map<string, StoredImageAttachment>()
   beforeValidate: (() => Promise<void>) | undefined
@@ -118,6 +128,18 @@ class MemoryAttachmentStore extends AttachmentStore {
     const stored = this.objects.get(ref.attachmentId)
     if (stored === undefined) throw new AttachmentError('Attachment object is missing.', 'ATTACHMENT_NOT_FOUND')
     return { ref: stored.ref, data: Uint8Array.from(stored.data) }
+  }
+
+  validateFile(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  saveFile(): Promise<FileAttachmentRef> {
+    throw new Error('not used')
+  }
+
+  readFile(): Promise<StoredFileAttachment> {
+    throw new Error('not used')
   }
 }
 

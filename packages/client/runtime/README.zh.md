@@ -82,6 +82,10 @@ reason 为 `max-tokens` 的 `turn/end` 会在该轮位置投影出一个 `turn-m
 
 每个常驻 `Session` 都拥有一个 `modelSelection` 快照，其中包含当前模型选择、按提供方分组的目录、逐提供方失败记录，以及 `idle`／`loading`／`ready`／`selecting`／`error` 状态。历史记录会建立或刷新当前模型选择，打开选择器会刷新目录；选择失败会保留上一次模型选择和可用分组。目录与选择操作共用单调递增的代次，因此较旧响应无法覆盖较新的模型选择。重连重建会恢复 Host 报告的模型选择，同时不替换未变化的选择子结构。
 
+## `referent/open` 缝隙
+
+`dispatchReferentOpen(ctx, ref, onDefault)` 派发一个 ROOT 作用域的 cordis waterfall 事件 `referent/open`；浏览器会话 UI 中每一次「打开该引用」的用户手势都先经过它，再回落到自己的默认打开动作。`ReferentRef` 只携带引用本身——`kind`（经 `ReferentKindMap` 可合并扩展，预置 `file`／`dir`／`url`）、`target`、`raw`、可选的 `attachment` 与 `sessionId`、`source`，以及 `provenance`（`'structured' | 'model-text' | 'tool-output' | 'user-text'`）——从不携带被引用的内容本身。监听者不调用 `next()` 直接返回即为认领该次点击；调用 `next()` 会转交给下一个已注册的监听者，若已无监听者则转交调用方提供的默认动作。抛出异常或拒绝的监听者会被捕获并记录日志，按等同于隐式调用了 `next()` 处理，因此一次点击总能落到某个打开动作上；`dispatchReferentOpen` 会记忆默认动作自身的 promise，因此一个监听者在成功转交之后才抛出的异常，既不会让默认动作重新执行，也不会掩盖它自身的真实失败。派发点只出现在用户手势处理函数中，从不出现在自动投递路径上，因为认领会被信任去执行副作用。
+
 ## 模型体验
 
 无，因为会话对象层会选择后续 Host 请求使用的提供方／模型路由，但不添加任何模型可见内容。

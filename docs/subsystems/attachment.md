@@ -1,10 +1,10 @@
-# Durable Image Attachments
+# Durable Attachments
 
 English | [中文](attachment.zh.md)
 
-The attachment seam separates binary image ownership from the session log. A producer gives validated encoded bytes to [`ctx.attachments`](#ctxattachments--attachmentstore-abstract-seam); the service publishes an immutable content-addressed reference only after the object is durable. Session events and model-visible `ImageBlock`s contain that reference and metadata, never a browser object URL, host temporary path, provider URL, or base64 payload.
+The attachment seam separates binary image and text-file ownership from the session log. A producer gives validated encoded bytes to [`ctx.attachments`](#ctxattachments--attachmentstore-abstract-seam); the service publishes an immutable content-addressed reference only after the object is durable. Session events and model-visible `ImageBlock`s/`FileBlock`s contain that reference and metadata, never a browser object URL, host temporary path, provider URL, base64 payload, or inline text.
 
-Unsent browser drafts may stay in memory and native clients may stage them in operating-system temporary storage. Once the host accepts a user message, its images move below `<DSH_HOME>/attachments/v1` before the user event is appended. Structured model image output follows the same persist-before-event rule.
+Unsent browser drafts may stay in memory and native clients may stage them in operating-system temporary storage. Once the host accepts a user message, its images and files move below `<DSH_HOME>/attachments/v1` before the user event is appended — both kinds share the same content-addressed object tree. Structured model image output follows the same persist-before-event rule.
 
 Source: [`packages/attachment/attachment/src/types.ts`](../../packages/attachment/attachment/src/types.ts)
 
@@ -127,6 +127,61 @@ interface RequestImageAttachment {
 
 `saveImage()` prepares and atomically commits a provider-independent normalized attachment before returning its `ImageAttachmentRef`. `saveImages()` prepares every validated attachment once before publishing the batch, so validation rejection leaves no partial objects and publication does not repeat decoding or quality selection. `admitEncodedImages()` is the wire entry for base64 uploads and delegates count, aggregate-byte, and ordered batch admission to `saveImages()`. `readImage()` verifies a normalized attachment from an authorized session path. `readImageRequest()` derives and caches one request version under an exact route pixel and byte budget; new entries are fully decoded before publication, while cache hits use a bounded metadata probe. Callers use `Promise.all` over the singular method when they need an ordered batch. The local implementation lazily encodes preferred candidates, singleflights equal request identities, lets each waiter cancel independently, stops shared work when no waiter remains, and bounds all transforms with its instance-level limiter, which defaults to two simultaneous transformations. The service is retention-neutral: resumed and forked sessions may share objects, so reference-aware garbage collection is deferred rather than tied to one session's deletion.
 
+## Text file attachments
+
+A `FileAttachmentRef.name` is always present, unlike an image's optional `name` — a file card has nothing else to show. There is no media type, width, height, or request-projection method: a file is stored unchanged (no normalization, no derived request form) and is lowered to plain text only at request time, by the LLM adapter that dispatches it, never by this seam.
+
+```ts type-equiv
+/** Deployment-resolved limits used by text-file upload admission. */
+interface FileAttachmentLimits {
+  maxFilesPerMessage: number
+  maxMessageFileBytes: number
+  /** Maximum encoded UTF-8 bytes accepted for one submitted file. */
+  maxFileBytes: number
+}
+```
+
+```ts type-equiv
+/** Durable, serializable reference to one immutable stored text file. */
+interface FileAttachmentRef {
+  /** Opaque storage identifier; never a filesystem path or bearer URL. */
+  attachmentId: AttachmentId
+  /** Display name stripped of local path information; always present, unlike an image's optional name. */
+  name: string
+  /** Exact stored UTF-8 byte length. */
+  bytes: number
+}
+```
+
+```ts type-equiv
+/** Wire-form text-file upload accompanying one wire request; plain text, never base64. */
+interface EncodedFileAttachment {
+  /** Display name; it is never interpreted as a path. */
+  name: string
+  /** Complete file content. */
+  text: string
+}
+```
+
+```ts type-equiv
+/** Request to validate and durably commit one text file. */
+interface SaveFileAttachment {
+  data: Uint8Array
+  /** Display name; it is never interpreted as a path. */
+  name: string
+}
+```
+
+```ts type-equiv
+/** Stored file bytes returned after reference and digest verification. */
+interface StoredFileAttachment {
+  ref: FileAttachmentRef
+  data: Uint8Array
+}
+```
+
+`saveFile()` validates then durably commits one text file, content-addressed by its own SHA-256 digest, sharing the same `objects/` tree images already populate. `saveFiles()` validates every member of an ordered batch before publishing any of them, the same validate-all-then-commit discipline `saveImages()` uses. `admitEncodedFiles()` is the wire entry for plain-text uploads (re-encoded to UTF-8 bytes) and delegates admission to `saveFiles()`. `readFile()` verifies a stored file's bytes against its recorded reference from an authorized session path. Text validation — strict UTF-8 decoding, rejecting a NUL byte or an invalid byte sequence — happens once, in the concrete backend's `saveFile`/`saveFiles`, the parser boundary for submitted content.
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -184,6 +239,37 @@ abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<Store
  * @returns request bytes and the cache/upload identity covering every transform input.
  */
 readImageRequest( ref: ImageAttachmentRef, policy: ImageRequestPolicy, signal?: AbortSignal, ): Promise<RequestImageAttachment>
+
+/**
+ * Validate one text file without persisting it.
+ * Batch callers validate every member before saving any member.
+ * @param input - encoded bytes and display name.
+ * @returns completion after the bytes have been proven valid UTF-8 text.
+ */
+abstract validateFile(input: SaveFileAttachment): Promise<void>
+
+/**
+ * Validate and durably commit one ordered file batch.
+ * @param inputs - encoded files in owning-message order.
+ * @returns durable file references in the same order after every member succeeds.
+ */
+async saveFiles(inputs: readonly SaveFileAttachment[]): Promise<readonly FileAttachmentRef[]>
+
+/**
+ * Validate and durably commit one text file before its owning session event is appended.
+ * @param input - encoded bytes and display name.
+ * @returns the durable content-addressed file reference.
+ */
+abstract saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef>
+
+/**
+ * Read one text file and verify that bytes still match the recorded reference.
+ * @param ref - durable reference from the session log.
+ * @param signal - optional cancellation for backend read and verification work.
+ * @returns the verified bytes and file reference.
+ * @throws the signal reason when aborted, or a storage error when verification fails.
+ */
+abstract readFile(ref: FileAttachmentRef, signal?: AbortSignal): Promise<StoredFileAttachment>
 ```
 
 Source: [`packages/attachment/attachment/src/index.ts`](../../packages/attachment/attachment/src/index.ts)

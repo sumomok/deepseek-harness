@@ -1,10 +1,10 @@
-# 持久图片附件
+# 持久附件
 
 [English](attachment.md) | 中文
 
-附件 seam 将二进制图片的所有权与会话日志分离。生产方把经过校验的编码字节交给 [`ctx.attachments`](#ctxattachments--attachmentstore-abstract-seam)；只有对象完成持久化后，该服务才会发布不可变的内容寻址引用。会话事件和模型可见的 `ImageBlock` 包含该引用及其元数据，绝不包含浏览器对象 URL、宿主临时路径、提供方 URL 或 base64 数据。
+附件 seam 将二进制图片与文本文件的所有权与会话日志分离。生产方把经过校验的编码字节交给 [`ctx.attachments`](#ctxattachments--attachmentstore-abstract-seam)；只有对象完成持久化后，该服务才会发布不可变的内容寻址引用。会话事件和模型可见的 `ImageBlock`/`FileBlock` 包含该引用及其元数据，绝不包含浏览器对象 URL、宿主临时路径、提供方 URL、base64 数据或内联文本。
 
-未发送的浏览器草稿可以保留在内存中，原生客户端也可以将其暂存于操作系统临时存储。宿主接受用户消息后，会先把消息中的图片移到 `<DSH_HOME>/attachments/v1` 下，再追加用户事件。结构化模型图片输出遵循同样的先持久化、后追加事件规则。
+未发送的浏览器草稿可以保留在内存中，原生客户端也可以将其暂存于操作系统临时存储。宿主接受用户消息后，会先把消息中的图片与文件移到 `<DSH_HOME>/attachments/v1` 下，再追加用户事件——两种附件共享同一棵内容寻址对象树。结构化模型图片输出遵循同样的先持久化、后追加事件规则。
 
 来源：[`packages/attachment/attachment/src/types.ts`](../../packages/attachment/attachment/src/types.ts)
 
@@ -127,6 +127,61 @@ interface RequestImageAttachment {
 
 `saveImage()` 准备并原子提交提供方无关的规范化附件，然后直接返回 `ImageAttachmentRef`。`saveImages()` 在发布批次前为每个成员各准备一次经过验证的附件，因此校验拒绝不会留下部分对象，发布也不会重复解码或选择质量。`admitEncodedImages()` 是面向 base64 上传的 wire 入口，把张数、聚合字节和有序批量准入交给 `saveImages()`。`readImage()` 校验来自已授权会话路径的规范化附件。`readImageRequest()` 按确切路由的像素和字节预算派生并缓存请求版本；新条目在发布前完整解码，缓存命中只做有界元数据探测。调用方需要有序批次时，对单数方法使用 `Promise.all`。本地实现按需编码首选候选、合并相同请求身份的并发任务、允许每个等待方单独取消、没有等待方时停止共享任务，并通过实例级限流器限制全部变换，默认同时执行两项。该服务不规定保留策略：恢复和 fork 后的会话可能共享对象，因此基于引用的垃圾回收会延期实现，不与单个会话的删除绑定。
 
+## 文本文件附件
+
+`FileAttachmentRef.name` 始终存在，不同于图片可选的 `name`——文件卡片除此之外没有可展示的内容。没有媒体类型、宽度、高度，也没有请求投影方法：文件按原样存储（没有规范化，也没有派生的请求形式），只在请求时才被降级为纯文本，而且是由分发它的 LLM 适配器完成，绝非这个服务边界本身。
+
+```ts type-equiv
+/** Deployment-resolved limits used by text-file upload admission. */
+interface FileAttachmentLimits {
+  maxFilesPerMessage: number
+  maxMessageFileBytes: number
+  /** Maximum encoded UTF-8 bytes accepted for one submitted file. */
+  maxFileBytes: number
+}
+```
+
+```ts type-equiv
+/** Durable, serializable reference to one immutable stored text file. */
+interface FileAttachmentRef {
+  /** Opaque storage identifier; never a filesystem path or bearer URL. */
+  attachmentId: AttachmentId
+  /** Display name stripped of local path information; always present, unlike an image's optional name. */
+  name: string
+  /** Exact stored UTF-8 byte length. */
+  bytes: number
+}
+```
+
+```ts type-equiv
+/** Wire-form text-file upload accompanying one wire request; plain text, never base64. */
+interface EncodedFileAttachment {
+  /** Display name; it is never interpreted as a path. */
+  name: string
+  /** Complete file content. */
+  text: string
+}
+```
+
+```ts type-equiv
+/** Request to validate and durably commit one text file. */
+interface SaveFileAttachment {
+  data: Uint8Array
+  /** Display name; it is never interpreted as a path. */
+  name: string
+}
+```
+
+```ts type-equiv
+/** Stored file bytes returned after reference and digest verification. */
+interface StoredFileAttachment {
+  ref: FileAttachmentRef
+  data: Uint8Array
+}
+```
+
+`saveFile()` 校验后原子持久提交一个文本文件，以其自身的 SHA-256 摘要寻址，与图片已经占用的同一个 `objects/` 目录树共享。`saveFiles()` 在发布有序批次中的任何成员之前校验全部成员，与 `saveImages()` 相同的“先校验全部、再提交”纪律。`admitEncodedFiles()` 是面向纯文本上传的 wire 入口（重新编码为 UTF-8 字节），把准入工作交给 `saveFiles()`。`readFile()` 校验来自已授权会话路径的存储文件字节是否仍与记录的引用一致。文本校验——严格的 UTF-8 解码，拒绝 NUL 字节或非法字节序列——只发生一次，在具体后端的 `saveFile`/`saveFiles` 里完成，那里是提交内容的解析边界。
+
 <!-- BEGIN GENERATED cordis-surface (gen-cordis-catalog.ts) — do not edit between markers -->
 
 <a id="cordis-surface"></a>
@@ -184,6 +239,37 @@ abstract readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<Store
  * @returns request bytes and the cache/upload identity covering every transform input.
  */
 readImageRequest( ref: ImageAttachmentRef, policy: ImageRequestPolicy, signal?: AbortSignal, ): Promise<RequestImageAttachment>
+
+/**
+ * Validate one text file without persisting it.
+ * Batch callers validate every member before saving any member.
+ * @param input - encoded bytes and display name.
+ * @returns completion after the bytes have been proven valid UTF-8 text.
+ */
+abstract validateFile(input: SaveFileAttachment): Promise<void>
+
+/**
+ * Validate and durably commit one ordered file batch.
+ * @param inputs - encoded files in owning-message order.
+ * @returns durable file references in the same order after every member succeeds.
+ */
+async saveFiles(inputs: readonly SaveFileAttachment[]): Promise<readonly FileAttachmentRef[]>
+
+/**
+ * Validate and durably commit one text file before its owning session event is appended.
+ * @param input - encoded bytes and display name.
+ * @returns the durable content-addressed file reference.
+ */
+abstract saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef>
+
+/**
+ * Read one text file and verify that bytes still match the recorded reference.
+ * @param ref - durable reference from the session log.
+ * @param signal - optional cancellation for backend read and verification work.
+ * @returns the verified bytes and file reference.
+ * @throws the signal reason when aborted, or a storage error when verification fails.
+ */
+abstract readFile(ref: FileAttachmentRef, signal?: AbortSignal): Promise<StoredFileAttachment>
 ```
 
 Source: [`packages/attachment/attachment/src/index.ts`](../../packages/attachment/attachment/src/index.ts)

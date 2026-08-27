@@ -3,27 +3,36 @@
 import { Context, Service } from '@deepseek-ai/cordis'
 import { AttachmentError } from './error.ts'
 import type {
+  FileAttachmentLimits,
+  FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
   ImageRequestPolicy,
   RequestImageAttachment,
+  SaveFileAttachment,
   SaveImageAttachment,
+  StoredFileAttachment,
   StoredImageAttachment,
 } from './types.ts'
 
 export { AttachmentId, ImageVariantId } from './brand.ts'
-export { AttachmentError, isImageAdmissionError } from './error.ts'
-export type { AttachmentErrorCode, ImageAdmissionErrorCode } from './error.ts'
-export { admitEncodedImages } from './admission.ts'
+export { AttachmentError, isFileAdmissionError, isImageAdmissionError } from './error.ts'
+export type { AttachmentErrorCode, FileAdmissionErrorCode, ImageAdmissionErrorCode } from './error.ts'
+export { admitEncodedFiles, admitEncodedImages } from './admission.ts'
 export type {
   AttachmentId as AttachmentIdType,
+  EncodedFileAttachment,
   EncodedImageAttachment,
+  FileAttachmentLimits,
+  FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
   ImageRequestPolicy,
   ImageMediaType,
   RequestImageAttachment,
+  SaveFileAttachment,
   SaveImageAttachment,
+  StoredFileAttachment,
   StoredImageAttachment,
 } from './types.ts'
 
@@ -127,6 +136,66 @@ export abstract class AttachmentStore extends Service {
       'ATTACHMENT_PROJECTION_UNSUPPORTED',
     ))
   }
+
+  /** Deployment-resolved file policy used by authoritative and fast-path validation. */
+  abstract readonly fileLimits: FileAttachmentLimits
+
+  /**
+   * Validate one text file without persisting it.
+   * Batch callers validate every member before saving any member.
+   * @param input - encoded bytes and display name.
+   * @returns completion after the bytes have been proven valid UTF-8 text.
+   */
+  abstract validateFile(input: SaveFileAttachment): Promise<void>
+
+  /**
+   * Validate one ordered file batch before committing any member.
+   * Validation failures start no writes; storage failures return no partial
+   * references, although already published content-addressed objects may stay
+   * unreachable until a future retention policy collects them.
+   * @param inputs - encoded files in their owning message order.
+   * @returns durable references in the exact input order.
+   */
+  protected validateFileBatch(inputs: readonly SaveFileAttachment[]): void {
+    const { maxFilesPerMessage, maxMessageFileBytes } = this.fileLimits
+    if (inputs.length > maxFilesPerMessage) {
+      throw new AttachmentError('File batch exceeds the configured file-count limit.', 'TOO_MANY_FILES')
+    }
+    const totalBytes = inputs.reduce((sum, input) => sum + input.data.byteLength, 0)
+    if (totalBytes > maxMessageFileBytes) {
+      throw new AttachmentError('File batch exceeds the configured aggregate file-byte limit.', 'FILES_TOO_LARGE')
+    }
+  }
+
+  /**
+   * Validate and durably commit one ordered file batch.
+   * @param inputs - encoded files in owning-message order.
+   * @returns durable file references in the same order after every member succeeds.
+   */
+  async saveFiles(inputs: readonly SaveFileAttachment[]): Promise<readonly FileAttachmentRef[]> {
+    this.validateFileBatch(inputs)
+    for (const input of inputs) await this.validateFile(input)
+
+    const refs: FileAttachmentRef[] = []
+    for (const input of inputs) refs.push(await this.saveFile(input))
+    return refs
+  }
+
+  /**
+   * Validate and durably commit one text file before its owning session event is appended.
+   * @param input - encoded bytes and display name.
+   * @returns the durable content-addressed file reference.
+   */
+  abstract saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef>
+
+  /**
+   * Read one text file and verify that bytes still match the recorded reference.
+   * @param ref - durable reference from the session log.
+   * @param signal - optional cancellation for backend read and verification work.
+   * @returns the verified bytes and file reference.
+   * @throws the signal reason when aborted, or a storage error when verification fails.
+   */
+  abstract readFile(ref: FileAttachmentRef, signal?: AbortSignal): Promise<StoredFileAttachment>
 
 }
 

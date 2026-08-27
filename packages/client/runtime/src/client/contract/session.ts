@@ -7,7 +7,7 @@
  * must stub); runtime-internal entry points (history staging, wire-frame
  * dispatch) stay on the class, invisible out here.
  */
-import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   MessageId, PromptContentPart, QueueAction, RpcResult, SessionId,
 } from '@deepseek-ai/dsh-api-remotes/client'
@@ -51,6 +51,15 @@ export interface ISession {
   readAttachment(
     attachmentId: AttachmentIdType,
   ): Promise<RpcResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>>
+  /**
+   * Resolve one durable text file referenced by this session. Plain UTF-8
+   * text, not base64: a file has no binary transport ambiguity to canonicalize.
+   * @param attachmentId - opaque id found in the folded session log.
+   * @returns the authenticated reference and decoded text.
+   */
+  readFile(
+    attachmentId: AttachmentIdType,
+  ): Promise<RpcResult<{ attachment: FileAttachmentRef; text: string }>>
   /**
    * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.

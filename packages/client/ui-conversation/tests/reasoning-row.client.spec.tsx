@@ -38,6 +38,8 @@ afterEach(() => {
 
 const t = makeTranslate(zh, commonZh)
 const renderMessageImages: AssistantMarkdownProps['renderMessageImages'] = () => null
+const loadFile: AssistantMarkdownProps['loadFile'] = () => Promise.reject(new Error('loadFile not stubbed'))
+const openReferent: AssistantMarkdownProps['openReferent'] = () => Promise.resolve()
 
 describe('ReasoningRow', () => {
   it('follows the latest streaming line, scrolls to its end, then restores the settled first line', () => {
@@ -47,6 +49,8 @@ describe('ReasoningRow', () => {
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens' }]}
         streaming
         renderMessageImages={renderMessageImages}
+        loadFile={loadFile}
+        openReferent={openReferent}
       />,
     )
     expect(view.getByText('运行中')).toBeTruthy()
@@ -62,6 +66,8 @@ describe('ReasoningRow', () => {
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens keep arriving' }]}
         streaming
         renderMessageImages={renderMessageImages}
+        loadFile={loadFile}
+        openReferent={openReferent}
       />,
     )
     expect(summary.scrollLeft).toBe(0)
@@ -77,6 +83,8 @@ describe('ReasoningRow', () => {
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens keep arriving\n' }]}
         streaming={false}
         renderMessageImages={renderMessageImages}
+        loadFile={loadFile}
+        openReferent={openReferent}
       />,
     )
     flushAnimationFrames(3)
@@ -93,6 +101,8 @@ describe('ReasoningRow', () => {
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
         streaming={false}
         renderMessageImages={renderMessageImages}
+        loadFile={loadFile}
+        openReferent={openReferent}
       />,
     )
     const row = view.getByRole('button')
@@ -112,6 +122,8 @@ describe('ReasoningRow', () => {
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
         streaming={false}
         renderMessageImages={renderMessageImages}
+        loadFile={loadFile}
+        openReferent={openReferent}
       />,
     )
     fireEvent.click(view.getByText('Think'))
