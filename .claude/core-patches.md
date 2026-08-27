@@ -71,3 +71,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：文本文件在 composer 侧与图片享有同等的草稿态、拖放/粘贴准入与呈现；混合批次按内容正确拆分路由，不再整批拒收；斜杠命令提交显式不接文件（静默排除，非本系列范围）；`ui-attachment/src/*` 无覆盖率豁免下逐文件 100% 覆盖，`ui-conversation/src/client/skeleton/*` 与 `contract/*`（不在既有单星号豁免 glob 内）同样逐文件 100%；仓库级两个 `tsc -b` 聚合门面、`oxlint`、`jscpd`、`pnpm run doc-sync` 全部 28 门均干净。
 - **退役条件**：上游自己的 composer 以任何形式泛化为接受非图片附件（草稿附件形态、拖放/粘贴准入、附件栏/文件条呈现），即退役该覆盖层，依赖插件适配上游形式。
 - **状态**：在役
+
+## feat(ui-conversation,client-runtime): file-part bubble card and the referent/open seam — fabc93555c
+- **改了什么**：新增 `packages/client/runtime/src/client/referent.ts`——一个 ROOT 作用域 cordis waterfall 事件 `referent/open`（经声明合并接入 `Events`），`dispatchReferentOpen(ctx, ref, onDefault)` 负责派发，`ReferentRef.kind` 经 `ReferentKindMap` 可合并扩展。`apply.ts` 的 `openFile` 闭包改为先派发该缝隙再回落到既有的 `workspaces.openPath`。新增 `FileCard.tsx`，被 `MessageItem.tsx`（用户气泡）与 `AssistantMarkdown.tsx`（Assistant block）直接内联渲染 `{kind:'file'}` 分片；点击同样先派发 `referent/open`，落空后切换内联展开/收起，经新增的 `loadFile`／`ISession.readFile`（对偶于既有 `loadImage`／`readAttachment`）惰性抓取文本。`Session.prompt()` 对送到可续接子智能体的文件分片新增 `SUBAGENT_FILE_UNSUPPORTED` 拒收，对偶于既有的 `SUBAGENT_IMAGE_UNSUPPORTED`（此前该分片被静默丢弃）。`scripts/gen-cordis-catalog.ts` 的 `EVENT_WALK_EXEMPTIONS` 补上 `referent/open`（客户端专属事件，对偶于同包既有的 `connection/reset` 记录）。
+- **为什么**：此前几个提交把文件送上了 wire、日志与请求物化，也接进了 composer 草稿，但已发送的文件分片在消息气泡里完全不渲染，也没有任何缝隙能让插件拦截对一个文件/目录引用的点击——`openFile` 此前直接请 Host 打开路径，没有中间层。
+- **要达到的效果**：`referent/open` 让产物文件条、Tool 行、消息内提及与新的文件卡片点击在一处缝隙上统一变得可拦截，零监听者时行为字节不变（原样重跑既有 `apply-inject.client.spec.tsx` 11/11 通过证实）；文件分片现在与图片分片一样，在消息流里可见、可展开读取原文；子智能体续接对图片与文件两类附件的拒收方式完全对称。`packages/client/runtime`／`ui-conversation/src/client/**`／`ui-trajectory/src/client/**` 在当前 vitest 配置下经实测确认整棵子树豁免于逐文件 100% 覆盖率门（细节见本提交 Agent Note），`packages/test-support/client-runtime/src/sessions.ts` 不豁免、已补齐覆盖；仓库级两个 `tsc -b` 聚合门面、`oxlint`、`jscpd`、`pnpm run doc-sync` 全部 28 门均干净。
+- **退役条件**：上游自己的会话 UI 原生渲染文件内容分片、并暴露出等价的打开/引用拦截缝隙，即退役该覆盖层，依赖插件适配上游形式。
+- **状态**：在役
