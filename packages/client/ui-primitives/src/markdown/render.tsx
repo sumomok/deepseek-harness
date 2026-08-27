@@ -9,7 +9,10 @@
  * absolute HTTP(S), raw HTML renders as literal text (no HTML enters the
  * DOM), and KaTeX runs without trusted commands. Fragment-anchor URLs fail
  * the allowlist, so footnote references and back-references render as plain
- * text rather than in-page links.
+ * text rather than in-page links. A link whose destination fails the
+ * allowlist keeps its link text and shows the destination as trailing inert
+ * text (`text (destination)`) rather than discarding it — a policy change
+ * from the replaced pipeline, which rendered the link text alone.
  *
  * Merge-extensible node unions fall through the documented default (render
  * nothing) rather than ending in assertNever: grammars registered elsewhere
@@ -465,10 +468,17 @@ function renderTableRow(
   return <tr key={key}>{cells}</tr>
 }
 
-/** Anchor over an already-authored href: allowlisted or unwrapped, external links get the safe attributes. */
+/**
+ * Anchor over an already-authored href: allowlisted or unwrapped, external
+ * links get the safe attributes. A destination the allowlist rejects (a
+ * relative or otherwise unsupported scheme) still renders — as the link text
+ * followed by the destination in visible, inert prose — so a reader can see
+ * that a link was authored and where it pointed, instead of the destination
+ * silently vanishing.
+ */
 function renderSafeLink(href: string, children: ReactNode[], key: Key): ReactNode {
   const safeHref = sanitizeUrl(href)
-  if (safeHref === '') return <Fragment key={key}>{children}</Fragment>
+  if (safeHref === '') return <Fragment key={key}>{children}{` (${href})`}</Fragment>
   const external = ['http:', 'https:'].includes(new URL(safeHref).protocol)
   return (
     <a
