@@ -67,7 +67,7 @@ While a reply streams, `MarkdownText` parses incrementally: all but the trailing
 
 ### Geometry and overflow
 
-The output cards share one geometry model: `white-space: pre` with horizontal scrolling so column-aligned content keeps its alignment, and a head-plus-tail slice behind an expand button past `maxLines` (default 16) so a long body never stretches the card. `TerminalBlock` parses ANSI into React spans with a per-line column buffer for cursor movement, honoring erase-in-line, tab stops, and character width.
+The output cards share one geometry model: `white-space: pre` with horizontal scrolling so column-aligned content keeps its alignment, and a head-plus-tail slice behind an expand button past `maxLines` (default 16) so a long body never stretches the card. `TerminalBlock` parses ANSI into React spans with a per-line column buffer for cursor movement, honoring erase-in-line, tab stops, and character width. `parseAnsiLines` (and its `AnsiLine` result type) — the tokenizer behind that rendering — is a public export, so another renderer can turn the same output into the same styled spans without duplicating the parser.
 
 </details>
 
