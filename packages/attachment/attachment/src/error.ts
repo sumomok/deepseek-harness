@@ -15,9 +15,21 @@ const IMAGE_ADMISSION_ERROR_CODES = [
 /** Caller-correctable attachment failure codes raised while admitting image input. */
 export type ImageAdmissionErrorCode = typeof IMAGE_ADMISSION_ERROR_CODES[number]
 
+const FILE_ADMISSION_ERROR_CODES = [
+  'TOO_MANY_FILES',
+  'FILES_TOO_LARGE',
+  'FILE_TOO_LARGE',
+  'NOT_TEXT_FILE',
+  'INVALID_FILE_NAME',
+] as const
+
+/** Caller-correctable attachment failure codes raised while admitting text-file input. */
+export type FileAdmissionErrorCode = typeof FILE_ADMISSION_ERROR_CODES[number]
+
 /** Stable attachment failure codes used for protocol error routing. */
 export type AttachmentErrorCode =
   | ImageAdmissionErrorCode
+  | FileAdmissionErrorCode
   | 'INVALID_ATTACHMENT_REF'
   | 'ATTACHMENT_CORRUPT'
   | 'ATTACHMENT_WRITE_FAILED'
@@ -27,6 +39,8 @@ export type AttachmentErrorCode =
 
 /** Runtime membership for structurally compatible errors crossing package boundaries. */
 const IMAGE_ADMISSION_ERROR_CODE_SET: ReadonlySet<string> = new Set(IMAGE_ADMISSION_ERROR_CODES)
+/** Runtime membership for structurally compatible errors crossing package boundaries. */
+const FILE_ADMISSION_ERROR_CODE_SET: ReadonlySet<string> = new Set(FILE_ADMISSION_ERROR_CODES)
 
 /**
  * Stable failures suitable for host RPC error mapping.
@@ -65,4 +79,18 @@ export function isImageAdmissionError(
     && 'code' in error
     && typeof error.code === 'string'
     && IMAGE_ADMISSION_ERROR_CODE_SET.has(error.code)
+}
+
+/**
+ * Distinguish caller-correctable text-file admission failures from storage faults.
+ * @param error - failure raised while validating or persisting a file batch.
+ * @returns whether the caller can correct the proposed file content or batch.
+ */
+export function isFileAdmissionError(
+  error: unknown,
+): error is AttachmentError & { readonly code: FileAdmissionErrorCode } {
+  return error instanceof Error
+    && 'code' in error
+    && typeof error.code === 'string'
+    && FILE_ADMISSION_ERROR_CODE_SET.has(error.code)
 }
