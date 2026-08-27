@@ -4,12 +4,16 @@ import AttachmentStore, {
   AttachmentError,
   AttachmentId,
   ImageVariantId,
+  isFileAdmissionError,
   isImageAdmissionError,
+  type FileAttachmentRef,
   type ImageAttachmentRef,
   type ImageMediaType,
   type ImageRequestPolicy,
   type RequestImageAttachment,
+  type SaveFileAttachment,
   type SaveImageAttachment,
+  type StoredFileAttachment,
   type StoredImageAttachment,
 } from '../src/index.ts'
 
@@ -22,11 +26,20 @@ const LIMITS = {
   mediaTypes: ['image/png'] as const,
 }
 
+const FILE_LIMITS = {
+  maxFileBytes: 4,
+  maxFilesPerMessage: 2,
+  maxMessageFileBytes: 5,
+}
+
 class RecordingStore extends AttachmentStore {
   readonly imageLimits = LIMITS
+  readonly fileLimits = FILE_LIMITS
   readonly calls: string[] = []
   rejectValidationAt: number | undefined
   rejectSaveAt: number | undefined
+  fileRejectValidationAt: number | undefined
+  fileRejectSaveAt: number | undefined
 
   async validateImage(input: SaveImageAttachment): Promise<void> {
     const value = input.data[0] ?? 0
@@ -52,6 +65,23 @@ class RecordingStore extends AttachmentStore {
     throw new Error('not used')
   }
 
+  async validateFile(input: SaveFileAttachment): Promise<void> {
+    const value = input.data[0] ?? 0
+    this.calls.push(`file-validate:${value}`)
+    if (value === this.fileRejectValidationAt) throw new Error(`file-invalid:${value}`)
+  }
+
+  async saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef> {
+    const value = input.data[0] ?? 0
+    this.calls.push(`file-save:${value}`)
+    if (value === this.fileRejectSaveAt) throw new Error(`file-write:${value}`)
+    return { attachmentId: AttachmentId(`sha256:${String(value).padStart(64, '0')}`), name: input.name, bytes: input.data.byteLength }
+  }
+
+  readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
+    throw new Error('not used')
+  }
+
   override readImageRequest(
     ref: ImageAttachmentRef,
     _policy: ImageRequestPolicy,
@@ -74,6 +104,7 @@ class RecordingStore extends AttachmentStore {
 
 class UnsupportedProjectionStore extends AttachmentStore {
   readonly imageLimits = LIMITS
+  readonly fileLimits = FILE_LIMITS
 
   validateImage(): Promise<void> {
     return Promise.resolve()
@@ -84,6 +115,18 @@ class UnsupportedProjectionStore extends AttachmentStore {
   }
 
   readImage(): Promise<StoredImageAttachment> {
+    throw new Error('not used')
+  }
+
+  validateFile(): Promise<void> {
+    throw new Error('not used')
+  }
+
+  saveFile(): Promise<FileAttachmentRef> {
+    throw new Error('not used')
+  }
+
+  readFile(): Promise<StoredFileAttachment> {
     throw new Error('not used')
   }
 }
@@ -163,5 +206,59 @@ describe('isImageAdmissionError', () => {
     expect(isImageAdmissionError(new AttachmentError('corrupt object', 'ATTACHMENT_CORRUPT'))).toBe(false)
     expect(isImageAdmissionError(new AttachmentError('disk failed', 'ATTACHMENT_WRITE_FAILED'))).toBe(false)
     expect(isImageAdmissionError(new Error('unknown failure'))).toBe(false)
+  })
+})
+
+function file(value: number): SaveFileAttachment {
+  return { data: Uint8Array.of(value), name: `${value}.txt` }
+}
+
+describe('AttachmentStore.saveFiles', () => {
+  it('validates the complete batch before saving in input order', async () => {
+    const store = new RecordingStore(new Context())
+
+    const refs = await store.saveFiles([file(1), file(2)])
+
+    expect(store.calls).toEqual(['file-validate:1', 'file-validate:2', 'file-save:1', 'file-save:2'])
+    expect(refs.map(ref => ref.name)).toEqual(['1.txt', '2.txt'])
+  })
+
+  it('rejects count and aggregate bytes before validation', async () => {
+    const store = new RecordingStore(new Context())
+
+    await expect(store.saveFiles([file(1), file(2), file(3)]))
+      .rejects.toMatchObject({ code: 'TOO_MANY_FILES' })
+    await expect(store.saveFiles([
+      { data: Uint8Array.of(1, 2, 3), name: 'a.txt' },
+      { data: Uint8Array.of(4, 5, 6), name: 'b.txt' },
+    ])).rejects.toMatchObject({ code: 'FILES_TOO_LARGE' })
+    expect(store.calls).toEqual([])
+  })
+
+  it('starts no writes when any member fails validation', async () => {
+    const store = new RecordingStore(new Context())
+    store.fileRejectValidationAt = 2
+
+    await expect(store.saveFiles([file(1), file(2)])).rejects.toThrow('file-invalid:2')
+    expect(store.calls).toEqual(['file-validate:1', 'file-validate:2'])
+  })
+
+  it('returns no partial references when storage fails after an earlier commit', async () => {
+    const store = new RecordingStore(new Context())
+    store.fileRejectSaveAt = 2
+
+    await expect(store.saveFiles([file(1), file(2)])).rejects.toThrow('file-write:2')
+    expect(store.calls).toEqual(['file-validate:1', 'file-validate:2', 'file-save:1', 'file-save:2'])
+  })
+})
+
+describe('isFileAdmissionError', () => {
+  it('separates caller-correctable file admission failures from storage faults', () => {
+    expect(isFileAdmissionError(new AttachmentError('not text', 'NOT_TEXT_FILE'))).toBe(true)
+    expect(isFileAdmissionError(new AttachmentError('too many', 'TOO_MANY_FILES'))).toBe(true)
+    expect(isFileAdmissionError(Object.assign(new Error('foreign policy error'), { code: 'FILE_TOO_LARGE' }))).toBe(true)
+    expect(isFileAdmissionError(new AttachmentError('corrupt object', 'ATTACHMENT_CORRUPT'))).toBe(false)
+    expect(isFileAdmissionError(new AttachmentError('disk failed', 'ATTACHMENT_WRITE_FAILED'))).toBe(false)
+    expect(isFileAdmissionError(new Error('unknown failure'))).toBe(false)
   })
 })

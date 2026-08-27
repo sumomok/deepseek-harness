@@ -3,7 +3,14 @@
 import { Buffer } from 'node:buffer'
 import { AttachmentError } from './error.ts'
 import type { AttachmentStore } from './index.ts'
-import type { EncodedImageAttachment, ImageAttachmentRef, SaveImageAttachment } from './types.ts'
+import type {
+  EncodedFileAttachment,
+  EncodedImageAttachment,
+  FileAttachmentRef,
+  ImageAttachmentRef,
+  SaveFileAttachment,
+  SaveImageAttachment,
+} from './types.ts'
 
 /** Decode one upload payload while rejecting non-canonical base64 forms. */
 function decodeBase64(data: string): Uint8Array {
@@ -38,4 +45,32 @@ export async function admitEncodedImages(
   images: readonly EncodedImageAttachment[],
 ): Promise<readonly ImageAttachmentRef[]> {
   return attachments.saveImages(images.map(saveInput))
+}
+
+/**
+ * Store input for one wire text-file upload. The wire form carries plain
+ * text, never base64 — encoding it back to UTF-8 bytes lets the seam's
+ * `saveFile` re-validate every upload at the byte level regardless of its
+ * transport, exactly like image bytes decoded from base64.
+ */
+function saveFileInput(file: EncodedFileAttachment): SaveFileAttachment {
+  return { data: new TextEncoder().encode(file.text), name: file.name }
+}
+
+/**
+ * Admit one wire text-file batch: re-encode every member to UTF-8 bytes,
+ * then delegate batch admission — count and aggregate-byte limits, strict
+ * UTF-8 and per-file byte-limit validation, ordered commit — to
+ * {@link AttachmentStore.saveFiles}. The shared entry for every RPC endpoint
+ * accepting browser file uploads.
+ * @param attachments - the deployment attachment store owning batch policy.
+ * @param files - text-file uploads in caller order.
+ * @returns durable references in the same order as `files`.
+ * @throws AttachmentError on a refused batch or an individually refused file.
+ */
+export async function admitEncodedFiles(
+  attachments: AttachmentStore,
+  files: readonly EncodedFileAttachment[],
+): Promise<readonly FileAttachmentRef[]> {
+  return attachments.saveFiles(files.map(saveFileInput))
 }

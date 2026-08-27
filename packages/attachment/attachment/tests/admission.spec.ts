@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import { admitEncodedImages } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentRef, SaveImageAttachment } from '@deepseek-ai/dsh-attachment/types'
+import { admitEncodedFiles, admitEncodedImages } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef, SaveFileAttachment, SaveImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 
 const PNG = 'AAAA' // canonical base64, 3 bytes
 
@@ -62,5 +62,45 @@ describe('admitEncodedImages', () => {
     const refused = Object.assign(new Error('Image batch exceeds the configured image-count limit.'), { code: 'TOO_MANY_IMAGES' })
     mocks.saveImages.mockRejectedValueOnce(refused)
     await expect(admitEncodedImages(store, [{ mediaType: 'image/png', data: PNG }])).rejects.toBe(refused)
+  })
+})
+
+/** Delegation double: records the exact saveFiles batch and answers ordered refs. */
+function fileStoreOf() {
+  const store = {
+    saveFiles: vi.fn((inputs: readonly SaveFileAttachment[]) => Promise.resolve(inputs.map((input, index): FileAttachmentRef => ({
+      attachmentId: `att-${index + 1}` as FileAttachmentRef['attachmentId'],
+      name: input.name,
+      bytes: input.data.byteLength,
+    })))),
+  }
+  return { store: store as unknown as AttachmentStore, mocks: store }
+}
+
+describe('admitEncodedFiles', () => {
+  it('re-encodes every member to UTF-8 bytes and delegates one ordered batch to saveFiles', async () => {
+    const { store, mocks } = fileStoreOf()
+    const refs = await admitEncodedFiles(store, [
+      { name: 'first.txt', text: 'hello' },
+      { name: 'second.md', text: '你好' },
+    ])
+    expect(mocks.saveFiles).toHaveBeenCalledTimes(1)
+    const batch = mocks.saveFiles.mock.calls[0]?.[0] as readonly SaveFileAttachment[]
+    expect(batch.map(input => [input.name, new TextDecoder().decode(input.data)]))
+      .toEqual([['first.txt', 'hello'], ['second.md', '你好']])
+    expect(refs.map(ref => ref.attachmentId)).toEqual(['att-1', 'att-2'])
+  })
+
+  it('delegates an empty batch unchanged', async () => {
+    const { store, mocks } = fileStoreOf()
+    await expect(admitEncodedFiles(store, [])).resolves.toEqual([])
+    expect(mocks.saveFiles).toHaveBeenCalledWith([])
+  })
+
+  it('propagates the store batch rejection unchanged', async () => {
+    const { store, mocks } = fileStoreOf()
+    const refused = Object.assign(new Error('File batch exceeds the configured file-count limit.'), { code: 'TOO_MANY_FILES' })
+    mocks.saveFiles.mockRejectedValueOnce(refused)
+    await expect(admitEncodedFiles(store, [{ name: 'a.txt', text: 'a' }])).rejects.toBe(refused)
   })
 })

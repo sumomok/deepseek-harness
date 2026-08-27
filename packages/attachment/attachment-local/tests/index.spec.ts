@@ -11,10 +11,13 @@ import LocalAttachmentStore, {
   DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION,
   DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS,
   DEFAULT_IMAGE_COMPRESSION_CONCURRENCY,
+  DEFAULT_MAX_FILE_BYTES,
+  DEFAULT_MAX_FILES_PER_MESSAGE,
   DEFAULT_MAX_IMAGE_BYTES,
   DEFAULT_MAX_IMAGE_DIMENSION,
   DEFAULT_MAX_IMAGE_PIXELS,
   DEFAULT_MAX_IMAGES_PER_MESSAGE,
+  DEFAULT_MAX_MESSAGE_FILE_BYTES,
   DEFAULT_MAX_MESSAGE_IMAGE_BYTES,
 } from '../src/index.ts'
 
@@ -55,6 +58,14 @@ describe('local attachment service', () => {
     ))
     expect(() => service.imageHostPath({ ...ref, attachmentId: AttachmentId('invalid') }))
       .toThrow(expect.objectContaining({ code: 'INVALID_ATTACHMENT_REF' }))
+    expect(DEFAULT_MAX_FILE_BYTES).toBe(1024 * 1024)
+    expect(DEFAULT_MAX_FILES_PER_MESSAGE).toBe(10)
+    expect(DEFAULT_MAX_MESSAGE_FILE_BYTES).toBe(10 * 1024 * 1024)
+    expect(service.fileLimits).toEqual({
+      maxFileBytes: DEFAULT_MAX_FILE_BYTES,
+      maxFilesPerMessage: DEFAULT_MAX_FILES_PER_MESSAGE,
+      maxMessageFileBytes: DEFAULT_MAX_MESSAGE_FILE_BYTES,
+    })
   })
 
   it('resolves and validates the instance image-compression concurrency', () => {
@@ -167,6 +178,78 @@ describe('local attachment service', () => {
       await expect(limited.validateImage({ data: valid, mediaType: 'image/png' }))
         .rejects.toMatchObject({ code: 'IMAGE_TOO_LARGE' })
       await expect(service.validateImage({ data: valid, mediaType: 'image/png' })).resolves.toBeUndefined()
+      expect(existsSync(service.root)).toBe(false)
+    } finally {
+      await rm(dshHome, { recursive: true, force: true })
+    }
+  })
+
+  it('saves and reads a text file through the service boundary', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-file-service-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome })
+      const data = new TextEncoder().encode('hello world')
+      const ref = await service.saveFile({ data, name: 'notes.txt' })
+      expect(ref).toEqual({ attachmentId: ref.attachmentId, name: 'notes.txt', bytes: data.byteLength })
+      await expect(service.readFile(ref)).resolves.toEqual({ ref, data })
+    } finally {
+      await rm(dshHome, { recursive: true, force: true })
+    }
+  })
+
+  it('commits a fully prepared file batch in input order', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-file-batch-success-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome })
+      const refs = await service.saveFiles([
+        { data: new TextEncoder().encode('first'), name: 'first.txt' },
+        { data: new TextEncoder().encode('second'), name: 'second.txt' },
+      ])
+      expect(refs.map(ref => ref.name)).toEqual(['first.txt', 'second.txt'])
+      await expect(Promise.all(refs.map(ref => service.readFile(ref)))).resolves.toHaveLength(2)
+    } finally {
+      await rm(dshHome, { recursive: true, force: true })
+    }
+  })
+
+  it('prepares every file batch member before any write', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-file-batch-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome, maxFileBytes: 4 })
+      await expect(service.saveFiles([
+        { data: new TextEncoder().encode('ok'), name: 'a.txt' },
+        { data: new TextEncoder().encode('too long'), name: 'b.txt' },
+      ])).rejects.toMatchObject({ code: 'FILE_TOO_LARGE' })
+      expect(existsSync(service.root)).toBe(false)
+    } finally {
+      await rm(dshHome, { recursive: true, force: true })
+    }
+  })
+
+  it('rejects a batch over the configured file count or aggregate bytes before validating any member', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-file-batch-limits-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome, maxFilesPerMessage: 1, maxMessageFileBytes: 3 })
+      await expect(service.saveFiles([
+        { data: new TextEncoder().encode('a'), name: 'a.txt' },
+        { data: new TextEncoder().encode('b'), name: 'b.txt' },
+      ])).rejects.toMatchObject({ code: 'TOO_MANY_FILES' })
+      const oneFileOverBudget = new LocalAttachmentStore(new Context(), { dshHome, maxMessageFileBytes: 3 })
+      await expect(oneFileOverBudget.saveFiles([{ data: new TextEncoder().encode('abcd'), name: 'a.txt' }]))
+        .rejects.toMatchObject({ code: 'FILES_TOO_LARGE' })
+    } finally {
+      await rm(dshHome, { recursive: true, force: true })
+    }
+  })
+
+  it('validates a file without persisting: a rejected file leaves no storage root behind', async () => {
+    const dshHome = await mkdtemp(join(tmpdir(), 'dsh-attachment-file-validate-'))
+    try {
+      const service = new LocalAttachmentStore(new Context(), { dshHome })
+      await expect(service.validateFile({ data: Uint8Array.of(0x00, 0x01), name: 'a.bin' }))
+        .rejects.toMatchObject({ code: 'NOT_TEXT_FILE' })
+      await expect(service.validateFile({ data: new TextEncoder().encode('ok'), name: 'a.txt' }))
+        .resolves.toBeUndefined()
       expect(existsSync(service.root)).toBe(false)
     } finally {
       await rm(dshHome, { recursive: true, force: true })
