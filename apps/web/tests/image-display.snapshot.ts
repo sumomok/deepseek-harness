@@ -136,9 +136,16 @@ it('accepts pasted images into the composer rail in order and removes them', asy
 
   // An unsupported file announces a transient toast (the inline strip is
   // gone) and the banner dismisses itself after its hold-and-fade lifetime.
+  // A NUL-led byte payload fails the client-side text sniff (file-sniff.ts)
+  // regardless of its declared MIME type, so this stays on the image-only
+  // intake path instead of routing to the file chip row.
   fireEvent.paste(textarea, {
     clipboardData: {
-      items: [{ kind: 'file', type: 'text/plain', getAsFile: () => new File(['x'], 'notes.txt', { type: 'text/plain' }) }],
+      items: [{
+        kind: 'file',
+        type: 'application/octet-stream',
+        getAsFile: () => new File([new Uint8Array([0, 1, 2, 3])], 'notes.bin', { type: 'application/octet-stream' }),
+      }],
       getData: () => '',
     },
   })
@@ -166,9 +173,9 @@ it('accepts a whole-page drop under the limits-labeled overlay and refuses an ov
   const dataTransfer = { types: ['Files'], files: [image], dropEffect: 'none' }
   fireEvent.dragEnter(document.body, { dataTransfer })
   const overlay = await screen.findByRole('status')
-  expect(overlay.textContent).toContain('Drag images here to add them')
+  expect(overlay.textContent).toContain('Drag images or text files here to add them')
   await waitFor(() => {
-    expect(overlay.textContent).toContain('Up to 20 images, 5MB each')
+    expect(overlay.textContent).toContain('Up to 20 images, 5MB each; text content is sent as-is')
   })
 
   // Dropping on the transcript area (not the composer card) lands in the rail.
