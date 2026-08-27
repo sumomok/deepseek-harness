@@ -40,6 +40,7 @@ import type {
 } from '@earendil-works/pi-ai'
 import {
   attributionHeaders,
+  contentHasFile,
   contentHasImage,
   LlmAdapter,
   LlmError,
@@ -348,12 +349,18 @@ export class PiAiAdapter extends LlmAdapter {
 
     try {
       const containsImage = options.messages.some(message => contentHasImage(message.content))
+      const containsFile = options.messages.some(message => contentHasFile(message.content))
       if (containsImage && !model.input.includes('image')) {
         throw new LlmError(`pi-ai model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
       }
-      const attachments = containsImage ? this.config.resolveAttachments?.() : undefined
+      // No capability check for files: the lowered form is plain text, which
+      // every pi-ai model already accepts.
+      const attachments = (containsImage || containsFile) ? this.config.resolveAttachments?.() : undefined
       if (containsImage && attachments === undefined) {
         throw new LlmError('pi-ai image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+      }
+      if (containsFile && attachments === undefined) {
+        throw new LlmError('pi-ai file input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
       }
       const onReplayDegrade = (reason: string): void => {
         this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })

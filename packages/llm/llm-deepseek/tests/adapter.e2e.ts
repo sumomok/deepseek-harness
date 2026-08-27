@@ -9,11 +9,15 @@ import LlmRuntime, { createUserMessage, CallId, ReasoningEffortId, createMessage
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import AttachmentStore, { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
+  FileAttachmentLimits,
+  FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
   ImageRequestPolicy,
   RequestImageAttachment,
+  SaveFileAttachment,
   SaveImageAttachment,
+  StoredFileAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import { LocalCredentialProvider } from '@deepseek-ai/dsh-credentials-local'
@@ -46,6 +50,11 @@ class E2eAttachmentStore extends AttachmentStore {
     maxImagePixels: 256 * 256,
     maxImageDimension: 256,
     mediaTypes: ['image/png'],
+  }
+  readonly fileLimits: FileAttachmentLimits = {
+    maxFileBytes: 1024,
+    maxFilesPerMessage: 1,
+    maxMessageFileBytes: 1024,
   }
   readonly ref: ImageAttachmentRef = {
     attachmentId: AttachmentId(`sha256:${randomBytes(32).toString('hex')}`),
@@ -86,6 +95,18 @@ class E2eAttachmentStore extends AttachmentStore {
     _signal?: AbortSignal,
   ): Promise<RequestImageAttachment> {
     return Promise.resolve(this.version)
+  }
+
+  validateFile(_input: SaveFileAttachment): Promise<void> {
+    return Promise.reject(new Error('not used'))
+  }
+
+  saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
+    return Promise.reject(new Error('not used'))
+  }
+
+  readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
+    return Promise.reject(new Error('not used'))
   }
 }
 

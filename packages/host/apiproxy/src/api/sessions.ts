@@ -5,7 +5,10 @@
  */
 
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type { AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type {
+  AttachmentIdType, FileAttachmentLimits, FileAttachmentRef,
+  ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
+} from '@deepseek-ai/dsh-attachment'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
 import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session/types'
 // The pure-type outlet: api/ is browser-importable, and the package root's
@@ -19,6 +22,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
     sessionListMetadata: SessionListMetadata
     imageLimits: null
+    fileLimits: null
   }
   interface SessionProjectionMap {
     /**
@@ -36,6 +40,12 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
      * composed — clients skip the pre-check and let the host answer.
      */
     imageLimits: ImageAttachmentLimits
+    /**
+     * The deployment's text-file-intake limits, the file-admission
+     * counterpart of {@link imageLimits}. Key absence means no attachment
+     * service is composed.
+     */
+    fileLimits: FileAttachmentLimits
   }
 }
 
@@ -87,10 +97,11 @@ export interface SessionProjectionsBlock {
   values: Partial<SessionProjectionMap>
 }
 
-/** Browser-submitted prompt content; the host promotes image bytes to durable references. */
+/** Browser-submitted prompt content; the host promotes image bytes and file text to durable references. */
 export type PromptContentPart =
   | { type: 'text'; text: string }
   | { type: 'image'; mediaType: ImageMediaType; data: string; name?: string }
+  | { type: 'file'; name: string; text: string }
 
 /** Complete model selection for one session. */
 export interface ModelSelection {
@@ -342,8 +353,9 @@ export interface SessionsApi {
   Promise<RpcResponse<{ sessionId: SessionId }>>
 
   /**
-   * Sends text and temporary image bytes to an ordinary session Agent after durable host admission.
-   * Browser callers attach their current IANA zone;
+   * Sends text, temporary image bytes, and temporary text-file content to an
+   * ordinary session Agent after durable host admission. Browser callers
+   * attach their current IANA zone;
    * the Host validates, canonicalizes, and records it on that exact user message. Omission remains
    * valid for non-browser callers. Session-backed subagents reject with `agent-busy` and use
    * `subagent.prompt`.
@@ -359,6 +371,15 @@ export interface SessionsApi {
   /** Reads one durable image after proving that this session's log references its id. */
   attachment(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType }>):
   Promise<RpcResponse<{ attachment: ImageAttachmentRef; data: string }>>
+
+  /**
+   * Reads one durable text file after proving that this session's log
+   * references its id. `text` carries plain decoded content, never base64 —
+   * unlike an image's bytes, a text file's content is always safely
+   * representable in JSON.
+   */
+  file(request: RpcRequest<{ sessionId: SessionId; attachmentId: AttachmentIdType }>):
+  Promise<RpcResponse<{ attachment: FileAttachmentRef; text: string }>>
 
   /**
    * Edits, removes, or strictly steers one pending queued occurrence on an ordinary session.

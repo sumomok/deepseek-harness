@@ -25,7 +25,10 @@ import { PwshLocalExecutor } from '@deepseek-ai/dsh-pwsh-local'
 import LocalSubprocessRuntime from '@deepseek-ai/dsh-subprocess-local'
 import LocalFileSystem from '@deepseek-ai/dsh-fs-local'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type {
+  FileAttachmentLimits, FileAttachmentRef, ImageAttachmentLimits, ImageAttachmentRef,
+  SaveFileAttachment, SaveImageAttachment, StoredFileAttachment, StoredImageAttachment,
+} from '@deepseek-ai/dsh-attachment'
 import UserQuestionService from '@deepseek-ai/dsh-user-questions'
 import PlanModeController from '@deepseek-ai/dsh-plan-mode'
 import WebRuntime from '@deepseek-ai/dsh-web'
@@ -79,6 +82,12 @@ class CatalogAttachmentStore extends AttachmentStore {
     mediaTypes: Object.freeze(['image/png'] as const),
   })
 
+  readonly fileLimits: FileAttachmentLimits = Object.freeze({
+    maxFileBytes: 1,
+    maxFilesPerMessage: 1,
+    maxMessageFileBytes: 1,
+  })
+
   override validateImage(_input: SaveImageAttachment): Promise<void> {
     return Promise.reject(new Error('gen-tool-catalog: attachment validation is unreachable during schema harvest'))
   }
@@ -88,6 +97,18 @@ class CatalogAttachmentStore extends AttachmentStore {
   }
 
   override readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
+    return Promise.reject(new Error('gen-tool-catalog: attachment reads are unreachable during schema harvest'))
+  }
+
+  override validateFile(_input: SaveFileAttachment): Promise<void> {
+    return Promise.reject(new Error('gen-tool-catalog: attachment validation is unreachable during schema harvest'))
+  }
+
+  override saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
+    return Promise.reject(new Error('gen-tool-catalog: attachment writes are unreachable during schema harvest'))
+  }
+
+  override readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
     return Promise.reject(new Error('gen-tool-catalog: attachment reads are unreachable during schema harvest'))
   }
 }

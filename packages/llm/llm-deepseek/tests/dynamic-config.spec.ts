@@ -6,11 +6,15 @@ import { join } from 'node:path'
 import LlmRuntime, { createUserMessage, INVALID_CREDENTIAL_CODE } from '@deepseek-ai/dsh-llm'
 import AttachmentStore, { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
+  FileAttachmentLimits,
+  FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
   ImageRequestPolicy,
   RequestImageAttachment,
+  SaveFileAttachment,
   SaveImageAttachment,
+  StoredFileAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
@@ -39,6 +43,12 @@ class StaticAttachmentStore extends AttachmentStore {
     maxImagePixels: 4,
     maxImageDimension: 4,
     mediaTypes: ['image/png'],
+  }
+
+  readonly fileLimits: FileAttachmentLimits = {
+    maxFileBytes: 16,
+    maxFilesPerMessage: 4,
+    maxMessageFileBytes: 64,
   }
 
   validateImage(_input: SaveImageAttachment): Promise<void> {
@@ -70,6 +80,18 @@ class StaticAttachmentStore extends AttachmentStore {
       space: 'srgb',
       hasAlpha: true,
     })
+  }
+
+  validateFile(_input: SaveFileAttachment): Promise<void> {
+    return Promise.reject(new Error('not used'))
+  }
+
+  saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
+    return Promise.reject(new Error('not used'))
+  }
+
+  readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
+    return Promise.reject(new Error('not used'))
   }
 }
 

@@ -2,11 +2,15 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId, AttachmentStore, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
+  FileAttachmentLimits,
+  FileAttachmentRef,
   ImageAttachmentLimits,
   ImageAttachmentRef,
   ImageRequestPolicy,
   RequestImageAttachment,
+  SaveFileAttachment,
   SaveImageAttachment,
+  StoredFileAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
 import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
@@ -30,6 +34,12 @@ const IMAGE_REF: ImageAttachmentRef = {
   bytes: 1,
   width: 1,
   height: 1,
+}
+
+const FILE_REF: FileAttachmentRef = {
+  attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+  name: 'notes.txt',
+  bytes: 8,
 }
 
 async function harness(baseURL: string, overrides: Record<string, unknown> = {}): Promise<Context> {
@@ -267,6 +277,12 @@ describe('PiAiAdapter provider routing', () => {
         mediaTypes: ['image/png'],
       }
 
+      readonly fileLimits: FileAttachmentLimits = {
+        maxFileBytes: 1,
+        maxFilesPerMessage: 1,
+        maxMessageFileBytes: 1,
+      }
+
       validateImage(_input: SaveImageAttachment): Promise<void> {
         return Promise.reject(new Error('not used'))
       }
@@ -285,6 +301,18 @@ describe('PiAiAdapter provider routing', () => {
         signal?: AbortSignal,
       ): Promise<RequestImageAttachment> {
         return readImageRequest(value, policy, signal)
+      }
+
+      validateFile(_input: SaveFileAttachment): Promise<void> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
+        return Promise.reject(new Error('not used'))
+      }
+
+      readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
+        return Promise.reject(new Error('not used'))
       }
     }
 
@@ -907,6 +935,22 @@ describe('provider profile lifecycle', () => {
             content: [{ type: 'image', attachment: IMAGE_REF }],
           }],
         }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+  })
+
+  it('rejects an unresolved file block before provider I/O, no model capability gate applies', async () => {
+    const adapter = adapterOf({ openai: {} })
+    const drain = async (options: Parameters<PiAiAdapter['stream']>[0]): Promise<void> => {
+      for await (const _chunk of adapter.stream(options)) { /* drain */ }
+    }
+
+    await expect(drain({
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [createUserMessage({
+        content: [{ type: 'file', attachment: FILE_REF }],
         source: { kind: 'plugin', plugin: 'test' },
       })],
     })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })

@@ -55,7 +55,7 @@
 
 `Message` 是投递、持久历史和模型请求共享的不可变值。每条消息从创建起都必须具有 `MessageId`、角色、内容和带类型的来源。`createMessage(input)` 生成标识，并返回与输入分离且深度冻结的值；`createUserMessage({ content, source })` 固定 user 角色；`createAssistantMessage({ content, source })` 固定 assistant 角色与模型来源类别；`createToolResultMessage({ callId, content, isError })` 固定 user 角色，并将工具来源与其结果块耦合；`freezeMessage(message)` 导入已有标识，绝不将其替换。改写消息时会保留标识，并产生另一个冻结值。浏览器端代码会从依赖最少的 `@deepseek-ai/dsh-llm/message` 入口导入这些值构造函数，而不是从包含服务的包根入口导入。
 
-消息内容是类型化内容块数组：`text`、`reasoning`、`image`、`tool-call`、`tool-result`。`ImageBlock` 只携带持久 `ImageAttachmentRef`；提供方字节和请求尺寸之后再解析。联合仍从可合并扩展的 `ContentBlockMap` 派生，因此插件可以通过 declaration merging 添加其他块类型。assistant 消息使用模型来源，其中携带生成该消息的提供方和模型，以及可选的适配器私有回放状态。dispatch 前，`LlmRuntime` 只在历史提供方路由与目标提供方路由当前由完全相同的适配器实例拥有时才保留该状态；随后由适配器判定能否在模型或提供方间恢复或转换该状态。
+消息内容是类型化内容块数组：`text`、`reasoning`、`image`、`file`、`tool-call`、`tool-result`。`ImageBlock` 只携带持久 `ImageAttachmentRef`；提供方字节和请求尺寸之后再解析。`FileBlock` 只携带持久 `FileAttachmentRef`，遵循同样的“只携带引用”纪律；没有任何适配器原生接受它，因此每个适配器都在自己请求构建的最顶端、针对本地派生的消息副本把它降级为文本（`file-lowering.ts` 的 `lowerFileBlocksFromStore`），从不触碰一个已分发请求携带的冻结 `GenerateOptions.messages`。联合仍从可合并扩展的 `ContentBlockMap` 派生，因此插件可以通过 declaration merging 添加其他块类型。assistant 消息使用模型来源，其中携带生成该消息的提供方和模型，以及可选的适配器私有回放状态。dispatch 前，`LlmRuntime` 只在历史提供方路由与目标提供方路由当前由完全相同的适配器实例拥有时才保留该状态；随后由适配器判定能否在模型或提供方间恢复或转换该状态。
 
 每次分发都使用随适配器世代捕获的确切模型模态。支持图片的适配器把持久图片引用投影为路由专用请求版本。纯文本路由则收到确定性的附件占位文本，其中也包括嵌套工具结果图片，追加式会话历史不会改变。`offloadRequestImagesWithPolicy()` 提供确定性的从旧到新图片移除，支持按原始字节或 base64 计数，也支持图片数量或字节量步长；适配器提供确切派生版本的字节长度。
 

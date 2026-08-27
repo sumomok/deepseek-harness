@@ -12,8 +12,8 @@ import type { Context } from '@deepseek-ai/cordis'
 import { installModelSelection } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelection, ModelSelectionRef, AgentOptions, AgentStatus } from '@deepseek-ai/dsh-agent'
 import type {} from '@deepseek-ai/dsh-agent-presets/types'
-import { AttachmentError, admitEncodedImages } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, admitEncodedFiles, admitEncodedImages } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { createUserMessage, freezeMessage, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import { errorChain } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
@@ -91,7 +91,7 @@ import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-a
 // `ctx.get('approval')` without a value dependency on the seam (optional composition).
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { approvalResponsePayloadSchema } from './api/approvals.schema.ts'
-import { imageLimitsProjectionSchema, sessionListMetadataProjectionSchema } from './api/sessions.schema.ts'
+import { fileLimitsProjectionSchema, imageLimitsProjectionSchema, sessionListMetadataProjectionSchema } from './api/sessions.schema.ts'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -125,70 +125,109 @@ export const DEFAULT_COLD_BLANK_PROBE_MAX_BYTES = 1024
 /** Conversation message event types (the pagination counting unit). */
 const MESSAGE_TYPES = new Set(['user/message', 'assistant/message'])
 
-/** Validate one prompt as a batch before publishing any durable image object. */
+/** Validate one prompt as a batch before publishing any durable image or file object. */
 async function durablePromptContent(ctx: Context, content: readonly PromptContentPart[]): Promise<ContentBlock[]> {
   if (content.every(part => part.type === 'text')) {
     return content.map(part => ({ type: 'text', text: part.text }))
   }
-  const refs = await admitEncodedImages(ctx.attachments, content.filter(part => part.type === 'image'))
-  let next = 0
-  return content.map(part => part.type === 'text'
-    ? { type: 'text', text: part.text }
-    // admitEncodedImages returns one reference per image part in order.
-    : { type: 'image', attachment: refs[next++] as ImageAttachmentRef })
+  const [imageRefs, fileRefs] = await Promise.all([
+    admitEncodedImages(ctx.attachments, content.filter(part => part.type === 'image')),
+    admitEncodedFiles(ctx.attachments, content.filter(part => part.type === 'file')),
+  ])
+  let nextImage = 0
+  let nextFile = 0
+  return content.map((part): ContentBlock => {
+    switch (part.type) {
+      case 'text':
+        return { type: 'text', text: part.text }
+      case 'image':
+        // admitEncodedImages returns one reference per image part in order.
+        return { type: 'image', attachment: imageRefs[nextImage++] as ImageAttachmentRef }
+      case 'file':
+        // admitEncodedFiles returns one reference per file part in order.
+        return { type: 'file', attachment: fileRefs[nextFile++] as FileAttachmentRef }
+    }
+  })
 }
 
-/** Search durable content for an image reference, including nested tool results. */
-function imageBlockIn(content: unknown, match: (ref: ImageAttachmentRef) => boolean): ImageAttachmentRef | undefined {
+/** Search durable content for an attachment reference of one block kind, including nested tool results. */
+function attachmentBlockIn<TRef>(content: unknown, kind: string, match: (ref: TRef) => boolean): TRef | undefined {
   if (!Array.isArray(content)) return undefined
   for (const value of content) {
     if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
     const block = value as { type?: unknown; attachment?: unknown; content?: unknown }
-    if (block.type === 'image' && typeof block.attachment === 'object' && block.attachment !== null) {
-      const ref = block.attachment as ImageAttachmentRef
+    if (block.type === kind && typeof block.attachment === 'object' && block.attachment !== null) {
+      const ref = block.attachment as TRef
       if (match(ref)) return ref
     }
     if (block.type === 'tool-result') {
-      const nested = imageBlockIn(block.content, match)
+      const nested = attachmentBlockIn<TRef>(block.content, kind, match)
       if (nested !== undefined) return nested
     }
   }
   return undefined
 }
 
-/** Search every durable event carrier that can own model-visible content. */
-function imageInEvent(event: SessionEvent, match: (ref: ImageAttachmentRef) => boolean): ImageAttachmentRef | undefined {
+/** Search every durable event carrier that can own model-visible content, for one block kind. */
+function attachmentInEvent<TRef>(event: SessionEvent, kind: string, match: (ref: TRef) => boolean): TRef | undefined {
   const data = event.data as {
     content?: unknown
     message?: { content?: unknown }
     inserted?: Array<{ content?: unknown }>
     chunk?: { type?: unknown; block?: unknown }
   }
-  const direct = imageBlockIn(data.content, match)
+  const direct = attachmentBlockIn<TRef>(data.content, kind, match)
   if (direct !== undefined) return direct
   if (data.message !== undefined) {
-    const wrapped = imageBlockIn(data.message.content, match)
+    const wrapped = attachmentBlockIn<TRef>(data.message.content, kind, match)
     if (wrapped !== undefined) return wrapped
   }
   if (data.inserted !== undefined) {
     for (const message of data.inserted) {
-      const inserted = imageBlockIn(message.content, match)
+      const inserted = attachmentBlockIn<TRef>(message.content, kind, match)
       if (inserted !== undefined) return inserted
     }
   }
   if (event.type === 'assistant/chunk' && data.chunk?.type === 'block-end') {
-    return imageBlockIn([data.chunk.block], match)
+    return attachmentBlockIn<TRef>([data.chunk.block], kind, match)
   }
   return undefined
 }
 
-/** Resolve the first reference matching one opaque id. */
-function referencedImage(events: readonly SessionEvent[], attachmentId: string): ImageAttachmentRef | undefined {
+/** Resolve the first reference of one block kind matching one opaque id. */
+// TRef appears once in the signature but ties the caller's chosen ref shape
+// (ImageAttachmentRef or FileAttachmentRef) to attachmentInEvent's own lookup;
+// widening the constraint to their union degrades the result to an
+// unusable intersection.
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters
+function referencedAttachment<TRef extends { attachmentId: AttachmentIdType }>(
+  events: readonly SessionEvent[],
+  kind: string,
+  attachmentId: string,
+): TRef | undefined {
   for (const event of events) {
-    const found = imageInEvent(event, ref => String(ref.attachmentId) === attachmentId)
+    const found = attachmentInEvent<TRef>(event, kind, ref => String(ref.attachmentId) === attachmentId)
     if (found !== undefined) return found
   }
   return undefined
+}
+
+/** Resolve the first image reference matching one opaque id. */
+function referencedImage(events: readonly SessionEvent[], attachmentId: string): ImageAttachmentRef | undefined {
+  return referencedAttachment<ImageAttachmentRef>(events, 'image', attachmentId)
+}
+
+/** Resolve the first file reference matching one opaque id. */
+function referencedFile(events: readonly SessionEvent[], attachmentId: string): FileAttachmentRef | undefined {
+  return referencedAttachment<FileAttachmentRef>(events, 'file', attachmentId)
+}
+
+/** Map one durable-store read failure to the `attachment`/`file` RPC's shared error wire form. */
+function attachmentReadFailure(request: RpcRequest<unknown>, error: unknown, kindLabel: 'image' | 'file'): RpcResponse<never> {
+  if (error instanceof AttachmentError) {
+    return err(request, { code: 'attachment-error', message: error.message, details: { reason: error.code } })
+  }
+  return err(request, { code: 'internal', message: `Unable to read ${kindLabel} attachment.`, details: {} })
 }
 
 /** Strict browser-zone profile: UTC or an IANA Area/Location-style identifier. */
@@ -1262,6 +1301,16 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       wire: { viewSchema: imageLimitsProjectionSchema, view: () => projectionCtx.attachments.imageLimits },
       stateVersion: 1,
     })
+    // fileLimits mirrors imageLimits: same boot-constant reasoning, same
+    // dependency-cycle reason for living here rather than on the seam.
+    projectionCtx.sessionProjections.register<'fileLimits', null>({
+      key: 'fileLimits',
+      stateSchema: zod.null(),
+      init: () => null,
+      apply: state => state,
+      wire: { viewSchema: fileLimitsProjectionSchema, view: () => projectionCtx.attachments.fileLimits },
+      stateVersion: 1,
+    })
   })
 
   /** Project both durable inbox lists, optionally including the splice currently being emitted. */
@@ -1447,6 +1496,35 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     }
     const inspected = await inspectServable(sessionId)
     return { id: inspected.meta.id, header: inspected.meta, events: inspected.events }
+  }
+
+  /**
+   * Resolve the session state an `attachment`/`file` RPC reads its reference
+   * from, mapping the two failure cases both handlers share to their wire
+   * error before either ever inspects a block kind.
+   */
+  async function resolveAttachmentSession(
+    request: RpcRequest<unknown>,
+    sessionId: SessionId,
+  ): Promise<{ ok: true; state: SessionReadState } | { ok: false; response: RpcResponse<never> }> {
+    try {
+      return { ok: true, state: await readSessionState(sessionId) }
+    } catch (error: unknown) {
+      if (error instanceof SessionNotFound) {
+        return {
+          ok: false,
+          response: err(request, { code: 'session-not-found', message: error.message, details: { sessionId } }),
+        }
+      }
+      return {
+        ok: false,
+        response: err(request, {
+          code: 'internal',
+          message: `attachment authorization unavailable for session "${sessionId}": ${String(error)}`,
+          details: {},
+        }),
+      }
+    }
   }
 
   /** Resolve the Workspace inherited by a fork without making ordinary loose lineage grouped. */
@@ -2453,24 +2531,9 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async attachment(request) {
         const { sessionId, attachmentId } = request.payload
-        let state: SessionReadState
-        try {
-          state = await readSessionState(sessionId)
-        } catch (error: unknown) {
-          if (error instanceof SessionNotFound) {
-            return err(request, {
-              code: 'session-not-found',
-              message: error.message,
-              details: { sessionId },
-            })
-          }
-          return err(request, {
-            code: 'internal',
-            message: `attachment authorization unavailable for session "${sessionId}": ${String(error)}`,
-            details: {},
-          })
-        }
-        const ref = referencedImage(state.events, String(attachmentId))
+        const resolved = await resolveAttachmentSession(request, sessionId)
+        if (!resolved.ok) return resolved.response
+        const ref = referencedImage(resolved.state.events, String(attachmentId))
         if (ref === undefined) {
           return err(request, {
             code: 'attachment-error',
@@ -2485,18 +2548,30 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
             data: Buffer.from(stored.data).toString('base64'),
           })
         } catch (error: unknown) {
-          if (error instanceof AttachmentError) {
-            return err(request, {
-              code: 'attachment-error',
-              message: error.message,
-              details: { reason: error.code },
-            })
-          }
+          return attachmentReadFailure(request, error, 'image')
+        }
+      },
+
+      async file(request) {
+        const { sessionId, attachmentId } = request.payload
+        const resolved = await resolveAttachmentSession(request, sessionId)
+        if (!resolved.ok) return resolved.response
+        const ref = referencedFile(resolved.state.events, String(attachmentId))
+        if (ref === undefined) {
           return err(request, {
-            code: 'internal',
-            message: 'Unable to read image attachment.',
-            details: {},
+            code: 'attachment-error',
+            message: 'File is not referenced by this session.',
+            details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
           })
+        }
+        try {
+          const stored = await ctx.attachments.readFile(ref)
+          return ok(request, {
+            attachment: stored.ref,
+            text: new TextDecoder('utf-8').decode(stored.data),
+          })
+        } catch (error: unknown) {
+          return attachmentReadFailure(request, error, 'file')
         }
       },
 

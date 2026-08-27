@@ -8,7 +8,7 @@
  * @module dsh-llm-deepseek/adapter
  */
 
-import { attributionHeaders, contentHasImage, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, offloadRequestImagesWithPolicy, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, contentHasFile, contentHasImage, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, lowerFileBlocksFromStore, offloadRequestImagesWithPolicy, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
   GenerateOptions,
@@ -440,6 +440,7 @@ export class DeepSeekAdapter extends LlmAdapter {
     // The key resolves *from this snapshot*, so an endpoint and the secret
     // sent to it can never come from different configuration generations.
     const hasImages = options.messages.some(message => contentHasImage(message.content))
+    const hasFiles = options.messages.some(message => contentHasFile(message.content))
     let attachments: AttachmentStore | undefined
     if (hasImages) {
       const model = connection.models.find(entry => entry.id === options.model)
@@ -453,6 +454,17 @@ export class DeepSeekAdapter extends LlmAdapter {
       if (attachments === undefined) {
         throw new LlmError(
           'DeepSeek image conversion requires the durable attachment service.',
+          'UNSUPPORTED_CONTENT',
+        )
+      }
+    }
+    // No capability check for files: the lowered form is plain text, which
+    // every DeepSeek model already accepts.
+    if (hasFiles && attachments === undefined) {
+      attachments = this.config.resolveAttachments?.()
+      if (attachments === undefined) {
+        throw new LlmError(
+          'DeepSeek file conversion requires the durable attachment service.',
           'UNSUPPORTED_CONTENT',
         )
       }
@@ -542,7 +554,15 @@ export class DeepSeekAdapter extends LlmAdapter {
       countQuantum: connection.imageOffloadCountQuantum,
       byteLength: ref => Math.min(ref.bytes, policy.maxBytes),
     })
-    const requestOptions = requestMessages === options.messages ? options : { ...options, messages: [...requestMessages] }
+    // Lowered locally, never onto `options.messages` itself: that frozen
+    // array must stay reconstructable byte-identical from the session log,
+    // which the agent-loop's request-reconstruction invariant enforces.
+    const fileLoweredMessages = attachments === undefined
+      ? requestMessages
+      : await lowerFileBlocksFromStore(requestMessages, attachments, signal)
+    const requestOptions = fileLoweredMessages === options.messages
+      ? options
+      : { ...options, messages: [...fileLoweredMessages] }
     const requestImages = attachments === undefined || model === undefined
       ? new Map<AttachmentId, RequestImageAttachment>()
       : await prepareRequestImages(requestOptions, attachments, model, signal)

@@ -4,7 +4,7 @@
  * @module dsh-llm-pi-ai/context
  */
 
-import { CallId, contentHasImage, LlmError, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
+import { CallId, contentHasFile, contentHasImage, LlmError, lowerFileBlocksFromStore, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type {
   AttachmentId,
@@ -140,6 +140,9 @@ function textOnlyContext(options: GenerateOptions, onReplayDegrade?: (reason: st
     if (contentHasImage(message.content)) {
       throw new LlmError('pi-ai image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
+    if (contentHasFile(message.content)) {
+      throw new LlmError('pi-ai file conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+    }
     if (message.role === 'system') {
       messages.push({ role: 'user', content: flattenText(message), timestamp: 0 })
       continue
@@ -225,8 +228,12 @@ async function toPiContextWithImages(
     maxBytes: DEFAULT_REQUEST_IMAGE_MAX_BYTES,
   },
 ): Promise<PiContext> {
-  assertSupportedImageRoles(options.messages)
-  const requestMessages = offloadRequestImagesWithPolicy(options.messages, {
+  // Lowered locally, never onto `options.messages` itself: that frozen array
+  // must stay reconstructable byte-identical from the session log, which the
+  // agent-loop's request-reconstruction invariant enforces.
+  const baseMessages = await lowerFileBlocksFromStore(options.messages, attachments, options.signal)
+  assertSupportedImageRoles(baseMessages)
+  const requestMessages = offloadRequestImagesWithPolicy(baseMessages, {
     representation: 'base64',
     ...maxRequestImageBytes === undefined ? {} : { maxBytes: maxRequestImageBytes },
     byteQuantum: 1,
