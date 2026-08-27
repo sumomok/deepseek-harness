@@ -18,6 +18,9 @@ export { apply, inject } from './apply.ts'
 export { ConversationController } from './service.ts'
 export type { IConversation } from './service.ts'
 export type { DraftAttachmentId } from './input/contract.ts'
+export { partitionDroppedFiles, sniffIsText } from './file-sniff.ts'
+export type { PartitionedFiles } from './file-sniff.ts'
+export { attachmentSizeText } from './attachment-labels.ts'
 
 export type {
   CallId, ChatStoreState, SelectionTarget, ViewTab,
@@ -30,7 +33,8 @@ export type {
 export type {
   ChatFileMentions, ChatNodeOwnerProps, ChatNodeViewProps,
   ChatStore, ChatViewInjected, ChatViewSlotProps, CommandRowOwnerProps, CommandRowProps, ComposerBarInjected,
-  ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps, ComposerChainProps, ConversationInjected,
+  ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps, ComposerChainProps,
+  ComposerFileAttachment, ComposerImageAttachment, ConversationInjected,
   ConversationHeaderLineageOwnerProps, ConversationSessionHeaderInjected, ConversationSessionInjected,
   ConversationSlotProps, ConvViewOwnerProps,
   ConvViewProps, DetailsInjected, DetailsSlotProps, DetailsToolOwnerProps, EmptyWorkspaceOwnerProps, HeroBrandMarkOwnerProps,

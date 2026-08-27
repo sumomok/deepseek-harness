@@ -1,24 +1,37 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type {
-  ComposerAttachment, ComposerAttachmentsProps,
+  ComposerAttachment, ComposerAttachmentsProps, ComposerImageAttachment,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import { attachmentSizeText, partitionDroppedFiles } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { AttachmentRail } from '../AttachmentRail.tsx'
 import type { AttachmentRailItem } from '../AttachmentRail.tsx'
 import { DropOverlay } from '../DropOverlay.tsx'
+import { FileChipRow } from '../FileChip.tsx'
+import type { FileChipItem } from '../FileChip.tsx'
 import { ImageLightbox } from '../ImageLightbox.tsx'
-import { attachmentRailLabels, dropOverlayLabels, lightboxLabels } from './labels.ts'
+import {
+  attachmentRailLabels, dropOverlayLabels, fileChipGroupLabel, lightboxLabels,
+} from './labels.ts'
 import css from './ComposerAttachments.module.css'
 
-/** Rail item retaining its browser-owned attachment for callbacks. */
+/** Rail item retaining its browser-owned image attachment for callbacks. */
 interface ComposerRailItem extends AttachmentRailItem {
+  attachment: ComposerImageAttachment
+}
+
+/** Chip item retaining its browser-owned file attachment for callbacks. */
+interface ComposerChipItem extends FileChipItem {
   attachment: ComposerAttachment
 }
 
-/** Draft-image rail, document drop target, and original-image preview slot entry. */
+/**
+ * Draft-image rail, draft-file chip row, document drop target, and
+ * original-image preview slot entry.
+ */
 export function ComposerAttachments({
-  attachments, canAcceptDrop, onAddImages, onRemoveImage, dropLimits, t,
+  attachments, canAcceptDrop, onAddImages, onAddFiles, onRemoveImage, dropLimits, t,
 }: ComposerAttachmentsProps) {
-  const [preview, setPreview] = useState<ComposerAttachment | null>(null)
+  const [preview, setPreview] = useState<ComposerImageAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
   const dragDepth = useRef(0)
   const closePreview = useCallback(() => { setPreview(null) }, [])
@@ -57,12 +70,22 @@ export function ComposerAttachments({
         || event.clientX >= window.innerWidth || event.clientY >= window.innerHeight
       if ((event.target === document.documentElement || event.target === document.body) && leftViewport) reset()
     }
+    // A document-level drop batch may mix images and text files: split by
+    // content sniff (partitionDroppedFiles, the same client-side pre-check
+    // the paste path uses) and route each side to its own kind-scoped
+    // intake — a mixed batch no longer rejects everything through the image
+    // path's whole-batch format check.
     const onDrop = (event: globalThis.DragEvent): void => {
       const dataTransfer = fileTransfer(event)
       if (dataTransfer === null) return
       event.preventDefault()
       reset()
-      if (canAcceptDrop) onAddImages([...dataTransfer.files])
+      if (!canAcceptDrop) return
+      const files = [...dataTransfer.files]
+      void partitionDroppedFiles(files).then(({ texts, other }) => {
+        if (other.length > 0) onAddImages(other)
+        if (texts.length > 0) onAddFiles(texts)
+      })
     }
     document.addEventListener('dragenter', onDragEnter)
     document.addEventListener('dragover', onDragOver)
@@ -76,15 +99,29 @@ export function ComposerAttachments({
       document.removeEventListener('drop', onDrop)
       window.removeEventListener('dragend', reset)
     }
-  }, [canAcceptDrop, onAddImages])
+  }, [canAcceptDrop, onAddImages, onAddFiles])
 
-  const railItems = useMemo<ComposerRailItem[]>(() => attachments.map(attachment => ({
-    id: attachment.id,
-    previewUrl: attachment.previewUrl,
-    alt: attachment.file.name || t('image.pending'),
-    removeLabel: t('image.remove', { name: attachment.file.name }),
-    attachment,
-  })), [attachments, t])
+  const railItems = useMemo<ComposerRailItem[]>(
+    () => attachments.filter((a): a is ComposerImageAttachment => a.kind === 'image').map(attachment => ({
+      id: attachment.id,
+      previewUrl: attachment.previewUrl,
+      alt: attachment.file.name || t('image.pending'),
+      removeLabel: t('image.remove', { name: attachment.file.name }),
+      attachment,
+    })),
+    [attachments, t],
+  )
+
+  const chipItems = useMemo<ComposerChipItem[]>(
+    () => attachments.filter(a => a.kind === 'file').map(attachment => ({
+      id: attachment.id,
+      name: attachment.file.name || t('file.pending'),
+      size: attachmentSizeText(attachment.file.size),
+      removeLabel: t('file.remove', { name: attachment.file.name }),
+      attachment,
+    })),
+    [attachments, t],
+  )
 
   return (
     <>
@@ -103,6 +140,13 @@ export function ComposerAttachments({
             onRemove={(item) => { onRemoveImage(item.attachment.id) }}
           />
         </div>
+      )}
+      {chipItems.length > 0 && (
+        <FileChipRow
+          items={chipItems}
+          groupLabel={fileChipGroupLabel(t)}
+          onRemove={(item) => { onRemoveImage(item.attachment.id) }}
+        />
       )}
       {preview !== null && (
         <ImageLightbox

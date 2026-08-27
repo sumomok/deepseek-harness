@@ -25,7 +25,8 @@ import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
 import type { EditRange } from '../input/contract.ts'
-import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
+import { attachmentErrorText, attachmentSizeText } from '../attachment-labels.ts'
+import { partitionDroppedFiles } from '../file-sniff.ts'
 import { ReferenceIcon } from '../reference/ReferenceIcon.tsx'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
@@ -77,7 +78,7 @@ function editRangeOf(pending: PendingEdit | null, prevLength: number, nextLength
 export type InputBarProps = ComposerBarProps
 
 export function InputBar({
-  useSession, useInput, inputActions, keyboard, addImages, removeImage, draftImages,
+  useSession, useInput, inputActions, keyboard, addImages, addFiles, removeImage, draftImages,
   resolveSubmitMode, toggleCommandMenu, stop, command, t,
   renderSlot, useNotices, useLexicon, useMenuLauncher,
   useProjection, sessionId, variant, disabled: inert = false, blocked,
@@ -119,6 +120,9 @@ export function InputBar({
   // The deployment's image-intake limits (absent while no attachment service
   // is composed — the pre-check below then defers entirely to the host).
   const imageLimits = useProjection('imageLimits')
+  // The deployment's text-file-intake limits, the file-intake pre-check's
+  // counterpart of imageLimits.
+  const fileLimits = useProjection('fileLimits')
   // Prompt failures are ordinary failures (no create/attach transaction exists
   // anymore): the toast announces promptError, the draft stays in the machine,
   // and the user resubmits. A remount over a session whose machine still holds
@@ -129,9 +133,9 @@ export function InputBar({
   useEffect(() => {
     if (promptError === null) return
     showToast(promptError.error.code === 'attachment-error'
-      ? attachmentErrorText(t, promptError.error.details.reason, imageLimits)
+      ? attachmentErrorText(t, promptError.error.details.reason, imageLimits, fileLimits)
       : `${promptError.error.message} (${promptError.error.code})`)
-  }, [promptError, showToast, t, imageLimits])
+  }, [promptError, showToast, t, imageLimits, fileLimits])
   useEffect(() => {
     if (notice?.level === 'error') showToast(notice.text)
   }, [notice, showToast])
@@ -483,7 +487,7 @@ export function InputBar({
       .filter(item => item.kind === 'file')
       .map(item => item.getAsFile())
       .filter((file): file is File => file !== null)
-    if (files.length > 0) intakeImages(files)
+    if (files.length > 0) void intakeDrop(files)
     const text = e.clipboardData.getData('text/plain')
     if (text === '') {
       if (files.length > 0) e.preventDefault()
@@ -506,7 +510,12 @@ export function InputBar({
   // a projected limit is refused as a whole batch, announced immediately, and
   // never enters the rail — no more submit-time failure rolling the rail
   // back. The host enforces the same limits at submit for callers that bypass
-  // this composer.
+  // this composer. Counts and totals below scope to the matching kind only:
+  // `attachments` mixes image and file drafts, and one kind's limit must
+  // never count the other's drafts.
+  const imageAttachments = useMemo(() => attachments.filter(a => a.kind === 'image'), [attachments])
+  const fileAttachments = useMemo(() => attachments.filter(a => a.kind === 'file'), [attachments])
+
   const intakeImages = useCallback((files: readonly File[]): void => {
     if (addImages === undefined || files.length === 0) return
     const rejected = ((): string | null => {
@@ -517,24 +526,60 @@ export function InputBar({
         if (files.some(file => !(imageLimits.mediaTypes as readonly string[]).includes(file.type))) {
           return addImages(files)
         }
-        if (attachments.length + files.length > imageLimits.maxImagesPerMessage) {
+        if (imageAttachments.length + files.length > imageLimits.maxImagesPerMessage) {
           return t('image.tooMany', { count: imageLimits.maxImagesPerMessage })
         }
         if (files.some(file => file.size > imageLimits.maxImageBytes)) {
-          return t('image.fileTooLarge', { size: imageSizeText(imageLimits.maxImageBytes) })
+          return t('image.fileTooLarge', { size: attachmentSizeText(imageLimits.maxImageBytes) })
         }
-        const total = attachments.reduce((sum, attachment) => sum + attachment.file.size, 0)
+        const total = imageAttachments.reduce((sum, attachment) => sum + attachment.file.size, 0)
           + files.reduce((sum, file) => sum + file.size, 0)
         if (total > imageLimits.maxMessageImageBytes) {
-          return t('image.totalTooLarge', { size: imageSizeText(imageLimits.maxMessageImageBytes) })
+          return t('image.totalTooLarge', { size: attachmentSizeText(imageLimits.maxMessageImageBytes) })
         }
       }
       return addImages(files)
     })()
     if (rejected !== null) showToast(rejected)
-  }, [addImages, attachments, imageLimits, showToast, t])
+  }, [addImages, imageAttachments, imageLimits, showToast, t])
 
-  const canAcceptDrop = !locked && !machineBusy && addImages !== undefined
+  // File intake pre-check, the file-kind counterpart of intakeImages. No
+  // format gate: every file reaching here already sniffed as text
+  // (partitionDroppedFiles, run by the caller); the durable seam's own
+  // NOT_TEXT_FILE/INVALID_FILE_NAME checks stay authoritative regardless.
+  const intakeFiles = useCallback((files: readonly File[]): void => {
+    if (addFiles === undefined || files.length === 0) return
+    const rejected = ((): string | null => {
+      if (fileLimits !== undefined) {
+        if (fileAttachments.length + files.length > fileLimits.maxFilesPerMessage) {
+          return t('file.tooMany', { count: fileLimits.maxFilesPerMessage })
+        }
+        if (files.some(file => file.size > fileLimits.maxFileBytes)) {
+          return t('file.fileTooLarge', { size: attachmentSizeText(fileLimits.maxFileBytes) })
+        }
+        const total = fileAttachments.reduce((sum, attachment) => sum + attachment.file.size, 0)
+          + files.reduce((sum, file) => sum + file.size, 0)
+        if (total > fileLimits.maxMessageFileBytes) {
+          return t('file.totalTooLarge', { size: attachmentSizeText(fileLimits.maxMessageFileBytes) })
+        }
+      }
+      return addFiles(files)
+    })()
+    if (rejected !== null) showToast(rejected)
+  }, [addFiles, fileAttachments, fileLimits, showToast, t])
+
+  // Combined entry point for a raw drop/paste batch that may mix images and
+  // text files: split by content sniff (client-side pre-check only; the
+  // durable seam re-validates authoritatively) and route each side to its
+  // own kind-scoped intake, so a mixed batch no longer rejects everything
+  // through the image path's whole-batch format check.
+  const intakeDrop = useCallback(async (files: readonly File[]): Promise<void> => {
+    const { texts, other } = await partitionDroppedFiles(files)
+    if (other.length > 0) intakeImages(other)
+    if (texts.length > 0) intakeFiles(texts)
+  }, [intakeImages, intakeFiles])
+
+  const canAcceptDrop = !locked && !machineBusy && (addImages !== undefined || addFiles !== undefined)
 
   const onSelect = (e: React.SyntheticEvent<HTMLTextAreaElement>): void => {
     // Any caret/selection gesture ends a live paste attempt (the machine
@@ -711,10 +756,11 @@ export function InputBar({
           attachments,
           canAcceptDrop,
           onAddImages: intakeImages,
+          onAddFiles: intakeFiles,
           onRemoveImage: (id) => { removeImage?.(id) },
           dropLimits: imageLimits === undefined ? undefined : {
             count: imageLimits.maxImagesPerMessage,
-            size: imageSizeText(imageLimits.maxImageBytes),
+            size: attachmentSizeText(imageLimits.maxImageBytes),
           },
         })}
         {/* One scrollport, two text layers. The hidden mirror renders draft+'\n' and stretches the

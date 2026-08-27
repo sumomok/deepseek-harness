@@ -23,24 +23,52 @@ import type { ChatNode, ChatNodeKind } from './chat-nodes.ts'
 import type { CallId, SelectionTarget, ViewTab } from './views.ts'
 
 /** Browser-owned image that has not crossed the durable host boundary. */
-export interface ComposerAttachment {
+export interface ComposerImageAttachment {
   kind: 'image'
   id: DraftAttachmentId
   file: File
   previewUrl: string
 }
 
+/**
+ * Browser-owned text file that has not crossed the durable host boundary.
+ * No preview URL: a file chip shows name and size, never a thumbnail.
+ */
+export interface ComposerFileAttachment {
+  kind: 'file'
+  id: DraftAttachmentId
+  file: File
+}
+
+/**
+ * One browser-owned draft attachment. Both kinds ride the same ordered id
+ * list the input machine already carries (`InputState.imageIds`): the
+ * machine orders and CAS-guards opaque ids without ever inspecting kind, so
+ * a file draft needs no new machine verb, only its own admission path (see
+ * {@link ComposerAttachmentsOwnerProps.onAddFiles}) and its own chip render.
+ */
+export type ComposerAttachment = ComposerImageAttachment | ComposerFileAttachment
+
 /** Input state handed to the optional attachment presentation plugin. */
 export interface ComposerAttachmentsOwnerProps {
-  /** Browser-owned draft images in input order. */
+  /** Browser-owned draft images and files, in input order. */
   attachments: readonly ComposerAttachment[]
-  /** Whether a document-level file drop may add images now. */
+  /** Whether a document-level file drop may add attachments now. */
   canAcceptDrop: boolean
-  /** Add one dropped batch through the composer's validation path. */
+  /**
+   * Add one batch through the composer's image validation path. A raw
+   * document-level drop is sniffed for text content first
+   * (`partitionDroppedFiles`, run by the filling entry that owns the drop
+   * listener) and only the non-text remainder reaches here — an undecodable
+   * binary still surfaces the existing format-refusal toast from inside
+   * this path.
+   */
   onAddImages: (files: readonly File[]) => void
-  /** Remove one draft image through the conversation service. */
+  /** Add one already-sniffed-as-text batch through the composer's file validation path. */
+  onAddFiles: (files: readonly File[]) => void
+  /** Remove one draft attachment (image or file) through the conversation service. */
   onRemoveImage: (id: DraftAttachmentId) => void
-  /** Display-ready limits for the drop invitation. */
+  /** Display-ready limits for the drop invitation. Image limits only: a file's overlay copy states no numeric bound. */
   dropLimits?: { readonly count: number; readonly size: string } | undefined
 }
 
@@ -592,7 +620,9 @@ export interface ComposerBarInjected {
   keyboard: ComposerKeyboard | undefined
   /** Create previews and append image ids to the session input. */
   addImages: ((files: readonly File[]) => string | null) | undefined
-  /** Release one preview and remove its id from session input. */
+  /** Create file drafts and append their ids to the session input. */
+  addFiles: ((files: readonly File[]) => string | null) | undefined
+  /** Release one preview or file draft and remove its id from session input. */
   removeImage: ((id: DraftAttachmentId) => void) | undefined
   /** Resolve ordered input ids to browser-owned draft images. */
   draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
