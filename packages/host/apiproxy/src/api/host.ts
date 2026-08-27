@@ -89,7 +89,9 @@ export interface HostApi {
    * Open a filesystem path with the operating system's default application
    * (Finder / Explorer / xdg-open hand-off). The browser carrier's
    * prefix-wide trust fence covers this privileged method like every other
-   * `/api` request.
+   * `/api` request. A path that does not resolve on disk fails with
+   * `not-found`; every other opener failure (permission, no registered
+   * application) fails with `internal`.
    */
   openPath(
     request: RpcRequest<{ path: string }>,

@@ -1812,11 +1812,46 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return { code: 'internal', message: 'settings service is absent: this deployment does not mount a settings provider (e.g. @deepseek-ai/dsh-settings-file) in its composition', details: {} }
   }
 
-  /** Open one Host-resolved target and map native failures onto the wire vocabulary. */
+  /**
+   * Open one Host-resolved target and map native failures onto the wire
+   * vocabulary. A does-not-exist path is checked explicitly before the
+   * opener runs: the opener is a shelled-out platform command (`open`,
+   * `xdg-open`, PowerShell's `Invoke-Item`), never a Node fs call, so it
+   * never raises a `NodeJS.ErrnoException` this process could read a
+   * reliable code from — its "no such file" text is platform-specific and
+   * unparsed. The pre-check leaves every other failure (permission, no
+   * registered application, the platform command itself missing) exactly as
+   * it was: folded into `internal` by the unchanged catch block below.
+   */
   async function openTarget(
     request: RpcRequest<unknown>, path: string, signal: AbortSignal,
     open: (path: string, signal: AbortSignal) => Promise<void>,
   ): Promise<RpcResponse<{ opened: true }>> {
+    try {
+      await stat(path)
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
+        return err(request, {
+          code: 'not-found',
+          message: `path does not exist: ${path}`,
+          details: { path },
+        })
+      }
+      // Any other stat failure (permission, a non-directory path segment, a
+      // transient Windows sharing violation, ...) is not this check's call to
+      // make: fall through and let the opener report it as before.
+    }
+    // The stat above is itself an await: a signal aborted while it was in
+    // flight would otherwise reach `open` already-fired, which an opener that
+    // only listens for the live abort EVENT (rather than also polling
+    // `signal.aborted` up front) would never observe.
+    if (isAborted(signal)) {
+      return err(request, {
+        code: 'cancelled',
+        message: 'path open was aborted',
+        details: {},
+      })
+    }
     try {
       await open(path, signal)
       return ok(request, { opened: true as const })

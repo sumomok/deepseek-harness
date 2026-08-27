@@ -5,6 +5,9 @@
  * invalidation frames (settings/credentials/models changed).
  */
 
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
@@ -299,9 +302,14 @@ describe('settings domain', () => {
   })
 
   it('opens the provider-resolved document without accepting a browser path', async () => {
+    // openTextFile's shared open-target path now checks the resolved path exists
+    // before invoking the opener, so the prepared path is a real staged file
+    // rather than a bare literal.
+    const preparedPath = join(mkdtempSync(join(tmpdir(), 'dsh-apiproxy-settings-')), 'custom-settings.yaml')
+    writeFileSync(preparedPath, '')
     const ctx = await harness({ settings: {
       documentPath: '/tmp/described-settings.yaml',
-      preparedPath: '/tmp/custom-settings.yaml',
+      preparedPath,
     } })
     const opened: string[] = []
     const api = createApiProxy(ctx, {
@@ -314,7 +322,7 @@ describe('settings domain', () => {
 
     expect(expectOk(await api.settings.openDocument(request({}), new AbortController().signal)))
       .toEqual({ opened: true })
-    expect(opened).toEqual(['/tmp/custom-settings.yaml'])
+    expect(opened).toEqual([preparedPath])
   })
 
   it('refuses to open settings when the provider has no local document', async () => {

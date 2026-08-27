@@ -47,6 +47,20 @@ export class DirectoryBrowseError extends Error {
   }
 }
 
+/**
+ * Structured path-open failure so a caller can read the Host's error code
+ * (e.g. `not-found`, to offer a different action) alongside the failure. The
+ * message text is unchanged from the plain `Error` this replaces — a
+ * host-refusal dialog already reads it verbatim — so `rpcError` is additive,
+ * not a rendering change.
+ */
+export class PathOpenError extends Error {
+  constructor(readonly rpcError: RpcError) {
+    super(`path open failed: ${rpcError.message}`)
+    this.name = 'PathOpenError'
+  }
+}
+
 /** Real Workspace object layer and Host actions. */
 export class WorkspaceRuntime implements IWorkspaces {
   /** UI-facing immutable projection; the manager remains wire truth. */
@@ -244,9 +258,7 @@ export class WorkspaceRuntime implements IWorkspaces {
    */
   async openPath(path: string): Promise<void> {
     const response = await this.api.host.openPath({ path })
-    if (!response.result.ok) {
-      throw new Error(`path open failed: ${response.result.error.message}`)
-    }
+    if (!response.result.ok) throw new PathOpenError(response.result.error)
   }
 
   /**
