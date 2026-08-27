@@ -47,6 +47,8 @@ export { createScope } from './agents/scope.ts'
 export type { AgentScopeHandle } from './agents/scope.ts'
 export { DirectoryBrowseError, PathOpenError, WorkspaceCreateError, WorkspaceRuntime } from './workspaces/service.ts'
 export { abbreviateHomePath, resolveWorkspacePath } from './workspaces/path.ts'
+export { dispatchReferentOpen } from './referent.ts'
+export type { ReferentKind, ReferentKindMap, ReferentRef } from './referent.ts'
 // Contract only: the scope implementation and its Host transport belong to
 // dsh-client-ui-settings (see that package's settings-scope.ts).
 export type {

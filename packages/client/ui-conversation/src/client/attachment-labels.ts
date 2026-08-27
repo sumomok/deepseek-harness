@@ -67,6 +67,7 @@ export function attachmentErrorText(
         return t('file.totalTooLarge', { size: attachmentSizeText(fileLimits.maxMessageFileBytes) })
       }
       break
+    case 'SUBAGENT_FILE_UNSUPPORTED': return t('file.subagentUnsupported')
     default: break
   }
   return t('image.sendFailed', { reason })

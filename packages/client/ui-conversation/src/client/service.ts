@@ -14,7 +14,7 @@ import type { Context } from '@deepseek-ai/cordis'
 // method) instead of the standalone helper.
 import type { ISessions, SessionFace, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { SubmitImageAttachment, SubmitOutcome } from '@deepseek-ai/dsh-client-ui-input-trigger/client'
-import type { EncodedFileAttachment, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
+import type { EncodedFileAttachment, FileAttachmentRef, ImageAttachmentRef, ImageMediaType } from '@deepseek-ai/dsh-attachment'
 import type { ComposerAttachment, ComposerFileAttachment, ComposerImageAttachment } from './contract/slots.ts'
 import type { QueueAction, QueueItemId } from './contract/queue.ts'
 import type { ComposerBlocks } from './input/blocks.ts'
@@ -84,6 +84,13 @@ interface ImageUrlEntry {
   readonly pending: Promise<string>
 }
 
+/** Cached resolution of one historical file's text, keyed like {@link ImageUrlEntry}. */
+interface FileTextEntry {
+  readonly sessionId: SessionId
+  readonly generation: number
+  readonly pending: Promise<string>
+}
+
 /** Unsupported browser-declared image type, localized by the UI boundary. */
 export class UnsupportedImageMediaTypeError extends Error {
   /** Browser-declared MIME value, possibly empty. */
@@ -105,6 +112,10 @@ export class ConversationController extends Service implements IConversation {
   readonly blocks: ComposerBlocks
   private readonly draftAttachments = new Map<DraftAttachmentId, ComposerAttachment>()
   private readonly imageUrls = new Map<string, ImageUrlEntry>()
+  // Text carries no browser resource to leak (unlike an image's object URL),
+  // so file-text entries share imageGenerations for invalidation but need no
+  // matching "created" set to revoke on disposal.
+  private readonly fileTexts = new Map<string, FileTextEntry>()
   private readonly imageGenerations = new Map<SessionId, number>()
   private readonly createdImageUrls = new Set<string>()
   private disposed = false
@@ -126,6 +137,7 @@ export class ConversationController extends Service implements IConversation {
       this.createdImageUrls.clear()
       this.draftAttachments.clear()
       this.imageUrls.clear()
+      this.fileTexts.clear()
       this.imageGenerations.clear()
     }, 'conversation attachment URL cache')
   }
@@ -296,7 +308,41 @@ export class ConversationController extends Service implements IConversation {
   }
 
   /**
-   * Release every historical image URL owned by one rendered session.
+   * Resolve and cache one session-authorized historical file's text.
+   * @param sessionId - owning session authorization scope.
+   * @param attachment - durable file reference.
+   * @returns UTF-8 text, valid until its rendered session is released.
+   */
+  resolveFile(sessionId: SessionId, attachment: FileAttachmentRef): Promise<string> {
+    if (this.disposed) return Promise.reject(new Error('conversation.resolveFile: service is disposed'))
+    const key = `${sessionId}:${attachment.attachmentId}`
+    const cached = this.fileTexts.get(key)
+    if (cached !== undefined) return cached.pending
+    const generation = this.imageGenerations.get(sessionId) ?? 0
+    const session = this.requireSessions().binding(sessionId)?.session
+    if (session === undefined) {
+      return Promise.reject(new Error(`conversation.resolveFile: unknown session "${sessionId}"`))
+    }
+    const pending = session.readFile(attachment.attachmentId)
+      .then((result) => {
+        if (!result.ok) throw new Error(`${result.error.code}: ${result.error.message}`)
+        if (this.disposed) throw new Error('conversation.resolveFile: service was disposed before loading completed')
+        if ((this.imageGenerations.get(sessionId) ?? 0) !== generation) {
+          throw new Error('historical file scope was released before loading completed')
+        }
+        return result.value.text
+      })
+      .catch((error: unknown) => {
+        if (this.fileTexts.get(key)?.generation === generation) this.fileTexts.delete(key)
+        throw error
+      })
+    this.fileTexts.set(key, { sessionId, generation, pending })
+    return pending
+  }
+
+  /**
+   * Release every historical image URL and cached file text owned by one
+   * rendered session (one generation bump invalidates both caches together).
    * @param sessionId - rendered session scope.
    */
   releaseSessionImages(sessionId: SessionId): void {
@@ -310,6 +356,9 @@ export class ConversationController extends Service implements IConversation {
       }, () => {
         // A failed or invalidated load owns no object URL.
       })
+    }
+    for (const [key, entry] of this.fileTexts) {
+      if (entry.sessionId === sessionId) this.fileTexts.delete(key)
     }
   }
 

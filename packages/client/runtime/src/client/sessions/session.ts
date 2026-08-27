@@ -1,7 +1,7 @@
 // Sessions remain resident after creation so they continue consuming mux frames off-screen.
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type {
   HistoryEntry, IApiClient, MessageId, MuxFrame, PromptContentPart, QueueAction, RpcError,
@@ -228,6 +228,15 @@ export class Session implements SessionFace {
               details: { reason: 'SUBAGENT_IMAGE_UNSUPPORTED' },
             },
           }
+        } else if (content.some(part => part.type === 'file')) {
+          result = {
+            ok: false,
+            error: {
+              code: 'attachment-error',
+              message: 'File input is unavailable for subagent continuations.',
+              details: { reason: 'SUBAGENT_FILE_UNSUPPORTED' },
+            },
+          }
         } else {
           const routed = (await this.api.subagents.prompt({
             ...this.address,
@@ -280,6 +289,24 @@ export class Session implements SessionFace {
       const binary = atob(result.value.data)
       const data = Uint8Array.from(binary, char => char.charCodeAt(0))
       return { ok: true, value: { attachment: result.value.attachment, data } }
+    } catch (error) {
+      return transportError(error)
+    }
+  }
+
+  /**
+   * Resolve one text file referenced by this session into browser-consumable text.
+   * @param attachmentId - opaque id found in the folded session log.
+   * @returns the authenticated reference and decoded text.
+   */
+  async readFile(
+    attachmentId: AttachmentIdType,
+  ): Promise<RpcResult<{ attachment: FileAttachmentRef; text: string }>> {
+    try {
+      return (await this.api.sessions.file({
+        sessionId: this.sessionId,
+        attachmentId,
+      })).result
     } catch (error) {
       return transportError(error)
     }

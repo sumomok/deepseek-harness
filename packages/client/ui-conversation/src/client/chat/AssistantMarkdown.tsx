@@ -15,6 +15,7 @@ import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots.ts'
+import { FileCard } from './FileCard.tsx'
 import { ReasoningRow } from './ReasoningRow.tsx'
 import css from './AssistantMarkdown.module.css'
 
@@ -25,6 +26,10 @@ export interface AssistantMarkdownProps {
   interrupted?: boolean | undefined
   /** Render consecutive image blocks through the attachment slot. */
   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
+  /** Resolve one durable file block's text for FileCard's inline expand. */
+  loadFile: ChatNodeOwnerProps['loadFile']
+  /** Dispatch `referent/open` ahead of FileCard's default expand/collapse. */
+  openReferent: ChatNodeOwnerProps['openReferent']
   /** Resolved prose file mentions for this Assistant's closing turn. */
   mentions?: MarkdownFileMentions | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
@@ -33,7 +38,7 @@ export interface AssistantMarkdownProps {
 
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, renderMessageImages, mentions, t,
+  blocks, streaming, interrupted, renderMessageImages, loadFile, openReferent, mentions, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
@@ -89,6 +94,11 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         )
         break
       }
+      case 'file':
+        rendered.push(
+          <FileCard key={i} attachment={block.attachment} loadFile={loadFile} openReferent={openReferent} t={t} />,
+        )
+        break
       // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
       case 'tool-call':
         break

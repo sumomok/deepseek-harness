@@ -482,6 +482,36 @@ describe('prompt and cancel errors', () => {
     })
   })
 
+  it('blocks image and file input for a continuable subagent before any transport call', async () => {
+    const api = new FakeApiClient()
+    const session = new Session(SID, api, fakeRemote(), {
+      address: { parentSessionId: PARENT, childSessionId: SID, mode: 'continuable' },
+      parentAvailable: true,
+    })
+    await session.open()
+
+    const promptedImage = await session.prompt(
+      [{ type: 'text', text: 'look' }, { type: 'image', mediaType: 'image/png', data: 'AA==' }],
+      'queue',
+    )
+    expect(promptedImage).toMatchObject({
+      ok: false,
+      error: { code: 'attachment-error', details: { reason: 'SUBAGENT_IMAGE_UNSUPPORTED' } },
+    })
+
+    const promptedFile = await session.prompt(
+      [{ type: 'text', text: 'read' }, { type: 'file', name: 'notes.txt', text: 'hi' }],
+      'queue',
+    )
+    expect(promptedFile).toMatchObject({
+      ok: false,
+      error: { code: 'attachment-error', details: { reason: 'SUBAGENT_FILE_UNSUPPORTED' } },
+    })
+
+    // Neither rejection ever reaches subagent.prompt — the gate runs before transport.
+    expect(api.callsOf('subagent.prompt')).toEqual([])
+  })
+
   it('lands an interrupt business failure in promptError with op=stop', async () => {
     const api = new FakeApiClient()
     api.onSubagentInterrupt = () => Promise.resolve(err({

@@ -7,6 +7,7 @@ import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
+import type { AssistantMarkdownProps } from '../src/client/chat/AssistantMarkdown.tsx'
 import type { RenderMessageImages } from '../src/client/contract/slots.ts'
 import { attachmentErrorText, attachmentSizeText } from '../src/client/attachment-labels.ts'
 import { en, zh } from '../src/client/locales.ts'
@@ -26,6 +27,9 @@ const attachment = {
 }
 
 type MessageImagesRenderOwner = Parameters<RenderMessageImages>[0]
+
+const loadFile: AssistantMarkdownProps['loadFile'] = () => Promise.reject(new Error('loadFile not stubbed'))
+const openReferent: AssistantMarkdownProps['openReferent'] = () => Promise.resolve()
 
 function imageRenderer(calls: MessageImagesRenderOwner[]): RenderMessageImages {
   return (owner) => {
@@ -89,6 +93,8 @@ describe('attachment rejection copy', () => {
     expect(attachmentErrorText(t, 'FILE_TOO_LARGE', undefined, fileLimits)).toBe('单个文件不能超过 1MB')
     expect(attachmentErrorText(t, 'FILES_TOO_LARGE', undefined, fileLimits)).toBe('文件总大小超过 10MB，请移除部分文件')
     expect(attachmentErrorText(enT, 'TOO_MANY_FILES', undefined, fileLimits)).toBe('A message can include up to 10 files')
+    expect(attachmentErrorText(t, 'SUBAGENT_FILE_UNSUPPORTED')).toBe('子智能体会话暂不支持文件')
+    expect(attachmentErrorText(enT, 'SUBAGENT_FILE_UNSUPPORTED')).toBe('Subagent sessions do not support files yet')
   })
 
   it('folds file limit reasons without projected file limits into the send-failed line', () => {
@@ -107,6 +113,8 @@ describe('assistant image slot handoff', () => {
         blocks={[{ kind: 'image', attachment }]}
         streaming={false}
         renderMessageImages={imageRenderer(calls)}
+        loadFile={loadFile}
+        openReferent={openReferent}
       />,
     )
     expect(view.getByTestId('message-images').getAttribute('data-align')).toBe('start')
@@ -127,6 +135,8 @@ describe('assistant image slot handoff', () => {
         ]}
         streaming={false}
         renderMessageImages={imageRenderer(calls)}
+        loadFile={loadFile}
+        openReferent={openReferent}
       />,
     )
     const galleries = view.getAllByTestId('message-images')
@@ -147,6 +157,8 @@ describe('assistant image slot handoff', () => {
         ]}
         streaming={false}
         renderMessageImages={imageRenderer(calls)}
+        loadFile={loadFile}
+        openReferent={openReferent}
       />,
     )
     const image = view.getByTestId('message-images')

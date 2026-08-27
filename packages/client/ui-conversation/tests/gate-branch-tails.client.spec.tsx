@@ -22,6 +22,8 @@ import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 // Mirrors the real lookup chain (conversation namespace, then common).
 const t: AssistantMarkdownProps['t'] = makeTranslate(zh, commonZh)
 const renderMessageImages: AssistantMarkdownProps['renderMessageImages'] = () => null
+const loadFile: AssistantMarkdownProps['loadFile'] = () => Promise.reject(new Error('loadFile not stubbed'))
+const openReferent: AssistantMarkdownProps['openReferent'] = () => Promise.resolve()
 
 /** jsdom has no ResizeObserver; StatsLine watches its row for ellipsis truncation through one. */
 class ResizeObserverStub {
@@ -66,6 +68,8 @@ describe('render branch tails', () => {
         blocks={[{ kind: 'reasoning', text: 'done thinking' }, { kind: 'text', text: 'answer' }]}
         streaming
         renderMessageImages={renderMessageImages}
+        loadFile={loadFile}
+        openReferent={openReferent}
       />,
     )
     // reasoning at index 0 with a later block: running is false → ok state.
@@ -107,6 +111,8 @@ describe('render branch tails', () => {
         blocks={[{ kind: 'reasoning', text: 'still thinking' }]}
         streaming
         renderMessageImages={renderMessageImages}
+        loadFile={loadFile}
+        openReferent={openReferent}
       />,
     )
     expect(view.container.querySelector('[data-state="running"]')).not.toBeNull()

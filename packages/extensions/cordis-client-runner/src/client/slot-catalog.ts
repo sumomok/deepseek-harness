@@ -216,10 +216,12 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** Stable owner currency delivered to one keyed Chat business renderer. */\nexport interface ChatNodeOwnerProps {\n  /** Selected Tool call, when the shared details store names one. */\n  selectedCallId?: CallId | undefined\n  /** Session workspace root; Tool summaries display paths relative to it. */\n  cwd?: string | undefined\n  openFile: (path: string) => void\n  inspectCall: (callId: CallId) => void\n  forkAt: (seq: number) => void\n  /** Render a historical image group through the attachment slot. */\n  renderMessageImages: RenderMessageImages\n  /**\n   * Render the contributed actions of one user-side message. A chat node\n   * decides whether its message has a durable position to address; the pending\n   * steering bubble has none and receives no strip.\n   */\n  renderUserActions: RenderUserActions\n  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined\n}',
+      '/** Stable owner currency delivered to one keyed Chat business renderer. */\nexport interface ChatNodeOwnerProps {\n  /** Selected Tool call, when the shared details store names one. */\n  selectedCallId?: CallId | undefined\n  /** Session workspace root; Tool summaries display paths relative to it. */\n  cwd?: string | undefined\n  openFile: (path: string) => void\n  inspectCall: (callId: CallId) => void\n  forkAt: (seq: number) => void\n  /** Render a historical image group through the attachment slot. */\n  renderMessageImages: RenderMessageImages\n  /**\n   * Render the contributed actions of one user-side message. A chat node\n   * decides whether its message has a durable position to address; the pending\n   * steering bubble has none and receives no strip.\n   */\n  renderUserActions: RenderUserActions\n  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined\n  /** Resolve one session-authorized historical file\'s text for inline display. */\n  loadFile: (attachment: FileAttachmentRef) => Promise<string>\n  /** Dispatch `referent/open` ahead of a file card\'s default expand/collapse. */\n  openReferent: OpenReferent\n}',
     ],
     ownerPropsReferences: [
+      'FileAttachmentRef',
       'MarkdownFileMentions',
+      'OpenReferent',
       'RenderMessageImages',
       'RenderUserActions',
       'TurnTailOwnerProps',
