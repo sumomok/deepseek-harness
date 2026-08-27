@@ -64,3 +64,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：文本文件贯通 wire、会话日志与请求物化；`SESSION_FORMAT_VERSION` 保持 `0`（`ContentBlockMap` 内的词汇增长，非结构性改动）；两个适配器都能把文件分片降级为语言标签围栏文本，不原生支持文件的现实对模型透明；`pnpm run doc-sync` 全部 28 门与仓库级两个 `tsc -b` 聚合门面、`oxlint`、`jscpd` 均干净，每个被改动文件逐文件 100% 覆盖率。
 - **退役条件**：上游为自己的 prompt wire、会话日志与请求物化添加了文件分片支持，包括解决“请求重建不变式与文件降级”这一张力。
 - **状态**：在役
+
+## feat(ui-conversation,ui-attachment): text files as composer draft attachments — 98020a23cd
+- **改了什么**：`ComposerAttachment` 改为判别式联合 `ComposerImageAttachment | ComposerFileAttachment`（文件变体没有 `previewUrl`）；`InputState.imageIds`/`addImages`/`removeImage` 三个既有动词原样复用给文件草稿。新增 `file-sniff.ts`（`sniffIsText`/`partitionDroppedFiles`，从 `attachment-local/src/sniff.ts` 的判定逻辑独立重写，非导入——该包依赖 `sharp` 等仅限 Node 的依赖）；`ComposerAttachments.tsx` 的拖放处理器与 `InputBar.tsx` 的粘贴处理器各自拆分自己拿到的原始批次，分别路由到 `onAddImages`/`onAddFiles`。新增 `ui-attachment` 的 `FileChip.tsx`（`FileChipRow`，name+size 条形卡片，与固定 64px 的 `AttachmentRail` 并列）；`image-labels.ts` 改名 `attachment-labels.ts`（`imageSizeText` 改名 `attachmentSizeText`），`attachmentErrorText` 新增 `fileLimits` 参数覆盖 `TOO_MANY_FILES`/`FILE_TOO_LARGE`/`FILES_TOO_LARGE`/`NOT_TEXT_FILE`/`INVALID_FILE_NAME`。`locales.ts` 更新拖放遮罩文案（标题提及文件、描述追加密码/密钥隐私提醒）并新增全套 `file.*` 键；`ConversationController.serializeDraftImages`（斜杠命令图片提交路径）按 kind 过滤，静默排除文件草稿。`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` 随生成器重新生成。
+- **为什么**：上一提交打通了 wire/日志/请求物化缝隙，但浏览器 composer 侧完全接不上——拖入或粘贴一个文本文件此前要么被图片专属的格式检查拒收，要么经独立退役中的 `dsh-text-drop` 插件绕过服务边界直接拼进草稿；一批混合图片与文本文件的拖放此前会因图片路径的格式检查而整批拒收。
+- **要达到的效果**：文本文件在 composer 侧与图片享有同等的草稿态、拖放/粘贴准入与呈现；混合批次按内容正确拆分路由，不再整批拒收；斜杠命令提交显式不接文件（静默排除，非本系列范围）；`ui-attachment/src/*` 无覆盖率豁免下逐文件 100% 覆盖，`ui-conversation/src/client/skeleton/*` 与 `contract/*`（不在既有单星号豁免 glob 内）同样逐文件 100%；仓库级两个 `tsc -b` 聚合门面、`oxlint`、`jscpd`、`pnpm run doc-sync` 全部 28 门均干净。
+- **退役条件**：上游自己的 composer 以任何形式泛化为接受非图片附件（草稿附件形态、拖放/粘贴准入、附件栏/文件条呈现），即退役该覆盖层，依赖插件适配上游形式。
+- **状态**：在役
