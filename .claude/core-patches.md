@@ -78,3 +78,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：`referent/open` 让产物文件条、Tool 行、消息内提及与新的文件卡片点击在一处缝隙上统一变得可拦截，零监听者时行为字节不变（原样重跑既有 `apply-inject.client.spec.tsx` 11/11 通过证实）；文件分片现在与图片分片一样，在消息流里可见、可展开读取原文；子智能体续接对图片与文件两类附件的拒收方式完全对称。`packages/client/runtime`／`ui-conversation/src/client/**`／`ui-trajectory/src/client/**` 在当前 vitest 配置下经实测确认整棵子树豁免于逐文件 100% 覆盖率门（细节见本提交 Agent Note），`packages/test-support/client-runtime/src/sessions.ts` 不豁免、已补齐覆盖；仓库级两个 `tsc -b` 聚合门面、`oxlint`、`jscpd`、`pnpm run doc-sync` 全部 28 门均干净。
 - **退役条件**：上游自己的会话 UI 原生渲染文件内容分片、并暴露出等价的打开/引用拦截缝隙，即退役该覆盖层，依赖插件适配上游形式。
 - **状态**：在役
+
+## fix(ui-attachment,web): repair a build-purity gap and stale assembled-snapshot copy — 59657e0132
+- **改了什么**：`packages/client/ui-attachment/package.json` 的 `dsh.client` 补上 `"external": ["@deepseek-ai/dsh-client-ui-conversation/client"]`（本仓库第一条真正用到 `dsh.client.external` 的声明）。`apps/web/tests/image-display.snapshot.ts` 两处断言改为匹配已发布的拖放遮罩文案，"不支持的粘贴"固件改用一段 NUL 开头的二进制而非可嗅探文本。新增 `apps/web/tests/file-display.snapshot.ts`。
+- **为什么**：给 `referent/open` 那次提交补已装配快照证据时，跑一次完整 `pnpm run build` 直接失败——`ComposerAttachments.tsx` 从 `ui-conversation/client` 值导入两个函数，却没有在 `dsh.client.external` 里声明，tsdown 打包纯净度门拒绝了这次导入；这个缺陷自 composer 文件准入那次提交起就存在，只是此前从未跑过完整构建才没被发现。修完构建后跑已有的 `image-display.snapshot.ts`，又暴露出同一次提交遗留的两处过期断言：遮罩文案断言还停在改文案之前，"不支持的粘贴"固件用的单字节文本此前会走图片拒绝提示，现在则会被新内容嗅探正确路由进文件通道，断言名不副实。
+- **要达到的效果**：`pnpm run build`（`tsc -b` 与 tsdown client 打包）与 `apps/web/tests/*.snapshot.ts` 全部干净（唯一例外 `built-boot.snapshot.ts` 的官方品牌断言需要带 `--profile` 构建，与文件附件无关，已用未带品牌的普通构建单独复现同一失败排除关联）；新增的已装配快照证实 fixture 会话日志携带引用而非内联原文，`FileCard` 默认动作能经 `session.file` 正确解出原文。
+- **退役条件**：与被修复的那次提交（file-part bubble card and the referent/open seam）相同：上游自己的会话 UI 泛化出等价能力即退役。
+- **状态**：在役
