@@ -26,6 +26,7 @@ import { join } from 'node:path'
 import { app, BrowserWindow, dialog, shell } from 'electron'
 import { recordRun } from './desktop-state.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
+import { isExternalNavigationTarget } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
 import {
   ENDPOINT_ENV as PLUGIN_ADMIN_ENDPOINT_ENV, PLUGIN_ADMIN_LIMITS, resolvePnpmLauncher, spawnPnpm,
@@ -426,7 +427,7 @@ function createBootWindow(receipt?: string): BootView {
   window.webContents.on('will-navigate', (event, target) => {
     if (server === undefined || !target.startsWith(server.url)) {
       event.preventDefault()
-      if (target.startsWith('http')) void shell.openExternal(target)
+      if (isExternalNavigationTarget(target)) void shell.openExternal(target)
     }
   })
   guardWindowClose(window)
