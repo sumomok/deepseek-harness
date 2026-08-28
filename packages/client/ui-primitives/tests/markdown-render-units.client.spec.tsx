@@ -295,6 +295,42 @@ describe('local-path link destinations (hand-built tree — a real parse cannot 
   })
 })
 
+describe('local-path link destinations with a literal space (real parse — unlike UNC, both forms survive real CommonMark parsing)', () => {
+  it('parses an angle-bracket destination end to end, handing resolveLink the literal space unmodified', () => {
+    let seenDestination: string | undefined
+    const referents: MarkdownRenderContext['referents'] = {
+      scan: () => [],
+      open: () => {},
+      resolveLink: (destination) => {
+        seenDestination = destination
+        return { start: 0, end: destination.length }
+      },
+    }
+    const { container } = render(
+      <MarkdownText text="[verify 报告.md](</Users/haoran/Documents/workspace/verify 报告.md>)" referents={referents} />,
+    )
+    expect(seenDestination).toBe('/Users/haoran/Documents/workspace/verify 报告.md')
+    expect(container.querySelector('button')?.className).toContain('fileMention')
+  })
+
+  it('parses a %20-encoded destination end to end, decoding it to the same literal space before resolveLink sees it', () => {
+    let seenDestination: string | undefined
+    const referents: MarkdownRenderContext['referents'] = {
+      scan: () => [],
+      open: () => {},
+      resolveLink: (destination) => {
+        seenDestination = destination
+        return { start: 0, end: destination.length }
+      },
+    }
+    const { container } = render(
+      <MarkdownText text="[verify 报告.md](/Users/haoran/Documents/workspace/verify%20报告.md)" referents={referents} />,
+    )
+    expect(seenDestination).toBe('/Users/haoran/Documents/workspace/verify 报告.md')
+    expect(container.querySelector('button')?.className).toContain('fileMention')
+  })
+})
+
 describe('MarkdownText under StrictMode', () => {
   it('streams identically when React double-invokes render work', () => {
     const doc = 'one\n\ntwo\n\nthree\n\nfour\n\nfive'
