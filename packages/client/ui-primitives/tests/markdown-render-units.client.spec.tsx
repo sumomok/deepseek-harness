@@ -244,6 +244,55 @@ describe('local-path link destinations (hand-built tree — a real parse cannot 
     expect(button?.textContent).toBe('unc')
     expect(container.querySelector('a')).toBeNull()
   })
+
+  it('flattens an image child (no readable text of its own) to an empty displayText, never throwing', () => {
+    let seenDisplayText: string | undefined
+    const context: MarkdownRenderContext = {
+      ...makeContext(),
+      referents: {
+        scan: () => [],
+        open: () => {},
+        resolveLink: (_destination, displayText) => {
+          seenDisplayText = displayText
+          return undefined
+        },
+      },
+    }
+    const node: Md.Link = {
+      type: 'link',
+      url: '/proj/report.md',
+      children: [{ type: 'image', url: 'x.png', alt: 'x' }],
+    }
+    const container = renderNodes([{ type: 'paragraph', children: [node] }], context)
+    expect(seenDisplayText).toBe('')
+    expect(container.querySelector('code')?.textContent).toBe('')
+  })
+
+  it('flattens every link-child shape linkPlainText handles: inlineCode value, break as a space, and recursion into a nested-children node', () => {
+    let seenDisplayText: string | undefined
+    const context: MarkdownRenderContext = {
+      ...makeContext(),
+      referents: {
+        scan: () => [],
+        open: () => {},
+        resolveLink: (_destination, displayText) => {
+          seenDisplayText = displayText
+          return undefined
+        },
+      },
+    }
+    const node: Md.Link = {
+      type: 'link',
+      url: '/proj/report.md',
+      children: [
+        { type: 'inlineCode', value: 'code' },
+        { type: 'break' },
+        { type: 'strong', children: [{ type: 'text', value: 'bold' }] },
+      ],
+    }
+    renderNodes([{ type: 'paragraph', children: [node] }], context)
+    expect(seenDisplayText).toBe('code bold')
+  })
 })
 
 describe('MarkdownText under StrictMode', () => {
