@@ -188,3 +188,40 @@ export async function runRecoveryLadder(
     action = failed.action
   }
 }
+
+/**
+ * The L2 "stopped" dialog's buttons, in the order the native dialog shows
+ * them. The index into this array is exactly the `response` a
+ * `dialog.showMessageBox` answer carries, which is what
+ * {@link classifyStoppedDialogAnswer} reads.
+ */
+export const STOPPED_DIALOG_BUTTONS = ['重试', '打开日志', '关闭'] as const
+
+/**
+ * `cancelId` for the L2 dialog. Esc, the window's close control, or any other
+ * way of dismissing the dialog without pressing a button must land on 关闭 —
+ * a user who cannot fix the crash needs a way out of the dialog that does not
+ * quit the whole app, and dismissing must never be read as having asked for
+ * one more retry or for the log.
+ */
+export const STOPPED_DIALOG_CANCEL_INDEX = STOPPED_DIALOG_BUTTONS.indexOf('关闭')
+
+/**
+ * What one L2 dialog answer means: `retry` for one more manual rebind
+ * attempt, `open-log` to reveal the log file, `dismiss` to end the dialog
+ * loop and leave the backend down with no further automatic action.
+ */
+export type StoppedDialogOutcome = 'retry' | 'open-log' | 'dismiss'
+
+/**
+ * Classify one L2 dialog answer.
+ * @param responseIndex - `dialog.showMessageBox`'s own `response`, an index into {@link STOPPED_DIALOG_BUTTONS}.
+ * @returns what the user asked for; an index this build's buttons do not carry
+ * is treated as `dismiss`, the safe default that starts nothing.
+ */
+export function classifyStoppedDialogAnswer(responseIndex: number): StoppedDialogOutcome {
+  const button: string | undefined = STOPPED_DIALOG_BUTTONS[responseIndex]
+  if (button === '重试') return 'retry'
+  if (button === '打开日志') return 'open-log'
+  return 'dismiss'
+}

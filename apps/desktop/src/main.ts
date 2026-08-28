@@ -38,7 +38,8 @@ import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './r
 import { renderInHiddenWindow } from './render-window.ts'
 import { clearLoginSession, openLoginWindow } from './login-window.ts'
 import {
-  initialSupervisorState, isRecoveryRelaunchInstance, RECOVERY_RELAUNCH_FLAG, runRecoveryLadder, type SupervisorState,
+  classifyStoppedDialogAnswer, initialSupervisorState, isRecoveryRelaunchInstance, RECOVERY_RELAUNCH_FLAG,
+  runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type SupervisorState,
 } from './server-supervision.ts'
 import { startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
@@ -259,8 +260,13 @@ function relaunchForRecovery(): void {
  * Escalate to L2: put the decision in front of the user instead of trying
  * again automatically. 「重试」makes exactly one more manual rebind attempt
  * and, on failure, shows the dialog again — repeatable, but never on a timer.
- * 「打开日志」reveals the log file and also reshows the dialog, since neither
- * button leaves the app in a different state on its own.
+ * 「打开日志」reveals the log file and reshows the dialog, since the user asked
+ * for information, not to end anything. 「关闭」ends the dialog loop and
+ * returns with the backend left down and nothing further attempted
+ * automatically; {@link STOPPED_DIALOG_CANCEL_INDEX} routes Esc and every
+ * other way of dismissing the dialog to the same button, so a user who
+ * cannot fix the crash always has a way out that is not quitting the whole
+ * app.
  */
 async function runStoppedDialog(): Promise<void> {
   logLine('[desktop] automatic recovery stopped after repeated crashes; asking the user\n')
@@ -270,19 +276,24 @@ async function runStoppedDialog(): Promise<void> {
       type: 'error' as const,
       title: 'DSH Desktop',
       message: '后台服务多次崩溃,已停止自动恢复',
-      buttons: ['重试', '打开日志'],
+      buttons: [...STOPPED_DIALOG_BUTTONS],
       defaultId: 0,
-      // Dismissing the dialog reveals the log rather than retrying on its own.
-      cancelId: 1,
+      cancelId: STOPPED_DIALOG_CANCEL_INDEX,
     }
     const answer = window === undefined ? await dialog.showMessageBox(options) : await dialog.showMessageBox(window, options)
-    if (answer.response === 0) {
+    const outcome = classifyStoppedDialogAnswer(answer.response)
+    if (outcome === 'retry') {
       if (await performRebind()) return
       continue
     }
-    void shell.openPath(logFile).then((failure) => {
-      if (failure !== '') shell.showItemInFolder(logFile)
-    })
+    if (outcome === 'open-log') {
+      void shell.openPath(logFile).then((failure) => {
+        if (failure !== '') shell.showItemInFolder(logFile)
+      })
+      continue
+    }
+    logLine('[desktop] user dismissed the crash dialog; backend stays down\n')
+    return
   }
 }
 

@@ -7,10 +7,13 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  classifyStoppedDialogAnswer,
   L2_GUARD_WINDOW_MS,
   REBIND_DELAYS_MS,
   RECOVERY_RELAUNCH_FLAG,
   type RecoveryHooks,
+  STOPPED_DIALOG_BUTTONS,
+  STOPPED_DIALOG_CANCEL_INDEX,
   UNEXPECTED_EXIT_ESCALATION_COUNT,
   UNEXPECTED_EXIT_WINDOW_MS,
   initialSupervisorState,
@@ -187,5 +190,27 @@ describe('runRecoveryLadder', () => {
     const { outcome } = await runRecoveryLadder(state, (UNEXPECTED_EXIT_ESCALATION_COUNT - 1) * 1_000, false, 0, hooks)
     expect(outcome).toBe('relaunch')
     expect(calls.rebindCalls).toBe(0)
+  })
+})
+
+describe('classifyStoppedDialogAnswer', () => {
+  it('classifies each button by its index in STOPPED_DIALOG_BUTTONS', () => {
+    expect(classifyStoppedDialogAnswer(STOPPED_DIALOG_BUTTONS.indexOf('重试'))).toBe('retry')
+    expect(classifyStoppedDialogAnswer(STOPPED_DIALOG_BUTTONS.indexOf('打开日志'))).toBe('open-log')
+    expect(classifyStoppedDialogAnswer(STOPPED_DIALOG_BUTTONS.indexOf('关闭'))).toBe('dismiss')
+  })
+
+  it('routes the cancelId (Esc, or any other way of dismissing without a button) to dismiss', () => {
+    expect(classifyStoppedDialogAnswer(STOPPED_DIALOG_CANCEL_INDEX)).toBe('dismiss')
+  })
+
+  it('treats an index outside the buttons array as dismiss, the safe default', () => {
+    expect(classifyStoppedDialogAnswer(-1)).toBe('dismiss')
+    expect(classifyStoppedDialogAnswer(99)).toBe('dismiss')
+  })
+
+  it('never routes cancelId to retry or open-log', () => {
+    expect(classifyStoppedDialogAnswer(STOPPED_DIALOG_CANCEL_INDEX)).not.toBe('retry')
+    expect(classifyStoppedDialogAnswer(STOPPED_DIALOG_CANCEL_INDEX)).not.toBe('open-log')
   })
 })
