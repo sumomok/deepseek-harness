@@ -113,3 +113,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：三分支单测覆盖齐全——verified→可点、unverified→纯文本代码样式+title、无 provider/无 resolveLink→现状不变；`%20` 解码与解码失败保留原文单独覆盖；`http(s)`/`mailto` 目的地即便 provider 在场也维持现状；Windows 盘符路径同走这条缝（UNC 路径因 CommonMark 反斜杠转义在真实解析下无法保留两个前导反斜杠，改在 `markdown-render-units` 用手搭 mdast 树验证同一分支）。
 - **退役条件**：同一条 `proseReferents` 缝隙退役时一并退役。
 - **状态**：在役
+
+## fix(ui-primitives): re-render a settled message on a referents verification tick
+- **改了什么**：三层可点引用架构 A3——`MarkdownText.tsx` 新增 `useReferentsRevision(referents)`：`useEffect` 订阅 `referents?.subscribe`（未声明则空操作，`revision` 恒为 0），每次 tick 递增一个 `useState` 计数器并在组件卸载/`referents` 换身份时退订；`revision` 并入 `MarkdownText` 的 `useMemo` 依赖数组（与既有的 `text`/`streaming`/`codeLabels`/`fileMentions`/`referents` 并列），本身在 memo 回调体内不被读取，纯粹用来让 `renderSettled`/`StreamingRenderer.render` 在验证批次完成后重新执行、重新调用 `scan`/`resolveLink`。
+- **为什么**：`ProseReferents.scan`/`resolveLink` 允许异步验证（结果先缓存在 provider 自己的存储里，`scan` 本身仍保持同步只读缓存）——落定那一刻的首次渲染很可能赶在 host `stat` 批次完成之前，此时 `scan` 返回空理所当然；但在这条 patch 之前，`subscribe` 这个缝隙根本不存在，验证批次之后完成的通知无处可接，已缓存的 `useMemo` 结果永远不会因为"验证完成了"这件事重新计算——读者只有刷新整个页面（组件重新挂载、`scan` 拿着当时已经验证好的缓存重新跑一遍）才能看到标记变蓝，这正是现场证实的那个 bug。
+- **要达到的效果**：落定瞬间该来的验证结果照常显示（不依赖这条 patch，本就走 `streaming` 翻转触发的既有重渲）；验证批次异步完成后的 tick 无需刷新页面即可让已落定消息的新增验证结果显形（新增单测：手动触发 tick 后 `PROSEHIT` 从不可点变按钮，组件全程未重新挂载）；`referents` 换身份（provider 组合切换）正确退订旧监听、订阅新监听（新增单测覆盖）；无 `subscribe` 时 `revision` 恒定、行为与本 patch 之前逐字节一致。
+- **退役条件**：同一条 `proseReferents` 缝隙退役时一并退役。
+- **状态**：在役

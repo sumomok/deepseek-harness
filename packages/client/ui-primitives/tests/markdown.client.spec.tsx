@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { JsonBlock, MarkdownText, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownProseReferents, MarkdownProseSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cjkFriendlyStrong } from '../src/markdown/cjkFriendlyStrong.ts'
@@ -285,6 +285,40 @@ describe('MarkdownText', () => {
     const { container } = render(<MarkdownText text="PROSEHIT" streaming referents={referents} />)
     expect(container.querySelector('button')).toBeNull()
     expect(container.textContent).toBe('PROSEHIT')
+  })
+
+  it('a subscribe tick re-invokes scan on a settled message, revealing a span that verified after first render, with no remount', () => {
+    let verified = false
+    let tick: (() => void) | undefined
+    const referents: MarkdownProseReferents = {
+      scan: (text) => {
+        if (!verified) return []
+        const index = text.indexOf('PROSEHIT')
+        return index === -1 ? [] : [{ start: index, end: index + 'PROSEHIT'.length }]
+      },
+      open: () => {},
+      subscribe: (listener) => {
+        tick = listener
+        return () => { tick = undefined }
+      },
+    }
+    render(<MarkdownText text="See PROSEHIT here." referents={referents} />)
+    expect(screen.queryByRole('button', { name: 'PROSEHIT' })).toBeNull()
+    verified = true
+    act(() => { tick?.() })
+    expect(screen.getByRole('button', { name: 'PROSEHIT' })).toBeTruthy()
+  })
+
+  it('unsubscribes the previous listener and subscribes fresh when the referents identity changes across renders', () => {
+    const unsubscribeA = vi.fn()
+    const unsubscribeB = vi.fn()
+    const referentsA: MarkdownProseReferents = { scan: () => [], open: () => {}, subscribe: () => unsubscribeA }
+    const referentsB: MarkdownProseReferents = { scan: () => [], open: () => {}, subscribe: () => unsubscribeB }
+    const { rerender } = render(<MarkdownText text="x" referents={referentsA} />)
+    expect(unsubscribeA).not.toHaveBeenCalled()
+    act(() => { rerender(<MarkdownText text="x" referents={referentsB} />) })
+    expect(unsubscribeA).toHaveBeenCalled()
+    expect(unsubscribeB).not.toHaveBeenCalled()
   })
 
   it('absent referents leaves prose and inline code exactly as plain text/code', () => {
