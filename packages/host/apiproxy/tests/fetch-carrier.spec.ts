@@ -437,6 +437,21 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     expect(response.result).toEqual({ ok: true, value: { opened: true } })
   })
 
+  it('round-trips host.probeTargets through the wire form', async () => {
+    const api = fakeApi()
+    let probed: string[] | undefined
+    api.host.probeTargets = async (request) => {
+      probed = request.payload.paths
+      return {
+        rpcId: request.rpcId,
+        result: { ok: true, value: { results: [{ path: '/w/a.ts', exists: true, kind: 'file' as const }] } },
+      }
+    }
+    const response = await client(api).host.probeTargets({ paths: ['/w/a.ts'] })
+    expect(probed).toEqual(['/w/a.ts'])
+    expect(response.result).toEqual({ ok: true, value: { results: [{ path: '/w/a.ts', exists: true, kind: 'file' }] } })
+  })
+
   it('round-trips skill.list through the wire form', async () => {
     const c = client()
     const skills = await c.skills.list({ sessionId: 's' as never })
