@@ -134,12 +134,13 @@ export interface MarkdownProseSpan {
 }
 
 /**
- * Prose-referent affordance for chat text and inline code: the owner scans a
- * rendered text run for clickable references using its own detection rules
- * and opens a hit through its own dispatch — the renderer never guesses at
- * what looks like a path or URL. Generalizes {@link MarkdownFileMentions}'s
+ * Prose-referent affordance for chat text and inline code, and for a
+ * local-path-shaped markdown link's destination: the owner scans/resolves
+ * using its own detection and verification rules and opens a hit through
+ * its own dispatch — the renderer never guesses at what looks like a path
+ * or URL, and never verifies one itself. Generalizes {@link MarkdownFileMentions}'s
  * owner-resolves/renderer-never-guesses split from inline-code tokens to
- * plain prose text.
+ * plain prose text and markdown links.
  */
 export interface MarkdownProseReferents {
   /**
@@ -156,9 +157,26 @@ export interface MarkdownProseReferents {
   scan(text: string, inlineCode: boolean): readonly MarkdownProseSpan[]
   /**
    * Open one span a reader clicked or activated by keyboard.
-   * @param span - The exact span object `scan` returned for this hit.
+   * @param span - The exact span object `scan` or {@link resolveLink} returned for this hit.
    */
   open(span: MarkdownProseSpan): void
+  /**
+   * Resolve a local-path-shaped markdown link destination the renderer
+   * itself detects (a future patch teaches `render.tsx`'s link case to call
+   * this — this seam only declares the contract).
+   * @param destination - The link's decoded destination text.
+   * @param displayText - The link's rendered text.
+   * @returns The clickable span, or `undefined` to keep the link inert.
+   */
+  resolveLink?(destination: string, displayText: string): MarkdownProseSpan | undefined
+  /**
+   * Subscribe to verification progress ticks; the renderer re-invokes
+   * `scan`/`resolveLink` on the next tick so a span that verified after its
+   * first render can still appear without a remount.
+   * @param listener - Called with no arguments after each tick.
+   * @returns Unsubscribe function.
+   */
+  subscribe?(listener: () => void): () => void
 }
 
 /**

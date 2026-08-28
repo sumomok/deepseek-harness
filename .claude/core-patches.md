@@ -99,3 +99,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：`ctx.workspaces.probeTargets(paths)` 对 1–64 个绝对路径给出与请求同序的 `{path, exists, kind?}[]`；调用方（clickable-refs 插件的验证存储）按 ≤64 自行分片调度，本方法内部只再做 8 并发限流，不额外校验调用节奏。零能力闸，任何部署都能用。
 - **退役条件**：上游自己提供等价的只读批量路径探针（stat-only、无目录列举、client 可达）。
 - **状态**：在役
+
+## feat(ui-conversation,ui-primitives): resolveLink/subscribe on the proseReferents contract
+- **改了什么**：三层可点引用架构（提名→验证→打开）的 A1——在役 `ProseReferents`（`ui-conversation/src/client/contract/slots.ts`）与其渲染侧镜像 `MarkdownProseReferents`（`ui-primitives/src/markdown/render.tsx`）各新增两个可选成员：`resolveLink?(destination, displayText, ctx?) → span | undefined`（提名一个非 web-scheme 的 markdown 链接目标，返回已验证 span 或 undefined）、`subscribe?(listener) → unsubscribe`（验证批次完成后的 tick 通知）；`scan` 的 JSDoc 改写为显式声明"只返回已验证 span"的契约（蓝=必开由此结构性成立）。`apply.ts` 的 `buildProseReferents` 对称按 `provider.resolveLink`/`provider.subscribe` 是否存在决定render 侧对应字段是否出现（`exactOptionalPropertyTypes` 下用条件展开而非赋值 `undefined`）——`resolveLink` 转发时重新读一次会话 cwd/Host home（与 `scan` 同一惰性读技术），`subscribe` 直通不做任何包装。本提交只开缝：`render.tsx` 尚未调用 `resolveLink`，`MarkdownText.tsx` 尚未订阅 `subscribe`（下两个提交分别接上）。
+- **为什么**：v2 的 `ProseReferents.scan` 只覆盖语法提名，v3 架构要求提名与验证分层——`resolveLink` 是"提名一个 markdown 链接目标交给验证层"的挂钩，`subscribe` 是"验证批次异步完成后通知渲染层重渲"的挂钩；两者都得先在契约里落地，渲染逻辑才有地方接。
+- **要达到的效果**：两个新成员均可选，未声明的 provider（沿用旧版 `{ scan, open }` 两件套）在类型和运行时都保持原样——`buildProseReferents` 对着一个没有 `resolveLink`/`subscribe` 的旧 provider 时，`referents.resolveLink`/`referents.subscribe` 均为 `undefined`（新增单测覆盖：转发到 provider、透传返回的 unsubscribe、provider 未声明时两个字段都缺席）。
+- **退役条件**：与既有 `proseReferents` 缝隙相同——上游自己的会话 UI 长出等价的提名/验证分层可点引用能力，即退役整条覆盖层。
+- **状态**：在役
