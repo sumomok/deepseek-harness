@@ -222,6 +222,30 @@ describe('renderFootnoteSection edge shapes', () => {
   })
 })
 
+describe('local-path link destinations (hand-built tree — a real parse cannot preserve two literal leading backslashes)', () => {
+  it('offers a UNC destination to resolveLink; a verified span renders the fileMention button style', () => {
+    const span = { start: 0, end: 1 }
+    const context: MarkdownRenderContext = {
+      ...makeContext(),
+      referents: {
+        scan: () => [],
+        open: () => {},
+        resolveLink: destination => (destination === '\\\\server\\share\\report.md' ? span : undefined),
+      },
+    }
+    const node: Md.Link = {
+      type: 'link',
+      url: '\\\\server\\share\\report.md',
+      children: [{ type: 'text', value: 'unc' }],
+    }
+    const container = renderNodes([{ type: 'paragraph', children: [node] }], context)
+    const button = container.querySelector('button')
+    expect(button?.className).toContain('fileMention')
+    expect(button?.textContent).toBe('unc')
+    expect(container.querySelector('a')).toBeNull()
+  })
+})
+
 describe('MarkdownText under StrictMode', () => {
   it('streams identically when React double-invokes render work', () => {
     const doc = 'one\n\ntwo\n\nthree\n\nfour\n\nfive'

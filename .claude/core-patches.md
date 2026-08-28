@@ -106,3 +106,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：两个新成员均可选，未声明的 provider（沿用旧版 `{ scan, open }` 两件套）在类型和运行时都保持原样——`buildProseReferents` 对着一个没有 `resolveLink`/`subscribe` 的旧 provider 时，`referents.resolveLink`/`referents.subscribe` 均为 `undefined`（新增单测覆盖：转发到 provider、透传返回的 unsubscribe、provider 未声明时两个字段都缺席）。
 - **退役条件**：与既有 `proseReferents` 缝隙相同——上游自己的会话 UI 长出等价的提名/验证分层可点引用能力，即退役整条覆盖层。
 - **状态**：在役
+
+## feat(ui-primitives): route a local-path markdown link destination through resolveLink
+- **改了什么**：三层可点引用架构 A2——`render.tsx` 的 `case 'link'`：目的地先 `decodeURIComponent`（尽力解码，失败保留原文，新增 `decodeLinkDestination`），呈本地路径形（`isLocalPathDestination`：前缀 `/`、`~`/`~/`、盘符 `X:\`或`X:/`、UNC `\\`）且非 http(s)/mailto（`isAllowedScheme`）时，交 `context.referents?.resolveLink`（新增 `renderLocalLinkDestination`：verified span → 与 `scan` 命中同款 `css.fileMention` 按钮，`displayText` 用新增的 `linkPlainText` 把链接子树拍平成纯文本；unverified → 普通 `<code title={destination}>` ，不再落回旧版的 `text (destination)` 尾缀文本）；无 provider 或 provider 未声明 `resolveLink` 时原样落回既有协议白名单分支，字节不变。
+- **为什么**：v3 架构把"模型写 markdown 链接"列为提名主力（B1 的系统提示词就是让模型这样写），但 v2 的 render.tsx 对非 http/https/mailto 的链接目的地只有一条路——协议白名单拒绝，渲染成 `text (destination)`——完整绝对路径直接以尾缀文本形式污染正文，且从不给验证层任何介入点。
+- **要达到的效果**：三分支单测覆盖齐全——verified→可点、unverified→纯文本代码样式+title、无 provider/无 resolveLink→现状不变；`%20` 解码与解码失败保留原文单独覆盖；`http(s)`/`mailto` 目的地即便 provider 在场也维持现状；Windows 盘符路径同走这条缝（UNC 路径因 CommonMark 反斜杠转义在真实解析下无法保留两个前导反斜杠，改在 `markdown-render-units` 用手搭 mdast 树验证同一分支）。
+- **退役条件**：同一条 `proseReferents` 缝隙退役时一并退役。
+- **状态**：在役

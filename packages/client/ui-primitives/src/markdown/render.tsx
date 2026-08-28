@@ -14,6 +14,19 @@
  * text (`text (destination)`) rather than discarding it — a policy change
  * from the replaced pipeline, which rendered the link text alone.
  *
+ * A link destination shaped like a local filesystem path (a leading `/`,
+ * `~/`, a drive letter, or a UNC `\\` share) and not an http(s)/mailto URL
+ * never falls to that `text (destination)` text: it is decoded
+ * (`decodeURIComponent`, best-effort — an undecodable destination keeps its
+ * raw text) and offered to `MarkdownProseReferents.resolveLink`, when a
+ * referents provider composed one in. A verified destination renders
+ * clickable, in the same style `referents.scan` hits use; an unverified one
+ * renders its display text in plain inline-code style with the destination
+ * on `title` — never as trailing inert text, which would put a long path
+ * back in the visible prose. No provider, or no `resolveLink`: the
+ * destination falls through to the allowlist exactly as before this seam
+ * existed.
+ *
  * Merge-extensible node unions fall through the documented default (render
  * nothing) rather than ending in assertNever: grammars registered elsewhere
  * may add node types this renderer has no mapping for.
@@ -53,6 +66,82 @@ function sanitizeUrl(url: string): string {
     // disallowed protocols; new URL() has no other failure mode for strings.
     return ''
   }
+}
+
+/** One of the three schemes {@link sanitizeUrl} allows through unwrapped. */
+function isAllowedScheme(destination: string): boolean {
+  return /^(?:https?|mailto):/iu.test(destination)
+}
+
+/**
+ * Whether a markdown link destination is shaped like a local filesystem
+ * path — a leading `/`, `~/` (or bare `~`), a drive letter (`C:\`/`C:/`), or
+ * a UNC share (`\\server\share`) — as opposed to a URL or a scheme this
+ * renderer's existing allowlist already decides.
+ */
+function isLocalPathDestination(destination: string): boolean {
+  return destination.startsWith('/') || destination === '~' || destination.startsWith('~/')
+    || /^[A-Za-z]:[\\/]/u.test(destination) || destination.startsWith('\\\\')
+}
+
+/** Best-effort decode: an undecodable destination (a stray `%`) keeps its raw text rather than throwing. */
+function decodeLinkDestination(destination: string): string {
+  try {
+    return decodeURIComponent(destination)
+  } catch {
+    // decodeURIComponent's only failure mode: malformed percent-escapes.
+    return destination
+  }
+}
+
+/**
+ * Flatten a link's children to plain text, for `resolveLink`'s `displayText`
+ * and the plain-code fallback: `text`/`inlineCode` nodes contribute their
+ * value, `break` becomes a space, everything else recurses into its own
+ * children (an image or footnote reference contributes nothing readable).
+ */
+function linkPlainText(nodes: readonly Md.RootContent[]): string {
+  let out = ''
+  for (const node of nodes) {
+    if (node.type === 'text' || node.type === 'inlineCode') out += node.value
+    else if (node.type === 'break') out += ' '
+    else if ('children' in node) out += linkPlainText(node.children)
+  }
+  return out
+}
+
+/**
+ * Render a local-path-shaped link destination through the referents
+ * provider's `resolveLink`, when one is composed in and declares the
+ * method. Verified: a `css.fileMention` button, matching `scan` hits.
+ * Unverified: plain inline-code style with the destination on `title`.
+ * @returns The rendered node, or `undefined` when no provider/`resolveLink`
+ * is available — the caller then falls through to the existing allowlist.
+ */
+function renderLocalLinkDestination(
+  destination: string,
+  node: Md.Link,
+  key: Key,
+  context: MarkdownRenderContext,
+): ReactNode | undefined {
+  const referents = context.referents
+  const resolveLink = referents?.resolveLink
+  if (referents === undefined || resolveLink === undefined) return undefined
+  const displayText = linkPlainText(node.children)
+  const span = resolveLink(destination, displayText)
+  if (span !== undefined) {
+    return (
+      <button
+        key={key}
+        type="button"
+        className={css.fileMention}
+        onClick={() => { referents.open(span) }}
+      >
+        {displayText}
+      </button>
+    )
+  }
+  return <code key={key} title={destination}>{displayText}</code>
 }
 
 function remoteImageUrl(url: string): string | undefined {
@@ -388,8 +477,14 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
       return renderListItem(node, listItemLoose(node), key, context)
     case 'table':
       return renderTable(node, key, context)
-    case 'link':
+    case 'link': {
+      const destination = decodeLinkDestination(node.url)
+      if (isLocalPathDestination(destination) && !isAllowedScheme(destination)) {
+        const rendered = renderLocalLinkDestination(destination, node, key, context)
+        if (rendered !== undefined) return rendered
+      }
       return renderAnchor(node.url, renderChildren(node.children, { ...context, inLink: true }), key)
+    }
     case 'linkReference':
       return renderLinkReference(node, key, context)
     case 'image':
