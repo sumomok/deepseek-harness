@@ -1969,9 +1969,18 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
   /**
    * Bounded-concurrency stat: exists=false for ENOENT and for any other stat
-   * failure alike — the probe answers clickable-or-not, not why not.
+   * failure alike — the probe answers clickable-or-not, not why not. A
+   * `\\`-prefixed target short-circuits to `exists:false` before any `stat`
+   * runs: on Windows, `stat`-ing a UNC path (`\\server\share\…`) opens an
+   * SMB connection and can leak the current user's NTLM credentials to
+   * whatever host the path names, with no user gesture — this probe answers
+   * local-filesystem existence only, and this check does not trust a caller
+   * to have already filtered UNC targets out (a client-side nomination layer
+   * may, but this is the wire boundary, and a caller cannot be trusted to
+   * pre-filter it).
    */
   async function probeOneTarget(path: string): Promise<{ path: string; exists: boolean; kind?: 'file' | 'dir' }> {
+    if (path.startsWith('\\\\')) return { path, exists: false }
     try {
       const info = await stat(path)
       return { path, exists: true, kind: info.isDirectory() ? 'dir' : 'file' }

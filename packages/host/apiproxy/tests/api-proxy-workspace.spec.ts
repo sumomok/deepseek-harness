@@ -1,4 +1,5 @@
 import { existsSync, mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs'
+import { stat } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
@@ -18,6 +19,15 @@ import type { RpcRequest, RpcResponse } from '@deepseek-ai/dsh-host-apiproxy/api
 import { RpcId } from '@deepseek-ai/dsh-host-apiproxy/api/rpc'
 import { createApiProxy } from '@deepseek-ai/dsh-host-apiproxy'
 import { MemoryStorageBackend } from '../../../storage/storage-domain/tests/helpers/memory-backend.ts'
+
+// A spy that passes through to the real stat by default (every other describe
+// block in this file relies on real filesystem existence checks) — only the
+// host.probeTargets block below asserts on call count/arguments, proving the
+// UNC short-circuit in api-proxy.ts's probeOneTarget skips stat entirely.
+vi.mock('node:fs/promises', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('node:fs/promises')>()
+  return { ...actual, stat: vi.fn(actual.stat) }
+})
 
 let nextRpc = 1
 
@@ -277,6 +287,43 @@ describe('host.openPath', () => {
     const response = await api.host.openPath(request({ path: missing }), new AbortController().signal)
     expect(response.result).toMatchObject({ ok: false, error: { code: 'not-found', details: { path: missing } } })
     expect(opened).toEqual([])
+  })
+})
+
+describe('host.probeTargets', () => {
+  it('answers a UNC target with exists:false without ever calling stat, while a real neighboring path still resolves', async () => {
+    const { api, root } = await harness()
+    const real = stageFile(root, 'a.txt')
+    const statMock = vi.mocked(stat)
+    statMock.mockClear()
+    const uncTarget = '\\\\attacker-host\\share\\a.txt'
+
+    const response = await api.host.probeTargets(request({ paths: [uncTarget, real] }))
+
+    expect(expectOk(response).results).toEqual([
+      { path: uncTarget, exists: false },
+      { path: real, exists: true, kind: 'file' },
+    ])
+    expect(statMock).toHaveBeenCalledTimes(1)
+    expect(statMock).toHaveBeenCalledWith(real)
+  })
+
+  it('answers a genuinely missing local path with exists:false, unaffected by the UNC short-circuit', async () => {
+    const { api, root } = await harness()
+    const missing = join(root, 'missing.txt')
+
+    const response = await api.host.probeTargets(request({ paths: [missing] }))
+
+    expect(expectOk(response).results).toEqual([{ path: missing, exists: false }])
+  })
+
+  it('reports a directory kind, symmetric with the file case', async () => {
+    const { api, root } = await harness()
+    const dir = stageDir(root, 'sub')
+
+    const response = await api.host.probeTargets(request({ paths: [dir] }))
+
+    expect(expectOk(response).results).toEqual([{ path: dir, exists: true, kind: 'dir' }])
   })
 })
 
