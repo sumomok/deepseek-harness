@@ -19,6 +19,15 @@ const STARTUP_TIMEOUT_MS = 180_000
 const STOP_GRACE_MS = 8_000
 
 /**
+ * How many trailing lines of the server's stdout/stderr an exit autopsy keeps.
+ * Fed continuously for the whole life of the child rather than kept as one
+ * unbounded accumulation, so a server that dies after hours of output still
+ * leaves a small, useful excerpt instead of nothing (a full log has already
+ * gone to `logSink`).
+ */
+const RECENT_OUTPUT_TAIL_LINES = 15
+
+/**
  * Kill server processes left behind by an earlier run of this same install.
  *
  * A desktop process that dies without completing its teardown — killed from a
@@ -128,12 +137,36 @@ export interface ServerSpec {
   env: Record<string, string>
 }
 
-/** A started server: its UI URL and its bounded stop. */
+/** What one server-child exit tells the caller. */
+export interface ServerExitInfo {
+  /** The child's exit code, or null when it left by signal. */
+  code: number | null
+  /** The signal the child left by, or null when it exited with a code. */
+  signal: NodeJS.Signals | null
+  /**
+   * True when this exit is this shell's own teardown — `stop()`, the quit
+   * flow, or an update-install stop, all of which route through `stop()` —
+   * rather than the server dying on its own. A caller supervising the child
+   * for unexpected death must act only when this is false.
+   */
+  expected: boolean
+  /** The last {@link RECENT_OUTPUT_TAIL_LINES} lines of stdout/stderr the child produced before exiting. */
+  tail: string
+}
+
+/** A started server: its UI URL, its bounded stop, and its exit. */
 export interface ServerHandle {
   /** The loopback URL from the readiness line. */
   url: string
-  /** Terminate the server process tree; resolves once the process exited. */
+  /** Terminate the server process tree; resolves once the process exited. This is what marks the exit "expected". */
   stop: () => Promise<void>
+  /**
+   * Register a listener for the child's own exit. Fires exactly once, whether
+   * the child already exited by the time this is called (synchronously, with
+   * the recorded info) or exits later.
+   * @param listener - receives the exit info.
+   */
+  onExit: (listener: (info: ServerExitInfo) => void) => void
 }
 
 /**
@@ -193,6 +226,26 @@ async function killTree(child: ChildProcess): Promise<void> {
 }
 
 /**
+ * A bounded last-N-lines buffer, fed one chunk at a time. Chunk boundaries
+ * need not land on line boundaries; only the joined text at the end matters.
+ * @param maxLines - how many trailing lines to keep.
+ * @returns `push` to feed one chunk, and `text` to read the current tail.
+ */
+function tailBuffer(maxLines: number): { push: (chunk: string) => void; text: () => string } {
+  let lines: string[] = ['']
+  return {
+    push(chunk: string): void {
+      const [first = '', ...rest] = chunk.split('\n')
+      const last = lines.length - 1
+      lines[last] = (lines[last] ?? '') + first
+      lines.push(...rest)
+      if (lines.length > maxLines) lines = lines.slice(-maxLines)
+    },
+    text: () => lines.join('\n'),
+  }
+}
+
+/**
  * Start the embedded server and resolve once its UI URL is known.
  * @param spec - launch paths and working directory.
  * @param logSink - receives every server stdout/stderr chunk (for the log file).
@@ -214,6 +267,19 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     windowsHide: true,
   })
   let collected = ''
+  const recentOutput = tailBuffer(RECENT_OUTPUT_TAIL_LINES)
+  // Raised by `stop()` (and by the startup-timeout kill below, which is this
+  // shell's own decision too) before the child is signaled, so the exit this
+  // produces is never mistaken for the server dying on its own.
+  let expectedExit = false
+  let exitInfo: ServerExitInfo | undefined
+  const exitListeners: Array<(info: ServerExitInfo) => void> = []
+  // `.once`, not tied to the startup race below: an exit autopsy must see
+  // every exit, including one long after the URL was already reported.
+  child.once('exit', (code, signal) => {
+    exitInfo = { code, signal, expected: expectedExit, tail: recentOutput.text() }
+    for (const listener of exitListeners) listener(exitInfo)
+  })
   const url = await new Promise<string>((resolve, reject) => {
     let settled = false
     const settle = (action: () => void): void => {
@@ -224,6 +290,7 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     }
     const timer = setTimeout(() => {
       settle(() => {
+        expectedExit = true
         void killTree(child)
         reject(new Error(`dsh server printed no URL line within ${String(STARTUP_TIMEOUT_MS / 1000)}s.\n${tail(collected)}`))
       })
@@ -231,6 +298,7 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     const onChunk = (chunk: Buffer): void => {
       const text = chunk.toString()
       collected += text
+      recentOutput.push(text)
       logSink(text)
       const match = URL_LINE.exec(collected)
       if (match?.[1] !== undefined) settle(() => { resolve(match[1] as string) })
@@ -249,13 +317,26 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
       })
     })
   })
-  return { url, stop: () => killTree(child) }
+  return {
+    url,
+    stop: () => {
+      expectedExit = true
+      return killTree(child)
+    },
+    onExit: (listener) => {
+      if (exitInfo !== undefined) {
+        listener(exitInfo)
+        return
+      }
+      exitListeners.push(listener)
+    },
+  }
 }
 
 /** The last lines of the collected output, for startup-failure messages. */
 function tail(collected: string): string {
   const lines = collected.trimEnd().split('\n')
-  return lines.slice(-15).join('\n')
+  return lines.slice(-RECENT_OUTPUT_TAIL_LINES).join('\n')
 }
 
 /**

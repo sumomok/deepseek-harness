@@ -45,12 +45,47 @@ const MUX_PATH = '/api/events.mux'
 const HOST_PATH = '/api/events.host'
 
 /**
- * Delay before reopening a stream that closed. The server is this app's own
- * child, so a close means it is restarting or going away rather than that the
- * network is unreliable; retrying slowly costs nothing and stops a closed
- * server from being polled hard while it shuts down.
+ * Delay before the first reopen of a stream that closed. The server is this
+ * app's own child, so a close means it is restarting or going away rather than
+ * that the network is unreliable; retrying slowly costs nothing and stops a
+ * closed server from being polled hard while it shuts down.
  */
-const RECONNECT_DELAY_MS = 3_000
+const RECONNECT_BASE_MS = 3_000
+
+/**
+ * Growth applied to the reconnect delay after each consecutive attempt that
+ * closed without ever opening; a server that is down for minutes, not
+ * seconds, does not need to be polled at the same 3s pace the whole time.
+ */
+const RECONNECT_BACKOFF_FACTOR = 2
+
+/**
+ * Upper bound on the reconnect delay. A server that comes back must still be
+ * noticed in reasonable time, so the backoff is capped rather than left to
+ * grow for as long as the server stays down.
+ */
+const RECONNECT_MAX_MS = 60_000
+
+/**
+ * Log only the first reconnect attempt after a close and then every Nth one.
+ * A server that stays dead closes this stream again every few seconds for as
+ * long as it is dead, and none of those closes says anything the previous one
+ * did not — logging every one is exactly the noise a dead server must not
+ * fill the log with (the field case this exists for: 1318 lines from one
+ * downed server over half an hour).
+ */
+const RECONNECT_LOG_EVERY = 10
+
+/**
+ * The reconnect delay before the `attempt`th consecutive attempt (1 for the
+ * first attempt after a close), exponential up to {@link RECONNECT_MAX_MS}.
+ * Pure so the backoff schedule is unit-testable without a real socket.
+ * @param attempt - which consecutive closed-without-opening attempt this is, starting at 1.
+ * @returns the delay in ms.
+ */
+export function reconnectDelayMs(attempt: number): number {
+  return Math.min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * RECONNECT_BACKOFF_FACTOR ** (attempt - 1))
+}
 
 /** How much of a question is quoted in a notification before it is cut. */
 const BODY_LIMIT = 120
@@ -82,11 +117,29 @@ const announcedQuestions = new Set<string>()
 /** Unseen attention events, which is what the macOS Dock badge counts. */
 let badge = 0
 
-/** Set on the way out: stops the reconnect loop from reopening a dead server. */
-let stopped = false
+/**
+ * One call to {@link setupNotifications}'s worth of open streams and their
+ * reconnect loops, torn down together — by the next `setupNotifications` call
+ * (retargeting after a server rebind) or by quitting. `stopped` is checked
+ * before every reopen, so a retry already in flight when its generation is
+ * torn down does not reconnect into the next one's sockets.
+ */
+interface Generation {
+  stopped: boolean
+  sockets: Set<WebSocket>
+}
 
-/** Open streams, so a quit closes them instead of leaving the server holding them. */
-const sockets = new Set<WebSocket>()
+/** The generation currently subscribed, or undefined before the first {@link setupNotifications} call. */
+let current: Generation | undefined
+
+/**
+ * Whether the app-level hooks below are already bound. They must exist
+ * exactly once for the app's whole life: `setupNotifications` may be called
+ * again to retarget after a server rebind, and re-registering `app.on` on
+ * every call would fire `clearBadge` and the stream teardown once per past
+ * generation instead of once.
+ */
+let appHooksBound = false
 
 /**
  * Whether the user would miss something happening in the window right now.
@@ -248,15 +301,22 @@ function questionBody(sessionId: string, frame: Record<string, unknown>): string
 }
 
 /**
- * Keep one downlink stream open, reopening it after it closes.
+ * Keep one downlink stream open, reopening it after it closes with backoff.
+ * @param generation - the subscription generation this stream belongs to.
  * @param url - the `ws://` address of the stream.
  * @param host - logging for the main process.
  * @param onFrame - receives each decoded frame payload.
+ * @param attempt - which consecutive closed-without-opening attempt this
+ * connection is, starting at 1 for the very first (never a reconnect).
  */
-function subscribe(url: string, host: NotifyHost, onFrame: (frame: Record<string, unknown>) => void): void {
-  if (stopped) return
+function subscribe(
+  generation: Generation, url: string, host: NotifyHost, onFrame: (frame: Record<string, unknown>) => void, attempt = 1,
+): void {
+  if (generation.stopped) return
   const socket = new WebSocket(url)
-  sockets.add(socket)
+  generation.sockets.add(socket)
+  let opened = false
+  socket.addEventListener('open', () => { opened = true })
   socket.addEventListener('message', (event: MessageEvent) => {
     // Wire boundary: the server sends one JSON text frame per event, wrapped in
     // the same `server-request` envelope the browser client unwraps.
@@ -274,12 +334,18 @@ function subscribe(url: string, host: NotifyHost, onFrame: (frame: Record<string
     if (payload !== undefined) onFrame(payload)
   })
   socket.addEventListener('close', () => {
-    sockets.delete(socket)
-    if (stopped) return
-    host.log(`[desktop] ${url} closed; reopening in ${String(RECONNECT_DELAY_MS / 1000)}s\n`)
+    generation.sockets.delete(socket)
+    if (generation.stopped) return
+    // A connection that did open and later closed is not a failure to
+    // connect — the retry after it starts the backoff over, at attempt 1.
+    const nextAttempt = opened ? 1 : attempt + 1
+    const delayMs = reconnectDelayMs(nextAttempt)
+    if (nextAttempt === 1 || nextAttempt % RECONNECT_LOG_EVERY === 0) {
+      host.log(`[desktop] ${url} closed; reopening in ${String(delayMs / 1000)}s (attempt ${String(nextAttempt)})\n`)
+    }
     // Unreferenced: a pending retry must never be the reason the app is still
     // alive after its last window closed.
-    setTimeout(() => { subscribe(url, host, onFrame) }, RECONNECT_DELAY_MS).unref()
+    setTimeout(() => { subscribe(generation, url, host, onFrame, nextAttempt) }, delayMs).unref()
   })
   socket.addEventListener('error', () => {
     // Every error is followed by a close event, which owns the retry. Logging
@@ -288,18 +354,34 @@ function subscribe(url: string, host: NotifyHost, onFrame: (frame: Record<string
 }
 
 /**
- * Start watching the running server for the two moments worth interrupting for.
+ * Start watching the running server for the two moments worth interrupting
+ * for. Safe to call again after a server rebind: the previous call's streams
+ * are closed and its reconnect loops stopped before the new ones open, and the
+ * app-level hooks (badge clearing, quit teardown) are bound only once ever.
  * @param host - logging and the window the notifications lead back to.
- * @param serverUrl - the loopback URL `startServer` reported.
+ * @param serverUrl - the loopback URL `startServer` (or a rebind) reported.
  */
 export function setupNotifications(host: NotifyHost, serverUrl: string): void {
+  stopCurrentGeneration()
+  const generation: Generation = { stopped: false, sockets: new Set() }
+  current = generation
   const base = serverUrl.replace(/^http/, 'ws')
-  subscribe(`${base}${HOST_PATH}`, host, (frame) => { onHostFrame(host, frame) })
-  subscribe(`${base}${MUX_PATH}`, host, (frame) => { onMuxFrame(host, frame) })
-  app.on('browser-window-focus', () => { clearBadge() })
-  app.once('before-quit', () => {
-    stopped = true
-    for (const socket of sockets) socket.close()
-    sockets.clear()
-  })
+  subscribe(generation, `${base}${HOST_PATH}`, host, (frame) => { onHostFrame(host, frame) })
+  subscribe(generation, `${base}${MUX_PATH}`, host, (frame) => { onMuxFrame(host, frame) })
+  if (!appHooksBound) {
+    appHooksBound = true
+    app.on('browser-window-focus', () => { clearBadge() })
+    app.once('before-quit', () => { stopCurrentGeneration() })
+  }
+}
+
+/**
+ * Close the active generation's sockets and stop its reconnect loops.
+ * Idempotent, and a no-op before the first `setupNotifications` call.
+ */
+function stopCurrentGeneration(): void {
+  if (current === undefined || current.stopped) return
+  current.stopped = true
+  for (const socket of current.sockets) socket.close()
+  current.sockets.clear()
 }

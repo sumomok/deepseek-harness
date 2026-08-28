@@ -11,8 +11,14 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
-  type QuarantineLoadFailure, ServerExitedBeforeUrl, startServer, startServerWithQuarantine, type ServerHandle,
+  type QuarantineLoadFailure, ServerExitedBeforeUrl, type ServerExitInfo, startServer, startServerWithQuarantine,
+  type ServerHandle,
 } from '../src/server.ts'
+
+/** Wait for `handle`'s `onExit` to fire, however it fires. */
+function waitForExit(handle: ServerHandle): Promise<ServerExitInfo> {
+  return new Promise((resolve) => { handle.onExit(resolve) })
+}
 
 let root: string
 
@@ -35,13 +41,17 @@ const FIELD_LOADER_ERROR = 'failed to apply loader entry include (cordis:include
  * appends one line to `attemptsFile` and then behaves as the next entry in
  * `behaviors` says — `'success'` prints the URL line and idles, `'loader'`
  * writes {@link FIELD_LOADER_ERROR} to stderr and exits 1 after enough filler
- * output that the error line falls outside the last-15-lines tail, and
- * `'plain'` exits 1 with an unrelated stderr line. The last entry repeats for
- * any attempt past the array's length.
+ * output that the error line falls outside the last-15-lines tail, `'plain'`
+ * exits 1 with an unrelated stderr line, and `'crash-after-start'` prints the
+ * URL line, then twenty numbered lines, then exits 7 shortly after — a server
+ * that dies on its own after startup already succeeded. The last entry
+ * repeats for any attempt past the array's length.
  * @param behaviors - one behavior per attempt, in order.
  * @returns the script's path and the attempts file it writes to.
  */
-function scriptedEntry(behaviors: readonly ('success' | 'loader' | 'plain')[]): { entry: string; attemptsFile: string } {
+function scriptedEntry(
+  behaviors: readonly ('success' | 'loader' | 'plain' | 'crash-after-start')[],
+): { entry: string; attemptsFile: string } {
   const entry = join(root, 'entry.cjs')
   const attemptsFile = join(root, 'attempts.log')
   writeFileSync(entry, `
@@ -55,6 +65,10 @@ function scriptedEntry(behaviors: readonly ('success' | 'loader' | 'plain')[]): 
     if (behavior === 'success') {
       process.stdout.write('dsh web: http://127.0.0.1:54321\\n')
       setInterval(() => {}, 1000)
+    } else if (behavior === 'crash-after-start') {
+      process.stdout.write('dsh web: http://127.0.0.1:54321\\n')
+      for (let i = 0; i < 20; i++) process.stdout.write('line ' + i + '\\n')
+      setTimeout(() => { process.exit(7) }, 30)
     } else if (behavior === 'loader') {
       process.stderr.write(${JSON.stringify(FIELD_LOADER_ERROR)} + '\\n')
       for (let i = 0; i < 20; i++) process.stdout.write('filler line ' + i + '\\n')
@@ -99,6 +113,39 @@ describe('startServer', () => {
     // The message's tail is the last 15 lines; 20 filler lines follow the
     // loader error, so the message alone would not carry it.
     expect(exited.message).not.toContain('@yuxianglin/dsh-bridge-browser')
+  })
+})
+
+describe('ServerHandle.onExit', () => {
+  it('marks a stop() teardown as expected', async () => {
+    const { entry } = scriptedEntry(['success'])
+    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {})
+    const exit = waitForExit(handle)
+    await handle.stop()
+    expect(await exit).toMatchObject({ expected: true })
+  })
+
+  it('marks the server dying on its own, after startup succeeded, as unexpected, and carries a bounded output tail', async () => {
+    const { entry } = scriptedEntry(['crash-after-start'])
+    const lines: string[] = []
+    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, (chunk) => { lines.push(chunk) })
+    const info = await waitForExit(handle)
+    expect(info.expected).toBe(false)
+    expect(info.code).toBe(7)
+    expect(info.signal).toBeNull()
+    // Twenty lines were written; only the last fifteen survive in the tail,
+    // even though logSink (and so the real log file) received every one.
+    expect(info.tail).toContain('line 19')
+    expect(info.tail).not.toContain('line 0\n')
+    expect(lines.join('')).toContain('line 0')
+  })
+
+  it('delivers the exit synchronously to a listener registered after the child already exited', async () => {
+    const { entry } = scriptedEntry(['crash-after-start'])
+    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {})
+    await waitForExit(handle)
+    const late = await waitForExit(handle)
+    expect(late.expected).toBe(false)
   })
 })
 
