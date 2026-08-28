@@ -2694,6 +2694,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return ok(request, { path: target })
       },
       openPath: request => ok(request, { opened: true as const }),
+      // The fixture tree models directories only (no files); an entry the
+      // tree resolves at all reports as an existing directory, matching
+      // childrenOf's own existence test.
+      probeTargets: request => ok(request, {
+        results: request.payload.paths.map(path => (
+          childrenOf(path) === undefined ? { path, exists: false } : { path, exists: true, kind: 'dir' as const }
+        )),
+      }),
     },
     workspace: {
       list: request => ok(request, {
@@ -3235,6 +3243,7 @@ export class FixtureApiClient extends AbstractApiClient {
       case 'host.listDirectory': return this.api.host.listDirectory(request, new AbortController().signal)
       case 'host.createDirectory': return this.api.host.createDirectory(request)
       case 'host.openPath': return this.api.host.openPath(request, new AbortController().signal)
+      case 'host.probeTargets': return this.api.host.probeTargets(request)
       case 'workspace.list': return this.api.workspace.list(request)
       case 'workspace.create': return this.api.workspace.create(request)
       case 'workspace.rename': return this.api.workspace.rename(request)

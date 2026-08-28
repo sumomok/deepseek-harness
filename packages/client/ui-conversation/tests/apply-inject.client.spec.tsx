@@ -273,6 +273,47 @@ describe('conversation slot inject API', () => {
     await b.runtime.dispose()
   })
 
+  it('referents.resolveLink is undefined when the provider declares no resolveLink', async () => {
+    const b = await bench()
+    b.runtime.provide('proseReferents', { scan: () => [] })
+    const { injected } = b.chatViewApi(ROOT)
+    expect(injected.referents!.resolveLink).toBeUndefined()
+    await b.runtime.dispose()
+  })
+
+  it('referents.resolveLink forwards destination, displayText, session cwd, and Host home to the provider', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 9, kind: 'file' as const, target: '/proj/report.md', raw: '/proj/report.md' }
+    const resolveLink = vi.fn(() => span)
+    b.runtime.provide('proseReferents', { scan: () => [], resolveLink })
+    const { injected } = b.chatViewApi(ROOT)
+    expect(injected.referents!.resolveLink!('/proj/report.md', 'report.md')).toBe(span)
+    expect(resolveLink).toHaveBeenCalledWith('/proj/report.md', 'report.md', { cwd: '/proj', home: '/home/fixture' })
+    await b.runtime.dispose()
+  })
+
+  it('referents.subscribe is undefined when the provider declares no subscribe', async () => {
+    const b = await bench()
+    b.runtime.provide('proseReferents', { scan: () => [] })
+    const { injected } = b.chatViewApi(ROOT)
+    expect(injected.referents!.subscribe).toBeUndefined()
+    await b.runtime.dispose()
+  })
+
+  it('referents.subscribe forwards straight through to the provider, unsubscribe included', async () => {
+    const b = await bench()
+    const unsubscribe = vi.fn()
+    const subscribe = vi.fn(() => unsubscribe)
+    b.runtime.provide('proseReferents', { scan: () => [], subscribe })
+    const { injected } = b.chatViewApi(ROOT)
+    const listener = (): void => {}
+    const returned = injected.referents!.subscribe!(listener)
+    expect(subscribe).toHaveBeenCalledWith(listener)
+    returned()
+    expect(unsubscribe).toHaveBeenCalled()
+    await b.runtime.dispose()
+  })
+
   it('referents.open dispatches referent/open carrying chat-prose provenance, distinct from openFile', async () => {
     const b = await bench()
     const span = { start: 0, end: 11, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }

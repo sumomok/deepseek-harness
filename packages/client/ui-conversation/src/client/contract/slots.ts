@@ -444,21 +444,60 @@ export interface ProseReferentSpan {
  * the result into MarkdownText. Absent service — the providing plugin
  * composed out of cordis.yml — turns the surface off; prose and inline code
  * render exactly as they did before this seam existed.
+ *
+ * Three-layer invariant (nominate → verify → open): a span this interface
+ * ever hands back to the renderer is, by construction, already verified —
+ * unverified candidates never leave the provider. `scan` and `resolveLink`
+ * both hold to this; only a session truth index hit or a host `stat` may
+ * promote a candidate to a returned span.
  */
 export interface ProseReferents {
   /**
-   * Scan one rendered text run. Pure: no IO, no filesystem `stat`, synchronous.
+   * Scan one rendered text run and return only its **verified** clickable
+   * spans — unverified candidates stay out of the return value entirely, so
+   * "blue = openable" holds structurally: no unverified data ever reaches
+   * the renderer. Pure and synchronous: no IO, no filesystem `stat` runs
+   * here — verification against the session truth index or a prior `stat`
+   * result is a cache read, never a fresh probe.
    * @param text - Exact text content of the node being rendered.
    * @param context - `cwd`/`home` resolve a relative candidate (undefined
    * wherever the session/workspace has none — the provider decides whether
    * that suppresses a span or not); `inlineCode` is true for an inline-code
    * token, false for plain prose text.
-   * @returns Non-overlapping spans in ascending `start` order.
+   * @returns Non-overlapping, verified spans in ascending `start` order.
    */
   scan(
     text: string,
     context: { cwd?: string | undefined; home?: string | undefined; inlineCode: boolean },
   ): readonly ProseReferentSpan[]
+  /**
+   * Nominate a non-web-scheme markdown link destination (a local path shape
+   * the renderer itself detected — see `render.tsx`'s link handling) and
+   * return its verified span, or `undefined` to keep the link inert. Pure
+   * and synchronous, same verified-only contract as {@link scan}: a defined
+   * return is already verified, never a fresh probe.
+   * @param destination - The link's decoded destination text.
+   * @param displayText - The link's rendered text, for a provider that logs
+   * or disambiguates by what the reader actually sees.
+   * @param context - `cwd`/`home` resolve a relative destination, as in {@link scan}.
+   * @returns The verified span, or `undefined` when the destination is not
+   * (yet, or ever) verified — the renderer then keeps the link inert.
+   */
+  resolveLink?(
+    destination: string,
+    displayText: string,
+    context: { cwd?: string | undefined; home?: string | undefined },
+  ): ProseReferentSpan | undefined
+  /**
+   * Subscribe to verification progress: called once a batch of pending
+   * candidates finishes its host `stat` round, so a host that already
+   * rendered unverified-as-plain-text spans can re-scan and reveal whatever
+   * just verified. Optional — a provider with no asynchronous verification
+   * (everything decided synchronously in `scan`/`resolveLink`) omits it.
+   * @param listener - Called with no arguments after each verification tick.
+   * @returns Unsubscribe function.
+   */
+  subscribe?(listener: () => void): () => void
 }
 
 declare module '@deepseek-ai/cordis' {

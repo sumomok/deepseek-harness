@@ -82,6 +82,7 @@ function scriptedApi(overrides: {
       listDirectory: r => ok(r, { path: '/t', home: '/t', crumbs: [], entries: [], truncated: false }),
       createDirectory: r => ok(r, { path: '/t/new' }),
       openPath: r => ok(r, { opened: true as const }),
+      probeTargets: r => ok(r, { results: r.payload.paths.map(path => ({ path, exists: false })) }),
       ...overrides.host,
     },
     workspace: {

@@ -1,7 +1,7 @@
 /** Test-owned workspaces face: the renderer standard-kit observable plus recorded actions. */
 import { createSnapshotStore } from '@deepseek-ai/dsh-client-runtime/client'
 import type {
-  DirectoryListing, IWorkspaces, SessionId, SnapshotStore, WorkspaceId, WorkspaceListState, WorkspaceView,
+  DirectoryListing, IWorkspaces, ProbeResult, SessionId, SnapshotStore, WorkspaceId, WorkspaceListState, WorkspaceView,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import { workspaceListState } from './fixtures.ts'
 import type { Stabilizer } from './fixtures.ts'
@@ -95,6 +95,19 @@ export class TestWorkspaces implements IWorkspaces {
   async openPath(path: string): Promise<void> {
     this.calls.push({ method: 'openPath', args: [path] })
     await (this.stubs.get('openPath')?.(path) as Promise<void> | undefined)
+  }
+
+  /**
+   * Batch existence/kind probe (recorded). The default reports every path as
+   * not existing; stub for a verification-flow test.
+   * @param paths - absolute paths to probe.
+   * @returns one result per path, same order as `paths`.
+   */
+  async probeTargets(paths: readonly string[]): Promise<readonly ProbeResult[]> {
+    this.calls.push({ method: 'probeTargets', args: [paths] })
+    const stub = this.stubs.get('probeTargets')
+    if (stub !== undefined) return await (stub(paths) as Promise<readonly ProbeResult[]>)
+    return paths.map(path => ({ path, exists: false }))
   }
 
   /**

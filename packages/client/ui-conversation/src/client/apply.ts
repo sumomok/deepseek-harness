@@ -129,11 +129,25 @@ function buildProseReferents(
 ): MarkdownProseReferents | undefined {
   const provider = ctx.get('proseReferents')
   if (provider === undefined) return undefined
+  const providerResolveLink = provider.resolveLink
+  const providerSubscribe = provider.subscribe
   return {
     scan: (text, inlineCode) => provider.scan(text, {
       cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
       home: connection.hostDescription.getSnapshot()?.home,
       inlineCode,
+    }),
+    // exactOptionalPropertyTypes: an optional method is either present or
+    // absent from the object, never present-with-value-undefined — the
+    // conditional spreads below are what that distinction requires.
+    ...(providerResolveLink === undefined ? {} : {
+      resolveLink: (destination: string, displayText: string) => providerResolveLink(destination, displayText, {
+        cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
+        home: connection.hostDescription.getSnapshot()?.home,
+      }),
+    }),
+    ...(providerSubscribe === undefined ? {} : {
+      subscribe: (listener: () => void) => providerSubscribe(listener),
     }),
     open: (span) => {
       // Safe: this scanner's own `scan` above is the only producer of spans

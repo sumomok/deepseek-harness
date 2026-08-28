@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it } from 'vitest'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { JsonBlock, MarkdownText, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { MarkdownProseReferents, MarkdownProseSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cjkFriendlyStrong } from '../src/markdown/cjkFriendlyStrong.ts'
@@ -287,6 +287,40 @@ describe('MarkdownText', () => {
     expect(container.textContent).toBe('PROSEHIT')
   })
 
+  it('a subscribe tick re-invokes scan on a settled message, revealing a span that verified after first render, with no remount', () => {
+    let verified = false
+    let tick: (() => void) | undefined
+    const referents: MarkdownProseReferents = {
+      scan: (text) => {
+        if (!verified) return []
+        const index = text.indexOf('PROSEHIT')
+        return index === -1 ? [] : [{ start: index, end: index + 'PROSEHIT'.length }]
+      },
+      open: () => {},
+      subscribe: (listener) => {
+        tick = listener
+        return () => { tick = undefined }
+      },
+    }
+    render(<MarkdownText text="See PROSEHIT here." referents={referents} />)
+    expect(screen.queryByRole('button', { name: 'PROSEHIT' })).toBeNull()
+    verified = true
+    act(() => { tick?.() })
+    expect(screen.getByRole('button', { name: 'PROSEHIT' })).toBeTruthy()
+  })
+
+  it('unsubscribes the previous listener and subscribes fresh when the referents identity changes across renders', () => {
+    const unsubscribeA = vi.fn()
+    const unsubscribeB = vi.fn()
+    const referentsA: MarkdownProseReferents = { scan: () => [], open: () => {}, subscribe: () => unsubscribeA }
+    const referentsB: MarkdownProseReferents = { scan: () => [], open: () => {}, subscribe: () => unsubscribeB }
+    const { rerender } = render(<MarkdownText text="x" referents={referentsA} />)
+    expect(unsubscribeA).not.toHaveBeenCalled()
+    act(() => { rerender(<MarkdownText text="x" referents={referentsB} />) })
+    expect(unsubscribeA).toHaveBeenCalled()
+    expect(unsubscribeB).not.toHaveBeenCalled()
+  })
+
   it('absent referents leaves prose and inline code exactly as plain text/code', () => {
     const { container } = render(<MarkdownText text={'PROSEHIT and `CODEHIT`'} />)
     expect(container.querySelector('button')).toBeNull()
@@ -388,6 +422,93 @@ describe('MarkdownText', () => {
     expect(screen.getByText('file diagram')).toBeTruthy()
     expect(screen.getByText('script diagram')).toBeTruthy()
     expect(screen.getByText('mail diagram')).toBeTruthy()
+  })
+
+  /** A referents face whose resolveLink verifies exactly one destination, for the link-destination branch tests below. */
+  function makeLinkReferents(
+    verified: Map<string, MarkdownProseSpan>,
+  ): MarkdownProseReferents & { readonly opened: MarkdownProseSpan[] } {
+    const opened: MarkdownProseSpan[] = []
+    return {
+      scan: () => [],
+      open: (span) => { opened.push(span) },
+      resolveLink: destination => verified.get(destination),
+      opened,
+    }
+  }
+
+  it('a local-path-shaped link destination resolveLink verifies renders clickable, same style as a scan hit', () => {
+    const span = { start: 0, end: 9 }
+    const referents = makeLinkReferents(new Map([['/proj/report.md', span]]))
+    const { container } = render(
+      <MarkdownText text="[report.md](/proj/report.md)" referents={referents} />,
+    )
+    const hit = screen.getByRole('button', { name: 'report.md' })
+    expect(hit.className).toContain('fileMention')
+    expect(container.querySelector('a')).toBeNull()
+    fireEvent.click(hit)
+    expect(referents.opened).toEqual([span])
+  })
+
+  it('a local-path-shaped link destination resolveLink declines renders plain inline-code style with the destination on title, never trailing text', () => {
+    const referents = makeLinkReferents(new Map())
+    const { container } = render(
+      <MarkdownText text="[report.md](/proj/report.md)" referents={referents} />,
+    )
+    expect(container.querySelector('button')).toBeNull()
+    expect(container.querySelector('a')).toBeNull()
+    const code = screen.getByText('report.md')
+    expect(code.tagName).toBe('CODE')
+    expect(code.getAttribute('title')).toBe('/proj/report.md')
+    expect(container.textContent).toBe('report.md')
+  })
+
+  it('decodes a percent-escaped local link destination before offering it to resolveLink; an undecodable destination keeps its raw text', () => {
+    const referents = makeLinkReferents(new Map([['/proj/My Report.md', { start: 0, end: 1 }]]))
+    const { container } = render(
+      <MarkdownText text="[x](/proj/My%20Report.md) and [y](/proj/bad%)" referents={referents} />,
+    )
+    expect(screen.getByRole('button', { name: 'x' })).toBeTruthy()
+    const undecodable = screen.getByText('y')
+    expect(undecodable.tagName).toBe('CODE')
+    expect(undecodable.getAttribute('title')).toBe('/proj/bad%')
+    expect(container.querySelectorAll('button')).toHaveLength(1)
+  })
+
+  it('leaves an http(s)/mailto link destination on the existing allowlist path even with a resolveLink provider composed in', () => {
+    const referents = makeLinkReferents(new Map())
+    render(
+      <MarkdownText
+        text="[web](https://example.com/) [mail](mailto:dev@example.com)"
+        referents={referents}
+      />,
+    )
+    expect(screen.getByRole('link', { name: 'web' }).getAttribute('href')).toBe('https://example.com/')
+    expect(screen.getByRole('link', { name: 'mail' })).toBeTruthy()
+  })
+
+  it('a local-path-shaped destination with no referents provider falls through to the existing disallowed-scheme fallback unchanged', () => {
+    const { container } = render(<MarkdownText text="[relative](/settings)" />)
+    expect(container.textContent).toBe('relative (/settings)')
+    expect(container.querySelector('a')).toBeNull()
+    expect(container.querySelector('button')).toBeNull()
+  })
+
+  it('a local-path-shaped destination with a provider that declares no resolveLink falls through to the existing fallback unchanged', () => {
+    const referents: MarkdownProseReferents = { scan: () => [], open: () => {} }
+    const { container } = render(<MarkdownText text="[relative](/settings)" referents={referents} />)
+    expect(container.textContent).toBe('relative (/settings)')
+  })
+
+  it('a Windows drive-letter link destination is offered to resolveLink like a POSIX absolute path', () => {
+    // A UNC destination's doubled leading backslash cannot survive CommonMark
+    // backslash-escape processing inside authored markdown link syntax (`\\`
+    // collapses to one `\` the same as any other backslash-escaped
+    // punctuation) — that arm is exercised on a hand-built mdast tree in
+    // markdown-render-units instead, where `node.url` is set directly.
+    const referents = makeLinkReferents(new Map([['C:\\Users\\a\\report.md', { start: 0, end: 1 }]]))
+    render(<MarkdownText text={'[win](C:\\Users\\a\\report.md)'} referents={referents} />)
+    expect(screen.getByRole('button', { name: 'win' })).toBeTruthy()
   })
 
   it('keeps incomplete streaming Markdown renderable', () => {

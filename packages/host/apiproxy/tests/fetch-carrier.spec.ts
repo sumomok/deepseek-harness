@@ -165,6 +165,12 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async openPath(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
       },
+      async probeTargets(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { results: request.payload.paths.map(path => ({ path, exists: false })) } },
+        }
+      },
     },
     workspace: {
       async list(request) {
@@ -429,6 +435,21 @@ describe('unary round trip (handler ⇄ client, no network)', () => {
     const response = await client(api).host.openPath({ path: '/tmp/a.txt' })
     expect(opened).toBe('/tmp/a.txt')
     expect(response.result).toEqual({ ok: true, value: { opened: true } })
+  })
+
+  it('round-trips host.probeTargets through the wire form', async () => {
+    const api = fakeApi()
+    let probed: string[] | undefined
+    api.host.probeTargets = async (request) => {
+      probed = request.payload.paths
+      return {
+        rpcId: request.rpcId,
+        result: { ok: true, value: { results: [{ path: '/w/a.ts', exists: true, kind: 'file' as const }] } },
+      }
+    }
+    const response = await client(api).host.probeTargets({ paths: ['/w/a.ts'] })
+    expect(probed).toEqual(['/w/a.ts'])
+    expect(response.result).toEqual({ ok: true, value: { results: [{ path: '/w/a.ts', exists: true, kind: 'file' }] } })
   })
 
   it('round-trips skill.list through the wire form', async () => {

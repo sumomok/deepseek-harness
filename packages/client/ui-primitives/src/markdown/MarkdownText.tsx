@@ -11,7 +11,7 @@
  * full parse self-heals it.
  */
 
-import { memo, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { IncrementalMarkdownParser } from './incremental.ts'
 import { parseGfm, parseGfmWithMath } from './parse.ts'
@@ -144,6 +144,27 @@ class StreamingRenderer {
 }
 
 /**
+ * Re-render the caller once per `referents.subscribe` verification tick, by
+ * returning an incrementing counter the caller folds into its memo key.
+ * Closes the settle-rerender gap: a settled message's `useMemo` cache would
+ * otherwise never re-invoke `scan`/`resolveLink` after the message settles,
+ * so a candidate that verifies moments later (the host `stat` batch is
+ * asynchronous) stayed plain text until a full page refresh remounted the
+ * component and re-scanned against the by-then-verified index.
+ * @param referents - the current referents face; re-subscribes whenever its identity changes.
+ * @returns a counter that increments on every tick; stable (never increments) with no `subscribe`.
+ */
+function useReferentsRevision(referents: MarkdownProseReferents | undefined): number {
+  const [revision, setRevision] = useState(0)
+  useEffect(() => {
+    const subscribe = referents?.subscribe
+    if (subscribe === undefined) return
+    return subscribe(() => { setRevision(r => r + 1) })
+  }, [referents])
+  return revision
+}
+
+/**
  * Render untrusted assistant-authored Markdown as semantic React elements.
  * @param props - Markdown source text preserved by the session projection;
  * `streaming` renders fences and TeX plain (highlighting and KaTeX land on
@@ -170,6 +191,7 @@ export const MarkdownText = memo(function MarkdownText({ text, streaming = false
 }) {
   const streamRef = useRef<StreamingRenderer | null>(null)
   const streamLabelsRef = useRef<MarkdownCodeLabels | undefined>(codeLabels)
+  const referentsRevision = useReferentsRevision(referents)
   const children = useMemo(() => {
     if (!streaming) {
       streamRef.current = null
@@ -180,6 +202,9 @@ export const MarkdownText = memo(function MarkdownText({ text, streaming = false
       streamLabelsRef.current = codeLabels
     }
     return streamRef.current.render(text)
-  }, [text, streaming, codeLabels, fileMentions, referents])
+    // referentsRevision itself is never read in this body; it rides the
+    // dependency array purely to invalidate the memo on a verification
+    // tick, the same technique `text`/`streaming` already use for their own changes.
+  }, [text, streaming, codeLabels, fileMentions, referents, referentsRevision])
   return <div className={css.markdown}>{children}</div>
 })

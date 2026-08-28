@@ -92,3 +92,31 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：缺席服务时 `MarkdownText` 的正文与行内代码渲染与本缝隙不存在时逐字节一致（既有测试全部原样通过 + 新增显式断言证实）；`render.tsx`/`MarkdownText.tsx` 新增分支语句/分支/函数/行 100% 覆盖；provenance 载荷（`chat-prose`/`model-text`）与 `openFile` 的 `structured` 明确区分，不二次派发。
 - **退役条件**：上游自己的会话 UI 对 Assistant 正文（不止行内代码、不止对着产出文件词表）做可点引用扫描、并暴露出等价的 scan/open 契约，即退役该覆盖层，依赖插件适配上游形式。
 - **状态**：在役
+
+## feat(host-apiproxy,client-runtime): a batch path-existence probe for the referent verification layer
+- **改了什么**：`HostApi` 新增 `probeTargets(paths: string[]) → { results: ProbeResult[] }`（`packages/host/apiproxy/src/api/host.ts`），零能力闸（不像 `listDirectory`/`pickDirectory` 挂在 `browse`/`native` 之后）、请求 schema 用 `z.array(...).min(1).max(64)` 把批量上限做成 `bad-request`（`host.schema.ts`）。`api-proxy.ts` 的实现只读 `stat`（ENOENT 与任何其它 stat 失败一律折成 `exists:false`，探针只回答"能不能点"不诊断原因），配一个 8 并发的定长 worker 池（`probeTargetsBatch`），不做目录列举、不读内容。`rpc-map.ts`/`fetch/handler.ts`/`fetch/client.ts`（`IApiClient.host`、`UNARY_VALUE_SCHEMAS`、`AbstractApiClient.host`）三处按 `listDirectory` 同款模式各加一行。类型经 `api/index.ts` → `client/connection`(`api.ts`+`index.ts`) → `api/remotes` 三层具名重导出表送达浏览器；`WorkspaceRuntime.probeTargets`/`IWorkspaces.probeTargets` 是 `ctx.workspaces` 上的新方法，`TestWorkspaces`（`test-support/client-runtime`）与两份 `IApiClient` 测试替身（`client/connection`、`client/runtime` 各自的 `fake-api.client.ts`）、`FixtureApiClient`（`client/connection/fixture.ts`，复用既有 in-memory 目录树）、以及两个既有 host 契约单测（`client-handler.spec.ts`/`fetch-carrier.spec.ts`）同步补上这个方法，否则编译期就会因为 `HostApi`/`IApiClient`/`IWorkspaces` 缺一员而炸。
+- **为什么**：三层可点引用架构（提名→验证→打开）的验证层需要一个只读、批量、探针式的路径存在性 RPC，先侦察后动手——`packages/api`、`packages/fs`、`packages/client/*`、`packages/host/*` 找过一圈，唯一路径相关的 client↔host RPC 是 `host.listDirectory`：它做整目录列举（违反验证探针"不读内容不列目录"的约束）、挂在 `browse` 能力闸后（多数桌面安装走 `native`，完全没有这条 RPC 可用）、对非目录目标直接 400。没有比这更轻的既有 stat/exists RPC。
+- **要达到的效果**：`ctx.workspaces.probeTargets(paths)` 对 1–64 个绝对路径给出与请求同序的 `{path, exists, kind?}[]`；调用方（clickable-refs 插件的验证存储）按 ≤64 自行分片调度，本方法内部只再做 8 并发限流，不额外校验调用节奏。零能力闸，任何部署都能用。
+- **退役条件**：上游自己提供等价的只读批量路径探针（stat-only、无目录列举、client 可达）。
+- **状态**：在役
+
+## feat(ui-conversation,ui-primitives): resolveLink/subscribe on the proseReferents contract
+- **改了什么**：三层可点引用架构（提名→验证→打开）的 A1——在役 `ProseReferents`（`ui-conversation/src/client/contract/slots.ts`）与其渲染侧镜像 `MarkdownProseReferents`（`ui-primitives/src/markdown/render.tsx`）各新增两个可选成员：`resolveLink?(destination, displayText, ctx?) → span | undefined`（提名一个非 web-scheme 的 markdown 链接目标，返回已验证 span 或 undefined）、`subscribe?(listener) → unsubscribe`（验证批次完成后的 tick 通知）；`scan` 的 JSDoc 改写为显式声明"只返回已验证 span"的契约（蓝=必开由此结构性成立）。`apply.ts` 的 `buildProseReferents` 对称按 `provider.resolveLink`/`provider.subscribe` 是否存在决定render 侧对应字段是否出现（`exactOptionalPropertyTypes` 下用条件展开而非赋值 `undefined`）——`resolveLink` 转发时重新读一次会话 cwd/Host home（与 `scan` 同一惰性读技术），`subscribe` 直通不做任何包装。本提交只开缝：`render.tsx` 尚未调用 `resolveLink`，`MarkdownText.tsx` 尚未订阅 `subscribe`（下两个提交分别接上）。
+- **为什么**：v2 的 `ProseReferents.scan` 只覆盖语法提名，v3 架构要求提名与验证分层——`resolveLink` 是"提名一个 markdown 链接目标交给验证层"的挂钩，`subscribe` 是"验证批次异步完成后通知渲染层重渲"的挂钩；两者都得先在契约里落地，渲染逻辑才有地方接。
+- **要达到的效果**：两个新成员均可选，未声明的 provider（沿用旧版 `{ scan, open }` 两件套）在类型和运行时都保持原样——`buildProseReferents` 对着一个没有 `resolveLink`/`subscribe` 的旧 provider 时，`referents.resolveLink`/`referents.subscribe` 均为 `undefined`（新增单测覆盖：转发到 provider、透传返回的 unsubscribe、provider 未声明时两个字段都缺席）。
+- **退役条件**：与既有 `proseReferents` 缝隙相同——上游自己的会话 UI 长出等价的提名/验证分层可点引用能力，即退役整条覆盖层。
+- **状态**：在役
+
+## feat(ui-primitives): route a local-path markdown link destination through resolveLink
+- **改了什么**：三层可点引用架构 A2——`render.tsx` 的 `case 'link'`：目的地先 `decodeURIComponent`（尽力解码，失败保留原文，新增 `decodeLinkDestination`），呈本地路径形（`isLocalPathDestination`：前缀 `/`、`~`/`~/`、盘符 `X:\`或`X:/`、UNC `\\`）且非 http(s)/mailto（`isAllowedScheme`）时，交 `context.referents?.resolveLink`（新增 `renderLocalLinkDestination`：verified span → 与 `scan` 命中同款 `css.fileMention` 按钮，`displayText` 用新增的 `linkPlainText` 把链接子树拍平成纯文本；unverified → 普通 `<code title={destination}>` ，不再落回旧版的 `text (destination)` 尾缀文本）；无 provider 或 provider 未声明 `resolveLink` 时原样落回既有协议白名单分支，字节不变。
+- **为什么**：v3 架构把"模型写 markdown 链接"列为提名主力（B1 的系统提示词就是让模型这样写），但 v2 的 render.tsx 对非 http/https/mailto 的链接目的地只有一条路——协议白名单拒绝，渲染成 `text (destination)`——完整绝对路径直接以尾缀文本形式污染正文，且从不给验证层任何介入点。
+- **要达到的效果**：三分支单测覆盖齐全——verified→可点、unverified→纯文本代码样式+title、无 provider/无 resolveLink→现状不变；`%20` 解码与解码失败保留原文单独覆盖；`http(s)`/`mailto` 目的地即便 provider 在场也维持现状；Windows 盘符路径同走这条缝（UNC 路径因 CommonMark 反斜杠转义在真实解析下无法保留两个前导反斜杠，改在 `markdown-render-units` 用手搭 mdast 树验证同一分支）。
+- **退役条件**：同一条 `proseReferents` 缝隙退役时一并退役。
+- **状态**：在役
+
+## fix(ui-primitives): re-render a settled message on a referents verification tick
+- **改了什么**：三层可点引用架构 A3——`MarkdownText.tsx` 新增 `useReferentsRevision(referents)`：`useEffect` 订阅 `referents?.subscribe`（未声明则空操作，`revision` 恒为 0），每次 tick 递增一个 `useState` 计数器并在组件卸载/`referents` 换身份时退订；`revision` 并入 `MarkdownText` 的 `useMemo` 依赖数组（与既有的 `text`/`streaming`/`codeLabels`/`fileMentions`/`referents` 并列），本身在 memo 回调体内不被读取，纯粹用来让 `renderSettled`/`StreamingRenderer.render` 在验证批次完成后重新执行、重新调用 `scan`/`resolveLink`。
+- **为什么**：`ProseReferents.scan`/`resolveLink` 允许异步验证（结果先缓存在 provider 自己的存储里，`scan` 本身仍保持同步只读缓存）——落定那一刻的首次渲染很可能赶在 host `stat` 批次完成之前，此时 `scan` 返回空理所当然；但在这条 patch 之前，`subscribe` 这个缝隙根本不存在，验证批次之后完成的通知无处可接，已缓存的 `useMemo` 结果永远不会因为"验证完成了"这件事重新计算——读者只有刷新整个页面（组件重新挂载、`scan` 拿着当时已经验证好的缓存重新跑一遍）才能看到标记变蓝，这正是现场证实的那个 bug。
+- **要达到的效果**：落定瞬间该来的验证结果照常显示（不依赖这条 patch，本就走 `streaming` 翻转触发的既有重渲）；验证批次异步完成后的 tick 无需刷新页面即可让已落定消息的新增验证结果显形（新增单测：手动触发 tick 后 `PROSEHIT` 从不可点变按钮，组件全程未重新挂载）；`referents` 换身份（provider 组合切换）正确退订旧监听、订阅新监听（新增单测覆盖）；无 `subscribe` 时 `revision` 恒定、行为与本 patch 之前逐字节一致。
+- **退役条件**：同一条 `proseReferents` 缝隙退役时一并退役。
+- **状态**：在役
