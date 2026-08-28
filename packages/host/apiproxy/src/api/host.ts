@@ -97,4 +97,34 @@ export interface HostApi {
     request: RpcRequest<{ path: string }>,
     signal: AbortSignal,
   ): Promise<RpcResponse<{ opened: true }>>
+
+  /**
+   * Batch existence/kind probe for the three-layer clickable-reference
+   * verification stage: a read-only `stat` per path, never a directory
+   * listing or a content read. Always available — unlike
+   * `listDirectory`/`pickDirectory`, this is not gated behind the
+   * `browse`/`native` directory-picker capability, since it makes no
+   * filesystem choice a deployment might want to withhold beyond what
+   * `openPath`'s own pre-check already performs per path. Capped at 64
+   * paths per call (a larger batch fails `bad-request`) and run with bounded
+   * internal concurrency, so a caller with more candidates issues several
+   * calls rather than one unbounded one.
+   */
+  probeTargets(
+    request: RpcRequest<{ paths: string[] }>,
+  ): Promise<RpcResponse<{ results: ProbeResult[] }>>
+}
+
+/** One `host.probeTargets` result, in the same order as its request's `paths`. */
+export interface ProbeResult {
+  /** Echoes the probed path exactly as requested. */
+  path: string
+  /**
+   * False for ENOENT and for any other `stat` failure (permission, a
+   * non-directory path segment, …) — the probe answers "clickable or not,"
+   * not "why not."
+   */
+  exists: boolean
+  /** Present only when `exists` is true. */
+  kind?: 'file' | 'dir'
 }

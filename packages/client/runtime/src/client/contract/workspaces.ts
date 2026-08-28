@@ -6,7 +6,9 @@
  * the concrete class. Widening this interface is the explicit act of
  * widening what features may do to the workspaces domain.
  */
-import type { DirectoryListing, SessionId, WorkspaceId, WorkspaceView } from '@deepseek-ai/dsh-api-remotes/client'
+import type {
+  DirectoryListing, ProbeResult, SessionId, WorkspaceId, WorkspaceView,
+} from '@deepseek-ai/dsh-api-remotes/client'
 import type { WorkspaceListState } from '../workspaces/service.ts'
 import type { ObservableSnapshot } from './store.ts'
 
@@ -58,6 +60,14 @@ export interface IWorkspaces {
    * @param path - absolute or host-resolvable path.
    */
   openPath(path: string): Promise<void>
+  /**
+   * Batch existence/kind probe (three-layer clickable-reference
+   * verification): a read-only `stat` per path, capped at 64 per call.
+   * Always available (no capability gate, unlike `listDirectory`/`pickDirectory`).
+   * @param paths - 1 to 64 absolute paths.
+   * @returns one result per path, same order as `paths`.
+   */
+  probeTargets(paths: readonly string[]): Promise<readonly ProbeResult[]>
   /**
    * Rename a Workspace.
    * @param workspaceId - target workspace.

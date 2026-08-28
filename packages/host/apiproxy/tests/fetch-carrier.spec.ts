@@ -165,6 +165,12 @@ function fakeApi(overrides: Partial<{ muxFrames: MuxFrame[]; hostFrames: HostFra
       async openPath(request) {
         return { rpcId: request.rpcId, result: { ok: true, value: { opened: true as const } } }
       },
+      async probeTargets(request) {
+        return {
+          rpcId: request.rpcId,
+          result: { ok: true, value: { results: request.payload.paths.map(path => ({ path, exists: false })) } },
+        }
+      },
     },
     workspace: {
       async list(request) {

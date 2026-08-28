@@ -2,7 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {
-  DirectoryListing, IApiClient, RpcError,
+  DirectoryListing, IApiClient, ProbeResult, RpcError,
   SessionId, WorkspaceId, WorkspaceView,
 } from '@deepseek-ai/dsh-api-remotes/client'
 import type { SnapshotStore } from '../contract/store.ts'
@@ -259,6 +259,19 @@ export class WorkspaceRuntime implements IWorkspaces {
   async openPath(path: string): Promise<void> {
     const response = await this.api.host.openPath({ path })
     if (!response.result.ok) throw new PathOpenError(response.result.error)
+  }
+
+  /**
+   * Batch existence/kind probe through the Host's always-available stat.
+   * @param paths - 1 to 64 absolute paths.
+   * @returns one result per path, same order as `paths`.
+   */
+  async probeTargets(paths: readonly string[]): Promise<readonly ProbeResult[]> {
+    const response = await this.api.host.probeTargets({ paths: [...paths] })
+    if (!response.result.ok) {
+      throw new Error(`probeTargets failed: ${response.result.error.code}: ${response.result.error.message}`)
+    }
+    return response.result.value.results
   }
 
   /**

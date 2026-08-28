@@ -1967,6 +1967,41 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
     return openTarget(request, path, signal, open)
   }
 
+  /**
+   * Bounded-concurrency stat: exists=false for ENOENT and for any other stat
+   * failure alike — the probe answers clickable-or-not, not why not.
+   */
+  async function probeOneTarget(path: string): Promise<{ path: string; exists: boolean; kind?: 'file' | 'dir' }> {
+    try {
+      const info = await stat(path)
+      return { path, exists: true, kind: info.isDirectory() ? 'dir' : 'file' }
+    } catch {
+      return { path, exists: false }
+    }
+  }
+
+  /** How many `stat` calls `probeTargets` runs at once, regardless of how many paths one call requests. */
+  const PROBE_TARGETS_CONCURRENCY = 8
+
+  /** Fixed-size worker pool: each worker claims the next unclaimed index until none remain. */
+  async function probeTargetsBatch(
+    paths: readonly string[],
+  ): Promise<{ path: string; exists: boolean; kind?: 'file' | 'dir' }[]> {
+    const results = new Array<{ path: string; exists: boolean; kind?: 'file' | 'dir' }>(paths.length)
+    let nextIndex = 0
+    async function worker(): Promise<void> {
+      for (;;) {
+        const index = nextIndex++
+        if (index >= paths.length) return
+        results[index] = await probeOneTarget(paths[index] as string)
+      }
+    }
+    await Promise.all(
+      Array.from({ length: Math.min(PROBE_TARGETS_CONCURRENCY, paths.length) }, worker),
+    )
+    return results
+  }
+
   /** Whether this deployment can hand a path to a native opener at all. */
   function canOpenPaths(): boolean {
     if (defaults.canOpenPath !== undefined) return defaults.canOpenPath()
@@ -3018,6 +3053,10 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
 
       async openPath(request, signal) {
         return openPath(request, request.payload.path, signal)
+      },
+
+      async probeTargets(request) {
+        return ok(request, { results: await probeTargetsBatch(request.payload.paths) })
       },
     },
 

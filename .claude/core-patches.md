@@ -92,3 +92,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：缺席服务时 `MarkdownText` 的正文与行内代码渲染与本缝隙不存在时逐字节一致（既有测试全部原样通过 + 新增显式断言证实）；`render.tsx`/`MarkdownText.tsx` 新增分支语句/分支/函数/行 100% 覆盖；provenance 载荷（`chat-prose`/`model-text`）与 `openFile` 的 `structured` 明确区分，不二次派发。
 - **退役条件**：上游自己的会话 UI 对 Assistant 正文（不止行内代码、不止对着产出文件词表）做可点引用扫描、并暴露出等价的 scan/open 契约，即退役该覆盖层，依赖插件适配上游形式。
 - **状态**：在役
+
+## feat(host-apiproxy,client-runtime): a batch path-existence probe for the referent verification layer
+- **改了什么**：`HostApi` 新增 `probeTargets(paths: string[]) → { results: ProbeResult[] }`（`packages/host/apiproxy/src/api/host.ts`），零能力闸（不像 `listDirectory`/`pickDirectory` 挂在 `browse`/`native` 之后）、请求 schema 用 `z.array(...).min(1).max(64)` 把批量上限做成 `bad-request`（`host.schema.ts`）。`api-proxy.ts` 的实现只读 `stat`（ENOENT 与任何其它 stat 失败一律折成 `exists:false`，探针只回答"能不能点"不诊断原因），配一个 8 并发的定长 worker 池（`probeTargetsBatch`），不做目录列举、不读内容。`rpc-map.ts`/`fetch/handler.ts`/`fetch/client.ts`（`IApiClient.host`、`UNARY_VALUE_SCHEMAS`、`AbstractApiClient.host`）三处按 `listDirectory` 同款模式各加一行。类型经 `api/index.ts` → `client/connection`(`api.ts`+`index.ts`) → `api/remotes` 三层具名重导出表送达浏览器；`WorkspaceRuntime.probeTargets`/`IWorkspaces.probeTargets` 是 `ctx.workspaces` 上的新方法，`TestWorkspaces`（`test-support/client-runtime`）与两份 `IApiClient` 测试替身（`client/connection`、`client/runtime` 各自的 `fake-api.client.ts`）、`FixtureApiClient`（`client/connection/fixture.ts`，复用既有 in-memory 目录树）、以及两个既有 host 契约单测（`client-handler.spec.ts`/`fetch-carrier.spec.ts`）同步补上这个方法，否则编译期就会因为 `HostApi`/`IApiClient`/`IWorkspaces` 缺一员而炸。
+- **为什么**：三层可点引用架构（提名→验证→打开）的验证层需要一个只读、批量、探针式的路径存在性 RPC，先侦察后动手——`packages/api`、`packages/fs`、`packages/client/*`、`packages/host/*` 找过一圈，唯一路径相关的 client↔host RPC 是 `host.listDirectory`：它做整目录列举（违反验证探针"不读内容不列目录"的约束）、挂在 `browse` 能力闸后（多数桌面安装走 `native`，完全没有这条 RPC 可用）、对非目录目标直接 400。没有比这更轻的既有 stat/exists RPC。
+- **要达到的效果**：`ctx.workspaces.probeTargets(paths)` 对 1–64 个绝对路径给出与请求同序的 `{path, exists, kind?}[]`；调用方（clickable-refs 插件的验证存储）按 ≤64 自行分片调度，本方法内部只再做 8 并发限流，不额外校验调用节奏。零能力闸，任何部署都能用。
+- **退役条件**：上游自己提供等价的只读批量路径探针（stat-only、无目录列举、client 可达）。
+- **状态**：在役

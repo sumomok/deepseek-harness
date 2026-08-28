@@ -3,7 +3,7 @@
  */
 
 import { z } from 'zod'
-import type { DirectoryEntry } from './host.ts'
+import type { DirectoryEntry, ProbeResult } from './host.ts'
 import type { RequestPayload, ResponseValue } from './rpc-map.ts'
 import type { Wire } from './rpc.schema.ts'
 
@@ -73,3 +73,20 @@ export const hostOpenPathRequestSchema = z.object({
 export const hostOpenPathValueSchema = z.object({
   opened: z.literal(true),
 }) satisfies z.ZodType<Wire<ResponseValue<'host.openPath'>>>
+
+/** host.probeTargets request payload; capped at 64 paths — a larger batch fails `bad-request` before the handler runs. */
+export const hostProbeTargetsRequestSchema = z.object({
+  paths: z.array(z.string().min(1)).min(1).max(64),
+}) satisfies z.ZodType<Wire<RequestPayload<'host.probeTargets'>>>
+
+/** One `host.probeTargets` result. */
+export const probeResultSchema = z.object({
+  path: z.string(),
+  exists: z.boolean(),
+  kind: z.enum(['file', 'dir']).optional(),
+}) satisfies z.ZodType<Wire<ProbeResult>>
+
+/** host.probeTargets response value. */
+export const hostProbeTargetsValueSchema = z.object({
+  results: z.array(probeResultSchema),
+}) satisfies z.ZodType<Wire<ResponseValue<'host.probeTargets'>>>
