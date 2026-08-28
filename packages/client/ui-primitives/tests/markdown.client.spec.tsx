@@ -2,6 +2,7 @@
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it } from 'vitest'
 import { JsonBlock, MarkdownText, MessageText } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownProseReferents, MarkdownProseSpan } from '@deepseek-ai/dsh-client-ui-primitives'
 import { cjkFriendlyStrong } from '../src/markdown/cjkFriendlyStrong.ts'
 import { mathCompatibility } from '../src/markdown/mathCompatibility.ts'
 
@@ -189,6 +190,107 @@ describe('MarkdownText', () => {
       <MarkdownText text={'`index.html`\n\nmore\n\n'} streaming fileMentions={fileMentions} />,
     )
     expect(streamed.container.querySelector('button')).toBeNull()
+  })
+
+  /**
+   * A scanner whose match marker differs by `inlineCode`: `PROSEHIT` only
+   * matches plain text, `CODEHIT` only matches inline code — so a hit
+   * proves the renderer forwarded the right `inlineCode` value, not just
+   * that scanning happened at all.
+   */
+  function makeReferents(open: (span: MarkdownProseSpan) => void): MarkdownProseReferents {
+    return {
+      scan: (text, inlineCode) => {
+        const marker = inlineCode ? 'CODEHIT' : 'PROSEHIT'
+        const spans: MarkdownProseSpan[] = []
+        let index = text.indexOf(marker)
+        while (index !== -1) {
+          spans.push({ start: index, end: index + marker.length })
+          index = text.indexOf(marker, index + marker.length)
+        }
+        return spans
+      },
+      open,
+    }
+  }
+
+  it('scans plain prose text for referent spans, leaving the rest as plain text', () => {
+    const opened: MarkdownProseSpan[] = []
+    const referents = makeReferents((span) => { opened.push(span) })
+    const { container } = render(<MarkdownText text="See PROSEHIT here." referents={referents} />)
+    const hit = screen.getByRole('button', { name: 'PROSEHIT' })
+    expect(hit.closest('code')).toBeNull()
+    expect(container.textContent).toBe('See PROSEHIT here.')
+    fireEvent.click(hit)
+    expect(opened).toEqual([{ start: 4, end: 12 }])
+  })
+
+  it('scans inline code with the same scanner, passed inlineCode true', () => {
+    const opened: MarkdownProseSpan[] = []
+    const referents = makeReferents((span) => { opened.push(span) })
+    const { container } = render(<MarkdownText text={'`CODEHIT`\n\n`PROSEHIT`'} referents={referents} />)
+    const hit = screen.getByRole('button', { name: 'CODEHIT' })
+    expect(hit.closest('code')).not.toBeNull()
+    fireEvent.click(hit)
+    expect(opened).toEqual([{ start: 0, end: 7 }])
+    // The prose-only marker never matches inside code (inlineCode=true was
+    // forwarded, not ignored): the token stays inert, byte-identical to no
+    // referents at all.
+    const inertCode = screen.getByText('PROSEHIT')
+    expect(inertCode.tagName).toBe('CODE')
+    expect(inertCode.querySelector('button')).toBeNull()
+    expect(container.querySelectorAll('button')).toHaveLength(1)
+  })
+
+  it('renders two adjacent spans back to back with no stray text node between them', () => {
+    const referents = makeReferents(() => {})
+    render(<MarkdownText text="PROSEHITPROSEHIT" referents={referents} />)
+    const hits = screen.getAllByRole('button', { name: 'PROSEHIT' })
+    expect(hits).toHaveLength(2)
+  })
+
+  it('fileMentions claims an inline-code token before the referents scanner ever sees it', () => {
+    const mentionOpened: string[] = []
+    const referentsOpened: MarkdownProseSpan[] = []
+    const fileMentions = {
+      resolve: (value: string) => value === 'CODEHIT'
+        ? { open: () => { mentionOpened.push(value) }, label: 'Open CODEHIT', title: 'CODEHIT' }
+        : undefined,
+    }
+    const referents = makeReferents((span) => { referentsOpened.push(span) })
+    const { container } = render(<MarkdownText text="`CODEHIT`" fileMentions={fileMentions} referents={referents} />)
+    // Exactly one button — fileMentions', not the scanner's own — even
+    // though the scanner would also have matched this same token.
+    expect(container.querySelectorAll('code button')).toHaveLength(1)
+    const hit = screen.getByRole('button', { name: 'Open CODEHIT' })
+    fireEvent.click(hit)
+    expect(mentionOpened).toEqual(['CODEHIT'])
+    expect(referentsOpened).toEqual([])
+  })
+
+  it('never scans prose or inline code inside a link', () => {
+    const referents = makeReferents(() => {})
+    const { container } = render(
+      <MarkdownText text={'[PROSEHIT `CODEHIT`](https://example.com) and `CODEHIT` outside'} referents={referents} />,
+    )
+    const anchor = container.querySelector('a')
+    expect(anchor?.textContent).toBe('PROSEHIT CODEHIT')
+    expect(anchor?.querySelector('button')).toBeNull()
+    // Outside the link, inline code still scans normally.
+    expect(screen.getByRole('button', { name: 'CODEHIT' })).toBeDefined()
+  })
+
+  it('prose scanning stays off while streaming, the same settled-only gate fileMentions uses', () => {
+    const referents = makeReferents(() => {})
+    const { container } = render(<MarkdownText text="PROSEHIT" streaming referents={referents} />)
+    expect(container.querySelector('button')).toBeNull()
+    expect(container.textContent).toBe('PROSEHIT')
+  })
+
+  it('absent referents leaves prose and inline code exactly as plain text/code', () => {
+    const { container } = render(<MarkdownText text={'PROSEHIT and `CODEHIT`'} />)
+    expect(container.querySelector('button')).toBeNull()
+    expect(container.textContent).toBe('PROSEHIT and CODEHIT')
   })
 
   it('exposes the CJK strong syntax as a micromark extension needing CommonMark attention markers', () => {

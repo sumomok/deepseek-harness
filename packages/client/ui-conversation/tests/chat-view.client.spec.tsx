@@ -306,6 +306,8 @@ function makeHarness(init?: Partial<ConversationSnapshot>) {
     forkAt,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
+    // Absent-service default: no proseReferents provider composed in.
+    referents: undefined,
     // Mirrors the real lookup chain (conversation namespace, then common).
     t,
   }

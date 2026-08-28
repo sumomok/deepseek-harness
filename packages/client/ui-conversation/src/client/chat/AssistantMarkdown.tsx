@@ -13,7 +13,7 @@ import { Fragment, memo, useMemo } from 'react'
 import type { ReactNode } from 'react'
 import type { AssistantBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import { JsonBlock, MarkdownText } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownFileMentions, MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots.ts'
 import { FileCard } from './FileCard.tsx'
 import { ReasoningRow } from './ReasoningRow.tsx'
@@ -32,13 +32,15 @@ export interface AssistantMarkdownProps {
   openReferent: ChatNodeOwnerProps['openReferent']
   /** Resolved prose file mentions for this Assistant's closing turn. */
   mentions?: MarkdownFileMentions | undefined
+  /** Prose-referent scanner/opener from the optional service; absent turns prose/inline-code scanning off. */
+  referents?: MarkdownProseReferents | undefined
   /** The owning view's locale seat, passed down as a plain prop. */
   t: ChatViewSlotProps['t']
 }
 
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, renderMessageImages, loadFile, openReferent, mentions, t,
+  blocks, streaming, interrupted, renderMessageImages, loadFile, openReferent, mentions, referents, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
   // per render would rebuild MarkdownText's component table every chunk.
@@ -64,6 +66,7 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
             streaming={streaming}
             codeLabels={codeLabels}
             fileMentions={mentions}
+            referents={referents}
           />,
         )
         break
