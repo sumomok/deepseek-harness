@@ -1,0 +1,21 @@
+# The deployment's own single sign-on, in front of a dsh Web surface. One row:
+# the node half claims the settings, token, and forwarding routes, and the
+# browser half runs the gate on every page load.
+#
+# `loginUrl` is the deployment's login page as the browser addresses it. It is a
+# hash-routed page, so the `?redirect=<return address>` the browser half appends
+# lands inside the fragment, which is where that router reads it.
+#
+# `mcpUpstreams` is empty here because which MCP servers a deployment forwards
+# to is deployment-specific. Adding one — `crm: https://mcp.internal/crm` —
+# claims `/auth-gate/mcp/crm`, and the matching `dsh-mcp-client` row then points
+# its `url` at that path instead of at the server, which is how it gets a
+# per-visitor token it could not otherwise obtain.
+- insert:
+    - id: auth-gate
+      name: '@deepseek-ai/dsh-experimental-auth-gate'
+      config:
+        loginUrl: /toy-proxy/toy-login/#/
+        cookieName: accessToken
+        refreshMarginSeconds: 300
+        mcpUpstreams: {}

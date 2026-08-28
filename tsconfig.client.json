@@ -93,6 +93,7 @@
     { "path": "./packages/client/ui-settings-plugins" },
     { "path": "./packages/client/ui-user-questions" },
     { "path": "./packages/client/ui-trajectory" },
+    { "path": "./packages/experimental/auth-gate" },
     { "path": "./packages/experimental/server-layout" },
     { "path": "./packages/experimental/content-frame" },
     { "path": "./packages/experimental/content-column" },

@@ -619,6 +619,46 @@ export interface Config {
 
 来源：[`packages/experimental/agent-team/src/types.ts:125`](../packages/experimental/agent-team/src/types.ts)
 
+<a id="deepseek-aidsh-experimental-auth-gate"></a>
+
+## `@deepseek-ai/dsh-experimental-auth-gate`
+
+需要：`webServer`
+
+```ts config-catalog
+/** Plugin config: where a visitor signs in, how the token is mirrored, and which MCP servers it is spent on. */
+export interface Config {
+  /**
+   * Page an unauthenticated visitor is sent to. The browser half appends
+   * `?redirect=<the encoded page it came from>`, so the value may not already
+   * carry a query string. A hash-routed login page (`/sign-in/#/`) takes the
+   * parameter inside its fragment, which is where a hash router reads it.
+   */
+  loginUrl: string
+  /**
+   * Cookie the browser half mirrors the access token into, so a request that
+   * carries no `Authorization` header — a navigation, an image, an iframe —
+   * still identifies the visitor to whatever sits in front of this process.
+   */
+  cookieName: string
+  /**
+   * How many seconds before expiry the browser half acts on the coming expiry.
+   * Zero acts at the expiry instant.
+   */
+  refreshMarginSeconds: number
+  /**
+   * MCP servers this deployment forwards to, as route segment to absolute
+   * target URL. Each entry claims `/auth-gate/mcp/<name>`; point the matching
+   * `dsh-mcp-client` row's `url` at that path instead of at the server itself.
+   * An empty table is the deployment that gates its browser and forwards
+   * nothing.
+   */
+  mcpUpstreams: Record<string, string>
+}
+```
+
+来源：[`packages/experimental/auth-gate/src/index.ts:50`](../packages/experimental/auth-gate/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 
 ## `@deepseek-ai/dsh-experimental-content-frame`

@@ -6,6 +6,7 @@ This group contains prototypes and internal-only Cordis plugins that use the rep
 
 | Package | Role | ctx key |
 |---|---|---|
+| `auth-gate/` | Sends a browser without an access token to the deployment's login page, mirrors the one it returns with into a cookie, and injects it into forwarded MCP requests | — |
 | `agent-team/` | Implicit-root Agent Teams roster, durable peer mailbox, shared task DAG, and runtime coordination | `ctx.agentTeams` |
 | `content-column/` | Browser half of the content surface: claims the shell's content column, lists the session's entries, and dispatches the selected one by kind | — |
 | `content-frame/` | Serves one operator-configured static web application and contributes it as the content column's `page` kind | — |

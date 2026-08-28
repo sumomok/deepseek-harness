@@ -15,6 +15,7 @@
     "apps/web/tests/content-surface.e2e.ts",
     "apps/web/tests/vue-ui-poc.e2e.ts",
     "apps/web/tests/show-chart.e2e.ts",
+    "apps/web/tests/auth-gate.e2e.ts",
     "apps/web/tests/default-model.e2e.ts",
     "apps/web/tests/declared-reasoning.e2e.ts",
     "apps/web/tests/support.ts",
