@@ -299,6 +299,7 @@ function panelProps(data: WorkflowRunChatData, sessions = listState(), openSessi
     openReferent: () => Promise.resolve(),
     renderUserActions: () => null,
     fileMentions: () => undefined,
+    referents: undefined,
     openSession,
     t: makeTranslate(zh),
   }

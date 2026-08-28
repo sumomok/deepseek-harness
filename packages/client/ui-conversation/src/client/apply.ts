@@ -4,6 +4,8 @@ import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-
 import {
   dispatchReferentOpen, resolveWorkspacePath, type ISessions, type ReferentRef, type SessionId,
 } from '@deepseek-ai/dsh-client-runtime/client'
+import type { MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 // Type-only: the ctx.settingsScope Context merge. Cross-plugin collaboration
 // goes through the service, never a value import (client bundle purity gate).
 import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
@@ -14,7 +16,7 @@ import type { ViewTab } from './contract/views.ts'
 import type {
   ApprovalWait, ChatNodeTurnDataInjected, ChatScrollPosition, ChatViewInjected, ComposerBarInjected,
   ComposerChainProps, ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionInjected,
-  DetailsInjected,
+  DetailsInjected, ProseReferentSpan,
 } from './contract/slots.ts'
 import type { InputNotice } from './input/contract.ts'
 import { createChatStore } from './stores.ts'
@@ -109,6 +111,65 @@ function selectApproval({ interactions }: ComposerChainProps): ApprovalWait | nu
   return interactions.find((i): i is ApprovalWait => i.kind === 'approval') ?? null
 }
 
+/**
+ * Build the render-facing prose-referent scanner/opener for one session, or
+ * undefined when no {@link ProseReferents} provider is composed in.
+ * `scan` reads the session cwd and Host account home fresh on every call
+ * (the same lazy-read technique `openFile` below uses for cwd), so composing
+ * the provider in or out, or a workspace change, takes effect on the very
+ * next render with no re-registration.
+ * @param ctx - client root context.
+ * @param sessions - resolved once by the caller, mirroring the other apply-time service reads below.
+ * @param connection - resolved once by the caller; its `hostDescription` names the Host account home.
+ * @param sessionId - the session this scanner/opener is bound to.
+ * @returns the scanner/opener MarkdownText consumes, or undefined.
+ */
+function buildProseReferents(
+  ctx: Context, sessions: ISessions, connection: ConnectionHandle, sessionId: SessionId,
+): MarkdownProseReferents | undefined {
+  const provider = ctx.get('proseReferents')
+  if (provider === undefined) return undefined
+  return {
+    scan: (text, inlineCode) => provider.scan(text, {
+      cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
+      home: connection.hostDescription.getSnapshot()?.home,
+      inlineCode,
+    }),
+    open: (span) => {
+      // Safe: this scanner's own `scan` above is the only producer of spans
+      // MarkdownText ever hands back to `open` — it treats a span as opaque
+      // (start/end only) and returns the exact object `scan` gave it, which
+      // always carries the fuller ProseReferentSpan shape at runtime.
+      const referentSpan = span as ProseReferentSpan
+      const ref: ReferentRef = {
+        kind: referentSpan.kind,
+        target: referentSpan.target,
+        raw: referentSpan.raw,
+        sessionId,
+        // Never the openFile chokepoint's own ref below: that would
+        // double-dispatch this click and mislabel its provenance as
+        // 'structured' — this click is model-authored prose, not a
+        // structured content-part open.
+        source: 'chat-prose',
+        provenance: 'model-text',
+      }
+      const onDefault = (): Promise<void> | void => {
+        if (referentSpan.kind === 'url') {
+          window.open(referentSpan.target, '_blank', 'noopener,noreferrer')
+          return
+        }
+        return ctx.workspaces.openPath(referentSpan.target)
+      }
+      // No dedicated failure UI for a prose click yet (unlike openFile's
+      // dialog below): a genuine open failure lands in the console rather
+      // than being silently dropped.
+      void dispatchReferentOpen(ctx, ref, onDefault).catch((error: unknown) => {
+        console.error('ui-conversation: chat-prose referent open failed', error)
+      })
+    },
+  }
+}
+
 /** Mounts the conversation plugin.
  * @param ctx - Client root context.
  */
@@ -117,6 +178,9 @@ export function apply(ctx: Context): void {
   const workspaces = ctx.workspaces
   const layout = ctx.layout
   const slots = ctx.slots
+  // No ambient ctx.connection merge (unlike sessions/workspaces): resolved
+  // the same way ui-tool's apply.ts reads the same service.
+  const connection = ctx.get('connection') as ConnectionHandle
 
   registerConversationNodes(ctx)
   registerChatNodeRenderers(ctx)
@@ -410,6 +474,7 @@ export function apply(ctx: Context): void {
           layout.openDetails()
         },
         fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
+        referents: buildProseReferents(ctx, sessions, connection, sessionId),
         // referent/open first: wraps the pre-existing openPath action as the
         // waterfall's terminus, so every consumer this one closure already
         // reaches (tool rows, produced-file chips, mentions, and the file

@@ -119,6 +119,49 @@ export interface MarkdownFileMentions {
 }
 
 /**
+ * One span a {@link MarkdownProseReferents} scan found in a rendered text
+ * run. The renderer reads only the offsets, to slice the clickable substring
+ * out of `text`; it never inspects any other field a producer's own span
+ * type carries — `open` receives back the exact object `scan` returned, so
+ * the owner may pack whatever it needs onto that object for its own `open`
+ * to read.
+ */
+export interface MarkdownProseSpan {
+  /** Start offset into the scanned text, inclusive. */
+  readonly start: number
+  /** End offset into the scanned text, exclusive. */
+  readonly end: number
+}
+
+/**
+ * Prose-referent affordance for chat text and inline code: the owner scans a
+ * rendered text run for clickable references using its own detection rules
+ * and opens a hit through its own dispatch — the renderer never guesses at
+ * what looks like a path or URL. Generalizes {@link MarkdownFileMentions}'s
+ * owner-resolves/renderer-never-guesses split from inline-code tokens to
+ * plain prose text.
+ */
+export interface MarkdownProseReferents {
+  /**
+   * Scan one rendered text run for clickable spans.
+   * @param text - Exact text content of the node being rendered (inline
+   * code already has its line endings normalized to spaces, matching what
+   * it will be sliced from).
+   * @param inlineCode - True for an inline-code token, false for plain
+   * prose text; the owner may detect more permissively inside code than in
+   * prose.
+   * @returns Non-overlapping spans in ascending `start` order; empty when
+   * nothing in `text` matched.
+   */
+  scan(text: string, inlineCode: boolean): readonly MarkdownProseSpan[]
+  /**
+   * Open one span a reader clicked or activated by keyboard.
+   * @param span - The exact span object `scan` returned for this hit.
+   */
+  open(span: MarkdownProseSpan): void
+}
+
+/**
  * One render pass's state: immutable options and targets plus the footnote
  * numbering accumulated in document order while references render.
  */
@@ -131,6 +174,12 @@ export interface MarkdownRenderContext {
   readonly inBlockquote?: boolean
   /** Inline-code file mentions; absent wherever no opener vocabulary exists. */
   readonly fileMentions: MarkdownFileMentions | undefined
+  /**
+   * Prose-referent scanner/opener for text and inline-code nodes; absent
+   * wherever no scanning provider exists. On inline code, {@link fileMentions}
+   * claims a token first — this only scans what it left unclaimed.
+   */
+  readonly referents: MarkdownProseReferents | undefined
   /** Inside an anchor's children: interactive mentions must not nest there. */
   readonly inLink?: boolean
   /** Reference targets visible to this pass. */
@@ -208,10 +257,42 @@ function renderChildren(
   return nodes.map((node, index) => renderNode(node, index, context))
 }
 
+/**
+ * Scan `text` for clickable spans and splice them in as `css.fileMention`
+ * buttons (the pre-existing mention token — see the module doc's
+ * untrusted-output policy header), leaving the rest as plain runs. Returns
+ * `text` itself, unchanged, when nothing matched — the fast path both call
+ * sites use to skip wrapping when a node has no hit.
+ * @param text - the exact text content being rendered.
+ * @param inlineCode - forwarded to `referents.scan` unchanged.
+ * @param referents - the scanner/opener for this pass.
+ * @returns `text` when no span matched, otherwise the mixed plain-text/button children.
+ */
+function scanProseSpans(text: string, inlineCode: boolean, referents: MarkdownProseReferents): ReactNode {
+  const spans = referents.scan(text, inlineCode)
+  if (spans.length === 0) return text
+  const children: ReactNode[] = []
+  let cursor = 0
+  for (const [index, span] of spans.entries()) {
+    if (span.start > cursor) children.push(text.slice(cursor, span.start))
+    children.push(
+      <button key={index} type="button" className={css.fileMention} onClick={() => { referents.open(span) }}>
+        {text.slice(span.start, span.end)}
+      </button>,
+    )
+    cursor = span.end
+  }
+  if (cursor < text.length) children.push(text.slice(cursor))
+  return children
+}
+
 function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderContext): ReactNode {
   switch (node.type) {
-    case 'text':
-      return node.value
+    case 'text': {
+      if (context.inLink === true || context.referents === undefined) return node.value
+      const rendered = scanProseSpans(node.value, false, context.referents)
+      return rendered === node.value ? rendered : <Fragment key={key}>{rendered}</Fragment>
+    }
     case 'paragraph':
       return <p key={key}>{renderChildren(node.children, context)}</p>
     case 'heading':
@@ -264,6 +345,12 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
             </button>
           </code>
         )
+      }
+      // fileMentions' known-file vocabulary claims a token first; only what
+      // it leaves unclaimed reaches the scanner.
+      if (context.inLink !== true && context.referents !== undefined) {
+        const scanned = scanProseSpans(value, true, context.referents)
+        if (scanned !== value) return <code key={key}>{scanned}</code>
       }
       return <code key={key}>{value}</code>
     }

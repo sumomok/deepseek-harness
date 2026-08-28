@@ -19,17 +19,20 @@ import {
   collectReferenceTargets, createReferenceTargets, renderBlocks, renderFootnoteSection,
   wrapBlockChildren,
 } from './render.tsx'
-import type { MarkdownCodeLabels, MarkdownFileMentions, MarkdownRenderContext, ReferenceTargets } from './render.tsx'
+import type {
+  MarkdownCodeLabels, MarkdownFileMentions, MarkdownProseReferents, MarkdownRenderContext, ReferenceTargets,
+} from './render.tsx'
 import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
 
-export type { MarkdownCodeLabels, MarkdownFileMentions } from './render.tsx'
+export type { MarkdownCodeLabels, MarkdownFileMentions, MarkdownProseReferents, MarkdownProseSpan } from './render.tsx'
 
 /** One settled full render: parse with math, resolve references, append the footnote section. */
 function renderSettled(
   text: string,
   codeLabels: MarkdownCodeLabels | undefined,
   fileMentions: MarkdownFileMentions | undefined,
+  referents: MarkdownProseReferents | undefined,
 ): ReactNode[] {
   const root = parseGfmWithMath(text)
   const targets = createReferenceTargets()
@@ -38,6 +41,7 @@ function renderSettled(
     streaming: false,
     codeLabels,
     fileMentions,
+    referents,
     targets,
     footnoteOrder: [],
     footnoteCounts: new Map(),
@@ -102,6 +106,7 @@ class StreamingRenderer {
         streaming: true,
         codeLabels: this.codeLabels,
         fileMentions: undefined,
+        referents: undefined,
         targets: frameTargets,
         footnoteOrder: this.frozenFootnoteOrder,
         footnoteCounts: this.frozenFootnoteCounts,
@@ -120,6 +125,7 @@ class StreamingRenderer {
       streaming: true,
       codeLabels: this.codeLabels,
       fileMentions: undefined,
+      referents: undefined,
       targets: frameTargets,
       footnoteOrder: [...this.frozenFootnoteOrder],
       footnoteCounts: new Map(this.frozenFootnoteCounts),
@@ -145,32 +151,35 @@ class StreamingRenderer {
  * forwards localized copy-button labels to fence CodeBlocks — pass a
  * reference-stable object (memoized per locale revision), because a new
  * identity discards the streaming render cache mid-message. `fileMentions`
- * links inline-code tokens its resolver recognizes as real files; this is
- * the single streaming gate — it applies to settled renders only, because a
+ * links inline-code tokens its resolver recognizes as real files; `referents`
+ * additionally scans plain prose text (and whatever inline code
+ * `fileMentions` leaves unclaimed) for clickable references. Both are the
+ * same single streaming gate — they apply to settled renders only, because a
  * streaming message's vocabulary is not final and frozen cached elements
  * must not bake in handlers that could go stale.
  * @returns A GFM document with TeX math rendered through KaTeX; raw HTML,
  * relative links, and unsafe protocols are disabled, while absolute HTTP(S)
  * images render directly.
  */
-export const MarkdownText = memo(function MarkdownText({ text, streaming = false, codeLabels, fileMentions }: {
+export const MarkdownText = memo(function MarkdownText({ text, streaming = false, codeLabels, fileMentions, referents }: {
   text: string
   streaming?: boolean
   codeLabels?: MarkdownCodeLabels | undefined
   fileMentions?: MarkdownFileMentions | undefined
+  referents?: MarkdownProseReferents | undefined
 }) {
   const streamRef = useRef<StreamingRenderer | null>(null)
   const streamLabelsRef = useRef<MarkdownCodeLabels | undefined>(codeLabels)
   const children = useMemo(() => {
     if (!streaming) {
       streamRef.current = null
-      return renderSettled(text, codeLabels, fileMentions)
+      return renderSettled(text, codeLabels, fileMentions, referents)
     }
     if (streamRef.current === null || streamLabelsRef.current !== codeLabels) {
       streamRef.current = new StreamingRenderer(codeLabels)
       streamLabelsRef.current = codeLabels
     }
     return streamRef.current.render(text)
-  }, [text, streaming, codeLabels, fileMentions])
+  }, [text, streaming, codeLabels, fileMentions, referents])
   return <div className={css.markdown}>{children}</div>
 })
