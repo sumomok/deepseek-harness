@@ -245,6 +245,13 @@ export const fileLimitsProjectionSchema = z.object({
   maxFileBytes: z.number().int().positive(),
 }) as unknown as z.ZodType<FileAttachmentLimits>
 
+/**
+ * secretContainerExtraPatterns projection unit schema (host-side view
+ * validation): deployment-appended filename substrings only — the fixed
+ * base secret-container heuristic never rides this wire.
+ */
+export const secretContainerExtraPatternsProjectionSchema = z.array(z.string())
+
 /** session.history response value (projections rides the tail page only). */
 export const sessionHistoryValueSchema: z.ZodType<Wire<ResponseValue<'session.history'>>> = z.object({
   events: z.array(historyEntrySchema),

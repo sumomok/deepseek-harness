@@ -10,7 +10,7 @@ import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } fr
 import type { ChangeEvent, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
+  Button, IconPlusOutline16, IconWarningOutline16, Modal, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
@@ -27,6 +27,7 @@ import type { DraftDecorations } from '../input/decorations.ts'
 import type { EditRange } from '../input/contract.ts'
 import { attachmentErrorText, attachmentSizeText } from '../attachment-labels.ts'
 import { partitionDroppedFiles } from '../file-sniff.ts'
+import { matchSecretContainerFiles, secretContainerCandidate } from '../secret-container.ts'
 import { ReferenceIcon } from '../reference/ReferenceIcon.tsx'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
@@ -432,11 +433,13 @@ export function InputBar({
       keyboard.steerQueue()
       return
     }
-    keyboard.submit(resolveSubmitMode(
-      running,
-      accelerated ? 'accelerated' : 'enter',
-      subagent === null,
-    ))
+    requestSubmit(() => {
+      keyboard.submit(resolveSubmitMode(
+        running,
+        accelerated ? 'accelerated' : 'enter',
+        subagent === null,
+      ))
+    })
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
@@ -515,6 +518,47 @@ export function InputBar({
   // never count the other's drafts.
   const imageAttachments = useMemo(() => attachments.filter(a => a.kind === 'image'), [attachments])
   const fileAttachments = useMemo(() => attachments.filter(a => a.kind === 'file'), [attachments])
+
+  // Pre-send secret-container confirmation (name/path only, zero content
+  // read): deployment-appended filename substrings ride the boot-constant
+  // projection the same way imageLimits/fileLimits do; the fixed base
+  // heuristic lives entirely in matchSecretContainerFiles and needs no host
+  // round trip. secretHits gates BOTH submit entry points below (button
+  // click and keyboard Enter converge on requestSubmit); secretHitIds only
+  // feeds the chip's immediate warning state through the attachment slot.
+  const secretContainerExtraPatterns = useProjection('secretContainerExtraPatterns')
+  const secretHits = useMemo(
+    () => matchSecretContainerFiles(
+      fileAttachments.map(attachment => ({ id: attachment.id, ...secretContainerCandidate(attachment.file) })),
+      secretContainerExtraPatterns ?? [],
+    ),
+    [fileAttachments, secretContainerExtraPatterns],
+  )
+  const secretHitIds = useMemo(() => new Set(secretHits.map(hit => hit.id)), [secretHits])
+  // Confirmation state: non-null while the dialog shows the current hit
+  // list; the pending action runs only on explicit confirmation, and
+  // dismissal (mask/Escape/先不发送) leaves the draft and attachments
+  // untouched. Pure UI gate — this never touches the input machine, the
+  // session, or model-visible content.
+  const [secretConfirmNames, setSecretConfirmNames] = useState<readonly string[] | null>(null)
+  const pendingSubmitRef = useRef<(() => void) | null>(null)
+  const closeSecretConfirm = useCallback((): void => {
+    pendingSubmitRef.current = null
+    setSecretConfirmNames(null)
+  }, [])
+  const confirmSecretSend = useCallback((): void => {
+    const perform = pendingSubmitRef.current
+    closeSecretConfirm()
+    perform?.()
+  }, [closeSecretConfirm])
+  const requestSubmit = useCallback((perform: () => void): void => {
+    if (secretHits.length > 0) {
+      pendingSubmitRef.current = perform
+      setSecretConfirmNames(secretHits.map(hit => hit.name))
+      return
+    }
+    perform()
+  }, [secretHits])
 
   const intakeImages = useCallback((files: readonly File[]): void => {
     if (addImages === undefined || files.length === 0) return
@@ -615,7 +659,7 @@ export function InputBar({
     }
     if (inputActions === undefined) return // absent machine: the button is disabled
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled && !machineBusy) inputActions.submit()
+    if (!empty && !disabled && !machineBusy) requestSubmit(() => { inputActions.submit() })
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
@@ -762,6 +806,7 @@ export function InputBar({
             count: imageLimits.maxImagesPerMessage,
             size: attachmentSizeText(imageLimits.maxImageBytes),
           },
+          secretContainerHitIds: secretHitIds,
         })}
         {/* One scrollport, two text layers. The hidden mirror renders draft+'\n' and stretches the
             stack to the draft's FULL height (counting rows by '\n' cannot see soft wraps); the
@@ -879,6 +924,22 @@ export function InputBar({
         </div>
       </div>
       {footer}
+      {secretConfirmNames !== null && (
+        <Modal
+          open
+          onClose={closeSecretConfirm}
+          title={t('secretConfirm.title')}
+          description={t('secretConfirm.message', {
+            names: secretConfirmNames.join(t('secretConfirm.separator')),
+          })}
+          footer={(
+            <>
+              <Button variant="outline" onClick={closeSecretConfirm}>{t('secretConfirm.dontSend')}</Button>
+              <Button variant="primary" onClick={confirmSecretSend}>{t('secretConfirm.sendAnyway')}</Button>
+            </>
+          )}
+        />
+      )}
     </div>
   )
 }

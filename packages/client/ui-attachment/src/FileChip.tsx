@@ -3,7 +3,8 @@
  * rather than inside the same fixed-square item shape (a file has nothing
  * to thumbnail). */
 
-import { IconCloseFill14 } from '@deepseek-ai/dsh-client-ui-primitives'
+import clsx from 'clsx'
+import { IconCloseFill14, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
 import css from './FileChip.module.css'
 
 /** One rail chip; strings arrive resolved (zero-cordis atom). */
@@ -16,6 +17,14 @@ export interface FileChipItem {
   size: string
   /** Accessible label of the item's remove control. */
   removeLabel: string
+  /**
+   * Whether this draft's name/path matched the pre-send secret-container
+   * heuristic (name/path only — never a content read). Renders a color-dot
+   * and outline warning; never a popup, and never on its own the reason the
+   * user cannot proceed — the send-time confirmation gate is a separate
+   * surface.
+   */
+  warning?: boolean
 }
 
 /**
@@ -37,7 +46,12 @@ export function FileChipRow<T extends FileChipItem>({ items, groupLabel, onRemov
   return (
     <div className={css.row} role="group" aria-label={groupLabel}>
       {items.map(item => (
-        <div key={item.id} className={css.chip}>
+        <div
+          key={item.id}
+          className={clsx(css.chip, item.warning === true && css.chipWarning)}
+          data-secret-warning={item.warning === true || undefined}
+        >
+          {item.warning === true && <StateDot state="warning" size={8} className={css.warningDot} />}
           <span className={css.name} title={item.name}>{item.name}</span>
           <span className={css.size}>{item.size}</span>
           <button

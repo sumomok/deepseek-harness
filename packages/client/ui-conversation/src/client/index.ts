@@ -21,6 +21,8 @@ export type { DraftAttachmentId } from './input/contract.ts'
 export { partitionDroppedFiles, sniffIsText } from './file-sniff.ts'
 export type { PartitionedFiles } from './file-sniff.ts'
 export { attachmentSizeText } from './attachment-labels.ts'
+export { matchSecretContainerFiles, secretContainerCandidate } from './secret-container.ts'
+export type { SecretContainerCandidate } from './secret-container.ts'
 
 export type {
   CallId, ChatStoreState, SelectionTarget, ViewTab,

@@ -29,7 +29,7 @@ interface ComposerChipItem extends FileChipItem {
  * original-image preview slot entry.
  */
 export function ComposerAttachments({
-  attachments, canAcceptDrop, onAddImages, onAddFiles, onRemoveImage, dropLimits, t,
+  attachments, canAcceptDrop, onAddImages, onAddFiles, onRemoveImage, dropLimits, secretContainerHitIds, t,
 }: ComposerAttachmentsProps) {
   const [preview, setPreview] = useState<ComposerImageAttachment | null>(null)
   const [dragActive, setDragActive] = useState(false)
@@ -118,9 +118,10 @@ export function ComposerAttachments({
       name: attachment.file.name || t('file.pending'),
       size: attachmentSizeText(attachment.file.size),
       removeLabel: t('file.remove', { name: attachment.file.name }),
+      warning: secretContainerHitIds?.has(attachment.id) ?? false,
       attachment,
     })),
-    [attachments, t],
+    [attachments, secretContainerHitIds, t],
   )
 
   return (

@@ -23,6 +23,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     sessionListMetadata: SessionListMetadata
     imageLimits: null
     fileLimits: null
+    secretContainerExtraPatterns: null
   }
   interface SessionProjectionMap {
     /**
@@ -46,6 +47,17 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
      * service is composed.
      */
     fileLimits: FileAttachmentLimits
+    /**
+     * Deployment-appended filename substrings for the client's pre-send
+     * secret-container confirmation, constant per host boot. The fixed base
+     * heuristic (`.env`, `id_rsa`, etc.) is a client-side constant and never
+     * rides this wire; this key carries only the deployment's additions —
+     * empty unless `cordis.yml` configures the gateway with
+     * `secretContainerExtraPatterns`, and always additive to the client's
+     * base list, never a replacement or removal of it. Key absence means no
+     * gateway is composed; the client then applies its base list alone.
+     */
+    secretContainerExtraPatterns: readonly string[]
   }
 }
 

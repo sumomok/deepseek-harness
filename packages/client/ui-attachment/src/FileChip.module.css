@@ -21,6 +21,16 @@
   background: var(--dsw-alias-interactive-bg-hover);
 }
 
+/* Pre-send secret-container heuristic match: outline only, no popup — the
+   send-time confirmation is a separate surface. */
+.chipWarning {
+  border-color: var(--dsw-alias-state-warn-primary);
+}
+
+.warningDot {
+  flex: none;
+}
+
 .name {
   overflow: hidden;
   color: var(--dsw-alias-label-primary);

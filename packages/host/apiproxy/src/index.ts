@@ -59,6 +59,14 @@ export interface Config {
    * @default 1024
    */
   coldBlankProbeMaxBytes?: number
+  /**
+   * Filename substrings ADDED to the client's fixed pre-send
+   * secret-container confirmation heuristic (`.env`, `id_rsa`, etc.) — this
+   * field can only append to that base list, never replace or narrow it;
+   * the base list itself is not configurable here or anywhere.
+   * @default []
+   */
+  secretContainerExtraPatterns?: string[]
 }
 
 /**
@@ -77,6 +85,7 @@ export class ApiProxyService extends Service implements ApiProxy {
     sessionExportCompressionLevel: z.number().step(1).min(0).max(9)
       .default(DEFAULT_SESSION_LOG_COMPRESSION_LEVEL) as z<SessionLogCompressionLevel>,
     coldBlankProbeMaxBytes: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_BYTES),
+    secretContainerExtraPatterns: z.array(z.string()),
   })
 
   readonly sessions: ApiProxy['sessions']
@@ -106,6 +115,9 @@ export class ApiProxyService extends Service implements ApiProxy {
       ...(config.coldBlankProbeMaxBytes === undefined
         ? {}
         : { coldBlankProbeMaxBytes: config.coldBlankProbeMaxBytes }),
+      ...(config.secretContainerExtraPatterns === undefined
+        ? {}
+        : { secretContainerExtraPatterns: config.secretContainerExtraPatterns }),
     })
     this.sessions = api.sessions
     this.subagents = api.subagents
