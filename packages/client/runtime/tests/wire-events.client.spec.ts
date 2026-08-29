@@ -2,7 +2,8 @@
  * Wire-to-typed-event bridge: a `host/remote-event` frame is handed verbatim to
  * the Remote service's `$dispatch` (its fan-out to `ctx.remote.$on` is
  * api-gateway's own coverage); each established connection generation emits
- * `connection/reset` for generation-scoped cache invalidation.
+ * `connection/reset` for generation-scoped cache invalidation, and every coarse
+ * connection state transition emits `connection/state`.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
@@ -131,5 +132,24 @@ describe('wire event bridge', () => {
     bench.sinks?.onConnected?.(description)
     bench.sinks?.onConnected?.(description) // second generation after a reconnect
     expect(resets).toBe(2)
+  })
+
+  it('emits connection/state for every fake transition, in order', async () => {
+    const bench = await mount()
+    const seen: string[] = []
+    bench.ctx.on('connection/state', (state) => { seen.push(state) })
+    bench.sinks?.onStateChange?.('reconnecting')
+    bench.sinks?.onStateChange?.('connected')
+    bench.sinks?.onStateChange?.('reconnecting')
+    expect(seen).toEqual(['reconnecting', 'connected', 'reconnecting'])
+  })
+
+  it('runs state transitions unaffected when nothing listens for connection/state', async () => {
+    const bench = await mount()
+    expect(() => {
+      bench.sinks?.onStateChange?.('reconnecting')
+      bench.sinks?.onStateChange?.('connected')
+    }).not.toThrow()
+    expect(bench.dispatched).toEqual([])
   })
 })
