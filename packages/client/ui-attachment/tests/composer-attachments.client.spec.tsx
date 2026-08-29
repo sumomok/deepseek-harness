@@ -227,4 +227,22 @@ describe('ComposerAttachments', () => {
     const view = render(<ComposerAttachments {...props({ attachments: [file] })} />)
     expect(view.getByText('待发送文件')).toBeTruthy()
   })
+
+  it('marks a file chip in secretContainerHitIds with the warning visual, and no other chip', () => {
+    const hit = textAttachment('draft-4', '.env', 'SECRET=1')
+    const plain = textAttachment('draft-5', 'notes.txt', 'hello')
+    const view = render(<ComposerAttachments {...props({
+      attachments: [hit, plain],
+      secretContainerHitIds: new Set([hit.id]),
+    })} />)
+    const warned = view.container.querySelector('[data-secret-warning]')
+    expect(warned?.textContent).toContain('.env')
+    expect(view.container.querySelectorAll('[data-secret-warning]')).toHaveLength(1)
+  })
+
+  it('omits the warning visual entirely when secretContainerHitIds is absent', () => {
+    const file = textAttachment('draft-6', '.env', 'SECRET=1')
+    const view = render(<ComposerAttachments {...props({ attachments: [file] })} />)
+    expect(view.container.querySelector('[data-secret-warning]')).toBeNull()
+  })
 })

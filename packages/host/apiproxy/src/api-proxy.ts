@@ -91,7 +91,10 @@ import type { ApprovalOutcome, ApprovalRequestId } from '@deepseek-ai/dsh-user-a
 // `ctx.get('approval')` without a value dependency on the seam (optional composition).
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { approvalResponsePayloadSchema } from './api/approvals.schema.ts'
-import { fileLimitsProjectionSchema, imageLimitsProjectionSchema, sessionListMetadataProjectionSchema } from './api/sessions.schema.ts'
+import {
+  fileLimitsProjectionSchema, imageLimitsProjectionSchema,
+  secretContainerExtraPatternsProjectionSchema, sessionListMetadataProjectionSchema,
+} from './api/sessions.schema.ts'
 import { questionResponsePayloadSchema } from './api/questions.schema.ts'
 import type { ClientResponse, RpcError, RpcReceipt, RpcRequest, RpcResponse } from './api/rpc.ts'
 import { RpcId } from './api/rpc.ts'
@@ -647,6 +650,14 @@ export interface ApiProxyDefaults {
    * falls back to platform detection ({@link canOpenNativePath}).
    */
   canOpenPath?: () => boolean
+  /**
+   * Deployment-appended filename substrings for the client's pre-send
+   * secret-container confirmation (the `secretContainerExtraPatterns`
+   * projection's source). Additive only: the client's fixed base heuristic
+   * is never expressed here and can never be replaced or narrowed through
+   * this field. Absent or empty means no additions.
+   */
+  secretContainerExtraPatterns?: readonly string[]
 }
 
 /** The tool/call payload fields the presenter path reads. */
@@ -1309,6 +1320,27 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
       init: () => null,
       apply: state => state,
       wire: { viewSchema: fileLimitsProjectionSchema, view: () => projectionCtx.attachments.fileLimits },
+      stateVersion: 1,
+    })
+  })
+
+  // The secretContainerExtraPatterns projection unit: this gateway's own
+  // config, constant per host boot — unlike imageLimits/fileLimits, it names
+  // no other seam's capability, so it needs no companion dependency and
+  // activates whenever a projection registry is composed at all. The client
+  // owns the fixed base secret-container heuristic and merges these
+  // deployment-appended substrings into it; this value is never itself the
+  // complete list.
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.register<'secretContainerExtraPatterns', null>({
+      key: 'secretContainerExtraPatterns',
+      stateSchema: zod.null(),
+      init: () => null,
+      apply: state => state,
+      wire: {
+        viewSchema: secretContainerExtraPatternsProjectionSchema,
+        view: () => defaults.secretContainerExtraPatterns ?? [],
+      },
       stateVersion: 1,
     })
   })

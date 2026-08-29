@@ -145,6 +145,47 @@ describe('session.history projections block', () => {
     expect(frames.some(f => f.type === 'session/projection' && (f.key === 'imageLimits' || f.key === 'fileLimits'))).toBe(false)
   })
 
+  it('publishes secretContainerExtraPatterns as a constant unit, verbatim, needing no attachment service', async () => {
+    const { ctx, session } = await harness(true)
+    const gateway = createApiProxy(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+      secretContainerExtraPatterns: ['company-internal'],
+    })
+    seedMessages(session, 2)
+    const response = await gateway.sessions.history(request({ sessionId: session.id }))
+    if (!response.result.ok) throw new Error('history failed')
+    // Verbatim, not merged with any host-side list: the gateway carries only
+    // the deployment's additions — the fixed base heuristic lives on the
+    // client and never rides this wire, so there is nothing here for the
+    // host to merge, filter, or otherwise narrow.
+    expect(response.result.value.projections?.values['secretContainerExtraPatterns']).toEqual(['company-internal'])
+    // Constant unit: appending events must never broadcast a change frame.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const abort = new AbortController()
+    const stream = gateway.events.mux({ rpcId: RpcId('t-secret-patterns-mux'), payload: {} }, abort.signal)
+    const frames: MuxFrame[] = []
+    const drained = (async () => {
+      for await (const envelope of stream) {
+        frames.push(envelope.payload)
+        if (frames.some(f => f.type === 'session/event')) abort.abort()
+      }
+    })().catch(() => {})
+    seedMessages(session, 1)
+    await drained
+    expect(frames.some(f => f.type === 'session/projection' && f.key === 'secretContainerExtraPatterns')).toBe(false)
+  })
+
+  it('defaults secretContainerExtraPatterns to empty when the gateway config omits it', async () => {
+    const { ctx, session } = await harness(true)
+    seedMessages(session, 1)
+    const response = await api(ctx).sessions.history(request({ sessionId: session.id }))
+    if (!response.result.ok) throw new Error('history failed')
+    // Absent config never manufactures a base-list entry: the append-only
+    // field defaults to empty, not to any part of the fixed client heuristic.
+    expect(response.result.value.projections?.values['secretContainerExtraPatterns']).toEqual([])
+  })
+
   it('leaves the imageLimits and fileLimits keys absent while no attachment service is composed', async () => {
     const { ctx, session } = await harness(true)
     seedMessages(session, 1)
