@@ -113,7 +113,8 @@ import { dirname, join, resolve } from 'node:path'
  */
 export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   'dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway',
-  '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-plugin-updates',
+  '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
+  '@haoran/dsh-clickable-refs', '@haoran/dsh-plugin-updates', '@haoran/dsh-vision-switch',
   '@haoran/dsh-default-model',
 ]
 

@@ -118,7 +118,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 ## 内置插件
 
-**八个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
+**十一个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
 
 | 包名 | 版本 | 提供什么 |
 |---|---|---|
@@ -127,8 +127,11 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 | `@haoran/dsh-screenshot` | `0.4.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面,登录墙后的页面也包括在内——截回来的图是一堵登录墙时,它变成一个问题,你的回答要么打开一个由你自己完成登录的窗口,要么复用这台机器上已有的登录,随后在那个站点自己的分区里重新截一次。没有这个回答就什么都不复用,cookie 的值从不作为工具参数或返回值出现,已存的登录在设置页的一个小节和 `/screenshot-logout <域名>` 里管理。它把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写进工作区内;配置决定 cookie 罐、user agent(默认是稳定版 Chrome 的字符串,不是壳自己的)与由哪个后端渲染 |
 | `@haoran/dsh-llm-permission-gateway` | `0.1.5`,来自提交进本仓库的 tarball | 自动审查这个权限预设——在权限选择器里带上完全权限那枚盾形图标——以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型。向你提问不算其中之一:`ask_user_question` 不经审查直接放行,因为它的全部效果就是把一段文字摆在你面前等你回答,审查它只会多一次模型调用,并在它本来要显示的那个提问前面再加一道提示 |
 | `@sumomok/dsh-quote-message` | `0.2.2`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,引用 chip 在你发送时展开成一段 markdown 引用块,而对话里它显示成你这条消息上方的一段引文——左侧一条细线,引用文字用次级墨色,超过三行折起 |
-| `@sumomok/dsh-balance` | `0.1.0`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 公布的 CNY 与 USD 价格 |
+| `@sumomok/dsh-balance` | `0.2.1`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 公布的 CNY 与 USD 价格 |
+| `@haoran/dsh-connection-banner` | `0.1.0`,来自提交进本仓库的 tarball | 连接正在重连期间,页面顶部的一条横幅——短暂的抖动不出声,断线过了几秒才现身,一恢复就立刻消失 |
+| `@haoran/dsh-clickable-refs` | `0.3.3`,来自提交进本仓库的 tarball | 让终端(bash 工具)输出与 web-fetch 卡片里的 URL 可点击:每一次命中——POSIX 或 Windows 路径、UNC 共享、localhost/loopback URL——都经由 referent/open 这道 waterfall 缝打开,对可执行/脚本扩展名有一份拒绝名单,过期路径则降级为「未找到」 |
 | `@haoran/dsh-plugin-updates` | `0.1.1`,来自提交进本仓库的 tarball | 插件设置里的「更新」页:把你自己装的插件与各自最新的发布版本列在一起,每行一个按钮,经由随安装包分发的那个包管理器安装,还有一步把上一次更新撤回。内置插件不在这份名单里——壳给它们种下的是没有依赖条目的 bundle 项,它们随应用更新而更新 |
+| `@haoran/dsh-vision-switch` | `0.1.0`,来自提交进本仓库的 tarball | 在当前模型不支持图片时发送带图片的消息,会经由手动切换模型走的那条同一通道把会话切到一个支持图片的模型,而不是宿主那个走不下去的拒绝 |
 | `@haoran/dsh-default-model` | `0.1.2`,来自提交进本仓库的 tarball | 出厂默认模型:全新安装的第一个会话开在 `deepseek-v4-flash-vision-exp` 上,选择器把它列为 `default` |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
@@ -137,13 +140,13 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **`dsh-at-file` 取自 tag 而非注册表**,因为作者在 npm 上只发到 `0.6.3`,而 tag 已经到 `v0.6.5`。分发 `0.6.3` 会与自行装了 `v0.6.5` 的 profile 配不上:一个 bundle 的两半从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`——于是这一行来自 `0.6.3`,代码来自 `v0.6.5`。这条依赖写的是该 tag 所指的**提交**,而不是它的归档 URL:pnpm 不为 GitHub 归档记录完整性哈希,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有完整性字段的 lockfile 条目。提交本身就是它的哈希,于是 lockfile 钉住的是内容。该仓库把构建好的 `lib/` 提交了进去,也没有声明 `prepare` 脚本,所以安装期什么都不构建。
 
-**六个随仓库 vendor 的插件都没有发布**,所以它们各自的依赖都是一条 `file:` 标识符,指向与声明它们的清单放在一起的 `apps/desktop-server/vendor/` 下的 tarball。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去;没有别的渠道,因为六个都不在任何注册表上。
+**九个随仓库 vendor 的插件都没有发布**,所以它们各自的依赖都是一条 `file:` 标识符,指向与声明它们的清单放在一起的 `apps/desktop-server/vendor/` 下的 tarball。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去;没有别的渠道,因为九个都不在任何注册表上。
 
-**八个里有六个带浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,`dsh-at-file`、`dsh-better-sidebar`、`@haoran/dsh-screenshot`、`@haoran/dsh-plugin-updates`、`@sumomok/dsh-quote-message` 与 `@sumomok/dsh-balance` 声明了它。另外两个没有:权限预设与默认模型都是 loader 去读的编排,页面从不加载。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把八个都解析了。
+**十一个里有九个带浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,`dsh-at-file`、`dsh-better-sidebar`、`@haoran/dsh-screenshot`、`@haoran/dsh-plugin-updates`、`@sumomok/dsh-quote-message`、`@sumomok/dsh-balance`、`@haoran/dsh-connection-banner`、`@haoran/dsh-clickable-refs` 与 `@haoran/dsh-vision-switch` 声明了它。另外两个没有:权限预设与默认模型都是 loader 去读的编排,页面从不加载。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把十一个都解析了。
 
 **`dsh-better-sidebar` 在本宿主上必须是 `0.14.0` 或更高。**`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,模块访问改由 `ctx.modules` 服务提供,这让每个懒加载 chunk 解析外部依赖的方式全面失效——`0.13.1` 会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,终端、编辑器与 Mermaid 面板一起跟着挂掉。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`,并把插件自有的全局共享给它的 chunk 副本,同时移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。
 
-**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与八个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,而下面的 web profile 同步是唯一会写入依赖条目、或改写壳自己写过的文件的动作。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
+**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与十一个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,而下面的 web profile 同步是唯一会写入依赖条目、或改写壳自己写过的文件的动作。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
 
 壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断,没有声明 bundle 列表的清单按手写编排对待,该放链接的位置上是真实目录则如实报告而不是删掉。profile 目录根本写不出来是启动唯一绕不过去的失败;日志那一行会说明,随后是服务端自己的诊断。
 
@@ -174,7 +177,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **Settings 会展示 defective 或 removed 的插件,并提供操作入口**,走的是插件管理回环服务上另外四条路由——完整协议见下文「插件管理服务」一节。
 
-**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这八个在桌面 profile 里已经有了,其余的也由上面那个同步持续搬过来;此后你再加进 `web` 的插件,要么在你下次启动时自然抵达 `desktop`,要么用 `dsh plugin --profile desktop add <包>` 立刻装进桌面 profile,它列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里。
+**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这十一个在桌面 profile 里已经有了,其余的也由上面那个同步持续搬过来;此后你再加进 `web` 的插件,要么在你下次启动时自然抵达 `desktop`,要么用 `dsh plugin --profile desktop add <包>` 立刻装进桌面 profile,它列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里。
 
 **如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile desktop remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
 

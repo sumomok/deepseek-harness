@@ -667,9 +667,12 @@
       "project": [],
       "ignoreDependencies": [
         "@deepseek-ai/.+",
+        "@haoran/dsh-clickable-refs",
+        "@haoran/dsh-connection-banner",
         "@haoran/dsh-default-model",
         "@haoran/dsh-llm-permission-gateway",
         "@haoran/dsh-screenshot",
+        "@haoran/dsh-vision-switch",
         "@sumomok/dsh-balance",
         "@sumomok/dsh-quote-message",
         "dsh-at-file",
