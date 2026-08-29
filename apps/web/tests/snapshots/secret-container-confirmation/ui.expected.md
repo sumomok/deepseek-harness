@@ -1,0 +1,7 @@
+- dialog "Send confirmation":
+  - heading "Send confirmation" [level=2]
+  - button "Close":
+    - img
+  - paragraph: "These files commonly hold passwords or keys: .env. Send anyway?"
+  - button "Don't send"
+  - button "Send anyway"
