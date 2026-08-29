@@ -120,3 +120,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：落定瞬间该来的验证结果照常显示（不依赖这条 patch，本就走 `streaming` 翻转触发的既有重渲）；验证批次异步完成后的 tick 无需刷新页面即可让已落定消息的新增验证结果显形（新增单测：手动触发 tick 后 `PROSEHIT` 从不可点变按钮，组件全程未重新挂载）；`referents` 换身份（provider 组合切换）正确退订旧监听、订阅新监听（新增单测覆盖）；无 `subscribe` 时 `revision` 恒定、行为与本 patch 之前逐字节一致。
 - **退役条件**：同一条 `proseReferents` 缝隙退役时一并退役。
 - **状态**：在役
+
+## feat(client-runtime): broadcast the connection's coarse state as a typed client event
+- **改了什么**：`packages/client/runtime/src/client/index.ts` 的连接接线里，`onStateChange` 处理器新增 `ctx.emit('connection/state', state)`（`sessions.handleDisconnected()` 的既有调用与时机不变）；`declare module '@deepseek-ai/cordis'` 的 `Events` 合并在 `connection/reset` 旁新增 `'connection/state'(state: ConnectionState): void`，JSDoc 按 `@mode`/`@param` 同款写法。`ConnectionState` 经 `packages/api/remotes/src/client/index.ts` 补一行具名重导出（`ConnectionHandle, ConnectionSinks, ConnectionState, ContentBlock` 字母序插入）送达 runtime 包。`scripts/gen-cordis-catalog.ts` 的 `EVENT_WALK_EXEMPTIONS`、`scripts/gen-cordis-inspect-catalog.ts` 的 `CLIENT_EVENTS` 各追加一条与 `connection/reset` 同款的豁免/白名单项；重跑两个生成器后 `packages/extensions/cordis-client-runner/src/client/api-catalog.ts` 落地新事件与 `ConnectionState` 类型条目，`gen-doc-graphs`/`verify-cordis-catalog` 复跑确认无漂移。`wire-events.client.spec.ts` 新增两条单测：一条断言连续三次假状态迁移按序广播，一条断言无人监听时状态迁移不抛异常且不泄漏进 `remote.$dispatch` 通道。
+- **为什么**：断线重连横幅这类客户端 UI 需要感知连接的粗粒度状态迁移（`'connected'`/`'reconnecting'`），但 `ConnectionController.onStateChange` 此前只驱动 `sessions.handleDisconnected()` 这一个内部消费者——状态迁移本身从未作为具名 cordis 事件对外广播，插件层（例如断线横幅）无法订阅，只能自行探测连接对象。
+- **要达到的效果**：每次连接生成的粗粒度状态迁移（`ConnectionController` 已做的去重——同状态不重复触发）都通过 `ctx.emit('connection/state', state)` 广播给任何监听者；没有监听者时行为与改动前逐字节一致（`handleDisconnected()` 的调用时机、参数、`remote.$dispatch` 通道均不受影响）。
+- **退役条件**：上游自己发出等价的客户端连接状态事件。
+- **状态**：在役

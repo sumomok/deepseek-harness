@@ -1,6 +1,6 @@
 /** Browser runtime services for slots, sessions, workspaces, and connection-stream delivery. */
 import type { Context } from '@deepseek-ai/cordis'
-import type { ConnectionHandle, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import type { ConnectionHandle, ConnectionState, SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 // Type-only: the ctx.remote merge. Deliberately the gateway's Client half rather
 // than api-remotes': that face imports a Host-tsdown-generated artifact, and this
 // project sits in the Host build graph.
@@ -167,6 +167,14 @@ declare module '@deepseek-ai/cordis' {
      * @mode emit
      */
     'connection/reset'(): void
+    /**
+     * The connection's coarse state changed (deduplicated: fires only on an
+     * actual transition).
+     * @mode emit
+     * @param state - 'connected' after each generation's handshake; 'reconnecting'
+     * for the whole failure-and-backoff span until the next handshake succeeds.
+     */
+    'connection/state'(state: ConnectionState): void
   }
   interface Context {
     slots: import('./slots.ts').SlotRegistry
@@ -223,6 +231,7 @@ export function apply(ctx: Context): void {
       ctx.emit('connection/reset')
     },
     onStateChange: (state) => {
+      ctx.emit('connection/state', state)
       // Generation death fires before any next-generation frame can arrive
       // (reconnect replays flow from stream open, ahead of onConnected):
       // the only safe moment to drop generation-scoped interaction state.
