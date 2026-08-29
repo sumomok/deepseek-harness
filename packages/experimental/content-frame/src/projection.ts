@@ -5,8 +5,11 @@
  * The fold keeps only the id the log recorded; resolving it against the
  * deployment's page list happens in `view`, which closes over the validated
  * configuration. That split is what lets a deployment rename or retire a page
- * without rewriting history: the log stays what the agent did, and the value
- * the browser reads is always computed against the page list running now.
+ * without rewriting history: the log stays what was actually shown — by the
+ * agent's tool or by the user's sidebar command, `content/shown`'s two
+ * writers — and the value the browser reads is always computed against the
+ * page list running now. Which writer recorded the current page is not part
+ * of this value: nothing here needs to distinguish them for what to render.
  */
 
 import { z as zod } from 'zod'

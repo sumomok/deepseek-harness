@@ -1,0 +1,36 @@
+# The retrofit menu's full stack: the content column with two pages (the
+# same four rows content-show.overlay.yml composes, with the same two-page
+# deployment, so the menu has more than one page route to list), plus the
+# sidebar replacement that adds the page-routes and favorites menu.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: content-frame
+      name: '@deepseek-ai/dsh-experimental-content-frame'
+      config:
+        root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/
+          - id: reports
+            title: Weekly reports
+            description: Published reports, newest first.
+            url: /content-app/reports/
+
+- id: ui-sidebar
+  name: '@deepseek-ai/dsh-client-ui-sidebar'
+  disabled: true
+
+- insert:
+    - id: server-sidebar
+      name: '@deepseek-ai/dsh-experimental-server-sidebar'

@@ -74,7 +74,7 @@ describe('content_show', () => {
     expect(result.isError).toBe(false)
     expect(result.value).toEqual({ page: 'reports', title: 'Weekly reports' })
     expect(text(result)).toBe('Now showing Weekly reports in the content column.')
-    expect(shown(session)).toEqual([{ page: 'reports' }])
+    expect(shown(session)).toEqual([{ page: 'reports', by: 'agent' }])
   })
 
   it('clears the column on the reserved id, recording the cleared state', async () => {
@@ -83,7 +83,7 @@ describe('content_show', () => {
     expect(result.isError).toBe(false)
     expect(result.value).toEqual({ page: 'none' })
     expect(text(result)).toBe('Content column cleared.')
-    expect(shown(session)).toEqual([{ page: null }])
+    expect(shown(session)).toEqual([{ page: null, by: 'agent' }])
   })
 
   it('refuses an unknown id with the whole catalogue and writes nothing', async () => {

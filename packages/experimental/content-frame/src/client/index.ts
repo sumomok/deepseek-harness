@@ -22,7 +22,7 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 // Type-only: pulls this package's own `content` SessionProjectionMap merge.
 import type {} from '../types.ts'
-import { CONTENT_SETTINGS_ROUTE, type ContentFrameSettings } from '../route.ts'
+import { CONTENT_SETTINGS_ROUTE } from '../route.ts'
 import { ContentFrame } from './ContentFrame.tsx'
 import { en, NS, zh, type ContentFrameKey } from './locales.ts'
 
@@ -40,16 +40,20 @@ export const inject = ['slots', 'locale']
 
 /**
  * Read the browser-facing half of this plugin's configuration from its node half.
- * @returns the settings the node half serves.
+ *
+ * The settings document also carries `pages` (read by the sidebar's
+ * page-navigation menu, not by this seat), so only the field this seat needs
+ * is typed and validated here.
+ * @returns the cache bound the node half configured.
  * @throws {Error} when the route is unreachable, answers non-200, or answers a
  * document without a usable cache bound.
  */
-async function readSettings(): Promise<ContentFrameSettings> {
+async function readSettings(): Promise<{ cacheSize: number }> {
   const response = await fetch(CONTENT_SETTINGS_ROUTE, { cache: 'no-store' })
   if (!response.ok) {
     throw new Error(`content-frame: ${CONTENT_SETTINGS_ROUTE} answered ${response.status}`)
   }
-  const settings = await response.json() as Partial<ContentFrameSettings>
+  const settings = await response.json() as { cacheSize?: unknown }
   const cacheSize = settings.cacheSize
   // A wire boundary: the document crossed a process, so its own contract is
   // checked here rather than trusted from the type.

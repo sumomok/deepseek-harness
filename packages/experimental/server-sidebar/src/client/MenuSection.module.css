@@ -1,0 +1,200 @@
+/* Menu region: two groups (pages, favorites) inserted between the shell's
+   New Session button and the workspace browser. Wide, it renders inline;
+   collapsed, both groups move behind one rail trigger and a floating panel
+   anchored to it (figma rail spec: 36x36 control box, same rhythm as the
+   shell's own rail icons). */
+
+.wideRoot {
+  flex: none;
+  margin: 0 2px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.groupTitle {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.itemButton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.itemButton:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.empty {
+  margin: 0;
+  padding: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  margin: 0;
+  padding: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.addButton,
+.iconButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.addButton:hover:not(:disabled),
+.iconButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.addButton:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0.5;
+}
+
+.favoriteRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+
+.favoriteRow .itemButton {
+  flex: 1;
+  min-width: 0;
+}
+
+.favoriteActions {
+  flex: none;
+  display: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.favoriteRow:hover .favoriteActions {
+  display: flex;
+}
+
+.stale .itemButton {
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.staleLabel {
+  flex: none;
+  margin-left: 6px;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.renameInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}
+
+/* Rail (collapsed) form: one 36x36 trigger, matching the shell's own rail icons. */
+.railRoot {
+  position: relative;
+  flex: none;
+  align-self: flex-start;
+  margin: 0 0 12px;
+}
+
+.railTrigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: 50%;
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  cursor: pointer;
+}
+
+.railTrigger:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.panel {
+  position: fixed;
+  z-index: 50;
+  width: 260px;
+  max-height: 70vh;
+  overflow-y: auto;
+  padding: 10px;
+  border-radius: 10px;
+  border: 1px solid var(--dsw-alias-border-inverted);
+  background: var(--dsw-specific-menu);
+  box-shadow: var(--dsw-shadow-lv3);
+}

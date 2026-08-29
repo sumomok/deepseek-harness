@@ -32,7 +32,13 @@ describe('page extractor', () => {
   })
 
   it('records the page a `content/shown` event names, under that page id', () => {
-    expect(extractor.read(event('content/shown', { page: 'reports' }))).toEqual({ entryId: 'reports', data: 'reports' })
+    expect(extractor.read(event('content/shown', { page: 'reports', by: 'user' })))
+      .toEqual({ entryId: 'reports', data: { page: 'reports', by: 'user' } })
+  })
+
+  it('defaults a pre-`by` log to \'agent\', the only writer that existed then', () => {
+    expect(extractor.read(event('content/shown', { page: 'reports' })))
+      .toEqual({ entryId: 'reports', data: { page: 'reports', by: 'agent' } })
   })
 
   it('records nothing for a cleared column or an unrelated event', () => {
@@ -40,17 +46,17 @@ describe('page extractor', () => {
     expect(extractor.read(event('turn/end', {}))).toBeUndefined()
   })
 
-  it('resolves a configured page into its current title and view', () => {
-    expect(extractor.resolve('reports')).toEqual({
+  it('resolves a configured page into its current title and view, carrying the writer', () => {
+    expect(extractor.resolve({ page: 'reports', by: 'user' })).toEqual({
       title: 'Weekly reports',
-      payload: { state: 'shown', page: 'reports', url: '/content-app/reports/', title: 'Weekly reports' },
+      payload: { state: 'shown', page: 'reports', url: '/content-app/reports/', title: 'Weekly reports', by: 'user' },
     })
   })
 
   it('keeps a retired page as an entry named by the id the log recorded', () => {
-    expect(extractor.resolve('retired')).toEqual({
+    expect(extractor.resolve({ page: 'retired', by: 'agent' })).toEqual({
       title: 'retired',
-      payload: { state: 'missing', page: 'retired' },
+      payload: { state: 'missing', page: 'retired', by: 'agent' },
     })
   })
 })

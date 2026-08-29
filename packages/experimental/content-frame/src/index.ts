@@ -1,9 +1,11 @@
 /**
  * @deepseek-ai/dsh-experimental-content-frame — the shell's content column as
- * a surface the agent drives. The node half serves a configured directory
- * under a named webserver route, offers the deployment's pages to the model as
- * `content_show`, and projects what each session's column shows; the browser
- * half claims the column and keeps one live frame per session.
+ * a surface the agent AND the user drive. The node half serves a configured
+ * directory under a named webserver route, offers the deployment's pages to
+ * the model as `content_show`, offers the same catalog to the user's sidebar
+ * page-navigation menu through the `show-content-page` command, and projects
+ * what each session's column shows; the browser half claims the column and
+ * keeps one live frame per session.
  *
  * Trust: the route answers on the dsh origin and the iframe carries no
  * `sandbox` attribute, so the document inside it is same-origin with the shell
@@ -22,11 +24,14 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves ctx.contentSurface for the optional extractor child.
 import type {} from '@deepseek-ai/dsh-experimental-content-surface'
+// Type-only: resolves ctx.commands for the optional show-content-page command child.
+import type {} from '@deepseek-ai/dsh-commands'
 import type { ContentPage } from './types.ts'
 import { indexPages } from './pages.ts'
 import { contentProjection } from './projection.ts'
 import { pageExtractor } from './surface.ts'
 import { contentShowTool } from './tool.ts'
+import { showContentPageCommand } from './command.ts'
 import { CONTENT_APP_ROUTE, CONTENT_SETTINGS_ROUTE, type ContentFrameSettings } from './route.ts'
 import { serveContentApp } from './serve.ts'
 
@@ -141,7 +146,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       await serveContentApp(pathname.slice(CONTENT_APP_ROUTE.length), res, root)
     },
   }), 'content-frame: hosted application route')
-  const settings: ContentFrameSettings = { cacheSize }
+  const settings: ContentFrameSettings = { cacheSize, pages: [...pages.values()] }
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: CONTENT_SETTINGS_ROUTE,
@@ -168,5 +173,8 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   ctx.inject(['contentSurface'], (surfaceCtx) => {
     surfaceCtx.contentSurface.register(pageExtractor(pages))
+  })
+  ctx.inject(['commands'], (commandsCtx) => {
+    commandsCtx.commands.register(showContentPageCommand(pages))
   })
 }

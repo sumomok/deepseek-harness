@@ -29,6 +29,7 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
+import CommandRuntime from '@deepseek-ai/dsh-commands'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import * as ContentFrame from '../src/index.ts'
 import type { ContentPage } from '../src/types.ts'
@@ -92,10 +93,12 @@ async function loadComposition(withDefaultPage = true): Promise<Context> {
     "    host: '127.0.0.1'",
     '    port: 0',
     // Every optional seam, so this composition also activates the tool, the
-    // projection, and the content-column children rather than only the route.
+    // command, the projection, and the content-column children rather than
+    // only the route.
     "- name: '@deepseek-ai/dsh-session'",
     "- name: '@deepseek-ai/dsh-system-prompt'",
     "- name: '@deepseek-ai/dsh-tools'",
+    "- name: '@deepseek-ai/dsh-commands'",
     "- name: '@deepseek-ai/dsh-session-projection'",
     "- name: '@deepseek-ai/dsh-experimental-content-surface'",
     '- id: content',
@@ -121,6 +124,7 @@ async function loadComposition(withDefaultPage = true): Promise<Context> {
     ['@deepseek-ai/dsh-session', SessionStore],
     ['@deepseek-ai/dsh-system-prompt', SystemPrompt],
     ['@deepseek-ai/dsh-tools', ToolRuntime],
+    ['@deepseek-ai/dsh-commands', CommandRuntime],
     ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
     ['@deepseek-ai/dsh-experimental-content-surface', ContentSurfaceRegistry],
     ['@deepseek-ai/dsh-experimental-content-frame', ContentFrame],
@@ -148,7 +152,9 @@ async function request(port: number, path: string, init?: RequestInit): Promise<
     type: response.headers.get('content-type'),
     allow: response.headers.get('allow'),
     cacheControl: response.headers.get('cache-control'),
-    body: (await response.text()).slice(0, 80),
+    // Wide enough for the settings document's page catalog, which is now the
+    // longest body this suite reads in full.
+    body: (await response.text()).slice(0, 200),
   }
 }
 
@@ -160,14 +166,26 @@ describe('hosted application route', () => {
       .map(entry => entry.options.name)
     expect(unloaded).toEqual([])
     // The optional seams the row reaches for are all live in this composition,
-    // so the tool, the projection, and the page extractor are part of what booted.
+    // so the tool, the command, the projection, and the page extractor are
+    // part of what booted.
     expect(loaded.tools.schemas().map(schema => schema.name)).toContain('content_show')
+    const commandSession = newSession(loaded)
+    const commandAgent = { id: commandSession.id, session: commandSession } as unknown as Parameters<typeof loaded.commands.execute>[0]
+    expect(loaded.commands.list(commandAgent)).toContainEqual({
+      name: 'show-content-page',
+      description: 'Show one of this deployment\'s content-column pages. Used by the sidebar\'s page-navigation menu; not meant to be typed by hand.',
+      input: { hint: 'page id' },
+    })
+    const execution = await loaded.commands.execute(commandAgent, '/show-content-page home', [], new AbortController().signal)
+    expect(execution?.result).toEqual({ kind: 'success', text: 'Now showing Home in the content column.' })
+    expect(commandSession.events.filter(event => event.type === 'content/shown').map(event => event.data))
+      .toEqual([{ page: 'home', by: 'user' }])
     const session = newSession(loaded)
     expect(loaded.sessionProjections.snapshot(session).values.content)
       .toEqual({ state: 'default', url: '/content-app/', title: 'Home' })
     session.append('content/shown', { page: 'home' })
     expect(loaded.sessionProjections.snapshot(session).values.contentSurface)
-      .toEqual({ entries: [{ kind: 'page', entryId: 'home', seq: session.seq - 1, title: 'Home', payload: { state: 'shown', page: 'home', url: '/content-app/', title: 'Home' } }] })
+      .toEqual({ entries: [{ kind: 'page', entryId: 'home', seq: session.seq - 1, title: 'Home', payload: { state: 'shown', page: 'home', url: '/content-app/', title: 'Home', by: 'agent' } }] })
     const server = loaded.webServer
     const port = server.port
     // The dsh SPA seat, as a live deployment has it: a miss inside the hosted
@@ -231,7 +249,7 @@ describe('hosted application route', () => {
       status: 200,
       type: 'application/json',
       cacheControl: 'no-store',
-      body: '{"cacheSize":4}',
+      body: '{"cacheSize":4,"pages":[{"id":"home","title":"Home","description":"The entry page.","url":"/content-app/"}]}',
     })
     expect(await request(port, '/content-frame/settings', { method: 'POST' }))
       .toMatchObject({ status: 405, allow: 'GET, HEAD' })
@@ -249,7 +267,7 @@ describe('hosted application route', () => {
   it('omits the default page from both faces when the deployment configures none', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition(false)
     expect(await request(loaded.webServer.port, '/content-frame/settings'))
-      .toMatchObject({ status: 200, body: '{"cacheSize":4}' })
+      .toMatchObject({ status: 200, body: '{"cacheSize":4,"pages":[{"id":"home","title":"Home","description":"The entry page.","url":"/content-app/"}]}' })
     expect(loaded.sessionProjections.snapshot(newSession(loaded)).values.content)
       .toEqual({ state: 'empty' })
   })

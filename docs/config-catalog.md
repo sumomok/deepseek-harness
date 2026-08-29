@@ -713,7 +713,7 @@ export interface ContentPage {
 }
 ```
 
-Source: [`packages/experimental/content-frame/src/index.ts:45`](../packages/experimental/content-frame/src/index.ts)
+Source: [`packages/experimental/content-frame/src/index.ts:50`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 
@@ -3417,6 +3417,7 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-experimental-content-column` ([`packages/experimental/content-column/src/index.ts`](../packages/experimental/content-column/src/index.ts))
 - `@deepseek-ai/dsh-experimental-content-surface` ([`packages/experimental/content-surface/src/index.ts`](../packages/experimental/content-surface/src/index.ts))
 - `@deepseek-ai/dsh-experimental-server-layout` ([`packages/experimental/server-layout/src/index.ts`](../packages/experimental/server-layout/src/index.ts))
+- `@deepseek-ai/dsh-experimental-server-sidebar` ([`packages/experimental/server-sidebar/src/index.ts`](../packages/experimental/server-sidebar/src/index.ts))
 - `@deepseek-ai/dsh-experimental-vue-ui-poc` ([`packages/experimental/vue-ui-poc/src/index.ts`](../packages/experimental/vue-ui-poc/src/index.ts))
 - `@deepseek-ai/dsh-experimental-vue2-echarts-poc` ([`packages/experimental/vue2-echarts-poc/src/index.ts`](../packages/experimental/vue2-echarts-poc/src/index.ts))
 - `@deepseek-ai/dsh-fs-e2b` — requires `e2b` ([`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts))

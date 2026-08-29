@@ -1,0 +1,11 @@
+# Swap the shipped sidebar for this one. The two cannot coexist: 'sidebar' is a
+# single slot and its five child slots may be declared only once, so the
+# ui-sidebar row is disabled and this row inserted in its place — the same
+# pattern `server-layout`'s own overlay uses for `ui-layout`.
+- id: ui-sidebar
+  name: '@deepseek-ai/dsh-client-ui-sidebar'
+  disabled: true
+
+- insert:
+    - id: server-sidebar
+      name: '@deepseek-ai/dsh-experimental-server-sidebar'

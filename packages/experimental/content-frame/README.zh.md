@@ -2,9 +2,9 @@
 
 [English](README.md) | 中文
 
-服务形态外壳 content 栏的 `page` 类型，也是 agent 对这一栏的控制权：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，由一个铺满该栏的 iframe 呈现——而栏里放部署方配置的哪一个页面，由 agent 决定。里面的应用由运行 harness 的人自己编写和部署；本包既不构建它，也不关心它用什么框架。
+服务形态外壳 content 栏的 `page` 类型，也是控制这一栏的两条通路：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，由一个铺满该栏的 iframe 呈现——栏里放部署方配置的哪一个页面，既可以由 agent 通过 `content_show` 工具决定，也可以由用户直接在侧边栏的页面导航菜单（`@deepseek-ai/dsh-experimental-server-sidebar`）里点选，后者会执行 `show-content-page` 命令。里面的应用由运行 harness 的人自己编写和部署；本包既不构建它，也不关心它用什么框架。
 
-五块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。
+六块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`show-content-page` 把同一份页面清单交给执行命令的 UI，并在用户选定时追加同一个事件。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。
 
 ## 信任边界
 
@@ -25,7 +25,13 @@
 - **只接受 GET 与 HEAD**；其余为 405，并带 `Allow: GET, HEAD`。
 - **`cache-control: no-cache`**，因为该目录在固定 URL 下就地更新，缓存住的入口文档会持续提供上一次构建的结果。
 
-第二条 exact 路由 `/content-frame/settings` 把 browser 半边必须遵守的那一个配置值 `cacheSize` 提供给它。它之所以存在，是因为 browser 半边根本收不到任何 cordis 配置：boot manifest 携带的是插件名，不是它们的 `config` 块。settings 文档不可达或不可用时，browser 那一行直接失败，而不是让这一栏跑在一个没人选过的上限上。
+第二条 exact 路由 `/content-frame/settings` 把 browser 半边必须遵守的配置值——`cacheSize` 与整份 `pages` 清单——提供给它。它之所以存在，是因为 browser 半边根本收不到任何 cordis 配置：boot manifest 携带的是插件名，不是它们的 `config` 块。settings 文档不可达或不可用时，browser 那一行直接失败，而不是让这一栏跑在一个没人选过的上限上。页面清单也走这同一条路由而不是新开一条——侧边栏的页面导航菜单是这条路由的第二个读取方，它按约定（写死路由路径与 JSON 形状）而非导入本包来匹配这份数据，因为跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式。
+
+## 谁把页面放上台面
+
+`content/shown` 携带一个 `by: 'agent' | 'user'` 字段：`content_show`（模型的工具）写 `'agent'`，`show-content-page`（侧边栏菜单的命令）写 `'user'`。这个字段出现之前写下的日志两者都没有，任何读取方都把这种情况默认成 `'agent'`——那时候工具是唯一的写入者。两个写入者追加的是同一类型下完全相同的事件，因此用户点开的页面与模型选定的页面，在 `content-surface` 的流里占据同一条 entry（按页面 id 去重），在 `content` projection 里也是同一个值；用哪个既有 kind、哪个既有 projection 都不因写入者而变。
+
+`content` projection 刻意丢弃了 `by`——它回答的是「这一栏当前展示什么」，不需要区分写入者——而 `page` extractor 在其存储值与解析后的 payload 里都保留了它，留给以后想要展示这一区别的渲染器；目前的 frame 渲染器还没有这么做（见「已知限制」）。
 
 ## agent 可展示的页面
 
@@ -67,7 +73,7 @@
 
 用 `dsh --profile web --patch <path>` 应用。overlay 从环境变量读取目录，使同一个文件可以服务任意应用；托管固定应用的部署把字面绝对路径写在那里即可。所有包都必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile web add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
 
-工具、projection 与 page extractor 都是可选子节点：没有 `ctx.tools`、`ctx.sessionProjections` 或 `ctx.contentSurface` 的组合仍保留路由，只是这一栏里什么都不显示；任何一项缺席都不会让该行失败。
+工具、命令、projection 与 page extractor 都是可选子节点：没有 `ctx.tools`、`ctx.commands`、`ctx.sessionProjections` 或 `ctx.contentSurface` 的组合仍保留路由，只是这一栏里什么都不显示；任何一项缺席都不会让该行失败。
 
 ## Model Experience
 
@@ -102,6 +108,8 @@
 ## Known Limitations and Deferred Work
 
 - **`content/shown` 是读取时必需的** —— 该事件不带 `ignorable` 标记，因此会话词汇表里没有它的运行时会拒绝整份日志，而不是跳过这条事件。本仓库的任何构建都认识这个类型；单独构建、且排除了本包的运行时则不认识。
+- **on-display 规则不区分写入者** —— [`content-surface`](../content-surface/README.zh.md) 那条与 kind 无关的 prompt 规则告诉模型，要在原地更新「你已经产出并放上台面的东西」。用户通过侧边栏菜单打开的页面，与 agent 选定的页面在「放上台面」这件事上完全一样，因此这条规则的措辞仍然读起来像是 agent 产出的。`by` 字段的存在是为了让以后的 prompt 或渲染器能够区分这一点；规则本身的措辞刻意保持不变（它是一段钉死、经过测量的文本——见其自身的模块文档），不为这一种情况单独打补丁。
+- **`page` extractor 解析出的 `by` 尚未被渲染** —— 浏览器这一栏的 frame 渲染器不论谁展示的都画同一个 iframe。这个字段被一路带到 payload 里，是为了让以后的改动不用再一次提升 `dataVersion` 就能展示它。
 - **一个目录、一个源** —— 路由只提供单个配置目录，且每个页面都必须是 dsh 同源内的路径。没有第二个应用、没有外部 URL，agent 也无法指名部署未配置的页面。
 - **frame 与外壳之间没有通道** —— 没有 `postMessage` 协议、没有共享状态，被托管的页面也无法回报用户在里面做了什么。agent 能把一个页面推到用户眼前，却无法得知之后发生了什么，除非有人告诉它。该页面回到 harness 的唯一通路是它自行调用的 dsh HTTP API。
 - **`content` projection 在树内没有消费者** —— 这一栏改读 entry 流，`content` 只作为「已解析的当前页面」值（`shown`/`default`/`empty`/`missing`）留给其他读取 wire 的一方。它也是 `defaultPage` 唯一还会出现的地方。

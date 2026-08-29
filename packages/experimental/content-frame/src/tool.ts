@@ -91,14 +91,14 @@ export function contentShowTool(pages: PageIndex): ToolDefinition {
       // lives; a caller with no owning session has nowhere to write it.
       if (!exec.agent) throw new Error('content_show requires an owning agent session')
       if (args.page === CLEAR_PAGE) {
-        exec.agent.session.append('content/shown', { page: null })
+        exec.agent.session.append('content/shown', { page: null, by: 'agent' })
         return Promise.resolve({ page: CLEAR_PAGE })
       }
       const page = pages.get(args.page)
       // Nothing is appended for an unknown id: the column keeps showing what
       // it showed, and the model gets the catalogue back to correct itself.
       if (page === undefined) throw new Error(unknownPageMessage(args.page, pages))
-      exec.agent.session.append('content/shown', { page: page.id })
+      exec.agent.session.append('content/shown', { page: page.id, by: 'agent' })
       return Promise.resolve({ page: page.id, title: page.title })
     },
     presentCall: (args): GenericCallView => ({

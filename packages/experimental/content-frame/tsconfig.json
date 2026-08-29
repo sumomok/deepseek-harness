@@ -18,6 +18,9 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../core/agent"
+    },
+    {
       "path": "../../client/locale"
     },
     {
@@ -37,6 +40,9 @@
     },
     {
       "path": "../../host/webserver"
+    },
+    {
+      "path": "../../interaction/commands"
     },
     {
       "path": "../../runtime-diagnostics/invariants"

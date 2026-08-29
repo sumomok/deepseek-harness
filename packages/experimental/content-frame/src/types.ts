@@ -11,14 +11,23 @@
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
-     * Which configured page the agent put in the shell's content column from
-     * this point on, or `null` when it cleared the column. Whole-value
-     * replace: the last event wins and a log with none folds to the cleared
-     * state. The id is recorded as the agent named it, not resolved against
-     * the deployment's page list, so a log written before a page was renamed
-     * still replays as what the agent actually did.
+     * Which configured page is now in the shell's content column, or `null`
+     * when it cleared. Whole-value replace: the last event wins and a log
+     * with none folds to the cleared state. The id is recorded as the writer
+     * named it, not resolved against the deployment's page list, so a log
+     * written before a page was renamed still replays as what was actually
+     * shown.
      */
-    'content/shown': { page: string | null }
+    'content/shown': {
+      page: string | null
+      /**
+       * Who produced this event: the agent's `content_show` tool, or the
+       * user's sidebar page click through the `show-content-page` command.
+       * Absent on a log written before this field existed, which reads as
+       * `'agent'` — the tool was the only writer then.
+       */
+      by?: 'agent' | 'user'
+    }
   }
 }
 

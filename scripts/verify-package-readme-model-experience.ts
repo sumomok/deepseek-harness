@@ -89,6 +89,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-trajectory': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/experimental/auth-gate': { kind: 'none', reason: 'Carries an access token between the browser, the process, and the MCP servers it forwards to; dsh-mcp-client owns every model-facing effect those servers have.' },
   'packages/experimental/server-layout': { kind: 'none', reason: 'Browser-side shell frame and viewing state; registers nothing model-facing.' },
+  'packages/experimental/server-sidebar': { kind: 'none', reason: 'Browser-side sidebar menu and a user-driven favorites document; the command it executes runs outside any model turn and registers no prompt, schema, or tool.' },
   'packages/experimental/vue-ui-poc': { kind: 'none', reason: 'Browser-side framework-hosting probe; registers nothing model-facing.' },
   'packages/experimental/vue2-echarts-poc': { kind: 'none', reason: 'Browser-side chart components hosted in a Vue 2.7 bridge; registers nothing model-facing.' },
   'packages/experimental/content-column': { kind: 'none', reason: 'Browser-side content column and its kind seats; registers nothing model-facing.' },

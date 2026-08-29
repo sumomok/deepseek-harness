@@ -6,8 +6,15 @@
  *
  * The settings document exists because a browser half receives no cordis
  * config: the boot manifest carries plugin names, not their `config` blocks,
- * so a `Config` field the browser must obey has to be served to it.
+ * so a `Config` field the browser must obey has to be served to it. The page
+ * catalog travels the same route for the same reason: a deployment's own
+ * sidebar surface (`@deepseek-ai/dsh-experimental-server-sidebar`) needs the
+ * configured page list to build its page-navigation menu, and this route is
+ * where a browser half already reads this plugin's configuration from — a
+ * second route publishing the same list would let the two drift.
  */
+
+import type { ContentPage } from './types.ts'
 
 /** Prefix route the hosted application is served under; no trailing slash, which is the webserver's route form. */
 export const CONTENT_APP_ROUTE = '/content-app'
@@ -19,4 +26,6 @@ export const CONTENT_SETTINGS_ROUTE = '/content-frame/settings'
 export interface ContentFrameSettings {
   /** How many (session, page) frames the column keeps alive at once; at least 1. */
   cacheSize: number
+  /** The configured pages, in declaration order — the whole catalog a page-navigation menu offers. */
+  pages: ContentPage[]
 }

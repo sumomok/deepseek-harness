@@ -30,6 +30,7 @@
     "tests/vue-ui-poc.e2e.ts",
     "tests/show-chart.e2e.ts",
     "tests/auth-gate.e2e.ts",
+    "tests/server-sidebar.e2e.ts",
     "tests/scaffold-hermetic.e2e.ts",
     "tests/startup-rpc-budget.e2e.ts",
     "tests/minimal-preset.snapshot.ts",
