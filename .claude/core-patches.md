@@ -127,3 +127,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：每次连接生成的粗粒度状态迁移（`ConnectionController` 已做的去重——同状态不重复触发）都通过 `ctx.emit('connection/state', state)` 广播给任何监听者；没有监听者时行为与改动前逐字节一致（`handleDisconnected()` 的调用时机、参数、`remote.$dispatch` 通道均不受影响）。
 - **退役条件**：上游自己发出等价的客户端连接状态事件。
 - **状态**：在役
+
+## fix(ui-conversation): degrade a prose referent's not-found race to the composer's own notice
+- **改了什么**：三层可点引用架构 A3 的补漏——`apply.ts` 的 `buildProseReferents` 新增两个参数 `notifyNotFound`/`notFoundText`；`open` 闭包对 `dispatchReferentOpen` 的 `.catch` 分支新增 `error instanceof PathOpenError && error.rpcError.code === 'not-found'` 判支，命中时调用 `notifyNotFound(sessionId, notFoundText)`，未命中（其余任何失败）维持原样只落 `console.error`。调用点 `referents: buildProseReferents(...)` 把 `notifyNotFound` 绑定为 `(id, text) => inputHub.shell(id).notify('error', text)`——复用 `InputHub`/`SessionInputShell` 已有的会话级 composer 通知通道（`InputBar.tsx` 既有的 `Toast` 渲染，`hub.ts` 的 `queue.steerFailed` 同款用法），`notFoundText` 由调用点解析一次 `t('referent.notFound')`。`locales.ts` 的 `queue.*` 组之后新增 `referent.notFound` 键（中/英各一条）。
+- **为什么**：一次由所有者发起的验证层审查（三层架构的 §C 场景③）指出 `VerificationStore.check()` 把索引命中直接判定为 verified，索引命中的路径可能早已从磁盘删除——插件层（`dsh-plugins` clickable-refs 0.3.3）已改为 stat 唯一验证，但 stat 到点击之间仍存在窗口：一个曾经 stat 确认存在的 span，点击瞬间该文件已被删除。终端卡（`ClickableSpan.tsx`）对这条赛跑早已有降级——`ClickOutcome` 的 `not-found` 分支渲染一条会自动淡出的内联提示、并把该 span 永久降级为死文本——但正文（`buildProseReferents.open`）从未走 `openReferentTarget`/`ClickOutcome`（那是插件自己的终端/web 收口点），它自建的 `onDefault` 直接调用 `ctx.workspaces.openPath`，失败只落 `console.error`，用户侧零反馈，静默失败。`fileMention` 按钮（`ui-primitives` 的 `render.tsx`）是 `scan`/`resolveLink` 输出的纯渲染，没有自己的点击态，装不进终端卡那套内联提示状态机，改为复用会话级 composer 通知通道是现有的、已装配好的最小改动路径。
+- **要达到的效果**：`not-found` 从静默失败变成用户可见的会话级错误提示（同一条 `InputBar` 已有的 `Toast` 通道，与 `queue.steerFailed` 同一机制、同一渲染路径）；除 `not-found` 外的任何其他打开失败维持改动前行为，只落 `console.error`，没有新增 UI（新增单测覆盖两条分支：`not-found` 触发 `notices` 快照变为 `{level:'error', text: '该文件已不存在，可能已被移动或删除。'}`，任意其他 `Error` 只触发 `console.error` 且 `notices` 保持 `null`）；`apply-inject.client.spec.tsx` 既有 20 条用例逐字节不受影响。
+- **退役条件**：同一条 `proseReferents` 缝隙退役时一并退役；若上游自己的 `fileMention` 渲染获得独立的每-span 点击态（能装下与终端卡同款的内联降级），这条补丁可以退役换成那套更贴近终端卡的展示。
+- **状态**：在役
