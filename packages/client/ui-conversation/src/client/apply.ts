@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import {
-  dispatchReferentOpen, resolveWorkspacePath, type ISessions, type ReferentRef, type SessionId,
+  dispatchReferentOpen, PathOpenError, resolveWorkspacePath, type ISessions, type ReferentRef, type SessionId,
 } from '@deepseek-ai/dsh-client-runtime/client'
 import type { MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
@@ -122,10 +122,18 @@ function selectApproval({ interactions }: ComposerChainProps): ApprovalWait | nu
  * @param sessions - resolved once by the caller, mirroring the other apply-time service reads below.
  * @param connection - resolved once by the caller; its `hostDescription` names the Host account home.
  * @param sessionId - the session this scanner/opener is bound to.
+ * @param notifyNotFound - surface the session's own composer notice for a
+ * `not-found` open failure (bound by the caller to `inputHub.shell(id).notify('error', …)`);
+ * kept as a plain callback rather than threading `InputHub` itself through,
+ * so this function stays testable with a bare stub.
+ * @param notFoundText - localized notice text for that case, resolved once
+ * by the caller (the same lazy-bind-then-call-per-render pattern the rest of
+ * this module's `t(...)` call sites use).
  * @returns the scanner/opener MarkdownText consumes, or undefined.
  */
 function buildProseReferents(
   ctx: Context, sessions: ISessions, connection: ConnectionHandle, sessionId: SessionId,
+  notifyNotFound: (sessionId: SessionId, text: string) => void, notFoundText: string,
 ): MarkdownProseReferents | undefined {
   const provider = ctx.get('proseReferents')
   if (provider === undefined) return undefined
@@ -174,10 +182,21 @@ function buildProseReferents(
         }
         return ctx.workspaces.openPath(referentSpan.target)
       }
-      // No dedicated failure UI for a prose click yet (unlike openFile's
-      // dialog below): a genuine open failure lands in the console rather
-      // than being silently dropped.
+      // `not-found` gets the same downgrade the terminal card already has
+      // (`referent-click.ts`'s `ClickOutcome`, `ClickableSpan`'s inline
+      // notice) for the identical race: a span the verification layer
+      // confirmed can still name a path deleted between that `stat` and
+      // this click. Prose spans have no per-span notice slot of their own —
+      // a `fileMention` button is a pure render of `scan`/`resolveLink`'s
+      // output (`ui-primitives`'s `render.tsx`), not a stateful component —
+      // so this reuses the session's own composer notice channel
+      // (`InputHub`) instead. Any other failure still only reaches the
+      // console: no dedicated UI for those yet.
       void dispatchReferentOpen(ctx, ref, onDefault).catch((error: unknown) => {
+        if (error instanceof PathOpenError && error.rpcError.code === 'not-found') {
+          notifyNotFound(sessionId, notFoundText)
+          return
+        }
         console.error('ui-conversation: chat-prose referent open failed', error)
       })
     },
@@ -488,7 +507,11 @@ export function apply(ctx: Context): void {
           layout.openDetails()
         },
         fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
-        referents: buildProseReferents(ctx, sessions, connection, sessionId),
+        referents: buildProseReferents(
+          ctx, sessions, connection, sessionId,
+          (id, text) => { inputHub.shell(id).notify('error', text) },
+          t('referent.notFound'),
+        ),
         // referent/open first: wraps the pre-existing openPath action as the
         // waterfall's terminus, so every consumer this one closure already
         // reaches (tool rows, produced-file chips, mentions, and the file
