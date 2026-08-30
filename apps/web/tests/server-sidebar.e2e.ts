@@ -1,13 +1,21 @@
 /**
- * Web e2e scenario: the retrofit sidebar menu (`@deepseek-ai/dsh-experimental-server-sidebar`) —
- * page routes drawn from content-frame's configured pages, and per-account
- * favorite sessions, both compliant click-through paths this package adds
- * over the shipped sidebar.
+ * Web e2e scenario: the product-console sidebar
+ * (`@deepseek-ai/dsh-experimental-server-sidebar`) — the fixed three-section
+ * shell (workbench / navigation / my workflows), decision ③'s conditional
+ * "Save as workflow" header action, decision ⑧'s degrade-to-a-fresh-
+ * conversation path, and decision ②'s de-terminology layer (both the
+ * official disable rows and the one CSS-injection fallback).
  *
- * Zero model calls: every session this scenario uses is created live through
- * the UI with no message sent, so the composition needs no replay fixture —
- * the same shape `rail-search-expand.e2e.ts` uses for a pure client-layout
- * scenario.
+ * Mostly zero model calls, the same shape `rail-search-expand.e2e.ts` uses
+ * for a pure client-layout scenario: every session this scenario opens is
+ * created live through the UI with no message ever typed into the composer.
+ * The one exception is the "Save as workflow" and de-terminology scenario,
+ * which needs a real user-authored message on the log to satisfy decision
+ * ③'s visibility gate and a real closed step to satisfy the turns/steps row's
+ * render condition — both seeded directly onto the live agent's session
+ * (`agent.session.append(..., { surfaceOp: 'append' })`, the same technique
+ * `seeded-history.e2e.ts` uses to inject a durable message without a model
+ * call) rather than driven through the composer.
  *
  * An experimental package cannot be a dependency of `apps/web`, so the
  * profile links the loader resolves the rows through are created here rather
@@ -22,10 +30,13 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-workspace'
-import { launchWebScaffold, watchConsole, type WebScaffold } from './scaffold.ts'
+import {
+  acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, type WebScaffold,
+} from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const OVERLAY = fileURLToPath(new URL('./server-sidebar.overlay.yml', import.meta.url))
@@ -40,16 +51,34 @@ const ROWS = [
 ] as const
 /** The hosted application this scenario serves; the overlay reads it from the environment. */
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
-/** A favorite naming a session nobody ever created — seeded before the browser ever reads it. */
+/** A workflow naming a session nobody ever created — seeded before the browser ever reads it (decision ⑧). */
 const GHOST_SESSION_ID = 'server-sidebar-e2e-ghost-session'
+const GHOST_WORKFLOW_ID = 'ghost-workflow'
 /** This package's own settings namespace; a bare string literal, not an import (see the module doc above). */
 const SERVER_SIDEBAR_NAMESPACE = settingsNamespace('server-sidebar')
 
-// Every session this scenario opens is fresh (created live, no message ever
-// sent), so its composer still carries the hero placeholder
-// (`placeholder.hero` in dsh-client-ui-conversation) rather than the
-// established-session default `Message the agent`.
-const COMPOSER_PLACEHOLDER = 'Describe what you want to build'
+// A fresh session's composer still carries the hero placeholder
+// (`placeholder.hero` in dsh-client-ui-conversation) until a message lands
+// on it, then falls back to the established-session default.
+const HERO_PLACEHOLDER = 'Describe what you want to build'
+const ESTABLISHED_PLACEHOLDER = 'Message the agent'
+
+/**
+ * This deployment's local shape for the server-menu settings document —
+ * apps/web cannot import the experimental package (see the module doc above).
+ */
+interface LocalWorkflow {
+  id: string
+  name: string
+  order: number
+  homeSessionId: string
+  navSnapshot: string[]
+  savedAt: number
+}
+interface LocalServerMenu {
+  workflows: LocalWorkflow[]
+  workbenchSessionId?: string
+}
 
 /**
  * Prepare a harness home whose profile fallback resolves every experimental row.
@@ -65,7 +94,10 @@ async function harnessHomeWithRowLinks(): Promise<string> {
   return home
 }
 
-const menu = (page: Page): Locator => page.locator('[data-server-sidebar-menu]')
+const sidebar = (page: Page): Locator => page.locator('[data-server-sidebar]')
+const workbenchButton = (page: Page): Locator => sidebar(page).locator('[data-server-sidebar-section="workbench"]')
+const navSection = (page: Page): Locator => sidebar(page).locator('[data-server-sidebar-section="nav"]')
+const workflowsSection = (page: Page): Locator => sidebar(page).locator('[data-server-sidebar-section="workflows"]')
 const activeFrame = (page: Page): Locator => page.locator('iframe[data-content-frame][data-content-active]')
 
 /**
@@ -102,13 +134,54 @@ function anySessionShowed(scaffold: WebScaffold, page: string, by: 'agent' | 'us
   }))
 }
 
-describe('web e2e: the retrofit sidebar menu', () => {
+/** Read the server-menu settings document straight from the host, bypassing the HTTP route entirely. */
+function readServerMenu(scaffold: WebScaffold): LocalServerMenu {
+  return scaffold.ctx.settings.get(SERVER_SIDEBAR_NAMESPACE) as LocalServerMenu
+}
+
+/**
+ * Seed a full, closed turn (`turn/start` → `user/message` → `step/start` →
+ * `assistant/message` → `step/end` → `turn/end`) directly onto a live
+ * session's log, with no model call. `user/message` satisfies decision ③'s
+ * visibility gate; the closed step satisfies the turns/steps row's own
+ * `stats.steps > 0` render condition, which a bare `user/message` alone
+ * would not (`StatsLine.tsx` renders nothing at zero steps) — needed here so
+ * the de-terminology assertion proves the CSS guard actually hides a row
+ * that would otherwise render, not merely that nothing rendered anyway.
+ * @param scaffold - the live scaffold.
+ * @param sessionId - the session to seed onto; must have a live agent.
+ */
+function seedClosedTurn(scaffold: WebScaffold, sessionId: string): void {
+  const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+  if (agent === undefined) throw new Error(`server-sidebar e2e: no live agent for ${sessionId}`)
+  agent.session.append('turn/start', { turn: 1 })
+  agent.session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Build the weekly report page.' }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  agent.session.append('step/start', { turn: 1, step: 1 })
+  agent.session.append('assistant/message', {
+    turn: 1,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: 'Done.' }],
+      source: { kind: 'model', provider: 'fixture', model: 'fixture' },
+    }),
+  }, { surfaceOp: 'append' })
+  agent.session.append('step/end', { turn: 1, step: 1 })
+  agent.session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+}
+
+describe('web e2e: the product-console sidebar', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
   let harnessHome: string
   let tripwire: ReturnType<typeof watchConsole>
   const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
+  /** The workbench's persistent session id, captured once test 2 creates it. */
+  let workbenchSessionId: string
 
   beforeAll(async () => {
     harnessHome = await harnessHomeWithRowLinks()
@@ -116,33 +189,36 @@ describe('web e2e: the retrofit sidebar menu', () => {
     // where the scaffold runs the Loader.
     process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
     scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY })
-    // Seed one stale favorite before the browser ever fetches the route: this
-    // package's own settings namespace, already registered by the
-    // server-sidebar row this composition just loaded.
+    // Seed one ghost workflow before the browser ever loads: this package's
+    // own settings namespace, already registered by the server-sidebar row
+    // this composition just loaded. Its `homeSessionId` names a session that
+    // never existed — decision ⑧'s degrade path, exercised below.
     await scaffold.ctx.settings.replace(SERVER_SIDEBAR_NAMESPACE, {
-      favorites: [{ sessionId: GHOST_SESSION_ID, label: 'Ghost', order: 0 }],
+      workflows: [{
+        id: GHOST_WORKFLOW_ID,
+        name: 'Ghost Workflow',
+        order: 0,
+        homeSessionId: GHOST_SESSION_ID,
+        navSnapshot: ['reports'],
+        savedAt: Date.now(),
+      }],
     })
+    // Registered before the browser ever connects, so the client's initial
+    // boot payload already carries it — no live-push race to synchronize
+    // against, and no interference with `dsh-client-runtime`'s own one-shot
+    // `startInitialSelection`: that mechanism and this scenario's own
+    // explicit workbench click both resolve through the same
+    // `WorkspaceRuntime.connectWorkspace` coalescing, so whichever gets
+    // there first, the session left open is the same one either way.
+    const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-workspace')
+    await mkdir(workspaceDir, { recursive: true })
+    await scaffold.ctx.workspaceRegistry.create(workspaceDir)
 
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
-    await menu(page).waitFor({ timeout: 30_000 })
-    // Confirm the client's one-shot startup reconcile already evaluated (and
-    // found no Workspace) before registering one: `startInitialSelection`
-    // (`dsh-client-runtime`) evaluates the Workspace list exactly once per
-    // page load and never retries, so registering after it already found
-    // none — rather than before — keeps it inert and leaves the Workspace
-    // for `openContentPage`'s own auto-create to pick up instead.
-    await page.getByText('No sessions yet').waitFor({ timeout: 15_000 })
-    const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-workspace')
-    await mkdir(workspaceDir, { recursive: true })
-    await scaffold.ctx.workspaceRegistry.create(workspaceDir)
-    // The registration reaches the browser through a live
-    // `host/workspace-changed` push over the already-open connection, not a
-    // refetch; wait for it to land (the Workspace's own row, which renders
-    // even with zero sessions) before any test reads `recentWorkspaceId`.
-    await page.getByRole('treeitem', { name: 'server-sidebar-workspace' }).waitFor({ timeout: 15_000 })
+    await sidebar(page).waitFor({ timeout: 30_000 })
   }, 180_000)
 
   afterAll(async () => {
@@ -153,109 +229,140 @@ describe('web e2e: the retrofit sidebar menu', () => {
     else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
   })
 
-  it('lists every configured page, and renders a favorite naming a deleted session as a gray, removable row', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-menu'))
-    await expect(menu(page).getByRole('button', { name: 'Home' }).isVisible()).resolves.toBe(true)
-    await expect(menu(page).getByRole('button', { name: 'Weekly reports' }).isVisible()).resolves.toBe(true)
+  it('renders the fixed three-section shell, with no banned session/workspace vocabulary anywhere on the page', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-structure'))
+    await expect(workbenchButton(page).getByText('Workbench').isVisible()).resolves.toBe(true)
+    await expect(navSection(page).getByText('Navigation').isVisible()).resolves.toBe(true)
+    await expect(navSection(page).getByRole('button', { name: 'Home' }).isVisible()).resolves.toBe(true)
+    await expect(navSection(page).getByRole('button', { name: 'Weekly reports' }).isVisible()).resolves.toBe(true)
+    await expect(workflowsSection(page).getByText('My Workflows').isVisible()).resolves.toBe(true)
+    await expect(workflowsSection(page).getByRole('button', { name: /Ghost Workflow/ }).isVisible()).resolves.toBe(true)
+    // No fold/collapse rail control survives decision ①.
+    expect(await page.getByRole('button', { name: /collapse|Open the pages/i }).count()).toBe(0)
 
-    const staleRow = menu(page).getByRole('button', { name: /Ghost/ })
-    await expect(staleRow.isVisible()).resolves.toBe(true)
-    await expect(staleRow.isDisabled()).resolves.toBe(true)
-    await expect(menu(page).getByText('Session deleted').isVisible()).resolves.toBe(true)
-    // The row's actions reveal on hover (MenuSection.module.css); removable,
-    // not silently dropped, means the trash action is present once revealed.
-    await staleRow.hover()
-    await expect(menu(page).getByRole('button', { name: 'Remove favorite' }).isVisible()).resolves.toBe(true)
+    // Scoped to this package's own chrome: decision ②'s banned-word list is
+    // this package's obligation for its own copy, not a system-wide audit of
+    // every shipped package's strings (content-column's empty-state copy and
+    // the hero's workspace-picker copy are pre-existing, out-of-scope text —
+    // see the package README's Known Limitations).
+    const sidebarText = await sidebar(page).innerText()
+    for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /会话/, /新会话/]) {
+      expect(sidebarText, `banned text matched ${banned}`).not.toMatch(banned)
+    }
   }, 60_000)
 
-  it('auto-creates a session and shows the page when none is open, recording the click as the user\'s own', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-autocreate'))
-    expect(await activeFrame(page).count()).toBe(0)
-    await menu(page).getByRole('button', { name: 'Home' }).click()
+  it(
+    'creates and opens the persistent workbench conversation on click, then auto-reopens the same one on the next page load with no click',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-workbench'))
+      // The mount-time auto-open effect (decision ①'s "no current session"
+      // path) may already have raced ahead of this test during the previous
+      // test's own assertions — either way, clicking the persistent entry is
+      // itself a supported path (not only the auto-open), and
+      // `resolveOrCreateSession`'s workspace-connect coalescing (see
+      // session-resolution.ts) guarantees a click never mints a second
+      // session alongside one auto-open already created.
+      await workbenchButton(page).click()
+      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
 
-    await expectShown(page, '/content-app/')
-    await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
-    // The command seam recorded the click, distinct from the tool's own writes.
-    await expect.poll(() => anySessionShowed(scaffold, 'home', 'user'), { timeout: 15_000 }).toBe(true)
-  }, 90_000)
+      await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBeUndefined()
+      workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
+      expect(scaffold.ctx.agents.get(SessionId(workbenchSessionId))).toBeDefined()
+      expect(scaffold.ctx.agents.list()).toHaveLength(1)
 
-  it('switches pages within the same session through the command seam', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-switch-page'))
-    await menu(page).getByRole('button', { name: 'Weekly reports' }).click()
-    await expectShown(page, '/content-app/reports/')
-    await expect.poll(() => anySessionShowed(scaffold, 'reports', 'user'), { timeout: 15_000 }).toBe(true)
-  }, 60_000)
+      // Decision ①'s auto-open-on-load: reload with no click and land back on
+      // the same persistent conversation, with no second one minted.
+      const warningStart = tripwire.warnings.length
+      await page.reload({ waitUntil: 'load' })
+      acknowledgeReloadConnectionLoss(tripwire, warningStart)
+      await sidebar(page).waitFor({ timeout: 15_000 })
+      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      expect(readServerMenu(scaffold).workbenchSessionId).toBe(workbenchSessionId)
+      expect(scaffold.ctx.agents.list()).toHaveLength(1)
+    },
+    90_000,
+  )
 
-  it('favorites the current session and renames it in place', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-favorite'))
-    await menu(page).getByRole('button', { name: 'Favorite current session' }).click()
-    const nameField = menu(page).getByPlaceholder('Favorite name')
-    await nameField.waitFor({ timeout: 10_000 })
-    await nameField.fill('My Reports')
-    await nameField.press('Enter')
-    // The commit is fire-and-forget from the click handler (MenuSection.tsx):
-    // the edit box closes immediately, but the row itself only appears once
-    // the settings-route round trip lands.
-    await expect.poll(async () => await menu(page).getByRole('button', { name: 'My Reports' }).isVisible(), {
-      timeout: 10_000,
-    }).toBe(true)
+  it(
+    'shows "Save as workflow" only once the conversation has a user message, and hides the turns/steps row behind the terminology guard',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-save-workflow'))
+      await navSection(page).getByRole('button', { name: 'Home' }).click()
+      await expectShown(page, '/content-app/')
+      await expect.poll(() => anySessionShowed(scaffold, 'home', 'user'), { timeout: 15_000 }).toBe(true)
 
-    // The row's actions reveal on hover (MenuSection.module.css) — see the
-    // stale-favorite test's identical note.
-    await menu(page).getByRole('button', { name: 'My Reports' }).hover()
-    await menu(page).getByRole('button', { name: 'Rename' }).click()
-    const renameField = menu(page).getByPlaceholder('Favorite name')
-    await renameField.fill('Reports Session')
-    await renameField.press('Enter')
-    await expect.poll(async () => await menu(page).getByRole('button', { name: 'Reports Session' }).isVisible(), {
-      timeout: 10_000,
-    }).toBe(true)
-  }, 60_000)
+      expect(await page.getByRole('button', { name: 'Save as workflow' }).count()).toBe(0)
 
-  it('switches to the favorited session from a different one', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-switch-session'))
-    // The New Session button reuses the recent Workspace's own blank session
-    // (`WorkspaceRuntime.connectWorkspace` coalescing) rather than minting a
-    // second one, and this suite's only session is still blank (no message
-    // was ever sent) — so a genuinely distinct "different session" needs its
-    // own Workspace. A second Workspace's own "New session in <name>" row
-    // action targets it explicitly (`startSession(workspaceId)`), which has
-    // nothing to reuse and so mints a real second session.
+      seedClosedTurn(scaffold, workbenchSessionId)
+      await page.getByRole('button', { name: 'Save as workflow' }).waitFor({ timeout: 15_000 })
+
+      // De-terminology: the turns/steps row would show "1 turns · 1 steps"
+      // (StatsLine.tsx) now that a closed step is on the log — pin the CSS
+      // guard by confirming the row is present in the DOM but not visible,
+      // not merely absent for an unrelated reason.
+      const statsRow = page.getByText('1 turns · 1 steps')
+      expect(await statsRow.count()).toBeGreaterThan(0)
+      await expect(statsRow.first().isVisible()).resolves.toBe(false)
+
+      await page.getByRole('button', { name: 'Save as workflow' }).click()
+      const nameField = page.getByPlaceholder('Workflow name')
+      await nameField.waitFor({ timeout: 10_000 })
+      await nameField.fill('My Workflow')
+      await nameField.press('Enter')
+
+      await expect.poll(async () => await workflowsSection(page).getByRole('button', { name: /My Workflow/ }).isVisible(), {
+        timeout: 10_000,
+      }).toBe(true)
+
+      await expect.poll(() => readServerMenu(scaffold).workflows.find(w => w.name === 'My Workflow'), {
+        timeout: 10_000,
+      }).toMatchObject({ homeSessionId: workbenchSessionId, navSnapshot: ['home'] })
+    },
+    90_000,
+  )
+
+  it('degrades a workflow whose bound conversation is gone, replaying its navigation snapshot into a fresh one', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-degrade'))
+    // The degrade path creates its replacement session against the recent
+    // Workspace, same as the workbench's own first-use path — a second
+    // Workspace gives it somewhere to create a session distinct from the
+    // workbench's own, so the later "switch back" assertion is a genuine
+    // session switch and not a same-session no-op.
     const secondCwd = join(scaffold.workspaceCwd, 'second-workspace')
     await mkdir(secondCwd, { recursive: true })
     await scaffold.ctx.workspaceRegistry.create(secondCwd)
 
-    const secondGroup = page.getByRole('treeitem', { name: 'second-workspace' })
-    await secondGroup.waitFor({ timeout: 15_000 })
-    await secondGroup.click()
-    await page.getByRole('button', { name: 'New session in second-workspace' }).click()
-    await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
-    await expect.poll(async () => await activeFrame(page).count(), { timeout: 10_000 }).toBe(0)
+    await expect.poll(async () => {
+      await workflowsSection(page).getByRole('button', { name: /Ghost Workflow/ }).click()
+      return await activeFrame(page).count() > 0
+    }, { timeout: 20_000 }).toBe(true)
 
-    await menu(page).getByRole('button', { name: 'Reports Session' }).click()
     await expectShown(page, '/content-app/reports/')
+    await expect.poll(() => anySessionShowed(scaffold, 'reports', 'user'), { timeout: 15_000 }).toBe(true)
+
+    await expect.poll(
+      () => readServerMenu(scaffold).workflows.find(w => w.id === GHOST_WORKFLOW_ID)?.homeSessionId,
+      { timeout: 15_000 },
+    ).not.toBe(GHOST_SESSION_ID)
+    const degraded = readServerMenu(scaffold).workflows.find(w => w.id === GHOST_WORKFLOW_ID)!.homeSessionId
+    expect(degraded).not.toBe(workbenchSessionId)
+    expect(scaffold.ctx.agents.get(SessionId(degraded))).toBeDefined()
   }, 90_000)
 
-  it('collapses the menu to a rail icon with a dismissible flyout', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-collapsed'))
-    await page.getByRole('button', { name: 'Collapse sidebar' }).click()
-    const trigger = page.getByRole('button', { name: 'Open the pages and favorites menu' })
-    await expect.poll(async () => await trigger.isVisible(), { timeout: 10_000 }).toBe(true)
-    await expect.poll(async () => await menu(page).getByRole('button', { name: 'Home' }).isVisible(), { timeout: 10_000 })
-      .toBe(false)
-
-    await trigger.click()
-    await expect(menu(page).getByRole('button', { name: 'Home' }).isVisible()).resolves.toBe(true)
-
-    // Dismisses on an outside click, same as any other floating panel here.
-    await page.mouse.click(10, 10)
-    await expect.poll(async () => await menu(page).getByRole('button', { name: 'Home' }).isVisible(), { timeout: 10_000 })
-      .toBe(false)
-
-    await page.getByRole('button', { name: 'Open sidebar' }).click()
-    await expect.poll(async () => await menu(page).getByRole('button', { name: 'Home' }).isVisible(), { timeout: 10_000 })
-      .toBe(true)
+  it('switches back to "My Workflow" and returns to its own bound conversation', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-switch-back'))
+    await workflowsSection(page).getByRole('button', { name: /My Workflow/ }).click()
+    await expectShown(page, '/content-app/')
   }, 60_000)
+
+  it('leaves the Chat/Trajectory tab switcher and the model selector out of the customer-form composition', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-de-terminology'))
+    expect(await page.getByRole('tab').count()).toBe(0)
+    expect(await page.getByRole('button', { name: /^Select model, current/ }).count()).toBe(0)
+    // The composer itself must not be stuck blocked now that no plugin
+    // registers `useComposerBlock` (ui-model-selection is disabled).
+    await expect(page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).isEnabled()).resolves.toBe(true)
+  }, 30_000)
 
   it('leaves the console clean', () => {
     expect(tripwire.pageErrors).toEqual([])

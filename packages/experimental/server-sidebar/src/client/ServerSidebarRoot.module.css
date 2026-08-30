@@ -1,13 +1,9 @@
-/* Sidebar column geometry: a verbatim port of `dsh-client-ui-sidebar`'s own
-   SidebarRoot.module.css (figma 133:7629), unchanged except that the menu
-   region this package inserts (`MenuSection.module.css`, its own CSS Module)
-   sits between `.newSession` and `.regionArea` — `.regionArea`'s `flex: 1`
-   still claims the remaining height since the menu region is `flex: none`.
-   Collapse is a slide + crossfade, not a morph: the content holds its frozen
-   expanded layout (inline width set by the component) and fades in place
-   (.fading) while the sliding column (AppFrame grid tracks) clips it; the
-   rail layout (.collapsed) only applies after the fade settles, so nothing
-   reflows mid-slide. */
+/* Sidebar column geometry: a fixed-width resident column (decision ① — no
+   collapse rail, no fold interaction). Pointer-driven scrollbar quieting is
+   carried over unchanged from the original shell (`dsh-client-ui-sidebar`'s
+   own SidebarRoot.module.css, figma 133:7629) — see ServerSidebarRoot.tsx's
+   module doc for the residual width-geometry coupling this leaves with the
+   surrounding shell. */
 
 .root {
   --dsh-sidebar-inline-padding: 12px;
@@ -23,88 +19,21 @@
   --dsh-scrollbar-thumb-hover: var(--dsw-alias-scrollbar-hover-l2);
 }
 
-.root.collapsed {
-  padding: 18px 10px 6px;
-}
-
 .root.quietBars {
   --dsh-scrollbar-thumb: transparent;
   --dsh-scrollbar-thumb-hover: transparent;
 }
 
-.fading > * {
-  opacity: 0;
-  transition: opacity 150ms var(--ds-ease-in-out);
-}
-
-.wide {
-  animation: wide-in 200ms var(--ds-ease-in-out);
-}
-
-@keyframes wide-in {
-  from { opacity: 0; }
-}
-
-.railIn .iconButton,
-.railIn .newSession,
-.railIn .regionArea {
-  animation: rail-in 150ms var(--ds-ease-in-out) backwards;
-}
-
-.railIn .footArea {
-  animation: rail-fade-in 150ms var(--ds-ease-in-out) backwards;
-}
-
-@keyframes rail-in {
-  from {
-    opacity: 0;
-    transform: translateX(49px);
-  }
-}
-
-@keyframes rail-fade-in {
-  from { opacity: 0; }
-}
-
-.logoRow {
+.brandRow {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 8px;
   height: 60px;
-  padding: 8px 0 8px 4px;
+  padding: 8px 4px;
   margin-bottom: 8px;
   box-sizing: border-box;
   overflow: hidden;
-}
-
-.collapsed .logoRow {
-  height: 36px;
-  padding: 0;
-  margin-bottom: 12px;
-  justify-content: flex-start;
-}
-
-.brand {
-  flex: 1;
-  min-width: 0;
-  display: inline-flex;
-  align-items: center;
-  overflow: hidden;
-  padding: 0;
-  border: none;
-  background: transparent;
-  color: inherit;
-  cursor: pointer;
-}
-
-.brandIdentity {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  height: 24px;
-  min-width: 0;
 }
 
 .brandMark {
@@ -132,52 +61,6 @@
   white-space: nowrap;
 }
 
-.iconButton {
-  flex: none;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 28px;
-  height: 28px;
-  border: none;
-  border-radius: 50%;
-  padding: 0;
-  background: transparent;
-  cursor: pointer;
-  color: var(--dsw-alias-label-secondary);
-}
-
-.iconButton:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.collapsed .iconButton {
-  width: 36px;
-  height: 36px;
-}
-
-.collapsed .toggle .panelIcon {
-  display: none;
-}
-
-.collapsed .toggle:hover .panelIcon {
-  display: inline;
-}
-
-.collapsed .toggle:hover .railMark {
-  display: none;
-}
-
-.railMark {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.collapsed .iconButton {
-  color: var(--dsw-alias-label-primary);
-}
-
 .buildRevision {
   display: inline-flex;
   align-items: center;
@@ -192,15 +75,13 @@
   line-height: 16px;
 }
 
-.newSession {
+.workbench {
   flex: none;
   display: flex;
   align-items: center;
-  justify-content: center;
-  gap: 6px;
   height: 38px;
-  padding: 8px 16px;
-  margin: 0 2px 8px;
+  padding: 8px 12px;
+  margin: 0 2px 12px;
   box-sizing: border-box;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
@@ -210,36 +91,11 @@
   font-weight: 500;
   line-height: 22px;
   cursor: pointer;
-  overflow: hidden;
+  text-align: left;
 }
 
-.newSession:hover {
+.workbench:hover {
   background: var(--dsw-alias-button-floating-hover);
-}
-
-.collapsed .newSession {
-  align-self: flex-start;
-  width: 36px;
-  height: 36px;
-  padding: 0;
-  margin: 0 0 12px;
-  gap: 0;
-  border-color: transparent;
-  background: transparent;
-}
-
-.collapsed .newSession:hover {
-  background: var(--dsw-alias-interactive-bg-hover);
-}
-
-.newSessionLabel {
-  max-width: 200px;
-  overflow: hidden;
-  white-space: nowrap;
-}
-
-.collapsed .newSessionLabel {
-  max-width: 0;
 }
 
 .regionArea {
@@ -247,22 +103,45 @@
   min-height: 0;
   display: flex;
   flex-direction: column;
+  gap: 4px;
   margin-left: -4px;
   margin-right: calc(-1 * var(--dsh-sidebar-inline-padding));
   padding-left: 4px;
-  overflow: hidden;
-}
-
-.collapsed .regionArea {
-  margin-left: 0;
-  margin-right: 0;
-  padding-left: 0;
+  overflow-y: auto;
 }
 
 .footArea {
   flex: none;
   display: flex;
   flex-direction: column;
+  gap: 4px;
+  padding-top: 8px;
+}
+
+.avatarRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px;
+}
+
+.avatarCircle {
+  flex: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--dsw-alias-button-elevated-fill);
+  border: 1px solid var(--dsw-alias-border-l2);
+}
+
+.avatarName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+  color: var(--dsw-alias-label-secondary);
 }
 
 .settingsArea,
@@ -274,27 +153,4 @@
 
 .footerActions {
   display: flex;
-}
-
-.collapsed .footArea {
-  align-items: center;
-}
-
-.collapsed .settingsArea,
-.collapsed .footerActions {
-  display: flex;
-  justify-content: center;
-  width: auto;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .wide,
-  .fading > *,
-  .railIn .iconButton,
-  .railIn .newSession,
-  .railIn .footArea,
-  .railIn .regionArea {
-    transition: none;
-    animation: none;
-  }
 }

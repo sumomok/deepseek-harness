@@ -1,7 +1,10 @@
-# The retrofit menu's full stack: the content column with two pages (the
-# same four rows content-show.overlay.yml composes, with the same two-page
-# deployment, so the menu has more than one page route to list), plus the
-# sidebar replacement that adds the page-routes and favorites menu.
+# The product-console sidebar's full stack: the content column with two pages
+# (the same four rows content-show.overlay.yml composes, with the same
+# two-page deployment, so the navigation group has more than one page route to
+# list), the sidebar replacement itself, and decision ②'s de-terminology
+# disable rows — every shipped row this composition hides so that
+# session/workspace vocabulary and the Trajectory/session-log/model-selector
+# controls never reach a customer-form page.
 - id: ui-layout
   name: '@deepseek-ai/dsh-client-ui-layout'
   disabled: true
@@ -34,3 +37,30 @@
 - insert:
     - id: server-sidebar
       name: '@deepseek-ai/dsh-experimental-server-sidebar'
+
+# Decision ①/②: the new sidebar drops the `sidebar.workspaces` hole outright
+# (see ServerSidebarRoot.tsx's module doc), so `ui-workspace` — the only
+# registrant of that hole — must be disabled too: composing it unchanged would
+# throw ("slot is not declared") the moment its `apply()` ran. Disabling it
+# also removes the last surviving workspace-vocabulary UI (the directory tree,
+# "New session in <name>") from this composition.
+- id: ui-workspace
+  name: '@deepseek-ai/dsh-client-ui-workspace'
+  disabled: true
+
+# Decision ②'s remaining de-terminology rows: Trajectory tab, the Session log
+# download button, and the model selector (whose own "unselected model"
+# composer block never arms once it is gone — `ConversationRoot.tsx`'s
+# `useComposerBlock` simply stays `undefined` with no registrant).
+- id: ui-cordis
+  name: '@deepseek-ai/dsh-client-ui-cordis'
+  disabled: true
+- id: ui-trajectory
+  name: '@deepseek-ai/dsh-client-ui-trajectory'
+  disabled: true
+- id: ui-model-selection
+  name: '@deepseek-ai/dsh-client-ui-model-selection'
+  disabled: true
+- id: session-log-download
+  name: '@deepseek-ai/dsh-session-log-export'
+  disabled: true

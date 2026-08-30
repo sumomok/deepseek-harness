@@ -4,11 +4,21 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import { SERVER_SIDEBAR_NAMESPACE } from './favorites.ts'
-import type { ServerMenuSettings } from './favorites.ts'
+import type { ServerMenuSettings } from './workflows.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-server-sidebar'
+/**
+ * This package's settings namespace, recomputed rather than imported from
+ * `workflows.ts` (`settingsNamespace` is a pure value transform, so the two
+ * calls produce an equal, comparable string either way): sharing the runtime
+ * value across this module and `index.ts` would give tsdown's two entry
+ * bundles a common chunk to split out, which the built-package-invariant
+ * gate's file allowlist (this package's `package.json#files`) cannot name
+ * (its hash is content-addressed) — see the package README.
+ */
+const SERVER_SIDEBAR_NAMESPACE = settingsNamespace('server-sidebar')
 
 /** Cordis companion plugin name. */
 export const name = 'experimental-server-sidebar-invariant'
@@ -17,7 +27,7 @@ export const inject = ['invariants']
 
 /**
  * Check the one relation this package's durable data must hold: every commit
- * to its settings namespace carries at most one favorite per session id. The
+ * to its settings namespace carries at most one workflow per id. The
  * registration's own `validate` hook already refuses a write that would
  * break this before it persists — this listener re-checks the committed,
  * authoritative value as the independent proof the mechanism note requires.
@@ -26,11 +36,11 @@ const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure) => {
   ctx.on('settings/updated', (ns, next) => {
     if (ns !== SERVER_SIDEBAR_NAMESPACE) return
     const seen = new Set<string>()
-    for (const favorite of (next as ServerMenuSettings).favorites) {
-      if (seen.has(favorite.sessionId)) {
-        fail(`server-sidebar: committed favorites carry a duplicate session "${favorite.sessionId}"`)
+    for (const workflow of (next as ServerMenuSettings).workflows) {
+      if (seen.has(workflow.id)) {
+        fail(`server-sidebar: committed workflows carry a duplicate id "${workflow.id}"`)
       }
-      seen.add(favorite.sessionId)
+      seen.add(workflow.id)
     }
   })
 }

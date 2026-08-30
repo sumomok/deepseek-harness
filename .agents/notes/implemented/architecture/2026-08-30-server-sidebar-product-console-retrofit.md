@@ -1,0 +1,52 @@
+# Agent Note: server-sidebar retrofit — from a page-routes-plus-favorites menu to a fixed three-section product console
+
+Status: implemented
+
+English | [中文](2026-08-30-server-sidebar-product-console-retrofit.zh.md)
+
+## Problem
+
+`@deepseek-ai/dsh-experimental-server-sidebar` shipped as a menu (page routes plus favorited sessions) seated inside an otherwise-unchanged shipped sidebar contract — see [`2026-08-29-server-sidebar-replaces-ui-sidebar.md`](2026-08-29-server-sidebar-replaces-ui-sidebar.md). A product decision then approved a different shape for a customer-facing deployment: a fixed-width column with no collapse, three sections (工作台/导航/我的工作流) replacing session browsing entirely, a conditional "save the current conversation as a workflow" action, an unread indicator, deployment-ordered navigation against user-ordered workflows, one workflow bound to exactly one conversation, restore-only-fills-gaps semantics, and degrade-to-a-fresh-conversation when a bound one is lost — eight decisions in total, none of which the menu-plus-favorites design satisfied, and several of which (no session vocabulary anywhere, no fold interaction) actively contradicted it.
+
+## Decision
+
+**Replace the shell's contract, not just its content.** `sidebar.workspaces` — the one child slot `ServerSidebarRoot` reused from `dsh-client-ui-sidebar` for ui-workspace's browsing region — is dropped outright; there is no session-browsing region left to seat it in, and the customer composition now disables `ui-workspace` alongside `ui-sidebar` rather than composing it unchanged (which would throw at boot — [see the follow-up to the replaces-ui-sidebar note](2026-08-29-server-sidebar-replaces-ui-sidebar.md) for why this is a partial reversal, not a fresh design). The New Session button and the 56px collapse rail are removed the same way: the shell never calls a collapse action and always renders full content, accepting a residual geometry coupling with `server-layout`'s frozen proportional tracks as a documented Known Limitation rather than changing that package's own frozen ratio.
+
+**The favorites schema becomes the workflow schema**, upgraded from `{sessionId, label, order}` to `{id, name, order, homeSessionId, navSnapshot, savedAt}`. The weak-reference-resolved-at-render-or-action-time premise for `sessionId` ([`2026-08-29-favorites-weak-session-reference.md`](2026-08-29-favorites-weak-session-reference.md)) carries over to `homeSessionId` and to the new `workbenchSessionId` field — nothing about that reasoning was specific to "favorite." What does not carry over is how staleness surfaces: the favorites menu rendered a stale reference as a visible, disabled row for a user to notice and clear by hand; decision ⑧ instead requires opening a stale workflow or the workbench to land the user in a working conversation on the same click, degrading and repointing rather than displaying a dead state (see the sibling note's own updated account of this).
+
+**The settings route becomes a merge, not a replace.** The favorites route's `POST` replaced the whole document; the workflow route's `POST` merges the posted patch (`scope.update`, not `scope.replace`), so the workbench-creation path can persist `{workbenchSessionId}` alone and a workflow save can persist `{workflows}` alone, without either caller needing to know the other field's current value first.
+
+**The eight decisions map to concrete mechanisms as follows:**
+
+| Decision | Mechanism |
+| --- | --- |
+| ① Fixed 240px, no fold | `ServerSidebarRoot` never toggles collapse; width comes from the owner prop, unenforced independent of `server-layout`'s own geometry (Known Limitation) |
+| ② De-terminology | Four disable rows (`ui-workspace`, `ui-cordis`\*, `ui-trajectory`, `ui-model-selection`, `session-log-download`) plus one CSS-injection fallback (`terminology-guard.ts`) for the turns/steps row, which has no Config flag |
+| ③ Conditional save-as-workflow | `SaveWorkflowAction` renders `null` unless `useSession(s => s.chat.legacy.nodes)` contains a `kind === 'user'` node |
+| ④ Unread indicator | Reuses `SessionSummary.completed` verbatim — no new bookkeeping |
+| ⑤ Nav config order, workflow drag order | `NavGroup` renders `pages` as given; `WorkflowGroup` sorts by a user-mutable `order` field |
+| ⑥ One workflow, one conversation (v1) | `ServerMenuWorkflow.homeSessionId` is a single field, not a list |
+| ⑦ Restore fills gaps only | A live `homeSessionId` reopens with zero content mutation; only a degraded (dead) one replays anything, into a session that starts empty |
+| ⑧ Degrade to a fresh conversation | `openWorkflow`/`openWorkbench` create a session against the recent Workspace and replay `navSnapshot` when the recorded id is not live |
+
+\* `ui-cordis` is disabled in the customer overlay as part of the same de-terminology sweep the coordinator's research identified, alongside the other three rows.
+
+**"Save as workflow" is seated in `conversation.session.header.actions`, not a sidebar control.** `dsh-client-ui-conversation` already declares this additive list slot for session-scoped, occasional actions (`ui-jobs`'s background-job entry is the existing precedent); a second interaction pattern (a sidebar "+" button, which the original brief offered as a fallback) was not justified once a matching official seat was found. The registration lives in the same `apply()` as the sidebar's own, closing over a plain variable (`sidebarActions`) set once the sidebar's inject factory runs: the two registrations have different scope keys (root vs. session), so the store framework never shares one instance between them, and a shared module-level closure is the narrowest fix that lets a freshly saved workflow reach the sidebar's own reactive list without a page reload.
+
+## Alternatives considered
+
+**Detect decision ③'s gate with `SessionSummary.blank` instead of a `chat.legacy.nodes` scan.** Rejected in favor of the more precise check: `blank` answers "has this session logged anything at all," which is coarser than "has the user typed anything" (a session could carry only agent-authored injected instructions and still read as non-blank). The node-kind scan matches `StatsLine.tsx`'s own established read pattern for the identical conversation-snapshot window, at the cost of the paged-window approximation recorded in the README's Known Limitations.
+
+**Give decision ④ its own last-seen bookkeeping (a new settings field, updated on every view).** Rejected once `SessionSummary.completed`'s exact semantics ("finished while not selected and not yet opened," clearing the instant `sessions.open` selects the session) were confirmed to already answer the same question a bespoke mechanism would have been built to answer, at zero additional persistence or event-wiring cost. The trade is an e2e gap: `completed` is a host-frame push tied to a real agent-loop running→idle transition, which this scenario's zero-model-call e2e suite cannot fake, so the mechanism is unit-tested only (see the package README).
+
+**Drag-and-drop reordering and a native right-click context menu for rename/remove/reorder.** Both were the literal brief, with an explicit downgrade clause for either ("若实现体量失控，降级为右键菜单「上移/下移」"). Given this change's already-large scope (a full shell rewrite, a schema migration, a route-semantics change, and a four-row de-terminology sweep in one PR), both were downgraded: reordering to up/down icon buttons, and rename/remove/reorder to the hover-revealed icon-button idiom the former favorites menu already used. Neither downgrade changes the underlying data model (`order` is still a plain sortable field; there is no structural obstacle to adding drag-and-drop or a context menu later).
+
+**Patch `StatsLine.tsx` itself (a Config flag, or a prop threading its visibility) instead of a CSS-injection fallback.** Rejected for this v1: `StatsLine` is a shipped `dsh-client-ui-conversation` component with no existing visibility seam, and adding one for a single experimental composition's needs would be the "grow the official surface for one experimental deployment" pattern the sibling `2026-08-29-server-sidebar-replaces-ui-sidebar.md` note already rejected for a different slot. The CSS-injection fallback is deliberately documented as fragile (DOM-order-coupled, hides the whole `conversation.composer.dock` region rather than the row specifically) and pinned by e2e so a future DOM restructure fails loud instead of silently leaking the banned vocabulary back onto the page.
+
+## Consequences
+
+A deployment wanting the retrofit composes `overlay/customer.patch.yml` (four new disable rows beyond the prior `ui-layout`/`ui-sidebar` swap) instead of the former `overlay/sidebar-menu.patch.yml`, which no longer exists — this package has no compatibility path for a composition still trying to load the favorites-era shape, consistent with this repository's pre-release stance (no external consumers, no compatibility shims).
+
+The `sidebar.workspaces` removal is a partial reversal of the prior note's own "reuse the shipped five child slots" decision; that note has been updated in place to record the removal and cross-link here, rather than rewritten, since its own core decision (replace the whole sidebar via the overlay pattern) is unchanged. `2026-08-29-favorites-weak-session-reference.md` has likewise been updated in place: its weak-reference-resolved-at-render-time premise is unchanged, but its own "Decision" and "Alternatives considered" sections now describe the current terminology (`workflow`/`homeSessionId`) and the current staleness treatment (degrade-and-repoint on open, not a visible disabled row) — the retired grey-row treatment is recorded there as a superseded alternative, not deleted, with a forward cross-link here for the product-level rename.
+
+The five packages this deployment no longer composes (`ui-workspace`, `ui-cordis`, `ui-trajectory`, `ui-model-selection`, `session-log-download`) remain fully functional in every other composition; nothing about this change touches those packages themselves, only this one experimental overlay's row list.

@@ -1,0 +1,57 @@
+# The full customer/service-line composition (decisions ①–⑧): the
+# four-track service shell, this product console sidebar, and decision ②'s
+# de-terminology layer — every shipped surface that would otherwise leak
+# session/workspace vocabulary or model-internal status to an end user.
+#
+# Compose `dsh-experimental-content-frame` (with its deployment-specific
+# `pages`/`root` config) separately, the same way `overlay/sidebar-menu.patch.yml`
+# already documents — this file does not assume any one page catalog.
+#
+# 'root' and 'sidebar' are each a single slot, so their shipped occupants are
+# disabled outright rather than composed alongside the replacements (the same
+# pattern `server-layout`'s and this package's own minimal overlay use).
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- id: ui-sidebar
+  name: '@deepseek-ai/dsh-client-ui-sidebar'
+  disabled: true
+
+# ui-cordis's runtime-introspection panel has no counterpart in a customer
+# deployment (there is no "the agent inspects its own plugins" story a
+# customer-facing product exposes); disabling the row is the whole change —
+# its own node half carries no other behavior this composition depends on.
+- id: ui-cordis
+  name: '@deepseek-ai/dsh-client-ui-cordis'
+  disabled: true
+
+# Trajectory and the model selector are internal/debug surfaces with no
+# customer-facing counterpart; the session-log download button names its
+# subject with the banned word outright. All three are ordinary bundle rows
+# with no other row depending on their presence, so disabling them is the
+# whole change — see the package README's Known Limitations for the one
+# caveat this carries (a customer deployment needs a working default model
+# with the selector gone, since nothing here replaces its "choose a model"
+# affordance).
+- id: ui-trajectory
+  name: '@deepseek-ai/dsh-client-ui-trajectory'
+  disabled: true
+
+- id: ui-model-selection
+  name: '@deepseek-ai/dsh-client-ui-model-selection'
+  disabled: true
+
+- id: session-log-download
+  name: '@deepseek-ai/dsh-session-log-export'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: server-sidebar
+      name: '@deepseek-ai/dsh-experimental-server-sidebar'

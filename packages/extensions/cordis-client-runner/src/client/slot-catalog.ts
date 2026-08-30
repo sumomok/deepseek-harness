@@ -1115,6 +1115,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [
       'client-ui-agent-preset AgentPresetLabel id \'agent-preset\'',
       'client-ui-jobs JobListAction id \'job-list\'',
+      'experimental-server-sidebar SaveWorkflowAction id \'save-workflow\'',
       'experimental-vue-ui-poc VueProbeAction id \'vue-ui-poc\'',
     ],
     replaceRisk: 'none',

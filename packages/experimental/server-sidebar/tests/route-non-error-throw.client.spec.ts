@@ -1,8 +1,8 @@
 /**
- * One branch `favorites-route.client.spec.ts`'s real composition cannot
+ * One branch `workflow-route.client.spec.ts`'s real composition cannot
  * reach: every throw the real `dsh-settings-file` provider can produce
- * (schemastery's `ValidationError`, this package's own `validateFavorites`)
- * is an `Error` instance, so the favorites route's `renderThrown` fallback
+ * (schemastery's `ValidationError`, this package's own `validateServerMenu`)
+ * is an `Error` instance, so the server-menu route's `renderThrown` fallback
  * for a non-Error rejection never fires against the real provider. The
  * `settings` capability's Service Definition places no such constraint on a
  * provider, so a fake one exercising that fallback is a legitimate
@@ -36,15 +36,15 @@ function fakeResponse(): { res: ServerResponse; status: () => number; body: () =
   return { res, status: () => status, body: () => JSON.parse(body) as unknown }
 }
 
-describe('server-sidebar favorites route: non-Error rejection fallback', () => {
+describe('server-sidebar server-menu route: non-Error rejection fallback', () => {
   it('renders a thrown non-Error value through String() rather than crashing', async () => {
     let handler: ((req: IncomingMessage, res: ServerResponse) => void | Promise<void>) | undefined
     const ctx = new Context()
     ctx.provide('settings', {
       register: () => ({
-        get: () => ({ favorites: [] }),
+        get: () => ({ workflows: [] }),
         // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
-        replace: () => Promise.reject('not an Error instance'),
+        update: () => Promise.reject('not an Error instance'),
       }),
     } as never)
     ctx.provide('webServer', {
@@ -54,7 +54,7 @@ describe('server-sidebar favorites route: non-Error rejection fallback', () => {
     expect(handler).toBeDefined()
 
     const { res, status, body } = fakeResponse()
-    await handler?.(fakeRequest(JSON.stringify({ favorites: [] })), res)
+    await handler?.(fakeRequest(JSON.stringify({ workflows: [] })), res)
     expect(status()).toBe(400)
     expect(body()).toEqual({ error: 'server-sidebar: not an Error instance' })
   })

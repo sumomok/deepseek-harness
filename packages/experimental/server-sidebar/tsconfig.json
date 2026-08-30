@@ -24,6 +24,9 @@
       "path": "../../client/runtime"
     },
     {
+      "path": "../../client/ui-conversation"
+    },
+    {
       "path": "../../client/ui-layout"
     },
     {
@@ -34,6 +37,9 @@
     },
     {
       "path": "../../client/ui-slots"
+    },
+    {
+      "path": "../content-surface"
     },
     {
       "path": "../../host/webserver"

@@ -1,81 +1,88 @@
 /**
- * Sidebar shell: column geometry, ported from `dsh-client-ui-sidebar`'s own
- * `SidebarRoot` to honor the same behavioral contract this package's overlay
- * replaces (collapse is a slide plus crossfade, the 56px rail, the
- * pointer-driven scrollbar quieting — see that package's own module doc for
- * the full mechanics, unchanged here), plus this package's own addition: the
- * page-navigation and favorites menu, seated between the New Session button
- * and the `sidebar.workspaces` region.
+ * Sidebar shell: the product console's fixed-width column (decision ①: no
+ * collapse rail, no fold interaction — this shell never toggles it and
+ * always renders its full content regardless of the `collapsed` owner prop,
+ * see below for the residual coupling this leaves with the surrounding
+ * shell's own track geometry). Three sections between the brand row and the
+ * footer: 工作台 (workbench, a persistent default conversation), 导航
+ * (navigation, `dsh-experimental-content-frame`'s configured pages), and 我的
+ * 工作流 (my workflows, a user's own named shortcuts to conversations they
+ * taught the agent something in).
+ *
+ * `collapsed`/`width` remain part of this component's props only because
+ * they are part of `PropsRuntime<'sidebar'>`'s owner-share contract (declared
+ * by whichever shell composes this sidebar); `width` still sizes this
+ * column's inline CSS width exactly as the original shell did, but `collapsed`
+ * is read nowhere here. The shell's own track geometry
+ * (`dsh-experimental-server-layout`'s `solveTracks`) still allocates this
+ * column a *proportional* share of the frame width — literally fixing this
+ * column at 240px regardless of frame width would require a change to that
+ * package's frozen ratio, which is out of this change's scope (see the
+ * package README's Known Limitations for the full account).
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import {
-  FishLogo, IconNewChatOutline16, IconPanelLeftOutline16, Tooltip,
-} from '@deepseek-ai/dsh-client-ui-primitives'
-// Type-only: pulls `dsh-client-ui-sidebar`'s five `sidebar.*` SlotMap
-// declarations, reused here rather than redeclared so ui-workspace's and
-// ui-settings's existing registrations keep working unchanged (this
-// package's own module doc explains the replacement contract in full).
+import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
+// Type-only: pulls `dsh-client-ui-sidebar`'s `sidebar.*` SlotMap declarations
+// for the four child slots this shell still honors (brand mark/name,
+// settings, footer actions) — reused here rather than redeclared so
+// ui-settings's existing registration, and any brand package filling the two
+// identity slots, keep working unchanged. `sidebar.workspaces` is
+// deliberately NOT reused: decision ① removes the whole session-browsing
+// region this sidebar used to seat (see the package README and Agent Note).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
-import type { WorkspaceId } from '@deepseek-ai/dsh-client-runtime/client'
-import { MenuSection } from './MenuSection.tsx'
+import { NavGroup } from './NavGroup.tsx'
+import { WorkflowGroup } from './WorkflowGroup.tsx'
 import type { MenuPage } from './pages.ts'
-import type { ServerMenuFavorite } from './favorites-api.ts'
-import type { createFavoritesStore } from './favorites-store.ts'
+import type { ServerMenuWorkflow } from './workflow-api.ts'
+import type { createWorkflowStore } from './workflow-store.ts'
 import css from './ServerSidebarRoot.module.css'
-
-/** Wide-content unmount delay; matches the 150ms wide-content fade-out. */
-const COLLAPSE_SETTLE_MS = 150
 
 /**
  * How long the column's scrollbars stay drawn after the pointer leaves it.
  * The bar is a pointer affordance here, and hiding it on the leave event
  * itself makes it blink out while the pointer is only crossing the column's
  * edge — on the way to the conversation, or around a portalled menu.
+ * Carried over unchanged from the original shell; independent of decision
+ * ①'s removed collapse mechanism.
  */
 const SCROLLBAR_LINGER_MS = 2000
 
 /**
- * Registrant-private injected share: the shell's own controls plus this
- * package's menu data and actions.
+ * Registrant-private injected share: the shell's own workbench/navigation/
+ * workflow actions.
  */
 export interface ServerSidebarInjected {
-  /**
-   * Start a New Session: with a workspace, reuse-or-create its blank session
-   * and open it; without one, inherit the current Session Workspace, then the
-   * recent Workspace, or clear into the New Session pure view when none exist.
-   */
-  startSession: (workspaceId?: WorkspaceId) => void
-  /** Toggle the sidebar column through the layout service. */
-  toggleSidebar: () => void
-  /** The deployment's configured content-column pages, read once before this entry registered. */
+  /** The deployment's configured content-column pages, in declaration order. */
   pages: readonly MenuPage[]
   /**
    * Open a configured page, creating a session first when none is current.
    * The menu does not await this — it returns a promise so tests can.
    */
   onOpenPage: (pageId: string) => Promise<void>
-  /** Switch to a favorited session. */
-  onOpenSession: (sessionId: string) => void
   /**
-   * Persist the complete next favorites list. The menu does not await this —
+   * Open the workbench, creating (or re-creating) its persistent conversation
+   * first when needed. Not awaited by the component.
+   */
+  onOpenWorkbench: (workbenchSessionId: string | undefined, isLive: boolean) => Promise<void>
+  /**
+   * Open a workflow, degrading to a fresh conversation with its navigation
+   * snapshot replayed when its bound one is gone. Not awaited by the component.
+   */
+  onOpenWorkflow: (workflow: ServerMenuWorkflow, isLive: boolean) => Promise<void>
+  /**
+   * Persist the complete next workflow list. The menu does not await this —
    * it returns a promise so tests can.
    */
-  onSaveFavorites: (next: ServerMenuFavorite[]) => Promise<void>
+  onSaveWorkflows: (next: ServerMenuWorkflow[]) => Promise<void>
 }
 
-/** Full component props: layout owner state/actions, the declared holes, the favorites store, and this package's own share. */
+/** Full component props: layout owner state/actions, the declared holes, the workflow store, and this package's own share. */
 export type ServerSidebarRootComponentProps =
   PropsRuntime<'sidebar'>
-  & PropsRenderSlots<
-    | 'sidebar.brand.mark'
-    | 'sidebar.brand.name'
-    | 'sidebar.workspaces'
-    | 'sidebar.settings'
-    | 'sidebar.footer.action'
-  >
-  & PropsStore<ReturnType<typeof createFavoritesStore>>
+  & PropsRenderSlots<'sidebar.brand.mark' | 'sidebar.brand.name' | 'sidebar.settings' | 'sidebar.footer.action'>
+  & PropsStore<ReturnType<typeof createWorkflowStore>>
   & ServerSidebarInjected & PropsLocale<'serverSidebar'>
 
 /**
@@ -84,39 +91,48 @@ export type ServerSidebarRootComponentProps =
  * @returns the sidebar element tree.
  */
 export function ServerSidebarRoot({
-  collapsed, width, startSession, toggleSidebar, t, renderSlot,
-  pages, onOpenPage, onOpenSession, onSaveFavorites,
+  width, t, renderSlot,
+  pages, onOpenPage, onOpenWorkbench, onOpenWorkflow, onSaveWorkflows,
   useStore, useSessions,
 }: ServerSidebarRootComponentProps) {
-  /* jscpd:ignore-start -- geometry and JSX ported verbatim from
-   * dsh-client-ui-sidebar's SidebarRoot to honor its behavioral contract
-   * (this file's module doc explains why this is a copy, not an import).
-   */
-  // Wide content stays mounted while the collapse animates (fading via
-  // .collapsed .wide), unmounts at settle, and remounts right away on expand.
-  const [settled, setSettled] = useState(collapsed)
+  const workflows = useStore(state => state.workflows)
+  const workbenchSessionId = useStore(state => state.workbenchSessionId)
+  const workflowsError = useStore(state => state.error)
+
+  // Session liveness for the workbench and workflow group: read fresh on
+  // every relevant change rather than captured once, so a re-created or
+  // deleted session is reflected without a save round trip.
+  const byId = useSessions(state => state.byId)
+  const current = useSessions(state => state.current)
+  const phase = useSessions(state => state.phase)
+  const liveSessionIds = useMemo(() => new Set(Object.keys(byId)), [byId])
+  // Decision ④'s green dot reuses the session list's own `completed` bit
+  // ("finished while not selected and not yet opened") rather than a second
+  // last-seen bookkeeping mechanism — see the package README.
+  const unreadHomeSessionIds = useMemo(
+    () => new Set(Object.entries(byId).filter(([, summary]) => summary.completed === true).map(([id]) => id)),
+    [byId],
+  )
+
+  // Land on the workbench automatically when the sidebar loads with no
+  // current session — evaluated exactly once per mount, the same "settle
+  // then decide, never retry" shape `dsh-client-runtime`'s own
+  // startInitialSelection uses for its Workspace check. Waiting for
+  // `phase === 'ready'` matters: deciding `liveSessionIds` membership while
+  // the list is still `'pending'` would read a real workbench session as
+  // stale (not yet loaded into `byId`) and needlessly re-create it.
+  const attemptedAutoOpen = useRef(false)
   useEffect(() => {
-    if (!collapsed) { setSettled(false); return }
-    const timer = window.setTimeout(() => { setSettled(true) }, COLLAPSE_SETTLE_MS)
-    return () => { window.clearTimeout(timer) }
-  }, [collapsed])
-  const wide = !collapsed || !settled
+    if (attemptedAutoOpen.current || phase !== 'ready' || current !== undefined) return
+    attemptedAutoOpen.current = true
+    void onOpenWorkbench(workbenchSessionId, workbenchSessionId !== undefined && liveSessionIds.has(workbenchSessionId))
+  }, [current, phase, workbenchSessionId, liveSessionIds, onOpenWorkbench])
 
-  // Freeze the content at its expanded width while it fades out (collapsed
-  // && wide): the sliding column then clips it instead of reflowing it. The
-  // rail layout (.collapsed styles) only applies once the fade settles.
-  const lastWideWidth = useRef(width)
-  if (!collapsed) lastWideWidth.current = width
-
-  // Rail-in only crossfades a live collapse: a refresh straight into the
-  // collapsed state renders the rail statically (no delay-hidden icons).
-  const everWide = useRef(!collapsed)
-  if (!collapsed) everWide.current = true
-
-  // Scrollbars in the column follow the pointer (.quietBars rebinds them
-  // away): drawn while it is inside, and for SCROLLBAR_LINGER_MS after it
-  // leaves. A pointer that returns within that window cancels the pending
-  // hide rather than restarting from a hidden bar.
+  /* jscpd:ignore-start -- pointer-driven scrollbar behavior ported verbatim
+   * from dsh-client-ui-sidebar's SidebarRoot (this file's module doc explains
+   * why this is a copy, not an import); unrelated to decision ①'s removed
+   * collapse mechanism.
+   */
   const column = useRef<HTMLDivElement>(null)
   const [pointerInside, setPointerInside] = useState(false)
   const lingerTimer = useRef<number | undefined>(undefined)
@@ -148,119 +164,69 @@ export function ServerSidebarRoot({
       cancelLinger()
     }
   }, [pointerInside])
-
-  const favorites = useStore(state => state.favorites)
-  const favoritesError = useStore(state => state.error)
-
-  // Session liveness for the favorites menu: read fresh on every relevant
-  // change rather than captured once, so a favorite whose session is deleted
-  // (or a new session created) is reflected without a save round trip.
-  const currentId = useSessions(state => state.current)
-  const byId = useSessions(state => state.byId)
-  const current = currentId === undefined
-    ? undefined
-    : { id: currentId, title: byId[currentId]?.displayTitle ?? currentId }
-  const liveSessionIds = useMemo(() => new Set(Object.keys(byId)), [byId])
+  /* jscpd:ignore-end */
 
   return (
     <div
       ref={column}
-      className={clsx(
-        css.root, !wide && css.collapsed, !wide && everWide.current && css.railIn,
-        collapsed && wide && css.fading, !pointerInside && css.quietBars,
-      )}
-      style={wide ? { width: collapsed ? lastWideWidth.current : width } : undefined}
+      data-server-sidebar
+      className={clsx(css.root, !pointerInside && css.quietBars)}
+      style={{ width }}
       onPointerEnter={() => {
         cancelLinger()
         setPointerInside(true)
       }}
       onPointerLeave={() => { armLinger() }}
     >
-      <div className={css.logoRow}>
-        {wide && (
-          <button
-            type="button"
-            className={clsx(css.brand, css.wide)}
-            aria-label={t('session.new.label')}
-            onClick={() => { startSession() }}
-          >
-            <span className={css.brandIdentity} aria-hidden="true">
-              <span className={css.brandMark}>
-                {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
-              </span>
-              <span className={css.brandName}>
-                {renderSlot('sidebar.brand.name', {}, {
-                  fallback: (
-                    <>
-                      <span className={css.fallbackBrandName}>DSH Local Build</span>
-                      {process.env.DSH_CLIENT_COMMIT_HASH
-                        ? <span className={css.buildRevision}>{process.env.DSH_CLIENT_COMMIT_HASH}</span>
-                        : null}
-                    </>
-                  ),
-                })}
-              </span>
-            </span>
-          </button>
-        )}
-        <Tooltip label={collapsed ? t('toggle.open') : t('toggle.collapse')} delayMs={500}>
-          <button
-            type="button"
-            className={clsx(css.iconButton, css.toggle)}
-            aria-label={collapsed ? t('toggle.open') : t('toggle.collapse')}
-            onClick={() => { toggleSidebar() }}
-          >
-            {!wide && (
-              <span className={css.railMark} aria-hidden="true">
-                {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
-              </span>
-            )}
-            <IconPanelLeftOutline16 className={css.panelIcon} size={wide ? 16 : 18} />
-          </button>
-        </Tooltip>
+      <div className={css.brandRow}>
+        <span className={css.brandMark} aria-hidden="true">
+          {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
+        </span>
+        <span className={css.brandName}>
+          {renderSlot('sidebar.brand.name', {}, {
+            fallback: (
+              <>
+                <span className={css.fallbackBrandName}>DSH Local Build</span>
+                {process.env.DSH_CLIENT_COMMIT_HASH
+                  ? <span className={css.buildRevision}>{process.env.DSH_CLIENT_COMMIT_HASH}</span>
+                  : null}
+              </>
+            ),
+          })}
+        </span>
       </div>
 
-      <Tooltip label={t('session.new.label')} delayMs={500} disabled={wide}>
-        <button
-          type="button"
-          className={css.newSession}
-          aria-label={t('session.new.label')}
-          onClick={() => { startSession() }}
-        >
-          <IconNewChatOutline16 size={wide ? 14 : 18} />
-          {wide && <span className={clsx(css.newSessionLabel, css.wide)}>{t('session.new')}</span>}
-        </button>
-      </Tooltip>
-
-      <MenuSection
-        wide={wide}
-        pages={pages}
-        favorites={favorites}
-        favoritesError={favoritesError}
-        current={current}
-        liveSessionIds={liveSessionIds}
-        onOpenPage={onOpenPage}
-        onOpenSession={onOpenSession}
-        onSaveFavorites={onSaveFavorites}
-        t={t}
-      />
+      <button
+        type="button"
+        className={css.workbench}
+        data-server-sidebar-section="workbench"
+        onClick={() => {
+          void onOpenWorkbench(workbenchSessionId, workbenchSessionId !== undefined && liveSessionIds.has(workbenchSessionId))
+        }}
+      >
+        {t('workbench.label')}
+      </button>
 
       <div className={css.regionArea}>
-        {renderSlot('sidebar.workspaces', {
-          wide,
-          expandSidebar: () => { if (collapsed) toggleSidebar() },
-        })}
+        <NavGroup pages={pages} onOpenPage={onOpenPage} t={t} />
+        <WorkflowGroup
+          workflows={workflows}
+          unreadHomeSessionIds={unreadHomeSessionIds}
+          onOpenWorkflow={workflow => onOpenWorkflow(workflow, liveSessionIds.has(workflow.homeSessionId))}
+          onSaveWorkflows={onSaveWorkflows}
+          error={workflowsError}
+          t={t}
+        />
       </div>
 
       <div className={css.footArea}>
-        <div className={css.footerActions}>
-          {renderSlot('sidebar.footer.action', { wide })}
+        <div className={css.avatarRow}>
+          <span className={css.avatarCircle} aria-hidden="true" />
+          <span className={css.avatarName}>{t('avatar.namePlaceholder')}</span>
         </div>
-        <div className={css.settingsArea}>
-          {renderSlot('sidebar.settings', { wide })}
-        </div>
+        <div className={css.footerActions}>{renderSlot('sidebar.footer.action', { wide: true })}</div>
+        <div className={css.settingsArea}>{renderSlot('sidebar.settings', { wide: true })}</div>
       </div>
     </div>
   )
-  /* jscpd:ignore-end */
 }

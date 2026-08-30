@@ -8,7 +8,7 @@
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import { openContentPage } from '../src/client/open-page.ts'
+import { openContentPage, replayNavSnapshot } from '../src/client/open-page.ts'
 
 /** Build a minimal fake context exposing only what `openContentPage` reads. */
 function fakeContext(overrides: {
@@ -33,6 +33,15 @@ function fakeContext(overrides: {
 }
 
 describe('openContentPage failure paths', () => {
+  it('leaves a page click a contained no-op with no session and no workspace to create one in', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const execute = vi.fn()
+    const ctx = fakeContext({ execute })
+    await openContentPage(ctx, 'home')
+    expect(execute).not.toHaveBeenCalled()
+    warn.mockRestore()
+  })
+
   it('warns and gives up when connecting the recent workspace throws', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const execute = vi.fn()
@@ -65,6 +74,44 @@ describe('openContentPage failure paths', () => {
       execute: () => Promise.resolve({ ok: true, value: { result: { kind: 'error', text: 'unknown page id' } } }),
     })
     await openContentPage(ctx, 'missing')
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('unknown page id'))
+    warn.mockRestore()
+  })
+})
+
+describe('replayNavSnapshot', () => {
+  it('executes show-content-page for every page id, in order, against the given session', async () => {
+    const execute = vi.fn(() => Promise.resolve({ ok: true, value: undefined }))
+    const ctx = { remote: { commands: { execute } } } as unknown as ClientContext
+    await replayNavSnapshot(ctx, 'session-a', ['home', 'reports'])
+    expect(execute).toHaveBeenNthCalledWith(1, 'session-a', '/show-content-page home', [])
+    expect(execute).toHaveBeenNthCalledWith(2, 'session-a', '/show-content-page reports', [])
+  })
+
+  it('does nothing for an empty snapshot', async () => {
+    const execute = vi.fn()
+    const ctx = { remote: { commands: { execute } } } as unknown as ClientContext
+    await replayNavSnapshot(ctx, 'session-a', [])
+    expect(execute).not.toHaveBeenCalled()
+  })
+
+  it('warns on a transport-level failure but keeps replaying the rest of the snapshot', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const execute = vi.fn()
+      .mockResolvedValueOnce({ ok: false, error: { code: 'unreachable', message: 'no connection' } })
+      .mockResolvedValueOnce({ ok: true, value: undefined })
+    const ctx = { remote: { commands: { execute } } } as unknown as ClientContext
+    await replayNavSnapshot(ctx, 'session-a', ['home', 'reports'])
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('workflow replay failed for page "home"'))
+    expect(execute).toHaveBeenCalledTimes(2)
+    warn.mockRestore()
+  })
+
+  it('warns when a replayed command answers its own error result', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const execute = vi.fn(() => Promise.resolve({ ok: true, value: { result: { kind: 'error', text: 'unknown page id' } } }))
+    const ctx = { remote: { commands: { execute } } } as unknown as ClientContext
+    await replayNavSnapshot(ctx, 'session-a', ['missing'])
     expect(warn).toHaveBeenCalledWith(expect.stringContaining('unknown page id'))
     warn.mockRestore()
   })

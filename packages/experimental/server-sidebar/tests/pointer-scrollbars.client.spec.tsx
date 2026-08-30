@@ -24,9 +24,8 @@ const t: ServerSidebarRootComponentProps['t'] = (key, vars?: Record<string, unkn
       return typeof value === 'string' ? value : ''
     })
 }
-const neverHook = (() => { throw new Error('shell must not read global hooks in this bench') }) as never
-const emptySessions = (<S,>(sel: (s: { current: undefined; byId: Record<string, never> }) => S): S =>
-  sel({ current: undefined, byId: {} })) as unknown as ServerSidebarRootComponentProps['useSessions']
+const emptySessions = (<S,>(sel: (s: { current: undefined; byId: Record<string, never>; phase: 'ready' }) => S): S =>
+  sel({ current: undefined, byId: {}, phase: 'ready' })) as unknown as ServerSidebarRootComponentProps['useSessions']
 
 afterEach(() => {
   cleanup()
@@ -42,15 +41,16 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
     <ServerSidebarRoot
       collapsed={false} width={300}
       t={t}
-      startSession={vi.fn()} toggleSidebar={vi.fn()}
-      pages={[]} onOpenPage={() => Promise.resolve()} onOpenSession={vi.fn()}
-      onSaveFavorites={() => Promise.resolve()}
-      useStore={(<S,>(sel: (s: { favorites: never[]; error: undefined }) => S): S => sel({ favorites: [], error: undefined }))}
-      actions={{ setFavorites: vi.fn(), setError: vi.fn() }}
+      pages={[]} onOpenPage={() => Promise.resolve()}
+      onOpenWorkbench={() => Promise.resolve()} onOpenWorkflow={() => Promise.resolve()}
+      onSaveWorkflows={() => Promise.resolve()}
+      useStore={(<S,>(sel: (s: { workflows: never[]; workbenchSessionId: undefined; error: undefined }) => S): S =>
+        sel({ workflows: [], workbenchSessionId: undefined, error: undefined }))}
+      actions={{ setServerMenu: vi.fn(), setError: vi.fn() }}
       useSessions={emptySessions}
-      useWorkspaces={neverHook}
-      renderSlot={((_key: string, owner: { wide: boolean }, options?: { fallback?: ReactNode }) =>
-        options?.fallback ?? <div data-testid="region" data-wide={owner.wide} />) as ServerSidebarRootComponentProps['renderSlot']}
+      useWorkspaces={() => { throw new Error('shell must not read global hooks in this bench') }}
+      renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
+        options?.fallback ?? <div data-testid="region" />) as ServerSidebarRootComponentProps['renderSlot']}
     />,
   )
   const column = view.container.firstElementChild

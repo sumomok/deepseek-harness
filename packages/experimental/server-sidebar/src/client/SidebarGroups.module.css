@@ -1,0 +1,139 @@
+/* Shared styling for the sidebar's navigation and workflow groups: a plain
+   vertical list under an uppercase group title, matching the retrofit menu's
+   original visual language (this is a straight carry-over of the former
+   MenuSection.module.css, minus the collapsed-rail form decision ① removes). */
+
+.group {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: 0 2px 10px;
+}
+
+.groupHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.groupTitle {
+  margin: 0;
+  padding: 0 4px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.itemButton {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.itemButton:hover:not(:disabled) {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.empty {
+  margin: 0;
+  padding: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.error {
+  margin: 0;
+  padding: 4px;
+  font-size: 12px;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.workflowRow {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  position: relative;
+}
+
+.workflowRow .itemButton {
+  flex: 1;
+  min-width: 0;
+}
+
+.dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--dsw-alias-state-success-primary);
+  margin-right: 2px;
+}
+
+.workflowActions {
+  flex: none;
+  display: none;
+  align-items: center;
+  gap: 2px;
+}
+
+.workflowRow:hover .workflowActions {
+  display: flex;
+}
+
+.iconButton {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: none;
+  border-radius: 6px;
+  padding: 0;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  cursor: pointer;
+}
+
+.iconButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.iconButton:disabled {
+  cursor: default;
+  color: var(--dsw-alias-label-tertiary);
+  opacity: 0.5;
+}
+
+.renameInput {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 5px 6px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+}

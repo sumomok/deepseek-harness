@@ -1,27 +1,30 @@
 /**
- * `serverSidebar` namespace dictionaries: shell controls (ported from
- * `dsh-client-ui-sidebar`'s own `sidebar` namespace, which this package does
- * not reuse — see the module doc in `index.ts`) plus the two menu groups
- * this package adds.
+ * `serverSidebar` namespace dictionaries: the three-section sidebar (工作台 /
+ * 导航 / 我的工作流) plus the "存为工作流" session-header action this package
+ * registers alongside it. No shipped-sidebar controls survive here — decision
+ * ① drops New Session and the collapse toggle outright, so this package no
+ * longer reuses `dsh-client-ui-sidebar`'s own `sidebar` namespace keys at all.
+ *
+ * Every key here is screened by decision ②'s banned-word list (会话 / 新会话
+ * / session / workspace must never appear in user-visible text); see the
+ * package README for the full rationale.
  */
 
 /** Simplified Chinese dictionary (the key-set source of truth). */
 export const zh = {
-  'session.new': '新会话',
-  'session.new.label': '新建会话',
-  'toggle.open': '打开侧边栏',
-  'toggle.collapse': '收起侧边栏',
-  'menu.trigger': '打开页面与收藏菜单',
-  'menu.pages.title': '页面',
-  'menu.pages.empty': '未配置页面',
-  'menu.favorites.title': '收藏',
-  'menu.favorites.empty': '暂无收藏',
-  'menu.favorites.add': '收藏当前会话',
-  'menu.favorites.rename': '重命名',
-  'menu.favorites.remove': '取消收藏',
-  'menu.favorites.namePlaceholder': '收藏名称',
-  'menu.favorites.stale': '会话已删除',
-  'menu.favorites.error': '收藏保存失败：{message}',
+  'workbench.label': '工作台',
+  'nav.title': '导航',
+  'nav.empty': '未配置页面',
+  'workflows.title': '我的工作流',
+  'workflows.empty': '暂无工作流',
+  'workflows.rename': '重命名',
+  'workflows.remove': '移除',
+  'workflows.moveUp': '上移',
+  'workflows.moveDown': '下移',
+  'workflows.namePlaceholder': '工作流名称',
+  'workflows.error': '保存失败：{message}',
+  'saveWorkflow.action': '存为工作流',
+  'avatar.namePlaceholder': '用户',
 } satisfies Record<string, string>
 
 /** The serverSidebar namespace key union. */
@@ -29,19 +32,17 @@ export type ServerSidebarKey = keyof typeof zh
 
 /** English dictionary, checked complete against the zh key set. */
 export const en = {
-  'session.new': 'New Session',
-  'session.new.label': 'New session',
-  'toggle.open': 'Open sidebar',
-  'toggle.collapse': 'Collapse sidebar',
-  'menu.trigger': 'Open the pages and favorites menu',
-  'menu.pages.title': 'Pages',
-  'menu.pages.empty': 'No pages configured',
-  'menu.favorites.title': 'Favorites',
-  'menu.favorites.empty': 'No favorites yet',
-  'menu.favorites.add': 'Favorite current session',
-  'menu.favorites.rename': 'Rename',
-  'menu.favorites.remove': 'Remove favorite',
-  'menu.favorites.namePlaceholder': 'Favorite name',
-  'menu.favorites.stale': 'Session deleted',
-  'menu.favorites.error': 'Failed to save favorites: {message}',
+  'workbench.label': 'Workbench',
+  'nav.title': 'Navigation',
+  'nav.empty': 'No pages configured',
+  'workflows.title': 'My Workflows',
+  'workflows.empty': 'No workflows yet',
+  'workflows.rename': 'Rename',
+  'workflows.remove': 'Remove',
+  'workflows.moveUp': 'Move up',
+  'workflows.moveDown': 'Move down',
+  'workflows.namePlaceholder': 'Workflow name',
+  'workflows.error': 'Failed to save: {message}',
+  'saveWorkflow.action': 'Save as workflow',
+  'avatar.namePlaceholder': 'User',
 } satisfies Record<ServerSidebarKey, string>
