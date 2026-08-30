@@ -1,6 +1,7 @@
 import type { TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { AttachmentRailLabels } from '../AttachmentRail.tsx'
 import type { DropOverlayLabels } from '../DropOverlay.tsx'
+import type { FileChipWarningLabel, FileChipWarningNotice } from '../FileChip.tsx'
 import type { ImageLightboxLabels } from '../ImageLightbox.tsx'
 import type { MessageImageLabels } from '../MessageImage.tsx'
 
@@ -11,6 +12,41 @@ import type { MessageImageLabels } from '../MessageImage.tsx'
  */
 export function fileChipGroupLabel(t: TranslateNS<'conversation'>): string {
   return t('file.pending')
+}
+
+/**
+ * Fixed inline-label copy shown on every chip whose draft matched the
+ * pre-send secret-container heuristic. Identical across chips (no
+ * per-file interpolation), so the row resolves it once.
+ * @param t - conversation namespace translator.
+ * @returns translated warning-label text and tooltip.
+ */
+export function fileChipWarningLabel(t: TranslateNS<'conversation'>): FileChipWarningLabel {
+  return { text: t('secretConfirm.chipLabel'), title: t('secretConfirm.chipLabelTitle') }
+}
+
+/**
+ * Below-row notice naming the first draft attachment that matched the
+ * pre-send secret-container heuristic, with a remove control for that file.
+ * @param t - conversation namespace translator.
+ * @param name - display name of the first matched file.
+ * @param onRemove - remove that file's draft attachment.
+ * @returns translated notice text and remove-control copy.
+ */
+export function fileChipWarningNotice(
+  t: TranslateNS<'conversation'>,
+  name: string,
+  onRemove: () => void,
+): FileChipWarningNotice {
+  // Distinct from a chip's own `file.remove` aria-label (the notice and its
+  // matched chip both render "remove this file" controls at once).
+  const removeButtonText = t('secretConfirm.noticeRemove')
+  return {
+    text: t('secretConfirm.notice', { name }),
+    removeButtonText,
+    removeLabel: `${removeButtonText} ${name}`,
+    onRemove,
+  }
 }
 
 /**

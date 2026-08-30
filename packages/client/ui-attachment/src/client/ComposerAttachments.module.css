@@ -2,3 +2,10 @@
   min-width: 0;
   padding: 4px 12px 0;
 }
+
+/* FileChipRow's own row carries a 4px top padding so it aligns with the rail
+   when it renders alone; this margin adds the remaining 2px so the two
+   blocks sit 6px apart when both are present. */
+.chipsAfterRail {
+  margin-top: 2px;
+}
