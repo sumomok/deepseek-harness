@@ -27,6 +27,8 @@ import type {
   ImageRequestPolicy,
   RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
+import { fileSpillOptionsFrom } from '@deepseek-ai/dsh-attachment-spill'
+import type { AttachmentSpill } from '@deepseek-ai/dsh-attachment-spill'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { deadline, idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
@@ -122,6 +124,11 @@ export interface DeepSeekAdapterOptions {
   resolveUserId: () => AnonymousUserId
   /** Resolve the current durable attachment service; absence rejects image input. */
   resolveAttachments?: () => AttachmentStore | undefined
+  /**
+   * Resolve the current attachment-spill service; absence falls back to
+   * truncated inline text for an oversized file (never rejects file input).
+   */
+  resolveAttachmentSpill?: () => AttachmentSpill | undefined
   /** Resolve the process-wide upload reuse store. */
   resolveFiles?: () => DeepSeekFileStore
 }
@@ -559,7 +566,10 @@ export class DeepSeekAdapter extends LlmAdapter {
     // which the agent-loop's request-reconstruction invariant enforces.
     const fileLoweredMessages = attachments === undefined
       ? requestMessages
-      : await lowerFileBlocksFromStore(requestMessages, attachments, signal)
+      : await lowerFileBlocksFromStore(
+        requestMessages, attachments, signal,
+        fileSpillOptionsFrom(this.config.resolveAttachmentSpill?.()),
+      )
     const requestOptions = fileLoweredMessages === options.messages
       ? options
       : { ...options, messages: [...fileLoweredMessages] }

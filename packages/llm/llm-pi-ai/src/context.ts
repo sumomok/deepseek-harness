@@ -5,7 +5,7 @@
  */
 
 import { CallId, contentHasFile, contentHasImage, LlmError, lowerFileBlocksFromStore, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FileSpillOptions, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import type {
   AttachmentId,
   AttachmentStore,
@@ -197,6 +197,7 @@ export function toPiContext(
  * @param onReplayDegrade - forwarded to {@link toPiAssistant} for each assistant message.
  * @param maxRequestImageBytes - request-level bound on base64-encoded image payload; omission leaves every image in place.
  * @param requestImagePolicy - route pixel and raw encoded-byte budgets.
+ * @param spill - optional spill policy and backend hook for an oversized file; omission always truncates one inline.
  * @returns the asynchronously resolved pi-ai context.
  */
 export function toPiContext(
@@ -205,6 +206,7 @@ export function toPiContext(
   onReplayDegrade?: (reason: string) => void,
   maxRequestImageBytes?: number,
   requestImagePolicy?: ImageRequestPolicy,
+  spill?: FileSpillOptions,
 ): Promise<PiContext>
 export function toPiContext(
   options: GenerateOptions,
@@ -212,10 +214,11 @@ export function toPiContext(
   onReplayDegrade?: (reason: string) => void,
   maxRequestImageBytes?: number,
   requestImagePolicy?: ImageRequestPolicy,
+  spill?: FileSpillOptions,
 ): PiContext | Promise<PiContext> {
   return attachments === undefined
     ? textOnlyContext(options, onReplayDegrade)
-    : toPiContextWithImages(options, attachments, onReplayDegrade, maxRequestImageBytes, requestImagePolicy)
+    : toPiContextWithImages(options, attachments, onReplayDegrade, maxRequestImageBytes, requestImagePolicy, spill)
 }
 
 async function toPiContextWithImages(
@@ -227,11 +230,12 @@ async function toPiContextWithImages(
     maxPixels: DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
     maxBytes: DEFAULT_REQUEST_IMAGE_MAX_BYTES,
   },
+  spill?: FileSpillOptions,
 ): Promise<PiContext> {
   // Lowered locally, never onto `options.messages` itself: that frozen array
   // must stay reconstructable byte-identical from the session log, which the
   // agent-loop's request-reconstruction invariant enforces.
-  const baseMessages = await lowerFileBlocksFromStore(options.messages, attachments, options.signal)
+  const baseMessages = await lowerFileBlocksFromStore(options.messages, attachments, options.signal, spill)
   assertSupportedImageRoles(baseMessages)
   const requestMessages = offloadRequestImagesWithPolicy(baseMessages, {
     representation: 'base64',

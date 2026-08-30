@@ -74,3 +74,51 @@ it('sends a pasted text file, renders its bubble card, and expands the exact tex
     expect(pre?.textContent).toBe(FILE_TEXT)
   })
 })
+
+// A file well over the model-request lowering threshold (16,000 chars,
+// `@deepseek-ai/dsh-attachment-spill`'s `inlineWholeUnderChars` default): the
+// client's durable storage and FileCard retrieval never truncate — spilling
+// is a request-assembly concern this UI layer does not participate in — so a
+// pasted 20,000-character file still round-trips byte-for-byte through the
+// SAME FixtureApiClient session.file route as a small one.
+const LARGE_FILE_TEXT = `${'line of oversized fixture content\n'.repeat(540)}final sentinel line`
+
+it('round-trips a file over the model-lowering threshold without any client-side truncation', async () => {
+  mountAssembledApp()
+
+  const tree = await screen.findByRole('tree', { name: 'Sessions' }, { timeout: 10_000 })
+  const start = tree.querySelector<HTMLButtonElement>('button[aria-label="New session in fixture"]')
+  if (start === null) throw new Error('fixture Workspace new-session action missing')
+  fireEvent.click(start)
+
+  const textarea = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
+  expect(LARGE_FILE_TEXT.length).toBeGreaterThan(16_000)
+  const file = new File([LARGE_FILE_TEXT], 'big-notes.txt', { type: 'text/plain' })
+  fireEvent.paste(textarea, {
+    clipboardData: {
+      items: [{ kind: 'file', type: 'text/plain', getAsFile: () => file }],
+      getData: () => '',
+    },
+  })
+
+  await waitFor(() => {
+    const el = document.querySelector<HTMLElement>('[role="group"][aria-label="Pending files"]')
+    if (el === null) throw new Error('file chip row missing')
+    expect(within(el).getByText('big-notes.txt')).toBeTruthy()
+  }, { timeout: 5_000 })
+
+  fireEvent.keyDown(textarea, { key: 'Enter' })
+
+  const card = await waitFor(() => {
+    const name = screen.getByText('big-notes.txt')
+    const button = name.closest('button')
+    if (button === null) throw new Error('file card head button missing')
+    return button
+  }, { timeout: 10_000 })
+
+  fireEvent.click(card)
+  await waitFor(() => {
+    const pre = card.closest('div')?.querySelector('pre')
+    if (pre?.textContent !== LARGE_FILE_TEXT) throw new Error('expanded large-file text mismatch')
+  }, { timeout: 5_000 })
+})

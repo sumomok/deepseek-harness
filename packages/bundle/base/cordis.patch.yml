@@ -351,6 +351,12 @@
       config:
         maxInlineBytes: 50000
 
+    # Oversized text-file attachments spill to a session-scoped artifact the
+    # model reads on demand (read/grep) instead of being truncated inline;
+    # see llm-deepseek/llm-pi-ai's resolveAttachmentSpill wiring.
+    - id: attachment-spill
+      name: '@deepseek-ai/dsh-attachment-spill'
+
     # Durability checkpoints before each model request and top-level dispatch.
     - id: session-checkpoint-policy
       name: '@deepseek-ai/dsh-session-checkpoint-policy'

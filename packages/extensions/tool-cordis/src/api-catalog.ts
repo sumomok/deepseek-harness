@@ -494,6 +494,29 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'attachmentSpill',
+    summary: '`ctx.attachmentSpill`: idempotent, session-scoped spill materialization for oversized text-file attachments.',
+    description: '`ctx.attachmentSpill`: idempotent, session-scoped spill materialization for oversized text-file attachments. See the module doc for the full contract.',
+    methods: [
+      {
+        signature: 'readonly inlineWholeUnderChars: number',
+        description: 'Character threshold at/under which a file\'s decoded text stays fully inline.',
+        parameters: [],
+      },
+      {
+        signature: 'readonly previewChars: number',
+        description: 'Characters of a spilled file\'s decoded text shown as a preview alongside its locator.',
+        parameters: [],
+      },
+      {
+        signature: 'async resolveSpill(attachment: FileAttachmentRef, content: string): Promise<SpillRef | undefined>',
+        description: 'Resolve the spill artifact backing one oversized attachment\'s lowered request text, materializing it at most once per (session, attachment id) in this process.',
+        parameters: [{ name: 'attachment', description: 'the durable file attachment being lowered.' }, { name: 'content', description: 'the attachment\'s already-decoded full UTF-8 text.' }],
+        returns: 'the artifact\'s `SpillRef`, or `undefined` when there is no live initiating agent to own and log the spill against, `ctx.spillStore` is not loaded, or the backend rejected the write (best-effort: the caller keeps the file inline, truncated, on `undefined`).',
+      },
+    ],
+  },
+  {
     key: 'authorization',
     summary: '`ctx.authorization`: a registry of credential-obtaining flows, one attempt at a time per key.',
     description: '`ctx.authorization`: a registry of credential-obtaining flows, one attempt at a time per key.',

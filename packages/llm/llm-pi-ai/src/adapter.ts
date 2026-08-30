@@ -57,6 +57,8 @@ import type {
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import { fileSpillOptionsFrom } from '@deepseek-ai/dsh-attachment-spill'
+import type { AttachmentSpill } from '@deepseek-ai/dsh-attachment-spill'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
@@ -94,6 +96,11 @@ export interface PiAiAdapterOptions {
   auth: PiAiAuthInjection
   /** Resolve the optional durable attachment service at request time. */
   resolveAttachments?: () => AttachmentStore | undefined
+  /**
+   * Resolve the current attachment-spill service; absence falls back to
+   * truncated inline text for an oversized file (never rejects file input).
+   */
+  resolveAttachmentSpill?: () => AttachmentSpill | undefined
   /**
    * Observe one assistant history message degrading to provider-neutral
    * conversion because its stored replay state is unusable by this build.
@@ -367,10 +374,13 @@ export class PiAiAdapter extends LlmAdapter {
       }
       const context = attachments === undefined
         ? toPiContext(options, undefined, onReplayDegrade)
-        : await toPiContext({ ...options, signal: watchdog.signal }, attachments, onReplayDegrade, profile.maxRequestImageBytes, {
-          maxPixels: profile.requestImagePixelBudget,
-          maxBytes: profile.requestImageMaxBytes,
-        })
+        : await toPiContext(
+          { ...options, signal: watchdog.signal }, attachments, onReplayDegrade, profile.maxRequestImageBytes, {
+            maxPixels: profile.requestImagePixelBudget,
+            maxBytes: profile.requestImageMaxBytes,
+          },
+          fileSpillOptionsFrom(this.config.resolveAttachmentSpill?.()),
+        )
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),
         ...options.temperature === undefined ? {} : { temperature: options.temperature },

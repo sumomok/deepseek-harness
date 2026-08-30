@@ -13,8 +13,9 @@ import {
   lowerFileBlocks,
   lowerFileBlocksFromStore,
   lowerFileBlockText,
+  lowerSpilledFileBlockText,
 } from '../src/index.ts'
-import type { ContentBlock } from '../src/index.ts'
+import type { ContentBlock, FileSpillOptions, LoweredFileSpillRef } from '../src/index.ts'
 
 const source = { kind: 'plugin' as const, plugin: 'test' }
 
@@ -104,6 +105,36 @@ describe('lowerFileBlockText', () => {
     const text = 'x'.repeat(DEFAULT_MAX_LOWERED_FILE_CHARS + 1)
     const block = lowerFileBlockText('big.log', text, text.length)
     expect(block).toContain(`…(truncated, ${String(DEFAULT_MAX_LOWERED_FILE_CHARS + 1)} chars total)`)
+  })
+})
+
+describe('lowerSpilledFileBlockText', () => {
+  const ref: LoweredFileSpillRef = { locator: '/spill/session-abc/xyz-notes.md', retrievalHint: 'Use read with offset/limit, or grep this path to search within it.' }
+
+  it('renders the locator line, a fenced preview, and a preview-size note', () => {
+    const block = lowerSpilledFileBlockText('notes.md', 'abcdefghij', 10, 4, ref)
+    expect(block).toBe(
+      'File notes.md (10 B, 10 chars) stored at: /spill/session-abc/xyz-notes.md. '
+      + 'Use read with offset/limit, or grep this path to search within it.\n'
+      + '```md\nabcd\n```\n(preview: first 4 of 10 chars)',
+    )
+  })
+
+  it('shows the whole text as the preview when previewChars exceeds the total', () => {
+    const block = lowerSpilledFileBlockText('a.txt', 'short', 5, 100, ref)
+    expect(block).toContain('(preview: first 5 of 5 chars)')
+    expect(block).toContain('```\nshort\n```')
+  })
+
+  it('counts code points, not UTF-16 units, for the preview cut and note', () => {
+    const block = lowerSpilledFileBlockText('a.txt', '🙂🙂🙂', 12, 2, ref)
+    expect(block).toContain('```\n🙂🙂\n```')
+    expect(block).toContain('(preview: first 2 of 3 chars)')
+  })
+
+  it('lengthens the fence past a backtick run in the preview text', () => {
+    const block = lowerSpilledFileBlockText('notes.md', '```\ncode\n```', 12, 100, ref)
+    expect(block).toContain('````md')
   })
 })
 
@@ -260,5 +291,60 @@ describe('lowerFileBlocksFromStore', () => {
     const ref = fileRef('missing.txt', 1)
     const messages = [createUserMessage({ content: [{ type: 'file', attachment: ref }], source })]
     await expect(lowerFileBlocksFromStore(messages, store)).rejects.toThrow(AttachmentError)
+  })
+
+  describe('with spill options', () => {
+    const SPILL_REF: LoweredFileSpillRef = { locator: '/spill/session-abc/xyz-big.md', retrievalHint: 'Use read with offset/limit, or grep this path to search within it.' }
+
+    it('keeps a file at or under inlineWholeUnderChars fully inline, never calling resolveSpill', async () => {
+      const store = new FakeAttachmentStore(new Context())
+      const ref = store.put('small.txt', 'hello')
+      const messages = [createUserMessage({ content: [{ type: 'file', attachment: ref }], source })]
+      const spill: FileSpillOptions = {
+        inlineWholeUnderChars: 5,
+        previewChars: 2,
+        resolveSpill: () => Promise.reject(new Error('must not be called')),
+      }
+      const resolved = await lowerFileBlocksFromStore(messages, store, undefined, spill)
+      expect(resolved[0]?.content).toEqual([
+        { type: 'text', text: lowerFileBlockText('small.txt', 'hello', ref.bytes, 5) },
+      ])
+    })
+
+    it('spills a file over inlineWholeUnderChars and renders the locator format', async () => {
+      const store = new FakeAttachmentStore(new Context())
+      const text = 'x'.repeat(20)
+      const ref = store.put('big.md', text)
+      const messages = [createUserMessage({ content: [{ type: 'file', attachment: ref }], source })]
+      const spill: FileSpillOptions = {
+        inlineWholeUnderChars: 10,
+        previewChars: 4,
+        resolveSpill: (attachment, content) => {
+          expect(attachment).toEqual(ref)
+          expect(content).toBe(text)
+          return Promise.resolve(SPILL_REF)
+        },
+      }
+      const resolved = await lowerFileBlocksFromStore(messages, store, undefined, spill)
+      expect(resolved[0]?.content).toEqual([
+        { type: 'text', text: lowerSpilledFileBlockText('big.md', text, ref.bytes, 4, SPILL_REF) },
+      ])
+    })
+
+    it('falls back to truncated inline text when resolveSpill returns undefined', async () => {
+      const store = new FakeAttachmentStore(new Context())
+      const text = 'x'.repeat(20)
+      const ref = store.put('big.md', text)
+      const messages = [createUserMessage({ content: [{ type: 'file', attachment: ref }], source })]
+      const spill: FileSpillOptions = {
+        inlineWholeUnderChars: 10,
+        previewChars: 4,
+        resolveSpill: () => Promise.resolve(undefined),
+      }
+      const resolved = await lowerFileBlocksFromStore(messages, store, undefined, spill)
+      expect(resolved[0]?.content).toEqual([
+        { type: 'text', text: lowerFileBlockText('big.md', text, ref.bytes, 10) },
+      ])
+    })
   })
 })

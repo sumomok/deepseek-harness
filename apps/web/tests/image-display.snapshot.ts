@@ -175,7 +175,7 @@ it('accepts a whole-page drop under the limits-labeled overlay and refuses an ov
   const overlay = await screen.findByRole('status')
   expect(overlay.textContent).toContain('Drag images or text files here to add them')
   await waitFor(() => {
-    expect(overlay.textContent).toContain('Up to 20 images, 5MB each; text content is sent as-is')
+    expect(overlay.textContent).toContain('Up to 20 images, 5MB each; text files are attached, and the model reads them on demand')
   })
 
   // Dropping on the transcript area (not the composer card) lands in the rail.
