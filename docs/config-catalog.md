@@ -354,6 +354,22 @@ export interface Config {
 
 Source: [`packages/attachment/attachment-local/src/index.ts:85`](../packages/attachment/attachment-local/src/index.ts)
 
+<a id="deepseek-aidsh-attachment-spill"></a>
+
+## `@deepseek-ai/dsh-attachment-spill`
+
+```ts config-catalog
+/** Plugin config (all optional — `static Config` supplies the defaults). */
+export interface Config {
+  /** Character threshold at/under which a file's decoded text stays fully inline. Above it, the file spills. */
+  inlineWholeUnderChars?: number
+  /** Characters of a spilled file's decoded text shown as a preview alongside its locator. */
+  previewChars?: number
+}
+```
+
+Source: [`packages/attachment/attachment-spill/src/index.ts:51`](../packages/attachment/attachment-spill/src/index.ts)
+
 <a id="deepseek-aidsh-bash-local"></a>
 
 ## `@deepseek-ai/dsh-bash-local`
@@ -826,6 +842,14 @@ export interface Config {
    * @default 1024
    */
   coldBlankProbeMaxBytes?: number
+  /**
+   * Filename substrings ADDED to the client's fixed pre-send
+   * secret-container confirmation heuristic (`.env`, `id_rsa`, etc.) — this
+   * field can only append to that base list, never replace or narrow it;
+   * the base list itself is not configurable here or anywhere.
+   * @default []
+   */
+  secretContainerExtraPatterns?: string[]
 }
 ```
 
@@ -993,7 +1017,7 @@ export interface DeepSeekCatalogModel {
 
 Depends on: [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:106`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:107`](../packages/llm/llm-deepseek/src/index.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 

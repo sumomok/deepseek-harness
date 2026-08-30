@@ -8,8 +8,9 @@ import type {
   RequestImageAttachment,
   StoredFileAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import { CallId, createMessage, createUserMessage, lowerFileBlockText, OFFLOADED_IMAGE_TEXT } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import { SpillLocator } from '@deepseek-ai/dsh-spill'
+import { CallId, createMessage, createUserMessage, lowerFileBlockText, lowerSpilledFileBlockText, OFFLOADED_IMAGE_TEXT } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FileSpillOptions, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { toPiContext } from '../src/context.ts'
 import { toPiAssistant } from '../src/replay.ts'
 
@@ -135,6 +136,37 @@ describe('pi-ai request context conversion', () => {
     expect(context.messages).toEqual([{
       role: 'user',
       content: `see attached${lowerFileBlockText('notes.txt', 'line one', fileRef.bytes)}`,
+      timestamp: 0,
+    }])
+  })
+
+  it('spills an oversized file through the optional spill options instead of truncating it', async () => {
+    const spillRef = { locator: SpillLocator('/spill/session-abc/xyz-notes.txt'), retrievalHint: 'Use read with offset/limit, or grep this path to search within it.' }
+    const resolveSpill = vi.fn(() => Promise.resolve(spillRef))
+    const spill: FileSpillOptions = { inlineWholeUnderChars: 4, previewChars: 2, resolveSpill }
+    const context = await toPiContext(
+      request([user([{ type: 'file', attachment: fileRef }])]),
+      attachments, undefined, undefined, undefined, spill,
+    )
+
+    expect(resolveSpill).toHaveBeenCalledWith(fileRef, 'line one')
+    expect(context.messages).toEqual([{
+      role: 'user',
+      content: lowerSpilledFileBlockText('notes.txt', 'line one', fileRef.bytes, 2, spillRef),
+      timestamp: 0,
+    }])
+  })
+
+  it('falls back to truncated inline text when the spill options resolve undefined', async () => {
+    const spill: FileSpillOptions = { inlineWholeUnderChars: 4, previewChars: 2, resolveSpill: () => Promise.resolve(undefined) }
+    const context = await toPiContext(
+      request([user([{ type: 'file', attachment: fileRef }])]),
+      attachments, undefined, undefined, undefined, spill,
+    )
+
+    expect(context.messages).toEqual([{
+      role: 'user',
+      content: lowerFileBlockText('notes.txt', 'line one', fileRef.bytes, 4),
       timestamp: 0,
     }])
   })

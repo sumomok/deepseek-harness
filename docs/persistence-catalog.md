@@ -239,6 +239,28 @@ Types: [TokenUsage](subsystems/llm-streaming.md)
 
 Source: [`packages/core/session/src/types.ts:277`](../packages/core/session/src/types.ts)
 
+### `attachment/*`
+
+<a id="attachmentmaterialized--log-only"></a>
+
+#### `attachment/materialized` — log-only
+
+```ts persistence-catalog
+/**
+ * Durable, non-surface record of one attachment lowered to a
+ * session-scoped spill artifact instead of an inline truncated preview.
+ * Recorded once per (session, attachment id) the first time this
+ * process spills it; log replay uses the most recent record for an
+ * attachment id to reconstruct the exact locator text a past request
+ * showed the model. A later resumed process with an empty in-process
+ * cache may append a second record for the same attachment id under a
+ * fresh locator rather than reusing the earlier one.
+ */
+'attachment/materialized': AttachmentMaterializedEventData
+```
+
+Source: [`packages/attachment/attachment-spill/src/types.ts:21`](../packages/attachment/attachment-spill/src/types.ts)
+
 ### `command/*`
 
 <a id="commanddone--log-only"></a>

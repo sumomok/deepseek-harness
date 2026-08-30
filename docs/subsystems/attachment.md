@@ -273,4 +273,29 @@ abstract readFile(ref: FileAttachmentRef, signal?: AbortSignal): Promise<StoredF
 ```
 
 Source: [`packages/attachment/attachment/src/index.ts`](../../packages/attachment/attachment/src/index.ts)
+
+<a id="ctxattachmentspill--attachmentspill"></a>
+
+### `ctx.attachmentSpill` — `AttachmentSpill`
+
+`ctx.attachmentSpill`: idempotent, session-scoped spill materialization for oversized text-file attachments. See the module doc for the full contract.
+
+```ts cordis-catalog
+/**
+ * Resolve the spill artifact backing one oversized attachment's lowered
+ * request text, materializing it at most once per (session, attachment id)
+ * in this process.
+ * @param attachment - the durable file attachment being lowered.
+ * @param content - the attachment's already-decoded full UTF-8 text.
+ * @returns the artifact's `SpillRef`, or `undefined` when there is no live
+ *   initiating agent to own and log the spill against, `ctx.spillStore` is
+ *   not loaded, or the backend rejected the write (best-effort: the caller
+ *   keeps the file inline, truncated, on `undefined`).
+ */
+async resolveSpill(attachment: FileAttachmentRef, content: string): Promise<SpillRef | undefined>
+```
+
+Types: [SpillRef](spill.md)
+
+Source: [`packages/attachment/attachment-spill/src/index.ts`](../../packages/attachment/attachment-spill/src/index.ts)
 <!-- END GENERATED cordis-surface -->
