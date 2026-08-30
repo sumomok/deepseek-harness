@@ -54,9 +54,15 @@ describe('attachment rejection copy', () => {
     mediaTypes: ['image/png'] as const,
   }
 
-  it('renders megabytes without a trailing fraction unless one exists', () => {
-    expect(attachmentSizeText(10 * 1024 * 1024)).toBe('10MB')
-    expect(attachmentSizeText(2.5 * 1024 * 1024)).toBe('2.5MB')
+  it('picks bytes, kilobytes, or megabytes by magnitude, dropping a trailing fraction unless one exists', () => {
+    expect(attachmentSizeText(0)).toBe('0 B')
+    expect(attachmentSizeText(11)).toBe('11 B')
+    expect(attachmentSizeText(1023)).toBe('1023 B')
+    expect(attachmentSizeText(1024)).toBe('1 KB')
+    expect(attachmentSizeText(512 * 1024)).toBe('512 KB')
+    expect(attachmentSizeText(1024 * 1024 - 1)).toBe('1024 KB')
+    expect(attachmentSizeText(10 * 1024 * 1024)).toBe('10 MB')
+    expect(attachmentSizeText(2.5 * 1024 * 1024)).toBe('2.5 MB')
   })
 
   it('maps user-solvable reasons to limit-naming copy', () => {
@@ -66,8 +72,8 @@ describe('attachment rejection copy', () => {
     expect(attachmentErrorText(t, 'INVALID_IMAGE')).toBe('仅支持 PNG、JPG、WebP、GIF 格式的图片')
     expect(attachmentErrorText(t, 'IMAGE_TYPE_MISMATCH')).toBe('仅支持 PNG、JPG、WebP、GIF 格式的图片')
     expect(attachmentErrorText(t, 'TOO_MANY_IMAGES', limits)).toBe('一条消息最多添加 20 张图片')
-    expect(attachmentErrorText(t, 'IMAGE_TOO_LARGE', limits)).toBe('单张图片不能超过 5MB')
-    expect(attachmentErrorText(t, 'IMAGES_TOO_LARGE', limits)).toBe('图片总大小超过 100MB，请移除部分图片')
+    expect(attachmentErrorText(t, 'IMAGE_TOO_LARGE', limits)).toBe('单张图片不能超过 5 MB')
+    expect(attachmentErrorText(t, 'IMAGES_TOO_LARGE', limits)).toBe('图片总大小超过 100 MB，请移除部分图片')
     expect(attachmentErrorText(t, 'IMAGE_DIMENSION_TOO_LARGE', limits)).toBe('图片宽高不能超过 2000px，请缩小后重试')
     expect(attachmentErrorText(enT, 'TOO_MANY_IMAGES', limits)).toBe('A message can include up to 20 images')
   })
@@ -90,8 +96,8 @@ describe('attachment rejection copy', () => {
     expect(attachmentErrorText(t, 'NOT_TEXT_FILE')).toBe('仅支持文本文件')
     expect(attachmentErrorText(t, 'INVALID_FILE_NAME')).toBe('文件名无效，请重命名后重试')
     expect(attachmentErrorText(t, 'TOO_MANY_FILES', undefined, fileLimits)).toBe('一条消息最多添加 10 个文件')
-    expect(attachmentErrorText(t, 'FILE_TOO_LARGE', undefined, fileLimits)).toBe('单个文件不能超过 1MB')
-    expect(attachmentErrorText(t, 'FILES_TOO_LARGE', undefined, fileLimits)).toBe('文件总大小超过 10MB，请移除部分文件')
+    expect(attachmentErrorText(t, 'FILE_TOO_LARGE', undefined, fileLimits)).toBe('单个文件不能超过 1 MB')
+    expect(attachmentErrorText(t, 'FILES_TOO_LARGE', undefined, fileLimits)).toBe('文件总大小超过 10 MB，请移除部分文件')
     expect(attachmentErrorText(enT, 'TOO_MANY_FILES', undefined, fileLimits)).toBe('A message can include up to 10 files')
     expect(attachmentErrorText(t, 'SUBAGENT_FILE_UNSUPPORTED')).toBe('子智能体会话暂不支持文件')
     expect(attachmentErrorText(enT, 'SUBAGENT_FILE_UNSUPPORTED')).toBe('Subagent sessions do not support files yet')

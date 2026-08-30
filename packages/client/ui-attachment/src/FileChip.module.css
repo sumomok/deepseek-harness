@@ -1,24 +1,24 @@
-/* Text-file draft chip: a name+size pill beside the image thumbnail rail —
-   its own shape, not the rail's 64px square, since a file has nothing to
-   thumbnail. */
+/* Text-file draft chip: a glyph+name+size pill beside the image thumbnail
+   rail — its own shape, not the rail's 64px square, since a file has
+   nothing to thumbnail. */
 
 .row {
   display: flex;
   flex-wrap: wrap;
   gap: 8px;
+  padding: 4px 12px 0;
 }
 
 .chip {
-  position: relative;
   display: flex;
-  max-width: 220px;
-  height: 40px;
+  max-width: 320px;
+  height: 28px;
   align-items: center;
-  gap: 6px;
-  padding: 0 28px 0 12px;
+  gap: 8px;
+  padding: 0 6px 0 10px;
   border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
-  border-radius: 12px;
-  background: var(--dsw-alias-interactive-bg-hover);
+  border-radius: 8px;
+  background: var(--dsw-alias-bg-layer-2);
 }
 
 /* Pre-send secret-container heuristic match: outline only, no popup — the
@@ -31,7 +31,14 @@
   flex: none;
 }
 
+.glyph {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+}
+
 .name {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   color: var(--dsw-alias-label-primary);
   font-size: 13px;
@@ -39,21 +46,26 @@
   white-space: nowrap;
 }
 
+.chipLabel {
+  flex: none;
+  color: var(--dsw-alias-state-warn-primary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
 .size {
   flex: none;
   color: var(--dsw-alias-label-secondary);
   font-size: 12px;
+  font-variant-numeric: tabular-nums;
 }
 
 .remove {
-  position: absolute;
-  top: 4px;
-  right: 4px;
-  z-index: 1;
+  flex: none;
   display: grid;
   place-items: center;
-  width: 18px;
-  height: 18px;
+  width: 16px;
+  height: 16px;
   padding: 0;
   border: none;
   border-radius: 50%;
@@ -80,4 +92,36 @@
   .remove {
     transition: none;
   }
+}
+
+/* Below-row reinforcement of the secret-container warning: the chip's own
+   dot+outline is easy to miss, so this line names the first matched file in
+   words while the send-time confirmation gate is still ahead. */
+.notice {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+  padding: 0 12px;
+  font-size: 12.5px;
+}
+
+.noticeText {
+  color: var(--dsw-alias-state-warn-primary);
+}
+
+.noticeRemove {
+  flex: none;
+  margin: 0;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+  font: inherit;
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.noticeRemove:hover {
+  color: var(--dsw-alias-label-primary);
 }

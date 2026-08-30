@@ -32,6 +32,9 @@ const t = ((key: string, params?: Readonly<Record<string, unknown>>): string => 
     'image.dropBlocked': '当前无法添加图片',
     'image.dropTitle': '图片拖动到此处即可添加',
     'file.pending': '待发送文件',
+    'secretConfirm.chipLabel': '密钥文件',
+    'secretConfirm.chipLabelTitle': '这类文件通常存放密钥，发送前会再向你确认',
+    'secretConfirm.noticeRemove': '移除',
   }
   if (key === 'image.remove') {
     const name = params?.name
@@ -40,6 +43,10 @@ const t = ((key: string, params?: Readonly<Record<string, unknown>>): string => 
   if (key === 'file.remove') {
     const name = params?.name
     return `移除文件 ${typeof name === 'string' ? name : ''}`
+  }
+  if (key === 'secretConfirm.notice') {
+    const name = params?.name
+    return `${typeof name === 'string' ? name : ''} 这类文件通常存放密钥，发送前会再向你确认`
   }
   if (key === 'image.dropDesc') {
     const count = params?.count
@@ -215,7 +222,7 @@ describe('ComposerAttachments', () => {
     const view = render(<ComposerAttachments {...props({ attachments: [image, file], onRemoveImage })} />)
 
     expect(view.getByText('notes.txt')).toBeTruthy()
-    expect(view.getByText('0.0MB')).toBeTruthy()
+    expect(view.getByText('11 B')).toBeTruthy()
     fireEvent.click(view.getByRole('button', { name: '移除文件 notes.txt' }))
     expect(onRemoveImage).toHaveBeenCalledWith(file.id)
     // The image rail is unaffected by the file chip's presence.
@@ -228,7 +235,7 @@ describe('ComposerAttachments', () => {
     expect(view.getByText('待发送文件')).toBeTruthy()
   })
 
-  it('marks a file chip in secretContainerHitIds with the warning visual, and no other chip', () => {
+  it('marks a file chip in secretContainerHitIds with the warning visual and inline label, and no other chip', () => {
     const hit = textAttachment('draft-4', '.env', 'SECRET=1')
     const plain = textAttachment('draft-5', 'notes.txt', 'hello')
     const view = render(<ComposerAttachments {...props({
@@ -237,12 +244,42 @@ describe('ComposerAttachments', () => {
     })} />)
     const warned = view.container.querySelector('[data-secret-warning]')
     expect(warned?.textContent).toContain('.env')
+    expect(warned?.textContent).toContain('密钥文件')
     expect(view.container.querySelectorAll('[data-secret-warning]')).toHaveLength(1)
   })
 
-  it('omits the warning visual entirely when secretContainerHitIds is absent', () => {
+  it('omits the warning visual and label entirely when secretContainerHitIds is absent', () => {
     const file = textAttachment('draft-6', '.env', 'SECRET=1')
     const view = render(<ComposerAttachments {...props({ attachments: [file] })} />)
     expect(view.container.querySelector('[data-secret-warning]')).toBeNull()
+    expect(view.queryByText('密钥文件')).toBeNull()
+  })
+
+  it('shows the below-row secret-container notice only while a chip warns, naming the first match', () => {
+    const plain = textAttachment('draft-7', 'notes.txt', 'hello')
+    const view = render(<ComposerAttachments {...props({ attachments: [plain] })} />)
+    expect(view.queryByText(/这类文件通常存放密钥/)).toBeNull()
+
+    const hit = textAttachment('draft-8', '.env', 'SECRET=1')
+    const secondHit = textAttachment('draft-9', 'id_rsa', 'KEY')
+    view.rerender(<ComposerAttachments {...props({
+      attachments: [plain, hit, secondHit],
+      secretContainerHitIds: new Set([hit.id, secondHit.id]),
+    })} />)
+    // Names the FIRST matched file, not the second, even though both warn.
+    expect(view.getByText('.env 这类文件通常存放密钥，发送前会再向你确认')).toBeTruthy()
+    expect(view.queryByText(/id_rsa 这类文件/)).toBeNull()
+  })
+
+  it('removes the first matched file when the notice\'s remove control is clicked', () => {
+    const onRemoveImage = vi.fn()
+    const hit = textAttachment('draft-10', '.env', 'SECRET=1')
+    const view = render(<ComposerAttachments {...props({
+      attachments: [hit],
+      secretContainerHitIds: new Set([hit.id]),
+      onRemoveImage,
+    })} />)
+    fireEvent.click(view.getByRole('button', { name: '移除 .env' }))
+    expect(onRemoveImage).toHaveBeenCalledWith(hit.id)
   })
 })

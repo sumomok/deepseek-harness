@@ -323,7 +323,7 @@ describe('image draft rail', () => {
     // Per-file bytes.
     const overFile = bench({ addImages: vi.fn(() => null), imageLimits: limits })
     intake(overFile, [png(1024 * 1024 + 1, 'big.png')])
-    expect(overFile.view.getByRole('alert').textContent).toContain('单张图片不能超过 1MB')
+    expect(overFile.view.getByRole('alert').textContent).toContain('单张图片不能超过 1 MB')
     expect(overFile.props.addImages).not.toHaveBeenCalled()
     cleanup()
     // Aggregate bytes across the existing rail plus the new batch.
@@ -331,7 +331,7 @@ describe('image draft rail', () => {
     const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file: held, previewUrl: 'blob:held' }
     const overTotal = bench({ addImages: vi.fn(() => null), imageLimits: limits, attachments: [attachment] })
     intake(overTotal, [png(1024 * 1024, 'more.png')])
-    expect(overTotal.view.getByRole('alert').textContent).toContain('图片总大小超过 2MB')
+    expect(overTotal.view.getByRole('alert').textContent).toContain('图片总大小超过 2 MB')
     expect(overTotal.props.addImages).not.toHaveBeenCalled()
     cleanup()
     // Within every limit: the batch passes through to addImages.
@@ -361,7 +361,7 @@ describe('image draft rail', () => {
     // Per-file bytes.
     const overFile = bench({ addFiles: vi.fn(() => null), fileLimits: limits })
     intake(overFile, [txt(1024 * 1024 + 1, 'big.txt')])
-    expect(overFile.view.getByRole('alert').textContent).toContain('单个文件不能超过 1MB')
+    expect(overFile.view.getByRole('alert').textContent).toContain('单个文件不能超过 1 MB')
     expect(overFile.props.addFiles).not.toHaveBeenCalled()
     cleanup()
     // Aggregate bytes across the existing chip row plus the new batch — a
@@ -370,7 +370,7 @@ describe('image draft rail', () => {
     const heldFile = { kind: 'file' as const, id: 'draft-1' as DraftAttachmentId, file: txt(1024 * 1024 * 1.5, 'held.txt') }
     const overTotal = bench({ addFiles: vi.fn(() => null), fileLimits: limits, attachments: [heldImage, heldFile] })
     intake(overTotal, [txt(1024 * 1024, 'more.txt')])
-    expect(overTotal.view.getByRole('alert').textContent).toContain('文件总大小超过 2MB')
+    expect(overTotal.view.getByRole('alert').textContent).toContain('文件总大小超过 2 MB')
     expect(overTotal.props.addFiles).not.toHaveBeenCalled()
     cleanup()
     // Within every limit: the batch passes through to addFiles.
@@ -416,7 +416,7 @@ describe('image draft rail', () => {
         mediaTypes: ['image/png'] as const,
       },
     })
-    expect(attachmentOwner(result.slotCalls).dropLimits).toEqual({ count: 20, size: '5MB' })
+    expect(attachmentOwner(result.slotCalls).dropLimits).toEqual({ count: 20, size: '5 MB' })
   })
 
   it('announces server attachment rejections as product copy, other codes as developer text', () => {

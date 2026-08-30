@@ -5,13 +5,19 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConversationKey } from './locales.ts'
 
 /**
- * Byte count as user-facing megabytes (`10MB`, `2.5MB`).
+ * Byte count as user-facing text: whole bytes under 1 KiB (`512 B`), whole
+ * kilobytes under 1 MiB (`512 KB`), else megabytes to one decimal place
+ * unless the value is exact (`2.5 MB`, `10 MB`).
  * @param bytes - the byte count.
- * @returns the rounded megabyte text.
+ * @returns the display-ready size text.
  */
 export function attachmentSizeText(bytes: number): string {
-  const mb = bytes / (1024 * 1024)
-  return `${Number.isInteger(mb) ? String(mb) : mb.toFixed(1)}MB`
+  const KIB = 1024
+  const MIB = 1024 * 1024
+  if (bytes < KIB) return `${String(Math.round(bytes))} B`
+  if (bytes < MIB) return `${String(Math.round(bytes / KIB))} KB`
+  const mb = bytes / MIB
+  return `${Number.isInteger(mb) ? String(mb) : mb.toFixed(1)} MB`
 }
 
 /**

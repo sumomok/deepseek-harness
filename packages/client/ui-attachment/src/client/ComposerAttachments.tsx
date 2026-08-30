@@ -10,7 +10,8 @@ import { FileChipRow } from '../FileChip.tsx'
 import type { FileChipItem } from '../FileChip.tsx'
 import { ImageLightbox } from '../ImageLightbox.tsx'
 import {
-  attachmentRailLabels, dropOverlayLabels, fileChipGroupLabel, lightboxLabels,
+  attachmentRailLabels, dropOverlayLabels, fileChipGroupLabel, fileChipWarningLabel, fileChipWarningNotice,
+  lightboxLabels,
 } from './labels.ts'
 import css from './ComposerAttachments.module.css'
 
@@ -124,6 +125,8 @@ export function ComposerAttachments({
     [attachments, secretContainerHitIds, t],
   )
 
+  const firstWarningChip = useMemo(() => chipItems.find(item => item.warning === true), [chipItems])
+
   return (
     <>
       {dragActive && (
@@ -143,11 +146,17 @@ export function ComposerAttachments({
         </div>
       )}
       {chipItems.length > 0 && (
-        <FileChipRow
-          items={chipItems}
-          groupLabel={fileChipGroupLabel(t)}
-          onRemove={(item) => { onRemoveImage(item.attachment.id) }}
-        />
+        <div className={railItems.length > 0 ? css.chipsAfterRail : undefined}>
+          <FileChipRow
+            items={chipItems}
+            groupLabel={fileChipGroupLabel(t)}
+            onRemove={(item) => { onRemoveImage(item.attachment.id) }}
+            warningLabel={fileChipWarningLabel(t)}
+            warningNotice={firstWarningChip === undefined
+              ? undefined
+              : fileChipWarningNotice(t, firstWarningChip.name, () => { onRemoveImage(firstWarningChip.attachment.id) })}
+          />
+        </div>
       )}
       {preview !== null && (
         <ImageLightbox
