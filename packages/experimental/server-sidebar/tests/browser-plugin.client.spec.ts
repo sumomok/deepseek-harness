@@ -175,28 +175,64 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(remote.commands.execute).toHaveBeenCalledWith('session-a', '/show-content-page home', [])
   })
 
-  it('opens the workbench directly, with no persist, when the recorded id is live', async () => {
+  it('onOpenWorkbenchOnLoad reopens the recorded session directly when it is live, with no persist', async () => {
     const { ctx, sessions } = await bench()
     const { injected, actions } = injectSidebar(ctx)
-    await injected.onOpenWorkbench('home-1', true)
+    await injected.onOpenWorkbenchOnLoad('home-1', true)
     expect(sessions.open).toHaveBeenCalledWith('home-1')
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
-  it('creates a fresh workbench session and persists its id when there is none recorded', async () => {
+  it('onOpenWorkbenchOnLoad creates a fresh workbench session and persists its id when there is none recorded', async () => {
     const { ctx, workspaces, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
-    await injected.onOpenWorkbench(undefined, false)
+    await injected.onOpenWorkbenchOnLoad(undefined, false)
     expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
   })
 
-  it('leaves a workbench open with no session and no workspace to create one in', async () => {
+  it('onOpenWorkbenchOnLoad leaves a workbench open with no session and no workspace to create one in', async () => {
     const { ctx, sessions } = await bench()
     const { injected, actions } = injectSidebar(ctx)
-    await injected.onOpenWorkbench(undefined, false)
+    await injected.onOpenWorkbenchOnLoad(undefined, false)
+    expect(sessions.open).not.toHaveBeenCalled()
+    expect(actions.setServerMenu).not.toHaveBeenCalled()
+  })
+
+  it('onOpenWorkbench (click) reopens the recorded session directly when it is live and still blank', async () => {
+    const { ctx, sessions } = await bench()
+    const { injected, actions } = injectSidebar(ctx)
+    await injected.onOpenWorkbench('home-1', true, true)
+    expect(sessions.open).toHaveBeenCalledWith('home-1')
+    expect(actions.setServerMenu).not.toHaveBeenCalled()
+  })
+
+  it('onOpenWorkbench (click) creates a fresh session when the recorded one is live but no longer blank', async () => {
+    const { ctx, workspaces, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { injected, actions } = injectSidebar(ctx)
+    stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
+    await injected.onOpenWorkbench('home-1', true, false)
+    expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
+    expect(sessions.open).toHaveBeenCalledWith('new-session')
+    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
+  })
+
+  it('onOpenWorkbench (click) creates a fresh workbench session and persists its id when there is none recorded', async () => {
+    const { ctx, workspaces, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { injected, actions } = injectSidebar(ctx)
+    stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
+    await injected.onOpenWorkbench(undefined, false, false)
+    expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
+    expect(sessions.open).toHaveBeenCalledWith('new-session')
+    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
+  })
+
+  it('onOpenWorkbench (click) leaves a workbench open with no session and no workspace to create one in', async () => {
+    const { ctx, sessions } = await bench()
+    const { injected, actions } = injectSidebar(ctx)
+    await injected.onOpenWorkbench(undefined, false, false)
     expect(sessions.open).not.toHaveBeenCalled()
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })

@@ -1,11 +1,12 @@
 /**
- * `nextOrder`/`sortedWorkflows` (pure array helpers) and `openWorkbench`/
- * `openWorkflow` (session-orchestration, decisions ①/⑥/⑧).
+ * `nextOrder`/`sortedWorkflows`/`reordered` (pure array helpers) and
+ * `openWorkbenchOnLoad`/`openWorkbenchOnClick`/`openWorkflow`
+ * (session-orchestration, decisions ①/⑥/⑧).
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  nextOrder, openWorkbench, openWorkflow, sortedWorkflows,
+  nextOrder, openWorkbenchOnClick, openWorkbenchOnLoad, openWorkflow, reordered, sortedWorkflows,
 } from '../src/client/workflow-actions.ts'
 import type { ServerMenuWorkflow } from '../src/client/workflow-api.ts'
 
@@ -53,6 +54,69 @@ describe('sortedWorkflows', () => {
   })
 })
 
+describe('reordered', () => {
+  it('moves the dragged workflow before the named row, shifting the rest down', () => {
+    const workflows = [
+      workflow({ id: 'a', order: 0 }), workflow({ id: 'b', order: 1 }), workflow({ id: 'c', order: 2 }),
+    ]
+    const next = reordered(workflows, 'c', 'a')
+    expect(sortedWorkflows(next).map(w => w.id)).toEqual(['c', 'a', 'b'])
+  })
+
+  it('moves the dragged workflow after the named row by naming its successor', () => {
+    const workflows = [
+      workflow({ id: 'a', order: 0 }), workflow({ id: 'b', order: 1 }), workflow({ id: 'c', order: 2 }),
+    ]
+    // "Drop after b" is expressed as "insert before b's successor" (c).
+    const next = reordered(workflows, 'a', 'c')
+    expect(sortedWorkflows(next).map(w => w.id)).toEqual(['b', 'a', 'c'])
+  })
+
+  it('appends to the end when beforeId is undefined', () => {
+    const workflows = [workflow({ id: 'a', order: 0 }), workflow({ id: 'b', order: 1 })]
+    const next = reordered(workflows, 'a', undefined)
+    expect(sortedWorkflows(next).map(w => w.id)).toEqual(['b', 'a'])
+  })
+
+  it('appends to the end on a self-drop (beforeId equal to dragId)', () => {
+    const workflows = [workflow({ id: 'a', order: 0 }), workflow({ id: 'b', order: 1 })]
+    const next = reordered(workflows, 'a', 'a')
+    expect(sortedWorkflows(next).map(w => w.id)).toEqual(['b', 'a'])
+  })
+
+  it('appends to the end when beforeId names no workflow (a stale drop target)', () => {
+    const workflows = [workflow({ id: 'a', order: 0 }), workflow({ id: 'b', order: 1 })]
+    const next = reordered(workflows, 'a', 'gone')
+    expect(sortedWorkflows(next).map(w => w.id)).toEqual(['b', 'a'])
+  })
+
+  it('answers a plain copy, order untouched, when dragId names no workflow', () => {
+    const workflows = [workflow({ id: 'a', order: 0 }), workflow({ id: 'b', order: 1 })]
+    const next = reordered(workflows, 'gone', 'a')
+    expect(next).toEqual(workflows)
+    expect(next).not.toBe(workflows)
+  })
+
+  it('rewrites order to a clean 0..n-1 sequence, ignoring the previous values entirely', () => {
+    // Pre-drag display order (c's order is lowest; a and b tie and break on
+    // id) is c, a, b. Dragging c to the end yields a, b, c.
+    const workflows = [
+      workflow({ id: 'a', order: 5 }), workflow({ id: 'b', order: 5 }), workflow({ id: 'c', order: 1 }),
+    ]
+    const next = reordered(workflows, 'c', undefined)
+    expect(next.find(w => w.id === 'a')?.order).toBe(0)
+    expect(next.find(w => w.id === 'b')?.order).toBe(1)
+    expect(next.find(w => w.id === 'c')?.order).toBe(2)
+  })
+
+  it('does not mutate the input array', () => {
+    const workflows = [workflow({ id: 'a', order: 0 }), workflow({ id: 'b', order: 1 })]
+    const copy = [...workflows]
+    reordered(workflows, 'b', 'a')
+    expect(workflows).toEqual(copy)
+  })
+})
+
 /**
  * Build a fake context, plus the raw `sessions.open` spy on the side: reading
  * it back off `ctx` for an assertion would type it as `ClientContext`'s
@@ -81,30 +145,66 @@ function fakeContext(overrides: {
   return { ctx, open }
 }
 
-describe('openWorkbench', () => {
-  it('opens the recorded session directly when it is live', async () => {
+describe('openWorkbenchOnLoad', () => {
+  it('reopens the recorded session whenever it is live, regardless of content', async () => {
     const { ctx, open } = fakeContext({})
-    const outcome = await openWorkbench(ctx, 'home-1', true)
+    const outcome = await openWorkbenchOnLoad(ctx, 'home-1', true)
     expect(outcome).toEqual({ sessionId: 'home-1', created: false })
     expect(open).toHaveBeenCalledWith('home-1')
   })
 
   it('creates a fresh session, ignoring any current session, when there is no recorded id', async () => {
     const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1' })
-    const outcome = await openWorkbench(ctx, undefined, false)
+    const outcome = await openWorkbenchOnLoad(ctx, undefined, false)
     expect(outcome).toEqual({ sessionId: 'new-session', created: true })
   })
 
   it('creates a fresh session when the recorded id is no longer live', async () => {
     const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1' })
-    const outcome = await openWorkbench(ctx, 'gone', false)
+    const outcome = await openWorkbenchOnLoad(ctx, 'gone', false)
     expect(outcome).toEqual({ sessionId: 'new-session', created: true })
   })
 
   it('answers undefined with nowhere to create a session', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
     const { ctx } = fakeContext({})
-    expect(await openWorkbench(ctx, undefined, false)).toBeUndefined()
+    expect(await openWorkbenchOnLoad(ctx, undefined, false)).toBeUndefined()
+    warn.mockRestore()
+  })
+})
+
+describe('openWorkbenchOnClick', () => {
+  it('reopens the recorded session when it is live and still blank', async () => {
+    const { ctx, open } = fakeContext({})
+    const outcome = await openWorkbenchOnClick(ctx, 'home-1', true, true)
+    expect(outcome).toEqual({ sessionId: 'home-1', created: false })
+    expect(open).toHaveBeenCalledWith('home-1')
+  })
+
+  it('creates a fresh session when the recorded one is live but no longer blank', async () => {
+    const { ctx, open } = fakeContext({ recentWorkspaceId: 'workspace-1' })
+    const outcome = await openWorkbenchOnClick(ctx, 'home-1', true, false)
+    expect(outcome).toEqual({ sessionId: 'new-session', created: true })
+    // The fresh session, not the recorded (non-blank) one, is what gets opened.
+    expect(open).toHaveBeenCalledWith('new-session')
+  })
+
+  it('creates a fresh session when the recorded id is no longer live, ignoring isBlank', async () => {
+    const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1' })
+    const outcome = await openWorkbenchOnClick(ctx, 'gone', false, true)
+    expect(outcome).toEqual({ sessionId: 'new-session', created: true })
+  })
+
+  it('creates a fresh session, ignoring any current session, when there is no recorded id', async () => {
+    const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1' })
+    const outcome = await openWorkbenchOnClick(ctx, undefined, false, false)
+    expect(outcome).toEqual({ sessionId: 'new-session', created: true })
+  })
+
+  it('answers undefined with nowhere to create a session', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx } = fakeContext({})
+    expect(await openWorkbenchOnClick(ctx, undefined, false, false)).toBeUndefined()
     warn.mockRestore()
   })
 })

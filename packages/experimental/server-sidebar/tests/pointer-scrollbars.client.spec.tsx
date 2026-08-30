@@ -42,13 +42,16 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
       collapsed={false} width={300}
       t={t}
       pages={[]} onOpenPage={() => Promise.resolve()}
+      onOpenWorkbenchOnLoad={() => Promise.resolve()}
       onOpenWorkbench={() => Promise.resolve()} onOpenWorkflow={() => Promise.resolve()}
       onSaveWorkflows={() => Promise.resolve()}
       useStore={(<S,>(sel: (s: { workflows: never[]; workbenchSessionId: undefined; error: undefined }) => S): S =>
         sel({ workflows: [], workbenchSessionId: undefined, error: undefined }))}
       actions={{ setServerMenu: vi.fn(), setError: vi.fn() }}
       useSessions={emptySessions}
-      useWorkspaces={() => { throw new Error('shell must not read global hooks in this bench') }}
+      useWorkspaces={((<S,>(sel: (s: { recentWorkspaceId: string | undefined }) => S): S => (
+        sel({ recentWorkspaceId: 'workspace-1' })
+      )) as unknown) as ServerSidebarRootComponentProps['useWorkspaces']}
       renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
         options?.fallback ?? <div data-testid="region" />) as ServerSidebarRootComponentProps['renderSlot']}
     />,

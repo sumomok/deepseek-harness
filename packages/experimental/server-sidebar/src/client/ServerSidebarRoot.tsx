@@ -62,10 +62,20 @@ export interface ServerSidebarInjected {
    */
   onOpenPage: (pageId: string) => Promise<void>
   /**
-   * Open the workbench, creating (or re-creating) its persistent conversation
-   * first when needed. Not awaited by the component.
+   * Land on the workbench once the sidebar first loads with no session
+   * selected: continuity semantics — reopens the recorded session whenever
+   * it is still live, whatever content it already carries. Re-creates only
+   * when the recorded session is gone. Fired once by the mount-time effect,
+   * not awaited by it. Contrast `onOpenWorkbench`, the click path.
    */
-  onOpenWorkbench: (workbenchSessionId: string | undefined, isLive: boolean) => Promise<void>
+  onOpenWorkbenchOnLoad: (workbenchSessionId: string | undefined, isLive: boolean) => Promise<void>
+  /**
+   * Open the workbench on a click: blank-draft semantics — always lands on
+   * an empty page, reusing the recorded session only when it is both live
+   * and still blank. Not awaited by the component. Contrast
+   * `onOpenWorkbenchOnLoad`, the auto-open-on-load path.
+   */
+  onOpenWorkbench: (workbenchSessionId: string | undefined, isLive: boolean, isBlank: boolean) => Promise<void>
   /**
    * Open a workflow, degrading to a fresh conversation with its navigation
    * snapshot replayed when its bound one is gone. Not awaited by the component.
@@ -92,8 +102,8 @@ export type ServerSidebarRootComponentProps =
  */
 export function ServerSidebarRoot({
   width, t, renderSlot,
-  pages, onOpenPage, onOpenWorkbench, onOpenWorkflow, onSaveWorkflows,
-  useStore, useSessions,
+  pages, onOpenPage, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveWorkflows,
+  useStore, useSessions, useWorkspaces,
 }: ServerSidebarRootComponentProps) {
   const workflows = useStore(state => state.workflows)
   const workbenchSessionId = useStore(state => state.workbenchSessionId)
@@ -106,6 +116,12 @@ export function ServerSidebarRoot({
   const current = useSessions(state => state.current)
   const phase = useSessions(state => state.phase)
   const liveSessionIds = useMemo(() => new Set(Object.keys(byId)), [byId])
+  const blankSessionIds = useMemo(
+    () => new Set(Object.entries(byId).filter(([, summary]) => summary.blank).map(([id]) => id)),
+    [byId],
+  )
+  const workbenchIsLive = workbenchSessionId !== undefined && liveSessionIds.has(workbenchSessionId)
+  const workbenchIsBlank = workbenchSessionId !== undefined && blankSessionIds.has(workbenchSessionId)
   // Decision ④'s green dot reuses the session list's own `completed` bit
   // ("finished while not selected and not yet opened") rather than a second
   // last-seen bookkeeping mechanism — see the package README.
@@ -113,20 +129,42 @@ export function ServerSidebarRoot({
     () => new Set(Object.entries(byId).filter(([, summary]) => summary.completed === true).map(([id]) => id)),
     [byId],
   )
+  // A session a workflow already binds wins the active highlight over the
+  // workbench, so a session named by both never lights up two rows at once
+  // (see the package README's Selection highlight section).
+  const boundHomeSessionIds = useMemo(() => new Set(workflows.map(workflow => workflow.homeSessionId)), [workflows])
+  const workbenchActive = current !== undefined && current === workbenchSessionId && !boundHomeSessionIds.has(current)
 
   // Land on the workbench automatically when the sidebar loads with no
-  // current session — evaluated exactly once per mount, the same "settle
+  // current session — evaluated at most once per mount, the same "settle
   // then decide, never retry" shape `dsh-client-runtime`'s own
   // startInitialSelection uses for its Workspace check. Waiting for
   // `phase === 'ready'` matters: deciding `liveSessionIds` membership while
   // the list is still `'pending'` would read a real workbench session as
   // stale (not yet loaded into `byId`) and needlessly re-create it.
+  //
+  // The attempt is withheld (not consumed) while reopening a live recorded
+  // session is not possible AND creating one has nowhere to create it yet:
+  // reopening needs no Workspace at all, but creating one needs the
+  // Workspace baseline settled first — `recentWorkspaceId` reads `undefined`
+  // both before that baseline lands and in a genuine zero-Workspace
+  // deployment, and this effect cannot tell those apart, so it waits for
+  // either a live session or a resolved Workspace before spending its one
+  // shot (never spending it at all is the correct outcome for a deployment
+  // that never gets a Workspace — see the package README's Known
+  // Limitations for that already-accepted edge case).
+  const recentWorkspaceId = useWorkspaces(state => state.recentWorkspaceId)
   const attemptedAutoOpen = useRef(false)
   useEffect(() => {
-    if (attemptedAutoOpen.current || phase !== 'ready' || current !== undefined) return
+    if (attemptedAutoOpen.current || phase !== 'ready') return
+    if (current !== undefined) {
+      attemptedAutoOpen.current = true
+      return
+    }
+    if (!workbenchIsLive && recentWorkspaceId === undefined) return
     attemptedAutoOpen.current = true
-    void onOpenWorkbench(workbenchSessionId, workbenchSessionId !== undefined && liveSessionIds.has(workbenchSessionId))
-  }, [current, phase, workbenchSessionId, liveSessionIds, onOpenWorkbench])
+    void onOpenWorkbenchOnLoad(workbenchSessionId, workbenchIsLive)
+  }, [current, phase, workbenchSessionId, workbenchIsLive, recentWorkspaceId, onOpenWorkbenchOnLoad])
 
   /* jscpd:ignore-start -- pointer-driven scrollbar behavior ported verbatim
    * from dsh-client-ui-sidebar's SidebarRoot (this file's module doc explains
@@ -200,8 +238,9 @@ export function ServerSidebarRoot({
         type="button"
         className={css.workbench}
         data-server-sidebar-section="workbench"
+        data-active={workbenchActive}
         onClick={() => {
-          void onOpenWorkbench(workbenchSessionId, workbenchSessionId !== undefined && liveSessionIds.has(workbenchSessionId))
+          void onOpenWorkbench(workbenchSessionId, workbenchIsLive, workbenchIsBlank)
         }}
       >
         {t('workbench.label')}
@@ -211,6 +250,7 @@ export function ServerSidebarRoot({
         <NavGroup pages={pages} onOpenPage={onOpenPage} t={t} />
         <WorkflowGroup
           workflows={workflows}
+          current={current}
           unreadHomeSessionIds={unreadHomeSessionIds}
           onOpenWorkflow={workflow => onOpenWorkflow(workflow, liveSessionIds.has(workflow.homeSessionId))}
           onSaveWorkflows={onSaveWorkflows}

@@ -3,8 +3,10 @@
  * (`@deepseek-ai/dsh-experimental-server-sidebar`) — the fixed three-section
  * shell (workbench / navigation / my workflows), decision ③'s conditional
  * "Save as workflow" header action, decision ⑧'s degrade-to-a-fresh-
- * conversation path, and decision ②'s de-terminology layer (both the
- * official disable rows and the one CSS-injection fallback).
+ * conversation path, decision ②'s de-terminology layer (both the official
+ * disable rows and the one CSS-injection fallback), the workbench's
+ * blank-draft click semantics, the current-selection highlight, and
+ * drag-and-drop workflow reordering.
  *
  * Mostly zero model calls, the same shape `rail-search-expand.e2e.ts` uses
  * for a pure client-layout scenario: every session this scenario opens is
@@ -321,6 +323,45 @@ describe('web e2e: the product-console sidebar', () => {
     90_000,
   )
 
+  it(
+    'produces a fresh conversation when the workbench is clicked again now that it carries a user message (blank-draft semantics)',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-blank-draft'))
+      const priorWorkbenchSessionId = workbenchSessionId
+
+      // The client's local blank bit for a session only ever lowers through
+      // an accepted composer send or a fresh session-list read; the prior
+      // test's `seedClosedTurn` appended `turn/start` straight onto the
+      // durable log without going through either path. A reload forces
+      // exactly that fresh read (the same host fold `sessionBlank` performs
+      // for every attached Session), so the resident client learns the
+      // workbench conversation is no longer blank before this test clicks
+      // it. Load-time continuity (decision ①) reopens the same alive
+      // session regardless of content, so the reload itself lands back on
+      // it unchanged.
+      const warningStart = tripwire.warnings.length
+      await page.reload({ waitUntil: 'load' })
+      acknowledgeReloadConnectionLoss(tripwire, warningStart)
+      await sidebar(page).waitFor({ timeout: 15_000 })
+      await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).toBe(priorWorkbenchSessionId)
+
+      await workbenchButton(page).click()
+      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+
+      // Load-time continuity reopens a non-blank session as-is; a click
+      // instead lands on a brand-new one and repoints workbenchSessionId.
+      await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBe(priorWorkbenchSessionId)
+      workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
+      expect(scaffold.ctx.agents.get(SessionId(workbenchSessionId))).toBeDefined()
+
+      // The displaced session is not deleted: its own agent is still live,
+      // and "My Workflow" (saved against it above) still binds it.
+      expect(scaffold.ctx.agents.get(SessionId(priorWorkbenchSessionId))).toBeDefined()
+      expect(readServerMenu(scaffold).workflows.find(w => w.name === 'My Workflow')?.homeSessionId).toBe(priorWorkbenchSessionId)
+    },
+    60_000,
+  )
+
   it('degrades a workflow whose bound conversation is gone, replaying its navigation snapshot into a fresh one', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-degrade'))
     // The degrade path creates its replacement session against the recent
@@ -349,11 +390,72 @@ describe('web e2e: the product-console sidebar', () => {
     expect(scaffold.ctx.agents.get(SessionId(degraded))).toBeDefined()
   }, 90_000)
 
+  it('highlights the current workflow row, and only that one row, once it is open', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-highlight'))
+    const ghostRow = workflowsSection(page).getByRole('button', { name: /Ghost Workflow/ })
+    await expect.poll(() => ghostRow.getAttribute('data-active'), { timeout: 10_000 }).toBe('true')
+    expect(await sidebar(page).locator('[data-active="true"]').count()).toBe(1)
+    // The workbench itself must not also light up while a workflow already
+    // binds the current session (see the package README's Selection
+    // highlight section).
+    expect(await workbenchButton(page).getAttribute('data-active')).toBe('false')
+  }, 30_000)
+
   it('switches back to "My Workflow" and returns to its own bound conversation', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-switch-back'))
     await workflowsSection(page).getByRole('button', { name: /My Workflow/ }).click()
     await expectShown(page, '/content-app/')
   }, 60_000)
+
+  it('reorders workflows via drag-and-drop, persisting the new order', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-drag-reorder'))
+    const before = readServerMenu(scaffold).workflows
+    const ghostBefore = before.find(w => w.name === 'Ghost Workflow')!
+    const mineBefore = before.find(w => w.name === 'My Workflow')!
+    expect(ghostBefore.order).toBeLessThan(mineBefore.order)
+
+    const ghostRow = workflowsSection(page).locator('li').filter({ hasText: 'Ghost Workflow' })
+    const mineRow = workflowsSection(page).locator('li').filter({ hasText: 'My Workflow' })
+
+    // Headless Chromium does not reliably synthesize a native `dragstart`
+    // from simulated mouse movement (`locator.dragTo` included) for a custom
+    // HTML5-draggable element — real Chromium (unlike jsdom) does implement
+    // `DragEvent`/`DataTransfer` natively, so the robust replacement is
+    // dispatching the real drag sequence directly inside the page with a
+    // shared `DataTransfer`, exactly what a native drag delivers to the
+    // page's own listeners.
+    const source = await mineRow.elementHandle()
+    const target = await ghostRow.elementHandle()
+    if (source === null || target === null) throw new Error('drag-and-drop e2e: source or target row not found')
+    // One shared DataTransfer, installed on `window` between round trips so
+    // each dispatch is its own `page.evaluate` call: React 18 flushes a
+    // discrete native event's state update synchronously within that event's
+    // own dispatch, but only guarantees it is visible once dispatchEvent has
+    // returned — batching every dispatch inside one evaluate call left later
+    // dispatches reading state from before the earlier ones committed.
+    await page.evaluate(() => { (window as unknown as { __dragTransfer: DataTransfer }).__dragTransfer = new DataTransfer() })
+    const dispatchOn = async (el: typeof source, type: string, clientY: number): Promise<void> => {
+      await page.evaluate(([targetEl, eventType, y]) => {
+        const dataTransfer = (window as unknown as { __dragTransfer: DataTransfer }).__dragTransfer
+        targetEl.dispatchEvent(new DragEvent(eventType, { bubbles: true, cancelable: true, dataTransfer, clientY: y }))
+      }, [el, type, clientY] as const)
+    }
+    // Drop near the target row's own top edge: its top half, which inserts
+    // the dragged row immediately before it (WorkflowGroup's own
+    // `rowHalf`/`beforeIdFor`).
+    const targetTop = (await target.boundingBox())!.y
+    const sourceTop = (await source.boundingBox())!.y
+    await dispatchOn(source, 'dragstart', sourceTop + 2)
+    await dispatchOn(target, 'dragover', targetTop + 2)
+    await dispatchOn(target, 'drop', targetTop + 2)
+    await dispatchOn(source, 'dragend', targetTop + 2)
+
+    await expect.poll(
+      () => readServerMenu(scaffold).workflows.find(w => w.name === 'My Workflow')?.order,
+      { timeout: 10_000 },
+    ).toBe(0)
+    expect(readServerMenu(scaffold).workflows.find(w => w.name === 'Ghost Workflow')?.order).toBe(1)
+  }, 30_000)
 
   it('leaves the Chat/Trajectory tab switcher and the model selector out of the customer-form composition', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-de-terminology'))

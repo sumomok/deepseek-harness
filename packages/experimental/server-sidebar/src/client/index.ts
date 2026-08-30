@@ -44,7 +44,9 @@ import { readContentPages } from './pages.ts'
 import { openContentPage } from './open-page.ts'
 import { readServerMenu, saveServerMenu, type ServerMenuWorkflow } from './workflow-api.ts'
 import { createWorkflowStore } from './workflow-store.ts'
-import { nextOrder, openWorkbench, openWorkflow } from './workflow-actions.ts'
+import {
+  nextOrder, openWorkbenchOnClick, openWorkbenchOnLoad, openWorkflow,
+} from './workflow-actions.ts'
 import { ServerSidebarRoot, type ServerSidebarInjected } from './ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from './SaveWorkflowAction.tsx'
 import { installTerminologyGuard } from './terminology-guard.ts'
@@ -126,8 +128,12 @@ export async function apply(ctx: ClientContext): Promise<void> {
         return {
           pages,
           onOpenPage: pageId => openContentPage(ctx, pageId),
-          onOpenWorkbench: async (workbenchSessionId, isLive) => {
-            const outcome = await openWorkbench(ctx, workbenchSessionId, isLive)
+          onOpenWorkbenchOnLoad: async (workbenchSessionId, isLive) => {
+            const outcome = await openWorkbenchOnLoad(ctx, workbenchSessionId, isLive)
+            if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
+          },
+          onOpenWorkbench: async (workbenchSessionId, isLive, isBlank) => {
+            const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isBlank)
             if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
           },
           onOpenWorkflow: async (workflow, isLive) => {

@@ -1,35 +1,51 @@
 /**
  * The 我的工作流 (my workflows) group: a user's own named shortcuts back to
  * long-running conversations they taught the agent something in. Pure
- * presentation — every list comes from props, and the one local state this
- * component owns is which row (if any) is mid-rename, never persisted.
+ * presentation — every list comes from props; the local state this
+ * component owns is which row (if any) is mid-rename, and which row an
+ * in-flight drag is hovering, neither persisted.
  *
- * Reordering is up/down icon buttons rather than HTML5 drag-and-drop: the
- * task brief's own downgrade clause ("若实现体量失控，降级为右键菜单「上移/
- * 下移」") is exercised here given this change's overall size — see the
- * package README and the accompanying Agent Note.
+ * Reordering is native HTML5 drag-and-drop: a row's `dragstart` records it
+ * as the dragged workflow, `dragover` tracks which half of the hovered
+ * row's own bounding box the pointer sits over (top half inserts before it,
+ * bottom half inserts after), and `drop` commits through the pure
+ * {@link reordered} transform, which rewrites the complete list's `order`
+ * fields to the resulting display sequence (0..n-1).
  *
- * Rename/remove/move likewise use the existing sidebar idiom (hover-revealed
- * icon buttons, carried over from the former favorites menu) rather than a
+ * Rename/remove use the existing sidebar idiom (hover-revealed icon
+ * buttons, carried over from the former favorites menu) rather than a
  * native `contextmenu` popup: same outcomes, better keyboard/touch
  * discoverability, and no new interaction pattern introduced for one
  * feature.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/WorkflowGroup
  */
 import { useState } from 'react'
+import type { DragEvent } from 'react'
 import { IconEditOutline16, IconTrashOutline16, Tooltip } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { ServerMenuWorkflow } from './workflow-api.ts'
 import type { ServerSidebarKey } from './locales.ts'
-import { sortedWorkflows } from './workflow-actions.ts'
+import { reordered, sortedWorkflows } from './workflow-actions.ts'
 import css from './SidebarGroups.module.css'
 
 /** Which workflow row (if any) is mid-rename; never persisted. */
 type EditState = { readonly mode: 'idle' } | { readonly mode: 'renaming'; readonly id: string; readonly draft: string }
 
+/** Which half of a hovered row an in-flight drag currently sits over — the drop-position indicator this implies. */
+interface DropTarget {
+  readonly id: string
+  readonly half: 'before' | 'after'
+}
+
 /** Full props of the workflow group. */
 export interface WorkflowGroupProps {
   /** Every workflow, in no particular storage order — this component sorts by `order` for display. */
   workflows: readonly ServerMenuWorkflow[]
+  /**
+   * The session currently open, or `undefined` in the no-session state. A
+   * workflow whose `homeSessionId` matches draws the active highlight — see
+   * the package README's Selection highlight section.
+   */
+  current: string | undefined
   /**
    * Home session ids with unread produce (decision ④: the session list's own
    * `completed` bit — "finished while not selected and not yet opened" —
@@ -49,28 +65,16 @@ export interface WorkflowGroupProps {
   t: (key: ServerSidebarKey, vars?: Record<string, string>) => string
 }
 
-/** Swap two adjacent workflows' `order` values (by display position), leaving every other workflow untouched. */
-function moved(workflows: readonly ServerMenuWorkflow[], id: string, direction: 'up' | 'down'): ServerMenuWorkflow[] {
-  const ordered = sortedWorkflows(workflows)
-  const index = ordered.findIndex(workflow => workflow.id === id)
-  const swapWith = direction === 'up' ? index - 1 : index + 1
-  // The move-up/move-down buttons are `disabled` at exactly this boundary
-  // (see the render below), and jsdom (like a real browser) never dispatches
-  // a click to a disabled button, so a boundary or unknown-id call never
-  // reaches this function through the UI. Bounds are checked explicitly
-  // (rather than trusting `.at()`'s own `undefined`) because `.at()` treats a
-  // negative index as counting from the end, not as out of bounds.
-  /* v8 ignore next -- defensive: the disabled boundary buttons already exclude this case. */
-  if (index === -1 || swapWith < 0 || swapWith >= ordered.length) return [...workflows]
-  const a = ordered.at(index)
-  const b = ordered.at(swapWith)
-  /* v8 ignore next -- defensive: unreachable once both indices are in bounds. */
-  if (a === undefined || b === undefined) return [...workflows]
-  return workflows.map((workflow) => {
-    if (workflow.id === a.id) return { ...workflow, order: b.order }
-    if (workflow.id === b.id) return { ...workflow, order: a.order }
-    return workflow
-  })
+/** Half of a row's own bounding box the pointer currently sits over. */
+function rowHalf(event: { clientY: number; currentTarget: HTMLElement }): 'before' | 'after' {
+  const rect = event.currentTarget.getBoundingClientRect()
+  return event.clientY < rect.top + rect.height / 2 ? 'before' : 'after'
+}
+
+/** Resolve the `reordered`-shaped `beforeId` a drop onto `overId`'s given half implies. */
+function beforeIdFor(ordered: readonly ServerMenuWorkflow[], overId: string, half: 'before' | 'after'): string | undefined {
+  if (half === 'before') return overId
+  return ordered[ordered.findIndex(workflow => workflow.id === overId) + 1]?.id
 }
 
 /**
@@ -79,9 +83,11 @@ function moved(workflows: readonly ServerMenuWorkflow[], id: string, direction: 
  * @returns the group element tree.
  */
 export function WorkflowGroup({
-  workflows, unreadHomeSessionIds, onOpenWorkflow, onSaveWorkflows, error, t,
+  workflows, current, unreadHomeSessionIds, onOpenWorkflow, onSaveWorkflows, error, t,
 }: WorkflowGroupProps) {
   const [edit, setEdit] = useState<EditState>({ mode: 'idle' })
+  const [draggedId, setDraggedId] = useState<string | null>(null)
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null)
   const ordered = sortedWorkflows(workflows)
 
   const commitRename = (id: string, draft: string): void => {
@@ -93,8 +99,26 @@ export function WorkflowGroup({
   const remove = (id: string): void => {
     void onSaveWorkflows(workflows.filter(workflow => workflow.id !== id))
   }
-  const move = (id: string, direction: 'up' | 'down'): void => {
-    void onSaveWorkflows(moved(workflows, id, direction))
+  const endDrag = (): void => {
+    setDraggedId(null)
+    setDropTarget(null)
+  }
+  /** Track the hovered half while a drag from this list's own rows passes over `overId`; anything else declines (no indicator, no drop). */
+  const dragOver = (event: DragEvent<HTMLLIElement>, overId: string): void => {
+    if (draggedId === null || draggedId === overId) return
+    event.preventDefault()
+    setDropTarget({ id: overId, half: rowHalf(event) })
+  }
+  const drop = (event: DragEvent<HTMLLIElement>, overId: string): void => {
+    event.preventDefault()
+    // `dragOver` only calls `preventDefault` (the browser precondition for a
+    // `drop` event to fire at all) once a drag from one of this list's own
+    // rows is in flight, so `draggedId` is already set by the time a real
+    // `drop` reaches here.
+    /* v8 ignore next -- defensive: only a `dragover` this component itself allowed reaches `drop`. */
+    if (draggedId === null) return
+    void onSaveWorkflows(reordered(workflows, draggedId, beforeIdFor(ordered, overId, rowHalf(event))))
+    endDrag()
   }
 
   return (
@@ -105,11 +129,26 @@ export function WorkflowGroup({
         ? <p className={css.empty}>{t('workflows.empty')}</p>
         : (
           <ul className={css.list}>
-            {ordered.map((workflow, index) => {
+            {ordered.map((workflow) => {
               const renaming = edit.mode === 'renaming' && edit.id === workflow.id
               const unread = unreadHomeSessionIds.has(workflow.homeSessionId)
+              const active = current !== undefined && current === workflow.homeSessionId
               return (
-                <li key={workflow.id} className={css.workflowRow}>
+                <li
+                  key={workflow.id}
+                  className={css.workflowRow}
+                  draggable={!renaming}
+                  data-dragging={draggedId === workflow.id}
+                  data-drop-position={dropTarget?.id === workflow.id ? dropTarget.half : undefined}
+                  onDragStart={(event) => {
+                    setDraggedId(workflow.id)
+                    event.dataTransfer.effectAllowed = 'move'
+                    event.dataTransfer.setData('text/plain', workflow.id)
+                  }}
+                  onDragEnd={endDrag}
+                  onDragOver={(event) => { dragOver(event, workflow.id) }}
+                  onDrop={(event) => { drop(event, workflow.id) }}
+                >
                   {renaming ? (
                     <input
                       className={css.renameInput}
@@ -127,6 +166,7 @@ export function WorkflowGroup({
                     <button
                       type="button"
                       className={css.itemButton}
+                      data-active={active}
                       onClick={() => { void onOpenWorkflow(workflow) }}
                     >
                       {unread && <span className={css.dot} aria-hidden="true" />}
@@ -134,32 +174,6 @@ export function WorkflowGroup({
                     </button>
                   )}
                   <div className={css.workflowActions}>
-                    <Tooltip label={t('workflows.moveUp')} side="bottom" delayMs={500}>
-                      <button
-                        type="button"
-                        className={css.iconButton}
-                        aria-label={t('workflows.moveUp')}
-                        disabled={index === 0}
-                        onClick={() => { move(workflow.id, 'up') }}
-                      >
-                        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-                          <path d="M8 4L3 10H13L8 4Z" fill="currentColor" />
-                        </svg>
-                      </button>
-                    </Tooltip>
-                    <Tooltip label={t('workflows.moveDown')} side="bottom" delayMs={500}>
-                      <button
-                        type="button"
-                        className={css.iconButton}
-                        aria-label={t('workflows.moveDown')}
-                        disabled={index === ordered.length - 1}
-                        onClick={() => { move(workflow.id, 'down') }}
-                      >
-                        <svg viewBox="0 0 16 16" width="12" height="12" aria-hidden="true">
-                          <path d="M8 12L13 6H3L8 12Z" fill="currentColor" />
-                        </svg>
-                      </button>
-                    </Tooltip>
                     <Tooltip label={t('workflows.rename')} side="bottom" delayMs={500}>
                       <button
                         type="button"

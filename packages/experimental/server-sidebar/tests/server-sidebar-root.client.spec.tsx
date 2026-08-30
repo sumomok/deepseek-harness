@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
 /**
  * `ServerSidebarRoot`'s three-section console: the brand row, the workbench
- * entry (including decision ①'s once-per-mount auto-open), the navigation
- * and workflow groups it seats, and the footer avatar row. Pointer-driven
- * scrollbar behavior is `pointer-scrollbars.client.spec.tsx`'s own concern,
- * ported unchanged from the original shell and not re-asserted here.
+ * entry (decision ①'s auto-open-on-load, the blank-draft click path, and the
+ * active highlight), the navigation and workflow groups it seats, and the
+ * footer avatar row. Pointer-driven scrollbar behavior is
+ * `pointer-scrollbars.client.spec.tsx`'s own concern, ported unchanged from
+ * the original shell and not re-asserted here.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -35,30 +36,47 @@ interface Bench {
   workbenchSessionId: string | undefined
   workflowsError: string | undefined
   current: string | undefined
-  byId: Record<string, { displayTitle: string; completed?: boolean }>
+  byId: Record<string, { displayTitle: string; completed?: boolean; blank?: boolean }>
   phase: 'pending' | 'ready'
+  /**
+   * Defaults to an available Workspace, so pre-existing scenarios keep
+   * auto-opening immediately (see workbenchIsLive/recentWorkspaceId gating).
+   */
+  recentWorkspaceId: string | undefined
 }
 
 function mount(overrides: Partial<Bench> = {}) {
   const onOpenPage = vi.fn(() => Promise.resolve())
+  const onOpenWorkbenchOnLoad = vi.fn(() => Promise.resolve())
   const onOpenWorkbench = vi.fn(() => Promise.resolve())
   const onOpenWorkflow = vi.fn(() => Promise.resolve())
   const onSaveWorkflows = vi.fn(() => Promise.resolve())
   let current: Bench = {
-    workflows: [], workbenchSessionId: undefined, workflowsError: undefined, current: undefined, byId: {}, phase: 'ready', ...overrides,
+    workflows: [],
+    workbenchSessionId: undefined,
+    workflowsError: undefined,
+    current: undefined,
+    byId: {},
+    phase: 'ready',
+    recentWorkspaceId: 'workspace-1',
+    ...overrides,
   }
   const root = () => (
     <ServerSidebarRoot
       collapsed={false} width={240}
       t={t}
       pages={PAGES} onOpenPage={onOpenPage}
-      onOpenWorkbench={onOpenWorkbench} onOpenWorkflow={onOpenWorkflow} onSaveWorkflows={onSaveWorkflows}
+      onOpenWorkbenchOnLoad={onOpenWorkbenchOnLoad}
+      onOpenWorkbench={onOpenWorkbench}
+      onOpenWorkflow={onOpenWorkflow} onSaveWorkflows={onSaveWorkflows}
       useStore={(<S,>(
         sel: (s: { workflows: ServerMenuWorkflow[]; workbenchSessionId: string | undefined; error: string | undefined }) => S,
       ): S => sel({ workflows: current.workflows, workbenchSessionId: current.workbenchSessionId, error: current.workflowsError }))}
       actions={{ setServerMenu: vi.fn(), setError: vi.fn() }}
       useSessions={((<S,>(sel: (s: Bench) => S): S => sel(current)) as unknown) as ServerSidebarRootComponentProps['useSessions']}
-      useWorkspaces={() => { throw new Error('must not be read in this bench') }}
+      useWorkspaces={((<S,>(sel: (s: { recentWorkspaceId: string | undefined }) => S): S => (
+        sel({ recentWorkspaceId: current.recentWorkspaceId })
+      )) as unknown) as ServerSidebarRootComponentProps['useWorkspaces']}
       renderSlot={((
         key: string,
         _owner: unknown,
@@ -69,6 +87,7 @@ function mount(overrides: Partial<Bench> = {}) {
   const view = render(root())
   return {
     onOpenPage,
+    onOpenWorkbenchOnLoad,
     onOpenWorkbench,
     onOpenWorkflow,
     onSaveWorkflows,
@@ -92,44 +111,106 @@ describe('ServerSidebarRoot', () => {
     expect(screen.queryByText(/^[0-9a-f]{7}$/)).toBeNull()
   })
 
-  it('opens the workbench with the recorded id and its liveness on click', () => {
-    const b = mount({ workbenchSessionId: 'home-1', byId: { 'home-1': { displayTitle: 'Home' } }, current: 'home-1' })
-    fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
-    expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true)
-  })
-
-  it('reports the recorded workbench id as not live once its session leaves the list', () => {
-    const b = mount({ workbenchSessionId: 'home-1', byId: {}, current: 'other' })
-    fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
-    expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', false)
-  })
-
-  it('auto-opens the workbench once the session list settles with no current session', () => {
-    const b = mount({ phase: 'pending', current: undefined })
-    expect(b.onOpenWorkbench).not.toHaveBeenCalled()
-    b.rerender({ phase: 'ready' })
-    expect(b.onOpenWorkbench).toHaveBeenCalledTimes(1)
-    expect(b.onOpenWorkbench).toHaveBeenCalledWith(undefined, false)
-  })
-
-  it('auto-opens with the recorded id and its liveness when one is already recorded', () => {
-    const b = mount({
-      phase: 'pending', current: undefined, workbenchSessionId: 'home-1', byId: { 'home-1': { displayTitle: 'Home' } },
+  describe('workbench click: blank-draft semantics', () => {
+    it('reopens the recorded session directly when it is live and still blank', () => {
+      const b = mount({
+        workbenchSessionId: 'home-1', byId: { 'home-1': { displayTitle: 'Home', blank: true } }, current: 'home-1',
+      })
+      fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
+      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, true)
     })
-    b.rerender({ phase: 'ready' })
-    expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true)
+
+    it('creates a fresh session when the recorded session is live but no longer blank', () => {
+      const b = mount({
+        workbenchSessionId: 'home-1', byId: { 'home-1': { displayTitle: 'Home', blank: false } }, current: 'home-1',
+      })
+      fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
+      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, false)
+    })
+
+    it('reports the recorded workbench id as not live (and not blank) once its session leaves the list', () => {
+      const b = mount({ workbenchSessionId: 'home-1', byId: {}, current: 'other' })
+      fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
+      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', false, false)
+    })
   })
 
-  it('does not auto-open the workbench when a session is already current', () => {
-    const b = mount({ phase: 'ready', current: 'session-a' })
-    expect(b.onOpenWorkbench).not.toHaveBeenCalled()
+  describe('workbench auto-open on load: continuity semantics', () => {
+    it('auto-opens the workbench once the session list settles with no current session', () => {
+      const b = mount({ phase: 'pending', current: undefined })
+      expect(b.onOpenWorkbenchOnLoad).not.toHaveBeenCalled()
+      b.rerender({ phase: 'ready' })
+      expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledTimes(1)
+      expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledWith(undefined, false)
+    })
+
+    it('auto-opens with the recorded id and its liveness when one is already recorded, regardless of content', () => {
+      const b = mount({
+        phase: 'pending',
+        current: undefined,
+        workbenchSessionId: 'home-1',
+        byId: { 'home-1': { displayTitle: 'Home', blank: false } },
+      })
+      b.rerender({ phase: 'ready' })
+      expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledWith('home-1', true)
+    })
+
+    it('does not auto-open the workbench when a session is already current', () => {
+      const b = mount({ phase: 'ready', current: 'session-a' })
+      expect(b.onOpenWorkbenchOnLoad).not.toHaveBeenCalled()
+    })
+
+    it('does not repeat the auto-open attempt on a later, unrelated re-render', () => {
+      const b = mount({ phase: 'ready', current: undefined })
+      expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledTimes(1)
+      b.rerender({ workflows: [] })
+      expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledTimes(1)
+    })
+
+    it('opens a live recorded session with no Workspace available at all', () => {
+      const b = mount({
+        phase: 'ready',
+        current: undefined,
+        workbenchSessionId: 'home-1',
+        byId: { 'home-1': { displayTitle: 'Home' } },
+        recentWorkspaceId: undefined,
+      })
+      expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledWith('home-1', true)
+    })
+
+    it('withholds the attempt while no live session and no Workspace are available, firing once one appears', () => {
+      const b = mount({ phase: 'ready', current: undefined, recentWorkspaceId: undefined })
+      expect(b.onOpenWorkbenchOnLoad).not.toHaveBeenCalled()
+      b.rerender({ recentWorkspaceId: 'workspace-1' })
+      expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledTimes(1)
+      expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledWith(undefined, false)
+    })
+
+    it('never fires once current gets a value, even if a Workspace later appears', () => {
+      const b = mount({ phase: 'ready', current: undefined, recentWorkspaceId: undefined })
+      b.rerender({ current: 'elsewhere' })
+      b.rerender({ recentWorkspaceId: 'workspace-1' })
+      expect(b.onOpenWorkbenchOnLoad).not.toHaveBeenCalled()
+    })
   })
 
-  it('does not repeat the auto-open attempt on a later, unrelated re-render', () => {
-    const b = mount({ phase: 'ready', current: undefined })
-    expect(b.onOpenWorkbench).toHaveBeenCalledTimes(1)
-    b.rerender({ workflows: [] })
-    expect(b.onOpenWorkbench).toHaveBeenCalledTimes(1)
+  describe('selection highlight', () => {
+    it('marks the workbench active when it is the current session and no workflow binds it', () => {
+      mount({ workbenchSessionId: 'home-1', current: 'home-1' })
+      expect(screen.getByRole('button', { name: en['workbench.label'] }).getAttribute('data-active')).toBe('true')
+    })
+
+    it('does not mark the workbench active when it is not the current session', () => {
+      mount({ workbenchSessionId: 'home-1', current: 'other' })
+      expect(screen.getByRole('button', { name: en['workbench.label'] }).getAttribute('data-active')).toBe('false')
+    })
+
+    it('yields the highlight to a workflow that already binds the current session', () => {
+      const workflow: ServerMenuWorkflow = { id: 'w1', name: 'My Flow', order: 0, homeSessionId: 'home-1', navSnapshot: [], savedAt: 1 }
+      mount({ workbenchSessionId: 'home-1', current: 'home-1', workflows: [workflow] })
+      expect(screen.getByRole('button', { name: en['workbench.label'] }).getAttribute('data-active')).toBe('false')
+      expect(screen.getByRole('button', { name: 'My Flow' }).getAttribute('data-active')).toBe('true')
+    })
   })
 
   it('lists the configured pages and opens one on click', () => {

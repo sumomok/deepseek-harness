@@ -98,6 +98,10 @@
   background: var(--dsw-alias-button-floating-hover);
 }
 
+.workbench[data-active='true'] {
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-brand-primary);
+}
+
 .regionArea {
   flex: 1;
   min-height: 0;
