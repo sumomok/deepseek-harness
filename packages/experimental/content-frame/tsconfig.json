@@ -27,6 +27,9 @@
       "path": "../../client/runtime"
     },
     {
+      "path": "../../client/ui-conversation"
+    },
+    {
       "path": "../../client/ui-slots"
     },
     {

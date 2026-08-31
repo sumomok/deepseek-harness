@@ -13,6 +13,13 @@
  * so apply reads it from the node half's settings route before claiming the
  * key. A failed read fails the row: a column that silently used some other
  * bound would be indistinguishable from one that honored it.
+ *
+ * A second, independent registration lives in this same `apply()`: an empty
+ * `conversation.chat.commandview` entry for `SHOW_CONTENT_PAGE_COMMAND`, plus
+ * the stylesheet collapsing the empty row it leaves behind (see
+ * `HiddenCommandRow.tsx` and `hide-empty-command-row.ts`) — the sidebar's
+ * page-navigation click is a command invocation for its durable log record,
+ * not for a chat message narrating the click.
  * @module @deepseek-ai/dsh-experimental-content-frame/client
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -20,10 +27,14 @@ import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the content column's `content.surface.kind` SlotMap declaration.
 import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
+// Type-only: pulls ui-conversation's `conversation.chat.commandview` SlotMap declaration.
+import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls this package's own `content` SessionProjectionMap merge.
 import type {} from '../types.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../route.ts'
 import { ContentFrame } from './ContentFrame.tsx'
+import { HiddenCommandRow } from './HiddenCommandRow.tsx'
+import { installHiddenCommandRowStyle } from './hide-empty-command-row.ts'
 import { en, NS, zh, type ContentFrameKey } from './locales.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
@@ -64,11 +75,13 @@ async function readSettings(): Promise<{ cacheSize: number }> {
 }
 
 /**
- * Client plugin body: register the dictionaries and claim the page kind.
+ * Client plugin body: register the dictionaries, claim the page kind, and
+ * hide the show-content-page command's chat echo.
  * @param ctx - client root context.
  */
 export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'content-frame: dictionaries')
+  ctx.effect(() => installHiddenCommandRowStyle(), 'content-frame: hide empty command row')
   const settings = await readSettings()
   ctx.slots.inject('content.surface.kind', () => ctx.slots.register({
     name: 'content.surface.kind',
@@ -81,4 +94,11 @@ export async function apply(ctx: ClientContext): Promise<void> {
     // data; the component reads none of its own.
     inject: () => settings,
   }, ContentFrame))
+  ctx.slots.inject('conversation.chat.commandview', () => ctx.slots.register({
+    name: 'conversation.chat.commandview',
+    // The literal, not `SHOW_CONTENT_PAGE_COMMAND`: the client-slot catalog
+    // generator reads keyed registrations by static string (see the sibling
+    // registration above).
+    key: 'show-content-page',
+  }, HiddenCommandRow))
 }

@@ -1,9 +1,12 @@
+// @vitest-environment jsdom
 /**
  * content-frame browser half against the real SlotRegistry: the settings read
  * that has to precede the registration, the `page` kind registration and the
- * cache bound it injects, the wait for the column's declaration, removal on
- * fiber teardown (HMR safety), the dictionaries, and the invariant companion's
- * ownership reservation.
+ * cache bound it injects, the empty `conversation.chat.commandview`
+ * registration for `show-content-page` and its hiding stylesheet, the wait
+ * for the column's/conversation's declarations, removal on fiber teardown
+ * (HMR safety), the dictionaries, and the invariant companion's ownership
+ * reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -13,9 +16,12 @@ import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { ContentFrame } from '../src/client/ContentFrame.tsx'
+import { HiddenCommandRow } from '../src/client/HiddenCommandRow.tsx'
 import * as ContentFrameInvariant from '../src/invariant.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
+
+const HIDE_STYLE_ID = 'dsh-content-frame-hide-empty-command-row'
 
 /** The settings document the bench serves. */
 const SETTINGS = { cacheSize: 5 }
@@ -28,11 +34,14 @@ function serveSettings(body: unknown, ok = true): void {
   }))
 }
 
-/** Declare the content column's kind slot the way the router does. */
+/** Declare the content column's kind slot and the chat view's per-command slot, the way their owners do. */
 function declareColumn(ctx: Context): void {
   ctx.slots.register({
     name: 'root',
-    children: { 'content.surface.kind': { kind: 'keyed', scope: 'root' } },
+    children: {
+      'content.surface.kind': { kind: 'keyed', scope: 'root' },
+      'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
+    },
   } as never, () => null)
 }
 
@@ -48,9 +57,10 @@ async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugi
   ctx.provide('remote', { $on: () => () => {} } as never)
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
-  // These specs assert the shipped Chinese copy. There is no jsdom `window` in
-  // this lane, so browser-language detection never runs and the locale comes
-  // from FALLBACK_LOCALE (en): state the asserted locale explicitly.
+  // These specs assert the shipped Chinese copy. This lane runs under jsdom
+  // (the hiding stylesheet below needs a `document`), whose default
+  // `navigator.language` would itself detect to 'en' — state the asserted
+  // locale explicitly rather than resting on that coincidence.
   ctx.locale.setLocale('zh')
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
@@ -66,7 +76,7 @@ describe('content-frame browser half', () => {
     expect(inject).toEqual(['slots', 'locale'])
   })
 
-  it('waits for the column to declare its kind slot before claiming the page key', async () => {
+  it('waits for the column/conversation to declare their slots before claiming either key', async () => {
     serveSettings({ cacheSize: 3 })
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
@@ -74,10 +84,12 @@ describe('content-frame browser half', () => {
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
+    expect(ctx.slots.entries('conversation.chat.commandview')).toHaveLength(0)
 
     declareColumn(ctx)
     await Promise.resolve()
     expect(ctx.slots.entries('content.surface.kind')).toHaveLength(1)
+    expect(ctx.slots.entries('conversation.chat.commandview')).toHaveLength(1)
   })
 
   it('registers the page key with the served cache bound, and fiber teardown removes it (HMR safety)', async () => {
@@ -90,6 +102,32 @@ describe('content-frame browser half', () => {
 
     await fiber.dispose()
     expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
+  })
+
+  it(
+    'registers an empty conversation.chat.commandview entry for show-content-page, and fiber teardown removes it (HMR safety)',
+    async () => {
+      const { ctx, fiber } = await bench()
+      const [entry] = ctx.slots.entries('conversation.chat.commandview')
+      expect(entry?.component).toBe(HiddenCommandRow)
+      expect(entry?.options.key).toBe('show-content-page')
+      expect((entry?.component as typeof HiddenCommandRow)()).toBeNull()
+
+      await fiber.dispose()
+      expect(ctx.slots.entries('conversation.chat.commandview')).toHaveLength(0)
+    },
+  )
+
+  it('injects the hiding stylesheet, and fiber teardown removes it (HMR safety)', async () => {
+    document.getElementById(HIDE_STYLE_ID)?.remove()
+    const { fiber } = await bench()
+    const style = document.getElementById(HIDE_STYLE_ID)
+    expect(style).not.toBeNull()
+    expect(style?.textContent).toContain('[data-chat-flow-kind="command"]')
+    expect(style?.textContent).toContain('[data-slot="conversation.chat.commandview"]:empty')
+
+    await fiber.dispose()
+    expect(document.getElementById(HIDE_STYLE_ID)).toBeNull()
   })
 
   it('fails the row rather than guessing when the settings route is unusable', async () => {

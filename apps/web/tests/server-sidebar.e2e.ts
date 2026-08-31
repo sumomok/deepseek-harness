@@ -5,8 +5,10 @@
  * "Save as workflow" header action, decision ⑧'s degrade-to-a-fresh-
  * conversation path, decision ②'s de-terminology layer (both the official
  * disable rows and the one CSS-injection fallback), the workbench's
- * blank-draft click semantics, the current-selection highlight, and
- * drag-and-drop workflow reordering.
+ * blank-draft click semantics, the current-selection highlight, drag-and-drop
+ * workflow reordering, and (`@deepseek-ai/dsh-experimental-content-frame`)
+ * hiding the `show-content-page` command's own chat echo while its durable
+ * `command/run`/`content/shown`/`command/done` lifecycle still lands on the log.
  *
  * Mostly zero model calls, the same shape `rail-search-expand.e2e.ts` uses
  * for a pure client-layout scenario: every session this scenario opens is
@@ -35,6 +37,7 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-commands/types'
 import type {} from '@deepseek-ai/dsh-workspace'
 import {
   acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, type WebScaffold,
@@ -139,6 +142,22 @@ function anySessionShowed(scaffold: WebScaffold, page: string, by: 'agent' | 'us
 /** Read the server-menu settings document straight from the host, bypassing the HTTP route entirely. */
 function readServerMenu(scaffold: WebScaffold): LocalServerMenu {
   return scaffold.ctx.settings.get(SERVER_SIDEBAR_NAMESPACE) as LocalServerMenu
+}
+
+/**
+ * The given session's `show-content-page` command-lifecycle event types, in
+ * log order (`command/run` → `content/shown` → `command/done`, one triple
+ * per click). `command/run`/`command/done` come from `@deepseek-ai/dsh-commands`
+ * (imported type-only above, so they narrow normally); `content/shown` still
+ * needs the same widening `anySessionShowed` uses, since content-frame's own
+ * `SessionEventMap` merge is not importable here.
+ */
+function commandTripleTypes(scaffold: WebScaffold, sessionId: string): string[] {
+  const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+  if (agent === undefined) return []
+  return agent.session.events
+    .map((event: SessionEvent) => event.type as string)
+    .filter(type => type === 'command/run' || type === 'content/shown' || type === 'command/done')
 }
 
 /**
@@ -292,6 +311,7 @@ describe('web e2e: the product-console sidebar', () => {
       await navSection(page).getByRole('button', { name: 'Home' }).click()
       await expectShown(page, '/content-app/')
       await expect.poll(() => anySessionShowed(scaffold, 'home', 'user'), { timeout: 15_000 }).toBe(true)
+      expect(commandTripleTypes(scaffold, workbenchSessionId)).toEqual(['command/run', 'content/shown', 'command/done'])
 
       expect(await page.getByRole('button', { name: 'Save as workflow' }).count()).toBe(0)
 
@@ -305,6 +325,23 @@ describe('web e2e: the product-console sidebar', () => {
       const statsRow = page.getByText('1 turns · 1 steps')
       expect(await statsRow.count()).toBeGreaterThan(0)
       await expect(statsRow.first().isVisible()).resolves.toBe(false)
+
+      // The show-content-page command's chat echo is hidden
+      // (`dsh-experimental-content-frame`'s empty `conversation.chat.commandview`
+      // registration + hiding stylesheet): no "Now showing" row is ever
+      // visible, though the durable command lifecycle (asserted above) still
+      // lands on the log in full. The conversation stays in its hero phase
+      // (no message flow rendered at all) until a real `user/message`
+      // arrives, so this scenario waits for the message flow to actually
+      // mount — the "Save as workflow" button's own appearance above already
+      // proves that — before checking the command row is not among what it
+      // rendered; checking any earlier would pass vacuously. The command's
+      // own slot anchor (always rendered once its chat node mounts,
+      // regardless of what — if anything — occupies the key; see
+      // `scoped-slots.tsx`) confirms the render pipeline actually reached
+      // this command row rather than never folding it at all.
+      expect(await page.locator('[data-slot="conversation.chat.commandview"]').count()).toBeGreaterThan(0)
+      expect(await page.getByText('Now showing', { exact: false }).count()).toBe(0)
 
       await page.getByRole('button', { name: 'Save as workflow' }).click()
       const nameField = page.getByPlaceholder('Workflow name')
