@@ -376,6 +376,40 @@ describe('Web session model selection', () => {
     expect(readImage).toHaveBeenCalledOnce()
     await ctx.fiber.dispose()
   })
+
+  it('authorizes file bytes only when the session event stream references the id', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const ref = { attachmentId: 'att-file-authorized', name: 'notes.txt', bytes: 5 }
+    const readFile = vi.fn(() => Promise.resolve({ ref, data: new TextEncoder().encode('hello') }))
+    ctx.provide('attachments', { readFile } as never)
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+    agent.session.append('agent/inbox/spliced', {
+      target: 'next-turn',
+      start: 0,
+      inserted: [{
+        id: 'queued-file', role: 'user', source: { kind: 'user' },
+        content: [{ type: 'file', attachment: ref }],
+      }],
+    } as never)
+
+    const allowed = await remote.file(request({
+      sessionId, attachmentId: 'att-file-authorized' as never,
+    }))
+    expect(allowed).toMatchObject({ ok: true, value: { attachment: ref, text: 'hello' } })
+    const denied = await remote.file(request({
+      sessionId, attachmentId: 'att-file-other' as never,
+    }))
+    expect(denied).toMatchObject({
+      ok: false,
+      error: { code: 'session/attachment-invalid', details: { reason: 'ATTACHMENT_NOT_REFERENCED' } },
+    })
+    expect(readFile).toHaveBeenCalledOnce()
+    await ctx.fiber.dispose()
+  })
+
   it('groups successful providers and leaves an unlisted current selection out of the catalog', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',

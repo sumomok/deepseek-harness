@@ -671,11 +671,20 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
 @Remote canOpenWorkspacePath(): boolean
 
 /**
- * Open one path prepared by a Session-aware caller on the Host desktop.
+ * Open one path prepared by a Session-aware caller on the Host desktop. A
+ * does-not-exist path is checked explicitly before the opener runs: the
+ * opener is a shelled-out platform command (`open`, `xdg-open`,
+ * PowerShell's `Invoke-Item`), never a Node fs call, so it never raises a
+ * `NodeJS.ErrnoException` this process could read a reliable code from —
+ * its "no such file" text is platform-specific and unparsed. The
+ * pre-check leaves every other failure (permission, no registered
+ * application, the platform command itself missing) exactly as it was:
+ * folded into `gateway/internal` below.
  * @param request - path after best-effort Session workspace resolution.
  * @param signal - caller lifetime; abort terminates the native command.
  * @returns confirmation after the native opener accepts the path.
- * @throws RemoteError when the request is invalid, cancelled, or the opener fails.
+ * @throws RemoteError when the request is invalid, the path does not
+ * exist, cancelled, or the opener fails.
  */
 @Remote('openWorkspacePath') async openWorkspacePath( request: SessionOpenWorkspacePathRequest, signal: AbortSignal, ): Promise<SessionOpenWorkspacePathValue>
 
@@ -707,6 +716,13 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<{ meta: SessionH
  * @returns the durable attachment reference and base64-encoded bytes.
  */
 @Remote('attachment') attachment(request: SessionAttachmentRequest): Promise<SessionAttachmentValue>
+
+/**
+ * Read one text file proven reachable from the addressed Session log.
+ * @param request - Session and attachment identities used for authorization.
+ * @returns the durable file reference and its plain-text content.
+ */
+@Remote('file') file(request: SessionFileRequest): Promise<SessionFileValue>
 
 /**
  * Mutate one still-pending queue occurrence on a live Agent.

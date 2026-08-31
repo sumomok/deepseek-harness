@@ -2,7 +2,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent, ModelSelectionRef } from '@deepseek-ai/dsh-agent'
 import { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { createAssistantMessage, createUserMessage, MessageId } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader } from '@deepseek-ai/dsh-session'
@@ -131,6 +131,14 @@ function imageRef(id: string): ImageAttachmentRef {
   }
 }
 
+function fileRef(id: string): FileAttachmentRef {
+  return {
+    attachmentId: AttachmentId(id),
+    name: `${id}.txt`,
+    bytes: 1,
+  }
+}
+
 function event(type: string, seq: number, data: unknown): SessionEvent {
   return { type, seq, time: seq + 1, data } as SessionEvent
 }
@@ -138,6 +146,7 @@ function event(type: string, seq: number, data: unknown): SessionEvent {
 async function persistedController(
   events: SessionEvent[],
   readImage: (ref: ImageAttachmentRef) => Promise<{ ref: ImageAttachmentRef; data: Uint8Array }>,
+  readFile?: (ref: FileAttachmentRef) => Promise<{ ref: FileAttachmentRef; data: Uint8Array }>,
 ): Promise<{ ctx: Context; controller: SessionCommandController; sessionId: SessionId }> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
@@ -148,7 +157,7 @@ async function persistedController(
     inspect: () => Promise.resolve({ meta, events }),
   }) as never)
   installSessionReadTestServices(ctx)
-  ctx.provide('attachments', { readImage } as never)
+  ctx.provide('attachments', { readImage, ...(readFile === undefined ? {} : { readFile }) } as never)
   const agents = { resolveAgent: vi.fn() } as unknown as ApiSessionAgentController
   return { ctx, controller: new SessionCommandController(ctx, agents, '/workspace'), sessionId }
 }
@@ -256,6 +265,112 @@ describe('Session attachment authorization', () => {
     )
 
     await expectFailure(controller.attachment({
+      sessionId: SessionId('unreadable'), attachmentId: AttachmentId('att'),
+    }), 'gateway/internal')
+    await ctx.fiber.dispose()
+  })
+})
+
+describe('Session file authorization', () => {
+  it('finds file references in direct, message, inserted, and streamed content', async () => {
+    const nested = fileRef('nested')
+    const message = fileRef('message')
+    const inserted = fileRef('inserted')
+    const streamed = fileRef('streamed')
+    const events = [
+      { ...event('fixture/direct', 0, {
+        content: [null, [], { type: 'tool-result', content: [{ type: 'text', text: 'none' }] }, {
+          type: 'tool-result', content: [{ type: 'file', attachment: nested }],
+        }],
+      }), ignorable: true as const },
+      { ...event('assistant/message', 1, {
+        turn: 1,
+        step: 1,
+        message: createAssistantMessage({
+          content: [{ type: 'file', attachment: message }],
+          source: { provider: 'fixture', model: 'fixture' },
+        }),
+      }), surfaceOp: 'append' as const },
+      event('agent/inbox/spliced', 2, {
+        target: 'next-turn',
+        start: 0,
+        inserted: [createUserMessage({
+          content: [{ type: 'file', attachment: inserted }],
+          source: { kind: 'user' },
+        })],
+      }),
+      event('assistant/chunk', 3, {
+        turn: 1,
+        step: 1,
+        chunk: { type: 'block-end', index: 0, block: { type: 'file', attachment: streamed } },
+      }),
+    ]
+    const readFile = vi.fn((ref: FileAttachmentRef) => Promise.resolve({ ref, data: Uint8Array.of(97) }))
+    const { ctx, controller, sessionId } = await persistedController(
+      events, () => Promise.reject(new Error('image path unused')), readFile,
+    )
+
+    for (const ref of [nested, message, inserted, streamed]) {
+      await expect(controller.file({ sessionId, attachmentId: ref.attachmentId }))
+        .resolves.toEqual({ attachment: ref, text: 'a' })
+    }
+    expect(readFile).toHaveBeenCalledTimes(4)
+    await ctx.fiber.dispose()
+  })
+
+  it('refuses an unreferenced file and maps missing persistence identities and backend failures', async () => {
+    const noPersistence = new Context()
+    await noPersistence.plugin(SessionStore)
+    installSessionReadTestServices(noPersistence)
+    const noPersistenceController = new SessionCommandController(
+      noPersistence,
+      { resolveAgent: vi.fn() } as unknown as ApiSessionAgentController,
+      '/workspace',
+    )
+    await expectFailure(noPersistenceController.file({
+      sessionId: SessionId('missing'), attachmentId: AttachmentId('att'),
+    }), 'session/not-found')
+
+    for (const thrown of [
+      new AttachmentError('stored file is unavailable', 'ATTACHMENT_NOT_FOUND'),
+      new Error('backend offline'),
+    ]) {
+      const ref = fileRef(`failure-${thrown.name}`)
+      const fixture = await persistedController(
+        [event('fixture/content', 0, { content: [{ type: 'file', attachment: ref }] })],
+        () => Promise.reject(new Error('image path unused')),
+        () => Promise.reject(thrown),
+      )
+      await expectFailure(fixture.controller.file({
+        sessionId: fixture.sessionId,
+        attachmentId: ref.attachmentId,
+      }), thrown instanceof AttachmentError ? 'session/attachment-invalid' : 'gateway/internal')
+      await fixture.ctx.fiber.dispose()
+    }
+
+    const unreferenced = await persistedController(
+      [event('fixture/content', 0, { content: [] })],
+      () => Promise.reject(new Error('image path unused')),
+      () => Promise.reject(new Error('file path unused')),
+    )
+    await expectFailure(unreferenced.controller.file({
+      sessionId: unreferenced.sessionId, attachmentId: AttachmentId('never-referenced'),
+    }), 'session/attachment-invalid')
+    await unreferenced.ctx.fiber.dispose()
+  })
+
+  it('maps a cold observation failure to an internal authorization error', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SessionStore)
+    installSessionReadTestServices(ctx)
+    vi.spyOn(ctx.sessionQuery, 'observeSession').mockRejectedValue(new Error('storage offline'))
+    const controller = new SessionCommandController(
+      ctx,
+      { resolveAgent: vi.fn() } as unknown as ApiSessionAgentController,
+      '/workspace',
+    )
+
+    await expectFailure(controller.file({
       sessionId: SessionId('unreadable'), attachmentId: AttachmentId('att'),
     }), 'gateway/internal')
     await ctx.fiber.dispose()
