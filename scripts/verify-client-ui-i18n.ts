@@ -35,8 +35,10 @@ const COPY_ATTRIBUTE_SUFFIX = /(?:Aria|Copy|Description|Heading|Label|Message|Pl
 const COPY_NAME = /(?:^|_)(?:aria|copy|description|empty|heading|label|message|placeholder|summary|text|title|tooltip)(?:s|_.*)?$/i
 const COPY_SUFFIX = /(?:aria|copy|description|empty|heading|label|labels|message|placeholder|summary|text|title|tooltip|tabs)$/i
 const IMMUTABLE_LANGUAGE_TOKENS = new Set([
+  'B',
   'Function',
   'K',
+  'KB',
   'M',
   'MB',
   'Symbol',
