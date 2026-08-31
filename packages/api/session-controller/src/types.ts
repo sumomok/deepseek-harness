@@ -199,6 +199,8 @@ declare module '@deepseek-ai/dsh-typert-protocol' {
       readonly existingPreset?: string
     }
     'session/attachment-invalid': { readonly reason: string }
+    /** `openWorkspacePath` resolved a path that does not exist on the Host filesystem. */
+    'session/path-not-found': { readonly path: string }
     'session/queue-item-not-found': { readonly itemId: MessageId }
     'session/steer-unavailable': { readonly itemId: MessageId }
     'session/title-invalid': { readonly sessionId: SessionId }
