@@ -40,6 +40,7 @@ import type {
 } from '@earendil-works/pi-ai'
 import {
   attributionHeaders,
+  contentHasFile,
   contentHasImage,
   LlmAdapter,
   LlmError,
@@ -57,6 +58,8 @@ import type {
   StreamChunk,
 } from '@deepseek-ai/dsh-llm'
 import type { AttachmentStore, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { fileSpillOptionsFrom } from '@deepseek-ai/dsh-attachment-spill'
+import type { AttachmentSpill } from '@deepseek-ai/dsh-attachment-spill'
 import { idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { ResolvedPiAiProviderProfile } from './config.ts'
 import { toPiContext } from './context.ts'
@@ -94,6 +97,11 @@ export interface PiAiAdapterOptions {
   auth: PiAiAuthInjection
   /** Resolve the optional durable attachment service at request time. */
   resolveAttachments?: () => AttachmentStore | undefined
+  /**
+   * Resolve the current attachment-spill service; absence falls back to
+   * truncated inline text for an oversized file (never rejects file input).
+   */
+  resolveAttachmentSpill?: () => AttachmentSpill | undefined
   /** Bridge one attachment reference into the current model-tool execution world. */
   resolveImageAccess?: (attachments: AttachmentStore, ref: ImageAttachmentRef) => ImageAttachmentAccess | undefined
   /**
@@ -351,26 +359,34 @@ export class PiAiAdapter extends LlmAdapter {
 
     try {
       const containsImage = options.messages.some(message => contentHasImage(message.content))
+      const containsFile = options.messages.some(message => contentHasFile(message.content))
       if (containsImage && !model.input.includes('image')) {
         throw new LlmError(`pi-ai model "${model.id}" does not support image input`, 'UNSUPPORTED_CONTENT')
       }
-      const attachments = containsImage ? this.config.resolveAttachments?.() : undefined
+      // No capability check for files: the lowered form is plain text, which
+      // every pi-ai model already accepts.
+      const attachments = (containsImage || containsFile) ? this.config.resolveAttachments?.() : undefined
       if (containsImage && attachments === undefined) {
         throw new LlmError('pi-ai image input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+      }
+      if (containsFile && attachments === undefined) {
+        throw new LlmError('pi-ai file input requires the durable attachment service', 'UNSUPPORTED_CONTENT')
       }
       const onReplayDegrade = (reason: string): void => {
         this.config.onReplayDegrade?.({ provider: options.provider, model: options.model, reason })
       }
+      const spill = fileSpillOptionsFrom(this.config.resolveAttachmentSpill?.())
       const context = attachments === undefined
         ? toPiContext(options, undefined, onReplayDegrade)
         : await toPiContext({ ...options, signal: watchdog.signal }, {
           attachments,
-          resolveImageAccess: ref => this.config.resolveImageAccess?.(attachments, ref),
+          resolveImageAccess: (ref: ImageAttachmentRef) => this.config.resolveImageAccess?.(attachments, ref),
           maxRequestImageBytes: profile.maxRequestImageBytes,
           requestImagePolicy: {
             maxPixels: profile.requestImagePixelBudget,
             maxBytes: profile.requestImageMaxBytes,
           },
+          ...spill === undefined ? {} : { spill },
         }, onReplayDegrade)
       const events = snapshot.models.streamSimple(model, context, {
         ...profileOptions(profile, reasoning, apiKey),

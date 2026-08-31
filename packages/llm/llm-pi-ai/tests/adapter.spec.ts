@@ -13,6 +13,8 @@ import type {
   StoredFileAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentSpill } from '@deepseek-ai/dsh-attachment-spill'
+import { SpillLocator } from '@deepseek-ai/dsh-spill'
 import LlmRuntime, { createUserMessage, CONTEXT_WINDOW_EXCEEDED_CODE, LlmError, ReasoningEffortId, userAgent } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import { PiAiAdapter } from '@deepseek-ai/dsh-llm-pi-ai'
@@ -34,6 +36,11 @@ const IMAGE_REF: ImageAttachmentRef = {
   bytes: 1,
   width: 1,
   height: 1,
+}
+const FILE_REF: FileAttachmentRef = {
+  attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+  name: 'notes.txt',
+  bytes: 8,
 }
 const HOST_IMAGE_PATH = '/host/.dsh/attachments/objects/aa/object'
 const MODEL_IMAGE_PATH = '/model/.dsh/attachments/objects/aa/object'
@@ -348,6 +355,51 @@ describe('PiAiAdapter provider routing', () => {
     }, expect.any(AbortSignal))
     expect(JSON.stringify(server.requests[0])).toContain(MODEL_IMAGE_PATH)
     expect(server.paths).toEqual(['/v1/responses'])
+  })
+
+  it('rejects file input before provider I/O when no attachment service is resolved', async () => {
+    const adapter = adapterOf({ openai: {} })
+    const drain = async (options: Parameters<PiAiAdapter['stream']>[0]): Promise<void> => {
+      for await (const _chunk of adapter.stream(options)) { /* drain */ }
+    }
+
+    await expect(drain({
+      provider: 'openai',
+      model: 'gpt-4.1',
+      messages: [createUserMessage({
+        content: [{ type: 'file', attachment: FILE_REF }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+  })
+
+  it('spills an oversized file through resolveAttachmentSpill instead of truncating it', async () => {
+    const server = await mockServer([{ events: textEvents }])
+    const bigText = 'x'.repeat(20)
+    const readFile = vi.fn((ref: FileAttachmentRef): Promise<StoredFileAttachment> => (
+      Promise.resolve({ ref, data: new TextEncoder().encode(bigText) })
+    ))
+    const spillRef = { locator: SpillLocator('/spill/session-abc/xyz-notes.txt'), bytes: bigText.length, retrievalHint: 'Use read with offset/limit, or grep this path to search within it.' }
+    const resolveSpill = vi.fn(() => Promise.resolve(spillRef))
+    const attachmentSpill = { inlineWholeUnderChars: 10, previewChars: 4, resolveSpill } as unknown as AttachmentSpill
+    const adapter = new PiAiAdapter({
+      profiles: () => resolveProfiles({ deepseek: { apiKeyEnv: 'PI_TEST_KEY', baseURL: server.url } }),
+      resolveApiKey: () => Promise.resolve('test-key'),
+      auth: memoryAuth(),
+      resolveAttachments: () => ({ readFile } as unknown as AttachmentStore),
+      resolveAttachmentSpill: () => attachmentSpill,
+    })
+
+    for await (const _chunk of adapter.stream({
+      provider: 'deepseek',
+      model: 'deepseek-v4-flash',
+      messages: [createUserMessage({
+        content: [{ type: 'file', attachment: FILE_REF }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    })) { /* drain */ }
+
+    expect(resolveSpill).toHaveBeenCalledWith(FILE_REF, bigText)
   })
 
   it('forces one wire request for an SDK-retryable provider failure', async () => {
