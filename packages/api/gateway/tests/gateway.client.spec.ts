@@ -616,6 +616,34 @@ describe('Client Remote transport readiness', () => {
     }
   })
 
+  it('emits connection/state for every fake transition, in order', async () => {
+    const { client, ctx, start } = await benchFiber(vi.fn<ConnectionHandle['rpc']['call']>())
+    try {
+      const seen: string[] = []
+      ctx.on('connection/state', (state) => { seen.push(state) })
+      const sinks = start.mock.calls[0]![0]
+      sinks.onStateChange?.('reconnecting')
+      sinks.onStateChange?.('connected')
+      sinks.onStateChange?.('reconnecting')
+      expect(seen).toEqual(['reconnecting', 'connected', 'reconnecting'])
+    } finally {
+      await client.dispose()
+    }
+  })
+
+  it('runs state transitions unaffected when nothing listens for connection/state', async () => {
+    const { client, start } = await benchFiber(vi.fn<ConnectionHandle['rpc']['call']>())
+    try {
+      const sinks = start.mock.calls[0]![0]
+      expect(() => {
+        sinks.onStateChange?.('reconnecting')
+        sinks.onStateChange?.('connected')
+      }).not.toThrow()
+    } finally {
+      await client.dispose()
+    }
+  })
+
   it('starts after Loader settlement and stops the owned loop on disposal', async () => {
     const readiness = deferredReadiness()
     const { client, start, stop } = await loaderReadinessBench(readiness.promise)

@@ -398,6 +398,14 @@ export const EVENT_API: readonly EventApiEntry[] = [
     parameters: [],
   },
   {
+    name: 'connection/state',
+    mode: 'emit',
+    signature: '\'connection/state\'(state: ConnectionState): void',
+    summary: 'The connection\'s coarse state changed (deduplicated: fires only on an actual transition).',
+    description: 'The connection\'s coarse state changed (deduplicated: fires only on an actual transition).',
+    parameters: [{ name: 'state', description: '\'connected\' after each generation\'s handshake; \'reconnecting\' for the whole failure-and-backoff span until the next handshake succeeds.' }],
+  },
+  {
     name: 'locale/change',
     mode: 'emit',
     signature: '\'locale/change\'(snapshot: LocaleSnapshot): void',
