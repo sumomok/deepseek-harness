@@ -47,6 +47,7 @@ function fakeSession(): SessionFace {
     beginSubmission: () => ({ requestId: 'test-req' as never, abandon: () => {} }),
     prompt: () => Promise.reject(new Error('unused fake Session operation')),
     readAttachment: () => Promise.reject(new Error('unused fake Session operation')),
+    readFile: () => Promise.reject(new Error('unused fake Session operation')),
     updateQueue: () => Promise.reject(new Error('unused fake Session operation')),
     cancel: () => Promise.reject(new Error('unused fake Session operation')),
     rename: () => Promise.reject(new Error('unused fake Session operation')),

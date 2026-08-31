@@ -280,6 +280,20 @@ export class Session implements SessionFace {
     return { ok: true, value: { attachment: result.value.attachment, data } }
   }
 
+  /**
+   * Resolve one text file referenced by this session into browser-consumable text.
+   * @param attachmentId - opaque id found in the folded session log.
+   * @returns the authenticated reference and decoded text.
+   */
+  async readFile(
+    attachmentId: AttachmentIdType,
+  ): Promise<RemoteResult<{ attachment: FileAttachmentRef; text: string }>> {
+    return this.remote.session.file({
+      sessionId: this.sessionId,
+      attachmentId,
+    })
+  }
+
   /** Apply one operation to a still-pending queue occurrence. */
   async updateQueue(itemId: MessageId, action: QueueAction): Promise<RemoteResult<{ accepted: true }>> {
     return this.remote.session.updateQueue({ sessionId: this.sessionId, itemId, action })

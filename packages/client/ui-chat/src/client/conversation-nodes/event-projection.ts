@@ -107,6 +107,7 @@ export function toAssistantBlock(block: ContentBlock): AssistantBlock {
     case 'text': return { kind: 'text', text: block.text }
     case 'reasoning': return { kind: 'reasoning', text: block.text }
     case 'image': return { kind: 'image', attachment: block.attachment }
+    case 'file': return { kind: 'file', attachment: block.attachment }
     case 'tool-call': return { kind: 'tool-call', callId: String(block.id), name: block.name, argsRaw: block.arguments }
     default: return { kind: 'other', block }
   }

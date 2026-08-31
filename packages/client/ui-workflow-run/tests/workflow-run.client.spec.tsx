@@ -332,6 +332,8 @@ function panelProps(data: WorkflowRunChatData, sessions = listState(), openSessi
     renderMessageImages: () => null,
     renderUserActions: () => null,
     fileMentions: () => undefined,
+    loadFile: () => Promise.reject(new Error('loadFile not stubbed')),
+    openReferent: () => Promise.resolve(),
     openSession,
     t: makeTranslate(zh),
   }

@@ -818,6 +818,10 @@ function assistantSourceBlock(block: AssistantBlock): TrajectorySourceBlock {
       toolName: block.name,
     }
     case 'image': return { type: 'image', content: '', attachment: block.attachment }
+    case 'file': return {
+      type: 'file',
+      content: stringifySourceValue(block.attachment),
+    }
     case 'other': return sourceBlock(block.block)
   }
 }
