@@ -2,8 +2,12 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
+import {
+  dispatchReferentOpen, type ISessions, type ReferentRef, type SessionBinding,
+} from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { BoundActions, ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
+import type { MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
 // Type-only service and declaration merges used by the apply world.
@@ -16,7 +20,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
 import type {} from '@deepseek-ai/dsh-client-ui-workspace/client'
 import type {
   ChatNodeTurnDataInjected, ChatScrollPosition, ChatViewInjected, DetailsInjected,
-  TurnTailOwnerProps,
+  ProseReferentSpan, TurnTailOwnerProps,
 } from './contract/slots.ts'
 import type { ChatSnapshot } from './contract/snapshot.ts'
 import { EMPTY_CHAT_SNAPSHOT } from './contract/snapshot.ts'
@@ -43,15 +47,78 @@ const CHAT_NODE_INJECT: ChatNodeTurnDataInjected = {
 
 /** Services required by the Chat target and its presentation registrations. */
 export const inject = [
-  'slots', 'sessions', 'uiSession', 'uiConversation', 'layout', 'locale',
+  'connection', 'slots', 'sessions', 'uiSession', 'uiConversation', 'layout', 'locale',
   'settingsScope', 'remote', 'remote.session',
 ]
+
+/**
+ * Build the render-facing prose-referent scanner/opener for one session, or
+ * undefined when no {@link ProseReferents} provider is composed in.
+ * `scan` reads the session cwd and Host account home fresh on every call
+ * (the same lazy-read technique `openFile` below uses for cwd), so composing
+ * the provider in or out, or a workspace change, takes effect on the very
+ * next render with no re-registration.
+ * @param ctx - client root context.
+ * @param sessions - resolved once by the caller, mirroring the other apply-time service reads below.
+ * @param connection - resolved once by the caller; its `generation` snapshot names the Host account home.
+ * @param sessionId - the session this scanner/opener is bound to.
+ * @returns the scanner/opener MarkdownText consumes, or undefined.
+ */
+function buildProseReferents(
+  ctx: Context, sessions: ISessions, connection: ConnectionHandle, sessionId: SessionId,
+): MarkdownProseReferents | undefined {
+  const provider = ctx.get('proseReferents')
+  if (provider === undefined) return undefined
+  return {
+    scan: (text, inlineCode) => provider.scan(text, {
+      cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
+      home: connection.generation.getSnapshot()?.host.home,
+      inlineCode,
+    }),
+    open: (span) => {
+      // Safe: this scanner's own `scan` above is the only producer of spans
+      // MarkdownText ever hands back to `open` — it treats a span as opaque
+      // (start/end only) and returns the exact object `scan` gave it, which
+      // always carries the fuller ProseReferentSpan shape at runtime.
+      const referentSpan = span as ProseReferentSpan
+      const ref: ReferentRef = {
+        kind: referentSpan.kind,
+        target: referentSpan.target,
+        raw: referentSpan.raw,
+        sessionId,
+        // Never the openFile chokepoint's own ref below: that would
+        // double-dispatch this click and mislabel its provenance as
+        // 'structured' — this click is model-authored prose, not a
+        // structured content-part open.
+        source: 'chat-prose',
+        provenance: 'model-text',
+      }
+      const onDefault = async (): Promise<void> => {
+        if (referentSpan.kind === 'url') {
+          window.open(referentSpan.target, '_blank', 'noopener,noreferrer')
+          return
+        }
+        // Mirrors the openFile chokepoint's own default action below: the
+        // same RPC, the same failure shape.
+        const result = await ctx.remote.session.openWorkspacePath({ path: referentSpan.target })
+        if (!result.ok) throw new Error(`path open failed: ${result.error.message}`)
+      }
+      // No dedicated failure UI for a prose click yet (unlike openFile's
+      // dialog below): a genuine open failure lands in the console rather
+      // than being silently dropped.
+      void dispatchReferentOpen(ctx, ref, onDefault).catch((error: unknown) => {
+        console.error('ui-chat: chat-prose referent open failed', error)
+      })
+    },
+  }
+}
 
 /**
  * Mount all Chat-owned contributions.
  * @param ctx - Client root context.
  */
 export function apply(ctx: Context): void {
+  const connection = ctx.get('connection') as ConnectionHandle
   const chatSources = new WeakMap<SessionBinding, ObservableSnapshot<ChatSnapshot>>()
   const chatSource = (binding: SessionBinding): ObservableSnapshot<ChatSnapshot> => {
     let source = chatSources.get(binding)
@@ -120,12 +187,32 @@ export function apply(ctx: Context): void {
             ctx.layout.openDetails()
           },
           fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner),
+          referents: buildProseReferents(ctx, ctx.sessions, connection, sessionId),
+          // referent/open first: wraps the pre-existing openWorkspacePath
+          // action as the waterfall's terminus, so every consumer this one
+          // closure already reaches (tool rows, produced-file chips, and
+          // mentions) becomes interceptable without a per-consumer change.
+          // Zero listeners exist yet: with none registered the waterfall
+          // reaches its terminus immediately and this call is
+          // byte-identical to the un-wrapped open it replaces.
           openFile: async (path) => {
             const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
-            const result = await ctx.remote.session.openWorkspacePath({
-              path: resolveWorkspacePath(cwd, path),
+            const target = resolveWorkspacePath(cwd, path)
+            const ref: ReferentRef = {
+              // ProducedFiles opens the session workspace root as '.'; every
+              // other path this closure ever receives names a file (no
+              // richer file/dir signal reaches this closure).
+              kind: path === '.' ? 'dir' : 'file',
+              target,
+              raw: path,
+              sessionId,
+              source: 'chat-view.openFile',
+              provenance: 'structured',
+            }
+            await dispatchReferentOpen(ctx, ref, async () => {
+              const result = await ctx.remote.session.openWorkspacePath({ path: target })
+              if (!result.ok) throw new Error(`path open failed: ${result.error.message}`)
             })
-            if (!result.ok) throw new Error(`path open failed: ${result.error.message}`)
           },
           loadOlder: () => { void session.loadOlder() },
           loadThrough: seq => session.loadThrough(seq),

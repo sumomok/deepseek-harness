@@ -1,6 +1,7 @@
 /** Chat-owned Slot declarations and composed component props. */
 import type { ReactNode } from 'react'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { ReferentKind } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type {
   CommandNode, CompactionSummaryNode, ConversationLocationDataStore, ConversationTurnDataMap,
@@ -11,7 +12,7 @@ import type {
   SlotHookFactory, SnapshotSelectorHook,
 } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SnapshotStore } from '@deepseek-ai/dsh-client-store'
-import type { MarkdownFileMentions } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { MarkdownFileMentions, MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitives'
 import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type { createChatStore } from '../stores.ts'
 import type { ToolCallId, SelectionTarget } from './store.ts'
@@ -76,6 +77,55 @@ declare module '@deepseek-ai/cordis' {
   }
 }
 
+/**
+ * One clickable reference a {@link ProseReferents} scan found in a rendered
+ * text run.
+ */
+export interface ProseReferentSpan {
+  /** Start offset into the scanned text, inclusive. */
+  readonly start: number
+  /** End offset into the scanned text, exclusive. */
+  readonly end: number
+  /** Open target's kind; see {@link ReferentKind}. */
+  readonly kind: ReferentKind
+  /** Resolved target the default open action acts on (an absolute path for `file`/`dir`, a URL string for `url`). */
+  readonly target: string
+  /** The raw text exactly as it appeared at the span's source, before resolution. */
+  readonly raw: string
+}
+
+/**
+ * Optional prose-referent scanning provider, consumed via
+ * `ctx.get('proseReferents')` (optional-service convention, mirrors
+ * {@link ChatFileMentions}): the chat view asks it to scan a rendered text
+ * run — plain prose or inline code — for clickable references and threads
+ * the result into MarkdownText. Absent service — the providing plugin
+ * composed out of cordis.yml — turns the surface off; prose and inline code
+ * render exactly as they did before this seam existed.
+ */
+export interface ProseReferents {
+  /**
+   * Scan one rendered text run. Pure: no IO, no filesystem `stat`, synchronous.
+   * @param text - Exact text content of the node being rendered.
+   * @param context - `cwd`/`home` resolve a relative candidate (undefined
+   * wherever the session/workspace has none — the provider decides whether
+   * that suppresses a span or not); `inlineCode` is true for an inline-code
+   * token, false for plain prose text.
+   * @returns Non-overlapping spans in ascending `start` order.
+   */
+  scan(
+    text: string,
+    context: { cwd?: string | undefined; home?: string | undefined; inlineCode: boolean },
+  ): readonly ProseReferentSpan[]
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Prose-referent scanning provider (e.g. clickable-refs); reach via ctx.get — optional. */
+    proseReferents: ProseReferents
+  }
+}
+
 /** Hook constrained to business data published on the current Chat Node's Turn. */
 export type UseChatNodeTurnData = <Key extends Extract<keyof ConversationTurnDataMap, string>>(
   key: Key,
@@ -108,6 +158,13 @@ export interface ChatNodeOwnerProps {
    */
   renderUserActions: RenderUserActions
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+  /**
+   * Prose-referent scanner/opener from the optional {@link ProseReferents}
+   * service, bound to this session's cwd/home. Undefined when the service is
+   * absent — prose and inline code render exactly as before this seam
+   * existed.
+   */
+  referents: MarkdownProseReferents | undefined
   /** Turn-process state when this Node belongs to a projected Turn. */
   turnProcess?: TurnProcessOwnerProps | undefined
 }
@@ -173,6 +230,12 @@ export interface ChatViewInjected {
   }
   forkAt: (seq: number) => void
   fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined
+  /**
+   * Prose-referent scanner/opener from the optional {@link ProseReferents}
+   * service (resolved live, like {@link fileMentions}), bound to this
+   * session's cwd/host home. Undefined when the service is absent.
+   */
+  referents: MarkdownProseReferents | undefined
 }
 
 /** Full Chat view props. */
