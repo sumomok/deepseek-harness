@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-// The pre-send secret-container confirmation's zero-content-reading match:
+// The add-time secret-container confirmation's zero-content-reading match:
 // the fixed base heuristic (full matrix), path segments as a desktop-only
 // signal, and the config's append-only shape (extra patterns can only add
 // matches, never remove or replace a base one).

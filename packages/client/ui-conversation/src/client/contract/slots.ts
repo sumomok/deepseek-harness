@@ -71,10 +71,11 @@ export interface ComposerAttachmentsOwnerProps {
   /** Display-ready limits for the drop invitation. Image limits only: a file's overlay copy states no numeric bound. */
   dropLimits?: { readonly count: number; readonly size: string } | undefined
   /**
-   * Draft attachment ids whose name/path matches the pre-send
-   * secret-container heuristic (the immediate chip warning state; the
-   * send-time confirmation gate lives with the composer bar's own submit
-   * entry, not here). Absent/omitted ids default to no warning.
+   * Draft attachment ids whose name/path matches the secret-container
+   * heuristic (the persistent chip warning state; the add-time confirmation
+   * dialog itself lives with the composer bar's own file-intake entry, not
+   * here — this list stays populated whether or not that dialog has already
+   * been answered). Absent/omitted ids default to no warning.
    */
   secretContainerHitIds?: ReadonlySet<DraftAttachmentId> | undefined
 }

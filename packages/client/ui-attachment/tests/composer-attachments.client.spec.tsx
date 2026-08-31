@@ -33,7 +33,7 @@ const t = ((key: string, params?: Readonly<Record<string, unknown>>): string => 
     'image.dropTitle': '图片拖动到此处即可添加',
     'file.pending': '待发送文件',
     'secretConfirm.chipLabel': '密钥文件',
-    'secretConfirm.chipLabelTitle': '这类文件通常存放密钥，发送前会再向你确认',
+    'secretConfirm.chipLabelTitle': '这类文件通常存放密钥',
     'secretConfirm.noticeRemove': '移除',
   }
   if (key === 'image.remove') {
@@ -46,7 +46,7 @@ const t = ((key: string, params?: Readonly<Record<string, unknown>>): string => 
   }
   if (key === 'secretConfirm.notice') {
     const name = params?.name
-    return `${typeof name === 'string' ? name : ''} 这类文件通常存放密钥，发送前会再向你确认`
+    return `${typeof name === 'string' ? name : ''} 这类文件通常存放密钥`
   }
   if (key === 'image.dropDesc') {
     const count = params?.count
@@ -267,7 +267,7 @@ describe('ComposerAttachments', () => {
       secretContainerHitIds: new Set([hit.id, secondHit.id]),
     })} />)
     // Names the FIRST matched file, not the second, even though both warn.
-    expect(view.getByText('.env 这类文件通常存放密钥，发送前会再向你确认')).toBeTruthy()
+    expect(view.getByText('.env 这类文件通常存放密钥')).toBeTruthy()
     expect(view.queryByText(/id_rsa 这类文件/)).toBeNull()
   })
 
