@@ -77,6 +77,9 @@ async function bench(nodes: ToolResultNode[]) {
     },
   })
   runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  runtime.ctx.provide('connection', {
+    generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
+  } as never)
   runtime.ctx.provide('layout', { openDetails: vi.fn(), closeDetails: vi.fn() })
   runtime.ctx.provide('uiWorkspace', {
     connectWorkspace: vi.fn(async () => SID),
