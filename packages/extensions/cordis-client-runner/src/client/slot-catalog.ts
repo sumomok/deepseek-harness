@@ -266,12 +266,14 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** Stable owner currency delivered to a keyed Chat renderer. */\nexport interface ChatNodeOwnerProps {\n  selectedCallId?: ToolCallId | undefined\n  cwd?: string | undefined\n  openFile: (path: string) => void\n  inspectCall: (callId: ToolCallId) => void\n  forkAt: (seq: number) => void\n  renderMessageImages: RenderMessageImages\n  /**\n   * Render the contributed actions of one user-side message. A chat node\n   * decides whether its message has a durable position to address; the pending\n   * steering bubble has none and receives no strip.\n   */\n  renderUserActions: RenderUserActions\n  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined\n  /** Resolve one session-authorized historical file\'s text for inline display. */\n  loadFile: (attachment: FileAttachmentRef) => Promise<string>\n  /** Dispatch `referent/open` ahead of a file card\'s default expand/collapse. */\n  openReferent: OpenReferent\n  /** Turn-process state when this Node belongs to a projected Turn. */\n  turnProcess?: TurnProcessOwnerProps | undefined\n}',
+      '/** Stable owner currency delivered to a keyed Chat renderer. */\nexport interface ChatNodeOwnerProps {\n  selectedCallId?: ToolCallId | undefined\n  cwd?: string | undefined\n  openFile: (path: string) => void\n  inspectCall: (callId: ToolCallId) => void\n  forkAt: (seq: number) => void\n  renderMessageImages: RenderMessageImages\n  /**\n   * Render the contributed actions of one user-side message. A chat node\n   * decides whether its message has a durable position to address; the pending\n   * steering bubble has none and receives no strip.\n   */\n  renderUserActions: RenderUserActions\n  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined\n  /**\n   * Prose-referent scanner/opener from the optional {@link ProseReferents}\n   * service, bound to this session\'s cwd/home. Undefined when the service is\n   * absent — prose and inline code render exactly as before this seam\n   * existed.\n   */\n  referents: MarkdownProseReferents | undefined\n  /** Resolve one session-authorized historical file\'s text for inline display. */\n  loadFile: (attachment: FileAttachmentRef) => Promise<string>\n  /** Dispatch `referent/open` ahead of a file card\'s default expand/collapse. */\n  openRef /* …truncated — full shape in source */',
     ],
     ownerPropsReferences: [
       'FileAttachmentRef',
       'MarkdownFileMentions',
+      'MarkdownProseReferents',
       'OpenReferent',
+      'ProseReferents',
       'RenderMessageImages',
       'RenderUserActions',
       'TurnProcessOwnerProps',
@@ -414,7 +416,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.chat.user-actions\', () => ctx.slots.register(\n      { name: \'conversation.chat.user-actions\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-chat/src/client/contract/slots.ts:260',
+    source: 'packages/client/ui-chat/src/client/contract/slots.ts:322',
   },
   {
     key: 'conversation.composer',
