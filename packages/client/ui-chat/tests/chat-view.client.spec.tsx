@@ -386,6 +386,8 @@ function makeHarness(
     forkAt,
     // Absent-service default; mention tests override with a real resolver.
     fileMentions: () => undefined,
+    // Absent-service default: no proseReferents provider composed in.
+    referents: undefined,
     t,
   }
   const set = (next: HarnessUpdate): void => {
