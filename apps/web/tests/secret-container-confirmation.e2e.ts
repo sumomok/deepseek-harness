@@ -1,12 +1,14 @@
 // Web e2e scenario: a draft file whose name matches the fixed secret-container
-// heuristic (`.env`) gets an immediate chip warning and, at send time, an
-// in-page confirmation before anything reaches the agent loop. Zero model
-// calls: the scenario never confirms through to a real send (that path is
-// proven by input-bar.client.spec.tsx's exact-call assertion and by a real
-// live-server E2E run with an actual model turn) — this scaffold's
-// RouteOnlyAdapter throws on any stream() call, so this scenario stays
-// entirely inside the declined branch, which fits the feature's own claim: a
-// pure UI gate that never reaches the model unless the user confirms.
+// heuristic (`.env`) gets an immediate chip warning AND an immediate in-page
+// confirmation the moment it lands in the draft — not at send time. Zero
+// model calls: the scenario never presses Enter/Send at all, so this
+// scaffold's RouteOnlyAdapter (which throws on any stream() call with no
+// replay fixture mounted) is never reached. That the send path itself now
+// carries no gate is proven at the unit level
+// (input-bar.client.spec.tsx's "no send-time re-prompt" describe block),
+// which can assert the exact submit call with no dialog in the way — a real
+// send here would need a replay fixture (or a live model) neither of which
+// this scenario needs to make its own claim.
 import { fileURLToPath } from 'node:url'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
@@ -39,7 +41,7 @@ async function dropFile(page: Page, name: string, content: string): Promise<void
   }, { name, content })
 }
 
-describe('web e2e: secret-container pre-send confirmation', () => {
+describe('web e2e: secret-container add-time confirmation', () => {
   let scaffold: WebScaffold
   let browser: Browser
   let page: Page
@@ -61,21 +63,20 @@ describe('web e2e: secret-container pre-send confirmation', () => {
     await scaffold?.close()
   })
 
-  it('warns the draft chip immediately and gates Enter behind a name/path confirmation; declining sends nothing', async () => {
+  it('warns the draft chip and opens the add-confirm dialog the instant a match is dropped; declining removes it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-secret-container-confirmation'))
     const textarea = page.locator('textarea[placeholder="Describe what you want to build"]')
     await textarea.waitFor({ timeout: 10_000 })
+    await textarea.click()
+    await textarea.fill('checking the secret-container confirmation')
 
     await dropFile(page, '.env', 'SECRET_KEY=abc123\n')
     const chipRow = page.locator('[role="group"]').filter({ hasText: '.env' })
     await chipRow.waitFor({ timeout: 5_000 })
     expect(await page.locator('[data-secret-warning]').count()).toBe(1)
 
-    await textarea.click()
-    await textarea.fill('checking the secret-container confirmation')
-    await textarea.press('Enter')
-
-    const dialog = page.getByRole('dialog', { name: 'Send confirmation' })
+    // The dialog fires on the drop itself — no Enter, no Send click.
+    const dialog = page.getByRole('dialog', { name: 'Add confirmation' })
     await dialog.waitFor({ timeout: 10_000 })
     // The modal is in this page's body (not a native/new window) and escapes
     // the sticky composer's stacking context, matching every other in-page
@@ -84,17 +85,27 @@ describe('web e2e: secret-container pre-send confirmation', () => {
     const snapshot = await captureStableAria(page, '[role="dialog"]', scaffold.workspaceCwd)
     await compareOrRefreshGolden(UI_EXPECTED, snapshot, MODE)
 
-    // Declining leaves the draft and the attachment exactly as they were —
-    // no send, no model call, no session created.
-    await dialog.getByRole('button', { name: "Don't send" }).click()
+    // Declining removes only the matched file — the draft text typed before
+    // the drop is untouched, and nothing was ever sent.
+    await dialog.getByRole('button', { name: "Don't add" }).click()
     expect(await dialog.count()).toBe(0)
     expect(await textarea.inputValue()).toBe('checking the secret-container confirmation')
-    expect(await chipRow.count()).toBe(1)
+    expect(await chipRow.count()).toBe(0)
+    expect(await page.locator('[data-secret-warning]').count()).toBe(0)
 
-    // Re-arming Enter reopens the identical gate rather than remembering a
-    // "don't ask again" — the product's own no-suppression rule.
-    await textarea.press('Enter')
+    // Re-dropping the same match reopens the identical gate rather than
+    // remembering a "don't ask again" — the product's own no-suppression
+    // rule, now checked at add time instead of at send time.
+    await dropFile(page, '.env', 'SECRET_KEY=abc123\n')
     await dialog.waitFor({ timeout: 5_000 })
+
+    // Confirming leaves the file attached, with the dialog gone and no
+    // second prompt anywhere in this flow — there is no send-time gate left
+    // to fire one.
+    await dialog.getByRole('button', { name: 'Add anyway' }).click()
+    expect(await dialog.count()).toBe(0)
+    await chipRow.waitFor({ timeout: 5_000 })
+    expect(await page.locator('[data-secret-warning]').count()).toBe(1)
     expect(tripwire.pageErrors).toEqual([])
   }, 60_000)
 
