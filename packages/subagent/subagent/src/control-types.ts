@@ -6,7 +6,7 @@
  * @module @deepseek-ai/dsh-subagent/control-types
  */
 
-import type { EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
+import type { EncodedFileAttachment, EncodedImageAttachment } from '@deepseek-ai/dsh-attachment/types'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
@@ -104,11 +104,19 @@ export interface EncodedImagePromptBlock extends EncodedImageAttachment {
 }
 
 /**
+ * One browser-encoded text-file upload as the Session prompt wire carries it,
+ * symmetric with {@link EncodedImagePromptBlock}.
+ */
+export interface EncodedFilePromptBlock extends EncodedFileAttachment {
+  readonly type: 'file'
+}
+
+/**
  * One block a browser prompt may carry. The encoded upload is accepted by the
  * wire and refused by the Host, so the Client narrows nothing: a caller that
- * attaches an image is answered, not silently stripped.
+ * attaches an image or file is answered, not silently stripped.
  */
-export type SubagentPromptContentPart = ContentBlock | EncodedImagePromptBlock
+export type SubagentPromptContentPart = ContentBlock | EncodedImagePromptBlock | EncodedFilePromptBlock
 
 /** One human message addressed to a continuable direct child. */
 export interface SubagentPromptRequest {

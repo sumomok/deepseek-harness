@@ -183,6 +183,22 @@ describe('subagent prompt Remote', () => {
     expect(followup).not.toHaveBeenCalled()
   })
 
+  it('refuses a durable file block, symmetrically with an image', async () => {
+    const { subagents } = await bench({ [PARENT]: { status: 'idle' } })
+    const followup = vi.spyOn(subagents, 'followup')
+    const file = {
+      type: 'file' as const,
+      attachment: { attachmentId: 'att-1', name: 'notes.txt', bytes: 5 } as never,
+    }
+    const content = [{ type: 'text' as const, text: 'read this' }, file]
+
+    await expect(subagents.prompt({ ...promptRequest(), content }, signal)).rejects.toMatchObject({
+      code: 'subagent/attachment-unsupported',
+      details: { childSessionId: CHILD, reason: 'SUBAGENT_FILE_UNSUPPORTED' },
+    })
+    expect(followup).not.toHaveBeenCalled()
+  })
+
   it('delivers the content under the caller-minted identity and canonical browser zone', async () => {
     const { subagents } = await bench({ [PARENT]: { status: 'idle' } })
     const followup = vi.spyOn(subagents, 'followup').mockResolvedValue('m-1' as MessageId)

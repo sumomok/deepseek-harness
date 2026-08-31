@@ -49,18 +49,19 @@ export function validateControlRequest(
 }
 
 /**
- * Admit the content one continuation may deliver, refusing every image.
+ * Admit the content one continuation may deliver, refusing every image or file.
  *
  * The blocks become the child's user message verbatim, and this surface admits
  * no attachment: nothing here registers encoded bytes with the attachment
  * service, so an image would reach the child as a reference nothing resolves.
  * The wire accepts the encoded upload so this refusal — not a Client that
- * strips the block — is what the caller is answered with. Other block types
- * still cross unnarrowed.
+ * strips the block — is what the caller is answered with. A file block is
+ * refused for the same reason, symmetrically with an image block. Other
+ * block types still cross unnarrowed.
  * @param childSessionId - the addressed child, named by the refusal.
  * @param content - blocks the caller asked to deliver.
  * @returns the admitted blocks, in order, as the durable content vocabulary.
- * @throws {RemoteError} `subagent/attachment-unsupported` when any block is an image.
+ * @throws {RemoteError} `subagent/attachment-unsupported` when any block is an image or file.
  */
 export function admitPromptContent(
   childSessionId: SessionId,
@@ -73,6 +74,13 @@ export function admitPromptContent(
         'subagent/attachment-unsupported',
         'subagent continuation does not accept images',
         { childSessionId, reason: 'SUBAGENT_IMAGE_UNSUPPORTED' },
+      )
+    }
+    if (block.type === 'file') {
+      throw new RemoteError(
+        'subagent/attachment-unsupported',
+        'subagent continuation does not accept files',
+        { childSessionId, reason: 'SUBAGENT_FILE_UNSUPPORTED' },
       )
     }
     admitted.push(block)

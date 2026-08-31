@@ -178,6 +178,9 @@ describe('Web session model selection', () => {
         maxImageDimension: 2000,
         mediaTypes: ['image/png'],
       },
+      // This batch carries no file parts, so only the batch-level limit
+      // read (validateFileBatch) is reached; validateFile/saveFile never run.
+      fileLimits: { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 },
       validateImage,
       saveImage,
     }
@@ -224,6 +227,84 @@ describe('Web session model selection', () => {
       error: { code: 'session/attachment-invalid', details: { reason: 'TOO_MANY_IMAGES' } },
     })
     expect(saveImage).toHaveBeenCalledTimes(2)
+    await ctx.fiber.dispose()
+  })
+
+  it('validates an ordered file batch before persisting any member, interleaved with images', async () => {
+    const { ctx, agent, sessionId } = await harness()
+    const validateFile = vi.fn((_input: { data: Uint8Array }) => Promise.resolve())
+    const saveFile = vi.fn((input: { data: Uint8Array; name: string }) => Promise.resolve({
+      attachmentId: `att-${String(input.data[0])}`,
+      name: input.name,
+      bytes: input.data.byteLength,
+    }))
+    const validateImage = vi.fn((_input: { data: Uint8Array }) => Promise.resolve())
+    const saveImage = vi.fn((input: { data: Uint8Array; mediaType: 'image/png' }) => Promise.resolve({
+      attachmentId: `att-img-${String(input.data[0])}`,
+      mediaType: input.mediaType,
+      bytes: input.data.byteLength,
+      width: 1,
+      height: 1,
+    }))
+    const attachments = {
+      imageLimits: {
+        maxImageBytes: 4,
+        maxImagesPerMessage: 2,
+        maxMessageImageBytes: 4,
+        maxImagePixels: 4,
+        maxImageDimension: 2000,
+        mediaTypes: ['image/png'],
+      },
+      fileLimits: {
+        maxFilesPerMessage: 2,
+        maxMessageFileBytes: 40,
+        maxFileBytes: 40,
+      },
+      validateImage,
+      saveImage,
+      validateFile,
+      saveFile,
+    }
+    ctx.provide('attachments', Object.setPrototypeOf(attachments, AttachmentStore.prototype) as never)
+    const followup = vi.fn()
+    Object.assign(agent, { followup })
+    const remote = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
+      cwd: '/tmp',
+    })
+
+    const result = await remote.prompt(promptRequest({
+      sessionId,
+      mode: 'queue' as const,
+      content: [
+        { type: 'file' as const, name: 'first.txt', text: 'one' },
+        { type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==' },
+        { type: 'text' as const, text: 'compare' },
+        { type: 'file' as const, name: 'second.txt', text: 'two' },
+      ],
+    }))
+    expect(result.ok).toBe(true)
+    expect(validateFile.mock.calls.map(([input]) => new TextDecoder().decode(input.data))).toEqual(['one', 'two'])
+    expect(saveFile.mock.calls.map(([input]) => new TextDecoder().decode(input.data))).toEqual(['one', 'two'])
+    expect((followup.mock.calls[0]?.[0] as UserMessage).content).toEqual([
+      { type: 'file', attachment: { attachmentId: 'att-111', name: 'first.txt', bytes: 3 } },
+      { type: 'image', attachment: { attachmentId: 'att-img-1', mediaType: 'image/png', bytes: 1, width: 1, height: 1 } },
+      { type: 'text', text: 'compare' },
+      { type: 'file', attachment: { attachmentId: 'att-116', name: 'second.txt', bytes: 3 } },
+    ])
+
+    const denied = await remote.prompt(promptRequest({
+      sessionId,
+      mode: 'queue' as const,
+      content: Array.from({ length: 3 }, (_value, index) => ({
+        type: 'file' as const, name: `f${String(index)}.txt`, text: 'x',
+      })),
+    }))
+    expect(denied).toMatchObject({
+      ok: false,
+      error: { code: 'session/attachment-invalid', details: { reason: 'TOO_MANY_FILES' } },
+    })
+    expect(saveFile).toHaveBeenCalledTimes(2)
     await ctx.fiber.dispose()
   })
 
@@ -614,6 +695,9 @@ describe('Web session model selection', () => {
       attachmentId: 'saved-image', mediaType: 'image/png' as const, bytes: 1, width: 1, height: 1,
     }
     ctx.provide('attachments', {
+      // This test's content never carries a file part, so an admitted
+      // empty batch is the only call this mock needs to answer.
+      saveFiles: () => Promise.resolve([]),
       saveImages: () => {
         if (saveMode === 'error') return Promise.reject(new Error('image store offline'))
         if (saveMode === 'remote') {
