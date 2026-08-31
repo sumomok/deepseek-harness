@@ -92,3 +92,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：模型散文里的路径提及获得与既有文件提及同等的可点击、可拦截呈现，本地路径 markdown 链接目的地经同一缝隙解析。
 - **退役条件**：上游自己的会话 UI 原生扫描并渲染散文中的路径/文件引用。
 - **状态**：**SKIPPED — 需要设计（rc.26 同步，基座 0.1.2-alpha.2）**。整条系列在 `apply.ts` 里直接 `import { dispatchReferentOpen, type ReferentRef, ... } from '@deepseek-ai/dsh-client-runtime/client'`，而 `dispatchReferentOpen`/`ReferentRef`/`referent.ts` 正是已 SKIPPED 的 fabc93555c 引入的——本系列的整个机制建立在那个不存在的缝隙之上，`ae19472402` 本身文本层可自动合并（`apply.ts`/`contract/slots.ts` 无冲突标记），但编译期会立刻因引用不存在的导出而失败，不是机械可搬的位置问题。下游 `0c9b669a3c`/`6e7045d8cf`/`1d8e975c1a`/`f495eefd50`/`83eb0e3ddb` 全部构建在 `ae19472402` 新增的 `referents.resolveLink` 之上，该字段本身未曾落地，因而同样整体 SKIPPED（逐一尝试 cherry-pick 均遇冲突，已逐个 `git cherry-pick --skip`，均未重落）。交由协调者与 fabc93555c 一并设计端口。
+
+## feat(host-apiproxy,client-runtime): a batch path-existence probe for the referent verification layer — 88129b7b44 (+ ac91819ac4, a285c53cf3)
+- **改了什么**："三层可点击引用" 规格的 A4：`ctx.workspaces.probeTargets` 提供只读、每调用 64 个、8 并发的 stat 批处理（存在性/kind，从不列目录或读内容），经既有 `host.<method>` RPC 模式（schema、dispatcher、`IApiClient`、fixture 与每个测试替身）接入 `packages/host/apiproxy`；后续两个补丁分别补 wire 往返覆盖率测试与 UNC 目标在 stat 前的短路修复。
+- **为什么**：proseReferents 扫描出的散文引用需要一种方式区分"这个提及现在还指向一个真实存在的路径"与"已经过时/从未存在"，此前没有任何只读、无能力闸的批量存在性探测 RPC。
+- **要达到的效果**：referents 校验层可以低成本批量确认散文提及的路径是否仍然存在，用于决定按钮态呈现。
+- **退役条件**：上游为 Host RPC 自己提供等价的批量路径存在性探测。
+- **状态**：**SKIPPED — 需要设计（rc.26 同步，基座 0.1.2-alpha.2）**。三个补丁全部落点 `packages/host/apiproxy/{src/api-proxy.ts, src/api/host.ts, src/api/host.schema.ts, tests/*}`，该包已随上游重组（见 a5c4d3a29d 的退役记录）整体消失，`host.<method>` RPC 模式本身在新树上已不存在同构对应物；且本系列是 proseReferents 校验层（ae19472402 系列，已 SKIPPED）的下游消费者，即便 apiproxy 问题解决，`referents.subscribe`/校验 tick 的落点仍待那一系列先行设计。逐一尝试 cherry-pick 均遇 modify/delete 冲突（`api-proxy.ts` 已不存在），已逐个 `git cherry-pick --skip`，均未重落。交由协调者与 a5c4d3a29d/ae19472402 一并设计端口。
