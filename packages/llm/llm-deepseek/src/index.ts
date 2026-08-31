@@ -13,6 +13,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
+import type {} from '@deepseek-ai/dsh-attachment-spill'
 import { assertUsableApiKey, LlmError, resolveImageAttachmentAccess, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ModelModality, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
 import type {} from '@deepseek-ai/dsh-fs'
@@ -457,6 +458,7 @@ export function apply(ctx: Context, config: Config): void {
     resolveApiKey,
     resolveUserId,
     resolveAttachments: () => ctx.get('attachments'),
+    resolveAttachmentSpill: () => ctx.get('attachmentSpill'),
     resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(
       attachments,
       hostPath => ctx.get('fs')?.processPathFromHostPath(hostPath),

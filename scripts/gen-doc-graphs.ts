@@ -108,6 +108,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'The host commits accepted images before session events; provider adapters resolve authorized durable references into provider-native content.',
   },
   {
+    key: 'attachmentSpill',
+    pkg: 'attachment-spill',
+    title: 'Oversized file-attachment spill materialization',
+    mode: 'core',
+    consumers: ['llm-deepseek', 'llm-pi-ai'],
+    note: 'Idempotent, session-scoped spill of a file attachment\'s lowered text past a character threshold; provider adapters thread it through their existing file-lowering call site.',
+  },
+  {
     key: 'llm',
     pkg: 'llm',
     title: 'LLM adapter registry',

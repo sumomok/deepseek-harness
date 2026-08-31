@@ -4,11 +4,17 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
-import type { AttachmentStore, ImageAttachmentRef, RequestImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type {
+  AttachmentStore, FileAttachmentRef, ImageAttachmentRef, RequestImageAttachment, StoredFileAttachment,
+} from '@deepseek-ai/dsh-attachment'
+import type { AttachmentSpill } from '@deepseek-ai/dsh-attachment-spill'
+import { SpillLocator } from '@deepseek-ai/dsh-spill'
 import { createLaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
 import LlmRuntime, { ToolCallId, createUserMessage,
   CONTEXT_WINDOW_EXCEEDED_CODE,
   LlmError,
+  lowerFileBlockText,
+  lowerSpilledFileBlockText,
   ProviderRequestId,
   QUOTA_EXCEEDED_CODE,
   ReasoningEffortId,
@@ -63,6 +69,7 @@ function adapterOf(
   config: Partial<LlmDeepSeek.Config> & { apiKey?: string } = {},
   attachments?: AttachmentStore,
   files?: LlmDeepSeek.DeepSeekFileStore,
+  attachmentSpill?: AttachmentSpill,
 ): DeepSeekAdapter {
   const { apiKey, ...rest } = config
   return new DeepSeekAdapter({
@@ -70,6 +77,7 @@ function adapterOf(
     resolveApiKey: () => Promise.resolve(apiKey ?? 'k'),
     resolveUserId: () => TEST_USER_ID,
     resolveAttachments: () => attachments,
+    resolveAttachmentSpill: () => attachmentSpill,
     ...files === undefined ? {} : { resolveFiles: () => files },
     prepareExtensions: noExtensions,
   })
@@ -85,6 +93,12 @@ const imageRef: ImageAttachmentRef = {
   bytes: 3,
   width: 1,
   height: 1,
+}
+
+const attachmentFileRef: FileAttachmentRef = {
+  attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+  name: 'notes.txt',
+  bytes: 8,
 }
 
 function requestImage(ref = imageRef): RequestImageAttachment {
@@ -1103,6 +1117,118 @@ describe('DeepSeekAdapter against a mock server', () => {
     }))).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
     expect(resolveApiKey).not.toHaveBeenCalled()
     expect(server.requests).toHaveLength(0)
+  })
+
+  it('rejects a file block without an attachment provider before credentials or fetch, no model capability gate applies', async () => {
+    const server = await mockServer([])
+    const resolveApiKey = vi.fn(() => Promise.resolve('k'))
+    const adapter = new DeepSeekAdapter({
+      options: () => resolveAdapterOptions({ baseURL: server.url }),
+      resolveApiKey,
+      resolveUserId: () => TEST_USER_ID,
+      prepareExtensions: noExtensions,
+    })
+
+    await expect(drain(adapter.stream({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      messages: [createUserMessage({
+        content: [{ type: 'file', attachment: attachmentFileRef }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }))).rejects.toMatchObject({ code: 'UNSUPPORTED_CONTENT' })
+    expect(resolveApiKey).not.toHaveBeenCalled()
+    expect(server.requests).toHaveLength(0)
+  })
+
+  it('lowers a durable file into plain fenced text before the request reaches the wire', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const readFile = vi.fn((ref: FileAttachmentRef): Promise<StoredFileAttachment> => (
+      Promise.resolve({ ref, data: new TextEncoder().encode('line one') })
+    ))
+    const adapter = adapterOf({ baseURL: server.url }, { readFile } as unknown as AttachmentStore)
+
+    await drain(adapter.stream({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      messages: [createUserMessage({
+        content: [
+          { type: 'text', text: 'see attached ' },
+          { type: 'file', attachment: attachmentFileRef },
+        ],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }))
+
+    expect(readFile).toHaveBeenCalledWith(attachmentFileRef, expect.any(AbortSignal))
+    expect(server.requests[0]).toMatchObject({
+      model: 'deepseek-v4-flash',
+      messages: [{
+        role: 'user',
+        content: `see attached ${lowerFileBlockText('notes.txt', 'line one', attachmentFileRef.bytes)}`,
+      }],
+    })
+  })
+
+  it('spills an oversized file through resolveAttachmentSpill instead of truncating it', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const bigText = 'x'.repeat(20)
+    const readFile = vi.fn((ref: FileAttachmentRef): Promise<StoredFileAttachment> => (
+      Promise.resolve({ ref, data: new TextEncoder().encode(bigText) })
+    ))
+    const spillRef = { locator: SpillLocator('/spill/session-abc/xyz-notes.txt'), bytes: bigText.length, retrievalHint: 'Use read with offset/limit, or grep this path to search within it.' }
+    const resolveSpill = vi.fn(() => Promise.resolve(spillRef))
+    const attachmentSpill = { inlineWholeUnderChars: 10, previewChars: 4, resolveSpill } as unknown as AttachmentSpill
+    const adapter = adapterOf({ baseURL: server.url }, { readFile } as unknown as AttachmentStore, undefined, attachmentSpill)
+
+    await drain(adapter.stream({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      messages: [createUserMessage({
+        content: [{ type: 'file', attachment: attachmentFileRef }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }))
+
+    expect(resolveSpill).toHaveBeenCalledWith(attachmentFileRef, bigText)
+    expect(server.requests[0]).toMatchObject({
+      model: 'deepseek-v4-flash',
+      messages: [{
+        role: 'user',
+        content: lowerSpilledFileBlockText('notes.txt', bigText, attachmentFileRef.bytes, 4, spillRef),
+      }],
+    })
+  })
+
+  it('falls back to truncated inline text when resolveAttachmentSpill resolves undefined', async () => {
+    const server = await mockServer([{ kind: 'sse', events: textEvents }])
+    const bigText = 'x'.repeat(20)
+    const readFile = vi.fn((ref: FileAttachmentRef): Promise<StoredFileAttachment> => (
+      Promise.resolve({ ref, data: new TextEncoder().encode(bigText) })
+    ))
+    const attachmentSpill = {
+      inlineWholeUnderChars: 10,
+      previewChars: 4,
+      resolveSpill: () => Promise.resolve(undefined),
+    } as unknown as AttachmentSpill
+    const adapter = adapterOf({ baseURL: server.url }, { readFile } as unknown as AttachmentStore, undefined, attachmentSpill)
+
+    await drain(adapter.stream({
+      provider: 'deepseek-official',
+      model: 'deepseek-v4-flash',
+      messages: [createUserMessage({
+        content: [{ type: 'file', attachment: attachmentFileRef }],
+        source: { kind: 'plugin', plugin: 'test' },
+      })],
+    }))
+
+    expect(server.requests[0]).toMatchObject({
+      model: 'deepseek-v4-flash',
+      messages: [{
+        role: 'user',
+        content: lowerFileBlockText('notes.txt', bigText, attachmentFileRef.bytes, 10),
+      }],
+    })
   })
 
   it('streams raw chunks through ctx.llm.stream', async () => {

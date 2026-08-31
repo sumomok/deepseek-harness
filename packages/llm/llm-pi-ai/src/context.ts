@@ -5,8 +5,8 @@
  */
 
 import { brandString } from '@deepseek-ai/dsh-brand'
-import { contentHasImage, LlmError, offloadedImageText, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, ImageAttachmentAccessResolver, Message, ToolCallId } from '@deepseek-ai/dsh-llm'
+import { contentHasFile, contentHasImage, LlmError, lowerFileBlocksFromStore, offloadedImageText, offloadRequestImagesWithPolicy, requestImageHandleText } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FileSpillOptions, GenerateOptions, ImageAttachmentAccessResolver, Message, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type {
   AttachmentId,
   AttachmentStore,
@@ -158,6 +158,9 @@ function textOnlyContext(options: GenerateOptions, onReplayDegrade?: (reason: st
     if (contentHasImage(message.content)) {
       throw new LlmError('pi-ai image conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
     }
+    if (contentHasFile(message.content)) {
+      throw new LlmError('pi-ai file conversion requires the durable attachment service', 'UNSUPPORTED_CONTENT')
+    }
     if (message.role === 'system') {
       messages.push({ role: 'user', content: flattenText(message), timestamp: 0 })
       continue
@@ -196,6 +199,8 @@ export interface PiImageRequestContext {
   maxRequestImageBytes?: number
   /** Route pixel and raw encoded-byte budgets. */
   requestImagePolicy?: ImageRequestPolicy
+  /** Optional spill policy and backend hook for an oversized file; omission always truncates one inline. */
+  spill?: FileSpillOptions
 }
 
 /**
@@ -242,13 +247,17 @@ async function toPiContextWithImages(
   images: PiImageRequestContext,
   onReplayDegrade?: (reason: string) => void,
 ): Promise<PiContext> {
-  const { attachments, resolveImageAccess, maxRequestImageBytes } = images
+  const { attachments, resolveImageAccess, maxRequestImageBytes, spill } = images
   const requestImagePolicy = images.requestImagePolicy ?? {
     maxPixels: DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
     maxBytes: DEFAULT_REQUEST_IMAGE_MAX_BYTES,
   }
-  assertSupportedImageRoles(options.messages)
-  const requestMessages = offloadRequestImagesWithPolicy(options.messages, {
+  // Lowered locally, never onto `options.messages` itself: that frozen array
+  // must stay reconstructable byte-identical from the session log, which the
+  // agent-loop's request-reconstruction invariant enforces.
+  const baseMessages = await lowerFileBlocksFromStore(options.messages, attachments, options.signal, spill)
+  assertSupportedImageRoles(baseMessages)
+  const requestMessages = offloadRequestImagesWithPolicy(baseMessages, {
     representation: 'base64',
     ...maxRequestImageBytes === undefined ? {} : { maxBytes: maxRequestImageBytes },
     byteQuantum: 1,
