@@ -16,6 +16,7 @@
  * programs merge their own keys in; the rule fires on the narrow-map view. */
 import { Context, Inject } from '@deepseek-ai/cordis'
 import type { Fiber, Plugin } from '@deepseek-ai/cordis'
+import { ClientReferent } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createElement, Fragment, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { act, render, within } from '@testing-library/react'
@@ -231,6 +232,10 @@ export class SlotTestRuntime {
     this.workspaces = new TestWorkspaces(this.stabilizer)
     ctx.provide('sessions', this.sessions)
     ctx.provide('workspaces', this.workspaces)
+    // The real production service, not a double: it is a stateless dispatch
+    // wrapper (see ClientReferent's own doc), so mounting it here gives
+    // every bench authentic `referent/open` waterfall behavior for free.
+    new ClientReferent(ctx)
     this.disposeWorkspaceSource = slots.provideRoot({ hooks: { workspaces: this.workspaces.list } })
     // Capturing install: the production renderer does the rendering; the
     // wrapper only takes the host face for storeOf (no machinery copied).
