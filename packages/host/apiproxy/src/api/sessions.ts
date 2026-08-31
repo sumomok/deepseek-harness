@@ -48,7 +48,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
      */
     fileLimits: FileAttachmentLimits
     /**
-     * Deployment-appended filename substrings for the client's pre-send
+     * Deployment-appended filename substrings for the client's add-time
      * secret-container confirmation, constant per host boot. The fixed base
      * heuristic (`.env`, `id_rsa`, etc.) is a client-side constant and never
      * rides this wire; this key carries only the deployment's additions —

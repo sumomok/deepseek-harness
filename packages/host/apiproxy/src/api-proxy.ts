@@ -651,7 +651,7 @@ export interface ApiProxyDefaults {
    */
   canOpenPath?: () => boolean
   /**
-   * Deployment-appended filename substrings for the client's pre-send
+   * Deployment-appended filename substrings for the client's add-time
    * secret-container confirmation (the `secretContainerExtraPatterns`
    * projection's source). Additive only: the client's fixed base heuristic
    * is never expressed here and can never be replaced or narrowed through

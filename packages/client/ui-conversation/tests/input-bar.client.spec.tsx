@@ -263,6 +263,15 @@ function attachmentOwner(slotCalls: readonly { key: string; owner: unknown }[]):
   throw new Error('attachment slot was not rendered')
 }
 
+/** A draft text-file attachment whose name matches the secret-container heuristic. */
+function envFile(id: string, name = '.env'): ComposerAttachment {
+  return {
+    kind: 'file' as const,
+    id: id as DraftAttachmentId,
+    file: new File(['SECRET=1'], name, { type: 'text/plain' }),
+  }
+}
+
 describe('image draft rail', () => {
   it('collects clipboard files while preserving text from a mixed paste', async () => {
     const addImages = vi.fn(() => null)
@@ -509,76 +518,104 @@ describe('image draft rail', () => {
   })
 })
 
-describe('secret-container pre-send confirmation', () => {
-  const envFile = (id: string, name = '.env') => ({
-    kind: 'file' as const,
-    id: id as DraftAttachmentId,
-    file: new File(['SECRET=1'], name, { type: 'text/plain' }),
-  })
-
-  it('gates keyboard Enter behind a confirm dialog on a hit; 先不发送 keeps the draft and attachment, sends nothing', () => {
-    const attachment = envFile('draft-1')
-    const result = bench({ draft: 'hello', attachments: [attachment] })
-    const { textarea, sink, view } = result
-    fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).not.toHaveBeenCalled()
-    expect(view.getByRole('dialog').textContent).toContain('.env')
-    fireEvent.click(view.getByRole('button', { name: '先不发送' }))
-    expect(view.queryByRole('dialog')).toBeNull()
-    expect(sink).not.toHaveBeenCalled()
-    expect(textarea.value).toBe('hello')
-    expect(attachmentOwner(result.slotCalls).attachments).toEqual([attachment])
-  })
-
-  it('仍要发送 proceeds with exactly the submission that was gated (keyboard Enter path)', () => {
-    const attachment = envFile('draft-1')
-    const { textarea, sink, view } = bench({ draft: 'hello', attachments: [attachment] })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).not.toHaveBeenCalled()
-    fireEvent.click(view.getByRole('button', { name: '仍要发送' }))
-    expect(sink).toHaveBeenCalledWith('hello', [attachment.id], 'queue', expect.any(AbortSignal))
-    expect(view.queryByRole('dialog')).toBeNull()
-  })
-
-  it('gates the primary Send button click identically to keyboard Enter', () => {
-    const attachment = envFile('draft-1')
-    const { button, sink, view } = bench({ draft: 'hello', attachments: [attachment] })
-    fireEvent.click(button)
-    expect(sink).not.toHaveBeenCalled()
-    expect(view.getByRole('dialog')).toBeTruthy()
-    fireEvent.click(view.getByRole('button', { name: '仍要发送' }))
-    expect(sink).toHaveBeenCalledWith('hello', [attachment.id], 'queue', expect.any(AbortSignal))
-  })
-
-  it('an ordinary text file draft never opens the confirm dialog', () => {
-    const attachment = { kind: 'file' as const, id: 'draft-3' as DraftAttachmentId, file: new File(['hi'], 'notes.txt', { type: 'text/plain' }) }
-    const { textarea, sink, view } = bench({ draft: 'hi', attachments: [attachment] })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('hi', [attachment.id], 'queue', expect.any(AbortSignal))
-    expect(view.queryByRole('dialog')).toBeNull()
-  })
-
-  it('a deployment-appended extra pattern gates a name the fixed base list alone would miss', () => {
-    const attachment = {
-      kind: 'file' as const,
-      id: 'draft-2' as DraftAttachmentId,
-      file: new File(['x'], 'company-internal-config.yaml', { type: 'text/plain' }),
+describe('secret-container add-time confirmation', () => {
+  /**
+   * A real addFiles wiring, unlike the `vi.fn(() => null)` stub the intake
+   * pre-check tests above use: it actually attaches (mutating the shared
+   * `attachments` array `draftImages` resolves against, then registering the
+   * new id with the real machine), which is what lets intake's own add-time
+   * secret-container check see the file land in `fileAttachments` on the
+   * next render. `shellHolder` is populated right after `bench()` returns,
+   * before any test interaction can invoke `addFiles` — `bench()` itself
+   * needs the closure before the shell it will populate exists.
+   */
+  function benchWithRealAddFiles(over?: BenchOptions) {
+    const attachments: ComposerAttachment[] = [...(over?.attachments ?? [])]
+    const shellHolder: { current?: SessionInputShell } = {}
+    const addFiles = (files: readonly File[]): string | null => {
+      const created = files.map(file => (
+        { kind: 'file' as const, id: crypto.randomUUID() as DraftAttachmentId, file }
+      ))
+      attachments.push(...created)
+      shellHolder.current?.addImages(created.map(entry => entry.id))
+      return null
     }
-    const withoutExtra = bench({ draft: 'hi', attachments: [attachment] })
-    fireEvent.keyDown(withoutExtra.textarea, { key: 'Enter' })
-    expect(withoutExtra.sink).toHaveBeenCalledWith('hi', [attachment.id], 'queue', expect.any(AbortSignal))
-    cleanup()
-    const withExtra = bench({
-      draft: 'hi',
-      attachments: [attachment],
-      secretContainerExtraPatterns: ['company-internal'],
+    const result = bench({ ...over, attachments, addFiles })
+    shellHolder.current = result.shell
+    return result
+  }
+
+  it('opens the add-confirm dialog immediately on drop, naming the matched file, without holding the attach', () => {
+    const result = benchWithRealAddFiles({ draft: 'hello' })
+    act(() => { attachmentOwner(result.slotCalls).onAddFiles([new File(['SECRET=1'], '.env', { type: 'text/plain' })]) })
+    expect(result.view.getByRole('dialog').textContent).toContain('.env')
+    // Attaching is immediate — the dialog offers to undo it, not to gate it.
+    expect(attachmentOwner(result.slotCalls).attachments.some(a => a.file.name === '.env')).toBe(true)
+  })
+
+  it('lists every matched name from one add batch in a single dialog', () => {
+    const result = benchWithRealAddFiles({ draft: 'hello' })
+    act(() => {
+      attachmentOwner(result.slotCalls).onAddFiles([
+        new File(['SECRET=1'], '.env', { type: 'text/plain' }),
+        new File(['x'], 'id_rsa', { type: 'text/plain' }),
+      ])
     })
-    fireEvent.keyDown(withExtra.textarea, { key: 'Enter' })
-    expect(withExtra.sink).not.toHaveBeenCalled()
+    const dialogText = result.view.getByRole('dialog').textContent ?? ''
+    expect(dialogText).toContain('.env')
+    expect(dialogText).toContain('id_rsa')
+  })
+
+  it('不添加 removes only the matched files from that batch; a non-matched sibling stays attached', () => {
+    const result = benchWithRealAddFiles({ draft: 'hello' })
+    act(() => {
+      attachmentOwner(result.slotCalls).onAddFiles([
+        new File(['SECRET=1'], '.env', { type: 'text/plain' }),
+        new File(['hi'], 'notes.txt', { type: 'text/plain' }),
+      ])
+    })
+    act(() => { fireEvent.click(result.view.getByRole('button', { name: '不添加' })) })
+    expect(result.view.queryByRole('dialog')).toBeNull()
+    const attachments = attachmentOwner(result.slotCalls).attachments
+    expect(attachments.some(a => a.file.name === '.env')).toBe(false)
+    expect(attachments.some(a => a.file.name === 'notes.txt')).toBe(true)
+  })
+
+  it('仍要添加 closes the dialog and leaves the matched file attached', () => {
+    const result = benchWithRealAddFiles({ draft: 'hello' })
+    act(() => { attachmentOwner(result.slotCalls).onAddFiles([new File(['SECRET=1'], '.env', { type: 'text/plain' })]) })
+    act(() => { fireEvent.click(result.view.getByRole('button', { name: '仍要添加' })) })
+    expect(result.view.queryByRole('dialog')).toBeNull()
+    expect(attachmentOwner(result.slotCalls).attachments.some(a => a.file.name === '.env')).toBe(true)
+  })
+
+  it('re-dropping a match reopens the identical gate — no "don\'t ask again" suppression', () => {
+    const result = benchWithRealAddFiles({ draft: 'hello' })
+    act(() => { attachmentOwner(result.slotCalls).onAddFiles([new File(['SECRET=1'], '.env', { type: 'text/plain' })]) })
+    act(() => { fireEvent.click(result.view.getByRole('button', { name: '仍要添加' })) })
+    expect(result.view.queryByRole('dialog')).toBeNull()
+    act(() => { attachmentOwner(result.slotCalls).onAddFiles([new File(['SECRET=1'], '.env.local', { type: 'text/plain' })]) })
+    expect(result.view.getByRole('dialog').textContent).toContain('.env.local')
+  })
+
+  it('an ordinary text file never opens the add-confirm dialog', () => {
+    const result = benchWithRealAddFiles({ draft: 'hello' })
+    act(() => { attachmentOwner(result.slotCalls).onAddFiles([new File(['hi'], 'notes.txt', { type: 'text/plain' })]) })
+    expect(result.view.queryByRole('dialog')).toBeNull()
+  })
+
+  it('a deployment-appended extra pattern gates add for a name the fixed base list alone would miss', () => {
+    const name = 'company-internal-config.yaml'
+    const withoutExtra = benchWithRealAddFiles({ draft: 'hi' })
+    act(() => { attachmentOwner(withoutExtra.slotCalls).onAddFiles([new File(['x'], name, { type: 'text/plain' })]) })
+    expect(withoutExtra.view.queryByRole('dialog')).toBeNull()
+    cleanup()
+    const withExtra = benchWithRealAddFiles({ draft: 'hi', secretContainerExtraPatterns: ['company-internal'] })
+    act(() => { attachmentOwner(withExtra.slotCalls).onAddFiles([new File(['x'], name, { type: 'text/plain' })]) })
     expect(withExtra.view.getByRole('dialog')).toBeTruthy()
   })
 
-  it('marks the attachment slot with the hit id, for the chip immediate-warning state', () => {
+  it('marks the attachment slot with the hit id, for the chip persistent-warning state', () => {
     const attachment = envFile('draft-1')
     const plain = { kind: 'file' as const, id: 'draft-2' as DraftAttachmentId, file: new File(['hi'], 'notes.txt', { type: 'text/plain' }) }
     const result = bench({ attachments: [attachment, plain] })
@@ -587,13 +624,34 @@ describe('secret-container pre-send confirmation', () => {
     expect(owner.secretContainerHitIds?.has(plain.id)).toBe(false)
   })
 
-  it('no hit: zero dialog, zero owner-prop change beyond an empty hit set', () => {
+  it('no hit: empty hit set, no dialog', () => {
     const plain = { kind: 'file' as const, id: 'draft-4' as DraftAttachmentId, file: new File(['hi'], 'notes.txt', { type: 'text/plain' }) }
     const result = bench({ draft: 'hi', attachments: [plain] })
-    fireEvent.keyDown(result.textarea, { key: 'Enter' })
-    expect(result.sink).toHaveBeenCalledWith('hi', [plain.id], 'queue', expect.any(AbortSignal))
     expect(result.view.queryByRole('dialog')).toBeNull()
     expect(attachmentOwner(result.slotCalls).secretContainerHitIds?.size ?? 0).toBe(0)
+  })
+})
+
+describe('secret-container: no send-time re-prompt', () => {
+  // The confirmation moved to add time (above); an attachment already in the
+  // draft — restored, or added and left unconfirmed — must never gate either
+  // submit entry point again. Pre-seeding via `attachments` (not a real
+  // intake) is deliberate: it proves the send path itself carries no gate,
+  // independent of whether an add-time dialog was ever shown or answered.
+  it('Enter submits immediately with no confirmation dialog, carrying a secret-container match', () => {
+    const attachment = envFile('draft-1')
+    const { textarea, sink, view } = bench({ draft: 'hello', attachments: [attachment] })
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(sink).toHaveBeenCalledWith('hello', [attachment.id], 'queue', expect.any(AbortSignal))
+    expect(view.queryByRole('dialog')).toBeNull()
+  })
+
+  it('the primary Send button submits immediately too — both entry points share the removed gate', () => {
+    const attachment = envFile('draft-1')
+    const { button, sink, view } = bench({ draft: 'hello', attachments: [attachment] })
+    fireEvent.click(button)
+    expect(sink).toHaveBeenCalledWith('hello', [attachment.id], 'queue', expect.any(AbortSignal))
+    expect(view.queryByRole('dialog')).toBeNull()
   })
 })
 

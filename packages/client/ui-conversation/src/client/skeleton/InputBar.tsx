@@ -24,7 +24,7 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComposerBarProps } from '../contract/slots.ts'
 import { deriveDecorations } from '../input/decorations.ts'
 import type { DraftDecorations } from '../input/decorations.ts'
-import type { EditRange } from '../input/contract.ts'
+import type { DraftAttachmentId, EditRange } from '../input/contract.ts'
 import { attachmentErrorText, attachmentSizeText } from '../attachment-labels.ts'
 import { partitionDroppedFiles } from '../file-sniff.ts'
 import { matchSecretContainerFiles, secretContainerCandidate } from '../secret-container.ts'
@@ -433,13 +433,11 @@ export function InputBar({
       keyboard.steerQueue()
       return
     }
-    requestSubmit(() => {
-      keyboard.submit(resolveSubmitMode(
-        running,
-        accelerated ? 'accelerated' : 'enter',
-        subagent === null,
-      ))
-    })
+    keyboard.submit(resolveSubmitMode(
+      running,
+      accelerated ? 'accelerated' : 'enter',
+      subagent === null,
+    ))
   }
 
   const onChange = (e: ChangeEvent<HTMLTextAreaElement>): void => {
@@ -519,13 +517,15 @@ export function InputBar({
   const imageAttachments = useMemo(() => attachments.filter(a => a.kind === 'image'), [attachments])
   const fileAttachments = useMemo(() => attachments.filter(a => a.kind === 'file'), [attachments])
 
-  // Pre-send secret-container confirmation (name/path only, zero content
-  // read): deployment-appended filename substrings ride the boot-constant
+  // Secret-container warning state (name/path only, zero content read):
+  // deployment-appended filename substrings ride the boot-constant
   // projection the same way imageLimits/fileLimits do; the fixed base
   // heuristic lives entirely in matchSecretContainerFiles and needs no host
-  // round trip. secretHits gates BOTH submit entry points below (button
-  // click and keyboard Enter converge on requestSubmit); secretHitIds only
-  // feeds the chip's immediate warning state through the attachment slot.
+  // round trip. secretHitIds feeds the chip's persistent warning state
+  // through the attachment slot — it reflects every currently attached
+  // matching file, confirmed or not, so the warning stays visible for as
+  // long as the file stays in the draft, independent of the one-shot
+  // add-time confirmation below.
   const secretContainerExtraPatterns = useProjection('secretContainerExtraPatterns')
   const secretHits = useMemo(
     () => matchSecretContainerFiles(
@@ -535,30 +535,42 @@ export function InputBar({
     [fileAttachments, secretContainerExtraPatterns],
   )
   const secretHitIds = useMemo(() => new Set(secretHits.map(hit => hit.id)), [secretHits])
-  // Confirmation state: non-null while the dialog shows the current hit
-  // list; the pending action runs only on explicit confirmation, and
-  // dismissal (mask/Escape/先不发送) leaves the draft and attachments
-  // untouched. Pure UI gate — this never touches the input machine, the
-  // session, or model-visible content.
-  const [secretConfirmNames, setSecretConfirmNames] = useState<readonly string[] | null>(null)
-  const pendingSubmitRef = useRef<(() => void) | null>(null)
-  const closeSecretConfirm = useCallback((): void => {
-    pendingSubmitRef.current = null
-    setSecretConfirmNames(null)
-  }, [])
-  const confirmSecretSend = useCallback((): void => {
-    const perform = pendingSubmitRef.current
-    closeSecretConfirm()
-    perform?.()
-  }, [closeSecretConfirm])
-  const requestSubmit = useCallback((perform: () => void): void => {
-    if (secretHits.length > 0) {
-      pendingSubmitRef.current = perform
-      setSecretConfirmNames(secretHits.map(hit => hit.name))
-      return
-    }
-    perform()
-  }, [secretHits])
+
+  // Add-time secret-container confirmation: fires once per add batch
+  // (drag-drop or paste), immediately when intakeFiles below attaches a
+  // matching file — not at send time. The whole batch (matched and
+  // non-matched files alike) attaches normally first, exactly as an
+  // unmatched batch would; this dialog then offers to undo the matched
+  // subset. Pure UI gate — it never touches the session or model-visible
+  // content beyond the ordinary attach/detach either button already does.
+  //
+  // The matched files' machine-assigned ids are not known synchronously
+  // (addFiles returns only a rejection message, not the created ids — see
+  // apply.ts), so intakeFiles stashes the raw File references here and the
+  // effect below resolves them to ids once fileAttachments reflects the
+  // attach (the very next render: addFiles publishes synchronously).
+  const pendingAddHitFilesRef = useRef<readonly File[] | null>(null)
+  const [addConfirm, setAddConfirm] = useState<{
+    readonly names: readonly string[]
+    readonly ids: readonly DraftAttachmentId[]
+  } | null>(null)
+  useEffect(() => {
+    const pending = pendingAddHitFilesRef.current
+    if (pending === null) return
+    const resolved = fileAttachments.filter(attachment => pending.includes(attachment.file))
+    if (resolved.length !== pending.length) return // not every file has landed in fileAttachments yet
+    pendingAddHitFilesRef.current = null
+    setAddConfirm({ names: resolved.map(attachment => attachment.file.name), ids: resolved.map(attachment => attachment.id) })
+  }, [fileAttachments])
+  // "仍要添加": the matched files are already attached — closing is the whole action.
+  const closeAddConfirm = useCallback((): void => { setAddConfirm(null) }, [])
+  // "不添加": undo the attach for the matched subset only; a non-matched
+  // sibling from the same batch was never touched by this dialog.
+  const declineAdd = useCallback((): void => {
+    if (addConfirm === null) return
+    for (const id of addConfirm.ids) removeImage?.(id)
+    setAddConfirm(null)
+  }, [addConfirm, removeImage])
 
   const intakeImages = useCallback((files: readonly File[]): void => {
     if (addImages === undefined || files.length === 0) return
@@ -609,8 +621,17 @@ export function InputBar({
       }
       return addFiles(files)
     })()
-    if (rejected !== null) showToast(rejected)
-  }, [addFiles, fileAttachments, fileLimits, showToast, t])
+    if (rejected !== null) {
+      showToast(rejected)
+      return
+    }
+    // Add-time secret-container check, scoped to this batch alone (not the
+    // whole draft — that is secretHits above): the batch just attached
+    // successfully, so a match here opens the add-confirm dialog above.
+    const candidates = files.map(file => ({ file, ...secretContainerCandidate(file) }))
+    const hits = matchSecretContainerFiles(candidates, secretContainerExtraPatterns ?? [])
+    if (hits.length > 0) pendingAddHitFilesRef.current = hits.map(hit => hit.file)
+  }, [addFiles, fileAttachments, fileLimits, secretContainerExtraPatterns, showToast, t])
 
   // Combined entry point for a raw drop/paste batch that may mix images and
   // text files: split by content sniff (client-side pre-check only; the
@@ -659,7 +680,7 @@ export function InputBar({
     }
     if (inputActions === undefined) return // absent machine: the button is disabled
     /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled && !machineBusy) requestSubmit(() => { inputActions.submit() })
+    if (!empty && !disabled && !machineBusy) inputActions.submit()
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
@@ -924,18 +945,18 @@ export function InputBar({
         </div>
       </div>
       {footer}
-      {secretConfirmNames !== null && (
+      {addConfirm !== null && (
         <Modal
           open
-          onClose={closeSecretConfirm}
-          title={t('secretConfirm.title')}
-          description={t('secretConfirm.message', {
-            names: secretConfirmNames.join(t('secretConfirm.separator')),
+          onClose={closeAddConfirm}
+          title={t('secretConfirm.addTitle')}
+          description={t('secretConfirm.addMessage', {
+            names: addConfirm.names.join(t('secretConfirm.separator')),
           })}
           footer={(
             <>
-              <Button variant="outline" onClick={closeSecretConfirm}>{t('secretConfirm.dontSend')}</Button>
-              <Button variant="primary" onClick={confirmSecretSend}>{t('secretConfirm.sendAnyway')}</Button>
+              <Button variant="outline" onClick={declineAdd}>{t('secretConfirm.dontAdd')}</Button>
+              <Button variant="primary" onClick={closeAddConfirm}>{t('secretConfirm.addAnyway')}</Button>
             </>
           )}
         />
