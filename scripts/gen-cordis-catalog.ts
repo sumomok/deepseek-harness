@@ -224,6 +224,7 @@ export const EVENT_WALK_EXEMPTIONS: Record<string, string> = {
   'connection/reset': 'client-face transport signal — packages/api/session-controller/README.md owns the API',
   'connection/state': 'client-face transport signal — packages/api/session-controller/README.md owns the API',
   'locale/change': 'client-face locale switch signal — packages/client/locale/README.md owns the API',
+  'referent/open': 'client-face reference-open interception seam — packages/api/session-controller/README.md owns the API',
   'slash/input-begin-command': 'client-face slash-input protocol — packages/client/ui-input-trigger/README.md owns the API',
   'slash/input-consume-token': 'client-face slash-input protocol — packages/client/ui-input-trigger/README.md owns the API',
   'slash/input-insert-reference': 'client-face slash-input protocol — packages/client/ui-input-trigger/README.md owns the API',
