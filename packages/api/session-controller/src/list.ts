@@ -48,6 +48,13 @@ const fileLimitsSchema = z.object({
 }) as unknown as z.ZodType<FileAttachmentLimits>
 
 /**
+ * secretContainerExtraPatterns projection unit schema (host-side view
+ * validation): deployment-appended filename substrings only — the fixed
+ * base secret-container heuristic never rides this wire.
+ */
+const secretContainerExtraPatternsSchema = z.array(z.string())
+
+/**
  * Advance the Session-list metadata projection by one committed event.
  * @param state - metadata before the event.
  * @param event - next committed Session event.
@@ -88,10 +95,13 @@ export class ApiSessionList {
   /**
    * @param ctx - Host context carrying Session, query, persistence, and projection services.
    * @param coldBlankProbeMaxBytes - maximum physical artifact size eligible for a full observation.
+   * @param secretContainerExtraPatterns - deployment-appended filename substrings for the
+   * client's pre-send secret-container confirmation; additive only.
    */
   constructor(
     private readonly ctx: Context,
     private readonly coldBlankProbeMaxBytes: number,
+    secretContainerExtraPatterns: readonly string[] = [],
   ) {
     ctx.sessionProjections.register<'sessionListMetadata', SessionListMetadata>({
       key: 'sessionListMetadata',
@@ -99,6 +109,20 @@ export class ApiSessionList {
       init: () => ({ blank: true, lastPromptAt: null }),
       apply: applySessionListMetadata,
       wire: { viewSchema: sessionListMetadataSchema, view: state => state },
+      stateVersion: 1,
+    })
+    // Unlike imageLimits/fileLimits, this unit names no other seam's
+    // capability, so it needs no companion ctx.inject dependency and
+    // activates whenever a projection registry is composed at all.
+    ctx.sessionProjections.register<'secretContainerExtraPatterns', null>({
+      key: 'secretContainerExtraPatterns',
+      stateSchema: z.null(),
+      init: () => null,
+      apply: state => state,
+      wire: {
+        viewSchema: secretContainerExtraPatternsSchema,
+        view: () => secretContainerExtraPatterns,
+      },
       stateVersion: 1,
     })
     ctx.inject(['attachments'], (attachmentCtx) => {

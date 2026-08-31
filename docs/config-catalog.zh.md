@@ -307,6 +307,14 @@ export interface Config {
   readonly coldBlankProbeMaxBytes?: number
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /**
+   * Filename substrings ADDED to the client's fixed pre-send
+   * secret-container confirmation heuristic (`.env`, `id_rsa`, etc.) — this
+   * field can only append to that base list, never replace or narrow it;
+   * the base list itself is not configurable here or anywhere.
+   * @default []
+   */
+  readonly secretContainerExtraPatterns?: readonly string[]
 }
 ```
 

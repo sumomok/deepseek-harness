@@ -84,6 +84,8 @@ interface BenchOptions {
     maxMessageFileBytes: number
     maxFileBytes: number
   }
+  /** The `secretContainerExtraPatterns` projection value (absent = no gateway composed). */
+  secretContainerExtraPatterns?: readonly string[]
   draft?: string
   running?: boolean
   subagent?: Exclude<SessionSnapshot['subagent'], null>
@@ -190,7 +192,9 @@ function bench(over?: BenchOptions) {
           ? over?.plan
           : key === 'imageLimits'
             ? over?.imageLimits
-            : key === 'fileLimits' ? over?.fileLimits : undefined)),
+            : key === 'fileLimits'
+              ? over?.fileLimits
+              : key === 'secretContainerExtraPatterns' ? over?.secretContainerExtraPatterns : undefined)),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
@@ -328,7 +332,7 @@ describe('image draft rail', () => {
     // Per-file bytes.
     const overFile = bench({ addImages: vi.fn(() => null), imageLimits: limits })
     intake(overFile, [png(1024 * 1024 + 1, 'big.png')])
-    expect(overFile.view.getByRole('alert').textContent).toContain('单张图片不能超过 1MB')
+    expect(overFile.view.getByRole('alert').textContent).toContain('单张图片不能超过 1 MB')
     expect(overFile.props.addImages).not.toHaveBeenCalled()
     cleanup()
     // Aggregate bytes across the existing rail plus the new batch.
@@ -336,7 +340,7 @@ describe('image draft rail', () => {
     const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file: held, previewUrl: 'blob:held' }
     const overTotal = bench({ addImages: vi.fn(() => null), imageLimits: limits, attachments: [attachment] })
     intake(overTotal, [png(1024 * 1024, 'more.png')])
-    expect(overTotal.view.getByRole('alert').textContent).toContain('图片总大小超过 2MB')
+    expect(overTotal.view.getByRole('alert').textContent).toContain('图片总大小超过 2 MB')
     expect(overTotal.props.addImages).not.toHaveBeenCalled()
     cleanup()
     // Within every limit: the batch passes through to addImages.
@@ -366,7 +370,7 @@ describe('image draft rail', () => {
     // Per-file bytes.
     const overFile = bench({ addFiles: vi.fn(() => null), fileLimits: limits })
     intake(overFile, [txt(1024 * 1024 + 1, 'big.txt')])
-    expect(overFile.view.getByRole('alert').textContent).toContain('单个文件不能超过 1MB')
+    expect(overFile.view.getByRole('alert').textContent).toContain('单个文件不能超过 1 MB')
     expect(overFile.props.addFiles).not.toHaveBeenCalled()
     cleanup()
     // Aggregate bytes across the existing chip row plus the new batch — a
@@ -375,7 +379,7 @@ describe('image draft rail', () => {
     const heldFile = { kind: 'file' as const, id: 'draft-1' as DraftAttachmentId, file: txt(1024 * 1024 * 1.5, 'held.txt') }
     const overTotal = bench({ addFiles: vi.fn(() => null), fileLimits: limits, attachments: [heldImage, heldFile] })
     intake(overTotal, [txt(1024 * 1024, 'more.txt')])
-    expect(overTotal.view.getByRole('alert').textContent).toContain('文件总大小超过 2MB')
+    expect(overTotal.view.getByRole('alert').textContent).toContain('文件总大小超过 2 MB')
     expect(overTotal.props.addFiles).not.toHaveBeenCalled()
     cleanup()
     // Within every limit: the batch passes through to addFiles.
@@ -421,7 +425,7 @@ describe('image draft rail', () => {
         mediaTypes: ['image/png'] as const,
       },
     })
-    expect(attachmentOwner(result.slotCalls).dropLimits).toEqual({ count: 20, size: '5MB' })
+    expect(attachmentOwner(result.slotCalls).dropLimits).toEqual({ count: 20, size: '5 MB' })
   })
 
   it('announces server attachment rejections as product copy, other codes as developer text', () => {
@@ -540,6 +544,94 @@ describe('image draft rail', () => {
       ])
     })
     expect(result.view.getByRole('alert').textContent).toContain('图片读取服务不可用')
+  })
+})
+
+describe('secret-container pre-send confirmation', () => {
+  const envFile = (id: string, name = '.env') => ({
+    kind: 'file' as const,
+    id: id as DraftAttachmentId,
+    file: new File(['SECRET=1'], name, { type: 'text/plain' }),
+  })
+
+  it('gates keyboard Enter behind a confirm dialog on a hit; 先不发送 keeps the draft and attachment, sends nothing', () => {
+    const attachment = envFile('draft-1')
+    const result = bench({ draft: 'hello', attachments: [attachment] })
+    const { textarea, sink, view } = result
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(sink).not.toHaveBeenCalled()
+    expect(view.getByRole('dialog').textContent).toContain('.env')
+    fireEvent.click(view.getByRole('button', { name: '先不发送' }))
+    expect(view.queryByRole('dialog')).toBeNull()
+    expect(sink).not.toHaveBeenCalled()
+    expect(textarea.textContent).toBe('hello')
+    expect(attachmentOwner(result.slotCalls).attachments).toEqual([attachment])
+  })
+
+  it('仍要发送 proceeds with exactly the submission that was gated (keyboard Enter path)', () => {
+    const attachment = envFile('draft-1')
+    const { textarea, sink, view } = bench({ draft: 'hello', attachments: [attachment] })
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(sink).not.toHaveBeenCalled()
+    fireEvent.click(view.getByRole('button', { name: '仍要发送' }))
+    expect(sink).toHaveBeenCalledWith('hello', [attachment.id], 'queue', expect.any(AbortSignal))
+    expect(view.queryByRole('dialog')).toBeNull()
+  })
+
+  it('gates the primary Send button click identically to keyboard Enter', () => {
+    const attachment = envFile('draft-1')
+    const { button, sink, view } = bench({ draft: 'hello', attachments: [attachment] })
+    fireEvent.click(button)
+    expect(sink).not.toHaveBeenCalled()
+    expect(view.getByRole('dialog')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: '仍要发送' }))
+    expect(sink).toHaveBeenCalledWith('hello', [attachment.id], 'queue', expect.any(AbortSignal))
+  })
+
+  it('an ordinary text file draft never opens the confirm dialog', () => {
+    const attachment = { kind: 'file' as const, id: 'draft-3' as DraftAttachmentId, file: new File(['hi'], 'notes.txt', { type: 'text/plain' }) }
+    const { textarea, sink, view } = bench({ draft: 'hi', attachments: [attachment] })
+    fireEvent.keyDown(textarea, { key: 'Enter' })
+    expect(sink).toHaveBeenCalledWith('hi', [attachment.id], 'queue', expect.any(AbortSignal))
+    expect(view.queryByRole('dialog')).toBeNull()
+  })
+
+  it('a deployment-appended extra pattern gates a name the fixed base list alone would miss', () => {
+    const attachment = {
+      kind: 'file' as const,
+      id: 'draft-2' as DraftAttachmentId,
+      file: new File(['x'], 'company-internal-config.yaml', { type: 'text/plain' }),
+    }
+    const withoutExtra = bench({ draft: 'hi', attachments: [attachment] })
+    fireEvent.keyDown(withoutExtra.textarea, { key: 'Enter' })
+    expect(withoutExtra.sink).toHaveBeenCalledWith('hi', [attachment.id], 'queue', expect.any(AbortSignal))
+    cleanup()
+    const withExtra = bench({
+      draft: 'hi',
+      attachments: [attachment],
+      secretContainerExtraPatterns: ['company-internal'],
+    })
+    fireEvent.keyDown(withExtra.textarea, { key: 'Enter' })
+    expect(withExtra.sink).not.toHaveBeenCalled()
+    expect(withExtra.view.getByRole('dialog')).toBeTruthy()
+  })
+
+  it('marks the attachment slot with the hit id, for the chip immediate-warning state', () => {
+    const attachment = envFile('draft-1')
+    const plain = { kind: 'file' as const, id: 'draft-2' as DraftAttachmentId, file: new File(['hi'], 'notes.txt', { type: 'text/plain' }) }
+    const result = bench({ attachments: [attachment, plain] })
+    const owner = attachmentOwner(result.slotCalls)
+    expect(owner.secretContainerHitIds?.has(attachment.id)).toBe(true)
+    expect(owner.secretContainerHitIds?.has(plain.id)).toBe(false)
+  })
+
+  it('no hit: zero dialog, zero owner-prop change beyond an empty hit set', () => {
+    const plain = { kind: 'file' as const, id: 'draft-4' as DraftAttachmentId, file: new File(['hi'], 'notes.txt', { type: 'text/plain' }) }
+    const result = bench({ draft: 'hi', attachments: [plain] })
+    fireEvent.keyDown(result.textarea, { key: 'Enter' })
+    expect(result.sink).toHaveBeenCalledWith('hi', [plain.id], 'queue', expect.any(AbortSignal))
+    expect(result.view.queryByRole('dialog')).toBeNull()
+    expect(attachmentOwner(result.slotCalls).secretContainerHitIds?.size ?? 0).toBe(0)
   })
 })
 
