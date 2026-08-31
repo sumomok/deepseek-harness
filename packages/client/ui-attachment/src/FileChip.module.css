@@ -1,0 +1,73 @@
+/* Text-file draft chip: a name+size pill beside the image thumbnail rail —
+   its own shape, not the rail's 64px square, since a file has nothing to
+   thumbnail. */
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.chip {
+  position: relative;
+  display: flex;
+  max-width: 220px;
+  height: 40px;
+  align-items: center;
+  gap: 6px;
+  padding: 0 28px 0 12px;
+  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border-radius: 12px;
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.name {
+  overflow: hidden;
+  color: var(--dsw-alias-label-primary);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.size {
+  flex: none;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+}
+
+.remove {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  z-index: 1;
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: var(--dsw-alias-button-contrast-fill);
+  color: var(--dsw-alias-label-primary-inverted);
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.2s ease-in-out;
+}
+
+.chip:hover .remove,
+.remove:focus-visible {
+  opacity: 1;
+}
+
+/* Touch surfaces have no hover to reveal the control. */
+@media (pointer: coarse) {
+  .remove {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .remove {
+    transition: none;
+  }
+}

@@ -49,6 +49,7 @@ export type { ConversationKey } from './locales.ts'
 export type {
   ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps,
   ComposerBarInjected, ComposerBarOwnerProps, ComposerBarProps, ComposerChainProps,
+  ComposerFileAttachment, ComposerImageAttachment,
   ConversationHeaderActionOwnerProps, ConversationHeaderLineageOwnerProps,
   ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionHeaderSlotProps,
   ConversationSessionInjected, ConversationSessionSlotProps, ConversationSlotProps,
