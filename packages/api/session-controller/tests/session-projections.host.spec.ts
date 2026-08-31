@@ -258,6 +258,51 @@ describe('session.history projections block', () => {
     expect('fileLimits' in snapshot.projections.values).toBe(false)
   })
 
+  it('publishes secretContainerExtraPatterns as a constant unit, verbatim, needing no attachment service', async () => {
+    const { ctx, session } = await harness(true)
+    const gateway = createSessionTestRemote(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
+      cwd: '/tmp',
+      secretContainerExtraPatterns: ['company-internal'],
+    })
+    seedMessages(session, 2)
+    const snapshot = await opening(gateway, session.id)
+    // Verbatim, not merged with any host-side list: the Config carries only
+    // the deployment's additions — the fixed base heuristic lives on the
+    // client and never rides this wire, so there is nothing here for the
+    // host to merge, filter, or otherwise narrow.
+    expect(snapshot.projections.values['secretContainerExtraPatterns']).toEqual(['company-internal'])
+    // Constant unit: appending events must never broadcast a change frame.
+    await new Promise(resolve => setTimeout(resolve, 0))
+    const abort = new AbortController()
+    const iterator = gateway.control(abort.signal)[Symbol.asyncIterator]()
+    await iterator.next()
+    const next = iterator.next()
+    seedMessages(session, 1)
+    await new Promise(resolve => setTimeout(resolve, 0))
+    await expect(next).resolves.toMatchObject({
+      done: false,
+      value: { type: 'projection', key: 'sessionListMetadata' },
+    })
+    const extra = iterator.next()
+    const quiet = Symbol('quiet')
+    expect(await Promise.race([
+      extra,
+      new Promise<typeof quiet>(resolve => setTimeout(() => { resolve(quiet) }, 0)),
+    ])).toBe(quiet)
+    abort.abort()
+    await expect(extra).resolves.toEqual({ done: true, value: undefined })
+  })
+
+  it('defaults secretContainerExtraPatterns to empty when Config omits it', async () => {
+    const { ctx, session } = await harness(true)
+    seedMessages(session, 1)
+    const snapshot = await opening(remote(ctx), session.id)
+    // Absent config never manufactures a base-list entry: the append-only
+    // field defaults to empty, not to any part of the fixed client heuristic.
+    expect(snapshot.projections.values['secretContainerExtraPatterns']).toEqual([])
+  })
+
   it('never carries the block on loadOlder pages (beforeSeq present)', async () => {
     const { ctx, session } = await harness(true)
     ctx.sessionProjections.register(lastUserUnit())
