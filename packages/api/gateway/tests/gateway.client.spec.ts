@@ -622,10 +622,10 @@ describe('Client Remote transport readiness', () => {
       const seen: string[] = []
       ctx.on('connection/state', (state) => { seen.push(state) })
       const sinks = start.mock.calls[0]![0]
-      sinks.onStateChange?.('reconnecting')
+      sinks.onStateChange?.('connecting')
       sinks.onStateChange?.('connected')
-      sinks.onStateChange?.('reconnecting')
-      expect(seen).toEqual(['reconnecting', 'connected', 'reconnecting'])
+      sinks.onStateChange?.('disconnected')
+      expect(seen).toEqual(['connecting', 'connected', 'disconnected'])
     } finally {
       await client.dispose()
     }
@@ -636,7 +636,7 @@ describe('Client Remote transport readiness', () => {
     try {
       const sinks = start.mock.calls[0]![0]
       expect(() => {
-        sinks.onStateChange?.('reconnecting')
+        sinks.onStateChange?.('connecting')
         sinks.onStateChange?.('connected')
       }).not.toThrow()
     } finally {
