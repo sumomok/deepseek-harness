@@ -30,6 +30,8 @@ import type {
   SessionControlFrame,
   SessionCreateRequest,
   SessionCreateValue,
+  SessionFileRequest,
+  SessionFileValue,
   SessionFollowFrame,
   SessionFollowRequest,
   SessionForkRequest,
@@ -362,6 +364,16 @@ export class SessionController extends TypertRemoteService {
   @Remote('attachment')
   attachment(request: SessionAttachmentRequest): Promise<SessionAttachmentValue> {
     return this.commands.attachment(request)
+  }
+
+  /**
+   * Read one text file proven reachable from the addressed Session log.
+   * @param request - Session and attachment identities used for authorization.
+   * @returns the durable file reference and its plain-text content.
+   */
+  @Remote('file')
+  file(request: SessionFileRequest): Promise<SessionFileValue> {
+    return this.commands.file(request)
   }
 
   /**

@@ -1,7 +1,7 @@
 /** Browser-safe request, result, and lifecycle vocabulary for the Session Remote service. */
 
 import type {
-  AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
+  AttachmentIdType, FileAttachmentRef, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
 } from '@deepseek-ai/dsh-attachment'
 import type { Branded } from '@deepseek-ai/dsh-brand'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
@@ -332,6 +332,18 @@ export interface SessionAttachmentRequest {
 export interface SessionAttachmentValue {
   readonly attachment: ImageAttachmentRef
   readonly data: string
+}
+
+/** Durable file read request. */
+export interface SessionFileRequest {
+  readonly sessionId: SessionId
+  readonly attachmentId: AttachmentIdType
+}
+
+/** Durable file read response value; `text` is plain text, never base64 -- mirrors the durable file's own wire form. */
+export interface SessionFileValue {
+  readonly attachment: FileAttachmentRef
+  readonly text: string
 }
 
 /** Pending queue mutation request. */

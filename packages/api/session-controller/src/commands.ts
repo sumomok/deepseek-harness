@@ -33,6 +33,8 @@ import type {
   SessionCancelValue,
   SessionCreateRequest,
   SessionCreateValue,
+  SessionFileRequest,
+  SessionFileValue,
   SessionForkRequest,
   SessionForkValue,
   SessionPromptRequest,
@@ -380,6 +382,47 @@ export class SessionCommandController {
   }
 
   /**
+   * Read one durable text file after proving the Session log references it.
+   * @param request - Session and attachment identities used for authorization.
+   * @returns the durable file reference and its plain-text content.
+   */
+  async file(request: SessionFileRequest): Promise<SessionFileValue> {
+    let source: SessionReadState
+    try {
+      source = await this.readSessionState(request.sessionId)
+    } catch (error) {
+      if (error instanceof ApiSessionNotFound) {
+        throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId })
+      }
+      throw new RemoteError(
+        'gateway/internal',
+        `attachment authorization unavailable for session "${request.sessionId}": ${String(error)}`,
+        {},
+      )
+    }
+    const ref = referencedFile(source.events, String(request.attachmentId))
+    if (ref === undefined) {
+      throw new RemoteError(
+        'session/attachment-invalid',
+        'File is not referenced by this session.',
+        { reason: 'ATTACHMENT_NOT_REFERENCED' },
+      )
+    }
+    try {
+      const stored = await this.ctx.attachments.readFile(ref)
+      return {
+        attachment: stored.ref,
+        text: new TextDecoder().decode(stored.data),
+      }
+    } catch (error) {
+      if (error instanceof AttachmentError) {
+        throw new RemoteError('session/attachment-invalid', error.message, { reason: error.code })
+      }
+      throw new RemoteError('gateway/internal', 'Unable to read file attachment.', {})
+    }
+  }
+
+  /**
    * Mutate one still-pending queue occurrence without resuming a cold Agent.
    * @param request - Session, queue item, and requested mutation.
    * @returns acknowledgement that the queue mutation was applied.
@@ -564,6 +607,60 @@ function referencedImage(
 ): ImageAttachmentRef | undefined {
   for (const event of events) {
     const found = imageInEvent(event, ref => String(ref.attachmentId) === attachmentId)
+    if (found !== undefined) return found
+  }
+  return undefined
+}
+
+function fileBlockIn(
+  content: unknown,
+  match: (ref: FileAttachmentRef) => boolean,
+): FileAttachmentRef | undefined {
+  if (!Array.isArray(content)) return undefined
+  for (const value of content) {
+    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
+    const block = value as { readonly type?: unknown; readonly attachment?: unknown; readonly content?: unknown }
+    if (block.type === 'file' && typeof block.attachment === 'object' && block.attachment !== null) {
+      const ref = block.attachment as FileAttachmentRef
+      if (match(ref)) return ref
+    }
+    if (block.type === 'tool-result') {
+      const nested = fileBlockIn(block.content, match)
+      if (nested !== undefined) return nested
+    }
+  }
+  return undefined
+}
+
+function fileInEvent(
+  event: SessionEvent,
+  match: (ref: FileAttachmentRef) => boolean,
+): FileAttachmentRef | undefined {
+  const data = event.data as {
+    readonly content?: unknown
+    readonly message?: { readonly content?: unknown }
+    readonly inserted?: readonly { readonly content?: unknown }[]
+    readonly chunk?: { readonly type?: unknown; readonly block?: unknown }
+  }
+  const direct = fileBlockIn(data.content, match)
+  if (direct !== undefined) return direct
+  const message = fileBlockIn(data.message?.content, match)
+  if (message !== undefined) return message
+  for (const inserted of data.inserted ?? []) {
+    const found = fileBlockIn(inserted.content, match)
+    if (found !== undefined) return found
+  }
+  return event.type === 'assistant/chunk' && data.chunk?.type === 'block-end'
+    ? fileBlockIn([data.chunk.block], match)
+    : undefined
+}
+
+function referencedFile(
+  events: readonly SessionEvent[],
+  attachmentId: string,
+): FileAttachmentRef | undefined {
+  for (const event of events) {
+    const found = fileInEvent(event, ref => String(ref.attachmentId) === attachmentId)
     if (found !== undefined) return found
   }
   return undefined
