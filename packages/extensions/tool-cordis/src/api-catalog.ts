@@ -508,6 +508,36 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         parameters: [{ name: 'ref', description: 'durable provider-independent normalized attachment reference.' }, { name: 'policy', description: 'exact route pixel budget and encoded-byte target; a target no ladder quality meets yields the smallest ladder output.' }, { name: 'signal', description: 'optional cancellation.' }],
         returns: 'request bytes and the cache/upload identity covering every transform input.',
       },
+      {
+        signature: 'abstract readonly fileLimits: FileAttachmentLimits',
+        description: 'Deployment-resolved file policy used by authoritative and fast-path validation.',
+        parameters: [],
+      },
+      {
+        signature: 'abstract validateFile(input: SaveFileAttachment): Promise<void>',
+        description: 'Validate one text file without persisting it. Batch callers validate every member before saving any member.',
+        parameters: [{ name: 'input', description: 'encoded bytes and display name.' }],
+        returns: 'completion after the bytes have been proven valid UTF-8 text.',
+      },
+      {
+        signature: 'async saveFiles(inputs: readonly SaveFileAttachment[]): Promise<readonly FileAttachmentRef[]>',
+        description: 'Validate and durably commit one ordered file batch.',
+        parameters: [{ name: 'inputs', description: 'encoded files in owning-message order.' }],
+        returns: 'durable file references in the same order after every member succeeds.',
+      },
+      {
+        signature: 'abstract saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef>',
+        description: 'Validate and durably commit one text file before its owning session event is appended.',
+        parameters: [{ name: 'input', description: 'encoded bytes and display name.' }],
+        returns: 'the durable content-addressed file reference.',
+      },
+      {
+        signature: 'abstract readFile(ref: FileAttachmentRef, signal?: AbortSignal): Promise<StoredFileAttachment>',
+        description: 'Read one text file and verify that bytes still match the recorded reference.',
+        parameters: [{ name: 'ref', description: 'durable reference from the session log.' }, { name: 'signal', description: 'optional cancellation for backend read and verification work.' }],
+        returns: 'the verified bytes and file reference.',
+        throws: ['the signal reason when aborted, or a storage error when verification fails.'],
+      },
     ],
   },
   {
@@ -3725,7 +3755,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'ContentBlockMap',
-    declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
+    declaration: 'export interface ContentBlockMap {\n    \'text\': TextBlock;\n    \'reasoning\': ReasoningBlock;\n    \'image\': ImageBlock;\n    \'file\': FileBlock;\n    \'tool-call\': ToolCallBlock;\n    \'tool-result\': ToolResultBlock;\n}',
   },
   {
     name: 'ContentBlockType',
@@ -4014,6 +4044,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'FiberState',
     declaration: 'export type FiberState = FiberStateEnum;',
+  },
+  {
+    name: 'FileAttachmentLimits',
+    declaration: 'export interface FileAttachmentLimits {\n    maxFilesPerMessage: number;\n    maxMessageFileBytes: number;\n    maxFileBytes: number;\n}',
+  },
+  {
+    name: 'FileAttachmentRef',
+    declaration: 'export interface FileAttachmentRef {\n    attachmentId: AttachmentId;\n    name: string;\n    bytes: number;\n}',
+  },
+  {
+    name: 'FileBlock',
+    declaration: 'export interface FileBlock {\n    type: \'file\';\n    attachment: FileAttachmentRef;\n}',
   },
   {
     name: 'FileDiff',
@@ -4760,6 +4802,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SandboxPolicyRequest {\n    session?: Session;\n    mode?: SandboxMode;\n}',
   },
   {
+    name: 'SaveFileAttachment',
+    declaration: 'export interface SaveFileAttachment {\n    data: Uint8Array;\n    name: string;\n}',
+  },
+  {
     name: 'SaveImageAttachment',
     declaration: 'export interface SaveImageAttachment {\n    data: Uint8Array;\n    mediaType: ImageMediaType;\n    name?: string;\n}',
   },
@@ -5402,6 +5448,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'StorageForms',
     declaration: 'export interface StorageForms {\n}',
+  },
+  {
+    name: 'StoredFileAttachment',
+    declaration: 'export interface StoredFileAttachment {\n    ref: FileAttachmentRef;\n    data: Uint8Array;\n}',
   },
   {
     name: 'StoredImageAttachment',

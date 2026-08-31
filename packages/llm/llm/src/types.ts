@@ -5,7 +5,7 @@
  */
 
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { ToolCallId, ProviderRequestId, ReasoningEffortId } from './brand.ts'
 import type { Message } from './message.ts'
 
@@ -74,6 +74,22 @@ export interface ImageBlock {
   attachment: ImageAttachmentRef
 }
 
+/**
+ * A durable text-file reference, valid in user content. Carries a reference
+ * only, never inline text: this is the exact form the session log carries
+ * and a dispatched request's frozen `messages` array must keep matching. No
+ * production adapter accepts this block natively, so each adapter lowers it
+ * to a language-tagged fenced block (`file-lowering.ts`) against a local
+ * copy at the top of its own request construction, the same way each
+ * adapter resolves `ImageBlock` bytes locally rather than materializing
+ * them into that frozen array.
+ */
+export interface FileBlock {
+  type: 'file'
+  /** Immutable bytes and display name owned by the attachment service. */
+  attachment: FileAttachmentRef
+}
+
 /** A tool invocation requested by the model. */
 export interface ToolCallBlock {
   type: 'tool-call'
@@ -100,6 +116,7 @@ export interface ContentBlockMap {
   'text': TextBlock
   'reasoning': ReasoningBlock
   'image': ImageBlock
+  'file': FileBlock
   'tool-call': ToolCallBlock
   'tool-result': ToolResultBlock
 }

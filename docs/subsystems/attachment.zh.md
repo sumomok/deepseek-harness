@@ -192,6 +192,37 @@ imageHostPath(ref: ImageAttachmentRef): string | undefined
  * @returns request bytes and the cache/upload identity covering every transform input.
  */
 readImageRequest( ref: ImageAttachmentRef, policy: ImageRequestPolicy, signal?: AbortSignal, ): Promise<RequestImageAttachment>
+
+/**
+ * Validate one text file without persisting it.
+ * Batch callers validate every member before saving any member.
+ * @param input - encoded bytes and display name.
+ * @returns completion after the bytes have been proven valid UTF-8 text.
+ */
+abstract validateFile(input: SaveFileAttachment): Promise<void>
+
+/**
+ * Validate and durably commit one ordered file batch.
+ * @param inputs - encoded files in owning-message order.
+ * @returns durable file references in the same order after every member succeeds.
+ */
+async saveFiles(inputs: readonly SaveFileAttachment[]): Promise<readonly FileAttachmentRef[]>
+
+/**
+ * Validate and durably commit one text file before its owning session event is appended.
+ * @param input - encoded bytes and display name.
+ * @returns the durable content-addressed file reference.
+ */
+abstract saveFile(input: SaveFileAttachment): Promise<FileAttachmentRef>
+
+/**
+ * Read one text file and verify that bytes still match the recorded reference.
+ * @param ref - durable reference from the session log.
+ * @param signal - optional cancellation for backend read and verification work.
+ * @returns the verified bytes and file reference.
+ * @throws the signal reason when aborted, or a storage error when verification fails.
+ */
+abstract readFile(ref: FileAttachmentRef, signal?: AbortSignal): Promise<StoredFileAttachment>
 ```
 
 Source: [`packages/attachment/attachment/src/index.ts`](../../packages/attachment/attachment/src/index.ts)

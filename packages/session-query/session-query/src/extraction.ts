@@ -77,6 +77,11 @@ function blockText(block: SessionContentBlock): string[] {
       return [block.name, block.arguments]
     case 'tool-result':
       return block.content.flatMap(blockText)
+    // Indexed by display name only, like a tool-call's name: the file's
+    // full content needs an attachment-store read this synchronous walk
+    // cannot perform, and is not durably inline in the block to begin with.
+    case 'file':
+      return [block.attachment.name]
     // ContentBlockMap is merge-extensible. Unknown blocks do not become
     // searchable merely because their payload happens to contain strings.
     default:
