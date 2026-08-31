@@ -86,7 +86,7 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@haoran/dsh-plugin-updates': { repo: 'apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.1.tgz' },
   '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.4.0.tgz' },
   '@haoran/dsh-vision-switch': { repo: 'apps/desktop-server/vendor/haoran-dsh-vision-switch-0.1.0.tgz' },
-  '@sumomok/dsh-balance': { repo: 'apps/desktop-server/vendor/sumomok-dsh-balance-0.2.2.tgz' },
+  '@sumomok/dsh-balance': { repo: 'apps/desktop-server/vendor/sumomok-dsh-balance-0.2.3.tgz' },
   '@sumomok/dsh-quote-message': { repo: 'apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.2.tgz' },
 }
 
