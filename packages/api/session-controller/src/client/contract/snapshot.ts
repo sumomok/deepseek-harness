@@ -31,6 +31,20 @@ export interface PendingSubmissionImage {
 }
 
 /**
+ * One file displayed by a local submission echo before durable admission. No
+ * preview URL, unlike {@link PendingSubmissionImage}: a file chip shows name
+ * and byte size only, and both are known synchronously from the browser
+ * `File` at submission time (no async header probe like an image's
+ * dimensions).
+ */
+export interface PendingSubmissionFile {
+  /** Browser file name. */
+  readonly name: string
+  /** Browser-reported byte size. */
+  readonly bytes: number
+}
+
+/**
  * One local prompt-submission echo: inserted synchronously when a submission
  * begins, so the conversation can show the message before serialization,
  * transport, and durable admission complete. Client-memory only — reload and
@@ -45,6 +59,8 @@ export interface PendingSubmission {
   readonly text: string
   /** Ordered image previews matching the prompt's image parts. */
   readonly images: readonly PendingSubmissionImage[]
+  /** Ordered file previews matching the prompt's file parts. */
+  readonly files: readonly PendingSubmissionFile[]
 }
 
 /** History-open lifecycle of a Session event window. */

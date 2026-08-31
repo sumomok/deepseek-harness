@@ -136,6 +136,40 @@ describe('ConversationController', () => {
     await b.runtime.dispose()
   })
 
+  it('creates file drafts with no preview URL and releases them without revoking anything', async () => {
+    const b = await bench()
+    const revoked = vi.spyOn(URL, 'revokeObjectURL').mockReturnValue(undefined)
+    try {
+      const [draft] = b.root.createDraftFiles([new File(['hello'], 'notes.txt', { type: 'text/plain' })])
+      if (draft === undefined) throw new Error('draft file missing')
+      expect(draft.kind).toBe('file')
+      expect('previewUrl' in draft).toBe(false)
+      b.root.releaseDraftImage(draft.id)
+      expect(b.root.draftImages([draft.id])).toEqual([])
+      expect(revoked).not.toHaveBeenCalled()
+    } finally {
+      revoked.mockRestore()
+    }
+    await b.runtime.dispose()
+  })
+
+  it('excludes file-kind drafts from serializeDraftImages while still detecting staleness', async () => {
+    const b = await bench()
+    const created = vi.spyOn(URL, 'createObjectURL').mockReturnValue('blob:serialize')
+    try {
+      const [image] = b.root.createDraftImages([new File([Uint8Array.of(1)], 'a.png', { type: 'image/png' })])
+      const [file] = b.root.createDraftFiles([new File(['hi'], 'b.txt', { type: 'text/plain' })])
+      if (image === undefined || file === undefined) throw new Error('drafts missing')
+      const payloads = await b.root.serializeDraftImages([image.id, file.id])
+      expect(payloads).toEqual([{ mediaType: 'image/png', data: expect.any(String) as unknown as string, name: 'a.png' }])
+      await expect(b.root.serializeDraftImages([image.id, 'missing-id' as never]))
+        .rejects.toThrow('one or more draft images are no longer available')
+    } finally {
+      created.mockRestore()
+    }
+    await b.runtime.dispose()
+  })
+
   it('fails loudly from the root scope, on an unbound session, or without Client Sessions', async () => {
     const b = await bench()
     await expect(b.root.send('x')).rejects.toThrow(/requires a session scope/)
@@ -201,10 +235,35 @@ describe('sendSession submission echo', () => {
       )
       // The draft stays registered until the echo's observed retirement.
       expect(b.root.draftImages([attachment!.id])).toHaveLength(1)
-      b.retire.onRetire?.({ reason: 'observed', attachments: [] })
+      b.retire.onRetire?.({ reason: 'observed', images: [], files: [] })
       await expect(sending).resolves.toEqual({ kind: 'success' })
       expect(b.root.draftImages([attachment!.id])).toEqual([])
       expect(b.revoked).toHaveBeenCalledWith('blob:echo-1')
+    } finally {
+      b.restore()
+    }
+    await b.runtime.dispose()
+  })
+
+  it('sends a mixed image+file draft in original order, encoding each by its own kind', async () => {
+    const b = await echoBench()
+    try {
+      const [image] = b.root.createDraftImages([new File([Uint8Array.of(1)], 'a.png', { type: 'image/png' })])
+      const [file] = b.root.createDraftFiles([new File(['hello world'], 'b.txt', { type: 'text/plain' })])
+      if (image === undefined || file === undefined) throw new Error('drafts missing')
+      const session = b.runtime.sessions.binding('s1')!.session
+      const sending = b.root.sendSession(session, 'hi', [image.id, file.id], 'queue')
+      await vi.waitFor(() => { expect(b.prompt).toHaveBeenCalledOnce() })
+      expect(b.prompt).toHaveBeenCalledWith([
+        { type: 'image', mediaType: 'image/png', data: expect.any(String) as unknown as string, name: 'a.png' },
+        { type: 'file', name: 'b.txt', text: 'hello world' },
+        { type: 'text', text: 'hi' },
+      ], 'queue', undefined, 'req-echo')
+      b.retire.onRetire?.({ reason: 'observed', images: [], files: [] })
+      const outcome = await sending
+      expect(outcome).toEqual({ kind: 'success' })
+      // A successful send releases every attachment it carried.
+      expect(b.root.draftImages([image.id, file.id])).toEqual([])
     } finally {
       b.restore()
     }
@@ -224,13 +283,13 @@ describe('sendSession submission echo', () => {
       const sending = b.root.sendSession(session, '', [attachment!.id], 'queue')
       await vi.waitFor(() => { expect(b.prompt).toHaveBeenCalledOnce() })
       const ref = { attachmentId: 'att-1' }
-      b.retire.onRetire?.({ reason: 'observed', attachments: [ref] })
+      b.retire.onRetire?.({ reason: 'observed', images: [ref], files: [] })
       await expect(sending).resolves.toEqual({ kind: 'success' })
       expect(seedImageUrl).toHaveBeenCalledWith('s1', ref, 'blob:echo-1')
       expect(b.root.draftImages([attachment!.id])).toEqual([])
       expect(b.revoked).not.toHaveBeenCalled()
       // Failed retirement keeps nothing to do; a second retire of released ids is a no-op.
-      b.retire.onRetire?.({ reason: 'observed', attachments: [ref] })
+      b.retire.onRetire?.({ reason: 'observed', images: [ref], files: [] })
     } finally {
       b.restore()
     }
@@ -358,7 +417,8 @@ describe('draft image dimension probe', () => {
       const [unprobed] = b.root.createDraftImages([
         new File([Uint8Array.of(2)], 'unprobed.png', { type: 'image/png' }),
       ])
-      expect(unprobed?.width).toBeUndefined()
+      if (unprobed?.kind !== 'image') throw new Error('expected an image draft')
+      expect(unprobed.width).toBeUndefined()
     } finally {
       vi.unstubAllGlobals()
       created.mockRestore()

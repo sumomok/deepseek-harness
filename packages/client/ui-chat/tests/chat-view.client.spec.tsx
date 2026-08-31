@@ -876,7 +876,7 @@ describe('ChatView', () => {
       { nodes: [assistant(1, 'working')] },
       {
         pendingSubmissions: [
-          { requestId: 'req-1' as never, time: 5_000, text: '即发即显', images: [] },
+          { requestId: 'req-1' as never, time: 5_000, text: '即发即显', images: [], files: [] },
         ],
       },
     )
@@ -911,7 +911,7 @@ describe('ChatView', () => {
       {
         running: true,
         pendingSubmissions: [
-          { requestId: 'req-q' as never, time: 6_000, text: '排队中', images: [] },
+          { requestId: 'req-q' as never, time: 6_000, text: '排队中', images: [], files: [] },
         ],
       },
     )
@@ -947,6 +947,7 @@ describe('ChatView', () => {
             { previewUrl: 'blob:echo-a', name: 'a.png', width: 4, height: 3 },
             { previewUrl: 'blob:echo-b' },
           ],
+          files: [],
         }],
       },
     )

@@ -201,7 +201,7 @@ describe('session.history projections block', () => {
     )
   })
 
-  it('publishes the attachments imageLimits as a constant unit while both seams are composed', async () => {
+  it('publishes the attachments imageLimits and fileLimits as constant units while both seams are composed', async () => {
     const { ctx, session } = await harness(true)
     const limits = {
       maxImageBytes: 5 * 1024 * 1024,
@@ -211,12 +211,13 @@ describe('session.history projections block', () => {
       maxImageDimension: 2000,
       mediaTypes: ['image/png'] as const,
     }
+    const fileLimits: FileAttachmentLimits = { maxFilesPerMessage: 10, maxMessageFileBytes: 10 * 1024 * 1024, maxFileBytes: 1024 * 1024 }
     await ctx.plugin(class extends AttachmentStore {
       readonly imageLimits = limits
       validateImage(): Promise<void> { return Promise.resolve() }
       saveImage(): Promise<never> { return Promise.reject(new Error('unused')) }
       readImage(): Promise<never> { return Promise.reject(new Error('unused')) }
-      readonly fileLimits: FileAttachmentLimits = { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 }
+      readonly fileLimits = fileLimits
       validateFile(_input: SaveFileAttachment): Promise<void> { return Promise.reject(new Error('unused')) }
       saveFile(): Promise<never> { return Promise.reject(new Error('unused')) }
       readFile(): Promise<never> { return Promise.reject(new Error('unused')) }
@@ -226,6 +227,7 @@ describe('session.history projections block', () => {
     seedMessages(session, 2)
     const snapshot = await opening(gateway, session.id)
     expect(snapshot.projections.values['imageLimits']).toEqual(limits)
+    expect(snapshot.projections.values['fileLimits']).toEqual(fileLimits)
     // Constant unit: appending events must never broadcast an imageLimits projection.
     await new Promise(resolve => setTimeout(resolve, 0))
     const abort = new AbortController()
@@ -248,11 +250,12 @@ describe('session.history projections block', () => {
     await expect(extra).resolves.toEqual({ done: true, value: undefined })
   })
 
-  it('leaves the imageLimits key absent while no attachment service is composed', async () => {
+  it('leaves the imageLimits and fileLimits keys absent while no attachment service is composed', async () => {
     const { ctx, session } = await harness(true)
     seedMessages(session, 1)
     const snapshot = await opening(remote(ctx), session.id)
     expect('imageLimits' in snapshot.projections.values).toBe(false)
+    expect('fileLimits' in snapshot.projections.values).toBe(false)
   })
 
   it('never carries the block on loadOlder pages (beforeSeq present)', async () => {

@@ -1,7 +1,13 @@
+// @vitest-environment jsdom
+// Conversation-owned attachment errors (the message-image slot handoff and
+// AssistantMarkdown moved to ui-chat with the component in the upstream
+// package reorganization; this file keeps only the copy this package still
+// owns: attachmentErrorText).
+
 import { describe, expect, it } from 'vitest'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
-import { attachmentErrorText, imageSizeText } from '../src/client/image-labels.ts'
+import { attachmentErrorText } from '../src/client/attachment-labels.ts'
 import { en, zh } from '../src/client/locales.ts'
 
 const t = makeTranslate(zh, commonZh)
@@ -16,11 +22,6 @@ describe('attachment rejection copy', () => {
     maxImageDimension: 2000,
     mediaTypes: ['image/png'] as const,
   }
-
-  it('renders megabytes without a trailing fraction unless one exists', () => {
-    expect(imageSizeText(10 * 1024 * 1024)).toBe('10MB')
-    expect(imageSizeText(2.5 * 1024 * 1024)).toBe('2.5MB')
-  })
 
   it('maps user-solvable reasons to limit-naming copy', () => {
     expect(attachmentErrorText(t, 'MODEL_DOES_NOT_SUPPORT_IMAGES')).toBe('当前模型不支持图片，请切换支持图片的模型')
@@ -41,5 +42,26 @@ describe('attachment rejection copy', () => {
     expect(attachmentErrorText(t, 'IMAGE_TOO_LARGE')).toBe('图片发送失败（IMAGE_TOO_LARGE），请重新添加图片后再试')
     expect(attachmentErrorText(t, 'IMAGES_TOO_LARGE')).toBe('图片发送失败（IMAGES_TOO_LARGE），请重新添加图片后再试')
     expect(attachmentErrorText(t, 'IMAGE_DIMENSION_TOO_LARGE')).toBe('图片发送失败（IMAGE_DIMENSION_TOO_LARGE），请重新添加图片后再试')
+  })
+
+  const fileLimits = {
+    maxFilesPerMessage: 10,
+    maxMessageFileBytes: 10 * 1024 * 1024,
+    maxFileBytes: 1024 * 1024,
+  }
+
+  it('maps user-solvable file reasons to limit-naming copy', () => {
+    expect(attachmentErrorText(t, 'NOT_TEXT_FILE')).toBe('仅支持文本文件')
+    expect(attachmentErrorText(t, 'INVALID_FILE_NAME')).toBe('文件名无效，请重命名后重试')
+    expect(attachmentErrorText(t, 'TOO_MANY_FILES', undefined, fileLimits)).toBe('一条消息最多添加 10 个文件')
+    expect(attachmentErrorText(t, 'FILE_TOO_LARGE', undefined, fileLimits)).toBe('单个文件不能超过 1MB')
+    expect(attachmentErrorText(t, 'FILES_TOO_LARGE', undefined, fileLimits)).toBe('文件总大小超过 10MB，请移除部分文件')
+    expect(attachmentErrorText(enT, 'TOO_MANY_FILES', undefined, fileLimits)).toBe('A message can include up to 10 files')
+  })
+
+  it('folds file limit reasons without projected file limits into the send-failed line', () => {
+    expect(attachmentErrorText(t, 'TOO_MANY_FILES')).toBe('图片发送失败（TOO_MANY_FILES），请重新添加图片后再试')
+    expect(attachmentErrorText(t, 'FILE_TOO_LARGE')).toBe('图片发送失败（FILE_TOO_LARGE），请重新添加图片后再试')
+    expect(attachmentErrorText(t, 'FILES_TOO_LARGE')).toBe('图片发送失败（FILES_TOO_LARGE），请重新添加图片后再试')
   })
 })

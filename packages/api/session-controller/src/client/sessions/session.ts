@@ -2,7 +2,7 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SubagentAddress } from '@deepseek-ai/dsh-subagent/client'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -187,6 +187,7 @@ export class Session implements SessionFace {
       time: Date.now(),
       text: input.text,
       images: input.images,
+      files: input.files,
     }]
     this.submissionSettlements.set(requestId, { onRetire: input.onRetire, retiring: false })
     // The blank → engaging edge flips here, ahead of prompt(): the composer
@@ -601,7 +602,7 @@ export class Session implements SessionFace {
     const data = event.data as { readonly source?: unknown; readonly content?: unknown } | undefined
     const source = data?.source as { readonly kind?: unknown; readonly rpcId?: unknown } | undefined
     if (source?.kind !== 'user' || typeof source.rpcId !== 'string') return
-    this.scheduleObservedRetirement(source.rpcId as SessionRequestId, imageRefsIn(data?.content))
+    this.scheduleObservedRetirement(source.rpcId as SessionRequestId, attachmentRefsIn(data?.content))
   }
 
   /** Retire echoes whose prompts landed in the host inbox instead of the log (running-turn submissions). */
@@ -609,7 +610,7 @@ export class Session implements SessionFace {
     if (this.submissionSettlements.size === 0) return
     for (const item of items) {
       if (item.rpcId !== undefined) {
-        this.scheduleObservedRetirement(item.rpcId, imageRefsIn(item.message.content))
+        this.scheduleObservedRetirement(item.rpcId, attachmentRefsIn(item.message.content))
       }
     }
   }
@@ -622,12 +623,12 @@ export class Session implements SessionFace {
    */
   private scheduleObservedRetirement(
     requestId: SessionRequestId,
-    attachments: readonly ImageAttachmentRef[],
+    attachments: { readonly images: readonly ImageAttachmentRef[]; readonly files: readonly FileAttachmentRef[] },
   ): void {
     const settlement = this.submissionSettlements.get(requestId)
     if (settlement === undefined || settlement.retiring) return
     settlement.retiring = true
-    scheduleFrame(() => { this.finishSubmission(requestId, { reason: 'observed', attachments }) })
+    scheduleFrame(() => { this.finishSubmission(requestId, { reason: 'observed', ...attachments }) })
   }
 
   /** Remove one unsettled echo immediately (prompt rejection, abort, or disposal). */
@@ -700,16 +701,19 @@ function scheduleFrame(fn: () => void): void {
   else setTimeout(fn, 0)
 }
 
-/** Image attachment references in one structurally-read content block list, in block order. */
-function imageRefsIn(content: unknown): readonly ImageAttachmentRef[] {
-  if (!Array.isArray(content)) return []
-  const refs: ImageAttachmentRef[] = []
+/** Image and file attachment references in one structurally-read content block list, in block order. */
+function attachmentRefsIn(
+  content: unknown,
+): { readonly images: readonly ImageAttachmentRef[]; readonly files: readonly FileAttachmentRef[] } {
+  if (!Array.isArray(content)) return { images: [], files: [] }
+  const images: ImageAttachmentRef[] = []
+  const files: FileAttachmentRef[] = []
   for (const block of content) {
     if (typeof block !== 'object' || block === null) continue
     const candidate = block as { readonly type?: unknown; readonly attachment?: unknown }
-    if (candidate.type === 'image' && typeof candidate.attachment === 'object' && candidate.attachment !== null) {
-      refs.push(candidate.attachment as ImageAttachmentRef)
-    }
+    if (typeof candidate.attachment !== 'object' || candidate.attachment === null) continue
+    if (candidate.type === 'image') images.push(candidate.attachment as ImageAttachmentRef)
+    else if (candidate.type === 'file') files.push(candidate.attachment as FileAttachmentRef)
   }
-  return refs
+  return { images, files }
 }
