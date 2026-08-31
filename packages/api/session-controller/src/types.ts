@@ -68,7 +68,7 @@ export interface SessionProjectionBaseline {
 export type SessionProjectionValues = Partial<SessionProjectionMap>
   & Readonly<Record<string, SessionProjectionValue>>
 
-/** Browser-submitted prompt content; the Host promotes image bytes to durable references. */
+/** Browser-submitted prompt content; the Host promotes image bytes and file text to durable references. */
 export type PromptContentPart =
   | { readonly type: 'text'; readonly text: string }
   | {
@@ -76,6 +76,13 @@ export type PromptContentPart =
     readonly mediaType: ImageMediaType
     readonly data: string
     readonly name?: string
+  }
+  | {
+    readonly type: 'file'
+    /** Display name; it is never interpreted as a path. */
+    readonly name: string
+    /** Complete file content, plain text, never base64. */
+    readonly text: string
   }
 
 /** Complete model selection for one Session. */
