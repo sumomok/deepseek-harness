@@ -1,6 +1,7 @@
-# Agent Note：文件分片的气泡呈现与 `referent/open` 缝隙
+# Agent Note: 文件分片的气泡呈现与 `referent/open` 缝隙
 
-状态：已实现
+Status: implemented
+Archived: 2026-09-01
 
 [English](2026-08-28-file-attachment-bubble-and-referent-seam.md) | 中文
 

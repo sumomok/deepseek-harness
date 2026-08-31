@@ -1,6 +1,7 @@
 # Agent Note: the `proseReferents` chat-prose scanning seam
 
 Status: implemented
+Archived: 2026-09-01
 
 English | [中文](2026-08-28-chat-prose-referents-seam.zh.md)
 

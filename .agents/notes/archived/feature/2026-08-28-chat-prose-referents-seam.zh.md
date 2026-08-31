@@ -1,6 +1,7 @@
 # Agent Note: `proseReferents` 正文可点扫描缝
 
 Status: implemented
+Archived: 2026-09-01
 
 [English](2026-08-28-chat-prose-referents-seam.md) | 中文
 

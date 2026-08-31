@@ -1,6 +1,7 @@
 # Agent Note: file-part bubble rendering and the `referent/open` seam
 
 Status: implemented
+Archived: 2026-09-01
 
 English | [中文](2026-08-28-file-attachment-bubble-and-referent-seam.zh.md)
 
