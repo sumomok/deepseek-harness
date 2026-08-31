@@ -37,9 +37,6 @@
         "@deepseek-ai/dsh-client-ui-renderer",
         "@deepseek-ai/dsh-client-ui-trajectory"
       ],
-      "external": [
-        "@deepseek-ai/dsh-client-ui-conversation/client"
-      ],
       "platform": "web"
     }
   },
