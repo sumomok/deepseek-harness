@@ -26,8 +26,10 @@ import {
 import { buildModelCatalog } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
 import { SessionSkillCatalog } from './skill-catalog.ts'
+import { PROBE_TARGETS_MAX_PATHS } from './types.ts'
 import type {
   ModelCatalog,
+  ProbeResult,
   SessionAttachmentRequest,
   SessionAttachmentValue,
   SessionCancelRequest,
@@ -47,6 +49,8 @@ import type {
   SessionOpenWorkspacePathValue,
   SessionPage,
   SessionPageRequest,
+  SessionProbeTargetsRequest,
+  SessionProbeTargetsValue,
   SessionPromptRequest,
   SessionPromptValue,
   SessionRenameRequest,
@@ -338,6 +342,33 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
+   * Batch existence/kind probe for the three-layer clickable-reference
+   * verification stage: a read-only `stat` per path, never a directory
+   * listing or a content read. Always available — unlike a directory
+   * picker's browse capability, this makes no filesystem choice a
+   * deployment might want to withhold beyond what `openWorkspacePath`'s own
+   * pre-check already performs per path. Capped at
+   * {@link PROBE_TARGETS_MAX_PATHS} paths per call (a larger or empty batch
+   * fails `gateway/bad-request` before probing starts) and run with bounded
+   * internal concurrency, so a caller with more candidates issues several
+   * calls rather than one unbounded one.
+   * @param request - paths to probe, in the order results are returned.
+   * @returns one result per requested path, in the same order.
+   * @throws RemoteError when the batch is empty or exceeds the size cap.
+   */
+  @Remote('probeTargets')
+  async probeTargets(request: SessionProbeTargetsRequest): Promise<SessionProbeTargetsValue> {
+    if (request.paths.length === 0 || request.paths.length > PROBE_TARGETS_MAX_PATHS) {
+      throw new RemoteError(
+        'gateway/bad-request',
+        `session.probeTargets accepts 1 to ${String(PROBE_TARGETS_MAX_PATHS)} paths`,
+        {},
+      )
+    }
+    return { results: await probeTargetsBatch(request.paths) }
+  }
+
+  /**
    * Rename one Session after explicitly resuming it.
    * @param request - Session identity and proposed title.
    * @returns the accepted title and durable event sequence.
@@ -441,6 +472,48 @@ export class SessionController extends TypertRemoteService {
     return this.controlState.control(signal)
   }
 
+}
+
+/** How many `stat` calls `probeTargets` runs at once, regardless of how many paths one call requests. */
+const PROBE_TARGETS_CONCURRENCY = 8
+
+/**
+ * Bounded-concurrency stat: exists=false for ENOENT and for any other stat
+ * failure alike — the probe answers clickable-or-not, not why not. A
+ * `\\`-prefixed target short-circuits to `exists:false` before any `stat`
+ * runs: on Windows, `stat`-ing a UNC path (`\\server\share\…`) opens an SMB
+ * connection and can leak the current user's NTLM credentials to whatever
+ * host the path names, with no user gesture — this probe answers
+ * local-filesystem existence only, and this check does not trust a caller
+ * to have already filtered UNC targets out (a client-side nomination layer
+ * may, but this is the wire boundary, and a caller cannot be trusted to
+ * pre-filter it).
+ */
+async function probeOneTarget(path: string): Promise<ProbeResult> {
+  if (path.startsWith('\\\\')) return { path, exists: false }
+  try {
+    const info = await stat(path)
+    return { path, exists: true, kind: info.isDirectory() ? 'dir' : 'file' }
+  } catch {
+    return { path, exists: false }
+  }
+}
+
+/** Fixed-size worker pool: each worker claims the next unclaimed index until none remain. */
+async function probeTargetsBatch(paths: readonly string[]): Promise<ProbeResult[]> {
+  const results = new Array<ProbeResult>(paths.length)
+  let nextIndex = 0
+  async function worker(): Promise<void> {
+    for (;;) {
+      const index = nextIndex++
+      if (index >= paths.length) return
+      results[index] = await probeOneTarget(paths[index] as string)
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(PROBE_TARGETS_CONCURRENCY, paths.length) }, worker),
+  )
+  return results
 }
 
 export { buildModelCatalog }

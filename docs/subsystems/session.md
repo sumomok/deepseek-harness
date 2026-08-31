@@ -745,6 +745,23 @@ inspect( sessionId: SessionId, signal?: AbortSignal, ): Promise<SessionInspectio
 @Remote('openWorkspacePath') async openWorkspacePath( request: SessionOpenWorkspacePathRequest, signal: AbortSignal, ): Promise<SessionOpenWorkspacePathValue>
 
 /**
+ * Batch existence/kind probe for the three-layer clickable-reference
+ * verification stage: a read-only `stat` per path, never a directory
+ * listing or a content read. Always available — unlike a directory
+ * picker's browse capability, this makes no filesystem choice a
+ * deployment might want to withhold beyond what `openWorkspacePath`'s own
+ * pre-check already performs per path. Capped at
+ * {@link PROBE_TARGETS_MAX_PATHS} paths per call (a larger or empty batch
+ * fails `gateway/bad-request` before probing starts) and run with bounded
+ * internal concurrency, so a caller with more candidates issues several
+ * calls rather than one unbounded one.
+ * @param request - paths to probe, in the order results are returned.
+ * @returns one result per requested path, in the same order.
+ * @throws RemoteError when the batch is empty or exceeds the size cap.
+ */
+@Remote('probeTargets') async probeTargets(request: SessionProbeTargetsRequest): Promise<SessionProbeTargetsValue>
+
+/**
  * Rename one Session after explicitly resuming it.
  * @param request - Session identity and proposed title.
  * @returns the accepted title and durable event sequence.
