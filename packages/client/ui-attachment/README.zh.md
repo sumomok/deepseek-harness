@@ -9,7 +9,7 @@ kind: "package-reference"
 
 ## 概述
 
-本包渲染对话 UI 中与附件相关的一切：composer 下的待发送草稿图片、全视口拖放邀请层、Chat 与 Trajectory 中的持久图片，以及查看原图的灯箱。它是纯呈现层——附件数据、图片加载与回调都经声明槽位来自 conversation 包。需要 DeepSeek Chat 风格的图片体验时选择它；非图片文件在此没有任何表面。
+本包渲染对话 UI 中与附件相关的一切：composer 下的待发送草稿图片与草稿文本文件、全视口拖放邀请层、Chat 与 Trajectory 中的持久图片，以及查看原图的灯箱。它是纯呈现层——附件数据、图片加载与回调都经声明槽位来自 conversation 包。需要 DeepSeek Chat 风格的图片体验时选择它；已发送文件的卡片与历史渲染直接落在对话消息气泡上，而非本包填充的槽位。
 
 ## 目录
 
@@ -31,6 +31,10 @@ kind: "package-reference"
 
 草稿图片以固定 64px 缩略图呈现在一行横向滚动条中；溢出隐藏时由边缘箭头翻页，滚动条保持隐藏。新增条目滚动到栏尾展示，删除保持原位，单击经持有方的 `onOpen` 打开原图。
 
+### 草稿文件
+
+草稿文本文件在附件栏旁以「名称＋大小」条形卡片呈现在可换行的一行中——文件没有缩略图可展示，因此不复用附件栏固定 64px 的条目形态，而是拥有自己的形态。每个条形卡片以省略号截断超长文件名（完整名称落在 `title` 上）并显示字节大小文案，删除按钮与附件栏缩略图一致，悬停或键盘聚焦时显示（粗指针设备常显）。条形卡片本身没有打开动作：已发送文件的默认打开行为是消息气泡上 referent/open 缝隙驱动的内联展开/折叠查看器，而非草稿态预览。
+
 ### 消息图片与灯箱
 
 一条消息仅有的一张图按长边 240px 渲染（宽高比钳制在 [0.25, 4]，从不放大）；多图中的一张渲染为固定 64px 方块。加载完成的图片单击打开文档级灯箱；加载失败则显示重试控件。灯箱按 Escape、按下遮罩或点关闭按钮关闭，并把焦点还给打开者。
@@ -51,8 +55,9 @@ kind: "package-reference"
 
 | 文件 | 职责 |
 |---|---|
-| [`src/client/ComposerAttachments.tsx`](src/client/ComposerAttachments.tsx) | 草稿图片栏＋拖放遮罩的组装 |
+| [`src/client/ComposerAttachments.tsx`](src/client/ComposerAttachments.tsx) | 草稿图片栏＋草稿文件条列表＋拖放遮罩的组装 |
 | [`src/AttachmentRail.tsx`](src/AttachmentRail.tsx) | 滚动缩略图栏、滚轮转换、边缘箭头 |
+| [`src/FileChip.tsx`](src/FileChip.tsx) | 草稿文件「名称＋大小」条形卡片列表 |
 | [`src/client/MessageImages.tsx`](src/client/MessageImages.tsx) | 每消息画廊＋灯箱的组装 |
 | [`src/MessageImage.tsx`](src/MessageImage.tsx) | 单图尺寸、加载／重试、点击打开；本地提交回显预览直接显示其 object URL |
 | [`src/ImageLightbox.tsx`](src/ImageLightbox.tsx) | 铺在共享遮罩上的文档级模态预览 |
@@ -89,7 +94,7 @@ kind: "package-reference"
 
 这些限制界定了当前附件表面。它们是包约束，不是通用图片查看器对比或任务积压。
 
-- **仅支持图片**——非图片文件尚无附件栏卡片与历史渲染；DeepSeek Chat 风格的文件卡片和上传进度等输入框接受非图片附件后再做。
+- **已发送文件尚无历史渲染**——`MessageImage`/`ImageGallery` 通过 `conversation.message.images` 渲染已发送图片；已发送文件的卡片与内联展开/折叠查看器直接落在对话消息气泡上，不经由本包填充的槽位，目前尚未实现。
 - **灯箱无缩放与下载**——预览仅以适配视口的尺寸渲染原图。
 - **灯箱不锁定焦点**——它设置 `aria-modal` 并在关闭时归还焦点，但 Tab 仍可移动到背后的页面。
 

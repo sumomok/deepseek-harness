@@ -285,6 +285,7 @@ export function apply(ctx: Context): void {
         return {
           keyboard: undefined,
           addImages: undefined,
+          addFiles: undefined,
           removeImage: undefined,
           draftImages: undefined,
           resolveSubmitMode: (running, gesture, steeringAvailable) =>
@@ -313,6 +314,17 @@ export function apply(ctx: Context): void {
             return null
           } catch (error: unknown) {
             if (error instanceof UnsupportedImageMediaTypeError) return t('image.unsupportedType')
+            return error instanceof Error ? error.message : String(error)
+          }
+        },
+        addFiles: (files) => {
+          try {
+            const drafts = conversation.createDraftFiles(files)
+            if (!shell.addImages(drafts.map(draft => draft.id))) {
+              conversation.releaseDraftImages(drafts)
+            }
+            return null
+          } catch (error: unknown) {
             return error instanceof Error ? error.message : String(error)
           }
         },
