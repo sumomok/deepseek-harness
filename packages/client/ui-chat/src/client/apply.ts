@@ -69,11 +69,29 @@ function buildProseReferents(
 ): MarkdownProseReferents | undefined {
   const provider = ctx.get('proseReferents')
   if (provider === undefined) return undefined
+  // ProseReferents' optional methods are plain callback properties, not
+  // `this`-bound instance methods; extracting them here is what lets
+  // TypeScript narrow "defined" through the conditional spreads below and
+  // into their closures.
+  // oxlint-disable-next-line typescript/unbound-method
+  const { resolveLink: providerResolveLink, subscribe: providerSubscribe } = provider
   return {
     scan: (text, inlineCode) => provider.scan(text, {
       cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
       home: connection.generation.getSnapshot()?.host.home,
       inlineCode,
+    }),
+    // exactOptionalPropertyTypes: an optional method is either present or
+    // absent from the object, never present-with-value-undefined — the
+    // conditional spreads below are what that distinction requires.
+    ...(providerResolveLink === undefined ? {} : {
+      resolveLink: (destination: string, displayText: string) => providerResolveLink(destination, displayText, {
+        cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
+        home: connection.generation.getSnapshot()?.host.home,
+      }),
+    }),
+    ...(providerSubscribe === undefined ? {} : {
+      subscribe: (listener: () => void) => providerSubscribe(listener),
     }),
     open: (span) => {
       // Safe: this scanner's own `scan` above is the only producer of spans
