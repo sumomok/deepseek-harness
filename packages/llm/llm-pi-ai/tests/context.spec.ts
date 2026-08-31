@@ -2,12 +2,15 @@ import { describe, expect, it, vi } from 'vitest'
 import { AttachmentId, ImageVariantId } from '@deepseek-ai/dsh-attachment'
 import type {
   AttachmentStore,
+  FileAttachmentRef,
   ImageAttachmentRef,
   ImageRequestPolicy,
   RequestImageAttachment,
+  StoredFileAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import { ToolCallId, createMessage, createUserMessage, offloadedImageText } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
+import { SpillLocator } from '@deepseek-ai/dsh-spill'
+import { ToolCallId, createMessage, createUserMessage, lowerFileBlockText, lowerSpilledFileBlockText, offloadedImageText } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, FileSpillOptions, GenerateOptions, Message } from '@deepseek-ai/dsh-llm'
 import { toPiContext } from '../src/context.ts'
 import type { PiImageRequestContext } from '../src/context.ts'
 import { toPiAssistant } from '../src/replay.ts'
@@ -18,6 +21,12 @@ const ref: ImageAttachmentRef = {
   bytes: 1,
   width: 1,
   height: 1,
+}
+
+const fileRef: FileAttachmentRef = {
+  attachmentId: AttachmentId(`sha256:${'c'.repeat(64)}`),
+  name: 'notes.txt',
+  bytes: 8,
 }
 
 function requestImage(value: ImageAttachmentRef, data: Uint8Array): RequestImageAttachment {
@@ -43,8 +52,14 @@ function projectionStore(
   ) => Promise<RequestImageAttachment> = vi.fn((value: ImageAttachmentRef) => (
     Promise.resolve(requestImage(value, Uint8Array.of(1)))
   )),
+  readFile: (
+    value: FileAttachmentRef,
+    signal?: AbortSignal,
+  ) => Promise<StoredFileAttachment> = vi.fn((value: FileAttachmentRef) => (
+    Promise.resolve({ ref: value, data: new TextEncoder().encode('line one') })
+  )),
 ): AttachmentStore {
-  return { readImageRequest, imageHostPath: () => undefined } as unknown as AttachmentStore
+  return { readImageRequest, readFile, imageHostPath: () => undefined } as unknown as AttachmentStore
 }
 
 const attachments = projectionStore()
@@ -116,6 +131,52 @@ describe('pi-ai request context conversion', () => {
       toolCallId: callId,
       content: [{ type: 'image', attachment: ref }],
     }])]))).toThrow(/durable attachment service/)
+
+    expect(() => toPiContext(request([user([{ type: 'file', attachment: fileRef }])])))
+      .toThrow(/durable attachment service/)
+  })
+
+  it('resolves a user file block into its lowered text alongside plain text content', async () => {
+    const context = await toPiContext(request([
+      user([{ type: 'text', text: 'see attached' }, { type: 'file', attachment: fileRef }]),
+    ]), imageContext(attachments))
+
+    expect(context.messages).toEqual([{
+      role: 'user',
+      content: `see attached${lowerFileBlockText('notes.txt', 'line one', fileRef.bytes)}`,
+      timestamp: 0,
+    }])
+  })
+
+  it('spills an oversized file through the optional spill options instead of truncating it', async () => {
+    const spillRef = { locator: SpillLocator('/spill/session-abc/xyz-notes.txt'), retrievalHint: 'Use read with offset/limit, or grep this path to search within it.' }
+    const resolveSpill = vi.fn(() => Promise.resolve(spillRef))
+    const spill: FileSpillOptions = { inlineWholeUnderChars: 4, previewChars: 2, resolveSpill }
+    const context = await toPiContext(
+      request([user([{ type: 'file', attachment: fileRef }])]),
+      imageContext(attachments, { spill }),
+    )
+
+    expect(resolveSpill).toHaveBeenCalledWith(fileRef, 'line one')
+    expect(context.messages).toEqual([{
+      role: 'user',
+      content: lowerSpilledFileBlockText('notes.txt', 'line one', fileRef.bytes, 2, spillRef),
+      timestamp: 0,
+    }])
+  })
+
+  it('falls back to truncated inline text when the spill options resolve undefined', async () => {
+    const spill: FileSpillOptions = { inlineWholeUnderChars: 4, previewChars: 2, resolveSpill: () => Promise.resolve(undefined) }
+    const context = await toPiContext(
+      request([user([{ type: 'file', attachment: fileRef }])]),
+      imageContext(attachments, { spill }),
+    )
+
+    expect(context.messages).toEqual([{
+      role: 'user',
+      content: lowerFileBlockText('notes.txt', 'line one', fileRef.bytes, 4),
+      timestamp: 0,
+    }])
   })
 
   it('resolves user and tool-result images while preserving explicit fallbacks', async () => {

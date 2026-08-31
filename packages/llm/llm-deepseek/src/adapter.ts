@@ -8,7 +8,7 @@
  * @module dsh-llm-deepseek/adapter
  */
 
-import { attributionHeaders, contentHasImage, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, offloadedImageText, offloadRequestImagesWithPolicy, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
+import { attributionHeaders, contentHasFile, contentHasImage, CONTEXT_WINDOW_EXCEEDED_CODE, isContextWindowExceededError, isQuotaExceededError, LlmAdapter, LlmError, lowerFileBlocksFromStore, offloadedImageText, offloadRequestImagesWithPolicy, ProviderRequestId, QUOTA_EXCEEDED_CODE, ReasoningEffortId } from '@deepseek-ai/dsh-llm'
 import type {
   ContentBlock,
   GenerateOptions,
@@ -27,6 +27,8 @@ import type {
   ImageAttachmentRef,
   RequestImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
+import { fileSpillOptionsFrom } from '@deepseek-ai/dsh-attachment-spill'
+import type { AttachmentSpill } from '@deepseek-ai/dsh-attachment-spill'
 import type { CredentialRef } from '@deepseek-ai/dsh-credentials'
 import { deadline, idleWatchdog, timeoutOf } from '@deepseek-ai/dsh-timeout'
 import type { AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
@@ -126,6 +128,11 @@ export interface DeepSeekAdapterOptions {
   resolveUserId: () => AnonymousUserId
   /** Resolve the current durable attachment service; absence rejects image input. */
   resolveAttachments?: () => AttachmentStore | undefined
+  /**
+   * Resolve the current attachment-spill service; absence falls back to
+   * truncated inline text for an oversized file (never rejects file input).
+   */
+  resolveAttachmentSpill?: () => AttachmentSpill | undefined
   /** Bridge one attachment reference into the current model-tool execution world. */
   resolveImageAccess?: (attachments: AttachmentStore, ref: ImageAttachmentRef) => ImageAttachmentAccess | undefined
   /** Resolve the process-wide upload reuse store. */
@@ -451,6 +458,7 @@ export class DeepSeekAdapter extends LlmAdapter {
     // The key resolves *from this snapshot*, so an endpoint and the secret
     // sent to it can never come from different configuration generations.
     const hasImages = options.messages.some(message => contentHasImage(message.content))
+    const hasFiles = options.messages.some(message => contentHasFile(message.content))
     let attachments: AttachmentStore | undefined
     if (hasImages) {
       const model = connection.models.find(entry => entry.id === options.model)
@@ -464,6 +472,17 @@ export class DeepSeekAdapter extends LlmAdapter {
       if (attachments === undefined) {
         throw new LlmError(
           'DeepSeek image conversion requires the durable attachment service.',
+          'UNSUPPORTED_CONTENT',
+        )
+      }
+    }
+    // No capability check for files: the lowered form is plain text, which
+    // every DeepSeek model already accepts.
+    if (hasFiles && attachments === undefined) {
+      attachments = this.config.resolveAttachments?.()
+      if (attachments === undefined) {
+        throw new LlmError(
+          'DeepSeek file conversion requires the durable attachment service.',
           'UNSUPPORTED_CONTENT',
         )
       }
@@ -558,7 +577,18 @@ export class DeepSeekAdapter extends LlmAdapter {
       byteLength: ref => Math.min(ref.bytes, policy.maxBytes),
       placeholder: ref => offloadedImageText(ref, resolveImageAccess?.(ref)),
     })
-    const requestOptions = requestMessages === options.messages ? options : { ...options, messages: [...requestMessages] }
+    // Lowered locally, never onto `options.messages` itself: that frozen
+    // array must stay reconstructable byte-identical from the session log,
+    // which the agent-loop's request-reconstruction invariant enforces.
+    const fileLoweredMessages = attachments === undefined
+      ? requestMessages
+      : await lowerFileBlocksFromStore(
+        requestMessages, attachments, signal,
+        fileSpillOptionsFrom(this.config.resolveAttachmentSpill?.()),
+      )
+    const requestOptions = fileLoweredMessages === options.messages
+      ? options
+      : { ...options, messages: [...fileLoweredMessages] }
     const requestImages = attachments === undefined || model === undefined
       ? new Map<AttachmentId, RequestImageAttachment>()
       : await prepareRequestImages(requestOptions, attachments, model, signal)
