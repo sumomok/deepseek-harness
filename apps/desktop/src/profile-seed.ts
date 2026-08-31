@@ -228,7 +228,7 @@ export interface SeedReport {
 
 /** The manifest fields this module reads and writes; every other key is carried through verbatim. */
 interface ProfileManifest {
-  dsh?: { profile?: { bundles?: string[] }; bundle?: unknown }
+  dsh?: { profile?: { bundles?: string[]; patchReload?: string }; bundle?: unknown }
   [key: string]: unknown
 }
 
@@ -301,12 +301,15 @@ function templateManifest(bundles: readonly string[]): ProfileManifest {
     name: `dsh-profile-${DESKTOP_PROFILE}`,
     private: true,
     dependencies: {},
-    dsh: { profile: { bundles: [...bundles] } },
+    dsh: { profile: { bundles: [...bundles], patchReload: WEB_TEMPLATE_PATCH_RELOAD } },
   }
 }
 
 /** The shipped template's own bundle list (`PROFILE_TEMPLATES.web` in dsh-app-boot). */
 const WEB_TEMPLATE_BUNDLES: readonly string[] = ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']
+
+/** The shipped template's own patch-file lifecycle (`PROFILE_TEMPLATES.web.patchReload` in dsh-app-boot). */
+const WEB_TEMPLATE_PATCH_RELOAD = 'live'
 
 /** The empty user patch layer (`PROFILE_PATCH_TEMPLATE` in dsh-app-boot). */
 const PROFILE_PATCH_TEMPLATE = `# Your patch layer for this dsh profile, applied after every bundle layer:

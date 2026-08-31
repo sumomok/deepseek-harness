@@ -220,11 +220,12 @@ describe('seedBuiltinBundles on a home with no profile', () => {
     // harness package into an Electron app, so this is the gate that keeps the
     // copy and the original one text. Same directory basename and same layer
     // list, so every byte upstream writes is a byte the seed must write.
-    const webTemplate = PROFILE_TEMPLATES['web'] ?? []
-    expect(webTemplate).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+    const webTemplate = PROFILE_TEMPLATES['web']
+    expect(webTemplate?.bundles).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app'])
+    expect(webTemplate?.patchReload).toBe('live')
     seedBuiltinBundles({ home, serverModules })
     const upstream = join(root, 'upstream', DESKTOP_PROFILE)
-    initProfile(upstream, [...webTemplate, ...BUILTIN_WEB_BUNDLES])
+    initProfile(upstream, [...(webTemplate?.bundles ?? []), ...BUILTIN_WEB_BUNDLES], webTemplate?.patchReload)
     const seeded = join(home, 'profiles', DESKTOP_PROFILE)
     for (const name of ['package.json', PROFILE_PATCH_FILENAME, 'pnpm-workspace.yaml']) {
       expect(readFileSync(join(seeded, name), 'utf8')).toBe(readFileSync(join(upstream, name), 'utf8'))
