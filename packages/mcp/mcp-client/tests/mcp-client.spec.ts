@@ -3,7 +3,10 @@ import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js'
 import { Context } from '@deepseek-ai/cordis'
 import AttachmentStore, { AttachmentError, AttachmentId } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment, StoredImageAttachment } from '@deepseek-ai/dsh-attachment'
+import type {
+  FileAttachmentLimits, FileAttachmentRef, ImageAttachmentLimits, ImageAttachmentRef,
+  SaveFileAttachment, SaveImageAttachment, StoredFileAttachment, StoredImageAttachment,
+} from '@deepseek-ai/dsh-attachment'
 import { ToolCallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmResolvedModelInfo, StreamChunk } from '@deepseek-ai/dsh-llm'
@@ -101,6 +104,20 @@ class RecordingAttachmentStore extends AttachmentStore {
   }
 
   readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
+    throw new Error('not used')
+  }
+
+  readonly fileLimits: FileAttachmentLimits = { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 }
+
+  validateFile(_input: SaveFileAttachment): Promise<void> {
+    return Promise.reject(new Error('not used'))
+  }
+
+  saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
+    return Promise.reject(new Error('not used'))
+  }
+
+  readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
     throw new Error('not used')
   }
 }
