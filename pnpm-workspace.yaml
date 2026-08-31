@@ -19,6 +19,22 @@ linkWorkspacePackages: true
 overrides:
   '@deepseek-ai/cosmokit': 'link:vendor/cosmokit'
   '@deepseek-ai/schemastery': 'link:vendor/schemastery'
+  # rc.26 upstream sync (0.1.2-alpha.2) removed packages/client/runtime
+  # (@deepseek-ai/dsh-client-runtime): its surface split into
+  # @deepseek-ai/dsh-api-session-controller and other packages. The
+  # apps/desktop-server vendored third-party plugins (@haoran/*, @sumomok/*)
+  # still declare it as an optional peer from before that split, at a range
+  # (>=0.1.0-rc.1 <0.2.0-0) no published registry version satisfies any more
+  # and no workspace package can satisfy either, which fails `pnpm install`
+  # outright (pnpm auto-installs even optional peers by default, and a
+  # peerDependencyRules.ignoreMissing entry only silences the post-resolution
+  # warning, not this fetch attempt). Pin it to the last real registry
+  # version published under the old name instead: the reference is confined
+  # to these tarballs' shipped .d.ts files (never their runtime lib/*.js, and
+  # no source in this repo imports it), so nothing ever loads what actually
+  # gets installed under this name. Re-vendoring those tarballs against the
+  # new package names is tracked separately.
+  '@deepseek-ai/dsh-client-runtime': '0.1.1-rc.2'
   # dsh-better-sidebar declares `node-pty: ^1.1.0` and documents that it must
   # resolve to the SAME physical package as the harness core, which pins
   # 1.2.0-beta.15 (patched by patches/node-pty@1.2.0-beta.15.patch). That
