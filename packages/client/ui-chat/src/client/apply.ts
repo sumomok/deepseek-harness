@@ -2,7 +2,7 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import type { SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
+import { dispatchReferentOpen, type ReferentRef, type SessionBinding } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { BoundActions, ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
@@ -118,12 +118,32 @@ export function apply(ctx: Context): void {
             ctx.layout.openDetails()
           },
           fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner),
+          // referent/open first: wraps the pre-existing openWorkspacePath
+          // action as the waterfall's terminus, so every consumer this one
+          // closure already reaches (tool rows, produced-file chips,
+          // mentions, and the file card below) becomes interceptable
+          // without a per-consumer change. Zero listeners exist yet: with
+          // none registered the waterfall reaches its terminus immediately
+          // and this call is byte-identical to the un-wrapped open it
+          // replaces.
           openFile: async (path) => {
             const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
-            const result = await ctx.remote.session.openWorkspacePath({
-              path: resolveWorkspacePath(cwd, path),
+            const target = resolveWorkspacePath(cwd, path)
+            const ref: ReferentRef = {
+              // ProducedFiles opens the session workspace root as '.'; every
+              // other path this closure ever receives names a file (no
+              // richer file/dir signal reaches this closure).
+              kind: path === '.' ? 'dir' : 'file',
+              target,
+              raw: path,
+              sessionId,
+              source: 'chat-view.openFile',
+              provenance: 'structured',
+            }
+            await dispatchReferentOpen(ctx, ref, async () => {
+              const result = await ctx.remote.session.openWorkspacePath({ path: target })
+              if (!result.ok) throw new Error(`path open failed: ${result.error.message}`)
             })
-            if (!result.ok) throw new Error(`path open failed: ${result.error.message}`)
           },
           loadOlder: () => { void session.loadOlder() },
           loadThrough: seq => session.loadThrough(seq),
@@ -131,6 +151,12 @@ export function apply(ctx: Context): void {
             (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
             { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },
           ),
+          loadFile: async (attachment) => {
+            const result = await session.readFile(attachment.attachmentId)
+            if (!result.ok) throw new Error(`${result.error.message} (${result.error.code})`)
+            return result.value.text
+          },
+          openReferent: (ref, onDefault) => dispatchReferentOpen(ctx, { ...ref, sessionId }, onDefault),
           chatScroll: {
             save: (position) => {
               if (position === null) chatScrollPositions.delete(sessionId)

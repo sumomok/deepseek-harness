@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-31-file-attachment-bubble-and-referent-seam-port.md
+2026-08-31-file-attachment-bubble-and-referent-seam-port.md: 19889f9238d221ea212060de22ee2d3f840f7bb0
+2026-08-31-file-attachment-bubble-and-referent-seam-port.zh.md: 7c275991326d1e2bd416686e44362874b62d6ba8

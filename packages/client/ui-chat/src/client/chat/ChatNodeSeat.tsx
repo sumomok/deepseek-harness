@@ -80,7 +80,8 @@ function turnProcessLayout(
 export const ChatNodeSeat = memo(function ChatNodeSeat({
   nodeKey, historyIncomplete, compactTranscript,
   selectedCallId, cwd, openFile, inspectCall, forkAt,
-  renderMessageImages, renderUserActions, fileMentions, useChat, useStore, actions, renderSlot, t,
+  renderMessageImages, renderUserActions, fileMentions, loadFile, openReferent,
+  useChat, useStore, actions, renderSlot, t,
 }: ChatNodeSeatProps) {
   const node = useChat(snapshot => snapshot.nodes.get(nodeKey))
   const processSignature = useChat((snapshot) => {
@@ -184,10 +185,12 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
       renderMessageImages,
       renderUserActions,
       fileMentions,
+      loadFile,
+      openReferent,
       turnProcess,
     }, [
     node, selectedCallId, cwd, openFile, inspectCall, forkAt,
-    renderMessageImages, renderUserActions, fileMentions, turnProcess,
+    renderMessageImages, renderUserActions, fileMentions, loadFile, openReferent, turnProcess,
   ])
   if (routedNode === undefined || owner === null) return null
   const location = routedNode.location
