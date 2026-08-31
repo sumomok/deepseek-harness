@@ -68,7 +68,7 @@ interface Answer {
 }
 
 /** Write the application fixture and a two-row cordis.yml, then boot it through the real Loader. */
-async function loadComposition(withDefaultPage = true): Promise<Context> {
+async function loadComposition(withDefaultPage = true, withHomePage = false): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-content-frame-'))
   const root = join(world, 'app')
   await mkdir(join(root, 'assets'), { recursive: true })
@@ -107,6 +107,7 @@ async function loadComposition(withDefaultPage = true): Promise<Context> {
     `    root: '${root}'`,
     '    cacheSize: 4',
     ...withDefaultPage ? ['    defaultPage: home'] : [],
+    ...withHomePage ? ['    homePage: home'] : [],
     '    pages:',
     '      - id: home',
     '        title: Home',
@@ -272,6 +273,14 @@ describe('hosted application route', () => {
       .toEqual({ state: 'empty' })
   })
 
+  it('serves homePage in the settings document when configured', { timeout: 60_000 }, async () => {
+    const loaded = await loadComposition(false, true)
+    expect(await request(loaded.webServer.port, '/content-frame/settings')).toMatchObject({
+      status: 200,
+      body: '{"cacheSize":4,"pages":[{"id":"home","title":"Home","description":"The entry page.","url":"/content-app/"}],"homePage":"home"}',
+    })
+  })
+
   // fs.symlink needs elevation or developer mode on Windows; the Linux
   // coverage lane owns this branch.
   it.skipIf(process.platform === 'win32')('refuses a symlink that leaves the root', { timeout: 60_000 }, async () => {
@@ -303,7 +312,7 @@ describe('configuration validation', () => {
     const ctx = new Context()
     // Deliberately paired with a root that would also fail: the page list is
     // checked first, so these messages prove the ordering as well as the rule.
-    const apply = (pages: ContentPage[], extra?: { defaultPage?: string; cacheSize?: number }): Promise<void> =>
+    const apply = (pages: ContentPage[], extra?: { defaultPage?: string; homePage?: string; cacheSize?: number }): Promise<void> =>
       ContentFrame.apply(ctx, { root: 'relative/never-reached', pages, ...extra })
 
     await expect(apply([])).rejects.toThrow(/pages must list at least one page/)
@@ -316,6 +325,8 @@ describe('configuration validation', () => {
       .rejects.toThrow(/page "home" url must be a same-origin path/)
     await expect(apply([HOME], { defaultPage: 'reports' }))
       .rejects.toThrow(/defaultPage "reports" names no configured page/)
+    await expect(apply([HOME], { homePage: 'reports' }))
+      .rejects.toThrow(/homePage "reports" names no configured page/)
     await expect(apply([HOME], { cacheSize: 0 })).rejects.toThrow(/cacheSize must be at least 1, received 0/)
   })
 

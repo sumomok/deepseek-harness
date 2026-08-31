@@ -28,4 +28,10 @@ export interface ContentFrameSettings {
   cacheSize: number
   /** The configured pages, in declaration order — the whole catalog a page-navigation menu offers. */
   pages: ContentPage[]
+  /**
+   * Page id the sidebar shows automatically the first time a session lands
+   * on a blank draft; absent when the deployment configures none. Names a
+   * page in {@link pages}.
+   */
+  homePage?: string
 }

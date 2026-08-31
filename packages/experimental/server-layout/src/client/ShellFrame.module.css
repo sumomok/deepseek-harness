@@ -50,6 +50,13 @@
   border-left: none;
 }
 
+/* The content subtree stays mounted at zero width while empty (its slot
+   registrant keeps state across the collapse), so its border must not paint
+   a 1px seam against the chat column either. */
+.frame[data-content-empty] .contentCol {
+  border-right: none;
+}
+
 .overlayLayer {
   position: absolute;
   inset: 0;

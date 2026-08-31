@@ -1,0 +1,25 @@
+# server-layout plus a real content producer (content-surface + content-frame,
+# no content-column): enough for the shell's content-empty collapse read
+# (`ShellFrame.tsx`'s `currentContentEmpty`) to see a genuinely populated
+# `contentSurface` projection, without pulling in the browser-side content
+# column renderer this scenario does not otherwise need. ui-sidebar and every
+# other shipped row stay composed, unlike `server-sidebar.overlay.yml`'s full
+# product-console stack.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-frame
+      name: '@deepseek-ai/dsh-experimental-content-frame'
+      config:
+        root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/

@@ -24,7 +24,7 @@ describe('readContentPages', () => {
       expect(input).toBe(ROUTE)
       return { ok: true, json: () => Promise.resolve({ pages: [{ id: 'home', title: 'Home', description: '', url: '/x' }] }) }
     })
-    expect(await readContentPages()).toEqual([{ id: 'home', title: 'Home' }])
+    expect(await readContentPages()).toEqual({ pages: [{ id: 'home', title: 'Home' }] })
   })
 
   it('drops entries missing a usable id or title', async () => {
@@ -32,21 +32,49 @@ describe('readContentPages', () => {
       ok: true,
       json: () => Promise.resolve({ pages: [{ id: 'home', title: 'Home' }, { id: 42, title: 'Bad id' }, { id: 'no-title' }] }),
     }))
-    expect(await readContentPages()).toEqual([{ id: 'home', title: 'Home' }])
+    expect(await readContentPages()).toEqual({ pages: [{ id: 'home', title: 'Home' }] })
   })
 
   it('answers empty when the route responds non-200', async () => {
     stubFetch(async () => ({ ok: false, json: () => Promise.resolve({}) }))
-    expect(await readContentPages()).toEqual([])
+    expect(await readContentPages()).toEqual({ pages: [] })
   })
 
   it('answers empty when the document has no pages array', async () => {
     stubFetch(async () => ({ ok: true, json: () => Promise.resolve({ cacheSize: 1 }) }))
-    expect(await readContentPages()).toEqual([])
+    expect(await readContentPages()).toEqual({ pages: [] })
   })
 
   it('contains a transport failure to an empty list rather than throwing', async () => {
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject(new Error('network down'))))
-    expect(await readContentPages()).toEqual([])
+    expect(await readContentPages()).toEqual({ pages: [] })
+  })
+
+  it('carries homePage through when it names a configured page', async () => {
+    stubFetch(async () => ({
+      ok: true,
+      json: () => Promise.resolve({ pages: [{ id: 'home', title: 'Home' }], homePage: 'home' }),
+    }))
+    expect(await readContentPages()).toEqual({ pages: [{ id: 'home', title: 'Home' }], homePage: 'home' })
+  })
+
+  it('warns and drops homePage when it is not a string', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    stubFetch(async () => ({
+      ok: true,
+      json: () => Promise.resolve({ pages: [{ id: 'home', title: 'Home' }], homePage: 42 }),
+    }))
+    expect(await readContentPages()).toEqual({ pages: [{ id: 'home', title: 'Home' }] })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('homePage is not a string'))
+  })
+
+  it('warns and drops homePage when it names no configured page', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    stubFetch(async () => ({
+      ok: true,
+      json: () => Promise.resolve({ pages: [{ id: 'home', title: 'Home' }], homePage: 'reports' }),
+    }))
+    expect(await readContentPages()).toEqual({ pages: [{ id: 'home', title: 'Home' }] })
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('homePage "reports" names no configured page'))
   })
 })

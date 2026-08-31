@@ -6,9 +6,14 @@
  * conversation path, decision ②'s de-terminology layer (both the official
  * disable rows and the one CSS-injection fallback), the workbench's
  * blank-draft click semantics, the current-selection highlight, drag-and-drop
- * workflow reordering, and (`@deepseek-ai/dsh-experimental-content-frame`)
+ * workflow reordering, (`@deepseek-ai/dsh-experimental-content-frame`)
  * hiding the `show-content-page` command's own chat echo while its durable
- * `command/run`/`content/shown`/`command/done` lifecycle still lands on the log.
+ * `command/run`/`content/shown`/`command/done` lifecycle still lands on the
+ * log, and (`@deepseek-ai/dsh-experimental-server-layout`) the content
+ * column collapsing on a content-less blank draft. A second describe block
+ * reruns the workbench-click scenario under content-frame's `homePage`
+ * config, proving the opposite pairing: an auto-shown home page and a
+ * content column that never collapses.
  *
  * Mostly zero model calls, the same shape `rail-search-expand.e2e.ts` uses
  * for a pure client-layout scenario: every session this scenario opens is
@@ -45,6 +50,8 @@ import {
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const OVERLAY = fileURLToPath(new URL('./server-sidebar.overlay.yml', import.meta.url))
+/** Identical to {@link OVERLAY}, plus content-frame's `homePage` config. */
+const HOMEPAGE_OVERLAY = fileURLToPath(new URL('./server-sidebar-homepage.overlay.yml', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 /** Every experimental row the overlay inserts, as package name and source directory. */
 const ROWS = [
@@ -104,6 +111,14 @@ const workbenchButton = (page: Page): Locator => sidebar(page).locator('[data-se
 const navSection = (page: Page): Locator => sidebar(page).locator('[data-server-sidebar-section="nav"]')
 const workflowsSection = (page: Page): Locator => sidebar(page).locator('[data-server-sidebar-section="workflows"]')
 const activeFrame = (page: Page): Locator => page.locator('iframe[data-content-frame][data-content-active]')
+const shellColumn = (page: Page, name: string): Locator => page.locator(`[data-shell-column="${name}"]`)
+
+/** One element's rendered width; `server-layout.e2e.ts`'s own helper, restated for this scenario's column checks. */
+async function columnWidth(locator: Locator): Promise<number> {
+  const rect = await locator.boundingBox()
+  if (rect === null) throw new Error('element is not rendered')
+  return rect.width
+}
 
 /**
  * Wait for the column to settle on exactly this page's URL.
@@ -285,6 +300,12 @@ describe('web e2e: the product-console sidebar', () => {
       // session alongside one auto-open already created.
       await workbenchButton(page).click()
       await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+
+      // No homePage is configured in this overlay: a blank workbench draft
+      // shows nothing in the content column, so the shell collapses it
+      // (`dsh-experimental-server-layout`'s own content-empty read) and chat
+      // absorbs the reclaimed share instead.
+      await expect.poll(() => columnWidth(shellColumn(page, 'content')), { timeout: 10_000 }).toBe(0)
 
       await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBeUndefined()
       workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
@@ -502,6 +523,63 @@ describe('web e2e: the product-console sidebar', () => {
     // registers `useComposerBlock` (ui-model-selection is disabled).
     await expect(page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).isEnabled()).resolves.toBe(true)
   }, 30_000)
+
+  it('leaves the console clean', () => {
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+})
+
+describe('web e2e: the product-console sidebar with a configured home page', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let harnessHome: string
+  let tripwire: ReturnType<typeof watchConsole>
+  const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
+
+  beforeAll(async () => {
+    harnessHome = await harnessHomeWithRowLinks()
+    process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
+    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: HOMEPAGE_OVERLAY })
+    // A workbench click resolves against a connected Workspace (see
+    // `session-resolution.ts`); with none connected there is nowhere to
+    // create the session into, and the click is a contained no-op.
+    const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-homepage-workspace')
+    await mkdir(workspaceDir, { recursive: true })
+    await scaffold.ctx.workspaceRegistry.create(workspaceDir)
+
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await sidebar(page).waitFor({ timeout: 30_000 })
+  }, 180_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+    await rm(harnessHome, { recursive: true, force: true })
+    if (inheritedAppRoot === undefined) delete process.env.DSH_CONTENT_APP_ROOT
+    else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
+  })
+
+  it(
+    'auto-shows the configured home page on a blank workbench draft, with the content column no longer collapsed',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-homepage'))
+      await workbenchButton(page).click()
+      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+
+      await expectShown(page, '/content-app/')
+      await expect.poll(() => anySessionShowed(scaffold, 'home', 'user'), { timeout: 15_000 }).toBe(true)
+      // Contrast the un-configured overlay's own workbench test: with a home
+      // page configured, a blank draft is never actually empty, so the
+      // content column stays expanded rather than collapsing.
+      await expect.poll(() => columnWidth(shellColumn(page, 'content')), { timeout: 10_000 }).toBeGreaterThan(0)
+    },
+    60_000,
+  )
 
   it('leaves the console clean', () => {
     expect(tripwire.pageErrors).toEqual([])

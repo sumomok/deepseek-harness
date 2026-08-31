@@ -15,6 +15,26 @@ import { resolveOrCreateSession } from './session-resolution.ts'
 const SHOW_CONTENT_PAGE_COMMAND = 'show-content-page'
 
 /**
+ * Execute `/show-content-page <pageId>` directly against a known session,
+ * warning (never throwing) on a failed dispatch or a rejected page id — the
+ * shared tail every caller in this module needs once it has a session id in
+ * hand.
+ * @param ctx - client root context (remote.commands).
+ * @param sessionId - the session to act against.
+ * @param pageId - the page id to show.
+ */
+async function showContentPageOn(ctx: ClientContext, sessionId: SessionId, pageId: string): Promise<void> {
+  const result = await ctx.remote.commands.execute(sessionId, `/${SHOW_CONTENT_PAGE_COMMAND} ${pageId}`, [])
+  if (!result.ok) {
+    console.warn(`server-sidebar: show-content-page failed: ${result.error.code}: ${result.error.message}`)
+    return
+  }
+  if (result.value !== undefined && result.value.result.kind === 'error') {
+    console.warn(`server-sidebar: show-content-page: ${result.value.result.text}`)
+  }
+}
+
+/**
  * Show one configured page, creating a session first when none is current
  * (see `session-resolution.ts` for the resolution order).
  * @param ctx - client root context (sessions, workspaces, remote.commands).
@@ -32,14 +52,24 @@ export async function openContentPage(ctx: ClientContext, pageId: string): Promi
     return
   }
   if (sessionId === undefined) return
-  const result = await ctx.remote.commands.execute(sessionId, `/${SHOW_CONTENT_PAGE_COMMAND} ${pageId}`, [])
-  if (!result.ok) {
-    console.warn(`server-sidebar: show-content-page failed: ${result.error.code}: ${result.error.message}`)
-    return
-  }
-  if (result.value !== undefined && result.value.result.kind === 'error') {
-    console.warn(`server-sidebar: show-content-page: ${result.value.result.text}`)
-  }
+  await showContentPageOn(ctx, sessionId, pageId)
+}
+
+/**
+ * Show the deployment's configured home page on a session already known —
+ * the workbench's auto-open-on-click path, which resolves its own session
+ * before this runs and so needs no resolution of its own (contrast
+ * {@link openContentPage}).
+ * @param ctx - client root context (remote.commands).
+ * @param sessionId - the session to show the home page on.
+ * @param homePage - the configured home page id.
+ */
+export async function openHomePage(ctx: ClientContext, sessionId: string, homePage: string): Promise<void> {
+  // `OpenOutcome.sessionId` (workflow-actions.ts) carries the plain-string
+  // shape every open-or-create outcome shares (it also feeds the
+  // workflow-api wire), so it is cast to the branded id here rather than
+  // widening this function's own signature to it.
+  await showContentPageOn(ctx, sessionId as SessionId, homePage)
 }
 
 /**

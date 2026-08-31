@@ -137,8 +137,10 @@ export async function openWorkbenchOnLoad(
  * @param ctx - client root context.
  * @param workbenchSessionId - the recorded id, or `undefined` before first use.
  * @param isLive - whether that id names a session the workspace domain still lists.
- * @param isBlank - whether that session's own log is still empty; irrelevant
- * (and never consulted) when `isLive` is `false`.
+ * @param isBlank - whether that session has not yet run a turn (standalone
+ * events — including this row's own home-page auto-open — do not count; see
+ * `sessionBlank` in `dsh-host-apiproxy`); irrelevant (and never consulted)
+ * when `isLive` is `false`.
  * @returns the outcome, or `undefined` when there was nowhere to create a
  * session (no Workspace at all) — a contained no-op.
  */

@@ -4,7 +4,13 @@
  * the frame on a fixed 24-unit ratio, and the details column is a fixed-width
  * band that the layout service opens and closes. There is no concession chain
  * and no drag preference — the solve is a function of (frame width, sidebar
- * fold, details open) alone, so any resize reproduces the same ratio.
+ * fold, details open, content empty) alone, so any resize reproduces the
+ * same ratio.
+ *
+ * The content column additionally collapses to zero width when the current
+ * session's content surface has shown nothing yet, the same way the details
+ * band collapses while closed: chat absorbs the reclaimed share rather than
+ * splitting it with an empty column.
  *
  * Widths come out in px rather than `fr` because the sidebar occupant renders
  * its own inline width from the `width` owner prop: an `fr` track would leave
@@ -31,7 +37,7 @@ export const DETAILS_WIDTH = 360
 export interface Tracks {
   /** Session (sidebar) column; {@link SESSION_RAIL} while folded. */
   session: number
-  /** Content column — this shell's center band. */
+  /** Content column — this shell's center band; 0 while it has nothing to show. */
   content: number
   /** Chat (conversation) column. */
   chat: number
@@ -55,9 +61,11 @@ function share(total: number, units: number, of: number): number {
  * @param frame - the shell's own measured width in px.
  * @param sessionFolded - whether the session column renders its control rail.
  * @param detailsOpen - whether the layout service has the details band open.
+ * @param contentEmpty - whether the content column has nothing to show
+ * (collapses it to zero, same as `detailsOpen: false` does for details).
  * @returns the px width of each track; they sum to `frame` whenever it is positive.
  */
-export function solveTracks(frame: number, sessionFolded: boolean, detailsOpen: boolean): Tracks {
+export function solveTracks(frame: number, sessionFolded: boolean, detailsOpen: boolean, contentEmpty: boolean): Tracks {
   const width = Math.max(0, frame)
   const details = detailsOpen ? Math.min(DETAILS_WIDTH, width) : 0
   const columns = width - details
@@ -65,6 +73,6 @@ export function solveTracks(frame: number, sessionFolded: boolean, detailsOpen: 
   // A folded rail leaves its ratio units unclaimed, so content and chat divide
   // what remains on their own 16:5 — the center never inherits the whole fold.
   const body = columns - session
-  const content = share(body, CONTENT_UNITS, CONTENT_UNITS + CHAT_UNITS)
+  const content = contentEmpty ? 0 : share(body, CONTENT_UNITS, CONTENT_UNITS + CHAT_UNITS)
   return { session, content, chat: body - content, details }
 }

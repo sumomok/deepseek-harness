@@ -41,7 +41,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import { readContentPages } from './pages.ts'
-import { openContentPage } from './open-page.ts'
+import { openContentPage, openHomePage } from './open-page.ts'
 import { readServerMenu, saveServerMenu, type ServerMenuWorkflow } from './workflow-api.ts'
 import { createWorkflowStore } from './workflow-store.ts'
 import {
@@ -101,7 +101,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'server-sidebar: dictionaries')
   ctx.effect(() => installTerminologyGuard(), 'server-sidebar: terminology guard')
 
-  const [pages, initialMenu] = await Promise.all([readContentPages(), readServerMenu()])
+  const [{ pages, homePage }, initialMenu] = await Promise.all([readContentPages(), readServerMenu()])
   const workflowStore = createWorkflowStore(initialMenu)
 
   // Set once the sidebar's own inject factory runs (see the module doc for
@@ -134,7 +134,14 @@ export async function apply(ctx: ClientContext): Promise<void> {
           },
           onOpenWorkbench: async (workbenchSessionId, isLive, isBlank) => {
             const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isBlank)
-            if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
+            if (outcome === undefined) return
+            if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
+            // Every outcome of a click lands on a blank draft (reused-blank or
+            // freshly created — see `openWorkbenchOnClick`'s own doc), so a
+            // configured home page always applies here; the auto-open-on-load
+            // path (above) leaves whatever the reopened session already shows
+            // untouched (continuity semantics).
+            if (homePage !== undefined) await openHomePage(ctx, outcome.sessionId, homePage)
           },
           onOpenWorkflow: async (workflow, isLive) => {
             const outcome = await openWorkflow(ctx, workflow, isLive)

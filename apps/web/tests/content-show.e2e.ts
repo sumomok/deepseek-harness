@@ -191,7 +191,10 @@ describe.skipIf(MODE === 'record')('web e2e: the agent-driven content column', (
       if (message.type() === 'error') consoleErrors.push(message.text())
     })
     await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
-    await column(page, 'content').waitFor({ timeout: 30_000 })
+    // No session is open yet, so the shell's content-empty collapse (see
+    // `dsh-experimental-server-layout`'s `ShellFrame.tsx`) holds the column at
+    // zero width here; only its presence in the DOM is asserted.
+    await column(page, 'content').waitFor({ state: 'attached', timeout: 30_000 })
     // The workspace group row precedes its sessions; expanding it lists them.
     await page.locator('[role="treeitem"]').first().click()
   }, 180_000)

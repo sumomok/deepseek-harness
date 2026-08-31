@@ -689,6 +689,17 @@ export interface Config {
    */
   defaultPage?: string
   /**
+   * Page the sidebar's page-navigation menu shows automatically the first
+   * time a session lands on a blank draft, so a new conversation opens onto
+   * a populated column instead of an empty one. Must name a configured page.
+   * Omit to leave a blank draft's column empty until the user or agent
+   * chooses. Unlike `defaultPage`, this drives an actual `show-content-page`
+   * command invocation (read by `@deepseek-ai/dsh-experimental-server-sidebar`,
+   * not by this row) rather than a projection default, so it leaves the same
+   * durable log record a real click would.
+   */
+  homePage?: string
+  /**
    * How many frames the browser keeps alive at once, counted over (session,
    * page) pairs. A cached frame keeps its live document — scroll position,
    * form state, whatever the page holds — across a switch to another page,

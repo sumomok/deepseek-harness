@@ -1,0 +1,55 @@
+# Identical to `server-sidebar.overlay.yml`, plus `content-frame`'s `homePage`
+# config — the one field difference the workbench's auto-open-on-click
+# scenario needs. Kept as a full standalone file rather than composed with the
+# base overlay: `extraOverlayPath` takes exactly one path, and every other
+# overlay in this suite is likewise self-contained.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: content-frame
+      name: '@deepseek-ai/dsh-experimental-content-frame'
+      config:
+        root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/
+          - id: reports
+            title: Weekly reports
+            description: Published reports, newest first.
+            url: /content-app/reports/
+        homePage: home
+
+- id: ui-sidebar
+  name: '@deepseek-ai/dsh-client-ui-sidebar'
+  disabled: true
+
+- insert:
+    - id: server-sidebar
+      name: '@deepseek-ai/dsh-experimental-server-sidebar'
+
+- id: ui-workspace
+  name: '@deepseek-ai/dsh-client-ui-workspace'
+  disabled: true
+
+- id: ui-cordis
+  name: '@deepseek-ai/dsh-client-ui-cordis'
+  disabled: true
+- id: ui-trajectory
+  name: '@deepseek-ai/dsh-client-ui-trajectory'
+  disabled: true
+- id: ui-model-selection
+  name: '@deepseek-ai/dsh-client-ui-model-selection'
+  disabled: true
+- id: session-log-download
+  name: '@deepseek-ai/dsh-session-log-export'
+  disabled: true

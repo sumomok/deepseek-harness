@@ -71,6 +71,17 @@ export interface Config {
    */
   defaultPage?: string
   /**
+   * Page the sidebar's page-navigation menu shows automatically the first
+   * time a session lands on a blank draft, so a new conversation opens onto
+   * a populated column instead of an empty one. Must name a configured page.
+   * Omit to leave a blank draft's column empty until the user or agent
+   * chooses. Unlike `defaultPage`, this drives an actual `show-content-page`
+   * command invocation (read by `@deepseek-ai/dsh-experimental-server-sidebar`,
+   * not by this row) rather than a projection default, so it leaves the same
+   * durable log record a real click would.
+   */
+  homePage?: string
+  /**
    * How many frames the browser keeps alive at once, counted over (session,
    * page) pairs. A cached frame keeps its live document — scroll position,
    * form state, whatever the page holds — across a switch to another page,
@@ -94,6 +105,7 @@ export const Config: z<Config> = z.object({
     url: z.string().required(),
   })).required(),
   defaultPage: z.string(),
+  homePage: z.string(),
   cacheSize: z.natural().default(DEFAULT_CACHE_SIZE),
 })
 
@@ -126,6 +138,9 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   // request with 404, and a broken page list would surface as a tool call the
   // agent cannot get right — both with no diagnostic pointing at the row.
   const pages = indexPages(config.pages, config.defaultPage)
+  if (config.homePage !== undefined && !pages.has(config.homePage)) {
+    throw new Error(`content-frame: homePage "${config.homePage}" names no configured page`)
+  }
   const cacheSize = config.cacheSize ?? DEFAULT_CACHE_SIZE
   if (cacheSize < 1) throw new Error(`content-frame: cacheSize must be at least 1, received ${cacheSize}`)
   const root = await resolveRoot(config.root)
@@ -146,7 +161,11 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       await serveContentApp(pathname.slice(CONTENT_APP_ROUTE.length), res, root)
     },
   }), 'content-frame: hosted application route')
-  const settings: ContentFrameSettings = { cacheSize, pages: [...pages.values()] }
+  const settings: ContentFrameSettings = {
+    cacheSize,
+    pages: [...pages.values()],
+    ...config.homePage === undefined ? {} : { homePage: config.homePage },
+  }
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
     path: CONTENT_SETTINGS_ROUTE,

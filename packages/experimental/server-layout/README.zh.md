@@ -14,7 +14,9 @@ content 栏是这条产品线的立身之本，也是本包存在的理由：一
 - **`ctx.layout`** —— 同一个 `ILayout` 面（`toggleSidebar`、`openDetails`、`closeDetails`），在注册 root 条目的同一个同步 effect 里提供，且**先于**注册。这个顺序正是 ui-sidebar 与 ui-conversation 零改动可用的原因：两者都 inject `layout`，也都不等声明就直接往这些子槽注册，因此当服务解开它们的 fiber 时，槽已经存在了。
 - **文档级主题投影** —— `ctx.theme` 解析当前主题但从不碰 DOM；写 root `color-scheme`、body 调色板属性和主题 alias token 的是外壳。少了这一段，组合只会保留宿主 boot 脚本给的基础调色板，并静默地不再响应 Appearance 偏好。
 
-几何是有意不同的。这里没有拖拽把手、没有让步链、没有宽度偏好：轨道宽度是「测得的框架宽度 + 两个布尔」的纯函数（`tracks.ts`），因此任何一次 resize 都复现同一比例，也没有什么需要恢复。折叠后的 session 栏渲染 56px 控制条，并把自己的比例份额让给 content 与 chat，后两者继续按各自的 16:5 瓜分剩余空间。details 带打开时从总宽里取走固定 360px，关闭时取 0，且其子树在零宽下保持挂载。
+几何是有意不同的。这里没有拖拽把手、没有让步链、没有宽度偏好：轨道宽度是「测得的框架宽度 + 三个布尔」的纯函数（`tracks.ts`），因此任何一次 resize 都复现同一比例，也没有什么需要恢复。折叠后的 session 栏渲染 56px 控制条，并把自己的比例份额让给 content 与 chat，后两者继续按各自的 16:5 瓜分剩余空间。details 带打开时从总宽里取走固定 360px，关闭时取 0，且其子树在零宽下保持挂载。
+
+content 栏在自己无内容可展示时也走同样的折叠：宽度归零，chat 吃下让出的份额，子树仍保持挂载在下面。外壳通过标准的 `useSessions` 列表投喂读取当前 session 的 content surface 来判断这一点，而不是引入 [`content-surface`](../content-surface/README.zh.md) 依赖——这份软耦合的代价见 Known Limitations。
 
 宽度以像素而非 `fr` 下发到 CSS，是因为 session 栏的占位组件要用 `width` owner prop 给自己写内联宽度——`fr` 轨道会让这个数字无从得知，两者就会漂移。
 
@@ -60,3 +62,5 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 - **root scope 的一栏会漏出跨 session 状态，除非占用者自己按 session 分键** —— 框架在 session 切换时不清任何东西，因此持有 per-session 组件状态的占用者必须自己以 session id 分键。这份代价换来的正是这一栏的全部意义：框架不得摧毁的 DOM。另外三栏保持各自的 session scope。
 - **没有浏览器 theme-color 元数据** —— 出厂外壳还维护一个 `<meta name="theme-color">`，其内容跟随计算出的 body 背景色，用于给移动端浏览器 UI 上色。本外壳省略了它，这与「没有响应式行为」是一致的取舍。
 - **未被组装态快照覆盖** —— 浏览器证据是跑在真实组合上的 Playwright 场景，而不是录制的 transcript；快照通道投影的是模型可见与会话输出，而本包两者皆无。
+- **content-empty 的读取是一次无 DOM 但耦合形状的越包读取** —— `ShellFrame.tsx` 从 `useSessions` 每个 session 的 `projectionValues` 里读 `contentSurface.entries`，全程按 `unknown` 处理，而不是引入 [`content-surface`](../content-surface/README.zh.md) 的类型（本包对它零依赖，没组合它的部署会一直读到空列表，这恰好也是正确答案）。这个键的形状或名字将来一变，读取会静默失效——这一栏会停止折叠（或该折叠时不折叠），没有任何编译期信号，只会看到一个不对劲的版面。
+- **内容折叠可能在首屏闪一下** —— 会话列表投影值是异步到达的，因此一个本来有内容的 session 可能先渲染成折叠版面（16:5 塌成纯 chat），等第一份快照到达后 content 栏才展开。`grid-template-columns` 的过渡（`ShellFrame.module.css`）让这次展开是动画而不是硬切，但首次加载那一下闪烁并未被抑制。

@@ -8,6 +8,15 @@
  * renderSlot fallback, and the session-aware occupants render at fixed tree
  * positions so a session switch never moves them.
  *
+ * The content column additionally collapses to zero width while the current
+ * session's content surface has shown nothing — read defensively off the
+ * standard `useSessions` list feed's per-entry `projectionValues`
+ * (`@deepseek-ai/dsh-experimental-content-surface`'s `contentSurface` key)
+ * rather than importing that package: this shell has zero dependency on it,
+ * and a deployment that never composes it simply always reads an empty
+ * entry list, which is the same collapsed state (see the package README's
+ * Known Limitations for the coupling this soft read carries).
+ *
  * Pure component: everything arrives through the framework shares — zero
  * cordis imports, zero self-made hooks.
  */
@@ -26,12 +35,30 @@ export type ShellFrameProps =
   & PropsLocale<'serverLayout'>
 
 /**
+ * Read whether the current session's content surface has anything to show,
+ * off the standard session-list feed rather than a content-surface import
+ * (see the module doc). Defensive `unknown` narrowing throughout: neither
+ * `projectionValues` nor its `contentSurface` member is typed in this
+ * package's own compilation.
+ * @param state - the `useSessions` snapshot.
+ * @returns `false` once the current session's content surface carries at
+ * least one entry; `true` otherwise, including no current session at all.
+ */
+function currentContentEmpty(state: { byId: Record<string, { projectionValues?: unknown }>; current: string | undefined }): boolean {
+  if (state.current === undefined) return true
+  const projectionValues = state.byId[state.current]?.projectionValues as Record<string, unknown> | undefined
+  const contentSurface = projectionValues?.contentSurface as { entries?: readonly unknown[] } | undefined
+  return (contentSurface?.entries?.length ?? 0) === 0
+}
+
+/**
  * Render the four-track shell (see module doc).
  * @param props - the composed slot props.
  * @returns the frame element.
  */
-export function ShellFrame({ useStore, renderSlot, t }: ShellFrameProps) {
+export function ShellFrame({ useStore, useSessions, renderSlot, t }: ShellFrameProps) {
   const panels = useStore(s => s)
+  const contentEmpty = useSessions(currentContentEmpty)
   const frameRef = useRef<HTMLDivElement | null>(null)
   // The window is the first-paint estimate; the observer below replaces it
   // with the frame's own box on the first delivered entry.
@@ -49,7 +76,7 @@ export function ShellFrame({ useStore, renderSlot, t }: ShellFrameProps) {
     return () => { observer.disconnect() }
   }, [])
 
-  const tracks = solveTracks(frame, panels.sessionFolded, panels.detailsOpen)
+  const tracks = solveTracks(frame, panels.sessionFolded, panels.detailsOpen, contentEmpty)
 
   return (
     <div
@@ -58,6 +85,7 @@ export function ShellFrame({ useStore, renderSlot, t }: ShellFrameProps) {
       style={{ gridTemplateColumns: `${tracks.session}px ${tracks.content}px ${tracks.chat}px ${tracks.details}px` }}
       data-session-folded={panels.sessionFolded || undefined}
       data-details-open={panels.detailsOpen || undefined}
+      data-content-empty={contentEmpty || undefined}
     >
       <div className={css.sessionCol} data-shell-column="session">
         {/* The occupant lays itself out against the solved width, so it

@@ -92,9 +92,17 @@ function declareSlots(ctx: Context): void {
 }
 
 /** Boot the browser half over a real slot tree, with every service it calls stubbed. */
-async function bench(options: { currentSessionId?: string; recentWorkspaceId?: string } = {}): Promise<BenchResult> {
+async function bench(
+  options: { currentSessionId?: string; recentWorkspaceId?: string; homePage?: string } = {},
+): Promise<BenchResult> {
   stubFetch({
-    [CONTENT_FRAME_SETTINGS_ROUTE]: { body: { cacheSize: 1, pages: CONTENT_FRAME_PAGES } },
+    [CONTENT_FRAME_SETTINGS_ROUTE]: {
+      body: {
+        cacheSize: 1,
+        pages: CONTENT_FRAME_PAGES,
+        ...options.homePage === undefined ? {} : { homePage: options.homePage },
+      },
+    },
     [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW] } },
   })
   const ctx = new Context()
@@ -235,6 +243,35 @@ describe('server-sidebar browser half: sidebar registration', () => {
     await injected.onOpenWorkbench(undefined, false, false)
     expect(sessions.open).not.toHaveBeenCalled()
     expect(actions.setServerMenu).not.toHaveBeenCalled()
+  })
+
+  it('onOpenWorkbench (click) shows the configured home page on a reused blank draft', async () => {
+    const { ctx, remote } = await bench({ homePage: 'home' })
+    const { injected } = injectSidebar(ctx)
+    await injected.onOpenWorkbench('home-1', true, true)
+    expect(remote.commands.execute).toHaveBeenCalledWith('home-1', '/show-content-page home', [])
+  })
+
+  it('onOpenWorkbench (click) shows the configured home page on a freshly created session', async () => {
+    const { ctx, remote } = await bench({ recentWorkspaceId: 'workspace-1', homePage: 'home' })
+    const { injected } = injectSidebar(ctx)
+    stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
+    await injected.onOpenWorkbench(undefined, false, false)
+    expect(remote.commands.execute).toHaveBeenCalledWith('new-session', '/show-content-page home', [])
+  })
+
+  it('onOpenWorkbench (click) shows nothing extra when no home page is configured', async () => {
+    const { ctx, remote } = await bench()
+    const { injected } = injectSidebar(ctx)
+    await injected.onOpenWorkbench('home-1', true, true)
+    expect(remote.commands.execute).not.toHaveBeenCalled()
+  })
+
+  it('onOpenWorkbenchOnLoad never shows the home page — load-time continuity leaves an already-open session untouched', async () => {
+    const { ctx, remote } = await bench({ homePage: 'home' })
+    const { injected } = injectSidebar(ctx)
+    await injected.onOpenWorkbenchOnLoad('home-1', true)
+    expect(remote.commands.execute).not.toHaveBeenCalled()
   })
 
   it('opens a live workflow directly, with no replay and no persist', async () => {
