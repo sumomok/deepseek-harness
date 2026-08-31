@@ -22,6 +22,8 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     imageLimits: null
     /** Host state for the boot-constant file-limit view. */
     fileLimits: null
+    /** Host state for the boot-constant secret-container extra-patterns view. */
+    secretContainerExtraPatterns: null
     /** Durable model selection already used by a request and still pending for a later request. */
     modelSelection: ModelSelectionProjectionState
   }
@@ -32,6 +34,16 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     imageLimits: ImageAttachmentLimits
     /** Text-file-intake limits enforced by the Session prompt endpoint. */
     fileLimits: FileAttachmentLimits
+    /**
+     * Deployment-appended filename substrings for the client's pre-send
+     * secret-container confirmation, constant per host boot. The fixed base
+     * heuristic (`.env`, `id_rsa`, etc.) is a client-side constant and never
+     * rides this wire; this key carries only the deployment's additions —
+     * empty unless `cordis.yml` configures `secretContainerExtraPatterns`,
+     * and always additive to the client's base list, never a replacement or
+     * removal of it.
+     */
+    secretContainerExtraPatterns: readonly string[]
     /** Durable model selection already used and selected for the next request. */
     modelSelection: ModelSelectionProjection
   }

@@ -92,6 +92,7 @@ export interface TestSessionRemoteDefaults {
   readonly coldBlankProbeMaxEvents?: number
   readonly coldBlankProbeMaxBytes?: number
   readonly nativeOpen?: boolean
+  readonly secretContainerExtraPatterns?: readonly string[]
   readonly saveDefaultModelSelection?: (selection: AgentModelSelection) => void | Promise<void>
   readonly openPath?: (path: string, signal: AbortSignal) => Promise<void>
   readonly canOpenPath?: () => boolean
@@ -256,6 +257,9 @@ function installControllers(
           ? {}
           : { coldBlankProbeMaxBytes: defaults.coldBlankProbeMaxBytes },
         ...defaults.nativeOpen === undefined ? {} : { nativeOpen: defaults.nativeOpen },
+        ...defaults.secretContainerExtraPatterns === undefined
+          ? {}
+          : { secretContainerExtraPatterns: defaults.secretContainerExtraPatterns },
       },
       {
         ...defaults.openPath === undefined ? {} : { openPath: defaults.openPath },

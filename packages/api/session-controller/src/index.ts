@@ -83,6 +83,14 @@ export interface Config {
   readonly coldBlankProbeMaxBytes?: number
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
+  /**
+   * Filename substrings ADDED to the client's fixed pre-send
+   * secret-container confirmation heuristic (`.env`, `id_rsa`, etc.) — this
+   * field can only append to that base list, never replace or narrow it;
+   * the base list itself is not configurable here or anywhere.
+   * @default []
+   */
+  readonly secretContainerExtraPatterns?: readonly string[]
 }
 
 /** Host integrations replaceable by direct unit tests. */
@@ -111,7 +119,8 @@ export class SessionController extends TypertRemoteService {
     coldBlankProbeMaxEvents: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_EVENTS),
     coldBlankProbeMaxBytes: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_BYTES),
     nativeOpen: z.boolean(),
-  })
+    secretContainerExtraPatterns: z.array(z.string()).default([]),
+  }) as z<Config>
 
   private readonly agents: ApiSessionAgentController
   private readonly commands: SessionCommandController
@@ -124,7 +133,8 @@ export class SessionController extends TypertRemoteService {
 
   /**
    * @param ctx - Host context containing the Session capability assembly.
-   * @param config - cold-list observation and native-opener deployment policy.
+   * @param config - deployment policy: cold-list observation, native
+   * opening, and the client's pre-send secret-container confirmation.
    * @param internals - host integrations replaceable by direct unit tests.
    */
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
@@ -142,7 +152,7 @@ export class SessionController extends TypertRemoteService {
     this.listState = new ApiSessionList(ctx, {
       coldBlankProbeMaxEvents: config.coldBlankProbeMaxEvents ?? DEFAULT_COLD_BLANK_PROBE_MAX_EVENTS,
       coldBlankProbeMaxBytes: config.coldBlankProbeMaxBytes ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES,
-    })
+    }, config.secretContainerExtraPatterns ?? [])
     this.openPath = internals.openPath ?? openNativePath
     this.canOpenPath = internals.canOpenPath
       ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))

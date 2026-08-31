@@ -74,6 +74,13 @@ export interface ComposerAttachmentsOwnerProps {
   onRemoveImage: (id: DraftAttachmentId) => void
   /** Display-ready limits for the drop invitation. Image limits only: a file's overlay copy states no numeric bound. */
   dropLimits?: { readonly count: number; readonly size: string } | undefined
+  /**
+   * Draft attachment ids whose name/path matches the pre-send
+   * secret-container heuristic (the immediate chip warning state; the
+   * send-time confirmation gate lives with the composer bar's own submit
+   * entry, not here). Absent/omitted ids default to no warning.
+   */
+  secretContainerHitIds?: ReadonlySet<DraftAttachmentId> | undefined
 }
 
 /**
