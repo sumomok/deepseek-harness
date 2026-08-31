@@ -85,3 +85,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：`pnpm run build` 干净通过；两份组装快照准确反映 composer-intake 与 referent/open 提交实际交付的文案与行为。
 - **退役条件**：上游自己的构建纯净度检查覆盖到这条 specifier，或本系列覆盖层整体退役。
 - **状态**：**SKIPPED — 需要设计（rc.26 同步，基座 0.1.2-alpha.2）**。本补丁修的是 98020a23cd（composer 草稿，已 SKIPPED）与 fabc93555c（文件卡片/referent，已 SKIPPED）自身引入的缺陷；cherry-pick 起初无冲突干净应用（因为它只碰未与其他补丁冲突的新文件/package.json），但落地后 `ui-attachment/package.json` 声明的 external specifier 与新增的 `file-display.snapshot.ts` 全部指向当前基座上并不存在的 `attachmentSizeText`/`partitionDroppedFiles`/`FileCard`/`session.file`——发现后已用 `git reset --hard HEAD~1` 撤回该次干净但内容失效的提交，未重落，交由协调者与 98020a23cd/fabc93555c 一并设计端口。
+
+## feat(ui-conversation,ui-primitives): a proseReferents seam for chat prose — ae19472402 (+ 0c9b669a3c, 6e7045d8cf, 1d8e975c1a, f495eefd50, 83eb0e3ddb)
+- **改了什么**：`MarkdownRenderContext`（ui-primitives `render.tsx`）新增可选服务缝隙 `referents`（`scan(text, inlineCode)`/`open(span)`，后续四个补丁又加上 `resolveLink`/`subscribe`），命中即渲染成与既有 `chatFileMentions` 同款的 `fileMention` 按钮 token；`ui-conversation` 的 `contract/slots.ts` 新增完整 `ProseReferentSpan`（含 `kind`/`target`/`raw`）与 `ProseReferents` 可选服务；`apply.ts` 的 `buildProseReferents` 绑定 cwd/Host home，经 `dispatchReferentOpen` 派发自己的 `ReferentRef`（`source: 'chat-prose'`）。后续四个补丁在此基础上补 `resolveLink`（本地路径 markdown 链接目的地经该缝隙解析）、`subscribe`（referents 校验 tick 触发重渲染）、以及两批覆盖率/CommonMark 真实解析测试。
+- **为什么**：Assistant 输出的纯文本与未被 `chatFileMentions` 认领的行内代码里提到的文件/目录引用，此前完全不可点击、不可拦截。
+- **要达到的效果**：模型散文里的路径提及获得与既有文件提及同等的可点击、可拦截呈现，本地路径 markdown 链接目的地经同一缝隙解析。
+- **退役条件**：上游自己的会话 UI 原生扫描并渲染散文中的路径/文件引用。
+- **状态**：**SKIPPED — 需要设计（rc.26 同步，基座 0.1.2-alpha.2）**。整条系列在 `apply.ts` 里直接 `import { dispatchReferentOpen, type ReferentRef, ... } from '@deepseek-ai/dsh-client-runtime/client'`，而 `dispatchReferentOpen`/`ReferentRef`/`referent.ts` 正是已 SKIPPED 的 fabc93555c 引入的——本系列的整个机制建立在那个不存在的缝隙之上，`ae19472402` 本身文本层可自动合并（`apply.ts`/`contract/slots.ts` 无冲突标记），但编译期会立刻因引用不存在的导出而失败，不是机械可搬的位置问题。下游 `0c9b669a3c`/`6e7045d8cf`/`1d8e975c1a`/`f495eefd50`/`83eb0e3ddb` 全部构建在 `ae19472402` 新增的 `referents.resolveLink` 之上，该字段本身未曾落地，因而同样整体 SKIPPED（逐一尝试 cherry-pick 均遇冲突，已逐个 `git cherry-pick --skip`，均未重落）。交由协调者与 fabc93555c 一并设计端口。
