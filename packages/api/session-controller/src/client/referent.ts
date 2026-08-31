@@ -8,7 +8,7 @@
  *
  * @module @deepseek-ai/dsh-api-session-controller/client/referent
  */
-import type { Context } from '@deepseek-ai/cordis'
+import { Service, type Context } from '@deepseek-ai/cordis'
 import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
@@ -117,5 +117,53 @@ export async function dispatchReferentOpen(
     // by running the default for the first time.
     console.error('referent/open: a listener threw or rejected before delegating; falling back to the default open action', error)
     await guardedDefault()
+  }
+}
+
+/**
+ * `ctx.referent`'s injected-service face: a client feature package under
+ * `packages/client/*` may import only types across a plugin boundary, never
+ * call another plugin's runtime export directly (`dsh-client-bundle-purity`,
+ * `packages/client/tsdown.client.ts`), so {@link dispatchReferentOpen} — a
+ * genuine cross-plugin runtime call, not an erased type — reaches those
+ * packages through this service instead of a bare function import.
+ * `dispatchReferentOpen`'s own free-function export is unchanged and still
+ * the only entry point available to a consumer outside `packages/client/*`
+ * (e.g. an out-of-repo plugin without a `dsh.client` manifest of its own).
+ */
+export interface IReferent {
+  /**
+   * Dispatch `referent/open` for one user-gesture click; see
+   * {@link dispatchReferentOpen} for the full contract. A thin wrapper: the
+   * behavior is identical, only the call surface differs.
+   * @param ref - the reference being opened.
+   * @param onDefault - the pre-existing open action this seam wraps.
+   */
+  open(ref: ReferentRef, onDefault: () => Promise<void> | void): Promise<void>
+}
+
+/**
+ * `ctx.referent`'s implementation. Cordis rebinds `this.ctx` to whichever
+ * context a caller reaches the service through (the same mechanism
+ * `ctx.conversation`/`ctx.workspaces` rely on), so `open()` dispatches on
+ * the caller's own context — never the context this service happened to be
+ * constructed with — matching {@link dispatchReferentOpen}'s own contract
+ * exactly for a caller that used to invoke it directly.
+ */
+export class ClientReferent extends Service implements IReferent {
+  /** @param ctx - registering context; see the class doc for why call-time `this.ctx` differs. */
+  constructor(ctx: Context) {
+    super(ctx, 'referent')
+  }
+
+  async open(ref: ReferentRef, onDefault: () => Promise<void> | void): Promise<void> {
+    await dispatchReferentOpen(this.ctx, ref, onDefault)
+  }
+}
+
+declare module '@deepseek-ai/cordis' {
+  interface Context {
+    /** Client-side `referent/open` dispatch; see {@link IReferent}. */
+    referent: IReferent
   }
 }

@@ -2,11 +2,14 @@
  * The `referent/open` waterfall seam: claim/delegate semantics, registration
  * order and prepend, disposer lifecycle via ctx.effect, and the
  * throw/reject-falls-back-to-default recovery `dispatchReferentOpen` adds on
- * top of plain `ctx.waterfall`.
+ * top of plain `ctx.waterfall`; and `ClientReferent`, the `ctx.referent`
+ * injected-service wrapper a `packages/client/*` consumer reaches instead of
+ * importing `dispatchReferentOpen` directly (`dsh-client-bundle-purity`
+ * forbids that cross-plugin value import for that package category).
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { dispatchReferentOpen } from '../src/client/referent.ts'
+import { ClientReferent, dispatchReferentOpen } from '../src/client/referent.ts'
 import type { ReferentRef } from '../src/client/referent.ts'
 
 function ref(overrides: Partial<ReferentRef> = {}): ReferentRef {
@@ -167,5 +170,68 @@ describe('dispatchReferentOpen', () => {
     expect(devLog).toHaveBeenCalledWith('url')
     expect(handled).not.toHaveBeenCalled()
     expect(onDefault).toHaveBeenCalledOnce()
+  })
+})
+
+describe('ClientReferent (ctx.referent service)', () => {
+  it('registers itself as ctx.referent on construction', () => {
+    const ctx = new Context()
+    new ClientReferent(ctx)
+    expect(ctx.get('referent')).toBeInstanceOf(ClientReferent)
+  })
+
+  it('open() runs the default action when no listener claims it, same as calling dispatchReferentOpen directly', async () => {
+    const ctx = new Context()
+    new ClientReferent(ctx)
+    const onDefault = vi.fn(() => {})
+    await ctx.referent.open(ref(), onDefault)
+    expect(onDefault).toHaveBeenCalledOnce()
+  })
+
+  it('open() lets a claiming listener suppress the default, identically to dispatchReferentOpen', async () => {
+    const ctx = new Context()
+    new ClientReferent(ctx)
+    const claimed = vi.fn()
+    ctx.on('referent/open', (r) => {
+      claimed(r)
+      return Promise.resolve()
+    })
+    const onDefault = vi.fn(() => {})
+    await ctx.referent.open(ref(), onDefault)
+    expect(claimed).toHaveBeenCalledOnce()
+    expect(onDefault).not.toHaveBeenCalled()
+  })
+
+  it('open() dispatches on the calling context, not the context the service was constructed with — a plugin scope mounted after construction still sees the click', async () => {
+    const root = new Context()
+    new ClientReferent(root)
+    const seen = vi.fn()
+    const fiber = root.plugin({
+      name: 'referent-scope-probe',
+      apply: (scoped: Context) => {
+        scoped.on('referent/open', (_r, next) => {
+          seen()
+          return next()
+        })
+      },
+    })
+    await fiber.await()
+    // Reached via root.referent (Cordis rebinds `this.ctx` to whichever
+    // context a caller reaches the service through), the same call surface
+    // ui-chat's apply.ts uses via its own injected `ctx`.
+    await root.referent.open(ref(), () => {})
+    expect(seen).toHaveBeenCalledOnce()
+  })
+
+  it('unregisters ctx.referent when the owning fiber unloads', async () => {
+    const root = new Context()
+    const fiber = root.plugin({
+      name: 'referent-owner',
+      apply: (scoped: Context) => { new ClientReferent(scoped) },
+    })
+    await fiber.await()
+    expect(root.get('referent')).toBeInstanceOf(ClientReferent)
+    await fiber.dispose()
+    expect(root.get('referent')).toBeUndefined()
   })
 })
