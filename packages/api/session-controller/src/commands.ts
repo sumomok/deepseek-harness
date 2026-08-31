@@ -4,12 +4,12 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent, ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
-import { AttachmentError, admitPromptContent } from '@deepseek-ai/dsh-attachment'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError, admitEncodedFiles, admitEncodedImages } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import {
   ReasoningEffortId, createUserMessage, freezeMessage,
 } from '@deepseek-ai/dsh-llm'
-import type { MessageSource } from '@deepseek-ai/dsh-llm'
+import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
@@ -311,6 +311,7 @@ export class SessionCommandController {
       ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
     }
     const hasImage = request.content.some(part => part.type === 'image')
+    const hasFile = request.content.some(part => part.type === 'file')
     const admit = async (): Promise<SessionPromptValue> => {
       try {
         if (hasImage) {
@@ -324,7 +325,7 @@ export class SessionCommandController {
             )
           }
         }
-        const content = await admitPromptContent(this.ctx.attachments, request.content)
+        const content = await durablePromptContent(this.ctx, request.content)
         const message: UserMessage = createUserMessage({ content, source })
         if (request.mode === 'steer') agent.steer(message)
         else agent.followup(message)
@@ -337,7 +338,9 @@ export class SessionCommandController {
       }
       return { accepted: true }
     }
-    return hasImage ? this.agents.serializeImageAdmission(agent, admit) : admit()
+    // File admission shares the same durable-write/agent-inbox ordering
+    // concern as image admission, so it joins the same serialization chain.
+    return hasImage || hasFile ? this.agents.serializeImageAdmission(agent, admit) : admit()
   }
 
   /**
@@ -495,6 +498,26 @@ export class SessionCommandController {
     }
     return undefined
   }
+}
+
+async function durablePromptContent(
+  ctx: Context,
+  content: readonly SessionPromptRequest['content'][number][],
+): Promise<ContentBlock[]> {
+  if (content.every(part => part.type === 'text')) {
+    return content.map(part => ({ type: 'text', text: part.text }))
+  }
+  const imageRefs = await admitEncodedImages(ctx.attachments, content.filter(part => part.type === 'image'))
+  const fileRefs = await admitEncodedFiles(ctx.attachments, content.filter(part => part.type === 'file'))
+  let nextImage = 0
+  let nextFile = 0
+  return content.map((part): ContentBlock => {
+    if (part.type === 'text') return { type: 'text', text: part.text }
+    // admitEncodedImages/admitEncodedFiles each return one reference per
+    // matching part in order.
+    if (part.type === 'image') return { type: 'image', attachment: imageRefs[nextImage++] as ImageAttachmentRef }
+    return { type: 'file', attachment: fileRefs[nextFile++] as FileAttachmentRef }
+  })
 }
 
 function imageBlockIn(
