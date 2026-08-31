@@ -24,6 +24,7 @@ const CLIENT_SERVICES: Readonly<Record<string, readonly string[]>> = {
 
 const CLIENT_EVENTS = new Set([
   'connection/reset',
+  'connection/state',
   'locale/change',
   'slots/changed',
   'theme/change',
