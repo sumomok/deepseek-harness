@@ -364,6 +364,37 @@ export interface SessionOpenWorkspacePathValue {
   readonly opened: true
 }
 
+/** Maximum paths accepted by one `probeTargets` call; a larger batch is refused before probing starts. */
+export const PROBE_TARGETS_MAX_PATHS = 64
+
+/**
+ * One `probeTargets` result, in the same order as its request's `paths`.
+ * `exists` is false for both ENOENT and every other stat failure alike (a
+ * permission denial, a non-directory path segment, a short-circuited UNC
+ * target, …) — the probe answers "clickable or not," not "why not."
+ */
+export interface ProbeResult {
+  /** Echoes the probed path exactly as requested. */
+  readonly path: string
+  readonly exists: boolean
+  /** Present only when `exists` is true. */
+  readonly kind?: 'file' | 'dir'
+}
+
+/**
+ * Batch existence/kind probe request for the three-layer clickable-reference
+ * verification stage: a read-only `stat` per path, never a directory listing
+ * or a content read, capped at {@link PROBE_TARGETS_MAX_PATHS} paths.
+ */
+export interface SessionProbeTargetsRequest {
+  readonly paths: readonly string[]
+}
+
+/** `probeTargets` response value. */
+export interface SessionProbeTargetsValue {
+  readonly results: readonly ProbeResult[]
+}
+
 /** Client-minted prompt identity used to reconcile optimistic and durable messages. */
 export type SessionRequestId = Branded<'session-request-id'>
 

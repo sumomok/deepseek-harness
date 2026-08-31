@@ -1489,6 +1489,13 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         throws: ['RemoteError when the request is invalid, cancelled, or the opener fails.'],
       },
       {
+        signature: '@Remote(\'probeTargets\') async probeTargets(request: SessionProbeTargetsRequest): Promise<SessionProbeTargetsValue>',
+        description: 'Batch existence/kind probe for the three-layer clickable-reference verification stage: a read-only `stat` per path, never a directory listing or a content read. Always available — unlike a directory picker\'s browse capability, this makes no filesystem choice a deployment might want to withhold beyond what `openWorkspacePath`\'s own pre-check already performs per path. Capped at PROBE_TARGETS_MAX_PATHS paths per call (a larger or empty batch fails `gateway/bad-request` before probing starts) and run with bounded internal concurrency, so a caller with more candidates issues several calls rather than one unbounded one.',
+        parameters: [{ name: 'request', description: 'paths to probe, in the order results are returned.' }],
+        returns: 'one result per requested path, in the same order.',
+        throws: ['RemoteError when the batch is empty or exceeds the size cap.'],
+      },
+      {
         signature: '@Remote(\'rename\') rename(request: SessionRenameRequest): Promise<SessionRenameValue>',
         description: 'Rename one Session after explicitly resuming it.',
         parameters: [{ name: 'request', description: 'Session identity and proposed title.' }],
@@ -4698,6 +4705,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PreToolDecision = {\n    kind: \'allow\';\n} | {\n    kind: \'deny\';\n    reason: string;\n} | {\n    kind: \'ask\';\n    reason?: string;\n};',
   },
   {
+    name: 'ProbeResult',
+    declaration: 'export interface ProbeResult {\n    readonly path: string;\n    readonly exists: boolean;\n    readonly kind?: \'file\' | \'dir\';\n}',
+  },
+  {
     name: 'ProjectionChangeListener',
     declaration: 'export type ProjectionChangeListener = (session: Session, key: Extract<keyof SessionProjectionMap, string>, value: unknown, seq: SessionSeq) => void;',
   },
@@ -5188,6 +5199,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionPersistenceStatOptions',
     declaration: 'export interface SessionPersistenceStatOptions {\n    readonly signal?: AbortSignal;\n}',
+  },
+  {
+    name: 'SessionProbeTargetsRequest',
+    declaration: 'export interface SessionProbeTargetsRequest {\n    readonly paths: readonly string[];\n}',
+  },
+  {
+    name: 'SessionProbeTargetsValue',
+    declaration: 'export interface SessionProbeTargetsValue {\n    readonly results: readonly ProbeResult[];\n}',
   },
   {
     name: 'SessionProjectionBaseline',
