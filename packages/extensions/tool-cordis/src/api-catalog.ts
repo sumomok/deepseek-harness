@@ -1414,10 +1414,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'openWorkspacePath\') async openWorkspacePath( request: SessionOpenWorkspacePathRequest, signal: AbortSignal, ): Promise<SessionOpenWorkspacePathValue>',
-        description: 'Open one path prepared by a Session-aware caller on the Host desktop.',
+        description: 'Open one path prepared by a Session-aware caller on the Host desktop. A does-not-exist path is checked explicitly before the opener runs: the opener is a shelled-out platform command (`open`, `xdg-open`, PowerShell\'s `Invoke-Item`), never a Node fs call, so it never raises a `NodeJS.ErrnoException` this process could read a reliable code from — its "no such file" text is platform-specific and unparsed. The pre-check leaves every other failure (permission, no registered application, the platform command itself missing) exactly as it was: folded into `gateway/internal` below.',
         parameters: [{ name: 'request', description: 'path after best-effort Session workspace resolution.' }, { name: 'signal', description: 'caller lifetime; abort terminates the native command.' }],
         returns: 'confirmation after the native opener accepts the path.',
-        throws: ['RemoteError when the request is invalid, cancelled, or the opener fails.'],
+        throws: ['RemoteError when the request is invalid, the path does not exist, cancelled, or the opener fails.'],
       },
       {
         signature: '@Remote(\'rename\') rename(request: SessionRenameRequest): Promise<SessionRenameValue>',
@@ -1442,6 +1442,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read one image proven reachable from the addressed Session log.',
         parameters: [{ name: 'request', description: 'Session and attachment identities used for authorization.' }],
         returns: 'the durable attachment reference and base64-encoded bytes.',
+      },
+      {
+        signature: '@Remote(\'file\') file(request: SessionFileRequest): Promise<SessionFileValue>',
+        description: 'Read one text file proven reachable from the addressed Session log.',
+        parameters: [{ name: 'request', description: 'Session and attachment identities used for authorization.' }],
+        returns: 'the durable file reference and its plain-text content.',
       },
       {
         signature: '@Remote(\'updateQueue\') updateQueue(request: SessionUpdateQueueRequest): SessionUpdateQueueValue',
@@ -4963,6 +4969,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'SessionEventWindow',
     declaration: 'export interface SessionEventWindow {\n    session: SessionHeader;\n    inheritedEventCount: SessionLogOffset;\n    target: SessionEvent;\n    events: SessionEvent[];\n    startSeq: SessionSeq;\n    endSeq: SessionSeq;\n}',
+  },
+  {
+    name: 'SessionFileRequest',
+    declaration: 'export interface SessionFileRequest {\n    readonly sessionId: SessionId;\n    readonly attachmentId: AttachmentIdType;\n}',
+  },
+  {
+    name: 'SessionFileValue',
+    declaration: 'export interface SessionFileValue {\n    readonly attachment: FileAttachmentRef;\n    readonly text: string;\n}',
   },
   {
     name: 'SessionFollowFrame',
