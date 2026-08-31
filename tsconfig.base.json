@@ -271,6 +271,8 @@
       "@deepseek-ai/dsh-attachment/invariant": ["./packages/attachment/attachment/src/invariant.ts"],
       "@deepseek-ai/dsh-attachment-local": ["./packages/attachment/attachment-local/src"],
       "@deepseek-ai/dsh-attachment-local/invariant": ["./packages/attachment/attachment-local/src/invariant.ts"],
+      "@deepseek-ai/dsh-attachment-spill": ["./packages/attachment/attachment-spill/src"],
+      "@deepseek-ai/dsh-attachment-spill/invariant": ["./packages/attachment/attachment-spill/src/invariant.ts"],
       "@deepseek-ai/dsh-authorization": ["./packages/credentials/authorization/src"],
       "@deepseek-ai/dsh-authorization/invariant": ["./packages/credentials/authorization/src/invariant.ts"],
       "@deepseek-ai/dsh-base": ["./packages/bundle/base/src"],
