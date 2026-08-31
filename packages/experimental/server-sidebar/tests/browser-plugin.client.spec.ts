@@ -86,7 +86,13 @@ function declareSlots(ctx: Context): void {
     () => null,
   )
   ctx.slots.register(
-    { name: 'conversation', children: { 'conversation.session.header.actions': { kind: 'list', scope: 'session' } } } as never,
+    {
+      name: 'conversation',
+      children: {
+        'conversation.session.header.actions': { kind: 'list', scope: 'session' },
+        'conversation.hero.brand.mark': { kind: 'single', scope: 'root' },
+      },
+    } as never,
     () => null,
   )
 }
@@ -168,6 +174,20 @@ describe('server-sidebar browser half: sidebar registration', () => {
     const [entry] = ctx.slots.entries('sidebar')
     expect(entry?.component).toBe(ServerSidebarRoot)
     expect(entry?.locale).toBe('serverSidebar')
+  })
+
+  it('takes over conversation.hero.brand.mark at priority -1, shadowing a default-priority competitor', async () => {
+    const { ctx } = await bench()
+    const [ours] = ctx.slots.entries('conversation.hero.brand.mark')
+    expect(ours?.options.priority).toBe(-1)
+    expect((ours?.component as (() => null) | undefined)?.()).toBeNull()
+    // ui-brand-official (an official build only) registers at the default
+    // priority 0 — confirm it still shadows behind this row rather than
+    // racing on registration order.
+    const disposeCompetitor = ctx.slots.register({ name: 'conversation.hero.brand.mark' }, () => null)
+    const [winner] = ctx.slots.entriesOfSlot('conversation.hero.brand.mark')
+    expect(winner?.options.priority).toBe(-1)
+    disposeCompetitor()
   })
 
   it('wires the fetched pages onto the injected face', async () => {
@@ -343,6 +363,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(ctx.slots.entries('sidebar')).toHaveLength(0)
     expect(ctx.slots.spec('sidebar.brand.mark')).toBeUndefined()
     expect(ctx.slots.spec('sidebar.footer.action')).toBeUndefined()
+    expect(ctx.slots.entries('conversation.hero.brand.mark')).toHaveLength(0)
   })
 })
 

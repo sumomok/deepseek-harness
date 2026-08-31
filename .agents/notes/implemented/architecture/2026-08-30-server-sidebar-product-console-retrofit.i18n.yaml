@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-08-30-server-sidebar-product-console-retrofit.md
-2026-08-30-server-sidebar-product-console-retrofit.md: ff56e780b801f952b8eacfc237b9e89cacaf72c1
-2026-08-30-server-sidebar-product-console-retrofit.zh.md: a04221bea961603173c2d69a15e69beb6a78126e
+2026-08-30-server-sidebar-product-console-retrofit.md: 77d2ae874b1d3d764dedef015b8377ee1b7f4292
+2026-08-30-server-sidebar-product-console-retrofit.zh.md: d2cf3f72d9d0316a4cbeee1775ec98087f487eaa

@@ -22,7 +22,6 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react'
 import clsx from 'clsx'
-import { FishLogo } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: pulls `dsh-client-ui-sidebar`'s `sidebar.*` SlotMap declarations
 // for the four child slots this shell still honors (brand mark/name,
 // settings, footer actions) — reused here rather than redeclared so
@@ -218,18 +217,11 @@ export function ServerSidebarRoot({
     >
       <div className={css.brandRow}>
         <span className={css.brandMark} aria-hidden="true">
-          {renderSlot('sidebar.brand.mark', { size: 24 }, { fallback: <FishLogo size={24} /> })}
+          {renderSlot('sidebar.brand.mark', { size: 24 })}
         </span>
         <span className={css.brandName}>
           {renderSlot('sidebar.brand.name', {}, {
-            fallback: (
-              <>
-                <span className={css.fallbackBrandName}>DSH Local Build</span>
-                {process.env.DSH_CLIENT_COMMIT_HASH
-                  ? <span className={css.buildRevision}>{process.env.DSH_CLIENT_COMMIT_HASH}</span>
-                  : null}
-              </>
-            ),
+            fallback: <span className={css.fallbackBrandName}>{t('brand.name.fallback')}</span>,
           })}
         </span>
       </div>
@@ -260,12 +252,14 @@ export function ServerSidebarRoot({
       </div>
 
       <div className={css.footArea}>
-        <div className={css.avatarRow}>
-          <span className={css.avatarCircle} aria-hidden="true" />
-          <span className={css.avatarName}>{t('avatar.namePlaceholder')}</span>
-        </div>
         <div className={css.footerActions}>{renderSlot('sidebar.footer.action', { wide: true })}</div>
-        <div className={css.settingsArea}>{renderSlot('sidebar.settings', { wide: true })}</div>
+        <div className={css.identityRow} data-server-sidebar-section="identity">
+          <div className={css.avatarRow}>
+            <span className={css.avatarCircle} aria-hidden="true" />
+            <span className={css.avatarName}>{t('avatar.namePlaceholder')}</span>
+          </div>
+          <div className={css.settingsArea}>{renderSlot('sidebar.settings', { wide: true })}</div>
+        </div>
       </div>
     </div>
   )

@@ -19,6 +19,17 @@ describe('installTerminologyGuard', () => {
     expect(style?.textContent).toContain('[data-composer-card] + *')
   })
 
+  it('also hides the hero fish mark, preview badge, and workspace row, and swaps in the brand headline', () => {
+    installTerminologyGuard()
+    const css = document.getElementById('dsh-server-sidebar-terminology-guard')?.textContent ?? ''
+    expect(css).toContain('[data-phase=\'hero\'] [class*="fishHitbox"]')
+    expect(css).toContain('[data-phase=\'hero\'] [class*="previewBadge"]')
+    expect(css).toContain('[data-phase=\'hero\'] [class*="headlineText"] { font-size: 0 !important; }')
+    expect(css).toContain('[data-phase=\'hero\'] [class*="headlineText"]::after')
+    expect(css).toContain('工作台小助手')
+    expect(css).toContain('[class*="heroWorkspaceRow"]')
+  })
+
   it('replaces rather than duplicates an existing stylesheet', () => {
     installTerminologyGuard()
     installTerminologyGuard()

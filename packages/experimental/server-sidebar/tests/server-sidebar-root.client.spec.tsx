@@ -99,16 +99,17 @@ function mount(overrides: Partial<Bench> = {}) {
 }
 
 describe('ServerSidebarRoot', () => {
-  it('shows the generic brand fallback, plus the build revision when the commit hash is set', () => {
+  it('shows the workbench-assistant brand fallback, with no commit hash regardless of the environment', () => {
     vi.stubEnv('DSH_CLIENT_COMMIT_HASH', '0123456')
     mount()
-    expect(screen.getByText('DSH Local Build')).toBeTruthy()
-    expect(screen.getByText('0123456')).toBeTruthy()
+    expect(screen.getByText(en['brand.name.fallback'])).toBeTruthy()
+    expect(screen.queryByText('0123456')).toBeNull()
+    expect(screen.queryByText('DSH Local Build')).toBeNull()
   })
 
-  it('omits the build revision when no commit hash is set', () => {
+  it('renders no brand-mark fallback (the slot takeover leaves it empty)', () => {
     mount()
-    expect(screen.queryByText(/^[0-9a-f]{7}$/)).toBeNull()
+    expect(screen.getByTestId('sidebar.brand.mark').firstChild).toBeNull()
   })
 
   describe('workbench click: blank-draft semantics', () => {
@@ -250,5 +251,16 @@ describe('ServerSidebarRoot', () => {
     expect(screen.getByText(en['avatar.namePlaceholder'])).toBeTruthy()
     expect(screen.getByTestId('sidebar.footer.action')).toBeTruthy()
     expect(screen.getByTestId('sidebar.settings')).toBeTruthy()
+  })
+
+  it('merges the avatar identity and the settings seat into one row, name first', () => {
+    mount()
+    const identityRow = document.querySelector('[data-server-sidebar-section="identity"]')
+    const children = identityRow === null ? [] : [...identityRow.children]
+    expect(children).toHaveLength(2)
+    // Left-to-right DOM order backs the row's `space-between` layout: name on
+    // the left, the settings seat on the right.
+    expect(children[0]?.contains(screen.getByText(en['avatar.namePlaceholder']))).toBe(true)
+    expect(children[1]?.contains(screen.getByTestId('sidebar.settings'))).toBe(true)
   })
 })

@@ -28,6 +28,17 @@
  * sidebar's reactive list without a page reload. The sidebar registration
  * always mounts before a conversation can be open, so this reference is set
  * by the time a user could reach the header action.
+ *
+ * A third, independent registration takes over
+ * `dsh-client-ui-conversation`'s `conversation.hero.brand.mark` seat with
+ * nothing at all (decision ②'s brand takeover, matching the sidebar's own
+ * fallback-less `sidebar.brand.mark` — see `ServerSidebarRoot.tsx`'s module
+ * doc): registered at priority -1 so it wins the slot's shadowing rank
+ * (ascending, lowest renders) even under an official build, where
+ * `@deepseek-ai/dsh-client-ui-brand-official` fills the same seat at the
+ * default priority 0 — customer overlays also disable that package outright
+ * (see the package README), so this is belt-and-suspenders for a deployment
+ * that forgets to.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -92,14 +103,22 @@ async function persistServerMenu(
 }
 
 /**
- * Client plugin body: dictionaries, then the read-before-register fetches
- * (this package's own settings-read pattern, matching
- * `dsh-experimental-content-frame`'s), then the two registrations.
+ * Client plugin body: dictionaries, the terminology guard, and the hero
+ * brand-mark takeover, then the read-before-register fetches (this package's
+ * own settings-read pattern, matching `dsh-experimental-content-frame`'s),
+ * then the two slot registrations.
  * @param ctx - client root context.
  */
 export async function apply(ctx: ClientContext): Promise<void> {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'server-sidebar: dictionaries')
   ctx.effect(() => installTerminologyGuard(), 'server-sidebar: terminology guard')
+  ctx.effect(
+    () => ctx.slots.inject('conversation.hero.brand.mark', () => ctx.slots.register(
+      { name: 'conversation.hero.brand.mark', priority: -1 },
+      () => null,
+    )),
+    'server-sidebar: hero brand-mark takeover',
+  )
 
   const [{ pages, homePage }, initialMenu] = await Promise.all([readContentPages(), readServerMenu()])
   const workflowStore = createWorkflowStore(initialMenu)

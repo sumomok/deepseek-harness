@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-**替换外壳的契约，而不只是替换内容。** `sidebar.workspaces`——`ServerSidebarRoot` 从 `dsh-client-ui-sidebar` 复用来给 ui-workspace 浏览区用的那个子槽——被彻底移除；已经没有会话浏览区可供它落座，客户组合现在会把 `ui-workspace` 和 `ui-sidebar` 一并禁用，而不是原样组合它（原样组合会在启动时直接抛错——为什么这是对 [replaces-ui-sidebar 笔记](2026-08-29-server-sidebar-replaces-ui-sidebar.zh.md) 的一次部分反转、而非一次全新设计，见该笔记的后续更新）。新会话按钮与 56px 折叠窄栏以同样方式移除：本外壳从不调用折叠动作，始终渲染完整内容，接受与 `server-layout` 冻结的等比例轨道之间遗留的几何耦合，把它记为一条已知限制，而不是去改动那个包自己冻结的比例。
+**替换外壳的契约，而不只是替换内容。** `sidebar.workspaces`——`ServerSidebarRoot` 从 `dsh-client-ui-sidebar` 复用来给 ui-workspace 浏览区用的那个子槽——被彻底移除；已经没有会话浏览区可供它落座，客户组合现在会把 `ui-workspace` 和 `ui-sidebar` 一并禁用，而不是原样组合它（为什么这是对 [replaces-ui-sidebar 笔记](2026-08-29-server-sidebar-replaces-ui-sidebar.zh.md) 的一次部分反转、而非一次全新设计，见该笔记的后续更新）。原样组合 `ui-workspace` 并不会在启动时抛错——它的 `sidebar.workspaces` 注册走的是 `ctx.slots.inject`，这是声明门控的，没有声明的槽永远不会触发——但它另一个注册的目标是 `conversation.hero.workspace`，一个 `dsh-client-ui-conversation` 始终会声明的槽，组合它会在那里复活英雄区的工作区选择菜单；真正让它保持在外的是整行禁用。新会话按钮与 56px 折叠窄栏以同样方式移除：本外壳从不调用折叠动作，始终渲染完整内容，接受与 `server-layout` 冻结的等比例轨道之间遗留的几何耦合，把它记为一条已知限制，而不是去改动那个包自己冻结的比例。
 
 **收藏 schema 升级为工作流 schema**，从 `{sessionId, label, order}` 升级为 `{id, name, order, homeSessionId, navSnapshot, savedAt}`。`sessionId` 那条「弱引用、在渲染或动作发生时才解析」的前提（[`2026-08-29-favorites-weak-session-reference.md`](2026-08-29-favorites-weak-session-reference.zh.md)）延续到 `homeSessionId` 与新增的 `workbenchSessionId` 字段——那套推理里没有任何一点是「收藏」这个概念特有的。没有延续下来的，是失效如何被呈现出来：收藏菜单把一个失效引用渲染成一行可见的、禁用的记录，留给用户自己注意并手工清理；决策⑧则要求打开一条失效的工作流或工作台时，同一次点击就把用户带进一个可用的对话，去降级并重新指向，而不是展示一个死状态（具体见姊妹笔记自己更新后的说法）。
 
@@ -35,6 +35,10 @@ Status: implemented
 
 **后续一次产品修正为同一套机制加了四项改进，起因是实际使用暴露出原始八项决策没有覆盖到的缺口。** 工作台点击与侧边栏自己加载态的自动落位现在分叉了：点击始终落到一个空白对话上（`openWorkbenchOnClick`，额外加上 `SessionSummary.blank` 的判断），而加载态的自动落位保留连续性语义（`openWorkbenchOnLoad`，只判断存活）——两者共用 `workflow-actions.ts` 里同一套 `openOrCreateWorkbench` 机制。工作台与工作流列表各自在其绑定会话是 `useSessions` 的 `current` 时画出 `data-active` 状态；工作流的绑定始终优先于工作台，因此一个同时被两者指名的会话，绝不会同时点亮两行。重新排序从上移/下移按钮改为原生 HTML5 拖拽，取代了下文记录的那次临时降级：`reordered()` 把每一条工作流的 `order` 字段重写为拖放后的显示位置（0..n-1）。而加载态的自动落位不再把它的一次性尝试机会，浪费在一个尚未就绪的工作区基线上：这次尝试此前会在 `phase === 'ready' && current === undefined` 第一次成立时无条件触发，这一刻可能恰好落在 `recentWorkspaceId` 解析完成之前的短暂窗口内——`resolveOrCreateSession` 此时没有工作区可供创建，只能报警并回答 `undefined`，而一次性守卫已经被消费掉，此后工作台就需要手动点击才能打开。这道守卫现在会一直保留、直到出现一个存活的已记录会话（完全不需要工作区），或者一个已解析的 `recentWorkspaceId`，才会去消费它。
 
+**第三次产品修正加了一个可配置首页、在 content 栏没内容时把它收起、并隐藏了一条导航命令自己的聊天回显。** `dsh-experimental-content-frame` 的可选 `homePage` 配置只在一次干净的工作台点击上自动展示（见 README 的「工作台」/「导航」）；`dsh-experimental-server-layout` 的 `ShellFrame` 则单独在当前会话的 contentSurface 投影为空时把 content 栏收到零宽（给 `solveTracks` 加了第四个输入 `contentEmpty`，与 `detailsOpen` 对称）——本包里一次没配首页的空白工作台点击,正是让这个空内容场景可达的原因；content-frame 还隐藏了 `show-content-page` 自己多余的「Now showing …」聊天行（一个空的 `conversation.chat.commandview` 注册加一条收起用的 CSS 规则），同时它持久化的命令生命周期依然完整落在日志上。这三处都是各自独立提交的，此前都没有 Agent Note。
+
+**本轮以同样的去术语化方式，移除了侧边栏剩下的 DeepSeek 品牌与内部状态界面。** 侧边栏品牌槽的 fallback 去掉了鱼图标和「DSH Local Build」+ commit hash 文案，换成一段由 locale 驱动的「工作台小助手」/「Workbench Assistant」纯文本；`ui-brand-official` 在两份 overlay 里都被彻底禁用，并由本包自己在 `conversation.hero.brand.mark` 上以优先级 -1 的抢占兜底（最低优先级者渲染，即使某次部署忘了禁用行，也依然压得过那个包默认的优先级 0）。英雄区的鱼图标外框、「PREVIEW」徽标与标题文字都没有自己的禁用席位，因此 `terminology-guard.ts` 的 CSS 注入现在也隐藏前两者，并用一个 `::after` 伪元素把标题换成本包自己的品牌文案（原始文本节点在 DOM 与无障碍树里原样未变——记为一条已知限制，而非一次经屏幕阅读器验证过的替换）。英雄区里已经死掉的工作区选择行（`ui-workspace` 被禁用后 `WorkspaceChip` 变成的死控件）也用同样方式隐藏；这一行的另一个席位——agent-preset 选择器——则改为直接彻底禁用 `ui-agent-preset`，因为那个包的会话头部标签与 Settings 行都在这条 CSS 规则触达不到的地方。侧边栏底部的头像行与设置触发器，此前是两个各占一整行的堆叠行，现在合并成一行、`space-between`：设置触发器自己的 `width: calc(100% + 4px)` 是对着自己那个收缩自适应的外层容器解析的，而不是对着这一整行，因此它按图标+文案的内容宽度渲染，而不会撑满整行。
+
 ## Alternatives considered
 
 **用 `SessionSummary.blank` 而非 `chat.legacy.nodes` 扫描来判断决策③的开关。** 放弃，改用更精确的判断：`blank` 回答的是「这个会话有没有记录过任何东西」，比「用户有没有打过字」更粗——一个只携带 agent 自己注入的指令、从未有用户消息的会话，仍然会读作「非空白」。按节点 kind 扫描的做法与 `StatsLine.tsx` 自己既有的、针对同一个会话快照窗口的读取方式一致，代价是 README「已知限制」里记录的那条分页窗口近似。
@@ -47,8 +51,8 @@ Status: implemented
 
 ## Consequences
 
-想要这次改造的部署,组合的是 `overlay/customer.patch.yml`（在此前 `ui-layout`/`ui-sidebar` 替换之上,再加四条新的禁用行），而不再是已经不存在的 `overlay/sidebar-menu.patch.yml`——本包没有为一个还想加载收藏时代形态的组合提供任何兼容路径，这与本仓库的预发布立场一致（没有外部消费者，不设兼容垫片）。
+想要这次改造的部署,组合的是 `overlay/customer.patch.yml`（在此前 `ui-layout`/`ui-sidebar` 替换之上,再加七条新的禁用行），而不再是已经不存在的 `overlay/sidebar-menu.patch.yml`——本包没有为一个还想加载收藏时代形态的组合提供任何兼容路径，这与本仓库的预发布立场一致（没有外部消费者，不设兼容垫片）。
 
 `sidebar.workspaces` 的移除是对前一份笔记「复用出厂五个子槽」这一决策的部分反转；那份笔记已就地更新，记录了这一移除并向本笔记做正向交叉引用，而不是被重写——因为它自己的核心决策（通过 overlay 模式整体替换侧边栏）并未改变。`2026-08-29-favorites-weak-session-reference.md` 同样已就地更新：其「弱引用、在渲染时才解析」的前提未变，但它自己的「Decision」与「Alternatives considered」现在描述的是当前的术语（`workflow`/`homeSessionId`）与当前的失效处理方式（打开时降级并重新指向，而非一行可见的禁用记录）——已退役的灰显行处理方式被记录在那里作为一个被取代的备选方案，而不是被删掉，并带一条指向本笔记的正向交叉引用，说明这次产品层面的改名。
 
-本次部署不再组合的五个包（`ui-workspace`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`）在其他任何组合里依然完全可用；这次改动没有触碰这些包本身，只改动了这一个实验性 overlay 自己的行列表。
+本次部署不再组合的七个包（`ui-workspace`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`）在其他任何组合里依然完全可用；这次改动没有触碰这些包本身，只改动了这一个实验性 overlay 自己的行列表。

@@ -61,20 +61,6 @@
   white-space: nowrap;
 }
 
-.buildRevision {
-  display: inline-flex;
-  align-items: center;
-  height: 16px;
-  padding: 0 4px;
-  border-radius: 3px;
-  color: var(--dsw-alias-label-primary-inverted);
-  background: var(--dsw-alias-label-primary);
-  font-family: var(--ds-font-family-code);
-  font-size: 8px;
-  font-weight: 500;
-  line-height: 16px;
-}
-
 .workbench {
   flex: none;
   display: flex;
@@ -122,11 +108,29 @@
   padding-top: 8px;
 }
 
+/* Avatar identity on the left, the settings trigger on the right, one row
+   (figma treats them as siblings of the same foot band). `.settingsArea` is
+   deliberately NOT `width: 100%` here — the trigger button it wraps carries
+   its own `width: calc(100% + 4px)` (dsh-client-ui-settings-general's
+   SettingsRoot.module.css), which a shrink-to-fit flex item (no explicit
+   width) resolves against the button's own content size rather than the
+   row's, so the button renders at icon+label width and this row's
+   `justify-content: space-between` can push it flush right. */
+.identityRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  min-width: 0;
+}
+
 .avatarRow {
   display: flex;
   align-items: center;
   gap: 8px;
+  min-width: 0;
   padding: 4px;
+  overflow: hidden;
 }
 
 .avatarCircle {
@@ -139,7 +143,6 @@
 }
 
 .avatarName {
-  flex: 1;
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -148,13 +151,13 @@
   color: var(--dsw-alias-label-secondary);
 }
 
-.settingsArea,
+.settingsArea {
+  flex: none;
+}
+
 .footerActions {
   flex: none;
   min-width: 0;
   width: 100%;
-}
-
-.footerActions {
   display: flex;
 }

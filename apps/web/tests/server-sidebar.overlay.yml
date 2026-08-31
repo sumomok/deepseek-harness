@@ -39,13 +39,35 @@
       name: '@deepseek-ai/dsh-experimental-server-sidebar'
 
 # Decision ①/②: the new sidebar drops the `sidebar.workspaces` hole outright
-# (see ServerSidebarRoot.tsx's module doc), so `ui-workspace` — the only
-# registrant of that hole — must be disabled too: composing it unchanged would
-# throw ("slot is not declared") the moment its `apply()` ran. Disabling it
-# also removes the last surviving workspace-vocabulary UI (the directory tree,
-# "New session in <name>") from this composition.
+# (see ServerSidebarRoot.tsx's module doc). `ui-workspace` registers into that
+# hole through `ctx.slots.inject`, which is declaration-gated and simply never
+# fires without a declared slot — composing it unchanged would not throw, it
+# would just leave that half of it inert. It still must stay disabled because
+# its OTHER registration targets `conversation.hero.workspace`, a slot
+# `dsh-client-ui-conversation` always declares, and would revive the
+# hero-phase workspace-picker menu there. Disabling it also removes the last
+# surviving workspace-vocabulary UI (the directory tree, "New session in
+# <name>") from this composition.
 - id: ui-workspace
   name: '@deepseek-ai/dsh-client-ui-workspace'
+  disabled: true
+
+# The read-only Agent-preset dropdown ("PTC mode" and friends): disabling the
+# whole package removes its hero chip, its session-header preset label, and
+# its Settings row together — the hero chip alone is also unreachable behind
+# terminology-guard.ts's `heroWorkspaceRow` CSS rule, but that rule cannot
+# reach the other two surfaces.
+- id: ui-agent-preset
+  name: '@deepseek-ai/dsh-client-ui-agent-preset'
+  disabled: true
+
+# Only relevant to an official build (`DSH_CLIENT_BUILD_PROFILE==='official'`
+# gates its own apply() to a no-op otherwise, so this row is inert in this
+# scenario's own process either way): fills the sidebar brand slots and the
+# conversation hero brand mark with the official DeepSeek identity, which
+# this composition replaces with its own copy.
+- id: ui-brand-official
+  name: '@deepseek-ai/dsh-client-ui-brand-official'
   disabled: true
 
 # Decision ②'s remaining de-terminology rows: Trajectory tab, the Session log

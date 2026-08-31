@@ -18,6 +18,36 @@
   name: '@deepseek-ai/dsh-client-ui-sidebar'
   disabled: true
 
+# `sidebar.workspaces` is dropped outright (see ServerSidebarRoot.tsx's module
+# doc); composing `ui-workspace` unchanged would not throw — its
+# `sidebar.workspaces` registration goes through `ctx.slots.inject`, which
+# just never fires without a declared slot — but its OTHER registration
+# targets `conversation.hero.workspace`, a slot `dsh-client-ui-conversation`
+# always declares, and would revive the hero-phase workspace-picker menu
+# there (see the package README's Replacing the shipped sidebar section).
+# Disabling it also removes the last surviving workspace-vocabulary UI (the
+# directory tree, "New session in <name>") from this composition.
+- id: ui-workspace
+  name: '@deepseek-ai/dsh-client-ui-workspace'
+  disabled: true
+
+# The read-only Agent-preset dropdown ("PTC 模式" and friends) has no
+# customer-facing counterpart; disabling the whole package (not merely
+# hiding its hero chip — see terminology-guard.ts's `heroWorkspaceRow` rule)
+# also removes its session-header preset label and its Settings row.
+- id: ui-agent-preset
+  name: '@deepseek-ai/dsh-client-ui-agent-preset'
+  disabled: true
+
+# Only relevant to an official build (`DSH_CLIENT_BUILD_PROFILE==='official'`
+# gates its own apply() to a no-op otherwise): fills the sidebar brand slots
+# and the conversation hero brand mark with the official DeepSeek identity,
+# which this customer-form composition replaces with its own copy (see
+# ServerSidebarRoot.tsx and client/index.ts's hero brand-mark takeover).
+- id: ui-brand-official
+  name: '@deepseek-ai/dsh-client-ui-brand-official'
+  disabled: true
+
 # ui-cordis's runtime-introspection panel has no counterpart in a customer
 # deployment (there is no "the agent inspects its own plugins" story a
 # customer-facing product exposes); disabling the row is the whole change —

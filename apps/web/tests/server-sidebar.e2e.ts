@@ -4,7 +4,11 @@
  * shell (workbench / navigation / my workflows), decision ③'s conditional
  * "Save as workflow" header action, decision ⑧'s degrade-to-a-fresh-
  * conversation path, decision ②'s de-terminology layer (both the official
- * disable rows and the one CSS-injection fallback), the workbench's
+ * disable rows and the one CSS-injection fallback), the brand-and-hero
+ * facade (the sidebar's own "Workbench Assistant" fallback text, the
+ * priority-shadowed `conversation.hero.brand.mark` takeover, and the
+ * fish/preview-badge/headline/workspace-row/agent-preset hero rules — see the
+ * package README's Brand and hero facade section), the workbench's
  * blank-draft click semantics, the current-selection highlight, drag-and-drop
  * workflow reordering, (`@deepseek-ai/dsh-experimental-content-frame`)
  * hiding the `show-content-page` command's own chat echo while its durable
@@ -285,7 +289,44 @@ describe('web e2e: the product-console sidebar', () => {
     for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /会话/, /新会话/]) {
       expect(sidebarText, `banned text matched ${banned}`).not.toMatch(banned)
     }
+
+    // Brand and hero facade: the sidebar's own fallback text (no build hash).
+    await expect(sidebar(page).getByText('Workbench Assistant').isVisible()).resolves.toBe(true)
+    expect(sidebarText).not.toContain('DSH Local Build')
+    // The avatar identity and the settings seat merge into one row, name
+    // first (left) and the settings seat last (right, space-between).
+    const identityRow = sidebar(page).locator('[data-server-sidebar-section="identity"]')
+    await identityRow.getByText('User').waitFor()
+    const identityChildren = await identityRow.evaluate(el => el.children.length)
+    expect(identityChildren).toBe(2)
   }, 60_000)
+
+  it('replaces the hero fish mark and headline with the sidebar\'s own brand copy, hides the preview badge and the dead workspace row, and drops the agent-preset dropdown entirely', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-hero-facade'))
+    const heroRoot = page.locator('[data-phase="hero"]')
+    await heroRoot.waitFor({ timeout: 15_000 })
+
+    const headlineText = heroRoot.locator('[class*="headlineText"]')
+    await headlineText.waitFor()
+    await expect(headlineText.evaluate(el => getComputedStyle(el).fontSize)).resolves.toBe('0px')
+    // The CSS `::after` swap paints this package's own brand copy; the
+    // headline's original DOM text node survives unchanged underneath it
+    // (see the package README's Known Limitations for that residual gap).
+    await expect(
+      headlineText.evaluate(el => getComputedStyle(el, '::after').content),
+    ).resolves.toContain('工作台小助手')
+
+    await expect(heroRoot.locator('[class*="fishHitbox"]').isVisible()).resolves.toBe(false)
+    await expect(heroRoot.locator('[class*="previewBadge"]').isVisible()).resolves.toBe(false)
+    await expect(heroRoot.locator('[class*="heroWorkspaceRow"]').isVisible()).resolves.toBe(false)
+
+    // ui-agent-preset is disabled outright (decision: not merely hidden by
+    // the heroWorkspaceRow CSS rule above) — its hero chip, its read-only
+    // session-header label, and its Settings row are all gone, not only the
+    // one DOM position that rule happens to cover.
+    expect(await page.getByTitle('Agent preset for the session you are about to start').count()).toBe(0)
+    expect(await page.getByText('PTC mode').count()).toBe(0)
+  }, 30_000)
 
   it(
     'creates and opens the persistent workbench conversation on click, then auto-reopens the same one on the next page load with no click',

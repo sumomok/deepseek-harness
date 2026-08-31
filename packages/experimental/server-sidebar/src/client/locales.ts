@@ -23,6 +23,7 @@ export const zh = {
   'workflows.error': '保存失败：{message}',
   'saveWorkflow.action': '存为工作流',
   'avatar.namePlaceholder': '用户',
+  'brand.name.fallback': '工作台小助手',
 } satisfies Record<string, string>
 
 /** The serverSidebar namespace key union. */
@@ -41,4 +42,5 @@ export const en = {
   'workflows.error': 'Failed to save: {message}',
   'saveWorkflow.action': 'Save as workflow',
   'avatar.namePlaceholder': 'User',
+  'brand.name.fallback': 'Workbench Assistant',
 } satisfies Record<ServerSidebarKey, string>
