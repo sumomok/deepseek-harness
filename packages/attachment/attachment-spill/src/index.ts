@@ -34,7 +34,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-agent'
 import type { AttachmentId, FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
-import { CallId, DEFAULT_MAX_LOWERED_FILE_CHARS } from '@deepseek-ai/dsh-llm'
+import { DEFAULT_MAX_LOWERED_FILE_CHARS, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { FileSpillOptions } from '@deepseek-ai/dsh-llm'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SpillRef } from '@deepseek-ai/dsh-spill'
@@ -129,7 +129,7 @@ export class AttachmentSpill extends Service {
         owner: { sessionId },
         source: {
           toolName: 'attachment',
-          callId: CallId(String(attachment.attachmentId)),
+          callId: ToolCallId(String(attachment.attachmentId)),
           label: attachment.name,
         },
         suggestedName: `attachment-${shortAttachmentId(attachment.attachmentId)}-${attachment.name}`,

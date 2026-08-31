@@ -14,12 +14,14 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-attachment-spill'
-import { assertUsableApiKey, LlmError, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
+import { assertUsableApiKey, LlmError, resolveImageAttachmentAccess, resolveRetryPolicy, RetryPolicySchema } from '@deepseek-ai/dsh-llm'
 import type { ModelModality, RetryPolicyConfig } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-fs'
 import { credentialRef } from '@deepseek-ai/dsh-credentials'
 import { launchEnvironmentOf, type LaunchEnvironmentSnapshot } from '@deepseek-ai/dsh-launch-environment'
-import { deepEqualJson, installSettingsSection, settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type {} from '@deepseek-ai/dsh-settings'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import { deepEqualJson } from '@deepseek-ai/dsh-util-values'
 import { getOrCreateAnonymousUserId, type AnonymousUserId } from '@deepseek-ai/dsh-anonymous-user-id'
 import {
   DEFAULT_CONTEXT_WINDOW,
@@ -30,17 +32,19 @@ import {
   DEFAULT_IMAGE_OFFLOAD_BYTE_QUANTUM,
   DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM,
   DEFAULT_INLINE_IMAGE_OFFLOAD_BYTE_QUANTUM,
-  DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET,
   DEFAULT_MAX_INLINE_REQUEST_IMAGE_BYTES,
-  DEFAULT_MAX_IMAGES_PER_REQUEST,
-  DEFAULT_MAX_REQUEST_FILES_BYTES,
   DEFAULT_MAX_TOKENS,
-  DEFAULT_REQUEST_IMAGE_MAX_BYTES,
-  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   DeepSeekAdapter,
 } from './adapter.ts'
 import type { DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
+import {
+  DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET,
+  DEFAULT_MAX_IMAGES_PER_REQUEST,
+  DEFAULT_MAX_REQUEST_FILES_BYTES,
+  DEFAULT_REQUEST_IMAGE_MAX_BYTES,
+  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
+} from './request-pricing.ts'
 
 export {
   DEFAULT_CONTEXT_WINDOW,
@@ -51,17 +55,22 @@ export {
   DEFAULT_IMAGE_OFFLOAD_BYTE_QUANTUM,
   DEFAULT_IMAGE_OFFLOAD_COUNT_QUANTUM,
   DEFAULT_INLINE_IMAGE_OFFLOAD_BYTE_QUANTUM,
-  DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET,
   DEFAULT_MAX_INLINE_REQUEST_IMAGE_BYTES,
-  DEFAULT_MAX_IMAGES_PER_REQUEST,
-  DEFAULT_MAX_REQUEST_FILES_BYTES,
   DEFAULT_MAX_TOKENS,
-  DEFAULT_REQUEST_IMAGE_MAX_BYTES,
-  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
   DEFAULT_STREAM_IDLE_TIMEOUT_MS,
   DeepSeekAdapter,
 } from './adapter.ts'
 export type { DeepSeekAdapterOptions, DeepSeekCatalogModel, DeepSeekConnectionOptions } from './adapter.ts'
+export {
+  DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET,
+  DEFAULT_MAX_IMAGES_PER_REQUEST,
+  DEFAULT_MAX_REQUEST_FILES_BYTES,
+  DEFAULT_REQUEST_IMAGE_MAX_BYTES,
+  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
+  deepSeekImageRequestPricing,
+  resolveRequestImagePolicy,
+} from './request-pricing.ts'
+export { deepSeekImageTokens } from './image-tokens.ts'
 export { DeepSeekFileStore, MAX_CHAT_IMAGE_BYTES } from './file-store.ts'
 export type { DeepSeekFileConnection, DeepSeekFilePolicy, DeepSeekFileReference } from './file-store.ts'
 export { DeepSeekFilesClient, MAX_FILE_EXPIRY_SECONDS, MAX_FILE_UPLOAD_BYTES, MAX_STORED_FILE_BYTES, MAX_STORED_FILE_COUNT, MIN_FILE_EXPIRY_SECONDS } from './files-api.ts'
@@ -76,14 +85,24 @@ export type * from './types.ts'
 export const name = 'llm-deepseek'
 export const inject = ['llm']
 
-const NS = settingsNamespace('llm-deepseek')
+const NS = 'llm-deepseek'
 const DEFAULT_API_KEY_ENV = 'DEEPSEEK_API_KEY'
 /** The single provider route this plugin owns. */
 const PROVIDER = 'deepseek-official'
 
 const DEFAULT_MODELS: DeepSeekCatalogModel[] = [
-  { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: DEFAULT_CONTEXT_WINDOW },
-  { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', contextWindow: DEFAULT_CONTEXT_WINDOW },
+  {
+    id: 'deepseek-v4-flash',
+    name: 'DeepSeek-V4-Flash',
+    description: 'Fast, efficient, and economical; suited to focused, routine, or parallel tasks.',
+    contextWindow: DEFAULT_CONTEXT_WINDOW,
+  },
+  {
+    id: 'deepseek-v4-pro',
+    name: 'DeepSeek-V4-Pro',
+    description: 'Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.',
+    contextWindow: DEFAULT_CONTEXT_WINDOW,
+  },
   {
     id: 'deepseek-v4-flash-vision-exp',
     name: 'DeepSeek-V4-Flash-Vision-Exp',
@@ -152,9 +171,8 @@ const catalogModel: z<DeepSeekCatalogModel> = z.object({
   contextWindow: z.number().step(1).min(1),
   maxTokens: z.number().step(1).min(1),
   inputModalities: z.array(z.union(MODEL_MODALITIES)).min(1).default(['text']),
-  imagePixelBudget: z.number().step(1).min(1),
+  imagePixelBudget: z.union([z.number().step(1).min(1), 'low']),
   imageMaxBytes: z.number().step(1).min(1),
-  imageDetail: z.union(['auto', 'low']),
 })
 
 export const Config: z<Config> = z.object({
@@ -197,6 +215,9 @@ export type ResolvedDeepSeekOptions = DeepSeekConnectionOptions
 function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): DeepSeekCatalogModel[] {
   const seen = new Set<string>()
   return (models ?? DEFAULT_MODELS).map((model) => {
+    if (Object.hasOwn(model, 'imageDetail')) {
+      throw new Error('llm-deepseek: catalog model imageDetail is no longer supported; use imagePixelBudget')
+    }
     if (model.id.length === 0) throw new Error('llm-deepseek: catalog model ids must be non-empty')
     if (model.name !== undefined && model.name.length === 0) {
       throw new Error(`llm-deepseek: catalog model "${model.id}" has an empty name`)
@@ -226,13 +247,13 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
       throw new Error(`llm-deepseek: catalog model "${model.id}" inputModalities must not contain duplicates`)
     }
     const hasImage = inputModalities.includes('image')
-    if (!hasImage && (model.imagePixelBudget !== undefined
-      || model.imageMaxBytes !== undefined || model.imageDetail !== undefined)) {
+    if (!hasImage && (model.imagePixelBudget !== undefined || model.imageMaxBytes !== undefined)) {
       throw new Error(`llm-deepseek: text-only catalog model "${model.id}" cannot declare image request limits`)
     }
     if (model.imagePixelBudget !== undefined
+      && model.imagePixelBudget !== 'low'
       && (!Number.isSafeInteger(model.imagePixelBudget) || model.imagePixelBudget <= 0)) {
-      throw new Error(`llm-deepseek: catalog model "${model.id}" imagePixelBudget must be a positive safe integer`)
+      throw new Error(`llm-deepseek: catalog model "${model.id}" imagePixelBudget must be "low" or a positive safe integer`)
     }
     if (model.imageMaxBytes !== undefined
       && (!Number.isSafeInteger(model.imageMaxBytes) || model.imageMaxBytes <= 0)) {
@@ -249,12 +270,10 @@ function resolveModels(models: readonly DeepSeekCatalogModel[] | undefined): Dee
       inputModalities: [...inputModalities],
       ...hasImage
         ? {
-          imagePixelBudget: model.imagePixelBudget
-            ?? (model.imageDetail === 'low'
-              ? DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET
-              : DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET),
+          imagePixelBudget: model.imagePixelBudget === 'low'
+            ? DEFAULT_LOW_DETAIL_IMAGE_PIXEL_BUDGET
+            : model.imagePixelBudget ?? DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
           imageMaxBytes: model.imageMaxBytes ?? DEFAULT_REQUEST_IMAGE_MAX_BYTES,
-          ...model.imageDetail === undefined ? {} : { imageDetail: model.imageDetail },
         }
         : {},
     }
@@ -440,6 +459,16 @@ export function apply(ctx: Context, config: Config): void {
     resolveUserId,
     resolveAttachments: () => ctx.get('attachments'),
     resolveAttachmentSpill: () => ctx.get('attachmentSpill'),
+    resolveImageAccess: (attachments, ref) => resolveImageAttachmentAccess(
+      attachments,
+      hostPath => ctx.get('fs')?.processPathFromHostPath(hostPath),
+      ref,
+    ),
+    prepareExtensions: (request) => {
+      const extensions = ctx.get('deepseekLlmApiExtensions')
+      return extensions?.prepare(request)
+        ?? Promise.resolve({ fields: {}, accept: () => Promise.resolve() })
+    },
   })
   ctx.llm.registerConfigurableProviders([
     { provider: PROVIDER, displayName: 'DeepSeek', settingsNs: NS, settingsPath: [] },
@@ -460,10 +489,12 @@ export function apply(ctx: Context, config: Config): void {
     registeredPolicy = policy
   }
 
-  installSettingsSection(ctx, NS, Config, config, {
-    setSource: (source) => {
-      current = source
-    },
-    onChange: ensureRegistrationFacts,
+  ctx.inject(['settings'], (settingsCtx) => {
+    settingsCtx.settings.installSection(ctx, NS, Config, config, {
+      setSource: (source) => {
+        current = source
+      },
+      onChange: ensureRegistrationFacts,
+    })
   })
 }

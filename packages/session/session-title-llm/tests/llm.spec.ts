@@ -1,6 +1,6 @@
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
-import LlmRuntime, { createUserMessage, CallId, isAgentLoopRequest, LlmAdapter  } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, ToolCallId, isAgentLoopRequest, LlmAdapter  } from '@deepseek-ai/dsh-llm'
 import type { FinishReason, GenerateOptions, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import { SessionTitleProviderId } from '@deepseek-ai/dsh-session-title'
@@ -36,7 +36,6 @@ class CooperativeAdapter extends LlmAdapter {
     if (signal === undefined) throw new Error('expected title request signal')
     await new Promise<never>((_resolve, reject) => {
       const rejectAbort = (): void => {
-        // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- exercise exact AbortSignal.reason propagation
         reject(signal.reason)
       }
       if (signal.aborted) {
@@ -283,7 +282,7 @@ describe('generateSessionTitleWithLlm', () => {
   it('rejects tool-call blocks and a successful response with no text', async () => {
     const toolScript: StreamChunk[] = [
       { type: 'block-start', index: 0, blockType: 'tool-call' },
-      { type: 'tool-call-delta', index: 0, id: CallId('title-tool'), name: 'unexpected', argumentsDelta: '{}' },
+      { type: 'tool-call-delta', index: 0, id: ToolCallId('title-tool'), name: 'unexpected', argumentsDelta: '{}' },
       { type: 'finish', reason: { kind: 'stop' } },
     ]
     const tool = await withScript(toolScript)

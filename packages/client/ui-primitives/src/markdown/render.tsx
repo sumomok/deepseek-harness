@@ -46,9 +46,15 @@ import css from './MarkdownText.module.css'
 /** Copy-button labels forwarded to fence CodeBlocks (this package is cordis-free, so copy arrives via props). */
 export interface MarkdownCodeLabels {
   /** Copy-button idle label. */
-  copyLabel?: string | undefined
+  copyLabel: string
   /** Copy-button label during the post-copy confirmation window. */
-  copiedLabel?: string | undefined
+  copiedLabel: string
+}
+
+/** Localized chrome for a Markdown document. */
+export interface MarkdownLabels {
+  code: MarkdownCodeLabels
+  footnotes: string
 }
 
 function sanitizeUrl(url: string): string {
@@ -125,6 +131,9 @@ function renderLocalLinkDestination(
   context: MarkdownRenderContext,
 ): ReactNode | undefined {
   const referents = context.referents
+  // resolveLink is a plain callback property, not a `this`-bound instance
+  // method — extracting it here is what lets TypeScript narrow "defined"
+  // past the guard below into this function's remaining body.
   const resolveLink = referents?.resolveLink
   if (referents === undefined || resolveLink === undefined) return undefined
   const displayText = linkPlainText(node.children)
@@ -273,10 +282,10 @@ export interface MarkdownProseReferents {
  * numbering accumulated in document order while references render.
  */
 export interface MarkdownRenderContext {
-  /** Streaming arm: fences render plain and TeX stays literal. */
+  /** Streaming arm: fences highlight incrementally as they grow; TeX (including ```math fences) stays literal until the settled pass. */
   readonly streaming: boolean
   /** Localized fence copy-button labels. */
-  readonly codeLabels: MarkdownCodeLabels | undefined
+  readonly labels: MarkdownLabels
   /** Inside a blockquote's children: tables there always fill the quote's width. */
   readonly inBlockquote?: boolean
   /** Inline-code file mentions; absent wherever no opener vocabulary exists. */
@@ -531,9 +540,15 @@ function renderCode(node: Md.Code, key: Key, context: MarkdownRenderContext): Re
       // CodeBlock's display trim removes; feeding the bare value would make
       // that trim eat a REAL trailing blank line inside the fence instead.
       code={`${node.value}\n`}
-      lang={context.streaming ? undefined : lang}
-      copyLabel={context.codeLabels?.copyLabel}
-      copiedLabel={context.codeLabels?.copiedLabel}
+      lang={lang}
+      // Streaming keys are source offsets, stable while the fence grows, so
+      // the CodeBlock instance (and its incremental highlight session)
+      // survives every chunk. A fence whose info string is still mid-chunk
+      // has no content yet and took the empty-fence arm above, so `lang`
+      // here is final: it can never re-resolve to a different grammar.
+      streaming={context.streaming}
+      copyLabel={context.labels.code.copyLabel}
+      copiedLabel={context.labels.code.copiedLabel}
     />
   )
 }
@@ -807,7 +822,7 @@ export function renderFootnoteSection(context: MarkdownRenderContext): ReactNode
   if (items.length === 0) return null
   return (
     <section key="footnotes" data-footnotes className="footnotes">
-      <h2 id="footnote-label" className="sr-only">Footnotes</h2>
+      <h2 id="footnote-label" className="sr-only">{context.labels.footnotes}</h2>
       <ol>{items}</ol>
     </section>
   )

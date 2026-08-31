@@ -1,0 +1,329 @@
+// @vitest-environment jsdom
+/** Chat inject factories exercised over independently mounted Conversation and Chat plugins. */
+import { describe, expect, it, vi } from 'vitest'
+import { AttachmentId } from '@deepseek-ai/dsh-attachment'
+import type { ISession } from '@deepseek-ai/dsh-api-session-controller/client'
+import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
+import {
+  RemoteError, SlotTestRuntime, TestRemote, stubSettingsScope, usePinnedBrowserLanguages,
+} from '@deepseek-ai/dsh-client-test-runtime'
+import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
+import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
+import {
+  apply as applyConversation, inject as injectConversation, type ComposerBarInjected,
+} from '@deepseek-ai/dsh-client-ui-conversation/client'
+import {
+  apply as applyChat, inject as injectChat, type ChatViewInjected, type DetailsInjected,
+} from '@deepseek-ai/dsh-client-ui-chat/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { createChatStore } from '../src/client/stores.ts'
+
+usePinnedBrowserLanguages('zh-CN')
+
+const ROOT = 'root-1' as SessionId
+const ATTACHMENT = {
+  attachmentId: AttachmentId('image-1'),
+  mediaType: 'image/png',
+  bytes: 1,
+  width: 1,
+  height: 1,
+} as const
+
+type ChatInstance = ReturnType<ReturnType<typeof createChatStore>['create']>
+type ChatActions = ChatInstance['actions']
+
+function sessionFakeFor() {
+  return {
+    loadOlder: vi.fn<ISession['loadOlder']>(() => Promise.resolve()),
+    readAttachment: vi.fn<ISession['readAttachment']>(() => Promise.resolve({
+      ok: true,
+      value: { attachment: ATTACHMENT, data: Uint8Array.of(1) },
+    })),
+    prompt: vi.fn<ISession['prompt']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
+    cancel: vi.fn<ISession['cancel']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
+  } satisfies SessionBehaviorOverrides
+}
+
+async function bench() {
+  const runtime = await SlotTestRuntime.create()
+  runtime.ctx.provide('connection', {
+    generation: { getSnapshot: () => ({ host: { home: '/home/fixture' } }), subscribe: () => () => {} },
+  } as never)
+  runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
+  runtime.ctx.provide('layout', layout as never)
+  const openWorkspacePath = vi.fn<ClientRemote['session']['openWorkspacePath']>(
+    () => Promise.resolve({ ok: true, value: { opened: true } }),
+  )
+  new TestRemote(runtime.ctx, { session: { openWorkspacePath } })
+  runtime.ctx.provide('uiWorkspace', {
+    connectWorkspace: vi.fn(async () => ROOT),
+  } as never)
+  const session = sessionFakeFor()
+  await runtime.sessions.add({
+    id: ROOT,
+    summary: { title: 'R', displayTitle: 'R', cwd: '/proj' },
+    session,
+  }, { current: false })
+  const locale = new LocaleRuntime(runtime.ctx)
+  runtime.ctx.provide('locale', locale)
+  runtime.slots.installLocale(locale)
+  await runtime.root.declare({
+    'conversation': { kind: 'single', scope: 'session-maybe' },
+    'details': { kind: 'single', scope: 'session' },
+  }, (_props: { renderSlot?: unknown }) => null)
+  await runtime.mount({ inject: [...injectConversation], apply: applyConversation })
+  await runtime.mount({ inject: [...injectChat], apply: applyChat })
+  runtime.renderRoot()
+
+  const chatViewApi = (id: SessionId) => {
+    const entry = runtime.slots.entries('conversation.view')[0]!
+    const instance = runtime.storeOf('conversation.view', id) as ChatInstance
+    const injected = (entry.inject as unknown as (
+      sessionId: SessionId,
+      actions: ChatActions,
+    ) => ChatViewInjected)(id, instance.actions)
+    return { instance, injected }
+  }
+  const composerApi = (id: SessionId | undefined) => {
+    const entry = runtime.slots.entries('conversation.composer.bar')[0]!
+    return (entry.inject as unknown as (sessionId: SessionId | undefined) => ComposerBarInjected)(id)
+  }
+  return { runtime, layout, openWorkspacePath, session, chatViewApi, composerApi }
+}
+
+describe('Chat inject API', () => {
+  it('loads older history and forks through the Session Controller', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    injected.loadOlder()
+    expect(b.session.loadOlder).toHaveBeenCalledOnce()
+
+    injected.forkAt(17)
+    await vi.waitFor(() => {
+      expect(b.runtime.sessions.calls).toContainEqual({ method: 'open', args: [ROOT] })
+    })
+    expect(b.runtime.sessions.calls).toContainEqual({
+      method: 'fork', args: [{ sessionId: ROOT, atSeq: 17, increaseTitle: true }],
+    })
+
+    const fork = vi.spyOn(b.runtime.sessions, 'fork').mockRejectedValueOnce(new Error('fork failed'))
+    injected.forkAt(18)
+    await vi.waitFor(() => {
+      expect(fork).toHaveBeenCalledWith({ sessionId: ROOT, atSeq: 18, increaseTitle: true })
+    })
+    await b.runtime.dispose()
+  })
+
+  it('writes Chat selection before opening details', async () => {
+    const b = await bench()
+    const { instance, injected } = b.chatViewApi(ROOT)
+    injected.openDetails({ turnSeq: 2, callId: 'c1' })
+    expect(instance.store.getSnapshot().selection).toEqual({ turnSeq: 2, callId: 'c1' })
+    expect(b.layout.openDetails).toHaveBeenCalledOnce()
+    expect(b.runtime.storeOf('details', ROOT)).toBe(instance)
+    expect(b.runtime.storeOf('conversation.session', ROOT)).not.toBe(instance)
+    await b.runtime.dispose()
+  })
+
+  it('resolves file paths against the Session cwd and preserves failures', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    await injected.openFile('src/a.ts')
+    expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/src/a.ts' })
+
+    b.openWorkspacePath.mockResolvedValueOnce({
+      ok: false,
+      error: new RemoteError('gateway/internal', 'xdg-open is not available', {}),
+    })
+    await expect(injected.openFile('src/b.ts')).rejects.toThrow('path open failed: xdg-open is not available')
+    await b.runtime.dispose()
+  })
+
+  it('fails loud when a Chat View inject resolves no Session', async () => {
+    const b = await bench()
+    const entry = b.runtime.slots.entries('conversation.view')[0]!
+    const injectView = entry.inject as unknown as (
+      sessionId: SessionId,
+      actions: ChatActions,
+    ) => ChatViewInjected
+    expect(() => injectView('never-listed' as SessionId, {} as ChatActions))
+      .toThrow(/unknown session/)
+    await b.runtime.dispose()
+  })
+
+  it('closes details while sharing selection through the Chat store', async () => {
+    const b = await bench()
+    const entry = b.runtime.slots.entries('details')[0]!
+    const injected = (entry.inject as unknown as () => DetailsInjected)()
+    expect(Object.keys(injected)).toEqual(['closeDetails'])
+    injected.closeDetails()
+    expect(b.layout.closeDetails).toHaveBeenCalledOnce()
+    expect(b.runtime.storeOf('details', ROOT)).toBe(b.runtime.storeOf('conversation.view', ROOT))
+    await b.runtime.dispose()
+  })
+
+  it('owns image loading, scroll memory, and optional closing-file mentions', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    const owner = {} as never
+
+    expect(injected.fileMentions(owner)).toBeUndefined()
+    const mentions = { resolve: vi.fn() } as never
+    const forClosing = vi.fn(() => mentions)
+    b.runtime.ctx.provide('chatFileMentions', { forClosing } as never)
+    expect(injected.fileMentions(owner)).toBe(mentions)
+    expect(forClosing).toHaveBeenCalledWith(owner)
+
+    expect(injected.chatScroll.read()).toBeNull()
+    const position = { anchorKey: 'node-1', anchorTop: 4, scrollTop: 12 }
+    injected.chatScroll.save(position)
+    expect(injected.chatScroll.read()).toEqual(position)
+    injected.chatScroll.save(null)
+    expect(injected.chatScroll.read()).toBeNull()
+
+    const loaded = await injected.loadImage(ATTACHMENT)
+    expect(loaded).toEqual(expect.any(String))
+    expect(b.session.readAttachment).toHaveBeenCalledWith(ATTACHMENT.attachmentId)
+    expect(injected.loadImage.peek?.(ATTACHMENT)).toBe(loaded)
+    await b.runtime.dispose()
+  })
+
+  it('referents (chat view face) is undefined with no proseReferents provider composed in', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    expect(injected.referents).toBeUndefined()
+    await b.runtime.dispose()
+  })
+
+  it('referents.scan forwards text, session cwd, Host home, and inlineCode to the proseReferents provider', async () => {
+    const b = await bench()
+    const scan = vi.fn((_text: string, _context: { cwd?: string; home?: string; inlineCode: boolean }) => [])
+    b.runtime.ctx.provide('proseReferents', { scan })
+    const { injected } = b.chatViewApi(ROOT)
+    expect(injected.referents).toBeDefined()
+    injected.referents!.scan('see /proj/src/a.ts', true)
+    expect(scan).toHaveBeenCalledWith('see /proj/src/a.ts', { cwd: '/proj', home: '/home/fixture', inlineCode: true })
+    await b.runtime.dispose()
+  })
+
+  it('referents.resolveLink is undefined when the provider declares no resolveLink', async () => {
+    const b = await bench()
+    b.runtime.ctx.provide('proseReferents', { scan: () => [] })
+    const { injected } = b.chatViewApi(ROOT)
+    expect(injected.referents!.resolveLink).toBeUndefined()
+    await b.runtime.dispose()
+  })
+
+  it('referents.resolveLink forwards destination, displayText, session cwd, and Host home to the provider', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 9, kind: 'file' as const, target: '/proj/report.md', raw: '/proj/report.md' }
+    const resolveLink = vi.fn(() => span)
+    b.runtime.ctx.provide('proseReferents', { scan: () => [], resolveLink })
+    const { injected } = b.chatViewApi(ROOT)
+    expect(injected.referents!.resolveLink!('/proj/report.md', 'report.md')).toBe(span)
+    expect(resolveLink).toHaveBeenCalledWith('/proj/report.md', 'report.md', { cwd: '/proj', home: '/home/fixture' })
+    await b.runtime.dispose()
+  })
+
+  it('referents.subscribe is undefined when the provider declares no subscribe', async () => {
+    const b = await bench()
+    b.runtime.ctx.provide('proseReferents', { scan: () => [] })
+    const { injected } = b.chatViewApi(ROOT)
+    expect(injected.referents!.subscribe).toBeUndefined()
+    await b.runtime.dispose()
+  })
+
+  it('referents.subscribe forwards straight through to the provider, unsubscribe included', async () => {
+    const b = await bench()
+    const unsubscribe = vi.fn()
+    const subscribe = vi.fn(() => unsubscribe)
+    b.runtime.ctx.provide('proseReferents', { scan: () => [], subscribe })
+    const { injected } = b.chatViewApi(ROOT)
+    const listener = (): void => {}
+    const returned = injected.referents!.subscribe!(listener)
+    expect(subscribe).toHaveBeenCalledWith(listener)
+    returned()
+    expect(unsubscribe).toHaveBeenCalled()
+    await b.runtime.dispose()
+  })
+
+  it('referents.open dispatches referent/open carrying chat-prose provenance, distinct from openFile', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 11, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    let captured: unknown
+    // Claims (never calls next): the default open action never runs.
+    b.runtime.ctx.on('referent/open', (ref: unknown) => { captured = ref; return Promise.resolve() })
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(injected.referents!.scan('src/a.ts', true)[0]!)
+    await vi.waitFor(() => { expect(captured).toBeDefined() })
+    expect(captured).toEqual({
+      kind: 'file', target: '/proj/src/a.ts', raw: 'src/a.ts', sessionId: ROOT,
+      source: 'chat-prose', provenance: 'model-text',
+    })
+    await b.runtime.dispose()
+  })
+
+  it('referents.open falls through to openWorkspacePath for an unclaimed file/dir span', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/src/a.ts' })
+    })
+    await b.runtime.dispose()
+  })
+
+  it('referents.open falls through to window.open for an unclaimed url span', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 20, kind: 'url' as const, target: 'https://example.com/', raw: 'https://example.com/' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer')
+    })
+    openSpy.mockRestore()
+    await b.runtime.dispose()
+  })
+
+  it('referents.open degrades a not-found race to the session\'s own composer notice, same as the terminal card\'s inline notice — a span verified earlier can still name a path deleted before this click', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/deleted.md', raw: 'deleted.md' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    b.openWorkspacePath.mockResolvedValueOnce({
+      ok: false,
+      error: new RemoteError('session/path-not-found', 'path does not exist: /proj/deleted.md', { path: '/proj/deleted.md' }),
+    })
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(b.composerApi(ROOT).hooks.notices.getSnapshot()).toMatchObject({ level: 'error' })
+    })
+    expect(b.composerApi(ROOT).hooks.notices.getSnapshot()?.text).toBe('该文件已不存在，可能已被移动或删除。')
+    await b.runtime.dispose()
+  })
+
+  it('referents.open leaves any other open failure to the console only — no dedicated UI for those yet', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/a.ts', raw: 'a.ts' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    b.openWorkspacePath.mockResolvedValueOnce({
+      ok: false,
+      error: new RemoteError('gateway/internal', 'xdg-open is not available', {}),
+    })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('ui-chat: chat-prose referent open failed', expect.any(Error))
+    })
+    expect(b.composerApi(ROOT).hooks.notices.getSnapshot()).toBeNull()
+    errorSpy.mockRestore()
+    await b.runtime.dispose()
+  })
+})

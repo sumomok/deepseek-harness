@@ -1,7 +1,7 @@
 /** Canonical tool-definition fixtures for repository tests. @module dsh-tools/testing */
 
 import type { ContentBlock } from '@deepseek-ai/dsh-llm'
-import type { JsonValue } from '@deepseek-ai/dsh-session'
+import type { JsonValue } from '@deepseek-ai/dsh-util-values'
 import { defineTool } from './schema.ts'
 import type { DefineToolOptions, ParameterSchemaSpec } from './schema.ts'
 import type { ToolDefinition, ToolRunContext } from './index.ts'
@@ -27,7 +27,6 @@ export type ContentToolFixtureOptions<S extends ParameterSchemaSpec> = Omit<
 export function defineContentToolFixture<const S extends ParameterSchemaSpec>(
   options: ContentToolFixtureOptions<S>,
 ): ToolDefinition {
-  // oxlint-disable-next-line typescript/unbound-method
   const execute = options.execute
   return defineTool({
     ...options,

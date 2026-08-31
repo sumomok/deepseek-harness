@@ -12,7 +12,7 @@ import { join } from 'node:path'
 import { Context } from '@deepseek-ai/cordis'
 import { CodeRuntime } from '@deepseek-ai/dsh-code-runtime'
 import type { CodeRunRequest, CodeRunResult } from '@deepseek-ai/dsh-code-runtime'
-import { CallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, LlmAdapter, LlmRuntime } from '@deepseek-ai/dsh-llm'
 import type { GenerateOptions, LlmModelInfo, LlmResolvedModelInfo, Message, StreamChunk } from '@deepseek-ai/dsh-llm'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime, { RUN_CODE_NAME } from '@deepseek-ai/dsh-tools'
@@ -37,13 +37,6 @@ import {
 const PNG_1X1 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAIAAACQd1PeAAAADElEQVR4nGP4z8AAAAMBAQDJ/pLvAAAAAElFTkSuQmCC', 'base64')
 /** 3x3 red PNG used to trip a tiny configured pixel limit. */
 const PNG_3X3 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAMAAAADCAIAAADZSiLoAAAAEElEQVR4nGP4z8AAQQxYWACPjgj4kWPEuQAAAABJRU5ErkJggg==', 'base64')
-
-/** File-admission limits for local test-only AttachmentStore subclasses; none of these tests exercise file content. */
-const TEST_FILE_LIMITS: FileAttachmentLimits = Object.freeze({
-  maxFileBytes: 1024,
-  maxFilesPerMessage: 1,
-  maxMessageFileBytes: 1024,
-})
 
 const testToolSignal = new AbortController().signal
 
@@ -75,7 +68,7 @@ class CatalogAdapter extends LlmAdapter {
   }
 }
 
-/** In-process Code Mode seam fake that invokes the real registry bindings. */
+/** In-process PTC mode seam fake that invokes the real registry bindings. */
 class FakeRuntime extends CodeRuntime {
   readonly language = 'typescript'
   readonly isolation = 'fake'
@@ -111,7 +104,7 @@ async function setup(options: SetupOptions = {}) {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime, { mode: options.toolMode ?? 'native' })
-  if (options.toolMode === 'code' || options.toolMode === 'both') {
+  if (options.toolMode === 'ptc' || options.toolMode === 'both') {
     await ctx.plugin(FakeRuntime)
   }
   await ctx.plugin(LocalFileSystem, { cwd: dir })
@@ -148,7 +141,7 @@ let callCounter = 0
 function call(ctx: Context, name: string, args: unknown, agent?: object) {
   return ctx.tools.execute({
     signal: testToolSignal,
-    callId: CallId(`img-call-${++callCounter}`),
+    callId: ToolCallId(`img-call-${++callCounter}`),
     name,
     arguments: args,
     ...agent ? { agent: agent as never } : {},
@@ -236,9 +229,9 @@ describe('read_image happy path', () => {
     expect(result.isError).toBe(false)
   })
 
-  it('forwards a nested Code Mode image through the outer run_code context', async () => {
+  it('forwards a nested PTC mode image through the outer run_code context', async () => {
     await writeFile(join(dir, 'red.png'), PNG_1X1)
-    const ctx = await setup({ toolMode: 'code' })
+    const ctx = await setup({ toolMode: 'ptc' })
     const runtime = ctx.codeRuntime as FakeRuntime
     runtime.behavior = async (request) => {
       const value = await request.bindings[0]!.functions.read_image!({ file_path: 'red.png' })
@@ -247,7 +240,7 @@ describe('read_image happy path', () => {
 
     const result = await call(ctx, RUN_CODE_NAME, {
       code: 'return await tools.read_image({ file_path: "red.png" })',
-      description: 'Read the image through Code Mode',
+      description: 'Read the image through PTC mode',
     }, agentOn('vision-model'))
 
     expect(result.isError).toBe(false)
@@ -353,8 +346,6 @@ describe('argument and service preconditions', () => {
         mediaTypes: Object.freeze(['image/jpeg'] as const),
       })
 
-      readonly fileLimits: FileAttachmentLimits = TEST_FILE_LIMITS
-
       validateImage(_input: SaveImageAttachment): Promise<void> {
         throw new Error('unreachable: admission refuses before validation')
       }
@@ -367,16 +358,18 @@ describe('argument and service preconditions', () => {
         throw new Error('unreachable in this test')
       }
 
+      readonly fileLimits: FileAttachmentLimits = Object.freeze({ maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 })
+
       validateFile(_input: SaveFileAttachment): Promise<void> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
 
       saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
 
       readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
     }
     const ctx = await setup({ attachments: false })
@@ -444,8 +437,6 @@ describe('image admission failures', () => {
         mediaTypes: Object.freeze(['image/png'] as const),
       })
 
-      readonly fileLimits: FileAttachmentLimits = TEST_FILE_LIMITS
-
       validateImage(_input: SaveImageAttachment): Promise<void> {
         return Promise.resolve()
       }
@@ -458,16 +449,18 @@ describe('image admission failures', () => {
         throw new Error('unreachable in this test')
       }
 
+      readonly fileLimits: FileAttachmentLimits = Object.freeze({ maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 })
+
       validateFile(_input: SaveFileAttachment): Promise<void> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
 
       saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
 
       readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
     }
     await writeFile(join(dir, 'red.png'), PNG_1X1)
@@ -526,8 +519,6 @@ describe('image admission failures', () => {
         mediaTypes: Object.freeze(['image/png'] as const),
       })
 
-      readonly fileLimits: FileAttachmentLimits = TEST_FILE_LIMITS
-
       validateImage(_input: SaveImageAttachment): Promise<void> {
         return Promise.resolve()
       }
@@ -540,16 +531,18 @@ describe('image admission failures', () => {
         throw new Error('unreachable in this test')
       }
 
+      readonly fileLimits: FileAttachmentLimits = Object.freeze({ maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 })
+
       validateFile(_input: SaveFileAttachment): Promise<void> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
 
       saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
 
       readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
     }
     await writeFile(join(dir, 'red.png'), PNG_1X1)
@@ -573,8 +566,6 @@ describe('image admission failures', () => {
         mediaTypes: Object.freeze(['image/png'] as const),
       })
 
-      readonly fileLimits: FileAttachmentLimits = TEST_FILE_LIMITS
-
       validateImage(_input: SaveImageAttachment): Promise<void> {
         return Promise.resolve()
       }
@@ -594,16 +585,18 @@ describe('image admission failures', () => {
         throw new Error('unreachable in this test')
       }
 
+      readonly fileLimits: FileAttachmentLimits = Object.freeze({ maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 })
+
       validateFile(_input: SaveFileAttachment): Promise<void> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
 
       saveFile(_input: SaveFileAttachment): Promise<FileAttachmentRef> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
 
       readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        throw new Error('not used')
+        throw new Error('unreachable in this test')
       }
     }
     await writeFile(join(dir, 'red.png'), PNG_1X1)
@@ -653,7 +646,7 @@ describe('registration surface', () => {
   it('declares read_image parallel-safe and presents a read-family card', async () => {
     const ctx = await setup()
     expect(ctx.tools.executionMode({
-      signal: testToolSignal, callId: CallId('img-parallel'), name: 'read_image', arguments: { file_path: 'a.png' },
+      signal: testToolSignal, callId: ToolCallId('img-parallel'), name: 'read_image', arguments: { file_path: 'a.png' },
     })).toEqual({ kind: 'parallel' })
     expect(ctx.tools.get('read_image')?.presentCall?.({ file_path: 'shot.png' })).toEqual({
       card: 'generic',

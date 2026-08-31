@@ -65,7 +65,6 @@ type PluginFiber = ReturnType<RegistryService['plugin']>
 type PluginCallback = Plugin.Function | Plugin.Constructor
 
 const hosts = new WeakMap<Context, InvariantHost>()
-// oxlint-disable-next-line typescript/unbound-method -- every call below supplies its RegistryService receiver explicitly.
 const originalPlugin = RegistryService.prototype.plugin
 
 RegistryService.prototype.plugin = function(plugin: Plugin, config?: unknown, getOuterStack?: () => string[]) {
@@ -125,12 +124,6 @@ class TestAttachmentStore extends AttachmentStore {
     mediaTypes: ['image/png'],
   }
 
-  readonly fileLimits: FileAttachmentLimits = {
-    maxFileBytes: 1,
-    maxFilesPerMessage: 1,
-    maxMessageFileBytes: 1,
-  }
-
   validateImage(_input: SaveImageAttachment): Promise<void> {
     return Promise.reject(new Error('test invariant attachment store does not validate images'))
   }
@@ -142,6 +135,8 @@ class TestAttachmentStore extends AttachmentStore {
   readImage(_ref: ImageAttachmentRef): Promise<StoredImageAttachment> {
     return Promise.reject(new Error('test invariant attachment store does not read images'))
   }
+
+  readonly fileLimits: FileAttachmentLimits = { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 }
 
   validateFile(_input: SaveFileAttachment): Promise<void> {
     return Promise.reject(new Error('test invariant attachment store does not validate files'))

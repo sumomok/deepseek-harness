@@ -10,7 +10,7 @@ import type { Context, Events } from '@deepseek-ai/cordis'
 import { scopeTarget } from '@deepseek-ai/dsh-scope'
 import type { Scoped } from '@deepseek-ai/dsh-scope'
 import type { AssembleContext } from '@deepseek-ai/dsh-system-prompt'
-import type { Agent } from './runtime-types.ts'
+import type { Agent } from './types.ts'
 
 /** Extract the parameter tuple from an event handler type (its `this` is not part of the tuple). */
 type Params<F> = F extends (...args: infer P) => unknown ? P : never
@@ -136,12 +136,10 @@ export function agentEvents(ctx: Context, agent: Agent, carrier: Scoped<Agent> =
       }
     },
     async serial(name, payload) {
-      // oxlint-disable-next-line typescript/unbound-method -- the events mixin accessor returns a pre-bound function
       const serial = ctx.serial as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => Promise<never>
       return await serial(carrier, name, fused(payload))
     },
     waterfall(name, payload, ...rest) {
-      // oxlint-disable-next-line typescript/unbound-method -- the events mixin accessor returns a pre-bound function
       const waterfall = ctx.waterfall as (thisArg: Scoped<Agent>, name: string, ...args: unknown[]) => never
       return waterfall(carrier, name, fused(payload), ...rest)
     },

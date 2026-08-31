@@ -6,7 +6,7 @@ import type {
 } from '@deepseek-ai/dsh-attachment'
 import { Context } from '@deepseek-ai/cordis'
 import {
-  CallId,
+  ToolCallId,
   contentHasFile,
   createUserMessage,
   DEFAULT_MAX_LOWERED_FILE_CHARS,
@@ -161,7 +161,7 @@ describe('lowerFileBlocks', () => {
     const messages = [createUserMessage({
       content: [{
         type: 'tool-result',
-        toolCallId: CallId('call-1'),
+        toolCallId: ToolCallId('call-1'),
         content: [fileBlock('nested.txt', 4)],
       }],
       source,
@@ -169,7 +169,7 @@ describe('lowerFileBlocks', () => {
     const resolved = await lowerFileBlocks(messages, ref => Promise.resolve(`lowered:${ref.name}`))
     expect(resolved[0]?.content).toEqual([{
       type: 'tool-result',
-      toolCallId: CallId('call-1'),
+      toolCallId: ToolCallId('call-1'),
       content: [{ type: 'text', text: 'lowered:nested.txt' }],
     }])
   })
@@ -177,7 +177,7 @@ describe('lowerFileBlocks', () => {
   it('leaves a tool-result with no nested file block unchanged', async () => {
     const untouched = {
       type: 'tool-result' as const,
-      toolCallId: CallId('call-2'),
+      toolCallId: ToolCallId('call-2'),
       content: [{ type: 'text' as const, text: 'kept' }],
     }
     const messages = [createUserMessage({ content: [untouched, fileBlock('a.txt', 1)], source })]
@@ -199,7 +199,7 @@ describe('contentHasFile', () => {
   it('is false for content with no file block, including a plain tool-result', () => {
     expect(contentHasFile([{ type: 'text', text: 'hi' }])).toBe(false)
     expect(contentHasFile([{
-      type: 'tool-result', toolCallId: CallId('c'), content: [{ type: 'text', text: 'hi' }],
+      type: 'tool-result', toolCallId: ToolCallId('c'), content: [{ type: 'text', text: 'hi' }],
     }])).toBe(false)
   })
 
@@ -209,7 +209,7 @@ describe('contentHasFile', () => {
 
   it('is true for a file block nested inside a tool-result', () => {
     expect(contentHasFile([{
-      type: 'tool-result', toolCallId: CallId('c'), content: [fileBlock('a.txt', 1)],
+      type: 'tool-result', toolCallId: ToolCallId('c'), content: [fileBlock('a.txt', 1)],
     }])).toBe(true)
   })
 })

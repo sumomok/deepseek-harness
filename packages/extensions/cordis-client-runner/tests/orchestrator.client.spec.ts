@@ -5,14 +5,12 @@
  * what is under test is the round trip itself — the engine has its own account in
  * runner.spec.
  */
-/* oxlint-disable typescript/no-unsafe-assignment -- Vitest asymmetric matchers are typed as any. */
 
 import { describe, expect, it, vi } from 'vitest'
 import type {
   ApprovalRequestId, CordisDynamicPackageId, CordisDynamicPluginId, CordisDynamicPluginRunId,
-  DynamicCordisClientSource, DynamicCordisHostHalfResult, DynamicCordisResolveAck,
+  DynamicCordisClientSource, DynamicCordisHostHalfResult, DynamicCordisResolveAck, SessionId,
 } from '@deepseek-ai/dsh-api-remotes/client'
-import type { SessionId } from '@deepseek-ai/dsh-client-connection/client'
 import { CordisRunOrchestrator } from '../src/client/orchestrator.ts'
 import type { CordisUserRunRequest } from '../src/client/orchestrator.ts'
 import type { DynamicCordisLoadResult, DynamicCordisPackageRunner } from '../src/client/runtime.ts'
@@ -408,7 +406,6 @@ describe('startUserRun', () => {
 
   it('records a load failure, stringifying a non-Error rejection', async () => {
 
-    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the case under test
     const bench = boot({ loaded: () => Promise.reject('plain rejection') })
     await bench.orchestrator.startUserRun(DUAL)
     expect(bench.host.resolveRequestRun).not.toHaveBeenCalled()

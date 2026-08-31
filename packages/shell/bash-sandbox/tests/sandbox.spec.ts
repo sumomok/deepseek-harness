@@ -11,6 +11,7 @@ import { join, resolve } from 'node:path'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { ShellRunResult, CollectedOutput } from '@deepseek-ai/dsh-shell'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { SANDBOX_UNAVAILABLE, SandboxProvider, SandboxUnavailableError } from '@deepseek-ai/dsh-sandbox'
 import type { ConfinedArgv, SandboxExecutionPolicy, SandboxMode, SandboxPolicy } from '@deepseek-ai/dsh-sandbox'
 import { SandboxPolicyService } from '@deepseek-ai/dsh-sandbox-policy'
@@ -62,6 +63,7 @@ async function setup(
     }
   }
   const ctx = new Context()
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(FakeSandboxProvider)
   await ctx.plugin(SandboxPolicyService, {
     ...mode !== undefined ? { mode } : {},
@@ -570,7 +572,6 @@ describe('background sandbox facts', () => {
       stderr: undefined,
       collected: { stdout: emptyReader, stderr: emptyReader },
       // Arbitrary subprocess providers can reject without a value; that edge is the point of this test.
-      // oxlint-disable-next-line typescript/prefer-promise-reject-errors
       done: Promise.reject(undefined),
       terminate: vi.fn(),
       waitForExit: async () => true,

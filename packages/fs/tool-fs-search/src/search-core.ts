@@ -20,7 +20,7 @@
  */
 
 import { existsSync } from 'node:fs'
-import { isAbsolute, relative, sep } from 'node:path'
+import { isAbsolute, join, parse, relative, sep } from 'node:path'
 import type { Context } from '@deepseek-ai/cordis'
 import { HarnessError } from '@deepseek-ai/dsh-llm'
 import { ItemRetainer, TextRetainer } from '@deepseek-ai/dsh-output-retention'
@@ -170,7 +170,10 @@ let rgPathPromise: Promise<string> | undefined
  */
 export function resolveRgPath(): Promise<string> {
   rgPathPromise ??= Promise.resolve().then(async () => {
-    const executableSidecar = `${process.execPath}-rg`
+    const executable = parse(process.execPath)
+    const executableSidecar = process.platform === 'win32'
+      ? join(executable.dir, `${executable.name}-rg.exe`)
+      : `${process.execPath}-rg`
     if ('pkg' in process && existsSync(executableSidecar)) return executableSidecar
     return (await import('@vscode/ripgrep')).rgPath
   })
@@ -245,7 +248,6 @@ export async function runRipgrep(
     // above and this call (or when the platform-package resolution rejects).
     // The static narrowing that proves this re-check "always false" cannot
     // see AbortSignal state changes.
-    // oxlint-disable-next-line typescript/no-unnecessary-condition
     if (exec.signal.aborted) {
       throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
     }
@@ -264,7 +266,6 @@ export async function runRipgrep(
   }
   // The signal can abort while the spawn is awaited; the static narrowing that
   // proves this re-check "always false" cannot see AbortSignal state changes.
-  // oxlint-disable-next-line typescript/no-unnecessary-condition
   if (exec.signal.aborted) {
     throw new SearchError(`${toolName} was aborted before completion (tool timeout or caller cancellation)`, 'SEARCH_ABORTED')
   }

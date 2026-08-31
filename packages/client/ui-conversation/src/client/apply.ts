@@ -1,68 +1,56 @@
-/** Registers the conversation components, shared store, and service callbacks. */
+/** Registers the target-neutral Conversation assembly, shell, input, and docks. */
 import type { Context } from '@deepseek-ai/cordis'
-import { resolveSlotLabel, type BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import {
-  dispatchReferentOpen, PathOpenError, resolveWorkspacePath, type ISessions, type ReferentRef, type SessionId,
-} from '@deepseek-ai/dsh-client-runtime/client'
-import type { MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
-// Type-only: the ctx.settingsScope Context merge. Cross-plugin collaboration
-// goes through the service, never a value import (client bundle purity gate).
-import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
-import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
-// Type-only: pulls the locale plugin's Context merge (ctx.locale).
+import type { ISessions } from '@deepseek-ai/dsh-api-session-controller/client'
+import { createSnapshotStore, type BoundActions } from '@deepseek-ai/dsh-client-store'
+import { resolveSlotLabel } from '@deepseek-ai/dsh-client-ui-slots'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
+// Type-only service and declaration merges used by this assembly.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
+import type {} from '@deepseek-ai/dsh-client-ui-settings/client'
+import { UiConversation } from './conversation/assembly.ts'
 import type { ViewTab } from './contract/views.ts'
 import type {
-  ApprovalWait, ChatNodeTurnDataInjected, ChatScrollPosition, ChatViewInjected, ComposerBarInjected,
-  ComposerChainProps, ConversationInjected, ConversationSessionHeaderInjected, ConversationSessionInjected,
-  DetailsInjected, ProseReferentSpan,
+  ComposerBarInjected, ConversationInjected, ConversationSessionHeaderInjected,
+  ConversationSessionInjected,
 } from './contract/slots.ts'
-import type { InputNotice } from './input/contract.ts'
-import { createChatStore } from './stores.ts'
+import type { InputNotice } from './contract/input.ts'
+import { createConversationStore } from './stores.ts'
 import { ConversationController, UnsupportedImageMediaTypeError } from './service.ts'
 import type { IConversation } from './service.ts'
 import { ComposerBlockRegistry } from './input/blocks.ts'
-import type { ComposerBlock } from './input/blocks.ts'
+import type { ComposerBlock } from './contract/composer-blocks.ts'
 import { InputHub } from './input/hub.ts'
 import { ComposerSubmissionPolicy } from './input/submission-policy.ts'
-import { InputBar } from './skeleton/InputBar.tsx'
+import { queueDockEntry } from './queue/QueueDock.tsx'
 import { EnterBehaviorRow } from './settings/EnterBehaviorRow.tsx'
 import type { EnterBehaviorRowInjected } from './settings/EnterBehaviorRow.tsx'
-import { ChatView } from './chat/ChatView.tsx'
-import { StatsLine } from './chat/StatsLine.tsx'
-import { ApprovalPanel } from './skeleton/ApprovalPanel.tsx'
-import { todoDockEntry } from './skeleton/TodoPanel.tsx'
-import { queueDockEntry } from './queue/QueueDock.tsx'
 import { ConversationRoot } from './skeleton/ConversationRoot.tsx'
 import { ConversationSession, ConversationSessionHeader } from './skeleton/ConversationSession.tsx'
-import { DetailsPanel } from './skeleton/DetailsPanel.tsx'
+import { InputBar } from './skeleton/InputBar.tsx'
+import { todoDockEntry } from './skeleton/TodoPanel.tsx'
 import { en, NS, zh, type ConversationKey } from './locales.ts'
-import { registerConversationNodes } from './conversation-nodes/register.ts'
-import { registerChatNodeRenderers } from './chat/register-node-renderers.ts'
 import { CONVERSATION_SETTINGS_NAMESPACE, type ConversationSettings } from '../submission-settings.ts'
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
   interface LocaleNamespaceMap {
-    /** The conversation skeleton, chat flow, commands, details, and docks copy. */
+    /** Conversation shell, composer, queue, and dock copy. */
     conversation: ConversationKey
   }
 }
 
-/** Services required by the conversation plugin. */
+/** Services required by the Conversation plugin. */
 export const inject = [
-  'slots', 'layout', 'sessions', 'workspaces', 'locale', 'connection', 'remote', 'settingsScope',
-  'conversationEvents', 'conversationViews',
+  'slots', 'sessions', 'uiSession', 'uiWorkspace', 'locale', 'settingsScope',
 ]
 
-// Static no-session sources for the composer-bar hooks compartment: module
-// constants so the render side's per-source hook cache (observableHook) keeps
-// one identity across every no-session render.
+// Stable no-session sources keep the renderer's observable-hook cache and
+// hook order unchanged across current-Session transitions.
 const ABSENT_NOTICES = {
   getSnapshot: (): InputNotice | null => null,
   subscribe: () => () => {},
 }
-/** No session, therefore nothing to block; same one-identity rule as above. */
 const ABSENT_BLOCK = {
   getSnapshot: (): ComposerBlock | undefined => undefined,
   subscribe: () => () => {},
@@ -77,156 +65,43 @@ const ABSENT_MENU_LAUNCHER = {
   subscribe: () => () => {},
 }
 
-const CHAT_NODE_INJECT: ChatNodeTurnDataInjected = {
-  hooks: {
-    turnData: ({ useSession }, nodeKey) => function useTurnData(key) {
-      return useSession((snapshot) => {
-        const location = snapshot.chat.nodes.get(nodeKey)?.location
-        return location?.kind === 'turn' || location?.kind === 'step'
-          ? location.turn.data.get(key)
-          : undefined
-      })
-    },
-  },
+interface WorkspaceNavigation {
+  connectWorkspace(
+    workspaceId: Parameters<ConversationInjected['selectWorkspace']>[0],
+  ): Promise<SessionId>
 }
 
-/** Resolve the session-scoped conversation face (scope-addressed send/cancel), failing loud. */
+/** Resolve the session-scoped Conversation action face, failing loud. */
 function scopedConversation(sessions: ISessions, id: SessionId): IConversation {
   const scoped = sessions.scope(id)
   if (scoped === undefined) throw new Error(`ui-conversation: session "${id}" resolved no scope`)
   const conversation = scoped.get('conversation')
-  if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable through the session scope')
+  if (conversation === undefined) {
+    throw new Error('ui-conversation: conversation service unavailable through the session scope')
+  }
   return conversation
 }
 
-/** Resolve package-internal attachment operations from the public service registration. */
+/** Resolve package-internal attachment operations from the public service. */
 function concreteConversation(ctx: Context): ConversationController {
   const conversation = ctx.get('conversation') as ConversationController | undefined
   if (conversation === undefined) throw new Error('ui-conversation: conversation service unavailable')
   return conversation
 }
 
-/** Chain routing: claim the composer while an approval wait is pending (pure — owner props only). */
-function selectApproval({ interactions }: ComposerChainProps): ApprovalWait | null {
-  return interactions.find((i): i is ApprovalWait => i.kind === 'approval') ?? null
-}
-
 /**
- * Build the render-facing prose-referent scanner/opener for one session, or
- * undefined when no {@link ProseReferents} provider is composed in.
- * `scan` reads the session cwd and Host account home fresh on every call
- * (the same lazy-read technique `openFile` below uses for cwd), so composing
- * the provider in or out, or a workspace change, takes effect on the very
- * next render with no re-registration.
- * @param ctx - client root context.
- * @param sessions - resolved once by the caller, mirroring the other apply-time service reads below.
- * @param connection - resolved once by the caller; its `hostDescription` names the Host account home.
- * @param sessionId - the session this scanner/opener is bound to.
- * @param notifyNotFound - surface the session's own composer notice for a
- * `not-found` open failure (bound by the caller to `inputHub.shell(id).notify('error', …)`);
- * kept as a plain callback rather than threading `InputHub` itself through,
- * so this function stays testable with a bare stub.
- * @param notFoundText - localized notice text for that case, resolved once
- * by the caller (the same lazy-bind-then-call-per-render pattern the rest of
- * this module's `t(...)` call sites use).
- * @returns the scanner/opener MarkdownText consumes, or undefined.
- */
-function buildProseReferents(
-  ctx: Context, sessions: ISessions, connection: ConnectionHandle, sessionId: SessionId,
-  notifyNotFound: (sessionId: SessionId, text: string) => void, notFoundText: string,
-): MarkdownProseReferents | undefined {
-  const provider = ctx.get('proseReferents')
-  if (provider === undefined) return undefined
-  const providerResolveLink = provider.resolveLink
-  const providerSubscribe = provider.subscribe
-  return {
-    scan: (text, inlineCode) => provider.scan(text, {
-      cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
-      home: connection.hostDescription.getSnapshot()?.home,
-      inlineCode,
-    }),
-    // exactOptionalPropertyTypes: an optional method is either present or
-    // absent from the object, never present-with-value-undefined — the
-    // conditional spreads below are what that distinction requires.
-    ...(providerResolveLink === undefined ? {} : {
-      resolveLink: (destination: string, displayText: string) => providerResolveLink(destination, displayText, {
-        cwd: sessions.list.getSnapshot().byId[sessionId]?.cwd,
-        home: connection.hostDescription.getSnapshot()?.home,
-      }),
-    }),
-    ...(providerSubscribe === undefined ? {} : {
-      subscribe: (listener: () => void) => providerSubscribe(listener),
-    }),
-    open: (span) => {
-      // Safe: this scanner's own `scan` above is the only producer of spans
-      // MarkdownText ever hands back to `open` — it treats a span as opaque
-      // (start/end only) and returns the exact object `scan` gave it, which
-      // always carries the fuller ProseReferentSpan shape at runtime.
-      const referentSpan = span as ProseReferentSpan
-      const ref: ReferentRef = {
-        kind: referentSpan.kind,
-        target: referentSpan.target,
-        raw: referentSpan.raw,
-        sessionId,
-        // Never the openFile chokepoint's own ref below: that would
-        // double-dispatch this click and mislabel its provenance as
-        // 'structured' — this click is model-authored prose, not a
-        // structured content-part open.
-        source: 'chat-prose',
-        provenance: 'model-text',
-      }
-      const onDefault = (): Promise<void> | void => {
-        if (referentSpan.kind === 'url') {
-          window.open(referentSpan.target, '_blank', 'noopener,noreferrer')
-          return
-        }
-        return ctx.workspaces.openPath(referentSpan.target)
-      }
-      // `not-found` gets the same downgrade the terminal card already has
-      // (`referent-click.ts`'s `ClickOutcome`, `ClickableSpan`'s inline
-      // notice) for the identical race: a span the verification layer
-      // confirmed can still name a path deleted between that `stat` and
-      // this click. Prose spans have no per-span notice slot of their own —
-      // a `fileMention` button is a pure render of `scan`/`resolveLink`'s
-      // output (`ui-primitives`'s `render.tsx`), not a stateful component —
-      // so this reuses the session's own composer notice channel
-      // (`InputHub`) instead. Any other failure still only reaches the
-      // console: no dedicated UI for those yet.
-      void dispatchReferentOpen(ctx, ref, onDefault).catch((error: unknown) => {
-        if (error instanceof PathOpenError && error.rpcError.code === 'not-found') {
-          notifyNotFound(sessionId, notFoundText)
-          return
-        }
-        console.error('ui-conversation: chat-prose referent open failed', error)
-      })
-    },
-  }
-}
-
-/** Mounts the conversation plugin.
+ * Mount the Conversation core and target-neutral presentation.
  * @param ctx - Client root context.
  */
 export function apply(ctx: Context): void {
   const sessions = ctx.sessions
-  const workspaces = ctx.workspaces
-  const layout = ctx.layout
   const slots = ctx.slots
-  // No ambient ctx.connection merge (unlike sessions/workspaces): resolved
-  // the same way ui-tool's apply.ts reads the same service.
-  const connection = ctx.get('connection') as ConnectionHandle
-
-  registerConversationNodes(ctx)
-  registerChatNodeRenderers(ctx)
+  const workspaceNavigation = ctx.get('uiWorkspace') as unknown as WorkspaceNavigation
+  const uiConversation = new UiConversation(ctx, sessions)
 
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'ui-conversation: dictionaries')
-
-  // Registration-time text (the view tab label) reads through the bound
-  // translate as a thunk, so it follows the active locale without
-  // re-registration; components read the standard `t` seat instead.
   const t = ctx.locale.bind(NS)
-
-  // Apply-time construction keeps store identity bound to this fiber.
-  const chatStore = createChatStore()
+  const conversationStore = createConversationStore()
   const submissionPolicy = new ComposerSubmissionPolicy(
     ctx.settingsScope.bind<ConversationSettings>({ namespace: CONVERSATION_SETTINGS_NAMESPACE }),
   )
@@ -242,55 +117,59 @@ export function apply(ctx: Context): void {
     }),
   }, EnterBehaviorRow))
 
-  // Chat semantic reader positions by session, surviving view switches and
-  // width reflow when the tab ring remounts the view. Deliberately not
-  // persisted: a fresh page load keeps the open-jump-to-bottom default.
-  const chatScrollPositions = new Map<SessionId, ChatScrollPosition>()
-
   const viewTabs = (): ViewTab[] => {
     const tabs: ViewTab[] = []
     for (const entry of slots.entries('conversation.view')) {
-      /* v8 ignore next -- unreachable: list registration validates id at load. */
+      /* v8 ignore next -- list registration validates id at load. */
       if (entry.options.id === undefined) continue
-      tabs.push({ id: entry.options.id, label: resolveSlotLabel(entry.options.label) ?? entry.options.id })
+      tabs.push({
+        id: entry.options.id,
+        label: resolveSlotLabel(entry.options.label) ?? entry.options.id,
+      })
     }
     return tabs
   }
-  const views = {
-    list: viewTabs,
-    subscribe: (fn: () => void) => slots.subscribe('conversation.view', fn),
-    version: () => slots.getVersion('conversation.view'),
+  const conversationViews = createSnapshotStore<readonly ViewTab[]>(viewTabs())
+  const refreshViews = (): void => {
+    const current = conversationViews.getSnapshot()
+    const next = viewTabs()
+    if (current.length === next.length
+      && current.every((tab, index) => {
+        const candidate = next.at(index)
+        return candidate !== undefined && tab.id === candidate.id && tab.label === candidate.label
+      })) return
+    conversationViews.set(next)
   }
+  ctx.effect(() => {
+    const disposeViews = slots.subscribe('conversation.view', refreshViews)
+    const disposeLocale = ctx.locale.subscribe(refreshViews)
+    return () => {
+      disposeLocale()
+      disposeViews()
+    }
+  }, 'ui-conversation: View roster')
 
-  // The per-session input machine registry (SessionInputResolver face; published as
-  // ctx.conversation.input by the service below sharing this one instance).
   const inputHub = new InputHub(ctx, t)
-
-  // The composer-block registry: a plugin that knows a session cannot send —
-  // ui-model-selection, when no adapter serves the session's route — raises a block
-  // here, and the bar reads its own session's store. It cannot flow the other
-  // way: this package must not import the plugins that would know.
   const composerBlocks = new ComposerBlockRegistry()
 
-  // The input machine feeds every session-scope slot
-  // component through the standard provide channel — the 'input' hook plus
-  // the two public actions. Materialization is the shell creation trigger
-  // (per-session lazy; scope disposer tears down).
-  ctx.effect(() => sessions.provide({
-    hooks: ['input'],
+  // Conversation assembly and input share the Session binding lifecycle. The
+  // source roster is installed before any consuming Slot entry.
+  ctx.uiSession.provide({
+    hooks: ['conversation', 'input'],
     props: ['inputActions'],
     resolve: (binding) => {
       const shell = inputHub.shellFor(binding)
       return {
-        hooks: { input: shell.state },
+        hooks: {
+          conversation: uiConversation.binding(binding).snapshot,
+          input: shell.state,
+        },
         props: { inputActions: shell.actions },
       }
     },
-  }), 'ui-conversation: input standard-kit provider')
+  })
 
-  // Resident current-session-optional shell. It owns the stable Hero/composer
-  // frame while strict session slots fill only their session-bound regions.
-  slots.register({
+  const registerConversationRoot = () => slots.register({
     name: 'conversation',
     locale: NS,
     children: {
@@ -308,9 +187,11 @@ export function apply(ctx: Context): void {
       'conversation.hero.agentPreset': { kind: 'single', scope: 'root' },
     },
     inject: (sessionId: SessionId | undefined): ConversationInjected => ({
-      hooks: { composerBlock: sessionId === undefined ? ABSENT_BLOCK : composerBlocks.storeFor(sessionId) },
+      hooks: {
+        composerBlock: sessionId === undefined ? ABSENT_BLOCK : composerBlocks.storeFor(sessionId),
+      },
       selectWorkspace: async (workspaceId) => {
-        const nextId = await workspaces.connectWorkspace(workspaceId)
+        const nextId = await workspaceNavigation.connectWorkspace(workspaceId)
         if (sessionId !== undefined && nextId !== sessionId) {
           const from = inputHub.shell(sessionId)
           const draft = from.snapshot.draft
@@ -331,28 +212,19 @@ export function apply(ctx: Context): void {
     }),
   }, ConversationRoot)
 
-  // The strict session body fills the resident scrollport without owning it;
-  // the Hero/composer path therefore stays fixed while the first blank
-  // session appears after a Workspace pick.
-  slots.register({
+  const registerConversationSession = () => slots.register({
     name: 'conversation.session',
     children: {
       'conversation.view': { kind: 'list', scope: 'session' },
     },
-    store: chatStore,
-    inject: (sessionId: SessionId, _actions: BoundActions<typeof chatStore>): ConversationSessionInjected => {
-      const conversation = concreteConversation(ctx)
-      return {
-        views,
-        releaseSessionImages: (id) => { conversation.releaseSessionImages(id) },
-        bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
-      }
-    },
+    store: conversationStore,
+    inject: (sessionId: SessionId, _actions: BoundActions<typeof conversationStore>): ConversationSessionInjected => ({
+      hooks: { conversationViews },
+      bindDraftMirror: write => inputHub.shell(sessionId).bindMirror(write),
+    }),
   }, ConversationSession)
 
-  // Header chrome sits above the resident scrollport but shares the same
-  // per-session chat store (active view) as its body and view entries.
-  slots.register({
+  const registerConversationHeader = () => slots.register({
     name: 'conversation.session.header',
     locale: NS,
     children: {
@@ -360,26 +232,16 @@ export function apply(ctx: Context): void {
       'conversation.session.header.actions': { kind: 'list', scope: 'session' },
       'conversation.session.header.utilities': { kind: 'list', scope: 'session' },
     },
-    store: chatStore,
+    store: conversationStore,
     inject: (): ConversationSessionHeaderInjected => ({
-      views,
+      hooks: { conversationViews },
       open: (id) => { sessions.open(id) },
     }),
   }, ConversationSessionHeader)
 
-  // The default composer body: its own single slot inside the composer
-  // chain's fallback. Public machine surface arrives via the
-  // provide channel above; the keyboard command face and the stop/retry
-  // verbs ride this inject (package-internal — hub and bar are one plugin).
-  // Session-maybe: with no current session the machine faces are absent and
-  // the hooks compartment binds static empty sources (module constants, so
-  // observableHook caching and hook order stay stable across transitions).
-  slots.register({
+  const registerComposerBar = () => slots.register({
     name: 'conversation.composer.bar',
     locale: NS,
-    // The two named control seats in the bar's tool row (plan beside the
-    // access control, model right); empty until their owning plugins
-    // register.
     children: {
       'conversation.input.attachments': { kind: 'single', scope: 'session-maybe' },
       'conversation.input.plan': { kind: 'single', scope: 'session' },
@@ -398,7 +260,11 @@ export function apply(ctx: Context): void {
           toggleCommandMenu: undefined,
           stop: undefined,
           command: undefined,
-          hooks: { notices: ABSENT_NOTICES, lexicon: ABSENT_LEXICON, menuLauncher: ABSENT_MENU_LAUNCHER },
+          hooks: {
+            notices: ABSENT_NOTICES,
+            lexicon: ABSENT_LEXICON,
+            menuLauncher: ABSENT_MENU_LAUNCHER,
+          },
         }
       }
       const conversation = concreteConversation(ctx)
@@ -414,11 +280,7 @@ export function apply(ctx: Context): void {
             }
             return null
           } catch (error: unknown) {
-            if (error instanceof UnsupportedImageMediaTypeError) {
-              // Positive copy: the supported list is fixed in imageMediaType,
-              // and naming it beats echoing the rejected MIME type back.
-              return t('image.unsupportedType')
-            }
+            if (error instanceof UnsupportedImageMediaTypeError) return t('image.unsupportedType')
             return error instanceof Error ? error.message : String(error)
           }
         },
@@ -455,7 +317,7 @@ export function apply(ctx: Context): void {
           },
         stop: () => {
           scopedConversation(sessions, sessionId).cancel().catch(() => {
-            // Stop failure surfaces via snapshot.promptError; nothing to restore.
+            // Stop failure is published through Session promptError.
           })
         },
         command: async (line) => {
@@ -473,123 +335,14 @@ export function apply(ctx: Context): void {
     },
   }, InputBar)
 
-  // The approval takeover: a selector-routed entry of the chain this package
-  // just declared (the ui-user-questions registration pattern; the entry lives here
-  // because approval answering is core conversation UX, not an optional tool).
-  // Zero business face — data and verbs both ride the matched carrier.
-  // priority 1: question takeovers (default 0) win when both kinds are
-  // pending — a question is a conversation the model is waiting on, while an
-  // approval only blocks one tool call; answering the question first cannot
-  // strand the approval (it re-elects the moment the question resolves).
-  slots.register({ name: 'conversation.composer', select: selectApproval, priority: 1, locale: NS }, ApprovalPanel)
+  slots.inject('conversation', function* () {
+    yield registerConversationRoot()
+    yield registerConversationSession()
+    yield registerConversationHeader()
+    yield registerComposerBar()
+  })
 
-  // The chat view: first entry of the ring this package just declared.
-  // ChatView owns only the stable ordered Node list. Business renderers are
-  // independently keyed behind its one Node seat.
-  slots.register({
-    name: 'conversation.view',
-    id: 'chat',
-    order: 0,
-    label: () => t('view.chat'),
-    locale: NS,
-    children: {
-      'conversation.chat.node': { kind: 'keyed', scope: 'session', inject: CHAT_NODE_INJECT },
-      'conversation.message.images': { kind: 'single', scope: 'session' },
-      'conversation.chat.user-actions': { kind: 'list', scope: 'session' },
-    },
-    store: chatStore,
-    inject: (sessionId: SessionId, actions: BoundActions<typeof chatStore>): ChatViewInjected => {
-      const conversation = concreteConversation(ctx)
-      const scoped = scopedConversation(sessions, sessionId)
-      return {
-        openDetails: (target) => {
-          actions.select(target)
-          layout.openDetails()
-        },
-        fileMentions: owner => ctx.get('chatFileMentions')?.forClosing(owner),
-        referents: buildProseReferents(
-          ctx, sessions, connection, sessionId,
-          (id, text) => { inputHub.shell(id).notify('error', text) },
-          t('referent.notFound'),
-        ),
-        // referent/open first: wraps the pre-existing openPath action as the
-        // waterfall's terminus, so every consumer this one closure already
-        // reaches (tool rows, produced-file chips, mentions, and the file
-        // card below) becomes interceptable without a per-consumer change.
-        // Zero listeners exist yet: with none registered the waterfall
-        // reaches its terminus immediately and this call is byte-identical
-        // to the un-wrapped openPath it replaces.
-        openFile: (path) => {
-          const cwd = sessions.list.getSnapshot().byId[sessionId]?.cwd
-          const target = resolveWorkspacePath(cwd, path)
-          const ref: ReferentRef = {
-            // ProducedFiles opens the session workspace root as '.'; every
-            // other path this closure ever receives names a file (mirrors
-            // ChatView.tsx's own isFolderOpenPath heuristic for the same
-            // reason: no richer file/dir signal reaches this closure).
-            kind: path === '.' ? 'dir' : 'file',
-            target,
-            raw: path,
-            sessionId,
-            source: 'chat-view.openFile',
-            provenance: 'structured',
-          }
-          return dispatchReferentOpen(ctx, ref, () => workspaces.openPath(target))
-        },
-        loadOlder: () => { void scoped.loadOlder() },
-        loadImage: attachment => conversation.resolveImage(sessionId, attachment),
-        loadFile: attachment => conversation.resolveFile(sessionId, attachment),
-        openReferent: (ref, onDefault) => dispatchReferentOpen(ctx, { ...ref, sessionId }, onDefault),
-        // Unregistered 'trajectory' id is safe: the tab ring falls back to
-        // the first view, and the untouched inspect target stays inert.
-        inspectCall: (callId) => {
-          actions.setInspect({ callId })
-          actions.setView('trajectory')
-        },
-        chatScroll: {
-          save: (position) => {
-            if (position === null) chatScrollPositions.delete(sessionId)
-            else chatScrollPositions.set(sessionId, position)
-          },
-          read: () => chatScrollPositions.get(sessionId) ?? null,
-        },
-        forkAt: (seq) => {
-          sessions.fork({ sessionId, atSeq: seq, increaseTitle: true })
-            .then((childId) => { sessions.open(childId) })
-            .catch(() => {
-              // Fork or child-rename failure keeps the source view untouched.
-            })
-        },
-      }
-    },
-  }, ChatView)
-
-  // Session stats stick with the composer (composer.dock = stats-line family).
-  slots.register({ name: 'conversation.composer.dock', id: 'stats', order: 0, locale: NS }, StatsLine)
-
-  // Class-plugin mount (packages/AGENTS.md service form): the service
-  // registers itself as `conversation` and lives on its own child fiber.
-  // Presentation registrants depend directly on their slot declarations;
-  // this service remains only where conversation actions are required.
   ctx.plugin(ConversationController, { input: inputHub, blocks: composerBlocks })
-
-  // The plan strip rides the input dock above the queue rows (same posture).
   ctx.plugin(todoDockEntry)
-
-  // The read-only queue dock entry rides the same
-  // registration path into the input dock declared above.
   ctx.plugin(queueDockEntry)
-
-  slots.register({
-    name: 'details',
-    locale: NS,
-    children: {
-      'conversation.details.tool': { kind: 'single', scope: 'session' },
-    },
-    store: chatStore,
-    inject: (): DetailsInjected => ({
-      closeDetails: () => { layout.closeDetails() },
-    }),
-  }, DetailsPanel)
-
 }

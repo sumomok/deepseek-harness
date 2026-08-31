@@ -53,6 +53,17 @@ function ensureReference(ref: { attachmentId: AttachmentIdType }): string {
   return match[1]
 }
 
+/**
+ * Derive the absolute immutable-object path for one normalized attachment.
+ * @param root - absolute `DSH_HOME/attachments/v1` root.
+ * @param ref - durable normalized attachment reference.
+ * @returns provider-local path without reading the object.
+ */
+export function normalizedImagePath(root: string, ref: ImageAttachmentRef): string {
+  const sha256 = ensureReference(ref)
+  return join(root, 'objects', sha256.slice(0, 2), sha256)
+}
+
 async function inspectMetadata(
   data: Uint8Array,
   declaredMediaType: ImageAttachmentRef['mediaType'],
@@ -218,13 +229,18 @@ async function commitDurableObject(root: string, sha256: string, data: Uint8Arra
       const existing = new Uint8Array(await readFile(target))
       if (digest(existing) !== sha256) throw new AttachmentError('Stored attachment failed integrity verification.', 'ATTACHMENT_CORRUPT')
     }
+    // Windows shares the read-only attribute across hard links and refuses to
+    // unlink either name once it is set, so discard the staging name first.
+    await unlink(temporary)
+    // The target remains the sole link for a new object; this also restores
+    // read-only mode when the deduplication path observes an existing object.
+    await chmod(target, 0o400)
     // Persist the target entry and close a concurrent bucket-creation window
     // before the reference can reach a session checkpoint. The dedup path
     // repeats both syncs because it may observe another writer's link before
     // that writer reaches its own durability boundary.
     await syncDirectory(bucket)
     await syncDirectory(join(root, 'objects'))
-    await unlink(temporary)
   } catch (error) {
     /* v8 ignore next -- A descriptor can remain open only when the underlying write/sync/close operation fails. */
     if (handle !== undefined) await handle.close().catch(
@@ -377,7 +393,6 @@ export interface PreparedTextFile {
  * @param limits - source admission policy.
  * @returns immutable reference facts beside bytes ready for atomic publication.
  */
-// oxlint-disable-next-line typescript/require-await -- Preserve promise rejection semantics at the async provider contract.
 export async function prepareTextFile(
   input: SaveFileAttachment,
   limits: FileAttachmentLimits,

@@ -14,7 +14,7 @@ import type {
   StoredFileAttachment,
   StoredImageAttachment,
 } from '@deepseek-ai/dsh-attachment'
-import LlmRuntime, { createUserMessage, CallId } from '@deepseek-ai/dsh-llm'
+import LlmRuntime, { createUserMessage, ToolCallId } from '@deepseek-ai/dsh-llm'
 import type { Message, ToolSchema } from '@deepseek-ai/dsh-llm'
 import * as LlmPiAi from '@deepseek-ai/dsh-llm-pi-ai'
 import type { PiAiReplayResponse } from '../src/replay.ts'
@@ -80,12 +80,6 @@ async function harness(image?: StoredImageAttachment): Promise<Context> {
         mediaTypes: [fixture.ref.mediaType],
       }
 
-      readonly fileLimits: FileAttachmentLimits = {
-        maxFileBytes: 1,
-        maxFilesPerMessage: 1,
-        maxMessageFileBytes: 1,
-      }
-
       validateImage(_input: SaveImageAttachment): Promise<void> {
         return Promise.reject(new Error('e2e attachment fixture is read-only'))
       }
@@ -119,6 +113,8 @@ async function harness(image?: StoredImageAttachment): Promise<Context> {
         })
       }
 
+      readonly fileLimits: FileAttachmentLimits = { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 }
+
       validateFile(_input: SaveFileAttachment): Promise<void> {
         return Promise.reject(new Error('e2e attachment fixture is read-only'))
       }
@@ -128,7 +124,7 @@ async function harness(image?: StoredImageAttachment): Promise<Context> {
       }
 
       readFile(_ref: FileAttachmentRef): Promise<StoredFileAttachment> {
-        return Promise.reject(new Error('unknown e2e attachment fixture'))
+        return Promise.reject(new Error('e2e attachment fixture is read-only'))
       }
     }
     await ctx.plugin(E2eAttachmentStore)
@@ -234,7 +230,7 @@ for (const profile of providerCases) {
             createUserMessage({
               content: [{
                 type: 'tool-result',
-                toolCallId: CallId(call!.id),
+                toolCallId: ToolCallId(call!.id),
                 content: [{ type: 'text', text: 'The code blue means ocean.' }],
               }],
               source: { kind: 'plugin', plugin: 'test' },

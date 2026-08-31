@@ -22,6 +22,7 @@ import { CompressionLimiter } from './compression-limiter.ts'
 import {
   commitPreparedImageFile,
   commitPreparedTextFile,
+  normalizedImagePath,
   prepareImageFile,
   prepareTextFile,
   readImageFile,
@@ -46,7 +47,7 @@ export {
   validateTextFile,
 } from './store.ts'
 export type { PreparedImageFile, PreparedTextFile } from './store.ts'
-export { readRequestImageFile, requestImageDimensions, requestImageVariantId } from './request-image.ts'
+export { readRequestImageFile, requestImageVariantId } from './request-image.ts'
 export { PROBE_BYTES, sniffProbe } from './sniff.ts'
 export type { SniffResult } from './sniff.ts'
 export { detectText } from './text.ts'
@@ -63,12 +64,16 @@ export const DEFAULT_MAX_IMAGE_PIXELS = 64_000_000
 /** Default per-side pixel cap for one submitted image. */
 export const DEFAULT_MAX_IMAGE_DIMENSION = 8192
 /**
- * Default long-edge target of the stored normalized image. A larger source
- * is admitted and downscaled to this edge, so admission bounds what rides
- * every later model request without refusing ordinary large sources.
+ * Default total-pixel budget of the stored normalized image. A larger source
+ * is admitted and downscaled proportionally, so admission bounds what rides
+ * every later model request without refusing ordinary large sources; extreme
+ * aspect ratios keep their short-edge resolution instead of collapsing under
+ * a long-edge rule.
  */
-export const DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION = 2048
-/** Default independent safety cap for one stored normalized image. */
+export const DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS = 2048 * 2048
+/** Default long-edge cap of the stored normalized image, applied after the total-pixel budget. */
+export const DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION = 8192
+/** Default encoded-byte target for one stored normalized image. */
 export const DEFAULT_NORMALIZED_IMAGE_MAX_BYTES = 4 * 1024 * 1024
 /** Conservative default number of simultaneous native image transformations per store. */
 export const DEFAULT_IMAGE_COMPRESSION_CONCURRENCY = 2
@@ -95,9 +100,14 @@ export interface Config {
   maxImagePixels?: number
   /** Maximum intrinsic width and maximum intrinsic height accepted for one submitted image. Default: 8192px. */
   maxImageDimension?: number
-  /** Long-edge pixel cap of the stored provider-independent normalized image. */
+  /** Total-pixel budget of the stored provider-independent normalized image. */
+  normalizedImageMaxPixels?: number
+  /** Long-edge pixel cap of the stored provider-independent normalized image, applied after the total-pixel budget. */
   normalizedImageMaxDimension?: number
-  /** Encoded-byte safety cap of the stored provider-independent normalized image. */
+  /**
+   * Encoded-byte target of the stored provider-independent normalized image;
+   * the smallest quality-ladder output is kept when no quality fits.
+   */
   normalizedImageMaxBytes?: number
   /** Maximum simultaneous normalization or request-image transformations in this service instance. */
   imageCompressionConcurrency?: number
@@ -156,7 +166,6 @@ class SharedRequest<T> {
         signal.removeEventListener('abort', abort)
         release(false)
         // CompressionLimiter normalizes task rejections before this handler.
-        // oxlint-disable-next-line typescript/prefer-promise-reject-errors
         reject(error)
       })
     })
@@ -179,6 +188,7 @@ export class LocalAttachmentStore extends AttachmentStore {
     maxMessageImageBytes: z.number().step(1).min(1).default(DEFAULT_MAX_MESSAGE_IMAGE_BYTES),
     maxImagePixels: z.number().step(1).min(1).default(DEFAULT_MAX_IMAGE_PIXELS),
     maxImageDimension: z.number().step(1).min(1).default(DEFAULT_MAX_IMAGE_DIMENSION),
+    normalizedImageMaxPixels: z.number().step(1).min(1).default(DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS),
     normalizedImageMaxDimension: z.number().step(1).min(1).default(DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION),
     normalizedImageMaxBytes: z.number().step(1).min(1).default(DEFAULT_NORMALIZED_IMAGE_MAX_BYTES),
     imageCompressionConcurrency: z.number().step(1).min(1).max(MAX_IMAGE_COMPRESSION_CONCURRENCY)
@@ -216,6 +226,7 @@ export class LocalAttachmentStore extends AttachmentStore {
       maxMessageFileBytes: config.maxMessageFileBytes ?? DEFAULT_MAX_MESSAGE_FILE_BYTES,
     })
     this.normalizationPolicy = Object.freeze({
+      maxPixels: config.normalizedImageMaxPixels ?? DEFAULT_NORMALIZED_IMAGE_MAX_PIXELS,
       maxDimension: config.normalizedImageMaxDimension ?? DEFAULT_NORMALIZED_IMAGE_MAX_DIMENSION,
       maxBytes: config.normalizedImageMaxBytes ?? DEFAULT_NORMALIZED_IMAGE_MAX_BYTES,
     })
@@ -254,6 +265,10 @@ export class LocalAttachmentStore extends AttachmentStore {
 
   async readImage(ref: ImageAttachmentRef, signal?: AbortSignal): Promise<StoredImageAttachment> {
     return readImageFile(this.root, ref, signal)
+  }
+
+  override imageHostPath(ref: ImageAttachmentRef): string {
+    return normalizedImagePath(this.root, ref)
   }
 
   async validateFile(input: SaveFileAttachment): Promise<void> {
@@ -300,12 +315,15 @@ export class LocalAttachmentStore extends AttachmentStore {
       operation = undefined
     }
     if (operation === undefined) {
-      const shared = new SharedRequest<RequestImageAttachment>(sharedSignal => this.compression.run(async () => readRequestImageFile(
-        this.root,
-        stored ?? await this.readImage(ref, sharedSignal),
-        policy,
-        sharedSignal,
-      )))
+      const shared = new SharedRequest<RequestImageAttachment>(sharedSignal => this.compression.run(async () => {
+        const request = await readRequestImageFile(
+          this.root,
+          stored ?? await this.readImage(ref, sharedSignal),
+          policy,
+          sharedSignal,
+        )
+        return request
+      }))
       operation = shared
       this.requestInflight.set(key, shared)
       void shared.promise.finally(() => {

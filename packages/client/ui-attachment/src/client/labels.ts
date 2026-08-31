@@ -16,8 +16,8 @@ export function fileChipGroupLabel(t: TranslateNS<'conversation'>): string {
 
 /**
  * Fixed inline-label copy shown on every chip whose draft matched the
- * secret-container heuristic. Identical across chips (no per-file
- * interpolation), so the row resolves it once.
+ * pre-send secret-container heuristic. Identical across chips (no
+ * per-file interpolation), so the row resolves it once.
  * @param t - conversation namespace translator.
  * @returns translated warning-label text and tooltip.
  */
@@ -27,7 +27,7 @@ export function fileChipWarningLabel(t: TranslateNS<'conversation'>): FileChipWa
 
 /**
  * Below-row notice naming the first draft attachment that matched the
- * secret-container heuristic, with a remove control for that file.
+ * pre-send secret-container heuristic, with a remove control for that file.
  * @param t - conversation namespace translator.
  * @param name - display name of the first matched file.
  * @param onRemove - remove that file's draft attachment.
@@ -82,7 +82,7 @@ export function messageImageLabels(t: TranslateNS<'conversation'>): MessageImage
  * line, and the seam's own rejection still surfaces file-specific limits.
  * @param t - conversation namespace translator.
  * @param accepting - whether the composer can accept dropped files.
- * @param limits - optional translated image count and size values.
+ * @param limits - optional translated count and size values.
  * @returns translated drop-overlay labels.
  */
 export function dropOverlayLabels(

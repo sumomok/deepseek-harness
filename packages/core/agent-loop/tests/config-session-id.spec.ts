@@ -12,6 +12,7 @@ import AgentRegistry, { type Agent } from '@deepseek-ai/dsh-agent'
 
 import JsonlSessionPersistence from '@deepseek-ai/dsh-session-persistence-jsonl'
 import AgentLoop, { CONFIGURED_AGENT_IDENTITIES_KEY } from '@deepseek-ai/dsh-agent-loop'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import { MockAdapter, textResponse } from './mock-adapter.ts'
 
 const dirs: string[] = []
@@ -29,6 +30,7 @@ async function makeCoreContext(): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
@@ -264,7 +266,6 @@ describe('config-driven session id', () => {
     const failures: unknown[] = []
     ctx.on('agent-loop/config-start-failed', () => { throw unrenderable })
     // Deliberately violate the normal Error-only rejection rule to exercise the unknown boundary.
-    // oxlint-disable-next-line typescript/prefer-promise-reject-errors
     ctx.on('agent-loop/config-start-failed', () => Promise.reject(unrenderable) as never)
     ctx.on('agent-loop/config-start-failed', ({ error }) => { failures.push(error) })
     vi.spyOn(ctx.sessionPersistence, 'list').mockRejectedValue(unrenderable)
@@ -327,6 +328,7 @@ describe('config-driven session id', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
@@ -352,6 +354,7 @@ describe('config-driven session id', () => {
     const ctx1 = new Context()
     await ctx1.plugin(LlmRuntime)
     await ctx1.plugin(SessionStore)
+    await ctx1.plugin(SessionProjectionRegistry)
     await ctx1.plugin(SystemPrompt)
     await ctx1.plugin(ToolRuntime)
     await ctx1.plugin(AgentRegistry)
@@ -371,6 +374,7 @@ describe('config-driven session id', () => {
     const ctx2 = new Context()
     await ctx2.plugin(LlmRuntime)
     await ctx2.plugin(SessionStore)
+    await ctx2.plugin(SessionProjectionRegistry)
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRuntime)
     await ctx2.plugin(AgentRegistry)
@@ -395,6 +399,7 @@ describe('config-driven session id', () => {
     const ctx1 = new Context()
     await ctx1.plugin(LlmRuntime)
     await ctx1.plugin(SessionStore)
+    await ctx1.plugin(SessionProjectionRegistry)
     await ctx1.plugin(SystemPrompt)
     await ctx1.plugin(ToolRuntime)
     await ctx1.plugin(AgentRegistry)
@@ -411,6 +416,7 @@ describe('config-driven session id', () => {
     const ctx2 = new Context()
     await ctx2.plugin(LlmRuntime)
     await ctx2.plugin(SessionStore)
+    await ctx2.plugin(SessionProjectionRegistry)
     await ctx2.plugin(SystemPrompt)
     await ctx2.plugin(ToolRuntime)
     await ctx2.plugin(AgentRegistry)
@@ -436,6 +442,7 @@ describe('config-driven session id', () => {
     const ctx = new Context()
     await ctx.plugin(LlmRuntime)
     await ctx.plugin(SessionStore)
+    await ctx.plugin(SessionProjectionRegistry)
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
