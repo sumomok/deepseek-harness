@@ -39,7 +39,8 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, ConsoleMessage, Locator, Page, Request } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import { acknowledgeReloadConnectionLoss, launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
@@ -156,6 +157,7 @@ function shownPage(page: string): string {
 const column = (page: Page, name: string): Locator => page.locator(`[data-shell-column="${name}"]`)
 const callRow = (page: Page, callId: string): Locator => page.locator(`[data-chat-call-id="${callId}"]`)
 const switcherEntry = (page: Page, key: string): Locator => page.locator(`[data-content-surface-entry="${key}"]`)
+const dismissButton = (page: Page, key: string): Locator => page.locator(`[data-content-surface-dismiss="${key}"]`)
 const activeSeat = (page: Page): Locator => page.locator('[data-content-surface-seat][data-content-surface-active]')
 const activeFrame = (page: Page): Locator => page.locator('iframe[data-content-frame][data-content-active]')
 
@@ -233,6 +235,28 @@ async function probeFrame(page: Page, stamp: string | undefined): Promise<FrameP
       loads: inner.__contentAppLoads,
     }
   }, [stamp, PROBE_ATTRIBUTE] as [string | undefined, string])
+}
+
+/** Widened session shape: `.events` reads and `.append` calls, past the typed overload. */
+interface WidenedSession {
+  events: readonly { type: string; data: unknown }[]
+  append: (type: string, data: unknown) => number
+}
+
+/**
+ * The live agent for a seeded session, cast to expose `.session` reads and
+ * appends the same way `command.ts`'s own handler does. `content-surface`'s
+ * `SessionEventMap` merge is not importable from apps/web, so both directions
+ * are widened past the typed overload rather than trusted from an imported
+ * type.
+ * @param scaffold - the running Web scaffold.
+ * @param sessionId - the seeded session id.
+ * @returns the session, widened for `.events` reads and `.append` calls.
+ */
+function liveSession(scaffold: WebScaffold, sessionId: string): WidenedSession {
+  const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+  if (agent === undefined) throw new Error(`content-surface e2e: no live agent for session ${sessionId}`)
+  return agent.session as unknown as WidenedSession
 }
 
 describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stream', () => {
@@ -375,6 +399,38 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
     // Back to the first session's own choice, on the very same element.
     await expect.poll(async () => await probeFrame(page, undefined), { timeout: 15_000 }).toEqual(KEPT)
     expect(await listedEntries(page)).toEqual([COVERAGE_ENTRY, DEMO_ENTRY, PAGE_ENTRY])
+  }, 120_000)
+
+  it('closes a tab through the switcher, persists the dismissal across reload, and lets a fresh navigation resurrect it', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-content-surface-dismiss'))
+    await openMixedSession(page)
+    await select(page, PAGE_ENTRY)
+
+    await dismissButton(page, PAGE_ENTRY).click()
+    // The dismissed entry leaves the switcher outright, the other two are
+    // untouched, and the selection falls back to the newest survivor.
+    await expect.poll(() => listedEntries(page), { timeout: 15_000 }).toEqual([COVERAGE_ENTRY, DEMO_ENTRY])
+    await expect.poll(async () => await activeSeat(page).getAttribute('data-content-surface-seat'), { timeout: 15_000 })
+      .toBe('chart')
+    // The durable record the command left, not merely the browser's own view.
+    expect(liveSession(scaffold, MIXED_SESSION).events)
+      .toContainEqual(expect.objectContaining({ type: 'content-surface/dismissed', data: { kind: 'page', entryId: 'home', by: 'user' } }))
+    await evidence(page, 'content-surface-dismissed')
+
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await column(page, 'content').waitFor({ state: 'attached', timeout: 30_000 })
+    // Reload restores the same current session; the dismissal is not undone
+    // by a fresh client, because it lives in the durable log, not the browser.
+    await expect.poll(() => listedEntries(page), { timeout: 15_000 }).toEqual([COVERAGE_ENTRY, DEMO_ENTRY])
+
+    // A fresh navigation to the same page is an ordinary record, not blocked
+    // by the earlier dismissal — `content_show`/`show-content-page` both
+    // reduce to this same append; the UI gesture is exercised in
+    // `content-show.e2e.ts` and `server-sidebar.e2e.ts`.
+    liveSession(scaffold, MIXED_SESSION).append('content/shown', { page: 'home', by: 'agent' })
+    await expect.poll(() => listedEntries(page), { timeout: 15_000 }).toEqual([PAGE_ENTRY, COVERAGE_ENTRY, DEMO_ENTRY])
   }, 120_000)
 
   it('leaves the console clean', () => {

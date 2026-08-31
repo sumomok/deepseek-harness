@@ -10,16 +10,20 @@
  * through a keyed slot whose key is the entry's kind. A new kind is a host
  * extractor plus a `content.surface.kind` registration; nothing here changes.
  *
- * No session event of its own, deliberately. Every entry is derived from a
- * fact another package already logs — `content/shown` for a page, a
- * `show_chart` call for a chart — so replay reconstructs the whole column from
- * the log the agent actually wrote.
+ * Every entry is otherwise derived from a fact another package already logs —
+ * `content/shown` for a page, a `show_chart` call for a chart — so replay
+ * reconstructs the whole column from the log the agent actually wrote. The
+ * one exception this router owns directly is dismissal: closing an entry's
+ * tab in the switcher strip is not a fact any other package's log already
+ * carries, so this row appends `content-surface/dismissed` itself and the
+ * fold removes the named record on sight (see `command.ts` and
+ * `projection.ts`).
  *
  * One model-visible contribution, the prompt section below: what an entry
  * stream needs the model to understand is that a piece of content stays one
  * piece of content across turns, which is the same sentence for every kind.
  * It reaches the model through the assembled system prompt, which the routed
- * request header already records, so it adds no session event either.
+ * request header already records, so it adds no session event of its own.
  * @module @deepseek-ai/dsh-experimental-content-surface
  */
 
@@ -28,8 +32,11 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves ctx.systemPrompt for the optional prompt-section child.
 import type {} from '@deepseek-ai/dsh-system-prompt'
+// Type-only: resolves ctx.commands for the optional dismiss-content-entry command child.
+import type {} from '@deepseek-ai/dsh-commands'
 import { eraseExtractor, type ContentSurfaceExtractor, type ErasedExtractor } from './extractor.ts'
 import { contentSurfaceProjection } from './projection.ts'
+import { dismissContentEntryCommand } from './command.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -124,6 +131,12 @@ export class ContentSurfaceRegistry extends Service {
         order: ON_DISPLAY_SECTION_ORDER,
         text: ON_DISPLAY_RULE,
       })
+    })
+    // Optional for the same reason again: a deployment without a command
+    // runtime keeps the extractor table and the switcher's close button has
+    // nowhere to dispatch to, same as any other command-backed UI gesture.
+    ctx.inject(['commands'], (commandsCtx: Context) => {
+      commandsCtx.commands.register(dismissContentEntryCommand())
     })
   }
 

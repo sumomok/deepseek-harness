@@ -91,19 +91,35 @@ export function eraseExtractor<D>(extractor: ContentSurfaceExtractor<D>): Erased
 }
 
 /**
+ * Version of `projection.ts`'s `apply` itself, independent of which
+ * extractors are registered — folded into every table's {@link foldVersion}
+ * so a change to the fold's own control flow (not merely to a kind's stored
+ * shape) also discards a persisted checkpoint. Bump this whenever `apply`
+ * gains or changes a case that is not "run each registered extractor once
+ * per event" — `content-surface/dismissed`'s record removal is the first
+ * such case, hence `2` rather than `1`: the fold used to be exactly the
+ * extractor table, and now is not.
+ */
+const FOLD_SEMANTICS_VERSION = 2
+
+/**
  * Fold-semantics version of one extractor table.
  *
  * The session-projection registry seeds a fold from a persisted checkpoint row
  * whenever the row's `ver` matches the live unit's `stateVersion`, and this
  * fold's result depends on which extractors were registered when the row was
- * written. Deriving the version from the table is what makes a composition
- * change discard those rows instead of forward-applying them into a stream
- * missing every entry the added kind would have found.
+ * written AND on what `projection.ts`'s `apply` does with an event no
+ * extractor recognizes (`FOLD_SEMANTICS_VERSION`, above). Deriving the version
+ * from both is what makes a composition change, or a fold-semantics change,
+ * discard those rows instead of forward-applying them into a stream missing
+ * every entry the added kind would have found, or replaying under rules that
+ * no longer match what wrote the checkpoint.
  * @param extractors - the registered table, in any order.
  * @returns a non-negative safe integer, stable across processes for one table.
  */
 export function foldVersion(extractors: readonly ErasedExtractor[]): number {
-  const signature = extractors.map(extractor => `${extractor.kind}@${extractor.dataVersion}`).sort().join('\n')
+  const table = extractors.map(extractor => `${extractor.kind}@${extractor.dataVersion}`).sort().join('\n')
+  const signature = `fold@${FOLD_SEMANTICS_VERSION}\n${table}`
   // FNV-1a, folded to 31 bits so the value stays inside the non-negative safe
   // integers the registry accepts. Two tables sharing a value would share a
   // checkpoint; the README records that residual risk.

@@ -11,6 +11,7 @@ import { cleanup, fireEvent, render } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { ContentSurface, type ContentSurfaceProps } from '../src/client/ContentSurface.tsx'
+import { entryKeyOf } from '../src/client/surface-seats.ts'
 import { zh } from '../src/client/locales.ts'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 
@@ -46,6 +47,9 @@ function sessionsHook(feed: Feed): ContentSurfaceProps['useSessions'] {
 /** One renderSlot dispatch. */
 type Dispatch = { key: string; entryKey: string | undefined; owner: unknown }
 
+/** One `onDismiss` call. */
+type DismissCall = { sessionId: string; kind: string; entryId: string }
+
 /**
  * The last dispatch each seat received. The column folds its seat list during
  * render, so a pass that mounts a new seat is followed by a second one; what a
@@ -61,9 +65,10 @@ function perSeat(calls: readonly Dispatch[]): Dispatch[] {
 function mount(
   feed: Feed,
   registered: readonly string[],
-  view?: { view: ReturnType<typeof render>; calls: Dispatch[] },
-): { view: ReturnType<typeof render>; calls: Dispatch[] } {
+  view?: { view: ReturnType<typeof render>; calls: Dispatch[]; dismissed: DismissCall[] },
+): { view: ReturnType<typeof render>; calls: Dispatch[]; dismissed: DismissCall[] } {
   const calls = view?.calls ?? []
+  const dismissed = view?.dismissed ?? []
   const renderSlot = (key: string, owner: object, opts?: { entryKey?: string; fallback?: ReactNode }) => {
     calls.push({ key, entryKey: opts?.entryKey, owner })
     return registered.includes(opts?.entryKey ?? '')
@@ -73,12 +78,13 @@ function mount(
   const props = {
     useSessions: sessionsHook(feed),
     renderSlot,
+    onDismiss: (sessionId: string, kind: string, entryId: string) => { dismissed.push({ sessionId, kind, entryId }) },
     t: makeTranslate(zh),
   } as unknown as ContentSurfaceProps
   const element = <ContentSurface {...props} />
-  if (view === undefined) return { view: render(element), calls }
+  if (view === undefined) return { view: render(element), calls, dismissed }
   view.view.rerender(element)
-  return { view: view.view, calls }
+  return { view: view.view, calls, dismissed }
 }
 
 /** The switcher's buttons, in the order the strip lists them. */
@@ -101,6 +107,11 @@ function activeSeat(view: ReturnType<typeof render>): string | null {
 function seats(view: ReturnType<typeof render>): Map<string, Element> {
   return new Map([...view.container.querySelectorAll('[data-content-surface-seat]')]
     .map(seat => [seat.getAttribute('data-content-surface-seat') ?? '', seat]))
+}
+
+/** One entry's close button, by its switcher key. */
+function dismissButton(view: ReturnType<typeof render>, key: string): Element | null {
+  return view.container.querySelector(`[data-content-surface-dismiss=${JSON.stringify(key)}]`)
 }
 
 afterEach(() => {
@@ -179,5 +190,38 @@ describe('content column', () => {
     mount({ current: 'a', entries: { a: [CHART] } }, ['page', 'chart'], first)
     expect(seats(first.view).get('page')).toBe(pageSeat)
     expect(activeSeat(first.view)).toBe('chart')
+  })
+
+  it('closes a tab through a sibling button, never one nested inside the selection button', () => {
+    const { view, dismissed } = mount({ current: 'a', entries: { a: [CHART, PAGE] } }, ['page', 'chart'])
+    const closeButton = dismissButton(view, entryKeyOf(PAGE))
+    expect(closeButton?.tagName).toBe('BUTTON')
+    // Not a descendant of the selection button: a sibling in the tab wrapper.
+    expect(closeButton?.closest('[data-content-surface-entry]')).toBeNull()
+
+    fireEvent.click(closeButton as Element)
+    expect(dismissed).toEqual([{ sessionId: 'a', kind: 'page', entryId: 'reports' }])
+    // Nothing else moved: the close button dispatches, it does not select.
+    expect(selected(view)).toBe('chart sales')
+  })
+
+  it('keeps data-content-surface-entry and data-content-surface-selected on the selection button, not the tab wrapper', () => {
+    const { view } = mount({ current: 'a', entries: { a: [CHART] } }, ['chart'])
+    const entryButton = view.container.querySelector('[data-content-surface-entry]')
+    expect(entryButton?.tagName).toBe('BUTTON')
+    expect(entryButton?.hasAttribute('data-content-surface-selected')).toBe(true)
+    // The dismiss button is a sibling in the same wrapper, not a descendant.
+    expect(entryButton?.querySelector('[data-content-surface-dismiss]')).toBeNull()
+  })
+
+  it('falls back to the newest surviving entry once the picked tab is closed', () => {
+    const { view } = mount({ current: 'a', entries: { a: [CHART, PAGE] } }, ['page', 'chart'])
+    fireEvent.click(view.getByText('page reports'))
+    expect(selected(view)).toBe('page reports')
+
+    // Dismissal happens in the log; this component only ever sees its effect
+    // — the entry gone from the next render's feed — never the command itself.
+    const next = mount({ current: 'a', entries: { a: [CHART] } }, ['page', 'chart'], { view, calls: [], dismissed: [] })
+    expect(selected(next.view)).toBe('chart sales')
   })
 })

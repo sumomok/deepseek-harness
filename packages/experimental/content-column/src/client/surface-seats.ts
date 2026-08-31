@@ -9,6 +9,11 @@
  * would reload every one of them. Two rules follow: the seat list is
  * append-only (React moves a keyed child whose position changes, and moving an
  * iframe reloads it), and a kind never leaves it.
+ *
+ * A seat's own entries can shrink, though — an entry the user dismissed
+ * outright leaves the stream rather than being replaced in it — and
+ * `selectedEntry`'s fallback is what keeps the picked-entry-is-gone case from
+ * blanking the column either way.
  */
 
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
@@ -49,6 +54,13 @@ export function foldSeats(seats: SurfaceSeats, entries: readonly ContentSurfaceE
 
 /**
  * The entry the column shows.
+ *
+ * The same fallback covers two distinct reasons a pick can outlive its entry:
+ * a later record replacing it in place (a redrawn chart), and the entry being
+ * dismissed outright (its tab closed — the host-side fold removes the record
+ * rather than replacing it, see `dsh-experimental-content-surface`'s
+ * `projection.ts`). Either way the picked key is simply no longer present in
+ * `entries`, and this function does not need to know which happened.
  * @param entries - this session's entries, newest first.
  * @param picked - the entry key the user chose for this session, when one is still live.
  * @returns the chosen entry, the newest one when the choice is gone, or undefined when there are none.
@@ -58,7 +70,8 @@ export function selectedEntry(
   picked: string | undefined,
 ): ContentSurfaceEntry | undefined {
   // A pick outliving its entry falls back to the newest rather than blanking
-  // the column: the entry it named was replaced by a later record, and that
-  // replacement is what the user was looking at.
+  // the column: the entry it named was replaced by a later record, or
+  // dismissed outright, and the newest surviving entry is the closest thing
+  // to what the user was looking at.
   return entries.find(entry => entryKeyOf(entry) === picked) ?? entries[0]
 }

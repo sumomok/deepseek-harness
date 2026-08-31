@@ -5,7 +5,9 @@
 
 /* jscpd:ignore-start */
 import type { Context } from '@deepseek-ai/cordis'
-import type { InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
+import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
+import type {} from './types.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-content-surface'
 
@@ -15,14 +17,41 @@ export const name = 'experimental-content-surface-invariant'
 export const inject = ['invariants']
 
 /**
- * No runtime invariant: this package appends no session event and owns no
- * mutable durable data. Its entries are a pure fold over events other packages
- * own and validate, and the projection registry already validates every value
- * this row publishes against the unit's own `viewSchema`. Its prompt section is
- * a registration effect, which is not an owned relationship an invariant may
- * assert; `apps/web/tests/content-surface.e2e.ts` covers the assembled result.
+ * Validate one recorded dismissal before it reaches the durable log.
+ *
+ * Deliberately silent on whether `(kind, entryId)` names a live entry: the
+ * router keeps no catalogue to check it against, and a dismissal naming a
+ * pair that is already gone is an ordinary no-op fold, not an incoherent
+ * record (see `command.ts`'s own module doc).
  */
-const install: InvariantInstaller = () => {}
+function validateDismissed(data: { kind: string; entryId: string; by: string }, fail: InvariantFailure): void {
+  if (typeof data.kind !== 'string' || data.kind.length === 0) {
+    fail('content-surface/dismissed kind must be a non-empty string')
+  }
+  if (typeof data.entryId !== 'string' || data.entryId.length === 0) {
+    fail('content-surface/dismissed entryId must be a non-empty string')
+  }
+  if (data.by !== 'user') {
+    fail('content-surface/dismissed by must be "user"')
+  }
+}
+
+/** Validate the package-owned event fields and ignore unrelated events. */
+function validateEvent(event: SessionEvent, fail: InvariantFailure): void {
+  if (event.type === 'content-surface/dismissed') validateDismissed(event.data, fail)
+}
+
+/** Install validation for loaded and newly appended dismissal events. */
+const install: InvariantInstaller = Object.assign((ctx: Context, fail: InvariantFailure) => {
+  for (const session of ctx.sessions.list()) {
+    for (const event of session.events) validateEvent(event, fail)
+  }
+  ctx.on('internal/dispatch', (_mode, eventName, args) => {
+    if (eventName !== 'session/event') return
+    const event = (args as [Session, SessionEvent])[1]
+    validateEvent(event, fail)
+  }, { global: true })
+}, { inject: ['sessions'] })
 
 /**
  * Register this package's invariant companion.

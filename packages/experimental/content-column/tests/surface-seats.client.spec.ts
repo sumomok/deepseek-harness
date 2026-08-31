@@ -59,6 +59,13 @@ describe('selectedEntry', () => {
     expect(selectedEntry([CHART, PAGE], 'note draft')).toBe(CHART)
   })
 
+  it('falls back to the newest entry when the picked one was dismissed outright, same as a replaced one', () => {
+    // A dismissed entry leaves `entries` rather than being replaced in it
+    // (unlike a redrawn chart), but this function reads the same "picked key
+    // absent from entries" signal either way.
+    expect(selectedEntry([CHART], entryKeyOf(PAGE))).toBe(CHART)
+  })
+
   it('shows nothing when the session has no entries', () => {
     expect(selectedEntry([], entryKeyOf(PAGE))).toBeUndefined()
   })

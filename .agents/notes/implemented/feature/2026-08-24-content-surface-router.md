@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-08-24-content-surface-router.zh.md)
 
+> "No new session event" below no longer holds without exception: dismissing an entry from the switcher strip is now its own session event, appended by this router itself. See [Tab dismissal as a session event](2026-08-31-content-surface-dismissal.md).
+
 ## Problem
 
 The service-line shell declares `content` as a `single`, `root` slot: exactly one registration ever occupies it. Two packages already wanted it. [`content-frame`](../../../../packages/experimental/content-frame/README.md) claimed it for a hosted application, and the retired `vue2-echarts-content-poc` claimed it for a chart panel; the two overlays that composed them said so in their comments — "the two placements are alternatives" — and a deployment had to pick one.
@@ -16,7 +18,7 @@ The column is a per-session **stream of typed content entries**, and the seat is
 
 [`content-surface`](../../../../packages/experimental/content-surface/README.md) is the host half. `ctx.contentSurface.register(extractor)` takes one kind's whole contribution — which committed events it recognizes, what identifies the entry each one records, and how a stored record resolves into a title and a payload — and the router folds every registered extractor into one session projection, `contentSurface`, publishing `{ kind, entryId, seq, title, payload }` per live entry, newest first. [`content-column`](../../../../packages/experimental/content-column/README.md) is the browser half: it claims `content` and declares one child, `content.surface.kind`, keyed by the entry's kind, root-scoped, owner share `{ sessionId, entry }`. The two are always composed together; the split is a toolchain constraint recorded below, not a seam.
 
-**No new session event.** Every entry is derived from a fact another package already logs — `content/shown` for a page, a `show_chart` call for a chart — so the whole column replays from the log the agent actually wrote, and adding a kind adds no durable format.
+**No new session event, with one exception.** Every entry is derived from a fact another package already logs — `content/shown` for a page, a `show_chart` call for a chart — so the whole column replays from the log the agent actually wrote, and adding a kind adds no durable format. Closing an entry's tab is the one act this router owns directly, and it does append its own event (`content-surface/dismissed`) — see [Tab dismissal as a session event](2026-08-31-content-surface-dismissal.md).
 
 **One record per `(kind, entryId)`.** A later record naming the same pair replaces the earlier one in the fold, so a redrawn chart and a re-shown page are each one row rather than two. That is the supersede rule the transcript already applies, read from the same events through the same reader.
 

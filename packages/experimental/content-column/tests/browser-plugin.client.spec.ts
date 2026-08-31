@@ -1,58 +1,77 @@
+// @vitest-environment jsdom
 /**
  * The content surface's browser half against the real SlotRegistry: the column
  * registration and the kind slot it declares, the wait for the shell's
  * declaration, removal on fiber teardown (HMR safety), the dictionaries, the
- * behaviorless node half, and the invariant companion's ownership reservation.
+ * dismiss callback its `content` registration injects, the empty
+ * `conversation.chat.commandview` registration for `dismiss-content-entry` and
+ * its hiding stylesheet, the behaviorless node half, and the invariant
+ * companion's ownership reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { apply as nodeApply } from '../src/index.ts'
-import { ContentSurface } from '../src/client/ContentSurface.tsx'
+import { ContentSurface, type ContentSurfaceInjected } from '../src/client/ContentSurface.tsx'
+import { HiddenCommandRow } from '../src/client/HiddenCommandRow.tsx'
 import { en, NS, zh } from '../src/client/locales.ts'
 import * as ContentColumnInvariant from '../src/invariant.ts'
 
-/** Declare the content column the way the service-line shell does. */
+const HIDE_STYLE_ID = 'dsh-content-column-hide-empty-command-row'
+
+/** Declare the content column and the chat view's per-command slot, the way their owners do. */
 function declareShell(ctx: Context): void {
   ctx.slots.register({
     name: 'root',
-    children: { content: { kind: 'single', scope: 'root' } },
+    children: {
+      content: { kind: 'single', scope: 'root' },
+      'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
+    },
   } as never, () => null)
 }
 
 /** Boot the browser half over a real slot tree that declares the content column. */
-async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
+async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']>; execute: ReturnType<typeof vi.fn> }> {
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   declareShell(ctx)
+  const execute = vi.fn(() => Promise.resolve({ ok: true, value: undefined }))
   // The locale plugin binds a settings scope, which reads the connection handle
   // and the forwarded-event port.
   ctx.provide('connection', { api: { settings: {} }, isLoopback: false } as never)
-  ctx.provide('remote', { $on: () => () => {} } as never)
+  ctx.provide('remote', { commands: { execute }, $on: () => () => {} } as never)
+  ctx.provide('remote.commands', { execute } as never)
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   await ctx.plugin({ inject: localeInject, apply: applyLocale }).await()
-  // These specs assert the shipped Chinese copy. There is no jsdom `window` in
-  // this lane, so browser-language detection never runs and the locale comes
-  // from FALLBACK_LOCALE (en): state the asserted locale explicitly.
+  // These specs assert the shipped Chinese copy. This lane runs under jsdom
+  // (the hiding stylesheet below needs a `document`), whose default
+  // `navigator.language` would itself detect to 'en' — state the asserted
+  // locale explicitly rather than resting on that coincidence.
   ctx.locale.setLocale('zh')
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber }
+  return { ctx, fiber, execute }
 }
+
+afterEach(() => {
+  document.getElementById(HIDE_STYLE_ID)?.remove()
+})
 
 describe('content-column browser half', () => {
   it('declares the services it binds', () => {
-    expect(inject).toEqual(['slots', 'locale'])
+    expect(inject).toEqual(['slots', 'locale', 'remote', 'remote.commands'])
   })
 
   it('waits for the shell to declare the content column before claiming it', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
     ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
+    ctx.provide('remote', { commands: { execute: vi.fn() } } as never)
+    ctx.provide('remote.commands', { execute: vi.fn() } as never)
     const fiber = ctx.plugin({ inject: [...inject], apply })
     await fiber.await()
     expect(ctx.slots.entries('content')).toHaveLength(0)
@@ -75,6 +94,40 @@ describe('content-column browser half', () => {
     expect(() => {
       ctx.slots.register({ name: 'content.surface.kind', key: 'page' } as never, () => null)
     }).toThrow()
+  })
+
+  it('injects a dismiss callback that executes dismiss-content-entry against the named session', async () => {
+    const { ctx, execute } = await bench()
+    const [entry] = ctx.slots.entries('content')
+    const injected = entry?.inject?.() as unknown as ContentSurfaceInjected
+    injected.onDismiss('session-a', 'page', 'reports')
+    await Promise.resolve()
+    expect(execute).toHaveBeenCalledWith('session-a', '/dismiss-content-entry page reports', [])
+  })
+
+  it(
+    'registers an empty conversation.chat.commandview entry for dismiss-content-entry, and fiber teardown removes it (HMR safety)',
+    async () => {
+      const { ctx, fiber } = await bench()
+      const [entry] = ctx.slots.entries('conversation.chat.commandview')
+      expect(entry?.component).toBe(HiddenCommandRow)
+      expect(entry?.options.key).toBe('dismiss-content-entry')
+      expect((entry?.component as typeof HiddenCommandRow)()).toBeNull()
+
+      await fiber.dispose()
+      expect(ctx.slots.entries('conversation.chat.commandview')).toHaveLength(0)
+    },
+  )
+
+  it('injects the hiding stylesheet, and fiber teardown removes it (HMR safety)', async () => {
+    const { fiber } = await bench()
+    const style = document.getElementById(HIDE_STYLE_ID)
+    expect(style).not.toBeNull()
+    expect(style?.textContent).toContain('[data-chat-flow-kind="command"]')
+    expect(style?.textContent).toContain('[data-slot="conversation.chat.commandview"]:empty')
+
+    await fiber.dispose()
+    expect(document.getElementById(HIDE_STYLE_ID)).toBeNull()
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {

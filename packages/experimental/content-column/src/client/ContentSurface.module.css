@@ -19,31 +19,45 @@
   border-bottom: 1px solid var(--dsw-alias-border-l2);
 }
 
-.entry {
+/* The pill-shaped chrome lives on this wrapper, not on `.entry`: the close
+   button is a sibling button inside it, never nested inside the selection
+   button, so the visual "one tab" unit spans both. */
+.tab {
   flex: none;
   display: flex;
-  align-items: baseline;
-  gap: 6px;
+  align-items: center;
   max-width: 240px;
-  padding: 4px 10px;
   border: 1px solid var(--dsw-alias-border-l2);
   border-radius: 999px;
   background: transparent;
   color: var(--dsw-alias-label-secondary);
-  font-size: 12px;
-  line-height: 1.5;
-  cursor: pointer;
 }
 
-.entry:hover {
+.tab:hover {
   background: var(--dsw-alias-interactive-bg-hover);
   color: var(--dsw-alias-label-primary);
 }
 
-.selected {
+.tabSelected {
   border-color: var(--dsw-alias-button-ghost-active-border);
   background: var(--dsw-alias-button-ghost-active-fill);
   color: var(--dsw-alias-label-primary);
+}
+
+.entry {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 4px 4px 10px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.5;
+  cursor: pointer;
 }
 
 .entryTitle {
@@ -58,6 +72,29 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--dsw-alias-label-tertiary);
+}
+
+.dismiss {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  margin: 0 4px;
+  padding: 0;
+  border: none;
+  border-radius: 50%;
+  background: transparent;
+  color: inherit;
+  font-size: 13px;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.dismiss:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-label-primary);
 }
 
 .stage {

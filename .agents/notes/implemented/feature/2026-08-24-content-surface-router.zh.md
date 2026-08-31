@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-08-24-content-surface-router.md) | 中文
 
+> 下文的「没有新的会话事件」已经不再无例外成立：从切换条关闭一条 entry 现在是它自己的会话事件，由这个路由器自己追加。见[把关闭标签页做成一个会话事件](2026-08-31-content-surface-dismissal.zh.md)。
+
 ## Problem
 
 服务形态外壳把 `content` 声明为 `single`、`root` 的槽：任何时刻只有一个注册占据它。而已经有两个包想要它。[`content-frame`](../../../../packages/experimental/content-frame/README.zh.md) 为一个托管应用认领了它，已退役的 `vue2-echarts-content-poc` 为一块图表面板认领了它；组合它们的那两个 overlay 在注释里明说过——「两个摆放是互斥选项」——部署方只能二选一。
@@ -16,7 +18,7 @@ Status: implemented
 
 [`content-surface`](../../../../packages/experimental/content-surface/README.zh.md) 是宿主半边。`ctx.contentSurface.register(extractor)` 接收某个 kind 的全部贡献——它认得哪些已提交事件、每条事件所记录的 entry 由什么标识、以及一条已存记录如何解析成标题与载荷——路由器再把每个已注册的 extractor 折叠进同一个会话 projection `contentSurface`，为每条存活 entry 发布 `{ kind, entryId, seq, title, payload }`，最新在前。[`content-column`](../../../../packages/experimental/content-column/README.zh.md) 是浏览器半边：它认领 `content`，并在其中声明一个子槽 `content.surface.kind`，以 entry 的 kind 为 key，root 作用域，owner 份额为 `{ sessionId, entry }`。两者总是一起组合；这一拆分是下文记录的工具链约束，不是一道缝。
 
-**没有新的会话事件。** 每条 entry 都派生自别的包已经记录的事实——页面来自 `content/shown`，图表来自一次 `show_chart` 调用——因此整栏都能从 agent 真正写下的日志里重放，而新增一个 kind 不新增任何持久化格式。
+**没有新的会话事件，只有一个例外。** 每条 entry 都派生自别的包已经记录的事实——页面来自 `content/shown`，图表来自一次 `show_chart` 调用——因此整栏都能从 agent 真正写下的日志里重放，而新增一个 kind 不新增任何持久化格式。关闭一条 entry 的标签页是这个路由器自己拥有的唯一行为，它确实会追加自己的事件（`content-surface/dismissed`）——见[把关闭标签页做成一个会话事件](2026-08-31-content-surface-dismissal.zh.md)。
 
 **每个 `(kind, entryId)` 只留一条记录。** 后来的记录若指名同一组合，就在 fold 里替换掉先前那条，于是重绘的图表与重新展示的页面各占一行而非两行。这就是会话记录早已采用的取代规则，读自同样的事件、经由同样的读取器。
 

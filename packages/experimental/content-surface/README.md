@@ -4,7 +4,7 @@ English | [中文](README.zh.md)
 
 The service-line shell opens one content column, and more than one package wants it. This row turns that single seat into a router: host plugins register **extractors** that recognize their own already-logged events, and this row folds them into one per-session stream of typed **entries**. Drawing them is [`content-column`](../content-column/README.md)'s job — the two halves are separate packages because a Cordis service and a browser plugin cannot share one Typert face.
 
-Nothing here is a new fact. Every entry is derived from something another package already writes to the session log — `content/shown` for a page, a `show_chart` call for a chart — so the column is reconstructable from the log alone and this package appends no session event of its own.
+Almost nothing here is a new fact. Every entry is derived from something another package already writes to the session log — `content/shown` for a page, a `show_chart` call for a chart — so the column is reconstructable from the log alone. The one exception this row owns directly is dismissal: closing an entry's tab is not a fact any other package's log carries, so this package appends `content-surface/dismissed` itself (see "Dismissing an entry" below).
 
 ## The entry stream
 
@@ -30,6 +30,16 @@ The projection registry fixes a unit's fold and its `stateVersion` at registrati
 So this registry registers a **new** unit for every table change. The projection registry drops the old unit's cells with it, and each session's next touch refolds from `init` over its whole in-memory log through the new table. `stateVersion` is derived from the table — the sorted `kind@dataVersion` list, hashed — for the same reason on the durable side: a persisted checkpoint written under a different set of kinds is discarded instead of forward-applied into a stream missing everything the added kind would have found.
 
 The one cost is push latency. The registry publishes a changed value only while driving an event, so a browser already connected when a kind row is hot-loaded reads the previous stream until that session's next event. Boot-time composition never hits this; HMR does.
+
+## Dismissing an entry
+
+The switcher strip's close button executes `/dismiss-content-entry <kind> <entryId>` against the current session, through `ctx.commands.execute` — the same command seam every other user-triggered write in this router's neighborhood uses (`content-frame`'s `show-content-page`). The handler splits its raw input on the first space (`kind` values never carry whitespace; `entryId` keeps everything after that space, whole) and appends `content-surface/dismissed` with `by: 'user'`.
+
+`projection.ts`'s fold treats this event as the one case that bypasses the extractor table entirely: it removes the named `(kind, entryId)` record outright rather than running any `read`. Nothing validates the pair against the live stream first — this router keeps no catalogue of which pairs currently exist, so a dismissal naming a pair that is already gone (two clicks racing, a stale tab reopened from history) is an ordinary no-op fold, not a rejected command. A later record naming the same pair (the agent redraws the chart, the user re-navigates to the page) is an ordinary fresh insert once the dismissed record is gone, so a dismissed entry resurrects exactly like one that was never dismissed — dismissal only ever removes, it never suppresses a future write.
+
+`content-surface/dismissed` is not `ignorable`: an older build that does not know this event type refuses the log rather than silently treating a dismissed entry as still live. Adding it did not bump `SESSION_FORMAT_VERSION` (ordinary vocabulary growth), but it did bump the fold's own semantics version folded into every `stateVersion` (see `extractor.ts`'s `FOLD_SEMANTICS_VERSION`) — a checkpoint written before this fold could remove a record is discarded rather than replayed under a rule that did not exist when it was written.
+
+Content-column hides this command's own chat echo the same way [`content-frame`](../content-frame/README.md) hides `show-content-page`'s: the durable record is the point, not a chat message narrating a click the user just made.
 
 ## Composition
 
@@ -94,5 +104,6 @@ Prefix-stable: the text is static and orders after every section registered toda
 - **No ordering control** — entries are ordered by the seq that last recorded them, and a kind cannot ask to lead or trail.
 - **The rule's position is a convention** — order `200` is past the documented `100–199` tool-guidance band, but nothing reserves it: a later section taking a higher order silently moves the rule off the end of the prompt, which is where it was measured. `apps/web/tests/content-surface.e2e.ts` asserts the tail against a real composition, so the Web surface at least fails loudly.
 - **One event, one kind** — the first extractor that recognizes an event wins it, and nothing detects two kinds reading the same event. Kinds derived from distinct tool calls or distinct event types do not collide.
+- **A dismissal is never validated against the live stream** — the command appends `content-surface/dismissed` for whatever `(kind, entryId)` its input names, without checking that an entry so identified currently exists. That is a deliberate design choice (see "Dismissing an entry" above), not an oversight, but it also means a malformed client could dismiss a pair that never existed with no error surfaced anywhere.
 - **Split from its browser half by the toolchain** — a package whose host entry declares a Cordis service and whose `src/client` reaches the client runtime puts both faces' Context merges in one Typert program, which fails the generator on a duplicated key. Keeping the service here and the column in [`content-column`](../content-column/README.md) is what avoids that; the two are composed together and neither is useful alone.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.

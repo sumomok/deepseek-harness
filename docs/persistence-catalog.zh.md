@@ -424,6 +424,35 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 来源：[`packages/experimental/content-frame/src/types.ts:21`](../packages/experimental/content-frame/src/types.ts)
 
+### `content-surface/*`
+
+<a id="content-surfacedismissed--log-only"></a>
+
+#### `content-surface/dismissed` — log-only
+
+```ts persistence-catalog
+/**
+ * The user closed one entry's tab in the switcher strip. Fold-only: no
+ * extractor recognizes it, and the `contentSurface` unit removes the
+ * named `(kind, entryId)` record on sight — see `projection.ts`'s
+ * `apply`. Re-recording the same pair later (the agent redraws the
+ * chart, the user re-navigates to the page) is an ordinary fresh record
+ * and resurrects it as a new entry, exactly as if it had never been
+ * dismissed; this event only ever removes, never suppresses future
+ * writes.
+ */
+'content-surface/dismissed': {
+  /** The dismissed entry's kind. */
+  kind: string
+  /** The dismissed entry's id within `kind`. */
+  entryId: string
+  /** Always `'user'` today: dismissal is a switcher-strip gesture, never something the agent does on its own. */
+  by: 'user'
+}
+```
+
+来源：[`packages/experimental/content-surface/src/types.ts:24`](../packages/experimental/content-surface/src/types.ts)
+
 ### `feedback/*`
 
 <a id="feedbackrecord--log-only"></a>
