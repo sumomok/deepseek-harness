@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-31-file-attachment-bubble-and-referent-seam-port.md
-2026-08-31-file-attachment-bubble-and-referent-seam-port.md: efb18c1bc63383704731a4dde6d23c5585b41e71
-2026-08-31-file-attachment-bubble-and-referent-seam-port.zh.md: 4cc96def442840b127383f898f01c3e3168af8f4
+2026-08-31-file-attachment-bubble-and-referent-seam-port.md: 0e55985ec095385fb80a1c6d21c887417d316e38
+2026-08-31-file-attachment-bubble-and-referent-seam-port.zh.md: f0247a94976f62b75739607ee6a897e57d7eb5f2

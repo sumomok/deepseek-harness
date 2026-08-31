@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-**`referent.ts` 搬到 `packages/api/session-controller/src/client/`，而不是 `packages/client/runtime/src/client/`。** 原始补丁的目标包 `client/runtime` 在重组后的代码树上已不存在；重组把它面向 Client 的 Session/Sessions 契约与 adapter 并入了 `packages/api/session-controller`。`dispatchReferentOpen`、`ReferentRef`、`ReferentKindMap` 在实质上原样落到那里（只是导入路径与模块文档里的包名变了），从该包的 `client` 出口重新导出，方式与原始补丁从 `runtime` 出口重新导出完全一致。`ISession.readFile()` 及其实现出于同样理由，加入同一个包里 `contract/session.ts`／`sessions/session.ts` 中既有的 `readAttachment()` 旁边。
+**`referent.ts` 搬到 `packages/api/session-controller/src/client/`，而不是 `packages/client/runtime/`。** 原始补丁的目标包 `client/runtime` 在重组后的代码树上已不存在；重组把它面向 Client 的 Session/Sessions 契约与 adapter 并入了 `packages/api/session-controller`。`dispatchReferentOpen`、`ReferentRef`、`ReferentKindMap` 在实质上原样落到那里（只是导入路径与模块文档里的包名变了），从该包的 `client` 出口重新导出，方式与原始补丁从 `runtime` 出口重新导出完全一致。`ISession.readFile()` 及其实现出于同样理由，加入同一个包里 `contract/session.ts`／`sessions/session.ts` 中既有的 `readAttachment()` 旁边。
 
 **`FileCard.tsx`、它的渲染调用点，以及 `openReferent`／`loadFile` 的插槽布线搬到 `ui-chat`，而不是 `ui-conversation`。** `MessageItem.tsx`、`AssistantMarkdown.tsx`、`AssistantNodeView.tsx`、`ChatNodeSeat.tsx`、`ChatView.tsx`——原始补丁为渲染而触碰的每一个文件——在本次移植开始之前就早已搬到了 `ui-chat`，并携带自己独立的 `chat` locale 命名空间（`ui-chat/src/client/locale.ts`），有别于 `ui-conversation` 的 `conversation` 命名空间。`OpenReferent`、`loadFile` 与文件打开相关的 locale 键（`file.open`／`file.loading`／`file.loadFailed`）加入的是 `ChatNodeOwnerProps`／`ChatViewInjected` 与 `ui-chat` 自己的 locale 文件，而不是 `ui-conversation` 的——一个键应活在它唯一消费者所读取的命名空间里。`attachment-labels.ts` 的 `SUBAGENT_FILE_UNSUPPORTED` 分支及其 `file.subagentUnsupported` 键留在 `ui-conversation`，因为读取它的函数 `attachmentErrorText` 至今仍在那里，重组并未移动它。
 
