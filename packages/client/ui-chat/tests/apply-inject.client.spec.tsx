@@ -10,7 +10,7 @@ import {
 import type { SessionBehaviorOverrides } from '@deepseek-ai/dsh-client-test-runtime'
 import type { ClientRemote } from '@deepseek-ai/dsh-api-remotes/client'
 import {
-  apply as applyConversation, inject as injectConversation,
+  apply as applyConversation, inject as injectConversation, type ComposerBarInjected,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import {
   apply as applyChat, inject as injectChat, type ChatViewInjected, type DetailsInjected,
@@ -85,7 +85,11 @@ async function bench() {
     ) => ChatViewInjected)(id, instance.actions)
     return { instance, injected }
   }
-  return { runtime, layout, openWorkspacePath, session, chatViewApi }
+  const composerApi = (id: SessionId | undefined) => {
+    const entry = runtime.slots.entries('conversation.composer.bar')[0]!
+    return (entry.inject as unknown as (sessionId: SessionId | undefined) => ComposerBarInjected)(id)
+  }
+  return { runtime, layout, openWorkspacePath, session, chatViewApi, composerApi }
 }
 
 describe('Chat inject API', () => {
@@ -286,6 +290,42 @@ describe('Chat inject API', () => {
       expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer')
     })
     openSpy.mockRestore()
+    await b.runtime.dispose()
+  })
+
+  it('referents.open degrades a not-found race to the session\'s own composer notice, same as the terminal card\'s inline notice — a span verified earlier can still name a path deleted before this click', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/deleted.md', raw: 'deleted.md' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    b.openWorkspacePath.mockResolvedValueOnce({
+      ok: false,
+      error: new RemoteError('session/path-not-found', 'path does not exist: /proj/deleted.md', { path: '/proj/deleted.md' }),
+    })
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(b.composerApi(ROOT).hooks.notices.getSnapshot()).toMatchObject({ level: 'error' })
+    })
+    expect(b.composerApi(ROOT).hooks.notices.getSnapshot()?.text).toBe('该文件已不存在，可能已被移动或删除。')
+    await b.runtime.dispose()
+  })
+
+  it('referents.open leaves any other open failure to the console only — no dedicated UI for those yet', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/a.ts', raw: 'a.ts' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    b.openWorkspacePath.mockResolvedValueOnce({
+      ok: false,
+      error: new RemoteError('gateway/internal', 'xdg-open is not available', {}),
+    })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(errorSpy).toHaveBeenCalledWith('ui-chat: chat-prose referent open failed', expect.any(Error))
+    })
+    expect(b.composerApi(ROOT).hooks.notices.getSnapshot()).toBeNull()
+    errorSpy.mockRestore()
     await b.runtime.dispose()
   })
 })
