@@ -292,8 +292,18 @@ describe('shared estimator', () => {
       type: 'tool-result', toolCallId: 'c' as never,
       content: [{ type: 'text', text: 'abcd' }],
     }])).toBe(9)
+    expect(estimateContent([{
+      type: 'file', attachment: { attachmentId: 'f' as never, name: 'a.txt', bytes: 40 },
+    }])).toBe(14)
     const unknown = { type: 'mystery', payload: 'abc' } as unknown as ContentBlock
     expect(estimateContent([unknown])).toBe(4 + Math.ceil(JSON.stringify(unknown).length / 4))
+  })
+
+  it('prices a file by its lowered text, capped at DEFAULT_MAX_LOWERED_FILE_CHARS rather than its full byte count', () => {
+    const capped = estimateContent([{
+      type: 'file', attachment: { attachmentId: 'f' as never, name: 'big.log', bytes: 1_000_000 },
+    }])
+    expect(capped).toBe(Math.ceil(16_000 / 4) + 4)
   })
 
   it('prices envelope parts independently and absent parts to zero', () => {

@@ -308,7 +308,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/api/session-controller/src/index.ts:67`](../packages/api/session-controller/src/index.ts)
+Source: [`packages/api/session-controller/src/index.ts:74`](../packages/api/session-controller/src/index.ts)
 
 <a id="deepseek-aidsh-api-settings-controller"></a>
 
@@ -364,6 +364,22 @@ export interface Config {
 ```
 
 Source: [`packages/attachment/attachment-local/src/index.ts:90`](../packages/attachment/attachment-local/src/index.ts)
+
+<a id="deepseek-aidsh-attachment-spill"></a>
+
+## `@deepseek-ai/dsh-attachment-spill`
+
+```ts config-catalog
+/** Plugin config (all optional — `static Config` supplies the defaults). */
+export interface Config {
+  /** Character threshold at/under which a file's decoded text stays fully inline. Above it, the file spills. */
+  inlineWholeUnderChars?: number
+  /** Characters of a spilled file's decoded text shown as a preview alongside its locator. */
+  previewChars?: number
+}
+```
+
+Source: [`packages/attachment/attachment-spill/src/index.ts:51`](../packages/attachment/attachment-spill/src/index.ts)
 
 <a id="deepseek-aidsh-bash-local"></a>
 
@@ -1044,7 +1060,7 @@ export interface DeepSeekCatalogModel {
 
 Depends on: [`ModelModality`](../packages/llm/llm/src/index.ts) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts)
 
-Source: [`packages/llm/llm-deepseek/src/index.ts:125`](../packages/llm/llm-deepseek/src/index.ts)
+Source: [`packages/llm/llm-deepseek/src/index.ts:126`](../packages/llm/llm-deepseek/src/index.ts)
 
 <a id="deepseek-aidsh-llm-pi-ai"></a>
 
