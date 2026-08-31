@@ -216,8 +216,8 @@ const ChatNodeList = memo(function ChatNodeList({ order, ...seatProps }: ChatNod
  */
 export function ChatView({
   useSession, useChat, useChatNode, useChatNodeProcess, useSessions, useStore, actions, renderSlot,
-  sessionId, openFile, loadOlder, loadThrough, loadImage, openView, chatScroll, forkAt, fileMentions,
-  useTranscriptView, useProjection, t,
+  sessionId, openFile, loadOlder, loadThrough, loadImage, loadFile, openReferent, openView, chatScroll,
+  forkAt, fileMentions, useTranscriptView, useProjection, t,
 }: ChatViewSlotProps) {
   const order = useChat(s => s.order)
   const nodeStore = useChat(s => s.nodes)
@@ -795,6 +795,8 @@ export function ChatView({
             renderMessageImages={renderMessageImages}
             renderUserActions={renderUserActions}
             fileMentions={fileMentions}
+            loadFile={loadFile}
+            openReferent={openReferent}
             renderSlot={renderSlot}
             t={t}
           />
@@ -809,6 +811,8 @@ export function ChatView({
               key={item.id}
               content={item.content}
               renderMessageImages={renderMessageImages}
+              loadFile={loadFile}
+              openReferent={openReferent}
               t={t}
             />
           ))}
@@ -817,6 +821,8 @@ export function ChatView({
               key={submission.requestId}
               submission={submission}
               renderMessageImages={renderMessageImages}
+              loadFile={loadFile}
+              openReferent={openReferent}
               t={t}
             />
           ))}
