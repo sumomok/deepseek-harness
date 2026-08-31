@@ -1,5 +1,6 @@
 /** Session Remote owner: cold reads, explicit Agent commands, and live control state. */
 
+import { stat } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { errorChain } from '@deepseek-ai/dsh-llm'
@@ -260,11 +261,20 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
-   * Open one path prepared by a Session-aware caller on the Host desktop.
+   * Open one path prepared by a Session-aware caller on the Host desktop. A
+   * does-not-exist path is checked explicitly before the opener runs: the
+   * opener is a shelled-out platform command (`open`, `xdg-open`,
+   * PowerShell's `Invoke-Item`), never a Node fs call, so it never raises a
+   * `NodeJS.ErrnoException` this process could read a reliable code from —
+   * its "no such file" text is platform-specific and unparsed. The
+   * pre-check leaves every other failure (permission, no registered
+   * application, the platform command itself missing) exactly as it was:
+   * folded into `gateway/internal` below.
    * @param request - path after best-effort Session workspace resolution.
    * @param signal - caller lifetime; abort terminates the native command.
    * @returns confirmation after the native opener accepts the path.
-   * @throws RemoteError when the request is invalid, cancelled, or the opener fails.
+   * @throws RemoteError when the request is invalid, the path does not
+   * exist, cancelled, or the opener fails.
    */
   @Remote('openWorkspacePath')
   async openWorkspacePath(
@@ -280,9 +290,29 @@ export class SessionController extends TypertRemoteService {
     }
     signal.throwIfAborted()
     try {
+      await stat(request.path)
+    } catch (error: unknown) {
+      if ((error as NodeJS.ErrnoException | null)?.code === 'ENOENT') {
+        throw new RemoteError(
+          'session/path-not-found',
+          `path does not exist: ${request.path}`,
+          { path: request.path },
+        )
+      }
+      // Any other stat failure (permission, a non-directory path segment, a
+      // transient sharing violation, ...) is not this check's call to make:
+      // fall through and let the opener report it as before.
+    }
+    // The stat above is itself an await: an abort landing while it was in
+    // flight would otherwise reach the opener already-fired, which an
+    // opener that only listens for the live abort event (rather than also
+    // polling `signal.aborted` up front) would never observe.
+    if (signal.aborted) throw new RemoteError('gateway/cancelled', 'path open was aborted', {})
+    try {
       await this.openPath(request.path, signal)
       return { opened: true }
     } catch (error: unknown) {
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while the opener is awaited.
       if (signal.aborted) throw new RemoteError('gateway/cancelled', 'path open was aborted', {})
       throw new RemoteError(
         'gateway/internal',
