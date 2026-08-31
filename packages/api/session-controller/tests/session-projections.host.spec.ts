@@ -15,6 +15,7 @@ import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentLimits, SaveFileAttachment } from '@deepseek-ai/dsh-attachment'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
@@ -215,6 +216,10 @@ describe('session.history projections block', () => {
       validateImage(): Promise<void> { return Promise.resolve() }
       saveImage(): Promise<never> { return Promise.reject(new Error('unused')) }
       readImage(): Promise<never> { return Promise.reject(new Error('unused')) }
+      readonly fileLimits: FileAttachmentLimits = { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 }
+      validateFile(_input: SaveFileAttachment): Promise<void> { return Promise.reject(new Error('unused')) }
+      saveFile(): Promise<never> { return Promise.reject(new Error('unused')) }
+      readFile(): Promise<never> { return Promise.reject(new Error('unused')) }
     })
     const gateway = remote(ctx)
     await new Promise(resolve => setTimeout(resolve, 0))
