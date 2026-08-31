@@ -403,7 +403,7 @@ export const EVENT_API: readonly EventApiEntry[] = [
     signature: '\'connection/state\'(state: ConnectionState): void',
     summary: 'The connection\'s coarse state changed (deduplicated: fires only on an actual transition).',
     description: 'The connection\'s coarse state changed (deduplicated: fires only on an actual transition).',
-    parameters: [{ name: 'state', description: '\'connected\' after each generation\'s handshake; \'reconnecting\' for the whole failure-and-backoff span until the next handshake succeeds.' }],
+    parameters: [{ name: 'state', description: '\'connecting\' while a physical-carrier attempt is in flight; \'disconnected\' between attempts while the carrier is unavailable; \'connected\' after a generation\'s handshake succeeds.' }],
   },
   {
     name: 'locale/change',
