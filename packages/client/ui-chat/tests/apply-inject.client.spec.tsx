@@ -46,6 +46,9 @@ function sessionFakeFor() {
 
 async function bench() {
   const runtime = await SlotTestRuntime.create()
+  runtime.ctx.provide('connection', {
+    generation: { getSnapshot: () => ({ host: { home: '/home/fixture' } }), subscribe: () => () => {} },
+  } as never)
   runtime.ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() }
   runtime.ctx.provide('layout', layout as never)
@@ -179,6 +182,67 @@ describe('Chat inject API', () => {
     expect(loaded).toEqual(expect.any(String))
     expect(b.session.readAttachment).toHaveBeenCalledWith(ATTACHMENT.attachmentId)
     expect(injected.loadImage.peek?.(ATTACHMENT)).toBe(loaded)
+    await b.runtime.dispose()
+  })
+
+  it('referents (chat view face) is undefined with no proseReferents provider composed in', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    expect(injected.referents).toBeUndefined()
+    await b.runtime.dispose()
+  })
+
+  it('referents.scan forwards text, session cwd, Host home, and inlineCode to the proseReferents provider', async () => {
+    const b = await bench()
+    const scan = vi.fn((_text: string, _context: { cwd?: string; home?: string; inlineCode: boolean }) => [])
+    b.runtime.ctx.provide('proseReferents', { scan })
+    const { injected } = b.chatViewApi(ROOT)
+    expect(injected.referents).toBeDefined()
+    injected.referents!.scan('see /proj/src/a.ts', true)
+    expect(scan).toHaveBeenCalledWith('see /proj/src/a.ts', { cwd: '/proj', home: '/home/fixture', inlineCode: true })
+    await b.runtime.dispose()
+  })
+
+  it('referents.open dispatches referent/open carrying chat-prose provenance, distinct from openFile', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 11, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    let captured: unknown
+    // Claims (never calls next): the default open action never runs.
+    b.runtime.ctx.on('referent/open', (ref: unknown) => { captured = ref; return Promise.resolve() })
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(injected.referents!.scan('src/a.ts', true)[0]!)
+    await vi.waitFor(() => { expect(captured).toBeDefined() })
+    expect(captured).toEqual({
+      kind: 'file', target: '/proj/src/a.ts', raw: 'src/a.ts', sessionId: ROOT,
+      source: 'chat-prose', provenance: 'model-text',
+    })
+    await b.runtime.dispose()
+  })
+
+  it('referents.open falls through to openWorkspacePath for an unclaimed file/dir span', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(b.openWorkspacePath).toHaveBeenCalledWith({ path: '/proj/src/a.ts' })
+    })
+    await b.runtime.dispose()
+  })
+
+  it('referents.open falls through to window.open for an unclaimed url span', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 20, kind: 'url' as const, target: 'https://example.com/', raw: 'https://example.com/' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    const openSpy = vi.spyOn(window, 'open').mockImplementation(() => null)
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(span)
+    await vi.waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith('https://example.com/', '_blank', 'noopener,noreferrer')
+    })
+    openSpy.mockRestore()
     await b.runtime.dispose()
   })
 })

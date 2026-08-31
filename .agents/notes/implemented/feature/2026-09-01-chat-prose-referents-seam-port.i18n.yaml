@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md
+2026-09-01-chat-prose-referents-seam-port.md: 9b45b8656ad260c29eb6d0c9a0a76e582437aea6
+2026-09-01-chat-prose-referents-seam-port.zh.md: 3ba00c72e7e5e6aa36cba02960a91e13067b0c36
