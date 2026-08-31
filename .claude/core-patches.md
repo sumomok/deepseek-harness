@@ -99,3 +99,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：referents 校验层可以低成本批量确认散文提及的路径是否仍然存在，用于决定按钮态呈现。
 - **退役条件**：上游为 Host RPC 自己提供等价的批量路径存在性探测。
 - **状态**：**SKIPPED — 需要设计（rc.26 同步，基座 0.1.2-alpha.2）**。三个补丁全部落点 `packages/host/apiproxy/{src/api-proxy.ts, src/api/host.ts, src/api/host.schema.ts, tests/*}`，该包已随上游重组（见 a5c4d3a29d 的退役记录）整体消失，`host.<method>` RPC 模式本身在新树上已不存在同构对应物；且本系列是 proseReferents 校验层（ae19472402 系列，已 SKIPPED）的下游消费者，即便 apiproxy 问题解决，`referents.subscribe`/校验 tick 的落点仍待那一系列先行设计。逐一尝试 cherry-pick 均遇 modify/delete 冲突（`api-proxy.ts` 已不存在），已逐个 `git cherry-pick --skip`，均未重落。交由协调者与 a5c4d3a29d/ae19472402 一并设计端口。
+
+## docs: Agent Note for the three-layer clickable-reference architecture (A1-A5) — 74cb3def3c
+- **改了什么**：新增 Agent Note 记述 A1-A5 全系列（referent/open、proseReferents、resolveLink/subscribe、probeTargets、A5 勘察结论）。
+- **状态**：**SKIPPED（rc.26 同步，基座 0.1.2-alpha.2）**。该系列的全部代码改动（fabc93555c、ae19472402 系列、88129b7b44 系列）均已 SKIPPED，未有任何一处落地；cherry-pick 本身无冲突干净应用（仅新增独立笔记文件），但记述一套在本分支上完全不存在的"已实现"架构会误导后续读者，已用 `git reset --hard HEAD~1` 撤回，未重落。待协调者设计出上述系列的落地方案后，由该方案自身的 PR 补一份准确反映实际落点的 Agent Note。
