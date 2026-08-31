@@ -9,6 +9,7 @@ import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client
 import type { BoundActions, ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import { resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
 // Type-only service and declaration merges used by the apply world.
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -51,7 +52,7 @@ const CHAT_NODE_INJECT: ChatNodeTurnDataInjected = {
 
 /** Services required by the Chat target and its presentation registrations. */
 export const inject = [
-  'connection', 'slots', 'sessions', 'uiSession', 'uiConversation', 'layout', 'locale',
+  'connection', 'slots', 'sessions', 'uiSession', 'uiConversation', 'conversation', 'layout', 'locale',
   'settingsScope', 'remote', 'remote.session',
 ]
 
@@ -66,10 +67,19 @@ export const inject = [
  * @param sessions - resolved once by the caller, mirroring the other apply-time service reads below.
  * @param connection - resolved once by the caller; its `generation` snapshot names the Host account home.
  * @param sessionId - the session this scanner/opener is bound to.
+ * @param notifyNotFound - surface the session's own composer notice for a
+ * `session/path-not-found` open failure (bound by the caller to
+ * `actx.conversation.input.for(actx).notify('error', …)`); kept as a plain
+ * callback rather than threading the session scope itself through, so this
+ * function stays testable with a bare stub.
+ * @param notFoundText - localized notice text for that case, resolved once
+ * by the caller (the same lazy-bind-then-call-per-render pattern the rest of
+ * this module's `t(...)` call sites use).
  * @returns the scanner/opener MarkdownText consumes, or undefined.
  */
 function buildProseReferents(
   ctx: Context, sessions: ISessions, connection: ConnectionHandle, sessionId: SessionId,
+  notifyNotFound: (sessionId: SessionId, text: string) => void, notFoundText: string,
 ): MarkdownProseReferents | undefined {
   const provider = ctx.get('proseReferents')
   if (provider === undefined) return undefined
@@ -121,14 +131,26 @@ function buildProseReferents(
           return
         }
         // Mirrors the openFile chokepoint's own default action below: the
-        // same RPC, the same failure shape.
+        // same RPC. Unlike openFile, the raw RemoteError is rethrown (not
+        // flattened to a message-only Error) so the .catch below can
+        // classify a not-found race by `.code`.
         const result = await ctx.remote.session.openWorkspacePath({ path: referentSpan.target })
-        if (!result.ok) throw new Error(`path open failed: ${result.error.message}`)
+        if (!result.ok) throw result.error
       }
-      // No dedicated failure UI for a prose click yet (unlike openFile's
-      // dialog below): a genuine open failure lands in the console rather
-      // than being silently dropped.
+      // `session/path-not-found` gets the same downgrade the terminal card
+      // already has for the identical race: a span the verification layer
+      // confirmed can still name a path deleted between that `stat` and this
+      // click. Prose spans have no per-span notice slot of their own — a
+      // `fileMention` button is a pure render of `scan`/`resolveLink`'s
+      // output (`ui-primitives`'s `render.tsx`), not a stateful component —
+      // so this reuses the session's own composer notice channel instead.
+      // Any other failure still only reaches the console: no dedicated UI
+      // for those yet (unlike openFile's dialog below).
       void dispatchReferentOpen(ctx, ref, onDefault).catch((error: unknown) => {
+        if (remoteErrorOf(error)?.code === 'session/path-not-found') {
+          notifyNotFound(sessionId, notFoundText)
+          return
+        }
         console.error('ui-chat: chat-prose referent open failed', error)
       })
     },
@@ -203,7 +225,18 @@ export function apply(ctx: Context): void {
             ctx.layout.openDetails()
           },
           fileMentions: (owner: TurnTailOwnerProps) => ctx.get('chatFileMentions')?.forClosing(owner),
-          referents: buildProseReferents(ctx, ctx.sessions, connection, sessionId),
+          referents: buildProseReferents(
+            ctx, ctx.sessions, connection, sessionId,
+            (id, text) => {
+              const actx = ctx.sessions.scope(id)
+              // .get(), not the direct-property accessor: actx is a session
+              // scope this plugin's own `inject` guard does not cover, even
+              // though 'conversation' is declared above as a real dependency.
+              const conversation = actx?.get('conversation')
+              if (actx !== undefined && conversation !== undefined) conversation.input.for(actx).notify('error', text)
+            },
+            t('referent.notFound'),
+          ),
           // referent/open first: wraps the pre-existing openWorkspacePath
           // action as the waterfall's terminus, so every consumer this one
           // closure already reaches (tool rows, produced-file chips,
