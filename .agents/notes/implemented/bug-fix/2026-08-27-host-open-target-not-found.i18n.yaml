@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-27-host-open-target-not-found.md
-2026-08-27-host-open-target-not-found.md: 5865aa45bd2c6226aea7c36d1b248d8a18e55cd3
-2026-08-27-host-open-target-not-found.zh.md: bc8aeb9ae9b6bca0a358967fdb2e0a0d910390e8
+2026-08-27-host-open-target-not-found.md: 7dc5ecf1e12b0a4e908a67329343a72ae5d2f5b1
+2026-08-27-host-open-target-not-found.zh.md: 7fe07e02797f2e030401e75cf0505a6633ceec5c

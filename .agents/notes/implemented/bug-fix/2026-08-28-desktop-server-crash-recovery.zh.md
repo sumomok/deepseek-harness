@@ -20,7 +20,7 @@ Status: implemented
 
 **重连退避(`notifications.ts`)。** 固定的 3 秒重试变成指数退避——`reconnectDelayMs(attempt) = min(RECONNECT_MAX_MS, RECONNECT_BASE_MS * RECONNECT_BACKOFF_FACTOR ** (attempt - 1))`,3 秒 → 6 秒 → 12 秒 → 24 秒 → 48 秒 → 封顶 60 秒,一旦某次连接真正打开过、之后才关闭,就重置回第 1 次尝试。只有第一次尝试和之后每第 `RECONNECT_LOG_EVERY`(10)次才写一行日志,并且现在带上了尝试次数。改换目标复用的是同一套关闭/重开机制:`setupNotifications` 可以安全地被再次调用——它会先停掉当前活跃的那个 `Generation`(`{ stopped, sockets }`,关闭它的 socket;任何仍在飞行中的重连定时器,等真到触发那一刻会看到自己的 `stopped` 标志而直接空转)再打开新的一个,而 `app.on('browser-window-focus', …)` / `app.once('before-quit', …)` 这两个钩子只会绑定一次——由一个模块级的 `appHooksBound` 标志把关——所以第二次调用 `setupNotifications`(每一次 L0/L2 重绑都会触发)不会把它们重复绑上去。
 
-**断线提示条:没有实现。** `ConnectionState`(`'connected' | 'reconnecting'`)由 `packages/client/connection` 的 `ConnectionController` 产出,消费方只有 `packages/client/runtime/src/client/index.ts` 里的 `onStateChange` 处理器——它在 `'reconnecting'` 时只调用 `sessions.handleDisconnected()`,再没别的动作了;和会重新 `ctx.emit('connection/reset')` 的 `onConnected` 不同,这里没有任何客户端事件或会话层可读字段把这个状态继续往外传。没有它,任何 fork 自有的界面层(`apps/web`、桌面端自己的 preload/renderer,或某个内置插件)都无法观察到这个状态。`packages/client/runtime` 属于上游 `packages/*` 的地盘,在这条 fork 分支上不能动;提示条被搁置,直到那个包把这个状态重新 emit 出来(例如在既有的 `connection/reset` 旁边加一个 `ctx.emit('connection/state', state)`),这需要走 core-patches。
+**断线提示条:没有实现。** `ConnectionState`(`'connected' | 'connecting' | 'disconnected'`)由 `packages/client/connection` 的 `ConnectionController` 产出,每次状态迁移都会调用一个注入的 `onStateChange` sink。`packages/api/gateway/src/client/index.ts` 的 `ClientRemoteService` 现在是把这个 sink 接到 `ctx.emit('connection/state', state)` 的调用方,与既有的 `onConnected` 时机 `ctx.emit('connection/reset')` 并列——这正是本段最初要的那个客户端可观察事件。目前没有任何 fork 自有的界面层(`apps/web`、桌面端自己的 preload/renderer,或某个内置插件)去消费 `connection/state`,所以提示条本身依然没有交付;但本条目当初点名的阻塞条件已经解除,剩下的工作全在 fork 自己的界面代码里。
 
 ## 权衡过的备选方案
 
@@ -36,4 +36,4 @@ Status: implemented
 
 一次意外的服务器死亡,现在总会在日志里留下自己的一行,带着服务器临终前说的最后几句话;它会被自动重试,并伴有用户可见的反馈;如果重试一直失败,最终落到的是一个由用户来做的决定,而不是一个悄悄冻结的窗口、一个无限重启的循环,或者一个无限弹窗的循环。在这台机器上以开发模式、针对一个临时 `DSH_HOME` 做了实测验证:用 `SIGKILL` 杀掉服务器子进程,会产出验尸日志行、系统通知、在新端口上的重绑、两条通知流都重新连到新端口(通过对主进程和网络服务子进程跑 `lsof` 确认),以及窗口重新显示出服务端 UI;在窗口期内连杀三次,会产出带标记的 `app.relaunch`;在重启后的实例的 L2 保护窗口内再杀一次,会弹出原生对话框。它的三个按钮和 Esc 分别单独驱动过一遍(用 `osascript`/System Events 操作对话框的 sheet,在会结束循环的那两个动作之间重新走一轮完整的重启周期):「重试」成功完成一次手动重绑并关掉对话框;「打开日志」打开了日志(通过运行进程列表里出现了 Console.app 来确认),对话框会再弹出来;「关闭」和 Esc 则都会彻底关掉对话框、记下那行“打发掉”的日志,并让后端保持关闭、没有任何服务器进程在跑。
 
-断线提示条本身没有交付——`packages/client/runtime` 的 `onStateChange` 处理器需要先把 `ConnectionState` 重新 emit 成一个客户端可观察的事件,fork 自有的界面代码才谈得上去消费它。`notifications.ts` 的重连日志量,从固定 3 秒一次、每次两行(现场事故的 33 分钟里累计 1318 行),降到第 1 次尝试两行、之后每第 10 次再两行,退避在服务器死掉大约两分钟之内就会封顶到 60 秒,而不是无限期地每 3 秒轮询一次。
+断线提示条本身没有交付——`connection/state` 这个客户端可观察事件现在已经存在(`packages/api/gateway`),fork 自有的界面代码尚未去消费它。`notifications.ts` 的重连日志量,从固定 3 秒一次、每次两行(现场事故的 33 分钟里累计 1318 行),降到第 1 次尝试两行、之后每第 10 次再两行,退避在服务器死掉大约两分钟之内就会封顶到 60 秒,而不是无限期地每 3 秒轮询一次。
