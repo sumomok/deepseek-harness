@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-This package renders everything the conversation UI shows about attachments: pending draft images under the composer, a full-viewport drop invitation, durable images in Chat, Trajectory, and Tool results, and a lightbox for the original image. It is a pure presentation layer — attachment data, image loading, and callbacks come from the conversation package through declared slots. Choose it for the DeepSeek Chat-style image experience; non-image files have no surface here.
+This package renders everything the conversation UI shows about attachments: pending draft images and draft text files under the composer, a full-viewport drop invitation, durable images in Chat, Trajectory, and Tool results, and a lightbox for the original image. It is a pure presentation layer — attachment data, image loading, and callbacks come from the conversation package through declared slots. Choose it for the DeepSeek Chat-style image experience; a sent file's card and history renderer live on the conversation message bubble instead of a slot this package fills.
 
 ## Table of Contents
 
@@ -31,6 +31,10 @@ Mount this plugin alongside [`ui-conversation`](../ui-conversation/README.md) (a
 
 A draft image shows as a fixed 64px thumbnail in one horizontally scrolling row; edge arrows page the rail when overflow hides items, and the scrollbar stays hidden. A newly added item is revealed at the rail's end, removal keeps the scroll position, and a single click opens the original through the owner's `onOpen`.
 
+### Draft files
+
+A draft text file shows as a name+size chip in a wrapping row beside the image rail — it has nothing to thumbnail, so it gets its own shape rather than the rail's fixed 64px item. Each chip truncates its name with an ellipsis (the full name in `title`) and shows a byte-size label, with the same hover/focus-revealed remove control as a rail thumbnail (always visible on coarse-pointer surfaces). A chip has no open affordance of its own: a sent file's default open action is the referent/open seam's inline expand/collapse viewer on the message bubble, not a draft-time preview.
+
 ### Message images and the lightbox
 
 A message's lone image renders at 240px on its longer edge (aspect clamped to [0.25, 4], never upscaled); images among several render as fixed 64px squares. A loaded image opens the document-level lightbox on click; a failed load shows a retry control instead. The lightbox closes on Escape, a mask press, or its close control, and restores focus to its opener.
@@ -51,8 +55,9 @@ The plugin waits for `conversation.input.attachments`, `conversation.message.ima
 
 | File | Role |
 |---|---|
-| [`src/client/ComposerAttachments.tsx`](src/client/ComposerAttachments.tsx) | Draft-image rail + drop overlay assembly |
+| [`src/client/ComposerAttachments.tsx`](src/client/ComposerAttachments.tsx) | Draft-image rail + draft-file chip row + drop overlay assembly |
 | [`src/AttachmentRail.tsx`](src/AttachmentRail.tsx) | Scrolling thumbnail rail, wheel translation, edge arrows |
+| [`src/FileChip.tsx`](src/FileChip.tsx) | Draft-file name+size chip row |
 | [`src/client/MessageImages.tsx`](src/client/MessageImages.tsx) | Per-message gallery + lightbox assembly |
 | [`src/MessageImage.tsx`](src/MessageImage.tsx) | Single image sizing, load/retry, click-to-open; local submission-echo previews render their object URL directly |
 | [`src/ImageLightbox.tsx`](src/ImageLightbox.tsx) | Document-level modal preview over the shared mask |
@@ -89,7 +94,7 @@ None; this package neither assembles nor sends a provider request.
 
 These limits define the current attachment surface. They are package constraints, not a general image-viewer comparison or a task backlog.
 
-- **Images only** — non-image files have no rail card or history renderer yet; DeepSeek Chat-style file cards and upload progress wait until the composer accepts non-image attachments.
+- **No sent-file history renderer yet** — `MessageImage`/`ImageGallery` render a sent image through `conversation.message.images`; a sent file's card and inline expand/collapse viewer live directly on the conversation message bubble instead of a slot this package fills, and are not yet implemented.
 - **No zoom or download in the lightbox** — the preview renders the original at fit-to-viewport size only.
 - **The lightbox does not trap focus** — it sets `aria-modal` and restores focus on close, but Tab can reach the page behind it.
 

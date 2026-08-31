@@ -1060,7 +1060,7 @@ describe('ChatView', () => {
         pendingSubmissions: [
           {
             requestId: 'req-1' as never, placement: 'transcript',
-            time: 5_000, text: '即发即显', images: [],
+            time: 5_000, text: '即发即显', images: [], files: [],
           },
         ],
       },
@@ -1134,7 +1134,7 @@ describe('ChatView', () => {
         pendingSubmissions: [
           {
             requestId: 'req-q' as never, placement: 'queued',
-            time: 6_000, text: '排队中', images: [],
+            time: 6_000, text: '排队中', images: [], files: [],
           },
         ],
       },
@@ -1172,6 +1172,7 @@ describe('ChatView', () => {
             { previewUrl: 'blob:echo-a', name: 'a.png', width: 4, height: 3 },
             { previewUrl: 'blob:echo-b' },
           ],
+          files: [],
         }],
       },
     )
