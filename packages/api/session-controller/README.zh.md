@@ -43,6 +43,7 @@ Session 对象还承载本地提交回显：`session.beginSubmission` 在调用�
 | `coldBlankProbeMaxEvents` | `16` | stat 报告的事件数不超过该值的冷 Session 才可进行空白状态验证；`0` 禁用事件数门槛 |
 | `coldBlankProbeMaxBytes` | `1,024` | 后端不提供事件数时，stat 报告的工件字节数不超过该值的冷 Session 才可进行空白状态验证；`0` 禁用字节数门槛 |
 | `nativeOpen` | 平台探测 | 是否能把 Session 工作区路径交给原生桌面打开器 |
+| `secretContainerExtraPatterns` | `[]` | 追加到客户端固定的发送前密钥容器确认启发式判定上的文件名子串；仅可追加 |
 
 生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-api-session-controller)是所有受支持字段及其 JSDoc 的完整来源。
 
