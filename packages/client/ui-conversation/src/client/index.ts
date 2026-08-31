@@ -46,6 +46,8 @@ export type { ConversationLocationDataChange } from './conversation/location-ind
 export { ConversationViewRegistry } from './conversation/view-registry.ts'
 
 export type { ConversationKey } from './locales.ts'
+export { matchSecretContainerFiles, secretContainerCandidate } from './secret-container.ts'
+export type { SecretContainerCandidate } from './secret-container.ts'
 export type {
   ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps,
   ComposerBarInjected, ComposerBarOwnerProps, ComposerBarProps, ComposerChainProps,
