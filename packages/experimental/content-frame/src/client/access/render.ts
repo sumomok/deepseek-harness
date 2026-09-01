@@ -8,7 +8,7 @@
  */
 import { CLICKABLE_ROLE, FIELD_ROLES, clipTo } from './dom.ts'
 import type {
-  ContainerFace, ContainerItem, ControlState, ElementItem, Item, RowCell, SnapshotMode,
+  ContainerFace, ContainerItem, ControlFace, ControlState, ElementItem, Item, RowCell, SnapshotMode,
   SnapshotOptions, TableItem, TableRowItem, TextItem,
 } from './model.ts'
 import type { RefTable } from './refs.ts'
@@ -184,14 +184,37 @@ function stateOf(state: ControlState): string {
 }
 
 /**
+ * What a row says an element is: the role it carries, what it is called, what
+ * the page has set on it, and whether the page has folded it away. A row of its
+ * own and the room a tree node or menu item opens print it the same way.
+ * @param face - what the element is and how the page has set it.
+ * @param name - the element's accessible name.
+ * @returns the rendered element, without a ref or an indent.
+ */
+function controlText(face: ControlFace, name: string): string {
+  return `${face.role}${quoted(name)}${stateOf(face)}${face.collapsed ? ' (collapsed)' : ''}`
+}
+
+/**
+ * What a row says a region is: the node it was opened over, where a tree node
+ * or menu item holds it, and the kind of region everywhere else.
+ * @param item - the container item.
+ * @returns the rendered region, without a ref or an indent.
+ */
+function containerText(item: ContainerItem): string {
+  return item.node === undefined
+    ? `${item.type}${quoted(item.name)}`
+    : controlText(item.node, item.name)
+}
+
+/**
  * One control, heading, or click target.
  * @param item - the element item.
  * @param prefix - the row's indentation.
  * @returns the rendered row.
  */
 function elementLine(item: ElementItem, prefix: string): string {
-  const collapsed = item.collapsed ? ' (collapsed)' : ''
-  return `${prefix}${item.ref} ${item.role}${quoted(item.name)}${stateOf(item)}${collapsed}${within(item.container)}`
+  return `${prefix}${item.ref} ${controlText(item, item.name)}${within(item.container)}`
 }
 
 /**
@@ -289,7 +312,7 @@ function tableBlock(item: TableItem, depth: number, refs: RefTable): string {
  */
 function containerMapLine(item: ContainerItem, items: readonly Item[]): string {
   const tail = item.closed ? `${INDENT}hidden` : containerCounts(item, items)
-  return `${indent(item.depth)}${item.ref} ${item.type}${quoted(item.name)}${tail}`
+  return `${indent(item.depth)}${item.ref} ${containerText(item)}${tail}`
 }
 
 /**
@@ -301,7 +324,7 @@ function containerMapLine(item: ContainerItem, items: readonly Item[]): string {
 function outlineText(item: Item, refs: RefTable): string {
   switch (item.kind) {
     case 'container':
-      return `${indent(item.depth)}${item.ref} ${item.type}${quoted(item.name)}`
+      return `${indent(item.depth)}${item.ref} ${containerText(item)}`
     case 'element':
       return elementLine(item, indent(item.depth))
     case 'text':

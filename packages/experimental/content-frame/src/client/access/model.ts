@@ -102,6 +102,13 @@ export interface ContainerItem extends ContainerFace {
   readonly depth: number
   /** True for a dialog the page has not opened: it appears on the map and nowhere else. */
   readonly closed: boolean
+  /**
+   * The tree node or menu item this region was opened over, and undefined for
+   * every other region. A room stands in place of the one row the node would
+   * have printed, so its row prints what that row would have said and the
+   * reader is told the same either way.
+   */
+  readonly node: ControlFace | undefined
 }
 
 /**
@@ -120,20 +127,28 @@ export interface ControlState {
   readonly disabled: boolean
 }
 
+/**
+ * What a row prints of an element beyond its ref and its name: what the element
+ * is, what the page has set on it, and whether the page has folded away what it
+ * holds. A row of its own and the room a node opens print this the same way.
+ */
+export interface ControlFace extends ControlState {
+  /** The element's ARIA role, or `clickable` for a role-less click target. */
+  readonly role: string
+  /** True for a tree node or menu item the page has closed over what it holds. */
+  readonly collapsed: boolean
+}
+
 /** One control, heading, or other element the model can name on its own. */
-export interface ElementItem extends ControlState {
+export interface ElementItem extends ControlFace {
   /** Discriminant. */
   readonly kind: 'element'
   /** The element this row names. */
   readonly el: Element
   /** The element's ref. */
   readonly ref: string
-  /** The element's ARIA role, or `clickable` for a role-less click target. */
-  readonly role: string
   /** The element's accessible name. */
   readonly name: string
-  /** True for a tree node or menu item the page has closed over what it holds. */
-  readonly collapsed: boolean
   /** The container this row sits in. */
   readonly container: ContainerItem | undefined
   /** How many containers enclose this row. */

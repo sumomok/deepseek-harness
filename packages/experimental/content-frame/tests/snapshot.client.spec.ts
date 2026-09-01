@@ -1225,6 +1225,84 @@ describe('widgets built out of several elements', () => {
       .toBe(['e1 tree "组织"', '  e2 treeitem (in tree "组织")'].join('\n'))
   })
 
+  it('says on the room a node opens everything the node’s own row would have said', () => {
+    // A room stands in place of the node's row. A reader who cannot see that a
+    // checkable item is on clicks it again and turns it off; one who cannot see
+    // that a node is closed reads the rows under it as everything it holds.
+    expect(read(page('<ul role="menu" aria-label="视图"><li role="menuitemcheckbox" aria-checked="true"><img alt="网格"></li></ul>')).text)
+      .toBe(['e1 menu "视图"', '  e2 menuitemcheckbox [x]', '    e3 img "网格" (menuitem)'].join('\n'))
+    expect(read(page(`
+      <div role="tree" aria-label="树">
+        <div role="treeitem" aria-expanded="false"><img alt="华北">
+          <div role="group" data-hidden><div role="treeitem">北京</div></div>
+        </div>
+      </div>`)).text)
+      .toBe(['e1 tree "树"', '  e2 treeitem (collapsed)', '    e3 img "华北" (treeitem)'].join('\n'))
+    expect(read(page('<div role="tree" aria-label="树"><div role="treeitem" aria-disabled="true"><img alt="华北"><button>删除</button></div></div>')).text).toBe([
+      'e1 tree "树"',
+      '  e2 treeitem (disabled)',
+      '    e3 img "华北" (treeitem)',
+      '    e4 button "删除" (treeitem)',
+    ].join('\n'))
+    // A node the page named opens a room the same way and says the same things.
+    expect(read(page(`
+      <ul role="menu" aria-label="视图">
+        <li role="menuitemcheckbox" aria-checked="true" aria-label="网格视图">
+          <div role="menu"><div role="menuitem">紧凑</div></div>
+        </li>
+      </ul>`)).text)
+      .toBe([
+        'e1 menu "视图"',
+        '  e2 menuitemcheckbox "网格视图" [x]',
+        '    e3 menuitem "紧凑" (in menuitem "网格视图")',
+      ].join('\n'))
+    // The rows inside a room still say which kind of node they live in, which
+    // is what the reader needs of them and not the exact role of the node.
+    expect(read(page('<ul role="menu" aria-label="视图"><li role="menuitemradio" aria-checked="false"><img alt="按名称"></li></ul>')).text)
+      .toBe(['e1 menu "视图"', '  e2 menuitemradio [ ]', '    e3 img "按名称" (menuitem)'].join('\n'))
+  })
+
+  it('opens a room over a node only where reading it prints something', () => {
+    // What a room shows is decided by reading the node rather than by counting
+    // what could earn a row: a picture the page marks as decoration is counted
+    // by its tag and read straight through, and a room opened on that count
+    // stands empty — the node losing the tree it sits in and the count the tree
+    // reports.
+    const decorated = page('<div role="tree" aria-label="组织"><div role="treeitem"><img alt="图" role="none"></div></div>')
+    expect(read(decorated).text).toBe(['e1 tree "组织"', '  e2 treeitem (in tree "组织")'].join('\n'))
+    expect(read(decorated, { mode: 'map' }).text).toBe('e1 tree "组织"  1 items')
+    // The same picture without the mark prints, so the node is a room over it.
+    const drawn = page('<div role="tree" aria-label="组织"><div role="treeitem"><img alt="图"></div></div>')
+    expect(read(drawn).text).toBe(['e1 tree "组织"', '  e2 treeitem', '    e3 img "图" (treeitem)'].join('\n'))
+    expect(read(drawn, { mode: 'map' }).text).toBe(['e1 tree "组织"', '  e2 treeitem  1 texts'].join('\n'))
+  })
+
+  it('offers what a page makes clickable inside an unnamed node, and never inside a named one', () => {
+    // A named node's own text is printed as the room's name, so a run the page
+    // makes clickable over that text is that name said twice. An unnamed node
+    // has no such name, and the run is a thing to click the model can reach.
+    const node = (label: string): string => `
+      <div role="tree" aria-label="树">
+        <div role="treeitem" ${label}>
+          <div data-pointer><img alt="华北"></div>
+          <div role="group"><div role="treeitem">北京</div></div>
+        </div>
+      </div>`
+    expect(read(page(node('')), { isClickable: pointer }).text).toBe([
+      'e1 tree "树"',
+      '  e2 treeitem',
+      '    e3 clickable',
+      '      e4 img "华北" (clickable)',
+      '    e5 treeitem "北京" (treeitem)',
+    ].join('\n'))
+    expect(read(page(node('aria-label="华北地区"')), { isClickable: pointer }).text).toBe([
+      'e1 tree "树"',
+      '  e2 treeitem "华北地区"',
+      '    e3 img "华北" (in treeitem "华北地区")',
+      '    e4 treeitem "北京" (in treeitem "华北地区")',
+    ].join('\n'))
+  })
+
   it('never lets a control the page offers over a node name that node', () => {
     // A menu item, a tab, an option: each is something to pick rather than what
     // the node is, so none of them names the node any more than a button does.
@@ -1565,28 +1643,102 @@ describe('controls', () => {
     expect(read(page('<meter aria-label="磁盘">七成</meter>')).text).toBe('e1 meter "磁盘"')
   })
 
-  it('reports as a value only what the control draws itself, never what it offers', () => {
-    // A bar wrapped around the button that cancels the upload reports the
-    // upload, not the button: the row would otherwise say the upload stands at
-    // `取消`, which is a sentence about the page that is not true of it.
+  it('reports every word a control draws as its value, and the region it holds as a region', () => {
+    // A control's row ends the descent, so a word drawn inside it reaches the
+    // model on that row or nowhere at all. A value that repeats the label of a
+    // button the reader can see is a smaller fault than a page whose words go
+    // missing between the two ends of a read.
     expect(read(page('<div role="progressbar" aria-label="上传"><button>取消</button></div>')).text)
-      .toBe('e1 progressbar "上传"')
+      .toBe('e1 progressbar "上传" = "取消"')
     expect(read(page('<div role="progressbar" aria-label="上传"><a href="/x">取消</a></div>')).text)
-      .toBe('e1 progressbar "上传"')
-    // A field reports what the user put in it, without the clear button beside
-    // it and without the list it drops down.
+      .toBe('e1 progressbar "上传" = "取消"')
+    expect(read(page('<div role="progressbar" aria-label="上传">已传 <b>25%</b><button>取消</button></div>')).text)
+      .toBe('e1 progressbar "上传" = "已传 25% 取消"')
     expect(read(page('<div role="textbox" contenteditable="true">东风<button>清除</button></div>')).text)
-      .toBe('e1 textbox = "东风"')
+      .toBe('e1 textbox = "东风 清除"')
+    // The chips a multi-select draws are what it holds, however the page marks
+    // each one up, and the words either side of a link in a text box are one
+    // sentence with it rather than a sentence with a hole in it.
+    expect(read(page('<div role="combobox" aria-label="站点"><button>东风 ×</button><button>朝阳 ×</button></div>')).text)
+      .toBe('e1 combobox "站点" = "东风 × 朝阳 ×"')
+    expect(read(page('<div role="combobox" aria-label="站点"><span role="button">东风</span><input aria-label="输入"></div>')).text)
+      .toBe('e1 combobox "站点" = "东风"')
+    expect(read(page('<div role="textbox" contenteditable aria-label="备注">见 <a href="/doc">文档</a> 一节</div>')).text)
+      .toBe('e1 textbox "备注" = "见 文档 一节"')
+    expect(read(page('<div role="searchbox" contenteditable aria-label="搜索"><button>标签:东风</button>关键词</div>')).text)
+      .toBe('e1 searchbox "搜索" = "标签:东风 关键词"')
+    // A bar drawn as a table of one cell, and a native field the page styles a
+    // combobox around, each draw their text where the walk would otherwise stop.
+    expect(read(page('<div role="progressbar" aria-label="上传"><table role="none"><tr><td>70%</td></tr></table></div>')).text)
+      .toBe('e1 progressbar "上传" = "70%"')
+    expect(read(page('<div role="combobox" aria-label="站点"><select aria-label="选择"><option selected>东风</option></select></div>')).text)
+      .toBe('e1 combobox "站点" = "东风"')
+    // A region the control holds is the exception: the list a combobox drops
+    // down is what it offers rather than what it holds, and its options are
+    // rows of that region for a read that asks for it.
     const dropped = page(`
       <div role="combobox" aria-label="站点">
         <span>东风</span>
         <div role="listbox"><div role="option">东风</div><div role="option">朝阳</div></div>
       </div>`)
     expect(read(dropped).text).toBe('e1 combobox "站点" = "东风"')
-    // The words the control draws for itself still count, however they are
-    // marked up, so long as they earn no row of their own.
-    expect(read(page('<div role="progressbar" aria-label="上传">已传 <b>25%</b><button>取消</button></div>')).text)
-      .toBe('e1 progressbar "上传" = "已传 25%"')
+    const inline = page(`
+      <div role="combobox" aria-label="站点"><span role="button">东风 ×</span>关键词
+        <div role="listbox" aria-label="下拉"><div role="option">朝阳</div><div role="option">海淀</div></div>
+      </div>`)
+    expect(read(inline).text).toBe('e1 combobox "站点" = "东风 × 关键词"')
+  })
+
+  it('reads a control that is itself a region as a region, wherever a row prints it', () => {
+    // A listbox drawn in a table cell is named there rather than read into, and
+    // the options it holds are its region's rows: reporting them as its value
+    // would print the whole list on the sample line of the table.
+    const refs = page(`
+      <table>
+        <thead><tr><th>名称</th><th>站点</th></tr></thead>
+        <tbody><tr><td>东风</td><td>
+          <div role="listbox" aria-label="站点"><div role="option">北京</div><div role="option">上海</div></div>
+        </td></tr></tbody>
+      </table>`)
+    expect(read(refs).text.split('\n')[2]).toBe('  sample: 东风 | [站点]')
+    expect(read(refs, { scope: refOf(refs, '[role="listbox"]') }).text).toBe([
+      'e2 listbox "站点"',
+      '  e3 option "北京" (in listbox "站点")',
+      '  e4 option "上海" (in listbox "站点")',
+    ].join('\n'))
+  })
+
+  it('leaves the region a control holds out of the value, and a region it only looks like in', () => {
+    // A control's row ends the descent, so a region drawn inside one prints
+    // nowhere and the words in it are lost with it. That is the price of
+    // keeping a dropdown out of a value, and it is paid only where the page
+    // wrote the role: an editor's format bar goes, and a chip list the page
+    // wrapped in a bare `div` stays.
+    expect(read(page(`
+      <div role="textbox" contenteditable aria-label="备注">正文
+        <div role="toolbar" aria-label="格式"><button>粗体</button><button>斜体</button></div>
+      </div>`)).text).toBe('e1 textbox "备注" = "正文"')
+    expect(read(page('<div role="combobox" aria-label="站点"><div><button>东风 ×</button><button>朝阳 ×</button></div></div>')).text)
+      .toBe('e1 combobox "站点" = "东风 × 朝阳 ×"')
+    // A list is a region by the role HTML gives `ul`, so three chips in list
+    // items are lost where two are kept: the list needs three to read as one.
+    const chips = (...labels: string[]): string =>
+      `<div role="combobox" aria-label="站点"><ul>${labels.map(label => `<li><button>${label} ×</button></li>`).join('')}</ul></div>`
+    expect(read(page(chips('甲', '乙'))).text).toBe('e1 combobox "站点" = "甲 × 乙 ×"')
+    expect(read(page(chips('甲', '乙', '丙'))).text).toBe('e1 combobox "站点"')
+  })
+
+  it('takes a control drawing nothing but a zero-width character as drawing nothing', () => {
+    // A page that keeps a bar's own text empty writes a zero-width space into
+    // it to hold the line open. No browser draws one, and a value of `""` in
+    // place of the number the page wrote says the bar reports nothing.
+    expect(read(page('<div role="progressbar" aria-label="上传" aria-valuenow="25">&#8203;</div>')).text)
+      .toBe('e1 progressbar "上传" = "25"')
+    expect(read(page('<div role="progressbar" aria-label="上传" aria-valuenow="25">&#65279; &#8288;</div>')).text)
+      .toBe('e1 progressbar "上传" = "25"')
+    // A character the reader can see is still a value, zero-width or not.
+    expect(read(page('<div role="progressbar" aria-label="上传" aria-valuenow="25">&#8203;70%</div>')).text)
+      .toBe('e1 progressbar "上传" = "​70%"')
   })
 
   it('reads the text a field draws as the value it holds, where the page keeps it nowhere else', () => {

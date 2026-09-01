@@ -53,12 +53,14 @@ export const QUANTITY_ROLES: ReadonlySet<string> = new Set(['progressbar', 'mete
  *
  * The list follows the specification's own table, the abstract role it names
  * included, so a later ARIA version means adding the roles it defines here.
- * Six of the members the specification lists — `cell`, `columnheader`,
- * `gridcell`, `row`, `rowheader`, and `tooltip` — reach the walk through the
- * table and the structure it reads rather than through the fallback that
- * consults this list, and `sectionhead` is abstract and reaches nothing: what a
- * page writes those on is read as a table or read through, and never named from
- * its contents here.
+ * Eleven of the members never reach the fallback that consults this list. Six —
+ * `cell`, `columnheader`, `gridcell`, `row`, `rowheader`, and `tooltip` — reach
+ * the walk through the table and the structure it reads; four — `treeitem`,
+ * `menuitem`, `menuitemcheckbox`, and `menuitemradio` — are the node roles,
+ * named by the ladder a node is named on before this list is consulted; and
+ * `sectionhead` is abstract and reaches nothing. What a page writes those on is
+ * read as a table, read as a node, or read through, and never named from its
+ * contents here.
  */
 export const NAME_FROM_CONTENT_ROLES: ReadonlySet<string> = new Set([
   'button', 'cell', 'checkbox', 'columnheader', 'gridcell', 'heading', 'link', 'menuitem',
@@ -134,8 +136,10 @@ const DECORATIVE_ROLES: ReadonlySet<string> = new Set(['presentation', 'none'])
  * conflict ARIA resolves against a decoration role. `tabindex` is matched
  * however the page set it: an element the page took out of the tab order still
  * takes the focus from a click. A media element with controls is focusable too
- * and is left out: {@link isOpaque} covers it whatever role survives, so the
- * conflict has nothing to resolve.
+ * and is left out because adding it would change nothing: the conflict is
+ * resolved to the role HTML gives the tag, and HTML gives `video` and `audio`
+ * none. Neither tag is one that earns a row by itself, so a media element the
+ * page marks as decoration prints nothing however the two are spelled.
  */
 const FOCUSABLE_SELECTOR = [
   '[tabindex]', 'button', 'select', 'textarea', 'summary', 'a[href]', 'area[href]',
@@ -201,12 +205,38 @@ const OVERLAP_SHARE = 0.8
 const SEPARATOR = /^[/>›»|:·•\-–—]+$/
 
 /**
+ * The code points a page writes to control how a line breaks or joins rather
+ * than to put a character on the screen: the zero-width space, the two joiners
+ * either side of it, the word joiner, and a byte order mark left in the text.
+ * A browser draws none of them, and `\s` matches none of them, so a control
+ * holding one reads as a control drawing text until they are taken out.
+ *
+ * The set is the format code points a page writes into its own text. The
+ * bidirectional marks and the deprecated formatting characters are left out:
+ * they carry no width either, and a page writing one is arranging text that is
+ * there rather than drawing nothing at all.
+ */
+const FORMAT_CHARS = /[\u200B-\u200D\u2060\uFEFF]/gu
+
+/**
  * Collapse every run of whitespace to one space and trim the ends.
  * @param value - raw text from the page.
  * @returns the collapsed text.
  */
 export function collapse(value: string): string {
   return value.replace(/\s+/g, ' ').trim()
+}
+
+/**
+ * True when text puts nothing on the screen: it is empty, or it holds nothing
+ * but whitespace and the format code points a browser draws no character for.
+ * A control whose contents draw nothing reports what the page wrote for it
+ * instead, rather than a pair of quotes around an invisible character.
+ * @param text - the collapsed text.
+ * @returns whether the text draws nothing.
+ */
+export function drawsNothing(text: string): boolean {
+  return collapse(text.replace(FORMAT_CHARS, '')) === ''
 }
 
 /**

@@ -14,15 +14,16 @@
  */
 import {
   CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES,
-  QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, fieldValue, frameDocument,
-  headingText, insideOpaque, isChecked, isDisabled, isHiddenAround, isInline, isMarked, isNameable,
-  isNonContent, isOpaque, isPassword, isSkipped, libraryRole, looksClickable, markedSelector, nameOf,
-  quantityValue, queryInOrder, rectsOverlap, roleOf, visibleText,
+  QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
+  frameDocument, headingText, insideOpaque, isChecked, isDisabled, isHiddenAround, isInline, isMarked,
+  isNameable, isNonContent, isOpaque, isPassword, isSkipped, libraryRole, looksClickable,
+  markedSelector, nameOf, quantityValue, queryInOrder, rectsOverlap, roleOf, visibleText,
 } from './dom.ts'
 import type {
-  CellControl, ContainerFace, ContainerItem, ContainerType, ControlState, Item, RowCell,
+  CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, Item, RowCell,
   SnapshotOptions, TableItem, TableRowItem,
 } from './model.ts'
+import { RefTable } from './refs.ts'
 
 /** How many items a `ul` or `ol` needs before it reads as a list of its own. */
 const LIST_MIN = 3
@@ -306,6 +307,23 @@ function containerFace(el: Element, role: string | null, walk: Walk): ContainerF
 }
 
 /**
+ * True for an element whose role opens a region of its own. The judgement is
+ * the walk's, so the regions are exactly the ones it reads into rather than a
+ * second list of the roles that open one.
+ *
+ * A region the walk infers from shape rather than from a role is not one of
+ * them: {@link buttonRowFace} reads a row of buttons the page wrote no role on
+ * as a toolbar, and inside a control that row is the chips the control holds.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @returns whether the element's role opens a region.
+ */
+function opensRegion(el: Element, walk: Walk): boolean {
+  const role = roleOf(el)
+  return role !== null && containerFace(el, role, walk) !== undefined
+}
+
+/**
  * The text a control draws for itself, which is what it currently holds where
  * the page keeps that value nowhere else: the words inside a `contenteditable`
  * text box are the text the user typed, and the percentage inside a `div` a
@@ -313,19 +331,26 @@ function containerFace(el: Element, role: string | null, walk: Walk): ContainerF
  * itself shows nothing this way — what is written inside it is a fallback no
  * engine renders.
  *
- * Only the words the control itself draws count. What the page puts inside it
- * that would earn a row of its own — the clear button of a combobox, the list
- * it drops down, the link over a finished upload — says what that thing does
- * rather than what the control holds, and reporting it would have the row say
- * that an upload stands at `取消`.
+ * Every word the control draws counts, the words on the things it offers
+ * included: a row for a control ends the descent, so the chips of a combobox
+ * and the cancel button of an upload reach the model here or nowhere at all. A
+ * value that repeats a word the reader can see beside it is a smaller fault
+ * than a value that drops one.
+ *
+ * The regions the control holds are the exception, because their contents are
+ * not the control's own text: the list a combobox drops down is what the
+ * control offers rather than what it holds, and its options are read as rows
+ * of that region when the model asks for it. A control that is itself a region
+ * — a `div` a page marks as a `listbox` — reports no drawn value for the same
+ * reason.
  * @param el - the control element.
  * @param walk - the walk in progress.
  * @returns the text, or undefined when the control draws none.
  */
 function drawnValue(el: Element, walk: Walk): string | undefined {
-  if (isOpaque(el)) return undefined
-  const text = clip(visibleText(el, walk.isVisible, child => makesRow(child, walk)))
-  return text === '' ? undefined : text
+  if (isOpaque(el) || opensRegion(el, walk)) return undefined
+  const text = clip(visibleText(el, walk.isVisible, child => opensRegion(child, walk)))
+  return drawsNothing(text) ? undefined : text
 }
 
 /**
@@ -367,6 +392,25 @@ function controlState(el: Element, role: string, walk: Walk): ControlState {
     secret,
     checked: CHECKED_ROLES.has(role) ? isChecked(el) : undefined,
     disabled: isDisabled(el),
+  }
+}
+
+/**
+ * Everything a row prints of an element apart from its ref and its name, read
+ * the same way whether the element prints one row or opens a room over what it
+ * holds: a node reads as a `menuitemcheckbox` the page has ticked either way.
+ * @param el - the element.
+ * @param role - the role it prints.
+ * @param walk - the walk in progress.
+ * @returns the face.
+ */
+function controlFace(el: Element, role: string, walk: Walk): ControlFace {
+  return {
+    role,
+    ...controlState(el, role, walk),
+    // A node the page has closed says so: what it holds is not missing from the
+    // read, it is folded away until something opens it.
+    collapsed: ITEM_NODE_TYPES.has(role) && el.getAttribute('aria-expanded') === 'false',
   }
 }
 
@@ -1028,12 +1072,8 @@ function pushElement(el: Element, role: string, walk: Walk, place: Place): void 
     kind: 'element',
     el,
     ref: walk.options.refs.ref(el),
-    role,
     name,
-    ...controlState(el, role, walk),
-    // A node the page has closed says so: what it holds is not missing from the
-    // read, it is folded away until something opens it.
-    collapsed: ITEM_NODE_TYPES.has(role) && el.getAttribute('aria-expanded') === 'false',
+    ...controlFace(el, role, walk),
     container: place.container,
     depth: place.depth,
   })
@@ -1057,6 +1097,7 @@ function pushClosedDialog(el: Element, walk: Walk, place: Place): void {
     container: place.container,
     depth: place.depth,
     closed: true,
+    node: undefined,
   })
 }
 
@@ -1129,9 +1170,10 @@ function pushHiddenDialogs(el: Element, walk: Walk, place: Place): void {
  * open shadow root's, or a frame document's.
  * @param walk - the walk in progress.
  * @param place - the container's position.
- * @param labelled - whether the text inside is already printed as this
- * container's name, which is true of the label half of a tree node or menu item
- * and of nothing else: a region reached from inside a label starts a name of
+ * @param node - the tree node or menu item this region is opened over, and
+ * undefined for every other region. A named node's own text is already printed
+ * as the room's name, so the text inside it and the click targets in it print
+ * no rows of their own; a region reached from anywhere else starts a name of
  * its own.
  */
 function openContainer(
@@ -1140,7 +1182,7 @@ function openContainer(
   host: ParentNode,
   walk: Walk,
   place: Place,
-  labelled: boolean,
+  node: ControlFace | undefined,
 ): void {
   if (duplicate(walk.kept, walk.options.rectOf, `${face.type}|${face.name}`, el)) return
   flush(walk, place)
@@ -1152,8 +1194,10 @@ function openContainer(
     container: place.container,
     depth: place.depth,
     closed: false,
+    node,
   }
   walk.items.push(item)
+  const labelled = node !== undefined && face.name !== ''
   const inside: Place = { container: item, depth: place.depth + 1, buffer: [], root: host, labelled }
   walkNodes(host, walk, inside)
   flush(walk, inside)
@@ -1175,12 +1219,14 @@ function enterFrame(el: Element, walk: Walk, place: Place): void {
     walk.items.push({ kind: 'frame-error', container: place.container, depth: place.depth })
     return
   }
-  openContainer(el, { type: 'frame', name: nameOf(el) }, host, walk, place, false)
+  openContainer(el, { type: 'frame', name: nameOf(el) }, host, walk, place, undefined)
 }
 
 /**
  * True when an element holds something that would earn a row of its own, so it
- * is a wrapper around content as well as whatever else it is.
+ * is a wrapper around content as well as whatever else it is. The question is
+ * the wide one {@link makesRow} answers: what the page draws in the gap between
+ * two halves of a table separates them whether or not this read prints it.
  * @param host - the node holding what the element shows.
  * @param walk - the walk in progress.
  * @returns whether the subtree holds an item.
@@ -1190,6 +1236,35 @@ function holdsItems(host: ParentNode, walk: Walk): boolean {
     if (!isSkipped(candidate, walk.isVisible) && makesRow(candidate, walk)) return true
   }
   return false
+}
+
+/**
+ * True when reading a subtree prints at least one row. The decision to open a
+ * room turns on what the room will show, so it is answered by reading rather
+ * than by counting: {@link makesRow} answers a wider question than the walk
+ * does — it counts an element the page marks as decoration by the tag it is
+ * written with, where the walk reads through it and prints nothing — and a room
+ * opened on that count stands empty, its element losing both the region it sits
+ * in and the count that region reports.
+ *
+ * The reading is thrown away. It numbers into a table of its own and claims no
+ * rectangle, so the page's numbering and its repeat detection are left as they
+ * were found and the walk that follows prints exactly the refs it would have.
+ * @param host - the node holding what the element shows.
+ * @param walk - the walk in progress.
+ * @returns whether reading the subtree prints a row.
+ */
+function showsRows(host: ParentNode, walk: Walk): boolean {
+  const probe: Walk = {
+    ...walk,
+    options: { ...walk.options, refs: new RefTable() },
+    items: [],
+    kept: new Map(),
+  }
+  const place: Place = { container: undefined, depth: 0, buffer: [], root: host, labelled: false }
+  walkNodes(host, probe, place)
+  flush(probe, place)
+  return probe.items.length > 0
 }
 
 /**
@@ -1377,7 +1452,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
   const host = childHost(el)
   const face = containerFace(el, role, walk)
   if (face !== undefined) {
-    openContainer(el, face, host, walk, place, false)
+    openContainer(el, face, host, walk, place, undefined)
     return
   }
   if (role !== null) {
@@ -1389,9 +1464,11 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
       // children. A node the page named nothing is a room over whatever it does
       // show — the switch that is its whole label, the command a menu offers,
       // the button that acts on it — because a row for it would end the descent
-      // and every word in it would reach the reader nowhere.
-      if (holdsGroup(el, walk) || (name === '' && holdsItems(host, walk))) {
-        openContainer(el, { type: node, name }, host, walk, place, name !== '')
+      // and every word in it would reach the reader nowhere. A node showing
+      // nothing that prints is one row, whether it holds nothing at all or
+      // nothing but what the page draws and marks as decoration.
+      if (holdsGroup(el, walk) || (name === '' && showsRows(host, walk))) {
+        openContainer(el, { type: node, name }, host, walk, place, controlFace(el, role, walk))
         return
       }
     }
@@ -1405,7 +1482,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
     if (!wrapsOnly(el, items, walk)) {
       // A click target holding items is both: the row says what clicking it
       // does, and the rows under it say what it holds.
-      if (items.length > 0) openContainer(el, { type: 'clickable', name: clickableName(el, walk) }, host, walk, place, false)
+      if (items.length > 0) openContainer(el, { type: 'clickable', name: clickableName(el, walk) }, host, walk, place, undefined)
       else pushElement(el, CLICKABLE_ROLE, walk, place)
       return
     }
