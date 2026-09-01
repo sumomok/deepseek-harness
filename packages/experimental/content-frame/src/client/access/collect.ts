@@ -15,9 +15,9 @@
 import {
   CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES,
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, fieldValue, frameDocument,
-  headingText, insideOpaque, isChecked, isDisabled, isInline, isMarked, isNameable, isNonContent,
-  isOpaque, isPassword, isSkipped, libraryRole, looksClickable, markedSelector, nameOf, quantityValue,
-  queryInOrder, rectsOverlap, roleOf, visibleText,
+  headingText, insideOpaque, isChecked, isDisabled, isHiddenAround, isInline, isMarked, isNameable,
+  isNonContent, isOpaque, isPassword, isSkipped, libraryRole, looksClickable, markedSelector, nameOf,
+  quantityValue, queryInOrder, rectsOverlap, roleOf, visibleText,
 } from './dom.ts'
 import type {
   CellControl, ContainerFace, ContainerItem, ContainerType, ControlState, Item, RowCell,
@@ -51,13 +51,20 @@ const CELL_CONTROL_ROLES: ReadonlySet<string> = new Set(['button', 'link', ...FI
 
 /**
  * The roles of the controls a page draws beside a node to act on it: the delete
- * button of a tree row, the tick box that picks it. Their text says what they
- * do rather than what the node is, so a node is never named by one — carrying
- * it into the name repeats it on the node and in the suffix of every row under
- * it. A link is not one of them: a node drawn as a link is the page saying what
- * the node is and where it goes.
+ * button of a tree row, the tick box that picks it, the command a context menu
+ * offers over it. Their text says what they do rather than what the node is, so
+ * a node is never named by one — carrying it into the name repeats it on the
+ * node and in the suffix of every row under it. What the node holds is read all
+ * the same: a node these leave unnamed is a room, and each of them prints a row
+ * inside it.
+ *
+ * A link and a node role are not among them: a node drawn as a link is the page
+ * saying what the node is and where it goes, and a node drawn inside another is
+ * the tree's own nesting rather than something acting on the node above it.
  */
-const ACTS_ON_NODE_ROLES: ReadonlySet<string> = new Set(['button', ...FIELD_ROLES])
+const ACTS_ON_NODE_ROLES: ReadonlySet<string> = new Set([
+  'button', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'tab', ...FIELD_ROLES,
+])
 
 /** The word pages use to mark the strip that pages through a table. */
 const PAGINATION_MARKER = 'pagination'
@@ -305,13 +312,19 @@ function containerFace(el: Element, role: string | null, walk: Walk): ContainerF
  * page marked as a bar is what the bar reports. An element the browser draws
  * itself shows nothing this way — what is written inside it is a fallback no
  * engine renders.
+ *
+ * Only the words the control itself draws count. What the page puts inside it
+ * that would earn a row of its own — the clear button of a combobox, the list
+ * it drops down, the link over a finished upload — says what that thing does
+ * rather than what the control holds, and reporting it would have the row say
+ * that an upload stands at `取消`.
  * @param el - the control element.
  * @param walk - the walk in progress.
  * @returns the text, or undefined when the control draws none.
  */
 function drawnValue(el: Element, walk: Walk): string | undefined {
   if (isOpaque(el)) return undefined
-  const text = clip(visibleText(el, walk.isVisible))
+  const text = clip(visibleText(el, walk.isVisible, child => makesRow(child, walk)))
   return text === '' ? undefined : text
 }
 
@@ -321,13 +334,20 @@ function drawnValue(el: Element, walk: Walk): string | undefined {
  * that carry text report a value. A control the page built out of a `div`
  * carries neither an attribute nor a native value, and reports the text it
  * draws: leaving it out would drop a run of text the reader can see.
+ *
+ * A bar reports the text it draws before the number the page wrote, which is
+ * the one place the two orders disagree. A screen reader announces
+ * `aria-valuetext` and would say `25`; this read answers with the page, and the
+ * page draws `上传中，请稍候` where the attribute says `25`. The row ends the
+ * descent, so those words reach the model as the value or nowhere at all, while
+ * the number behind them is what the bar reports when it draws nothing.
  * @param el - the control element.
  * @param role - the role it prints.
  * @param walk - the walk in progress.
  * @returns the value, or undefined for a control that carries none.
  */
 function heldValue(el: Element, role: string, walk: Walk): string | undefined {
-  if (QUANTITY_ROLES.has(role)) return quantityValue(el) ?? drawnValue(el, walk)
+  if (QUANTITY_ROLES.has(role)) return drawnValue(el, walk) ?? quantityValue(el)
   if (!FIELD_ROLES.has(role) || CHECKED_ROLES.has(role)) return undefined
   return fieldValue(el) ?? drawnValue(el, walk)
 }
@@ -388,12 +408,20 @@ function cellControls(el: Element, walk: Walk, found: CellControl[]): void {
  * How one control reads inside the one sample row a table block prints: what it
  * is called, or what it is where the page has named it nothing, and whether it
  * is currently on. The sample says what the column holds, so the controls are
- * named and their values are not.
+ * named and the values they carry are not.
+ *
+ * A bar is the exception, because what it reports is the whole of what the
+ * column shows: a cell drawn as nothing but a bar has no text of its own, and a
+ * sample saying only `[进度]` drops the percentage a reader sees there. The
+ * value goes inside the brackets with the name, and the cut the sample makes
+ * inside them applies to it like anything else.
  * @param control - the cell's control.
  * @returns the sample text for that control.
  */
 function controlSample(control: CellControl): string {
-  return `${control.name === '' ? control.role : control.name}${control.checked === true ? ' x' : ''}`
+  const named = control.name === '' ? control.role : control.name
+  const reported = QUANTITY_ROLES.has(control.role) && control.value !== undefined ? ` ${control.value}` : ''
+  return `${named}${reported}${control.checked === true ? ' x' : ''}`
 }
 
 /**
@@ -603,7 +631,7 @@ function nothingBetween(first: Element, second: Element, walk: Walk): boolean {
  */
 function splitPartner(el: Element, step: number, walk: Walk): Element | undefined {
   const tables = queryInOrder(el.ownerDocument, TABLE_SELECTOR)
-    .filter(table => isTableRole(roleOf(table)) && !isSkipped(table, walk.isVisible))
+    .filter(table => isTableRole(roleOf(table)) && !isHiddenAround(table, walk.isVisible))
   const other = tables[tables.indexOf(el) + step]
   if (other === undefined || other.closest(CONTAINER_SELECTOR) !== el.closest(CONTAINER_SELECTOR)) return undefined
   const name = nameOf(el)
@@ -1346,24 +1374,32 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
     flush(walk, place)
     return
   }
+  const host = childHost(el)
   const face = containerFace(el, role, walk)
   if (face !== undefined) {
-    openContainer(el, face, childHost(el), walk, place, false)
+    openContainer(el, face, host, walk, place, false)
     return
   }
   if (role !== null) {
     const node = ITEM_NODE_TYPES.get(role)
-    if (node !== undefined && holdsGroup(el, walk)) {
-      // The node's own text names it, and the group under it holds the rows.
-      openContainer(el, { type: node, name: elementName(el, role, walk) }, childHost(el), walk, place, true)
-      return
+    if (node !== undefined) {
+      const name = elementName(el, role, walk)
+      // A node the page named is one row, and the group under it holds the rest:
+      // its own text is already the name, and the rows in the group are its
+      // children. A node the page named nothing is a room over whatever it does
+      // show — the switch that is its whole label, the command a menu offers,
+      // the button that acts on it — because a row for it would end the descent
+      // and every word in it would reach the reader nowhere.
+      if (holdsGroup(el, walk) || (name === '' && holdsItems(host, walk))) {
+        openContainer(el, { type: node, name }, host, walk, place, name !== '')
+        return
+      }
     }
     if (rowRole(el, role)) {
       pushElement(el, role, walk, place)
       return
     }
   }
-  const host = childHost(el)
   if (offersClick(el, walk, place)) {
     const items = topItems(host, walk)
     if (!wrapsOnly(el, items, walk)) {

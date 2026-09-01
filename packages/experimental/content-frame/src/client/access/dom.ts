@@ -53,6 +53,12 @@ export const QUANTITY_ROLES: ReadonlySet<string> = new Set(['progressbar', 'mete
  *
  * The list follows the specification's own table, the abstract role it names
  * included, so a later ARIA version means adding the roles it defines here.
+ * Six of the members the specification lists — `cell`, `columnheader`,
+ * `gridcell`, `row`, `rowheader`, and `tooltip` — reach the walk through the
+ * table and the structure it reads rather than through the fallback that
+ * consults this list, and `sectionhead` is abstract and reaches nothing: what a
+ * page writes those on is read as a table or read through, and never named from
+ * its contents here.
  */
 export const NAME_FROM_CONTENT_ROLES: ReadonlySet<string> = new Set([
   'button', 'cell', 'checkbox', 'columnheader', 'gridcell', 'heading', 'link', 'menuitem',
@@ -127,10 +133,12 @@ const DECORATIVE_ROLES: ReadonlySet<string> = new Set(['presentation', 'none'])
  * Every element a reader can put the focus on, which is the first half of the
  * conflict ARIA resolves against a decoration role. `tabindex` is matched
  * however the page set it: an element the page took out of the tab order still
- * takes the focus from a click.
+ * takes the focus from a click. A media element with controls is focusable too
+ * and is left out: {@link isOpaque} covers it whatever role survives, so the
+ * conflict has nothing to resolve.
  */
 const FOCUSABLE_SELECTOR = [
-  '[tabindex]', 'button', 'select', 'textarea', 'summary', 'a[href]',
+  '[tabindex]', 'button', 'select', 'textarea', 'summary', 'a[href]', 'area[href]',
   'input:not([type="hidden"])', '[contenteditable]:not([contenteditable="false"])',
 ].join(', ')
 
@@ -161,6 +169,13 @@ const TAG_ROLES: ReadonlyMap<string, string> = new Map([['meter', 'meter']])
 
 /** Every element the page shows as a dialog, an alert included. */
 export const DIALOG_SELECTOR = 'dialog, [role~="dialog"], [role~="alertdialog"]'
+
+/**
+ * The two ways a page takes an element out of what the reader sees outright:
+ * HTML's own attribute, and the ARIA state that hides it from the reading
+ * without changing how it is drawn. Both reach everything inside the element.
+ */
+const HIDDEN_SELECTOR = '[aria-hidden="true"], [hidden]'
 
 /**
  * Elements a browser draws itself rather than laying out what is written inside
@@ -317,6 +332,14 @@ function contradictsDecoration(el: Element): boolean {
  * because `dom-accessibility-api` reads the first token alone and resolves this
  * conflict for `presentation` only: asked about the element as it stands, it
  * answers `none` for the very spelling the walk has decided to ignore.
+ *
+ * The copy stands outside the document, so the answer is the role of the tag
+ * alone and never the one its position gives it: `header` answers `banner`
+ * where the element itself is the head of a card, and `td` answers `cell` where
+ * no table encloses it. Nothing follows from that today, because every role the
+ * difference reaches is structural either way and landmarks are matched by tag
+ * and attribute rather than by this answer. Giving one of those roles a
+ * container face means reading the position too.
  * @param el - the element the page marked as decoration.
  * @returns the role name, or null for a tag HTML gives no role.
  */
@@ -463,10 +486,25 @@ export function isNonContent(el: Element): boolean {
  * @returns whether the walk skips the element and its subtree.
  */
 export function isSkipped(el: Element, isVisible: (el: Element) => boolean): boolean {
-  return isNonContent(el)
-    || el.getAttribute('aria-hidden') === 'true'
-    || el.hasAttribute('hidden')
-    || !isVisible(el)
+  return isNonContent(el) || el.matches(HIDDEN_SELECTOR) || !isVisible(el)
+}
+
+/**
+ * True for an element hidden by something around it as well as by itself. The
+ * injected visibility already answers for the styling, which reaches an element
+ * from every ancestor over it; the two attributes are read again over the
+ * ancestors because `aria-hidden` changes no style at all, so a wrapper
+ * carrying it hides what is inside however the page draws it.
+ *
+ * The walk itself never needs this — it stops at the wrapper and never reaches
+ * what is inside — and the searches that look at one element without walking to
+ * it do.
+ * @param el - the element to classify.
+ * @param isVisible - injected visibility.
+ * @returns whether the element is drawn nowhere the reader looks.
+ */
+export function isHiddenAround(el: Element, isVisible: (el: Element) => boolean): boolean {
+  return isSkipped(el, isVisible) || el.closest(HIDDEN_SELECTOR) !== null
 }
 
 /**
