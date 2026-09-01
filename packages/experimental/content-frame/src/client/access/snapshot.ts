@@ -37,8 +37,8 @@ const SIGN_IN_PARTNER = 'input[type="text"], input[type="email"], input:not([typ
  * a search box in another are not a sign-in form.
  */
 const SIGN_IN_SCOPE = [
-  'form', '[role="form"]', 'dialog', '[role="dialog"]', 'main', '[role="main"]',
-  'section', '[role="region"]', '[role="tabpanel"]',
+  'form', '[role~="form"]', 'dialog', '[role~="dialog"]', 'main', '[role~="main"]',
+  'section', '[role~="region"]', '[role~="tabpanel"]',
 ].join(', ')
 
 /**

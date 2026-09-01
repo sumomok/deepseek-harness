@@ -16,14 +16,15 @@ const SKIP_TAGS: ReadonlySet<string> = new Set(['script', 'style', 'template', '
 /**
  * Elements that flow inside a line, so text either side of them is one run. A
  * line break and a picture sit inside a paragraph rather than ending it: the
- * words either side of them are still one thing to read. A drawing does too,
- * and is left out of this set because the walk stops at one rather than
- * classifying it — see {@link isDrawing}.
+ * words either side of them are still one thing to read, and `picture` is here
+ * because it is the wrapping a page puts around an `img` rather than a block of
+ * its own. A drawing flows the same way, and is left out of this set because
+ * the walk stops at one rather than classifying it — see {@link isOpaque}.
  */
 const INLINE_TAGS: ReadonlySet<string> = new Set([
   'a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'img', 'kbd',
-  'label', 'mark', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup',
-  'time', 'u', 'var', 'wbr',
+  'label', 'mark', 'picture', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strong',
+  'sub', 'sup', 'time', 'u', 'var', 'wbr',
 ])
 
 /** Elements whose `disabled` property the page can set. */
@@ -40,6 +41,24 @@ export const FIELD_ROLES: ReadonlySet<string> =
  */
 export const CHECKED_ROLES: ReadonlySet<string> =
   new Set(['checkbox', 'menuitemcheckbox', 'menuitemradio', 'radio', 'switch'])
+
+/** Roles that report a quantity the page sets, rather than one the user fills in. */
+export const QUANTITY_ROLES: ReadonlySet<string> = new Set(['progressbar', 'meter'])
+
+/**
+ * The roles WAI-ARIA 1.2 §5.2.8.5 names from the text the element holds. A row
+ * whose name was computed for a role the walk did not read is named from the
+ * page instead, and only for these: a role named some other way says nothing
+ * about the text under it.
+ *
+ * The list follows the specification's own table, the abstract role it names
+ * included, so a later ARIA version means adding the roles it defines here.
+ */
+export const NAME_FROM_CONTENT_ROLES: ReadonlySet<string> = new Set([
+  'button', 'cell', 'checkbox', 'columnheader', 'gridcell', 'heading', 'link', 'menuitem',
+  'menuitemcheckbox', 'menuitemradio', 'option', 'radio', 'row', 'rowheader', 'sectionhead',
+  'switch', 'tab', 'tooltip', 'treeitem',
+])
 
 /**
  * Every role WAI-ARIA 1.2 defines for authors, plus the three the graphics
@@ -104,8 +123,25 @@ const STRUCTURAL_ROLES: ReadonlySet<string> = new Set([
 /** The role a snapshot gives a role-less element the page makes clickable. */
 export const CLICKABLE_ROLE = 'clickable'
 
+/**
+ * The roles HTML itself gives an element that `dom-accessibility-api` does not
+ * map. HTML-AAM gives `meter` the role of the same name; the library answers
+ * nothing for that tag, and a bar the page named would reach the reader as
+ * nothing at all. A tag leaves this map when the library maps it.
+ */
+const TAG_ROLES: ReadonlyMap<string, string> = new Map([['meter', 'meter']])
+
 /** Every element the page shows as a dialog, an alert included. */
-export const DIALOG_SELECTOR = 'dialog, [role="dialog"], [role="alertdialog"]'
+export const DIALOG_SELECTOR = 'dialog, [role~="dialog"], [role~="alertdialog"]'
+
+/**
+ * Elements a browser draws itself rather than laying out what is written inside
+ * them: a picture built out of shapes, a media element, a bar reporting a
+ * quantity, and the markup kept for a reader running no script. What they hold
+ * is a part of the drawing or a fallback no engine in use renders, so the walk
+ * neither descends into one, reads its text, nor counts a row inside it.
+ */
+const OPAQUE_SELECTOR = 'svg, canvas, video, audio, object, progress, meter, noscript'
 
 /** How long one text run may be before it is cut. */
 const TEXT_LIMIT = 200
@@ -212,7 +248,15 @@ export function isPassword(el: Element): boolean {
  * A page may write several roles and mean the first one a reader understands,
  * which is how a document written against a newer vocabulary falls back to an
  * older one, so the tokens are read in order and the first defined role wins.
- * The comparison is case-sensitive, as ARIA defines these names.
+ * The comparison is case-sensitive, as ARIA defines these names. Every selector
+ * this package matches a role with reads the attribute the same way — one
+ * token of several, `[role~="x"]` — so a page that falls back is answered the
+ * same wherever it is asked about.
+ *
+ * A page that marks an element as decoration and still labels it, or draws it
+ * with something the user can operate, has written two things that contradict
+ * each other; ARIA resolves that in favour of what the element offers, and the
+ * library implements the resolution for the role it reads.
  * @param el - the element to classify.
  * @returns the role name, or null for an element with no role ARIA knows.
  */
@@ -220,19 +264,57 @@ export function roleOf(el: Element): string | null {
   if (isPassword(el)) return 'textbox'
   // An empty role attribute declares nothing, and leaves the tag's own role.
   const declared = el.getAttribute('role')?.trim() ?? ''
-  if (declared === '') return getRole(el)
+  if (declared === '' || libraryRole(el) === 'presentation') return tagRole(el)
   return declared.split(/\s+/).find(token => KNOWN_ROLES.has(token)) ?? null
 }
 
 /**
- * True for a drawing: a picture built out of shapes rather than written out of
- * text. Its parts are neither read nor counted — a path is not a paragraph, and
- * the title a drawing carries is a tooltip the page never shows.
+ * The role HTML gives an element, which is the role of anything the page has
+ * not given one.
  * @param el - the element to classify.
- * @returns whether the element is a drawing.
+ * @returns the role name, or null for a tag HTML gives no role.
  */
-export function isDrawing(el: Element): boolean {
-  return el.localName === 'svg'
+function tagRole(el: Element): string | null {
+  return getRole(el) ?? TAG_ROLES.get(el.localName) ?? null
+}
+
+/**
+ * The role `dom-accessibility-api` reads: the first word of the attribute
+ * alone, cut on spaces. The name it computes and the presentational conflict it
+ * resolves are answers about that role, so a walk that read another one cannot
+ * take those answers unchanged.
+ * @param el - the element to read.
+ * @returns the word the library takes as the role, empty when the page wrote none.
+ */
+export function libraryRole(el: Element): string {
+  const declared = el.getAttribute('role')?.trim() ?? ''
+  const cut = declared.indexOf(' ')
+  return cut === -1 ? declared : declared.slice(0, cut)
+}
+
+/**
+ * True for an element whose content a browser never renders: a drawing, a media
+ * element, a bar, the markup kept for a reader running no script. A path is not
+ * a paragraph, the title a drawing carries is a tooltip the page never shows,
+ * and the words inside a `progress` are there for an engine that cannot draw
+ * one.
+ * @param el - the element to classify.
+ * @returns whether the walk stops at the element rather than reading into it.
+ */
+export function isOpaque(el: Element): boolean {
+  return el.matches(OPAQUE_SELECTOR)
+}
+
+/**
+ * True for an element written inside one of those, which is no row of the page
+ * however it is marked up: a link drawn as a slice of a chart is a part of the
+ * picture, and a button offered to a reader with no script is offered to nobody.
+ * @param el - the element to classify.
+ * @returns whether something the page never renders encloses the element.
+ */
+export function insideOpaque(el: Element): boolean {
+  const holder = el.closest(OPAQUE_SELECTOR)
+  return holder !== null && holder !== el
 }
 
 /**
@@ -262,7 +344,7 @@ export function nameOf(el: Element): string {
  * @returns the heading's text, empty when there is none.
  */
 export function headingText(el: Element, isVisible: (el: Element) => boolean): string {
-  for (const heading of queryInOrder(el, 'h1, h2, h3, h4, h5, h6, [role="heading"]')) {
+  for (const heading of queryInOrder(el, 'h1, h2, h3, h4, h5, h6, [role~="heading"]')) {
     if (!isSkipped(heading, isVisible)) return clip(visibleText(heading, isVisible))
   }
   return ''
@@ -330,8 +412,9 @@ export function isSkipped(el: Element, isVisible: (el: Element) => boolean): boo
 }
 
 /**
- * Every run of visible text inside an element, in document order. A drawing is
- * not looked into: the words in one are labels of the picture it draws.
+ * Every run of visible text inside an element, in document order. What the page
+ * never renders is not looked into: the words in a drawing label the picture,
+ * and the words in a media element are for a reader who cannot see it.
  * @param el - the element to read.
  * @param isVisible - injected visibility.
  * @param stopAt - subtrees whose text belongs to something else, left out along
@@ -350,7 +433,7 @@ export function visibleTextParts(
       if (text !== '') parts.push(text)
     } else if (node.nodeType === node.ELEMENT_NODE) {
       const child = node as Element
-      if (!isSkipped(child, isVisible) && !isDrawing(child) && stopAt?.(child) !== true) {
+      if (!isSkipped(child, isVisible) && !isOpaque(child) && stopAt?.(child) !== true) {
         parts.push(...visibleTextParts(child, isVisible, stopAt))
       }
     }
@@ -389,19 +472,40 @@ export function fieldValue(el: Element): string | undefined {
 }
 
 /**
+ * What a bar reports: the text the page wrote for it, the number behind that
+ * text, or the value a native bar carries. A bar carrying none of the three
+ * draws whatever it means somewhere else, and reports nothing here.
+ * @param el - the bar element.
+ * @returns the value, or undefined for a bar that reports none.
+ */
+export function quantityValue(el: Element): string | undefined {
+  const declared = el.getAttribute('aria-valuetext') ?? el.getAttribute('aria-valuenow')
+  if (declared !== null) return clip(collapse(declared))
+  const tag = el.localName
+  if (tag !== 'progress' && tag !== 'meter') return undefined
+  const value = el.getAttribute('value')
+  return value === null ? undefined : clip(collapse(value))
+}
+
+/**
  * Whether a checkbox, radio, or switch is currently on. A box the browser keeps
  * the state of is read from the browser; anything else the page draws as one
  * has the state it wrote, and no state at all until it writes one. ARIA
  * requires the attribute on these roles, so a page that leaves it out has not
  * said the control is off — it has said nothing, and a reader told "off" would
  * click to turn on what is already on.
+ *
+ * A box the page reports as half checked has no state of the two either: it is
+ * the box at the head of a table with some of its rows picked, and a reader
+ * told it is off clicks it and picks every row on the page.
  * @param el - the element to read.
  * @returns its checked state, or undefined when the page has declared none.
  */
 export function isChecked(el: Element): boolean | undefined {
   if (el.localName === 'input') return (el as HTMLInputElement).checked
   const aria = el.getAttribute('aria-checked')
-  return aria === null ? undefined : aria === 'true'
+  if (aria === 'true') return true
+  return aria === 'false' ? false : undefined
 }
 
 /**

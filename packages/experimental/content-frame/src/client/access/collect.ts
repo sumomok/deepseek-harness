@@ -13,9 +13,10 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/collect
  */
 import {
-  CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, childHost, clip, clipTo, collapse,
-  containerName, fieldValue, frameDocument, headingText, isChecked, isDisabled, isDrawing, isInline,
-  isMarked, isNameable, isNonContent, isPassword, isSkipped, looksClickable, markedSelector, nameOf,
+  CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES,
+  QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, fieldValue, frameDocument,
+  headingText, insideOpaque, isChecked, isDisabled, isInline, isMarked, isNameable, isNonContent,
+  isOpaque, isPassword, isSkipped, libraryRole, looksClickable, markedSelector, nameOf, quantityValue,
   queryInOrder, rectsOverlap, roleOf, visibleText,
 } from './dom.ts'
 import type {
@@ -47,7 +48,7 @@ const CELL_CONTROL_ROLES: ReadonlySet<string> = new Set(['button', 'link', ...FI
 const PAGINATION_MARKER = 'pagination'
 
 /** Every element that reads as a table. */
-const TABLE_SELECTOR = 'table, [role="table"], [role="grid"], [role="treegrid"]'
+const TABLE_SELECTOR = 'table, [role~="table"], [role~="grid"], [role~="treegrid"]'
 
 /**
  * Every element that opens a region of the page, which is how far a table looks
@@ -56,14 +57,14 @@ const TABLE_SELECTOR = 'table, [role="table"], [role="grid"], [role="treegrid"]'
  */
 const CONTAINER_SELECTOR = [
   'main', 'nav', 'form', 'section', 'article', 'aside', 'dialog', 'ul', 'ol', 'iframe',
-  '[role="main"]', '[role="navigation"]', '[role="form"]', '[role="search"]', '[role="dialog"]',
-  '[role="alertdialog"]', '[role="region"]', '[role="article"]', '[role="complementary"]',
-  '[role="tabpanel"]', '[role="tablist"]', '[role="menu"]', '[role="menubar"]', '[role="tree"]',
-  '[role="radiogroup"]', '[role="listbox"]', '[role="toolbar"]', '[role="list"]', '[role="feed"]',
+  '[role~="main"]', '[role~="navigation"]', '[role~="form"]', '[role~="search"]', '[role~="dialog"]',
+  '[role~="alertdialog"]', '[role~="region"]', '[role~="article"]', '[role~="complementary"]',
+  '[role~="tabpanel"]', '[role~="tablist"]', '[role~="menu"]', '[role~="menubar"]', '[role~="tree"]',
+  '[role~="radiogroup"]', '[role~="listbox"]', '[role~="toolbar"]', '[role~="list"]', '[role~="feed"]',
 ].join(', ')
 
 /** The group a tree node or a menu item holds the nodes under it in. */
-const GROUP_SELECTOR = '[role="group"], [role="menu"], [role="tree"], [role="menubar"]'
+const GROUP_SELECTOR = '[role~="group"], [role~="menu"], [role~="tree"], [role~="menubar"]'
 
 /** The region each item role opens when it holds a group of nodes under it. */
 const ITEM_NODE_TYPES: ReadonlyMap<string, ContainerType> = new Map([
@@ -107,10 +108,18 @@ const DRAWN_TAGS = 'hr, img, svg, canvas, video, audio, picture, embed, object'
  * inside it is the page itself. A form and a dialog are left out because a card
  * holds either one readily — an inline editor, a confirmation over the card —
  * and the card is still the thing the page offers to click.
+ *
+ * Two of the four are matched by tag as well as by role and two only by role,
+ * because that is where HTML puts them: `main` and `nav` are the region they
+ * name wherever they are drawn, while `header` and `footer` are a banner and a
+ * page footer only at the top level and are the head and foot of a card, an
+ * article, or a table cell everywhere else. A page that means one of those two
+ * inside a card writes the role, and writing it is what makes it a landmark
+ * here.
  */
 const LANDMARK_SELECTOR = [
   'main', 'nav',
-  '[role="main"]', '[role="navigation"]', '[role="banner"]', '[role="contentinfo"]',
+  '[role~="main"]', '[role~="navigation"]', '[role~="banner"]', '[role~="contentinfo"]',
 ].join(', ')
 
 /**
@@ -275,6 +284,19 @@ function containerFace(el: Element, role: string | null, walk: Walk): ContainerF
 }
 
 /**
+ * What a control carries: what the user has put in a field, or what a bar
+ * reports. A checked state says everything a checkbox holds, so only the fields
+ * that carry text report a value.
+ * @param el - the control element.
+ * @param role - the role it prints.
+ * @returns the value, or undefined for a control that carries none.
+ */
+function heldValue(el: Element, role: string): string | undefined {
+  if (QUANTITY_ROLES.has(role)) return quantityValue(el)
+  return FIELD_ROLES.has(role) && !CHECKED_ROLES.has(role) ? fieldValue(el) : undefined
+}
+
+/**
  * What a control holds and how the page has set it, read the same way wherever
  * a row prints it.
  * @param el - the control element.
@@ -283,11 +305,8 @@ function containerFace(el: Element, role: string | null, walk: Walk): ContainerF
  */
 function controlState(el: Element, role: string): ControlState {
   const secret = isPassword(el)
-  // A checked state says everything a checkbox holds; only the fields that
-  // carry text report a value.
-  const holdsText = FIELD_ROLES.has(role) && !CHECKED_ROLES.has(role)
   return {
-    value: secret || !holdsText ? undefined : fieldValue(el),
+    value: secret ? undefined : heldValue(el, role),
     secret,
     checked: CHECKED_ROLES.has(role) ? isChecked(el) : undefined,
     disabled: isDisabled(el),
@@ -338,8 +357,9 @@ function controlSample(control: CellControl): string {
  * sample is for is saying which controls the column offers: cutting the line
  * afterwards would cut those off the end of a cell whose text runs long, and
  * the reader would take the column for one that offers nothing. The text gives
- * way to the controls, and a control list longer than the whole allowance is
- * printed on its own.
+ * way to the controls, and a list of controls longer than the whole allowance
+ * is cut inside its brackets rather than printed whole — a row of buttons named
+ * a sentence each would otherwise spend the sample line on one column.
  * @param cell - the cell element.
  * @param walk - the walk in progress.
  * @returns the cell.
@@ -349,7 +369,7 @@ function readCell(cell: Element, walk: Walk): RowCell {
   cellControls(cell, walk, controls)
   const text = clip(visibleText(cell, walk.isVisible, isCellControl))
   if (controls.length === 0) return { controls, text, sample: clipTo(text, SAMPLE_CELL_LIMIT) }
-  const inside = `[${controls.map(controlSample).join(' ')}]`
+  const inside = `[${clipTo(controls.map(controlSample).join(' '), SAMPLE_CELL_LIMIT - 2)}]`
   const room = SAMPLE_CELL_LIMIT - inside.length - 1
   const shown = room > 0 ? clipTo(text, room) : ''
   return { controls, text, sample: shown === '' ? inside : `${shown} ${inside}` }
@@ -423,7 +443,7 @@ function tableShape(el: Element, walk: Walk): TableShape {
   const known = walk.shapes.get(el)
   if (known !== undefined) return known
   const grouped = new Set(el.querySelectorAll(':scope > thead > tr, :scope > tfoot > tr'))
-  const rows = queryInOrder(el, 'tr, [role="row"]').filter(row => row.closest(TABLE_SELECTOR) === el)
+  const rows = queryInOrder(el, 'tr, [role~="row"]').filter(row => row.closest(TABLE_SELECTOR) === el)
   const declared = el.querySelector(':scope > thead > tr') ?? undefined
   const first = rows[0]
   const headRow = declared ?? (first !== undefined && headsColumns(first, walk) ? first : undefined)
@@ -456,7 +476,9 @@ function nextInOrder(node: Node, inside: boolean): Node | null {
  * reader can see, nothing that would earn a row, no picture or rule. A header
  * frozen over a body has only wrappers between the two halves; a table under a
  * paragraph has the paragraph, and a table inside another is not beside it at
- * all.
+ * all. A picture counts wherever it sits in the gap, wrapped or bare: the same
+ * icon must not separate two tables when the page draws it on its own and join
+ * them when the page puts a `div` around it.
  * @param first - the earlier element.
  * @param second - the later element.
  * @param walk - the walk in progress.
@@ -473,8 +495,8 @@ function nothingBetween(first: Element, second: Element, walk: Walk): boolean {
         continue
       }
       const shows = !isSkipped(el, walk.isVisible)
-        && (el.matches(DRAWN_TAGS) || makesRow(el, walk) || holdsItems(el, walk)
-          || visibleText(el, walk.isVisible) !== '')
+        && (el.matches(DRAWN_TAGS) || el.querySelector(DRAWN_TAGS) !== null || makesRow(el, walk)
+          || holdsItems(el, walk) || visibleText(el, walk.isVisible) !== '')
       if (shows) return false
       node = nextInOrder(el, false)
       continue
@@ -730,14 +752,26 @@ function holdsNodes(container: ContainerItem | undefined): boolean {
 /**
  * The name the page wrote for an element, which outranks anything it shows: a
  * menu item drawn as an icon says what it is nowhere else. Only what the label
- * itself carries counts — the text of the label attribute, or the text of every
- * element the page points at, in the order it points at them. An empty label,
+ * itself carries counts — the text of the label attribute, or what each element
+ * the page points at is called, in the order it points at them. An empty label,
  * and one pointing at nothing the page has, name nothing at all and leave the
  * element to be named by what it shows.
  *
+ * A reference is looked up in the tree the element itself lives in, because
+ * that is where the page wrote it: an id inside an open shadow root names the
+ * element in that root, and never the one the surrounding page happens to give
+ * the same id.
+ *
+ * A reference to the element itself, to what it holds, or to what holds it, is
+ * no label. The page has pointed at the very text the row is being named from,
+ * and following it would carry every button hanging off a tree node into that
+ * node's name — the reading the ladder below this exists to prevent.
+ *
  * An element pointed at is read whether or not the reader can see it: a page
  * that names a node by a run of text it draws nowhere still named it, which is
- * how ARIA defines the reference.
+ * how ARIA defines the reference. What that element is called comes first and
+ * its text second, so a page pointing at an icon is answered with the icon's
+ * own label rather than with nothing.
  * @param el - the element to name.
  * @returns the written name, empty when the page wrote none.
  */
@@ -746,10 +780,14 @@ function declaredName(el: Element): string {
   if (label !== '') return label
   const ids = collapse(el.getAttribute('aria-labelledby') ?? '')
   if (ids === '') return ''
-  const parts = ids.split(' ')
-    .map(id => el.ownerDocument.getElementById(id))
-    .filter(ref => ref !== null)
-    .map(ref => visibleText(ref, () => true))
+  const tree = el.getRootNode() as Document | ShadowRoot
+  const parts: string[] = []
+  for (const id of ids.split(' ')) {
+    const ref = tree.getElementById(id)
+    if (ref === null || ref.contains(el) || el.contains(ref)) continue
+    const name = nameOf(ref)
+    parts.push(name === '' ? visibleText(ref, () => true) : name)
+  }
   return clip(collapse(parts.join(' ')))
 }
 
@@ -765,10 +803,14 @@ function namesItself(el: Element): boolean {
 }
 
 /**
- * The first thing inside a node that prints a row of its own, in document
- * order, which is the node's label where the page drew that label as a link or
- * a heading. The group of nodes under this one is not looked into: what it
- * holds are nodes of its own, never a label for the node above them.
+ * The first thing inside a node that prints a row of its own and shows some
+ * text, in document order, which is the node's label where the page drew that
+ * label as a link or a heading. A row showing no text is passed over rather
+ * than taken as the label: an icon, a checkbox, or a button drawn as a picture
+ * comes before the label in every tree a framework draws, and stopping there
+ * would name the node by everything hanging off it instead. The group of nodes
+ * under this one is not looked into: what it holds are nodes of its own, never
+ * a label for the node above them.
  * @param el - the node to look inside.
  * @param walk - the walk in progress.
  * @returns the element, or undefined when the node holds none.
@@ -776,7 +818,10 @@ function namesItself(el: Element): boolean {
 function firstNamed(el: Element, walk: Walk): Element | undefined {
   for (const child of childHost(el).children) {
     if (isSkipped(child, walk.isVisible) || isGroup(child)) continue
-    if (namesItself(child)) return child
+    if (namesItself(child)) {
+      if (visibleText(child, walk.isVisible) !== '') return child
+      continue
+    }
     const inside = firstNamed(child, walk)
     if (inside !== undefined) return inside
   }
@@ -797,7 +842,9 @@ function firstNamed(el: Element, walk: Walk): Element | undefined {
  * A click target holding nothing is named by the whole of what it shows, up to
  * the length of any other row; a target that is a room is named by the start of
  * it, because everything it shows is printed again in the rows under it. See
- * {@link clickableName}, which makes that cut.
+ * {@link clickableName}, which makes that cut. A target that is itself a
+ * picture is named by what the page wrote on it and by nothing else: the words
+ * inside a drawing label the picture, and a reader never sees them.
  * @param el - the element to name.
  * @param role - the role it prints.
  * @param walk - the walk in progress.
@@ -806,23 +853,37 @@ function firstNamed(el: Element, walk: Walk): Element | undefined {
 function ownName(el: Element, role: string, walk: Walk): string {
   const declared = declaredName(el)
   if (declared !== '') return declared
-  if (role === CLICKABLE_ROLE) return clip(visibleText(el, walk.isVisible))
+  if (role === CLICKABLE_ROLE) return isOpaque(el) ? '' : clip(visibleText(el, walk.isVisible))
   const own = clip(visibleText(el, walk.isVisible, child => isGroup(child) || namesItself(child)))
   if (own !== '') return own
   const label = firstNamed(el, walk)
-  const named = label === undefined ? '' : clip(visibleText(label, walk.isVisible))
-  return named === '' ? clip(visibleText(el, walk.isVisible, isGroup)) : named
+  if (label === undefined) return clip(visibleText(el, walk.isVisible, isGroup))
+  return clip(visibleText(label, walk.isVisible))
 }
 
 /**
  * What a row calls the element it names.
+ *
+ * The accessible name is computed for the first role the page wrote, and the
+ * walk reads the first one ARIA defines; where those differ the computed name
+ * is an answer about another role, and an empty one says only that the role the
+ * library read is not named by its contents. The text the element shows is the
+ * name in that case — for the roles ARIA does name from their contents — so a
+ * page falling back from a vocabulary the library does not know keeps the words
+ * a reader can see. Where the library agrees with the walk, its answer stands:
+ * it implements the whole of the name computation, and this is a fallback for
+ * one disagreement rather than a second implementation of it.
  * @param el - the element to name.
  * @param role - the role it prints.
  * @param walk - the walk in progress.
  * @returns the name.
  */
 function elementName(el: Element, role: string, walk: Walk): string {
-  return role === CLICKABLE_ROLE || ITEM_NODE_TYPES.has(role) ? ownName(el, role, walk) : nameOf(el)
+  if (role === CLICKABLE_ROLE || ITEM_NODE_TYPES.has(role)) return ownName(el, role, walk)
+  const name = nameOf(el)
+  const wrote = libraryRole(el)
+  if (name !== '' || wrote === '' || wrote === role || !NAME_FROM_CONTENT_ROLES.has(role)) return name
+  return clip(visibleText(el, walk.isVisible))
 }
 
 /**
@@ -873,6 +934,19 @@ function pushClosedDialog(el: Element, walk: Walk, place: Place): void {
 }
 
 /**
+ * True for a role that earns the element a row of its own: one the reader can
+ * name or act on, or a bar the page named. A bar the page left unnamed says
+ * what it holds in the text drawn beside it, and a row carrying neither a name
+ * nor a number would stand in the way of that text.
+ * @param el - the element the role belongs to.
+ * @param role - the element's role.
+ * @returns whether the role earns a row.
+ */
+function rowRole(el: Element, role: string): boolean {
+  return isNameable(role) || (QUANTITY_ROLES.has(role) && declaredName(el) !== '')
+}
+
+/**
  * True for an element that earns a row of its own — a control, a heading, a
  * region, a table. The question is asked before the walk gets there: an element
  * the page draws between two halves of a table has to count for what it will
@@ -889,6 +963,9 @@ function pushClosedDialog(el: Element, walk: Walk, place: Place): void {
  * @returns whether the element would print a row.
  */
 function makesRow(el: Element, walk: Walk): boolean {
+  // What a page draws inside a picture is a part of the picture, whatever tag
+  // it is written with: the walk prints no row for it and neither counts one.
+  if (insideOpaque(el)) return false
   if (el.matches(ITEM_TAGS)) return true
   const role = roleOf(el)
   // The order is the walk's own: a row of buttons opens a toolbar whether or
@@ -896,7 +973,7 @@ function makesRow(el: Element, walk: Walk): boolean {
   // it opens no region.
   if (containerFace(el, role, walk) !== undefined) return true
   if (role === null) return false
-  return role === 'table' || role === 'grid' || role === 'treegrid' || isNameable(role)
+  return role === 'table' || role === 'grid' || role === 'treegrid' || rowRole(el, role)
 }
 
 /**
@@ -1012,8 +1089,11 @@ function topItems(host: ParentNode, walk: Walk): Element[] {
  * printing it twice would have the model choosing between two rows for one
  * thing. The second is a pointer cursor inherited over half the page.
  *
- * A target the page labelled is read as itself either way: a page that wrote a
- * name for it said it is a thing of its own, whatever it wraps.
+ * A name the page wrote on the target says it is a thing of its own, so a
+ * labelled target reaching a region is read as itself rather than through. The
+ * hit area is the exception: a wrapper labelled with what the one control
+ * inside it is already called is that control said twice, and reading through
+ * it is what keeps the reader from choosing between two rows for one thing.
  * @param el - the click target.
  * @param items - the rows it holds, from {@link topItems}.
  * @param walk - the walk in progress.
@@ -1021,14 +1101,19 @@ function topItems(host: ParentNode, walk: Walk): Element[] {
  */
 function wrapsOnly(el: Element, items: readonly Element[], walk: Walk): boolean {
   if (items.length === 0) return false
+  const declared = declaredName(el)
+  const only = items.length === 1 ? items[0] : undefined
+  if (only !== undefined) {
+    const role = roleOf(only)
+    if (role !== null && INTERACTIVE_ROLES.has(role)
+      && (declared === '' || declared === nameOf(only))
+      && visibleText(el, walk.isVisible) === visibleText(only, walk.isVisible)) return true
+  }
+  if (declared !== '') return false
   for (const landmark of childHost(el).querySelectorAll(LANDMARK_SELECTOR)) {
     if (!isSkipped(landmark, walk.isVisible)) return true
   }
-  const only = items.length === 1 ? items[0] : undefined
-  if (only === undefined || declaredName(el) !== '') return false
-  const role = roleOf(only)
-  return role !== null && INTERACTIVE_ROLES.has(role)
-    && visibleText(el, walk.isVisible) === visibleText(only, walk.isVisible)
+  return false
 }
 
 /**
@@ -1093,6 +1178,18 @@ function clickableName(el: Element, walk: Walk): string {
 }
 
 /**
+ * True where the walk offers this element as a thing to click: the top of a
+ * clickable run, drawn outside any text a control's own row already prints.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @param place - the element's position.
+ * @returns whether the element is this read's click target.
+ */
+function offersClick(el: Element, walk: Walk, place: Place): boolean {
+  return !place.labelled && !namesControl(el, walk) && topClickable(el, walk)
+}
+
+/**
  * Where the walk stands inside an element, which turns the suppression of text
  * already printed as a name on at a `label` and off again inside the group a
  * tree node holds its nodes in.
@@ -1121,14 +1218,17 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
     enterFrame(el, walk, place)
     return
   }
-  if (isDrawing(el)) {
+  if (isOpaque(el)) {
     // A drawing is one thing however many shapes it is built from: reading into
     // it would break the run of text around an icon at every path in it, and
     // print the tooltip it carries as text of the page. A drawing the page named
     // is a picture with a row of its own; an unnamed one is decoration, and
-    // decoration ends no run.
+    // decoration ends no run. One the page made clickable keeps a row either
+    // way — a framework puts the handler on the icon, and a row is the only way
+    // the model can reach it.
     const drawn = roleOf(el)
-    if (drawn !== null && isNameable(drawn)) pushElement(el, drawn, walk, place)
+    if (drawn !== null && rowRole(el, drawn)) pushElement(el, drawn, walk, place)
+    else if (offersClick(el, walk, place)) pushElement(el, CLICKABLE_ROLE, walk, place)
     return
   }
   const role = roleOf(el)
@@ -1157,13 +1257,13 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
       openContainer(el, { type: node, name: elementName(el, role, walk) }, childHost(el), walk, place, true)
       return
     }
-    if (isNameable(role)) {
+    if (rowRole(el, role)) {
       pushElement(el, role, walk, place)
       return
     }
   }
   const host = childHost(el)
-  if (!place.labelled && !namesControl(el, walk) && topClickable(el, walk)) {
+  if (offersClick(el, walk, place)) {
     const items = topItems(host, walk)
     if (!wrapsOnly(el, items, walk)) {
       // A click target holding items is both: the row says what clicking it

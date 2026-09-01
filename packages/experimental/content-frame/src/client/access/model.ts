@@ -170,7 +170,9 @@ export interface RowCell {
   readonly text: string
   /**
    * The cell as the one-row sample renders it: its text, and its controls
-   * inside `[ ]`, already cut to the room the sample line gives a cell.
+   * inside `[ ]`, the whole of it already cut to the room the sample line gives
+   * a cell. The text gives way first, and a list of controls that fills the
+   * room on its own is cut inside its brackets.
    */
   readonly sample: string
 }
