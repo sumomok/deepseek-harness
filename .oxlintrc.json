@@ -339,6 +339,20 @@
       "plugins": [
         "typescript"
       ]
+    },
+    {
+      // apps/desktop/tests belongs to no TypeScript project (apps/desktop/tsconfig.json includes only src), so type-aware verdicts here come from a degraded default program and contradict tsc under tsconfig.base.json (e.g. noUncheckedIndexedAccess makes the flagged `!` necessary). Off until the tests are adopted into a project.
+      "files": [
+        "apps/desktop/tests/**/*.{ts,tsx}"
+      ],
+      "rules": {
+        "typescript/no-unnecessary-type-assertion": "off",
+        "typescript/no-unsafe-assignment": "off",
+        "typescript/no-unnecessary-template-expression": "off"
+      },
+      "plugins": [
+        "typescript"
+      ]
     }
   ]
 }

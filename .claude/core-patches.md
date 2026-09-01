@@ -157,3 +157,5 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 ## chore(bundle): disable plugin-package-inventory-deepseek by default — a426a88c90
 - **改了什么**：`packages/bundle/base/cordis.patch.yml` 与 `packages/bundle/sdk-minimal/cordis.patch.yml` 各自的 `plugin-package-inventory-deepseek` 条目均新增 `disabled: true`；`base.spec.ts`/`sdk-minimal.spec.ts` 新增对应断言。
 - **状态**：在役。本 fork 的产品决定：出厂即零已装插件清单上报给 DeepSeek 官方 API。该插件没有等价的环境变量开关（`DSH_TELEMETRY_DISABLED` 只覆盖 `session-telemetry-otel`），`disabled: true` 是唯一关闭途径。详见配套 Agent Note `2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md`。
+
+**复核补遗(Fable 独立复核,2026-09-01)**:还原脚本在三处(subagent×2、core/tools×1)把两父各自措辞的同一条 `no-misused-promises` 抑制都插了回去,叠行首条报 unused directive——已去重,保 alpha.2 父措辞。遗留 5 项拍**乙案**:`.oxlintrc.json` 给 `apps/desktop/tests/**` 加窄例外(仅关三条误报的 type-aware 规则,注释记载真因:无工程背书的降级默认程序与 tsconfig.base 语义相悖);**甲案(把 apps/desktop/tests 纳入 TypeScript 工程)列为 rc.26 后续项**,届时删此例外。
