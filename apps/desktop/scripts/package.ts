@@ -533,8 +533,13 @@ async function servesClientModule(root: string, name: string): Promise<boolean> 
  * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
  */
 async function verifyClientModules(root: string, base: string, index: string, cookie: string): Promise<void> {
-  const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)].map(match => match[0]))]
+  // alpha.2 serves client modules through combo URLs — `/plugins/??a/client.js,b/client.js&rev=…`
+  // (HTML-attribute occurrences carry `&amp;`) — so module names are the
+  // `<name>/client.js` segments inside each URL, not URL path prefixes.
+  const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)]
+    .map(match => match[0].replaceAll('&amp;', '&')))]
   if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
+  const served = new Set(paths.flatMap(path => [...path.matchAll(/([^?,&]+\/client\.js)/g)].map(match => match[1])))
   // A built-in with a browser half reaches the page only if the payload carried
   // it, the seed named it, and the Loader resolved it; nothing else in this
   // build fails when one of those three stops being true. A built-in without
@@ -545,7 +550,7 @@ async function verifyClientModules(root: string, base: string, index: string, co
   for (const name of BUILTIN_WEB_BUNDLES) {
     if (!await servesClientModule(root, name)) continue
     withClient++
-    if (!paths.some(path => path.startsWith(`/plugins/${name}/`))) {
+    if (!served.has(`${name}/client.js`)) {
       throw new Error(`package: staged boot served no client module for the built-in plugin ${name}.`)
     }
   }
