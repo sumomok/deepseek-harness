@@ -118,11 +118,11 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 
 ## feat(ui-conversation,ui-attachment,host-apiproxy): confirm before sending a file that lives in a known secret container — ebd4e9c1f4
 - **改了什么**：新增 `secret-container.ts`，composer 在发送前对文件草稿路径做已知密钥容器（如 `.ssh`、`.aws` 等）匹配，命中则要求二次确认；`FileChip`/`ComposerAttachments`/`InputBar` 接入确认态呈现；`host/apiproxy` 侧新增会话导出投影字段。
-- **状态**：**SKIPPED — 需要设计（rc.26 同步，基座 0.1.2-alpha.2）**。直接依赖已 SKIPPED 的 98020a23cd（`FileChip.tsx`/`ComposerAttachments.tsx`/composer 文件草稿）与 a5c4d3a29d/d56a5f7348 记录的已删除 `packages/host/apiproxy` 包，两处基础均不存在。cherry-pick 冲突已确认（`host/apiproxy/src/index.ts`、`tests/api-proxy-projections.spec.ts` 均为 modify/delete 冲突），已 `git cherry-pick --skip`，未重落。交由协调者与 98020a23cd/a5c4d3a29d 一并设计端口。本条目取代 917f610fd9 的原始 ledger 记录。
+- **状态**：在役。**落点更新（提交 `4b7d225e25`）**：与 `7e37c74cdf` 一并设计端口、squash 进同一提交——`matchSecretContainerFiles`（`packages/client/ui-conversation/src/client/secret-container.ts`）原样落地为纯文件名/路径启发式；`InputBar.tsx` 据文件草稿与 `secretContainerExtraPatterns` 投影算出命中，驱动 `FileChip` 警示态并在键盘 Enter 与发送按钮两个入口前插入二次确认 Modal，取消则草稿与附件原样保留；部署方追加的模式经 `SessionController.Config` 新字段 `secretContainerExtraPatterns`（纯增量）、直接注册在 `ApiSessionList` 构造函数里的常量会话投影传递——`packages/host/apiproxy` 已随本次同步整体消失，其等价的 `imageLimits`/`fileLimits` 投影本就搬迁到了这同一个新落点。详见配套 Agent Note `.agents/notes/implemented/feature/2026-09-01-secret-container-confirmation-port.md`。本条目取代此前的 SKIPPED 记录。
 
 ## fix(ui-attachment,ui-conversation): align the composer file chip with the rail and format sizes in B/KB/MB — 7e37c74cdf
 - **改了什么**：`FileChip.tsx`/`ComposerAttachments.tsx` 视觉对齐修正；`labels.ts`/`attachment-labels.ts` 的字节数格式化从"仅 MB"扩展到 B/KB/MB 三档。
-- **状态**：**SKIPPED — 需要设计（rc.26 同步，基座 0.1.2-alpha.2）**。直接依赖已 SKIPPED 的 98020a23cd 引入的 `FileChip.tsx`/`ComposerAttachments.tsx`/`attachment-labels.ts`，这些文件在本基座上均不带文件变体。cherry-pick 冲突已确认，已 `git cherry-pick --skip`，未重落。交由协调者与 98020a23cd 一并设计端口。
+- **状态**：在役。**落点更新（提交 `4b7d225e25`）**：本条目从未在上游独立于 `ebd4e9c1f4` 以值得单独复现的形态发布过，故随 `ebd4e9c1f4` 一并 squash 进同一提交落地——对齐修正与三档字节数格式化，连同一个更易读的警示文案与行下方提示（替代原设计里容易被忽略的圆点+描边），均已并入 `ebd4e9c1f4` 描述的确认流程。详见同一配套 Agent Note `.agents/notes/implemented/feature/2026-09-01-secret-container-confirmation-port.md`。本条目取代此前的 SKIPPED 记录。
 
 ## feat(attachment,llm,llm-deepseek,llm-pi-ai): spill oversized file attachments instead of truncating them — 5cd83e5a14
 - **改了什么**：超限文本文件从截断改为落盘"溢出"文件，两个 LLM 适配器的 `file-lowering.ts` 降级路径相应调整。
