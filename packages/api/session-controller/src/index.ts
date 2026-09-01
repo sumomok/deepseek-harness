@@ -78,7 +78,7 @@ export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
   /**
-   * Filename substrings ADDED to the client's fixed pre-send
+   * Filename substrings ADDED to the client's fixed add-time
    * secret-container confirmation heuristic (`.env`, `id_rsa`, etc.) — this
    * field can only append to that base list, never replace or narrow it;
    * the base list itself is not configurable here or anywhere.
@@ -127,7 +127,7 @@ export class SessionController extends TypertRemoteService {
   /**
    * @param ctx - Host context containing the Session capability assembly.
    * @param config - deployment policy: cold-list observation, native
-   * opening, and the client's pre-send secret-container confirmation.
+   * opening, and the client's add-time secret-container confirmation.
    */
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
     super(ctx, 'sessionController', { namespace: 'session' })
