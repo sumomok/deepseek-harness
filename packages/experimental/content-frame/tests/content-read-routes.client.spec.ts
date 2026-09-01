@@ -16,6 +16,7 @@
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { request as httpRequest } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -61,8 +62,11 @@ interface Answer {
   body: string
 }
 
-/** Write a cordis.yml with or without the page-access block and boot it through the real Loader. */
-async function loadComposition(pageAccess: boolean): Promise<Context> {
+/**
+ * Write a cordis.yml with, without, or with a hand-written page-access block,
+ * and boot it through the real Loader.
+ */
+async function loadComposition(pageAccess: boolean, accessRows: readonly string[] = []): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-content-read-'))
   const configPath = join(world, 'cordis.yml')
   const rows = [
@@ -95,6 +99,7 @@ async function loadComposition(pageAccess: boolean): Promise<Context> {
       `      outlineChars: ${OUTLINE_CHARS}`,
     )
   }
+  rows.push(...accessRows)
   await writeFile(configPath, `${rows.join('\n')}\n`)
 
   context = new Context()
@@ -149,6 +154,39 @@ function postJson(ctx: Context, path: string, body: unknown): Promise<Answer> {
   })
 }
 
+/**
+ * POST one body that declares no length, the way a chunked sender arrives.
+ * `fetch` always declares one for a string body, so this is the only way to
+ * reach the bound the body reader keeps while the body is still arriving.
+ */
+function postChunked(ctx: Context, path: string, body: string): Promise<Answer> {
+  return new Promise<Answer>((resolve, reject) => {
+    const req = httpRequest(
+      `${origin(ctx)}${path}`,
+      { method: 'POST', headers: { 'content-type': 'application/json' } },
+      (res) => {
+        let text = ''
+        res.setEncoding('utf8')
+        res.on('data', (chunk: string) => { text += chunk })
+        res.on('end', () => {
+          resolve({
+            status: res.statusCode ?? 0,
+            allow: res.headers.allow ?? null,
+            cacheControl: res.headers['cache-control'] ?? null,
+            body: text,
+          })
+        })
+      },
+    )
+    req.on('error', reject)
+    // Written before it is ended: node declares a length for a body handed to
+    // `end()` in one piece, and only a body it has already begun sending goes
+    // out with no length at all.
+    req.write(body)
+    req.end()
+  })
+}
+
 /** A session on the host store, reached through `ctx.get` for the compile-face reason below. */
 function hostSession(ctx: Context): Session {
   // The store is reached through `ctx.get` and cast: this package compiles in
@@ -185,11 +223,13 @@ const LISTING: ReadOutcome = {
 }
 
 describe('the read channel over real HTTP', () => {
-  it('serves a seat the budget and deadline it must obey', async () => {
+  it('serves a seat the budget and both deadlines it must obey', async () => {
     const ctx = await loadComposition(true)
     const answer = await call(ctx, CONTENT_SETTINGS_ROUTE)
     expect(answer.status).toBe(200)
-    expect(JSON.parse(answer.body)).toMatchObject({ pageAccess: { outlineChars: OUTLINE_CHARS, readTimeoutMs: 5000 } })
+    expect(JSON.parse(answer.body)).toMatchObject({
+      pageAccess: { outlineChars: OUTLINE_CHARS, claimTimeoutMs: 5000, readTimeoutMs: 5000 },
+    })
     expect(answer.cacheControl).toBe('no-store')
   })
 
@@ -281,6 +321,20 @@ describe('the read channel over real HTTP', () => {
     expect((await postJson(ctx, CONTENT_CLAIM_ROUTE, { callId: 'x'.repeat(2048), tabId: TAB })).status).toBe(400)
   })
 
+  it('bounds a body that never declares how long it is', async () => {
+    const ctx = await loadComposition(true)
+    const huge = { ...LISTING, snapshot: { ...LISTING.snapshot, text: 'x'.repeat(64 * 1024) } }
+    const refused = await postChunked(
+      ctx, CONTENT_REPORT_ROUTE, JSON.stringify({ callId: 'c', tabId: TAB, outcome: huge }),
+    )
+    expect(refused.status).toBe(400)
+    // The same sender inside the bound is taken, so what refused the one above
+    // is its size and not its missing header.
+    const taken = await postChunked(ctx, CONTENT_CLAIM_ROUTE, JSON.stringify({ callId: 'c', tabId: TAB }))
+    expect({ status: taken.status, body: JSON.parse(taken.body) as unknown })
+      .toEqual({ status: 200, body: { claimed: false, reason: 'unknown' } })
+  })
+
   it('states the complete method set each route serves', async () => {
     const ctx = await loadComposition(true)
     for (const route of [CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE]) {
@@ -362,6 +416,14 @@ describe('a deployment that configures no page access', () => {
 })
 
 describe('page-access configuration', () => {
+  it('names a row that wrote a bare pageAccess key, which YAML reads as null', async () => {
+    // The object schema passes null through, so without this diagnostic the
+    // row fails on a TypeError naming a field the deployment never wrote.
+    await expect(loadComposition(false, ['    pageAccess: ~'])).rejects.toThrow(
+      'content-frame: pageAccess must be an object — write `pageAccess: {}` for the defaults',
+    )
+  })
+
   it('rejects a bound that would make every read unusable', async () => {
     for (const field of ['claimTimeoutMs', 'readTimeoutMs', 'pinMs', 'outlineChars'] as const) {
       const config = {

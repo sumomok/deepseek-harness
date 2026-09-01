@@ -20,6 +20,8 @@ The whole slice is `Config.pageAccess`, and absent is the default: no tool, no r
 
 A read waits twice. `claimTimeoutMs` bounds the first phase and answers "no console is showing this session's content column"; `readTimeoutMs` bounds the second and answers "the console claimed this read but did not answer". The distinction is the whole reason for the claim round trip: the model's next step differs — open a console versus retry once — and a single deadline would collapse both into one unactionable timeout.
 
+Both deadlines belong to the host, and the seat is served both so it can stay inside them. Its re-bidding is bounded by the claim window rather than the report deadline, because that window is what the call is actually waiting inside; and it spends at most half the report deadline on a page that is still loading, because the host started counting the moment it granted the claim. Without that share the "page had not finished loading" sentence is unreachable — the host answers first, every time. Inside those bounds a claim or a report that never lands is tried again rather than abandoned: one dropped request would otherwise tell the model no console is open while the console sits in front of the user.
+
 ### One session's reads stick to one tab
 
 Refs (`e12`) name elements of one document in one browser. Two consoles open on the same session answering alternate reads would hand the model refs that name nothing in the document the next read reaches. The table therefore pins the tab that last answered for `pinMs` and holds any other tab's claim for a fixed 250 ms so the pinned one can take it first — long enough for a live console to win the race, short enough that a closed one costs a quarter second.
@@ -27,6 +29,8 @@ Refs (`e12`) name elements of one document in one browser. Two consoles open on 
 ### The call id is the capability
 
 The two routes carry the same `sec-fetch-site` and `application/json` fences the shell's `/api` uses, and no Host allow-list, because the webserver has none and `trustedHosts` guards `/api` alone. What stands in its place is the call id: claiming or answering a read requires an id the host minted and published only into that session's own projection stream, and a claim or report for an unknown id changes nothing. This is the same argument `show_chart`'s report route rests on, with a larger consequence — page text reaches the model — and the same conclusion, because the id is not guessable and a wrong id is inert.
+
+The premise underneath that, stated because nothing enforces it: the entropy is the LLM provider's, not this package's. DeepSeek's call ids are `call_00_` plus twenty-two alphanumeric characters, and `code-mode`'s subcalls are that same id plus `:code:<n>`, which is roughly 130 bits either way. This package never inspects the format and never adds to it. A provider that numbered its calls `call_1`, `call_2` would turn both routes into an open channel for any page that can reach the host: half of it — claiming, then reporting a forged listing — puts text of the attacker's choosing in front of the model. A deployment on an untrusted network is fenced at its reverse proxy regardless, but a deployment changing providers has this to check.
 
 ### Every ending is a sentence, and every failure throws
 

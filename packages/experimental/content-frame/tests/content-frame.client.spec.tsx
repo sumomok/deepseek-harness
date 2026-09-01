@@ -53,7 +53,7 @@ function mount(
   entry: ContentFrameProps['entry'],
   cacheSize = 3,
   view?: ReturnType<typeof render>,
-  pageAccess?: { outlineChars: number; readTimeoutMs: number },
+  pageAccess?: { outlineChars: number; claimTimeoutMs: number; readTimeoutMs: number },
 ): ReturnType<typeof render> {
   const props = {
     sessionId,
@@ -222,7 +222,7 @@ describe('the page seat as the reader\'s seat', () => {
 
   it('reads the document of the frame it holds, for the page it has in front', async () => {
     published = { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] }
-    const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, readTimeoutMs: 500 })
+    const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500 })
     fill(view, '<main><button>Refresh</button></main>')
     await settled(1)
     const outcome = outcomes()[0]
@@ -233,7 +233,7 @@ describe('the page seat as the reader\'s seat', () => {
 
   it('retires a frame\'s numbering when the page inside it navigates', async () => {
     published = { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] }
-    const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, readTimeoutMs: 500 })
+    const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500 })
     const frame = fill(view, '<main><button>Refresh</button></main>')
     await settled(1)
     const before = outcomes()[0]
@@ -242,7 +242,7 @@ describe('the page seat as the reader\'s seat', () => {
     // model still holds names an element of the document that just left.
     frame.dispatchEvent(new Event('load'))
     published = { entries: [ENTRY], pending: [{ callId: 'call_2', tool: 'content_read', args: {} }] }
-    mount('a', ENTRY, 3, view, { outlineChars: 4000, readTimeoutMs: 500 })
+    mount('a', ENTRY, 3, view, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500 })
     await settled(2)
     const after = outcomes()[1]
 

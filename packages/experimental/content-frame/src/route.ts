@@ -26,6 +26,12 @@ export const CONTENT_SETTINGS_ROUTE = '/content-frame/settings'
 export interface ContentFrameAccessSettings {
   /** The character budget one read's listing is rendered under. */
   outlineChars: number
+  /**
+   * How long the host holds a call open for a seat to claim, which is what
+   * bounds a seat's own re-claiming: past it the call has been answered
+   * "no console is open" and no claim can win it any more.
+   */
+  claimTimeoutMs: number
   /** How long the host waits for a claimed read, which is also how long the seat may spend producing it. */
   readTimeoutMs: number
 }
@@ -43,9 +49,9 @@ export interface ContentFrameSettings {
    */
   homePage?: string
   /**
-   * The two values a reading seat must obey; absent when the deployment
-   * configures no page access, which is also how the browser half knows not to
-   * install the reader at all.
+   * The budget and the two deadlines a reading seat must obey; absent when the
+   * deployment configures no page access, which is also how the browser half
+   * knows not to install the reader at all.
    */
   pageAccess?: ContentFrameAccessSettings
 }

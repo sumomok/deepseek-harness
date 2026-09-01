@@ -38,6 +38,12 @@ export function answerJson(res: ServerResponse, status: number, body: unknown): 
 /**
  * Refuse a post a browser labelled cross-site, or one that is not sent as JSON.
  * Applied before the body is read.
+ *
+ * The content-type test is a prefix match, so a structured suffix such as
+ * `application/json-patch+json` passes it too. That is the property being
+ * asked for: no member of the `application/json` family is a CORS-simple
+ * content type, so every one of them costs a cross-origin poster a preflight,
+ * which is what withdraws these routes from what a page can post to unasked.
  * @param req - the incoming request.
  * @param res - the response, answered here when the request is refused.
  * @param route - the route naming itself in the refusal.
@@ -57,22 +63,32 @@ export function rejectUntrustedPost(req: IncomingMessage, res: ServerResponse, r
 }
 
 /**
- * Read one request body, refusing anything past the bound before buffering it.
+ * Read one request body, refusing anything past the bound rather than holding it.
+ *
+ * A declared length past the bound is refused without reading a byte; a chunked
+ * body declares none, so the running total stands in and stops the read at the
+ * first chunk that crosses. Neither path destroys the request: the refusal is
+ * written on the response and node finishes with the unread remainder itself,
+ * where destroying the request would take that refusal down with it.
  * @param req - the incoming request.
  * @param limit - largest accepted body in bytes.
  * @returns the decoded JSON, or `undefined` when the body is oversized or not JSON.
  */
 export async function readJsonBody(req: IncomingMessage, limit: number): Promise<unknown> {
-  const chunks: Buffer[] = []
+  // A missing header makes this `Number(undefined)`, which is NaN, and no
+  // comparison against NaN holds — so a chunked body falls through to the
+  // running total instead of being refused for declaring nothing.
+  if (Number(req.headers['content-length']) > limit) return undefined
+  req.setEncoding('utf8')
+  let text = ''
   let size = 0
   for await (const chunk of req) {
-    const bytes = chunk as Buffer
-    size += bytes.byteLength
+    size += Buffer.byteLength(chunk as string)
     if (size > limit) return undefined
-    chunks.push(bytes)
+    text += chunk as string
   }
   try {
-    return JSON.parse(Buffer.concat(chunks).toString('utf8')) as unknown
+    return JSON.parse(text) as unknown
   } catch (_bodyIsNotJson) {
     // The only thing a malformed body can mean here is a caller that is not
     // this package's browser half; the 400 the caller gets says so.

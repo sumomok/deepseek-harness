@@ -75,9 +75,13 @@ function isBound(value: unknown): value is number {
 function readAccess(served: unknown): ContentFrameAccessSettings | undefined {
   if (served === undefined) return undefined
   if (served !== null && typeof served === 'object') {
-    const access = served as { outlineChars?: unknown; readTimeoutMs?: unknown }
-    if (isBound(access.outlineChars) && isBound(access.readTimeoutMs)) {
-      return { outlineChars: access.outlineChars, readTimeoutMs: access.readTimeoutMs }
+    const access = served as { outlineChars?: unknown; claimTimeoutMs?: unknown; readTimeoutMs?: unknown }
+    if (isBound(access.outlineChars) && isBound(access.claimTimeoutMs) && isBound(access.readTimeoutMs)) {
+      return {
+        outlineChars: access.outlineChars,
+        claimTimeoutMs: access.claimTimeoutMs,
+        readTimeoutMs: access.readTimeoutMs,
+      }
     }
   }
   throw new Error(`content-frame: ${CONTENT_SETTINGS_ROUTE} answered an unusable pageAccess: ${JSON.stringify(served)}`)

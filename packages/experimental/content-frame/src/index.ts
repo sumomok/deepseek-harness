@@ -235,8 +235,9 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     pinMs: requirePositive('pinMs', config.pinMs),
   }
   const outlineChars = requirePositive('outlineChars', config.outlineChars)
-  // Four times the budget: a listing is rendered under it in characters, and
-  // the worst case is four UTF-8 bytes per character.
+  // The character bound the parser holds a posted listing to, four times the
+  // budget the seat renders under: a real listing never approaches it, and a
+  // forged one cannot carry an arbitrary page through it.
   const maxTextChars = outlineChars * 4
   const pending = new PendingReads()
 
@@ -267,6 +268,8 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
         return
       }
       if (rejectUntrustedPost(req, res, 'the read report route')) return
+      // The byte bound on the whole body: the character bound above at four
+      // UTF-8 bytes each, plus the JSON envelope around it.
       const body = await readJsonBody(req, maxTextChars + REPORT_ENVELOPE_BYTES)
       const report = parseReportRequest(body, maxTextChars)
       if (report === undefined) {
@@ -283,7 +286,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(contentAccessProjection())
   })
-  return { outlineChars, readTimeoutMs: timeouts.readTimeoutMs }
+  return { outlineChars, claimTimeoutMs: timeouts.claimTimeoutMs, readTimeoutMs: timeouts.readTimeoutMs }
 }
 
 /**
@@ -302,6 +305,15 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   const cacheSize = config.cacheSize ?? DEFAULT_CACHE_SIZE
   if (cacheSize < 1) throw new Error(`content-frame: cacheSize must be at least 1, received ${cacheSize}`)
+  // The type offers this block or nothing, and a row can write a third thing: a
+  // bare `pageAccess:` key is YAML for null, which the object schema passes
+  // through untouched while it refuses every other non-object on its own. Read
+  // as the loader delivered it, because the declared type excludes the value
+  // being tested for.
+  const configured: unknown = config.pageAccess
+  if (configured === null) {
+    throw new Error('content-frame: pageAccess must be an object — write `pageAccess: {}` for the defaults')
+  }
   const root = await resolveRoot(config.root)
   ctx.effect(() => ctx.webServer.register({
     kind: 'prefix',

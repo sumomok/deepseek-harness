@@ -51,6 +51,38 @@ export type ReadSettlement =
  */
 const SETTLED_MEMORY = 64
 
+/**
+ * How many sessions the table keeps a preferred tab for. A session that was
+ * read once and never again would otherwise hold its row for the life of the
+ * process. Past the bound the oldest pin is dropped and that session's next
+ * read goes to whichever tab bids first, which costs one console switch and
+ * never a wrong answer.
+ */
+const PREFERRED_MEMORY = 64
+
+/** The part of `Map` and `Set` a bounded memory is kept through. */
+interface BoundedMemory {
+  /** How many keys it holds now. */
+  readonly size: number
+  /** Its keys, oldest insertion first. */
+  keys(): Iterable<string>
+  /** Drops one key. */
+  delete(key: string): boolean
+}
+
+/**
+ * Drop the oldest key of a memory that has grown past its bound.
+ * @param memory - the insertion-ordered memory being bounded.
+ * @param limit - how many keys it keeps.
+ */
+function bound(memory: BoundedMemory, limit: number): void {
+  if (memory.size <= limit) return
+  for (const oldest of memory.keys()) {
+    memory.delete(oldest)
+    break
+  }
+}
+
 /** One call waiting for a browser, in whichever phase it is in. */
 interface PendingRead {
   /** The tool execution's call id. */
@@ -79,7 +111,10 @@ export class PendingReads {
   /** Call ids that have settled, newest last, bounded by {@link SETTLED_MEMORY}. */
   private readonly settled = new Set<string>()
 
-  /** The tab each session's last successful claim came from, while its pin lasts. */
+  /**
+   * The tab each session's last successful claim came from, while its pin
+   * lasts, newest last and bounded by {@link PREFERRED_MEMORY}.
+   */
   private readonly preferred = new Map<string, { tabId: string; until: number }>()
 
   /**
@@ -89,6 +124,7 @@ export class PendingReads {
    * @param signal - the execution's cancellation.
    * @param timeouts - the deployment's deadlines for both phases.
    * @returns how the wait ended.
+   * @throws {Error} when a call of that id is already waiting.
    */
   async open(
     callId: string,
@@ -96,6 +132,10 @@ export class PendingReads {
     signal: AbortSignal,
     timeouts: ReadTimeouts,
   ): Promise<ReadSettlement> {
+    // One call id, one open wait: a second registration would replace the first
+    // entry and leave its execution blocked forever, since every path that
+    // could wake it settles against the entry the table now holds.
+    if (this.waiting.has(callId)) throw new Error(`content-frame: a read for call ${callId} is already waiting`)
     if (signal.aborted) return { kind: 'aborted' }
     return await new Promise<ReadSettlement>((resolve) => {
       const entry: PendingRead = {
@@ -178,7 +218,11 @@ export class PendingReads {
    */
   private grant(entry: PendingRead, tabId: string): ClaimAck {
     entry.tabId = tabId
+    // Removed before it is written so the session moves to the newest position
+    // of the insertion order, which is what the bound below evicts against.
+    this.preferred.delete(entry.sessionId)
     this.preferred.set(entry.sessionId, { tabId, until: Date.now() + entry.timeouts.pinMs })
+    bound(this.preferred, PREFERRED_MEMORY)
     clearTimeout(entry.timer)
     entry.timer = setTimeout(() => { this.finish(entry, { kind: 'unanswered' }) }, entry.timeouts.readTimeoutMs)
     return { claimed: true }
@@ -203,7 +247,7 @@ export class PendingReads {
    * @param settlement - how it ended.
    */
   private finish(entry: PendingRead, settlement: ReadSettlement): void {
-    /* v8 ignore next -- one call id has one open wait; no agent loop reuses a live one. */
+    /* v8 ignore next -- a second settlement of one entry: each path that reaches here drops the others first. */
     if (this.waiting.get(entry.callId) !== entry) return
     this.waiting.delete(entry.callId)
     this.remember(entry.callId)
@@ -219,10 +263,6 @@ export class PendingReads {
    */
   private remember(callId: string): void {
     this.settled.add(callId)
-    if (this.settled.size <= SETTLED_MEMORY) return
-    for (const oldest of this.settled) {
-      this.settled.delete(oldest)
-      break
-    }
+    bound(this.settled, SETTLED_MEMORY)
   }
 }

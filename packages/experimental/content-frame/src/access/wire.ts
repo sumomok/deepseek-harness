@@ -36,6 +36,19 @@ export const PREFERRED_TAB_WINDOW_MS = 250
  */
 export const CLAIM_RETRY_MS = 200
 
+/**
+ * The share of the report deadline a seat may spend waiting for a frame that is
+ * still loading.
+ *
+ * The host's own report deadline starts the moment it grants the claim, while
+ * the seat's wait starts after the claim round trip has come back. Spending the
+ * whole deadline on the load would leave the walk and the trip back no room at
+ * all: the host would answer "the console did not answer" before the seat had
+ * even begun to read, and the message about a page that never finished loading
+ * could never reach the model.
+ */
+export const LOAD_WAIT_SHARE = 0.5
+
 /** Longest failure message a posted outcome may carry, in characters. */
 export const MAX_OUTCOME_MESSAGE_CHARS = 2000
 
@@ -170,6 +183,15 @@ function isName(value: unknown): value is string {
 }
 
 /**
+ * Whether one decoded value is a row count a listing can have had. Negative is
+ * refused rather than carried: the counters are printed to the model, and a
+ * forged `-1` would tell it the page has fewer than no items.
+ */
+function isCount(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) >= 0
+}
+
+/**
  * Read one posted claim. A wire boundary: the document crossed a process, so
  * its own contract is checked here rather than trusted from the type.
  * @param body - the decoded request body, however malformed.
@@ -195,7 +217,7 @@ function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | und
   if (typeof candidate.url !== 'string' || typeof candidate.title !== 'string') return undefined
   if (typeof candidate.signIn !== 'boolean' || typeof candidate.truncated !== 'boolean') return undefined
   if (typeof candidate.text !== 'string' || candidate.text.length > maxTextChars) return undefined
-  if (!Number.isInteger(candidate.shown) || !Number.isInteger(candidate.total)) return undefined
+  if (!isCount(candidate.shown) || !isCount(candidate.total)) return undefined
   for (const optional of [candidate.breadcrumb, candidate.modal, candidate.cursor]) {
     if (optional !== undefined && typeof optional !== 'string') return undefined
   }
@@ -208,8 +230,8 @@ function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | und
     signIn: candidate.signIn,
     text: candidate.text,
     truncated: candidate.truncated,
-    shown: candidate.shown as number,
-    total: candidate.total as number,
+    shown: candidate.shown,
+    total: candidate.total,
     ...typeof candidate.cursor === 'string' ? { cursor: candidate.cursor } : {},
   }
 }

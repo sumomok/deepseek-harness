@@ -23,11 +23,11 @@ import type { ContentReadRequest } from '../src/types.ts'
 const FRAME = 'session_1 home'
 
 /**
- * The reader's settings. The deadline is short enough for a test to sit
- * through and still longer than one claim retry, which is the interval the
- * reader gives up inside rather than crossing.
+ * The reader's settings. Both deadlines are short enough for a test to sit
+ * through and long enough to hold several claim retries, which is the interval
+ * the reader gives up inside rather than crossing.
  */
-const ACCESS = { outlineChars: 4000, readTimeoutMs: 500 }
+const ACCESS = { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 1000 }
 
 /** One open call. */
 const READ: ContentReadRequest = { callId: 'call_1', tool: 'content_read', args: {} }
@@ -48,15 +48,22 @@ let posted: { route: string; body: Record<string, unknown> }[] = []
 /** The claim answers the stub hands out, oldest first; exhausted means "claimed". */
 let claims: ClaimAck[] = []
 
-/** Whether the stub refuses the request outright. */
-let network: 'ok' | 'refuses' | 'unreachable' = 'ok'
+/** What becomes of one posted document: answered, refused, or never landing. */
+type Fate = 'ok' | 'refuses' | 'unreachable'
+
+/** Fates the stub gives a route's next posts, oldest first; past them {@link network} stands. */
+let fates: Map<string, Fate[]>
+
+/** The fate every post gets once its route's queue is empty. */
+let network: Fate = 'ok'
 
 /** Answer the two read routes the way the node half does. */
 function stubRoutes(): void {
   vi.stubGlobal('fetch', vi.fn((route: string, init: RequestInit) => {
     posted.push({ route, body: JSON.parse(init.body as string) as Record<string, unknown> })
-    if (network === 'unreachable') return Promise.reject(new Error('offline'))
-    if (network === 'refuses') return Promise.resolve({ ok: false, status: 503 })
+    const fate = fates.get(route)?.shift() ?? network
+    if (fate === 'unreachable') return Promise.reject(new Error('offline'))
+    if (fate === 'refuses') return Promise.resolve({ ok: false, status: 503 })
     const answer = route === CONTENT_CLAIM_ROUTE ? claims.shift() ?? { claimed: true } : { accepted: true }
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) })
   }))
@@ -124,6 +131,7 @@ function setVisibility(state: 'visible' | 'hidden'): void {
 beforeEach(() => {
   posted = []
   claims = []
+  fates = new Map<string, Fate[]>()
   network = 'ok'
   setVisibility('visible')
   stubRoutes()
@@ -197,12 +205,18 @@ describe('when the reader claims', () => {
     expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1)
   })
 
-  it('does not retry into a deadline the host has already run out of', async () => {
-    claims = [{ claimed: false, reason: 'unknown' }]
-    const view = drive(seatOf({ access: { outlineChars: 4000, readTimeoutMs: 50 } }))
-    await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1) })
-    await new Promise<void>((resolve) => { setTimeout(resolve, 300) })
-    expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1)
+  it('stops bidding at the host\'s claim window, not at its report deadline', async () => {
+    // Never granted, so only a deadline can end the bidding — and the report
+    // deadline below would allow about twenty-five bids where the claim window
+    // allows a handful.
+    claims = Array.from({ length: 40 }, () => ({ claimed: false, reason: 'unknown' as const }))
+    const view = drive(seatOf({ access: { outlineChars: 4000, claimTimeoutMs: 250, readTimeoutMs: 5000 } }))
+    await new Promise<void>((resolve) => { setTimeout(resolve, 900) })
+    const bids = of(CONTENT_CLAIM_ROUTE).length
+    await new Promise<void>((resolve) => { setTimeout(resolve, 500) })
+    expect({ bids, later: of(CONTENT_CLAIM_ROUTE).length }).toEqual({ bids, later: bids })
+    expect(bids).toBeGreaterThanOrEqual(3)
+    expect(bids).toBeLessThanOrEqual(5)
     expect(of(CONTENT_REPORT_ROUTE)).toEqual([])
     view.unmount()
   })
@@ -237,16 +251,45 @@ describe('when the reader claims', () => {
     }
   })
 
-  it('reads nothing when the claim route refuses or cannot be reached', async () => {
+  it('bids again after a claim that never landed, rather than losing the read to one of them', async () => {
+    for (const fate of ['refuses', 'unreachable'] as const) {
+      posted = []
+      fates.set(CONTENT_CLAIM_ROUTE, [fate])
+      const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+      const view = drive(seatOf({ frames: { current: frames } }))
+      await settled()
+      // The console is in front of the user the whole time; one dropped request
+      // must not be what tells the model there is no console at all.
+      expect({ fate, bids: of(CONTENT_CLAIM_ROUTE).length }).toEqual({ fate, bids: 2 })
+      view.unmount()
+    }
+  })
+
+  it('keeps bidding while the claim never lands, and answers nothing when it never does', async () => {
     for (const state of ['refuses', 'unreachable'] as const) {
       posted = []
       network = state
-      const view = drive(seatOf())
-      await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1) })
-      await new Promise<void>((resolve) => { setTimeout(resolve, 20) })
+      const view = drive(seatOf({ access: { outlineChars: 4000, claimTimeoutMs: 50, readTimeoutMs: 500 } }))
+      await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThanOrEqual(2) }, { timeout: 3000 })
+      await new Promise<void>((resolve) => { setTimeout(resolve, 600) })
       expect({ state, reports: of(CONTENT_REPORT_ROUTE) }).toEqual({ state, reports: [] })
       view.unmount()
     }
+  })
+
+  it('forgets a call once it has left the pending list', async () => {
+    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+    const seat = seatOf({ frames: { current: frames } })
+    const view = drive(seat)
+    await settled()
+    // The result reached the log, so the host stopped publishing the call.
+    drive({ ...seat, pending: [] }, view)
+    posted = []
+    // No agent loop reuses a live call id; the same id arriving again is how a
+    // test can see whether the seat still remembers having answered it.
+    drive({ ...seat, pending: [{ ...READ }] }, view)
+    await settled()
+    expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1)
   })
 
   it('installs nothing at all where the deployment configured no page access', async () => {
@@ -269,6 +312,18 @@ describe('what the reader reports', () => {
     expect(outcome.snapshot.signIn).toBe(false)
     expect(outcome.snapshot.text).toContain('Refresh')
     expect(of(CONTENT_REPORT_ROUTE)[0]).toMatchObject({ callId: 'call_1', tabId: TAB_ID })
+  })
+
+  it('posts the read a second time when the first report never landed, and no third', async () => {
+    fates.set(CONTENT_REPORT_ROUTE, ['refuses'])
+    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+    drive(seatOf({ frames: { current: frames } }))
+    await vi.waitFor(() => { expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(2) }, { timeout: 3000 })
+    expect(of(CONTENT_REPORT_ROUTE)[1]).toEqual(of(CONTENT_REPORT_ROUTE)[0])
+    // Past one retry the host's own deadline owns the ending; the seat does not
+    // sit on a call the host has already answered.
+    await new Promise<void>((resolve) => { setTimeout(resolve, 400) })
+    expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(2)
   })
 
   it('keeps one numbering per frame, so a ref survives the read that minted it', async () => {
@@ -360,17 +415,23 @@ describe('what the reader reports', () => {
     expect(reported().status).toBe('ok')
   })
 
-  it('gives up on a page that never finishes loading', async () => {
+  it('gives up on a page that never finishes loading while the host is still listening', async () => {
     const frame = mountFrame('<main><button>Refresh</button></main>')
     Object.defineProperty(frame.contentWindow?.document, 'readyState', { value: 'loading', configurable: true })
     const frames = new Map([[FRAME, frame]])
-    drive(seatOf({ frames: { current: frames } }))
+    const access = { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 400 }
+    const opened = Date.now()
+    drive(seatOf({ frames: { current: frames }, access }))
     await settled()
     expect(reported()).toEqual({
       status: 'error',
       code: 'frame',
       message: 'The page in the content column had not finished loading; retry once.',
     })
+    // The host started its report deadline when it granted the claim, so a seat
+    // that spent all of it waiting would post into a call that had already
+    // given up and this message would never reach the model.
+    expect(Date.now() - opened).toBeLessThan(access.readTimeoutMs)
   })
 
   it('passes the reader\'s own refusal through untouched', async () => {
@@ -408,7 +469,7 @@ describe('what the reader reports', () => {
       frames: { current: frames },
       // A budget one listing cannot fit, so the read is cut and names where to
       // continue from rather than stopping silently.
-      access: { outlineChars: 30, readTimeoutMs: 500 },
+      access: { outlineChars: 30, claimTimeoutMs: 300, readTimeoutMs: 500 },
       pending: [{ callId: 'call_1', tool: 'content_read', args: { find: 'Refresh' } }],
     }))
     await settled()

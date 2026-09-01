@@ -90,6 +90,11 @@ describe('report wire boundary', () => {
       .toEqual({ status: 'error', code: 'not-a-page', message: 'why', kind: 'chart', title: 'Sales' })
   })
 
+  it('takes a listing that found nothing at all', () => {
+    const nothing: ReadOutcome = { ...READ, snapshot: { ...READ.snapshot, text: '', shown: 0, total: 0 } }
+    expect(parseReportRequest(report(nothing), MAX_TEXT)?.outcome).toEqual(nothing)
+  })
+
   it('refuses a listing past the bound instead of taking it', () => {
     const outcome = { ...READ, snapshot: { ...READ.snapshot, text: 'x'.repeat(MAX_TEXT + 1) } }
     expect(parseReportRequest(report(outcome), MAX_TEXT)).toBeUndefined()
@@ -130,6 +135,10 @@ describe('report wire boundary', () => {
       { ...READ.snapshot, text: 7 },
       { ...READ.snapshot, shown: 1.5 },
       { ...READ.snapshot, total: 'many' },
+      // A count below none would print to the model as a page with fewer than
+      // no items in it.
+      { ...READ.snapshot, shown: -1 },
+      { ...READ.snapshot, total: -1 },
       { ...READ.snapshot, breadcrumb: 7 },
       { ...READ.snapshot, modal: 7 },
       { ...READ.snapshot, cursor: 7 },

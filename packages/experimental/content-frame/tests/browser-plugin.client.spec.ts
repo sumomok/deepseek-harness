@@ -26,7 +26,7 @@ import { en, NS, zh } from '../src/client/locales.ts'
 const HIDE_STYLE_ID = 'dsh-content-frame-hide-empty-command-row'
 
 /** The settings document the bench serves. */
-const SETTINGS = { cacheSize: 5, pageAccess: { outlineChars: 12000, readTimeoutMs: 15000 } }
+const SETTINGS = { cacheSize: 5, pageAccess: { outlineChars: 12000, claimTimeoutMs: 3000, readTimeoutMs: 15000 } }
 
 /** Answer the node half's settings route with one document. */
 function serveSettings(body: unknown, ok = true): void {
@@ -80,7 +80,7 @@ describe('content-frame browser half', () => {
   })
 
   it('waits for the column/conversation to declare their slots before claiming either key', async () => {
-    serveSettings({ cacheSize: 3, pageAccess: { outlineChars: 12000, readTimeoutMs: 15000 } })
+    serveSettings({ cacheSize: 3, pageAccess: { outlineChars: 12000, claimTimeoutMs: 3000, readTimeoutMs: 15000 } })
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
     ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
@@ -162,8 +162,9 @@ describe('content-frame browser half', () => {
       [{ cacheSize: 1.5 }, true, /unusable cacheSize: 1.5/],
       [{ cacheSize: 3, pageAccess: null }, true, /unusable pageAccess: null/],
       [{ cacheSize: 3, pageAccess: {} }, true, /unusable pageAccess/],
-      [{ cacheSize: 3, pageAccess: { outlineChars: 0, readTimeoutMs: 1 } }, true, /unusable pageAccess/],
-      [{ cacheSize: 3, pageAccess: { outlineChars: 1, readTimeoutMs: '15s' } }, true, /unusable pageAccess/],
+      [{ cacheSize: 3, pageAccess: { outlineChars: 0, claimTimeoutMs: 1, readTimeoutMs: 1 } }, true, /unusable pageAccess/],
+      [{ cacheSize: 3, pageAccess: { outlineChars: 1, claimTimeoutMs: 1, readTimeoutMs: '15s' } }, true, /unusable pageAccess/],
+      [{ cacheSize: 3, pageAccess: { outlineChars: 1, readTimeoutMs: 1 } }, true, /unusable pageAccess/],
     ] as const) {
       serveSettings(body, ok)
       // The plugin body itself, not a fiber: a rejecting apply is what fails

@@ -22,8 +22,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
-  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ClaimAck, type ReadArgs, type ReadOutcome,
-  type ReadPage,
+  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, PREFERRED_TAB_WINDOW_MS,
+  type ClaimAck, type ReadArgs, type ReadOutcome, type ReadPage, type ReportAck,
 } from '../../access/wire.ts'
 import { FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE } from '../../access/text.ts'
 import type { ContentFrameAccessSettings } from '../../route.ts'
@@ -149,7 +149,7 @@ function frameError(message: string): ReadOutcome {
  * @param route - the route to post to.
  * @param body - the document.
  * @returns the parsed answer, or `undefined` when the route refused it or could
- * not be reached — both of which leave the call to its own deadline.
+ * not be reached — one answer, because the caller tries again either way.
  */
 async function post<T>(route: string, body: unknown): Promise<T | undefined> {
   try {
@@ -161,8 +161,8 @@ async function post<T>(route: string, body: unknown): Promise<T | undefined> {
     if (!response.ok) return undefined
     return await response.json() as T
   } catch (_hostUnreachable) {
-    // Nothing else consumes this: a claim or report that never lands leaves the
-    // waiting call to its own deadline, which answers that no console replied.
+    // A network failure and a refusal are one answer to the caller, which
+    // retries both; nothing here needs to tell them apart.
     return undefined
   }
 }
@@ -173,31 +173,60 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Win one read, retrying only while the host says it does not know the call yet.
+ * Win one read, bidding again while the bid could still land.
  *
- * That answer is expected on a first claim: the log records `tool/call` — which
- * is what puts the call in this seat's pending list — before the tool body
- * registers the wait.
+ * Two answers are worth another try. `unknown` is expected on a first claim:
+ * the log records `tool/call` — which is what puts the call in this seat's
+ * pending list — before the tool body registers the wait. A missing answer
+ * means the post itself never landed, and one dropped request would otherwise
+ * cost the whole read: the model would be told no console is open while the
+ * console sits in front of the user.
+ *
+ * The retrying is bounded by the host's claim window rather than its report
+ * deadline, because that window is what the call is actually waiting inside:
+ * the preferred tab's hold and one more interval are the slack on top of it.
  * @param seat - the live seat, re-read on every attempt.
  * @param callId - the call to claim.
- * @param readTimeoutMs - the host's own deadline for this call, which bounds the retrying.
+ * @param access - the node half's settings, whose claim window bounds the bidding.
  * @returns whether this tab owns the read.
  */
 async function claimRead(
   seat: MutableRefObject<ContentReadSeat>,
   callId: string,
-  readTimeoutMs: number,
+  access: ContentFrameAccessSettings,
 ): Promise<boolean> {
-  const deadline = Date.now() + readTimeoutMs
+  const deadline = Date.now() + access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS + CLAIM_RETRY_MS
   for (;;) {
     const ack = await post<ClaimAck>(CONTENT_CLAIM_ROUTE, { callId, tabId: seat.current.tabId })
     if (ack?.claimed === true) return true
-    if (ack?.reason !== 'unknown') return false
+    if (ack !== undefined && ack.reason !== 'unknown') return false
     if (Date.now() + CLAIM_RETRY_MS > deadline) return false
     await delay(CLAIM_RETRY_MS)
     // The result reached the log while this seat waited: the call is over.
     if (!seat.current.pending.some(request => request.callId === callId)) return false
   }
+}
+
+/**
+ * Post one read back, trying a second time when the first post never lands.
+ *
+ * A read that was claimed and then answered nowhere is the worst ending
+ * available: the call holds its whole report deadline and the model is told the
+ * console went quiet. One retry covers a dropped request; past that the host's
+ * own deadline is the right place for it to end.
+ * @param seat - the live seat, read for the tab id the host granted the claim to.
+ * @param callId - the call being answered.
+ * @param outcome - what the read ended as.
+ */
+async function reportRead(
+  seat: MutableRefObject<ContentReadSeat>,
+  callId: string,
+  outcome: ReadOutcome,
+): Promise<void> {
+  const body = { callId, tabId: seat.current.tabId, outcome }
+  if (await post<ReportAck>(CONTENT_REPORT_ROUTE, body) !== undefined) return
+  await delay(CLAIM_RETRY_MS)
+  await post<ReportAck>(CONTENT_REPORT_ROUTE, body)
 }
 
 /**
@@ -268,7 +297,10 @@ async function readPage(
   if (seat.activeFrameId === undefined) return frameError(FRAME_RETIRED_MESSAGE)
   const frame = seat.frames.current.get(seat.activeFrameId)
   if (frame === undefined || frame.contentWindow === null) return frameError(FRAME_UNREACHABLE_MESSAGE)
-  if (frame.contentWindow.document.readyState !== 'complete' && !await whenLoaded(frame, access.readTimeoutMs)) {
+  // A share of the deadline, not all of it: the host started counting when it
+  // granted the claim, so the walk and the trip back need what is left.
+  const loadBudgetMs = access.readTimeoutMs * LOAD_WAIT_SHARE
+  if (frame.contentWindow.document.readyState !== 'complete' && !await whenLoaded(frame, loadBudgetMs)) {
     return frameError(FRAME_LOADING_MESSAGE)
   }
   const options: SnapshotOptions = {
@@ -320,13 +352,23 @@ async function answer(
   request: ContentReadRequest,
   access: ContentFrameAccessSettings,
 ): Promise<void> {
-  if (!await claimRead(seat, request.callId, access.readTimeoutMs)) return
+  if (!await claimRead(seat, request.callId, access)) return
   const outcome = await readPage(seat.current, request.args, access)
-  await post(CONTENT_REPORT_ROUTE, { callId: request.callId, tabId: seat.current.tabId, outcome })
+  await reportRead(seat, request.callId, outcome)
 }
 
 /**
  * Answer this session's open `content_read` calls from the frames this seat holds.
+ *
+ * One call is answered at most once from this tab: a call the seat has taken up
+ * is remembered until it leaves the pending list, so no amount of re-rendering
+ * turns one read into two claims. A claim that fails in transit is not that
+ * failure — it is retried every `CLAIM_RETRY_MS` until the host's claim window
+ * is out, and so is a report that never lands, once.
+ *
+ * Each call is answered by background work nobody awaits: this hook returns as
+ * soon as the reads are under way, and every result reaches the host over the
+ * report route rather than through anything the seat renders.
  * @param seat - what the seat currently holds; re-read live by each running read.
  */
 export function useContentRead(seat: ContentReadSeat): void {
@@ -345,6 +387,13 @@ export function useContentRead(seat: ContentReadSeat): void {
   useEffect(() => {
     const access = seat.access
     if (access === undefined || !visible) return
+    // A call that has left the list has settled and cannot come back, so the
+    // memory of having answered it is dropped with it — a tab left open for a
+    // long session would otherwise accumulate one id per read it ever saw.
+    const open = new Set(seat.pending.map(request => request.callId))
+    for (const callId of started.current) {
+      if (!open.has(callId)) started.current.delete(callId)
+    }
     for (const request of seat.pending) {
       if (started.current.has(request.callId)) continue
       started.current.add(request.callId)

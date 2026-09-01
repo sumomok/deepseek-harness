@@ -67,6 +67,15 @@ describe('the claim window', () => {
       .toEqual({ claimed: false, reason: 'settled' })
   })
 
+  it('refuses a second wait for a call already in the table, rather than stranding the first', async () => {
+    const settled = open('call_1')
+    await expect(open('call_1')).rejects.toThrow('content-frame: a read for call call_1 is already waiting')
+    // The first execution is still the one the table answers; a silent replace
+    // would have left it blocked with every wake-up path pointing elsewhere.
+    await vi.advanceTimersByTimeAsync(TIMEOUTS.claimTimeoutMs)
+    expect(await settled).toEqual({ kind: 'unclaimed' })
+  })
+
   it('gives the read to one tab and refuses every other bid for it', async () => {
     const settled = open('call_1')
     expect(await table.claim({ callId: 'call_1', tabId: 'tab_a' })).toEqual({ claimed: true })
@@ -207,6 +216,19 @@ describe('the preferred tab', () => {
     const settled = open('call_2', 'session_2')
     expect(await table.claim({ callId: 'call_2', tabId: 'tab_b' })).toEqual({ claimed: true })
     table.report({ callId: 'call_2', tabId: 'tab_b', outcome: OUTCOME })
+    await settled
+  })
+
+  it('keeps a pin for only the most recent sessions, so a session read once never holds a row forever', async () => {
+    for (let index = 0; index <= 64; index += 1) {
+      await pinTabA(`call_${index}`, `session_${index}`)
+    }
+    const settled = open('call_late', 'session_0')
+    // The oldest pin is gone, so this reads as a session with no preference:
+    // an unpinned tab wins at once instead of being held for one that may
+    // never come back.
+    expect(await table.claim({ callId: 'call_late', tabId: 'tab_b' })).toEqual({ claimed: true })
+    table.report({ callId: 'call_late', tabId: 'tab_b', outcome: OUTCOME })
     await settled
   })
 })
