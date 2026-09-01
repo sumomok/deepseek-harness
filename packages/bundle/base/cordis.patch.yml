@@ -67,8 +67,10 @@
     - id: agent
       name: '@deepseek-ai/dsh-agent'
 
+    # Disabled: this fork product reports no installed-plugin inventory to DeepSeek.
     - id: plugin-package-inventory-deepseek
       name: '@deepseek-ai/dsh-plugin-package-inventory-deepseek'
+      disabled: true
 
     # The transport-independent default for Agents created by entry points.
     # Settings may supply a saved selection; consumers read it at creation time.
@@ -187,8 +189,12 @@
     # shutdownTimeoutMillis is the load-bearing outer bound when a transport
     # promise never settles. Every CLI exit path drains it by disposing the root
     # on SIGINT/SIGTERM.
+    # Disabled: this fork product sends no session telemetry to DeepSeek. The
+    # config below is left declared, not deleted, so DSH_TELEMETRY_MODE and
+    # DSH_TELEMETRY_OTLP_URL keep documenting what upstream's own row expects.
     - id: session-telemetry-otel
       name: '@deepseek-ai/dsh-session-telemetry-otel'
+      disabled: true
       config:
         mode: !!js process.env.DSH_TELEMETRY_MODE || 'FEEDBACK_ONLY'
         shutdownTimeoutMillis: 3000

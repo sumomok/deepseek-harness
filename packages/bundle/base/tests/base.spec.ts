@@ -32,8 +32,17 @@ describe('dsh-base bundle', () => {
     )
     expect(rows.length).toBeGreaterThan(50)
     expect(rows.some(row => row.id === 'agent-loop')).toBe(true)
-    expect(rows.find(row => row.id === 'session-telemetry-otel')?.config?.['mode']).toEqual({
-      __jsExpr: "process.env.DSH_TELEMETRY_MODE || 'FEEDBACK_ONLY'",
+    expect(rows.find(row => row.id === 'session-telemetry-otel')).toMatchObject({
+      disabled: true,
+      config: { mode: { __jsExpr: "process.env.DSH_TELEMETRY_MODE || 'FEEDBACK_ONLY'" } },
+    })
+    // This fork product sends no session telemetry and reports no
+    // installed-plugin inventory to DeepSeek; both rows stay declared,
+    // disabled, so a `disabled: true` row's own Cordis semantics — its
+    // `apply()` never runs — is this product's only telemetry off-switch that
+    // needs no environment variable to take effect.
+    expect(rows.find(row => row.id === 'plugin-package-inventory-deepseek')).toMatchObject({
+      disabled: true,
     })
     expect(rows.find(row => row.id === 'hmr')).toMatchObject({
       disabled: true,

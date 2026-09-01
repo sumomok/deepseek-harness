@@ -91,6 +91,26 @@ async function attemptCount(attemptsFile: string): Promise<number> {
   }
 }
 
+/**
+ * A scripted entry that reports one environment variable's value to a file,
+ * then prints the URL line and idles, exactly like `scriptedEntry`'s
+ * `'success'` behavior.
+ * @param varName - the environment variable to report.
+ * @returns the script's path and the file it wrote the value to (the literal
+ * string `'<unset>'` when the process saw no such variable).
+ */
+function envReportingEntry(varName: string): { entry: string; envFile: string } {
+  const entry = join(root, 'env-entry.cjs')
+  const envFile = join(root, 'env.log')
+  writeFileSync(entry, `
+    const fs = require('node:fs')
+    fs.writeFileSync(${JSON.stringify(envFile)}, process.env[${JSON.stringify(varName)}] ?? '<unset>')
+    process.stdout.write('dsh web: http://127.0.0.1:54321\\n')
+    setInterval(() => {}, 1000)
+  `)
+  return { entry, envFile }
+}
+
 describe('startServer', () => {
   it('resolves with the URL line and a working stop', async () => {
     const { entry } = scriptedEntry(['success'])
@@ -113,6 +133,24 @@ describe('startServer', () => {
     // The message's tail is the last 15 lines; 20 filler lines follow the
     // loader error, so the message alone would not carry it.
     expect(exited.message).not.toContain('@yuxianglin/dsh-bridge-browser')
+  })
+
+  it('always sets DSH_TELEMETRY_DISABLED on the spawned server, unconditionally', async () => {
+    const { entry, envFile } = envReportingEntry('DSH_TELEMETRY_DISABLED')
+    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {})
+    const { readFile } = await import('node:fs/promises')
+    expect(await readFile(envFile, 'utf8')).toBe('1')
+    await handle.stop()
+  })
+
+  it('lets a caller-supplied env override the telemetry disable, for a test that wants it on', async () => {
+    const { entry, envFile } = envReportingEntry('DSH_TELEMETRY_DISABLED')
+    const handle = await startServer(
+      { nodeBin: process.execPath, entry, cwd: root, env: { DSH_TELEMETRY_DISABLED: '' } }, () => {},
+    )
+    const { readFile } = await import('node:fs/promises')
+    expect(await readFile(envFile, 'utf8')).toBe('')
+    await handle.stop()
   })
 })
 
