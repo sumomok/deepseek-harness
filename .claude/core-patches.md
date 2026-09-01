@@ -135,3 +135,11 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - `packages/spill/spill-local/tests/spill-local.spec.ts` › `startup cleanup sweep > keeps a file exactly at the boundary (only strictly-older expires)`：mtime 边界精度断言失败。
 
 三项均判定为**基座环境敏感项**（进程 PID 可见性、子进程环境变量继承、文件系统 mtime 精度，均为宿主环境特征而非代码逻辑），本次不修。留待周三验证矩阵重验（换宿主/CI 环境复核是否同样红，以判断是否需要修正测试本身的环境假设）。
+
+## chore(bundle): disable session-telemetry-otel by default — a426a88c90
+- **改了什么**：`packages/bundle/base/cordis.patch.yml` 的 `session-telemetry-otel` 条目新增 `disabled: true`（`config` 块保留未删，供 `DSH_TELEMETRY_MODE`/`DSH_TELEMETRY_OTLP_URL` 说明用途）；`base.spec.ts` 新增该行 `disabled: true` 的断言；`apps/desktop/src/server.ts` 的 `startServer` 额外在内置服务器 spawn 环境上无条件设置 `DSH_TELEMETRY_DISABLED: '1'`（`spec.env` 仍可覆盖），叠加上游既有的 `apps/cli/src/profile-boot.ts::resolveTelemetryPatch` 环境变量开关；`server.spec.ts` 新增脚本化子进程测试覆盖默认值与覆盖场景。
+- **状态**：在役。本 fork 的产品决定：出厂即零会话遥测出站，不依赖用户是否触发反馈或设置 `DSH_TELEMETRY_MODE`。详见配套 Agent Note `2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md`。
+
+## chore(bundle): disable plugin-package-inventory-deepseek by default — a426a88c90
+- **改了什么**：`packages/bundle/base/cordis.patch.yml` 与 `packages/bundle/sdk-minimal/cordis.patch.yml` 各自的 `plugin-package-inventory-deepseek` 条目均新增 `disabled: true`；`base.spec.ts`/`sdk-minimal.spec.ts` 新增对应断言。
+- **状态**：在役。本 fork 的产品决定：出厂即零已装插件清单上报给 DeepSeek 官方 API。该插件没有等价的环境变量开关（`DSH_TELEMETRY_DISABLED` 只覆盖 `session-telemetry-otel`），`disabled: true` 是唯一关闭途径。详见配套 Agent Note `2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md`。
