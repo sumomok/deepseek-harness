@@ -16,7 +16,7 @@ import type {
   ToolResultMessage,
   UserMessage,
 } from '@deepseek-ai/dsh-llm'
-import type { AttachmentIdType, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { AttachmentIdType, FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {
   SessionEvent,
   SessionHeader,
@@ -233,6 +233,9 @@ type FixturePromptPart =
     readonly data: string
     readonly name?: string
   }
+  // The composer's `EncodedFileAttachment` wire form: plain text, never
+  // base64, and `name` is required (a file card has nothing else to show).
+  | { readonly type: 'file'; readonly name: string; readonly text: string }
 
 interface FixtureSessionApi {
   list(request: { readonly cursor?: string }): Promise<ConnectionRpcResult<unknown>>
@@ -268,6 +271,10 @@ interface FixtureSessionApi {
     readonly clientTimeZone?: string
   }): Promise<ConnectionRpcResult<unknown>>
   attachment(request: {
+    readonly sessionId: SessionId
+    readonly attachmentId: AttachmentIdType
+  }): Promise<ConnectionRpcResult<unknown>>
+  file(request: {
     readonly sessionId: SessionId
     readonly attachmentId: AttachmentIdType
   }): Promise<ConnectionRpcResult<unknown>>
@@ -1774,6 +1781,14 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
     String(FIXTURE_IMAGE_REF.attachmentId),
     { attachment: FIXTURE_IMAGE_REF, data: FIXTURE_IMAGE_DATA },
   ]])
+  /**
+   * Durable text-file doubles, the file-kind counterpart of `attachments`:
+   * the prompt indexes each accepted file by the id it mints, and `file`
+   * below serves the text back from here. The log carries only the ref, so a
+   * reader must come through that route — never through inline log content.
+   * It seeds empty: no fixture journey shows a file before one is sent.
+   */
+  const fileAttachments = new Map<string, { attachment: FileAttachmentRef; text: string }>()
   /** Credential store double: set/unset flip the describe badge, values never read back. */
   const fixtureCredentials = new Map<string, true>([
     // The assembled fixture represents an already-configured shipped
@@ -2946,6 +2961,15 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
       const userText = content.map(b => (b.type === 'text' ? b.text : '')).join('')
       const durable: ContentBlock[] = content.map((block) => {
         if (block.type === 'text') return block
+        if (block.type === 'file') {
+          const attachment: FileAttachmentRef = {
+            attachmentId: `fixture:${randomUuid()}` as AttachmentIdType,
+            name: block.name,
+            bytes: new TextEncoder().encode(block.text).byteLength,
+          }
+          fileAttachments.set(String(attachment.attachmentId), { attachment, text: block.text })
+          return { type: 'file', attachment }
+        }
         const attachment: ImageAttachmentRef = {
           attachmentId: `fixture:${randomUuid()}` as AttachmentIdType,
           mediaType: block.mediaType,
@@ -3042,6 +3066,27 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         return sessionErr({
           code: 'session/attachment-invalid',
           message: 'fixture attachment is not referenced by this session',
+          details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
+        })
+      }
+      return sessionOk(stored)
+    },
+    file: (request) => {
+      const stored = fileAttachments.get(String(request.attachmentId))
+      if (stored === undefined) {
+        return sessionErr({
+          code: 'session/attachment-invalid',
+          message: 'fixture file attachment missing',
+          details: { reason: 'ATTACHMENT_NOT_FOUND' },
+        })
+      }
+      if (!logReferencesAttachment(
+        logs.get(request.sessionId) ?? [],
+        String(request.attachmentId),
+      )) {
+        return sessionErr({
+          code: 'session/attachment-invalid',
+          message: 'fixture file attachment is not referenced by this session',
           details: { reason: 'ATTACHMENT_NOT_REFERENCED' },
         })
       }
@@ -3544,6 +3589,9 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         )
         case 'session/attachment': return sessionApi.attachment(
           request as Parameters<FixtureSessionApi['attachment']>[0],
+        )
+        case 'session/file': return sessionApi.file(
+          request as Parameters<FixtureSessionApi['file']>[0],
         )
         case 'session/updateQueue': return sessionApi.updateQueue(
           request as Parameters<FixtureSessionApi['updateQueue']>[0],
