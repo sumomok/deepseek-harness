@@ -247,6 +247,13 @@ describe('what a page says about itself', () => {
     expect(read(page('<div role="dialog" aria-label="侧边抽屉"></div>')).header.modal).toBe('侧边抽屉')
   })
 
+  it('names the first open dialog of the page, whichever way it is written', () => {
+    const refs = page(`
+      <div role="dialog" aria-label="先出现的抽屉"><button>关闭</button></div>
+      <dialog open aria-label="后出现的对话框"><button>确定</button></dialog>`)
+    expect(read(refs).header.modal).toBe('先出现的抽屉')
+  })
+
   it('says nothing about a dialog the page has not opened', () => {
     expect(read(page('<div role="dialog" aria-label="导入设置" data-hidden></div>')).header.modal).toBeUndefined()
   })
@@ -423,6 +430,15 @@ describe('containers the page does not name outright', () => {
     expect(read(page('<section><h3 data-hidden>看不见</h3><p>正文</p></section>')).text).toBe('text "正文"')
   })
 
+  it('names a section by the heading the page shows first, whichever way it is written', () => {
+    const refs = page('<section><div role="heading" aria-level="3">先出现的</div><h3>后出现的</h3></section>')
+    expect(read(refs).text).toBe([
+      'e1 section "先出现的"',
+      '  e2 heading "先出现的" (in section "先出现的")',
+      '  e3 heading "后出现的" (in section "先出现的")',
+    ].join('\n'))
+  })
+
   it('reads an element the page makes clickable as a click target', () => {
     const refs = page('<div class="card">新建站点</div><div class="plain">说明</div>')
     const clickable = (el: Element): boolean => el.className === 'card'
@@ -542,11 +558,25 @@ describe('widgets built out of several elements', () => {
       <div data-pointer class="card">新建站点</div>`)
     // The card holding a heading prints no row of its own: burying its heading
     // and its text under one click target would cost the reader more than the
-    // card's own row is worth.
+    // card's own row is worth. Its paragraph reads as text, because the card is
+    // what the page offers to click and the paragraph only inherits the cursor.
     expect(read(refs, { isClickable: pointer }).text).toBe([
       'e1 heading "东风站"',
-      'e2 clickable "运行中"',
-      'e3 clickable "新建站点"',
+      'text "运行中"',
+      'e2 clickable "新建站点"',
+    ].join('\n'))
+  })
+
+  it('reads a click target drawn out of several pieces as the one target it is', () => {
+    const refs = page('<div data-pointer><span>更多</span><span>操作</span></div>')
+    expect(read(refs, { isClickable: pointer }).text).toBe('e1 clickable "更多 操作"')
+  })
+
+  it('reads the picture inside a click target rather than clicking over it', () => {
+    const refs = page('<div data-pointer><img alt="站点分布图"><span>查看</span></div>')
+    expect(read(refs, { isClickable: pointer }).text).toBe([
+      'e1 img "站点分布图"',
+      'text "查看"',
     ].join('\n'))
   })
 
@@ -677,6 +707,25 @@ describe('tables', () => {
     expect(read(refs).text.split('\n')[0]).toBe('e1 table 1 rows × 1 cols')
   })
 
+  it('heads a table by the first row of a header of several, and counts that row\'s cells as its columns', () => {
+    const refs = page(`
+      <table>
+        <thead>
+          <tr><th colspan="2">基本信息</th></tr>
+          <tr><th>名称</th><th>唯一标识</th></tr>
+        </thead>
+        <tbody><tr><td>东风站</td><td>P-0001</td></tr></tbody>
+      </table>`)
+    // The column names of a table that groups its header over two rows sit in
+    // the second row, which no read prints: the reader sees the grouping row.
+    expect(read(refs).text).toBe([
+      'e1 table 1 rows × 1 cols',
+      '  header: 基本信息',
+      '  sample: 东风站 | P-0001',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+  })
+
   it('reads a grid and a tree grid as the tables they are', () => {
     const refs = page(`
       <div role="grid" aria-label="配额"><div role="row"><div role="cell">并发</div></div></div>
@@ -719,6 +768,28 @@ describe('tables', () => {
     const text = read(refs).text
     expect(text).toContain('    pagination: 甲表 共 2 页')
     expect(text).toContain('    pagination: 乙表 共 9 页')
+  })
+
+  it('gives a strip between two tables to the table it is drawn under, and no strip to the one below', () => {
+    const refs = page(`
+      <section aria-label="站点">
+        <table aria-label="甲表"><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+        <div class="el-pagination">共 2 页</div>
+        <table aria-label="乙表"><thead><tr><th>名称</th></tr></thead><tbody><tr><td>朝阳站</td></tr></tbody></table>
+      </section>`)
+    expect(read(refs).text).toBe([
+      'e1 section "站点"',
+      '  e2 table "甲表" 1 rows × 1 cols',
+      '    header: 名称',
+      '    sample: 东风站',
+      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+      '    pagination: 共 2 页',
+      '  text "共 2 页" (in section "站点")',
+      '  e3 table "乙表" 1 rows × 1 cols',
+      '    header: 名称',
+      '    sample: 朝阳站',
+      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
   })
 
   it('takes the strip above a table when there is none below it', () => {
@@ -975,15 +1046,17 @@ describe('when there is more page than budget', () => {
     expect(snap.total).toBe(6)
   })
 
-  it('cuts the skeleton itself when even that is more than the budget', () => {
+  it('cuts the skeleton itself when even that is more than the budget, and says to continue as a skeleton', () => {
     const refs = page(CONSOLE)
     const snap = read(refs, { budgetChars: 60 })
     expect(snap.kind).toBe('map')
     expect(snap.truncated).toBe(true)
     expect(snap.cursor).toBe('e1')
+    // A continuation carrying after alone reads the items of the page, not the
+    // skeleton, so the line that ends a skeleton asks for one again.
     expect(snap.text).toBe([
       'e1 main "站点管理"  3 texts',
-      '(cut after e1 — pass after: "e1" to continue; 5 items remain)',
+      '(cut after e1 — pass after: "e1" and mode: "map" to continue; 5 items remain)',
     ].join('\n'))
     expect(snap.shown).toBe(1)
     expect(snap.total).toBe(6)
@@ -1141,14 +1214,21 @@ describe('when there is more page than budget', () => {
     expect(snap.text.split('\n')[0]).toBe('  text "共 20 个站点。" (in main "站点管理")')
   })
 
-  it('answers with nothing when a continuation names the last row of the listing', () => {
+  it('says the listing ended there when a continuation names its last row', () => {
     const refs = page('<button>甲</button><button>乙</button>')
     read(refs)
     const snap = read(refs, { after: 'e2' })
-    expect(snap.text).toBe('')
+    expect(snap.text).toBe('(nothing after e2 — the listing ended there)')
     expect(snap.shown).toBe(0)
     expect(snap.total).toBe(0)
     expect(snap.truncated).toBe(false)
+    expect(snap.cursor).toBeUndefined()
+  })
+
+  it('says the same of a skeleton continued past its last container', () => {
+    const refs = page(CONSOLE)
+    read(refs)
+    expect(read(refs, { mode: 'map', after: 'e12' }).text).toBe('(nothing after e12 — the listing ended there)')
   })
 
   it('refuses a continuation that names something this read did not list', () => {

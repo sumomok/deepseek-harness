@@ -46,6 +46,7 @@ const DIALOG_SELECTOR = 'dialog, [role="dialog"], [role="alertdialog"]'
 const ITEM_SELECTOR = [
   'a[href]', 'button', 'input', 'select', 'textarea', 'summary', 'iframe', 'table',
   'h1', 'h2', 'h3', 'h4', 'h5', 'h6', '[role]', '[contenteditable]', '[tabindex]',
+  'img[alt]:not([alt=""])',
 ].join(', ')
 
 /** Everything one walk shares from its first element to its last. */
@@ -274,7 +275,11 @@ interface TableShape {
 }
 
 /**
- * Sort one table's rows into its header and its data.
+ * Sort one table's rows into its header and its data. A `thead` of several rows
+ * heads the table by its first row alone, so a table that spreads its column
+ * names over a grouping row and a leaf row reports the grouping row as its
+ * header and counts that row's cells as its columns; the leaf names reach the
+ * reader only in the rows themselves.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @returns the table's shape.
@@ -364,9 +369,24 @@ function nearestStrip(nodes: readonly Element[], walk: Walk): string | undefined
 }
 
 /**
+ * The strip drawn above a table, which pages that table only when no table at
+ * all sits above the strip: a strip between two tables pages the one it is
+ * drawn under, and belongs to no other.
+ * @param above - the tables and candidates before the table, in document order.
+ * @param walk - the walk in progress.
+ * @returns the strip's text, or undefined when a table comes before it.
+ */
+function stripAbove(above: readonly Element[], walk: Walk): string | undefined {
+  if (above.some(node => node.matches(TABLE_SELECTOR))) return undefined
+  return nearestStrip([...above].reverse(), walk)
+}
+
+/**
  * The pagination strip that belongs to a table: the one under it, or failing
- * that the one over it, never one that belongs to the table next to it. A
- * strip drawn inside any table belongs to that table's rows, not beside it.
+ * that the one over it, never one that belongs to the table next to it. Each
+ * strip pages one table, so a strip already under a table is not also over the
+ * next one. A strip drawn inside any table belongs to that table's rows, not
+ * beside it.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @param place - the table's position.
@@ -377,7 +397,7 @@ function paginationText(el: Element, walk: Walk, place: Place): string | undefin
     .filter(node => node.matches(TABLE_SELECTOR) || node.closest(TABLE_SELECTOR) === null)
   const at = nodes.indexOf(el)
   if (at === -1) return undefined
-  return nearestStrip(nodes.slice(at + 1), walk) ?? nearestStrip(nodes.slice(0, at).reverse(), walk)
+  return nearestStrip(nodes.slice(at + 1), walk) ?? stripAbove(nodes.slice(0, at), walk)
 }
 
 /**
@@ -565,6 +585,23 @@ function holdsItems(host: ParentNode, walk: Walk): boolean {
 }
 
 /**
+ * True for the outermost element of a run the page makes clickable. A pointer
+ * cursor is inherited, so a wrapper the page marks makes every structural
+ * element under it look clickable too; only the top of the run is the thing
+ * offered. The cost is that a role-less click target the page nests inside such
+ * a wrapper reaches the reader as text rather than as a target of its own.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @returns whether the element tops a clickable run.
+ */
+function topClickable(el: Element, walk: Walk): boolean {
+  if (!walk.isClickable(el)) return false
+  // An element a shadow root renders has no parent element and tops its run.
+  const parent = el.parentElement
+  return parent === null || !walk.isClickable(parent)
+}
+
+/**
  * True for a `label` that names a control, whose text the control's row prints.
  * @param el - the element to classify.
  * @returns whether the element labels a control.
@@ -603,7 +640,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
     return
   }
   const host = childHost(el)
-  if (!place.labelled && walk.isClickable(el) && !holdsItems(host, walk)) {
+  if (!place.labelled && topClickable(el, walk) && !holdsItems(host, walk)) {
     pushElement(el, CLICKABLE_ROLE, walk, place)
     return
   }

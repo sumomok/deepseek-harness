@@ -371,13 +371,32 @@ function dropBefore(entries: Entry[], after: string | undefined): Entry[] {
 }
 
 /**
+ * What a cut skeleton adds to the way on: a continuation carrying `after` alone
+ * answers with the items of the page, so continuing a skeleton means asking for
+ * a skeleton again.
+ */
+const MAP_AGAIN = ' and mode: "map"'
+
+/**
  * How a listing cut at a row the model can name says where to continue.
+ * @param kind - which listing this is.
  * @param cursor - the ref of the last rendered row.
  * @param remaining - how many rows the listing did not render.
  * @returns the closing line.
  */
-function cutAfter(cursor: string, remaining: number): string {
-  return `(cut after ${cursor} — pass after: "${cursor}" to continue; ${remaining} items remain)`
+function cutAfter(kind: SnapshotMode, cursor: string, remaining: number): string {
+  const again = kind === 'map' ? MAP_AGAIN : ''
+  return `(cut after ${cursor} — pass after: "${cursor}"${again} to continue; ${remaining} items remain)`
+}
+
+/**
+ * How a continuation that has already reached the end of its listing says so,
+ * which an empty body would leave the model to read as a failed read.
+ * @param after - the ref the continuation resumed after.
+ * @returns the body.
+ */
+function nothingAfter(after: string): string {
+  return `(nothing after ${after} — the listing ended there)`
 }
 
 /**
@@ -402,14 +421,15 @@ function scopeHint(ref: string): string {
  * How much of the budget the closing line needs, measured against the longest
  * one this listing could possibly print rather than the one it turns out to
  * print, because which line closes a listing is only known once it is filled.
+ * @param kind - which listing this is.
  * @param entries - the listing.
  * @param hint - the closing line an uncut listing prints, if any.
  * @returns the reserved characters, the closing newline included.
  */
-function reserveFor(entries: readonly Entry[], hint: string | undefined): number {
+function reserveFor(kind: SnapshotMode, entries: readonly Entry[], hint: string | undefined): number {
   const remaining = Number('9'.repeat(String(entries.length).length))
   const widest = entries.reduce((longest, entry) => Math.max(longest, entry.ref?.length ?? 0), 0)
-  return Math.max(cutHere(remaining).length, cutAfter('e'.repeat(widest), remaining).length, hint?.length ?? 0) + 1
+  return Math.max(cutHere(remaining).length, cutAfter(kind, 'e'.repeat(widest), remaining).length, hint?.length ?? 0) + 1
 }
 
 /**
@@ -450,7 +470,7 @@ function fill(entries: readonly Entry[], budget: number): string[] {
 function assemble(kind: SnapshotMode, entries: readonly Entry[], budgetChars: number, hint: string | undefined): Listing {
   const whole = fill(entries, budgetChars)
   const closes = whole.length < entries.length || hint !== undefined
-  const lines = closes ? fill(entries, budgetChars - reserveFor(entries, hint)) : whole
+  const lines = closes ? fill(entries, budgetChars - reserveFor(kind, entries, hint)) : whole
   const truncated = lines.length < entries.length
   let shown = lines.length
   if (truncated) {
@@ -460,9 +480,30 @@ function assemble(kind: SnapshotMode, entries: readonly Entry[], budgetChars: nu
   }
   const cursor = truncated ? entries[shown - 1]?.ref : undefined
   const body = lines.slice(0, shown)
-  if (truncated) body.push(cursor === undefined ? cutHere(entries.length - shown) : cutAfter(cursor, entries.length - shown))
+  if (truncated) {
+    body.push(cursor === undefined ? cutHere(entries.length - shown) : cutAfter(kind, cursor, entries.length - shown))
+  }
   else if (hint !== undefined) body.push(hint)
   return { kind, text: body.join('\n'), truncated, shown, total: entries.length, cursor }
+}
+
+/**
+ * One listing, from the row a continuation resumes at. A continuation that
+ * names the listing's last row has reached the end and says so; every other
+ * read fills the budget as usual.
+ * @param kind - which listing this is.
+ * @param entries - the whole listing, before the continuation is applied.
+ * @param options - the read's options.
+ * @returns the rendered listing.
+ * @throws {Error} when `after` names no row of this listing.
+ */
+function resume(kind: SnapshotMode, entries: Entry[], options: SnapshotOptions): Listing {
+  const { after } = options
+  const rest = dropBefore(entries, after)
+  if (after !== undefined && rest.length === 0) {
+    return { kind, text: nothingAfter(after), truncated: false, shown: 0, total: 0, cursor: undefined }
+  }
+  return assemble(kind, rest, options.budgetChars, undefined)
 }
 
 /**
@@ -510,7 +551,7 @@ export function render(items: readonly Item[], options: SnapshotOptions, scope: 
     if (find !== undefined) {
       throw new Error('find cannot be combined with mode "map" — read the map first, then find within a scope')
     }
-    return assemble('map', dropBefore(mapEntries(items), options.after), budgetChars, undefined)
+    return resume('map', mapEntries(items), options)
   }
   if (find !== undefined) {
     const found = findEntries(items, find, refs)
@@ -518,10 +559,9 @@ export function render(items: readonly Item[], options: SnapshotOptions, scope: 
       const text = `No item matches "${find}" — try a shorter word, or read without find.`
       return { kind: 'outline', text, truncated: false, shown: 0, total: 0, cursor: undefined }
     }
-    return assemble('outline', dropBefore(found, options.after), budgetChars, undefined)
+    return resume('outline', found, options)
   }
-  const entries = dropBefore(outlineEntries(items, scope, refs), options.after)
-  const listing = assemble('outline', entries, budgetChars, undefined)
+  const listing = resume('outline', outlineEntries(items, scope, refs), options)
   const wholePage = options.scope === undefined && options.after === undefined
   if (!listing.truncated || !wholePage) return listing
   // A page with no containers has no skeleton to answer with; the rows it does

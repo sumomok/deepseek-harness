@@ -57,7 +57,8 @@ function resolveOrThrow(option: string, ref: string, refs: RefTable): Element {
 
 /**
  * The dialog the page currently has open, preferring one that declares itself
- * modal over one that merely sits on top.
+ * modal over one that merely sits on top. Failing a modal, the first open
+ * dialog in document order is the one reported.
  * @param documents - every readable document.
  * @param isVisible - injected visibility.
  * @returns the dialog's name, or undefined when none is open.
@@ -65,7 +66,7 @@ function resolveOrThrow(option: string, ref: string, refs: RefTable): Element {
 function openDialogName(documents: readonly Document[], isVisible: (el: Element) => boolean): string | undefined {
   let topmost: string | undefined
   for (const doc of documents) {
-    for (const el of doc.querySelectorAll('dialog, [role="dialog"]')) {
+    for (const el of queryInOrder(doc, 'dialog, [role="dialog"]')) {
       if (isSkipped(el, isVisible)) continue
       const name = containerName(el, isVisible)
       if (el.getAttribute('aria-modal') === 'true') return name

@@ -113,10 +113,10 @@ export function childHost(el: Element): ParentNode {
 }
 
 /**
- * What one selector matches inside a subtree, in document order. Engines
- * disagree on the order a selector list answers in — jsdom returns each
- * selector's matches in turn — so a caller that reads the result as a sequence
- * of the page has to put it in order itself.
+ * What one selector matches inside a subtree, in document order. Callers read
+ * the result as a sequence of the page — the first heading of a section, the
+ * strip nearest a table — and sort here rather than resting that reading on the
+ * order a selector list happens to answer in.
  * @param root - the subtree to search.
  * @param selector - the selector to match.
  * @returns the matching elements, first in the document first.
@@ -165,14 +165,14 @@ export function nameOf(el: Element): string {
 }
 
 /**
- * The first heading inside an element, for a region whose title is written
- * rather than labelled.
+ * The first heading inside an element, in document order, for a region whose
+ * title is written rather than labelled.
  * @param el - the element to look inside.
  * @param isVisible - injected visibility.
  * @returns the heading's text, empty when there is none.
  */
 export function headingText(el: Element, isVisible: (el: Element) => boolean): string {
-  for (const heading of el.querySelectorAll('h1, h2, h3, h4, h5, h6, [role="heading"]')) {
+  for (const heading of queryInOrder(el, 'h1, h2, h3, h4, h5, h6, [role="heading"]')) {
     if (!isSkipped(heading, isVisible)) return clip(visibleText(heading, isVisible))
   }
   return ''
