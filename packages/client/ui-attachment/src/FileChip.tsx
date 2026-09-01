@@ -18,11 +18,11 @@ export interface FileChipItem {
   /** Accessible label of the item's remove control. */
   removeLabel: string
   /**
-   * Whether this draft's name/path matched the pre-send secret-container
-   * heuristic (name/path only — never a content read). Renders a color-dot,
-   * outline warning, and the row's `warningLabel` on this chip; never a
-   * popup, and never on its own the reason the user cannot proceed — the
-   * send-time confirmation gate is a separate surface.
+   * Whether this draft's name/path matched the secret-container heuristic
+   * (name/path only — never a content read). Renders a color-dot, outline
+   * warning, and the row's `warningLabel` on this chip; never a popup on its
+   * own — the add-time confirmation dialog is a separate surface, already
+   * answered by the time a warning chip persists here.
    */
   warning?: boolean
 }

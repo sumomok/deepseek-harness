@@ -107,7 +107,7 @@ export class ApiSessionList {
    * @param ctx - Host context carrying Session, query, persistence, and projection services.
    * @param probe - stat-metadata thresholds gating a full cold observation.
    * @param secretContainerExtraPatterns - deployment-appended filename substrings for the
-   * client's pre-send secret-container confirmation; additive only.
+   * client's add-time secret-container confirmation; additive only.
    */
   constructor(
     private readonly ctx: Context,
