@@ -329,6 +329,14 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **整机层未覆盖的一条**：`relativizeToCwd` 走不到——手写金样的 `file_path` 本就是相对路径，而快照 harness 没有可用于回放脚本的工作区路径占位符：`{{cwd}}` 只在 `realizeSeedFixture`（把 fixture 当既有会话播种）时被还原，`llm-replay` 只解析 `{{session:N}}` 与 `{{fromRequest:<regex>}}`，后者语料是 `GenerateOptions.messages`，而 `system` 是独立字段、不进语料，本场景首次请求也只有一条用户消息。改由包内测试覆盖（`approval-diff-row.client.spec.tsx` 的工作区外/无工作区/home 三条）。
 - **复核回修（追加提交 `ea4e005d87`）**：(1) 台账与 Note 原写「除两个 shell 与 str_replace_editor 外没有已发货工具带字符串 `command`」为假，已按上面「对已发货工具的影响」改成事实句并点明开关条件。(2) 原文零处提及桌面，已补上面的链路证据与反向实证。(3) 第 3 条整机覆盖缺口已写明（占位符不支持，非疏漏）。(4) 新用例补齐 `assertFinalWorkspaceSnapshot` + `snapshot.yml` 的 `workspace: final: true` + `workspace.expected/`（语料门禁要求二者同有同无，`session-snapshot-corpus.corpus.ts:131` 实跑通过）。(5) `APPROVAL_DIFF_MAX_LINES` 原零覆盖，新增两条字面量尺寸用例（39 行整画不折叠、45 行折到 40 行且出现「… 其余 6 行」）；**变异验证**：把常量改成 8，该用例报 `expected […] to have a length of 40 but got 8` 稳定失败，改回即绿。(6) 审批卡路径改为再过 `abbreviateHomePath`（与会话行摘要 `tool-call-model.ts:241` 同款），两处呈现差异与理由写进 Note。(7) 首提交漏记的四个文件已补进「改了什么」。(8) `ApprovalPanel.module.css` 的 `.command` 改名 `.detail`：等宽字体与 `word-break: break-all` 描述的是一条 shell 命令而非所有工具共用的座位，移到新增的 `ui-chat/.../ApprovalCommand.module.css`（`.detail` 保留卡片次级正文的颜色/字号/行高，占位者可覆盖）。(9) `diffBlockLabels(t)` 与 hunk `.map` 加 `useMemo`（`model` 一并 memo，否则 map 的依赖每帧都变），与邻居 `ToolRow.tsx:135` 一致。
 
+## chore(bundle): disable session-telemetry-otel by default — a426a88c90
+- **改了什么**：`packages/bundle/base/cordis.patch.yml` 的 `session-telemetry-otel` 条目新增 `disabled: true`（`config` 块保留未删，供 `DSH_TELEMETRY_MODE`/`DSH_TELEMETRY_OTLP_URL` 说明用途）；`base.spec.ts` 新增该行 `disabled: true` 的断言。原提交还有壳侧一半（fork 外壳在内置服务端 spawn 环境上额外设 `DSH_TELEMETRY_DISABLED: '1'`，并由该壳自己的 spec 覆盖），**未回补丁线**：补丁线上没有 fork 的外壳，而上游同名的 `apps/desktop` 是另一个应用；配套 Agent Note 已随之去掉那半的记述。
+- **状态**：在役。本 fork 的产品决定：出厂即零会话遥测出站，不依赖用户是否触发反馈或设置 `DSH_TELEMETRY_MODE`。详见配套 Agent Note `2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md`。
+
+## chore(bundle): disable plugin-package-inventory-deepseek by default — a426a88c90
+- **改了什么**：`packages/bundle/base/cordis.patch.yml` 与 `packages/bundle/sdk-minimal/cordis.patch.yml` 各自的 `plugin-package-inventory-deepseek` 条目均新增 `disabled: true`；`base.spec.ts`/`sdk-minimal.spec.ts` 新增对应断言。
+- **状态**：在役。本 fork 的产品决定：出厂即零已装插件清单上报给 DeepSeek 官方 API。该插件没有等价的环境变量开关（`DSH_TELEMETRY_DISABLED` 只覆盖 `session-telemetry-otel`），`disabled: true` 是唯一关闭途径。详见配套 Agent Note `2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md`。
+
 ## rc.26 同步二阶段 B 族收尾：基座环境敏感测试红（不修，仅记录）
 `pnpm run test`（全仓）在本次 B 族收尾扫描中发现 3 项稳定红，与 Family A/B 的任何提交均无关（`git log --oneline 8c87b9ef19..HEAD -- <各自文件>` 均为空，两族从未触碰这三个文件），去沙箱（`dangerouslyDisableSandbox: true`）复现结果相同，单独重跑一次结果依旧相同——三次独立复现（全量套件、去沙箱、单文件隔离跑）结果完全一致，均判定为**稳定红（非抖动）**，不是间歇性失败：
 - `scripts/benchmark-npm-resolution.spec.ts` › `npm resolution benchmark > force-kills a timed-out process tree`：`Error: child reported invalid pid`——子进程树 PID 上报在本环境不可见。
