@@ -1,0 +1,189 @@
+/**
+ * The vocabulary of a structural page read: what the caller asks for, what it
+ * gets back, and the records the collector hands the renderer in between.
+ *
+ * Public types keep optional members optional because the caller omits them;
+ * the internal item records spell every member out, so a walk never has to ask
+ * whether a field was set or merely absent.
+ * @module @deepseek-ai/dsh-experimental-content-frame/client/access/model
+ */
+import type { RefTable } from './refs.ts'
+
+/** How much of the page one read renders: every item, or containers only. */
+export type SnapshotMode = 'outline' | 'map'
+
+/** The container kinds a row can name. */
+export type ContainerType = 'main' | 'nav' | 'form' | 'dialog' | 'section' | 'toolbar' | 'list' | 'table' | 'frame'
+
+/** What one read asks of the page. */
+export interface SnapshotOptions {
+  /** The page's element numbering, carried across reads. */
+  readonly refs: RefTable
+  /** The character budget for the rendered body. */
+  readonly budgetChars: number
+  /** Defaults to `outline`. */
+  readonly mode?: SnapshotMode
+  /** A ref: read that element's subtree only. */
+  readonly scope?: string
+  /** A ref: continue after the item that ref names. */
+  readonly after?: string
+  /** Case-insensitive text filter: a flat list of the items that match. */
+  readonly find?: string
+  /** Injected: whether the element is visible. */
+  readonly isVisible: (el: Element) => boolean
+  /** Injected: the element's rectangle, for dropping geometric duplicates; undefined disables that. */
+  readonly rectOf: (el: Element) => DOMRectReadOnly | undefined
+  /** Injected: whether a role-less element is clickable; defaults to a `cursor: pointer` computed style. */
+  readonly isClickable?: (el: Element) => boolean
+}
+
+/** What the page is, above the items themselves. */
+export interface SnapshotHeader {
+  /** The root document's URL. */
+  readonly url: string
+  /** The root document's title. */
+  readonly title: string
+  /** The visible breadcrumb trail, joined with ` › `. */
+  readonly breadcrumb?: string
+  /** The name of the dialog the page currently has open. */
+  readonly modal?: string
+  /** True when a visible password box sits beside a visible text or email box. */
+  readonly signIn: boolean
+}
+
+/** One structural read of the page. */
+export interface Snapshot {
+  /** Which listing came back. */
+  readonly kind: SnapshotMode
+  /** What the page is. */
+  readonly header: SnapshotHeader
+  /** The rendered body, without the `Page` line the tool composes. */
+  readonly text: string
+  /** True when the listing stops short of everything collected. */
+  readonly truncated: boolean
+  /** How many items the body renders. */
+  readonly shown: number
+  /** How many items this read collected. */
+  readonly total: number
+  /** The last rendered item's ref, to pass back as `after`; present only on a listing cut short. */
+  readonly cursor?: string
+}
+
+/** The naming half of a container, shared by container rows and their suffixes. */
+export interface ContainerFace {
+  /** The container kind. */
+  readonly type: ContainerType
+  /** The container's accessible name, empty when it has none. */
+  readonly name: string
+}
+
+/** A region of the page other items sit inside. */
+export interface ContainerItem extends ContainerFace {
+  /** Discriminant. */
+  readonly kind: 'container'
+  /** The element this row names. */
+  readonly el: Element
+  /** The element's ref. */
+  readonly ref: string
+  /** The container this one sits in. */
+  readonly container: ContainerItem | undefined
+  /** How many containers enclose this row. */
+  readonly depth: number
+  /** True for a dialog the page has not opened: it appears on the map and nowhere else. */
+  readonly closed: boolean
+}
+
+/** One control, heading, or other element the model can name on its own. */
+export interface ElementItem {
+  /** Discriminant. */
+  readonly kind: 'element'
+  /** The element this row names. */
+  readonly el: Element
+  /** The element's ref. */
+  readonly ref: string
+  /** The element's ARIA role, or `clickable` for a role-less click target. */
+  readonly role: string
+  /** The element's accessible name. */
+  readonly name: string
+  /** The field's current value, or undefined for an element that holds none. */
+  readonly value: string | undefined
+  /** True for a password box, whose value is reported as withheld and never read. */
+  readonly secret: boolean
+  /** The checked state, or undefined for an element that has none. */
+  readonly checked: boolean | undefined
+  /** True when the page has disabled the element. */
+  readonly disabled: boolean
+  /** The container this row sits in. */
+  readonly container: ContainerItem | undefined
+  /** How many containers enclose this row. */
+  readonly depth: number
+}
+
+/** A run of page text with no control of its own. */
+export interface TextItem {
+  /** Discriminant. */
+  readonly kind: 'text'
+  /** The collapsed, length-capped text. */
+  readonly text: string
+  /** The container this row sits in. */
+  readonly container: ContainerItem | undefined
+  /** How many containers enclose this row. */
+  readonly depth: number
+}
+
+/** One data row of a table, rendered only when the read asks for rows. */
+export interface TableRowItem {
+  /** Discriminant. */
+  readonly kind: 'row'
+  /** The row element. */
+  readonly el: Element
+  /** The row element's ref. */
+  readonly ref: string
+  /** The row's 1-based position among the table's data rows. */
+  readonly index: number
+  /** Each cell, controls carrying their refs. */
+  readonly cells: readonly string[]
+  /** Each cell as the one-row sample renders it, controls inside `[ ]`. */
+  readonly sample: readonly string[]
+  /** The row's plain text, for `find`. */
+  readonly text: string
+  /** The table this row belongs to, for the suffix a flat listing prints. */
+  readonly table: ContainerFace
+}
+
+/** A table, reported by its shape rather than by its contents. */
+export interface TableItem extends ContainerFace {
+  /** Discriminant. */
+  readonly kind: 'table'
+  /** Always `table`. */
+  readonly type: 'table'
+  /** The table element. */
+  readonly el: Element
+  /** The element's ref. */
+  readonly ref: string
+  /** The header cells' text. */
+  readonly header: readonly string[]
+  /** The table's data rows. */
+  readonly rows: readonly TableRowItem[]
+  /** How many columns the header declares. */
+  readonly columns: number
+  /** The adjacent pagination control's text. */
+  readonly pagination: string | undefined
+  /** The container this row sits in. */
+  readonly container: ContainerItem | undefined
+  /** How many containers enclose this row. */
+  readonly depth: number
+}
+
+/** A frame whose document this page may not read. */
+export interface UnreadableFrameItem {
+  /** Discriminant. */
+  readonly kind: 'frame-error'
+  /** The container this row sits in. */
+  readonly container: ContainerItem | undefined
+  /** How many containers enclose this row. */
+  readonly depth: number
+}
+
+/** Everything one walk of the page collects, in document order. */
+export type Item = ContainerItem | ElementItem | TextItem | TableItem | UnreadableFrameItem

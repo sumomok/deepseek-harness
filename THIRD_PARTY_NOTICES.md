@@ -61,6 +61,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`clsx`](https://github.com/lukeed/clsx) | MIT |
 | [`commander`](https://github.com/tj/commander.js) | MIT |
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
+| [`dom-accessibility-api`](https://github.com/eps1lon/dom-accessibility-api) | MIT |
 | [`dsh-at-file`](https://github.com/omdsh-dev/dsh-at-file) | MIT |
 | [`dsh-better-sidebar`](https://github.com/omdsh-dev/DSH-better-sidebar) | MIT |
 | [`e2b`](https://github.com/e2b-dev/e2b) | MIT |
