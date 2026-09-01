@@ -120,6 +120,34 @@ const STRUCTURAL_ROLES: ReadonlySet<string> = new Set([
   'tree', 'treegrid',
 ])
 
+/** The two spellings ARIA gives the role that marks an element as decoration. */
+const DECORATIVE_ROLES: ReadonlySet<string> = new Set(['presentation', 'none'])
+
+/**
+ * Every element a reader can put the focus on, which is the first half of the
+ * conflict ARIA resolves against a decoration role. `tabindex` is matched
+ * however the page set it: an element the page took out of the tab order still
+ * takes the focus from a click.
+ */
+const FOCUSABLE_SELECTOR = [
+  '[tabindex]', 'button', 'select', 'textarea', 'summary', 'a[href]',
+  'input:not([type="hidden"])', '[contenteditable]:not([contenteditable="false"])',
+].join(', ')
+
+/**
+ * The states and properties WAI-ARIA 1.2 §6.6 defines on every role, which is
+ * the list that section names in full. A page writes one of these on an element
+ * it also marked as decoration only where it means the element to reach the
+ * reader, which is the second half of the conflict ARIA resolves.
+ */
+const GLOBAL_ARIA_SELECTOR = [
+  '[aria-atomic]', '[aria-busy]', '[aria-controls]', '[aria-current]', '[aria-describedby]',
+  '[aria-details]', '[aria-disabled]', '[aria-dropeffect]', '[aria-errormessage]', '[aria-flowto]',
+  '[aria-grabbed]', '[aria-haspopup]', '[aria-hidden]', '[aria-invalid]', '[aria-keyshortcuts]',
+  '[aria-label]', '[aria-labelledby]', '[aria-live]', '[aria-owns]', '[aria-relevant]',
+  '[aria-roledescription]',
+].join(', ')
+
 /** The role a snapshot gives a role-less element the page makes clickable. */
 export const CLICKABLE_ROLE = 'clickable'
 
@@ -136,12 +164,14 @@ export const DIALOG_SELECTOR = 'dialog, [role~="dialog"], [role~="alertdialog"]'
 
 /**
  * Elements a browser draws itself rather than laying out what is written inside
- * them: a picture built out of shapes, a media element, a bar reporting a
- * quantity, and the markup kept for a reader running no script. What they hold
- * is a part of the drawing or a fallback no engine in use renders, so the walk
- * neither descends into one, reads its text, nor counts a row inside it.
+ * them: a picture built out of shapes, a media element, and a bar reporting a
+ * quantity. What they hold is a part of the drawing, or a fallback for an
+ * engine that cannot draw one, so the walk neither descends into one, reads its
+ * text, nor counts a row inside it. What the page draws inside one and the
+ * reader can still operate — a link drawn as a slice of a chart — stays a
+ * control of the cell it sits in; see `cellControls`.
  */
-const OPAQUE_SELECTOR = 'svg, canvas, video, audio, object, progress, meter, noscript'
+const OPAQUE_SELECTOR = 'svg, canvas, video, audio, object, progress, meter'
 
 /** How long one text run may be before it is cut. */
 const TEXT_LIMIT = 200
@@ -255,8 +285,8 @@ export function isPassword(el: Element): boolean {
  *
  * A page that marks an element as decoration and still labels it, or draws it
  * with something the user can operate, has written two things that contradict
- * each other; ARIA resolves that in favour of what the element offers, and the
- * library implements the resolution for the role it reads.
+ * each other; ARIA resolves that in favour of what the element offers, for
+ * `presentation` and its synonym `none` alike, and so does this.
  * @param el - the element to classify.
  * @returns the role name, or null for an element with no role ARIA knows.
  */
@@ -264,8 +294,36 @@ export function roleOf(el: Element): string | null {
   if (isPassword(el)) return 'textbox'
   // An empty role attribute declares nothing, and leaves the tag's own role.
   const declared = el.getAttribute('role')?.trim() ?? ''
-  if (declared === '' || libraryRole(el) === 'presentation') return tagRole(el)
-  return declared.split(/\s+/).find(token => KNOWN_ROLES.has(token)) ?? null
+  if (declared === '') return tagRole(el)
+  const token = declared.split(/\s+/).find(name => KNOWN_ROLES.has(name)) ?? null
+  if (token !== null && DECORATIVE_ROLES.has(token) && contradictsDecoration(el)) return implicitRole(el)
+  return token
+}
+
+/**
+ * True for an element the page has marked as decoration and then contradicted:
+ * one a reader can focus, or one carrying a state or property ARIA defines on
+ * every role, which a page writes only where it means the element to be read.
+ * @param el - the element the page marked as decoration.
+ * @returns whether the decoration is to be ignored.
+ */
+function contradictsDecoration(el: Element): boolean {
+  return el.matches(FOCUSABLE_SELECTOR) || el.matches(GLOBAL_ARIA_SELECTOR)
+}
+
+/**
+ * The role an element carries with nothing written on it. It is read from a
+ * shallow copy with the attribute removed rather than from the element itself,
+ * because `dom-accessibility-api` reads the first token alone and resolves this
+ * conflict for `presentation` only: asked about the element as it stands, it
+ * answers `none` for the very spelling the walk has decided to ignore.
+ * @param el - the element the page marked as decoration.
+ * @returns the role name, or null for a tag HTML gives no role.
+ */
+function implicitRole(el: Element): string | null {
+  const bare = el.cloneNode(false) as Element
+  bare.removeAttribute('role')
+  return tagRole(bare)
 }
 
 /**
@@ -294,10 +352,9 @@ export function libraryRole(el: Element): string {
 
 /**
  * True for an element whose content a browser never renders: a drawing, a media
- * element, a bar, the markup kept for a reader running no script. A path is not
- * a paragraph, the title a drawing carries is a tooltip the page never shows,
- * and the words inside a `progress` are there for an engine that cannot draw
- * one.
+ * element, a bar. A path is not a paragraph, the title a drawing carries is a
+ * tooltip the page never shows, and the words inside a `progress` are there for
+ * an engine that cannot draw one.
  * @param el - the element to classify.
  * @returns whether the walk stops at the element rather than reading into it.
  */
@@ -308,7 +365,8 @@ export function isOpaque(el: Element): boolean {
 /**
  * True for an element written inside one of those, which is no row of the page
  * however it is marked up: a link drawn as a slice of a chart is a part of the
- * picture, and a button offered to a reader with no script is offered to nobody.
+ * picture, and the words a chart holds label the picture rather than naming
+ * anything around it.
  * @param el - the element to classify.
  * @returns whether something the page never renders encloses the element.
  */
@@ -472,6 +530,20 @@ export function fieldValue(el: Element): string | undefined {
 }
 
 /**
+ * The text one attribute holds. An attribute the page left empty says nothing
+ * rather than saying the empty string, the way an empty `aria-label` names
+ * nothing: a bar carrying `aria-valuetext=""` is a bar whose next source of a
+ * value is the one to read.
+ * @param el - the element to read.
+ * @param name - the attribute name.
+ * @returns the collapsed text, or undefined when the page wrote none.
+ */
+function writtenText(el: Element, name: string): string | undefined {
+  const value = clip(collapse(el.getAttribute(name) ?? ''))
+  return value === '' ? undefined : value
+}
+
+/**
  * What a bar reports: the text the page wrote for it, the number behind that
  * text, or the value a native bar carries. A bar carrying none of the three
  * draws whatever it means somewhere else, and reports nothing here.
@@ -479,12 +551,10 @@ export function fieldValue(el: Element): string | undefined {
  * @returns the value, or undefined for a bar that reports none.
  */
 export function quantityValue(el: Element): string | undefined {
-  const declared = el.getAttribute('aria-valuetext') ?? el.getAttribute('aria-valuenow')
-  if (declared !== null) return clip(collapse(declared))
+  const declared = writtenText(el, 'aria-valuetext') ?? writtenText(el, 'aria-valuenow')
+  if (declared !== undefined) return declared
   const tag = el.localName
-  if (tag !== 'progress' && tag !== 'meter') return undefined
-  const value = el.getAttribute('value')
-  return value === null ? undefined : clip(collapse(value))
+  return tag === 'progress' || tag === 'meter' ? writtenText(el, 'value') : undefined
 }
 
 /**
@@ -498,12 +568,15 @@ export function quantityValue(el: Element): string | undefined {
  * A box the page reports as half checked has no state of the two either: it is
  * the box at the head of a table with some of its rows picked, and a reader
  * told it is off clicks it and picks every row on the page.
+ *
+ * The attribute is read the way HTML reads an enumerated one, ignoring case and
+ * surrounding space: a page that wrote `TRUE` said the box is on.
  * @param el - the element to read.
  * @returns its checked state, or undefined when the page has declared none.
  */
 export function isChecked(el: Element): boolean | undefined {
   if (el.localName === 'input') return (el as HTMLInputElement).checked
-  const aria = el.getAttribute('aria-checked')
+  const aria = el.getAttribute('aria-checked')?.trim().toLowerCase()
   if (aria === 'true') return true
   return aria === 'false' ? false : undefined
 }
