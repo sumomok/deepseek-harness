@@ -1,5 +1,5 @@
 /**
- * Name/path heuristic for the pre-send secret-container confirmation: files
+ * Name/path heuristic for the add-time secret-container confirmation: files
  * that commonly hold passwords or keys, matched by filename and (desktop
  * only) source path — zero content reading, so nothing here may read or
  * report a file's bytes. The base list is a fixed security heuristic and is

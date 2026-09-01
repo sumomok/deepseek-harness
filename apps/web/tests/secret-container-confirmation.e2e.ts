@@ -53,7 +53,7 @@ describe('web e2e: secret-container add-time confirmation', () => {
     browser = await chromium.launch(executablePath === undefined ? {} : { executablePath })
     page = await browser.newPage({ viewport: { width: 1680, height: 1000 }, locale: 'en-US' })
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
   }, 120_000)
@@ -65,10 +65,10 @@ describe('web e2e: secret-container add-time confirmation', () => {
 
   it('warns the draft chip and opens the add-confirm dialog the instant a match is dropped; declining removes it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-secret-container-confirmation'))
-    const textarea = page.locator('textarea[placeholder="Describe what you want to build"]')
-    await textarea.waitFor({ timeout: 10_000 })
-    await textarea.click()
-    await textarea.fill('checking the secret-container confirmation')
+    const composer = page.locator('[data-composer-input][contenteditable="true"]').first()
+    await composer.waitFor({ timeout: 10_000 })
+    await composer.click()
+    await composer.fill('checking the secret-container confirmation')
 
     await dropFile(page, '.env', 'SECRET_KEY=abc123\n')
     const chipRow = page.locator('[role="group"]').filter({ hasText: '.env' })
@@ -89,7 +89,7 @@ describe('web e2e: secret-container add-time confirmation', () => {
     // the drop is untouched, and nothing was ever sent.
     await dialog.getByRole('button', { name: "Don't add" }).click()
     expect(await dialog.count()).toBe(0)
-    expect(await textarea.inputValue()).toBe('checking the secret-container confirmation')
+    expect(await composer.textContent()).toBe('checking the secret-container confirmation')
     expect(await chipRow.count()).toBe(0)
     expect(await page.locator('[data-secret-warning]').count()).toBe(0)
 

@@ -306,7 +306,7 @@ export interface Config {
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
   /**
-   * Filename substrings ADDED to the client's fixed pre-send
+   * Filename substrings ADDED to the client's fixed add-time
    * secret-container confirmation heuristic (`.env`, `id_rsa`, etc.) — this
    * field can only append to that base list, never replace or narrow it;
    * the base list itself is not configurable here or anywhere.
