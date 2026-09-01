@@ -7,7 +7,6 @@ settings:
 overrides:
   '@deepseek-ai/cosmokit': link:vendor/cosmokit
   '@deepseek-ai/schemastery': link:vendor/schemastery
-  '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2
   dsh-better-sidebar>node-pty: 1.2.0-beta.15
 
 patchedDependencies:
@@ -818,11 +817,11 @@ importers:
         specifier: link:../../vendor/schemastery
         version: link:../../vendor/schemastery
       '@haoran/dsh-clickable-refs':
-        specifier: file:./vendor/haoran-dsh-clickable-refs-0.3.3.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.3.3.tgz(8ad3e9f804c7a19d7a0b77f0445a1a7f)
+        specifier: file:./vendor/haoran-dsh-clickable-refs-0.4.0.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-session@packages+client+ui-session)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-client-ui-tool@packages+client+ui-tool)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@haoran/dsh-connection-banner':
-        specifier: file:./vendor/haoran-dsh-connection-banner-0.1.0.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.1.0.tgz(d7089927d153693a1afd987949798a68)
+        specifier: file:./vendor/haoran-dsh-connection-banner-0.2.0.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-layout@packages+client+ui-layout)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)
       '@haoran/dsh-default-model':
         specifier: file:./vendor/haoran-dsh-default-model-0.1.2.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz
@@ -830,20 +829,20 @@ importers:
         specifier: file:./vendor/haoran-dsh-llm-permission-gateway-0.1.5.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.5.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/schemastery@vendor+schemastery)
       '@haoran/dsh-plugin-updates':
-        specifier: file:./vendor/haoran-dsh-plugin-updates-0.1.1.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.1.tgz(e93efd9f99400bb8d0cccad7168f0b5f)
+        specifier: file:./vendor/haoran-dsh-plugin-updates-0.2.0.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
       '@haoran/dsh-screenshot':
-        specifier: file:./vendor/haoran-dsh-screenshot-0.4.0.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.4.0.tgz(48dacfea77a774e7736bcdcb95153dc0)
+        specifier: file:./vendor/haoran-dsh-screenshot-0.5.0.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz(ed52a9a2fb0e4b76c77e0a59ec62d67c)
       '@haoran/dsh-vision-switch':
-        specifier: file:./vendor/haoran-dsh-vision-switch-0.1.0.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.1.0.tgz(983cf6254bcb4b6191f6a1f7ff9fa49a)
+        specifier: file:./vendor/haoran-dsh-vision-switch-0.2.0.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@sumomok/dsh-balance':
-        specifier: file:./vendor/sumomok-dsh-balance-0.2.3.tgz
-        version: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.2.3.tgz(f2fec56dd424c16b9ab47c22b0096c8c)
+        specifier: file:./vendor/sumomok-dsh-balance-0.3.2.tgz
+        version: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.3.2.tgz(d89c45d216d03b53143774147ebf525e)
       '@sumomok/dsh-quote-message':
-        specifier: file:./vendor/sumomok-dsh-quote-message-0.2.2.tgz
-        version: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.2.tgz(89d64059c9852c72e2a9db3a29ce48be)
+        specifier: file:./vendor/sumomok-dsh-quote-message-0.3.0.tgz
+        version: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-session@packages+core+session)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       dsh-at-file:
         specifier: github:omdsh-dev/dsh-at-file#289f19bb83f80a95df49f567eeef42462d4da92f
         version: git+https://github.com/omdsh-dev/dsh-at-file.git#289f19bb83f80a95df49f567eeef42462d4da92f(7e0abb22f58cb22812a209e9093a8710)
@@ -12186,6 +12185,12 @@ packages:
       '@deepseek-ai/cordis': ^4.0.1
       '@deepseek-ai/dsh-invariants': ^0.1.1-rc.2
 
+  '@deepseek-ai/dsh-typert-protocol@0.1.2-alpha.2':
+    resolution: {integrity: sha512-U3j/usWHRllaJMdTr4GuVkkUciHWyq01mvMtWeGT+RY2hb+ysTxeuLEiV0Lh5EyVScgFdDLbe/GtTZ2OkGsGwQ==}
+    peerDependencies:
+      '@deepseek-ai/cordis': ^4.0.2
+      '@deepseek-ai/dsh-invariants': ^0.1.2-alpha.2
+
   '@deepseek-ai/dsh-user-approval@0.1.1-rc.2':
     resolution: {integrity: sha512-SdsO4Rs+NeJFoertkVilXBACREOLfkKPJJznYKqDhJxeRo38RJ56dtj0Xd0/6rERmsQiMck4Bwdrzg1ubUqPNA==}
     peerDependencies:
@@ -12812,61 +12817,76 @@ packages:
       '@modelcontextprotocol/sdk':
         optional: true
 
-  '@haoran/dsh-clickable-refs@file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.3.3.tgz':
-    resolution: {integrity: sha512-zr7khnx+NUFonsZsz8mitH4Vb5fzIXAtz7IXy54mM8qA4ECJwrLrxXzUED7Gpy9o6HCZZGP76iEsYDOdQ94RpA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.3.3.tgz}
-    version: 0.3.3
+  '@haoran/dsh-clickable-refs@file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz':
+    resolution: {integrity: sha512-S9HTUbLIx3WK1DVGpYnWD2utv/isjpXK4PCh/vmxyvISLq33Lwglpg+5edQcD+hn61II4oKphnmnE8mQNeMDUA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz}
+    version: 0.4.0
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1-rc.1
-      '@deepseek-ai/dsh-client-locale': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2
-      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-tool': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-system-prompt': '>=0.1.0-rc.1 <0.2.0-0'
+      '@deepseek-ai/dsh-api-remotes': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-api-session-controller': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-locale': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-chat': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-renderer': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-session': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-tool': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-session': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-system-prompt': '>=0.1.2-alpha.2 <0.2.0-0'
       react: ^18.2.0
       react-dom: ^18.2.0
     peerDependenciesMeta:
       '@deepseek-ai/cordis':
         optional: true
+      '@deepseek-ai/dsh-api-remotes':
+        optional: true
+      '@deepseek-ai/dsh-api-session-controller':
+        optional: true
       '@deepseek-ai/dsh-client-locale':
         optional: true
-      '@deepseek-ai/dsh-client-runtime':
+      '@deepseek-ai/dsh-client-ui-chat':
         optional: true
       '@deepseek-ai/dsh-client-ui-conversation':
         optional: true
       '@deepseek-ai/dsh-client-ui-primitives':
         optional: true
+      '@deepseek-ai/dsh-client-ui-renderer':
+        optional: true
+      '@deepseek-ai/dsh-client-ui-session':
+        optional: true
       '@deepseek-ai/dsh-client-ui-slots':
         optional: true
       '@deepseek-ai/dsh-client-ui-tool':
+        optional: true
+      '@deepseek-ai/dsh-session':
         optional: true
       react:
         optional: true
       react-dom:
         optional: true
 
-  '@haoran/dsh-connection-banner@file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.1.0.tgz':
-    resolution: {integrity: sha512-PP1Wh5X6jrVDVNHaXFglZLaN3Nw7F5OwvPciLa3XV9bQp6t8Qaa+9RcgH87StTnAF1VE8eaOYeiF5h3N2fH4kw==, tarball: file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.1.0.tgz}
-    version: 0.1.0
+  '@haoran/dsh-connection-banner@file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz':
+    resolution: {integrity: sha512-+CXDr42UVu2yImLMnLAmKlxMlmTFMf0F6cSqKX3DDyaxPZBp7dhJU9AikWYvYNiyUHI/zUBr7vZPi7+6publ2Q==, tarball: file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz}
+    version: 0.2.0
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1-rc.1
-      '@deepseek-ai/dsh-client-locale': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2
-      '@deepseek-ai/dsh-client-ui-layout': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.0-rc.1 <0.2.0-0'
+      '@deepseek-ai/dsh-client-connection': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-locale': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-layout': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-renderer': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.2-alpha.2 <0.2.0-0'
       react: ^18.2.0
     peerDependenciesMeta:
       '@deepseek-ai/cordis':
         optional: true
-      '@deepseek-ai/dsh-client-locale':
+      '@deepseek-ai/dsh-client-connection':
         optional: true
-      '@deepseek-ai/dsh-client-runtime':
+      '@deepseek-ai/dsh-client-locale':
         optional: true
       '@deepseek-ai/dsh-client-ui-layout':
         optional: true
-      '@deepseek-ai/dsh-client-ui-primitives':
+      '@deepseek-ai/dsh-client-ui-renderer':
         optional: true
       '@deepseek-ai/dsh-client-ui-slots':
         optional: true
@@ -12888,19 +12908,19 @@ packages:
       '@deepseek-ai/dsh-tools': ^0.1.0-rc.7
       '@deepseek-ai/schemastery': ^3.18.1
 
-  '@haoran/dsh-plugin-updates@file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.1.tgz':
-    resolution: {integrity: sha512-TFLjyZJncDmnZDyf+7Ld2GQHGs0uMzE6P2mOEvIA3Sm765cjYiXX8FlP0Cf/EeQTAkNwXF8ASqY3LyDpDFkfPA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.1.tgz}
-    version: 0.1.1
+  '@haoran/dsh-plugin-updates@file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.0.tgz':
+    resolution: {integrity: sha512-1piAVZGqBBguhLXjS4oMvo5jIhqqcXMN8cl3r1zkdu1YDdvnexIjyPuwfCquLPXnmijLkpdEKfsNkbmqQa9Kxw==, tarball: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.0.tgz}
+    version: 0.2.0
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1-rc.1
-      '@deepseek-ai/dsh-api-remotes': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-locale': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2
-      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-settings': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-home-paths': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-typert-protocol': '>=0.1.0-rc.1 <0.2.0-0'
+      '@deepseek-ai/dsh-api-remotes': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-locale': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-renderer': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-settings': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-home-paths': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-typert-protocol': '>=0.1.2-alpha.2 <0.2.0-0'
       '@deepseek-ai/schemastery': ^3.18.1
       react: ^18.2.0
     peerDependenciesMeta:
@@ -12910,9 +12930,9 @@ packages:
         optional: true
       '@deepseek-ai/dsh-client-locale':
         optional: true
-      '@deepseek-ai/dsh-client-runtime':
-        optional: true
       '@deepseek-ai/dsh-client-ui-primitives':
+        optional: true
+      '@deepseek-ai/dsh-client-ui-renderer':
         optional: true
       '@deepseek-ai/dsh-client-ui-settings':
         optional: true
@@ -12927,26 +12947,27 @@ packages:
       react:
         optional: true
 
-  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.4.0.tgz':
-    resolution: {integrity: sha512-O7MHfN6NaHzUt7JJBuSbdTfa85cvrYBo5I8e7xOkKIlQFKyGs4eLkS0rUZD01jH+p67iM+tIREtctugtNYnwCA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.4.0.tgz}
-    version: 0.4.0
+  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz':
+    resolution: {integrity: sha512-BuzSI5Nso59fSdz5TjVqk4Ex9Dfb6ULOTIc9EW8ODvzQntqI5auKlSmcQfLrrACqKzVBHdrjPWV2T3RmwSnuWA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz}
+    version: 0.5.0
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
-      '@deepseek-ai/dsh-agent': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-api-remotes': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-attachment': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-locale': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2
-      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-settings': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-commands': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-home-paths': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-llm': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-system-prompt': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-tools': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-typert-protocol': '>=0.1.0-rc.1 <0.2.0-0'
+      '@deepseek-ai/dsh-agent': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-api-remotes': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-attachment': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-locale': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-renderer': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-settings': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-user-questions': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-commands': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-home-paths': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-llm': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-system-prompt': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-tools': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-typert-protocol': '>=0.1.2-alpha.2 <0.2.0-0'
       '@deepseek-ai/dsh-user-questions': '>=0.1.0-rc.1 <0.2.0-0'
       '@deepseek-ai/schemastery': ^3.18.1
       react: ^18.2.0
@@ -12957,15 +12978,17 @@ packages:
         optional: true
       '@deepseek-ai/dsh-client-locale':
         optional: true
-      '@deepseek-ai/dsh-client-runtime':
-        optional: true
       '@deepseek-ai/dsh-client-ui-conversation':
         optional: true
       '@deepseek-ai/dsh-client-ui-primitives':
         optional: true
+      '@deepseek-ai/dsh-client-ui-renderer':
+        optional: true
       '@deepseek-ai/dsh-client-ui-settings':
         optional: true
       '@deepseek-ai/dsh-client-ui-slots':
+        optional: true
+      '@deepseek-ai/dsh-client-ui-user-questions':
         optional: true
       '@deepseek-ai/dsh-commands':
         optional: true
@@ -12976,30 +12999,33 @@ packages:
       react:
         optional: true
 
-  '@haoran/dsh-vision-switch@file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.1.0.tgz':
-    resolution: {integrity: sha512-0tXe3xRXF1OUmH754qbxBBrvIXoVO3+roY7x5DToZBM2vR8Koaru5zjROmpAZXIk4lqbQMIjN9vUltkOdZ3NtQ==, tarball: file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.1.0.tgz}
-    version: 0.1.0
+  '@haoran/dsh-vision-switch@file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.0.tgz':
+    resolution: {integrity: sha512-ZEVF5d4npgbfgHS6KJZRWK07l4Q56onorAmuqP0Yhy66bt8B948+hBgAWyAno667Vjas5BWnDp+1kn87sDRe0w==, tarball: file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.0.tgz}
+    version: 0.2.0
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
-      '@deepseek-ai/dsh-api-remotes': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-locale': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2
-      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-settings': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-llm': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-typert-protocol': '>=0.1.0-rc.1 <0.2.0-0'
+      '@deepseek-ai/dsh-api-remotes': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-api-session-controller': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-locale': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-renderer': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-settings': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-llm': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-typert-protocol': '>=0.1.2-alpha.2 <0.2.0-0'
       '@deepseek-ai/schemastery': ^3.18.1
       react: ^18.2.0
       react-dom: ^18.2.0
     peerDependenciesMeta:
       '@deepseek-ai/dsh-api-remotes':
         optional: true
+      '@deepseek-ai/dsh-api-session-controller':
+        optional: true
       '@deepseek-ai/dsh-client-locale':
         optional: true
-      '@deepseek-ai/dsh-client-runtime':
-        optional: true
       '@deepseek-ai/dsh-client-ui-conversation':
+        optional: true
+      '@deepseek-ai/dsh-client-ui-renderer':
         optional: true
       '@deepseek-ai/dsh-client-ui-settings':
         optional: true
@@ -14418,28 +14444,29 @@ packages:
     peerDependencies:
       eslint: ^9.0.0 || ^10.0.0
 
-  '@sumomok/dsh-balance@file:apps/desktop-server/vendor/sumomok-dsh-balance-0.2.3.tgz':
-    resolution: {integrity: sha512-ALttqt4nE3HpeODZjtLRwpzfOxZCMV8UqvJQY3LkULEwUGKtHVq+5CJwZLaOKYWq2uUCSKucq7mG92qQKNsbyw==, tarball: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.2.3.tgz}
-    version: 0.2.3
+  '@sumomok/dsh-balance@file:apps/desktop-server/vendor/sumomok-dsh-balance-0.3.2.tgz':
+    resolution: {integrity: sha512-j0bcIxojZ0TU/wT8OxTOMOxQb6HT1nUzGb0jdPnA/d3TD9e+b9GKQ747UELH9h2wRdMCjYcMQtJqygrSWXLbsw==, tarball: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.3.2.tgz}
+    version: 0.3.2
     peerDependencies:
-      '@deepseek-ai/cordis': ^4.0.1-rc.1
-      '@deepseek-ai/dsh-api-remotes': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-locale': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2
-      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-layout': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-settings': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-sidebar': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-credentials': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-home-paths': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-launch-environment': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-llm': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-session': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-session-projection': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-settings': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-typert-protocol': '>=0.1.0-rc.1 <0.2.0-0'
+      '@deepseek-ai/cordis': ^4.0.1
+      '@deepseek-ai/dsh-api-remotes': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-api-session-controller': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-locale': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-layout': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-renderer': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-settings': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-sidebar': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-credentials': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-home-paths': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-launch-environment': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-llm': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-session': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-session-projection': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-settings': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-typert-protocol': '>=0.1.2-alpha.2 <0.2.0-0'
       '@deepseek-ai/schemastery': ^3.18.1
       react: ^18.2.0
       react-dom: ^18.2.0
@@ -14448,15 +14475,17 @@ packages:
         optional: true
       '@deepseek-ai/dsh-api-remotes':
         optional: true
-      '@deepseek-ai/dsh-client-locale':
+      '@deepseek-ai/dsh-api-session-controller':
         optional: true
-      '@deepseek-ai/dsh-client-runtime':
+      '@deepseek-ai/dsh-client-locale':
         optional: true
       '@deepseek-ai/dsh-client-ui-conversation':
         optional: true
       '@deepseek-ai/dsh-client-ui-layout':
         optional: true
       '@deepseek-ai/dsh-client-ui-primitives':
+        optional: true
+      '@deepseek-ai/dsh-client-ui-renderer':
         optional: true
       '@deepseek-ai/dsh-client-ui-settings':
         optional: true
@@ -14487,30 +14516,39 @@ packages:
       react-dom:
         optional: true
 
-  '@sumomok/dsh-quote-message@file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.2.tgz':
-    resolution: {integrity: sha512-E6fQWKW05YsF9BspJKq3DW+I05J7nCE8C3waTSRhU9gfkYrd7S0WAyw8uil025ewepxF54BA9MkKprWmXSns1A==, tarball: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.2.tgz}
-    version: 0.2.2
+  '@sumomok/dsh-quote-message@file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz':
+    resolution: {integrity: sha512-4L/FQw4jbeUZRh8XF63HkODZq0oYzem+MqoTZkQ4sMGUky0SbByIVFPmvjdorl76DDTIu/TxKsHg8kVXWdaJ0w==, tarball: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz}
+    version: 0.3.0
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1-rc.1
-      '@deepseek-ai/dsh-client-locale': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2
-      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-input-trigger': '>=0.1.0-rc.1 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.0-rc.1 <0.2.0-0'
+      '@deepseek-ai/dsh-api-session-controller': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-locale': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-chat': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-input-trigger': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-renderer': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-slots': '>=0.1.2-alpha.2 <0.2.0-0'
+      '@deepseek-ai/dsh-session': '>=0.1.2-alpha.2 <0.2.0-0'
       react: ^18.2.0
       react-dom: ^18.2.0
     peerDependenciesMeta:
       '@deepseek-ai/cordis':
         optional: true
+      '@deepseek-ai/dsh-api-session-controller':
+        optional: true
       '@deepseek-ai/dsh-client-locale':
         optional: true
-      '@deepseek-ai/dsh-client-runtime':
+      '@deepseek-ai/dsh-client-ui-chat':
         optional: true
       '@deepseek-ai/dsh-client-ui-conversation':
         optional: true
       '@deepseek-ai/dsh-client-ui-input-trigger':
         optional: true
+      '@deepseek-ai/dsh-client-ui-renderer':
+        optional: true
       '@deepseek-ai/dsh-client-ui-slots':
+        optional: true
+      '@deepseek-ai/dsh-session':
         optional: true
       react:
         optional: true
@@ -15751,7 +15789,7 @@ packages:
       '@deepseek-ai/dsh-api-remotes': '*'
       '@deepseek-ai/dsh-client-connection': '*'
       '@deepseek-ai/dsh-client-locale': '*'
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2
+      '@deepseek-ai/dsh-client-runtime': '*'
       '@deepseek-ai/dsh-client-ui-conversation': '*'
       '@deepseek-ai/dsh-client-ui-input-trigger': '*'
       '@deepseek-ai/dsh-client-ui-settings': '*'
@@ -15800,7 +15838,7 @@ packages:
       '@deepseek-ai/cordis': ^4.0.1
       '@deepseek-ai/dsh-agent': ^0.1.0-rc.8
       '@deepseek-ai/dsh-client-locale': ^0.1.0-rc.8
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2
+      '@deepseek-ai/dsh-client-runtime': ^0.1.0-rc.8
       '@deepseek-ai/dsh-client-ui-conversation': ^0.1.0-rc.8
       '@deepseek-ai/dsh-client-ui-primitives': ^0.1.0-rc.8
       '@deepseek-ai/dsh-client-ui-settings': ^0.1.0-rc.8
@@ -18034,9 +18072,6 @@ packages:
   tldts-core@7.4.11:
     resolution: {integrity: sha512-CW3WN2rIIE/Of21mulhgnGOwoDyEFNygyIBOONSdyAuSATgMMUCpLeUlB+E8sAwA5xRV9hYPl+kyZ9citHCaKg==}
 
-  tldts-core@7.4.5:
-    resolution: {integrity: sha512-pGrwzZDvPwKe+7NNUqAunb6rqTfynr0VOUhCMdqbu5xlvNiszsAJygRzwvpVycdzejlbpY+SWJOn+s75Og7FEA==}
-
   tldts@7.4.11:
     resolution: {integrity: sha512-aBiNayCfTQxuIJBm06M+xR14cYaYlDlSXZbgsnKzKNxDKUVq7KFwTjwBSsb7m9Y5xO8WfPnBc63WaYFMTGlvqw==}
     hasBin: true
@@ -19707,6 +19742,11 @@ snapshots:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-invariants': link:packages/runtime-diagnostics/invariants
 
+  '@deepseek-ai/dsh-typert-protocol@0.1.2-alpha.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)':
+    dependencies:
+      '@deepseek-ai/cordis': link:vendor/cordis
+      '@deepseek-ai/dsh-invariants': link:packages/runtime-diagnostics/invariants
+
   '@deepseek-ai/dsh-user-approval@0.1.1-rc.2(6101c77865258d90db78059ce0953e6b)':
     dependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
@@ -20191,26 +20231,36 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@haoran/dsh-clickable-refs@file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.3.3.tgz(8ad3e9f804c7a19d7a0b77f0445a1a7f)':
+  '@haoran/dsh-clickable-refs@file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-session@packages+client+ui-session)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-client-ui-tool@packages+client+ui-tool)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@deepseek-ai/dsh-system-prompt': link:packages/core/system-prompt
+      '@deepseek-ai/dsh-typert-protocol': 0.1.2-alpha.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)
       clsx: 2.1.1
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
+      '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
+      '@deepseek-ai/dsh-api-session-controller': link:packages/api/session-controller
       '@deepseek-ai/dsh-client-locale': link:packages/client/locale
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-commands@packages+interaction+commands)(@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2(4946402f866e43bb829e0d16f7142170))(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-llm-retry@packages+llm+llm-retry)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session-title@packages+session+session-title)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-typert-registry@packages+typert+registry)(@types/react@18.3.31)(react@18.3.1)
+      '@deepseek-ai/dsh-client-ui-chat': link:packages/client/ui-chat
       '@deepseek-ai/dsh-client-ui-conversation': link:packages/client/ui-conversation
       '@deepseek-ai/dsh-client-ui-primitives': link:packages/client/ui-primitives
+      '@deepseek-ai/dsh-client-ui-renderer': link:packages/client/ui-renderer
+      '@deepseek-ai/dsh-client-ui-session': link:packages/client/ui-session
       '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
+      '@deepseek-ai/dsh-client-ui-tool': link:packages/client/ui-tool
+      '@deepseek-ai/dsh-session': link:packages/core/session
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
+    transitivePeerDependencies:
+      - '@deepseek-ai/dsh-invariants'
 
-  '@haoran/dsh-connection-banner@file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.1.0.tgz(d7089927d153693a1afd987949798a68)':
+  '@haoran/dsh-connection-banner@file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-layout@packages+client+ui-layout)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)':
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
+      '@deepseek-ai/dsh-client-connection': link:packages/client/connection
       '@deepseek-ai/dsh-client-locale': link:packages/client/locale
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-commands@packages+interaction+commands)(@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2(4946402f866e43bb829e0d16f7142170))(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-llm-retry@packages+llm+llm-retry)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session-title@packages+session+session-title)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-typert-registry@packages+typert+registry)(@types/react@18.3.31)(react@18.3.1)
-      '@deepseek-ai/dsh-client-ui-primitives': link:packages/client/ui-primitives
+      '@deepseek-ai/dsh-client-ui-layout': link:packages/client/ui-layout
+      '@deepseek-ai/dsh-client-ui-renderer': link:packages/client/ui-renderer
       '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
       react: 18.3.1
 
@@ -20224,7 +20274,7 @@ snapshots:
       '@deepseek-ai/dsh-tools': link:packages/core/tools
       '@deepseek-ai/schemastery': link:vendor/schemastery
 
-  '@haoran/dsh-plugin-updates@file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.1.1.tgz(e93efd9f99400bb8d0cccad7168f0b5f)':
+  '@haoran/dsh-plugin-updates@file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)':
     dependencies:
       semver: 7.8.5
       zod: 4.4.3
@@ -20232,8 +20282,8 @@ snapshots:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
       '@deepseek-ai/dsh-client-locale': link:packages/client/locale
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-commands@packages+interaction+commands)(@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2(4946402f866e43bb829e0d16f7142170))(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-llm-retry@packages+llm+llm-retry)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session-title@packages+session+session-title)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-typert-registry@packages+typert+registry)(@types/react@18.3.31)(react@18.3.1)
       '@deepseek-ai/dsh-client-ui-primitives': link:packages/client/ui-primitives
+      '@deepseek-ai/dsh-client-ui-renderer': link:packages/client/ui-renderer
       '@deepseek-ai/dsh-client-ui-settings': link:packages/client/ui-settings
       '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
       '@deepseek-ai/dsh-home-paths': link:packages/util/home-paths
@@ -20241,7 +20291,7 @@ snapshots:
       '@deepseek-ai/schemastery': link:vendor/schemastery
       react: 18.3.1
 
-  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.4.0.tgz(48dacfea77a774e7736bcdcb95153dc0)':
+  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz(ed52a9a2fb0e4b76c77e0a59ec62d67c)':
     dependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-attachment': link:packages/attachment/attachment
@@ -20256,17 +20306,18 @@ snapshots:
       '@deepseek-ai/dsh-agent': link:packages/core/agent
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
       '@deepseek-ai/dsh-client-locale': link:packages/client/locale
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-commands@packages+interaction+commands)(@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2(4946402f866e43bb829e0d16f7142170))(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-llm-retry@packages+llm+llm-retry)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session-title@packages+session+session-title)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-typert-registry@packages+typert+registry)(@types/react@18.3.31)(react@18.3.1)
       '@deepseek-ai/dsh-client-ui-conversation': link:packages/client/ui-conversation
       '@deepseek-ai/dsh-client-ui-primitives': link:packages/client/ui-primitives
+      '@deepseek-ai/dsh-client-ui-renderer': link:packages/client/ui-renderer
       '@deepseek-ai/dsh-client-ui-settings': link:packages/client/ui-settings
       '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
+      '@deepseek-ai/dsh-client-ui-user-questions': link:packages/client/ui-user-questions
       '@deepseek-ai/dsh-commands': link:packages/interaction/commands
       '@deepseek-ai/dsh-typert-protocol': link:packages/typert/protocol
       '@deepseek-ai/dsh-user-questions': link:packages/interaction/user-questions
       react: 18.3.1
 
-  '@haoran/dsh-vision-switch@file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.1.0.tgz(983cf6254bcb4b6191f6a1f7ff9fa49a)':
+  '@haoran/dsh-vision-switch@file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-llm': link:packages/llm/llm
@@ -20274,9 +20325,10 @@ snapshots:
       zod: 4.4.3
     optionalDependencies:
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
+      '@deepseek-ai/dsh-api-session-controller': link:packages/api/session-controller
       '@deepseek-ai/dsh-client-locale': link:packages/client/locale
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-commands@packages+interaction+commands)(@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2(4946402f866e43bb829e0d16f7142170))(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-llm-retry@packages+llm+llm-retry)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session-title@packages+session+session-title)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-typert-registry@packages+typert+registry)(@types/react@18.3.31)(react@18.3.1)
       '@deepseek-ai/dsh-client-ui-conversation': link:packages/client/ui-conversation
+      '@deepseek-ai/dsh-client-ui-renderer': link:packages/client/ui-renderer
       '@deepseek-ai/dsh-client-ui-settings': link:packages/client/ui-settings
       '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
       '@deepseek-ai/dsh-typert-protocol': link:packages/typert/protocol
@@ -21439,17 +21491,20 @@ snapshots:
       estraverse: 5.3.0
       picomatch: 4.0.4
 
-  '@sumomok/dsh-balance@file:apps/desktop-server/vendor/sumomok-dsh-balance-0.2.3.tgz(f2fec56dd424c16b9ab47c22b0096c8c)':
+  '@sumomok/dsh-balance@file:apps/desktop-server/vendor/sumomok-dsh-balance-0.3.2.tgz(d89c45d216d03b53143774147ebf525e)':
     dependencies:
       zod: 4.4.3
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-api-remotes': link:packages/api/remotes
+      '@deepseek-ai/dsh-api-session-controller': link:packages/api/session-controller
       '@deepseek-ai/dsh-client-locale': link:packages/client/locale
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-commands@packages+interaction+commands)(@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2(4946402f866e43bb829e0d16f7142170))(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-llm-retry@packages+llm+llm-retry)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session-title@packages+session+session-title)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-typert-registry@packages+typert+registry)(@types/react@18.3.31)(react@18.3.1)
       '@deepseek-ai/dsh-client-ui-conversation': link:packages/client/ui-conversation
+      '@deepseek-ai/dsh-client-ui-layout': link:packages/client/ui-layout
       '@deepseek-ai/dsh-client-ui-primitives': link:packages/client/ui-primitives
+      '@deepseek-ai/dsh-client-ui-renderer': link:packages/client/ui-renderer
       '@deepseek-ai/dsh-client-ui-settings': link:packages/client/ui-settings
+      '@deepseek-ai/dsh-client-ui-sidebar': link:packages/client/ui-sidebar
       '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
       '@deepseek-ai/dsh-credentials': link:packages/credentials/credentials
       '@deepseek-ai/dsh-home-paths': link:packages/util/home-paths
@@ -21463,13 +21518,16 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@sumomok/dsh-quote-message@file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.2.2.tgz(89d64059c9852c72e2a9db3a29ce48be)':
+  '@sumomok/dsh-quote-message@file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-session@packages+core+session)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
+      '@deepseek-ai/dsh-api-session-controller': link:packages/api/session-controller
       '@deepseek-ai/dsh-client-locale': link:packages/client/locale
-      '@deepseek-ai/dsh-client-runtime': 0.1.1-rc.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-commands@packages+interaction+commands)(@deepseek-ai/dsh-host-apiproxy@0.1.1-rc.2(4946402f866e43bb829e0d16f7142170))(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-llm-retry@packages+llm+llm-retry)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session-title@packages+session+session-title)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-typert-registry@packages+typert+registry)(@types/react@18.3.31)(react@18.3.1)
+      '@deepseek-ai/dsh-client-ui-chat': link:packages/client/ui-chat
       '@deepseek-ai/dsh-client-ui-conversation': link:packages/client/ui-conversation
+      '@deepseek-ai/dsh-client-ui-renderer': link:packages/client/ui-renderer
       '@deepseek-ai/dsh-client-ui-slots': link:packages/client/ui-slots
+      '@deepseek-ai/dsh-session': link:packages/core/session
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
@@ -25595,15 +25653,13 @@ snapshots:
 
   tldts-core@7.4.11: {}
 
-  tldts-core@7.4.5: {}
-
   tldts@7.4.11:
     dependencies:
       tldts-core: 7.4.11
 
   tldts@7.4.5:
     dependencies:
-      tldts-core: 7.4.5
+      tldts-core: 7.4.11
 
   tmp-promise@3.0.3:
     dependencies:
