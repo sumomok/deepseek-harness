@@ -4,7 +4,7 @@
 
 服务形态外壳 content 栏的 `page` 类型，也是控制这一栏的两条通路：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，由一个铺满该栏的 iframe 呈现——栏里放部署方配置的哪一个页面，既可以由 agent 通过 `content_show` 工具决定，也可以由用户直接在侧边栏的页面导航菜单（`@deepseek-ai/dsh-experimental-server-sidebar`）里点选，后者会执行 `show-content-page` 命令。里面的应用由运行 harness 的人自己编写和部署；本包既不构建它，也不关心它用什么框架。
 
-六块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`show-content-page` 把同一份页面清单交给执行命令的 UI，并在用户选定时追加同一个事件。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。
+七块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`show-content-page` 把同一份页面清单交给执行命令的 UI，并在用户选定时追加同一个事件。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。部署方开启后，`content_read` 让 agent 把那个 frame 里的页面读成一份带编号的结构。
 
 ## 信任边界
 
@@ -25,7 +25,7 @@
 - **只接受 GET 与 HEAD**；其余为 405，并带 `Allow: GET, HEAD`。
 - **`cache-control: no-cache`**，因为该目录在固定 URL 下就地更新，缓存住的入口文档会持续提供上一次构建的结果。
 
-第二条 exact 路由 `/content-frame/settings` 把 browser 半边必须遵守的配置值——`cacheSize` 与整份 `pages` 清单——提供给它。它之所以存在，是因为 browser 半边根本收不到任何 cordis 配置：boot manifest 携带的是插件名，不是它们的 `config` 块。settings 文档不可达或不可用时，browser 那一行直接失败，而不是让这一栏跑在一个没人选过的上限上。页面清单也走这同一条路由而不是新开一条——侧边栏的页面导航菜单是这条路由的第二个读取方，它按约定（写死路由路径与 JSON 形状）而非导入本包来匹配这份数据，因为跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式。
+第二条 exact 路由 `/content-frame/settings` 把 browser 半边必须遵守的配置值提供给它：`cacheSize`、整份 `pages` 清单，以及部署方配置了页面读取时，读取器的预算与截止时间。它之所以存在，是因为 browser 半边根本收不到任何 cordis 配置：boot manifest 携带的是插件名，不是它们的 `config` 块。settings 文档不可达或不可用时，browser 那一行直接失败，而不是让这一栏跑在一个没人选过的上限上。页面清单也走这同一条路由而不是新开一条——侧边栏的页面导航菜单是这条路由的第二个读取方，它按约定（写死路由路径与 JSON 形状）而非导入本包来匹配这份数据，因为跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式。
 
 ## 谁把页面放上台面
 
@@ -44,6 +44,20 @@
 ## 每个（会话，页面）各一个活着的 frame
 
 这一栏的 kind 槽是 `root` 作用域，且别的 kind 上台时这一栏仍保持本座位挂载，因此 browser 半边把每个被缓存的 frame 全部挂着，只显示当前那一个。用户回到某个页面时，它还是被离开时的样子——滚动位置、表单状态、文档持有的一切——因为那个元素从未被销毁；换页面、换成图表、换会话都一样。`cacheSize` 限定能存活多少个，按（会话，页面）组合计；超出后最久未展示的那个被丢弃，再次回来时重新加载。正在展示的 frame 永远不会是被丢弃的那个。
+
+## 读取 agent 放进去的那个页面
+
+`pageAccess` 把 `content_read` 交给 agent：一次调用把用户正在看的页面答成一份带编号的结构——容器、控件、标题与文本，每个控件都带一个像 `e12` 的 ref，后续调用可以指着它。结构进模型，数据不进：表格只报表头、规模和一行样例，只有当某次读取按 ref 点名这张表、或按文本匹配到某一行时才列行；密码框只报「它在那里」，从不报它装着什么；正在要求登录的页面回的是一句拒绝，而不是正文。
+
+**缺席即关闭，而缺席是默认。** 没有这个块就没有工具、没有路由、没有待办 projection、settings 文档里没有 `pageAccess` 字段、浏览器里也没有读取器——只展示页面的部署不必为一项没要过的能力付账。写成空对象即取全部默认值。四个字段——`claimTimeoutMs`、`readTimeoutMs`、`pinMs`、`outlineChars`——文档在 `Config` 类型上；其中 `outlineChars` 决定一次读取花多少上下文，因为它就是渲染这份列表的字符预算。
+
+### 通道
+
+宿主无法指名某个浏览器，所以调用是反向走的。工具体不写任何东西：它登记一次等待，并把这次调用发布到该会话自己的 `contentAccess` projection 上，而每个已连接的浏览器本来就在接收它。正在展示该会话的 page 座位在 `POST /content-frame/claim` 上认领这次调用，遍历 frame 的文档，再把列表 `POST /content-frame/report` 回来。只有认领方那个标签页的回报会被接受——这也是「认领」是一次往返而不是一次通告的原因。
+
+两道截止时间，因为「没有打开的控制台」和「应答过的控制台失联了」是两个不同的事实，模型对二者的下一步也不同。`claimTimeoutMs` 内无人认领的调用被告知没有控制台在展示这个会话；已认领但 `readTimeoutMs` 内没有回报的调用被告知重试一次。同一会话连续的读取黏在同一个标签页上：上次应答的标签页在 `pinMs` 内优先，别的标签页的认领会被短暂挂起，好让优先的那个先拿。ref 指的是某一份文档里的元素，两个控制台轮流应答会把指不到任何东西的 ref 交给模型。
+
+读取这一半住在 page 座位里，因为只有这个位置持有 frame 元素。可见性与几何都向元素自己的 window 询问，而不是顶层的那个——frame 的布局属于那个 frame——并且不可见的标签页不认领任何调用，因为读取的定义就是「用户眼前的那个页面」。
 
 ## 在聊天记录里隐藏 `show-content-page` 命令
 
@@ -78,11 +92,14 @@
             url: /content-app/
         defaultPage: home
         homePage: home
+        pageAccess: {}
 ```
 
 用 `dsh --profile web --patch <path>` 应用。overlay 从环境变量读取目录，使同一个文件可以服务任意应用；托管固定应用的部署把字面绝对路径写在那里即可。所有包都必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile web add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
 
-工具、命令、projection 与 page extractor 都是可选子节点：没有 `ctx.tools`、`ctx.commands`、`ctx.sessionProjections` 或 `ctx.contentSurface` 的组合仍保留路由，只是这一栏里什么都不显示；任何一项缺席都不会让该行失败。
+空的 `pageAccess` 块是这条服务线自己的选择：它取全部默认值，也正是它让 agent 能看见自己推到用户眼前的页面。删掉这一行，这一栏的行为与从前完全一样。
+
+工具、命令、各 projection 与 page extractor 都是可选子节点：没有 `ctx.tools`、`ctx.commands`、`ctx.sessionProjections` 或 `ctx.contentSurface` 的组合仍保留路由，只是这一栏里什么都不显示；任何一项缺席都不会让该行失败。
 
 ## Model Experience
 
@@ -114,6 +131,34 @@
 
 只追加；结果跟在可复用的请求前缀之后，不会使任何已缓存内容失效。
 
+### The `content_read` offer
+
+#### What the model sees
+
+一个工具 `content_read`，只在部署方配置了 `pageAccess` 时才提供。四个可选参数：`mode`（默认 `outline`，或 `map`）、`scope` 与 `after`（来自上一次读取的 ref）、`find`（大小写不敏感的文本过滤）。描述用用户自己的说法称呼这一栏——内容区、中间、右边——因为用户就是这么指它的，并写明一次读取可能给出的三种答案，让第一次调用就知道怎么接着读。本包不为它贡献任何 system prompt section。
+
+#### Token effect
+
+一段固定描述加四行参数说明，出现在工具可见的每一次请求里。
+
+#### KV Cache effect
+
+描述是一个常量，在一个部署内不会变化，因此工具块在各次请求间逐字节一致，前缀得以保持。
+
+### The read result
+
+#### What the model sees
+
+读取成功时回复一个文本块：一行 `Page: <title> — the app is at <path>, title "<document title>"`，后接可见的面包屑；页面若打开着对话框，其名称单占一行；再往下是列表本身。整页超出预算时回的是页面骨架，并在第一行说明这一点；被截断的列表末尾给出接着读的游标，作为 `after` 传回。其余每一种结局都是一句写明下一步的错误：调用 `content_show`、去掉 `scope`、请用户登录、请用户打开控制台，或者重试一次。
+
+#### Token effect
+
+以 `outlineChars` 为界——列表在这个预算下渲染，因此一次读取最多花这么多，加上那一行表头。让读取永远不是一次盲截的两种答案（骨架与游标），正是这份预算买来的。
+
+#### KV Cache effect
+
+只追加。列表是关于页面在那一刻的事实；对已变化页面的第二次读取是一份新结果，而不是对第一份的改写。
+
 ## Known Limitations and Deferred Work
 
 - **`content/shown` 是读取时必需的** —— 该事件不带 `ignorable` 标记，因此会话词汇表里没有它的运行时会拒绝整份日志，而不是跳过这条事件。本仓库的任何构建都认识这个类型；单独构建、且排除了本包的运行时则不认识。
@@ -126,4 +171,8 @@
 - **settings 路由假定存在 HTTP 载体** —— browser 半边以页面 origin 为基准请求 `/content-frame/settings`。如果某种传输提供了外壳却没有把 harness 暴露在 HTTP 上，该行会失败——与 iframe 自己那条路由的处境相同。
 - **没有面向不可信内容的沙箱档** —— 见上文信任边界。托管不应携带外壳权限的内容属于另一个插件，本包不为此提供开关。
 - **未被 assembled snapshot 覆盖** —— 浏览器侧证据是针对真实组合运行的 Playwright 场景，模型可见文本则由单测逐字钉住；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。
+- **两条读取路由不带 Host 栅栏** —— 与外壳自己的 `/api` 一样，它们拒绝浏览器标记为 `sec-fetch-site: cross-site` 的请求并要求 `application/json`，但这两道检查都挡不住 DNS rebinding，而 webserver 自身没有 Host 白名单（`trustedHosts` 只守 `/api`）。顶替它位置的是 callId：能打到路由的攻击者，若不知道宿主铸出、且只发布进该会话自己 projection 流里的那个 id，既认领不了读取也回报不了；针对未知 id 的认领与回报什么都不改变。把 harness 暴露在不可信网络上的部署需要在自己的反向代理上设栅栏——这一栏与其他每一条路由并无不同。
+- **「在前面的那一项」是 page 座位的判断，不是日志的** —— 用户选中了哪一项是一次观看决定，这一栏把它留在组件状态里，因此当某个会话的内容区里还有好几个别的 kind 时，读取只会说「在前面的不是页面」而不点名是哪一个。
+- **一次读取携带结构，绝不携带数据** —— 没有任何模式会返回一张表的内容，本包也不打算加：列表是模型指着页面所需要的东西，它背后的数据属于产出它的那一方。
+- **jsdom 顶替不了真实 frame** —— 它没有布局，也永远不会加载指向真实路由的 frame，因此本包自己的测试读的是手工挂载的文档，真实路径只由浏览器车道覆盖。
 - **空命令行的 CSS 折叠是 DOM 结构耦合，不是契约** —— 它依赖 `dsh-client-ui-conversation` 的 `data-chat-flow-kind` 属性和 `dsh-client-ui-renderer` 的 `data-slot` 锚点包装，两者都不是本包拥有、也不是对方承诺维持的结构。任一形状将来发生变化都会悄悄解除这次折叠（该行连同它的 16px 间距一起重新出现），而不是显式报错；`server-sidebar.e2e.ts` 里断言该行始终不可见的场景是这个耦合唯一的绊线。

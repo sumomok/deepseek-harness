@@ -422,7 +422,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/experimental/content-frame/src/types.ts:21`](../packages/experimental/content-frame/src/types.ts)
+来源：[`packages/experimental/content-frame/src/types.ts:23`](../packages/experimental/content-frame/src/types.ts)
 
 ### `content-surface/*`
 

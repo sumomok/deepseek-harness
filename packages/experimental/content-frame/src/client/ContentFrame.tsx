@@ -16,19 +16,35 @@
  * removes nothing. Untrusted content needs a different plugin, not a flag here
  * — see the package README's trust section.
  *
- * Pure presentation: the frame cache is component-local state folded from the
- * entry the column hands over, and every string comes from the locale seat.
+ * The seat holds the frame elements because it is the only placement that can:
+ * `content_read` needs the live document, and the reader it drives lives here
+ * for that reason alone. Each frame keeps its own element numbering, dropped
+ * when the frame navigates — refs name elements of one document, and a reloaded
+ * page is a different one.
+ *
+ * Everything else is presentation: the frame cache is component-local state
+ * folded from the entry the column hands over, and every string comes from the
+ * locale seat.
  */
-import { useState } from 'react'
+import { useCallback, useRef, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ContentPageView } from '../types.ts'
+import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+// Also pulls the content surface's `contentSurface` SessionProjectionMap merge.
+import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
+import type { ContentFrameAccessSettings } from '../route.ts'
+// Type-only: pulls this package's own `contentAccess` SessionProjectionMap merge.
+import type { ContentPageView, ContentReadRequest } from '../types.ts'
 import { foldFrames, NO_FRAMES, type CachedFrame, type FrameCache } from './frame-cache.ts'
+import { RefTable } from './access/refs.ts'
+import { TAB_ID, useContentRead } from './access/executor.ts'
 import css from './ContentFrame.module.css'
 
 /** Plain data this registration injects. */
 export interface ContentFrameFace {
   /** How many (session, page) frames stay alive at once, as the node half configured it. */
   cacheSize: number
+  /** The reader's budget and deadline; absent when the deployment configures no page access. */
+  pageAccess?: ContentFrameAccessSettings
 }
 
 /** Composed props: the kind-seat runtime share, the injected face, and the locale seat. */
@@ -36,6 +52,12 @@ export type ContentFrameProps =
   & PropsRuntime<'content.surface.kind', 'page'>
   & ContentFrameFace
   & PropsLocale<'contentFrame'>
+
+/** The empty entry list, shared so a session with no column does not re-render the seat. */
+const NO_ENTRIES: readonly ContentSurfaceEntry[] = []
+
+/** The empty pending list, shared for the same reason. */
+const NO_READS: readonly ContentReadRequest[] = []
 
 /**
  * Read the page one surface entry puts on display.
@@ -67,12 +89,20 @@ function activeFrame(
   return { frameId: `${sessionId} ${entry.entryId}`, url: view.url }
 }
 
+/** One frame's two DOM callbacks, cached so React does not re-run them every render. */
+interface FrameHandlers {
+  /** Registers and withdraws the element itself. */
+  readonly ref: (node: HTMLIFrameElement | null) => void
+  /** Retires the numbering of the document being navigated away from. */
+  readonly onLoad: () => void
+}
+
 /**
  * Render the page seat.
- * @param props - the column's selection, the cache bound, and the locale seat.
+ * @param props - the column's selection, the cache bound, the reader's settings, and the locale seat.
  * @returns every cached frame, plus a notice when the selected page is gone.
  */
-export function ContentFrame({ sessionId, entry, cacheSize, t }: ContentFrameProps) {
+export function ContentFrame({ sessionId, entry, cacheSize, pageAccess, useSessions, t }: ContentFrameProps) {
   const active = activeFrame(sessionId, entry)
 
   // Derived state, not a subscription: the cache is a fold over the entries the
@@ -86,19 +116,69 @@ export function ContentFrame({ sessionId, entry, cacheSize, t }: ContentFramePro
 
   const retired = entry !== undefined && active === undefined
 
+  const frames = useRef<Map<string, HTMLIFrameElement>>(new Map())
+  const tables = useRef<Map<string, RefTable>>(new Map())
+  const handlers = useRef<Map<string, FrameHandlers>>(new Map())
+
+  // The seat is root-scoped, so the framework binds no `useProjection` here and
+  // the session's values are read off the list snapshot every root slot gets.
+  const key = sessionId as SessionId | undefined
+  const entries = useSessions(state => (
+    key === undefined ? undefined : state.byId[key]?.projectionValues?.contentSurface?.entries)) ?? NO_ENTRIES
+  const pending = useSessions(state => (
+    key === undefined ? undefined : state.byId[key]?.projectionValues?.contentAccess?.pending)) ?? NO_READS
+
+  useContentRead({
+    entries,
+    pending,
+    page: entry === undefined ? undefined : { id: entry.entryId, title: entry.title },
+    activeFrameId: active?.frameId,
+    frames,
+    tables,
+    access: pageAccess,
+    tabId: TAB_ID,
+  })
+
+  const handlersFor = useCallback((frameId: string): FrameHandlers => {
+    const known = handlers.current.get(frameId)
+    if (known !== undefined) return known
+    const minted: FrameHandlers = {
+      ref: (node) => {
+        if (node === null) {
+          frames.current.delete(frameId)
+          tables.current.delete(frameId)
+          handlers.current.delete(frameId)
+          return
+        }
+        frames.current.set(frameId, node)
+      },
+      // Numbers are never reused, so a ref the model still holds from the
+      // previous document resolves to nothing rather than to whatever element
+      // inherited its place.
+      onLoad: () => { tables.current.get(frameId)?.reset() },
+    }
+    handlers.current.set(frameId, minted)
+    return minted
+  }, [])
+
   return (
     <div className={css.column} data-content-column>
-      {next.frames.map(frame => (
-        <iframe
-          key={frame.frameId}
-          className={frame.frameId === active?.frameId ? css.frame : `${css.frame} ${css.cached}`}
-          src={frame.url}
-          title={t('frame.title')}
-          data-content-frame
-          data-content-frame-id={frame.frameId}
-          data-content-active={frame.frameId === active?.frameId || undefined}
-        />
-      ))}
+      {next.frames.map((frame) => {
+        const { ref, onLoad } = handlersFor(frame.frameId)
+        return (
+          <iframe
+            key={frame.frameId}
+            ref={ref}
+            onLoad={onLoad}
+            className={frame.frameId === active?.frameId ? css.frame : `${css.frame} ${css.cached}`}
+            src={frame.url}
+            title={t('frame.title')}
+            data-content-frame
+            data-content-frame-id={frame.frameId}
+            data-content-active={frame.frameId === active?.frameId || undefined}
+          />
+        )
+      })}
       {retired && (
         <p className={css.notice} data-content-notice>{t('frame.missing')}</p>
       )}

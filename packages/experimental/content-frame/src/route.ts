@@ -22,6 +22,14 @@ export const CONTENT_APP_ROUTE = '/content-app'
 /** Exact route serving {@link ContentFrameSettings} to this package's browser half. */
 export const CONTENT_SETTINGS_ROUTE = '/content-frame/settings'
 
+/** The browser-facing half of the page-read channel's configuration. */
+export interface ContentFrameAccessSettings {
+  /** The character budget one read's listing is rendered under. */
+  outlineChars: number
+  /** How long the host waits for a claimed read, which is also how long the seat may spend producing it. */
+  readTimeoutMs: number
+}
+
 /** The browser-facing half of this plugin's configuration. */
 export interface ContentFrameSettings {
   /** How many (session, page) frames the column keeps alive at once; at least 1. */
@@ -34,4 +42,10 @@ export interface ContentFrameSettings {
    * page in {@link pages}.
    */
   homePage?: string
+  /**
+   * The two values a reading seat must obey; absent when the deployment
+   * configures no page access, which is also how the browser half knows not to
+   * install the reader at all.
+   */
+  pageAccess?: ContentFrameAccessSettings
 }

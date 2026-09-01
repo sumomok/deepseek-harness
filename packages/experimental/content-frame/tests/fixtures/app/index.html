@@ -8,6 +8,29 @@
   <body>
     <h1 id="fixture-heading">Hosted content app</h1>
     <p id="fixture-body">Served by dsh-experimental-content-frame from the configured root.</p>
+    <!-- Structure a structural read has something to say about: a form, a table
+         with rows and per-row actions, and a dialog the page has not opened. -->
+    <main>
+      <form aria-label="Add a machine">
+        <label for="machine-name">Machine name</label>
+        <input id="machine-name" name="machine-name" type="text" value="mill-04" />
+        <button type="submit">Add machine</button>
+      </form>
+      <table aria-label="Fleet">
+        <thead>
+          <tr><th>Machine</th><th>Status</th><th>Actions</th></tr>
+        </thead>
+        <tbody>
+          <tr><td>mill-01</td><td>Running</td><td><button type="button">Stop mill-01</button></td></tr>
+          <tr><td>mill-02</td><td>Idle</td><td><button type="button">Start mill-02</button></td></tr>
+          <tr><td>mill-03</td><td>Faulted</td><td><button type="button">Reset mill-03</button></td></tr>
+        </tbody>
+      </table>
+      <dialog id="fixture-dialog" aria-label="Confirm shutdown">
+        <p>Shut down the whole fleet?</p>
+        <button type="button">Confirm shutdown</button>
+      </dialog>
+    </main>
     <script src="./app.js"></script>
   </body>
 </html>

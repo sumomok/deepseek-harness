@@ -1,0 +1,269 @@
+/**
+ * The two-phase channel a `content_read` call and the browser seat holding the
+ * page speak over: the route paths, the documents that cross them, and the
+ * checks each side runs on what it received.
+ *
+ * Both halves import this module, so it holds types and pure functions only —
+ * no node built-ins, no DOM, and nothing either half owns alone. The claim/
+ * report split exists because the host cannot address a browser: a call
+ * announces itself through the session projection, whichever seat is showing
+ * that session claims it, and the same seat posts the read back. The call id is
+ * the whole capability — a poster that does not know it can neither claim a
+ * read nor answer one.
+ * @module @deepseek-ai/dsh-experimental-content-frame/access/wire
+ */
+
+/** Exact route a browser seat claims one pending read on. */
+export const CONTENT_CLAIM_ROUTE = '/content-frame/claim'
+
+/** Exact route a browser seat posts one read's outcome to. */
+export const CONTENT_REPORT_ROUTE = '/content-frame/report'
+
+/** Wire name of the structural page read. */
+export const CONTENT_READ_TOOL_NAME = 'content_read'
+
+/**
+ * How long a claim from a tab that is not the session's preferred one waits for
+ * the preferred tab to claim first. A protocol constant: it bounds one race
+ * between browsers, and no deployment reads a page faster or slower for it.
+ */
+export const PREFERRED_TAB_WINDOW_MS = 250
+
+/**
+ * How long a seat waits before re-claiming a read the host does not know yet.
+ * The tool logs its `tool/call` before its body registers the wait, so the
+ * first claim of a fresh call legitimately arrives too early.
+ */
+export const CLAIM_RETRY_MS = 200
+
+/** Longest failure message a posted outcome may carry, in characters. */
+export const MAX_OUTCOME_MESSAGE_CHARS = 2000
+
+/** What one read asks of the page, after the tool has validated it. */
+export interface ReadArgs {
+  /** Which listing the read wants; the tool's own default applies when absent. */
+  mode?: 'outline' | 'map'
+  /** A ref: read that element's subtree only. */
+  scope?: string
+  /** A ref a cut listing returned: continue after the item it names. */
+  after?: string
+  /** Case-insensitive text filter. */
+  find?: string
+}
+
+/** One seat's bid to answer one pending read. */
+export interface ClaimRequest {
+  /** The pending call the seat is bidding for. */
+  callId: string
+  /** The bidding tab's own id, minted once per page load. */
+  tabId: string
+}
+
+/** Why a claim did not win, for a seat deciding whether to try again. */
+export type ClaimRefusal =
+  /** The host does not know this call yet; the seat retries shortly. */
+  | 'unknown'
+  /** Another tab is answering it. */
+  | 'taken'
+  /** The call already ended — reported, timed out, or cancelled. */
+  | 'settled'
+
+/** What {@link CONTENT_CLAIM_ROUTE} answers a well-formed claim with. */
+export interface ClaimAck {
+  /** Whether this tab now owns the read; only the owner's report is taken. */
+  claimed: boolean
+  /** Present exactly when `claimed` is false. */
+  reason?: ClaimRefusal
+}
+
+/** Why a claimed read produced no page instead of a listing. */
+export type ReadErrorCode =
+  /** The session's content column holds nothing at all. */
+  | 'empty'
+  /** The entry in front belongs to another kind, which this tool cannot read. */
+  | 'not-a-page'
+  /** The reader refused the request — a stale ref, or a combination it does not serve. */
+  | 'engine'
+  /** The frame's document could not be reached or did not finish loading. */
+  | 'frame'
+
+/** The page a read found, as the column names it. */
+export interface ReadPage {
+  /** The entry id, which for this kind is the deployment's page id. */
+  id: string
+  /** The page's configured title. */
+  title: string
+}
+
+/** One structural read, as the seat posts it. */
+export interface ReadSnapshot {
+  /** Which listing came back. */
+  kind: 'outline' | 'map'
+  /** The document's own URL, absolute as the browser reports it. */
+  url: string
+  /** The document's title. */
+  title: string
+  /** The visible breadcrumb trail. */
+  breadcrumb?: string
+  /** The name of the dialog the page has open. */
+  modal?: string
+  /** True when the page is asking the user to sign in. */
+  signIn: boolean
+  /** The rendered listing. */
+  text: string
+  /** True when the listing stops short of everything the read would have shown. */
+  truncated: boolean
+  /** How many rows the listing renders. */
+  shown: number
+  /** How many rows the listing has in full. */
+  total: number
+  /** The ref to pass back as `after`; present only on a listing cut short. */
+  cursor?: string
+}
+
+/** What one claimed read ended as. */
+export type ReadOutcome =
+  | {
+    /** Discriminant. */
+    status: 'ok'
+    /** The page that was read. */
+    page: ReadPage
+    /** The structural read itself. */
+    snapshot: ReadSnapshot
+  }
+  | {
+    /** Discriminant. */
+    status: 'error'
+    /** Which of the four refusals this is. */
+    code: ReadErrorCode
+    /** The model-facing sentence, composed by whichever half knows the reason. */
+    message: string
+    /** The kind of entry in front, for `not-a-page` when the seat can name it. */
+    kind?: string
+    /** That entry's title, for `not-a-page` when the seat can name it. */
+    title?: string
+  }
+
+/** One claimed read's answer as the browser half posts it. */
+export interface ReportRequest {
+  /** The call being answered. */
+  callId: string
+  /** The claiming tab; a report from any other tab changes nothing. */
+  tabId: string
+  /** What the read ended as. */
+  outcome: ReadOutcome
+}
+
+/** What {@link CONTENT_REPORT_ROUTE} answers a well-formed report with. */
+export interface ReportAck {
+  /**
+   * Whether a waiting call took this report. `false` means the pair names no
+   * claimed call — a late answer, a second report, or a tab that never claimed
+   * it — and nothing changed.
+   */
+  accepted: boolean
+}
+
+/** Whether one decoded value is a non-empty string. */
+function isName(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0
+}
+
+/**
+ * Read one posted claim. A wire boundary: the document crossed a process, so
+ * its own contract is checked here rather than trusted from the type.
+ * @param body - the decoded request body, however malformed.
+ * @returns the claim, or `undefined` when the body is not one.
+ */
+export function parseClaimRequest(body: unknown): ClaimRequest | undefined {
+  if (body === null || typeof body !== 'object') return undefined
+  const candidate = body as { callId?: unknown; tabId?: unknown }
+  if (!isName(candidate.callId) || !isName(candidate.tabId)) return undefined
+  return { callId: candidate.callId, tabId: candidate.tabId }
+}
+
+/**
+ * Read one posted snapshot.
+ * @param value - the decoded `outcome.snapshot`, however malformed.
+ * @param maxTextChars - longest accepted listing.
+ * @returns the snapshot, or `undefined` when the value is not one.
+ */
+function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const candidate = value as Partial<Record<keyof ReadSnapshot, unknown>>
+  if (candidate.kind !== 'outline' && candidate.kind !== 'map') return undefined
+  if (typeof candidate.url !== 'string' || typeof candidate.title !== 'string') return undefined
+  if (typeof candidate.signIn !== 'boolean' || typeof candidate.truncated !== 'boolean') return undefined
+  if (typeof candidate.text !== 'string' || candidate.text.length > maxTextChars) return undefined
+  if (!Number.isInteger(candidate.shown) || !Number.isInteger(candidate.total)) return undefined
+  for (const optional of [candidate.breadcrumb, candidate.modal, candidate.cursor]) {
+    if (optional !== undefined && typeof optional !== 'string') return undefined
+  }
+  return {
+    kind: candidate.kind,
+    url: candidate.url,
+    title: candidate.title,
+    ...typeof candidate.breadcrumb === 'string' ? { breadcrumb: candidate.breadcrumb } : {},
+    ...typeof candidate.modal === 'string' ? { modal: candidate.modal } : {},
+    signIn: candidate.signIn,
+    text: candidate.text,
+    truncated: candidate.truncated,
+    shown: candidate.shown as number,
+    total: candidate.total as number,
+    ...typeof candidate.cursor === 'string' ? { cursor: candidate.cursor } : {},
+  }
+}
+
+/** Every code a posted failure may name. */
+const ERROR_CODES: readonly ReadErrorCode[] = ['empty', 'not-a-page', 'engine', 'frame']
+
+/**
+ * Read one posted outcome.
+ * @param value - the decoded `outcome`, however malformed.
+ * @param maxTextChars - longest accepted listing.
+ * @returns the outcome, or `undefined` when the value is not one.
+ */
+function parseOutcome(value: unknown, maxTextChars: number): ReadOutcome | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const candidate = value as { status?: unknown; page?: unknown; snapshot?: unknown } & Partial<
+    Record<'code' | 'message' | 'kind' | 'title', unknown>
+  >
+  if (candidate.status === 'ok') {
+    const page = candidate.page as { id?: unknown; title?: unknown } | null | undefined
+    if (page === null || typeof page !== 'object') return undefined
+    if (!isName(page.id) || typeof page.title !== 'string') return undefined
+    const snapshot = parseSnapshot(candidate.snapshot, maxTextChars)
+    return snapshot === undefined ? undefined : { status: 'ok', page: { id: page.id, title: page.title }, snapshot }
+  }
+  if (candidate.status !== 'error') return undefined
+  const code = ERROR_CODES.find(known => known === candidate.code)
+  if (code === undefined) return undefined
+  if (typeof candidate.message !== 'string' || candidate.message.length > MAX_OUTCOME_MESSAGE_CHARS) return undefined
+  for (const optional of [candidate.kind, candidate.title]) {
+    if (optional !== undefined && typeof optional !== 'string') return undefined
+  }
+  return {
+    status: 'error',
+    code,
+    message: candidate.message,
+    ...typeof candidate.kind === 'string' ? { kind: candidate.kind } : {},
+    ...typeof candidate.title === 'string' ? { title: candidate.title } : {},
+  }
+}
+
+/**
+ * Read one posted report. A wire boundary: the document crossed a process, so
+ * its own contract is checked here rather than trusted from the type. The
+ * listing bound is the deployment's own character budget with room to spare, so
+ * a forged body cannot make the host buffer an arbitrary page.
+ * @param body - the decoded request body, however malformed.
+ * @param maxTextChars - longest accepted listing.
+ * @returns the report, or `undefined` when the body is not one.
+ */
+export function parseReportRequest(body: unknown, maxTextChars: number): ReportRequest | undefined {
+  if (body === null || typeof body !== 'object') return undefined
+  const candidate = body as { callId?: unknown; tabId?: unknown; outcome?: unknown }
+  if (!isName(candidate.callId) || !isName(candidate.tabId)) return undefined
+  const outcome = parseOutcome(candidate.outcome, maxTextChars)
+  return outcome === undefined ? undefined : { callId: candidate.callId, tabId: candidate.tabId, outcome }
+}

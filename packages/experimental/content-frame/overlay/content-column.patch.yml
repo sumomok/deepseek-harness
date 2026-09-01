@@ -36,3 +36,7 @@
             description: The hosted application's entry page.
             url: /content-app/
         defaultPage: home
+        # An empty block takes every default and is what switches `content_read`
+        # on: absent, the agent cannot read the page at all. This service line
+        # wants the agent to see what the user sees, so the block is present.
+        pageAccess: {}

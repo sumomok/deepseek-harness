@@ -2,11 +2,12 @@
 /**
  * content-frame browser half against the real SlotRegistry: the settings read
  * that has to precede the registration, the `page` kind registration and the
- * cache bound it injects, the empty `conversation.chat.commandview`
- * registration for `show-content-page` and its hiding stylesheet, the wait
- * for the column's/conversation's declarations, removal on fiber teardown
- * (HMR safety), the dictionaries, and the invariant companion's ownership
- * reservation.
+ * values it injects, the empty `conversation.chat.commandview`
+ * registration for `show-content-page` and its hiding stylesheet, the
+ * `content_read` row that exists only where the deployment configured page
+ * access, the wait for the column's/conversation's declarations, removal on
+ * fiber teardown (HMR safety), the dictionaries, and the invariant companion's
+ * ownership reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -16,6 +17,7 @@ import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { ContentFrame } from '../src/client/ContentFrame.tsx'
+import { ContentReadRow } from '../src/client/access/ContentReadRow.tsx'
 import { HiddenCommandRow } from '../src/client/HiddenCommandRow.tsx'
 import * as ContentFrameInvariant from '../src/invariant.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
@@ -24,7 +26,7 @@ import { en, NS, zh } from '../src/client/locales.ts'
 const HIDE_STYLE_ID = 'dsh-content-frame-hide-empty-command-row'
 
 /** The settings document the bench serves. */
-const SETTINGS = { cacheSize: 5 }
+const SETTINGS = { cacheSize: 5, pageAccess: { outlineChars: 12000, readTimeoutMs: 15000 } }
 
 /** Answer the node half's settings route with one document. */
 function serveSettings(body: unknown, ok = true): void {
@@ -34,20 +36,21 @@ function serveSettings(body: unknown, ok = true): void {
   }))
 }
 
-/** Declare the content column's kind slot and the chat view's per-command slot, the way their owners do. */
+/** Declare the content column's kind slot, the chat view's per-command slot, and the tool-view slot, the way their owners do. */
 function declareColumn(ctx: Context): void {
   ctx.slots.register({
     name: 'root',
     children: {
       'content.surface.kind': { kind: 'keyed', scope: 'root' },
       'conversation.chat.commandview': { kind: 'keyed', scope: 'session' },
+      'tool.call.toolview': { kind: 'keyed', scope: 'session' },
     },
   } as never, () => null)
 }
 
 /** Boot the browser half over a real slot tree that declares the content column. */
-async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
-  serveSettings(SETTINGS)
+async function bench(settings: unknown = SETTINGS): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
+  serveSettings(settings)
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
   declareColumn(ctx)
@@ -77,7 +80,7 @@ describe('content-frame browser half', () => {
   })
 
   it('waits for the column/conversation to declare their slots before claiming either key', async () => {
-    serveSettings({ cacheSize: 3 })
+    serveSettings({ cacheSize: 3, pageAccess: { outlineChars: 12000, readTimeoutMs: 15000 } })
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
     ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
@@ -130,6 +133,24 @@ describe('content-frame browser half', () => {
     expect(document.getElementById(HIDE_STYLE_ID)).toBeNull()
   })
 
+  it('claims the content_read row only where the deployment configured page access', async () => {
+    const { ctx, fiber } = await bench()
+    const [entry] = ctx.slots.entries('tool.call.toolview')
+    expect(entry?.component).toBe(ContentReadRow)
+    expect(entry?.options.key).toBe('content_read')
+
+    await fiber.dispose()
+    expect(ctx.slots.entries('tool.call.toolview')).toHaveLength(0)
+
+    // The same row, the same pages, and no read anywhere: the model is never
+    // offered the tool, so a row for its calls would draw nothing.
+    const closed = await bench({ cacheSize: 5 })
+    expect(closed.ctx.slots.entries('tool.call.toolview')).toHaveLength(0)
+    expect(closed.ctx.slots.entries('content.surface.kind')).toHaveLength(1)
+    expect(closed.ctx.slots.entries('content.surface.kind')[0]?.inject?.()).toEqual({ cacheSize: 5 })
+    await closed.fiber.dispose()
+  })
+
   it('fails the row rather than guessing when the settings route is unusable', async () => {
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
@@ -139,6 +160,10 @@ describe('content-frame browser half', () => {
       [{}, true, /unusable cacheSize: undefined/],
       [{ cacheSize: 0 }, true, /unusable cacheSize: 0/],
       [{ cacheSize: 1.5 }, true, /unusable cacheSize: 1.5/],
+      [{ cacheSize: 3, pageAccess: null }, true, /unusable pageAccess: null/],
+      [{ cacheSize: 3, pageAccess: {} }, true, /unusable pageAccess/],
+      [{ cacheSize: 3, pageAccess: { outlineChars: 0, readTimeoutMs: 1 } }, true, /unusable pageAccess/],
+      [{ cacheSize: 3, pageAccess: { outlineChars: 1, readTimeoutMs: '15s' } }, true, /unusable pageAccess/],
     ] as const) {
       serveSettings(body, ok)
       // The plugin body itself, not a fiber: a rejecting apply is what fails

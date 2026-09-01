@@ -420,7 +420,7 @@ Source: [`packages/compaction/compaction/src/types.ts:33`](../packages/compactio
 }
 ```
 
-Source: [`packages/experimental/content-frame/src/types.ts:21`](../packages/experimental/content-frame/src/types.ts)
+Source: [`packages/experimental/content-frame/src/types.ts:23`](../packages/experimental/content-frame/src/types.ts)
 
 ### `content-surface/*`
 

@@ -8,6 +8,8 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/types
  */
 
+import type { ReadArgs } from './access/wire.ts'
+
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
     /**
@@ -34,6 +36,7 @@ declare module '@deepseek-ai/dsh-session/types' {
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
     content: string | null
+    contentAccess: ContentReadRequest[]
   }
   interface SessionProjectionMap {
     /**
@@ -44,7 +47,31 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
      * never receives.
      */
     content: ContentPageView
+    /**
+     * The `content_read` calls this session has open: every call the log
+     * recorded without a result yet, in log order. It is how the host asks a
+     * browser to read the page — no host reaches a browser directly, so the
+     * request rides the session's own projection stream and whichever seat is
+     * showing that session picks it up.
+     */
+    contentAccess: ContentAccessView
   }
+}
+
+/** One `content_read` call still waiting for a browser to answer it. */
+export interface ContentReadRequest {
+  /** The call to claim and report against. */
+  readonly callId: string
+  /** The tool that asked; one value today, present so a seat can dispatch on it. */
+  readonly tool: 'content_read'
+  /** What the call asked of the page. */
+  readonly args: ReadArgs
+}
+
+/** Whole current value of the `contentAccess` projection. */
+export interface ContentAccessView {
+  /** Every open call, oldest first. */
+  readonly pending: readonly ContentReadRequest[]
 }
 
 /**

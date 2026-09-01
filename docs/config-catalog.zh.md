@@ -711,6 +711,14 @@ export interface Config {
    * pages are expensive to reload; lower it to bound the browser's memory.
    */
   cacheSize?: number
+  /**
+   * Lets the agent read the page in the column through `content_read`. Absent
+   * turns the whole channel off: no tool, no claim or report route, no pending
+   * projection, and no reader in the browser — a deployment that only shows
+   * pages does not pay for a capability it did not ask for. Present with an
+   * empty object takes every default below.
+   */
+  pageAccess?: PageAccessConfig
 }
 
 /** One page the agent may put in the content column. */
@@ -724,9 +732,39 @@ export interface ContentPage {
   /** Same-origin path of the page, from the site root (`/content-app/reports/`). */
   readonly url: string
 }
+
+/** How long each phase of a read waits, and how much of a page one read may carry. */
+export interface PageAccessConfig {
+  /**
+   * How long a read waits for a console to claim it before answering that none
+   * is open. It bounds how long the agent stalls when the user has no browser
+   * on this session, so it is short; raise it for a deployment whose consoles
+   * reconnect slowly.
+   */
+  claimTimeoutMs: number
+  /**
+   * How long a claimed read waits for its listing. It bounds the whole walk of
+   * a document, including waiting for a page that is still loading, so a heavy
+   * application needs more of it than a static one.
+   */
+  readTimeoutMs: number
+  /**
+   * How long the tab that answered stays the session's preferred reader. Refs
+   * are per document, so consecutive reads of one session should reach one tab;
+   * lower it for a deployment whose users move between consoles constantly.
+   */
+  pinMs: number
+  /**
+   * The character budget one listing is rendered under. It is the ceiling on
+   * what a single read can cost in context: past it the read answers with the
+   * page's map, or with a cursor to continue from. Raise it for a deployment
+   * whose pages are large and whose model has room for them.
+   */
+  outlineChars: number
+}
 ```
 
-来源：[`packages/experimental/content-frame/src/index.ts:50`](../packages/experimental/content-frame/src/index.ts)
+来源：[`packages/experimental/content-frame/src/index.ts:57`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

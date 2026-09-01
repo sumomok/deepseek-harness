@@ -29,10 +29,13 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 // Type-only: pulls ui-conversation's `conversation.chat.commandview` SlotMap declaration.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls the tool package's `tool.call.toolview` SlotMap declaration.
+import type {} from '@deepseek-ai/dsh-client-ui-tool/client'
 // Type-only: pulls this package's own `content` SessionProjectionMap merge.
 import type {} from '../types.ts'
-import { CONTENT_SETTINGS_ROUTE } from '../route.ts'
-import { ContentFrame } from './ContentFrame.tsx'
+import { CONTENT_SETTINGS_ROUTE, type ContentFrameAccessSettings } from '../route.ts'
+import { ContentFrame, type ContentFrameFace } from './ContentFrame.tsx'
+import { ContentReadRow } from './access/ContentReadRow.tsx'
 import { HiddenCommandRow } from './HiddenCommandRow.tsx'
 import { installHiddenCommandRowStyle } from './hide-empty-command-row.ts'
 import { en, NS, zh, type ContentFrameKey } from './locales.ts'
@@ -45,33 +48,66 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
 }
 
 export type { ContentFrameFace, ContentFrameProps } from './ContentFrame.tsx'
+export type { ContentReadRowProps } from './access/ContentReadRow.tsx'
 
 /** Required services: the slot registry and the locale registry. */
 export const inject = ['slots', 'locale']
 
 /**
+ * Whether one served value is a usable positive whole number.
+ * @param value - the field as the settings document carried it.
+ * @returns whether it can be used as a bound.
+ */
+function isBound(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 1
+}
+
+/**
+ * Read the page-access half of the settings document.
+ *
+ * Absent is the deployment's answer that the agent may not read the page, and
+ * the whole reader stays uninstalled; present but unusable is a broken
+ * settings document, which fails the row like any other.
+ * @param served - the `pageAccess` field, as the settings document carried it.
+ * @returns the reader's settings, or undefined when the deployment configured none.
+ * @throws {Error} when the field is present and unusable.
+ */
+function readAccess(served: unknown): ContentFrameAccessSettings | undefined {
+  if (served === undefined) return undefined
+  if (served !== null && typeof served === 'object') {
+    const access = served as { outlineChars?: unknown; readTimeoutMs?: unknown }
+    if (isBound(access.outlineChars) && isBound(access.readTimeoutMs)) {
+      return { outlineChars: access.outlineChars, readTimeoutMs: access.readTimeoutMs }
+    }
+  }
+  throw new Error(`content-frame: ${CONTENT_SETTINGS_ROUTE} answered an unusable pageAccess: ${JSON.stringify(served)}`)
+}
+
+/**
  * Read the browser-facing half of this plugin's configuration from its node half.
  *
  * The settings document also carries `pages` (read by the sidebar's
- * page-navigation menu, not by this seat), so only the field this seat needs
- * is typed and validated here.
- * @returns the cache bound the node half configured.
+ * page-navigation menu, not by this seat), so only the fields this seat needs
+ * are typed and validated here.
+ * @returns the cache bound the node half configured, and the reader's settings
+ * when the deployment configured page access.
  * @throws {Error} when the route is unreachable, answers non-200, or answers a
  * document without a usable cache bound.
  */
-async function readSettings(): Promise<{ cacheSize: number }> {
+async function readSettings(): Promise<ContentFrameFace> {
   const response = await fetch(CONTENT_SETTINGS_ROUTE, { cache: 'no-store' })
   if (!response.ok) {
     throw new Error(`content-frame: ${CONTENT_SETTINGS_ROUTE} answered ${response.status}`)
   }
-  const settings = await response.json() as { cacheSize?: unknown }
+  const settings = await response.json() as { cacheSize?: unknown; pageAccess?: unknown }
   const cacheSize = settings.cacheSize
   // A wire boundary: the document crossed a process, so its own contract is
   // checked here rather than trusted from the type.
-  if (typeof cacheSize !== 'number' || !Number.isInteger(cacheSize) || cacheSize < 1) {
+  if (!isBound(cacheSize)) {
     throw new Error(`content-frame: ${CONTENT_SETTINGS_ROUTE} answered an unusable cacheSize: ${JSON.stringify(cacheSize)}`)
   }
-  return { cacheSize }
+  const pageAccess = readAccess(settings.pageAccess)
+  return { cacheSize, ...pageAccess === undefined ? {} : { pageAccess } }
 }
 
 /**
@@ -101,4 +137,15 @@ export async function apply(ctx: ClientContext): Promise<void> {
     // registration above).
     key: 'show-content-page',
   }, HiddenCommandRow))
+  // The transcript row exists only where the tool does: a deployment that
+  // configures no page access serves no `pageAccess`, offers the model no
+  // `content_read`, and gets no row for calls that can never appear.
+  if (settings.pageAccess === undefined) return
+  ctx.slots.inject('tool.call.toolview', () => ctx.slots.register({
+    name: 'tool.call.toolview',
+    // The literal, not this package's `CONTENT_READ_TOOL_NAME`, for the same
+    // catalog reason as the two registrations above.
+    key: 'content_read',
+    locale: NS,
+  }, ContentReadRow))
 }

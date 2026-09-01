@@ -34,6 +34,13 @@ import { contentShowTool } from './tool.ts'
 import { showContentPageCommand } from './command.ts'
 import { CONTENT_APP_ROUTE, CONTENT_SETTINGS_ROUTE, type ContentFrameSettings } from './route.ts'
 import { serveContentApp } from './serve.ts'
+import { answerJson, readJsonBody, rejectMethod, rejectUntrustedPost } from './access/http.ts'
+import { PendingReads, type ReadTimeouts } from './access/pending.ts'
+import { contentAccessProjection } from './access/requests-projection.ts'
+import { contentReadTool } from './access/read-tool.ts'
+import {
+  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, parseClaimRequest, parseReportRequest,
+} from './access/wire.ts'
 
 // The `content/shown` and `content` declarations live in src/types.ts (their
 // one home); this re-export projects the type face onto the package root and
@@ -91,10 +98,57 @@ export interface Config {
    * pages are expensive to reload; lower it to bound the browser's memory.
    */
   cacheSize?: number
+  /**
+   * Lets the agent read the page in the column through `content_read`. Absent
+   * turns the whole channel off: no tool, no claim or report route, no pending
+   * projection, and no reader in the browser — a deployment that only shows
+   * pages does not pay for a capability it did not ask for. Present with an
+   * empty object takes every default below.
+   */
+  pageAccess?: PageAccessConfig
+}
+
+/** How long each phase of a read waits, and how much of a page one read may carry. */
+export interface PageAccessConfig {
+  /**
+   * How long a read waits for a console to claim it before answering that none
+   * is open. It bounds how long the agent stalls when the user has no browser
+   * on this session, so it is short; raise it for a deployment whose consoles
+   * reconnect slowly.
+   */
+  claimTimeoutMs: number
+  /**
+   * How long a claimed read waits for its listing. It bounds the whole walk of
+   * a document, including waiting for a page that is still loading, so a heavy
+   * application needs more of it than a static one.
+   */
+  readTimeoutMs: number
+  /**
+   * How long the tab that answered stays the session's preferred reader. Refs
+   * are per document, so consecutive reads of one session should reach one tab;
+   * lower it for a deployment whose users move between consoles constantly.
+   */
+  pinMs: number
+  /**
+   * The character budget one listing is rendered under. It is the ceiling on
+   * what a single read can cost in context: past it the read answers with the
+   * page's map, or with a cursor to continue from. Raise it for a deployment
+   * whose pages are large and whose model has room for them.
+   */
+  outlineChars: number
 }
 
 /** Default frame cache size: the current session plus the two before it. */
 const DEFAULT_CACHE_SIZE = 3
+
+/** Claim window used when a deployment enables page access and configures none. */
+const DEFAULT_CLAIM_TIMEOUT_MS = 3000
+/** Report deadline used when a deployment enables page access and configures none. */
+const DEFAULT_READ_TIMEOUT_MS = 15000
+/** Preferred-tab pin used when a deployment enables page access and configures none. */
+const DEFAULT_PIN_MS = 300000
+/** Listing budget used when a deployment enables page access and configures none. */
+const DEFAULT_OUTLINE_CHARS = 12000
 
 export const Config: z<Config> = z.object({
   root: z.string().required(),
@@ -107,6 +161,16 @@ export const Config: z<Config> = z.object({
   defaultPage: z.string(),
   homePage: z.string(),
   cacheSize: z.natural().default(DEFAULT_CACHE_SIZE),
+  // Cleared default, because schemastery gives every object schema `{}`: left
+  // alone it would materialize this block for a deployment that configured
+  // none and switch the read channel on by accident. `undefined` is not a
+  // value of the block's own type, which is what the cast says.
+  pageAccess: z.object({
+    claimTimeoutMs: z.natural().default(DEFAULT_CLAIM_TIMEOUT_MS),
+    readTimeoutMs: z.natural().default(DEFAULT_READ_TIMEOUT_MS),
+    pinMs: z.natural().default(DEFAULT_PIN_MS),
+    outlineChars: z.natural().default(DEFAULT_OUTLINE_CHARS),
+  }).default(undefined as never),
 })
 
 /**
@@ -125,6 +189,101 @@ async function resolveRoot(configured: string): Promise<string> {
     throw new Error(`content-frame: root "${configured}" is not an existing directory`)
   }
   return await realpath(configured)
+}
+
+/**
+ * Reject a page-access bound that would make the read unusable, at load.
+ * @param field - the field being checked, named in the diagnostic.
+ * @param value - the configured value.
+ * @returns the value.
+ * @throws {Error} when the value is not at least 1.
+ */
+function requirePositive(field: keyof PageAccessConfig, value: number): number {
+  if (value < 1) throw new Error(`content-frame: pageAccess.${field} must be at least 1, received ${value}`)
+  return value
+}
+
+/**
+ * Bytes a claim can possibly need: one call id, one tab id, and the JSON around
+ * them. A protocol bound, not a deployment choice.
+ */
+const MAX_CLAIM_BYTES = 1024
+
+/**
+ * Bytes of JSON overhead a report carries around its listing: the ids, the page,
+ * the header fields, and the counters.
+ */
+const REPORT_ENVELOPE_BYTES = 4096
+
+/**
+ * Claim the two read routes, the read tool, and the pending projection.
+ *
+ * Every registration lives inside this one call, so a deployment that
+ * configures no `pageAccess` has none of them: the routes 404, the model is
+ * offered no tool, no session publishes a pending list, and the browser half
+ * reads the absent settings field and installs no reader.
+ * @param ctx - plugin context carrying the webServer service.
+ * @param config - the deployment's page-access block.
+ * @returns the settings the browser half needs to run a read.
+ */
+function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSettings['pageAccess'] {
+  // Loud at load: a zero deadline would refuse every read the model can make,
+  // with no diagnostic pointing at the row that set it.
+  const timeouts: ReadTimeouts = {
+    claimTimeoutMs: requirePositive('claimTimeoutMs', config.claimTimeoutMs),
+    readTimeoutMs: requirePositive('readTimeoutMs', config.readTimeoutMs),
+    pinMs: requirePositive('pinMs', config.pinMs),
+  }
+  const outlineChars = requirePositive('outlineChars', config.outlineChars)
+  // Four times the budget: a listing is rendered under it in characters, and
+  // the worst case is four UTF-8 bytes per character.
+  const maxTextChars = outlineChars * 4
+  const pending = new PendingReads()
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: CONTENT_CLAIM_ROUTE,
+    handler: async (req, res) => {
+      if (req.method !== 'POST') {
+        rejectMethod(res, 'POST')
+        return
+      }
+      if (rejectUntrustedPost(req, res, 'the read claim route')) return
+      const claim = parseClaimRequest(await readJsonBody(req, MAX_CLAIM_BYTES))
+      if (claim === undefined) {
+        answerJson(res, 400, { error: 'content-frame: expected a JSON body with callId and tabId' })
+        return
+      }
+      answerJson(res, 200, await pending.claim(claim))
+    },
+  }), 'content-frame: page read claim route')
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: CONTENT_REPORT_ROUTE,
+    handler: async (req, res) => {
+      if (req.method !== 'POST') {
+        rejectMethod(res, 'POST')
+        return
+      }
+      if (rejectUntrustedPost(req, res, 'the read report route')) return
+      const body = await readJsonBody(req, maxTextChars + REPORT_ENVELOPE_BYTES)
+      const report = parseReportRequest(body, maxTextChars)
+      if (report === undefined) {
+        answerJson(res, 400, { error: 'content-frame: expected a JSON body with callId, tabId, and outcome' })
+        return
+      }
+      answerJson(res, 200, pending.report(report))
+    },
+  }), 'content-frame: page read report route')
+
+  ctx.inject(['tools'], (toolCtx) => {
+    toolCtx.tools.register(contentReadTool(pending, timeouts))
+  })
+  ctx.inject(['sessionProjections'], (projectionCtx) => {
+    projectionCtx.sessionProjections.register(contentAccessProjection())
+  })
+  return { outlineChars, readTimeoutMs: timeouts.readTimeoutMs }
 }
 
 /**
@@ -161,10 +320,12 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
       await serveContentApp(pathname.slice(CONTENT_APP_ROUTE.length), res, root)
     },
   }), 'content-frame: hosted application route')
+  const pageAccess = config.pageAccess === undefined ? undefined : claimPageAccess(ctx, config.pageAccess)
   const settings: ContentFrameSettings = {
     cacheSize,
     pages: [...pages.values()],
     ...config.homePage === undefined ? {} : { homePage: config.homePage },
+    ...pageAccess === undefined ? {} : { pageAccess },
   }
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
