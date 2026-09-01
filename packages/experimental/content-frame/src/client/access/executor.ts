@@ -23,10 +23,13 @@ import type { MutableRefObject } from 'react'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
-  MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_URL_CHARS, PREFERRED_TAB_WINDOW_MS,
+  MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS,
+  PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, sanitize,
   type ClaimAck, type ReadArgs, type ReadOutcome, type ReadPage, type ReportAck,
 } from '../../access/wire.ts'
-import { FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE } from '../../access/text.ts'
+import {
+  FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
+} from '../../access/text.ts'
 import type { ContentFrameAccessSettings } from '../../route.ts'
 import type { ContentReadRequest } from '../../types.ts'
 import { RefTable } from './refs.ts'
@@ -146,14 +149,35 @@ function frameError(message: string): ReadOutcome {
 }
 
 /**
- * Cut one string the page supplied to the length the wire takes, so a document
- * with a long title or address is posted rather than refused.
- * @param value - the string as the page had it.
+ * Cut one string to the length the wire takes, so a document with a long title
+ * or address is posted rather than refused.
+ *
+ * A cut falling between the two halves of one character takes the leading half
+ * with it: the wire refuses a lone surrogate, so a cut that left one would
+ * refuse the report this cut exists to save.
+ * @param value - the string, already free of what the wire refuses.
  * @param max - the wire's bound on that field, in characters.
  * @returns the string, ending in an ellipsis when it was too long.
  */
 function clipTo(value: string, max: number): string {
-  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+  if (value.length <= max) return value
+  const kept = value.slice(0, max - 1)
+  return `${kept.isWellFormed() ? kept : kept.slice(0, -1)}…`
+}
+
+/**
+ * Take one string the page supplied to what the wire carries: what a posted
+ * document may not hold removed, then cut to that field's own bound.
+ *
+ * That order is what {@link clipTo} is written against: it looks for a
+ * surrogate pair the cut split, which only means anything on a string carrying
+ * no stray half of its own.
+ * @param value - the string as the page had it.
+ * @param max - the wire's bound on that field, in characters.
+ * @returns the string as the seat posts it.
+ */
+function forWire(value: string, max: number): string {
+  return clipTo(sanitize(value), max)
 }
 
 /** What one post to a read route ended as, for a caller deciding whether to try again. */
@@ -176,11 +200,14 @@ type Posted<T> =
 /**
  * Post one document to a read route.
  *
- * A refusal and a post that never landed are different endings. The route
- * refuses this exact document however many times it is sent, so there is
- * nothing to gain by sending it again; a request that never arrived, or that
- * met a server failure saying nothing about the document, is worth one more
- * try.
+ * A refusal and a post that never landed are different endings, and only the
+ * statuses the routes themselves refuse with — {@link ROUTE_REFUSAL_STATUSES} —
+ * are the first. Those the route answers this exact document with however many
+ * times it is sent, so there is nothing to gain by sending it again. Every
+ * other ending is worth one more try, including the rest of the 4xx range: a
+ * reverse proxy refreshing a token answers 401 and a rate limiter answers 429,
+ * neither of which has read the document, and treating those as final would end
+ * a read the next post would have completed.
  * @param route - the route to post to.
  * @param body - the document.
  * @returns what the post ended as.
@@ -193,7 +220,7 @@ async function post<T>(route: string, body: unknown): Promise<Posted<T>> {
       body: JSON.stringify(body),
     })
     if (response.ok) return { kind: 'answered', value: await response.json() as T }
-    return response.status >= 500 ? { kind: 'undelivered' } : { kind: 'refused' }
+    return ROUTE_REFUSAL_STATUSES.includes(response.status) ? { kind: 'refused' } : { kind: 'undelivered' }
   } catch (_hostUnreachable) {
     return { kind: 'undelivered' }
   }
@@ -280,7 +307,7 @@ function otherKind(entries: readonly ContentSurfaceEntry[]): { kind?: string; ti
   const others = entries.filter(entry => entry.kind !== PAGE_KIND)
   const only = others.length === 1 ? others[0] : undefined
   if (only === undefined) return {}
-  return { kind: clipTo(only.kind, MAX_NAME_CHARS), title: clipTo(only.title, MAX_NAME_CHARS) }
+  return { kind: forWire(only.kind, MAX_NAME_CHARS), title: forWire(only.title, MAX_NAME_CHARS) }
 }
 
 /**
@@ -356,20 +383,30 @@ async function readPage(
   try {
     // Re-read after the wait: a navigation replaces the frame's document.
     const read = snapshot(frame.contentWindow.document, options)
+    const text = sanitize(read.text)
+    // The renderer prints a listing's first block however long it is, and the
+    // parser refuses a listing past this multiple of the budget. Posting one
+    // anyway spends the whole report deadline on a refusal the host cannot
+    // trace back to the call, and the model is told the console went quiet;
+    // saying so here is what puts a narrower read in front of it instead.
+    if (text.length > access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE) {
+      return frameError(FRAME_WIDE_LISTING_MESSAGE)
+    }
     // Every string below the listing itself comes from the document, and the
-    // wire holds each of them to a length; a page with a long title posts a cut
-    // title rather than a report the route refuses.
+    // wire holds each of them to a length and to what JSON carries cheaply; a
+    // page with a long title posts a cut title rather than a report the route
+    // refuses.
     return {
       status: 'ok',
-      page: { id: seat.page.id, title: clipTo(seat.page.title, MAX_NAME_CHARS) },
+      page: { id: seat.page.id, title: forWire(seat.page.title, MAX_NAME_CHARS) },
       snapshot: {
         kind: read.kind,
-        url: clipTo(read.header.url, MAX_URL_CHARS),
-        title: clipTo(read.header.title, MAX_HEADER_CHARS),
-        ...read.header.breadcrumb === undefined ? {} : { breadcrumb: clipTo(read.header.breadcrumb, MAX_HEADER_CHARS) },
-        ...read.header.modal === undefined ? {} : { modal: clipTo(read.header.modal, MAX_HEADER_CHARS) },
+        url: forWire(read.header.url, MAX_URL_CHARS),
+        title: forWire(read.header.title, MAX_HEADER_CHARS),
+        ...read.header.breadcrumb === undefined ? {} : { breadcrumb: forWire(read.header.breadcrumb, MAX_HEADER_CHARS) },
+        ...read.header.modal === undefined ? {} : { modal: forWire(read.header.modal, MAX_HEADER_CHARS) },
         signIn: read.header.signIn,
-        text: read.text,
+        text,
         truncated: read.truncated,
         shown: read.shown,
         total: read.total,
@@ -379,7 +416,7 @@ async function readPage(
   } catch (refusal) {
     /* v8 ignore next 2 -- the reader throws Error and nothing else; String() keeps a thrown non-Error readable. */
     const message = refusal instanceof Error ? refusal.message : String(refusal)
-    return { status: 'error', code: 'engine', message: clipTo(message, MAX_OUTCOME_MESSAGE_CHARS) }
+    return { status: 'error', code: 'engine', message: forWire(message, MAX_OUTCOME_MESSAGE_CHARS) }
   }
 }
 

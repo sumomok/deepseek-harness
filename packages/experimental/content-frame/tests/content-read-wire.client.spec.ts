@@ -11,7 +11,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { MAX_NAME_CHARS, parseClaimRequest, parseReportRequest, type ReadOutcome } from '../src/access/wire.ts'
+import {
+  MAX_NAME_CHARS, parseClaimRequest, parseReportRequest, sanitize, type ReadOutcome,
+} from '../src/access/wire.ts'
 
 /** The listing bound these cases are written against. */
 const MAX_TEXT = 100
@@ -36,6 +38,40 @@ const READ: ReadOutcome = {
 function report(outcome: unknown): unknown {
   return { callId: 'call_1', tabId: 'tab_1', outcome }
 }
+
+/**
+ * One C0 control a page can hold and JSON cannot carry cheaply: six bytes per
+ * unit where the report's byte bound allows four per character.
+ */
+const CONTROL = String.fromCharCode(1)
+
+/** The other half of the same problem: a surrogate with no partner. */
+const LONE_SURROGATE = String.fromCharCode(0xd800)
+
+describe('what a posted string may be made of', () => {
+  it('hands back a string it has nothing to drop from, rather than a copy of it', () => {
+    // Reference equality, because every posted field runs through this and a
+    // page with nothing wrong with it should cost nothing to post.
+    for (const clean of ['', 'Fleet', '\u7532\u4e59', String.fromCodePoint(0x1f600), 'a\tb\nc\rd']) {
+      expect(sanitize(clean)).toBe(clean)
+    }
+  })
+
+  it('drops the code points JSON cannot carry cheaply, and keeps the rest of the line', () => {
+    expect(sanitize(`Fleet${CONTROL}${String.fromCharCode(127)} status`)).toBe('Fleet status')
+    // Every C0 control other than the three whitespace ones, and DEL.
+    const codes = [...Array.from({ length: 32 }, (_, code) => code), 127]
+    const kept = codes.filter(code => sanitize(`a${String.fromCharCode(code)}b`) !== 'ab')
+    expect(kept).toEqual([9, 10, 13])
+  })
+
+  it('drops a surrogate half standing alone and keeps a whole pair', () => {
+    const emoji = String.fromCodePoint(0x1f600)
+    expect(sanitize(`a${LONE_SURROGATE}b${emoji}`)).toBe(`ab${emoji}`)
+    expect(sanitize(`a${String.fromCharCode(0xdc00)}b`)).toBe('ab')
+    expect(sanitize(`a${LONE_SURROGATE}b`).isWellFormed()).toBe(true)
+  })
+})
 
 describe('claim wire boundary', () => {
   it('takes a claim naming both ids', () => {
@@ -192,5 +228,36 @@ describe('report wire boundary', () => {
       expect({ outcome, parsed: parseReportRequest(report(outcome), MAX_TEXT) })
         .toEqual({ outcome, parsed: undefined })
     }
+  })
+
+  it('refuses a field carrying what the seat would have removed', () => {
+    // The byte bound is computed at four bytes per character while each of
+    // these costs six per unit, so a listing inside the budget could still be
+    // refused for its size; a body still carrying them is not one the seat
+    // wrote. The refusal is a shape rather than a size, because the document
+    // arrived in full and is not the one this route takes.
+    for (const [field, outcome] of [
+      ['text', { ...READ, snapshot: { ...READ.snapshot, text: `1 main${CONTROL}` } }],
+      ['url', { ...READ, snapshot: { ...READ.snapshot, url: `http://x/${CONTROL}` } }],
+      ['title', { ...READ, snapshot: { ...READ.snapshot, title: `Fleet${LONE_SURROGATE}` } }],
+      ['breadcrumb', { ...READ, snapshot: { ...READ.snapshot, breadcrumb: `Home${CONTROL}` } }],
+      ['modal', { ...READ, snapshot: { ...READ.snapshot, modal: `Confirm${LONE_SURROGATE}` } }],
+      ['cursor', { ...READ, snapshot: { ...READ.snapshot, cursor: `e1${CONTROL}` } }],
+      ['page.title', { ...READ, page: { id: 'home', title: `Home${CONTROL}` } }],
+      ['message', { status: 'error', code: 'frame', message: `why${CONTROL}` }],
+      ['kind', { status: 'error', code: 'not-a-page', message: 'why', kind: `chart${CONTROL}` }],
+    ] as const) {
+      expect({ field, parsed: parseReportRequest(report(outcome), MAX_TEXT) }).toEqual({ field, parsed: undefined })
+    }
+    // Both ids are held to the same rule, on a report and on a claim.
+    expect(parseReportRequest({ callId: `call_1${CONTROL}`, tabId: 'tab_1', outcome: READ }, MAX_TEXT)).toBeUndefined()
+    expect(parseClaimRequest({ callId: 'call_1', tabId: `tab_1${LONE_SURROGATE}` })).toBeUndefined()
+  })
+
+  it('keeps the whitespace a listing is built out of', () => {
+    // Tab, newline and carriage return cost two JSON bytes, which the byte
+    // bound covers, and the listing itself is lines.
+    const outcome: ReadOutcome = { ...READ, snapshot: { ...READ.snapshot, text: '1 main\n  2 button\tGo\r' } }
+    expect(parseReportRequest(report(outcome), MAX_TEXT)?.outcome).toEqual(outcome)
   })
 })

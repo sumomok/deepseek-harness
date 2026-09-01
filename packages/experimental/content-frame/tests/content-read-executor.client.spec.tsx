@@ -17,9 +17,10 @@ import {
 } from '../src/client/access/executor.ts'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
-  MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest, PREFERRED_TAB_WINDOW_MS,
-  type ClaimAck, type ReadOutcome,
+  MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest, PREFERRED_TAB_WINDOW_MS,
+  ROUTE_REFUSAL_STATUSES, type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
+import { FRAME_WIDE_LISTING_MESSAGE } from '../src/access/text.ts'
 import type { RefTable } from '../src/client/access/refs.ts'
 import type { ContentReadRequest } from '../src/types.ts'
 
@@ -56,11 +57,21 @@ let claims: ClaimAck[] = []
 const SETTLE_MARGIN_MS = 200
 
 /**
- * What becomes of one posted document. `unavailable` and `unreachable` say
- * nothing about the document and are worth another try; `refused` is the route
- * answering this exact document, which a second post would not change.
+ * What becomes of one posted document: taken, never delivered, or answered with
+ * a status. A status in {@link ROUTE_REFUSAL_STATUSES} is the route answering
+ * this exact document, which a second post would not change; every other one
+ * came from between the seat and the route and says nothing about it.
  */
-type Fate = 'ok' | 'unavailable' | 'unreachable' | 'refused'
+type Fate = 'ok' | 'unreachable' | number
+
+/** A server failure, which says nothing about the document the seat posted. */
+const SERVER_FAILURE = 503
+
+/** What a reverse proxy answers with while it refreshes a token of its own. */
+const TOKEN_REFRESH = 401
+
+/** What a rate limiter in front of the host answers with. */
+const RATE_LIMITED = 429
 
 /** Fates the stub gives a route's next posts, oldest first; past them {@link network} stands. */
 let fates: Map<string, Fate[]>
@@ -74,12 +85,17 @@ function stubRoutes(): void {
     posted.push({ route, body: JSON.parse(init.body as string) as Record<string, unknown> })
     const fate = fates.get(route)?.shift() ?? network
     if (fate === 'unreachable') return Promise.reject(new Error('offline'))
-    if (fate === 'unavailable') return Promise.resolve({ ok: false, status: 503 })
-    if (fate === 'refused') return Promise.resolve({ ok: false, status: 413 })
+    if (fate !== 'ok') return Promise.resolve({ ok: false, status: fate })
     const answer = route === CONTENT_CLAIM_ROUTE ? claims.shift() ?? { claimed: true } : { accepted: true }
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) })
   }))
 }
+
+/** One C0 control a page can hold: six JSON bytes per unit where the wire's byte bound allows four. */
+const CONTROL = String.fromCharCode(1)
+
+/** A surrogate with no partner, which costs the same and is not a character at all. */
+const LONE_SURROGATE = String.fromCharCode(0xd800)
 
 /** The claims and the reports posted so far. */
 function of(route: string): Record<string, unknown>[] {
@@ -273,21 +289,22 @@ describe('when the reader claims', () => {
   })
 
   it('bids again after a claim that never landed, rather than losing the read to one of them', async () => {
-    for (const fate of ['unavailable', 'unreachable'] as const) {
+    for (const fate of [SERVER_FAILURE, 'unreachable', TOKEN_REFRESH, RATE_LIMITED] as const) {
       posted = []
       fates.set(CONTENT_CLAIM_ROUTE, [fate])
       const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
       const view = drive(seatOf({ frames: { current: frames } }))
       await settled()
-      // The console is in front of the user the whole time; one dropped request
-      // must not be what tells the model there is no console at all.
+      // The console is in front of the user the whole time; neither one dropped
+      // request nor one answer from something in front of the route may be what
+      // tells the model there is no console at all.
       expect({ fate, bids: of(CONTENT_CLAIM_ROUTE).length }).toEqual({ fate, bids: 2 })
       view.unmount()
     }
   })
 
   it('keeps bidding while the claim never lands, and answers nothing when it never does', async () => {
-    for (const state of ['unavailable', 'unreachable'] as const) {
+    for (const state of [SERVER_FAILURE, 'unreachable'] as const) {
       posted = []
       network = state
       const view = drive(seatOf({ access: { outlineChars: 4000, claimTimeoutMs: 50, readTimeoutMs: 500 } }))
@@ -299,14 +316,21 @@ describe('when the reader claims', () => {
   })
 
   it('stops bidding once the route has refused the bid itself', async () => {
-    fates.set(CONTENT_CLAIM_ROUTE, ['refused'])
-    const view = drive(seatOf())
-    await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1) })
-    // A refusal is the route answering this exact bid; bidding again with the
-    // same body would spend the whole claim window on the same answer.
-    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * 2 + SETTLE_MARGIN_MS) })
-    expect({ bids: of(CONTENT_CLAIM_ROUTE).length, reports: of(CONTENT_REPORT_ROUTE) }).toEqual({ bids: 1, reports: [] })
-    view.unmount()
+    // Every status the routes themselves refuse a document with, rather than
+    // one of them: what ends the bidding is the set, and a status outside it
+    // leaves the seat bidding.
+    for (const status of ROUTE_REFUSAL_STATUSES) {
+      posted = []
+      fates.set(CONTENT_CLAIM_ROUTE, [status])
+      const view = drive(seatOf())
+      await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1) })
+      // A refusal is the route answering this exact bid; bidding again with the
+      // same body would spend the whole claim window on the same answer.
+      await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS + SETTLE_MARGIN_MS) })
+      expect({ status, bids: of(CONTENT_CLAIM_ROUTE).length, reports: of(CONTENT_REPORT_ROUTE) })
+        .toEqual({ status, bids: 1, reports: [] })
+      view.unmount()
+    }
   })
 
   it('forgets a call once it has left the pending list', async () => {
@@ -347,27 +371,36 @@ describe('what the reader reports', () => {
   })
 
   it('posts the read a second time when the first report never landed, and no third', async () => {
-    fates.set(CONTENT_REPORT_ROUTE, ['unavailable'])
-    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
-    drive(seatOf({ frames: { current: frames } }))
-    await vi.waitFor(() => { expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(2) }, { timeout: 3000 })
-    expect(of(CONTENT_REPORT_ROUTE)[1]).toEqual(of(CONTENT_REPORT_ROUTE)[0])
-    // Past one retry the host's own deadline owns the ending; the seat does not
-    // sit on a call the host has already answered.
-    await new Promise<void>((resolve) => { setTimeout(resolve, 400) })
-    expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(2)
+    // A server failure and a rate limiter's answer alike: neither has read the
+    // document, so neither is the route deciding about it.
+    for (const fate of [SERVER_FAILURE, 'unreachable', RATE_LIMITED] as const) {
+      posted = []
+      fates.set(CONTENT_REPORT_ROUTE, [fate])
+      const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+      const view = drive(seatOf({ frames: { current: frames } }))
+      await vi.waitFor(() => { expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(2) }, { timeout: 3000 })
+      expect(of(CONTENT_REPORT_ROUTE)[1]).toEqual(of(CONTENT_REPORT_ROUTE)[0])
+      // Past one retry the host's own deadline owns the ending; the seat does
+      // not sit on a call the host has already answered.
+      await new Promise<void>((resolve) => { setTimeout(resolve, 400) })
+      expect({ fate, posts: of(CONTENT_REPORT_ROUTE).length }).toEqual({ fate, posts: 2 })
+      view.unmount()
+    }
   })
 
   it('does not post a report the route refused a second time', async () => {
-    fates.set(CONTENT_REPORT_ROUTE, ['refused'])
-    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
-    const view = drive(seatOf({ frames: { current: frames } }))
-    await settled()
-    // The route answered this exact document; the second post would carry it to
-    // the same check, and the host's own deadline is what ends the call.
-    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * 2 + SETTLE_MARGIN_MS) })
-    expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(1)
-    view.unmount()
+    for (const status of ROUTE_REFUSAL_STATUSES) {
+      posted = []
+      fates.set(CONTENT_REPORT_ROUTE, [status])
+      const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+      const view = drive(seatOf({ frames: { current: frames } }))
+      await settled()
+      // The route answered this exact document; the second post would carry it
+      // to the same check, and the host's own deadline is what ends the call.
+      await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS + SETTLE_MARGIN_MS) })
+      expect({ status, posts: of(CONTENT_REPORT_ROUTE).length }).toEqual({ status, posts: 1 })
+      view.unmount()
+    }
   })
 
   it('cuts a page-supplied title and address to the lengths the wire takes', async () => {
@@ -412,7 +445,90 @@ describe('what the reader reports', () => {
     expect(outcome.snapshot.text.length).toBeGreaterThan(MIN_OUTLINE_CHARS)
     // And the host takes it: the character bound is four times the budget, and
     // the floor on the budget is what keeps that row inside it.
-    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * 4)).toBeDefined()
+    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE))
+      .toBeDefined()
+  })
+
+  it('cuts a title between characters rather than through one', async () => {
+    const frame = mountFrame('<main><h1>Fleet</h1></main>')
+    const doc = frame.contentWindow?.document
+    if (doc === null || doc === undefined) throw new Error('jsdom gave the mounted frame no document')
+    // The cut lands inside the first supplementary character, whose leading
+    // half alone is not a string the wire carries.
+    doc.title = 'a'.repeat(MAX_HEADER_CHARS - 2) + String.fromCodePoint(0x1f600).repeat(10)
+    drive(seatOf({ frames: { current: new Map([[FRAME, frame]]) } }))
+    await settled()
+    const outcome = reported()
+    if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
+    const title = outcome.snapshot.title
+    expect({ inside: title.length <= MAX_HEADER_CHARS, cut: title.endsWith('…'), whole: title.isWellFormed() })
+      .toEqual({ inside: true, cut: true, whole: true })
+  })
+
+  it('posts a page\'s own text without the code points the wire refuses', async () => {
+    const frame = mountFrame('<main><h1 id="head"></h1></main>')
+    const doc = frame.contentWindow?.document
+    const head = doc?.getElementById('head')
+    if (doc === null || doc === undefined || head === null || head === undefined) {
+      throw new Error('the fixture lost its document')
+    }
+    // Appended as a text node: an `innerHTML` parse would replace them first.
+    head.append(doc.createTextNode(`Fleet${CONTROL}${LONE_SURROGATE} status`))
+    doc.title = `Console${CONTROL}`
+    Object.defineProperty(doc, 'URL', { value: `http://x/${LONE_SURROGATE}fleet`, configurable: true })
+    drive(seatOf({ frames: { current: new Map([[FRAME, frame]]) } }))
+    await settled()
+    const outcome = reported()
+    if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
+    // The document really holds them, so what removed them is the seat.
+    expect(doc.body.textContent).toContain(CONTROL)
+    expect(outcome.snapshot.text).toContain('Fleet status')
+    for (const [field, value] of Object.entries({
+      text: outcome.snapshot.text, title: outcome.snapshot.title, url: outcome.snapshot.url,
+    })) {
+      expect({ field, control: value.includes(CONTROL), whole: value.isWellFormed() })
+        .toEqual({ field, control: false, whole: true })
+    }
+    expect({ title: outcome.snapshot.title, url: outcome.snapshot.url })
+      .toEqual({ title: 'Console', url: 'http://x/fleet' })
+    // And the whole document is one the route takes.
+    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], ACCESS.outlineChars * MAX_TEXT_BUDGET_MULTIPLE))
+      .toBeDefined()
+  })
+
+  it('says a listing is too wide instead of posting one the route would refuse', async () => {
+    // Wider than the eight columns the smallest budget's character bound holds:
+    // the renderer prints this block whatever the budget is, so the seat is the
+    // only place the model can be told to read a smaller part of the page.
+    const cell = (tag: string, seed: string): string => `<${tag}>${seed.repeat(300)}</${tag}>`
+    const cells = (tag: string): string =>
+      Array.from({ length: 12 }, (_, column) => cell(tag, `c${String(column)}`)).join('')
+    const frame = mountFrame(
+      `<table aria-label="${'N'.repeat(300)}">`
+      + `<thead><tr>${cells('th')}</tr></thead><tbody><tr>${cells('td')}</tr></tbody></table>`
+      + `<nav class="pagination">${'P'.repeat(300)}</nav>`,
+    )
+    drive(seatOf({
+      frames: { current: new Map([[FRAME, frame]]) },
+      access: { outlineChars: MIN_OUTLINE_CHARS, claimTimeoutMs: 300, readTimeoutMs: 1000 },
+      pending: [{ callId: 'call_1', tool: 'content_read', args: { find: 'NNN' } }],
+    }))
+    await settled()
+    expect(reported()).toEqual({
+      status: 'error',
+      code: 'frame',
+      message: 'The page\'s first block alone is wider than this deployment\'s read budget. '
+        + 'Call content_read with scope or find to read a smaller part of the page, '
+        + 'or ask the user to raise pageAccess.outlineChars.',
+    })
+    // The same sentence the seat holds, so a wording change moves both.
+    expect(reported()).toMatchObject({ message: FRAME_WIDE_LISTING_MESSAGE })
+    // And a document the route takes, where the listing itself would have been
+    // refused and reached the model as a console that never answered.
+    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE)).toBeDefined()
+    // One post, not one per retry: the seat answered rather than being refused.
+    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS + SETTLE_MARGIN_MS) })
+    expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(1)
   })
 
   it('keeps one numbering per frame, so a ref survives the read that minted it', async () => {

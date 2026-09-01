@@ -77,6 +77,18 @@ export const FRAME_RETIRED_MESSAGE =
   + 'Call content_show to put a page in front.'
 
 /**
+ * Failure the seat posts when the listing's first block alone runs past what a
+ * report may carry — the one block the renderer prints whatever the budget is.
+ *
+ * Both ways out are named because only one of them is the model's to take: a
+ * narrower read is, and the budget is the deployment's to raise.
+ */
+export const FRAME_WIDE_LISTING_MESSAGE =
+  'The page\'s first block alone is wider than this deployment\'s read budget. '
+  + 'Call content_read with scope or find to read a smaller part of the page, '
+  + 'or ask the user to raise pageAccess.outlineChars.'
+
+/**
  * The failure for a claim window that passed with no browser in it.
  * @param claimTimeoutMs - the window that passed.
  * @returns the model-facing sentence.

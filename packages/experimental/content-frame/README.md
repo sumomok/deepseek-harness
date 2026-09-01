@@ -150,7 +150,7 @@ The description is a constant and never varies within a deployment, so the tool 
 
 #### What the model sees
 
-A successful read answers with one text block: a `Page: <title> — the app is at <path>, title "<document title>"` line, extended with the visible breadcrumb and, on its own line, the name of any dialog the page has open, followed by the listing itself. A whole page too large for the budget answers with the page's map and says so on that first line; a listing cut short ends with the cursor to pass back as `after`. Every other ending is an error naming what to do next: call `content_show`, drop `scope`, ask the user to sign in, ask the user to open the console, or retry once.
+A successful read answers with one text block: a `Page: <title> — the app is at <path>, title "<document title>"` line, extended with the visible breadcrumb and, on its own line, the name of any dialog the page has open, followed by the listing itself. A whole page too large for the budget answers with the page's map and says so on that first line; a listing cut short ends with the cursor to pass back as `after`. Every other ending is an error naming what to do next: call `content_show`, drop `scope`, read a smaller part of the page or raise `outlineChars`, ask the user to sign in, ask the user to open the console, or retry once.
 
 #### Token effect
 

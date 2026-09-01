@@ -34,7 +34,8 @@ import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-t
 import * as ContentFrame from '../src/index.ts'
 import {
   CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_CURSOR_CHARS, MAX_HEADER_CHARS, MAX_NAME_CHARS,
-  MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest, type ClaimAck, type ReadOutcome,
+  MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest,
+  type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
 
@@ -61,6 +62,15 @@ const ENVELOPE_BYTES = 23328
  * at four UTF-8 bytes per character, plus the envelope.
  */
 const REPORT_BYTES = OUTLINE_CHARS * 4 + ENVELOPE_BYTES
+
+/** The punctuation and key names {@link ENVELOPE_BYTES} leaves room for, written out for the same reason. */
+const SYNTAX_BYTES = 512
+
+/** The listing budget a deployment gets when it writes `pageAccess: {}`. */
+const DEFAULT_OUTLINE_CHARS = 12000
+
+/** One C0 control: six JSON bytes per unit where the byte bound allows four per character. */
+const CONTROL = String.fromCharCode(1)
 
 /** The tab every case here answers from. */
 const TAB = 'tab_1'
@@ -498,12 +508,84 @@ describe('the read channel over real HTTP', () => {
     })
   })
 
-  it('takes a report carrying every field at the length the wire holds it to', async () => {
+  it('takes a whole budget of any text a sanitized listing can be made of', async () => {
+    // The shipped default rather than this suite's floor, because that is the
+    // budget a deployment gets by writing `pageAccess: {}` and the one the byte
+    // bound's promise is read against. Every filler here is a UTF-16 unit the
+    // seat posts as it stands: three JSON bytes is the widest a character gets,
+    // and a supplementary one costs two per unit.
+    const ctx = await loadComposition(true, [], DEFAULT_OUTLINE_CHARS)
+    for (const [name, filler] of [
+      ['three-byte', '\u7532'],
+      ['supplementary', String.fromCodePoint(0x1f600)],
+      ['escaped', '\\'],
+    ] as const) {
+      const text = filler.repeat(DEFAULT_OUTLINE_CHARS / filler.length)
+      const outcome = { ...LISTING, snapshot: { ...LISTING.snapshot, text } }
+      const answer = await raw(ctx, CONTENT_REPORT_ROUTE, { body: JSON.stringify({ callId: 'c', tabId: TAB, outcome }) })
+      expect({ name, units: text.length, status: answer.status })
+        .toEqual({ name, units: DEFAULT_OUTLINE_CHARS, status: 200 })
+    }
+  })
+
+  it('refuses a listing made of what the seat removes, at whichever bound it reaches', async () => {
+    const ctx = await loadComposition(true, [], DEFAULT_OUTLINE_CHARS)
+    // Inside the byte bound and carrying control characters: the body arrives
+    // in full, and what refuses it is the parser rather than its size.
+    const some = { ...LISTING, snapshot: { ...LISTING.snapshot, text: `1 main${CONTROL.repeat(210)}` } }
+    const shape = await postJson(ctx, CONTENT_REPORT_ROUTE, { callId: 'c', tabId: TAB, outcome: some })
+    expect({ status: shape.status, body: JSON.parse(shape.body) as unknown }).toEqual({
+      status: 400,
+      body: { error: 'content-frame: expected a JSON body with callId, tabId, and outcome' },
+    })
+    // The same listing without them is taken, so what refuses the one above is
+    // the code point and not the length.
+    const clean = { ...LISTING, snapshot: { ...LISTING.snapshot, text: '1 main' } }
+    expect((await postJson(ctx, CONTENT_REPORT_ROUTE, { callId: 'c', tabId: TAB, outcome: clean })).status).toBe(200)
+    // A whole budget of them costs six JSON bytes per unit against the four the
+    // byte bound allows, so the read stops at the bound before any of that
+    // reaches the parser. Neither answer is one a seat collects: it removes
+    // these before posting.
+    const all = { ...LISTING, snapshot: { ...LISTING.snapshot, text: CONTROL.repeat(DEFAULT_OUTLINE_CHARS) } }
+    const size = await raw(ctx, CONTENT_REPORT_ROUTE, { body: JSON.stringify({ callId: 'c', tabId: TAB, outcome: all }) })
+    expect({ status: size.status, body: JSON.parse(size.body) as unknown }).toEqual({
+      status: 413,
+      body: {
+        error: 'content-frame: the read report route refuses a body past '
+          + `${DEFAULT_OUTLINE_CHARS * 4 + ENVELOPE_BYTES} bytes`,
+      },
+    })
+  })
+
+  it('leaves the envelope more punctuation and key names than either form of a report writes', () => {
+    // What the envelope's own syntax allowance is stated against: a listing
+    // report with every string empty, and the union of that form's keys with a
+    // failure's, which is what a bound covering both forms has to hold.
+    const empty = {
+      callId: '',
+      tabId: '',
+      outcome: {
+        status: 'ok',
+        page: { id: '', title: '' },
+        snapshot: {
+          kind: '', url: '', title: '', breadcrumb: '', modal: '',
+          signIn: false, text: '', truncated: false, shown: 123456789, total: 123456789, cursor: '',
+        },
+      },
+    }
+    const union = { ...empty, outcome: { ...empty.outcome, code: '', message: '', kind: '', title: '' } }
+    expect([JSON.stringify(empty).length, JSON.stringify(union).length]).toEqual([239, 283])
+    expect(JSON.stringify(union).length).toBeLessThan(SYNTAX_BYTES)
+  })
+
+  it('takes the largest report the parser will pass, with room left over', async () => {
     const ctx = await loadComposition(true)
-    // Three UTF-8 bytes is as wide as one character gets, and each of these is
-    // as long as the parser takes — a listing rendered inside the budget with
-    // every field around it at its bound. The envelope is sized to hold it: the
-    // address alone is half again the whole envelope this route once carried.
+    // Three UTF-8 bytes is as wide as one character gets once the seat has
+    // removed what costs more, and every field here is as long as the parser
+    // takes — the listing at four times the budget, which is the widest one a
+    // seat posts rather than reporting on. The envelope is sized to hold it:
+    // the address alone is half again the whole envelope this route once
+    // carried.
     const wide = (chars: number): string => '甲'.repeat(chars)
     const outcome: ReadOutcome = {
       status: 'ok',
@@ -515,16 +597,19 @@ describe('the read channel over real HTTP', () => {
         breadcrumb: wide(MAX_HEADER_CHARS),
         modal: wide(MAX_HEADER_CHARS),
         signIn: false,
-        text: wide(OUTLINE_CHARS),
+        text: wide(OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE),
         truncated: true,
         shown: 1,
         total: 2,
         cursor: wide(MAX_CURSOR_CHARS),
       },
     }
-    const answer = await raw(ctx, CONTENT_REPORT_ROUTE, {
-      body: JSON.stringify({ callId: wide(MAX_NAME_CHARS), tabId: wide(MAX_NAME_CHARS), outcome }),
-    })
+    const body = JSON.stringify({ callId: wide(MAX_NAME_CHARS), tabId: wide(MAX_NAME_CHARS), outcome })
+    // Written out because the margin is the claim: the widest report a seat can
+    // post is thousands of bytes inside the bound, not at it.
+    expect(new TextEncoder().encode(body).length).toBe(23341)
+    expect(REPORT_BYTES).toBe(27328)
+    const answer = await raw(ctx, CONTENT_REPORT_ROUTE, { body })
     expect({ status: answer.status, body: JSON.parse(answer.body) as unknown })
       .toEqual({ status: 200, body: { accepted: false } })
   })
@@ -554,7 +639,10 @@ describe('the read channel over real HTTP', () => {
     const ctx = await loadComposition(true)
     for (const route of [CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE]) {
       const answer = await call(ctx, route)
-      expect({ route, status: answer.status, allow: answer.allow }).toEqual({ route, status: 405, allow: 'POST' })
+      // `no-store` with it: 405 is one of the statuses a cache may keep on its
+      // own, and these routes serve request-local truth on every answer.
+      expect({ route, status: answer.status, allow: answer.allow, cacheControl: answer.cacheControl })
+        .toEqual({ route, status: 405, allow: 'POST', cacheControl: 'no-store' })
     }
   })
 

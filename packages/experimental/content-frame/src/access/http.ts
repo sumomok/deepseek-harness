@@ -106,8 +106,10 @@ export function rejectMethod(req: IncomingMessage, res: ServerResponse, allow: s
   // `allow` because these routes own their exact paths: nothing else can answer
   // the method the caller asked for, so the response states the complete set.
   // `connection: close` for the reason {@link refuseUnread} states: this answer
-  // is written over a body the route never read.
-  res.writeHead(405, { allow, connection: 'close' })
+  // is written over a body the route never read. `no-store` because 405 is one
+  // of the statuses a cache may keep without being told to, and these routes
+  // serve request-local truth like every other answer they write.
+  res.writeHead(405, { allow, connection: 'close', 'cache-control': 'no-store' })
   res.end()
 }
 
@@ -180,11 +182,12 @@ export type BodyRead =
  * `content-length` is not consulted. Refusing on the header alone would leave
  * the body unconsumed, and node drains a body nothing consumed off the wire
  * itself once the exchange finishes — so refusing a request for its size would
- * still cost its size. Reading up to the bound and stopping there is what keeps
- * that drain from running: at the first chunk that crosses, the read drops its
- * data listener and pauses the request. It does not destroy the request,
- * because the route still has a refusal to write; closing the connection
- * belongs to that answer.
+ * cost its whole size where the answer leaves the connection open, and far past
+ * this bound even where the answer closes it ({@link refuseUnread} states why).
+ * Reading up to the bound and stopping there is what keeps that drain from
+ * running: at the first chunk that crosses, the read drops its data listener
+ * and pauses the request. It does not destroy the request, because the route
+ * still has a refusal to write; closing the connection belongs to that answer.
  *
  * The total counts each chunk's bytes after it has been decoded as UTF-8, which
  * is never fewer than the bytes that arrived — an invalid byte decodes to a

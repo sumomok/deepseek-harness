@@ -42,7 +42,8 @@ import { contentAccessProjection } from './access/requests-projection.ts'
 import { contentReadTool } from './access/read-tool.ts'
 import {
   CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_CURSOR_CHARS, MAX_HEADER_CHARS, MAX_NAME_CHARS,
-  MAX_OUTCOME_MESSAGE_CHARS, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseClaimRequest, parseReportRequest,
+  MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS,
+  parseClaimRequest, parseReportRequest,
 } from './access/wire.ts'
 
 // The `content/shown` and `content` declarations live in src/types.ts (their
@@ -220,9 +221,12 @@ function requireAtLeast(field: keyof PageAccessConfig, value: number, least: num
 const MAX_CLAIM_BYTES = 1024
 
 /**
- * Bytes of JSON punctuation and key names one report is written with, rounded
- * up from the 246 a report with every field present, every string empty, and
- * nine-digit counters serializes to.
+ * Bytes of JSON punctuation and key names one report is written with.
+ *
+ * A listing report with every string empty and nine-digit counters serializes
+ * to 239 bytes; the union of that form's keys and a failure's is 283, which is
+ * what the envelope has to leave room for, because a bound covering both forms
+ * cannot be read off either one alone. Rounded up from there.
  */
 const REPORT_SYNTAX_BYTES = 512
 
@@ -264,19 +268,23 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     pinMs: requireAtLeast('pinMs', config.pinMs, 1),
   }
   const outlineChars = requireAtLeast('outlineChars', config.outlineChars, MIN_OUTLINE_CHARS)
-  // The character bound the parser holds a posted listing to, four times the
-  // budget the seat renders under: it covers the one row the renderer prints
-  // past the budget, and a forged listing cannot carry an arbitrary page
-  // through it.
-  const maxTextChars = outlineChars * 4
+  // The character bound the parser holds a posted listing to: it covers the one
+  // block the renderer prints past the budget, and a forged listing cannot
+  // carry an arbitrary page through it. A listing past it is one the seat
+  // reports on instead of posting.
+  const maxTextChars = outlineChars * MAX_TEXT_BUDGET_MULTIPLE
   // The byte bound on the whole body: the seat's own render budget at four
   // UTF-8 bytes per character, plus an envelope allowing the same four bytes
   // for every other field of a report, each at the bound the wire holds it to.
-  // No character costs more than that, so a listing rendered inside the budget
-  // arrives whole whatever the page is written in. Not the character bound
-  // above converted, which would be sixteen bytes per rendered character: past
-  // a budget the envelope no longer covers, this bound refuses a listing of
-  // multibyte text that the parser's character bound alone would have taken.
+  // In a body the seat sanitized, no UTF-16 unit costs more than four bytes of
+  // JSON — two for a short escape, three for the widest character, two per unit
+  // for a supplementary one — so a listing rendered inside the budget arrives
+  // whole whatever the page is written in; a listing that was not sanitized is
+  // refused as a shape by the parser rather than reaching this bound. Not the
+  // character bound above converted, which would be sixteen bytes per rendered
+  // character: past a budget the envelope no longer covers, this bound refuses
+  // a listing of multibyte text that the parser's character bound alone would
+  // have taken.
   const reportBytes = outlineChars * 4 + REPORT_ENVELOPE_BYTES
   const claimRefusals: BodyRefusals = {
     oversize: `content-frame: ${CLAIM_ROUTE_NAME} refuses a body past ${MAX_CLAIM_BYTES} bytes`,

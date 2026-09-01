@@ -78,6 +78,16 @@ export const MAX_NAME_CHARS = 256
 export const MAX_CURSOR_CHARS = 32
 
 /**
+ * How many times its own render budget a posted listing may be, in characters.
+ *
+ * The renderer prints a listing's first row however long that row is, so the
+ * parser takes a listing past the budget rather than exactly it. Both halves
+ * read this: the parser as the bound past which it refuses, the seat as the
+ * point where it stops posting and says so instead.
+ */
+export const MAX_TEXT_BUDGET_MULTIPLE = 4
+
+/**
  * Smallest listing budget a deployment may configure, in characters.
  *
  * The parser holds a posted listing to four times the budget, and the renderer
@@ -90,6 +100,65 @@ export const MAX_CURSOR_CHARS = 32
  * eight columns.
  */
 export const MIN_OUTLINE_CHARS = 1000
+
+/**
+ * Every status the two read routes answer a document they will not take with:
+ * the shape refusal, the same-site and content-type fences, the method gate,
+ * and the byte bound.
+ *
+ * A seat that collects one of these has been told about the document it sent,
+ * and posting that same document again would reach the same check. Every other
+ * non-2xx answer came from something between the seat and the route — a proxy
+ * refreshing a token, a rate limiter, a gateway — and says nothing about the
+ * document, so it is worth another try.
+ */
+export const ROUTE_REFUSAL_STATUSES: readonly number[] = [400, 403, 405, 413, 415]
+
+/**
+ * The code points a posted string may not carry: the C0 controls other than
+ * tab, newline and carriage return, and DEL.
+ *
+ * `JSON.stringify` writes each of the C0 controls named here as a six-byte
+ * `\uXXXX` escape, and a surrogate half standing alone the same way, while the
+ * byte bound a report is held to allows four bytes per character — so a listing
+ * rendered inside the budget could still be refused for its size. DEL costs one
+ * byte and is dropped for the reason that covers all of them anyway: none of
+ * this is text a model transcript has any use for. What the model needs from a
+ * page printing raw log bytes is the text around them.
+ */
+const UNPRINTABLE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
+
+/**
+ * Whether one string carries only what a posted document may.
+ * @param value - the string, of any length.
+ * @returns whether it is well-formed UTF-16 and free of {@link UNPRINTABLE}.
+ */
+function isPrintable(value: string): boolean {
+  return value.isWellFormed() && !UNPRINTABLE.test(value)
+}
+
+/**
+ * Drop from one page-supplied string what {@link UNPRINTABLE} and a lone
+ * surrogate name, so the seat posts a listing the parser takes rather than one
+ * the route refuses.
+ *
+ * Tab, newline and carriage return stay: `JSON.stringify` writes them as
+ * two-byte escapes, which the byte bound covers, and the listing the reader
+ * renders is built out of newlines.
+ * @param value - the string as the page had it.
+ * @returns that same string when it carries none of them, and one without them
+ * otherwise.
+ */
+export function sanitize(value: string): string {
+  if (isPrintable(value)) return value
+  let kept = ''
+  // Walked by code point rather than by unit, so a surrogate pair is tested
+  // whole and only a half standing alone is dropped.
+  for (const point of value) {
+    if (isPrintable(point)) kept += point
+  }
+  return kept
+}
 
 /** What one read asks of the page, after the tool has validated it. */
 export interface ReadArgs {
@@ -217,13 +286,21 @@ export interface ReportAck {
 }
 
 /**
- * Whether one decoded value is a string inside a bound.
+ * Whether one decoded value is a string inside a bound and made of what a
+ * posted document may carry.
+ *
+ * The length bound alone does not hold the byte bound the route computes from
+ * it: the controls {@link UNPRINTABLE} names, and a surrogate half standing
+ * alone, cost six JSON bytes per UTF-16 unit where that computation allows four
+ * per character. A string carrying any of them is refused as a shape rather
+ * than for its size, because the seat removes them before posting and a
+ * document that still has them is not one this package's browser half wrote.
  * @param value - the decoded value.
  * @param max - the longest accepted length, in characters.
- * @returns whether the value is a string no longer than the bound.
+ * @returns whether the value is such a string no longer than the bound.
  */
 function isText(value: unknown, max: number): value is string {
-  return typeof value === 'string' && value.length <= max
+  return typeof value === 'string' && value.length <= max && isPrintable(value)
 }
 
 /** Whether one decoded value is a non-empty name inside {@link MAX_NAME_CHARS}. */

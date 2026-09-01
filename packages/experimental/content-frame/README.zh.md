@@ -150,7 +150,7 @@
 
 #### What the model sees
 
-读取成功时回复一个文本块：一行 `Page: <title> — the app is at <path>, title "<document title>"`，后接可见的面包屑；页面若打开着对话框，其名称单占一行；再往下是列表本身。整页超出预算时回的是页面骨架，并在第一行说明这一点；被截断的列表末尾给出接着读的游标，作为 `after` 传回。其余每一种结局都是一句写明下一步的错误：调用 `content_show`、去掉 `scope`、请用户登录、请用户打开控制台，或者重试一次。
+读取成功时回复一个文本块：一行 `Page: <title> — the app is at <path>, title "<document title>"`，后接可见的面包屑；页面若打开着对话框，其名称单占一行；再往下是列表本身。整页超出预算时回的是页面骨架，并在第一行说明这一点；被截断的列表末尾给出接着读的游标，作为 `after` 传回。其余每一种结局都是一句写明下一步的错误：调用 `content_show`、去掉 `scope`、读页面更小的一块或者把 `outlineChars` 调大、请用户登录、请用户打开控制台，或者重试一次。
 
 #### Token effect
 
