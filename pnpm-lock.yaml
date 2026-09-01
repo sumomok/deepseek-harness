@@ -792,6 +792,12 @@ importers:
       '@deepseek-ai/dsh-user-questions':
         specifier: workspace:^
         version: link:../../packages/interaction/user-questions
+      '@deepseek-ai/dsh-util-time':
+        specifier: workspace:^
+        version: link:../../packages/util/time
+      '@deepseek-ai/dsh-util-workspace-path':
+        specifier: workspace:^
+        version: link:../../packages/util/workspace-path
       '@deepseek-ai/dsh-web':
         specifier: workspace:^
         version: link:../../packages/web/web
@@ -844,11 +850,11 @@ importers:
         specifier: file:./vendor/sumomok-dsh-quote-message-0.3.0.tgz
         version: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-session@packages+core+session)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       dsh-at-file:
-        specifier: github:omdsh-dev/dsh-at-file#289f19bb83f80a95df49f567eeef42462d4da92f
-        version: git+https://github.com/omdsh-dev/dsh-at-file.git#289f19bb83f80a95df49f567eeef42462d4da92f(7e0abb22f58cb22812a209e9093a8710)
+        specifier: file:./vendor/dsh-at-file-0.6.5-patched1.tgz
+        version: file:apps/desktop-server/vendor/dsh-at-file-0.6.5-patched1.tgz(7e0abb22f58cb22812a209e9093a8710)
       dsh-better-sidebar:
-        specifier: 0.15.2
-        version: 0.15.2(a04f20cb426a6ae8d050d3bdb16fe03a)
+        specifier: file:./vendor/dsh-better-sidebar-0.15.2-patched1.tgz
+        version: file:apps/desktop-server/vendor/dsh-better-sidebar-0.15.2-patched1.tgz(a04f20cb426a6ae8d050d3bdb16fe03a)
 
   apps/pwa:
     dependencies:
@@ -15780,8 +15786,8 @@ packages:
     resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
     engines: {node: '>=12'}
 
-  dsh-at-file@git+https://github.com/omdsh-dev/dsh-at-file.git#289f19bb83f80a95df49f567eeef42462d4da92f:
-    resolution: {commit: 289f19bb83f80a95df49f567eeef42462d4da92f, repo: https://github.com/omdsh-dev/dsh-at-file.git, type: git}
+  dsh-at-file@file:apps/desktop-server/vendor/dsh-at-file-0.6.5-patched1.tgz:
+    resolution: {integrity: sha512-sU5OunTHFOKU4n9NXjSxrV5RYlQTAAtYmKt4D5wZAOZxOBGyjfQsgvHv4cTfqIFw27RWDGXo/6oye/HfRWbVUg==, tarball: file:apps/desktop-server/vendor/dsh-at-file-0.6.5-patched1.tgz}
     version: 0.6.5
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1-rc.1
@@ -15831,8 +15837,9 @@ packages:
       react:
         optional: true
 
-  dsh-better-sidebar@0.15.2:
-    resolution: {integrity: sha512-XHr7cAqxz1k60D3W9q5VAuZ64kGhnZz9M4etBaRDNNCzuJZbJTvQ/Fzgl8mY06B/PpEcgzG6PTn2RMYF3FVnGQ==}
+  dsh-better-sidebar@file:apps/desktop-server/vendor/dsh-better-sidebar-0.15.2-patched1.tgz:
+    resolution: {integrity: sha512-Ugt37WvQ0CbvmdB4BtREod5qiVboiyQRmiiz7k2+auWPmnHFbZ1NMYcmLcjrfgHdkjM2sEbanGtJy1OEzc0N5g==, tarball: file:apps/desktop-server/vendor/dsh-better-sidebar-0.15.2-patched1.tgz}
+    version: 0.15.2
     engines: {node: '>=20'}
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
@@ -22875,7 +22882,7 @@ snapshots:
 
   dotenv@16.6.1: {}
 
-  dsh-at-file@git+https://github.com/omdsh-dev/dsh-at-file.git#289f19bb83f80a95df49f567eeef42462d4da92f(7e0abb22f58cb22812a209e9093a8710):
+  dsh-at-file@file:apps/desktop-server/vendor/dsh-at-file-0.6.5-patched1.tgz(7e0abb22f58cb22812a209e9093a8710):
     dependencies:
       zod: 4.4.3
     optionalDependencies:
@@ -22894,7 +22901,7 @@ snapshots:
       '@deepseek-ai/dsh-typert-registry': link:packages/typert/registry
       react: 18.3.1
 
-  dsh-better-sidebar@0.15.2(a04f20cb426a6ae8d050d3bdb16fe03a):
+  dsh-better-sidebar@file:apps/desktop-server/vendor/dsh-better-sidebar-0.15.2-patched1.tgz(a04f20cb426a6ae8d050d3bdb16fe03a):
     dependencies:
       '@codemirror/commands': 6.11.0
       '@codemirror/lang-cpp': 6.0.3

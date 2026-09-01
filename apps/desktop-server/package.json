@@ -102,6 +102,8 @@
     "@deepseek-ai/dsh-typert-protocol": "workspace:^",
     "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@deepseek-ai/dsh-user-questions": "workspace:^",
+    "@deepseek-ai/dsh-util-time": "workspace:^",
+    "@deepseek-ai/dsh-util-workspace-path": "workspace:^",
     "@deepseek-ai/dsh-web": "workspace:^",
     "@deepseek-ai/dsh-web-fetch-http": "workspace:^",
     "@deepseek-ai/dsh-web-search-deepseek": "workspace:^",
@@ -119,7 +121,7 @@
     "@haoran/dsh-vision-switch": "file:./vendor/haoran-dsh-vision-switch-0.2.0.tgz",
     "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.3.2.tgz",
     "@sumomok/dsh-quote-message": "file:./vendor/sumomok-dsh-quote-message-0.3.0.tgz",
-    "dsh-at-file": "github:omdsh-dev/dsh-at-file#289f19bb83f80a95df49f567eeef42462d4da92f",
-    "dsh-better-sidebar": "0.15.2"
+    "dsh-at-file": "file:./vendor/dsh-at-file-0.6.5-patched1.tgz",
+    "dsh-better-sidebar": "file:./vendor/dsh-better-sidebar-0.15.2-patched1.tgz"
   }
 }
