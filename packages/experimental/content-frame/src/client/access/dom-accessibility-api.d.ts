@@ -3,7 +3,7 @@
  * and accessible-name implementations testing-library builds its queries on.
  * The package ships `dist/index.d.ts` but its `exports` map declares no `types`
  * condition, so `moduleResolution: bundler` cannot reach those declarations.
- * @module @deepseek-ai/dsh-experimental-content-frame/client/access/dom-accessibility-api-types
+ * @module @deepseek-ai/dsh-experimental-content-frame/client/access/dom-accessibility-api
  */
 
 declare module 'dom-accessibility-api' {

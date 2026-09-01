@@ -47,6 +47,26 @@ export class RefTable {
     return el !== undefined && el.isConnected ? el : undefined
   }
 
+  /**
+   * Drop the refs of elements the page no longer has, so a table that lives as
+   * long as its page does not grow one entry per row the page has ever drawn.
+   * An element that leaves the document and comes back is a new element to the
+   * reader and takes a new ref.
+   */
+  sweep(): void {
+    for (const [ref, held] of this.#byRef) {
+      const el = held.deref()
+      /* v8 ignore next 4 -- deref answers undefined only for an element the collector has taken, which a test cannot force. */
+      if (el === undefined) {
+        this.#byRef.delete(ref)
+        continue
+      }
+      if (el.isConnected) continue
+      this.#byRef.delete(ref)
+      this.#byElement.delete(el)
+    }
+  }
+
   /** Drop every ref, for a page that has navigated away from what they named. */
   reset(): void {
     this.#byElement = new WeakMap()

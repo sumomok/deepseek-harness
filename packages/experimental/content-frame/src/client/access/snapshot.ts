@@ -11,7 +11,10 @@
  * and never what it holds.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/snapshot
  */
-import { clip, containerName, isMarked, isSeparator, isSkipped, readableDocuments, visibleTextParts } from './dom.ts'
+import {
+  clip, containerName, isMarked, isSeparator, isSkipped, markedSelector, queryInOrder, readableDocuments,
+  visibleTextParts,
+} from './dom.ts'
 import { collect } from './collect.ts'
 import { render } from './render.ts'
 import type { RefTable } from './refs.ts'
@@ -27,6 +30,16 @@ const BREADCRUMB_MARKER = 'breadcrumb'
 
 /** The fields whose visible pairing means the page is asking the user to sign in. */
 const SIGN_IN_PARTNER = 'input[type="text"], input[type="email"], input:not([type])'
+
+/**
+ * How far around a password box the search for the box naming the account
+ * reaches when no form encloses it: a password box in one part of the page and
+ * a search box in another are not a sign-in form.
+ */
+const SIGN_IN_SCOPE = [
+  'form', '[role="form"]', 'dialog', '[role="dialog"]', 'main', '[role="main"]',
+  'section', '[role="region"]', '[role="tabpanel"]',
+].join(', ')
 
 /**
  * The element one ref names, or a refusal the model can act on.
@@ -70,7 +83,7 @@ function openDialogName(documents: readonly Document[], isVisible: (el: Element)
  */
 function breadcrumbTrail(documents: readonly Document[], isVisible: (el: Element) => boolean): string | undefined {
   for (const doc of documents) {
-    for (const el of doc.querySelectorAll('*')) {
+    for (const el of queryInOrder(doc, markedSelector(BREADCRUMB_MARKER))) {
       if (!isMarked(el, BREADCRUMB_MARKER) || isSkipped(el, isVisible)) continue
       // The punctuation between steps is the trail's own drawing, not a step.
       const steps = visibleTextParts(el, isVisible).filter(part => !isSeparator(part))
@@ -82,7 +95,10 @@ function breadcrumbTrail(documents: readonly Document[], isVisible: (el: Element
 
 /**
  * True when the page is asking the user to sign in: a visible password box
- * with a visible box to name the account beside it.
+ * with a visible box to name the account beside it. Beside means inside the
+ * same form, or failing that the same region of the page; a page with no
+ * regions at all is searched whole, because then there is nowhere else the two
+ * could be.
  * @param documents - every readable document.
  * @param isVisible - injected visibility.
  * @returns whether the page is a sign-in page.
@@ -91,7 +107,7 @@ function asksToSignIn(documents: readonly Document[], isVisible: (el: Element) =
   for (const doc of documents) {
     for (const secret of doc.querySelectorAll<HTMLInputElement>('input[type="password"]')) {
       if (isSkipped(secret, isVisible)) continue
-      const form: ParentNode = secret.form ?? doc
+      const form: ParentNode = secret.form ?? secret.closest(SIGN_IN_SCOPE) ?? doc
       for (const partner of form.querySelectorAll(SIGN_IN_PARTNER)) {
         if (!isSkipped(partner, isVisible)) return true
       }
@@ -126,9 +142,12 @@ function readHeader(root: Document, options: SnapshotOptions): SnapshotHeader {
  * @param root - the document the user is looking at.
  * @param options - what to read and how much of it.
  * @returns the structural read.
- * @throws {Error} when `scope` or `after` names an element the page no longer has.
+ * @throws {Error} when `scope` or `after` names an element the page no longer
+ * has, when `after` names an element that is not a row of this read's listing,
+ * or when `find` is combined with `mode: 'map'`.
  */
 export function snapshot(root: Document, options: SnapshotOptions): Snapshot {
+  options.refs.sweep()
   const scope = options.scope === undefined ? undefined : resolveOrThrow('scope', options.scope, options.refs)
   if (options.after !== undefined) resolveOrThrow('after', options.after, options.refs)
   const listing = render(collect(root, options, scope), options, scope)

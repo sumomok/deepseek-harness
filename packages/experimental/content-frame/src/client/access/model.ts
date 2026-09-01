@@ -12,8 +12,16 @@ import type { RefTable } from './refs.ts'
 /** How much of the page one read renders: every item, or containers only. */
 export type SnapshotMode = 'outline' | 'map'
 
-/** The container kinds a row can name. */
-export type ContainerType = 'main' | 'nav' | 'form' | 'dialog' | 'section' | 'toolbar' | 'list' | 'table' | 'frame'
+/**
+ * The container kinds a row can name. Several ARIA roles share one word,
+ * because the reader needs the kind of region rather than the exact role:
+ * `form` also covers a search form, `dialog` an alert dialog, `list` a feed,
+ * `menu` a menu bar, and `section` a region, an article, or a complementary
+ * area.
+ */
+export type ContainerType =
+  | 'main' | 'nav' | 'form' | 'dialog' | 'section' | 'toolbar' | 'list' | 'table' | 'frame'
+  | 'tablist' | 'tabpanel' | 'menu' | 'tree' | 'radiogroup' | 'listbox'
 
 /** What one read asks of the page. */
 export interface SnapshotOptions {
@@ -25,7 +33,7 @@ export interface SnapshotOptions {
   readonly mode?: SnapshotMode
   /** A ref: read that element's subtree only. */
   readonly scope?: string
-  /** A ref: continue after the item that ref names. */
+  /** A ref this read's own listing carries: continue after the item it names. */
   readonly after?: string
   /** Case-insensitive text filter: a flat list of the items that match. */
   readonly find?: string
@@ -59,11 +67,11 @@ export interface Snapshot {
   readonly header: SnapshotHeader
   /** The rendered body, without the `Page` line the tool composes. */
   readonly text: string
-  /** True when the listing stops short of everything collected. */
+  /** True when the listing stops short of everything this read would have shown. */
   readonly truncated: boolean
-  /** How many items the body renders. */
+  /** How many rows of the listing the body renders. */
   readonly shown: number
-  /** How many items this read collected. */
+  /** How many rows the listing has in full. */
   readonly total: number
   /** The last rendered item's ref, to pass back as `after`; present only on a listing cut short. */
   readonly cursor?: string
@@ -131,20 +139,39 @@ export interface TextItem {
   readonly depth: number
 }
 
-/** One data row of a table, rendered only when the read asks for rows. */
+/** One control a table cell holds, numbered only when a read prints its row. */
+export interface CellControl {
+  /** The control element. */
+  readonly el: Element
+  /** Its role. */
+  readonly role: string
+  /** Its accessible name. */
+  readonly name: string
+}
+
+/** One cell of a table row, in the forms a listing prints it. */
+export interface RowCell {
+  /** The controls the cell holds, in document order. */
+  readonly controls: readonly CellControl[]
+  /** The cell as the one-row sample renders it: its text, or its controls' names inside `[ ]`. */
+  readonly sample: string
+}
+
+/**
+ * One data row of a table, rendered only when the read asks for rows. The row
+ * and the controls in it are numbered when a read prints them, not when the
+ * walk finds them: a listing that reports a two-hundred-row table by its shape
+ * alone must not spend two hundred refs on rows nobody has asked to see.
+ */
 export interface TableRowItem {
   /** Discriminant. */
   readonly kind: 'row'
   /** The row element. */
   readonly el: Element
-  /** The row element's ref. */
-  readonly ref: string
   /** The row's 1-based position among the table's data rows. */
   readonly index: number
-  /** Each cell, controls carrying their refs. */
-  readonly cells: readonly string[]
-  /** Each cell as the one-row sample renders it, controls inside `[ ]`. */
-  readonly sample: readonly string[]
+  /** Each cell, in column order. */
+  readonly cells: readonly RowCell[]
   /** The row's plain text, for `find`. */
   readonly text: string
   /** The table this row belongs to, for the suffix a flat listing prints. */
@@ -161,11 +188,11 @@ export interface TableItem extends ContainerFace {
   readonly el: Element
   /** The element's ref. */
   readonly ref: string
-  /** The header cells' text. */
-  readonly header: readonly string[]
+  /** The header cells, empty for a table that heads no columns. */
+  readonly header: readonly RowCell[]
   /** The table's data rows. */
   readonly rows: readonly TableRowItem[]
-  /** How many columns the header declares. */
+  /** How many columns the table has: what its header declares, or the widest data row. */
   readonly columns: number
   /** The adjacent pagination control's text. */
   readonly pagination: string | undefined

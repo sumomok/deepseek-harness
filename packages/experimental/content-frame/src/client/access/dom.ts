@@ -25,7 +25,7 @@ const DISABLEABLE_TAGS: ReadonlySet<string> = new Set(['button', 'fieldset', 'in
 
 /** Roles that describe a field the user fills in. */
 export const FIELD_ROLES: ReadonlySet<string> =
-  new Set(['textbox', 'combobox', 'searchbox', 'spinbutton', 'textarea', 'checkbox', 'radio', 'switch', 'select'])
+  new Set(['textbox', 'combobox', 'searchbox', 'spinbutton', 'listbox', 'checkbox', 'radio', 'switch'])
 
 /** Roles that hold a checked state. */
 export const CHECKED_ROLES: ReadonlySet<string> = new Set(['checkbox', 'radio', 'switch'])
@@ -34,13 +34,21 @@ export const CHECKED_ROLES: ReadonlySet<string> = new Set(['checkbox', 'radio', 
  * Roles that describe how the page is built rather than what it offers, so they
  * carry no row of their own. The container roles are here too: an element that
  * fails its container test (a two-item list, an unnamed section) falls through
- * to its contents instead of becoming a row nobody can use.
+ * to its contents instead of becoming a row nobody can use. `listbox` is the
+ * one container role kept out: a `select` carries it and is a field, not a
+ * region, so it has to stay nameable.
+ *
+ * The live regions are here because they announce what happened elsewhere on
+ * the page rather than offering anything of their own; the walk reads straight
+ * through them to whatever they show.
  */
 const STRUCTURAL_ROLES: ReadonlySet<string> = new Set([
-  'application', 'article', 'banner', 'cell', 'columnheader', 'complementary', 'contentinfo',
-  'definition', 'dialog', 'directory', 'document', 'figure', 'form', 'generic', 'grid', 'gridcell',
-  'group', 'legend', 'list', 'listitem', 'main', 'math', 'navigation', 'none', 'paragraph',
-  'presentation', 'region', 'row', 'rowgroup', 'rowheader', 'separator', 'table', 'term', 'toolbar',
+  'alert', 'alertdialog', 'application', 'article', 'banner', 'cell', 'columnheader', 'complementary',
+  'contentinfo', 'definition', 'dialog', 'directory', 'document', 'feed', 'figure', 'form', 'generic',
+  'grid', 'gridcell', 'group', 'legend', 'list', 'listitem', 'log', 'main', 'marquee', 'math', 'menu',
+  'menubar', 'navigation', 'none', 'note', 'paragraph', 'presentation', 'radiogroup', 'region', 'row',
+  'rowgroup', 'rowheader', 'search', 'separator', 'status', 'table', 'tablist', 'tabpanel', 'term',
+  'timer', 'toolbar', 'tooltip', 'tree', 'treegrid',
 ])
 
 /** The role a snapshot gives a role-less element the page makes clickable. */
@@ -102,6 +110,20 @@ export function isInline(el: Element): boolean {
  */
 export function childHost(el: Element): ParentNode {
   return el.shadowRoot ?? el
+}
+
+/**
+ * What one selector matches inside a subtree, in document order. Engines
+ * disagree on the order a selector list answers in — jsdom returns each
+ * selector's matches in turn — so a caller that reads the result as a sequence
+ * of the page has to put it in order itself.
+ * @param root - the subtree to search.
+ * @param selector - the selector to match.
+ * @returns the matching elements, first in the document first.
+ */
+export function queryInOrder(root: ParentNode, selector: string): Element[] {
+  return [...root.querySelectorAll(selector)]
+    .sort((a, b) => ((a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) === 0 ? 1 : -1))
 }
 
 /**
@@ -168,18 +190,40 @@ export function containerName(el: Element, isVisible: (el: Element) => boolean):
 }
 
 /**
- * True when an element is marked as one of the widgets pages name by
- * convention rather than by role — a breadcrumb trail, a pagination strip —
- * either through its navigation label or through its class names.
- * @param el - the element to classify.
+ * The selector matching every element that could carry one of the markers
+ * pages name a widget by convention with — a breadcrumb trail, a pagination
+ * strip. A search reads these candidates rather than every element of the
+ * page, and confirms each one with `isMarked`.
  * @param marker - the lower-case word the convention uses.
- * @returns whether the element carries the marker.
+ * @returns the selector.
+ */
+export function markedSelector(marker: string): string {
+  return `[class*="${marker}" i], [aria-label*="${marker}" i]`
+}
+
+/**
+ * True when an element carrying the marker means it, which for a class name it
+ * always does and for a label only a navigation region does. The role is
+ * computed last: it is the expensive half of the test and the class names
+ * settle most candidates without it.
+ * @param el - a candidate that matched {@link markedSelector} for this marker.
+ * @param marker - the lower-case word the convention uses.
+ * @returns whether the element is the widget the marker names.
  */
 export function isMarked(el: Element, marker: string): boolean {
-  const label = el.getAttribute('aria-label')
-  if (roleOf(el) === 'navigation' && label !== null && label.toLowerCase().includes(marker)) return true
   const className = el.getAttribute('class')
-  return className !== null && className.toLowerCase().includes(marker)
+  if (className !== null && className.toLowerCase().includes(marker)) return true
+  return roleOf(el) === 'navigation'
+}
+
+/**
+ * True for an element that carries no content of its own, as opposed to one
+ * the page merely hides: what is inside it is source, not page.
+ * @param el - the element to classify.
+ * @returns whether the element's subtree is not content.
+ */
+export function isNonContent(el: Element): boolean {
+  return SKIP_TAGS.has(el.localName)
 }
 
 /**
@@ -189,7 +233,7 @@ export function isMarked(el: Element, marker: string): boolean {
  * @returns whether the walk skips the element and its subtree.
  */
 export function isSkipped(el: Element, isVisible: (el: Element) => boolean): boolean {
-  return SKIP_TAGS.has(el.localName)
+  return isNonContent(el)
     || el.getAttribute('aria-hidden') === 'true'
     || el.hasAttribute('hidden')
     || !isVisible(el)

@@ -48,6 +48,28 @@ describe('RefTable', () => {
     expect(refs.resolve(ref)).toBeUndefined()
   })
 
+  it('keeps the refs of elements the page still has when it sweeps', () => {
+    const refs = new RefTable()
+    const el = element()
+    const ref = refs.ref(el)
+    refs.sweep()
+    expect(refs.ref(el)).toBe(ref)
+    expect(refs.resolve(ref)).toBe(el)
+  })
+
+  it('forgets an element the page took away, so the same element coming back is a new one', () => {
+    const refs = new RefTable()
+    const el = element()
+    expect(refs.ref(el)).toBe('e1')
+    el.remove()
+    refs.sweep()
+    document.body.append(el)
+    // The model's e1 named the element the page had then; what came back is a
+    // different element as far as anything that read the old page is concerned.
+    expect(refs.ref(el)).toBe('e2')
+    expect(refs.resolve('e1')).toBeUndefined()
+  })
+
   it('forgets every ref on reset, and never hands an old number to a new element', () => {
     const refs = new RefTable()
     const before = element()

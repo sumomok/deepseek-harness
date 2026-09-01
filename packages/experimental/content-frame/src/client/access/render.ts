@@ -8,11 +8,16 @@
  */
 import { CLICKABLE_ROLE, FIELD_ROLES } from './dom.ts'
 import type {
-  ContainerFace, ContainerItem, ElementItem, Item, SnapshotMode, SnapshotOptions, TableItem, TableRowItem, TextItem,
+  ContainerFace, ContainerItem, ElementItem, Item, RowCell, SnapshotMode, SnapshotOptions,
+  TableItem, TableRowItem, TextItem,
 } from './model.ts'
+import type { RefTable } from './refs.ts'
 
 /** What separates two cells of the same row. */
 const CELL_SEPARATOR = ' | '
+
+/** What separates two controls inside one listed cell. */
+const CONTROL_SEPARATOR = '  '
 
 /** What one nesting level of indentation looks like. */
 const INDENT = '  '
@@ -37,11 +42,11 @@ export interface Listing {
   readonly kind: SnapshotMode
   /** The rendered body. */
   readonly text: string
-  /** True when the listing stops short of everything collected. */
+  /** True when the listing stops short of everything this read would have shown. */
   readonly truncated: boolean
-  /** How many items the body renders. */
+  /** How many rows of the listing the body renders. */
   readonly shown: number
-  /** How many items this read collected. */
+  /** How many rows the listing has in full. */
   readonly total: number
   /** The ref to resume after, on a listing cut short by the budget. */
   readonly cursor: string | undefined
@@ -152,46 +157,69 @@ function textLine(item: TextItem, prefix: string): string {
 }
 
 /**
+ * One cell as a listed row prints it: its text, or the controls it holds, each
+ * numbered here because a cell nobody lists is a cell nobody needs a ref for.
+ * @param cell - the cell.
+ * @param refs - the page's numbering.
+ * @returns the rendered cell.
+ */
+function cellText(cell: RowCell, refs: RefTable): string {
+  if (cell.controls.length === 0) return cell.sample
+  return cell.controls
+    .map(control => `${refs.ref(control.el)} ${control.role} "${control.name}"`)
+    .join(CONTROL_SEPARATOR)
+}
+
+/**
  * One data row of a table.
  * @param item - the row item.
  * @param prefix - the row's indentation.
  * @param suffix - the trailing container note, which a flat listing prints and an indented one does not.
+ * @param refs - the page's numbering.
  * @returns the rendered row.
  */
-function rowLine(item: TableRowItem, prefix: string, suffix: string): string {
-  return `${prefix}row ${item.index}: ${item.cells.join(CELL_SEPARATOR)}${suffix}`
+function rowLine(item: TableRowItem, prefix: string, suffix: string, refs: RefTable): string {
+  const cells = item.cells.map(cell => cellText(cell, refs))
+  return `${prefix}row ${item.index}: ${cells.join(CELL_SEPARATOR)}${suffix}`
 }
 
 /**
  * A table's first line: what it is and how big it is.
  * @param item - the table item.
+ * @param depth - the nesting depth the block prints at.
  * @returns the rendered row.
  */
-function tableHead(item: TableItem): string {
-  return `${indent(item.depth)}${item.ref} table${quoted(item.name)} ${item.rows.length} rows × ${item.columns} cols`
+function tableHead(item: TableItem, depth: number): string {
+  return `${indent(depth)}${item.ref} table${quoted(item.name)} ${item.rows.length} rows × ${item.columns} cols`
 }
 
 /**
  * A table's header line, when it has one.
  * @param item - the table item.
+ * @param depth - the nesting depth the block prints at.
+ * @param refs - the page's numbering.
  * @returns the rendered line, or nothing.
  */
-function tableHeader(item: TableItem): string[] {
-  return item.header.length === 0 ? [] : [`${indent(item.depth + 1)}header: ${item.header.join(CELL_SEPARATOR)}`]
+function tableHeader(item: TableItem, depth: number, refs: RefTable): string[] {
+  if (item.header.length === 0) return []
+  const cells = item.header.map(cell => cellText(cell, refs))
+  return [`${indent(depth + 1)}header: ${cells.join(CELL_SEPARATOR)}`]
 }
 
 /**
  * The lines a table prints wherever its rows are not listed: its shape, one
  * sample row, and how to reach the rest.
  * @param item - the table item.
+ * @param depth - the nesting depth the block prints at.
+ * @param refs - the page's numbering.
  * @returns the rendered rows.
  */
-function tableBlock(item: TableItem): string {
-  const inner = indent(item.depth + 1)
-  const lines = [tableHead(item), ...tableHeader(item)]
+function tableBlock(item: TableItem, depth: number, refs: RefTable): string {
+  const inner = indent(depth + 1)
+  const lines = [tableHead(item, depth), ...tableHeader(item, depth, refs)]
   const first = item.rows[0]
   if (first !== undefined) {
-    lines.push(`${inner}sample: ${first.sample.join(CELL_SEPARATOR)}`, `${inner}${ROWS_HINT}`)
+    lines.push(`${inner}sample: ${first.cells.map(cell => cell.sample).join(CELL_SEPARATOR)}`, `${inner}${ROWS_HINT}`)
   }
   if (item.pagination !== undefined) lines.push(`${inner}pagination: ${item.pagination}`)
   return lines.join('\n')
@@ -211,9 +239,10 @@ function containerMapLine(item: ContainerItem, items: readonly Item[]): string {
 /**
  * One item as an outline prints it.
  * @param item - the item to render.
+ * @param refs - the page's numbering.
  * @returns the rendered row.
  */
-function outlineText(item: Item): string {
+function outlineText(item: Item, refs: RefTable): string {
   switch (item.kind) {
     case 'container':
       return `${indent(item.depth)}${item.ref} ${item.type}${quoted(item.name)}`
@@ -222,7 +251,7 @@ function outlineText(item: Item): string {
     case 'text':
       return textLine(item, indent(item.depth))
     case 'table':
-      return tableBlock(item)
+      return tableBlock(item, item.depth, refs)
     case 'frame-error':
       return `${indent(item.depth)}${FRAME_UNREADABLE}`
     /* v8 ignore next 2 -- Item is a closed union and every member is handled above. */
@@ -243,13 +272,14 @@ function entryRef(item: Item): string | undefined {
 /**
  * A table the read asked for by ref: its shape, then one row per data row.
  * @param item - the table item.
+ * @param refs - the page's numbering.
  * @returns the rendered entries.
  */
-function scopedTableEntries(item: TableItem): Entry[] {
-  const head = [tableHead(item), ...tableHeader(item)].join('\n')
+function scopedTableEntries(item: TableItem, refs: RefTable): Entry[] {
+  const head = [tableHead(item, item.depth), ...tableHeader(item, item.depth, refs)].join('\n')
   return [
     { ref: item.ref, text: head },
-    ...item.rows.map((row): Entry => ({ ref: row.ref, text: rowLine(row, indent(item.depth + 1), '') })),
+    ...item.rows.map((row): Entry => ({ ref: refs.ref(row.el), text: rowLine(row, indent(item.depth + 1), '', refs) })),
   ]
 }
 
@@ -257,14 +287,15 @@ function scopedTableEntries(item: TableItem): Entry[] {
  * Every item, nested under the containers it sits in.
  * @param items - every collected item.
  * @param scope - the element the read asked for, if any.
+ * @param refs - the page's numbering.
  * @returns the rendered entries.
  */
-function outlineEntries(items: readonly Item[], scope: Element | undefined): Entry[] {
+function outlineEntries(items: readonly Item[], scope: Element | undefined, refs: RefTable): Entry[] {
   const entries: Entry[] = []
   for (const item of items) {
     if (item.kind === 'container' && item.closed) continue
-    if (item.kind === 'table' && item.el === scope) entries.push(...scopedTableEntries(item))
-    else entries.push({ ref: entryRef(item), text: outlineText(item) })
+    if (item.kind === 'table' && item.el === scope) entries.push(...scopedTableEntries(item, refs))
+    else entries.push({ ref: entryRef(item), text: outlineText(item, refs) })
   }
   return entries
 }
@@ -289,12 +320,15 @@ function mapEntries(items: readonly Item[]): Entry[] {
 /**
  * Every item whose name or text carries the string the read is looking for, as
  * one flat list. Table rows join this listing: matching a row by its text is
- * the one way a read reaches a single row without listing the whole table.
+ * the one way a read reaches a single row without listing the whole table. A
+ * container matches by its own name and prints that row alone, without the
+ * items inside it — the read that follows can scope to it.
  * @param items - every collected item.
  * @param find - the string to look for.
+ * @param refs - the page's numbering.
  * @returns the rendered entries.
  */
-function findEntries(items: readonly Item[], find: string): Entry[] {
+function findEntries(items: readonly Item[], find: string, refs: RefTable): Entry[] {
   const needle = find.toLowerCase()
   const entries: Entry[] = []
   for (const item of items) {
@@ -302,9 +336,16 @@ function findEntries(items: readonly Item[], find: string): Entry[] {
       if (item.name.toLowerCase().includes(needle)) entries.push({ ref: item.ref, text: elementLine(item, '') })
     } else if (item.kind === 'text') {
       if (item.text.toLowerCase().includes(needle)) entries.push({ ref: undefined, text: textLine(item, '') })
+    } else if (item.kind === 'container') {
+      if (!item.closed && item.name.toLowerCase().includes(needle)) {
+        entries.push({ ref: item.ref, text: `${item.ref} ${item.type}${quoted(item.name)}${within(item.container)}` })
+      }
     } else if (item.kind === 'table') {
+      if (item.name.toLowerCase().includes(needle)) entries.push({ ref: item.ref, text: tableBlock(item, 0, refs) })
       for (const row of item.rows) {
-        if (row.text.toLowerCase().includes(needle)) entries.push({ ref: row.ref, text: rowLine(row, '', within(row.table)) })
+        if (row.text.toLowerCase().includes(needle)) {
+          entries.push({ ref: refs.ref(row.el), text: rowLine(row, '', within(row.table), refs) })
+        }
       }
     }
   }
@@ -313,59 +354,122 @@ function findEntries(items: readonly Item[], find: string): Entry[] {
 
 /**
  * Drop everything up to and including the entry a continuation resumes after.
- * An `after` that names nothing in this listing starts it from the top.
  * @param entries - the listing.
  * @param after - the ref to resume after, if any.
  * @returns the remaining entries.
+ * @throws {Error} when `after` names no row of this listing, which means the
+ * read changed scope or filter between the two calls and the continuation would
+ * silently start over.
  */
 function dropBefore(entries: Entry[], after: string | undefined): Entry[] {
   if (after === undefined) return entries
-  return entries.slice(entries.findIndex(entry => entry.ref === after) + 1)
+  const at = entries.findIndex(entry => entry.ref === after)
+  if (at === -1) {
+    throw new Error(`after: "${after}" is not an item of this read — pass the cursor from the same scope and find, or omit after`)
+  }
+  return entries.slice(at + 1)
 }
 
 /**
- * Fill the budget, then say how to reach the rest. A listing whose last row
- * carries a ref continues from that ref; one whose rows are all page text has
- * nothing to continue from, and says so rather than leaving the model to guess.
- * The first row is always rendered, however long it is, so a read is never
- * answered with nothing at all.
- * @param entries - the listing.
- * @param budgetChars - the character budget.
- * @returns the rendered listing.
+ * How a listing cut at a row the model can name says where to continue.
+ * @param cursor - the ref of the last rendered row.
+ * @param remaining - how many rows the listing did not render.
+ * @returns the closing line.
  */
-function assemble(entries: Entry[], budgetChars: number): Listing {
+function cutAfter(cursor: string, remaining: number): string {
+  return `(cut after ${cursor} — pass after: "${cursor}" to continue; ${remaining} items remain)`
+}
+
+/**
+ * How a listing cut at rows the model cannot name says to narrow the read.
+ * @param remaining - how many rows the listing did not render.
+ * @returns the closing line.
+ */
+function cutHere(remaining: number): string {
+  return `(cut here; ${remaining} items remain — narrow the read with find, or read a part with scope)`
+}
+
+/**
+ * How a skeleton says where to read next.
+ * @param ref - the ref of the container holding the most of the page.
+ * @returns the closing line.
+ */
+function scopeHint(ref: string): string {
+  return `Read a part with scope, e.g. content_read({ scope: "${ref}" }).`
+}
+
+/**
+ * How much of the budget the closing line needs, measured against the longest
+ * one this listing could possibly print rather than the one it turns out to
+ * print, because which line closes a listing is only known once it is filled.
+ * @param entries - the listing.
+ * @param hint - the closing line an uncut listing prints, if any.
+ * @returns the reserved characters, the closing newline included.
+ */
+function reserveFor(entries: readonly Entry[], hint: string | undefined): number {
+  const remaining = Number('9'.repeat(String(entries.length).length))
+  const widest = entries.reduce((longest, entry) => Math.max(longest, entry.ref?.length ?? 0), 0)
+  return Math.max(cutHere(remaining).length, cutAfter('e'.repeat(widest), remaining).length, hint?.length ?? 0) + 1
+}
+
+/**
+ * Render as many rows as the budget holds. The first row is always rendered,
+ * however long it is, so a read is never answered with nothing at all.
+ * @param entries - the listing.
+ * @param budget - the characters the rows may take.
+ * @returns the rendered rows.
+ */
+function fill(entries: readonly Entry[], budget: number): string[] {
   const lines: string[] = []
-  // The empty string reads as "no row rendered so far carries a ref".
-  let cursor = ''
   let used = 0
   for (const entry of entries) {
     const cost = entry.text.length + 1
-    if (lines.length > 0 && used + cost > budgetChars) break
+    if (lines.length > 0 && used + cost > budget) break
     lines.push(entry.text)
     used += cost
-    if (entry.ref !== undefined) cursor = entry.ref
   }
-  const shown = lines.length
-  const truncated = shown < entries.length
-  const remaining = entries.length - shown
+  return lines
+}
+
+/**
+ * Fill the budget, then say how to reach the rest. A listing cut short backs
+ * off any trailing rows the model cannot name, so the cursor names the last row
+ * rendered and a continuation covers the listing exactly once; a listing whose
+ * rows are all page text has nothing to continue from, and says so rather than
+ * leaving the model to guess.
+ *
+ * The closing line is part of the budget: the body is at most `budgetChars`,
+ * except that a read whose first row and closing line alone exceed the budget
+ * still prints both.
+ * @param kind - which listing this is.
+ * @param entries - the listing.
+ * @param budgetChars - the character budget.
+ * @param hint - the closing line an uncut listing prints, if any.
+ * @returns the rendered listing.
+ */
+function assemble(kind: SnapshotMode, entries: readonly Entry[], budgetChars: number, hint: string | undefined): Listing {
+  const whole = fill(entries, budgetChars)
+  const closes = whole.length < entries.length || hint !== undefined
+  const lines = closes ? fill(entries, budgetChars - reserveFor(entries, hint)) : whole
+  const truncated = lines.length < entries.length
+  let shown = lines.length
   if (truncated) {
-    lines.push(cursor === ''
-      ? `(cut here; ${remaining} items remain — narrow the read with find, or read a part with scope)`
-      : `(cut after ${cursor} — pass after: "${cursor}" to continue; ${remaining} items remain)`)
+    let named = shown
+    while (named > 0 && entries[named - 1]?.ref === undefined) named -= 1
+    if (named > 0) shown = named
   }
-  return {
-    kind: 'outline',
-    text: lines.join('\n'),
-    truncated,
-    shown,
-    total: entries.length,
-    cursor: truncated && cursor !== '' ? cursor : undefined,
-  }
+  const cursor = truncated ? entries[shown - 1]?.ref : undefined
+  const body = lines.slice(0, shown)
+  if (truncated) body.push(cursor === undefined ? cutHere(entries.length - shown) : cutAfter(cursor, entries.length - shown))
+  else if (hint !== undefined) body.push(hint)
+  return { kind, text: body.join('\n'), truncated, shown, total: entries.length, cursor }
 }
 
 /**
  * The container holding the most of the page, which is where a reader who has
- * only been shown the skeleton should look next.
+ * only been shown the skeleton should look next. What a container holds is what
+ * sits directly inside it: a wrapper around one section is smaller than the
+ * section, however much the section holds.
  * @param items - every collected item.
  * @returns its ref, or undefined for a page with no containers at all.
  */
@@ -374,7 +478,8 @@ function largestContainer(items: readonly Item[]): string | undefined {
   let best: ContainerItem | TableItem | undefined
   let bestSize = 0
   for (const item of items) {
-    for (let owner = item.container; owner !== undefined; owner = owner.container) {
+    const owner = item.container
+    if (owner !== undefined) {
       const size = (sizes.get(owner) ?? 0) + 1
       sizes.set(owner, size)
       if (size > bestSize) {
@@ -391,38 +496,40 @@ function largestContainer(items: readonly Item[]): string | undefined {
 }
 
 /**
- * The page as its containers, for a read whose outline would not fit.
- * @param items - every collected item.
- * @param total - how many items the outline collected.
- * @param truncated - whether this skeleton stands in for a listing that did not fit.
- * @returns the rendered listing.
- */
-function mapListing(items: readonly Item[], total: number, truncated: boolean): Listing {
-  const entries = mapEntries(items)
-  const lines = entries.map(entry => entry.text)
-  const largest = largestContainer(items)
-  if (truncated && largest !== undefined) {
-    lines.push(`Read a part with scope, e.g. content_read({ scope: "${largest}" }).`)
-  }
-  return { kind: 'map', text: lines.join('\n'), truncated, shown: entries.length, total, cursor: undefined }
-}
-
-/**
  * Render one read.
  * @param items - every collected item.
  * @param options - the read's options.
  * @param scope - the element the read asked for, if any.
  * @returns the rendered listing.
+ * @throws {Error} when `find` is combined with the skeleton, or when `after`
+ * names no row of this read's listing.
  */
 export function render(items: readonly Item[], options: SnapshotOptions, scope: Element | undefined): Listing {
-  const selected = options.find === undefined ? outlineEntries(items, scope) : findEntries(items, options.find)
-  const entries = dropBefore(selected, options.after)
-  if (options.mode === 'map') return mapListing(items, entries.length, false)
-  const listing = assemble(entries, options.budgetChars)
-  const wholePage = options.scope === undefined && options.find === undefined && options.after === undefined
+  const { budgetChars, find, refs } = options
+  if (options.mode === 'map') {
+    if (find !== undefined) {
+      throw new Error('find cannot be combined with mode "map" — read the map first, then find within a scope')
+    }
+    return assemble('map', dropBefore(mapEntries(items), options.after), budgetChars, undefined)
+  }
+  if (find !== undefined) {
+    const found = findEntries(items, find, refs)
+    if (found.length === 0) {
+      const text = `No item matches "${find}" — try a shorter word, or read without find.`
+      return { kind: 'outline', text, truncated: false, shown: 0, total: 0, cursor: undefined }
+    }
+    return assemble('outline', dropBefore(found, options.after), budgetChars, undefined)
+  }
+  const entries = dropBefore(outlineEntries(items, scope, refs), options.after)
+  const listing = assemble('outline', entries, budgetChars, undefined)
+  const wholePage = options.scope === undefined && options.after === undefined
   if (!listing.truncated || !wholePage) return listing
   // A page with no containers has no skeleton to answer with; the rows it does
   // have, cut short, say more than an empty answer.
-  const skeleton = mapListing(items, entries.length, true)
-  return skeleton.shown === 0 ? listing : skeleton
+  const skeleton = mapEntries(items)
+  if (skeleton.length === 0) return listing
+  const largest = largestContainer(items)
+  // However much of the skeleton fits, it stands in for a listing that did not,
+  // so the read is short of what it collected either way.
+  return { ...assemble('map', skeleton, budgetChars, largest === undefined ? undefined : scopeHint(largest)), truncated: true }
 }

@@ -12,11 +12,11 @@
  */
 import {
   CHECKED_ROLES, CLICKABLE_ROLE, FIELD_ROLES, childHost, clip, collapse, containerName, fieldValue,
-  frameDocument, isChecked, isDisabled, isInline, isMarked, isNameable, isPassword, isSkipped,
-  looksClickable, nameOf, rectsOverlap, roleOf, visibleText,
+  frameDocument, isChecked, isDisabled, isInline, isMarked, isNameable, isNonContent, isPassword,
+  isSkipped, looksClickable, markedSelector, nameOf, queryInOrder, rectsOverlap, roleOf, visibleText,
 } from './dom.ts'
 import type {
-  ContainerFace, ContainerItem, Item, SnapshotOptions, TableItem, TableRowItem,
+  CellControl, ContainerFace, ContainerItem, Item, RowCell, SnapshotOptions, TableItem, TableRowItem,
 } from './model.ts'
 
 /** How many items a `ul` or `ol` needs before it reads as a list of its own. */
@@ -28,11 +28,25 @@ const TOOLBAR_MIN = 2
 /** Roles that make a table cell worth naming rather than reading as text. */
 const CELL_CONTROL_ROLES: ReadonlySet<string> = new Set(['button', 'link', ...FIELD_ROLES])
 
-/** What separates two controls inside one listed cell. */
-const ROW_CONTROL_SEPARATOR = '  '
-
 /** The word pages use to mark the strip that pages through a table. */
 const PAGINATION_MARKER = 'pagination'
+
+/** Every element that reads as a table. */
+const TABLE_SELECTOR = 'table, [role="table"], [role="grid"], [role="treegrid"]'
+
+/** Every element that reads as a dialog. */
+const DIALOG_SELECTOR = 'dialog, [role="dialog"], [role="alertdialog"]'
+
+/**
+ * Everything that would earn a row of its own. A click target holding one of
+ * these is a wrapper around content rather than a thing to click, so the walk
+ * reads through it; the wrapper itself then prints nothing, which is the known
+ * cost of not burying its contents.
+ */
+const ITEM_SELECTOR = [
+  'a[href]', 'button', 'input', 'select', 'textarea', 'summary', 'iframe', 'table',
+  'h1', 'h2', 'h3', 'h4', 'h5', 'h6', '[role]', '[contenteditable]', '[tabindex]',
+].join(', ')
 
 /** Everything one walk shares from its first element to its last. */
 interface Walk {
@@ -58,6 +72,12 @@ interface Place {
   readonly buffer: string[]
   /** The node whose subtree bounds a search for something beside an item. */
   readonly root: ParentNode
+  /**
+   * True inside a `label` that names a control: everything it shows is already
+   * printed as that control's name, so its text and its click targets are not
+   * rows of their own.
+   */
+  readonly labelled: boolean
 }
 
 /**
@@ -139,7 +159,9 @@ function buttonRowFace(el: Element, role: string | null, walk: Walk): ContainerF
 }
 
 /**
- * The container an element opens, if it opens one.
+ * The container an element opens, if it opens one. A composite widget — a strip
+ * of tabs, a menu, a group of radios — is a container and not a leaf: what the
+ * model needs is inside it.
  * @param el - the element to classify.
  * @param role - the element's role.
  * @param walk - the walk in progress.
@@ -149,24 +171,28 @@ function containerFace(el: Element, role: string | null, walk: Walk): ContainerF
   switch (role) {
     case 'main': return { type: 'main', name: nameOf(el) }
     case 'navigation': return { type: 'nav', name: nameOf(el) }
-    case 'form': return { type: 'form', name: nameOf(el) }
-    case 'dialog': return { type: 'dialog', name: containerName(el, walk.isVisible) }
+    case 'form':
+    case 'search': return { type: 'form', name: nameOf(el) }
+    case 'dialog':
+    case 'alertdialog': return { type: 'dialog', name: containerName(el, walk.isVisible) }
     case 'toolbar': return { type: 'toolbar', name: nameOf(el) }
-    case 'list': return listFace(el)
+    case 'tablist': return { type: 'tablist', name: nameOf(el) }
+    case 'tabpanel': return { type: 'tabpanel', name: nameOf(el) }
+    case 'menu':
+    case 'menubar': return { type: 'menu', name: nameOf(el) }
+    case 'tree': return { type: 'tree', name: nameOf(el) }
+    case 'radiogroup': return { type: 'radiogroup', name: nameOf(el) }
+    // A select carries this role too, and is a field the model reads and fills
+    // rather than a region it looks inside.
+    case 'listbox': return el.localName === 'select' ? undefined : { type: 'listbox', name: nameOf(el) }
+    case 'list':
+    case 'feed': return listFace(el)
     case 'region':
     case 'article':
     case 'complementary':
       return sectionFace(el, walk)
     default: return buttonRowFace(el, role, walk)
   }
-}
-
-/** One control a table cell holds. */
-interface CellControl {
-  /** The control element. */
-  readonly el: Element
-  /** Its role. */
-  readonly role: string
 }
 
 /**
@@ -179,69 +205,179 @@ function cellControls(el: Element, walk: Walk, found: CellControl[]): void {
   for (const child of childHost(el).children) {
     if (isSkipped(child, walk.isVisible)) continue
     const role = roleOf(child)
-    if (role !== null && CELL_CONTROL_ROLES.has(role)) found.push({ el: child, role })
+    if (role !== null && CELL_CONTROL_ROLES.has(role)) found.push({ el: child, role, name: nameOf(child) })
     else cellControls(child, walk, found)
   }
-}
-
-/** One cell, in the two forms a table prints it. */
-interface Cell {
-  /** The cell as a listed row prints it, controls carrying their refs. */
-  readonly listed: string
-  /** The cell as the one-row sample prints it, controls inside `[ ]`. */
-  readonly sampled: string
 }
 
 /**
  * Read one cell.
  * @param cell - the cell element.
  * @param walk - the walk in progress.
- * @returns the cell's two printed forms.
+ * @returns the cell.
  */
-function readCell(cell: Element, walk: Walk): Cell {
+function readCell(cell: Element, walk: Walk): RowCell {
   const controls: CellControl[] = []
   cellControls(cell, walk, controls)
-  if (controls.length === 0) {
-    const text = clip(visibleText(cell, walk.isVisible))
-    return { listed: text, sampled: text }
-  }
-  const listed = controls
-    .map(control => `${walk.options.refs.ref(control.el)} ${control.role} "${nameOf(control.el)}"`)
-    .join(ROW_CONTROL_SEPARATOR)
-  return { listed, sampled: `[${controls.map(control => nameOf(control.el)).join(' ')}]` }
+  return controls.length === 0
+    ? { controls, sample: clip(visibleText(cell, walk.isVisible)) }
+    : { controls, sample: `[${controls.map(control => control.name).join(' ')}]` }
 }
 
 /**
- * Read one row of cells, dropping cells a pinned column repeats.
+ * Read one row of cells, dropping the cells a pinned column repeats and the
+ * cells of a column the page hides.
  * @param row - the row element.
  * @param walk - the walk in progress.
  * @param kept - the table's claimed rectangles.
  * @returns the row's cells, in column order.
  */
-function readCells(row: Element, walk: Walk, kept: Map<string, DOMRectReadOnly[]>): Cell[] {
-  const cells: Cell[] = []
+function readCells(row: Element, walk: Walk, kept: Map<string, DOMRectReadOnly[]>): RowCell[] {
+  const cells: RowCell[] = []
   for (const cell of row.children) {
+    if (isSkipped(cell, walk.isVisible)) continue
     const read = readCell(cell, walk)
-    if (!duplicate(kept, walk.options.rectOf, `cell|${read.sampled}`, cell)) cells.push(read)
+    if (!duplicate(kept, walk.options.rectOf, `cell|${read.sample}`, cell)) cells.push(read)
   }
   return cells
 }
 
 /**
- * The pagination control that belongs to a table: the first one inside the same
- * container that is not part of the table itself.
+ * True for a cell that heads a column or a row rather than holding data.
+ * @param cell - the cell element.
+ * @returns whether the cell is a header cell.
+ */
+function headsCells(cell: Element): boolean {
+  const role = roleOf(cell)
+  return role === 'columnheader' || role === 'rowheader'
+}
+
+/**
+ * True for a row that is a header the table did not declare as one: every cell
+ * a reader can see heads a column. A row of data cells is data, however the
+ * page styles it.
+ * @param row - the row element.
+ * @param walk - the walk in progress.
+ * @returns whether the row heads the table's columns.
+ */
+function headsColumns(row: Element, walk: Walk): boolean {
+  const cells = [...row.children].filter(cell => !isSkipped(cell, walk.isVisible))
+  return cells.length > 0 && cells.every(headsCells)
+}
+
+/** Which rows of one table head its columns and which hold its data. */
+interface TableShape {
+  /** The row heading the columns, absent for a table that heads none. */
+  readonly headRow: Element | undefined
+  /** Every row holding data, without the header, the foot, and the hidden ones. */
+  readonly dataRows: readonly Element[]
+}
+
+/**
+ * Sort one table's rows into its header and its data.
+ * @param el - the table element.
+ * @param walk - the walk in progress.
+ * @returns the table's shape.
+ */
+function tableShape(el: Element, walk: Walk): TableShape {
+  const grouped = new Set(el.querySelectorAll(':scope > thead > tr, :scope > tfoot > tr'))
+  const rows = queryInOrder(el, 'tr, [role="row"]').filter(row => row.closest(TABLE_SELECTOR) === el)
+  const declared = el.querySelector(':scope > thead > tr') ?? undefined
+  const first = rows[0]
+  const headRow = declared ?? (first !== undefined && headsColumns(first, walk) ? first : undefined)
+  return {
+    headRow,
+    dataRows: rows.filter(row => row !== headRow && !grouped.has(row) && !isSkipped(row, walk.isVisible)),
+  }
+}
+
+/**
+ * The table drawn beside this one, for a page that draws one table in two
+ * pieces — a header frozen above a body that scrolls under it.
+ * @param el - the table element.
+ * @param step - 1 for the table after this one, -1 for the table before it.
+ * @returns the neighbouring table, or undefined when there is none.
+ */
+function neighbourTable(el: Element, step: number): Element | undefined {
+  const tables = queryInOrder(el.ownerDocument, TABLE_SELECTOR)
+  return tables[tables.indexOf(el) + step]
+}
+
+/**
+ * The piece this table borrows its header from: the table before it that heads
+ * columns it has no rows for. The two are one table, so the header reaches the
+ * reader whether the read arrives at the whole page or at the body by ref.
+ * @param el - the table element.
+ * @param walk - the walk in progress.
+ * @param shape - this table's own shape.
+ * @returns the header piece, or undefined for a table that heads its own columns.
+ */
+function headerPiece(el: Element, walk: Walk, shape: TableShape): Element | undefined {
+  if (shape.headRow !== undefined) return undefined
+  const previous = neighbourTable(el, -1)
+  if (previous === undefined) return undefined
+  const piece = tableShape(previous, walk)
+  return piece.headRow !== undefined && piece.dataRows.length === 0 ? previous : undefined
+}
+
+/**
+ * True for the header half of a table drawn in two pieces, which prints nothing
+ * of its own: the body half prints the header it gives away.
+ * @param el - the table element.
+ * @param walk - the walk in progress.
+ * @returns whether the table is a header another table prints.
+ */
+function isHeaderPiece(el: Element, walk: Walk): boolean {
+  const shape = tableShape(el, walk)
+  if (shape.headRow === undefined || shape.dataRows.length > 0) return false
+  const next = neighbourTable(el, 1)
+  return next !== undefined && tableShape(next, walk).headRow === undefined
+}
+
+/**
+ * The text of a pagination strip, when the candidate really is one that shows
+ * something.
+ * @param el - the candidate element.
+ * @param walk - the walk in progress.
+ * @returns the strip's text, or undefined when it is not one or shows nothing.
+ */
+function stripText(el: Element, walk: Walk): string | undefined {
+  if (!isMarked(el, PAGINATION_MARKER) || isSkipped(el, walk.isVisible)) return undefined
+  const text = clip(visibleText(el, walk.isVisible))
+  return text === '' ? undefined : text
+}
+
+/**
+ * The first pagination strip among the elements between one table and the next,
+ * scanning away from the table.
+ * @param nodes - the tables and candidates on one side of the table, nearest first.
+ * @param walk - the walk in progress.
+ * @returns the strip's text, or undefined when another table comes first.
+ */
+function nearestStrip(nodes: readonly Element[], walk: Walk): string | undefined {
+  for (const node of nodes) {
+    if (node.matches(TABLE_SELECTOR)) return undefined
+    const text = stripText(node, walk)
+    if (text !== undefined) return text
+  }
+  return undefined
+}
+
+/**
+ * The pagination strip that belongs to a table: the one under it, or failing
+ * that the one over it, never one that belongs to the table next to it. A
+ * strip drawn inside any table belongs to that table's rows, not beside it.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @param place - the table's position.
- * @returns the control's text, or undefined when the table has none.
+ * @returns the strip's text, or undefined when the table has none.
  */
 function paginationText(el: Element, walk: Walk, place: Place): string | undefined {
-  for (const candidate of place.root.querySelectorAll('*')) {
-    if (el.contains(candidate) || !isMarked(candidate, PAGINATION_MARKER) || isSkipped(candidate, walk.isVisible)) continue
-    const text = clip(visibleText(candidate, walk.isVisible))
-    if (text !== '') return text
-  }
-  return undefined
+  const nodes = queryInOrder(place.root, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
+    .filter(node => node.matches(TABLE_SELECTOR) || node.closest(TABLE_SELECTOR) === null)
+  const at = nodes.indexOf(el)
+  if (at === -1) return undefined
+  return nearestStrip(nodes.slice(at + 1), walk) ?? nearestStrip(nodes.slice(0, at).reverse(), walk)
 }
 
 /**
@@ -249,43 +385,35 @@ function paginationText(el: Element, walk: Walk, place: Place): string | undefin
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @param place - the table's position.
+ * @param name - the table's accessible name.
  * @returns the collected table.
  */
-function readTable(el: Element, walk: Walk, place: Place): TableItem {
-  const rows = [...el.querySelectorAll('tr, [role="row"]')]
-    .filter(row => row.closest('table, [role="table"], [role="grid"]') === el)
-  const headRow = el.querySelector(':scope > thead > tr') ?? rows[0]
-  const dataRows = el.querySelector(':scope > tbody') === null
-    ? rows.filter(row => row !== headRow)
-    : rows.filter(row => row.closest('tbody') !== null)
+function readTable(el: Element, walk: Walk, place: Place, name: string): TableItem {
+  const shape = tableShape(el, walk)
+  const piece = headerPiece(el, walk, shape)
+  const headRow = shape.headRow ?? (piece === undefined ? undefined : tableShape(piece, walk).headRow)
   const kept = new Map<string, DOMRectReadOnly[]>()
   // Numbered before its contents, so the ref that names the table reads lower
   // than the refs of the controls inside it.
   const ref = walk.options.refs.ref(el)
-  const header = headRow === undefined ? [] : readCells(headRow, walk, kept).map(cell => cell.listed)
-  const face: { readonly type: 'table'; readonly name: string } = { type: 'table', name: nameOf(el) }
-  const collected = dataRows.map((row, index): TableRowItem => {
-    const rowRef = walk.options.refs.ref(row)
-    const cells = readCells(row, walk, kept)
-    return {
-      kind: 'row',
-      el: row,
-      ref: rowRef,
-      index: index + 1,
-      cells: cells.map(cell => cell.listed),
-      sample: cells.map(cell => cell.sampled),
-      text: clip(visibleText(row, walk.isVisible)),
-      table: face,
-    }
-  })
+  const header = headRow === undefined ? [] : readCells(headRow, walk, kept)
+  const face: { readonly type: 'table'; readonly name: string } = { type: 'table', name }
+  const rows = shape.dataRows.map((row, index): TableRowItem => ({
+    kind: 'row',
+    el: row,
+    index: index + 1,
+    cells: readCells(row, walk, kept),
+    text: clip(visibleText(row, walk.isVisible)),
+    table: face,
+  }))
   return {
     ...face,
     kind: 'table',
     el,
     ref,
     header,
-    rows: collected,
-    columns: header.length,
+    rows,
+    columns: header.length === 0 ? Math.max(0, ...rows.map(row => row.cells.length)) : header.length,
     pagination: paginationText(el, walk, place),
     container: place.container,
     depth: place.depth,
@@ -293,15 +421,18 @@ function readTable(el: Element, walk: Walk, place: Place): TableItem {
 }
 
 /**
- * Collect a table, unless a pinned copy of it is already collected.
+ * Collect a table, unless it is the header half of one already collected or a
+ * pinned copy of one.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @param place - the table's position.
  */
 function pushTable(el: Element, walk: Walk, place: Place): void {
-  if (duplicate(walk.kept, walk.options.rectOf, `table|${nameOf(el)}`, el)) return
+  if (isHeaderPiece(el, walk)) return
+  const name = nameOf(el)
+  if (duplicate(walk.kept, walk.options.rectOf, `table|${name}`, el)) return
   flush(walk, place)
-  walk.items.push(readTable(el, walk, place))
+  walk.items.push(readTable(el, walk, place, name))
 }
 
 /**
@@ -356,6 +487,24 @@ function pushClosedDialog(el: Element, walk: Walk, place: Place): void {
 }
 
 /**
+ * Collect every dialog a subtree the reader cannot see holds, the subtree's own
+ * element included. A page that keeps a closed dialog inside a wrapper it hides
+ * hides the dialog with it, and the model still needs to know the dialog is
+ * there.
+ * @param el - the hidden element.
+ * @param walk - the walk in progress.
+ * @param place - the element's position.
+ */
+function pushHiddenDialogs(el: Element, walk: Walk, place: Place): void {
+  const role = roleOf(el)
+  if (role === 'dialog' || role === 'alertdialog') {
+    pushClosedDialog(el, walk, place)
+    return
+  }
+  for (const dialog of queryInOrder(el, DIALOG_SELECTOR)) pushClosedDialog(dialog, walk, place)
+}
+
+/**
  * Collect a container and everything inside it.
  * @param el - the container element.
  * @param face - what the container prints.
@@ -377,25 +526,51 @@ function openContainer(el: Element, face: ContainerFace, host: ParentNode, walk:
     closed: false,
   }
   walk.items.push(item)
-  const inside: Place = { container: item, depth: place.depth + 1, buffer: [], root: host }
+  const inside: Place = { container: item, depth: place.depth + 1, buffer: [], root: host, labelled: place.labelled }
   walkNodes(host, walk, inside)
   flush(walk, inside)
 }
 
 /**
- * Collect a frame's document as a container, or say that it cannot be read.
+ * Collect a frame's document as a container, or say that it cannot be read. A
+ * frame still loading, and one holding a document that is not HTML, have no
+ * body; whatever the document does have is what the walk reads.
  * @param el - the frame element.
  * @param walk - the walk in progress.
  * @param place - the frame's position.
  */
 function enterFrame(el: Element, walk: Walk, place: Place): void {
   const doc = frameDocument(el)
-  if (doc === undefined) {
+  const host = doc?.body ?? doc?.documentElement ?? null
+  if (host === null) {
     flush(walk, place)
     walk.items.push({ kind: 'frame-error', container: place.container, depth: place.depth })
     return
   }
-  openContainer(el, { type: 'frame', name: nameOf(el) }, doc.body, walk, place)
+  openContainer(el, { type: 'frame', name: nameOf(el) }, host, walk, place)
+}
+
+/**
+ * True when an element holds something that would earn a row of its own, so it
+ * is a wrapper rather than a thing to click.
+ * @param host - the node holding what the element shows.
+ * @param walk - the walk in progress.
+ * @returns whether the subtree holds an item.
+ */
+function holdsItems(host: ParentNode, walk: Walk): boolean {
+  for (const candidate of host.querySelectorAll(ITEM_SELECTOR)) {
+    if (!isSkipped(candidate, walk.isVisible)) return true
+  }
+  return false
+}
+
+/**
+ * True for a `label` that names a control, whose text the control's row prints.
+ * @param el - the element to classify.
+ * @returns whether the element labels a control.
+ */
+function namesControl(el: Element): boolean {
+  return el.localName === 'label' && (el as HTMLLabelElement).control !== null
 }
 
 /**
@@ -406,7 +581,7 @@ function enterFrame(el: Element, walk: Walk, place: Place): void {
  */
 function walkElement(el: Element, walk: Walk, place: Place): void {
   if (isSkipped(el, walk.isVisible)) {
-    if (roleOf(el) === 'dialog') pushClosedDialog(el, walk, place)
+    if (!isNonContent(el)) pushHiddenDialogs(el, walk, place)
     return
   }
   if (el.localName === 'iframe') {
@@ -414,7 +589,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
     return
   }
   const role = roleOf(el)
-  if (role === 'table' || role === 'grid') {
+  if (role === 'table' || role === 'grid' || role === 'treegrid') {
     pushTable(el, walk, place)
     return
   }
@@ -423,15 +598,16 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
     openContainer(el, face, childHost(el), walk, place)
     return
   }
-  if (role === null && walk.isClickable(el)) {
-    pushElement(el, CLICKABLE_ROLE, walk, place)
-    return
-  }
   if (role !== null && isNameable(role)) {
     pushElement(el, role, walk, place)
     return
   }
-  walkNodes(childHost(el), walk, place)
+  const host = childHost(el)
+  if (!place.labelled && walk.isClickable(el) && !holdsItems(host, walk)) {
+    pushElement(el, CLICKABLE_ROLE, walk, place)
+    return
+  }
+  walkNodes(host, walk, namesControl(el) ? { ...place, labelled: true } : place)
   // Text either side of an element that flows inside a line is one run; text
   // either side of a block is two.
   if (!isInline(el)) flush(walk, place)
@@ -445,8 +621,9 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
  */
 function walkNodes(host: ParentNode, walk: Walk, place: Place): void {
   for (const node of host.childNodes) {
-    if (node.nodeType === node.TEXT_NODE) place.buffer.push((node as Text).data)
-    else if (node.nodeType === node.ELEMENT_NODE) walkElement(node as Element, walk, place)
+    if (node.nodeType === node.TEXT_NODE) {
+      if (!place.labelled) place.buffer.push((node as Text).data)
+    } else if (node.nodeType === node.ELEMENT_NODE) walkElement(node as Element, walk, place)
   }
 }
 
@@ -465,7 +642,7 @@ export function collect(root: Document, options: SnapshotOptions, scope: Element
     items: [],
     kept: new Map(),
   }
-  const place: Place = { container: undefined, depth: 0, buffer: [], root: scope ?? root.body }
+  const place: Place = { container: undefined, depth: 0, buffer: [], root: scope ?? root.body, labelled: false }
   if (scope === undefined) walkNodes(root.body, walk, place)
   else walkElement(scope, walk, place)
   flush(walk, place)
