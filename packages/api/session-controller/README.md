@@ -43,7 +43,7 @@ The Session object also carries local submission echoes: `session.beginSubmissio
 | `coldBlankProbeMaxEvents` | `16` | Maximum stat-reported event count of a cold Session eligible for blankness verification; `0` disables the event-count gate |
 | `coldBlankProbeMaxBytes` | `1,024` | Maximum stat-reported artifact byte size of a cold Session eligible for blankness verification when the backend offers no event count; `0` disables the byte-size gate |
 | `nativeOpen` | platform-detected | Whether Session workspace paths can be handed to a native desktop opener |
-| `secretContainerExtraPatterns` | `[]` | Filename substrings appended to the client's fixed pre-send secret-container confirmation heuristic; additive only |
+| `secretContainerExtraPatterns` | `[]` | Filename substrings appended to the client's fixed add-time secret-container confirmation heuristic; additive only |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-api-session-controller) is the exhaustive source for accepted fields and their JSDoc.
 
