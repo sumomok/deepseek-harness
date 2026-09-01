@@ -15,6 +15,19 @@ installAssembledBootEnv()
 
 const FILE_TEXT = '# fixture notes\nfirst line\nsecond line'
 
+/**
+ * The composer's text surface: the shell-owned Lexical contenteditable, which
+ * carries its placeholder copy on `data-placeholder` rather than as a real
+ * `placeholder` attribute, so no by-placeholder query reaches it.
+ */
+async function findComposer(): Promise<HTMLElement> {
+  return await waitFor(() => {
+    const el = document.querySelector<HTMLElement>('[data-composer-input][contenteditable="true"]')
+    if (el === null) throw new Error('composer input missing')
+    return el
+  }, { timeout: 10_000 })
+}
+
 it('sends a pasted text file, renders its bubble card, and expands the exact text via loadFile', async () => {
   mountAssembledApp()
 
@@ -23,7 +36,7 @@ it('sends a pasted text file, renders its bubble card, and expands the exact tex
   if (start === null) throw new Error('fixture Workspace new-session action missing')
   fireEvent.click(start)
 
-  const textarea = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
+  const textarea = await findComposer()
   const file = new File([FILE_TEXT], 'notes.txt', { type: 'text/plain' })
   fireEvent.paste(textarea, {
     clipboardData: {
@@ -91,7 +104,7 @@ it('round-trips a file over the model-lowering threshold without any client-side
   if (start === null) throw new Error('fixture Workspace new-session action missing')
   fireEvent.click(start)
 
-  const textarea = await screen.findByPlaceholderText('Describe what you want to build', {}, { timeout: 10_000 })
+  const textarea = await findComposer()
   expect(LARGE_FILE_TEXT.length).toBeGreaterThan(16_000)
   const file = new File([LARGE_FILE_TEXT], 'big-notes.txt', { type: 'text/plain' })
   fireEvent.paste(textarea, {
