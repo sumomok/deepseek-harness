@@ -104,10 +104,10 @@ describe('beginSubmission', () => {
 
   it('derives and captures the echo placement from running state and delivery mode', () => {
     const { session } = makeSession()
-    session.beginSubmission({ mode: 'queue', text: '空闲', images: [] })
+    session.beginSubmission({ mode: 'queue', text: '空闲', images: [], files: [] })
     session.handleRunning(true)
-    session.beginSubmission({ mode: 'queue', text: '排队', images: [] })
-    session.beginSubmission({ mode: 'steer', text: '纠偏', images: [] })
+    session.beginSubmission({ mode: 'queue', text: '排队', images: [], files: [] })
+    session.beginSubmission({ mode: 'steer', text: '纠偏', images: [], files: [] })
     session.handleRunning(false)
     expect(session.getSnapshot().pendingSubmissions.map(({ text, placement }) => ({ text, placement }))).toEqual([
       { text: '空闲', placement: 'transcript' },

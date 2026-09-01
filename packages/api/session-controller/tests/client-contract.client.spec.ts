@@ -18,8 +18,14 @@ function entry(seq: number): SessionLiveEventEntry {
 }
 
 describe('Client Session contracts', () => {
-  it('keeps its catalog-visible prompt parts identical to attachment intake', () => {
-    expectTypeOf<SessionPromptContentPart>().toEqualTypeOf<AttachmentPromptContentPart>()
+  // Session admits a 'file' part alongside every part attachment intake
+  // itself accepts (text, image): the subagent wire boundary stays on
+  // attachment's narrower vocabulary (packages/subagent/subagent has no
+  // 'file' admission), so the two types intentionally diverge by exactly
+  // that one variant rather than staying identical.
+  it('keeps its catalog-visible text/image prompt parts identical to attachment intake', () => {
+    expectTypeOf<Exclude<SessionPromptContentPart, { readonly type: 'file' }>>()
+      .toEqualTypeOf<AttachmentPromptContentPart>()
   })
 
   it('publishes exact replace, prepend, and append event-window changes', () => {

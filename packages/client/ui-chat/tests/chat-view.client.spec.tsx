@@ -1076,6 +1076,7 @@ describe('ChatView', () => {
           time: 5_500,
           text: '带图纠偏',
           images: [{ previewUrl: 'blob:steer-preview', name: 'steer.png' }],
+          files: [],
         }],
       },
     )
