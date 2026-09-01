@@ -6,7 +6,7 @@
  * list and no way to reach the rest.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/render
  */
-import { CLICKABLE_ROLE, FIELD_ROLES } from './dom.ts'
+import { CLICKABLE_ROLE, FIELD_ROLES, clipTo } from './dom.ts'
 import type {
   ContainerFace, ContainerItem, ElementItem, Item, RowCell, SnapshotMode, SnapshotOptions,
   TableItem, TableRowItem, TextItem,
@@ -28,12 +28,48 @@ const FRAME_UNREADABLE = 'frame (not readable)'
 /** How a table says its rows are available but not listed. */
 const ROWS_HINT = "rows: pass scope with this table's ref to list rows, or find a row by its text"
 
-/** One rendered row, and the ref a continuation would resume after. */
+/** How much of a cell the one sample row shows: enough to say what the column holds. */
+const SAMPLE_CELL_LIMIT = 24
+
+/** How much of a cell the header shows, which names a column and is worth more room. */
+const HEADER_CELL_LIMIT = 40
+
+/** How much of a cell a listed row shows, which the walk has already cut to. */
+const ROW_CELL_LIMIT = 200
+
+/** Roles that read as one of the items a widget offers rather than as text. */
+const ITEM_ROLES: ReadonlySet<string> =
+  new Set(['tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'treeitem'])
+
+/**
+ * One row of a listing, rendered when the listing decides to keep it. Rendering
+ * a row numbers what it prints, so a listing that stops short never spends refs
+ * on rows nobody has seen.
+ */
 interface Entry {
-  /** The row's ref, absent for a row the model cannot name. */
-  readonly ref: string | undefined
-  /** The row's text, which may run to several lines. */
-  readonly text: string
+  /** The element the row names, absent for a row the model cannot name. */
+  readonly el: Element | undefined
+  /** Render the row, which may run to several lines. */
+  readonly line: () => string
+}
+
+/**
+ * One row of a listing, numbered and rendered on demand. The row's own ref is
+ * minted before whatever it prints, so a reader continuing from it reads the
+ * numbers in the order the page draws them.
+ * @param el - the element the row names, if any.
+ * @param refs - the page's numbering.
+ * @param render - how the row prints.
+ * @returns the entry.
+ */
+function entry(el: Element | undefined, refs: RefTable, render: () => string): Entry {
+  return {
+    el,
+    line: (): string => {
+      if (el !== undefined) refs.ref(el)
+      return render()
+    },
+  }
 }
 
 /** One rendered listing, before the header is attached. */
@@ -89,6 +125,8 @@ interface Counts {
   buttons: number
   /** Links. */
   links: number
+  /** The items a widget offers: tabs, menu items, options, tree nodes. */
+  items: number
   /** Table data rows. */
   rows: number
   /** Runs of text, and anything else that only reads. */
@@ -106,6 +144,7 @@ function countsOf(counts: Counts): string {
   if (counts.fields > 0) parts.push(`${counts.fields} fields`)
   if (counts.buttons > 0) parts.push(`${counts.buttons} buttons`)
   if (counts.links > 0) parts.push(`${counts.links} links`)
+  if (counts.items > 0) parts.push(`${counts.items} items`)
   if (counts.rows > 0) parts.push(`${counts.rows} rows`)
   if (counts.texts > 0) parts.push(`${counts.texts} texts`)
   return parts.length === 0 ? '' : `${INDENT}${parts.join(', ')}`
@@ -119,7 +158,7 @@ function countsOf(counts: Counts): string {
  * @returns the trailing counts.
  */
 function containerCounts(container: ContainerItem, items: readonly Item[]): string {
-  const counts: Counts = { fields: 0, buttons: 0, links: 0, rows: 0, texts: 0 }
+  const counts: Counts = { fields: 0, buttons: 0, links: 0, items: 0, rows: 0, texts: 0 }
   for (const item of items) {
     if (item.container !== container) continue
     if (item.kind === 'text') counts.texts += 1
@@ -127,6 +166,7 @@ function containerCounts(container: ContainerItem, items: readonly Item[]): stri
       if (FIELD_ROLES.has(item.role)) counts.fields += 1
       else if (item.role === 'button' || item.role === CLICKABLE_ROLE) counts.buttons += 1
       else if (item.role === 'link') counts.links += 1
+      else if (ITEM_ROLES.has(item.role)) counts.items += 1
       else counts.texts += 1
     }
   }
@@ -143,7 +183,8 @@ function elementLine(item: ElementItem, prefix: string): string {
   const value = item.secret ? ' = (hidden)' : item.value === undefined ? '' : ` = "${item.value}"`
   const checked = item.checked === undefined ? '' : item.checked ? ' [x]' : ' [ ]'
   const disabled = item.disabled ? ' (disabled)' : ''
-  return `${prefix}${item.ref} ${item.role}${quoted(item.name)}${value}${checked}${disabled}${within(item.container)}`
+  const collapsed = item.collapsed ? ' (collapsed)' : ''
+  return `${prefix}${item.ref} ${item.role}${quoted(item.name)}${value}${checked}${disabled}${collapsed}${within(item.container)}`
 }
 
 /**
@@ -157,14 +198,17 @@ function textLine(item: TextItem, prefix: string): string {
 }
 
 /**
- * One cell as a listed row prints it: its text, or the controls it holds, each
- * numbered here because a cell nobody lists is a cell nobody needs a ref for.
+ * One cell as a listed row prints it: its text cut to what the line has room
+ * for, or the controls it holds, each numbered here because a cell nobody lists
+ * is a cell nobody needs a ref for. A cell holding controls is printed whole:
+ * cutting it would cut a ref in half.
  * @param cell - the cell.
  * @param refs - the page's numbering.
+ * @param limit - how much of the cell's text the line prints.
  * @returns the rendered cell.
  */
-function cellText(cell: RowCell, refs: RefTable): string {
-  if (cell.controls.length === 0) return cell.sample
+function cellText(cell: RowCell, refs: RefTable, limit: number): string {
+  if (cell.controls.length === 0) return clipTo(cell.sample, limit)
   return cell.controls
     .map(control => `${refs.ref(control.el)} ${control.role} "${control.name}"`)
     .join(CONTROL_SEPARATOR)
@@ -179,7 +223,7 @@ function cellText(cell: RowCell, refs: RefTable): string {
  * @returns the rendered row.
  */
 function rowLine(item: TableRowItem, prefix: string, suffix: string, refs: RefTable): string {
-  const cells = item.cells.map(cell => cellText(cell, refs))
+  const cells = item.cells.map(cell => cellText(cell, refs, ROW_CELL_LIMIT))
   return `${prefix}row ${item.index}: ${cells.join(CELL_SEPARATOR)}${suffix}`
 }
 
@@ -202,13 +246,15 @@ function tableHead(item: TableItem, depth: number): string {
  */
 function tableHeader(item: TableItem, depth: number, refs: RefTable): string[] {
   if (item.header.length === 0) return []
-  const cells = item.header.map(cell => cellText(cell, refs))
+  const cells = item.header.map(cell => cellText(cell, refs, HEADER_CELL_LIMIT))
   return [`${indent(depth + 1)}header: ${cells.join(CELL_SEPARATOR)}`]
 }
 
 /**
  * The lines a table prints wherever its rows are not listed: its shape, one
- * sample row, and how to reach the rest.
+ * sample row, and how to reach the rest. The sample says what a column holds
+ * rather than what it says — the data itself is what the read is not for — so
+ * each of its cells prints a short run and no more.
  * @param item - the table item.
  * @param depth - the nesting depth the block prints at.
  * @param refs - the page's numbering.
@@ -219,7 +265,8 @@ function tableBlock(item: TableItem, depth: number, refs: RefTable): string {
   const lines = [tableHead(item, depth), ...tableHeader(item, depth, refs)]
   const first = item.rows[0]
   if (first !== undefined) {
-    lines.push(`${inner}sample: ${first.cells.map(cell => cell.sample).join(CELL_SEPARATOR)}`, `${inner}${ROWS_HINT}`)
+    const cells = first.cells.map(cell => clipTo(cell.sample, SAMPLE_CELL_LIMIT))
+    lines.push(`${inner}sample: ${cells.join(CELL_SEPARATOR)}`, `${inner}${ROWS_HINT}`)
   }
   if (item.pagination !== undefined) lines.push(`${inner}pagination: ${item.pagination}`)
   return lines.join('\n')
@@ -261,12 +308,12 @@ function outlineText(item: Item, refs: RefTable): string {
 }
 
 /**
- * The ref a continuation resumes after, for the rows that carry one.
+ * The element a continuation resumes after, for the rows that name one.
  * @param item - the item to name.
- * @returns the ref, or undefined for a row the model cannot name.
+ * @returns the element, or undefined for a row the model cannot name.
  */
-function entryRef(item: Item): string | undefined {
-  return item.kind === 'text' || item.kind === 'frame-error' ? undefined : item.ref
+function entryElement(item: Item): Element | undefined {
+  return item.kind === 'text' || item.kind === 'frame-error' ? undefined : item.el
 }
 
 /**
@@ -276,10 +323,9 @@ function entryRef(item: Item): string | undefined {
  * @returns the rendered entries.
  */
 function scopedTableEntries(item: TableItem, refs: RefTable): Entry[] {
-  const head = [tableHead(item, item.depth), ...tableHeader(item, item.depth, refs)].join('\n')
   return [
-    { ref: item.ref, text: head },
-    ...item.rows.map((row): Entry => ({ ref: refs.ref(row.el), text: rowLine(row, indent(item.depth + 1), '', refs) })),
+    entry(item.el, refs, () => [tableHead(item, item.depth), ...tableHeader(item, item.depth, refs)].join('\n')),
+    ...item.rows.map(row => entry(row.el, refs, () => rowLine(row, indent(item.depth + 1), '', refs))),
   ]
 }
 
@@ -295,7 +341,7 @@ function outlineEntries(items: readonly Item[], scope: Element | undefined, refs
   for (const item of items) {
     if (item.kind === 'container' && item.closed) continue
     if (item.kind === 'table' && item.el === scope) entries.push(...scopedTableEntries(item, refs))
-    else entries.push({ ref: entryRef(item), text: outlineText(item, refs) })
+    else entries.push(entry(entryElement(item), refs, () => outlineText(item, refs)))
   }
   return entries
 }
@@ -303,16 +349,19 @@ function outlineEntries(items: readonly Item[], scope: Element | undefined, refs
 /**
  * The containers of the page and nothing else, each with what it holds.
  * @param items - every collected item.
+ * @param refs - the page's numbering.
  * @returns the rendered entries.
  */
-function mapEntries(items: readonly Item[]): Entry[] {
+function mapEntries(items: readonly Item[], refs: RefTable): Entry[] {
   const entries: Entry[] = []
   for (const item of items) {
-    if (item.kind === 'container') entries.push({ ref: item.ref, text: containerMapLine(item, items) })
+    if (item.kind === 'container') entries.push(entry(item.el, refs, () => containerMapLine(item, items)))
     else if (item.kind === 'table') {
-      const counts = countsOf({ fields: 0, buttons: 0, links: 0, rows: item.rows.length, texts: 0 })
-      entries.push({ ref: item.ref, text: `${indent(item.depth)}${item.ref} table${quoted(item.name)}${counts}` })
-    } else if (item.kind === 'frame-error') entries.push({ ref: undefined, text: `${indent(item.depth)}${FRAME_UNREADABLE}` })
+      const counts = countsOf({ fields: 0, buttons: 0, links: 0, items: 0, rows: item.rows.length, texts: 0 })
+      entries.push(entry(item.el, refs, () => `${indent(item.depth)}${item.ref} table${quoted(item.name)}${counts}`))
+    } else if (item.kind === 'frame-error') {
+      entries.push(entry(undefined, refs, () => `${indent(item.depth)}${FRAME_UNREADABLE}`))
+    }
   }
   return entries
 }
@@ -333,18 +382,18 @@ function findEntries(items: readonly Item[], find: string, refs: RefTable): Entr
   const entries: Entry[] = []
   for (const item of items) {
     if (item.kind === 'element') {
-      if (item.name.toLowerCase().includes(needle)) entries.push({ ref: item.ref, text: elementLine(item, '') })
+      if (item.name.toLowerCase().includes(needle)) entries.push(entry(item.el, refs, () => elementLine(item, '')))
     } else if (item.kind === 'text') {
-      if (item.text.toLowerCase().includes(needle)) entries.push({ ref: undefined, text: textLine(item, '') })
+      if (item.text.toLowerCase().includes(needle)) entries.push(entry(undefined, refs, () => textLine(item, '')))
     } else if (item.kind === 'container') {
       if (!item.closed && item.name.toLowerCase().includes(needle)) {
-        entries.push({ ref: item.ref, text: `${item.ref} ${item.type}${quoted(item.name)}${within(item.container)}` })
+        entries.push(entry(item.el, refs, () => `${item.ref} ${item.type}${quoted(item.name)}${within(item.container)}`))
       }
     } else if (item.kind === 'table') {
-      if (item.name.toLowerCase().includes(needle)) entries.push({ ref: item.ref, text: tableBlock(item, 0, refs) })
+      if (item.name.toLowerCase().includes(needle)) entries.push(entry(item.el, refs, () => tableBlock(item, 0, refs)))
       for (const row of item.rows) {
         if (row.text.toLowerCase().includes(needle)) {
-          entries.push({ ref: refs.ref(row.el), text: rowLine(row, '', within(row.table), refs) })
+          entries.push(entry(row.el, refs, () => rowLine(row, '', within(row.table), refs)))
         }
       }
     }
@@ -356,14 +405,16 @@ function findEntries(items: readonly Item[], find: string, refs: RefTable): Entr
  * Drop everything up to and including the entry a continuation resumes after.
  * @param entries - the listing.
  * @param after - the ref to resume after, if any.
+ * @param refs - the page's numbering.
  * @returns the remaining entries.
  * @throws {Error} when `after` names no row of this listing, which means the
  * read changed scope or filter between the two calls and the continuation would
  * silently start over.
  */
-function dropBefore(entries: Entry[], after: string | undefined): Entry[] {
+function dropBefore(entries: Entry[], after: string | undefined, refs: RefTable): Entry[] {
   if (after === undefined) return entries
-  const at = entries.findIndex(entry => entry.ref === after)
+  const named = refs.resolve(after)
+  const at = entries.findIndex(entry => entry.el !== undefined && entry.el === named)
   if (at === -1) {
     throw new Error(`after: "${after}" is not an item of this read — pass the cursor from the same scope and find, or omit after`)
   }
@@ -409,6 +460,16 @@ function cutHere(remaining: number): string {
 }
 
 /**
+ * How the one row a listing has says it cost more than the whole budget. The
+ * row is printed anyway — a read answers with something — and the reader is
+ * told the budget did not cover it.
+ */
+const OVER_BUDGET = '(this row alone exceeds the budget — read a smaller part with scope or find)'
+
+/** What a skeleton of a page with no region at all to draw says instead. */
+const NOTHING_TO_MAP = '(the page has no containers to map — read it without mode)'
+
+/**
  * How a skeleton says where to read next.
  * @param ref - the ref of the container holding the most of the page.
  * @returns the closing line.
@@ -421,31 +482,42 @@ function scopeHint(ref: string): string {
  * How much of the budget the closing line needs, measured against the longest
  * one this listing could possibly print rather than the one it turns out to
  * print, because which line closes a listing is only known once it is filled.
+ * The widest ref counts the numbers this listing may yet mint: the rows it has
+ * not rendered are not numbered yet.
  * @param kind - which listing this is.
  * @param entries - the listing.
  * @param hint - the closing line an uncut listing prints, if any.
+ * @param refs - the page's numbering.
  * @returns the reserved characters, the closing newline included.
  */
-function reserveFor(kind: SnapshotMode, entries: readonly Entry[], hint: string | undefined): number {
+function reserveFor(kind: SnapshotMode, entries: readonly Entry[], hint: string | undefined, refs: RefTable): number {
   const remaining = Number('9'.repeat(String(entries.length).length))
-  const widest = entries.reduce((longest, entry) => Math.max(longest, entry.ref?.length ?? 0), 0)
+  const widest = refs.widthAfter(entries.length)
   return Math.max(cutHere(remaining).length, cutAfter(kind, 'e'.repeat(widest), remaining).length, hint?.length ?? 0) + 1
 }
 
 /**
  * Render as many rows as the budget holds. The first row is always rendered,
- * however long it is, so a read is never answered with nothing at all.
+ * however long it is, so a read is never answered with nothing at all. A row
+ * has to be rendered to be measured, so the one row that turns out not to fit
+ * is rendered and then unnumbered again.
  * @param entries - the listing.
  * @param budget - the characters the rows may take.
+ * @param refs - the page's numbering.
  * @returns the rendered rows.
  */
-function fill(entries: readonly Entry[], budget: number): string[] {
+function fill(entries: readonly Entry[], budget: number, refs: RefTable): string[] {
   const lines: string[] = []
   let used = 0
   for (const entry of entries) {
-    const cost = entry.text.length + 1
-    if (lines.length > 0 && used + cost > budget) break
-    lines.push(entry.text)
+    const mark = refs.mark()
+    const text = entry.line()
+    const cost = text.length + 1
+    if (lines.length > 0 && used + cost > budget) {
+      refs.rollback(mark)
+      break
+    }
+    lines.push(text)
     used += cost
   }
   return lines
@@ -460,31 +532,52 @@ function fill(entries: readonly Entry[], budget: number): string[] {
  *
  * The closing line is part of the budget: the body is at most `budgetChars`,
  * except that a read whose first row and closing line alone exceed the budget
- * still prints both.
+ * still prints both, and says which of the two happened — a listing with more
+ * rows to come is cut, while a listing of one over-long row is complete and
+ * over budget.
  * @param kind - which listing this is.
  * @param entries - the listing.
  * @param budgetChars - the character budget.
  * @param hint - the closing line an uncut listing prints, if any.
+ * @param refs - the page's numbering.
  * @returns the rendered listing.
  */
-function assemble(kind: SnapshotMode, entries: readonly Entry[], budgetChars: number, hint: string | undefined): Listing {
-  const whole = fill(entries, budgetChars)
+function assemble(
+  kind: SnapshotMode,
+  entries: readonly Entry[],
+  budgetChars: number,
+  hint: string | undefined,
+  refs: RefTable,
+): Listing {
+  const mark = refs.mark()
+  const whole = fill(entries, budgetChars, refs)
   const closes = whole.length < entries.length || hint !== undefined
-  const lines = closes ? fill(entries, budgetChars - reserveFor(kind, entries, hint)) : whole
+  let lines = whole
+  if (closes) {
+    // The wider fill numbered rows this one may not keep; the read prints the
+    // numbers it renders and no others.
+    refs.rollback(mark)
+    lines = fill(entries, budgetChars - reserveFor(kind, entries, hint, refs), refs)
+  }
   const truncated = lines.length < entries.length
   let shown = lines.length
   if (truncated) {
     let named = shown
-    while (named > 0 && entries[named - 1]?.ref === undefined) named -= 1
+    while (named > 0 && entries[named - 1]?.el === undefined) named -= 1
     if (named > 0) shown = named
   }
-  const cursor = truncated ? entries[shown - 1]?.ref : undefined
+  const last = entries[shown - 1]?.el
+  const cursor = truncated && last !== undefined ? refs.ref(last) : undefined
   const body = lines.slice(0, shown)
   if (truncated) {
     body.push(cursor === undefined ? cutHere(entries.length - shown) : cutAfter(kind, cursor, entries.length - shown))
   }
   else if (hint !== undefined) body.push(hint)
-  return { kind, text: body.join('\n'), truncated, shown, total: entries.length, cursor }
+  // A listing of one row longer than the whole budget is complete and still
+  // over it; a listing that already closes with a way on has said enough.
+  const over = !truncated && hint === undefined && body.join('\n').length > budgetChars
+  if (over) body.push(OVER_BUDGET)
+  return { kind, text: body.join('\n'), truncated: truncated || over, shown, total: entries.length, cursor }
 }
 
 /**
@@ -498,12 +591,12 @@ function assemble(kind: SnapshotMode, entries: readonly Entry[], budgetChars: nu
  * @throws {Error} when `after` names no row of this listing.
  */
 function resume(kind: SnapshotMode, entries: Entry[], options: SnapshotOptions): Listing {
-  const { after } = options
-  const rest = dropBefore(entries, after)
+  const { after, refs } = options
+  const rest = dropBefore(entries, after, refs)
   if (after !== undefined && rest.length === 0) {
     return { kind, text: nothingAfter(after), truncated: false, shown: 0, total: 0, cursor: undefined }
   }
-  return assemble(kind, rest, options.budgetChars, undefined)
+  return assemble(kind, rest, options.budgetChars, undefined, refs)
 }
 
 /**
@@ -551,7 +644,11 @@ export function render(items: readonly Item[], options: SnapshotOptions, scope: 
     if (find !== undefined) {
       throw new Error('find cannot be combined with mode "map" — read the map first, then find within a scope')
     }
-    return resume('map', mapEntries(items), options)
+    const skeleton = mapEntries(items, refs)
+    if (skeleton.length === 0) {
+      return { kind: 'map', text: NOTHING_TO_MAP, truncated: false, shown: 0, total: 0, cursor: undefined }
+    }
+    return resume('map', skeleton, options)
   }
   if (find !== undefined) {
     const found = findEntries(items, find, refs)
@@ -561,15 +658,19 @@ export function render(items: readonly Item[], options: SnapshotOptions, scope: 
     }
     return resume('outline', found, options)
   }
+  const mark = refs.mark()
   const listing = resume('outline', outlineEntries(items, scope, refs), options)
   const wholePage = options.scope === undefined && options.after === undefined
   if (!listing.truncated || !wholePage) return listing
-  // A page with no containers has no skeleton to answer with; the rows it does
-  // have, cut short, say more than an empty answer.
-  const skeleton = mapEntries(items)
-  if (skeleton.length === 0) return listing
+  // A skeleton is only worth answering with when it says where to read next: a
+  // page whose regions hold nothing directly has no room to point at, and its
+  // rows, cut short, carry more than a map of empty rooms.
   const largest = largestContainer(items)
+  if (largest === undefined) return listing
+  // The listing the skeleton stands in for reaches nobody, and neither do the
+  // numbers it minted.
+  refs.rollback(mark)
   // However much of the skeleton fits, it stands in for a listing that did not,
   // so the read is short of what it collected either way.
-  return { ...assemble('map', skeleton, budgetChars, largest === undefined ? undefined : scopeHint(largest)), truncated: true }
+  return { ...assemble('map', mapEntries(items, refs), budgetChars, scopeHint(largest), refs), truncated: true }
 }

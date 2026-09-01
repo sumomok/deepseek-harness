@@ -16,12 +16,15 @@ export type SnapshotMode = 'outline' | 'map'
  * The container kinds a row can name. Several ARIA roles share one word,
  * because the reader needs the kind of region rather than the exact role:
  * `form` also covers a search form, `dialog` an alert dialog, `list` a feed,
- * `menu` a menu bar, and `section` a region, an article, or a complementary
- * area.
+ * `menu` a menu bar, `menuitem` a checkable or radio menu item, and `section` a
+ * region, an article, or a complementary area. `clickable` is the one kind the
+ * page does not declare: a run the page makes clickable that holds items of its
+ * own is both a thing to click and a region to read.
  */
 export type ContainerType =
   | 'main' | 'nav' | 'form' | 'dialog' | 'section' | 'toolbar' | 'list' | 'table' | 'frame'
   | 'tablist' | 'tabpanel' | 'menu' | 'tree' | 'radiogroup' | 'listbox'
+  | 'clickable' | 'treeitem' | 'menuitem'
 
 /** What one read asks of the page. */
 export interface SnapshotOptions {
@@ -121,6 +124,8 @@ export interface ElementItem {
   readonly checked: boolean | undefined
   /** True when the page has disabled the element. */
   readonly disabled: boolean
+  /** True for a tree node or menu item the page has closed over what it holds. */
+  readonly collapsed: boolean
   /** The container this row sits in. */
   readonly container: ContainerItem | undefined
   /** How many containers enclose this row. */
@@ -162,6 +167,10 @@ export interface RowCell {
  * and the controls in it are numbered when a read prints them, not when the
  * walk finds them: a listing that reports a two-hundred-row table by its shape
  * alone must not spend two hundred refs on rows nobody has asked to see.
+ *
+ * `width`, `cells`, and `text` are read from the page when a listing asks for
+ * them, so a whole page reads only the row it samples while a read scoped to
+ * the table or filtered by `find` reads what it prints.
  */
 export interface TableRowItem {
   /** Discriminant. */
@@ -170,6 +179,8 @@ export interface TableRowItem {
   readonly el: Element
   /** The row's 1-based position among the table's data rows. */
   readonly index: number
+  /** How many cells the row shows, counted without reading what is in them. */
+  readonly width: number
   /** Each cell, in column order. */
   readonly cells: readonly RowCell[]
   /** The row's plain text, for `find`. */
@@ -192,7 +203,7 @@ export interface TableItem extends ContainerFace {
   readonly header: readonly RowCell[]
   /** The table's data rows. */
   readonly rows: readonly TableRowItem[]
-  /** How many columns the table has: what its header declares, or the widest data row. */
+  /** How many columns the table has: the wider of its header and its widest data row. */
   readonly columns: number
   /** The adjacent pagination control's text. */
   readonly pagination: string | undefined

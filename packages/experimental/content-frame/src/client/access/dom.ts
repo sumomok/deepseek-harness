@@ -85,6 +85,17 @@ export function clip(text: string): string {
 }
 
 /**
+ * Cut one text run to a length a caller sets, for the places that print less
+ * than a whole run: a sample cell, a header cell, the name of a click target.
+ * @param text - the collapsed text.
+ * @param limit - the longest result, the ellipsis included.
+ * @returns the text, ending in an ellipsis when it was too long.
+ */
+export function clipTo(text: string, limit: number): string {
+  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text
+}
+
+/**
  * True when the text says nothing but "the next item follows".
  * @param text - one collapsed text run.
  * @returns whether the run is punctuation between items.
@@ -115,8 +126,8 @@ export function childHost(el: Element): ParentNode {
 /**
  * What one selector matches inside a subtree, in document order. Callers read
  * the result as a sequence of the page — the first heading of a section, the
- * strip nearest a table — and sort here rather than resting that reading on the
- * order a selector list happens to answer in.
+ * strip nearest a table. A browser answers a selector in document order; the
+ * sort here makes the reading hold whatever order an engine answers in.
  * @param root - the subtree to search.
  * @param selector - the selector to match.
  * @returns the matching elements, first in the document first.
@@ -243,9 +254,15 @@ export function isSkipped(el: Element, isVisible: (el: Element) => boolean): boo
  * Every run of visible text inside an element, in document order.
  * @param el - the element to read.
  * @param isVisible - injected visibility.
+ * @param stopAt - subtrees whose text belongs to something else, left out along
+ * with everything inside them; every subtree is read when it is omitted.
  * @returns the collapsed, non-empty runs.
  */
-export function visibleTextParts(el: Element, isVisible: (el: Element) => boolean): string[] {
+export function visibleTextParts(
+  el: Element,
+  isVisible: (el: Element) => boolean,
+  stopAt?: (child: Element) => boolean,
+): string[] {
   const parts: string[] = []
   for (const node of childHost(el).childNodes) {
     if (node.nodeType === node.TEXT_NODE) {
@@ -253,7 +270,9 @@ export function visibleTextParts(el: Element, isVisible: (el: Element) => boolea
       if (text !== '') parts.push(text)
     } else if (node.nodeType === node.ELEMENT_NODE) {
       const child = node as Element
-      if (!isSkipped(child, isVisible)) parts.push(...visibleTextParts(child, isVisible))
+      if (!isSkipped(child, isVisible) && stopAt?.(child) !== true) {
+        parts.push(...visibleTextParts(child, isVisible, stopAt))
+      }
     }
   }
   return parts
@@ -263,10 +282,15 @@ export function visibleTextParts(el: Element, isVisible: (el: Element) => boolea
  * The visible text of an element as one run.
  * @param el - the element to read.
  * @param isVisible - injected visibility.
+ * @param stopAt - subtrees whose text belongs to something else.
  * @returns the collapsed text, empty when the element shows none.
  */
-export function visibleText(el: Element, isVisible: (el: Element) => boolean): string {
-  return visibleTextParts(el, isVisible).join(' ')
+export function visibleText(
+  el: Element,
+  isVisible: (el: Element) => boolean,
+  stopAt?: (child: Element) => boolean,
+): string {
+  return visibleTextParts(el, isVisible, stopAt).join(' ')
 }
 
 /**

@@ -300,8 +300,22 @@ describe('what a page says about itself', () => {
 
   it('looks for no dialog inside what is not page content', () => {
     const refs = page('<template><div role="dialog" aria-label="模板弹窗"></div></template><button>导入</button>')
-    expect(read(refs, { mode: 'map' }).text).toBe('')
+    expect(read(refs, { mode: 'map' }).text).toBe('(the page has no containers to map — read it without mode)')
     expect(read(refs).text).toBe('e1 button "导入"')
+  })
+
+  it('says a page has no rooms to map rather than answering a skeleton with nothing', () => {
+    const snap = read(page('<button>确定</button><p>说明</p>'), { mode: 'map' })
+    expect(snap.kind).toBe('map')
+    expect(snap.text).toBe('(the page has no containers to map — read it without mode)')
+    expect(snap.shown).toBe(0)
+    expect(snap.total).toBe(0)
+    expect(snap.truncated).toBe(false)
+  })
+
+  it('names an alert dialog the page has open as the dialog in front of the page', () => {
+    const refs = page('<main><button>删除</button></main><div role="alertdialog" aria-label="删除确认"><button>确定</button></div>')
+    expect(read(refs).header.modal).toBe('删除确认')
   })
 
   it('recognises a sign-in page by a password box beside a box naming the account', () => {
@@ -552,19 +566,30 @@ describe('widgets built out of several elements', () => {
     ].join('\n'))
   })
 
-  it('reads through a click target holding items, and stops at one holding none', () => {
+  it('reads a click target holding items as a room to click and to read, and one holding none as a target alone', () => {
     const refs = page(`
       <div data-pointer class="card"><h3>东风站</h3><p>运行中</p></div>
       <div data-pointer class="card">新建站点</div>`)
-    // The card holding a heading prints no row of its own: burying its heading
-    // and its text under one click target would cost the reader more than the
-    // card's own row is worth. Its paragraph reads as text, because the card is
+    // A card the page makes clickable is both: the model can click it, and it
+    // can read what is on it. Its paragraph reads as text, because the card is
     // what the page offers to click and the paragraph only inherits the cursor.
     expect(read(refs, { isClickable: pointer }).text).toBe([
-      'e1 heading "东风站"',
-      'text "运行中"',
-      'e2 clickable "新建站点"',
+      'e1 clickable "东风站"',
+      '  e2 heading "东风站" (in clickable "东风站")',
+      '  text "运行中" (in clickable "东风站")',
+      'e3 clickable "新建站点"',
     ].join('\n'))
+    expect(read(refs, { isClickable: pointer, mode: 'map' }).text).toBe('e1 clickable "东风站"  2 texts')
+  })
+
+  it('names a click target holding items by what it says it is, then by its title, then by what it shows', () => {
+    const labelled = page('<div data-pointer aria-label="站点卡片"><h3>东风站</h3></div>')
+    expect(read(labelled, { isClickable: pointer }).text).toBe([
+      'e1 clickable "站点卡片"',
+      '  e2 heading "东风站" (in clickable "站点卡片")',
+    ].join('\n'))
+    const shown = page(`<div data-pointer><a href="/detail">打开</a>${'长'.repeat(50)}</div>`)
+    expect(read(shown, { isClickable: pointer }).text.split('\n')[0]).toBe(`e1 clickable "打开 ${'长'.repeat(36)}…"`)
   })
 
   it('reads a click target drawn out of several pieces as the one target it is', () => {
@@ -572,11 +597,116 @@ describe('widgets built out of several elements', () => {
     expect(read(refs, { isClickable: pointer }).text).toBe('e1 clickable "更多 操作"')
   })
 
-  it('reads the picture inside a click target rather than clicking over it', () => {
+  it('reads the picture inside a click target as well as the target', () => {
     const refs = page('<div data-pointer><img alt="站点分布图"><span>查看</span></div>')
     expect(read(refs, { isClickable: pointer }).text).toBe([
-      'e1 img "站点分布图"',
-      'text "查看"',
+      'e1 clickable "查看"',
+      '  e2 img "站点分布图" (in clickable "查看")',
+      '  text "查看" (in clickable "查看")',
+    ].join('\n'))
+  })
+
+  it('reads past the decoration a click target is drawn out of', () => {
+    // None of these earns a row, so none of them makes the target a room: an
+    // element the page marks as presentation, one that is only focusable, one
+    // carrying a role that says how a list is built rather than what it is, and
+    // one whose role attribute says nothing at all.
+    const painted = page('<div data-pointer><i role="presentation"></i>新建站点</div>')
+    expect(read(painted, { isClickable: pointer }).text).toBe('e1 clickable "新建站点"')
+    const focusable = page('<div data-pointer><span tabindex="-1"></span>新建站点</div>')
+    expect(read(focusable, { isClickable: pointer }).text).toBe('e1 clickable "新建站点"')
+    const structural = page('<div data-pointer><span role="listitem">列表项</span>新建站点</div>')
+    expect(read(structural, { isClickable: pointer }).text).toBe('e1 clickable "列表项 新建站点"')
+    const unnamed = page('<div data-pointer><span role=""></span>新建站点</div>')
+    expect(read(unnamed, { isClickable: pointer }).text).toBe('e1 clickable "新建站点"')
+  })
+
+  it('reads into a click target holding a picture the page named', () => {
+    const refs = page('<div data-pointer><span role="img" aria-label="图标"></span>查看</div>')
+    expect(read(refs, { isClickable: pointer }).text).toBe([
+      'e1 clickable "查看"',
+      '  e2 img "图标" (in clickable "查看")',
+      '  text "查看" (in clickable "查看")',
+    ].join('\n'))
+  })
+
+  it('takes the element a read names as the click target of that read, whatever encloses it', () => {
+    const refs = page('<div data-pointer><div data-pointer id="inner">更多</div></div>')
+    expect(read(refs, { isClickable: pointer }).text).toBe('e1 clickable "更多"')
+    // The model asked for the inner target by ref, so that target is what this
+    // read shows, not the run of clickable elements it happens to sit in.
+    expect(read(refs, { isClickable: pointer, scope: refOf(refs, '#inner') }).text).toBe('e2 clickable "更多"')
+  })
+
+  it('reads a tree node holding a group as a room, and one holding none as a row', () => {
+    const refs = page(`
+      <div role="tree" aria-label="组织">
+        <div role="treeitem" aria-expanded="true">
+          <div>华北</div>
+          <div role="group"><div role="treeitem">北京</div><div role="treeitem">天津</div></div>
+        </div>
+        <div role="treeitem" aria-expanded="false">
+          <div>华东</div>
+          <div role="group" data-hidden><div role="treeitem">上海</div></div>
+        </div>
+      </div>`)
+    // A node is named by what it shows itself, not by everything under it, and
+    // a node the page has folded says so rather than reading as a leaf.
+    expect(read(refs).text).toBe([
+      'e1 tree "组织"',
+      '  e2 treeitem "华北"',
+      '    e3 treeitem "北京" (in treeitem "华北")',
+      '    e4 treeitem "天津" (in treeitem "华北")',
+      '  e5 treeitem "华东" (collapsed) (in tree "组织")',
+    ].join('\n'))
+  })
+
+  it('reads a menu item holding a menu as a room over that menu', () => {
+    const refs = page(`
+      <ul role="menubar" aria-label="主菜单">
+        <li role="menuitem" aria-expanded="true">
+          <div class="title">系统管理</div>
+          <ul role="menu"><li role="menuitem">用户</li><li role="menuitemcheckbox" aria-checked="true">紧凑</li></ul>
+        </li>
+      </ul>`)
+    expect(read(refs).text).toBe([
+      'e1 menu "主菜单"',
+      '  e2 menuitem "系统管理"',
+      '    e3 menu',
+      '      e4 menuitem "用户" (menu)',
+      '      e5 menuitemcheckbox "紧凑" (menu)',
+    ].join('\n'))
+  })
+
+  it('counts the items a widget offers apart from the text beside them', () => {
+    const refs = page(`
+      <main>
+        <div role="menu"><div role="menuitem">首页</div><div role="menuitem">告警</div></div>
+        <div role="tablist"><div role="tab">甲</div></div>
+        <div role="listbox"><div role="option">乙</div></div>
+      </main>`)
+    expect(read(refs, { mode: 'map' }).text).toBe([
+      'e1 main',
+      '  e2 menu  2 items',
+      '  e5 tablist  1 items',
+      '  e7 listbox  1 items',
+    ].join('\n'))
+  })
+
+  it('keeps the text of a label naming a control the page hides', () => {
+    // The control prints no row, so the label's text is all the reader has of
+    // the field the page is describing.
+    const refs = page('<label for="name">姓名</label><input id="name" data-hidden><button>保存</button>')
+    expect(read(refs).text).toBe(['text "姓名"', 'e1 button "保存"'].join('\n'))
+  })
+
+  it('keeps the text of a region a label encloses', () => {
+    const refs = page(`
+      <label>姓名<input aria-label="姓名"><nav aria-label="说明"><span>点这里看帮助</span></nav></label>`)
+    expect(read(refs).text).toBe([
+      'e1 textbox "姓名" = ""',
+      'e2 nav "说明"',
+      '  text "点这里看帮助" (in nav "说明")',
     ].join('\n'))
   })
 
@@ -718,12 +848,33 @@ describe('tables', () => {
       </table>`)
     // The column names of a table that groups its header over two rows sit in
     // the second row, which no read prints: the reader sees the grouping row.
+    // The count is the widest row either way, so it never contradicts the
+    // sample printed under it.
     expect(read(refs).text).toBe([
-      'e1 table 1 rows × 1 cols',
+      'e1 table 1 rows × 2 cols',
       '  header: 基本信息',
       '  sample: 东风站 | P-0001',
       "  rows: pass scope with this table's ref to list rows, or find a row by its text",
     ].join('\n'))
+  })
+
+  it('cuts a sample cell to what says which column it is, and a header cell to its name', () => {
+    const refs = page(`
+      <table>
+        <thead><tr><th>${'名'.repeat(50)}</th><th>操作</th></tr></thead>
+        <tbody><tr><td>${'东'.repeat(40)}</td><td><button>编辑</button></td></tr></tbody>
+      </table>`)
+    // The sample says what a column holds, not what it says; the data itself
+    // reaches the model only when a read asks for the rows.
+    expect(read(refs).text).toBe([
+      'e1 table 1 rows × 2 cols',
+      `  header: ${'名'.repeat(39)}… | 操作`,
+      `  sample: ${'东'.repeat(23)}… | [编辑]`,
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+    // A read that asks for the rows gets the cells whole.
+    expect(read(refs, { scope: refOf(refs, 'table') }).text.split('\n')[2])
+      .toBe(`  row 1: ${'东'.repeat(40)} | e3 button "编辑"`)
   })
 
   it('reads a grid and a tree grid as the tables they are', () => {
@@ -833,11 +984,16 @@ describe('tables', () => {
 })
 
 describe('a table drawn in two pieces', () => {
+  // The comment, the empty strip, and the wrappers between the halves are all
+  // drawn nowhere: what separates two tables is text a reader sees and rows
+  // they read.
   const SPLIT = `
     <div class="wrap">
       <div class="head"><table data-rect="0,0,800,40">
         <thead><tr><th>名称</th><th>操作</th></tr></thead>
       </table></div>
+      <!-- 表头与表体之间 -->
+      <div class="el-table__column-resize-proxy"></div>
       <div class="body"><table data-rect="0,40,800,200"><tbody>
         <tr><td>东风站</td><td><button>编辑</button></td></tr>
         <tr><td>朝阳站</td><td><button>编辑</button></td></tr>
@@ -902,6 +1058,76 @@ describe('a table drawn in two pieces', () => {
       <table aria-label="甲"><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
       <table aria-label="乙"><tr><td>朝阳站</td></tr></table>`)
     expect(read(refs).text.split('\n').filter(line => line.includes('header:'))).toEqual(['  header: 名称'])
+  })
+
+  it('lends no header across two regions of the page', () => {
+    const refs = page(`
+      <section aria-label="左侧指标"><table><thead><tr><th>指标</th><th>值</th></tr></thead></table></section>
+      <section aria-label="右侧明细"><table><tr><td>东风站</td><td>12</td></tr></table></section>`)
+    // Two tables in two regions are two tables, however either one is drawn: a
+    // header that walked into the region below would name columns it never had.
+    expect(read(refs).text).toBe([
+      'e1 section "左侧指标"',
+      '  e2 table 0 rows × 2 cols',
+      '    header: 指标 | 值',
+      'e3 section "右侧明细"',
+      '  e4 table 1 rows × 2 cols',
+      '    sample: 东风站 | 12',
+      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+  })
+
+  it('lends no header over anything the page draws between the two halves', () => {
+    const drawn = page(`
+      <div>
+        <table><thead><tr><th>指标</th></tr></thead></table>
+        <p>下面是明细</p>
+        <table><tr><td>东风站</td></tr></table>
+      </div>`)
+    expect(read(drawn).text.split('\n')).toEqual([
+      'e1 table 0 rows × 1 cols',
+      '  header: 指标',
+      'text "下面是明细"',
+      'e2 table 1 rows × 1 cols',
+      '  sample: 东风站',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ])
+    // Text written straight into the page separates them as surely as a
+    // paragraph does.
+    const spoken = page(`
+      <div>
+        <table><thead><tr><th>指标</th></tr></thead></table>
+        下面是明细
+        <table><tr><td>东风站</td></tr></table>
+      </div>`)
+    expect(read(spoken).text.split('\n').filter(line => line.includes('cols'))).toEqual([
+      'e1 table 0 rows × 1 cols',
+      'e2 table 1 rows × 1 cols',
+    ])
+    // A region drawn between them counts even when it shows nothing itself.
+    const room = page(`
+      <div>
+        <table><thead><tr><th>指标</th></tr></thead></table>
+        <div role="navigation" aria-label="工具"></div>
+        <table><tr><td>东风站</td></tr></table>
+      </div>`)
+    expect(read(room).text.split('\n').filter(line => line.includes('cols'))).toEqual([
+      'e1 table 0 rows × 1 cols',
+      'e3 table 1 rows × 1 cols',
+    ])
+  })
+
+  it('lends no header to a table drawn inside another table', () => {
+    const refs = page(`
+      <table aria-label="外层">
+        <thead><tr><th>名称<table aria-label="内层"><tr><td>内容</td></tr></table></th></tr></thead>
+      </table>`)
+    // A table in a header cell is part of that cell, not the body half of the
+    // table around it.
+    expect(read(refs).text).toBe([
+      'e1 table "外层" 0 rows × 1 cols',
+      '  header: 名称 内容',
+    ].join('\n'))
   })
 })
 
@@ -1147,9 +1373,88 @@ describe('when there is more page than budget', () => {
     Object.defineProperty(refusing, 'contentDocument', { get: () => null })
     document.body.append(refusing)
     const snap = read(refs, { budgetChars: 30 })
-    expect(snap.kind).toBe('map')
-    expect(snap.text).toBe('frame (not readable)')
+    // A skeleton of nothing but an unreadable frame says less than the rows
+    // themselves, cut short: the model would have nowhere to read next.
+    expect(snap.kind).toBe('outline')
+    expect(snap.text).toBe([
+      `text "${'长'.repeat(200)}"`,
+      '(cut here; 1 items remain — narrow the read with find, or read a part with scope)',
+    ].join('\n'))
     expect(snap.truncated).toBe(true)
+  })
+
+  it('answers a page whose rooms hold nothing directly with the rows outside them, cut short', () => {
+    const refs = page(`<main></main><p>${'长'.repeat(360)}</p>`)
+    const snap = read(refs, { budgetChars: 100 })
+    // The skeleton of this page names one empty room, which is nowhere to send
+    // a reader, so the read answers with the rows and a way on instead.
+    expect(snap.kind).toBe('outline')
+    expect(snap.text).toBe([
+      'e1 main',
+      '(cut after e1 — pass after: "e1" to continue; 1 items remain)',
+    ].join('\n'))
+    expect(snap.cursor).toBe('e1')
+    expect(read(refs, { after: 'e1' }).text).toBe(`text "${'长'.repeat(197)}…"`)
+  })
+
+  it('says when the one row a listing has costs more than the whole budget', () => {
+    const columns = Array.from({ length: 12 }, (_, index) => `<th>列名${index}</th>`).join('')
+    const cells = Array.from({ length: 12 }, (_, index) => `<td>数值${index}</td>`).join('')
+    const refs = page(`<table aria-label="宽表"><thead><tr>${columns}</tr></thead><tbody><tr>${cells}</tr></tbody></table>`)
+    const snap = read(refs, { find: '宽表', budgetChars: 100 })
+    expect(snap.text).toBe([
+      'e1 table "宽表" 1 rows × 12 cols',
+      '  header: 列名0 | 列名1 | 列名2 | 列名3 | 列名4 | 列名5 | 列名6 | 列名7 | 列名8 | 列名9 | 列名10 | 列名11',
+      '  sample: 数值0 | 数值1 | 数值2 | 数值3 | 数值4 | 数值5 | 数值6 | 数值7 | 数值8 | 数值9 | 数值10 | 数值11',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+      '(this row alone exceeds the budget — read a smaller part with scope or find)',
+    ].join('\n'))
+    expect(snap.truncated).toBe(true)
+    expect(snap.shown).toBe(1)
+    expect(snap.total).toBe(1)
+    expect(snap.cursor).toBeUndefined()
+  })
+
+  it('numbers the rows a cut listing prints and no more of them', () => {
+    const rows = Array.from(
+      { length: 50 },
+      (_, index) => `<tr><td>站点${index}</td><td><button>编辑</button><button>删除</button></td></tr>`,
+    ).join('')
+    const refs = page(`<table><thead><tr><th>名称</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`)
+    read(refs)
+    const snap = read(refs, { scope: refOf(refs, 'table'), budgetChars: 200 })
+    expect(snap.text).toBe([
+      'e1 table 50 rows × 2 cols',
+      '  header: 名称 | 操作',
+      '  row 1: 站点0 | e3 button "编辑"  e4 button "删除"',
+      '(cut after e2 — pass after: "e2" to continue; 49 items remain)',
+    ].join('\n'))
+    const second = document.querySelectorAll('tbody tr')[1]
+    if (second === undefined) throw new Error('fixture has no second row')
+    // The rows this read did not print were never numbered, so the next number
+    // free is the one after the highest the model has seen.
+    expect(refs.ref(second)).toBe('e5')
+  })
+
+  it('numbers the rows a cut search prints and no more of them', () => {
+    const rows = Array.from(
+      { length: 50 },
+      (_, index) => `<tr><td>站点${index}</td><td><button>编辑</button></td></tr>`,
+    ).join('')
+    const refs = page(`<table><thead><tr><th>名称</th><th>操作</th></tr></thead><tbody>${rows}</tbody></table>`)
+    read(refs)
+    const snap = read(refs, { find: '站点', budgetChars: 200 })
+    // Each row is numbered before what it prints, so a reader continuing from
+    // the cursor reads the numbers in the order the page draws them.
+    expect(snap.text).toBe([
+      'row 1: 站点0 | e3 button "编辑" (table)',
+      'row 2: 站点1 | e5 button "编辑" (table)',
+      'row 3: 站点2 | e7 button "编辑" (table)',
+      '(cut after e6 — pass after: "e6" to continue; 47 items remain)',
+    ].join('\n'))
+    const fourth = document.querySelectorAll('tbody tr')[3]
+    if (fourth === undefined) throw new Error('fixture has no fourth row')
+    expect(refs.ref(fourth)).toBe('e8')
   })
 
   it('cuts a listing the read asked for by ref, and says where to continue', () => {

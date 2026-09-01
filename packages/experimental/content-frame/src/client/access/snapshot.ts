@@ -55,10 +55,14 @@ function resolveOrThrow(option: string, ref: string, refs: RefTable): Element {
   return el
 }
 
+/** Every element the page shows as a dialog, an alert included. */
+const DIALOG_SELECTOR = 'dialog, [role="dialog"], [role="alertdialog"]'
+
 /**
  * The dialog the page currently has open, preferring one that declares itself
  * modal over one that merely sits on top. Failing a modal, the first open
- * dialog in document order is the one reported.
+ * dialog in document order is the one reported. An alert dialog is one of
+ * these: what it asks for stands in front of the page like any other.
  * @param documents - every readable document.
  * @param isVisible - injected visibility.
  * @returns the dialog's name, or undefined when none is open.
@@ -66,7 +70,7 @@ function resolveOrThrow(option: string, ref: string, refs: RefTable): Element {
 function openDialogName(documents: readonly Document[], isVisible: (el: Element) => boolean): string | undefined {
   let topmost: string | undefined
   for (const doc of documents) {
-    for (const el of queryInOrder(doc, 'dialog, [role="dialog"]')) {
+    for (const el of queryInOrder(doc, DIALOG_SELECTOR)) {
       if (isSkipped(el, isVisible)) continue
       const name = containerName(el, isVisible)
       if (el.getAttribute('aria-modal') === 'true') return name
