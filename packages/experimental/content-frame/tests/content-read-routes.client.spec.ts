@@ -16,7 +16,7 @@
  */
 
 import { mkdtemp, rm, writeFile } from 'node:fs/promises'
-import { request as httpRequest } from 'node:http'
+import { request as httpRequest, type IncomingMessage } from 'node:http'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
@@ -32,7 +32,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as ContentFrame from '../src/index.ts'
-import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ClaimAck, type ReadOutcome } from '../src/access/wire.ts'
+import {
+  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, parseReportRequest, type ClaimAck, type ReadOutcome,
+} from '../src/access/wire.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
 
 /** The hosted directory this composition serves; any real directory will do. */
@@ -40,6 +42,18 @@ const APP_ROOT = fileURLToPath(new URL('./fixtures/app', import.meta.url))
 
 /** The listing budget this composition configures, small enough to post past. */
 const OUTLINE_CHARS = 100
+
+/** The claim route's own byte bound, which no deployment configures. */
+const CLAIM_BYTES = 1024
+
+/** The JSON a report carries around its listing, which no deployment configures. */
+const ENVELOPE_BYTES = 4096
+
+/**
+ * The report route's byte bound for this composition: the seat's render budget
+ * at four UTF-8 bytes per character, plus the envelope.
+ */
+const REPORT_BYTES = OUTLINE_CHARS * 4 + ENVELOPE_BYTES
 
 /** The tab every case here answers from. */
 const TAB = 'tab_1'
@@ -66,7 +80,11 @@ interface Answer {
  * Write a cordis.yml with, without, or with a hand-written page-access block,
  * and boot it through the real Loader.
  */
-async function loadComposition(pageAccess: boolean, accessRows: readonly string[] = []): Promise<Context> {
+async function loadComposition(
+  pageAccess: boolean,
+  accessRows: readonly string[] = [],
+  outlineChars: number = OUTLINE_CHARS,
+): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-content-read-'))
   const configPath = join(world, 'cordis.yml')
   const rows = [
@@ -96,7 +114,7 @@ async function loadComposition(pageAccess: boolean, accessRows: readonly string[
       '      claimTimeoutMs: 5000',
       '      readTimeoutMs: 5000',
       '      pinMs: 60000',
-      `      outlineChars: ${OUTLINE_CHARS}`,
+      `      outlineChars: ${outlineChars}`,
     )
   }
   rows.push(...accessRows)
@@ -154,36 +172,66 @@ function postJson(ctx: Context, path: string, body: unknown): Promise<Answer> {
   })
 }
 
+/** How one raw request is sent. */
+interface RawRequest {
+  /** Method; POST unless the case is about method gating. */
+  method?: string
+  /** Request headers; `application/json` unless the case is about the fence. */
+  headers?: Record<string, string>
+  /** The body, absent for a request that carries none. */
+  body?: string
+  /**
+   * Send the body with no declared length. `fetch` and a one-piece `end()` both
+   * declare one, so writing before ending is the only way to reach the bound
+   * the reader keeps while the body is still arriving.
+   */
+  chunked?: boolean
+}
+
+/** One raw response, including the header `fetch` does not surface. */
+interface RawAnswer {
+  status: number
+  connection: string | undefined
+  body: string
+}
+
 /**
- * POST one body that declares no length, the way a chunked sender arrives.
- * `fetch` always declares one for a string body, so this is the only way to
- * reach the bound the body reader keeps while the body is still arriving.
+ * Issue one request through `node:http` rather than `fetch`.
+ *
+ * Two reasons: `connection` is a hop-by-hop header `fetch` does not surface,
+ * and a refusal written before the body was read closes the socket under a
+ * client that is still writing — which reaches this side as a reset once the
+ * answer has already arrived.
  */
-function postChunked(ctx: Context, path: string, body: string): Promise<Answer> {
-  return new Promise<Answer>((resolve, reject) => {
+function raw(ctx: Context, path: string, init: RawRequest = {}): Promise<RawAnswer> {
+  return new Promise<RawAnswer>((resolve, reject) => {
+    let answered: IncomingMessage | undefined
+    let text = ''
+    const settle = (): void => {
+      if (answered === undefined) return
+      resolve({ status: answered.statusCode ?? 0, connection: answered.headers.connection, body: text })
+    }
     const req = httpRequest(
       `${origin(ctx)}${path}`,
-      { method: 'POST', headers: { 'content-type': 'application/json' } },
+      {
+        method: init.method ?? 'POST',
+        headers: init.headers ?? { 'content-type': 'application/json' },
+      },
       (res) => {
-        let text = ''
+        answered = res
         res.setEncoding('utf8')
         res.on('data', (chunk: string) => { text += chunk })
-        res.on('end', () => {
-          resolve({
-            status: res.statusCode ?? 0,
-            allow: res.headers.allow ?? null,
-            cacheControl: res.headers['cache-control'] ?? null,
-            body: text,
-          })
-        })
+        res.on('end', settle)
+        res.on('error', settle)
       },
     )
-    req.on('error', reject)
-    // Written before it is ended: node declares a length for a body handed to
-    // `end()` in one piece, and only a body it has already begun sending goes
-    // out with no length at all.
-    req.write(body)
-    req.end()
+    req.on('error', (error) => { if (answered === undefined) reject(error); else settle() })
+    if (init.chunked === true && init.body !== undefined) {
+      req.write(init.body)
+      req.end()
+      return
+    }
+    req.end(init.body)
   })
 }
 
@@ -298,6 +346,28 @@ describe('the read channel over real HTTP', () => {
     }
   })
 
+  it('admits exactly the types that begin with application/json, JSON family or not', async () => {
+    const ctx = await loadComposition(true)
+    const body = JSON.stringify({ callId: 'c', tabId: TAB })
+    for (const [contentType, status] of [
+      ['application/json', 200],
+      ['application/json; charset=utf-8', 200],
+      ['APPLICATION/JSON', 200],
+      ['  application/json', 200],
+      // Admitted and no kind of JSON, which is what makes the admitted set
+      // neither a superset nor a subset of the JSON media types...
+      ['application/jsonfoobar', 200],
+      ['application/json-patch+json', 200],
+      // ...and refused while being real JSON. Neither costs the fence anything:
+      // no CORS-simple type begins with `application/json`.
+      ['application/ld+json', 415],
+      ['application/merge-patch+json', 415],
+    ] as const) {
+      const answer = await call(ctx, CONTENT_CLAIM_ROUTE, { method: 'POST', headers: { 'content-type': contentType }, body })
+      expect({ contentType, status: answer.status }).toEqual({ contentType, status })
+    }
+  })
+
   it('refuses a body that is not the document the route takes', async () => {
     const ctx = await loadComposition(true)
     for (const body of ['not json at all', JSON.stringify('a string'), JSON.stringify({ tabId: TAB })]) {
@@ -310,29 +380,113 @@ describe('the read channel over real HTTP', () => {
       .toEqual({ error: 'content-frame: expected a JSON body with callId, tabId, and outcome' })
   })
 
-  it('refuses a listing past the deployment\'s own budget instead of buffering it', async () => {
+  it('refuses a listing past the deployment\'s own budget, and one past the whole body bound', async () => {
     const ctx = await loadComposition(true)
+    // Inside the byte bound and past the character bound: the body arrives in
+    // full and the parser is what refuses it.
     const outcome = { ...LISTING, snapshot: { ...LISTING.snapshot, text: 'x'.repeat(OUTLINE_CHARS * 4 + 1) } }
-    expect((await postJson(ctx, CONTENT_REPORT_ROUTE, { callId: 'c', tabId: TAB, outcome })).status).toBe(400)
-    // Past the whole body bound the request is refused before it is buffered.
+    const overCharacters = await postJson(ctx, CONTENT_REPORT_ROUTE, { callId: 'c', tabId: TAB, outcome })
+    expect({ status: overCharacters.status, body: JSON.parse(overCharacters.body) as unknown }).toEqual({
+      status: 400,
+      body: { error: 'content-frame: expected a JSON body with callId, tabId, and outcome' },
+    })
+    // Past the byte bound the read stops there, and the answer says so rather
+    // than describing a document nobody sent.
     const huge = { ...LISTING, snapshot: { ...LISTING.snapshot, text: 'x'.repeat(64 * 1024) } }
-    expect((await postJson(ctx, CONTENT_REPORT_ROUTE, { callId: 'c', tabId: TAB, outcome: huge })).status).toBe(400)
+    const overBytes = await raw(ctx, CONTENT_REPORT_ROUTE, {
+      body: JSON.stringify({ callId: 'c', tabId: TAB, outcome: huge }),
+    })
+    expect({ status: overBytes.status, body: JSON.parse(overBytes.body) as unknown }).toEqual({
+      status: 413,
+      body: { error: `content-frame: the read report route refuses a body past ${REPORT_BYTES} bytes` },
+    })
     // A claim is bounded on its own, well below a listing.
-    expect((await postJson(ctx, CONTENT_CLAIM_ROUTE, { callId: 'x'.repeat(2048), tabId: TAB })).status).toBe(400)
+    const overClaim = await raw(ctx, CONTENT_CLAIM_ROUTE, {
+      body: JSON.stringify({ callId: 'x'.repeat(2048), tabId: TAB }),
+    })
+    expect({ status: overClaim.status, body: JSON.parse(overClaim.body) as unknown }).toEqual({
+      status: 413,
+      body: { error: `content-frame: the read claim route refuses a body past ${CLAIM_BYTES} bytes` },
+    })
   })
 
   it('bounds a body that never declares how long it is', async () => {
     const ctx = await loadComposition(true)
     const huge = { ...LISTING, snapshot: { ...LISTING.snapshot, text: 'x'.repeat(64 * 1024) } }
-    const refused = await postChunked(
-      ctx, CONTENT_REPORT_ROUTE, JSON.stringify({ callId: 'c', tabId: TAB, outcome: huge }),
-    )
-    expect(refused.status).toBe(400)
+    const refused = await raw(ctx, CONTENT_REPORT_ROUTE, {
+      body: JSON.stringify({ callId: 'c', tabId: TAB, outcome: huge }),
+      chunked: true,
+    })
+    expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
+      status: 413,
+      body: { error: `content-frame: the read report route refuses a body past ${REPORT_BYTES} bytes` },
+    })
     // The same sender inside the bound is taken, so what refused the one above
     // is its size and not its missing header.
-    const taken = await postChunked(ctx, CONTENT_CLAIM_ROUTE, JSON.stringify({ callId: 'c', tabId: TAB }))
+    const taken = await raw(ctx, CONTENT_CLAIM_ROUTE, {
+      body: JSON.stringify({ callId: 'c', tabId: TAB }),
+      chunked: true,
+    })
     expect({ status: taken.status, body: JSON.parse(taken.body) as unknown })
       .toEqual({ status: 200, body: { claimed: false, reason: 'unknown' } })
+  })
+
+  it('closes the connection on every refusal it writes before the body was read', async () => {
+    const ctx = await loadComposition(true)
+    const claim = JSON.stringify({ callId: 'c', tabId: TAB })
+    const written = [
+      ['method', await raw(ctx, CONTENT_CLAIM_ROUTE, { method: 'GET' })],
+      ['cross-site', await raw(ctx, CONTENT_CLAIM_ROUTE, {
+        headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+        body: claim,
+      })],
+      ['not JSON', await raw(ctx, CONTENT_CLAIM_ROUTE, { headers: { 'content-type': 'text/plain' }, body: claim })],
+      ['claim past its bound', await raw(ctx, CONTENT_CLAIM_ROUTE, {
+        body: JSON.stringify({ callId: 'x'.repeat(2048), tabId: TAB }),
+      })],
+      ['report past its bound', await raw(ctx, CONTENT_REPORT_ROUTE, {
+        body: JSON.stringify({
+          callId: 'c', tabId: TAB, outcome: { ...LISTING, snapshot: { ...LISTING.snapshot, text: 'x'.repeat(64 * 1024) } },
+        }),
+      })],
+      // Both of these arrived in full, so the connection is left alive.
+      ['taken', await raw(ctx, CONTENT_CLAIM_ROUTE, { body: claim })],
+      ['malformed', await raw(ctx, CONTENT_CLAIM_ROUTE, { body: 'not json at all' })],
+    ] as const
+    expect(written.map(([name, answer]) => [name, answer.status, answer.connection])).toEqual([
+      ['method', 405, 'close'],
+      ['cross-site', 403, 'close'],
+      ['not JSON', 415, 'close'],
+      ['claim past its bound', 413, 'close'],
+      ['report past its bound', 413, 'close'],
+      ['taken', 200, 'keep-alive'],
+      ['malformed', 400, 'keep-alive'],
+    ])
+  })
+
+  it('holds a listing to the render budget in bytes, which is tighter than its character bound', async () => {
+    const outlineChars = 2000
+    const ctx = await loadComposition(true, [], outlineChars)
+    const report = (chars: number): Record<string, unknown> => ({
+      callId: 'c',
+      tabId: TAB,
+      // Three UTF-8 bytes each, which is where the two bounds come apart.
+      outcome: { ...LISTING, snapshot: { ...LISTING.snapshot, text: '甲'.repeat(chars) } },
+    })
+    const inside = await raw(ctx, CONTENT_REPORT_ROUTE, { body: JSON.stringify(report(outlineChars)) })
+    expect({ status: inside.status, body: JSON.parse(inside.body) as unknown })
+      .toEqual({ status: 200, body: { accepted: false } })
+    // Exactly the parser's character bound and four times the byte bound: what
+    // refuses this is the render budget in bytes, not the character count.
+    const past = report(outlineChars * 4)
+    expect(parseReportRequest(past, outlineChars * 4)).toBeDefined()
+    const refused = await raw(ctx, CONTENT_REPORT_ROUTE, { body: JSON.stringify(past) })
+    expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
+      status: 413,
+      body: {
+        error: `content-frame: the read report route refuses a body past ${outlineChars * 4 + ENVELOPE_BYTES} bytes`,
+      },
+    })
   })
 
   it('states the complete method set each route serves', async () => {

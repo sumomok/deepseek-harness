@@ -15,7 +15,10 @@ import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-
 import {
   isClickable, isVisible, rectOf, TAB_ID, useContentRead, type ContentReadSeat,
 } from '../src/client/access/executor.ts'
-import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ClaimAck, type ReadOutcome } from '../src/access/wire.ts'
+import {
+  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, PREFERRED_TAB_WINDOW_MS,
+  type ClaimAck, type ReadOutcome,
+} from '../src/access/wire.ts'
 import type { RefTable } from '../src/client/access/refs.ts'
 import type { ContentReadRequest } from '../src/types.ts'
 
@@ -207,16 +210,22 @@ describe('when the reader claims', () => {
 
   it('stops bidding at the host\'s claim window, not at its report deadline', async () => {
     // Never granted, so only a deadline can end the bidding — and the report
-    // deadline below would allow about twenty-five bids where the claim window
-    // allows a handful.
+    // deadline below is twenty times the claim window, which would allow many
+    // times as many bids.
     claims = Array.from({ length: 40 }, () => ({ claimed: false, reason: 'unknown' as const }))
-    const view = drive(seatOf({ access: { outlineChars: 4000, claimTimeoutMs: 250, readTimeoutMs: 5000 } }))
+    const access = { outlineChars: 4000, claimTimeoutMs: 250, readTimeoutMs: 5000 }
+    // One bid at once, then one more every interval while another still fits
+    // inside the claim window, the preferred tab's hold, and one last interval.
+    const expected = Math.floor((access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS) / CLAIM_RETRY_MS) + 2
+    const view = drive(seatOf({ access }))
     await new Promise<void>((resolve) => { setTimeout(resolve, 900) })
     const bids = of(CONTENT_CLAIM_ROUTE).length
     await new Promise<void>((resolve) => { setTimeout(resolve, 500) })
     expect({ bids, later: of(CONTENT_CLAIM_ROUTE).length }).toEqual({ bids, later: bids })
-    expect(bids).toBeGreaterThanOrEqual(3)
-    expect(bids).toBeLessThanOrEqual(5)
+    // One either way for the scheduler; a bidding loop bounded by the report
+    // deadline instead would be far outside this window.
+    expect(bids).toBeGreaterThanOrEqual(expected - 1)
+    expect(bids).toBeLessThanOrEqual(expected + 1)
     expect(of(CONTENT_REPORT_ROUTE)).toEqual([])
     view.unmount()
   })
@@ -419,7 +428,7 @@ describe('what the reader reports', () => {
     const frame = mountFrame('<main><button>Refresh</button></main>')
     Object.defineProperty(frame.contentWindow?.document, 'readyState', { value: 'loading', configurable: true })
     const frames = new Map([[FRAME, frame]])
-    const access = { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 400 }
+    const access = { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 800 }
     const opened = Date.now()
     drive(seatOf({ frames: { current: frames }, access }))
     await settled()
@@ -428,10 +437,17 @@ describe('what the reader reports', () => {
       code: 'frame',
       message: 'The page in the content column had not finished loading; retry once.',
     })
-    // The host started its report deadline when it granted the claim, so a seat
-    // that spent all of it waiting would post into a call that had already
-    // given up and this message would never reach the model.
-    expect(Date.now() - opened).toBeLessThan(access.readTimeoutMs)
+    // At most half, because the host started its report deadline when it
+    // granted the claim: the walk and the trip back need the other half, and a
+    // seat that spent the whole deadline waiting would post into a call that
+    // had already given up — this sentence would never reach the model at all.
+    expect(LOAD_WAIT_SHARE).toBeLessThanOrEqual(0.5)
+    // And the seat spends that share rather than some shorter interval that
+    // would satisfy the bound above by accident.
+    const waited = Date.now() - opened
+    const budget = access.readTimeoutMs * LOAD_WAIT_SHARE
+    expect(waited).toBeGreaterThanOrEqual(budget * 0.9)
+    expect(waited).toBeLessThanOrEqual(budget + 100)
   })
 
   it('passes the reader\'s own refusal through untouched', async () => {

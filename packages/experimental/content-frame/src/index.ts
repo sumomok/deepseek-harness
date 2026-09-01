@@ -34,7 +34,9 @@ import { contentShowTool } from './tool.ts'
 import { showContentPageCommand } from './command.ts'
 import { CONTENT_APP_ROUTE, CONTENT_SETTINGS_ROUTE, type ContentFrameSettings } from './route.ts'
 import { serveContentApp } from './serve.ts'
-import { answerJson, readJsonBody, rejectMethod, rejectUntrustedPost } from './access/http.ts'
+import {
+  answerJson, readJsonBody, rejectMethod, rejectUntrustedPost, takeJsonBody, type BodyRefusals,
+} from './access/http.ts'
 import { PendingReads, type ReadTimeouts } from './access/pending.ts'
 import { contentAccessProjection } from './access/requests-projection.ts'
 import { contentReadTool } from './access/read-tool.ts'
@@ -215,6 +217,12 @@ const MAX_CLAIM_BYTES = 1024
  */
 const REPORT_ENVELOPE_BYTES = 4096
 
+/** What the claim route calls itself in its own refusals. */
+const CLAIM_ROUTE_NAME = 'the read claim route'
+
+/** What the report route calls itself in its own refusals. */
+const REPORT_ROUTE_NAME = 'the read report route'
+
 /**
  * Claim the two read routes, the read tool, and the pending projection.
  *
@@ -239,6 +247,22 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   // budget the seat renders under: a real listing never approaches it, and a
   // forged one cannot carry an arbitrary page through it.
   const maxTextChars = outlineChars * 4
+  // The byte bound on the whole body: the seat's own render budget at four
+  // UTF-8 bytes per character, plus the JSON envelope. Not the character bound
+  // above converted, which would be sixteen bytes per rendered character — a
+  // real listing is rendered inside `outlineChars` characters and fits here
+  // even in four-byte characters throughout. Past a budget the envelope no
+  // longer covers, this bound refuses a listing of multibyte text that the
+  // parser's character bound alone would have taken.
+  const reportBytes = outlineChars * 4 + REPORT_ENVELOPE_BYTES
+  const claimRefusals: BodyRefusals = {
+    oversize: `content-frame: ${CLAIM_ROUTE_NAME} refuses a body past ${MAX_CLAIM_BYTES} bytes`,
+    shape: 'content-frame: expected a JSON body with callId and tabId',
+  }
+  const reportRefusals: BodyRefusals = {
+    oversize: `content-frame: ${REPORT_ROUTE_NAME} refuses a body past ${reportBytes} bytes`,
+    shape: 'content-frame: expected a JSON body with callId, tabId, and outcome',
+  }
   const pending = new PendingReads()
 
   ctx.effect(() => ctx.webServer.register({
@@ -249,10 +273,12 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
         rejectMethod(res, 'POST')
         return
       }
-      if (rejectUntrustedPost(req, res, 'the read claim route')) return
-      const claim = parseClaimRequest(await readJsonBody(req, MAX_CLAIM_BYTES))
+      if (rejectUntrustedPost(req, res, CLAIM_ROUTE_NAME)) return
+      const body = takeJsonBody(res, await readJsonBody(req, MAX_CLAIM_BYTES), claimRefusals)
+      if (body === undefined) return
+      const claim = parseClaimRequest(body.value)
       if (claim === undefined) {
-        answerJson(res, 400, { error: 'content-frame: expected a JSON body with callId and tabId' })
+        answerJson(res, 400, { error: claimRefusals.shape })
         return
       }
       answerJson(res, 200, await pending.claim(claim))
@@ -267,13 +293,12 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
         rejectMethod(res, 'POST')
         return
       }
-      if (rejectUntrustedPost(req, res, 'the read report route')) return
-      // The byte bound on the whole body: the character bound above at four
-      // UTF-8 bytes each, plus the JSON envelope around it.
-      const body = await readJsonBody(req, maxTextChars + REPORT_ENVELOPE_BYTES)
-      const report = parseReportRequest(body, maxTextChars)
+      if (rejectUntrustedPost(req, res, REPORT_ROUTE_NAME)) return
+      const body = takeJsonBody(res, await readJsonBody(req, reportBytes), reportRefusals)
+      if (body === undefined) return
+      const report = parseReportRequest(body.value, maxTextChars)
       if (report === undefined) {
-        answerJson(res, 400, { error: 'content-frame: expected a JSON body with callId, tabId, and outcome' })
+        answerJson(res, 400, { error: reportRefusals.shape })
         return
       }
       answerJson(res, 200, pending.report(report))
