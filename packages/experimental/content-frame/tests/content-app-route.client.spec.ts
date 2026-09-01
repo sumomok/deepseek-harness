@@ -325,6 +325,11 @@ describe('configuration validation', () => {
       .rejects.toThrow(/page 2 id "re\\u0001ports" carries a control character or a lone surrogate/)
     await expect(apply([{ ...HOME, id: `home${String.fromCharCode(0xd800)}` }]))
       .rejects.toThrow(/page 1 id "home\\ud800" carries a control character or a lone surrogate/)
+    // DEL escaped like the rest, which `JSON.stringify` does not do: written as
+    // itself it reaches the terminal as nothing at all, and the row this
+    // diagnostic exists to name would be quoted back looking like a legal id.
+    await expect(apply([{ ...HOME, id: `home${String.fromCharCode(0x7f)}` }]))
+      .rejects.toThrow(/page 1 id "home\\u007f" carries a control character or a lone surrogate/)
     await expect(apply([{ ...HOME, id: 'h'.repeat(257) }]))
       .rejects.toThrow(/page 1 id must be at most 256 characters, received 257/)
     await expect(apply([HOME, { ...HOME, title: 'Other' }])).rejects.toThrow(/duplicate page id "home"/)

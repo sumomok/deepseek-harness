@@ -30,6 +30,20 @@ function isSameOriginPath(url: string): boolean {
 }
 
 /**
+ * One id as a diagnostic prints it: JSON's own escaping, and DEL on top of it.
+ *
+ * `JSON.stringify` escapes every other code point {@link isPrintable} refuses —
+ * the C0 controls as `\uXXXX`, a lone surrogate the same way — but writes DEL as
+ * itself, and a terminal printing the diagnostic swallows it. An id refused for
+ * carrying one would then be quoted back looking exactly like a legal id.
+ * @param id - the configured id.
+ * @returns the quoted form, with every refused code point visible in it.
+ */
+function quoted(id: string): string {
+  return JSON.stringify(id).replaceAll('\u007F', '\\u007f')
+}
+
+/**
  * Reject a page id a read report could not carry, at load.
  *
  * The id is the one configured string a browser seat posts exactly as the
@@ -49,7 +63,7 @@ function requirePostableId(page: ContentPage, at: number): void {
   }
   if (!isPrintable(page.id)) {
     throw new Error(
-      `content-frame: page ${String(at)} id ${JSON.stringify(page.id)} carries a control character or a lone `
+      `content-frame: page ${String(at)} id ${quoted(page.id)} carries a control character or a lone `
       + 'surrogate, which a read report cannot carry')
   }
 }

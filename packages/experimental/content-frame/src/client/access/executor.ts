@@ -24,8 +24,8 @@ import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
-  MAX_URL_CHARS, PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, sanitize,
-  type ClaimAck, type ReadArgs, type ReadOutcome, type ReadPage, type ReportAck,
+  MAX_URL_CHARS, PREFERRED_TAB_WINDOW_MS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
+  type ClaimAck, type ReadOutcome, type ReadPage, type ReportAck,
 } from '../../access/wire.ts'
 import {
   FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
@@ -181,18 +181,17 @@ function forWire(value: string, max: number): string {
 }
 
 /**
- * What one string costs inside a posted JSON document, in UTF-8 bytes.
+ * What one document costs as a posted body, in UTF-8 bytes.
  *
  * Measured rather than estimated: `JSON.stringify` writes the escapes the route
  * will receive — two bytes for a newline, three for the widest character — and
  * `TextEncoder` counts what goes on the wire, so this is the same byte-by-byte
- * total the route arrives at. The two quotes around the value belong to the
- * document rather than to the string, so they are taken back off.
- * @param value - the string as the seat would post it.
- * @returns its length in bytes of JSON.
+ * total the route arrives at.
+ * @param body - the document, serialized the way {@link post} sends it.
+ * @returns its length in bytes.
  */
-function jsonBytes(value: string): number {
-  return new TextEncoder().encode(JSON.stringify(value)).length - 2
+function postedBytes(body: unknown): number {
+  return new TextEncoder().encode(JSON.stringify(body)).length
 }
 
 /** What one post to a read route ended as, for a caller deciding whether to try again. */
@@ -362,13 +361,14 @@ function tableFor(tables: MutableRefObject<Map<string, RefTable>>, frameId: stri
 /**
  * Read the page one call asked for, or say why there was none to read.
  * @param seat - the seat as it stands now.
- * @param args - what the call asked of the page.
+ * @param request - the pending call: what it asks of the page, and the id the
+ * report carrying the answer will be posted under.
  * @param access - the node half's budget and deadline.
  * @returns the outcome to post.
  */
 async function readPage(
   seat: ContentReadSeat,
-  args: ReadArgs,
+  request: ContentReadRequest,
   access: ContentFrameAccessSettings,
 ): Promise<ReadOutcome> {
   if (seat.entries.length === 0) return { status: 'error', code: 'empty', message: EMPTY_REASON }
@@ -384,6 +384,7 @@ async function readPage(
   if (frame.contentWindow.document.readyState !== 'complete' && !await whenLoaded(frame, loadBudgetMs)) {
     return frameError(FRAME_LOADING_MESSAGE)
   }
+  const args = request.args
   const options: SnapshotOptions = {
     refs: tableFor(seat.tables, seat.activeFrameId),
     budgetChars: access.outlineChars,
@@ -399,32 +400,11 @@ async function readPage(
     // Re-read after the wait: a navigation replaces the frame's document.
     const read = snapshot(frame.contentWindow.document, options)
     const text = sanitize(read.text)
-    // The renderer prints a listing's first block however long it is, and the
-    // route holds a posted listing to two bounds of its own: the parser refuses
-    // one past this multiple of the budget, and the byte bound on the whole
-    // body refuses one past that same budget in bytes. Posting past either
-    // spends the whole report deadline on a refusal the host cannot trace back
-    // to the call, and the model is told the console went quiet; saying so here
-    // is what puts a narrower read in front of it instead.
-    //
-    // Both are measured, because the byte bound is the tighter of the two on
-    // any text that is not one byte per character: at the shipped budget a
-    // listing of Chinese passes the character bound while costing three bytes
-    // for each of those characters. Measuring the listing alone is enough for
-    // the whole body — the envelope the route adds on top already covers every
-    // other field at its own character bound times that same allowance, and
-    // every one of them passes through `forWire` first.
-    if (
-      text.length > access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE
-      || jsonBytes(text) > access.outlineChars * MAX_TEXT_BYTES_PER_CHAR
-    ) {
-      return frameError(FRAME_WIDE_LISTING_MESSAGE)
-    }
     // Every string below the listing itself comes from the document, and the
     // wire holds each of them to a length and to what JSON carries cheaply; a
     // page with a long title posts a cut title rather than a report the route
     // refuses.
-    return {
+    const listing: ReadOutcome = {
       status: 'ok',
       page: { id: seat.page.id, title: forWire(seat.page.title, MAX_NAME_CHARS) },
       snapshot: {
@@ -441,6 +421,36 @@ async function readPage(
         ...read.cursor === undefined ? {} : { cursor: read.cursor },
       },
     }
+    // The renderer prints a listing's first block however long it is, so this is
+    // where a page too wide for the wire is answered rather than posted. What
+    // the two checks weigh is the document the route will receive — this call's
+    // id and this page load's tab id are what the post carries — against the two
+    // bounds that route holds it to: the character half is the parser's refusal
+    // of `text` alone, and the byte half is the read of the whole body around
+    // it, which stops past the budget in bytes plus the envelope. Posting past
+    // either spends the whole report deadline on a refusal the host cannot trace
+    // back to the call, and the model is told the console went quiet; saying so
+    // here is what puts a narrower read in front of it instead.
+    //
+    // The body is serialized rather than estimated from the listing, so the two
+    // halves change sides on the same byte the route does — and so the call id
+    // is weighed at its own size, it being the one field no bound holds before
+    // the parser has read it.
+    //
+    // Both halves have work. The envelope leaves the byte bound above four
+    // times the budget even in one-byte text, so a listing between the two —
+    // past the character bound, inside the body's byte allowance — is refused
+    // by the character half and by nothing else; text costing three bytes a
+    // character reaches the byte half first, which is what an eighty-column
+    // table of Chinese does at the shipped budget.
+    if (
+      text.length > access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE
+      || postedBytes({ callId: request.callId, tabId: seat.tabId, outcome: listing })
+        > access.outlineChars * MAX_TEXT_BYTES_PER_CHAR + REPORT_ENVELOPE_BYTES
+    ) {
+      return frameError(FRAME_WIDE_LISTING_MESSAGE)
+    }
+    return listing
   } catch (refusal) {
     /* v8 ignore next 2 -- the reader throws Error and nothing else; String() keeps a thrown non-Error readable. */
     const message = refusal instanceof Error ? refusal.message : String(refusal)
@@ -460,7 +470,7 @@ async function answer(
   access: ContentFrameAccessSettings,
 ): Promise<void> {
   if (!await claimRead(seat, request.callId, access)) return
-  const outcome = await readPage(seat.current, request.args, access)
+  const outcome = await readPage(seat.current, request, access)
   await reportRead(seat, request.callId, outcome)
 }
 

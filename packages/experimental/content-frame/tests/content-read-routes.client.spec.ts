@@ -555,6 +555,35 @@ describe('the read channel over real HTTP', () => {
     })
   })
 
+  it('takes a body that lands on its byte bound, and refuses the next byte', async () => {
+    const ctx = await loadComposition(true, [], DEFAULT_OUTLINE_CHARS)
+    const bound = DEFAULT_OUTLINE_CHARS * 4 + ENVELOPE_BYTES
+    const bodyOf = (text: string): string =>
+      JSON.stringify({ callId: 'c', tabId: TAB, outcome: { ...LISTING, snapshot: { ...LISTING.snapshot, text } } })
+    // Three-byte characters up to the bound, then the same document with one
+    // ASCII character more. The parser takes both listings — 23,692 and 23,693
+    // characters against its own bound of 48,000 — so what tells the two
+    // answers apart is the byte the body crossed and nothing else.
+    const at = bodyOf('甲'.repeat(23692))
+    const past = bodyOf(`${'甲'.repeat(23692)}x`)
+    expect([new TextEncoder().encode(at).length, new TextEncoder().encode(past).length, bound])
+      .toEqual([71328, 71329, 71328])
+    const taken = await raw(ctx, CONTENT_REPORT_ROUTE, { body: at })
+    expect({ status: taken.status, body: JSON.parse(taken.body) as unknown })
+      .toEqual({ status: 200, body: { accepted: false } })
+    const refused = await raw(ctx, CONTENT_REPORT_ROUTE, { body: past })
+    expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
+      status: 413,
+      body: { error: `content-frame: the read report route refuses a body past ${bound} bytes` },
+    })
+    // A report the size a seat posts from a forty-eight-column table of Chinese
+    // at this budget, whose listing alone is 58,637 bytes — past the budget in
+    // bytes, and served, because what both halves measure is the whole body.
+    const seatSized = bodyOf(`${'甲'.repeat(19545)}xx`)
+    expect(new TextEncoder().encode(seatSized).length).toBe(58889)
+    expect((await raw(ctx, CONTENT_REPORT_ROUTE, { body: seatSized })).status).toBe(200)
+  })
+
   it('refuses a listing made of what the seat removes, at whichever bound it reaches', async () => {
     const ctx = await loadComposition(true, [], DEFAULT_OUTLINE_CHARS)
     // Inside the byte bound and carrying control characters: the body arrives

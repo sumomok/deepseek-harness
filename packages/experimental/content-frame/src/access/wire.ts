@@ -102,6 +102,37 @@ export const MAX_TEXT_BUDGET_MULTIPLE = 4
 export const MAX_TEXT_BYTES_PER_CHAR = 4
 
 /**
+ * Bytes of JSON punctuation, key names and discriminant values one report is
+ * written with.
+ *
+ * A listing report with every string empty and nine-digit counters serializes
+ * to 239 bytes, and the union of that form's keys with a failure's to 283 —
+ * with both discriminants empty. The values a real report writes there,
+ * `outline` and `not-a-page`, add 17 bytes that no per-field allowance covers,
+ * so 300 is what the envelope has to leave room for; a bound covering both
+ * forms cannot be read off either one alone. Rounded up from there, with room
+ * for counters longer than nine digits.
+ */
+export const REPORT_SYNTAX_BYTES = 512
+
+/**
+ * Bytes of JSON the largest report carries around its listing, allowing
+ * {@link MAX_TEXT_BYTES_PER_CHAR} UTF-8 bytes per character: the document's
+ * address, the three header fields, the four names (two ids, the page's id and
+ * its title, or a failure's kind and title), the cursor, and a failure message
+ * — each at the bound the wire holds it to — plus {@link REPORT_SYNTAX_BYTES}
+ * for the punctuation, key names and discriminant values around them.
+ *
+ * Both halves read it, the way {@link MAX_TEXT_BYTES_PER_CHAR} is read for the
+ * listing: the node half adds it to the budget in bytes to size the route's
+ * bound, and the seat measures the report it is about to post against that same
+ * sum.
+ */
+export const REPORT_ENVELOPE_BYTES = MAX_TEXT_BYTES_PER_CHAR * (
+  MAX_URL_CHARS + 3 * MAX_HEADER_CHARS + MAX_OUTCOME_MESSAGE_CHARS + 4 * MAX_NAME_CHARS + MAX_CURSOR_CHARS
+) + REPORT_SYNTAX_BYTES
+
+/**
  * Smallest listing budget a deployment may configure, in characters.
  *
  * The parser holds a posted listing to four times the budget, and the renderer
@@ -111,7 +142,9 @@ export const MAX_TEXT_BYTES_PER_CHAR = 4
  * row of its cells, the rows hint and the pagination line, each text clipped at
  * {@link MAX_HEADER_CHARS}, which is about 535 characters plus 402 per column.
  * Four times this floor is 4000 characters, which holds that row for a table of
- * eight columns.
+ * eight columns — in any language, because the byte bound the route holds a
+ * whole report to does not bind there: eight columns of three-byte text is 3751
+ * characters in a body of 11,128 bytes against 27,328.
  */
 export const MIN_OUTLINE_CHARS = 1000
 

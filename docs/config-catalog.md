@@ -766,7 +766,7 @@ export interface PageAccessConfig {
 }
 ```
 
-Source: [`packages/experimental/content-frame/src/index.ts:61`](../packages/experimental/content-frame/src/index.ts)
+Source: [`packages/experimental/content-frame/src/index.ts:60`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 
