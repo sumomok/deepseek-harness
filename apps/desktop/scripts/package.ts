@@ -457,7 +457,7 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
       }, 90_000)
       const onChunk = (chunk: Buffer): void => {
         collected += chunk.toString()
-        const match = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/.exec(collected)
+        const match = /dsh web: (http:\/\/127\.0\.0\.1:\d+\S*)/.exec(collected)
         if (match?.[1] !== undefined) {
           clearTimeout(timer)
           resolvePromise(match[1])
@@ -470,13 +470,23 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
         reject(new Error(`package: staged boot exited (${String(code)}) before its URL line.\n${collected.split('\n').slice(-20).join('\n')}`))
       })
     })
-    const response = await fetch(url)
+    // The URL line carries the launch token; loading it exchanges the token
+    // for the browser-session cookie (303 to clean `/`), and every later
+    // request authenticates by that cookie alone.
+    const exchange = await fetch(url, { redirect: 'manual' })
+    const setCookie = exchange.headers.get('set-cookie')
+    if (exchange.status !== 303 || setCookie === null) {
+      throw new Error(`package: staged boot did not exchange the launch token (status ${String(exchange.status)}).`)
+    }
+    const cookie = setCookie.split(';', 1)[0] ?? ''
+    const base = new URL('/', url).href
+    const response = await fetch(base, { headers: { cookie } })
     const index = await response.text()
     if (!response.ok || !index.includes('__DSH_BOOT__')) {
-      throw new Error(`package: staged boot served an unexpected index from ${url}.`)
+      throw new Error(`package: staged boot served an unexpected index from ${base}.`)
     }
-    await verifyClientModules(root, url, index)
-    console.log(`package: staged boot verified at ${url}`)
+    await verifyClientModules(root, base, index, cookie)
+    console.log(`package: staged boot verified at ${base}`)
   } finally {
     child.kill('SIGTERM')
     await new Promise<void>((resolvePromise) => {
@@ -520,8 +530,9 @@ async function servesClientModule(root: string, name: string): Promise<boolean> 
  * @param root - the staged server tree, whose manifests say which built-ins have a browser half.
  * @param base - the booted server's URL.
  * @param index - the index HTML, which names every client bundle.
+ * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
  */
-async function verifyClientModules(root: string, base: string, index: string): Promise<void> {
+async function verifyClientModules(root: string, base: string, index: string, cookie: string): Promise<void> {
   const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)].map(match => match[0]))]
   if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
   // A built-in with a browser half reaches the page only if the payload carried
@@ -543,7 +554,7 @@ async function verifyClientModules(root: string, base: string, index: string): P
   }
   for (const path of paths) {
     const target = new URL(path, base)
-    const response = await fetch(target)
+    const response = await fetch(target, { headers: { cookie } })
     const body = await response.text()
     if (!response.ok) throw new Error(`package: client module ${path} answered ${String(response.status)}.`)
     if (!body.includes('__ModuleLoader__')) {

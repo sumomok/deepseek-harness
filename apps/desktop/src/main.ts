@@ -158,7 +158,7 @@ async function stopServerBounded(): Promise<void> {
  * {@link server} itself is reassigned. `mainWindow`'s own discriminator
  * (`isResizable`) is what tells the served UI apart from the fixed-size
  * progress and login windows, which this must leave alone.
- * @param url - the rebound server's new loopback URL.
+ * @param url - the rebound server's new authenticated URL.
  */
 function retargetWindows(url: string): void {
   for (const window of BrowserWindow.getAllWindows()) {
@@ -191,7 +191,7 @@ async function performRebind(): Promise<boolean> {
     const handle = await startServerWithQuarantine(spec, logLine, quarantineLoadFailureFromOutput, resolveHarnessHome())
     server = handle
     logLine(`[desktop] server rebind succeeded at ${handle.url}\n`)
-    retargetWindows(handle.url)
+    retargetWindows(handle.authenticatedUrl)
     setupNotifications({ log: logLine, reveal }, handle.url)
     attachSupervision()
     return true
@@ -641,7 +641,7 @@ function reveal(): void {
     revealMainWindow()
     return
   }
-  if (server !== undefined) createAppWindow(server.url)
+  if (server !== undefined) createAppWindow(server.authenticatedUrl)
 }
 
 const locked = app.requestSingleInstanceLock()
@@ -767,7 +767,7 @@ if (!locked) {
       // a server it is about to take down.
       setupNotifications({ log: sink, reveal }, server.url)
       attachSupervision()
-      view.showApp(server.url)
+      view.showApp(server.authenticatedUrl)
     } catch (error) {
       clearInterval(ticker)
       const message = error instanceof Error ? error.message : String(error)

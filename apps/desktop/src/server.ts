@@ -9,8 +9,8 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { DESKTOP_PROFILE } from './profile-seed.ts'
 
-/** The web-app readiness line; the loopback URL is capture group 1. */
-const URL_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/
+/** The web-app readiness line; capture group 1 is the authenticated URL carrying the launch token. */
+const URL_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+\S*)/
 
 /** How long the server may take to print its URL line before startup fails; a cold antivirus-scanned first launch is the slow case. */
 const STARTUP_TIMEOUT_MS = 180_000
@@ -156,8 +156,10 @@ export interface ServerExitInfo {
 
 /** A started server: its UI URL, its bounded stop, and its exit. */
 export interface ServerHandle {
-  /** The loopback URL from the readiness line. */
+  /** The bare loopback origin, for same-server URL checks; never load this directly — a fresh page needs {@link authenticatedUrl}. */
   url: string
+  /** The readiness-line URL carrying the launch token; loading it exchanges the token for the browser-session cookie. */
+  authenticatedUrl: string
   /** Terminate the server process tree; resolves once the process exited. This is what marks the exit "expected". */
   stop: () => Promise<void>
   /**
@@ -285,7 +287,7 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     exitInfo = { code, signal, expected: expectedExit, tail: recentOutput.text() }
     for (const listener of exitListeners) listener(exitInfo)
   })
-  const url = await new Promise<string>((resolve, reject) => {
+  const authenticatedUrl = await new Promise<string>((resolve, reject) => {
     let settled = false
     const settle = (action: () => void): void => {
       if (settled) return
@@ -323,7 +325,8 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     })
   })
   return {
-    url,
+    url: new URL(authenticatedUrl).origin,
+    authenticatedUrl,
     stop: () => {
       expectedExit = true
       return killTree(child)
