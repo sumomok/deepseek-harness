@@ -75,6 +75,12 @@ describe('dsh-sdk-minimal bundle', () => {
       personaPrefix: { __jsExpr: "process.env.DSH_SYSTEM_PROMPT ?? 'You are a helpful software engineer assistant.'" },
     })
     expect(rows.find(row => row.id === 'agent-loop')?.config).toEqual({ agents: [] })
+    // This fork product reports no installed-plugin inventory to DeepSeek;
+    // the row stays declared, disabled, so its own Cordis semantics — its
+    // `apply()` never runs — is the off-switch.
+    expect(rows.find(row => row.id === 'plugin-package-inventory-deepseek')).toMatchObject({
+      disabled: true,
+    })
     expect(rows.find(row => row.id === 'terminal-bash')).toMatchObject({
       disabled: { __jsExpr: "process.platform === 'win32'" },
     })
