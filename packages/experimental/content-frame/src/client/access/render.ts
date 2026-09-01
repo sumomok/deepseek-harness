@@ -8,8 +8,8 @@
  */
 import { CLICKABLE_ROLE, FIELD_ROLES, clipTo } from './dom.ts'
 import type {
-  ContainerFace, ContainerItem, ElementItem, Item, RowCell, SnapshotMode, SnapshotOptions,
-  TableItem, TableRowItem, TextItem,
+  ContainerFace, ContainerItem, ControlState, ElementItem, Item, RowCell, SnapshotMode,
+  SnapshotOptions, TableItem, TableRowItem, TextItem,
 } from './model.ts'
 import type { RefTable } from './refs.ts'
 
@@ -174,17 +174,27 @@ function containerCounts(container: ContainerItem, items: readonly Item[]): stri
 }
 
 /**
+ * What a row prints after the name of a control: what it holds, whether it is
+ * on, and whether the page has switched it off. A row of its own and a row of a
+ * table cell say this the same way.
+ * @param state - the control's state.
+ * @returns the trailing state, or the empty string.
+ */
+function stateOf(state: ControlState): string {
+  const value = state.secret ? ' = (hidden)' : state.value === undefined ? '' : ` = "${state.value}"`
+  const checked = state.checked === undefined ? '' : state.checked ? ' [x]' : ' [ ]'
+  return `${value}${checked}${state.disabled ? ' (disabled)' : ''}`
+}
+
+/**
  * One control, heading, or click target.
  * @param item - the element item.
  * @param prefix - the row's indentation.
  * @returns the rendered row.
  */
 function elementLine(item: ElementItem, prefix: string): string {
-  const value = item.secret ? ' = (hidden)' : item.value === undefined ? '' : ` = "${item.value}"`
-  const checked = item.checked === undefined ? '' : item.checked ? ' [x]' : ' [ ]'
-  const disabled = item.disabled ? ' (disabled)' : ''
   const collapsed = item.collapsed ? ' (collapsed)' : ''
-  return `${prefix}${item.ref} ${item.role}${quoted(item.name)}${value}${checked}${disabled}${collapsed}${within(item.container)}`
+  return `${prefix}${item.ref} ${item.role}${quoted(item.name)}${stateOf(item)}${collapsed}${within(item.container)}`
 }
 
 /**
@@ -198,20 +208,22 @@ function textLine(item: TextItem, prefix: string): string {
 }
 
 /**
- * One cell as a listed row prints it: its text cut to what the line has room
- * for, or the controls it holds, each numbered here because a cell nobody lists
- * is a cell nobody needs a ref for. A cell holding controls is printed whole:
- * cutting it would cut a ref in half.
+ * One cell as a listed row prints it: what it says, cut to what the line has
+ * room for, and the controls it offers, each numbered here because a cell
+ * nobody lists is a cell nobody needs a ref for. The controls are printed
+ * whole: cutting them would cut a ref in half.
  * @param cell - the cell.
  * @param refs - the page's numbering.
  * @param limit - how much of the cell's text the line prints.
  * @returns the rendered cell.
  */
 function cellText(cell: RowCell, refs: RefTable, limit: number): string {
-  if (cell.controls.length === 0) return clipTo(cell.sample, limit)
-  return cell.controls
-    .map(control => `${refs.ref(control.el)} ${control.role} "${control.name}"`)
+  const text = clipTo(cell.text, limit)
+  if (cell.controls.length === 0) return text
+  const controls = cell.controls
+    .map(control => `${refs.ref(control.el)} ${control.role}${quoted(control.name)}${stateOf(control)}`)
     .join(CONTROL_SEPARATOR)
+  return text === '' ? controls : `${text}${CONTROL_SEPARATOR}${controls}`
 }
 
 /**
@@ -469,6 +481,19 @@ const OVER_BUDGET = '(this row alone exceeds the budget — read a smaller part 
 /** What a skeleton of a page with no region at all to draw says instead. */
 const NOTHING_TO_MAP = '(the page has no containers to map — read it without mode)'
 
+/** What a read of a page holding nothing a reader can see says instead. */
+const NOTHING_TO_READ = '(the page shows nothing to read)'
+
+/**
+ * What a read of a part of the page holding nothing says instead: the part was
+ * there when the model read its ref, and is empty or hidden now.
+ * @param scope - the ref the read asked for.
+ * @returns the body.
+ */
+function nothingInside(scope: string): string {
+  return `(nothing to read inside ${scope} now — read without scope)`
+}
+
 /**
  * How a skeleton says where to read next.
  * @param ref - the ref of the container holding the most of the page.
@@ -482,8 +507,12 @@ function scopeHint(ref: string): string {
  * How much of the budget the closing line needs, measured against the longest
  * one this listing could possibly print rather than the one it turns out to
  * print, because which line closes a listing is only known once it is filled.
- * The widest ref counts the numbers this listing may yet mint: the rows it has
- * not rendered are not numbered yet.
+ *
+ * The width of the widest ref is estimated from the rows still to come, which
+ * holds while each row numbers one element. A listed table row also numbers the
+ * controls in its cells, so a listing of those can reach a wider ref than this
+ * estimate; the reserve is the longest of three lines, and `cutHere` is about
+ * eighteen characters longer than `cutAfter`, which covers the extra digits.
  * @param kind - which listing this is.
  * @param entries - the listing.
  * @param hint - the closing line an uncut listing prints, if any.
@@ -599,15 +628,23 @@ function resume(kind: SnapshotMode, entries: Entry[], options: SnapshotOptions):
   return assemble(kind, rest, options.budgetChars, undefined, refs)
 }
 
+/** Where a reader shown only the skeleton should look next, and how much is there. */
+interface Largest {
+  /** The container's ref. */
+  readonly ref: string
+  /** How many rows it holds. */
+  readonly size: number
+}
+
 /**
  * The container holding the most of the page, which is where a reader who has
  * only been shown the skeleton should look next. What a container holds is what
  * sits directly inside it: a wrapper around one section is smaller than the
  * section, however much the section holds.
  * @param items - every collected item.
- * @returns its ref, or undefined for a page with no containers at all.
+ * @returns it and its size, or undefined for a page with no containers at all.
  */
-function largestContainer(items: readonly Item[]): string | undefined {
+function largestContainer(items: readonly Item[]): Largest | undefined {
   const sizes = new Map<ContainerItem, number>()
   let best: ContainerItem | TableItem | undefined
   let bestSize = 0
@@ -626,7 +663,17 @@ function largestContainer(items: readonly Item[]): string | undefined {
       bestSize = item.rows.length
     }
   }
-  return best?.ref
+  return best === undefined ? undefined : { ref: best.ref, size: bestSize }
+}
+
+/**
+ * How many rows of the page sit in no container at all, which a skeleton of the
+ * page would not mention anywhere.
+ * @param items - every collected item.
+ * @returns the count.
+ */
+function looseCount(items: readonly Item[]): number {
+  return items.filter(item => item.container === undefined && item.kind !== 'container').length
 }
 
 /**
@@ -658,19 +705,26 @@ export function render(items: readonly Item[], options: SnapshotOptions, scope: 
     }
     return resume('outline', found, options)
   }
+  const entries = outlineEntries(items, scope, refs)
+  if (entries.length === 0) {
+    const text = options.scope === undefined ? NOTHING_TO_READ : nothingInside(options.scope)
+    return { kind: 'outline', text, truncated: false, shown: 0, total: 0, cursor: undefined }
+  }
   const mark = refs.mark()
-  const listing = resume('outline', outlineEntries(items, scope, refs), options)
+  const listing = resume('outline', entries, options)
   const wholePage = options.scope === undefined && options.after === undefined
   if (!listing.truncated || !wholePage) return listing
   // A skeleton is only worth answering with when it says where to read next: a
   // page whose regions hold nothing directly has no room to point at, and its
   // rows, cut short, carry more than a map of empty rooms.
   const largest = largestContainer(items)
-  if (largest === undefined) return listing
+  // A page with more rows outside its regions than in the largest of them is
+  // the same case: the skeleton would leave the reader nowhere to find them.
+  if (largest === undefined || looseCount(items) > largest.size) return listing
   // The listing the skeleton stands in for reaches nobody, and neither do the
   // numbers it minted.
   refs.rollback(mark)
   // However much of the skeleton fits, it stands in for a listing that did not,
   // so the read is short of what it collected either way.
-  return { ...assemble('map', mapEntries(items, refs), budgetChars, scopeHint(largest), refs), truncated: true }
+  return { ...assemble('map', mapEntries(items, refs), budgetChars, scopeHint(largest.ref), refs), truncated: true }
 }

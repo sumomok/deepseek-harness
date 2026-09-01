@@ -104,8 +104,24 @@ export interface ContainerItem extends ContainerFace {
   readonly closed: boolean
 }
 
+/**
+ * What a control currently holds and how the page has set it, printed after the
+ * control's name wherever a row names it: on its own row, and inside a listed
+ * table cell.
+ */
+export interface ControlState {
+  /** The field's current value, or undefined for an element that holds none. */
+  readonly value: string | undefined
+  /** True for a password box, whose value is reported as withheld and never read. */
+  readonly secret: boolean
+  /** The checked state, or undefined for an element that has none. */
+  readonly checked: boolean | undefined
+  /** True when the page has disabled the element. */
+  readonly disabled: boolean
+}
+
 /** One control, heading, or other element the model can name on its own. */
-export interface ElementItem {
+export interface ElementItem extends ControlState {
   /** Discriminant. */
   readonly kind: 'element'
   /** The element this row names. */
@@ -116,14 +132,6 @@ export interface ElementItem {
   readonly role: string
   /** The element's accessible name. */
   readonly name: string
-  /** The field's current value, or undefined for an element that holds none. */
-  readonly value: string | undefined
-  /** True for a password box, whose value is reported as withheld and never read. */
-  readonly secret: boolean
-  /** The checked state, or undefined for an element that has none. */
-  readonly checked: boolean | undefined
-  /** True when the page has disabled the element. */
-  readonly disabled: boolean
   /** True for a tree node or menu item the page has closed over what it holds. */
   readonly collapsed: boolean
   /** The container this row sits in. */
@@ -145,7 +153,7 @@ export interface TextItem {
 }
 
 /** One control a table cell holds, numbered only when a read prints its row. */
-export interface CellControl {
+export interface CellControl extends ControlState {
   /** The control element. */
   readonly el: Element
   /** Its role. */
@@ -158,7 +166,9 @@ export interface CellControl {
 export interface RowCell {
   /** The controls the cell holds, in document order. */
   readonly controls: readonly CellControl[]
-  /** The cell as the one-row sample renders it: its text, or its controls' names inside `[ ]`. */
+  /** What the cell shows apart from its controls, which name themselves. */
+  readonly text: string
+  /** The cell as the one-row sample renders it: its text, and its controls inside `[ ]`. */
   readonly sample: string
 }
 
@@ -203,7 +213,11 @@ export interface TableItem extends ContainerFace {
   readonly header: readonly RowCell[]
   /** The table's data rows. */
   readonly rows: readonly TableRowItem[]
-  /** How many columns the table has: the wider of its header and its widest data row. */
+  /**
+   * How many columns the table has: the wider of its header and its first data
+   * row, which is the row the sample prints. Counting every row would read the
+   * geometry of every cell of the table to answer how wide the table is.
+   */
   readonly columns: number
   /** The adjacent pagination control's text. */
   readonly pagination: string | undefined

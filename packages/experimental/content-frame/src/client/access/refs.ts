@@ -71,6 +71,10 @@ export class RefTable {
   /**
    * How wide a ref can be once a listing has numbered so many more elements,
    * for a caller sizing a line before the rows it names have been rendered.
+   * The answer counts one number per element the caller names, so a caller
+   * passing a row count is asking about a listing where each row numbers one
+   * element; a listing whose rows number more than that can still reach a wider
+   * ref than this.
    * @param pending - how many elements the listing may yet number.
    * @returns the widest ref in characters.
    */

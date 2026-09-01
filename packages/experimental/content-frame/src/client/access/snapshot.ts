@@ -12,8 +12,8 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/snapshot
  */
 import {
-  clip, containerName, isMarked, isSeparator, isSkipped, markedSelector, queryInOrder, readableDocuments,
-  visibleTextParts,
+  DIALOG_SELECTOR, clip, containerName, isMarked, isSeparator, isSkipped, markedSelector, queryInOrder,
+  readableDocuments, visibleTextParts,
 } from './dom.ts'
 import { collect } from './collect.ts'
 import { render } from './render.ts'
@@ -54,9 +54,6 @@ function resolveOrThrow(option: string, ref: string, refs: RefTable): Element {
   if (el === undefined) throw new Error(`${option}: "${ref}" names no element on the page now`)
   return el
 }
-
-/** Every element the page shows as a dialog, an alert included. */
-const DIALOG_SELECTOR = 'dialog, [role="dialog"], [role="alertdialog"]'
 
 /**
  * The dialog the page currently has open, preferring one that declares itself

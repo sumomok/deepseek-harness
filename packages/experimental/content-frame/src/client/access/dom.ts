@@ -13,11 +13,15 @@ import { computeAccessibleName, getRole } from 'dom-accessibility-api'
 /** Elements whose content never reaches the reader. */
 const SKIP_TAGS: ReadonlySet<string> = new Set(['script', 'style', 'template', 'noscript'])
 
-/** Elements that flow inside a line, so text either side of them is one run. */
+/**
+ * Elements that flow inside a line, so text either side of them is one run. A
+ * line break, a picture, and a drawing sit inside a paragraph rather than
+ * ending it: the words either side of them are still one thing to read.
+ */
 const INLINE_TAGS: ReadonlySet<string> = new Set([
-  'a', 'abbr', 'b', 'bdi', 'bdo', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'kbd', 'label',
-  'mark', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup',
-  'time', 'u', 'var', 'wbr',
+  'a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'img', 'kbd',
+  'label', 'mark', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup',
+  'svg', 'time', 'u', 'var', 'wbr',
 ])
 
 /** Elements whose `disabled` property the page can set. */
@@ -27,8 +31,42 @@ const DISABLEABLE_TAGS: ReadonlySet<string> = new Set(['button', 'fieldset', 'in
 export const FIELD_ROLES: ReadonlySet<string> =
   new Set(['textbox', 'combobox', 'searchbox', 'spinbutton', 'listbox', 'checkbox', 'radio', 'switch'])
 
-/** Roles that hold a checked state. */
-export const CHECKED_ROLES: ReadonlySet<string> = new Set(['checkbox', 'radio', 'switch'])
+/**
+ * Roles that hold a checked state. A menu item that checks or picks is one of
+ * these: a reader who cannot see whether it is on clicks it again and turns it
+ * off.
+ */
+export const CHECKED_ROLES: ReadonlySet<string> =
+  new Set(['checkbox', 'menuitemcheckbox', 'menuitemradio', 'radio', 'switch'])
+
+/**
+ * Every role WAI-ARIA 1.2 defines for authors, plus the three the graphics
+ * module adds. A role the page wrote that is not one of these names nothing the
+ * reader knows, so the element is read by what it is built out of instead: a
+ * page's own word must never reach the model as the type of a row.
+ */
+const KNOWN_ROLES: ReadonlySet<string> = new Set([
+  // Widget roles.
+  'button', 'checkbox', 'gridcell', 'link', 'menuitem', 'menuitemcheckbox', 'menuitemradio',
+  'option', 'progressbar', 'radio', 'scrollbar', 'searchbox', 'separator', 'slider', 'spinbutton',
+  'switch', 'tab', 'tabpanel', 'textbox', 'treeitem',
+  // Composite widget roles.
+  'combobox', 'grid', 'listbox', 'menu', 'menubar', 'radiogroup', 'tablist', 'tree', 'treegrid',
+  // Document structure roles.
+  'application', 'article', 'blockquote', 'caption', 'cell', 'code', 'columnheader', 'definition',
+  'deletion', 'directory', 'document', 'emphasis', 'feed', 'figure', 'generic', 'group', 'heading',
+  'img', 'insertion', 'list', 'listitem', 'math', 'meter', 'none', 'note', 'paragraph',
+  'presentation', 'row', 'rowgroup', 'rowheader', 'strong', 'subscript', 'superscript', 'table',
+  'term', 'time', 'toolbar', 'tooltip',
+  // Landmark roles.
+  'banner', 'complementary', 'contentinfo', 'form', 'main', 'navigation', 'region', 'search',
+  // Live region roles.
+  'alert', 'log', 'marquee', 'status', 'timer',
+  // Window roles.
+  'alertdialog', 'dialog',
+  // Graphics module roles.
+  'graphics-document', 'graphics-object', 'graphics-symbol',
+])
 
 /**
  * Roles that describe how the page is built rather than what it offers, so they
@@ -40,19 +78,25 @@ export const CHECKED_ROLES: ReadonlySet<string> = new Set(['checkbox', 'radio', 
  *
  * The live regions are here because they announce what happened elsewhere on
  * the page rather than offering anything of their own; the walk reads straight
- * through them to whatever they show.
+ * through them to whatever they show. The roles that mark up a run of text —
+ * an emphasis, a quotation, a time — are here for the same reason: what they
+ * decorate is the text itself, which the run around them already prints.
  */
 const STRUCTURAL_ROLES: ReadonlySet<string> = new Set([
-  'alert', 'alertdialog', 'application', 'article', 'banner', 'cell', 'columnheader', 'complementary',
-  'contentinfo', 'definition', 'dialog', 'directory', 'document', 'feed', 'figure', 'form', 'generic',
-  'grid', 'gridcell', 'group', 'legend', 'list', 'listitem', 'log', 'main', 'marquee', 'math', 'menu',
-  'menubar', 'navigation', 'none', 'note', 'paragraph', 'presentation', 'radiogroup', 'region', 'row',
-  'rowgroup', 'rowheader', 'search', 'separator', 'status', 'table', 'tablist', 'tabpanel', 'term',
-  'timer', 'toolbar', 'tooltip', 'tree', 'treegrid',
+  'alert', 'alertdialog', 'application', 'article', 'banner', 'blockquote', 'caption', 'cell', 'code',
+  'columnheader', 'complementary', 'contentinfo', 'definition', 'deletion', 'dialog', 'directory',
+  'document', 'emphasis', 'feed', 'figure', 'form', 'generic', 'grid', 'gridcell', 'group',
+  'insertion', 'legend', 'list', 'listitem', 'log', 'main', 'marquee', 'math', 'menu', 'menubar',
+  'meter', 'navigation', 'none', 'note', 'paragraph', 'presentation', 'radiogroup', 'region', 'row',
+  'rowgroup', 'rowheader', 'search', 'separator', 'status', 'strong', 'subscript', 'superscript',
+  'table', 'tablist', 'tabpanel', 'term', 'time', 'timer', 'toolbar', 'tooltip', 'tree', 'treegrid',
 ])
 
 /** The role a snapshot gives a role-less element the page makes clickable. */
 export const CLICKABLE_ROLE = 'clickable'
+
+/** Every element the page shows as a dialog, an alert included. */
+export const DIALOG_SELECTOR = 'dialog, [role="dialog"], [role="alertdialog"]'
 
 /** How long one text run may be before it is cut. */
 const TEXT_LIMIT = 200
@@ -149,11 +193,20 @@ export function isPassword(el: Element): boolean {
 /**
  * The element's role. A password box has none of its own, and the model still
  * needs to see the field, so it reads as the text box it is.
+ *
+ * A role the page wrote is only a role when ARIA defines it: a misspelled or
+ * framework-private word tells the reader nothing, and printing it would put
+ * text the page controls where the model reads the kind of a row. Such an
+ * element reads by its structure instead. What HTML itself gives an element is
+ * not filtered — that role comes from the tag, not from the page.
  * @param el - the element to classify.
- * @returns the role name, or null for an element HTML gives no role.
+ * @returns the role name, or null for an element with no role ARIA knows.
  */
 export function roleOf(el: Element): string | null {
-  return isPassword(el) ? 'textbox' : getRole(el)
+  if (isPassword(el)) return 'textbox'
+  const role = getRole(el)
+  if (role === null) return null
+  return el.hasAttribute('role') && !KNOWN_ROLES.has(role) ? null : role
 }
 
 /**
