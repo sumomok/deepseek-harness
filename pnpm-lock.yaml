@@ -850,8 +850,8 @@ importers:
         specifier: file:./vendor/sumomok-dsh-quote-message-0.3.0.tgz
         version: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-session@packages+core+session)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       dsh-at-file:
-        specifier: file:./vendor/dsh-at-file-0.6.5-patched1.tgz
-        version: file:apps/desktop-server/vendor/dsh-at-file-0.6.5-patched1.tgz(7e0abb22f58cb22812a209e9093a8710)
+        specifier: file:./vendor/dsh-at-file-0.7.0-da602d1.tgz
+        version: file:apps/desktop-server/vendor/dsh-at-file-0.7.0-da602d1.tgz(7e0abb22f58cb22812a209e9093a8710)
       dsh-better-sidebar:
         specifier: file:./vendor/dsh-better-sidebar-0.15.2-patched1.tgz
         version: file:apps/desktop-server/vendor/dsh-better-sidebar-0.15.2-patched1.tgz(a04f20cb426a6ae8d050d3bdb16fe03a)
@@ -15786,9 +15786,9 @@ packages:
     resolution: {integrity: sha512-uBq4egWHTcTt33a72vpSG0z3HnPuIl6NqYcTrKEg2azoEyl2hpW0zqlxysq2pK9HlDIHyHyakeYaYnSAwd8bow==}
     engines: {node: '>=12'}
 
-  dsh-at-file@file:apps/desktop-server/vendor/dsh-at-file-0.6.5-patched1.tgz:
-    resolution: {integrity: sha512-sU5OunTHFOKU4n9NXjSxrV5RYlQTAAtYmKt4D5wZAOZxOBGyjfQsgvHv4cTfqIFw27RWDGXo/6oye/HfRWbVUg==, tarball: file:apps/desktop-server/vendor/dsh-at-file-0.6.5-patched1.tgz}
-    version: 0.6.5
+  dsh-at-file@file:apps/desktop-server/vendor/dsh-at-file-0.7.0-da602d1.tgz:
+    resolution: {integrity: sha512-uSTYAyEhsKTcgFaQUUu3V1MrVGJH/Xpizd5/UgYRpb8hZCsjXRKy27EwVMO/s23EdwAOuXkNCrC917xnxrJJxw==, tarball: file:apps/desktop-server/vendor/dsh-at-file-0.7.0-da602d1.tgz}
+    version: 0.7.0
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1-rc.1
       '@deepseek-ai/dsh-agent': '*'
@@ -15796,6 +15796,7 @@ packages:
       '@deepseek-ai/dsh-client-connection': '*'
       '@deepseek-ai/dsh-client-locale': '*'
       '@deepseek-ai/dsh-client-runtime': '*'
+      '@deepseek-ai/dsh-client-store': '*'
       '@deepseek-ai/dsh-client-ui-conversation': '*'
       '@deepseek-ai/dsh-client-ui-input-trigger': '*'
       '@deepseek-ai/dsh-client-ui-settings': '*'
@@ -15817,6 +15818,8 @@ packages:
       '@deepseek-ai/dsh-client-locale':
         optional: true
       '@deepseek-ai/dsh-client-runtime':
+        optional: true
+      '@deepseek-ai/dsh-client-store':
         optional: true
       '@deepseek-ai/dsh-client-ui-conversation':
         optional: true
@@ -22882,7 +22885,7 @@ snapshots:
 
   dotenv@16.6.1: {}
 
-  dsh-at-file@file:apps/desktop-server/vendor/dsh-at-file-0.6.5-patched1.tgz(7e0abb22f58cb22812a209e9093a8710):
+  dsh-at-file@file:apps/desktop-server/vendor/dsh-at-file-0.7.0-da602d1.tgz(7e0abb22f58cb22812a209e9093a8710):
     dependencies:
       zod: 4.4.3
     optionalDependencies:
