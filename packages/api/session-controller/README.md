@@ -42,7 +42,7 @@ The Session object also carries local submission echoes: `session.beginSubmissio
 |---|---:|---|
 | `coldBlankProbeMaxBytes` | `1,024` | Maximum physical size of a cold Session artifact eligible for blankness verification; `0` disables probes |
 | `nativeOpen` | platform-detected | Whether Session workspace paths can be handed to a native desktop opener |
-| `secretContainerExtraPatterns` | `[]` | Filename substrings appended to the client's fixed pre-send secret-container confirmation heuristic; additive only |
+| `secretContainerExtraPatterns` | `[]` | Filename substrings appended to the client's fixed add-time secret-container confirmation heuristic; additive only |
 
 The generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-api-session-controller) is the exhaustive source for accepted fields and their JSDoc.
 

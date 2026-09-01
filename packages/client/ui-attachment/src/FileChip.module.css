@@ -21,8 +21,9 @@
   background: var(--dsw-alias-bg-layer-2);
 }
 
-/* Pre-send secret-container heuristic match: outline only, no popup — the
-   send-time confirmation is a separate surface. */
+/* Secret-container heuristic match: outline only, no popup — the add-time
+   confirmation dialog is a separate surface, already answered by the time
+   this outline persists. */
 .chipWarning {
   border-color: var(--dsw-alias-state-warn-primary);
 }
@@ -96,7 +97,8 @@
 
 /* Below-row reinforcement of the secret-container warning: the chip's own
    dot+outline is easy to miss, so this line names the first matched file in
-   words while the send-time confirmation gate is still ahead. */
+   words, persisting for as long as the file stays attached — independent of
+   the add-time confirmation dialog, already answered by this point. */
 .notice {
   display: flex;
   align-items: center;
