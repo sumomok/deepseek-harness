@@ -823,11 +823,11 @@ importers:
         specifier: link:../../vendor/schemastery
         version: link:../../vendor/schemastery
       '@haoran/dsh-clickable-refs':
-        specifier: file:./vendor/haoran-dsh-clickable-refs-0.4.0.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-session@packages+client+ui-session)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-client-ui-tool@packages+client+ui-tool)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: file:./vendor/haoran-dsh-clickable-refs-0.4.1.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-session@packages+client+ui-session)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-client-ui-tool@packages+client+ui-tool)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@haoran/dsh-connection-banner':
-        specifier: file:./vendor/haoran-dsh-connection-banner-0.2.0.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-layout@packages+client+ui-layout)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)
+        specifier: file:./vendor/haoran-dsh-connection-banner-0.2.1.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-layout@packages+client+ui-layout)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)
       '@haoran/dsh-default-model':
         specifier: file:./vendor/haoran-dsh-default-model-0.1.2.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz
@@ -12823,9 +12823,9 @@ packages:
       '@modelcontextprotocol/sdk':
         optional: true
 
-  '@haoran/dsh-clickable-refs@file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz':
-    resolution: {integrity: sha512-S9HTUbLIx3WK1DVGpYnWD2utv/isjpXK4PCh/vmxyvISLq33Lwglpg+5edQcD+hn61II4oKphnmnE8mQNeMDUA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz}
-    version: 0.4.0
+  '@haoran/dsh-clickable-refs@file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz':
+    resolution: {integrity: sha512-VoGvGZAr33D2w48W6fbY+eV2e0JZP2LnNFgYGUdCy0Fcp2z9LbL53AIAcMcBmAqjbQl4VMYXyhCj+xCaUnmZgA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz}
+    version: 0.4.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1-rc.1
       '@deepseek-ai/dsh-api-remotes': '>=0.1.2-alpha.2 <0.2.0-0'
@@ -12872,9 +12872,9 @@ packages:
       react-dom:
         optional: true
 
-  '@haoran/dsh-connection-banner@file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz':
-    resolution: {integrity: sha512-+CXDr42UVu2yImLMnLAmKlxMlmTFMf0F6cSqKX3DDyaxPZBp7dhJU9AikWYvYNiyUHI/zUBr7vZPi7+6publ2Q==, tarball: file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz}
-    version: 0.2.0
+  '@haoran/dsh-connection-banner@file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.1.tgz':
+    resolution: {integrity: sha512-hUN1fAzNwrpMSK9QbMrCNy/7RdwedueVS0pCZ9v0T/AfvqwoUUh7uloKL8uWGUwRi4Ye/beR4NEMN0ONiXP8lA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.1.tgz}
+    version: 0.2.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1-rc.1
       '@deepseek-ai/dsh-client-connection': '>=0.1.2-alpha.2 <0.2.0-0'
@@ -20241,7 +20241,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@haoran/dsh-clickable-refs@file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-session@packages+client+ui-session)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-client-ui-tool@packages+client+ui-tool)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@haoran/dsh-clickable-refs@file:apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-remotes@packages+api+remotes)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-session@packages+client+ui-session)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-client-ui-tool@packages+client+ui-tool)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@deepseek-ai/dsh-system-prompt': link:packages/core/system-prompt
       '@deepseek-ai/dsh-typert-protocol': 0.1.2-alpha.2(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)
@@ -20264,7 +20264,7 @@ snapshots:
     transitivePeerDependencies:
       - '@deepseek-ai/dsh-invariants'
 
-  '@haoran/dsh-connection-banner@file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-layout@packages+client+ui-layout)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)':
+  '@haoran/dsh-connection-banner@file:apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-connection@packages+client+connection)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-layout@packages+client+ui-layout)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(react@18.3.1)':
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-client-connection': link:packages/client/connection
