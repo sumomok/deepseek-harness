@@ -376,6 +376,7 @@ export class WorkerModuleLoader {
    */
   private compile(code: string, path: string): (...args: unknown[]) => void {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval -- wrapping an image body is this loader's job
       return new Function(...WRAPPER_PARAMS, code) as (...args: unknown[]) => void
     } catch (reason) {
       if (reason instanceof SyntaxError && /await/i.test(reason.message)) {

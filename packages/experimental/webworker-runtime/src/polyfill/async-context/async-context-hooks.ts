@@ -42,6 +42,7 @@ export function installAsyncContextHooks(): void {
   if (installed) return
   installed = true
 
+  // eslint-disable-next-line @typescript-eslint/unbound-method -- the pristine `then` is `.call`ed on its own promise below
   const nativeThen = Promise.prototype.then
   // A browser has no async-context tracking, so registration points are where a
   // store can be captured at all — patching them is the point of this module.

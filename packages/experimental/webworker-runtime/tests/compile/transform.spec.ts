@@ -78,6 +78,7 @@ function runBody(
 ): Record<string, unknown> {
   const exports: Record<string, unknown> = {}
   const module = { exports }
+  // eslint-disable-next-line @typescript-eslint/no-implied-eval -- the wrapper contract under test is a `new Function` body
   const factory = new Function(...WRAPPER_PARAMS, code) as (...args: unknown[]) => void
   factory(exports, require, module, '/vfs/probe.js', '/vfs', { url: 'file:///vfs/probe.js' }, als)
   return exports
@@ -104,6 +105,7 @@ check(
   'every wrapper parameter is a usable identifier',
   (() => {
     try {
+      // eslint-disable-next-line @typescript-eslint/no-implied-eval -- proves the parameter names compile where the loader uses them
       new Function(...WRAPPER_PARAMS, 'return 0')
       return true
     } catch {

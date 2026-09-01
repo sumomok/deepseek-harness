@@ -54,6 +54,7 @@ interface Overlay<T> {
 }
 
 /** Pristine `then`, so this module's own bookkeeping never re-enters the hook layer. */
+// eslint-disable-next-line @typescript-eslint/unbound-method -- taking `then` unbound is the point; it is `.call`ed on its own promise
 const nativeThen = Promise.prototype.then
 
 /** Every live instance, so one snapshot can capture all of their stores at once. */
