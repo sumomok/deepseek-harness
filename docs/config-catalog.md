@@ -760,7 +760,7 @@ export interface PageAccessConfig {
    * because a listing's first row is rendered however long it is and the wire
    * holds a posted listing to four times the budget: below that floor an
    * ordinary table's row is already past the bound, and every read of a page
-   * holding one would be refused.
+   * holding one would answer that the block is too wide.
    */
   outlineChars: number
 }

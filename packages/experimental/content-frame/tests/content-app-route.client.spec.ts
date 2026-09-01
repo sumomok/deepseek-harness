@@ -318,6 +318,15 @@ describe('configuration validation', () => {
     await expect(apply([])).rejects.toThrow(/pages must list at least one page/)
     await expect(apply([{ ...HOME, id: '' }])).rejects.toThrow(/every page needs a non-empty id/)
     await expect(apply([{ ...HOME, id: 'none' }])).rejects.toThrow(/"none" is reserved for clearing the column/)
+    // An id is the one configured string a seat posts exactly as written, so a
+    // read report carrying it would be refused by the parser and reach the model
+    // as a console that never answered — with nothing naming this row.
+    await expect(apply([HOME, { ...HOME, id: `re${String.fromCharCode(1)}ports` }]))
+      .rejects.toThrow(/page 2 id "re\\u0001ports" carries a control character or a lone surrogate/)
+    await expect(apply([{ ...HOME, id: `home${String.fromCharCode(0xd800)}` }]))
+      .rejects.toThrow(/page 1 id "home\\ud800" carries a control character or a lone surrogate/)
+    await expect(apply([{ ...HOME, id: 'h'.repeat(257) }]))
+      .rejects.toThrow(/page 1 id must be at most 256 characters, received 257/)
     await expect(apply([HOME, { ...HOME, title: 'Other' }])).rejects.toThrow(/duplicate page id "home"/)
     await expect(apply([{ ...HOME, url: 'https://example.test/app' }]))
       .rejects.toThrow(/page "home" url must be a same-origin path/)

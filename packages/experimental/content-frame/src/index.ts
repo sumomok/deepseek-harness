@@ -42,8 +42,8 @@ import { contentAccessProjection } from './access/requests-projection.ts'
 import { contentReadTool } from './access/read-tool.ts'
 import {
   CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_CURSOR_CHARS, MAX_HEADER_CHARS, MAX_NAME_CHARS,
-  MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS,
-  parseClaimRequest, parseReportRequest,
+  MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS,
+  MIN_OUTLINE_CHARS, parseClaimRequest, parseReportRequest,
 } from './access/wire.ts'
 
 // The `content/shown` and `content` declarations live in src/types.ts (their
@@ -141,7 +141,7 @@ export interface PageAccessConfig {
    * because a listing's first row is rendered however long it is and the wire
    * holds a posted listing to four times the budget: below that floor an
    * ordinary table's row is already past the bound, and every read of a page
-   * holding one would be refused.
+   * holding one would answer that the block is too wide.
    */
   outlineChars: number
 }
@@ -221,24 +221,28 @@ function requireAtLeast(field: keyof PageAccessConfig, value: number, least: num
 const MAX_CLAIM_BYTES = 1024
 
 /**
- * Bytes of JSON punctuation and key names one report is written with.
+ * Bytes of JSON punctuation, key names and discriminant values one report is
+ * written with.
  *
  * A listing report with every string empty and nine-digit counters serializes
- * to 239 bytes; the union of that form's keys and a failure's is 283, which is
- * what the envelope has to leave room for, because a bound covering both forms
- * cannot be read off either one alone. Rounded up from there.
+ * to 239 bytes, and the union of that form's keys with a failure's to 283 —
+ * with both discriminants empty. The values a real report writes there,
+ * `outline` and `not-a-page`, add 17 bytes that no per-field allowance below
+ * covers, so 300 is what the envelope has to leave room for; a bound covering
+ * both forms cannot be read off either one alone. Rounded up from there, with
+ * room for counters longer than nine digits.
  */
 const REPORT_SYNTAX_BYTES = 512
 
 /**
- * Bytes of JSON the largest report carries around its listing, allowing four
- * UTF-8 bytes per character: the document's address, the three header fields,
- * the four names (two ids, the page's id and its title, or a failure's kind and
- * title), the cursor, and a failure message — each at the bound the wire holds
- * it to — plus {@link REPORT_SYNTAX_BYTES} for the punctuation and key names
- * around them.
+ * Bytes of JSON the largest report carries around its listing, allowing
+ * {@link MAX_TEXT_BYTES_PER_CHAR} UTF-8 bytes per character: the document's
+ * address, the three header fields, the four names (two ids, the page's id and
+ * its title, or a failure's kind and title), the cursor, and a failure message
+ * — each at the bound the wire holds it to — plus {@link REPORT_SYNTAX_BYTES}
+ * for the punctuation, key names and discriminant values around them.
  */
-const REPORT_ENVELOPE_BYTES = 4 * (
+const REPORT_ENVELOPE_BYTES = MAX_TEXT_BYTES_PER_CHAR * (
   MAX_URL_CHARS + 3 * MAX_HEADER_CHARS + MAX_OUTCOME_MESSAGE_CHARS + 4 * MAX_NAME_CHARS + MAX_CURSOR_CHARS
 ) + REPORT_SYNTAX_BYTES
 
@@ -280,12 +284,14 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   // JSON — two for a short escape, three for the widest character, two per unit
   // for a supplementary one — so a listing rendered inside the budget arrives
   // whole whatever the page is written in; a listing that was not sanitized is
-  // refused as a shape by the parser rather than reaching this bound. Not the
-  // character bound above converted, which would be sixteen bytes per rendered
-  // character: past a budget the envelope no longer covers, this bound refuses
-  // a listing of multibyte text that the parser's character bound alone would
-  // have taken.
-  const reportBytes = outlineChars * 4 + REPORT_ENVELOPE_BYTES
+  // refused as a shape by the parser rather than reaching this bound. The seat
+  // measures its listing against the same allowance before posting, byte for
+  // byte, so this is the check on a body no seat of this package wrote rather
+  // than the one a real read is expected to meet. Not the character bound above
+  // converted, which would be sixteen bytes per rendered character: past a
+  // budget the envelope no longer covers, this bound refuses a listing of
+  // multibyte text that the parser's character bound alone would have taken.
+  const reportBytes = outlineChars * MAX_TEXT_BYTES_PER_CHAR + REPORT_ENVELOPE_BYTES
   const claimRefusals: BodyRefusals = {
     oversize: `content-frame: ${CLAIM_ROUTE_NAME} refuses a body past ${MAX_CLAIM_BYTES} bytes`,
     shape: 'content-frame: expected a JSON body with callId and tabId',

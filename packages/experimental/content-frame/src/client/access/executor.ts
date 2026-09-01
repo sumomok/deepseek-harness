@@ -23,8 +23,8 @@ import type { MutableRefObject } from 'react'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
-  MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS,
-  PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, sanitize,
+  MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
+  MAX_URL_CHARS, PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, sanitize,
   type ClaimAck, type ReadArgs, type ReadOutcome, type ReadPage, type ReportAck,
 } from '../../access/wire.ts'
 import {
@@ -178,6 +178,21 @@ function clipTo(value: string, max: number): string {
  */
 function forWire(value: string, max: number): string {
   return clipTo(sanitize(value), max)
+}
+
+/**
+ * What one string costs inside a posted JSON document, in UTF-8 bytes.
+ *
+ * Measured rather than estimated: `JSON.stringify` writes the escapes the route
+ * will receive — two bytes for a newline, three for the widest character — and
+ * `TextEncoder` counts what goes on the wire, so this is the same byte-by-byte
+ * total the route arrives at. The two quotes around the value belong to the
+ * document rather than to the string, so they are taken back off.
+ * @param value - the string as the seat would post it.
+ * @returns its length in bytes of JSON.
+ */
+function jsonBytes(value: string): number {
+  return new TextEncoder().encode(JSON.stringify(value)).length - 2
 }
 
 /** What one post to a read route ended as, for a caller deciding whether to try again. */
@@ -385,11 +400,24 @@ async function readPage(
     const read = snapshot(frame.contentWindow.document, options)
     const text = sanitize(read.text)
     // The renderer prints a listing's first block however long it is, and the
-    // parser refuses a listing past this multiple of the budget. Posting one
-    // anyway spends the whole report deadline on a refusal the host cannot
-    // trace back to the call, and the model is told the console went quiet;
-    // saying so here is what puts a narrower read in front of it instead.
-    if (text.length > access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE) {
+    // route holds a posted listing to two bounds of its own: the parser refuses
+    // one past this multiple of the budget, and the byte bound on the whole
+    // body refuses one past that same budget in bytes. Posting past either
+    // spends the whole report deadline on a refusal the host cannot trace back
+    // to the call, and the model is told the console went quiet; saying so here
+    // is what puts a narrower read in front of it instead.
+    //
+    // Both are measured, because the byte bound is the tighter of the two on
+    // any text that is not one byte per character: at the shipped budget a
+    // listing of Chinese passes the character bound while costing three bytes
+    // for each of those characters. Measuring the listing alone is enough for
+    // the whole body — the envelope the route adds on top already covers every
+    // other field at its own character bound times that same allowance, and
+    // every one of them passes through `forWire` first.
+    if (
+      text.length > access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE
+      || jsonBytes(text) > access.outlineChars * MAX_TEXT_BYTES_PER_CHAR
+    ) {
       return frameError(FRAME_WIDE_LISTING_MESSAGE)
     }
     // Every string below the listing itself comes from the document, and the

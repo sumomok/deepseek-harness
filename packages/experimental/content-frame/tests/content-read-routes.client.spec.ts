@@ -528,6 +528,33 @@ describe('the read channel over real HTTP', () => {
     }
   })
 
+  it('refuses a whole real listing the character bound alone would have taken', async () => {
+    const ctx = await loadComposition(true, [], DEFAULT_OUTLINE_CHARS)
+    // What an eighty-column table of three-byte text renders to at the shipped
+    // budget: well inside the parser's character bound of four times that
+    // budget, and half again past the byte bound on the whole body. The seat
+    // measures both before it posts, so no seat of this package sends this; the
+    // route is the backstop under that, and it holds to the byte.
+    const text = '甲'.repeat(32696)
+    const outcome = { ...LISTING, snapshot: { ...LISTING.snapshot, text } }
+    const body = JSON.stringify({ callId: 'c', tabId: TAB, outcome })
+    expect({
+      chars: text.length,
+      charBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
+      parsed: parseReportRequest(JSON.parse(body), DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE) !== undefined,
+      bytes: new TextEncoder().encode(body).length,
+      byteBound: DEFAULT_OUTLINE_CHARS * 4 + ENVELOPE_BYTES,
+    }).toEqual({ chars: 32696, charBound: 48000, parsed: true, bytes: 98340, byteBound: 71328 })
+    const refused = await raw(ctx, CONTENT_REPORT_ROUTE, { body })
+    expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
+      status: 413,
+      body: {
+        error: 'content-frame: the read report route refuses a body past '
+          + `${DEFAULT_OUTLINE_CHARS * 4 + ENVELOPE_BYTES} bytes`,
+      },
+    })
+  })
+
   it('refuses a listing made of what the seat removes, at whichever bound it reaches', async () => {
     const ctx = await loadComposition(true, [], DEFAULT_OUTLINE_CHARS)
     // Inside the byte bound and carrying control characters: the body arrives
@@ -574,17 +601,28 @@ describe('the read channel over real HTTP', () => {
       },
     }
     const union = { ...empty, outcome: { ...empty.outcome, code: '', message: '', kind: '', title: '' } }
-    expect([JSON.stringify(empty).length, JSON.stringify(union).length]).toEqual([239, 283])
-    expect(JSON.stringify(union).length).toBeLessThan(SYNTAX_BYTES)
+    // The two discriminants written as a real report writes them. Their values
+    // sit in no per-field allowance of the envelope — it enumerates the address,
+    // the header fields, the message, the names and the cursor — so the syntax
+    // allowance is what has to hold them.
+    const named = {
+      ...union,
+      outcome: { ...union.outcome, snapshot: { ...union.outcome.snapshot, kind: 'outline' }, code: 'not-a-page' },
+    }
+    expect([JSON.stringify(empty).length, JSON.stringify(union).length, JSON.stringify(named).length])
+      .toEqual([239, 283, 300])
+    expect(JSON.stringify(named).length).toBeLessThan(SYNTAX_BYTES)
   })
 
-  it('takes the largest report the parser will pass, with room left over', async () => {
+  it('takes a report at the parser\'s own character bounds, with room left over', async () => {
     const ctx = await loadComposition(true)
     // Three UTF-8 bytes is as wide as one character gets once the seat has
-    // removed what costs more, and every field here is as long as the parser
+    // removed what costs more, and every string here is as long as the parser
     // takes — the listing at four times the budget, which is the widest one a
-    // seat posts rather than reporting on. The envelope is sized to hold it:
-    // the address alone is half again the whole envelope this route once
+    // seat posts rather than reporting on. The two counters are not: `isCount`
+    // bounds neither of them, so this is a report at the bounds that exist and
+    // not the largest one the parser would pass. The envelope is sized to hold
+    // it: the address alone is half again the whole envelope this route once
     // carried.
     const wide = (chars: number): string => '甲'.repeat(chars)
     const outcome: ReadOutcome = {

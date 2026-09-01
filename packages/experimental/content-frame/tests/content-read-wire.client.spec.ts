@@ -246,6 +246,7 @@ describe('report wire boundary', () => {
       ['page.title', { ...READ, page: { id: 'home', title: `Home${CONTROL}` } }],
       ['message', { status: 'error', code: 'frame', message: `why${CONTROL}` }],
       ['kind', { status: 'error', code: 'not-a-page', message: 'why', kind: `chart${CONTROL}` }],
+      ['outcome.title', { status: 'error', code: 'not-a-page', message: 'why', title: `Sales${LONE_SURROGATE}` }],
     ] as const) {
       expect({ field, parsed: parseReportRequest(report(outcome), MAX_TEXT) }).toEqual({ field, parsed: undefined })
     }

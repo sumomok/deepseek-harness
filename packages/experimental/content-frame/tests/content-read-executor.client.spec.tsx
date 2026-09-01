@@ -17,8 +17,8 @@ import {
 } from '../src/client/access/executor.ts'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
-  MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest, PREFERRED_TAB_WINDOW_MS,
-  ROUTE_REFUSAL_STATUSES, type ClaimAck, type ReadOutcome,
+  MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest,
+  PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
 import { FRAME_WIDE_LISTING_MESSAGE } from '../src/access/text.ts'
 import type { RefTable } from '../src/client/access/refs.ts'
@@ -93,6 +93,14 @@ function stubRoutes(): void {
 
 /** One C0 control a page can hold: six JSON bytes per unit where the wire's byte bound allows four. */
 const CONTROL = String.fromCharCode(1)
+
+/** The listing budget a deployment gets by writing `pageAccess: {}`, which is where a real page meets these bounds. */
+const DEFAULT_OUTLINE_CHARS = 12000
+
+/** What one string costs inside a posted report, written out rather than imported from the seat it checks. */
+function jsonBytesOf(value: string): number {
+  return new TextEncoder().encode(JSON.stringify(value)).length - 2
+}
 
 /** A surrogate with no partner, which costs the same and is not a character at all. */
 const LONE_SURROGATE = String.fromCharCode(0xd800)
@@ -518,8 +526,8 @@ describe('what the reader reports', () => {
       status: 'error',
       code: 'frame',
       message: 'The page\'s first block alone is wider than this deployment\'s read budget. '
-        + 'Call content_read with scope or find to read a smaller part of the page, '
-        + 'or ask the user to raise pageAccess.outlineChars.',
+        + 'Call content_read with find, or with scope and a ref from a previous read, '
+        + 'to read a smaller part of the page, or ask the user to raise pageAccess.outlineChars.',
     })
     // The same sentence the seat holds, so a wording change moves both.
     expect(reported()).toMatchObject({ message: FRAME_WIDE_LISTING_MESSAGE })
@@ -529,6 +537,105 @@ describe('what the reader reports', () => {
     // One post, not one per retry: the seat answered rather than being refused.
     await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS + SETTLE_MARGIN_MS) })
     expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(1)
+  })
+
+  it('measures a listing in bytes as well as in characters, because the route holds it to both', async () => {
+    // The same eighty-column table twice, filled once with a character costing
+    // one JSON byte and once with one costing three. The two listings are the
+    // same length, so the character bound cannot tell them apart; the byte
+    // bound can, and at the shipped budget it is the one a page written in a
+    // three-byte language actually meets.
+    const page = (fill: string): string => {
+      const cell = (tag: string): string => `<${tag}>${fill.repeat(300)}</${tag}>`
+      const cells = (tag: string): string => Array.from({ length: 80 }, () => cell(tag)).join('')
+      // `find` names the table alone — no cell carries "FLEET" — so the listing
+      // is that one block, which the renderer prints whatever the budget is.
+      return `<table aria-label="FLEET${fill.repeat(295)}">`
+        + `<thead><tr>${cells('th')}</tr></thead><tbody><tr>${cells('td')}</tr></tbody></table>`
+        + `<nav class="pagination">${fill.repeat(300)}</nav>`
+    }
+    const access = { outlineChars: DEFAULT_OUTLINE_CHARS, claimTimeoutMs: 300, readTimeoutMs: 1000 }
+    const readOf = (fill: string): ReturnType<typeof drive> => drive(seatOf({
+      frames: { current: new Map([[FRAME, mountFrame(page(fill))]]) },
+      access,
+      pending: [{ callId: 'call_1', tool: 'content_read', args: { find: 'FLEET' } }],
+    }))
+
+    const thin = readOf('~')
+    await settled()
+    const outcome = reported()
+    if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
+    thin.unmount()
+    // The wide page's listing, unit for unit: `~` is a character the renderer's
+    // own words never print, so substituting it is what the second read below
+    // produces from the same document.
+    const wide = outcome.snapshot.text.replaceAll('~', '甲')
+    expect({
+      thinChars: outcome.snapshot.text.length,
+      thinBytes: jsonBytesOf(outcome.snapshot.text),
+      wideChars: wide.length,
+      wideBytes: jsonBytesOf(wide),
+      charBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
+      byteBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR,
+    }).toEqual({
+      thinChars: 32696,
+      thinBytes: 33027,
+      wideChars: 32696,
+      wideBytes: 96845,
+      charBound: 48000,
+      byteBound: 48000,
+    })
+
+    posted = []
+    const heavy = readOf('甲')
+    await settled()
+    // The character bound would have taken this listing, so what stopped it is
+    // the bytes it costs on the wire — and the seat says so rather than posting
+    // a body the route answers with a 413 the host cannot trace back to the
+    // call.
+    expect(reported()).toMatchObject({ status: 'error', code: 'frame', message: FRAME_WIDE_LISTING_MESSAGE })
+    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE))
+      .toBeDefined()
+    heavy.unmount()
+  })
+
+  it('takes a listing whose bytes land on the bound, and stops one byte past it', async () => {
+    // A listing of one line, so what the bound admits can be written out: the
+    // line costs its own characters plus the two bytes JSON spends escaping the
+    // quotes around the matched text. The budget is the seat's as the settings
+    // document delivered it, small enough to put the bound on that line.
+    const access = { outlineChars: 5, claimTimeoutMs: 300, readTimeoutMs: 1000 }
+    const readOf = (pad: string): ReturnType<typeof drive> => drive(seatOf({
+      frames: { current: new Map([[FRAME, mountFrame(`<main><span>UNIQ${pad}</span></main>`)]]) },
+      access,
+      pending: [{ callId: 'call_1', tool: 'content_read', args: { find: 'UNIQ' } }],
+    }))
+
+    const at = readOf('')
+    await settled()
+    const outcome = reported()
+    if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
+    at.unmount()
+    expect({
+      text: outcome.snapshot.text,
+      bytes: jsonBytesOf(outcome.snapshot.text),
+      bound: access.outlineChars * MAX_TEXT_BYTES_PER_CHAR,
+    }).toEqual({ text: 'text "UNIQ" (main)', bytes: 20, bound: 20 })
+
+    posted = []
+    const past = readOf('=')
+    await settled()
+    expect(reported()).toMatchObject({ status: 'error', code: 'frame', message: FRAME_WIDE_LISTING_MESSAGE })
+    // One character more of page text: still inside the character bound of four
+    // times the budget, and one byte past the byte bound, which is the half
+    // that answered.
+    const longer = outcome.snapshot.text.replace('UNIQ', 'UNIQ=')
+    expect({
+      chars: longer.length,
+      charBound: access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE,
+      bytes: jsonBytesOf(longer),
+    }).toEqual({ chars: 19, charBound: 20, bytes: 21 })
+    past.unmount()
   })
 
   it('keeps one numbering per frame, so a ref survives the read that minted it', async () => {

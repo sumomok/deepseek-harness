@@ -88,6 +88,20 @@ export const MAX_CURSOR_CHARS = 32
 export const MAX_TEXT_BUDGET_MULTIPLE = 4
 
 /**
+ * How many UTF-8 bytes of JSON one character of a posted report is allowed,
+ * which is what the byte bound on a whole body is computed from.
+ *
+ * Both halves read this, the way {@link MAX_TEXT_BUDGET_MULTIPLE} is read for
+ * characters: the node half sizes the route's bound with it, and the seat
+ * measures a listing against the same allowance before posting, so a listing
+ * the route would refuse for its size is one the seat says a sentence about
+ * instead. In a body the seat sanitized, no UTF-16 unit costs more than this —
+ * two bytes for a short escape, three for the widest character, two per unit
+ * for a supplementary one.
+ */
+export const MAX_TEXT_BYTES_PER_CHAR = 4
+
+/**
  * Smallest listing budget a deployment may configure, in characters.
  *
  * The parser holds a posted listing to four times the budget, and the renderer
@@ -120,20 +134,24 @@ export const ROUTE_REFUSAL_STATUSES: readonly number[] = [400, 403, 405, 413, 41
  *
  * `JSON.stringify` writes each of the C0 controls named here as a six-byte
  * `\uXXXX` escape, and a surrogate half standing alone the same way, while the
- * byte bound a report is held to allows four bytes per character — so a listing
- * rendered inside the budget could still be refused for its size. DEL costs one
- * byte and is dropped for the reason that covers all of them anyway: none of
- * this is text a model transcript has any use for. What the model needs from a
- * page printing raw log bytes is the text around them.
+ * byte bound a report is held to allows {@link MAX_TEXT_BYTES_PER_CHAR} per
+ * character — so a listing rendered inside the budget could still be refused
+ * for its size. DEL costs one byte and is dropped for the reason that covers
+ * all of them anyway: none of this is text a model transcript has any use for.
+ * What the model needs from a page printing raw log bytes is the text around
+ * them.
  */
 const UNPRINTABLE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/
 
 /**
  * Whether one string carries only what a posted document may.
+ *
+ * Read by the parser on every field of a document that crossed the process, and
+ * by the node half at load on the one configured string a seat posts unchanged.
  * @param value - the string, of any length.
  * @returns whether it is well-formed UTF-16 and free of {@link UNPRINTABLE}.
  */
-function isPrintable(value: string): boolean {
+export function isPrintable(value: string): boolean {
   return value.isWellFormed() && !UNPRINTABLE.test(value)
 }
 
@@ -290,11 +308,13 @@ export interface ReportAck {
  * posted document may carry.
  *
  * The length bound alone does not hold the byte bound the route computes from
- * it: the controls {@link UNPRINTABLE} names, and a surrogate half standing
- * alone, cost six JSON bytes per UTF-16 unit where that computation allows four
- * per character. A string carrying any of them is refused as a shape rather
- * than for its size, because the seat removes them before posting and a
- * document that still has them is not one this package's browser half wrote.
+ * it: the C0 controls {@link UNPRINTABLE} names, and a surrogate half standing
+ * alone, cost six JSON bytes per UTF-16 unit where that computation allows
+ * {@link MAX_TEXT_BYTES_PER_CHAR} per character. DEL costs one byte and is
+ * refused with them for the reason {@link UNPRINTABLE} states. A string
+ * carrying any of them is refused as a shape rather than for its size, because
+ * the seat removes them before posting and a document that still has them is
+ * not one this package's browser half wrote.
  * @param value - the decoded value.
  * @param max - the longest accepted length, in characters.
  * @returns whether the value is such a string no longer than the bound.

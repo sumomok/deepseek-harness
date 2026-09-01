@@ -78,15 +78,18 @@ export const FRAME_RETIRED_MESSAGE =
 
 /**
  * Failure the seat posts when the listing's first block alone runs past what a
- * report may carry — the one block the renderer prints whatever the budget is.
+ * report may carry — the one block the renderer prints whatever the budget is,
+ * measured both in characters and in the bytes it costs on the wire.
  *
- * Both ways out are named because only one of them is the model's to take: a
- * narrower read is, and the budget is the deployment's to raise.
+ * `find` is named first because this failure most often ends a page's first
+ * read, where the model holds no ref for `scope` to point at; `scope` carries
+ * that condition with it. The budget comes last because raising it is the
+ * deployment's to do, while the first two are the model's.
  */
 export const FRAME_WIDE_LISTING_MESSAGE =
   'The page\'s first block alone is wider than this deployment\'s read budget. '
-  + 'Call content_read with scope or find to read a smaller part of the page, '
-  + 'or ask the user to raise pageAccess.outlineChars.'
+  + 'Call content_read with find, or with scope and a ref from a previous read, '
+  + 'to read a smaller part of the page, or ask the user to raise pageAccess.outlineChars.'
 
 /**
  * The failure for a claim window that passed with no browser in it.
