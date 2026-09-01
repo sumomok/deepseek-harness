@@ -24,21 +24,13 @@ export function answerJson(res: ServerResponse, status: number, body: unknown): 
 }
 
 /**
- * Answer a request whose body was not read to its end, closing the connection
- * with the answer.
- *
- * `connection: close` is what bounds the refusal. Node accounts for the request
- * body when the exchange finishes: a body nothing consumed it drains off the
- * wire itself, and a body a reader stopped consuming would otherwise be left
- * half-read on a connection held open for the next request. The header makes
- * node destroy the socket once the answer has flushed, so nothing past what the
- * socket already held is read — without it, refusing a large post costs reading
- * all of it.
+ * Answer one document and close the connection with it, for an exchange that
+ * will not read to the end of the body it was sent.
  * @param res - the response.
  * @param status - the HTTP status.
  * @param body - the document to serialize.
  */
-export function refuseUnread(res: ServerResponse, status: number, body: unknown): void {
+function answerClosing(res: ServerResponse, status: number, body: unknown): void {
   // Set rather than passed through: `answerJson` owns the JSON headers, and
   // `writeHead` merges whatever is already on the response.
   res.setHeader('connection', 'close')
@@ -46,52 +38,125 @@ export function refuseUnread(res: ServerResponse, status: number, body: unknown)
 }
 
 /**
+ * Count one refused request's body off the wire and keep none of it, stopping
+ * at the bound.
+ *
+ * Consuming is the point. Node drains a body nothing consumed off the wire
+ * itself once the exchange finishes, so a route that answers without reading
+ * pays for the whole body anyway, while a body something has already consumed
+ * it leaves alone. The bound is what keeps this from becoming the drain it
+ * replaces: at the first chunk that crosses it, the count drops its listener
+ * and pauses the request, and the refusal that follows closes the connection.
+ *
+ * Nothing waits for it. The answer is what ends the exchange, and a body still
+ * arriving when the answer goes out is what closing the connection is for.
+ * @param req - the incoming request, whose body is read and dropped.
+ * @param bound - how much of that body may be read, in bytes.
+ */
+function discardBody(req: IncomingMessage, bound: number): void {
+  let size = 0
+  const onData = (chunk: Buffer): void => {
+    size += chunk.length
+    if (size <= bound) return
+    req.off('data', onData)
+    req.pause()
+  }
+  req.on('data', onData)
+}
+
+/**
+ * Answer a request whose body the route never read, dropping what its own bound
+ * allows of that body first.
+ *
+ * Both halves bound the refusal, and neither one does it alone.
+ * {@link discardBody} is what keeps node from draining the rest off the wire on
+ * its own: closing the connection does not stop that drain, because node has
+ * already resumed the request by the time the socket goes, and the drain then
+ * outruns any bound the route holds. `connection: close` is what bounds what
+ * the socket takes once the count has stopped, because node destroys the socket
+ * as soon as the answer has flushed. What this process reads is therefore the
+ * bound plus whatever the socket already held — against the whole body, which
+ * is what an answer written over an unconsumed body costs.
+ * @param req - the incoming request, whose body is dropped to the bound.
+ * @param res - the response.
+ * @param status - the HTTP status.
+ * @param body - the document to serialize.
+ * @param bound - how much of the refused body may be read, in bytes.
+ */
+export function refuseUnread(
+  req: IncomingMessage,
+  res: ServerResponse,
+  status: number,
+  body: unknown,
+  bound: number,
+): void {
+  discardBody(req, bound)
+  answerClosing(res, status, body)
+}
+
+/**
  * Answer a request whose method the route does not serve.
+ * @param req - the incoming request, whose body is dropped to the bound.
  * @param res - the response.
  * @param allow - the complete method set this exact path serves.
+ * @param bound - how much of the refused body may be read, in bytes.
  */
-export function rejectMethod(res: ServerResponse, allow: string): void {
+export function rejectMethod(req: IncomingMessage, res: ServerResponse, allow: string, bound: number): void {
+  discardBody(req, bound)
   // `allow` because these routes own their exact paths: nothing else can answer
   // the method the caller asked for, so the response states the complete set.
-  // `connection: close` for the reason {@link refuseUnread} states: whatever
-  // body the refused request carried was never read.
+  // `connection: close` for the reason {@link refuseUnread} states: this answer
+  // is written over a body the route never read.
   res.writeHead(405, { allow, connection: 'close' })
   res.end()
 }
 
 /**
  * Refuse a post a browser labelled cross-site, or one that is not sent as JSON.
- * Applied before the body is read, so both refusals close the connection.
+ * Applied before the body is read, so both refusals drop it and close the
+ * connection.
  *
- * The content-type test is a prefix match on `application/json` after leading
- * whitespace, case-insensitively. What it admits is neither a superset nor a
- * subset of the JSON media types: `application/jsonfoobar` passes and is no
- * kind of JSON, while `application/ld+json` and `application/merge-patch+json`
- * are refused and are. The conclusion holds regardless, because the CORS-simple
- * content types are exactly `text/plain`, `application/x-www-form-urlencoded`
- * and `multipart/form-data`, and none of the three begins with
- * `application/json` — so every request this admits costs a cross-origin poster
- * a preflight, which is what withdraws these routes from what a page can post
- * to unasked.
+ * The content-type test is a case-insensitive prefix match on
+ * `application/json`. What it admits is neither a superset nor a subset of the
+ * JSON media types: `application/jsonfoobar` passes and is no kind of JSON,
+ * while `application/ld+json` and `application/merge-patch+json` are refused
+ * and are. The conclusion holds regardless, because the CORS-simple content
+ * types are exactly `text/plain`, `application/x-www-form-urlencoded` and
+ * `multipart/form-data`, and none of the three begins with `application/json`
+ * — so every request this admits costs a cross-origin poster a preflight, which
+ * is what withdraws these routes from what a page can post to unasked.
  * @param req - the incoming request.
  * @param res - the response, answered here when the request is refused.
  * @param route - the route naming itself in the refusal.
+ * @param bound - how much of a refused body may be read, in bytes.
  * @returns true when the request was refused and the handler must stop.
  */
-export function rejectUntrustedPost(req: IncomingMessage, res: ServerResponse, route: string): boolean {
+export function rejectUntrustedPost(
+  req: IncomingMessage,
+  res: ServerResponse,
+  route: string,
+  bound: number,
+): boolean {
   if (req.headers['sec-fetch-site'] === 'cross-site') {
-    refuseUnread(res, 403, { error: `content-frame: ${route} serves same-site requests only` })
+    refuseUnread(req, res, 403, { error: `content-frame: ${route} serves same-site requests only` }, bound)
     return true
   }
   const contentType = req.headers['content-type']
-  if (contentType === undefined || !contentType.toLowerCase().trimStart().startsWith('application/json')) {
-    refuseUnread(res, 415, { error: `content-frame: ${route} accepts application/json only` })
+  if (contentType === undefined || !contentType.toLowerCase().startsWith('application/json')) {
+    refuseUnread(req, res, 415, { error: `content-frame: ${route} accepts application/json only` }, bound)
     return true
   }
   return false
 }
 
-/** What one bounded read of a request body ended as. */
+/**
+ * What one bounded read of a request body ended as.
+ *
+ * {@link takeJsonBody} answers the two refusals and reads `value` off what is
+ * left, so a member added here without an answer there would be taken for a
+ * decoded document — silently, if it carries a `value` of its own. The
+ * annotation on that last step is what refuses it.
+ */
 export type BodyRead =
   | {
     /** Discriminant: the body arrived within the bound and decoded. */
@@ -113,13 +178,22 @@ export type BodyRead =
  *
  * The bound is a running total over the chunks as they arrive, and a declared
  * `content-length` is not consulted. Refusing on the header alone would leave
- * the body unconsumed, and node drains a body nothing consumed off the wire in
- * full once the response finishes — so refusing a request for its size would
- * cost its size. Reading up to the bound and stopping there is what keeps that
- * drain from running: at the first chunk that crosses, the read drops its data
- * listener and pauses the request. It does not destroy the request, because the
- * route still has a refusal to write; closing the connection belongs to that
- * answer, which is {@link refuseUnread}'s to make.
+ * the body unconsumed, and node drains a body nothing consumed off the wire
+ * itself once the exchange finishes — so refusing a request for its size would
+ * still cost its size. Reading up to the bound and stopping there is what keeps
+ * that drain from running: at the first chunk that crosses, the read drops its
+ * data listener and pauses the request. It does not destroy the request,
+ * because the route still has a refusal to write; closing the connection
+ * belongs to that answer.
+ *
+ * The total counts each chunk's bytes after it has been decoded as UTF-8, which
+ * is never fewer than the bytes that arrived — an invalid byte decodes to a
+ * three-byte replacement character — so the bound only ever binds tighter than
+ * the wire.
+ *
+ * The read has no deadline of its own: a caller that sends headers and then
+ * stops mid-body leaves it unsettled until node's own `requestTimeout` ends the
+ * exchange.
  * @param req - the incoming request.
  * @param limit - largest accepted body in bytes.
  * @returns what the read ended as.
@@ -169,10 +243,11 @@ export interface BodyRefusals {
  * Answer the endings a bounded read settles on its own, leaving the route a
  * decoded document to check the shape of.
  *
- * The 413 is written while the body is still arriving, so it closes the
- * connection; the 400 for a body that arrived in full and is not JSON is the
- * same answer a well-formed body of the wrong shape gets, and leaves the
- * connection alive.
+ * The 413 closes the connection because the read stopped at the bound: what is
+ * left of the body may already be buffered or may still be arriving, and both
+ * are handled as a body this exchange did not finish. The 400 for a body that
+ * arrived in full and is not JSON is the same answer a well-formed body of the
+ * wrong shape gets, and leaves the connection alive.
  * @param res - the response, answered here for either refusal.
  * @param read - what {@link readJsonBody} ended with.
  * @param refusals - this route's own two sentences.
@@ -184,12 +259,15 @@ export function takeJsonBody(
   refusals: BodyRefusals,
 ): { value: unknown } | undefined {
   if (read.kind === 'oversize') {
-    refuseUnread(res, 413, { error: refusals.oversize })
+    answerClosing(res, 413, { error: refusals.oversize })
     return undefined
   }
   if (read.kind === 'not-json') {
     answerJson(res, 400, { error: refusals.shape })
     return undefined
   }
-  return { value: read.value }
+  // Annotated rather than inferred: a member added to `BodyRead` carrying a
+  // `value` of its own would otherwise be read here as a decoded document.
+  const decoded: Extract<BodyRead, { kind: 'json' }> = read
+  return { value: decoded.value }
 }

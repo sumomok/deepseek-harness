@@ -11,7 +11,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { parseClaimRequest, parseReportRequest, type ReadOutcome } from '../src/access/wire.ts'
+import { MAX_NAME_CHARS, parseClaimRequest, parseReportRequest, type ReadOutcome } from '../src/access/wire.ts'
 
 /** The listing bound these cases are written against. */
 const MAX_TEXT = 100
@@ -55,9 +55,15 @@ describe('claim wire boundary', () => {
       { callId: '', tabId: 'tab_1' },
       { callId: 'call_1', tabId: '' },
       { callId: 1, tabId: 'tab_1' },
+      { callId: 'c'.repeat(MAX_NAME_CHARS + 1), tabId: 'tab_1' },
     ]) {
       expect({ body, parsed: parseClaimRequest(body) }).toEqual({ body, parsed: undefined })
     }
+  })
+
+  it('takes an id at the bound, so what refuses the one above is its length', () => {
+    const at = 'c'.repeat(MAX_NAME_CHARS)
+    expect(parseClaimRequest({ callId: at, tabId: at })).toEqual({ callId: at, tabId: at })
   })
 })
 
@@ -153,6 +159,25 @@ describe('report wire boundary', () => {
       expect({ page, parsed: parseReportRequest(report({ ...READ, page }), MAX_TEXT) })
         .toEqual({ page, parsed: undefined })
     }
+  })
+
+  it('refuses an id or a name past its bound, and takes the same body at it', () => {
+    // Every one of these ends up in the envelope the route's byte bound is
+    // computed from, so none of them may be unbounded.
+    const long = 'n'.repeat(MAX_NAME_CHARS + 1)
+    for (const [field, body] of [
+      ['callId', { callId: long, tabId: 'tab_1', outcome: READ }],
+      ['tabId', { callId: 'call_1', tabId: long, outcome: READ }],
+      ['page.id', report({ ...READ, page: { id: long, title: 'Home' } })],
+      ['page.title', report({ ...READ, page: { id: 'home', title: long } })],
+      ['kind', report({ status: 'error', code: 'not-a-page', message: 'why', kind: long })],
+      ['title', report({ status: 'error', code: 'not-a-page', message: 'why', title: long })],
+    ] as const) {
+      expect({ field, parsed: parseReportRequest(body, MAX_TEXT) }).toEqual({ field, parsed: undefined })
+    }
+    const at = 'n'.repeat(MAX_NAME_CHARS)
+    const outcome: ReadOutcome = { ...READ, page: { id: at, title: at } }
+    expect(parseReportRequest({ callId: at, tabId: at, outcome }, MAX_TEXT)).not.toBeUndefined()
   })
 
   it('refuses a failure that names no code this reader produces', () => {

@@ -16,7 +16,8 @@ import {
   isClickable, isVisible, rectOf, TAB_ID, useContentRead, type ContentReadSeat,
 } from '../src/client/access/executor.ts'
 import {
-  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, PREFERRED_TAB_WINDOW_MS,
+  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
+  MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest, PREFERRED_TAB_WINDOW_MS,
   type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
 import type { RefTable } from '../src/client/access/refs.ts'
@@ -51,8 +52,15 @@ let posted: { route: string; body: Record<string, unknown> }[] = []
 /** The claim answers the stub hands out, oldest first; exhausted means "claimed". */
 let claims: ClaimAck[] = []
 
-/** What becomes of one posted document: answered, refused, or never landing. */
-type Fate = 'ok' | 'refuses' | 'unreachable'
+/** How long past a window a case waits before reading a count off it. */
+const SETTLE_MARGIN_MS = 200
+
+/**
+ * What becomes of one posted document. `unavailable` and `unreachable` say
+ * nothing about the document and are worth another try; `refused` is the route
+ * answering this exact document, which a second post would not change.
+ */
+type Fate = 'ok' | 'unavailable' | 'unreachable' | 'refused'
 
 /** Fates the stub gives a route's next posts, oldest first; past them {@link network} stands. */
 let fates: Map<string, Fate[]>
@@ -66,7 +74,8 @@ function stubRoutes(): void {
     posted.push({ route, body: JSON.parse(init.body as string) as Record<string, unknown> })
     const fate = fates.get(route)?.shift() ?? network
     if (fate === 'unreachable') return Promise.reject(new Error('offline'))
-    if (fate === 'refuses') return Promise.resolve({ ok: false, status: 503 })
+    if (fate === 'unavailable') return Promise.resolve({ ok: false, status: 503 })
+    if (fate === 'refused') return Promise.resolve({ ok: false, status: 413 })
     const answer = route === CONTENT_CLAIM_ROUTE ? claims.shift() ?? { claimed: true } : { accepted: true }
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) })
   }))
@@ -217,10 +226,13 @@ describe('when the reader claims', () => {
     // One bid at once, then one more every interval while another still fits
     // inside the claim window, the preferred tab's hold, and one last interval.
     const expected = Math.floor((access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS) / CLAIM_RETRY_MS) + 2
+    // The last bid can be sent one interval before the window closes, so the
+    // count is read past the window itself, with room for the scheduler.
+    const bidding = access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS + CLAIM_RETRY_MS + SETTLE_MARGIN_MS
     const view = drive(seatOf({ access }))
-    await new Promise<void>((resolve) => { setTimeout(resolve, 900) })
+    await new Promise<void>((resolve) => { setTimeout(resolve, bidding) })
     const bids = of(CONTENT_CLAIM_ROUTE).length
-    await new Promise<void>((resolve) => { setTimeout(resolve, 500) })
+    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * 2 + SETTLE_MARGIN_MS) })
     expect({ bids, later: of(CONTENT_CLAIM_ROUTE).length }).toEqual({ bids, later: bids })
     // One either way for the scheduler; a bidding loop bounded by the report
     // deadline instead would be far outside this window.
@@ -261,7 +273,7 @@ describe('when the reader claims', () => {
   })
 
   it('bids again after a claim that never landed, rather than losing the read to one of them', async () => {
-    for (const fate of ['refuses', 'unreachable'] as const) {
+    for (const fate of ['unavailable', 'unreachable'] as const) {
       posted = []
       fates.set(CONTENT_CLAIM_ROUTE, [fate])
       const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
@@ -275,7 +287,7 @@ describe('when the reader claims', () => {
   })
 
   it('keeps bidding while the claim never lands, and answers nothing when it never does', async () => {
-    for (const state of ['refuses', 'unreachable'] as const) {
+    for (const state of ['unavailable', 'unreachable'] as const) {
       posted = []
       network = state
       const view = drive(seatOf({ access: { outlineChars: 4000, claimTimeoutMs: 50, readTimeoutMs: 500 } }))
@@ -284,6 +296,17 @@ describe('when the reader claims', () => {
       expect({ state, reports: of(CONTENT_REPORT_ROUTE) }).toEqual({ state, reports: [] })
       view.unmount()
     }
+  })
+
+  it('stops bidding once the route has refused the bid itself', async () => {
+    fates.set(CONTENT_CLAIM_ROUTE, ['refused'])
+    const view = drive(seatOf())
+    await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1) })
+    // A refusal is the route answering this exact bid; bidding again with the
+    // same body would spend the whole claim window on the same answer.
+    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * 2 + SETTLE_MARGIN_MS) })
+    expect({ bids: of(CONTENT_CLAIM_ROUTE).length, reports: of(CONTENT_REPORT_ROUTE) }).toEqual({ bids: 1, reports: [] })
+    view.unmount()
   })
 
   it('forgets a call once it has left the pending list', async () => {
@@ -324,7 +347,7 @@ describe('what the reader reports', () => {
   })
 
   it('posts the read a second time when the first report never landed, and no third', async () => {
-    fates.set(CONTENT_REPORT_ROUTE, ['refuses'])
+    fates.set(CONTENT_REPORT_ROUTE, ['unavailable'])
     const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
     drive(seatOf({ frames: { current: frames } }))
     await vi.waitFor(() => { expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(2) }, { timeout: 3000 })
@@ -333,6 +356,63 @@ describe('what the reader reports', () => {
     // sit on a call the host has already answered.
     await new Promise<void>((resolve) => { setTimeout(resolve, 400) })
     expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(2)
+  })
+
+  it('does not post a report the route refused a second time', async () => {
+    fates.set(CONTENT_REPORT_ROUTE, ['refused'])
+    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+    const view = drive(seatOf({ frames: { current: frames } }))
+    await settled()
+    // The route answered this exact document; the second post would carry it to
+    // the same check, and the host's own deadline is what ends the call.
+    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * 2 + SETTLE_MARGIN_MS) })
+    expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(1)
+    view.unmount()
+  })
+
+  it('cuts a page-supplied title and address to the lengths the wire takes', async () => {
+    const frame = mountFrame('<main><h1>Fleet</h1></main>')
+    const doc = frame.contentWindow?.document
+    if (doc === null || doc === undefined) throw new Error('jsdom gave the mounted frame no document')
+    doc.title = 'T'.repeat(6000)
+    Object.defineProperty(doc, 'URL', { value: `http://x/${'u'.repeat(6000)}`, configurable: true })
+    drive(seatOf({ frames: { current: new Map([[FRAME, frame]]) } }))
+    await settled()
+    const outcome = reported()
+    if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
+    // Cut rather than posted whole: the wire refuses a longer one, and a
+    // refused report reaches the model as a console that never answered.
+    expect({ title: outcome.snapshot.title.length, url: outcome.snapshot.url.length })
+      .toEqual({ title: MAX_HEADER_CHARS, url: MAX_URL_CHARS })
+    expect([outcome.snapshot.title.endsWith('…'), outcome.snapshot.url.endsWith('…')]).toEqual([true, true])
+  })
+
+  it('posts a listing the parser takes even when its first row runs past the smallest budget', async () => {
+    // The renderer prints a listing's first row however long it is, so the
+    // smallest budget a deployment may configure is where that row comes
+    // closest to the character bound the parser holds a listing to.
+    const cell = (tag: string, seed: string): string => `<${tag}>${seed.repeat(300)}</${tag}>`
+    const cells = (tag: string): string =>
+      Array.from({ length: 8 }, (_, column) => cell(tag, `c${String(column)}`)).join('')
+    const frame = mountFrame(
+      `<table aria-label="${'N'.repeat(300)}">`
+      + `<thead><tr>${cells('th')}</tr></thead><tbody><tr>${cells('td')}</tr></tbody></table>`
+      + `<nav class="pagination">${'P'.repeat(300)}</nav>`,
+    )
+    drive(seatOf({
+      frames: { current: new Map([[FRAME, frame]]) },
+      access: { outlineChars: MIN_OUTLINE_CHARS, claimTimeoutMs: 300, readTimeoutMs: 1000 },
+      // The whole-page read answers with the map instead; a filtered one is
+      // where an over-long row actually reaches the model.
+      pending: [{ callId: 'call_1', tool: 'content_read', args: { find: 'NNN' } }],
+    }))
+    await settled()
+    const outcome = reported()
+    if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
+    expect(outcome.snapshot.text.length).toBeGreaterThan(MIN_OUTLINE_CHARS)
+    // And the host takes it: the character bound is four times the budget, and
+    // the floor on the budget is what keeps that row inside it.
+    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * 4)).toBeDefined()
   })
 
   it('keeps one numbering per frame, so a ref survives the read that minted it', async () => {

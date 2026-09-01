@@ -33,21 +33,28 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as ContentFrame from '../src/index.ts'
 import {
-  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, parseReportRequest, type ClaimAck, type ReadOutcome,
+  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_CURSOR_CHARS, MAX_HEADER_CHARS, MAX_NAME_CHARS,
+  MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest, type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
 
 /** The hosted directory this composition serves; any real directory will do. */
 const APP_ROOT = fileURLToPath(new URL('./fixtures/app', import.meta.url))
 
-/** The listing budget this composition configures, small enough to post past. */
-const OUTLINE_CHARS = 100
+/** The listing budget this composition configures: the smallest a deployment may. */
+const OUTLINE_CHARS = MIN_OUTLINE_CHARS
 
 /** The claim route's own byte bound, which no deployment configures. */
 const CLAIM_BYTES = 1024
 
-/** The JSON a report carries around its listing, which no deployment configures. */
-const ENVELOPE_BYTES = 4096
+/**
+ * The JSON a report carries around its listing, which no deployment configures:
+ * four bytes for each character of a `url` (2048), three header fields (200
+ * each), a failure message (2000), four names (256 each) and a cursor (32),
+ * plus 512 for the punctuation and key names. Written out rather than imported,
+ * so a bound moving under it is a failure here and not a silent agreement.
+ */
+const ENVELOPE_BYTES = 23328
 
 /**
  * The report route's byte bound for this composition: the seat's render budget
@@ -353,7 +360,6 @@ describe('the read channel over real HTTP', () => {
       ['application/json', 200],
       ['application/json; charset=utf-8', 200],
       ['APPLICATION/JSON', 200],
-      ['  application/json', 200],
       // Admitted and no kind of JSON, which is what makes the admitted set
       // neither a superset nor a subset of the JSON media types...
       ['application/jsonfoobar', 200],
@@ -465,7 +471,10 @@ describe('the read channel over real HTTP', () => {
   })
 
   it('holds a listing to the render budget in bytes, which is tighter than its character bound', async () => {
-    const outlineChars = 2000
+    // Large enough that four bytes per rendered character is the tighter of the
+    // two bounds: below about three thousand the envelope alone covers a
+    // listing of the parser's whole character bound in three-byte text.
+    const outlineChars = 4000
     const ctx = await loadComposition(true, [], outlineChars)
     const report = (chars: number): Record<string, unknown> => ({
       callId: 'c',
@@ -487,6 +496,58 @@ describe('the read channel over real HTTP', () => {
         error: `content-frame: the read report route refuses a body past ${outlineChars * 4 + ENVELOPE_BYTES} bytes`,
       },
     })
+  })
+
+  it('takes a report carrying every field at the length the wire holds it to', async () => {
+    const ctx = await loadComposition(true)
+    // Three UTF-8 bytes is as wide as one character gets, and each of these is
+    // as long as the parser takes — a listing rendered inside the budget with
+    // every field around it at its bound. The envelope is sized to hold it: the
+    // address alone is half again the whole envelope this route once carried.
+    const wide = (chars: number): string => '甲'.repeat(chars)
+    const outcome: ReadOutcome = {
+      status: 'ok',
+      page: { id: wide(MAX_NAME_CHARS), title: wide(MAX_NAME_CHARS) },
+      snapshot: {
+        kind: 'outline',
+        url: wide(MAX_URL_CHARS),
+        title: wide(MAX_HEADER_CHARS),
+        breadcrumb: wide(MAX_HEADER_CHARS),
+        modal: wide(MAX_HEADER_CHARS),
+        signIn: false,
+        text: wide(OUTLINE_CHARS),
+        truncated: true,
+        shown: 1,
+        total: 2,
+        cursor: wide(MAX_CURSOR_CHARS),
+      },
+    }
+    const answer = await raw(ctx, CONTENT_REPORT_ROUTE, {
+      body: JSON.stringify({ callId: wide(MAX_NAME_CHARS), tabId: wide(MAX_NAME_CHARS), outcome }),
+    })
+    expect({ status: answer.status, body: JSON.parse(answer.body) as unknown })
+      .toEqual({ status: 200, body: { accepted: false } })
+  })
+
+  it('refuses a field one character past its bound, as a shape and not as a size', async () => {
+    const ctx = await loadComposition(true)
+    const shape = { error: 'content-frame: expected a JSON body with callId, tabId, and outcome' }
+    for (const [field, over] of [
+      ['url', { url: 'u'.repeat(MAX_URL_CHARS + 1) }],
+      ['title', { title: 't'.repeat(MAX_HEADER_CHARS + 1) }],
+      ['breadcrumb', { breadcrumb: 'b'.repeat(MAX_HEADER_CHARS + 1) }],
+      ['modal', { modal: 'm'.repeat(MAX_HEADER_CHARS + 1) }],
+      ['cursor', { cursor: 'c'.repeat(MAX_CURSOR_CHARS + 1) }],
+    ] as const) {
+      const outcome = { ...LISTING, snapshot: { ...LISTING.snapshot, ...over } }
+      const answer = await postJson(ctx, CONTENT_REPORT_ROUTE, { callId: 'c', tabId: TAB, outcome })
+      expect({ field, status: answer.status, body: JSON.parse(answer.body) as unknown })
+        .toEqual({ field, status: 400, body: shape })
+    }
+    // The same body one character shorter is taken, so what refuses these is
+    // the length and not the field.
+    const inside = { ...LISTING, snapshot: { ...LISTING.snapshot, title: 't'.repeat(MAX_HEADER_CHARS) } }
+    expect((await postJson(ctx, CONTENT_REPORT_ROUTE, { callId: 'c', tabId: TAB, outcome: inside })).status).toBe(200)
   })
 
   it('states the complete method set each route serves', async () => {
@@ -579,16 +640,31 @@ describe('page-access configuration', () => {
   })
 
   it('rejects a bound that would make every read unusable', async () => {
-    for (const field of ['claimTimeoutMs', 'readTimeoutMs', 'pinMs', 'outlineChars'] as const) {
+    // The listing budget has a floor of its own: a listing's first row is
+    // rendered however long it is, so a budget below it refuses reads of pages
+    // that hold an ordinary table.
+    for (const [field, least] of [
+      ['claimTimeoutMs', 1],
+      ['readTimeoutMs', 1],
+      ['pinMs', 1],
+      ['outlineChars', MIN_OUTLINE_CHARS],
+    ] as const) {
       const config = {
         root: APP_ROOT,
         pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
-        pageAccess: { claimTimeoutMs: 1, readTimeoutMs: 1, pinMs: 1, outlineChars: 1, [field]: 0 },
+        pageAccess: {
+          claimTimeoutMs: 1,
+          readTimeoutMs: 1,
+          pinMs: 1,
+          outlineChars: MIN_OUTLINE_CHARS,
+          [field]: least - 1,
+        },
       }
       const ctx = new Context()
       ctx.provide('webServer', { register: () => () => {} } as never)
-      await expect(ContentFrame.apply(ctx, config))
-        .rejects.toThrow(`content-frame: pageAccess.${field} must be at least 1, received 0`)
+      await expect(ContentFrame.apply(ctx, config)).rejects.toThrow(
+        `content-frame: pageAccess.${field} must be at least ${String(least)}, received ${String(least - 1)}`,
+      )
       await ctx.fiber.dispose()
     }
   })

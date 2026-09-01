@@ -758,13 +758,17 @@ export interface PageAccessConfig {
    * The character budget one listing is rendered under. It is the ceiling on
    * what a single read can cost in context: past it the read answers with the
    * page's map, or with a cursor to continue from. Raise it for a deployment
-   * whose pages are large and whose model has room for them.
+   * whose pages are large and whose model has room for them. At least 1000,
+   * because a listing's first row is rendered however long it is and the wire
+   * holds a posted listing to four times the budget: below that floor an
+   * ordinary table's row is already past the bound, and every read of a page
+   * holding one would be refused.
    */
   outlineChars: number
 }
 ```
 
-来源：[`packages/experimental/content-frame/src/index.ts:59`](../packages/experimental/content-frame/src/index.ts)
+来源：[`packages/experimental/content-frame/src/index.ts:60`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

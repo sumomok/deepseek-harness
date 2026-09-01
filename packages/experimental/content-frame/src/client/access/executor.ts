@@ -22,7 +22,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
-  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, PREFERRED_TAB_WINDOW_MS,
+  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
+  MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_URL_CHARS, PREFERRED_TAB_WINDOW_MS,
   type ClaimAck, type ReadArgs, type ReadOutcome, type ReadPage, type ReportAck,
 } from '../../access/wire.ts'
 import { FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE } from '../../access/text.ts'
@@ -145,25 +146,56 @@ function frameError(message: string): ReadOutcome {
 }
 
 /**
+ * Cut one string the page supplied to the length the wire takes, so a document
+ * with a long title or address is posted rather than refused.
+ * @param value - the string as the page had it.
+ * @param max - the wire's bound on that field, in characters.
+ * @returns the string, ending in an ellipsis when it was too long.
+ */
+function clipTo(value: string, max: number): string {
+  return value.length > max ? `${value.slice(0, max - 1)}…` : value
+}
+
+/** What one post to a read route ended as, for a caller deciding whether to try again. */
+type Posted<T> =
+  | {
+    /** Discriminant: the route answered. */
+    kind: 'answered'
+    /** The answer, as the route composed it. */
+    value: T
+  }
+  | {
+    /** Discriminant: the route refused this document, and would refuse it again. */
+    kind: 'refused'
+  }
+  | {
+    /** Discriminant: the post reached no route that could answer it. */
+    kind: 'undelivered'
+  }
+
+/**
  * Post one document to a read route.
+ *
+ * A refusal and a post that never landed are different endings. The route
+ * refuses this exact document however many times it is sent, so there is
+ * nothing to gain by sending it again; a request that never arrived, or that
+ * met a server failure saying nothing about the document, is worth one more
+ * try.
  * @param route - the route to post to.
  * @param body - the document.
- * @returns the parsed answer, or `undefined` when the route refused it or could
- * not be reached — one answer, because the caller tries again either way.
+ * @returns what the post ended as.
  */
-async function post<T>(route: string, body: unknown): Promise<T | undefined> {
+async function post<T>(route: string, body: unknown): Promise<Posted<T>> {
   try {
     const response = await fetch(route, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body: JSON.stringify(body),
     })
-    if (!response.ok) return undefined
-    return await response.json() as T
+    if (response.ok) return { kind: 'answered', value: await response.json() as T }
+    return response.status >= 500 ? { kind: 'undelivered' } : { kind: 'refused' }
   } catch (_hostUnreachable) {
-    // A network failure and a refusal are one answer to the caller, which
-    // retries both; nothing here needs to tell them apart.
-    return undefined
+    return { kind: 'undelivered' }
   }
 }
 
@@ -177,10 +209,11 @@ function delay(ms: number): Promise<void> {
  *
  * Two answers are worth another try. `unknown` is expected on a first claim:
  * the log records `tool/call` — which is what puts the call in this seat's
- * pending list — before the tool body registers the wait. A missing answer
- * means the post itself never landed, and one dropped request would otherwise
- * cost the whole read: the model would be told no console is open while the
- * console sits in front of the user.
+ * pending list — before the tool body registers the wait. An undelivered post
+ * is the other, and one dropped request would otherwise cost the whole read:
+ * the model would be told no console is open while the console sits in front of
+ * the user. A refused claim ends the bidding, because the route refused the bid
+ * itself and would refuse each one after it.
  *
  * The retrying is bounded by the host's claim window rather than its report
  * deadline, because that window is what the call is actually waiting inside:
@@ -197,9 +230,12 @@ async function claimRead(
 ): Promise<boolean> {
   const deadline = Date.now() + access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS + CLAIM_RETRY_MS
   for (;;) {
-    const ack = await post<ClaimAck>(CONTENT_CLAIM_ROUTE, { callId, tabId: seat.current.tabId })
-    if (ack?.claimed === true) return true
-    if (ack !== undefined && ack.reason !== 'unknown') return false
+    const posted = await post<ClaimAck>(CONTENT_CLAIM_ROUTE, { callId, tabId: seat.current.tabId })
+    if (posted.kind === 'refused') return false
+    if (posted.kind === 'answered') {
+      if (posted.value.claimed) return true
+      if (posted.value.reason !== 'unknown') return false
+    }
     if (Date.now() + CLAIM_RETRY_MS > deadline) return false
     await delay(CLAIM_RETRY_MS)
     // The result reached the log while this seat waited: the call is over.
@@ -213,7 +249,9 @@ async function claimRead(
  * A read that was claimed and then answered nowhere is the worst ending
  * available: the call holds its whole report deadline and the model is told the
  * console went quiet. One retry covers a dropped request; past that the host's
- * own deadline is the right place for it to end.
+ * own deadline is the right place for it to end. A report the route refused is
+ * not that ending and is not sent again — the second post would carry the same
+ * document to the same check.
  * @param seat - the live seat, read for the tab id the host granted the claim to.
  * @param callId - the call being answered.
  * @param outcome - what the read ended as.
@@ -224,7 +262,7 @@ async function reportRead(
   outcome: ReadOutcome,
 ): Promise<void> {
   const body = { callId, tabId: seat.current.tabId, outcome }
-  if (await post<ReportAck>(CONTENT_REPORT_ROUTE, body) !== undefined) return
+  if ((await post<ReportAck>(CONTENT_REPORT_ROUTE, body)).kind !== 'undelivered') return
   await delay(CLAIM_RETRY_MS)
   await post<ReportAck>(CONTENT_REPORT_ROUTE, body)
 }
@@ -241,7 +279,8 @@ async function reportRead(
 function otherKind(entries: readonly ContentSurfaceEntry[]): { kind?: string; title?: string } {
   const others = entries.filter(entry => entry.kind !== PAGE_KIND)
   const only = others.length === 1 ? others[0] : undefined
-  return only === undefined ? {} : { kind: only.kind, title: only.title }
+  if (only === undefined) return {}
+  return { kind: clipTo(only.kind, MAX_NAME_CHARS), title: clipTo(only.title, MAX_NAME_CHARS) }
 }
 
 /**
@@ -317,15 +356,18 @@ async function readPage(
   try {
     // Re-read after the wait: a navigation replaces the frame's document.
     const read = snapshot(frame.contentWindow.document, options)
+    // Every string below the listing itself comes from the document, and the
+    // wire holds each of them to a length; a page with a long title posts a cut
+    // title rather than a report the route refuses.
     return {
       status: 'ok',
-      page: seat.page,
+      page: { id: seat.page.id, title: clipTo(seat.page.title, MAX_NAME_CHARS) },
       snapshot: {
         kind: read.kind,
-        url: read.header.url,
-        title: read.header.title,
-        ...read.header.breadcrumb === undefined ? {} : { breadcrumb: read.header.breadcrumb },
-        ...read.header.modal === undefined ? {} : { modal: read.header.modal },
+        url: clipTo(read.header.url, MAX_URL_CHARS),
+        title: clipTo(read.header.title, MAX_HEADER_CHARS),
+        ...read.header.breadcrumb === undefined ? {} : { breadcrumb: clipTo(read.header.breadcrumb, MAX_HEADER_CHARS) },
+        ...read.header.modal === undefined ? {} : { modal: clipTo(read.header.modal, MAX_HEADER_CHARS) },
         signIn: read.header.signIn,
         text: read.text,
         truncated: read.truncated,
@@ -337,7 +379,7 @@ async function readPage(
   } catch (refusal) {
     /* v8 ignore next 2 -- the reader throws Error and nothing else; String() keeps a thrown non-Error readable. */
     const message = refusal instanceof Error ? refusal.message : String(refusal)
-    return { status: 'error', code: 'engine', message }
+    return { status: 'error', code: 'engine', message: clipTo(message, MAX_OUTCOME_MESSAGE_CHARS) }
   }
 }
 

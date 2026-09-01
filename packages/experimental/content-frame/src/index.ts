@@ -41,7 +41,8 @@ import { PendingReads, type ReadTimeouts } from './access/pending.ts'
 import { contentAccessProjection } from './access/requests-projection.ts'
 import { contentReadTool } from './access/read-tool.ts'
 import {
-  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, parseClaimRequest, parseReportRequest,
+  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_CURSOR_CHARS, MAX_HEADER_CHARS, MAX_NAME_CHARS,
+  MAX_OUTCOME_MESSAGE_CHARS, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseClaimRequest, parseReportRequest,
 } from './access/wire.ts'
 
 // The `content/shown` and `content` declarations live in src/types.ts (their
@@ -135,7 +136,11 @@ export interface PageAccessConfig {
    * The character budget one listing is rendered under. It is the ceiling on
    * what a single read can cost in context: past it the read answers with the
    * page's map, or with a cursor to continue from. Raise it for a deployment
-   * whose pages are large and whose model has room for them.
+   * whose pages are large and whose model has room for them. At least 1000,
+   * because a listing's first row is rendered however long it is and the wire
+   * holds a posted listing to four times the budget: below that floor an
+   * ordinary table's row is already past the bound, and every read of a page
+   * holding one would be refused.
    */
   outlineChars: number
 }
@@ -197,11 +202,14 @@ async function resolveRoot(configured: string): Promise<string> {
  * Reject a page-access bound that would make the read unusable, at load.
  * @param field - the field being checked, named in the diagnostic.
  * @param value - the configured value.
+ * @param least - the smallest value that field may hold.
  * @returns the value.
- * @throws {Error} when the value is not at least 1.
+ * @throws {Error} when the value is below `least`.
  */
-function requirePositive(field: keyof PageAccessConfig, value: number): number {
-  if (value < 1) throw new Error(`content-frame: pageAccess.${field} must be at least 1, received ${value}`)
+function requireAtLeast(field: keyof PageAccessConfig, value: number, least: number): number {
+  if (value < least) {
+    throw new Error(`content-frame: pageAccess.${field} must be at least ${least}, received ${value}`)
+  }
   return value
 }
 
@@ -212,10 +220,23 @@ function requirePositive(field: keyof PageAccessConfig, value: number): number {
 const MAX_CLAIM_BYTES = 1024
 
 /**
- * Bytes of JSON overhead a report carries around its listing: the ids, the page,
- * the header fields, and the counters.
+ * Bytes of JSON punctuation and key names one report is written with, rounded
+ * up from the 246 a report with every field present, every string empty, and
+ * nine-digit counters serializes to.
  */
-const REPORT_ENVELOPE_BYTES = 4096
+const REPORT_SYNTAX_BYTES = 512
+
+/**
+ * Bytes of JSON the largest report carries around its listing, allowing four
+ * UTF-8 bytes per character: the document's address, the three header fields,
+ * the four names (two ids, the page's id and its title, or a failure's kind and
+ * title), the cursor, and a failure message — each at the bound the wire holds
+ * it to — plus {@link REPORT_SYNTAX_BYTES} for the punctuation and key names
+ * around them.
+ */
+const REPORT_ENVELOPE_BYTES = 4 * (
+  MAX_URL_CHARS + 3 * MAX_HEADER_CHARS + MAX_OUTCOME_MESSAGE_CHARS + 4 * MAX_NAME_CHARS + MAX_CURSOR_CHARS
+) + REPORT_SYNTAX_BYTES
 
 /** What the claim route calls itself in its own refusals. */
 const CLAIM_ROUTE_NAME = 'the read claim route'
@@ -238,22 +259,24 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   // Loud at load: a zero deadline would refuse every read the model can make,
   // with no diagnostic pointing at the row that set it.
   const timeouts: ReadTimeouts = {
-    claimTimeoutMs: requirePositive('claimTimeoutMs', config.claimTimeoutMs),
-    readTimeoutMs: requirePositive('readTimeoutMs', config.readTimeoutMs),
-    pinMs: requirePositive('pinMs', config.pinMs),
+    claimTimeoutMs: requireAtLeast('claimTimeoutMs', config.claimTimeoutMs, 1),
+    readTimeoutMs: requireAtLeast('readTimeoutMs', config.readTimeoutMs, 1),
+    pinMs: requireAtLeast('pinMs', config.pinMs, 1),
   }
-  const outlineChars = requirePositive('outlineChars', config.outlineChars)
+  const outlineChars = requireAtLeast('outlineChars', config.outlineChars, MIN_OUTLINE_CHARS)
   // The character bound the parser holds a posted listing to, four times the
-  // budget the seat renders under: a real listing never approaches it, and a
-  // forged one cannot carry an arbitrary page through it.
+  // budget the seat renders under: it covers the one row the renderer prints
+  // past the budget, and a forged listing cannot carry an arbitrary page
+  // through it.
   const maxTextChars = outlineChars * 4
   // The byte bound on the whole body: the seat's own render budget at four
-  // UTF-8 bytes per character, plus the JSON envelope. Not the character bound
-  // above converted, which would be sixteen bytes per rendered character — a
-  // real listing is rendered inside `outlineChars` characters and fits here
-  // even in four-byte characters throughout. Past a budget the envelope no
-  // longer covers, this bound refuses a listing of multibyte text that the
-  // parser's character bound alone would have taken.
+  // UTF-8 bytes per character, plus an envelope allowing the same four bytes
+  // for every other field of a report, each at the bound the wire holds it to.
+  // No character costs more than that, so a listing rendered inside the budget
+  // arrives whole whatever the page is written in. Not the character bound
+  // above converted, which would be sixteen bytes per rendered character: past
+  // a budget the envelope no longer covers, this bound refuses a listing of
+  // multibyte text that the parser's character bound alone would have taken.
   const reportBytes = outlineChars * 4 + REPORT_ENVELOPE_BYTES
   const claimRefusals: BodyRefusals = {
     oversize: `content-frame: ${CLAIM_ROUTE_NAME} refuses a body past ${MAX_CLAIM_BYTES} bytes`,
@@ -270,10 +293,10 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     path: CONTENT_CLAIM_ROUTE,
     handler: async (req, res) => {
       if (req.method !== 'POST') {
-        rejectMethod(res, 'POST')
+        rejectMethod(req, res, 'POST', MAX_CLAIM_BYTES)
         return
       }
-      if (rejectUntrustedPost(req, res, CLAIM_ROUTE_NAME)) return
+      if (rejectUntrustedPost(req, res, CLAIM_ROUTE_NAME, MAX_CLAIM_BYTES)) return
       const body = takeJsonBody(res, await readJsonBody(req, MAX_CLAIM_BYTES), claimRefusals)
       if (body === undefined) return
       const claim = parseClaimRequest(body.value)
@@ -290,10 +313,10 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     path: CONTENT_REPORT_ROUTE,
     handler: async (req, res) => {
       if (req.method !== 'POST') {
-        rejectMethod(res, 'POST')
+        rejectMethod(req, res, 'POST', reportBytes)
         return
       }
-      if (rejectUntrustedPost(req, res, REPORT_ROUTE_NAME)) return
+      if (rejectUntrustedPost(req, res, REPORT_ROUTE_NAME, reportBytes)) return
       const body = takeJsonBody(res, await readJsonBody(req, reportBytes), reportRefusals)
       if (body === undefined) return
       const report = parseReportRequest(body.value, maxTextChars)

@@ -52,6 +52,45 @@ export const LOAD_WAIT_SHARE = 0.5
 /** Longest failure message a posted outcome may carry, in characters. */
 export const MAX_OUTCOME_MESSAGE_CHARS = 2000
 
+/**
+ * Longest `url` a posted snapshot may carry, in characters. It is the
+ * document's own address, which the seat cuts to this before posting.
+ */
+export const MAX_URL_CHARS = 2048
+
+/**
+ * Longest header field a posted snapshot may carry — the document title, the
+ * breadcrumb trail, the open dialog's name — in characters. The reader clips
+ * every text it prints at the same 200, so this is that clip restated where the
+ * document crosses the process.
+ */
+export const MAX_HEADER_CHARS = 200
+
+/**
+ * Longest id, page title, or named entry a posted document may carry, in
+ * characters. The ids are minted rather than read off a page — a provider's
+ * call id, a tab's UUID, a configured page id — and none of them approaches
+ * this.
+ */
+export const MAX_NAME_CHARS = 256
+
+/** Longest cursor a posted snapshot may carry; the reader's refs are `e` and a number. */
+export const MAX_CURSOR_CHARS = 32
+
+/**
+ * Smallest listing budget a deployment may configure, in characters.
+ *
+ * The parser holds a posted listing to four times the budget, and the renderer
+ * prints a listing's first row however long that row is — so without a floor a
+ * small budget refuses listings a real page produces. The longest row the
+ * reader prints is a table block: the table's name, a header row and a sample
+ * row of its cells, the rows hint and the pagination line, each text clipped at
+ * {@link MAX_HEADER_CHARS}, which is about 535 characters plus 402 per column.
+ * Four times this floor is 4000 characters, which holds that row for a table of
+ * eight columns.
+ */
+export const MIN_OUTLINE_CHARS = 1000
+
 /** What one read asks of the page, after the tool has validated it. */
 export interface ReadArgs {
   /** Which listing the read wants; the tool's own default applies when absent. */
@@ -177,9 +216,19 @@ export interface ReportAck {
   accepted: boolean
 }
 
-/** Whether one decoded value is a non-empty string. */
+/**
+ * Whether one decoded value is a string inside a bound.
+ * @param value - the decoded value.
+ * @param max - the longest accepted length, in characters.
+ * @returns whether the value is a string no longer than the bound.
+ */
+function isText(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length <= max
+}
+
+/** Whether one decoded value is a non-empty name inside {@link MAX_NAME_CHARS}. */
 function isName(value: unknown): value is string {
-  return typeof value === 'string' && value.length > 0
+  return isText(value, MAX_NAME_CHARS) && value.length > 0
 }
 
 /**
@@ -205,7 +254,9 @@ export function parseClaimRequest(body: unknown): ClaimRequest | undefined {
 }
 
 /**
- * Read one posted snapshot.
+ * Read one posted snapshot. Every field a page supplied carries a length bound
+ * of its own, because the byte bound the route holds a whole report to is
+ * computed from those lengths.
  * @param value - the decoded `outcome.snapshot`, however malformed.
  * @param maxTextChars - longest accepted listing.
  * @returns the snapshot, or `undefined` when the value is not one.
@@ -214,13 +265,14 @@ function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | und
   if (value === null || typeof value !== 'object') return undefined
   const candidate = value as Partial<Record<keyof ReadSnapshot, unknown>>
   if (candidate.kind !== 'outline' && candidate.kind !== 'map') return undefined
-  if (typeof candidate.url !== 'string' || typeof candidate.title !== 'string') return undefined
+  if (!isText(candidate.url, MAX_URL_CHARS) || !isText(candidate.title, MAX_HEADER_CHARS)) return undefined
   if (typeof candidate.signIn !== 'boolean' || typeof candidate.truncated !== 'boolean') return undefined
-  if (typeof candidate.text !== 'string' || candidate.text.length > maxTextChars) return undefined
+  if (!isText(candidate.text, maxTextChars)) return undefined
   if (!isCount(candidate.shown) || !isCount(candidate.total)) return undefined
-  for (const optional of [candidate.breadcrumb, candidate.modal, candidate.cursor]) {
-    if (optional !== undefined && typeof optional !== 'string') return undefined
+  for (const optional of [candidate.breadcrumb, candidate.modal]) {
+    if (optional !== undefined && !isText(optional, MAX_HEADER_CHARS)) return undefined
   }
+  if (candidate.cursor !== undefined && !isText(candidate.cursor, MAX_CURSOR_CHARS)) return undefined
   return {
     kind: candidate.kind,
     url: candidate.url,
@@ -253,16 +305,16 @@ function parseOutcome(value: unknown, maxTextChars: number): ReadOutcome | undef
   if (candidate.status === 'ok') {
     const page = candidate.page as { id?: unknown; title?: unknown } | null | undefined
     if (page === null || typeof page !== 'object') return undefined
-    if (!isName(page.id) || typeof page.title !== 'string') return undefined
+    if (!isName(page.id) || !isText(page.title, MAX_NAME_CHARS)) return undefined
     const snapshot = parseSnapshot(candidate.snapshot, maxTextChars)
     return snapshot === undefined ? undefined : { status: 'ok', page: { id: page.id, title: page.title }, snapshot }
   }
   if (candidate.status !== 'error') return undefined
   const code = ERROR_CODES.find(known => known === candidate.code)
   if (code === undefined) return undefined
-  if (typeof candidate.message !== 'string' || candidate.message.length > MAX_OUTCOME_MESSAGE_CHARS) return undefined
+  if (!isText(candidate.message, MAX_OUTCOME_MESSAGE_CHARS)) return undefined
   for (const optional of [candidate.kind, candidate.title]) {
-    if (optional !== undefined && typeof optional !== 'string') return undefined
+    if (optional !== undefined && !isText(optional, MAX_NAME_CHARS)) return undefined
   }
   return {
     status: 'error',
@@ -276,8 +328,9 @@ function parseOutcome(value: unknown, maxTextChars: number): ReadOutcome | undef
 /**
  * Read one posted report. A wire boundary: the document crossed a process, so
  * its own contract is checked here rather than trusted from the type. The
- * listing bound is the deployment's own character budget with room to spare, so
- * a forged body cannot make the host buffer an arbitrary page.
+ * listing bound is the deployment's own character budget with room to spare,
+ * and every other field carries a bound of its own, so a forged body cannot
+ * make the host buffer an arbitrary page — through the listing or around it.
  * @param body - the decoded request body, however malformed.
  * @param maxTextChars - longest accepted listing.
  * @returns the report, or `undefined` when the body is not one.
