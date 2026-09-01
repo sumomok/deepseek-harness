@@ -8,6 +8,11 @@
  * consumer `declare module` augmentation merges with declarations lexically in
  * the augmented module, not with re-exports.
  */
+/* oxlint-disable typescript/no-redundant-type-constituents --
+ * `keyof SlotMap & string` is the declare-merge key pattern: SlotMap is empty
+ * in THIS compilation unit (so the intersection reads as `never`), but every
+ * consumer merges keys in and the intersection is what keeps them string-typed.
+ * The rule fires on the empty-map view, not on real redundancy. */
 import type { ReactNode } from 'react'
 import type {
   BoundActions, HandleOf, PropsStore, SnapshotSelectorHook, StoreDecl,

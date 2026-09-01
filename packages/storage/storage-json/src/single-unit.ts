@@ -61,6 +61,7 @@ class SingleJsonUnit implements KvUnit {
     private readonly onClose: () => void,
   ) {}
 
+  // oxlint-disable-next-line typescript/require-await -- async keeps the closed guard a rejection, not a synchronous throw
   async loadAll(): Promise<{ tables: Record<string, Record<string, unknown>>; global: unknown }> {
     this.assertOpen()
     const tables: Record<string, Record<string, unknown>> = {}

@@ -421,6 +421,7 @@ export function watchAsync(
     throw(reason?: unknown): Promise<IteratorResult<WatchEvent>> {
       close()
       // AsyncIterator.throw forwards the caller's exact reason, including non-Error values.
+      // oxlint-disable-next-line typescript/prefer-promise-reject-errors
       return Promise.reject(reason)
     },
   }

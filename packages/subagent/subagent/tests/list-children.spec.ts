@@ -358,7 +358,7 @@ describe('SubagentRuntime.listChildren', () => {
     const observe = ctx.sessionQuery.observeSession.bind(ctx.sessionQuery)
     vi.spyOn(ctx.sessionQuery, 'observeSession').mockImplementation((id, options) => {
       if (id === childId) {
-        return Promise.reject('backend unavailable')
+        return Promise.reject('backend unavailable') // oxlint-disable-line typescript/prefer-promise-reject-errors
       }
       return observe(id, options)
     })

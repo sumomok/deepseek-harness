@@ -134,6 +134,7 @@ function renderLocalLinkDestination(
   // resolveLink is a plain callback property, not a `this`-bound instance
   // method — extracting it here is what lets TypeScript narrow "defined"
   // past the guard below into this function's remaining body.
+  // oxlint-disable-next-line typescript/unbound-method
   const resolveLink = referents?.resolveLink
   if (referents === undefined || resolveLink === undefined) return undefined
   const displayText = linkPlainText(node.children)

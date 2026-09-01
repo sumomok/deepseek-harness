@@ -27,6 +27,7 @@ export type ContentToolFixtureOptions<S extends ParameterSchemaSpec> = Omit<
 export function defineContentToolFixture<const S extends ParameterSchemaSpec>(
   options: ContentToolFixtureOptions<S>,
 ): ToolDefinition {
+  // oxlint-disable-next-line typescript/unbound-method
   const execute = options.execute
   return defineTool({
     ...options,

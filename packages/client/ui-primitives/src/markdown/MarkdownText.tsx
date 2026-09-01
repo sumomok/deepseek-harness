@@ -160,6 +160,7 @@ function useReferentsRevision(referents: MarkdownProseReferents | undefined): nu
     // subscribe is a plain callback property, not a `this`-bound instance
     // method — extracting it here is what lets TypeScript narrow "defined"
     // past the guard below.
+    // oxlint-disable-next-line typescript/unbound-method
     const subscribe = referents?.subscribe
     if (subscribe === undefined) return
     return subscribe(() => { setRevision(r => r + 1) })

@@ -23,6 +23,7 @@ type StreamStatics = typeof import('node:stream').Stream & {
 
 const nodeStream = Stream as unknown as StreamRuntime
 
+/* oxlint-disable typescript/unbound-method -- readable-stream's namespace statics do not read `this`. */
 const {
   Duplex, PassThrough, Readable, Stream: StreamBase, Transform, Writable,
   addAbortSignal, compose, destroy, finished, isDisturbed, isErrored, isReadable, pipeline, promises,

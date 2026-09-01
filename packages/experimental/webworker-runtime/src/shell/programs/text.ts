@@ -274,6 +274,7 @@ const cut: ShellProgram = async (argv, io, state, fs) => {
 
 /** Expand one `tr` set: `a-z` becomes every character in that range. */
 function characterSet(set: string): string[] {
+  // oxlint-disable-next-line typescript/no-misused-spread -- a `tr` set names characters, and code points are that unit.
   const characters = [...set]
   const expanded: string[] = []
   for (let index = 0; index < characters.length; index += 1) {
@@ -301,6 +302,7 @@ const tr: ShellProgram = (argv, io) => {
     return 2
   }
   if (options.flags.has('d')) {
+    // oxlint-disable-next-line typescript/no-misused-spread -- `tr` deletes per character, and code points are the unit it deletes.
     io.out([...io.stdin].filter(character => !from.includes(character)).join(''))
     return 0
   }
@@ -308,6 +310,7 @@ const tr: ShellProgram = (argv, io) => {
     io.err('tr: expected a replacement set\n')
     return 2
   }
+  // oxlint-disable-next-line typescript/no-misused-spread -- `tr` translates per character, and code points are the unit it maps.
   io.out([...io.stdin].map((character) => {
     const index = from.indexOf(character)
     return index < 0 ? character : to[Math.min(index, to.length - 1)] as string

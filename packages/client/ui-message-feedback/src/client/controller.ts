@@ -295,6 +295,7 @@ export class MessageFeedbackController implements HostObservable<MessageFeedback
         if (!loaded.ok) return loaded
         // Disposal can land while the seeding read is in flight; without this
         // second check the fiber would still reach the wire after unloading.
+        // oxlint-disable-next-line typescript/no-unnecessary-condition -- dispose() can run during the await.
         if (this.disposed) return DISPOSED
       }
       return await operation()

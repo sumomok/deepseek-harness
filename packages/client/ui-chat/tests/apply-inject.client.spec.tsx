@@ -211,6 +211,7 @@ describe('Chat inject API', () => {
     const b = await bench()
     b.runtime.ctx.provide('proseReferents', { scan: () => [] })
     const { injected } = b.chatViewApi(ROOT)
+    // oxlint-disable-next-line typescript/unbound-method -- presence check only, never called unbound
     expect(injected.referents!.resolveLink).toBeUndefined()
     await b.runtime.dispose()
   })
@@ -230,6 +231,7 @@ describe('Chat inject API', () => {
     const b = await bench()
     b.runtime.ctx.provide('proseReferents', { scan: () => [] })
     const { injected } = b.chatViewApi(ROOT)
+    // oxlint-disable-next-line typescript/unbound-method -- presence check only, never called unbound
     expect(injected.referents!.subscribe).toBeUndefined()
     await b.runtime.dispose()
   })

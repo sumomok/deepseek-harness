@@ -329,6 +329,7 @@ export class SessionController extends TypertRemoteService {
       await this.openPath(request.path, signal)
       return { opened: true }
     } catch (error: unknown) {
+      // oxlint-disable-next-line typescript/no-unnecessary-condition -- the signal can abort while the opener is awaited.
       if (signal.aborted) throw new RemoteError('gateway/cancelled', 'path open was aborted', {})
       throw new RemoteError(
         'gateway/internal',

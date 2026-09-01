@@ -393,6 +393,7 @@ export interface PreparedTextFile {
  * @param limits - source admission policy.
  * @returns immutable reference facts beside bytes ready for atomic publication.
  */
+// oxlint-disable-next-line typescript/require-await -- Preserve promise rejection semantics at the async provider contract.
 export async function prepareTextFile(
   input: SaveFileAttachment,
   limits: FileAttachmentLimits,

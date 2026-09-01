@@ -18,6 +18,7 @@ export function JsonBlock({ label, payload, defaultOpen = false, truncatedLabel 
     let s: string
     try {
       // lib typing hides stringify's undefined arm (undefined/function/symbol payloads).
+      // oxlint-disable-next-line typescript/no-unnecessary-condition
       s = JSON.stringify(payload, null, 2) ?? String(payload)
     } catch {
       s = String(payload)

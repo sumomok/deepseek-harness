@@ -87,6 +87,7 @@ function buildProseReferents(
   // `this`-bound instance methods; extracting them here is what lets
   // TypeScript narrow "defined" through the conditional spreads below and
   // into their closures.
+  // oxlint-disable-next-line typescript/unbound-method
   const { resolveLink: providerResolveLink, subscribe: providerSubscribe } = provider
   return {
     scan: (text, inlineCode) => provider.scan(text, {
