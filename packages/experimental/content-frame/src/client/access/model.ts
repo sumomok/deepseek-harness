@@ -168,7 +168,10 @@ export interface RowCell {
   readonly controls: readonly CellControl[]
   /** What the cell shows apart from its controls, which name themselves. */
   readonly text: string
-  /** The cell as the one-row sample renders it: its text, and its controls inside `[ ]`. */
+  /**
+   * The cell as the one-row sample renders it: its text, and its controls
+   * inside `[ ]`, already cut to the room the sample line gives a cell.
+   */
   readonly sample: string
 }
 

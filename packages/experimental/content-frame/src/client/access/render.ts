@@ -28,9 +28,6 @@ const FRAME_UNREADABLE = 'frame (not readable)'
 /** How a table says its rows are available but not listed. */
 const ROWS_HINT = "rows: pass scope with this table's ref to list rows, or find a row by its text"
 
-/** How much of a cell the one sample row shows: enough to say what the column holds. */
-const SAMPLE_CELL_LIMIT = 24
-
 /** How much of a cell the header shows, which names a column and is worth more room. */
 const HEADER_CELL_LIMIT = 40
 
@@ -266,7 +263,7 @@ function tableHeader(item: TableItem, depth: number, refs: RefTable): string[] {
  * The lines a table prints wherever its rows are not listed: its shape, one
  * sample row, and how to reach the rest. The sample says what a column holds
  * rather than what it says — the data itself is what the read is not for — so
- * each of its cells prints a short run and no more.
+ * each of its cells arrives already cut to a short run.
  * @param item - the table item.
  * @param depth - the nesting depth the block prints at.
  * @param refs - the page's numbering.
@@ -277,7 +274,7 @@ function tableBlock(item: TableItem, depth: number, refs: RefTable): string {
   const lines = [tableHead(item, depth), ...tableHeader(item, depth, refs)]
   const first = item.rows[0]
   if (first !== undefined) {
-    const cells = first.cells.map(cell => clipTo(cell.sample, SAMPLE_CELL_LIMIT))
+    const cells = first.cells.map(cell => cell.sample)
     lines.push(`${inner}sample: ${cells.join(CELL_SEPARATOR)}`, `${inner}${ROWS_HINT}`)
   }
   if (item.pagination !== undefined) lines.push(`${inner}pagination: ${item.pagination}`)

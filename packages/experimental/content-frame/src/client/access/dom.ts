@@ -15,13 +15,15 @@ const SKIP_TAGS: ReadonlySet<string> = new Set(['script', 'style', 'template', '
 
 /**
  * Elements that flow inside a line, so text either side of them is one run. A
- * line break, a picture, and a drawing sit inside a paragraph rather than
- * ending it: the words either side of them are still one thing to read.
+ * line break and a picture sit inside a paragraph rather than ending it: the
+ * words either side of them are still one thing to read. A drawing does too,
+ * and is left out of this set because the walk stops at one rather than
+ * classifying it — see {@link isDrawing}.
  */
 const INLINE_TAGS: ReadonlySet<string> = new Set([
   'a', 'abbr', 'b', 'bdi', 'bdo', 'br', 'cite', 'code', 'data', 'dfn', 'em', 'i', 'img', 'kbd',
   'label', 'mark', 'q', 'rp', 'rt', 'ruby', 's', 'samp', 'small', 'span', 'strong', 'sub', 'sup',
-  'svg', 'time', 'u', 'var', 'wbr',
+  'time', 'u', 'var', 'wbr',
 ])
 
 /** Elements whose `disabled` property the page can set. */
@@ -44,6 +46,10 @@ export const CHECKED_ROLES: ReadonlySet<string> =
  * module adds. A role the page wrote that is not one of these names nothing the
  * reader knows, so the element is read by what it is built out of instead: a
  * page's own word must never reach the model as the type of a row.
+ *
+ * The list follows the specification's own, so a later ARIA version means
+ * adding the roles it defines here and deciding for each of them, in the same
+ * change, whether it belongs in {@link STRUCTURAL_ROLES}.
  */
 const KNOWN_ROLES: ReadonlySet<string> = new Set([
   // Widget roles.
@@ -80,16 +86,19 @@ const KNOWN_ROLES: ReadonlySet<string> = new Set([
  * the page rather than offering anything of their own; the walk reads straight
  * through them to whatever they show. The roles that mark up a run of text —
  * an emphasis, a quotation, a time — are here for the same reason: what they
- * decorate is the text itself, which the run around them already prints.
+ * decorate is the text itself, which the run around them already prints. So are
+ * the two that report a quantity: a meter and a progress bar say what they hold
+ * in the text they draw, and one that draws none has nothing to report.
  */
 const STRUCTURAL_ROLES: ReadonlySet<string> = new Set([
   'alert', 'alertdialog', 'application', 'article', 'banner', 'blockquote', 'caption', 'cell', 'code',
   'columnheader', 'complementary', 'contentinfo', 'definition', 'deletion', 'dialog', 'directory',
   'document', 'emphasis', 'feed', 'figure', 'form', 'generic', 'grid', 'gridcell', 'group',
   'insertion', 'legend', 'list', 'listitem', 'log', 'main', 'marquee', 'math', 'menu', 'menubar',
-  'meter', 'navigation', 'none', 'note', 'paragraph', 'presentation', 'radiogroup', 'region', 'row',
-  'rowgroup', 'rowheader', 'search', 'separator', 'status', 'strong', 'subscript', 'superscript',
-  'table', 'tablist', 'tabpanel', 'term', 'time', 'timer', 'toolbar', 'tooltip', 'tree', 'treegrid',
+  'meter', 'navigation', 'none', 'note', 'paragraph', 'presentation', 'progressbar', 'radiogroup',
+  'region', 'row', 'rowgroup', 'rowheader', 'search', 'separator', 'status', 'strong', 'subscript',
+  'superscript', 'table', 'tablist', 'tabpanel', 'term', 'time', 'timer', 'toolbar', 'tooltip',
+  'tree', 'treegrid',
 ])
 
 /** The role a snapshot gives a role-less element the page makes clickable. */
@@ -199,14 +208,31 @@ export function isPassword(el: Element): boolean {
  * text the page controls where the model reads the kind of a row. Such an
  * element reads by its structure instead. What HTML itself gives an element is
  * not filtered — that role comes from the tag, not from the page.
+ *
+ * A page may write several roles and mean the first one a reader understands,
+ * which is how a document written against a newer vocabulary falls back to an
+ * older one, so the tokens are read in order and the first defined role wins.
+ * The comparison is case-sensitive, as ARIA defines these names.
  * @param el - the element to classify.
  * @returns the role name, or null for an element with no role ARIA knows.
  */
 export function roleOf(el: Element): string | null {
   if (isPassword(el)) return 'textbox'
-  const role = getRole(el)
-  if (role === null) return null
-  return el.hasAttribute('role') && !KNOWN_ROLES.has(role) ? null : role
+  // An empty role attribute declares nothing, and leaves the tag's own role.
+  const declared = el.getAttribute('role')?.trim() ?? ''
+  if (declared === '') return getRole(el)
+  return declared.split(/\s+/).find(token => KNOWN_ROLES.has(token)) ?? null
+}
+
+/**
+ * True for a drawing: a picture built out of shapes rather than written out of
+ * text. Its parts are neither read nor counted — a path is not a paragraph, and
+ * the title a drawing carries is a tooltip the page never shows.
+ * @param el - the element to classify.
+ * @returns whether the element is a drawing.
+ */
+export function isDrawing(el: Element): boolean {
+  return el.localName === 'svg'
 }
 
 /**
@@ -304,7 +330,8 @@ export function isSkipped(el: Element, isVisible: (el: Element) => boolean): boo
 }
 
 /**
- * Every run of visible text inside an element, in document order.
+ * Every run of visible text inside an element, in document order. A drawing is
+ * not looked into: the words in one are labels of the picture it draws.
  * @param el - the element to read.
  * @param isVisible - injected visibility.
  * @param stopAt - subtrees whose text belongs to something else, left out along
@@ -323,7 +350,7 @@ export function visibleTextParts(
       if (text !== '') parts.push(text)
     } else if (node.nodeType === node.ELEMENT_NODE) {
       const child = node as Element
-      if (!isSkipped(child, isVisible) && stopAt?.(child) !== true) {
+      if (!isSkipped(child, isVisible) && !isDrawing(child) && stopAt?.(child) !== true) {
         parts.push(...visibleTextParts(child, isVisible, stopAt))
       }
     }
@@ -362,14 +389,19 @@ export function fieldValue(el: Element): string | undefined {
 }
 
 /**
- * Whether a checkbox, radio, or switch is currently on.
+ * Whether a checkbox, radio, or switch is currently on. A box the browser keeps
+ * the state of is read from the browser; anything else the page draws as one
+ * has the state it wrote, and no state at all until it writes one. ARIA
+ * requires the attribute on these roles, so a page that leaves it out has not
+ * said the control is off — it has said nothing, and a reader told "off" would
+ * click to turn on what is already on.
  * @param el - the element to read.
- * @returns its checked state.
+ * @returns its checked state, or undefined when the page has declared none.
  */
-export function isChecked(el: Element): boolean {
+export function isChecked(el: Element): boolean | undefined {
+  if (el.localName === 'input') return (el as HTMLInputElement).checked
   const aria = el.getAttribute('aria-checked')
-  if (aria !== null) return aria === 'true'
-  return el.localName === 'input' && (el as HTMLInputElement).checked
+  return aria === null ? undefined : aria === 'true'
 }
 
 /**

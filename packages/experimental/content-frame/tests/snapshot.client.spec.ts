@@ -407,6 +407,21 @@ describe('what never reaches the model', () => {
     // A role ARIA does define is the row's kind as written.
     expect(read(page('<span role="button">确定</span>')).text).toBe('e1 button "确定"')
   })
+
+  it('takes the first role of several the page wrote that ARIA defines', () => {
+    // A page writes several roles to fall back from a vocabulary the reader may
+    // not know to one it does, so the first word ARIA defines is the role.
+    expect(read(page('<span role="button link">确定</span>')).text).toBe('e1 button "确定"')
+    expect(read(page('<span role="bogus button" aria-label="确定">图标</span>')).text).toBe('e1 button "确定"')
+    // The accessible name is computed from the first token alone, so a page
+    // that writes an undefined word first and names the element nowhere else is
+    // read as a button with no name.
+    expect(read(page('<span role="bogus button">确定</span>')).text).toBe('e1 button')
+    // None of them defined leaves the element to be read by its structure, and
+    // ARIA names these roles in lower case: another spelling is another word.
+    expect(read(page('<span role="doc-chapter section">章</span>')).text).toBe('text "章"')
+    expect(read(page('<span role="BUTTON">确定</span>')).text).toBe('text "确定"')
+  })
 })
 
 describe('text', () => {
@@ -428,6 +443,23 @@ describe('text', () => {
     expect(read(page('<p>第一行<br>第二行</p>')).text).toBe('text "第一行 第二行"')
     expect(read(page('<p>段落<svg width="8" height="8"></svg>文字</p>')).text).toBe('text "段落 文字"')
     expect(read(page('<p>图<img alt="">说明</p>')).text).toBe('text "图 说明"')
+  })
+
+  it('keeps a drawing inside the run around it, whatever it is drawn out of', () => {
+    // A real icon is a drawing built out of shapes, and reading into it would
+    // break the run at every one of them.
+    const icon = (inside: string): string => `<p>段落<svg width="8" height="8">${inside}</svg>文字</p>`
+    expect(read(page(icon(''))).text).toBe('text "段落 文字"')
+    expect(read(page(icon('<path d="M0 0 L8 8"></path>'))).text).toBe('text "段落 文字"')
+    expect(read(page(icon('<use href="#gear"></use>'))).text).toBe('text "段落 文字"')
+    expect(read(page(icon('<g><circle r="2"></circle></g>'))).text).toBe('text "段落 文字"')
+    // The title of a drawing is a tooltip the page never draws, and the words
+    // inside one label the picture rather than the page.
+    expect(read(page(icon('<title>齿轮</title>'))).text).toBe('text "段落 文字"')
+    expect(read(page(icon('<text>标签</text>'))).text).toBe('text "段落 文字"')
+    // A drawing the page named is a picture, and prints the row a picture does.
+    expect(read(page('<svg role="img" aria-label="趋势图"><path d="M0 0"></path></svg>')).text)
+      .toBe('e1 img "趋势图"')
   })
 
   it('cuts an over-long run and says it was cut', () => {
@@ -691,6 +723,49 @@ describe('widgets built out of several elements', () => {
     // A region the page hides is no region between the reader and the target.
     const folded = page('<div data-pointer><main data-hidden><h1>标题</h1></main><button>详情</button></div>')
     expect(read(folded, { isClickable: pointer }).text).toBe('e1 button "详情"')
+    // A strip of links to more of the page is such a region wherever it is
+    // drawn, this card included: the card reads as what the strip sits on.
+    const linked = page('<div data-pointer><h3>东风站</h3><nav><a href="/m">更多</a></nav></div>')
+    expect(read(linked, { isClickable: pointer }).text).toBe([
+      'e1 heading "东风站"',
+      'e2 nav',
+      '  e3 link "更多" (nav)',
+    ].join('\n'))
+  })
+
+  it('keeps a click target holding a form, which a card holds as readily as a page does', () => {
+    const refs = page('<div data-pointer><h3>东风站</h3><form><input aria-label="备注"></form></div>')
+    // A card with an editor drawn on it is still a card to click: only the
+    // regions a page is laid out in are the page itself.
+    expect(read(refs, { isClickable: pointer }).text).toBe([
+      'e1 clickable "东风站"',
+      '  e2 heading "东风站" (in clickable "东风站")',
+      '  e3 form',
+      '    e4 textbox "备注" = "" (form)',
+    ].join('\n'))
+  })
+
+  it('keeps a click target the page named, whatever it wraps', () => {
+    // A page that wrote a name on the wrapper said it is a thing of its own,
+    // so the read shows both it and the link it holds.
+    const named = page('<div data-pointer aria-label="站点卡片"><a href="/x">东风站</a></div>')
+    expect(read(named, { isClickable: pointer }).text).toBe([
+      'e1 clickable "站点卡片"',
+      '  e2 link "东风站" (in clickable "站点卡片")',
+    ].join('\n'))
+    // A wrapper the page named nothing is still the link's own hit area.
+    const bare = page('<li data-pointer><a href="/a">首页</a></li>')
+    expect(read(bare, { isClickable: pointer }).text).toBe('e1 link "首页"')
+  })
+
+  it('takes a click target drawn as nothing but a drawing as one to click, and names it nothing', () => {
+    // The title inside the drawing is a tooltip the page never draws, so the
+    // target reads as a target with no name: a page that means to name it
+    // writes the name on it.
+    const refs = page('<span data-pointer><svg><title>关闭</title></svg></span>')
+    expect(read(refs, { isClickable: pointer }).text).toBe('e1 clickable')
+    const labelled = page('<span data-pointer aria-label="关闭"><svg><title>关闭</title></svg></span>')
+    expect(read(labelled, { isClickable: pointer }).text).toBe('e1 clickable "关闭"')
   })
 
   it('names a click target holding items by what it says it is, then by its title, then by what it shows', () => {
@@ -814,6 +889,90 @@ describe('widgets built out of several elements', () => {
     // nothing at all.
     const linked = page('<div role="tree" aria-label="组织"><div role="treeitem"><a href="/x">华北</a></div></div>')
     expect(read(linked).text).toBe(['e1 tree "组织"', '  e2 treeitem "华北" (in tree "组织")'].join('\n'))
+  })
+
+  it('names a node drawn over a label and a row of buttons by that label alone', () => {
+    // The label of a node is the first thing in it that prints a row: what
+    // follows acts on the node, and would otherwise be read as part of its name
+    // and repeated in the suffix of every row under it.
+    const node = (label: string): string => `
+      <div role="tree" aria-label="组织">
+        <div role="treeitem">
+          <span data-hidden>内部编号</span><i class="icon"></i>${label}<button>删除</button>
+          <div role="group"><div role="treeitem">北京</div></div>
+        </div>
+      </div>`
+    const expected = (kind: string): string => [
+      'e1 tree "组织"',
+      '  e2 treeitem "华北"',
+      `    e3 ${kind} "华北" (in treeitem "华北")`,
+      '    e4 button "删除" (in treeitem "华北")',
+      '    e5 treeitem "北京" (in treeitem "华北")',
+    ].join('\n')
+    expect(read(page(node('<a href="/x">华北</a>'))).text).toBe(expected('link'))
+    expect(read(page(node('<h4>华北</h4>'))).text).toBe(expected('heading'))
+    expect(read(page(node('<span class="title"><a href="/x">华北</a></span>'))).text).toBe(expected('link'))
+    // A node whose first row is drawn as an icon falls back to everything it
+    // shows, and one that shows nothing of its own is named nothing.
+    const iconFirst = page(`
+      <div role="tree" aria-label="组织">
+        <div role="treeitem"><button aria-label="删"></button><a href="/x">详情</a>
+          <div role="group"><div role="treeitem">北京</div></div></div>
+      </div>`)
+    expect(read(iconFirst).text).toBe([
+      'e1 tree "组织"',
+      '  e2 treeitem "详情"',
+      '    e3 button "删" (in treeitem "详情")',
+      '    e4 link "详情" (in treeitem "详情")',
+      '    e5 treeitem "北京" (in treeitem "详情")',
+    ].join('\n'))
+    const bare = page('<div role="tree" aria-label="组织"><div role="treeitem"><div role="group"><div role="treeitem">北京</div></div></div></div>')
+    expect(read(bare).text).toBe([
+      'e1 tree "组织"',
+      '  e2 treeitem',
+      '    e3 treeitem "北京" (treeitem)',
+    ].join('\n'))
+  })
+
+  it('takes a label that names nothing as no label at all', () => {
+    const node = (attribute: string): string => `
+      <div role="tree" aria-label="组织">
+        <div role="treeitem" ${attribute}>
+          <span>华北</span><button>删除</button>
+          <div role="group"><div role="treeitem">北京</div></div>
+        </div>
+      </div>`
+    // An empty label, and one pointing at nothing the page has, name nothing:
+    // the node reads as it does with no label written on it at all, rather than
+    // taking the name of everything hanging off it.
+    const expected = [
+      'e1 tree "组织"',
+      '  e2 treeitem "华北"',
+      '    e3 button "删除" (in treeitem "华北")',
+      '    e4 treeitem "北京" (in treeitem "华北")',
+    ].join('\n')
+    expect(read(page(node(''))).text).toBe(expected)
+    expect(read(page(node('aria-label=""'))).text).toBe(expected)
+    expect(read(page(node('aria-labelledby="gone"'))).text).toBe(expected)
+    // A label pointing at several elements reads them in the order it points at
+    // them, and reads one the page draws nowhere, wrappers and all.
+    const pointed = page(`
+      <span id="a" hidden><b>华北</b></span><span id="b">地区</span>
+      <div role="tree" aria-label="组织"><div role="treeitem" aria-labelledby="a b"><span>东风</span></div></div>`)
+    expect(read(pointed).text).toBe([
+      'text "地区"',
+      'e1 tree "组织"',
+      '  e2 treeitem "华北 地区" (in tree "组织")',
+    ].join('\n'))
+    // A click target reads the same way: an empty label is no label, so it is
+    // named by what it shows and wraps its one link as if unnamed.
+    const card = page('<div data-pointer aria-label=""><h3>东风站</h3></div>')
+    expect(read(card, { isClickable: pointer }).text).toBe([
+      'e1 clickable "东风站"',
+      '  e2 heading "东风站" (in clickable "东风站")',
+    ].join('\n'))
+    const wrapper = page('<div data-pointer aria-label=""><a href="/x">东风站</a></div>')
+    expect(read(wrapper, { isClickable: pointer }).text).toBe('e1 link "东风站"')
   })
 
   it('reads a menu item holding a menu as a room over the items in it', () => {
@@ -964,10 +1123,36 @@ describe('controls', () => {
       'e7 radio "乙" [x]',
       'e8 switch "丙" [x]',
       'e9 switch "丁" [ ]',
-      'e10 checkbox "戊" [ ]',
+      'e10 checkbox "戊"',
       'e11 button "禁用按钮" (disabled)',
       'e12 button "可用"',
     ].join('\n'))
+  })
+
+  it('says nothing of the state of a control the page never wrote one for', () => {
+    // ARIA requires the state on these roles. A page that leaves it out has not
+    // said the control is off, and a reader told it is off clicks to turn on
+    // what is already on.
+    const refs = page('<div role="switch"></div><div role="switch" aria-checked="false"></div>')
+    expect(read(refs).text).toBe(['e1 switch', 'e2 switch [ ]'].join('\n'))
+    const cells = page(`
+      <table><tr>
+        <td><div role="switch"></div></td>
+        <td><div role="switch" aria-checked="false"></div></td>
+      </tr></table>`)
+    // The sample says which control the column offers either way; the listed
+    // row is where the difference shows.
+    expect(read(cells).text.split('\n')[1]).toBe('  sample: [switch] | [switch]')
+    expect(read(cells, { scope: refOf(cells, 'table') }).text.split('\n')[1])
+      .toBe('  row 1: e3 switch | e4 switch [ ]')
+  })
+
+  it('reads a progress bar and a meter as the quantity they draw', () => {
+    // What a progress bar holds is the text it draws: printing a row for it and
+    // swallowing that text would leave the reader a bar with no number on it.
+    expect(read(page('<progress value="0.7">70%</progress>')).text).toBe('text "70%"')
+    expect(read(page('<meter value="0.7">70%</meter>')).text).toBe('text "70%"')
+    expect(read(page('<progress value="0.7"></progress><button>刷新</button>')).text).toBe('e1 button "刷新"')
   })
 })
 
@@ -1065,6 +1250,21 @@ describe('tables', () => {
     // A read that asks for the rows gets the cells whole.
     expect(read(refs, { scope: refOf(refs, 'table') }).text.split('\n')[2])
       .toBe(`  row 1: ${'东'.repeat(40)} | e3 button "编辑"`)
+  })
+
+  it('cuts a sample cell before the controls beside it, never through them', () => {
+    const refs = page(`
+      <table><tr>
+        <td>${'运'.repeat(30)}<button>停止</button></td>
+        <td>短<button>删除</button></td>
+      </tr></table>`)
+    // What the sample is for is saying which controls a column offers: cutting
+    // the line after the controls were added would drop them off the end of a
+    // cell whose text runs long, and the column would read as offering none.
+    expect(read(refs).text.split('\n')[1]).toBe(`  sample: ${'运'.repeat(18)}… [停止] | 短 [删除]`)
+    // Controls that fill the line on their own leave no room for the text.
+    const crowded = page('<table><tr><td>状态<button>停止全部运行中的定时任务</button><button>重启全部运行中的定时任务</button></td></tr></table>')
+    expect(read(crowded).text.split('\n')[1]).toBe('  sample: [停止全部运行中的定时任务 重启全部运行中的定时任务]')
   })
 
   it('reads a grid and a tree grid as the tables they are', () => {
@@ -1413,6 +1613,23 @@ describe('a table drawn in two pieces', () => {
     // them at all names them the same.
     expect(read(page(halves('站点', '站点'))).text.split('\n').filter(line => line.includes('cols')))
       .toEqual(['  e2 table "站点" 1 rows × 2 cols'])
+  })
+
+  it('keeps the name the page wrote on the header half alone', () => {
+    const refs = page(`
+      <main>
+        <div class="head"><table aria-label="指标"><thead><tr><th>指标</th><th>值</th></tr></thead></table></div>
+        <div class="body"><table><tbody><tr><td>东风站</td><td>12</td></tr></tbody></table></div>
+      </main>`)
+    // The two halves are one table, so the name written on either of them names
+    // the table the reader is shown.
+    expect(read(refs).text).toBe([
+      'e1 main',
+      '  e2 table "指标" 1 rows × 2 cols',
+      '    header: 指标 | 值',
+      '    sample: 东风站 | 12',
+      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
   })
 
   it('lends no header to a table drawn inside another table', () => {
