@@ -64,6 +64,7 @@ export type {
   PendingSubmission,
   PendingSubmissionFile,
   PendingSubmissionImage,
+  PendingSubmissionPlacement,
   PromptError,
   QueuedMessage,
   SessionSnapshot,

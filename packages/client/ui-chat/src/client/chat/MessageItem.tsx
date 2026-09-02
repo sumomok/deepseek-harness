@@ -156,7 +156,7 @@ function TurnMaxTokensItem({ t }: {
 /** Right-aligned bubble shared by user and steering rows. */
 function UserStyleBubble({
   content, renderMessageImages, loadFile, openReferent, actions, pending = false, echo = false,
-  referenceLabels = [], previewImages, previewFiles, reveal = 'always', t,
+  referenceLabels = [], previewImages, previewFiles, t,
 }: {
   content: readonly unknown[]
   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
@@ -180,8 +180,6 @@ function UserStyleBubble({
    * `openReferent` — rendered as a non-interactive chip, never a FileCard.
    */
   previewFiles?: readonly PendingSubmissionFile[]
-  /** Whole actions-row visibility: earlier rows reveal on hover, the latest stays shown (turn tails' gate). */
-  reveal?: 'always' | 'hover'
   t: ChatViewSlotProps['t']
 }): ReactNode {
   const { text, images: contentImages, files, rest } = contentParts(content)
@@ -193,7 +191,6 @@ function UserStyleBubble({
       className={css.userRow}
       data-pending-steering={pending || undefined}
       data-submission-echo={echo || undefined}
-      data-actions-reveal={reveal}
     >
       <div className={css.userStack}>
         {renderMessageImages({ images, align: 'end' })}
@@ -261,10 +258,10 @@ export function PendingSteeringBubble({ content, renderMessageImages, loadFile, 
 }
 
 /**
- * Render one local submission echo with the exact visual language of the
- * durable user node that replaces it: draft text plus object-URL previews,
- * visible from the submit click until the durable `user/message` (or its
- * queue occurrence) renders.
+ * Render one local transcript or steering submission echo with the same
+ * visual language and surface marker as the Host occurrence that replaces
+ * it: draft text plus object-URL previews, visible from the submit click
+ * until the durable `user/message` or steering occurrence renders.
  * @param props - the session snapshot's pending submission and render seats.
  * @returns the echoed user bubble.
  */
@@ -296,6 +293,7 @@ export function PendingSubmissionBubble({ submission, renderMessageImages, loadF
       previewImages={previewImages}
       previewFiles={submission.files}
       renderMessageImages={renderMessageImages}
+      pending={submission.placement === 'steering'}
       loadFile={loadFile}
       openReferent={openReferent}
       echo
@@ -315,18 +313,9 @@ export function PendingSubmissionBubble({ submission, renderMessageImages, loadF
 
 /** User and admitted-steering keyed Chat renderer. */
 export const UserMessageNodeView = memo(function UserMessageNodeView({
-  node, renderMessageImages, renderUserActions, loadFile, openReferent, useChat, t,
+  node, renderMessageImages, renderUserActions, loadFile, openReferent, t,
 }: ChatNodeViewProps<'user' | 'steering'>) {
   const data = node.data
-  // The transcript's last user-authored row keeps its actions row shown, the
-  // same recency gate turn tails use; earlier rows reveal on hover.
-  const isLatestUserRow = useChat((snapshot) => {
-    for (let index = snapshot.order.length - 1; index >= 0; index -= 1) {
-      const candidate = snapshot.nodes.get(snapshot.order[index] ?? '')
-      if (candidate?.kind === 'user' || candidate?.kind === 'steering') return candidate.key === node.key
-    }
-    return true
-  })
   return (
     <UserStyleBubble
       content={data.content}
@@ -334,7 +323,6 @@ export const UserMessageNodeView = memo(function UserMessageNodeView({
       loadFile={loadFile}
       openReferent={openReferent}
       {...data.referenceLabels === undefined ? {} : { referenceLabels: data.referenceLabels }}
-      reveal={isLatestUserRow ? 'always' : 'hover'}
       t={t}
       actions={text => (
         <MessageIconActions

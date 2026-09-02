@@ -6,9 +6,9 @@ import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ConversationKey } from './locales.ts'
 
 /**
- * Product copy for a host attachment rejection (the `attachment-error`
- * `details.reason`). User-solvable reasons name the limit and the way out;
- * reasons the user cannot act on fold into one send-failed line carrying the
+ * Product copy for a host attachment rejection (the `details.reason` of
+ * `session/attachment-invalid` or `subagent/attachment-invalid`).
+ * User-solvable reasons name the limit and the way out;
  * reason code for a bug report. Image and file reasons share one wire union
  * (`AttachmentErrorCode`), so both limit sets are accepted here and each
  * reason only reads the one it needs.
@@ -26,7 +26,6 @@ export function attachmentErrorText(
 ): string {
   switch (reason) {
     case 'MODEL_DOES_NOT_SUPPORT_IMAGES': return t('image.modelUnsupported')
-    case 'SUBAGENT_IMAGE_UNSUPPORTED': return t('image.subagentUnsupported')
     case 'IMAGE_TOO_MANY_PIXELS': return t('image.tooManyPixels')
     case 'IMAGE_DIMENSION_TOO_LARGE':
       if (limits !== undefined) return t('image.dimensionTooLarge', { size: limits.maxImageDimension })
