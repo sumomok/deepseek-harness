@@ -881,10 +881,15 @@ describe('one name, printed and checked', () => {
     + '<canvas id="trend" aria-label="本月趋势" style="cursor: pointer"></canvas>'
     + '<button class="el-button"><i class="el-icon-search"></i><span>提交</span></button>'
     + '<table aria-label="设备">'
-    + '<thead><tr><th>名称</th><th>操作</th></tr></thead>'
+    + '<thead><tr><th>名称</th><th>操作</th><th>批量</th><th>标注</th></tr></thead>'
     + '<tbody><tr><td>mill-01</td>'
     + '<td><a href="#x">详情</a><button class="el-button">编辑</button>'
-    + '<i class="el-tooltip operation-modify el-icon-delete"></i></td></tr></tbody>'
+    + '<i class="el-tooltip operation-modify el-icon-delete"></i></td>'
+    // The same commands wrapped in a region of their own, which is how a page
+    // groups the operations of a row: the cell around them still decides.
+    + '<td><nav aria-label="操作"><i class="el-icon-edit"></i></nav></td>'
+    + '<td><form aria-label="标注"><i class="el-icon-star"></i></form></td>'
+    + '</tr></tbody>'
     + '</table>'
     + '</main>'
 
@@ -940,6 +945,10 @@ describe('one name, printed and checked', () => {
       'link "详情"',
       'button "编辑"',
       'icon "delete"',
+      // Drawn inside a region of their own, and still the row's commands: the
+      // cell decides, not the bar or the form the page groups them with.
+      'icon "edit"',
+      'icon "star"',
     ])
     for (const row of printed) {
       const el = refs.resolve(row.ref)

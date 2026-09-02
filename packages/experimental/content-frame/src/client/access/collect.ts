@@ -496,9 +496,13 @@ function controlFace(el: Element, role: string, walk: Walk, label: Element | und
  * A drawing carries no role and no name, so where it sits is the whole of what
  * says it can be operated: a page puts its commands in a toolbar, in a list, or
  * in the cells of a table's rows, and draws the same shapes elsewhere as
- * ornament. The place is read off the element's own ancestors — the first of
- * them that is a cell, or that opens a region — so the pass over the page and a
- * caller holding one element ask the same question and get the same answer.
+ * ornament. The place is read off the element's own ancestors, cells before
+ * regions: a page draws the commands of a row inside a bar, a form, or a
+ * confirmation of its own, and a region drawn inside a cell says nothing about
+ * the row holding it, so a cell anywhere above the drawing settles the question
+ * and only outside every cell does the nearest region decide. The pass over the
+ * page and a caller holding one element ask the same question and get the same
+ * answer.
  * @param el - the element to classify.
  * @param walk - the walk in progress.
  * @returns whether the page draws a command there.
@@ -507,6 +511,8 @@ function namesIcon(el: Element, walk: Walk): boolean {
   if (!isIcon(el, walk)) return false
   for (let at = el.parentElement; at !== null; at = at.parentElement) {
     if (CELL_ROLES.has(roleOf(at) ?? '')) return true
+  }
+  for (let at = el.parentElement; at !== null; at = at.parentElement) {
     const face = containerFace(at, roleOf(at), walk)
     if (face !== undefined) return face.type === 'toolbar' || face.type === 'list'
   }
