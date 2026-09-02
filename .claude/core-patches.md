@@ -140,7 +140,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **改了什么**：`packages/client/ui-trajectory/tests/cell.client.spec.tsx` 的测试包装函数，从 JSX 展开 `<LocalizedTrajectoryCell {...props} t={t} />` 改为 `createElement(LocalizedTrajectoryCell, { ...props, t })`。行为不变。
 - **为什么**：`dsh-experimental-vue2-echarts-poc` 钉 Vue 2.7，其类型入口 `vue/types/index.d.ts` 无条件 `import './jsx'`，而该文件 `declare global` 给 `JSX.IntrinsicAttributes` 加了 `slot?: string`。`paths` 把工作区导入解析到源码，于是这份全局增强落进同时编译 `packages/client` 的 Client 聚合程序；在 `exactOptionalPropertyTypes` 下，它拒绝每一处携带 `slot?: string | undefined` 的 React JSX 展开。rc.27 恰好把这个测试的包装函数改写成了那种展开。上游自己的组合里没有 Vue 包，看不到这个冲突。
 - **要达到的效果**：`createElement` 按 `React.Attributes` 而不是全局 `JSX` 座位校验 props，因此同一次调用在程序里有没有 Vue 包都类型正确，测试行为不变。
-- **退役条件**：Vue 2.7 的全局 JSX 增强不再进入 Client 聚合——即给 Vue 探针包一个自己的编译面。这条路径当前与 `docs/development.md#typescript-project-layout` 的成文约束相抵：Host/Client 两个聚合之外不设第三个，普通包只登记在其中一个聚合里。所以真正的退役前提是先就「Vue 探针是否值得第三个编译面」做一次架构决定；在那之前本条在役。上游若再次改写这个包装函数，本条即刻冲突，按本条说明重新应用或退役。
+- **退役条件**：Vue 2.7 的全局 JSX 增强不再进入 Client 聚合——即给 Vue 探针包一个自己的编译面。这条路径当前与 `docs/development.md#typescript-project-layout` 的成文约束相抵：Host/Client 两个聚合之外不设第三个，普通包只登记在其中一个聚合里。所以真正的退役前提是先就「Vue 探针是否值得第三个编译面」做一次架构决定；在那之前本条在役。**机械判定**：把那一行还原成 JSX 展开后跑 `pnpm run typecheck`——不再报 `cell.client.spec.tsx … error TS2375: Types of property 'slot' are incompatible` 即可退役。上游若再次改写这个包装函数，本条即刻冲突，按本条说明重新应用或退役。另一条更小的路——在手写 `paths` 区把 `vue` 指向本线自写的 shim `.d.ts`——已评估否决：那等于拿一份手工维护的假 Vue 类型去 typecheck 真 Vue 组件，静默出错的代价高于改一行测试。
 - **状态**：在役。
 
 ### fix(experimental): name the Agent Teams CSS module face in the Client aggregate — e72dec971a（该提交的一行）
@@ -148,7 +148,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **改了什么**：`tsconfig.client.json` 的 `include` 新增一行 `packages/experimental/client-ui-agent-team/src/css-modules.d.ts`。
 - **为什么**：这是**上游自己的缺口**，不是本线的适配需要。rc.27 的 `806642b064` 新增了 `client-ui-agent-team` 及其 `css-modules.d.ts`，但只在 `tsconfig.client.json` 里加了 `{"path": …}` 引用、没有把该声明文件写进聚合的 `include`，于是聚合从不加载它。上游的 `scripts/client-tsconfig.spec.ts` 只检查 `client` 与 `extensions` 两组，看不到 `experimental` 组，因此这个缺口在上游是静默的；本线把该 spec 的 `clientGroups` 扩到 `experimental`（为覆盖本线自己的实验包），扩完就照出了它。
 - **要达到的效果**：聚合加载该 CSS 模块声明，`experimental` 组的 client 包在同一条规则下受检，而不是为了让门禁过关把 `client-ui-agent-team` 从检查里豁免掉——那样会把上游的真缺口藏起来。
-- **退役条件**：上游自己把这一行写进 `tsconfig.client.json`（本条已列入待回报上游清单，复现方法：给 `scripts/client-tsconfig.spec.ts` 的 `clientGroups` 加上 `'experimental'` 后跑该 spec）。
+- **退役条件**：上游自己把这一行写进 `tsconfig.client.json`（本条与另外两处上游缺口一起记在 [Agent Note 的 Upstream gaps 一节](../.agents/notes/implemented/architecture/2026-09-02-server-console-on-the-alpha-4-base.md#upstream-gaps-this-migration-found)；复现方法：给 `scripts/client-tsconfig.spec.ts` 的 `clientGroups` 加上 `'experimental'` 后跑该 spec）。
 - **状态**：在役。
 
 ## rc.26 合并事故复核：`e6991dfba2` 手工解析删掉了两个父都有的内容（已修）

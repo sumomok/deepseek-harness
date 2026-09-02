@@ -19,9 +19,11 @@
  * one: a future `ui-conversation` change that inserts another sibling between
  * the card and the stats row, or that stops rendering the stats footer as a
  * sibling at all, silently breaks this hide without a compile-time signal.
- * The package README records this fragility, and an e2e scenario pins "this
- * row renders invisible under the customer composition" so a broken selector
- * turns the gate red instead of shipping the banned vocabulary silently.
+ * The package README records this fragility, and an e2e scenario pins that the
+ * row is present AND renders nothing, so a broken selector turns the gate red
+ * instead of shipping the banned vocabulary silently. Both halves are the
+ * assertion: an element that stopped matching is also an element that is not
+ * visible, so invisibility alone would pass on the very failure it guards.
  *
  * The hero-phase rules below carry the identical class-substring coupling
  * for the same reason: `dsh-client-ui-conversation`'s
@@ -53,8 +55,8 @@
  *   is composed (`dsh-client-ui-conversation` requires its `uiWorkspace`
  *   service; see the package README), so the chip carries a real Workspace
  *   title and its picker menu is live. A row this rule stopped matching would
- *   put both back on screen, which is why an e2e scenario asserts the row
- *   renders invisible rather than trusting the selector.
+ *   put both back on screen, which is why an e2e scenario asserts the row is
+ *   present and renders nothing, rather than trusting the selector.
  *   `conversation.hero.agentPreset`, the row's other seat, is emptied at the
  *   composition level instead (`ui-agent-preset` disabled outright — see
  *   `overlay/customer.patch.yml`), not by this CSS: disabling the whole
