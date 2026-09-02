@@ -34,7 +34,7 @@
  */
 import { useMemo, useRef, useState } from 'react'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 import { EChartsOption, type ChartVerdict } from '@deepseek-ai/dsh-experimental-vue2-echarts-poc/client'
 // Type-only: pulls the content surface's `contentSurface` SessionProjectionMap merge.

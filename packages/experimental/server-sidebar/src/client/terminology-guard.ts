@@ -10,7 +10,7 @@
  * ordinary bundle rows a customer overlay disables outright (see the package
  * README's Composition section and `overlay/customer.patch.yml`).
  *
- * The turns/steps stats row (`dsh-client-ui-conversation`'s `StatsLine`,
+ * The turns/steps stats row (`dsh-client-ui-chat`'s `StatsLine`,
  * mounted on the composer's `conversation.composer.dock` list) has neither: no
  * Config flag gates it, and it carries no stable `data-*` attribute of its
  * own. The nearest stable anchor is the composer card's own

@@ -135,9 +135,8 @@ export function ServerSidebarRoot({
   const workbenchActive = current !== undefined && current === workbenchSessionId && !boundHomeSessionIds.has(current)
 
   // Land on the workbench automatically when the sidebar loads with no
-  // current session — evaluated at most once per mount, the same "settle
-  // then decide, never retry" shape `dsh-client-runtime`'s own
-  // startInitialSelection uses for its Workspace check. Waiting for
+  // current session — evaluated at most once per mount, a "settle then
+  // decide, never retry" shape. Waiting for
   // `phase === 'ready'` matters: deciding `liveSessionIds` membership while
   // the list is still `'pending'` would read a real workbench session as
   // stale (not yet loaded into `byId`) and needlessly re-create it.
@@ -145,14 +144,14 @@ export function ServerSidebarRoot({
   // The attempt is withheld (not consumed) while reopening a live recorded
   // session is not possible AND creating one has nowhere to create it yet:
   // reopening needs no Workspace at all, but creating one needs the
-  // Workspace baseline settled first — `recentWorkspaceId` reads `undefined`
-  // both before that baseline lands and in a genuine zero-Workspace
-  // deployment, and this effect cannot tell those apart, so it waits for
-  // either a live session or a resolved Workspace before spending its one
+  // Workspace baseline settled first — `hasWorkspace` reads false both
+  // before that baseline lands and in a genuine zero-Workspace deployment,
+  // and this effect cannot tell those apart, so it waits for either a live
+  // session or a settled non-empty Workspace list before spending its one
   // shot (never spending it at all is the correct outcome for a deployment
   // that never gets a Workspace — see the package README's Known
   // Limitations for that already-accepted edge case).
-  const recentWorkspaceId = useWorkspaces(state => state.recentWorkspaceId)
+  const hasWorkspace = useWorkspaces(state => state.phase === 'ready' && state.items.length > 0)
   const attemptedAutoOpen = useRef(false)
   useEffect(() => {
     if (attemptedAutoOpen.current || phase !== 'ready') return
@@ -160,10 +159,10 @@ export function ServerSidebarRoot({
       attemptedAutoOpen.current = true
       return
     }
-    if (!workbenchIsLive && recentWorkspaceId === undefined) return
+    if (!workbenchIsLive && !hasWorkspace) return
     attemptedAutoOpen.current = true
     void onOpenWorkbenchOnLoad(workbenchSessionId, workbenchIsLive)
-  }, [current, phase, workbenchSessionId, workbenchIsLive, recentWorkspaceId, onOpenWorkbenchOnLoad])
+  }, [current, phase, workbenchSessionId, workbenchIsLive, hasWorkspace, onOpenWorkbenchOnLoad])
 
   /* jscpd:ignore-start -- pointer-driven scrollbar behavior ported verbatim
    * from dsh-client-ui-sidebar's SidebarRoot (this file's module doc explains

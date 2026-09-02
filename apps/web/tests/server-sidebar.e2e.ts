@@ -44,7 +44,7 @@ import type { Browser, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-commands/types'
 import type {} from '@deepseek-ai/dsh-workspace'
@@ -71,7 +71,7 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 const GHOST_SESSION_ID = 'server-sidebar-e2e-ghost-session'
 const GHOST_WORKFLOW_ID = 'ghost-workflow'
 /** This package's own settings namespace; a bare string literal, not an import (see the module doc above). */
-const SERVER_SIDEBAR_NAMESPACE = settingsNamespace('server-sidebar')
+const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
 
 // A fresh session's composer still carries the hero placeholder
 // (`placeholder.hero` in dsh-client-ui-conversation) until a message lands
@@ -147,7 +147,7 @@ interface ShownPageData {
 
 /** Whether any live agent's session recorded showing `page` with the given writer. */
 function anySessionShowed(scaffold: WebScaffold, page: string, by: 'agent' | 'user'): boolean {
-  return scaffold.ctx.agents.list().some(agent => agent.session.events.some((event: SessionEvent) => {
+  return scaffold.ctx.agents.list().some(agent => agent.session.snapshotEvents().some((event: SessionEvent) => {
     // `'content/shown'` augments `SessionEventMap` from content-frame, which
     // apps/web cannot import (see the module doc), so this compilation's
     // `SessionEvent['type']` union has no such member to narrow on — widen
@@ -174,7 +174,7 @@ function readServerMenu(scaffold: WebScaffold): LocalServerMenu {
 function commandTripleTypes(scaffold: WebScaffold, sessionId: string): string[] {
   const agent = scaffold.ctx.agents.get(SessionId(sessionId))
   if (agent === undefined) return []
-  return agent.session.events
+  return agent.session.snapshotEvents()
     .map((event: SessionEvent) => event.type as string)
     .filter(type => type === 'command/run' || type === 'content/shown' || type === 'command/done')
 }
@@ -245,11 +245,10 @@ describe('web e2e: the product-console sidebar', () => {
     })
     // Registered before the browser ever connects, so the client's initial
     // boot payload already carries it — no live-push race to synchronize
-    // against, and no interference with `dsh-client-runtime`'s own one-shot
-    // `startInitialSelection`: that mechanism and this scenario's own
-    // explicit workbench click both resolve through the same
-    // `WorkspaceRuntime.connectWorkspace` coalescing, so whichever gets
-    // there first, the session left open is the same one either way.
+    // against. The sidebar's own auto-land and this scenario's explicit
+    // workbench click both resolve through the same
+    // `UiWorkspace.connectWorkspace` coalescing, so whichever gets there
+    // first, the session left open is the same one either way.
     const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-workspace')
     await mkdir(workspaceDir, { recursive: true })
     await scaffold.ctx.workspaceRegistry.create(workspaceDir)

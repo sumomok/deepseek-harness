@@ -10,7 +10,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { LocaleRuntime } from '@deepseek-ai/dsh-client-locale/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as themeApply, inject as themeInject, type ThemeRuntime } from '@deepseek-ai/dsh-client-ui-theme/client'

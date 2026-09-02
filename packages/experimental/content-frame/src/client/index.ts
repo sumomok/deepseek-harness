@@ -22,13 +22,15 @@
  * not for a chat message narrating the click.
  * @module @deepseek-ai/dsh-experimental-content-frame/client
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// Type-only: pulls the SlotRegistry service merge (ctx.slots).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the content column's `content.surface.kind` SlotMap declaration.
 import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
-// Type-only: pulls ui-conversation's `conversation.chat.commandview` SlotMap declaration.
-import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls ui-chat's `conversation.chat.commandview` SlotMap declaration.
+import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 // Type-only: pulls this package's own `content` SessionProjectionMap merge.
 import type {} from '../types.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../route.ts'

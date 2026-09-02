@@ -13,7 +13,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
@@ -335,7 +335,6 @@ describe('server-sidebar browser half: sidebar registration', () => {
   it('stringifies a non-Error transport rejection rather than losing it', async () => {
     const { ctx } = await bench()
     const { injected, actions } = injectSidebar(ctx)
-    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject('transport exploded')))
     await injected.onSaveWorkflows([])
     expect(actions.setError).toHaveBeenCalledWith('transport exploded')

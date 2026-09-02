@@ -41,7 +41,10 @@
  * that forgets to.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
+// Type-only: pulls the SlotRegistry service merge (ctx.slots).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls ui-layout's ctx.layout Context merge (unused directly here,
@@ -195,7 +198,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
         onSave: async (sessionId, name, navSnapshot) => {
           const current = await readServerMenu()
           const workflow: ServerMenuWorkflow = {
-            id: crypto.randomUUID(),
+            id: randomUUID(),
             name,
             order: nextOrder(current.workflows),
             homeSessionId: sessionId,

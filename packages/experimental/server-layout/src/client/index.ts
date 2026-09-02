@@ -18,7 +18,11 @@
  * a declaration, so the service must exist before the slots do.
  * @module @deepseek-ai/dsh-experimental-server-layout/client
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// Type-only: pulls the SlotRegistry service merge (ctx.slots).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
+// Type-only: pulls the session standard props (useSessions, sessionId).
+import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls ui-theme's Context merge (ctx.theme + the theme/change event).

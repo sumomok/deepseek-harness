@@ -4,7 +4,7 @@
  * a command that ran but answered its own error result.
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { dismissContentEntry } from '../src/client/dismiss.ts'
 
 /** Build a minimal fake context exposing only what `dismissContentEntry` reads. */

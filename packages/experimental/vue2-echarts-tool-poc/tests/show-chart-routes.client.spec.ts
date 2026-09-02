@@ -20,7 +20,7 @@ import { join } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { CallId } from '@deepseek-ai/dsh-llm/brand'
+import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
@@ -294,7 +294,7 @@ describe('show-chart routes', () => {
     session.append('tool/call', {
       turn: 1,
       step: 1,
-      callId: CallId('call_1'),
+      callId: ToolCallId('call_1'),
       name: 'show_chart',
       arguments: JSON.stringify({ id: 'revenue', option: { series: [{ type: 'bar', data: [1] }] } }),
     })
@@ -356,7 +356,7 @@ describe('show-chart content column contribution', () => {
       session.append('tool/call', {
         turn: 1,
         step: 1,
-        callId: CallId(callId),
+        callId: ToolCallId(callId),
         name: 'show_chart',
         arguments: JSON.stringify({ id, title, option: { series: [{ type: 'bar', data: [1] }] } }),
       })

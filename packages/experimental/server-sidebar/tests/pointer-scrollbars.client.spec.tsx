@@ -24,6 +24,10 @@ const t: ServerSidebarRootComponentProps['t'] = (key, vars?: Record<string, unkn
       return typeof value === 'string' ? value : ''
     })
 }
+/** No Session has a pending interaction in these fixtures. */
+const noPendingInteraction: ServerSidebarRootComponentProps['useSessionPendingInteraction'] =
+  selector => selector(new Map())
+
 const emptySessions = (<S,>(sel: (s: { current: undefined; byId: Record<string, never>; phase: 'ready' }) => S): S =>
   sel({ current: undefined, byId: {}, phase: 'ready' })) as unknown as ServerSidebarRootComponentProps['useSessions']
 
@@ -49,9 +53,10 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
         sel({ workflows: [], workbenchSessionId: undefined, error: undefined }))}
       actions={{ setServerMenu: vi.fn(), setError: vi.fn() }}
       useSessions={emptySessions}
-      useWorkspaces={((<S,>(sel: (s: { recentWorkspaceId: string | undefined }) => S): S => (
-        sel({ recentWorkspaceId: 'workspace-1' })
+      useWorkspaces={((<S,>(sel: (s: { phase: 'ready'; items: readonly object[] }) => S): S => (
+        sel({ phase: 'ready', items: [{}] })
       )) as unknown) as ServerSidebarRootComponentProps['useWorkspaces']}
+      useSessionPendingInteraction={noPendingInteraction}
       renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>
         options?.fallback ?? <div data-testid="region" />) as ServerSidebarRootComponentProps['renderSlot']}
     />,

@@ -52,7 +52,7 @@ async function run(ctx: Context, agent: Agent, rawInput: string): Promise<Comman
 
 /** Every `content/shown` payload the session recorded, in order. */
 function shown(session: Session): unknown[] {
-  return session.events
+  return session.snapshotEvents()
     .filter((event: SessionEvent) => event.type === 'content/shown')
     .map((event: SessionEvent) => event.data)
 }

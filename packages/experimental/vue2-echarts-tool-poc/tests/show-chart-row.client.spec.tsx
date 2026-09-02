@@ -12,7 +12,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ContentSurfaceView } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { ShowChartRow, type ShowChartRowProps } from '../src/client/ShowChartRow.tsx'
 import css from '../src/client/show-chart.module.css'
@@ -71,7 +71,6 @@ function running(args: unknown, callId = CALL_ID): ToolCallBlock {
     turn: 1,
     step: 1,
     time: 0,
-    callView: null,
     subCalls: [],
   }
 }
@@ -87,8 +86,6 @@ function settled(args: unknown, callId = CALL_ID): ToolCallBlock {
     callTime: 0,
     content: [],
     isError: false,
-    callView: null,
-    resultView: null,
     subCalls: [],
   }
 }

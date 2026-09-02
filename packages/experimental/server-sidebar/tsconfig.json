@@ -18,10 +18,16 @@
       "path": "../../../vendor/schemastery"
     },
     {
+      "path": "../../api/workspace-controller/tsconfig.client.json"
+    },
+    {
       "path": "../../client/locale"
     },
     {
-      "path": "../../client/runtime"
+      "path": "../../client/store"
+    },
+    {
+      "path": "../../client/ui-chat"
     },
     {
       "path": "../../client/ui-conversation"
@@ -33,13 +39,16 @@
       "path": "../../client/ui-primitives"
     },
     {
+      "path": "../../client/ui-renderer"
+    },
+    {
       "path": "../../client/ui-sidebar"
     },
     {
       "path": "../../client/ui-slots"
     },
     {
-      "path": "../content-surface"
+      "path": "../../core/session"
     },
     {
       "path": "../../host/webserver"
@@ -48,10 +57,19 @@
       "path": "../../runtime-diagnostics/invariants"
     },
     {
+      "path": "../../session/session-projection"
+    },
+    {
       "path": "../../settings/settings"
     },
     {
       "path": "../../settings/settings-file"
+    },
+    {
+      "path": "../../util/crypto"
+    },
+    {
+      "path": "../content-surface"
     }
   ]
 }

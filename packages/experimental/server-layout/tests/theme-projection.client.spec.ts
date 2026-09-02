@@ -12,7 +12,7 @@ import { DARK_PALETTE_ATTRIBUTE, projectTheme, retractTheme } from '../src/clien
 /** One resolved snapshot; only `active` reaches the document. */
 function snapshot(colorScheme: 'light' | 'dark', tokens: Record<string, string> = {}): ThemeSnapshot {
   const active = { id: colorScheme, colorScheme, tokens }
-  return { preference: colorScheme, active, themes: [active], revision: 1 }
+  return { preference: colorScheme, fontSize: 14, active, themes: [active], revision: 1 }
 }
 
 afterEach(() => {

@@ -6,7 +6,7 @@
  * de-facto singleton.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/workflow-store
  */
-import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
+import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
 import type { ServerMenuState } from './workflow-api.ts'
 
 /** Server-menu state. */

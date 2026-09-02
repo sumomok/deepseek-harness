@@ -179,7 +179,7 @@ describe('hosted application route', () => {
     })
     const execution = await loaded.commands.execute(commandAgent, '/show-content-page home', [], new AbortController().signal)
     expect(execution?.result).toEqual({ kind: 'success', text: 'Now showing Home in the content column.' })
-    expect(commandSession.events.filter(event => event.type === 'content/shown').map(event => event.data))
+    expect(commandSession.snapshotEvents().filter(event => event.type === 'content/shown').map(event => event.data))
       .toEqual([{ page: 'home', by: 'user' }])
     const session = newSession(loaded)
     expect(loaded.sessionProjections.snapshot(session).values.content)

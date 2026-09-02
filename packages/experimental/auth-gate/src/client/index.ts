@@ -14,7 +14,7 @@
  * @module @deepseek-ai/dsh-experimental-auth-gate/client
  */
 
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, type AuthGateSettings } from '../route.ts'
 import { windowGateBrowser } from './browser.ts'
 import { runGate } from './run.ts'

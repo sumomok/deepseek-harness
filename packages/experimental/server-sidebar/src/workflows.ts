@@ -14,11 +14,10 @@
  */
 
 import z from '@deepseek-ai/schemastery'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 
 /** Settings namespace this package owns. */
-export const SERVER_SIDEBAR_NAMESPACE: SettingsNamespace = settingsNamespace('server-sidebar')
+export const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
 
 /**
  * One workflow: a user-named shortcut back to the one conversation it binds

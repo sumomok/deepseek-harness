@@ -3,7 +3,7 @@
  * `conversation.chat.commandview` registrant (`HiddenCommandRow.tsx`) leaves
  * behind.
  *
- * `dsh-client-ui-conversation`'s chat column lays out its rows with a flex
+ * `dsh-client-ui-chat`'s chat column lays out its rows with a flex
  * `gap: 16px`; an empty flex item still reserves that gap even at zero
  * height, so a registrant that renders nothing leaves an invisible 16px hole
  * rather than making the row disappear. `ChatNodeSeat.tsx`'s

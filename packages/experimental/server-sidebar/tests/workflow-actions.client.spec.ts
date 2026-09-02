@@ -4,7 +4,7 @@
  * (session-orchestration, decisions ①/⑥/⑧).
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import {
   nextOrder, openWorkbenchOnClick, openWorkbenchOnLoad, openWorkflow, reordered, sortedWorkflows,
 } from '../src/client/workflow-actions.ts'
