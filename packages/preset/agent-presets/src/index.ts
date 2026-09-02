@@ -59,7 +59,7 @@ export type {
  * `code` means `ptc`. The alias applies only when no root supplies the legacy
  * id itself: a user-authored preset of that name keeps winning.
  */
-const LEGACY_PRESET_IDS: Readonly<Record<string, string>> = { code: 'ptc' }
+const LEGACY_PRESET_IDS: ReadonlyMap<string, string> = new Map([['code', 'ptc']])
 
 /**
  * The id the roster answers to for `wanted`: `wanted` itself when a root
@@ -70,9 +70,10 @@ const LEGACY_PRESET_IDS: Readonly<Record<string, string>> = { code: 'ptc' }
  */
 function rosterIdFor(wanted: string, presets: readonly AgentPreset[]): string {
   if (presets.some(preset => preset.id === wanted)) return wanted
-  // Own keys only: `wanted` comes from a user-edited settings file, and a
-  // name such as `constructor` must not resolve through the prototype.
-  return Object.hasOwn(LEGACY_PRESET_IDS, wanted) ? LEGACY_PRESET_IDS[wanted] ?? wanted : wanted
+  // A Map, not an object literal: `wanted` comes from a user-edited settings
+  // file, and a name such as `constructor` must not resolve through the
+  // prototype chain of a plain record.
+  return LEGACY_PRESET_IDS.get(wanted) ?? wanted
 }
 
 /** Settings namespace carrying the user's chosen default preset. */
