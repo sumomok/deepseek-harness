@@ -72,6 +72,38 @@ describe('the default preset as a user setting', () => {
     expect(ctx.agentPresets.defaultId).toBe('minimal')
   })
 
+  it('resolves the legacy `code` id to the shipped `ptc` preset when no root supplies `code`', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-legacy-'))
+    await mkdir(join(root, 'ptc'))
+    await writeFile(join(root, 'ptc', 'agent.cordis.yml'), '- id: beta\n  name: ../../plugins/contribute.js\n  config:\n    tool: beta\n')
+    const { ctx } = await harness([{ path: root, trust: 'user' as const }])
+    // A settings file written by a release that shipped the preset as `code`.
+    await ctx.settings.update(NS, { default: 'code' })
+
+    expect((await ctx.agentPresets.resolve()).id).toBe('ptc')
+    expect((await ctx.agentPresets.resolve('code')).id).toBe('ptc')
+    expect((await ctx.agentPresets.remoteExportList()).presets.find(preset => preset.isDefault)?.id).toBe('ptc')
+  })
+
+  it('keeps a user-authored `code` preset ahead of the legacy alias', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-legacy-'))
+    for (const id of ['code', 'ptc']) {
+      await mkdir(join(root, id))
+      await writeFile(join(root, id, 'agent.cordis.yml'), '- id: beta\n  name: ../../plugins/contribute.js\n  config:\n    tool: beta\n')
+    }
+    const { ctx } = await harness([{ path: root, trust: 'user' as const }])
+    await ctx.settings.update(NS, { default: 'code' })
+
+    expect((await ctx.agentPresets.resolve('code')).id).toBe('code')
+    expect((await ctx.agentPresets.remoteExportList()).presets.find(preset => preset.isDefault)?.id).toBe('code')
+  })
+
+  it('still refuses an id that is neither in a root nor a legacy alias', async () => {
+    const { ctx } = await harness()
+
+    await expect(ctx.agentPresets.resolve('nope')).rejects.toMatchObject({ code: 'agent-preset/not-found' })
+  })
+
   it('composes a new session from the user default', async () => {
     const { ctx } = await harness()
     await ctx.settings.update(NS, { default: 'minimal' })
