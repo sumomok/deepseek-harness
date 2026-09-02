@@ -106,6 +106,24 @@ function readResults(events: readonly SessionEvent[]): string[] {
   })
 }
 
+/**
+ * The text of the last answer the model wrote, which is this turn's own answer:
+ * the steps that only call tools carry no text block at all, and the seeded
+ * history precedes every event this turn appends.
+ * @param events - every session event the run recorded, in order.
+ * @returns that answer, or an empty string when the turn wrote none.
+ */
+function lastAnswerText(events: readonly SessionEvent[]): string {
+  const answers = events.flatMap((event) => {
+    if (event.type !== 'assistant/message') return []
+    const text = event.data.message.content.flatMap(
+      block => (block.type === 'text' ? [block.text] : []),
+    ).join('')
+    return text === '' ? [] : [text]
+  })
+  return answers.at(-1) ?? ''
+}
+
 describe('web e2e: the agent reads the page in the content column', () => {
   let scaffold: WebScaffold
   let browser: Browser
@@ -169,26 +187,34 @@ describe('web e2e: the agent reads the page in the content column', () => {
     await page.locator('[data-content-read-stage="done"]').first().waitFor({ timeout: 30_000 })
 
     const listings = readResults(sessionEvents)
-    // How many reads one answer takes is the model's decision. The outline says
-    // the table has three rows and names the way to list them — pass `scope`
-    // with the table's ref — so a question about the buttons in those rows is
-    // answered either from the outline or by following that hint into the
-    // table; two recordings of this prompt took three reads and two. What this
-    // pins is that the page was read and what the first read answered with.
-    expect(listings.length).toBeGreaterThanOrEqual(1)
-    const listing = listings[0] ?? ''
-    // The first read is always of the whole page: no read has returned a ref
-    // yet, so `scope` and `after` name nothing the model could pass.
+    // How a page gets read is the model's to choose, and three recordings of
+    // this one prompt chose three ways: three whole-page reads; an outline and
+    // then `scope` on the table's ref; and a map, then `scope` on the table and
+    // on the form in one step. All three answered correctly, so neither the
+    // number of reads, nor the mode of any one of them, nor which of them saw
+    // the table is a fact about this product. What follows is what the product
+    // promises whichever way the model went.
     //
-    // The header the tool composes, then the reader's own rows: the table's
-    // shape reaches the model, its contents do not.
-    expect(listing.startsWith('Page: Home — the app is at /content-app/')).toBe(true)
-    expect(listing).toContain('3 rows')
-    expect(listing).toContain('Add machine')
-    // A dialog the page has not opened is on the map and nowhere else.
-    expect(listing).not.toContain('Shut down the whole fleet?')
-    // Whatever a later read narrowed to, it read this same page.
-    for (const later of listings.slice(1)) expect(later.startsWith('Page: Home — ')).toBe(true)
+    // The page was read at least once.
+    expect(listings.length).toBeGreaterThanOrEqual(1)
+    // Every listing carries the header line, which the tool composes around
+    // whatever the seat returned rather than the model writing it. A read that
+    // failed answers a sentence instead, so this holds the channel as well.
+    expect(listings.filter(text => !text.startsWith('Page: Home — the app is at /content-app/'))).toEqual([])
+    // Some listing names the table. The page writes `aria-label="Fleet"`, and
+    // an outline, a map, a `scope` on its ref and a `find` on its text each
+    // print it the same way, so any read that reached the table shows this.
+    expect(listings.some(text => text.includes('table "Fleet"'))).toBe(true)
+    // What is written inside a dialog the page has not opened reaches no read:
+    // a map prints that node as hidden and no listing descends into it.
+    expect(listings.filter(text => text.includes('Shut down the whole fleet?'))).toEqual([])
+    // And the answer names all three machines. The page writes each name in a
+    // row and again inside that row's button label, so an answer about what the
+    // table holds carries all three however it is worded. The wording is the
+    // model's and is pinned nowhere here.
+    const answer = lastAnswerText(sessionEvents)
+    expect(['mill-01', 'mill-02', 'mill-03'].filter(machine => answer.includes(machine)))
+      .toEqual(['mill-01', 'mill-02', 'mill-03'])
     if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE)
   }, 200_000)
 
