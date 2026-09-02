@@ -50,6 +50,21 @@ export const CLAIM_RETRY_MS = 200
 export const MAX_CLAIM_BACKOFF = 5
 
 /**
+ * How long a seat goes on bidding for one call before it lets go, in
+ * milliseconds.
+ *
+ * The bidding is bounded by the call still being on the session's pending list,
+ * and that list is a fold over the log: a host that stopped mid-write leaves a
+ * call opened and never settled, and a seat with no ceiling would bid at one a
+ * second for as long as the tab stayed open. Ten minutes is well past any
+ * approval a person is going to answer — a request left that long is one nobody
+ * came back to — and well short of a session left open overnight. Past it the
+ * seat stops for good on that call id; a host cold-loading the session is what
+ * finally closes it, as the unknown outcome its repair writes.
+ */
+export const MAX_BID_MS = 600000
+
+/**
  * The share of the report deadline a seat may spend waiting for a frame that is
  * still loading.
  *

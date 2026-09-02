@@ -27,7 +27,8 @@ import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
-  ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
+  ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_BID_MS,
+  MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
   MAX_CLAIM_BACKOFF, MAX_URL_CHARS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
   SETTLE_WAIT_SHARE, type ActOutcome, type ChannelOutcome, type ClaimAck, type ReadOutcome, type ReadPage,
@@ -305,6 +306,7 @@ async function claimRead(
   callId: string,
 ): Promise<ClaimAck | undefined> {
   let waitMs = CLAIM_RETRY_MS
+  const until = Date.now() + MAX_BID_MS
   for (;;) {
     const posted = await post<ClaimAck>(CONTENT_CLAIM_ROUTE, JSON.stringify({ callId, tabId: seat.current.tabId }))
     if (posted.kind === 'refused') return undefined
@@ -319,6 +321,10 @@ async function claimRead(
     if (!mounted.current) return undefined
     // The result reached the log while this seat waited: the call is over.
     if (!seat.current.pending.some(request => request.callId === callId)) return undefined
+    // And the ceiling, for the call that never leaves the list at all: a host
+    // that stopped mid-write leaves one opened and never settled, and nobody is
+    // coming back to an approval this old.
+    if (Date.now() >= until) return undefined
   }
 }
 

@@ -18,7 +18,7 @@ import {
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
   MAX_ACT_STEPS, MAX_CLAIM_BACKOFF, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS,
-  MIN_OUTLINE_CHARS,
+  MAX_BID_MS, MIN_OUTLINE_CHARS,
   parseChannelReport,
   PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
@@ -335,6 +335,26 @@ describe('when the reader claims', () => {
     expect(reported()).toMatchObject({ status: 'ok' })
     view.unmount()
   }, 30_000)
+
+  it('lets go of a call that has been waiting longer than any approval', async () => {
+    // The list a bid is bounded by is a fold over the log, so a host that
+    // stopped mid-write leaves a call on it for good. Time is faked because
+    // the ceiling is ten minutes and the assertion is about the ceiling.
+    vi.useFakeTimers()
+    try {
+      claims = Array.from({ length: 5000 }, () => ({ claimed: false, reason: 'unknown' as const }))
+      const view = drive(seatOf())
+      await vi.advanceTimersByTimeAsync(MAX_BID_MS)
+      const bids = of(CONTENT_CLAIM_ROUTE).length
+      expect(bids).toBeGreaterThan(MAX_BID_MS / (CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF) / 2)
+      await vi.advanceTimersByTimeAsync(MAX_BID_MS)
+      expect(of(CONTENT_CLAIM_ROUTE).length).toBe(bids)
+      expect(of(CONTENT_REPORT_ROUTE)).toEqual([])
+      view.unmount()
+    } finally {
+      vi.useRealTimers()
+    }
+  })
 
   it('widens the interval between bids rather than asking once a fifth of a second forever', async () => {
     // A wait measured in minutes costs one bid a second, not five: the interval
