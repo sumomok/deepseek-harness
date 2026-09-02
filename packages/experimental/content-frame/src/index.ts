@@ -37,7 +37,7 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { ContentPage } from './types.ts'
 import { indexPages } from './pages.ts'
 import { contentProjection } from './projection.ts'
-import { pageExtractor } from './surface.ts'
+import { frontEntry, pageExtractor } from './surface.ts'
 import { contentShowTool } from './tool.ts'
 import { contentNavigatedCommand, showContentPageCommand } from './command.ts'
 import { CONTENT_APP_ROUTE, CONTENT_SETTINGS_ROUTE, type ContentFrameSettings } from './route.ts'
@@ -414,7 +414,13 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   }), 'content-frame: page read report route')
 
   ctx.inject(['tools'], (toolCtx) => {
-    toolCtx.tools.register(contentReadTool(pending, timeouts))
+    // The projection registry is an optional seam, and this is the one thing a
+    // composition without it goes without: the unclaimed refusal falls back to
+    // the advice an empty column earns, which is what an unreadable column is
+    // from here.
+    toolCtx.tools.register(contentReadTool(pending, timeouts, session => frontEntry(
+      ctx.get('sessionProjections')?.snapshot(session).values.contentSurface,
+    )))
   })
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(contentAccessProjection())

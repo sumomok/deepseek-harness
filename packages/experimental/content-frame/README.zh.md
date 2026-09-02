@@ -189,7 +189,19 @@
 
 #### What the model sees
 
-读取成功时回复一个文本块：一行 `Page: <title> — the app is at <path>, title "<document title>"`，后接可见的面包屑；随后各占一行的是页面打开着的对话框名称、页面自称还在加载的东西、以及这次读取时它是否还在变；再往下是列表本身。整页超出预算时回的是页面骨架，并在第一行说明这一点；被截断的列表末尾给出接着读的游标，作为 `after` 传回。其余每一种结局都是一句写明下一步的错误：调用 `content_show`、去掉 `scope`、读页面更小的一块或者把 `outlineChars` 调大、请用户登录、请用户打开控制台，或者重试一次。
+读取成功时回复一个文本块：一行 `Page: <title> — the app is at <path>, title "<document title>"`，后接可见的面包屑；随后各占一行的是页面打开着的对话框名称、页面自称还在加载的东西、以及这次读取时它是否还在变；再往下是列表本身。整页超出预算时回的是页面骨架，并在第一行说明这一点；被截断的列表末尾给出接着读的游标，作为 `after` 传回。其余每一种结局都是一句写明下一步的错误：调用 `content_show`、去掉 `scope`、读页面更小的一块或者把 `outlineChars` 调大、请用户登录、请用户打开控制台，或者重试一次。其中一种有两副面孔，因为下一步该做什么取决于这一栏已经装着什么：空栏上的认领超时保留那句能修好它的建议；已经有东西在前面的栏上，这句建议被收回并明说收回，那一项按它自己的 kind 词点名——图表就是 `the chart "…"`——因为这一栏的 key 域是开放的，而 `content_show` 对在前面的图表和对页面一样帮不上忙。没有组合 projection registry 的装配读不到栏，走第一副面孔。
+
+##### The claim timeout over an empty column
+
+```markdown
+No open console is showing this session's content column (waited 3s). Call content_show to put a page there, or ask the user to open the console, then retry.
+```
+
+##### The claim timeout over a column with an entry in front
+
+```markdown
+No open console is showing this session's content column (waited 3s); the page "点位信息" is already in front. Ask the user whether they have the console open on this session, then retry. content_show cannot help here.
+```
 
 #### Token effect
 

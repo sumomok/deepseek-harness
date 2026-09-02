@@ -189,7 +189,19 @@ The description is a constant and never varies within a deployment, so the tool 
 
 #### What the model sees
 
-A successful read answers with one text block: a `Page: <title> — the app is at <path>, title "<document title>"` line, extended with the visible breadcrumb and, each on its own line, the name of any dialog the page has open, what the page marks as still loading, and whether it was still changing when the read ran — followed by the listing itself. A whole page too large for the budget answers with the page's map and says so on that first line; a listing cut short ends with the cursor to pass back as `after`. Every other ending is an error naming what to do next: call `content_show`, drop `scope`, read a smaller part of the page or raise `outlineChars`, ask the user to sign in, ask the user to open the console, or retry once.
+A successful read answers with one text block: a `Page: <title> — the app is at <path>, title "<document title>"` line, extended with the visible breadcrumb and, each on its own line, the name of any dialog the page has open, what the page marks as still loading, and whether it was still changing when the read ran — followed by the listing itself. A whole page too large for the budget answers with the page's map and says so on that first line; a listing cut short ends with the cursor to pass back as `after`. Every other ending is an error naming what to do next: call `content_show`, drop `scope`, read a smaller part of the page or raise `outlineChars`, ask the user to sign in, ask the user to open the console, or retry once. One of them takes two forms, because the right next step depends on what the column already holds: over an empty column the claim timeout keeps the offer that fixes it, and over a column with something in front it withdraws that offer and says so, naming the entry by its own kind word — `the chart "…"` for a chart — because the column's key domain is open and `content_show` helps a chart in front no more than a page. A composition with no projection registry reads no column and takes the first form.
+
+##### The claim timeout over an empty column
+
+```markdown
+No open console is showing this session's content column (waited 3s). Call content_show to put a page there, or ask the user to open the console, then retry.
+```
+
+##### The claim timeout over a column with an entry in front
+
+```markdown
+No open console is showing this session's content column (waited 3s); the page "点位信息" is already in front. Ask the user whether they have the console open on this session, then retry. content_show cannot help here.
+```
 
 #### Token effect
 

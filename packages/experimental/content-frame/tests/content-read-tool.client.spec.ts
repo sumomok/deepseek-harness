@@ -22,7 +22,7 @@ import type { ToolExecutionInput, ToolExecutionResult, ToolRunContext } from '@d
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { contentReadTool } from '../src/access/read-tool.ts'
 import { PendingReads, type ReadTimeouts } from '../src/access/pending.ts'
-import { unansweredRefusal, unclaimedRefusal } from '../src/access/text.ts'
+import { unansweredRefusal, unclaimedRefusal, type FrontEntry } from '../src/access/text.ts'
 import type { ReadOutcome, ReadSnapshot } from '../src/access/wire.ts'
 
 /** Deadlines short enough for a test to sit through both of them. */
@@ -64,12 +64,12 @@ interface Bench {
 }
 
 /** Boot the tool over a real registry and a real session. */
-async function bench(timeouts: ReadTimeouts = FAST): Promise<Bench> {
+async function bench(timeouts: ReadTimeouts = FAST, front?: FrontEntry): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   const pending = new PendingReads()
-  ctx.tools.register(contentReadTool(pending, timeouts))
+  ctx.tools.register(contentReadTool(pending, timeouts, () => front))
   const session = Session.create(SessionId(`content-read-${++calls}`))
   const agent = agentWithSession(session)
   return {
@@ -157,7 +157,7 @@ describe('what content_read offers the model', () => {
   })
 
   it('presents the call and its result as pure functions of what they carry', () => {
-    const tool = contentReadTool(new PendingReads(), FAST)
+    const tool = contentReadTool(new PendingReads(), FAST, () => undefined)
     expect(tool.presentCall?.({})).toEqual({
       card: 'generic',
       title: 'Read the page in the content column',
@@ -216,9 +216,23 @@ describe('what content_read refuses before it waits', () => {
 
 describe('what content_read answers when no listing arrives', () => {
   it('pins the two deadline sentences against the deployment defaults', () => {
-    expect(unclaimedRefusal(3000)).toBe(
+    expect(unclaimedRefusal(3000, undefined)).toBe(
       'No open console is showing this session\'s content column (waited 3s). '
       + 'Call content_show to put a page there, or ask the user to open the console, then retry.',
+    )
+    // A column that already holds something is the case the first sentence
+    // gets wrong: `content_show` appends another `content/shown` and answers
+    // that it is now showing, without a console being any more open.
+    expect(unclaimedRefusal(3000, { kind: 'page', title: '点位信息' })).toBe(
+      'No open console is showing this session\'s content column (waited 3s); '
+      + 'the page "点位信息" is already in front. '
+      + 'Ask the user whether they have the console open on this session, then retry. '
+      + 'content_show cannot help here.',
+    )
+    // Named by its own kind word, because the column's key domain is open and
+    // `content_show` helps a chart in front no more than a page.
+    expect(unclaimedRefusal(3000, { kind: 'chart', title: '黄金走势' })).toContain(
+      'the chart "黄金走势" is already in front.',
     )
     expect(unansweredRefusal(15000)).toBe(
       'The console claimed this read but did not answer within 15s; '
@@ -226,13 +240,28 @@ describe('what content_read answers when no listing arrives', () => {
     )
   })
 
-  it('says no console is open once the claim window passes', async () => {
+  it('says no console is open once the claim window passes, and offers content_show for an empty column', async () => {
     const { run } = await bench()
     const result = await run({}).settled
     expect(result.isError).toBe(true)
     expect(text(result)).toBe(
       'Error: No open console is showing this session\'s content column (waited 0.03s). '
       + 'Call content_show to put a page there, or ask the user to open the console, then retry.',
+    )
+  })
+
+  it('withholds that offer where the column already holds what the read was for', async () => {
+    // The whole point of the second path: this session's column is not empty,
+    // so the tool the model would reach for next changes nothing about why the
+    // read failed, and the refusal says so rather than leaving it to be found.
+    const { run } = await bench(FAST, { kind: 'page', title: 'Home' })
+    const result = await run({}).settled
+    expect(result.isError).toBe(true)
+    expect(text(result)).toBe(
+      'Error: No open console is showing this session\'s content column (waited 0.03s); '
+      + 'the page "Home" is already in front. '
+      + 'Ask the user whether they have the console open on this session, then retry. '
+      + 'content_show cannot help here.',
     )
   })
 
@@ -253,7 +282,7 @@ describe('what content_read answers when no listing arrives', () => {
 
   it('names the cancellation the agent loop replaces with its own outcome', async () => {
     const aborter = new AbortController()
-    const tool = contentReadTool(new PendingReads(), FAST)
+    const tool = contentReadTool(new PendingReads(), FAST, () => undefined)
     const session = Session.create(SessionId(`content-read-${++calls}`))
     const exec = {
       callId: 'call_cancelled',
@@ -396,6 +425,6 @@ describe('the listing content_read answers with', () => {
   })
 
   it('runs beside its siblings rather than queueing a second claim window', () => {
-    expect(contentReadTool(new PendingReads(), FAST).isConcurrencySafe?.({})).toBe(true)
+    expect(contentReadTool(new PendingReads(), FAST, () => undefined).isConcurrencySafe?.({})).toBe(true)
   })
 })

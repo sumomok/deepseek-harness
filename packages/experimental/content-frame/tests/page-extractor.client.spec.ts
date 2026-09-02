@@ -11,7 +11,8 @@
 import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { indexPages } from '../src/pages.ts'
-import { PAGE_KIND, pageExtractor } from '../src/surface.ts'
+import { frontEntry, PAGE_KIND, pageExtractor } from '../src/surface.ts'
+import type { ContentSurfaceView } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import type { ContentPage } from '../src/types.ts'
 
 const PAGES: ContentPage[] = [
@@ -58,5 +59,30 @@ describe('page extractor', () => {
       title: 'retired',
       payload: { state: 'missing', page: 'retired', by: 'agent' },
     })
+  })
+})
+
+describe('the entry a column has in front', () => {
+  /** One published stream, as the projection's view hands it over. */
+  function view(over: Partial<ContentSurfaceView>): ContentSurfaceView {
+    return {
+      entries: [{ kind: PAGE_KIND, entryId: 'reports', seq: 2, title: 'Weekly reports', payload: {} }],
+      ...over,
+    }
+  }
+
+  it('names it by the title the switcher shows', () => {
+    expect(frontEntry(view({ front: { kind: PAGE_KIND, entryId: 'reports' } })))
+      .toMatchObject({ kind: PAGE_KIND, title: 'Weekly reports' })
+  })
+
+  it('answers nothing for an empty column, a column nobody publishes, and a front the stream lost', () => {
+    // The three ways the one refusal that reads this gets no entry, and every
+    // one of them earns the same advice: a composition with no projection
+    // registry, a session that has produced nothing, and a `front` naming an
+    // entry that has since been dismissed.
+    expect(frontEntry(undefined)).toBeUndefined()
+    expect(frontEntry(view({ entries: [] }))).toBeUndefined()
+    expect(frontEntry(view({ front: { kind: PAGE_KIND, entryId: 'home' } }))).toBeUndefined()
   })
 })

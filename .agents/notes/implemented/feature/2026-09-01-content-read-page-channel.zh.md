@@ -66,6 +66,14 @@ ref（`e12`）指的是某一个浏览器里某一份文档中的元素。同一
 
 这个工具只为一种结局返回值：一份列表。其余全部——没有控制台、没有应答、内容区为空、在前面的是别的 kind、失效的 ref、读不到的 frame、登录表单——都抛出，并带一句写明下一步的话。失败文本是模型在决定下一步时唯一会读的工具文本，因此一个以 `status: 'empty'` 形式返回的结局会被读过去而不被处理。登录这一种最尖锐：列表存在，但被扣住不发，因为密码表单是 agent 把键盘交还回去的地方，而不是绕着叙述的地方。
 
+### 认领不到时，栏里不空要说另一句话
+
+两句超时文案都写在这条通道真正对着一个控制台跑起来之前，而其中一句，在真正会发生的那种情形下给错了指令。`No open console is showing this session's content column (waited 3s). Call content_show to put a page there, or ask the user to open the console, then retry.` 把 `content_show` 排在最前——而读取失败时模型伸手去够的正是这个工具。可是，一栏里已经有页面在前面时，再展示一次修不好任何东西：这次调用只是再追加一条 `content/shown`，回一句 `Now showing …`，控制台该关着还关着。一次实录跑里，模型在这个圈里花掉十次调用、八十秒，才想起来问用户。
+
+于是这句话按栏的状态分岔，而栏的状态宿主可以从该会话自己的 `contentSurface` 值里读到：空栏保留那句建议，已经有东西在前面的栏把建议收回——`…; the page "<title>" is already in front. Ask the user whether they have the console open on this session, then retry. content_show cannot help here.` 最后那一小句是必要的：光点出正确的补救办法不够——模型手上握着一个工具，也有理由相信它，只有明说「这个帮不上忙」才拦得住那个循环。
+
+那一项按它自己的 kind 词点名而不是一律叫页面，因为这一栏的 key 域是开放的，而 `content_show` 对在前面的图表同样帮不上忙。这次查询走 projection registry，那是一道可选缝：没有组合它的装配读不到栏，走空栏那副面孔——这是诚实的答案，因为从工具的位置看，「读不到的栏」和「空的栏」是同一件事。
+
 ### 读取器住在 page 座位里
 
 `content.surface.kind` 是 root 作用域，因此框架不给它 `useProjection`，也不给会话 id；这个座位从每个 root 槽都能拿到的会话列表快照上读自己会话的值（`useSessions(state => state.byId[id]?.projectionValues?…)`），与这一栏自己的路由器已有的做法一样。但这个座位仍是唯一可能的位置：它是唯一持有 iframe 元素的组件，而没有元素的读取就是没有文档的读取。它同时持有每个 frame 的 ref 编号，并在该 frame 的 `load` 时作废它，因为一个 ref 指的是刚刚离开的那份文档里的元素。

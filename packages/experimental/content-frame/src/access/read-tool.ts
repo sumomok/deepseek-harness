@@ -18,11 +18,13 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import type { Session } from '@deepseek-ai/dsh-session'
 import type { PendingReads, ReadTimeouts } from './pending.ts'
 import {
   AFTER_DESCRIPTION, AFTER_REFUSAL, CANCELLED_REFUSAL, CONTENT_READ_DESCRIPTION, EMPTY_COLUMN_REFUSAL,
   engineRefusal, FIND_DESCRIPTION, FIND_REFUSAL, MODE_DESCRIPTION, NO_AGENT_REFUSAL, notAPageRefusal,
   readHeaderText, SCOPE_DESCRIPTION, SCOPE_REFUSAL, SIGN_IN_REFUSAL, unansweredRefusal, unclaimedRefusal,
+  type FrontEntry,
 } from './text.ts'
 import { CONTENT_READ_TOOL_NAME, type ReadArgs, type ReadOutcome } from './wire.ts'
 
@@ -154,12 +156,27 @@ function callSummary(args: ReadArgs): string {
 }
 
 /**
+ * Read the entry one session's column has in front.
+ *
+ * Only the unclaimed refusal reads it, and only to say what the model should
+ * do instead. A composition with no projection registry supplies a lookup that
+ * answers `undefined`, which is the same answer an empty column gives and the
+ * same advice it earns.
+ */
+export type FrontEntryLookup = (session: Session) => FrontEntry | undefined
+
+/**
  * Build the `content_read` tool for one deployment.
  * @param pending - the table calls wait on for a browser to read the page.
  * @param timeouts - the deployment's deadlines, also quoted in the two timeout refusals.
+ * @param front - reads the entry the calling session's column has in front, for the unclaimed refusal.
  * @returns the definition to hand to `ctx.tools.register`.
  */
-export function contentReadTool(pending: PendingReads, timeouts: ReadTimeouts): ToolDefinition {
+export function contentReadTool(
+  pending: PendingReads,
+  timeouts: ReadTimeouts,
+  front: FrontEntryLookup,
+): ToolDefinition {
   return defineTool({
     name: CONTENT_READ_TOOL_NAME,
     description: CONTENT_READ_DESCRIPTION,
@@ -241,7 +258,7 @@ export function contentReadTool(pending: PendingReads, timeouts: ReadTimeouts): 
       const settlement = await pending.open(exec.callId, exec.agent.session.header.id, exec.signal, timeouts)
       switch (settlement.kind) {
         case 'reported': return valueOf(settlement.outcome)
-        case 'unclaimed': throw new Error(unclaimedRefusal(timeouts.claimTimeoutMs))
+        case 'unclaimed': throw new Error(unclaimedRefusal(timeouts.claimTimeoutMs, front(exec.agent.session)))
         case 'unanswered': throw new Error(unansweredRefusal(timeouts.readTimeoutMs))
         // Whatever this returns is replaced by the registry's aborted result;
         // the message exists for a caller reading the rejection directly.

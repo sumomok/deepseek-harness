@@ -28,6 +28,7 @@ import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
+import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
@@ -101,6 +102,8 @@ async function loadComposition(
   pageAccess: boolean,
   accessRows: readonly string[] = [],
   outlineChars: number = OUTLINE_CHARS,
+  extraRows: readonly string[] = [],
+  claimTimeoutMs = 5000,
 ): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-content-read-'))
   const configPath = join(world, 'cordis.yml')
@@ -128,13 +131,13 @@ async function loadComposition(
   if (pageAccess) {
     rows.push(
       '    pageAccess:',
-      '      claimTimeoutMs: 5000',
+      `      claimTimeoutMs: ${String(claimTimeoutMs)}`,
       '      readTimeoutMs: 5000',
       '      pinMs: 60000',
       `      outlineChars: ${outlineChars}`,
     )
   }
-  rows.push(...accessRows)
+  rows.push(...accessRows, ...extraRows)
   await writeFile(configPath, `${rows.join('\n')}\n`)
 
   context = new Context()
@@ -148,6 +151,7 @@ async function loadComposition(
     ['@deepseek-ai/dsh-session', SessionStore],
     ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
     ['@deepseek-ai/dsh-experimental-content-frame', ContentFrame],
+    ['@deepseek-ai/dsh-experimental-content-surface', ContentSurfaceRegistry],
   ])
   context.loader.internal = {
     version: 'v2',
@@ -258,6 +262,11 @@ function hostSession(ctx: Context): Session {
   // the Client aggregate, where the cordis `Context.sessions` merge names the
   // browser service rather than the host store.
   return (ctx.get('sessions') as unknown as SessionStore).create()
+}
+
+/** The text blocks one tool result carries, joined. */
+function textOf(result: ToolExecutionResult): string {
+  return result.content.filter(block => block.type === 'text').map(block => block.text).join('\n')
 }
 
 /** Start one `content_read` for a session, the way an agent loop would. */
@@ -759,6 +768,39 @@ describe('the read channel over real HTTP', () => {
     expect(ctx.sessionProjections.snapshot(session).values.contentAccess).toEqual({
       pending: [{ callId: 'call_1', tool: 'content_read', args: { mode: 'map' } }],
     })
+  })
+
+  it('tells a read the column is not empty, so the model stops reaching for content_show', async () => {
+    // The wiring, over the real Loader: the tool reads this session's own
+    // `contentSurface` value to decide which advice the timeout earns. A
+    // recorded run without it spent ten calls showing a page that was already
+    // in front, because the refusal named `content_show` first.
+    const ctx = await loadComposition(true, [], OUTLINE_CHARS, [
+      "- name: '@deepseek-ai/dsh-experimental-content-surface'",
+    ], 30)
+    const session = hostSession(ctx)
+    session.append('content/shown', { page: 'home', by: 'user' })
+    const result = await startRead(ctx, session, 'call_front')
+    expect({ isError: result.isError, text: textOf(result) }).toEqual({
+      isError: true,
+      text: 'Error: No open console is showing this session\'s content column (waited 0.03s); '
+        + 'the page "Home" is already in front. '
+        + 'Ask the user whether they have the console open on this session, then retry. '
+        + 'content_show cannot help here.',
+    })
+  })
+
+  it('offers content_show to a read whose column has nothing in it', async () => {
+    // The same composition with nothing shown: an empty column is the one case
+    // `content_show` does fix.
+    const ctx = await loadComposition(true, [], OUTLINE_CHARS, [
+      "- name: '@deepseek-ai/dsh-experimental-content-surface'",
+    ], 30)
+    const result = await startRead(ctx, hostSession(ctx), 'call_empty')
+    expect(textOf(result)).toBe(
+      'Error: No open console is showing this session\'s content column (waited 0.03s). '
+      + 'Call content_show to put a page there, or ask the user to open the console, then retry.',
+    )
   })
 
   it('offers the tool only while a tool runtime is composed', async () => {

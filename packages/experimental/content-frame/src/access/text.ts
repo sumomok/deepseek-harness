@@ -43,6 +43,14 @@ export const AFTER_DESCRIPTION = 'the cursor a cut listing returned; continues r
 export const FIND_DESCRIPTION =
   'case-insensitive text filter: a flat list of items whose name or text contains it, table rows included'
 
+/** The entry the column has in front, as the refusal above names it. */
+export interface FrontEntry {
+  /** The entry's kind, as its extractor names it. */
+  readonly kind: string
+  /** The entry's title, as the switcher strip shows it. */
+  readonly title: string
+}
+
 /** Refusal for a `scope` that is not a ref. */
 export const SCOPE_REFUSAL = 'scope must be a ref like "e12" from a previous read'
 
@@ -93,12 +101,31 @@ export const FRAME_WIDE_LISTING_MESSAGE =
 
 /**
  * The failure for a claim window that passed with no browser in it.
+ *
+ * What the model should do next depends on what the column already holds, and
+ * getting that wrong costs a real conversation: a session whose column was
+ * already showing a page was told to call `content_show`, which appends
+ * another `content/shown` and answers `Now showing …` without a console being
+ * any more open than before — and a recorded run spent ten calls and eighty
+ * seconds in that loop before asking the user anything. So a column with
+ * something in front says the one thing that can end it, and says outright
+ * that the tool the model would otherwise reach for cannot.
+ *
+ * The entry is named by its own kind word rather than as a page, because the
+ * column's key domain is open and a chart in front is as unhelped by
+ * `content_show` as a page is.
  * @param claimTimeoutMs - the window that passed.
+ * @param front - the entry the column has in front, when it has one.
  * @returns the model-facing sentence.
  */
-export function unclaimedRefusal(claimTimeoutMs: number): string {
-  return `No open console is showing this session's content column (waited ${claimTimeoutMs / 1000}s). `
-    + 'Call content_show to put a page there, or ask the user to open the console, then retry.'
+export function unclaimedRefusal(claimTimeoutMs: number, front: FrontEntry | undefined): string {
+  const waited = `No open console is showing this session's content column (waited ${claimTimeoutMs / 1000}s)`
+  if (front === undefined) {
+    return `${waited}. Call content_show to put a page there, or ask the user to open the console, then retry.`
+  }
+  return `${waited}; the ${front.kind} "${front.title}" is already in front. `
+    + 'Ask the user whether they have the console open on this session, then retry. '
+    + 'content_show cannot help here.'
 }
 
 /**

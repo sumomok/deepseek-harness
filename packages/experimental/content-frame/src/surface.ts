@@ -15,9 +15,29 @@
  */
 
 import type { ContentSurfaceExtractor } from '@deepseek-ai/dsh-experimental-content-surface'
+import type { ContentSurfaceView } from '@deepseek-ai/dsh-experimental-content-surface/types'
+import type { FrontEntry } from './access/text.ts'
 import type { PageIndex } from './pages.ts'
 import { resolveShownPage } from './projection.ts'
 import type { ContentPageView } from './types.ts'
+
+/**
+ * Resolve the entry a column has in front, of whatever kind, for the one
+ * refusal that names it.
+ *
+ * The stream publishes `front` as a `(kind, entryId)` pair and the titles live
+ * on the entries, so naming what is in front means one lookup across both.
+ * @param view - the session's `contentSurface` value, absent where no
+ * projection registry is composed.
+ * @returns the entry, or `undefined` for an empty column and for a `front`
+ * naming an entry the stream no longer holds.
+ */
+export function frontEntry(view: ContentSurfaceView | undefined): FrontEntry | undefined {
+  if (view === undefined) return undefined
+  const front = view.front
+  if (front === undefined) return undefined
+  return view.entries.find(entry => entry.kind === front.kind && entry.entryId === front.entryId)
+}
 
 /** Kind key this package owns in the content column, and in its keyed client slot. */
 export const PAGE_KIND = 'page'
