@@ -229,8 +229,10 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the 
     expect(last).toContain(`fill "Machine name" ← "${AFTER}"`)
     expect(last.split('\n').some(line => line.startsWith('Page events during these steps'))).toBe(true)
     expect(last).toContain('\nPage now:\n')
-    // The message the page showed and took away is in the second section: the
-    // closing snapshot cannot carry it, which is why the watch exists.
+    // The message the page showed is in the second section, whether the four
+    // hundred milliseconds it stays had passed by the time the report was
+    // composed or not: the closing read carries it in neither case as
+    // something these steps produced, which is why the watch exists.
     expect(last).toContain(`message "Added ${AFTER}"`)
     // And the closing read is of the changed page, so the model needs no
     // further call to see what it did.

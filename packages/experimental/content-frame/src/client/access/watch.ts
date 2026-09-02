@@ -6,8 +6,9 @@
  * does in answer to it — a toast, a route change, a confirmation box, a window
  * it tries to open — happens afterwards and would otherwise reach nobody. The
  * closing snapshot cannot recover most of it: a toast that came and went leaves
- * nothing to read, and a `confirm()` nobody answered would have stopped the
- * call dead.
+ * nothing to read, one still on the screen is not marked as an answer to
+ * anything, and a `confirm()` nobody answered would have stopped the call
+ * dead.
  *
  * Two page functions are replaced for the length of the act window and put back
  * after it, which is the whole of what this package injects into the documents
@@ -30,15 +31,25 @@
 
 import type { DialogAnswer } from '../../access/wire.ts'
 import { dialogLine, messageLine, navigationLine, windowLine, type ActPageEvent } from '../../access/act-text.ts'
-import { clipTo, collapse, isSkipped, visibleText } from './dom.ts'
+import { clipTo, collapse, isHiddenAround, visibleText } from './dom.ts'
 
 /**
  * How many things one call reports the page doing. A protocol bound: an
  * application that redraws a list while the steps run can add hundreds of
  * nodes, and the model needs to know a toast appeared, not to read the
- * application's whole render log.
+ * application's whole render log. It is also what bounds the work: once this
+ * many lines are collected nothing further can be reported, and the watch stops
+ * looking.
  */
 const MAX_EVENTS = 8
+
+/**
+ * How many nodes the watch follows at once. A protocol bound of the same
+ * family: it reports at most {@link MAX_EVENTS} of them, so following more than
+ * a few times that many buys nothing and costs one visible-text computation per
+ * node per burst of page activity.
+ */
+const MAX_TRACKED = 32
 
 /**
  * How much of one thing the page did is quoted. A protocol bound, and the same
@@ -68,41 +79,82 @@ interface DialogFunctions {
   open: Window['open']
 }
 
-/** Text that appeared while the steps ran, waiting to see whether it goes away. */
-interface Appearance {
-  /** The node that carries it. */
-  readonly node: Node
-  /** What it says, already cut to {@link MAX_EVENT_CHARS}. */
-  readonly text: string
-  /** When it appeared, as a `Date.now()` value. */
-  readonly at: number
+/** One node the watch is following, and what the user could last read on it. */
+interface Tracked {
+  /** The element carrying the text; a text node is followed through its parent. */
+  readonly el: Element
+  /** What it showed at the last look, already cut to {@link MAX_EVENT_CHARS}; empty when it showed nothing. */
+  text: string
+  /** When it started showing that, as a `Date.now()` value. */
+  at: number
+  /**
+   * Whether what it shows now started while the steps ran. Text the watch found
+   * already on the page is not a message — it is what the page said before the
+   * call, and the closing read is where the model sees it.
+   */
+  born: boolean
+}
+
+/** The attributes a page hides and reveals text with, which the watch listens for. */
+const VISIBILITY_ATTRIBUTES = ['hidden', 'class', 'style', 'aria-hidden']
+
+/**
+ * The element one mutated node's text belongs to.
+ * @param node - the node the record named.
+ * @returns the element, or undefined for a node that carries no text of its own.
+ */
+function elementOf(node: Node): Element | undefined {
+  if (node.nodeType === node.ELEMENT_NODE) return node as Element
+  if (node.nodeType === node.TEXT_NODE) return node.parentElement ?? undefined
+  return undefined
 }
 
 /**
- * The visible text one added node contributes, if any.
- * @param node - the node the page added.
+ * What a user could read on one element at this instant.
+ *
+ * Visible text rather than the document's own, and the element's own placement
+ * as well as its contents: a page keeps its toasts in the markup and hides
+ * them, so what makes a message is the moment it can be read, not the moment it
+ * was written.
+ * @param el - the element to look at.
  * @param isVisible - injected visibility, the reader's own.
- * @returns the text, or undefined for a node that shows none.
+ * @returns the text, empty when the element shows none.
  */
-function addedText(node: Node, isVisible: (el: Element) => boolean): string | undefined {
-  if (node.nodeType === node.TEXT_NODE) {
-    const text = collapse((node as Text).data)
-    return text === '' ? undefined : text
-  }
-  if (node.nodeType !== node.ELEMENT_NODE) return undefined
-  const el = node as Element
-  if (isSkipped(el, isVisible)) return undefined
-  const text = visibleText(el, isVisible)
-  return text === '' ? undefined : text
+function shownText(el: Element, isVisible: (el: Element) => boolean): string {
+  if (!el.isConnected || isHiddenAround(el, isVisible)) return ''
+  return clipTo(visibleText(el, isVisible), MAX_EVENT_CHARS)
+}
+
+/**
+ * Whether one attribute change may have put text in front of the user.
+ *
+ * `hidden` and `aria-hidden` answer for themselves, because the record carries
+ * what they held before. What a class or an inline style drew cannot be read
+ * back once it has changed, and revealing a message is what a page uses them
+ * for, so both count: an element whose class changed and which shows text is
+ * read as having just been given that text to show. The cost of taking it that
+ * way is a page that restyles something it was already showing, which spends
+ * one of the {@link MAX_EVENTS} lines on text the closing read shows anyway;
+ * the cost of the other way is missing every framework's own reveal.
+ * @param record - the attribute record.
+ * @returns whether the element may have just been revealed.
+ */
+function reveals(record: MutationRecord): boolean {
+  if (record.attributeName === 'hidden') return record.oldValue !== null
+  if (record.attributeName === 'aria-hidden') return record.oldValue === 'true'
+  return true
 }
 
 /**
  * Watch the page for the length of a call, and answer its dialogs.
  *
- * What counts as a message is text that appeared and then went away on its own:
- * a toast, a validation line, a "saved" banner. Text that appeared and stayed
- * is in the closing snapshot already, and reporting it twice would tell the
- * model nothing it is not about to read.
+ * What counts as a message is text a user could read that was not readable
+ * before: a toast, a validation line, a "saved" banner. When it becomes
+ * readable is what decides, not when it was written — a page writes its toast
+ * into a hidden box and then shows the box, and the words were on no screen in
+ * between. It is reported when it goes away, with how long it stayed, and at
+ * the end of the call when it has not gone: the closing read shows what is
+ * still there but never says the steps produced it.
  * @param docs - every same-origin document the reader walked, the frame's own first.
  * @param dialogs - how a native dialog is to be answered.
  * @param isVisible - injected visibility, the reader's own.
@@ -114,26 +166,50 @@ export function watchPage(
   isVisible: (el: Element) => boolean,
 ): ActWatch {
   const collected: ActPageEvent[] = []
-  const appeared: Appearance[] = []
+  const tracked: Tracked[] = []
   const push = (event: ActPageEvent): void => {
     if (collected.length < MAX_EVENTS) collected.push(event)
   }
 
-  const observer = new MutationObserver((records) => {
-    for (const record of records) {
-      for (const node of record.addedNodes) {
-        const text = addedText(node, isVisible)
-        if (text !== undefined) appeared.push({ node, text: clipTo(text, MAX_EVENT_CHARS), at: Date.now() })
+  // Followed from here on. A node the page added, text it rewrote in place, and
+  // an element an attribute change may have revealed all start from nothing:
+  // whatever they show, the user is reading it because of something that
+  // happened during this call. An element the same attributes have just hidden
+  // starts from what it shows, which is nothing, so a later reveal is caught
+  // and what it showed before the call is not reported as having appeared.
+  const follow = (node: Node, fresh: boolean): void => {
+    const el = elementOf(node)
+    if (el === undefined || tracked.length >= MAX_TRACKED) return
+    if (tracked.some(candidate => candidate.el === el)) return
+    tracked.push({ el, text: fresh ? '' : shownText(el, isVisible), at: Date.now(), born: false })
+  }
+
+  // Every followed node, because a change anywhere can hide or reveal what
+  // another one carries: an ancestor going `hidden` takes its whole subtree
+  // with it, and a node removed with its parent is reported by neither record.
+  const review = (): void => {
+    for (const candidate of tracked) {
+      const now = shownText(candidate.el, isVisible)
+      if (now === candidate.text) continue
+      if (candidate.text !== '' && candidate.born) {
+        push({ kind: 'message', line: messageLine(candidate.text, Date.now() - candidate.at) })
       }
-      for (const node of record.removedNodes) {
-        const at = appeared.findIndex(candidate => candidate.node === node || node.contains(candidate.node))
-        if (at === -1) continue
-        const [gone] = appeared.splice(at, 1)
-        /* v8 ignore next -- splice at a found index always yields the entry. */
-        if (gone === undefined) continue
-        push({ kind: 'message', line: messageLine(gone.text, Date.now() - gone.at) })
-      }
+      candidate.text = now
+      candidate.at = Date.now()
+      candidate.born = now !== ''
     }
+  }
+
+  const observer = new MutationObserver((records) => {
+    // Nothing further can be reported once the bound is reached, so nothing
+    // further is computed either.
+    if (collected.length >= MAX_EVENTS) return
+    for (const record of records) {
+      for (const node of record.addedNodes) follow(node, true)
+      if (record.type === 'characterData') follow(record.target, true)
+      if (record.type === 'attributes') follow(record.target, reveals(record))
+    }
+    review()
   })
 
   const routes: (() => void)[] = []
@@ -142,7 +218,14 @@ export function watchPage(
     const view = doc.defaultView
     /* v8 ignore next 2 -- every document the reader walked is mounted in the seat's own frame, which has a window. */
     if (view === null) continue
-    observer.observe(doc, { subtree: true, childList: true })
+    observer.observe(doc, {
+      subtree: true,
+      childList: true,
+      characterData: true,
+      attributes: true,
+      attributeOldValue: true,
+      attributeFilter: VISIBILITY_ATTRIBUTES,
+    })
     // The address the document was last reported at, so a router that announces
     // one move with several events is one line rather than three.
     let routed = view.location.href
@@ -213,6 +296,16 @@ export function watchPage(
       // event a listener can hear, and a whole-page navigation takes the
       // listeners with it.
       for (const onRoute of routes) onRoute()
+      // One last look, and then what is still in front of the user. A message
+      // the page has not taken away yet is in the closing read as well, and the
+      // model still needs to be told the steps produced it — which the read
+      // alone never says.
+      review()
+      for (const candidate of tracked) {
+        if (candidate.born && candidate.text !== '') {
+          push({ kind: 'message', line: messageLine(candidate.text, undefined) })
+        }
+      }
       return [...collected]
     },
     stop: () => {

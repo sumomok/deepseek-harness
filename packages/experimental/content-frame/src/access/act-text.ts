@@ -390,16 +390,19 @@ export interface ActPageEvent {
 }
 
 /**
- * The line a message the page showed and then took away prints.
+ * The line a message the page showed while the steps ran prints.
  *
- * Only text that went away is reported: what is still on the page is in the
- * closing snapshot, and saying it twice tells the model nothing it is not
- * about to read.
+ * Two endings, because they leave the model in different positions. Text the
+ * page has already taken away is in no read that follows, so how long it stayed
+ * is the whole of what can still be said about it. Text still in front of the
+ * user is in the closing read as well — and that read never says the steps
+ * produced it, which is what this line adds.
  * @param text - the message the page showed.
- * @param shownMs - how long it stayed.
+ * @param shownMs - how long it stayed, or undefined for one the page has not taken away.
  * @returns the line.
  */
-export function messageLine(text: string, shownMs: number): string {
+export function messageLine(text: string, shownMs: number | undefined): string {
+  if (shownMs === undefined) return `message "${text}" (still shown)`
   return `message "${text}" (shown for ${(shownMs / 1000).toFixed(1)}s, gone before the snapshot)`
 }
 
