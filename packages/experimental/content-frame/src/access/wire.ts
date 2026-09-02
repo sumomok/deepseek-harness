@@ -138,13 +138,18 @@ export const REPORT_ENVELOPE_BYTES = MAX_TEXT_BYTES_PER_CHAR * (
  * The parser holds a posted listing to four times the budget, and the renderer
  * prints a listing's first row however long that row is — so without a floor a
  * small budget refuses listings a real page produces. The longest row the
- * reader prints is a table block: the table's name, a header row and a sample
- * row of its cells, the rows hint and the pagination line, each text clipped at
- * {@link MAX_HEADER_CHARS}, which is about 535 characters plus 402 per column.
- * Four times this floor is 4000 characters, which holds that row for a table of
- * eight columns — in any language, because the byte bound the route holds a
- * whole report to does not bind there: eight columns of three-byte text is 3751
- * characters in a body of 11,128 bytes against 27,328.
+ * reader prints is a table block: the table's name and the pagination line,
+ * each clipped at {@link MAX_HEADER_CHARS}, the rows hint, and a header row and
+ * a sample row whose cells the reader cuts to 40 and to 24 characters — about
+ * 535 characters plus 70 a column, with a closing line of 77 where the block
+ * runs past the budget. Four times this floor is 4000 characters, which holds
+ * that block for a table of 48 columns — in any language, because the byte
+ * bound the route holds a whole report to does not bind there: 48 columns of
+ * three-byte text is 3973 characters in a body of 11,160 bytes against 27,328.
+ *
+ * The two cell cuts are the reader's own, recorded with the rules they belong
+ * to in .agents/notes/implemented/feature/2026-09-02-content-snapshot-engine.md;
+ * a change to either moves the column count this floor is chosen for.
  */
 export const MIN_OUTLINE_CHARS = 1000
 

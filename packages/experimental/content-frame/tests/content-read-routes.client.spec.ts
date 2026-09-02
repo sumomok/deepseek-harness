@@ -530,11 +530,11 @@ describe('the read channel over real HTTP', () => {
 
   it('refuses a whole real listing the character bound alone would have taken', async () => {
     const ctx = await loadComposition(true, [], DEFAULT_OUTLINE_CHARS)
-    // What an eighty-column table of three-byte text renders to at the shipped
-    // budget: well inside the parser's character bound of four times that
-    // budget, and half again past the byte bound on the whole body. The seat
-    // measures both before it posts, so no seat of this package sends this; the
-    // route is the backstop under that, and it holds to the byte.
+    // A listing of three-byte text well inside the parser's character bound of
+    // four times the budget, and half again past the byte bound on the whole
+    // body. The seat measures both before it posts, so no seat of this package
+    // sends this; the route is the backstop under that, and it holds to the
+    // byte.
     const text = '甲'.repeat(32696)
     const outcome = { ...LISTING, snapshot: { ...LISTING.snapshot, text } }
     const body = JSON.stringify({ callId: 'c', tabId: TAB, outcome })
@@ -576,9 +576,9 @@ describe('the read channel over real HTTP', () => {
       status: 413,
       body: { error: `content-frame: the read report route refuses a body past ${bound} bytes` },
     })
-    // A report the size a seat posts from a forty-eight-column table of Chinese
-    // at this budget, whose listing alone is 58,637 bytes — past the budget in
-    // bytes, and served, because what both halves measure is the whole body.
+    // A report the size a seat posts from a wide table of Chinese at this
+    // budget, whose listing alone is 58,637 bytes — past the budget in bytes,
+    // and served, because what both halves measure is the whole body.
     const seatSized = bodyOf(`${'甲'.repeat(19545)}xx`)
     expect(new TextEncoder().encode(seatSized).length).toBe(58889)
     expect((await raw(ctx, CONTENT_REPORT_ROUTE, { body: seatSized })).status).toBe(200)

@@ -169,8 +169,17 @@ describe('web e2e: the agent reads the page in the content column', () => {
     await page.locator('[data-content-read-stage="done"]').first().waitFor({ timeout: 30_000 })
 
     const listings = readResults(sessionEvents)
-    expect(listings).toHaveLength(1)
+    // How many reads one answer takes is the model's decision. The outline says
+    // the table has three rows and names the way to list them — pass `scope`
+    // with the table's ref — so a question about the buttons in those rows is
+    // answered either from the outline or by following that hint into the
+    // table; two recordings of this prompt took three reads and two. What this
+    // pins is that the page was read and what the first read answered with.
+    expect(listings.length).toBeGreaterThanOrEqual(1)
     const listing = listings[0] ?? ''
+    // The first read is always of the whole page: no read has returned a ref
+    // yet, so `scope` and `after` name nothing the model could pass.
+    //
     // The header the tool composes, then the reader's own rows: the table's
     // shape reaches the model, its contents do not.
     expect(listing.startsWith('Page: Home — the app is at /content-app/')).toBe(true)
@@ -178,6 +187,8 @@ describe('web e2e: the agent reads the page in the content column', () => {
     expect(listing).toContain('Add machine')
     // A dialog the page has not opened is on the map and nowhere else.
     expect(listing).not.toContain('Shut down the whole fleet?')
+    // Whatever a later read narrowed to, it read this same page.
+    for (const later of listings.slice(1)) expect(later.startsWith('Page: Home — ')).toBe(true)
     if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE)
   }, 200_000)
 
