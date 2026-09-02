@@ -18,17 +18,25 @@ import { resolveOrCreateSession } from '../src/client/session-resolution.ts'
 function fakeContext(overrides: {
   currentSessionId?: string
   recentWorkspaceId?: string
-  connectWorkspace?: () => Promise<string>
+  createSession?: () => Promise<string>
 }): { ctx: ClientContext; open: ReturnType<typeof vi.fn> } {
   const open = vi.fn()
   const ctx = {
     sessions: {
-      list: { getSnapshot: () => ({ current: overrides.currentSessionId }) },
+      list: { getSnapshot: () => ({ current: overrides.currentSessionId, phase: 'ready', ids: [], byId: {} }) },
+      create: overrides.createSession ?? (() => Promise.resolve('new-session')),
       open,
     },
     workspaces: {
-      list: { getSnapshot: () => ({ recentWorkspaceId: overrides.recentWorkspaceId }) },
-      connectWorkspace: overrides.connectWorkspace ?? (() => Promise.resolve('new-session')),
+      list: {
+        getSnapshot: () => ({
+          phase: 'ready',
+          archivedSessionIds: [],
+          items: overrides.recentWorkspaceId === undefined
+            ? []
+            : [{ workspaceId: overrides.recentWorkspaceId, path: '/workspace', sessionIds: [], createdAt: '2026-01-01T00:00:00.000Z' }],
+        }),
+      },
     },
   } as unknown as ClientContext
   return { ctx, open }
@@ -63,8 +71,8 @@ describe('resolveOrCreateSession', () => {
     warn.mockRestore()
   })
 
-  it('propagates a connectWorkspace rejection to the caller', async () => {
-    const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1', connectWorkspace: () => Promise.reject(new Error('boot failed')) })
+  it('propagates a session-create rejection to the caller', async () => {
+    const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1', createSession: () => Promise.reject(new Error('boot failed')) })
     await expect(resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' })).rejects.toThrow('boot failed')
   })
 })

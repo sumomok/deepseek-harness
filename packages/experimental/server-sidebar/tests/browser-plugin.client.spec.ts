@@ -32,14 +32,20 @@ type HeaderInjectFactory = (sessionId: string) => SaveWorkflowInjected
 
 /** Mocked `workspaces` service face this bench provides. */
 interface BenchWorkspaces {
-  connectWorkspace: ReturnType<typeof vi.fn>
-  list: { getSnapshot: () => { recentWorkspaceId: string | undefined } }
+  list: {
+    getSnapshot: () => {
+      phase: 'ready'
+      archivedSessionIds: readonly string[]
+      items: readonly { workspaceId: string; path: string; sessionIds: readonly string[]; createdAt: string }[]
+    }
+  }
 }
 
 /** Mocked `sessions` service face this bench provides. */
 interface BenchSessions {
   open: ReturnType<typeof vi.fn>
-  list: { getSnapshot: () => { current: string | undefined } }
+  create: ReturnType<typeof vi.fn>
+  list: { getSnapshot: () => { current: string | undefined; phase: 'ready'; ids: readonly string[]; byId: object } }
 }
 
 /** Mocked `remote` service face this bench provides. */
@@ -115,10 +121,21 @@ async function bench(
   await ctx.plugin(SlotRegistry).await()
   declareSlots(ctx)
   const workspaces = {
-    connectWorkspace: vi.fn(() => Promise.resolve('new-session')),
-    list: { getSnapshot: () => ({ recentWorkspaceId: options.recentWorkspaceId }) },
+    list: {
+      getSnapshot: () => ({
+        phase: 'ready' as const,
+        archivedSessionIds: [],
+        items: options.recentWorkspaceId === undefined
+          ? []
+          : [{ workspaceId: options.recentWorkspaceId, path: '/workspace', sessionIds: [], createdAt: '2026-01-01T00:00:00.000Z' }],
+      }),
+    },
   }
-  const sessions = { open: vi.fn(), list: { getSnapshot: () => ({ current: options.currentSessionId }) } }
+  const sessions = {
+    open: vi.fn(),
+    create: vi.fn(() => Promise.resolve('new-session')),
+    list: { getSnapshot: () => ({ current: options.currentSessionId, phase: 'ready' as const, ids: [], byId: {} }) },
+  }
   const remote = { commands: { execute: vi.fn(() => Promise.resolve({ ok: true, value: undefined })) } }
   ctx.provide('workspaces', workspaces as never)
   ctx.provide('sessions', sessions as never)
@@ -212,11 +229,11 @@ describe('server-sidebar browser half: sidebar registration', () => {
   })
 
   it('onOpenWorkbenchOnLoad creates a fresh workbench session and persists its id when there is none recorded', async () => {
-    const { ctx, workspaces, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
     await injected.onOpenWorkbenchOnLoad(undefined, false)
-    expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
+    expect(sessions.create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
   })
@@ -238,21 +255,21 @@ describe('server-sidebar browser half: sidebar registration', () => {
   })
 
   it('onOpenWorkbench (click) creates a fresh session when the recorded one is live but no longer blank', async () => {
-    const { ctx, workspaces, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
     await injected.onOpenWorkbench('home-1', true, false)
-    expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
+    expect(sessions.create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
   })
 
   it('onOpenWorkbench (click) creates a fresh workbench session and persists its id when there is none recorded', async () => {
-    const { ctx, workspaces, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
     await injected.onOpenWorkbench(undefined, false, false)
-    expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
+    expect(sessions.create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
   })
@@ -304,11 +321,11 @@ describe('server-sidebar browser half: sidebar registration', () => {
   })
 
   it('degrades a stale workflow: creates a fresh session, replays its snapshot, and repoints homeSessionId', async () => {
-    const { ctx, workspaces, sessions, remote } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, sessions, remote } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [{ ...WORKFLOW, homeSessionId: 'new-session' }] } } })
     await injected.onOpenWorkflow(WORKFLOW, false)
-    expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
+    expect(sessions.create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(remote.commands.execute).toHaveBeenCalledWith('new-session', '/show-content-page home', [])
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [{ ...WORKFLOW, homeSessionId: 'new-session' }] })
@@ -426,7 +443,7 @@ describe('server-sidebar browser half: dictionaries', () => {
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()
     declareSlots(ctx)
-    ctx.provide('workspaces', { list: { getSnapshot: () => ({ recentWorkspaceId: undefined }) } } as never)
+    ctx.provide('workspaces', { list: { getSnapshot: () => ({ phase: 'ready', archivedSessionIds: [], items: [] }) } } as never)
     ctx.provide('sessions', { open: vi.fn(), list: { getSnapshot: () => ({ current: undefined }) } } as never)
     ctx.provide('remote', { commands: { execute: vi.fn() }, $on: () => () => {} } as never)
     ctx.provide('remote.commands', { execute: vi.fn() } as never)
