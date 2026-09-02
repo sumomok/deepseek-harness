@@ -25,6 +25,13 @@ describe('specifierFor', () => {
     ]) expect(specifierFor('open').test(text)).toBe(true)
   })
 
+  it('matches a require built and invoked in one expression', () => {
+    for (const text of [
+      'const { Terminal } = createRequire(import.meta.url)(\'@xterm/headless\')',
+      'createRequire(import.meta.url)("@xterm/headless")',
+    ]) expect(specifierFor('@xterm/headless').test(text)).toBe(true)
+  })
+
   it('matches a resolution call that reaches into a subpath of the package', () => {
     expect(specifierFor('@img/sharp-libvips-darwin-arm64').test('require.resolve(\'@img/sharp-libvips-darwin-arm64/binary\')')).toBe(true)
     expect(specifierFor('@vscode/ripgrep').test('nodeRequire.resolve(\'@vscode/ripgrep/bin/rg\')')).toBe(true)

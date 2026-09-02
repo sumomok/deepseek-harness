@@ -86,15 +86,20 @@ const PLATFORM_SEGMENTS = new Set(['darwin', 'win32', 'linux', 'android', 'freeb
 const ARCH_SEGMENTS = new Set(['x64', 'arm64', 'arm', 'ia32', 'x86', 'ppc64', 's390x', 'riscv64', 'loong64', 'mips64el'])
 
 /**
- * Module-resolution call sites whose argument is a literal. `specifierFor` in
- * `bundle-closure.ts` reads `from`/`require`/`import` followed by a specifier
- * and matches none of these, so a name that only ever appears here is invisible
- * to the reachability walk.
+ * Module-resolution call sites whose argument is a literal: a `.resolve(...)`
+ * on any require-like object, and a require built and invoked in one
+ * expression (`createRequire(url)('name')`). These are the forms a bundler
+ * cannot inline, so a name that reaches the payload only through one of them
+ * must still have its directory; this scan is the gate's own reading of
+ * them, independent of the walk in `bundle-closure.ts` that keeps them.
  */
 const RESOLVER_CALL = new RegExp([
   String.raw`(?:^|[^\w$])`,
-  String.raw`(?:import\s*\.\s*meta|[\w$]*[Rr]equire[\w$]*|createRequire\s*\([^()]*\))`,
-  String.raw`\s*\.\s*resolve\s*\(\s*(['"\`])([^'"\`\n]*)\1`,
+  String.raw`(?:`,
+  String.raw`(?:import\s*\.\s*meta|[\w$]*[Rr]equire[\w$]*|createRequire\s*\([^()]*\))\s*\.\s*resolve`,
+  String.raw`|createRequire\s*\([^()]*\)`,
+  String.raw`)`,
+  String.raw`\s*\(\s*(['"\`])([^'"\`\n]*)\1`,
 ].join(''), 'g')
 
 /** File extensions the resolver scan reads. */
