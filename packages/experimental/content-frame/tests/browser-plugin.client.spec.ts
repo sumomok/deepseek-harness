@@ -26,7 +26,10 @@ import { en, NS, zh } from '../src/client/locales.ts'
 const HIDE_STYLE_ID = 'dsh-content-frame-hide-empty-command-row'
 
 /** The page-access half of the settings document the bench serves. */
-const ACCESS = { outlineChars: 12000, claimTimeoutMs: 3000, readTimeoutMs: 15000, settleQuietMs: 250 }
+const ACCESS = {
+  outlineChars: 12000, claimTimeoutMs: 3000, readTimeoutMs: 15000, settleQuietMs: 250,
+  actTimeoutMs: 60000, maxSteps: 20, settleMaxMs: 3000,
+}
 
 /** The settings document the bench serves. */
 const SETTINGS = { cacheSize: 5, navigationPollMs: 1000, pageAccess: ACCESS }

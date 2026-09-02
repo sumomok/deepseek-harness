@@ -19,14 +19,14 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import type { Session } from '@deepseek-ai/dsh-session'
-import type { PendingReads, ReadTimeouts } from './pending.ts'
+import type { CallTimeouts, PendingCalls } from './pending.ts'
 import {
   AFTER_DESCRIPTION, AFTER_REFUSAL, CANCELLED_REFUSAL, CONTENT_READ_DESCRIPTION, EMPTY_COLUMN_REFUSAL,
-  engineRefusal, FIND_DESCRIPTION, FIND_REFUSAL, MODE_DESCRIPTION, NO_AGENT_REFUSAL, notAPageRefusal,
+  failureRefusal, FIND_DESCRIPTION, FIND_REFUSAL, MISREPORTED_REFUSAL, MODE_DESCRIPTION, NO_AGENT_REFUSAL,
   readHeaderText, SCOPE_DESCRIPTION, SCOPE_REFUSAL, SIGN_IN_REFUSAL, unansweredRefusal, unclaimedRefusal,
   type FrontEntry,
 } from './text.ts'
-import { CONTENT_READ_TOOL_NAME, type ReadArgs, type ReadOutcome } from './wire.ts'
+import { CONTENT_READ_TOOL_NAME, isActOutcome, type ReadArgs, type ReadOutcome } from './wire.ts'
 
 /** The form every ref takes, which is also the form the refusals quote. */
 const REF_PATTERN = /^e\d+$/
@@ -109,16 +109,7 @@ function pathOf(url: string): string {
  * asking the user to sign in.
  */
 function valueOf(outcome: ReadOutcome): ContentReadValue {
-  if (outcome.status === 'error') {
-    switch (outcome.code) {
-      case 'empty': throw new Error(EMPTY_COLUMN_REFUSAL)
-      case 'not-a-page': throw new Error(notAPageRefusal(outcome))
-      case 'engine': throw new Error(engineRefusal(outcome.message))
-      case 'frame': throw new Error(outcome.message)
-      /* v8 ignore next 2 -- the code union is closed and the wire parser rejects every other value; the arm keeps a new member loud. */
-      default: throw new Error(`content_read: unknown outcome ${JSON.stringify(outcome)}`)
-    }
-  }
+  if (outcome.status === 'error') throw new Error(failureRefusal(outcome, EMPTY_COLUMN_REFUSAL))
   const { snapshot } = outcome
   // Withheld rather than described: the page is asking for a password, and the
   // model's next step is to hand the keyboard back, not to narrate the form.
@@ -167,14 +158,14 @@ export type FrontEntryLookup = (session: Session) => FrontEntry | undefined
 
 /**
  * Build the `content_read` tool for one deployment.
- * @param pending - the table calls wait on for a browser to read the page.
+ * @param pending - the table calls wait on for a browser to answer them.
  * @param timeouts - the deployment's deadlines, also quoted in the two timeout refusals.
  * @param front - reads the entry the calling session's column has in front, for the unclaimed refusal.
  * @returns the definition to hand to `ctx.tools.register`.
  */
 export function contentReadTool(
-  pending: PendingReads,
-  timeouts: ReadTimeouts,
+  pending: PendingCalls,
+  timeouts: CallTimeouts,
   front: FrontEntryLookup,
 ): ToolDefinition {
   return defineTool({
@@ -257,9 +248,16 @@ export function contentReadTool(
       if (!exec.agent) throw new Error(NO_AGENT_REFUSAL)
       const settlement = await pending.open(exec.callId, exec.agent.session.header.id, exec.signal, timeouts)
       switch (settlement.kind) {
-        case 'reported': return valueOf(settlement.outcome)
+        case 'reported': {
+          // The table holds both tools' calls and hands over whatever was
+          // posted; a document reporting steps answers a different call than
+          // this one asked.
+          const outcome = settlement.outcome
+          if (isActOutcome(outcome)) throw new Error(MISREPORTED_REFUSAL)
+          return valueOf(outcome)
+        }
         case 'unclaimed': throw new Error(unclaimedRefusal(timeouts.claimTimeoutMs, front(exec.agent.session)))
-        case 'unanswered': throw new Error(unansweredRefusal(timeouts.readTimeoutMs))
+        case 'unanswered': throw new Error(unansweredRefusal(timeouts.answerTimeoutMs))
         // Whatever this returns is replaced by the registry's aborted result;
         // the message exists for a caller reading the rejection directly.
         case 'aborted': throw new Error(CANCELLED_REFUSAL)

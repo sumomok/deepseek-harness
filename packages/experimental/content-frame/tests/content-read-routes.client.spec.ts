@@ -35,7 +35,7 @@ import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-t
 import * as ContentFrame from '../src/index.ts'
 import {
   CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_BUSY_NAMES, MAX_CURSOR_CHARS, MAX_HEADER_CHARS,
-  MAX_NAME_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest,
+  MAX_ACT_STEPS, MAX_NAME_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseChannelReport,
   type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
@@ -303,7 +303,10 @@ describe('the read channel over real HTTP', () => {
     const answer = await call(ctx, CONTENT_SETTINGS_ROUTE)
     expect(answer.status).toBe(200)
     expect(JSON.parse(answer.body)).toMatchObject({
-      pageAccess: { outlineChars: OUTLINE_CHARS, claimTimeoutMs: 5000, readTimeoutMs: 5000 },
+      pageAccess: {
+        outlineChars: OUTLINE_CHARS, claimTimeoutMs: 5000, readTimeoutMs: 5000,
+        actTimeoutMs: 60000, maxSteps: 20, settleMaxMs: 3000,
+      },
     })
     expect(answer.cacheControl).toBe('no-store')
   })
@@ -537,7 +540,7 @@ describe('the read channel over real HTTP', () => {
     // Exactly the parser's character bound and four times the byte bound: what
     // refuses this is the render budget in bytes, not the character count.
     const past = report(outlineChars * 4)
-    expect(parseReportRequest(past, outlineChars * 4)).toBeDefined()
+    expect(parseChannelReport(past, outlineChars * 4, MAX_ACT_STEPS)).toBeDefined()
     const refused = await raw(ctx, CONTENT_REPORT_ROUTE, { body: JSON.stringify(past) })
     expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
       status: 413,
@@ -580,7 +583,7 @@ describe('the read channel over real HTTP', () => {
     expect({
       chars: text.length,
       charBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
-      parsed: parseReportRequest(JSON.parse(body), DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE) !== undefined,
+      parsed: parseChannelReport(JSON.parse(body), DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS) !== undefined,
       bytes: new TextEncoder().encode(body).length,
       byteBound: DEFAULT_OUTLINE_CHARS * 4 + ENVELOPE_BYTES,
     }).toEqual({ chars: 32696, charBound: 48000, parsed: true, bytes: 98355, byteBound: 71328 })
@@ -803,9 +806,46 @@ describe('the read channel over real HTTP', () => {
     )
   })
 
-  it('offers the tool only while a tool runtime is composed', async () => {
+  it('offers both tools only while a tool runtime is composed', async () => {
     const ctx = await loadComposition(true)
-    expect(ctx.tools.schemas().map(schema => schema.name)).toContain('content_read')
+    expect(ctx.tools.schemas().map(schema => schema.name)).toEqual(
+      expect.arrayContaining(['content_read', 'content_act']),
+    )
+  })
+
+  it('refuses a posted report of steps the seat could not have written', async () => {
+    // The same wire boundary the listing crosses, over the arm a set of steps
+    // answers through: the route holds the step list to the deployment's own
+    // bound and to one message, and refuses everything else as a shape.
+    const ctx = await loadComposition(true)
+    const steps = { index: 1, status: 'ok' }
+    const act = {
+      status: 'done',
+      page: { id: 'home', title: 'Home' },
+      title: 'Hosted content app',
+      steps: [steps],
+      text: 'Done 1/1 on Home: click "Go" (settled after 0.1s).',
+      truncated: false,
+    }
+    for (const outcome of [
+      { ...act, steps: [] },
+      { ...act, steps: [{ index: 2, status: 'ok' }] },
+      { ...act, steps: [{ index: 1, status: 'failed', message: 'a' }, { index: 2, status: 'failed', message: 'b' }] },
+      { ...act, title: undefined },
+      { ...act, truncated: 'no' },
+    ]) {
+      const answer = await postJson(ctx, CONTENT_REPORT_ROUTE, { callId: 'call_act', tabId: TAB, outcome })
+      expect({ outcome, status: answer.status, body: JSON.parse(answer.body) as unknown }).toEqual({
+        outcome,
+        status: 400,
+        body: { error: 'content-frame: expected a JSON body with callId, tabId, and outcome' },
+      })
+    }
+    // And a well-formed one is a shape the route takes; no call is waiting for
+    // it, which is the other half of the same answer.
+    const taken = await postJson(ctx, CONTENT_REPORT_ROUTE, { callId: 'call_act', tabId: TAB, outcome: act })
+    expect({ status: taken.status, body: JSON.parse(taken.body) as unknown })
+      .toEqual({ status: 200, body: { accepted: false } })
   })
 
   it('releases both routes when the fiber disposes (HMR safety)', async () => {
@@ -879,6 +919,8 @@ describe('page-access configuration', () => {
       ['pinMs', 1],
       ['settleQuietMs', 1],
       ['outlineChars', MIN_OUTLINE_CHARS],
+      ['actTimeoutMs', 1],
+      ['maxSteps', 1],
     ] as const) {
       const config = {
         root: APP_ROOT,
@@ -891,6 +933,9 @@ describe('page-access configuration', () => {
           pinMs: 1,
           settleQuietMs: 1,
           outlineChars: MIN_OUTLINE_CHARS,
+          actTimeoutMs: 1000,
+          maxSteps: 20,
+          settleMaxMs: 1,
           [field]: least - 1,
         },
       }
@@ -899,6 +944,47 @@ describe('page-access configuration', () => {
       await expect(ContentFrame.apply(ctx, config)).rejects.toThrow(
         `content-frame: pageAccess.${field} must be at least ${String(least)}, received ${String(least - 1)}`,
       )
+      await ctx.fiber.dispose()
+    }
+  })
+
+  it('rejects a step bound past what the report envelope covers', async () => {
+    const ctx = new Context()
+    ctx.provide('webServer', { register: () => () => {} } as never)
+    await expect(ContentFrame.apply(ctx, {
+      root: APP_ROOT,
+      pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
+      pageAccess: {
+        claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, settleQuietMs: 1, outlineChars: MIN_OUTLINE_CHARS,
+        actTimeoutMs: 1000, maxSteps: MAX_ACT_STEPS + 1, settleMaxMs: 1,
+      },
+    })).rejects.toThrow(`content-frame: pageAccess.maxSteps must be at most ${String(MAX_ACT_STEPS)}, received 101`)
+    await ctx.fiber.dispose()
+  })
+
+  it('rejects a per-step settle ceiling below the quiet window or past the whole deadline', async () => {
+    // Both numbers are in this one block either way, so the mismatch is caught
+    // at load rather than as every step ending its wait before it began.
+    for (const [pageAccess, refusal] of [
+      [
+        { settleQuietMs: 250, settleMaxMs: 249 },
+        'content-frame: pageAccess.settleMaxMs must be at least 250, received 249',
+      ],
+      [
+        { settleQuietMs: 250, settleMaxMs: 1001, actTimeoutMs: 1000 },
+        'content-frame: pageAccess.settleMaxMs must fit in actTimeoutMs (1000ms), received 1001',
+      ],
+    ] as const) {
+      const ctx = new Context()
+      ctx.provide('webServer', { register: () => () => {} } as never)
+      await expect(ContentFrame.apply(ctx, {
+        root: APP_ROOT,
+        pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
+        pageAccess: {
+          claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, outlineChars: MIN_OUTLINE_CHARS,
+          actTimeoutMs: 1000, maxSteps: 20, ...pageAccess,
+        },
+      })).rejects.toThrow(refusal)
       await ctx.fiber.dispose()
     }
   })
@@ -913,6 +999,7 @@ describe('page-access configuration', () => {
       pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
       pageAccess: {
         claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, settleQuietMs: 251, outlineChars: MIN_OUTLINE_CHARS,
+        actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 251,
       },
     })).rejects.toThrow(
       'content-frame: pageAccess.settleQuietMs must fit in 250ms (0.25 of readTimeoutMs), received 251',

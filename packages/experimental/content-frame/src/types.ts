@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/types
  */
 
-import type { ReadArgs } from './access/wire.ts'
+import type { ActArgs, ReadArgs } from './access/wire.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -66,7 +66,7 @@ declare module '@deepseek-ai/dsh-session/types' {
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
     content: string | null
-    contentAccess: ContentReadRequest[]
+    contentAccess: ContentAccessRequest[]
     contentPages: ContentPagesState
   }
   interface SessionProjectionMap {
@@ -79,11 +79,11 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
      */
     content: ContentPageView
     /**
-     * The `content_read` calls this session has open: every call the log
-     * recorded without a result yet, in log order. It is how the host asks a
-     * browser to read the page — no host reaches a browser directly, so the
-     * request rides the session's own projection stream and whichever seat is
-     * showing that session picks it up.
+     * The page-channel calls this session has open: every `content_read` and
+     * `content_act` the log recorded without a result yet, in log order. It is
+     * how the host asks a browser to read or act on the page — no host reaches
+     * a browser directly, so the request rides the session's own projection
+     * stream and whichever seat is showing that session picks it up.
      */
     contentAccess: ContentAccessView
   }
@@ -121,16 +121,29 @@ export type ContentPagesState = Record<string, ContentPageRecord>
 export interface ContentReadRequest {
   /** The call to claim and report against. */
   readonly callId: string
-  /** The tool that asked; one value today, present so a seat can dispatch on it. */
+  /** The tool that asked; the seat dispatches on it. */
   readonly tool: 'content_read'
   /** What the call asked of the page. */
   readonly args: ReadArgs
 }
 
+/** One `content_act` call still waiting for a browser to run its steps. */
+export interface ContentActRequest {
+  /** The call to claim and report against. */
+  readonly callId: string
+  /** The tool that asked; the seat dispatches on it. */
+  readonly tool: 'content_act'
+  /** The steps to run, and how a native dialog is to be answered while they run. */
+  readonly args: ActArgs
+}
+
+/** One open call of either tool, as the seat receives it. */
+export type ContentAccessRequest = ContentReadRequest | ContentActRequest
+
 /** Whole current value of the `contentAccess` projection. */
 export interface ContentAccessView {
   /** Every open call, oldest first. */
-  readonly pending: readonly ContentReadRequest[]
+  readonly pending: readonly ContentAccessRequest[]
 }
 
 /**

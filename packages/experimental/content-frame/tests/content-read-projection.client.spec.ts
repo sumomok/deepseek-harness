@@ -1,6 +1,6 @@
 /**
- * The `contentAccess` fold: which log events open a read, which close it, and
- * what the browser is handed for each.
+ * The `contentAccess` fold: which log events open a call of either tool, which
+ * close it, and what the browser is handed for each.
  *
  * The events come from a real `Session` rather than hand-built envelopes, so
  * the fold is exercised against the log shapes the harness actually writes —
@@ -15,7 +15,7 @@ import { describe, expect, it } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session/types'
 import { contentAccessProjection } from '../src/access/requests-projection.ts'
-import type { ContentReadRequest } from '../src/types.ts'
+import type { ContentAccessRequest } from '../src/types.ts'
 
 /** The branded call id, derived from the log's own declaration. */
 type LoggedCallId = SessionEventMap['tool/call']['callId']
@@ -72,7 +72,7 @@ function dispatched(target: Session, subCallId: string): void {
 }
 
 /** Fold one session's whole log through the unit under test. */
-function fold(target: Session): ContentReadRequest[] {
+function fold(target: Session): ContentAccessRequest[] {
   const unit = contentAccessProjection()
   let state = unit.init()
   for (const event of target.events) state = unit.apply(state, event)
@@ -89,7 +89,7 @@ describe('the pending-read projection', () => {
   it('declares the key and cache version the registry stores it under', () => {
     const unit = contentAccessProjection()
     expect(unit.key).toBe('contentAccess')
-    expect(unit.stateVersion).toBe(1)
+    expect(unit.stateVersion).toBe(2)
     expect(unit.init()).toEqual([])
   })
 
@@ -163,9 +163,54 @@ describe('the pending-read projection', () => {
     expect(state).toEqual([])
   })
 
+  it('publishes a set of steps with everything a seat needs to run it', () => {
+    // The seat receives the steps from here and nowhere else: the host reaches
+    // no browser, so the projection is the whole of what a claiming tab knows
+    // about the call.
+    const target = session()
+    const args = {
+      steps: [
+        { action: 'fill', ref: 'e4', label: '名称', text: '东风' },
+        { action: 'click', ref: 'e5', label: '查询' },
+      ],
+      dialogs: 'accept',
+    }
+    call(target, 'call_act', JSON.stringify(args), 'content_act')
+    dispatch(target, 'call_sub', { steps: [{ action: 'wait', text: '保存成功' }] }, 'content_act')
+    expect(published(target)).toEqual({
+      pending: [
+        { callId: 'call_act', tool: 'content_act', args },
+        { callId: 'call_sub', tool: 'content_act', args: { steps: [{ action: 'wait', text: '保存成功' }] } },
+      ],
+    })
+  })
+
+  it('drops a set of steps once its result reaches the log', () => {
+    const target = session()
+    call(target, 'call_act', JSON.stringify({ steps: [{ action: 'click', ref: 'e5', label: '查询' }] }), 'content_act')
+    expect(fold(target)).toHaveLength(1)
+    result(target, 'call_act')
+    expect(fold(target)).toEqual([])
+  })
+
+  it('counts no set of steps the tool would refuse anyway', () => {
+    const target = session()
+    call(target, 'call_json', 'not json at all', 'content_act')
+    call(target, 'call_empty', JSON.stringify({ steps: [] }), 'content_act')
+    call(target, 'call_action', JSON.stringify({ steps: [{ action: 'scroll', ref: 'e5', label: 'x' }] }), 'content_act')
+    call(target, 'call_field', JSON.stringify({ steps: [{ action: 'click', ref: 5, label: 'x' }] }), 'content_act')
+    call(target, 'call_dialogs', JSON.stringify({ steps: [{ action: 'click', ref: 'e5', label: 'x' }], dialogs: 'yes' }), 'content_act')
+    dispatch(target, 'call_sub', { steps: 'click' }, 'content_act')
+    expect(fold(target)).toEqual([])
+  })
+
   it('accepts the state it produced back from a persisted checkpoint', () => {
     const target = session()
     call(target, 'call_1', JSON.stringify({ mode: 'outline', find: 'Ada' }))
+    call(target, 'call_act', JSON.stringify({
+      steps: [{ action: 'press', ref: 'e4', label: '名称', key: 'Enter' }],
+      dialogs: 'cancel',
+    }), 'content_act')
     const unit = contentAccessProjection()
     expect(unit.stateSchema.parse(fold(target))).toEqual(fold(target))
   })

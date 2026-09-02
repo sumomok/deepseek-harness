@@ -149,6 +149,17 @@ export const REPORT_SYNTAX_BYTES = 512
  * listing may carry, which are held to {@link MAX_NAME_CHARS} each and cost at
  * most 768 characters against the 2000 a listing never spends on a message.
  *
+ * A report of steps that ran is held to the same envelope and needs no room of
+ * its own. It carries the two page names, the document's title, its own body
+ * against the budget, and one step list; against a listing it spends nothing on
+ * the address, the other two header fields, the cursor, or the two names a
+ * failure's kind and title would take — 10,944 bytes of allowance left unspent.
+ * What the step list costs inside that is the one failing step's message, which
+ * is the same 2000 characters the failure arm's message is bounded by and which
+ * a report of steps carries in place of it, plus about 35 bytes of punctuation
+ * per step. {@link MAX_ACT_STEPS} is what keeps that punctuation inside the
+ * unspent allowance.
+ *
  * Both halves read it, the way {@link MAX_TEXT_BYTES_PER_CHAR} is read for the
  * listing: the node half adds it to the budget in bytes to size the route's
  * bound, and the seat measures the report it is about to post against that same
@@ -357,15 +368,8 @@ export type ReadOutcome =
     title?: string
   }
 
-/** One claimed read's answer as the browser half posts it. */
-export interface ReportRequest {
-  /** The call being answered. */
-  callId: string
-  /** The claiming tab; a report from any other tab changes nothing. */
-  tabId: string
-  /** What the read ended as. */
-  outcome: ReadOutcome
-}
+/** The arm every ending that produced no listing takes, whichever tool asked. */
+export type ReadFailure = Extract<ReadOutcome, { status: 'error' }>
 
 /** What {@link CONTENT_REPORT_ROUTE} answers a well-formed report with. */
 export interface ReportAck {
@@ -485,16 +489,17 @@ function parseBusy(value: unknown): string[] | undefined {
 const ERROR_CODES: readonly ReadErrorCode[] = ['empty', 'not-a-page', 'engine', 'frame']
 
 /**
- * Read one posted outcome.
- * @param value - the decoded `outcome`, however malformed.
+ * Read one posted outcome as a listing or a failure.
+ * @param candidate - the decoded `outcome`, already known to be an object.
  * @param maxTextChars - longest accepted listing.
  * @returns the outcome, or `undefined` when the value is not one.
  */
-function parseOutcome(value: unknown, maxTextChars: number): ReadOutcome | undefined {
-  if (value === null || typeof value !== 'object') return undefined
-  const candidate = value as { status?: unknown; page?: unknown; snapshot?: unknown } & Partial<
+function parseOutcome(
+  candidate: { status?: unknown; page?: unknown; snapshot?: unknown } & Partial<
     Record<'code' | 'message' | 'kind' | 'title', unknown>
-  >
+  >,
+  maxTextChars: number,
+): ReadOutcome | undefined {
   if (candidate.status === 'ok') {
     const page = candidate.page as { id?: unknown; title?: unknown } | null | undefined
     if (page === null || typeof page !== 'object') return undefined
@@ -518,20 +523,409 @@ function parseOutcome(value: unknown, maxTextChars: number): ReadOutcome | undef
   }
 }
 
+
+/** Wire name of the page-acting tool. */
+export const CONTENT_ACT_TOOL_NAME = 'content_act'
+
 /**
- * Read one posted report. A wire boundary: the document crossed a process, so
- * its own contract is checked here rather than trusted from the type. The
- * listing bound is the deployment's own character budget with room to spare,
- * and every other field carries a bound of its own, so a forged body cannot
- * make the host buffer an arbitrary page — through the listing or around it.
+ * Longest text one step types or waits for, in characters. A protocol bound,
+ * not a deployment choice: it is what a person types into one field, and a
+ * page that needs more than this in one box is not a page a synthetic
+ * keystroke sequence should be filling.
+ */
+export const MAX_ACT_TEXT_CHARS = 1000
+
+/**
+ * Longest key name one `press` step may carry. The names come from the DOM's
+ * own `KeyboardEvent.key` vocabulary, whose longest member is well inside this.
+ */
+export const MAX_ACT_KEY_CHARS = 32
+
+/**
+ * Most steps one call may run, whatever a deployment configures.
+ *
+ * A protocol bound rather than a deployment choice: each step costs about 35
+ * bytes of punctuation in the report, and the envelope leaves 10,944 bytes of
+ * a listing's allowance unspent for a report of steps ({@link
+ * REPORT_ENVELOPE_BYTES} states the sum), so a hundred steps spend 3500 of it
+ * and the bound holds with room to spare. A plan needing more than a hundred
+ * steps in one approval is not one a user can read before approving it either.
+ */
+export const MAX_ACT_STEPS = 100
+
+/** The five things one step can do. */
+export type ActAction = 'click' | 'fill' | 'select' | 'press' | 'wait'
+
+/** Every action, in the order the tool description offers them. */
+export const ACT_ACTIONS: readonly ActAction[] = ['click', 'fill', 'select', 'press', 'wait']
+
+/** How the seat answers a native dialog the page opens while a call runs. */
+export type DialogAnswer = 'cancel' | 'accept'
+
+/** Both answers, for the schema and the parser. */
+export const DIALOG_ANSWERS: readonly DialogAnswer[] = ['cancel', 'accept']
+
+/** What every step but `wait` names: which element, and what it was called when the model chose it. */
+export interface ActTarget {
+  /** The element's ref from a previous read. */
+  readonly ref: string
+  /**
+   * The element's name, copied from that read. The seat checks it against the
+   * page before it acts, so a page that changed since the read stops the call
+   * instead of acting on whatever now holds that position.
+   */
+  readonly label: string
+}
+
+/**
+ * One step of one call, as the tool validated it.
+ *
+ * One arm per action, each carrying exactly the fields that action needs: a
+ * step the seat could not run is not a value this type can hold, so neither
+ * half has an absent field to answer for.
+ */
+export type ActStep =
+  | (ActTarget & {
+    /** Discriminant: press the control. */
+    readonly action: 'click'
+  })
+  | (ActTarget & {
+    /** Discriminant: replace a box's whole value. */
+    readonly action: 'fill'
+    /** What to type. */
+    readonly text: string
+  })
+  | (ActTarget & {
+    /** Discriminant: choose from a list. */
+    readonly action: 'select'
+    /** The option to choose, by its visible text. */
+    readonly value: string
+  })
+  | (ActTarget & {
+    /** Discriminant: send one key to the element. */
+    readonly action: 'press'
+    /** The `KeyboardEvent.key` to send. */
+    readonly key: string
+  })
+  | {
+    /** Discriminant: wait for text to appear anywhere on the page. */
+    readonly action: 'wait'
+    /** The text to wait for. */
+    readonly text: string
+  }
+
+/** Which field of one step the seat could not use, as the sentences are keyed. */
+export type ActStepRefusal =
+  /** The action is not one of the five. */
+  | 'action'
+  /** The ref is absent or is not a ref. */
+  | 'ref'
+  /** The label is absent or empty. */
+  | 'label'
+  /** A `fill` carries nothing to type. */
+  | 'fill-text'
+  /** A `wait` carries nothing to wait for. */
+  | 'wait-text'
+  /** A `select` names no option. */
+  | 'value'
+  /** A `press` names no key. */
+  | 'key'
+  /** The label is longer than the wire carries. */
+  | 'label-length'
+  /** The text is longer than the wire carries. */
+  | 'text-length'
+  /** The option text is longer than the wire carries. */
+  | 'value-length'
+  /** The key name is longer than the wire carries. */
+  | 'key-length'
+
+/** One step as it arrived, before this module has checked it. */
+interface RawStep {
+  /** What this step does, whatever the model sent. */
+  readonly action?: unknown
+  /** The element's ref. */
+  readonly ref?: unknown
+  /** The element's name. */
+  readonly label?: unknown
+  /** What `fill` types, and what `wait` waits to see. */
+  readonly text?: unknown
+  /** The option `select` chooses. */
+  readonly value?: unknown
+  /** The key `press` sends. */
+  readonly key?: unknown
+}
+
+/** What reading one step ended as. */
+export type ActStepRead =
+  /** The step is runnable. */
+  | { readonly kind: 'step'; readonly step: ActStep }
+  /** It is not, and this is the field to say so about. */
+  | { readonly kind: 'refusal'; readonly refusal: ActStepRefusal }
+
+/** The form every ref takes, which is also the form the refusals quote. */
+const REF_PATTERN = /^e\d+$/
+
+/**
+ * Whether one field arrived as text the wire carries at that length.
+ * @param value - the field as it arrived.
+ * @param max - the longest value it takes, in characters.
+ * @returns whether it is a string inside the bound.
+ */
+function isField(value: unknown, max: number): value is string {
+  return typeof value === 'string' && value.length <= max
+}
+
+/**
+ * Read one step, or name the field that makes it unrunnable.
+ *
+ * The check is per action, so what comes out carries exactly the fields its own
+ * action needs and neither half has an absent field to answer for. Length is
+ * checked before anything else, because a field past the wire's bound is the
+ * same problem whichever action carried it.
+ * @param raw - the step as it arrived.
+ * @returns the step, or the field to refuse it over.
+ */
+export function readActStep(raw: RawStep): ActStepRead {
+  const refuse = (refusal: ActStepRefusal): ActStepRead => ({ kind: 'refusal', refusal })
+  if (raw.label !== undefined && !isField(raw.label, MAX_NAME_CHARS)) return refuse('label-length')
+  if (raw.text !== undefined && !isField(raw.text, MAX_ACT_TEXT_CHARS)) return refuse('text-length')
+  if (raw.value !== undefined && !isField(raw.value, MAX_ACT_TEXT_CHARS)) return refuse('value-length')
+  if (raw.key !== undefined && !isField(raw.key, MAX_ACT_KEY_CHARS)) return refuse('key-length')
+  const action = ACT_ACTIONS.find(known => known === raw.action)
+  if (action === undefined) return refuse('action')
+  if (action === 'wait') {
+    return typeof raw.text === 'string' ? { kind: 'step', step: { action, text: raw.text } } : refuse('wait-text')
+  }
+  if (typeof raw.ref !== 'string' || !REF_PATTERN.test(raw.ref)) return refuse('ref')
+  if (typeof raw.label !== 'string' || raw.label === '') return refuse('label')
+  const target: ActTarget = { ref: raw.ref, label: raw.label }
+  switch (action) {
+    case 'click': return { kind: 'step', step: { ...target, action } }
+    case 'fill':
+      return typeof raw.text === 'string' ? { kind: 'step', step: { ...target, action, text: raw.text } } : refuse('fill-text')
+    case 'select':
+      return typeof raw.value === 'string' ? { kind: 'step', step: { ...target, action, value: raw.value } } : refuse('value')
+    case 'press':
+      return typeof raw.key === 'string' && raw.key !== ''
+        ? { kind: 'step', step: { ...target, action, key: raw.key } }
+        : refuse('key')
+    /* v8 ignore next 2 -- `wait` returned above and the other four are handled; the arm keeps a new action loud. */
+    default: return refuse('action')
+  }
+}
+
+/** What one call asks of the page, after the tool has validated it. */
+export interface ActArgs {
+  /** The steps, in the order they run. */
+  readonly steps: readonly ActStep[]
+  /** How a native dialog is answered while these steps run; `cancel` by default. */
+  readonly dialogs?: DialogAnswer
+}
+
+/** How one step ended. */
+export type ActStepStatus =
+  /** It ran. */
+  | 'ok'
+  /** It did not, and the call stopped here. */
+  | 'failed'
+  /** An earlier step failed, so this one never ran. */
+  | 'skipped'
+
+/** One step's ending, as the seat reports it. */
+export type ActStepResult =
+  | {
+    /** Which step this is, counting from 1. */
+    readonly index: number
+    /** It ran, or an earlier failure meant it never did. */
+    readonly status: 'ok' | 'skipped'
+  }
+  | {
+    /** Which step this is, counting from 1. */
+    readonly index: number
+    /** Discriminant: it stopped the call. */
+    readonly status: 'failed'
+    /** Why, in the sentence the model reads to decide its next step. */
+    readonly message: string
+  }
+
+/** What the seat did, as it posts it back. */
+export interface ActOutcome {
+  /** Discriminant, and whether every step ran. */
+  readonly status: 'done' | 'failed'
+  /** The page the steps ran on. */
+  readonly page: ReadPage
+  /** The frame document's own title after the steps, as the closing snapshot read it. */
+  readonly title: string
+  /** One entry per requested step, in order. */
+  readonly steps: readonly ActStepResult[]
+  /** The whole model-facing body: the steps, what the page did, and the page now. */
+  readonly text: string
+  /** True when the closing snapshot stops short of everything it would have shown. */
+  readonly truncated: boolean
+}
+
+/**
+ * Read one posted step result.
+ * @param value - the decoded entry, however malformed.
+ * @param at - the index this entry must carry, counting from 1.
+ * @returns the result, or `undefined` when the value is not one.
+ */
+function parseStepResult(value: unknown, at: number): ActStepResult | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const candidate = value as { index?: unknown; status?: unknown; message?: unknown }
+  if (candidate.index !== at) return undefined
+  if (candidate.status === 'failed') {
+    // A failure with no reason is the one report the model can do nothing with,
+    // so it is not a document this channel carries.
+    return isText(candidate.message, MAX_OUTCOME_MESSAGE_CHARS)
+      ? { index: at, status: 'failed', message: candidate.message }
+      : undefined
+  }
+  if (candidate.status !== 'ok' && candidate.status !== 'skipped') return undefined
+  return candidate.message === undefined ? { index: at, status: candidate.status } : undefined
+}
+
+/**
+ * Read the step results one posted outcome carries.
+ *
+ * Two contracts hold here rather than being trusted from the seat that wrote
+ * them. The indices are the positions of the steps the call asked for, so a
+ * report naming a step the call never had describes something else. And at most
+ * one step failed, because execution stops at the first failure — which, with
+ * the message being the failing step's alone, is what keeps the results inside
+ * the envelope's own allowance (see {@link REPORT_ENVELOPE_BYTES}).
+ * @param value - the decoded `steps`, however malformed.
+ * @param maxSteps - the deployment's bound on how many steps one call has.
+ * @returns the results, or `undefined` when the value is not a list of them.
+ */
+function parseStepResults(value: unknown, maxSteps: number): ActStepResult[] | undefined {
+  if (!Array.isArray(value) || value.length === 0 || value.length > maxSteps) return undefined
+  const results: ActStepResult[] = []
+  for (const [at, entry] of value.entries()) {
+    const result = parseStepResult(entry, at + 1)
+    if (result === undefined) return undefined
+    results.push(result)
+  }
+  return results.filter(result => result.status === 'failed').length > 1 ? undefined : results
+}
+
+/**
+ * Read one posted act outcome.
+ * @param candidate - the decoded `outcome`, already known to be an object.
+ * @param maxTextChars - longest accepted body.
+ * @param maxSteps - the deployment's bound on how many steps one call has.
+ * @returns the outcome, or `undefined` when the value is not one.
+ */
+function parseActOutcome(
+  candidate: Partial<Record<keyof ActOutcome, unknown>>,
+  maxTextChars: number,
+  maxSteps: number,
+): ActOutcome | undefined {
+  const page = candidate.page as { id?: unknown; title?: unknown } | null | undefined
+  if (page === null || typeof page !== 'object') return undefined
+  if (!isName(page.id) || !isText(page.title, MAX_NAME_CHARS)) return undefined
+  if (!isText(candidate.title, MAX_HEADER_CHARS)) return undefined
+  if (!isText(candidate.text, maxTextChars) || typeof candidate.truncated !== 'boolean') return undefined
+  const steps = parseStepResults(candidate.steps, maxSteps)
+  if (steps === undefined) return undefined
+  return {
+    status: candidate.status as 'done' | 'failed',
+    page: { id: page.id, title: page.title },
+    title: candidate.title,
+    steps,
+    text: candidate.text,
+    truncated: candidate.truncated,
+  }
+}
+
+/**
+ * Read one act call's steps from a decoded value.
+ *
+ * The tool's own validation is the authority on what a seat can run, and it
+ * runs against the deployment's own `maxSteps` and says which field of which
+ * step is wrong; this reads what the two places outside that body need before
+ * they can use a call at all — the pending projection that publishes it to a
+ * seat, and the approval request that describes it to a user. Both take the
+ * protocol's bound rather than the deployment's, because a call past the
+ * deployment's is one the tool refuses before it opens the wait a seat answers.
+ * @param value - the decoded arguments, however malformed.
+ * @returns the arguments, or `undefined` when the value is not a runnable set.
+ */
+export function parseActArgs(value: unknown): ActArgs | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const candidate = value as { steps?: unknown; dialogs?: unknown }
+  if (!Array.isArray(candidate.steps) || candidate.steps.length === 0) return undefined
+  if (candidate.steps.length > MAX_ACT_STEPS) return undefined
+  const steps: ActStep[] = []
+  for (const entry of candidate.steps) {
+    if (entry === null || typeof entry !== 'object') return undefined
+    const read = readActStep(entry as RawStep)
+    if (read.kind === 'refusal') return undefined
+    steps.push(read.step)
+  }
+  const dialogs = DIALOG_ANSWERS.find(known => known === candidate.dialogs)
+  if (candidate.dialogs !== undefined && dialogs === undefined) return undefined
+  return { steps, ...dialogs === undefined ? {} : { dialogs } }
+}
+
+/** What one claimed call ends as, whichever tool opened it. */
+export type ChannelOutcome = ReadOutcome | ActOutcome
+
+/** One claimed call's answer as the browser half posts it. */
+export interface ChannelReportRequest {
+  /** The call being answered. */
+  readonly callId: string
+  /** The claiming tab; a report from any other tab changes nothing. */
+  readonly tabId: string
+  /** What the call ended as. */
+  readonly outcome: ChannelOutcome
+}
+
+/**
+ * Whether one settled call's outcome is a report of steps that ran.
+ *
+ * Stated as what it is not, because that is what narrows: the listing's own two
+ * arms are single literals and this one carries two, which a pair of positive
+ * tests cannot subtract from the union.
+ * @param outcome - what the claiming seat posted.
+ * @returns whether it reports steps rather than a listing or a failure.
+ */
+export function isActOutcome(outcome: ChannelOutcome): outcome is ActOutcome {
+  return outcome.status !== 'ok' && outcome.status !== 'error'
+}
+
+/**
+ * Read one posted report of either tool.
+ *
+ * A wire boundary: the document crossed a process, so its own contract is
+ * checked here rather than trusted from the type. Every field carries a bound
+ * of its own — the listing bound is the deployment's own character budget with
+ * room to spare — so a forged report cannot make the host buffer an arbitrary
+ * page, through the listing or around it.
+ *
+ * The two tools share one route because they share one pending table and one
+ * claim: what differs is the document the seat posts, discriminated by
+ * `outcome.status`. A read answers `ok` or `error`; a call that ran steps
+ * answers `done` or `failed`, and reaches for the same `error` arm when there
+ * was no page to act on at all.
  * @param body - the decoded request body, however malformed.
- * @param maxTextChars - longest accepted listing.
+ * @param maxTextChars - longest accepted listing or body.
+ * @param maxSteps - the deployment's bound on how many steps one call has.
  * @returns the report, or `undefined` when the body is not one.
  */
-export function parseReportRequest(body: unknown, maxTextChars: number): ReportRequest | undefined {
+export function parseChannelReport(
+  body: unknown,
+  maxTextChars: number,
+  maxSteps: number,
+): ChannelReportRequest | undefined {
   if (body === null || typeof body !== 'object') return undefined
   const candidate = body as { callId?: unknown; tabId?: unknown; outcome?: unknown }
   if (!isName(candidate.callId) || !isName(candidate.tabId)) return undefined
-  const outcome = parseOutcome(candidate.outcome, maxTextChars)
-  return outcome === undefined ? undefined : { callId: candidate.callId, tabId: candidate.tabId, outcome }
+  const outcome = candidate.outcome
+  if (outcome === null || typeof outcome !== 'object') return undefined
+  const candidateOutcome = outcome as Partial<Record<keyof ActOutcome, unknown>>
+  const parsed = candidateOutcome.status === 'done' || candidateOutcome.status === 'failed'
+    ? parseActOutcome(candidateOutcome, maxTextChars, maxSteps)
+    : parseOutcome(candidateOutcome, maxTextChars)
+  return parsed === undefined ? undefined : { callId: candidate.callId, tabId: candidate.tabId, outcome: parsed }
 }

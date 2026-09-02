@@ -35,12 +35,23 @@ export interface ContentFrameAccessSettings {
   /** How long the host waits for a claimed read, which is also how long the seat may spend producing it. */
   readTimeoutMs: number
   /**
-   * How long a loaded page must go unchanged before a read walks it. Served
-   * because the wait happens in the seat, and the deployment's own answer for
-   * how long its application takes to draw a route belongs with its two
-   * deadlines.
+   * How long a loaded page must go unchanged before a read walks it, and before
+   * one step of a call counts as finished. Served because the wait happens in
+   * the seat, and the deployment's own answer for how long its application
+   * takes to draw a route belongs with its deadlines.
    */
   settleQuietMs: number
+  /** How long the host waits for a claimed set of steps, which is also how long the seat may spend running them. */
+  actTimeoutMs: number
+  /** Most steps one call may carry, which is what the seat's own step list is bounded by. */
+  maxSteps: number
+  /**
+   * How long one step may wait for the page to go quiet before the next step
+   * runs. It is the per-step ceiling on {@link settleQuietMs}: a page that
+   * keeps changing after a click is acted on again rather than waited on
+   * forever.
+   */
+  settleMaxMs: number
 }
 
 /** The browser-facing half of this plugin's configuration. */
@@ -62,9 +73,9 @@ export interface ContentFrameSettings {
    */
   homePage?: string
   /**
-   * The budget and the two deadlines a reading seat must obey; absent when the
-   * deployment configures no page access, which is also how the browser half
-   * knows not to install the reader at all.
+   * The budget, the deadlines and the step bound a seat must obey; absent when
+   * the deployment configures no page access, which is also how the browser
+   * half knows not to install the reader at all.
    */
   pageAccess?: ContentFrameAccessSettings
 }

@@ -1,15 +1,18 @@
 /**
  * Every sentence `content_read` puts in front of the model: the description it
  * chooses the tool from, the parameter lines, the refusals, and the header the
- * result opens with.
+ * result opens with — plus the endings both tools of the channel share, since a
+ * column with nothing in it refuses a read and a set of steps alike.
  *
- * One home for all of it, and no imports, because both halves author some of
- * it: the node half turns a settled call into text, and the browser seat
- * composes the `frame` failures, which are the only refusals the host cannot
- * describe. A failure is the only tool text the model reads while deciding what
+ * One home for all of it, and no imports beyond the wire's own types, because
+ * both halves author some of it: the node half turns a settled call into text,
+ * and the browser seat composes the `frame` failures, which are the only
+ * refusals the host cannot describe. A failure is the only tool text the model reads while deciding what
  * to do next, so each one names the parameter or the call that fixes it.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/text
  */
+
+import type { ReadFailure } from './wire.ts'
 
 /**
  * The model-facing description. It names the column in the user's own words
@@ -68,6 +71,17 @@ export const CANCELLED_REFUSAL = 'content_read was cancelled'
 
 /** Failure for a column that holds nothing at all. */
 export const EMPTY_COLUMN_REFUSAL = 'The content column is empty. Call content_show to put a page there, then retry.'
+
+/**
+ * Failure for a console that answered a call with the other tool's document,
+ * which no seat of this package posts.
+ *
+ * Both tools wait on one table and one claim, so the check belongs to whichever
+ * tool opened the wait: the table hands over what was posted, and only the tool
+ * knows what it asked for.
+ */
+export const MISREPORTED_REFUSAL =
+  'The console answered this call with something else; call content_read to see where the page is now.'
 
 /** Failure for a page that is asking the user to sign in; the listing is withheld with it. */
 export const SIGN_IN_REFUSAL = 'The page shows a sign-in form; ask the user to sign in, then retry.'
@@ -177,6 +191,28 @@ export const STILL_CHANGING_LINE =
  */
 export function stillLoadingLine(busy: readonly string[]): string {
   return `The page marks these as still loading: ${busy.map(name => `"${name}"`).join(', ')}`
+}
+
+/**
+ * The model-facing sentence for a call the seat could not run at all.
+ *
+ * Both tools reach it: a column with nothing in it, an entry that is not a
+ * page, an unreachable frame and a reader that threw are the same four endings
+ * whether the call was going to read the page or act on it. Only the advice for
+ * an empty column differs, so that one sentence is the caller's.
+ * @param outcome - the failure the seat posted.
+ * @param emptyColumn - what this tool tells the model to do about an empty column.
+ * @returns the sentence to reject with.
+ */
+export function failureRefusal(outcome: ReadFailure, emptyColumn: string): string {
+  switch (outcome.code) {
+    case 'empty': return emptyColumn
+    case 'not-a-page': return notAPageRefusal(outcome)
+    case 'engine': return engineRefusal(outcome.message)
+    case 'frame': return outcome.message
+    /* v8 ignore next 2 -- the code union is closed and the wire parser rejects every other value; the arm keeps a new member loud. */
+    default: return `content-frame: unknown outcome ${JSON.stringify(outcome)}`
+  }
 }
 
 /** The header fields one result line is composed from. */

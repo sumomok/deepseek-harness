@@ -82,16 +82,23 @@ function readAccess(served: unknown): ContentFrameAccessSettings | undefined {
       claimTimeoutMs?: unknown
       readTimeoutMs?: unknown
       settleQuietMs?: unknown
+      actTimeoutMs?: unknown
+      maxSteps?: unknown
+      settleMaxMs?: unknown
     }
     if (
       isBound(access.outlineChars) && isBound(access.claimTimeoutMs)
       && isBound(access.readTimeoutMs) && isBound(access.settleQuietMs)
+      && isBound(access.actTimeoutMs) && isBound(access.maxSteps) && isBound(access.settleMaxMs)
     ) {
       return {
         outlineChars: access.outlineChars,
         claimTimeoutMs: access.claimTimeoutMs,
         readTimeoutMs: access.readTimeoutMs,
         settleQuietMs: access.settleQuietMs,
+        actTimeoutMs: access.actTimeoutMs,
+        maxSteps: access.maxSteps,
+        settleMaxMs: access.settleMaxMs,
       }
     }
   }

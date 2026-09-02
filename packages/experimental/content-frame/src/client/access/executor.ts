@@ -36,7 +36,7 @@ import {
   FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
 } from '../../access/text.ts'
 import type { ContentFrameAccessSettings } from '../../route.ts'
-import type { ContentReadRequest } from '../../types.ts'
+import type { ContentAccessRequest, ContentReadRequest } from '../../types.ts'
 import { settlePage } from '../perception/settle.ts'
 import { RefTable } from './refs.ts'
 import { snapshot } from './snapshot.ts'
@@ -133,8 +133,8 @@ export function isClickable(el: Element): boolean {
 export interface ContentReadSeat {
   /** Every live entry of the session's column, newest first. */
   entries: readonly ContentSurfaceEntry[]
-  /** The session's open reads, as the host published them. */
-  pending: readonly ContentReadRequest[]
+  /** The session's open calls of both tools, as the host published them. */
+  pending: readonly ContentAccessRequest[]
   /** The page in front, when one is; absent while another kind holds the column. */
   page: ReadPage | undefined
   /** The frame showing that page, when it has one. */
@@ -537,7 +537,7 @@ export function useContentRead(seat: ContentReadSeat): void {
       if (!open.has(callId)) started.current.delete(callId)
     }
     for (const request of seat.pending) {
-      if (started.current.has(request.callId)) continue
+      if (request.tool !== 'content_read' || started.current.has(request.callId)) continue
       started.current.add(request.callId)
       void answer(live, request, access)
     }

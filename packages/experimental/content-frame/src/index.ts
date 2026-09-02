@@ -24,6 +24,7 @@
 import { isAbsolute } from 'node:path'
 import { realpath, stat } from 'node:fs/promises'
 import type { Context } from '@deepseek-ai/cordis'
+import type { Session } from '@deepseek-ai/dsh-session'
 import z from '@deepseek-ai/schemastery'
 import type {} from '@deepseek-ai/dsh-host-webserver'
 // Type-only: resolves ctx.sessionProjections for the optional unit child.
@@ -45,12 +46,16 @@ import { serveContentApp } from './serve.ts'
 import {
   answerJson, readJsonBody, rejectMethod, rejectUntrustedPost, takeJsonBody, type BodyRefusals,
 } from './access/http.ts'
-import { PendingReads, type ReadTimeouts } from './access/pending.ts'
+import { PendingCalls, type CallTimeouts } from './access/pending.ts'
 import { contentAccessProjection } from './access/requests-projection.ts'
 import { contentReadTool } from './access/read-tool.ts'
+import { contentActTool } from './access/act-tool.ts'
+import { DialogApprovals } from './access/dialog-approvals.ts'
+import { registerActApproval } from './access/act-approval.ts'
+import type { FrontEntry } from './access/text.ts'
 import {
-  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
-  MIN_OUTLINE_CHARS, parseClaimRequest, parseReportRequest, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
+  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_ACT_STEPS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
+  MIN_OUTLINE_CHARS, parseChannelReport, parseClaimRequest, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
 } from './access/wire.ts'
 import { contentPagesProjection } from './perception/pages-projection.ts'
 import { registerColumnContext } from './perception/context.ts'
@@ -140,11 +145,11 @@ export interface Config {
    */
   contextFieldChars?: number
   /**
-   * Lets the agent read the page in the column through `content_read`. Absent
-   * turns the whole channel off: no tool, no claim or report route, no pending
-   * projection, and no reader in the browser — a deployment that only shows
-   * pages does not pay for a capability it did not ask for. Present with an
-   * empty object takes every default below.
+   * Lets the agent read the page in the column through `content_read` and act
+   * on it through `content_act`. Absent turns the whole channel off: no tools,
+   * no claim or report route, no pending projection, and no reader in the
+   * browser — a deployment that only shows pages does not pay for a capability
+   * it did not ask for. Present with an empty object takes every default below.
    */
   pageAccess?: PageAccessConfig
 }
@@ -191,6 +196,28 @@ export interface PageAccessConfig {
    * holding one would answer that the block is too wide.
    */
   outlineChars: number
+  /**
+   * How long a claimed set of steps waits for its report. It bounds the whole
+   * run — every step's own wait, the page settling after each of them, and the
+   * closing read — so it is the longest of the deadlines. Raise it for an
+   * application whose forms take a while to answer.
+   */
+  actTimeoutMs: number
+  /**
+   * Most steps one call may run. It is what one approval request covers, so it
+   * is also how much a user is asked to agree to at once; raise it for an
+   * agent filling long forms, lower it to keep each request short. At most
+   * 100, which is the protocol's own bound.
+   */
+  maxSteps: number
+  /**
+   * How long one step waits for the page to go quiet before the next step
+   * runs. `settleQuietMs` says how long stillness has to last; this says how
+   * long the wait for it may take. Raise it for an application that answers a
+   * click slowly; lower it for an agent that should not wait. It must be at
+   * least `settleQuietMs` and fit inside `actTimeoutMs`, both checked at load.
+   */
+  settleMaxMs: number
 }
 
 /** Default frame cache size: the current session plus the two before it. */
@@ -233,6 +260,24 @@ const DEFAULT_PIN_MS = 300000
 /** Listing budget used when a deployment enables page access and configures none. */
 const DEFAULT_OUTLINE_CHARS = 12000
 
+/** Report deadline for a set of steps used when a deployment configures none. */
+const DEFAULT_ACT_TIMEOUT_MS = 60000
+
+/**
+ * Steps per call used when a deployment configures none: enough for a form and
+ * the button that submits it, short enough that the approval request naming
+ * every step is still one a user reads.
+ */
+const DEFAULT_MAX_STEPS = 20
+
+/**
+ * Per-step settle ceiling used when a deployment configures none: long enough
+ * for an application to answer a click over a network, short enough that a
+ * page which never stops changing costs three seconds a step rather than the
+ * whole deadline.
+ */
+const DEFAULT_SETTLE_MAX_MS = 3000
+
 /**
  * Quiet window used when a deployment enables page access and configures none:
  * long enough to sit through the gap between an application's own two paints,
@@ -264,6 +309,9 @@ export const Config: z<Config> = z.object({
     pinMs: z.natural().default(DEFAULT_PIN_MS),
     settleQuietMs: z.natural().default(DEFAULT_SETTLE_QUIET_MS),
     outlineChars: z.natural().default(DEFAULT_OUTLINE_CHARS),
+    actTimeoutMs: z.natural().default(DEFAULT_ACT_TIMEOUT_MS),
+    maxSteps: z.natural().default(DEFAULT_MAX_STEPS),
+    settleMaxMs: z.natural().default(DEFAULT_SETTLE_MAX_MS),
   }).default(undefined as never),
 })
 
@@ -301,6 +349,21 @@ function requireAtLeast(field: keyof PageAccessConfig, value: number, least: num
 }
 
 /**
+ * Reject a page-access bound the protocol will not carry, at load.
+ * @param field - the field being checked, named in the diagnostic.
+ * @param value - the configured value.
+ * @param most - the largest value that field may hold.
+ * @returns the value.
+ * @throws {Error} when the value is above `most`.
+ */
+function requireAtMost(field: keyof PageAccessConfig, value: number, most: number): number {
+  if (value > most) {
+    throw new Error(`content-frame: pageAccess.${field} must be at most ${most}, received ${value}`)
+  }
+  return value
+}
+
+/**
  * Bytes a claim can possibly need: one call id, one tab id, and the JSON around
  * them. A protocol bound, not a deployment choice.
  */
@@ -326,17 +389,35 @@ const REPORT_ROUTE_NAME = 'the read report route'
 function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSettings['pageAccess'] {
   // Loud at load: a zero deadline would refuse every read the model can make,
   // with no diagnostic pointing at the row that set it.
-  const timeouts: ReadTimeouts = {
-    claimTimeoutMs: requireAtLeast('claimTimeoutMs', config.claimTimeoutMs, 1),
-    readTimeoutMs: requireAtLeast('readTimeoutMs', config.readTimeoutMs, 1),
-    pinMs: requireAtLeast('pinMs', config.pinMs, 1),
+  const claimTimeoutMs = requireAtLeast('claimTimeoutMs', config.claimTimeoutMs, 1)
+  const pinMs = requireAtLeast('pinMs', config.pinMs, 1)
+  const timeouts: CallTimeouts = {
+    claimTimeoutMs,
+    answerTimeoutMs: requireAtLeast('readTimeoutMs', config.readTimeoutMs, 1),
+    pinMs,
   }
+  const actTimeouts: CallTimeouts = {
+    claimTimeoutMs,
+    answerTimeoutMs: requireAtLeast('actTimeoutMs', config.actTimeoutMs, 1),
+    pinMs,
+  }
+  const maxSteps = requireAtMost('maxSteps', requireAtLeast('maxSteps', config.maxSteps, 1), MAX_ACT_STEPS)
   const outlineChars = requireAtLeast('outlineChars', config.outlineChars, MIN_OUTLINE_CHARS)
   // Loud at load and self-contained: a quiet window the settle budget cannot
   // hold would spend the whole budget and report every page as still changing,
   // and both numbers are in this one block.
   const settleQuietMs = requireAtLeast('settleQuietMs', config.settleQuietMs, 1)
-  const settleBudgetMs = timeouts.readTimeoutMs * SETTLE_WAIT_SHARE
+  // Loud at load and self-contained for the same reason: a per-step ceiling
+  // below the quiet window would end every step's wait before the window could
+  // pass, and one above the whole deadline would spend it on a single step.
+  const settleMaxMs = requireAtLeast('settleMaxMs', config.settleMaxMs, settleQuietMs)
+  if (settleMaxMs > actTimeouts.answerTimeoutMs) {
+    throw new Error(
+      'content-frame: pageAccess.settleMaxMs must fit in actTimeoutMs '
+      + `(${String(actTimeouts.answerTimeoutMs)}ms), received ${String(settleMaxMs)}`,
+    )
+  }
+  const settleBudgetMs = timeouts.answerTimeoutMs * SETTLE_WAIT_SHARE
   if (settleQuietMs > settleBudgetMs) {
     throw new Error(
       `content-frame: pageAccess.settleQuietMs must fit in ${String(settleBudgetMs)}ms `
@@ -371,7 +452,8 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     oversize: `content-frame: ${REPORT_ROUTE_NAME} refuses a body past ${reportBytes} bytes`,
     shape: 'content-frame: expected a JSON body with callId, tabId, and outcome',
   }
-  const pending = new PendingReads()
+  const pending = new PendingCalls()
+  const approvals = new DialogApprovals()
 
   ctx.effect(() => ctx.webServer.register({
     kind: 'exact',
@@ -404,7 +486,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
       if (rejectUntrustedPost(req, res, REPORT_ROUTE_NAME, reportBytes)) return
       const body = takeJsonBody(res, await readJsonBody(req, reportBytes), reportRefusals)
       if (body === undefined) return
-      const report = parseReportRequest(body.value, maxTextChars)
+      const report = parseChannelReport(body.value, maxTextChars, maxSteps)
       if (report === undefined) {
         answerJson(res, 400, { error: reportRefusals.shape })
         return
@@ -418,18 +500,24 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     // composition without it goes without: the unclaimed refusal falls back to
     // the advice an empty column earns, which is what an unreadable column is
     // from here.
-    toolCtx.tools.register(contentReadTool(pending, timeouts, session => frontEntry(
+    const front = (session: Session): FrontEntry | undefined => frontEntry(
       ctx.get('sessionProjections')?.snapshot(session).values.contentSurface,
-    )))
+    )
+    toolCtx.tools.register(contentReadTool(pending, timeouts, front))
+    toolCtx.tools.register(contentActTool(pending, actTimeouts, maxSteps, front, approvals))
+    registerActApproval(toolCtx, approvals)
   })
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(contentAccessProjection())
   })
   return {
     outlineChars,
-    claimTimeoutMs: timeouts.claimTimeoutMs,
-    readTimeoutMs: timeouts.readTimeoutMs,
+    claimTimeoutMs,
+    readTimeoutMs: timeouts.answerTimeoutMs,
     settleQuietMs,
+    actTimeoutMs: actTimeouts.answerTimeoutMs,
+    maxSteps,
+    settleMaxMs,
   }
 }
 

@@ -21,12 +21,12 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { contentReadTool } from '../src/access/read-tool.ts'
-import { PendingReads, type ReadTimeouts } from '../src/access/pending.ts'
+import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
 import { unansweredRefusal, unclaimedRefusal, type FrontEntry } from '../src/access/text.ts'
 import type { ReadOutcome, ReadSnapshot } from '../src/access/wire.ts'
 
 /** Deadlines short enough for a test to sit through both of them. */
-const FAST: ReadTimeouts = { claimTimeoutMs: 30, readTimeoutMs: 60, pinMs: 5000 }
+const FAST: CallTimeouts = { claimTimeoutMs: 30, answerTimeoutMs: 60, pinMs: 5000 }
 
 /** The tab every case here answers from. */
 const TAB = 'tab_1'
@@ -59,16 +59,16 @@ function agentWithSession(session: Session): NonNullable<ToolExecutionInput['age
 /** One booted tool over a real registry, plus the table a browser answers through. */
 interface Bench {
   ctx: Context
-  pending: PendingReads
+  pending: PendingCalls
   run: (args: Record<string, unknown>, signal?: AbortSignal) => { callId: string; settled: Promise<ToolExecutionResult> }
 }
 
 /** Boot the tool over a real registry and a real session. */
-async function bench(timeouts: ReadTimeouts = FAST, front?: FrontEntry): Promise<Bench> {
+async function bench(timeouts: CallTimeouts = FAST, front?: FrontEntry): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  const pending = new PendingReads()
+  const pending = new PendingCalls()
   ctx.tools.register(contentReadTool(pending, timeouts, () => front))
   const session = Session.create(SessionId(`content-read-${++calls}`))
   const agent = agentWithSession(session)
@@ -92,7 +92,7 @@ async function bench(timeouts: ReadTimeouts = FAST, front?: FrontEntry): Promise
 }
 
 /** Claim one call as soon as its body has registered the wait, then answer it. */
-async function answer(pending: PendingReads, callId: string, outcome: ReadOutcome): Promise<void> {
+async function answer(pending: PendingCalls, callId: string, outcome: ReadOutcome): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const ack = await pending.claim({ callId, tabId: TAB })
     if (ack.claimed) {
@@ -157,7 +157,7 @@ describe('what content_read offers the model', () => {
   })
 
   it('presents the call and its result as pure functions of what they carry', () => {
-    const tool = contentReadTool(new PendingReads(), FAST, () => undefined)
+    const tool = contentReadTool(new PendingCalls(), FAST, () => undefined)
     expect(tool.presentCall?.({})).toEqual({
       card: 'generic',
       title: 'Read the page in the content column',
@@ -280,9 +280,25 @@ describe('what content_read answers when no listing arrives', () => {
     )
   })
 
+  it('refuses a report of steps posted against a read', async () => {
+    // One table, one claim, two tools: the tool that opened the wait is what
+    // knows whether the document it was handed answers its own call.
+    const result = await settleWith({
+      status: 'done',
+      page: { id: 'home', title: 'Home' },
+      title: 'Fleet console',
+      steps: [{ index: 1, status: 'ok' }],
+      text: 'Done 1/1 on Home: click "Refresh" (settled after 0.1s).',
+      truncated: false,
+    } as never)
+    expect(result.isError).toBe(true)
+    expect(text(result))
+      .toBe('Error: The console answered this call with something else; call content_read to see where the page is now.')
+  })
+
   it('names the cancellation the agent loop replaces with its own outcome', async () => {
     const aborter = new AbortController()
-    const tool = contentReadTool(new PendingReads(), FAST, () => undefined)
+    const tool = contentReadTool(new PendingCalls(), FAST, () => undefined)
     const session = Session.create(SessionId(`content-read-${++calls}`))
     const exec = {
       callId: 'call_cancelled',
@@ -425,6 +441,6 @@ describe('the listing content_read answers with', () => {
   })
 
   it('runs beside its siblings rather than queueing a second claim window', () => {
-    expect(contentReadTool(new PendingReads(), FAST, () => undefined).isConcurrencySafe?.({})).toBe(true)
+    expect(contentReadTool(new PendingCalls(), FAST, () => undefined).isConcurrencySafe?.({})).toBe(true)
   })
 })

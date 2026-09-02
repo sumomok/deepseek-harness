@@ -12,7 +12,8 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_BUSY_NAMES, MAX_NAME_CHARS, parseClaimRequest, parseReportRequest, sanitize, type ReadOutcome,
+  isActOutcome, MAX_ACT_STEPS, MAX_BUSY_NAMES, MAX_NAME_CHARS, parseActArgs, parseChannelReport,
+  parseClaimRequest, sanitize, type ActOutcome, type ReadOutcome,
 } from '../src/access/wire.ts'
 
 /** The listing bound these cases are written against. */
@@ -106,7 +107,7 @@ describe('claim wire boundary', () => {
 
 describe('report wire boundary', () => {
   it('takes a listing report whole', () => {
-    expect(parseReportRequest(report(READ), MAX_TEXT))
+    expect(parseChannelReport(report(READ), MAX_TEXT, MAX_ACT_STEPS))
       .toEqual({ callId: 'call_1', tabId: 'tab_1', outcome: READ })
   })
 
@@ -115,59 +116,59 @@ describe('report wire boundary', () => {
       ...READ,
       snapshot: { ...READ.snapshot, breadcrumb: 'Home › Fleet', modal: 'Confirm', cursor: 'e12' },
     }
-    expect(parseReportRequest(report(outcome), MAX_TEXT)?.outcome).toEqual(outcome)
+    expect(parseChannelReport(report(outcome), MAX_TEXT, MAX_ACT_STEPS)?.outcome).toEqual(outcome)
   })
 
   it('drops optional header fields the page did not supply rather than carrying undefined', () => {
-    const parsed = parseReportRequest(report(READ), MAX_TEXT)
+    const parsed = parseChannelReport(report(READ), MAX_TEXT, MAX_ACT_STEPS)
     expect(parsed?.outcome.status === 'ok' && Object.keys(parsed.outcome.snapshot).sort())
       .toEqual(['kind', 'settled', 'shown', 'signIn', 'text', 'title', 'total', 'truncated', 'url'])
   })
 
   it('takes each failure code, with the entry naming only where one is carried', () => {
     for (const code of ['empty', 'not-a-page', 'engine', 'frame'] as const) {
-      expect(parseReportRequest(report({ status: 'error', code, message: 'why' }), MAX_TEXT)?.outcome)
+      expect(parseChannelReport(report({ status: 'error', code, message: 'why' }), MAX_TEXT, MAX_ACT_STEPS)?.outcome)
         .toEqual({ status: 'error', code, message: 'why' })
     }
-    expect(parseReportRequest(report({ status: 'error', code: 'not-a-page', message: 'why', kind: 'chart', title: 'Sales' }), MAX_TEXT)?.outcome)
+    expect(parseChannelReport(report({ status: 'error', code: 'not-a-page', message: 'why', kind: 'chart', title: 'Sales' }), MAX_TEXT, MAX_ACT_STEPS)?.outcome)
       .toEqual({ status: 'error', code: 'not-a-page', message: 'why', kind: 'chart', title: 'Sales' })
   })
 
   it('takes a listing that found nothing at all', () => {
     const nothing: ReadOutcome = { ...READ, snapshot: { ...READ.snapshot, text: '', shown: 0, total: 0 } }
-    expect(parseReportRequest(report(nothing), MAX_TEXT)?.outcome).toEqual(nothing)
+    expect(parseChannelReport(report(nothing), MAX_TEXT, MAX_ACT_STEPS)?.outcome).toEqual(nothing)
   })
 
   it('refuses a listing past the bound instead of taking it', () => {
     const outcome = { ...READ, snapshot: { ...READ.snapshot, text: 'x'.repeat(MAX_TEXT + 1) } }
-    expect(parseReportRequest(report(outcome), MAX_TEXT)).toBeUndefined()
-    expect(parseReportRequest(report({ ...READ, snapshot: { ...READ.snapshot, text: 'x'.repeat(MAX_TEXT) } }), MAX_TEXT))
+    expect(parseChannelReport(report(outcome), MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
+    expect(parseChannelReport(report({ ...READ, snapshot: { ...READ.snapshot, text: 'x'.repeat(MAX_TEXT) } }), MAX_TEXT, MAX_ACT_STEPS))
       .not.toBeUndefined()
   })
 
   it('keeps the busy names a page supplied, up to the count the envelope allows', () => {
     const busy = Array.from({ length: MAX_BUSY_NAMES }, (_unused, at) => `region ${String(at)}`)
     const outcome: ReadOutcome = { ...READ, snapshot: { ...READ.snapshot, busy } }
-    expect(parseReportRequest(report(outcome), MAX_TEXT)?.outcome).toEqual(outcome)
+    expect(parseChannelReport(report(outcome), MAX_TEXT, MAX_ACT_STEPS)?.outcome).toEqual(outcome)
   })
 
   it('refuses a busy list longer than the envelope allows, or one holding something other than names', () => {
     const tooMany = Array.from({ length: MAX_BUSY_NAMES + 1 }, () => 'region')
     for (const busy of [tooMany, 'region', [1], ['x'.repeat(MAX_NAME_CHARS + 1)]]) {
-      expect(parseReportRequest(report({ ...READ, snapshot: { ...READ.snapshot, busy } }), MAX_TEXT)).toBeUndefined()
+      expect(parseChannelReport(report({ ...READ, snapshot: { ...READ.snapshot, busy } }), MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
     }
   })
 
   it('refuses a listing that does not say whether the page had settled', () => {
     const { settled: _dropped, ...without } = READ.snapshot
-    expect(parseReportRequest(report({ ...READ, snapshot: without }), MAX_TEXT)).toBeUndefined()
-    expect(parseReportRequest(report({ ...READ, snapshot: { ...without, settled: 'yes' } }), MAX_TEXT)).toBeUndefined()
+    expect(parseChannelReport(report({ ...READ, snapshot: without }), MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
+    expect(parseChannelReport(report({ ...READ, snapshot: { ...without, settled: 'yes' } }), MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
   })
 
   it('refuses a failure message past its own bound', () => {
     const long = { status: 'error', code: 'frame', message: 'x'.repeat(2001) }
-    expect(parseReportRequest(report(long), MAX_TEXT)).toBeUndefined()
-    expect(parseReportRequest(report({ ...long, message: 'x'.repeat(2000) }), MAX_TEXT)).not.toBeUndefined()
+    expect(parseChannelReport(report(long), MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
+    expect(parseChannelReport(report({ ...long, message: 'x'.repeat(2000) }), MAX_TEXT, MAX_ACT_STEPS)).not.toBeUndefined()
   })
 
   it('refuses a body that is not a report', () => {
@@ -181,7 +182,7 @@ describe('report wire boundary', () => {
       report('ok'),
       report({ status: 'maybe' }),
     ]) {
-      expect({ body, parsed: parseReportRequest(body, MAX_TEXT) }).toEqual({ body, parsed: undefined })
+      expect({ body, parsed: parseChannelReport(body, MAX_TEXT, MAX_ACT_STEPS) }).toEqual({ body, parsed: undefined })
     }
   })
 
@@ -205,14 +206,14 @@ describe('report wire boundary', () => {
       { ...READ.snapshot, modal: 7 },
       { ...READ.snapshot, cursor: 7 },
     ]) {
-      expect({ snapshot, parsed: parseReportRequest(report({ ...READ, snapshot }), MAX_TEXT) })
+      expect({ snapshot, parsed: parseChannelReport(report({ ...READ, snapshot }), MAX_TEXT, MAX_ACT_STEPS) })
         .toEqual({ snapshot, parsed: undefined })
     }
   })
 
   it('refuses a listing report that does not name the page it read', () => {
     for (const page of [null, 'home', {}, { id: 'home' }, { id: '', title: 'Home' }, { id: 'home', title: 7 }]) {
-      expect({ page, parsed: parseReportRequest(report({ ...READ, page }), MAX_TEXT) })
+      expect({ page, parsed: parseChannelReport(report({ ...READ, page }), MAX_TEXT, MAX_ACT_STEPS) })
         .toEqual({ page, parsed: undefined })
     }
   })
@@ -229,11 +230,11 @@ describe('report wire boundary', () => {
       ['kind', report({ status: 'error', code: 'not-a-page', message: 'why', kind: long })],
       ['title', report({ status: 'error', code: 'not-a-page', message: 'why', title: long })],
     ] as const) {
-      expect({ field, parsed: parseReportRequest(body, MAX_TEXT) }).toEqual({ field, parsed: undefined })
+      expect({ field, parsed: parseChannelReport(body, MAX_TEXT, MAX_ACT_STEPS) }).toEqual({ field, parsed: undefined })
     }
     const at = 'n'.repeat(MAX_NAME_CHARS)
     const outcome: ReadOutcome = { ...READ, page: { id: at, title: at } }
-    expect(parseReportRequest({ callId: at, tabId: at, outcome }, MAX_TEXT)).not.toBeUndefined()
+    expect(parseChannelReport({ callId: at, tabId: at, outcome }, MAX_TEXT, MAX_ACT_STEPS)).not.toBeUndefined()
   })
 
   it('refuses a failure that names no code this reader produces', () => {
@@ -245,7 +246,7 @@ describe('report wire boundary', () => {
       { status: 'error', code: 'not-a-page', message: 'why', kind: 7 },
       { status: 'error', code: 'not-a-page', message: 'why', title: 7 },
     ]) {
-      expect({ outcome, parsed: parseReportRequest(report(outcome), MAX_TEXT) })
+      expect({ outcome, parsed: parseChannelReport(report(outcome), MAX_TEXT, MAX_ACT_STEPS) })
         .toEqual({ outcome, parsed: undefined })
     }
   })
@@ -268,10 +269,10 @@ describe('report wire boundary', () => {
       ['kind', { status: 'error', code: 'not-a-page', message: 'why', kind: `chart${CONTROL}` }],
       ['outcome.title', { status: 'error', code: 'not-a-page', message: 'why', title: `Sales${LONE_SURROGATE}` }],
     ] as const) {
-      expect({ field, parsed: parseReportRequest(report(outcome), MAX_TEXT) }).toEqual({ field, parsed: undefined })
+      expect({ field, parsed: parseChannelReport(report(outcome), MAX_TEXT, MAX_ACT_STEPS) }).toEqual({ field, parsed: undefined })
     }
     // Both ids are held to the same rule, on a report and on a claim.
-    expect(parseReportRequest({ callId: `call_1${CONTROL}`, tabId: 'tab_1', outcome: READ }, MAX_TEXT)).toBeUndefined()
+    expect(parseChannelReport({ callId: `call_1${CONTROL}`, tabId: 'tab_1', outcome: READ }, MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
     expect(parseClaimRequest({ callId: 'call_1', tabId: `tab_1${LONE_SURROGATE}` })).toBeUndefined()
   })
 
@@ -279,6 +280,137 @@ describe('report wire boundary', () => {
     // Tab, newline and carriage return cost two JSON bytes, which the byte
     // bound covers, and the listing itself is lines.
     const outcome: ReadOutcome = { ...READ, snapshot: { ...READ.snapshot, text: '1 main\n  2 button\tGo\r' } }
-    expect(parseReportRequest(report(outcome), MAX_TEXT)?.outcome).toEqual(outcome)
+    expect(parseChannelReport(report(outcome), MAX_TEXT, MAX_ACT_STEPS)?.outcome).toEqual(outcome)
+  })
+})
+
+describe('what a posted report of steps must carry', () => {
+  /** One well-formed report of two steps that ran. */
+  const ACT: ActOutcome = {
+    status: 'done',
+    page: { id: 'home', title: 'Home' },
+    title: 'Fleet',
+    steps: [{ index: 1, status: 'ok' }, { index: 2, status: 'ok' }],
+    text: 'Done 2/2 on Home: click "Go" (settled after 0.1s).',
+    truncated: false,
+  }
+
+  it('takes both endings a call that ran steps can have', () => {
+    for (const status of ['done', 'failed'] as const) {
+      const outcome: ActOutcome = { ...ACT, status }
+      expect(parseChannelReport(report(outcome), MAX_TEXT, MAX_ACT_STEPS)?.outcome).toEqual(outcome)
+    }
+  })
+
+  it('numbers the steps as the call asked for them', () => {
+    // A report naming a step the call never had describes something else, so
+    // the indices are the positions themselves rather than whatever was sent.
+    for (const steps of [
+      [{ index: 2, status: 'ok' }],
+      [{ index: 1, status: 'ok' }, { index: 3, status: 'ok' }],
+      [{ index: 0, status: 'ok' }],
+      [{ index: '1', status: 'ok' }],
+      [null],
+      ['ok'],
+    ]) {
+      expect({ steps, parsed: parseChannelReport(report({ ...ACT, steps }), MAX_TEXT, MAX_ACT_STEPS) })
+        .toEqual({ steps, parsed: undefined })
+    }
+  })
+
+  it('carries at most one message, because execution stops at the first failure', () => {
+    // Also what keeps a report of steps inside the envelope a listing is sized
+    // against: one message is the same 2000 characters a failure carries.
+    const one = [{ index: 1, status: 'ok' }, { index: 2, status: 'failed', message: 'e5 is gone' }]
+    expect(parseChannelReport(report({ ...ACT, steps: one }), MAX_TEXT, MAX_ACT_STEPS)?.outcome)
+      .toEqual({ ...ACT, steps: one })
+    const two = [{ index: 1, status: 'failed', message: 'e4 is gone' }, { index: 2, status: 'failed', message: 'e5 is gone' }]
+    expect(parseChannelReport(report({ ...ACT, steps: two }), MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
+  })
+
+  it('refuses a step list that is empty, over the bound, or not a list', () => {
+    for (const steps of [[], undefined, 'two', Array.from({ length: 3 }, (_, at) => ({ index: at + 1, status: 'ok' }))]) {
+      expect({ steps, parsed: parseChannelReport(report({ ...ACT, steps }), MAX_TEXT, 2) })
+        .toEqual({ steps, parsed: undefined })
+    }
+  })
+
+  it('refuses a status no step can end with, and a message past the bound', () => {
+    expect(parseChannelReport(report({ ...ACT, steps: [{ index: 1, status: 'ran' }] }), MAX_TEXT, MAX_ACT_STEPS))
+      .toBeUndefined()
+    const long = [{ index: 1, status: 'failed', message: 'x'.repeat(2001) }]
+    expect(parseChannelReport(report({ ...ACT, steps: long }), MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
+  })
+
+  it('pairs the message with the failure and with nothing else', () => {
+    // A failure with no reason is the one report the model can do nothing with,
+    // and a message on a step that ran describes something that did not happen.
+    for (const steps of [
+      [{ index: 1, status: 'failed' }],
+      [{ index: 1, status: 'ok', message: 'went fine' }],
+      [{ index: 1, status: 'ok' }, { index: 2, status: 'skipped', message: 'never ran' }],
+    ]) {
+      expect({ steps, parsed: parseChannelReport(report({ ...ACT, steps }), MAX_TEXT, MAX_ACT_STEPS) })
+        .toEqual({ steps, parsed: undefined })
+    }
+    const skipped = [{ index: 1, status: 'failed', message: 'e5 is gone' }, { index: 2, status: 'skipped' }]
+    expect(parseChannelReport(report({ ...ACT, status: 'failed', steps: skipped }), MAX_TEXT, MAX_ACT_STEPS)?.outcome)
+      .toEqual({ ...ACT, status: 'failed', steps: skipped })
+  })
+
+  it('refuses a report missing the page, the title, the body, or the cut flag', () => {
+    for (const [field, outcome] of [
+      ['page', { ...ACT, page: undefined }],
+      ['page.id', { ...ACT, page: { id: `home${CONTROL}`, title: 'Home' } }],
+      ['title', { ...ACT, title: undefined }],
+      ['title', { ...ACT, title: 'x'.repeat(201) }],
+      ['text', { ...ACT, text: undefined }],
+      ['text', { ...ACT, text: 'x'.repeat(MAX_TEXT + 1) }],
+      ['truncated', { ...ACT, truncated: 'no' }],
+    ] as const) {
+      expect({ field, parsed: parseChannelReport(report(outcome), MAX_TEXT, MAX_ACT_STEPS) })
+        .toEqual({ field, parsed: undefined })
+    }
+  })
+
+  it('tells a report of steps from a listing by its own discriminant', () => {
+    // One route, two documents: `done` and `failed` are the steps' own arms,
+    // and everything else is read as the listing channel's.
+    expect(parseChannelReport(report({ ...ACT, status: 'ok' }), MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
+    expect(isActOutcome(ACT)).toBe(true)
+    expect(isActOutcome(READ)).toBe(false)
+    expect(isActOutcome({ status: 'error', code: 'frame', message: 'why' })).toBe(false)
+  })
+})
+
+describe('what a browser half may be asked to run', () => {
+  it('reads the steps a call opened, dropping the fields it did not carry', () => {
+    const steps = [
+      { action: 'fill', ref: 'e4', label: '名称', text: '东风' },
+      { action: 'select', ref: 'e6', label: '站点', value: '东风' },
+      { action: 'press', ref: 'e4', label: '名称', key: 'Enter' },
+      { action: 'click', ref: 'e5', label: '查询' },
+      { action: 'wait', text: '保存成功' },
+    ]
+    expect(parseActArgs({ steps, dialogs: 'accept' })).toEqual({ steps, dialogs: 'accept' })
+    expect(parseActArgs({ steps: [{ action: 'click', ref: 'e5', label: 'Go' }] }))
+      .toEqual({ steps: [{ action: 'click', ref: 'e5', label: 'Go' }] })
+  })
+
+  it('refuses arguments no seat could run', () => {
+    for (const args of [
+      undefined,
+      'steps',
+      { steps: [] },
+      { steps: 'click' },
+      { steps: [{ action: 'scroll', ref: 'e5', label: 'Go' }] },
+      { steps: [{ action: 'click', ref: 12, label: 'Go' }] },
+      { steps: [null] },
+      { steps: [{ action: 'click', ref: 'e5', label: 'Go' }], dialogs: 'confirm' },
+      { steps: [{ action: 'press', ref: 'e4', label: '名称', key: '' }] },
+      { steps: Array.from({ length: MAX_ACT_STEPS + 1 }, () => ({ action: 'click', ref: 'e5', label: 'Go' })) },
+    ]) {
+      expect({ args, parsed: parseActArgs(args) }).toEqual({ args, parsed: undefined })
+    }
   })
 })

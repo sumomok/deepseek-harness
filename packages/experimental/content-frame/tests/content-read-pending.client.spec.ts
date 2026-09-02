@@ -11,20 +11,20 @@
  */
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { PendingReads, type ReadSettlement, type ReadTimeouts } from '../src/access/pending.ts'
+import { PendingCalls, type CallSettlement, type CallTimeouts } from '../src/access/pending.ts'
 import { PREFERRED_TAB_WINDOW_MS, type ReadOutcome } from '../src/access/wire.ts'
 
-const TIMEOUTS: ReadTimeouts = { claimTimeoutMs: 3000, readTimeoutMs: 15000, pinMs: 300000 }
+const TIMEOUTS: CallTimeouts = { claimTimeoutMs: 3000, answerTimeoutMs: 15000, pinMs: 300000 }
 
 /** One listing, which the table carries through without looking at it. */
 const OUTCOME: ReadOutcome = { status: 'error', code: 'empty', message: 'the content column is empty' }
 
-let table: PendingReads
+let table: PendingCalls
 let aborter: AbortController
 
 beforeEach(() => {
   vi.useFakeTimers()
-  table = new PendingReads()
+  table = new PendingCalls()
   aborter = new AbortController()
 })
 
@@ -33,7 +33,7 @@ afterEach(() => {
 })
 
 /** Open one wait and hand back the promise plus a way to see it settle. */
-function open(callId: string, sessionId = 'session_1'): Promise<ReadSettlement> {
+function open(callId: string, sessionId = 'session_1'): Promise<CallSettlement> {
   return table.open(callId, sessionId, aborter.signal, TIMEOUTS)
 }
 
@@ -69,7 +69,7 @@ describe('the claim window', () => {
 
   it('refuses a second wait for a call already in the table, rather than stranding the first', async () => {
     const settled = open('call_1')
-    await expect(open('call_1')).rejects.toThrow('content-frame: a read for call call_1 is already waiting')
+    await expect(open('call_1')).rejects.toThrow('content-frame: call call_1 is already waiting')
     // The first execution is still the one the table answers; a silent replace
     // would have left it blocked with every wake-up path pointing elsewhere.
     await vi.advanceTimersByTimeAsync(TIMEOUTS.claimTimeoutMs)
@@ -93,7 +93,7 @@ describe('the report window', () => {
     await vi.advanceTimersByTimeAsync(TIMEOUTS.claimTimeoutMs - 1)
     expect(await table.claim({ callId: 'call_1', tabId: 'tab_a' })).toEqual({ claimed: true })
     // The claim window's own deadline is gone: only the report deadline stands.
-    await vi.advanceTimersByTimeAsync(TIMEOUTS.readTimeoutMs - 1)
+    await vi.advanceTimersByTimeAsync(TIMEOUTS.answerTimeoutMs - 1)
     await vi.advanceTimersByTimeAsync(1)
     expect(await settled).toEqual({ kind: 'unanswered' })
   })

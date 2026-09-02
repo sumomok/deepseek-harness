@@ -1,6 +1,7 @@
 /**
- * The `contentAccess` projection unit: the `content_read` calls one session has
- * open right now.
+ * The `contentAccess` projection unit: the page-channel calls one session has
+ * open right now — the `content_read` calls waiting for a listing and the
+ * `content_act` calls waiting for their steps to run.
  *
  * It is the request half of the read channel. A host cannot address a browser,
  * so a waiting call announces itself here, the seat showing that session sees
@@ -22,13 +23,16 @@ import type { ZodType } from 'zod'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 // Type-only: pulls this package's own `contentAccess` projection declarations.
-import type { ContentAccessView, ContentReadRequest } from '../types.ts'
-import { CONTENT_READ_TOOL_NAME, type ReadArgs } from './wire.ts'
+import type { ContentAccessRequest, ContentActRequest, ContentAccessView, ContentReadRequest } from '../types.ts'
+import {
+  CONTENT_ACT_TOOL_NAME, CONTENT_READ_TOOL_NAME, DIALOG_ANSWERS, MAX_ACT_STEPS, parseActArgs, type ActArgs,
+  type ActStep, type ReadArgs,
+} from './wire.ts'
 
 /** The `contentAccess` unit as the registry's client-visible overload takes it: `wire` is required, not optional. */
 type ContentAccessProjectionDefinition =
-  & Omit<ProjectionDefinition<'contentAccess', ContentReadRequest[]>, 'wire'>
-  & { wire: NonNullable<ProjectionDefinition<'contentAccess', ContentReadRequest[]>['wire']> }
+  & Omit<ProjectionDefinition<'contentAccess', ContentAccessRequest[]>, 'wire'>
+  & { wire: NonNullable<ProjectionDefinition<'contentAccess', ContentAccessRequest[]>['wire']> }
 
 /** One call's arguments; the transform drops the absent ones rather than carrying explicit `undefined`. */
 const argsSchema: ZodType<ReadArgs> = zod.object({
@@ -43,15 +47,43 @@ const argsSchema: ZodType<ReadArgs> = zod.object({
   ...find === undefined ? {} : { find },
 }))
 
-/** One open call, as both the persisted checkpoint and the wire payload carry it. */
-const requestSchema: ZodType<ContentReadRequest> = zod.object({
-  callId: zod.string(),
-  tool: zod.literal(CONTENT_READ_TOOL_NAME),
-  args: argsSchema,
-}).strict()
+/** One target, shared by the four steps that name an element. */
+const targetSchema = { ref: zod.string(), label: zod.string() }
+
+/** One step: one arm per action, each carrying exactly the fields that action needs. */
+const stepSchema: ZodType<ActStep> = zod.discriminatedUnion('action', [
+  zod.object({ action: zod.literal('click'), ...targetSchema }).strict(),
+  zod.object({ action: zod.literal('fill'), ...targetSchema, text: zod.string() }).strict(),
+  zod.object({ action: zod.literal('select'), ...targetSchema, value: zod.string() }).strict(),
+  zod.object({ action: zod.literal('press'), ...targetSchema, key: zod.string() }).strict(),
+  zod.object({ action: zod.literal('wait'), text: zod.string() }).strict(),
+])
+
+/** One act call's arguments; the transform drops an absent `dialogs` rather than carrying explicit `undefined`. */
+const actArgsSchema: ZodType<ActArgs> = zod.object({
+  steps: zod.array(stepSchema).min(1).max(MAX_ACT_STEPS),
+  dialogs: zod.enum([...DIALOG_ANSWERS]).optional(),
+}).strict().transform(({ steps, dialogs }) => ({
+  steps,
+  ...dialogs === undefined ? {} : { dialogs },
+}))
+
+/** One open call of either tool, as both the persisted checkpoint and the wire payload carry it. */
+const requestSchema: ZodType<ContentAccessRequest> = zod.union([
+  zod.object({
+    callId: zod.string(),
+    tool: zod.literal(CONTENT_READ_TOOL_NAME),
+    args: argsSchema,
+  }).strict(),
+  zod.object({
+    callId: zod.string(),
+    tool: zod.literal(CONTENT_ACT_TOOL_NAME),
+    args: actArgsSchema,
+  }).strict(),
+])
 
 /** Fold state: the open calls in log order. */
-const stateSchema: ZodType<ContentReadRequest[]> = zod.array(requestSchema)
+const stateSchema: ZodType<ContentAccessRequest[]> = zod.array(requestSchema)
 
 /** Wire payload schema of the `contentAccess` projection. */
 const viewSchema: ZodType<ContentAccessView> = zod.object({ pending: zod.array(requestSchema) }).strict()
@@ -82,13 +114,13 @@ function readArgs(value: unknown): ReadArgs | undefined {
 }
 
 /**
- * Read one call's arguments from the raw JSON string a `tool/call` records.
+ * Decode the raw JSON string a `tool/call` records its arguments as.
  * @param raw - the arguments exactly as the model produced them.
- * @returns the arguments, or `undefined` when the string is not a readable set.
+ * @returns the decoded value, or `undefined` when the string is not JSON.
  */
-function parseArgs(raw: string): ReadArgs | undefined {
+function decodeArgs(raw: string): { value: unknown } | undefined {
   try {
-    return readArgs(JSON.parse(raw))
+    return { value: JSON.parse(raw) as unknown }
   } catch (_argumentsAreNotJson) {
     // A model can emit anything as arguments; the tool refuses the same call.
     return undefined
@@ -96,20 +128,46 @@ function parseArgs(raw: string): ReadArgs | undefined {
 }
 
 /**
- * Read the read one committed event opened, in either of the two log shapes.
- * @param event - the committed session event.
- * @returns the request, or `undefined` when the event opens no readable call.
+ * Read the act call one event's arguments open.
+ * @param value - the decoded arguments, however malformed.
+ * @param callId - the id to claim and report against.
+ * @returns the request, or `undefined` when the arguments are not a runnable set.
  */
-export function readContentReadCall(event: SessionEvent): ContentReadRequest | undefined {
+function actRequest(value: unknown, callId: string): ContentActRequest | undefined {
+  const args = parseActArgs(value)
+  return args === undefined ? undefined : { callId, tool: CONTENT_ACT_TOOL_NAME, args }
+}
+
+/**
+ * Read the read one event's arguments open.
+ * @param value - the decoded arguments, however malformed.
+ * @param callId - the id to claim and report against.
+ * @returns the request, or `undefined` when the arguments are not a readable set.
+ */
+function readRequest(value: unknown, callId: string): ContentReadRequest | undefined {
+  const args = readArgs(value)
+  return args === undefined ? undefined : { callId, tool: CONTENT_READ_TOOL_NAME, args }
+}
+
+/**
+ * Read the call one committed event opened, in either of the two log shapes and
+ * for either tool.
+ * @param event - the committed session event.
+ * @returns the request, or `undefined` when the event opens no usable call.
+ */
+export function readContentAccessCall(event: SessionEvent): ContentAccessRequest | undefined {
   if (event.type === 'tool/call') {
-    if (event.data.name !== CONTENT_READ_TOOL_NAME) return undefined
-    const args = parseArgs(event.data.arguments)
-    return args === undefined ? undefined : { callId: event.data.callId, tool: CONTENT_READ_TOOL_NAME, args }
+    if (event.data.name !== CONTENT_READ_TOOL_NAME && event.data.name !== CONTENT_ACT_TOOL_NAME) return undefined
+    const decoded = decodeArgs(event.data.arguments)
+    if (decoded === undefined) return undefined
+    return event.data.name === CONTENT_READ_TOOL_NAME
+      ? readRequest(decoded.value, event.data.callId)
+      : actRequest(decoded.value, event.data.callId)
   }
   if (event.type === 'tool/code-dispatch-start') {
-    if (event.data.name !== CONTENT_READ_TOOL_NAME) return undefined
-    const args = readArgs(event.data.arguments)
-    return args === undefined ? undefined : { callId: event.data.subCallId, tool: CONTENT_READ_TOOL_NAME, args }
+    if (event.data.name === CONTENT_READ_TOOL_NAME) return readRequest(event.data.arguments, event.data.subCallId)
+    if (event.data.name === CONTENT_ACT_TOOL_NAME) return actRequest(event.data.arguments, event.data.subCallId)
+    return undefined
   }
   return undefined
 }
@@ -137,8 +195,8 @@ export function contentAccessProjection(): ContentAccessProjectionDefinition {
     key: 'contentAccess',
     stateSchema,
     init: () => [],
-    apply: (state: ContentReadRequest[], event: SessionEvent) => {
-      const opened = readContentReadCall(event)
+    apply: (state: ContentAccessRequest[], event: SessionEvent) => {
+      const opened = readContentAccessCall(event)
       if (opened !== undefined) return [...state, opened]
       const settled = settledCallId(event)
       if (settled === undefined) return state
@@ -146,6 +204,6 @@ export function contentAccessProjection(): ContentAccessProjectionDefinition {
       return at === -1 ? state : [...state.slice(0, at), ...state.slice(at + 1)]
     },
     wire: { viewSchema, view: pending => ({ pending }) },
-    stateVersion: 1,
+    stateVersion: 2,
   }
 }

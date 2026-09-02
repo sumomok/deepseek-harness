@@ -17,7 +17,8 @@ import {
 } from '../src/client/access/executor.ts'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
-  MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest,
+  MAX_ACT_STEPS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS, MIN_OUTLINE_CHARS,
+  parseChannelReport,
   PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
 import { FRAME_WIDE_LISTING_MESSAGE } from '../src/access/text.ts'
@@ -32,7 +33,10 @@ const FRAME = 'session_1 home'
  * through and long enough to hold several claim retries, which is the interval
  * the reader gives up inside rather than crossing.
  */
-const ACCESS = { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 1000, settleQuietMs: 5 }
+const ACCESS = {
+  outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 1000, settleQuietMs: 5,
+  actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 20,
+}
 
 /** One open call. */
 const READ: ContentReadRequest = { callId: 'call_1', tool: 'content_read', args: {} }
@@ -165,7 +169,7 @@ function wideTable(columns: number, fill: string, pagination: string): string {
 function readTable(html: string, outlineChars: number): ReturnType<typeof drive> {
   return drive(seatOf({
     frames: { current: new Map([[FRAME, mountFrame(html)]]) },
-    access: { outlineChars, claimTimeoutMs: 300, readTimeoutMs: 1000, settleQuietMs: 5 },
+    access: { ...ACCESS, outlineChars },
     pending: [{ callId: 'call_1', tool: 'content_read', args: { find: 'FLEET' } }],
   }))
 }
@@ -314,7 +318,7 @@ describe('when the reader claims', () => {
     // deadline below is twenty times the claim window, which would allow many
     // times as many bids.
     claims = Array.from({ length: 40 }, () => ({ claimed: false, reason: 'unknown' as const }))
-    const access = { outlineChars: 4000, claimTimeoutMs: 250, readTimeoutMs: 5000, settleQuietMs: 5 }
+    const access = { ...ACCESS, claimTimeoutMs: 250, readTimeoutMs: 5000 }
     // One bid at once, then one more every interval while another still fits
     // inside the claim window, the preferred tab's hold, and one last interval.
     const expected = Math.floor((access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS) / CLAIM_RETRY_MS) + 2
@@ -383,7 +387,7 @@ describe('when the reader claims', () => {
     for (const state of [SERVER_FAILURE, 'unreachable'] as const) {
       posted = []
       network = state
-      const view = drive(seatOf({ access: { outlineChars: 4000, claimTimeoutMs: 50, readTimeoutMs: 500, settleQuietMs: 5 } }))
+      const view = drive(seatOf({ access: { ...ACCESS, claimTimeoutMs: 50, readTimeoutMs: 500 } }))
       await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThanOrEqual(2) }, { timeout: 3000 })
       await new Promise<void>((resolve) => { setTimeout(resolve, 600) })
       expect({ state, reports: of(CONTENT_REPORT_ROUTE) }).toEqual({ state, reports: [] })
@@ -522,7 +526,7 @@ describe('what the reader reports', () => {
     )
     drive(seatOf({
       frames: { current: new Map([[FRAME, frame]]) },
-      access: { outlineChars: MIN_OUTLINE_CHARS, claimTimeoutMs: 300, readTimeoutMs: 1000, settleQuietMs: 5 },
+      access: { ...ACCESS, outlineChars: MIN_OUTLINE_CHARS },
       // The whole-page read answers with the map instead; a filtered one is
       // where an over-long row actually reaches the model.
       pending: [{ callId: 'call_1', tool: 'content_read', args: { find: 'NNN' } }],
@@ -533,7 +537,7 @@ describe('what the reader reports', () => {
     expect(outcome.snapshot.text.length).toBeGreaterThan(MIN_OUTLINE_CHARS)
     // And the host takes it: the character bound is four times the budget, and
     // the floor on the budget is what keeps that row inside it.
-    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE))
+    expect(parseChannelReport(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS))
       .toBeDefined()
   })
 
@@ -580,7 +584,7 @@ describe('what the reader reports', () => {
     expect({ title: outcome.snapshot.title, url: outcome.snapshot.url })
       .toEqual({ title: 'Console', url: 'http://x/fleet' })
     // And the whole document is one the route takes.
-    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], ACCESS.outlineChars * MAX_TEXT_BUDGET_MULTIPLE))
+    expect(parseChannelReport(of(CONTENT_REPORT_ROUTE)[0], ACCESS.outlineChars * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS))
       .toBeDefined()
   })
 
@@ -601,7 +605,7 @@ describe('what the reader reports', () => {
       body: reportedBytes(),
       charBound: MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
     }).toEqual({ chars: 3973, body: 4445, charBound: 4000 })
-    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE))
+    expect(parseChannelReport(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS))
       .toBeDefined()
     inside.unmount()
 
@@ -621,7 +625,7 @@ describe('what the reader reports', () => {
     expect(reported()).toMatchObject({ message: FRAME_WIDE_LISTING_MESSAGE })
     // And a document the route takes, where the listing itself would have been
     // refused and reached the model as a console that never answered.
-    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE)).toBeDefined()
+    expect(parseChannelReport(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS)).toBeDefined()
     // One post, not one per retry: the seat answered rather than being refused.
     await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS + SETTLE_MARGIN_MS) })
     expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(1)
@@ -675,7 +679,7 @@ describe('what the reader reports', () => {
     // a body the route answers with a 413 the host cannot trace back to the
     // call.
     expect(reported()).toMatchObject({ status: 'error', code: 'frame', message: FRAME_WIDE_LISTING_MESSAGE })
-    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE))
+    expect(parseChannelReport(of(CONTENT_REPORT_ROUTE)[0], DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS))
       .toBeDefined()
     heavy.unmount()
   })
@@ -707,7 +711,7 @@ describe('what the reader reports', () => {
         byteBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
       }).toEqual({ columns, chars, listing, body, share: 48000, byteBound: 71328 })
       // And the host takes what the seat sent, at both of its own bounds.
-      expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE))
+      expect(parseChannelReport(of(CONTENT_REPORT_ROUTE)[0], DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS))
         .toBeDefined()
       view.unmount()
     }
@@ -826,7 +830,7 @@ describe('what the reader reports', () => {
       charsLeft: MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE - chars,
       bytesLeft: MIN_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES - body,
     }).toEqual({ chars: 3973, body: 11175, charBound: 4000, byteBound: 27328, charsLeft: 27, bytesLeft: 16153 })
-    expect(parseReportRequest(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE))
+    expect(parseChannelReport(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS))
       .toBeDefined()
     inside.unmount()
 
@@ -943,7 +947,7 @@ describe('what the reader reports', () => {
     const frame = mountFrame('<main><button>Refresh</button></main>')
     Object.defineProperty(frame.contentWindow?.document, 'readyState', { value: 'loading', configurable: true })
     const frames = new Map([[FRAME, frame]])
-    const access = { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 800, settleQuietMs: 5 }
+    const access = { ...ACCESS, readTimeoutMs: 800 }
     const opened = Date.now()
     drive(seatOf({ frames: { current: frames }, access }))
     await settled()
@@ -1000,7 +1004,7 @@ describe('what the reader reports', () => {
       frames: { current: frames },
       // A budget one listing cannot fit, so the read is cut and names where to
       // continue from rather than stopping silently.
-      access: { outlineChars: 30, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 },
+      access: { ...ACCESS, outlineChars: 30, readTimeoutMs: 500 },
       pending: [{ callId: 'call_1', tool: 'content_read', args: { find: 'Refresh' } }],
     }))
     await settled()

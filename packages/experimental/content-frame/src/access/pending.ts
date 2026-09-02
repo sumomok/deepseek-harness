@@ -1,5 +1,6 @@
 /**
- * The table of `content_read` calls waiting for a browser to read the page.
+ * The table of page-channel calls waiting for a browser: a `content_read`
+ * reading the page, or a `content_act` running steps on it.
  *
  * Two phases, because the host cannot address a browser and must tell "no
  * console is open" apart from "the console that answered went quiet": a call
@@ -7,38 +8,47 @@
  * entry per call id, and the id is the tool execution's own `callId`, which is
  * also what the session log hands the seat through the pending projection.
  *
+ * Both tools share one table because they share one claim. Which tool a call
+ * belongs to is not this table's business — it hands the waiter whatever was
+ * posted for it, and the tool that opened the wait is what decides whether that
+ * document answers the call it asked.
+ *
  * Settlement is single-shot: the entry leaves the table before its waiter is
  * resolved, so a second report, a report for a call that already timed out, and
  * a report for a call this host never ran are the same answer — nothing is
  * waiting.
  *
- * One session's reads stick to one tab. The tab that last claimed a read for a
+ * One session's calls stick to one tab. The tab that last claimed a call for a
  * session is preferred for `pinMs` afterwards, and a claim from any other tab
  * is held briefly so the preferred one can take it first. Without that, two
- * consoles open on the same session would answer alternate reads, and the refs
- * one console minted would name nothing in the other.
+ * consoles open on the same session would answer alternate calls, and the refs
+ * one console minted would name nothing in the other — and a step meant for the
+ * page in front of the user would run in a window nobody is looking at.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/pending
  */
 
-import { PREFERRED_TAB_WINDOW_MS, type ClaimAck, type ClaimRequest, type ReadOutcome, type ReportAck, type ReportRequest } from './wire.ts'
+import {
+  PREFERRED_TAB_WINDOW_MS, type ChannelOutcome, type ChannelReportRequest, type ClaimAck, type ClaimRequest,
+  type ReportAck,
+} from './wire.ts'
 
-/** How long each phase of one read waits, as the deployment configured it. */
-export interface ReadTimeouts {
+/** How long each phase of one call waits, as the deployment configured it. */
+export interface CallTimeouts {
   /** How long a call waits to be claimed before it decides no console is open. */
   claimTimeoutMs: number
-  /** How long a claimed call waits for its report. */
-  readTimeoutMs: number
+  /** How long a claimed call waits for its report; each tool's own deadline. */
+  answerTimeoutMs: number
   /** How long the tab that answered stays this session's preferred reader. */
   pinMs: number
 }
 
 /** How one waiting call ended. */
-export type ReadSettlement =
+export type CallSettlement =
   /** A claiming tab answered. */
-  | { kind: 'reported'; outcome: ReadOutcome }
+  | { kind: 'reported'; outcome: ChannelOutcome }
   /** The claim window passed with no browser in it. */
   | { kind: 'unclaimed' }
-  /** A tab claimed the read and never reported. */
+  /** A tab claimed the call and never reported. */
   | { kind: 'unanswered' }
   /** The execution was cancelled while it waited. */
   | { kind: 'aborted' }
@@ -84,13 +94,13 @@ function bound(memory: BoundedMemory, limit: number): void {
 }
 
 /** One call waiting for a browser, in whichever phase it is in. */
-interface PendingRead {
+interface PendingCall {
   /** The tool execution's call id. */
   readonly callId: string
-  /** The session whose column is to be read; the unit the preferred tab is pinned per. */
+  /** The session whose column the call is against; the unit the preferred tab is pinned per. */
   readonly sessionId: string
   /** This call's configured deadlines. */
-  readonly timeouts: ReadTimeouts
+  readonly timeouts: CallTimeouts
   /** The tab that claimed it, once one has. */
   tabId: string | undefined
   /** The current phase's deadline. */
@@ -98,15 +108,15 @@ interface PendingRead {
   /** A non-preferred tab's claim, waiting out the preferred tab's window. */
   hold: { readonly resolve: (ack: ClaimAck) => void; readonly timer: ReturnType<typeof setTimeout>; readonly tabId: string } | undefined
   /** Ends the wait. */
-  readonly resolve: (settlement: ReadSettlement) => void
+  readonly resolve: (settlement: CallSettlement) => void
   /** Drops the execution's abort listener. */
   readonly release: () => void
 }
 
-/** Calls whose tool body is blocked on a browser reading the page. */
-export class PendingReads {
+/** Calls whose tool body is blocked on a browser. */
+export class PendingCalls {
   /** Calls still waiting, by call id. */
-  private readonly waiting = new Map<string, PendingRead>()
+  private readonly waiting = new Map<string, PendingCall>()
 
   /** Call ids that have settled, newest last, bounded by {@link SETTLED_MEMORY}. */
   private readonly settled = new Set<string>()
@@ -118,9 +128,9 @@ export class PendingReads {
   private readonly preferred = new Map<string, { tabId: string; until: number }>()
 
   /**
-   * Register one call and wait for a browser to read the page for it.
+   * Register one call and wait for a browser to answer it.
    * @param callId - the tool execution's call id, which is also what the seat claims by.
-   * @param sessionId - the session whose column is to be read.
+   * @param sessionId - the session whose column the call is against.
    * @param signal - the execution's cancellation.
    * @param timeouts - the deployment's deadlines for both phases.
    * @returns how the wait ended.
@@ -130,15 +140,15 @@ export class PendingReads {
     callId: string,
     sessionId: string,
     signal: AbortSignal,
-    timeouts: ReadTimeouts,
-  ): Promise<ReadSettlement> {
+    timeouts: CallTimeouts,
+  ): Promise<CallSettlement> {
     // One call id, one open wait: a second registration would replace the first
     // entry and leave its execution blocked forever, since every path that
     // could wake it settles against the entry the table now holds.
-    if (this.waiting.has(callId)) throw new Error(`content-frame: a read for call ${callId} is already waiting`)
+    if (this.waiting.has(callId)) throw new Error(`content-frame: call ${callId} is already waiting`)
     if (signal.aborted) return { kind: 'aborted' }
-    return await new Promise<ReadSettlement>((resolve) => {
-      const entry: PendingRead = {
+    return await new Promise<CallSettlement>((resolve) => {
+      const entry: PendingCall = {
         callId,
         sessionId,
         timeouts,
@@ -155,9 +165,9 @@ export class PendingReads {
   }
 
   /**
-   * Take one browser seat's bid to answer a pending read.
+   * Take one browser seat's bid to answer a pending call.
    * @param request - the posted claim.
-   * @returns whether this tab now owns the read, and why not when it does not.
+   * @returns whether this tab now owns the call, and why not when it does not.
    */
   async claim(request: ClaimRequest): Promise<ClaimAck> {
     const entry = this.waiting.get(request.callId)
@@ -186,11 +196,11 @@ export class PendingReads {
   }
 
   /**
-   * Deliver one browser seat's read to the call waiting for it.
+   * Deliver one browser seat's answer to the call waiting for it.
    * @param request - the posted report.
    * @returns whether a waiting call took it.
    */
-  report(request: ReportRequest): ReportAck {
+  report(request: ChannelReportRequest): ReportAck {
     const entry = this.waiting.get(request.callId)
     if (entry === undefined || entry.tabId !== request.tabId) return { accepted: false }
     this.finish(entry, { kind: 'reported', outcome: request.outcome })
@@ -211,12 +221,12 @@ export class PendingReads {
   }
 
   /**
-   * Hand one tab the read and start the report deadline.
+   * Hand one tab the call and start the report deadline.
    * @param entry - the waiting call.
    * @param tabId - the tab that won it.
    * @returns the winning acknowledgement.
    */
-  private grant(entry: PendingRead, tabId: string): ClaimAck {
+  private grant(entry: PendingCall, tabId: string): ClaimAck {
     entry.tabId = tabId
     // Removed before it is written so the session moves to the newest position
     // of the insertion order, which is what the bound below evicts against.
@@ -224,7 +234,7 @@ export class PendingReads {
     this.preferred.set(entry.sessionId, { tabId, until: Date.now() + entry.timeouts.pinMs })
     bound(this.preferred, PREFERRED_MEMORY)
     clearTimeout(entry.timer)
-    entry.timer = setTimeout(() => { this.finish(entry, { kind: 'unanswered' }) }, entry.timeouts.readTimeoutMs)
+    entry.timer = setTimeout(() => { this.finish(entry, { kind: 'unanswered' }) }, entry.timeouts.answerTimeoutMs)
     return { claimed: true }
   }
 
@@ -233,7 +243,7 @@ export class PendingReads {
    * @param entry - the waiting call.
    * @param ack - what the held claim is told.
    */
-  private releaseHold(entry: PendingRead, ack: ClaimAck): void {
+  private releaseHold(entry: PendingCall, ack: ClaimAck): void {
     const hold = entry.hold
     if (hold === undefined) return
     entry.hold = undefined
@@ -246,7 +256,7 @@ export class PendingReads {
    * @param entry - the call being settled.
    * @param settlement - how it ended.
    */
-  private finish(entry: PendingRead, settlement: ReadSettlement): void {
+  private finish(entry: PendingCall, settlement: CallSettlement): void {
     /* v8 ignore next -- a second settlement of one entry: each path that reaches here drops the others first. */
     if (this.waiting.get(entry.callId) !== entry) return
     this.waiting.delete(entry.callId)

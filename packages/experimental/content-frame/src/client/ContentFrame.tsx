@@ -38,7 +38,7 @@ import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import type { ContentFrameAccessSettings } from '../route.ts'
 // Type-only: pulls this package's own `contentAccess` SessionProjectionMap merge.
-import type { ContentPageView, ContentReadRequest } from '../types.ts'
+import type { ContentPageView, ContentAccessRequest } from '../types.ts'
 import { foldFrames, NO_FRAMES, type CachedFrame, type FrameCache } from './frame-cache.ts'
 import { RefTable } from './access/refs.ts'
 import { TAB_ID, useContentRead } from './access/executor.ts'
@@ -75,7 +75,7 @@ export type ContentFrameProps =
 const NO_ENTRIES: readonly ContentSurfaceEntry[] = []
 
 /** The empty pending list, shared for the same reason. */
-const NO_READS: readonly ContentReadRequest[] = []
+const NO_CALLS: readonly ContentAccessRequest[] = []
 
 /**
  * Read the page one surface entry puts on display.
@@ -157,7 +157,7 @@ export function ContentFrame(props: ContentFrameProps) {
   const entries = useSessions(state => (
     key === undefined ? undefined : state.byId[key]?.projectionValues?.contentSurface?.entries)) ?? NO_ENTRIES
   const pending = useSessions(state => (
-    key === undefined ? undefined : state.byId[key]?.projectionValues?.contentAccess?.pending)) ?? NO_READS
+    key === undefined ? undefined : state.byId[key]?.projectionValues?.contentAccess?.pending)) ?? NO_CALLS
 
   useContentRead({
     entries,
