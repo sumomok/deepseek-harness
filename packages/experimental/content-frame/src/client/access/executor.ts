@@ -27,7 +27,7 @@ import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
-  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
+  ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
   MAX_CLAIM_BACKOFF, MAX_URL_CHARS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
   SETTLE_WAIT_SHARE, type ActOutcome, type ChannelOutcome, type ClaimAck, type ReadOutcome, type ReadPage,
@@ -611,6 +611,10 @@ async function actOnPage(
   access: ContentFrameAccessSettings,
 ): Promise<Report> {
   const report = (outcome: ChannelOutcome): Report => reportOf(seat, request.callId, outcome)
+  // The host granted the claim a moment ago and started counting then, so this
+  // is where the call's own deadline begins — before the wait for a frame that
+  // has not finished loading, which spends the same deadline.
+  const started = Date.now()
   const ready = await prepare(seat, access.actTimeoutMs)
   if (ready.kind === 'failed') return report(ready.outcome)
   const options: SnapshotOptions = {
@@ -638,9 +642,10 @@ async function actOnPage(
     }, {
       settleQuietMs: access.settleQuietMs,
       settleMaxMs: access.settleMaxMs,
-      // What is left of this call's own deadline, which is what a `wait` step
-      // may spend: the host started counting when it granted the claim.
-      deadline: Date.now() + access.actTimeoutMs * SETTLE_WAIT_SHARE,
+      // The steps' share of this call's deadline. What is left of it pays for
+      // the closing read and the trip back with it, and the deployment's own
+      // bounds are checked at load against this same share.
+      deadline: started + access.actTimeoutMs * ACT_RUN_SHARE,
     })
     const events = watch.events()
     // Re-read after the steps: a navigation replaces the frame's document, and

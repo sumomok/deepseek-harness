@@ -229,6 +229,45 @@ describe('what content_act offers the model', () => {
       .toEqual({ card: 'generic', title: 'Act on the page in the content column' })
   })
 
+  it('presents a call it could not read as steps, rather than throwing on every replay', () => {
+    // The presenter runs on replay of whatever was logged, including the
+    // arguments this tool refused: a call the body rejected for a missing
+    // field would otherwise throw every time its row was drawn.
+    const tool = contentActTool(new PendingCalls(), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
+    for (const args of [
+      { steps: [{ action: 'fill', ref: 'e1', label: '名称' }] },
+      { steps: [{ action: 'click', label: '查询' }] },
+      { steps: [] },
+    ]) {
+      expect(tool.presentCall?.(args)).toEqual({
+        card: 'generic',
+        title: 'Act on the page in the content column',
+        kind: 'other',
+        rawInput: JSON.stringify(args),
+      })
+    }
+    // Arguments the tool's own schema refuses never reach the presenter at all;
+    // the registry answers for those.
+    expect(tool.presentCall?.({ steps: [{ action: 'click', ref: 'e1', label: '查询' }], dialogs: 'maybe' }))
+      .toBeUndefined()
+    // And more steps than this deployment runs is still a call the user was
+    // asked about in words, because the wire can read it.
+    expect(tool.presentCall?.({ steps: [...STEPS, ...STEPS] })).toEqual({
+      card: 'generic',
+      title: 'Act on the page in the content column',
+      kind: 'other',
+      rawInput: '在「当前展示的这一项」上：填「名称」为「东风」；点「查询」；填「名称」为「东风」；点「查询」',
+    })
+  })
+
+  it('cuts the raw arguments it prints for a call it could not read', () => {
+    const tool = contentActTool(new PendingCalls(), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
+    const args = { steps: [{ action: 'fill', ref: 'e1', label: '名'.repeat(400) }] }
+    const printed = tool.presentCall?.(args) as { rawInput: string } | undefined
+    expect(printed?.rawInput).toHaveLength(201)
+    expect(printed?.rawInput.endsWith('…')).toBe(true)
+  })
+
   it('runs alone, because two sets of steps would interleave on one page', () => {
     const tool = contentActTool(new PendingCalls(), FAST, MAX_STEPS, () => undefined, new DialogApprovals())
     expect(tool.isConcurrencySafe?.({ steps: STEPS })).toBe(false)

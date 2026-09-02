@@ -46,6 +46,12 @@ A click is `pointerdown`, `mousedown`, `pointerup`, `mouseup`, `click`, because 
 
 Between steps the page is given `settleQuietMs` to go quiet, bounded per step by `settleMaxMs`, so a click that opens a dialog has opened it before the step that fills a box inside it resolves its ref. Per step rather than for the run: a page that never stops moving costs one ceiling per step and the steps still run.
 
+### The deadline bounds the run, and the run is checked against it
+
+`actTimeoutMs` is the host's deadline, and it starts when the claim is granted. The steps get three quarters of it and the closing read and the trip back get the rest, so the seat's own clock is the same one the host is watching: a step that would start past the steps' share fails with that said in its own message, the rest are reported as never run, and the report still arrives. Both waits are capped by the same moment — the wait for stillness after a step, and a `wait` step's own budget.
+
+That leaves one arithmetic a deployment can get wrong, so it is refused at load: `maxSteps × settleMaxMs` must come to less than the steps' share of `actTimeoutMs`. Above it, a page that never settles spends the whole deadline before the last step runs, and the model is told the console went quiet with the steps half done — the one ending nothing on either side can describe. The shipped defaults satisfy it with room: 20 steps of a 2000ms ceiling against 45,000ms.
+
 ### What the page did on its own comes back with the answer
 
 A step is one event dispatched at one element; everything the application does in answer to it happens afterwards. A toast that came and went leaves nothing for the closing snapshot to read, a `confirm()` nobody answered would block the frame's event loop until the deadline, and a window opened behind the console is one nobody will look at. For the length of the call — and no longer — the seat watches the document for text that appeared and went away, listens for route changes and compares the address, and stands in for `confirm`, `alert`, `prompt` and `window.open`. A link that would open a new window is stopped and reported the same way.
@@ -57,6 +63,10 @@ Those two stand-ins are the only thing this package injects into the documents i
 What ran or which step stopped the call; what the page did on its own, or one line saying it did nothing; and a whole fresh reading of the page at the deployment's own budget. The third section is what makes the next call possible without reading again, since the refs it names are current — a call that changed the page costs about what reading it costs, and the model does not pay twice. A section that appeared only sometimes would be a section the model stops looking for, so the "none" line is written rather than omitted.
 
 A step failure is a value, not a rejection. The model needs the page's new state in the same answer that says which step stopped it, which is exactly what a rejection cannot carry. Only the endings where nothing ran reject: refused arguments, no owning session, no console. The one ending that is neither is a console that claimed the call and went quiet: the steps may have run in full, in part, or not at all, so it answers `status: 'unverified'` with the sentence telling the model to read the page before deciding to retry.
+
+### The call card is display, and display may not throw
+
+`presentCall` runs on replay of whatever was logged, which includes the arguments this tool refused. So it reads them with the wire's own parser, which answers `undefined`, rather than with the body's, which throws the sentence naming the step and the field to fix: a call the model got wrong once would otherwise throw every time its row was drawn. A call the parser cannot read prints its raw arguments, cut to 200 characters, and the card's title never changes.
 
 ### No new session events, and no new bytes
 

@@ -27,13 +27,20 @@ import {
 } from './act-text.ts'
 import { failureRefusal, MISREPORTED_REFUSAL, unclaimedRefusal } from './text.ts'
 import {
-  ACT_ACTIONS, CONTENT_ACT_TOOL_NAME, DIALOG_ANSWERS, isActOutcome, readActStep, type ActArgs, type ActOutcome,
-  type ActStep, type ActStepResult,
+  ACT_ACTIONS, CONTENT_ACT_TOOL_NAME, DIALOG_ANSWERS, isActOutcome, parseActArgs, readActStep, type ActArgs,
+  type ActOutcome, type ActStep, type ActStepResult,
 } from './wire.ts'
 import type { FrontEntryLookup } from './read-tool.ts'
 
 /** Title of the call card, in the pending and the settled state alike. */
 const CALL_TITLE = 'Act on the page in the content column'
+
+/**
+ * How much of the raw arguments the call card prints for a call this tool could
+ * not read as steps. Long enough to show which steps were asked for, short
+ * enough that a card is not a transcript.
+ */
+const MAX_RAW_INPUT_CHARS = 200
 
 /** The canonical outcome declared by the `content_act` output schema. */
 export interface ContentActValue {
@@ -249,12 +256,22 @@ export function contentActTool(
         default: throw new Error(`content_act: unknown settlement ${JSON.stringify(settlement)}`)
       }
     },
-    presentCall: (args): GenericCallView => ({
-      card: 'generic',
-      title: CALL_TITLE,
-      kind: 'other',
-      rawInput: approvalReason(actArgs(args, maxSteps)),
-    }),
+    // Display only, and it runs on replay of whatever was logged, so it reads
+    // the arguments with the parser that answers `undefined` rather than with
+    // the body's own, which throws: a call the body refused for a missing field
+    // is a call this would otherwise throw on every time it was rendered.
+    presentCall: (args): GenericCallView => {
+      const parsed = parseActArgs(args)
+      const raw = JSON.stringify(args)
+      return {
+        card: 'generic',
+        title: CALL_TITLE,
+        kind: 'other',
+        rawInput: parsed === undefined
+          ? (raw.length > MAX_RAW_INPUT_CHARS ? `${raw.slice(0, MAX_RAW_INPUT_CHARS)}…` : raw)
+          : approvalReason(parsed),
+      }
+    },
     presentResult: (_args, result): GenericResultView => ({
       card: 'generic',
       title: result.content.find(block => block.type === 'text')?.text.split('\n')[0] ?? CALL_TITLE,

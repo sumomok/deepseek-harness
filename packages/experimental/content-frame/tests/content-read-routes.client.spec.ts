@@ -305,7 +305,7 @@ describe('the read channel over real HTTP', () => {
     expect(JSON.parse(answer.body)).toMatchObject({
       pageAccess: {
         outlineChars: OUTLINE_CHARS, claimTimeoutMs: 5000, readTimeoutMs: 5000,
-        actTimeoutMs: 60000, maxSteps: 20, settleMaxMs: 3000,
+        actTimeoutMs: 60000, maxSteps: 20, settleMaxMs: 2000,
       },
     })
     expect(answer.cacheControl).toBe('no-store')
@@ -962,9 +962,11 @@ describe('page-access configuration', () => {
     await ctx.fiber.dispose()
   })
 
-  it('rejects a per-step settle ceiling below the quiet window or past the whole deadline', async () => {
-    // Both numbers are in this one block either way, so the mismatch is caught
-    // at load rather than as every step ending its wait before it began.
+  it('rejects a per-step settle ceiling the quiet window or the steps of one call cannot live with', async () => {
+    // Every number is in this one block either way, so the mismatch is caught
+    // at load rather than as every step ending its wait before it began, or as
+    // a call that spends its whole deadline settling and never reaches its
+    // last step.
     for (const [pageAccess, refusal] of [
       [
         { settleQuietMs: 250, settleMaxMs: 249 },
@@ -972,7 +974,16 @@ describe('page-access configuration', () => {
       ],
       [
         { settleQuietMs: 250, settleMaxMs: 1001, actTimeoutMs: 1000 },
-        'content-frame: pageAccess.settleMaxMs must fit in actTimeoutMs (1000ms), received 1001',
+        'content-frame: pageAccess.maxSteps 20 × settleMaxMs 1001ms = 20020ms must be under 750ms, '
+        + 'which is 0.75 of pageAccess.actTimeoutMs 1000ms',
+      ],
+      [
+        // And the ceiling that lands exactly on the share is refused with it:
+        // a run whose steps could spend all of it leaves the closing read and
+        // the trip back nothing.
+        { settleQuietMs: 250, settleMaxMs: 375, actTimeoutMs: 1000, maxSteps: 2 },
+        'content-frame: pageAccess.maxSteps 2 × settleMaxMs 375ms = 750ms must be under 750ms, '
+        + 'which is 0.75 of pageAccess.actTimeoutMs 1000ms',
       ],
     ] as const) {
       const ctx = new Context()
@@ -999,7 +1010,7 @@ describe('page-access configuration', () => {
       pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
       pageAccess: {
         claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, settleQuietMs: 251, outlineChars: MIN_OUTLINE_CHARS,
-        actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 251,
+        actTimeoutMs: 60000, maxSteps: 20, settleMaxMs: 251,
       },
     })).rejects.toThrow(
       'content-frame: pageAccess.settleQuietMs must fit in 250ms (0.25 of readTimeoutMs), received 251',

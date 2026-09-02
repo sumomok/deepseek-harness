@@ -76,6 +76,20 @@ export const LOAD_WAIT_SHARE = 0.5
 export const SETTLE_WAIT_SHARE = 0.25
 
 /**
+ * The share of a set of steps' report deadline the steps themselves may spend.
+ *
+ * A share of its own rather than the read's, because what the rest pays for is
+ * different: not a second wait, but the closing read of the page at the
+ * deployment's own budget and the trip back with it. The host starts counting
+ * the moment it grants the claim, so steps that spent the whole deadline would
+ * be answered as a console that went quiet — with the steps already run, which
+ * is the one ending nothing on the host's side can describe. A step that starts
+ * past this point fails instead, and the report says which one and that the
+ * rest never ran.
+ */
+export const ACT_RUN_SHARE = 0.75
+
+/**
  * How many busy elements one listing header names. A page marking a dozen
  * regions `aria-busy` is a page that is loading, and naming the first few says
  * so at a cost the header can carry.

@@ -54,8 +54,9 @@ import { DialogApprovals } from './access/dialog-approvals.ts'
 import { registerActApproval } from './access/act-approval.ts'
 import type { FrontEntry } from './access/text.ts'
 import {
-  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_ACT_STEPS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
-  MIN_OUTLINE_CHARS, parseChannelReport, parseClaimRequest, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
+  ACT_RUN_SHARE, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_ACT_STEPS, MAX_TEXT_BUDGET_MULTIPLE,
+  MAX_TEXT_BYTES_PER_CHAR, MIN_OUTLINE_CHARS, parseChannelReport, parseClaimRequest, REPORT_ENVELOPE_BYTES,
+  SETTLE_WAIT_SHARE,
 } from './access/wire.ts'
 import { contentPagesProjection } from './perception/pages-projection.ts'
 import { registerColumnContext } from './perception/context.ts'
@@ -197,10 +198,13 @@ export interface PageAccessConfig {
    */
   outlineChars: number
   /**
-   * How long a claimed set of steps waits for its report. It bounds the whole
-   * run — every step's own wait, the page settling after each of them, and the
-   * closing read — so it is the longest of the deadlines. Raise it for an
-   * application whose forms take a while to answer.
+   * How long a claimed set of steps waits for its report, and the bound on the
+   * whole run. The steps themselves — each step's own wait and the page
+   * settling after it — get three quarters of it, and a step that would start
+   * past that point fails instead, with the rest reported as never run; the
+   * quarter left over pays for the closing read of the page and the trip back
+   * with it. It is the longest of the deadlines. Raise it for an application
+   * whose forms take a while to answer.
    */
   actTimeoutMs: number
   /**
@@ -215,7 +219,8 @@ export interface PageAccessConfig {
    * runs. `settleQuietMs` says how long stillness has to last; this says how
    * long the wait for it may take. Raise it for an application that answers a
    * click slowly; lower it for an agent that should not wait. It must be at
-   * least `settleQuietMs` and fit inside `actTimeoutMs`, both checked at load.
+   * least `settleQuietMs`, and `maxSteps` of it must come to less than three
+   * quarters of `actTimeoutMs`, both checked at load.
    */
   settleMaxMs: number
 }
@@ -271,12 +276,14 @@ const DEFAULT_ACT_TIMEOUT_MS = 60000
 const DEFAULT_MAX_STEPS = 20
 
 /**
- * Per-step settle ceiling used when a deployment configures none: long enough
- * for an application to answer a click over a network, short enough that a
- * page which never stops changing costs three seconds a step rather than the
- * whole deadline.
+ * Per-step settle ceiling used when a deployment configures none: eight quiet
+ * windows, which is long enough for an application to answer a click over a
+ * network, and short enough that the shipped {@link DEFAULT_MAX_STEPS} steps
+ * of them fit inside the steps' share of {@link DEFAULT_ACT_TIMEOUT_MS} — a
+ * page that has not stopped changing for two seconds is one to `wait` on
+ * rather than one every step pays for.
  */
-const DEFAULT_SETTLE_MAX_MS = 3000
+const DEFAULT_SETTLE_MAX_MS = 2000
 
 /**
  * Quiet window used when a deployment enables page access and configures none:
@@ -409,12 +416,18 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   const settleQuietMs = requireAtLeast('settleQuietMs', config.settleQuietMs, 1)
   // Loud at load and self-contained for the same reason: a per-step ceiling
   // below the quiet window would end every step's wait before the window could
-  // pass, and one above the whole deadline would spend it on a single step.
+  // pass.
   const settleMaxMs = requireAtLeast('settleMaxMs', config.settleMaxMs, settleQuietMs)
-  if (settleMaxMs > actTimeouts.answerTimeoutMs) {
+  // And loud at load for the three of them together: the steps of one call get
+  // a share of its deadline, so a deployment whose steps could all settle to
+  // the ceiling inside that share is one where a call can spend its whole
+  // deadline settling and never reach its last step.
+  const runBudgetMs = actTimeouts.answerTimeoutMs * ACT_RUN_SHARE
+  if (maxSteps * settleMaxMs >= runBudgetMs) {
     throw new Error(
-      'content-frame: pageAccess.settleMaxMs must fit in actTimeoutMs '
-      + `(${String(actTimeouts.answerTimeoutMs)}ms), received ${String(settleMaxMs)}`,
+      `content-frame: pageAccess.maxSteps ${String(maxSteps)} × settleMaxMs ${String(settleMaxMs)}ms `
+      + `= ${String(maxSteps * settleMaxMs)}ms must be under ${String(runBudgetMs)}ms, which is `
+      + `${String(ACT_RUN_SHARE)} of pageAccess.actTimeoutMs ${String(actTimeouts.answerTimeoutMs)}ms`,
     )
   }
   const settleBudgetMs = timeouts.answerTimeoutMs * SETTLE_WAIT_SHARE

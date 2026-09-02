@@ -348,6 +348,20 @@ export function noOptionReason(ref: string, value: string): string {
 }
 
 /**
+ * The failure for a step the call had no time left to start.
+ *
+ * The deadline is the host's, and it is spent by everything before this step:
+ * the page settling after each earlier one, a `wait` that spent what was left,
+ * an application that took a while to answer a click. What the model does about
+ * it depends on what the earlier steps did, which the same report carries.
+ * @param at - the step's position, counting from 1.
+ * @returns the reason, without the step prefix.
+ */
+export function outOfTimeReason(at: number): string {
+  return `the console's time for this call ran out before step ${String(at)}.`
+}
+
+/**
  * The failure for text that never appeared.
  * @param text - what the step waited for.
  * @param waitedMs - how long it waited.

@@ -30,7 +30,7 @@
 import type { ActStep, ActStepResult } from '../../access/wire.ts'
 import {
   cannotActReason, disabledReason, hiddenReason, labelChangedReason, noOptionReason, occludedReason,
-  refGoneReason, waitedReason,
+  outOfTimeReason, refGoneReason, waitedReason,
 } from '../../access/act-text.ts'
 import {
   DIALOG_SELECTOR, containerName, isDisabled, isHiddenAround, isPassword, isSkipped, nameOf, queryInOrder,
@@ -76,9 +76,13 @@ export interface ActPage {
 export interface ActBounds {
   /** How long the page must go unchanged after a step before the next one runs. */
   readonly settleQuietMs: number
-  /** How long one step may wait for that stillness. */
+  /** How long one step may wait for that stillness, capped by what is left of {@link deadline}. */
   readonly settleMaxMs: number
-  /** The moment the whole run must be over by, as a `Date.now()` value. */
+  /**
+   * The moment the whole run must be over by, as a `Date.now()` value. Every
+   * step is started before it or not at all, and both waits — for stillness
+   * after a step, and for a `wait` step's text — end at it.
+   */
   readonly deadline: number
 }
 
@@ -379,9 +383,11 @@ function fillsSecret(step: ActStep, el: Element | undefined): boolean {
  *
  * Each step that ran waits for the page to go quiet before the next one starts:
  * a click that opens a dialog has to have opened it before the step that fills
- * a box inside it resolves its ref. The wait is bounded per step rather than
- * for the run, so a page that never stops moving costs one ceiling per step and
- * the steps still run.
+ * a box inside it resolves its ref. The wait is bounded per step, so a page
+ * that never stops moving costs one ceiling per step rather than the whole run,
+ * and it is bounded again by the run's own deadline — which is also what a
+ * step past that moment fails on, rather than starting work whose answer no
+ * longer has a caller.
  * @param steps - the validated steps, in the order the model asked for.
  * @param page - the documents, the numbering, and the visibility test.
  * @param bounds - the deployment's per-step ceiling and the run's own deadline.
@@ -400,6 +406,12 @@ export async function runSteps(steps: readonly ActStep[], page: ActPage, bounds:
       redacted.push(false)
       continue
     }
+    if (Date.now() >= bounds.deadline) {
+      results.push({ index, status: 'failed', message: outOfTimeReason(index) })
+      redacted.push(false)
+      stopped = true
+      continue
+    }
     const el = step.action === 'wait' ? undefined : page.refs.resolve(step.ref)
     const secret = fillsSecret(step, el)
     const failure = await runStep(step, page, el, Math.max(bounds.deadline - Date.now(), 0))
@@ -413,7 +425,10 @@ export async function runSteps(steps: readonly ActStep[], page: ActPage, bounds:
     const started = Date.now()
     // The document the step acted in: an application in a frame redraws that
     // frame, and a wait for the frame's own document would see none of it.
-    await whenQuiet(el?.ownerDocument ?? page.doc, { quietMs: bounds.settleQuietMs, budgetMs: bounds.settleMaxMs })
+    await whenQuiet(el?.ownerDocument ?? page.doc, {
+      quietMs: bounds.settleQuietMs,
+      budgetMs: Math.min(bounds.settleMaxMs, Math.max(bounds.deadline - started, 0)),
+    })
     settledMs = Date.now() - started
   }
   return { results, redacted, settledMs }

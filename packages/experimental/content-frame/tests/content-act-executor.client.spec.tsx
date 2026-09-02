@@ -433,7 +433,51 @@ describe('what stops a call', () => {
     const outcome = await run([{ action: 'wait', text: '保存成功' }])
     expect(outcome.status).toBe('failed')
     expect(outcome.steps[0]?.status).toBe('failed')
-    expect((outcome.steps[0] as { message: string }).message).toMatch(/^"保存成功" did not appear within 0\.2\d?s\.$/)
+    expect((outcome.steps[0] as { message: string }).message).toMatch(/^"保存成功" did not appear within 0\.7\d*s\.$/)
+  })
+
+  it('stops at the step the call had no time left to start', async () => {
+    // The deadline is the host's: it started when the claim was granted, and
+    // the steps get a share of it. A step that would start past that point is
+    // not run, because nothing is waiting for its answer any more.
+    mount('<main><button id="slow">查询</button><button id="save">保存</button></main>')
+    at('#slow').addEventListener('click', () => {
+      // An application taking its time over a click, in the only way a
+      // synchronous handler can: the seat's own clock moves and nothing else.
+      let spins = 0
+      const until = Date.now() + 300
+      while (Date.now() < until) spins += 1
+      expect(spins).toBeGreaterThan(0)
+    })
+    const seen = listen(at('#save'), ['click'])
+    render(<Probe seat={{
+      ...seatOf({
+        callId: 'call_1',
+        tool: 'content_act',
+        args: {
+          steps: [
+            { action: 'click', ref: ref('#slow'), label: '查询' },
+            { action: 'click', ref: ref('#save'), label: '保存' },
+            { action: 'wait', text: '保存成功' },
+          ],
+        },
+      }),
+      access: { ...ACCESS, actTimeoutMs: 200 },
+    }} />)
+    await vi.waitFor(
+      () => { expect(posted.filter(entry => entry.route === CONTENT_REPORT_ROUTE)).toHaveLength(1) },
+      { timeout: 5000 },
+    )
+    const outcome = posted.find(entry => entry.route === CONTENT_REPORT_ROUTE)?.body.outcome as ActOutcome
+    expect(outcome.steps).toEqual([
+      { index: 1, status: 'ok' },
+      { index: 2, status: 'failed', message: 'the console\'s time for this call ran out before step 2.' },
+      { index: 3, status: 'skipped' },
+    ])
+    expect(seen).toEqual([])
+    expect(outcome.text).toContain(
+      'Step 2 failed: the console\'s time for this call ran out before step 2. Step 1 ran; later steps were skipped.',
+    )
   })
 
   it('never reads a password box\'s value back', async () => {

@@ -803,10 +803,13 @@ export interface PageAccessConfig {
    */
   outlineChars: number
   /**
-   * How long a claimed set of steps waits for its report. It bounds the whole
-   * run — every step's own wait, the page settling after each of them, and the
-   * closing read — so it is the longest of the deadlines. Raise it for an
-   * application whose forms take a while to answer.
+   * How long a claimed set of steps waits for its report, and the bound on the
+   * whole run. The steps themselves — each step's own wait and the page
+   * settling after it — get three quarters of it, and a step that would start
+   * past that point fails instead, with the rest reported as never run; the
+   * quarter left over pays for the closing read of the page and the trip back
+   * with it. It is the longest of the deadlines. Raise it for an application
+   * whose forms take a while to answer.
    */
   actTimeoutMs: number
   /**
@@ -821,7 +824,8 @@ export interface PageAccessConfig {
    * runs. `settleQuietMs` says how long stillness has to last; this says how
    * long the wait for it may take. Raise it for an application that answers a
    * click slowly; lower it for an agent that should not wait. It must be at
-   * least `settleQuietMs` and fit inside `actTimeoutMs`, both checked at load.
+   * least `settleQuietMs`, and `maxSteps` of it must come to less than three
+   * quarters of `actTimeoutMs`, both checked at load.
    */
   settleMaxMs: number
 }
