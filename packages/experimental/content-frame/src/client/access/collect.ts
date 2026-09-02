@@ -196,8 +196,6 @@ interface Place {
   readonly depth: number
   /** Text seen since the last row, waiting to become one. */
   readonly buffer: string[]
-  /** The node whose subtree bounds a search for something beside an item. */
-  readonly root: ParentNode
   /**
    * True where the text around the walk is already printed as a name — inside a
    * `label` that names a control, and over the label half of a tree node or
@@ -944,6 +942,26 @@ function rowPieces(pieces: readonly Element[], at: number, walk: Walk): Element[
 }
 
 /**
+ * Every table element one table is drawn as: each of its pieces, and the header
+ * half drawn over each piece. A page that pins a column draws header, body,
+ * header, body, and the strip that pages the table comes after all of them, so
+ * a search that stopped at the first of those tables would answer that the
+ * table is paged by nothing.
+ * @param el - the table element the read prints.
+ * @param walk - the walk in progress.
+ * @returns the table elements this one table is drawn as.
+ */
+function tableParts(el: Element, walk: Walk): Set<Element> {
+  const parts = new Set<Element>()
+  for (const piece of tablePieces(el, walk)) {
+    parts.add(piece)
+    const header = headerPiece(piece, walk, tableShape(piece, walk))
+    if (header !== undefined) parts.add(header)
+  }
+  return parts
+}
+
+/**
  * The text of a pagination strip, when the candidate really is one that shows
  * something.
  * @param el - the candidate element.
@@ -990,17 +1008,26 @@ function stripAbove(above: readonly Element[], walk: Walk): string | undefined {
  * that the one over it, never one that belongs to the table next to it. Each
  * strip pages one table, so a strip already under a table is not also over the
  * next one. A strip drawn inside any table belongs to that table's rows, not
- * beside it.
+ * beside it. The pieces one table is drawn as are that table and stop nothing:
+ * the strip paging a table pinned column by column is drawn after every copy of
+ * it. Any other table does stop the search, so a strip between two tables pages
+ * the one above it alone.
+ *
+ * The search runs over the region the table stands in, rather than over the
+ * read's scope: a read scoped to one table by ref reports the strip that pages
+ * it exactly as a read of the whole page does, and a strip drawn in another
+ * region pages nothing here.
  * @param el - the table element.
  * @param walk - the walk in progress.
- * @param place - the table's position.
  * @returns the strip's text, or undefined when the table has none.
  */
-function paginationText(el: Element, walk: Walk, place: Place): string | undefined {
-  const nodes = queryInOrder(place.root, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
+function paginationText(el: Element, walk: Walk): string | undefined {
+  const parts = tableParts(el, walk)
+  const region = el.closest(CONTAINER_SELECTOR) ?? (el.getRootNode() as ParentNode)
+  const nodes = queryInOrder(region, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
     .filter(node => node.matches(TABLE_SELECTOR) || node.closest(TABLE_SELECTOR) === null)
+    .filter(node => node === el || !parts.has(node))
   const at = nodes.indexOf(el)
-  if (at === -1) return undefined
   return nearestStrip(nodes.slice(at + 1), walk) ?? stripAbove(nodes.slice(0, at), walk)
 }
 
@@ -1078,7 +1105,7 @@ function readTable(el: Element, walk: Walk, place: Place, name: string): TableIt
     header,
     rows,
     columns: Math.max(header.length, rows[0]?.width ?? 0),
-    pagination: paginationText(el, walk, place),
+    pagination: paginationText(el, walk),
     container: place.container,
     depth: place.depth,
   }
@@ -1564,7 +1591,7 @@ function openContainer(
   }
   walk.items.push(item)
   const labelled = node !== undefined && face.name !== ''
-  const inside: Place = { container: item, depth: place.depth + 1, buffer: [], root: host, labelled }
+  const inside: Place = { container: item, depth: place.depth + 1, buffer: [], labelled }
   walkNodes(host, walk, inside)
   flush(walk, inside)
 }
@@ -1912,7 +1939,7 @@ export function collect(root: Document, options: SnapshotOptions, scope: Element
     kept: new Map(),
     shapes: new Map(),
   }
-  const place: Place = { container: undefined, depth: 0, buffer: [], root: scope ?? root.body, labelled: false }
+  const place: Place = { container: undefined, depth: 0, buffer: [], labelled: false }
   if (scope === undefined) walkNodes(root.body, walk, place)
   else walkElement(scope, walk, place)
   flush(walk, place)

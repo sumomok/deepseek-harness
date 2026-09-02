@@ -101,7 +101,7 @@ describe('reading a page', () => {
       '    e8 toolbar',
       '      e9 button "查询" (toolbar)',
       '      e10 button "导出" (disabled) (toolbar)',
-      '  e11 table 2 rows × 3 cols',
+      '  e11 table 2 rows on this page × 3 cols',
       '    header: 名称 | 唯一标识 | 操作',
       '    sample: 东风站 | P-0001 | [编辑 删除]',
       "    rows: pass scope with this table's ref to list rows, or find a row by its text",
@@ -136,8 +136,9 @@ describe('reading a page', () => {
     read(refs)
     const snap = read(refs, { scope: refOf(refs, 'table') })
     expect(snap.text).toBe([
-      'e11 table 2 rows × 3 cols',
+      'e11 table 2 rows on this page × 3 cols',
       '  header: 名称 | 唯一标识 | 操作',
+      '  pagination: 上一页 1 2 下一页',
       '  row 1: 东风站 | P-0001 | e14 button "编辑"  e15 button "删除"',
       '  row 2: 朝阳站 | P-0002 | e17 button "编辑"  e18 button "删除"',
     ].join('\n'))
@@ -2164,6 +2165,22 @@ describe('the table this rule was written for', () => {
     expect(listed[3]?.endsWith('| e6 icon "edit"  e7 icon "delete"')).toBe(true)
   })
 
+  it('pages the merged table by the strip the console draws under all six pieces', () => {
+    // The strip of the page this table is drawn on, as it is written there:
+    // `div.crud-pagination` holding `.el-pagination`, after every piece.
+    const refs = page(`${CONSOLE_TABLE}<div class="crud-pagination">`
+      + '<div class="el-pagination">共 89 条 10条/页 1 2 3 4 5 前往 页</div></div>')
+    const lines = read(refs).text.split('\n')
+    expect(lines[0]).toBe('e1 table 2 rows on this page × 21 cols')
+    expect(lines).toContain('  pagination: 共 89 条 10条/页 1 2 3 4 5 前往 页')
+    const listed = read(refs, { scope: refOf(refs, '.body table') }).text.split('\n')
+    expect(listed[0]).toBe('e1 table 2 rows on this page × 21 cols')
+    expect(listed[2]).toBe('  pagination: 共 89 条 10条/页 1 2 3 4 5 前往 页')
+    // The words of the strip are the page's own, and a read searching for them
+    // answers with the run they are drawn in.
+    expect(read(refs, { find: '共' }).text).toContain('共 89 条 10条/页 1 2 3 4 5 前往 页')
+  })
+
   it('finds a row by a name only the piece pinned left draws', () => {
     const refs = page(CONSOLE_TABLE)
     expect(read(refs, { find: '东风站' }).text.startsWith('row 1:  | 东风站 |')).toBe(true)
@@ -2551,7 +2568,7 @@ describe('tables', () => {
       </section>`)
     expect(read(refs).text).toBe([
       'e1 section "站点"',
-      '  e2 table "甲表" 1 rows × 1 cols',
+      '  e2 table "甲表" 1 rows on this page × 1 cols',
       '    header: 名称',
       '    sample: 东风站',
       "    rows: pass scope with this table's ref to list rows, or find a row by its text",
@@ -2733,6 +2750,33 @@ describe('a table drawn in two pieces', () => {
         </tbody></table></div>
       </div>`)
     expect(read(refs).text.split('\n').filter(line => line.includes('cols'))).toEqual(['e1 table 2 rows × 2 cols'])
+  })
+
+  it('pages a table by the strip drawn after every piece of it, and pages the table below by its own', () => {
+    // The strip a page draws under a table pinned column by column comes after
+    // the last copy, so every table between the two is the table itself.
+    const refs = page(`${SPLIT}
+      <div class="fixed">
+        <div class="head"><table data-rect="0,0,800,40">
+          <thead><tr><th>名称</th><th>操作</th></tr></thead>
+        </table></div>
+        <div class="body"><table data-rect="0,40,800,200"><tbody>
+          <tr><td>东风站</td><td><button>编辑</button></td></tr>
+          <tr><td>朝阳站</td><td><button>编辑</button></td></tr>
+        </tbody></table></div>
+      </div>
+      <div class="el-pagination">共 89 条</div>
+      <table data-rect="0,300,800,80"><tbody><tr><td>延吉站</td></tr></tbody></table>
+      <div class="el-pagination">共 3 条</div>`)
+    const lines = read(refs).text.split('\n')
+    expect(lines.filter(line => line.includes('cols'))).toEqual([
+      'e1 table 2 rows on this page × 2 cols',
+      'e2 table 1 rows on this page × 1 cols',
+    ])
+    expect(lines.filter(line => line.includes('pagination:'))).toEqual([
+      '  pagination: 共 89 条',
+      '  pagination: 共 3 条',
+    ])
   })
 
   it('keeps a header-only table that has no body beside it', () => {
@@ -3124,6 +3168,18 @@ describe('a table drawn again for each pinned column', () => {
     const refs = page(PINNED)
     expect(read(refs, { find: '朝阳' }).text)
       .toBe('row 2: 朝阳站 | element:pipeline | 延吉排水 | e3 button "编辑" (table)')
+  })
+
+  it('pages the one table the pieces are read as, by the strip drawn after the last of them', () => {
+    const refs = page(`${PINNED}<div class="crud-pagination"><div class="el-pagination">共 89 条 10条/页</div></div>`)
+    const lines = read(refs).text.split('\n')
+    expect(lines[0]).toBe('e1 table 2 rows on this page × 4 cols')
+    expect(lines).toContain('  pagination: 共 89 条 10条/页')
+    // A read scoped to the table says the same: the rows it lists are one page
+    // of them, and the strip says where the rest are.
+    const listed = read(refs, { scope: refOf(refs, '.body table') }).text.split('\n')
+    expect(listed[0]).toBe('e1 table 2 rows on this page × 4 cols')
+    expect(listed[2]).toBe('  pagination: 共 89 条 10条/页')
   })
 
   it('keeps a table drawn over another that it does not repeat row for row', () => {
