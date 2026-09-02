@@ -167,9 +167,11 @@ const WORKSPACE_WORDS = ['workspace', 'Workspace', 'WORKSPACE', '工作区'] as 
 
 /**
  * The composer's access-preset chip, located by its accessible name. Its
- * visible label collapses to the glyph alone when the composer row runs out of
- * width (`InputBar.module.css`'s `@container` rule), so the rendered text is
- * not a stable anchor; the accessible name carries the preset either way.
+ * visible label collapses to the glyph alone once the composer row is narrow:
+ * `InputBar.module.css` makes the control row a size container, and
+ * `PermissionSelect.module.css`'s own `@container (max-width: 460px)` query
+ * hides the label inside it. The rendered text is therefore not a stable
+ * anchor, while the accessible name carries the preset at either width.
  * @param page - the browsing page.
  * @returns the chip locator.
  */
