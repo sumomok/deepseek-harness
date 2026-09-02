@@ -121,6 +121,6 @@
     "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.3.4.tgz",
     "@sumomok/dsh-quote-message": "file:./vendor/sumomok-dsh-quote-message-0.3.0.tgz",
     "dsh-at-file": "file:./vendor/dsh-at-file-0.7.0-da602d1.tgz",
-    "dsh-better-sidebar": "file:./vendor/dsh-better-sidebar-0.15.2-patched1.tgz"
+    "dsh-better-sidebar": "file:./vendor/dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz"
   }
 }

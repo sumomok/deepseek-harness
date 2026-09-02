@@ -1036,8 +1036,8 @@ describe('the report every answer carries', () => {
     expect(report.pending[0]).toMatchObject({ url: 'https://www.gravatar.com/avatar/0', type: 'image' })
     expect(report.pending[0]?.ageMs).toBeGreaterThanOrEqual(0)
     expect(report.hosts).toEqual([
-      { host: 'www.gravatar.com', pending: 7, failed: 0, blocked: 0, maxAgeMs: expect.any(Number) },
-      { host: 'cdn.example.test', pending: 2, failed: 0, blocked: 0, maxAgeMs: expect.any(Number) },
+      { host: 'www.gravatar.com', pending: 7, failed: 0, blocked: 0, maxAgeMs: expect.any(Number) as unknown as number },
+      { host: 'cdn.example.test', pending: 2, failed: 0, blocked: 0, maxAgeMs: expect.any(Number) as unknown as number },
       { host: 'api.example.test', pending: 0, failed: 2, blocked: 0, maxAgeMs: 0 },
     ])
     expect(report.failed).toEqual([
@@ -1260,7 +1260,7 @@ describe('the hosts a request refuses to reach', () => {
       [{ ...VALID, blockHosts: 'gravatar.com' }, 'blockHosts must be an array of host patterns'],
       [{ ...VALID, blockHosts: { host: 'gravatar.com' } }, 'blockHosts must be an array of host patterns'],
       [{ ...VALID, blockHosts: ['a.test', 7] }, 'blockHosts[1] must be a string'],
-      [{ ...VALID, blockHosts: [`${'a'.repeat(254)}`] }, 'blockHosts[0] is longer than 253 characters'],
+      [{ ...VALID, blockHosts: ['a'.repeat(254)] }, 'blockHosts[0] is longer than 253 characters'],
       [{ ...VALID, blockHosts: Array.from({ length: 33 }, (_entry, n) => `h${String(n)}.test`) }, 'blockHosts may name at most 32 host patterns'],
       [{ ...VALID, blockHosts: ['https://gravatar.com'] }, 'blockHosts pattern "https://gravatar.com" must be a host or *.suffix'],
       [{ ...VALID, blockHosts: ['gravatar.com:443'] }, 'blockHosts pattern "gravatar.com:443" must be a host or *.suffix'],

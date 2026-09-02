@@ -32,6 +32,7 @@ const streamStatics = StreamBase as unknown as StreamStatics
 const {
   getDefaultHighWaterMark, isDestroyed, isWritable, setDefaultHighWaterMark,
 } = streamStatics
+/* oxlint-enable typescript/unbound-method */
 
 // readable-stream tracks Node 18's 16 KiB byte default; this repository runs
 // Node 22+, whose generic and file streams use 64 KiB.

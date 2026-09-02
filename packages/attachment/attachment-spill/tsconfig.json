@@ -13,7 +13,6 @@
     { "path": "../attachment" },
     { "path": "../../llm/llm" },
     { "path": "../../core/session" },
-    { "path": "../../spill/spill" },
-    { "path": "../../runtime-diagnostics/invariants" }
+    { "path": "../../spill/spill" }
   ]
 }
