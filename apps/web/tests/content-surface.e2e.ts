@@ -123,8 +123,21 @@ async function harnessHomeWithRowLinks(): Promise<string> {
   return home
 }
 
-/** One settled `show_chart` call, as the log records it. */
-function chartCall(callId: string, id: string, title: string): string[] {
+/**
+ * One settled `show_chart` call, as the log records it.
+ *
+ * A settled result is one identified tool-result message, not a bare content
+ * array: the reader rejects a `tool/result` whose `data.message` has no `id`,
+ * `role: 'user'`, `source.kind`, or `content` array, so the seed carries the
+ * whole message and takes its identity from the fixture's own `{{message:N}}`
+ * token space. Ordinals 1-5 belong to the recorded fixture; these continue it.
+ * @param callId - the call id the row is addressed by.
+ * @param messageOrdinal - the fixture identity ordinal for the result message.
+ * @param id - the chart id the call claims.
+ * @param title - the chart caption the call carries.
+ * @returns the `tool/call` and `tool/result` lines, in log order.
+ */
+function chartCall(callId: string, messageOrdinal: number, id: string, title: string): string[] {
   return [
     JSON.stringify({
       type: 'tool/call',
@@ -132,7 +145,21 @@ function chartCall(callId: string, id: string, title: string): string[] {
     }),
     JSON.stringify({
       type: 'tool/result',
-      data: { turn: 1, step: 1, callId, content: [{ type: 'text', text: `Rendered: ${title}` }], isError: false },
+      data: {
+        turn: 1,
+        step: 1,
+        message: {
+          id: `{{message:${messageOrdinal}}}`,
+          role: 'user',
+          source: { kind: 'tool', callId },
+          content: [{
+            type: 'tool-result',
+            toolCallId: callId,
+            content: [{ type: 'text', text: `Rendered: ${title}` }],
+            isError: false,
+          }],
+        },
+      },
       surfaceOp: 'append',
     }),
   ]
@@ -283,9 +310,9 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
     // call is superseded, and the newest entry a chart.
     await seedSession(scaffold, withEvents(fixture, [
       shownPage('home'),
-      ...chartCall(DEMO_OLD_CALL, 'demo', DEMO_DRAFT_TITLE),
-      ...chartCall(DEMO_NEW_CALL, 'demo', DEMO_NEW_TITLE),
-      ...chartCall(COVERAGE_CALL, 'coverage', COVERAGE_TITLE),
+      ...chartCall(DEMO_OLD_CALL, 6, 'demo', DEMO_DRAFT_TITLE),
+      ...chartCall(DEMO_NEW_CALL, 7, 'demo', DEMO_NEW_TITLE),
+      ...chartCall(COVERAGE_CALL, 8, 'coverage', COVERAGE_TITLE),
     ]), MIXED_SESSION)
     // A second session with a stream of its own, on the other configured page.
     await seedSession(scaffold, withEvents(fixture, [shownPage('reports')]), PAGE_SESSION)
