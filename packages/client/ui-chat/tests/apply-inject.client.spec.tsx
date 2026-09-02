@@ -347,10 +347,10 @@ describe('Chat inject API', () => {
 
     b.session.readFile.mockResolvedValueOnce({
       ok: false,
-      error: new RemoteError('session/attachment-not-found', 'no such attachment', {}),
+      error: new RemoteError('session/attachment-invalid', 'no such attachment', { reason: 'missing' }),
     })
     await expect(injected.loadFile(FILE_ATTACHMENT))
-      .rejects.toThrow('no such attachment (session/attachment-not-found)')
+      .rejects.toThrow('no such attachment (session/attachment-invalid)')
     await b.runtime.dispose()
   })
 
