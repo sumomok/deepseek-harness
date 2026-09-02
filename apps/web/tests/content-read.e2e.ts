@@ -191,10 +191,11 @@ describe('web e2e: the agent reads the page in the content column', () => {
     // this one prompt went three ways: one that read three times, with what it
     // asked for each time no longer on record; one that took an outline and
     // then `scope` on the table's ref; and one that took a map and then `scope`
-    // on the table and on the form in a single step. Every one of them answered
-    // correctly, so neither the number of reads, nor the mode of any one of
-    // them, nor which of them saw the table is a fact about this product. What
-    // follows is what the product promises whichever way the model went.
+    // on the table and on the form in a single step. The two whose answers were
+    // kept answered correctly, so neither the number of reads, nor the mode of
+    // any one of them, nor which of them saw the table is a fact about this
+    // product. What follows is what the product promises whichever way the
+    // model went.
     //
     // The page was read at least once.
     expect(listings.length).toBeGreaterThanOrEqual(1)
