@@ -208,10 +208,19 @@ flowchart TD
     pkg_experimental_agent_team["experimental-agent-team"]
     pkg_experimental_agent_team_profile["experimental-agent-team-profile"]
     pkg_experimental_agent_team_web_profile["experimental-agent-team-web-profile"]
+    pkg_experimental_auth_gate["experimental-auth-gate"]
     pkg_experimental_client_ui_agent_team["experimental-client-ui-agent-team"]
     pkg_experimental_code_runtime_python["experimental-code-runtime-python"]
+    pkg_experimental_content_column["experimental-content-column"]
+    pkg_experimental_content_frame["experimental-content-frame"]
+    pkg_experimental_content_surface["experimental-content-surface"]
     pkg_experimental_inspector["experimental-inspector"]
+    pkg_experimental_server_layout["experimental-server-layout"]
+    pkg_experimental_server_sidebar["experimental-server-sidebar"]
     pkg_experimental_tool_agent_team["experimental-tool-agent-team"]
+    pkg_experimental_vue_ui_poc["experimental-vue-ui-poc"]
+    pkg_experimental_vue2_echarts_poc["experimental-vue2-echarts-poc"]
+    pkg_experimental_vue2_echarts_tool_poc["experimental-vue2-echarts-tool-poc"]
     pkg_experimental_webworker_packer["experimental-webworker-packer"]
     pkg_experimental_webworker_runtime["experimental-webworker-runtime"]
   end
@@ -364,11 +373,24 @@ flowchart TD
   pkg_subprocess_e2b --> pkg_e2b
   pkg_subprocess_e2b --> pkg_subprocess
   pkg_subprocess_e2b --> pkg_timeout
+  pkg_experimental_auth_gate --> pkg_host_webserver
+  pkg_experimental_auth_gate --> pkg_invariants
   pkg_experimental_code_runtime_python --> pkg_code_runtime
   pkg_experimental_code_runtime_python --> pkg_timeout
   pkg_experimental_code_runtime_python --> pkg_util_values
   pkg_experimental_inspector --> pkg_client_modules
   pkg_experimental_inspector --> pkg_host_webserver
+  pkg_experimental_server_layout --> pkg_client_locale
+  pkg_experimental_server_layout --> pkg_client_store
+  pkg_experimental_server_layout --> pkg_client_ui_layout
+  pkg_experimental_server_layout --> pkg_client_ui_session
+  pkg_experimental_server_layout --> pkg_client_ui_theme
+  pkg_experimental_server_layout --> pkg_invariants
+  pkg_experimental_vue_ui_poc --> pkg_client_locale
+  pkg_experimental_vue_ui_poc --> pkg_client_ui_conversation
+  pkg_experimental_vue_ui_poc --> pkg_invariants
+  pkg_experimental_vue2_echarts_poc --> pkg_client_locale
+  pkg_experimental_vue2_echarts_poc --> pkg_invariants
   pkg_experimental_webworker_runtime --> pkg_client_connection
   pkg_experimental_webworker_runtime --> pkg_client_modules
   pkg_experimental_webworker_runtime --> pkg_host_webserver
@@ -647,6 +669,11 @@ flowchart TD
   pkg_compaction --> pkg_invariants
   pkg_compaction --> pkg_llm
   pkg_compaction --> pkg_session
+  pkg_experimental_content_surface --> pkg_commands
+  pkg_experimental_content_surface --> pkg_invariants
+  pkg_experimental_content_surface --> pkg_session
+  pkg_experimental_content_surface --> pkg_session_projection
+  pkg_experimental_content_surface --> pkg_system_prompt
   pkg_command_feedback --> pkg_anonymous_user_id
   pkg_command_feedback --> pkg_commands
   pkg_command_feedback --> pkg_session
@@ -774,6 +801,27 @@ flowchart TD
   pkg_file_reference_local --> pkg_file_reference
   pkg_file_reference_local --> pkg_system_prompt
   pkg_file_reference_local --> pkg_tools
+  pkg_experimental_content_column --> pkg_client_locale
+  pkg_experimental_content_column --> pkg_client_ui_chat
+  pkg_experimental_content_column --> pkg_client_ui_conversation
+  pkg_experimental_content_column --> pkg_experimental_content_surface
+  pkg_experimental_content_column --> pkg_experimental_server_layout
+  pkg_experimental_content_column --> pkg_invariants
+  pkg_experimental_content_column --> pkg_session
+  pkg_experimental_server_sidebar --> pkg_api_workspace_controller
+  pkg_experimental_server_sidebar --> pkg_client_locale
+  pkg_experimental_server_sidebar --> pkg_client_store
+  pkg_experimental_server_sidebar --> pkg_client_ui_chat
+  pkg_experimental_server_sidebar --> pkg_client_ui_conversation
+  pkg_experimental_server_sidebar --> pkg_client_ui_layout
+  pkg_experimental_server_sidebar --> pkg_client_ui_sidebar
+  pkg_experimental_server_sidebar --> pkg_experimental_content_surface
+  pkg_experimental_server_sidebar --> pkg_host_webserver
+  pkg_experimental_server_sidebar --> pkg_invariants
+  pkg_experimental_server_sidebar --> pkg_session
+  pkg_experimental_server_sidebar --> pkg_session_projection
+  pkg_experimental_server_sidebar --> pkg_settings
+  pkg_experimental_server_sidebar --> pkg_util_crypto
   pkg_cordis_host_runner --> pkg_agent
   pkg_cordis_host_runner --> pkg_brand
   pkg_cordis_host_runner --> pkg_llm
@@ -910,6 +958,30 @@ flowchart TD
   pkg_compaction_tool_result_pruner --> pkg_llm
   pkg_compaction_tool_result_pruner --> pkg_session
   pkg_compaction_tool_result_pruner --> pkg_token_meter
+  pkg_experimental_content_frame --> pkg_client_locale
+  pkg_experimental_content_frame --> pkg_client_ui_chat
+  pkg_experimental_content_frame --> pkg_client_ui_conversation
+  pkg_experimental_content_frame --> pkg_commands
+  pkg_experimental_content_frame --> pkg_experimental_content_column
+  pkg_experimental_content_frame --> pkg_experimental_content_surface
+  pkg_experimental_content_frame --> pkg_host_webserver
+  pkg_experimental_content_frame --> pkg_invariants
+  pkg_experimental_content_frame --> pkg_session
+  pkg_experimental_content_frame --> pkg_session_projection
+  pkg_experimental_content_frame --> pkg_tools
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_attachment
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_client_locale
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_client_ui_chat
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_client_ui_tool
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_experimental_content_column
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_experimental_content_surface
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_experimental_vue2_echarts_poc
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_host_webserver
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_invariants
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_llm
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_session
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_session_projection
+  pkg_experimental_vue2_echarts_tool_poc --> pkg_tools
   pkg_tool_cordis --> pkg_agent
   pkg_tool_cordis --> pkg_cordis_host_runner
   pkg_tool_cordis --> pkg_llm
@@ -1239,8 +1311,12 @@ flowchart TD
 | [`attachment`](../packages/attachment/attachment) | `attachment` | [`brand`](../packages/util/brand) |
 | [`credentials`](../packages/credentials/credentials) | `credentials` | [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`subprocess-e2b`](../packages/e2b/subprocess-e2b) | `e2b` | [`e2b`](../packages/e2b/e2b), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
+| [`experimental-auth-gate`](../packages/experimental/auth-gate) | `experimental` | [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`experimental-code-runtime-python`](../packages/experimental/code-runtime-python) | `experimental` | [`code-runtime`](../packages/code-runtime/code-runtime), [`timeout`](../packages/util/timeout), [`util-values`](../packages/util/values) |
 | [`experimental-inspector`](../packages/experimental/inspector) | `experimental` | [`client-modules`](../packages/client/modules), [`host-webserver`](../packages/host/webserver) |
+| [`experimental-server-layout`](../packages/experimental/server-layout) | `experimental` | [`client-locale`](../packages/client/locale), [`client-store`](../packages/client/store), [`client-ui-layout`](../packages/client/ui-layout), [`client-ui-session`](../packages/client/ui-session), [`client-ui-theme`](../packages/client/ui-theme), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`experimental-vue-ui-poc`](../packages/experimental/vue-ui-poc) | `experimental` | [`client-locale`](../packages/client/locale), [`client-ui-conversation`](../packages/client/ui-conversation), [`invariants`](../packages/runtime-diagnostics/invariants) |
+| [`experimental-vue2-echarts-poc`](../packages/experimental/vue2-echarts-poc) | `experimental` | [`client-locale`](../packages/client/locale), [`invariants`](../packages/runtime-diagnostics/invariants) |
 | [`experimental-webworker-runtime`](../packages/experimental/webworker-runtime) | `experimental` | [`client-connection`](../packages/client/connection), [`client-modules`](../packages/client/modules), [`host-webserver`](../packages/host/webserver) |
 | [`host-directory-picker-auto`](../packages/host/directory-picker-auto) | `host` | [`client-ui-directory-picker-browse`](../packages/client/ui-directory-picker-browse), [`client-ui-directory-picker-native`](../packages/client/ui-directory-picker-native), [`host-directory-picker-browse`](../packages/host/directory-picker-browse), [`host-directory-picker-native`](../packages/host/directory-picker-native), [`host-webserver`](../packages/host/webserver) |
 | [`host-frontend-static`](../packages/host/frontend-static) | `host` | [`client-connection`](../packages/client/connection), [`host-webserver`](../packages/host/webserver) |
@@ -1319,6 +1395,7 @@ flowchart TD
 | [`fs-sandbox`](../packages/fs/fs-sandbox) | `fs` | [`fs`](../packages/fs/fs), [`fs-local`](../packages/fs/fs-local), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
 | [`headless`](../packages/bundle/headless) | `bundle` | [`agent`](../packages/core/agent), [`agent-default-model`](../packages/core/agent-default-model), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`compaction`](../packages/compaction/compaction) | `compaction` | [`brand`](../packages/util/brand), [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`experimental-content-surface`](../packages/experimental/content-surface) | `experimental` | [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt) |
 | [`command-feedback`](../packages/feedback/command-feedback) | `feedback` | [`anonymous-user-id`](../packages/identity/anonymous-user-id), [`commands`](../packages/interaction/commands), [`session`](../packages/core/session), [`session-telemetry`](../packages/session/session-telemetry) |
 | [`permission-presets`](../packages/interaction/permission-presets) | `interaction` | [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell), [`user-approval`](../packages/interaction/user-approval) |
 | [`jobs-local`](../packages/jobs/jobs-local) | `jobs` | [`agent`](../packages/core/agent), [`jobs`](../packages/jobs/jobs), [`scope`](../packages/core/scope), [`timeout`](../packages/util/timeout) |
@@ -1342,6 +1419,8 @@ flowchart TD
 | [`command-compact`](../packages/compaction/command-compact) | `compaction` | [`commands`](../packages/interaction/commands), [`compaction`](../packages/compaction/compaction) |
 | [`agent-instructions`](../packages/context/agent-instructions) | `context` | [`agent`](../packages/core/agent), [`fs`](../packages/fs/fs), [`home-paths`](../packages/util/home-paths), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools) |
 | [`file-reference-local`](../packages/context/file-reference-local) | `context` | [`agent`](../packages/core/agent), [`file-reference`](../packages/context/file-reference), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
+| [`experimental-content-column`](../packages/experimental/content-column) | `experimental` | [`client-locale`](../packages/client/locale), [`client-ui-chat`](../packages/client/ui-chat), [`client-ui-conversation`](../packages/client/ui-conversation), [`experimental-content-surface`](../packages/experimental/content-surface), [`experimental-server-layout`](../packages/experimental/server-layout), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session) |
+| [`experimental-server-sidebar`](../packages/experimental/server-sidebar) | `experimental` | [`api-workspace-controller`](../packages/api/workspace-controller), [`client-locale`](../packages/client/locale), [`client-store`](../packages/client/store), [`client-ui-chat`](../packages/client/ui-chat), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-layout`](../packages/client/ui-layout), [`client-ui-sidebar`](../packages/client/ui-sidebar), [`experimental-content-surface`](../packages/experimental/content-surface), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`util-crypto`](../packages/util/crypto) |
 | [`cordis-host-runner`](../packages/extensions/cordis-host-runner) | `extensions` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`tools`](../packages/core/tools), [`typert-protocol`](../packages/typert/protocol) |
 | [`repeat-tool-reminder`](../packages/guard/repeat-tool-reminder) | `guard` | [`agent`](../packages/core/agent), [`tools`](../packages/core/tools) |
 | [`tool-call-timeout-policy`](../packages/guard/timeout-policy) | `guard` | [`llm`](../packages/llm/llm), [`timeout`](../packages/util/timeout), [`tools`](../packages/core/tools) |
@@ -1368,6 +1447,8 @@ flowchart TD
 | [`api-settings-controller`](../packages/api/settings-controller) | `api` | [`agent-presets`](../packages/preset/agent-presets), [`credentials`](../packages/credentials/credentials), [`native-command`](../packages/util/native-command), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
 | [`web-app`](../packages/bundle/web-app) | `bundle` | [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt) |
 | [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner) | `compaction` | [`compaction`](../packages/compaction/compaction), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
+| [`experimental-content-frame`](../packages/experimental/content-frame) | `experimental` | [`client-locale`](../packages/client/locale), [`client-ui-chat`](../packages/client/ui-chat), [`client-ui-conversation`](../packages/client/ui-conversation), [`commands`](../packages/interaction/commands), [`experimental-content-column`](../packages/experimental/content-column), [`experimental-content-surface`](../packages/experimental/content-surface), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools) |
+| [`experimental-vue2-echarts-tool-poc`](../packages/experimental/vue2-echarts-tool-poc) | `experimental` | [`attachment`](../packages/attachment/attachment), [`client-locale`](../packages/client/locale), [`client-ui-chat`](../packages/client/ui-chat), [`client-ui-tool`](../packages/client/ui-tool), [`experimental-content-column`](../packages/experimental/content-column), [`experimental-content-surface`](../packages/experimental/content-surface), [`experimental-vue2-echarts-poc`](../packages/experimental/vue2-echarts-poc), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools) |
 | [`tool-cordis`](../packages/extensions/tool-cordis) | `extensions` | [`agent`](../packages/core/agent), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`host-plugin-inventory`](../packages/host/plugin-inventory) | `host` | [`agent-presets`](../packages/preset/agent-presets), [`brand`](../packages/util/brand), [`typert-protocol`](../packages/typert/protocol) |
 | [`tool-bash`](../packages/shell/tool-bash) | `shell` | [`agent`](../packages/core/agent), [`jobs`](../packages/jobs/jobs), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`shell`](../packages/shell/shell), [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`user-approval`](../packages/interaction/user-approval) |

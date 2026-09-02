@@ -569,6 +569,46 @@ export interface Config {
 
 来源：[`packages/experimental/agent-team/src/types.ts:125`](../packages/experimental/agent-team/src/types.ts)
 
+<a id="deepseek-aidsh-experimental-auth-gate"></a>
+
+## `@deepseek-ai/dsh-experimental-auth-gate`
+
+需要：`webServer`
+
+```ts config-catalog
+/** Plugin config: where a visitor signs in, how the token is mirrored, and which MCP servers it is spent on. */
+export interface Config {
+  /**
+   * Page an unauthenticated visitor is sent to. The browser half appends
+   * `?redirect=<the encoded page it came from>`, so the value may not already
+   * carry a query string. A hash-routed login page (`/sign-in/#/`) takes the
+   * parameter inside its fragment, which is where a hash router reads it.
+   */
+  loginUrl: string
+  /**
+   * Cookie the browser half mirrors the access token into, so a request that
+   * carries no `Authorization` header — a navigation, an image, an iframe —
+   * still identifies the visitor to whatever sits in front of this process.
+   */
+  cookieName: string
+  /**
+   * How many seconds before expiry the browser half acts on the coming expiry.
+   * Zero acts at the expiry instant.
+   */
+  refreshMarginSeconds: number
+  /**
+   * MCP servers this deployment forwards to, as route segment to absolute
+   * target URL. Each entry claims `/auth-gate/mcp/<name>`; point the matching
+   * `dsh-mcp-client` row's `url` at that path instead of at the server itself.
+   * An empty table is the deployment that gates its browser and forwards
+   * nothing.
+   */
+  mcpUpstreams: Record<string, string>
+}
+```
+
+来源：[`packages/experimental/auth-gate/src/index.ts:50`](../packages/experimental/auth-gate/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-code-runtime-python"></a>
 
 ## `@deepseek-ai/dsh-experimental-code-runtime-python`
@@ -635,6 +675,75 @@ export interface Config {
 ```
 
 来源：[`packages/experimental/code-runtime-python/src/index.ts:42`](../packages/experimental/code-runtime-python/src/index.ts)
+
+<a id="deepseek-aidsh-experimental-content-frame"></a>
+
+## `@deepseek-ai/dsh-experimental-content-frame`
+
+需要：`webServer`
+
+```ts config-catalog
+/** Plugin config: the hosted application, and the pages the agent may show from it. */
+export interface Config {
+  /**
+   * Absolute path of the directory the content column's pages are served
+   * from. Required with no default: which application a deployment hosts is
+   * the whole decision this plugin exists to carry, and the trust it grants
+   * that directory makes an inferred location the wrong kind of convenience.
+   */
+  root: string
+  /**
+   * The pages the agent may put in the column, in the order the tool
+   * description offers them. At least one is required — `content_show` exists
+   * to choose among these, and an empty list leaves the model a tool it can
+   * never call successfully. Each `url` must be a same-origin path.
+   */
+  pages: ContentPage[]
+  /**
+   * Page the `content` projection reports while a session has shown nothing
+   * yet, and after the agent clears the column. Must name a configured page.
+   * Omit to leave that value empty until the agent fills it. The content
+   * column itself does not show it: the column is a stream of what a session
+   * produced, and a default page is not something any session produced.
+   */
+  defaultPage?: string
+  /**
+   * Page the sidebar's page-navigation menu shows automatically the first
+   * time a session lands on a blank draft, so a new conversation opens onto
+   * a populated column instead of an empty one. Must name a configured page.
+   * Omit to leave a blank draft's column empty until the user or agent
+   * chooses. Unlike `defaultPage`, this drives an actual `show-content-page`
+   * command invocation (read by `@deepseek-ai/dsh-experimental-server-sidebar`,
+   * not by this row) rather than a projection default, so it leaves the same
+   * durable log record a real click would.
+   */
+  homePage?: string
+  /**
+   * How many frames the browser keeps alive at once, counted over (session,
+   * page) pairs. A cached frame keeps its live document — scroll position,
+   * form state, whatever the page holds — across a switch to another page,
+   * another content kind, or another session; the least recently shown one is
+   * dropped past this bound, and reloads when it comes back. Raise it for a
+   * deployment whose users move between many pages and sessions and whose
+   * pages are expensive to reload; lower it to bound the browser's memory.
+   */
+  cacheSize?: number
+}
+
+/** One page the agent may put in the content column. */
+export interface ContentPage {
+  /** Stable id the agent passes to `content_show`; unique within the deployment. */
+  readonly id: string
+  /** Human-facing name of the page, shown to the user and named back to the agent in the tool result. */
+  readonly title: string
+  /** What the page is for, in the agent's terms — this is what the tool description offers it to choose from. */
+  readonly description: string
+  /** Same-origin path of the page, from the site root (`/content-app/reports/`). */
+  readonly url: string
+}
+```
+
+来源：[`packages/experimental/content-frame/src/index.ts:50`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-inspector"></a>
 
@@ -721,6 +830,46 @@ export interface Config {
 ```
 
 来源：[`packages/experimental/tool-agent-team/src/index.ts:17`](../packages/experimental/tool-agent-team/src/index.ts)
+
+<a id="deepseek-aidsh-experimental-vue2-echarts-tool-poc"></a>
+
+## `@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc`
+
+需要：`webServer`
+
+```ts config-catalog
+/** Plugin config: the bounds one deployment puts on a model-supplied chart. */
+export interface Config {
+  /**
+   * Largest `option` a call may carry, as UTF-8 bytes of its JSON form. The
+   * ceiling exists because the document is model output that reaches a real
+   * rendering engine in the user's browser; raise it for a deployment charting
+   * long category labels, lower it to keep a runaway call cheap.
+   */
+  maxOptionBytes?: number
+  /**
+   * Largest total of `series[i].data` entries a call may carry. Bounds what the
+   * browser has to paint and what a screenshot has to encode; the ceiling a
+   * deployment sets is also stated in the tool description, so a first call can
+   * respect it.
+   */
+  maxPoints?: number
+  /**
+   * How long the tool waits for a browser to report what it painted. Past it
+   * the call answers unverified rather than failing: the chart is in the
+   * transcript either way, and no browser may be open at all.
+   */
+  verdictTimeoutMs?: number
+  /**
+   * Whether a painted chart is captured as a PNG and returned to the model as
+   * an image block. Off by default: it needs an image-capable model and costs
+   * image tokens on every call.
+   */
+  screenshot?: boolean
+}
+```
+
+来源：[`packages/experimental/vue2-echarts-tool-poc/src/index.ts:63`](../packages/experimental/vue2-echarts-tool-poc/src/index.ts)
 
 <a id="deepseek-aidsh-file-reference-local"></a>
 
@@ -3426,6 +3575,12 @@ export interface Config {
 - `@deepseek-ai/dsh-cordis-client-runner`（[`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts)）
 - `@deepseek-ai/dsh-deepseek-llm-api-extensions`（[`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts)）
 - `@deepseek-ai/dsh-experimental-client-ui-agent-team`（[`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts)）
+- `@deepseek-ai/dsh-experimental-content-column`（[`packages/experimental/content-column/src/index.ts`](../packages/experimental/content-column/src/index.ts)）
+- `@deepseek-ai/dsh-experimental-content-surface`（[`packages/experimental/content-surface/src/index.ts`](../packages/experimental/content-surface/src/index.ts)）
+- `@deepseek-ai/dsh-experimental-server-layout`（[`packages/experimental/server-layout/src/index.ts`](../packages/experimental/server-layout/src/index.ts)）
+- `@deepseek-ai/dsh-experimental-server-sidebar`（[`packages/experimental/server-sidebar/src/index.ts`](../packages/experimental/server-sidebar/src/index.ts)）
+- `@deepseek-ai/dsh-experimental-vue-ui-poc`（[`packages/experimental/vue-ui-poc/src/index.ts`](../packages/experimental/vue-ui-poc/src/index.ts)）
+- `@deepseek-ai/dsh-experimental-vue2-echarts-poc`（[`packages/experimental/vue2-echarts-poc/src/index.ts`](../packages/experimental/vue2-echarts-poc/src/index.ts)）
 - `@deepseek-ai/dsh-fs-e2b` — 需要 `e2b`（[`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts)）
 - `@deepseek-ai/dsh-fs-observation-policy`（[`packages/fs/fs-observation-policy/src/index.ts`](../packages/fs/fs-observation-policy/src/index.ts)）
 - `@deepseek-ai/dsh-goal-round-driver` — 需要 `agents` · `goals` · `sessions`（[`packages/goal/goal-round-driver/src/index.ts`](../packages/goal/goal-round-driver/src/index.ts)）

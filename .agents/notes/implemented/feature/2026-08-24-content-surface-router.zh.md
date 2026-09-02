@@ -34,7 +34,7 @@ projection registry（`packages/session/session-projection`）在注册那一刻
 
 ### 一条 surface，两个包
 
-Typert 的 host face 为每一批被发现的包各建一个程序，根文件取自每个成员完整的 tsconfig 文件清单。宿主入口声明了 Cordis 服务的包会在 host face 被发现；这个包若同时有一个触及客户端运行时的 `src/client`，两个 face 的 `TypertContextMap` 合并就会落进同一个程序，生成器随即因重复 key 失败（`agent`，由 `packages/core/agent` 与 `packages/client/runtime/src/client` 各声明一次）。树内每一个双 face 包都靠「没有宿主 surface」（`content-frame`、`server-layout`、各 `ui-*` 行）或「够不着客户端运行时」（`client-modules`）躲开这一点；而一个既有服务又有栏位的 content 路由器两样都占。
+Typert 的 host face 为每一批被发现的包各建一个程序，根文件取自每个成员完整的 tsconfig 文件清单。宿主入口声明了 Cordis 服务的包会在 host face 被发现；这个包若同时有一个触及客户端运行时的 `src/client`，两个 face 的 `TypertContextMap` 合并就会落进同一个程序，生成器随即因重复 key 失败（`agent`，由 `packages/core/agent` 与客户端运行时包自己的 client 入口各声明一次——`@deepseek-ai/dsh-client-runtime`，已在 0.1.2-alpha.4 拆分）。树内每一个双 face 包都靠「没有宿主 surface」（`content-frame`、`server-layout`、各 `ui-*` 行）或「够不着客户端运行时」（`client-modules`）躲开这一点；而一个既有服务又有栏位的 content 路由器两样都占。
 
 `packages/AGENTS.md` 禁止把一个包的 tsconfig 拆成两个 face，因此改为按包拆分：服务、extractor 契约、projection 与共享类型留在 `content-surface`；栏位、它的槽声明与它的文案放进 `content-column`，后者类型导入 `@deepseek-ai/dsh-experimental-content-surface/types`。设计本身没有任何变化——每个 overlay 都组合这两行，某个 kind 的包也同时依赖两者。
 
