@@ -45,6 +45,7 @@ import { settlePage } from '../perception/settle.ts'
 import { runSteps } from './act.ts'
 import { watchPage, type ActWatch } from './watch.ts'
 import { readableDocuments } from './dom.ts'
+import { itemName } from './collect.ts'
 import { RefTable } from './refs.ts'
 import { snapshot } from './snapshot.ts'
 import type { SnapshotOptions } from './snapshot.ts'
@@ -664,6 +665,9 @@ async function actOnPage(
       docs: documents,
       refs: ready.refs,
       isVisible,
+      // The reader's own naming, under this read's own injections: what the
+      // listing printed for an element is what a step naming it is held to.
+      name: el => itemName(el, options),
     }, {
       settleQuietMs: access.settleQuietMs,
       settleMaxMs: access.settleMaxMs,

@@ -17,7 +17,11 @@
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
-import { TAB_ID, useContentRead, type ContentReadSeat } from '../src/client/access/executor.ts'
+import {
+  isClickable, isVisible, rectOf, TAB_ID, useContentRead, type ContentReadSeat,
+} from '../src/client/access/executor.ts'
+import { itemName } from '../src/client/access/collect.ts'
+import { snapshot } from '../src/client/access/snapshot.ts'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ActOutcome, type ClaimAck } from '../src/access/wire.ts'
 import { FRAME_WIDE_LISTING_MESSAGE } from '../src/access/text.ts'
 import { RefTable } from '../src/client/access/refs.ts'
@@ -848,6 +852,131 @@ describe('what the page did on its own', () => {
     expect(view().prompt).toBe(before.prompt)
     expect(view().open).toBe(before.open)
     // oxlint-enable typescript/unbound-method
+  })
+})
+
+describe('one name, printed and checked', () => {
+  /**
+   * Every way this reader names something, on one page: a click target the
+   * page draws itself, the two node roles, a field labelled by the text drawn
+   * in front of it, a box named by the word written inside it, one named by
+   * `aria-label`, an icon named by the symbol it draws, one named by its own
+   * title, one named by its class, and a framework's button.
+   */
+  const NAMED = '<main>'
+    + '<div id="query" style="cursor: pointer">查询</div>'
+    + '<div role="menu"><div role="menuitem">导出</div></div>'
+    + '<div role="tree"><div role="treeitem">北京</div></div>'
+    + '<div><label>名称</label><input id="named"></div>'
+    + '<input id="q" class="el-input__inner" placeholder="请输入资源名称">'
+    + '<input id="site" aria-label="站点">'
+    + '<div role="toolbar">'
+    + '<svg id="edit"><use href="#icon-edit"></use></svg>'
+    + '<svg id="export"><title>导出报表</title></svg>'
+    + '<i id="drop" class="el-icon-delete"></i>'
+    + '</div>'
+    + '<ul><li><i id="star" class="el-icon-star"></i></li>'
+    + '<li><i class="el-icon-plus"></i></li><li><i class="el-icon-minus"></i></li></ul>'
+    + '<svg id="chart" role="img" aria-label="趋势图"></svg>'
+    + '<button class="el-button"><i class="el-icon-search"></i><span>提交</span></button>'
+    + '</main>'
+
+  /** The read the listing under test comes from, and the seat's own injections. */
+  function options() {
+    return { refs, budgetChars: ACCESS.outlineChars, isVisible, rectOf, isClickable }
+  }
+
+  /** Every row of one listing that prints a ref and a name. */
+  function rows(text: string): { ref: string; role: string; name: string }[] {
+    return text.split('\n').flatMap((line) => {
+      const row = /^\s*(e\d+) ([a-z]+) "([^"]*)"/.exec(line)
+      return row === null ? [] : [{ ref: row[1] ?? '', role: row[2] ?? '', name: row[3] ?? '' }]
+    })
+  }
+
+  it('names an element the same way whether a listing prints it or a step names it', async () => {
+    // The invariant the whole design rests on: the model can only copy a name
+    // the listing printed, and the seat refuses a step whose target is called
+    // something else. Two computations of the name would refuse every element
+    // the two disagree about — which is what a console's own query box was.
+    mount(NAMED)
+    const read = snapshot(doc(), options())
+    const printed = rows(read.text)
+    expect(printed.length).toBeGreaterThanOrEqual(9)
+    expect(printed.map(row => `${row.role} "${row.name}"`)).toEqual([
+      'clickable "查询"',
+      'menuitem "导出"',
+      'treeitem "北京"',
+      'textbox "名称"',
+      'textbox "请输入资源名称"',
+      'textbox "站点"',
+      'icon "edit"',
+      'icon "导出报表"',
+      'icon "delete"',
+      'icon "star"',
+      'icon "plus"',
+      'icon "minus"',
+      'img "趋势图"',
+      'button "提交"',
+    ])
+    for (const row of printed) {
+      const el = refs.resolve(row.ref)
+      expect({ ref: row.ref, name: el === undefined ? undefined : itemName(el, options()) })
+        .toEqual({ ref: row.ref, name: row.name })
+    }
+
+    // And the seat takes every one of them: one click per printed row, each
+    // carrying the name the listing printed, and not a step refused.
+    const request: ContentActRequest = {
+      callId: 'call_1',
+      tool: 'content_act',
+      args: { steps: printed.map(row => ({ action: 'click' as const, ref: row.ref, label: row.name })) },
+    }
+    render(<Probe seat={{ ...seatOf(request), access: { ...ACCESS, actTimeoutMs: 8000, maxSteps: 30 } }} />)
+    await vi.waitFor(
+      () => { expect(posted.filter(entry => entry.route === CONTENT_REPORT_ROUTE)).toHaveLength(1) },
+      { timeout: 10_000 },
+    )
+    const outcome = posted.find(entry => entry.route === CONTENT_REPORT_ROUTE)?.body.outcome as ActOutcome
+    expect(outcome.steps.filter(step => step.status !== 'ok')).toEqual([])
+  }, 20_000)
+
+  it('names the rest of what a listing prints, and nothing where it prints no row', () => {
+    // The arms a page of controls does not reach, each answered the way the
+    // row that printed it is named — and the shapes a listing prints no row
+    // for at all, which carry no ref and which no step can name.
+    mount('<main>'
+      + '<div data-hidden style="display: none"><button>删除</button></div>'
+      + '<svg id="blank"></svg>'
+      + '<table aria-label="设备"><tr><td>mill-01</td></tr></table>'
+      + '<form aria-label="筛选"><input aria-label="关键词"></form>'
+      + '<div id="wrap" style="cursor: pointer"><button>保存</button></div>'
+      + '<div id="card" style="cursor: pointer"><h3>今日</h3><button>展开</button></div>'
+      + '</main>'
+      + '<i id="loose" class="el-icon-star"></i>')
+    expect({
+      // Hidden: the walk turns back at it.
+      hidden: itemName(at('button'), options()),
+      // A drawing that draws no icon and carries no name is decoration.
+      blank: itemName(at('#blank'), options()),
+      // An icon is a row inside a toolbar or a list and nothing anywhere else.
+      loose: itemName(at('#loose'), options()),
+      // The two rooms with names of their own.
+      table: itemName(at('table'), options()),
+      form: itemName(at('form'), options()),
+      // A click target wrapping one control is that control, and prints no row.
+      wrap: itemName(at('#wrap'), options()),
+      // One holding rows of its own is named by what it is titled.
+      card: itemName(at('#card'), options()),
+    }).toEqual({
+      hidden: '',
+      blank: '',
+      loose: '',
+      table: '设备',
+      form: '筛选',
+      wrap: '',
+      card: '今日',
+    })
   })
 })
 

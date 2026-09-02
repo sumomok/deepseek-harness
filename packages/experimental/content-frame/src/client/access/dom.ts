@@ -491,8 +491,13 @@ export function nameOf(el: Element): string {
   if (computed !== '') return computed
   const role = roleOf(el)
   if (role === null || !PLACEHOLDER_ROLES.has(role)) return ''
-  const written = el.getAttribute('placeholder') ?? el.getAttribute('aria-placeholder') ?? ''
-  return clip(collapse(written))
+  // The first that says something, not the first that is present: a page
+  // carrying an empty `placeholder` beside a written `aria-placeholder` has
+  // said what the box is in the second one.
+  const written = ['placeholder', 'aria-placeholder']
+    .map(attribute => clip(collapse(el.getAttribute(attribute) ?? '')))
+    .find(value => value !== '')
+  return written ?? ''
 }
 
 /**

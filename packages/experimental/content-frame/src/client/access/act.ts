@@ -33,8 +33,7 @@ import {
   outOfTimeReason, refGoneReason, waitedReason,
 } from '../../access/act-text.ts'
 import {
-  DIALOG_SELECTOR, containerName, isDisabled, isHiddenAround, isPassword, isSkipped, nameOf, queryInOrder,
-  visibleText,
+  DIALOG_SELECTOR, containerName, isDisabled, isHiddenAround, isPassword, isSkipped, queryInOrder, visibleText,
 } from './dom.ts'
 import type { RefTable } from './refs.ts'
 import { whenQuiet } from '../perception/settle.ts'
@@ -70,6 +69,12 @@ export interface ActPage {
   readonly refs: RefTable
   /** Injected visibility, the reader's own. */
   readonly isVisible: (el: Element) => boolean
+  /**
+   * Injected naming, the reader's own: what a listing prints for one element.
+   * A step carries a name copied out of a listing, so the check is against the
+   * same computation that printed it and never against a second one.
+   */
+  readonly name: (el: Element) => string
 }
 
 /** How long the steps may wait, as the deployment configured it. */
@@ -337,7 +342,7 @@ async function runStep(
   // The name is what the model chose this element by, so a page that changed
   // under the refs stops the call here rather than acting on what took its
   // place.
-  const name = nameOf(el)
+  const name = page.name(el)
   if (name !== step.label) return labelChangedReason(step.ref, name, step.label)
   const dialog = occluder(page, el)
   if (dialog !== undefined) {

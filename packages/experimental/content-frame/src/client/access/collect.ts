@@ -1484,6 +1484,34 @@ function opensField(el: Element, role: string, name: string, walk: Walk, place: 
   return last.el.parentElement?.contains(el) === true ? last : undefined
 }
 
+/** One element's name, and the label the page drew in front of it to say so. */
+interface NamedItem {
+  /** The name a row prints for the element. */
+  readonly name: string
+  /** The `label` element the name was read off, when it was read off one. */
+  readonly label: Element | undefined
+}
+
+/**
+ * What one element is called under one role.
+ *
+ * The whole ladder, in one place: what the element declares, what its contents
+ * say for the roles ARIA names that way, the word written inside a box the page
+ * labelled nowhere else, and failing all of those the `label` the page drew in
+ * front of it. Every row the listing prints comes through here, and so does the
+ * check a step's target is held to — a name computed two ways is a page the
+ * model can read and the seat will not act on.
+ * @param el - the element to name.
+ * @param role - the role it prints.
+ * @param walk - the walk in progress, for the injections and its caches.
+ * @returns the name, and the label it came off.
+ */
+function namedAs(el: Element, role: string, walk: Walk): NamedItem {
+  const own = elementName(el, role, walk)
+  const label = labelFor(el, role, own, walk)
+  return { name: label === undefined ? own : clip(visibleText(label, walk.isVisible)), label }
+}
+
 /**
  * Collect one element that carries a name of its own, and stop there.
  * @param el - the element to collect.
@@ -1492,9 +1520,7 @@ function opensField(el: Element, role: string, name: string, walk: Walk, place: 
  * @param place - the element's position.
  */
 function pushElement(el: Element, role: string, walk: Walk, place: Place): void {
-  const own = elementName(el, role, walk)
-  const label = labelFor(el, role, own, walk)
-  const name = label === undefined ? own : clip(visibleText(label, walk.isVisible))
+  const { name, label } = namedAs(el, role, walk)
   const field = opensField(el, role, name, walk, place)
   if (field !== undefined) {
     walk.items[walk.items.length - 1] = { ...field, opens: walk.options.refs.ref(el) }
@@ -1911,7 +1937,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
   if (role !== null) {
     const node = ITEM_NODE_TYPES.get(role)
     if (node !== undefined) {
-      const name = elementName(el, role, walk)
+      const name = namedAs(el, role, walk).name
       // A node the page named is one row, and the group under it holds the rest:
       // its own text is already the name, and the rows in the group are its
       // children. A node the page named nothing is a room over whatever it does
@@ -1968,14 +1994,19 @@ function walkNodes(host: ParentNode, walk: Walk, place: Place): void {
 }
 
 /**
- * Walk the page once.
- * @param root - the root document.
+ * The state a pass over the page carries: the read's own injections, defaulted
+ * once, and the caches that make one pass cheaper than the sum of its elements.
+ *
+ * A single-element caller builds one too. Nothing a name is made of comes out
+ * of the caches — they hold what has been collected, which rectangles are
+ * claimed, and each table's sorted rows — so a fresh one names an element
+ * exactly as the pass that printed it did.
  * @param options - the read's options.
- * @param scope - the element to read, or undefined for the whole page.
- * @returns every collected item, in document order.
+ * @param scope - the element the read asked for, when it asked for one.
+ * @returns the walk.
  */
-export function collect(root: Document, options: SnapshotOptions, scope: Element | undefined): Item[] {
-  const walk: Walk = {
+function newWalk(options: SnapshotOptions, scope: Element | undefined): Walk {
+  return {
     options,
     isVisible: options.isVisible,
     isClickable: options.isClickable ?? looksClickable,
@@ -1985,6 +2016,76 @@ export function collect(root: Document, options: SnapshotOptions, scope: Element
     kept: new Map(),
     shapes: new Map(),
   }
+}
+
+/**
+ * Whether a listing would print this element as an icon: an icon drawn inside a
+ * toolbar or a list.
+ *
+ * The pass reads that from where it stands; one element is asked of its
+ * ancestors instead, up to the first of them that opens a region. The two agree
+ * wherever a row is printed at all.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @returns whether an icon row is what it would print.
+ */
+function drawsIcon(el: Element, walk: Walk): boolean {
+  if (!isIcon(el, walk)) return false
+  for (let at = el.parentElement; at !== null; at = at.parentElement) {
+    const face = containerFace(at, roleOf(at), walk)
+    if (face !== undefined) return face.type === 'toolbar' || face.type === 'list'
+  }
+  return false
+}
+
+/**
+ * What a listing calls one element, computed for that element alone.
+ *
+ * The one name in the package: a listing prints this, and a step's target is
+ * checked against this. The model copies a name out of a listing and the seat
+ * asks the page whether that element is still called that, so two computations
+ * of it would refuse every step naming an element the two disagree about —
+ * which is how a console's own query box, printed with the word written inside
+ * it, became a target no step could ever hit.
+ *
+ * What the pass knows and this does not is where the element stands, and
+ * position decides whether a row is printed rather than what it says: an
+ * element inside a `label` that names a control, one that wraps a single
+ * control and nothing else, or one the pass never reaches prints no row and
+ * carries no ref, so no step can name it and no answer here is asked for.
+ * @param el - the element to name.
+ * @param options - the read's own options, for the injections it is computed under.
+ * @returns the name, empty for an element a listing would print without one.
+ */
+export function itemName(el: Element, options: SnapshotOptions): string {
+  const walk = newWalk(options, undefined)
+  if (isSkipped(el, walk.isVisible)) return ''
+  if (isOpaque(el)) {
+    const drawn = roleOf(el)
+    if (drawn !== null && rowRole(el, drawn)) return namedAs(el, drawn, walk).name
+    return drawsIcon(el, walk) ? namedAs(el, ICON_ROLE, walk).name : ''
+  }
+  const role = roleOf(el)
+  if (isTableRole(role)) return tableName(el, headerPiece(el, walk, tableShape(el, walk)))
+  const face = containerFace(el, role, walk)
+  if (face !== undefined) return face.name
+  if (role !== null && (ITEM_NODE_TYPES.has(role) || rowRole(el, role))) return namedAs(el, role, walk).name
+  if (drawsIcon(el, walk)) return namedAs(el, ICON_ROLE, walk).name
+  if (!topClickable(el, walk)) return ''
+  const items = topItems(childHost(el), walk)
+  if (wrapsOnly(el, items, walk)) return ''
+  return items.length > 0 ? clickableName(el, walk) : namedAs(el, CLICKABLE_ROLE, walk).name
+}
+
+/**
+ * Walk the page once.
+ * @param root - the root document.
+ * @param options - the read's options.
+ * @param scope - the element to read, or undefined for the whole page.
+ * @returns every collected item, in document order.
+ */
+export function collect(root: Document, options: SnapshotOptions, scope: Element | undefined): Item[] {
+  const walk = newWalk(options, scope)
   const place: Place = { container: undefined, depth: 0, buffer: [], labelled: false }
   if (scope === undefined) walkNodes(root.body, walk, place)
   else walkElement(scope, walk, place)
