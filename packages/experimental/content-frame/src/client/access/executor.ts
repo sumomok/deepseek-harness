@@ -30,14 +30,18 @@ import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
   MAX_URL_CHARS, PREFERRED_TAB_WINDOW_MS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
-  SETTLE_WAIT_SHARE, type ClaimAck, type ReadOutcome, type ReadPage, type ReportAck,
+  SETTLE_WAIT_SHARE, type ActOutcome, type ChannelOutcome, type ClaimAck, type ReadOutcome, type ReadPage,
+  type ReportAck,
 } from '../../access/wire.ts'
 import {
   FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
 } from '../../access/text.ts'
+import { actReportText } from '../../access/act-text.ts'
 import type { ContentFrameAccessSettings } from '../../route.ts'
-import type { ContentAccessRequest, ContentReadRequest } from '../../types.ts'
+import type { ContentAccessRequest, ContentActRequest, ContentReadRequest } from '../../types.ts'
 import { settlePage } from '../perception/settle.ts'
+import { runSteps } from './act.ts'
+import { watchPage } from './watch.ts'
 import { RefTable } from './refs.ts'
 import { snapshot } from './snapshot.ts'
 import type { SnapshotOptions } from './snapshot.ts'
@@ -204,10 +208,10 @@ interface Report {
  * document held against the route's bound is the document sent to it.
  * @param seat - the seat the read ran on, for the tab id the report carries.
  * @param callId - the call being answered.
- * @param outcome - what the read ended as.
+ * @param outcome - what the call ended as.
  * @returns the report as it goes on the wire.
  */
-function reportOf(seat: ContentReadSeat, callId: string, outcome: ReadOutcome): Report {
+function reportOf(seat: ContentReadSeat, callId: string, outcome: ChannelOutcome): Report {
   const body = JSON.stringify({ callId, tabId: seat.tabId, outcome })
   return { body, bytes: new TextEncoder().encode(body).length }
 }
@@ -370,6 +374,126 @@ function tableFor(tables: MutableRefObject<Map<string, RefTable>>, frameId: stri
 }
 
 /**
+ * Weigh one report against the two bounds the route holds a body to, and answer
+ * the sentence about a page too wide to post where it crosses either.
+ *
+ * The renderer prints a listing's first block however long it is, so this is
+ * where a page too wide for the wire is answered rather than posted. What the
+ * two checks weigh is the document the route will receive — this call's id and
+ * this page load's tab id are what the post carries — against the two bounds
+ * that route holds it to: the character half is the parser's refusal of the
+ * body alone, and the byte half is the read of the whole document around it,
+ * which stops past the budget in bytes plus the envelope. Posting past either
+ * spends the whole report deadline on a refusal the host cannot trace back to
+ * the call, and the model is told the console went quiet; saying so here is
+ * what puts a narrower answer in front of it instead.
+ *
+ * The body is serialized rather than estimated, so the two halves change sides
+ * on the same byte the route does — and so the call id is weighed at its own
+ * size, it being the one field no bound holds before the parser has read it.
+ *
+ * Both halves have work. The envelope leaves the byte bound above four times
+ * the budget even in one-byte text, so a body between the two — past the
+ * character bound, inside the byte allowance — is refused by the character half
+ * and by nothing else; text costing three bytes a character reaches the byte
+ * half first, which is what a wide table of Chinese does at the shipped budget.
+ * How wide turns on what the page draws in the cells, so the widths at which
+ * each half takes over are pinned in this seat's own suite rather than named
+ * here.
+ * @param report - this call's own serializer, which is what the post will send.
+ * @param outcome - the answer about to be posted.
+ * @param text - the part of it the character bound holds: the listing, or the body of a call that ran steps.
+ * @param access - the deployment's budget, which both bounds are computed from.
+ * @returns the weighed report, or the one saying the page is too wide to post.
+ */
+function weigh(
+  report: (outcome: ChannelOutcome) => Report,
+  outcome: ChannelOutcome,
+  text: string,
+  access: ContentFrameAccessSettings,
+): Report {
+  const weighed = report(outcome)
+  if (
+    text.length > access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE
+    || weighed.bytes > access.outlineChars * MAX_TEXT_BYTES_PER_CHAR + REPORT_ENVELOPE_BYTES
+  ) {
+    return report(frameError(FRAME_WIDE_LISTING_MESSAGE))
+  }
+  return weighed
+}
+
+/**
+ * The failure for a reader that threw, which is the one ending neither half of
+ * this package composes a sentence for.
+ * @param refusal - whatever was thrown.
+ * @returns the failure to post.
+ */
+function engineFailure(refusal: unknown): ReadOutcome {
+  /* v8 ignore next 2 -- the reader throws Error and nothing else; String() keeps a thrown non-Error readable. */
+  const message = refusal instanceof Error ? refusal.message : String(refusal)
+  return { status: 'error', code: 'engine', message: forWire(message, MAX_OUTCOME_MESSAGE_CHARS) }
+}
+
+/** What one call found when it went looking for the page to work on. */
+type Prepared =
+  | {
+    /** Discriminant: there is a loaded page in front. */
+    kind: 'ready'
+    /** The page the column has in front, as the deployment names it. */
+    page: ReadPage
+    /** The frame showing it. */
+    frame: HTMLIFrameElement
+    /**
+     * That frame's window. The window rather than the document, because a
+     * navigation replaces the document and every reader here wants the one the
+     * frame has now.
+     */
+    view: Window
+    /** The numbering this frame's calls share. */
+    refs: RefTable
+  }
+  | {
+    /** Discriminant: there was not, and this is what the model is told. */
+    kind: 'failed'
+    /** The failure to post. */
+    outcome: ReadOutcome
+  }
+
+/**
+ * Find the loaded page one call is against, or say why there is none.
+ *
+ * Shared by both tools because the four answers are the same for both: a column
+ * with nothing in it, an entry that is not a page, a frame the seat cannot
+ * reach, and a page that never finished loading are not conditions a read or a
+ * set of steps can tell apart.
+ * @param seat - the seat as it stands now.
+ * @param timeoutMs - this call's own report deadline, whose load share the wait spends.
+ * @returns the page and its document, or the failure to post.
+ */
+async function prepare(seat: ContentReadSeat, timeoutMs: number): Promise<Prepared> {
+  const failed = (outcome: ReadOutcome): Prepared => ({ kind: 'failed', outcome })
+  if (seat.entries.length === 0) return failed({ status: 'error', code: 'empty', message: EMPTY_REASON })
+  if (seat.page === undefined) {
+    return failed({ status: 'error', code: 'not-a-page', message: NOT_A_PAGE_REASON, ...otherKind(seat.entries) })
+  }
+  if (seat.activeFrameId === undefined) return failed(frameError(FRAME_RETIRED_MESSAGE))
+  const frame = seat.frames.current.get(seat.activeFrameId)
+  if (frame === undefined || frame.contentWindow === null) return failed(frameError(FRAME_UNREACHABLE_MESSAGE))
+  // A share of the deadline, not all of it: the host started counting when it
+  // granted the claim, so the work and the trip back need what is left.
+  if (frame.contentWindow.document.readyState !== 'complete' && !await whenLoaded(frame, timeoutMs * LOAD_WAIT_SHARE)) {
+    return failed(frameError(FRAME_LOADING_MESSAGE))
+  }
+  return {
+    kind: 'ready',
+    page: seat.page,
+    frame,
+    view: frame.contentWindow,
+    refs: tableFor(seat.tables, seat.activeFrameId),
+  }
+}
+
+/**
  * Read the page one call asked for, or say why there was none to read.
  * @param seat - the seat as it stands now.
  * @param request - the pending call: what it asks of the page, and the id the
@@ -382,33 +506,22 @@ async function readPage(
   request: ContentReadRequest,
   access: ContentFrameAccessSettings,
 ): Promise<Report> {
-  const report = (outcome: ReadOutcome): Report => reportOf(seat, request.callId, outcome)
-  if (seat.entries.length === 0) return report({ status: 'error', code: 'empty', message: EMPTY_REASON })
-  if (seat.page === undefined) {
-    return report({ status: 'error', code: 'not-a-page', message: NOT_A_PAGE_REASON, ...otherKind(seat.entries) })
-  }
-  if (seat.activeFrameId === undefined) return report(frameError(FRAME_RETIRED_MESSAGE))
-  const frame = seat.frames.current.get(seat.activeFrameId)
-  if (frame === undefined || frame.contentWindow === null) return report(frameError(FRAME_UNREACHABLE_MESSAGE))
-  // A share of the deadline, not all of it: the host started counting when it
-  // granted the claim, so the walk and the trip back need what is left.
-  const loadBudgetMs = access.readTimeoutMs * LOAD_WAIT_SHARE
-  if (frame.contentWindow.document.readyState !== 'complete' && !await whenLoaded(frame, loadBudgetMs)) {
-    return report(frameError(FRAME_LOADING_MESSAGE))
-  }
+  const report = (outcome: ChannelOutcome): Report => reportOf(seat, request.callId, outcome)
+  const ready = await prepare(seat, access.readTimeoutMs)
+  if (ready.kind === 'failed') return report(ready.outcome)
   // A loaded document is not a drawn one: an application that just changed
   // route has its markup and not yet its data. This is the second share of the
   // same deadline, spent on the page going quiet, and what it found travels
   // with the listing either way — a read taken while the page moved says so
   // rather than passing itself off as the settled page.
   const settlement = await settlePage(
-    frame.contentWindow.document,
+    ready.view.document,
     { quietMs: access.settleQuietMs, budgetMs: access.readTimeoutMs * SETTLE_WAIT_SHARE },
     isVisible,
   )
   const args = request.args
   const options: SnapshotOptions = {
-    refs: tableFor(seat.tables, seat.activeFrameId),
+    refs: ready.refs,
     budgetChars: access.outlineChars,
     ...args.mode === undefined ? {} : { mode: args.mode },
     ...args.scope === undefined ? {} : { scope: args.scope },
@@ -420,7 +533,7 @@ async function readPage(
   }
   try {
     // Re-read after the wait: a navigation replaces the frame's document.
-    const read = snapshot(frame.contentWindow.document, options)
+    const read = snapshot(ready.view.document, options)
     const text = sanitize(read.text)
     // Every string below the listing itself comes from the document, and the
     // wire holds each of them to a length and to what JSON carries cheaply; a
@@ -428,7 +541,7 @@ async function readPage(
     // refuses.
     const listing: ReadOutcome = {
       status: 'ok',
-      page: { id: seat.page.id, title: forWire(seat.page.title, MAX_NAME_CHARS) },
+      page: { id: ready.page.id, title: forWire(ready.page.title, MAX_NAME_CHARS) },
       snapshot: {
         kind: read.kind,
         url: forWire(read.header.url, MAX_URL_CHARS),
@@ -445,58 +558,103 @@ async function readPage(
         ...settlement.busy.length === 0 ? {} : { busy: [...settlement.busy] },
       },
     }
-    // The renderer prints a listing's first block however long it is, so this is
-    // where a page too wide for the wire is answered rather than posted. What
-    // the two checks weigh is the document the route will receive — this call's
-    // id and this page load's tab id are what the post carries — against the two
-    // bounds that route holds it to: the character half is the parser's refusal
-    // of `text` alone, and the byte half is the read of the whole body around
-    // it, which stops past the budget in bytes plus the envelope. Posting past
-    // either spends the whole report deadline on a refusal the host cannot trace
-    // back to the call, and the model is told the console went quiet; saying so
-    // here is what puts a narrower read in front of it instead.
-    //
-    // The body is serialized rather than estimated from the listing, so the two
-    // halves change sides on the same byte the route does — and so the call id
-    // is weighed at its own size, it being the one field no bound holds before
-    // the parser has read it.
-    //
-    // Both halves have work. The envelope leaves the byte bound above four
-    // times the budget even in one-byte text, so a listing between the two —
-    // past the character bound, inside the body's byte allowance — is refused
-    // by the character half and by nothing else; text costing three bytes a
-    // character reaches the byte half first, which is what a wide table of
-    // Chinese does at the shipped budget. How wide turns on what the page
-    // draws in the cells, so the widths at which each half takes over are
-    // pinned in this seat's own suite rather than named here.
-    const weighed = report(listing)
-    if (
-      text.length > access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE
-      || weighed.bytes > access.outlineChars * MAX_TEXT_BYTES_PER_CHAR + REPORT_ENVELOPE_BYTES
-    ) {
-      return report(frameError(FRAME_WIDE_LISTING_MESSAGE))
-    }
-    return weighed
+    return weigh(report, listing, text, access)
   } catch (refusal) {
-    /* v8 ignore next 2 -- the reader throws Error and nothing else; String() keeps a thrown non-Error readable. */
-    const message = refusal instanceof Error ? refusal.message : String(refusal)
-    return report({ status: 'error', code: 'engine', message: forWire(message, MAX_OUTCOME_MESSAGE_CHARS) })
+    return report(engineFailure(refusal))
   }
 }
 
 /**
- * Claim one call, read the page, and report.
+ * Run one call's steps against the page, or say why there was none to act on.
+ *
+ * The watch is installed before the first step and taken off before the report
+ * is composed, so what it collected is exactly what the page did in answer to
+ * these steps — and the two functions it stands in for are back before anything
+ * else can reach them.
+ *
+ * The closing snapshot is a whole read of the page at the deployment's own
+ * budget, taken after the last step settled. It is the model's next move: the
+ * refs it names are the ones a following call can use, and a call that changed
+ * the page therefore never has to read it again to act on what it produced.
+ * @param seat - the seat as it stands now.
+ * @param request - the pending call: the steps to run, and the id the report is posted under.
+ * @param access - the node half's budget, deadlines and per-step ceiling.
+ * @returns the report to post.
+ */
+async function actOnPage(
+  seat: ContentReadSeat,
+  request: ContentActRequest,
+  access: ContentFrameAccessSettings,
+): Promise<Report> {
+  const report = (outcome: ChannelOutcome): Report => reportOf(seat, request.callId, outcome)
+  const ready = await prepare(seat, access.actTimeoutMs)
+  if (ready.kind === 'failed') return report(ready.outcome)
+  const watch = watchPage(ready.view.document, request.args.dialogs ?? 'cancel', isVisible)
+  try {
+    const run = await runSteps(request.args.steps, {
+      doc: ready.view.document,
+      refs: ready.refs,
+      isVisible,
+    }, {
+      settleQuietMs: access.settleQuietMs,
+      settleMaxMs: access.settleMaxMs,
+      // What is left of this call's own deadline, which is what a `wait` step
+      // may spend: the host started counting when it granted the claim.
+      deadline: Date.now() + access.actTimeoutMs * SETTLE_WAIT_SHARE,
+    })
+    const events = watch.events()
+    // Re-read after the steps: a navigation replaces the frame's document, and
+    // the closing snapshot is of the page the user is looking at now.
+    const read = snapshot(ready.view.document, {
+      refs: ready.refs,
+      budgetChars: access.outlineChars,
+      isVisible,
+      rectOf,
+      isClickable,
+    })
+    const outcome: ActOutcome = {
+      status: run.results.some(result => result.status === 'failed') ? 'failed' : 'done',
+      page: { id: ready.page.id, title: forWire(ready.page.title, MAX_NAME_CHARS) },
+      title: forWire(read.header.title, MAX_HEADER_CHARS),
+      steps: run.results.map(result => (result.status === 'failed'
+        ? { ...result, message: forWire(result.message, MAX_OUTCOME_MESSAGE_CHARS) }
+        : result)),
+      text: sanitize(actReportText({
+        page: forWire(ready.page.title, MAX_NAME_CHARS),
+        steps: request.args.steps,
+        results: run.results,
+        redacted: run.redacted,
+        settledMs: run.settledMs,
+        events,
+        snapshot: read.text,
+      })),
+      truncated: read.truncated,
+    }
+    return weigh(report, outcome, outcome.text, access)
+  } catch (refusal) {
+    return report(engineFailure(refusal))
+  } finally {
+    // Even where a step threw: a frame left with this package's stand-ins is a
+    // frame whose own dialogs never open again.
+    watch.stop()
+  }
+}
+
+/**
+ * Claim one call and answer it from the page this seat holds.
  * @param seat - the live seat, re-read after the claim round trip.
- * @param request - the pending call.
- * @param access - the node half's budget and deadline, settled when the seat booted.
+ * @param request - the pending call, of either tool.
+ * @param access - the node half's budget and deadlines, settled when the seat booted.
  */
 async function answer(
   seat: MutableRefObject<ContentReadSeat>,
-  request: ContentReadRequest,
+  request: ContentAccessRequest,
   access: ContentFrameAccessSettings,
 ): Promise<void> {
   if (!await claimRead(seat, request.callId, access)) return
-  await reportRead(await readPage(seat.current, request, access))
+  await reportRead(request.tool === 'content_read'
+    ? await readPage(seat.current, request, access)
+    : await actOnPage(seat.current, request, access))
 }
 
 /**
@@ -537,7 +695,7 @@ export function useContentRead(seat: ContentReadSeat): void {
       if (!open.has(callId)) started.current.delete(callId)
     }
     for (const request of seat.pending) {
-      if (request.tool !== 'content_read' || started.current.has(request.callId)) continue
+      if (started.current.has(request.callId)) continue
       started.current.add(request.callId)
       void answer(live, request, access)
     }

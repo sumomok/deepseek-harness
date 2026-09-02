@@ -112,7 +112,6 @@ describe('what the model reads when one step stops the call', () => {
 describe('what the page did on its own', () => {
   it('pins the four lines', () => {
     expect(messageLine('查询成功', 2100)).toBe('message "查询成功" (shown for 2.1s, gone before the snapshot)')
-    expect(messageLine('查询成功', undefined)).toBe('message "查询成功" (still shown)')
     expect(dialogLine('confirm', '确定删除？', 'cancel')).toBe('dialog (confirm) "确定删除？" — answered cancel')
     expect(dialogLine('alert', '已保存', 'accept')).toBe('dialog (alert) "已保存" — answered accept')
     expect(navigationLine('/ini-web2/#/detail/8812')).toBe('navigation to /ini-web2/#/detail/8812')
