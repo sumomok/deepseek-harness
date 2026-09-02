@@ -689,24 +689,39 @@ describe('what the reader reports', () => {
     await settled()
     const outcome = reported()
     if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
-    expect({ chars: outcome.snapshot.text.length, body: reportedBytes(), charBound: 48000, byteBound: 71328 })
-      .toEqual({ chars: 47973, body: 48708, charBound: 48000, byteBound: 71328 })
+    expect({
+      chars: outcome.snapshot.text.length,
+      body: reportedBytes(),
+      charBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
+      byteBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
+    }).toEqual({ chars: 47973, body: 48708, charBound: 48000, byteBound: 71328 })
     inside.unmount()
 
     posted = []
     const past = readTable(wideTable(119, 'c', 'P'.repeat(300)), DEFAULT_OUTLINE_CHARS)
     await settled()
     expect(reported()).toMatchObject({ status: 'error', code: 'frame', message: FRAME_WIDE_LISTING_MESSAGE })
-    // 48,375 characters against a bound of 48,000, in a body of 49,114 bytes
-    // against 71,328: the character half answered, and it was the only one that
-    // could have.
-    expect({
-      chars: 48375,
-      charBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
-      body: SEAT_ENVELOPE_BYTES + 48862,
-      byteBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
-    }).toEqual({ chars: 48375, charBound: 48000, body: 49114, byteBound: 71328 })
     past.unmount()
+
+    // Which half that was, read off the same table rather than written out: a
+    // budget of 20,000 characters takes it on both — 80,000 characters and
+    // 103,328 bytes — so it is posted, and what it costs there is past the
+    // shipped budget's character bound while the whole report is inside that
+    // budget's byte bound.
+    posted = []
+    const taken = readTable(wideTable(119, 'c', 'P'.repeat(300)), 20000)
+    await settled()
+    const listing = reported()
+    if (listing.status !== 'ok') throw new Error('the reader answered a failure')
+    const chars = listing.snapshot.text.length
+    const body = reportedBytes()
+    expect({
+      chars,
+      body,
+      pastCharBound: chars > DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
+      insideByteBound: body <= DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
+    }).toEqual({ chars: 48375, body: 49114, pastCharBound: true, insideByteBound: true })
+    taken.unmount()
   })
 
   it('takes a report whose bytes land on the bound, and stops one byte past it', async () => {

@@ -180,18 +180,30 @@ function forWire(value: string, max: number): string {
   return clipTo(sanitize(value), max)
 }
 
+/** One read's report, ready to post. */
+interface Report {
+  /** The serialized document, which is the string {@link post} sends. */
+  body: string
+  /** Its length in UTF-8 bytes, which is what the route counts. */
+  bytes: number
+}
+
 /**
- * What one document costs as a posted body, in UTF-8 bytes.
+ * Serialize one read's report and measure what it costs the route.
  *
  * Measured rather than estimated: `JSON.stringify` writes the escapes the route
  * will receive — two bytes for a newline, three for the widest character — and
  * `TextEncoder` counts what goes on the wire, so this is the same byte-by-byte
- * total the route arrives at.
- * @param body - the document, serialized the way {@link post} sends it.
- * @returns its length in bytes.
+ * total the route arrives at. The seat weighs and posts this one string, so the
+ * document held against the route's bound is the document sent to it.
+ * @param seat - the seat the read ran on, for the tab id the report carries.
+ * @param callId - the call being answered.
+ * @param outcome - what the read ended as.
+ * @returns the report as it goes on the wire.
  */
-function postedBytes(body: unknown): number {
-  return new TextEncoder().encode(JSON.stringify(body)).length
+function reportOf(seat: ContentReadSeat, callId: string, outcome: ReadOutcome): Report {
+  const body = JSON.stringify({ callId, tabId: seat.tabId, outcome })
+  return { body, bytes: new TextEncoder().encode(body).length }
 }
 
 /** What one post to a read route ended as, for a caller deciding whether to try again. */
@@ -223,15 +235,15 @@ type Posted<T> =
  * neither of which has read the document, and treating those as final would end
  * a read the next post would have completed.
  * @param route - the route to post to.
- * @param body - the document.
+ * @param body - the document, already serialized.
  * @returns what the post ended as.
  */
-async function post<T>(route: string, body: unknown): Promise<Posted<T>> {
+async function post<T>(route: string, body: string): Promise<Posted<T>> {
   try {
     const response = await fetch(route, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify(body),
+      body,
     })
     if (response.ok) return { kind: 'answered', value: await response.json() as T }
     return ROUTE_REFUSAL_STATUSES.includes(response.status) ? { kind: 'refused' } : { kind: 'undelivered' }
@@ -271,7 +283,7 @@ async function claimRead(
 ): Promise<boolean> {
   const deadline = Date.now() + access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS + CLAIM_RETRY_MS
   for (;;) {
-    const posted = await post<ClaimAck>(CONTENT_CLAIM_ROUTE, { callId, tabId: seat.current.tabId })
+    const posted = await post<ClaimAck>(CONTENT_CLAIM_ROUTE, JSON.stringify({ callId, tabId: seat.current.tabId }))
     if (posted.kind === 'refused') return false
     if (posted.kind === 'answered') {
       if (posted.value.claimed) return true
@@ -293,19 +305,12 @@ async function claimRead(
  * own deadline is the right place for it to end. A report the route refused is
  * not that ending and is not sent again — the second post would carry the same
  * document to the same check.
- * @param seat - the live seat, read for the tab id the host granted the claim to.
- * @param callId - the call being answered.
- * @param outcome - what the read ended as.
+ * @param report - the read's report, as {@link readPage} weighed it.
  */
-async function reportRead(
-  seat: MutableRefObject<ContentReadSeat>,
-  callId: string,
-  outcome: ReadOutcome,
-): Promise<void> {
-  const body = { callId, tabId: seat.current.tabId, outcome }
-  if ((await post<ReportAck>(CONTENT_REPORT_ROUTE, body)).kind !== 'undelivered') return
+async function reportRead(report: Report): Promise<void> {
+  if ((await post<ReportAck>(CONTENT_REPORT_ROUTE, report.body)).kind !== 'undelivered') return
   await delay(CLAIM_RETRY_MS)
-  await post<ReportAck>(CONTENT_REPORT_ROUTE, body)
+  await post<ReportAck>(CONTENT_REPORT_ROUTE, report.body)
 }
 
 /**
@@ -364,25 +369,26 @@ function tableFor(tables: MutableRefObject<Map<string, RefTable>>, frameId: stri
  * @param request - the pending call: what it asks of the page, and the id the
  * report carrying the answer will be posted under.
  * @param access - the node half's budget and deadline.
- * @returns the outcome to post.
+ * @returns the report to post.
  */
 async function readPage(
   seat: ContentReadSeat,
   request: ContentReadRequest,
   access: ContentFrameAccessSettings,
-): Promise<ReadOutcome> {
-  if (seat.entries.length === 0) return { status: 'error', code: 'empty', message: EMPTY_REASON }
+): Promise<Report> {
+  const report = (outcome: ReadOutcome): Report => reportOf(seat, request.callId, outcome)
+  if (seat.entries.length === 0) return report({ status: 'error', code: 'empty', message: EMPTY_REASON })
   if (seat.page === undefined) {
-    return { status: 'error', code: 'not-a-page', message: NOT_A_PAGE_REASON, ...otherKind(seat.entries) }
+    return report({ status: 'error', code: 'not-a-page', message: NOT_A_PAGE_REASON, ...otherKind(seat.entries) })
   }
-  if (seat.activeFrameId === undefined) return frameError(FRAME_RETIRED_MESSAGE)
+  if (seat.activeFrameId === undefined) return report(frameError(FRAME_RETIRED_MESSAGE))
   const frame = seat.frames.current.get(seat.activeFrameId)
-  if (frame === undefined || frame.contentWindow === null) return frameError(FRAME_UNREACHABLE_MESSAGE)
+  if (frame === undefined || frame.contentWindow === null) return report(frameError(FRAME_UNREACHABLE_MESSAGE))
   // A share of the deadline, not all of it: the host started counting when it
   // granted the claim, so the walk and the trip back need what is left.
   const loadBudgetMs = access.readTimeoutMs * LOAD_WAIT_SHARE
   if (frame.contentWindow.document.readyState !== 'complete' && !await whenLoaded(frame, loadBudgetMs)) {
-    return frameError(FRAME_LOADING_MESSAGE)
+    return report(frameError(FRAME_LOADING_MESSAGE))
   }
   const args = request.args
   const options: SnapshotOptions = {
@@ -443,18 +449,18 @@ async function readPage(
     // by the character half and by nothing else; text costing three bytes a
     // character reaches the byte half first, which is what an eighty-column
     // table of Chinese does at the shipped budget.
+    const weighed = report(listing)
     if (
       text.length > access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE
-      || postedBytes({ callId: request.callId, tabId: seat.tabId, outcome: listing })
-        > access.outlineChars * MAX_TEXT_BYTES_PER_CHAR + REPORT_ENVELOPE_BYTES
+      || weighed.bytes > access.outlineChars * MAX_TEXT_BYTES_PER_CHAR + REPORT_ENVELOPE_BYTES
     ) {
-      return frameError(FRAME_WIDE_LISTING_MESSAGE)
+      return report(frameError(FRAME_WIDE_LISTING_MESSAGE))
     }
-    return listing
+    return weighed
   } catch (refusal) {
     /* v8 ignore next 2 -- the reader throws Error and nothing else; String() keeps a thrown non-Error readable. */
     const message = refusal instanceof Error ? refusal.message : String(refusal)
-    return { status: 'error', code: 'engine', message: forWire(message, MAX_OUTCOME_MESSAGE_CHARS) }
+    return report({ status: 'error', code: 'engine', message: forWire(message, MAX_OUTCOME_MESSAGE_CHARS) })
   }
 }
 
@@ -470,8 +476,7 @@ async function answer(
   access: ContentFrameAccessSettings,
 ): Promise<void> {
   if (!await claimRead(seat, request.callId, access)) return
-  const outcome = await readPage(seat.current, request, access)
-  await reportRead(seat, request.callId, outcome)
+  await reportRead(await readPage(seat.current, request, access))
 }
 
 /**
