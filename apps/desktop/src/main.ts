@@ -192,7 +192,7 @@ async function performRebind(): Promise<boolean> {
     server = handle
     logLine(`[desktop] server rebind succeeded at ${handle.url}\n`)
     retargetWindows(handle.authenticatedUrl)
-    setupNotifications({ log: logLine, reveal }, handle.url)
+    setupNotifications({ log: logLine, reveal }, handle.authenticatedUrl)
     attachSupervision()
     return true
   } catch (error) {
@@ -765,7 +765,7 @@ if (!locked) {
       }
       // After the gate, so a launch that must update first never subscribes to
       // a server it is about to take down.
-      setupNotifications({ log: sink, reveal }, server.url)
+      setupNotifications({ log: sink, reveal }, server.authenticatedUrl)
       attachSupervision()
       view.showApp(server.authenticatedUrl)
     } catch (error) {
