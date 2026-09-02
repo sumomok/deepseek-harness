@@ -101,7 +101,7 @@ describe('reading a page', () => {
       '    e8 toolbar',
       '      e9 button "查询" (toolbar)',
       '      e10 button "导出" (disabled) (toolbar)',
-      '  e11 table 2 rows × 3 cols',
+      '  e11 table 2 rows on this page × 3 cols',
       '    header: 名称 | 唯一标识 | 操作',
       '    sample: 东风站 | P-0001 | [编辑 删除]',
       "    rows: pass scope with this table's ref to list rows, or find a row by its text",
@@ -136,8 +136,9 @@ describe('reading a page', () => {
     read(refs)
     const snap = read(refs, { scope: refOf(refs, 'table') })
     expect(snap.text).toBe([
-      'e11 table 2 rows × 3 cols',
+      'e11 table 2 rows on this page × 3 cols',
       '  header: 名称 | 唯一标识 | 操作',
+      '  pagination: 上一页 1 2 下一页',
       '  row 1: 东风站 | P-0001 | e14 button "编辑"  e15 button "删除"',
       '  row 2: 朝阳站 | P-0002 | e17 button "编辑"  e18 button "删除"',
     ].join('\n'))
@@ -1992,19 +1993,103 @@ describe('an icon a page draws as a command', () => {
         <i class="el-icon-edit" aria-label="编辑本行"></i>
         <i class="el-icon-plus" title="新增"></i>
         <span class="anticon anticon-delete"></span>
+        <i class="icon-star"></i>
         <i class="edit-icon"></i>
         <i class="iconfont"></i>
       </div>`)
+    // The name is what a page writes after the word `icon`; a class that ends
+    // at the word says only that the thing is one, whichever side it is on.
     expect(read(refs).text).toBe([
       'e1 toolbar "操作"',
       '  e2 icon "编辑本行" (in toolbar "操作")',
       '  e3 icon "新增" (in toolbar "操作")',
       '  e4 icon "delete" (in toolbar "操作")',
-      '  e5 icon "edit" (in toolbar "操作")',
+      '  e5 icon "star" (in toolbar "操作")',
       '  e6 icon (in toolbar "操作")',
+      '  e7 icon (in toolbar "操作")',
     ].join('\n'))
     // An icon is one of the things a region offers, not one of its runs of text.
-    expect(read(refs, { mode: 'map' }).text).toBe('e1 toolbar "操作"  5 buttons')
+    expect(read(refs, { mode: 'map' }).text).toBe('e1 toolbar "操作"  6 buttons')
+  })
+
+  it('reads an icon a page draws as an inline drawing, however that drawing names itself', () => {
+    // The icon sets of antd, Element Plus, and Bootstrap draw the shape inline
+    // rather than through a font: the name is then in the classes of the
+    // wrapper, in the symbol the drawing points at, or in its own title.
+    const refs = page(`
+      <div role="toolbar" aria-label="操作">
+        <svg class="el-icon-edit"><path d="M0 0"/></svg>
+        <svg><use href="#icon-delete"/></svg>
+        <svg><use xlink:href="#el-icon-plus"/></svg>
+        <svg><title>导出</title><path d="M0 0"/></svg>
+        <i class="el-icon"><svg viewBox="0 0 1024 1024"><use href="#Refresh"/></svg></i>
+        <div class="anticon anticon-star"><svg viewBox="0 0 1024 1024"><path d="M0 0"/></svg></div>
+      </div>`)
+    expect(read(refs).text).toBe([
+      'e1 toolbar "操作"',
+      '  e2 icon "edit" (in toolbar "操作")',
+      '  e3 icon "delete" (in toolbar "操作")',
+      '  e4 icon "plus" (in toolbar "操作")',
+      '  e5 icon "导出" (in toolbar "操作")',
+      '  e6 icon "Refresh" (in toolbar "操作")',
+      '  e7 icon "star" (in toolbar "操作")',
+    ].join('\n'))
+  })
+
+  it('reads a wrapper and the drawing inside it as one icon, and says nothing about a drawing that names nothing', () => {
+    const refs = page(`
+      <div role="toolbar" aria-label="操作">
+        <i class="el-icon"><svg viewBox="0 0 1024 1024"><path d="M0 0"/></svg></i>
+        <svg><use href="#icon"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M0 0"/></svg>
+        <span class="wrap"><svg viewBox="0 0 24 24"><path d="M0 0"/></svg></span>
+      </div>`)
+    // A wrapper the page marks as an icon prints the row and the drawing inside
+    // it prints none, so one icon is one thing to click. A drawing that names
+    // itself nowhere is decoration: pages draw far too many to print each one.
+    expect(read(refs).text).toBe([
+      'e1 toolbar "操作"',
+      '  e2 icon (in toolbar "操作")',
+      '  e3 icon (in toolbar "操作")',
+    ].join('\n'))
+  })
+
+  it('names a wrapper by the drawing inside it when its own classes name nothing', () => {
+    // The wrapper an icon set puts around the drawing carries the classes and
+    // the drawing carries the name, so a wrapper marked as an icon and named
+    // nothing is named by the drawing it holds — and by its own classes where
+    // those say a word, which is what the page wrote closest to the reader.
+    const refs = page(`
+      <div role="toolbar" aria-label="操作">
+        <i class="el-icon"><svg viewBox="0 0 1024 1024"><title>刷新</title><path d="M0 0"/></svg></i>
+        <i class="el-icon-edit"><svg viewBox="0 0 1024 1024"><title>刷新</title><path d="M0 0"/></svg></i>
+        <i class="el-icon"><svg viewBox="0 0 1024 1024"><title></title><path d="M0 0"/></svg></i>
+      </div>`)
+    expect(read(refs).text).toBe([
+      'e1 toolbar "操作"',
+      '  e2 icon "刷新" (in toolbar "操作")',
+      '  e3 icon "edit" (in toolbar "操作")',
+      '  e4 icon (in toolbar "操作")',
+    ].join('\n'))
+  })
+
+  it('names an icon in a cell whatever else the page says the element is', () => {
+    // What a cell is read for is what the row offers, so the icon a page marks
+    // as a picture is named there; the same element read as a row of the page
+    // is answered with the role the page wrote on it.
+    const cell = page(`
+      <table><tbody><tr><td>东风站</td><td>
+        <span role="img" aria-label="删除" class="anticon anticon-delete"><svg><path d="M0 0"/></svg></span>
+        <i class="el-icon"><svg><use href="#Edit"/></svg></i>
+      </td></tr></tbody></table>`)
+    read(cell)
+    expect(read(cell, { scope: refOf(cell, 'table') }).text.split('\n')[1])
+      .toBe('  row 1: 东风站 | e3 icon "删除"  e4 icon "Edit"')
+    const bar = page(`
+      <div role="toolbar" aria-label="操作">
+        <span role="img" aria-label="删除" class="anticon anticon-delete"><svg><path d="M0 0"/></svg></span>
+      </div>`)
+    expect(read(bar).text).toBe(['e1 toolbar "操作"', '  e2 img "删除" (in toolbar "操作")'].join('\n'))
   })
 
   it('offers an icon where a page draws its commands, and reads past one drawn as decoration', () => {
@@ -2097,6 +2182,22 @@ describe('the table this rule was written for', () => {
     expect(listed[2]?.startsWith('  row 1:  | 东风站 | element:gas_transport_vehicle_info | 公用专题 |')).toBe(true)
     expect(listed[2]?.endsWith('| e3 icon "edit"  e4 icon "delete"')).toBe(true)
     expect(listed[3]?.endsWith('| e6 icon "edit"  e7 icon "delete"')).toBe(true)
+  })
+
+  it('pages the merged table by the strip the console draws under all six pieces', () => {
+    // The strip of the page this table is drawn on, as it is written there:
+    // `div.crud-pagination` holding `.el-pagination`, after every piece.
+    const refs = page(`${CONSOLE_TABLE}<div class="crud-pagination">`
+      + '<div class="el-pagination">共 89 条 10条/页 1 2 3 4 5 前往 页</div></div>')
+    const lines = read(refs).text.split('\n')
+    expect(lines[0]).toBe('e1 table 2 rows on this page × 21 cols')
+    expect(lines).toContain('  pagination: 共 89 条 10条/页 1 2 3 4 5 前往 页')
+    const listed = read(refs, { scope: refOf(refs, '.body table') }).text.split('\n')
+    expect(listed[0]).toBe('e1 table 2 rows on this page × 21 cols')
+    expect(listed[2]).toBe('  pagination: 共 89 条 10条/页 1 2 3 4 5 前往 页')
+    // The words of the strip are the page's own, and a read searching for them
+    // answers with the run they are drawn in.
+    expect(read(refs, { find: '共' }).text).toContain('共 89 条 10条/页 1 2 3 4 5 前往 页')
   })
 
   it('finds a row by a name only the piece pinned left draws', () => {
@@ -2477,6 +2578,90 @@ describe('tables', () => {
     expect(text).toContain('    pagination: 乙表 共 9 页')
   })
 
+  it('pages a table by no strip drawn in another region than its own', () => {
+    // A strip pages the table it is drawn beside, and a page that draws the two
+    // in different regions has said they are not beside each other.
+    const outside = page(`
+      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      <section aria-label="别处"><div class="el-pagination">共 2 页</div></section>`)
+    expect(read(outside).text).not.toContain('pagination:')
+    const inside = page(`
+      <section aria-label="站点">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      </section>
+      <div class="el-pagination">共 2 页</div>`)
+    expect(read(inside).text).not.toContain('pagination:')
+  })
+
+  it('pages a table by a strip a page wraps in a navigation landmark, wherever the mark is written', () => {
+    // Bootstrap marks the list and wraps it in a landmark; the ARIA practices
+    // guide marks the landmark itself. Both are one pager drawn beside a table.
+    const wrapped = page(`
+      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      <nav aria-label="Page navigation"><ul class="pagination"><li>上一页</li><li>1</li><li>2</li></ul></nav>`)
+    expect(read(wrapped).text).toContain('  pagination: 上一页 1 2')
+    const marked = page(`
+      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      <nav aria-label="Pagination"><ul><li>共 2 页</li></ul></nav>`)
+    expect(read(marked).text).toContain('  pagination: 共 2 页')
+    const region = page(`
+      <section aria-label="站点">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+        <nav aria-label="Page navigation"><ul class="pagination"><li>共 3 页</li></ul></nav>
+      </section>`)
+    expect(read(region).text).toContain('    pagination: 共 3 页')
+  })
+
+  it('pages a table by no wrapped strip standing in another region, nor by a pager drawn in a menu', () => {
+    const outside = page(`
+      <section aria-label="站点">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      </section>
+      <nav aria-label="Page navigation"><ul class="pagination"><li>共 3 页</li></ul></nav>`)
+    expect(read(outside).text).not.toContain('pagination:')
+    // The dots a page draws in its own menu stand where the menu stands, so a
+    // table drawn inside a region of its own is paged by neither reading of
+    // them. A table the page leaves loose beside the menu would be paged by
+    // them, which is the price of finding a pager by the word on it.
+    const menu = page(`
+      <nav aria-label="主菜单"><a href="/a">站点</a><div class="pagination-dots">1 2 3</div></nav>
+      <section aria-label="站点">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      </section>`)
+    expect(read(menu).text).not.toContain('pagination:')
+  })
+
+  it('pages a table by a strip wrapped in landmark after landmark, and by one drawn in the landmark it stands in', () => {
+    // A page nests its pager inside the landmark that holds its whole footer,
+    // so the search climbs out of every landmark around the strip rather than
+    // the innermost one.
+    const nested = page(`
+      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      <nav><nav aria-label="Pages"><ul class="pagination"><li>共 4 页</li></ul></nav></nav>`)
+    expect(read(nested).text).toContain('  pagination: 共 4 页')
+    // Where the landmark holds the table as well, it is the region the two
+    // share rather than a wrapper around the pager, and they are still beside
+    // each other.
+    const together = page(`
+      <nav aria-label="列表">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+        <ul class="pagination"><li>共 5 页</li></ul>
+      </nav>`)
+    expect(read(together).text).toContain('pagination: 共 5 页')
+  })
+
+  it('pages a table by the strip drawn beside it inside a shadow root', () => {
+    // Neither stands in a region: the root of a shadow tree is no element, and
+    // a table and a strip alone in one are drawn beside each other.
+    const refs = page('<div id="host"></div>')
+    const host = document.querySelector('#host')
+    if (host === null) throw new Error('fixture has no host')
+    host.attachShadow({ mode: 'open' }).innerHTML =
+      '<table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>'
+      + '<div class="el-pagination">共 2 页</div>'
+    expect(read(refs).text).toContain('  pagination: 共 2 页')
+  })
+
   it('gives a strip between two tables to the table it is drawn under, and no strip to the one below', () => {
     const refs = page(`
       <section aria-label="站点">
@@ -2486,7 +2671,7 @@ describe('tables', () => {
       </section>`)
     expect(read(refs).text).toBe([
       'e1 section "站点"',
-      '  e2 table "甲表" 1 rows × 1 cols',
+      '  e2 table "甲表" 1 rows on this page × 1 cols',
       '    header: 名称',
       '    sample: 东风站',
       "    rows: pass scope with this table's ref to list rows, or find a row by its text",
@@ -2668,6 +2853,33 @@ describe('a table drawn in two pieces', () => {
         </tbody></table></div>
       </div>`)
     expect(read(refs).text.split('\n').filter(line => line.includes('cols'))).toEqual(['e1 table 2 rows × 2 cols'])
+  })
+
+  it('pages a table by the strip drawn after every piece of it, and pages the table below by its own', () => {
+    // The strip a page draws under a table pinned column by column comes after
+    // the last copy, so every table between the two is the table itself.
+    const refs = page(`${SPLIT}
+      <div class="fixed">
+        <div class="head"><table data-rect="0,0,800,40">
+          <thead><tr><th>名称</th><th>操作</th></tr></thead>
+        </table></div>
+        <div class="body"><table data-rect="0,40,800,200"><tbody>
+          <tr><td>东风站</td><td><button>编辑</button></td></tr>
+          <tr><td>朝阳站</td><td><button>编辑</button></td></tr>
+        </tbody></table></div>
+      </div>
+      <div class="el-pagination">共 89 条</div>
+      <table data-rect="0,300,800,80"><tbody><tr><td>延吉站</td></tr></tbody></table>
+      <div class="el-pagination">共 3 条</div>`)
+    const lines = read(refs).text.split('\n')
+    expect(lines.filter(line => line.includes('cols'))).toEqual([
+      'e1 table 2 rows on this page × 2 cols',
+      'e2 table 1 rows on this page × 1 cols',
+    ])
+    expect(lines.filter(line => line.includes('pagination:'))).toEqual([
+      '  pagination: 共 89 条',
+      '  pagination: 共 3 条',
+    ])
   })
 
   it('keeps a header-only table that has no body beside it', () => {
@@ -3059,6 +3271,18 @@ describe('a table drawn again for each pinned column', () => {
     const refs = page(PINNED)
     expect(read(refs, { find: '朝阳' }).text)
       .toBe('row 2: 朝阳站 | element:pipeline | 延吉排水 | e3 button "编辑" (table)')
+  })
+
+  it('pages the one table the pieces are read as, by the strip drawn after the last of them', () => {
+    const refs = page(`${PINNED}<div class="crud-pagination"><div class="el-pagination">共 89 条 10条/页</div></div>`)
+    const lines = read(refs).text.split('\n')
+    expect(lines[0]).toBe('e1 table 2 rows on this page × 4 cols')
+    expect(lines).toContain('  pagination: 共 89 条 10条/页')
+    // A read scoped to the table says the same: the rows it lists are one page
+    // of them, and the strip says where the rest are.
+    const listed = read(refs, { scope: refOf(refs, '.body table') }).text.split('\n')
+    expect(listed[0]).toBe('e1 table 2 rows on this page × 4 cols')
+    expect(listed[2]).toBe('  pagination: 共 89 条 10条/页')
   })
 
   it('keeps a table drawn over another that it does not repeat row for row', () => {

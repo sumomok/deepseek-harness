@@ -16,7 +16,7 @@ import {
   CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, ICON_ROLE, NAME_FROM_CONTENT_ROLES,
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
   frameDocument, headingText, insideOpaque, isChecked, isDisabled, isHiddenAround, isInline, isMarked,
-  drawnAround, iconWord, isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped,
+  drawingInside, drawnAround, iconWord, isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped,
   libraryRole, looksClickable, markedSelector, nameOf, quantityValue, queryInOrder, rectsMeet,
   rectsOverlap, roleOf, visibleText,
 } from './dom.ts'
@@ -196,8 +196,6 @@ interface Place {
   readonly depth: number
   /** Text seen since the last row, waiting to become one. */
   readonly buffer: string[]
-  /** The node whose subtree bounds a search for something beside an item. */
-  readonly root: ParentNode
   /**
    * True where the text around the walk is already printed as a name — inside a
    * `label` that names a control, and over the label half of a tree node or
@@ -502,8 +500,9 @@ function controlFace(el: Element, role: string, walk: Walk, label: Element | und
  */
 function cellControlRole(el: Element, walk: Walk): string | undefined {
   const role = roleOf(el)
-  if (role !== null) return CELL_CONTROL_ROLES.has(role) && rowRole(el, role) ? role : undefined
+  if (role !== null && CELL_CONTROL_ROLES.has(role) && rowRole(el, role)) return role
   if (isIcon(el, walk)) return ICON_ROLE
+  if (role !== null) return undefined
   return topClickable(el, walk) ? CLICKABLE_ROLE : undefined
 }
 
@@ -943,6 +942,67 @@ function rowPieces(pieces: readonly Element[], at: number, walk: Walk): Element[
 }
 
 /**
+ * The whole of a strip a page has marked, which is the landmark around it as
+ * well as the list inside: a page marks its pager as a navigation landmark
+ * (`<nav aria-label="Pagination">`) or marks the list and wraps it in one
+ * (`<nav><ul class="pagination">`), and the two are one widget drawn two ways.
+ * Reading the landmark as a region of its own would leave the second kind
+ * standing beside no table at all.
+ * @param el - the marked element.
+ * @returns the outermost navigation landmark around it, or the element itself.
+ */
+function wholeStrip(el: Element): Element {
+  let at = el
+  while (at.parentElement !== null && roleOf(at.parentElement) === 'navigation') at = at.parentElement
+  return at
+}
+
+/**
+ * True where a strip is drawn beside what stands in one region: the landmark a
+ * page wraps a strip in is part of the pager, and where the page draws the
+ * table inside that landmark too, the landmark is the region the two share.
+ * Either reading places the strip beside the table.
+ * @param el - the marked strip.
+ * @param region - the region the table stands in.
+ * @returns whether the strip is drawn beside it.
+ */
+function standsBy(el: Element, region: Element | null): boolean {
+  return regionOf(wholeStrip(el)) === region || regionOf(el) === region
+}
+
+/**
+ * The region an element stands in: the container holding it, never the element
+ * itself, because a page draws the strip that pages a table as a `nav` as
+ * readily as it draws it as a `div`, and a strip is not a region of its own.
+ * @param el - the element to place.
+ * @returns the region, or null for an element no region encloses.
+ */
+function regionOf(el: Element): Element | null {
+  const parent = el.parentElement
+  return parent === null ? null : parent.closest(CONTAINER_SELECTOR)
+}
+
+/**
+ * Every table element one table is drawn as: each of its pieces, and the header
+ * half drawn over each piece. A page that pins a column draws header, body,
+ * header, body, and the strip that pages the table comes after all of them, so
+ * a search that stopped at the first of those tables would answer that the
+ * table is paged by nothing.
+ * @param el - the table element the read prints.
+ * @param walk - the walk in progress.
+ * @returns the table elements this one table is drawn as.
+ */
+function tableParts(el: Element, walk: Walk): Set<Element> {
+  const parts = new Set<Element>()
+  for (const piece of tablePieces(el, walk)) {
+    parts.add(piece)
+    const header = headerPiece(piece, walk, tableShape(piece, walk))
+    if (header !== undefined) parts.add(header)
+  }
+  return parts
+}
+
+/**
  * The text of a pagination strip, when the candidate really is one that shows
  * something.
  * @param el - the candidate element.
@@ -989,17 +1049,31 @@ function stripAbove(above: readonly Element[], walk: Walk): string | undefined {
  * that the one over it, never one that belongs to the table next to it. Each
  * strip pages one table, so a strip already under a table is not also over the
  * next one. A strip drawn inside any table belongs to that table's rows, not
- * beside it.
+ * beside it. The pieces one table is drawn as are that table and stop nothing:
+ * the strip paging a table pinned column by column is drawn after every copy of
+ * it. Any other table does stop the search, so a strip between two tables pages
+ * the one above it alone.
+ *
+ * The search runs over the region the table stands in, rather than over the
+ * read's scope, so a read scoped to one table by ref reports the strip that
+ * pages it exactly as a read of the whole page does. A strip pages the table
+ * only where the two stand in the same region — a page drawing its table in one
+ * region and a strip in another has said they are not beside each other. The
+ * navigation landmark a page draws around a strip is part of the strip, so the
+ * region that landmark stands in counts as the strip's own — and so does the
+ * landmark itself, for a page that draws the table inside it too.
  * @param el - the table element.
  * @param walk - the walk in progress.
- * @param place - the table's position.
  * @returns the strip's text, or undefined when the table has none.
  */
-function paginationText(el: Element, walk: Walk, place: Place): string | undefined {
-  const nodes = queryInOrder(place.root, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
-    .filter(node => node.matches(TABLE_SELECTOR) || node.closest(TABLE_SELECTOR) === null)
+function paginationText(el: Element, walk: Walk): string | undefined {
+  const parts = tableParts(el, walk)
+  const region = regionOf(el)
+  const inside = region ?? (el.getRootNode() as ParentNode)
+  const nodes = queryInOrder(inside, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
+    .filter(node => node.matches(TABLE_SELECTOR) || (node.closest(TABLE_SELECTOR) === null && standsBy(node, region)))
+    .filter(node => node === el || !parts.has(node))
   const at = nodes.indexOf(el)
-  if (at === -1) return undefined
   return nearestStrip(nodes.slice(at + 1), walk) ?? stripAbove(nodes.slice(0, at), walk)
 }
 
@@ -1077,7 +1151,7 @@ function readTable(el: Element, walk: Walk, place: Place, name: string): TableIt
     header,
     rows,
     columns: Math.max(header.length, rows[0]?.width ?? 0),
-    pagination: paginationText(el, walk, place),
+    pagination: paginationText(el, walk),
     container: place.container,
     depth: place.depth,
   }
@@ -1283,7 +1357,7 @@ function ownName(el: Element, role: string, walk: Walk): string {
  * @returns the name.
  */
 function elementName(el: Element, role: string, walk: Walk): string {
-  if (role === ICON_ROLE) return declaredName(el) || nameOf(el) || iconWord(el) || ''
+  if (role === ICON_ROLE) return declaredName(el) || nameOf(el) || iconWord(el, walk.isVisible) || ''
   if (role === CLICKABLE_ROLE || ITEM_NODE_TYPES.has(role)) return ownName(el, role, walk)
   const name = nameOf(el)
   const wrote = libraryRole(el)
@@ -1563,7 +1637,7 @@ function openContainer(
   }
   walk.items.push(item)
   const labelled = node !== undefined && face.name !== ''
-  const inside: Place = { container: item, depth: place.depth + 1, buffer: [], root: host, labelled }
+  const inside: Place = { container: item, depth: place.depth + 1, buffer: [], labelled }
   walkNodes(host, walk, inside)
   flush(walk, inside)
 }
@@ -1726,14 +1800,23 @@ function clickableName(el: Element, walk: Walk): string {
  * el-icon-edit">`, with no role, no label, no title, and no pointer cursor of
  * its own — so nothing a specification defines says the element is there at
  * all, and a reader who can see it has no way to ask for it. The rule is a
- * heuristic keyed to a page's own class names, which every rule in this package
+ * heuristic keyed to a page's own markup, which every rule in this package
  * otherwise refuses; see the Agent Note for what it costs and when it retires.
+ *
+ * An icon set drawn as inline `svg` reaches this the same way: the drawing
+ * itself is one where it names a symbol or carries a title, and the wrapper the
+ * page marks as an icon is one where it holds nothing but that drawing — which
+ * keeps one icon to one row, since a row ends the descent.
  * @param el - the element to classify.
  * @param walk - the walk in progress.
  * @returns whether the page draws the element as an icon.
  */
 function isIcon(el: Element, walk: Walk): boolean {
-  return isInline(el) && iconWord(el) !== undefined && visibleText(el, walk.isVisible) === ''
+  if (iconWord(el, walk.isVisible) === undefined) return false
+  // A drawing draws no words of the page wherever it is: what is written inside
+  // one labels the picture, which is why the walk stops at one everywhere else.
+  if (el.localName === 'svg') return true
+  return (isInline(el) || drawingInside(el) !== undefined) && visibleText(el, walk.isVisible) === ''
 }
 
 /**
@@ -1801,6 +1884,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
     // the model can reach it.
     const drawn = roleOf(el)
     if (drawn !== null && rowRole(el, drawn)) pushElement(el, drawn, walk, place)
+    else if (offersIcon(el, walk, place)) pushElement(el, ICON_ROLE, walk, place)
     else if (offersClick(el, walk, place)) pushElement(el, CLICKABLE_ROLE, walk, place)
     return
   }
@@ -1901,7 +1985,7 @@ export function collect(root: Document, options: SnapshotOptions, scope: Element
     kept: new Map(),
     shapes: new Map(),
   }
-  const place: Place = { container: undefined, depth: 0, buffer: [], root: scope ?? root.body, labelled: false }
+  const place: Place = { container: undefined, depth: 0, buffer: [], labelled: false }
   if (scope === undefined) walkNodes(root.body, walk, place)
   else walkElement(scope, walk, place)
   flush(walk, place)
