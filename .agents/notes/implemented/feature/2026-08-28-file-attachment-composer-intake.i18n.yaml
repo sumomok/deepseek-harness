@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-28-file-attachment-composer-intake.md
-2026-08-28-file-attachment-composer-intake.md: 13298d4febf8c4d3850fb7040e784d37b832b106
-2026-08-28-file-attachment-composer-intake.zh.md: 1b1cbea18ec75ff7eb4213448032f2b80ddbf0e5
+2026-08-28-file-attachment-composer-intake.md: 825816cbf55ee3d31dd8896528eef69b94691ffa
+2026-08-28-file-attachment-composer-intake.zh.md: 9660590aed813f2e3d6f4c6218d279de11512251
