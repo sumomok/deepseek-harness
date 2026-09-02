@@ -233,3 +233,17 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - 反证归属：本轮先跑的一次全量还额外红了 `packages/client/ui-theme/tests/{corner-shape-styles,elevation-styles}.client.spec.ts` 两文件——那两条**确属我方**（报错逐字点名 `ui-attachment/src/FileChip.module.css`、`ui-chat/.../FileCard.module.css`、`ui-chat/.../MessageItem.module.css`），已按上述第 3 项修复，重跑绿，故不列入环境红。
 
 **门禁实跑结果**：`pnpm install`（lockfile 已对齐，供应链策略 1263 条通过）→ `pnpm run clean`（清 267 条 v3 残留）→ `pnpm install` → `pnpm run build` 全绿（host lib + client lib + web app）；`npx tsc -b tsconfig.host.json --force` 与 `npx tsc -b tsconfig.client.json --force` 双 face 冷启动 0 错误；`pnpm run lint` 退出码 0；`pnpm run test` 见上（5 红全部归因为基座环境敏感项）；`pnpm run doc-sync` 32 门全绿。全绿后 `git push origin core-patches-v4`。
+
+## rc.27 合并审计：`develop` × `core-patches-v4`（基座 0.1.2-alpha.4）
+
+合并基 `0a53fb55be`（上游 alpha.2 的发布合并）是一个上游提交，因此十个 fork 独有文件全部以 add/add 落入冲突、无共同祖先可用。这些文件改用两侧真正的内容祖先 `1988f0dca5`（`core-patches-v2` 顶端）做三方合并，其中五个由此机械消解为零冲突。42 个冲突文件逐个解完后跑两道机械护栏：①「两个父都有的行」必须全部存活——24 个文件的结果与两个父都不同，丢失 0 行；②任何一行在结果里的出现次数不得超过任一父——这一道抓出三处 git 自动合并（全程无冲突标记）静默重复插入的内容：
+
+- `packages/api/session-controller/src/client/contract/snapshot.ts` 的 `PendingSubmissionFile` 接口整块重复两次。TypeScript 的接口声明合并使其通过了全量 `build` 与 `tsc -b` 双 face，只有 `gen-cordis-inspect-catalog` 重新生成时把该类型从目录里整条删掉才暴露。
+- `packages/api/session-controller/README.md` 与 `.zh.md` 的 `dispatchReferentOpen` 段落各重复两次。
+- `docs/persistence-catalog.zh.md` 的 `attachment/materialized` 小节重复两次（`.md` 侧由生成器自行修正，中文侧手工去重）。
+
+**随本次合并完成的退役**（均已在上文对应条目登记）：`subagent` 本地 `admitPromptContent` 的文件拒收及其 `control.spec.ts` 测试（上游自有的 prompt-content 准入取而代之，该行为由 `Session.prompt()` 的客户端前置检查兜住）；`scripts/test-invariants.ts` 的 attachment 伴生桩；`tsconfig.base.json` 的 `dsh-attachment-local/invariant` 路径别名。`apps/desktop-server` 去掉上游已删除的 `@deepseek-ai/dsh-session-persistence-sqlite` 依赖。
+
+**门禁结果**：`pnpm install` → `clean` → `build` 全绿；`tsc -b tsconfig.host.json --force` 与 `tsconfig.client.json --force` 双 face 零错；`lint` 0/0（抑制注释逐类计数与两个父一致，未重演 rc.26 的删注释事故）；`doc-sync` 32/32；三场景快照 8/8 且金样零改动；`pnpm run test` 五个红文件全部归属环境：`code-runtime-python` 两文件 244 条（本机 `/usr/bin/python3` 是 3.9.6，该包要求 ≥3.10）、`benchmark-npm-resolution` 1 条、`oxlint-contract` 1 条（`FORCE_COLOR`/`NO_COLOR` 的 Node 警告串进 stderr）、`verify-application-entrypoints` 1 条（工作树里 `apps/desktop/dist-app` 与 `staging` 两份 gitignore 的打包残留被扫进来；把两目录移开后该 spec 转绿，随即原样还回）。桌面装配层按 pnpm 每实例 peer 解析复查 157 个链接包，真实缺失为零——唯一命中落在 `.ignored_dsh-llm-deepseek` 影子目录，不属装配闭包。
+
+**顺带修掉的 develop 既有红**：`scripts/lint-rule-fingerprint.spec.ts` 把 `.oxlintrc.json` 的 override 条数钉在 9，而 `ce5929b494` 早已加入第 10 条（`apps/desktop/tests` 例外）却没跟着改钉子，该红在 develop 顶端就已存在。本次改钉为 10；三个 profile 指纹的索引集不含该条，不受影响。
