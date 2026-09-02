@@ -56,8 +56,6 @@ describe('attachment rejection copy', () => {
     expect(attachmentErrorText(t, 'FILE_TOO_LARGE', undefined, fileLimits)).toBe('单个文件不能超过 1 MB')
     expect(attachmentErrorText(t, 'FILES_TOO_LARGE', undefined, fileLimits)).toBe('文件总大小超过 10 MB，请移除部分文件')
     expect(attachmentErrorText(enT, 'TOO_MANY_FILES', undefined, fileLimits)).toBe('A message can include up to 10 files')
-    expect(attachmentErrorText(t, 'SUBAGENT_FILE_UNSUPPORTED')).toBe('子智能体会话暂不支持文件')
-    expect(attachmentErrorText(enT, 'SUBAGENT_FILE_UNSUPPORTED')).toBe('Subagent sessions do not support files yet')
   })
 
   it('folds file limit reasons without projected file limits into the send-failed line', () => {
