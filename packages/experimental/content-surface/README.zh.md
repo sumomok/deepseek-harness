@@ -39,6 +39,8 @@ projection registry 在注册那一刻固定一个 unit 的 fold 与 `stateVersi
 
 `content-surface/dismissed` 不是 `ignorable`：不认识这个事件类型的旧构建会拒绝该日志，而不是悄悄把一条已关闭的 entry 当作仍然存活。新增它没有让 `SESSION_FORMAT_VERSION` 递增（属于普通的词汇增长），但确实让折入每个 `stateVersion` 的 fold 自身语义版本递增了（见 `extractor.ts` 的 `FOLD_SEMANTICS_VERSION`）——在这次 fold 能够删除记录之前写下的 checkpoint 会被丢弃，而不是按一条它写下时还不存在的规则被重放。
 
+关闭也是本行唯一会告诉 agent 的一件事。追加之后，命令注入一句话——`The user closed the <kind> "<title>" in the content column.`——作为一条来源为插件的 `user/message`：关掉一个标签是用户把对话产出的东西收起来，从没听说这件事的 agent 会继续张罗着去更新已经不在屏幕上的内容。标题在追加**之前**读，因为追加正是把这条 entry 从它所读的这个流里拿走的那一步。有两种情况不注入、但照样记录这次关闭：没有组合 projection registry 时，本行没有存活 entry 可供读出标题；以及流里根本没有这个组合（两次点击相撞、或同一个标签被关两次）——这里若无人知道关掉的是什么，通告也就说不出来。
+
 内容列隐藏这条命令自己的聊天回声，方式与 [`content-frame`](../content-frame/README.zh.md) 隐藏 `show-content-page` 的一样：持久记录才是关键，而不是一条复述用户刚做过的点击的聊天消息。
 
 ## 在前面的是哪一条
@@ -105,6 +107,20 @@ When the user refers to something you have already produced and put on display �
 #### KV Cache effect
 
 前缀稳定：文本是静态的，且排在今天注册的所有 section 之后，因此组装出的提示词只是多了一段恒定的尾巴，它前面的前缀不受影响。加载或卸载本行会改变提示词并从那段尾巴起失效重用；任何 order 高于 `200` 的 section 会把这一段往前挤，并从它落到的位置起失效重用。
+
+### The notice a closed tab injects
+
+#### What the model sees
+
+一次关闭一句话，作为注入的上下文消息：`The user closed the <kind> "<title>" in the content column.` 它点名 kind 而不假定那是一个页面，因为本行的 key 域是开放的，它从没听说过注册在它之上的那些 kind。它在 agent 的下一个 pre-step 抵达，不唤醒任何东西：关掉一个标签不是一个问题，闲着的 agent 在用户开口之前继续闲着。把标签调到前面则完全不注入——那是一次张望，在前面的是哪一条改由 content-frame 自己的内容区上下文送达模型。
+
+#### Token effect
+
+每关掉一个标签一句短句，此后长驻对话。用户什么都不关的会话一分不花。
+
+#### KV Cache effect
+
+只在对话末尾追加，因此不会让已缓存的任何内容失效。
 
 ## Known Limitations and Deferred Work
 

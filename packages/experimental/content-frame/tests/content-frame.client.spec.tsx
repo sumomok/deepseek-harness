@@ -229,6 +229,55 @@ describe('the page seat as the navigation watch\'s seat', () => {
     expect(navigated).toEqual([expect.objectContaining({ page: 'dashboard' })])
   })
 
+  /** Wait past a settling window and several polls, for a case asserting nothing more happens. */
+  async function quiet(): Promise<void> {
+    await new Promise<void>((resolve) => { setTimeout(resolve, NAVIGATION_SETTLE_MS + POLL_MS * 3) })
+  }
+
+  it('does not report an address again when the user comes back to the frame it was reported for', async () => {
+    // The watch is remade every time this frame returns to the front; what the
+    // log already carries is the seat's memory, not the watch's.
+    const view = mount('a', pageEntry('reports', BLANK))
+    const frame = active(view)
+    if (frame?.contentWindow == null) throw new Error('the seat mounted no frame')
+    frame.contentWindow.location.hash = '#/device'
+    await reported(1)
+
+    mount('a', pageEntry('dashboard', OTHER), 3, view)
+    await quiet()
+    mount('a', pageEntry('reports', BLANK), 3, view)
+    await quiet()
+    // Counted per page, because the other page reports about itself in this
+    // fixture (see the next case): the returning watch says nothing new about
+    // the frame it was handed.
+    expect(navigated.filter(move => move.page === 'reports')).toHaveLength(1)
+  })
+
+  it('reports once for an application that moved while its page was not in front', async () => {
+    const view = mount('a', pageEntry('reports', BLANK))
+    const behind = frames(view).get('a reports')
+    mount('a', pageEntry('dashboard', OTHER), 3, view)
+    await quiet()
+    // The other page's own reports are this fixture's, not this case's: a
+    // frame `src`-ed at `about:blank#other` reads its address back as
+    // `blank#other`, so the seat sees the page as having moved off its own
+    // entry point. A configured page's URL is a path, and reads back as one.
+    const other = navigated.length
+
+    if (behind?.contentWindow == null) throw new Error('the cached frame lost its window')
+    // Nothing watches it here; the move is noticed when the page comes back.
+    behind.contentWindow.location.hash = '#/hidden'
+    await quiet()
+    expect(navigated).toHaveLength(other)
+
+    mount('a', pageEntry('reports', BLANK), 3, view)
+    await reported(other + 1)
+    expect(navigated[other]).toMatchObject({ page: 'reports' })
+    expect(navigated[other]?.url).toContain('#/hidden')
+    await quiet()
+    expect(navigated).toHaveLength(other + 1)
+  })
+
   it('stops watching when the seat goes away, mid-settle included', async () => {
     const view = mount('a', pageEntry('reports', BLANK))
     const frame = active(view)

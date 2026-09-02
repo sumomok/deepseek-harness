@@ -22,7 +22,7 @@ import type { ContentSurfaceEntry, ContentSurfaceView } from '@deepseek-ai/dsh-e
 import type { PageIndex } from '../pages.ts'
 import { PAGE_KIND } from '../surface.ts'
 import type { ContentPagesState } from '../types.ts'
-import { columnContextText, type ContextEntry } from './text.ts'
+import { columnContextText, type ColumnContextBounds, type ContextEntry } from './text.ts'
 
 /**
  * Prompt order of the content-column context. It follows `approval:policy`'s
@@ -67,10 +67,17 @@ function contextEntry(
  * @param ctx - the context carrying the projection registry.
  * @param pages - the validated page index.
  * @param canRead - whether this deployment offers `content_read`.
+ * @param bounds - what this deployment spends on the context.
  * @param assemble - the assembly this text is being built for.
  * @returns the block, or an empty string for an assembly with no session.
  */
-function columnContext(ctx: Context, pages: PageIndex, canRead: boolean, assemble: AssembleContext): string {
+function columnContext(
+  ctx: Context,
+  pages: PageIndex,
+  canRead: boolean,
+  bounds: ColumnContextBounds,
+  assemble: AssembleContext,
+): string {
   const agent = assemble.agent
   // A bare assemble() (tests, diagnostics) has no session, so no column.
   if (agent === undefined) return ''
@@ -80,7 +87,7 @@ function columnContext(ctx: Context, pages: PageIndex, canRead: boolean, assembl
   const surface = ctx.sessionProjections.snapshot(agent.session).values.contentSurface
   const state = ctx.sessionProjections.stateOf(agent.session, 'contentPages') ?? {}
   const entries = (surface?.entries ?? []).map(entry => contextEntry(entry, surface?.front, state, pages))
-  return columnContextText(entries, canRead)
+  return columnContextText(entries, canRead, bounds)
 }
 
 /**
@@ -92,13 +99,19 @@ function columnContext(ctx: Context, pages: PageIndex, canRead: boolean, assembl
  * @param ctx - plugin context.
  * @param pages - the validated page index.
  * @param canRead - whether this deployment offers `content_read`.
+ * @param bounds - what this deployment spends on the context.
  */
-export function registerColumnContext(ctx: Context, pages: PageIndex, canRead: boolean): void {
+export function registerColumnContext(
+  ctx: Context,
+  pages: PageIndex,
+  canRead: boolean,
+  bounds: ColumnContextBounds,
+): void {
   ctx.inject(['systemPrompt', 'sessionProjections'], (scope: Context) => {
     scope.systemPrompt.context({
       name: 'content:column',
       order: CONTENT_COLUMN_CONTEXT_ORDER,
-      text: assemble => columnContext(scope, pages, canRead, assemble),
+      text: assemble => columnContext(scope, pages, canRead, bounds, assemble),
     })
   })
 }

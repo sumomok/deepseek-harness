@@ -18,6 +18,8 @@ Three facts, three carriers, each chosen for how often the fact changes and who 
 
 `show-content-page` injects one sentence after its `content/shown` append — `The user opened the page "<title>" in the content column (内容区); it is in front now.` — as a plugin-sourced `user/message` with `form: 'notice'`. `content-surface`'s `dismiss-content-entry` does the same for a closed tab. `select-content-entry` injects nothing.
 
+The closed-tab sentence is `The user closed the <kind> "<title>" in the content column.` It names the kind rather than assuming a page, because `content-surface`'s key domain is open and that row has never heard of the kinds registered over it. The title is read before the append, since the append is what removes the entry the title is read from. Two cases record the dismissal and inject nothing: a composition with no projection registry, where the row is given no way to read live entries, and a pair the stream does not name — a race between two clicks, or a tab dismissed twice. Both are silences by construction rather than failures: a notice that cannot say what was closed is worse than none. There is no agent-absent case to handle, because a command invocation always carries the receiving agent, unlike a tool call.
+
 The line between them is how often the gesture repeats and what the agent would do differently. Opening a page and closing a tab change what the conversation is about, and each happens a handful of times per session; bringing a tab forward is a glance, repeated as often as the user looks around, and an agent that heard every one of them would read a transcript that is mostly the user looking around. Which entry is in front reaches the model through the column context instead, where it costs one marker on a line that is there anyway.
 
 `inject` rather than `queue`: opening a page is not a question. The notice is queued for the agent's next pre-step and wakes no driver, so an idle agent stays idle until the user says something. It is durable from the moment it is queued — the inbox splice is itself a session event carrying the whole message — and enters the model-visible surface as a `user/message` when a driver claims it. It is a `user/message` because that is the model-visible surface: anything reaching a model request must be reconstructable from the log, and an injected context message is how this repository carries a fact the user did not type.
@@ -34,6 +36,8 @@ The browser half applies the identical rule to the click it is still holding —
 
 Nothing in it is timestamped. A relative time ("opened 3 minutes ago") would differ between a live run and its replay, which would make every recording of a scenario that shows a page unreplayable; the conversation the model reads already carries the order things happened in.
 
+How much it spends is the deployment's, not this package's: `contextEntries` bounds how many entries it lists and `contextFieldChars` how much of a name each line carries, both validated at load. A block that rides every request is exactly the kind of choice that varies by deployment — a console whose users keep a dozen things open pays for all of them on every request — so neither number is a constant here.
+
 The whole block is folded from this session's own projections — `contentSurface`'s entries and this package's `contentPages` state — so the model-visible half is reconstructable from the log. `contentPages` records who opened each page and where its frame went, and carries no `wire`: no browser reads it.
 
 ### The ref rule lives in the context, not in the tool description
@@ -46,7 +50,11 @@ It governs the answer rather than the call. A model choosing `content_read` has 
 
 The browser half watches the frame in front for `load`, `hashchange` and `popstate`, and polls its `location.href` every `navigationPollMs`. Everything the four signals produce goes through one 300ms settling window, is compared against the last address reported for that frame, and becomes one `content/navigated` carrying the page id, the path, the document title, and `by: 'user'`.
 
+The last reported address is held by the seat, keyed by frame, rather than by the watch: a watch lives only as long as its frame stays in front, and the same frame comes back every time the user returns to that page. Without that, switching to a chart and back would make a fresh watch that has reported nothing and log an address the session already carries.
+
 Polling exists because none of the three events fires for `history.pushState`, which is how every current router changes route in history mode — the case a navigation watch exists for is the one no event announces. The alternative is below; what polling costs is one same-origin property read per watched frame per interval, and up to one interval of latency before a move that then sits still is noticed. `navigationPollMs` is a Config field rather than a constant because that trade is a deployment's: a console whose application routes constantly wants a longer interval than one whose agent is asked "what is on the screen" seconds after a click. The factory value is one second, which is under the time it takes a user to finish a sentence and far above the cost of the read.
+
+The title travels cut to 200 characters, which is `MAX_HEADER_CHARS` — the same bound the read channel holds a document title to, not a bound of its own. One string, one limit: the title a `content/navigated` records and the title a read prints in its header line are the same fact about the same page, and a wider bound here would mean a log carrying more of it than any read ever shows. The cut is walked back off a surrogate pair, because the command refuses a lone half and would drop the whole event over it.
 
 `by` is `'user'` for every navigation this slice records, and `'agent'` is reserved: the field exists so the hands slice can record a click the agent itself made without a second event type.
 
@@ -82,7 +90,7 @@ Both outcomes reach the model rather than being hidden inside a retry. A page th
 
 ## Consequences
 
-Every request in a session with a live column now carries the column context — one line per entry, at most ten listed, each field cut to 120 characters, plus two or three closing lines. That is the standing cost of the agent knowing what is on the screen, and it is paid on requests where the model never asks about the column.
+Every request in a session with a live column now carries the column context: one header line, one line per listed entry and a second for a page whose frame has moved, a count line when the column holds more than `contextEntries`, and one closing line — two where the deployment offers a reader. Both bounds are the deployment's (`contextEntries`, `contextFieldChars`). That is the standing cost of the agent knowing what is on the screen, and it is paid on requests where the model never asks about the column. It is stated in lines and characters rather than tokens because the tokenizer belongs to the provider the deployment runs, and this package neither loads one nor can predict its count.
 
 A page the user opens costs one permanent sentence in the conversation, and so does a tab the user closes. A tab brought forward costs a session event and nothing in the transcript.
 
@@ -94,7 +102,7 @@ Reads of a page that never holds still now carry a header line saying so on ever
 
 ## Testing
 
-Unit suites pin the fold's `front` rule and both commands' refusals, the two new events' payload validation, every model-visible string verbatim (`perception/text.ts`, `access/text.ts`), the settling wait and the busy naming under fake timers in jsdom, the navigation watch against a stub frame — including a `pushState` that fires nothing, a repeated address that reports nothing, and a cross-origin frame that says nothing — and the column context over a real Loader composition, where the commands actually run and `assemble()` carries the block.
+Unit suites pin the fold's `front` rule and both commands' refusals, the two new events' payload validation, every model-visible string verbatim (`perception/text.ts`, `access/text.ts`), the settling wait and the busy naming under fake timers in jsdom, the navigation watch against a stub frame — including a `pushState` that fires nothing, a title rewritten with no address change, a repeated address that reports nothing, a watch handed an address the seat already reported, and a cross-origin frame that says nothing — the seat's own memory of that address across a switch away and back, the two context bounds refused at load, and the column context over a real Loader composition, where the commands actually run and `assemble()` carries the block.
 
 `apps/web/tests/content-perception.e2e.ts` drives all three facts through a real browser with no model call: a sidebar page click and the notice it injects, a switcher click and the selection surviving a reload, a `history.pushState` inside the live frame and the `content/navigated` it produces, and the assembled context naming both pages and the address the frame routed itself to. `apps/web/tests/content-read.e2e.ts` asserts that a settled fixture page carries neither header line.
 

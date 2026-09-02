@@ -348,7 +348,14 @@ describe('configuration validation', () => {
     // checked first, so these messages prove the ordering as well as the rule.
     const apply = (
       pages: ContentPage[],
-      extra?: { defaultPage?: string; homePage?: string; cacheSize?: number; navigationPollMs?: number },
+      extra?: {
+        defaultPage?: string
+        homePage?: string
+        cacheSize?: number
+        navigationPollMs?: number
+        contextEntries?: number
+        contextFieldChars?: number
+      },
     ): Promise<void> => ContentFrame.apply(ctx, { root: 'relative/never-reached', pages, ...extra })
 
     await expect(apply([])).rejects.toThrow(/pages must list at least one page/)
@@ -380,12 +387,23 @@ describe('configuration validation', () => {
     await expect(apply([HOME], { cacheSize: 0 })).rejects.toThrow(/cacheSize must be at least 1, received 0/)
     await expect(apply([HOME], { navigationPollMs: 0 }))
       .rejects.toThrow(/navigationPollMs must be at least 1, received 0/)
+    // The two the prompt context is rendered under: a context listing nothing,
+    // or naming an entry in fewer characters than an ellipsis leaves room for,
+    // is a per-request cost paid for nothing.
+    await expect(apply([HOME], { contextEntries: 0 }))
+      .rejects.toThrow('content-frame: contextEntries must be at least 1, received 0')
+    await expect(apply([HOME], { contextFieldChars: 7 }))
+      .rejects.toThrow('content-frame: contextFieldChars must be at least 8, received 7')
   })
 
-  it('defaults the two browser-side bounds rather than leaving them unset', () => {
+  it('defaults the four bounds a deployment may leave unset rather than leaving them unset', () => {
     const config = ContentFrame.Config({ root: '/app', pages: [HOME] })
-    expect({ cacheSize: config.cacheSize, navigationPollMs: config.navigationPollMs })
-      .toEqual({ cacheSize: 3, navigationPollMs: 1000 })
+    expect({
+      cacheSize: config.cacheSize,
+      navigationPollMs: config.navigationPollMs,
+      contextEntries: config.contextEntries,
+      contextFieldChars: config.contextFieldChars,
+    }).toEqual({ cacheSize: 3, navigationPollMs: 1000, contextEntries: 10, contextFieldChars: 120 })
     // A bare `pageAccess: {}` is what a deployment writes for the defaults;
     // the declared type has every field, so the cast is the YAML author's
     // position rather than a hole in the schema.

@@ -38,6 +38,8 @@ Status: implemented
 
 ## Consequences
 
+这条命令在本篇落地之后多了一件事：它会注入一句点名关掉了什么的话，好让 agent 不再张罗着去更新用户已经收起来的内容。这句话、它在什么情况下不发、以及为什么一次选择不发，都随感知层一起记录（[note](2026-09-02-content-column-perception.zh.md)）；事件、fold 与派发都没有因此改变。
+
 content-column 现在依赖 `@deepseek-ai/dsh-client-ui-conversation`，并要求 `remote`/`remote.commands`，此前两者都不需要——关闭按钮的命令派发和它自己的隐藏回声注册，正是把两者都拉进来的原因。content-surface 获得了它对 `@deepseek-ai/dsh-commands` 的第一个依赖，以及它的第一个会话事件，因此它的包不变式（此前是一个有文档说明的空操作）现在会校验 `content-surface/dismissed` 的形状。
 
 切换条的 DOM 形状变了：原本每条 entry 一个 `<button>`，现在是一个 wrapper `<div>` 里包着两个。除 `ContentSurface.tsx` 之外没有任何包读取过此前那个单按钮的形状（`data-content-surface-entry`/`-selected` 保持原位），因此这次改动无需触碰任何其他包。

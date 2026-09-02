@@ -397,6 +397,35 @@ describe('the read channel over real HTTP', () => {
       .toEqual({ error: 'content-frame: expected a JSON body with callId, tabId, and outcome' })
   })
 
+  it('refuses a listing whose settle report the seat did not write, or wrote as something else', async () => {
+    // The two fields the settling wait added travel this route like every
+    // other, so a report that omits `settled` or dresses `busy` up as
+    // something the model would then read is refused here rather than folded
+    // into a session.
+    const ctx = await loadComposition(true)
+    const { settled: _dropped, ...withoutSettled } = LISTING.snapshot
+    const bad: readonly Record<string, unknown>[] = [
+      withoutSettled,
+      { ...LISTING.snapshot, settled: 'yes' },
+      { ...LISTING.snapshot, busy: 'Fleet status' },
+      { ...LISTING.snapshot, busy: [1] },
+      { ...LISTING.snapshot, busy: ['a', 'b', 'c', 'd'] },
+      { ...LISTING.snapshot, busy: ['b'.repeat(MAX_NAME_CHARS + 1)] },
+    ]
+    for (const snapshot of bad) {
+      const answer = await postJson(ctx, CONTENT_REPORT_ROUTE, {
+        callId: 'c', tabId: TAB, outcome: { ...LISTING, snapshot },
+      })
+      expect({ snapshot, status: answer.status }).toEqual({ snapshot, status: 400 })
+      expect(JSON.parse(answer.body))
+        .toEqual({ error: 'content-frame: expected a JSON body with callId, tabId, and outcome' })
+    }
+    // The same document with both fields as the seat writes them is taken.
+    expect((await postJson(ctx, CONTENT_REPORT_ROUTE, {
+      callId: 'c', tabId: TAB, outcome: { ...LISTING, snapshot: { ...LISTING.snapshot, busy: ['Fleet status'] } },
+    })).status).toBe(200)
+  })
+
   it('refuses a listing past the deployment\'s own budget, and one past the whole body bound', async () => {
     const ctx = await loadComposition(true)
     // Inside the byte bound and past the character bound: the body arrives in

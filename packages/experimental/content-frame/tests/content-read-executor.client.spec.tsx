@@ -714,7 +714,7 @@ describe('what the reader reports', () => {
 
     posted = []
     // One column more than the widest that fits: 25,254 characters, still well
-    // inside the character bound of 48,000, in a body of 71,353 bytes against
+    // inside the character bound of 48,000, in a body of 71,368 bytes against
     // 71,328.
     const past = readTable(wideTable(352, '甲', '甲'.repeat(300)), DEFAULT_OUTLINE_CHARS)
     await settled()
@@ -822,7 +822,7 @@ describe('what the reader reports', () => {
       charBound: MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
       byteBound: MIN_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
       // The room left over, which is what makes this the character half's
-      // promise and not a byte one: 27 characters against 16,168 bytes.
+      // promise and not a byte one: 27 characters against 16,153 bytes.
       charsLeft: MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE - chars,
       bytesLeft: MIN_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES - body,
     }).toEqual({ chars: 3973, body: 11175, charBound: 4000, byteBound: 27328, charsLeft: 27, bytesLeft: 16153 })
@@ -832,13 +832,22 @@ describe('what the reader reports', () => {
 
     posted = []
     // A forty-ninth column is 70 characters more, which is what puts the block
-    // past four times the floor — the column count the floor is chosen for, not
-    // a byte count, is what ends this: the same table is 11,358 bytes against
-    // 27,328.
+    // past four times the floor. The column count the floor is chosen for, not
+    // a byte count, is what ends this — so the same table under a budget one
+    // hundred characters wider is read, and the body it posts there is the
+    // measure of how far the byte bound was from binding.
     const past = readTable(wideTable(49, '甲', '甲'.repeat(300)), MIN_OUTLINE_CHARS)
     await settled()
     expect(reported()).toMatchObject({ status: 'error', code: 'frame', message: FRAME_WIDE_LISTING_MESSAGE })
     past.unmount()
+
+    posted = []
+    const wider = readTable(wideTable(49, '甲', '甲'.repeat(300)), MIN_OUTLINE_CHARS + 100)
+    await settled()
+    const taken = reported()
+    if (taken.status !== 'ok') throw new Error('the reader answered a failure on the wider budget')
+    expect({ chars: taken.snapshot.text.length, body: reportedBytes() }).toEqual({ chars: 4043, body: 11373 })
+    wider.unmount()
   })
 
   it('keeps one numbering per frame, so a ref survives the read that minted it', async () => {

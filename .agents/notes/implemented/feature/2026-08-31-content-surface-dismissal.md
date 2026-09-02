@@ -38,6 +38,8 @@ Each tab in the switcher is now a wrapper `<div>` around two sibling `<button>`s
 
 ## Consequences
 
+The command gained one thing after this note shipped: it injects a sentence naming what was closed, so the agent stops offering to update content the user has put away. The sentence, when it is withheld, and why a selection gets none are recorded with the rest of the perception layer ([note](2026-09-02-content-column-perception.md)); nothing about the event, the fold, or the dispatch changed with it.
+
 content-column now depends on `@deepseek-ai/dsh-client-ui-conversation` and requires `remote`/`remote.commands`, neither previously needed — the close button's command dispatch and its hidden-echo registration are what pulled both in. content-surface gains its first `@deepseek-ai/dsh-commands` dependency and its first session event, so its package invariant (previously a documented no-op) now validates `content-surface/dismissed`'s shape.
 
 The switcher strip's DOM changed shape: what was one `<button>` per entry is now a wrapper `<div>` around two. Nothing outside `ContentSurface.tsx` read the prior single-button shape (`data-content-surface-entry`/`-selected` stayed put), so this did not require touching any other package.

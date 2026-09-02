@@ -39,6 +39,8 @@ The switcher strip's close button executes `/dismiss-content-entry <kind> <entry
 
 `content-surface/dismissed` is not `ignorable`: an older build that does not know this event type refuses the log rather than silently treating a dismissed entry as still live. Adding it did not bump `SESSION_FORMAT_VERSION` (ordinary vocabulary growth), but it did bump the fold's own semantics version folded into every `stateVersion` (see `extractor.ts`'s `FOLD_SEMANTICS_VERSION`) — a checkpoint written before this fold could remove a record is discarded rather than replayed under a rule that did not exist when it was written.
 
+A dismissal is also the one thing this row tells the agent about. After the append, the command injects one sentence — `The user closed the <kind> "<title>" in the content column.` — as a plugin-sourced `user/message`, because closing a tab is the user putting away something the conversation produced and an agent that never hears it goes on offering to update content that is no longer on screen. The title is read *before* the append, since the append is what takes the entry out of the stream this reads. Two cases inject nothing and still record the dismissal: a composition with no projection registry, where this row has no live entries to read a title from, and a pair the stream does not name — the race, or a tab dismissed twice — because a notice cannot say what was closed if nothing here knows.
+
 Content-column hides this command's own chat echo the same way [`content-frame`](../content-frame/README.md) hides `show-content-page`'s: the durable record is the point, not a chat message narrating a click the user just made.
 
 ## Which entry is in front
@@ -105,6 +107,20 @@ About 70 words of static text, carried in every request of every turn of every a
 #### KV Cache effect
 
 Prefix-stable: the text is static and orders after every section registered today, so the assembled prompt gains a constant tail and the prefix ahead of it is untouched. Loading or unloading this row changes the prompt and invalidates reuse from that tail; a section registered at an order above `200` would push this one earlier and invalidate reuse from wherever it lands.
+
+### The notice a closed tab injects
+
+#### What the model sees
+
+One sentence as an injected context message, once per closed tab: `The user closed the <kind> "<title>" in the content column.` The kind is named rather than assumed to be a page, because this row's key domain is open and it has never heard of the kinds registered over it. It arrives on the agent's next pre-step and wakes nothing: closing a tab is not a question, and an idle agent stays idle until the user says something. Bringing a tab forward injects nothing at all — that is a glance, and which entry is in front reaches the model through content-frame's own column context instead.
+
+#### Token effect
+
+One short sentence per closed tab, permanently on the conversation. A session where the user closes nothing pays nothing.
+
+#### KV Cache effect
+
+Append-only, at the tail of the conversation, so it invalidates nothing already cached.
 
 ## Known Limitations and Deferred Work
 

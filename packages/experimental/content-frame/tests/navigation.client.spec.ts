@@ -22,7 +22,7 @@ function frameOverWindow(): HTMLIFrameElement {
 }
 
 /** Start one watch over {@link frameOverWindow}, recording every move it reports. */
-function watch(frame: HTMLIFrameElement = frameOverWindow()): {
+function watch(frame: HTMLIFrameElement = frameOverWindow(), lastReported?: FrameAddress): {
   moves: FrameAddress[]
   reload: () => void
   poll: () => void
@@ -32,6 +32,7 @@ function watch(frame: HTMLIFrameElement = frameOverWindow()): {
   const watching = watchFrame({
     frame,
     entryUrl: ENTRY_URL,
+    lastReported,
     onNavigated: (address) => { moves.push(address) },
   })
   return { moves, ...watching }
@@ -92,6 +93,47 @@ describe('watching a frame for the application inside it moving', () => {
     watching.poll()
     await settle()
     expect(watching.moves).toHaveLength(1)
+    watching.dispose()
+  })
+
+  it('reports a title the application wrote after fetching, which no address change announces', async () => {
+    // The common single-page shape: the route is already right, the data lands,
+    // and the page renames itself. A poll that only compared paths would see
+    // nothing here for as long as the user stayed on that route.
+    const watching = watch()
+    window.history.pushState({}, '', '/content-app/reports/')
+    watching.poll()
+    await settle()
+    expect(watching.moves).toEqual([{ url: '/content-app/reports/', title: 'Console' }])
+
+    document.title = 'Weekly reports — 42 rows'
+    watching.poll()
+    await settle()
+    expect(watching.moves).toEqual([
+      { url: '/content-app/reports/', title: 'Console' },
+      { url: '/content-app/reports/', title: 'Weekly reports — 42 rows' },
+    ])
+
+    // And the same reading twice is still one move.
+    watching.poll()
+    await settle()
+    expect(watching.moves).toHaveLength(2)
+    watching.dispose()
+  })
+
+  it('reports nothing for a frame the seat has already reported at this address', async () => {
+    // What a second watch over the same frame is handed when the user comes
+    // back to a page they left: the log already carries this address.
+    const watching = watch(frameOverWindow(), { url: '/content-app/#/device', title: 'Console' })
+    window.location.hash = '#/device'
+    watching.poll()
+    await settle()
+    expect(watching.moves).toEqual([])
+
+    // A move away from it is still a move.
+    window.location.hash = '#/fleet'
+    await settle()
+    expect(watching.moves).toEqual([{ url: '/content-app/#/fleet', title: 'Console' }])
     watching.dispose()
   })
 

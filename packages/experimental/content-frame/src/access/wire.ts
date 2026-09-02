@@ -173,7 +173,7 @@ export const REPORT_ENVELOPE_BYTES = MAX_TEXT_BYTES_PER_CHAR * (
  * past the budget. Four times this floor is 4000 characters, which holds that
  * block for a table of 48 columns — in any language, because the byte bound
  * the route holds a whole report to does not bind there: 48 columns of
- * three-byte text is 3973 characters in a body of 11,160 bytes against 27,328.
+ * three-byte text is 3973 characters in a body of 11,175 bytes against 27,328.
  *
  * All three cuts are the reader's own, recorded with the rules they belong to
  * in .agents/notes/implemented/feature/2026-09-02-content-snapshot-engine.md;

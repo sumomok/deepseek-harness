@@ -721,6 +721,22 @@ export interface Config {
    */
   navigationPollMs?: number
   /**
+   * How many of the column's entries the `content:column` prompt context
+   * lists, newest first. The context is rebuilt for every request, so this is
+   * the standing cost of the agent knowing what is on screen; past it the
+   * context says how many older entries it did not list. Raise it for a
+   * deployment whose users keep many things open at once and whose agent is
+   * asked about the older ones; lower it to spend less per request.
+   */
+  contextEntries?: number
+  /**
+   * How many characters of a title, address, or document title one
+   * `content:column` line carries before it is cut. Raise it for a deployment
+   * whose page titles are long and only distinguishable near the end; lower it
+   * to spend less per request.
+   */
+  contextFieldChars?: number
+  /**
    * Lets the agent read the page in the column through `content_read`. Absent
    * turns the whole channel off: no tool, no claim or report route, no pending
    * projection, and no reader in the browser — a deployment that only shows
@@ -787,7 +803,7 @@ export interface PageAccessConfig {
 }
 ```
 
-Source: [`packages/experimental/content-frame/src/index.ts:70`](../packages/experimental/content-frame/src/index.ts)
+Source: [`packages/experimental/content-frame/src/index.ts:71`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

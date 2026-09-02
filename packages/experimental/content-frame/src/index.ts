@@ -54,6 +54,7 @@ import {
 } from './access/wire.ts'
 import { contentPagesProjection } from './perception/pages-projection.ts'
 import { registerColumnContext } from './perception/context.ts'
+import type { ColumnContextBounds } from './perception/text.ts'
 
 // The `content/shown` and `content` declarations live in src/types.ts (their
 // one home); this re-export projects the type face onto the package root and
@@ -123,6 +124,22 @@ export interface Config {
    */
   navigationPollMs?: number
   /**
+   * How many of the column's entries the `content:column` prompt context
+   * lists, newest first. The context is rebuilt for every request, so this is
+   * the standing cost of the agent knowing what is on screen; past it the
+   * context says how many older entries it did not list. Raise it for a
+   * deployment whose users keep many things open at once and whose agent is
+   * asked about the older ones; lower it to spend less per request.
+   */
+  contextEntries?: number
+  /**
+   * How many characters of a title, address, or document title one
+   * `content:column` line carries before it is cut. Raise it for a deployment
+   * whose page titles are long and only distinguishable near the end; lower it
+   * to spend less per request.
+   */
+  contextFieldChars?: number
+  /**
    * Lets the agent read the page in the column through `content_read`. Absent
    * turns the whole channel off: no tool, no claim or report route, no pending
    * projection, and no reader in the browser — a deployment that only shows
@@ -186,6 +203,27 @@ const DEFAULT_CACHE_SIZE = 3
  */
 const DEFAULT_NAVIGATION_POLL_MS = 1000
 
+/**
+ * Entries listed in the prompt context when a deployment configures none: a
+ * session that has drawn thirty charts needs the recent ones and a true count,
+ * not all of them on every request.
+ */
+const DEFAULT_CONTEXT_ENTRIES = 10
+
+/**
+ * Field width in the prompt context when a deployment configures none: long
+ * enough for a page title and a route, short enough that ten of them do not
+ * dominate the request.
+ */
+const DEFAULT_CONTEXT_FIELD_CHARS = 120
+
+/**
+ * The narrowest field a context line can still name something in: the cut
+ * spends one character on the ellipsis, and a page called `Weekly` has to
+ * survive it.
+ */
+const MIN_CONTEXT_FIELD_CHARS = 8
+
 /** Claim window used when a deployment enables page access and configures none. */
 const DEFAULT_CLAIM_TIMEOUT_MS = 3000
 /** Report deadline used when a deployment enables page access and configures none. */
@@ -214,6 +252,8 @@ export const Config: z<Config> = z.object({
   homePage: z.string(),
   cacheSize: z.natural().default(DEFAULT_CACHE_SIZE),
   navigationPollMs: z.natural().default(DEFAULT_NAVIGATION_POLL_MS),
+  contextEntries: z.natural().default(DEFAULT_CONTEXT_ENTRIES),
+  contextFieldChars: z.natural().default(DEFAULT_CONTEXT_FIELD_CHARS),
   // Cleared default, because schemastery gives every object schema `{}`: left
   // alone it would materialize this block for a deployment that configured
   // none and switch the read channel on by accident. `undefined` is not a
@@ -407,6 +447,19 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   if (navigationPollMs < 1) {
     throw new Error(`content-frame: navigationPollMs must be at least 1, received ${navigationPollMs}`)
   }
+  const context: ColumnContextBounds = {
+    entries: config.contextEntries ?? DEFAULT_CONTEXT_ENTRIES,
+    fieldChars: config.contextFieldChars ?? DEFAULT_CONTEXT_FIELD_CHARS,
+  }
+  if (context.entries < 1) {
+    throw new Error(`content-frame: contextEntries must be at least 1, received ${context.entries}`)
+  }
+  if (context.fieldChars < MIN_CONTEXT_FIELD_CHARS) {
+    throw new Error(
+      `content-frame: contextFieldChars must be at least ${String(MIN_CONTEXT_FIELD_CHARS)}, `
+      + `received ${String(context.fieldChars)}`,
+    )
+  }
   // The type offers this block or nothing, and a row can write a third thing: a
   // bare `pageAccess:` key is YAML for null, which the object schema passes
   // through untouched while it refuses every other non-object on its own. Read
@@ -467,7 +520,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     projectionCtx.sessionProjections.register(contentProjection(pages, config.defaultPage))
     projectionCtx.sessionProjections.register(contentPagesProjection())
   })
-  registerColumnContext(ctx, pages, config.pageAccess !== undefined)
+  registerColumnContext(ctx, pages, config.pageAccess !== undefined, context)
   ctx.inject(['contentSurface'], (surfaceCtx) => {
     surfaceCtx.contentSurface.register(pageExtractor(pages))
   })

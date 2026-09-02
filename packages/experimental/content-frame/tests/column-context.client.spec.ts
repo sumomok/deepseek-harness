@@ -23,6 +23,7 @@ import { indexPages } from '../src/pages.ts'
 import { pageExtractor } from '../src/surface.ts'
 import { contentPagesProjection } from '../src/perception/pages-projection.ts'
 import { CONTENT_COLUMN_CONTEXT_ORDER, registerColumnContext } from '../src/perception/context.ts'
+import type { ColumnContextBounds } from '../src/perception/text.ts'
 import type { ContentPage } from '../src/types.ts'
 
 /** The deployment under test: two pages, so a page id is a real choice. */
@@ -45,6 +46,9 @@ const OTHER_KIND: ContentSurfaceExtractor<{ page: string }> = {
   resolve: ({ page }) => ({ title: `Note on ${page}`, payload: {} }),
 }
 
+/** What a deployment that configures neither context field spends. */
+const BOUNDS: ColumnContextBounds = { entries: 10, fieldChars: 120 }
+
 let sessions = 0
 
 /** What one bench composes beyond the two seams the context reads. */
@@ -66,7 +70,7 @@ async function bench(canRead: boolean, units: BenchUnits = {}): Promise<{ ctx: C
   ctx.contentSurface.register(pageExtractor(pages))
   if (units.otherKind === true) ctx.contentSurface.register(OTHER_KIND)
   if (units.pageHistory !== false) ctx.sessionProjections.register(contentPagesProjection())
-  registerColumnContext(ctx, pages, canRead)
+  registerColumnContext(ctx, pages, canRead, BOUNDS)
   return { ctx, session: Session.create(SessionId(`column-context-${++sessions}`)) }
 }
 
@@ -167,7 +171,7 @@ describe('the content-column context', () => {
     await ctx.plugin(SystemPrompt)
     await ctx.plugin(SessionProjections)
     const fiber = ctx.plugin({
-      apply: (child: Context) => { registerColumnContext(child, indexPages(PAGES, undefined), false) },
+      apply: (child: Context) => { registerColumnContext(child, indexPages(PAGES, undefined), false, BOUNDS) },
     })
     await fiber.await()
     const session = Session.create(SessionId(`column-context-hmr-${++sessions}`))

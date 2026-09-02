@@ -42,7 +42,7 @@ import type { ContentPageView, ContentReadRequest } from '../types.ts'
 import { foldFrames, NO_FRAMES, type CachedFrame, type FrameCache } from './frame-cache.ts'
 import { RefTable } from './access/refs.ts'
 import { TAB_ID, useContentRead } from './access/executor.ts'
-import { watchFrame, type FrameWatch } from './perception/navigation.ts'
+import { watchFrame, type FrameAddress, type FrameWatch } from './perception/navigation.ts'
 import css from './ContentFrame.module.css'
 
 /** Plain data and one callback this registration injects. */
@@ -142,6 +142,10 @@ export function ContentFrame(props: ContentFrameProps) {
   const tables = useRef<Map<string, RefTable>>(new Map())
   const handlers = useRef<Map<string, FrameHandlers>>(new Map())
   const watches = useRef<Map<string, FrameWatch>>(new Map())
+  // Where each frame was last reported to be, kept by the seat because a watch
+  // is remade every time its frame comes back to the front (see
+  // `FrameWatchOptions.lastReported`).
+  const reported = useRef<Map<string, FrameAddress>>(new Map())
 
   // Read live by the watch below, which outlives the render that created it.
   const live = useRef(props)
@@ -177,7 +181,11 @@ export function ContentFrame(props: ContentFrameProps) {
     const watch = watchFrame({
       frame: element,
       entryUrl: activeUrl,
-      onNavigated: (address) => { live.current.onNavigated(sessionId, page, address.url, address.title) },
+      lastReported: reported.current.get(activeFrameId),
+      onNavigated: (address) => {
+        reported.current.set(activeFrameId, address)
+        live.current.onNavigated(sessionId, page, address.url, address.title)
+      },
     })
     watches.current.set(activeFrameId, watch)
     const polling = setInterval(() => { watch.poll() }, navigationPollMs)
@@ -197,6 +205,9 @@ export function ContentFrame(props: ContentFrameProps) {
           frames.current.delete(frameId)
           tables.current.delete(frameId)
           handlers.current.delete(frameId)
+          // The element is gone, so the next frame under this id is a fresh
+          // document with nothing reported about it.
+          reported.current.delete(frameId)
           return
         }
         frames.current.set(frameId, node)

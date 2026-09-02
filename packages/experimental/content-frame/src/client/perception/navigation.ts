@@ -22,7 +22,14 @@
  * document title on the next paint, and because two of them fire together for
  * one move. What comes out is compared against the last address reported for
  * that frame, so a page that oscillates between two states reports each change
- * once and a page that does not move reports nothing.
+ * once and a page that does not move reports nothing. An address here is the
+ * path and the document title together, in the poll as much as in the
+ * comparison: an application that writes its title after fetching has moved
+ * without its path moving.
+ *
+ * The last reported address belongs to the seat rather than to the watch. A
+ * watch lives as long as one frame stays in front, and the same frame comes
+ * back every time the user returns to that page.
  *
  * Cross-origin is out of scope by construction and silent by design: a frame
  * that has left the dsh origin answers every read here with a SecurityError,
@@ -57,7 +64,10 @@ export interface FrameWatch {
    * inner window, and listeners registered on the previous one went with it.
    */
   reload: () => void
-  /** Read the frame's address; a change from the last one seen starts the settling window. */
+  /**
+   * Read where the frame is; a change from the last address read — its path or
+   * its document title — starts the settling window.
+   */
   poll: () => void
   /** Stop watching. Every later signal is inert. */
   dispose: () => void
@@ -73,8 +83,32 @@ export interface FrameWatchOptions {
    * as a navigation.
    */
   readonly entryUrl: string
+  /**
+   * The address this frame was last reported at, when the seat has one.
+   *
+   * A watch lives as long as one frame stays in front, and the seat outlives
+   * every watch it makes: without this, switching to a chart and back would
+   * make a fresh watch that has reported nothing and report the address the log
+   * already carries.
+   */
+  readonly lastReported: FrameAddress | undefined
   /** Called once per settled move, with where the frame ended up. */
   readonly onNavigated: (address: FrameAddress) => void
+}
+
+/**
+ * Whether two readings are of the same place.
+ *
+ * The title is half of it because an application that fetches and then writes
+ * `document.title` has moved as far as the model is concerned: the page id did
+ * not change, the path may not have either, and what the user is looking at
+ * did.
+ * @param a - one address, or `undefined` for "nothing read yet".
+ * @param b - the other.
+ * @returns true when both are present and name the same path and title.
+ */
+function sameAddress(a: FrameAddress | undefined, b: FrameAddress): boolean {
+  return a !== undefined && a.url === b.url && a.title === b.title
 }
 
 /**
@@ -135,9 +169,9 @@ function addressOf(frame: HTMLIFrameElement): FrameAddress | undefined {
  */
 export function watchFrame(options: FrameWatchOptions): FrameWatch {
   /** Where the last report said the frame was; absent until one is made. */
-  let reported: FrameAddress | undefined
-  /** The address the last poll read, which is what makes a poll cheap. */
-  let polled: string | undefined
+  let reported: FrameAddress | undefined = options.lastReported
+  /** What the last poll read, which is what makes a poll cheap. */
+  let polled: FrameAddress | undefined
   let settling: ReturnType<typeof setTimeout> | undefined
   let detach: (() => void) | undefined
   let disposed = false
@@ -146,7 +180,7 @@ export function watchFrame(options: FrameWatchOptions): FrameWatch {
     settling = undefined
     const at = addressOf(options.frame)
     if (at === undefined) return
-    if (reported !== undefined && reported.url === at.url && reported.title === at.title) return
+    if (sameAddress(reported, at)) return
     // A first load that stopped at the page's own address is the page being
     // opened, which the log already records as `content/shown`.
     if (reported === undefined && at.url === options.entryUrl) return
@@ -189,8 +223,8 @@ export function watchFrame(options: FrameWatchOptions): FrameWatch {
     poll: () => {
       if (disposed) return
       const at = addressOf(options.frame)
-      if (at === undefined || at.url === polled) return
-      polled = at.url
+      if (at === undefined || sameAddress(polled, at)) return
+      polled = at
       arm()
     },
     dispose: () => {

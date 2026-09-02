@@ -24,29 +24,25 @@ const COLUMN = 'The content column (内容区 — the column between the sidebar
 export const EMPTY_COLUMN_CONTEXT = `${COLUMN} is empty. content_show puts a page there.`
 
 /**
- * Longest page title, address, or document title one context line carries, in
- * characters. The context is rebuilt for every request, so a page with a
- * hundred-character title costs that on every one of them; past this the line
- * says which entry it is and stops.
+ * What one deployment spends on the content-column context, which is rebuilt
+ * for every request: how many entries it lists, and how much of a name it
+ * carries. Both are `content-frame` `Config` fields, validated at load.
  */
-const MAX_CONTEXT_FIELD_CHARS = 120
-
-/**
- * How many entries the context lists. A session that has drawn thirty charts
- * has thirty live entries, and the model needs the recent ones plus a true
- * count, not all of them on every request.
- */
-const MAX_CONTEXT_ENTRIES = 10
+export interface ColumnContextBounds {
+  /** Entries listed, newest first; past it the context says how many it did not list. */
+  readonly entries: number
+  /** Longest page title, address, or document title one line carries. */
+  readonly fieldChars: number
+}
 
 /**
  * Cut one field to what a context line carries.
  * @param value - the title or address, of any length.
+ * @param fieldChars - the deployment's field width.
  * @returns the value, ending in an ellipsis when it was too long.
  */
-function clip(value: string): string {
-  return value.length <= MAX_CONTEXT_FIELD_CHARS
-    ? value
-    : `${value.slice(0, MAX_CONTEXT_FIELD_CHARS - 1)}…`
+function clip(value: string, fieldChars: number): string {
+  return value.length <= fieldChars ? value : `${value.slice(0, fieldChars - 1)}…`
 }
 
 /**
@@ -97,12 +93,12 @@ function kindText(entry: ContextEntry): string {
  * @param entry - the entry being listed.
  * @returns the lines, newline-joined.
  */
-function entryText(entry: ContextEntry): string {
+function entryText(entry: ContextEntry, fieldChars: number): string {
   const front = entry.front ? '  ← in front' : ''
-  const first = `- "${clip(entry.title)}" ${kindText(entry)}${front}`
+  const first = `- "${clip(entry.title, fieldChars)}" ${kindText(entry)}${front}`
   if (entry.location === undefined) return first
-  const title = entry.location.title === '' ? '' : `, title "${clip(entry.location.title)}"`
-  return `${first}\n    the app inside is now at ${clip(entry.location.url)}${title}`
+  const title = entry.location.title === '' ? '' : `, title "${clip(entry.location.title, fieldChars)}"`
+  return `${first}\n    the app inside is now at ${clip(entry.location.url, fieldChars)}${title}`
 }
 
 /**
@@ -121,11 +117,16 @@ const REF_RULE = 'Refs like e12 are your handles for content_read\'s scope and a
  * The whole content-column context for one request.
  * @param entries - the session's live entries, newest first.
  * @param canRead - whether this deployment offers `content_read`.
+ * @param bounds - what this deployment spends on the context.
  * @returns the block, or {@link EMPTY_COLUMN_CONTEXT} when there are no entries.
  */
-export function columnContextText(entries: readonly ContextEntry[], canRead: boolean): string {
+export function columnContextText(
+  entries: readonly ContextEntry[],
+  canRead: boolean,
+  bounds: ColumnContextBounds,
+): string {
   if (entries.length === 0) return EMPTY_COLUMN_CONTEXT
-  const listed = entries.slice(0, MAX_CONTEXT_ENTRIES).map(entryText)
+  const listed = entries.slice(0, bounds.entries).map(entry => entryText(entry, bounds.fieldChars))
   const hidden = entries.length - listed.length
   const rest = hidden === 0 ? [] : [`- … and ${hidden} older ${hidden === 1 ? 'entry' : 'entries'} not listed.`]
   const closing = canRead
