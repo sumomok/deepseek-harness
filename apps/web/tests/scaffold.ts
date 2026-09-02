@@ -699,6 +699,46 @@ function rawSessionLog(session: Session): string {
   ].join('\n')
 }
 
+/** What a recording keeps of the session it harvested. */
+export interface RecordFixtureOptions {
+  /**
+   * Keep only what the driven turn appended, dropping the history a scenario
+   * seeded before it. Required of a scenario that both seeds and drives, and
+   * refused where nothing was seeded — see {@link withoutSeededHistory}.
+   */
+  afterSeed?: boolean
+}
+
+/**
+ * Drop a recording's seeded history, keeping the session header and every
+ * event the driven turn appended.
+ *
+ * A replay fixture may not carry a seeded round. The replay engine derives one
+ * model-call script per recorded session from its `assistant/chunk` events and
+ * binds a live session to it by first-call order, so a seeded round at the head
+ * of the script answers the live run's first call with a reply from a turn that
+ * run never made. The seeded prompts reach {@link fixtureUserPrompts} as well,
+ * which is what ties a spec's drive steps to the recording.
+ *
+ * The trim is by line rather than through {@link parseSeedFixture}, so the
+ * packed chunk runs the harvest wrote survive it byte for byte.
+ * @param fixtureText - the harvested fixture, session header first.
+ * @returns that fixture without the seeded events.
+ * @throws {Error} when the recording carries no `session/end-seed` boundary,
+ * which means nothing was seeded and the caller asked for the wrong thing.
+ */
+function withoutSeededHistory(fixtureText: string): string {
+  const [headerLine, ...records] = fixtureText.split('\n')
+  if (headerLine === undefined) throw new Error('record harvest: the harvested fixture has no session header')
+  const boundary = records.findIndex(
+    line => line.trim().length > 0 && (JSON.parse(line) as { type?: unknown }).type === 'session/end-seed',
+  )
+  if (boundary === -1) {
+    throw new Error('record harvest: afterSeed was asked for, but the recording has no session/end-seed boundary')
+  }
+  return [headerLine, ...records.slice(boundary + 1)].join('\n')
+}
+
 /**
  * Record-mode fixture write-back: harvest the live session, scrub request
  * headers to {{system}}/{{tools}} (TODO(web-header-pin): the web lane pins no
@@ -709,14 +749,21 @@ function rawSessionLog(session: Session): string {
  * @param scaffold - the record-mode scaffold.
  * @param sessionId - the driven session.
  * @param fixturePath - the committed session.jsonl / seed.jsonl target.
+ * @param options - what the recording keeps; the whole session by default.
  */
-export async function recordFixture(scaffold: WebScaffold, sessionId: SessionId, fixturePath: string): Promise<void> {
+export async function recordFixture(
+  scaffold: WebScaffold,
+  sessionId: SessionId,
+  fixturePath: string,
+  options: RecordFixtureOptions = {},
+): Promise<void> {
   const agent = scaffold.ctx.agents.get(sessionId)
   if (agent === undefined) throw new Error(`record harvest: no live agent for ${sessionId}`)
-  const fresh = scrubSessionSnapshot(rawSessionLog(agent.session))
+  const harvested = scrubSessionSnapshot(rawSessionLog(agent.session))
     .split(sessionId).join('{{sessionId}}')
     .split(scaffold.workspaceCwd).join('{{cwd}}')
     .replace(/"rpcId":"[^"]+"/g, '"rpcId":"{{rpcId}}"')
+  const fresh = options.afterSeed === true ? withoutSeededHistory(harvested) : harvested
   const existing = existsSync(fixturePath) ? await readFile(fixturePath, 'utf8') : ''
   const stable = stabilizeFixtureMessageIds([fresh], [existing])[0]
   if (stable === undefined) throw new Error('record harvest: no stabilized fixture')

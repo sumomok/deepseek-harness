@@ -215,7 +215,10 @@ describe('web e2e: the agent reads the page in the content column', () => {
     const answer = lastAnswerText(sessionEvents)
     expect(['mill-01', 'mill-02', 'mill-03'].filter(machine => answer.includes(machine)))
       .toEqual(['mill-01', 'mill-02', 'mill-03'])
-    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE)
+    // Only this turn: the scenario seeds a previous round to have a session to
+    // open, and a replay fixture carrying it would bind this run's first model
+    // call to the seeded round's reply.
+    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE, { afterSeed: true })
   }, 200_000)
 
   it.skipIf(MODE === 'record')('leaves the console clean', () => {
