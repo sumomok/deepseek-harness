@@ -5,7 +5,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
-import type { ComponentProps } from 'react'
+import { createElement, type ComponentProps } from 'react'
 import {
   formatElapsedSeconds as formatElapsedSecondsWithLocale,
   TrajectoryCell as LocalizedTrajectoryCell,
@@ -17,8 +17,16 @@ import { t } from './locale.client.ts'
 const formatDurationMillis = (value: number | null) => formatDurationMillisWithLocale(value, t)
 const formatElapsedSeconds = (value: number | null) => formatElapsedSecondsWithLocale(value, t)
 
+// `createElement`, not JSX: this line is compiled in the Client aggregate
+// alongside `dsh-experimental-vue2-echarts-poc`, and Vue 2.7's type entry
+// unconditionally loads `vue/types/jsx.d.ts`, which augments the GLOBAL
+// `JSX.IntrinsicAttributes` with `slot?: string`. Under
+// `exactOptionalPropertyTypes` that rejects every React spread of props
+// carrying `slot?: string | undefined`. `createElement` checks against
+// `React.Attributes` instead of the global JSX seat, so the Vue POC's
+// presence in the program cannot reach this wrapper.
 function TrajectoryCell(props: Omit<ComponentProps<typeof LocalizedTrajectoryCell>, 't'>) {
-  return <LocalizedTrajectoryCell {...props} t={t} />
+  return createElement(LocalizedTrajectoryCell, { ...props, t })
 }
 
 afterEach(cleanup)
