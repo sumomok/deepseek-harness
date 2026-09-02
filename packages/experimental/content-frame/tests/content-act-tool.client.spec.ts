@@ -492,10 +492,11 @@ describe('what content_act answers with', () => {
       ],
       [
         { status: 'error', code: 'not-a-page', message: 'the entry in front is not a page', kind: 'chart', title: '黄金走势' },
-        // Shared with the read verbatim, mention of `content_read` included:
-        // the entry in front is the same fact for both tools, and the advice
-        // that fixes it — put a page there — is the same call.
-        'Error: The entry in front is not a page (the chart "黄金走势"), which content_read cannot read; '
+        // The same ending, worded in this tool's own name: a model told the
+        // entry is something `content_read cannot read` has been told about
+        // the wrong call, and it is the tool it was told about that it reaches
+        // for next.
+        'Error: The entry in front is not a page (the chart "黄金走势"), which content_act cannot act on; '
         + 'a chart drawn by show_chart keeps its data in that call\'s arguments. Call content_show to put a page in front.',
       ],
       [

@@ -3,14 +3,15 @@
  * description, the parameter lines, the refusals, the approval request, and the
  * three sections one call answers with.
  *
- * One home for all of it and no imports beyond the wire's own vocabulary,
- * because both halves author some of it — the host composes what it knows
+ * One home for all of it and no imports beyond the wire's own vocabulary and
+ * the shared failures' one type, because both halves author some of it — the host composes what it knows
  * before a browser has claimed the call, and the seat composes what only the
  * page can say. A failure is the only text the model reads while deciding what
  * to do next, so each one names the ref, the step, or the call that fixes it.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/act-text
  */
 
+import type { ToolVoice } from './text.ts'
 import {
   MAX_ACT_KEY_CHARS, MAX_ACT_TEXT_CHARS, MAX_NAME_CHARS, type ActArgs, type ActStep, type ActStepResult,
   type ActStepRefusal, type DialogAnswer,
@@ -73,6 +74,17 @@ export const CANCELLED_REFUSAL = 'content_act was cancelled'
 /** Refusal for a column that holds nothing at all. */
 export const EMPTY_COLUMN_REFUSAL =
   'The content column is empty. Call content_show to put a page there, then read it before acting on it.'
+
+/**
+ * How `content_act` names itself in the two endings whose wording is the
+ * caller's. A model told the entry in front is something `content_read cannot
+ * read` has been told about the wrong call: what it asked for was steps, and
+ * the tool it is told about is the one it reaches for next.
+ */
+export const ACT_VOICE: ToolVoice = {
+  emptyColumn: EMPTY_COLUMN_REFUSAL,
+  cannot: 'content_act cannot act on',
+}
 
 /** Refusal for a call whose steps list is empty. */
 export const NO_STEPS_REFUSAL = 'steps must name at least one step'

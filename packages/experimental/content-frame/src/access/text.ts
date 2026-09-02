@@ -155,13 +155,14 @@ export function unansweredRefusal(readTimeoutMs: number): string {
 /**
  * The failure for an entry in front that belongs to another content kind.
  * @param entry - the entry's kind and title, when the seat could name them.
+ * @param cannot - what the calling tool cannot do to it, as {@link ToolVoice} carries it.
  * @returns the model-facing sentence.
  */
-export function notAPageRefusal(entry: { kind?: string; title?: string }): string {
+export function notAPageRefusal(entry: { kind?: string; title?: string }, cannot: string): string {
   const named = entry.kind === undefined || entry.title === undefined
     ? ''
     : ` (the ${entry.kind} "${entry.title}")`
-  return `The entry in front is not a page${named}, which content_read cannot read; a chart drawn by `
+  return `The entry in front is not a page${named}, which ${cannot}; a chart drawn by `
     + 'show_chart keeps its data in that call\'s arguments. Call content_show to put a page in front.'
 }
 
@@ -194,20 +195,42 @@ export function stillLoadingLine(busy: readonly string[]): string {
 }
 
 /**
+ * The two sentences one tool speaks in its own name when a call could not run.
+ *
+ * The endings are shared and the wording is not: a model told that the entry in
+ * front is something `content_read cannot read` has been told about the wrong
+ * call when what it asked for was steps, and it is the tool it was told about
+ * that it will reach for next.
+ */
+export interface ToolVoice {
+  /** What this tool tells the model to do about a column with nothing in it. */
+  readonly emptyColumn: string
+  /** What this tool cannot do to an entry of another kind: `content_read cannot read`. */
+  readonly cannot: string
+}
+
+/** How `content_read` names itself in the two endings whose wording is the caller's. */
+export const READ_VOICE: ToolVoice = {
+  emptyColumn: EMPTY_COLUMN_REFUSAL,
+  cannot: 'content_read cannot read',
+}
+
+/**
  * The model-facing sentence for a call the seat could not run at all.
  *
  * Both tools reach it: a column with nothing in it, an entry that is not a
  * page, an unreachable frame and a reader that threw are the same four endings
- * whether the call was going to read the page or act on it. Only the advice for
- * an empty column differs, so that one sentence is the caller's.
+ * whether the call was going to read the page or act on it. Two of the four
+ * name the tool the model should reach for next, so those two are the caller's
+ * to word; the frame's own message and the reader's are neither tool's.
  * @param outcome - the failure the seat posted.
- * @param emptyColumn - what this tool tells the model to do about an empty column.
+ * @param voice - the calling tool's own two sentences.
  * @returns the sentence to reject with.
  */
-export function failureRefusal(outcome: ReadFailure, emptyColumn: string): string {
+export function failureRefusal(outcome: ReadFailure, voice: ToolVoice): string {
   switch (outcome.code) {
-    case 'empty': return emptyColumn
-    case 'not-a-page': return notAPageRefusal(outcome)
+    case 'empty': return voice.emptyColumn
+    case 'not-a-page': return notAPageRefusal(outcome, voice.cannot)
     case 'engine': return engineRefusal(outcome.message)
     case 'frame': return outcome.message
     /* v8 ignore next 2 -- the code union is closed and the wire parser rejects every other value; the arm keeps a new member loud. */

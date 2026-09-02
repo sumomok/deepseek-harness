@@ -21,8 +21,8 @@ import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepse
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CallTimeouts, PendingCalls } from './pending.ts'
 import {
-  AFTER_DESCRIPTION, AFTER_REFUSAL, CANCELLED_REFUSAL, CONTENT_READ_DESCRIPTION, EMPTY_COLUMN_REFUSAL,
-  failureRefusal, FIND_DESCRIPTION, FIND_REFUSAL, MISREPORTED_REFUSAL, MODE_DESCRIPTION, NO_AGENT_REFUSAL,
+  AFTER_DESCRIPTION, AFTER_REFUSAL, CANCELLED_REFUSAL, CONTENT_READ_DESCRIPTION, failureRefusal,
+  FIND_DESCRIPTION, FIND_REFUSAL, MISREPORTED_REFUSAL, MODE_DESCRIPTION, NO_AGENT_REFUSAL, READ_VOICE,
   readHeaderText, SCOPE_DESCRIPTION, SCOPE_REFUSAL, SIGN_IN_REFUSAL, unansweredRefusal, unclaimedRefusal,
   type FrontEntry,
 } from './text.ts'
@@ -109,7 +109,7 @@ function pathOf(url: string): string {
  * asking the user to sign in.
  */
 function valueOf(outcome: ReadOutcome): ContentReadValue {
-  if (outcome.status === 'error') throw new Error(failureRefusal(outcome, EMPTY_COLUMN_REFUSAL))
+  if (outcome.status === 'error') throw new Error(failureRefusal(outcome, READ_VOICE))
   const { snapshot } = outcome
   // Withheld rather than described: the page is asking for a password, and the
   // model's next step is to hand the keyboard back, not to narrate the form.

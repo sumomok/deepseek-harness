@@ -13,8 +13,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { notAPageRefusal, READ_VOICE } from '../src/access/text.ts'
 import {
-  actReportText, approvalReason, cannotActReason, dialogLine, disabledReason, labelChangedReason, messageLine,
+  ACT_VOICE, actReportText, approvalReason, cannotActReason, dialogLine, disabledReason, labelChangedReason, messageLine,
   navigationLine, noOptionReason, occludedReason, ranSummary, refGoneReason, stepClause, stepRefusal,
   stepRefusalText, tooLongRefusal, tooManyStepsRefusal, unverifiedRefusal, waitedReason, windowLine,
 } from '../src/access/act-text.ts'
@@ -85,6 +86,30 @@ describe('what the model reads when a call is refused before it runs', () => {
     expect(unverifiedRefusal(60000)).toBe(
       'The console claimed this call but did not report within 60s; the steps may have run partially or fully. '
       + 'Call content_read before deciding to retry.',
+    )
+  })
+})
+
+describe('what each tool says about an entry it cannot use', () => {
+  it('pins both sentences, which differ in the tool they send the model to', () => {
+    // One ending, two callers. The advice that fixes it is the same call, but
+    // the tool named as unable is the one the model reaches for next, so a
+    // shared sentence would send a call that asked for steps back to the
+    // reader.
+    const chart = { kind: 'chart', title: '黄金走势' }
+    expect(notAPageRefusal(chart, READ_VOICE.cannot)).toBe(
+      'The entry in front is not a page (the chart "黄金走势"), which content_read cannot read; '
+      + 'a chart drawn by show_chart keeps its data in that call\'s arguments. Call content_show to put a page in front.',
+    )
+    expect(notAPageRefusal(chart, ACT_VOICE.cannot)).toBe(
+      'The entry in front is not a page (the chart "黄金走势"), which content_act cannot act on; '
+      + 'a chart drawn by show_chart keeps its data in that call\'s arguments. Call content_show to put a page in front.',
+    )
+    // And the two empty-column sentences, which differ in what they tell the
+    // model to do once a page is there.
+    expect(READ_VOICE.emptyColumn).toBe('The content column is empty. Call content_show to put a page there, then retry.')
+    expect(ACT_VOICE.emptyColumn).toBe(
+      'The content column is empty. Call content_show to put a page there, then read it before acting on it.',
     )
   })
 })

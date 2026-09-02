@@ -20,8 +20,8 @@ import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepse
 import type { CallTimeouts, PendingCalls } from './pending.ts'
 import type { DialogApprovals } from './dialog-approvals.ts'
 import {
-  ACTION_DESCRIPTION, approvalReason, CANCELLED_REFUSAL, CONTENT_ACT_DESCRIPTION, DIALOGS_DESCRIPTION,
-  DIALOGS_UNAPPROVED_REFUSAL, EMPTY_COLUMN_REFUSAL, KEY_DESCRIPTION, LABEL_DESCRIPTION, NO_AGENT_REFUSAL,
+  ACT_VOICE, ACTION_DESCRIPTION, approvalReason, CANCELLED_REFUSAL, CONTENT_ACT_DESCRIPTION,
+  DIALOGS_DESCRIPTION, DIALOGS_UNAPPROVED_REFUSAL, KEY_DESCRIPTION, LABEL_DESCRIPTION, NO_AGENT_REFUSAL,
   NO_STEPS_REFUSAL, NOTHING_DONE, REF_DESCRIPTION, STEPS_DESCRIPTION, stepRefusal, stepRefusalText,
   TEXT_DESCRIPTION, tooManyStepsRefusal, unverifiedRefusal, VALUE_DESCRIPTION,
 } from './act-text.ts'
@@ -228,7 +228,7 @@ export function contentActTool(
           const outcome = settlement.outcome
           if (isActOutcome(outcome)) return valueOf(outcome)
           if (outcome.status === 'ok') throw new Error(MISREPORTED_REFUSAL)
-          throw new Error(failureRefusal(outcome, EMPTY_COLUMN_REFUSAL))
+          throw new Error(failureRefusal(outcome, ACT_VOICE))
         }
         case 'unclaimed': {
           throw new Error(`${unclaimedRefusal(timeouts.claimTimeoutMs, front(exec.agent.session))}${NOTHING_DONE}`)
