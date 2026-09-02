@@ -130,7 +130,7 @@ describe('a saveText failure', () => {
       () => ctx.attachmentSpill.resolveSpill(REF(), 'content'),
     )
     expect(ref).toBeUndefined()
-    expect(session.events.some(e => e.type === 'attachment/materialized')).toBe(false)
+    expect(session.snapshotEvents().some(e => e.type === 'attachment/materialized')).toBe(false)
   })
 })
 
@@ -152,7 +152,7 @@ describe('a successful materialization', () => {
     expect(spill.saves[0]?.source.label).toBe('notes.md')
     expect(spill.saves[0]?.suggestedName).toBe('attachment-3f2a9c1b-notes.md')
 
-    const logged = session.events.find(e => e.type === 'attachment/materialized')
+    const logged = session.snapshotEvents().find(e => e.type === 'attachment/materialized')
     expect(logged).toBeDefined()
     const data = logged?.data as AttachmentMaterializedEventData
     expect(data.attachmentId).toBe(attachment.attachmentId)
@@ -174,7 +174,7 @@ describe('a successful materialization', () => {
     )
     expect(second).toEqual(first)
     expect(spill.saves).toHaveLength(1)
-    expect(session.events.filter(e => e.type === 'attachment/materialized')).toHaveLength(1)
+    expect(session.snapshotEvents().filter(e => e.type === 'attachment/materialized')).toHaveLength(1)
   })
 
   it('keys the cache by session, so a different session re-materializes the same attachment', async () => {
@@ -197,7 +197,7 @@ describe('a successful materialization', () => {
     await ctx.agents.withInitiator(agentFor(session), () => ctx.attachmentSpill.resolveSpill(first, 'text one'))
     await ctx.agents.withInitiator(agentFor(session), () => ctx.attachmentSpill.resolveSpill(second, 'text two'))
     expect(spill.saves).toHaveLength(2)
-    expect(session.events.filter(e => e.type === 'attachment/materialized')).toHaveLength(2)
+    expect(session.snapshotEvents().filter(e => e.type === 'attachment/materialized')).toHaveLength(2)
   })
 })
 
