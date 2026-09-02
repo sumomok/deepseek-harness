@@ -70,7 +70,9 @@ const LEGACY_PRESET_IDS: Readonly<Record<string, string>> = { code: 'ptc' }
  */
 function rosterIdFor(wanted: string, presets: readonly AgentPreset[]): string {
   if (presets.some(preset => preset.id === wanted)) return wanted
-  return LEGACY_PRESET_IDS[wanted] ?? wanted
+  // Own keys only: `wanted` comes from a user-edited settings file, and a
+  // name such as `constructor` must not resolve through the prototype.
+  return Object.hasOwn(LEGACY_PRESET_IDS, wanted) ? LEGACY_PRESET_IDS[wanted] ?? wanted : wanted
 }
 
 /** Settings namespace carrying the user's chosen default preset. */

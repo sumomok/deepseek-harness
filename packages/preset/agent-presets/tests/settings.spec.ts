@@ -90,6 +90,13 @@ describe('the default preset as a user setting', () => {
     expect((await ctx.agentPresets.resolve()).id).toBe('ptc')
     expect((await ctx.agentPresets.resolve('code')).id).toBe('ptc')
     expect((await ctx.agentPresets.remoteExportList()).presets.find(preset => preset.isDefault)?.id).toBe('ptc')
+    expect((await ctx.agentPresets.compositionInventory()).find(composition => composition.isDefault)?.id).toBe('ptc')
+  })
+
+  it('does not resolve a prototype member name through the alias table', async () => {
+    const { ctx } = await harness()
+
+    await expect(ctx.agentPresets.resolve('constructor')).rejects.toMatchObject({ code: 'agent-preset/not-found' })
   })
 
   it('keeps a user-authored `code` preset ahead of the legacy alias', async () => {
