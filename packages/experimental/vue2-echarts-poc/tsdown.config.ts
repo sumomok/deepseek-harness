@@ -19,7 +19,7 @@ import { clientBundle } from '../../client/tsdown.client.ts'
 
 const ID = '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
 
-const preset = clientBundle(ID, ['lib/types/index.js', 'lib/types/invariant.js'])
+const preset = clientBundle(ID, ['lib/types/index.js'])
 
 export default (inline: Parameters<typeof preset>[0]): UserConfig[] =>
   preset(inline).map(config => config.name !== `${ID}/client` ? config : {

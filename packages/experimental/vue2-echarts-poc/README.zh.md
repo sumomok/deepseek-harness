@@ -72,3 +72,5 @@ Vue 与 ECharts 都不在外壳的共享模块表里，因此本包的 `lib/clie
 - **单文件组件不在支持路径上** —— 仓库的 Vitest 配置没有 Vue 插件，任何触到 SFC 的 spec 都会解析失败，而 `.vue` 也落在覆盖率闸的 `packages/*/*/src/**/*.{ts,tsx}` 之外。本包使用 `defineComponent` + `h()`；完整分析记在 [`vue-ui-poc`](../vue-ui-poc/README.zh.md)。
 - **一座桥只挂一个组件** —— 桥只挂载单个 Vue 组件并传一份 prop 记录。slot 子内容、跨桥的 Vue `provide`/`inject`、`<Teleport>`、Vue Router 与 Vuex 都未探索。
 - **未被组装态快照覆盖** —— 浏览器证据是跑在真实组合上的 Playwright 场景，而不是录制的 transcript；快照通道投影的是模型可见与会话输出，而本包两者皆无。
+
+**运行时不变式：** 不发布伴生入口。本包不拥有任何事件流，也不拥有可变的持久数据。它唯一的关系——词典的注册与拆卸时的移除——是一个由本包自己的测试演练的 locale effect，而它的组件托管的 Vue 树完全活在一个浏览器容器里。

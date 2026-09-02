@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write packages/experimental/vue2-echarts-tool-poc/README.md
-README.md: 3b6eb93f2898d89373a297f48b8fb5d34feacac4
-README.zh.md: 8cc1117c1ea8ec3d4ed95c7f888ed5ff26bfbffb
+README.md: 3f05f53e84fba3125d0189cfe064bed95e583338
+README.zh.md: 32224b85a75112f836c9fa4e00aded14e5902a17

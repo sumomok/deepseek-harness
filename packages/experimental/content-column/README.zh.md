@@ -49,3 +49,5 @@ None; this package neither assembles nor sends a provider request.
 - **隐藏命令行耦合着一个本包并不拥有的 DOM 形状** —— `hide-empty-command-row.ts` 的选择器要穿过 `ChatNodeSeat.tsx` 的 `data-chat-flow-kind` 属性和 `dsh-client-ui-renderer` 的 `data-slot` 锚点包装，两者都不是本包能指望保持稳定的约定；任一侧的形状变化都会悄悄让这一行不再折叠，而不是响亮地失败（`content-frame` 完全相同的机制承担着同样的脆弱性）。
 - **一次关闭没有任何确认界面** —— 点击关闭按钮会立刻触发命令；除了重新导航到（或让 agent 重绘）同一个 `(kind, entryId)`（fold 会把它当作一次普通的新 entry 处理）之外，没有撤销手段。
 - **未被 assembled snapshot 覆盖** —— 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。
+
+**运行时不变式：** 不发布伴生入口。本包是一个浏览器落位：它的宿主半边是空插件，不追加任何会话事件，而它画出来的 entry 流属于 `content-surface`，后者会用 projection unit 自己的 schema 校验每一个发布出去的值。

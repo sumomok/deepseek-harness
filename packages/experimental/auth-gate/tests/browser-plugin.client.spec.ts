@@ -14,11 +14,9 @@
 
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { apply } from '../src/client/index.ts'
 import { mirrorCookieLine, readCookieFrom, windowGateBrowser, type GateBrowser } from '../src/client/browser.ts'
 import { runGate } from '../src/client/run.ts'
-import * as AuthGateInvariant from '../src/invariant.ts'
 import {
   ACCESS_TOKEN_STORAGE_KEY,
   AUTH_GATE_SETTINGS_ROUTE,
@@ -427,17 +425,5 @@ describe('auth-gate browser plugin', () => {
       // the row, and the fiber only reports it.
       await expect(apply(ctx)).rejects.toThrow(message)
     }
-  })
-})
-
-describe('auth-gate invariant companion', () => {
-  it('reserves package ownership under its declared companion name', async () => {
-    const ctx = new Context()
-    await ctx.plugin(InvariantRegistry, { enabled: true })
-    const fiber = ctx.plugin(AuthGateInvariant)
-    await fiber.await()
-    expect(AuthGateInvariant.name).toBe('experimental-auth-gate-invariant')
-    expect(AuthGateInvariant.inject).toEqual(['invariants'])
-    await fiber.dispose()
   })
 })

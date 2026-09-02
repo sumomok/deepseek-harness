@@ -64,3 +64,5 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 - **未被组装态快照覆盖** —— 浏览器证据是跑在真实组合上的 Playwright 场景，而不是录制的 transcript；快照通道投影的是模型可见与会话输出，而本包两者皆无。
 - **content-empty 的读取是一次无 DOM 但耦合形状的越包读取** —— `ShellFrame.tsx` 从 `useSessions` 每个 session 的 `projectionValues` 里读 `contentSurface.entries`，全程按 `unknown` 处理，而不是引入 [`content-surface`](../content-surface/README.zh.md) 的类型（本包对它零依赖，没组合它的部署会一直读到空列表，这恰好也是正确答案）。这个键的形状或名字将来一变，读取会静默失效——这一栏会停止折叠（或该折叠时不折叠），没有任何编译期信号，只会看到一个不对劲的版面。
 - **内容折叠可能在首屏闪一下** —— 会话列表投影值是异步到达的，因此一个本来有内容的 session 可能先渲染成折叠版面（16:5 塌成纯 chat），等第一份快照到达后 content 栏才展开。`grid-template-columns` 的过渡（`ShellFrame.module.css`）让这次展开是动画而不是硬切，但首次加载那一下闪烁并未被抑制。
+
+**运行时不变式：** 不发布伴生入口。外壳的面板 store 不发出任何 cordis 事件，也不持有持久数据；本包唯一拥有的关系——root 注册加上同一个 effect 里提供的 `ctx.layout` 面——是一个 slot/服务 effect，其安装与拆卸由本包自己的 spec 直接演练。
