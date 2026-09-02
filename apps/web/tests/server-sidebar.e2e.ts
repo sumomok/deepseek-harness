@@ -140,6 +140,21 @@ const workflowsSection = (page: Page): Locator => sidebar(page).locator('[data-s
 const activeFrame = (page: Page): Locator => page.locator('iframe[data-content-frame][data-content-active]')
 const shellColumn = (page: Page, name: string): Locator => page.locator(`[data-shell-column="${name}"]`)
 
+/**
+ * One element the de-terminology stylesheet hides: present in the DOM and
+ * rendering nothing. Both halves matter — every rule in `terminology-guard.ts`
+ * is a class-substring match against a CSS-module local name, so the way it
+ * fails is the element ceasing to match, and a bare `isVisible() === false`
+ * passes just as happily on an element that is not there at all.
+ * @param scope - the region the element lives in.
+ * @param className - CSS-module local-name substring the guard rule targets.
+ */
+async function expectGuardHides(scope: Locator, className: string): Promise<void> {
+  const target = scope.locator(`[class*="${className}"]`)
+  expect(await target.count(), `${className}: no element for the guard rule to hide`).toBeGreaterThan(0)
+  await expect(target.first().isVisible()).resolves.toBe(false)
+}
+
 /** Every banned spelling of the vendor's Workspace vocabulary. */
 const WORKSPACE_WORDS = ['workspace', 'Workspace', 'WORKSPACE', '工作区'] as const
 
@@ -287,6 +302,10 @@ describe('web e2e: the product-console sidebar', () => {
     // workbench click both resolve through the same
     // `UiWorkspace.connectWorkspace` coalescing, so whichever gets there
     // first, the session left open is the same one either way.
+    // The directory name carries the banned word deliberately: the hero chip
+    // renders the Workspace title, so a guard rule that stopped matching would
+    // put that exact string on screen and `workspaceWordsInChat` would see it.
+    // Renaming this directory to something innocuous weakens that scan.
     const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-workspace')
     await mkdir(workspaceDir, { recursive: true })
     await scaffold.ctx.workspaceRegistry.create(workspaceDir)
@@ -319,9 +338,10 @@ describe('web e2e: the product-console sidebar', () => {
 
     // Scoped to this package's own chrome: decision ②'s banned-word list is
     // this package's obligation for its own copy, not a system-wide audit of
-    // every shipped package's strings (content-column's empty-state copy and
-    // the hero's workspace-picker copy are pre-existing, out-of-scope text —
-    // see the package README's Known Limitations).
+    // every shipped package's strings (content-column's empty-state copy is
+    // pre-existing, out-of-scope text). The conversation column has its own
+    // scan — `workspaceWordsInChat` below — which covers the hero, since
+    // `ShellFrame` seats the whole `conversation` slot inside the chat column.
     const sidebarText = await sidebar(page).innerText()
     for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /会话/, /新会话/]) {
       expect(sidebarText, `banned text matched ${banned}`).not.toMatch(banned)
@@ -353,9 +373,9 @@ describe('web e2e: the product-console sidebar', () => {
       headlineText.evaluate(el => getComputedStyle(el, '::after').content),
     ).resolves.toContain('工作台小助手')
 
-    await expect(heroRoot.locator('[class*="fishHitbox"]').isVisible()).resolves.toBe(false)
-    await expect(heroRoot.locator('[class*="previewBadge"]').isVisible()).resolves.toBe(false)
-    await expect(heroRoot.locator('[class*="heroWorkspaceRow"]').isVisible()).resolves.toBe(false)
+    await expectGuardHides(heroRoot, 'fishHitbox')
+    await expectGuardHides(heroRoot, 'previewBadge')
+    await expectGuardHides(heroRoot, 'heroWorkspaceRow')
 
     // ui-agent-preset is disabled outright (decision: not merely hidden by
     // the heroWorkspaceRow CSS rule above) — its hero chip, its read-only
