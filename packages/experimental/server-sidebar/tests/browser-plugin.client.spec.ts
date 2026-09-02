@@ -335,6 +335,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
   it('stringifies a non-Error transport rejection rather than losing it', async () => {
     const { ctx } = await bench()
     const { injected, actions } = injectSidebar(ctx)
+    // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject('transport exploded')))
     await injected.onSaveWorkflows([])
     expect(actions.setError).toHaveBeenCalledWith('transport exploded')
