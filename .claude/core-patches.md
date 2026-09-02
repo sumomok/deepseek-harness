@@ -329,3 +329,25 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 **分支 HEAD 登记**：代码最终 HEAD = `e1f47b2e34`；上表门禁数字在其前一个代码 HEAD `1e705c9808` 上取得，`e1f47b2e34` 只改两条文案字符串与一条对应断言，改后已重跑 `pnpm run build` + `image-display.expected.e2e.ts`（4 用例）+ `ui-conversation`/`ui-attachment`（37 文件 431 用例）+ `tsc -b tsconfig.client.json --force` + `doc-sync` 32 门，全绿；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交，其后无提交。起点 `origin/core-patches-v4` = `63a7eead67`（未动），基座 `upstream/master` = `origin/master` = `49a606bc5b`。
 
 全绿后 `git push origin core-patches-v5`（新分支，非 force；对抗复核后的修复以追加提交推同一分支，全程不重写历史）。
+
+## rc.28 集成合并审计：`develop` × `core-patches-v5`（基座 0.1.2-alpha.5）
+
+合并基 `git merge-base origin/develop origin/core-patches-v5` = `4e84901e64`（上游 alpha.4 发布提交，`--all` 唯一）。它是上游提交，因此 **32 个冲突文件全部是 fork 独有文件的 add/add、无共同祖先**。改用两侧真正的内容祖先 `63a7eead67`（`core-patches-v4` 顶端——develop 的祖先、v5 的内容来源）逐文件 `git merge-file`：**29 个机械消解为零冲突**，其中 21 个因 develop 自 v4 起逐字节未动而与 v5 侧完全相同（`cmp` 实证，取 v5 可证无损），8 个是并集（两条 Agent Note 中英各一段 + 其配对记录、`locales.ts` 的 dropDesc 文案、`pnpm-lock.yaml` 的 fork 依赖闭包）。手判 3 个：`image-display.expected.e2e.ts` 的遮罩断言取 develop（须与并集后的 `locales.ts` 一致）、`search-helpers.spec.ts` 取 v5（两侧各自加了语义等价的同一份 file-part 覆盖）、`.claude/core-patches.md` 两处并集。补丁线随后自己把 dropDesc 终态同步了过去（`e1f47b2e34`），第二次合并时这两处已自动收敛。
+
+**三道机械护栏跑遍 246 个「两侧都改过」的文件**（`git diff --name-only 4e84901e64 <each side>` 求交集，含 32 个冲突文件与 214 个 git 自动合并的）：① 两父任一持有的 lint 抑制注释逐字存活——0 丢失；② 任意 ≥3 行连续有辨识度行的块在结果中出现次数不超过任一父——0 命中；③ 行级超额逐条判定——9 条全部正当（1 条是手拼的并集行、6 条是生成器重跑后的新值、2 条是锁文件并集后依赖方增加）。
+
+**三处 git 静默错合**（全程无冲突标记，`build`/`tsc -b` 双 face 全部放行）：
+
+- **新缺陷类：被一侧删除的文件因合并基是上游提交而复活。** v5 的 `9127951ebb` 删掉了 `packages/attachment/attachment-spill/src/invariant.ts`（空 invariant 伴生），但该包在合并基 `4e84901e64` 上根本不存在，于是「v5 侧的删除」在 git 眼里等价于「develop 侧的新增」，文件被无条件保留，`gen-tsconfig-paths` 还顺手给它加回了 `@deepseek-ai/dsh-attachment-spill/invariant` 路径别名。**任何以上游提交为合并基的 fork×补丁线合并都吃这一类**，行级/块级护栏都看不见它。新增护栏：`git diff --name-status --diff-filter=D <v4tip> <v5>` 全量扫描一侧的删除，逐个核对是否仍在结果树里（本轮 14 个删除，13 个是上游自己删的、已不在树上，1 个即本条）；反向（develop 删、v5 留）0 个。
+- `packages/extensions/tool-cordis/src/api-catalog.ts` 的 `SessionProbeTargetsRequest`/`SessionProbeTargetsValue` 两条整块重复——`{`/`},` 属样板行，块级护栏的「窗口内每行都要有辨识度」条件把它漏掉，靠 `gen-cordis-api` 重生成才现形。
+- `docs/persistence-catalog.zh.md` 的 `attachment/materialized` 小节重复两次（两父各 1、结果 4 次命中）——中文侧不是生成器产物，手工去重后 `verify-translation-pairing --write` 重录配对。**方法学教训**：第一遍把 `.zh.md` 误列进「生成物跳过名单」，正好复刻 rc.27 的失手模式；改为 246 个文件一个不跳重跑护栏才抓到。
+
+生成物一律重跑不手改：12 个生成器 + `verify-translation-pairing --write` 全跑，**第二遍零 diff（幂等自证）**，`doc-sync` 32/32 反证与生成器一致。
+
+**随本次集成完成的清理**：
+
+1. **develop 线死文件**：`packages/client/ui-conversation/src/client/file-sniff.ts` 与其 spec 删除。v 系列早已把 `sniffIsText`/`partitionDroppedFiles` 搬到 `packages/client/ui-primitives`，ui-conversation 的 client 出口不再重导出、无任何相对导入到达它，只剩自己的测试文件当读者。连带修 `2026-08-28-file-attachment-composer-intake` 这条 Agent Note 中英两侧的过期路径与出口描述（`verify-package-paths` 因删除而报红，是它把过期引用逼了出来）。
+2. **上游抑制注释还原**：`packages/experimental/webworker-runtime/src/node/builtin_modules/implemented/stream.ts` 的 `/* oxlint-enable typescript/unbound-method */` 被 develop 线 `e883dc2354` 丢掉，导致该文件第 35 行以下所有 unbound-method 长期不受检；逐字节从 `upstream/master` 取回原位，文件重新与上游一致。
+3. **feedback 两场景**：见上文 `a426a88c90` 条目的「副作用与处置」。
+
+**`pnpm run duplication` 现状：4 → 3**（file-sniff 那一份重复随删除消失）。剩下三处**全在补丁线我方 hunk 内，本轮不修，登记为补丁线技术债**：`api/session-controller/src/commands.ts` 两对（`[353:86-367:16]`↔`[394:68-408:16]` 15 行 76 token；`[589:23-596:17]`↔`[643:22-650:17]` 8 行 62 token）与 `client/ui-attachment/src/FileChip.tsx [111:57-123:8]` 复制 `AttachmentRail.tsx [176:21-188:8]` 的 13 行 65 token。该门禁在 develop 顶端同样红（当时 4 处），**不是本次集成引入**；抽取动作排到下一次滚动同步，抽完两边一起过门。
