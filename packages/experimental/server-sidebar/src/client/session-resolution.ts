@@ -21,7 +21,7 @@
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import type { WorkspaceId } from '@deepseek-ai/dsh-api-workspace-controller/client'
+import type { WorkspaceView } from '@deepseek-ai/dsh-api-workspace-controller/client'
 
 /** Options for {@link resolveOrCreateSession}. */
 export interface ResolveSessionOptions {
@@ -50,7 +50,7 @@ export async function resolveOrCreateSession(ctx: ClientContext, options: Resolv
     const current = ctx.sessions.list.getSnapshot().current
     if (current !== undefined) return current
   }
-  const target = recentWorkspaceId(ctx)
+  const target = recentWorkspace(ctx)
   if (target === undefined) {
     console.warn(options.onNoWorkspace)
     return undefined
@@ -64,14 +64,18 @@ export async function resolveOrCreateSession(ctx: ClientContext, options: Resolv
  * The Workspace whose sessions were touched most recently, ties broken by
  * Host Workspace order, or `undefined` before either baseline settles and in a
  * deployment with no Workspace at all.
+ *
+ * Returns the row rather than its id so {@link connectWorkspace} reads the one
+ * snapshot this decision was made against: re-reading would let the list change
+ * underneath and reintroduce a not-found case that cannot be answered.
  * @param ctx - client root context (sessions, workspaces).
  * @returns the target Workspace for a new session.
  */
-function recentWorkspaceId(ctx: ClientContext): WorkspaceId | undefined {
+function recentWorkspace(ctx: ClientContext): WorkspaceView | undefined {
   const workspaces = ctx.workspaces.list.getSnapshot()
   const sessions = ctx.sessions.list.getSnapshot()
   if (workspaces.phase !== 'ready' || sessions.phase !== 'ready') return undefined
-  let selected: WorkspaceId | undefined
+  let selected: WorkspaceView | undefined
   let selectedTime = Number.NEGATIVE_INFINITY
   for (const workspace of workspaces.items) {
     let latest = Number.NEGATIVE_INFINITY
@@ -81,7 +85,7 @@ function recentWorkspaceId(ctx: ClientContext): WorkspaceId | undefined {
     }
     if (latest === Number.NEGATIVE_INFINITY) latest = Date.parse(workspace.createdAt)
     if (selected === undefined || latest > selectedTime) {
-      selected = workspace.workspaceId
+      selected = workspace
       selectedTime = latest
     }
   }
@@ -91,20 +95,17 @@ function recentWorkspaceId(ctx: ClientContext): WorkspaceId | undefined {
 /**
  * Reuse this Workspace's unarchived blank session, or create one.
  * @param ctx - client root context (sessions, workspaces).
- * @param workspaceId - Workspace to connect to.
+ * @param workspace - Workspace to connect to, from {@link recentWorkspace}.
  * @returns a session addressable through the Session Controller.
  */
-async function connectWorkspace(ctx: ClientContext, workspaceId: WorkspaceId): Promise<SessionId> {
-  const workspaces = ctx.workspaces.list.getSnapshot()
-  const workspace = workspaces.items.find(item => item.workspaceId === workspaceId)
+async function connectWorkspace(ctx: ClientContext, workspace: WorkspaceView): Promise<SessionId> {
+  const { archivedSessionIds } = ctx.workspaces.list.getSnapshot()
   const sessions = ctx.sessions.list.getSnapshot()
-  if (workspace !== undefined) {
-    for (const id of sessions.ids) {
-      const summary = sessions.byId[id]
-      if (summary !== undefined && summary.blank && summary.cwd === workspace.path
-        && workspace.sessionIds.includes(summary.id)
-        && !workspaces.archivedSessionIds.includes(summary.id)) return summary.id
-    }
+  for (const id of sessions.ids) {
+    const summary = sessions.byId[id]
+    if (summary !== undefined && summary.blank && summary.cwd === workspace.path
+      && workspace.sessionIds.includes(summary.id)
+      && !archivedSessionIds.includes(summary.id)) return summary.id
   }
-  return ctx.sessions.create({ workspaceId })
+  return ctx.sessions.create({ workspaceId: workspace.workspaceId })
 }
