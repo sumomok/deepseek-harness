@@ -1262,12 +1262,11 @@ describe('widgets built out of several elements', () => {
       .toBe(['e1 menu "视图"', '  e2 menuitemradio [ ]', '    e3 img "按名称" (menuitem)'].join('\n'))
   })
 
-  it('opens a room over a node only where reading it prints something', () => {
-    // What a room shows is decided by reading the node rather than by counting
-    // what could earn a row: a picture the page marks as decoration is counted
-    // by its tag and read straight through, and a room opened on that count
-    // stands empty — the node losing the tree it sits in and the count the tree
-    // reports.
+  it('prints a room that shows nothing as the row the node would have printed', () => {
+    // A picture the page marks as decoration is read straight through, so a
+    // room over a node drawn out of one shows nothing at all. Standing empty
+    // would cost the node the tree it sits in and the count the tree reports,
+    // so the listing prints the row the room stands in for instead.
     const decorated = page('<div role="tree" aria-label="组织"><div role="treeitem"><img alt="图" role="none"></div></div>')
     expect(read(decorated).text).toBe(['e1 tree "组织"', '  e2 treeitem (in tree "组织")'].join('\n'))
     expect(read(decorated, { mode: 'map' }).text).toBe('e1 tree "组织"  1 items')
@@ -1275,6 +1274,71 @@ describe('widgets built out of several elements', () => {
     const drawn = page('<div role="tree" aria-label="组织"><div role="treeitem"><img alt="图"></div></div>')
     expect(read(drawn).text).toBe(['e1 tree "组织"', '  e2 treeitem', '    e3 img "图" (treeitem)'].join('\n'))
     expect(read(drawn, { mode: 'map' }).text).toBe(['e1 tree "组织"', '  e2 treeitem  1 texts'].join('\n'))
+    // A node the page named is a room over the group it holds, and that group
+    // can hold nothing a read prints: the name changes nothing about which of
+    // the two the node reads as.
+    const named = page(`
+      <div role="tree" aria-label="组织">
+        <div role="treeitem" aria-label="华北"><div role="group"><img alt="图" role="none"></div></div>
+      </div>`)
+    expect(read(named).text).toBe(['e1 tree "组织"', '  e2 treeitem "华北" (in tree "组织")'].join('\n'))
+    expect(read(named, { mode: 'map' }).text).toBe('e1 tree "组织"  1 items')
+  })
+
+  it('prints a node as a row when the only thing under it repeats something already read', () => {
+    // The one button this node holds is drawn over the button beside the tree,
+    // which the read has already printed. What is left is a room with nothing
+    // in it, and the node reads as the row it prints anywhere else.
+    const node = (rect: string): string => `
+      <button data-rect="0,0,80,24">确定</button>
+      <div role="tree" aria-label="组织"><div role="treeitem"><button data-rect="${rect}">确定</button></div></div>`
+    const copy = page(node('0,0,80,24'))
+    expect(read(copy).text).toBe(['e1 button "确定"', 'e2 tree "组织"', '  e3 treeitem (in tree "组织")'].join('\n'))
+    expect(read(copy, { mode: 'map' }).text).toBe('e2 tree "组织"  1 items')
+    // Drawn somewhere else it is a second button, and the node is a room over it.
+    const apart = page(node('0,80,80,24'))
+    expect(read(apart).text).toBe([
+      'e1 button "确定"',
+      'e2 tree "组织"',
+      '  e3 treeitem',
+      '    e4 button "确定" (treeitem)',
+    ].join('\n'))
+    expect(read(apart, { mode: 'map' }).text).toBe(['e2 tree "组织"', '  e3 treeitem  1 buttons'].join('\n'))
+  })
+
+  it('maps a node holding only a closed dialog as a room, and lists it as a row', () => {
+    // A dialog the page has not opened is a row of the skeleton and of no other
+    // read, so a node holding one is a region to map and one row to list. Which
+    // it is, is the listing's answer rather than the walk's: an outline that
+    // printed the room would print it empty, and the node would lose the tree
+    // it sits in.
+    const refs = page(`
+      <div role="tree" aria-label="组织">
+        <div role="treeitem"><div role="dialog" aria-label="导入" data-hidden><button>确定</button></div></div>
+      </div>`)
+    expect(read(refs).text).toBe(['e1 tree "组织"', '  e2 treeitem (in tree "组织")'].join('\n'))
+    expect(read(refs, { mode: 'map' }).text).toBe([
+      'e1 tree "组织"',
+      '  e2 treeitem',
+      '    e3 dialog "导入"  hidden',
+    ].join('\n'))
+  })
+
+  it('reads a page of nested unnamed nodes once each, however deep the page nests them', () => {
+    // Every node here is named by a picture the page marks as decoration, so
+    // each is a room over the node inside it. Reading a subtree to decide
+    // whether to open the room above it would read the deepest node once per
+    // level over it, and the page would cost twice as much for every two levels
+    // the page adds.
+    let inside = '<img alt="叶">'
+    for (let level = 0; level < 16; level += 1) inside = `<div role="treeitem"><img alt="" role="none">${inside}</div>`
+    const refs = page(`<div role="tree" aria-label="组织">${inside}</div>`)
+    const started = performance.now()
+    const snap = read(refs, { budgetChars: 40_000 })
+    // Far above what the read costs, so a loaded machine fails nothing.
+    expect(performance.now() - started).toBeLessThan(1000)
+    expect(snap.total).toBe(18)
+    expect(snap.text.split('\n').at(-1)).toBe(`${'  '.repeat(17)}e18 img "叶" (treeitem)`)
   })
 
   it('offers what a page makes clickable inside an unnamed node, and never inside a named one', () => {
@@ -1674,14 +1738,18 @@ describe('controls', () => {
     expect(read(page('<div role="combobox" aria-label="站点"><select aria-label="选择"><option selected>东风</option></select></div>')).text)
       .toBe('e1 combobox "站点" = "东风"')
     // A region the control holds is the exception: the list a combobox drops
-    // down is what it offers rather than what it holds, and its options are
-    // rows of that region for a read that asks for it.
+    // down is what it offers rather than what it holds. Nothing then reads it —
+    // the control's row ends the descent, so the region is never numbered and
+    // no read can name it — and the value it is kept out of is the smaller of
+    // the two faults.
     const dropped = page(`
       <div role="combobox" aria-label="站点">
         <span>东风</span>
         <div role="listbox"><div role="option">东风</div><div role="option">朝阳</div></div>
       </div>`)
     expect(read(dropped).text).toBe('e1 combobox "站点" = "东风"')
+    expect(read(dropped, { find: '朝阳' }).text).toBe('No item matches "朝阳" — try a shorter word, or read without find.')
+    expect(read(dropped, { mode: 'map' }).text).toBe('(the page has no containers to map — read it without mode)')
     const inline = page(`
       <div role="combobox" aria-label="站点"><span role="button">东风 ×</span>关键词
         <div role="listbox" aria-label="下拉"><div role="option">朝阳</div><div role="option">海淀</div></div>
@@ -1691,8 +1759,10 @@ describe('controls', () => {
 
   it('reads a control that is itself a region as a region, wherever a row prints it', () => {
     // A listbox drawn in a table cell is named there rather than read into, and
-    // the options it holds are its region's rows: reporting them as its value
-    // would print the whole list on the sample line of the table.
+    // the options it holds are its region's rows for a read that scopes to it:
+    // the cell numbers the control, which is where a page draws a list a read
+    // can still reach. Reporting them as its value would print the whole list
+    // on the sample line of the table.
     const refs = page(`
       <table>
         <thead><tr><th>名称</th><th>站点</th></tr></thead>
@@ -1728,17 +1798,42 @@ describe('controls', () => {
     expect(read(page(chips('甲', '乙', '丙'))).text).toBe('e1 combobox "站点"')
   })
 
-  it('takes a control drawing nothing but a zero-width character as drawing nothing', () => {
+  it('leaves the table a control holds out of the value, and a table the page marks as layout in', () => {
+    // A table is data, and a read reports a table by its shape rather than by
+    // its contents wherever it is drawn: emptying one into the value of the
+    // control around it says the whole of what the read is not for.
+    const inside = (table: string): string =>
+      `<div role="textbox" contenteditable aria-label="备注">${table}</div>`
+    expect(read(page(inside(`
+      <table><thead><tr><th>名称</th><th>标识</th></tr></thead>
+      <tbody><tr><td>东风</td><td>P-0001</td></tr><tr><td>朝阳</td><td>P-0002</td></tr></tbody></table>`))).text)
+      .toBe('e1 textbox "备注"')
+    expect(read(page(inside(`
+      <div role="grid"><div role="row"><div role="gridcell">东风</div></div>
+      <div role="row"><div role="gridcell">朝阳</div></div></div>`))).text)
+      .toBe('e1 textbox "备注"')
+    // A table the page marks as layout is the page's own arrangement rather
+    // than a table, and what a bar draws in one is what the bar reports.
+    expect(read(page('<div role="progressbar" aria-label="上传" aria-valuenow="25"><table role="none"><tr><td>70%</td></tr></table></div>')).text)
+      .toBe('e1 progressbar "上传" = "70%"')
+  })
+
+  it('takes a control drawing nothing but a format code point as drawing nothing', () => {
     // A page that keeps a bar's own text empty writes a zero-width space into
     // it to hold the line open. No browser draws one, and a value of `""` in
-    // place of the number the page wrote says the bar reports nothing.
-    expect(read(page('<div role="progressbar" aria-label="上传" aria-valuenow="25">&#8203;</div>')).text)
-      .toBe('e1 progressbar "上传" = "25"')
-    expect(read(page('<div role="progressbar" aria-label="上传" aria-valuenow="25">&#65279; &#8288;</div>')).text)
-      .toBe('e1 progressbar "上传" = "25"')
-    // A character the reader can see is still a value, zero-width or not.
-    expect(read(page('<div role="progressbar" aria-label="上传" aria-valuenow="25">&#8203;70%</div>')).text)
-      .toBe('e1 progressbar "上传" = "​70%"')
+    // place of the number the page wrote says the bar reports nothing. The rest
+    // of Unicode's format category answers the same way: a left-to-right mark,
+    // an Arabic letter mark, a Mongolian vowel separator, and a soft hyphen each
+    // arrange text that is not there.
+    const bar = (drawn: string): string =>
+      `<div role="progressbar" aria-label="上传" aria-valuenow="25">${drawn}</div>`
+    for (const drawn of ['&#8203;', '&#65279; &#8288;', '&#8206;', '&#1564;', '&#6158;', '&#173;']) {
+      expect(read(page(bar(drawn))).text).toBe('e1 progressbar "上传" = "25"')
+    }
+    // A character the reader can see is still a value, zero-width or not, and a
+    // code point a font draws as blank is one a page has drawn.
+    expect(read(page(bar('&#8203;70%'))).text).toBe('e1 progressbar "上传" = "​70%"')
+    expect(read(page(bar('&#10240;'))).text).toBe('e1 progressbar "上传" = "⠀"')
   })
 
   it('reads the text a field draws as the value it holds, where the page keeps it nowhere else', () => {
@@ -2402,6 +2497,47 @@ describe('a table drawn in two pieces', () => {
     ].join('\n'))
   })
 
+  it('lends the header to the layout table the page drew between the halves and contradicted', () => {
+    const halves = (between: string): string => `
+      <section aria-label="站点">
+        <table><thead><tr><th>名称</th><th>标识</th></tr></thead></table>
+        ${between}
+        <table><tbody><tr><td>东风站</td><td>P-0001</td></tr></tbody></table>
+      </section>`
+    // Alone, the two halves are one table and the header reaches the body.
+    expect(read(page(halves(''))).text.split('\n').slice(1)).toEqual([
+      '  e2 table 1 rows × 2 cols',
+      '    header: 名称 | 标识',
+      '    sample: 东风站 | P-0001',
+      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ])
+    // A table the page marks as layout and then makes focusable is a table
+    // again, by the conflict ARIA resolves in favour of what the page offers.
+    // It is the table beside each half, so the header half lends its header to
+    // the layout table and the body half is left with none.
+    const contradicted = '<table role="presentation" tabindex="0"><tbody><tr><td>布局</td></tr></tbody></table>'
+    expect(read(page(halves(contradicted))).text.split('\n').slice(1)).toEqual([
+      '  e2 table 1 rows × 2 cols',
+      '    header: 名称 | 标识',
+      '    sample: 布局',
+      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+      '  e3 table 1 rows × 2 cols',
+      '    sample: 东风站 | P-0001',
+      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ])
+    // Uncontradicted, the same table is read through, and the text it draws
+    // separates the halves like any other text drawn between them.
+    expect(read(page(halves('<table role="presentation"><tbody><tr><td>布局</td></tr></tbody></table>'))).text.split('\n').slice(1))
+      .toEqual([
+        '  e2 table 0 rows × 2 cols',
+        '    header: 名称 | 标识',
+        '  text "布局" (in section "站点")',
+        '  e3 table 1 rows × 2 cols',
+        '    sample: 东风站 | P-0001',
+        "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+      ])
+  })
+
   it('lends no header to a table drawn inside another table', () => {
     const refs = page(`
       <table>
@@ -2509,6 +2645,22 @@ describe('the same thing drawn twice', () => {
   it('drops a control the page draws twice over the same spot', () => {
     const refs = page('<button data-rect="0,0,80,30">保存</button><button data-rect="0,0,80,30">保存</button>')
     expect(read(refs).text).toBe('e1 button "保存"')
+  })
+
+  it('tells two node roles apart where the page draws them over each other', () => {
+    // A room over a node claims the role the page wrote, which is what its row
+    // prints: a checkable menu item and a plain one are two things the reader
+    // is told apart, however the page draws them.
+    const refs = page(`
+      <div role="menu" aria-label="视图">
+        <div role="menuitemcheckbox" aria-checked="true" data-rect="0,0,80,24"><img alt="" role="none"></div>
+        <div role="menuitem" data-rect="0,0,80,24"><img alt="" role="none"></div>
+      </div>`)
+    expect(read(refs).text).toBe([
+      'e1 menu "视图"',
+      '  e2 menuitemcheckbox [x] (in menu "视图")',
+      '  e3 menuitem (in menu "视图")',
+    ].join('\n'))
   })
 
   it('drops a cell a pinned column repeats inside one table', () => {

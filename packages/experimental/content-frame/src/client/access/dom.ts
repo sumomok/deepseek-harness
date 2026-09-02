@@ -205,18 +205,22 @@ const OVERLAP_SHARE = 0.8
 const SEPARATOR = /^[/>›»|:·•\-–—]+$/
 
 /**
- * The code points a page writes to control how a line breaks or joins rather
- * than to put a character on the screen: the zero-width space, the two joiners
- * either side of it, the word joiner, and a byte order mark left in the text.
- * A browser draws none of them, and `\s` matches none of them, so a control
- * holding one reads as a control drawing text until they are taken out.
+ * The code points a page writes to control how text breaks, joins, or runs
+ * rather than to put a character on the screen: the zero-width space, the
+ * joiners either side of it, the word joiner, a byte order mark left in the
+ * text, the marks that set a direction, and the soft hyphen. Unicode's format
+ * category is the whole of them, and none of them puts ink on the page.
  *
- * The set is the format code points a page writes into its own text. The
- * bidirectional marks and the deprecated formatting characters are left out:
- * they carry no width either, and a page writing one is arranging text that is
- * there rather than drawing nothing at all.
+ * They are taken out to decide whether text draws anything and nowhere else:
+ * text a read prints keeps every code point the page wrote. A browser draws none
+ * of these and `\s` matches none of them, so a control holding one reads as a
+ * control drawing text until they are taken out — the direction mark alone
+ * inside a bar would stand in front of the number the page wrote for it.
+ *
+ * A code point a font draws as blank is not one of them. A braille space is a
+ * character with a glyph, and a page writing one has drawn it.
  */
-const FORMAT_CHARS = /[\u200B-\u200D\u2060\uFEFF]/gu
+const FORMAT_CHARS = /\p{Cf}/gu
 
 /**
  * Collapse every run of whitespace to one space and trim the ends.

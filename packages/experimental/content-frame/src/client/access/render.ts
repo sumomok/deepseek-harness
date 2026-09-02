@@ -316,6 +316,65 @@ function containerMapLine(item: ContainerItem, items: readonly Item[]): string {
 }
 
 /**
+ * True when a listing has somewhere to put an item: a row of its own, or one of
+ * the counts on the row above it. A skeleton has somewhere for every item — what
+ * it does not print it counts — and a listing of the page leaves out the dialogs
+ * the page has not opened, which the model reads on a skeleton and nowhere else.
+ * @param item - the collected item.
+ * @param mode - which listing is being rendered.
+ * @returns whether this listing shows the item.
+ */
+function printsIn(item: Item, mode: SnapshotMode): boolean {
+  return mode === 'map' || item.kind !== 'container' || !item.closed
+}
+
+/**
+ * The row a room stands in for: the node it was opened over, printed as the row
+ * the walk would have printed for that node. A room says everything that row
+ * says, so the two differ in the region the row names at its end and in nothing
+ * else.
+ * @param room - the room to print as one row.
+ * @param node - the node the room was opened over.
+ * @returns the element row.
+ */
+function roomRow(room: ContainerItem, node: ControlFace): ElementItem {
+  return {
+    kind: 'element',
+    el: room.el,
+    ref: room.ref,
+    name: room.name,
+    ...node,
+    container: room.container,
+    depth: room.depth,
+  }
+}
+
+/**
+ * The items one listing prints, with every room that turns out to show nothing
+ * printed as the row it stands in for. A room over a tree node or a menu item is
+ * opened wherever the node holds anything at all, because what the room will
+ * show is what the walk is about to read; whether any of it reaches this listing
+ * is known here and nowhere earlier. An empty room would cost its node both the
+ * region the node sits in and the count that region reports.
+ *
+ * The two listings disagree over one thing, so a node can be a room on the
+ * skeleton and a row of the listing: a page that keeps a closed dialog inside a
+ * tree node has a region to map and nothing to list there.
+ * @param items - every collected item.
+ * @param mode - which listing is being rendered.
+ * @returns the items, rooms resolved.
+ */
+function printedItems(items: readonly Item[], mode: SnapshotMode): Item[] {
+  const filled = new Set<ContainerItem>()
+  for (const item of items) {
+    if (item.container !== undefined && printsIn(item, mode)) filled.add(item.container)
+  }
+  return items.map(item => (item.kind === 'container' && item.node !== undefined && !filled.has(item)
+    ? roomRow(item, item.node)
+    : item))
+}
+
+/**
  * One item as an outline prints it.
  * @param item - the item to render.
  * @param refs - the page's numbering.
@@ -711,21 +770,22 @@ export function render(items: readonly Item[], options: SnapshotOptions, scope: 
     if (find !== undefined) {
       throw new Error('find cannot be combined with mode "map" — read the map first, then find within a scope')
     }
-    const skeleton = mapEntries(items, refs)
+    const skeleton = mapEntries(printedItems(items, 'map'), refs)
     if (skeleton.length === 0) {
       return { kind: 'map', text: NOTHING_TO_MAP, truncated: false, shown: 0, total: 0, cursor: undefined }
     }
     return resume('map', skeleton, options)
   }
+  const listed = printedItems(items, 'outline')
   if (find !== undefined) {
-    const found = findEntries(items, find, refs)
+    const found = findEntries(listed, find, refs)
     if (found.length === 0) {
       const text = `No item matches "${find}" — try a shorter word, or read without find.`
       return { kind: 'outline', text, truncated: false, shown: 0, total: 0, cursor: undefined }
     }
     return resume('outline', found, options)
   }
-  const entries = outlineEntries(items, scope, refs)
+  const entries = outlineEntries(listed, scope, refs)
   if (entries.length === 0) {
     const text = options.scope === undefined ? NOTHING_TO_READ : nothingInside(options.scope)
     return { kind: 'outline', text, truncated: false, shown: 0, total: 0, cursor: undefined }
@@ -736,15 +796,18 @@ export function render(items: readonly Item[], options: SnapshotOptions, scope: 
   if (!listing.truncated || !wholePage) return listing
   // A skeleton is only worth answering with when it says where to read next: a
   // page whose regions hold nothing directly has no room to point at, and its
-  // rows, cut short, carry more than a map of empty rooms.
-  const largest = largestContainer(items)
+  // rows, cut short, carry more than a map of empty rooms. What the skeleton
+  // holds is measured on the skeleton's own items, which resolve one room the
+  // listing resolved the other way.
+  const mapped = printedItems(items, 'map')
+  const largest = largestContainer(mapped)
   // A page with more rows outside its regions than in the largest of them is
   // the same case: the skeleton would leave the reader nowhere to find them.
-  if (largest === undefined || looseCount(items) > largest.size) return listing
+  if (largest === undefined || looseCount(mapped) > largest.size) return listing
   // The listing the skeleton stands in for reaches nobody, and neither do the
   // numbers it minted.
   refs.rollback(mark)
   // However much of the skeleton fits, it stands in for a listing that did not,
   // so the read is short of what it collected either way.
-  return { ...assemble('map', mapEntries(items, refs), budgetChars, scopeHint(largest.ref), refs), truncated: true }
+  return { ...assemble('map', mapEntries(mapped, refs), budgetChars, scopeHint(largest.ref), refs), truncated: true }
 }
