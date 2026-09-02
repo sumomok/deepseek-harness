@@ -493,10 +493,15 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
     // to the production OTLP endpoint (or whatever DSH_TELEMETRY_OTLP_URL
     // names in the ambient environment). A scenario that pins a real backend
     // disclosure passes a local dead endpoint instead of disabling the row.
+    // This fork ships the row off (packages/bundle/base/cordis.patch.yml), so
+    // pinning an endpoint also has to turn it back on: the scenarios that
+    // cover the telemetry disclosure and the feedback-gated release are about
+    // the row's own behavior, not about whether it is mounted by default.
     options.telemetryUrl === undefined
       ? { id: 'session-telemetry-otel', disabled: true }
       : {
         id: 'session-telemetry-otel',
+        disabled: false,
         config: {
           mode: options.telemetryMode ?? 'FULL',
           exporter: { url: options.telemetryUrl },
