@@ -97,13 +97,16 @@ function mountFrame(occupied: readonly string[] = [], contentEntries: ContentFix
     calls.push({ key, owner })
     return occupied.includes(key) ? <div data-testid={`${key}-occupant`} /> : opts?.fallback ?? null
   }
-  // The frame reads five of its seats; the rest of the composed share is
+  // The frame reads six of its seats; the rest of the composed share is
   // framework-supplied and never touched, so the bench supplies only these.
+  // The renderer injects `SessionProvider`; this bench renders its children
+  // straight through, because no assertion here turns on the scope binding.
   const props = {
     useStore: hookOf(instance),
     useSessions: useSessionsStub(contentEntries),
     actions: instance.actions,
     renderSlot,
+    SessionProvider: ({ children }: { children?: ReactNode }) => <>{children}</>,
     t: makeTranslate(zh),
   } as unknown as ShellFrameProps
   const view = render(<ShellFrame {...props} />)

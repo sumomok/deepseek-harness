@@ -40,7 +40,7 @@ import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type Web
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
 const SHELL_PACKAGE = '@deepseek-ai/dsh-experimental-server-layout'
 const SHELL_DIR = join(REPO_ROOT, 'packages/experimental/server-layout')
 const OVERLAY = join(SHELL_DIR, 'overlay/three-column.patch.yml')
@@ -60,7 +60,8 @@ const TOLERANCE = 0.02
 /** English copy of this shell's dictionary; the page advertises en-US. */
 const PLACEHOLDER_TITLE = 'Content column is empty'
 /** The composer's own English placeholder — the chat column's landmark. */
-const COMPOSER_PLACEHOLDER = 'Message the agent'
+/** The composer's own stable attribute; its placeholder copy is not a locator. */
+const COMPOSER = '[data-composer-input]'
 
 /**
  * Prepare a harness home whose profile fallback resolves every named
@@ -101,7 +102,7 @@ async function openFirstSession(page: Page): Promise<void> {
   const row = page.locator('[role="treeitem"]').nth(1)
   await row.waitFor({ timeout: 15_000 })
   await row.click()
-  await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
 }
 
 describe.skipIf(MODE === 'record')('web e2e: service-line three-column shell', () => {
@@ -123,7 +124,7 @@ describe.skipIf(MODE === 'record')('web e2e: service-line three-column shell', (
     page.on('console', (message: ConsoleMessage) => {
       if (message.type() === 'error') consoleErrors.push(message.text())
     })
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await column(page, 'content').waitFor({ state: 'attached', timeout: 30_000 })
     await openFirstSession(page)
   }, 180_000)
@@ -171,7 +172,7 @@ describe.skipIf(MODE === 'record')('web e2e: service-line three-column shell', (
   it('keeps the session list in the left column and the composer in the right one', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-layout-occupants'))
     await expectInsideColumn(page.locator('[role="treeitem"]').first(), 'session', page)
-    await expectInsideColumn(page.getByPlaceholder(COMPOSER_PLACEHOLDER), 'chat', page)
+    await expectInsideColumn(page.locator(COMPOSER).first(), 'chat', page)
   }, 90_000)
 
   it('keeps its own empty-state body mounted in the unclaimed content column even though the column itself is collapsed', async () => {
@@ -215,7 +216,7 @@ describe.skipIf(MODE === 'record')('web e2e: service-line shell with a populated
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await column(page, 'content').waitFor({ state: 'attached', timeout: 30_000 })
     await openFirstSession(page)
 

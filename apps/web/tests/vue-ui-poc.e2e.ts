@@ -25,7 +25,7 @@ import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type Web
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
 const OVERLAY = join(REPO_ROOT, 'packages/experimental/vue-ui-poc/tests/vue-ui-poc.overlay.yml')
 const PROBE_PACKAGE = '@deepseek-ai/dsh-experimental-vue-ui-poc'
 const PROBE_DIR = join(REPO_ROOT, 'packages/experimental/vue-ui-poc')
@@ -80,7 +80,7 @@ describe.skipIf(MODE === 'record')('web e2e: Vue component in a React slot', () 
     page.on('console', (message: ConsoleMessage) => {
       if (message.type() === 'error') consoleErrors.push(message.text())
     })
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 30_000 })
     // The workspace group row precedes its sessions; expanding it lists them.
     await page.locator('[role="treeitem"]').first().click()

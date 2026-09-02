@@ -44,7 +44,7 @@ import { acknowledgeReloadConnectionLoss, launchWebScaffold, seedSession, watchC
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 const SURFACE_DIR = join(REPO_ROOT, 'packages/experimental/content-surface')
 const COLUMN_DIR = join(REPO_ROOT, 'packages/experimental/content-column')
@@ -69,7 +69,8 @@ const MIXED_SESSION = 'content-surface-web-e2e-mixed'
 const PAGE_SESSION = 'content-surface-web-e2e-page'
 
 /** The composer's own English placeholder — the signal that a session is open. */
-const COMPOSER_PLACEHOLDER = 'Message the agent'
+/** The composer's own stable attribute; its placeholder copy is not a locator. */
+const COMPOSER = '[data-composer-input]'
 
 /** Attribute the spec stamps on a live iframe element. */
 const PROBE_ATTRIBUTE = 'data-dsh-probe'
@@ -179,7 +180,7 @@ async function openSession(page: Page, index: number): Promise<void> {
   const row = page.locator('[role="treeitem"]').nth(index)
   await row.waitFor({ timeout: 15_000 })
   await row.click()
-  await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
 }
 
 /** Select one switcher entry and wait for its seat to take the column. */
@@ -299,7 +300,7 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
       const posted = JSON.parse(request.postData() ?? '{}') as { callId?: string }
       if (posted.callId !== undefined) reported.add(posted.callId)
     })
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     // No session is open yet, so the shell's content-empty collapse (see
     // `dsh-experimental-server-layout`'s `ShellFrame.tsx`) holds the column at
     // zero width here; only its presence in the DOM is asserted.

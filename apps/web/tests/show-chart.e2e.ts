@@ -41,7 +41,7 @@ import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type Web
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
 const TOOL_DIR = join(REPO_ROOT, 'packages/experimental/vue2-echarts-tool-poc')
 const OFFICIAL_OVERLAY = join(TOOL_DIR, 'overlay/show-chart.patch.yml')
 const THREE_COLUMN_OVERLAY = join(TOOL_DIR, 'overlay/show-chart-three-column.patch.yml')
@@ -59,7 +59,8 @@ const ROWS = [
 const ARTIFACTS = join(REPO_ROOT, '.artifacts')
 
 /** The composer's own English placeholder — the signal that a session is open. */
-const COMPOSER_PLACEHOLDER = 'Message the agent'
+/** The composer's own stable attribute; its placeholder copy is not a locator. */
+const COMPOSER = '[data-composer-input]'
 
 /** The four seeded calls, by call id and caption. */
 const BAR_CALL = 'call_00_chart_bar'
@@ -219,13 +220,13 @@ async function openWorld(overlayPath: string, sessionId: string): Promise<World>
   page.on('console', (message: ConsoleMessage) => {
     if (message.type() === 'error') consoleErrors.push(message.text())
   })
-  await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+  await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
   // The workspace group row precedes its sessions; expanding it lists them.
   await page.locator('[role="treeitem"]').first().click()
   const row = page.locator('[role="treeitem"]').nth(1)
   await row.waitFor({ timeout: 15_000 })
   await row.click()
-  await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
   return { scaffold, browser, page, harnessHome, tripwire, consoleErrors }
 }
 

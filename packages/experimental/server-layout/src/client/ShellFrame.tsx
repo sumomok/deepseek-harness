@@ -56,7 +56,7 @@ function currentContentEmpty(state: { byId: Record<string, { projectionValues?: 
  * @param props - the composed slot props.
  * @returns the frame element.
  */
-export function ShellFrame({ useStore, useSessions, renderSlot, t }: ShellFrameProps) {
+export function ShellFrame({ useStore, useSessions, renderSlot, SessionProvider, t }: ShellFrameProps) {
   const panels = useStore(s => s)
   const contentEmpty = useSessions(currentContentEmpty)
   const frameRef = useRef<HTMLDivElement | null>(null)
@@ -100,9 +100,13 @@ export function ShellFrame({ useStore, useSessions, renderSlot, t }: ShellFrameP
       <div className={css.chatCol} data-shell-column="chat">
         {renderSlot('conversation', {})}
       </div>
-      {/* Zero width keeps the details subtree mounted across close/open. */}
+      {/* Zero width keeps the details subtree mounted across close/open.
+          `details` is strict session scope, so the renderer requires the
+          standard-kit SessionProvider seat around it: the provider withholds
+          the entry while no session is current, rather than rendering it
+          without a scope binding. */}
       <div className={css.detailsCol} data-shell-column="details">
-        {renderSlot('details', {})}
+        <SessionProvider>{renderSlot('details', {})}</SessionProvider>
       </div>
       <div className={css.overlayLayer} data-shell-overlay>
         {renderSlot('shell.overlay', {})}
