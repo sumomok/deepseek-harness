@@ -487,6 +487,17 @@ describe('what stops a call', () => {
     expect(outcome.text).toContain('fill "密码" ← (hidden)')
     expect(outcome.text).not.toContain('hunter2')
   })
+
+  it('withholds the value of a box the page is showing the password in', async () => {
+    // A show/hide toggle makes it a `text` box; `autocomplete` is where the
+    // page still says what it holds, and the value is a credential either way.
+    mount('<main><label for="pass">密码</label>'
+      + '<input id="pass" type="text" autocomplete="current-password"></main>')
+    const outcome = await run([{ action: 'fill', ref: ref('#pass'), label: '密码', text: 'hunter2' }])
+    expect((at('#pass') as HTMLInputElement).value).toBe('hunter2')
+    expect(outcome.text).toContain('fill "密码" ← (hidden)')
+    expect(outcome.text).not.toContain('hunter2')
+  })
 })
 
 describe('what the page did on its own', () => {

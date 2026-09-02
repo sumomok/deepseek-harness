@@ -322,11 +322,19 @@ export function queryInOrder(root: ParentNode, selector: string): Element[] {
 
 /**
  * True for a password box, whose value never leaves the page.
+ *
+ * The type is not the only way a page says so: a box with its own show/hide
+ * toggle is a `text` box while the password is showing, and what it holds is
+ * declared in `autocomplete` instead — `current-password` or `new-password`.
+ * Both are read, because what the rule protects is the credential, not the
+ * attribute.
  * @param el - the element to classify.
  * @returns whether the element is a password box.
  */
 export function isPassword(el: Element): boolean {
-  return el.localName === 'input' && el.getAttribute('type')?.toLowerCase() === 'password'
+  if (el.localName !== 'input') return false
+  if (el.getAttribute('type')?.toLowerCase() === 'password') return true
+  return el.getAttribute('autocomplete')?.toLowerCase().includes('password') ?? false
 }
 
 /**

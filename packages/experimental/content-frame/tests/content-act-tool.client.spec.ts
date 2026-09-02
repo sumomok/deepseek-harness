@@ -300,6 +300,9 @@ describe('what content_act refuses before anyone is asked', () => {
       [[{ action: 'select', ref: 'e6', label: '站点' }], 'content_act step 1: a "select" step needs value, the option\'s visible text'],
       [[{ action: 'press', ref: 'e4', label: '名称' }], 'content_act step 1: a "press" step needs key, such as "Enter"'],
       [[{ action: 'wait' }], 'content_act step 1: a "wait" step needs text, the words to wait for'],
+      // The same refusal for the empty string, which every page's visible text
+      // contains: the step would answer at once having waited for nothing.
+      [[{ action: 'wait', text: '' }], 'content_act step 1: a "wait" step needs text, the words to wait for'],
       [[{ action: 'fill', ref: 'e4', label: '名称', text: 'x'.repeat(1001) }], 'content_act step 1: text must be at most 1000 characters'],
       [[{ action: 'select', ref: 'e6', label: '站点', value: 'x'.repeat(1001) }], 'content_act step 1: value must be at most 1000 characters'],
       [[{ action: 'press', ref: 'e4', label: '名称', key: 'x'.repeat(33) }], 'content_act step 1: key must be at most 32 characters'],

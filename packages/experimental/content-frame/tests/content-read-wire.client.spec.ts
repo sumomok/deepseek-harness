@@ -12,8 +12,9 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  isActOutcome, MAX_ACT_STEPS, MAX_BUSY_NAMES, MAX_NAME_CHARS, parseActArgs, parseChannelReport,
-  parseClaimRequest, sanitize, type ActOutcome, type ReadOutcome,
+  isActOutcome, MAX_ACT_STEPS, MAX_BUSY_NAMES, MAX_HEADER_CHARS, MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS,
+  MAX_TEXT_BYTES_PER_CHAR, parseActArgs, parseChannelReport, parseClaimRequest, REPORT_ENVELOPE_BYTES,
+  REPORT_SYNTAX_BYTES, sanitize, type ActOutcome, type ReadOutcome,
 } from '../src/access/wire.ts'
 
 /** The listing bound these cases are written against. */
@@ -383,6 +384,22 @@ describe('what a posted report of steps must carry', () => {
   })
 })
 
+describe('what the envelope leaves a report of steps', () => {
+  it('leaves 9,920 bytes unspent, which a hundred steps of punctuation fit inside', () => {
+    // The figure the two constants' own prose states, computed from them
+    // rather than quoted: every report spends two of the four names on the
+    // call's id and the tab's, and a report of steps spends the other two on
+    // the page's id and title, one header field on the document's title, and
+    // the message allowance on its one failing step.
+    const spent = 4 * MAX_NAME_CHARS + MAX_HEADER_CHARS + MAX_OUTCOME_MESSAGE_CHARS
+    const unspent = REPORT_ENVELOPE_BYTES - REPORT_SYNTAX_BYTES - spent * MAX_TEXT_BYTES_PER_CHAR
+    expect(unspent).toBe(9920)
+    // And what {@link MAX_ACT_STEPS} is chosen against: about 35 bytes of
+    // punctuation a step.
+    expect(MAX_ACT_STEPS * 35).toBeLessThan(unspent)
+  })
+})
+
 describe('what a browser half may be asked to run', () => {
   it('reads the steps a call opened, dropping the fields it did not carry', () => {
     const steps = [
@@ -408,6 +425,9 @@ describe('what a browser half may be asked to run', () => {
       { steps: [null] },
       { steps: [{ action: 'click', ref: 'e5', label: 'Go' }], dialogs: 'confirm' },
       { steps: [{ action: 'press', ref: 'e4', label: '名称', key: '' }] },
+      // Every page's visible text contains the empty string, so a wait for it
+      // is a step that reports itself satisfied having waited for nothing.
+      { steps: [{ action: 'wait', text: '' }] },
       { steps: Array.from({ length: MAX_ACT_STEPS + 1 }, () => ({ action: 'click', ref: 'e5', label: 'Go' })) },
     ]) {
       expect({ args, parsed: parseActArgs(args) }).toEqual({ args, parsed: undefined })

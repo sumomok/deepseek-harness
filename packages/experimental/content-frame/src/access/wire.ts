@@ -177,10 +177,11 @@ export const REPORT_SYNTAX_BYTES = 512
  * most 768 characters against the 2000 a listing never spends on a message.
  *
  * A report of steps that ran is held to the same envelope and needs no room of
- * its own. It carries the two page names, the document's title, its own body
- * against the budget, and one step list; against a listing it spends nothing on
- * the address, the other two header fields, the cursor, or the two names a
- * failure's kind and title would take — 11,968 bytes of allowance left unspent.
+ * its own. Every report spends two of the four names on the call's id and the
+ * tab's; a report of steps spends the other two on the page's id and title, and
+ * adds the document's title, its own body against the budget, and one step
+ * list. Against a listing it spends nothing on the address, the other two
+ * header fields, or the cursor — 9,920 bytes of allowance left unspent.
  * What the step list costs inside that is the one failing step's message, which
  * is the same 2000 characters the failure arm's message is bounded by and which
  * a report of steps carries in place of it, plus about 35 bytes of punctuation
@@ -581,7 +582,7 @@ export const MAX_ACT_KEY_CHARS = 32
  * Most steps one call may run, whatever a deployment configures.
  *
  * A protocol bound rather than a deployment choice: each step costs about 35
- * bytes of punctuation in the report, and the envelope leaves 11,968 bytes of
+ * bytes of punctuation in the report, and the envelope leaves 9,920 bytes of
  * a listing's allowance unspent for a report of steps ({@link
  * REPORT_ENVELOPE_BYTES} states the sum), so a hundred steps spend 3500 of it
  * and the bound holds with room to spare. A plan needing more than a hundred
@@ -730,7 +731,12 @@ export function readActStep(raw: RawStep): ActStepRead {
   const action = ACT_ACTIONS.find(known => known === raw.action)
   if (action === undefined) return refuse('action')
   if (action === 'wait') {
-    return typeof raw.text === 'string' ? { kind: 'step', step: { action, text: raw.text } } : refuse('wait-text')
+    // Empty is refused the way an empty label is: every page's visible text
+    // contains the empty string, so the step would report itself satisfied
+    // without the page having done anything.
+    return typeof raw.text === 'string' && raw.text !== ''
+      ? { kind: 'step', step: { action, text: raw.text } }
+      : refuse('wait-text')
   }
   if (typeof raw.ref !== 'string' || !REF_PATTERN.test(raw.ref)) return refuse('ref')
   if (typeof raw.label !== 'string' || raw.label === '') return refuse('label')

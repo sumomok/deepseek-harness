@@ -386,6 +386,17 @@ describe('what never reaches the model', () => {
     expect(read(refs).text).not.toContain('hunter2')
   })
 
+  it('reads a box a page is showing the password in as the password box it is', () => {
+    // A show/hide toggle switches the box to `text` while the password is
+    // visible, and `autocomplete` is where the page still says what it holds.
+    for (const declared of ['current-password', 'new-password']) {
+      const refs = page(`<input type="text" autocomplete="${declared}" aria-label="密码" value="hunter2">`)
+      expect({ declared, text: read(refs).text }).toEqual({ declared, text: 'e1 textbox "密码" = (hidden)' })
+    }
+    const named = page('<input type="text" autocomplete="username" aria-label="账号" value="admin">')
+    expect(read(named).text).toBe('e1 textbox "账号" = "admin"')
+  })
+
   it('skips what the page hides, what it marks hidden from readers, and what is not content', () => {
     const refs = page(`
       <script>const secret = 1</script>
