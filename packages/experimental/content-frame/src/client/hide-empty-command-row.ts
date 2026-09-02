@@ -25,6 +25,10 @@
 /** Marks the injected stylesheet so a second `apply()` (HMR) does not duplicate it. */
 const STYLE_ID = 'dsh-content-frame-hide-empty-command-row'
 
+/* jscpd:ignore-start -- byte-identical to the sibling package's copy on purpose (see the
+ * module doc): the two install under distinct STYLE_IDs so composing both never collides,
+ * and neither package may depend on the other.
+ */
 /**
  * Inject the row-collapsing stylesheet.
  * @returns a disposer that removes the stylesheet.
@@ -38,3 +42,4 @@ export function installHiddenCommandRowStyle(): () => void {
   document.head.append(style)
   return () => { style.remove() }
 }
+/* jscpd:ignore-end */
