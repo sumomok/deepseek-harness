@@ -13,12 +13,12 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/collect
  */
 import {
-  CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES,
+  CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, ICON_ROLE, NAME_FROM_CONTENT_ROLES,
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
   frameDocument, headingText, insideOpaque, isChecked, isDisabled, isHiddenAround, isInline, isMarked,
-  drawnAround, isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole,
-  looksClickable, markedSelector, nameOf, quantityValue, queryInOrder, rectsMeet, rectsOverlap, roleOf,
-  visibleText,
+  drawnAround, iconWord, isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped,
+  libraryRole, looksClickable, markedSelector, nameOf, quantityValue, queryInOrder, rectsMeet,
+  rectsOverlap, roleOf, visibleText,
 } from './dom.ts'
 import type {
   CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, ElementItem,
@@ -75,7 +75,7 @@ const ACTS_ON_NODE_ROLES: ReadonlySet<string> = new Set([
  * spellings of the star are here because a page written in Chinese draws either
  * one, and neither says anything else where a form draws it.
  */
-const REQUIRED_MARKS: ReadonlySet<string> = new Set(['*', '＊'])
+const REQUIRED_MARKS: readonly string[] = ['*', '＊']
 
 /** How long the words drawn in front of a field may run before they are no label. */
 const LABEL_LIMIT = 40
@@ -412,7 +412,39 @@ function heldValue(el: Element, role: string, walk: Walk): string | undefined {
  */
 function isRequired(el: Element, label: Element | undefined, walk: Walk): boolean {
   if (el.hasAttribute('required') || el.getAttribute('aria-required') === 'true') return true
-  return label !== undefined && REQUIRED_MARKS.has(walk.drawnAround(label))
+  return labelsOf(el, label).some(one => marksRequired(walk.drawnAround(one)))
+}
+
+/**
+ * True for text a form draws to say the field beside it must be filled. The
+ * mark is looked for inside the text rather than taken as the whole of it,
+ * because a form draws the star in front of the label and the colon after it,
+ * and both reach this as one run.
+ * @param drawn - the text the page draws around the label.
+ * @returns whether the text carries the mark.
+ */
+function marksRequired(drawn: string): boolean {
+  return REQUIRED_MARKS.some(mark => drawn.includes(mark))
+}
+
+/**
+ * Every element that labels one control: the `label` elements HTML resolves for
+ * it, the elements ARIA points at, and the words the page merely draws in front
+ * of it. The star is drawn on whichever of them the page treats as the label,
+ * and a page that ties its label properly is the likeliest of all to draw one.
+ * @param el - the control element.
+ * @param drawn - the element drawing the words that name the control, if any.
+ * @returns the labelling elements, in no particular order.
+ */
+function labelsOf(el: Element, drawn: Element | undefined): Element[] {
+  const labels: Element[] = [...((el as Partial<HTMLInputElement>).labels ?? [])]
+  const tree = el.getRootNode() as Document | ShadowRoot
+  for (const id of collapse(el.getAttribute('aria-labelledby') ?? '').split(' ')) {
+    const ref = tree.getElementById(id)
+    if (ref !== null) labels.push(ref)
+  }
+  if (drawn !== undefined) labels.push(drawn)
+  return labels
 }
 
 /**
@@ -470,9 +502,9 @@ function controlFace(el: Element, role: string, walk: Walk, label: Element | und
  */
 function cellControlRole(el: Element, walk: Walk): string | undefined {
   const role = roleOf(el)
-  if (role === null) return topClickable(el, walk) ? CLICKABLE_ROLE : undefined
-  if (!CELL_CONTROL_ROLES.has(role) || !rowRole(el, role)) return undefined
-  return role
+  if (role !== null) return CELL_CONTROL_ROLES.has(role) && rowRole(el, role) ? role : undefined
+  if (isIcon(el, walk)) return ICON_ROLE
+  return topClickable(el, walk) ? CLICKABLE_ROLE : undefined
 }
 
 /**
@@ -1231,6 +1263,11 @@ function ownName(el: Element, role: string, walk: Walk): string {
 /**
  * What a row calls the element it names.
  *
+ * An icon is named by what the page wrote on it, by the name a title computes,
+ * and last by the word its own class names it with, because a page that draws a
+ * command as an icon and labels it nowhere has said what it is in that class and
+ * in nothing else.
+ *
  * The accessible name is computed for the first role the page wrote, and the
  * walk reads the first one ARIA defines; where those differ the computed name
  * is an answer about another role, and an empty one says only that the role the
@@ -1246,6 +1283,7 @@ function ownName(el: Element, role: string, walk: Walk): string {
  * @returns the name.
  */
 function elementName(el: Element, role: string, walk: Walk): string {
+  if (role === ICON_ROLE) return declaredName(el) || nameOf(el) || iconWord(el) || ''
   if (role === CLICKABLE_ROLE || ITEM_NODE_TYPES.has(role)) return ownName(el, role, walk)
   const name = nameOf(el)
   const wrote = libraryRole(el)
@@ -1254,19 +1292,25 @@ function elementName(el: Element, role: string, walk: Walk): string {
 }
 
 /**
- * The element drawing the words immediately in front of a field inside the
- * element holding both, and `null` where something the reader can act on stands
- * between the two: the words further out then say what that other thing is,
- * never what this field is.
+ * The `label` drawn immediately in front of a field inside the element holding
+ * both, and `null` where something the reader can act on stands between the
+ * two: the label further out then says what that other thing is, never what
+ * this field is.
  *
- * A wrapper drawing no words at all is neither, so the words survive the boxes
- * a form draws around its field, and a control the page draws before them is
- * left behind by the words that follow it.
+ * Only a `label` counts. A page draws its own paragraphs, headings, and notices
+ * in front of a field as readily as it draws the field's label, and naming the
+ * field by one of those puts a run of the page where the model reads what the
+ * field is — and takes that run's own row away. A `label` is the page saying
+ * this text labels a field, whether or not it says which.
+ *
+ * A wrapper drawing no words at all is neither, so the label survives the boxes
+ * a form draws around its field, and a control the page draws before it is left
+ * behind by the label that follows it.
  * @param host - the element holding both.
  * @param inner - the child of it holding the field.
  * @param walk - the walk in progress.
- * @returns the element drawing the words, null where something stands between
- * them and the field, and undefined where this element draws none.
+ * @returns the label, null where something stands between it and the field, and
+ * undefined where this element holds none.
  */
 function drawnBefore(host: Element, inner: Element, walk: Walk): Element | null | undefined {
   let found: Element | undefined
@@ -1277,7 +1321,7 @@ function drawnBefore(host: Element, inner: Element, walk: Walk): Element | null 
     if (makesRow(child, walk) || holdsItems(child, walk)) {
       found = undefined
       blocked = true
-    } else if (visibleText(child, walk.isVisible) !== '') {
+    } else if (child.localName === 'label' && visibleText(child, walk.isVisible) !== '') {
       found = child
       blocked = false
     }
@@ -1286,20 +1330,19 @@ function drawnBefore(host: Element, inner: Element, walk: Walk): Element | null 
 }
 
 /**
- * The words a page draws in front of a field to say what it is, for a field the
- * page named nothing: a form that ties its label to its field with `for` is
- * answered by the name computation long before this, and a form that draws the
- * label and ties nothing is why this exists — the label is then the one thing
- * about the field a reader can see and the document never says.
+ * The `label` a page draws in front of a field it ties to nothing, which is how
+ * a component library draws a form: the label is a `label` element with no
+ * `for`, and the box beside it carries no name of any kind. A form that ties
+ * the two together is answered by the name computation long before this.
  *
  * The search climbs out of the field as far as the region it stands in, so the
- * words belong to the field's own group rather than to the form around it, and
- * stops where anything else the reader can act on stands between the two. Words
- * running longer than a label are a run of the page rather than a name for
- * something beside them, and are left to print as themselves.
+ * label belongs to the field's own group rather than to the form around it, and
+ * stops where anything else the reader can act on stands between the two. A
+ * label running longer than a label does is a run of the page rather than a
+ * name for something beside it, and is left to print as itself.
  * @param el - the field element.
  * @param walk - the walk in progress.
- * @returns the element drawing the words, or undefined for a field with none.
+ * @returns the label, or undefined for a field the page draws none in front of.
  */
 function labelDrawnBefore(el: Element, walk: Walk): Element | undefined {
   let inner: Element = el
@@ -1315,9 +1358,9 @@ function labelDrawnBefore(el: Element, walk: Walk): Element | undefined {
 }
 
 /**
- * The words that name a field the page named nothing, for the roles a reader
+ * The label that names a field the page named nothing, for the roles a reader
  * fills in: a button says what it is in the words on it, while a field says it
- * in the words drawn beside it.
+ * in the label drawn beside it.
  * @param el - the element to name.
  * @param role - the role it prints.
  * @param name - the name the element carries of its own.
@@ -1675,6 +1718,39 @@ function clickableName(el: Element, walk: Walk): string {
 }
 
 /**
+ * True for an element a page draws as an icon and says nothing else about: an
+ * inline element with no words of its own, marked as an icon by its class.
+ *
+ * A framework draws the commands of a table row this way — the edit icon of the
+ * page this rule was written for is `<i class="el-tooltip operation-modify
+ * el-icon-edit">`, with no role, no label, no title, and no pointer cursor of
+ * its own — so nothing a specification defines says the element is there at
+ * all, and a reader who can see it has no way to ask for it. The rule is a
+ * heuristic keyed to a page's own class names, which every rule in this package
+ * otherwise refuses; see the Agent Note for what it costs and when it retires.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @returns whether the page draws the element as an icon.
+ */
+function isIcon(el: Element, walk: Walk): boolean {
+  return isInline(el) && iconWord(el) !== undefined && visibleText(el, walk.isVisible) === ''
+}
+
+/**
+ * True where the walk offers an icon as a thing to act on: inside a table cell,
+ * a toolbar, or a list, which is where a page draws icons as the commands it
+ * offers rather than as decoration beside its text.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @param place - the element's position.
+ * @returns whether this read offers the icon.
+ */
+function offersIcon(el: Element, walk: Walk, place: Place): boolean {
+  const type = place.container?.type
+  return (type === 'toolbar' || type === 'list') && isIcon(el, walk)
+}
+
+/**
  * True where the walk offers this element as a thing to click: the top of a
  * clickable run, drawn outside any text a control's own row already prints.
  * @param el - the element to classify.
@@ -1771,6 +1847,10 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
       pushElement(el, role, walk, place)
       return
     }
+  }
+  if (offersIcon(el, walk, place)) {
+    pushElement(el, ICON_ROLE, walk, place)
+    return
   }
   if (offersClick(el, walk, place)) {
     const items = topItems(host, walk)

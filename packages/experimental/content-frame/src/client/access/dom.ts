@@ -163,6 +163,18 @@ const GLOBAL_ARIA_SELECTOR = [
 /** The role a snapshot gives a role-less element the page makes clickable. */
 export const CLICKABLE_ROLE = 'clickable'
 
+/** The role a snapshot gives an element a page draws as an icon and names nowhere. */
+export const ICON_ROLE = 'icon'
+
+/**
+ * The word an icon-font library writes in the class of the element it draws an
+ * icon on: `el-icon-edit`, `anticon-delete`, `icon-trash`, `iconfont`. It is the
+ * one part of such a class name that is not a library's own spelling, which is
+ * why this is the whole of what {@link iconWord} matches — a library that never
+ * writes it is one this reader does not see.
+ */
+const ICON_TOKEN = 'icon'
+
 /**
  * The roles HTML itself gives an element that `dom-accessibility-api` does not
  * map. HTML-AAM gives `meter` the role of the same name; the library answers
@@ -686,7 +698,18 @@ export function isReadonly(el: Element): boolean {
  * @returns whether the element looks clickable.
  */
 export function looksClickable(el: Element): boolean {
-  return getComputedStyle(el).cursor === 'pointer'
+  return viewOf(el).getComputedStyle(el).cursor === 'pointer'
+}
+
+/**
+ * The window an element's own document is drawn in, which is the one that
+ * answers for its styles: an element of a frame is laid out by that frame, and
+ * a document no window renders is answered for by the window this code runs in.
+ * @param el - the element to read.
+ * @returns the window to ask about it.
+ */
+function viewOf(el: Element): Window {
+  return el.ownerDocument.defaultView ?? window
 }
 
 /**
@@ -711,7 +734,33 @@ export function drawnAround(el: Element): string {
  * @returns the text, empty where it draws none.
  */
 function drawnPart(el: Element, part: string): string {
-  return getComputedStyle(el, part).content.replace(DRAWS_NOTHING, '').replaceAll(/["']/gu, '')
+  return viewOf(el).getComputedStyle(el, part).content.replace(DRAWS_NOTHING, '').replaceAll(/["']/gu, '')
+}
+
+/**
+ * The word a page's own class names an icon with, for an element it draws as an
+ * icon and labels nowhere: `el-icon-edit` says `edit`, `anticon anticon-delete`
+ * says `delete`, and `iconfont` alone says nothing until the next class does.
+ *
+ * This is the one rule in the package keyed to what a page happens to write
+ * rather than to what a specification defines, and it is a heuristic: only the
+ * word `icon` counts, in any class token that holds it, and the name is the last
+ * part of that token that is not the word itself. No library's own prefix is
+ * matched — `el-`, `anticon`, and `iconfont` reach it through `icon` alone, and
+ * a library spelling its icons some other way reaches it not at all.
+ * @param el - the element to read.
+ * @returns the word, empty for an icon whose classes name nothing, and undefined
+ * for an element the page does not mark as an icon.
+ */
+export function iconWord(el: Element): string | undefined {
+  const tokens = [...el.classList]
+  const at = tokens.findIndex(token => token.toLowerCase().includes(ICON_TOKEN))
+  if (at === -1) return undefined
+  for (const token of tokens.slice(at)) {
+    const word = token.split(/[-_]/u).filter(part => !part.toLowerCase().includes(ICON_TOKEN)).at(-1)
+    if (word !== undefined) return word
+  }
+  return ''
 }
 
 /**
