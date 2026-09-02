@@ -800,23 +800,25 @@ function namedDrawing(el: Element, classed: string | undefined): Element | undef
 /**
  * The word a drawing names itself with: the symbol a sprite reference points
  * at, or the title the drawing carries. A page that draws its icons as inline
- * `svg` writes the name in one of those two places or in neither.
+ * `svg` writes the name in one of those two places or in neither. A title is
+ * read here as well as through the accessible name, because the wrapper an icon
+ * set puts around the drawing carries no name of its own and computes none from
+ * a title one element further in.
  * @param el - the element to read: a drawing, or the wrapper around one.
  * @param classed - what the element's own classes say, from {@link classIconWord}.
- * @returns the word, or undefined when the drawing names nothing and there is
- * no drawing to name.
+ * @param isVisible - injected visibility.
+ * @returns the word, empty for a drawing marked as an icon and named nothing,
+ * and undefined when there is no drawing to name.
  */
-function drawnIconWord(el: Element, classed: string | undefined): string | undefined {
+function drawnIconWord(el: Element, classed: string | undefined, isVisible: (el: Element) => boolean): string | undefined {
   const drawing = namedDrawing(el, classed)
   if (drawing === undefined) return undefined
   const use = drawing.querySelector('use')
   const href = use?.getAttribute('href') ?? use?.getAttribute('xlink:href') ?? ''
   const hash = href.lastIndexOf('#')
   if (hash !== -1) return iconPart(href.slice(hash + 1)) ?? ''
-  // A drawing that carries a title is named by it through the accessible name,
-  // which reads the title the way every reader of one does; this only has to
-  // say that such a drawing is an icon at all.
-  return drawing.querySelector('title') === null ? undefined : ''
+  const title = drawing.querySelector('title')
+  return title === null ? undefined : clip(visibleText(title, isVisible))
 }
 
 /**
@@ -834,13 +836,14 @@ function drawnIconWord(el: Element, classed: string | undefined): string | undef
  * that names itself nowhere is decoration, and pages draw far too many of those
  * to print a row for each.
  * @param el - the element to read.
+ * @param isVisible - injected visibility.
  * @returns the name, empty for markup that marks an icon and names none, and
  * undefined for an element the page marks as no icon at all.
  */
-export function iconWord(el: Element): string | undefined {
+export function iconWord(el: Element, isVisible: (el: Element) => boolean): string | undefined {
   const classed = classIconWord(el)
   if (classed !== undefined && classed !== '') return classed
-  const drawn = drawnIconWord(el, classed)
+  const drawn = drawnIconWord(el, classed, isVisible)
   if (drawn !== undefined && drawn !== '') return drawn
   return classed ?? drawn
 }

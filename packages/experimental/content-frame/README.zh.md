@@ -58,8 +58,8 @@
 ### 页面画成命令的图标读出来是什么
 
 - **图标读作 `icon "edit"`，并带一个 ref。** 这条规则所依据的那个控制台，行内命令是 `<i class="el-tooltip operation-modify el-icon-edit">` 与一个包在确认框里的图标：没有 role、没有标签、没有 title、也没有指针光标。任何规范定义的东西都没说它们在那儿，因此「自身不画出任何文字、class 里带 `icon` 这个词的行内元素」被读作图标——只在表格单元格、工具栏与列表里，也就是页面把图标当作它提供的命令而不是文字旁装饰的地方。页面自己写的名字照旧优先于 class。
-- **画成内联 `svg` 的图标同样读得到。** antd、Element Plus、Bootstrap Icons 把图形直接画进文档而不是放在字体里，名字于是落在包裹层的 class 上（`<i class="el-icon">`）、图形所指的 symbol 上（`<use href="#icon-edit">` 得到 `edit`），或者图形自己的 `title` 上。一个自身不画文字、只装着一张图形的包裹层就是那个图标，它下面的图形不再单独成行，于是一个图标只对应一个 ref。三处都没写名字的图形算装饰，一行也不打：页面画的这类东西太多，逐个成行读者受不了。
-- **这是一条挂在页面自有标记语言上的启发式规则**，也是本包唯一的一条。只认 `icon` 这个词（出现在任何一个 class token 里），不认任何框架前缀：`el-icon-edit` 得到 `edit`，`anticon anticon-delete` 得到 `delete`，`icon-trash` 得到 `trash`，只有 `iconfont` 时得不到名字。从不写这个词的图标字体——`fa-trash`、`mdi-pencil`——在这套读法里等于不存在。**退役条款**：等到有适配器能听见框架自己的点击监听器（那才是这个元素真正带着的东西），这条规则退役。
+- **画成内联 `svg` 的图标同样读得到。** antd v4 与 Element Plus 把图形直接画进文档而不是放在字体里，Bootstrap Icons 则在字体之外还给一套 sprite，名字于是落在包裹层的 class 上（`<i class="el-icon">`）、图形所指的 symbol 上（`<use href="#icon-edit">` 得到 `edit`，`<use href="#bi-pencil">` 得到 `pencil`），或者图形自己的 `title` 上。symbol id 叫什么都取得到名字，只有 class 才必须带 `icon` 这个词。一个自身不画文字、只装着一张图形的包裹层就是那个图标，它下面的图形不再单独成行，于是一个图标只对应一个 ref：包裹层的 class 给不出词时，由它装着的那张图形给名字；两边都给得出时，class 优先。三处都没写名字的图形算装饰，一行也不打：页面画的这类东西太多，逐个成行读者受不了。
+- **这是一条挂在页面自有标记语言上的启发式规则**，也是本包唯一的一条。只认 `icon` 这个词（出现在任何一个 class token 里），不认任何框架前缀。名字取 class 写在这个词之后的那一段：`el-icon-edit` 得到 `edit`，`anticon anticon-delete` 得到 `delete`，`icon-trash` 得到 `trash`；而以这个词收尾的 class——`iconfont`、`el-icon`、`edit-icon`——只标出这是个图标、不给名字，成行时有 ref 没名字。压根不写这个词的图标字体——`fa-trash`、`mdi-pencil`，以及 Bootstrap 自己的 `bi-pencil`——在这套读法里等于不存在。**退役条款**：等到有适配器能听见框架自己的点击监听器（那才是这个元素真正带着的东西），这条规则退役。
 
 ### 一张控制台表单读出来是什么
 

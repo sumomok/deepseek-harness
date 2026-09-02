@@ -942,6 +942,18 @@ function rowPieces(pieces: readonly Element[], at: number, walk: Walk): Element[
 }
 
 /**
+ * The region an element stands in: the container holding it, never the element
+ * itself, because a page draws the strip that pages a table as a `nav` as
+ * readily as it draws it as a `div`, and a strip is not a region of its own.
+ * @param el - the element to place.
+ * @returns the region, or null for an element no region encloses.
+ */
+function regionOf(el: Element): Element | null {
+  const parent = el.parentElement
+  return parent === null ? null : parent.closest(CONTAINER_SELECTOR)
+}
+
+/**
  * Every table element one table is drawn as: each of its pieces, and the header
  * half drawn over each piece. A page that pins a column draws header, body,
  * header, body, and the strip that pages the table comes after all of them, so
@@ -1014,18 +1026,20 @@ function stripAbove(above: readonly Element[], walk: Walk): string | undefined {
  * the one above it alone.
  *
  * The search runs over the region the table stands in, rather than over the
- * read's scope: a read scoped to one table by ref reports the strip that pages
- * it exactly as a read of the whole page does, and a strip drawn in another
- * region pages nothing here.
+ * read's scope, so a read scoped to one table by ref reports the strip that
+ * pages it exactly as a read of the whole page does. A strip pages the table
+ * only where the two stand in the same region — a page drawing its table in one
+ * region and a strip in another has said they are not beside each other.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @returns the strip's text, or undefined when the table has none.
  */
 function paginationText(el: Element, walk: Walk): string | undefined {
   const parts = tableParts(el, walk)
-  const region = el.closest(CONTAINER_SELECTOR) ?? (el.getRootNode() as ParentNode)
-  const nodes = queryInOrder(region, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
-    .filter(node => node.matches(TABLE_SELECTOR) || node.closest(TABLE_SELECTOR) === null)
+  const region = regionOf(el)
+  const inside = region ?? (el.getRootNode() as ParentNode)
+  const nodes = queryInOrder(inside, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
+    .filter(node => node.matches(TABLE_SELECTOR) || (node.closest(TABLE_SELECTOR) === null && regionOf(node) === region))
     .filter(node => node === el || !parts.has(node))
   const at = nodes.indexOf(el)
   return nearestStrip(nodes.slice(at + 1), walk) ?? stripAbove(nodes.slice(0, at), walk)
@@ -1311,7 +1325,7 @@ function ownName(el: Element, role: string, walk: Walk): string {
  * @returns the name.
  */
 function elementName(el: Element, role: string, walk: Walk): string {
-  if (role === ICON_ROLE) return declaredName(el) || nameOf(el) || iconWord(el) || ''
+  if (role === ICON_ROLE) return declaredName(el) || nameOf(el) || iconWord(el, walk.isVisible) || ''
   if (role === CLICKABLE_ROLE || ITEM_NODE_TYPES.has(role)) return ownName(el, role, walk)
   const name = nameOf(el)
   const wrote = libraryRole(el)
@@ -1766,7 +1780,7 @@ function clickableName(el: Element, walk: Walk): string {
  * @returns whether the page draws the element as an icon.
  */
 function isIcon(el: Element, walk: Walk): boolean {
-  if (iconWord(el) === undefined) return false
+  if (iconWord(el, walk.isVisible) === undefined) return false
   // A drawing draws no words of the page wherever it is: what is written inside
   // one labels the picture, which is why the walk stops at one everywhere else.
   if (el.localName === 'svg') return true

@@ -2054,6 +2054,25 @@ describe('an icon a page draws as a command', () => {
     ].join('\n'))
   })
 
+  it('names a wrapper by the drawing inside it when its own classes name nothing', () => {
+    // The wrapper an icon set puts around the drawing carries the classes and
+    // the drawing carries the name, so a wrapper marked as an icon and named
+    // nothing is named by the drawing it holds — and by its own classes where
+    // those say a word, which is what the page wrote closest to the reader.
+    const refs = page(`
+      <div role="toolbar" aria-label="操作">
+        <i class="el-icon"><svg viewBox="0 0 1024 1024"><title>刷新</title><path d="M0 0"/></svg></i>
+        <i class="el-icon-edit"><svg viewBox="0 0 1024 1024"><title>刷新</title><path d="M0 0"/></svg></i>
+        <i class="el-icon"><svg viewBox="0 0 1024 1024"><title></title><path d="M0 0"/></svg></i>
+      </div>`)
+    expect(read(refs).text).toBe([
+      'e1 toolbar "操作"',
+      '  e2 icon "刷新" (in toolbar "操作")',
+      '  e3 icon "edit" (in toolbar "操作")',
+      '  e4 icon (in toolbar "操作")',
+    ].join('\n'))
+  })
+
   it('names an icon in a cell whatever else the page says the element is', () => {
     // What a cell is read for is what the row offers, so the icon a page marks
     // as a picture is named there; the same element read as a row of the page
@@ -2557,6 +2576,33 @@ describe('tables', () => {
     const text = read(refs).text
     expect(text).toContain('    pagination: 甲表 共 2 页')
     expect(text).toContain('    pagination: 乙表 共 9 页')
+  })
+
+  it('pages a table by no strip drawn in another region than its own', () => {
+    // A strip pages the table it is drawn beside, and a page that draws the two
+    // in different regions has said they are not beside each other.
+    const outside = page(`
+      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      <section aria-label="别处"><div class="el-pagination">共 2 页</div></section>`)
+    expect(read(outside).text).not.toContain('pagination:')
+    const inside = page(`
+      <section aria-label="站点">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      </section>
+      <div class="el-pagination">共 2 页</div>`)
+    expect(read(inside).text).not.toContain('pagination:')
+  })
+
+  it('pages a table by the strip drawn beside it inside a shadow root', () => {
+    // Neither stands in a region: the root of a shadow tree is no element, and
+    // a table and a strip alone in one are drawn beside each other.
+    const refs = page('<div id="host"></div>')
+    const host = document.querySelector('#host')
+    if (host === null) throw new Error('fixture has no host')
+    host.attachShadow({ mode: 'open' }).innerHTML =
+      '<table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>'
+      + '<div class="el-pagination">共 2 页</div>'
+    expect(read(refs).text).toContain('  pagination: 共 2 页')
   })
 
   it('gives a strip between two tables to the table it is drawn under, and no strip to the one below', () => {
