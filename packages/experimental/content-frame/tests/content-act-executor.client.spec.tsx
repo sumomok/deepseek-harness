@@ -191,6 +191,23 @@ describe('what each step dispatches at the page', () => {
     expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
   })
 
+  it('fills a box the listing named by the word written in it', async () => {
+    // The console's own query field, and the loop it used to cause: the
+    // listing printed `textbox = ""`, the model had no name to copy, and every
+    // label it invented failed the seat's check. The two halves share one
+    // naming function, so what the listing printed is what passes here.
+    mount('<main><input id="q" class="el-input__inner" placeholder="请输入资源名称">'
+      + '<button id="go">查询</button></main>')
+    const outcome = await run([
+      { action: 'fill', ref: ref('#q'), label: '请输入资源名称', text: 'mill-09' },
+      { action: 'click', ref: ref('#go'), label: '查询' },
+    ])
+    expect((at('#q') as HTMLInputElement).value).toBe('mill-09')
+    expect(outcome.status).toBe('done')
+    expect(outcome.text).toContain('Page now:')
+    expect(outcome.text).toContain('textbox "请输入资源名称"')
+  })
+
   it('fills a textarea the same way', async () => {
     mount('<main><label for="note">备注</label><textarea id="note"></textarea></main>')
     const seen = listen(at('#note'), ['input', 'change'])

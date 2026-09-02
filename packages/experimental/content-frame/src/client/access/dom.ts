@@ -466,12 +466,33 @@ export function isNameable(role: string): boolean {
 }
 
 /**
- * The element's accessible name.
+ * The roles whose control carries its own name inside itself: what a
+ * `placeholder` writes is the word the user reads in the empty box, and a page
+ * that labels such a box nowhere else has still told the user what it is.
+ */
+const PLACEHOLDER_ROLES = new Set(['textbox', 'searchbox', 'combobox', 'spinbutton'])
+
+/**
+ * The element's accessible name, and for a box the page named nowhere else,
+ * the word written inside it.
+ *
+ * The placeholder is a fallback and never an override: a real name — a label,
+ * `aria-label`, a title — is what the page said the control is, and this is
+ * what is left when it said none. It is not the neighbouring-text rule the
+ * reader deliberately does not have: the word is written on the control
+ * itself, in the attribute whose whole purpose is to show it there, and it is
+ * what a user reads in that box. A control with neither is left nameless,
+ * which is what keeps `content_act` from being pointed at it at all.
  * @param el - the element to name.
  * @returns the collapsed name, empty when the element has none.
  */
 export function nameOf(el: Element): string {
-  return clip(collapse(computeAccessibleName(el)))
+  const computed = clip(collapse(computeAccessibleName(el)))
+  if (computed !== '') return computed
+  const role = roleOf(el)
+  if (role === null || !PLACEHOLDER_ROLES.has(role)) return ''
+  const written = el.getAttribute('placeholder') ?? el.getAttribute('aria-placeholder') ?? ''
+  return clip(collapse(written))
 }
 
 /**

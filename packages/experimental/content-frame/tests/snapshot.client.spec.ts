@@ -907,6 +907,26 @@ describe('widgets built out of several elements', () => {
     expect(read(page('<svg><a href="#x">详情</a></svg>')).text).toBe('(the page shows nothing to read)')
   })
 
+  it('names a box by the word written in it when the page names it nowhere else', () => {
+    // The console this reader is written for draws its query fields exactly
+    // like this — a framework's own input class, no label, no aria — and a
+    // nameless box is one `content_act` cannot be pointed at: the model can
+    // only copy what the listing printed, and the seat checks what it copied.
+    expect(read(page('<input class="el-input__inner" placeholder="请输入资源名称">')).text)
+      .toBe('e1 textbox "请输入资源名称" = ""')
+    // A fallback, never an override: what the page said the control is wins.
+    expect(read(page('<input placeholder="请输入资源名称" aria-label="资源名称">')).text)
+      .toBe('e1 textbox "资源名称" = ""')
+    // The ARIA spelling, for a box a page draws itself.
+    expect(read(page('<div role="textbox" aria-placeholder="请输入资源名称"></div>')).text)
+      .toBe('e1 textbox "请输入资源名称"')
+    // The four roles a placeholder belongs to, and not one it does not: a
+    // password box is still named by nothing here, and a button never was.
+    expect(read(page('<input role="searchbox" placeholder="搜索"><input type="number" placeholder="数量">')).text)
+      .toBe(['e1 searchbox "搜索" = ""', 'e2 spinbutton "数量" = ""'].join('\n'))
+    expect(read(page('<button placeholder="不算">删</button>')).text).toBe('e1 button "删"')
+  })
+
   it('reads an element the page marks as decoration and contradicts as the control it is', () => {
     // ARIA settles the contradiction in favour of what the element offers: a
     // button a reader can focus is a button whatever else the page wrote on it,
