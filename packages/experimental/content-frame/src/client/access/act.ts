@@ -1,10 +1,17 @@
 /**
  * The acting half of `content_act`, running inside the seat that owns the
- * frames: one step at a time against the frame's own document, in the same
- * order the model asked for.
+ * frames: one step at a time against the documents the reader walked, in the
+ * same order the model asked for.
+ *
+ * The scope is the reader's, not the frame's: a ref can name an element inside
+ * a same-origin frame the page itself holds, so each step is run in that
+ * element's own document — its events, its value setter, its dialogs, and the
+ * wait for it to stop redrawing — while a wait for text looks in all of them.
  *
  * Every step is checked before it runs and the call stops at the first failure.
- * The check that matters is the name: the model copied a label out of a read,
+ * Two checks reject rather than act. The element has to still be on the screen,
+ * because a hidden one answers to its name and takes an event like any other.
+ * And the check that matters is the name: the model copied a label out of a read,
  * and the element that ref names has to still be called that. A page that
  * re-rendered its table between the read and the call has the same refs
  * pointing at different rows, and without the check the call would press
@@ -22,11 +29,12 @@
 
 import type { ActStep, ActStepResult } from '../../access/wire.ts'
 import {
-  cannotActReason, disabledReason, labelChangedReason, noOptionReason, occludedReason, refGoneReason,
-  waitedReason,
+  cannotActReason, disabledReason, hiddenReason, labelChangedReason, noOptionReason, occludedReason,
+  refGoneReason, waitedReason,
 } from '../../access/act-text.ts'
 import {
-  DIALOG_SELECTOR, containerName, isDisabled, isPassword, isSkipped, nameOf, queryInOrder, visibleText,
+  DIALOG_SELECTOR, containerName, isDisabled, isHiddenAround, isPassword, isSkipped, nameOf, queryInOrder,
+  visibleText,
 } from './dom.ts'
 import type { RefTable } from './refs.ts'
 import { whenQuiet } from '../perception/settle.ts'
@@ -49,8 +57,15 @@ const OPTION_POLLS = 10
 
 /** What one step needs from the seat to run against the page. */
 export interface ActPage {
-  /** The frame's own document, which every step resolves and settles against. */
+  /** The frame's own document, which is the outermost one a step may reach. */
   readonly doc: Document
+  /**
+   * Every same-origin document the reader walked, {@link doc} first. A ref can
+   * name an element in any of them, so what is asked of the page as a whole —
+   * whether text has appeared — is asked of all of them; what is asked about
+   * one element is asked of that element's own document.
+   */
+  readonly docs: readonly Document[]
   /** The numbering the model's refs come from. */
   readonly refs: RefTable
   /** Injected visibility, the reader's own. */
@@ -111,22 +126,66 @@ function firePointer(el: Element, type: string): void {
 }
 
 /**
- * The dialog the page has open, preferring one that declares itself modal.
+ * The dialog one document has open, preferring one that declares itself modal.
  *
  * The same rule the listing's header names one by, applied to the element
  * rather than to its name: a step whose target is outside what the page has put
  * in front of the user is a step the user could not have taken either.
- * @param page - the document and the visibility test.
+ * @param doc - the document to look in.
+ * @param isVisible - injected visibility, the reader's own.
  * @returns the dialog element, or undefined when none is open.
  */
-function openDialog(page: ActPage): Element | undefined {
+function openDialog(doc: Document, isVisible: (el: Element) => boolean): Element | undefined {
   let topmost: Element | undefined
-  for (const el of queryInOrder(page.doc, DIALOG_SELECTOR)) {
-    if (isSkipped(el, page.isVisible)) continue
+  for (const el of queryInOrder(doc, DIALOG_SELECTOR)) {
+    if (isSkipped(el, isVisible)) continue
     if (el.getAttribute('aria-modal') === 'true') return el
     topmost ??= el
   }
   return topmost
+}
+
+/**
+ * The element and every frame it sits inside, innermost first, out to the
+ * frame the console itself holds.
+ *
+ * What a dialog covers is decided over this list rather than over the element
+ * alone: a dialog is drawn in one document and covers everything under it,
+ * frames included, and `contains` answers false across a frame boundary
+ * whichever side the dialog is on.
+ * @param el - the element a step names.
+ * @param root - the frame's own document, where the walk stops.
+ * @returns the element, then each frame element on the way out.
+ */
+function nesting(el: Element, root: Document): Element[] {
+  const nodes: Element[] = [el]
+  for (let doc = el.ownerDocument; doc !== root;) {
+    const view = doc.defaultView
+    /* v8 ignore next -- a ref names an element of a document the frame's own reached, so every step out has a window and a frame. */
+    if (view === null || view.frameElement === null) break
+    nodes.push(view.frameElement)
+    doc = view.frameElement.ownerDocument
+  }
+  return nodes
+}
+
+/**
+ * The dialog standing between the user and one element, if any.
+ *
+ * Each document the element sits inside is asked in turn, innermost out: a
+ * dialog the page opened over the frame covers what is in the frame, and a
+ * dialog holding the frame covers nothing inside it.
+ * @param page - the frame's own document and the visibility test.
+ * @param el - the element a step names.
+ * @returns the dialog covering it, or undefined when none does.
+ */
+function occluder(page: ActPage, el: Element): Element | undefined {
+  const nodes = nesting(el, page.doc)
+  for (const node of nodes) {
+    const dialog = openDialog(node.ownerDocument, page.isVisible)
+    if (dialog !== undefined && !nodes.some(inside => dialog.contains(inside))) return dialog
+  }
+  return undefined
 }
 
 /**
@@ -212,7 +271,9 @@ async function selectDrawn(
 ): Promise<string | undefined> {
   for (const type of CLICK_EVENTS) firePointer(el, type)
   for (let poll = 0; poll < OPTION_POLLS; poll += 1) {
-    const option = queryInOrder(page.doc, '[role~="option"]')
+    // The list's own document: a popup a page draws for a control inside a
+    // frame is drawn in that frame, wherever in it the page puts it.
+    const option = queryInOrder(el.ownerDocument, '[role~="option"]')
       .find(candidate => !isSkipped(candidate, page.isVisible) && visibleText(candidate, page.isVisible) === step.value)
     if (option !== undefined) {
       for (const type of CLICK_EVENTS) firePointer(option, type)
@@ -236,10 +297,13 @@ async function waitFor(
   budgetMs: number,
 ): Promise<string | undefined> {
   const until = Date.now() + budgetMs
+  const shown = (doc: Document): boolean => visibleText(doc.body, page.isVisible).includes(step.text)
   for (;;) {
     // Visible text rather than the document's own: a page that keeps its
-    // toasts in the markup and hides them would otherwise answer at once.
-    if (visibleText(page.doc.body, page.isVisible).includes(step.text)) return undefined
+    // toasts in the markup and hides them would otherwise answer at once. And
+    // every document the reader walked, because what the user is waiting to
+    // see may be drawn by an application the page holds in a frame.
+    if (page.docs.some(shown)) return undefined
     if (Date.now() >= until) return waitedReason(step.text, budgetMs)
     await tick()
   }
@@ -248,21 +312,31 @@ async function waitFor(
 /**
  * Run one step against the element its ref names.
  * @param step - the step to run.
- * @param page - the document, the numbering, and the visibility test.
+ * @param page - the documents, the numbering, and the visibility test.
+ * @param el - the element the ref resolved to, absent for a `wait` and for a
+ * ref the page no longer has.
  * @param budgetMs - how long a `wait` step may spend looking.
  * @returns the failure, or undefined when the step ran.
  */
-async function runStep(step: ActStep, page: ActPage, budgetMs: number): Promise<string | undefined> {
+async function runStep(
+  step: ActStep,
+  page: ActPage,
+  el: Element | undefined,
+  budgetMs: number,
+): Promise<string | undefined> {
   if (step.action === 'wait') return await waitFor(step, page, budgetMs)
-  const el = page.refs.resolve(step.ref)
   if (el === undefined) return refGoneReason(step.ref)
+  // Before the name, because a hidden element still answers to one: what the
+  // ref names is on the page and not on the screen, and a step that ran would
+  // be pressing something the user cannot see.
+  if (isHiddenAround(el, page.isVisible)) return hiddenReason(step.ref)
   // The name is what the model chose this element by, so a page that changed
   // under the refs stops the call here rather than acting on what took its
   // place.
   const name = nameOf(el)
   if (name !== step.label) return labelChangedReason(step.ref, name, step.label)
-  const dialog = openDialog(page)
-  if (dialog !== undefined && !dialog.contains(el)) {
+  const dialog = occluder(page, el)
+  if (dialog !== undefined) {
     return occludedReason(step.ref, containerName(dialog, page.isVisible))
   }
   if (isDisabled(el)) return disabledReason(step.ref, step.label)
@@ -292,13 +366,12 @@ async function runStep(step: ActStep, page: ActPage, budgetMs: number): Promise<
 /**
  * Whether one step's own answer should be withheld from the transcript.
  * @param step - the step that ran.
- * @param page - the numbering, for the element it named.
+ * @param el - the element it named, absent for a `wait` and for a ref the page
+ * no longer has.
  * @returns whether it filled a box the page hides the value of.
  */
-function fillsSecret(step: ActStep, page: ActPage): boolean {
-  if (step.action !== 'fill') return false
-  const el = page.refs.resolve(step.ref)
-  return el !== undefined && isPassword(el)
+function fillsSecret(step: ActStep, el: Element | undefined): boolean {
+  return el !== undefined && step.action === 'fill' && isPassword(el)
 }
 
 /**
@@ -310,7 +383,7 @@ function fillsSecret(step: ActStep, page: ActPage): boolean {
  * for the run, so a page that never stops moving costs one ceiling per step and
  * the steps still run.
  * @param steps - the validated steps, in the order the model asked for.
- * @param page - the document, the numbering, and the visibility test.
+ * @param page - the documents, the numbering, and the visibility test.
  * @param bounds - the deployment's per-step ceiling and the run's own deadline.
  * @returns what each step ended as, which of them filled a hidden box, and how
  * long the page took to go quiet after the last one.
@@ -327,8 +400,9 @@ export async function runSteps(steps: readonly ActStep[], page: ActPage, bounds:
       redacted.push(false)
       continue
     }
-    const secret = fillsSecret(step, page)
-    const failure = await runStep(step, page, Math.max(bounds.deadline - Date.now(), 0))
+    const el = step.action === 'wait' ? undefined : page.refs.resolve(step.ref)
+    const secret = fillsSecret(step, el)
+    const failure = await runStep(step, page, el, Math.max(bounds.deadline - Date.now(), 0))
     redacted.push(secret)
     if (failure !== undefined) {
       results.push({ index, status: 'failed', message: failure })
@@ -337,7 +411,9 @@ export async function runSteps(steps: readonly ActStep[], page: ActPage, bounds:
     }
     results.push({ index, status: 'ok' })
     const started = Date.now()
-    await whenQuiet(page.doc, { quietMs: bounds.settleQuietMs, budgetMs: bounds.settleMaxMs })
+    // The document the step acted in: an application in a frame redraws that
+    // frame, and a wait for the frame's own document would see none of it.
+    await whenQuiet(el?.ownerDocument ?? page.doc, { quietMs: bounds.settleQuietMs, budgetMs: bounds.settleMaxMs })
     settledMs = Date.now() - started
   }
   return { results, redacted, settledMs }

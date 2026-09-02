@@ -222,7 +222,9 @@ export const READ_VOICE: ToolVoice = {
  * page, an unreachable frame and a reader that threw are the same four endings
  * whether the call was going to read the page or act on it. Two of the four
  * name the tool the model should reach for next, so those two are the caller's
- * to word; the frame's own message and the reader's are neither tool's.
+ * to word; the frame's own message and the reader's are neither tool's. A
+ * sign-in page is a fifth ending only a call that would have acted posts, and
+ * the seat words it, so it passes through with the frame's.
  * @param outcome - the failure the seat posted.
  * @param voice - the calling tool's own two sentences.
  * @returns the sentence to reject with.
@@ -232,7 +234,7 @@ export function failureRefusal(outcome: ReadFailure, voice: ToolVoice): string {
     case 'empty': return voice.emptyColumn
     case 'not-a-page': return notAPageRefusal(outcome, voice.cannot)
     case 'engine': return engineRefusal(outcome.message)
-    case 'frame': return outcome.message
+    case 'frame': case 'sign-in': return outcome.message
     /* v8 ignore next 2 -- the code union is closed and the wire parser rejects every other value; the arm keeps a new member loud. */
     default: return `content-frame: unknown outcome ${JSON.stringify(outcome)}`
   }

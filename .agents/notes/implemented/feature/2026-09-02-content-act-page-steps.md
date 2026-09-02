@@ -26,9 +26,19 @@ The request is written before anything has reached a browser. No seat has claime
 
 ### The label is checked against the page before anything is dispatched
 
-Every step but `wait` names its element twice: by the ref a read returned, and by the accessible name that read printed. The seat resolves the ref, computes the name again, and refuses the step when they differ. This is the failure the whole design is arranged around: a page that re-rendered its table between the read and the call has the same refs pointing at different rows, and a step that trusted the ref alone would press whatever now sits there — the one mistake a later read cannot undo. Three more endings stop a step: an element the page no longer has, one behind a dialog the page has put in front of the user, and one the page has switched off.
+Every step but `wait` names its element twice: by the ref a read returned, and by the accessible name that read printed. The seat resolves the ref, computes the name again, and refuses the step when they differ. This is the failure the whole design is arranged around: a page that re-rendered its table between the read and the call has the same refs pointing at different rows, and a step that trusted the ref alone would press whatever now sits there — the one mistake a later read cannot undo. Four more endings stop a step: an element the page no longer has, one it no longer shows, one behind a dialog the page has put in front of the user, and one the page has switched off. The visibility check is the reader's own, walked over the ancestors, and it runs before the name: a hidden element still answers to its name, still takes an event and still runs the handler behind it, so nothing else on the way to a step would stop one — and what the model would be doing is pressing a control the user cannot see.
 
 The check is not an identity. Two rows whose buttons are both called 编辑 pass it, and a page that renumbers and renames together is a page a read has to be taken of again. It is what catches the common case — the page moved — at the cost of one accessible-name computation per step.
+
+### The scope is the reader's, not the frame's
+
+The reader walks into same-origin frames the page itself holds — the product's own topology is a shell page with an application in a frame of it — so a ref the model holds can name an element in any of them. Everything a step does therefore follows the element rather than the frame: the events and the value setter are taken from the element's own window, the settle wait watches the document it acted in, and the dialog check asks each document the element sits inside, from its own out to the frame's, so a dialog holding the frame does not hide what is in it while one drawn over the frame does.
+
+Two things are asked of the page as a whole instead: a `wait` step looks for its text in every one of those documents, and the stand-ins and the message watch are installed in all of them. A `confirm()` an application opens from inside a nested frame blocks the whole tab exactly as one opened by the shell does, which is the only reason the stand-ins exist. The set is fixed when the call starts; a frame the page adds while the steps run is in none of it.
+
+### Not on a page asking the user to sign in
+
+`content_read` refuses to hand over the listing of a page showing a sign-in form. A channel that types into one would be the way around that rule, so the same verdict — the reader's own, taken from the page's header — gates the steps: a call against such a page fails before its first step and says so. The closing read is checked again, because the steps themselves can produce one (a sign-out, a session that expired mid-call), and its structure is withheld from the report the way the read withholds it. The refusal is a wire code of its own, worded by the seat, because the model reaching for `content_act` is the one being told.
 
 ### The events are the ones a user produces
 
@@ -40,7 +50,7 @@ Between steps the page is given `settleQuietMs` to go quiet, bounded per step by
 
 A step is one event dispatched at one element; everything the application does in answer to it happens afterwards. A toast that came and went leaves nothing for the closing snapshot to read, a `confirm()` nobody answered would block the frame's event loop until the deadline, and a window opened behind the console is one nobody will look at. For the length of the call — and no longer — the seat watches the document for text that appeared and went away, listens for route changes and compares the address, and stands in for `confirm`, `alert`, `prompt` and `window.open`. A link that would open a new window is stopped and reported the same way.
 
-Those two stand-ins are the only thing this package injects into a frame it shares an origin with, and they are put back in a `finally`: a frame left holding this package's `confirm` is a frame whose own dialogs never open again, and nothing in the product would report that. The suite pins the restoration as hard as the interception.
+Those two stand-ins are the only thing this package injects into the documents it shares an origin with, and they are put back in a `finally`: a frame left holding this package's `confirm` is a frame whose own dialogs never open again, and nothing in the product would report that. The suite pins the restoration as hard as the interception.
 
 ### Three sections, every time, in the same order
 
@@ -79,5 +89,5 @@ Two consoles open on one session run one copy of a set of steps, by the same cla
 ## Follow-ups
 
 - No gestures: no drag, scroll, hover, file upload or right-click, and no way to act on anything a read did not number.
-- The settle wait and a `wait` step read the frame's own document, so an application drawing into a nested same-origin frame is read by the closing snapshot and not waited for.
+- A call is scoped to the documents the reader had walked when it started; a frame the page adds while the steps run is neither watched nor waited on, and what it draws is left to the closing snapshot.
 - Not covered by an assembled snapshot: the browser evidence is a Playwright scenario against a real composition, and the snapshot lanes replay the shipped composition, which composes no experimental row.

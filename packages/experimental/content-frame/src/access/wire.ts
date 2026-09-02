@@ -318,6 +318,13 @@ export type ReadErrorCode =
   | 'engine'
   /** The frame's document could not be reached or did not finish loading. */
   | 'frame'
+  /**
+   * The page is asking the user to sign in, so the call was not run on it.
+   * Posted by a call that would have acted: a read carries the same verdict in
+   * its listing's own `signIn`, because there the header is worth reporting
+   * whether or not the listing under it is withheld.
+   */
+  | 'sign-in'
 
 /** The page a read found, as the column names it. */
 export interface ReadPage {
@@ -501,7 +508,7 @@ function parseBusy(value: unknown): string[] | undefined {
 }
 
 /** Every code a posted failure may name. */
-const ERROR_CODES: readonly ReadErrorCode[] = ['empty', 'not-a-page', 'engine', 'frame']
+const ERROR_CODES: readonly ReadErrorCode[] = ['empty', 'not-a-page', 'engine', 'frame', 'sign-in']
 
 /**
  * Read one posted outcome as a listing or a failure.

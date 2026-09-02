@@ -35,13 +35,15 @@ import {
 } from '../../access/wire.ts'
 import {
   FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
+  SIGN_IN_REFUSAL,
 } from '../../access/text.ts'
-import { actReportText } from '../../access/act-text.ts'
+import { actReportText, SIGN_IN_ACT_REFUSAL } from '../../access/act-text.ts'
 import type { ContentFrameAccessSettings } from '../../route.ts'
 import type { ContentAccessRequest, ContentActRequest, ContentReadRequest } from '../../types.ts'
 import { settlePage } from '../perception/settle.ts'
 import { runSteps } from './act.ts'
-import { watchPage } from './watch.ts'
+import { watchPage, type ActWatch } from './watch.ts'
+import { readableDocuments } from './dom.ts'
 import { RefTable } from './refs.ts'
 import { snapshot } from './snapshot.ts'
 import type { SnapshotOptions } from './snapshot.ts'
@@ -586,6 +588,14 @@ async function readPage(
  * these steps — and the two functions it stands in for are back before anything
  * else can reach them.
  *
+ * A page asking the user to sign in is refused before the first step, by the
+ * reader's own verdict rather than by a second opinion of what a sign-in form
+ * looks like: `content_read` withholds such a page's listing, and a channel
+ * that typed into it would be the way around that. The same verdict is taken
+ * again on the closing read, because the steps themselves can produce one — a
+ * sign-out, a session that expired mid-call — and the page's structure is then
+ * withheld from the report the way the read withholds it.
+ *
  * The closing snapshot is a whole read of the page at the deployment's own
  * budget, taken after the last step settled. It is the model's next move: the
  * refs it names are the ones a following call can use, and a call that changed
@@ -603,10 +613,26 @@ async function actOnPage(
   const report = (outcome: ChannelOutcome): Report => reportOf(seat, request.callId, outcome)
   const ready = await prepare(seat, access.actTimeoutMs)
   if (ready.kind === 'failed') return report(ready.outcome)
-  const watch = watchPage(ready.view.document, request.args.dialogs ?? 'cancel', isVisible)
+  const options: SnapshotOptions = {
+    refs: ready.refs,
+    budgetChars: access.outlineChars,
+    isVisible,
+    rectOf,
+    isClickable,
+  }
+  let watch: ActWatch | undefined
   try {
+    if (snapshot(ready.view.document, options).header.signIn) {
+      return report({ status: 'error', code: 'sign-in', message: SIGN_IN_ACT_REFUSAL })
+    }
+    // The documents this call is scoped to, fixed before the first step: every
+    // same-origin document the reader walked, which is where its refs come
+    // from.
+    const documents = readableDocuments(ready.view.document)
+    watch = watchPage(documents, request.args.dialogs ?? 'cancel', isVisible)
     const run = await runSteps(request.args.steps, {
       doc: ready.view.document,
+      docs: documents,
       refs: ready.refs,
       isVisible,
     }, {
@@ -619,13 +645,13 @@ async function actOnPage(
     const events = watch.events()
     // Re-read after the steps: a navigation replaces the frame's document, and
     // the closing snapshot is of the page the user is looking at now.
-    const read = snapshot(ready.view.document, {
-      refs: ready.refs,
-      budgetChars: access.outlineChars,
-      isVisible,
-      rectOf,
-      isClickable,
-    })
+    const read = snapshot(ready.view.document, options)
+    // Withheld rather than described, exactly as a read withholds it: what the
+    // steps left in front of the user is a credential form, and its structure
+    // is not what the model needs to see.
+    const now = read.header.signIn
+      ? { text: SIGN_IN_REFUSAL, truncated: false }
+      : { text: read.text, truncated: read.truncated }
     const outcome: ActOutcome = {
       status: run.results.some(result => result.status === 'failed') ? 'failed' : 'done',
       page: { id: ready.page.id, title: forWire(ready.page.title, MAX_NAME_CHARS) },
@@ -640,9 +666,9 @@ async function actOnPage(
         redacted: run.redacted,
         settledMs: run.settledMs,
         events,
-        snapshot: read.text,
+        snapshot: now.text,
       })),
-      truncated: read.truncated,
+      truncated: now.truncated,
     }
     return weigh(report, outcome, outcome.text, access)
   } catch (refusal) {
@@ -650,7 +676,7 @@ async function actOnPage(
   } finally {
     // Even where a step threw: a frame left with this package's stand-ins is a
     // frame whose own dialogs never open again.
-    watch.stop()
+    watch?.stop()
   }
 }
 

@@ -283,6 +283,30 @@ export function refGoneReason(ref: string): string {
 }
 
 /**
+ * The failure for an element the page still has and no longer shows.
+ *
+ * A hidden element answers to a name, takes an event and runs a handler, so
+ * nothing else on the way to a step would stop one: what the model would be
+ * doing is pressing a control the user cannot see, which is the one thing this
+ * tool exists not to do.
+ * @param ref - the ref the step named.
+ * @returns the reason, without the step prefix.
+ */
+export function hiddenReason(ref: string): string {
+  return `${ref} is not visible now; call content_read for current refs.`
+}
+
+/**
+ * The failure for a page asking the user to sign in, which no call acts on.
+ *
+ * `content_read` withholds such a page's listing; this withholds the steps.
+ * The two are the same rule about the same page — an agent does not type into
+ * a credential form — said by whichever tool the model reached for.
+ */
+export const SIGN_IN_ACT_REFUSAL =
+  'The page shows a sign-in form; content_act will not act on it. Ask the user to sign in, then retry.'
+
+/**
  * The failure for an element whose name is not the one the read printed.
  * @param ref - the ref the step named.
  * @param now - the name the page shows there now.

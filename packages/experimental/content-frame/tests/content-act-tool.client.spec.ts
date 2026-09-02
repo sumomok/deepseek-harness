@@ -484,7 +484,7 @@ describe('what content_act answers with', () => {
     })
   })
 
-  it('composes the same four failures a read does when there was no page to act on', async () => {
+  it('composes the same five failures the seat posts when there was no page to act on', async () => {
     for (const [outcome, refusal] of [
       [
         { status: 'error', code: 'empty', message: 'the content column is empty' },
@@ -506,6 +506,16 @@ describe('what content_act answers with', () => {
       [
         { status: 'error', code: 'engine', message: 'no element carries the ref e4' },
         'Error: no element carries the ref e4 Call content_read without scope or after for fresh refs.',
+      ],
+      [
+        // The one ending only a call that would have acted reaches: the seat
+        // words it, and this tool hands it over as it stands.
+        {
+          status: 'error',
+          code: 'sign-in',
+          message: 'The page shows a sign-in form; content_act will not act on it. Ask the user to sign in, then retry.',
+        },
+        'Error: The page shows a sign-in form; content_act will not act on it. Ask the user to sign in, then retry.',
       ],
     ] as const) {
       const result = await settleWith(outcome)

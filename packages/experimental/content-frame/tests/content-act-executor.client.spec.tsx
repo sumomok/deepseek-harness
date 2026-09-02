@@ -89,6 +89,35 @@ function at(selector: string): Element {
   return el
 }
 
+/**
+ * Mount a page holding a same-origin frame of its own, which is the topology
+ * the product runs against: a thin shell page with the application inside it.
+ * @param outer - the shell page's markup, which must hold `<iframe id="inner">`.
+ * @param inner - the application's markup, mounted inside that frame.
+ * @returns the inner document and its window.
+ */
+function nest(outer: string, inner: string): { doc: Document; view: Window } {
+  mount(outer)
+  const view = (at('#inner') as HTMLIFrameElement).contentWindow
+  if (view === null) throw new Error('jsdom gave the nested frame no window')
+  view.document.body.innerHTML = inner
+  return { doc: view.document, view }
+}
+
+/** Number one element of a nested document the way a read would have. */
+function refIn(nested: Document, selector: string): string {
+  const el = nested.querySelector(selector)
+  if (el === null) throw new Error(`the nested fixture has no ${selector}`)
+  return refs.ref(el)
+}
+
+/** The element behind one selector of a nested document. */
+function atIn(nested: Document, selector: string): Element {
+  const el = nested.querySelector(selector)
+  if (el === null) throw new Error(`the nested fixture has no ${selector}`)
+  return el
+}
+
 /** Build one seat over the mounted frame. */
 function seatOf(request: ContentActRequest): ContentReadSeat {
   return {
@@ -305,6 +334,47 @@ describe('what stops a call', () => {
     const outcome = await run([{ action: 'click', ref: ref('#go'), label: '查询' }])
     expect(seen).toEqual(['click'])
     expect(outcome.status).toBe('done')
+  })
+
+  it('refuses a target the page has hidden since the read', async () => {
+    // A hidden element answers to its name, takes an event, and runs the
+    // handler behind it — so nothing else on the way to a step would stop one.
+    mount('<main><div id="wrap"><button id="del">删除</button></div></main>')
+    const held = ref('#del')
+    const seen = listen(at('#del'), ['pointerdown', 'mousedown', 'click'])
+    at('#wrap').setAttribute('style', 'display: none')
+    const outcome = await run([{ action: 'click', ref: held, label: '删除' }])
+    expect(seen).toEqual([])
+    expect(outcome.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'e1 is not visible now; call content_read for current refs.',
+    }])
+  })
+
+  it('refuses to act on a page asking the user to sign in', async () => {
+    // The listing of such a page is withheld from `content_read`; a channel
+    // that typed into it would be the way around that.
+    mount('<main><form><label for="u">用户名</label><input id="u">'
+      + '<label for="p">密码</label><input id="p" type="password">'
+      + '<button id="in">登录</button></form></main>')
+    const held = ref('#u')
+    render(<Probe seat={seatOf({
+      callId: 'call_1',
+      tool: 'content_act',
+      args: { steps: [{ action: 'fill', ref: held, label: '用户名', text: 'admin' }] },
+    })} />)
+    await vi.waitFor(
+      () => { expect(posted.filter(entry => entry.route === CONTENT_REPORT_ROUTE)).toHaveLength(1) },
+      { timeout: 5000 },
+    )
+    expect((at('#u') as HTMLInputElement).value).toBe('')
+    expect(posted.find(entry => entry.route === CONTENT_REPORT_ROUTE)?.body.outcome).toEqual({
+      status: 'error',
+      code: 'sign-in',
+      message: 'The page shows a sign-in form; content_act will not act on it. '
+        + 'Ask the user to sign in, then retry.',
+    })
   })
 
   it('refuses a control the page has switched off', async () => {
@@ -589,6 +659,150 @@ describe('what the page did on its own', () => {
   })
 })
 
+describe('the documents one call reaches', () => {
+  // The product's own topology: a shell page holding the application in a
+  // same-origin frame of its own. The reader walks into it, so its refs name
+  // elements there, and everything a step needs has to reach as far.
+  it('acts on an element the page holds in a frame of its own', async () => {
+    const inner = nest(
+      '<main><h1>壳</h1><iframe id="inner"></iframe></main>',
+      '<main><button id="go">查询</button></main>',
+    )
+    const seen = listen(atIn(inner.doc, '#go'), ['pointerdown', 'mousedown', 'click'])
+    const outcome = await run([{ action: 'click', ref: refIn(inner.doc, '#go'), label: '查询' }])
+    expect(seen).toEqual(['pointerdown', 'mousedown', 'click'])
+    expect(outcome.status).toBe('done')
+  })
+
+  it('answers a confirm the application opens from inside that frame', async () => {
+    // Unanswered, this blocks the whole tab until somebody presses a button
+    // nobody can see: the stand-ins exist for exactly this, and installing
+    // them on the outer document alone would leave it uncovered.
+    const inner = nest(
+      '<main><iframe id="inner"></iframe></main>',
+      '<main><button id="drop">删除</button></main>',
+    )
+    let answered: boolean | undefined
+    atIn(inner.doc, '#drop').addEventListener('click', () => { answered = inner.view.confirm('确定删除？') })
+    const outcome = await run([{ action: 'click', ref: refIn(inner.doc, '#drop'), label: '删除' }], 'accept')
+    expect(answered).toBe(true)
+    expect(outcome.text).toContain('dialog (confirm) "确定删除？" — answered accept')
+  })
+
+  it('puts that frame\'s own stand-ins back too', async () => {
+    const inner = nest('<main><iframe id="inner"></iframe></main>', '<main><button id="go">查询</button></main>')
+    // oxlint-disable-next-line typescript/unbound-method -- identity is the assertion: these are compared, never called.
+    const before = { confirm: inner.view.confirm, open: inner.view.open }
+    await run([{ action: 'click', ref: refIn(inner.doc, '#go'), label: '查询' }])
+    // oxlint-disable typescript/unbound-method -- as above.
+    expect(inner.view.confirm).toBe(before.confirm)
+    expect(inner.view.open).toBe(before.open)
+    // oxlint-enable typescript/unbound-method
+  })
+
+  it('waits for text the application draws inside that frame', async () => {
+    const inner = nest(
+      '<main><iframe id="inner"></iframe></main>',
+      '<main><button id="go">保存</button><div id="toast"></div></main>',
+    )
+    atIn(inner.doc, '#go').addEventListener('click', () => {
+      setTimeout(() => { atIn(inner.doc, '#toast').textContent = '保存成功' }, 30)
+    })
+    const outcome = await run([
+      { action: 'click', ref: refIn(inner.doc, '#go'), label: '保存' },
+      { action: 'wait', text: '保存成功' },
+    ])
+    expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }, { index: 2, status: 'ok' }])
+  })
+
+  it('reports a message and a route change from inside that frame', async () => {
+    const inner = nest(
+      '<main><iframe id="inner"></iframe></main>',
+      '<main><button id="go">保存</button><div id="host"></div></main>',
+    )
+    atIn(inner.doc, '#go').addEventListener('click', () => {
+      const toast = inner.doc.createElement('div')
+      toast.textContent = '查询成功'
+      atIn(inner.doc, '#host').append(toast)
+      setTimeout(() => { toast.remove() }, 10)
+      inner.view.location.hash = '#/detail/8812'
+    })
+    const outcome = await run([
+      { action: 'click', ref: refIn(inner.doc, '#go'), label: '保存' },
+      { action: 'wait', text: '保存' },
+    ])
+    expect(outcome.text).toMatch(/message "查询成功" \(shown for \d\.\ds, gone before the snapshot\)/)
+    expect(outcome.text).toContain('#/detail/8812')
+  })
+
+  it('stops a link inside that frame from opening a window', async () => {
+    const inner = nest(
+      '<main><iframe id="inner"></iframe></main>',
+      '<main><a id="out" href="/reports/8812" target="_blank">导出</a></main>',
+    )
+    let defaultPrevented = false
+    inner.doc.addEventListener('click', (event) => { defaultPrevented = event.defaultPrevented })
+    const outcome = await run([{ action: 'click', ref: refIn(inner.doc, '#out'), label: '导出' }])
+    expect(defaultPrevented).toBe(true)
+    expect(outcome.text).toContain('the page tried to open /reports/8812 in a new window; it was not opened')
+  })
+
+  it('refuses a target inside that frame when the shell has a dialog over it', async () => {
+    const inner = nest(
+      '<main><iframe id="inner"></iframe>'
+      + '<div role="dialog" aria-modal="true" aria-label="编辑设备"><button id="ok">确定</button></div></main>',
+      '<main><button id="go">查询</button></main>',
+    )
+    const seen = listen(atIn(inner.doc, '#go'), ['click'])
+    const outcome = await run([{ action: 'click', ref: refIn(inner.doc, '#go'), label: '查询' }])
+    expect(seen).toEqual([])
+    expect(outcome.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'e1 is behind the open dialog "编辑设备"; act inside the dialog or close it first.',
+    }])
+  })
+
+  it('acts inside a dialog the shell draws the frame in', async () => {
+    // The dialog holds the frame, so what is in the frame is what the user is
+    // being shown; `contains` alone answers false across the boundary.
+    const inner = nest(
+      '<main><div role="dialog" aria-modal="true" aria-label="编辑设备">'
+      + '<iframe id="inner"></iframe></div></main>',
+      '<main><button id="ok">确定</button></main>',
+    )
+    const seen = listen(atIn(inner.doc, '#ok'), ['click'])
+    const outcome = await run([{ action: 'click', ref: refIn(inner.doc, '#ok'), label: '确定' }])
+    expect(seen).toEqual(['click'])
+    expect(outcome.status).toBe('done')
+  })
+
+  it('refuses a target the application covered with a dialog of its own', async () => {
+    const inner = nest(
+      '<main><iframe id="inner"></iframe></main>',
+      '<main><button id="go">查询</button>'
+      + '<div role="dialog" aria-modal="true" aria-label="编辑设备"><button id="ok">确定</button></div></main>',
+    )
+    const outcome = await run([{ action: 'click', ref: refIn(inner.doc, '#go'), label: '查询' }])
+    expect(outcome.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'e1 is behind the open dialog "编辑设备"; act inside the dialog or close it first.',
+    }])
+  })
+
+  it('never reads back a password box the application holds in that frame', async () => {
+    const inner = nest(
+      '<main><iframe id="inner"></iframe></main>',
+      '<main><label for="pass">密码</label><input id="pass" type="password"></main>',
+    )
+    const outcome = await run([{ action: 'fill', ref: refIn(inner.doc, '#pass'), label: '密码', text: 'hunter2' }])
+    expect((atIn(inner.doc, '#pass') as HTMLInputElement).value).toBe('hunter2')
+    expect(outcome.text).toContain('fill "密码" ← (hidden)')
+    expect(outcome.text).not.toContain('hunter2')
+  })
+})
+
 describe('what the call answers with', () => {
   it('carries the three sections and a fresh reading of the page', async () => {
     mount('<main><label for="name">名称</label><input id="name">'
@@ -610,6 +824,21 @@ describe('what the call answers with', () => {
     // The closing snapshot is a whole read at the deployment's own budget, so
     // the refs it names are the ones the model's next call can use.
     expect(rest.slice(2).join('\n')).toContain('textbox "名称"')
+  })
+
+  it('withholds the page when the steps left a sign-in form in front of the user', async () => {
+    // A sign-out, or a session that expired mid-call: the closing read is a
+    // read like any other, and `content_read` would not hand this one over.
+    mount('<main><button id="out">退出登录</button><div id="host"></div></main>')
+    at('#out').addEventListener('click', () => {
+      at('#host').innerHTML = '<form><label for="u">用户名</label><input id="u">'
+        + '<label for="p">密码</label><input id="p" type="password"><button>登录</button></form>'
+    })
+    const outcome = await run([{ action: 'click', ref: ref('#out'), label: '退出登录' }])
+    expect(outcome.status).toBe('done')
+    expect(outcome.text).toContain('Page now:\nThe page shows a sign-in form; ask the user to sign in, then retry.')
+    expect(outcome.text).not.toContain('用户名')
+    expect(outcome.truncated).toBe(false)
   })
 
   it('says the page is too wide rather than posting a body the route refuses', async () => {
