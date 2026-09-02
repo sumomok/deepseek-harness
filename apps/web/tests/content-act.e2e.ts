@@ -67,6 +67,13 @@ const COMPOSER_PLACEHOLDER = 'Message the agent'
 /** What the user asks. Deliberately about the page, never about the tool. */
 const PROMPT = '把内容区那个表单里的机器名改成 mill-09，然后点添加'
 
+/**
+ * How long the test leaves the approval unanswered. Past the host's claim
+ * window several times over, which is what makes this a regression test rather
+ * than a click.
+ */
+const APPROVAL_DELAY_MS = 5000
+
 /** What the box holds before anything runs, and what it holds afterwards. */
 const BEFORE = 'mill-04'
 const AFTER = 'mill-09'
@@ -189,6 +196,13 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the 
     const reason = await panel.locator('[data-approval-scroll]').innerText()
     expect(reason).toContain('当前展示的这一项')
     expect(reason).toContain(AFTER)
+
+    // Answered slowly on purpose. A real console found the failure this pins:
+    // the tool body registers its wait only after the approval is answered, so
+    // the host answers every claim `unknown` until then, and a seat that gave
+    // up at the host's own claim window would have stopped bidding before the
+    // wait existed. Five seconds is past every window in this composition.
+    await new Promise<void>((resolve) => { setTimeout(resolve, APPROVAL_DELAY_MS) })
 
     // Nothing has run: the model asking is not the page changing, and until a
     // person answers, the document is exactly as the user left it.

@@ -29,7 +29,7 @@ import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
-  MAX_URL_CHARS, PREFERRED_TAB_WINDOW_MS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
+  MAX_CLAIM_BACKOFF, MAX_URL_CHARS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
   SETTLE_WAIT_SHARE, type ActOutcome, type ChannelOutcome, type ClaimAck, type ReadOutcome, type ReadPage,
   type ReportAck,
 } from '../../access/wire.ts'
@@ -268,30 +268,41 @@ function delay(ms: number): Promise<void> {
 }
 
 /**
- * Win one read, bidding again while the bid could still land.
+ * Win one call, bidding again for as long as it is still waiting for somebody.
  *
  * Two answers are worth another try. `unknown` is expected on a first claim:
  * the log records `tool/call` — which is what puts the call in this seat's
  * pending list — before the tool body registers the wait. An undelivered post
- * is the other, and one dropped request would otherwise cost the whole read:
+ * is the other, and one dropped request would otherwise cost the whole call:
  * the model would be told no console is open while the console sits in front of
  * the user. A refused claim ends the bidding, because the route refused the bid
- * itself and would refuse each one after it.
+ * itself and would refuse each one after it, and so does any other answer — a
+ * call another tab took, or one that has already settled.
  *
- * The retrying is bounded by the host's claim window rather than its report
- * deadline, because that window is what the call is actually waiting inside:
- * the preferred tab's hold and one more interval are the slack on top of it.
+ * What ends the bidding otherwise is the call leaving this seat's pending list,
+ * which happens when its result reaches the log — every ending puts one there,
+ * the host's own claim timeout included. A clock cannot stand in for that:
+ * `content_act` registers its wait only after a person has answered its
+ * approval, and a seat that gave up after the host's claim window would have
+ * stopped bidding seconds before the body opened the wait, leaving the model
+ * told that no console is open with the console in front of the user the whole
+ * time. `claimTimeoutMs` bounds the host's side of that — a wait nobody
+ * claimed — and is not this side's deadline.
+ *
+ * The interval doubles up to {@link MAX_CLAIM_BACKOFF} times {@link
+ * CLAIM_RETRY_MS} so a wait measured in minutes costs one bid a second rather
+ * than five.
  * @param seat - the live seat, re-read on every attempt.
+ * @param mounted - whether this seat is still mounted; a bid outlives nothing.
  * @param callId - the call to claim.
- * @param access - the node half's settings, whose claim window bounds the bidding.
- * @returns whether this tab owns the read.
+ * @returns whether this tab owns the call.
  */
 async function claimRead(
   seat: MutableRefObject<ContentReadSeat>,
+  mounted: MutableRefObject<boolean>,
   callId: string,
-  access: ContentFrameAccessSettings,
 ): Promise<boolean> {
-  const deadline = Date.now() + access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS + CLAIM_RETRY_MS
+  let waitMs = CLAIM_RETRY_MS
   for (;;) {
     const posted = await post<ClaimAck>(CONTENT_CLAIM_ROUTE, JSON.stringify({ callId, tabId: seat.current.tabId }))
     if (posted.kind === 'refused') return false
@@ -299,8 +310,11 @@ async function claimRead(
       if (posted.value.claimed) return true
       if (posted.value.reason !== 'unknown') return false
     }
-    if (Date.now() + CLAIM_RETRY_MS > deadline) return false
-    await delay(CLAIM_RETRY_MS)
+    await delay(waitMs)
+    waitMs = Math.min(waitMs * 2, CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF)
+    // The seat went with the tab, the session, or the column: there is nothing
+    // left here to read the page with, whatever the last pending list said.
+    if (!mounted.current) return false
     // The result reached the log while this seat waited: the call is over.
     if (!seat.current.pending.some(request => request.callId === callId)) return false
   }
@@ -643,15 +657,17 @@ async function actOnPage(
 /**
  * Claim one call and answer it from the page this seat holds.
  * @param seat - the live seat, re-read after the claim round trip.
+ * @param mounted - whether this seat is still mounted, which bounds the bidding.
  * @param request - the pending call, of either tool.
  * @param access - the node half's budget and deadlines, settled when the seat booted.
  */
 async function answer(
   seat: MutableRefObject<ContentReadSeat>,
+  mounted: MutableRefObject<boolean>,
   request: ContentAccessRequest,
   access: ContentFrameAccessSettings,
 ): Promise<void> {
-  if (!await claimRead(seat, request.callId, access)) return
+  if (!await claimRead(seat, mounted, request.callId)) return
   await reportRead(request.tool === 'content_read'
     ? await readPage(seat.current, request, access)
     : await actOnPage(seat.current, request, access))
@@ -662,9 +678,10 @@ async function answer(
  *
  * One call is answered at most once from this tab: a call the seat has taken up
  * is remembered until it leaves the pending list, so no amount of re-rendering
- * turns one read into two claims. A claim that fails in transit is not that
- * failure — it is retried every `CLAIM_RETRY_MS` until the host's claim window
- * is out, and so is a report that never lands, once.
+ * turns one read into two claims. A claim the host does not know yet is not
+ * that failure — it is bid again, at a widening interval, for as long as the
+ * call is on the list — and neither is a report that never lands, which is
+ * posted once more.
  *
  * Each call is answered by background work nobody awaits: this hook returns as
  * soon as the reads are under way, and every result reaches the host over the
@@ -673,10 +690,15 @@ async function answer(
  */
 export function useContentRead(seat: ContentReadSeat): void {
   const live = useRef(seat)
+  const mounted = useRef(true)
   const started = useRef<Set<string>>(new Set())
   const [visible, setVisible] = useState(() => document.visibilityState === 'visible')
 
   useEffect(() => { live.current = seat })
+
+  // A bid outlives nothing: the loop below runs for as long as its call is
+  // pending, and a seat that has gone has no frame to read the page with.
+  useEffect(() => () => { mounted.current = false }, [])
 
   useEffect(() => {
     const onChange = (): void => { setVisible(document.visibilityState === 'visible') }
@@ -697,7 +719,7 @@ export function useContentRead(seat: ContentReadSeat): void {
     for (const request of seat.pending) {
       if (started.current.has(request.callId)) continue
       started.current.add(request.callId)
-      void answer(live, request, access)
+      void answer(live, mounted, request, access)
     }
   }, [seat.access, seat.pending, visible])
 }

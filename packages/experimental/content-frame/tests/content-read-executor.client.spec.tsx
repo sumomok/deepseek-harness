@@ -17,7 +17,8 @@ import {
 } from '../src/client/access/executor.ts'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
-  MAX_ACT_STEPS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS, MIN_OUTLINE_CHARS,
+  MAX_ACT_STEPS, MAX_CLAIM_BACKOFF, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS,
+  MIN_OUTLINE_CHARS,
   parseChannelReport,
   PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
@@ -51,8 +52,8 @@ function otherEntry(entryId: string, title: string): ContentSurfaceEntry {
   return { kind: 'chart', entryId, seq: 2, title, payload: {} }
 }
 
-/** Every document posted to a read route, in order, decoded and as it went on the wire. */
-let posted: { route: string; body: Record<string, unknown>; raw: string }[] = []
+/** Every document posted to a read route, in order, decoded, as it went on the wire, and when. */
+let posted: { route: string; body: Record<string, unknown>; raw: string; at: number }[] = []
 
 /** The claim answers the stub hands out, oldest first; exhausted means "claimed". */
 let claims: ClaimAck[] = []
@@ -87,7 +88,7 @@ let network: Fate = 'ok'
 function stubRoutes(): void {
   vi.stubGlobal('fetch', vi.fn((route: string, init: RequestInit) => {
     const raw = init.body as string
-    posted.push({ route, body: JSON.parse(raw) as Record<string, unknown>, raw })
+    posted.push({ route, body: JSON.parse(raw) as Record<string, unknown>, raw, at: Date.now() })
     const fate = fates.get(route)?.shift() ?? network
     if (fate === 'unreachable') return Promise.reject(new Error('offline'))
     if (fate !== 'ok') return Promise.resolve({ ok: false, status: fate })
@@ -316,30 +317,45 @@ describe('when the reader claims', () => {
     expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1)
   })
 
-  it('stops bidding at the host\'s claim window, not at its report deadline', async () => {
-    // Never granted, so only a deadline can end the bidding — and the report
-    // deadline below is twenty times the claim window, which would allow many
-    // times as many bids.
-    claims = Array.from({ length: 40 }, () => ({ claimed: false, reason: 'unknown' as const }))
+  it('keeps bidding for as long as the call is waiting, however long the host takes to open it', async () => {
+    // The regression a real console found. `content_act` registers its wait
+    // only after a person has answered its approval, so the host answers
+    // `unknown` for as long as the user takes to read the request — and a seat
+    // that stopped at the host's own claim window would have stopped bidding
+    // seconds before the body opened the wait, telling the model no console is
+    // open with the console in front of the user the whole time.
+    claims = Array.from({ length: 8 }, () => ({ claimed: false, reason: 'unknown' as const }))
     const access = { ...ACCESS, claimTimeoutMs: 250, readTimeoutMs: 5000 }
-    // One bid at once, then one more every interval while another still fits
-    // inside the claim window, the preferred tab's hold, and one last interval.
-    const expected = Math.floor((access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS) / CLAIM_RETRY_MS) + 2
-    // The last bid can be sent one interval before the window closes, so the
-    // count is read past the window itself, with room for the scheduler.
-    const bidding = access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS + CLAIM_RETRY_MS + SETTLE_MARGIN_MS
-    const view = drive(seatOf({ access }))
-    await new Promise<void>((resolve) => { setTimeout(resolve, bidding) })
-    const bids = of(CONTENT_CLAIM_ROUTE).length
-    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * 2 + SETTLE_MARGIN_MS) })
-    expect({ bids, later: of(CONTENT_CLAIM_ROUTE).length }).toEqual({ bids, later: bids })
-    // One either way for the scheduler; a bidding loop bounded by the report
-    // deadline instead would be far outside this window.
-    expect(bids).toBeGreaterThanOrEqual(expected - 1)
-    expect(bids).toBeLessThanOrEqual(expected + 1)
-    expect(of(CONTENT_REPORT_ROUTE)).toEqual([])
+    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+    const started = Date.now()
+    const view = drive(seatOf({ access, frames: { current: frames } }))
+    await vi.waitFor(() => { expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(1) }, { timeout: 20_000 })
+    // Past the window the seat used to give up inside, by several times over.
+    expect(Date.now() - started).toBeGreaterThan(access.claimTimeoutMs + PREFERRED_TAB_WINDOW_MS + CLAIM_RETRY_MS)
+    expect(reported()).toMatchObject({ status: 'ok' })
     view.unmount()
-  })
+  }, 30_000)
+
+  it('widens the interval between bids rather than asking once a fifth of a second forever', async () => {
+    // A wait measured in minutes costs one bid a second, not five: the interval
+    // doubles from CLAIM_RETRY_MS and stops at MAX_CLAIM_BACKOFF times it.
+    claims = Array.from({ length: 20 }, () => ({ claimed: false, reason: 'unknown' as const }))
+    const view = drive(seatOf())
+    await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThanOrEqual(5) }, { timeout: 20_000 })
+    view.unmount()
+    const stamps = posted.filter(entry => entry.route === CONTENT_CLAIM_ROUTE).map(entry => entry.at)
+    const gaps = stamps.slice(1).map((at, index) => at - (stamps[index] ?? 0))
+    // Each gap is the doubling one, within the slack a timer and a render take.
+    for (const [index, want] of [CLAIM_RETRY_MS, CLAIM_RETRY_MS * 2, CLAIM_RETRY_MS * 4].entries()) {
+      const gap = gaps[index] ?? 0
+      expect({ index, atLeast: gap >= want * 0.8, atMost: gap < want * 1.8 })
+        .toEqual({ index, atLeast: true, atMost: true })
+    }
+    // And the fourth has stopped growing, at the bound rather than at eight
+    // times the interval.
+    expect(gaps[3] ?? 0).toBeGreaterThanOrEqual(CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF * 0.8)
+    expect(gaps[3] ?? 0).toBeLessThan(CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF * 1.6)
+  }, 30_000)
 
   it('tries again while the host does not know the call yet', async () => {
     claims = [{ claimed: false, reason: 'unknown' }]
@@ -349,14 +365,20 @@ describe('when the reader claims', () => {
     expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(2)
   })
 
-  it('stops trying when the call settles under it', async () => {
-    claims = [{ claimed: false, reason: 'unknown' }, { claimed: false, reason: 'unknown' }]
+  it('stops trying when the call settles under it, and sends nothing more', async () => {
+    // The pending list is what ends the bidding now that no clock does, so a
+    // call that left it must cost no further request at all.
+    claims = Array.from({ length: 20 }, () => ({ claimed: false, reason: 'unknown' as const }))
     const seat = seatOf()
     const view = drive(seat)
     await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1) })
     drive({ ...seat, pending: [] }, view)
-    await new Promise<void>((resolve) => { setTimeout(resolve, 400) })
-    expect(of(CONTENT_REPORT_ROUTE)).toEqual([])
+    const bids = of(CONTENT_CLAIM_ROUTE).length
+    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF * 3) })
+    // Not one more and then stop: the list is read after the wait and before
+    // the next bid, so a call that left it costs nothing further.
+    expect({ bids: of(CONTENT_CLAIM_ROUTE).length, reports: of(CONTENT_REPORT_ROUTE) })
+      .toEqual({ bids, reports: [] })
   })
 
   it('reads nothing for a call another tab took, or one already answered', async () => {

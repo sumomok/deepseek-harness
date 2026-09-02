@@ -30,11 +30,24 @@ export const CONTENT_READ_TOOL_NAME = 'content_read'
 export const PREFERRED_TAB_WINDOW_MS = 250
 
 /**
- * How long a seat waits before re-claiming a read the host does not know yet.
+ * How long a seat waits before re-claiming a call the host does not know yet.
  * The tool logs its `tool/call` before its body registers the wait, so the
  * first claim of a fresh call legitimately arrives too early.
  */
 export const CLAIM_RETRY_MS = 200
+
+/**
+ * How many times {@link CLAIM_RETRY_MS} a seat's re-claiming interval grows to
+ * while the host still does not know the call.
+ *
+ * A call the host has not opened yet is not a call arriving late by
+ * milliseconds: `content_act` is asked about before its body runs, and the
+ * answer is a person's, taken in seconds or minutes. So the interval doubles up
+ * to this multiple and stays there — a first bid within one interval for the
+ * ordinary case where the log simply beat the body, and one bid a second
+ * afterwards for as long as the call is still waiting on somebody.
+ */
+export const MAX_CLAIM_BACKOFF = 5
 
 /**
  * The share of the report deadline a seat may spend waiting for a frame that is
