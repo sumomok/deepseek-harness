@@ -942,6 +942,22 @@ function rowPieces(pieces: readonly Element[], at: number, walk: Walk): Element[
 }
 
 /**
+ * The whole of a strip a page has marked, which is the landmark around it as
+ * well as the list inside: a page marks its pager as a navigation landmark
+ * (`<nav aria-label="Pagination">`) or marks the list and wraps it in one
+ * (`<nav><ul class="pagination">`), and the two are one widget drawn two ways.
+ * Reading the landmark as a region of its own would leave the second kind
+ * standing beside no table at all.
+ * @param el - the marked element.
+ * @returns the outermost navigation landmark around it, or the element itself.
+ */
+function wholeStrip(el: Element): Element {
+  let at = el
+  while (at.parentElement !== null && roleOf(at.parentElement) === 'navigation') at = at.parentElement
+  return at
+}
+
+/**
  * The region an element stands in: the container holding it, never the element
  * itself, because a page draws the strip that pages a table as a `nav` as
  * readily as it draws it as a `div`, and a strip is not a region of its own.
@@ -1029,7 +1045,9 @@ function stripAbove(above: readonly Element[], walk: Walk): string | undefined {
  * read's scope, so a read scoped to one table by ref reports the strip that
  * pages it exactly as a read of the whole page does. A strip pages the table
  * only where the two stand in the same region — a page drawing its table in one
- * region and a strip in another has said they are not beside each other.
+ * region and a strip in another has said they are not beside each other. The
+ * navigation landmark a page draws around a strip is part of the strip, so what
+ * counts is the region that landmark stands in.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @returns the strip's text, or undefined when the table has none.
@@ -1039,7 +1057,7 @@ function paginationText(el: Element, walk: Walk): string | undefined {
   const region = regionOf(el)
   const inside = region ?? (el.getRootNode() as ParentNode)
   const nodes = queryInOrder(inside, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
-    .filter(node => node.matches(TABLE_SELECTOR) || (node.closest(TABLE_SELECTOR) === null && regionOf(node) === region))
+    .filter(node => node.matches(TABLE_SELECTOR) || (node.closest(TABLE_SELECTOR) === null && regionOf(wholeStrip(node)) === region))
     .filter(node => node === el || !parts.has(node))
   const at = nodes.indexOf(el)
   return nearestStrip(nodes.slice(at + 1), walk) ?? stripAbove(nodes.slice(0, at), walk)

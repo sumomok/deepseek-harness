@@ -2593,6 +2593,42 @@ describe('tables', () => {
     expect(read(inside).text).not.toContain('pagination:')
   })
 
+  it('pages a table by a strip a page wraps in a navigation landmark, wherever the mark is written', () => {
+    // Bootstrap marks the list and wraps it in a landmark; the ARIA practices
+    // guide marks the landmark itself. Both are one pager drawn beside a table.
+    const wrapped = page(`
+      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      <nav aria-label="Page navigation"><ul class="pagination"><li>上一页</li><li>1</li><li>2</li></ul></nav>`)
+    expect(read(wrapped).text).toContain('  pagination: 上一页 1 2')
+    const marked = page(`
+      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      <nav aria-label="Pagination"><ul><li>共 2 页</li></ul></nav>`)
+    expect(read(marked).text).toContain('  pagination: 共 2 页')
+    const region = page(`
+      <section aria-label="站点">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+        <nav aria-label="Page navigation"><ul class="pagination"><li>共 3 页</li></ul></nav>
+      </section>`)
+    expect(read(region).text).toContain('    pagination: 共 3 页')
+  })
+
+  it('pages a table by no wrapped strip standing in another region, nor by a pager drawn in a menu', () => {
+    const outside = page(`
+      <section aria-label="站点">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      </section>
+      <nav aria-label="Page navigation"><ul class="pagination"><li>共 3 页</li></ul></nav>`)
+    expect(read(outside).text).not.toContain('pagination:')
+    // The dots a page draws in its own menu are a pager of that menu, and the
+    // landmark they stand in is where they stand: beside no table on the page.
+    const menu = page(`
+      <nav aria-label="主菜单"><a href="/a">站点</a><div class="pagination-dots">1 2 3</div></nav>
+      <section aria-label="站点">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      </section>`)
+    expect(read(menu).text).not.toContain('pagination:')
+  })
+
   it('pages a table by the strip drawn beside it inside a shadow root', () => {
     // Neither stands in a region: the root of a shadow tree is no element, and
     // a table and a strip alone in one are drawn beside each other.
