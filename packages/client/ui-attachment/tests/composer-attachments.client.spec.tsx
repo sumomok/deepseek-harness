@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { cleanup, fireEvent, render } from '@testing-library/react'
+import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import type {
   ComposerAttachment, ComposerAttachmentsOwnerProps, ComposerAttachmentsProps,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
@@ -31,10 +31,22 @@ const t = ((key: string, params?: Readonly<Record<string, unknown>>): string => 
     'image.scrollRight': '向右滚动图片',
     'image.dropBlocked': '当前无法添加图片',
     'image.dropTitle': '图片拖动到此处即可添加',
+    'file.pending': '待发送文件',
+    'secretConfirm.chipLabel': '密钥文件',
+    'secretConfirm.chipLabelTitle': '这类文件通常存放密钥',
+    'secretConfirm.noticeRemove': '移除',
   }
   if (key === 'image.remove') {
     const name = params?.name
     return `移除图片 ${typeof name === 'string' ? name : ''}`
+  }
+  if (key === 'file.remove') {
+    const name = params?.name
+    return `移除文件 ${typeof name === 'string' ? name : ''}`
+  }
+  if (key === 'secretConfirm.notice') {
+    const name = params?.name
+    return `${typeof name === 'string' ? name : ''} 这类文件通常存放密钥`
   }
   if (key === 'image.dropDesc') {
     const count = params?.count
@@ -44,12 +56,27 @@ const t = ((key: string, params?: Readonly<Record<string, unknown>>): string => 
   return messages[key] ?? key
 }) as ComposerAttachmentsProps['t']
 
+// Real PNG magic bytes: the composer's onDrop routes a batch through a
+// content sniff (partitionDroppedFiles), and a lone non-NUL byte like
+// Uint8Array.of(1) decodes as valid UTF-8 — indistinguishable from text.
+// Only genuine binary leading bytes (0x89 is not a valid UTF-8 lead byte)
+// keep the sniff routing an "image" fixture to the image path.
+const PNG_MAGIC = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
+
 function attachment(id: string, name = `${id}.png`): ComposerAttachment {
   return {
     kind: 'image',
     id: id as ComposerAttachment['id'],
-    file: new File([Uint8Array.of(1)], name, { type: 'image/png' }),
+    file: new File([PNG_MAGIC], name, { type: 'image/png' }),
     previewUrl: `blob:${id}`,
+  }
+}
+
+function textAttachment(id: string, name = `${id}.txt`, text = 'hello'): ComposerAttachment {
+  return {
+    kind: 'file',
+    id: id as ComposerAttachment['id'],
+    file: new File([text], name, { type: 'text/plain' }),
   }
 }
 
@@ -58,6 +85,7 @@ function props(overrides: Partial<ComposerAttachmentsOwnerProps> = {}): Composer
     attachments: [],
     canAcceptDrop: true,
     onAddImages: () => {},
+    onAddFiles: () => {},
     onRemoveImage: () => {},
     t,
     ...overrides,
@@ -65,7 +93,7 @@ function props(overrides: Partial<ComposerAttachmentsOwnerProps> = {}): Composer
 }
 
 describe('ComposerAttachments', () => {
-  it('accepts file drops anywhere on the document and keeps non-file drags native', () => {
+  it('accepts file drops anywhere on the document and keeps non-file drags native', async () => {
     const onAddImages = vi.fn()
     const view = render(<ComposerAttachments {...props({
       onAddImages,
@@ -87,8 +115,37 @@ describe('ComposerAttachments', () => {
     expect(fireEvent.dragOver(document.body, { dataTransfer })).toBe(false)
     expect(dataTransfer.dropEffect).toBe('copy')
     expect(fireEvent.drop(document.body, { dataTransfer })).toBe(false)
-    expect(onAddImages).toHaveBeenCalledWith([image])
+    // The drop's content sniff (partitionDroppedFiles) resolves after a
+    // microtask; onAddImages fires once that split completes.
+    await waitFor(() => { expect(onAddImages).toHaveBeenCalledWith([image]) })
     expect(view.queryByRole('status')).toBeNull()
+  })
+
+  it('routes a text-sniffable dropped file to onAddFiles instead of onAddImages', async () => {
+    const onAddImages = vi.fn()
+    const onAddFiles = vi.fn()
+    render(<ComposerAttachments {...props({ onAddImages, onAddFiles })} />)
+    const file = textAttachment('dropped-text').file
+    const dataTransfer = { types: ['Files'], files: [file], dropEffect: 'none' }
+    fireEvent.dragEnter(document.body, { dataTransfer })
+    fireEvent.drop(document.body, { dataTransfer })
+    await waitFor(() => { expect(onAddFiles).toHaveBeenCalledWith([file]) })
+    expect(onAddImages).not.toHaveBeenCalled()
+  })
+
+  it('splits one mixed drop batch between onAddImages and onAddFiles', async () => {
+    const onAddImages = vi.fn()
+    const onAddFiles = vi.fn()
+    render(<ComposerAttachments {...props({ onAddImages, onAddFiles })} />)
+    const image = attachment('mixed-image').file
+    const file = textAttachment('mixed-text').file
+    const dataTransfer = { types: ['Files'], files: [image, file], dropEffect: 'none' }
+    fireEvent.dragEnter(document.body, { dataTransfer })
+    fireEvent.drop(document.body, { dataTransfer })
+    await waitFor(() => {
+      expect(onAddImages).toHaveBeenCalledWith([image])
+      expect(onAddFiles).toHaveBeenCalledWith([file])
+    })
   })
 
   it('tracks nested file drags and clears an aborted drag', () => {
@@ -156,5 +213,73 @@ describe('ComposerAttachments', () => {
     expect(view.getByAltText('待发送图片')).toBeTruthy()
     fireEvent.click(view.getByTitle('查看原图'))
     expect(view.getByAltText('原图')).toBeTruthy()
+  })
+
+  it('renders a file draft as a name+size chip beside the image rail and routes its removal', () => {
+    const onRemoveImage = vi.fn()
+    const image = attachment('draft-1', 'pixel.png')
+    const file = textAttachment('draft-2', 'notes.txt', 'hello world')
+    const view = render(<ComposerAttachments {...props({ attachments: [image, file], onRemoveImage })} />)
+
+    expect(view.getByText('notes.txt')).toBeTruthy()
+    expect(view.getByText('11 B')).toBeTruthy()
+    fireEvent.click(view.getByRole('button', { name: '移除文件 notes.txt' }))
+    expect(onRemoveImage).toHaveBeenCalledWith(file.id)
+    // The image rail is unaffected by the file chip's presence.
+    expect(view.getByRole('button', { name: '移除图片 pixel.png' })).toBeTruthy()
+  })
+
+  it('labels an unnamed file draft with the pending-files fallback', () => {
+    const file = textAttachment('draft-3', '')
+    const view = render(<ComposerAttachments {...props({ attachments: [file] })} />)
+    expect(view.getByText('待发送文件')).toBeTruthy()
+  })
+
+  it('marks a file chip in secretContainerHitIds with the warning visual and inline label, and no other chip', () => {
+    const hit = textAttachment('draft-4', '.env', 'SECRET=1')
+    const plain = textAttachment('draft-5', 'notes.txt', 'hello')
+    const view = render(<ComposerAttachments {...props({
+      attachments: [hit, plain],
+      secretContainerHitIds: new Set([hit.id]),
+    })} />)
+    const warned = view.container.querySelector('[data-secret-warning]')
+    expect(warned?.textContent).toContain('.env')
+    expect(warned?.textContent).toContain('密钥文件')
+    expect(view.container.querySelectorAll('[data-secret-warning]')).toHaveLength(1)
+  })
+
+  it('omits the warning visual and label entirely when secretContainerHitIds is absent', () => {
+    const file = textAttachment('draft-6', '.env', 'SECRET=1')
+    const view = render(<ComposerAttachments {...props({ attachments: [file] })} />)
+    expect(view.container.querySelector('[data-secret-warning]')).toBeNull()
+    expect(view.queryByText('密钥文件')).toBeNull()
+  })
+
+  it('shows the below-row secret-container notice only while a chip warns, naming the first match', () => {
+    const plain = textAttachment('draft-7', 'notes.txt', 'hello')
+    const view = render(<ComposerAttachments {...props({ attachments: [plain] })} />)
+    expect(view.queryByText(/这类文件通常存放密钥/)).toBeNull()
+
+    const hit = textAttachment('draft-8', '.env', 'SECRET=1')
+    const secondHit = textAttachment('draft-9', 'id_rsa', 'KEY')
+    view.rerender(<ComposerAttachments {...props({
+      attachments: [plain, hit, secondHit],
+      secretContainerHitIds: new Set([hit.id, secondHit.id]),
+    })} />)
+    // Names the FIRST matched file, not the second, even though both warn.
+    expect(view.getByText('.env 这类文件通常存放密钥')).toBeTruthy()
+    expect(view.queryByText(/id_rsa 这类文件/)).toBeNull()
+  })
+
+  it('removes the first matched file when the notice\'s remove control is clicked', () => {
+    const onRemoveImage = vi.fn()
+    const hit = textAttachment('draft-10', '.env', 'SECRET=1')
+    const view = render(<ComposerAttachments {...props({
+      attachments: [hit],
+      secretContainerHitIds: new Set([hit.id]),
+      onRemoveImage,
+    })} />)
+    fireEvent.click(view.getByRole('button', { name: '移除 .env' }))
+    expect(onRemoveImage).toHaveBeenCalledWith(hit.id)
   })
 })

@@ -11,7 +11,7 @@
  * full parse self-heals it.
  */
 
-import { memo, useMemo, useRef } from 'react'
+import { memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { ReactNode } from 'react'
 import { IncrementalMarkdownParser } from './incremental.ts'
 import { parseGfm, parseGfmWithMath } from './parse.ts'
@@ -19,31 +19,39 @@ import {
   collectReferenceTargets, createReferenceTargets, renderBlocks, renderFootnoteSection,
   wrapBlockChildren,
 } from './render.tsx'
-import type { MarkdownCodeLabels, MarkdownFileMentions, MarkdownRenderContext, ReferenceTargets } from './render.tsx'
+import type {
+  MarkdownFileMentions, MarkdownLabels, MarkdownProseReferents, MarkdownRenderContext, ReferenceTargets,
+} from './render.tsx'
 import 'katex/dist/katex.min.css'
 import css from './MarkdownText.module.css'
 
-export type { MarkdownCodeLabels, MarkdownFileMentions } from './render.tsx'
+export type { MarkdownCodeLabels, MarkdownFileMentions, MarkdownLabels, MarkdownProseReferents, MarkdownProseSpan } from './render.tsx'
 
 /** One settled full render: parse with math, resolve references, append the footnote section. */
 function renderSettled(
   text: string,
-  codeLabels: MarkdownCodeLabels | undefined,
+  labels: MarkdownLabels,
   fileMentions: MarkdownFileMentions | undefined,
+  referents: MarkdownProseReferents | undefined,
 ): ReactNode[] {
   const root = parseGfmWithMath(text)
   const targets = createReferenceTargets()
   collectReferenceTargets(root.children, targets)
   const context: MarkdownRenderContext = {
     streaming: false,
-    codeLabels,
+    labels,
     fileMentions,
+    referents,
     targets,
     footnoteOrder: [],
     footnoteCounts: new Map(),
   }
   const blocks = wrapBlockChildren(
-    renderBlocks(root.children.map((node, index) => ({ node, key: index })), context),
+    renderBlocks(root.children.map((node, index) => ({
+      node,
+      /* v8 ignore next -- parseFull uses parseGfm, which stamps every top-level node. */
+      key: node.position?.start.offset ?? -(index + 1),
+    })), context),
     false,
   )
   const section = renderFootnoteSection(context)
@@ -67,8 +75,8 @@ class StreamingRenderer {
   private lastText: string | null = null
   private lastRendered: ReactNode[] = []
 
-  /** @param codeLabels - Fence copy labels baked into cached elements; the owner replaces the renderer when they change. */
-  constructor(private readonly codeLabels: MarkdownCodeLabels | undefined) {}
+  /** @param labels - Localized Markdown chrome baked into cached elements; the owner replaces the renderer when it changes. */
+  constructor(private readonly labels: MarkdownLabels) {}
 
   /**
    * Render the current accumulated text. Idempotent per text value, so React
@@ -100,8 +108,9 @@ class StreamingRenderer {
     if (newlyFrozen.length > 0) {
       const frozenContext: MarkdownRenderContext = {
         streaming: true,
-        codeLabels: this.codeLabels,
+        labels: this.labels,
         fileMentions: undefined,
+        referents: undefined,
         targets: frameTargets,
         footnoteOrder: this.frozenFootnoteOrder,
         footnoteCounts: this.frozenFootnoteCounts,
@@ -118,8 +127,9 @@ class StreamingRenderer {
     }
     const tailContext: MarkdownRenderContext = {
       streaming: true,
-      codeLabels: this.codeLabels,
+      labels: this.labels,
       fileMentions: undefined,
+      referents: undefined,
       targets: frameTargets,
       footnoteOrder: [...this.frozenFootnoteOrder],
       footnoteCounts: new Map(this.frozenFootnoteCounts),
@@ -138,39 +148,72 @@ class StreamingRenderer {
 }
 
 /**
+ * Re-render the caller once per `referents.subscribe` verification tick, by
+ * returning an incrementing counter the caller folds into its memo key.
+ * Closes the settle-rerender gap: a settled message's `useMemo` cache would
+ * otherwise never re-invoke `scan`/`resolveLink` after the message settles,
+ * so a candidate that verifies moments later (the host `stat` batch is
+ * asynchronous) stayed plain text until a full page refresh remounted the
+ * component and re-scanned against the by-then-verified index.
+ * @param referents - the current referents face; re-subscribes whenever its identity changes.
+ * @returns a counter that increments on every tick; stable (never increments) with no `subscribe`.
+ */
+function useReferentsRevision(referents: MarkdownProseReferents | undefined): number {
+  const [revision, setRevision] = useState(0)
+  useEffect(() => {
+    // subscribe is a plain callback property, not a `this`-bound instance
+    // method — extracting it here is what lets TypeScript narrow "defined"
+    // past the guard below.
+    // oxlint-disable-next-line typescript/unbound-method
+    const subscribe = referents?.subscribe
+    if (subscribe === undefined) return
+    return subscribe(() => { setRevision(r => r + 1) })
+  }, [referents])
+  return revision
+}
+
+/**
  * Render untrusted assistant-authored Markdown as semantic React elements.
  * @param props - Markdown source text preserved by the session projection;
- * `streaming` renders fences and TeX plain (highlighting and KaTeX land on
- * the finalize swap) and parses incrementally across chunks; `codeLabels`
- * forwards localized copy-button labels to fence CodeBlocks — pass a
+ * `streaming` parses incrementally across chunks and highlights fences as
+ * they grow (each fence re-tokenizes only appended text; TeX stays literal
+ * until the finalize swap so incomplete formulae never flash errors);
+ * `labels` forwards localized fence and footnote chrome — pass a
  * reference-stable object (memoized per locale revision), because a new
  * identity discards the streaming render cache mid-message. `fileMentions`
- * links inline-code tokens its resolver recognizes as real files; this is
- * the single streaming gate — it applies to settled renders only, because a
+ * links inline-code tokens its resolver recognizes as real files;
+ * `referents` additionally scans plain prose text (and whatever inline code
+ * `fileMentions` leaves unclaimed) for clickable references. Both are the
+ * same single streaming gate — they apply to settled renders only, because a
  * streaming message's vocabulary is not final and frozen cached elements
  * must not bake in handlers that could go stale.
  * @returns A GFM document with TeX math rendered through KaTeX; raw HTML,
  * relative links, and unsafe protocols are disabled, while absolute HTTP(S)
  * images render directly.
  */
-export const MarkdownText = memo(function MarkdownText({ text, streaming = false, codeLabels, fileMentions }: {
+export const MarkdownText = memo(function MarkdownText({ text, streaming = false, labels, fileMentions, referents }: {
   text: string
   streaming?: boolean
-  codeLabels?: MarkdownCodeLabels | undefined
+  labels: MarkdownLabels
   fileMentions?: MarkdownFileMentions | undefined
+  referents?: MarkdownProseReferents | undefined
 }) {
   const streamRef = useRef<StreamingRenderer | null>(null)
-  const streamLabelsRef = useRef<MarkdownCodeLabels | undefined>(codeLabels)
+  const streamLabelsRef = useRef<MarkdownLabels>(labels)
+  const referentsRevision = useReferentsRevision(referents)
   const children = useMemo(() => {
     if (!streaming) {
       streamRef.current = null
-      return renderSettled(text, codeLabels, fileMentions)
+      return renderSettled(text, labels, fileMentions, referents)
     }
-    if (streamRef.current === null || streamLabelsRef.current !== codeLabels) {
-      streamRef.current = new StreamingRenderer(codeLabels)
-      streamLabelsRef.current = codeLabels
+    if (streamRef.current === null || streamLabelsRef.current !== labels) {
+      streamRef.current = new StreamingRenderer(labels)
+      streamLabelsRef.current = labels
     }
     return streamRef.current.render(text)
-  }, [text, streaming, codeLabels, fileMentions])
+    // referentsRevision itself is never read in this body; it rides the
+    // dependency array purely to invalidate the memo on a verification
+    // tick, the same technique `text`/`streaming` already use for their own changes.
+  }, [text, streaming, labels, fileMentions, referents, referentsRevision])
   return <div className={css.markdown}>{children}</div>
 })

@@ -63,3 +63,7 @@ Status: implemented
 那个 vendored tarball 就是这个插件的更新渠道:一个新版本意味着提交一个新的 tarball 并把标识符移过去,而携带某次构建的安装包拥有该版本,与其余每个内置插件完全一样。`THIRD_PARTY_NOTICES.md` 用一条指向该 tarball 的仓库相对链接来标识它,因为一个没发布的包没有公开 URL 可写——它是该文件里链接不指向仓库的那几条之一。
 
 载荷把它作为又一个 profile bundle 带上,构建会在 `package: <target> payload built-in profile bundles:` 那一行点名它保留的每个 bundle。deployer 会把 `apps/desktop-server/vendor/` 连同清单一起复制进暂存树,所以打包步骤把它和已经在丢弃的 README 文件一起删掉:暂存树里已有装好的包,而它来自的那个归档在运行期什么都解析不了。
+
+## Related
+
+- [插件管理服务](2026-08-25-desktop-plugin-admin-service.zh.md)是壳的第二个本机服务,以同样的方式打开、带着自己独立的 token。两者现在共享 loopback 地址、token 生成、常数时间比较、带上限的请求体读取,以及两个回答写入器——它们从 `render-service.ts` 搬到了 `apps/desktop/src/loopback-service.ts`。渲染协议没有随它们发生任何改变。

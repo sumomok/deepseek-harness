@@ -118,16 +118,20 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 ## 内置插件
 
-**七个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
+**十一个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
 
 | 包名 | 版本 | 提供什么 |
 |---|---|---|
-| `dsh-better-sidebar` | `0.14.0`,来自 npm | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
+| `dsh-better-sidebar` | `0.15.2`,来自 npm | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
 | `dsh-at-file` | `v0.6.5`,来自作者仓库该 tag 所指的提交 | 输入框里的 `@` 文件提及 |
-| `@haoran/dsh-screenshot` | `0.2.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面——带 `cookies` 或 `headers` 时也包括登录墙后的页面——把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写成文件 |
-| `@haoran/dsh-llm-permission-gateway` | `0.1.4`,来自提交进本仓库的 tarball | 自动审查这个权限预设——在权限选择器里带上完全权限那枚盾形图标——以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型 |
+| `@haoran/dsh-screenshot` | `0.4.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面,登录墙后的页面也包括在内——截回来的图是一堵登录墙时,它变成一个问题,你的回答要么打开一个由你自己完成登录的窗口,要么复用这台机器上已有的登录,随后在那个站点自己的分区里重新截一次。没有这个回答就什么都不复用,cookie 的值从不作为工具参数或返回值出现,已存的登录在设置页的一个小节和 `/screenshot-logout <域名>` 里管理。它把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写进工作区内;配置决定 cookie 罐、user agent(默认是稳定版 Chrome 的字符串,不是壳自己的)与由哪个后端渲染 |
+| `@haoran/dsh-llm-permission-gateway` | `0.1.5`,来自提交进本仓库的 tarball | 自动审查这个权限预设——在权限选择器里带上完全权限那枚盾形图标——以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型。向你提问不算其中之一:`ask_user_question` 不经审查直接放行,因为它的全部效果就是把一段文字摆在你面前等你回答,审查它只会多一次模型调用,并在它本来要显示的那个提问前面再加一道提示 |
 | `@sumomok/dsh-quote-message` | `0.2.2`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,引用 chip 在你发送时展开成一段 markdown 引用块,而对话里它显示成你这条消息上方的一段引文——左侧一条细线,引用文字用次级墨色,超过三行折起 |
-| `@sumomok/dsh-balance` | `0.1.0`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 公布的 CNY 与 USD 价格 |
+| `@sumomok/dsh-balance` | `0.2.3`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 公布的 CNY 与 USD 价格 |
+| `@haoran/dsh-connection-banner` | `0.1.0`,来自提交进本仓库的 tarball | 连接正在重连期间,页面顶部的一条横幅——短暂的抖动不出声,断线过了几秒才现身,一恢复就立刻消失 |
+| `@haoran/dsh-clickable-refs` | `0.3.3`,来自提交进本仓库的 tarball | 让终端(bash 工具)输出与 web-fetch 卡片里的 URL 可点击:每一次命中——POSIX 或 Windows 路径、UNC 共享、localhost/loopback URL——都经由 referent/open 这道 waterfall 缝打开,对可执行/脚本扩展名有一份拒绝名单,过期路径则降级为「未找到」 |
+| `@haoran/dsh-plugin-updates` | `0.1.1`,来自提交进本仓库的 tarball | 插件设置里的「更新」页:把你自己装的插件与各自最新的发布版本列在一起,每行一个按钮,经由随安装包分发的那个包管理器安装,还有一步把上一次更新撤回。内置插件不在这份名单里——壳给它们种下的是没有依赖条目的 bundle 项,它们随应用更新而更新 |
+| `@haoran/dsh-vision-switch` | `0.1.0`,来自提交进本仓库的 tarball | 在当前模型不支持图片时发送带图片的消息,会经由手动切换模型走的那条同一通道把会话切到一个支持图片的模型,而不是宿主那个走不下去的拒绝 |
 | `@haoran/dsh-default-model` | `0.1.2`,来自提交进本仓库的 tarball | 出厂默认模型:全新安装的第一个会话开在 `deepseek-v4-flash-vision-exp` 上,选择器把它列为 `default` |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
@@ -136,23 +140,48 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **`dsh-at-file` 取自 tag 而非注册表**,因为作者在 npm 上只发到 `0.6.3`,而 tag 已经到 `v0.6.5`。分发 `0.6.3` 会与自行装了 `v0.6.5` 的 profile 配不上:一个 bundle 的两半从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`——于是这一行来自 `0.6.3`,代码来自 `v0.6.5`。这条依赖写的是该 tag 所指的**提交**,而不是它的归档 URL:pnpm 不为 GitHub 归档记录完整性哈希,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有完整性字段的 lockfile 条目。提交本身就是它的哈希,于是 lockfile 钉住的是内容。该仓库把构建好的 `lib/` 提交了进去,也没有声明 `prepare` 脚本,所以安装期什么都不构建。
 
-**五个随仓库 vendor 的插件都没有发布**,所以它们各自的依赖都是一条 `file:` 标识符,指向与声明它们的清单放在一起的 `apps/desktop-server/vendor/` 下的 tarball。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去;没有别的渠道,因为五个都不在任何注册表上。
+**九个随仓库 vendor 的插件都没有发布**,所以它们各自的依赖都是一条 `file:` 标识符,指向与声明它们的清单放在一起的 `apps/desktop-server/vendor/` 下的 tarball。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去;没有别的渠道,因为九个都不在任何注册表上。
 
-**七个里有四个带浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,`dsh-at-file`、`dsh-better-sidebar`、`@sumomok/dsh-quote-message` 与 `@sumomok/dsh-balance` 声明了它。另外三个没有:工具是 agent 去调用的,默认模型是 loader 去读的编排,都不是页面去加载的。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把七个都解析了。
+**十一个里有九个带浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,`dsh-at-file`、`dsh-better-sidebar`、`@haoran/dsh-screenshot`、`@haoran/dsh-plugin-updates`、`@sumomok/dsh-quote-message`、`@sumomok/dsh-balance`、`@haoran/dsh-connection-banner`、`@haoran/dsh-clickable-refs` 与 `@haoran/dsh-vision-switch` 声明了它。另外两个没有:权限预设与默认模型都是 loader 去读的编排,页面从不加载。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把十一个都解析了。
 
 **`dsh-better-sidebar` 在本宿主上必须是 `0.14.0` 或更高。**`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,模块访问改由 `ctx.modules` 服务提供,这让每个懒加载 chunk 解析外部依赖的方式全面失效——`0.13.1` 会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,终端、编辑器与 Mermaid 面板一起跟着挂掉。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`,并把插件自有的全局共享给它的 chunk 副本,同时移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。
 
-**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与七个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,依赖与清单里的其他字段都不会被动。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
+**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app` 与十一个内置插件,于是 `loadProfile` 会应用每个插件的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,而下面的 web profile 同步是唯一会写入依赖条目、或改写壳自己写过的文件的动作。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
 
 壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断,没有声明 bundle 列表的清单按手写编排对待,该放链接的位置上是真实目录则如实报告而不是删掉。profile 目录根本写不出来是启动唯一绕不过去的失败;日志那一行会说明,随后是服务端自己的诊断。
 
 **本次构建撤下的内置插件,会从已经有它的 profile 里取回去。**服务端会解析 `dsh.profile.bundles` 里的每一个名字,解析不到就直接让启动失败;所以只是「不再随包分发某个包」的升级,会让旧构建播种过的每一个 profile 都启动不了。`src/profile-seed.ts` 里的 `WITHDRAWN_WEB_BUNDLES` 列出这些包:一次启动会把这样的名字从清单里删掉,并移除它自己为它建的扁平兜底链接。只清理壳自己留下的东西:指向本次载荷以外任何位置的链接会保留,包只要仍能解析,它的 bundle 条目也会保留——你用 `dsh plugin --profile desktop add` 装的副本继续照它自己的归属工作。`@sumomok/dsh-edit-rerun` 是第一条:它出现在 0.1.0-rc.21 发布前的构建里,在该版本发布之前被撤下。
 
-**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这七个在桌面 profile 里已经有了;你此前额外加进 `web` 的插件列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里,用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。
+**你装进 CLI `web` profile 的插件,每次启动都会与桌面 profile 保持同步。**0.1.0-rc.17 之前的每一版启动的都是 `web`,而 rc.17 到 rc.22 的每一版建出的 desktop profile 里只有那一版的内置插件、没有你自己加过的东西;从这两类版本升上来,你自己的插件都还留在壳不再编排的那个 profile 里——此后你再装进 `web` 的插件,也会照同样的方式在下一次启动时抵达 `desktop`。每次启动都会读 `~/.dsh/profiles/web/package.json`,取出它 `dsh.profile.bundles` 里每一个既不是那两个随附 bundle、也不是上面的内置插件、也不在撤下名单里、也还没被记过的名字:`~/.dsh/profiles/desktop/node_modules/<name>` 会得到一条指向 web profile 自有副本的链接,只有在这个包能干净挂载的前提下,该名字才会被追加进桌面清单的 `dsh.profile.bundles`,web profile 为它声明的版本才会被抄进 `dependencies`。不安装、也不复制——包仍然只住在 web profile 那一处,所以 `dsh plugin --profile web add <包>@latest` 更新的仍是两个 profile 共同挂载的那一份,而一台没有包管理器的机器也不需要有。桌面 profile 里的 `web-migration.json` 是壳自己那份「同步了什么」的记录,`@haoran/dsh-plugin-updates` 读的正是这份跨组件契约:
+
+```json
+{
+  "from": "web",
+  "migrated": ["dsh-toolbox"],
+  "defective": [{ "name": "dsh-broken", "kind": "entry-missing", "detail": "…", "at": 1756100000000 }],
+  "removed": ["dsh-taken-off-desktop"]
+}
+```
+
+只有 `from` 与 `migrated` 两个字段的旧版标记文件,读出来 `defective` 与 `removed` 就是空数组。只有一个 profile 迄今第一次跑同步——也就是完全找不到 `web-migration.json` 的那一次——才会把下面那段里的 `cordis.patch.yml` 与 `pnpm-workspace.yaml` 整份复制过来;此后每一次同步都对这两个文件原样不动,不会覆盖你此后做过的任何编辑。
+
+**挂载不了的插件会被禁用,既不会被丢掉,也不会拖垮启动。**一个还在开发中的包,可能是还没跑构建步骤的 git 安装、不再声明 `dsh.bundle` 的版本,或是服务端自己的 loader 在 import 时就直接抛错的东西——三种不同的现场情况,只要 `dsh.profile.bundles` 点了这个插件的名,哪一种都会终止启动。所以处在这类状态的名字会保留链接——可查看、可修复——但不进 `dsh.profile.bundles`,它的条目会挪进标记文件的 `defective` 列表,归为三种 kind 之一:`entry-missing`(清单的 `exports` 或 `main` 指的入口文件盘上没有——未构建的 git 安装就是这种)、`not-a-bundle`(装着的版本不再声明 `dsh.bundle`),或 `load-failed`(服务端自己的 loader 在 import 它时就抛了错——从那次启动自己的输出里截获,见下文)。日志那一行是 `disabled migrated <name>: <reason>`,一个名字一行,理由按 kind 各不相同。
+
+**删掉桌面这一侧的链接是一次「移除」,不是丢失。**web profile 里那份副本还健康,而你把它在 `~/.dsh/profiles/desktop/node_modules/` 下的链接删掉,这个名字就会挪进标记文件的 `removed` 列表——`removed <name>: no longer linked in the desktop profile; still installed in the web profile, so it will not return on its own`——并且留在那儿:一块墓碑,不会被自动重新同步回来。web 那份副本也没了的名字,则会被从标记文件里彻底删掉,不留任何记录。
+
+**你的 `web` patch 层会在第一次同步时跟着一起过来,除非你已经写过自己的。**只要 `~/.dsh/profiles/desktop/cordis.patch.yml` 还是壳写下的那份空模板,web profile 的那份就会逐字节替换它——注释、`!!js` 表达式,一并带过来——`pnpm-workspace.yaml` 同理。一旦你改过桌面这一份,两个文件都不会被动,日志会点名该手工搬哪些插件的行:`skipped cordis.patch.yml: the desktop copy is already edited; carry the web profile's rows for dsh-toolbox over by hand`。任何情况下都不会做合并——patch 层是只有 loader 自己那套 YAML schema 才读得懂的东西,把两份合起来等于把那套 schema 再实现一遍。
+
+**迁移过来的插件一旦会被服务端拒收,就会照同一套办法从 bundle 列表里取出去。**那个包待在归你所有、而且你还会不断改动的目录里:清空或重装 `web` profile 会让链接悬空,而在那边升级这个包,可能把它换成一个根本不再是插件 bundle 的版本。所以每次启动都会拿 `migrated` 里的每一个名字对着同一个 `bundleDefect` 重新核对,并按核对结果把它禁用为 defective、立成墓碑归入 removed,或者彻底不再追踪——`dropped migrated dsh-toolbox: no longer resolves in the web profile` 是唯一没有任何东西可留的情形,因为桌面这边的链接与 web 那份副本都没了。你后来自己接管的名字会保留它的条目:无论那是 `dsh plugin --profile desktop add` 装的副本、你自己在那个路径上建的链接,还是本次构建开始随包分发的包。不做检查的是「在更老的 harness 下装的插件是否配得上这一版」:它未满足的 peer 会逐级落到本安装修复的扁平兜底目录,所以它共用本次构建的那一份 cordis,但它的代码是否对得上本次构建的 API,这里没有任何东西答得上来。
+
+**启动仍然失败的情形会被隔离,并重试一次。**准入能拦下未构建的安装和不再是 bundle 的包,却拦不住服务端自己的 loader 拒绝导入的每一种方式——现场案例是一个提交了 `src/*.ts`、完全没有 `lib/` 的 git 安装,报错是 `Cannot find module '…/lib/index.js'`。当内嵌服务端在打印 URL 行之前就退出,壳会在那次启动自己的输出里扫描 loader 那句确切的 `failed to import loader entry <id> (<module>)`;当 `<module>` 是这个壳同步过的名字,它就会带着 kind `load-failed` 挪进 `defective`,壳记下 `disabled migrated <name> after it failed to load; retrying startup`,再重新启动一次服务端,只有这一次。输出里点不到名的模块,或者第二次仍然失败,都会走到原来那个启动失败页。
+
+**Settings 会展示 defective 或 removed 的插件,并提供操作入口**,走的是插件管理回环服务上另外四条路由——完整协议见下文「插件管理服务」一节。
+
+**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这十一个在桌面 profile 里已经有了,其余的也由上面那个同步持续搬过来;此后你再加进 `web` 的插件,要么在你下次启动时自然抵达 `desktop`,要么用 `dsh plugin --profile desktop add <包>` 立刻装进桌面 profile,它列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里。
 
 **如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile desktop remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
 
-**要关掉其中一个,就在** `$DSH_HOME/profiles/desktop/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`,截图工具是 `screenshot`,引用是 `ui-quote-message`,余额 chip 是 `balance`:
+**要关掉其中一个,就在** `$DSH_HOME/profiles/desktop/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`,截图工具是 `screenshot`,引用是 `ui-quote-message`,余额 chip 是 `balance`,更新页是 `plugin-updates`:
 
 ```yaml
 - id: better-sidebar
@@ -167,15 +196,15 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **壳把自己的 Chromium 借给服务端**,所以截图不取决于这台机器上装没装 Chrome 或 Edge。在启动服务端之前,主进程在 `127.0.0.1` 与一个临时端口上打开一个 HTTP 监听、生成一个 32 字节的 token,并把两者放进那一个子进程的环境——`DSH_DESKTOP_RENDER_ENDPOINT` 与 `DSH_DESKTOP_RENDER_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程都继承不到。`@haoran/dsh-screenshot` 每次调用都去读它们。两个都读不到的 harness 改用系统上的无头浏览器渲染,这也正是所有非桌面安装的做法;监听没能打开的那次启动会记一行日志并照常继续,它的截图走的是同一条退路。
 
-请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs?, timeoutMs?, onTimeout?, blockHosts?, headers?, cookies? }`。它可能得到的全部回答:
+渲染请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs?, timeoutMs?, onTimeout?, blockHosts?, headers?, cookies?, userAgent?, partition? }`;下面那三条登录路由带同样的两个头,以及各自的 JSON 请求体。`POST /render` 可能得到的全部回答:
 
 | 回答 | 何时 |
 |---|---|
 | `200 image/png` | 截图本身,PNG 字节,尺寸正好是请求的视口——或者,对一个发了 `onTimeout: "capture"` 的请求,是期限越过时页面已经画出来的那一帧 |
-| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内、`timeoutMs` 不在 1000–120000 内、`onTimeout` 不是 `fail` 或 `capture`、某个 `blockHosts` 条目不是主机模式或命中了页面自己的主机、`url` 不是绝对 URL,或某个 `headers`/`cookies` 条目越界或不合它的文法 |
+| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内、`timeoutMs` 不在 1000–120000 内、`onTimeout` 不是 `fail` 或 `capture`、某个 `blockHosts` 条目不是主机模式或命中了页面自己的主机、`url` 不是绝对 URL、某个 `headers` 或 `cookies` 条目越界或不合它的文法,`userAgent` 为空、超过 512 个字符、不是一个头部值,或 `partition` 不是字符串、超过 278 个字符 |
 | `401` | 缺少或写错 bearer token |
-| `404` | 其他任何路径或方法 |
-| `422` | 格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL,或在 `file:` URL 上带了 `headers`/`cookies` |
+| `404` | 四条路由以外的任何路径或方法 |
+| `422` | 格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL,在 `file:` URL 上带了 `headers`/`cookies`,`partition` 落在 `persist:dsh-render-login-<registrable-domain>` 之外,或在 `file:` URL 上、在 `cookies` 旁边带了 `partition` |
 | `500` | 页面加载失败或截图失败;这一行带着 Chromium 的错误码 |
 | `503` | 已经受理了四个请求 |
 | `504` | 该请求越过了自己的期限且没有像素可答;这一行说出渲染当时在等什么 |
@@ -209,7 +238,21 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **`blockHosts` 就是报告点名的那个补救办法。**它是至多 32 条主机模式的列表——精确主机,或匹配该后缀的子域(不含后缀本身)的 `*.suffix`,每条至多 253 个字符,匹配时不分大小写——命中的请求在 `onBeforeRequest` 里于发出之前被取消,并计入 `requests.blocked`。命中当前被渲染页面自己主机的模式会被一个点名它的 400 拒绝,因为一次把自己文档取消掉的渲染只会失败,且说不出任何理由。这是壳唯一注册的阻塞式 `webRequest` 钩子,而且只对真的带了这个字段的请求注册:没写 `blockHosts` 的渲染,时序与没有这个特性时完全一致。
 
-**一个请求可以带上页面所需的会话。**`cookies` 是 name→value 的映射,在加载之前设到这次渲染自己的 session 上,作用域是路径 `/` 与页面所在的主机,因此它不只覆盖文档,也覆盖页面的子资源——一个图片全部 401 的已登录页面,不是任何人想看的那个页面。路径之所以显式给出,是因为不给的话 Chromium 会套用 RFC 6265 的默认路径——那是页面被送出来的那个目录,而不是整个站点:为 `/app/issues/list` 设的 cookie 只覆盖 `/app/issues/`,页面发往 `/api/…` 的请求一个也碰不到。`headers` 是 name→value 的映射,只挂在主框架那一次导航上,这正是 bearer token 或 Host 覆写需要的位置;`cookie` 头会被指名拒绝并指向 `cookies`,因为那样送进去的 cookie 只覆盖文档、覆盖不到文档里的任何东西。两者合起来受同一组边界约束:最多 24 个条目、共 8 KB,名字必须是 HTTP token,头部值限于可见 ASCII 加空格与制表符(换行会凭空追加一个谁也没发过的头,因为 `loadURL` 把它们当作一整个以换行分隔的字符串),cookie 值限于 RFC 6265 的 cookie-octet。凭据由调用方提供,壳自己一个也不留:它们活在随窗口一起消亡的 session 上。
+**一个请求可以带上页面所需的会话。**`cookies` 是至多 32 条 `{ name, value, domain, path?, secure?, httpOnly?, expirationDate? }` 的数组——成员就是 Chromium 自己的那一套,所以调用方从浏览器里导出什么就发什么——在加载之前设到这次渲染自己的 session 上。它们不只覆盖文档,也覆盖页面的子资源,这正是要害:一个图片全部 401 的已登录页面,不是任何人想看的那个页面。`domain` 是必填的,每条 cookie 的作用域由它决定,所以一个请求可以带上页面要访问的每一台主机的 cookie;`path` 默认是 `/`,而不是 RFC 6265 的默认路径——那是 cookie 被存进来的那个目录,而不是整个站点:停在 `/app/issues/` 的 cookie,页面发往 `/api/…` 的请求一个也碰不到。`headers` 是 name→value 的映射,只挂在主框架那一次导航上,这正是 bearer token 或 Host 覆写需要的位置;`cookie` 头会被指名拒绝并指向 `cookies`,因为那样送进去的 cookie 只覆盖文档、覆盖不到文档里的任何东西。cookie 与头部合起来受同一组边界约束:最多 24 个条目、共 8 KB,名字必须是 HTTP token,头部值限于可见 ASCII 加空格与制表符(换行会凭空追加一个谁也没发过的头,因为 `loadURL` 把它们当作一整个以换行分隔的字符串),cookie 值限于 RFC 6265 的 cookie-octet。拒绝信息从不把 cookie 的值回引出来,因为那个值正是这个字段要携带的凭据。
+
+**每次渲染各自持有一份 cookie 存储。**窗口的 partition 名字带一个新的 UUID,且没有 `persist:` 前缀,所以这个 session 随窗口创建、只活在内存里、随窗口销毁:凭据由调用方提供,壳自己一个也不留,上一次渲染的 cookie 下一次读不到,也没有任何东西落到磁盘上。后半句由 smoke 证明而不是假设——先带着会话 cookie 渲染一次,再对同一个 URL 不带 cookie 渲染一次,站点照旧用它的登录跳转来回答。唯一的例外是点名了登录 partition 的请求:它在那份持久存储里渲染,那是唯一会落到磁盘上的渲染会话。
+
+**一个挡在登录墙后面的页面,要等用户登录过它之后才截得到。**从空的开始的 partition 只会把它渲染成未登录的样子,而它的 cookie 谁也没导出过、填不进 `cookies`。`POST /login-grant` 收 `{ url, partition }`,答 `{ nonce, expiresInMs }`,它自己不开任何窗口。url 的主机必须是这个 partition 的可注册域或它的子域,否则这次授权会被拒绝,因为一对对不上的组合会把一个站点的 cookie 记在另一个站点的名下。nonce 一次性、可花 30 秒,同时最多有 8 个未花掉——再要就是 503。
+
+**`POST /login` 收 `{ nonce }`,并在用户关掉窗口时答 `{ landedUrl, sameSite }`。**页面与 partition 在铸出 nonce 的那一刻就定死了,所以这个请求体里没有任何东西能选它们。同一时刻只开一扇窗,第二个调用得到 503,而且这一步在花掉 nonce 之前检查,所以重试的调用方手里那个 nonce 还在。不认识的、已经花掉的或者已经过期的 nonce 得到 403;504 说的是十分钟的登录期限过了,或者壳正在退出。
+
+**`DELETE /login-sessions` 就是退出登录。**它收 `{ partition }`,对它调用 `clearStorageData()`——cookie、缓存,以及 Chromium 为一个 partition 保存的每一种存储后端——并答 `{ partition, cleared: true }`。这四条路由接受的 partition 只有 `persist:dsh-render-login-<registrable-domain>` 一种,域名小写、由调用方自己算出,所以调用方既读不到也抹不掉用户自己那扇窗所在的 partition。
+
+**登录窗口是可见的,并且说出正在问你的是哪个站点。**它的标题被锁在当前源上,`did-navigate`、`did-redirect-navigation`、`did-navigate-in-page` 与 `page-title-updated` 每一个都重新锁一次,最后那个的默认行为被取消,于是页面写不了自己的标题;它是 `resizable: false`,这也正是壳用来把应用自己那扇窗与其余每一扇分开的东西。权限请求、权限检查、下载与声音照渲染窗口那样一律拒绝,devtools 保持关闭,`sandbox`、`contextIsolation` 与「没有 Node 集成」原样不动。放松的只有两处:页面要开的窗口变成这同一扇窗的一次导航,而不是被丢掉,于是一次 OAuth 交接能走完全程、始终没有第二扇窗打开;以及对话框是可用的,因为真实的登录页要靠 `alert()` 与 `confirm()` 报出密码错了,而这扇窗用户正看着。
+
+**登录 partition 是这个服务唯一允许留存的东西。**它的值躺在应用 userData 目录下、Chromium 自己那份加密的 profile 存储里;壳里没有任何东西去读其中的 cookie 值,也没有任何一条路由把它返回出来。点名了 partition 的渲染不带自己的 `cookies`,因为把调用方自己的 cookie 罐写进一个活得比这次请求更久的存储,等于替它保存一份凭据。
+
+**`userAgent` 决定这次渲染自称是谁。**Electron 自己的默认值是 `…Chrome/150.0.7871.224 Electron/43.4.0 Safari/537.36`,它等于告诉 agent 看的每一个页面:看你的是这个壳——有些站点还会因此回一个不一样的页面。写了这个字段的请求会在加载之前把它同时设到 session 与 web contents 上,于是文档、它的子资源以及 `navigator.userAgent` 报的都是它;没写的请求保持默认值。它必须是一个非空、至多 512 个字符的头部值。
 
 **当主框架最终落在请求所指之外时,`200` 会说出它落在哪里**,放在 `x-dsh-render-landed-url` 上,与报告用同一套百分号编码,并截到 96 个字符。一张登录页的截图是「正确地渲染了错误的页面」,而像素本身说不出它是哪一种;插件把这个响应头变成工具结果里的一句话,点名 `cookies` 与 `headers`。主框架停在原地时不发这个头,比较的是归一化之后的 URL,所以 Chromium 给源地址补上的那个斜杠不算重定向。
 
@@ -217,11 +260,11 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **504 会说出页面当时在等什么**,好让调用方分得清是一张卡住的图、一个死掉的代理,还是一个卡死的渲染进程。这一行说出渲染当时处在哪个阶段——在排队、在加载页面,还是已经越过 load 事件、正在等 `delayMs`、测量、调整窗口大小或截图——而在页面还没加载完时,它还会说出主文档的 HTTP 状态码、主框架最终落在哪里(当那不是请求所指的地址时),以及最多三个仍在飞行中的请求及其 Chromium 资源类型:`render timed out after 25000ms: main document 200, load event not fired, 7 requests pending: [image] https://www.gravatar.com/avatar/…, [image] …, [script] … (+4 more)`。每个 URL 截到 96 个字符,整行截到 500 个字符,后者正是 `@haoran/dsh-screenshot` 引进模型消息里的长度;报告响应头以结构的形式说同一件事。渲染本身不因这一切改变:壳是从主进程事件——`did-navigate`、`did-redirect-navigation`、`page-title-updated`、`ready-to-show`、`did-fail-load`、`console-message`、`render-process-gone`、`unresponsive`——与 session 上那几个非阻塞 `webRequest` 钩子读到这些的,它们只观察请求,不扣住请求。
 
-**每次渲染都拿到一个与应用自己那扇窗毫无共享的隐藏窗口。**它的 session 没有 `persist:` 前缀,所以只活在内存里、随窗口一起消失:被渲染的页面读不到也写不了用户正在用的那扇窗的 cookie、存储与缓存,它存下的东西也活不过这一个请求。没有 Node 集成、没有 `webview`、没有 devtools;每一个权限请求都被拒绝,页面试图发起的每一次下载与每一次开窗也都被拒绝。对话框被禁用,于是 `alert()`、`confirm()`、`prompt()` 既不会在一扇用户看不见的窗口上弹出原生模态框,也不会把它背后的页面线程堵住;窗口是静音的,于是自动播放的 `<audio>` 元素传不到扬声器。窗口在响应时、加载失败时与期限到时都会被销毁。
+**每次渲染都拿到一个与应用自己那扇窗毫无共享的隐藏窗口。**它的 session 没有 `persist:` 前缀,所以只活在内存里、随窗口一起消失:被渲染的页面读不到也写不了用户正在用的那扇窗的 cookie、存储与缓存,它存下的东西也活不过这一个请求。点名了登录 partition 的请求改在那份持久存储里运行,而这张清单上的其余每一条对它照旧成立。没有 Node 集成、没有 `webview`、没有 devtools;每一个权限请求都被拒绝,页面试图发起的每一次下载与每一次开窗也都被拒绝。对话框被禁用,于是 `alert()`、`confirm()`、`prompt()` 既不会在一扇用户看不见的窗口上弹出原生模态框,也不会把它背后的页面线程堵住;窗口是静音的,于是自动播放的 `<audio>` 元素传不到扬声器。窗口在响应时、加载失败时与期限到时都会被销毁。
 
 **边界在哪**:同一时刻只渲染一个,同时最多受理四个请求(一个在渲染、三个在等),期限从受理时刻起算而不是从渲染开始时算——用的是请求自己的 `timeoutMs`,默认 25 秒、至多 120 秒——以及在那个期限上给部分截图的 3 秒。`fullPage` 截图会测量 `document.documentElement.scrollHeight` 并把窗口调到那个高度,夹到 8192 px 为止,因为无限滚动的文档报出的高度会在测量过程中一直变大。
 
-**三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时除 `POST /render` 以外的方法一律答 404,于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝——这正是把用户自己浏览器里的页面挡在外面的东西。
+**三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时四条路由以外的任何路径与方法一律答 404,于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝——这正是把用户自己浏览器里的页面挡在外面的东西。
 
 构建之后,这条命令检查单元测试够不着的那一半——隐藏窗口到底画不画:
 
@@ -231,6 +274,37 @@ pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 ```
 
 它在真实的 Electron 里渲染一个本地文件,检查截图尺寸无论显示器缩放系数是多少都正好是请求的视口、整页截图确实比它更高,以及 401、422 与 500 三种回答。有一个用例起一个站点:任何没有会话的访问都被重定向到它的登录页,并在真实 Chromium 上核对三种结果——不带会话时回答里有落点响应头,带 cookie 与带 header 时都没有。下一个用例把页面放在 `/app/issues/` 下,一张图在它旁边、另一张在 `/api/` 下,断言的是这个站点收到了什么,而不是回来的像素:cookie 出现在全部三个请求上,而额外的 header 只出现在那次导航上、两张图都没有。一个调用 `console.error` 的页面证明 `console-message` 与页面标题确实进到了报告里。其余用例让页面去请求一个本地监听——它接受连接却从不回答——这正是任何注入渲染器都替代不了的部分:在 `onTimeout: "capture"` 之下回答是一个 200,它的 PNG 解出来正好是请求的尺寸,报告写着 `outcome: "timeout"` 并点名那个卡住的主机;用 `blockHosts` 点名同一个主机,它会在不到十分之一秒内完成、`requests.blocked` 为 1;什么都不做时,504 在它那一行与它的报告里都点出那张图。
+
+## 插件管理服务
+
+**壳把自己的包管理器借给服务端**,所以用户自己装的插件,在一台既没有 pnpm 也没有终端的机器上也能更新。它是渲染服务之外的第二个本机服务,有自己独立的 token,打开的方式与传递的方式完全一样:在 `127.0.0.1` 与一个临时端口上的 HTTP 监听、一个 32 字节的 token,两者都只放进服务端那一个子进程的环境——`DSH_DESKTOP_PLUGIN_ADMIN_ENDPOINT` 与 `DSH_DESKTOP_PLUGIN_ADMIN_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程继承不到,这个服务自己拉起的 pnpm 也继承不到。`@haoran/dsh-plugin-updates` 每次调用都去读它们。两个都读不到的 harness 会报告该能力不可用,并且根本不在设置里放出那个标签页,这正是服务器上所有 `dsh web` 的做法。两个服务分开,是因为它们借出的权力不同:渲染 token 换来的是一扇隐藏窗口里的像素,把它扩大到覆盖安装,就等于让每一个持有它的人都能改变这个应用运行的是什么。
+
+这八条路由都是 `POST`,都带 `authorization: Bearer <token>` 与 `content-type: application/json`。四条更新一个已装的依赖:`/outdated` 接受 `{ profile }`,回答 `pnpm outdated --json` 报告了什么;`/peers` 接受 `{ profile, name, version }`,回答那个已发布版本声明了哪些 peer 范围;`/update` 接受 `{ profile, name, version, warning? }`,在用户确认之后安装;`/relaunch` 接受 `{}`,在用户确认之后重启应用。另外四条处理桌面端那道 web profile 持续同步挂载不了的插件,一律作用在 `desktop` profile 上,各自只收 `{ name }`:`/recheck` 拿 `bundleDefect` 重新核对已链接的包,现在能干净挂载就把它提升为 `migrated`——重新加回 `dsh.profile.bundles`,抄入 web profile 声明的版本——挂载不了就把最新理由记下来;`/repair` 先弹一个原生对话框确认(「尝试修复 `<name>`?将重新下载并执行该插件自带的构建脚本。」/取消),再走那道梯子:按 web profile 自己声明的 specifier 重装(semver 范围用 `pnpm add <name>@<spec>`,git、URL 或本地路径用 `pnpm add <spec>`)、重新核对,如果这个包仍然点着一个盘上没有的入口文件,就在它的真实目录里(经链接 `realpathSync` 出来,因为构建脚本得在文件真正在的地方跑)跑它自己的 `build` 脚本,再删掉那次构建产生的 `node_modules` 与 lockfile,让 profile 自有的 hoisted 目录树继续是运行期依赖解析的那一处,随后再核对一次;`/forget` 直接删掉一个 defective 或 removed 名字的记录和它的链接;`/enable` 重新准入一个 removed 的名字,它的 web 副本还健康就落回 `migrated`,不健康就落进 `defective`。这八条可能得到的全部回答:
+
+| 回答 | 何时 |
+|---|---|
+| `200 application/json` | 路由跑完了。读取类回答带着 pnpm 自己那份解析后的 JSON,外加 `exitCode`、`signal` 与截断过的 `stderr`;`/update` 与 `/relaunch` 还带 `confirmed`,`/update` 另带 `installedVersion`、`stillBundle` 与 `droppedFromBundles`,四条修复路由则各带 `ok`,外加 `restartRequired`(`ok: true` 时)或 `reason`(`ok: false` 时) |
+| `400` | 不是 JSON、不是对象、请求体超过 16 KB、`profile` 不在 `desktop` 与 `web` 之内、`name` 不是一个包名、`version` 不是一个确切的已发布版本,或 `warning` 不是字符串 |
+| `401` | 缺少或写错 bearer token |
+| `404` | 八条路由以外的任何路径或方法 |
+| `422` | 格式正确但点名了一个该 profile 自己的清单没有作为依赖声明的包;或者对四条修复路由之一,点名的名字不在那条路由作用的标记列表里(`/recheck`、`/repair` 是 `defective`,`/forget` 是 `defective` 或 `removed`,`/enable` 是 `removed`) |
+| `503` | 已经有一次安装、或四条修复路由之一在跑 |
+
+每个失败响应体都是一行 `text/plain`,因为读它的是一个插件,它会把这句话放进设置页面里。
+
+**调用方点名的是一个包,而不是一个 specifier。**`profile` 是拿去和那份只有两个名字的清单比对,而不是拼进路径,所以任何 `..` 与任何绝对路径都点不到一个目录。`version` 必须是一个裸的确切 semver,所以 `latest`、`^1.2.3`、`git+ssh://…`、`file:../…` 以及 tarball URL 全都在到达参数数组之前被拒——而 pnpm 在那个位置对它们统统照单全收。`name` 必须是该 profile 清单自己 `dependencies` 里的一个键,并且**在处理函数里**每次调用都从硬盘重新读取,而不是采信请求、也不是启动时缓存一次。壳植入的内置插件写在 `dsh.profile.bundles` 里而没有依赖项,所以它们天然落在可更新集合之外,该 profile 从未装过的包也一样。
+
+**没有键盘前的那个人点头,什么都装不上。**`/update` 与 `/relaunch` 在做任何事之前,先以主窗口为父窗口打开 `dialog.showMessageBox`,所以那个确认框是一扇原生窗口,web UI 既盖不住它、也替不了它作答。`/update` 会显示插件、版本,以及——当调用方给了的时候——它那行 `warning`,先剥掉控制字符再截断,因为那段文字是一个插件写的、却要拿给用户看。同一时刻只跑一次安装;第二次会被答以 503 而不是排队,于是两个对话框不会就同一个目录发问,两次 pnpm 也不会争抢它的 lockfile。
+
+**它运行的 pnpm 就是安装包自带的那份。**`scripts/package.ts` 用 `npm pack` 把仓库自己 `packageManager` 钉住的那个 `pnpm` 版本暂存到 `staging/pnpm`,再由 `scripts/after-pack.cjs` 把它拷到自带 Node 旁边的 `resources/runtime/pnpm`——extraResources 搬不了它,因为 pnpm 自己的目录树里有一个 `node_modules`,而构建器的拷贝器硬性排除这类目录。服务随后在 `runtime/node` 下运行 `runtime/pnpm/bin/pnpm.mjs`,参数放在数组里,绝不经过 shell。只有不带这份资源的开发启动,才会退回到 PATH 上的 `pnpm`。这里从不自己去请求任何仓库地址,所以这台机器自己的 `.npmrc`——它的镜像、代理与凭据——就是每个请求真正经过的东西,和这台机器上其他所有安装完全一样。
+
+**说明一次安装成没成的是硬盘上的版本,而不是退出码。**`pnpm add` 会在正确装完的同时以 `ERR_PNPM_IGNORED_BUILDS` 退出码 1 结束——在任何还没回答过它那个构建审批问题的 profile 上都会,而这个壳植入的每一个 profile 都是如此:它们的 `pnpm-workspace.yaml` 里没有 `allowBuilds`,而任何依赖树里带有安装脚本的插件都会触发。所以 `/update` 事后重新读一遍那个包自己的清单,回答 `installedVersion`,由调用方拿它和自己要的版本比对。退出码仍然一并报告,因为它说的是 pnpm 抱怨了什么;它说的不是这次安装到底发生了没有。
+
+**不再是 bundle 的包会被取出来。**安装成功之后,服务会重新读一遍被更新那个包的清单;一个不再声明 `dsh.bundle` 的版本仍然解析得到,于是 `loadProfile` 过得了解析这一关,却在之后拒绝这个层,而那会终结整次启动。这个名字会被从该 profile 的 `dsh.profile.bundles` 里移除、并在回答里说出来,这与 `seedBuiltinBundles` 为一个丢了 bundle 的迁移名字所做的修复是同一件事,理由也一样:名字是壳放进那份列表的,所以也该由壳取出来。依赖项保持不动,因为包还装着,而这件事说的是 Loader 挂载什么。
+
+**四条修复路由每次调用都从硬盘重新读写 `web-migration.json`,绝不采信任何缓存副本**,因为这是一个人能在两次请求之间、通过这四条路由中的任意一条改动的状态——先 recheck,再 repair,再从另一扇窗口 recheck 一次。`/recheck` 与 `/repair` 无论怎么收场,都会把一份更新过的 `detail` 写回 `defective` 条目,于是设置页面显示的「仍然坏着」永远是最新的理由,包括修复梯子自己给出的那句——`<path> declares no build script` 或 `build failed (exit 1): <stderr>`——而不是这个名字第一次被判定 defective 时的理由。这四条路由没有一条会拿调用方传来的参数去跑 pnpm:`/repair` 的重装请求永远问的是 web profile 自己清单声明的那个 specifier,在处理函数里从硬盘读出来,与 `/update` 的包围栏做法一样,绝不取自请求本身。
+
+**三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时八条路由以外的任何路径与方法一律答 404——而且这一判定在看 token 之前就做完,所以一个没有凭据的调用方对这里提供什么一无所知——于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝。
 
 ## 服务器环境
 
@@ -248,5 +322,11 @@ pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 - 部分截图就是合成器当时画出来的那一帧:一个还在取样式表的页面,得到的是没有样式的文档,而不是画了一半的页面。有没有画出过任何东西(`firstPaint`)、load 事件有没有触发,由报告说出来;像素本身说不出。
 - 壳的视口下限是每边 16 px,而 `@haoran/dsh-screenshot` 自己允许到 1。要求更小视口的 `screenshot` 调用在桌面端会被答以 400,在别处则由系统浏览器渲染。
 - 只有壳的渲染服务能带上 `headers` 与 `cookies`。插件的另一个后端是一次性的 `--screenshot` 浏览器命令行,没有任何设置它们的办法,所以在没有这个服务的安装上,这样的调用会被拒绝,而不是以未登录状态渲染出来。
+- 同一时刻只开一扇登录窗口。第二个 `POST /login` 会被答以 503 而不是排队,需要登两次的调用方只能一次一次来。
+- 登录 partition 不会被壳过期或回收。用户登录留下的东西一直躺在磁盘上,直到有谁对那个 partition 调用 `DELETE /login-sessions`。
 - 内置插件无法从 profile 侧钉到另一个版本。用 `dsh plugin --profile desktop add` 安装同名包会在 profile 自己的 `node_modules` 里放一份,Loader 会先找到它,而 `resolveBundleDir` 仍从安装目录读取 patch 层——那样这一行来自一个版本、代码来自另一个版本。
 - `dsh-better-sidebar` 用壳自己的环境启动终端:两处 `pty.spawn` 传的都是 `env: { ...process.env }`,而不是所有 harness spawner 都会走的 `packages/subprocess/subprocess/src/index.ts` 里的 `scrubbedParentEnv()`,后者会剥掉所有 `DSH_` 前缀的变量以及名字匹配 `KEY|PASSWORD|SECRET|TOKEN` 的变量。该插件注册了八个模型可以调用的终端工具(`terminal_create`、`terminal_send`、`terminal_read` 等),所以模型可以经由其中之一读到那份未经过滤的环境。Windows 的 GUI 进程继承用户级环境变量,因此用 `setx` 设过的 `DEEPSEEK_API_KEY` 会出现在那个终端里;macOS 的 GUI 进程拿到的是 launchd 的环境,通常不含它。
+- 插件管理服务只更新 profile 自己装过的东西。应用自带的内置插件根本无法从这里更新,这是构造使然而非规则:壳把它们植入 `dsh.profile.bundles` 且不写任何依赖项,它们随应用更新而移动。
+- 装好的插件更新要下次启动才生效。没有任何东西会就地重载一个插件,所以被更新的那一行会这么说,并给出一个重启按钮。
+- 只有一次更新可以撤销。`$DSH_HOME/dsh-plugin-updates/` 下的记录只保留最近一次,下一次更新会把它替换掉。
+- 自带的 pnpm 是构建时钉住的版本,只有仓库自己的 `packageManager` 变了才会跟着变。它给每个平台的载荷增加约 19 MB,其中包含它全部四个平台的原生模块,因为它以单个 tarball 发布。

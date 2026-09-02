@@ -9,14 +9,23 @@
 import { spawn, type ChildProcess } from 'node:child_process'
 import { DESKTOP_PROFILE } from './profile-seed.ts'
 
-/** The web-app readiness line; the loopback URL is capture group 1. */
-const URL_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/
+/** The web-app readiness line; capture group 1 is the authenticated URL carrying the launch token. */
+const URL_LINE = /dsh web: (http:\/\/127\.0\.0\.1:\d+\S*)/
 
 /** How long the server may take to print its URL line before startup fails; a cold antivirus-scanned first launch is the slow case. */
 const STARTUP_TIMEOUT_MS = 180_000
 
 /** Grace between SIGTERM and SIGKILL on POSIX teardown. */
 const STOP_GRACE_MS = 8_000
+
+/**
+ * How many trailing lines of the server's stdout/stderr an exit autopsy keeps.
+ * Fed continuously for the whole life of the child rather than kept as one
+ * unbounded accumulation, so a server that dies after hours of output still
+ * leaves a small, useful excerpt instead of nothing (a full log has already
+ * gone to `logSink`).
+ */
+const RECENT_OUTPUT_TAIL_LINES = 15
 
 /**
  * Kill server processes left behind by an earlier run of this same install.
@@ -120,19 +129,65 @@ export interface ServerSpec {
   cwd: string
   /**
    * Variables added to the inherited environment for this child alone — the
-   * render service's endpoint and token. They are deliberately not put on the
-   * shell's own `process.env`, because every other process the user starts
-   * would inherit them from there.
+   * endpoint and token of each loopback service the shell lends it, the
+   * renderer and the plugin admin. They are deliberately not put on the shell's
+   * own `process.env`, because every other process the user starts — pnpm
+   * included — would inherit them from there.
    */
   env: Record<string, string>
 }
 
-/** A started server: its UI URL and its bounded stop. */
+/** What one server-child exit tells the caller. */
+export interface ServerExitInfo {
+  /** The child's exit code, or null when it left by signal. */
+  code: number | null
+  /** The signal the child left by, or null when it exited with a code. */
+  signal: NodeJS.Signals | null
+  /**
+   * True when this exit is this shell's own teardown — `stop()`, the quit
+   * flow, or an update-install stop, all of which route through `stop()` —
+   * rather than the server dying on its own. A caller supervising the child
+   * for unexpected death must act only when this is false.
+   */
+  expected: boolean
+  /** The last {@link RECENT_OUTPUT_TAIL_LINES} lines of stdout/stderr the child produced before exiting. */
+  tail: string
+}
+
+/** A started server: its UI URL, its bounded stop, and its exit. */
 export interface ServerHandle {
-  /** The loopback URL from the readiness line. */
+  /** The bare loopback origin, for same-server URL checks; never load this directly — a fresh page needs {@link authenticatedUrl}. */
   url: string
-  /** Terminate the server process tree; resolves once the process exited. */
+  /** The readiness-line URL carrying the launch token; loading it exchanges the token for the browser-session cookie. */
+  authenticatedUrl: string
+  /** Terminate the server process tree; resolves once the process exited. This is what marks the exit "expected". */
   stop: () => Promise<void>
+  /**
+   * Register a listener for the child's own exit. Fires exactly once, whether
+   * the child already exited by the time this is called (synchronously, with
+   * the recorded info) or exits later.
+   * @param listener - receives the exit info.
+   */
+  onExit: (listener: (info: ServerExitInfo) => void) => void
+}
+
+/**
+ * Thrown when the server process exited before printing its URL line.
+ *
+ * {@link output} carries the boot attempt's whole collected stdout and stderr,
+ * not the truncated tail {@link Error.message} shows: a boot-failure
+ * quarantine pass needs the loader's own `failed to import loader entry` line,
+ * which the message's last 15 lines may not include.
+ */
+export class ServerExitedBeforeUrl extends Error {
+  /** Every stdout/stderr chunk this boot attempt produced, concatenated whole. */
+  readonly output: string
+
+  constructor(message: string, output: string) {
+    super(message)
+    this.name = 'ServerExitedBeforeUrl'
+    this.output = output
+  }
 }
 
 /**
@@ -173,6 +228,26 @@ async function killTree(child: ChildProcess): Promise<void> {
 }
 
 /**
+ * A bounded last-N-lines buffer, fed one chunk at a time. Chunk boundaries
+ * need not land on line boundaries; only the joined text at the end matters.
+ * @param maxLines - how many trailing lines to keep.
+ * @returns `push` to feed one chunk, and `text` to read the current tail.
+ */
+function tailBuffer(maxLines: number): { push: (chunk: string) => void; text: () => string } {
+  let lines: string[] = ['']
+  return {
+    push(chunk: string): void {
+      const [first = '', ...rest] = chunk.split('\n')
+      const last = lines.length - 1
+      lines[last] = (lines[last] ?? '') + first
+      lines.push(...rest)
+      if (lines.length > maxLines) lines = lines.slice(-maxLines)
+    },
+    text: () => lines.join('\n'),
+  }
+}
+
+/**
  * Start the embedded server and resolve once its UI URL is known.
  * @param spec - launch paths and working directory.
  * @param logSink - receives every server stdout/stderr chunk (for the log file).
@@ -188,13 +263,31 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
   // relaunch after an update, adds a 127.0.0.1 tab.
   const child = spawn(spec.nodeBin, [spec.entry, '--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'], {
     cwd: spec.cwd,
-    env: { ...augmentedEnv(process.env), ...spec.env },
+    // DSH_TELEMETRY_DISABLED is upstream's own hard-disable switch
+    // (apps/cli/src/profile-boot.ts's resolveTelemetryPatch): this product
+    // sends no session telemetry, on top of the base bundle's own
+    // session-telemetry-otel row already shipping disabled. `spec.env` still
+    // wins if a caller (a test) sets its own value.
+    env: { ...augmentedEnv(process.env), DSH_TELEMETRY_DISABLED: '1', ...spec.env },
     stdio: ['ignore', 'pipe', 'pipe'],
     // Without this a console window flashes for the bundled node.exe on Windows.
     windowsHide: true,
   })
   let collected = ''
-  const url = await new Promise<string>((resolve, reject) => {
+  const recentOutput = tailBuffer(RECENT_OUTPUT_TAIL_LINES)
+  // Raised by `stop()` (and by the startup-timeout kill below, which is this
+  // shell's own decision too) before the child is signaled, so the exit this
+  // produces is never mistaken for the server dying on its own.
+  let expectedExit = false
+  let exitInfo: ServerExitInfo | undefined
+  const exitListeners: Array<(info: ServerExitInfo) => void> = []
+  // `.once`, not tied to the startup race below: an exit autopsy must see
+  // every exit, including one long after the URL was already reported.
+  child.once('exit', (code, signal) => {
+    exitInfo = { code, signal, expected: expectedExit, tail: recentOutput.text() }
+    for (const listener of exitListeners) listener(exitInfo)
+  })
+  const authenticatedUrl = await new Promise<string>((resolve, reject) => {
     let settled = false
     const settle = (action: () => void): void => {
       if (settled) return
@@ -204,6 +297,7 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     }
     const timer = setTimeout(() => {
       settle(() => {
+        expectedExit = true
         void killTree(child)
         reject(new Error(`dsh server printed no URL line within ${String(STARTUP_TIMEOUT_MS / 1000)}s.\n${tail(collected)}`))
       })
@@ -211,6 +305,7 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     const onChunk = (chunk: Buffer): void => {
       const text = chunk.toString()
       collected += text
+      recentOutput.push(text)
       logSink(text)
       const match = URL_LINE.exec(collected)
       if (match?.[1] !== undefined) settle(() => { resolve(match[1] as string) })
@@ -222,15 +317,75 @@ export async function startServer(spec: ServerSpec, logSink: (chunk: string) => 
     })
     child.once('exit', (code, signal) => {
       settle(() => {
-        reject(new Error(`dsh server exited before its URL line (${code === null ? `signal ${signal ?? 'unknown'}` : `code ${String(code)}`}).\n${tail(collected)}`))
+        reject(new ServerExitedBeforeUrl(
+          `dsh server exited before its URL line (${code === null ? `signal ${signal ?? 'unknown'}` : `code ${String(code)}`}).\n${tail(collected)}`,
+          collected,
+        ))
       })
     })
   })
-  return { url, stop: () => killTree(child) }
+  return {
+    url: new URL(authenticatedUrl).origin,
+    authenticatedUrl,
+    stop: () => {
+      expectedExit = true
+      return killTree(child)
+    },
+    onExit: (listener) => {
+      if (exitInfo !== undefined) {
+        listener(exitInfo)
+        return
+      }
+      exitListeners.push(listener)
+    },
+  }
 }
 
 /** The last lines of the collected output, for startup-failure messages. */
 function tail(collected: string): string {
   const lines = collected.trimEnd().split('\n')
-  return lines.slice(-15).join('\n')
+  return lines.slice(-RECENT_OUTPUT_TAIL_LINES).join('\n')
+}
+
+/**
+ * Move a migrated bundle a failed boot's output blames into quarantine, when
+ * one is there to blame. Injected, so the retry below is testable without a
+ * real profile on disk.
+ * @param home - the Harness home for this launch.
+ * @param output - the boot attempt's whole collected stdout and stderr.
+ * @returns the quarantined name and detail, or undefined when nothing in the output named a plugin to quarantine.
+ */
+export type QuarantineLoadFailure = (home: string, output: string) => { name: string; detail: string } | undefined
+
+/**
+ * Start the embedded server, retrying once when a boot exits before its URL
+ * line and `quarantine` finds a migrated plugin this shell can blame for that
+ * boot's own output.
+ *
+ * A migrated package can fail to load in ways manifest-level admission cannot
+ * catch — an unbuilt git install with no `lib/` and no `prepare` script is the
+ * field case — and the boot must not brick over one. The retry runs with the
+ * same spec after `quarantine` has already dropped the blamed name from
+ * `dsh.profile.bundles`, exactly once: a second failure, or a first failure
+ * `quarantine` finds nothing to blame in, is left for the caller exactly as
+ * {@link startServer} would leave it.
+ * @param spec - launch paths and working directory.
+ * @param logSink - receives every server stdout/stderr chunk, from both attempts.
+ * @param quarantine - moves a blamed migrated name into quarantine; see {@link QuarantineLoadFailure}.
+ * @param home - the Harness home, passed to `quarantine` unchanged.
+ * @returns the running server handle.
+ * @throws the retry's own failure, or the first failure when `quarantine` found nothing to blame in it.
+ */
+export async function startServerWithQuarantine(
+  spec: ServerSpec, logSink: (chunk: string) => void, quarantine: QuarantineLoadFailure, home: string,
+): Promise<ServerHandle> {
+  try {
+    return await startServer(spec, logSink)
+  } catch (error) {
+    if (!(error instanceof ServerExitedBeforeUrl)) throw error
+    const quarantined = quarantine(home, error.output)
+    if (quarantined === undefined) throw error
+    logSink(`[desktop] disabled migrated ${quarantined.name} after it failed to load; retrying startup\n`)
+    return await startServer(spec, logSink)
+  }
 }

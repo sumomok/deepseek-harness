@@ -7,7 +7,7 @@
       #text "mailto ok"
     #text "."
   <p>
-    #text "relative dropped and js dropped and "
+    #text "relative dropped (/settings) and js dropped (javascript:alert(1)) and "
     <a href="HTTPS://example.com" rel="noopener noreferrer" target="_blank">
       #text "upper kept"
     #text "."
