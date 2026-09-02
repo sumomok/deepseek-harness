@@ -724,19 +724,19 @@ export interface RecordFixtureOptions {
  * packed chunk runs the harvest wrote survive it byte for byte.
  * @param fixtureText - the harvested fixture, session header first.
  * @returns that fixture without the seeded events.
- * @throws {Error} when the recording carries no `session/end-seed` boundary,
- * which means nothing was seeded and the caller asked for the wrong thing.
+ * @throws {Error} when no `session/end-seed` boundary follows the header —
+ * either nothing was seeded and the caller asked for the wrong thing, or the
+ * harvest is not a session log at all.
  */
 function withoutSeededHistory(fixtureText: string): string {
-  const [headerLine, ...records] = fixtureText.split('\n')
-  if (headerLine === undefined) throw new Error('record harvest: the harvested fixture has no session header')
-  const boundary = records.findIndex(
+  const lines = fixtureText.split('\n')
+  const boundary = lines.findIndex(
     line => line.trim().length > 0 && (JSON.parse(line) as { type?: unknown }).type === 'session/end-seed',
   )
-  if (boundary === -1) {
-    throw new Error('record harvest: afterSeed was asked for, but the recording has no session/end-seed boundary')
+  if (boundary <= 0) {
+    throw new Error('record harvest: afterSeed was asked for, but no session/end-seed boundary follows the header')
   }
-  return [headerLine, ...records.slice(boundary + 1)].join('\n')
+  return [...lines.slice(0, 1), ...lines.slice(boundary + 1)].join('\n')
 }
 
 /**

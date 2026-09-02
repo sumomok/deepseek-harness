@@ -447,8 +447,10 @@ async function readPage(
     // times the budget even in one-byte text, so a listing between the two —
     // past the character bound, inside the body's byte allowance — is refused
     // by the character half and by nothing else; text costing three bytes a
-    // character reaches the byte half first, which is what an eighty-column
-    // table of Chinese does at the shipped budget.
+    // character reaches the byte half first, which is what a wide table of
+    // Chinese does at the shipped budget. How wide turns on what the page
+    // draws in the cells, so the widths at which each half takes over are
+    // pinned in this seat's own suite rather than named here.
     const weighed = report(listing)
     if (
       text.length > access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE

@@ -136,16 +136,18 @@ function reportedBytes(): number {
  * What the block costs is decided by the reader's own cuts, which is what makes
  * every figure below a column count. Each text arrives cut to 200 characters,
  * and the block then takes a header cell to 40 of them and a sample cell to 24,
- * so a column is 70 characters — 74 bytes of one-byte text, 198 of three-byte —
- * and the rest of the block is 535: the table's name line, the rows hint, and
- * the pagination line. Two adjustments on top of that. The column count printed
- * in the name line gains a digit at ten columns and at a hundred. And a listing
- * whose one row runs past the budget ends with a line saying so, which is 77
- * characters and 80 bytes.
+ * so a column is 70 characters — 74 bytes of one-byte text, 198 of three-byte.
+ * The rest of the block — the table's name line, the rows hint, and the
+ * pagination line — is 535 where the name and the pagination line both run past
+ * that cut, each printing 197 characters and an ellipsis. Two adjustments on
+ * top of that. The column count printed in the name line gains a digit at ten
+ * columns and at a hundred. And a listing whose one row runs past the budget
+ * ends with a line saying so, which is 77 characters and 80 bytes.
  *
- * The pagination line is where a fixture tunes its last bytes: passed at 200
- * characters it is printed whole, so swapping one `甲` for one `é` moves the
- * body one byte without moving its length.
+ * A pagination line inside the cut is the exception, and the one a fixture
+ * tunes its last bytes with: passed at exactly 200 characters it is printed
+ * whole, which puts the base at 537 rather than 535 and lets one `甲` swapped
+ * for one `é` move the body a byte without moving its length.
  * @param columns - how many columns the table has.
  * @param fill - the character its name and cells are made of.
  * @param pagination - the pagination line, as the page has it.
@@ -755,13 +757,16 @@ describe('what the reader reports', () => {
 
   it('takes a report whose bytes land on the bound, and stops one byte past it', async () => {
     // Built the way the bound is reached rather than guessed at. Two hundred
-    // columns of Chinese is a table the byte half decides — 14,616 characters
-    // against a character bound of 17,932 — and with a two-hundred-character
-    // pagination line of `甲` the seat posts 41,263 bytes of it. Swapping three
-    // of that line's characters for `é` takes one byte off each, and 41,260 is
-    // exactly 4483 × 4 + 23,328: a budget above the floor, whole in characters,
-    // whose bound this report lands on. The two fixtures differ in one
-    // character of that line, so the listings are the same length and the
+    // columns of Chinese is a table the byte half decides: 537 + 70 × 200, two
+    // more for the three-digit column count and 77 for the over-budget line,
+    // so 14,616 characters against a character bound of 17,932. The base is
+    // 537 rather than 535 because this fixture's pagination line is exactly
+    // 200 characters and prints whole — which is also what makes it the knob
+    // this case turns. All `甲`, it puts the report at 41,263 bytes; swapping
+    // three of its characters for `é` takes one byte off each, and 41,260 is
+    // exactly 4483 × 4 + 23,328: a budget above the floor, whole in
+    // characters, whose bound this report lands on. The two fixtures differ in
+    // one character of that line, so the listings are the same length and the
     // bodies are one byte apart.
     const budget = 4483
     const at = readTable(wideTable(200, '甲', `${'甲'.repeat(197)}${'é'.repeat(3)}`), budget)

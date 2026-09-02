@@ -139,17 +139,20 @@ export const REPORT_ENVELOPE_BYTES = MAX_TEXT_BYTES_PER_CHAR * (
  * prints a listing's first row however long that row is — so without a floor a
  * small budget refuses listings a real page produces. The longest row the
  * reader prints is a table block: the table's name and the pagination line,
- * each clipped at {@link MAX_HEADER_CHARS}, the rows hint, and a header row and
- * a sample row whose cells the reader cuts to 40 and to 24 characters — about
- * 535 characters plus 70 a column, with a closing line of 77 where the block
- * runs past the budget. Four times this floor is 4000 characters, which holds
- * that block for a table of 48 columns — in any language, because the byte
- * bound the route holds a whole report to does not bind there: 48 columns of
+ * each cut to the reader's own limit on one text run — the same 200 characters
+ * {@link MAX_HEADER_CHARS} restates on this side of the wire, and not that
+ * bound applied — the rows hint, and a header row and a sample row whose cells
+ * the reader cuts further, to 40 and to 24 characters. That is about 535
+ * characters plus 70 a column, with a closing line of 77 where the block runs
+ * past the budget. Four times this floor is 4000 characters, which holds that
+ * block for a table of 48 columns — in any language, because the byte bound
+ * the route holds a whole report to does not bind there: 48 columns of
  * three-byte text is 3973 characters in a body of 11,160 bytes against 27,328.
  *
- * The two cell cuts are the reader's own, recorded with the rules they belong
- * to in .agents/notes/implemented/feature/2026-09-02-content-snapshot-engine.md;
- * a change to either moves the column count this floor is chosen for.
+ * All three cuts are the reader's own, recorded with the rules they belong to
+ * in .agents/notes/implemented/feature/2026-09-02-content-snapshot-engine.md;
+ * a change to the text run's limit, to the header cell's or to the sample
+ * cell's moves the column count this floor is chosen for.
  */
 export const MIN_OUTLINE_CHARS = 1000
 
