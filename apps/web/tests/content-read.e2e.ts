@@ -108,8 +108,8 @@ function readResults(events: readonly SessionEvent[]): string[] {
 
 /**
  * The text of the last answer the model wrote, which is this turn's own answer:
- * the steps that only call tools carry no text block at all, and the seeded
- * history precedes every event this turn appends.
+ * a step that only calls tools carries no text block at all, and a step that
+ * says something before calling one is followed by the step that answers.
  * @param events - every session event the run recorded, in order.
  * @returns that answer, or an empty string when the turn wrote none.
  */
@@ -187,13 +187,14 @@ describe('web e2e: the agent reads the page in the content column', () => {
     await page.locator('[data-content-read-stage="done"]').first().waitFor({ timeout: 30_000 })
 
     const listings = readResults(sessionEvents)
-    // How a page gets read is the model's to choose, and three recordings of
-    // this one prompt chose three ways: three whole-page reads; an outline and
-    // then `scope` on the table's ref; and a map, then `scope` on the table and
-    // on the form in one step. All three answered correctly, so neither the
-    // number of reads, nor the mode of any one of them, nor which of them saw
-    // the table is a fact about this product. What follows is what the product
-    // promises whichever way the model went.
+    // How a page gets read is the model's to choose, and five recordings of
+    // this one prompt went three ways: one that read three times, with what it
+    // asked for each time no longer on record; one that took an outline and
+    // then `scope` on the table's ref; and one that took a map and then `scope`
+    // on the table and on the form in a single step. Every one of them answered
+    // correctly, so neither the number of reads, nor the mode of any one of
+    // them, nor which of them saw the table is a fact about this product. What
+    // follows is what the product promises whichever way the model went.
     //
     // The page was read at least once.
     expect(listings.length).toBeGreaterThanOrEqual(1)
