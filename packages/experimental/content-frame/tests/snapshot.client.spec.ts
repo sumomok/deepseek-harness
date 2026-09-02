@@ -1262,6 +1262,29 @@ describe('widgets built out of several elements', () => {
       .toBe(['e1 menu "视图"', '  e2 menuitemradio [ ]', '    e3 img "按名称" (menuitem)'].join('\n'))
   })
 
+  it('says the same about a room in every listing that prints it', () => {
+    // A find prints one matched row and nothing around it, so what the room
+    // says about the node has to be on that row. Two nodes the page closed and
+    // switched off the same way read the same way here, whichever of them turns
+    // out to hold something this listing shows.
+    const refs = page(`
+      <div role="tree" aria-label="组织">
+        <div role="treeitem" aria-label="甲" aria-expanded="false" aria-disabled="true">
+          <div role="group"><button>新建</button></div>
+        </div>
+        <div role="treeitem" aria-label="乙" aria-expanded="false" aria-disabled="true">
+          <div role="group"><div role="dialog" aria-label="导入" data-hidden><button>确定</button></div></div>
+        </div>
+      </div>`)
+    const said = 'treeitem "甲" (disabled) (collapsed)'
+    expect(read(refs).text.split('\n')[1]).toBe(`  e2 ${said}`)
+    expect(read(refs, { mode: 'map' }).text.split('\n')[1]).toBe(`  e2 ${said}  1 buttons`)
+    expect(read(refs, { find: '甲' }).text).toBe(`e2 ${said} (in tree "组织")`)
+    // 乙 holds nothing this listing shows, so it is the row the room stands in
+    // for rather than the room — and the row says the same words.
+    expect(read(refs, { find: '乙' }).text).toBe('e4 treeitem "乙" (disabled) (collapsed) (in tree "组织")')
+  })
+
   it('prints a room that shows nothing as the row the node would have printed', () => {
     // A picture the page marks as decoration is read straight through, so a
     // room over a node drawn out of one shows nothing at all. Standing empty
@@ -1283,6 +1306,10 @@ describe('widgets built out of several elements', () => {
       </div>`)
     expect(read(named).text).toBe(['e1 tree "组织"', '  e2 treeitem "华北" (in tree "组织")'].join('\n'))
     expect(read(named, { mode: 'map' }).text).toBe('e1 tree "组织"  1 items')
+    // A group the page drew empty holds nothing either, and reads the same way.
+    const bare = page('<div role="tree" aria-label="组织"><div role="treeitem" aria-label="华北"><div role="group"></div></div></div>')
+    expect(read(bare).text).toBe(['e1 tree "组织"', '  e2 treeitem "华北" (in tree "组织")'].join('\n'))
+    expect(read(bare, { mode: 'map' }).text).toBe('e1 tree "组织"  1 items')
   })
 
   it('prints a node as a row when the only thing under it repeats something already read', () => {

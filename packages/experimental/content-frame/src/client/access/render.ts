@@ -478,7 +478,7 @@ function findEntries(items: readonly Item[], find: string, refs: RefTable): Entr
       if (item.text.toLowerCase().includes(needle)) entries.push(entry(undefined, refs, () => textLine(item, '')))
     } else if (item.kind === 'container') {
       if (!item.closed && item.name.toLowerCase().includes(needle)) {
-        entries.push(entry(item.el, refs, () => `${item.ref} ${item.type}${quoted(item.name)}${within(item.container)}`))
+        entries.push(entry(item.el, refs, () => `${item.ref} ${containerText(item)}${within(item.container)}`))
       }
     } else if (item.kind === 'table') {
       if (item.name.toLowerCase().includes(needle)) entries.push(entry(item.el, refs, () => tableBlock(item, 0, refs)))
