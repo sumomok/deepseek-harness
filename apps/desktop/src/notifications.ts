@@ -23,16 +23,21 @@
  *
  * A waterfall delivery is owed an answer: the Host holds the request until
  * every client it was delivered to has answered, and settles it as unanswered
- * (`next`) only when the last one does. The shell never decides anything, so
- * its answer is always `next` — but WHEN it answers matters. While the app
- * window is open the browser is the one deciding, and the shell answers at
- * once so that a request the browser declines to handle falls through the
- * way it would with no shell at all. With no window (macOS keeps the app and
- * its server alive after the window closes), an immediate `next` would settle
- * the request as unanswered before the user could ever see it; the shell holds
- * its answer, and releases every held one a grace period after the next
- * window finished loading — long enough for that window's page to register
- * its own client and receive the same pending deliveries.
+ * (`next` — a refused approval, an unanswerable question) only when the last
+ * one does. The shell never decides anything, so its answer is always `next`
+ * — but WHEN it answers matters, because the browser page that does decide
+ * is not always registered: it is loading, reloading after a rebind or an
+ * F5, recovering from a renderer crash, or — on macOS, where closing the
+ * window destroys it and the app lives on in the Dock — simply gone. An
+ * immediate `next` in any of those moments would settle the request before
+ * the user could see it, where a shell-less server would have kept it
+ * pending and replayed it to the page when it registered. So the shell
+ * answers late: {@link NEXT_GRACE_MS} after the delivery while an app window
+ * exists (long enough for a page to load and register, short enough that a
+ * request the page declines to handle still falls through), and not at all
+ * while there is no window — those answers wait for the next window to be
+ * created and then take the same grace. A `cancel` frame (someone answered)
+ * drops the pending answer.
  *
  * A Node client sends no `Origin` header, and the server's trust fence accepts
  * an absent one on a loopback `Host` — so no `Origin` is set here, and none may
@@ -54,7 +59,7 @@
  */
 
 import { randomUUID } from 'node:crypto'
-import { app, Notification, type BrowserWindow } from 'electron'
+import { app, Notification } from 'electron'
 import { mainWindow } from './main-window.ts'
 
 /** Path of the multiplexed Remote stream WebSocket (`REMOTE_STREAM_MUX_PATH` on the server). */
@@ -102,12 +107,14 @@ const RECONNECT_MAX_MS = 60_000
 const RECONNECT_LOG_EVERY = 10
 
 /**
- * How long after a window finished loading its held answers are released.
- * The page registers its own event client shortly after load (the client
- * runtime allows itself 3s to establish a generation); releasing before that
- * would settle a held request as unanswered with nobody there to answer it.
+ * How long a waterfall delivery is held before the shell answers `next`. The
+ * page registers its event client within seconds of loading (its runtime
+ * allows itself 3s per attempt), and the Host replays every pending delivery
+ * to a client as it registers, so a minute covers a reload or a rebind; a
+ * request the page then declines to handle falls through that much later
+ * than it would with no shell, on what is an error path either way.
  */
-const WINDOW_READY_GRACE_MS = 5_000
+const NEXT_GRACE_MS = 60_000
 
 /**
  * The reconnect delay before the `attempt`th consecutive attempt (1 for the
@@ -139,12 +146,6 @@ export interface NotifyHost {
   reveal: () => void
 }
 
-/** Sessions last seen running, so only the running → idle edge announces itself. */
-const running = new Set<string>()
-
-/** Waterfall deliveries already announced, keyed by event id (replay-safe). */
-const announced = new Set<string>()
-
 /** Unseen attention events, which is what the macOS Dock badge counts. */
 let badge = 0
 
@@ -164,8 +165,22 @@ interface Generation {
   cookie: string | undefined
   /** The Host's id for this event client, from the stream's `ready` frame. */
   clientId: string | undefined
-  /** Waterfall deliveries whose `next` is held until a window is ready. */
-  held: Set<string>
+  /**
+   * Waterfall deliveries not yet answered, each with its grace timer, or
+   * `undefined` while there is no window to wait for. Cleared when the socket
+   * closes: the Host drops this client's deliveries with it and replays what
+   * is still pending on the next registration.
+   */
+  pending: Map<string, NodeJS.Timeout | undefined>
+  /**
+   * Deliveries already announced, keyed by event id. Replay after a reopen
+   * repeats every delivery still pending, and an id seen before is the same
+   * request. Ids of requests settled while the shell was disconnected stay
+   * until the generation ends — a rebind starts a server with fresh ids.
+   */
+  announced: Set<string>
+  /** Sessions last seen running, so only the running → idle edge announces itself. */
+  running: Set<string>
   /** Logging and reveal for this generation's messages. */
   host: NotifyHost
 }
@@ -338,13 +353,19 @@ async function mintCookie(generation: Generation): Promise<string> {
  * @throws when the carrier or the endpoint reports a failure.
  */
 async function rpc(generation: Generation, endpoint: string, args: unknown): Promise<Record<string, unknown> | undefined> {
-  const cookie = await mintCookie(generation)
   const origin = new URL(generation.authenticatedUrl).origin
-  const response = await fetch(`${origin}/api/${endpoint}`, {
+  const post = async (): Promise<Response> => fetch(`${origin}/api/${endpoint}`, {
     method: 'POST',
-    headers: { 'content-type': 'application/json', cookie },
+    headers: { 'content-type': 'application/json', cookie: await mintCookie(generation) },
     body: JSON.stringify({ type: 'client-request', rpcId: randomUUID(), method: endpoint, payload: { args } }),
   })
+  let response = await post()
+  if (response.status === 401) {
+    // The cookie has a lifetime and the stream socket outlives it; a refused
+    // call is the one place an expiry shows, so mint again and retry once.
+    generation.cookie = undefined
+    response = await post()
+  }
   if (!response.ok) throw new Error(`${endpoint} answered HTTP ${String(response.status)}`)
   const body = await response.json() as unknown
   const result = typeof body === 'object' && body !== null ? nested(body as Record<string, unknown>, 'result') : undefined
@@ -360,45 +381,68 @@ async function rpc(generation: Generation, endpoint: string, args: unknown): Pro
  * Answer one waterfall delivery with `next`: the shell decides nothing, it
  * only stops being the client the Host is waiting on.
  * @param generation - the generation the delivery belongs to.
- * @param host - logging for the main process.
  * @param eventId - the delivery to answer.
  */
-function answerNext(generation: Generation, host: NotifyHost, eventId: string): void {
-  generation.held.delete(eventId)
-  if (generation.clientId === undefined) return
+function answerNext(generation: Generation, eventId: string): void {
+  const timer = generation.pending.get(eventId)
+  if (timer !== undefined) clearTimeout(timer)
+  generation.pending.delete(eventId)
+  if (generation.stopped || generation.clientId === undefined) return
   const clientId = generation.clientId
   void rpc(generation, RESULT_ENDPOINT, { clientId, eventId, outcome: { kind: 'next' } }).catch((error: unknown) => {
     // A delivery that was already settled (answered elsewhere, or cancelled)
-    // is refused as unknown; nothing is owed for it any more.
+    // is a no-op on the Host; what fails here is the carrier or the client
+    // registration, and the reopen path owns both.
     const message = error instanceof Error ? error.message : String(error)
-    host.log(`[desktop] event answer ${eventId} not accepted: ${message}\n`)
+    generation.host.log(`[desktop] event answer ${eventId} not accepted: ${message}\n`)
   })
 }
 
 /**
- * Answer a waterfall delivery now when a window is there to decide it, else
- * hold the answer for {@link releaseHeld}.
+ * Start (or restart) the grace before a delivery is answered, or leave it
+ * waiting when there is no window to give the page a chance first.
  * @param generation - the generation the delivery belongs to.
- * @param host - logging for the main process.
  * @param eventId - the delivery.
  */
-function answerOrHold(generation: Generation, host: NotifyHost, eventId: string): void {
+function scheduleNext(generation: Generation, eventId: string): void {
+  const previous = generation.pending.get(eventId)
+  if (previous !== undefined) clearTimeout(previous)
   if (mainWindow() === undefined) {
-    generation.held.add(eventId)
+    generation.pending.set(eventId, undefined)
     return
   }
-  answerNext(generation, host, eventId)
+  // Unreferenced: a pending answer must never be the reason the app is still
+  // alive after quitting began.
+  generation.pending.set(eventId, setTimeout(() => { answerNext(generation, eventId) }, NEXT_GRACE_MS).unref())
 }
 
 /**
- * Release every held answer of the current generation. Called a grace period
- * after a window finished loading, when that window's own client has had time
- * to register and receive the same pending deliveries.
+ * Forget one delivery without answering it: it was settled elsewhere, or
+ * the socket carrying it closed.
+ * @param generation - the generation the delivery belongs to.
+ * @param eventId - the delivery.
  */
-function releaseHeld(): void {
+function dropPending(generation: Generation, eventId: string): void {
+  const timer = generation.pending.get(eventId)
+  if (timer !== undefined) clearTimeout(timer)
+  generation.pending.delete(eventId)
+}
+
+/** Forget every pending delivery of one generation. */
+function dropAllPending(generation: Generation): void {
+  for (const eventId of [...generation.pending.keys()]) dropPending(generation, eventId)
+}
+
+/**
+ * A window was created: every answer that waited for one now takes the
+ * ordinary grace, during which the window's page loads and registers.
+ */
+function onWindowCreated(): void {
   const generation = current
   if (generation === undefined || generation.stopped) return
-  for (const eventId of [...generation.held]) answerNext(generation, generation.host, eventId)
+  for (const [eventId, timer] of [...generation.pending]) {
+    if (timer === undefined) scheduleNext(generation, eventId)
+  }
 }
 
 /**
@@ -406,11 +450,13 @@ function releaseHeld(): void {
  * @param generation - the generation the stream belongs to.
  * @param host - logging and the window the notifications lead back to.
  * @param frame - the decoded downlink frame.
+ * @param onReady - called once the stream's `ready` frame arrived.
  */
-function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<string, unknown>): void {
+function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<string, unknown>, onReady: () => void): void {
   switch (frame['type']) {
     case 'ready': {
       generation.clientId = text(frame, 'clientId')
+      onReady()
       // The one success line the field log carries for this stream: its
       // absence after the server's URL line is the diagnostic.
       host.log(`[desktop] attention stream ready (client ${generation.clientId ?? '?'})\n`)
@@ -418,14 +464,22 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
     }
     case 'emit': {
       const args = frame['args']
-      if (frame['event'] !== 'api-session/status' || !Array.isArray(args)) return
+      if (!Array.isArray(args)) return
       const [sessionId, isRunning] = args as unknown[]
       if (typeof sessionId !== 'string') return
-      if (isRunning === true) {
-        running.add(sessionId)
+      if (frame['event'] === 'api-session/removed') {
+        generation.running.delete(sessionId)
         return
       }
-      if (!running.delete(sessionId)) return
+      if (frame['event'] !== 'api-session/status') return
+      if (isRunning === true) {
+        generation.running.add(sessionId)
+        return
+      }
+      if (!generation.running.delete(sessionId)) return
+      // The title lookup lists every session; not worth it for an edge the
+      // user is watching happen.
+      if (!unattended()) return
       void subject(generation, sessionId).then((who) => {
         announce(host, '任务已完成', `${who}已经跑完,可以回来看结果了。`)
       })
@@ -436,11 +490,12 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
       const sessionId = text(frame, 'agentId')
       const request = nested(frame, 'request') ?? {}
       if (eventId === undefined || sessionId === undefined) return
-      answerOrHold(generation, host, eventId)
+      scheduleNext(generation, eventId)
       // Reopening the stream replays every delivery still pending, so an id
       // that was already announced is the same request arriving twice.
-      if (announced.has(eventId)) return
-      announced.add(eventId)
+      if (generation.announced.has(eventId)) return
+      generation.announced.add(eventId)
+      if (!unattended()) return
       if (frame['event'] === 'approval/request') {
         const tool = text(request, 'toolName') ?? '工具'
         void subject(generation, sessionId).then((who) => {
@@ -456,8 +511,8 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
     case 'cancel': {
       const eventId = text(frame, 'eventId')
       if (eventId === undefined) return
-      announced.delete(eventId)
-      generation.held.delete(eventId)
+      generation.announced.delete(eventId)
+      dropPending(generation, eventId)
       return
     }
     default:
@@ -504,13 +559,27 @@ function subscribe(generation: Generation, host: NotifyHost, attempt = 1): void 
  * @param cookie - the `name=value` pair the upgrade authenticates with.
  */
 function open(generation: Generation, url: string, host: NotifyHost, attempt: number, cookie: string): void {
-  const socket = new NodeWebSocket(url, { headers: { cookie } })
+  let socket: WebSocket
+  try {
+    socket = new NodeWebSocket(url, { headers: { cookie } })
+  } catch (error) {
+    // A constructor that throws (a runtime without the `headers` init, say)
+    // would otherwise end the notifier for good with nothing in the log.
+    const message = error instanceof Error ? error.message : String(error)
+    const nextAttempt = attempt + 1
+    const delayMs = reconnectDelayMs(nextAttempt)
+    host.log(`[desktop] ${url} could not be opened (${message}); retrying in ${String(delayMs / 1000)}s (attempt ${String(nextAttempt)})\n`)
+    setTimeout(() => { subscribe(generation, host, nextAttempt) }, delayMs).unref()
+    return
+  }
   generation.socket = socket
   generation.clientId = undefined
   const streamId = randomUUID()
-  let opened = false
+  // Success is the `$events` stream's `ready` frame, not the socket opening:
+  // a socket that opens and then has its stream refused every time must back
+  // off like one that never connects, or it reconnects every 3s forever.
+  let ready = false
   socket.addEventListener('open', () => {
-    opened = true
     socket.send(JSON.stringify({ type: 'open', streamId, endpoint: EVENTS_ENDPOINT, payload: { args: {} } }))
   })
   socket.addEventListener('message', (event: MessageEvent) => {
@@ -529,7 +598,7 @@ function open(generation: Generation, url: string, host: NotifyHost, attempt: nu
     if (message['streamId'] !== streamId) return
     if (message['type'] === 'item') {
       const value = nested(message, 'value')
-      if (value !== undefined) onEventFrame(generation, host, value)
+      if (value !== undefined) onEventFrame(generation, host, value, () => { ready = true })
       return
     }
     // `end` or `error`: the logical stream is over although the socket is
@@ -544,14 +613,14 @@ function open(generation: Generation, url: string, host: NotifyHost, attempt: nu
   socket.addEventListener('close', () => {
     if (generation.socket === socket) generation.socket = undefined
     generation.clientId = undefined
-    generation.held.clear()
+    dropAllPending(generation)
     if (generation.stopped) return
-    // A connection that did open and later closed is not a failure to
+    // A stream that did become ready and later closed is not a failure to
     // connect — the retry after it starts the backoff over, at attempt 1.
-    const nextAttempt = opened ? 1 : attempt + 1
+    const nextAttempt = ready ? 1 : attempt + 1
     // A refused upgrade is what an expired or stale cookie looks like from
     // here; the retry mints a fresh one rather than presenting the same again.
-    if (!opened) generation.cookie = undefined
+    if (!ready) generation.cookie = undefined
     const delayMs = reconnectDelayMs(nextAttempt)
     if (nextAttempt === 1 || nextAttempt % RECONNECT_LOG_EVERY === 0) {
       host.log(`[desktop] ${url} closed; reopening in ${String(delayMs / 1000)}s (attempt ${String(nextAttempt)})\n`)
@@ -570,7 +639,7 @@ function open(generation: Generation, url: string, host: NotifyHost, attempt: nu
  * Start watching the running server for the two moments worth interrupting
  * for. Safe to call again after a server rebind: the previous call's stream
  * is closed and its reconnect loop stopped before the new one opens, and the
- * app-level hooks (badge clearing, held-answer release, quit teardown) are
+ * app-level hooks (badge clearing, window-created release, quit teardown) are
  * bound only once ever.
  * @param host - logging and the window the notifications lead back to.
  * @param authenticatedUrl - the launch-token URL `startServer` (or a rebind)
@@ -579,18 +648,15 @@ function open(generation: Generation, url: string, host: NotifyHost, attempt: nu
 export function setupNotifications(host: NotifyHost, authenticatedUrl: string): void {
   stopCurrentGeneration()
   const generation: Generation = {
-    stopped: false, socket: undefined, authenticatedUrl, cookie: undefined, clientId: undefined, held: new Set(), host,
+    stopped: false, socket: undefined, authenticatedUrl, cookie: undefined, clientId: undefined,
+    pending: new Map(), announced: new Set(), running: new Set(), host,
   }
   current = generation
   subscribe(generation, host)
   if (!appHooksBound) {
     appHooksBound = true
     app.on('browser-window-focus', () => { clearBadge() })
-    app.on('browser-window-created', (_event, window: BrowserWindow) => {
-      window.webContents.once('did-finish-load', () => {
-        setTimeout(() => { releaseHeld() }, WINDOW_READY_GRACE_MS).unref()
-      })
-    })
+    app.on('browser-window-created', () => { onWindowCreated() })
     app.once('before-quit', () => { stopCurrentGeneration() })
   }
 }
@@ -604,5 +670,5 @@ function stopCurrentGeneration(): void {
   current.stopped = true
   current.socket?.close()
   current.socket = undefined
-  current.held.clear()
+  dropAllPending(current)
 }
