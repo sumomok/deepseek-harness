@@ -86,8 +86,15 @@ const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
  */
 const LEAKED_PLACEHOLDER = 'Choose a workspace to start'
 
-/** The `permission` row's renamed write preset (see the overlay's own comment). */
-const RENAMED_PRESET = '可修改文件'
+/**
+ * The complete access-preset set the overlay's `permission` row names, in
+ * table order. The row replaces the whole preset table rather than merging
+ * into it, so a preset left out of the overlay disappears from the product —
+ * this list is what keeps that a deliberate choice instead of a typo.
+ */
+const PRESET_NAMES = ['只读', '可修改文件', '完全放开'] as const
+/** The write preset, named on its own where a scenario needs just the one. */
+const RENAMED_PRESET = PRESET_NAMES[1]
 
 const HERO_PLACEHOLDER = 'Describe what you want to build... / commands, @ files or sessions'
 const ESTABLISHED_PLACEHOLDER = 'Message or run a task... / commands, @ files or sessions'
@@ -157,6 +164,18 @@ async function expectGuardHides(scope: Locator, className: string): Promise<void
 
 /** Every banned spelling of the vendor's Workspace vocabulary. */
 const WORKSPACE_WORDS = ['workspace', 'Workspace', 'WORKSPACE', '工作区'] as const
+
+/**
+ * The composer's access-preset chip, located by its accessible name. Its
+ * visible label collapses to the glyph alone when the composer row runs out of
+ * width (`InputBar.module.css`'s `@container` rule), so the rendered text is
+ * not a stable anchor; the accessible name carries the preset either way.
+ * @param page - the browsing page.
+ * @returns the chip locator.
+ */
+function accessChip(page: Page): Locator {
+  return shellColumn(page, 'chat').getByRole('button', { name: /^Access mode, current:/ })
+}
 
 /**
  * The banned words present in the conversation column's rendered text.
@@ -615,17 +634,36 @@ describe('web e2e: the product-console sidebar', () => {
 
   it('renders no Workspace vocabulary anywhere in the conversation column', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-vocabulary'))
+    // The chip's accessible name, not the column's rendered text: the visible
+    // label collapses to a glyph at narrow composer widths, and which width
+    // this scenario lands on depends on whether the content column is open.
+    // The name is also the half a screen reader announces, so it is the half
+    // that must not say "Workspace".
+    const chipName = await accessChip(page).getAttribute('aria-label')
+    expect(chipName).toBe(`Access mode, current: ${RENAMED_PRESET}`)
     // Two independent sources, pinned together because both are silent when
     // they break: the hero chip-and-picker row (hidden by
     // `terminology-guard.ts`'s class-substring rule, which a renamed CSS
-    // module class would stop matching), and the composer's access chip
-    // (renamed at the composition level in `server-sidebar.overlay.yml`'s
-    // `permission` row, which reverts to "Workspace Write" the moment that
-    // row's preset table stops overriding the shipped one).
+    // module class would stop matching) and the access chip above, which
+    // reverts to "Workspace Write" the moment the overlay's `permission` row
+    // stops overriding the shipped preset table.
     expect(await workspaceWordsInChat(page)).toEqual([])
-    // The renamed preset is what the chip actually shows, so a rename that
-    // silently stopped applying cannot pass as an empty column.
-    expect(await shellColumn(page, 'chat').innerText()).toContain(RENAMED_PRESET)
+  }, 30_000)
+
+  it('offers every access preset under a customer-facing name', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-presets'))
+    // The rendered menu, not the composed config: this asserts what the
+    // customer can actually pick, so a preset the overlay drops fails here
+    // whether the loss was deliberate or a miscopied table.
+    const chip = accessChip(page)
+    await chip.click()
+    const items = page.getByRole('menu').getByRole('menuitem')
+    await expect.poll(() => items.count(), { timeout: 10_000 }).toBe(PRESET_NAMES.length)
+    expect(await items.allInnerTexts()).toEqual([...PRESET_NAMES])
+    // Closing through the trigger, not Escape: the menu is the chip's own
+    // popup and a stray Escape would reach the composer behind it.
+    await chip.click()
+    await expect.poll(() => page.getByRole('menu').count(), { timeout: 10_000 }).toBe(0)
   }, 30_000)
 
   it('leaves the Chat/Trajectory tab switcher and the model selector out of the customer-form composition', async () => {

@@ -66,13 +66,20 @@
 # therefore replaces the vocabulary on every surface at once, with no patch to
 # an upstream package.
 #
-# The knob values (`sandbox`, `approval`) are restated unchanged from the
-# shipped defaults: this row replaces the whole table, so omitting one would
-# drop that preset rather than inherit it.
+# All three shipped presets are restated, knob values (`sandbox`, `approval`)
+# unchanged: this row replaces the whole table, so omitting one drops that
+# preset rather than inheriting it — a customer would simply lose that choice.
+# `apps/web/tests/server-sidebar.e2e.ts` asserts the resulting set.
 - id: permission
   name: '@deepseek-ai/dsh-permission-presets'
   config:
     presets:
+      read-only:
+        sandbox: read-only
+        approval: ask
+        name: 只读
+        description: 只查看和分析文件，不做任何改动。
+        glyph: read-only
       workspace-write:
         sandbox: workspace-write
         approval: ask
