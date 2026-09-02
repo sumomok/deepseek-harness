@@ -201,6 +201,9 @@ const TEXT_KEPT = 197
 /** How much of the smaller rectangle two items must share to count as one. */
 const OVERLAP_SHARE = 0.8
 
+/** The keywords a page draws nothing around an element with. */
+const DRAWS_NOTHING = /^(?:none|normal)$/u
+
 /** Text that only separates the items either side of it. */
 const SEPARATOR = /^[/>›»|:·•\-–—]+$/
 
@@ -664,6 +667,19 @@ export function isDisabled(el: Element): boolean {
 }
 
 /**
+ * Whether the page takes what a field holds and refuses to let the reader type
+ * over it. A page draws a picker as a box it fills itself, so a reader told
+ * nothing would type into a field that answers no key.
+ * @param el - the element to read.
+ * @returns its read-only state.
+ */
+export function isReadonly(el: Element): boolean {
+  if (el.getAttribute('aria-readonly') === 'true') return true
+  const tag = el.localName
+  return (tag === 'input' || tag === 'textarea') && (el as HTMLInputElement).readOnly
+}
+
+/**
  * The default clickability test: a page that gives a role-less element a
  * pointer cursor is telling the reader it can be clicked.
  * @param el - the element to classify.
@@ -671,6 +687,31 @@ export function isDisabled(el: Element): boolean {
  */
 export function looksClickable(el: Element): boolean {
   return getComputedStyle(el).cursor === 'pointer'
+}
+
+/**
+ * The text a page draws around an element rather than writing it in the
+ * document: the star a form draws in front of the label of a field that must be
+ * filled, and whatever else `::before` and `::after` put on the screen. A
+ * reader sees it and no read of the document can reach it.
+ *
+ * The quotes CSS puts around drawn text belong to the stylesheet rather than to
+ * the page, and the keywords for drawing nothing draw nothing.
+ * @param el - the element to read.
+ * @returns the collapsed text, empty where the page draws none.
+ */
+export function drawnAround(el: Element): string {
+  return collapse(`${drawnPart(el, '::before')} ${drawnPart(el, '::after')}`)
+}
+
+/**
+ * The text one of those two draws.
+ * @param el - the element to read.
+ * @param part - the pseudo-element to read.
+ * @returns the text, empty where it draws none.
+ */
+function drawnPart(el: Element, part: string): string {
+  return getComputedStyle(el, part).content.replace(DRAWS_NOTHING, '').replaceAll(/["']/gu, '')
 }
 
 /**

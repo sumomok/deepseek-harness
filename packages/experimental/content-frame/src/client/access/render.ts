@@ -172,15 +172,17 @@ function containerCounts(container: ContainerItem, items: readonly Item[]): stri
 
 /**
  * What a row prints after the name of a control: what it holds, whether it is
- * on, and whether the page has switched it off. A row of its own and a row of a
- * table cell say this the same way.
+ * on, whether the page asks for it, whether it takes what the reader types, and
+ * whether the page has switched it off. A row of its own and a row of a table
+ * cell say this the same way.
  * @param state - the control's state.
  * @returns the trailing state, or the empty string.
  */
 function stateOf(state: ControlState): string {
   const value = state.secret ? ' = (hidden)' : state.value === undefined ? '' : ` = "${state.value}"`
   const checked = state.checked === undefined ? '' : state.checked ? ' [x]' : ' [ ]'
-  return `${value}${checked}${state.disabled ? ' (disabled)' : ''}`
+  const asked = `${state.required ? ' (required)' : ''}${state.readonly ? ' (readonly)' : ''}`
+  return `${value}${checked}${asked}${state.disabled ? ' (disabled)' : ''}`
 }
 
 /**
@@ -208,13 +210,15 @@ function containerText(item: ContainerItem): string {
 }
 
 /**
- * One control, heading, or click target.
+ * One control, heading, or click target, with the ref of the half a page draws
+ * beside a field to open what it offers.
  * @param item - the element item.
  * @param prefix - the row's indentation.
  * @returns the rendered row.
  */
 function elementLine(item: ElementItem, prefix: string): string {
-  return `${prefix}${item.ref} ${controlText(item, item.name)}${within(item.container)}`
+  const opens = item.opens === undefined ? '' : ` [${item.opens} opens]`
+  return `${prefix}${item.ref} ${controlText(item, item.name)}${opens}${within(item.container)}`
 }
 
 /**
@@ -344,6 +348,7 @@ function roomRow(room: ContainerItem, node: ControlFace): ElementItem {
     ref: room.ref,
     name: room.name,
     ...node,
+    opens: undefined,
     container: room.container,
     depth: room.depth,
   }

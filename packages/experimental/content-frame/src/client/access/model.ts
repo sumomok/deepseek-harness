@@ -42,6 +42,8 @@ export interface SnapshotOptions {
   readonly find?: string
   /** Injected: whether the element is visible. */
   readonly isVisible: (el: Element) => boolean
+  /** Injected: the text the page draws around an element with `::before` and `::after`; defaults to the computed styles. */
+  readonly drawnAround?: (el: Element) => string
   /** Injected: the element's rectangle, for dropping geometric duplicates; undefined disables that. */
   readonly rectOf: (el: Element) => DOMRectReadOnly | undefined
   /** Injected: whether a role-less element is clickable; defaults to a `cursor: pointer` computed style. */
@@ -123,6 +125,10 @@ export interface ControlState {
   readonly secret: boolean
   /** The checked state, or undefined for an element that has none. */
   readonly checked: boolean | undefined
+  /** True when the page says the field must be filled. */
+  readonly required: boolean
+  /** True when the page takes what the field holds and refuses the reader's typing. */
+  readonly readonly: boolean
   /** True when the page has disabled the element. */
   readonly disabled: boolean
 }
@@ -149,6 +155,14 @@ export interface ElementItem extends ControlFace {
   readonly ref: string
   /** The element's accessible name. */
   readonly name: string
+  /**
+   * The ref of the click target the page draws inside this field to open what
+   * it offers — the arrow of a picker the reader cannot type into — and
+   * undefined for every other row. The target prints no row of its own: it is
+   * one field the page drew in two halves, and two rows would have the model
+   * choosing which half to click.
+   */
+  readonly opens: string | undefined
   /** The container this row sits in. */
   readonly container: ContainerItem | undefined
   /** How many containers enclose this row. */

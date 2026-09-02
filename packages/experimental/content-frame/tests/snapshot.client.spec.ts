@@ -30,6 +30,11 @@ function rectOf(el: Element): DOMRectReadOnly | undefined {
   return new DOMRect(x, y, width, height)
 }
 
+/** What a stylesheet draws around an element, from `data-drawn`. */
+function drawnAround(el: Element): string {
+  return el.getAttribute('data-drawn') ?? ''
+}
+
 /** Put one page up, with a fresh numbering. */
 function page(html: string): RefTable {
   document.body.innerHTML = html
@@ -38,7 +43,7 @@ function page(html: string): RefTable {
 
 /** Read the page up. */
 function read(refs: RefTable, ask: Ask = {}): Snapshot {
-  return snapshot(document, { refs, budgetChars: 4000, isVisible, rectOf, ...ask })
+  return snapshot(document, { refs, budgetChars: 4000, isVisible, rectOf, drawnAround, ...ask })
 }
 
 /** The ref of one element, which the read has already numbered. */
@@ -1953,6 +1958,144 @@ describe('controls', () => {
       .toBe('e1 checkbox "仅看我的" [ ]')
     expect(read(page('<input type="checkbox" checked aria-label="仅看我的">')).text)
       .toBe('e1 checkbox "仅看我的" [x]')
+  })
+})
+
+describe('a field the page names by drawing the words beside it', () => {
+  const pointer = (el: Element): boolean => el.closest('[data-pointer]') !== null
+
+  // A component library draws a form field as a label and a box in one group,
+  // and ties neither to the other: the label is a `label` element with nothing
+  // to name, and the box carries no name of any kind. The star saying the field
+  // must be filled is drawn by the stylesheet in front of the label.
+  const FORM = `
+    <form aria-label="新增">
+      <div class="item">
+        <label data-drawn="*">名称</label>
+        <div class="content"><div class="box"><input type="text"></div></div>
+      </div>
+      <div class="item">
+        <label>是否显示</label>
+        <div class="content"><div class="select"><div class="box">
+          <input type="text" readonly>
+          <span class="suffix"><span><i data-pointer class="caret"></i></span></span>
+        </div></div></div>
+      </div>
+      <div class="item">
+        <label>图层id</label>
+        <div class="content"><div class="box"><input type="text" required></div></div>
+      </div>
+    </form>`
+
+  it('names each field by the words drawn in front of it, and prints those words once', () => {
+    const refs = page(FORM)
+    expect(read(refs, { isClickable: pointer }).text).toBe([
+      'e1 form "新增"',
+      '  e2 textbox "名称" = "" (required) (in form "新增")',
+      '  e3 textbox "是否显示" = "" (readonly) [e4 opens] (in form "新增")',
+      '  e5 textbox "图层id" = "" (required) (in form "新增")',
+    ].join('\n'))
+    // The words name the field and print no row of their own, so a search for
+    // them answers with the field rather than with a run of text beside it.
+    expect(read(refs, { find: '是否显示', isClickable: pointer }).text)
+      .toBe('e3 textbox "是否显示" = "" (readonly) [e4 opens] (in form "新增")')
+  })
+
+  it('names a field by the words drawn beside it in the same element', () => {
+    const refs = page('<div class="item"><span>关键字</span><input type="text"></div>')
+    expect(read(refs).text).toBe('e1 textbox "关键字" = ""')
+  })
+
+  it('asks the page itself what it draws around a label when nothing is injected', () => {
+    // The read reaches for the computed style of the label's `::before`, which
+    // this engine draws nothing for, and the field is a field like any other.
+    const refs = page('<div class="item"><label>名称</label><div class="content"><input type="text"></div></div>')
+    expect(snapshot(document, { refs, budgetChars: 4000, isVisible, rectOf }).text).toBe('e1 textbox "名称" = ""')
+  })
+
+  it('leaves a field unnamed where another control stands between it and the words', () => {
+    const refs = page(`
+      <div class="item">
+        <label>名称</label>
+        <div class="content"><input type="text"><input type="text"></div>
+      </div>`)
+    expect(read(refs).text).toBe(['e1 textbox "名称" = ""', 'e2 textbox = ""'].join('\n'))
+  })
+
+  it('names a field by the words a page draws after the control before it', () => {
+    // What a control says is about that control; the words drawn after it and
+    // before the field are the ones naming the field.
+    const refs = page('<div class="item"><button>清空</button><span>关键字</span><input type="text"></div>')
+    expect(read(refs).text).toBe(['e1 button "清空"', 'e2 textbox "关键字" = ""'].join('\n'))
+  })
+
+  it('reads past what draws nothing beside a field, and takes no words from outside its group', () => {
+    // A wrapper drawing nothing separates nothing, and one the page hides is
+    // drawn nowhere; the region around the group says what the form is, never
+    // what one field in it is.
+    const refs = page(`
+      <form aria-label="查询">
+        <b></b><em data-hidden>看不见</em>
+        <div class="item"><span></span><i></i><input type="text"></div>
+      </form>`)
+    expect(read(refs).text).toBe(['e1 form "查询"', '  e2 textbox = "" (in form "查询")'].join('\n'))
+  })
+
+  it('leaves a run longer than a label to print as itself', () => {
+    const refs = page(`<div class="item"><p>${'长'.repeat(41)}</p><div class="content"><input type="text"></div></div>`)
+    expect(read(refs).text).toBe([`text "${'长'.repeat(41)}"`, 'e1 textbox = ""'].join('\n'))
+  })
+
+  it('keeps a run that says more than the field is called', () => {
+    // The words the field is named by are printed once; a run carrying more
+    // than those words is a run of the page, and stays one.
+    const refs = page('<div class="item">请填写 <label>名称</label><div class="content"><input type="text"></div></div>')
+    expect(read(refs).text).toBe(['text "请填写 名称"', 'e1 textbox "名称" = ""'].join('\n'))
+  })
+
+  it('takes no words for a control that says what it is itself', () => {
+    const refs = page(`
+      <div class="item"><span>操作</span><button>保存</button></div>
+      <div class="item"><span>名称</span><input type="text" aria-label="站点名称"></div>`)
+    expect(read(refs).text).toBe([
+      'text "操作"',
+      'e1 button "保存"',
+      'text "名称"',
+      'e2 textbox "站点名称" = ""',
+    ].join('\n'))
+  })
+
+  it('keeps a click target beside a field as a row of its own where it says what it does', () => {
+    // Only the half a page draws inside the field's own box, and names
+    // nothing, is that field's other half.
+    const refs = page(`
+      <div class="box"><input type="text" aria-label="日期"><i data-pointer class="caret"></i></div>
+      <div class="box"><input type="text" aria-label="城市"><span data-pointer>清除</span></div>
+      <div><input type="text" aria-label="区县"></div><i data-pointer class="outside"></i>`)
+    expect(read(refs, { isClickable: pointer }).text).toBe([
+      'e1 textbox "日期" = "" [e2 opens]',
+      'e3 textbox "城市" = ""',
+      'e4 clickable "清除"',
+      'e5 textbox "区县" = ""',
+      'e6 clickable',
+    ].join('\n'))
+  })
+
+  it('says a field takes no typing wherever the page says so', () => {
+    // A picker the page fills itself is drawn as a box the reader cannot type
+    // into, whether the page says so in HTML or in ARIA over a box of its own.
+    const refs = page(`
+      <div role="textbox" aria-readonly="true" aria-label="编号">P-0001</div>
+      <textarea readonly aria-label="日志">运行中</textarea>`)
+    expect(read(refs).text).toBe([
+      'e1 textbox "编号" = "P-0001" (readonly)',
+      'e2 textbox "日志" = "运行中" (readonly)',
+    ].join('\n'))
+  })
+
+  it('folds no click target into a row that is not a field', () => {
+    const refs = page('<div class="box"><button>展开</button><i data-pointer class="caret"></i></div>')
+    expect(read(refs, { isClickable: pointer }).text).toBe(['e1 button "展开"', 'e2 clickable'].join('\n'))
   })
 })
 

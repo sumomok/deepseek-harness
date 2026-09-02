@@ -16,12 +16,13 @@ import {
   CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES,
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
   frameDocument, headingText, insideOpaque, isChecked, isDisabled, isHiddenAround, isInline, isMarked,
-  isNameable, isNonContent, isOpaque, isPassword, isSkipped, libraryRole, looksClickable,
-  markedSelector, nameOf, quantityValue, queryInOrder, rectsMeet, rectsOverlap, roleOf, visibleText,
+  drawnAround, isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole,
+  looksClickable, markedSelector, nameOf, quantityValue, queryInOrder, rectsMeet, rectsOverlap, roleOf,
+  visibleText,
 } from './dom.ts'
 import type {
-  CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, Item, RowCell,
-  SnapshotOptions, TableItem, TableRowItem,
+  CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, ElementItem,
+  Item, RowCell, SnapshotOptions, TableItem, TableRowItem,
 } from './model.ts'
 
 /** How many items a `ul` or `ol` needs before it reads as a list of its own. */
@@ -68,6 +69,16 @@ const CELL_CONTROL_ROLES: ReadonlySet<string> = new Set(['button', 'link', ...FI
 const ACTS_ON_NODE_ROLES: ReadonlySet<string> = new Set([
   'button', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'tab', ...FIELD_ROLES,
 ])
+
+/**
+ * The marks a page draws beside the label of a field that must be filled. Both
+ * spellings of the star are here because a page written in Chinese draws either
+ * one, and neither says anything else where a form draws it.
+ */
+const REQUIRED_MARKS: ReadonlySet<string> = new Set(['*', '＊'])
+
+/** How long the words drawn in front of a field may run before they are no label. */
+const LABEL_LIMIT = 40
 
 /** The word pages use to mark the strip that pages through a table. */
 const PAGINATION_MARKER = 'pagination'
@@ -165,6 +176,8 @@ interface Walk {
   readonly isVisible: (el: Element) => boolean
   /** Injected clickability, defaulted. */
   readonly isClickable: (el: Element) => boolean
+  /** Injected drawn-around text, defaulted. */
+  readonly drawnAround: (el: Element) => string
   /** The element the read asked for, which tops whatever the page nests it in. */
   readonly scope: Element | undefined
   /** The items collected so far, in document order. */
@@ -388,19 +401,37 @@ function heldValue(el: Element, role: string, walk: Walk): string | undefined {
 }
 
 /**
+ * True for a field the page says must be filled: one that says so on the
+ * control itself, or one whose label the page draws a star beside. A form draws
+ * that star with a stylesheet rather than writing it in the document, so it is
+ * on the screen and in no text a read of the document could otherwise reach.
+ * @param el - the control element.
+ * @param label - the element drawing the words that name the field, if any.
+ * @param walk - the walk in progress.
+ * @returns whether the field must be filled.
+ */
+function isRequired(el: Element, label: Element | undefined, walk: Walk): boolean {
+  if (el.hasAttribute('required') || el.getAttribute('aria-required') === 'true') return true
+  return label !== undefined && REQUIRED_MARKS.has(walk.drawnAround(label))
+}
+
+/**
  * What a control holds and how the page has set it, read the same way wherever
  * a row prints it.
  * @param el - the control element.
  * @param role - the role it prints.
  * @param walk - the walk in progress.
+ * @param label - the element drawing the words that name the control, if any.
  * @returns the state.
  */
-function controlState(el: Element, role: string, walk: Walk): ControlState {
+function controlState(el: Element, role: string, walk: Walk, label: Element | undefined): ControlState {
   const secret = isPassword(el)
   return {
     value: secret ? undefined : heldValue(el, role, walk),
     secret,
     checked: CHECKED_ROLES.has(role) ? isChecked(el) : undefined,
+    required: isRequired(el, label, walk),
+    readonly: isReadonly(el),
     disabled: isDisabled(el),
   }
 }
@@ -412,12 +443,13 @@ function controlState(el: Element, role: string, walk: Walk): ControlState {
  * @param el - the element.
  * @param role - the role it prints.
  * @param walk - the walk in progress.
+ * @param label - the element drawing the words that name the element, if any.
  * @returns the face.
  */
-function controlFace(el: Element, role: string, walk: Walk): ControlFace {
+function controlFace(el: Element, role: string, walk: Walk, label: Element | undefined): ControlFace {
   return {
     role,
-    ...controlState(el, role, walk),
+    ...controlState(el, role, walk, label),
     // A node the page has closed says so: what it holds is not missing from the
     // read, it is folded away until something opens it.
     collapsed: ITEM_NODE_TYPES.has(role) && el.getAttribute('aria-expanded') === 'false',
@@ -467,7 +499,12 @@ function cellControls(el: Element, walk: Walk, found: CellControl[]): void {
     if (isSkipped(child, walk.isVisible)) continue
     const role = cellControlRole(child, walk)
     if (role !== undefined) {
-      found.push({ el: child, role, name: elementName(child, role, walk), ...controlState(child, role, walk) })
+      found.push({
+        el: child,
+        role,
+        name: elementName(child, role, walk),
+        ...controlState(child, role, walk, undefined),
+      })
     } else cellControls(child, walk, found)
   }
 }
@@ -1217,6 +1254,120 @@ function elementName(el: Element, role: string, walk: Walk): string {
 }
 
 /**
+ * The element drawing the words immediately in front of a field inside the
+ * element holding both, and `null` where something the reader can act on stands
+ * between the two: the words further out then say what that other thing is,
+ * never what this field is.
+ *
+ * A wrapper drawing no words at all is neither, so the words survive the boxes
+ * a form draws around its field, and a control the page draws before them is
+ * left behind by the words that follow it.
+ * @param host - the element holding both.
+ * @param inner - the child of it holding the field.
+ * @param walk - the walk in progress.
+ * @returns the element drawing the words, null where something stands between
+ * them and the field, and undefined where this element draws none.
+ */
+function drawnBefore(host: Element, inner: Element, walk: Walk): Element | null | undefined {
+  let found: Element | undefined
+  let blocked = false
+  for (const child of host.children) {
+    if (child === inner) break
+    if (isSkipped(child, walk.isVisible)) continue
+    if (makesRow(child, walk) || holdsItems(child, walk)) {
+      found = undefined
+      blocked = true
+    } else if (visibleText(child, walk.isVisible) !== '') {
+      found = child
+      blocked = false
+    }
+  }
+  return found ?? (blocked ? null : undefined)
+}
+
+/**
+ * The words a page draws in front of a field to say what it is, for a field the
+ * page named nothing: a form that ties its label to its field with `for` is
+ * answered by the name computation long before this, and a form that draws the
+ * label and ties nothing is why this exists — the label is then the one thing
+ * about the field a reader can see and the document never says.
+ *
+ * The search climbs out of the field as far as the region it stands in, so the
+ * words belong to the field's own group rather than to the form around it, and
+ * stops where anything else the reader can act on stands between the two. Words
+ * running longer than a label are a run of the page rather than a name for
+ * something beside them, and are left to print as themselves.
+ * @param el - the field element.
+ * @param walk - the walk in progress.
+ * @returns the element drawing the words, or undefined for a field with none.
+ */
+function labelDrawnBefore(el: Element, walk: Walk): Element | undefined {
+  let inner: Element = el
+  for (let at = el.parentElement; at !== null && !opensRegion(at, walk); at = at.parentElement) {
+    const label = drawnBefore(at, inner, walk)
+    if (label === null) return undefined
+    if (label !== undefined) {
+      return visibleText(label, walk.isVisible).length > LABEL_LIMIT ? undefined : label
+    }
+    inner = at
+  }
+  return undefined
+}
+
+/**
+ * The words that name a field the page named nothing, for the roles a reader
+ * fills in: a button says what it is in the words on it, while a field says it
+ * in the words drawn beside it.
+ * @param el - the element to name.
+ * @param role - the role it prints.
+ * @param name - the name the element carries of its own.
+ * @param walk - the walk in progress.
+ * @returns the element drawing the words, or undefined where none names it.
+ */
+function labelFor(el: Element, role: string, name: string, walk: Walk): Element | undefined {
+  return name === '' && FIELD_ROLES.has(role) ? labelDrawnBefore(el, walk) : undefined
+}
+
+/**
+ * Drop the row the words naming a field would otherwise print of their own,
+ * whether this read has them waiting to be printed or has printed them as the
+ * row above. The words reach the reader as the field's name instead, the way
+ * the text of a `label` the page tied to its control does; a run that says more
+ * than the name says stays a run of its own.
+ * @param walk - the walk in progress.
+ * @param place - the field's position.
+ * @param words - the name the field takes from those words.
+ */
+function takeLabelRow(walk: Walk, place: Place, words: string): void {
+  if (clip(collapse(place.buffer.join(' '))) === words) {
+    place.buffer.length = 0
+    return
+  }
+  const last = walk.items.at(-1)
+  if (last?.kind === 'text' && last.text === words && last.container === place.container) walk.items.pop()
+}
+
+/**
+ * The field a click target the page named nothing belongs to: the row above it,
+ * where the page draws the target inside the element that holds that field.
+ * A picker a reader cannot type into is one field drawn in two halves — the box
+ * and the arrow that opens it — and two rows for it would have the model
+ * choosing which half to click.
+ * @param el - the click target.
+ * @param role - the role it prints.
+ * @param name - the name it carries.
+ * @param walk - the walk in progress.
+ * @param place - the target's position.
+ * @returns the field's row, or undefined for a target of its own.
+ */
+function opensField(el: Element, role: string, name: string, walk: Walk, place: Place): ElementItem | undefined {
+  if (role !== CLICKABLE_ROLE || name !== '') return undefined
+  const last = walk.items.at(-1)
+  if (last?.kind !== 'element' || !FIELD_ROLES.has(last.role) || last.container !== place.container) return undefined
+  return last.el.parentElement?.contains(el) === true ? last : undefined
+}
+
+/**
  * Collect one element that carries a name of its own, and stop there.
  * @param el - the element to collect.
  * @param role - the role it prints.
@@ -1224,15 +1375,24 @@ function elementName(el: Element, role: string, walk: Walk): string {
  * @param place - the element's position.
  */
 function pushElement(el: Element, role: string, walk: Walk, place: Place): void {
-  const name = elementName(el, role, walk)
+  const own = elementName(el, role, walk)
+  const label = labelFor(el, role, own, walk)
+  const name = label === undefined ? own : clip(visibleText(label, walk.isVisible))
+  const field = opensField(el, role, name, walk, place)
+  if (field !== undefined) {
+    walk.items[walk.items.length - 1] = { ...field, opens: walk.options.refs.ref(el) }
+    return
+  }
   if (duplicate(walk.kept, walk.options.rectOf, `${role}|${name}`, el)) return
+  if (label !== undefined) takeLabelRow(walk, place, name)
   flush(walk, place)
   walk.items.push({
     kind: 'element',
     el,
     ref: walk.options.refs.ref(el),
     name,
-    ...controlFace(el, role, walk),
+    ...controlFace(el, role, walk, label),
+    opens: undefined,
     container: place.container,
     depth: place.depth,
   })
@@ -1603,7 +1763,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
       // listing is known there and nowhere earlier — see `printedItems` in
       // `render.ts`.
       if (holdsGroup(el, walk) || name === '') {
-        openContainer(el, { type: node, name }, host, walk, place, controlFace(el, role, walk))
+        openContainer(el, { type: node, name }, host, walk, place, controlFace(el, role, walk, undefined))
         return
       }
     }
@@ -1655,6 +1815,7 @@ export function collect(root: Document, options: SnapshotOptions, scope: Element
     options,
     isVisible: options.isVisible,
     isClickable: options.isClickable ?? looksClickable,
+    drawnAround: options.drawnAround ?? drawnAround,
     scope,
     items: [],
     kept: new Map(),

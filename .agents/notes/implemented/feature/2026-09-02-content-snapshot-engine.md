@@ -78,6 +78,20 @@ Geometry decides what the structure cannot. Two tables the page draws one after 
 
 A cell names the controls it holds rather than reading them as text, and a run the page makes clickable is one of them, named the way a row of its own would name it. The icon a table draws for editing a row carries no role, no name, and no text of any kind: read as text it is nothing at all, and the column a reader can see would offer the model nothing to click. That is what the 操作 column of the real page reached the model as — an empty cell in every row of it. The judgement is the walk's own, so a cell inside a run the page made clickable higher up offers nothing: the top of the run is above the table, and the row is not a thing to click.
 
+### A field is named by the words a page draws in front of it
+
+A form drawn by a component library ties no label to any field: the label is a `label` element with no `for`, and the box carries no name of any kind, so every field of the new-layer dialog on the ini-web2 console has an empty accessible name. The read answered with forty-nine rows of `textbox = ""` and the words beside them as runs of their own, and nothing reading that could tell one field from another.
+
+A field the page named nothing is now named by the words drawn in front of it: the last thing drawn before the field that prints no row of its own, inside the smallest element holding both, searched outwards as far as the region the field stands in. The search stops where anything else the reader can act on stands between the two — two boxes in one group take the words for the first of them and nothing for the second — and words running longer than a label are a run of the page rather than a name for something beside them. The words print once: the row they would have printed of their own is dropped, the way the text of a `label` a page does tie to its control already is.
+
+### The mark a page draws rather than writes
+
+A form says a field must be filled by drawing a star in front of its label with a stylesheet. That star is in no attribute, in no text, and in nothing a read of the document can reach: on that dialog the model looked for `*` and for `＊`, was told nothing matches, and ended up asking the user to tick 「只显示必填」 so the form would show the required fields alone. The read now asks the page what it draws around the words naming a field — `::before` and `::after`, through an injected reader defaulting to the computed styles — and prints `(required)` for a star there, or for what the page says on the control itself with `required` or `aria-required`.
+
+### A picker drawn in two halves is one field
+
+A page draws a picker as a box it fills itself and an arrow that opens what it offers. The box takes no typing, which the read says with `(readonly)`: a reader told nothing types into a field that answers no key. The arrow carries no role and no name, and a row of its own would have the model choosing which half of one field to click, so it prints on the field's row as the ref that opens it — `e173 textbox "是否显示" = "" (readonly) [e174 opens]` — and only where the page draws it inside the element that holds the field.
+
 ### Never a blind cut
 
 A whole page too large for the budget comes back as a skeleton of its regions and where to read next; a listing too large comes back with a cursor to continue from. A read never answers with half a list and no way to reach the rest, and a listing cut short backs off the trailing rows the model cannot name so a continuation covers the listing exactly once.
@@ -102,6 +116,10 @@ jsdom lays nothing out, and a frame's layout belongs to the frame, so visibility
 
 **Letting any labelled click target print its own row.** The rule that a name the page wrote makes the target a thing of its own is what keeps a labelled card from being read through. Rejected in the one case where the label repeats what the single control inside says: that is one thing said twice, and two rows for it would have the model choosing which of them to click.
 
+**Reading the star a stylesheet draws as text of the page.** It is text a reader sees, and the rule the rest bend to says such text reaches the model. Rejected as a general rule because `::before` and `::after` carry a page's punctuation, its icon font, and its decoration as often as they carry meaning, and putting all of it into the runs a read prints would change what every `find` matches. The mark is read where it means something — on the words naming a field — and reported as a word of the row rather than as text of the page.
+
+**Printing the arrow of a picker as a row of its own.** It is a thing the reader clicks, and every other click target the page draws prints a row. Rejected because the box and the arrow are one field drawn in two halves: two rows for it would have the model choosing which half to click, and the ref on the field's row reaches the same element.
+
 **Teaching the walk about component libraries.** Every defect in six rounds of review was found in antd, element, or bootstrap markup, and matching their class names would have fixed each one in a line. Rejected because the reader runs against whatever a deployment renders, and a rule keyed to a class name is a rule that silently stops working when the page ships a new version of its own dependency.
 
 ## Consequences
@@ -115,6 +133,8 @@ Whitespace is the only thing taken out of the text a read prints, so a control c
 A node named by a picture reads as a room rather than as a row, so the map prints it as an unnamed node — `e2 treeitem  1 buttons, 1 texts` — with the label on the picture's row inside it, which a map does not print. For the same reason `find: 华北` answers with the picture's ref rather than the node's, and a model clicking that ref clicks the icon. A node the page names outright answers with its own ref.
 
 A table drawn over another without a row for each of its rows is not a piece of it, and is dropped as one thing the page drew twice: the second table's rows reach the model nowhere. So does a pinned piece the page draws in a region of its own, which is not a piece at all — two tables in two regions are two tables.
+
+The words naming a field are read where a page draws them in an element of its own, so a bare run of text in the same element as the field leaves it unnamed. The drawn mark is read on those words and nowhere else, so a field the page does name itself and stars on a label it ties to nothing is not reported as required. And a field taking its name from words the page draws in a longer run keeps that run as a row, so those words reach the reader twice.
 
 Nine counter-examples to the rule that model-visible means readable are open.
 
@@ -130,4 +150,4 @@ Two are the read reporting more than the page says. A native `select` inside ano
 
 ## Testing
 
-`tests/snapshot.client.spec.ts` pins every string the model can see, word for word, over fixtures written as the four libraries draw them — a table pinned column by column among them, written from the real ini-web2 console page and its geometry; `src/client/access/**` is covered per file at 100%. Conclusions that depend on what a reader can see hold in jsdom with an injected `isVisible`, and are conditional on the browser implementation until a real page is read in one.
+`tests/snapshot.client.spec.ts` pins every string the model can see, word for word, over fixtures written as the four libraries draw them — a table pinned column by column and a dialog form among them, written from the real ini-web2 console page, its geometry, and the stylesheet marks it draws; `src/client/access/**` is covered per file at 100%. Conclusions that depend on what a reader can see hold in jsdom with an injected `isVisible`, and are conditional on the browser implementation until a real page is read in one.
