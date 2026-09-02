@@ -2073,6 +2073,34 @@ describe('tables', () => {
     expect(sample.length - '  sample: '.length).toBeLessThanOrEqual(24)
   })
 
+  it('offers the icons a page makes clickable in a cell, which is where a row keeps what it can do', () => {
+    const pointer = (el: Element): boolean => el.closest('[data-pointer]') !== null
+    const refs = page(`
+      <table>
+        <thead><tr><th>名称</th><th>操作</th></tr></thead>
+        <tbody><tr><td>东风站</td><td><div class="cell">
+          <i data-pointer class="icon-edit"></i><i data-pointer class="icon-delete"></i>
+          <div data-hidden>确定删除吗？ 取消</div>
+        </div></td></tr></tbody>
+      </table>`)
+    // The icon a table draws for editing a row carries no role and no name of
+    // any kind. Read as text it is nothing at all, and the column the reader
+    // can see would offer the model nothing to click.
+    expect(read(refs, { isClickable: pointer }).text.split('\n')[2]).toBe('  sample: 东风站 | [clickable clickable]')
+    const listed = read(refs, { scope: refOf(refs, 'table'), isClickable: pointer }).text
+    expect(listed.split('\n')[2]).toBe('  row 1: 东风站 | e3 clickable  e4 clickable')
+    // The confirmation the page keeps beside them is drawn nowhere until the
+    // reader asks for it, and reaches the cell nowhere either.
+    expect(listed).not.toContain('确定删除吗')
+  })
+
+  it('keeps a cell button the page drew as nothing but an icon, named nothing', () => {
+    const refs = page(`
+      <table><tbody><tr><td>东风站</td><td><button><i class="icon-edit"></i></button><button aria-label="删除"><i></i></button></td></tr></tbody></table>`)
+    expect(read(refs, { scope: refOf(refs, 'table') }).text.split('\n')[1])
+      .toBe('  row 1: 东风站 | e3 button  e4 button "删除"')
+  })
+
   it('reads a grid and a tree grid as the tables they are', () => {
     const refs = page(`
       <div role="grid" aria-label="配额"><div role="row"><div role="cell">并发</div></div></div>
@@ -2592,6 +2620,134 @@ describe('a table drawn in two pieces', () => {
   })
 })
 
+describe('a table drawn again for each pinned column', () => {
+  // A component library pins a column by drawing the whole table a second time
+  // over the top of itself, with the contents of every cell it does not pin
+  // hidden inside the cell: the cell still takes its column's room, and what is
+  // written in it is drawn nowhere. Each copy is drawn in two halves like any
+  // other table, so the page holds six tables and the reader sees one — the
+  // page here is the layer table of the ini-web2 console, cut to two rows.
+  //
+  // The copy pinned to the right edge is drawn beside the columns that scroll
+  // rather than over the same ground as the table it repeats, which is what a
+  // reader sees when the table is wider than the room it has.
+  const PINNED = `
+    <div class="table">
+      <div class="head"><table data-rect="0,0,400,40"><thead><tr>
+        <th data-rect="0,0,100,40"><span data-hidden>名称</span></th>
+        <th data-rect="100,0,100,40"><span>图层id</span></th>
+        <th data-rect="200,0,100,40"><span>所属场景</span></th>
+        <th data-rect="300,0,100,40"><span data-hidden>操作</span></th>
+      </tr></thead></table></div>
+      <div class="body"><table data-rect="0,40,400,80"><tbody>
+        <tr>
+          <td data-rect="0,40,100,40"><span data-hidden>东风站</span></td>
+          <td data-rect="100,40,100,40"><span>element:vehicle</span></td>
+          <td data-rect="200,40,100,40"><span>延吉燃气</span></td>
+          <td data-rect="300,40,100,40"><span data-hidden><button>编辑</button></span></td>
+        </tr>
+        <tr>
+          <td data-rect="0,80,100,40"><span data-hidden>朝阳站</span></td>
+          <td data-rect="100,80,100,40"><span>element:pipeline</span></td>
+          <td data-rect="200,80,100,40"><span>延吉排水</span></td>
+          <td data-rect="300,80,100,40"><span data-hidden><button>编辑</button></span></td>
+        </tr>
+      </tbody></table></div>
+      <div class="pinned-left">
+        <div class="head"><table data-rect="0,0,400,40"><thead><tr>
+          <th data-rect="0,0,100,40"><span>名称</span></th>
+          <th data-rect="100,0,100,40"><span data-hidden>图层id</span></th>
+          <th data-rect="200,0,100,40"><span data-hidden>所属场景</span></th>
+          <th data-rect="300,0,100,40"><span data-hidden>操作</span></th>
+        </tr></thead></table></div>
+        <div class="body"><table data-rect="0,40,400,80"><tbody>
+          <tr>
+            <td data-rect="0,40,100,40"><span>东风站</span></td>
+            <td data-rect="100,40,100,40"><span data-hidden>element:vehicle</span></td>
+            <td data-rect="200,40,100,40"><span data-hidden>延吉燃气</span></td>
+            <td data-rect="300,40,100,40"><span data-hidden><button>编辑</button></span></td>
+          </tr>
+          <tr>
+            <td data-rect="0,80,100,40"><span>朝阳站</span></td>
+            <td data-rect="100,80,100,40"><span data-hidden>element:pipeline</span></td>
+            <td data-rect="200,80,100,40"><span data-hidden>延吉排水</span></td>
+            <td data-rect="300,80,100,40"><span data-hidden><button>编辑</button></span></td>
+          </tr>
+        </tbody></table></div>
+      </div>
+      <div class="pinned-right">
+        <div class="head"><table data-rect="300,0,400,40"><thead><tr>
+          <th data-rect="300,0,100,40"><span data-hidden>名称</span></th>
+          <th data-rect="400,0,100,40"><span data-hidden>图层id</span></th>
+          <th data-rect="500,0,100,40"><span data-hidden>所属场景</span></th>
+          <th data-rect="600,0,100,40"><span>操作</span></th>
+        </tr></thead></table></div>
+        <div class="body"><table data-rect="300,40,400,80"><tbody>
+          <tr>
+            <td data-rect="300,40,100,40"><span data-hidden>东风站</span></td>
+            <td data-rect="400,40,100,40"><span data-hidden>element:vehicle</span></td>
+            <td data-rect="500,40,100,40"><span data-hidden>延吉燃气</span></td>
+            <td data-rect="600,40,100,40"><span><button>编辑</button></span></td>
+          </tr>
+          <tr>
+            <td data-rect="300,80,100,40"><span data-hidden>朝阳站</span></td>
+            <td data-rect="400,80,100,40"><span data-hidden>element:pipeline</span></td>
+            <td data-rect="500,80,100,40"><span data-hidden>延吉排水</span></td>
+            <td data-rect="600,80,100,40"><span><button>编辑</button></span></td>
+          </tr>
+        </tbody></table></div>
+      </div>
+    </div>`
+
+  it('reads the pieces as one table, each column from the piece that draws it', () => {
+    expect(read(page(PINNED)).text).toBe([
+      'e1 table 2 rows × 4 cols',
+      '  header: 名称 | 图层id | 所属场景 | 操作',
+      '  sample: 东风站 | element:vehicle | 延吉燃气 | [编辑]',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+  })
+
+  it('maps the pieces as one table of the rows it really has', () => {
+    expect(read(page(PINNED), { mode: 'map' }).text).toBe('e1 table  2 rows')
+  })
+
+  it('lists every row across the pieces when the read names the table by ref', () => {
+    const refs = page(PINNED)
+    read(refs)
+    expect(read(refs, { scope: refOf(refs, '.body table') }).text).toBe([
+      'e1 table 2 rows × 4 cols',
+      '  header: 名称 | 图层id | 所属场景 | 操作',
+      '  row 1: 东风站 | element:vehicle | 延吉燃气 | e3 button "编辑"',
+      '  row 2: 朝阳站 | element:pipeline | 延吉排水 | e5 button "编辑"',
+    ].join('\n'))
+  })
+
+  it('finds a row by words only a pinned piece draws, and answers with the whole row', () => {
+    const refs = page(PINNED)
+    expect(read(refs, { find: '朝阳' }).text)
+      .toBe('row 2: 朝阳站 | element:pipeline | 延吉排水 | e3 button "编辑" (table)')
+  })
+
+  it('keeps two tables the page draws one after the other apart, however alike they are', () => {
+    // Two tables of the same size drawn one under the other share no ground:
+    // the second is a table of its own, and merging them would drop it.
+    const refs = page(`
+      <table data-rect="0,0,200,80"><tbody><tr><td data-rect="0,40,200,40">东风站</td></tr></tbody></table>
+      <table data-rect="0,80,200,80"><tbody><tr><td data-rect="0,120,200,40">朝阳站</td></tr></tbody></table>`)
+    expect(read(refs).text.split('\n').filter(line => line.includes('sample:')))
+      .toEqual(['  sample: 东风站', '  sample: 朝阳站'])
+  })
+
+  it('keeps two tables apart where the page reports where neither of them is drawn', () => {
+    const refs = page(`
+      <table><tbody><tr><td>东风站</td></tr></tbody></table>
+      <table><tbody><tr><td>朝阳站</td></tr></tbody></table>`)
+    expect(read(refs).text.split('\n').filter(line => line.includes('sample:')))
+      .toEqual(['  sample: 东风站', '  sample: 朝阳站'])
+  })
+})
+
 describe('frames and shadow roots', () => {
   it('reads a same-origin frame inside a same-origin frame as one page', () => {
     const refs = page('<iframe title="业务系统"></iframe>')
@@ -2663,7 +2819,10 @@ describe('the same thing drawn twice', () => {
       <tbody><tr><td data-rect="0,40,100,40">东风站</td></tr></tbody>
     </table>`
 
-  it('drops the copy a pinned column draws over the table it belongs to', () => {
+  it('reads the copy a pinned column draws as the table it belongs to', () => {
+    // The copy carries the pinned column and nothing else; every column of it
+    // is drawn in the table it repeats, so the reader is told the same thing
+    // whichever piece each column comes from.
     expect(read(page(PINNED)).text).toBe([
       'e1 table 1 rows × 2 cols',
       '  header: 名称 | 操作',
@@ -2718,6 +2877,24 @@ describe('the same thing drawn twice', () => {
       '  header: 名称 | 操作',
       '  sample: 东风站 | P-0001',
       "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+  })
+
+  it('drops a table the page draws twice in two regions of the page', () => {
+    // Two tables in two regions are two tables however they are drawn, so
+    // neither is a piece of the other; drawn over each other they are one
+    // table the reader is shown once.
+    const refs = page(`
+      <section aria-label="甲"><table data-rect="0,0,200,80"><tbody>
+        <tr><td data-rect="0,40,200,40">东风站</td></tr></tbody></table></section>
+      <section aria-label="乙"><table data-rect="0,0,200,80"><tbody>
+        <tr><td data-rect="0,40,200,40">东风站</td></tr></tbody></table></section>`)
+    expect(read(refs).text).toBe([
+      'e1 section "甲"',
+      '  e2 table 1 rows × 1 cols',
+      '    sample: 东风站',
+      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+      'e3 section "乙"',
     ].join('\n'))
   })
 

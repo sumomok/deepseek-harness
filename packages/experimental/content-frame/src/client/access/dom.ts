@@ -719,3 +719,19 @@ export function rectsOverlap(a: DOMRectReadOnly, b: DOMRectReadOnly): boolean {
   const smaller = Math.min(a.width * a.height, b.width * b.height)
   return smaller > 0 && shared >= smaller * OVERLAP_SHARE
 }
+
+/**
+ * True when two rectangles cover any of the same ground at all, which is what
+ * tells a table drawn over another from the table drawn after it: a page pins a
+ * column by drawing the whole table again on top of itself, while a second
+ * table below the first shares an edge with it at most. A page that reports no
+ * rectangle for one of them has said nothing about where it is drawn, and the
+ * two are then not one thing.
+ * @param a - the first rectangle, absent where the page reports none.
+ * @param b - the second rectangle, absent where the page reports none.
+ * @returns whether the two are drawn over each other.
+ */
+export function rectsMeet(a: DOMRectReadOnly | undefined, b: DOMRectReadOnly | undefined): boolean {
+  if (a === undefined || b === undefined) return false
+  return Math.min(a.right, b.right) > Math.max(a.left, b.left) && Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top)
+}
