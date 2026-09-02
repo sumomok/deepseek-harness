@@ -131,6 +131,26 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **状态**：在役。**落点更新（rc.26 同步，基座 0.1.2-alpha.2，提交 `41a6561189`）**：`packages/llm/llm/src/file-lowering.ts`/`tests/file-lowering.spec.ts` 原样移植（`CallId` 改名 `ToolCallId` 外无其他改动），新增 `FileSpillOptions`/`LoweredFileSpillRef`/`lowerSpilledFileBlockText`/`lowerFileBlocksFromStore` 的可选第四参数 `spill?`。新建 `packages/attachment/attachment-spill` 包（`AttachmentSpill` 服务、`ctx.attachmentSpill`、`attachment/materialized` 会话事件），依赖图与原补丁一致（`dsh-agent`/`dsh-attachment`/`dsh-llm`/`dsh-spill` 之上）。两个适配器（`llm-deepseek`、`llm-pi-ai`）在各自既有的文件降级调用点经 `fileSpillOptionsFrom` 接入 `ctx.attachmentSpill`——`llm-pi-ai` 的 `toPiContext`/`PiAiAdapter` 已独立于本特性从位置参数重构为对象参数 `PiImageRequestContext`，spill 接线相应改为该接口新增的可选 `spill?` 字段（按条件展开而非位置传参，因 `exactOptionalPropertyTypes` 拒绝显式 `spill: undefined`）。`attachment/materialized` 经 `gen-persistence-catalog` 的 AST 扫描登记进 `KNOWN_SESSION_EVENT_TYPES`（第一方包穷尽枚举机制，非 `ignorable` 通道）。`packages/bundle/base`（`cordis.patch.yml`+`package.json`）与 `python/sdk-runtime/package.json` 新增 `@deepseek-ai/dsh-attachment-spill` 依赖（`pnpm run hygiene` 对已加载插件的要求）；`tsconfig.base.json`（路径别名）、`tsconfig.host.json`（project reference，`gen-cordis-catalog` 静态分析器发现新 Context 合并服务的前提）、`scripts/gen-cordis-catalog.ts`（`SERVICE_PAGE`）、`scripts/gen-doc-graphs.ts`（`SERVICE_ROLES`）均已跟进。`dsh-attachment-spill/README.{md,zh.md}` 按当前包 README 文档标准模板重新组织（该标准晚于原补丁出现）。详见配套 Agent Note `2026-08-31-rc26-file-attachment-and-spill-family-a-port.md`。本条目取代 87dc70d4bf 的原始 ledger 记录。**constraints 门禁跟进（B 族收尾扫描发现，独立小提交）**：`package.json` 的 `files` 数组多列了一项 `lib/types/**/*.js`（该包不产出任何 `lib/types/*.js`，只有 `.d.ts`），`pnpm run constraints`（`scripts/check-workspace-constraints.ts`）对本包要求的精确值是 `["lib/index.js","lib/invariant.js","lib/types/**/*.d.ts"]`；删掉多余一项即通过，无行为改动。
 - **部分退役 + 门禁跟进（每日滚动同步，基座 0.1.2-alpha.4）**：`tsconfig.base.json` 里本补丁曾一并携带的 `@deepseek-ai/dsh-attachment-local/invariant` 路径别名退役（上游 `01a8882601` 删掉了该 invariant 文件本身）；`@deepseek-ai/dsh-attachment-spill` 自己的两条别名仍在役。另：`Session.events` getter 随上游 `876a3e0414` 更名为 `snapshotEvents()`，`tests/attachment-spill.spec.ts` 的 4 处读取点跟随改名。
 
+## product/server-console 线上的两处上游改动（不在 core-patches 分支上）
+
+这两条不属于 `core-patches` 分支，随 `product/server-console` 迁到 0.1.2-alpha.4 的合并一起产生，登记在此以免下次同步时无人认领。两条都是「本线组合把上游文件拖进了上游自己没走过的程序」的产物，不是对上游行为的改造。
+
+### fix(client): build the trajectory-cell test wrapper with createElement — 3bdd0135a5
+
+- **改了什么**：`packages/client/ui-trajectory/tests/cell.client.spec.tsx` 的测试包装函数，从 JSX 展开 `<LocalizedTrajectoryCell {...props} t={t} />` 改为 `createElement(LocalizedTrajectoryCell, { ...props, t })`。行为不变。
+- **为什么**：`dsh-experimental-vue2-echarts-poc` 钉 Vue 2.7，其类型入口 `vue/types/index.d.ts` 无条件 `import './jsx'`，而该文件 `declare global` 给 `JSX.IntrinsicAttributes` 加了 `slot?: string`。`paths` 把工作区导入解析到源码，于是这份全局增强落进同时编译 `packages/client` 的 Client 聚合程序；在 `exactOptionalPropertyTypes` 下，它拒绝每一处携带 `slot?: string | undefined` 的 React JSX 展开。rc.27 恰好把这个测试的包装函数改写成了那种展开。上游自己的组合里没有 Vue 包，看不到这个冲突。
+- **要达到的效果**：`createElement` 按 `React.Attributes` 而不是全局 `JSX` 座位校验 props，因此同一次调用在程序里有没有 Vue 包都类型正确，测试行为不变。
+- **退役条件**：Vue 2.7 的全局 JSX 增强不再进入 Client 聚合——即给 Vue 探针包一个自己的编译面。这条路径当前与 `docs/development.md#typescript-project-layout` 的成文约束相抵：Host/Client 两个聚合之外不设第三个，普通包只登记在其中一个聚合里。所以真正的退役前提是先就「Vue 探针是否值得第三个编译面」做一次架构决定；在那之前本条在役。上游若再次改写这个包装函数，本条即刻冲突，按本条说明重新应用或退役。
+- **状态**：在役。
+
+### fix(experimental): name the Agent Teams CSS module face in the Client aggregate — e72dec971a（该提交的一行）
+
+- **改了什么**：`tsconfig.client.json` 的 `include` 新增一行 `packages/experimental/client-ui-agent-team/src/css-modules.d.ts`。
+- **为什么**：这是**上游自己的缺口**，不是本线的适配需要。rc.27 的 `806642b064` 新增了 `client-ui-agent-team` 及其 `css-modules.d.ts`，但只在 `tsconfig.client.json` 里加了 `{"path": …}` 引用、没有把该声明文件写进聚合的 `include`，于是聚合从不加载它。上游的 `scripts/client-tsconfig.spec.ts` 只检查 `client` 与 `extensions` 两组，看不到 `experimental` 组，因此这个缺口在上游是静默的；本线把该 spec 的 `clientGroups` 扩到 `experimental`（为覆盖本线自己的实验包），扩完就照出了它。
+- **要达到的效果**：聚合加载该 CSS 模块声明，`experimental` 组的 client 包在同一条规则下受检，而不是为了让门禁过关把 `client-ui-agent-team` 从检查里豁免掉——那样会把上游的真缺口藏起来。
+- **退役条件**：上游自己把这一行写进 `tsconfig.client.json`（本条已列入待回报上游清单，复现方法：给 `scripts/client-tsconfig.spec.ts` 的 `clientGroups` 加上 `'experimental'` 后跑该 spec）。
+- **状态**：在役。
+
 ## rc.26 合并事故复核：`e6991dfba2` 手工解析删掉了两个父都有的内容（已修）
 
 `rc26-integration` 的大合并 `e6991dfba2`（父1 `44fd5de259` develop、父2 `1988f0dca5` core-patches-v2）对 **71 个文件**留下了 combined-diff hunk（结果与两个父都不同 = 纯手工决定）。逐个做三方核对（对比合并基 `b150a551b8` 与两父、并用 `git merge-file` 还原「机械三方合并本应产出的结果」）后的判定：
