@@ -154,7 +154,7 @@ describe('what content_act offers the model', () => {
     expect(ctx.tools.schemas().find(schema => schema.name === 'content_act')).toEqual({
       name: 'content_act',
       description: 'Act on the page the user is looking at in the content column (内容区 — the column between '
-        + 'the sidebar and this conversation; users also say 中间 or 右边), the way the user would: click a '
+        + 'the sidebar and this conversation), the way the user would: click a '
         + 'control, fill a box, choose from a list, press a key, or wait for text to appear. Every target is a '
         + 'ref from a content_read, and every label is that element\'s name copied from the read — the browser '
         + 'checks the name before it acts, so a page that changed since the read stops the call instead of '

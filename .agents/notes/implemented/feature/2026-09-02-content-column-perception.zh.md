@@ -40,6 +40,12 @@ browser 半边对它仍然握着的那次点击——按钮与「这次点击的
 
 整段都是从该会话自己的 projection 折出来的——`contentSurface` 的 entry 与本包的 `contentPages` 状态——因此模型可见的这一半可以从日志还原。`contentPages` 记录每个页面是谁打开的、它的 frame 又去了哪里，且不带 `wire`：没有浏览器读它。
 
+### 这一栏靠位置来称呼，不靠用户对方位的叫法
+
+每一句告诉模型这一栏存在的话都以 `The content column (内容区 — the column between the sidebar and this conversation)` 开头：产品自己的中文名，加上它在屏幕上的位置。
+
+它一度还带着两个口语别名——`users also say 中间 or 右边`——理由是用户指着「右边」时，模型可能会去找别的东西。基线探针给出了相反的答案：在没有任何提示提到这个说法的前提下问「右边这个表」，模型十次有十次找到了这一栏，靠的是这一行里的位置和上下文在它下面列出的条目清单。别名没有换来任何可测的收益，因此按设计稿自己的退化条款退役，而不是做成一个可配置项。
+
 ### ref 规则住在上下文里，不在工具描述里
 
 `Refs like e12 are your handles for content_read's scope and after; when you answer the user, name what the page shows, never a ref.` 位于内容区上下文的收尾几行，只在部署配置了读取器时给出。

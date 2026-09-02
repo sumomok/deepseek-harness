@@ -175,7 +175,7 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 
 #### What the model sees
 
-One tool, `content_read`, offered only where the deployment configured `pageAccess`. Four optional parameters: `mode` (`outline`, the default, or `map`), `scope` and `after` (refs from an earlier read), and `find` (a case-insensitive text filter). The description names the column in the user's own words — 内容区, 中间, 右边 — because that is how a user points at it, and states the three answers a read can give, so a first call already knows how to continue. This package contributes no system-prompt section for it.
+One tool, `content_read`, offered only where the deployment configured `pageAccess`. Four optional parameters: `mode` (`outline`, the default, or `map`), `scope` and `after` (refs from an earlier read), and `find` (a case-insensitive text filter). The description names the column by the product's own Chinese name and by where it is on the screen, which is what a model finds it by: asked about "the table on the right" with nothing in the prompt naming that phrase, a model reached this column in ten runs out of ten. Directional aliases bought nothing on top of the position and the context's own list of entries, so none are offered. It states the three answers a read can give, so a first call already knows how to continue. This package contributes no system-prompt section for it.
 
 #### Token effect
 

@@ -215,8 +215,8 @@ describe('hosted application route', () => {
     })
     expect(assembled.contexts).toContainEqual({
       name: 'content:column',
-      text: 'The content column (内容区 — the column between the sidebar and this conversation; users also say '
-        + '中间 or 右边) holds, newest first:\n'
+      text: 'The content column (内容区 — the column between the sidebar and this conversation) '
+        + 'holds, newest first:\n'
         + '- "Home" (page, opened by the user)  ← in front\n'
         + '    the app inside is now at /content-app/#/device, title "Devices"\n'
         + 'content_show puts a page in front.',

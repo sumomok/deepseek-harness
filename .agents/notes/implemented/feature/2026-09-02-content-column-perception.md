@@ -40,6 +40,12 @@ How much it spends is the deployment's, not this package's: `contextEntries` bou
 
 The whole block is folded from this session's own projections — `contentSurface`'s entries and this package's `contentPages` state — so the model-visible half is reconstructable from the log. `contentPages` records who opened each page and where its frame went, and carries no `wire`: no browser reads it.
 
+### The column is named by where it is, not by what users call the direction
+
+Every line that tells a model about the column opens with `The content column (内容区 — the column between the sidebar and this conversation)`: the product's own Chinese name, and the position on the screen.
+
+It carried two colloquial aliases for a while — `users also say 中间 or 右边` — on the theory that a user pointing at "the right side" would otherwise leave the model looking for something else. A baseline probe says otherwise: asked about "the table on the right" with no prompt naming that phrase, the model reached this column in ten runs out of ten, off the position in this line and the entries the context lists under it. The aliases bought nothing measurable and are retired rather than made configurable, which is what the design's own degrade clause asks for.
+
 ### The ref rule lives in the context, not in the tool description
 
 `Refs like e12 are your handles for content_read's scope and after; when you answer the user, name what the page shows, never a ref.` sits in the column context's closing lines, offered only where the deployment configured a reader.

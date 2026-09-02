@@ -111,8 +111,8 @@ describe('the content-column context', () => {
     session.append('content/shown', { page: 'home', by: 'user' })
     session.append('content/navigated', { page: 'home', url: '/content-app/', title: 'Console', by: 'user' })
     expect(await contextText(ctx, session)).toBe(
-      'The content column (内容区 — the column between the sidebar and this conversation; users also say '
-      + '中间 or 右边) holds, newest first:\n'
+      'The content column (内容区 — the column between the sidebar and this conversation) '
+      + 'holds, newest first:\n'
       + '- "Home" (page, opened by the user)  ← in front\n'
       + 'content_show puts a page in front.',
     )
@@ -124,8 +124,8 @@ describe('the content-column context', () => {
     session.append('content/shown', { page: 'reports', by: 'agent' })
     session.append('content-surface/selected', { kind: 'page', entryId: 'home', by: 'user' })
     expect(await contextText(ctx, session)).toBe(
-      'The content column (内容区 — the column between the sidebar and this conversation; users also say '
-      + '中间 or 右边) holds, newest first:\n'
+      'The content column (内容区 — the column between the sidebar and this conversation) '
+      + 'holds, newest first:\n'
       + '- "Weekly reports" (page, opened by you)\n'
       + '- "Home" (page, opened by you)  ← in front\n'
       + 'content_show puts a page in front.',
@@ -137,8 +137,8 @@ describe('the content-column context', () => {
     session.append('content/shown', { page: 'home', by: 'user' })
     session.append('content/navigated', { page: 'home', url: '/content-app/reports/', title: 'R', by: 'user' })
     expect(await contextText(ctx, session)).toBe(
-      'The content column (内容区 — the column between the sidebar and this conversation; users also say '
-      + '中间 or 右边) holds, newest first:\n'
+      'The content column (内容区 — the column between the sidebar and this conversation) '
+      + 'holds, newest first:\n'
       + '- "Note on home" (note)  ← in front\n'
       + '- "Home" (page, opened by the user)\n'
       + '    the app inside is now at /content-app/reports/, title "R"\n'
@@ -153,8 +153,8 @@ describe('the content-column context', () => {
     session.append('content/shown', { page: 'home', by: 'user' })
     session.append('content/navigated', { page: 'home', url: '/content-app/reports/', title: 'R', by: 'user' })
     expect(await contextText(ctx, session)).toBe(
-      'The content column (内容区 — the column between the sidebar and this conversation; users also say '
-      + '中间 or 右边) holds, newest first:\n'
+      'The content column (内容区 — the column between the sidebar and this conversation) '
+      + 'holds, newest first:\n'
       + '- "Home" (page)  ← in front\n'
       + 'content_show puts a page in front.',
     )

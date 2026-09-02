@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-02-content-column-perception.md
-2026-09-02-content-column-perception.md: 957c1ee2567c5cea8745e5557f237efbdb03ef28
-2026-09-02-content-column-perception.zh.md: 1d4160632d1d3a436392e5961934be0470c5079c
+2026-09-02-content-column-perception.md: da28039989f7f42f8787bb9c214b69fc8d439e49
+2026-09-02-content-column-perception.zh.md: 2da2a2e6e616113c57f7b32c86d6291623b3bf40

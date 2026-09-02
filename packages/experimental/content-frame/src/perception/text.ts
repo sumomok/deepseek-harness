@@ -7,18 +7,21 @@
  * this is the whole of what a model learns about the column without calling a
  * tool. The column is named in the user's own words rather than in slot or
  * projection vocabulary — a conversation about the screen is where this text is
- * read, and the user says 内容区, 中间 or 右边, never `contentSurface`.
+ * read, and the user says 内容区, never `contentSurface`.
  * @module @deepseek-ai/dsh-experimental-content-frame/perception/text
  */
 
 /**
- * How the column is named wherever the model is told about it. The Chinese
- * name is the one the product uses and the one the user speaks; the two
- * colloquial aliases are there because the column sits left of the
- * conversation while users point at it as "the right side".
+ * How the column is named wherever the model is told about it: the product's
+ * own Chinese name, and where on the screen it is.
+ *
+ * Where it is, is what a model finds it by. Asked about "the table on the
+ * right" with no prompt naming that phrase, a model reached this column in
+ * every one of ten runs — off the position in this line and the entries the
+ * context lists under it. Colloquial aliases for the direction bought nothing
+ * on top of that and are not offered.
  */
-const COLUMN = 'The content column (内容区 — the column between the sidebar and '
-  + 'this conversation; users also say 中间 or 右边)'
+const COLUMN = 'The content column (内容区 — the column between the sidebar and this conversation)'
 
 /** What the context says when the session has produced nothing at all. */
 export const EMPTY_COLUMN_CONTEXT = `${COLUMN} is empty. content_show puts a page there.`

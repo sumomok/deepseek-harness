@@ -14,8 +14,7 @@ import {
 } from '../src/perception/text.ts'
 
 /** How the column names itself wherever the model reads about it. */
-const COLUMN = 'The content column (内容区 — the column between the sidebar and this conversation; '
-  + 'users also say 中间 or 右边)'
+const COLUMN = 'The content column (内容区 — the column between the sidebar and this conversation)'
 
 /** What a deployment that configures neither field spends on the context. */
 const BOUNDS: ColumnContextBounds = { entries: 10, fieldChars: 120 }

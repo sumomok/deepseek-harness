@@ -24,7 +24,7 @@ import {
  */
 export const CONTENT_ACT_DESCRIPTION =
   'Act on the page the user is looking at in the content column (内容区 — the column between the sidebar and '
-  + 'this conversation; users also say 中间 or 右边), the way the user would: click a control, fill a box, choose '
+  + 'this conversation), the way the user would: click a control, fill a box, choose '
   + 'from a list, press a key, or wait for text to appear. Every target is a ref from a content_read, and every '
   + 'label is that element\'s name copied from the read — the browser checks the name before it acts, so a page '
   + 'that changed since the read stops the call instead of clicking something else. The steps run in order and '

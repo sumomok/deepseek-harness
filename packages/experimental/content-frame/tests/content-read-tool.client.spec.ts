@@ -123,7 +123,7 @@ describe('what content_read offers the model', () => {
     expect(ctx.tools.schemas().find(schema => schema.name === 'content_read')).toEqual({
       name: 'content_read',
       description: 'Read the page the user is looking at in the content column (内容区 — the column between the '
-        + 'sidebar and this conversation; users also say 中间 or 右边) as a numbered structure: containers, '
+        + 'sidebar and this conversation) as a numbered structure: containers, '
         + 'controls, headings and text, each control carrying a ref like e12 that later calls can point at. The '
         + 'default mode "outline" lists everything in a scope; when the whole page is too large it answers with '
         + 'the page\'s map — its containers with counts — and names the scope to read next. Tables report their '

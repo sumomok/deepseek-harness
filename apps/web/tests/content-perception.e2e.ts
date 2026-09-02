@@ -278,8 +278,8 @@ describe('web e2e: what the agent knows about the content column', () => {
     // and the address the frame routed itself to — every line of it folded
     // from this session's own log.
     await expect.poll(() => columnContext(scaffold, sessionId), { timeout: 20_000 }).toBe(
-      'The content column (内容区 — the column between the sidebar and this conversation; users also say '
-      + '中间 or 右边) holds, newest first:\n'
+      'The content column (内容区 — the column between the sidebar and this conversation) '
+      + 'holds, newest first:\n'
       + '- "Weekly reports" (page, opened by the user)\n'
       + '- "Home" (page, opened by the user)  ← in front\n'
       + `    the app inside is now at ${ROUTED_URL}, title "${ROUTED_TITLE}"\n`
