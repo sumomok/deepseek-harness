@@ -118,7 +118,7 @@
     "@haoran/dsh-plugin-updates": "file:./vendor/haoran-dsh-plugin-updates-0.2.0.tgz",
     "@haoran/dsh-screenshot": "file:./vendor/haoran-dsh-screenshot-0.5.0.tgz",
     "@haoran/dsh-vision-switch": "file:./vendor/haoran-dsh-vision-switch-0.2.0.tgz",
-    "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.3.3.tgz",
+    "@sumomok/dsh-balance": "file:./vendor/sumomok-dsh-balance-0.3.4.tgz",
     "@sumomok/dsh-quote-message": "file:./vendor/sumomok-dsh-quote-message-0.3.0.tgz",
     "dsh-at-file": "file:./vendor/dsh-at-file-0.7.0-da602d1.tgz",
     "dsh-better-sidebar": "file:./vendor/dsh-better-sidebar-0.15.2-patched1.tgz"
