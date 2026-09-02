@@ -62,7 +62,7 @@ This section explains the design decisions behind the package; the observable be
 |---|---|
 | [`src/index.ts`](src/index.ts) | Plugin entry: `Config`, the `AttachmentSpill` service, the idempotency cache, `fileSpillOptionsFrom` |
 | [`src/types.ts`](src/types.ts) | The `attachment/materialized` session event vocabulary |
-| [`src/invariant.ts`](src/invariant.ts) | Invariant companion (no runtime invariant; the cache and its log record are enforced at the `resolveSpill` call site) |
+| — | No runtime invariant companion is published; the idempotency cache and its `attachment/materialized` log record are enforced at the `resolveSpill` call site, and this package owns no other event sequence or mutable relation to observe. |
 
 ### Why the current initiator, not a threaded session id
 
