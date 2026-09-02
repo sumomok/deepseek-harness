@@ -58,8 +58,7 @@ const ROWS = [
 /** Where the run's evidence lands. */
 const ARTIFACTS = join(REPO_ROOT, '.artifacts')
 
-/** The composer's own English placeholder — the signal that a session is open. */
-/** The composer's own stable attribute; its placeholder copy is not a locator. */
+/** The composer's own stable attribute — the signal that a session is open. */
 const COMPOSER = '[data-composer-input]'
 
 /** The four seeded calls, by call id and caption. */

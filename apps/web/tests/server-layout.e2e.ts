@@ -60,8 +60,7 @@ const TOLERANCE = 0.02
 
 /** English copy of this shell's dictionary; the page advertises en-US. */
 const PLACEHOLDER_TITLE = 'Content column is empty'
-/** The composer's own English placeholder — the chat column's landmark. */
-/** The composer's own stable attribute; its placeholder copy is not a locator. */
+/** The composer's own stable attribute — the chat column's landmark. */
 const COMPOSER = '[data-composer-input]'
 
 /**
@@ -96,7 +95,6 @@ async function expectInsideColumn(target: Locator, name: string, page: Page): Pr
   expect(inner.right).toBeLessThanOrEqual(outer.right + 1)
 }
 
-/** Open the workspace tree's first session row and wait for its composer. */
 /**
  * The Host agent for a session the browser has just opened. Opening is a round
  * trip: the composer `openFirstSession` waits on renders from the client's own
@@ -119,6 +117,7 @@ async function liveAgent(scaffold: WebScaffold, sessionId: string): Promise<Agen
   }
 }
 
+/** Open the workspace tree's first session row and wait for its composer. */
 async function openFirstSession(page: Page): Promise<void> {
   // The workspace group row precedes its sessions; expanding it lists them.
   await page.locator('[role="treeitem"]').first().click()

@@ -358,7 +358,7 @@ describe('web e2e: the product-console sidebar', () => {
     expect(identityChildren).toBe(2)
   }, 60_000)
 
-  it('replaces the hero fish mark and headline with the sidebar\'s own brand copy, hides the preview badge and the dead workspace row, and drops the agent-preset dropdown entirely', async () => {
+  it('replaces the hero fish mark and headline with the sidebar\'s own brand copy, hides the preview badge and the live workspace row, and drops the agent-preset dropdown entirely', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-hero-facade'))
     const heroRoot = page.locator('[data-phase="hero"]')
     await heroRoot.waitFor({ timeout: 15_000 })

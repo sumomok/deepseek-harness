@@ -68,8 +68,7 @@ const ARTIFACTS = join(REPO_ROOT, '.artifacts')
 const MIXED_SESSION = 'content-surface-web-e2e-mixed'
 const PAGE_SESSION = 'content-surface-web-e2e-page'
 
-/** The composer's own English placeholder — the signal that a session is open. */
-/** The composer's own stable attribute; its placeholder copy is not a locator. */
+/** The composer's own stable attribute — the signal that a session is open. */
 const COMPOSER = '[data-composer-input]'
 
 /** Attribute the spec stamps on a live iframe element. */
