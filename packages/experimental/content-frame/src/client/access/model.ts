@@ -16,12 +16,15 @@ export type SnapshotMode = 'outline' | 'map'
  * The container kinds a row can name. Several ARIA roles share one word,
  * because the reader needs the kind of region rather than the exact role:
  * `form` also covers a search form, `dialog` an alert dialog, `list` a feed,
- * `menu` a menu bar, and `section` a region, an article, or a complementary
- * area.
+ * `menu` a menu bar, `menuitem` a checkable or radio menu item, and `section` a
+ * region, an article, or a complementary area. `clickable` is the one kind the
+ * page does not declare: a run the page makes clickable that holds items of its
+ * own is both a thing to click and a region to read.
  */
 export type ContainerType =
   | 'main' | 'nav' | 'form' | 'dialog' | 'section' | 'toolbar' | 'list' | 'table' | 'frame'
   | 'tablist' | 'tabpanel' | 'menu' | 'tree' | 'radiogroup' | 'listbox'
+  | 'clickable' | 'treeitem' | 'menuitem'
 
 /** What one read asks of the page. */
 export interface SnapshotOptions {
@@ -99,20 +102,21 @@ export interface ContainerItem extends ContainerFace {
   readonly depth: number
   /** True for a dialog the page has not opened: it appears on the map and nowhere else. */
   readonly closed: boolean
+  /**
+   * The tree node or menu item this region was opened over, and undefined for
+   * every other region. A room stands in place of the one row the node would
+   * have printed, so its row prints what that row would have said and the
+   * reader is told the same either way.
+   */
+  readonly node: ControlFace | undefined
 }
 
-/** One control, heading, or other element the model can name on its own. */
-export interface ElementItem {
-  /** Discriminant. */
-  readonly kind: 'element'
-  /** The element this row names. */
-  readonly el: Element
-  /** The element's ref. */
-  readonly ref: string
-  /** The element's ARIA role, or `clickable` for a role-less click target. */
-  readonly role: string
-  /** The element's accessible name. */
-  readonly name: string
+/**
+ * What a control currently holds and how the page has set it, printed after the
+ * control's name wherever a row names it: on its own row, and inside a listed
+ * table cell.
+ */
+export interface ControlState {
   /** The field's current value, or undefined for an element that holds none. */
   readonly value: string | undefined
   /** True for a password box, whose value is reported as withheld and never read. */
@@ -121,6 +125,30 @@ export interface ElementItem {
   readonly checked: boolean | undefined
   /** True when the page has disabled the element. */
   readonly disabled: boolean
+}
+
+/**
+ * What a row prints of an element beyond its ref and its name: what the element
+ * is, what the page has set on it, and whether the page has folded away what it
+ * holds. A row of its own and the room a node opens print this the same way.
+ */
+export interface ControlFace extends ControlState {
+  /** The element's ARIA role, or `clickable` for a role-less click target. */
+  readonly role: string
+  /** True for a tree node or menu item the page has closed over what it holds. */
+  readonly collapsed: boolean
+}
+
+/** One control, heading, or other element the model can name on its own. */
+export interface ElementItem extends ControlFace {
+  /** Discriminant. */
+  readonly kind: 'element'
+  /** The element this row names. */
+  readonly el: Element
+  /** The element's ref. */
+  readonly ref: string
+  /** The element's accessible name. */
+  readonly name: string
   /** The container this row sits in. */
   readonly container: ContainerItem | undefined
   /** How many containers enclose this row. */
@@ -140,7 +168,7 @@ export interface TextItem {
 }
 
 /** One control a table cell holds, numbered only when a read prints its row. */
-export interface CellControl {
+export interface CellControl extends ControlState {
   /** The control element. */
   readonly el: Element
   /** Its role. */
@@ -153,7 +181,14 @@ export interface CellControl {
 export interface RowCell {
   /** The controls the cell holds, in document order. */
   readonly controls: readonly CellControl[]
-  /** The cell as the one-row sample renders it: its text, or its controls' names inside `[ ]`. */
+  /** What the cell shows apart from its controls, which name themselves. */
+  readonly text: string
+  /**
+   * The cell as the one-row sample renders it: its text, and its controls
+   * inside `[ ]`, the whole of it already cut to the room the sample line gives
+   * a cell. The text gives way first, and a list of controls that fills the
+   * room on its own is cut inside its brackets.
+   */
   readonly sample: string
 }
 
@@ -162,6 +197,10 @@ export interface RowCell {
  * and the controls in it are numbered when a read prints them, not when the
  * walk finds them: a listing that reports a two-hundred-row table by its shape
  * alone must not spend two hundred refs on rows nobody has asked to see.
+ *
+ * `width`, `cells`, and `text` are read from the page when a listing asks for
+ * them, so a whole page reads only the row it samples while a read scoped to
+ * the table or filtered by `find` reads what it prints.
  */
 export interface TableRowItem {
   /** Discriminant. */
@@ -170,6 +209,8 @@ export interface TableRowItem {
   readonly el: Element
   /** The row's 1-based position among the table's data rows. */
   readonly index: number
+  /** How many cells the row shows, counted without reading what is in them. */
+  readonly width: number
   /** Each cell, in column order. */
   readonly cells: readonly RowCell[]
   /** The row's plain text, for `find`. */
@@ -192,7 +233,11 @@ export interface TableItem extends ContainerFace {
   readonly header: readonly RowCell[]
   /** The table's data rows. */
   readonly rows: readonly TableRowItem[]
-  /** How many columns the table has: what its header declares, or the widest data row. */
+  /**
+   * How many columns the table has: the wider of its header and its first data
+   * row, which is the row the sample prints. Counting every row would read the
+   * geometry of every cell of the table to answer how wide the table is.
+   */
   readonly columns: number
   /** The adjacent pagination control's text. */
   readonly pagination: string | undefined

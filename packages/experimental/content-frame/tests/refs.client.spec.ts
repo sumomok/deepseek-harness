@@ -70,6 +70,29 @@ describe('RefTable', () => {
     expect(refs.resolve('e1')).toBeUndefined()
   })
 
+  it('winds the numbering back to a mark, so a row measured and dropped keeps no number', () => {
+    const refs = new RefTable()
+    const kept = element()
+    const measured = element()
+    expect(refs.ref(kept)).toBe('e1')
+    const mark = refs.mark()
+    expect(refs.ref(measured)).toBe('e2')
+    refs.rollback(mark)
+    // The model never saw e2, so the number is free again and the element that
+    // held it is unknown until something prints it.
+    expect(refs.resolve('e2')).toBeUndefined()
+    expect(refs.ref(element())).toBe('e2')
+    expect(refs.ref(kept)).toBe('e1')
+    expect(refs.ref(measured)).toBe('e3')
+  })
+
+  it('sizes the widest ref a listing could yet mint', () => {
+    const refs = new RefTable()
+    expect(refs.widthAfter(0)).toBe(2)
+    expect(refs.widthAfter(8)).toBe(2)
+    expect(refs.widthAfter(9)).toBe(3)
+  })
+
   it('forgets every ref on reset, and never hands an old number to a new element', () => {
     const refs = new RefTable()
     const before = element()

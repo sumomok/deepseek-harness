@@ -4,11 +4,16 @@
  * lives, so a ref the model read in one snapshot still names the same element
  * in the next one.
  *
- * Numbers are never reused, `reset()` included: a ref the model still holds
- * from a page that has since reloaded resolves to nothing rather than to some
- * unrelated element that inherited its number.
+ * A number the model has seen is never reused, `reset()` included: a ref it
+ * still holds from a page that has since reloaded resolves to nothing rather
+ * than to some unrelated element that inherited its number. A number minted
+ * while measuring a row that then did not fit the budget is wound back by
+ * `rollback()` before the read answers, so it was never seen and is free.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/refs
  */
+
+/** What every ref starts with, before the number. */
+const REF_PREFIX = 'e'
 
 /** The element numbering shared by every snapshot of one page. */
 export class RefTable {
@@ -29,11 +34,52 @@ export class RefTable {
   ref(el: Element): string {
     const known = this.#byElement.get(el)
     if (known !== undefined) return known
-    const minted = `e${this.#next}`
+    const minted = `${REF_PREFIX}${this.#next}`
     this.#next += 1
     this.#byElement.set(el, minted)
     this.#byRef.set(minted, new WeakRef(el))
     return minted
+  }
+
+  /**
+   * The point a listing can wind the numbering back to, taken before it renders
+   * rows it may not keep.
+   * @returns the mark to pass to {@link rollback}.
+   */
+  mark(): number {
+    return this.#next
+  }
+
+  /**
+   * Forget every ref minted since a mark, so a listing numbers what it prints
+   * and nothing it merely measured. An element numbered before the mark keeps
+   * its ref; one numbered after it takes the same number again the next time a
+   * listing prints it.
+   * @param mark - the mark taken before the rows in question were rendered.
+   */
+  rollback(mark: number): void {
+    for (const [ref, held] of this.#byRef) {
+      if (Number(ref.slice(REF_PREFIX.length)) < mark) continue
+      this.#byRef.delete(ref)
+      const el = held.deref()
+      /* v8 ignore next -- deref answers undefined only for an element the collector has taken, which a test cannot force. */
+      if (el !== undefined) this.#byElement.delete(el)
+    }
+    this.#next = mark
+  }
+
+  /**
+   * How wide a ref can be once a listing has numbered so many more elements,
+   * for a caller sizing a line before the rows it names have been rendered.
+   * The answer counts one number per element the caller names, so a caller
+   * passing a row count is asking about a listing where each row numbers one
+   * element; a listing whose rows number more than that can still reach a wider
+   * ref than this.
+   * @param pending - how many elements the listing may yet number.
+   * @returns the widest ref in characters.
+   */
+  widthAfter(pending: number): number {
+    return `${REF_PREFIX}${this.#next + pending}`.length
   }
 
   /**

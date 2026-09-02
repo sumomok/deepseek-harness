@@ -12,8 +12,8 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/snapshot
  */
 import {
-  clip, containerName, isMarked, isSeparator, isSkipped, markedSelector, queryInOrder, readableDocuments,
-  visibleTextParts,
+  DIALOG_SELECTOR, clip, containerName, isMarked, isSeparator, isSkipped, markedSelector, queryInOrder,
+  readableDocuments, visibleTextParts,
 } from './dom.ts'
 import { collect } from './collect.ts'
 import { render } from './render.ts'
@@ -37,8 +37,8 @@ const SIGN_IN_PARTNER = 'input[type="text"], input[type="email"], input:not([typ
  * a search box in another are not a sign-in form.
  */
 const SIGN_IN_SCOPE = [
-  'form', '[role="form"]', 'dialog', '[role="dialog"]', 'main', '[role="main"]',
-  'section', '[role="region"]', '[role="tabpanel"]',
+  'form', '[role~="form"]', 'dialog', '[role~="dialog"]', 'main', '[role~="main"]',
+  'section', '[role~="region"]', '[role~="tabpanel"]',
 ].join(', ')
 
 /**
@@ -57,7 +57,9 @@ function resolveOrThrow(option: string, ref: string, refs: RefTable): Element {
 
 /**
  * The dialog the page currently has open, preferring one that declares itself
- * modal over one that merely sits on top.
+ * modal over one that merely sits on top. Failing a modal, the first open
+ * dialog in document order is the one reported. An alert dialog is one of
+ * these: what it asks for stands in front of the page like any other.
  * @param documents - every readable document.
  * @param isVisible - injected visibility.
  * @returns the dialog's name, or undefined when none is open.
@@ -65,7 +67,7 @@ function resolveOrThrow(option: string, ref: string, refs: RefTable): Element {
 function openDialogName(documents: readonly Document[], isVisible: (el: Element) => boolean): string | undefined {
   let topmost: string | undefined
   for (const doc of documents) {
-    for (const el of doc.querySelectorAll('dialog, [role="dialog"]')) {
+    for (const el of queryInOrder(doc, DIALOG_SELECTOR)) {
       if (isSkipped(el, isVisible)) continue
       const name = containerName(el, isVisible)
       if (el.getAttribute('aria-modal') === 'true') return name

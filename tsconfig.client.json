@@ -32,6 +32,9 @@
     "packages/experimental/vue-ui-poc/src/css-modules.d.ts",
     "packages/experimental/vue2-echarts-poc/src/css-modules.d.ts",
     "packages/experimental/vue2-echarts-tool-poc/src/css-modules.d.ts",
+    // The one dependency whose `exports` map declares no `types` condition,
+    // declared where the package that depends on it keeps its own face for it.
+    "packages/experimental/content-frame/src/client/access/dom-accessibility-api.d.ts",
     "packages/client/tsdown.client.ts",
     "scripts/client-build-environment.ts",
     "scripts/*.client.spec.ts",
