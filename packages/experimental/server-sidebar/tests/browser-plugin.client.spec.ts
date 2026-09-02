@@ -44,8 +44,12 @@ interface BenchWorkspaces {
 /** Mocked `sessions` service face this bench provides. */
 interface BenchSessions {
   open: ReturnType<typeof vi.fn>
-  create: ReturnType<typeof vi.fn>
   list: { getSnapshot: () => { current: string | undefined; phase: 'ready'; ids: readonly string[]; byId: object } }
+}
+
+/** Mocked `uiWorkspace` service face this bench provides. */
+interface BenchUiWorkspace {
+  connectWorkspace: ReturnType<typeof vi.fn>
 }
 
 /** Mocked `remote` service face this bench provides. */
@@ -58,6 +62,7 @@ interface BenchResult {
   ctx: Context
   fiber: ReturnType<Context['plugin']>
   workspaces: BenchWorkspaces
+  uiWorkspace: BenchUiWorkspace
   sessions: BenchSessions
   remote: BenchRemote
 }
@@ -133,18 +138,19 @@ async function bench(
   }
   const sessions = {
     open: vi.fn(),
-    create: vi.fn(() => Promise.resolve('new-session')),
     list: { getSnapshot: () => ({ current: options.currentSessionId, phase: 'ready' as const, ids: [], byId: {} }) },
   }
+  const uiWorkspace = { connectWorkspace: vi.fn(() => Promise.resolve('new-session')) }
   const remote = { commands: { execute: vi.fn(() => Promise.resolve({ ok: true, value: undefined })) } }
   ctx.provide('workspaces', workspaces as never)
+  ctx.provide('uiWorkspace', uiWorkspace as never)
   ctx.provide('sessions', sessions as never)
   ctx.provide('remote', remote as never)
   ctx.provide('remote.commands', remote.commands as never)
   ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber, workspaces, sessions, remote }
+  return { ctx, fiber, workspaces, uiWorkspace, sessions, remote }
 }
 
 /** Fresh mocked store actions, as the sidebar's inject factory receives them. */
@@ -173,7 +179,7 @@ afterEach(() => {
 
 describe('server-sidebar browser half: sidebar registration', () => {
   it('declares only the services it uses (no layout — decision ① drops the collapse toggle)', () => {
-    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.commands'])
+    expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'uiWorkspace', 'locale', 'remote', 'remote.commands'])
   })
 
   it('reads content-frame\'s pages and this package\'s own server-menu document before registering', async () => {
@@ -229,11 +235,11 @@ describe('server-sidebar browser half: sidebar registration', () => {
   })
 
   it('onOpenWorkbenchOnLoad creates a fresh workbench session and persists its id when there is none recorded', async () => {
-    const { ctx, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, uiWorkspace, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
     await injected.onOpenWorkbenchOnLoad(undefined, false)
-    expect(sessions.create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
+    expect(uiWorkspace.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
   })
@@ -255,21 +261,21 @@ describe('server-sidebar browser half: sidebar registration', () => {
   })
 
   it('onOpenWorkbench (click) creates a fresh session when the recorded one is live but no longer blank', async () => {
-    const { ctx, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, uiWorkspace, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
     await injected.onOpenWorkbench('home-1', true, false)
-    expect(sessions.create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
+    expect(uiWorkspace.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
   })
 
   it('onOpenWorkbench (click) creates a fresh workbench session and persists its id when there is none recorded', async () => {
-    const { ctx, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, uiWorkspace, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
     await injected.onOpenWorkbench(undefined, false, false)
-    expect(sessions.create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
+    expect(uiWorkspace.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
   })
@@ -321,11 +327,11 @@ describe('server-sidebar browser half: sidebar registration', () => {
   })
 
   it('degrades a stale workflow: creates a fresh session, replays its snapshot, and repoints homeSessionId', async () => {
-    const { ctx, sessions, remote } = await bench({ recentWorkspaceId: 'workspace-1' })
+    const { ctx, uiWorkspace, sessions, remote } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [{ ...WORKFLOW, homeSessionId: 'new-session' }] } } })
     await injected.onOpenWorkflow(WORKFLOW, false)
-    expect(sessions.create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
+    expect(uiWorkspace.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(remote.commands.execute).toHaveBeenCalledWith('new-session', '/show-content-page home', [])
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [{ ...WORKFLOW, homeSessionId: 'new-session' }] })
@@ -444,6 +450,7 @@ describe('server-sidebar browser half: dictionaries', () => {
     await ctx.plugin(SlotRegistry).await()
     declareSlots(ctx)
     ctx.provide('workspaces', { list: { getSnapshot: () => ({ phase: 'ready', archivedSessionIds: [], items: [] }) } } as never)
+    ctx.provide('uiWorkspace', { connectWorkspace: vi.fn() } as never)
     ctx.provide('sessions', { open: vi.fn(), list: { getSnapshot: () => ({ current: undefined }) } } as never)
     ctx.provide('remote', { commands: { execute: vi.fn() }, $on: () => () => {} } as never)
     ctx.provide('remote.commands', { execute: vi.fn() } as never)

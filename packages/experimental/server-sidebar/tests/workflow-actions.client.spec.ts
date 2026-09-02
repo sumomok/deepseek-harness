@@ -125,15 +125,17 @@ describe('reordered', () => {
  */
 function fakeContext(overrides: {
   recentWorkspaceId?: string
-  createSession?: () => Promise<string>
+  connectWorkspace?: () => Promise<string>
   execute?: () => Promise<unknown>
 }): { ctx: ClientContext; open: ReturnType<typeof vi.fn> } {
   const open = vi.fn()
   const ctx = {
     sessions: {
       list: { getSnapshot: () => ({ current: undefined, phase: 'ready', ids: [], byId: {} }) },
-      create: overrides.createSession ?? (() => Promise.resolve('new-session')),
       open,
+    },
+    uiWorkspace: {
+      connectWorkspace: overrides.connectWorkspace ?? (() => Promise.resolve('new-session')),
     },
     workspaces: {
       list: {
