@@ -44,6 +44,10 @@ describe('session-query semantic extraction', () => {
         content: [{ type: 'text', text: 'nested' }],
         isError: false,
       },
+      {
+        type: 'file',
+        attachment: { attachmentId: 'att-1' as never, name: 'notes.md', bytes: 12 },
+      },
       { type: 'future-content', payload: 'hidden' } as never,
     ]
     const events: SessionEvent[] = [
@@ -96,7 +100,7 @@ describe('session-query semantic extraction', () => {
     ]
 
     for (const event of events.slice(0, 3)) {
-      expect(extractSessionEventText(event)).toBe('visible\nread\n{"path":"a"}\nnested')
+      expect(extractSessionEventText(event)).toBe('visible\nread\n{"path":"a"}\nnested\nnotes.md')
     }
     expect(extractSessionEventText({
       type: 'assistant/message',
