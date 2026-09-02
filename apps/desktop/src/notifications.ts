@@ -411,6 +411,9 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
   switch (frame['type']) {
     case 'ready': {
       generation.clientId = text(frame, 'clientId')
+      // The one success line the field log carries for this stream: its
+      // absence after the server's URL line is the diagnostic.
+      host.log(`[desktop] attention stream ready (client ${generation.clientId ?? '?'})\n`)
       return
     }
     case 'emit': {
