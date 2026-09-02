@@ -51,6 +51,28 @@ export type {
   AgentPresetComposition, AgentPresetCompositionRow, CompositionRowEnablement,
 } from './composition-inventory.ts'
 
+/**
+ * Preset ids earlier releases wrote into settings and session logs under a
+ * name the shipped roster no longer carries. Upstream renamed the `code`
+ * preset to `ptc` (3ca9c7d489) and kept only the session-persistent
+ * vocabulary, so a settings default, a resumed session, or a switch naming
+ * `code` means `ptc`. The alias applies only when no root supplies the legacy
+ * id itself: a user-authored preset of that name keeps winning.
+ */
+const LEGACY_PRESET_IDS: Readonly<Record<string, string>> = { code: 'ptc' }
+
+/**
+ * The id the roster answers to for `wanted`: `wanted` itself when a root
+ * supplies it, else its legacy alias when one is declared, else `wanted`.
+ * @param wanted - the requested preset id.
+ * @param presets - the current roster.
+ * @returns the id to look up in the roster.
+ */
+function rosterIdFor(wanted: string, presets: readonly AgentPreset[]): string {
+  if (presets.some(preset => preset.id === wanted)) return wanted
+  return LEGACY_PRESET_IDS[wanted] ?? wanted
+}
+
 /** Settings namespace carrying the user's chosen default preset. */
 export const SETTINGS_NAMESPACE = 'agent-presets'
 
@@ -259,9 +281,10 @@ export class AgentPresets extends TypertRemoteService {
    */
   @Remote('list')
   async remoteExportList(): Promise<AgentPresetRoster> {
-    const defaultId = this.defaultId
+    const presets = await this.list()
+    const defaultId = rosterIdFor(this.defaultId, presets)
     return {
-      presets: (await this.list()).map(preset => ({
+      presets: presets.map(preset => ({
         id: preset.id,
         trust: preset.trust,
         isDefault: preset.id === defaultId,
@@ -291,7 +314,8 @@ export class AgentPresets extends TypertRemoteService {
    * @returns one composition per roster preset, in roster order.
    */
   async compositionInventory(): Promise<AgentPresetComposition[]> {
-    const defaultId = this.defaultId
+    const presets = await this.list()
+    const defaultId = rosterIdFor(this.defaultId, presets)
     // The Loader's own expression scope: what a mount decision would consult.
     // An identifier this scope cannot resolve throws under `with`, and the
     // row stays `'conditional'`; only a gate whose identifiers resolve BOTH
@@ -302,7 +326,7 @@ export class AgentPresets extends TypertRemoteService {
     // runtime's mounts describe this roster's presets.
     const rootFiber = this.ctx.root.fiber
     const found: AgentPresetComposition[] = []
-    for (const preset of await this.list()) {
+    for (const preset of presets) {
       const identity = {
         id: preset.id,
         trust: preset.trust,
@@ -343,7 +367,8 @@ export class AgentPresets extends TypertRemoteService {
   async resolve(id?: string): Promise<AgentPreset> {
     const wanted = id ?? this.defaultId
     const presets = await this.list()
-    const found = presets.find(preset => preset.id === wanted)
+    const rosterId = rosterIdFor(wanted, presets)
+    const found = presets.find(preset => preset.id === rosterId)
     if (found === undefined) {
       const available = presets.map(preset => preset.id)
       throw new RemoteError(
