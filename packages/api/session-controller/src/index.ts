@@ -115,7 +115,13 @@ export class SessionController extends TypertRemoteService {
     'workspaceRegistry',
   ]
 
-  static Config: z<Config> = z.object({
+  // Asserted, not annotated: `z.array()` infers a mutable `string[]` while
+  // `secretContainerExtraPatterns` is `readonly string[]`, which
+  // `exactOptionalPropertyTypes` rejects (TS2375). The same reason the
+  // upstream schemas that carry an array field assert (`dsh-agent-loop`,
+  // `dsh-agent-presets`). An annotation here would be satisfied by the
+  // assertion rather than checking anything.
+  static Config = z.object({
     coldBlankProbeMaxEvents: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_EVENTS),
     coldBlankProbeMaxBytes: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_BYTES),
     nativeOpen: z.boolean(),
