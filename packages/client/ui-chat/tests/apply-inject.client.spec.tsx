@@ -28,6 +28,11 @@ const ATTACHMENT = {
   width: 1,
   height: 1,
 } as const
+const FILE_ATTACHMENT = {
+  attachmentId: AttachmentId('file-1'),
+  name: 'notes.md',
+  bytes: 9,
+} as const
 
 type ChatInstance = ReturnType<ReturnType<typeof createChatStore>['create']>
 type ChatActions = ChatInstance['actions']
@@ -39,6 +44,10 @@ function sessionFakeFor() {
     readAttachment: vi.fn<ISession['readAttachment']>(() => Promise.resolve({
       ok: true,
       value: { attachment: ATTACHMENT, data: Uint8Array.of(1) },
+    })),
+    readFile: vi.fn<ISession['readFile']>(() => Promise.resolve({
+      ok: true,
+      value: { attachment: FILE_ATTACHMENT, text: 'file body' },
     })),
     prompt: vi.fn<ISession['prompt']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
     cancel: vi.fn<ISession['cancel']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
@@ -311,6 +320,77 @@ describe('Chat inject API', () => {
       expect(b.composerApi(ROOT).hooks.notices.getSnapshot()).toMatchObject({ level: 'error' })
     })
     expect(b.composerApi(ROOT).hooks.notices.getSnapshot()?.text).toBe('该文件已不存在，可能已被移动或删除。')
+    await b.runtime.dispose()
+  })
+
+  it('marks the session workspace root as a directory referent and every other path as a file', async () => {
+    const b = await bench()
+    const opened: unknown[] = []
+    b.runtime.ctx.on('referent/open', (ref: unknown) => { opened.push(ref); return Promise.resolve() })
+    const { injected } = b.chatViewApi(ROOT)
+    // ProducedFiles opens the workspace root as '.'; no richer file/dir signal
+    // reaches this closure, so the two cases are the whole vocabulary.
+    await injected.openFile('.')
+    await injected.openFile('src/a.ts')
+    expect(opened).toEqual([
+      expect.objectContaining({ kind: 'dir', target: '/proj/.', raw: '.' }),
+      expect.objectContaining({ kind: 'file', target: '/proj/src/a.ts', raw: 'src/a.ts' }),
+    ])
+    await b.runtime.dispose()
+  })
+
+  it('reads a durable text attachment through the Session and names the failure it got', async () => {
+    const b = await bench()
+    const { injected } = b.chatViewApi(ROOT)
+    await expect(injected.loadFile(FILE_ATTACHMENT)).resolves.toBe('file body')
+    expect(b.session.readFile).toHaveBeenCalledWith(FILE_ATTACHMENT.attachmentId)
+
+    b.session.readFile.mockResolvedValueOnce({
+      ok: false,
+      error: new RemoteError('session/attachment-not-found', 'no such attachment', {}),
+    })
+    await expect(injected.loadFile(FILE_ATTACHMENT))
+      .rejects.toThrow('no such attachment (session/attachment-not-found)')
+    await b.runtime.dispose()
+  })
+
+  it('stamps this Session onto a referent a chat node opens directly', async () => {
+    const b = await bench()
+    let captured: unknown
+    b.runtime.ctx.on('referent/open', (ref: unknown) => { captured = ref; return Promise.resolve() })
+    const { injected } = b.chatViewApi(ROOT)
+    await injected.openReferent(
+      { kind: 'file', target: '/proj/notes.md', raw: 'notes.md', source: 'chat-file-card', provenance: 'structured' },
+      () => Promise.resolve(),
+    )
+    expect(captured).toEqual({
+      kind: 'file', target: '/proj/notes.md', raw: 'notes.md', sessionId: ROOT,
+      source: 'chat-file-card', provenance: 'structured',
+    })
+    await b.runtime.dispose()
+  })
+
+  it('drops the not-found notice when the session died while the open was in flight', async () => {
+    const b = await bench()
+    const span = { start: 0, end: 8, kind: 'file' as const, target: '/proj/deleted.md', raw: 'deleted.md' }
+    b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
+    let settle: (() => void) | undefined
+    b.openWorkspacePath.mockImplementationOnce(async () => {
+      await new Promise<void>((resolve) => { settle = resolve })
+      return { ok: false, error: new RemoteError('session/path-not-found', 'gone', { path: '/proj/deleted.md' }) }
+    })
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { injected } = b.chatViewApi(ROOT)
+    injected.referents!.open(span)
+    await vi.waitFor(() => { expect(settle).toBeDefined() })
+    // The session closes while the open is still in flight: its composer, and
+    // the scope that owns it, are gone by the time the failure comes back.
+    await b.runtime.sessions.remove(ROOT)
+    settle!()
+    await vi.waitFor(() => { expect(b.openWorkspacePath).toHaveBeenCalled() })
+    await Promise.resolve()
+    expect(errorSpy).not.toHaveBeenCalled()
+    errorSpy.mockRestore()
     await b.runtime.dispose()
   })
 
