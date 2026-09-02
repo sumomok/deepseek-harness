@@ -8,13 +8,17 @@
  * not own the selection instead of unmounting them — a kind renderer may hold
  * DOM that must survive both a session switch and a switch to another kind.
  *
- * Which entry is on display is a viewing decision, not a logged one: it lives
- * in component-local state keyed by session id (a root slot means the framework
- * clears nothing on a switch), it defaults to the newest entry, and it never
- * reaches the session log. Closing a tab is a logged one, though — it goes
- * through `onDismiss` (this registration's own injected face, wired in
- * `client/index.ts`) to `/dismiss-content-entry`, and the entry leaving the
- * stream is what `selectedEntry`'s fallback then reacts to.
+ * Both tab gestures are logged decisions, dispatched through this
+ * registration's own injected face (wired in `client/index.ts`). Selecting a
+ * tab goes to `/select-content-entry` and comes back as the stream's own
+ * `front`; closing one goes to `/dismiss-content-entry`, and the entry leaving
+ * the stream is what `selectedEntry`'s fallback then reacts to.
+ *
+ * What stays component-local is one click per session (a root slot means the
+ * framework clears nothing on a switch), held only until the record of it
+ * arrives — and given up before then to any entry recorded after the click, so
+ * a page the agent shows lands in front of a tab the user picked a moment
+ * earlier. A freshly loaded page holds no click at all and reads `front`.
  *
  * Each tab is a wrapper `<div>` around two sibling `<button>`s — selection and
  * close — never a button nested inside a button. `data-content-surface-entry`
@@ -27,7 +31,9 @@
 import { useState } from 'react'
 import type { PropsLocale, PropsRenderSlots, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
-import { entryKeyOf, foldSeats, NO_ENTRIES, NO_SEATS, selectedEntry, type SurfaceSeats } from './surface-seats.ts'
+import {
+  entryKeyOf, foldSeats, NO_ENTRIES, NO_SEATS, pickedAt, selectedEntry, type PickedEntry, type SurfaceSeats,
+} from './surface-seats.ts'
 import css from './ContentSurface.module.css'
 
 /** This registration's own injected face, wired in `client/index.ts`. */
@@ -39,6 +45,13 @@ export interface ContentSurfaceInjected {
    * render is the visible effect, not this call's return.
    */
   onDismiss: (sessionId: string, kind: string, entryId: string) => void
+  /**
+   * Bring one entry's tab to the front: appends `content-surface/selected`
+   * through `/select-content-entry` against `sessionId`. Fire-and-forget for
+   * the same reason — the column already moved on the click itself, and this
+   * is what makes the move survive a reload and reach the agent.
+   */
+  onSelect: (sessionId: string, kind: string, entryId: string) => void
 }
 
 /** Composed props: the root runtime share, the kind-slot render share, this registration's injected face, and the locale seat. */
@@ -50,20 +63,25 @@ export type ContentSurfaceProps =
 
 /**
  * Render the content column.
- * @param props - the session feed, the kind-slot dispatcher, the dismiss callback, and the locale seat.
+ * @param props - the session feed, the kind-slot dispatcher, the two tab callbacks, and the locale seat.
  * @returns the switcher strip, every mounted kind seat, and the empty-state notice.
  */
-export function ContentSurface({ useSessions, renderSlot, onDismiss, t }: ContentSurfaceProps) {
+export function ContentSurface({ useSessions, renderSlot, onDismiss, onSelect, t }: ContentSurfaceProps) {
   const sessionId = useSessions(state => state.current)
   const entries: readonly ContentSurfaceEntry[] = useSessions(state => (
     state.current === undefined
       ? undefined
       : state.byId[state.current]?.projectionValues?.contentSurface?.entries)) ?? NO_ENTRIES
+  const front = useSessions(state => (
+    state.current === undefined
+      ? undefined
+      : state.byId[state.current]?.projectionValues?.contentSurface?.front))
 
   // Per session, because a root slot survives every switch: the framework
-  // clears nothing, so the column carries one choice per session itself.
-  const [picked, setPicked] = useState<Readonly<Record<string, string>>>({})
-  const selected = selectedEntry(entries, sessionId === undefined ? undefined : picked[sessionId])
+  // clears nothing, so the column carries the click it is still waiting on
+  // itself. The recorded decision comes back as `front`.
+  const [picked, setPicked] = useState<Readonly<Record<string, PickedEntry>>>({})
+  const selected = selectedEntry(entries, sessionId === undefined ? undefined : picked[sessionId], front)
 
   // Derived state, not a subscription: the seat list is a fold over the session
   // feed, and folding it during render is React's sanctioned form. foldSeats
@@ -89,7 +107,10 @@ export function ContentSurface({ useSessions, renderSlot, onDismiss, t }: Conten
                   className={css.entry}
                   data-content-surface-entry={key}
                   data-content-surface-selected={active || undefined}
-                  onClick={() => { setPicked(current => ({ ...current, [sessionId]: key })) }}
+                  onClick={() => {
+                    setPicked(current => ({ ...current, [sessionId]: pickedAt(entries, key) }))
+                    onSelect(sessionId, entry.kind, entry.entryId)
+                  }}
                 >
                   <span className={css.entryTitle}>{entry.title}</span>
                   <span className={css.entryKind}>{entry.kind}</span>

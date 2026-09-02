@@ -6,7 +6,8 @@
  * hosted document same-origin with the shell; a frame the user comes back to is
  * the SAME DOM element — across another page, another content kind, and another
  * session — which is what keeps that document alive; and the seat is where the
- * reader lives, because it is the only placement holding those elements.
+ * reader and the navigation watch live, because it is the only placement
+ * holding those elements.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
@@ -15,6 +16,7 @@ import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-
 import { ContentFrame, type ContentFrameProps } from '../src/client/ContentFrame.tsx'
 import { zh } from '../src/client/locales.ts'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ReadOutcome } from '../src/access/wire.ts'
+import { NAVIGATION_SETTLE_MS } from '../src/client/perception/navigation.ts'
 import type { ContentReadRequest } from '../src/types.ts'
 import type { ContentPageView } from '../src/types.ts'
 
@@ -47,18 +49,28 @@ function useSessions<S>(select: (state: never) => S): S {
   } as never)
 }
 
+/** Every move the seat reported, in order. */
+let navigated: { sessionId: string; page: string; url: string; title: string }[] = []
+
+/** How often the seat asks the frame in front where it is, in these cases. */
+const POLL_MS = 50
+
 /** Render the seat for one selection, reusing an existing tree when given one. */
 function mount(
   sessionId: string | undefined,
   entry: ContentFrameProps['entry'],
   cacheSize = 3,
   view?: ReturnType<typeof render>,
-  pageAccess?: { outlineChars: number; claimTimeoutMs: number; readTimeoutMs: number },
+  pageAccess?: { outlineChars: number; claimTimeoutMs: number; readTimeoutMs: number; settleQuietMs: number },
 ): ReturnType<typeof render> {
   const props = {
     sessionId,
     entry,
     cacheSize,
+    navigationPollMs: POLL_MS,
+    onNavigated: (session: string, page: string, url: string, title: string) => {
+      navigated.push({ sessionId: session, page, url, title })
+    },
     useSessions,
     t: makeTranslate(zh),
     ...pageAccess === undefined ? {} : { pageAccess },
@@ -85,6 +97,7 @@ const DASHBOARD: ContentPageView = { state: 'shown', page: 'dashboard', url: '/c
 
 beforeEach(() => {
   published = {}
+  navigated = []
 })
 
 afterEach(() => {
@@ -176,6 +189,59 @@ describe('content-frame page seat', () => {
   })
 })
 
+describe('the page seat as the navigation watch\'s seat', () => {
+  /**
+   * The page these cases put in front. `about:blank` for the same reason the
+   * reader's cases use it: jsdom fetches no subresources, so a frame pointed at
+   * a real path never has a document at all.
+   */
+  const BLANK: ContentPageView = { state: 'shown', page: 'reports', url: 'about:blank', title: 'Weekly reports' }
+  const OTHER: ContentPageView = { state: 'shown', page: 'dashboard', url: 'about:blank#other', title: 'Fleet dashboard' }
+
+  /** Wait for the settling window the watch holds every signal in. */
+  async function reported(count: number): Promise<void> {
+    await vi.waitFor(() => { expect(navigated).toHaveLength(count) }, { timeout: 3000 })
+  }
+
+  it('reports the frame in front moving, naming the session and the page it belongs to', async () => {
+    const view = mount('a', pageEntry('reports', BLANK))
+    const frame = active(view)
+    if (frame?.contentWindow == null) throw new Error('the seat mounted no frame')
+    frame.contentWindow.location.hash = '#/device'
+    await reported(1)
+    expect(navigated[0]).toMatchObject({ sessionId: 'a', page: 'reports' })
+    expect(navigated[0]?.url).toContain('#/device')
+  })
+
+  it('watches the frame in front and no other', async () => {
+    const view = mount('a', pageEntry('reports', BLANK))
+    const first = frames(view).get('a reports')
+    // Another page takes the column; the first frame stays mounted and hidden.
+    mount('a', pageEntry('dashboard', OTHER), 3, view)
+    expect(frames(view).get('a reports')).toBe(first)
+    if (first?.contentWindow == null) throw new Error('the cached frame lost its window')
+    first.contentWindow.location.hash = '#/behind'
+
+    const shown = active(view)
+    if (shown?.contentWindow == null) throw new Error('the seat mounted no frame')
+    shown.contentWindow.location.hash = '#/front'
+    await reported(1)
+    expect(navigated).toEqual([expect.objectContaining({ page: 'dashboard' })])
+  })
+
+  it('stops watching when the seat goes away, mid-settle included', async () => {
+    const view = mount('a', pageEntry('reports', BLANK))
+    const frame = active(view)
+    if (frame?.contentWindow == null) throw new Error('the seat mounted no frame')
+    // Moved, then unmounted inside the settling window: the move is dropped
+    // with the watch rather than landing on a session nothing is showing.
+    frame.contentWindow.location.hash = '#/mid'
+    view.unmount()
+    await new Promise<void>((resolve) => { setTimeout(resolve, NAVIGATION_SETTLE_MS + POLL_MS * 2) })
+    expect(navigated).toEqual([])
+  })
+})
+
 describe('the page seat as the reader\'s seat', () => {
   /** Every document posted to a read route, in order. */
   let posted: { route: string; body: Record<string, unknown> }[] = []
@@ -222,7 +288,7 @@ describe('the page seat as the reader\'s seat', () => {
 
   it('reads the document of the frame it holds, for the page it has in front', async () => {
     published = { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] }
-    const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500 })
+    const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 })
     fill(view, '<main><button>Refresh</button></main>')
     await settled(1)
     const outcome = outcomes()[0]
@@ -233,7 +299,7 @@ describe('the page seat as the reader\'s seat', () => {
 
   it('retires a frame\'s numbering when the page inside it navigates', async () => {
     published = { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] }
-    const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500 })
+    const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 })
     const frame = fill(view, '<main><button>Refresh</button></main>')
     await settled(1)
     const before = outcomes()[0]
@@ -242,7 +308,7 @@ describe('the page seat as the reader\'s seat', () => {
     // model still holds names an element of the document that just left.
     frame.dispatchEvent(new Event('load'))
     published = { entries: [ENTRY], pending: [{ callId: 'call_2', tool: 'content_read', args: {} }] }
-    mount('a', ENTRY, 3, view, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500 })
+    mount('a', ENTRY, 3, view, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 })
     await settled(2)
     const after = outcomes()[1]
 

@@ -13,12 +13,12 @@
  * the host's `contentSurface` projection, which the framework already carries
  * to the browser with every session's values.
  *
- * A second, independent registration lives in this same `apply()`: an empty
- * `conversation.chat.commandview` entry for `DISMISS_CONTENT_ENTRY_COMMAND`,
- * plus the stylesheet collapsing the empty row it leaves behind (see
- * `HiddenCommandRow.tsx` and `hide-empty-command-row.ts`) — the switcher
- * strip's close button is a command invocation for its durable log record,
- * not for a chat message narrating the click.
+ * Two more registrations live in this same `apply()`: empty
+ * `conversation.chat.commandview` entries for the switcher strip's two
+ * commands, plus the stylesheet collapsing the empty rows they leave behind
+ * (see `HiddenCommandRow.tsx` and `hide-empty-command-row.ts`) — closing a tab
+ * and picking one are command invocations for their durable log records, not
+ * for chat messages narrating a click.
  * @module @deepseek-ai/dsh-experimental-content-column/client
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -32,6 +32,7 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import { ContentSurface, type ContentSurfaceInjected } from './ContentSurface.tsx'
 import { dismissContentEntry } from './dismiss.ts'
+import { selectContentEntry } from './select.ts'
 import { HiddenCommandRow } from './HiddenCommandRow.tsx'
 import { installHiddenCommandRowStyle } from './hide-empty-command-row.ts'
 import { en, NS, zh, type ContentSurfaceKey } from './locales.ts'
@@ -79,12 +80,12 @@ export interface ContentSurfaceKindOwnerProps {
 
 export type { ContentSurfaceInjected, ContentSurfaceProps } from './ContentSurface.tsx'
 
-/** Required services: the slot registry, the locale registry, and remote commands (the close button's dispatch). */
+/** Required services: the slot registry, the locale registry, and remote commands (both tab buttons' dispatch). */
 export const inject = ['slots', 'locale', 'remote', 'remote.commands']
 
 /**
  * Client plugin body: register the dictionaries, claim the content column,
- * and hide the dismiss-content-entry command's chat echo.
+ * and hide both switcher commands' chat echoes.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -96,6 +97,7 @@ export function apply(ctx: ClientContext): void {
     children: { 'content.surface.kind': { kind: 'keyed', scope: 'root' } },
     inject: (): ContentSurfaceInjected => ({
       onDismiss: (sessionId, kind, entryId) => { void dismissContentEntry(ctx, sessionId, kind, entryId) },
+      onSelect: (sessionId, kind, entryId) => { void selectContentEntry(ctx, sessionId, kind, entryId) },
     }),
   }, ContentSurface))
   ctx.slots.inject('conversation.chat.commandview', () => ctx.slots.register({
@@ -105,5 +107,10 @@ export function apply(ctx: ClientContext): void {
     // string, and an identifier here drops this row's key from the
     // generated catalog (see `content-frame`'s equivalent registration).
     key: 'dismiss-content-entry',
+  }, HiddenCommandRow))
+  ctx.slots.inject('conversation.chat.commandview', () => ctx.slots.register({
+    name: 'conversation.chat.commandview',
+    // A literal for the same catalog reason as the registration above.
+    key: 'select-content-entry',
   }, HiddenCommandRow))
 }

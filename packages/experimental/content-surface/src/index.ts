@@ -13,11 +13,12 @@
  * Every entry is otherwise derived from a fact another package already logs —
  * `content/shown` for a page, a `show_chart` call for a chart — so replay
  * reconstructs the whole column from the log the agent actually wrote. The
- * one exception this router owns directly is dismissal: closing an entry's
- * tab in the switcher strip is not a fact any other package's log already
- * carries, so this row appends `content-surface/dismissed` itself and the
- * fold removes the named record on sight (see `command.ts` and
- * `projection.ts`).
+ * exceptions this router owns directly are the switcher strip's own two
+ * gestures: closing a tab and bringing one to the front are not facts any
+ * other package's log already carries, so this row appends
+ * `content-surface/dismissed` and `content-surface/selected` itself, and the
+ * fold turns them into a removed record and the stream's `front` (see
+ * `command.ts` and `projection.ts`).
  *
  * One model-visible contribution, the prompt section below: what an entry
  * stream needs the model to understand is that a piece of content stays one
@@ -32,11 +33,11 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves ctx.systemPrompt for the optional prompt-section child.
 import type {} from '@deepseek-ai/dsh-system-prompt'
-// Type-only: resolves ctx.commands for the optional dismiss-content-entry command child.
+// Type-only: resolves ctx.commands for the optional switcher-strip command child.
 import type {} from '@deepseek-ai/dsh-commands'
 import { eraseExtractor, type ContentSurfaceExtractor, type ErasedExtractor } from './extractor.ts'
 import { contentSurfaceProjection } from './projection.ts'
-import { dismissContentEntryCommand } from './command.ts'
+import { dismissContentEntryCommand, selectContentEntryCommand } from './command.ts'
 
 declare module '@deepseek-ai/cordis' {
   interface Context {
@@ -133,10 +134,17 @@ export class ContentSurfaceRegistry extends Service {
       })
     })
     // Optional for the same reason again: a deployment without a command
-    // runtime keeps the extractor table and the switcher's close button has
+    // runtime keeps the extractor table and the switcher's own buttons have
     // nowhere to dispatch to, same as any other command-backed UI gesture.
     ctx.inject(['commands'], (commandsCtx: Context) => {
-      commandsCtx.commands.register(dismissContentEntryCommand())
+      // `ctx.get`, not the property proxy: the projection registry is an
+      // optional seam, and the dismissal notice is the one thing a
+      // composition without it goes without — the dismissal itself is
+      // recorded either way.
+      commandsCtx.commands.register(dismissContentEntryCommand(
+        session => ctx.get('sessionProjections')?.snapshot(session).values.contentSurface?.entries,
+      ))
+      commandsCtx.commands.register(selectContentEntryCommand())
     })
   }
 

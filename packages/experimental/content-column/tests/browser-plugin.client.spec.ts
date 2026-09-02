@@ -3,9 +3,9 @@
  * The content surface's browser half against the real SlotRegistry: the column
  * registration and the kind slot it declares, the wait for the shell's
  * declaration, removal on fiber teardown (HMR safety), the dictionaries, the
- * dismiss callback its `content` registration injects, the empty
- * `conversation.chat.commandview` registration for `dismiss-content-entry` and
- * its hiding stylesheet, the behaviorless node half, and the invariant
+ * two tab callbacks its `content` registration injects, the empty
+ * `conversation.chat.commandview` registrations for both switcher commands and
+ * their hiding stylesheet, the behaviorless node half, and the invariant
  * companion's ownership reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
@@ -105,14 +105,23 @@ describe('content-column browser half', () => {
     expect(execute).toHaveBeenCalledWith('session-a', '/dismiss-content-entry page reports', [])
   })
 
+  it('injects a select callback that executes select-content-entry against the named session', async () => {
+    const { ctx, execute } = await bench()
+    const [entry] = ctx.slots.entries('content')
+    const injected = entry?.inject?.() as unknown as ContentSurfaceInjected
+    injected.onSelect('session-a', 'page', 'ini-web2')
+    await Promise.resolve()
+    expect(execute).toHaveBeenCalledWith('session-a', '/select-content-entry page ini-web2', [])
+  })
+
   it(
-    'registers an empty conversation.chat.commandview entry for dismiss-content-entry, and fiber teardown removes it (HMR safety)',
+    'registers an empty conversation.chat.commandview entry for each switcher command, and fiber teardown removes both (HMR safety)',
     async () => {
       const { ctx, fiber } = await bench()
-      const [entry] = ctx.slots.entries('conversation.chat.commandview')
-      expect(entry?.component).toBe(HiddenCommandRow)
-      expect(entry?.options.key).toBe('dismiss-content-entry')
-      expect((entry?.component as typeof HiddenCommandRow)()).toBeNull()
+      const entries = ctx.slots.entries('conversation.chat.commandview')
+      expect(entries.map(entry => entry.options.key)).toEqual(['dismiss-content-entry', 'select-content-entry'])
+      expect(entries.every(entry => entry.component === HiddenCommandRow)).toBe(true)
+      expect((entries[0]?.component as typeof HiddenCommandRow)()).toBeNull()
 
       await fiber.dispose()
       expect(ctx.slots.entries('conversation.chat.commandview')).toHaveLength(0)

@@ -33,8 +33,8 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import * as ContentFrame from '../src/index.ts'
 import {
-  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_CURSOR_CHARS, MAX_HEADER_CHARS, MAX_NAME_CHARS,
-  MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest,
+  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_BUSY_NAMES, MAX_CURSOR_CHARS, MAX_HEADER_CHARS,
+  MAX_NAME_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseReportRequest,
   type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
@@ -284,6 +284,7 @@ const LISTING: ReadOutcome = {
     truncated: false,
     shown: 1,
     total: 1,
+    settled: true,
   },
 }
 
@@ -544,7 +545,7 @@ describe('the read channel over real HTTP', () => {
       parsed: parseReportRequest(JSON.parse(body), DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE) !== undefined,
       bytes: new TextEncoder().encode(body).length,
       byteBound: DEFAULT_OUTLINE_CHARS * 4 + ENVELOPE_BYTES,
-    }).toEqual({ chars: 32696, charBound: 48000, parsed: true, bytes: 98340, byteBound: 71328 })
+    }).toEqual({ chars: 32696, charBound: 48000, parsed: true, bytes: 98355, byteBound: 71328 })
     const refused = await raw(ctx, CONTENT_REPORT_ROUTE, { body })
     expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
       status: 413,
@@ -561,11 +562,11 @@ describe('the read channel over real HTTP', () => {
     const bodyOf = (text: string): string =>
       JSON.stringify({ callId: 'c', tabId: TAB, outcome: { ...LISTING, snapshot: { ...LISTING.snapshot, text } } })
     // Three-byte characters up to the bound, then the same document with one
-    // ASCII character more. The parser takes both listings — 23,692 and 23,693
+    // ASCII character more. The parser takes both listings — 23,687 and 23,688
     // characters against its own bound of 48,000 — so what tells the two
     // answers apart is the byte the body crossed and nothing else.
-    const at = bodyOf('甲'.repeat(23692))
-    const past = bodyOf(`${'甲'.repeat(23692)}x`)
+    const at = bodyOf('甲'.repeat(23687))
+    const past = bodyOf(`${'甲'.repeat(23687)}x`)
     expect([new TextEncoder().encode(at).length, new TextEncoder().encode(past).length, bound])
       .toEqual([71328, 71329, 71328])
     const taken = await raw(ctx, CONTENT_REPORT_ROUTE, { body: at })
@@ -580,7 +581,7 @@ describe('the read channel over real HTTP', () => {
     // budget, whose listing alone is 58,637 bytes — past the budget in bytes,
     // and served, because what both halves measure is the whole body.
     const seatSized = bodyOf(`${'甲'.repeat(19545)}xx`)
-    expect(new TextEncoder().encode(seatSized).length).toBe(58889)
+    expect(new TextEncoder().encode(seatSized).length).toBe(58904)
     expect((await raw(ctx, CONTENT_REPORT_ROUTE, { body: seatSized })).status).toBe(200)
   })
 
@@ -626,6 +627,7 @@ describe('the read channel over real HTTP', () => {
         snapshot: {
           kind: '', url: '', title: '', breadcrumb: '', modal: '',
           signIn: false, text: '', truncated: false, shown: 123456789, total: 123456789, cursor: '',
+          settled: false, busy: ['', '', ''],
         },
       },
     }
@@ -639,7 +641,7 @@ describe('the read channel over real HTTP', () => {
       outcome: { ...union.outcome, snapshot: { ...union.outcome.snapshot, kind: 'outline' }, code: 'not-a-page' },
     }
     expect([JSON.stringify(empty).length, JSON.stringify(union).length, JSON.stringify(named).length])
-      .toEqual([239, 283, 300])
+      .toEqual([273, 317, 334])
     expect(JSON.stringify(named).length).toBeLessThan(SYNTAX_BYTES)
   })
 
@@ -669,12 +671,14 @@ describe('the read channel over real HTTP', () => {
         shown: 1,
         total: 2,
         cursor: wide(MAX_CURSOR_CHARS),
+        settled: false,
+        busy: Array.from({ length: MAX_BUSY_NAMES }, () => wide(MAX_NAME_CHARS)),
       },
     }
     const body = JSON.stringify({ callId: wide(MAX_NAME_CHARS), tabId: wide(MAX_NAME_CHARS), outcome })
     // Written out because the margin is the claim: the widest report a seat can
     // post is thousands of bytes inside the bound, not at it.
-    expect(new TextEncoder().encode(body).length).toBe(23341)
+    expect(new TextEncoder().encode(body).length).toBe(25679)
     expect(REPORT_BYTES).toBe(27328)
     const answer = await raw(ctx, CONTENT_REPORT_ROUTE, { body })
     expect({ status: answer.status, body: JSON.parse(answer.body) as unknown })
@@ -802,6 +806,7 @@ describe('page-access configuration', () => {
       ['claimTimeoutMs', 1],
       ['readTimeoutMs', 1],
       ['pinMs', 1],
+      ['settleQuietMs', 1],
       ['outlineChars', MIN_OUTLINE_CHARS],
     ] as const) {
       const config = {
@@ -809,8 +814,11 @@ describe('page-access configuration', () => {
         pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
         pageAccess: {
           claimTimeoutMs: 1,
-          readTimeoutMs: 1,
+          // Above the quiet window this case configures below, so the one
+          // refusal each iteration proves is the field it names.
+          readTimeoutMs: 1000,
           pinMs: 1,
+          settleQuietMs: 1,
           outlineChars: MIN_OUTLINE_CHARS,
           [field]: least - 1,
         },
@@ -822,5 +830,26 @@ describe('page-access configuration', () => {
       )
       await ctx.fiber.dispose()
     }
+  })
+
+  it('rejects a quiet window the settle budget cannot hold, and takes the one that lands on it', async () => {
+    // Both numbers are in this one block, so the mismatch is caught at load
+    // rather than as every read reporting a page that never settled.
+    const over = new Context()
+    over.provide('webServer', { register: () => () => {} } as never)
+    await expect(ContentFrame.apply(over, {
+      root: APP_ROOT,
+      pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
+      pageAccess: {
+        claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, settleQuietMs: 251, outlineChars: MIN_OUTLINE_CHARS,
+      },
+    })).rejects.toThrow(
+      'content-frame: pageAccess.settleQuietMs must fit in 250ms (0.25 of readTimeoutMs), received 251',
+    )
+    await over.fiber.dispose()
+
+    // And the window that lands exactly on the share is a composition that
+    // boots, checked where every other composition here is checked.
+    await expect(loadComposition(true, ['      settleQuietMs: 1250'])).resolves.toBeInstanceOf(Context)
   })
 })

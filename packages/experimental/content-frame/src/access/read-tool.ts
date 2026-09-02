@@ -61,6 +61,10 @@ export interface ContentReadValue {
   total: number
   /** The ref to pass back as `after`; present only on a listing cut short. */
   cursor?: string
+  /** False when the page was still changing when the read ran. */
+  settled: boolean
+  /** What the page marks as still loading; absent when it marks nothing. */
+  busy?: string[]
 }
 
 /**
@@ -130,6 +134,8 @@ function valueOf(outcome: ReadOutcome): ContentReadValue {
     shown: snapshot.shown,
     total: snapshot.total,
     ...snapshot.cursor === undefined ? {} : { cursor: snapshot.cursor },
+    settled: snapshot.settled,
+    ...snapshot.busy === undefined ? {} : { busy: snapshot.busy },
   }
 }
 
@@ -189,6 +195,16 @@ export function contentReadTool(pending: PendingReads, timeouts: ReadTimeouts): 
           shown: { type: 'integer', required: true, description: 'How many rows the listing renders.' },
           total: { type: 'integer', required: true, description: 'How many rows the listing has in full.' },
           cursor: { type: 'string', description: 'Pass as `after` to continue a listing that was cut.' },
+          settled: {
+            type: 'boolean',
+            required: true,
+            description: 'Whether the page had stopped changing when it was read; false means reading again may show more.',
+          },
+          busy: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'What the page itself marks as still loading, when it marks anything.',
+          },
         },
       },
       render: (_args, value) => [{
@@ -202,6 +218,8 @@ export function contentReadTool(pending: PendingReads, timeouts: ReadTimeouts): 
           kind: value.kind,
           truncated: value.truncated,
           total: value.total,
+          settled: value.settled,
+          busy: value.busy ?? [],
         })}\n${value.text}`,
       }],
       // The transcript row names the page it looked at, and the listing is

@@ -18,7 +18,11 @@ The key domain is open — it is whatever kind a host extractor produces — so 
 
 ## Choosing an entry
 
-Above the seats, a switcher strip lists the session's entries newest first as `title` plus the kind key. Selecting one is a UI-local act: the choice lives in component state keyed by session id, defaults to the newest entry, falls back to the newest when the entry it named is replaced, and never reaches the session log. A session that has produced nothing gets the empty-state notice, and so does a browser with no current session.
+Above the seats, a switcher strip lists the session's entries newest first as `title` plus the kind key. Selecting one is a **logged decision**: the click moves the column immediately and dispatches `/select-content-entry <kind> <entryId>` against the current session through `ctx.remote.commands.execute` (`select.ts`), which comes back as the stream's own `front`. A session that has produced nothing gets the empty-state notice, and so does a browser with no current session.
+
+What stays component-local is one click per session, held only between the button and the record of it arriving — a root-scoped column means the framework clears nothing on a session switch, so the column carries that click itself. It is given up before then to any entry recorded after the click, so a page the agent shows lands in front of a tab the user picked a moment earlier; that is the same rule the host applies to `front`, which is why both compare by `seq`. A freshly loaded page holds no click at all and reads `front`, so the tab a user picked survives a reload, a second tab, and a second device.
+
+This package registers an empty `conversation.chat.commandview` entry for `select-content-entry` as well, for the same reason it does for `dismiss-content-entry` below: the durable record is the point, not a chat row narrating a tab the user just clicked.
 
 ## Closing an entry's tab
 
@@ -26,7 +30,7 @@ Each tab is a Chrome-style pair of sibling `<button>`s inside one wrapper `<div>
 
 Closing a tab does not blank the column: once the dismissed entry leaves `entries`, `selectedEntry`'s existing "picked entry no longer live" fallback — previously exercised only by a replaced entry — selects the newest surviving one, exactly as it would for any other entry that dropped out of the stream.
 
-This package also registers an empty `conversation.chat.commandview` entry for `dismiss-content-entry`, plus the stylesheet collapsing the empty row it leaves behind, mirroring `content-frame`'s identical mechanism for `show-content-page` under its own `STYLE_ID` — the durable dismissal record is the point, not a chat message narrating a tab the user just closed. This is why the package now also depends on `dsh-client-ui-conversation` and requires `remote`/`remote.commands`.
+This package registers an empty `conversation.chat.commandview` entry for `dismiss-content-entry` too, plus the stylesheet collapsing the empty row both leave behind, mirroring `content-frame`'s identical mechanism for `show-content-page` under its own `STYLE_ID` — the durable dismissal record is the point, not a chat message narrating a tab the user just closed. This is why the package now also depends on `dsh-client-ui-conversation` and requires `remote`/`remote.commands`.
 
 ## Composition
 
@@ -42,8 +46,8 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
+- **A selection is fire-and-forget** — the column moves on the click and warns to the console if the command never lands, so a dropped request leaves the browser showing a tab the log does not name; the next reload reverts to `front`.
 - **No pinning** — the column shows one entry at a time and the selection is a single choice per session. There is no way to keep an entry beside another, and no split view.
-- **The selection is per browser tab** — it lives in component state, so a reload, a second tab, and a second device each start from the newest entry. Making it durable would be a new logged fact, which the column deliberately does not have.
 - **The switcher badges the raw kind key** — `page`, `chart`. The column cannot localize a name for a kind it does not know, and no per-kind label contribution exists yet; the product copy around it is Chinese while the badge is not.
 - **A seat is never released** — a kind that appeared once keeps its mounted seat for the page's lifetime, even after the session that produced it is gone. That is the keepalive guarantee, and its cost is that a long-lived tab accumulates one mounted renderer per kind it has ever seen.
 - **The hidden command row is coupled to a DOM shape this package does not own** — `hide-empty-command-row.ts`'s selector reaches through `ChatNodeSeat.tsx`'s `data-chat-flow-kind` attribute and `dsh-client-ui-renderer`'s `data-slot` anchor wrapper, neither a contract this package can rely on staying stable; a shape change on either side silently un-collapses the row instead of failing loud (the same fragility `content-frame`'s identical mechanism already carries).

@@ -8,7 +8,7 @@
 
 ## entry 流
 
-一条 entry 是 `{ kind, entryId, seq, title, payload }`。`kind` 既指出产生它的 extractor，也指出画出它的客户端槽 key；`entryId` 是它**在该 kind 内**的身份，后来的记录若指名同一组合，就替换掉先前那条而不是再添一行。这正是「重绘的图表」和「重新展示的页面」各自只占一条 entry 的原因。发布出来的值把存活的 entry 按最新在前排列，因此在用户另选之前，这一栏展示的就是 `entries[0]`。
+一条 entry 是 `{ kind, entryId, seq, title, payload }`。`kind` 既指出产生它的 extractor，也指出画出它的客户端槽 key；`entryId` 是它**在该 kind 内**的身份，后来的记录若指名同一组合，就替换掉先前那条而不是再添一行。这正是「重绘的图表」和「重新展示的页面」各自只占一条 entry 的原因。发布出来的值把存活的 entry 按最新在前排列，并指出其中哪一条在 `front`，因此在用户另选之前，这一栏展示的就是 `entries[0]`（见下文「在前面的是哪一条」）。
 
 [子系统页](../../../docs/subsystems/content-surface.zh.md)载有 `ContentSurfaceExtractor`、`ContentSurfaceRecord` 与 `ContentSurfaceEntry` 的字面声明。
 
@@ -40,6 +40,16 @@ projection registry 在注册那一刻固定一个 unit 的 fold 与 `stateVersi
 `content-surface/dismissed` 不是 `ignorable`：不认识这个事件类型的旧构建会拒绝该日志，而不是悄悄把一条已关闭的 entry 当作仍然存活。新增它没有让 `SESSION_FORMAT_VERSION` 递增（属于普通的词汇增长），但确实让折入每个 `stateVersion` 的 fold 自身语义版本递增了（见 `extractor.ts` 的 `FOLD_SEMANTICS_VERSION`）——在这次 fold 能够删除记录之前写下的 checkpoint 会被丢弃，而不是按一条它写下时还不存在的规则被重放。
 
 内容列隐藏这条命令自己的聊天回声，方式与 [`content-frame`](../content-frame/README.zh.md) 隐藏 `show-content-page` 的一样：持久记录才是关键，而不是一条复述用户刚做过的点击的聊天消息。
+
+## 在前面的是哪一条
+
+这一栏只展示一条 entry，而是哪一条由日志决定。切换条的标签按钮执行 `/select-content-entry <kind> <entryId>`，它以 `by: 'user'` 追加一条 `content-surface/selected`；fold 把最新的这次选择与记录一并保留，并把结果作为流的 `front` 发布出来。
+
+裁决这两个来源只用一句话：一次选择输给任何在它之后被记录的 entry。用户点了一个标签、agent 过一会儿又展示了一个页面，两者都是真实意图，而这一栏跟着较晚的那个——这也正是宿主对 `front` 采用的规则，两边都按 `seq` 比对的原因就在这里。`front` 指名的 entry 若已不在流里（被关掉了，或被原地替换了），就回落到最新的那条，因此这一栏永远不会变空。
+
+与关闭不同，一次选择不注入任何通告。关掉一个标签是用户把对话产出的东西收起来，从没听说这件事的 agent 会继续张罗着去更新已经不在屏幕上的内容；把某个标签调到前面则是一次张望，用户四下看多少次就发生多少次，而在前面的是哪一条，早已通过每个请求都带着的 content-column 上下文抵达模型。
+
+`content-surface/selected` 和 `content-surface/dismissed` 都不是 `ignorable`——今天的 `Session.append` 没有办法设置这个标记——所以会话词汇表里没有本包的运行时会拒绝这份日志，而不是默默展示错的标签。加入选择把 `FOLD_SEMANTICS_VERSION` 提到了 `3`，两个提升理由都占：fold 多了一种情况，它存下的状态也从一串裸记录变成了 `{ records, selected }`。
 
 ## 组合方式
 
@@ -104,6 +114,7 @@ When the user refers to something you have already produced and put on display �
 - **无法控制顺序** —— entry 按最后记录它的 seq 排列，kind 无法要求排在最前或最后。
 - **这条规则的位置只是约定** —— order `200` 位于文档记载的 `100–199` 工具指引区间之后，但没有任何机制为它预留：日后某个 section 取更高的 order，就会无声地把这条规则挤离提示词末尾，而它正是在末尾被实测的。`apps/web/tests/content-surface.e2e.ts` 会对着真实组合断言这条尾巴，因此至少 Web 形态会响亮地失败。
 - **一条事件只归一个 kind** —— 第一个认得某条事件的 extractor 赢走它，而没有任何机制能发现两个 kind 在读同一条事件。派生自不同工具调用或不同事件类型的 kind 不会相撞。
+- **一次选择同样从不对照活的流做校验** —— `select-content-entry` 会为其输入指名的任意 `(kind, entryId)` 追加事件，理由与关闭相同：这个路由器不保存存活组合的名册。指名不存在组合的选择是无害的——`front` 会回落到最新的那条——但也没有任何地方会报出它。
 - **一次关闭从不对照活的流做校验** —— 命令会为其输入指名的任意 `(kind, entryId)` 追加 `content-surface/dismissed`，不检查这样标识的 entry 当下是否真的存在。这是一个刻意的设计选择（见上文「关闭一条 entry」），不是疏漏，但也意味着一个畸形的客户端可以关闭一个从未存在过的组合，且不会在任何地方报出错误。
 - **被工具链拆离了它的浏览器半边** —— 一个包若宿主入口声明了 Cordis 服务、`src/client` 又触及客户端运行时，两个 face 的 Context 合并会落进同一个 Typert 程序，使生成器因重复 key 而失败。把服务留在这里、把这一栏放进 [`content-column`](../content-column/README.zh.md)，正是为了避开这一点；两者总是一起组合，单独一个都不成事。
 - **未被 assembled snapshot 覆盖** —— 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。

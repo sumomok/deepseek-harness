@@ -1,9 +1,9 @@
 /**
  * Pure types of the content-column domain: the ONE home of the `content/shown`
- * session-event declaration and the `content` projection key, free of this
- * package's host-side value imports (zod, dsh-tools, node). Two namespace
- * projections serve it — `./types` for host consumers, `./client` for client
- * aggregates — with zero content duplication.
+ * and `content/navigated` session-event declarations and the three projection
+ * keys, free of this package's host-side value imports (zod, dsh-tools, node).
+ * Two namespace projections serve it — `./types` for host consumers,
+ * `./client` for client aggregates — with zero content duplication.
  *
  * @module @deepseek-ai/dsh-experimental-content-frame/types
  */
@@ -30,6 +30,36 @@ declare module '@deepseek-ai/dsh-session/types' {
        */
       by?: 'agent' | 'user'
     }
+    /**
+     * The document inside one page's frame moved to a different address. A
+     * configured page is a shell around an application with routing of its
+     * own, so the id `content/shown` records names which application is in the
+     * column and says nothing about where in it the user has gone — a menu
+     * click, a sign-in redirect and a route change all leave that id
+     * untouched. The browser half watches the frame and records this event so
+     * the agent learns the page moved while it was happening, rather than at
+     * the next read whose ref no longer resolves.
+     *
+     * The address is same-origin and relative, for the reason the read tool
+     * drops the origin too: every page the column can show is a path on the
+     * dsh origin. `title` is the frame document's own title as it stood once
+     * the move settled, which for an application that writes it late may still
+     * be the previous route's.
+     */
+    'content/navigated': {
+      /** The configured page id whose frame moved. */
+      page: string
+      /** Where the frame is now: path, query and fragment, origin dropped. */
+      url: string
+      /** The frame document's title at the time; possibly empty. */
+      title: string
+      /**
+       * Who moved it. `'user'` is what the browser reports for every move it
+       * observes, which today is all of them; `'agent'` is reserved for a move
+       * the agent makes itself.
+       */
+      by: 'user' | 'agent'
+    }
   }
 }
 
@@ -37,6 +67,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
     content: string | null
     contentAccess: ContentReadRequest[]
+    contentPages: ContentPagesState
   }
   interface SessionProjectionMap {
     /**
@@ -57,6 +88,34 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     contentAccess: ContentAccessView
   }
 }
+
+/** Where one page's frame is, as the browser last reported it. */
+export interface ContentPageLocation {
+  /** Path, query and fragment inside the page, origin dropped. */
+  readonly url: string
+  /** The frame document's title then; possibly empty. */
+  readonly title: string
+}
+
+/** What this session's log says about one configured page. */
+export interface ContentPageRecord {
+  /**
+   * Who last put the page in the column. Absent when the log has only ever
+   * reported the page moving — a frame can be navigated by an application that
+   * redirects on load, before any `content/shown` names that page.
+   */
+  readonly by?: 'agent' | 'user'
+  /** Where the frame went last; absent until the browser reports a move. */
+  readonly location?: ContentPageLocation
+}
+
+/**
+ * Host-only fold behind the content-column context: one record per page this
+ * session's log has mentioned. It has no wire half — the browser knows where
+ * its own frames are, and the one reader is the prompt context assembled on
+ * this side.
+ */
+export type ContentPagesState = Record<string, ContentPageRecord>
 
 /** One `content_read` call still waiting for a browser to answer it. */
 export interface ContentReadRequest {

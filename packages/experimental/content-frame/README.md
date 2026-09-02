@@ -49,7 +49,7 @@ The column's kind slot is `root`-scoped and the column keeps this seat mounted e
 
 `pageAccess` gives the agent `content_read`: one call answers with the page the user is looking at as a numbered structure — containers, controls, headings and text, each control carrying a ref like `e12` that a later call can point at. Structure reaches the model and data does not: a table reports its header, its size and one sample row, and lists rows only when a read names that table by ref or matches one by its text; a password box reports that it is there and never what it holds; a page asking for a sign-in answers with a refusal instead of a listing.
 
-**Absent is off, and absent is the default.** Without the block there is no tool, no route, no pending projection, no `pageAccess` field in the settings document, and no reader in the browser — a deployment that only shows pages does not pay for a capability it did not ask for. Present with an empty object takes every default. The four fields — `claimTimeoutMs`, `readTimeoutMs`, `pinMs`, `outlineChars` — are documented on the `Config` type; `outlineChars` is the one that decides what a read costs in context, because it is the character budget the listing is rendered under. It has a floor of 1000, refused at load: a listing's first row is rendered however long it is, and below that floor an ordinary table's first row is already past what the report route takes.
+**Absent is off, and absent is the default.** Without the block there is no tool, no route, no pending projection, no `pageAccess` field in the settings document, and no reader in the browser — a deployment that only shows pages does not pay for a capability it did not ask for. Present with an empty object takes every default. The five fields — `claimTimeoutMs`, `readTimeoutMs`, `pinMs`, `settleQuietMs`, `outlineChars` — are documented on the `Config` type; `outlineChars` is the one that decides what a read costs in context, because it is the character budget the listing is rendered under. It has a floor of 1000, refused at load: a listing's first row is rendered however long it is, and below that floor an ordinary table's first row is already past what the report route takes. `settleQuietMs` has a ceiling instead of a floor — it must fit inside the settle share of `readTimeoutMs`, refused at load, because a quiet window the budget cannot hold would make every read report a page that never settled.
 
 ### The channel
 
@@ -60,6 +60,26 @@ Two deadlines, because "no console is open" and "the console that answered went 
 Neither deadline is spent on a single attempt. A claim that never lands — a dropped request, a moment offline — is bid again at a fixed interval until the claim window is out, and a listing whose first post never lands is posted once more: one dropped request must not be what tells the model there is no console, with the console in front of the user the whole time. Within the report deadline the seat spends at most half on a page that is still loading, because the host started counting the moment it granted the claim and the walk and the trip back need the rest.
 
 The reading half lives in the page seat because that is the only placement holding the frame elements. Visibility and geometry are asked of each element's own window rather than the top one — a frame's layout belongs to that frame — and a tab that is not visible claims nothing, because the read is defined as the page in front of the user.
+
+## What the agent knows about the column
+
+The column is drawn by the browser, so nothing in it reaches the model unless this package puts it there. Three facts do, by three different routes, each chosen for how often it changes.
+
+**A page the user opened is announced once, in the conversation.** `show-content-page` injects one sentence — `The user opened the page "<title>" in the content column (内容区); it is in front now.` — as a plugin-sourced `user/message`, after the `content/shown` append, so the log carries the fact before the sentence about it. `inject` queues it for the next pre-step without waking the driver: opening a page is not a question, and an idle agent stays idle until the user says something. It is durable from the moment it is queued — the inbox splice carrying it is a session event of its own — and becomes a `user/message` when a driver claims it. `content_show` injects nothing — the agent already knows what it did.
+
+**The application's own routing is a session event.** The browser half watches the frame in front for `load`, `hashchange` and `popstate`, and — because none of the three fires for `history.pushState`, which is how every current router changes route in history mode — polls the frame's own `location.href` every `navigationPollMs`. Everything the four signals produce goes through one 300ms settling window, is compared against the last address reported for that frame, and becomes one `content/navigated` event carrying the page id, the path, the document title and `by: 'user'`. A frame that has left the dsh origin answers every read with a `SecurityError` and the watch reports nothing; the frame's own `history` is never patched, because that document belongs to the deployment and an application wrapping it afterwards would take the patch straight back out.
+
+**Where the column stands is a prompt context, not a message.** `content:column` (order 130) lists what the column holds, newest first, with the entry in front marked and — for a page whose frame has moved away from its configured address — the address it is at now. It is registered as a *context* rather than a section for the reason `approval:policy` is: the value changes as the user works, and a context is materialized after the retained history, so a column that moved does not rewrite the stable system-prompt prefix the provider caches. Nothing in it is timestamped: a relative time would differ between a live run and its replay, and the conversation already carries the order things happened in.
+
+All three fold from this session's own log — `contentSurface`'s entry stream and this package's `contentPages` state, which records who opened each page and where its frame went. `contentPages` is host-only: no browser reads it, so it carries no `wire`.
+
+## Reading a page that has not finished drawing itself
+
+A frame that has fired `load` is not a page that is done: a single-page application fetches, paints, and repaints for as long as it takes, and a read landing in the middle of that is a listing of a page the user never saw. So a read waits, after the load wait and before the walk: a `MutationObserver` over the frame's document, answering as soon as the document has held still for `settleQuietMs`, and giving up at `readTimeoutMs × 0.25`. The two shares of the report deadline — half for a page still loading, a quarter for one still drawing — leave the walk and the trip back the rest.
+
+The wait's two outcomes both reach the model. A page that never settled is read anyway, with `The page was still changing when this read ran; read again for the settled page.` on its own header line: the listing is a real read of that instant, and reading again is what turns it into a listing of the page as the user has it. And whatever the page marks `aria-busy="true"` while visible is named on a header line of its own, at most three, through the same naming ladder the listing uses. `role="progressbar"` is not a busy mark — a page can draw one as its subject — and no framework's loading class is read, because this reader has never heard of one.
+
+`content/navigated` does not wait: an address change is reported the moment the frame settles at it, and waiting for the page behind that address belongs to reading it. Refs are invalidated by the engine on its own terms — the ref table is reset when the frame loads a new document, a ref whose element left the document resolves to nothing, and a stale `scope` or `after` is refused with a message telling the model to read again.
 
 ## Hiding the `show-content-page` command from the chat transcript
 
@@ -150,7 +170,7 @@ The description is a constant and never varies within a deployment, so the tool 
 
 #### What the model sees
 
-A successful read answers with one text block: a `Page: <title> — the app is at <path>, title "<document title>"` line, extended with the visible breadcrumb and, on its own line, the name of any dialog the page has open, followed by the listing itself. A whole page too large for the budget answers with the page's map and says so on that first line; a listing cut short ends with the cursor to pass back as `after`. Every other ending is an error naming what to do next: call `content_show`, drop `scope`, read a smaller part of the page or raise `outlineChars`, ask the user to sign in, ask the user to open the console, or retry once.
+A successful read answers with one text block: a `Page: <title> — the app is at <path>, title "<document title>"` line, extended with the visible breadcrumb and, each on its own line, the name of any dialog the page has open, what the page marks as still loading, and whether it was still changing when the read ran — followed by the listing itself. A whole page too large for the budget answers with the page's map and says so on that first line; a listing cut short ends with the cursor to pass back as `after`. Every other ending is an error naming what to do next: call `content_show`, drop `scope`, read a smaller part of the page or raise `outlineChars`, ask the user to sign in, ask the user to open the console, or retry once.
 
 #### Token effect
 
@@ -160,8 +180,43 @@ Bounded by `outlineChars` — a listing is rendered under that budget, so one re
 
 Append-only. The listing is a fact about the page at that moment; a second read of a changed page is a new result rather than a rewrite of the first.
 
+### The content-column context
+
+#### What the model sees
+
+One `content:column` block on every request, listing what the column holds newest first — `- "<title>" (<kind>, opened by the user|you)`, the entry in front marked `← in front`, and for a page whose frame has moved a second line naming the address it is at now. A column that holds nothing says so in one sentence. The closing line names what to call: `content_show puts a page in front.`, preceded where the deployment offers a reader by `content_read reads the entry in front` and by the rule keeping the model's own handles out of its answers — refs like `e12` are for `content_read`'s `scope` and `after`, and an answer to the user names what the page shows instead. That rule lives here rather than in the tool description because it governs the answer rather than the call: a model choosing the tool has already read the description, while the sentence it writes afterwards is composed against whatever the request carried.
+
+#### Token effect
+
+One line per live entry, at most ten listed plus a count of the rest, each field cut to 120 characters, plus two or three closing lines. A session that has shown two pages costs four or five short lines per request.
+
+#### KV Cache effect
+
+A context, not a section: it is materialized after the retained history, so the value changing as the user works never rewrites the cached system-prompt prefix. The block itself changes whenever the column does, which is the point of it.
+
+### The notice a user's page click injects
+
+#### What the model sees
+
+One sentence as an injected context message, once per click: `The user opened the page "<title>" in the content column (内容区); it is in front now.` It arrives on the agent's next pre-step and wakes nothing.
+
+#### Token effect
+
+One short sentence per click, permanently on the conversation.
+
+#### KV Cache effect
+
+Append-only, at the tail of the conversation, so it invalidates nothing already cached.
+
 ## Known Limitations and Deferred Work
 
+- **`content/navigated` is required on read, like `content/shown`** — neither event carries an `ignorable` marker, because `Session.append` has no way to set one today; a runtime whose session vocabulary excludes this package refuses the whole log rather than skipping the events.
+- **A route change costs one poll interval** — `pushState` fires nothing, so an application that routes and then sits still is noticed on the next poll (default one second) plus the settling window. Lowering `navigationPollMs` buys latency and spends a same-origin property read per frame per interval; the frame's own `history` is deliberately not patched.
+- **The navigation watch covers only the frame in front** — a cached, hidden frame that routes itself is not watched, and the move is noticed when that page comes back to the front.
+- **`content/navigated` records no page title change on its own** — a document that rewrites its title without moving is reported, because the watch compares address and title together, but only once the frame has settled for 300ms.
+- **The settle wait cannot see a page that paints on a timer** — a document that repaints every second never holds still for the quiet window and every read of it carries the still-changing line. That is the honest answer, not a failure: the budget bounds the wait rather than the page.
+- **`aria-busy` is the only busy signal read** — a page that marks nothing loading gets no busy line however long it spins, because no framework's own loading class is known here.
+- **`contentPages` has no wire** — it is a host-only fold; a browser that wants where a frame went reads the frame.
 - **`content/shown` is required on read** — the event carries no `ignorable` marker, so a runtime whose session vocabulary does not include it refuses the whole log rather than skipping the event. Any build of this repository knows the type; a separately built runtime that excluded this package would not.
 - **The on-display rule does not distinguish writers** — [`content-surface`](../content-surface/README.md)'s kind-agnostic prompt rule tells the model to update "something you have already produced and put on display" in place. A page a user opened through the sidebar menu is on display exactly the same way a page the agent chose is, so the rule's wording still reads as if the agent produced it. The `by` field exists to let a future prompt or renderer draw that distinction; the rule's wording is deliberately left unchanged (it is a pinned, measured string — see its own module doc) rather than patched for this one case.
 - **The `page` extractor's resolved `by` is not yet rendered** — the browser's page frame draws the same iframe regardless of who showed it. The field is carried through so a later change can show it without another `dataVersion` bump.

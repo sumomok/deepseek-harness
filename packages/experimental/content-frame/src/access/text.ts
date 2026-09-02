@@ -133,6 +133,25 @@ export function engineRefusal(message: string): string {
   return `${message} Call content_read without scope or after for fresh refs.`
 }
 
+/**
+ * The line a listing carries when the page never stopped changing.
+ *
+ * It states the fact and the one thing that follows from it. The listing under
+ * this line is a real read — it is what the page held at that instant — and
+ * reading again is what turns it into a listing of the page as the user has it.
+ */
+export const STILL_CHANGING_LINE =
+  'The page was still changing when this read ran; read again for the settled page.'
+
+/**
+ * The line naming what the page says it is still loading.
+ * @param busy - the names the seat read off the page's own `aria-busy` marks.
+ * @returns the model-facing line.
+ */
+export function stillLoadingLine(busy: readonly string[]): string {
+  return `The page marks these as still loading: ${busy.map(name => `"${name}"`).join(', ')}`
+}
+
 /** The header fields one result line is composed from. */
 export interface ReadHeaderText {
   /** The configured page title. */
@@ -151,23 +170,34 @@ export interface ReadHeaderText {
   truncated: boolean
   /** How many rows the listing has in full. */
   total: number
+  /** False when the page was still changing when the read ran. */
+  settled: boolean
+  /** Names of the elements the page marks as still loading; empty when it marks none. */
+  busy: readonly string[]
 }
 
 /**
- * The line naming the page, and the one naming its open dialog.
+ * The line naming the page, and one line per qualification on what was read.
  *
  * The map's suffix is on the first line rather than a line of its own because
  * it qualifies the answer the model just asked for: it says this is not the
- * outline it requested and why.
+ * outline it requested and why. The open dialog, the busy marks and a page that
+ * never settled each get a line, because each is a separate fact about the same
+ * listing and any of them can be true on its own.
  * @param header - what the read found above the items themselves.
- * @returns the leading line, plus the dialog line when one is open.
+ * @returns the leading line, plus a line for each qualification that applies.
  */
 export function readHeaderText(header: ReadHeaderText): string {
   const trail = header.breadcrumb === undefined ? '' : `, breadcrumb ${header.breadcrumb}`
   const outsized = header.truncated && header.kind === 'map'
     ? ` [${header.total} items — too large for one read; this is the map]`
     : ''
-  const first = `Page: ${header.page} — the app is at ${header.url}, title "${header.title}"${trail}${outsized}`
-  if (header.modal === undefined) return first
-  return `${first}\ndialog "${header.modal}" open (modal) — the rest of the page is behind its mask`
+  return [
+    `Page: ${header.page} — the app is at ${header.url}, title "${header.title}"${trail}${outsized}`,
+    ...header.modal === undefined
+      ? []
+      : [`dialog "${header.modal}" open (modal) — the rest of the page is behind its mask`],
+    ...header.busy.length === 0 ? [] : [stillLoadingLine(header.busy)],
+    ...header.settled ? [] : [STILL_CHANGING_LINE],
+  ].join('\n')
 }

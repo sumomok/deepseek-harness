@@ -16,6 +16,11 @@
  * would answer, but a hidden tab is not what the user is looking at, and the
  * read is defined as the page in front of them; the scan runs again when the
  * tab comes back.
+ *
+ * A read waits twice before it walks anything: for a document that is still
+ * loading, and then for a loaded document to stop changing (`../perception/
+ * settle.ts`). Each spends its own share of the report deadline, and the
+ * second one's verdict travels with the listing rather than replacing it.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/executor
  */
 import { useEffect, useRef, useState } from 'react'
@@ -25,13 +30,14 @@ import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
   MAX_URL_CHARS, PREFERRED_TAB_WINDOW_MS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
-  type ClaimAck, type ReadOutcome, type ReadPage, type ReportAck,
+  SETTLE_WAIT_SHARE, type ClaimAck, type ReadOutcome, type ReadPage, type ReportAck,
 } from '../../access/wire.ts'
 import {
   FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
 } from '../../access/text.ts'
 import type { ContentFrameAccessSettings } from '../../route.ts'
 import type { ContentReadRequest } from '../../types.ts'
+import { settlePage } from '../perception/settle.ts'
 import { RefTable } from './refs.ts'
 import { snapshot } from './snapshot.ts'
 import type { SnapshotOptions } from './snapshot.ts'
@@ -390,6 +396,16 @@ async function readPage(
   if (frame.contentWindow.document.readyState !== 'complete' && !await whenLoaded(frame, loadBudgetMs)) {
     return report(frameError(FRAME_LOADING_MESSAGE))
   }
+  // A loaded document is not a drawn one: an application that just changed
+  // route has its markup and not yet its data. This is the second share of the
+  // same deadline, spent on the page going quiet, and what it found travels
+  // with the listing either way — a read taken while the page moved says so
+  // rather than passing itself off as the settled page.
+  const settlement = await settlePage(
+    frame.contentWindow.document,
+    { quietMs: access.settleQuietMs, budgetMs: access.readTimeoutMs * SETTLE_WAIT_SHARE },
+    isVisible,
+  )
   const args = request.args
   const options: SnapshotOptions = {
     refs: tableFor(seat.tables, seat.activeFrameId),
@@ -425,6 +441,8 @@ async function readPage(
         shown: read.shown,
         total: read.total,
         ...read.cursor === undefined ? {} : { cursor: read.cursor },
+        settled: settlement.settled,
+        ...settlement.busy.length === 0 ? {} : { busy: [...settlement.busy] },
       },
     }
     // The renderer prints a listing's first block however long it is, so this is

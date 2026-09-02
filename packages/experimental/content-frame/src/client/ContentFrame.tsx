@@ -17,16 +17,21 @@
  * — see the package README's trust section.
  *
  * The seat holds the frame elements because it is the only placement that can:
- * `content_read` needs the live document, and the reader it drives lives here
- * for that reason alone. Each frame keeps its own element numbering, dropped
- * when the frame navigates — refs name elements of one document, and a reloaded
- * page is a different one.
+ * `content_read` needs the live document, and both things this seat drives —
+ * the reader and the navigation watch — live here for that reason alone. Each
+ * frame keeps its own element numbering, dropped when the frame navigates:
+ * refs name elements of one document, and a reloaded page is a different one.
+ *
+ * The watch follows the frame in front and no other. What a hidden frame is
+ * doing is not what the user is looking at, and the two things the log records
+ * about a page's address — the context assembled for each request and the ref
+ * table a read resolves against — are both about the page in front.
  *
  * Everything else is presentation: the frame cache is component-local state
  * folded from the entry the column hands over, and every string comes from the
  * locale seat.
  */
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Also pulls the content surface's `contentSurface` SessionProjectionMap merge.
@@ -37,14 +42,27 @@ import type { ContentPageView, ContentReadRequest } from '../types.ts'
 import { foldFrames, NO_FRAMES, type CachedFrame, type FrameCache } from './frame-cache.ts'
 import { RefTable } from './access/refs.ts'
 import { TAB_ID, useContentRead } from './access/executor.ts'
+import { watchFrame, type FrameWatch } from './perception/navigation.ts'
 import css from './ContentFrame.module.css'
 
-/** Plain data this registration injects. */
+/** Plain data and one callback this registration injects. */
 export interface ContentFrameFace {
   /** How many (session, page) frames stay alive at once, as the node half configured it. */
   cacheSize: number
-  /** The reader's budget and deadline; absent when the deployment configures no page access. */
+  /**
+   * How often the frame in front is asked where it is, in milliseconds, as the
+   * node half configured it. It is what catches a router that changes route
+   * through `history.pushState`, which fires no event this seat can listen for.
+   */
+  navigationPollMs: number
+  /** The reader's budget and deadlines; absent when the deployment configures no page access. */
   pageAccess?: ContentFrameAccessSettings
+  /**
+   * Record that the frame in front moved: appends `content/navigated` through
+   * `/content-navigated` against `sessionId`. Fire-and-forget — nothing the
+   * seat renders depends on it, and the log is what the agent reads.
+   */
+  onNavigated: (sessionId: string, page: string, url: string, title: string) => void
 }
 
 /** Composed props: the kind-seat runtime share, the injected face, and the locale seat. */
@@ -99,10 +117,14 @@ interface FrameHandlers {
 
 /**
  * Render the page seat.
- * @param props - the column's selection, the cache bound, the reader's settings, and the locale seat.
+ * @param props - the column's selection, the two bounds and the reader's
+ * settings the node half configured, the navigation callback, and the locale
+ * seat. Taken whole because the navigation watch reads them live, one render
+ * after the one that armed it.
  * @returns every cached frame, plus a notice when the selected page is gone.
  */
-export function ContentFrame({ sessionId, entry, cacheSize, pageAccess, useSessions, t }: ContentFrameProps) {
+export function ContentFrame(props: ContentFrameProps) {
+  const { sessionId, entry, cacheSize, navigationPollMs, pageAccess, useSessions, t } = props
   const active = activeFrame(sessionId, entry)
 
   // Derived state, not a subscription: the cache is a fold over the entries the
@@ -119,6 +141,11 @@ export function ContentFrame({ sessionId, entry, cacheSize, pageAccess, useSessi
   const frames = useRef<Map<string, HTMLIFrameElement>>(new Map())
   const tables = useRef<Map<string, RefTable>>(new Map())
   const handlers = useRef<Map<string, FrameHandlers>>(new Map())
+  const watches = useRef<Map<string, FrameWatch>>(new Map())
+
+  // Read live by the watch below, which outlives the render that created it.
+  const live = useRef(props)
+  useEffect(() => { live.current = props })
 
   // The seat is root-scoped, so the framework binds no `useProjection` here and
   // the session's values are read off the list snapshot every root slot gets.
@@ -139,6 +166,28 @@ export function ContentFrame({ sessionId, entry, cacheSize, pageAccess, useSessi
     tabId: TAB_ID,
   })
 
+  const activeFrameId = active?.frameId
+  const activeUrl = active?.url
+  const page = entry?.entryId
+  useEffect(() => {
+    if (sessionId === undefined || activeFrameId === undefined || activeUrl === undefined || page === undefined) return
+    const element = frames.current.get(activeFrameId)
+    /* v8 ignore next -- the frame in front is always rendered, and React runs its ref callback before this effect */
+    if (element === undefined) return
+    const watch = watchFrame({
+      frame: element,
+      entryUrl: activeUrl,
+      onNavigated: (address) => { live.current.onNavigated(sessionId, page, address.url, address.title) },
+    })
+    watches.current.set(activeFrameId, watch)
+    const polling = setInterval(() => { watch.poll() }, navigationPollMs)
+    return () => {
+      clearInterval(polling)
+      watches.current.delete(activeFrameId)
+      watch.dispose()
+    }
+  }, [sessionId, activeFrameId, activeUrl, page, navigationPollMs])
+
   const handlersFor = useCallback((frameId: string): FrameHandlers => {
     const known = handlers.current.get(frameId)
     if (known !== undefined) return known
@@ -154,8 +203,12 @@ export function ContentFrame({ sessionId, entry, cacheSize, pageAccess, useSessi
       },
       // Numbers are never reused, so a ref the model still holds from the
       // previous document resolves to nothing rather than to whatever element
-      // inherited its place.
-      onLoad: () => { tables.current.get(frameId)?.reset() },
+      // inherited its place. The watch re-arms on the same signal: a load
+      // replaced the window its listeners were registered on.
+      onLoad: () => {
+        tables.current.get(frameId)?.reset()
+        watches.current.get(frameId)?.reload()
+      },
     }
     handlers.current.set(frameId, minted)
     return minted

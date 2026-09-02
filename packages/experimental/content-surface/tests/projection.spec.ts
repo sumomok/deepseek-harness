@@ -12,7 +12,7 @@ import { describe, expect, it } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { contentSurfaceProjection } from '../src/projection.ts'
 import { eraseExtractor, foldVersion } from '../src/extractor.ts'
-import type { ContentSurfaceRecord } from '../src/types.ts'
+import type { ContentSurfaceFold } from '../src/types.ts'
 
 /** An extractor recognizing nothing, so only its `resolve` and identity matter here. */
 const alpha = eraseExtractor({
@@ -45,14 +45,21 @@ const alphaRecognizing = eraseExtractor({
 })
 
 /** Records as a checkpoint written under a wider table would carry them. */
-const STATE: ContentSurfaceRecord[] = [
-  { kind: 'alpha', entryId: 'one', seq: 2, data: 'one' },
-  { kind: 'beta', entryId: 'two', seq: 5, data: 'two' },
-]
+const STATE: ContentSurfaceFold = {
+  records: [
+    { kind: 'alpha', entryId: 'one', seq: 2, data: 'one' },
+    { kind: 'beta', entryId: 'two', seq: 5, data: 'two' },
+  ],
+}
 
 /** One dismissal event, as the fold receives it. */
 function dismissal(kind: string, entryId: string, seq: number): SessionEvent {
   return { type: 'content-surface/dismissed', seq, time: 0, data: { kind, entryId, by: 'user' } }
+}
+
+/** One selection event, as the fold receives it. */
+function selection(kind: string, entryId: string, seq: number): SessionEvent {
+  return { type: 'content-surface/selected', seq, time: 0, data: { kind, entryId, by: 'user' } }
 }
 
 describe('contentSurface projection', () => {
@@ -60,6 +67,7 @@ describe('contentSurface projection', () => {
     const unit = contentSurfaceProjection([alpha])
     expect(unit.wire.view(STATE)).toEqual({
       entries: [{ kind: 'alpha', entryId: 'one', seq: 2, title: 'alpha:one', payload: 'one' }],
+      front: { kind: 'alpha', entryId: 'one' },
     })
   })
 
@@ -68,14 +76,20 @@ describe('contentSurface projection', () => {
     expect(unit.wire.view(STATE).entries.map(entry => entry.title)).toEqual(['beta:two', 'alpha:one'])
   })
 
-  it('accepts the state schema over a checkpoint\'s own JSON', () => {
-    expect(contentSurfaceProjection([alpha]).stateSchema.parse(STATE)).toEqual(STATE)
+  it('accepts the state schema over a checkpoint\'s own JSON, with and without a selection', () => {
+    const unit = contentSurfaceProjection([alpha])
+    expect(unit.stateSchema.parse(STATE)).toEqual(STATE)
+    const selected = { ...STATE, selected: { kind: 'beta', entryId: 'two', seq: 7 } }
+    expect(unit.stateSchema.parse(selected)).toEqual(selected)
+    // Absent rather than present and undefined: the checkpoint is JSON, and
+    // what leaves the schema is what a fresh fold would have produced.
+    expect(Object.hasOwn(unit.stateSchema.parse(STATE), 'selected')).toBe(false)
   })
 
   it('removes the record a dismissal names, leaving every other one untouched', () => {
     const unit = contentSurfaceProjection([alpha, beta])
     const next = unit.apply(STATE, dismissal('alpha', 'one', 9))
-    expect(next).toEqual([{ kind: 'beta', entryId: 'two', seq: 5, data: 'two' }])
+    expect(next).toEqual({ records: [{ kind: 'beta', entryId: 'two', seq: 5, data: 'two' }] })
   })
 
   it('is a no-op fold when the dismissed pair is already gone, not an error', () => {
@@ -90,6 +104,55 @@ describe('contentSurface projection', () => {
     expect(unit.wire.view(afterDismissal).entries).toEqual([])
     const resurrected = unit.apply(afterDismissal, { type: ALPHA_SHOWN, seq: 10, time: 0, data: { id: 'again' } } as SessionEvent)
     expect(unit.wire.view(resurrected).entries).toEqual([{ kind: 'alpha', entryId: 'one', seq: 10, title: 'alpha:again', payload: 'again' }])
+  })
+
+  it('carries a selection across a dismissal that removed another entry', () => {
+    const unit = contentSurfaceProjection([alpha, beta])
+    const chosen = unit.apply(STATE, selection('alpha', 'one', 9))
+    const next = unit.apply(chosen, dismissal('beta', 'two', 10))
+    expect(next).toEqual({
+      records: [{ kind: 'alpha', entryId: 'one', seq: 2, data: 'one' }],
+      selected: { kind: 'alpha', entryId: 'one', seq: 9 },
+    })
+  })
+
+  it('keeps the same state reference for an event no case and no extractor claims', () => {
+    const unit = contentSurfaceProjection([alpha, beta])
+    expect(unit.apply(STATE, { type: 'turn/start', seq: 9, time: 0, data: { turn: 1 } })).toBe(STATE)
+  })
+})
+
+describe('contentSurface front', () => {
+  const unit = contentSurfaceProjection([alpha, beta])
+
+  it('has no front when the session produced no entries', () => {
+    expect(unit.wire.view({ records: [] })).toEqual({ entries: [] })
+  })
+
+  it('puts the newest entry in front when nothing was selected', () => {
+    expect(unit.wire.view(STATE).front).toEqual({ kind: 'beta', entryId: 'two' })
+  })
+
+  it('puts the entry the user selected in front, older than the newest though it is', () => {
+    expect(unit.wire.view(unit.apply(STATE, selection('alpha', 'one', 9))).front)
+      .toEqual({ kind: 'alpha', entryId: 'one' })
+  })
+
+  it('gives the front back to an entry recorded after the selection', () => {
+    const chosen = unit.apply(STATE, selection('alpha', 'one', 9))
+    // The agent showing something is a later record than the click, so the
+    // click gives way — the same comparison the selection won above.
+    const shown = unit.apply(chosen, { type: ALPHA_SHOWN, seq: 12, time: 0, data: { id: 'again' } } as SessionEvent)
+    expect(contentSurfaceProjection([alphaRecognizing, beta]).wire.view(shown).front)
+      .toEqual({ kind: 'alpha', entryId: 'one' })
+    expect(unit.wire.view({ ...STATE, selected: { kind: 'alpha', entryId: 'one', seq: 4 } }).front)
+      .toEqual({ kind: 'beta', entryId: 'two' })
+  })
+
+  it('falls back to the newest entry when the selected one was dismissed', () => {
+    const chosen = unit.apply(STATE, selection('alpha', 'one', 9))
+    expect(unit.wire.view(unit.apply(chosen, dismissal('alpha', 'one', 11))).front)
+      .toEqual({ kind: 'beta', entryId: 'two' })
   })
 })
 

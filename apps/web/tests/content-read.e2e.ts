@@ -203,6 +203,12 @@ describe('web e2e: the agent reads the page in the content column', () => {
     // whatever the seat returned rather than the model writing it. A read that
     // failed answers a sentence instead, so this holds the channel as well.
     expect(listings.filter(text => !text.startsWith('Page: Home — the app is at /content-app/'))).toEqual([])
+    // And it carries neither of the two lines a page that had not finished
+    // drawing itself would add: this fixture holds still inside the read's own
+    // quiet window and marks nothing as loading, so a read of it says nothing
+    // about either.
+    expect(listings.filter(text => text.includes('The page was still changing when this read ran'))).toEqual([])
+    expect(listings.filter(text => text.includes('The page marks these as still loading'))).toEqual([])
     // Some listing names the table. The page writes `aria-label="Fleet"`, and
     // an outline, a map, a `scope` on its ref and a `find` on its text each
     // print it the same way, so any read that reached the table shows this.

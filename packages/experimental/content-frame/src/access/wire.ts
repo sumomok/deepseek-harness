@@ -49,6 +49,26 @@ export const CLAIM_RETRY_MS = 200
  */
 export const LOAD_WAIT_SHARE = 0.5
 
+/**
+ * The share of the report deadline a seat may spend waiting for a page that has
+ * loaded to stop changing.
+ *
+ * A second share of the same deadline, and the reason there are two: a whole
+ * document load and an application drawing its next route are different waits,
+ * and one read can need both one after the other. Together they leave the walk
+ * and the trip back a quarter of the deadline, which is what keeps the "still
+ * changing" sentence reachable at all — a wait that spent the deadline would be
+ * answered by the host as a console that went quiet instead.
+ */
+export const SETTLE_WAIT_SHARE = 0.25
+
+/**
+ * How many busy elements one listing header names. A page marking a dozen
+ * regions `aria-busy` is a page that is loading, and naming the first few says
+ * so at a cost the header can carry.
+ */
+export const MAX_BUSY_NAMES = 3
+
 /** Longest failure message a posted outcome may carry, in characters. */
 export const MAX_OUTCOME_MESSAGE_CHARS = 2000
 
@@ -106,10 +126,10 @@ export const MAX_TEXT_BYTES_PER_CHAR = 4
  * written with.
  *
  * A listing report with every string empty and nine-digit counters serializes
- * to 239 bytes, and the union of that form's keys with a failure's to 283 —
+ * to 273 bytes, and the union of that form's keys with a failure's to 317 —
  * with both discriminants empty. The values a real report writes there,
  * `outline` and `not-a-page`, add 17 bytes that no per-field allowance covers,
- * so 300 is what the envelope has to leave room for; a bound covering both
+ * so 334 is what the envelope has to leave room for; a bound covering both
  * forms cannot be read off either one alone. Rounded up from there, with room
  * for counters longer than nine digits.
  */
@@ -122,6 +142,12 @@ export const REPORT_SYNTAX_BYTES = 512
  * its title, or a failure's kind and title), the cursor, and a failure message
  * — each at the bound the wire holds it to — plus {@link REPORT_SYNTAX_BYTES}
  * for the punctuation, key names and discriminant values around them.
+ *
+ * The sum is over both arms' fields, and no report carries all of them: a
+ * listing carries no failure message, and a failure carries no address, header
+ * or cursor. That slack is what covers the {@link MAX_BUSY_NAMES} busy names a
+ * listing may carry, which are held to {@link MAX_NAME_CHARS} each and cost at
+ * most 768 characters against the 2000 a listing never spends on a message.
  *
  * Both halves read it, the way {@link MAX_TEXT_BYTES_PER_CHAR} is read for the
  * listing: the node half adds it to the budget in bytes to size the route's
@@ -299,6 +325,13 @@ export interface ReadSnapshot {
   total: number
   /** The ref to pass back as `after`; present only on a listing cut short. */
   cursor?: string
+  /** False when the page was still changing when the seat stopped waiting for it. */
+  settled: boolean
+  /**
+   * Names of the visible elements the page marks `aria-busy` at read time, at
+   * most {@link MAX_BUSY_NAMES}; absent when the page marks none.
+   */
+  busy?: string[]
 }
 
 /** What one claimed read ended as. */
@@ -405,12 +438,15 @@ function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | und
   if (candidate.kind !== 'outline' && candidate.kind !== 'map') return undefined
   if (!isText(candidate.url, MAX_URL_CHARS) || !isText(candidate.title, MAX_HEADER_CHARS)) return undefined
   if (typeof candidate.signIn !== 'boolean' || typeof candidate.truncated !== 'boolean') return undefined
+  if (typeof candidate.settled !== 'boolean') return undefined
   if (!isText(candidate.text, maxTextChars)) return undefined
   if (!isCount(candidate.shown) || !isCount(candidate.total)) return undefined
   for (const optional of [candidate.breadcrumb, candidate.modal]) {
     if (optional !== undefined && !isText(optional, MAX_HEADER_CHARS)) return undefined
   }
   if (candidate.cursor !== undefined && !isText(candidate.cursor, MAX_CURSOR_CHARS)) return undefined
+  const busy = parseBusy(candidate.busy)
+  if (busy === undefined) return undefined
   return {
     kind: candidate.kind,
     url: candidate.url,
@@ -423,7 +459,26 @@ function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | und
     shown: candidate.shown,
     total: candidate.total,
     ...typeof candidate.cursor === 'string' ? { cursor: candidate.cursor } : {},
+    settled: candidate.settled,
+    ...busy.length === 0 ? {} : { busy },
   }
+}
+
+/**
+ * Read the busy names one posted snapshot carries.
+ *
+ * The names come off a page, so each carries the same length and printability
+ * bound every other page-supplied name does, and the list carries a count
+ * bound of its own: the envelope the route sizes its byte bound from allows
+ * {@link MAX_BUSY_NAMES} of them.
+ * @param value - the decoded `busy` field, however malformed.
+ * @returns the names, empty when the field was absent, or `undefined` when the
+ * value is not a list of them.
+ */
+function parseBusy(value: unknown): string[] | undefined {
+  if (value === undefined) return []
+  if (!Array.isArray(value) || value.length > MAX_BUSY_NAMES) return undefined
+  return value.every(name => isText(name, MAX_NAME_CHARS)) ? value : undefined
 }
 
 /** Every code a posted failure may name. */

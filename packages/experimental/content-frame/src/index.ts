@@ -7,6 +7,12 @@
  * what each session's column shows; the browser half claims the column and
  * keeps one live frame per session.
  *
+ * What the model knows about the column comes from the perception layer in
+ * `perception/` and nowhere else: a notice when the user opens a page, a
+ * `content:column` context on every request saying what the column holds and
+ * where each page's frame has gone, and the `content/navigated` events the
+ * browser records as the application inside a frame routes itself.
+ *
  * Trust: the route answers on the dsh origin and the iframe carries no
  * `sandbox` attribute, so the document inside it is same-origin with the shell
  * and reaches the dsh HTTP API with the shell's own authority. `root` must
@@ -24,14 +30,16 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import type {} from '@deepseek-ai/dsh-session-projection'
 // Type-only: resolves ctx.contentSurface for the optional extractor child.
 import type {} from '@deepseek-ai/dsh-experimental-content-surface'
-// Type-only: resolves ctx.commands for the optional show-content-page command child.
+// Type-only: resolves ctx.commands for the two optional browser-driven command children.
 import type {} from '@deepseek-ai/dsh-commands'
+// Type-only: resolves ctx.systemPrompt for the optional content-column context child.
+import type {} from '@deepseek-ai/dsh-system-prompt'
 import type { ContentPage } from './types.ts'
 import { indexPages } from './pages.ts'
 import { contentProjection } from './projection.ts'
 import { pageExtractor } from './surface.ts'
 import { contentShowTool } from './tool.ts'
-import { showContentPageCommand } from './command.ts'
+import { contentNavigatedCommand, showContentPageCommand } from './command.ts'
 import { CONTENT_APP_ROUTE, CONTENT_SETTINGS_ROUTE, type ContentFrameSettings } from './route.ts'
 import { serveContentApp } from './serve.ts'
 import {
@@ -42,8 +50,10 @@ import { contentAccessProjection } from './access/requests-projection.ts'
 import { contentReadTool } from './access/read-tool.ts'
 import {
   CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
-  MIN_OUTLINE_CHARS, parseClaimRequest, parseReportRequest, REPORT_ENVELOPE_BYTES,
+  MIN_OUTLINE_CHARS, parseClaimRequest, parseReportRequest, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
 } from './access/wire.ts'
+import { contentPagesProjection } from './perception/pages-projection.ts'
+import { registerColumnContext } from './perception/context.ts'
 
 // The `content/shown` and `content` declarations live in src/types.ts (their
 // one home); this re-export projects the type face onto the package root and
@@ -102,6 +112,17 @@ export interface Config {
    */
   cacheSize?: number
   /**
+   * How often the browser asks the page in front where it is, in
+   * milliseconds. A configured page is a shell around an application that
+   * routes itself, and a router changing route through `history.pushState`
+   * fires no event a parent document can listen for — polling the frame's own
+   * address is what makes that move reach the log at all. Lower it for a
+   * deployment whose users move through an application quickly and whose agent
+   * must keep up; raise it to spend less on a deployment whose pages are
+   * static.
+   */
+  navigationPollMs?: number
+  /**
    * Lets the agent read the page in the column through `content_read`. Absent
    * turns the whole channel off: no tool, no claim or report route, no pending
    * projection, and no reader in the browser — a deployment that only shows
@@ -133,6 +154,16 @@ export interface PageAccessConfig {
    */
   pinMs: number
   /**
+   * How long a loaded page must go unchanged before a read walks it. A route
+   * change inside an application leaves the document complete while its data
+   * is still arriving, and this is how long stillness has to last to count as
+   * drawn. Raise it for an application that paints in slow bursts; lower it for
+   * one that answers immediately and for an agent that should not wait. It must
+   * fit inside the share of `readTimeoutMs` the wait is given, which the row
+   * checks at load.
+   */
+  settleQuietMs: number
+  /**
    * The character budget one listing is rendered under. It is the ceiling on
    * what a single read can cost in context: past it the read answers with the
    * page's map, or with a cursor to continue from. Raise it for a deployment
@@ -148,6 +179,13 @@ export interface PageAccessConfig {
 /** Default frame cache size: the current session plus the two before it. */
 const DEFAULT_CACHE_SIZE = 3
 
+/**
+ * Poll interval used when a deployment configures none: fast enough that a
+ * route change is on the log before the user has finished reading the new
+ * page, cheap enough to be one same-origin property read per second.
+ */
+const DEFAULT_NAVIGATION_POLL_MS = 1000
+
 /** Claim window used when a deployment enables page access and configures none. */
 const DEFAULT_CLAIM_TIMEOUT_MS = 3000
 /** Report deadline used when a deployment enables page access and configures none. */
@@ -156,6 +194,13 @@ const DEFAULT_READ_TIMEOUT_MS = 15000
 const DEFAULT_PIN_MS = 300000
 /** Listing budget used when a deployment enables page access and configures none. */
 const DEFAULT_OUTLINE_CHARS = 12000
+
+/**
+ * Quiet window used when a deployment enables page access and configures none:
+ * long enough to sit through the gap between an application's own two paints,
+ * short enough that reading a static page costs a quarter second.
+ */
+const DEFAULT_SETTLE_QUIET_MS = 250
 
 export const Config: z<Config> = z.object({
   root: z.string().required(),
@@ -168,6 +213,7 @@ export const Config: z<Config> = z.object({
   defaultPage: z.string(),
   homePage: z.string(),
   cacheSize: z.natural().default(DEFAULT_CACHE_SIZE),
+  navigationPollMs: z.natural().default(DEFAULT_NAVIGATION_POLL_MS),
   // Cleared default, because schemastery gives every object schema `{}`: left
   // alone it would materialize this block for a deployment that configured
   // none and switch the read channel on by accident. `undefined` is not a
@@ -176,6 +222,7 @@ export const Config: z<Config> = z.object({
     claimTimeoutMs: z.natural().default(DEFAULT_CLAIM_TIMEOUT_MS),
     readTimeoutMs: z.natural().default(DEFAULT_READ_TIMEOUT_MS),
     pinMs: z.natural().default(DEFAULT_PIN_MS),
+    settleQuietMs: z.natural().default(DEFAULT_SETTLE_QUIET_MS),
     outlineChars: z.natural().default(DEFAULT_OUTLINE_CHARS),
   }).default(undefined as never),
 })
@@ -245,6 +292,17 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     pinMs: requireAtLeast('pinMs', config.pinMs, 1),
   }
   const outlineChars = requireAtLeast('outlineChars', config.outlineChars, MIN_OUTLINE_CHARS)
+  // Loud at load and self-contained: a quiet window the settle budget cannot
+  // hold would spend the whole budget and report every page as still changing,
+  // and both numbers are in this one block.
+  const settleQuietMs = requireAtLeast('settleQuietMs', config.settleQuietMs, 1)
+  const settleBudgetMs = timeouts.readTimeoutMs * SETTLE_WAIT_SHARE
+  if (settleQuietMs > settleBudgetMs) {
+    throw new Error(
+      `content-frame: pageAccess.settleQuietMs must fit in ${String(settleBudgetMs)}ms `
+      + `(${String(SETTLE_WAIT_SHARE)} of readTimeoutMs), received ${String(settleQuietMs)}`,
+    )
+  }
   // The character bound the parser holds a posted listing to: it covers the one
   // block the renderer prints past the budget, and a forged listing cannot
   // carry an arbitrary page through it. A listing past it is one the seat
@@ -321,7 +379,12 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(contentAccessProjection())
   })
-  return { outlineChars, claimTimeoutMs: timeouts.claimTimeoutMs, readTimeoutMs: timeouts.readTimeoutMs }
+  return {
+    outlineChars,
+    claimTimeoutMs: timeouts.claimTimeoutMs,
+    readTimeoutMs: timeouts.readTimeoutMs,
+    settleQuietMs,
+  }
 }
 
 /**
@@ -340,6 +403,10 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   }
   const cacheSize = config.cacheSize ?? DEFAULT_CACHE_SIZE
   if (cacheSize < 1) throw new Error(`content-frame: cacheSize must be at least 1, received ${cacheSize}`)
+  const navigationPollMs = config.navigationPollMs ?? DEFAULT_NAVIGATION_POLL_MS
+  if (navigationPollMs < 1) {
+    throw new Error(`content-frame: navigationPollMs must be at least 1, received ${navigationPollMs}`)
+  }
   // The type offers this block or nothing, and a row can write a third thing: a
   // bare `pageAccess:` key is YAML for null, which the object schema passes
   // through untouched while it refuses every other non-object on its own. Read
@@ -370,6 +437,7 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   const pageAccess = config.pageAccess === undefined ? undefined : claimPageAccess(ctx, config.pageAccess)
   const settings: ContentFrameSettings = {
     cacheSize,
+    navigationPollMs,
     pages: [...pages.values()],
     ...config.homePage === undefined ? {} : { homePage: config.homePage },
     ...pageAccess === undefined ? {} : { pageAccess },
@@ -397,11 +465,14 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
   })
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(contentProjection(pages, config.defaultPage))
+    projectionCtx.sessionProjections.register(contentPagesProjection())
   })
+  registerColumnContext(ctx, pages, config.pageAccess !== undefined)
   ctx.inject(['contentSurface'], (surfaceCtx) => {
     surfaceCtx.contentSurface.register(pageExtractor(pages))
   })
   ctx.inject(['commands'], (commandsCtx) => {
     commandsCtx.commands.register(showContentPageCommand(pages))
+    commandsCtx.commands.register(contentNavigatedCommand(pages))
   })
 }

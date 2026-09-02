@@ -96,11 +96,15 @@ export function eraseExtractor<D>(extractor: ContentSurfaceExtractor<D>): Erased
  * so a change to the fold's own control flow (not merely to a kind's stored
  * shape) also discards a persisted checkpoint. Bump this whenever `apply`
  * gains or changes a case that is not "run each registered extractor once
- * per event" — `content-surface/dismissed`'s record removal is the first
- * such case, hence `2` rather than `1`: the fold used to be exactly the
- * extractor table, and now is not.
+ * per event", and whenever the folded state changes its serialized form.
+ * `content-surface/dismissed`'s record removal was the first such case,
+ * which is why this was `2` rather than `1`; `3` is
+ * `content-surface/selected`, which is both — a second case the extractor
+ * table never sees, and the reason the state is now an object carrying the
+ * records beside the selection rather than the bare record array every
+ * checkpoint written under `2` holds.
  */
-const FOLD_SEMANTICS_VERSION = 2
+const FOLD_SEMANTICS_VERSION = 3
 
 /**
  * Fold-semantics version of one extractor table.

@@ -171,7 +171,12 @@ describe('hosted application route', () => {
     // part of what booted.
     expect(loaded.tools.schemas().map(schema => schema.name)).toContain('content_show')
     const commandSession = newSession(loaded)
-    const commandAgent = { id: commandSession.id, session: commandSession } as unknown as Parameters<typeof loaded.commands.execute>[0]
+    const injected: { content: unknown }[] = []
+    const commandAgent = {
+      id: commandSession.id,
+      session: commandSession,
+      inject: (message: { content: unknown }) => { injected.push(message) },
+    } as unknown as Parameters<typeof loaded.commands.execute>[0]
     expect(loaded.commands.list(commandAgent)).toContainEqual({
       name: 'show-content-page',
       description: 'Show one of this deployment\'s content-column pages. Used by the sidebar\'s page-navigation menu; not meant to be typed by hand.',
@@ -181,12 +186,41 @@ describe('hosted application route', () => {
     expect(execution?.result).toEqual({ kind: 'success', text: 'Now showing Home in the content column.' })
     expect(commandSession.events.filter(event => event.type === 'content/shown').map(event => event.data))
       .toEqual([{ page: 'home', by: 'user' }])
+    // The notice the composition actually injects, not a hand-built handler's.
+    expect(injected.map(message => message.content)).toEqual([[{
+      type: 'text',
+      text: 'The user opened the page "Home" in the content column (内容区); it is in front now.',
+    }]])
+    // The seat's own command is registered by the same child.
+    const moved = await loaded.commands.execute(
+      commandAgent, '/content-navigated user home /content-app/#/device Devices', [], new AbortController().signal,
+    )
+    expect(moved?.result).toEqual({ kind: 'success' })
+    expect(loaded.sessionProjections.stateOf(commandSession, 'contentPages'))
+      .toEqual({ home: { by: 'user', location: { url: '/content-app/#/device', title: 'Devices' } } })
     const session = newSession(loaded)
     expect(loaded.sessionProjections.snapshot(session).values.content)
       .toEqual({ state: 'default', url: '/content-app/', title: 'Home' })
     session.append('content/shown', { page: 'home' })
     expect(loaded.sessionProjections.snapshot(session).values.contentSurface)
-      .toEqual({ entries: [{ kind: 'page', entryId: 'home', seq: session.seq - 1, title: 'Home', payload: { state: 'shown', page: 'home', url: '/content-app/', title: 'Home', by: 'agent' } }] })
+      .toEqual({
+        entries: [{ kind: 'page', entryId: 'home', seq: session.seq - 1, title: 'Home', payload: { state: 'shown', page: 'home', url: '/content-app/', title: 'Home', by: 'agent' } }],
+        front: { kind: 'page', entryId: 'home' },
+      })
+    // The content-column context, assembled by the real system prompt over the
+    // real projections — the whole of what this composition tells a model
+    // about the column without a tool call.
+    const assembled = await loaded.systemPrompt.assemble({
+      agent: { session: commandSession } as never,
+    })
+    expect(assembled.contexts).toContainEqual({
+      name: 'content:column',
+      text: 'The content column (内容区 — the column between the sidebar and this conversation; users also say '
+        + '中间 or 右边) holds, newest first:\n'
+        + '- "Home" (page, opened by the user)  ← in front\n'
+        + '    the app inside is now at /content-app/#/device, title "Devices"\n'
+        + 'content_show puts a page in front.',
+    })
     const server = loaded.webServer
     const port = server.port
     // The dsh SPA seat, as a live deployment has it: a miss inside the hosted
@@ -250,7 +284,7 @@ describe('hosted application route', () => {
       status: 200,
       type: 'application/json',
       cacheControl: 'no-store',
-      body: '{"cacheSize":4,"pages":[{"id":"home","title":"Home","description":"The entry page.","url":"/content-app/"}]}',
+      body: '{"cacheSize":4,"navigationPollMs":1000,"pages":[{"id":"home","title":"Home","description":"The entry page.","url":"/content-app/"}]}',
     })
     expect(await request(port, '/content-frame/settings', { method: 'POST' }))
       .toMatchObject({ status: 405, allow: 'GET, HEAD' })
@@ -268,7 +302,7 @@ describe('hosted application route', () => {
   it('omits the default page from both faces when the deployment configures none', { timeout: 60_000 }, async () => {
     const loaded = await loadComposition(false)
     expect(await request(loaded.webServer.port, '/content-frame/settings'))
-      .toMatchObject({ status: 200, body: '{"cacheSize":4,"pages":[{"id":"home","title":"Home","description":"The entry page.","url":"/content-app/"}]}' })
+      .toMatchObject({ status: 200, body: '{"cacheSize":4,"navigationPollMs":1000,"pages":[{"id":"home","title":"Home","description":"The entry page.","url":"/content-app/"}]}' })
     expect(loaded.sessionProjections.snapshot(newSession(loaded)).values.content)
       .toEqual({ state: 'empty' })
   })
@@ -277,7 +311,7 @@ describe('hosted application route', () => {
     const loaded = await loadComposition(false, true)
     expect(await request(loaded.webServer.port, '/content-frame/settings')).toMatchObject({
       status: 200,
-      body: '{"cacheSize":4,"pages":[{"id":"home","title":"Home","description":"The entry page.","url":"/content-app/"}],"homePage":"home"}',
+      body: '{"cacheSize":4,"navigationPollMs":1000,"pages":[{"id":"home","title":"Home","description":"The entry page.","url":"/content-app/"}],"homePage":"home"}',
     })
   })
 
@@ -312,8 +346,10 @@ describe('configuration validation', () => {
     const ctx = new Context()
     // Deliberately paired with a root that would also fail: the page list is
     // checked first, so these messages prove the ordering as well as the rule.
-    const apply = (pages: ContentPage[], extra?: { defaultPage?: string; homePage?: string; cacheSize?: number }): Promise<void> =>
-      ContentFrame.apply(ctx, { root: 'relative/never-reached', pages, ...extra })
+    const apply = (
+      pages: ContentPage[],
+      extra?: { defaultPage?: string; homePage?: string; cacheSize?: number; navigationPollMs?: number },
+    ): Promise<void> => ContentFrame.apply(ctx, { root: 'relative/never-reached', pages, ...extra })
 
     await expect(apply([])).rejects.toThrow(/pages must list at least one page/)
     await expect(apply([{ ...HOME, id: '' }])).rejects.toThrow(/every page needs a non-empty id/)
@@ -342,9 +378,18 @@ describe('configuration validation', () => {
     await expect(apply([HOME], { homePage: 'reports' }))
       .rejects.toThrow(/homePage "reports" names no configured page/)
     await expect(apply([HOME], { cacheSize: 0 })).rejects.toThrow(/cacheSize must be at least 1, received 0/)
+    await expect(apply([HOME], { navigationPollMs: 0 }))
+      .rejects.toThrow(/navigationPollMs must be at least 1, received 0/)
   })
 
-  it('defaults the frame cache bound rather than leaving it unset', () => {
-    expect(ContentFrame.Config({ root: '/app', pages: [HOME] }).cacheSize).toBe(3)
+  it('defaults the two browser-side bounds rather than leaving them unset', () => {
+    const config = ContentFrame.Config({ root: '/app', pages: [HOME] })
+    expect({ cacheSize: config.cacheSize, navigationPollMs: config.navigationPollMs })
+      .toEqual({ cacheSize: 3, navigationPollMs: 1000 })
+    // A bare `pageAccess: {}` is what a deployment writes for the defaults;
+    // the declared type has every field, so the cast is the YAML author's
+    // position rather than a hole in the schema.
+    const withAccess = ContentFrame.Config({ root: '/app', pages: [HOME], pageAccess: {} } as never)
+    expect(withAccess.pageAccess?.settleQuietMs).toBe(250)
   })
 })

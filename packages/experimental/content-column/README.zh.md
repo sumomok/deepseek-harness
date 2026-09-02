@@ -18,7 +18,11 @@ key 域是开放的——它就是宿主 extractor 产生的那个 kind——因
 
 ## 选择一条 entry
 
-座位之上是一条切换条，按最新在前列出该会话的 entry，显示 `title` 加 kind key。选择是纯 UI 行为：选项存在按会话 id 索引的组件本地状态里，默认落在最新一条，所指 entry 被替换时回落到最新一条，且永不进入会话日志。什么都没产生过的会话得到空状态提示，没有当前会话的浏览器也一样。
+座位之上是一条切换条，按最新在前列出该会话的 entry，显示 `title` 加 kind key。选择是一次**被记录的决定**：点击立刻挪动这一栏，同时通过 `ctx.remote.commands.execute`（`select.ts`）针对当前会话派发 `/select-content-entry <kind> <entryId>`，它随后作为流自己的 `front` 回来。什么都没产生过的会话得到空状态提示，没有当前会话的浏览器也一样。
+
+留在组件本地的只有每会话一次点击，而且只在按钮与「这次点击的记录抵达」之间持有——root 作用域的一栏意味着框架在会话切换时什么都不清，所以这次点击由这一栏自己拿着。它在此之前会让位给任何在点击之后被记录的 entry，好让 agent 展示的页面落在用户片刻前选中的标签之前；这与宿主对 `front` 采用的规则相同，两边都按 `seq` 比对的原因就在这里。刚加载出来的页面完全不持有点击，读的是 `front`，因此用户选中的那个标签能挺过刷新、第二个标签页和第二台设备。
+
+本包同样为 `select-content-entry` 注册一个空的 `conversation.chat.commandview` 条目，理由与下文的 `dismiss-content-entry` 相同：持久记录才是关键，而不是一条复述用户刚点过的标签的聊天行。
 
 ## 关闭一条 entry 的标签页
 
@@ -26,7 +30,7 @@ key 域是开放的——它就是宿主 extractor 产生的那个 kind——因
 
 关闭一个标签页不会让这一栏变空：一旦被关闭的 entry 离开 `entries`，`selectedEntry` 既有的「所选 entry 已不存活」回落逻辑——此前只被一条被替换的 entry 触发过——会选中最新的那条存活 entry，与任何其他从流中掉出去的 entry 得到的处理完全一样。
 
-本包还为 `dismiss-content-entry` 注册一个空的 `conversation.chat.commandview` 条目，外加折叠它留下的那个空行的样式表，机制与 `content-frame` 为 `show-content-page` 使用的一模一样，只是各自的 `STYLE_ID` 不同——持久的关闭记录才是关键，而不是一条复述用户刚关掉的标签页的聊天消息。这也是本包现在还依赖 `dsh-client-ui-conversation`、并要求 `remote`/`remote.commands` 的原因。
+本包也为 `dismiss-content-entry` 注册一个空的 `conversation.chat.commandview` 条目，外加折叠两者留下的那个空行的样式表，机制与 `content-frame` 为 `show-content-page` 使用的一模一样，只是各自的 `STYLE_ID` 不同——持久的关闭记录才是关键，而不是一条复述用户刚关掉的标签页的聊天消息。这也是本包现在还依赖 `dsh-client-ui-conversation`、并要求 `remote`/`remote.commands` 的原因。
 
 ## 组合方式
 
@@ -42,8 +46,8 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
+- **一次选择是发完就走** —— 这一栏在点击时就挪动，命令若始终没落地只在控制台告警，因此丢包会让浏览器展示着日志并不指名的那个标签；下一次刷新会回到 `front`。
 - **不能钉住** —— 这一栏一次只展示一条 entry，选择也是每会话一个。无法把一条 entry 与另一条并排保留，也没有分屏。
-- **选择按浏览器标签页计** —— 它存在组件状态里，因此刷新、第二个标签页、第二台设备都各自从最新一条开始。让它持久化就意味着一个新的被记录事实，而这一栏刻意不具备。
 - **切换条上的角标是 kind 原始 key** —— `page`、`chart`。这一栏无法为它并不认识的 kind 本地化名称，目前也没有按 kind 提供标签的贡献点；周围的产品文案是中文，这个角标不是。
 - **座位从不释放** —— 出现过一次的 kind 会在页面存续期内一直保有它挂着的座位，哪怕产生它的会话已经不在。这正是保活的保证，其代价是长期打开的标签页会为它见过的每一个 kind 各积攒一个挂着的渲染器。
 - **隐藏命令行耦合着一个本包并不拥有的 DOM 形状** —— `hide-empty-command-row.ts` 的选择器要穿过 `ChatNodeSeat.tsx` 的 `data-chat-flow-kind` 属性和 `dsh-client-ui-renderer` 的 `data-slot` 锚点包装，两者都不是本包能指望保持稳定的约定；任一侧的形状变化都会悄悄让这一行不再折叠，而不是响亮地失败（`content-frame` 完全相同的机制承担着同样的脆弱性）。

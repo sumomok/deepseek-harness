@@ -41,6 +41,7 @@ const LISTING: ReadSnapshot = {
   truncated: false,
   shown: 2,
   total: 2,
+  settled: true,
 }
 
 /** A whole successful outcome over one listing. */
@@ -332,11 +333,29 @@ describe('the listing content_read answers with', () => {
       truncated: false,
       shown: 2,
       total: 2,
+      settled: true,
     })
     expect(text(result)).toBe(
       'Page: Home — the app is at /content-app/reports/?q=open#top, title "Fleet console"\n'
       + '1 main\n  2 button "Refresh" e12',
     )
+  })
+
+  it('says the page was still changing, and names what it marks as loading', async () => {
+    const result = await settleWith(read({ settled: false, busy: ['Fleet status', 'Alerts'] }))
+    expect(result.value).toMatchObject({ settled: false, busy: ['Fleet status', 'Alerts'] })
+    expect(text(result)).toBe(
+      'Page: Home — the app is at /content-app/reports/?q=open#top, title "Fleet console"\n'
+      + 'The page marks these as still loading: "Fleet status", "Alerts"\n'
+      + 'The page was still changing when this read ran; read again for the settled page.\n'
+      + '1 main\n  2 button "Refresh" e12',
+    )
+  })
+
+  it('says neither line for a page that had settled and marks nothing loading', async () => {
+    const result = await settleWith(read())
+    expect(text(result)).not.toContain('still loading')
+    expect(text(result)).not.toContain('still changing')
   })
 
   it('records the page name the transcript row draws, and nothing else', async () => {

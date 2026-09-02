@@ -34,12 +34,25 @@ export interface ContentFrameAccessSettings {
   claimTimeoutMs: number
   /** How long the host waits for a claimed read, which is also how long the seat may spend producing it. */
   readTimeoutMs: number
+  /**
+   * How long a loaded page must go unchanged before a read walks it. Served
+   * because the wait happens in the seat, and the deployment's own answer for
+   * how long its application takes to draw a route belongs with its two
+   * deadlines.
+   */
+  settleQuietMs: number
 }
 
 /** The browser-facing half of this plugin's configuration. */
 export interface ContentFrameSettings {
   /** How many (session, page) frames the column keeps alive at once; at least 1. */
   cacheSize: number
+  /**
+   * How often the seat asks the frame in front where it is, in milliseconds;
+   * at least 1. It is what catches a route change made through
+   * `history.pushState`, which fires no event a parent document can listen for.
+   */
+  navigationPollMs: number
   /** The configured pages, in declaration order — the whole catalog a page-navigation menu offers. */
   pages: ContentPage[]
   /**

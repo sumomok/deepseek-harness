@@ -8,7 +8,7 @@ Almost nothing here is a new fact. Every entry is derived from something another
 
 ## The entry stream
 
-An entry is `{ kind, entryId, seq, title, payload }`. `kind` names the extractor that produced it and the client slot key that draws it; `entryId` is its identity **within** that kind, and a later record naming the same pair replaces the earlier one rather than adding a second row. That is what makes a redrawn chart and a re-shown page one entry each. The published value lists the live entries newest first, so `entries[0]` is what the column shows until the user picks something else.
+An entry is `{ kind, entryId, seq, title, payload }`. `kind` names the extractor that produced it and the client slot key that draws it; `entryId` is its identity **within** that kind, and a later record naming the same pair replaces the earlier one rather than adding a second row. That is what makes a redrawn chart and a re-shown page one entry each. The published value lists the live entries newest first and names which one is in `front`, so `entries[0]` is what the column shows until the user picks something else (see "Which entry is in front" below).
 
 The [subsystem page](../../../docs/subsystems/content-surface.md) carries the literal `ContentSurfaceExtractor`, `ContentSurfaceRecord`, and `ContentSurfaceEntry` declarations.
 
@@ -40,6 +40,16 @@ The switcher strip's close button executes `/dismiss-content-entry <kind> <entry
 `content-surface/dismissed` is not `ignorable`: an older build that does not know this event type refuses the log rather than silently treating a dismissed entry as still live. Adding it did not bump `SESSION_FORMAT_VERSION` (ordinary vocabulary growth), but it did bump the fold's own semantics version folded into every `stateVersion` (see `extractor.ts`'s `FOLD_SEMANTICS_VERSION`) — a checkpoint written before this fold could remove a record is discarded rather than replayed under a rule that did not exist when it was written.
 
 Content-column hides this command's own chat echo the same way [`content-frame`](../content-frame/README.md) hides `show-content-page`'s: the durable record is the point, not a chat message narrating a click the user just made.
+
+## Which entry is in front
+
+The column shows one entry, and which one is a decision the log carries. The switcher's tab buttons execute `/select-content-entry <kind> <entryId>`, which appends `content-surface/selected` with `by: 'user'`; the fold keeps the latest such selection beside the records and publishes the result as the stream's `front`.
+
+The rule that resolves the two sources is one line: a selection loses to any entry recorded after it. A user picking a tab and the agent showing a page a moment later are both real intentions, and the later one is the one the column follows — the same rule the browser half applies to the click it is still holding, which is why both compare by `seq`. A `front` naming an entry no longer in the stream (dismissed, or replaced in place) falls back to the newest entry, so the column never blanks.
+
+Unlike dismissal, a selection injects no notice. Closing a tab is the user putting away something the conversation produced, and an agent that never hears it goes on offering to update content that is no longer on screen; bringing a tab forward is a glance, repeated as often as the user looks around, and which entry is in front already reaches the model through the content-column context every request carries.
+
+Neither `content-surface/selected` nor `content-surface/dismissed` is `ignorable` — `Session.append` has no way to set that marker today — so a runtime whose vocabulary excludes this package refuses the log rather than silently showing the wrong tab. Adding the selection bumped `FOLD_SEMANTICS_VERSION` to `3`, for both reasons a bump exists: the fold gained a case, and its stored state changed from a bare record list to `{ records, selected }`.
 
 ## Composition
 
@@ -104,6 +114,7 @@ Prefix-stable: the text is static and orders after every section registered toda
 - **No ordering control** — entries are ordered by the seq that last recorded them, and a kind cannot ask to lead or trail.
 - **The rule's position is a convention** — order `200` is past the documented `100–199` tool-guidance band, but nothing reserves it: a later section taking a higher order silently moves the rule off the end of the prompt, which is where it was measured. `apps/web/tests/content-surface.e2e.ts` asserts the tail against a real composition, so the Web surface at least fails loudly.
 - **One event, one kind** — the first extractor that recognizes an event wins it, and nothing detects two kinds reading the same event. Kinds derived from distinct tool calls or distinct event types do not collide.
+- **A selection is never validated against the live stream either** — `select-content-entry` appends whatever `(kind, entryId)` its input names, for the same reason dismissal does: this router keeps no catalogue of live pairs. A selection naming a pair that does not exist is harmless — `front` falls back to the newest entry — but nothing reports it.
 - **A dismissal is never validated against the live stream** — the command appends `content-surface/dismissed` for whatever `(kind, entryId)` its input names, without checking that an entry so identified currently exists. That is a deliberate design choice (see "Dismissing an entry" above), not an oversight, but it also means a malformed client could dismiss a pair that never existed with no error surfaced anywhere.
 - **Split from its browser half by the toolchain** — a package whose host entry declares a Cordis service and whose `src/client` reaches the client runtime puts both faces' Context merges in one Typert program, which fails the generator on a duplicated key. Keeping the service here and the column in [`content-column`](../content-column/README.md) is what avoids that; the two are composed together and neither is useful alone.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.

@@ -710,6 +710,17 @@ export interface Config {
    */
   cacheSize?: number
   /**
+   * How often the browser asks the page in front where it is, in
+   * milliseconds. A configured page is a shell around an application that
+   * routes itself, and a router changing route through `history.pushState`
+   * fires no event a parent document can listen for — polling the frame's own
+   * address is what makes that move reach the log at all. Lower it for a
+   * deployment whose users move through an application quickly and whose agent
+   * must keep up; raise it to spend less on a deployment whose pages are
+   * static.
+   */
+  navigationPollMs?: number
+  /**
    * Lets the agent read the page in the column through `content_read`. Absent
    * turns the whole channel off: no tool, no claim or report route, no pending
    * projection, and no reader in the browser — a deployment that only shows
@@ -753,6 +764,16 @@ export interface PageAccessConfig {
    */
   pinMs: number
   /**
+   * How long a loaded page must go unchanged before a read walks it. A route
+   * change inside an application leaves the document complete while its data
+   * is still arriving, and this is how long stillness has to last to count as
+   * drawn. Raise it for an application that paints in slow bursts; lower it for
+   * one that answers immediately and for an agent that should not wait. It must
+   * fit inside the share of `readTimeoutMs` the wait is given, which the row
+   * checks at load.
+   */
+  settleQuietMs: number
+  /**
    * The character budget one listing is rendered under. It is the ceiling on
    * what a single read can cost in context: past it the read answers with the
    * page's map, or with a cursor to continue from. Raise it for a deployment
@@ -766,7 +787,7 @@ export interface PageAccessConfig {
 }
 ```
 
-Source: [`packages/experimental/content-frame/src/index.ts:60`](../packages/experimental/content-frame/src/index.ts)
+Source: [`packages/experimental/content-frame/src/index.ts:70`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

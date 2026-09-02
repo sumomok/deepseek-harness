@@ -397,6 +397,45 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 
 ### `content/*`
 
+<a id="contentnavigated--log-only"></a>
+
+#### `content/navigated` — log-only
+
+```ts persistence-catalog
+/**
+ * The document inside one page's frame moved to a different address. A
+ * configured page is a shell around an application with routing of its
+ * own, so the id `content/shown` records names which application is in the
+ * column and says nothing about where in it the user has gone — a menu
+ * click, a sign-in redirect and a route change all leave that id
+ * untouched. The browser half watches the frame and records this event so
+ * the agent learns the page moved while it was happening, rather than at
+ * the next read whose ref no longer resolves.
+ *
+ * The address is same-origin and relative, for the reason the read tool
+ * drops the origin too: every page the column can show is a path on the
+ * dsh origin. `title` is the frame document's own title as it stood once
+ * the move settled, which for an application that writes it late may still
+ * be the previous route's.
+ */
+'content/navigated': {
+  /** The configured page id whose frame moved. */
+  page: string
+  /** Where the frame is now: path, query and fragment, origin dropped. */
+  url: string
+  /** The frame document's title at the time; possibly empty. */
+  title: string
+  /**
+   * Who moved it. `'user'` is what the browser reports for every move it
+   * observes, which today is all of them; `'agent'` is reserved for a move
+   * the agent makes itself.
+   */
+  by: 'user' | 'agent'
+}
+```
+
+来源：[`packages/experimental/content-frame/src/types.ts:49`](../packages/experimental/content-frame/src/types.ts)
+
 <a id="contentshown--log-only"></a>
 
 #### `content/shown` — log-only
@@ -452,6 +491,35 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 ```
 
 来源：[`packages/experimental/content-surface/src/types.ts:24`](../packages/experimental/content-surface/src/types.ts)
+
+<a id="content-surfaceselected--log-only"></a>
+
+#### `content-surface/selected` — log-only
+
+```ts persistence-catalog
+/**
+ * The user brought one entry's tab to the front of the switcher strip.
+ * Fold-only like dismissal — no extractor recognizes it — and the one
+ * event that changes nothing about which entries exist: the
+ * `contentSurface` unit stores the named `(kind, entryId)` together with
+ * this event's own seq, and `view` compares that seq against the newest
+ * entry's to decide the stream's `front`. A selection therefore holds the
+ * front only until a later record arrives, which is what puts a page the
+ * agent has just shown in front of a tab the user clicked earlier.
+ * Naming a pair that is not live is harmless: `front` falls back to the
+ * newest entry, exactly as if nothing had been selected.
+ */
+'content-surface/selected': {
+  /** The selected entry's kind. */
+  kind: string
+  /** The selected entry's id within `kind`. */
+  entryId: string
+  /** Always `'user'` today: selection is a switcher-strip gesture. */
+  by: 'user'
+}
+```
+
+来源：[`packages/experimental/content-surface/src/types.ts:44`](../packages/experimental/content-surface/src/types.ts)
 
 ### `feedback/*`
 

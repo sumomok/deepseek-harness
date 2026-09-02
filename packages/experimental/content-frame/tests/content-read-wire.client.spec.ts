@@ -12,7 +12,7 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  MAX_NAME_CHARS, parseClaimRequest, parseReportRequest, sanitize, type ReadOutcome,
+  MAX_BUSY_NAMES, MAX_NAME_CHARS, parseClaimRequest, parseReportRequest, sanitize, type ReadOutcome,
 } from '../src/access/wire.ts'
 
 /** The listing bound these cases are written against. */
@@ -31,6 +31,7 @@ const READ: ReadOutcome = {
     truncated: false,
     shown: 1,
     total: 1,
+    settled: true,
   },
 }
 
@@ -120,7 +121,7 @@ describe('report wire boundary', () => {
   it('drops optional header fields the page did not supply rather than carrying undefined', () => {
     const parsed = parseReportRequest(report(READ), MAX_TEXT)
     expect(parsed?.outcome.status === 'ok' && Object.keys(parsed.outcome.snapshot).sort())
-      .toEqual(['kind', 'shown', 'signIn', 'text', 'title', 'total', 'truncated', 'url'])
+      .toEqual(['kind', 'settled', 'shown', 'signIn', 'text', 'title', 'total', 'truncated', 'url'])
   })
 
   it('takes each failure code, with the entry naming only where one is carried', () => {
@@ -142,6 +143,25 @@ describe('report wire boundary', () => {
     expect(parseReportRequest(report(outcome), MAX_TEXT)).toBeUndefined()
     expect(parseReportRequest(report({ ...READ, snapshot: { ...READ.snapshot, text: 'x'.repeat(MAX_TEXT) } }), MAX_TEXT))
       .not.toBeUndefined()
+  })
+
+  it('keeps the busy names a page supplied, up to the count the envelope allows', () => {
+    const busy = Array.from({ length: MAX_BUSY_NAMES }, (_unused, at) => `region ${String(at)}`)
+    const outcome: ReadOutcome = { ...READ, snapshot: { ...READ.snapshot, busy } }
+    expect(parseReportRequest(report(outcome), MAX_TEXT)?.outcome).toEqual(outcome)
+  })
+
+  it('refuses a busy list longer than the envelope allows, or one holding something other than names', () => {
+    const tooMany = Array.from({ length: MAX_BUSY_NAMES + 1 }, () => 'region')
+    for (const busy of [tooMany, 'region', [1], ['x'.repeat(MAX_NAME_CHARS + 1)]]) {
+      expect(parseReportRequest(report({ ...READ, snapshot: { ...READ.snapshot, busy } }), MAX_TEXT)).toBeUndefined()
+    }
+  })
+
+  it('refuses a listing that does not say whether the page had settled', () => {
+    const { settled: _dropped, ...without } = READ.snapshot
+    expect(parseReportRequest(report({ ...READ, snapshot: without }), MAX_TEXT)).toBeUndefined()
+    expect(parseReportRequest(report({ ...READ, snapshot: { ...without, settled: 'yes' } }), MAX_TEXT)).toBeUndefined()
   })
 
   it('refuses a failure message past its own bound', () => {
