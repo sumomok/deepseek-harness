@@ -16,7 +16,7 @@
   align-items: center;
   gap: 8px;
   padding: 0 6px 0 10px;
-  border: 1px solid var(--dsw-alias-border-l2-darkmode-thin);
+  border: 0.5px solid var(--dsw-alias-border-l2-darkmode-thin);
   border-radius: 8px;
   background: var(--dsw-alias-bg-layer-2);
 }
@@ -70,6 +70,7 @@
   padding: 0;
   border: none;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--dsw-alias-button-contrast-fill);
   color: var(--dsw-alias-label-primary-inverted);
   cursor: pointer;

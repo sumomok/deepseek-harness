@@ -288,12 +288,12 @@ describe('Session file authorization', () => {
     const inserted = fileRef('inserted')
     const streamed = fileRef('streamed')
     const events = [
-      { ...event('fixture/direct', 0, {
+      { ...event('fixture/direct', SessionSeq(0), {
         content: [null, [], { type: 'tool-result', content: [{ type: 'text', text: 'none' }] }, {
           type: 'tool-result', content: [{ type: 'file', attachment: nested }],
         }],
       }), ignorable: true as const },
-      { ...event('assistant/message', 1, {
+      { ...event('assistant/message', SessionSeq(1), {
         turn: 1,
         step: 1,
         message: createAssistantMessage({
@@ -301,7 +301,7 @@ describe('Session file authorization', () => {
           source: { provider: 'fixture', model: 'fixture' },
         }),
       }), surfaceOp: 'append' as const },
-      event('agent/inbox/spliced', 2, {
+      event('agent/inbox/spliced', SessionSeq(2), {
         target: 'next-turn',
         start: 0,
         inserted: [createUserMessage({
@@ -309,7 +309,7 @@ describe('Session file authorization', () => {
           source: { kind: 'user' },
         })],
       }),
-      event('assistant/chunk', 3, {
+      event('assistant/chunk', SessionSeq(3), {
         turn: 1,
         step: 1,
         chunk: { type: 'block-end', index: 0, block: { type: 'file', attachment: streamed } },
@@ -347,7 +347,7 @@ describe('Session file authorization', () => {
     ]) {
       const ref = fileRef(`failure-${thrown.name}`)
       const fixture = await persistedController(
-        [event('fixture/content', 0, { content: [{ type: 'file', attachment: ref }] })],
+        [event('fixture/content', SessionSeq(0), { content: [{ type: 'file', attachment: ref }] })],
         () => Promise.reject(new Error('image path unused')),
         () => Promise.reject(thrown),
       )
@@ -359,7 +359,7 @@ describe('Session file authorization', () => {
     }
 
     const unreferenced = await persistedController(
-      [event('fixture/content', 0, { content: [] })],
+      [event('fixture/content', SessionSeq(0), { content: [] })],
       () => Promise.reject(new Error('image path unused')),
       () => Promise.reject(new Error('file path unused')),
     )
