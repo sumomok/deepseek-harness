@@ -180,11 +180,13 @@ export const REPORT_ENVELOPE_BYTES = MAX_TEXT_BYTES_PER_CHAR * (
  * {@link MAX_HEADER_CHARS} restates on this side of the wire, and not that
  * bound applied — the rows hint, and a header row and a sample row whose cells
  * the reader cuts further, to 40 and to 24 characters. That is about 535
- * characters plus 70 a column, with a closing line of 77 where the block runs
- * past the budget. Four times this floor is 4000 characters, which holds that
- * block for a table of 48 columns — in any language, because the byte bound
- * the route holds a whole report to does not bind there: 48 columns of
- * three-byte text is 3973 characters in a body of 11,175 bytes against 27,328.
+ * characters plus 70 a column, or 548 where a pagination strip pages the table
+ * and the hint counts `rows on this page`, with a closing line of 77 where the
+ * block runs past the budget. Four times this floor is 4000 characters, which
+ * holds the paged form of that block for a table of 48 columns with 14 to
+ * spare — in any language, because the byte bound the route holds a whole
+ * report to does not bind there: 48 columns of three-byte text is 3986
+ * characters in a body of 11,188 bytes against 27,328.
  *
  * All three cuts are the reader's own, recorded with the rules they belong to
  * in .agents/notes/implemented/feature/2026-09-02-content-snapshot-engine.md;
