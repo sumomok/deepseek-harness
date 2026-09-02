@@ -1,11 +1,30 @@
+---
+description: "服务线外壳：一个固定的四轨 AppFrame（会话、内容、对话、详情），通过补丁 overlay 替换 ui-layout，内容列在无人占据时折叠；面向组合服务线产品体验的部署方。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-server-layout
 
 [English](README.md) | 中文
+
+## 概述
 
 服务形态 web 产品线的外壳框架：四条常驻栅格轨道——session 列表、content 内容区、chat 会话区、details 详情带——按固定的 24 份比例 3:16:5 切分。它在组合里**替换** [`dsh-client-ui-layout`](../../client/ui-layout/README.zh.md) 而不是与之并存，因为 `root` 是 single 槽，它的子槽也只能被声明一次。
 
 content 栏是这条产品线的立身之本，也是本包存在的理由：一块位于导航与会话之间的常驻工作面，而出厂三栏外壳没有这个座位。本版本交付的是这一栏本身，而不是它的内容——`content` 槽无人认领时，外壳渲染自己的空态。
 
+## 目录
+
+- [替换出厂外壳](#replacing-the-shipped-shell)
+- [组合方式](#composition)
+- [往 content 栏注册](#registering-into-the-content-column)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="replacing-the-shipped-shell"></a>
 ## 替换出厂外壳
 
 只有把出厂外壳对外发布过的东西全部兑现，替换才算原位替换，因此本包复刻了 ui-layout 的三个对外面：
@@ -20,6 +39,7 @@ content 栏在自己无内容可展示时也走同样的折叠：宽度归零，
 
 宽度以像素而非 `fr` 下发到 CSS，是因为 session 栏的占位组件要用 `width` owner prop 给自己写内联宽度——`fr` 轨道会让这个数字无从得知，两者就会漂移。
 
+<a id="composition"></a>
 ## 组合方式
 
 该插件不属于任何已发布 bundle。用 overlay 叠在 Web 组合之上：
@@ -36,6 +56,7 @@ content 栏在自己无内容可展示时也走同样的折叠：宽度归零，
 
 `overlay/three-column.patch.yml` 就是这个文件；`dsh --profile web --patch <路径>` 应用它。被 disabled 的行不会进入浏览器 boot manifest，因此浏览器抓取的是本包的产物而不是 ui-layout 的。该包必须能从 profile 目录解析到，对树外插件而言意味着 `dsh plugin --profile web add <路径>` 或等价的链接——release bundle 不得声明实验包。
 
+<a id="registering-into-the-content-column"></a>
 ## 往 content 栏注册
 
 `content` 是 `single`、`root` 槽，owner 份额为空。它不接收 owner props，并且在页面的整个生命周期里只挂载一次：任何 session 切换都不会让它重挂。这正是这一栏能够持有「切换不得摧毁的 DOM 状态」的原因——活着的 iframe 文档就是它为之而建的场景——同时也把 session 问题交给了占用者：占用者通过 root scope 的标准 hook `useSessions` 读取当前 session，自行决定一次切换意味着什么。
@@ -46,6 +67,7 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 
 第一次注册就整栏认领，外壳的占位随之消失。
 
+<a id="model-experience"></a>
 ## Model Experience
 
 无，因为外壳管理的是浏览器观看状态，这里没有任何东西抵达模型请求。
@@ -55,6 +77,8 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 无；本包既不组装也不发送模型请求。
 
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - **没有响应式行为** —— 比例在任何宽度下都照用，因此窄视口会把四栏一起挤扁，而不是折叠 session 栏或改为堆叠。出厂外壳的自动折叠断点与让步链在这里没有对应物；需要它们的部署应当改用 ui-layout。
 - **没有调宽手段** —— 栏宽既不可由用户调整，也不持久化。比例与控制条宽度是约定冻结的常量，不是配置项。
@@ -66,3 +90,13 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 - **内容折叠可能在首屏闪一下** —— 会话列表投影值是异步到达的，因此一个本来有内容的 session 可能先渲染成折叠版面（16:5 塌成纯 chat），等第一份快照到达后 content 栏才展开。`grid-template-columns` 的过渡（`ShellFrame.module.css`）让这次展开是动画而不是硬切，但首次加载那一下闪烁并未被抑制。
 
 **运行时不变式：** 不发布伴生入口。外壳的面板 store 不发出任何 cordis 事件，也不持有持久数据；本包唯一拥有的关系——root 注册加上同一个 effect 里提供的 `ctx.layout` 面——是一个 slot/服务 effect，其安装与拆卸由本包自己的 spec 直接演练。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

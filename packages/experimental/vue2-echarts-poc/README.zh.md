@@ -1,11 +1,31 @@
+---
+description: "概念验证：通过一层薄 React 桥在 React 槽系统内渲染一个 Vue 2.7 ECharts 组件，并记录实测的打包体积代价；面向权衡在槽里放 Vue 2.7 图表界面的维护者。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-vue2-echarts-poc
 
 [English](README.md) | 中文
+
+## 概述
 
 一个组件库行：真实的 ECharts 图表，以 **Vue 2.7** 组件写成，并被包装到 React 里随处可渲染。本包不认识任何布局，也不注册任何 slot——它的浏览器半边只注册字典并导出组件。渲染在哪里由 placement 插件决定：[`vue2-echarts-tool-poc`](../vue2-echarts-tool-poc/README.zh.md) 在会话记录里、也在服务线外壳的 content 栏里画出模型给的 option。
 
 它是 [`vue-ui-poc`](../vue-ui-poc/README.zh.md) 的 Vue 2 对应物，后者对 Vue 3 验证同一个问题。
 
+## 目录
+
+- [这座桥](#the-bridge)
+- [这一行的对外面](#the-row-surface)
+- [组合方式](#composition)
+- [产物体积](#bundle-cost)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="the-bridge"></a>
 ## 这座桥
 
 slot 系统只接受 React 函数组件，因此 Vue 树通过 `Vue2Bridge`——一个持有 Vue 根实例的 React 组件——抵达 React。Vue 2 没有独立的 `render(vnode, container)`，而那正是 Vue 3 桥的全部机制，所以这座桥由三条 Vue 2 事实塑形：
@@ -18,6 +38,7 @@ slot 系统只接受 React 函数组件，因此 Vue 树通过 `Vue2Bridge`—�
 
 `props` 就是两个框架之间的全部约定。React 半边先解析完所有 slot 份额，再把一份扁平记录交给 Vue：字符串、纯数据数组、一个布尔和一个回调。回调以**函数类型的 prop** 跨界，而不是 `on:` 监听器：props 对象就是全部表面，与 Vue 3 桥一致。桥以下不 import React，桥以上不 import Vue，任何 hook、store handle、Cordis context 或 React node 都不跨界。
 
+<a id="the-row-surface"></a>
 ## 这一行的对外面
 
 `./client` 导出三个 React 组件，分层安排，好让 placement 各取所需：
@@ -44,18 +65,21 @@ Vue 2 的响应式不跨运行时副本。observer、`Dep` 与渲染 watcher 都
 
 并从上面那些再导出里取 `Vue` 与组合式 API。这条规则就是那些再导出存在的理由。
 
+<a id="composition"></a>
 ## 组合方式
 
 该插件不属于任何已发布 bundle，单独装上也画不出任何东西：它是一个库行加它的字典。要和渲染它组件的 placement 一起组合——[`overlay/show-chart.patch.yml`](../vue2-echarts-tool-poc/overlay/show-chart.patch.yml) 在已发布形态上装上这两行，[`overlay/show-chart-three-column.patch.yml`](../vue2-echarts-tool-poc/overlay/show-chart-three-column.patch.yml) 则在旁边再加上服务线外壳与 content 栏。
 
 该包必须能从 profile 目录解析到，对树外插件而言意味着 `dsh plugin --profile web add <路径>` 或等价的链接——release bundle 不得声明实验包。
 
+<a id="bundle-cost"></a>
 ## 产物体积
 
 Vue 与 ECharts 都不在外壳的共享模块表里，因此本包的 `lib/client.js` 把两者都带上：原始 1.50 MB，gzip 后 342 kB。React 与 Cordis/slot 层保持 external，通过 loader 注入的 `require` 解析。
 
 有两项构建决定让它停在这个体积而不是更大。`vue` 被钉到 `vue/dist/vue.runtime.esm.js`，即 runtime-only 的 ESM 构建，因为完整构建会把模板编译器拖进一个只用 `h()` 渲染、运行期从不编译模板的 bundle。`process.env.NODE_ENV` 被 define 成 `"production"`，这既剔除了 Vue 2 的开发分支，也是这个 bundle 能跑起来的前提：Vue 2 的 ESM 构建在每条响应式路径上都把这个名字当裸全局读，缺了 define 浏览器会在第一次挂载时抛 `process is not defined`。ECharts 走 `echarts/core`，只注册四种受支持的图表类型、grid、tooltip、legend、title、radar 坐标系与 canvas 渲染器。
 
+<a id="model-experience"></a>
 ## Model Experience
 
 无，因为本包渲染的是纯浏览器侧的图表组件，不触及任何 prompt、消息、schema、流或工具结果。
@@ -66,6 +90,8 @@ Vue 与 ECharts 都不在外壳的共享模块表里，因此本包的 `lib/clie
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **只有演示数据** —— `ChartPanel` 铺的是固定的七柱周数据，并在浏览器里随机替换。没有任何东西抵达宿主、session log 或模型；携带真实数据的 placement 用的是 `EChartsBar` 与 `EChartsOption` 这两个导出。
 - **没有接主题** —— `ChartPanel` 永远传 `dark: false`。canvas 解析不了 CSS 自定义属性，因此图表的两套配色是 `echarts-host.ts` 里的字面值，而不是它周围 DOM 读的那些 `--dsw-*` token，本行内也没有任何东西在两者之间切换。用哪套配色构建图表是 placement 的决定。
 - **Vue 2.7 已终止维护** —— 2.7 是 Vue 2 的最后一条线，不再有新版本。本包的意义是证明既有的 Vue 2 组件树可以被托管，而不是推荐新写。
@@ -74,3 +100,13 @@ Vue 与 ECharts 都不在外壳的共享模块表里，因此本包的 `lib/clie
 - **未被组装态快照覆盖** —— 浏览器证据是跑在真实组合上的 Playwright 场景，而不是录制的 transcript；快照通道投影的是模型可见与会话输出，而本包两者皆无。
 
 **运行时不变式：** 不发布伴生入口。本包不拥有任何事件流，也不拥有可变的持久数据。它唯一的关系——词典的注册与拆卸时的移除——是一个由本包自己的测试演练的 locale effect，而它的组件托管的 Vue 树完全活在一个浏览器容器里。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

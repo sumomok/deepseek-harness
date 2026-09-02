@@ -1,11 +1,31 @@
+---
+description: "把部署方自己的单点登录接进 dsh 浏览器会话：浏览器半边把未认证访客送去登录页并把带回的访问令牌镜像进 cookie，node 半边把它花在转发的 MCP 请求上；面向在验签代理后按登录用户一人一进程运行 dsh 的部署方。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-auth-gate
 
 [English](README.md) | 中文
+
+## 概述
 
 把部署方自己的单点登录接进 dsh 的浏览器会话。browser 半边把没有 access token 的访客送去部署方的登录页，并把访客带回来的那一枚镜像进 cookie；node 半边把这枚 token 放在内存里，并花在这个部署要转发的那些 MCP 服务器上。本包既不签发、不验签，也不续期——它只是把一枚已经存在的 token 送到 dsh 需要它的那两个地方。
 
 它只为一种部署形态而存在：一台反向代理立在多个 dsh 进程前，一位登录用户一个进程，由代理自己验签访客的 token 来决定请求进入哪个进程。请求抵达时，谁在另一头这件事代理已经判完了——这正是进程内部不再验签的原因。
 
+## 目录
+
+- [每次页面加载时，这道闸做什么](#what-the-gate-does-on-every-page-load)
+- [路由](#routes)
+- [带着 token 转发 MCP 请求](#forwarding-mcp-requests-with-the-token)
+- [组合](#composition)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="what-the-gate-does-on-every-page-load"></a>
 ## 每次页面加载时，这道闸做什么
 
 1. 从 `/auth-gate/settings` 读取本插件面向浏览器的那部分配置。browser 半边拿不到任何 cordis 配置——boot manifest 携带的是插件名，不是它们的 `config` 块——所以设置文档不可达或不可用时直接让这一行失败，而不是让闸门跑在一个谁也没选过的登录地址上。
@@ -32,6 +52,7 @@ token 本来就住在 `localStorage` 里，是部署方的登录页放进去的�
 
 在 token 的 `exp` 之前 `refreshMarginSeconds` 时，闸门动作。在本包里这意味着把访客送回登录页——这是每个部署都有的那一条续期路径。`src/client/run.ts` 里的 `handleTokenExpiring` 是这项决定唯一被做出的地方，也是那个余量唯一的读者：若某个部署的单点登录提供续期端点，就替换这个函数的函数体，闸门的其余部分都不依赖 token 是怎么续的。
 
+<a id="routes"></a>
 ## 路由
 
 | 路由 | 方法 | 用途 |
@@ -44,6 +65,7 @@ token 路由只接同站点、只收 JSON：被浏览器标为 `sec-fetch-site: 
 
 token 被放在插件内部的一个闭包里，存活到进程结束，且不写去任何地方：没有会话事件、没有设置文档、没有日志行、没有诊断。也没有任何一条路由能把它读回来。
 
+<a id="forwarding-mcp-requests-with-the-token"></a>
 ## 带着 token 转发 MCP 请求
 
 `dsh-mcp-client` 在它那一行加载时把 headers 解析一次。它没有办法附上一个「稍后才到达、且随登录者而不同」的凭据——而 access token 恰恰就是这种东西。`mcpUpstreams` 里的每一条都以「认领一条本地路由」来补上这个缺口；MCP 客户端那一行随后把 `url` 指向这条路由，而不是指向服务器本身：
@@ -77,6 +99,7 @@ token 被放在插件内部的一个闭包里，存活到进程结束，且不�
 
 在还没有任何浏览器投递过 token 之前，每条转发路由都以 503 作答并点名该上游——对于一枚进程尚未持有的凭据，这是诚实的答复。上游不可达是 502；答到一半掉线的，响应被截断，因为状态码已经发出去了。
 
+<a id="composition"></a>
 ## 组合
 
 本包不在任何已发布 bundle 中。`overlay/auth-gate.patch.yml` 把这一行插到任意 surface 之上：
@@ -96,6 +119,7 @@ token 被放在插件内部的一个闭包里，存活到进程结束，且不�
 
 每一个配置值都是必填并在加载时校验的：空的 `loginUrl`、已经带了 query string 的 `loginUrl`、不是纯 cookie 名的 `cookieName`、不是纯路由段的上游名，以及不是「无 query 无 fragment 的绝对 HTTP(S) URL」的目标，都会让这一行失败，而不是变成「跳去一个不存在的地方」或「首次调用才失败的工具」。
 
+<a id="model-experience"></a>
 ## Model Experience
 
 None, as this package registers no tool, prompt section, or result: it carries a credential between the browser, the process, and the MCP servers the process forwards to, all of which happens outside any model request, and the tools those servers publish are `dsh-mcp-client`'s model-facing contribution rather than this package's.
@@ -106,6 +130,8 @@ Independent: this package issues no model request and adds nothing to one, so no
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **这道闸不会先于外壳其余部分运行。** 浏览器侧的行是一起创建的，各自等自己的服务，因此未登录的访客可能在跳转发生前先看到外壳画出来。`dsh.client.immediately` 让这一行的 bundle 字节在第一梯队被取回，缩短了这个窗口，但并不排序激活；只有 client runtime 里的一道启动阶段缝才能关掉它。
 - **过期时把访客送回登录页。** 没有续期调用，因此即便部署方的单点登录本可以静默签发一枚新的，token 用完仍要付一次完整导航的代价。为此留的位置只有 `handleTokenExpiring`，别无其他。
 - **转发只走 HTTP。** 没有 upgrade 路由，因此以 WebSocket 抵达的 MCP 服务器无法经它转发；这条路由服务的是 streamable-HTTP 及其事件流。
@@ -115,3 +141,13 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **不被任何组装快照覆盖** —— 浏览器侧的证据是 `apps/web/tests/auth-gate.e2e.ts` 里那个针对真实组合的 Playwright 场景；快照通道回放的是已发布组合，而它不组合实验性行。
 
 **运行时不变式：** 不发布伴生入口。本包不追加任何会话事件，也不拥有任何持久数据。它唯一拥有的可变状态——持有的那枚 access token——被刻意做成除持有它的插件闭包外无处可达，因为不变式能用的读取口也就是攻击者能用的读取口；它的形状由 token 路由自己的解析在入口处强制。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

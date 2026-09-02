@@ -1,11 +1,30 @@
+---
+description: "The service-line shell: a permanent four-track AppFrame (session, content, chat, details) replacing ui-layout through a patch overlay, with the content column collapsing when nothing claims it; for deployments composing the service-line product experience."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-server-layout
 
 English | [中文](README.zh.md)
+
+## Summary
 
 The shell frame for the service-line web product: four resident grid tracks — the session list, a content column, the chat column, and the details band — split on a fixed 24-unit ratio of 3:16:5. It replaces [`dsh-client-ui-layout`](../../client/ui-layout/README.md) in a composition rather than sitting beside it, because `root` is a single slot and its child slots may be declared only once.
 
 The content column is what this product line is built around and the reason the package exists: a resident work surface between navigation and conversation, which the shipped three-column shell has no seat for. This version ships the column, not its contents — an unclaimed `content` slot renders the shell's own empty-state body.
 
+## Table of Contents
+
+- [Replacing the shipped shell](#replacing-the-shipped-shell)
+- [Composition](#composition)
+- [Registering into the content column](#registering-into-the-content-column)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="replacing-the-shipped-shell"></a>
 ## Replacing the shipped shell
 
 A shell replacement is only a drop-in if it honors everything the shipped one published, so this package reproduces all three of ui-layout's outward surfaces:
@@ -20,6 +39,7 @@ The content column collapses the same way while it has nothing to show: zero wid
 
 Widths reach CSS as pixels rather than `fr` because the session column's occupant renders its own inline width from the `width` owner prop — an `fr` track would leave that number unknowable and the two would drift.
 
+<a id="composition"></a>
 ## Composition
 
 The plugin is not part of any shipped bundle. Compose it as an overlay over the Web surface:
@@ -36,6 +56,7 @@ The plugin is not part of any shipped bundle. Compose it as an overlay over the 
 
 `overlay/three-column.patch.yml` is that file; `dsh --profile web --patch <path>` applies it. A disabled row never reaches the browser boot manifest, so the browser fetches this bundle instead of ui-layout's. The package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
 
+<a id="registering-into-the-content-column"></a>
 ## Registering into the content column
 
 `content` is a `single`, `root` slot with an empty owner share. It receives no owner props, and it mounts once for the page's lifetime: no session transition remounts it. That is what makes the column able to hold DOM state a switch must not destroy — a live iframe document is the case it was built for — and it puts the session question on the occupant, which reads the current session through the root standard hook `useSessions` and decides for itself what a switch changes.
@@ -46,6 +67,7 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 
 The first registration claims the column outright and the shell's placeholder disappears with it.
 
+<a id="model-experience"></a>
 ## Model Experience
 
 None, as the shell manages browser viewing state; nothing here reaches a model request.
@@ -55,6 +77,8 @@ None, as the shell manages browser viewing state; nothing here reaches a model r
 None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - **No responsive behavior** — the ratio is applied at every width, so a narrow viewport squeezes all four columns rather than folding the session column or stacking. The shipped shell's auto-collapse breakpoint and concession chain have no counterpart here; a deployment that needs them should compose ui-layout instead.
 - **No resize affordance** — column widths are not user-adjustable and not persisted. Ratio and rail width are contract-frozen constants, not configuration.
@@ -66,3 +90,13 @@ None; this package neither assembles nor sends a provider request.
 - **The content collapse can flash on first paint** — the session-list projection value arrives asynchronously, so a session that already has content briefly renders the collapsed (16:5 folded to chat-only) layout before the first snapshot lands and the content column expands. The `grid-template-columns` transition (`ShellFrame.module.css`) animates that expansion rather than snapping it, but the single flash on initial load is not suppressed.
 
 **Runtime invariant:** No companion is published. The shell's panel store emits no cordis event and holds no durable data, and the only relationship this package owns — the root registration plus the `ctx.layout` face it provides in the same effect — is a slot/service effect whose install and teardown this package's own specs exercise directly.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

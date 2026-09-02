@@ -1,11 +1,35 @@
+---
+description: "产品控制台侧边栏：通过补丁 overlay 用固定的工作台/导航/工作流控制台替换 ui-sidebar，加上会话头部的「存为工作流」动作，并承载客户表单页所需的去术语层；面向组合客户/服务线体验的部署方。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-server-sidebar
 
 [English](README.md) | 中文
+
+## 概述
 
 一个固定宽度的产品外壳侧边栏：对出厂的 [`dsh-client-ui-sidebar`](../../client/ui-sidebar/README.zh.md) 的直接替换，彻底移除会话/工作区浏览，代之以三段结构——工作台（一个持久的默认对话）、导航（`@deepseek-ai/dsh-experimental-content-frame` 配置的页面）、我的工作流（用户自己命名的、返回「教过 agent 一些事」的对话的快捷方式）。它在组合里替换 ui-sidebar，而不是与之并存，因为 `sidebar` 是单一槽，其子槽只能被声明一次。
 
 本包面向「客户表单」组合：终端客户在使用产品时，完全不需要知道一个对话是一个背后挂着工作区的、持久可续的对象。每一处会话/工作区管理动作（创建一个、重新连接一个、决定「当前是哪个」）都发生在本包自己的动作内部；这套词汇本身——会话/session、工作区/workspace——被本包所有字典里的每一条字符串禁止出现，组合层也禁用了本会泄漏这些词汇的出厂控件（见下文「去术语化」）。
 
+## 目录
+
+- [替换出厂侧边栏](#replacing-the-shipped-sidebar)
+- [工作台](#workbench)
+- [导航](#navigation)
+- [我的工作流](#my-workflows)
+- [选中高亮](#selection-highlight)
+- [去术语化](#de-terminology)
+- [品牌与英雄区门面](#brand-and-hero-facade)
+- [组合方式](#composition)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="replacing-the-shipped-sidebar"></a>
 ## 替换出厂侧边栏
 
 - **四个子槽保留**——`sidebar.brand.mark`、`sidebar.brand.name`、`sidebar.settings`、`sidebar.footer.action` 保留 `dsh-client-ui-sidebar` 声明的 kind 与 scope，按类型导入复用而非重新写一遍，因此 ui-settings 既有的注册无需改动即可继续工作（填充这两个身份槽的品牌包在客户组合里被禁用——见下文「品牌与英雄区门面」）。`sidebar.workspaces` 被彻底移除：本外壳没有会话浏览区可供它落座。`ui-workspace` 的 `sidebar.workspaces` 注册走的是 `ctx.slots.inject`，这是声明门控的（它等一个声明出现，没有声明就永远不会触发——`SlotRegistry.inject` 自己的约定），而不是一个硬性要求，因此 `ui-workspace` 组合进来后这一半永久失效。它是被组合的，不是被禁用的：`dsh-client-ui-conversation` 需要它的 `uiWorkspace` 服务，禁用它会让整条对话列以及每一个依赖它的兄弟行都无法激活。因此它另一个注册——`conversation.hero.workspace`，一个 `dsh-client-ui-conversation` 始终会声明的槽——确实会落地，承载它的英雄区那一行改由 `terminology-guard.ts` 隐藏（见下文「品牌与英雄区门面」）。
@@ -13,6 +37,7 @@
 - **56px 折叠窄栏已移除。** 本外壳从不调用折叠动作，也始终渲染完整内容，无视 `collapsed` 这个 owner prop——这与外层外壳自身轨道几何之间遗留的耦合，见下文「已知限制」。
 - **随指针显隐的滚动条行为保持不变**——指针停留在这一栏内时滚动条常驻，离开后再保留两秒，指针在此期间回到栏内会取消挂起的隐藏，按几何坐标而非 DOM 包含关系判断（因此一个作为该栏 DOM 后代渲染的浮层，如 ui-settings 的面板，不会被误判为「指针已离开」）。
 
+<a id="workbench"></a>
 ## 工作台
 
 工作台是本外壳始终落位的那一个持久默认对话——但落到它上面意味着什么，取决于你是怎么到达这里的。
@@ -26,12 +51,14 @@
 
 **配置好的首页只在一次干净的点击上自动展示，绝不出现在加载路径上。** 当 content-frame 的 `homePage` 配置项指名了一个页面时（见下文「导航」），`onOpenWorkbench` 会在 `openWorkbenchOnClick` 刚解析出的那个会话——创建结果得到的新会话，或复用结果得到的那个已存在的空稿——上，紧接着这次解析一落定就执行 `/show-content-page <homePage>`，让一段新的或空稿状态的对话打开时列内容列已经有内容，而不是空的。这只从点击处理函数里触发：加载路径自己的连续性语义（精确恢复到一个存活会话离开时的状态）会被「把一个页面强加到一个已经携带不同内容的会话上」破坏，因此 `openWorkbenchOnLoad` 从不调用它。这次自动展示是一次普通的 `show-content-page` 调用——它追加的是同一个 `content/shown` 事件，留下的是与用户亲自点击完全相同的持久日志记录，它本身也不计入 `SessionSummary.blank`（见 `dsh-host-apiproxy` 里的 `sessionBlank`），所以一个只收到过自己首页的空稿会话读出来仍然是空白的。
 
+<a id="navigation"></a>
 ## 导航
 
 导航列出 `@deepseek-ai/dsh-experimental-content-frame` 配置的页面，在本条目注册之前一次性从它的 `/content-frame/settings` 路由读取（写死的路由路径与本地校验的 JSON 形状，不是导入的值或类型——跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式）。点击一个页面会针对当前会话执行 content-frame 的 `show-content-page` 命令（没有会话打开时先创建一个，走工作台与每一条工作流动作共用的同一套解析——见 `client/session-resolution.ts`），通过 `ctx.remote.commands.execute`——这是会话日志能够重放的命令通路，而非直接的服务调用。该命令的处理函数追加 `by: 'user'` 的 `content/shown`。导航顺序跟随部署配置顺序，绝不由用户重新排序（决策⑤）。
 
 同一份响应还携带 content-frame 可选的 `homePage` 字段（`pages.ts` 的 `readContentPages`），与页面列表一起一次性读取，供上文工作台的点击处理函数使用。这里的坏值是被兜住的，而不是抛出：与节点侧会让整次加载失败的 `Config` 校验不同，浏览器侧这次读取只用 `console.warn` 报告一个非字符串或指名了未配置页面的值，并把 `homePage` 当作缺失处理——一个承载着关键功能的外壳表面，不应该因为一个配置错误的字段就让原本正常工作的部署整体倒下。
 
+<a id="my-workflows"></a>
 ## 我的工作流
 
 我的工作流是用户自己命名的快捷方式，按账号持久化（对应这一部署形态「一个用户一个进程」的形状——这里的「按账号」即「按 `$DSH_HOME`」）。v1 中一条工作流恰好绑定一个对话（v1 边界，见「已知限制」）：`{id, name, order, homeSessionId, navSnapshot, savedAt}`。
@@ -51,10 +78,12 @@
 
 浏览器无法直接调用 `settings.*` RPC——这是一组反向代理会以 403 拒绝的 loopback 特权方法——因此本包的 node 半边是一个可选子节点，只在 `ctx.settings` 与 `ctx.webServer` 同时被组合时才注册这条路由；两者都不存在时侧边栏本身依然可用（导航不受影响），只是我的工作流下面没有东西可展示或持久化。
 
+<a id="selection-highlight"></a>
 ## 选中高亮
 
 只有一行会标记当前会话，且优先精确匹配：一条工作流若其 `homeSessionId` 等于 `useSessions(state => state.current)`，就会画出高亮；工作台只在「当前会话就是自己的 `workbenchSessionId`」且「没有任何工作流已经绑定这个会话」两个条件同时成立时才画出高亮——工作流的绑定始终优先于工作台，因此一个同时被两者指名的会话，绝不会同时点亮两行。每一行都携带一个布尔型 `data-active` 属性；`ServerSidebarRoot.module.css` 用一圈内嵌的品牌色描边来呈现工作台的高亮态（`.workbench[data-active='true']`），`SidebarGroups.module.css` 则用 `dsh-client-ui-trajectory` 自己给选中行用的同一个 `--dsw-alias-interactive-bg-active` 底色来呈现工作流行的高亮态，把本包的配色继续限定在产品里已经确立过的这套变量之内。
 
+<a id="de-terminology"></a>
 ## 去术语化
 
 决策②在上述整体重构之上,进一步禁止会话/新会话/session/workspace 出现在本组合渲染的任何用户可见字符串里。还有四处出厂界面携带这套词汇，移除方式与 ui-sidebar/ui-workspace 相同——禁用组合层里的那一行，而不是修改该行自己的文案：
@@ -68,6 +97,7 @@
 
 轮次/步骤状态行没有官方通路可以移除，本包因此退回到一个作用域受限的 CSS 注入：一个仅在客户端运行的 effect（`terminology-guard.ts`）向文档头部插入 `[data-composer-card] + * { display: none !important; }`。`data-composer-card` 是输入框自己的卡片外层（`InputBar.tsx`）；它的下一个兄弟节点是输入框的footer/dock 区域，在出厂组合里这个区域只承载 `StatsLine`（`conversation.composer.dock`，序号 0）——因此今天这条规则恰好只会隐藏轮次/步骤这一行，但它是一个与 DOM 顺序耦合的选择器,不是一个 Config 开关：未来任何插件注册进 `conversation.composer.dock`，或者输入框自身标记结构的一次重排，都会在两边任何测试都察觉不到的情况下，悄悄改变这条规则实际隐藏的内容。本包自己的 e2e 场景（`apps/web/tests/server-sidebar.e2e.ts`）钉住了这一点，一旦这一行重新可见就会让这条门禁失败。
 
+<a id="brand-and-hero-facade"></a>
 ## 品牌与英雄区门面
 
 还有两处界面携带的是 DeepSeek 自己的产品身份或内部状态文案，而不是被禁词汇，出于与上文「去术语化」相同的客户形态理由被替换或移除：
@@ -75,10 +105,12 @@
 - **侧边栏品牌行。** `sidebar.brand.mark` 完全不渲染 fallback（此前是一个鱼图标）；`sidebar.brand.name` 的 fallback 是一段纯文本——locale key 为 `brand.name.fallback`（「工作台小助手」/「Workbench Assistant」）——不再带构建版本徽标。`@deepseek-ai/dsh-client-ui-brand-official`（仅在官方构建下才占据这两个槽、以及 `conversation.hero.brand.mark`）在客户 overlay 里被彻底禁用；本包自己的 `client/index.ts` 还会在 `conversation.hero.brand.mark` 上以优先级 -1（该槽的遮蔽等级——升序，最低者渲染）注册一个空组件抢占，因此即使某次部署忘记禁用 `ui-brand-official`，英雄区拿到的依然是本包的无图标版本，而不是官方版本。
 - **对话英雄区界面。** 空白稿态的英雄区标题（`dsh-client-ui-conversation` 的 `HeroShell`/`ConversationRoot`）携带一个鱼图标、一枚「PREVIEW」状态徽标、以及一行工作区选择器加 agent-preset 选择器——都没有 Config 开关，也没有自己的禁用席位，因此 `terminology-guard.ts` 把它的 CSS 注入扩展为同时：隐藏（此时已经槽位为空的）鱼图标外框和 preview 徽标；把标题文字压到 `font-size: 0`，改用 `::after` 伪元素画上本包自己的品牌文案（原始标题文本节点在 DOM 与无障碍树里原样保留——见「已知限制」）；以及把整行工作区选择器隐藏掉。这条规则是承重的，不是双保险：`ui-workspace` 是被组合的（见下文「组合方式」），所以那枚 chip 带着真实的工作区标题、点开是一个活的选择菜单——隐藏这一行是唯一挡住这两者出现在客户表单页上的手段，因此有一个 e2e 场景断言这一行渲染为不可见，而不是信任这个选择器。同一行的另一个席位 `conversation.hero.agentPreset` 则在组合层面清空：`ui-agent-preset` 在两份 overlay 里都被彻底禁用，这同时移除了它只读的会话头部 preset 标签与它的 Settings 行——这两处不是这一条 CSS 规则能够触达的。
 
+<a id="composition"></a>
 ## 组合方式
 
 本插件不属于任何出厂 bundle。`overlay/customer.patch.yml` 就是完整的客户表单 overlay：它禁用 `ui-layout`、`ui-sidebar`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`，并插入 `server-layout`、`content-surface`、`content-column` 与本包。它不插入 `content-frame`——部署自己的页面目录需要单独组合，与它并列。用 `dsh --profile <name> --patch <path>` 应用；该包必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile <name> add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
 
+<a id="model-experience"></a>
 ## Model Experience
 
 无，本包管理的是浏览器侧的查看状态与用户驱动的工作流文档；它执行的命令本身运行在任何模型轮次之外，不会进入模型请求。
@@ -88,6 +120,8 @@
 无；本包既不装配也不发送任何 provider 请求。
 
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
 
 - **字面上的 240px 并非独立强制的。** 本外壳从不固定一个内联像素宽度；它按其 owner（`dsh-experimental-server-layout`）交给它的 `width` 渲染，也从不触发折叠。`server-layout` 冻结的 3:16:5 轨道比例恰好在其自身 1920px 参考帧宽下等于 240px（`1920 * 3/24 = 240`），但在任何其他帧宽下这一栏是等比例的，而非固定的。要让它真正固定，需要改动 `server-layout` 自己那份冻结、刻意不可配置的几何设定，这超出了本次改动的范围。
 - **决策③的用户消息判断是一个分页窗口内的近似值。** 「存为工作流」的可见性读取 `useSession(s => s.chat.legacy.nodes)`，与 `StatsLine.tsx` 读取的是同一个分页会话快照窗口——一条足够早、已经分页出这个窗口的用户消息不会被发现。要做到整份日志级别的判断，需要新增一个本 v1 没有引入的持久投影。
@@ -100,3 +134,13 @@
 - **英雄区标题原本的文本节点在 DOM 与无障碍树里原样保留。** `terminology-guard.ts` 的 `::after` 替换只改变了标题画出来的内容（把真实文本压到 `font-size: 0`，另用一个伪元素承载本包自己的文案）；屏幕阅读器或任何针对 DOM 文本的查询，找到的依然是 `dsh-client-ui-conversation` 自己的中/英文标题字符串，而不是本包的品牌文案。
 - **settings 路由假定存在 HTTP 载体。** browser 半边以页面 origin 为基准请求 `/server-menu/workflows`。如果某种传输提供了外壳却没有把 harness 暴露在 HTTP 上，该行会失败——与 content-frame 自己那条 settings 路由的处境相同。
 - **未被 assembled snapshot 覆盖。** 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

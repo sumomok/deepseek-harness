@@ -1,11 +1,31 @@
+---
+description: "A deployment's own single sign-on wired into a dsh browser session: the browser half redirects an unauthenticated visitor to the login page and mirrors the returned access token into a cookie, the node half spends it on forwarded MCP requests; for deployments running one dsh process per signed-in person behind a token-verifying proxy."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-auth-gate
 
 English | [中文](README.zh.md)
+
+## Summary
 
 A deployment's own single sign-on, wired into a dsh browser session. The browser half sends a visitor without an access token to the deployment's login page and mirrors the one it comes back with into a cookie; the node half holds that token in memory and spends it on the MCP servers this deployment forwards to. Nothing here issues, verifies, or renews a token — this package carries one that already exists to the two places dsh needs it.
 
 It exists for one deployment shape: a reverse proxy in front of many dsh processes, one per signed-in person, choosing which process a request reaches by verifying the visitor's token itself. That proxy has already decided who is on the other end by the time a request arrives, which is why nothing inside the process checks a signature.
 
+## Table of Contents
+
+- [What the gate does on every page load](#what-the-gate-does-on-every-page-load)
+- [Routes](#routes)
+- [Forwarding MCP requests with the token](#forwarding-mcp-requests-with-the-token)
+- [Composition](#composition)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="what-the-gate-does-on-every-page-load"></a>
 ## What the gate does on every page load
 
 1. Read this plugin's browser-facing configuration from `/auth-gate/settings`. A browser half receives no cordis config — the boot manifest carries plugin names, not their `config` blocks — so an unreachable or unusable settings document fails the row rather than letting the gate run on a login address nobody chose.
@@ -32,6 +52,7 @@ The cookie exists because requests that carry no `Authorization` header — a na
 
 `refreshMarginSeconds` before the token's `exp`, the gate acts. In this package that means sending the visitor back through the login page, which is the one renewal route every deployment has. `handleTokenExpiring` in `src/client/run.ts` is the single place that decision is made and the only reader of the margin: a deployment whose sign-on offers a renewal endpoint replaces that function's body, and nothing else in the gate depends on how a token is renewed.
 
+<a id="routes"></a>
 ## Routes
 
 | Route | Method | Purpose |
@@ -44,6 +65,7 @@ The token route is same-site and JSON-only: a request a browser labels `sec-fetc
 
 The token is held in a closure inside the plugin, for the process lifetime, and written nowhere: no session event, no settings document, no log line, no diagnostic. There is no route that reads it back.
 
+<a id="forwarding-mcp-requests-with-the-token"></a>
 ## Forwarding MCP requests with the token
 
 `dsh-mcp-client` resolves its headers once, when its row loads. It has no way to attach a credential that arrives later and differs per signed-in person, which is exactly what an access token is. Each entry in `mcpUpstreams` closes that gap by claiming a local route; the MCP client row then points its `url` at that route instead of at the server:
@@ -77,6 +99,7 @@ What the forward changes, and nothing else:
 
 While no browser has posted a token, every forwarding route answers 503 naming the upstream — the honest answer for a credential the process does not have yet. An upstream that cannot be reached is 502; one that drops mid-answer truncates the response, because the status was already sent.
 
+<a id="composition"></a>
 ## Composition
 
 This package is in no shipped bundle. `overlay/auth-gate.patch.yml` inserts the row over any surface:
@@ -96,6 +119,7 @@ This package is in no shipped bundle. `overlay/auth-gate.patch.yml` inserts the 
 
 Every configured value is required and validated at load: an empty `loginUrl` or one already carrying a query string, a `cookieName` that is not a bare cookie name, an upstream name that is not a plain route segment, and a target that is not an absolute HTTP(S) URL without query or fragment each fail the row rather than surfacing as a redirect to nowhere or a tool call that fails on first use.
 
+<a id="model-experience"></a>
 ## Model Experience
 
 None, as this package registers no tool, prompt section, or result: it carries a credential between the browser, the process, and the MCP servers the process forwards to, all of which happens outside any model request, and the tools those servers publish are `dsh-mcp-client`'s model-facing contribution rather than this package's.
@@ -106,6 +130,8 @@ Independent: this package issues no model request and adds nothing to one, so no
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **The gate does not run before the rest of the shell.** Browser rows are created together and activate on their own service waits, so an unauthenticated visitor may see the shell paint before the redirect happens. `dsh.client.immediately` gets this row's bundle bytes fetched in the first tier, which shortens that window but does not order activation; only a boot-stage seam in the client runtime would close it.
 - **Expiry sends the visitor back through the login page.** There is no renewal call, so a token that runs out costs a full navigation even when the deployment's sign-on could have issued a new one silently. The seam for that is `handleTokenExpiring` and nothing else.
 - **The forward is HTTP only.** There is no upgrade route, so an MCP server reached over WebSocket cannot be forwarded through it; streamable-HTTP and its event streams are what the route serves.
@@ -115,3 +141,13 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **Not covered by an assembled snapshot** — the browser evidence is the Playwright scenario in `apps/web/tests/auth-gate.e2e.ts` against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 
 **Runtime invariant:** No companion is published. This package appends no session event and owns no durable data. The one piece of mutable state it does own — the held access token — is deliberately unreachable from anywhere but the plugin closure that holds it, because a reader an invariant could use would be a reader an attacker could use; the token route's own parse enforces its shape where it enters.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>
