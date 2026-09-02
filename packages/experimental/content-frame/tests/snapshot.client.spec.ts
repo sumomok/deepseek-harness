@@ -1283,6 +1283,19 @@ describe('widgets built out of several elements', () => {
     // 乙 holds nothing this listing shows, so it is the row the room stands in
     // for rather than the room — and the row says the same words.
     expect(read(refs, { find: '乙' }).text).toBe('e4 treeitem "乙" (disabled) (collapsed) (in tree "组织")')
+    // A room over a menu item says the role the page wrote on the node and the
+    // box it ticked there, on the one row a find prints as much as in a listing
+    // that has the outline around it to say what the room is.
+    const menu = page(`
+      <div role="menu" aria-label="视图">
+        <div role="menuitemcheckbox" aria-label="网格视图" aria-checked="true" aria-expanded="false">
+          <div role="menu"><div role="menuitem">按名称</div></div>
+        </div>
+      </div>`)
+    const ticked = 'menuitemcheckbox "网格视图" [x] (collapsed)'
+    expect(read(menu).text.split('\n')[1]).toBe(`  e2 ${ticked}`)
+    expect(read(menu, { mode: 'map' }).text.split('\n')[1]).toBe(`  e2 ${ticked}  1 items`)
+    expect(read(menu, { find: '网格视图' }).text).toBe(`e2 ${ticked} (in menu "视图")`)
   })
 
   it('prints a room that shows nothing as the row the node would have printed', () => {
