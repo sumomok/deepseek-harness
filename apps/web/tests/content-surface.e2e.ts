@@ -88,6 +88,8 @@ const DEMO_DRAFT_TITLE = 'Coverage, first draft'
 
 /** The prompt section the surface contributes, verbatim, and the name it registers under. */
 const ON_DISPLAY_SECTION = 'content:on-display'
+/** The last prompt section this composition registers below the tool-guidance band. */
+const PRECEDING_SECTION = 'deployment:persona'
 const ON_DISPLAY_RULE = `# Working with content already on display
 
 When the user refers to something you have already produced and put on display — quoting it, naming its title, or otherwise pointing at it — and asks for a change, update that same piece of content in place through the tool that produced it, reusing its identity, rather than producing a new one beside it.`
@@ -331,8 +333,11 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
     // as an override of whatever each tool just said about its own arguments.
     // `deployment:persona` is the last section this composition registers below
     // that band; a rule that landed before it would be read as the weaker
-    // statement.
-    expect(names.indexOf(ON_DISPLAY_SECTION)).toBeGreaterThan(names.indexOf('deployment:persona'))
+    // statement. Its presence is asserted first: `indexOf` answers -1 for a
+    // section that is not there, which every non-negative index beats, so the
+    // comparison alone would pass on a composition that stopped registering it.
+    expect(names).toContain(PRECEDING_SECTION)
+    expect(names.indexOf(ON_DISPLAY_SECTION)).toBeGreaterThan(names.indexOf(PRECEDING_SECTION))
   })
 
   it('lists one entry per chart and page, and shows the newest', async () => {
