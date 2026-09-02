@@ -41,7 +41,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { acknowledgeReloadConnectionLoss, launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
-import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
+import { expandTurnProcesses, newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
@@ -238,9 +238,9 @@ async function probeFrame(page: Page, stamp: string | undefined): Promise<FrameP
   }, [stamp, PROBE_ATTRIBUTE] as [string | undefined, string])
 }
 
-/** Widened session shape: `.events` reads and `.append` calls, past the typed overload. */
+/** Widened session shape: `snapshotEvents()` reads and `.append` calls, past the typed overload. */
 interface WidenedSession {
-  events: readonly { type: string; data: unknown }[]
+  snapshotEvents: () => readonly { type: string; data: unknown }[]
   append: (type: string, data: unknown) => number
 }
 
@@ -252,7 +252,7 @@ interface WidenedSession {
  * type.
  * @param scaffold - the running Web scaffold.
  * @param sessionId - the seeded session id.
- * @returns the session, widened for `.events` reads and `.append` calls.
+ * @returns the session, widened for `snapshotEvents()` reads and `.append` calls.
  */
 function liveSession(scaffold: WebScaffold, sessionId: string): WidenedSession {
   const agent = scaffold.ctx.agents.get(SessionId(sessionId))
@@ -317,11 +317,23 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
     else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
   })
 
-  it('ends the assembled prompt with the on-display rule', async () => {
+  it('assembles the on-display rule into the prompt after the tool-guidance band', async () => {
     // Every shipped section of the Web surface is registered by now, so this is
-    // the composition's own answer to where order 200 lands.
+    // the composition's own answer to where order 200 lands. Selected by name
+    // rather than by position: a shipped section may register past order 200
+    // (`ui:deliverable-file-references` does, at order 9000), and what this
+    // scenario owns is the rule's text and its placement after the sections it
+    // must be read against — never the identity of whatever section is last.
     const assembly = await scaffold.ctx.systemPrompt.assemble()
-    expect(assembly.sections.at(-1)).toEqual({ name: ON_DISPLAY_SECTION, text: ON_DISPLAY_RULE })
+    const names = assembly.sections.map(section => section.name)
+    expect(assembly.sections.find(section => section.name === ON_DISPLAY_SECTION))
+      .toEqual({ name: ON_DISPLAY_SECTION, text: ON_DISPLAY_RULE })
+    // Order 200 puts the rule past the 100-199 tool-guidance band, so it reads
+    // as an override of whatever each tool just said about its own arguments.
+    // `deployment:persona` is the last section this composition registers below
+    // that band; a rule that landed before it would be read as the weaker
+    // statement.
+    expect(names.indexOf(ON_DISPLAY_SECTION)).toBeGreaterThan(names.indexOf('deployment:persona'))
   })
 
   it('lists one entry per chart and page, and shows the newest', async () => {
@@ -414,7 +426,7 @@ describe.skipIf(MODE === 'record')('web e2e: the content column as an entry stre
     await expect.poll(async () => await activeSeat(page).getAttribute('data-content-surface-seat'), { timeout: 15_000 })
       .toBe('chart')
     // The durable record the command left, not merely the browser's own view.
-    expect(liveSession(scaffold, MIXED_SESSION).events)
+    expect(liveSession(scaffold, MIXED_SESSION).snapshotEvents())
       .toContainEqual(expect.objectContaining({ type: 'content-surface/dismissed', data: { kind: 'page', entryId: 'home', by: 'user' } }))
     await evidence(page, 'content-surface-dismissed')
 
@@ -464,7 +476,14 @@ async function openSessionShowing(page: Page, expected: readonly string[]): Prom
   for (const index of [1, 2]) {
     await openSession(page, index)
     const listed = await waitForEntries(page)
-    if (listed.length === expected.length && listed.every((key, at) => key === expected[at])) return
+    if (listed.length !== expected.length || !listed.every((key, at) => key === expected[at])) continue
+    // Every seeded call sits in a closed turn, whose intermediate steps the
+    // product-default compact presentation folds behind one summary row
+    // (`hidden="until-found"`, so the rows are in the DOM but render nothing).
+    // The transcript-row assertions below are about what a row draws, not
+    // about the fold, so the groups open once here.
+    await expandTurnProcesses(page)
+    return
   }
   throw new Error(`no seeded session lists ${expected.join(', ')}`)
 }

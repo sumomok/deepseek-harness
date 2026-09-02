@@ -46,8 +46,7 @@ const ROWS = [
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 const SEEDED_SESSION = 'content-frame-web-e2e-a'
 
-/** The composer's own English placeholder — the signal that a session is open. */
-/** The composer's own stable attribute; its placeholder copy is not a locator. */
+/** The composer's own stable attribute — the signal that a session is open. */
 const COMPOSER = '[data-composer-input]'
 
 /**

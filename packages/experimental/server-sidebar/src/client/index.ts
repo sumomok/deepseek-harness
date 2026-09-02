@@ -13,8 +13,10 @@
  * `sidebar.brand.mark`/`sidebar.brand.name`/`sidebar.settings`/
  * `sidebar.footer.action` — are reused by type import exactly as the prior
  * design did (see `ServerSidebarRoot.tsx`'s module doc); `sidebar.workspaces`
- * is dropped outright, and the customer composition simply never composes
- * `ui-workspace` (see the package README).
+ * is dropped outright, which leaves `ui-workspace`'s registration for that
+ * hole inert while the package itself stays composed (see the package
+ * README) — `dsh-client-ui-conversation` requires its `uiWorkspace` service,
+ * and `session-resolution.ts` uses it to connect a Workspace.
  *
  * A second, independent registration lives in this same `apply()`: the
  * "存为工作流" session-header action (decision ③), seated in
@@ -86,7 +88,7 @@ type BoundWorkflowActions = BoundActions<ReturnType<typeof createWorkflowStore>>
  * Required services: the slot registry, sessions/workspaces, locale, and
  * remote commands. `layout`/`ui-conversation` are pulled type-only above.
  */
-export const inject = ['slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.commands']
+export const inject = ['slots', 'sessions', 'workspaces', 'uiWorkspace', 'locale', 'remote', 'remote.commands']
 
 /**
  * Persist a server-menu patch and commit the server's authoritative answer

@@ -35,6 +35,7 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, ConsoleMessage, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
@@ -96,6 +97,28 @@ async function expectInsideColumn(target: Locator, name: string, page: Page): Pr
 }
 
 /** Open the workspace tree's first session row and wait for its composer. */
+/**
+ * The Host agent for a session the browser has just opened. Opening is a round
+ * trip: the composer `openFirstSession` waits on renders from the client's own
+ * list entry, ahead of the Host registering the agent, so this polls the
+ * registry instead of reading it once (`expect.poll` is unavailable in a
+ * `beforeAll`).
+ * @param scaffold - the running Web scaffold.
+ * @param sessionId - the opened session's id.
+ * @returns the live agent.
+ */
+async function liveAgent(scaffold: WebScaffold, sessionId: string): Promise<Agent> {
+  const deadline = Date.now() + 15_000
+  for (;;) {
+    const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+    if (agent !== undefined) return agent
+    if (Date.now() > deadline) {
+      throw new Error(`server-layout content e2e: no live agent for the seeded session ${sessionId}`)
+    }
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+}
+
 async function openFirstSession(page: Page): Promise<void> {
   // The workspace group row precedes its sessions; expanding it lists them.
   await page.locator('[role="treeitem"]').first().click()
@@ -228,8 +251,7 @@ describe.skipIf(MODE === 'record')('web e2e: service-line shell with a populated
     // compilation knows (content-frame's `SessionEventMap` merge is not
     // importable from apps/web), so the call is widened past `append`'s
     // typed overload rather than trusted from an imported type.
-    const agent = scaffold.ctx.agents.get(SessionId(CONTENT_SESSION))
-    if (agent === undefined) throw new Error('server-layout content e2e: no live agent for the seeded session')
+    const agent = await liveAgent(scaffold, CONTENT_SESSION)
     // Widened as a method call, not a detached function: `append` reads `this`.
     const session = agent.session as unknown as { append: (type: string, data: unknown) => number }
     session.append('content/shown', { page: 'home', by: 'agent' })

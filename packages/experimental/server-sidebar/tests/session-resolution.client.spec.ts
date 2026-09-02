@@ -5,11 +5,15 @@
  * branch directly, since the workbench and workflow degrade paths
  * (`workflow-actions.ts`) call it with `reuseCurrent: false`.
  *
- * It also pins the two steps the package restates from
- * `dsh-client-ui-workspace` (recent-Workspace choice and blank-session reuse),
- * which no other suite reaches: a divergence from
- * `ui-workspace/src/client/navigation.ts` changes which Workspace a click
- * lands in.
+ * It also pins the one step the package restates from
+ * `dsh-client-ui-workspace` — which Workspace is the recent one, whose own
+ * `recentWorkspace` is module-private there — since no other suite reaches
+ * it: a divergence from `ui-workspace/src/client/navigation.ts` changes which
+ * Workspace a click lands in. Connecting that Workspace is the service's job
+ * (`ctx.uiWorkspace.connectWorkspace`, which also holds the in-flight map
+ * that keeps a click beside the auto-open from minting a second session), so
+ * these cases assert the delegation, not a second copy of its blank-session
+ * reuse.
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
@@ -27,15 +31,14 @@ interface FakeWorkspace {
 interface FakeSession {
   id: string
   updatedAt?: number
-  blank?: boolean
-  cwd?: string
 }
 
 /**
- * Build a fake context, plus the raw `sessions.open` and `sessions.create`
- * spies on the side: reading them back off `ctx` for an assertion would type
- * them as `ClientContext`'s declared methods (an unbound-method lint
- * violation), not as the `vi.fn()`s they actually are.
+ * Build a fake context, plus the raw `sessions.open` and
+ * `uiWorkspace.connectWorkspace` spies on the side: reading them back off
+ * `ctx` for an assertion would type them as `ClientContext`'s declared
+ * methods (an unbound-method lint violation), not as the `vi.fn()`s they
+ * actually are.
  * @param overrides - the pieces of the two snapshots a case varies.
  * @returns the fake context and the two spies.
  */
@@ -44,18 +47,12 @@ function fakeContext(overrides: {
   recentWorkspaceId?: string
   workspaces?: readonly FakeWorkspace[]
   sessions?: readonly FakeSession[]
-  /**
-   * Ids the ordered baseline lists whose summary has not arrived in `byId`
-   * yet — the transient divergence both restated steps guard against.
-   */
-  danglingSessionIds?: readonly string[]
-  archivedSessionIds?: readonly string[]
   workspacesPhase?: 'pending' | 'ready'
   sessionsPhase?: 'pending' | 'ready'
-  createSession?: () => Promise<string>
-}): { ctx: ClientContext; open: ReturnType<typeof vi.fn>; create: ReturnType<typeof vi.fn> } {
+  connect?: (workspaceId: string) => Promise<string>
+}): { ctx: ClientContext; open: ReturnType<typeof vi.fn>; connect: ReturnType<typeof vi.fn> } {
   const open = vi.fn()
-  const create = vi.fn(overrides.createSession ?? (() => Promise.resolve('new-session')))
+  const connect = vi.fn(overrides.connect ?? (() => Promise.resolve('new-session')))
   const rows = overrides.workspaces
     ?? (overrides.recentWorkspaceId === undefined ? [] : [{ workspaceId: overrides.recentWorkspaceId }])
   const items = rows.map(row => ({
@@ -71,29 +68,26 @@ function fakeContext(overrides: {
         getSnapshot: () => ({
           current: overrides.currentSessionId,
           phase: overrides.sessionsPhase ?? 'ready',
-          ids: [...(overrides.danglingSessionIds ?? []), ...summaries.map(summary => summary.id)],
+          ids: summaries.map(summary => summary.id),
           byId: Object.fromEntries(summaries.map(summary => [summary.id, {
             id: summary.id,
             updatedAt: summary.updatedAt ?? 0,
-            blank: summary.blank ?? false,
-            cwd: summary.cwd ?? '/workspace',
           }])),
         }),
       },
-      create,
       open,
     },
+    uiWorkspace: { connectWorkspace: connect },
     workspaces: {
       list: {
         getSnapshot: () => ({
           phase: overrides.workspacesPhase ?? 'ready',
-          archivedSessionIds: overrides.archivedSessionIds ?? [],
           items,
         }),
       },
     },
   } as unknown as ClientContext
-  return { ctx, open, create }
+  return { ctx, open, connect }
 }
 
 describe('resolveOrCreateSession', () => {
@@ -103,37 +97,40 @@ describe('resolveOrCreateSession', () => {
       .toBe('session-a')
   })
 
-  it('ignores a current session when reuseCurrent is false, creating a fresh one instead', async () => {
+  it('ignores a current session when reuseCurrent is false, connecting a workspace instead', async () => {
     const { ctx, open } = fakeContext({ currentSessionId: 'session-a', recentWorkspaceId: 'workspace-1' })
     expect(await resolveOrCreateSession(ctx, { reuseCurrent: false, onNoWorkspace: 'unused' }))
       .toBe('new-session')
     expect(open).toHaveBeenCalledWith('new-session')
   })
 
-  it('creates against the recent workspace when there is no current session to reuse', async () => {
-    const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1' })
+  it('connects the recent workspace when there is no current session to reuse', async () => {
+    const { ctx, connect, open } = fakeContext({ recentWorkspaceId: 'workspace-1' })
     expect(await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' }))
       .toBe('new-session')
+    expect(connect).toHaveBeenCalledWith('workspace-1')
+    expect(open).toHaveBeenCalledWith('new-session')
   })
 
   it('warns and answers undefined with no current session and no workspace', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { ctx } = fakeContext({})
+    const { ctx, connect } = fakeContext({})
     expect(await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'server-sidebar: no workspace' }))
       .toBeUndefined()
     expect(warn).toHaveBeenCalledWith('server-sidebar: no workspace')
+    expect(connect).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 
-  it('propagates a session-create rejection to the caller', async () => {
-    const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1', createSession: () => Promise.reject(new Error('boot failed')) })
+  it('propagates a connect rejection to the caller', async () => {
+    const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1', connect: () => Promise.reject(new Error('boot failed')) })
     await expect(resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' })).rejects.toThrow('boot failed')
   })
 })
 
 describe('recent-workspace choice', () => {
   it('picks the workspace holding the most recently touched session', async () => {
-    const { ctx, create } = fakeContext({
+    const { ctx, connect } = fakeContext({
       workspaces: [
         { workspaceId: 'workspace-old', path: '/old', sessionIds: ['session-old'] },
         { workspaceId: 'workspace-new', path: '/new', sessionIds: ['session-new'] },
@@ -144,11 +141,11 @@ describe('recent-workspace choice', () => {
       ],
     })
     await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' })
-    expect(create).toHaveBeenCalledWith({ workspaceId: 'workspace-new' })
+    expect(connect).toHaveBeenCalledWith('workspace-new')
   })
 
   it('keeps the earlier workspace when a later one is not more recent', async () => {
-    const { ctx, create } = fakeContext({
+    const { ctx, connect } = fakeContext({
       workspaces: [
         { workspaceId: 'workspace-first', path: '/first', sessionIds: ['session-first'] },
         { workspaceId: 'workspace-second', path: '/second', sessionIds: ['session-second'] },
@@ -159,94 +156,49 @@ describe('recent-workspace choice', () => {
       ],
     })
     await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' })
-    expect(create).toHaveBeenCalledWith({ workspaceId: 'workspace-first' })
+    expect(connect).toHaveBeenCalledWith('workspace-first')
+  })
+
+  it('reads the most recent session of a workspace that lists several', async () => {
+    const { ctx, connect } = fakeContext({
+      workspaces: [
+        { workspaceId: 'workspace-many', path: '/many', sessionIds: ['session-a', 'session-b'] },
+        { workspaceId: 'workspace-one', path: '/one', sessionIds: ['session-c'] },
+      ],
+      sessions: [
+        { id: 'session-a', updatedAt: 1000 },
+        { id: 'session-b', updatedAt: 3000 },
+        { id: 'session-c', updatedAt: 2000 },
+      ],
+    })
+    await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' })
+    expect(connect).toHaveBeenCalledWith('workspace-many')
   })
 
   it('falls back to creation time for a session id the sessions baseline has not delivered', async () => {
-    const { ctx, create } = fakeContext({
+    const { ctx, connect } = fakeContext({
       workspaces: [
         { workspaceId: 'workspace-older', path: '/older', sessionIds: ['absent'], createdAt: '2026-01-01T00:00:00.000Z' },
         { workspaceId: 'workspace-newer', path: '/newer', sessionIds: ['also-absent'], createdAt: '2026-02-01T00:00:00.000Z' },
       ],
     })
     await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' })
-    expect(create).toHaveBeenCalledWith({ workspaceId: 'workspace-newer' })
+    expect(connect).toHaveBeenCalledWith('workspace-newer')
   })
 
   it('answers undefined before the workspace baseline settles', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1', workspacesPhase: 'pending' })
+    const { ctx, connect } = fakeContext({ recentWorkspaceId: 'workspace-1', workspacesPhase: 'pending' })
     expect(await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'pending' })).toBeUndefined()
+    expect(connect).not.toHaveBeenCalled()
     warn.mockRestore()
   })
 
   it('answers undefined before the sessions baseline settles', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
-    const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1', sessionsPhase: 'pending' })
+    const { ctx, connect } = fakeContext({ recentWorkspaceId: 'workspace-1', sessionsPhase: 'pending' })
     expect(await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'pending' })).toBeUndefined()
+    expect(connect).not.toHaveBeenCalled()
     warn.mockRestore()
-  })
-})
-
-describe('blank-session reuse', () => {
-  const workspace = { workspaceId: 'workspace-1', path: '/workspace', sessionIds: ['session-blank'] }
-
-  it('reuses the workspace unarchived blank session instead of creating one', async () => {
-    const { ctx, open, create } = fakeContext({
-      workspaces: [workspace],
-      sessions: [{ id: 'session-blank', blank: true, cwd: '/workspace' }],
-    })
-    expect(await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' }))
-      .toBe('session-blank')
-    expect(create).not.toHaveBeenCalled()
-    expect(open).toHaveBeenCalledWith('session-blank')
-  })
-
-  it('creates instead of reusing a session that carries work', async () => {
-    const { ctx, create } = fakeContext({
-      workspaces: [workspace],
-      sessions: [{ id: 'session-blank', blank: false, cwd: '/workspace' }],
-    })
-    expect(await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' })).toBe('new-session')
-    expect(create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
-  })
-
-  it('creates instead of reusing a blank session rooted elsewhere', async () => {
-    const { ctx, create } = fakeContext({
-      workspaces: [workspace],
-      sessions: [{ id: 'session-blank', blank: true, cwd: '/elsewhere' }],
-    })
-    expect(await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' })).toBe('new-session')
-    expect(create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
-  })
-
-  it('creates instead of reusing a blank session the workspace does not list', async () => {
-    const { ctx, create } = fakeContext({
-      workspaces: [{ ...workspace, sessionIds: [] }],
-      sessions: [{ id: 'session-blank', blank: true, cwd: '/workspace' }],
-    })
-    expect(await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' })).toBe('new-session')
-    expect(create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
-  })
-
-  it('creates instead of reusing an archived blank session', async () => {
-    const { ctx, create } = fakeContext({
-      workspaces: [workspace],
-      sessions: [{ id: 'session-blank', blank: true, cwd: '/workspace' }],
-      archivedSessionIds: ['session-blank'],
-    })
-    expect(await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' })).toBe('new-session')
-    expect(create).toHaveBeenCalledWith({ workspaceId: 'workspace-1' })
-  })
-
-  it('skips an ordered id whose summary has not arrived, reusing the next blank session', async () => {
-    const { ctx, create } = fakeContext({
-      workspaces: [workspace],
-      danglingSessionIds: ['session-unarrived'],
-      sessions: [{ id: 'session-blank', blank: true, cwd: '/workspace' }],
-    })
-    expect(await resolveOrCreateSession(ctx, { reuseCurrent: true, onNoWorkspace: 'unused' }))
-      .toBe('session-blank')
-    expect(create).not.toHaveBeenCalled()
   })
 })

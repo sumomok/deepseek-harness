@@ -37,10 +37,6 @@
     - id: server-sidebar
       name: '@deepseek-ai/dsh-experimental-server-sidebar'
 
-- id: ui-workspace
-  name: '@deepseek-ai/dsh-client-ui-workspace'
-  disabled: true
-
 - id: ui-cordis
   name: '@deepseek-ai/dsh-client-ui-cordis'
   disabled: true

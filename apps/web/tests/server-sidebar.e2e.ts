@@ -75,9 +75,22 @@ const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
 
 // A fresh session's composer still carries the hero placeholder
 // (`placeholder.hero` in dsh-client-ui-conversation) until a message lands
-// on it, then falls back to the established-session default.
-const HERO_PLACEHOLDER = 'Describe what you want to build'
-const ESTABLISHED_PLACEHOLDER = 'Message the agent'
+// on it, then falls back to the established-session default. The composer is
+// a contenteditable that carries its copy on `data-placeholder`, never as a
+// real `placeholder` attribute, so no by-placeholder query reaches it (the
+// same locator `command-image-envelope.expected.e2e.ts` uses).
+const HERO_PLACEHOLDER = 'Describe what you want to build... / commands, @ files or sessions'
+const ESTABLISHED_PLACEHOLDER = 'Message or run a task... / commands, @ files or sessions'
+
+/**
+ * The one composer carrying a given placeholder.
+ * @param page - the browser page.
+ * @param placeholder - exact `data-placeholder` copy.
+ * @returns the composer locator.
+ */
+function composer(page: Page, placeholder: string): Locator {
+  return page.locator(`[data-composer-input][data-placeholder="${placeholder}"]`)
+}
 
 /**
  * This deployment's local shape for the server-menu settings document —
@@ -339,7 +352,7 @@ describe('web e2e: the product-console sidebar', () => {
       // session-resolution.ts) guarantees a click never mints a second
       // session alongside one auto-open already created.
       await workbenchButton(page).click()
-      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
 
       // No homePage is configured in this overlay: a blank workbench draft
       // shows nothing in the content column, so the shell collapses it
@@ -358,7 +371,7 @@ describe('web e2e: the product-console sidebar', () => {
       await page.reload({ waitUntil: 'load' })
       acknowledgeReloadConnectionLoss(tripwire, warningStart)
       await sidebar(page).waitFor({ timeout: 15_000 })
-      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
       expect(readServerMenu(scaffold).workbenchSessionId).toBe(workbenchSessionId)
       expect(scaffold.ctx.agents.list()).toHaveLength(1)
     },
@@ -444,7 +457,7 @@ describe('web e2e: the product-console sidebar', () => {
       await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).toBe(priorWorkbenchSessionId)
 
       await workbenchButton(page).click()
-      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
 
       // Load-time continuity reopens a non-blank session as-is; a click
       // instead lands on a brand-new one and repoints workbenchSessionId.
@@ -561,7 +574,7 @@ describe('web e2e: the product-console sidebar', () => {
     expect(await page.getByRole('button', { name: /^Select model, current/ }).count()).toBe(0)
     // The composer itself must not be stuck blocked now that no plugin
     // registers `useComposerBlock` (ui-model-selection is disabled).
-    await expect(page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).isEnabled()).resolves.toBe(true)
+    await expect(composer(page, ESTABLISHED_PLACEHOLDER).isEnabled()).resolves.toBe(true)
   }, 30_000)
 
   it('leaves the console clean', () => {
@@ -609,7 +622,7 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
     async () => {
       onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-homepage'))
       await workbenchButton(page).click()
-      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
 
       await expectShown(page, '/content-app/')
       await expect.poll(() => anySessionShowed(scaffold, 'home', 'user'), { timeout: 15_000 }).toBe(true)

@@ -48,14 +48,18 @@
  *   Limitations for this residual gap).
  * - `heroWorkspaceRow` (`ConversationRoot.module.css`) hides the whole
  *   workspace-chip-plus-picker row outright, not scoped to `[data-phase='hero']`:
- *   `ConversationRoot.tsx` only ever mounts it during the hero phase, and with
- *   `ui-workspace` disabled (see the package README) the row's own
- *   `WorkspaceChip` is a dead control — clicking it opens a picker menu no
- *   plugin fills. `conversation.hero.agentPreset`, the row's other seat, is
- *   emptied at the composition level instead (`ui-agent-preset` disabled
- *   outright — see `overlay/customer.patch.yml`), not by this CSS: disabling
- *   the whole package also removes its session-header preset label and its
- *   Settings row, which this hero-only rule could not reach.
+ *   `ConversationRoot.tsx` only ever mounts it during the hero phase. This is
+ *   the ONLY thing keeping workspace vocabulary off the page — `ui-workspace`
+ *   is composed (`dsh-client-ui-conversation` requires its `uiWorkspace`
+ *   service; see the package README), so the chip carries a real Workspace
+ *   title and its picker menu is live. A row this rule stopped matching would
+ *   put both back on screen, which is why an e2e scenario asserts the row
+ *   renders invisible rather than trusting the selector.
+ *   `conversation.hero.agentPreset`, the row's other seat, is emptied at the
+ *   composition level instead (`ui-agent-preset` disabled outright — see
+ *   `overlay/customer.patch.yml`), not by this CSS: disabling the whole
+ *   package also removes its session-header preset label and its Settings
+ *   row, which this hero-only rule could not reach.
  *
  * This plugin is unconditional (see its own module doc on why): this package
  * now exists solely for the customer/service-line product experience, not as

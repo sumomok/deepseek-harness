@@ -44,8 +44,7 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 const HOME_SESSION = 'content-show-web-e2e-home'
 const REPORTS_SESSION = 'content-show-web-e2e-reports'
 
-/** The composer's own English placeholder — the signal that a session is open. */
-/** The composer's own stable attribute; its placeholder copy is not a locator. */
+/** The composer's own stable attribute — the signal that a session is open. */
 const COMPOSER = '[data-composer-input]'
 
 /** Attribute the probe stamps on a live iframe element. */

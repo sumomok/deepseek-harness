@@ -18,19 +18,6 @@
   name: '@deepseek-ai/dsh-client-ui-sidebar'
   disabled: true
 
-# `sidebar.workspaces` is dropped outright (see ServerSidebarRoot.tsx's module
-# doc); composing `ui-workspace` unchanged would not throw — its
-# `sidebar.workspaces` registration goes through `ctx.slots.inject`, which
-# just never fires without a declared slot — but its OTHER registration
-# targets `conversation.hero.workspace`, a slot `dsh-client-ui-conversation`
-# always declares, and would revive the hero-phase workspace-picker menu
-# there (see the package README's Replacing the shipped sidebar section).
-# Disabling it also removes the last surviving workspace-vocabulary UI (the
-# directory tree, "New session in <name>") from this composition.
-- id: ui-workspace
-  name: '@deepseek-ai/dsh-client-ui-workspace'
-  disabled: true
-
 # The read-only Agent-preset dropdown ("PTC 模式" and friends) has no
 # customer-facing counterpart; disabling the whole package (not merely
 # hiding its hero chip — see terminology-guard.ts's `heroWorkspaceRow` rule)

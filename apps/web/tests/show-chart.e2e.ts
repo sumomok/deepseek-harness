@@ -38,7 +38,7 @@ import type { Browser, ConsoleMessage, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
-import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
+import { expandTurnProcesses, newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
@@ -227,6 +227,12 @@ async function openWorld(overlayPath: string, sessionId: string): Promise<World>
   await row.waitFor({ timeout: 15_000 })
   await row.click()
   await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
+  // Every seeded call sits in a closed turn, whose intermediate steps the
+  // product-default compact presentation folds behind one summary row
+  // (`hidden="until-found"`, so the rows are in the DOM but render nothing).
+  // This scenario is about what a chart row draws, not about the fold, so it
+  // opens every group once here rather than at each assertion.
+  await expandTurnProcesses(page)
   return { scaffold, browser, page, harnessHome, tripwire, consoleErrors }
 }
 
