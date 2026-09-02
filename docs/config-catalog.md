@@ -223,7 +223,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/api/session-controller/src/index.ts:68`](../packages/api/session-controller/src/index.ts)
+Source: [`packages/api/session-controller/src/index.ts:75`](../packages/api/session-controller/src/index.ts)
 
 <a id="deepseek-aidsh-api-settings-controller"></a>
 
