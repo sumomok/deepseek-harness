@@ -62,7 +62,7 @@ kind: "package-reference"
 |---|---|
 | [`src/index.ts`](src/index.ts) | 插件入口：`Config`、`AttachmentSpill` 服务、幂等缓存、`fileSpillOptionsFrom` |
 | [`src/types.ts`](src/types.ts) | `attachment/materialized` 会话事件词表 |
-| [`src/invariant.ts`](src/invariant.ts) | 不变量伴生插件（无运行时不变量；缓存及其日志记录在 `resolveSpill` 调用点直接落实） |
+| — | 不发布运行时不变式伴生入口；幂等缓存与其 `attachment/materialized` 日志记录在 `resolveSpill` 调用点直接落实，本包不拥有其他可观察的事件序列或可变关系。 |
 
 ### 为什么用当前发起方而不是传入的会话 id
 
