@@ -505,7 +505,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     )
     toolCtx.tools.register(contentReadTool(pending, timeouts, front))
     toolCtx.tools.register(contentActTool(pending, actTimeouts, maxSteps, front, approvals))
-    registerActApproval(toolCtx, approvals)
+    registerActApproval(toolCtx, approvals, maxSteps)
   })
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(contentAccessProjection())

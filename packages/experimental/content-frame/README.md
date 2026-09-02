@@ -49,13 +49,25 @@ The column's kind slot is `root`-scoped and the column keeps this seat mounted e
 
 `pageAccess` gives the agent `content_read`: one call answers with the page the user is looking at as a numbered structure — containers, controls, headings and text, each control carrying a ref like `e12` that a later call can point at. Structure reaches the model and data does not: a table reports its header, its size and one sample row, and lists rows only when a read names that table by ref or matches one by its text; a password box reports that it is there and never what it holds; a page asking for a sign-in answers with a refusal instead of a listing.
 
-**Absent is off, and absent is the default.** Without the block there is no tool, no route, no pending projection, no `pageAccess` field in the settings document, and no reader in the browser — a deployment that only shows pages does not pay for a capability it did not ask for. Present with an empty object takes every default. The five fields — `claimTimeoutMs`, `readTimeoutMs`, `pinMs`, `settleQuietMs`, `outlineChars` — are documented on the `Config` type; `outlineChars` is the one that decides what a read costs in context, because it is the character budget the listing is rendered under. It has a floor of 1000, refused at load: a listing's first row is rendered however long it is, and below that floor an ordinary table's first row is already past what the report route takes. `settleQuietMs` has a ceiling instead of a floor — it must fit inside the settle share of `readTimeoutMs`, refused at load, because a quiet window the budget cannot hold would make every read report a page that never settled.
+**Absent is off, and absent is the default.** Without the block there are no tools, no route, no pending projection, no `pageAccess` field in the settings document, and no reader in the browser — a deployment that only shows pages does not pay for a capability it did not ask for. Present with an empty object takes every default. The eight fields — `claimTimeoutMs`, `readTimeoutMs`, `pinMs`, `settleQuietMs`, `outlineChars`, `actTimeoutMs`, `maxSteps`, `settleMaxMs` — are documented on the `Config` type; `outlineChars` is the one that decides what a read costs in context, because it is the character budget the listing is rendered under. It has a floor of 1000, refused at load: a listing's first row is rendered however long it is, and below that floor an ordinary table's first row is already past what the report route takes. Three have ceilings instead of floors, all refused at load: `settleQuietMs` must fit inside the settle share of `readTimeoutMs`, because a quiet window the budget cannot hold would make every read report a page that never settled; `settleMaxMs` must be at least `settleQuietMs` and fit inside `actTimeoutMs`, for the same reason from both ends; and `maxSteps` is capped at 100, which is what keeps a report of steps inside the envelope the report route allows.
+
+## Acting on the page the user is looking at
+
+The same block gives the agent `content_act`: one call carries up to `maxSteps` steps — `click`, `fill`, `select`, `press`, `wait` — run in order against the page in front of the user and stopping at the first failure. Every step but `wait` names its element twice, by the `ref` a read returned and by the `label` that read printed, and the browser checks the name before it acts: a page that re-rendered its table between the read and the call has the same refs pointing at different rows, and the check is what stops the call rather than pressing whatever now sits there. Three more endings stop a step — an element the page no longer has, one behind a dialog the page has put in front of the user, and one the page has switched off.
+
+The events are the page's own. A click is the whole pointer sequence a user produces, because a framework listening for `mousedown` alone never sees a bare `click`; a fill goes through the prototype's value setter, because React and Vue both track the value they last wrote and an assigned `el.value` is a change they undo on the next render; a key is three events with no form submitted behind them, because what Enter means is the page's decision. A `select` is either the platform's own `<select>` or the two clicks a drawn picker takes. Between steps the page is given `settleQuietMs` to go quiet, bounded per step by `settleMaxMs`.
+
+**One call is one approval request.** A `tools/pre-execute` listener escalates every call of this tool to a request composed from the arguments and nothing else: nothing has reached a browser when it is written, so it names the column's front entry the way the user sees it rather than a page title the host has not got. That is the other reason `label` is required on every step — the user is told what will be clicked and filled, and the only place those names can come from is the call itself. The listener delegates first, so a policy that would deny the call still denies it; a deployment composing no approval service runs no steps at all, which is the kernel's own degrade for a call that asks.
+
+**What the page did on its own comes back with the answer.** For the length of the call — and no longer — the seat watches the document for text that appears and goes away, listens for route changes, and stands in for `confirm`/`alert`/`prompt` and `window.open`: the first three because they block the frame's event loop until something answers and the seat is that something, the last because a window opened behind the console is one nobody will look at. Both stand-ins are put back when the call ends, including where a step threw. `dialogs` says how a native dialog is answered — `cancel` by default; `accept` is refused unless the approval request the user read said the page's own confirmation would be confirmed too, which no standing allowance and no policy that never asks can produce.
+
+The answer is three sections every time, in the same order: what ran, what the page did on its own, and a whole fresh reading of the page at the deployment's own budget. The last one is what makes a following call possible without reading again, since the refs it names are current. A `fill` into a password box is reported as having filled it and never with what.
 
 ### The channel
 
-A host cannot address a browser, so the call travels the other way. The tool body writes nothing: it registers a wait and publishes the call in the session's own `contentAccess` projection, which every connected browser already receives. The page seat showing that session claims the call on `POST /content-frame/claim`, walks the frame's document, and posts the listing to `POST /content-frame/report`. Only the claiming tab's report is taken, which is why the claim is a round trip rather than an announcement.
+A host cannot address a browser, so the call travels the other way. Both tools share it. The tool body writes nothing: it registers a wait and publishes the call in the session's own `contentAccess` projection, which every connected browser already receives. The page seat showing that session claims the call on `POST /content-frame/claim`, does the work — walking the frame's document, or running the steps against it — and posts the answer to `POST /content-frame/report`. Only the claiming tab's report is taken, which is why the claim is a round trip rather than an announcement, and it is also why two consoles open on one session run one copy of a set of steps rather than two. What differs between the two tools is the document posted back, discriminated by its own status; the tool that opened the wait is what decides whether the document it was handed answers its own call.
 
-Two deadlines, because "no console is open" and "the console that answered went quiet" are different facts and the model acts differently on each. A call unclaimed within `claimTimeoutMs` is told no console is showing this session; a claimed call unanswered within `readTimeoutMs` is told to retry once. One session's consecutive reads stick to one tab: the tab that last answered is preferred for `pinMs`, and another tab's claim is held briefly so the preferred one can take it first. Refs name elements of one document, so two consoles answering alternate reads would hand the model refs that name nothing.
+Two deadlines, because "no console is open" and "the console that answered went quiet" are different facts and the model acts differently on each. A call unclaimed within `claimTimeoutMs` is told no console is showing this session — and, for a set of steps, that nothing was done; a claimed read unanswered within `readTimeoutMs` is told to retry once, while a claimed set of steps unanswered within `actTimeoutMs` is told the steps may have run partially or fully and to read the page before deciding, because that is the one ending where nothing on this side knows what happened. One session's consecutive reads stick to one tab: the tab that last answered is preferred for `pinMs`, and another tab's claim is held briefly so the preferred one can take it first. Refs name elements of one document, so two consoles answering alternate reads would hand the model refs that name nothing.
 
 Neither deadline is spent on a single attempt. A claim that never lands — a dropped request, a moment offline — is bid again at a fixed interval until the claim window is out, and a listing whose first post never lands is posted once more: one dropped request must not be what tells the model there is no console, with the console in front of the user the whole time. Within the report deadline the seat spends at most half on a page that is still loading, because the host started counting the moment it granted the claim and the walk and the trip back need the rest.
 
@@ -211,6 +223,62 @@ Bounded by `outlineChars` — a listing is rendered under that budget, so one re
 
 Append-only. The listing is a fact about the page at that moment; a second read of a changed page is a new result rather than a rewrite of the first.
 
+### The `content_act` offer
+
+#### What the model sees
+
+One tool, `content_act`, offered beside `content_read` wherever the deployment configured `pageAccess`. Two parameters: `steps`, required, each `{action, ref, label, text?, value?, key?}` with `action` one of `click`, `fill`, `select`, `press`, `wait`; and `dialogs`, `cancel` or `accept`, for a native dialog the page opens while the steps run. The description says the label is checked against the page before the browser acts, so the model knows a stale read stops the call rather than acting on the wrong element, and that one call is one approval request, which is the cost model behind putting the steps that belong together in one call.
+
+#### Token effect
+
+One schema, listed on every request for as long as the tool is offered — a description of about 120 words, six parameter lines inside `steps`, and one for `dialogs`.
+
+#### KV Cache effect
+
+Stable: the schema is fixed at load and never varies by session or by what the column holds.
+
+### The result of a set of steps
+
+#### What the model sees
+
+Three sections, always in this order: what ran or which step stopped the call, what the page did on its own while the steps ran, and a whole fresh reading of the page. The third is a `content_read` of the same page at the same budget, so the refs in it are the ones the next call can point at.
+
+##### A call whose steps all ran
+
+```markdown
+Done 2/2 on 点位信息: fill "名称" ← "东风"; click "查询" (settled after 0.8s).
+Page events during these steps:
+  message "查询成功" (shown for 2.1s, gone before the snapshot)
+Page now:
+1 main
+  2 heading "点位信息"
+  3 table "点位列表" — 名称, 状态, 操作 · 24 rows · e14
+```
+
+##### A call one step stopped
+
+```markdown
+Step 2 failed: e5 is now "重置", not "查询" — the page changed; call content_read for current refs. Step 1 ran; later steps were skipped.
+Page events during these steps: none.
+Page now:
+1 main
+  2 heading "点位信息"
+```
+
+##### The console claimed the call and went quiet
+
+```markdown
+The console claimed this call but did not report within 60s; the steps may have run partially or fully. Call content_read before deciding to retry.
+```
+
+#### Token effect
+
+Bounded by `outlineChars` for the closing reading, plus one clause per step on the first line, plus at most eight lines of what the page did with each cut to 200 characters. A call that changed the page therefore costs about what a read of it costs, which is the point: the model does not have to read again to see what it did.
+
+#### KV Cache effect
+
+Append-only. Each result is a fact about the page at that moment, so a second call is a new result rather than a rewrite of the first.
+
 ### The content-column context
 
 #### What the model sees
@@ -252,7 +320,13 @@ Append-only, at the tail of the conversation, so it invalidates nothing already 
 - **The on-display rule does not distinguish writers** — [`content-surface`](../content-surface/README.md)'s kind-agnostic prompt rule tells the model to update "something you have already produced and put on display" in place. A page a user opened through the sidebar menu is on display exactly the same way a page the agent chose is, so the rule's wording still reads as if the agent produced it. The `by` field exists to let a future prompt or renderer draw that distinction; the rule's wording is deliberately left unchanged (it is a pinned, measured string — see its own module doc) rather than patched for this one case.
 - **The `page` extractor's resolved `by` is not yet rendered** — the browser's page frame draws the same iframe regardless of who showed it. The field is carried through so a later change can show it without another `dataVersion` bump.
 - **One directory, one origin** — the route serves a single configured directory, and every page must be a path inside the dsh origin. There is no second application, no external URL, and no way for the agent to name a page the deployment did not configure.
-- **No channel between the frame and the shell** — no `postMessage` protocol, no shared state, and no way for the hosted page to report back what the user did in it. The agent can put a page in front of the user; it cannot learn what happened next except by being told. The page's only route back into the harness is the dsh HTTP API, which it reaches on its own.
+- **The frame still reports nothing of its own** — no `postMessage` protocol and no shared state: what the agent learns about the page it learns by reading it or by acting on it, and what the user does in the frame between those calls reaches nobody. The page's only route back into the harness is the dsh HTTP API, which it reaches on its own.
+- **Acting is five actions, and no gestures** — no drag, no scroll, no hover, no file upload, no right-click, and no way to act on anything a read did not number. A page that needs one of those needs a user.
+- **A step's target is checked by name, which is not identity** — two rows whose buttons are both called `编辑` are the same name to this check, so a re-render that reordered them passes it. The ref is what names the element and the name is what catches the page having moved under it; neither one alone is an identity, and a page that renumbers and renames together is a page a read has to be taken of again.
+- **The dialog stand-ins are the one injection into the frame** — for the length of a call, `confirm`, `alert`, `prompt` and `window.open` are this package's, restored when the call ends. A page that captured its own references to them before the call keeps calling the originals, and a page that opens a dialog outside a call blocks its own frame as it always did.
+- **What the page did on its own is a heuristic, and a bounded one** — text is reported as a message when it appeared and went away while the steps ran, at most eight things per call and each cut to 200 characters. An application that redraws a list mid-call spends that budget on its own churn, and a message that appeared and stayed is left to the closing snapshot.
+- **A step waits on the frame's own document alone** — the settle wait and a `wait` step read the frame's document, so an application that draws into a nested same-origin frame is read by the closing snapshot and not waited for.
+- **`dialogs: accept` is spent by the call that was asked about** — the record is consumed on use, so a retry of the same call cancels the page's dialog instead of confirming it, and asks the user again.
 - **The `content` projection has no in-tree consumer** — the column reads the entry stream instead, and `content` remains only as the resolved current-page value (`shown`/`default`/`empty`/`missing`) for anything else reading the wire. It is the one place `defaultPage` still shows up.
 - **The frame cache is per browser tab and unbounded in time** — `cacheSize` bounds how many frames stay alive, not how long. A tab left open keeps its cached documents running, including whatever polling or sockets they hold.
 - **The settings route assumes an HTTP carrier** — the browser half fetches `/content-frame/settings` relative to the page origin. A transport that serves the shell without exposing the harness over HTTP would fail the row, the same way the iframe's own route would.

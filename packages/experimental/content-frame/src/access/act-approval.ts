@@ -26,15 +26,20 @@ import { CONTENT_ACT_TOOL_NAME, parseActArgs } from './wire.ts'
  * native dialog would be confirmed.
  * @param ctx - the plugin context the listener is registered on; disposing it drops the listener.
  * @param approvals - the record the tool body checks before it answers a native dialog.
+ * @param maxSteps - the deployment's bound on how many steps one call has, which
+ * this reads for the same reason the body does: a call past it is refused
+ * either way, and asking about it first is asking about nothing.
  */
-export function registerActApproval(ctx: Context, approvals: DialogApprovals): void {
+export function registerActApproval(ctx: Context, approvals: DialogApprovals, maxSteps: number): void {
   ctx.on('tools/pre-execute', async (exec, next): Promise<PreToolDecision> => {
     if (exec.name !== CONTENT_ACT_TOOL_NAME) return await next()
     const args = parseActArgs(exec.arguments)
-    // The tool's own body refuses arguments this cannot read, with a sentence
-    // naming the step to fix; asking the user about them first would put a
-    // request in front of them for a call that cannot run either way.
-    if (args === undefined) return await next()
+    // The tool's own body refuses arguments this cannot read and calls with more
+    // steps than the deployment allows, each with a sentence naming what to fix;
+    // asking the user about them first would put a request in front of them for
+    // a call that cannot run either way — and would put the wrong sentence in
+    // front of a model whose call was refused for its size.
+    if (args === undefined || args.steps.length > maxSteps) return await next()
     // Delegated first so a listener that would deny the call — a policy, a
     // hook, a guard — still can; only an allowance is escalated to a request.
     const downstream = await next()

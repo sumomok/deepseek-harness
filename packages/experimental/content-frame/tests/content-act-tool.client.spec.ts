@@ -89,7 +89,7 @@ async function bench(approval: Approval = 'allowed-once', timeouts: CallTimeouts
   const approvals = new DialogApprovals()
   const asked: string[] = []
   ctx.tools.register(contentActTool(pending, timeouts, MAX_STEPS, () => undefined, approvals))
-  registerActApproval(ctx, approvals)
+  registerActApproval(ctx, approvals, MAX_STEPS)
   if (approval !== 'none') {
     ctx.provide('approval', {
       request: (request: { reason?: string }) => {
@@ -278,6 +278,22 @@ describe('what content_act refuses before anyone is asked', () => {
     const { asked, run } = await bench()
     await run({ steps: [] }).settled
     expect(asked).toEqual([])
+  })
+
+  it('asks about nothing past the deployment\'s own step bound', async () => {
+    // The gate reads the same bound the body does. Without it, a call one step
+    // too long would be put in front of the user as twenty-one sentences and
+    // then refused by the body anyway — and a model with no approval service
+    // would read those sentences as the reason instead of the one naming the
+    // bound to split the call at.
+    const { asked, run } = await bench()
+    const steps = Array.from({ length: MAX_STEPS + 1 }, () => ({ action: 'click', ref: 'e1', label: '查询' }))
+    const result = await run({ steps }).settled
+    expect(asked).toEqual([])
+    expect({ isError: result.isError, text: text(result) }).toEqual({
+      isError: true,
+      text: 'Error: steps must hold at most 20 steps; split the rest into another call',
+    })
   })
 
   it('refuses a call with no owning session', async () => {
