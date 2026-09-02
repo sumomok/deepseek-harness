@@ -1992,19 +1992,84 @@ describe('an icon a page draws as a command', () => {
         <i class="el-icon-edit" aria-label="编辑本行"></i>
         <i class="el-icon-plus" title="新增"></i>
         <span class="anticon anticon-delete"></span>
+        <i class="icon-star"></i>
         <i class="edit-icon"></i>
         <i class="iconfont"></i>
       </div>`)
+    // The name is what a page writes after the word `icon`; a class that ends
+    // at the word says only that the thing is one, whichever side it is on.
     expect(read(refs).text).toBe([
       'e1 toolbar "操作"',
       '  e2 icon "编辑本行" (in toolbar "操作")',
       '  e3 icon "新增" (in toolbar "操作")',
       '  e4 icon "delete" (in toolbar "操作")',
-      '  e5 icon "edit" (in toolbar "操作")',
+      '  e5 icon "star" (in toolbar "操作")',
       '  e6 icon (in toolbar "操作")',
+      '  e7 icon (in toolbar "操作")',
     ].join('\n'))
     // An icon is one of the things a region offers, not one of its runs of text.
-    expect(read(refs, { mode: 'map' }).text).toBe('e1 toolbar "操作"  5 buttons')
+    expect(read(refs, { mode: 'map' }).text).toBe('e1 toolbar "操作"  6 buttons')
+  })
+
+  it('reads an icon a page draws as an inline drawing, however that drawing names itself', () => {
+    // The icon sets of antd, Element Plus, and Bootstrap draw the shape inline
+    // rather than through a font: the name is then in the classes of the
+    // wrapper, in the symbol the drawing points at, or in its own title.
+    const refs = page(`
+      <div role="toolbar" aria-label="操作">
+        <svg class="el-icon-edit"><path d="M0 0"/></svg>
+        <svg><use href="#icon-delete"/></svg>
+        <svg><use xlink:href="#el-icon-plus"/></svg>
+        <svg><title>导出</title><path d="M0 0"/></svg>
+        <i class="el-icon"><svg viewBox="0 0 1024 1024"><use href="#Refresh"/></svg></i>
+        <div class="anticon anticon-star"><svg viewBox="0 0 1024 1024"><path d="M0 0"/></svg></div>
+      </div>`)
+    expect(read(refs).text).toBe([
+      'e1 toolbar "操作"',
+      '  e2 icon "edit" (in toolbar "操作")',
+      '  e3 icon "delete" (in toolbar "操作")',
+      '  e4 icon "plus" (in toolbar "操作")',
+      '  e5 icon "导出" (in toolbar "操作")',
+      '  e6 icon "Refresh" (in toolbar "操作")',
+      '  e7 icon "star" (in toolbar "操作")',
+    ].join('\n'))
+  })
+
+  it('reads a wrapper and the drawing inside it as one icon, and says nothing about a drawing that names nothing', () => {
+    const refs = page(`
+      <div role="toolbar" aria-label="操作">
+        <i class="el-icon"><svg viewBox="0 0 1024 1024"><path d="M0 0"/></svg></i>
+        <svg><use href="#icon"/></svg>
+        <svg viewBox="0 0 24 24"><path d="M0 0"/></svg>
+        <span class="wrap"><svg viewBox="0 0 24 24"><path d="M0 0"/></svg></span>
+      </div>`)
+    // A wrapper the page marks as an icon prints the row and the drawing inside
+    // it prints none, so one icon is one thing to click. A drawing that names
+    // itself nowhere is decoration: pages draw far too many to print each one.
+    expect(read(refs).text).toBe([
+      'e1 toolbar "操作"',
+      '  e2 icon (in toolbar "操作")',
+      '  e3 icon (in toolbar "操作")',
+    ].join('\n'))
+  })
+
+  it('names an icon in a cell whatever else the page says the element is', () => {
+    // What a cell is read for is what the row offers, so the icon a page marks
+    // as a picture is named there; the same element read as a row of the page
+    // is answered with the role the page wrote on it.
+    const cell = page(`
+      <table><tbody><tr><td>东风站</td><td>
+        <span role="img" aria-label="删除" class="anticon anticon-delete"><svg><path d="M0 0"/></svg></span>
+        <i class="el-icon"><svg><use href="#Edit"/></svg></i>
+      </td></tr></tbody></table>`)
+    read(cell)
+    expect(read(cell, { scope: refOf(cell, 'table') }).text.split('\n')[1])
+      .toBe('  row 1: 东风站 | e3 icon "删除"  e4 icon "Edit"')
+    const bar = page(`
+      <div role="toolbar" aria-label="操作">
+        <span role="img" aria-label="删除" class="anticon anticon-delete"><svg><path d="M0 0"/></svg></span>
+      </div>`)
+    expect(read(bar).text).toBe(['e1 toolbar "操作"', '  e2 img "删除" (in toolbar "操作")'].join('\n'))
   })
 
   it('offers an icon where a page draws its commands, and reads past one drawn as decoration', () => {

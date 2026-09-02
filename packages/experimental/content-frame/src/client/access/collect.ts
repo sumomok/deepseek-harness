@@ -16,7 +16,7 @@ import {
   CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, ICON_ROLE, NAME_FROM_CONTENT_ROLES,
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
   frameDocument, headingText, insideOpaque, isChecked, isDisabled, isHiddenAround, isInline, isMarked,
-  drawnAround, iconWord, isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped,
+  drawingInside, drawnAround, iconWord, isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped,
   libraryRole, looksClickable, markedSelector, nameOf, quantityValue, queryInOrder, rectsMeet,
   rectsOverlap, roleOf, visibleText,
 } from './dom.ts'
@@ -502,8 +502,9 @@ function controlFace(el: Element, role: string, walk: Walk, label: Element | und
  */
 function cellControlRole(el: Element, walk: Walk): string | undefined {
   const role = roleOf(el)
-  if (role !== null) return CELL_CONTROL_ROLES.has(role) && rowRole(el, role) ? role : undefined
+  if (role !== null && CELL_CONTROL_ROLES.has(role) && rowRole(el, role)) return role
   if (isIcon(el, walk)) return ICON_ROLE
+  if (role !== null) return undefined
   return topClickable(el, walk) ? CLICKABLE_ROLE : undefined
 }
 
@@ -1726,14 +1727,23 @@ function clickableName(el: Element, walk: Walk): string {
  * el-icon-edit">`, with no role, no label, no title, and no pointer cursor of
  * its own — so nothing a specification defines says the element is there at
  * all, and a reader who can see it has no way to ask for it. The rule is a
- * heuristic keyed to a page's own class names, which every rule in this package
+ * heuristic keyed to a page's own markup, which every rule in this package
  * otherwise refuses; see the Agent Note for what it costs and when it retires.
+ *
+ * An icon set drawn as inline `svg` reaches this the same way: the drawing
+ * itself is one where it names a symbol or carries a title, and the wrapper the
+ * page marks as an icon is one where it holds nothing but that drawing — which
+ * keeps one icon to one row, since a row ends the descent.
  * @param el - the element to classify.
  * @param walk - the walk in progress.
  * @returns whether the page draws the element as an icon.
  */
 function isIcon(el: Element, walk: Walk): boolean {
-  return isInline(el) && iconWord(el) !== undefined && visibleText(el, walk.isVisible) === ''
+  if (iconWord(el) === undefined) return false
+  // A drawing draws no words of the page wherever it is: what is written inside
+  // one labels the picture, which is why the walk stops at one everywhere else.
+  if (el.localName === 'svg') return true
+  return (isInline(el) || drawingInside(el) !== undefined) && visibleText(el, walk.isVisible) === ''
 }
 
 /**
@@ -1801,6 +1811,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
     // the model can reach it.
     const drawn = roleOf(el)
     if (drawn !== null && rowRole(el, drawn)) pushElement(el, drawn, walk, place)
+    else if (offersIcon(el, walk, place)) pushElement(el, ICON_ROLE, walk, place)
     else if (offersClick(el, walk, place)) pushElement(el, CLICKABLE_ROLE, walk, place)
     return
   }
