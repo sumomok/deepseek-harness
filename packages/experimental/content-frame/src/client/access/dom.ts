@@ -163,6 +163,18 @@ const GLOBAL_ARIA_SELECTOR = [
 /** The role a snapshot gives a role-less element the page makes clickable. */
 export const CLICKABLE_ROLE = 'clickable'
 
+/** The role a snapshot gives an element a page draws as an icon and names nowhere. */
+export const ICON_ROLE = 'icon'
+
+/**
+ * The word an icon-font library writes in the class of the element it draws an
+ * icon on: `el-icon-edit`, `anticon-delete`, `icon-trash`, `iconfont`. It is the
+ * one part of such a class name that is not a library's own spelling, which is
+ * why this is the whole of what {@link iconWord} matches — a library that never
+ * writes it is one this reader does not see.
+ */
+const ICON_TOKEN = 'icon'
+
 /**
  * The roles HTML itself gives an element that `dom-accessibility-api` does not
  * map. HTML-AAM gives `meter` the role of the same name; the library answers
@@ -200,6 +212,9 @@ const TEXT_KEPT = 197
 
 /** How much of the smaller rectangle two items must share to count as one. */
 const OVERLAP_SHARE = 0.8
+
+/** The keywords a page draws nothing around an element with. */
+const DRAWS_NOTHING = /^(?:none|normal)$/u
 
 /** Text that only separates the items either side of it. */
 const SEPARATOR = /^[/>›»|:·•\-–—]+$/
@@ -664,13 +679,88 @@ export function isDisabled(el: Element): boolean {
 }
 
 /**
+ * Whether the page takes what a field holds and refuses to let the reader type
+ * over it. A page draws a picker as a box it fills itself, so a reader told
+ * nothing would type into a field that answers no key.
+ * @param el - the element to read.
+ * @returns its read-only state.
+ */
+export function isReadonly(el: Element): boolean {
+  if (el.getAttribute('aria-readonly') === 'true') return true
+  const tag = el.localName
+  return (tag === 'input' || tag === 'textarea') && (el as HTMLInputElement).readOnly
+}
+
+/**
  * The default clickability test: a page that gives a role-less element a
  * pointer cursor is telling the reader it can be clicked.
  * @param el - the element to classify.
  * @returns whether the element looks clickable.
  */
 export function looksClickable(el: Element): boolean {
-  return getComputedStyle(el).cursor === 'pointer'
+  return viewOf(el).getComputedStyle(el).cursor === 'pointer'
+}
+
+/**
+ * The window an element's own document is drawn in, which is the one that
+ * answers for its styles: an element of a frame is laid out by that frame, and
+ * a document no window renders is answered for by the window this code runs in.
+ * @param el - the element to read.
+ * @returns the window to ask about it.
+ */
+function viewOf(el: Element): Window {
+  return el.ownerDocument.defaultView ?? window
+}
+
+/**
+ * The text a page draws around an element rather than writing it in the
+ * document: the star a form draws in front of the label of a field that must be
+ * filled, and whatever else `::before` and `::after` put on the screen. A
+ * reader sees it and no read of the document can reach it.
+ *
+ * The quotes CSS puts around drawn text belong to the stylesheet rather than to
+ * the page, and the keywords for drawing nothing draw nothing.
+ * @param el - the element to read.
+ * @returns the collapsed text, empty where the page draws none.
+ */
+export function drawnAround(el: Element): string {
+  return collapse(`${drawnPart(el, '::before')} ${drawnPart(el, '::after')}`)
+}
+
+/**
+ * The text one of those two draws.
+ * @param el - the element to read.
+ * @param part - the pseudo-element to read.
+ * @returns the text, empty where it draws none.
+ */
+function drawnPart(el: Element, part: string): string {
+  return viewOf(el).getComputedStyle(el, part).content.replace(DRAWS_NOTHING, '').replaceAll(/["']/gu, '')
+}
+
+/**
+ * The word a page's own class names an icon with, for an element it draws as an
+ * icon and labels nowhere: `el-icon-edit` says `edit`, `anticon anticon-delete`
+ * says `delete`, and `iconfont` alone says nothing until the next class does.
+ *
+ * This is the one rule in the package keyed to what a page happens to write
+ * rather than to what a specification defines, and it is a heuristic: only the
+ * word `icon` counts, in any class token that holds it, and the name is the last
+ * part of that token that is not the word itself. No library's own prefix is
+ * matched — `el-`, `anticon`, and `iconfont` reach it through `icon` alone, and
+ * a library spelling its icons some other way reaches it not at all.
+ * @param el - the element to read.
+ * @returns the word, empty for an icon whose classes name nothing, and undefined
+ * for an element the page does not mark as an icon.
+ */
+export function iconWord(el: Element): string | undefined {
+  const tokens = [...el.classList]
+  const at = tokens.findIndex(token => token.toLowerCase().includes(ICON_TOKEN))
+  if (at === -1) return undefined
+  for (const token of tokens.slice(at)) {
+    const word = token.split(/[-_]/u).filter(part => !part.toLowerCase().includes(ICON_TOKEN)).at(-1)
+    if (word !== undefined) return word
+  }
+  return ''
 }
 
 /**
@@ -718,4 +808,20 @@ export function rectsOverlap(a: DOMRectReadOnly, b: DOMRectReadOnly): boolean {
   const shared = Math.max(0, width) * Math.max(0, height)
   const smaller = Math.min(a.width * a.height, b.width * b.height)
   return smaller > 0 && shared >= smaller * OVERLAP_SHARE
+}
+
+/**
+ * True when two rectangles cover any of the same ground at all, which is what
+ * tells a table drawn over another from the table drawn after it: a page pins a
+ * column by drawing the whole table again on top of itself, while a second
+ * table below the first shares an edge with it at most. A page that reports no
+ * rectangle for one of them has said nothing about where it is drawn, and the
+ * two are then not one thing.
+ * @param a - the first rectangle, absent where the page reports none.
+ * @param b - the second rectangle, absent where the page reports none.
+ * @returns whether the two are drawn over each other.
+ */
+export function rectsMeet(a: DOMRectReadOnly | undefined, b: DOMRectReadOnly | undefined): boolean {
+  if (a === undefined || b === undefined) return false
+  return Math.min(a.right, b.right) > Math.max(a.left, b.left) && Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top)
 }

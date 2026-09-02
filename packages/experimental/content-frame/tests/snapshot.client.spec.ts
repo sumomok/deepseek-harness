@@ -30,6 +30,11 @@ function rectOf(el: Element): DOMRectReadOnly | undefined {
   return new DOMRect(x, y, width, height)
 }
 
+/** What a stylesheet draws around an element, from `data-drawn`. */
+function drawnAround(el: Element): string {
+  return el.getAttribute('data-drawn') ?? ''
+}
+
 /** Put one page up, with a fresh numbering. */
 function page(html: string): RefTable {
   document.body.innerHTML = html
@@ -38,7 +43,7 @@ function page(html: string): RefTable {
 
 /** Read the page up. */
 function read(refs: RefTable, ask: Ask = {}): Snapshot {
-  return snapshot(document, { refs, budgetChars: 4000, isVisible, rectOf, ...ask })
+  return snapshot(document, { refs, budgetChars: 4000, isVisible, rectOf, drawnAround, ...ask })
 }
 
 /** The ref of one element, which the read has already numbered. */
@@ -1956,6 +1961,333 @@ describe('controls', () => {
   })
 })
 
+describe('an icon a page draws as a command', () => {
+  // The commands of a table row on the console this rule was written for are
+  // drawn as `<i class="el-tooltip operation-modify el-icon-edit">` and as an
+  // icon inside the wrapper a confirmation puts around it. Neither carries a
+  // role, a label, a title, or a pointer cursor: nothing a specification
+  // defines says they are there, and the only thing that does is the class.
+  const ROW_COMMANDS = `
+    <table>
+      <thead><tr><th>名称</th><th>操作</th></tr></thead>
+      <tbody><tr><td>东风站</td><td><div class="cell">
+        <i class="el-tooltip operation-modify el-icon-edit"></i>
+        <span class="el-popover__reference"><i class="el-icon-delete"></i></span>
+        <div data-hidden>确定删除吗？ 取消</div>
+      </div></td></tr></tbody>
+    </table>`
+
+  it('gives the icon commands of a table row a ref, so the model can reach what the row offers', () => {
+    const refs = page(ROW_COMMANDS)
+    expect(read(refs).text.split('\n')[2]).toBe('  sample: 东风站 | [edit delete]')
+    const listed = read(refs, { scope: refOf(refs, 'table') }).text
+    expect(listed.split('\n')[2]).toBe('  row 1: 东风站 | e3 icon "edit"  e4 icon "delete"')
+    // The confirmation the page keeps beside them is drawn nowhere yet.
+    expect(listed).not.toContain('确定删除吗')
+  })
+
+  it('names an icon by what the page wrote on it, and failing that by its own class', () => {
+    const refs = page(`
+      <div role="toolbar" aria-label="操作">
+        <i class="el-icon-edit" aria-label="编辑本行"></i>
+        <i class="el-icon-plus" title="新增"></i>
+        <span class="anticon anticon-delete"></span>
+        <i class="edit-icon"></i>
+        <i class="iconfont"></i>
+      </div>`)
+    expect(read(refs).text).toBe([
+      'e1 toolbar "操作"',
+      '  e2 icon "编辑本行" (in toolbar "操作")',
+      '  e3 icon "新增" (in toolbar "操作")',
+      '  e4 icon "delete" (in toolbar "操作")',
+      '  e5 icon "edit" (in toolbar "操作")',
+      '  e6 icon (in toolbar "操作")',
+    ].join('\n'))
+    // An icon is one of the things a region offers, not one of its runs of text.
+    expect(read(refs, { mode: 'map' }).text).toBe('e1 toolbar "操作"  5 buttons')
+  })
+
+  it('offers an icon where a page draws its commands, and reads past one drawn as decoration', () => {
+    const refs = page(`
+      <p>说明 <i class="el-icon-warning"></i> 结束</p>
+      <ul><li><i class="el-icon-star"></i>甲</li><li>乙</li><li>丙</li></ul>`)
+    // A drawing beside a run of text is decoration and ends no run of it; the
+    // same drawing among the items of a list is one of the things offered.
+    expect(read(refs).text).toBe([
+      'text "说明 结束"',
+      'e1 list',
+      '  e2 icon "star" (list)',
+      '  text "甲" (list)',
+      '  text "乙" (list)',
+      '  text "丙" (list)',
+    ].join('\n'))
+  })
+
+  it('reads an element carrying words as the words it carries, whatever its class says', () => {
+    const refs = page('<div role="toolbar" aria-label="操作"><i class="el-icon-edit">编辑</i><i class="fa fa-trash"></i></div>')
+    // An icon is an element drawing no words of its own; and only the word
+    // `icon` marks one, so an icon font spelling its classes some other way
+    // reaches this read as nothing at all.
+    expect(read(refs).text).toBe(['e1 toolbar "操作"', '  text "编辑" (in toolbar "操作")'].join('\n'))
+  })
+})
+
+describe('the table this rule was written for', () => {
+  // The layer list of the ini-web2 console, measured in the frame on
+  // 2026-09-02: the body table of the main piece and of the copy pinned left
+  // are drawn at exactly the same place, [69,152,3204,818], while the copy
+  // pinned right is the whole table shifted 1756 to the left, so it covers the
+  // right end of what it repeats and nothing else. Twenty columns: the tick
+  // box and the name are pinned left, the commands are pinned right, and the
+  // main piece hides all three. Its header carries one cell more than any body
+  // row — the placeholder drawn over the scrollbar.
+  const NAMES = [
+    '', '名称', '图层id', '所属地图主题', '所属场景', '对应模型名', '要素名称对应属性名', '图层别名',
+    '是否显示', '是否进行周围资源搜索', '所属外部HTTP接口', '图层业务类型', '图层查询条件',
+    '是否进行数量统计', '图层渲染方式', '是否可进行筛选', '图层弹窗业务类型', '列表中是否需要展示图标',
+    '是否默认展示', '操作',
+  ]
+  const VALUES = ['', '东风站', 'element:gas_transport_vehicle_info', '公用专题', '延吉市燃气监测预警平台V2']
+  const COMMANDS = '<i class="el-tooltip operation-modify el-icon-edit"></i>'
+    + '<span class="el-popover__reference"><i class="el-icon-delete"></i></span>'
+  const LEFT = [0, 1]
+  const RIGHT = [19]
+
+  /** One cell, drawn where the page draws it and holding what that piece shows. */
+  function cell(tag: 'th' | 'td', column: number, row: number, shift: number, shows: boolean): string {
+    const rect = `${String(69 + column * 160 + shift)},${String(152 + row * 40)},160,40`
+    const inside = column === 19 && tag === 'td' ? COMMANDS : (tag === 'th' ? NAMES[column] : VALUES[column] ?? '—')
+    return `<${tag} data-rect="${rect}"><div class="cell"${shows ? '' : ' data-hidden'}>${inside}</div></${tag}>`
+  }
+
+  /** One piece of the table: a header half and a body half, drawn over the rest. */
+  function piece(shows: (column: number) => boolean, shift: number, gutter: boolean): string {
+    const head = NAMES.map((_, column) => cell('th', column, 0, shift, shows(column))).join('')
+      + (gutter ? `<th class="gutter" data-rect="${String(69 + 3200 + shift)},152,10,40"></th>` : '')
+    const rows = [1, 2].map(row =>
+      `<tr>${NAMES.map((_, column) => cell('td', column, row, shift, shows(column))).join('')}</tr>`).join('')
+    const rect = (top: number, height: number): string => `${String(69 + shift)},${String(top)},3204,${String(height)}`
+    return `<div class="head"><table data-rect="${rect(112, 40)}"><thead><tr>${head}</tr></thead></table></div>`
+      + `<div class="body"><table data-rect="${rect(152, 818)}"><tbody>${rows}</tbody></table></div>`
+  }
+
+  const CONSOLE_TABLE = '<div class="el-table">'
+    + piece(column => !LEFT.includes(column) && !RIGHT.includes(column), 0, true)
+    + `<div class="fixed-left">${piece(column => LEFT.includes(column), 0, false)}</div>`
+    + `<div class="fixed-right">${piece(column => RIGHT.includes(column), -1756, false)}</div>`
+    + '</div>'
+
+  it('reads the three pieces as one table, with the pinned columns from the pieces that draw them', () => {
+    const refs = page(CONSOLE_TABLE)
+    const lines = read(refs).text.split('\n')
+    expect(lines[0]).toBe('e1 table 2 rows × 21 cols')
+    // Column 1 is drawn only by the piece pinned left and column 19 only by the
+    // piece pinned right, which is drawn nowhere near the column it repeats.
+    expect(lines[1]).toContain(' | 名称 | 图层id | ')
+    expect(lines[1]?.endsWith('| 是否默认展示 | 操作 | ')).toBe(true)
+    expect(lines[2]).toBe('  sample:  | 东风站 | element:gas_transport_v… | 公用专题 | 延吉市燃气监测预警平台V2 | '
+      + ['—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—'].join(' | ')
+      + ' | [edit delete]')
+  })
+
+  it('lists every row of it with the commands the pinned copy draws', () => {
+    const refs = page(CONSOLE_TABLE)
+    read(refs)
+    const listed = read(refs, { scope: refOf(refs, '.body table') }).text.split('\n')
+    expect(listed[2]?.startsWith('  row 1:  | 东风站 | element:gas_transport_vehicle_info | 公用专题 |')).toBe(true)
+    expect(listed[2]?.endsWith('| e3 icon "edit"  e4 icon "delete"')).toBe(true)
+    expect(listed[3]?.endsWith('| e6 icon "edit"  e7 icon "delete"')).toBe(true)
+  })
+
+  it('finds a row by a name only the piece pinned left draws', () => {
+    const refs = page(CONSOLE_TABLE)
+    expect(read(refs, { find: '东风站' }).text.startsWith('row 1:  | 东风站 |')).toBe(true)
+  })
+})
+
+describe('a field the page names by drawing the words beside it', () => {
+  const pointer = (el: Element): boolean => el.closest('[data-pointer]') !== null
+
+  // A component library draws a form field as a label and a box in one group,
+  // and ties neither to the other: the label is a `label` element with nothing
+  // to name, and the box carries no name of any kind. The star saying the field
+  // must be filled is drawn by the stylesheet in front of the label.
+  const FORM = `
+    <form aria-label="新增">
+      <div class="item">
+        <label data-drawn="*">名称</label>
+        <div class="content"><div class="box"><input type="text"></div></div>
+      </div>
+      <div class="item">
+        <label>是否显示</label>
+        <div class="content"><div class="select"><div class="box">
+          <input type="text" readonly>
+          <span class="suffix"><span><i data-pointer class="caret"></i></span></span>
+        </div></div></div>
+      </div>
+      <div class="item">
+        <label>图层id</label>
+        <div class="content"><div class="box"><input type="text" required></div></div>
+      </div>
+    </form>`
+
+  it('names each field by the words drawn in front of it, and prints those words once', () => {
+    const refs = page(FORM)
+    expect(read(refs, { isClickable: pointer }).text).toBe([
+      'e1 form "新增"',
+      '  e2 textbox "名称" = "" (required) (in form "新增")',
+      '  e3 textbox "是否显示" = "" (readonly) [e4 opens] (in form "新增")',
+      '  e5 textbox "图层id" = "" (required) (in form "新增")',
+    ].join('\n'))
+    // The words name the field and print no row of their own, so a search for
+    // them answers with the field rather than with a run of text beside it.
+    expect(read(refs, { find: '是否显示', isClickable: pointer }).text)
+      .toBe('e3 textbox "是否显示" = "" (readonly) [e4 opens] (in form "新增")')
+  })
+
+  it('names a field by the label drawn beside it in the same element', () => {
+    const refs = page('<div class="item"><label>关键字</label><input type="text"></div>')
+    expect(read(refs).text).toBe('e1 textbox "关键字" = ""')
+  })
+
+  it('takes no name from a run the page draws in front of a field, and leaves that run its row', () => {
+    // A page draws its own notices, headings, and captions in front of a field
+    // as readily as it draws the field's label. Naming the field by one of them
+    // would put a run of the page where the model reads what the field is, and
+    // take that run's own row away; only a `label` is the page saying these
+    // words label a field.
+    const refs = page(`
+      <p>公告</p><div class="item"><input type="text"></div>
+      <div class="group"><span>甲组</span></div><div class="item"><input type="search"></div>`)
+    expect(read(refs).text).toBe([
+      'text "公告"',
+      'e1 textbox = ""',
+      'text "甲组"',
+      'e2 searchbox = ""',
+    ].join('\n'))
+  })
+
+  it('asks the window that draws a document about the styles of what is in it', () => {
+    // A document no window renders — one a page builds to hold a fragment — is
+    // answered for by the window this code is running in.
+    const held = document.implementation.createHTMLDocument('')
+    held.body.innerHTML = '<div><span>脱离的文档</span></div>'
+    expect(snapshot(held, { refs: new RefTable(), budgetChars: 4000, isVisible, rectOf }).text)
+      .toBe('text "脱离的文档"')
+  })
+
+  it('asks the page itself what it draws around a label when nothing is injected', () => {
+    // The read reaches for the computed style of the label's `::before`, which
+    // this engine draws nothing for, and the field is a field like any other.
+    const refs = page('<div class="item"><label>名称</label><div class="content"><input type="text"></div></div>')
+    expect(snapshot(document, { refs, budgetChars: 4000, isVisible, rectOf }).text).toBe('e1 textbox "名称" = ""')
+  })
+
+  it('leaves a field unnamed where another control stands between it and the words', () => {
+    const refs = page(`
+      <div class="item">
+        <label>名称</label>
+        <div class="content"><input type="text"><input type="text"></div>
+      </div>`)
+    expect(read(refs).text).toBe(['e1 textbox "名称" = ""', 'e2 textbox = ""'].join('\n'))
+  })
+
+  it('names a field by the label a page draws after the control before it', () => {
+    // What a control says is about that control; the label drawn after it and
+    // before the field is the one naming the field.
+    const refs = page('<div class="item"><button>清空</button><label>关键字</label><input type="text"></div>')
+    expect(read(refs).text).toBe(['e1 button "清空"', 'e2 textbox "关键字" = ""'].join('\n'))
+  })
+
+  it('reads past what draws nothing beside a field, and takes no words from outside its group', () => {
+    // A wrapper drawing nothing separates nothing, and one the page hides is
+    // drawn nowhere; the region around the group says what the form is, never
+    // what one field in it is.
+    const refs = page(`
+      <form aria-label="查询">
+        <b></b><em data-hidden>看不见</em>
+        <div class="item"><span></span><i></i><input type="text"></div>
+      </form>`)
+    expect(read(refs).text).toBe(['e1 form "查询"', '  e2 textbox = "" (in form "查询")'].join('\n'))
+  })
+
+  it('leaves a label longer than a label runs to print as itself', () => {
+    const refs = page(`<div class="item"><label>${'长'.repeat(41)}</label><div class="content"><input type="text"></div></div>`)
+    expect(read(refs).text).toBe([`text "${'长'.repeat(41)}"`, 'e1 textbox = ""'].join('\n'))
+    const shorter = page(`<div class="item"><label>${'长'.repeat(40)}</label><div class="content"><input type="text"></div></div>`)
+    expect(read(shorter).text).toBe(`e1 textbox "${'长'.repeat(40)}" = ""`)
+  })
+
+  it('keeps a run that says more than the field is called', () => {
+    // The words the field is named by are printed once; a run carrying more
+    // than those words is a run of the page, and stays one.
+    const refs = page('<div class="item">请填写 <label>名称</label><div class="content"><input type="text"></div></div>')
+    expect(read(refs).text).toBe(['text "请填写 名称"', 'e1 textbox "名称" = ""'].join('\n'))
+  })
+
+  it('takes no words for a control that says what it is itself', () => {
+    const refs = page(`
+      <div class="item"><span>操作</span><button>保存</button></div>
+      <div class="item"><span>名称</span><input type="text" aria-label="站点名称"></div>`)
+    expect(read(refs).text).toBe([
+      'text "操作"',
+      'e1 button "保存"',
+      'text "名称"',
+      'e2 textbox "站点名称" = ""',
+    ].join('\n'))
+  })
+
+  it('keeps a click target beside a field as a row of its own where it says what it does', () => {
+    // Only the half a page draws inside the field's own box, and names
+    // nothing, is that field's other half.
+    const refs = page(`
+      <div class="box"><input type="text" aria-label="日期"><i data-pointer class="caret"></i></div>
+      <div class="box"><input type="text" aria-label="城市"><span data-pointer>清除</span></div>
+      <div><input type="text" aria-label="区县"></div><i data-pointer class="outside"></i>`)
+    expect(read(refs, { isClickable: pointer }).text).toBe([
+      'e1 textbox "日期" = "" [e2 opens]',
+      'e3 textbox "城市" = ""',
+      'e4 clickable "清除"',
+      'e5 textbox "区县" = ""',
+      'e6 clickable',
+    ].join('\n'))
+  })
+
+  it('reads the star wherever the page ties the label to the field', () => {
+    // The star is drawn on whichever element the page treats as the label, and
+    // a form that ties its label properly is the likeliest of all to draw one.
+    const refs = page(`
+      <label for="name" data-drawn="*">名称</label><input id="name" type="text">
+      <span id="alias" data-drawn="＊">别名</span><div role="textbox" aria-labelledby="alias"></div>
+      <label for="code" data-drawn="* :">编号</label><input id="code" type="text">`)
+    expect(read(refs).text).toBe([
+      // A label the page ties to its field prints no row of its own; one the
+      // page merely points ARIA at is a run of the page as well as a name.
+      'e1 textbox "名称" = "" (required)',
+      'text "别名"',
+      'e2 textbox "别名" (required)',
+      'e3 textbox "编号" = "" (required)',
+    ].join('\n'))
+  })
+
+  it('says a field takes no typing wherever the page says so', () => {
+    // A picker the page fills itself is drawn as a box the reader cannot type
+    // into, whether the page says so in HTML or in ARIA over a box of its own.
+    const refs = page(`
+      <div role="textbox" aria-readonly="true" aria-label="编号">P-0001</div>
+      <textarea readonly aria-label="日志">运行中</textarea>`)
+    expect(read(refs).text).toBe([
+      'e1 textbox "编号" = "P-0001" (readonly)',
+      'e2 textbox "日志" = "运行中" (readonly)',
+    ].join('\n'))
+  })
+
+  it('folds no click target into a row that is not a field', () => {
+    const refs = page('<div class="box"><button>展开</button><i data-pointer class="caret"></i></div>')
+    expect(read(refs, { isClickable: pointer }).text).toBe(['e1 button "展开"', 'e2 clickable'].join('\n'))
+  })
+})
+
 describe('tables', () => {
   it('reads a table that keeps its rows outside a body, and one that has no rows at all', () => {
     const refs = page(`
@@ -2071,6 +2403,34 @@ describe('tables', () => {
     const sample = read(long).text.split('\n')[1] ?? ''
     expect(sample).toBe(`  sample: [${'甲'.repeat(21)}…]`)
     expect(sample.length - '  sample: '.length).toBeLessThanOrEqual(24)
+  })
+
+  it('offers the icons a page makes clickable in a cell, which is where a row keeps what it can do', () => {
+    const pointer = (el: Element): boolean => el.closest('[data-pointer]') !== null
+    const refs = page(`
+      <table>
+        <thead><tr><th>名称</th><th>操作</th></tr></thead>
+        <tbody><tr><td>东风站</td><td><div class="cell">
+          <i data-pointer class="modify"></i><i data-pointer class="remove"></i>
+          <div data-hidden>确定删除吗？ 取消</div>
+        </div></td></tr></tbody>
+      </table>`)
+    // The icon a table draws for editing a row carries no role and no name of
+    // any kind. Read as text it is nothing at all, and the column the reader
+    // can see would offer the model nothing to click.
+    expect(read(refs, { isClickable: pointer }).text.split('\n')[2]).toBe('  sample: 东风站 | [clickable clickable]')
+    const listed = read(refs, { scope: refOf(refs, 'table'), isClickable: pointer }).text
+    expect(listed.split('\n')[2]).toBe('  row 1: 东风站 | e3 clickable  e4 clickable')
+    // The confirmation the page keeps beside them is drawn nowhere until the
+    // reader asks for it, and reaches the cell nowhere either.
+    expect(listed).not.toContain('确定删除吗')
+  })
+
+  it('keeps a cell button the page drew as nothing but an icon, named nothing', () => {
+    const refs = page(`
+      <table><tbody><tr><td>东风站</td><td><button><i class="icon-edit"></i></button><button aria-label="删除"><i></i></button></td></tr></tbody></table>`)
+    expect(read(refs, { scope: refOf(refs, 'table') }).text.split('\n')[1])
+      .toBe('  row 1: 东风站 | e3 button  e4 button "删除"')
   })
 
   it('reads a grid and a tree grid as the tables they are', () => {
@@ -2592,6 +2952,156 @@ describe('a table drawn in two pieces', () => {
   })
 })
 
+describe('a table drawn again for each pinned column', () => {
+  // A component library pins a column by drawing the whole table a second time
+  // over the top of itself, with the contents of every cell it does not pin
+  // hidden inside the cell: the cell still takes its column's room, and what is
+  // written in it is drawn nowhere. Each copy is drawn in two halves like any
+  // other table, so the page holds six tables and the reader sees one — the
+  // page here is the layer table of the ini-web2 console, cut to two rows.
+  //
+  // The copy pinned to the right edge is drawn beside the columns that scroll
+  // rather than over the same ground as the table it repeats, which is what a
+  // reader sees when the table is wider than the room it has.
+  const PINNED = `
+    <div class="table">
+      <div class="head"><table data-rect="0,0,400,40"><thead><tr>
+        <th data-rect="0,0,100,40"><span data-hidden>名称</span></th>
+        <th data-rect="100,0,100,40"><span>图层id</span></th>
+        <th data-rect="200,0,100,40"><span>所属场景</span></th>
+        <th data-rect="300,0,100,40"><span data-hidden>操作</span></th>
+      </tr></thead></table></div>
+      <div class="body"><table data-rect="0,40,400,80"><tbody>
+        <tr>
+          <td data-rect="0,40,100,40"><span data-hidden>东风站</span></td>
+          <td data-rect="100,40,100,40"><span>element:vehicle</span></td>
+          <td data-rect="200,40,100,40"><span>延吉燃气</span></td>
+          <td data-rect="300,40,100,40"><span data-hidden><button>编辑</button></span></td>
+        </tr>
+        <tr>
+          <td data-rect="0,80,100,40"><span data-hidden>朝阳站</span></td>
+          <td data-rect="100,80,100,40"><span>element:pipeline</span></td>
+          <td data-rect="200,80,100,40"><span>延吉排水</span></td>
+          <td data-rect="300,80,100,40"><span data-hidden><button>编辑</button></span></td>
+        </tr>
+      </tbody></table></div>
+      <div class="pinned-left">
+        <div class="head"><table data-rect="0,0,400,40"><thead><tr>
+          <th data-rect="0,0,100,40"><span>名称</span></th>
+          <th data-rect="100,0,100,40"><span data-hidden>图层id</span></th>
+          <th data-rect="200,0,100,40"><span data-hidden>所属场景</span></th>
+          <th data-rect="300,0,100,40"><span data-hidden>操作</span></th>
+        </tr></thead></table></div>
+        <div class="body"><table data-rect="0,40,400,80"><tbody>
+          <tr>
+            <td data-rect="0,40,100,40"><span>东风站</span></td>
+            <td data-rect="100,40,100,40"><span data-hidden>element:vehicle</span></td>
+            <td data-rect="200,40,100,40"><span data-hidden>延吉燃气</span></td>
+            <td data-rect="300,40,100,40"><span data-hidden><button>编辑</button></span></td>
+          </tr>
+          <tr>
+            <td data-rect="0,80,100,40"><span>朝阳站</span></td>
+            <td data-rect="100,80,100,40"><span data-hidden>element:pipeline</span></td>
+            <td data-rect="200,80,100,40"><span data-hidden>延吉排水</span></td>
+            <td data-rect="300,80,100,40"><span data-hidden><button>编辑</button></span></td>
+          </tr>
+        </tbody></table></div>
+      </div>
+      <div class="pinned-right">
+        <div class="head"><table data-rect="300,0,400,40"><thead><tr>
+          <th data-rect="300,0,100,40"><span data-hidden>名称</span></th>
+          <th data-rect="400,0,100,40"><span data-hidden>图层id</span></th>
+          <th data-rect="500,0,100,40"><span data-hidden>所属场景</span></th>
+          <th data-rect="600,0,100,40"><span>操作</span></th>
+        </tr></thead></table></div>
+        <div class="body"><table data-rect="300,40,400,80"><tbody>
+          <tr>
+            <td data-rect="300,40,100,40"><span data-hidden>东风站</span></td>
+            <td data-rect="400,40,100,40"><span data-hidden>element:vehicle</span></td>
+            <td data-rect="500,40,100,40"><span data-hidden>延吉燃气</span></td>
+            <td data-rect="600,40,100,40"><span><button>编辑</button></span></td>
+          </tr>
+          <tr>
+            <td data-rect="300,80,100,40"><span data-hidden>朝阳站</span></td>
+            <td data-rect="400,80,100,40"><span data-hidden>element:pipeline</span></td>
+            <td data-rect="500,80,100,40"><span data-hidden>延吉排水</span></td>
+            <td data-rect="600,80,100,40"><span><button>编辑</button></span></td>
+          </tr>
+        </tbody></table></div>
+      </div>
+    </div>`
+
+  it('reads the pieces as one table, each column from the piece that draws it', () => {
+    expect(read(page(PINNED)).text).toBe([
+      'e1 table 2 rows × 4 cols',
+      '  header: 名称 | 图层id | 所属场景 | 操作',
+      '  sample: 东风站 | element:vehicle | 延吉燃气 | [编辑]',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+  })
+
+  it('maps the pieces as one table of the rows it really has', () => {
+    expect(read(page(PINNED), { mode: 'map' }).text).toBe('e1 table  2 rows')
+  })
+
+  it('lists every row across the pieces when the read names the table by ref', () => {
+    const refs = page(PINNED)
+    read(refs)
+    expect(read(refs, { scope: refOf(refs, '.body table') }).text).toBe([
+      'e1 table 2 rows × 4 cols',
+      '  header: 名称 | 图层id | 所属场景 | 操作',
+      '  row 1: 东风站 | element:vehicle | 延吉燃气 | e3 button "编辑"',
+      '  row 2: 朝阳站 | element:pipeline | 延吉排水 | e5 button "编辑"',
+    ].join('\n'))
+  })
+
+  it('finds a row by words only a pinned piece draws, and answers with the whole row', () => {
+    const refs = page(PINNED)
+    expect(read(refs, { find: '朝阳' }).text)
+      .toBe('row 2: 朝阳站 | element:pipeline | 延吉排水 | e3 button "编辑" (table)')
+  })
+
+  it('keeps a table drawn over another that it does not repeat row for row', () => {
+    // The pieces of one table carry the same rows; a table drawn over another
+    // without them is not a piece of it, and the rule that drops one thing the
+    // page drew twice takes it instead.
+    const refs = page(`
+      <table data-rect="0,0,400,200"><tbody>
+        <tr><td data-rect="0,40,200,40"><span data-hidden>东风站</span></td>
+          <td data-rect="200,40,200,40">element:vehicle</td></tr>
+        <tr><td data-rect="0,80,200,40"><span data-hidden>朝阳站</span></td>
+          <td data-rect="200,80,200,40">element:pipeline</td></tr>
+      </tbody></table>
+      <table data-rect="0,0,380,200"><tbody>
+        <tr><td data-rect="0,40,200,40">东风站</td>
+          <td data-rect="200,40,200,40"><span data-hidden>element:vehicle</span></td></tr>
+      </tbody></table>`)
+    expect(read(refs).text).toBe([
+      'e1 table 2 rows × 2 cols',
+      '  sample:  | element:vehicle',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+  })
+
+  it('keeps two tables the page draws one after the other apart, however alike they are', () => {
+    // Two tables of the same size drawn one under the other share no ground:
+    // the second is a table of its own, and merging them would drop it.
+    const refs = page(`
+      <table data-rect="0,0,200,80"><tbody><tr><td data-rect="0,40,200,40">东风站</td></tr></tbody></table>
+      <table data-rect="0,80,200,80"><tbody><tr><td data-rect="0,120,200,40">朝阳站</td></tr></tbody></table>`)
+    expect(read(refs).text.split('\n').filter(line => line.includes('sample:')))
+      .toEqual(['  sample: 东风站', '  sample: 朝阳站'])
+  })
+
+  it('keeps two tables apart where the page reports where neither of them is drawn', () => {
+    const refs = page(`
+      <table><tbody><tr><td>东风站</td></tr></tbody></table>
+      <table><tbody><tr><td>朝阳站</td></tr></tbody></table>`)
+    expect(read(refs).text.split('\n').filter(line => line.includes('sample:')))
+      .toEqual(['  sample: 东风站', '  sample: 朝阳站'])
+  })
+})
+
 describe('frames and shadow roots', () => {
   it('reads a same-origin frame inside a same-origin frame as one page', () => {
     const refs = page('<iframe title="业务系统"></iframe>')
@@ -2663,7 +3173,10 @@ describe('the same thing drawn twice', () => {
       <tbody><tr><td data-rect="0,40,100,40">东风站</td></tr></tbody>
     </table>`
 
-  it('drops the copy a pinned column draws over the table it belongs to', () => {
+  it('reads the copy a pinned column draws as the table it belongs to', () => {
+    // The copy carries the pinned column and nothing else; every column of it
+    // is drawn in the table it repeats, so the reader is told the same thing
+    // whichever piece each column comes from.
     expect(read(page(PINNED)).text).toBe([
       'e1 table 1 rows × 2 cols',
       '  header: 名称 | 操作',
@@ -2718,6 +3231,24 @@ describe('the same thing drawn twice', () => {
       '  header: 名称 | 操作',
       '  sample: 东风站 | P-0001',
       "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+  })
+
+  it('drops a table the page draws twice in two regions of the page', () => {
+    // Two tables in two regions are two tables however they are drawn, so
+    // neither is a piece of the other; drawn over each other they are one
+    // table the reader is shown once.
+    const refs = page(`
+      <section aria-label="甲"><table data-rect="0,0,200,80"><tbody>
+        <tr><td data-rect="0,40,200,40">东风站</td></tr></tbody></table></section>
+      <section aria-label="乙"><table data-rect="0,0,200,80"><tbody>
+        <tr><td data-rect="0,40,200,40">东风站</td></tr></tbody></table></section>`)
+    expect(read(refs).text).toBe([
+      'e1 section "甲"',
+      '  e2 table 1 rows × 1 cols',
+      '    sample: 东风站',
+      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+      'e3 section "乙"',
     ].join('\n'))
   })
 

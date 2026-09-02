@@ -13,15 +13,16 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/collect
  */
 import {
-  CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES,
+  CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, ICON_ROLE, NAME_FROM_CONTENT_ROLES,
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
   frameDocument, headingText, insideOpaque, isChecked, isDisabled, isHiddenAround, isInline, isMarked,
-  isNameable, isNonContent, isOpaque, isPassword, isSkipped, libraryRole, looksClickable,
-  markedSelector, nameOf, quantityValue, queryInOrder, rectsOverlap, roleOf, visibleText,
+  drawnAround, iconWord, isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped,
+  libraryRole, looksClickable, markedSelector, nameOf, quantityValue, queryInOrder, rectsMeet,
+  rectsOverlap, roleOf, visibleText,
 } from './dom.ts'
 import type {
-  CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, Item, RowCell,
-  SnapshotOptions, TableItem, TableRowItem,
+  CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, ElementItem,
+  Item, RowCell, SnapshotOptions, TableItem, TableRowItem,
 } from './model.ts'
 
 /** How many items a `ul` or `ol` needs before it reads as a list of its own. */
@@ -40,6 +41,9 @@ const CLICK_NAME_LIMIT = 40
  * which controls it offers.
  */
 const SAMPLE_CELL_LIMIT = 24
+
+/** The one key {@link pickCells} claims the rectangles of one row under. */
+const ROW_CELLS = 'cell'
 
 /**
  * Roles that make a table cell worth naming rather than reading as text. A bar
@@ -65,6 +69,16 @@ const CELL_CONTROL_ROLES: ReadonlySet<string> = new Set(['button', 'link', ...FI
 const ACTS_ON_NODE_ROLES: ReadonlySet<string> = new Set([
   'button', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'tab', ...FIELD_ROLES,
 ])
+
+/**
+ * The marks a page draws beside the label of a field that must be filled. Both
+ * spellings of the star are here because a page written in Chinese draws either
+ * one, and neither says anything else where a form draws it.
+ */
+const REQUIRED_MARKS: readonly string[] = ['*', '＊']
+
+/** How long the words drawn in front of a field may run before they are no label. */
+const LABEL_LIMIT = 40
 
 /** The word pages use to mark the strip that pages through a table. */
 const PAGINATION_MARKER = 'pagination'
@@ -162,6 +176,8 @@ interface Walk {
   readonly isVisible: (el: Element) => boolean
   /** Injected clickability, defaulted. */
   readonly isClickable: (el: Element) => boolean
+  /** Injected drawn-around text, defaulted. */
+  readonly drawnAround: (el: Element) => string
   /** The element the read asked for, which tops whatever the page nests it in. */
   readonly scope: Element | undefined
   /** The items collected so far, in document order. */
@@ -385,19 +401,69 @@ function heldValue(el: Element, role: string, walk: Walk): string | undefined {
 }
 
 /**
+ * True for a field the page says must be filled: one that says so on the
+ * control itself, or one whose label the page draws a star beside. A form draws
+ * that star with a stylesheet rather than writing it in the document, so it is
+ * on the screen and in no text a read of the document could otherwise reach.
+ * @param el - the control element.
+ * @param label - the element drawing the words that name the field, if any.
+ * @param walk - the walk in progress.
+ * @returns whether the field must be filled.
+ */
+function isRequired(el: Element, label: Element | undefined, walk: Walk): boolean {
+  if (el.hasAttribute('required') || el.getAttribute('aria-required') === 'true') return true
+  return labelsOf(el, label).some(one => marksRequired(walk.drawnAround(one)))
+}
+
+/**
+ * True for text a form draws to say the field beside it must be filled. The
+ * mark is looked for inside the text rather than taken as the whole of it,
+ * because a form draws the star in front of the label and the colon after it,
+ * and both reach this as one run.
+ * @param drawn - the text the page draws around the label.
+ * @returns whether the text carries the mark.
+ */
+function marksRequired(drawn: string): boolean {
+  return REQUIRED_MARKS.some(mark => drawn.includes(mark))
+}
+
+/**
+ * Every element that labels one control: the `label` elements HTML resolves for
+ * it, the elements ARIA points at, and the words the page merely draws in front
+ * of it. The star is drawn on whichever of them the page treats as the label,
+ * and a page that ties its label properly is the likeliest of all to draw one.
+ * @param el - the control element.
+ * @param drawn - the element drawing the words that name the control, if any.
+ * @returns the labelling elements, in no particular order.
+ */
+function labelsOf(el: Element, drawn: Element | undefined): Element[] {
+  const labels: Element[] = [...((el as Partial<HTMLInputElement>).labels ?? [])]
+  const tree = el.getRootNode() as Document | ShadowRoot
+  for (const id of collapse(el.getAttribute('aria-labelledby') ?? '').split(' ')) {
+    const ref = tree.getElementById(id)
+    if (ref !== null) labels.push(ref)
+  }
+  if (drawn !== undefined) labels.push(drawn)
+  return labels
+}
+
+/**
  * What a control holds and how the page has set it, read the same way wherever
  * a row prints it.
  * @param el - the control element.
  * @param role - the role it prints.
  * @param walk - the walk in progress.
+ * @param label - the element drawing the words that name the control, if any.
  * @returns the state.
  */
-function controlState(el: Element, role: string, walk: Walk): ControlState {
+function controlState(el: Element, role: string, walk: Walk, label: Element | undefined): ControlState {
   const secret = isPassword(el)
   return {
     value: secret ? undefined : heldValue(el, role, walk),
     secret,
     checked: CHECKED_ROLES.has(role) ? isChecked(el) : undefined,
+    required: isRequired(el, label, walk),
+    readonly: isReadonly(el),
     disabled: isDisabled(el),
   }
 }
@@ -409,12 +475,13 @@ function controlState(el: Element, role: string, walk: Walk): ControlState {
  * @param el - the element.
  * @param role - the role it prints.
  * @param walk - the walk in progress.
+ * @param label - the element drawing the words that name the element, if any.
  * @returns the face.
  */
-function controlFace(el: Element, role: string, walk: Walk): ControlFace {
+function controlFace(el: Element, role: string, walk: Walk, label: Element | undefined): ControlFace {
   return {
     role,
-    ...controlState(el, role, walk),
+    ...controlState(el, role, walk, label),
     // A node the page has closed says so: what it holds is not missing from the
     // read, it is folded away until something opens it.
     collapsed: ITEM_NODE_TYPES.has(role) && el.getAttribute('aria-expanded') === 'false',
@@ -425,23 +492,36 @@ function controlFace(el: Element, role: string, walk: Walk): ControlFace {
  * The role a cell names an element by rather than reading it as part of the
  * cell's text. The condition is the one a row of the page is printed under, so
  * a bar reaches the sample and the listed row exactly where it would reach a
- * row of its own.
+ * row of its own, and a run the page makes clickable is offered in a cell
+ * exactly where it would be offered outside one. The icon a table draws for
+ * editing a row carries no role and no name of any kind, and a cell that read
+ * it as text would leave the model a column it can see and cannot use.
  * @param el - the element inside the cell.
+ * @param walk - the walk in progress.
  * @returns the role, or undefined for an element the cell reads as text.
  */
-function cellControlRole(el: Element): string | undefined {
+function cellControlRole(el: Element, walk: Walk): string | undefined {
   const role = roleOf(el)
-  if (role === null || !CELL_CONTROL_ROLES.has(role) || !rowRole(el, role)) return undefined
-  return role
-}
-
-/** True for an element a cell names rather than reads as part of its text. */
-function isCellControl(el: Element): boolean {
-  return cellControlRole(el) !== undefined
+  if (role !== null) return CELL_CONTROL_ROLES.has(role) && rowRole(el, role) ? role : undefined
+  if (isIcon(el, walk)) return ICON_ROLE
+  return topClickable(el, walk) ? CLICKABLE_ROLE : undefined
 }
 
 /**
- * Every control inside one table cell, in document order.
+ * True for an element a cell names rather than reads as part of its text.
+ * @param el - the element inside the cell.
+ * @param walk - the walk in progress.
+ * @returns whether the cell names the element.
+ */
+function isCellControl(el: Element, walk: Walk): boolean {
+  return cellControlRole(el, walk) !== undefined
+}
+
+/**
+ * Every control inside one table cell, in document order. Each is named the way
+ * a row of its own would name it, so the icon a page makes clickable is
+ * answered with what the page wrote on it and a click target holding text with
+ * the text it shows.
  * @param el - the cell, or an element inside it.
  * @param walk - the walk in progress.
  * @param found - the controls collected so far, appended in place.
@@ -449,9 +529,15 @@ function isCellControl(el: Element): boolean {
 function cellControls(el: Element, walk: Walk, found: CellControl[]): void {
   for (const child of childHost(el).children) {
     if (isSkipped(child, walk.isVisible)) continue
-    const role = cellControlRole(child)
-    if (role !== undefined) found.push({ el: child, role, name: nameOf(child), ...controlState(child, role, walk) })
-    else cellControls(child, walk, found)
+    const role = cellControlRole(child, walk)
+    if (role !== undefined) {
+      found.push({
+        el: child,
+        role,
+        name: elementName(child, role, walk),
+        ...controlState(child, role, walk, undefined),
+      })
+    } else cellControls(child, walk, found)
   }
 }
 
@@ -494,7 +580,7 @@ function controlSample(control: CellControl): string {
 function readCell(cell: Element, walk: Walk): RowCell {
   const controls: CellControl[] = []
   cellControls(cell, walk, controls)
-  const text = clip(visibleText(cell, walk.isVisible, isCellControl))
+  const text = clip(visibleText(cell, walk.isVisible, child => isCellControl(child, walk)))
   if (controls.length === 0) return { controls, text, sample: clipTo(text, SAMPLE_CELL_LIMIT) }
   const inside = `[${clipTo(controls.map(controlSample).join(' '), SAMPLE_CELL_LIMIT - 2)}]`
   const room = SAMPLE_CELL_LIMIT - inside.length - 1
@@ -504,22 +590,66 @@ function readCell(cell: Element, walk: Walk): RowCell {
 
 /**
  * The cells of one row a reader can see, without the ones a pinned column draws
- * again over the top of them. Picking them reads the page's geometry and not
- * the cells themselves, so a table can report how wide it is without being read.
+ * again over the top of them inside that row. The rectangles are claimed in a
+ * map of the row's own: a cell repeats a cell beside it, never one of the row
+ * above or of the piece of the table drawn over this one.
  * @param row - the row element.
  * @param walk - the walk in progress.
- * @param kept - the table's claimed rectangles.
- * @param key - the row's own key into those rectangles: a cell repeats a cell of
- * its own row, never one of the row above.
  * @returns the cell elements, in column order.
  */
-function pickCells(row: Element, walk: Walk, kept: Map<string, DOMRectReadOnly[]>, key: string): Element[] {
+function pickCells(row: Element, walk: Walk): Element[] {
+  const kept = new Map<string, DOMRectReadOnly[]>()
   const cells: Element[] = []
   for (const cell of row.children) {
     if (isSkipped(cell, walk.isVisible)) continue
-    if (!duplicate(kept, walk.options.rectOf, key, cell)) cells.push(cell)
+    if (!duplicate(kept, walk.options.rectOf, ROW_CELLS, cell)) cells.push(cell)
   }
   return cells
+}
+
+/**
+ * The cells one piece of a table shows in one of its rows, read as a listing
+ * prints them.
+ * @param row - the row element.
+ * @param walk - the walk in progress.
+ * @returns the cells, in column order.
+ */
+function rowCells(row: Element, walk: Walk): RowCell[] {
+  return pickCells(row, walk).map(cell => readCell(cell, walk))
+}
+
+/** True for a cell drawing neither a word nor anything a reader can act on. */
+function showsNothing(cell: RowCell): boolean {
+  return cell.text === '' && cell.controls.length === 0
+}
+
+/**
+ * The columns of one row across the pieces a table is drawn in: each column
+ * from the piece that shows it, and from the first of them where more than one
+ * does. A page pins a column by drawing the whole table again with everything
+ * but that column's content hidden, so a column that shows nothing in one piece
+ * is drawn in another, and the reader needs the one row the pieces make up
+ * between them.
+ *
+ * The columns line up by their position in the row, because that is the one
+ * thing every piece agrees on: a pinned copy is drawn over a different column
+ * of the table than the one it repeats as soon as the reader scrolls sideways.
+ * A piece that draws fewer cells than the table has columns therefore lines up
+ * from the left, which is where a page puts the column it leaves out — the
+ * placeholder a header draws over the scrollbar.
+ * @param pieces - each piece's cells for one row, the piece that prints the
+ * table first.
+ * @returns the merged cells, in column order.
+ */
+function mergeCells(pieces: readonly (readonly RowCell[])[]): RowCell[] {
+  const merged: RowCell[] = []
+  for (const cells of pieces) {
+    cells.forEach((cell, at) => {
+      const held = merged[at]
+      if (held === undefined || (showsNothing(held) && !showsNothing(cell))) merged[at] = cell
+    })
+  }
+  return merged
 }
 
 /**
@@ -724,6 +854,95 @@ function isHeaderPiece(el: Element, walk: Walk): boolean {
 }
 
 /**
+ * The row heading one piece's columns: the row the piece heads its own columns
+ * with, or the one on the header half it is drawn under.
+ * @param el - the table element.
+ * @param walk - the walk in progress.
+ * @returns the header row, absent for a piece that heads no columns.
+ */
+function headRowOf(el: Element, walk: Walk): Element | undefined {
+  const shape = tableShape(el, walk)
+  const piece = headerPiece(el, walk, shape)
+  return shape.headRow ?? (piece === undefined ? undefined : tableShape(piece, walk).headRow)
+}
+
+/**
+ * The table drawn next to this one that holds rows, stepping over the header
+ * halves in between: the pieces of a table pinned column by column follow one
+ * another as header, body, header, body, and what one piece repeats is the rows
+ * of the piece before it.
+ * @param el - the table element.
+ * @param step - 1 for the table after this one, -1 for the table before it.
+ * @param walk - the walk in progress.
+ * @returns the neighbouring table with rows, or undefined when there is none.
+ */
+function neighbourTable(el: Element, step: number, walk: Walk): Element | undefined {
+  let at = splitPartner(el, step, walk)
+  while (at !== undefined && tableShape(at, walk).dataRows.length === 0) at = splitPartner(at, step, walk)
+  return at
+}
+
+/**
+ * True when the second table is the first drawn again: a row for each row, and
+ * drawn over the same ground. A page pins a column by drawing the whole table a
+ * second time with every other column's content hidden, so the copy covers the
+ * table it repeats and carries its rows one for one; a table drawn after
+ * another covers none of it, and a table with no rows repeats nothing.
+ * @param first - the earlier table.
+ * @param second - the later table.
+ * @param walk - the walk in progress.
+ * @returns whether the two are one table drawn twice.
+ */
+function repeatsTable(first: Element, second: Element, walk: Walk): boolean {
+  const rows = tableShape(first, walk).dataRows.length
+  if (rows === 0 || rows !== tableShape(second, walk).dataRows.length) return false
+  return rectsMeet(walk.options.rectOf(first), walk.options.rectOf(second))
+}
+
+/**
+ * The table this one is drawn over, for a piece that prints nothing of its own:
+ * the table before it prints every piece as one.
+ * @param el - the table element.
+ * @param walk - the walk in progress.
+ * @returns the table this one repeats, or undefined for a table of its own.
+ */
+function repeatedTable(el: Element, walk: Walk): Element | undefined {
+  const previous = neighbourTable(el, -1, walk)
+  return previous !== undefined && repeatsTable(previous, el, walk) ? previous : undefined
+}
+
+/**
+ * Every piece one table is drawn in: itself first, then each copy drawn over
+ * it, in the order the page draws them. The search runs forward from the piece
+ * that prints the table, so a read scoped to that table by ref reads the same
+ * pieces as a read of the whole page.
+ * @param el - the table element.
+ * @param walk - the walk in progress.
+ * @returns the pieces, this table first.
+ */
+function tablePieces(el: Element, walk: Walk): [Element, ...Element[]] {
+  const pieces: [Element, ...Element[]] = [el]
+  let previous = el
+  for (let at = neighbourTable(el, 1, walk); at !== undefined; at = neighbourTable(at, 1, walk)) {
+    if (!repeatsTable(previous, at, walk)) break
+    pieces.push(at)
+    previous = at
+  }
+  return pieces
+}
+
+/**
+ * The row each piece of a table draws at one index.
+ * @param pieces - the table's pieces.
+ * @param at - the row's 0-based position among the data rows.
+ * @param walk - the walk in progress.
+ * @returns the row elements, the piece that prints the table first.
+ */
+function rowPieces(pieces: readonly Element[], at: number, walk: Walk): Element[] {
+  return pieces.map(piece => tableShape(piece, walk).dataRows[at]).filter(row => row !== undefined)
+}
+
+/**
  * The text of a pagination strip, when the candidate really is one that shows
  * something.
  * @param el - the candidate element.
@@ -788,67 +1007,68 @@ function paginationText(el: Element, walk: Walk, place: Place): string | undefin
  * One data row, read from the page only as far as a listing asks. A whole page
  * prints one sample row and counts the rest, so the rest are counted and not
  * read; a read scoped to the table or filtered by `find` reads what it prints.
- * @param el - the row element.
+ *
+ * The row is read across every piece the table is drawn in, so a column drawn
+ * in a pinned copy reaches the reader in the row it belongs to, and the text
+ * `find` matches the row by is everything the pieces draw in it.
+ * @param drawn - the row as each piece of the table draws it, the piece that
+ * prints the table first.
+ * @param el - the row element of that first piece, which the row is named by.
  * @param index - the row's 1-based position among the data rows.
  * @param walk - the walk in progress.
- * @param kept - the table's claimed rectangles.
  * @param table - the table this row belongs to.
  * @returns the row.
  */
 function readRow(
+  drawn: readonly Element[],
   el: Element,
   index: number,
   walk: Walk,
-  kept: Map<string, DOMRectReadOnly[]>,
   table: ContainerFace,
 ): TableRowItem {
-  let picked: Element[] | undefined
   let cells: readonly RowCell[] | undefined
   let text: string | undefined
-  const pick = (): Element[] => picked ??= pickCells(el, walk, kept, `cell|${index}`)
+  const read = (): readonly RowCell[] => cells ??= mergeCells(drawn.map(row => rowCells(row, walk)))
   return {
     kind: 'row',
     el,
     index,
     table,
     get width(): number {
-      return pick().length
+      return read().length
     },
     get cells(): readonly RowCell[] {
-      return cells ??= pick().map(cell => readCell(cell, walk))
+      return read()
     },
     get text(): string {
-      return text ??= clip(visibleText(el, walk.isVisible))
+      return text ??= clip(drawn.map(row => visibleText(row, walk.isVisible)).join(' '))
     },
   }
 }
 
 /**
- * Read a table as its shape: the header, the rows, and what sits beside it. The
- * columns are the wider of the header and the first data row, so a table whose
- * header groups columns the rows spell out never reports fewer columns than the
- * sample row beneath it prints. Only that one row is measured: asking every row
- * how wide it is would read the geometry of every cell of a table the read is
- * about to report by its shape alone.
+ * Read a table as its shape: the header, the rows, and what sits beside it,
+ * across every piece the page draws the table in. The columns are the wider of
+ * the header and the first data row, so a table whose header groups columns the
+ * rows spell out never reports fewer columns than the sample row beneath it
+ * prints. Only that one row is measured: asking every row how wide it is would
+ * read every cell of a table the read is about to report by its shape alone.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @param place - the table's position.
  * @param name - the table's accessible name.
- * @param piece - the header half this table is drawn under, if any.
  * @returns the collected table.
  */
-function readTable(el: Element, walk: Walk, place: Place, name: string, piece: Element | undefined): TableItem {
-  const shape = tableShape(el, walk)
-  const headRow = shape.headRow ?? (piece === undefined ? undefined : tableShape(piece, walk).headRow)
-  const kept = new Map<string, DOMRectReadOnly[]>()
+function readTable(el: Element, walk: Walk, place: Place, name: string): TableItem {
+  const pieces = tablePieces(el, walk)
   // Numbered before its contents, so the ref that names the table reads lower
   // than the refs of the controls inside it.
   const ref = walk.options.refs.ref(el)
-  const header = headRow === undefined
-    ? []
-    : pickCells(headRow, walk, kept, 'cell|header').map(cell => readCell(cell, walk))
+  const headRows = pieces.map(piece => headRowOf(piece, walk)).filter(row => row !== undefined)
+  const header = mergeCells(headRows.map(row => rowCells(row, walk)))
   const face: { readonly type: 'table'; readonly name: string } = { type: 'table', name }
-  const rows = shape.dataRows.map((row, index) => readRow(row, index + 1, walk, kept, face))
+  const rows = tableShape(el, walk).dataRows
+    .map((row, index) => readRow(rowPieces(pieces, index, walk), row, index + 1, walk, face))
   return {
     ...face,
     kind: 'table',
@@ -878,19 +1098,20 @@ function tableName(el: Element, piece: Element | undefined): string {
 }
 
 /**
- * Collect a table, unless it is the header half of one already collected or a
- * pinned copy of one.
+ * Collect a table, unless it is the header half of one already collected or one
+ * of the pieces another table prints: a table drawn again over the one before
+ * it is that table's pinned copy, and the reader is given one table.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @param place - the table's position.
  */
 function pushTable(el: Element, walk: Walk, place: Place): void {
-  if (isHeaderPiece(el, walk)) return
+  if (isHeaderPiece(el, walk) || repeatedTable(el, walk) !== undefined) return
   const piece = headerPiece(el, walk, tableShape(el, walk))
   const name = tableName(el, piece)
   if (duplicate(walk.kept, walk.options.rectOf, `table|${name}`, el)) return
   flush(walk, place)
-  walk.items.push(readTable(el, walk, place, name, piece))
+  walk.items.push(readTable(el, walk, place, name))
 }
 
 /** True for the group a tree node or a menu item holds its nodes in. */
@@ -1042,6 +1263,11 @@ function ownName(el: Element, role: string, walk: Walk): string {
 /**
  * What a row calls the element it names.
  *
+ * An icon is named by what the page wrote on it, by the name a title computes,
+ * and last by the word its own class names it with, because a page that draws a
+ * command as an icon and labels it nowhere has said what it is in that class and
+ * in nothing else.
+ *
  * The accessible name is computed for the first role the page wrote, and the
  * walk reads the first one ARIA defines; where those differ the computed name
  * is an answer about another role, and an empty one says only that the role the
@@ -1057,11 +1283,131 @@ function ownName(el: Element, role: string, walk: Walk): string {
  * @returns the name.
  */
 function elementName(el: Element, role: string, walk: Walk): string {
+  if (role === ICON_ROLE) return declaredName(el) || nameOf(el) || iconWord(el) || ''
   if (role === CLICKABLE_ROLE || ITEM_NODE_TYPES.has(role)) return ownName(el, role, walk)
   const name = nameOf(el)
   const wrote = libraryRole(el)
   if (name !== '' || wrote === '' || wrote === role || !NAME_FROM_CONTENT_ROLES.has(role)) return name
   return clip(visibleText(el, walk.isVisible))
+}
+
+/**
+ * The `label` drawn immediately in front of a field inside the element holding
+ * both, and `null` where something the reader can act on stands between the
+ * two: the label further out then says what that other thing is, never what
+ * this field is.
+ *
+ * Only a `label` counts. A page draws its own paragraphs, headings, and notices
+ * in front of a field as readily as it draws the field's label, and naming the
+ * field by one of those puts a run of the page where the model reads what the
+ * field is — and takes that run's own row away. A `label` is the page saying
+ * this text labels a field, whether or not it says which.
+ *
+ * A wrapper drawing no words at all is neither, so the label survives the boxes
+ * a form draws around its field, and a control the page draws before it is left
+ * behind by the label that follows it.
+ * @param host - the element holding both.
+ * @param inner - the child of it holding the field.
+ * @param walk - the walk in progress.
+ * @returns the label, null where something stands between it and the field, and
+ * undefined where this element holds none.
+ */
+function drawnBefore(host: Element, inner: Element, walk: Walk): Element | null | undefined {
+  let found: Element | undefined
+  let blocked = false
+  for (const child of host.children) {
+    if (child === inner) break
+    if (isSkipped(child, walk.isVisible)) continue
+    if (makesRow(child, walk) || holdsItems(child, walk)) {
+      found = undefined
+      blocked = true
+    } else if (child.localName === 'label' && visibleText(child, walk.isVisible) !== '') {
+      found = child
+      blocked = false
+    }
+  }
+  return found ?? (blocked ? null : undefined)
+}
+
+/**
+ * The `label` a page draws in front of a field it ties to nothing, which is how
+ * a component library draws a form: the label is a `label` element with no
+ * `for`, and the box beside it carries no name of any kind. A form that ties
+ * the two together is answered by the name computation long before this.
+ *
+ * The search climbs out of the field as far as the region it stands in, so the
+ * label belongs to the field's own group rather than to the form around it, and
+ * stops where anything else the reader can act on stands between the two. A
+ * label running longer than a label does is a run of the page rather than a
+ * name for something beside it, and is left to print as itself.
+ * @param el - the field element.
+ * @param walk - the walk in progress.
+ * @returns the label, or undefined for a field the page draws none in front of.
+ */
+function labelDrawnBefore(el: Element, walk: Walk): Element | undefined {
+  let inner: Element = el
+  for (let at = el.parentElement; at !== null && !opensRegion(at, walk); at = at.parentElement) {
+    const label = drawnBefore(at, inner, walk)
+    if (label === null) return undefined
+    if (label !== undefined) {
+      return visibleText(label, walk.isVisible).length > LABEL_LIMIT ? undefined : label
+    }
+    inner = at
+  }
+  return undefined
+}
+
+/**
+ * The label that names a field the page named nothing, for the roles a reader
+ * fills in: a button says what it is in the words on it, while a field says it
+ * in the label drawn beside it.
+ * @param el - the element to name.
+ * @param role - the role it prints.
+ * @param name - the name the element carries of its own.
+ * @param walk - the walk in progress.
+ * @returns the element drawing the words, or undefined where none names it.
+ */
+function labelFor(el: Element, role: string, name: string, walk: Walk): Element | undefined {
+  return name === '' && FIELD_ROLES.has(role) ? labelDrawnBefore(el, walk) : undefined
+}
+
+/**
+ * Drop the row the words naming a field would otherwise print of their own,
+ * whether this read has them waiting to be printed or has printed them as the
+ * row above. The words reach the reader as the field's name instead, the way
+ * the text of a `label` the page tied to its control does; a run that says more
+ * than the name says stays a run of its own.
+ * @param walk - the walk in progress.
+ * @param place - the field's position.
+ * @param words - the name the field takes from those words.
+ */
+function takeLabelRow(walk: Walk, place: Place, words: string): void {
+  if (clip(collapse(place.buffer.join(' '))) === words) {
+    place.buffer.length = 0
+    return
+  }
+  const last = walk.items.at(-1)
+  if (last?.kind === 'text' && last.text === words && last.container === place.container) walk.items.pop()
+}
+
+/**
+ * The field a click target the page named nothing belongs to: the row above it,
+ * where the page draws the target inside the element that holds that field.
+ * A picker a reader cannot type into is one field drawn in two halves — the box
+ * and the arrow that opens it — and two rows for it would have the model
+ * choosing which half to click.
+ * @param el - the click target.
+ * @param role - the role it prints.
+ * @param name - the name it carries.
+ * @param walk - the walk in progress.
+ * @param place - the target's position.
+ * @returns the field's row, or undefined for a target of its own.
+ */
+function opensField(el: Element, role: string, name: string, walk: Walk, place: Place): ElementItem | undefined {
+  if (role !== CLICKABLE_ROLE || name !== '') return undefined
+  const last = walk.items.at(-1)
+  if (last?.kind !== 'element' || !FIELD_ROLES.has(last.role) || last.container !== place.container) return undefined
+  return last.el.parentElement?.contains(el) === true ? last : undefined
 }
 
 /**
@@ -1072,15 +1418,24 @@ function elementName(el: Element, role: string, walk: Walk): string {
  * @param place - the element's position.
  */
 function pushElement(el: Element, role: string, walk: Walk, place: Place): void {
-  const name = elementName(el, role, walk)
+  const own = elementName(el, role, walk)
+  const label = labelFor(el, role, own, walk)
+  const name = label === undefined ? own : clip(visibleText(label, walk.isVisible))
+  const field = opensField(el, role, name, walk, place)
+  if (field !== undefined) {
+    walk.items[walk.items.length - 1] = { ...field, opens: walk.options.refs.ref(el) }
+    return
+  }
   if (duplicate(walk.kept, walk.options.rectOf, `${role}|${name}`, el)) return
+  if (label !== undefined) takeLabelRow(walk, place, name)
   flush(walk, place)
   walk.items.push({
     kind: 'element',
     el,
     ref: walk.options.refs.ref(el),
     name,
-    ...controlFace(el, role, walk),
+    ...controlFace(el, role, walk, label),
+    opens: undefined,
     container: place.container,
     depth: place.depth,
   })
@@ -1363,6 +1718,39 @@ function clickableName(el: Element, walk: Walk): string {
 }
 
 /**
+ * True for an element a page draws as an icon and says nothing else about: an
+ * inline element with no words of its own, marked as an icon by its class.
+ *
+ * A framework draws the commands of a table row this way — the edit icon of the
+ * page this rule was written for is `<i class="el-tooltip operation-modify
+ * el-icon-edit">`, with no role, no label, no title, and no pointer cursor of
+ * its own — so nothing a specification defines says the element is there at
+ * all, and a reader who can see it has no way to ask for it. The rule is a
+ * heuristic keyed to a page's own class names, which every rule in this package
+ * otherwise refuses; see the Agent Note for what it costs and when it retires.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @returns whether the page draws the element as an icon.
+ */
+function isIcon(el: Element, walk: Walk): boolean {
+  return isInline(el) && iconWord(el) !== undefined && visibleText(el, walk.isVisible) === ''
+}
+
+/**
+ * True where the walk offers an icon as a thing to act on: inside a table cell,
+ * a toolbar, or a list, which is where a page draws icons as the commands it
+ * offers rather than as decoration beside its text.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @param place - the element's position.
+ * @returns whether this read offers the icon.
+ */
+function offersIcon(el: Element, walk: Walk, place: Place): boolean {
+  const type = place.container?.type
+  return (type === 'toolbar' || type === 'list') && isIcon(el, walk)
+}
+
+/**
  * True where the walk offers this element as a thing to click: the top of a
  * clickable run, drawn outside any text a control's own row already prints.
  * @param el - the element to classify.
@@ -1451,7 +1839,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
       // listing is known there and nowhere earlier — see `printedItems` in
       // `render.ts`.
       if (holdsGroup(el, walk) || name === '') {
-        openContainer(el, { type: node, name }, host, walk, place, controlFace(el, role, walk))
+        openContainer(el, { type: node, name }, host, walk, place, controlFace(el, role, walk, undefined))
         return
       }
     }
@@ -1459,6 +1847,10 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
       pushElement(el, role, walk, place)
       return
     }
+  }
+  if (offersIcon(el, walk, place)) {
+    pushElement(el, ICON_ROLE, walk, place)
+    return
   }
   if (offersClick(el, walk, place)) {
     const items = topItems(host, walk)
@@ -1503,6 +1895,7 @@ export function collect(root: Document, options: SnapshotOptions, scope: Element
     options,
     isVisible: options.isVisible,
     isClickable: options.isClickable ?? looksClickable,
+    drawnAround: options.drawnAround ?? drawnAround,
     scope,
     items: [],
     kept: new Map(),

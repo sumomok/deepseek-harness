@@ -42,6 +42,8 @@ export interface SnapshotOptions {
   readonly find?: string
   /** Injected: whether the element is visible. */
   readonly isVisible: (el: Element) => boolean
+  /** Injected: the text the page draws around an element with `::before` and `::after`; defaults to the computed styles. */
+  readonly drawnAround?: (el: Element) => string
   /** Injected: the element's rectangle, for dropping geometric duplicates; undefined disables that. */
   readonly rectOf: (el: Element) => DOMRectReadOnly | undefined
   /** Injected: whether a role-less element is clickable; defaults to a `cursor: pointer` computed style. */
@@ -123,6 +125,10 @@ export interface ControlState {
   readonly secret: boolean
   /** The checked state, or undefined for an element that has none. */
   readonly checked: boolean | undefined
+  /** True when the page says the field must be filled. */
+  readonly required: boolean
+  /** True when the page takes what the field holds and refuses the reader's typing. */
+  readonly readonly: boolean
   /** True when the page has disabled the element. */
   readonly disabled: boolean
 }
@@ -149,6 +155,14 @@ export interface ElementItem extends ControlFace {
   readonly ref: string
   /** The element's accessible name. */
   readonly name: string
+  /**
+   * The ref of the click target the page draws inside this field to open what
+   * it offers — the arrow of a picker the reader cannot type into — and
+   * undefined for every other row. The target prints no row of its own: it is
+   * one field the page drew in two halves, and two rows would have the model
+   * choosing which half to click.
+   */
+  readonly opens: string | undefined
   /** The container this row sits in. */
   readonly container: ContainerItem | undefined
   /** How many containers enclose this row. */
@@ -205,21 +219,26 @@ export interface RowCell {
 export interface TableRowItem {
   /** Discriminant. */
   readonly kind: 'row'
-  /** The row element. */
+  /** The row element of the piece that prints the table. */
   readonly el: Element
   /** The row's 1-based position among the table's data rows. */
   readonly index: number
-  /** How many cells the row shows, counted without reading what is in them. */
+  /** How many columns the row shows across every piece the table is drawn in. */
   readonly width: number
-  /** Each cell, in column order. */
+  /** Each column, in order, from the piece of the table that shows it. */
   readonly cells: readonly RowCell[]
-  /** The row's plain text, for `find`. */
+  /** What every piece of the table draws in the row, for `find`. */
   readonly text: string
   /** The table this row belongs to, for the suffix a flat listing prints. */
   readonly table: ContainerFace
 }
 
-/** A table, reported by its shape rather than by its contents. */
+/**
+ * A table, reported by its shape rather than by its contents. A page that pins
+ * a column draws the whole table again over itself with everything but that
+ * column hidden; the pieces are one table here, and each column is read from
+ * the piece that shows it.
+ */
 export interface TableItem extends ContainerFace {
   /** Discriminant. */
   readonly kind: 'table'
@@ -229,14 +248,14 @@ export interface TableItem extends ContainerFace {
   readonly el: Element
   /** The element's ref. */
   readonly ref: string
-  /** The header cells, empty for a table that heads no columns. */
+  /** The header cells, merged across the pieces, empty for a table that heads no columns. */
   readonly header: readonly RowCell[]
   /** The table's data rows. */
   readonly rows: readonly TableRowItem[]
   /**
    * How many columns the table has: the wider of its header and its first data
-   * row, which is the row the sample prints. Counting every row would read the
-   * geometry of every cell of the table to answer how wide the table is.
+   * row, which is the row the sample prints. Counting every row would read
+   * every cell of the table to answer how wide the table is.
    */
   readonly columns: number
   /** The adjacent pagination control's text. */
