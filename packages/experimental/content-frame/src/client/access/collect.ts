@@ -53,6 +53,9 @@ const ROW_CELLS = 'cell'
  */
 const CELL_CONTROL_ROLES: ReadonlySet<string> = new Set(['button', 'link', ...FIELD_ROLES, ...QUANTITY_ROLES])
 
+/** The roles a table gives the boxes its rows are made of, which name what they hold. */
+const CELL_ROLES: ReadonlySet<string> = new Set(['cell', 'gridcell', 'columnheader', 'rowheader'])
+
 /**
  * The roles of the controls a page draws beside a node to act on it: the delete
  * button of a tree row, the tick box that picks it, the command a context menu
@@ -487,6 +490,30 @@ function controlFace(el: Element, role: string, walk: Walk, label: Element | und
 }
 
 /**
+ * Whether a drawing where it stands is one of the page's own commands rather
+ * than decoration.
+ *
+ * A drawing carries no role and no name, so where it sits is the whole of what
+ * says it can be operated: a page puts its commands in a toolbar, in a list, or
+ * in the cells of a table's rows, and draws the same shapes elsewhere as
+ * ornament. The place is read off the element's own ancestors — the first of
+ * them that is a cell, or that opens a region — so the pass over the page and a
+ * caller holding one element ask the same question and get the same answer.
+ * @param el - the element to classify.
+ * @param walk - the walk in progress.
+ * @returns whether the page draws a command there.
+ */
+function namesIcon(el: Element, walk: Walk): boolean {
+  if (!isIcon(el, walk)) return false
+  for (let at = el.parentElement; at !== null; at = at.parentElement) {
+    if (CELL_ROLES.has(roleOf(at) ?? '')) return true
+    const face = containerFace(at, roleOf(at), walk)
+    if (face !== undefined) return face.type === 'toolbar' || face.type === 'list'
+  }
+  return false
+}
+
+/**
  * The role a cell names an element by rather than reading it as part of the
  * cell's text. The condition is the one a row of the page is printed under, so
  * a bar reaches the sample and the listed row exactly where it would reach a
@@ -501,7 +528,7 @@ function controlFace(el: Element, role: string, walk: Walk, label: Element | und
 function cellControlRole(el: Element, walk: Walk): string | undefined {
   const role = roleOf(el)
   if (role !== null && CELL_CONTROL_ROLES.has(role) && rowRole(el, role)) return role
-  if (isIcon(el, walk)) return ICON_ROLE
+  if (namesIcon(el, walk)) return ICON_ROLE
   if (role !== null) return undefined
   return topClickable(el, walk) ? CLICKABLE_ROLE : undefined
 }
@@ -530,11 +557,15 @@ function cellControls(el: Element, walk: Walk, found: CellControl[]): void {
     if (isSkipped(child, walk.isVisible)) continue
     const role = cellControlRole(child, walk)
     if (role !== undefined) {
+      // The same ladder every other row is named by, the `label` the page drew
+      // in front of a field included: a cell is where the page draws a row's
+      // commands, and a name computed differently there is one no step can use.
+      const named = namedAs(child, role, walk)
       found.push({
         el: child,
         role,
-        name: elementName(child, role, walk),
-        ...controlState(child, role, walk, undefined),
+        name: named.name,
+        ...controlState(child, role, walk, named.label),
       })
     } else cellControls(child, walk, found)
   }
@@ -1854,11 +1885,6 @@ function isIcon(el: Element, walk: Walk): boolean {
  * @param place - the element's position.
  * @returns whether this read offers the icon.
  */
-function offersIcon(el: Element, walk: Walk, place: Place): boolean {
-  const type = place.container?.type
-  return (type === 'toolbar' || type === 'list') && isIcon(el, walk)
-}
-
 /**
  * True where the walk offers this element as a thing to click: the top of a
  * clickable run, drawn outside any text a control's own row already prints.
@@ -1910,7 +1936,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
     // the model can reach it.
     const drawn = roleOf(el)
     if (drawn !== null && rowRole(el, drawn)) pushElement(el, drawn, walk, place)
-    else if (offersIcon(el, walk, place)) pushElement(el, ICON_ROLE, walk, place)
+    else if (namesIcon(el, walk)) pushElement(el, ICON_ROLE, walk, place)
     else if (offersClick(el, walk, place)) pushElement(el, CLICKABLE_ROLE, walk, place)
     return
   }
@@ -1958,7 +1984,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
       return
     }
   }
-  if (offersIcon(el, walk, place)) {
+  if (namesIcon(el, walk)) {
     pushElement(el, ICON_ROLE, walk, place)
     return
   }
@@ -2019,26 +2045,6 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined): Walk {
 }
 
 /**
- * Whether a listing would print this element as an icon: an icon drawn inside a
- * toolbar or a list.
- *
- * The pass reads that from where it stands; one element is asked of its
- * ancestors instead, up to the first of them that opens a region. The two agree
- * wherever a row is printed at all.
- * @param el - the element to classify.
- * @param walk - the walk in progress.
- * @returns whether an icon row is what it would print.
- */
-function drawsIcon(el: Element, walk: Walk): boolean {
-  if (!isIcon(el, walk)) return false
-  for (let at = el.parentElement; at !== null; at = at.parentElement) {
-    const face = containerFace(at, roleOf(at), walk)
-    if (face !== undefined) return face.type === 'toolbar' || face.type === 'list'
-  }
-  return false
-}
-
-/**
  * What a listing calls one element, computed for that element alone.
  *
  * The one name in the package: a listing prints this, and a step's target is
@@ -2063,14 +2069,18 @@ export function itemName(el: Element, options: SnapshotOptions): string {
   if (isOpaque(el)) {
     const drawn = roleOf(el)
     if (drawn !== null && rowRole(el, drawn)) return namedAs(el, drawn, walk).name
-    return drawsIcon(el, walk) ? namedAs(el, ICON_ROLE, walk).name : ''
+    if (namesIcon(el, walk)) return namedAs(el, ICON_ROLE, walk).name
+    // A drawing the page made clickable is a row like any other click target:
+    // a chart a click drills into is reachable, and named by what the page
+    // wrote on it, because what is inside a drawing labels the picture.
+    return topClickable(el, walk) ? namedAs(el, CLICKABLE_ROLE, walk).name : ''
   }
   const role = roleOf(el)
   if (isTableRole(role)) return tableName(el, headerPiece(el, walk, tableShape(el, walk)))
   const face = containerFace(el, role, walk)
   if (face !== undefined) return face.name
   if (role !== null && (ITEM_NODE_TYPES.has(role) || rowRole(el, role))) return namedAs(el, role, walk).name
-  if (drawsIcon(el, walk)) return namedAs(el, ICON_ROLE, walk).name
+  if (namesIcon(el, walk)) return namedAs(el, ICON_ROLE, walk).name
   if (!topClickable(el, walk)) return ''
   const items = topItems(childHost(el), walk)
   if (wrapsOnly(el, items, walk)) return ''

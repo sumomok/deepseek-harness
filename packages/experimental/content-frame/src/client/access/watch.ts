@@ -133,9 +133,11 @@ function shownText(el: Element, isVisible: (el: Element) => boolean): string {
  * back once it has changed, and revealing a message is what a page uses them
  * for, so both count: an element whose class changed and which shows text is
  * read as having just been given that text to show. The cost of taking it that
- * way is a page that restyles something it was already showing, which spends
- * one of the {@link MAX_EVENTS} lines on text the closing read shows anyway;
- * the cost of the other way is missing every framework's own reveal.
+ * way is a page that restyles what it was already showing — one line per
+ * restyled element that carries text, and an application marking three regions
+ * active on one click spends three of the {@link MAX_EVENTS} lines on text the
+ * closing read shows anyway; the cost of the other way is missing every
+ * framework's own reveal.
  * @param record - the attribute record.
  * @returns whether the element may have just been revealed.
  */

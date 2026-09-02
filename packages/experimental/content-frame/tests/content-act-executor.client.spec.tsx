@@ -878,7 +878,14 @@ describe('one name, printed and checked', () => {
     + '<ul><li><i id="star" class="el-icon-star"></i></li>'
     + '<li><i class="el-icon-plus"></i></li><li><i class="el-icon-minus"></i></li></ul>'
     + '<svg id="chart" role="img" aria-label="趋势图"></svg>'
+    + '<canvas id="trend" aria-label="本月趋势" style="cursor: pointer"></canvas>'
     + '<button class="el-button"><i class="el-icon-search"></i><span>提交</span></button>'
+    + '<table aria-label="设备">'
+    + '<thead><tr><th>名称</th><th>操作</th></tr></thead>'
+    + '<tbody><tr><td>mill-01</td>'
+    + '<td><a href="#x">详情</a><button class="el-button">编辑</button>'
+    + '<i class="el-tooltip operation-modify el-icon-delete"></i></td></tr></tbody>'
+    + '</table>'
     + '</main>'
 
   /** The read the listing under test comes from, and the seat's own injections. */
@@ -889,8 +896,11 @@ describe('one name, printed and checked', () => {
   /** Every row of one listing that prints a ref and a name. */
   function rows(text: string): { ref: string; role: string; name: string }[] {
     return text.split('\n').flatMap((line) => {
-      const row = /^\s*(e\d+) ([a-z]+) "([^"]*)"/.exec(line)
-      return row === null ? [] : [{ ref: row[1] ?? '', role: row[2] ?? '', name: row[3] ?? '' }]
+      // Scanned rather than anchored: a table's sample row prints its cell's
+      // controls along the line, and a check that only read line starts would
+      // never see the icon a page draws its row commands with.
+      return [...line.matchAll(/(e\d+) ([a-z]+) "([^"]*)"/g)]
+        .map(row => ({ ref: row[1] ?? '', role: row[2] ?? '', name: row[3] ?? '' }))
     })
   }
 
@@ -901,7 +911,12 @@ describe('one name, printed and checked', () => {
     // the two disagree about — which is what a console's own query box was.
     mount(NAMED)
     const read = snapshot(doc(), options())
-    const printed = rows(read.text)
+    // Twice, because a table prints its shape in a listing of the page and its
+    // rows only when a read names it: the commands a page draws in a row's
+    // cells carry refs in the second one alone.
+    const table = rows(read.text).find(row => row.role === 'table')
+    const listed = snapshot(doc(), { ...options(), scope: table?.ref ?? '' })
+    const printed = [...rows(read.text), ...rows(listed.text).filter(row => row.role !== 'table')]
     expect(printed.length).toBeGreaterThanOrEqual(9)
     expect(printed.map(row => `${row.role} "${row.name}"`)).toEqual([
       'clickable "查询"',
@@ -917,7 +932,14 @@ describe('one name, printed and checked', () => {
       'icon "plus"',
       'icon "minus"',
       'img "趋势图"',
+      'clickable "本月趋势"',
       'button "提交"',
+      'table "设备"',
+      // The commands a page draws in a row's cells, which is what the console
+      // this reader was written for puts its edit and delete on.
+      'link "详情"',
+      'button "编辑"',
+      'icon "delete"',
     ])
     for (const row of printed) {
       const el = refs.resolve(row.ref)

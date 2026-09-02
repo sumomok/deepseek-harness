@@ -61,6 +61,14 @@ export const MAX_CLAIM_BACKOFF = 5
  * came back to — and well short of a session left open overnight. Past it the
  * seat stops for good on that call id; a host cold-loading the session is what
  * finally closes it, as the unknown outcome its repair writes.
+ *
+ * It is therefore also the longest approval this channel supports. A call is
+ * answered `unknown` for as long as the user is deciding — the wait opens only
+ * once they have — so an approval answered later than this reaches a seat that
+ * has already let go, and the model is told no console is open with the console
+ * in front of the user: the failure this ceiling's own bidding was written to
+ * end. Ten minutes is chosen against a person reading one request; a deployment
+ * where someone else approves on their behalf would have to raise it.
  */
 export const MAX_BID_MS = 600000
 
