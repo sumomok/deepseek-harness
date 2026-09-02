@@ -2619,14 +2619,35 @@ describe('tables', () => {
       </section>
       <nav aria-label="Page navigation"><ul class="pagination"><li>共 3 页</li></ul></nav>`)
     expect(read(outside).text).not.toContain('pagination:')
-    // The dots a page draws in its own menu are a pager of that menu, and the
-    // landmark they stand in is where they stand: beside no table on the page.
+    // The dots a page draws in its own menu stand where the menu stands, so a
+    // table drawn inside a region of its own is paged by neither reading of
+    // them. A table the page leaves loose beside the menu would be paged by
+    // them, which is the price of finding a pager by the word on it.
     const menu = page(`
       <nav aria-label="主菜单"><a href="/a">站点</a><div class="pagination-dots">1 2 3</div></nav>
       <section aria-label="站点">
         <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
       </section>`)
     expect(read(menu).text).not.toContain('pagination:')
+  })
+
+  it('pages a table by a strip wrapped in landmark after landmark, and by one drawn in the landmark it stands in', () => {
+    // A page nests its pager inside the landmark that holds its whole footer,
+    // so the search climbs out of every landmark around the strip rather than
+    // the innermost one.
+    const nested = page(`
+      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+      <nav><nav aria-label="Pages"><ul class="pagination"><li>共 4 页</li></ul></nav></nav>`)
+    expect(read(nested).text).toContain('  pagination: 共 4 页')
+    // Where the landmark holds the table as well, it is the region the two
+    // share rather than a wrapper around the pager, and they are still beside
+    // each other.
+    const together = page(`
+      <nav aria-label="列表">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+        <ul class="pagination"><li>共 5 页</li></ul>
+      </nav>`)
+    expect(read(together).text).toContain('pagination: 共 5 页')
   })
 
   it('pages a table by the strip drawn beside it inside a shadow root', () => {

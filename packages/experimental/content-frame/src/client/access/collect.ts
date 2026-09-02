@@ -958,6 +958,19 @@ function wholeStrip(el: Element): Element {
 }
 
 /**
+ * True where a strip is drawn beside what stands in one region: the landmark a
+ * page wraps a strip in is part of the pager, and where the page draws the
+ * table inside that landmark too, the landmark is the region the two share.
+ * Either reading places the strip beside the table.
+ * @param el - the marked strip.
+ * @param region - the region the table stands in.
+ * @returns whether the strip is drawn beside it.
+ */
+function standsBy(el: Element, region: Element | null): boolean {
+  return regionOf(wholeStrip(el)) === region || regionOf(el) === region
+}
+
+/**
  * The region an element stands in: the container holding it, never the element
  * itself, because a page draws the strip that pages a table as a `nav` as
  * readily as it draws it as a `div`, and a strip is not a region of its own.
@@ -1046,8 +1059,9 @@ function stripAbove(above: readonly Element[], walk: Walk): string | undefined {
  * pages it exactly as a read of the whole page does. A strip pages the table
  * only where the two stand in the same region — a page drawing its table in one
  * region and a strip in another has said they are not beside each other. The
- * navigation landmark a page draws around a strip is part of the strip, so what
- * counts is the region that landmark stands in.
+ * navigation landmark a page draws around a strip is part of the strip, so the
+ * region that landmark stands in counts as the strip's own — and so does the
+ * landmark itself, for a page that draws the table inside it too.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @returns the strip's text, or undefined when the table has none.
@@ -1057,7 +1071,7 @@ function paginationText(el: Element, walk: Walk): string | undefined {
   const region = regionOf(el)
   const inside = region ?? (el.getRootNode() as ParentNode)
   const nodes = queryInOrder(inside, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
-    .filter(node => node.matches(TABLE_SELECTOR) || (node.closest(TABLE_SELECTOR) === null && regionOf(wholeStrip(node)) === region))
+    .filter(node => node.matches(TABLE_SELECTOR) || (node.closest(TABLE_SELECTOR) === null && standsBy(node, region)))
     .filter(node => node === el || !parts.has(node))
   const at = nodes.indexOf(el)
   return nearestStrip(nodes.slice(at + 1), walk) ?? stripAbove(nodes.slice(0, at), walk)
