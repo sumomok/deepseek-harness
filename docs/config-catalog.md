@@ -737,11 +737,11 @@ export interface Config {
    */
   contextFieldChars?: number
   /**
-   * Lets the agent read the page in the column through `content_read`. Absent
-   * turns the whole channel off: no tool, no claim or report route, no pending
-   * projection, and no reader in the browser — a deployment that only shows
-   * pages does not pay for a capability it did not ask for. Present with an
-   * empty object takes every default below.
+   * Lets the agent read the page in the column through `content_read` and act
+   * on it through `content_act`. Absent turns the whole channel off: no tools,
+   * no claim or report route, no pending projection, and no reader in the
+   * browser — a deployment that only shows pages does not pay for a capability
+   * it did not ask for. Present with an empty object takes every default below.
    */
   pageAccess?: PageAccessConfig
 }
@@ -800,10 +800,32 @@ export interface PageAccessConfig {
    * holding one would answer that the block is too wide.
    */
   outlineChars: number
+  /**
+   * How long a claimed set of steps waits for its report. It bounds the whole
+   * run — every step's own wait, the page settling after each of them, and the
+   * closing read — so it is the longest of the deadlines. Raise it for an
+   * application whose forms take a while to answer.
+   */
+  actTimeoutMs: number
+  /**
+   * Most steps one call may run. It is what one approval request covers, so it
+   * is also how much a user is asked to agree to at once; raise it for an
+   * agent filling long forms, lower it to keep each request short. At most
+   * 100, which is the protocol's own bound.
+   */
+  maxSteps: number
+  /**
+   * How long one step waits for the page to go quiet before the next step
+   * runs. `settleQuietMs` says how long stillness has to last; this says how
+   * long the wait for it may take. Raise it for an application that answers a
+   * click slowly; lower it for an agent that should not wait. It must be at
+   * least `settleQuietMs` and fit inside `actTimeoutMs`, both checked at load.
+   */
+  settleMaxMs: number
 }
 ```
 
-Source: [`packages/experimental/content-frame/src/index.ts:71`](../packages/experimental/content-frame/src/index.ts)
+Source: [`packages/experimental/content-frame/src/index.ts:76`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

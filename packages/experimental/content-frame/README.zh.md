@@ -49,11 +49,23 @@
 
 `pageAccess` 把 `content_read` 交给 agent：一次调用把用户正在看的页面答成一份带编号的结构——容器、控件、标题与文本，每个控件都带一个像 `e12` 的 ref，后续调用可以指着它。结构进模型，数据不进：表格只报表头、规模和一行样例，只有当某次读取按 ref 点名这张表、或按文本匹配到某一行时才列行；密码框只报「它在那里」，从不报它装着什么；正在要求登录的页面回的是一句拒绝，而不是正文。
 
-**缺席即关闭，而缺席是默认。** 没有这个块就没有工具、没有路由、没有待办 projection、settings 文档里没有 `pageAccess` 字段、浏览器里也没有读取器——只展示页面的部署不必为一项没要过的能力付账。写成空对象即取全部默认值。五个字段——`claimTimeoutMs`、`readTimeoutMs`、`pinMs`、`settleQuietMs`、`outlineChars`——文档在 `Config` 类型上；其中 `outlineChars` 决定一次读取花多少上下文，因为它就是渲染这份列表的字符预算。它有一道 1000 的下限，低于它会在加载时被拒：列表的第一行不管多长都会整行渲染，而低于这道下限时，一张普通表格的第一行就已经超过回报路由能收的量了。`settleQuietMs` 则是上限而非下限——它必须装得进 `readTimeoutMs` 的静默份额，否则加载时被拒，因为一个预算容不下的静默窗口会让每一次读取都报「页面还在变」。
+**缺席即关闭，而缺席是默认。** 没有这个块就没有工具、没有路由、没有待办 projection、settings 文档里没有 `pageAccess` 字段、浏览器里也没有读取器——只展示页面的部署不必为一项没要过的能力付账。写成空对象即取全部默认值。八个字段——`claimTimeoutMs`、`readTimeoutMs`、`pinMs`、`settleQuietMs`、`outlineChars`、`actTimeoutMs`、`maxSteps`、`settleMaxMs`——文档在 `Config` 类型上；其中 `outlineChars` 决定一次读取花多少上下文，因为它就是渲染这份列表的字符预算。它有一道 1000 的下限，低于它会在加载时被拒：列表的第一行不管多长都会整行渲染，而低于这道下限时，一张普通表格的第一行就已经超过回报路由能收的量了。另有三道是上限而非下限，都在加载时拒：`settleQuietMs` 必须装得进 `readTimeoutMs` 的静默份额，因为一个预算容不下的静默窗口会让每一次读取都报「页面还在变」；`settleMaxMs` 必须不小于 `settleQuietMs` 且装得进 `actTimeoutMs`，两头都是同一个理由；`maxSteps` 封顶 100，正是它把一次「跑了哪些步骤」的回报保持在回报路由允许的信封之内。
+
+## 在用户正看着的页面上动手
+
+同一个块把 `content_act` 交给 agent：一次调用最多带 `maxSteps` 步——`click`、`fill`、`select`、`press`、`wait`——按顺序跑在用户面前的那个页面上，首个失败即停。除 `wait` 外每一步都要两次点名它的元素：一次是某次读取给出的 `ref`，一次是那次读取印出的 `label`；浏览器在动手之前先核对这个名字。上次读取之后重绘过表格的页面，同样的 ref 指的已是别的行，这道核对正是让调用停下、而不是去按此刻占着那个位置的东西的原因。另有三种结局会让某一步停下：页面上已经没有的元素、被页面挡在用户面前的对话框后面的元素、以及页面已经禁用掉的元素。
+
+事件是页面自己的那一套。一次 click 是用户会产生的整串指针事件，因为只听 `mousedown` 的框架永远看不见一个光秃秃的 `click`；一次 fill 走原型上的 value setter，因为 React 和 Vue 都记着自己上一次写进去的值，直接赋 `el.value` 是它们下一次渲染就会撤销的改动；一次按键是三个事件，背后不提交任何表单，因为 Enter 是什么意思由页面决定。`select` 要么是平台自己的 `<select>`，要么是一个自绘选择器需要的两次点击。步与步之间给页面 `settleQuietMs` 静下来，每步以 `settleMaxMs` 封顶。
+
+**一次调用就是一次审批请求。** 一个 `tools/pre-execute` 监听器把这个工具的每一次调用都升格成一次请求，而请求只由参数生成：写这句话的时候还没有任何浏览器被够到，所以它按用户看见的样子称呼这一栏最前面的那一项，而不是宿主根本没拿到的页面标题。这也是每一步都必须带 `label` 的另一个理由——要告诉用户将要点什么、填什么，而这些名字只可能来自调用本身。监听器先委派，所以本来会拒掉这次调用的策略照样拒得掉；没有组合审批服务的部署一步都不会跑，这是内核对「需要审批的调用」自己的降级。
+
+**页面自己做了什么，随答案一起回来。** 在这次调用期间——且仅在这期间——座位盯着文档里出现又消失的文字、监听路由变化，并给 `confirm`/`alert`/`prompt` 与 `window.open` 各派一个替身：前三个因为它们会卡住 frame 的事件循环直到有人作答，而座位就是那个人；最后一个因为在控制台背后开出来的窗口没人会去看。两个替身在调用结束时都被放回去，某一步抛了异常也一样。`dialogs` 说的是原生对话框怎么答——默认 `cancel`；`accept` 只有在用户读到的那份审批请求写明「并确认页面弹出的确认框」时才被允许，而任何长期放行与任何从不发问的策略都造不出那句话。
+
+答案永远是三段，顺序固定：跑了什么、页面自己做了什么、以及一份按部署自己的预算重新读的整页。最后一段正是让下一次调用不必再读一遍的东西，因为它点名的 ref 是当下的。往密码框里 fill 只报「填了」，从不报填了什么。
 
 ### 通道
 
-宿主无法指名某个浏览器，所以调用是反向走的。工具体不写任何东西：它登记一次等待，并把这次调用发布到该会话自己的 `contentAccess` projection 上，而每个已连接的浏览器本来就在接收它。正在展示该会话的 page 座位在 `POST /content-frame/claim` 上认领这次调用，遍历 frame 的文档，再把列表 `POST /content-frame/report` 回来。只有认领方那个标签页的回报会被接受——这也是「认领」是一次往返而不是一次通告的原因。
+宿主无法指名某个浏览器，所以调用是反向走的。两个工具共用这条通道。工具体不写任何东西：它登记一次等待，并把这次调用发布到该会话自己的 `contentAccess` projection 上，而每个已连接的浏览器本来就在接收它。正在展示该会话的 page 座位在 `POST /content-frame/claim` 上认领这次调用，把活干完——遍历 frame 的文档，或者把步骤跑在它上面——再把答案 `POST /content-frame/report` 回来。只有认领方那个标签页的回报会被接受——这也是「认领」是一次往返而不是一次通告的原因，也是同一个会话上开着的两个控制台只会跑一份步骤而不是两份的原因。两个工具的差别只在回传的那份文档，由它自己的 status 区分；开出这次等待的那个工具，才是判断手上这份文档答不答得了自己这次调用的那一方。
 
 两道截止时间，因为「没有打开的控制台」和「应答过的控制台失联了」是两个不同的事实，模型对二者的下一步也不同。`claimTimeoutMs` 内无人认领的调用被告知没有控制台在展示这个会话；已认领但 `readTimeoutMs` 内没有回报的调用被告知重试一次。同一会话连续的读取黏在同一个标签页上：上次应答的标签页在 `pinMs` 内优先，别的标签页的认领会被短暂挂起，好让优先的那个先拿。ref 指的是某一份文档里的元素，两个控制台轮流应答会把指不到任何东西的 ref 交给模型。
 
@@ -213,6 +225,62 @@ No open console is showing this session's content column (waited 3s); the page "
 
 只追加。列表是关于页面在那一刻的事实；对已变化页面的第二次读取是一份新结果，而不是对第一份的改写。
 
+### The `content_act` offer
+
+#### What the model sees
+
+一个工具 `content_act`，凡部署方配置了 `pageAccess` 的地方就与 `content_read` 并排提供。两个参数：`steps` 必填，每一步是 `{action, ref, label, text?, value?, key?}`，`action` 五选一 `click`、`fill`、`select`、`press`、`wait`；以及 `dialogs`，`cancel` 或 `accept`，用于步骤运行期间页面自己弹出的原生对话框。描述里写明浏览器会在动手之前拿 label 与页面核对，好让模型知道一份过期的读取会让调用停下、而不是动到错的元素；也写明一次调用就是一次审批请求，这是「把该在一起的步骤放进一次调用」背后的成本模型。
+
+#### Token effect
+
+一份 schema，只要这个工具还提供着就随每个请求列出——约 120 词的描述、`steps` 里的六行参数说明、外加 `dialogs` 一行。
+
+#### KV Cache effect
+
+稳定：schema 在加载时定死，不随会话、也不随这一栏里有什么而变。
+
+### The result of a set of steps
+
+#### What the model sees
+
+三段，顺序永远是这个：跑了什么、或哪一步让调用停了下来；步骤运行期间页面自己做了什么；以及一份重新读的整页。第三段就是同一个页面、同一份预算下的一次 `content_read`，所以里面的 ref 正是下一次调用可以指着的那些。
+
+##### A call whose steps all ran
+
+```markdown
+Done 2/2 on 点位信息: fill "名称" ← "东风"; click "查询" (settled after 0.8s).
+Page events during these steps:
+  message "查询成功" (shown for 2.1s, gone before the snapshot)
+Page now:
+1 main
+  2 heading "点位信息"
+  3 table "点位列表" — 名称, 状态, 操作 · 24 rows · e14
+```
+
+##### A call one step stopped
+
+```markdown
+Step 2 failed: e5 is now "重置", not "查询" — the page changed; call content_read for current refs. Step 1 ran; later steps were skipped.
+Page events during these steps: none.
+Page now:
+1 main
+  2 heading "点位信息"
+```
+
+##### The console claimed the call and went quiet
+
+```markdown
+The console claimed this call but did not report within 60s; the steps may have run partially or fully. Call content_read before deciding to retry.
+```
+
+#### Token effect
+
+收尾那次读取以 `outlineChars` 为界，再加第一行里每步一个短句，再加页面自己做了什么的至多八行、每行裁到 200 字符。也就是说，一次改动了页面的调用，花费大致等于读一次它——这正是要点：模型不必为了看见自己做了什么再读一遍。
+
+#### KV Cache effect
+
+只追加。每份结果都是页面在那一刻的事实，所以第二次调用是一份新结果，而不是对第一份的改写。
+
 ### The content-column context
 
 #### What the model sees
@@ -254,7 +322,13 @@ No open console is showing this session's content column (waited 3s); the page "
 - **on-display 规则不区分写入者** —— [`content-surface`](../content-surface/README.zh.md) 那条与 kind 无关的 prompt 规则告诉模型，要在原地更新「你已经产出并放上台面的东西」。用户通过侧边栏菜单打开的页面，与 agent 选定的页面在「放上台面」这件事上完全一样，因此这条规则的措辞仍然读起来像是 agent 产出的。`by` 字段的存在是为了让以后的 prompt 或渲染器能够区分这一点；规则本身的措辞刻意保持不变（它是一段钉死、经过测量的文本——见其自身的模块文档），不为这一种情况单独打补丁。
 - **`page` extractor 解析出的 `by` 尚未被渲染** —— 浏览器这一栏的 frame 渲染器不论谁展示的都画同一个 iframe。这个字段被一路带到 payload 里，是为了让以后的改动不用再一次提升 `dataVersion` 就能展示它。
 - **一个目录、一个源** —— 路由只提供单个配置目录，且每个页面都必须是 dsh 同源内的路径。没有第二个应用、没有外部 URL，agent 也无法指名部署未配置的页面。
-- **frame 与外壳之间没有通道** —— 没有 `postMessage` 协议、没有共享状态，被托管的页面也无法回报用户在里面做了什么。agent 能把一个页面推到用户眼前，却无法得知之后发生了什么，除非有人告诉它。该页面回到 harness 的唯一通路是它自行调用的 dsh HTTP API。
+- **frame 自己仍然什么都不报** —— 没有 `postMessage` 协议、也没有共享状态：agent 对这个页面的了解，来自读它或者在它上面动手，而用户在两次调用之间在 frame 里做了什么，谁也收不到。该页面回到 harness 的唯一通路是它自行调用的 dsh HTTP API。
+- **动手只有五个动作，没有手势** —— 没有拖拽、没有滚动、没有悬停、没有文件上传、没有右键，也没有办法作用在一次读取没有编号过的东西上。需要其中任何一样的页面，需要的是用户。
+- **一步的目标按名字核对，而名字不是身份** —— 两行里都叫「编辑」的按钮，在这道核对看来是同一个名字，所以一次把它们换了顺序的重绘能过关。ref 是点名元素的那一半，名字是抓住页面已经变了的那一半；两者单拿出来都不是身份，而一个同时改编号又改名字的页面，就是必须重新读一次的页面。
+- **对话框替身是对 frame 的唯一注入** —— 在一次调用期间，`confirm`、`alert`、`prompt` 与 `window.open` 是本包的，调用结束即还原。在调用之前就把它们自己存了一份引用的页面，调的仍是原件；而在调用之外弹对话框的页面，照旧卡住它自己的 frame。
+- **页面自己做了什么是一套启发式，而且有界** —— 一段文字被算作 message，条件是它在步骤运行期间出现又消失；每次调用至多八条，每条裁到 200 字符。调用中途重绘列表的应用会把这份额度花在自己的抖动上，而出现之后一直在的文字，留给收尾那份快照。
+- **一步只等 frame 自己的文档** —— 沉降等待与 `wait` 步都读 frame 的文档，所以往嵌套同源 frame 里画东西的应用，只会被收尾快照读到，不会被等。
+- **`dialogs: accept` 由被问过的那次调用花掉** —— 这条记录用一次即消，所以同一次调用的重试会取消页面的对话框而不是确认它，并重新问用户一次。
 - **`content` projection 在树内没有消费者** —— 这一栏改读 entry 流，`content` 只作为「已解析的当前页面」值（`shown`/`default`/`empty`/`missing`）留给其他读取 wire 的一方。它也是 `defaultPage` 唯一还会出现的地方。
 - **frame 缓存按浏览器标签页计，且在时间上无上限** —— `cacheSize` 限定的是同时存活多少个 frame，不是存活多久。一个长期打开的标签页会让被缓存的文档持续运行，包括它们持有的轮询与套接字。
 - **settings 路由假定存在 HTTP 载体** —— browser 半边以页面 origin 为基准请求 `/content-frame/settings`。如果某种传输提供了外壳却没有把 harness 暴露在 HTTP 上，该行会失败——与 iframe 自己那条路由的处境相同。

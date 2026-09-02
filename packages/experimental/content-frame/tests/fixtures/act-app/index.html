@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Content act fixture</title>
+    <link rel="stylesheet" href="./app.css" />
+  </head>
+  <body>
+    <h1 id="fixture-heading">Machine console</h1>
+    <!-- A page a set of steps has something to do to: a box to fill, a button
+         whose handler really changes the document, a list to choose from, and a
+         message the page shows and takes away again. -->
+    <main>
+      <form aria-label="Add a machine">
+        <label for="machine-name">Machine name</label>
+        <input id="machine-name" name="machine-name" type="text" value="mill-04" />
+        <label for="machine-site">Site</label>
+        <select id="machine-site" name="machine-site">
+          <option value="north">North yard</option>
+          <option value="south">South yard</option>
+        </select>
+        <!-- Never a submit: a form that navigates would replace the document
+             the steps are running against. -->
+        <button type="button" id="add-machine">Add machine</button>
+      </form>
+      <p id="added-count" data-added="0">Machines added: 0</p>
+      <table aria-label="Fleet">
+        <thead>
+          <tr><th>Machine</th><th>Site</th></tr>
+        </thead>
+        <tbody id="fleet-rows">
+          <tr><td>mill-01</td><td>North yard</td></tr>
+        </tbody>
+      </table>
+      <div id="toast" hidden></div>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

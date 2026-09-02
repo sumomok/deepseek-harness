@@ -340,13 +340,16 @@ export interface ActPageEvent {
 }
 
 /**
- * The line a transient page message prints.
+ * The line a message the page showed and then took away prints.
+ *
+ * Only text that went away is reported: what is still on the page is in the
+ * closing snapshot, and saying it twice tells the model nothing it is not
+ * about to read.
  * @param text - the message the page showed.
- * @param shownMs - how long it stayed, or `undefined` while it is still there.
+ * @param shownMs - how long it stayed.
  * @returns the line.
  */
-export function messageLine(text: string, shownMs: number | undefined): string {
-  if (shownMs === undefined) return `message "${text}" (still shown)`
+export function messageLine(text: string, shownMs: number): string {
   return `message "${text}" (shown for ${(shownMs / 1000).toFixed(1)}s, gone before the snapshot)`
 }
 

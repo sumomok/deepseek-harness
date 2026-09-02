@@ -153,7 +153,7 @@ export const REPORT_SYNTAX_BYTES = 512
  * its own. It carries the two page names, the document's title, its own body
  * against the budget, and one step list; against a listing it spends nothing on
  * the address, the other two header fields, the cursor, or the two names a
- * failure's kind and title would take — 10,944 bytes of allowance left unspent.
+ * failure's kind and title would take — 11,968 bytes of allowance left unspent.
  * What the step list costs inside that is the one failing step's message, which
  * is the same 2000 characters the failure arm's message is bounded by and which
  * a report of steps carries in place of it, plus about 35 bytes of punctuation
@@ -545,7 +545,7 @@ export const MAX_ACT_KEY_CHARS = 32
  * Most steps one call may run, whatever a deployment configures.
  *
  * A protocol bound rather than a deployment choice: each step costs about 35
- * bytes of punctuation in the report, and the envelope leaves 10,944 bytes of
+ * bytes of punctuation in the report, and the envelope leaves 11,968 bytes of
  * a listing's allowance unspent for a report of steps ({@link
  * REPORT_ENVELOPE_BYTES} states the sum), so a hundred steps spend 3500 of it
  * and the bound holds with room to spare. A plan needing more than a hundred
