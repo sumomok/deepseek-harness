@@ -13,7 +13,7 @@ import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
-  isClickable, isVisible, rectOf, TAB_ID, useContentRead, type ContentReadSeat,
+  isClickable, isVisible, TAB_ID, useContentRead, type ContentReadSeat,
 } from '../src/client/access/executor.ts'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
@@ -275,7 +275,7 @@ describe('the injected layout the reader runs on', () => {
     expect(isVisible(leaf)).toBe(true)
   })
 
-  it('measures and classifies an element through its own frame\'s window', () => {
+  it('classifies an element through its own frame\'s window', () => {
     const frame = mountFrame('<button id="go" style="cursor: pointer">Go</button><span id="plain">x</span>')
     const doc = frame.contentWindow?.document
     const go = doc?.getElementById('go')
@@ -283,11 +283,10 @@ describe('the injected layout the reader runs on', () => {
     if (go === null || go === undefined || plain === null || plain === undefined) {
       throw new Error('the fixture lost its elements')
     }
+    // The frame's own computed styles, not the top window's: how an element is
+    // drawn belongs to the frame it lives in.
     expect(isClickable(go)).toBe(true)
     expect(isClickable(plain)).toBe(false)
-    // The frame's own rectangle class, not the top window's, which is the
-    // point: the geometry belongs to the frame the element lives in.
-    expect(rectOf(go)).toMatchObject({ width: 0, height: 0 })
   })
 })
 

@@ -15,10 +15,9 @@
 import {
   CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, ICON_ROLE, NAME_FROM_CONTENT_ROLES,
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
-  frameDocument, headingText, insideOpaque, isChecked, isDisabled, isHiddenAround, isInline, isMarked,
+  frameDocument, headingText, insideOpaque, isChecked, isDisabled, isInline, isMarked,
   drawingInside, drawnAround, iconWord, isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped,
-  libraryRole, looksClickable, markedSelector, nameOf, quantityValue, queryInOrder, rectsMeet,
-  rectsOverlap, roleOf, visibleText,
+  libraryRole, looksClickable, markedSelector, nameOf, quantityValue, queryInOrder, roleOf, visibleText,
 } from './dom.ts'
 import type {
   CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, ElementItem,
@@ -41,9 +40,6 @@ const CLICK_NAME_LIMIT = 40
  * which controls it offers.
  */
 const SAMPLE_CELL_LIMIT = 24
-
-/** The one key {@link pickCells} claims the rectangles of one row under. */
-const ROW_CELLS = 'cell'
 
 /**
  * Roles that make a table cell worth naming rather than reading as text. A bar
@@ -134,13 +130,6 @@ const ITEM_TAGS = [
 const ITEM_SELECTOR = `${ITEM_TAGS}, [role], main, nav, form, section, article, aside, ul, ol`
 
 /**
- * The tags a page draws something with rather than writes something in. None of
- * them earns a row, and all of them are the page putting a picture between the
- * two things either side of it.
- */
-const DRAWN_TAGS = 'hr, img, svg, canvas, video, audio, picture, embed, object'
-
-/**
  * The regions a page is laid out in, rather than the ones it draws inside a
  * card. A run the page makes clickable that reaches one of these is not a thing
  * to click: the cursor was inherited from something above, and the region
@@ -185,10 +174,6 @@ interface Walk {
   readonly scope: Element | undefined
   /** The items collected so far, in document order. */
   readonly items: Item[]
-  /** Rectangles already claimed, keyed by role and name, for dropping repeats. */
-  readonly kept: Map<string, DOMRectReadOnly[]>
-  /** Each table's rows, sorted once however often the walk asks about them. */
-  readonly shapes: Map<Element, TableShape>
 }
 
 /** Where the walk currently stands. */
@@ -205,34 +190,6 @@ interface Place {
    * menu item. That text and the click targets in it are not rows of their own.
    */
   readonly labelled: boolean
-}
-
-/**
- * True when this element repeats one already collected — same role, same name,
- * and most of the smaller rectangle in common. A pinned table column draws its
- * cells twice; the reader needs them once.
- * @param kept - rectangles already claimed, keyed by role and name.
- * @param rectOf - injected geometry.
- * @param key - the role and name this element would print.
- * @param el - the element to test.
- * @returns whether the element repeats one already collected.
- */
-function duplicate(
-  kept: Map<string, DOMRectReadOnly[]>,
-  rectOf: (el: Element) => DOMRectReadOnly | undefined,
-  key: string,
-  el: Element,
-): boolean {
-  const rect = rectOf(el)
-  if (rect === undefined) return false
-  const seen = kept.get(key)
-  if (seen === undefined) {
-    kept.set(key, [rect])
-    return false
-  }
-  if (seen.some(other => rectsOverlap(rect, other))) return true
-  seen.push(rect)
-  return false
 }
 
 /**
@@ -624,68 +581,16 @@ function readCell(cell: Element, walk: Walk): RowCell {
   return { controls, text, sample: shown === '' ? inside : `${shown} ${inside}` }
 }
 
-/**
- * The cells of one row a reader can see, without the ones a pinned column draws
- * again over the top of them inside that row. The rectangles are claimed in a
- * map of the row's own: a cell repeats a cell beside it, never one of the row
- * above or of the piece of the table drawn over this one.
- * @param row - the row element.
- * @param walk - the walk in progress.
- * @returns the cell elements, in column order.
- */
-function pickCells(row: Element, walk: Walk): Element[] {
-  const kept = new Map<string, DOMRectReadOnly[]>()
-  const cells: Element[] = []
-  for (const cell of row.children) {
-    if (isSkipped(cell, walk.isVisible)) continue
-    if (!duplicate(kept, walk.options.rectOf, ROW_CELLS, cell)) cells.push(cell)
-  }
-  return cells
-}
+
 
 /**
- * The cells one piece of a table shows in one of its rows, read as a listing
- * prints them.
+ * The cells one row of a table shows, read as a listing prints them.
  * @param row - the row element.
  * @param walk - the walk in progress.
  * @returns the cells, in column order.
  */
 function rowCells(row: Element, walk: Walk): RowCell[] {
-  return pickCells(row, walk).map(cell => readCell(cell, walk))
-}
-
-/** True for a cell drawing neither a word nor anything a reader can act on. */
-function showsNothing(cell: RowCell): boolean {
-  return cell.text === '' && cell.controls.length === 0
-}
-
-/**
- * The columns of one row across the pieces a table is drawn in: each column
- * from the piece that shows it, and from the first of them where more than one
- * does. A page pins a column by drawing the whole table again with everything
- * but that column's content hidden, so a column that shows nothing in one piece
- * is drawn in another, and the reader needs the one row the pieces make up
- * between them.
- *
- * The columns line up by their position in the row, because that is the one
- * thing every piece agrees on: a pinned copy is drawn over a different column
- * of the table than the one it repeats as soon as the reader scrolls sideways.
- * A piece that draws fewer cells than the table has columns therefore lines up
- * from the left, which is where a page puts the column it leaves out — the
- * placeholder a header draws over the scrollbar.
- * @param pieces - each piece's cells for one row, the piece that prints the
- * table first.
- * @returns the merged cells, in column order.
- */
-function mergeCells(pieces: readonly (readonly RowCell[])[]): RowCell[] {
-  const merged: RowCell[] = []
-  for (const cells of pieces) {
-    cells.forEach((cell, at) => {
-      const held = merged[at]
-      if (held === undefined || (showsNothing(held) && !showsNothing(cell))) merged[at] = cell
-    })
-  }
-  return merged
+  return [...row.children].filter(cell => !isSkipped(cell, walk.isVisible)).map(cell => readCell(cell, walk))
 }
 
 /**
@@ -730,9 +635,7 @@ interface TableShape {
 }
 
 /**
- * Sort one table's rows into its header and its data, once per walk however
- * often the walk asks: a table is asked about by the tables either side of it
- * as well as for itself, and sorting four hundred rows is not free.
+ * Sort one table's rows into its header and its data.
  *
  * A `thead` of several rows heads the table by its first row alone, so a table
  * that spreads its column names over a grouping row and a leaf row reports the
@@ -743,239 +646,15 @@ interface TableShape {
  * @returns the table's shape.
  */
 function tableShape(el: Element, walk: Walk): TableShape {
-  const known = walk.shapes.get(el)
-  if (known !== undefined) return known
   const grouped = new Set(el.querySelectorAll(':scope > thead > tr, :scope > tfoot > tr'))
   const rows = queryInOrder(el, 'tr, [role~="row"]').filter(row => row.closest(TABLE_SELECTOR) === el)
   const declared = el.querySelector(':scope > thead > tr') ?? undefined
   const first = rows[0]
   const headRow = declared ?? (first !== undefined && headsColumns(first, walk) ? first : undefined)
-  const shape: TableShape = {
+  return {
     headRow,
     dataRows: rows.filter(row => row !== headRow && !grouped.has(row) && !isSkipped(row, walk.isVisible)),
   }
-  walk.shapes.set(el, shape)
-  return shape
-}
-
-/**
- * The next node in document order.
- * @param node - where the walk stands.
- * @param inside - whether the node's own children come next.
- * @returns the next node, or null at the end of the document.
- */
-function nextInOrder(node: Node, inside: boolean): Node | null {
-  if (inside && node.firstChild !== null) return node.firstChild
-  let at: Node | null = node
-  while (at !== null) {
-    if (at.nextSibling !== null) return at.nextSibling
-    at = at.parentNode
-  }
-  return null
-}
-
-/**
- * True when an element wraps a picture the reader can see. A wrapper holding
- * nothing but pictures the page hides — the spinner of a table that is not
- * loading, a mask drawn over nothing — draws nothing itself, and separates
- * nothing from anything.
- * @param el - the wrapping element.
- * @param walk - the walk in progress.
- * @returns whether the element holds a picture the reader can see.
- */
-function drawsSomething(el: Element, walk: Walk): boolean {
-  for (const drawn of el.querySelectorAll(DRAWN_TAGS)) {
-    if (!isSkipped(drawn, walk.isVisible)) return true
-  }
-  return false
-}
-
-/**
- * True when the page draws nothing at all between two elements: no text a
- * reader can see, nothing that would earn a row, no picture or rule. A header
- * frozen over a body has only wrappers between the two halves; a table under a
- * paragraph has the paragraph, and a table inside another is not beside it at
- * all. A picture the reader can see counts wherever it sits in the gap, wrapped
- * or bare: the same icon must not separate two tables when the page draws it on
- * its own and join them when the page puts a `div` around it.
- * @param first - the earlier element.
- * @param second - the later element.
- * @param walk - the walk in progress.
- * @returns whether the two are drawn against each other.
- */
-function nothingBetween(first: Element, second: Element, walk: Walk): boolean {
-  let node: Node | null = nextInOrder(first, false)
-  while (node !== null && node !== second) {
-    if (node.nodeType === node.ELEMENT_NODE) {
-      const el = node as Element
-      // What holds the later element is around the gap rather than in it.
-      if (el.contains(second)) {
-        node = nextInOrder(el, true)
-        continue
-      }
-      const shows = !isSkipped(el, walk.isVisible)
-        && (el.matches(DRAWN_TAGS) || drawsSomething(el, walk) || makesRow(el, walk)
-          || holdsItems(el, walk) || visibleText(el, walk.isVisible) !== '')
-      if (shows) return false
-      node = nextInOrder(el, false)
-      continue
-    }
-    if (node.nodeType === node.TEXT_NODE && collapse((node as Text).data) !== '') return false
-    node = nextInOrder(node, false)
-  }
-  return node === second
-}
-
-/**
- * The other half of a table drawn in two pieces — a header frozen over a body
- * that scrolls under it. The halves sit in one region of the page with nothing
- * drawn between them; two tables in two regions, or with a paragraph between
- * them, are two tables. Two names the page wrote and meant differently are two
- * tables as well: the halves of one table are one thing to name, and a page
- * that names both halves at all names them the same.
- *
- * The search runs over the whole document rather than the read's scope, so a
- * read scoped to the body half still finds the header above it. It counts only
- * the tables the walk itself reads as one: a table the reader cannot see is not
- * drawn between anything, and an element whose first role is decoration is a
- * table to the selector and a wrapper to the walk. Counting either of them
- * would put a table nobody sees between the two halves, and the header the page
- * drew would reach the reader on neither half.
- * @param el - the table element.
- * @param step - 1 for the table after this one, -1 for the table before it.
- * @param walk - the walk in progress.
- * @returns the neighbouring table, or undefined when the two are not one table.
- */
-function splitPartner(el: Element, step: number, walk: Walk): Element | undefined {
-  const tables = queryInOrder(el.ownerDocument, TABLE_SELECTOR)
-    .filter(table => isTableRole(roleOf(table)) && !isHiddenAround(table, walk.isVisible))
-  const other = tables[tables.indexOf(el) + step]
-  if (other === undefined || other.closest(CONTAINER_SELECTOR) !== el.closest(CONTAINER_SELECTOR)) return undefined
-  const name = nameOf(el)
-  const otherName = nameOf(other)
-  if (name !== '' && otherName !== '' && name !== otherName) return undefined
-  const ahead = step === 1
-  return nothingBetween(ahead ? el : other, ahead ? other : el, walk) ? other : undefined
-}
-
-/**
- * The piece this table borrows its header from: the table before it that heads
- * columns it has no rows for. The two are one table, so the header reaches the
- * reader whether the read arrives at the whole page or at the body by ref.
- * @param el - the table element.
- * @param walk - the walk in progress.
- * @param shape - this table's own shape.
- * @returns the header piece, or undefined for a table that heads its own columns.
- */
-function headerPiece(el: Element, walk: Walk, shape: TableShape): Element | undefined {
-  if (shape.headRow !== undefined) return undefined
-  const previous = splitPartner(el, -1, walk)
-  if (previous === undefined) return undefined
-  const piece = tableShape(previous, walk)
-  return piece.headRow !== undefined && piece.dataRows.length === 0 ? previous : undefined
-}
-
-/**
- * True for the header half of a table drawn in two pieces, which prints nothing
- * of its own: the body half prints the header it gives away.
- * @param el - the table element.
- * @param walk - the walk in progress.
- * @returns whether the table is a header another table prints.
- */
-function isHeaderPiece(el: Element, walk: Walk): boolean {
-  const shape = tableShape(el, walk)
-  if (shape.headRow === undefined || shape.dataRows.length > 0) return false
-  const next = splitPartner(el, 1, walk)
-  return next !== undefined && tableShape(next, walk).headRow === undefined
-}
-
-/**
- * The row heading one piece's columns: the row the piece heads its own columns
- * with, or the one on the header half it is drawn under.
- * @param el - the table element.
- * @param walk - the walk in progress.
- * @returns the header row, absent for a piece that heads no columns.
- */
-function headRowOf(el: Element, walk: Walk): Element | undefined {
-  const shape = tableShape(el, walk)
-  const piece = headerPiece(el, walk, shape)
-  return shape.headRow ?? (piece === undefined ? undefined : tableShape(piece, walk).headRow)
-}
-
-/**
- * The table drawn next to this one that holds rows, stepping over the header
- * halves in between: the pieces of a table pinned column by column follow one
- * another as header, body, header, body, and what one piece repeats is the rows
- * of the piece before it.
- * @param el - the table element.
- * @param step - 1 for the table after this one, -1 for the table before it.
- * @param walk - the walk in progress.
- * @returns the neighbouring table with rows, or undefined when there is none.
- */
-function neighbourTable(el: Element, step: number, walk: Walk): Element | undefined {
-  let at = splitPartner(el, step, walk)
-  while (at !== undefined && tableShape(at, walk).dataRows.length === 0) at = splitPartner(at, step, walk)
-  return at
-}
-
-/**
- * True when the second table is the first drawn again: a row for each row, and
- * drawn over the same ground. A page pins a column by drawing the whole table a
- * second time with every other column's content hidden, so the copy covers the
- * table it repeats and carries its rows one for one; a table drawn after
- * another covers none of it, and a table with no rows repeats nothing.
- * @param first - the earlier table.
- * @param second - the later table.
- * @param walk - the walk in progress.
- * @returns whether the two are one table drawn twice.
- */
-function repeatsTable(first: Element, second: Element, walk: Walk): boolean {
-  const rows = tableShape(first, walk).dataRows.length
-  if (rows === 0 || rows !== tableShape(second, walk).dataRows.length) return false
-  return rectsMeet(walk.options.rectOf(first), walk.options.rectOf(second))
-}
-
-/**
- * The table this one is drawn over, for a piece that prints nothing of its own:
- * the table before it prints every piece as one.
- * @param el - the table element.
- * @param walk - the walk in progress.
- * @returns the table this one repeats, or undefined for a table of its own.
- */
-function repeatedTable(el: Element, walk: Walk): Element | undefined {
-  const previous = neighbourTable(el, -1, walk)
-  return previous !== undefined && repeatsTable(previous, el, walk) ? previous : undefined
-}
-
-/**
- * Every piece one table is drawn in: itself first, then each copy drawn over
- * it, in the order the page draws them. The search runs forward from the piece
- * that prints the table, so a read scoped to that table by ref reads the same
- * pieces as a read of the whole page.
- * @param el - the table element.
- * @param walk - the walk in progress.
- * @returns the pieces, this table first.
- */
-function tablePieces(el: Element, walk: Walk): [Element, ...Element[]] {
-  const pieces: [Element, ...Element[]] = [el]
-  let previous = el
-  for (let at = neighbourTable(el, 1, walk); at !== undefined; at = neighbourTable(at, 1, walk)) {
-    if (!repeatsTable(previous, at, walk)) break
-    pieces.push(at)
-    previous = at
-  }
-  return pieces
-}
-
-/**
- * The row each piece of a table draws at one index.
- * @param pieces - the table's pieces.
- * @param at - the row's 0-based position among the data rows.
- * @param walk - the walk in progress.
- * @returns the row elements, the piece that prints the table first.
- */
-function rowPieces(pieces: readonly Element[], at: number, walk: Walk): Element[] {
-  return pieces.map(piece => tableShape(piece, walk).dataRows[at]).filter(row => row !== undefined)
 }
 
 /**
@@ -1017,26 +696,6 @@ function standsBy(el: Element, region: Element | null): boolean {
 function regionOf(el: Element): Element | null {
   const parent = el.parentElement
   return parent === null ? null : parent.closest(CONTAINER_SELECTOR)
-}
-
-/**
- * Every table element one table is drawn as: each of its pieces, and the header
- * half drawn over each piece. A page that pins a column draws header, body,
- * header, body, and the strip that pages the table comes after all of them, so
- * a search that stopped at the first of those tables would answer that the
- * table is paged by nothing.
- * @param el - the table element the read prints.
- * @param walk - the walk in progress.
- * @returns the table elements this one table is drawn as.
- */
-function tableParts(el: Element, walk: Walk): Set<Element> {
-  const parts = new Set<Element>()
-  for (const piece of tablePieces(el, walk)) {
-    parts.add(piece)
-    const header = headerPiece(piece, walk, tableShape(piece, walk))
-    if (header !== undefined) parts.add(header)
-  }
-  return parts
 }
 
 /**
@@ -1086,10 +745,8 @@ function stripAbove(above: readonly Element[], walk: Walk): string | undefined {
  * that the one over it, never one that belongs to the table next to it. Each
  * strip pages one table, so a strip already under a table is not also over the
  * next one. A strip drawn inside any table belongs to that table's rows, not
- * beside it. The pieces one table is drawn as are that table and stop nothing:
- * the strip paging a table pinned column by column is drawn after every copy of
- * it. Any other table does stop the search, so a strip between two tables pages
- * the one above it alone.
+ * beside it. Any other table stops the search, so a strip between two tables
+ * pages the one above it alone.
  *
  * The search runs over the region the table stands in, rather than over the
  * read's scope, so a read scoped to one table by ref reports the strip that
@@ -1104,12 +761,10 @@ function stripAbove(above: readonly Element[], walk: Walk): string | undefined {
  * @returns the strip's text, or undefined when the table has none.
  */
 function paginationText(el: Element, walk: Walk): string | undefined {
-  const parts = tableParts(el, walk)
   const region = regionOf(el)
   const inside = region ?? (el.getRootNode() as ParentNode)
   const nodes = queryInOrder(inside, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
     .filter(node => node.matches(TABLE_SELECTOR) || (node.closest(TABLE_SELECTOR) === null && standsBy(node, region)))
-    .filter(node => node === el || !parts.has(node))
   const at = nodes.indexOf(el)
   return nearestStrip(nodes.slice(at + 1), walk) ?? stripAbove(nodes.slice(0, at), walk)
 }
@@ -1118,28 +773,16 @@ function paginationText(el: Element, walk: Walk): string | undefined {
  * One data row, read from the page only as far as a listing asks. A whole page
  * prints one sample row and counts the rest, so the rest are counted and not
  * read; a read scoped to the table or filtered by `find` reads what it prints.
- *
- * The row is read across every piece the table is drawn in, so a column drawn
- * in a pinned copy reaches the reader in the row it belongs to, and the text
- * `find` matches the row by is everything the pieces draw in it.
- * @param drawn - the row as each piece of the table draws it, the piece that
- * prints the table first.
- * @param el - the row element of that first piece, which the row is named by.
+ * @param el - the row element.
  * @param index - the row's 1-based position among the data rows.
  * @param walk - the walk in progress.
  * @param table - the table this row belongs to.
  * @returns the row.
  */
-function readRow(
-  drawn: readonly Element[],
-  el: Element,
-  index: number,
-  walk: Walk,
-  table: ContainerFace,
-): TableRowItem {
+function readRow(el: Element, index: number, walk: Walk, table: ContainerFace): TableRowItem {
   let cells: readonly RowCell[] | undefined
   let text: string | undefined
-  const read = (): readonly RowCell[] => cells ??= mergeCells(drawn.map(row => rowCells(row, walk)))
+  const read = (): readonly RowCell[] => cells ??= rowCells(el, walk)
   return {
     kind: 'row',
     el,
@@ -1152,18 +795,18 @@ function readRow(
       return read()
     },
     get text(): string {
-      return text ??= clip(drawn.map(row => visibleText(row, walk.isVisible)).join(' '))
+      return text ??= clip(visibleText(el, walk.isVisible))
     },
   }
 }
 
 /**
- * Read a table as its shape: the header, the rows, and what sits beside it,
- * across every piece the page draws the table in. The columns are the wider of
- * the header and the first data row, so a table whose header groups columns the
- * rows spell out never reports fewer columns than the sample row beneath it
- * prints. Only that one row is measured: asking every row how wide it is would
- * read every cell of a table the read is about to report by its shape alone.
+ * Read a table as its shape: the header, the rows, and what sits beside it. The
+ * columns are the wider of the header and the first data row, so a table whose
+ * header groups columns the rows spell out never reports fewer columns than the
+ * sample row beneath it prints. Only that one row is measured: asking every row
+ * how wide it is would read every cell of a table the read is about to report
+ * by its shape alone.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @param place - the table's position.
@@ -1171,15 +814,13 @@ function readRow(
  * @returns the collected table.
  */
 function readTable(el: Element, walk: Walk, place: Place, name: string): TableItem {
-  const pieces = tablePieces(el, walk)
   // Numbered before its contents, so the ref that names the table reads lower
   // than the refs of the controls inside it.
   const ref = walk.options.refs.ref(el)
-  const headRows = pieces.map(piece => headRowOf(piece, walk)).filter(row => row !== undefined)
-  const header = mergeCells(headRows.map(row => rowCells(row, walk)))
+  const shape = tableShape(el, walk)
+  const header = shape.headRow === undefined ? [] : rowCells(shape.headRow, walk)
   const face: { readonly type: 'table'; readonly name: string } = { type: 'table', name }
-  const rows = tableShape(el, walk).dataRows
-    .map((row, index) => readRow(rowPieces(pieces, index, walk), row, index + 1, walk, face))
+  const rows = shape.dataRows.map((row, index) => readRow(row, index + 1, walk, face))
   return {
     ...face,
     kind: 'table',
@@ -1195,34 +836,14 @@ function readTable(el: Element, walk: Walk, place: Place, name: string): TableIt
 }
 
 /**
- * What a table is called: its own name, or the name of the header half it is
- * drawn under. The halves of a table drawn in two pieces are one table, so a
- * page that named the header and left the body unnamed named the table.
- * @param el - the table element.
- * @param piece - the header half this table is drawn under, if any.
- * @returns the name, empty when neither half carries one.
- */
-function tableName(el: Element, piece: Element | undefined): string {
-  const name = nameOf(el)
-  if (name !== '') return name
-  return piece === undefined ? '' : nameOf(piece)
-}
-
-/**
- * Collect a table, unless it is the header half of one already collected or one
- * of the pieces another table prints: a table drawn again over the one before
- * it is that table's pinned copy, and the reader is given one table.
+ * Collect a table.
  * @param el - the table element.
  * @param walk - the walk in progress.
  * @param place - the table's position.
  */
 function pushTable(el: Element, walk: Walk, place: Place): void {
-  if (isHeaderPiece(el, walk) || repeatedTable(el, walk) !== undefined) return
-  const piece = headerPiece(el, walk, tableShape(el, walk))
-  const name = tableName(el, piece)
-  if (duplicate(walk.kept, walk.options.rectOf, `table|${name}`, el)) return
   flush(walk, place)
-  walk.items.push(readTable(el, walk, place, name))
+  walk.items.push(readTable(el, walk, place, nameOf(el)))
 }
 
 /** True for the group a tree node or a menu item holds its nodes in. */
@@ -1563,7 +1184,6 @@ function pushElement(el: Element, role: string, walk: Walk, place: Place): void 
     walk.items[walk.items.length - 1] = { ...field, opens: walk.options.refs.ref(el) }
     return
   }
-  if (duplicate(walk.kept, walk.options.rectOf, `${role}|${name}`, el)) return
   if (label !== undefined) takeLabelRow(walk, place, name)
   flush(walk, place)
   walk.items.push({
@@ -1683,10 +1303,6 @@ function openContainer(
   place: Place,
   node: ControlFace | undefined,
 ): void {
-  // A room over a node prints the role the page wrote rather than the kind of
-  // region, so that is what it claims: a checkable menu item and a plain one
-  // drawn over each other are two things the reader is told apart.
-  if (duplicate(walk.kept, walk.options.rectOf, `${node?.role ?? face.type}|${face.name}`, el)) return
   flush(walk, place)
   const item: ContainerItem = {
     ...face,
@@ -2027,12 +1643,11 @@ function walkNodes(host: ParentNode, walk: Walk, place: Place): void {
 
 /**
  * The state a pass over the page carries: the read's own injections, defaulted
- * once, and the caches that make one pass cheaper than the sum of its elements.
+ * once, and the items collected so far.
  *
  * A single-element caller builds one too. Nothing a name is made of comes out
- * of the caches — they hold what has been collected, which rectangles are
- * claimed, and each table's sorted rows — so a fresh one names an element
- * exactly as the pass that printed it did.
+ * of what the walk carries — the items collected so far — so a fresh one names
+ * an element exactly as the pass that printed it did.
  * @param options - the read's options.
  * @param scope - the element the read asked for, when it asked for one.
  * @returns the walk.
@@ -2045,8 +1660,6 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined): Walk {
     drawnAround: options.drawnAround ?? drawnAround,
     scope,
     items: [],
-    kept: new Map(),
-    shapes: new Map(),
   }
 }
 
@@ -2082,7 +1695,7 @@ export function itemName(el: Element, options: SnapshotOptions): string {
     return topClickable(el, walk) ? namedAs(el, CLICKABLE_ROLE, walk).name : ''
   }
   const role = roleOf(el)
-  if (isTableRole(role)) return tableName(el, headerPiece(el, walk, tableShape(el, walk)))
+  if (isTableRole(role)) return nameOf(el)
   const face = containerFace(el, role, walk)
   if (face !== undefined) return face.name
   if (role !== null && (ITEM_NODE_TYPES.has(role) || rowRole(el, role))) return namedAs(el, role, walk).name

@@ -22,14 +22,6 @@ function isVisible(el: Element): boolean {
   return el.closest('[data-hidden]') === null
 }
 
-/** Geometry from `data-rect="x,y,width,height"`, absent for anything unmarked. */
-function rectOf(el: Element): DOMRectReadOnly | undefined {
-  const raw = el.getAttribute('data-rect')
-  if (raw === null) return undefined
-  const [x = 0, y = 0, width = 0, height = 0] = raw.split(',').map(Number)
-  return new DOMRect(x, y, width, height)
-}
-
 /** What a stylesheet draws around an element, from `data-drawn`. */
 function drawnAround(el: Element): string {
   return el.getAttribute('data-drawn') ?? ''
@@ -43,7 +35,7 @@ function page(html: string): RefTable {
 
 /** Read the page up. */
 function read(refs: RefTable, ask: Ask = {}): Snapshot {
-  return snapshot(document, { refs, budgetChars: 4000, isVisible, rectOf, drawnAround, ...ask })
+  return snapshot(document, { refs, budgetChars: 4000, isVisible, drawnAround, ...ask })
 }
 
 /** The ref of one element, which the read has already numbered. */
@@ -1362,27 +1354,6 @@ describe('widgets built out of several elements', () => {
     expect(read(bare, { mode: 'map' }).text).toBe('e1 tree "组织"  1 items')
   })
 
-  it('prints a node as a row when the only thing under it repeats something already read', () => {
-    // The one button this node holds is drawn over the button beside the tree,
-    // which the read has already printed. What is left is a room with nothing
-    // in it, and the node reads as the row it prints anywhere else.
-    const node = (rect: string): string => `
-      <button data-rect="0,0,80,24">确定</button>
-      <div role="tree" aria-label="组织"><div role="treeitem"><button data-rect="${rect}">确定</button></div></div>`
-    const copy = page(node('0,0,80,24'))
-    expect(read(copy).text).toBe(['e1 button "确定"', 'e2 tree "组织"', '  e3 treeitem (in tree "组织")'].join('\n'))
-    expect(read(copy, { mode: 'map' }).text).toBe('e2 tree "组织"  1 items')
-    // Drawn somewhere else it is a second button, and the node is a room over it.
-    const apart = page(node('0,80,80,24'))
-    expect(read(apart).text).toBe([
-      'e1 button "确定"',
-      'e2 tree "组织"',
-      '  e3 treeitem',
-      '    e4 button "确定" (treeitem)',
-    ].join('\n'))
-    expect(read(apart, { mode: 'map' }).text).toBe(['e2 tree "组织"', '  e3 treeitem  1 buttons'].join('\n'))
-  })
-
   it('maps a node holding only a closed dialog as a room, and lists it as a row', () => {
     // A dialog the page has not opened is a row of the skeleton and of no other
     // read, so a node holding one is a region to map and one row to list. Which
@@ -2148,7 +2119,7 @@ describe('an icon a page draws as a command', () => {
   })
 })
 
-describe('the table this rule was written for', () => {
+describe('the console table this reader was written against', () => {
   // The layer list of the ini-web2 console, measured in the frame on
   // 2026-09-02: the body table of the main piece and of the copy pinned left
   // are drawn at exactly the same place, [69,152,3204,818], while the copy
@@ -2193,45 +2164,49 @@ describe('the table this rule was written for', () => {
     + `<div class="fixed-right">${piece(column => RIGHT.includes(column), -1756, false)}</div>`
     + '</div>'
 
-  it('reads the three pieces as one table, with the pinned columns from the pieces that draw them', () => {
+  it('reads each table the page draws as the table it is, header halves and pinned copies alike', () => {
     const refs = page(CONSOLE_TABLE)
-    const lines = read(refs).text.split('\n')
-    expect(lines[0]).toBe('e1 table 2 rows × 21 cols')
-    // Column 1 is drawn only by the piece pinned left and column 19 only by the
-    // piece pinned right, which is drawn nowhere near the column it repeats.
-    expect(lines[1]).toContain(' | 名称 | 图层id | ')
-    expect(lines[1]?.endsWith('| 是否默认展示 | 操作 | ')).toBe(true)
-    expect(lines[2]).toBe('  sample:  | 东风站 | element:gas_transport_v… | 公用专题 | 延吉市燃气监测预警平台V2 | '
-      + ['—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—', '—'].join(' | ')
-      + ' | [edit delete]')
+    const lines = read(refs).text.split('\n').filter(line => line.includes(' table '))
+    // What the user sees as one table is what the page wrote as six: a header
+    // half and a body half for the main piece and for each pinned copy. The
+    // reader prints what the document says and the model reads six tables.
+    expect(lines).toEqual([
+      'e1 table 0 rows × 21 cols',
+      'e2 table 2 rows × 20 cols',
+      'e3 table 0 rows × 20 cols',
+      'e4 table 2 rows × 20 cols',
+      'e5 table 0 rows × 20 cols',
+      'e6 table 2 rows × 20 cols',
+    ])
+    // Each piece draws the columns it was pinned for and hides the rest, so the
+    // names are on one table and the commands on another.
+    const listing = read(refs).text
+    expect(listing).toContain('  sample:  | 东风站 | ')
+    expect(listing).toContain('| [edit delete]')
   })
 
-  it('lists every row of it with the commands the pinned copy draws', () => {
+  it('lists the rows of the half a read names by ref', () => {
     const refs = page(CONSOLE_TABLE)
     read(refs)
     const listed = read(refs, { scope: refOf(refs, '.body table') }).text.split('\n')
-    expect(listed[2]?.startsWith('  row 1:  | 东风站 | element:gas_transport_vehicle_info | 公用专题 |')).toBe(true)
-    expect(listed[2]?.endsWith('| e3 icon "edit"  e4 icon "delete"')).toBe(true)
-    expect(listed[3]?.endsWith('| e6 icon "edit"  e7 icon "delete"')).toBe(true)
+    expect(listed[0]).toBe('e2 table 2 rows × 20 cols')
+    expect(listed[1]?.startsWith('  row 1:  |  | element:gas_transport_vehicle_info | 公用专题 |')).toBe(true)
   })
 
-  it('pages the merged table by the strip the console draws under all six pieces', () => {
+  it('pages the piece the strip is drawn under', () => {
     // The strip of the page this table is drawn on, as it is written there:
     // `div.crud-pagination` holding `.el-pagination`, after every piece.
     const refs = page(`${CONSOLE_TABLE}<div class="crud-pagination">`
       + '<div class="el-pagination">共 89 条 10条/页 1 2 3 4 5 前往 页</div></div>')
     const lines = read(refs).text.split('\n')
-    expect(lines[0]).toBe('e1 table 2 rows on this page × 21 cols')
+    expect(lines).toContain('e6 table 2 rows on this page × 20 cols')
     expect(lines).toContain('  pagination: 共 89 条 10条/页 1 2 3 4 5 前往 页')
-    const listed = read(refs, { scope: refOf(refs, '.body table') }).text.split('\n')
-    expect(listed[0]).toBe('e1 table 2 rows on this page × 21 cols')
-    expect(listed[2]).toBe('  pagination: 共 89 条 10条/页 1 2 3 4 5 前往 页')
     // The words of the strip are the page's own, and a read searching for them
     // answers with the run they are drawn in.
     expect(read(refs, { find: '共' }).text).toContain('共 89 条 10条/页 1 2 3 4 5 前往 页')
   })
 
-  it('finds a row by a name only the piece pinned left draws', () => {
+  it('finds a row by a name the piece pinned left draws', () => {
     const refs = page(CONSOLE_TABLE)
     expect(read(refs, { find: '东风站' }).text.startsWith('row 1:  | 东风站 |')).toBe(true)
   })
@@ -2304,7 +2279,7 @@ describe('a field the page names by drawing the words beside it', () => {
     // answered for by the window this code is running in.
     const held = document.implementation.createHTMLDocument('')
     held.body.innerHTML = '<div><span>脱离的文档</span></div>'
-    expect(snapshot(held, { refs: new RefTable(), budgetChars: 4000, isVisible, rectOf }).text)
+    expect(snapshot(held, { refs: new RefTable(), budgetChars: 4000, isVisible }).text)
       .toBe('text "脱离的文档"')
   })
 
@@ -2312,7 +2287,7 @@ describe('a field the page names by drawing the words beside it', () => {
     // The read reaches for the computed style of the label's `::before`, which
     // this engine draws nothing for, and the field is a field like any other.
     const refs = page('<div class="item"><label>名称</label><div class="content"><input type="text"></div></div>')
-    expect(snapshot(document, { refs, budgetChars: 4000, isVisible, rectOf }).text).toBe('e1 textbox "名称" = ""')
+    expect(snapshot(document, { refs, budgetChars: 4000, isVisible }).text).toBe('e1 textbox "名称" = ""')
   })
 
   it('leaves a field unnamed where another control stands between it and the words', () => {
@@ -2341,6 +2316,19 @@ describe('a field the page names by drawing the words beside it', () => {
         <div class="item"><span></span><i></i><input type="text"></div>
       </form>`)
     expect(read(refs).text).toBe(['e1 form "查询"', '  e2 textbox = "" (in form "查询")'].join('\n'))
+  })
+
+  it('keeps the label of a field a wrapper holding only what the page hides stands in front of', () => {
+    // The wrapper holds something that would print a row anywhere it could be
+    // seen, and the page hides it: nothing a reader can act on stands between
+    // the words and the field, so the words still name it.
+    const refs = page(`
+      <div class="item">
+        <label>名称</label>
+        <div class="tools"><button data-hidden>清空</button></div>
+        <input type="text">
+      </div>`)
+    expect(read(refs).text).toBe('e1 textbox "名称" = ""')
   })
 
   it('leaves a label longer than a label runs to print as itself', () => {
@@ -2835,528 +2823,6 @@ describe('tables', () => {
   })
 })
 
-describe('a table drawn in two pieces', () => {
-  // The comment, the empty strip, and the wrappers between the halves are all
-  // drawn nowhere: what separates two tables is text a reader sees and rows
-  // they read.
-  const SPLIT = `
-    <div class="wrap">
-      <div class="head"><table data-rect="0,0,800,40">
-        <thead><tr><th>名称</th><th>操作</th></tr></thead>
-      </table></div>
-      <!-- 表头与表体之间 -->
-      <div class="el-table__column-resize-proxy"></div>
-      <div class="body"><table data-rect="0,40,800,200"><tbody>
-        <tr><td>东风站</td><td><button>编辑</button></td></tr>
-        <tr><td>朝阳站</td><td><button>编辑</button></td></tr>
-      </tbody></table></div>
-    </div>`
-
-  it('reads a frozen header and the body under it as one table', () => {
-    expect(read(page(SPLIT)).text).toBe([
-      'e1 table 2 rows × 2 cols',
-      '  header: 名称 | 操作',
-      '  sample: 东风站 | [编辑]',
-      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-  })
-
-  it('keeps the header when the read names the body by ref', () => {
-    const refs = page(SPLIT)
-    read(refs)
-    expect(read(refs, { scope: refOf(refs, '.body table') }).text).toBe([
-      'e1 table 2 rows × 2 cols',
-      '  header: 名称 | 操作',
-      '  row 1: 东风站 | e3 button "编辑"',
-      '  row 2: 朝阳站 | e5 button "编辑"',
-    ].join('\n'))
-  })
-
-  it('reads one table, not two, when a pinned column draws both pieces again', () => {
-    const refs = page(`${SPLIT}
-      <div class="fixed">
-        <div class="head"><table data-rect="0,0,800,40">
-          <thead><tr><th>名称</th><th>操作</th></tr></thead>
-        </table></div>
-        <div class="body"><table data-rect="0,40,800,200"><tbody>
-          <tr><td>东风站</td><td><button>编辑</button></td></tr>
-          <tr><td>朝阳站</td><td><button>编辑</button></td></tr>
-        </tbody></table></div>
-      </div>`)
-    expect(read(refs).text.split('\n').filter(line => line.includes('cols'))).toEqual(['e1 table 2 rows × 2 cols'])
-  })
-
-  it('pages a table by the strip drawn after every piece of it, and pages the table below by its own', () => {
-    // The strip a page draws under a table pinned column by column comes after
-    // the last copy, so every table between the two is the table itself.
-    const refs = page(`${SPLIT}
-      <div class="fixed">
-        <div class="head"><table data-rect="0,0,800,40">
-          <thead><tr><th>名称</th><th>操作</th></tr></thead>
-        </table></div>
-        <div class="body"><table data-rect="0,40,800,200"><tbody>
-          <tr><td>东风站</td><td><button>编辑</button></td></tr>
-          <tr><td>朝阳站</td><td><button>编辑</button></td></tr>
-        </tbody></table></div>
-      </div>
-      <div class="el-pagination">共 89 条</div>
-      <table data-rect="0,300,800,80"><tbody><tr><td>延吉站</td></tr></tbody></table>
-      <div class="el-pagination">共 3 条</div>`)
-    const lines = read(refs).text.split('\n')
-    expect(lines.filter(line => line.includes('cols'))).toEqual([
-      'e1 table 2 rows on this page × 2 cols',
-      'e2 table 1 rows on this page × 1 cols',
-    ])
-    expect(lines.filter(line => line.includes('pagination:'))).toEqual([
-      '  pagination: 共 89 条',
-      '  pagination: 共 3 条',
-    ])
-  })
-
-  it('keeps a header-only table that has no body beside it', () => {
-    const refs = page('<table aria-label="配额"><thead><tr><th>项目</th><th>上限</th></tr></thead></table>')
-    expect(read(refs).text).toBe(['e1 table "配额" 0 rows × 2 cols', '  header: 项目 | 上限'].join('\n'))
-  })
-
-  it('keeps a header-only table whose neighbour heads its own columns', () => {
-    // Neither table is named, so what keeps them apart is the header the second
-    // one already has: a table that heads its own columns borrows none.
-    const refs = page(`
-      <table><thead><tr><th>名称</th></tr></thead></table>
-      <table><thead><tr><th>标识</th></tr></thead><tbody><tr><td>P-0001</td></tr></tbody></table>`)
-    expect(read(refs).text).toBe([
-      'e1 table 0 rows × 1 cols',
-      '  header: 名称',
-      'e2 table 1 rows × 1 cols',
-      '  header: 标识',
-      '  sample: P-0001',
-      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-  })
-
-  it('lends no header to a table whose neighbour has rows of its own', () => {
-    const refs = page(`
-      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-      <table><tr><td>朝阳站</td></tr></table>`)
-    expect(read(refs).text.split('\n').filter(line => line.includes('header:'))).toEqual(['  header: 名称'])
-  })
-
-  it('lends no header across two regions of the page', () => {
-    const refs = page(`
-      <section aria-label="左侧指标"><table><thead><tr><th>指标</th><th>值</th></tr></thead></table></section>
-      <section aria-label="右侧明细"><table><tr><td>东风站</td><td>12</td></tr></table></section>`)
-    // Two tables in two regions are two tables, however either one is drawn: a
-    // header that walked into the region below would name columns it never had.
-    expect(read(refs).text).toBe([
-      'e1 section "左侧指标"',
-      '  e2 table 0 rows × 2 cols',
-      '    header: 指标 | 值',
-      'e3 section "右侧明细"',
-      '  e4 table 1 rows × 2 cols',
-      '    sample: 东风站 | 12',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-  })
-
-  it('lends no header over anything the page draws between the two halves', () => {
-    const drawn = page(`
-      <div>
-        <table><thead><tr><th>指标</th></tr></thead></table>
-        <p>下面是明细</p>
-        <table><tr><td>东风站</td></tr></table>
-      </div>`)
-    expect(read(drawn).text.split('\n')).toEqual([
-      'e1 table 0 rows × 1 cols',
-      '  header: 指标',
-      'text "下面是明细"',
-      'e2 table 1 rows × 1 cols',
-      '  sample: 东风站',
-      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ])
-    // Text written straight into the page separates them as surely as a
-    // paragraph does.
-    const spoken = page(`
-      <div>
-        <table><thead><tr><th>指标</th></tr></thead></table>
-        下面是明细
-        <table><tr><td>东风站</td></tr></table>
-      </div>`)
-    expect(read(spoken).text.split('\n').filter(line => line.includes('cols'))).toEqual([
-      'e1 table 0 rows × 1 cols',
-      'e2 table 1 rows × 1 cols',
-    ])
-    // A region drawn between them counts even when it shows nothing itself.
-    const room = page(`
-      <div>
-        <table><thead><tr><th>指标</th></tr></thead></table>
-        <div role="navigation" aria-label="工具"></div>
-        <table><tr><td>东风站</td></tr></table>
-      </div>`)
-    expect(read(room).text.split('\n').filter(line => line.includes('cols'))).toEqual([
-      'e1 table 0 rows × 1 cols',
-      'e3 table 1 rows × 1 cols',
-    ])
-  })
-
-  it('lends no header over an empty region, a rule, or a picture drawn between the halves', () => {
-    const between = (drawn: string): string => `
-      <div class="wrap">
-        <table><thead><tr><th>指标</th></tr></thead></table>
-        ${drawn}
-        <table><tbody><tr><td>东风站</td></tr></tbody></table>
-      </div>`
-    // A region the page opens with a tag rather than a role is drawn all the
-    // same: the reader sees a room between the two halves, so they are two
-    // tables and the engine says the same thing in both places.
-    expect(read(page(between('<nav></nav>'))).text).toBe([
-      'e1 table 0 rows × 1 cols',
-      '  header: 指标',
-      'e2 nav',
-      'e3 table 1 rows × 1 cols',
-      '  sample: 东风站',
-      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-    const rooms = (drawn: string): string[] =>
-      read(page(between(drawn))).text.split('\n').filter(line => !line.startsWith(' '))
-    expect(rooms('<main></main>')).toEqual(['e1 table 0 rows × 1 cols', 'e2 main', 'e3 table 1 rows × 1 cols'])
-    expect(rooms('<section aria-label="工具"></section>'))
-      .toEqual(['e1 table 0 rows × 1 cols', 'e2 section "工具"', 'e3 table 1 rows × 1 cols'])
-    // A rule and a picture print no row of their own and still separate them:
-    // the page drew something there.
-    expect(rooms('<hr>')).toEqual(['e1 table 0 rows × 1 cols', 'e2 table 1 rows × 1 cols'])
-    expect(rooms('<img src="x.png">'))
-      .toEqual(['e1 table 0 rows × 1 cols', 'e2 img', 'e3 table 1 rows × 1 cols'])
-    // A wrapper is nothing in itself, and something once it holds a row. A
-    // wrapper holding only decoration stays nothing, and the halves stay one
-    // table.
-    expect(rooms('<div><button aria-label="刷新"></button></div>'))
-      .toEqual(['e1 table 0 rows × 1 cols', 'e2 button "刷新"', 'e3 table 1 rows × 1 cols'])
-    expect(rooms('<div><span role="presentation"></span></div>')).toEqual(['e1 table 1 rows × 1 cols'])
-    // A picture counts wherever it sits in the gap: the same icon must not
-    // separate the halves when the page draws it bare and join them when the
-    // page puts a wrapper around it.
-    expect(rooms('<div class="icon"><svg><title>齿轮</title></svg></div>'))
-      .toEqual(['e1 table 0 rows × 1 cols', 'e2 table 1 rows × 1 cols'])
-    expect(rooms('<svg><title>齿轮</title></svg>'))
-      .toEqual(['e1 table 0 rows × 1 cols', 'e2 table 1 rows × 1 cols'])
-  })
-
-  it('lends its header over what the reader cannot see between the two halves', () => {
-    const between = (drawn: string): string => `
-      <main>
-        <table><thead><tr><th>指标</th></tr></thead></table>
-        ${drawn}
-        <table><tbody><tr><td>东风站</td></tr></tbody></table>
-      </main>`
-    const merged = [
-      'e1 main',
-      '  e2 table 1 rows × 1 cols',
-      '    header: 指标',
-      '    sample: 东风站',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n')
-    // A table the page keeps for a template or a print stylesheet, and the
-    // spinner of a table that is not loading, are drawn nowhere: counting
-    // either of them would put a table between the two halves, and the header
-    // the page drew would reach the reader on neither of them.
-    expect(read(page(between('<table data-hidden><tbody><tr><td>模板</td></tr></tbody></table>'))).text).toBe(merged)
-    expect(read(page(between('<div class="mask"><svg data-hidden></svg></div>'))).text).toBe(merged)
-    expect(read(page(between('<div class="spin"><img alt="加载" data-hidden></div>'))).text).toBe(merged)
-    // The two attributes that hide a subtree reach the table from the wrapper
-    // around it, which is where a page writes them: `aria-hidden` changes no
-    // style at all, so no injected visibility can answer for it.
-    expect(read(page(between('<div aria-hidden="true"><table><tbody><tr><td>模板</td></tr></tbody></table></div>'))).text)
-      .toBe(merged)
-    expect(read(page(between('<div hidden><table><tbody><tr><td>模板</td></tr></tbody></table></div>'))).text)
-      .toBe(merged)
-    // A wrapper holding a picture the reader can see still separates them.
-    expect(read(page(between('<div class="icon"><svg><title>齿轮</title></svg></div>'))).text.split('\n'))
-      .toEqual([
-        'e1 main',
-        '  e2 table 0 rows × 1 cols',
-        '    header: 指标',
-        '  e3 table 1 rows × 1 cols',
-        '    sample: 东风站',
-        "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-      ])
-    // An element whose first role is decoration is a table to the selector and
-    // a wrapper to the walk, and the walk is what the reader sees.
-    expect(read(page(between('<div role="presentation table"></div>'))).text).toBe(merged)
-    expect(read(page(between('<div role="none table"></div>'))).text).toBe(merged)
-  })
-
-  it('lends its header past a hidden half that carries the same name', () => {
-    const refs = page(`
-      <main>
-        <table aria-label="指标"><thead><tr><th>名称</th></tr></thead></table>
-        <table data-hidden aria-label="指标"><tbody><tr><td>模板</td></tr></tbody></table>
-        <table aria-label="指标"><tbody><tr><td>东风站</td></tr></tbody></table>
-      </main>`)
-    expect(read(refs).text).toBe([
-      'e1 main',
-      '  e2 table "指标" 1 rows × 1 cols',
-      '    header: 名称',
-      '    sample: 东风站',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-  })
-
-  it('reads two tables the page names differently as two tables', () => {
-    const halves = (first: string, second: string): string => `
-      <main>
-        <div class="head"><table aria-label="${first}"><thead><tr><th>指标</th><th>值</th></tr></thead></table></div>
-        <div class="body"><table aria-label="${second}"><tbody><tr><td>东风站</td><td>12</td></tr></tbody></table></div>
-      </main>`
-    // Nothing at all is drawn between these two, and they are still two tables:
-    // one thing the page named twice, differently, is two things.
-    expect(read(page(halves('指标', '明细'))).text).toBe([
-      'e1 main',
-      '  e2 table "指标" 0 rows × 2 cols',
-      '    header: 指标 | 值',
-      '  e3 table "明细" 1 rows × 2 cols',
-      '    sample: 东风站 | 12',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-    // The two halves of one table are one thing to name, so a page that names
-    // them at all names them the same.
-    expect(read(page(halves('站点', '站点'))).text.split('\n').filter(line => line.includes('cols')))
-      .toEqual(['  e2 table "站点" 1 rows × 2 cols'])
-  })
-
-  it('keeps the name the page wrote on the header half alone', () => {
-    const refs = page(`
-      <main>
-        <div class="head"><table aria-label="指标"><thead><tr><th>指标</th><th>值</th></tr></thead></table></div>
-        <div class="body"><table><tbody><tr><td>东风站</td><td>12</td></tr></tbody></table></div>
-      </main>`)
-    // The two halves are one table, so the name written on either of them names
-    // the table the reader is shown.
-    expect(read(refs).text).toBe([
-      'e1 main',
-      '  e2 table "指标" 1 rows × 2 cols',
-      '    header: 指标 | 值',
-      '    sample: 东风站 | 12',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-  })
-
-  it('lends the header to the layout table the page drew between the halves and contradicted', () => {
-    const halves = (between: string): string => `
-      <section aria-label="站点">
-        <table><thead><tr><th>名称</th><th>标识</th></tr></thead></table>
-        ${between}
-        <table><tbody><tr><td>东风站</td><td>P-0001</td></tr></tbody></table>
-      </section>`
-    // Alone, the two halves are one table and the header reaches the body.
-    expect(read(page(halves(''))).text.split('\n').slice(1)).toEqual([
-      '  e2 table 1 rows × 2 cols',
-      '    header: 名称 | 标识',
-      '    sample: 东风站 | P-0001',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ])
-    // A table the page marks as layout and then makes focusable is a table
-    // again, by the conflict ARIA resolves in favour of what the page offers.
-    // It is the table beside each half, so the header half lends its header to
-    // the layout table and the body half is left with none.
-    const contradicted = '<table role="presentation" tabindex="0"><tbody><tr><td>布局</td></tr></tbody></table>'
-    expect(read(page(halves(contradicted))).text.split('\n').slice(1)).toEqual([
-      '  e2 table 1 rows × 2 cols',
-      '    header: 名称 | 标识',
-      '    sample: 布局',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-      '  e3 table 1 rows × 2 cols',
-      '    sample: 东风站 | P-0001',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ])
-    // Uncontradicted, the same table is read through, and the text it draws
-    // separates the halves like any other text drawn between them.
-    expect(read(page(halves('<table role="presentation"><tbody><tr><td>布局</td></tr></tbody></table>'))).text.split('\n').slice(1))
-      .toEqual([
-        '  e2 table 0 rows × 2 cols',
-        '    header: 名称 | 标识',
-        '  text "布局" (in section "站点")',
-        '  e3 table 1 rows × 2 cols',
-        '    sample: 东风站 | P-0001',
-        "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-      ])
-  })
-
-  it('lends no header to a table drawn inside another table', () => {
-    const refs = page(`
-      <table>
-        <thead><tr><th>名称<table><tr><td>内容</td></tr></table></th></tr></thead>
-      </table>`)
-    // A table in a header cell is part of that cell, not the body half of the
-    // table around it: the second table is not beside the first at all.
-    expect(read(refs).text).toBe([
-      'e1 table 0 rows × 1 cols',
-      '  header: 名称 内容',
-    ].join('\n'))
-  })
-})
-
-describe('a table drawn again for each pinned column', () => {
-  // A component library pins a column by drawing the whole table a second time
-  // over the top of itself, with the contents of every cell it does not pin
-  // hidden inside the cell: the cell still takes its column's room, and what is
-  // written in it is drawn nowhere. Each copy is drawn in two halves like any
-  // other table, so the page holds six tables and the reader sees one — the
-  // page here is the layer table of the ini-web2 console, cut to two rows.
-  //
-  // The copy pinned to the right edge is drawn beside the columns that scroll
-  // rather than over the same ground as the table it repeats, which is what a
-  // reader sees when the table is wider than the room it has.
-  const PINNED = `
-    <div class="table">
-      <div class="head"><table data-rect="0,0,400,40"><thead><tr>
-        <th data-rect="0,0,100,40"><span data-hidden>名称</span></th>
-        <th data-rect="100,0,100,40"><span>图层id</span></th>
-        <th data-rect="200,0,100,40"><span>所属场景</span></th>
-        <th data-rect="300,0,100,40"><span data-hidden>操作</span></th>
-      </tr></thead></table></div>
-      <div class="body"><table data-rect="0,40,400,80"><tbody>
-        <tr>
-          <td data-rect="0,40,100,40"><span data-hidden>东风站</span></td>
-          <td data-rect="100,40,100,40"><span>element:vehicle</span></td>
-          <td data-rect="200,40,100,40"><span>延吉燃气</span></td>
-          <td data-rect="300,40,100,40"><span data-hidden><button>编辑</button></span></td>
-        </tr>
-        <tr>
-          <td data-rect="0,80,100,40"><span data-hidden>朝阳站</span></td>
-          <td data-rect="100,80,100,40"><span>element:pipeline</span></td>
-          <td data-rect="200,80,100,40"><span>延吉排水</span></td>
-          <td data-rect="300,80,100,40"><span data-hidden><button>编辑</button></span></td>
-        </tr>
-      </tbody></table></div>
-      <div class="pinned-left">
-        <div class="head"><table data-rect="0,0,400,40"><thead><tr>
-          <th data-rect="0,0,100,40"><span>名称</span></th>
-          <th data-rect="100,0,100,40"><span data-hidden>图层id</span></th>
-          <th data-rect="200,0,100,40"><span data-hidden>所属场景</span></th>
-          <th data-rect="300,0,100,40"><span data-hidden>操作</span></th>
-        </tr></thead></table></div>
-        <div class="body"><table data-rect="0,40,400,80"><tbody>
-          <tr>
-            <td data-rect="0,40,100,40"><span>东风站</span></td>
-            <td data-rect="100,40,100,40"><span data-hidden>element:vehicle</span></td>
-            <td data-rect="200,40,100,40"><span data-hidden>延吉燃气</span></td>
-            <td data-rect="300,40,100,40"><span data-hidden><button>编辑</button></span></td>
-          </tr>
-          <tr>
-            <td data-rect="0,80,100,40"><span>朝阳站</span></td>
-            <td data-rect="100,80,100,40"><span data-hidden>element:pipeline</span></td>
-            <td data-rect="200,80,100,40"><span data-hidden>延吉排水</span></td>
-            <td data-rect="300,80,100,40"><span data-hidden><button>编辑</button></span></td>
-          </tr>
-        </tbody></table></div>
-      </div>
-      <div class="pinned-right">
-        <div class="head"><table data-rect="300,0,400,40"><thead><tr>
-          <th data-rect="300,0,100,40"><span data-hidden>名称</span></th>
-          <th data-rect="400,0,100,40"><span data-hidden>图层id</span></th>
-          <th data-rect="500,0,100,40"><span data-hidden>所属场景</span></th>
-          <th data-rect="600,0,100,40"><span>操作</span></th>
-        </tr></thead></table></div>
-        <div class="body"><table data-rect="300,40,400,80"><tbody>
-          <tr>
-            <td data-rect="300,40,100,40"><span data-hidden>东风站</span></td>
-            <td data-rect="400,40,100,40"><span data-hidden>element:vehicle</span></td>
-            <td data-rect="500,40,100,40"><span data-hidden>延吉燃气</span></td>
-            <td data-rect="600,40,100,40"><span><button>编辑</button></span></td>
-          </tr>
-          <tr>
-            <td data-rect="300,80,100,40"><span data-hidden>朝阳站</span></td>
-            <td data-rect="400,80,100,40"><span data-hidden>element:pipeline</span></td>
-            <td data-rect="500,80,100,40"><span data-hidden>延吉排水</span></td>
-            <td data-rect="600,80,100,40"><span><button>编辑</button></span></td>
-          </tr>
-        </tbody></table></div>
-      </div>
-    </div>`
-
-  it('reads the pieces as one table, each column from the piece that draws it', () => {
-    expect(read(page(PINNED)).text).toBe([
-      'e1 table 2 rows × 4 cols',
-      '  header: 名称 | 图层id | 所属场景 | 操作',
-      '  sample: 东风站 | element:vehicle | 延吉燃气 | [编辑]',
-      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-  })
-
-  it('maps the pieces as one table of the rows it really has', () => {
-    expect(read(page(PINNED), { mode: 'map' }).text).toBe('e1 table  2 rows')
-  })
-
-  it('lists every row across the pieces when the read names the table by ref', () => {
-    const refs = page(PINNED)
-    read(refs)
-    expect(read(refs, { scope: refOf(refs, '.body table') }).text).toBe([
-      'e1 table 2 rows × 4 cols',
-      '  header: 名称 | 图层id | 所属场景 | 操作',
-      '  row 1: 东风站 | element:vehicle | 延吉燃气 | e3 button "编辑"',
-      '  row 2: 朝阳站 | element:pipeline | 延吉排水 | e5 button "编辑"',
-    ].join('\n'))
-  })
-
-  it('finds a row by words only a pinned piece draws, and answers with the whole row', () => {
-    const refs = page(PINNED)
-    expect(read(refs, { find: '朝阳' }).text)
-      .toBe('row 2: 朝阳站 | element:pipeline | 延吉排水 | e3 button "编辑" (table)')
-  })
-
-  it('pages the one table the pieces are read as, by the strip drawn after the last of them', () => {
-    const refs = page(`${PINNED}<div class="crud-pagination"><div class="el-pagination">共 89 条 10条/页</div></div>`)
-    const lines = read(refs).text.split('\n')
-    expect(lines[0]).toBe('e1 table 2 rows on this page × 4 cols')
-    expect(lines).toContain('  pagination: 共 89 条 10条/页')
-    // A read scoped to the table says the same: the rows it lists are one page
-    // of them, and the strip says where the rest are.
-    const listed = read(refs, { scope: refOf(refs, '.body table') }).text.split('\n')
-    expect(listed[0]).toBe('e1 table 2 rows on this page × 4 cols')
-    expect(listed[2]).toBe('  pagination: 共 89 条 10条/页')
-  })
-
-  it('keeps a table drawn over another that it does not repeat row for row', () => {
-    // The pieces of one table carry the same rows; a table drawn over another
-    // without them is not a piece of it, and the rule that drops one thing the
-    // page drew twice takes it instead.
-    const refs = page(`
-      <table data-rect="0,0,400,200"><tbody>
-        <tr><td data-rect="0,40,200,40"><span data-hidden>东风站</span></td>
-          <td data-rect="200,40,200,40">element:vehicle</td></tr>
-        <tr><td data-rect="0,80,200,40"><span data-hidden>朝阳站</span></td>
-          <td data-rect="200,80,200,40">element:pipeline</td></tr>
-      </tbody></table>
-      <table data-rect="0,0,380,200"><tbody>
-        <tr><td data-rect="0,40,200,40">东风站</td>
-          <td data-rect="200,40,200,40"><span data-hidden>element:vehicle</span></td></tr>
-      </tbody></table>`)
-    expect(read(refs).text).toBe([
-      'e1 table 2 rows × 2 cols',
-      '  sample:  | element:vehicle',
-      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-  })
-
-  it('keeps two tables the page draws one after the other apart, however alike they are', () => {
-    // Two tables of the same size drawn one under the other share no ground:
-    // the second is a table of its own, and merging them would drop it.
-    const refs = page(`
-      <table data-rect="0,0,200,80"><tbody><tr><td data-rect="0,40,200,40">东风站</td></tr></tbody></table>
-      <table data-rect="0,80,200,80"><tbody><tr><td data-rect="0,120,200,40">朝阳站</td></tr></tbody></table>`)
-    expect(read(refs).text.split('\n').filter(line => line.includes('sample:')))
-      .toEqual(['  sample: 东风站', '  sample: 朝阳站'])
-  })
-
-  it('keeps two tables apart where the page reports where neither of them is drawn', () => {
-    const refs = page(`
-      <table><tbody><tr><td>东风站</td></tr></tbody></table>
-      <table><tbody><tr><td>朝阳站</td></tr></tbody></table>`)
-    expect(read(refs).text.split('\n').filter(line => line.includes('sample:')))
-      .toEqual(['  sample: 东风站', '  sample: 朝阳站'])
-  })
-})
-
 describe('frames and shadow roots', () => {
   it('reads a same-origin frame inside a same-origin frame as one page', () => {
     const refs = page('<iframe title="业务系统"></iframe>')
@@ -3414,104 +2880,6 @@ describe('frames and shadow roots', () => {
     if (host === null) throw new Error('fixture has no host')
     host.attachShadow({ mode: 'open' }).innerHTML = '<button>影子按钮</button>'
     expect(read(refs).text).toBe('e1 button "影子按钮"')
-  })
-})
-
-describe('the same thing drawn twice', () => {
-  const PINNED = `
-    <table data-rect="0,0,800,200">
-      <thead><tr><th data-rect="0,0,100,40">名称</th><th data-rect="100,0,100,40">操作</th></tr></thead>
-      <tbody><tr><td data-rect="0,40,100,40">东风站</td><td data-rect="100,40,100,40">编辑</td></tr></tbody>
-    </table>
-    <table data-rect="0,0,100,200">
-      <thead><tr><th data-rect="0,0,100,40">名称</th></tr></thead>
-      <tbody><tr><td data-rect="0,40,100,40">东风站</td></tr></tbody>
-    </table>`
-
-  it('reads the copy a pinned column draws as the table it belongs to', () => {
-    // The copy carries the pinned column and nothing else; every column of it
-    // is drawn in the table it repeats, so the reader is told the same thing
-    // whichever piece each column comes from.
-    expect(read(page(PINNED)).text).toBe([
-      'e1 table 1 rows × 2 cols',
-      '  header: 名称 | 操作',
-      '  sample: 东风站 | 编辑',
-      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-  })
-
-  it('keeps two elements that say the same thing in different places', () => {
-    const refs = page('<button data-rect="0,0,80,30">保存</button><button data-rect="0,600,80,30">保存</button>')
-    expect(read(refs).text).toBe(['e1 button "保存"', 'e2 button "保存"'].join('\n'))
-  })
-
-  it('keeps both when the page reports no size for them', () => {
-    const refs = page('<button data-rect="0,0,0,0">保存</button><button data-rect="0,0,0,0">保存</button>')
-    expect(read(refs).text).toBe(['e1 button "保存"', 'e2 button "保存"'].join('\n'))
-  })
-
-  it('drops a control the page draws twice over the same spot', () => {
-    const refs = page('<button data-rect="0,0,80,30">保存</button><button data-rect="0,0,80,30">保存</button>')
-    expect(read(refs).text).toBe('e1 button "保存"')
-  })
-
-  it('tells two node roles apart where the page draws them over each other', () => {
-    // A room over a node claims the role the page wrote, which is what its row
-    // prints: a checkable menu item and a plain one are two things the reader
-    // is told apart, however the page draws them.
-    const refs = page(`
-      <div role="menu" aria-label="视图">
-        <div role="menuitemcheckbox" aria-checked="true" data-rect="0,0,80,24"><img alt="" role="none"></div>
-        <div role="menuitem" data-rect="0,0,80,24"><img alt="" role="none"></div>
-      </div>`)
-    expect(read(refs).text).toBe([
-      'e1 menu "视图"',
-      '  e2 menuitemcheckbox [x] (in menu "视图")',
-      '  e3 menuitem (in menu "视图")',
-    ].join('\n'))
-  })
-
-  it('drops a cell a pinned column repeats inside one table', () => {
-    const refs = page(`
-      <table data-rect="0,0,400,80">
-        <thead><tr>
-          <th data-rect="0,0,100,40">名称</th><th data-rect="0,0,100,40">名称</th><th data-rect="100,0,100,40">操作</th>
-        </tr></thead>
-        <tbody><tr>
-          <td data-rect="0,40,100,40">东风站</td><td data-rect="0,40,100,40">东风站</td><td data-rect="100,40,100,40">P-0001</td>
-        </tr></tbody>
-      </table>`)
-    expect(read(refs).text).toBe([
-      'e1 table 1 rows × 2 cols',
-      '  header: 名称 | 操作',
-      '  sample: 东风站 | P-0001',
-      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-  })
-
-  it('drops a table the page draws twice in two regions of the page', () => {
-    // Two tables in two regions are two tables however they are drawn, so
-    // neither is a piece of the other; drawn over each other they are one
-    // table the reader is shown once.
-    const refs = page(`
-      <section aria-label="甲"><table data-rect="0,0,200,80"><tbody>
-        <tr><td data-rect="0,40,200,40">东风站</td></tr></tbody></table></section>
-      <section aria-label="乙"><table data-rect="0,0,200,80"><tbody>
-        <tr><td data-rect="0,40,200,40">东风站</td></tr></tbody></table></section>`)
-    expect(read(refs).text).toBe([
-      'e1 section "甲"',
-      '  e2 table 1 rows × 1 cols',
-      '    sample: 东风站',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-      'e3 section "乙"',
-    ].join('\n'))
-  })
-
-  it('drops a container the page draws twice, and everything inside the copy', () => {
-    const refs = page(`
-      <div role="toolbar" aria-label="操作" data-rect="0,0,200,40"><button>新增</button></div>
-      <div role="toolbar" aria-label="操作" data-rect="0,0,200,40"><button>新增</button></div>`)
-    expect(read(refs).text).toBe(['e1 toolbar "操作"', '  e2 button "新增" (in toolbar "操作")'].join('\n'))
   })
 })
 

@@ -120,15 +120,6 @@ export function isVisible(el: Element): boolean {
 }
 
 /**
- * Injected geometry, used to drop the rows a pinned table column draws twice.
- * @param el - the element to measure.
- * @returns the element's rectangle in its own frame's coordinates.
- */
-export function rectOf(el: Element): DOMRectReadOnly {
-  return el.getBoundingClientRect()
-}
-
-/**
  * Injected clickability for an element that declares no role.
  * @param el - the element to test.
  * @returns whether the page draws it as something to click.
@@ -551,7 +542,6 @@ async function readPage(
     ...args.after === undefined ? {} : { after: args.after },
     ...args.find === undefined ? {} : { find: args.find },
     isVisible,
-    rectOf,
     isClickable,
   }
   try {
@@ -647,7 +637,6 @@ async function actOnPage(
     refs: ready.refs,
     budgetChars: access.outlineChars,
     isVisible,
-    rectOf,
     isClickable,
   }
   let watch: ActWatch | undefined

@@ -210,9 +210,6 @@ const TEXT_LIMIT = 200
 /** How much of an over-long text run survives the cut, before the ellipsis. */
 const TEXT_KEPT = 197
 
-/** How much of the smaller rectangle two items must share to count as one. */
-const OVERLAP_SHARE = 0.8
-
 /** The keywords a page draws nothing around an element with. */
 const DRAWS_NOTHING = /^(?:none|normal)$/u
 
@@ -912,35 +909,4 @@ export function readableDocuments(root: Document): Document[] {
     }
   }
   return documents
-}
-
-/**
- * True when two rectangles cover so much of the same ground that they are one
- * thing drawn twice, the way a pinned table column repeats its cells.
- * @param a - the first rectangle.
- * @param b - the second rectangle.
- * @returns whether they overlap by most of the smaller one.
- */
-export function rectsOverlap(a: DOMRectReadOnly, b: DOMRectReadOnly): boolean {
-  const width = Math.min(a.right, b.right) - Math.max(a.left, b.left)
-  const height = Math.min(a.bottom, b.bottom) - Math.max(a.top, b.top)
-  const shared = Math.max(0, width) * Math.max(0, height)
-  const smaller = Math.min(a.width * a.height, b.width * b.height)
-  return smaller > 0 && shared >= smaller * OVERLAP_SHARE
-}
-
-/**
- * True when two rectangles cover any of the same ground at all, which is what
- * tells a table drawn over another from the table drawn after it: a page pins a
- * column by drawing the whole table again on top of itself, while a second
- * table below the first shares an edge with it at most. A page that reports no
- * rectangle for one of them has said nothing about where it is drawn, and the
- * two are then not one thing.
- * @param a - the first rectangle, absent where the page reports none.
- * @param b - the second rectangle, absent where the page reports none.
- * @returns whether the two are drawn over each other.
- */
-export function rectsMeet(a: DOMRectReadOnly | undefined, b: DOMRectReadOnly | undefined): boolean {
-  if (a === undefined || b === undefined) return false
-  return Math.min(a.right, b.right) > Math.max(a.left, b.left) && Math.min(a.bottom, b.bottom) > Math.max(a.top, b.top)
 }

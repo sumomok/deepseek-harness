@@ -44,8 +44,6 @@ export interface SnapshotOptions {
   readonly isVisible: (el: Element) => boolean
   /** Injected: the text the page draws around an element with `::before` and `::after`; defaults to the computed styles. */
   readonly drawnAround?: (el: Element) => string
-  /** Injected: the element's rectangle, for dropping geometric duplicates; undefined disables that. */
-  readonly rectOf: (el: Element) => DOMRectReadOnly | undefined
   /** Injected: whether a role-less element is clickable; defaults to a `cursor: pointer` computed style. */
   readonly isClickable?: (el: Element) => boolean
 }
@@ -219,26 +217,21 @@ export interface RowCell {
 export interface TableRowItem {
   /** Discriminant. */
   readonly kind: 'row'
-  /** The row element of the piece that prints the table. */
+  /** The row element. */
   readonly el: Element
   /** The row's 1-based position among the table's data rows. */
   readonly index: number
-  /** How many columns the row shows across every piece the table is drawn in. */
+  /** How many columns the row shows. */
   readonly width: number
-  /** Each column, in order, from the piece of the table that shows it. */
+  /** Each column, in order. */
   readonly cells: readonly RowCell[]
-  /** What every piece of the table draws in the row, for `find`. */
+  /** What the row draws, for `find`. */
   readonly text: string
   /** The table this row belongs to, for the suffix a flat listing prints. */
   readonly table: ContainerFace
 }
 
-/**
- * A table, reported by its shape rather than by its contents. A page that pins
- * a column draws the whole table again over itself with everything but that
- * column hidden; the pieces are one table here, and each column is read from
- * the piece that shows it.
- */
+/** A table, reported by its shape rather than by its contents. */
 export interface TableItem extends ContainerFace {
   /** Discriminant. */
   readonly kind: 'table'
@@ -248,7 +241,7 @@ export interface TableItem extends ContainerFace {
   readonly el: Element
   /** The element's ref. */
   readonly ref: string
-  /** The header cells, merged across the pieces, empty for a table that heads no columns. */
+  /** The header cells, empty for a table that heads no columns. */
   readonly header: readonly RowCell[]
   /** The table's data rows. */
   readonly rows: readonly TableRowItem[]
