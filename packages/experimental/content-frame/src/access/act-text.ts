@@ -297,6 +297,24 @@ export function hiddenReason(ref: string): string {
 }
 
 /**
+ * The failure for a column showing another page than the call was approved
+ * against.
+ *
+ * The user is asked about steps on "the entry on display" and answers whenever
+ * they answer; anything can happen to the column in between, and the switcher
+ * strip is one click. What the approval covered was the page in front at the
+ * time, so a call that arrives to find another one there has lost the thing it
+ * was agreed about, and the only safe move is to run nothing and say so.
+ * @param now - the title of the page in front now.
+ * @param approved - the title of the page the steps were approved against.
+ * @returns the model-facing sentence.
+ */
+export function frontChangedRefusal(now: string, approved: string): string {
+  return `The page in front is now "${now}", not "${approved}" the steps were approved for; `
+    + 'nothing was done. Ask the user, then retry.'
+}
+
+/**
  * The failure for a page asking the user to sign in, which no call acts on.
  *
  * `content_read` withholds such a page's listing; this withholds the steps.

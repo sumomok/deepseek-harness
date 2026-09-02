@@ -24,7 +24,8 @@ import { contentActTool } from '../src/access/act-tool.ts'
 import { registerActApproval } from '../src/access/act-approval.ts'
 import { DialogApprovals } from '../src/access/dialog-approvals.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
-import type { ActOutcome, ActStep, ChannelOutcome } from '../src/access/wire.ts'
+import type { ActOutcome, ActStep, ChannelOutcome, ClaimAck } from '../src/access/wire.ts'
+import type { FrontEntry } from '../src/access/text.ts'
 
 /** Deadlines short enough for a test to sit through both phases. */
 const FAST: CallTimeouts = { claimTimeoutMs: 30, answerTimeoutMs: 60, pinMs: 5000 }
@@ -79,16 +80,21 @@ interface Bench {
  * one way, over a real registry and a real session.
  * @param approval - what the user's channel answers, or `none` for a deployment with no channel.
  * @param timeouts - the deadlines this case can afford to wait for.
+ * @param front - the entry this deployment's column has in front.
  * @returns the bench.
  */
-async function bench(approval: Approval = 'allowed-once', timeouts: CallTimeouts = FAST): Promise<Bench> {
+async function bench(
+  approval: Approval = 'allowed-once',
+  timeouts: CallTimeouts = FAST,
+  front?: FrontEntry,
+): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
   const pending = new PendingCalls()
   const approvals = new DialogApprovals()
   const asked: string[] = []
-  ctx.tools.register(contentActTool(pending, timeouts, MAX_STEPS, () => undefined, approvals))
+  ctx.tools.register(contentActTool(pending, timeouts, MAX_STEPS, () => front, approvals))
   registerActApproval(ctx, approvals, MAX_STEPS)
   if (approval !== 'none') {
     ctx.provide('approval', {
@@ -147,6 +153,36 @@ async function settleWith(
   await answer(pending, callId, outcome)
   return await settled
 }
+
+describe('the entry one call was approved against', () => {
+  it('hands the claiming console the entry the column had in front when the wait opened', async () => {
+    // The wait opens after the user has answered, so this is the entry they
+    // were looking at while they read the request — and the seat holds the
+    // column to it rather than running the steps on whatever is there now.
+    const { pending, run } = await bench('allowed-once', FAST, { entryId: 'points', kind: 'page', title: '点位信息' })
+    const { callId, settled } = run({ steps: STEPS })
+    let ack: ClaimAck = { claimed: false }
+    for (let attempt = 0; attempt < 200 && !ack.claimed; attempt += 1) {
+      ack = await pending.claim({ callId, tabId: TAB })
+      if (!ack.claimed) await new Promise<void>((resolve) => { setTimeout(resolve, 2) })
+    }
+    expect(ack).toEqual({ claimed: true, page: { id: 'points', title: '点位信息' } })
+    pending.report({ callId, tabId: TAB, outcome: DONE })
+    await settled
+  })
+
+  it('composes the refusal a console posts when the column moved under the call', async () => {
+    const result = await settleWith({
+      status: 'error',
+      code: 'front-changed',
+      message: 'The page in front is now "报表", not "点位信息" the steps were approved for; '
+        + 'nothing was done. Ask the user, then retry.',
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toBe('Error: The page in front is now "报表", not "点位信息" the steps were approved for; '
+      + 'nothing was done. Ask the user, then retry.')
+  })
+})
 
 describe('what content_act offers the model', () => {
   it('pins the model-visible schema verbatim', async () => {

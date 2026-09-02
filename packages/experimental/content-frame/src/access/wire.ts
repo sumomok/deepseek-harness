@@ -321,6 +321,18 @@ export interface ClaimAck {
   claimed: boolean
   /** Present exactly when `claimed` is false. */
   reason?: ClaimRefusal
+  /**
+   * The entry the column had in front when this call's wait opened — which,
+   * for a call that will act, is the entry the user approved the steps for.
+   * The claim is where it reaches the seat because it is the first moment the
+   * seat and the host speak about this call: the wait opens after the approval
+   * is answered, and a person answering takes as long as a person takes.
+   *
+   * Absent for a refused claim, for a read, and for a call whose column had
+   * nothing in front — the seat then has nothing to compare and the ordinary
+   * refusals answer for the column.
+   */
+  page?: ReadPage
 }
 
 /** Why a claimed read produced no page instead of a listing. */
@@ -340,6 +352,12 @@ export type ReadErrorCode =
    * whether or not the listing under it is withheld.
    */
   | 'sign-in'
+  /**
+   * The column has another page in front than the one the call was approved
+   * against, so the steps were not run. Posted by a call that would have
+   * acted: a read is defined as the page in front and has nothing to compare.
+   */
+  | 'front-changed'
 
 /** The page a read found, as the column names it. */
 export interface ReadPage {
@@ -523,7 +541,7 @@ function parseBusy(value: unknown): string[] | undefined {
 }
 
 /** Every code a posted failure may name. */
-const ERROR_CODES: readonly ReadErrorCode[] = ['empty', 'not-a-page', 'engine', 'frame', 'sign-in']
+const ERROR_CODES: readonly ReadErrorCode[] = ['empty', 'not-a-page', 'engine', 'frame', 'sign-in', 'front-changed']
 
 /**
  * Read one posted outcome as a listing or a failure.

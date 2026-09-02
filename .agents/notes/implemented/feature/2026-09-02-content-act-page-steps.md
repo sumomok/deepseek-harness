@@ -20,6 +20,14 @@ A `tools/pre-execute` listener escalates every call of this tool to `{ kind: 'as
 
 The request is written before anything has reached a browser. No seat has claimed the call, no page has been read, and the host's own knowledge of the column is a projection of ids and titles it did not draw. So the request names the column's front entry the way the user sees it — 在「当前展示的这一项」上：填「名称」为「东风」；点「查询」 — rather than a page title the host would be guessing at. That is the second reason `label` is required on every step: the user is told what will be clicked and filled, and the only place those names can come from is the call itself.
 
+### What was approved was steps on the entry that was in front
+
+The request names "the entry on display" and a person answers it whenever they answer — a recorded session took thirty-nine seconds. The switcher strip is one click, so the column can be showing something else by the time the steps run, and a call that ran anyway would be pressing 删除 on a page nobody agreed to.
+
+The wait a call registers opens only after the approval is answered, so that is where the host records the front entry, and the claim hands it to the seat: the claim is the first moment the two speak about this call, and it is before anything is looked at. A seat that finds another page in front reports a failure of its own — which page is in front now, which the steps were approved for, and that nothing was done. A column that has gone empty or moved to another kind falls to the refusals that were already there, because those say more about what to do next.
+
+It rides the claim rather than the pending projection because the projection is a fold over the log: it is built from the `tool/call` event, which is written before the user is asked, and it has no way to learn what the host knew a moment later. Reads need none of this — a read is defined as the page in front, whichever page that is.
+
 ### The page's own confirmation is a separate agreement
 
 `dialogs: 'accept'` lets the seat answer a `confirm()` the page opens with OK. An approval covering "click 删除" does not cover the confirmation that follows it, so the listener records the call id it asked with whenever the request carried that clause, and the body spends that record before it will answer a dialog with anything but cancel. Every path that reaches the body without the request the user read — a standing allowance, a policy that never asks, a replay, a retry of the same call — therefore cancels the page's dialog. The record is spent on use and the table is bounded at 64 ids; past the bound the oldest is dropped, which is the safe answer in this direction.

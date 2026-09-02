@@ -29,7 +29,7 @@
 
 import {
   PREFERRED_TAB_WINDOW_MS, type ChannelOutcome, type ChannelReportRequest, type ClaimAck, type ClaimRequest,
-  type ReportAck,
+  type ReadPage, type ReportAck,
 } from './wire.ts'
 
 /** How long each phase of one call waits, as the deployment configured it. */
@@ -101,6 +101,8 @@ interface PendingCall {
   readonly sessionId: string
   /** This call's configured deadlines. */
   readonly timeouts: CallTimeouts
+  /** The entry the column had in front when the wait opened, for a call that will act. */
+  readonly page: ReadPage | undefined
   /** The tab that claimed it, once one has. */
   tabId: string | undefined
   /** The current phase's deadline. */
@@ -133,6 +135,10 @@ export class PendingCalls {
    * @param sessionId - the session whose column the call is against.
    * @param signal - the execution's cancellation.
    * @param timeouts - the deployment's deadlines for both phases.
+   * @param page - the entry the column has in front now, handed to the claiming
+   * seat so a call that will act can tell whether the column moved under it.
+   * The wait opens once the call has been approved, so this is the entry the
+   * user was looking at when they answered.
    * @returns how the wait ended.
    * @throws {Error} when a call of that id is already waiting.
    */
@@ -141,6 +147,7 @@ export class PendingCalls {
     sessionId: string,
     signal: AbortSignal,
     timeouts: CallTimeouts,
+    page?: ReadPage,
   ): Promise<CallSettlement> {
     // One call id, one open wait: a second registration would replace the first
     // entry and leave its execution blocked forever, since every path that
@@ -152,6 +159,7 @@ export class PendingCalls {
         callId,
         sessionId,
         timeouts,
+        page,
         tabId: undefined,
         timer: setTimeout(() => { this.finish(entry, { kind: 'unclaimed' }) }, timeouts.claimTimeoutMs),
         hold: undefined,
@@ -235,7 +243,7 @@ export class PendingCalls {
     bound(this.preferred, PREFERRED_MEMORY)
     clearTimeout(entry.timer)
     entry.timer = setTimeout(() => { this.finish(entry, { kind: 'unanswered' }) }, entry.timeouts.answerTimeoutMs)
-    return { claimed: true }
+    return { claimed: true, ...entry.page === undefined ? {} : { page: entry.page } }
   }
 
   /**

@@ -369,6 +369,31 @@ describe('what stops a call', () => {
     }])
   })
 
+  it('runs nothing when the column moved to another page while the user decided', async () => {
+    // The user is asked about steps on "the entry on display" and answers when
+    // they answer; the switcher strip is one click away the whole time.
+    mount('<main><button id="del">删除</button></main>')
+    const seen = listen(at('#del'), ['click'])
+    claims = [{ claimed: true, page: { id: 'reports', title: '报表' } }]
+    const outcome = await run([{ action: 'click', ref: ref('#del'), label: '删除' }])
+    expect(seen).toEqual([])
+    expect(outcome).toEqual({
+      status: 'error',
+      code: 'front-changed',
+      message: 'The page in front is now "Home", not "报表" the steps were approved for; '
+        + 'nothing was done. Ask the user, then retry.',
+    })
+  })
+
+  it('runs the steps when the column still has the page they were approved against', async () => {
+    mount('<main><button id="del">删除</button></main>')
+    const seen = listen(at('#del'), ['click'])
+    claims = [{ claimed: true, page: { id: 'home', title: 'Home' } }]
+    const outcome = await run([{ action: 'click', ref: ref('#del'), label: '删除' }])
+    expect(seen).toEqual(['click'])
+    expect(outcome.status).toBe('done')
+  })
+
   it('refuses to act on a page asking the user to sign in', async () => {
     // The listing of such a page is withheld from `content_read`; a channel
     // that typed into it would be the way around that.

@@ -223,7 +223,7 @@ describe('what content_read answers when no listing arrives', () => {
     // A column that already holds something is the case the first sentence
     // gets wrong: `content_show` appends another `content/shown` and answers
     // that it is now showing, without a console being any more open.
-    expect(unclaimedRefusal(3000, { kind: 'page', title: '点位信息' })).toBe(
+    expect(unclaimedRefusal(3000, { entryId: 'points', kind: 'page', title: '点位信息' })).toBe(
       'No open console is showing this session\'s content column (waited 3s); '
       + 'the page "点位信息" is already in front. '
       + 'Ask the user whether they have the console open on this session, then retry. '
@@ -231,7 +231,7 @@ describe('what content_read answers when no listing arrives', () => {
     )
     // Named by its own kind word, because the column's key domain is open and
     // `content_show` helps a chart in front no more than a page.
-    expect(unclaimedRefusal(3000, { kind: 'chart', title: '黄金走势' })).toContain(
+    expect(unclaimedRefusal(3000, { entryId: 'gold', kind: 'chart', title: '黄金走势' })).toContain(
       'the chart "黄金走势" is already in front.',
     )
     expect(unansweredRefusal(15000)).toBe(
@@ -254,7 +254,7 @@ describe('what content_read answers when no listing arrives', () => {
     // The whole point of the second path: this session's column is not empty,
     // so the tool the model would reach for next changes nothing about why the
     // read failed, and the refusal says so rather than leaving it to be found.
-    const { run } = await bench(FAST, { kind: 'page', title: 'Home' })
+    const { run } = await bench(FAST, { entryId: 'home', kind: 'page', title: 'Home' })
     const result = await run({}).settled
     expect(result.isError).toBe(true)
     expect(text(result)).toBe(

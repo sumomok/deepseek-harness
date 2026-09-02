@@ -225,7 +225,17 @@ export function contentActTool(
       if (parsed.dialogs === 'accept' && !approvals.confirmed(exec.callId)) {
         throw new Error(DIALOGS_UNAPPROVED_REFUSAL)
       }
-      const settlement = await pending.open(exec.callId, exec.agent.session.header.id, exec.signal, timeouts)
+      // Read here rather than earlier: the wait opens once the user has
+      // answered the approval, so this is the entry they were looking at when
+      // they agreed to these steps, and it is what the seat holds the column to.
+      const approved = front(exec.agent.session)
+      const settlement = await pending.open(
+        exec.callId,
+        exec.agent.session.header.id,
+        exec.signal,
+        timeouts,
+        approved === undefined ? undefined : { id: approved.entryId, title: approved.title },
+      )
       switch (settlement.kind) {
         case 'reported': {
           // Three arms reach here. Steps that ran are the answer; the listing

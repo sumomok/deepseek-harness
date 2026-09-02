@@ -37,7 +37,7 @@ import {
   FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
   SIGN_IN_REFUSAL,
 } from '../../access/text.ts'
-import { actReportText, SIGN_IN_ACT_REFUSAL } from '../../access/act-text.ts'
+import { actReportText, frontChangedRefusal, SIGN_IN_ACT_REFUSAL } from '../../access/act-text.ts'
 import type { ContentFrameAccessSettings } from '../../route.ts'
 import type { ContentAccessRequest, ContentActRequest, ContentReadRequest } from '../../types.ts'
 import { settlePage } from '../perception/settle.ts'
@@ -303,22 +303,22 @@ async function claimRead(
   seat: MutableRefObject<ContentReadSeat>,
   mounted: MutableRefObject<boolean>,
   callId: string,
-): Promise<boolean> {
+): Promise<ClaimAck | undefined> {
   let waitMs = CLAIM_RETRY_MS
   for (;;) {
     const posted = await post<ClaimAck>(CONTENT_CLAIM_ROUTE, JSON.stringify({ callId, tabId: seat.current.tabId }))
-    if (posted.kind === 'refused') return false
+    if (posted.kind === 'refused') return undefined
     if (posted.kind === 'answered') {
-      if (posted.value.claimed) return true
-      if (posted.value.reason !== 'unknown') return false
+      if (posted.value.claimed) return posted.value
+      if (posted.value.reason !== 'unknown') return undefined
     }
     await delay(waitMs)
     waitMs = Math.min(waitMs * 2, CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF)
     // The seat went with the tab, the session, or the column: there is nothing
     // left here to read the page with, whatever the last pending list said.
-    if (!mounted.current) return false
+    if (!mounted.current) return undefined
     // The result reached the log while this seat waited: the call is over.
-    if (!seat.current.pending.some(request => request.callId === callId)) return false
+    if (!seat.current.pending.some(request => request.callId === callId)) return undefined
   }
 }
 
@@ -603,14 +603,33 @@ async function readPage(
  * @param seat - the seat as it stands now.
  * @param request - the pending call: the steps to run, and the id the report is posted under.
  * @param access - the node half's budget, deadlines and per-step ceiling.
+ * @param approved - the entry the column had in front when the call was
+ * approved, absent for a column that had nothing in front then.
  * @returns the report to post.
  */
 async function actOnPage(
   seat: ContentReadSeat,
   request: ContentActRequest,
   access: ContentFrameAccessSettings,
+  approved: ReadPage | undefined,
 ): Promise<Report> {
   const report = (outcome: ChannelOutcome): Report => reportOf(seat, request.callId, outcome)
+  // Before anything is looked at, let alone pressed. The user agreed to these
+  // steps on the entry that was in front while they were reading the request,
+  // and the switcher strip is one click: a call that arrives to find another
+  // page there has lost the thing it was agreed about. A column now holding
+  // something that is not a page, or nothing at all, is answered by the
+  // failures below instead — they say more about what to do next than this one.
+  if (approved !== undefined && seat.page !== undefined && seat.page.id !== approved.id) {
+    return report({
+      status: 'error',
+      code: 'front-changed',
+      message: frontChangedRefusal(
+        forWire(seat.page.title, MAX_NAME_CHARS),
+        forWire(approved.title, MAX_NAME_CHARS),
+      ),
+    })
+  }
   // The host granted the claim a moment ago and started counting then, so this
   // is where the call's own deadline begins — before the wait for a frame that
   // has not finished loading, which spends the same deadline.
@@ -700,10 +719,11 @@ async function answer(
   request: ContentAccessRequest,
   access: ContentFrameAccessSettings,
 ): Promise<void> {
-  if (!await claimRead(seat, mounted, request.callId)) return
+  const claimed = await claimRead(seat, mounted, request.callId)
+  if (claimed === undefined) return
   await reportRead(request.tool === 'content_read'
     ? await readPage(seat.current, request, access)
-    : await actOnPage(seat.current, request, access))
+    : await actOnPage(seat.current, request, access, claimed.page))
 }
 
 /**

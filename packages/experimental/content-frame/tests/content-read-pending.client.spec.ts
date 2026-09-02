@@ -45,6 +45,22 @@ describe('the claim window', () => {
     expect(await settled).toEqual({ kind: 'unclaimed' })
   })
 
+  it('hands the claiming tab the entry the column had in front when the wait opened', async () => {
+    // The wait opens once the call has been approved, so this is the entry the
+    // user was looking at when they agreed; the seat holds the column to it.
+    const settled = table.open('call_1', 'session_1', aborter.signal, TIMEOUTS, { id: 'home', title: 'Home' })
+    expect(await table.claim({ callId: 'call_1', tabId: 'tab_a' }))
+      .toEqual({ claimed: true, page: { id: 'home', title: 'Home' } })
+    table.report({ callId: 'call_1', tabId: 'tab_a', outcome: OUTCOME })
+    await settled
+    // A wait opened with nothing in front carries none, and the seat has
+    // nothing to compare.
+    const bare = open('call_2')
+    expect(await table.claim({ callId: 'call_2', tabId: 'tab_a' })).toEqual({ claimed: true })
+    table.report({ callId: 'call_2', tabId: 'tab_a', outcome: OUTCOME })
+    await bare
+  })
+
   it('tells a claim for a call it has never seen from one it has already answered', async () => {
     expect(await table.claim({ callId: 'call_1', tabId: 'tab_a' }))
       .toEqual({ claimed: false, reason: 'unknown' })
