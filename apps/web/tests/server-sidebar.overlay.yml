@@ -72,3 +72,39 @@
 - id: session-log-download
   name: '@deepseek-ai/dsh-session-log-export'
   disabled: true
+
+# Decision ②: the shipped preset table names its rows in vendor vocabulary —
+# "workspace-write" renders as "Workspace Write" on the composer's access chip
+# (`dsh-client-ui-conversation`'s `PermissionSelect`), in the `/permission`
+# popup, and in the Settings default row. None of that is CSS chrome this
+# package could hide, and none of it is reachable from a dictionary: those
+# labels belong to `dsh-client-ui-conversation`'s own locale namespace, which
+# no other plugin may register into.
+#
+# The preset table itself is the seam. Both client surfaces resolve a label
+# the same way — a host-supplied `name` that still matches the built-in
+# default renders the vendor's product label, anything else passes through
+# verbatim (`PermissionSelect.tsx`'s `permissionLabel`,
+# `presentation.ts`'s `displayPermissionPreset`). Renaming the rows here
+# therefore replaces the vocabulary on every surface at once, with no patch to
+# an upstream package.
+#
+# The knob values (`sandbox`, `approval`) are restated unchanged from the
+# shipped defaults: this row replaces the whole table, so omitting one would
+# drop that preset rather than inherit it.
+- id: permission
+  name: '@deepseek-ai/dsh-permission-presets'
+  config:
+    presets:
+      workspace-write:
+        sandbox: workspace-write
+        approval: ask
+        name: 可修改文件
+        description: 可以在当前项目目录里新建和修改文件；超出范围的操作会先征求同意。
+        glyph: workspace-write
+      danger-full-access:
+        sandbox: danger-full-access
+        approval: never
+        name: 完全放开
+        description: 可以修改任何文件，且不再逐次征求同意。
+        glyph: danger-full-access

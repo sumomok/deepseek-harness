@@ -108,7 +108,7 @@ kind: "package-reference"
 <a id="composition"></a>
 ## 组合方式
 
-本插件不属于任何出厂 bundle。`overlay/customer.patch.yml` 就是完整的客户表单 overlay：它禁用 `ui-layout`、`ui-sidebar`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`，并插入 `server-layout`、`content-surface`、`content-column` 与本包。它不插入 `content-frame`——部署自己的页面目录需要单独组合，与它并列。用 `dsh --profile <name> --patch <path>` 应用；该包必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile <name> add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
+本插件不属于任何出厂 bundle。`overlay/customer.patch.yml` 就是完整的客户表单 overlay：它禁用 `ui-layout`、`ui-sidebar`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`，并插入 `server-layout`、`content-surface`、`content-column` 与本包。它还重新配置（而不是禁用）了一个出厂行：`permission` 行的预设表被改写为面向客户的名字，因为出厂的 `workspace-write` 名字正是输入框权限 chip、`/permission` 弹窗与 Settings 默认行三处共同显示的那一个。两个客户端界面在宿主给出的名字与内置默认不同时都会原样透传，因此在那里改一次就同时换掉了所有界面上的这个词。它不插入 `content-frame`——部署自己的页面目录需要单独组合，与它并列。用 `dsh --profile <name> --patch <path>` 应用；该包必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile <name> add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -130,7 +130,7 @@ kind: "package-reference"
 - **绿点机制复用了 `completed`，而非新记账，且只有单测覆盖。** 它与「运行结束时未被选中、且尚未被打开过」的语义完全吻合，但要做到端到端验证，需要一次真实的、agent 循环从运行到空闲、且未被选中期间发生的状态切换——`SessionManager` 的 `running` 位是绑定真实执行的 host frame 推送，纯日志追加无法伪造它。本场景自己的 e2e 套件不发起任何模型调用（沿用其既有设计），因此这一机制改由 `packages/experimental/server-sidebar` 自己的单元测试钉住。
 - **改名/移除用悬停显现的图标按钮，而非原生右键菜单。** 这是任务本身明确允许的 v1 降级（「若实现体量失控，降级为右键菜单「上移/下移」」）——这条降级条款曾经也覆盖重新排序，直到重新排序改为原生 HTML5 拖拽为止；改名/移除这一半的降级依然保留，因为为这两个偶发动作再引入第二种交互模式依然没有正当理由。
 - **`ui-workspace` 是被组合的，挡住它英雄区选择器的只有一条 CSS 规则。** 它无法被禁用：`dsh-client-ui-conversation` 注入它的 `uiWorkspace` 服务，缺了它的组合根本不会激活对话列。它的 `sidebar.workspaces` 那一半在本外壳去掉那个槽之后已经失效（`ctx.slots.inject` 只是永远不会触发——见上文「替换出厂侧边栏」），但它的 `conversation.hero.workspace` 注册会落地，挡住它的是 `terminology-guard.ts` 的 `heroWorkspaceRow` 规则——一处类名子串耦合，那个类名一旦改名它就静默失效。一次零工作区的全新安装,依然会让页面或工作流点击成为一次被吸收的空操作（见上文「导航」）——这是从此前基于收藏的设计里延续下来的、已经被接受的既有边界情况，并非本次新引入。工作台自己的加载态自动落位比这更进一步：这种情况下它根本不会去尝试（见上文「工作台」），而是一直等待工作区出现，而不是先尝试一次再报一次警告。
-- **输入框的访问权限预设控件里带着「工作区」这个词。** `dsh-client-ui-conversation` 自己的 `PermissionSelect` 把其中一个预设标为「Workspace Write」，决策②没有覆盖它：和上面那些界面不同，它是一个权限控件而不是词汇装饰，隐藏它等于拿走一个选择而不是改一个称呼。要去掉这个词，需要的是对这个控件本身的决定，而不是再加一条 `terminology-guard.ts` 规则。
+- **没有连接任何工作区时，输入框会说出这个词。** `ConversationRoot` 会以 `placeholder.workspace`（「Choose a workspace to start」）渲染它那个不可用的输入框，这是本包唯一触及不到的一处禁用词汇。它不是该用 CSS 盖掉的装饰——那个状态下输入框确实不能用，而这句占位文字是唯一在说明这件事的东西——也不是组合层能改名的东西：它属于 `dsh-client-ui-conversation` 自己的 locale 命名空间，而 locale 注册表对已有的命名空间/语言对会直接报错，所以任何插件都无法遮蔽另一个插件的键。要关掉它，要么让部署总是带着一个工作区（这本来就是整个控制台会退化成空操作的那个状态——见上文「导航」），要么给 locale 注册表加一个覆盖接口。有一个 e2e 场景把这处泄漏钉在那一句占位文字上，以免再出现第二处而无人发现。
 - **英雄区标题原本的文本节点在 DOM 与无障碍树里原样保留。** `terminology-guard.ts` 的 `::after` 替换只改变了标题画出来的内容（把真实文本压到 `font-size: 0`，另用一个伪元素承载本包自己的文案）；屏幕阅读器或任何针对 DOM 文本的查询，找到的依然是 `dsh-client-ui-conversation` 自己的中/英文标题字符串，而不是本包的品牌文案。
 - **settings 路由假定存在 HTTP 载体。** browser 半边以页面 origin 为基准请求 `/server-menu/workflows`。如果某种传输提供了外壳却没有把 harness 暴露在 HTTP 上，该行会失败——与 content-frame 自己那条 settings 路由的处境相同。
 - **未被 assembled snapshot 覆盖。** 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。
