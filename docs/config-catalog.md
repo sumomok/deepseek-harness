@@ -543,7 +543,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/e2b/e2b/src/index.ts:43`](../packages/e2b/e2b/src/index.ts)
+Source: [`packages/e2b/e2b/src/index.ts:45`](../packages/e2b/e2b/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-agent-team"></a>
 
@@ -2116,7 +2116,7 @@ export interface Config {
 export type SessionLogCompressionLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
 ```
 
-Source: [`packages/session-query/session-log-export/src/index.ts:45`](../packages/session-query/session-log-export/src/index.ts)
+Source: [`packages/session-query/session-log-export/src/index.ts:59`](../packages/session-query/session-log-export/src/index.ts)
 
 <a id="deepseek-aidsh-session-persistence-jsonl"></a>
 
@@ -3755,6 +3755,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-experimental-webworker-runtime` ([`packages/experimental/webworker-runtime/src/index.ts`](../packages/experimental/webworker-runtime/src/index.ts))
 - `@deepseek-ai/dsh-home-paths` ([`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
+- `@deepseek-ai/dsh-http-proxy` ([`packages/util/http-proxy/src/index.ts`](../packages/util/http-proxy/src/index.ts))
 - `@deepseek-ai/dsh-launch-environment` ([`packages/util/launch-environment/src/index.ts`](../packages/util/launch-environment/src/index.ts))
 - `@deepseek-ai/dsh-llm-mock-server` ([`packages/test-support/llm-mock-server/src/index.ts`](../packages/test-support/llm-mock-server/src/index.ts))
 - `@deepseek-ai/dsh-loader-smoke` ([`packages/test-support/loader-smoke/src/index.ts`](../packages/test-support/loader-smoke/src/index.ts))

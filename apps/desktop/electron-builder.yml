@@ -53,6 +53,13 @@ mac:
   identity: null
   category: public.app-category.developer-tools
   icon: build/icon.icns
+  # macOS gates ~/Downloads behind TCC: the first write there raises the
+  # system's own consent prompt, and without this key the prompt names no
+  # reason. The shell writes there for one reason only — a download the served
+  # UI started, which src/download-policy.ts places instead of letting Electron
+  # open a Save As sheet.
+  extendInfo:
+    NSDownloadsFolderUsageDescription: DSH 需要访问「下载」文件夹,才能把你从应用里导出的文件保存到那里。
   extraResources:
     - from: staging/runtime/darwin
       to: runtime

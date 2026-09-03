@@ -32,6 +32,7 @@ import { pipeline } from 'node:stream/promises'
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web'
 import { parseArgs } from 'node:util'
 import { fileURLToPath } from 'node:url'
+import { filteredDeployArgs, verifyStagedPatches } from '../../../scripts/filtered-deploy.ts'
 import { BUILTIN_WEB_BUNDLES, DESKTOP_PROFILE, seedBuiltinBundles } from '../src/profile-seed.ts'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from './artifact-names.ts'
 import { bundleClosure } from './bundle-closure.ts'
@@ -416,6 +417,7 @@ async function verifyStaging(): Promise<void> {
   const pty = join(SERVER_STAGING, 'node_modules', 'node-pty', 'prebuilds')
   if (!existsSync(pty)) throw new Error('package: staged node-pty has no prebuilds directory.')
   console.log(`package: staged prebuild platforms: ${(await readdir(pty)).sort().join(', ')}`)
+  await verifyStagedPatches(SERVER_STAGING, 'package')
   // Resolution smoke on the staged tree: `--version` imports the launcher
   // graph, so a package the deployer dropped (a link: override the manifest
   // forgot to list directly) fails the build here instead of on first launch.
@@ -820,13 +822,7 @@ async function main(buildHome: string): Promise<void> {
       throw new Error(`package: refusing to clear staging dir ${SERVER_STAGING}.`)
     }
     await rm(SERVER_STAGING, { recursive: true, force: true })
-    await withWorkspaceStateGuard(() => run('deploy server closure', 'pnpm', [
-      '--filter', DEPLOY_ROOT_PACKAGE, 'deploy', '--legacy', '--prod',
-      '--config.node-linker=hoisted',
-      '--config.auto-install-peers=false',
-      '--config.link-workspace-packages=true',
-      SERVER_STAGING,
-    ]))
+    await withWorkspaceStateGuard(() => run('deploy server closure', 'pnpm', filteredDeployArgs(DEPLOY_ROOT_PACKAGE, SERVER_STAGING)))
     await restoreLegacyHoists()
     await materializeStagedLinks()
     await prunePlatformBuilds()

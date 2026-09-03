@@ -26,9 +26,9 @@ None of the seven declares `@deepseek-ai/dsh-client-runtime` anywhere in its man
 
 The `@deepseek-ai/dsh-client-runtime` override is removed from `pnpm-workspace.yaml`. `pnpm install` succeeds with zero `ERR_PNPM_NO_MATCHING_VERSION`.
 
-## Two out-of-scope plugins still pull the retired name in
+## The two plugins outside this decision no longer pull the retired name in
 
-`pnpm why @deepseek-ai/dsh-client-runtime` is not empty: `dsh-at-file` (a GitHub-release-tarball dependency, peer `*`) and `dsh-better-sidebar` (an npm dependency, peer `^0.1.0-rc.8`) both still declare an optional peer on the retired package name in their own published manifests. Neither is one of the nine `apps/desktop-server/vendor/*.tgz` third-party plugins this decision covers — both are separately-maintained upstream projects reached through their own install mechanism (GitHub ref / registry version), not vendored tarballs this repository builds. With the override gone, pnpm resolves both peers to the real, still-published `0.1.1-rc.2` on its own; the install succeeds and no source in this repository imports anything from that resolved package, exactly as the retired override's own comment already established for the reference confined to shipped `.d.ts` files. Re-vendoring or otherwise fixing these two plugins' own declared peer is out of scope here and untracked by this note.
+`pnpm why @deepseek-ai/dsh-client-runtime` is empty. `dsh-at-file` and `dsh-better-sidebar` — separately-maintained upstream projects, not plugins this repository builds, and so outside the nine this decision covers — are both vendored tarballs under `apps/desktop-server/vendor/` now, for reasons of their own. `dsh-better-sidebar`'s manifest no longer names the retired package at all; `dsh-at-file`'s still declares it as an optional peer, which `pnpm-lock.yaml` records and nothing installs, because pnpm never auto-installs an optional peer and no package in this workspace depends on that name. The scoped override this note declined to add is still not needed. The [vendored plugin reference gate](2026-09-03-vendored-plugin-reference-gate.md) owns how every one of those archives is named and kept in step with the documents that restate it.
 
 ## Alternatives considered
 
@@ -38,4 +38,4 @@ The `@deepseek-ai/dsh-client-runtime` override is removed from `pnpm-workspace.y
 
 ## Consequences
 
-The temporary bridge is gone: `apps/desktop-server` now depends on real, current package names throughout its nine vendored plugins, with no workspace-wide override standing in for a package `pnpm-workspace.yaml`'s own comment already called out as retired. The cost is the two residual `dsh-client-runtime` peer references from unrelated third-party plugins, which this decision knowingly leaves in place — they resolve harmlessly today, and revisiting them is a separate, later re-vendoring decision for those two plugins specifically, not a gap in this one.
+The temporary bridge is gone: `apps/desktop-server` now depends on real, current package names throughout its nine vendored plugins, with no workspace-wide override standing in for a package `pnpm-workspace.yaml`'s own comment already called out as retired. The cost is the residual `dsh-client-runtime` optional-peer declaration `dsh-at-file` carries, which this decision knowingly leaves in place — nothing resolves it, and revisiting it belongs to that plugin's own upstream, not to this decision.

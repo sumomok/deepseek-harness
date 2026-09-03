@@ -12,6 +12,7 @@ import { chmod, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rm, wri
 import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { resolveLinuxNodePtyAddon, resolveWindowsNodePtyAddons } from './build-exe-for-python-sdk-native-pty.ts'
+import { filteredDeployArgs, verifyStagedPatches } from './filtered-deploy.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -23,8 +24,6 @@ const ENTRY_BIN = 'node_modules/@deepseek-ai/dsh/lib/bin.js'
 const OUTPUT_BASENAME = 'deepseek-harness-sdk-runtime'
 /** Default Node major; SEA mode requires at least Node 22. */
 const DEFAULT_NODE_RANGE = 'node24'
-/** Pinned for reproducible builds. */
-const PKG_SPEC = '@yao-pkg/pkg@6.21.0'
 const OUT_DIR = 'dist-exe'
 /** Python package destination; created when absent. */
 const PYTHON_RUNTIME_DIR = 'python/sdk-runtime/src/deepseek_harness_runtime/runtime'
@@ -215,7 +214,7 @@ class BuildCli {
       '  --dry-run              print every command and config patch without executing.',
       '  --help                 print this help.',
       '',
-      `Build route: ${PKG_SPEC} --sea; see .agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.`,
+      'Build route: @yao-pkg/pkg --sea (root devDependency, pnpm-patched); see .agents/notes/implemented/architecture/2026-07-10-single-file-executable-sdk-runtime-distribution.md.',
       `Stages the node carrier in ${PYTHON_RUNTIME_DIR}/${PYTHON_NODE_SUBDIR} and writes executables to ${OUT_DIR}/.`,
     ].join('\n')
   }
@@ -288,19 +287,11 @@ class SingleExeBuild {
     }
     if (this.cli.dryRun) console.log(`build-exe-for-python-sdk: [dry-run] rm -rf ${this.staging}`)
     else await rm(this.staging, { recursive: true, force: true })
-    await this.runPnpm('deploy', [
-      '--filter',
-      DEPLOY_ROOT_PACKAGE,
-      'deploy',
-      '--legacy',
-      '--prod',
-      '--config.node-linker=hoisted',
-      '--config.auto-install-peers=false',
-      '--config.link-workspace-packages=true',
-      this.staging,
-    ])
+    await this.runPnpm('deploy', filteredDeployArgs(DEPLOY_ROOT_PACKAGE, this.staging))
     await this.restoreLegacyHoists()
     await this.materializeStagedLinks()
+    if (this.cli.dryRun) console.log('build-exe-for-python-sdk: [dry-run] verify the staged closure carries its patched packages')
+    else await verifyStagedPatches(this.staging, 'build-exe-for-python-sdk')
     if (this.cli.dryRun) {
       for (const name of DEPLOY_ONLY_DOCS) console.log(`build-exe-for-python-sdk: [dry-run] rm -f ${join(this.staging, name)}`)
     } else {
@@ -426,8 +417,8 @@ class SingleExeBuild {
     await this.prepareNativePty(target)
     if (!this.cli.dryRun) await mkdir(this.outDir, { recursive: true })
     await this.runPnpm(`pkg ${target.spec}`, [
-      'dlx',
-      PKG_SPEC,
+      'exec',
+      'pkg',
       this.staging,
       '--sea',
       '--targets',

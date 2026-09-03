@@ -8,6 +8,11 @@ import { SessionLogDownloadHeaderAction } from '../src/client/HeaderAction.tsx'
 import type { SessionLogDownloadDialogProps } from '../src/client/Dialog.tsx'
 import { en } from '../src/client/locales.ts'
 
+/** The runtime's own `{name}` interpolation, so the fixtures read what users read. */
+function translate(key: keyof typeof en, params?: Record<string, string | number>): string {
+  return en[key].replace(/\{(\w+)\}/g, (_match, name: string) => String(params?.[name] ?? ''))
+}
+
 const SID = 'session-export-header' as SessionId
 
 function bindSessionExport(controller: SessionLogDownloadController) {
@@ -29,7 +34,8 @@ function bench() {
     useSessionLogDownload,
     request,
     dismiss,
-    t: (key: keyof typeof en): string => en[key],
+    cancel: vi.fn((sessionId: SessionId) => { controller.cancel(sessionId) }),
+    t: translate,
   } as unknown as SessionLogDownloadDialogProps
   const view = render(<SessionLogDownloadHeaderAction {...props} />)
   return { controller, request, view }
@@ -44,7 +50,7 @@ describe('Session export Header action', () => {
     expect(button.querySelector('svg')).not.toBeNull()
     fireEvent.click(button)
     await waitFor(() => { expect(b.request).toHaveBeenCalledWith(SID) })
-    expect(await b.view.findByRole('dialog', { name: 'Session download started' })).toBeTruthy()
+    expect(await b.view.findByRole('dialog', { name: 'Export complete' })).toBeTruthy()
   })
 
   it('disables the capsule while either entry path downloads this Session', async () => {
@@ -58,7 +64,8 @@ describe('Session export Header action', () => {
       useSessionLogDownload,
       request: (sessionId: SessionId) => controller.download(sessionId),
       dismiss: (sessionId: SessionId) => { controller.dismiss(sessionId) },
-      t: (key: keyof typeof en): string => en[key],
+      cancel: (sessionId: SessionId) => { controller.cancel(sessionId) },
+      t: translate,
     } as unknown as SessionLogDownloadDialogProps)} />)
 
     const download = controller.download(SID)

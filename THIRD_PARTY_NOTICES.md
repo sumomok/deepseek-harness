@@ -36,12 +36,12 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript) | MIT |
 | [`@babel/code-frame`](https://github.com/babel/babel) | MIT |
 | [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi) | MIT |
-| [`@haoran/dsh-clickable-refs`](apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz) | MIT |
-| [`@haoran/dsh-connection-banner`](apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz) | MIT |
+| [`@haoran/dsh-clickable-refs`](apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz) | MIT |
+| [`@haoran/dsh-connection-banner`](apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.1.tgz) | MIT |
 | [`@haoran/dsh-default-model`](apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz) | MIT |
 | [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.5.tgz) | MIT |
 | [`@haoran/dsh-plugin-updates`](apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.0.tgz) | MIT |
-| [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz) | MIT |
+| [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.1.tgz) | MIT |
 | [`@haoran/dsh-vision-switch`](apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.0.tgz) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
 | [`@jridgewell/gen-mapping`](https://github.com/jridgewell/sourcemaps) | MIT |
@@ -61,8 +61,8 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@opentelemetry/sdk-logs`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
 | [`@shikijs/langs`](https://github.com/shikijs/shiki) | MIT |
 | [`@standard-schema/spec`](https://github.com/standard-schema/standard-schema) | MIT |
-| [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.3.2.tgz) | MIT |
-| [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz) | MIT |
+| [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.4.0.tgz) | MIT |
+| [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.1.tgz) | MIT |
 | [`@tanstack/react-virtual`](https://github.com/TanStack/virtual) | MIT |
 | [`@types/mdast`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@vscode/ripgrep`](https://github.com/microsoft/vscode-ripgrep) | MIT |
@@ -127,6 +127,8 @@ External packages that a workspace package resolves at runtime. The tier covers 
 
 pnpm applies local patches to the following packages at install time, so shipped artifacts carry modified copies; each patch file is the complete record of the modification:
 
+- `@yao-pkg/pkg@6.21.0` — [`patches/@yao-pkg__pkg@6.21.0.patch`](patches/@yao-pkg__pkg@6.21.0.patch)
+- `electron-updater@6.8.9` — [`patches/electron-updater@6.8.9.patch`](patches/electron-updater@6.8.9.patch)
 - `node-pty@1.2.0-beta.15` — [`patches/node-pty@1.2.0-beta.15.patch`](patches/node-pty@1.2.0-beta.15.patch)
 
 ## Official Claude Code platform payloads
@@ -176,6 +178,7 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`@types/ws`](https://github.com/DefinitelyTyped/DefinitelyTyped) | MIT |
 | [`@vitejs/plugin-react`](https://github.com/vitejs/vite-plugin-react) | MIT |
 | [`@vitest/coverage-v8`](https://github.com/vitest-dev/vitest) | MIT |
+| [`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg) | MIT |
 | [`@yarnpkg/cli-dist`](https://github.com/yarnpkg/berry) | BSD-2-Clause |
 | [`7zip-bin`](https://github.com/develar/7zip-bin) | MIT |
 | [`cytoscape`](https://github.com/cytoscape/cytoscape.js) | MIT |
@@ -221,12 +224,6 @@ Direct dependencies of the `pyproject.toml` manifests, plus `uv` as the developm
 | [`pydantic`](https://github.com/pydantic/pydantic) | MIT | runtime dependency of `deepseek-harness-sdk` |
 | [`pytest`](https://github.com/pytest-dev/pytest) | MIT | test-only |
 | [`uv`](https://github.com/astral-sh/uv) | MIT / Apache-2.0 | development workflow tool |
-
-## Fetched at build time
-
-| Package | License | Role |
-| --- | --- | --- |
-| [`@yao-pkg/pkg`](https://github.com/yao-pkg/pkg) | MIT | invoked by `scripts/build-exe-for-python-sdk.ts` to assemble the single-file SDK runtime executable |
 
 ## First-party native packages
 

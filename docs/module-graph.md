@@ -12,6 +12,7 @@ flowchart TD
     pkg_brand["brand"]
     pkg_deque["deque"]
     pkg_home_paths["home-paths"]
+    pkg_http_proxy["http-proxy"]
     pkg_launch_environment["launch-environment"]
     pkg_native_command["native-command"]
     pkg_output_retention["output-retention"]
@@ -370,9 +371,7 @@ flowchart TD
   pkg_web --> pkg_llm
   pkg_attachment --> pkg_brand
   pkg_credentials --> pkg_invariants
-  pkg_subprocess_e2b --> pkg_e2b
-  pkg_subprocess_e2b --> pkg_subprocess
-  pkg_subprocess_e2b --> pkg_timeout
+  pkg_e2b --> pkg_http_proxy
   pkg_experimental_auth_gate --> pkg_host_webserver
   pkg_experimental_code_runtime_python --> pkg_code_runtime
   pkg_experimental_code_runtime_python --> pkg_timeout
@@ -405,8 +404,7 @@ flowchart TD
   pkg_storage_domain --> pkg_storage
   pkg_storage_json --> pkg_storage
   pkg_storage_sqlite --> pkg_storage
-  pkg_subprocess_local --> pkg_subprocess
-  pkg_subprocess_local --> pkg_timeout
+  pkg_subprocess --> pkg_http_proxy
   pkg_typert_loader --> pkg_typert_registry
   pkg_session --> pkg_scope
   pkg_system_prompt --> pkg_invariants
@@ -414,6 +412,7 @@ flowchart TD
   pkg_system_prompt --> pkg_scope
   pkg_skill --> pkg_llm
   pkg_skill --> pkg_scope
+  pkg_web_fetch_http --> pkg_http_proxy
   pkg_web_fetch_http --> pkg_timeout
   pkg_web_fetch_http --> pkg_web
   pkg_web_search_exa --> pkg_launch_environment
@@ -430,6 +429,11 @@ flowchart TD
   pkg_credentials_local --> pkg_credentials
   pkg_credentials_local --> pkg_home_paths
   pkg_credentials_local --> pkg_launch_environment
+  pkg_subprocess_e2b --> pkg_e2b
+  pkg_subprocess_e2b --> pkg_subprocess
+  pkg_subprocess_e2b --> pkg_timeout
+  pkg_subprocess_local --> pkg_subprocess
+  pkg_subprocess_local --> pkg_timeout
   pkg_skill_badge --> pkg_skill
   pkg_spill --> pkg_brand
   pkg_spill --> pkg_llm
@@ -453,6 +457,7 @@ flowchart TD
   pkg_settings --> pkg_brand
   pkg_settings --> pkg_invariants
   pkg_settings --> pkg_session
+  pkg_session_snapshot --> pkg_http_proxy
   pkg_session_snapshot --> pkg_session
   pkg_agent --> pkg_invariants
   pkg_agent --> pkg_llm
@@ -608,6 +613,7 @@ flowchart TD
   pkg_terminal --> pkg_agent
   pkg_terminal --> pkg_brand
   pkg_loader_smoke --> pkg_agent
+  pkg_loader_smoke --> pkg_http_proxy
   pkg_loader_smoke --> pkg_llm
   pkg_loader_smoke --> pkg_session
   pkg_workflow --> pkg_agent
@@ -667,6 +673,7 @@ flowchart TD
   pkg_compaction --> pkg_session
   pkg_experimental_content_surface --> pkg_commands
   pkg_experimental_content_surface --> pkg_invariants
+  pkg_experimental_content_surface --> pkg_llm
   pkg_experimental_content_surface --> pkg_session
   pkg_experimental_content_surface --> pkg_session_projection
   pkg_experimental_content_surface --> pkg_system_prompt
@@ -955,14 +962,18 @@ flowchart TD
   pkg_experimental_content_frame --> pkg_client_locale
   pkg_experimental_content_frame --> pkg_client_ui_chat
   pkg_experimental_content_frame --> pkg_client_ui_conversation
+  pkg_experimental_content_frame --> pkg_client_ui_tool
   pkg_experimental_content_frame --> pkg_commands
   pkg_experimental_content_frame --> pkg_experimental_content_column
   pkg_experimental_content_frame --> pkg_experimental_content_surface
   pkg_experimental_content_frame --> pkg_host_webserver
   pkg_experimental_content_frame --> pkg_invariants
+  pkg_experimental_content_frame --> pkg_llm
   pkg_experimental_content_frame --> pkg_session
   pkg_experimental_content_frame --> pkg_session_projection
+  pkg_experimental_content_frame --> pkg_system_prompt
   pkg_experimental_content_frame --> pkg_tools
+  pkg_experimental_content_frame --> pkg_util_crypto
   pkg_experimental_vue2_echarts_tool_poc --> pkg_attachment
   pkg_experimental_vue2_echarts_tool_poc --> pkg_client_locale
   pkg_experimental_vue2_echarts_tool_poc --> pkg_client_ui_chat
@@ -1217,6 +1228,7 @@ flowchart TD
 | [`brand`](../packages/util/brand) | `util` | — |
 | [`deque`](../packages/util/deque) | `util` | — |
 | [`home-paths`](../packages/util/home-paths) | `util` | — |
+| [`http-proxy`](../packages/util/http-proxy) | `util` | — |
 | [`launch-environment`](../packages/util/launch-environment) | `util` | — |
 | [`native-command`](../packages/util/native-command) | `util` | — |
 | [`output-retention`](../packages/util/output-retention) | `util` | — |
@@ -1278,7 +1290,6 @@ flowchart TD
 | [`client-ui-workspace`](../packages/client/ui-workspace) | `client` | — |
 | [`client-web`](../packages/client/web) | `client` | — |
 | [`code-runtime`](../packages/code-runtime/code-runtime) | `code-runtime` | — |
-| [`e2b`](../packages/e2b/e2b) | `e2b` | — |
 | [`experimental-agent-team-profile`](../packages/experimental/agent-team-profile) | `experimental` | — |
 | [`experimental-agent-team-web-profile`](../packages/experimental/agent-team-web-profile) | `experimental` | — |
 | [`experimental-webworker-packer`](../packages/experimental/webworker-packer) | `experimental` | — |
@@ -1291,7 +1302,6 @@ flowchart TD
 | [`invariants`](../packages/runtime-diagnostics/invariants) | `runtime-diagnostics` | — |
 | [`sandbox-windows-acl`](../packages/sandbox/sandbox-windows-acl) | `sandbox` | — |
 | [`storage`](../packages/storage/storage) | `storage` | — |
-| [`subprocess`](../packages/subprocess/subprocess) | `subprocess` | — |
 | [`win32-process`](../packages/subprocess/win32-process) | `subprocess` | — |
 | [`llm-mock-server`](../packages/test-support/llm-mock-server) | `test-support` | — |
 | [`typert-generator`](../packages/typert/generator) | `typert` | — |
@@ -1301,7 +1311,7 @@ flowchart TD
 | [`web`](../packages/web/web) | `web` | [`llm`](../packages/llm/llm) |
 | [`attachment`](../packages/attachment/attachment) | `attachment` | [`brand`](../packages/util/brand) |
 | [`credentials`](../packages/credentials/credentials) | `credentials` | [`invariants`](../packages/runtime-diagnostics/invariants) |
-| [`subprocess-e2b`](../packages/e2b/subprocess-e2b) | `e2b` | [`e2b`](../packages/e2b/e2b), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
+| [`e2b`](../packages/e2b/e2b) | `e2b` | [`http-proxy`](../packages/util/http-proxy) |
 | [`experimental-auth-gate`](../packages/experimental/auth-gate) | `experimental` | [`host-webserver`](../packages/host/webserver) |
 | [`experimental-code-runtime-python`](../packages/experimental/code-runtime-python) | `experimental` | [`code-runtime`](../packages/code-runtime/code-runtime), [`timeout`](../packages/util/timeout), [`util-values`](../packages/util/values) |
 | [`experimental-inspector`](../packages/experimental/inspector) | `experimental` | [`client-modules`](../packages/client/modules), [`host-webserver`](../packages/host/webserver) |
@@ -1316,18 +1326,20 @@ flowchart TD
 | [`storage-domain`](../packages/storage/storage-domain) | `storage` | [`invariants`](../packages/runtime-diagnostics/invariants), [`storage`](../packages/storage/storage) |
 | [`storage-json`](../packages/storage/storage-json) | `storage` | [`storage`](../packages/storage/storage) |
 | [`storage-sqlite`](../packages/storage/storage-sqlite) | `storage` | [`storage`](../packages/storage/storage) |
-| [`subprocess-local`](../packages/subprocess/subprocess-local) | `subprocess` | [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
+| [`subprocess`](../packages/subprocess/subprocess) | `subprocess` | [`http-proxy`](../packages/util/http-proxy) |
 | [`typert-loader`](../packages/typert/loader) | `typert` | [`typert-registry`](../packages/typert/registry) |
 | [`session`](../packages/core/session) | `core` | [`scope`](../packages/core/scope) |
 | [`system-prompt`](../packages/core/system-prompt) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
 | [`skill`](../packages/skill/skill) | `skill` | [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope) |
-| [`web-fetch-http`](../packages/web/web-fetch-http) | `web` | [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
+| [`web-fetch-http`](../packages/web/web-fetch-http) | `web` | [`http-proxy`](../packages/util/http-proxy), [`timeout`](../packages/util/timeout), [`web`](../packages/web/web) |
 | [`web-search-exa`](../packages/web/web-search-exa) | `web` | [`launch-environment`](../packages/util/launch-environment), [`web`](../packages/web/web) |
 | [`web-search-perplexity`](../packages/web/web-search-perplexity) | `web` | [`launch-environment`](../packages/util/launch-environment), [`web`](../packages/web/web) |
 | [`api-remotes`](../packages/api/remotes) | `api` | [`scope`](../packages/core/scope) |
 | [`attachment-local`](../packages/attachment/attachment-local) | `attachment` | [`attachment`](../packages/attachment/attachment), [`home-paths`](../packages/util/home-paths) |
 | [`authorization`](../packages/credentials/authorization) | `credentials` | [`credentials`](../packages/credentials/credentials), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm) |
 | [`credentials-local`](../packages/credentials/credentials-local) | `credentials` | [`atomic-write`](../packages/util/atomic-write), [`credentials`](../packages/credentials/credentials), [`home-paths`](../packages/util/home-paths), [`launch-environment`](../packages/util/launch-environment) |
+| [`subprocess-e2b`](../packages/e2b/subprocess-e2b) | `e2b` | [`e2b`](../packages/e2b/e2b), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
+| [`subprocess-local`](../packages/subprocess/subprocess-local) | `subprocess` | [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`skill-badge`](../packages/skill/skill-badge) | `skill` | [`skill`](../packages/skill/skill) |
 | [`spill`](../packages/spill/spill) | `spill` | [`brand`](../packages/util/brand), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`app-boot`](../packages/boot/app-boot) | `boot` | [`home-paths`](../packages/util/home-paths), [`launch-environment`](../packages/util/launch-environment), [`system-prompt`](../packages/core/system-prompt) |
@@ -1338,7 +1350,7 @@ flowchart TD
 | [`session-persistence`](../packages/session/session-persistence) | `session` | [`brand`](../packages/util/brand), [`session`](../packages/core/session), [`timeout`](../packages/util/timeout) |
 | [`session-projection`](../packages/session/session-projection) | `session` | [`session`](../packages/core/session) |
 | [`settings`](../packages/settings/settings) | `settings` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session) |
-| [`session-snapshot`](../packages/test-support/session-snapshot) | `test-support` | [`session`](../packages/core/session) |
+| [`session-snapshot`](../packages/test-support/session-snapshot) | `test-support` | [`http-proxy`](../packages/util/http-proxy), [`session`](../packages/core/session) |
 | [`agent`](../packages/core/agent) | `core` | [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt), [`typert-protocol`](../packages/typert/protocol) |
 | [`fs`](../packages/fs/fs) | `fs` | [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`sandbox`](../packages/sandbox/sandbox) |
 | [`spill-local`](../packages/spill/spill-local) | `spill` | [`spill`](../packages/spill/spill) |
@@ -1377,7 +1389,7 @@ flowchart TD
 | [`bash-local`](../packages/shell/bash-local) | `shell` | [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`pwsh-local`](../packages/shell/pwsh-local) | `shell` | [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell), [`subprocess`](../packages/subprocess/subprocess), [`timeout`](../packages/util/timeout) |
 | [`terminal`](../packages/terminal/terminal) | `terminal` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand) |
-| [`loader-smoke`](../packages/test-support/loader-smoke) | `test-support` | [`agent`](../packages/core/agent), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
+| [`loader-smoke`](../packages/test-support/loader-smoke) | `test-support` | [`agent`](../packages/core/agent), [`http-proxy`](../packages/util/http-proxy), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`workflow`](../packages/workflow/workflow) | `workflow` | [`agent`](../packages/core/agent), [`brand`](../packages/util/brand), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`llm-deepseek`](../packages/llm/llm-deepseek) | `llm` | [`anonymous-user-id`](../packages/identity/anonymous-user-id), [`atomic-write`](../packages/util/atomic-write), [`attachment`](../packages/attachment/attachment), [`attachment-spill`](../packages/attachment/attachment-spill), [`credentials`](../packages/credentials/credentials), [`deepseek-llm-api-extensions`](../packages/llm/deepseek-llm-api-extensions), [`fs`](../packages/fs/fs), [`home-paths`](../packages/util/home-paths), [`launch-environment`](../packages/util/launch-environment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`timeout`](../packages/util/timeout) |
 | [`llm-pi-ai`](../packages/llm/llm-pi-ai) | `llm` | [`attachment`](../packages/attachment/attachment), [`attachment-spill`](../packages/attachment/attachment-spill), [`authorization`](../packages/credentials/authorization), [`credentials`](../packages/credentials/credentials), [`fs`](../packages/fs/fs), [`launch-environment`](../packages/util/launch-environment), [`llm`](../packages/llm/llm), [`settings`](../packages/settings/settings), [`timeout`](../packages/util/timeout) |
@@ -1387,7 +1399,7 @@ flowchart TD
 | [`fs-sandbox`](../packages/fs/fs-sandbox) | `fs` | [`fs`](../packages/fs/fs), [`fs-local`](../packages/fs/fs-local), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy) |
 | [`headless`](../packages/bundle/headless) | `bundle` | [`agent`](../packages/core/agent), [`agent-default-model`](../packages/core/agent-default-model), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
 | [`compaction`](../packages/compaction/compaction) | `compaction` | [`brand`](../packages/util/brand), [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session) |
-| [`experimental-content-surface`](../packages/experimental/content-surface) | `experimental` | [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt) |
+| [`experimental-content-surface`](../packages/experimental/content-surface) | `experimental` | [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt) |
 | [`command-feedback`](../packages/feedback/command-feedback) | `feedback` | [`anonymous-user-id`](../packages/identity/anonymous-user-id), [`commands`](../packages/interaction/commands), [`session`](../packages/core/session), [`session-telemetry`](../packages/session/session-telemetry) |
 | [`permission-presets`](../packages/interaction/permission-presets) | `interaction` | [`commands`](../packages/interaction/commands), [`invariants`](../packages/runtime-diagnostics/invariants), [`sandbox`](../packages/sandbox/sandbox), [`sandbox-policy`](../packages/sandbox/sandbox-policy), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`settings`](../packages/settings/settings), [`shell`](../packages/shell/shell), [`user-approval`](../packages/interaction/user-approval) |
 | [`jobs-local`](../packages/jobs/jobs-local) | `jobs` | [`agent`](../packages/core/agent), [`jobs`](../packages/jobs/jobs), [`scope`](../packages/core/scope), [`timeout`](../packages/util/timeout) |
@@ -1439,7 +1451,7 @@ flowchart TD
 | [`api-settings-controller`](../packages/api/settings-controller) | `api` | [`agent-presets`](../packages/preset/agent-presets), [`credentials`](../packages/credentials/credentials), [`native-command`](../packages/util/native-command), [`session`](../packages/core/session), [`settings`](../packages/settings/settings), [`typert-protocol`](../packages/typert/protocol) |
 | [`web-app`](../packages/bundle/web-app) | `bundle` | [`shell-env`](../packages/shell/shell-env), [`system-prompt`](../packages/core/system-prompt) |
 | [`compaction-tool-result-pruner`](../packages/compaction/compaction-tool-result-pruner) | `compaction` | [`compaction`](../packages/compaction/compaction), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`token-meter`](../packages/llm/token-meter) |
-| [`experimental-content-frame`](../packages/experimental/content-frame) | `experimental` | [`client-locale`](../packages/client/locale), [`client-ui-chat`](../packages/client/ui-chat), [`client-ui-conversation`](../packages/client/ui-conversation), [`commands`](../packages/interaction/commands), [`experimental-content-column`](../packages/experimental/content-column), [`experimental-content-surface`](../packages/experimental/content-surface), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools) |
+| [`experimental-content-frame`](../packages/experimental/content-frame) | `experimental` | [`client-locale`](../packages/client/locale), [`client-ui-chat`](../packages/client/ui-chat), [`client-ui-conversation`](../packages/client/ui-conversation), [`client-ui-tool`](../packages/client/ui-tool), [`commands`](../packages/interaction/commands), [`experimental-content-column`](../packages/experimental/content-column), [`experimental-content-surface`](../packages/experimental/content-surface), [`host-webserver`](../packages/host/webserver), [`invariants`](../packages/runtime-diagnostics/invariants), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools), [`util-crypto`](../packages/util/crypto) |
 | [`experimental-vue2-echarts-tool-poc`](../packages/experimental/vue2-echarts-tool-poc) | `experimental` | [`attachment`](../packages/attachment/attachment), [`client-locale`](../packages/client/locale), [`client-ui-chat`](../packages/client/ui-chat), [`client-ui-tool`](../packages/client/ui-tool), [`experimental-content-column`](../packages/experimental/content-column), [`experimental-content-surface`](../packages/experimental/content-surface), [`experimental-vue2-echarts-poc`](../packages/experimental/vue2-echarts-poc), [`host-webserver`](../packages/host/webserver), [`llm`](../packages/llm/llm), [`session`](../packages/core/session), [`session-projection`](../packages/session/session-projection), [`tools`](../packages/core/tools) |
 | [`tool-cordis`](../packages/extensions/tool-cordis) | `extensions` | [`agent`](../packages/core/agent), [`cordis-host-runner`](../packages/extensions/cordis-host-runner), [`llm`](../packages/llm/llm), [`scope`](../packages/core/scope), [`session`](../packages/core/session), [`system-prompt`](../packages/core/system-prompt), [`tools`](../packages/core/tools) |
 | [`host-plugin-inventory`](../packages/host/plugin-inventory) | `host` | [`agent-presets`](../packages/preset/agent-presets), [`brand`](../packages/util/brand), [`typert-protocol`](../packages/typert/protocol) |

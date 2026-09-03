@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-01-desktop-server-vendored-plugins-off-client-runtime.md
-2026-09-01-desktop-server-vendored-plugins-off-client-runtime.md: 12fad1ae6a4d89f401df5b9d42e2e6efe48b3a98
-2026-09-01-desktop-server-vendored-plugins-off-client-runtime.zh.md: 916fb4c08458becfbc38dea8239d9616feaf8f9e
+2026-09-01-desktop-server-vendored-plugins-off-client-runtime.md: 89c1418206260f01c35dd321bad185dd720656aa
+2026-09-01-desktop-server-vendored-plugins-off-client-runtime.zh.md: 28542f5e511521ae582cb4164cb34a23ed7b03dd

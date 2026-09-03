@@ -61,10 +61,12 @@ export function isOwnerAuthorizedRuntime(name: string): boolean {
 }
 
 /**
- * Metadata overrides where the installed manifest is wrong or unreachable.
- * Each entry documents why the store cannot answer.
+ * Metadata overrides, admitted on either of two grounds: the installed manifest
+ * is wrong or unreachable, or this payload ships an archive rather than any
+ * upstream a manifest could name, so the notice must point at the archive.
+ * Each entry's comment says which ground it stands on.
  */
-const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
+export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   // Rust workspaces publishing npm bins without `license` in package.json.
   'oxlint': { license: 'MIT', repo: 'https://github.com/oxc-project/oxc' },
   'oxlint-tsgolint': { license: 'MIT', repo: 'https://github.com/oxc-project/tsgolint' },
@@ -74,19 +76,19 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@modelcontextprotocol/server-filesystem': { license: 'MIT / Apache-2.0', repo: 'https://github.com/modelcontextprotocol/servers' },
   // No repository field in the published manifest.
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
-  // Declared as a GitHub release tarball, which carries no repository field.
+  // Vendored tarball whose manifest carries no repository field.
   'dsh-at-file': { repo: 'https://github.com/omdsh-dev/dsh-at-file' },
-  // Unpublished and vendored as tarballs, so the archives committed here are the
-  // only source of record there is to name.
-  '@haoran/dsh-clickable-refs': { repo: 'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz' },
-  '@haoran/dsh-connection-banner': { repo: 'apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz' },
+  // Vendored as tarballs; the archive committed here, not a registry version, is
+  // the artifact this payload ships, so the archive is what the notice names.
+  '@haoran/dsh-clickable-refs': { repo: 'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz' },
+  '@haoran/dsh-connection-banner': { repo: 'apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.1.tgz' },
   '@haoran/dsh-default-model': { repo: 'apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz' },
   '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.5.tgz' },
   '@haoran/dsh-plugin-updates': { repo: 'apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.0.tgz' },
-  '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz' },
+  '@haoran/dsh-screenshot': { repo: 'apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.1.tgz' },
   '@haoran/dsh-vision-switch': { repo: 'apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.0.tgz' },
-  '@sumomok/dsh-balance': { repo: 'apps/desktop-server/vendor/sumomok-dsh-balance-0.3.2.tgz' },
-  '@sumomok/dsh-quote-message': { repo: 'apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz' },
+  '@sumomok/dsh-balance': { repo: 'apps/desktop-server/vendor/sumomok-dsh-balance-0.4.0.tgz' },
+  '@sumomok/dsh-quote-message': { repo: 'apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.1.tgz' },
 }
 
 /**
@@ -101,17 +103,6 @@ const PYTHON_METADATA: Record<string, { license: string; repo: string; role: str
 }
 
 type PythonMetadata = typeof PYTHON_METADATA
-
-/** Tools fetched by scripts at build time, keyed by the pin the script owns. */
-const BUILD_TIME_TOOLS = [
-  {
-    name: '@yao-pkg/pkg',
-    license: 'MIT',
-    repo: 'https://github.com/yao-pkg/pkg',
-    role: 'invoked by `scripts/build-exe-for-python-sdk.ts` to assemble the single-file SDK runtime executable',
-    pinSource: 'scripts/build-exe-for-python-sdk.ts',
-  },
-]
 
 /** The `package.json` fields this generator reads. */
 export interface Manifest {
@@ -615,16 +606,6 @@ function collectPatched(): { spec: string; patch: string }[] {
   return Object.entries(workspace.patchedDependencies ?? {}).map(([spec, patch]) => ({ spec, patch }))
 }
 
-/** Verify each build-time tool pin still appears in its owning script. */
-function verifyBuildTimePins(): void {
-  for (const tool of BUILD_TIME_TOOLS) {
-    const text = readFileSync(resolve(root, tool.pinSource), 'utf8')
-    if (!text.includes(tool.name)) {
-      throw new Error(`gen-third-party-notices: ${tool.pinSource} no longer references ${tool.name}; update BUILD_TIME_TOOLS.`)
-    }
-  }
-}
-
 /** SPDX identifiers this project may ship without further review. */
 const PERMISSIVE_LICENSES = new Set(['MIT', 'ISC', 'BSD-2-Clause', 'BSD-3-Clause', 'Apache-2.0', '0BSD', 'Unlicense', 'CC0-1.0', 'BlueOak-1.0.0', 'Python-2.0'])
 
@@ -705,7 +686,6 @@ ${rows.join('\n')}
  * @returns the exact bytes `THIRD_PARTY_NOTICES.md` must hold.
  */
 export function render(): string {
-  verifyBuildTimePins()
   // The linked-manifest cache is keyed by name only, so it must not outlive
   // the manifests map it was resolved from; render() owns that single load.
   workspaceLinkedManifestCache.clear()
@@ -777,12 +757,6 @@ Direct dependencies of the \`pyproject.toml\` manifests, plus \`uv\` as the deve
 | --- | --- | --- |
 ${python.map(dep => `| [\`${dep.name}\`](${dep.repo}) | ${dep.license} | ${dep.role} |`).join('\n')}
 | [\`uv\`](https://github.com/astral-sh/uv) | MIT / Apache-2.0 | development workflow tool |
-
-## Fetched at build time
-
-| Package | License | Role |
-| --- | --- | --- |
-${BUILD_TIME_TOOLS.map(tool => `| [\`${tool.name}\`](${tool.repo}) | ${tool.license} | ${tool.role} |`).join('\n')}
 
 ## First-party native packages
 

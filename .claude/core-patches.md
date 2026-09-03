@@ -2,6 +2,8 @@
 
 core-patches 分支上的每一个补丁在此登记；新增、修改、退役补丁时必须同步更新本文档。
 
+**当前补丁线**：`core-patches-v6`，基座 `upstream/master` = `76fda72979`（0.1.2-rc.1）。上一条线 `core-patches-v5` = `001c0d7ded`，基座 `49a606bc5b`（0.1.2-alpha.5）。
+
 ## fix(scripts): let the workspace gate see apps that never publish — 08f12ee732
 - **改了什么**：`scripts/check-workspace-constraints.ts` + 其 `.spec.ts`；给 `apps/*` 引入 private / 发布成员两种类别，新增 `isPrivateApp`、`checkPrivateAppManifest`。
 - **为什么**：`apps/desktop`、`apps/desktop-server`、`apps/pwa` 只随客户端构建分发、从不发到 npm，却被 `releaseMemberDirectory` 当成发布成员校验，四条发布元数据规则同时落空；该判定是 gate 脚本里写死的正则，没有插件层或配置层能重新分类。
@@ -136,6 +138,17 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **改了什么**：`packages/storage/storage-json/src/per-record-unit.ts` 的 `bootstrapLegacyUnit` 在引导前核 `unit.version === descriptor.version`，不同即视为过期不引导；`tests/json-backend.spec.ts` 的「任何更老版本都引导」改为同版本引导 + 新增异版本不引导用例。
 - **为什么**：`bootstrapLegacyUnit` 此前只核 `unit.name`，把旧单文档（rc.22/24 写的 `session_projcache.json`，`unit.version` 3）里的记录原样复制成当前版本（5）的记录文档；`storage-domain.open` 随后按 v5 schema 逐条 zod 校验 → 抛错 → session-projection-cache 初始化失败 → 服务端拒启，桌面 app 停在「startup failed」。真机复现于郝然本机（rc.22 家目录升 rc.27）。
 - **状态**：**退役（每日滚动同步，基座 0.1.2-alpha.5）。** 依据：上游 `d921d4b357` + `fcd109d29a` 在同一函数里加了 `const stamped = document.unit.version; if (typeof stamped !== 'number' || !acceptedStamps(descriptor).includes(stamped)) return`——`acceptedStamps` = 当前版本 + 包属主显式声明的 `compatibleVersions`，是我方「必须同版本」的**超集**（同版本照旧引导，异版本默认不引导，另允许属主把特定旧版本声明为可读）。测试等价覆盖逐条核过：我方「同版本引导」对应上游 `bootstraps an empty per-record tree from a legacy whole-unit file and preserves it`（夹具写 `version: descriptor.version`），我方「异版本不引导」对应上游 `bootstraps from a legacy file only when its stored version is accepted`（`version: 3` 对 current 2 无 compat → 空读、无记录文档、legacy 文件逐字节保留；同一用例再证声明 `compatibleVersions:[3]` 后引导且按当前版本重新打戳），我方给「tables 形状不合法」夹具补 `version: 2` 那一处上游同样已做——**无缺口，未补测试提交**。本轮预审 b 另证上游方案更优：alpha.5 的投影缓存描述符是 `version: 6 / compatibleVersions: [3,4,5]`，真机那份 `unit.version 3` 的遗留单文档被正常迁移成 31 条 v6 记录文档；继续保留我方补丁反而会让 rc.24 用户升级后丢掉全部缓存标题。本补丁在 `core-patches-v5` 上整提交 drop（`git rebase --skip`），`git diff upstream/master HEAD -- packages/storage/storage-json` 为空。 **残留风险（对抗复核补记）**：退役后行为随上游 `acceptedStamps`——v3 遗留单文档不再被拒，而是**被引导并按当前版本重贴 v6 标**。若某条 v3 记录的内容其实不满足 v6 的行/身份语义，它会以 v6 的身份被读进来；域层的 `invalidRecords: 'backup-and-skip'` 会把真正过不了 schema 的记录挪走并按未缓存服务该会话，**缓存本身可从会话日志重建**，故该风险的最坏后果是「标题等列表投影暂缺、下次打开会话后重建」这一降级，不是启动失败或错值。另：**v5→v6 的产品面证据本轮只有域层直测**（用上游夹具在 scratch store 里验 v3/v4/v5 读出、v7 丢弃、写后重戳 6）；「真机 UI 上看到 rc.27 写出的 v5 记录标题被服务出来」这一级证据本轮未取得（尝试过的 UI 级探测因那条 session 既不在可见列表、也无写触发重戳而结论不成立，已弃用），记为**派单者另行用真实 rc.27 家目录副本验证**。
+
+## feat(session-log-export): show export progress and failures in the page — f13efcd83b
+- **改了什么**：`packages/session-query/session-log-export` 两个半包 + `apps/web/tests/navigation-panes.e2e.ts`。Host 侧新增 `src/export-extent.ts`（三个响应字段名 + `SessionLogExportExtent`，host/client 两个编译面共同纳入，先例是 `dsh-client-connection` 的 `src/rpc.ts`）与 `src/archive.ts` 的 `measureSessionLogZip`；把 `sessionLogZipEntries` 里的日志遍历抽成共享的 `sessionLogTextEntries`，让「测量」和「产出条目」跑同一个遍历函数——但各跑一遍（测量一遍、产出一遍），因此两遍之间追加了事件的活动子会话会让声明值低于归档实际值。路由在流式传输前测量一次，并在 `GET`/`HEAD` 上发出 `X-Session-Export-Entries`、`X-Session-Export-Bytes` 与 `X-Session-Export-Estimated-Wire-Bytes`。客户端侧新增纯模型 `src/client/progress.ts`（按线上估算值缩放的字节度量 + 跨块统计 ZIP 局部文件头签名作下界，取较大值、条目数封顶、流未结束前压在 0.99）与 `Dialog.module.css`；`controller.ts` 从「HEAD 预检 + `<a download>` 导航」改为「`fetch` GET + `getReader()` 逐块读 + `Blob` + object URL 锚点」，新增 `cancel()`、`filenameFromContentDisposition()`（RFC 5987 `filename*` 优先），下载状态存储改 `flush: 'raf'` 按帧合并重绘；`Dialog.tsx` 变成带进度条、`已导出 <大小>`、完成态与具名失败态的面板，底部按钮传输中为「取消」、结束后为「关闭」。双语 README 与 Agent Note 三件套 `2026-09-03-session-export-progress.{md,zh.md,i18n.yaml}` 同步。
+- **为什么**：插件层做不到。导出的 UI 与导出的路由属于**同一个上游插件** `session-log-download`——fork 插件可以新增路由或槽位占位组件，但无法在保留其 Host 半包的同时只替换它的客户端半包；而进度条需要的规模数字，只有走过归档的那条路由算得出来。上游现状还有两处硬伤：路由用 `Transfer-Encoding: chunked` 且不带 `Content-Length`（真机实测 6 个会话全部如此），任何一侧都没有可画进度的数据；子会话/附件读失败发生在 `200` 之后，只能让流出错，而上游 README 把这类报告推给「浏览器下载管理器」——嵌入式外壳未必有这个界面，于是撕裂的归档在用户那里显示为成功提示。郝然的原话：「不要只是提示正在导出了，加一个导出的进度条来展示导出进度」。
+- **要达到的效果**：导出期间面板显示真实进度（路由给出规模时为确定百分比，含单条目归档；否则为不确定态），失败在页面里可见、且失败不落盘任何文件，传输中可取消；关闭面板仍不中断传输（保持上游既有语义）。
+- **退役条件**：上游落地同等能力（一次导出的进度与失败在页面里可见）即退役。
+- **状态**：在役。
+- **两处设计缺陷由真机取证否证后改掉**：(1) 早期版本按「已开始的条目数」计数，单条目归档从第一块起就顶到 99%；改为「下一个条目的头到达才算完成」。(2) 改完后字节度量除以的是**未压缩**总量，而实测压缩比 7.6 倍（779768 → 102934），进度条爬到 13% 再猛跳 100%——读起来像卡住。故新增 `X-Session-Export-Estimated-Wire-Bytes`：文本条目乘标定系数 `TEXT_DEFLATE_RATIO = 0.14`（实测区间 0.13–0.15），媒体按原值（PNG/JPEG 不可再压），`compressionLevel: 0` 时该值即未压缩总量，但仍略低于真实体积——差的是被忽略的每条目数十字节 ZIP 框架，小归档上实测偏低约 6%（9200 对 9758）。误差表现写进 README：压得更狠→提前停在 99% 等待，压得更松→约八成处直接完成。host 侧测试断言的是「level 0 下估算值等于未压缩总量」，不是「等于真实体积」。
+- **一项文档主张被取证否证并已订正**：README 原写「中途撕裂时面板显示 Host 自己的报错信息」。真机造了一个「谱系可见、日志读到一半炸」的子会话后实测：响应已是 `200`，Host 无法再传达任何信息，浏览器只给 `network error`。四份文档（双语 README + 双语 Note）已改为「报告导出撕裂了，而非为什么」，并在 README 限制条目里立案。
+- **门禁实跑（基座 `origin/core-patches-v6` = `72d966ed10`，0.1.2-rc.1）**：包内 `pnpm exec vitest run --coverage --coverage.include='packages/session-query/session-log-export/src/**' packages/session-query/session-log-export` **9 文件 / 86 用例全绿**，逐文件覆盖率 100%（statements 423/423、branches 223/223、functions 87/87、lines 370/370）。不带 `--coverage.include` 直接跑该包会退出码 1：插桩范围是全工作区，本包测试够不到的文件（`ui-primitives`、`core/tools`、`agent-presets` 等）一并计入——与本文件「每日滚动同步：alpha.4 → alpha.5」一节记过的同一个陷阱；`pnpm run typecheck` / `lint` / `build` / `verify-export-jsdoc` / `verify-agent-note-format` / `verify-translation-pairing` / `verify-md-links` / `verify-doc-budgets` 退出码均为 0；`DSH_SNAPSHOT=replay vitest --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` **7 通过 / 1 跳过**，单独跑导出用例 `-t 'downloads through the Session Header'` 亦通过。
+- **真机取证**（本工作树 `pnpm run dsh web --no-open --port 0` + scratch `DSH_HOME`，Playwright 驱动 Chromium，CDP 20 KB/s 限速）：6 个种子会话的 `entries`/`bytes` 与 `unzip -l` 实际条目数、未压缩大小逐一相等，`unzip -t` 全部无错；单条目会话进度条 1%→90% 平滑推进后完成；自造两个子会话的三条目归档 1%→94%→100%；路由改 500 拍到失败面板；日志读到一半炸的子会话拍到 `200` 后撕裂、面板显示失败且 `dl3/` 零文件落盘。自造会话已在取证后删除，六个原有会话未被改动。
 
 ## product/server-console 线上的两处上游改动（不在 core-patches 分支上）
 
@@ -371,6 +384,90 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 3. **feedback 两场景**：见上文 `a426a88c90` 条目的「副作用与处置」。
 
 **`pnpm run duplication` 现状：4 → 3**（file-sniff 那一份重复随删除消失）。剩下三处**全在补丁线我方 hunk 内，本轮不修，登记为补丁线技术债**：`api/session-controller/src/commands.ts` 两对（`[353:86-367:16]`↔`[394:68-408:16]` 15 行 76 token；`[589:23-596:17]`↔`[643:22-650:17]` 8 行 62 token）与 `client/ui-attachment/src/FileChip.tsx [111:57-123:8]` 复制 `AttachmentRail.tsx [176:21-188:8]` 的 13 行 65 token。该门禁在 develop 顶端同样红（当时 4 处），**不是本次集成引入**；抽取动作排到下一次滚动同步，抽完两边一起过门。
+
+## 每日滚动同步：0.1.2-alpha.5 → rc.1（`core-patches-v5` 001c0d7ded → `core-patches-v6`，63 个上游提交）
+镜像快进 `master` 到 `upstream/master`（`49a606bc5b..76fda72979`，先验 `git merge-base --is-ancestor master upstream/master` 与 `origin/master` 同为祖先，纯快进无 force），`git push origin master` 成功。注：`dsh-v0.1.2-rc.1` 标签落在 `a66e470204`（发版分支上），`upstream/master` 上无标签，`git describe` = `dsh-v0.1.2-rc.1-99-g76fda72979`；本轮基座取 `upstream/master`，其 `package.json` 版本即 `0.1.2-rc.1`。新工作树 `../dsh-roll6` 上 `git worktree add -b core-patches-v6 origin/core-patches-v5` + `git rebase --onto upstream/master 49a606bc5b`：v5 的 65 个提交全部落地、零 drop、零退役、零缩减（`git log --format=%s` 两侧逐行 diff 为空），随后新增 1 个适配提交，合计 66 个。
+
+**上游本轮改了什么（63 提交）**：新库 `packages/util/http-proxy`（把所有出站请求按配置的代理路由，含子进程/worker 的 `NODE_USE_ENV_PROXY` 下穿与 `.env` 代理名读取）、`packages/llm/llm-pi-ai` + `packages/client/ui-settings-models` 的模型清单发现、python 打包运行时不再劫持被 spawn 的 node 命令、`feat(session, agent, web): support same-session message editing` 合入后又整体 revert、issue-management 策略。
+
+**零退役核实（逐条对齐退化条款）**：
+- **文件级证据**：我方 239 个改动文件与上游 387 个改动文件求交，只有 13 个重合，且全是清单/生成物——`docs/config-catalog.{md,zh.md,i18n.yaml}`、`pnpm-lock.yaml`、`tsconfig.base.json`、`tsconfig.host.json`、5 个 `package.json`、2 个 `tsconfig.json`。**没有一个补丁的实体源文件被上游碰过**，因此没有任何补丁触发「上游一改同处就退役」。
+- `08f12ee732`（workspace gate 认私有 app）：上游本轮改了 12 个 `scripts/` 文件，其中**不含** `check-workspace-constraints.ts`，退化条款未触发。
+- `00770bab13`（preset selector glyph）等全部客户端补丁：上游本轮客户端改动只有 `ui-settings-models`（`ModelListEditor.tsx` + 双语 README + `provider-form.client.spec.tsx`）与 `apps/web/tests/models-settings.e2e.ts`，其余 `packages/client/*` 全是版本号行；我方补丁线在 `ui-settings-models` 下**零文件**，两侧无交集。
+- `8a2878ae6d`/`63a7eead67`（agent-presets 遗留 id `code`→`ptc`）：`git ls-tree upstream/master packages/preset/` 仍只有 `agent-presets`/`persona` 两个包，`git grep -iE "legacy|alias"` 零命中，机制仍不存在于上游。
+- 已退役的 `9b498d4a3e`、`4923774808` 维持退役，本轮未重落。
+
+**冲突与决定**（65 个重放提交中 1 个产生冲突，其余 64 个自动合并干净）：
+- `0d6f579a96`（spill oversized file attachments）：三处依赖清单并集。`packages/llm/llm-deepseek/package.json` 与 `packages/llm/llm-pi-ai/package.json` 的 `devDependencies`——上游把 `@deepseek-ai/dsh-http-proxy` 追加在 `dsh-timeout` 之后（非字典序），我方在 `dsh-timeout` 之前插 `@deepseek-ai/dsh-spill`。**决定**：并集，保留上游 `http-proxy` 的末位落点不动，`dsh-spill` 仍按字典序落在 `dsh-settings` 与 `dsh-timeout` 之间。`python/sdk-runtime/package.json`——上游把 `dsh-attachment` 移到了 `dsh-atomic-write` 之后，而本补丁原作时顺序相反。**决定**：取上游的排序形态，只在上游那行 `dsh-attachment` 后补一行 `dsh-attachment-spill`，即最小增量，不把上游的重排改回来。
+- 自动合并干净的同类文件：`packages/bundle/base/package.json`、两个 `llm/*/tsconfig.json`、`tsconfig.base.json`、`tsconfig.host.json`、`docs/config-catalog.{md,zh.md}`、`pnpm-lock.yaml`。
+- `pnpm-lock.yaml` 自动合并后**未手改**：变基后跑 `pnpm install --prefer-offline` 退出码 0，与合并结果逐字节 `diff` 无差异，供应链策略校验通过。
+
+**本轮新增 1 个适配提交**：
+1. `f62694e1ae` fix(attachment-spill): match the workspace version constraint——唯一的 fork 自有工作区包 `packages/attachment/attachment-spill` 版本停在 `0.1.2-alpha.5`，上游发版把根版本推到 `0.1.2-rc.1`，`check-workspace-constraints` 要求每个工作区包版本等于根版本。改法与上游发版提交 `a66e470204` 对每个已发布包做的完全一样（单行版本号）。变基后先单跑 `tsx scripts/check-workspace-constraints.ts` 复现该红（`package.json version must match root version 0.1.2-rc.1`），改后同一命令零输出。这是**每次基座升版都会复发**的机械项，不是本次变基引入的缺陷。
+
+**上游改动对本线的四项定向核查**：
+- **`http-proxy` 库**：我方补丁线的整段 diff 里 `https?_proxy`/`ProxyAgent`/`undici`/`globalDispatcher`/`new Agent`/`fetch(` 全部零命中——本线没有任何自建 fetch 或代理读取，无需适配。`doc-sync` 的 `proxy-aware dispatchers` 门（上游本轮新加的 `verify-no-bare-dispatcher`）在本线通过。
+- **`ui-settings-models` 模型清单发现**：本线在该包下零文件，无交集（见上「零退役核实」）。
+- **`SESSION_FORMAT_VERSION`**：上游**未**改动，`packages/core/session/src/types.ts:87` 在 alpha.5 与 rc.1 上同为 `= 0`，变基后的树亦为 `0`。
+- **`SessionEventMap` 净变化 = 0**：同会话消息编辑 `ef88756f13`（208 文件 +4057/−348）与其 revert `e974a655a0`（208 文件 +348/−4057）互相抵消，`git diff ef88756f13^ e974a655a0` 输出为空，即 revert 逐字节还原。alpha.5→rc.1 在 `packages/core/session` 与 `packages/session/*` 下的净改动只剩版本号行加一个 `session-telemetry-otel` 出网测试文件，无任何新事件成员。
+
+**门禁实跑结果**（全部在 `../dsh-roll6`，代码 HEAD `f62694e1ae`）：`pnpm install --frozen-lockfile` 退出码 0 → `pnpm run build` 退出码 0（1m23s）→ `pnpm run typecheck` 退出码 0，另跑双面冷启动 `tsc -b tsconfig.host.json --force` 与 `tsc -b tsconfig.client.json --force` 各 0 错误（24s/25s）→ `pnpm run lint` 退出码 0（23s）→ `pnpm run test` 退出码 1（见下「基座环境敏感测试红」；1057 文件中 1044 通过 / 4 失败 / 9 跳过，17835 用例中 17471 通过 / 246 失败 / 118 跳过，126s）→ `pnpm run hygiene` **16 门全绿**（11s）→ `pnpm run doc-sync` **32 门全绿**（53s）。
+
+**基座环境敏感测试红（4 个文件 246 条，全部非本次变基引入）**：
+- 取证方式：在 `upstream/master` 上新开一棵纯净工作树 `../dsh-roll6-base`（`git worktree add --detach`，`pnpm install --frozen-lockfile` 退出码 0），只跑这 4 个文件作基线。
+- `packages/experimental/code-runtime-python/tests/runtime.spec.ts`：我方 238 失败，基座 238 失败——同数。根因 `config.pythonBin "/usr/bin/python3" must be CPython 3.10 or newer, got cpython 3.9.6`，本机 `/usr/bin/python3` 是 CPython 3.9.6。
+- `packages/experimental/code-runtime-python/tests/boot-write-failure.spec.ts`：我方 6 失败，基座 6 失败——同数、同根因。
+- `packages/spill/spill-local/tests/spill-local.spec.ts`：我方 1 失败，基座 1 失败——同一条 `keeps a file exactly at the boundary`（mtime 边界精度）。
+- `packages/experimental/inspector/tests/integration.host.spec.ts`：我方全量跑里 1 失败，但在基座单跑**通过**，在本线单跑也**通过**（10/10）——判定为全量并行负载下的真实 Worker 抖动，台账已立案，不修。
+- 三项确定性红在基座合计 245 条，本线全量 246 条 = 245 + 抖动 1；四个文件在 `git diff upstream/master..core-patches-v6` 下**零改动**（与上游逐字节相同）。
+- 台账此前立案的另两项（`benchmark-npm-resolution` 进程树 PID、`oxlint-contract` FORCE_COLOR）本轮全量跑中**未复现**，状态维持立案。
+
+**旧会话可读性实证（本线读上一发行版写的真实日志）**：
+- 素材：把用户 rc.28 桌面写出的真实日志 `~/.dsh/sessions/--Users-haoran-CODE-work-project-evacuation-route--/session-9ca7767d-d3d9-4416-a6bc-b0201d6e1713/session.jsonl.zstd` **只读拷贝**到 scratch 造一个 `sessions` 根，全程不碰 `~/.dsh`。落盘头行实测 `{"type":"session","version":0,…,"agentPreset":"code"}`——带遗留预设 id `code`，正是 `8a2878ae6d`/`63a7eead67` 那对补丁负责翻译的那种老日志。
+- 用本线代码读（`JsonlSessionPersistence` + `SessionStore`，`compression: 'zstd'`）：`list()` 列出 1 个会话；`stat()` 与 `open(id,'read')` 的 header 均为 `version: 0`、`isSeeded: false`、`agentPreset: "code"`，无版本拒读；`handle.read(0)` 读出 **607 条事件**，`seq` 0..606 连续无洞，20 种事件类型（`assistant/chunk` 579、`user/message` 4、`tool/call` 1、`tool/result` 1 等），首条用户消息文本可完整读回。
+- 拒读路径仍在（不是「什么都不拒」造成的假绿）：同一个 backend 对一份伪造的 `version: 1` 头行抛 `SessionFormatUnsupportedError`，消息为 `uses log format v1, but this harness reads only v0: the log was written by a newer harness — upgrade the harness to open it`。
+
+**分支 HEAD 登记**：代码最终 HEAD = `f62694e1ae`（上表门禁数字即在其上取得）；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交，其后无提交。起点 `origin/core-patches-v5` = `001c0d7ded`（未动），基座 `upstream/master` = `origin/master` = `76fda72979`。
+## rc.29 集成合并审计：`develop` 线 × `core-patches-v6`（基座 0.1.2-rc.1）
+
+分两次合并。第一次并入 `72d966ed10`（v6 变基落地 + 1 个适配提交 + 台账），第二次并入补丁线随后追加的 `4f01454e9a`（导出进度补丁 `f13efcd83b` + 其台账条目）。集成分支 `rc29-integration` 起自 `origin/chore/vendor-screenshot-0.5.1`（`ec01e6a40e`，`git merge-base --is-ancestor origin/develop HEAD` 为真），并先线性 cherry-pick 两条同辈分支：`4b0bb71113`（更新器日志收敛）与 `5d899090a4`（外壳落位下载）。两条都零冲突自动合并，`apps/desktop/README.{md,zh.md,i18n.yaml}` 三处自动并集后 `verify-translation-pairing` 1174 对全绿，提交信息与 trailer 逐字保留。
+
+**第一次合并**：`git merge-base` = `49a606bc5b`（上游 0.1.2-alpha.5 发布合并，`--all` 唯一）。它是上游提交，所以 fork 独有文件仍全部以 add/add 落入冲突、无共同祖先——与 rc.27/rc.28 同一机理。**15 个冲突文件**（rc.28 是 32 个，本轮少一半：补丁线这一轮零退役、零删除）。8 个 fork 独有文件改用两侧真正的内容祖先 `001c0d7ded`（`core-patches-v5` 顶端）逐文件 `git merge-file`，**7 个机械消解为零冲突**：两条 port Agent Note 的中英与配对记录共 6 个文件在 v6 与 v5 之间逐字节相同（`cmp` 实证），develop 的后续修改取胜且零丢失；`packages/attachment/attachment-spill/package.json` 反过来，develop 侧与祖先逐字节相同，取 v6 的 `f62694e1ae` 版本号提升。
+
+手判 7 个：
+- `pnpm-workspace.yaml`、`THIRD_PARTY_NOTICES.md`：两个根补丁并集——上游新增的 `@yao-pkg/pkg@6.21.0` 与 fork 的 `electron-updater@6.8.9`（连同其注释块），`node-pty` 仍在末位。
+- `scripts/build-exe-for-python-sdk.spec.ts`：并集。它覆盖的 `.ts` 自动合并后同时保留了上游的 `pnpm exec pkg`（上游改用被 patch 的根 devDependency，不再 `pnpm dlx @yao-pkg/pkg@6.21.0`）与 fork 的 `filteredDeployArgs` 整条 deploy 行，故两条断言都留。
+- `packages/llm/llm-deepseek/package.json`、`packages/llm/llm-pi-ai/package.json`、`python/sdk-runtime/package.json`：取 v6——它已含我方 `dsh-spill` 与上游新增 `dsh-http-proxy`，`python/sdk-runtime` 的排序也已按滚动同步的决定落在上游形态。解后 `json.loads` 校验两个 attachment 键各出现 1 次、依赖表整体有序。
+- `pnpm-lock.yaml`（44 处冲突）：整取 v6 侧，再跑 `pnpm install` 让补丁线没有的三个 importer（`apps/desktop`、`apps/desktop-server`、`apps/pwa`）重新解析——补丁线树上根本没有这三个 app。`install` 退出 0，随后 `pnpm install --frozen-lockfile` 退出 0，十一个 `file:./vendor/*.tgz` 供应商包全部在锁内。
+- `.claude/core-patches.md`：并集，develop 的 rc.28 集成审计段在前、v6 的滚动同步段在后。`comm` 逐行实证 merged ⊇ ours、0 丢失。三条「状态」行两侧措辞不同，**取 develop 侧**：composer-intake 条 develop 是 v5 的严格超集（前后缀比对下 anc-only 文本 0 字符）；`ebd4e9c1f4` 条 develop 含 v5「落地形态修正」整段另加「落点更新」段，而 v5 独有的那句「本代码树没有 `apps/web/tests/secret-container-confirmation.e2e.ts` 及其金样」**在集成树上为假**（develop 带着这个 e2e 与金样），develop 的对应句才是正确事实；`7e37c74cdf` 条 develop 是同一事实的更完整叙述，尾句两侧相同。
+
+**第二次合并**：`git merge-base` = `72d966ed10`，是**真正的内容合并基**（两侧共同祖先），因此不吃 add/add 那一类。两侧零删除。唯一冲突仍是台账，并集：新补丁条目按本文件既有次序落在补丁登记区、rc.26 审计段之前。
+
+**三道机械护栏跑遍 250 个「两侧都改过」的文件**（`git diff --name-only 49a606bc5b <each side>` 求交，一个不跳）：① 两父任一持有的抑制注释（`oxlint-disable`/`oxlint-enable`/`eslint-disable`/`@ts-expect-error`/`@ts-ignore`/`c8 ignore`/`v8 ignore`）逐字计数，**0 丢失**；② 行级超额 2 条，全在 `docs/module-graph.i18n.yaml`，是配对哈希的新值；③ 块级重复（≥3 行连续、每行 ≥12 字符）9 条命中**全部是 `count=1 vs max=0`**，即并集造成的新相邻而非重复插入。
+
+**rc.28 立案的「删除复活」护栏本轮零命中**：以内容祖先 `001c0d7ded` 为准，v6 侧删除且不在合并基上的 fork 文件 **0 个**，develop 侧同类 **0 个**；结果树中「两个父都没有」的文件 **0 个**。上游 `B→v6` 的 3 个删除是同一条 Agent Note（`2026-08-31-pr-opened-issue-start-dates` 三件套）被上游归档改名，结果树里原路径已不在、归档路径在，正确。
+
+**生成物一律重跑不手改**：第一次合并后 12 个生成器全跑，**零 diff**——自动合并的生成物与其生成器本就一致，`verify-translation-pairing` 1179 对全绿。第二次合并后再跑 12 个，**只改动一行**，而这行暴露了补丁线自身的一处遗漏：`f13efcd83b` 把 `session-log-export` 的 `Config` 从 `src/index.ts:45` 移到 `:59` 却没重跑生成器，`origin/core-patches-v6` 自己就过不了 `verify-config-catalog`。英文侧由 `gen-config-catalog` 修正，中文侧同一处来源行手工跟上，配对重录（1180 对全绿）。
+
+**门禁实跑结果**（最终 HEAD `79162d0f1f`，工作树 `../dsh-rc29`）：`pnpm install --frozen-lockfile` 0；`build` 0；`typecheck` 0；`lint` 0；聚焦 `vitest run apps/desktop/tests scripts packages/session-query/session-log-export packages/llm/llm-deepseek` 114 文件 1807 条全绿；`packages/session-query/session-log-export` 单跑 9 文件 83 条全绿；`DSH_SNAPSHOT=replay vitest --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` 7 通过 1 跳过；`hygiene` 16/16；`doc-sync` 33/33；`verify-vendored-plugin-versions` 11 个供应商插件三处命名一致。
+
+**`pnpm run test` 全量：4 文件 246 条红，全部非本次集成引入**：
+- `code-runtime-python` 两文件 244 条：本机 `/usr/bin/python3` 是 3.9.6，该包要求 ≥3.10。基座 `core-patches-v6` 同样 244 条。
+- `packages/spill/spill-local/tests/spill-local.spec.ts` 1 条（mtime 边界）：基座同样 1 条。
+- `apps/desktop/tests/server.spec.ts` 1 条：**流交错抖动**。该测试的假 server 把 loader 错误写 stderr、20 行 filler 写 stdout，父进程按到达顺序拼一个缓冲区，满载时 stderr 那一行可能排到 stdout 突发之后，于是「消息尾 15 行不含该错误」的断言失败。`apps/desktop/tests/server.spec.ts` 与 `apps/desktop/src/server.ts` **被两次合并各自的 diff 完全没碰过**（`git diff <合并前 HEAD> HEAD --` 为空），且 `vitest run apps/desktop/tests` 单跑 19 文件 458 条全绿、聚焦跑两轮亦全绿。
+- 另见一次一过性抖动：`scripts/gen-client-catalog.spec.ts` 在全量并发下读到 `scripts/oxlint-contract.spec.ts` 刚建又删的 `packages/fs/fs-observation-policy/src/oxlint-contract-<uuid>.ts`，报 ENOENT；重跑即绿。同属并发写真实包目录的既有竞态，非本次引入。
+
+**装配层实证**（照 `apps/desktop/scripts/package.ts` 的前几步做最小复现）：`scripts/filtered-deploy.ts` 的 `filteredDeployArgs` 原样驱动 `pnpm deploy`，**全程无 `ERR_PNPM_UNUSED_PATCH`**（`8a86b8604a` 的豁免在两个根补丁并存后依然成立）；`verifyStagedPatches` 在暂存闭包上通过；`--version` 打印 `0.1.2-rc.1`；scratch `DSH_HOME` + `--port 0` 起服，**11 个内置插件全部 seeded 且 linked**，索引里 57 个 client 模块 URL 逐个 200、都注册了 `__ModuleLoader__` 且不 import Node 内置。
+
+**旧会话可读性实证**（合并树读上一发行版写的真实日志）：把用户 rc.28 桌面写出的 `session-9ca7767d-d3d9-4416-a6bc-b0201d6e1713` 只读复制到 scratch 后用本树代码读——`list()` 1 个会话，`stat()`/`open()` 头行一致（`version: 0`，`agentPreset: "code"`），`read(0)` 得 **607 条事件、seq 0..606 连续**、20 种事件类型、首条 `user/message` 正文可读。拒读路径仍在：同一 backend 对伪造的 `version: 1` 头行抛 `SessionFormatUnsupportedError`。
+
+**随本次集成登记、不在本次修**：`scripts/filtered-deploy.ts` 的 `STAGED_PATCHES` 文档只解释了 `electron-updater` 为何不在表内；上游新增的 `@yao-pkg/pkg` 同样不在（它是根 devDependency，永远进不了 `--prod` 闭包），该理由尚未写进那段 JSDoc。不影响任何门禁，排到下一次触碰该文件时补齐。
+
+**第三次合并**：并入补丁线随后追加的 `fa7d5afc65`（`84676f680a` 目录重生 + `fa7d5afc65` 导出测量表述订正）。`git merge-base` = `4f01454e9a`，仍是真正的内容合并基；**零冲突**，18 个文件全部自动合并。`docs/config-catalog.{md,zh.md,i18n.yaml}` 压根没进合并 diff——补丁线这一次自己补跑了生成器，落到的结果与第二次合并时集成侧的手工修正逐字节相同；合并后 `gen-config-catalog` 重跑零 diff，`verify-config-catalog` 与 `verify-translation-pairing`（1180 对）全绿。代码面实质变化三处：`SessionLogExportExtent.bytes` 转为可选（它只作诊断，浏览器不按它缩放进度条，缺它仍是确定态进度条），`controller.ts` 在最后一次 read 与落盘之间补 `signal.throwIfAborted()`（晚到的取消不再把归档交给浏览器），`Dialog.tsx` 收到首字节后文案由「正在准备」切「正在传输」（新增 `dialog.transferringDescription` 双语条目）；其余是 JSDoc/README/Note 把「测量与产出共用一次遍历」订正为「共用遍历函数、各跑一遍」，以及 e2e 条目数断言由 `toBe(1)` 放宽为 `toBeGreaterThanOrEqual(1)`。
+
+**第三次合并后门禁实跑**（合并提交 `331f51b188`，工作树 `../dsh-rc29`）：`pnpm install --frozen-lockfile` 0；`typecheck` 0；`lint` 0；`vitest run packages/session-query/session-log-export apps/desktop/tests` **28 文件 544 条全绿**；`DSH_SNAPSHOT=replay vitest --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` 7 通过 1 跳过；`doc-sync` **33/33**；`verify-vendored-plugin-versions` 11 个供应商插件三处命名一致。
+
+**分支 HEAD 登记**：`rc29-integration` 三次合并依次为 `b4275d2c35`、`79162d0f1f`、`331f51b188`。桌面版本号在前两次合并时不动；本节所在的这个 `docs(core-patches)` 提交之后即 `release(desktop): 0.1.0-rc.29`（只改 `apps/desktop/package.json` 一行，照 rc.28 的 `9b21859de6` 原样），随后打包。
 
 ## rc.28 基座合并：`feat/base-develop` ← `origin/develop`（`0da04a8ade`，上游 alpha.5+38）
 

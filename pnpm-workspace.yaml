@@ -91,4 +91,28 @@ minimumReleaseAgeExclude:
   - '@openai/codex@0.149.1||0.149.1-darwin-arm64||0.149.1-darwin-x64||0.149.1-linux-arm64||0.149.1-linux-x64||0.149.1-win32-arm64||0.149.1-win32-x64'
 
 patchedDependencies:
+  '@yao-pkg/pkg@6.21.0': patches/@yao-pkg__pkg@6.21.0.patch
+  # electron-builder commit 5eed26b2a9cfd06a1dbe207b25a46ce2c0b05ae9 (PR #10021),
+  # verbatim: the multipart range branch of the differential download attaches
+  # `response.on("error", reject)` like the single-range branch beside it, so an
+  # interrupted multipart response rejects instead of raising an unhandled
+  # 'error' event, which in the Electron main process is an uncaught exception.
+  # Retire this entry and patches/electron-updater@6.8.9.patch at the first
+  # electron-updater release that carries that commit; 6.8.9 is the latest
+  # published version and predates it. pnpm raises that question by itself:
+  # with neither allowUnusedPatches nor ignorePatchFailures set, a bump that
+  # leaves this exact-version patch unused or unapplicable fails the install
+  # (ERR_PNPM_UNUSED_PATCH / ERR_PNPM_PATCH_FAILED) instead of dropping it.
+  # That is the root install only. Every filtered `pnpm deploy` of a closure
+  # that lacks a patched package passes --config.allow-unused-patches=true —
+  # today the desktop server closure and the Python runtime closure, neither of
+  # which contains electron-updater — because pnpm applies these patches to a
+  # deploy too and would end it in ERR_PNPM_UNUSED_PATCH before staging
+  # anything. That flag is one boolean for the whole deploy and masks every
+  # patch it leaves unused, which is why the root install stays strict
+  # (scripts/filtered-deploy.ts). Because pnpm then says nothing, that module's
+  # verifyStagedPatches reads the staged tree for the text each applied patch
+  # adds: a closure that stops containing a STAGED_PATCHES package fails it on
+  # purpose, and the table there is where an intended change is recorded.
+  electron-updater@6.8.9: patches/electron-updater@6.8.9.patch
   node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch

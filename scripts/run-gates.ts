@@ -304,6 +304,7 @@ function ciSharedStaticGates(): Gate[] {
     }),
     pnpmScript('client-packages', 'verify-client-packages', { label: 'client packages' }),
     pnpmScript('client-ui-i18n', 'verify-client-ui-i18n', { label: 'client UI i18n' }),
+    pnpmScript('no-bare-dispatcher', 'verify-no-bare-dispatcher', { label: 'proxy-aware dispatchers' }),
     pnpmScript('issue-management', 'test:issue-management', { label: 'Issue management policy' }),
   ]
 }
@@ -699,6 +700,7 @@ function hygieneLeafGates(options: { artifactNeeds?: string[] } = {}): Gate[] {
     }),
     pnpmScript('client-packages', 'verify-client-packages', { label: 'client packages' }),
     pnpmScript('client-ui-i18n', 'verify-client-ui-i18n', { label: 'client UI i18n' }),
+    pnpmScript('no-bare-dispatcher', 'verify-no-bare-dispatcher', { label: 'proxy-aware dispatchers' }),
   ]
 }
 
@@ -736,6 +738,7 @@ function docSyncLeafGates(options: {
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs', quick: true }),
     pnpmScript('subsystem-pages', 'verify-subsystem-pages', { label: 'subsystem pages' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
+    pnpmScript('vendored-plugin-versions', 'verify-vendored-plugin-versions', { label: 'vendored plugin versions', quick: true }),
     pnpmScript('tsconfig-paths', 'verify-tsconfig-paths', { label: 'tsconfig paths' }),
     pnpmScript('config-source-ownership', 'verify-config-source-ownership', { label: 'config source ownership' }),
     pnpmScript('package-readme-model-experience', 'verify-package-readme-model-experience', { label: 'package README model experience', quick: true }),

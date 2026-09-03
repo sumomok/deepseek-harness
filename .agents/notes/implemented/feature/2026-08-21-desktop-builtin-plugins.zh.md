@@ -14,13 +14,13 @@ Status: implemented
 
 插件随 deploy 闭包一起分发,桌面壳在启动服务端之前把它们的名字放进 profile。
 
-**闭包。**`apps/desktop-server/package.json` 在 workspace 包旁边以精确版本声明 `dsh-better-sidebar` 与 `dsh-at-file`,`pnpm deploy` 于是把它们和服务端闭包的其余部分一起物化进 `resources/server/node_modules`。版本归携带该次构建的安装包所有;插件没有独立的更新通道。
+**闭包。**`apps/desktop-server/package.json` 在 workspace 包旁边以 `file:` tarball 声明 `dsh-better-sidebar` 与 `dsh-at-file`,`pnpm deploy` 于是把它们和服务端闭包的其余部分一起物化进 `resources/server/node_modules`。版本归携带该次构建的安装包所有;插件没有独立的更新通道。
 
-**版本。**`dsh-better-sidebar` 是 npm 上的 `0.14.0`,而且这是下限而非偏好:`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,改由 `ctx.modules` 服务提供,而 `0.13.1` 里每个懒加载 chunk 正是靠前者解析外部依赖的。在该版本及之后的任何宿主上,`0.13.1` 都会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,并丢掉终端、编辑器与 Mermaid 面板。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`——本仓库有 `0.1.1-rc.1` 这一版——把插件自有的全局共享给它的 chunk 副本,并移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。它的 `node-pty` 范围没变,所以下面那条 override 照原样继续生效。
+**版本。**`dsh-better-sidebar` 的下限是 `0.14.0`,而且这是下限而非偏好:`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,改由 `ctx.modules` 服务提供,而 `0.13.1` 里每个懒加载 chunk 正是靠前者解析外部依赖的。在该版本及之后的任何宿主上,`0.13.1` 都会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,并丢掉终端、编辑器与 Mermaid 面板。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`——本仓库有 `0.1.1-rc.1` 这一版——把插件自有的全局共享给它的 chunk 副本,并移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。它的 `node-pty` 范围没变,所以下面那条 override 照原样继续生效。
 
-`dsh-at-file` 取的是作者仓库的 `v0.6.5`,而不是 npm 的 `0.6.3`,理由正是下面那处分裂解析:一个 bundle 的 patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`。对着一个自行装了 `v0.6.5` 的 profile 分发 `0.6.3`——第一台跑起这个插件的机器正是这个状态——会让 `0.6.3` 的一行配上 `v0.6.5` 的代码。
+`dsh-at-file` 走在作者最新 npm 发布版之前,理由正是下面那处分裂解析:一个 bundle 的 patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`。对着一个自行装了更新版本的 profile 分发注册表上那一版——第一台跑起这个插件的机器正是这个状态——会让一个版本的一行配上另一个版本的代码。
 
-这条依赖写的是该 tag 所指的提交(`289f19bb`),而不是它的归档 URL。pnpm 不为 GitHub 归档 tarball 记录 `integrity`,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目——`ERR_PNPM_MISSING_TARBALL_INTEGRITY`,它当场让打包运行失败。提交本身就是它的哈希,所以 `resolution: {commit, repo, type: git}` 对内容的钉死程度不亚于注册表的 `integrity`。安装期什么都不构建:该仓库把 `lib/` 提交了进去,也没有声明 `prepare` 脚本。作者在注册表发布 `0.6.5` 或更高版本,就是换回普通版本号的理由。
+这条依赖指向的是提交进 `apps/desktop-server/vendor/` 的一个 tarball,而不是归档 URL。pnpm 不为 GitHub 归档 tarball 记录 `integrity`,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目——`ERR_PNPM_MISSING_TARBALL_INTEGRITY`,它当场让打包运行失败。提交进来的归档会像注册表版本一样拿到 `integrity` 哈希。安装期什么都不构建:归档里带的是构建好的 `lib/`,也没有声明任何生命周期脚本。作者在注册表发布到所分发版本或更高,就是换回普通版本号的理由。
 
 **播种。**`apps/desktop/src/profile-seed.ts` 在 Electron 主进程里、遗留进程清扫与 `startServer` 之间运行,只补上启动所需的三件事:
 
@@ -36,7 +36,7 @@ Status: implemented
 
 两处写入都是追加式且幂等的。已列出的名字不会重复追加,已经指向正确目录的链接原样保留,任何 bundle 条目、依赖或清单里的其他字段都不会被删除或改写。"已经指向正确目录"由 `sameLinkTarget` 判定:比较前先剥掉 `\\?\` 扩展长度前缀、归一化尾部分隔符,并把相对读取的结果按链接自身所在目录解析——Windows 读回 junction 的形式与创建它的字符串本就不同,裸比较对一条正确的链接也为假,于是每次启动都会删掉重建。上游 `packages/boot/app-boot/src/profile.ts` 里的 `ensureSymlink` 用的是裸比较,存在同一处缺陷。清单以 rename 替换,所以写到一半被打断的启动留下的是原来那份文件,而不是被截断的一份。整次运行如实汇报它做了什么,启动日志写一行,没改动则不写。
 
-**profile 里的副本只报告,绝不改动。**当 profile 自己的 `node_modules` 里有某个内置插件的另一版本时,那一份才是 Loader 导入的代码,而 patch 层依旧来自安装目录。播种会在自己那行日志后追加一条 warning——`profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module; patch layer comes from the shipped copy`——并且什么都不改:profile 的依赖归安装它的人所有,`dsh plugin --profile desktop remove <name>` 是用户该做的动作,不是壳该做的。
+**profile 里的副本只报告,绝不改动。**当 profile 自己的 `node_modules` 里有某个内置插件的另一版本时,那一份才是 Loader 导入的代码,而 patch 层依旧来自安装目录。播种会在自己那行日志后追加一条 warning——`profile copy dsh-at-file@0.6.3 shadows the shipped 0.7.0 module; patch layer comes from the shipped copy`——并且什么都不改:profile 的依赖归安装它的人所有,`dsh plugin --profile desktop remove <name>` 是用户该做的动作,不是壳该做的。
 
 **过了第一次写入,这里没有任何一处是致命的。**壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断;没有声明 bundle 列表的清单按手写编排对待(往一个不存在的列表里追加两个名字,会得到一个只挂载内置插件、别无其他的 profile);该放链接的位置上是真实目录则如实报告而不是删掉;载荷里没有的插件绝不写进清单——列出却解析不了的 bundle 会让启动硬失败,所以播种只写它看得见的东西。一个因为看不懂 profile 就拒绝启动的壳,比一个少了侧栏的壳更糟。
 
@@ -102,7 +102,7 @@ Status: implemented
 
 用户在自己 `web` profile 里做的定制不会跟着到桌面客户端,后者挂载的是 `desktop`。没有任何东西需要先清理:此前没有任何已发布版本播种过 `web`——rc.16 的 `app.asar` 里没有 `profile-seed`——所以不存在哪个共享 profile 带着只有应用才解析得了的名字。内置插件也不用管,桌面端自带。真正需要用户重做一遍的,是他自己装进 `web` 的那些,也就是 `~/.dsh/profiles/web/package.json` 里的 `dependencies` 列表;用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。README 记的就是这一条。
 
-`dsh-at-file` 是载荷里唯一一个不来自注册表的依赖。提交钉死是可验证的,但这也意味着这个包是那个仓库树的内容,而不是按 `files` 过滤后的发布产物,于是载荷里带上了它的 `src/`、`tests/` 与构建配置——几个小文件,后缀裁剪大多会清掉。注册表上出现 `0.6.5` 或更高版本时,值得换回去。
+载荷里的每个内置插件都来自一个提交进来的归档,而不是注册表,所以每一个都是它那份归档的内容,而不是注册表对同一版本号会给出的内容。注册表上出现所分发版本或更高版本时,值得换回去。[vendored plugin reference gate](../process/2026-09-03-vendored-plugin-reference-gate.zh.md) 负责这些归档如何命名,以及如何与复述它们的清单、声明文件与 README 表格保持一致。
 
 `pnpm-workspace.yaml` 的 override 把插件的 `node-pty` 绑到 harness 内核钉住的版本上。挪动内核的钉子就得连同挪动这条 override,而那时要重新核对的是插件自己的兼容窗口,不只是 harness 的。
 

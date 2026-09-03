@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-attachment-spill",
   "description": "Idempotent, session-scoped spill materialization for oversized text-file attachments (DeepSeek Harness) — replaces truncated inline attachment text with a locator the model reads on demand",
-  "version": "0.1.2-alpha.5",
+  "version": "0.1.2-rc.1",
   "publishConfig": {
     "access": "public"
   },

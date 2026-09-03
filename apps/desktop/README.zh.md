@@ -25,6 +25,8 @@ pnpm exec tsx apps/desktop/scripts/package.ts --win        # NSIS installer (x64
 
 **通知打开的是应用,不是会话。**Web UI 没有 URL 路由,壳无处可导航;是侧边栏自己的待交互与已完成标记指认出那个发问的会话。
 
+**所服务 UI 下载的东西直接存下来,不再问。**窗口是浏览器面,却没有浏览器的下载管理器,于是 Electron 对一次下载的回答是一张什么都不解释的模态「存储为」面板——而发起下载的页面早已宣布下载开始了,会话日志导出在传输一开始就打出「Session 导出已开始下载」,把那张面板划掉就等于丢掉这次导出,页面上却仍然一副成功的样子。因此,重定向链上每一跳都与内嵌服务器同源的传输直接落进系统下载文件夹,用它自己建议的文件名;该名字已被占用时,在最后一个点后缀之前插入 ` (2)`、` (3)` ……;结果则由壳按下载管理器的方式报出:一条点名该文件的通知,点击在文件管理器里定位它,以及每一次被接管的传输——完成、取消或中断——在 `dsh-server.log` 里各留一行。同源包含页面为自己铸造的 `blob:` URL,它的 origin 就是页面自己的;`data:` URL 不带 origin,永远不会被接管,来自其他 origin 的传输也一样,从别处起手再重定向进服务器、或从服务器起手再重定向出去的也一样——它们保持 Electron 的默认行为,连那张面板一起,因为不是这个壳服务出去的文件就不归它安置。macOS 把下载文件夹拦在 TCC 后面,所以 `electron-builder.yml` 里的 `NSDownloadsFolderUsageDescription` 给系统的授权弹窗一个说得出口的理由。
+
 ## 更新机制
 
 已安装的客户端读一个静态更新源——一个 electron-builder `generic` provider 目录,里面是清单与它们点名的产物:
@@ -72,7 +74,9 @@ reg add "HKLM\SOFTWARE\e36966b0-1805-5ec4-9648-404e09da7db1" /v InstallLocation 
 
 **没有**签名的构建保持旧行为:自己比对版本,用系统浏览器打开下载,只在启动时或手动检查时,绝不在会话中途。走哪一条由每次检查现场判断:看 `Contents/_CodeSignature/CodeResources` 在不在——签名会写出它,ad-hoc 链接器签名不会。已签名的构建若在运行期以重试修不好的方式失败,本次运行剩余时间降到同一条下载路径,并留下一行日志,而不是让这次检查以错误框收场。
 
-**下载中断会先重试,再谈放弃。**electron-updater 不保留失败传输的任何部分:全量下载不发 `Range` 头,而任何错误都会删掉半截文件并清空 pending 目录。因此 `src/download-retry.ts` 在失败前面放了三次完整重试——间隔 2 秒、6 秒、18 秒——进度窗不关,并写明正在等待第几次。会重试的是网络:连接被切断或被拒绝、DNS 失败、请求超时、任何 `net::ERR_…`,以及更新源返回的 5xx、408、425、429。不重试的是判定:`ERR_UPDATER_*` 拒绝、签名不符、校验和不匹配、4xx——以及分类器不认识的任何失败,它们默认按致命处理,这样一个不认识的错误不会再赔上三次整包传输。重试用尽后,这次下载只记日志并就地放弃:层级不变,**macOS 不降级**,下一次定时检查从头再传一遍,手动检查会收到一个对话框说明此事。致命失败仍按上面那套层级规则走——macOS 在本次运行剩余时间降到下载页,并在那一层重跑这次检查。重试并不会让更新变成可续传:差量下载需要缓存目录里存在上一版的 `update.zip`,所以全新安装之后的第一次更新,每次尝试都是整包传输。每次重试与结束它的那个结论都写进 `dsh-server.log`。
+**下载中断会先重试,再谈放弃。**electron-updater 不保留失败传输的任何部分:全量下载不发 `Range` 头,而任何错误都会删掉半截文件并清空 pending 目录。因此 `src/download-retry.ts` 在失败前面放了三次完整重试——间隔 2 秒、6 秒、18 秒——进度窗不关,并写明正在等待第几次。会重试的是网络:连接被切断或被拒绝、DNS 失败、请求超时、任何 `net::ERR_…`,以及更新源返回的 5xx、408、425、429。不重试的是判定:`ERR_UPDATER_*` 拒绝、签名不符、校验和不匹配、4xx——以及分类器不认识的任何失败,它们默认按致命处理,这样一个不认识的错误不会再赔上三次整包传输。重试用尽后,这次下载只记日志并就地放弃:层级不变,**macOS 不降级**,下一次定时检查从头再传一遍,手动检查会收到一个对话框说明此事。致命失败仍按上面那套层级规则走——macOS 在本次运行剩余时间降到下载页,并在那一层重跑这次检查。重试并不会让更新变成可续传:差量下载需要缓存目录里存在上一版的 `update.zip`,所以全新安装之后的第一次更新,每次尝试都是整包传输。每次重试与结束它的那个结论都写进 `dsh-server.log`。electron-updater 自己的日志也写进同一个文件,只去掉它的 `debug` 通道:一次差量下载会把整份分块计划从这个通道倒出来——在观测到的那一次更新里约 650 行 JSON,不含版本、大小,也不含失败——而概括同一份计划的那两行 `info`(`File has N changed blocks`、`Full: … To download: … (P%)`)保留。另有两行 `debug` 跟着一并保留,顶着 `debug:` 标记,因为它们说的事别处不记:`nativeUpdater.update-downloaded`,macOS 上 Squirrel 完成暂存的唯一凭据;以及 `updater cache dir: <path>`,它给出的目录决定下一次更新能不能走差量。electron-updater 写进那里的行里,唯一一条为「它自己已经恢复过来的失败」带上堆栈的,会被改写而不是照搬:在 Windows 与 macOS 上同样,`Cannot download differentially, fallback to full download` 带着堆栈、顶着 `error` 字样,出现在一次随后仍以全量下载完成的更新里,`src/updater-log.ts` 把它压成一行,只说原因。
+
+**要求多于一个范围的差分下载已打补丁。**electron-updater 6.8.9 没有给多段响应挂 `error` 监听,而计划中范围多于一个时发出的正是多段请求,于是传输中途被切断的连接会抛出一个没人监听的 `error` 事件——主进程里的未捕获异常,也就是 Electron 自带的「A JavaScript error occurred in the main process」对话框,盖在一次随后仍以全量下载完成的更新上面。`patches/electron-updater@6.8.9.patch` 携带上游的一行修复(electron-builder 提交 `5eed26b2a9cfd06a1dbe207b25a46ce2c0b05ae9`,PR #10021),直到有发行版带上它为止。`tests/electron-updater-multipart.spec.ts` 对着 `node_modules` 里的那份副本钉住这个行为,补丁在与不在都保持通过;真正来讨要这个补丁的是 pnpm——当某次升级让这条精确版本补丁变得无用或无法应用时,它会让安装失败。
 
 **检查被打断也会重试,用的是另一份计划。**一次检查只传一份小清单,被打断的代价是一个请求而不是整包传输,所以计划是两次重试——间隔 1 秒、3 秒;这四秒的等待还装得进强制启动门允许的十五秒,于是撞上断连的启动门是从一次重试、而不是从它自己的超时里得出结论。重试与不重试的界线和下载一致,由同一个分类器判定。瞬时失败熬过重试后,只赔上这一次检查:**macOS 保住原地安装的层级**,启动门退回自己去读 `latest-mac.yml`,下一次检查照旧先走原地这一条。只有重试修不好的失败——`ERR_UPDATER_*` 拒绝,或更新源上这个通道根本没有清单——才会把 macOS 在本次运行剩余时间降到下载页。
 
@@ -122,25 +126,25 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 | 包名 | 版本 | 提供什么 |
 |---|---|---|
-| `dsh-better-sidebar` | `0.15.2`,来自 npm | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
-| `dsh-at-file` | `v0.6.5`,来自作者仓库该 tag 所指的提交 | 输入框里的 `@` 文件提及 |
-| `@haoran/dsh-screenshot` | `0.4.0`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面,登录墙后的页面也包括在内——截回来的图是一堵登录墙时,它变成一个问题,你的回答要么打开一个由你自己完成登录的窗口,要么复用这台机器上已有的登录,随后在那个站点自己的分区里重新截一次。没有这个回答就什么都不复用,cookie 的值从不作为工具参数或返回值出现,已存的登录在设置页的一个小节和 `/screenshot-logout <域名>` 里管理。它把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写进工作区内;配置决定 cookie 罐、user agent(默认是稳定版 Chrome 的字符串,不是壳自己的)与由哪个后端渲染 |
+| `dsh-better-sidebar` | `0.18.0-alpha.0-patched1`,来自提交进本仓库的 tarball | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
+| `dsh-at-file` | `0.7.0-da602d1`,来自提交进本仓库的 tarball | 输入框里的 `@` 文件提及 |
+| `@haoran/dsh-screenshot` | `0.5.1`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面,登录墙后的页面也包括在内——截回来的图是一堵登录墙时,它变成一个问题,你的回答要么打开一个由你自己完成登录的窗口,要么复用这台机器上已有的登录,随后在那个站点自己的分区里重新截一次。没有这个回答就什么都不复用,cookie 的值从不作为工具参数或返回值出现,已存的登录在设置页的一个小节和 `/screenshot-logout <域名>` 里管理。它把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写进工作区内;配置决定 cookie 罐、user agent(默认是稳定版 Chrome 的字符串,不是壳自己的)与由哪个后端渲染 |
 | `@haoran/dsh-llm-permission-gateway` | `0.1.5`,来自提交进本仓库的 tarball | 自动审查这个权限预设——在权限选择器里带上完全权限那枚盾形图标——以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型。向你提问不算其中之一:`ask_user_question` 不经审查直接放行,因为它的全部效果就是把一段文字摆在你面前等你回答,审查它只会多一次模型调用,并在它本来要显示的那个提问前面再加一道提示 |
-| `@sumomok/dsh-quote-message` | `0.2.2`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,引用 chip 在你发送时展开成一段 markdown 引用块,而对话里它显示成你这条消息上方的一段引文——左侧一条细线,引用文字用次级墨色,超过三行折起 |
-| `@sumomok/dsh-balance` | `0.2.3`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 公布的 CNY 与 USD 价格 |
-| `@haoran/dsh-connection-banner` | `0.1.0`,来自提交进本仓库的 tarball | 连接正在重连期间,页面顶部的一条横幅——短暂的抖动不出声,断线过了几秒才现身,一恢复就立刻消失 |
-| `@haoran/dsh-clickable-refs` | `0.3.3`,来自提交进本仓库的 tarball | 让终端(bash 工具)输出与 web-fetch 卡片里的 URL 可点击:每一次命中——POSIX 或 Windows 路径、UNC 共享、localhost/loopback URL——都经由 referent/open 这道 waterfall 缝打开,对可执行/脚本扩展名有一份拒绝名单,过期路径则降级为「未找到」 |
-| `@haoran/dsh-plugin-updates` | `0.1.1`,来自提交进本仓库的 tarball | 插件设置里的「更新」页:把你自己装的插件与各自最新的发布版本列在一起,每行一个按钮,经由随安装包分发的那个包管理器安装,还有一步把上一次更新撤回。内置插件不在这份名单里——壳给它们种下的是没有依赖条目的 bundle 项,它们随应用更新而更新 |
-| `@haoran/dsh-vision-switch` | `0.1.0`,来自提交进本仓库的 tarball | 在当前模型不支持图片时发送带图片的消息,会经由手动切换模型走的那条同一通道把会话切到一个支持图片的模型,而不是宿主那个走不下去的拒绝 |
+| `@sumomok/dsh-quote-message` | `0.3.1`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,引用 chip 在你发送时展开成一段 markdown 引用块,而对话里它显示成你这条消息上方的一段引文——左侧一条细线,引用文字用次级墨色,超过三行折起 |
+| `@sumomok/dsh-balance` | `0.4.0`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 公布的 CNY 与 USD 价格。chip 的浮层里带一个**充值**按钮,对插件收录了控制台页面的那些供应商可见,点开走系统浏览器 |
+| `@haoran/dsh-connection-banner` | `0.2.1`,来自提交进本仓库的 tarball | 连接正在重连期间,页面顶部的一条横幅——短暂的抖动不出声,断线过了几秒才现身,一恢复就立刻消失 |
+| `@haoran/dsh-clickable-refs` | `0.4.1`,来自提交进本仓库的 tarball | 让终端(bash 工具)输出、web-fetch 卡片里的 URL 与助手正文可点击:每一次命中——POSIX 或 Windows 路径、UNC 共享、localhost/loopback URL——都经由 referent/open 这道 waterfall 缝打开,对可执行/脚本扩展名有一份拒绝名单,过期路径则降级为「未找到」 |
+| `@haoran/dsh-plugin-updates` | `0.2.0`,来自提交进本仓库的 tarball | 插件设置里的「更新」页:把你自己装的插件与各自最新的发布版本列在一起,每行一个按钮,经由随安装包分发的那个包管理器安装,还有一步把上一次更新撤回。内置插件不在这份名单里——壳给它们种下的是没有依赖条目的 bundle 项,它们随应用更新而更新 |
+| `@haoran/dsh-vision-switch` | `0.2.0`,来自提交进本仓库的 tarball | 在当前模型不支持图片时发送带图片的消息,会经由手动切换模型走的那条同一通道把会话切到一个支持图片的模型,而不是宿主那个走不下去的拒绝 |
 | `@haoran/dsh-default-model` | `0.1.2`,来自提交进本仓库的 tarball | 出厂默认模型:全新安装的第一个会话开在 `deepseek-v4-flash-vision-exp` 上,选择器把它列为 `default` |
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
 
 **这个网关随包挂载,但自动审查不是默认值。**插件自带它的权限预设,所以预设控件里会在 `read-only`、`workspace-write`、`danger-full-access` 旁边多出一项自动审查。没有任何东西会替你选中它:编排出来的默认值是 `workspace-write` 加 `ask`,新会话被钉住的仍然是它。选中自动审查会把操作系统沙箱关掉——文件系统与命令不再有操作系统层面的围墙——并把一个审查模型放到那个位置上,由它逐个判断有副作用的工具调用,只在自己拿不准或审查失败时才弹审批框。此后安全性取决于那个模型的判断质量,而不再取决于沙箱。这个预设写在插件自己的 patch 层里,而不是写在你的 profile 里,所以它恰好在这个 bundle 挂载期间存在,两者同来同去。两条红线——凭据外泄,以及对权限系统自身的改动——编译在插件里,配置关不掉。
 
-**`dsh-at-file` 取自 tag 而非注册表**,因为作者在 npm 上只发到 `0.6.3`,而 tag 已经到 `v0.6.5`。分发 `0.6.3` 会与自行装了 `v0.6.5` 的 profile 配不上:一个 bundle 的两半从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`——于是这一行来自 `0.6.3`,代码来自 `v0.6.5`。这条依赖写的是该 tag 所指的**提交**,而不是它的归档 URL:pnpm 不为 GitHub 归档记录完整性哈希,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有完整性字段的 lockfile 条目。提交本身就是它的哈希,于是 lockfile 钉住的是内容。该仓库把构建好的 `lib/` 提交了进去,也没有声明 `prepare` 脚本,所以安装期什么都不构建。
+**每个内置插件都以一条 `file:` 标识符指向 `apps/desktop-server/vendor/` 下的一个 tarball**,与声明它的清单放在一起提交;那个归档就是渠道:这些内置插件没有一个是从注册表装来的。`@haoran` 那几个插件哪里都没发布。`@sumomok/dsh-balance` 的归档与它的发布版逐字节相同。`@sumomok/dsh-quote-message` 与 `dsh-at-file` 走在各自作者最新发布版之前,`dsh-better-sidebar` 的归档是一个发布版按本仓库的改动重打而成,改动登记在 `.claude/core-patches.md`。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去。
 
-**九个随仓库 vendor 的插件都没有发布**,所以它们各自的依赖都是一条 `file:` 标识符,指向与声明它们的清单放在一起的 `apps/desktop-server/vendor/` 下的 tarball。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去;没有别的渠道,因为九个都不在任何注册表上。
+**走在注册表之前,正是 profile 自己那份内置插件副本不只是重复、而是隐患的原因。**`dsh plugin add dsh-at-file` 装到的是最新发布版,而它落后于这里分发的归档,于是一个 bundle 的两半会从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`。这一行来自一个版本,代码来自另一个版本;启动会如实报告而不去修它,见下文。
 
 **十一个里有九个带浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,`dsh-at-file`、`dsh-better-sidebar`、`@haoran/dsh-screenshot`、`@haoran/dsh-plugin-updates`、`@sumomok/dsh-quote-message`、`@sumomok/dsh-balance`、`@haoran/dsh-connection-banner`、`@haoran/dsh-clickable-refs` 与 `@haoran/dsh-vision-switch` 声明了它。另外两个没有:权限预设与默认模型都是 loader 去读的编排,页面从不加载。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把十一个都解析了。
 
@@ -179,7 +183,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 **桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这十一个在桌面 profile 里已经有了,其余的也由上面那个同步持续搬过来;此后你再加进 `web` 的插件,要么在你下次启动时自然抵达 `desktop`,要么用 `dsh plugin --profile desktop add <包>` 立刻装进桌面 profile,它列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里。
 
-**如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.6.5 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile desktop remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
+**如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.7.0 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile desktop remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
 
 **要关掉其中一个,就在** `$DSH_HOME/profiles/desktop/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`,截图工具是 `screenshot`,引用是 `ui-quote-message`,余额 chip 是 `balance`,更新页是 `plugin-updates`:
 
@@ -308,7 +312,7 @@ pnpm --filter @deepseek-ai/dsh-desktop run render-smoke
 
 ## 服务器环境
 
-服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。
+服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。主进程的异常与未处理拒绝也追加到同一个文件:`src/crash-log.ts` 在该文件打开后、更新器与服务器启动前就注册好处理器,而异常仍会弹框——是 `Error` 时,标题与正文与 Electron 拼出的完全一致;不是 `Error` 时按 `String(value)` 渲染,而 Electron 会打印 `undefined: undefined`。启动链跑在 `whenReady` 里,因此它自己的失败是以拒绝而不是异常的形式到来,同样被捕获并以同样的方式上报、同样弹框;在日志文件打开之前,这条上报记录写到 stderr。启动过程没有任何一处是沉默的,崩溃在屏幕上的样子也没有任何变化。
 
 **启动页与下载窗跟随应用主题。**两套色板都取自 web UI 自己的 token,所以无论哪一种模式,启动页与它交接给的应用都是同两种颜色。外观在窗口存在之前就定下——`backgroundColor` 决定页面加载期间画什么——顺序是:`~/.dsh/settings.yaml` 里的持久 `ui-theme.preference`,当它是显式的 `light` 或 `dark` 时优先;否则跟随系统(`nativeTheme.shouldUseDarkColors`),这也正是它默认值 `system` 的含义。**显式设置优先于系统。****帮助 → 关于** 给出版本与更新源地址。菜单栏文案按 `app.getLocale()` 在中英之间选择;对话框保持中文。
 
