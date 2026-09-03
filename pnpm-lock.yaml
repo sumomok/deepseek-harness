@@ -10,6 +10,7 @@ overrides:
   dsh-better-sidebar>node-pty: 1.2.0-beta.15
 
 patchedDependencies:
+  electron-updater@6.8.9: 9c7aaae2529b512b4ad2207268768b25bbe04aa04a0501a4ed21754770258b56
   node-pty@1.2.0-beta.15: b40ae545608897914bd25fb009c97eeac478c34e8a910298ddcb01b746534bb0
 
 importers:
@@ -469,7 +470,7 @@ importers:
     dependencies:
       electron-updater:
         specifier: 6.8.9
-        version: 6.8.9
+        version: 6.8.9(patch_hash=9c7aaae2529b512b4ad2207268768b25bbe04aa04a0501a4ed21754770258b56)
       js-yaml:
         specifier: ^4.1.0
         version: 4.3.1
@@ -21650,7 +21651,7 @@ snapshots:
 
   electron-to-chromium@1.5.393: {}
 
-  electron-updater@6.8.9:
+  electron-updater@6.8.9(patch_hash=9c7aaae2529b512b4ad2207268768b25bbe04aa04a0501a4ed21754770258b56):
     dependencies:
       builder-util-runtime: 9.7.0
       fs-extra: 10.1.0

@@ -24,6 +24,7 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Notification, shell } from 'electron'
+import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
 import { recordRun } from './desktop-state.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { isExternalNavigationTarget } from './navigation.ts'
@@ -89,10 +90,32 @@ let server: ServerHandle | undefined
 let renderService: RenderServiceHandle | undefined
 let pluginAdminService: PluginAdminHandle | undefined
 let quitting = false
-/** Set once the log file is known; before that there is nowhere to write. */
-let logLine: (chunk: string) => void = () => {}
+/**
+ * The desktop log sink. Until the log file is known there is nowhere durable
+ * to write, so a line goes to stderr rather than nowhere — which is what
+ * carries a launch-chain crash report that arrives before the file exists.
+ */
+let logLine: (chunk: string) => void = (chunk) => {
+  try {
+    process.stderr.write(chunk)
+  } catch {
+    // A packaged GUI process may have no usable stderr handle. Reporting must
+    // never throw: this sink is what a crash report falls back to, and a throw
+    // here would make that report the silence it exists to prevent.
+  }
+}
 /** Set once the log file's own path is known, for the L2 "打开日志" button. */
 let logFile = ''
+
+/**
+ * Where a crash report goes. `log` reads {@link logLine} at report time, not
+ * at construction, so the same host serves both the handlers registered once
+ * the file sink exists and the launch chain that can fail before it does.
+ */
+const CRASH_LOG_HOST: CrashLogHost = {
+  log: (entry) => { logLine(entry) },
+  showErrorBox: (title, content) => { dialog.showErrorBox(title, content) },
+}
 
 /**
  * The launch spec the running server was started (or last rebound) with —
@@ -699,6 +722,10 @@ if (!locked) {
       }
     }
     logLine = sink
+    // Before the updater and the server: from here on a main-process
+    // exception is in the file the user is asked to send, rather than only in
+    // the box Electron opens over it.
+    setupCrashLog(CRASH_LOG_HOST)
     const startedAt = Date.now()
     const ticker = setInterval(() => {
       view.elapsed(Math.round((Date.now() - startedAt) / 1000))
@@ -775,5 +802,13 @@ if (!locked) {
       // The page keeps the log path on screen; the file carries the output.
       view.fail(message.split('\n')[0] ?? message)
     }
+  }).catch((error: unknown) => {
+    // Everything above the try — the boot window, the log directory, the tray
+    // — throws into this rejection rather than into `uncaughtException`, and
+    // Electron 43 runs a main-process rejection in `warn-with-error-code`
+    // mode: unreported, such a launch stops with an empty boot page, no box
+    // and no line anywhere. The report goes to the file sink when there is one
+    // and to stderr before that.
+    reportUncaughtException(CRASH_LOG_HOST, error)
   })
 }
