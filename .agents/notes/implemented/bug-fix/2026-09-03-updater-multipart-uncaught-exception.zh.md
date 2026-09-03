@@ -24,6 +24,10 @@ Status: implemented
 
 [`apps/desktop/tests/electron-updater-multipart.spec.ts`](../../../../apps/desktop/tests/electron-updater-multipart.spec.ts) 从 `node_modules` 加载该模块，因此它检查的是打包后的应用真正运行的代码，而不是它的一份拷贝。测试用一个假的 HTTP executor 和一个 `PassThrough` 响应，把两个 `DOWNLOAD` 任务送进 `executeTasksUsingMultipleRangeRequests`，在该响应上发出 `error`，并要求这次 emit 不抛出、且 reject 回调收到了它。对未打补丁的 6.8.9，这次 emit 会抛出且没有任何 reject，这正是现场的失败。该套件是安全网而不是退役信号，因为无论那一行来自补丁还是来自更晚的发行版，它都保持通过；退役信号是 pnpm：`allowUnusedPatches` 与 `ignorePatchFailures` 都没有设置，一次让这条精确版本补丁变得无用或无法应用的升级会让安装失败。
 
+这个信号属于根安装，也只属于根安装。pnpm 把 `patchedDependencies` 套用到带过滤的 `pnpm deploy` 上，方式与套用到安装时一样，因此闭包里缺少某个被打补丁的包时，这次 deploy 会在落位任何东西之前以 `ERR_PNPM_UNUSED_PATCH` 结束——而本仓库 deploy 的任何一个闭包都不包含 electron-updater，它属于那个从 `apps/desktop` 自己的 `node_modules` 打包出来的 Electron 外壳。于是每一次这样的 deploy 都带上 `--config.allow-unused-patches=true`：今天是桌面客户端的内嵌服务端闭包与 Python 运行时的可执行文件闭包，将来任何同样情形的闭包也一样。[`scripts/filtered-deploy.ts`](../../../../scripts/filtered-deploy.ts) 为两者拥有这条命令行，[`scripts/filtered-deploy.spec.ts`](../../../../scripts/filtered-deploy.spec.ts) 把这个标志与那几项 linker 设置钉在原处。
+
+这个标志是整次 deploy 的一个布尔开关，而不是针对单个补丁的豁免：它会屏蔽该次 deploy 留下的每一个未使用补丁，所以从一次 deploy 里读不出任何关于退役的信息。包确实在闭包里的补丁仍会被应用，应用不上时仍会让 deploy 失败——node-pty 在两个闭包里都是这种情形——但某个补丁不再送达时 pnpm 已经不再出声，因此 `verifyStagedPatches` 会去落位后的目录里读每个补丁加入的那段文本，并在发布版的包顶替了它时让构建失败。某个闭包不再包含这些包之一时，这项检查同样会失败，而且是故意的：闭包合理地不再携带某个被打补丁的包，要记录在 `STAGED_PATCHES` 里。
+
 [`apps/desktop/tests/crash-log.spec.ts`](../../../../apps/desktop/tests/crash-log.spec.ts) 针对会记录调用的日志槽与对话框注册，把两个处理器识别为 `process` 此前没有的监听者，并直接调用它们——用一个 `Error`、一个不带调用栈的 `Error`，以及会让读 `.message` 的处理器自己死掉的抛出字符串与抛出 `undefined`。`reportUncaughtException` 另有独立覆盖，因为启动链不经过任何注册就会调到它。每一次注册都走 `afterEach` 运行的那个共享释放器，因此断言失败也不会给测试运行器留下本套件的监听者。
 
 ## 考虑过的替代方案

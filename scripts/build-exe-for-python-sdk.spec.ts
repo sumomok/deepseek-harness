@@ -33,7 +33,14 @@ describe('Python runtime executable builder CLI', () => {
 
     expect(result.status).toBe(0)
     expect(result.stdout).toContain(`${process.execPath} C:\\tools\\pnpm.cjs run verify-runtime-closure`)
-    expect(result.stdout).toContain(`${process.execPath} C:\\tools\\pnpm.cjs --filter dsh-python-runtime-closure deploy`)
+    // The whole deploy line, not its prefix: the closure has no electron-updater,
+    // so without --config.allow-unused-patches=true the root patch leaves this
+    // deploy — and the python-runtime CI job with it — at ERR_PNPM_UNUSED_PATCH.
+    expect(result.stdout).toContain(
+      `${process.execPath} C:\\tools\\pnpm.cjs --filter dsh-python-runtime-closure deploy --legacy --prod`
+      + ' --config.node-linker=hoisted --config.auto-install-peers=false --config.link-workspace-packages=true'
+      + ' --config.allow-unused-patches=true',
+    )
     expect(result.stdout).toContain(`${process.execPath} C:\\tools\\pnpm.cjs dlx @yao-pkg/pkg@6.21.0`)
     expect(result.stdout).not.toMatch(/pnpm\.cmd/i)
   })

@@ -102,5 +102,16 @@ patchedDependencies:
   # with neither allowUnusedPatches nor ignorePatchFailures set, a bump that
   # leaves this exact-version patch unused or unapplicable fails the install
   # (ERR_PNPM_UNUSED_PATCH / ERR_PNPM_PATCH_FAILED) instead of dropping it.
+  # That is the root install only. Every filtered `pnpm deploy` of a closure
+  # that lacks a patched package passes --config.allow-unused-patches=true —
+  # today the desktop server closure and the Python runtime closure, neither of
+  # which contains electron-updater — because pnpm applies these patches to a
+  # deploy too and would end it in ERR_PNPM_UNUSED_PATCH before staging
+  # anything. That flag is one boolean for the whole deploy and masks every
+  # patch it leaves unused, which is why the root install stays strict
+  # (scripts/filtered-deploy.ts). Because pnpm then says nothing, that module's
+  # verifyStagedPatches reads the staged tree for the text each applied patch
+  # adds: a closure that stops containing a STAGED_PATCHES package fails it on
+  # purpose, and the table there is where an intended change is recorded.
   electron-updater@6.8.9: patches/electron-updater@6.8.9.patch
   node-pty@1.2.0-beta.15: patches/node-pty@1.2.0-beta.15.patch

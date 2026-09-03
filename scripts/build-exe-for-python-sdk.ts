@@ -12,6 +12,7 @@ import { chmod, copyFile, cp, lstat, mkdir, readFile, readdir, realpath, rm, wri
 import { basename, dirname, extname, join, resolve, sep } from 'node:path'
 import { parseArgs } from 'node:util'
 import { resolveLinuxNodePtyAddon, resolveWindowsNodePtyAddons } from './build-exe-for-python-sdk-native-pty.ts'
+import { filteredDeployArgs, verifyStagedPatches } from './filtered-deploy.ts'
 
 const root = resolve(import.meta.dirname, '..')
 
@@ -288,19 +289,11 @@ class SingleExeBuild {
     }
     if (this.cli.dryRun) console.log(`build-exe-for-python-sdk: [dry-run] rm -rf ${this.staging}`)
     else await rm(this.staging, { recursive: true, force: true })
-    await this.runPnpm('deploy', [
-      '--filter',
-      DEPLOY_ROOT_PACKAGE,
-      'deploy',
-      '--legacy',
-      '--prod',
-      '--config.node-linker=hoisted',
-      '--config.auto-install-peers=false',
-      '--config.link-workspace-packages=true',
-      this.staging,
-    ])
+    await this.runPnpm('deploy', filteredDeployArgs(DEPLOY_ROOT_PACKAGE, this.staging))
     await this.restoreLegacyHoists()
     await this.materializeStagedLinks()
+    if (this.cli.dryRun) console.log('build-exe-for-python-sdk: [dry-run] verify the staged closure carries its patched packages')
+    else await verifyStagedPatches(this.staging, 'build-exe-for-python-sdk')
     if (this.cli.dryRun) {
       for (const name of DEPLOY_ONLY_DOCS) console.log(`build-exe-for-python-sdk: [dry-run] rm -f ${join(this.staging, name)}`)
     } else {
