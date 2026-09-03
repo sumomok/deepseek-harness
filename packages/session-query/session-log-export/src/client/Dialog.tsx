@@ -66,12 +66,18 @@ export function SessionLogDownloadDialog({
   const status = entry?.status
   const open = entry?.open === true
   const downloading = status === 'downloading'
+  const progress = entry?.progress ?? SESSION_EXPORT_PROGRESS_START
   const error = status === 'error' ? entry?.error || t('dialog.commandFailed') : null
   const title = downloading
     ? t('dialog.preparingTitle')
     : status === 'success' ? t('dialog.successTitle') : t('dialog.errorTitle')
+  // Preparing is only true until the Host answers; after that the archive is
+  // on its way and the received-byte count is moving.
+  const inFlight = progress.receivedBytes > 0
+    ? t('dialog.transferringDescription')
+    : t('dialog.preparingDescription')
   const description = downloading
-    ? t('dialog.preparingDescription')
+    ? inFlight
     : status === 'success' ? t('dialog.successDescription') : error ?? t('dialog.commandFailed')
   const action = downloading ? t('dialog.cancel') : t('dialog.close')
 
@@ -88,9 +94,7 @@ export function SessionLogDownloadDialog({
         </Button>
       )}
     >
-      {status !== 'error' && (
-        <SessionExportProgressBar progress={entry?.progress ?? SESSION_EXPORT_PROGRESS_START} t={t} />
-      )}
+      {status !== 'error' && <SessionExportProgressBar progress={progress} t={t} />}
     </Modal>
   )
 }

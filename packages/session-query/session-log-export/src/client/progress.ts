@@ -67,15 +67,17 @@ const STREAMING_CEILING = 0.99
 /**
  * Read the archive extent one export response announces.
  * @param headers - the export response's headers.
- * @returns the announced extent, or `null` when either header is absent or
- * does not carry a positive whole number (an older Host, or a mangled value).
+ * @returns the announced extent, or `null` when the entry count or the wire
+ * estimate is absent or does not carry a positive whole number (an older Host,
+ * or a mangled value). The uncompressed total is diagnostic, so a response
+ * missing only that still yields an extent and a determinate bar.
  */
 export function readSessionLogExportExtent(headers: Headers): SessionLogExportExtent | null {
   const entries = positiveInteger(headers.get(SESSION_EXPORT_ENTRIES_HEADER))
   const bytes = positiveInteger(headers.get(SESSION_EXPORT_BYTES_HEADER))
   const estimatedWireBytes = positiveInteger(headers.get(SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER))
-  if (entries === null || bytes === null || estimatedWireBytes === null) return null
-  return { entries, bytes, estimatedWireBytes }
+  if (entries === null || estimatedWireBytes === null) return null
+  return { entries, estimatedWireBytes, ...bytes === null ? {} : { bytes } }
 }
 
 function positiveInteger(value: string | null): number | null {
