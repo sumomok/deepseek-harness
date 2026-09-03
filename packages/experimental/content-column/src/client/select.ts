@@ -2,7 +2,8 @@
  * Execute the switcher strip's tab-selection command.
  * @module @deepseek-ai/dsh-experimental-content-column/client/select
  */
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /**
  * Command `@deepseek-ai/dsh-experimental-content-surface`'s node half registers

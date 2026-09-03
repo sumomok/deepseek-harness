@@ -59,7 +59,7 @@ function dismissal(kind: string, entryId: string, seq: number): SessionEvent {
 
 /** One selection event, as the fold receives it. */
 function selection(kind: string, entryId: string, seq: number): SessionEvent {
-  return { type: 'content-surface/selected', seq, time: 0, data: { kind, entryId, by: 'user' } }
+  return { type: 'content-surface/selected', seq: SessionSeq(seq), time: 0, data: { kind, entryId, by: 'user' } }
 }
 
 describe('contentSurface projection', () => {
@@ -118,7 +118,7 @@ describe('contentSurface projection', () => {
 
   it('keeps the same state reference for an event no case and no extractor claims', () => {
     const unit = contentSurfaceProjection([alpha, beta])
-    expect(unit.apply(STATE, { type: 'turn/start', seq: 9, time: 0, data: { turn: 1 } })).toBe(STATE)
+    expect(unit.apply(STATE, { type: 'turn/start', seq: SessionSeq(9), time: 0, data: { turn: 1 } })).toBe(STATE)
   })
 })
 

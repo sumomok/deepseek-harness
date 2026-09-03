@@ -106,7 +106,7 @@ async function harnessHomeWithRowLinks(): Promise<string> {
 function eventsOf(scaffold: WebScaffold, sessionId: string): { type: string; data: unknown }[] {
   const agent = scaffold.ctx.agents.get(SessionId(sessionId))
   if (agent === undefined) throw new Error(`content-perception e2e: no live agent for ${sessionId}`)
-  return agent.session.events.map((event: SessionEvent) => ({ type: event.type as string, data: event.data as unknown }))
+  return agent.session.snapshotEvents().map((event: SessionEvent) => ({ type: event.type as string, data: event.data as unknown }))
 }
 
 /**

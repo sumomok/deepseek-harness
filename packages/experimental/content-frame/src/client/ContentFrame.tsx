@@ -33,7 +33,7 @@
  */
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Also pulls the content surface's `contentSurface` SessionProjectionMap merge.
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import type { ContentFrameAccessSettings } from '../route.ts'

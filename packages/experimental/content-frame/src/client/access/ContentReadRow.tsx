@@ -13,7 +13,7 @@
  * one for top-level calls only — and the row names the column instead.
  */
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
-import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
+import type { ToolCallBlock } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
 
 /** Composed props: the toolview runtime share and this package's locale seat. */

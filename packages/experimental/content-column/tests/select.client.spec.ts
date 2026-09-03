@@ -5,7 +5,7 @@
  * record and not the click, so none of the three throws.
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { selectContentEntry } from '../src/client/select.ts'
 
 /** Build a minimal fake context exposing only what `selectContentEntry` reads. */

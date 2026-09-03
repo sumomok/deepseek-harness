@@ -2,7 +2,8 @@
  * Execute the page seat's own navigation-report command.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/perception/navigated
  */
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /**
  * Command this package's node half registers for a frame that moved. A literal

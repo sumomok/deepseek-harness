@@ -88,8 +88,8 @@ function dispatched(target: Session, subCallId: string): void {
 /** Fold one session's whole log through the unit under test. */
 function fold(target: Session): ContentAccessRequest[] {
   const unit = projection()
-  let state = unit.init()
-  for (const event of target.events) state = unit.apply(state, event)
+  let state = unit.init(target.header, target.inheritedEventCount)
+  for (const event of target.snapshotEvents()) state = unit.apply(state, event)
   return state
 }
 
@@ -102,9 +102,10 @@ function published(target: Session): unknown {
 describe('the pending-read projection', () => {
   it('declares the key and cache version the registry stores it under', () => {
     const unit = projection()
+    const empty = session()
     expect(unit.key).toBe('contentAccess')
     expect(unit.stateVersion).toBe(2)
-    expect(unit.init()).toEqual([])
+    expect(unit.init(empty.header, empty.inheritedEventCount)).toEqual([])
   })
 
   it('publishes every open call in log order, with what each one asked for', () => {
@@ -163,9 +164,10 @@ describe('the pending-read projection', () => {
     result(target, 'call_absent')
     target.append('content/shown', { page: 'home', by: 'agent' })
     const unit = projection()
-    const opened = unit.apply(unit.init(), target.events[0]!)
+    const events = target.snapshotEvents()
+    const opened = unit.apply(unit.init(target.header, target.inheritedEventCount), events[0]!)
     let state = opened
-    for (const event of target.events.slice(1)) {
+    for (const event of events.slice(1)) {
       const next = unit.apply(state, event)
       if (event.type === 'tool/result' && event.data.message.source.callId === 'call_1') {
         expect(next).not.toBe(state)

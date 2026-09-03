@@ -8,25 +8,29 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { Session, SessionId } from '@deepseek-ai/dsh-session'
+import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { contentPagesProjection } from '../src/perception/pages-projection.ts'
 import type { ContentPagesState } from '../src/types.ts'
 
 const unit = contentPagesProjection()
 
+/** A session only for the header and inherited-prefix length `init` takes; this fold reads neither. */
+const SEAT = Session.create(SessionId('content-pages'))
+
 /** One `content/shown` event, as the fold receives it. */
 function shown(page: string | null, by?: 'agent' | 'user'): SessionEvent {
-  return { type: 'content/shown', seq: 1, time: 0, data: { page, ...by === undefined ? {} : { by } } }
+  return { type: 'content/shown', seq: SessionSeq(1), time: 0, data: { page, ...by === undefined ? {} : { by } } }
 }
 
 /** One `content/navigated` event, as the fold receives it. */
 function navigated(page: string, url: string, title: string): SessionEvent {
-  return { type: 'content/navigated', seq: 2, time: 0, data: { page, url, title, by: 'user' } }
+  return { type: 'content/navigated', seq: SessionSeq(2), time: 0, data: { page, url, title, by: 'user' } }
 }
 
 /** Fold a run of events from the empty state. */
 function fold(events: readonly SessionEvent[]): ContentPagesState {
-  return events.reduce<ContentPagesState>((state, event) => unit.apply(state, event), unit.init())
+  return events.reduce<ContentPagesState>((state, event) => unit.apply(state, event), unit.init(SEAT.header, SEAT.inheritedEventCount))
 }
 
 describe('contentPages projection', () => {
@@ -71,7 +75,7 @@ describe('contentPages projection', () => {
 
   it('keeps the same state reference for an event it does not own', () => {
     const state = fold([shown('home', 'user')])
-    expect(unit.apply(state, { type: 'turn/start', seq: 3, time: 0, data: { turn: 1 } })).toBe(state)
+    expect(unit.apply(state, { type: 'turn/start', seq: SessionSeq(3), time: 0, data: { turn: 1 } })).toBe(state)
   })
 
   it('accepts its own state back through the schema, with and without either half', () => {
