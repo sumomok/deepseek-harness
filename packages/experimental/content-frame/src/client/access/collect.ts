@@ -60,9 +60,6 @@ const ACTS_ON_NODE_ROLES: ReadonlySet<string> = new Set([
   'button', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'tab', ...FIELD_ROLES,
 ])
 
-/** How long the words drawn in front of a field may run before they are no label. */
-const LABEL_LIMIT = 40
-
 /** Every element that reads as a table. */
 const TABLE_SELECTOR = 'table, [role~="table"], [role~="grid"], [role~="treegrid"]'
 
@@ -795,9 +792,10 @@ function drawnBefore(host: Element, inner: Element, walk: Walk): Element | null 
  *
  * The search climbs out of the field as far as the region it stands in, so the
  * label belongs to the field's own group rather than to the form around it, and
- * stops where anything else the reader can act on stands between the two. A
- * label running longer than a label does is a run of the page rather than a
- * name for something beside it, and is left to print as itself.
+ * stops where anything else the reader can act on stands between the two. What
+ * the label says, and how long it runs, is the page's own business: a `label`
+ * is the page naming that field, and a reader cutting it off past some length
+ * would be deciding what a name may say.
  * @param el - the field element.
  * @param walk - the walk in progress.
  * @returns the label, or undefined for a field the page draws none in front of.
@@ -807,9 +805,7 @@ function labelDrawnBefore(el: Element, walk: Walk): Element | undefined {
   for (let at = el.parentElement; at !== null && !opensRegion(at, walk); at = at.parentElement) {
     const label = drawnBefore(at, inner, walk)
     if (label === null) return undefined
-    if (label !== undefined) {
-      return visibleText(label, walk.isVisible).length > LABEL_LIMIT ? undefined : label
-    }
+    if (label !== undefined) return label
     inner = at
   }
   return undefined

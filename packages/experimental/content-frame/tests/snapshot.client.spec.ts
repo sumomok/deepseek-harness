@@ -2262,11 +2262,12 @@ describe('a field the page names by drawing the words beside it', () => {
     expect(read(refs).text).toBe('e1 textbox "名称" = ""')
   })
 
-  it('leaves a label longer than a label runs to print as itself', () => {
+  it('takes the page\'s own label however long it runs', () => {
+    // A `<label>` is the page saying what this field is called. A reader that
+    // dropped one past some length would be deciding what a name may say, and
+    // the field would print with no name for words the page did write.
     const refs = page(`<div class="item"><label>${'长'.repeat(41)}</label><div class="content"><input type="text"></div></div>`)
-    expect(read(refs).text).toBe([`text "${'长'.repeat(41)}"`, 'e1 textbox = ""'].join('\n'))
-    const shorter = page(`<div class="item"><label>${'长'.repeat(40)}</label><div class="content"><input type="text"></div></div>`)
-    expect(read(shorter).text).toBe(`e1 textbox "${'长'.repeat(40)}" = ""`)
+    expect(read(refs).text).toBe(`e1 textbox "${'长'.repeat(41)}" = ""`)
   })
 
   it('keeps a run that says more than the field is called', () => {
