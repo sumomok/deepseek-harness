@@ -846,7 +846,8 @@ export interface RecordFixtureOptions {
  * run never made. The seeded prompts reach {@link fixtureUserPrompts} as well,
  * which is what ties a spec's drive steps to the recording.
  * @param fixtureText - the harvested fixture, session header first.
- * @returns that fixture without the seeded events.
+ * @returns that fixture cut where {@link afterSeededHistory} cuts, which is
+ * the seed boundary under the conditions stated there.
  * @throws {Error} when no `session/end-seed` boundary follows the header —
  * either nothing was seeded and the caller asked for the wrong thing, or the
  * harvest is not a session log at all.
@@ -860,8 +861,16 @@ function withoutSeededHistory(fixtureText: string): string {
 }
 
 /**
- * Cut a session log at its seeded-history boundary, keeping the session header
- * and every event appended after the seed.
+ * Cut a session log at its FIRST `session/end-seed` line, keeping the session
+ * header and every event after it.
+ *
+ * That first marker is the seed boundary for a session seeded once and never
+ * re-constructed from its stored log, which is all a Web scenario produces:
+ * {@link seedSession} seeds it and the browser opens it once. Constructing a
+ * session again over an already driven log appends a second marker, which is why
+ * {@link Session.firstLiveSeq} names the LAST one as the boundary a consumer
+ * of stored history must locate. Recording and replay both cut here, so the
+ * two cuts land on the same line whatever the log carries.
  *
  * The trim is by line rather than through {@link parseSeedFixture}, so the
  * packed chunk runs a harvest wrote survive it byte for byte.
