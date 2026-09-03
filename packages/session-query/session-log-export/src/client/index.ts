@@ -1,4 +1,4 @@
-/** Browser plugin owning Session export download state and its shared modal. */
+/** Browser plugin owning Session export download state and its shared panel. */
 
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
@@ -29,7 +29,7 @@ export type { SessionLogDownloadEntry, SessionLogDownloadState } from './control
 export const inject = ['slots', 'locale']
 
 /**
- * Provide the download controller and mount its modal into the Session Header.
+ * Provide the download controller and mount its panel into the Session Header.
  * @param ctx - browser context carrying slots and locale services.
  */
 export function apply(ctx: ClientContext): void {

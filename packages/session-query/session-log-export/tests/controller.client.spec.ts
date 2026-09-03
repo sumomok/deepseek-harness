@@ -249,6 +249,26 @@ describe('SessionLogDownloadController', () => {
     expect(controller.store.getSnapshot().bySession['absent']).toBeUndefined()
   })
 
+  it('saves nothing when the cancel lands after the last read', async () => {
+    const archive = heldArchive({ headers: EXTENT_HEADERS })
+    const save = vi.fn()
+    const controller = new SessionLogDownloadController(async () => archive.response, save)
+
+    const run = controller.download(SID)
+    archive.push(entryChunk())
+    await vi.waitFor(() => {
+      expect(controller.store.getSnapshot().bySession[SID]?.progress.receivedBytes).toBe(20)
+    })
+    // The stream ends and the cancel arrives in the same turn, so the read
+    // loop has already left before the abort is observed.
+    archive.close()
+    controller.cancel(SID)
+    await run
+
+    expect(save).not.toHaveBeenCalled()
+    expect(controller.store.getSnapshot().bySession[SID]).toBeUndefined()
+  })
+
   it('aborts active fetches on disposal and ignores later requests', async () => {
     let signal: AbortSignal | undefined
     const fetcher = vi.fn((_input: string | URL, init?: RequestInit) => new Promise<Response>((_resolve, reject) => {

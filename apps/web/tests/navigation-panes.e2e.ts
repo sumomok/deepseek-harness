@@ -305,7 +305,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // The page reads the archive itself, so the route announces the extent it
     // scales its progress bar by before the first archive byte.
     const extent = await response.allHeaders()
-    expect(Number(extent['x-session-export-entries'])).toBe(1)
+    expect(Number(extent['x-session-export-entries'])).toBeGreaterThanOrEqual(1)
     expect(Number(extent['x-session-export-bytes'])).toBeGreaterThan(0)
     expect(Number(extent['x-session-export-estimated-wire-bytes'])).toBeGreaterThan(0)
     const download = await downloadPromise

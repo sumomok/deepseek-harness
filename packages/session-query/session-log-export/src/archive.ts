@@ -294,9 +294,11 @@ export function sessionLogZipFilename(sessionId: string): string {
  * read through a persistence read handle right before it is yielded, and
  * dropped after the consumer moves on) — while filling `media` with every
  * distinct image reference those logs name. The traversal holds at most one
- * descendant's log text at a time beyond the root; the entry stream and the
- * extent measurement share it so the two cannot disagree about what an export
- * contains.
+ * descendant's log text at a time beyond the root. The entry stream and the
+ * extent measurement each run it once, so both see the same archive shape, but
+ * they see it at two different moments: a live sub-session that appends events
+ * between the two passes makes the announced totals read below what the
+ * archive actually carries.
  * @param deps - the mounted export services (the caller answered 500 before this runs).
  * @param rootContent - the already-serialized root log.
  * @param sessionId - the root session id.

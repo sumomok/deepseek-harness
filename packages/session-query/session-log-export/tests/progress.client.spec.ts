@@ -40,18 +40,29 @@ describe('readSessionLogExportExtent', () => {
       .toEqual({ entries: 3, bytes: 4096, estimatedWireBytes: 580 })
   })
 
+  it('keeps the extent when only the diagnostic uncompressed total is missing', () => {
+    // Nothing scales the bar by the uncompressed total, so its absence must
+    // not cost the reader a determinate fraction.
+    expect(readSessionLogExportExtent(new Headers({
+      [SESSION_EXPORT_ENTRIES_HEADER]: '3',
+      [SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER]: '580',
+    }))).toEqual({ entries: 3, estimatedWireBytes: 580 })
+    expect(readSessionLogExportExtent(extentHeaders('3', 'nope', '580')))
+      .toEqual({ entries: 3, estimatedWireBytes: 580 })
+  })
+
   it('treats an absent, non-numeric, non-positive, or fractional field as no extent', () => {
     expect(readSessionLogExportExtent(new Headers())).toBeNull()
     expect(readSessionLogExportExtent(new Headers({ [SESSION_EXPORT_ENTRIES_HEADER]: '3' }))).toBeNull()
     expect(readSessionLogExportExtent(new Headers({ [SESSION_EXPORT_BYTES_HEADER]: '10' }))).toBeNull()
-    // The three fields travel together; an older Host that sends only the
-    // first two leaves the bar indeterminate rather than mis-scaled.
+    // An older Host that sends no wire estimate leaves the bar indeterminate
+    // rather than mis-scaled by the uncompressed total.
     expect(readSessionLogExportExtent(new Headers({
       [SESSION_EXPORT_ENTRIES_HEADER]: '3', [SESSION_EXPORT_BYTES_HEADER]: '4096',
     }))).toBeNull()
     expect(readSessionLogExportExtent(extentHeaders('nope', '10', '5'))).toBeNull()
     expect(readSessionLogExportExtent(extentHeaders('0', '10', '5'))).toBeNull()
-    expect(readSessionLogExportExtent(extentHeaders('3', '-1', '5'))).toBeNull()
+    expect(readSessionLogExportExtent(extentHeaders('3', '10', '-1'))).toBeNull()
     expect(readSessionLogExportExtent(extentHeaders('1.5', '10', '5'))).toBeNull()
   })
 })
