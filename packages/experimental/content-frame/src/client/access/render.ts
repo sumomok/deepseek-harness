@@ -116,24 +116,25 @@ function quoted(name: string): string {
  * how the frameworks these consoles are written in spell an interpolation, and
  * a row printing `{{class: ...}}` reads as a template nobody rendered.
  * @param el - the element the row names.
- * @returns the hint, or the empty string for an element carrying no class.
+ * @returns the mark in braces, led by one space, or the empty string for an
+ * element carrying no class.
  */
-function classHint(el: Element): string {
+function printedMark(el: Element): string {
   const mark = elementMark(el)
   return mark === '' ? '' : ` {class: ${mark}}`
 }
 
 /**
  * What a row prints where a name goes: the name, or — for something the page
- * offers to act on and names nowhere — what its classes say.
+ * offers to act on and names nowhere — the mark its classes make.
  * @param el - the element the row names.
  * @param role - the role the row prints.
  * @param name - the accessible name.
- * @returns the quoted name, the hint, or the empty string.
+ * @returns the quoted name, the mark, or the empty string.
  */
 function named(el: Element, role: string, name: string): string {
   if (name !== '') return quoted(name)
-  return OFFERED_ROLES.has(role) ? classHint(el) : ''
+  return OFFERED_ROLES.has(role) ? printedMark(el) : ''
 }
 
 /**
