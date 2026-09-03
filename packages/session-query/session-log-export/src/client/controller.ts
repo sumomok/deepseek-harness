@@ -213,6 +213,9 @@ export class SessionLogDownloadController {
         chunks.push(read.value)
         this.progressed(sessionId, tracker.push(read.value))
       }
+      // A cancellation that lands between the final read and the save would
+      // otherwise still hand the archive to the browser.
+      signal.throwIfAborted()
       this.save(
         new Blob(chunks, { type: 'application/zip' }),
         filenameFromContentDisposition(response.headers.get('content-disposition'))

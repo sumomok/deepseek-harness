@@ -55,6 +55,23 @@ function show(
 afterEach(cleanup)
 
 describe('SessionLogDownloadDialog', () => {
+  it('says preparing until the first byte and transferring after it', async () => {
+    const b = bench()
+    show(b.controller, 'downloading')
+    const preparing = await b.view.findByRole('dialog', { name: 'Exporting Session' })
+    expect(preparing.textContent).toContain('Preparing a ZIP containing')
+
+    show(b.controller, 'downloading', { fraction: 0.2, entriesDone: 0, entriesTotal: 3, receivedBytes: 2048 })
+    // The store batches by animation frame, so the panel this already-open
+    // dialog renders arrives a frame later.
+    await waitFor(() => {
+      expect(b.view.getByRole('dialog', { name: 'Exporting Session' }).textContent)
+        .toContain('Transferring a ZIP containing')
+    })
+    expect(b.view.getByRole('dialog', { name: 'Exporting Session' }).textContent)
+      .not.toContain('Preparing a ZIP containing')
+  })
+
   it('shows an indeterminate bar until the host announces the archive extent', async () => {
     const b = bench()
     show(b.controller, 'downloading')

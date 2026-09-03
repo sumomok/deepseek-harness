@@ -10,13 +10,18 @@
 export interface SessionLogExportExtent {
   /** ZIP entries the archive holds: one per included session log, one per referenced media object. */
   readonly entries: number
-  /** Summed uncompressed size of those entries, in bytes. */
-  readonly bytes: number
   /**
-   * Estimated bytes the response body will carry. Exact only when the archive
-   * stores rather than deflates; otherwise it applies the Host's calibrated
-   * text-compression ratio to the log entries and takes media at face value.
-   * It exists to scale a progress bar, never to size a buffer or a range.
+   * Summed uncompressed size of those entries. Diagnostic: the Host always
+   * sends it, and nothing in the browser scales the bar by it, so a response
+   * that omits it still drives a determinate bar.
+   */
+  readonly bytes?: number
+  /**
+   * Estimated bytes the response body will carry. It applies the Host's
+   * calibrated text-compression ratio to the log entries and takes media at
+   * face value; at `compressionLevel: 0` only the ZIP framing separates it
+   * from the true body size, tens of bytes per entry, so it reads slightly
+   * low. It exists to scale a progress bar, never to size a buffer or a range.
    */
   readonly estimatedWireBytes: number
 }
