@@ -845,8 +845,8 @@ importers:
         specifier: file:./vendor/sumomok-dsh-balance-0.4.0.tgz
         version: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.4.0.tgz(813371b521a1b3fc90e2cf098d246b90)
       '@sumomok/dsh-quote-message':
-        specifier: file:./vendor/sumomok-dsh-quote-message-0.3.0.tgz
-        version: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-session@packages+core+session)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: file:./vendor/sumomok-dsh-quote-message-0.3.1.tgz
+        version: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-session@packages+core+session)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       dsh-at-file:
         specifier: file:./vendor/dsh-at-file-0.7.0-da602d1.tgz
         version: file:apps/desktop-server/vendor/dsh-at-file-0.7.0-da602d1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(react@18.3.1)
@@ -13451,9 +13451,9 @@ packages:
       react-dom:
         optional: true
 
-  '@sumomok/dsh-quote-message@file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz':
-    resolution: {integrity: sha512-4L/FQw4jbeUZRh8XF63HkODZq0oYzem+MqoTZkQ4sMGUky0SbByIVFPmvjdorl76DDTIu/TxKsHg8kVXWdaJ0w==, tarball: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz}
-    version: 0.3.0
+  '@sumomok/dsh-quote-message@file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.1.tgz':
+    resolution: {integrity: sha512-7HVi+in0EbH4DfKTnE7pA08eNZ/cA6dV0oCvH7zlATdI6vdjVvoT23oJGqBrVRxIDi9sNGXkqgHzj+XRURWIIg==, tarball: file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.1.tgz}
+    version: 0.3.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1-rc.1
       '@deepseek-ai/dsh-api-session-controller': '>=0.1.2-alpha.2 <0.2.0-0'
@@ -20133,7 +20133,7 @@ snapshots:
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
 
-  '@sumomok/dsh-quote-message@file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-session@packages+core+session)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@sumomok/dsh-quote-message@file:apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-chat@packages+client+ui-chat)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-session@packages+core+session)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-api-session-controller': link:packages/api/session-controller
