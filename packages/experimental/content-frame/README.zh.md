@@ -130,6 +130,7 @@ kind: "package-reference"
 - **字段的名字，是画在它前面的那个 `label`。** 表单不把标签绑到字段上时，字段由「在同时容纳两者的最小元素之内、画在它之前的最后一个 `label`」来命名，向外最远找到字段所在的那个区域为止；这个标签随后只印一次，作为字段的名字——写的是什么、有多长，都照印。只要有别的、读者能操作的东西横在两者之间，搜索就停下；页面自己的其他文字——公告、标题、说明——一律不作名字，各自照常印出自己那一行。
 - **页面要求填写的字段会说出来。** 只有页面用 `required` 或 `aria-required` 标过的字段，行尾才跟一个 `(required)`。表单换一种说法——用样式表在标签前面画一颗星——那是画在屏幕上的、不在任何属性里；哪些字段是必填的，属于「关于这张表单要懂的事」，不是能从文档里读出来的事。
 - **画成两半的选择器是一个字段。** 读者不能键入的框标 `(readonly)`；页面画在同一个元素之内、用来打开候选项的那个无名箭头，印在字段那一行上作为 `[e4 opens]`，而不是自己单独成行。
+
 <a id="what-the-agent-knows-about-the-column"></a>
 ## agent 对这一栏知道些什么
 
@@ -349,8 +350,10 @@ The console claimed this call but did not report within 60s; the steps may have 
 
 只在对话末尾追加，因此不会让已缓存的任何内容失效。
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
+
 
 - **`content/navigated` 与 `content/shown` 一样，读取时必需** —— 两条事件都不带 `ignorable` 标记，因为今天的 `Session.append` 没有办法设置它；会话词汇表里没有本包的运行时会拒绝整份日志，而不是跳过这两条。
 - **一次路由变化要花掉一个轮询间隔** —— `pushState` 什么都不触发，因此路由完就静止的应用要到下一次轮询（默认一秒）加上沉降窗口才被察觉。调小 `navigationPollMs` 买到的是延迟，付出的是每个 frame 每个间隔一次同源属性读取；本包刻意不给 frame 自己的 `history` 打补丁。

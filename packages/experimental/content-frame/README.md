@@ -130,6 +130,7 @@ The reading half lives in the page seat because that is the only placement holdi
 - **A field is named by the `label` drawn in front of it.** A form that ties no label to its field is named by the last `label` drawn before it, inside the smallest element holding both, as far out as the region the field stands in; that label then prints once, as the field's name, whatever it says and however long it runs. Anything else the reader can act on between the two ends the search, and any other run of the page — a notice, a heading, a caption — names nothing and keeps its own row.
 - **A field the page asks for says so.** `(required)` follows a field the page marks with `required` or `aria-required`, and nothing else. A form that says it another way — the star a stylesheet draws in front of a label — says it on the screen and in no attribute, and which fields those are is a thing to know about the form rather than a thing to read out of the document.
 - **A picker drawn in two halves is one field.** A box the reader cannot type into says `(readonly)`, and the nameless arrow the page draws inside the same element to open what the field offers prints on the field's row as `[e4 opens]` rather than as a row of its own.
+
 <a id="what-the-agent-knows-about-the-column"></a>
 ## What the agent knows about the column
 
@@ -349,8 +350,10 @@ One short sentence per click, permanently on the conversation.
 
 Append-only, at the tail of the conversation, so it invalidates nothing already cached.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
+
 
 - **`content/navigated` is required on read, like `content/shown`** — neither event carries an `ignorable` marker, because `Session.append` has no way to set one today; a runtime whose session vocabulary excludes this package refuses the whole log rather than skipping the events.
 - **A route change costs one poll interval** — `pushState` fires nothing, so an application that routes and then sits still is noticed on the next poll (default one second) plus the settling window. Lowering `navigationPollMs` buys latency and spends a same-origin property read per frame per interval; the frame's own `history` is deliberately not patched.

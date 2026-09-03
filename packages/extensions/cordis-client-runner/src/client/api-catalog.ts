@@ -458,6 +458,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type BuiltInLocaleId = typeof LOCALE_IDS[number];',
   },
   {
+    name: 'CellControl',
+    declaration: 'export interface CellControl extends ControlState {\n    readonly el: Element;\n    readonly role: string;\n    readonly name: string;\n}',
+  },
+  {
     name: 'ChainKeysOf',
     declaration: 'export type ChainKeysOf<S extends keyof SlotMap & string> = S extends unknown ? (SlotMap[S][\'kind\'] extends \'chain\' ? S : never) : never;',
   },
@@ -538,6 +542,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface ConnectionStateSource {\n    getSnapshot(): ConnectionState | undefined;\n    subscribe(listener: () => void): () => void;\n}',
   },
   {
+    name: 'ContainerFace',
+    declaration: 'export interface ContainerFace {\n    readonly type: ContainerType;\n    readonly name: string;\n}',
+  },
+  {
+    name: 'ContainerItem',
+    declaration: 'export interface ContainerItem extends ContainerFace {\n    readonly kind: \'container\';\n    readonly el: Element;\n    readonly ref: string;\n    readonly container: ContainerItem | undefined;\n    readonly depth: number;\n    readonly closed: boolean;\n    readonly node: ControlFace | undefined;\n}',
+  },
+  {
+    name: 'ContainerType',
+    declaration: 'export type ContainerType = \'main\' | \'nav\' | \'form\' | \'dialog\' | \'section\' | \'toolbar\' | \'list\' | \'table\' | \'frame\' | \'tablist\' | \'tabpanel\' | \'menu\' | \'tree\' | \'radiogroup\' | \'listbox\' | \'clickable\' | \'treeitem\' | \'menuitem\';',
+  },
+  {
+    name: 'ControlFace',
+    declaration: 'export interface ControlFace extends ControlState {\n    readonly role: string;\n    readonly collapsed: boolean;\n}',
+  },
+  {
+    name: 'ControlState',
+    declaration: 'export interface ControlState {\n    readonly value: string | undefined;\n    readonly secret: boolean;\n    readonly checked: boolean | undefined;\n    readonly required: boolean;\n    readonly readonly: boolean;\n    readonly disabled: boolean;\n}',
+  },
+  {
+    name: 'ElementItem',
+    declaration: 'export interface ElementItem extends ControlFace {\n    readonly kind: \'element\';\n    readonly el: Element;\n    readonly ref: string;\n    readonly name: string;\n    readonly opens: string | undefined;\n    readonly container: ContainerItem | undefined;\n    readonly depth: number;\n}',
+  },
+  {
     name: 'EntryKeyOf',
     declaration: 'export type EntryKeyOf<K extends keyof SlotMap & string> = SlotMap[K] extends {\n    kind: \'keyed\';\n    keyProps: infer P extends object;\n} ? keyof P & string : string;',
   },
@@ -568,6 +596,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'ISession',
     declaration: 'export interface ISession {\n    readonly sessionId: SessionId;\n    readonly projections: ProjectionsFace;\n    beginSubmission(input: BeginSubmissionInput): SubmissionHandle;\n    prompt(content: PromptContentPart[], mode: \'queue\' | \'steer\', signal?: AbortSignal, requestId?: SessionRequestId): Promise<RemoteResult<{\n        accepted: true;\n    }>>;\n    readAttachment(attachmentId: AttachmentIdType): Promise<RemoteResult<{\n        attachment: ImageAttachmentRef;\n        data: Uint8Array;\n    }>>;\n    readFile(attachmentId: AttachmentIdType): Promise<RemoteResult<{\n        attachment: FileAttachmentRef;\n        text: string;\n    }>>;\n    updateQueue(itemId: MessageId, action: QueueAction): Promise<RemoteResult<{\n        accepted: true;\n    }>>;\n    cancel(): Promise<RemoteResult<{\n        accepted: true;\n    }>>;\n    rename(title: string): Promise<RemoteResult<{\n        title: string;\n        seq: SessionSeq;\n    }>>;\n    loadOlder(): Promise<void>;\n    loadThrough(seq: SessionSeq): Promise<void>;\n    command(line: string): Promise<RemoteResult<{\n        matched: boolean;\n    }>>;\n}',
+  },
+  {
+    name: 'Item',
+    declaration: 'export type Item = ContainerItem | ElementItem | TextItem | TableItem | UnreadableFrameItem;',
   },
   {
     name: 'KeyedHooksSources',
@@ -714,6 +746,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface RemoteStreamOptions<Item> {\n    readonly name: string;\n    readonly open: (signal: AbortSignal) => AsyncIterable<Item>;\n    readonly ended: (accepted: boolean) => Error;\n    readonly carrierFailed?: (error: RemoteStreamCarrierError) => void;\n}',
   },
   {
+    name: 'RowCell',
+    declaration: 'export interface RowCell {\n    readonly controls: readonly CellControl[];\n    readonly text: string;\n    readonly sample: string;\n}',
+  },
+  {
     name: 'ScopeOf',
     declaration: 'export type ScopeOf<K extends keyof SlotMap & string> = SlotMap[K][\'scope\'];',
   },
@@ -818,6 +854,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type SlotSpec<E extends SlotEntryDef> = {\n    kind: E[\'kind\'];\n    scope: E[\'scope\'];\n} & (\'inject\' extends keyof E ? E extends {\n    inject: infer Injected extends object;\n} ? {\n    inject: Injected;\n} : {\n    inject?: object;\n} : {\n    inject?: never;\n});',
   },
   {
+    name: 'Snapshot',
+    declaration: 'export interface Snapshot {\n    readonly kind: SnapshotMode;\n    readonly header: SnapshotHeader;\n    readonly text: string;\n    readonly truncated: boolean;\n    readonly shown: number;\n    readonly total: number;\n    readonly cursor?: string;\n}',
+  },
+  {
+    name: 'SnapshotHeader',
+    declaration: 'export interface SnapshotHeader {\n    readonly url: string;\n    readonly title: string;\n    readonly modal?: string;\n    readonly signIn: boolean;\n}',
+  },
+  {
+    name: 'SnapshotMode',
+    declaration: 'export type SnapshotMode = \'outline\' | \'map\';',
+  },
+  {
     name: 'SnapshotSelectorHook',
     declaration: 'export type SnapshotSelectorHook<T> = <S>(sel: (s: T) => S, eq?: (a: S, b: S) => boolean) => S;',
   },
@@ -850,6 +898,18 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export interface SubmissionHandle {\n    readonly requestId: SessionRequestId;\n    abandon(): void;\n}',
   },
   {
+    name: 'TableItem',
+    declaration: 'export interface TableItem extends ContainerFace {\n    readonly kind: \'table\';\n    readonly type: \'table\';\n    readonly el: Element;\n    readonly ref: string;\n    readonly header: readonly RowCell[];\n    readonly rows: readonly TableRowItem[];\n    readonly columns: number;\n    readonly container: ContainerItem | undefined;\n    readonly depth: number;\n}',
+  },
+  {
+    name: 'TableRowItem',
+    declaration: 'export interface TableRowItem {\n    readonly kind: \'row\';\n    readonly el: Element;\n    readonly index: number;\n    readonly width: number;\n    readonly cells: readonly RowCell[];\n    readonly text: string;\n    readonly table: ContainerFace;\n}',
+  },
+  {
+    name: 'TextItem',
+    declaration: 'export interface TextItem {\n    readonly kind: \'text\';\n    readonly text: string;\n    readonly container: ContainerItem | undefined;\n    readonly depth: number;\n}',
+  },
+  {
     name: 'ThemeDefinition',
     declaration: 'export interface ThemeDefinition {\n    id: string;\n    colorScheme: \'light\' | \'dark\';\n    tokens: ThemeTokens;\n}',
   },
@@ -880,6 +940,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'TranslateNS',
     declaration: 'export type TranslateNS<N extends keyof LocaleNamespaceMap & string> = Translate<LocaleKeysOf<N>>;',
+  },
+  {
+    name: 'UnreadableFrameItem',
+    declaration: 'export interface UnreadableFrameItem {\n    readonly kind: \'frame-error\';\n    readonly container: ContainerItem | undefined;\n    readonly depth: number;\n}',
   },
   {
     name: 'WorkspaceView',

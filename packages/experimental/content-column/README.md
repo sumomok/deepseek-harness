@@ -68,8 +68,10 @@ None, as this row is a browser placement and registers no tool, prompt, or resul
 
 None; this package neither assembles nor sends a provider request.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
+
 
 - **A selection is fire-and-forget** — the column moves on the click and warns to the console if the command never lands, so a dropped request leaves the browser showing a tab the log does not name; the next reload reverts to `front`.
 - **No pinning** — the column shows one entry at a time and the selection is a single choice per session. There is no way to keep an entry beside another, and no split view.

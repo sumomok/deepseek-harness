@@ -148,8 +148,10 @@ One short sentence per closed tab, permanently on the conversation. A session wh
 
 Append-only, at the tail of the conversation, so it invalidates nothing already cached.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
+
 
 - **A kind may store a whole document** — the fold keeps one record per live entry, but that record holds whatever the extractor put in `data`, and the `chart` kind puts the option there. A session with many live charts carries them all in the projection state, the wire value, and the persisted checkpoint.
 - **A derived `stateVersion` can collide** — the table's signature is hashed into 31 bits, so two different compositions could in principle share a version and thereby a checkpoint. The remedy if it ever happens is a `dataVersion` bump on any kind involved.

@@ -68,8 +68,10 @@ None, as this row is a browser placement and registers no tool, prompt, or resul
 
 None; this package neither assembles nor sends a provider request.
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
+
 
 - **一次选择是发完就走** —— 这一栏在点击时就挪动，命令若始终没落地只在控制台告警，因此丢包会让浏览器展示着日志并不指名的那个标签；下一次刷新会回到 `front`。
 - **不能钉住** —— 这一栏一次只展示一条 entry，选择也是每会话一个。无法把一条 entry 与另一条并排保留，也没有分屏。

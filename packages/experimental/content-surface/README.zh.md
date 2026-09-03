@@ -148,8 +148,10 @@ When the user refers to something you have already produced and put on display �
 
 只在对话末尾追加，因此不会让已缓存的任何内容失效。
 
-<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
+
+<a id="known-limitations-and-deferred-work"></a>
+
 
 - **一个 kind 可能存下整份文档** —— fold 为每条存活 entry 保留一条记录，但那条记录装着 extractor 放进 `data` 的任何东西，而 `chart` kind 放进去的是 option。一个存有大量图表的会话会把它们全部带在 projection 状态、wire 值和持久化 checkpoint 里。
 - **派生的 `stateVersion` 可能碰撞** —— 表的签名被哈希进 31 位，因此两种不同组合原则上可能共用同一个版本、进而共用 checkpoint。真发生时的补救是给涉及的任一 kind 递增 `dataVersion`。
