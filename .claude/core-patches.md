@@ -443,4 +443,8 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 
 **随本次集成登记、不在本次修**：`scripts/filtered-deploy.ts` 的 `STAGED_PATCHES` 文档只解释了 `electron-updater` 为何不在表内；上游新增的 `@yao-pkg/pkg` 同样不在（它是根 devDependency，永远进不了 `--prod` 闭包），该理由尚未写进那段 JSDoc。不影响任何门禁，排到下一次触碰该文件时补齐。
 
-**分支 HEAD 登记**：`rc29-integration` = `79162d0f1f`（第二次合并）。桌面版本号**本次不动**，仍是 `0.1.0-rc.28`；`release(desktop): 0.1.0-rc.29` 与打包另行进行。
+**第三次合并**：并入补丁线随后追加的 `fa7d5afc65`（`84676f680a` 目录重生 + `fa7d5afc65` 导出测量表述订正）。`git merge-base` = `4f01454e9a`，仍是真正的内容合并基；**零冲突**，18 个文件全部自动合并。`docs/config-catalog.{md,zh.md,i18n.yaml}` 压根没进合并 diff——补丁线这一次自己补跑了生成器，落到的结果与第二次合并时集成侧的手工修正逐字节相同；合并后 `gen-config-catalog` 重跑零 diff，`verify-config-catalog` 与 `verify-translation-pairing`（1180 对）全绿。代码面实质变化三处：`SessionLogExportExtent.bytes` 转为可选（它只作诊断，浏览器不按它缩放进度条，缺它仍是确定态进度条），`controller.ts` 在最后一次 read 与落盘之间补 `signal.throwIfAborted()`（晚到的取消不再把归档交给浏览器），`Dialog.tsx` 收到首字节后文案由「正在准备」切「正在传输」（新增 `dialog.transferringDescription` 双语条目）；其余是 JSDoc/README/Note 把「测量与产出共用一次遍历」订正为「共用遍历函数、各跑一遍」，以及 e2e 条目数断言由 `toBe(1)` 放宽为 `toBeGreaterThanOrEqual(1)`。
+
+**第三次合并后门禁实跑**（合并提交 `331f51b188`，工作树 `../dsh-rc29`）：`pnpm install --frozen-lockfile` 0；`typecheck` 0；`lint` 0；`vitest run packages/session-query/session-log-export apps/desktop/tests` **28 文件 544 条全绿**；`DSH_SNAPSHOT=replay vitest --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` 7 通过 1 跳过；`doc-sync` **33/33**；`verify-vendored-plugin-versions` 11 个供应商插件三处命名一致。
+
+**分支 HEAD 登记**：`rc29-integration` 三次合并依次为 `b4275d2c35`、`79162d0f1f`、`331f51b188`。桌面版本号在前两次合并时不动；本节所在的这个 `docs(core-patches)` 提交之后即 `release(desktop): 0.1.0-rc.29`（只改 `apps/desktop/package.json` 一行，照 rc.28 的 `9b21859de6` 原样），随后打包。
