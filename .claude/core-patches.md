@@ -2,6 +2,8 @@
 
 core-patches 分支上的每一个补丁在此登记；新增、修改、退役补丁时必须同步更新本文档。
 
+**当前补丁线**：`core-patches-v6`，基座 `upstream/master` = `76fda72979`（0.1.2-rc.1）。上一条线 `core-patches-v5` = `001c0d7ded`，基座 `49a606bc5b`（0.1.2-alpha.5）。
+
 ## fix(scripts): let the workspace gate see apps that never publish — 08f12ee732
 - **改了什么**：`scripts/check-workspace-constraints.ts` + 其 `.spec.ts`；给 `apps/*` 引入 private / 发布成员两种类别，新增 `isPrivateApp`、`checkPrivateAppManifest`。
 - **为什么**：`apps/desktop`、`apps/desktop-server`、`apps/pwa` 只随客户端构建分发、从不发到 npm，却被 `releaseMemberDirectory` 当成发布成员校验，四条发布元数据规则同时落空；该判定是 gate 脚本里写死的正则，没有插件层或配置层能重新分类。
@@ -351,3 +353,47 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 3. **feedback 两场景**：见上文 `a426a88c90` 条目的「副作用与处置」。
 
 **`pnpm run duplication` 现状：4 → 3**（file-sniff 那一份重复随删除消失）。剩下三处**全在补丁线我方 hunk 内，本轮不修，登记为补丁线技术债**：`api/session-controller/src/commands.ts` 两对（`[353:86-367:16]`↔`[394:68-408:16]` 15 行 76 token；`[589:23-596:17]`↔`[643:22-650:17]` 8 行 62 token）与 `client/ui-attachment/src/FileChip.tsx [111:57-123:8]` 复制 `AttachmentRail.tsx [176:21-188:8]` 的 13 行 65 token。该门禁在 develop 顶端同样红（当时 4 处），**不是本次集成引入**；抽取动作排到下一次滚动同步，抽完两边一起过门。
+
+## 每日滚动同步：0.1.2-alpha.5 → rc.1（`core-patches-v5` 001c0d7ded → `core-patches-v6`，63 个上游提交）
+镜像快进 `master` 到 `upstream/master`（`49a606bc5b..76fda72979`，先验 `git merge-base --is-ancestor master upstream/master` 与 `origin/master` 同为祖先，纯快进无 force），`git push origin master` 成功。注：`dsh-v0.1.2-rc.1` 标签落在 `a66e470204`（发版分支上），`upstream/master` 上无标签，`git describe` = `dsh-v0.1.2-rc.1-99-g76fda72979`；本轮基座取 `upstream/master`，其 `package.json` 版本即 `0.1.2-rc.1`。新工作树 `../dsh-roll6` 上 `git worktree add -b core-patches-v6 origin/core-patches-v5` + `git rebase --onto upstream/master 49a606bc5b`：v5 的 65 个提交全部落地、零 drop、零退役、零缩减（`git log --format=%s` 两侧逐行 diff 为空），随后新增 1 个适配提交，合计 66 个。
+
+**上游本轮改了什么（63 提交）**：新库 `packages/util/http-proxy`（把所有出站请求按配置的代理路由，含子进程/worker 的 `NODE_USE_ENV_PROXY` 下穿与 `.env` 代理名读取）、`packages/llm/llm-pi-ai` + `packages/client/ui-settings-models` 的模型清单发现、python 打包运行时不再劫持被 spawn 的 node 命令、`feat(session, agent, web): support same-session message editing` 合入后又整体 revert、issue-management 策略。
+
+**零退役核实（逐条对齐退化条款）**：
+- **文件级证据**：我方 239 个改动文件与上游 387 个改动文件求交，只有 13 个重合，且全是清单/生成物——`docs/config-catalog.{md,zh.md,i18n.yaml}`、`pnpm-lock.yaml`、`tsconfig.base.json`、`tsconfig.host.json`、5 个 `package.json`、2 个 `tsconfig.json`。**没有一个补丁的实体源文件被上游碰过**，因此没有任何补丁触发「上游一改同处就退役」。
+- `08f12ee732`（workspace gate 认私有 app）：上游本轮改了 12 个 `scripts/` 文件，其中**不含** `check-workspace-constraints.ts`，退化条款未触发。
+- `00770bab13`（preset selector glyph）等全部客户端补丁：上游本轮客户端改动只有 `ui-settings-models`（`ModelListEditor.tsx` + 双语 README + `provider-form.client.spec.tsx`）与 `apps/web/tests/models-settings.e2e.ts`，其余 `packages/client/*` 全是版本号行；我方补丁线在 `ui-settings-models` 下**零文件**，两侧无交集。
+- `8a2878ae6d`/`63a7eead67`（agent-presets 遗留 id `code`→`ptc`）：`git ls-tree upstream/master packages/preset/` 仍只有 `agent-presets`/`persona` 两个包，`git grep -iE "legacy|alias"` 零命中，机制仍不存在于上游。
+- 已退役的 `9b498d4a3e`、`4923774808` 维持退役，本轮未重落。
+
+**冲突与决定**（65 个重放提交中 1 个产生冲突，其余 64 个自动合并干净）：
+- `0d6f579a96`（spill oversized file attachments）：三处依赖清单并集。`packages/llm/llm-deepseek/package.json` 与 `packages/llm/llm-pi-ai/package.json` 的 `devDependencies`——上游把 `@deepseek-ai/dsh-http-proxy` 追加在 `dsh-timeout` 之后（非字典序），我方在 `dsh-timeout` 之前插 `@deepseek-ai/dsh-spill`。**决定**：并集，保留上游 `http-proxy` 的末位落点不动，`dsh-spill` 仍按字典序落在 `dsh-settings` 与 `dsh-timeout` 之间。`python/sdk-runtime/package.json`——上游把 `dsh-attachment` 移到了 `dsh-atomic-write` 之后，而本补丁原作时顺序相反。**决定**：取上游的排序形态，只在上游那行 `dsh-attachment` 后补一行 `dsh-attachment-spill`，即最小增量，不把上游的重排改回来。
+- 自动合并干净的同类文件：`packages/bundle/base/package.json`、两个 `llm/*/tsconfig.json`、`tsconfig.base.json`、`tsconfig.host.json`、`docs/config-catalog.{md,zh.md}`、`pnpm-lock.yaml`。
+- `pnpm-lock.yaml` 自动合并后**未手改**：变基后跑 `pnpm install --prefer-offline` 退出码 0，与合并结果逐字节 `diff` 无差异，供应链策略校验通过。
+
+**本轮新增 1 个适配提交**：
+1. `f62694e1ae` fix(attachment-spill): match the workspace version constraint——唯一的 fork 自有工作区包 `packages/attachment/attachment-spill` 版本停在 `0.1.2-alpha.5`，上游发版把根版本推到 `0.1.2-rc.1`，`check-workspace-constraints` 要求每个工作区包版本等于根版本。改法与上游发版提交 `a66e470204` 对每个已发布包做的完全一样（单行版本号）。变基后先单跑 `tsx scripts/check-workspace-constraints.ts` 复现该红（`package.json version must match root version 0.1.2-rc.1`），改后同一命令零输出。这是**每次基座升版都会复发**的机械项，不是本次变基引入的缺陷。
+
+**上游改动对本线的四项定向核查**：
+- **`http-proxy` 库**：我方补丁线的整段 diff 里 `https?_proxy`/`ProxyAgent`/`undici`/`globalDispatcher`/`new Agent`/`fetch(` 全部零命中——本线没有任何自建 fetch 或代理读取，无需适配。`doc-sync` 的 `proxy-aware dispatchers` 门（上游本轮新加的 `verify-no-bare-dispatcher`）在本线通过。
+- **`ui-settings-models` 模型清单发现**：本线在该包下零文件，无交集（见上「零退役核实」）。
+- **`SESSION_FORMAT_VERSION`**：上游**未**改动，`packages/core/session/src/types.ts:87` 在 alpha.5 与 rc.1 上同为 `= 0`，变基后的树亦为 `0`。
+- **`SessionEventMap` 净变化 = 0**：同会话消息编辑 `ef88756f13`（208 文件 +4057/−348）与其 revert `e974a655a0`（208 文件 +348/−4057）互相抵消，`git diff ef88756f13^ e974a655a0` 输出为空，即 revert 逐字节还原。alpha.5→rc.1 在 `packages/core/session` 与 `packages/session/*` 下的净改动只剩版本号行加一个 `session-telemetry-otel` 出网测试文件，无任何新事件成员。
+
+**门禁实跑结果**（全部在 `../dsh-roll6`，代码 HEAD `f62694e1ae`）：`pnpm install --frozen-lockfile` 退出码 0 → `pnpm run build` 退出码 0（1m23s）→ `pnpm run typecheck` 退出码 0，另跑双面冷启动 `tsc -b tsconfig.host.json --force` 与 `tsc -b tsconfig.client.json --force` 各 0 错误（24s/25s）→ `pnpm run lint` 退出码 0（23s）→ `pnpm run test` 退出码 1（见下「基座环境敏感测试红」；1057 文件中 1044 通过 / 4 失败 / 9 跳过，17835 用例中 17471 通过 / 246 失败 / 118 跳过，126s）→ `pnpm run hygiene` **16 门全绿**（11s）→ `pnpm run doc-sync` **32 门全绿**（53s）。
+
+**基座环境敏感测试红（4 个文件 246 条，全部非本次变基引入）**：
+- 取证方式：在 `upstream/master` 上新开一棵纯净工作树 `../dsh-roll6-base`（`git worktree add --detach`，`pnpm install --frozen-lockfile` 退出码 0），只跑这 4 个文件作基线。
+- `packages/experimental/code-runtime-python/tests/runtime.spec.ts`：我方 238 失败，基座 238 失败——同数。根因 `config.pythonBin "/usr/bin/python3" must be CPython 3.10 or newer, got cpython 3.9.6`，本机 `/usr/bin/python3` 是 CPython 3.9.6。
+- `packages/experimental/code-runtime-python/tests/boot-write-failure.spec.ts`：我方 6 失败，基座 6 失败——同数、同根因。
+- `packages/spill/spill-local/tests/spill-local.spec.ts`：我方 1 失败，基座 1 失败——同一条 `keeps a file exactly at the boundary`（mtime 边界精度）。
+- `packages/experimental/inspector/tests/integration.host.spec.ts`：我方全量跑里 1 失败，但在基座单跑**通过**，在本线单跑也**通过**（10/10）——判定为全量并行负载下的真实 Worker 抖动，台账已立案，不修。
+- 三项确定性红在基座合计 245 条，本线全量 246 条 = 245 + 抖动 1；四个文件在 `git diff upstream/master..core-patches-v6` 下**零改动**（与上游逐字节相同）。
+- 台账此前立案的另两项（`benchmark-npm-resolution` 进程树 PID、`oxlint-contract` FORCE_COLOR）本轮全量跑中**未复现**，状态维持立案。
+
+**旧会话可读性实证（本线读上一发行版写的真实日志）**：
+- 素材：把用户 rc.28 桌面写出的真实日志 `~/.dsh/sessions/--Users-haoran-CODE-work-project-evacuation-route--/session-9ca7767d-d3d9-4416-a6bc-b0201d6e1713/session.jsonl.zstd` **只读拷贝**到 scratch 造一个 `sessions` 根，全程不碰 `~/.dsh`。落盘头行实测 `{"type":"session","version":0,…,"agentPreset":"code"}`——带遗留预设 id `code`，正是 `8a2878ae6d`/`63a7eead67` 那对补丁负责翻译的那种老日志。
+- 用本线代码读（`JsonlSessionPersistence` + `SessionStore`，`compression: 'zstd'`）：`list()` 列出 1 个会话；`stat()` 与 `open(id,'read')` 的 header 均为 `version: 0`、`isSeeded: false`、`agentPreset: "code"`，无版本拒读；`handle.read(0)` 读出 **607 条事件**，`seq` 0..606 连续无洞，20 种事件类型（`assistant/chunk` 579、`user/message` 4、`tool/call` 1、`tool/result` 1 等），首条用户消息文本可完整读回。
+- 拒读路径仍在（不是「什么都不拒」造成的假绿）：同一个 backend 对一份伪造的 `version: 1` 头行抛 `SessionFormatUnsupportedError`，消息为 `uses log format v1, but this harness reads only v0: the log was written by a newer harness — upgrade the harness to open it`。
+
+**分支 HEAD 登记**：代码最终 HEAD = `f62694e1ae`（上表门禁数字即在其上取得）；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交，其后无提交。起点 `origin/core-patches-v5` = `001c0d7ded`（未动），基座 `upstream/master` = `origin/master` = `76fda72979`。

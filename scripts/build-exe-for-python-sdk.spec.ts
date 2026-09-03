@@ -41,7 +41,7 @@ describe('Python runtime executable builder CLI', () => {
       + ' --config.node-linker=hoisted --config.auto-install-peers=false --config.link-workspace-packages=true'
       + ' --config.allow-unused-patches=true',
     )
-    expect(result.stdout).toContain(`${process.execPath} C:\\tools\\pnpm.cjs dlx @yao-pkg/pkg@6.21.0`)
+    expect(result.stdout).toContain(`${process.execPath} C:\\tools\\pnpm.cjs exec pkg`)
     expect(result.stdout).not.toMatch(/pnpm\.cmd/i)
   })
 
