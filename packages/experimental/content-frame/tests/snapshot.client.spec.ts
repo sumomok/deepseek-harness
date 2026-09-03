@@ -1964,12 +1964,12 @@ describe('controls', () => {
   })
 })
 
-describe('an icon a page draws as a command', () => {
-  // The commands of a table row on the console this rule was written for are
-  // drawn as `<i class="el-tooltip operation-modify el-icon-edit">` and as an
-  // icon inside the wrapper a confirmation puts around it. Neither carries a
-  // role, a label, a title, or a pointer cursor: nothing a specification
-  // defines says they are there, and the only thing that does is the class.
+describe('a drawing the page only draws', () => {
+  // The commands of a table row on the console this reader was first written
+  // against are drawn as `<i class="el-tooltip operation-modify el-icon-edit">`
+  // and as an icon inside the wrapper a confirmation puts around it. Neither
+  // carries a role, a label, a title, or a pointer cursor: nothing a
+  // specification defines says they are there at all.
   const ROW_COMMANDS = `
     <table>
       <thead><tr><th>名称</th><th>操作</th></tr></thead>
@@ -1980,142 +1980,42 @@ describe('an icon a page draws as a command', () => {
       </div></td></tr></tbody>
     </table>`
 
-  it('gives the icon commands of a table row a ref, so the model can reach what the row offers', () => {
+  it('reads a drawing the page marks with nothing but a class as nothing at all', () => {
+    // A class is a page's own spelling, and nothing a specification defines
+    // says these elements are there. The column reads as the empty cell the
+    // document says it is, and what those drawings mean is for a skill that
+    // knows this application to say.
     const refs = page(ROW_COMMANDS)
-    expect(read(refs).text.split('\n')[2]).toBe('  sample: 东风站 | [edit delete]')
-    const listed = read(refs, { scope: refOf(refs, 'table') }).text
-    expect(listed.split('\n')[2]).toBe('  row 1: 东风站 | e3 icon "edit"  e4 icon "delete"')
-    // The confirmation the page keeps beside them is drawn nowhere yet.
-    expect(listed).not.toContain('确定删除吗')
+    expect(read(refs).text).toBe([
+      'e1 table 1 rows × 2 cols',
+      '  header: 名称 | 操作',
+      '  sample: 东风站 | ',
+      "  rows: pass scope with this table's ref to list rows, or find a row by its text",
+    ].join('\n'))
+    expect(read(refs, { scope: refOf(refs, 'table') }).text.split('\n')[2]).toBe('  row 1: 东风站 | ')
   })
 
-  it('names an icon by what the page wrote on it, and failing that by its own class', () => {
-    const refs = page(`
-      <div role="toolbar" aria-label="操作">
-        <i class="el-icon-edit" aria-label="编辑本行"></i>
-        <i class="el-icon-plus" title="新增"></i>
-        <span class="anticon anticon-delete"></span>
-        <i class="icon-star"></i>
-        <i class="edit-icon"></i>
-        <i class="iconfont"></i>
-      </div>`)
-    // The name is what a page writes after the word `icon`; a class that ends
-    // at the word says only that the thing is one, whichever side it is on.
+  it('reads a drawing the page named, wherever the page wrote the name', () => {
+    // What ARIA and HTML-AAM define is read in full: a role the page wrote, a
+    // label on the drawing, the drawing's own `title`, and a control drawn as
+    // nothing but a picture is named by the label on the control. A drawing
+    // carrying no role earns no row, however it names itself.
+    const refs = page('<div role="toolbar" aria-label="操作">'
+      + '<svg role="img" aria-label="导出"></svg>'
+      + '<svg role="img"><title>打印</title></svg>'
+      + '<svg><title>刷新</title></svg>'
+      + '<button aria-label="删除"><i class="el-icon-delete"></i></button>'
+      + '<i class="el-icon-star" style="cursor: pointer"></i>'
+      + '<i class="el-icon-edit"></i></div>')
     expect(read(refs).text).toBe([
       'e1 toolbar "操作"',
-      '  e2 icon "编辑本行" (in toolbar "操作")',
-      '  e3 icon "新增" (in toolbar "操作")',
-      '  e4 icon "delete" (in toolbar "操作")',
-      '  e5 icon "star" (in toolbar "操作")',
-      '  e6 icon (in toolbar "操作")',
-      '  e7 icon (in toolbar "操作")',
+      '  e2 img "导出" (in toolbar "操作")',
+      '  e3 img "打印" (in toolbar "操作")',
+      '  e4 button "删除" (in toolbar "操作")',
+      // The page draws this one as something to click and says nothing else
+      // about it; the one after it says nothing at all and prints nothing.
+      '  e5 clickable (in toolbar "操作")',
     ].join('\n'))
-    // An icon is one of the things a region offers, not one of its runs of text.
-    expect(read(refs, { mode: 'map' }).text).toBe('e1 toolbar "操作"  6 buttons')
-  })
-
-  it('reads an icon a page draws as an inline drawing, however that drawing names itself', () => {
-    // The icon sets of antd, Element Plus, and Bootstrap draw the shape inline
-    // rather than through a font: the name is then in the classes of the
-    // wrapper, in the symbol the drawing points at, or in its own title.
-    const refs = page(`
-      <div role="toolbar" aria-label="操作">
-        <svg class="el-icon-edit"><path d="M0 0"/></svg>
-        <svg><use href="#icon-delete"/></svg>
-        <svg><use xlink:href="#el-icon-plus"/></svg>
-        <svg><title>导出</title><path d="M0 0"/></svg>
-        <i class="el-icon"><svg viewBox="0 0 1024 1024"><use href="#Refresh"/></svg></i>
-        <div class="anticon anticon-star"><svg viewBox="0 0 1024 1024"><path d="M0 0"/></svg></div>
-      </div>`)
-    expect(read(refs).text).toBe([
-      'e1 toolbar "操作"',
-      '  e2 icon "edit" (in toolbar "操作")',
-      '  e3 icon "delete" (in toolbar "操作")',
-      '  e4 icon "plus" (in toolbar "操作")',
-      '  e5 icon "导出" (in toolbar "操作")',
-      '  e6 icon "Refresh" (in toolbar "操作")',
-      '  e7 icon "star" (in toolbar "操作")',
-    ].join('\n'))
-  })
-
-  it('reads a wrapper and the drawing inside it as one icon, and says nothing about a drawing that names nothing', () => {
-    const refs = page(`
-      <div role="toolbar" aria-label="操作">
-        <i class="el-icon"><svg viewBox="0 0 1024 1024"><path d="M0 0"/></svg></i>
-        <svg><use href="#icon"/></svg>
-        <svg viewBox="0 0 24 24"><path d="M0 0"/></svg>
-        <span class="wrap"><svg viewBox="0 0 24 24"><path d="M0 0"/></svg></span>
-      </div>`)
-    // A wrapper the page marks as an icon prints the row and the drawing inside
-    // it prints none, so one icon is one thing to click. A drawing that names
-    // itself nowhere is decoration: pages draw far too many to print each one.
-    expect(read(refs).text).toBe([
-      'e1 toolbar "操作"',
-      '  e2 icon (in toolbar "操作")',
-      '  e3 icon (in toolbar "操作")',
-    ].join('\n'))
-  })
-
-  it('names a wrapper by the drawing inside it when its own classes name nothing', () => {
-    // The wrapper an icon set puts around the drawing carries the classes and
-    // the drawing carries the name, so a wrapper marked as an icon and named
-    // nothing is named by the drawing it holds — and by its own classes where
-    // those say a word, which is what the page wrote closest to the reader.
-    const refs = page(`
-      <div role="toolbar" aria-label="操作">
-        <i class="el-icon"><svg viewBox="0 0 1024 1024"><title>刷新</title><path d="M0 0"/></svg></i>
-        <i class="el-icon-edit"><svg viewBox="0 0 1024 1024"><title>刷新</title><path d="M0 0"/></svg></i>
-        <i class="el-icon"><svg viewBox="0 0 1024 1024"><title></title><path d="M0 0"/></svg></i>
-      </div>`)
-    expect(read(refs).text).toBe([
-      'e1 toolbar "操作"',
-      '  e2 icon "刷新" (in toolbar "操作")',
-      '  e3 icon "edit" (in toolbar "操作")',
-      '  e4 icon (in toolbar "操作")',
-    ].join('\n'))
-  })
-
-  it('names an icon in a cell whatever else the page says the element is', () => {
-    // What a cell is read for is what the row offers, so the icon a page marks
-    // as a picture is named there; the same element read as a row of the page
-    // is answered with the role the page wrote on it.
-    const cell = page(`
-      <table><tbody><tr><td>东风站</td><td>
-        <span role="img" aria-label="删除" class="anticon anticon-delete"><svg><path d="M0 0"/></svg></span>
-        <i class="el-icon"><svg><use href="#Edit"/></svg></i>
-      </td></tr></tbody></table>`)
-    read(cell)
-    expect(read(cell, { scope: refOf(cell, 'table') }).text.split('\n')[1])
-      .toBe('  row 1: 东风站 | e3 icon "删除"  e4 icon "Edit"')
-    const bar = page(`
-      <div role="toolbar" aria-label="操作">
-        <span role="img" aria-label="删除" class="anticon anticon-delete"><svg><path d="M0 0"/></svg></span>
-      </div>`)
-    expect(read(bar).text).toBe(['e1 toolbar "操作"', '  e2 img "删除" (in toolbar "操作")'].join('\n'))
-  })
-
-  it('offers an icon where a page draws its commands, and reads past one drawn as decoration', () => {
-    const refs = page(`
-      <p>说明 <i class="el-icon-warning"></i> 结束</p>
-      <ul><li><i class="el-icon-star"></i>甲</li><li>乙</li><li>丙</li></ul>`)
-    // A drawing beside a run of text is decoration and ends no run of it; the
-    // same drawing among the items of a list is one of the things offered.
-    expect(read(refs).text).toBe([
-      'text "说明 结束"',
-      'e1 list',
-      '  e2 icon "star" (list)',
-      '  text "甲" (list)',
-      '  text "乙" (list)',
-      '  text "丙" (list)',
-    ].join('\n'))
-  })
-
-  it('reads an element carrying words as the words it carries, whatever its class says', () => {
-    const refs = page('<div role="toolbar" aria-label="操作"><i class="el-icon-edit">编辑</i><i class="fa fa-trash"></i></div>')
-    // An icon is an element drawing no words of its own; and only the word
-    // `icon` marks one, so an icon font spelling its classes some other way
-    // reaches this read as nothing at all.
-    expect(read(refs).text).toBe(['e1 toolbar "操作"', '  text "编辑" (in toolbar "操作")'].join('\n'))
   })
 })
 
@@ -2179,10 +2079,11 @@ describe('the console table this reader was written against', () => {
       'e6 table 2 rows × 20 cols',
     ])
     // Each piece draws the columns it was pinned for and hides the rest, so the
-    // names are on one table and the commands on another.
+    // names are on one table and the commands the page draws as bare classes
+    // are on another — where they reach the model as an empty column.
     const listing = read(refs).text
     expect(listing).toContain('  sample:  | 东风站 | ')
-    expect(listing).toContain('| [edit delete]')
+    expect(listing).toContain('e6 table 2 rows × 20 cols')
   })
 
   it('lists the rows of the half a read names by ref', () => {

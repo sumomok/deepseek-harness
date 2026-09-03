@@ -163,18 +163,6 @@ const GLOBAL_ARIA_SELECTOR = [
 /** The role a snapshot gives a role-less element the page makes clickable. */
 export const CLICKABLE_ROLE = 'clickable'
 
-/** The role a snapshot gives an element a page draws as an icon and names nowhere. */
-export const ICON_ROLE = 'icon'
-
-/**
- * The word an icon-font library writes in the class of the element it draws an
- * icon on: `el-icon-edit`, `anticon-delete`, `icon-trash`, `iconfont`. It is the
- * one part of such a class name that is not a library's own spelling, which is
- * why this is the whole of what {@link iconWord} matches — a library that never
- * writes it is one this reader does not see.
- */
-const ICON_TOKEN = 'icon'
-
 /**
  * The roles HTML itself gives an element that `dom-accessibility-api` does not
  * map. HTML-AAM gives `meter` the role of the same name; the library answers
@@ -766,117 +754,6 @@ export function drawnAround(el: Element): string {
  */
 function drawnPart(el: Element, part: string): string {
   return viewOf(el).getComputedStyle(el, part).content.replace(DRAWS_NOTHING, '').replaceAll(/["']/gu, '')
-}
-
-/**
- * The word one class token or one symbol id names an icon with: whatever a page
- * writes after the word `icon`. `el-icon-edit`, `icon-edit`, and `anticon-delete`
- * each say what they draw; `el-icon`, `edit-icon`, and `iconfont` say only that
- * something is an icon, and a name written without the word at all — the `trash`
- * of a `#trash` symbol — is the whole of what it says.
- * @param token - one class token, or the id a sprite reference points at.
- * @returns the word, or undefined when the token names nothing but an icon.
- */
-function iconPart(token: string): string | undefined {
-  const parts = token.split(/[-_]/u).filter(part => part !== '')
-  const at = parts.findIndex(part => part.toLowerCase().includes(ICON_TOKEN))
-  return parts.slice(at + 1).at(-1)
-}
-
-/**
- * The word a page's classes name an icon with.
- * @param el - the element to read.
- * @returns the word, empty for classes that mark an icon and name none, and
- * undefined for an element no class marks as an icon.
- */
-function classIconWord(el: Element): string | undefined {
-  const tokens = [...el.classList]
-  const at = tokens.findIndex(token => token.toLowerCase().includes(ICON_TOKEN))
-  if (at === -1) return undefined
-  for (const token of tokens.slice(at)) {
-    const word = iconPart(token)
-    if (word !== undefined) return word
-  }
-  return ''
-}
-
-/**
- * The one drawing an element holds and nothing else, which is how every icon
- * set drawn as inline `svg` is wrapped: the wrapper carries the classes and the
- * drawing carries the shape.
- * @param el - the element to look inside.
- * @returns the drawing, or undefined for an element holding anything else.
- */
-export function drawingInside(el: Element): Element | undefined {
-  const children = [...el.children]
-  const only = children.length === 1 ? children[0] : undefined
-  return only?.localName === 'svg' ? only : undefined
-}
-
-/**
- * The drawing one element's name can be read from: itself, where it is one, and
- * the drawing a wrapper the page marks as an icon holds and nothing else. A
- * wrapper the page marks as nothing stays a wrapper, because pages draw far
- * more decoration than icons and the drawing inside one of those names nothing
- * anybody asked for.
- * @param el - the element to read.
- * @param classed - what the element's own classes say, from {@link classIconWord}.
- * @returns the drawing, or undefined where there is none to read.
- */
-function namedDrawing(el: Element, classed: string | undefined): Element | undefined {
-  if (el.localName === 'svg') return el
-  return classed === undefined ? undefined : drawingInside(el)
-}
-
-/**
- * The word a drawing names itself with: the symbol a sprite reference points
- * at, or the title the drawing carries. A page that draws its icons as inline
- * `svg` writes the name in one of those two places or in neither. A title is
- * read here as well as through the accessible name, because the wrapper an icon
- * set puts around the drawing carries no name of its own and computes none from
- * a title one element further in.
- * @param el - the element to read: a drawing, or the wrapper around one.
- * @param classed - what the element's own classes say, from {@link classIconWord}.
- * @param isVisible - injected visibility.
- * @returns the word, empty for a drawing marked as an icon and named nothing,
- * and undefined when there is no drawing to name.
- */
-function drawnIconWord(el: Element, classed: string | undefined, isVisible: (el: Element) => boolean): string | undefined {
-  const drawing = namedDrawing(el, classed)
-  if (drawing === undefined) return undefined
-  const use = drawing.querySelector('use')
-  const href = use?.getAttribute('href') ?? use?.getAttribute('xlink:href') ?? ''
-  const hash = href.lastIndexOf('#')
-  if (hash !== -1) return iconPart(href.slice(hash + 1)) ?? ''
-  const title = drawing.querySelector('title')
-  return title === null ? undefined : clip(visibleText(title, isVisible))
-}
-
-/**
- * The name a page's own markup gives an icon, for one it draws and labels
- * nowhere: the word its classes carry, the symbol a sprite reference points at,
- * or the title of the drawing itself.
- *
- * This is the one rule in the package keyed to what a page happens to write
- * rather than to what a specification defines, and it is a heuristic: only the
- * word `icon` counts, in any class token that holds it, and no library's own
- * prefix is matched — `el-`, `anticon`, and `iconfont` reach it through `icon`
- * alone, and a library spelling its icons some other way reaches it not at all.
- * A drawing is read whatever its classes say, because an icon set drawn as
- * inline `svg` writes its name in the symbol it points at instead; a drawing
- * that names itself nowhere is decoration, and pages draw far too many of those
- * to print a row for each.
- * @param el - the element to read.
- * @param isVisible - injected visibility.
- * @returns the name, empty for markup that marks an icon and names none, and
- * undefined for an element the page marks as no icon at all.
- */
-export function iconWord(el: Element, isVisible: (el: Element) => boolean): string | undefined {
-  const classed = classIconWord(el)
-  if (classed !== undefined && classed !== '') return classed
-  const drawn = drawnIconWord(el, classed, isVisible)
-  if (drawn !== undefined && drawn !== '') return drawn
-  return classed ?? drawn
 }
 
 /**

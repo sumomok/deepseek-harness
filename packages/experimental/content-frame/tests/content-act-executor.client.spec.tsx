@@ -860,8 +860,8 @@ describe('one name, printed and checked', () => {
    * Every way this reader names something, on one page: a click target the
    * page draws itself, the two node roles, a field labelled by the text drawn
    * in front of it, a box named by the word written inside it, one named by
-   * `aria-label`, an icon named by the symbol it draws, one named by its own
-   * title, one named by its class, and a framework's button.
+   * `aria-label`, a picture named by its own title, one named by a label, and
+   * a framework's button.
    */
   const NAMED = '<main>'
     + '<div id="query" style="cursor: pointer">查询</div>'
@@ -870,25 +870,14 @@ describe('one name, printed and checked', () => {
     + '<div><label>名称</label><input id="named"></div>'
     + '<input id="q" class="el-input__inner" placeholder="请输入资源名称">'
     + '<input id="site" aria-label="站点">'
-    + '<div role="toolbar">'
-    + '<svg id="edit"><use href="#icon-edit"></use></svg>'
-    + '<svg id="export"><title>导出报表</title></svg>'
-    + '<i id="drop" class="el-icon-delete"></i>'
-    + '</div>'
-    + '<ul><li><i id="star" class="el-icon-star"></i></li>'
-    + '<li><i class="el-icon-plus"></i></li><li><i class="el-icon-minus"></i></li></ul>'
+    + '<div role="toolbar"><svg id="export" role="img"><title>导出报表</title></svg></div>'
     + '<svg id="chart" role="img" aria-label="趋势图"></svg>'
     + '<canvas id="trend" aria-label="本月趋势" style="cursor: pointer"></canvas>'
     + '<button class="el-button"><i class="el-icon-search"></i><span>提交</span></button>'
     + '<table aria-label="设备">'
-    + '<thead><tr><th>名称</th><th>操作</th><th>批量</th><th>标注</th></tr></thead>'
+    + '<thead><tr><th>名称</th><th>操作</th></tr></thead>'
     + '<tbody><tr><td>mill-01</td>'
-    + '<td><a href="#x">详情</a><button class="el-button">编辑</button>'
-    + '<i class="el-tooltip operation-modify el-icon-delete"></i></td>'
-    // The same commands wrapped in a region of their own, which is how a page
-    // groups the operations of a row: the cell around them still decides.
-    + '<td><nav aria-label="操作"><i class="el-icon-edit"></i></nav></td>'
-    + '<td><form aria-label="标注"><i class="el-icon-star"></i></form></td>'
+    + '<td><a href="#x">详情</a><button class="el-button">编辑</button></td>'
     + '</tr></tbody>'
     + '</table>'
     + '</main>'
@@ -930,12 +919,7 @@ describe('one name, printed and checked', () => {
       'textbox "名称"',
       'textbox "请输入资源名称"',
       'textbox "站点"',
-      'icon "edit"',
-      'icon "导出报表"',
-      'icon "delete"',
-      'icon "star"',
-      'icon "plus"',
-      'icon "minus"',
+      'img "导出报表"',
       'img "趋势图"',
       'clickable "本月趋势"',
       'button "提交"',
@@ -944,11 +928,6 @@ describe('one name, printed and checked', () => {
       // this reader was written for puts its edit and delete on.
       'link "详情"',
       'button "编辑"',
-      'icon "delete"',
-      // Drawn inside a region of their own, and still the row's commands: the
-      // cell decides, not the bar or the form the page groups them with.
-      'icon "edit"',
-      'icon "star"',
     ])
     for (const row of printed) {
       const el = refs.resolve(row.ref)
@@ -988,9 +967,9 @@ describe('one name, printed and checked', () => {
     expect({
       // Hidden: the walk turns back at it.
       hidden: itemName(at('button'), options()),
-      // A drawing that draws no icon and carries no name is decoration.
+      // A drawing the page names nowhere is decoration.
       blank: itemName(at('#blank'), options()),
-      // An icon is a row inside a toolbar or a list and nothing anywhere else.
+      // So is an element a page marks with nothing but a class of its own.
       loose: itemName(at('#loose'), options()),
       // The two rooms with names of their own.
       table: itemName(at('table'), options()),

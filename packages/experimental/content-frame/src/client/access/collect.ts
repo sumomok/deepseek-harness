@@ -13,11 +13,11 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/collect
  */
 import {
-  CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, ICON_ROLE, NAME_FROM_CONTENT_ROLES,
-  QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
-  frameDocument, headingText, insideOpaque, isChecked, isDisabled, isInline, isMarked,
-  drawingInside, drawnAround, iconWord, isNameable, isNonContent, isOpaque, isPassword, isReadonly, isSkipped,
-  libraryRole, looksClickable, markedSelector, nameOf, quantityValue, queryInOrder, roleOf, visibleText,
+  CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES,
+  QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, drawnAround, fieldValue,
+  frameDocument, headingText, insideOpaque, isChecked, isDisabled, isInline, isMarked, isNameable,
+  isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole, looksClickable, markedSelector,
+  nameOf, quantityValue, queryInOrder, roleOf, visibleText,
 } from './dom.ts'
 import type {
   CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, ElementItem,
@@ -48,9 +48,6 @@ const SAMPLE_CELL_LIMIT = 24
  * in the text of the cell around it.
  */
 const CELL_CONTROL_ROLES: ReadonlySet<string> = new Set(['button', 'link', ...FIELD_ROLES, ...QUANTITY_ROLES])
-
-/** The roles a table gives the boxes its rows are made of, which name what they hold. */
-const CELL_ROLES: ReadonlySet<string> = new Set(['cell', 'gridcell', 'columnheader', 'rowheader'])
 
 /**
  * The roles of the controls a page draws beside a node to act on it: the delete
@@ -447,43 +444,11 @@ function controlFace(el: Element, role: string, walk: Walk, label: Element | und
 }
 
 /**
- * Whether a drawing where it stands is one of the page's own commands rather
- * than decoration.
- *
- * A drawing carries no role and no name, so where it sits is the whole of what
- * says it can be operated: a page puts its commands in a toolbar, in a list, or
- * in the cells of a table's rows, and draws the same shapes elsewhere as
- * ornament. The place is read off the element's own ancestors, cells before
- * regions: a page draws the commands of a row inside a bar, a form, or a
- * confirmation of its own, and a region drawn inside a cell says nothing about
- * the row holding it, so a cell anywhere above the drawing settles the question
- * and only outside every cell does the nearest region decide. The pass over the
- * page and a caller holding one element ask the same question and get the same
- * answer.
- * @param el - the element to classify.
- * @param walk - the walk in progress.
- * @returns whether the page draws a command there.
- */
-function namesIcon(el: Element, walk: Walk): boolean {
-  if (!isIcon(el, walk)) return false
-  for (let at = el.parentElement; at !== null; at = at.parentElement) {
-    if (CELL_ROLES.has(roleOf(at) ?? '')) return true
-  }
-  for (let at = el.parentElement; at !== null; at = at.parentElement) {
-    const face = containerFace(at, roleOf(at), walk)
-    if (face !== undefined) return face.type === 'toolbar' || face.type === 'list'
-  }
-  return false
-}
-
-/**
  * The role a cell names an element by rather than reading it as part of the
  * cell's text. The condition is the one a row of the page is printed under, so
  * a bar reaches the sample and the listed row exactly where it would reach a
  * row of its own, and a run the page makes clickable is offered in a cell
- * exactly where it would be offered outside one. The icon a table draws for
- * editing a row carries no role and no name of any kind, and a cell that read
- * it as text would leave the model a column it can see and cannot use.
+ * exactly where it would be offered outside one.
  * @param el - the element inside the cell.
  * @param walk - the walk in progress.
  * @returns the role, or undefined for an element the cell reads as text.
@@ -491,7 +456,6 @@ function namesIcon(el: Element, walk: Walk): boolean {
 function cellControlRole(el: Element, walk: Walk): string | undefined {
   const role = roleOf(el)
   if (role !== null && CELL_CONTROL_ROLES.has(role) && rowRole(el, role)) return role
-  if (namesIcon(el, walk)) return ICON_ROLE
   if (role !== null) return undefined
   return topClickable(el, walk) ? CLICKABLE_ROLE : undefined
 }
@@ -995,11 +959,6 @@ function ownName(el: Element, role: string, walk: Walk): string {
 /**
  * What a row calls the element it names.
  *
- * An icon is named by what the page wrote on it, by the name a title computes,
- * and last by the word its own class names it with, because a page that draws a
- * command as an icon and labels it nowhere has said what it is in that class and
- * in nothing else.
- *
  * The accessible name is computed for the first role the page wrote, and the
  * walk reads the first one ARIA defines; where those differ the computed name
  * is an answer about another role, and an empty one says only that the role the
@@ -1015,7 +974,6 @@ function ownName(el: Element, role: string, walk: Walk): string {
  * @returns the name.
  */
 function elementName(el: Element, role: string, walk: Walk): string {
-  if (role === ICON_ROLE) return declaredName(el) || nameOf(el) || iconWord(el, walk.isVisible) || ''
   if (role === CLICKABLE_ROLE || ITEM_NODE_TYPES.has(role)) return ownName(el, role, walk)
   const name = nameOf(el)
   const wrote = libraryRole(el)
@@ -1471,43 +1429,6 @@ function clickableName(el: Element, walk: Walk): string {
 }
 
 /**
- * True for an element a page draws as an icon and says nothing else about: an
- * inline element with no words of its own, marked as an icon by its class.
- *
- * A framework draws the commands of a table row this way — the edit icon of the
- * page this rule was written for is `<i class="el-tooltip operation-modify
- * el-icon-edit">`, with no role, no label, no title, and no pointer cursor of
- * its own — so nothing a specification defines says the element is there at
- * all, and a reader who can see it has no way to ask for it. The rule is a
- * heuristic keyed to a page's own markup, which every rule in this package
- * otherwise refuses; see the Agent Note for what it costs and when it retires.
- *
- * An icon set drawn as inline `svg` reaches this the same way: the drawing
- * itself is one where it names a symbol or carries a title, and the wrapper the
- * page marks as an icon is one where it holds nothing but that drawing — which
- * keeps one icon to one row, since a row ends the descent.
- * @param el - the element to classify.
- * @param walk - the walk in progress.
- * @returns whether the page draws the element as an icon.
- */
-function isIcon(el: Element, walk: Walk): boolean {
-  if (iconWord(el, walk.isVisible) === undefined) return false
-  // A drawing draws no words of the page wherever it is: what is written inside
-  // one labels the picture, which is why the walk stops at one everywhere else.
-  if (el.localName === 'svg') return true
-  return (isInline(el) || drawingInside(el) !== undefined) && visibleText(el, walk.isVisible) === ''
-}
-
-/**
- * True where the walk offers an icon as a thing to act on: inside a table cell,
- * a toolbar, or a list, which is where a page draws icons as the commands it
- * offers rather than as decoration beside its text.
- * @param el - the element to classify.
- * @param walk - the walk in progress.
- * @param place - the element's position.
- * @returns whether this read offers the icon.
- */
-/**
  * True where the walk offers this element as a thing to click: the top of a
  * clickable run, drawn outside any text a control's own row already prints.
  * @param el - the element to classify.
@@ -1558,7 +1479,6 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
     // the model can reach it.
     const drawn = roleOf(el)
     if (drawn !== null && rowRole(el, drawn)) pushElement(el, drawn, walk, place)
-    else if (namesIcon(el, walk)) pushElement(el, ICON_ROLE, walk, place)
     else if (offersClick(el, walk, place)) pushElement(el, CLICKABLE_ROLE, walk, place)
     return
   }
@@ -1605,10 +1525,6 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
       pushElement(el, role, walk, place)
       return
     }
-  }
-  if (namesIcon(el, walk)) {
-    pushElement(el, ICON_ROLE, walk, place)
-    return
   }
   if (offersClick(el, walk, place)) {
     const items = topItems(host, walk)
@@ -1688,7 +1604,6 @@ export function itemName(el: Element, options: SnapshotOptions): string {
   if (isOpaque(el)) {
     const drawn = roleOf(el)
     if (drawn !== null && rowRole(el, drawn)) return namedAs(el, drawn, walk).name
-    if (namesIcon(el, walk)) return namedAs(el, ICON_ROLE, walk).name
     // A drawing the page made clickable is a row like any other click target:
     // a chart a click drills into is reachable, and named by what the page
     // wrote on it, because what is inside a drawing labels the picture.
@@ -1699,7 +1614,6 @@ export function itemName(el: Element, options: SnapshotOptions): string {
   const face = containerFace(el, role, walk)
   if (face !== undefined) return face.name
   if (role !== null && (ITEM_NODE_TYPES.has(role) || rowRole(el, role))) return namedAs(el, role, walk).name
-  if (namesIcon(el, walk)) return namedAs(el, ICON_ROLE, walk).name
   if (!topClickable(el, walk)) return ''
   const items = topItems(childHost(el), walk)
   if (wrapsOnly(el, items, walk)) return ''

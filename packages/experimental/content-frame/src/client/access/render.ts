@@ -6,7 +6,7 @@
  * list and no way to reach the rest.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/render
  */
-import { CLICKABLE_ROLE, FIELD_ROLES, ICON_ROLE, clipTo } from './dom.ts'
+import { CLICKABLE_ROLE, FIELD_ROLES, clipTo } from './dom.ts'
 import type {
   ContainerFace, ContainerItem, ControlFace, ControlState, ElementItem, Item, RowCell, SnapshotMode,
   SnapshotOptions, TableItem, TableRowItem, TextItem,
@@ -118,7 +118,7 @@ function within(face: ContainerFace | undefined): string {
 interface Counts {
   /** Fields the user fills in. */
   fields: number
-  /** Buttons, icons, and other click targets. */
+  /** Buttons and other click targets. */
   buttons: number
   /** Links. */
   links: number
@@ -161,7 +161,7 @@ function containerCounts(container: ContainerItem, items: readonly Item[]): stri
     if (item.kind === 'text') counts.texts += 1
     else if (item.kind === 'element') {
       if (FIELD_ROLES.has(item.role)) counts.fields += 1
-      else if (item.role === 'button' || item.role === CLICKABLE_ROLE || item.role === ICON_ROLE) counts.buttons += 1
+      else if (item.role === 'button' || item.role === CLICKABLE_ROLE) counts.buttons += 1
       else if (item.role === 'link') counts.links += 1
       else if (ITEM_ROLES.has(item.role)) counts.items += 1
       else counts.texts += 1
