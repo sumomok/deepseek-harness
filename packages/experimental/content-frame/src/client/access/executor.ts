@@ -25,6 +25,7 @@
  */
 import { useEffect, useRef, useState } from 'react'
 import type { MutableRefObject } from 'react'
+import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
   ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_BID_MS,
@@ -64,7 +65,7 @@ const EMPTY_REASON = 'the content column is empty'
 const NOT_A_PAGE_REASON = 'the entry in front is not a page'
 
 /** This page load's identity, which is what a session's reads are pinned to. */
-export const TAB_ID = crypto.randomUUID()
+export const TAB_ID = randomUUID()
 
 /**
  * The window an element's own styles belong to.
