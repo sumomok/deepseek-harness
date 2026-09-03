@@ -57,6 +57,7 @@ import { menuText } from './menu-text.ts'
 import { compareVersions } from './version-order.ts'
 import { closeProgress, progressVersion, showInstalling, showProgress, showRetrying, updateProgress } from './progress-window.ts'
 import { CHECK_RETRY_DELAYS_MS, RETRY_DELAYS_MS, classifyDownloadError, describeDownloadError, withRetry } from './download-retry.ts'
+import { updaterLogLine, type UpdaterLogChannel } from './updater-log.ts'
 
 /**
  * The published feed, and **the only URL literal this module may contain**.
@@ -785,12 +786,15 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
     : new NsisUpdater({ provider: 'generic', url: FEED_WIN, channel: FEED_CHANNEL })
   built.autoDownload = false
   built.autoInstallOnAppQuit = false
-  built.logger = {
-    info: (message?: unknown) => { host.log(`[updater] ${String(message)}\n`) },
-    warn: (message?: unknown) => { host.log(`[updater] warn: ${String(message)}\n`) },
-    error: (message?: unknown) => { host.log(`[updater] error: ${String(message)}\n`) },
-    debug: (message: string) => { host.log(`[updater] debug: ${message}\n`) },
+  // [[updaterLogLine]] decides which of electron-updater's own lines reach the
+  // log and how. `debug` is registered rather than left unset because upstream
+  // guards every call on it with `!= null`: an unset channel would drop the two
+  // lines [[KEPT_DEBUG_PREFIXES]] keeps along with the rest.
+  const write = (channel: UpdaterLogChannel) => (message?: unknown): void => {
+    const line = updaterLogLine(channel, message)
+    if (line !== null) host.log(line)
   }
+  built.logger = { info: write('info'), warn: write('warn'), error: write('error'), debug: write('debug') }
   built.on('download-progress', (progress) => {
     updateProgress(progress)
     mainWindow()?.setProgressBar(progress.percent / 100)
