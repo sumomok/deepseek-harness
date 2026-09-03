@@ -164,6 +164,17 @@ const GLOBAL_ARIA_SELECTOR = [
 export const CLICKABLE_ROLE = 'clickable'
 
 /**
+ * The roles of the things a page offers to act on, the click target it declares
+ * no role for included. What a row under one of these says is what the model
+ * can point a step at, so a row printing one of them and no name is a row it
+ * cannot use.
+ */
+export const OFFERED_ROLES: ReadonlySet<string> = new Set([
+  CLICKABLE_ROLE, 'button', 'link', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option',
+  'treeitem', ...FIELD_ROLES,
+])
+
+/**
  * The roles HTML itself gives an element that `dom-accessibility-api` does not
  * map. HTML-AAM gives `meter` the role of the same name; the library answers
  * nothing for that tag, and a bar the page named would reach the reader as

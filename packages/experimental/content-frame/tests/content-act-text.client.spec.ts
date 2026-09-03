@@ -68,7 +68,8 @@ describe('what the model reads when a call is refused before it runs', () => {
       + 'visible text is value; "press" sends one key such as Enter or Escape; "wait" waits for text to appear '
       + 'anywhere on the page',
       'every step but "wait" needs ref, a ref like "e12" from a previous content_read',
-      'every step but "wait" needs label, the element\'s name exactly as content_read printed it',
+      'every step but "wait" needs label, the element\'s name exactly as content_read printed it, '
+      + 'or "" for a row it printed with no name',
       'a "fill" step needs text, the value to type into the box',
       'a "wait" step needs text, the words to wait for',
       'a "select" step needs value, the option\'s visible text',

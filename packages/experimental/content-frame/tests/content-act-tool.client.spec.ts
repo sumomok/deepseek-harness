@@ -194,7 +194,8 @@ describe('what content_act offers the model', () => {
         + 'control, fill a box, choose from a list, press a key, or wait for text to appear. Every target is a '
         + 'ref from a content_read, and every label is that element\'s name copied from the read — the browser '
         + 'checks the name before it acts, so a page that changed since the read stops the call instead of '
-        + 'clicking something else. The steps run in order and stop at the first failure; the answer reports '
+        + 'clicking something else; for a row the read printed with no name, pass label "". The steps run in '
+        + 'order and stop at the first failure; the answer reports '
         + 'each step, what the page did while they ran, and a fresh reading of the page. One call is one '
         + 'approval request, so put the steps that belong together in one call.',
       parameters: {
@@ -323,11 +324,8 @@ describe('what content_act refuses before anyone is asked', () => {
       [[{ action: 'click', ref: 'twelve', label: '查询' }], 'content_act step 1: every step but "wait" needs ref, a ref like "e12" from a previous content_read'],
       [
         [{ action: 'click', ref: 'e5' }],
-        'content_act step 1: every step but "wait" needs label, the element\'s name exactly as content_read printed it',
-      ],
-      [
-        [{ action: 'click', ref: 'e5', label: '' }],
-        'content_act step 1: every step but "wait" needs label, the element\'s name exactly as content_read printed it',
+        'content_act step 1: every step but "wait" needs label, the element\'s name exactly as content_read printed it, '
+        + 'or "" for a row it printed with no name',
       ],
       [
         [STEPS[1], { action: 'fill', ref: 'e4', label: '名称' }],

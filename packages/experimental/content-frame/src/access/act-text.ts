@@ -28,7 +28,8 @@ export const CONTENT_ACT_DESCRIPTION =
   + 'this conversation), the way the user would: click a control, fill a box, choose '
   + 'from a list, press a key, or wait for text to appear. Every target is a ref from a content_read, and every '
   + 'label is that element\'s name copied from the read — the browser checks the name before it acts, so a page '
-  + 'that changed since the read stops the call instead of clicking something else. The steps run in order and '
+  + 'that changed since the read stops the call instead of clicking something else; for a row the read printed '
+  + 'with no name, pass label "". The steps run in order and '
   + 'stop at the first failure; the answer reports each step, what the page did while they ran, and a fresh '
   + 'reading of the page. One call is one approval request, so put the steps that belong together in one call.'
 
@@ -94,7 +95,8 @@ export const REF_REFUSAL = 'every step but "wait" needs ref, a ref like "e12" fr
 
 /** Refusal for a step with no `label` to check the page against. */
 export const LABEL_REFUSAL =
-  'every step but "wait" needs label, the element\'s name exactly as content_read printed it'
+  'every step but "wait" needs label, the element\'s name exactly as content_read printed it, '
+  + 'or "" for a row it printed with no name'
 
 /** Refusal for a `fill` with nothing to type. */
 export const FILL_TEXT_REFUSAL = 'a "fill" step needs text, the value to type into the box'

@@ -13,7 +13,7 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/collect
  */
 import {
-  CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES,
+  CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES, OFFERED_ROLES,
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
   frameDocument, headingText, insideOpaque, isChecked, isDisabled, isInline, isNameable,
   isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole, looksClickable, nameOf,
@@ -117,16 +117,6 @@ const LANDMARK_SELECTOR = [
   'main', 'nav',
   '[role~="main"]', '[role~="navigation"]', '[role~="banner"]', '[role~="contentinfo"]',
 ].join(', ')
-
-/**
- * The roles of the things a page offers to act on. A click target wrapped
- * tightly around exactly one of them is that control's own hit area, not a
- * second thing to click.
- */
-const INTERACTIVE_ROLES: ReadonlySet<string> = new Set([
-  'button', 'link', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'treeitem',
-  ...FIELD_ROLES,
-])
 
 /** Everything one walk shares from its first element to its last. */
 interface Walk {
@@ -1133,7 +1123,7 @@ function wrapsOnly(el: Element, items: readonly Element[], walk: Walk): boolean 
   const only = items.length === 1 ? items[0] : undefined
   if (only !== undefined) {
     const role = roleOf(only)
-    if (role !== null && INTERACTIVE_ROLES.has(role)
+    if (role !== null && OFFERED_ROLES.has(role)
       && (declared === '' || declared.toLowerCase() === nameOf(only).toLowerCase())
       && visibleText(el, walk.isVisible) === visibleText(only, walk.isVisible)) return true
   }

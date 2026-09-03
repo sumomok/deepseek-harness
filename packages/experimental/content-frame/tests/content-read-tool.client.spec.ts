@@ -128,9 +128,11 @@ describe('what content_read offers the model', () => {
         + 'default mode "outline" lists everything in a scope; when the whole page is too large it answers with '
         + 'the page\'s map — its containers with counts — and names the scope to read next. Tables report their '
         + 'header, size and one sample row: pass scope with the table\'s ref to list its rows, or find with a '
-        + 'row\'s text to get that row and its buttons\' refs. A cut listing returns a cursor; pass it as after '
-        + 'to continue. Reads only the entry in front — call content_show first to put a page there. Never '
-        + 'returns a password box\'s value.',
+        + 'row\'s text to get that row and its buttons\' refs. A control the page names nowhere prints its class '
+        + 'tokens as {{class: ...}} instead of a name: that is the page\'s own markup, unread — what it means is '
+        + 'for a skill about this application to say. A cut listing returns a cursor; pass it as after to '
+        + 'continue. Reads only the entry in front — call content_show first to put a page there. Never returns '
+        + 'a password box\'s value.',
       parameters: {
         type: 'object',
         properties: {

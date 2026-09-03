@@ -693,7 +693,7 @@ export type ActStepRefusal =
   | 'action'
   /** The ref is absent or is not a ref. */
   | 'ref'
-  /** The label is absent or empty. */
+  /** The label is absent. */
   | 'label'
   /** A `fill` carries nothing to type. */
   | 'fill-text'
@@ -767,15 +767,18 @@ export function readActStep(raw: RawStep): ActStepRead {
   const action = ACT_ACTIONS.find(known => known === raw.action)
   if (action === undefined) return refuse('action')
   if (action === 'wait') {
-    // Empty is refused the way an empty label is: every page's visible text
-    // contains the empty string, so the step would report itself satisfied
-    // without the page having done anything.
+    // Empty is refused: every page's visible text contains the empty string, so
+    // the step would report itself satisfied without the page having done
+    // anything.
     return typeof raw.text === 'string' && raw.text !== ''
       ? { kind: 'step', step: { action, text: raw.text } }
       : refuse('wait-text')
   }
   if (typeof raw.ref !== 'string' || !REF_PATTERN.test(raw.ref)) return refuse('ref')
-  if (typeof raw.label !== 'string' || raw.label === '') return refuse('label')
+  // The empty string is a label: a listing prints a row for what a page offers
+  // and names nowhere, and the seat holds that row to being named nothing
+  // still. A step with no label at all is the model not having read the page.
+  if (typeof raw.label !== 'string') return refuse('label')
   const target: ActTarget = { ref: raw.ref, label: raw.label }
   switch (action) {
     case 'click': return { kind: 'step', step: { ...target, action } }

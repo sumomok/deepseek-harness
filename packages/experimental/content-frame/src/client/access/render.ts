@@ -6,7 +6,7 @@
  * list and no way to reach the rest.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/render
  */
-import { CLICKABLE_ROLE, FIELD_ROLES, clipTo } from './dom.ts'
+import { CLICKABLE_ROLE, FIELD_ROLES, OFFERED_ROLES, clipTo } from './dom.ts'
 import type {
   ContainerFace, ContainerItem, ControlFace, ControlState, ElementItem, Item, RowCell, SnapshotMode,
   SnapshotOptions, TableItem, TableRowItem, TextItem,
@@ -30,6 +30,9 @@ const ROWS_HINT = "rows: pass scope with this table's ref to list rows, or find 
 
 /** How much of a cell the header shows, which names a column and is worth more room. */
 const HEADER_CELL_LIMIT = 40
+
+/** How many class tokens a row prints for something the page offers and names nowhere. */
+const HINT_TOKENS = 4
 
 /** How much of a cell a listed row shows, which the walk has already cut to. */
 const ROW_CELL_LIMIT = 200
@@ -101,6 +104,42 @@ function indent(depth: number): string {
  */
 function quoted(name: string): string {
   return name === '' ? '' : ` "${name}"`
+}
+
+/**
+ * The class tokens an element carries, printed where a page offers something
+ * and names it nowhere.
+ *
+ * A class is the page's own spelling and this reader reads nothing out of it:
+ * the tokens are copied as they stand, in the order the element carries them,
+ * and what they mean is for whoever knows this application to say. A row that
+ * would otherwise be `e17 clickable` and unusable becomes one the model can ask
+ * about, and a skill written against that application can answer.
+ *
+ * Four of them, because the words a library writes come first and a page's own
+ * layout classes follow; a longer list ends in an ellipsis rather than spending
+ * a listing on markup.
+ * @param el - the element the row names.
+ * @returns the hint, or the empty string for an element carrying no class.
+ */
+function classHint(el: Element): string {
+  const tokens = [...el.classList]
+  if (tokens.length === 0) return ''
+  const shown = tokens.slice(0, HINT_TOKENS).join(' ')
+  return ` {{class: ${shown}${tokens.length > HINT_TOKENS ? ' …' : ''}}}`
+}
+
+/**
+ * What a row prints where a name goes: the name, or — for something the page
+ * offers to act on and names nowhere — what its classes say.
+ * @param el - the element the row names.
+ * @param role - the role the row prints.
+ * @param name - the accessible name.
+ * @returns the quoted name, the hint, or the empty string.
+ */
+function named(el: Element, role: string, name: string): string {
+  if (name !== '') return quoted(name)
+  return OFFERED_ROLES.has(role) ? classHint(el) : ''
 }
 
 /**
@@ -189,12 +228,13 @@ function stateOf(state: ControlState): string {
  * What a row says an element is: the role it carries, what it is called, what
  * the page has set on it, and whether the page has folded it away. A row of its
  * own and the room a tree node or menu item opens print it the same way.
+ * @param el - the element the row names.
  * @param face - what the element is and how the page has set it.
  * @param name - the element's accessible name.
  * @returns the rendered element, without a ref or an indent.
  */
-function controlText(face: ControlFace, name: string): string {
-  return `${face.role}${quoted(name)}${stateOf(face)}${face.collapsed ? ' (collapsed)' : ''}`
+function controlText(el: Element, face: ControlFace, name: string): string {
+  return `${face.role}${named(el, face.role, name)}${stateOf(face)}${face.collapsed ? ' (collapsed)' : ''}`
 }
 
 /**
@@ -205,8 +245,8 @@ function controlText(face: ControlFace, name: string): string {
  */
 function containerText(item: ContainerItem): string {
   return item.node === undefined
-    ? `${item.type}${quoted(item.name)}`
-    : controlText(item.node, item.name)
+    ? `${item.type}${named(item.el, item.type, item.name)}`
+    : controlText(item.el, item.node, item.name)
 }
 
 /**
@@ -218,7 +258,7 @@ function containerText(item: ContainerItem): string {
  */
 function elementLine(item: ElementItem, prefix: string): string {
   const opens = item.opens === undefined ? '' : ` [${item.opens} opens]`
-  return `${prefix}${item.ref} ${controlText(item, item.name)}${opens}${within(item.container)}`
+  return `${prefix}${item.ref} ${controlText(item.el, item, item.name)}${opens}${within(item.container)}`
 }
 
 /**
@@ -245,7 +285,7 @@ function cellText(cell: RowCell, refs: RefTable, limit: number): string {
   const text = clipTo(cell.text, limit)
   if (cell.controls.length === 0) return text
   const controls = cell.controls
-    .map(control => `${refs.ref(control.el)} ${control.role}${quoted(control.name)}${stateOf(control)}`)
+    .map(control => `${refs.ref(control.el)} ${control.role}${named(control.el, control.role, control.name)}${stateOf(control)}`)
     .join(CONTROL_SEPARATOR)
   return text === '' ? controls : `${text}${CONTROL_SEPARATOR}${controls}`
 }

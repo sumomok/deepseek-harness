@@ -195,6 +195,19 @@ describe('what each step dispatches at the page', () => {
     expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
   })
 
+  it('clicks a row the listing printed with a class hint and no name', async () => {
+    // The row the hint is for: the page offers it and names it nowhere, so the
+    // listing prints what its classes say and the step names it by the nothing
+    // it is called. A skill is what knows that this one edits the row.
+    mount('<main><table><tbody><tr><td>东风站</td>'
+      + '<td><i id="edit" style="cursor: pointer" class="el-tooltip el-icon-edit"></i></td>'
+      + '</tr></tbody></table></main>')
+    const seen = listen(at('#edit'), ['click'])
+    const outcome = await run([{ action: 'click', ref: ref('#edit'), label: '' }])
+    expect(seen).toEqual(['click'])
+    expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
+  })
+
   it('fills a box the listing named by the word written in it', async () => {
     // The console's own query field, and the loop it used to cause: the
     // listing printed `textbox = ""`, the model had no name to copy, and every

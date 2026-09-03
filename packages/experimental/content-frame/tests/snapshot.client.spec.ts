@@ -12,6 +12,7 @@
 import { getRole } from 'dom-accessibility-api'
 import { afterEach, describe, expect, it } from 'vitest'
 import { RefTable } from '../src/client/access/refs.ts'
+import { itemName } from '../src/client/access/collect.ts'
 import { snapshot, type Snapshot, type SnapshotOptions } from '../src/client/access/snapshot.ts'
 
 /** The parts of a read a test varies. */
@@ -861,7 +862,8 @@ describe('widgets built out of several elements', () => {
     // Frameworks put the handler on the icon rather than around it, and a
     // drawing with no row is a thing the model cannot reach at all.
     const beside = page('<div><span>东风站</span><svg data-pointer class="close"><path d="M0 0"></path></svg></div>')
-    expect(read(beside, { isClickable: pointer }).text).toBe(['text "东风站"', 'e1 clickable'].join('\n'))
+    expect(read(beside, { isClickable: pointer }).text)
+      .toBe(['text "东风站"', 'e1 clickable {{class: close}}'].join('\n'))
     // The name is what the page wrote on the drawing and nothing else: the
     // title inside it is a tooltip, and the words in it label the picture.
     const labelled = page('<svg data-pointer aria-label="关闭"><title>关闭</title></svg>')
@@ -1212,7 +1214,8 @@ describe('widgets built out of several elements', () => {
     const antd = page('<ul role="menu" aria-label="操作"><li role="menuitem" class="ant-dropdown-menu-item"><button type="button">删除</button></li></ul>')
     expect(read(antd).text).toBe([
       'e1 menu "操作"',
-      '  e2 menuitem',
+      // Named nowhere, so the row carries what the page wrote on it instead.
+      '  e2 menuitem {{class: ant-dropdown-menu-item}}',
       '    e3 button "删除" (menuitem)',
     ].join('\n'))
     // A leaf drawn as one switch or one tick box: the control that would name
@@ -2003,8 +2006,55 @@ describe('a drawing the page only draws', () => {
       '  e4 button "删除" (in toolbar "操作")',
       // The page draws this one as something to click and says nothing else
       // about it; the one after it says nothing at all and prints nothing.
-      '  e5 clickable (in toolbar "操作")',
+      '  e5 clickable {{class: el-icon-star}} (in toolbar "操作")',
     ].join('\n'))
+  })
+})
+
+describe('what a row says where the page named nothing', () => {
+  const pointer = (el: Element): boolean => el.closest('[data-pointer]') !== null
+
+  it('prints the class tokens of something the page offers and names nowhere', () => {
+    const refs = page('<main><i id="edit" data-pointer class="el-tooltip operation-modify el-icon-edit"></i>'
+      + '<button class="el-button el-button--text"></button>'
+      + '<input class="el-input__inner"></main>')
+    expect(read(refs, { isClickable: pointer }).text).toBe([
+      'e1 main',
+      '  e2 clickable {{class: el-tooltip operation-modify el-icon-edit}} (main)',
+      '  e3 button {{class: el-button el-button--text}} (main)',
+      '  e4 textbox {{class: el-input__inner}} = "" (main)',
+    ].join('\n'))
+  })
+
+  it('prints four tokens and says there are more, and nothing for an element carrying none', () => {
+    const refs = page('<main><button class="a b c d e f"></button><button></button></main>')
+    expect(read(refs).text).toBe([
+      'e1 main',
+      '  e2 button {{class: a b c d …}} (main)',
+      '  e3 button (main)',
+    ].join('\n'))
+  })
+
+  it('prints no hint for a row that is not something to act on', () => {
+    // A region and a heading are things to read, and their classes say nothing
+    // the model could act on; the hint is for a row it can point a step at.
+    const refs = page('<section class="panel" aria-label="站点"><h2 class="title">列表</h2>'
+      + '<p class="note">共 20 个</p></section>')
+    expect(read(refs).text).toBe([
+      'e1 section "站点"',
+      '  e2 heading "列表" (in section "站点")',
+      '  text "共 20 个" (in section "站点")',
+    ].join('\n'))
+  })
+
+  it('leaves the name empty, so a step names the row by the nothing it is called', () => {
+    // The hint is printed and never computed into a name: what the listing
+    // prints in the name position is not what the seat checks a step against.
+    const refs = page('<main><i id="edit" data-pointer class="el-icon-edit"></i></main>')
+    read(refs, { isClickable: pointer })
+    const el = document.querySelector('#edit')
+    if (el === null) throw new Error('fixture has no icon')
+    expect(itemName(el, { refs, budgetChars: 4000, isVisible, isClickable: pointer })).toBe('')
   })
 })
 
@@ -2247,7 +2297,7 @@ describe('a field the page names by drawing the words beside it', () => {
       'e3 textbox "城市" = ""',
       'e4 clickable "清除"',
       'e5 textbox "区县" = ""',
-      'e6 clickable',
+      'e6 clickable {{class: outside}}',
     ].join('\n'))
   })
 
@@ -2265,7 +2315,8 @@ describe('a field the page names by drawing the words beside it', () => {
 
   it('folds no click target into a row that is not a field', () => {
     const refs = page('<div class="box"><button>展开</button><i data-pointer class="caret"></i></div>')
-    expect(read(refs, { isClickable: pointer }).text).toBe(['e1 button "展开"', 'e2 clickable'].join('\n'))
+    expect(read(refs, { isClickable: pointer }).text)
+      .toBe(['e1 button "展开"', 'e2 clickable {{class: caret}}'].join('\n'))
   })
 })
 
@@ -2401,7 +2452,8 @@ describe('tables', () => {
     // can see would offer the model nothing to click.
     expect(read(refs, { isClickable: pointer }).text.split('\n')[2]).toBe('  sample: 东风站 | [clickable clickable]')
     const listed = read(refs, { scope: refOf(refs, 'table'), isClickable: pointer }).text
-    expect(listed.split('\n')[2]).toBe('  row 1: 东风站 | e3 clickable  e4 clickable')
+    expect(listed.split('\n')[2])
+      .toBe('  row 1: 东风站 | e3 clickable {{class: modify}}  e4 clickable {{class: remove}}')
     // The confirmation the page keeps beside them is drawn nowhere until the
     // reader asks for it, and reaches the cell nowhere either.
     expect(listed).not.toContain('确定删除吗')
