@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-auth-gate",
   "description": "Wires a deployment's own single sign-on into a dsh browser session: the browser half sends an unauthenticated visitor to the login page and mirrors the access token it comes back with into a cookie, and the node half holds that token in memory and injects it into the MCP requests it forwards upstream",
-  "version": "0.1.2-alpha.5",
+  "version": "0.1.2-rc.1",
   "private": true,
   "repository": {
     "type": "git",

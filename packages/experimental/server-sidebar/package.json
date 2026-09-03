@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-server-sidebar",
   "description": "Product console sidebar: replaces ui-sidebar through a patch overlay with a fixed workbench/navigation/workflows console, plus a session-header \"save as workflow\" action",
-  "version": "0.1.2-alpha.5",
+  "version": "0.1.2-rc.1",
   "private": true,
   "repository": {
     "type": "git",
