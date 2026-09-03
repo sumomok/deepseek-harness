@@ -47,6 +47,8 @@ describe('session-log-download browser plugin', () => {
     expect(b.ctx.sessionLogDownload.store.getSnapshot().bySession[SID]?.status).toBe('error')
     injected.dismiss(SID)
     expect(b.ctx.sessionLogDownload.store.getSnapshot().bySession[SID]?.open).toBe(false)
+    injected.cancel(SID)
+    expect(b.ctx.sessionLogDownload.store.getSnapshot().bySession[SID]).toBeUndefined()
 
     await b.fiber.dispose()
     expect(b.slots.entries('conversation.session.header.utilities')).toHaveLength(0)
