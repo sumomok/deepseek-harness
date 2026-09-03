@@ -349,6 +349,22 @@ describe('what content_act refuses before anyone is asked', () => {
       [[{ action: 'select', ref: 'e6', label: '站点', value: 'x'.repeat(1001) }], 'content_act step 1: value must be at most 1000 characters'],
       [[{ action: 'press', ref: 'e4', label: '名称', key: 'x'.repeat(33) }], 'content_act step 1: key must be at most 32 characters'],
       [[{ action: 'click', ref: 'e5', label: 'x'.repeat(257) }], 'content_act step 1: label must be at most 256 characters'],
+      // A row the read printed with no name is named by the mark it printed
+      // instead, and a row has one identity: a name or a mark, never both.
+      [
+        [{ action: 'click', ref: 'e5', label: '' }],
+        'content_act step 1: a row the read printed with no name is named by its mark: pass mark, the class '
+        + 'tokens the read printed for it inside {class: ...}, with label ""',
+      ],
+      [
+        [{ action: 'click', ref: 'e5', label: '编辑', mark: 'el-icon-edit' }],
+        'content_act step 1: a row has one identity: pass label for a row the read named, or mark with label "" '
+        + 'for one it did not — not both',
+      ],
+      [
+        [{ action: 'click', ref: 'e5', label: '', mark: 'x'.repeat(1001) }],
+        'content_act step 1: mark must be at most 1000 characters',
+      ],
     ] as const) {
       const result = await run({ steps }).settled
       expect({ steps, isError: result.isError, text: text(result) })
