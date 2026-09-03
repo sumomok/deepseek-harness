@@ -699,7 +699,8 @@ export function isReadonly(el: Element): boolean {
 }
 
 /**
- * The default clickability test: a page that gives a role-less element a
+ * The clickability test, in one home: the seat injects it into every read it
+ * runs and `collect` falls back to it. A page that gives a role-less element a
  * pointer cursor is telling the reader it can be clicked.
  * @param el - the element to classify.
  * @returns whether the element looks clickable.

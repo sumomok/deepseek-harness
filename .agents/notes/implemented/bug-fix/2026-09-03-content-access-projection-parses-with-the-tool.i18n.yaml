@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-03-content-access-projection-parses-with-the-tool.md
-2026-09-03-content-access-projection-parses-with-the-tool.md: 8f0fc3fd257b7df419206b525e36d818bfc05f06
-2026-09-03-content-access-projection-parses-with-the-tool.zh.md: 1c62e47d272d3aa961746538868d7371183444ef
+2026-09-03-content-access-projection-parses-with-the-tool.md: b32c4cdff12093f70335b38607d027e8dada18a3
+2026-09-03-content-access-projection-parses-with-the-tool.zh.md: 29cdfc35dceb8f17e145882b99d829b0797ce282

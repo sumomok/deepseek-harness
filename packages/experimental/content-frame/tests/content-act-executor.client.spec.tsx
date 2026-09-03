@@ -17,9 +17,8 @@
 import { cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
-import {
-  isClickable, isVisible, TAB_ID, useContentRead, type ContentReadSeat,
-} from '../src/client/access/executor.ts'
+import { isVisible, TAB_ID, useContentRead, type ContentReadSeat } from '../src/client/access/executor.ts'
+import { looksClickable } from '../src/client/access/dom.ts'
 import { itemName } from '../src/client/access/collect.ts'
 import { snapshot } from '../src/client/access/snapshot.ts'
 import { CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, type ActOutcome, type ClaimAck } from '../src/access/wire.ts'
@@ -795,7 +794,7 @@ describe('one name, printed and checked', () => {
 
   /** The read the listing under test comes from, and the seat's own injections. */
   function options() {
-    return { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable }
+    return { refs, budgetChars: ACCESS.outlineChars, isVisible, isClickable: looksClickable }
   }
 
   /** Every row of one listing that prints a ref and a name. */

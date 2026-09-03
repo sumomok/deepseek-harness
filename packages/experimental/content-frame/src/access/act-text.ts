@@ -54,12 +54,13 @@ export const LABEL_DESCRIPTION =
 
 /**
  * The one form a mark takes, in both the parameter's description and every
- * refusal about it. A model that has just read `e7 clickable {class: el-icon-delete}`
- * has to know which part of that row goes in the field.
+ * refusal about it. A model that has just read `e7 clickable {class: row-action danger}`
+ * has to know which part of that row goes in the field. The tokens are invented:
+ * this package's shipped text names no component library's classes.
  */
 export const MARK_EXAMPLE =
-  'where the read printed e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and mark '
-  + '"el-icon-delete" — the tokens alone, without the braces and without the "class:" printed in front of them'
+  'where the read printed e7 clickable {class: row-action danger}, pass ref "e7", label "" and mark '
+  + '"row-action danger" — the tokens alone, without the braces and without the "class:" printed in front of them'
 
 /** The `mark` parameter line. */
 export const MARK_DESCRIPTION =

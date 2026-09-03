@@ -45,7 +45,7 @@ import type { ContentAccessRequest, ContentActRequest, ContentReadRequest } from
 import { settlePage } from '../perception/settle.ts'
 import { runSteps } from './act.ts'
 import { watchPage, type ActWatch } from './watch.ts'
-import { elementMark, readableDocuments } from './dom.ts'
+import { elementMark, looksClickable, readableDocuments } from './dom.ts'
 import { itemName } from './collect.ts'
 import { RefTable } from './refs.ts'
 import { snapshot } from './snapshot.ts'
@@ -58,7 +58,12 @@ import type { SnapshotOptions } from './snapshot.ts'
  */
 const PAGE_KIND = 'page'
 
-/** Reason for an outcome whose model-facing sentence the tool composes instead. */
+/**
+ * Reason for an outcome whose model-facing sentence the tool composes instead.
+ * `scripts/verify-client-ui-i18n.ts` classifies by identifier name, so this name
+ * must match neither its `COPY_NAME` nor its `COPY_SUFFIX` pattern; a name that
+ * does is taken for product copy owed to a locale dictionary.
+ */
 const NO_ENTRY_REASON = 'the content column is empty'
 
 /** Reason for an outcome whose model-facing sentence the tool composes instead. */
@@ -118,15 +123,6 @@ export function isVisible(el: Element): boolean {
   const checkable: MaybeCheckable = el
   if (checkable.checkVisibility === undefined) return visibleByStyle(el)
   return checkable.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true })
-}
-
-/**
- * Injected clickability for an element that declares no role.
- * @param el - the element to test.
- * @returns whether the page draws it as something to click.
- */
-export function isClickable(el: Element): boolean {
-  return viewOf(el).getComputedStyle(el).cursor === 'pointer'
 }
 
 /** Everything the reader needs from the seat that owns the frames. */
@@ -543,7 +539,7 @@ async function readPage(
     ...args.after === undefined ? {} : { after: args.after },
     ...args.find === undefined ? {} : { find: args.find },
     isVisible,
-    isClickable,
+    isClickable: looksClickable,
   }
   try {
     // Re-read after the wait: a navigation replaces the frame's document.
@@ -637,7 +633,7 @@ async function actOnPage(
     refs: ready.refs,
     budgetChars: access.outlineChars,
     isVisible,
-    isClickable,
+    isClickable: looksClickable,
   }
   let watch: ActWatch | undefined
   try {

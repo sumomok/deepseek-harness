@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/testing/2026-09-03-content-access-fixtures-outside-the-corpus.md
-2026-09-03-content-access-fixtures-outside-the-corpus.md: deba8c72f79c8aaf26e870100ff8a96d6953e205
-2026-09-03-content-access-fixtures-outside-the-corpus.zh.md: 44e9cbc642a1adcaa400c24a85d109a9ab663e0a
+2026-09-03-content-access-fixtures-outside-the-corpus.md: f503088c4413553aa6f53e59a21d62893dadd04f
+2026-09-03-content-access-fixtures-outside-the-corpus.zh.md: 7f0ed201c46343f5378f7c3bc1421ec4440196a2

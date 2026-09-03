@@ -231,9 +231,9 @@ describe('what content_act offers the model', () => {
                   type: 'string',
                   description: 'only for a row the read printed with no name: the class tokens the read '
                     + 'printed for it, which is what the browser checks that row by. where the read printed '
-                    + 'e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and mark "el-icon-delete" '
-                    + '— the tokens alone, without the braces and without the "class:" printed in front of '
-                    + 'them. Omit for every row that has a name',
+                    + 'e7 clickable {class: row-action danger}, pass ref "e7", label "" and mark "row-action '
+                    + 'danger" — the tokens alone, without the braces and without the "class:" printed in '
+                    + 'front of them. Omit for every row that has a name',
                 },
                 text: { type: 'string', description: 'what "fill" types, and what "wait" waits to see' },
                 value: { type: 'string', description: 'the option "select" chooses, by the text the user would read' },
@@ -356,24 +356,24 @@ describe('what content_act refuses before anyone is asked', () => {
       [
         [{ action: 'click', ref: 'e5', label: '' }],
         'content_act step 1: a row the read printed with no name is named by its mark: where the read printed '
-        + 'e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and mark "el-icon-delete" — the '
-        + 'tokens alone, without the braces and without the "class:" printed in front of them',
+        + 'e7 clickable {class: row-action danger}, pass ref "e7", label "" and mark "row-action danger" — '
+        + 'the tokens alone, without the braces and without the "class:" printed in front of them',
       ],
       // The row as the listing printed it, copied whole into the field: what a
       // console's own log shows a model doing three times over.
       [
         [{ action: 'click', ref: 'e5', label: '', mark: '{class: el-icon-delete}' }],
         'content_act step 1: mark is the class tokens themselves, not the whole of what the read printed '
-        + 'there: where the read printed e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and '
-        + 'mark "el-icon-delete" — the tokens alone, without the braces and without the "class:" printed in '
-        + 'front of them',
+        + 'there: where the read printed e7 clickable {class: row-action danger}, pass ref "e7", label "" and '
+        + 'mark "row-action danger" — the tokens alone, without the braces and without the "class:" printed '
+        + 'in front of them',
       ],
       [
         [{ action: 'click', ref: 'e5', label: '', mark: 'class: el-icon-delete' }],
         'content_act step 1: mark is the class tokens themselves, not the whole of what the read printed '
-        + 'there: where the read printed e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and '
-        + 'mark "el-icon-delete" — the tokens alone, without the braces and without the "class:" printed in '
-        + 'front of them',
+        + 'there: where the read printed e7 clickable {class: row-action danger}, pass ref "e7", label "" and '
+        + 'mark "row-action danger" — the tokens alone, without the braces and without the "class:" printed '
+        + 'in front of them',
       ],
       [
         [{ action: 'click', ref: 'e5', label: '编辑', mark: 'el-icon-edit' }],

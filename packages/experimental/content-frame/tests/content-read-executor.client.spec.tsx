@@ -12,9 +12,8 @@
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
-import {
-  isClickable, isVisible, TAB_ID, useContentRead, type ContentReadSeat,
-} from '../src/client/access/executor.ts'
+import { isVisible, TAB_ID, useContentRead, type ContentReadSeat } from '../src/client/access/executor.ts'
+import { looksClickable } from '../src/client/access/dom.ts'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
   MAX_ACT_STEPS, MAX_CLAIM_BACKOFF, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS,
@@ -280,8 +279,8 @@ describe('the injected layout the reader runs on', () => {
     }
     // The frame's own computed styles, not the top window's: how an element is
     // drawn belongs to the frame it lives in.
-    expect(isClickable(go)).toBe(true)
-    expect(isClickable(plain)).toBe(false)
+    expect(looksClickable(go)).toBe(true)
+    expect(looksClickable(plain)).toBe(false)
   })
 })
 

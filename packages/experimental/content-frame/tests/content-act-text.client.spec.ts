@@ -87,11 +87,11 @@ describe('what the model reads when a call is refused before it runs', () => {
       'every step but "wait" needs label, the element\'s name exactly as content_read printed it, '
       + 'or "" for a row it printed with no name',
       'a row the read printed with no name is named by its mark: where the read printed e7 clickable '
-      + '{class: el-icon-delete}, pass ref "e7", label "" and mark "el-icon-delete" — the tokens alone, '
-      + 'without the braces and without the "class:" printed in front of them',
+      + '{class: row-action danger}, pass ref "e7", label "" and mark "row-action danger" — the tokens '
+      + 'alone, without the braces and without the "class:" printed in front of them',
       'mark is the class tokens themselves, not the whole of what the read printed there: where the read '
-      + 'printed e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and mark "el-icon-delete" — '
-      + 'the tokens alone, without the braces and without the "class:" printed in front of them',
+      + 'printed e7 clickable {class: row-action danger}, pass ref "e7", label "" and mark "row-action '
+      + 'danger" — the tokens alone, without the braces and without the "class:" printed in front of them',
       'a row has one identity: pass label for a row the read named, or mark with label "" for one it did not '
       + '— not both',
       'a "fill" step needs text, the value to type into the box',
