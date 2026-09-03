@@ -198,9 +198,6 @@ const TEXT_LIMIT = 200
 /** How much of an over-long text run survives the cut, before the ellipsis. */
 const TEXT_KEPT = 197
 
-/** The keywords a page draws nothing around an element with. */
-const DRAWS_NOTHING = /^(?:none|normal)$/u
-
 /**
  * The code points a page writes to control how text breaks, joins, or runs
  * rather than to put a character on the screen: the zero-width space, the
@@ -690,31 +687,6 @@ export function looksClickable(el: Element): boolean {
  */
 function viewOf(el: Element): Window {
   return el.ownerDocument.defaultView ?? window
-}
-
-/**
- * The text a page draws around an element rather than writing it in the
- * document: the star a form draws in front of the label of a field that must be
- * filled, and whatever else `::before` and `::after` put on the screen. A
- * reader sees it and no read of the document can reach it.
- *
- * The quotes CSS puts around drawn text belong to the stylesheet rather than to
- * the page, and the keywords for drawing nothing draw nothing.
- * @param el - the element to read.
- * @returns the collapsed text, empty where the page draws none.
- */
-export function drawnAround(el: Element): string {
-  return collapse(`${drawnPart(el, '::before')} ${drawnPart(el, '::after')}`)
-}
-
-/**
- * The text one of those two draws.
- * @param el - the element to read.
- * @param part - the pseudo-element to read.
- * @returns the text, empty where it draws none.
- */
-function drawnPart(el: Element, part: string): string {
-  return viewOf(el).getComputedStyle(el, part).content.replace(DRAWS_NOTHING, '').replaceAll(/["']/gu, '')
 }
 
 /**

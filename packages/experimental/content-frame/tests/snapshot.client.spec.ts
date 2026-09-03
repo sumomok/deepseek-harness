@@ -22,11 +22,6 @@ function isVisible(el: Element): boolean {
   return el.closest('[data-hidden]') === null
 }
 
-/** What a stylesheet draws around an element, from `data-drawn`. */
-function drawnAround(el: Element): string {
-  return el.getAttribute('data-drawn') ?? ''
-}
-
 /** Put one page up, with a fresh numbering. */
 function page(html: string): RefTable {
   document.body.innerHTML = html
@@ -35,7 +30,7 @@ function page(html: string): RefTable {
 
 /** Read the page up. */
 function read(refs: RefTable, ask: Ask = {}): Snapshot {
-  return snapshot(document, { refs, budgetChars: 4000, isVisible, drawnAround, ...ask })
+  return snapshot(document, { refs, budgetChars: 4000, isVisible, ...ask })
 }
 
 /** The ref of one element, which the read has already numbered. */
@@ -2101,12 +2096,11 @@ describe('a field the page names by drawing the words beside it', () => {
 
   // A component library draws a form field as a label and a box in one group,
   // and ties neither to the other: the label is a `label` element with nothing
-  // to name, and the box carries no name of any kind. The star saying the field
-  // must be filled is drawn by the stylesheet in front of the label.
+  // to name, and the box carries no name of any kind.
   const FORM = `
     <form aria-label="新增">
       <div class="item">
-        <label data-drawn="*">名称</label>
+        <label>名称</label>
         <div class="content"><div class="box"><input type="text"></div></div>
       </div>
       <div class="item">
@@ -2126,8 +2120,10 @@ describe('a field the page names by drawing the words beside it', () => {
     const refs = page(FORM)
     expect(read(refs, { isClickable: pointer }).text).toBe([
       'e1 form "新增"',
-      '  e2 textbox "名称" = "" (required) (in form "新增")',
+      '  e2 textbox "名称" = "" (in form "新增")',
       '  e3 textbox "是否显示" = "" (readonly) [e4 opens] (in form "新增")',
+      // Only the field the page marks with `required` says so: a star a
+      // stylesheet draws beside a label is on the screen and in no attribute.
       '  e5 textbox "图层id" = "" (required) (in form "新增")',
     ].join('\n'))
     // The words name the field and print no row of their own, so a search for
@@ -2254,23 +2250,6 @@ describe('a field the page names by drawing the words beside it', () => {
       'e4 clickable "清除"',
       'e5 textbox "区县" = ""',
       'e6 clickable',
-    ].join('\n'))
-  })
-
-  it('reads the star wherever the page ties the label to the field', () => {
-    // The star is drawn on whichever element the page treats as the label, and
-    // a form that ties its label properly is the likeliest of all to draw one.
-    const refs = page(`
-      <label for="name" data-drawn="*">名称</label><input id="name" type="text">
-      <span id="alias" data-drawn="＊">别名</span><div role="textbox" aria-labelledby="alias"></div>
-      <label for="code" data-drawn="* :">编号</label><input id="code" type="text">`)
-    expect(read(refs).text).toBe([
-      // A label the page ties to its field prints no row of its own; one the
-      // page merely points ARIA at is a run of the page as well as a name.
-      'e1 textbox "名称" = "" (required)',
-      'text "别名"',
-      'e2 textbox "别名" (required)',
-      'e3 textbox "编号" = "" (required)',
     ].join('\n'))
   })
 

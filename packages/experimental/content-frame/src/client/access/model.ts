@@ -42,8 +42,6 @@ export interface SnapshotOptions {
   readonly find?: string
   /** Injected: whether the element is visible. */
   readonly isVisible: (el: Element) => boolean
-  /** Injected: the text the page draws around an element with `::before` and `::after`; defaults to the computed styles. */
-  readonly drawnAround?: (el: Element) => string
   /** Injected: whether a role-less element is clickable; defaults to a `cursor: pointer` computed style. */
   readonly isClickable?: (el: Element) => boolean
 }

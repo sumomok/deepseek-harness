@@ -14,7 +14,7 @@
  */
 import {
   CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES,
-  QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, drawnAround, fieldValue,
+  QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, fieldValue,
   frameDocument, headingText, insideOpaque, isChecked, isDisabled, isInline, isNameable,
   isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole, looksClickable, nameOf,
   quantityValue, queryInOrder, roleOf, visibleText,
@@ -65,13 +65,6 @@ const CELL_CONTROL_ROLES: ReadonlySet<string> = new Set(['button', 'link', ...FI
 const ACTS_ON_NODE_ROLES: ReadonlySet<string> = new Set([
   'button', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'option', 'tab', ...FIELD_ROLES,
 ])
-
-/**
- * The marks a page draws beside the label of a field that must be filled. Both
- * spellings of the star are here because a page written in Chinese draws either
- * one, and neither says anything else where a form draws it.
- */
-const REQUIRED_MARKS: readonly string[] = ['*', '＊']
 
 /** How long the words drawn in front of a field may run before they are no label. */
 const LABEL_LIMIT = 40
@@ -149,8 +142,6 @@ interface Walk {
   readonly isVisible: (el: Element) => boolean
   /** Injected clickability, defaulted. */
   readonly isClickable: (el: Element) => boolean
-  /** Injected drawn-around text, defaulted. */
-  readonly drawnAround: (el: Element) => string
   /** The element the read asked for, which tops whatever the page nests it in. */
   readonly scope: Element | undefined
   /** The items collected so far, in document order. */
@@ -340,53 +331,6 @@ function heldValue(el: Element, role: string, walk: Walk): string | undefined {
 }
 
 /**
- * True for a field the page says must be filled: one that says so on the
- * control itself, or one whose label the page draws a star beside. A form draws
- * that star with a stylesheet rather than writing it in the document, so it is
- * on the screen and in no text a read of the document could otherwise reach.
- * @param el - the control element.
- * @param label - the element drawing the words that name the field, if any.
- * @param walk - the walk in progress.
- * @returns whether the field must be filled.
- */
-function isRequired(el: Element, label: Element | undefined, walk: Walk): boolean {
-  if (el.hasAttribute('required') || el.getAttribute('aria-required') === 'true') return true
-  return labelsOf(el, label).some(one => marksRequired(walk.drawnAround(one)))
-}
-
-/**
- * True for text a form draws to say the field beside it must be filled. The
- * mark is looked for inside the text rather than taken as the whole of it,
- * because a form draws the star in front of the label and the colon after it,
- * and both reach this as one run.
- * @param drawn - the text the page draws around the label.
- * @returns whether the text carries the mark.
- */
-function marksRequired(drawn: string): boolean {
-  return REQUIRED_MARKS.some(mark => drawn.includes(mark))
-}
-
-/**
- * Every element that labels one control: the `label` elements HTML resolves for
- * it, the elements ARIA points at, and the words the page merely draws in front
- * of it. The star is drawn on whichever of them the page treats as the label,
- * and a page that ties its label properly is the likeliest of all to draw one.
- * @param el - the control element.
- * @param drawn - the element drawing the words that name the control, if any.
- * @returns the labelling elements, in no particular order.
- */
-function labelsOf(el: Element, drawn: Element | undefined): Element[] {
-  const labels: Element[] = [...((el as Partial<HTMLInputElement>).labels ?? [])]
-  const tree = el.getRootNode() as Document | ShadowRoot
-  for (const id of collapse(el.getAttribute('aria-labelledby') ?? '').split(' ')) {
-    const ref = tree.getElementById(id)
-    if (ref !== null) labels.push(ref)
-  }
-  if (drawn !== undefined) labels.push(drawn)
-  return labels
-}
-
-/**
  * What a control holds and how the page has set it, read the same way wherever
  * a row prints it.
  * @param el - the control element.
@@ -395,13 +339,13 @@ function labelsOf(el: Element, drawn: Element | undefined): Element[] {
  * @param label - the element drawing the words that name the control, if any.
  * @returns the state.
  */
-function controlState(el: Element, role: string, walk: Walk, label: Element | undefined): ControlState {
+function controlState(el: Element, role: string, walk: Walk): ControlState {
   const secret = isPassword(el)
   return {
     value: secret ? undefined : heldValue(el, role, walk),
     secret,
     checked: CHECKED_ROLES.has(role) ? isChecked(el) : undefined,
-    required: isRequired(el, label, walk),
+    required: el.hasAttribute('required') || el.getAttribute('aria-required') === 'true',
     readonly: isReadonly(el),
     disabled: isDisabled(el),
   }
@@ -414,13 +358,12 @@ function controlState(el: Element, role: string, walk: Walk, label: Element | un
  * @param el - the element.
  * @param role - the role it prints.
  * @param walk - the walk in progress.
- * @param label - the element drawing the words that name the element, if any.
  * @returns the face.
  */
-function controlFace(el: Element, role: string, walk: Walk, label: Element | undefined): ControlFace {
+function controlFace(el: Element, role: string, walk: Walk): ControlFace {
   return {
     role,
-    ...controlState(el, role, walk, label),
+    ...controlState(el, role, walk),
     // A node the page has closed says so: what it holds is not missing from the
     // read, it is folded away until something opens it.
     collapsed: ITEM_NODE_TYPES.has(role) && el.getAttribute('aria-expanded') === 'false',
@@ -476,7 +419,7 @@ function cellControls(el: Element, walk: Walk, found: CellControl[]): void {
         el: child,
         role,
         name: named.name,
-        ...controlState(child, role, walk, named.label),
+        ...controlState(child, role, walk),
       })
     } else cellControls(child, walk, found)
   }
@@ -1020,7 +963,7 @@ function pushElement(el: Element, role: string, walk: Walk, place: Place): void 
     el,
     ref: walk.options.refs.ref(el),
     name,
-    ...controlFace(el, role, walk, label),
+    ...controlFace(el, role, walk),
     opens: undefined,
     container: place.container,
     depth: place.depth,
@@ -1388,7 +1331,7 @@ function walkElement(el: Element, walk: Walk, place: Place): void {
       // listing is known there and nowhere earlier — see `printedItems` in
       // `render.ts`.
       if (holdsGroup(el, walk) || name === '') {
-        openContainer(el, { type: node, name }, host, walk, place, controlFace(el, role, walk, undefined))
+        openContainer(el, { type: node, name }, host, walk, place, controlFace(el, role, walk))
         return
       }
     }
@@ -1444,7 +1387,6 @@ function newWalk(options: SnapshotOptions, scope: Element | undefined): Walk {
     options,
     isVisible: options.isVisible,
     isClickable: options.isClickable ?? looksClickable,
-    drawnAround: options.drawnAround ?? drawnAround,
     scope,
     items: [],
   }
