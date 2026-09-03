@@ -8,8 +8,10 @@
   <body>
     <h1 id="fixture-heading">Machine console</h1>
     <!-- A page a set of steps has something to do to: a box to fill, a button
-         whose handler really changes the document, a list to choose from, and a
-         message the page shows and takes away again. -->
+         whose handler really changes the document, a list to choose from, a
+         message the page shows and takes away again, and a command the page
+         draws as a bare class, which the read prints by its class tokens
+         because the page names it nowhere. -->
     <main>
       <form aria-label="Add a machine">
         <label for="machine-name">Machine name</label>
@@ -24,6 +26,8 @@
         <button type="button" id="add-machine">Add machine</button>
       </form>
       <p id="added-count" data-added="0">Machines added: 0</p>
+      <p id="trimmed" data-trimmed="0">Extra machines: kept</p>
+      <div class="fleet-tools"><i class="el-icon-delete"></i></div>
       <table aria-label="Fleet">
         <thead>
           <tr><th>Machine</th><th>Site</th></tr>

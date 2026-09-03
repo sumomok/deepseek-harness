@@ -6,6 +6,7 @@ const site = document.getElementById('machine-site')
 const count = document.getElementById('added-count')
 const rows = document.getElementById('fleet-rows')
 const toast = document.getElementById('toast')
+const trimmed = document.getElementById('trimmed')
 
 document.getElementById('add-machine').addEventListener('click', () => {
   const added = Number(count.dataset.added ?? '0') + 1
@@ -24,6 +25,16 @@ document.getElementById('add-machine').addEventListener('click', () => {
     toast.hidden = true
     toast.textContent = ''
   }, 400)
+})
+
+// The page's own way of spelling a command: a class and nothing else. A step
+// reaching this one carries the class tokens the read printed, because there is
+// no name to carry. It says the same thing however many times it is pressed, so
+// what the page ends up as does not depend on how the model split its calls.
+document.querySelector('.el-icon-delete').addEventListener('click', () => {
+  while (rows.children.length > 1) rows.lastElementChild.remove()
+  trimmed.dataset.trimmed = '1'
+  trimmed.textContent = 'Extra machines: cleared'
 })
 
 // Records that this document executed, so a spec can tell a live frame from a

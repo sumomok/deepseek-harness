@@ -70,7 +70,7 @@ A table is collected as its shape — header, one sample row, a row count — an
 
 ### A table drawn again for each pinned column is one table
 
-**Retired.** Every table the page wrote now prints as itself; what follows is what the rule was for.
+**Retired 2026-09-03.** Every table the page wrote prints as the table it is. What this section states is that retired rule, kept with the failure it answered.
 
 A component library pins a column by drawing the whole table a second time over the top of itself, with the contents of every cell it does not pin hidden inside the cell: the cell keeps its column's room and what is written in it is drawn nowhere. Each copy is drawn in a header half and a body half like any other table, so the layer list of the real ini-web2 console read on 2026-09-02 is six tables and one table the user sees. Reading them as six answered the model with the pinned columns empty in every row, an extra table of twenty empty rows beside them, and the copy holding the names dropped outright as a thing drawn twice — and the model told the user the table has no column called 名称.
 
@@ -90,7 +90,7 @@ This rule reaches a click target the page marks with a pointer cursor, and a but
 
 ### An icon a page draws as a command is a thing to act on
 
-**Retired.** A drawing is read through the accessible name alone, and a row the page offers and names nowhere prints its class tokens instead; what follows is what the rule was for.
+**Retired 2026-09-03.** A drawing is read through the accessible name alone, and a row the page offers and names nowhere prints its class tokens instead. What this section states is that retired rule, kept with the failure it answered.
 
 The 操作 column of the layer list reached the model as an empty cell in every row. Its commands are `<i class="el-tooltip operation-modify el-icon-edit">` and an icon inside the wrapper a confirmation puts around it, measured on the page: no role, no `aria-label`, no `title`, no pointer cursor, and a click handler the framework holds as a listener rather than as an attribute. Nothing a specification defines says those elements are there at all, so every rule in this package written in specification terms reads that column as empty — and a reader who can see the icons has no way to ask for one.
 
@@ -104,13 +104,13 @@ An icon set that draws its shapes in the document rather than in a font reaches 
 
 A form drawn by a component library ties no label to any field: the label is a `label` element with no `for`, and the box carries no name of any kind, so every field of the new-layer dialog on the ini-web2 console has an empty accessible name. The read answered with forty-nine rows of `textbox = ""` and the words beside them as runs of their own, and nothing reading that could tell one field from another.
 
-A field the page named nothing is now named by the `label` drawn in front of it: the last one before the field, inside the smallest element holding both, searched outwards as far as the region the field stands in. The search stops where anything else the reader can act on stands between the two — two boxes in one group take the label for the first of them and nothing for the second — and a label running longer than a label does is a run of the page rather than a name for something beside it. The label prints once: the row it would have printed of its own is dropped, the way the text of a `label` a page does tie to its control already is.
+A field the page named nothing is now named by the `label` drawn in front of it: the last one before the field, inside the smallest element holding both, searched outwards as far as the region the field stands in. The search stops where anything else the reader can act on stands between the two — two boxes in one group take the label for the first of them and nothing for the second. What that label says, and how long it runs, is the page's own business: the length past which a label stopped naming a field was retired with the rules keyed to a page's own spelling. The label prints once: the row it would have printed of its own is dropped, the way the text of a `label` a page does tie to its control already is.
 
 Only a `label` counts. A page draws its own notices, headings, and captions in front of a field as readily as it draws the field's label, and a rule that took any of them named a field `公告` after the paragraph above it and took that paragraph's own row away — the model then reads a name that is not the field's, which is worse than reading no name at all. A `label` is the page saying these words label a field, whether or not it says which field.
 
 ### The mark a page draws rather than writes
 
-**Retired.** `(required)` now follows `required` and `aria-required` alone; what follows is what the rule was for.
+**Retired 2026-09-03.** `(required)` follows `required` and `aria-required` alone. What this section states is that retired rule, kept with the failure it answered.
 
 A form says a field must be filled by drawing a star in front of its label with a stylesheet. That star is in no attribute, in no text, and in nothing a read of the document can reach: on that dialog the model looked for `*` and for `＊`, was told nothing matches, and ended up asking the user to tick 「只显示必填」 so the form would show the required fields alone. The read now asks the page what it draws around each element that labels a field — `::before` and `::after`, through an injected reader defaulting to the computed styles of the window that draws the document — and prints `(required)` for a star there, or for what the page says on the control itself with `required` or `aria-required`.
 
