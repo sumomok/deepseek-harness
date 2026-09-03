@@ -29,11 +29,11 @@ import {
   fixtureUserPrompts, launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
+import { expandOwningTurnProcess, newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const FIXTURE = fileURLToPath(new URL('./snapshots/content-read/session.jsonl', import.meta.url))
-const SEED = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const SEED = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 const OVERLAY = join(FRAME_DIR, 'overlay/content-column.patch.yml')
 /** Every experimental row the overlay inserts, as package name and source directory. */
@@ -47,8 +47,8 @@ const ROWS = [
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 const SEEDED_SESSION = 'content-read-web-e2e'
 
-/** The composer's own English placeholder — the signal that a session is open. */
-const COMPOSER_PLACEHOLDER = 'Message the agent'
+/** The composer's own input, whose presence is the signal that a session is open. */
+const COMPOSER = '[data-composer-input]'
 
 /** What the user asks. Deliberately about the page, never about the tool. */
 const PROMPT = '读一下内容区现在这个页面，告诉我表格有几行、有哪些按钮'
@@ -89,7 +89,7 @@ async function openSession(page: Page, index: number): Promise<void> {
   const row = page.locator('[role="treeitem"]').nth(index)
   await row.waitFor({ timeout: 15_000 })
   await row.click()
-  await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
 }
 
 /** The model-facing text of every `content_read` result the log recorded. */
@@ -152,7 +152,7 @@ describe('web e2e: the agent reads the page in the content column', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.locator('[data-shell-column="content"]').waitFor({ state: 'attached', timeout: 30_000 })
     // The workspace group row precedes its sessions; expanding it lists them.
     await page.locator('[role="treeitem"]').first().click()
@@ -176,7 +176,7 @@ describe('web e2e: the agent reads the page in the content column', () => {
     if (MODE !== 'record') {
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
     }
-    const input = page.locator('textarea').first()
+    const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled()
     await input.fill(PROMPT)
@@ -184,7 +184,12 @@ describe('web e2e: the agent reads the page in the content column', () => {
     const sessionId = await settled
 
     // The row states the fact and nothing else; the listing is the model's.
-    await page.locator('[data-content-read-stage="done"]').first().waitFor({ timeout: 30_000 })
+    // A tool row is drawn inside its turn's collapsed process group, so the
+    // group is opened before the row can be seen.
+    const stage = page.locator('[data-content-read-stage="done"]').first()
+    await stage.waitFor({ state: 'attached', timeout: 30_000 })
+    await expandOwningTurnProcess(page, stage)
+    await stage.waitFor({ timeout: 30_000 })
 
     const listings = readResults(sessionEvents)
     // How a page gets read is the model's to choose, and five recordings of

@@ -45,7 +45,7 @@ import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const FIXTURE = fileURLToPath(new URL('./snapshots/content-act/session.jsonl', import.meta.url))
-const SEED = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const SEED = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 const OVERLAY = join(FRAME_DIR, 'overlay/content-column.patch.yml')
 /** Every experimental row the overlay inserts, as package name and source directory. */
@@ -68,8 +68,8 @@ const SEEDED_SESSION = 'content-act-web-e2e'
  */
 const RECORDED = existsSync(FIXTURE)
 
-/** The composer's own English placeholder — the signal that a session is open. */
-const COMPOSER_PLACEHOLDER = 'Message the agent'
+/** The composer's own input, whose presence is the signal that a session is open. */
+const COMPOSER = '[data-composer-input]'
 
 /** What the user asks. Deliberately about the page, never about the tool. */
 const PROMPT = '把内容区那个表单里的机器名改成 mill-09，然后点添加；再点一下页面上那个没有名字的红色小图标'
@@ -130,7 +130,7 @@ async function openSession(page: Page, index: number): Promise<void> {
   const row = page.locator('[role="treeitem"]').nth(index)
   await row.waitFor({ timeout: 15_000 })
   await row.click()
-  await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
 }
 
 /** The model-facing text of every `content_act` result the log recorded. */
@@ -173,7 +173,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the 
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.locator('[data-shell-column="content"]').waitFor({ state: 'attached', timeout: 30_000 })
     await page.locator('[role="treeitem"]').first().click()
     await openSession(page, 1)
@@ -197,7 +197,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the 
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
     }
     const frame = page.frameLocator('iframe[data-content-frame][data-content-active]')
-    const input = page.locator('textarea').first()
+    const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })
     let turnOver = false
     const settled = scaffold.whenTurnSettled(MODE === 'record' ? 240_000 : 90_000).then(
