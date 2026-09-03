@@ -264,17 +264,16 @@ function rowLine(item: TableRowItem, prefix: string, suffix: string, refs: RefTa
 }
 
 /**
- * A table's first line: what it is and how big it is. A table a strip pages
- * counts the rows of the page on display rather than the rows there are, and
- * says which it is counting: the count is what a model reading the row answers
- * "how many are there" with, and a paged table answers that on its strip.
+ * A table's first line: what it is and how big it is. The count is the rows
+ * this table holds now, which is what the page has drawn rather than what it
+ * has: a table drawn a page at a time says how many there are in the strip
+ * beside it, and those words are a run of the page like any other.
  * @param item - the table item.
  * @param depth - the nesting depth the block prints at.
  * @returns the rendered row.
  */
 function tableHead(item: TableItem, depth: number): string {
-  const rows = item.pagination === undefined ? 'rows' : 'rows on this page'
-  return `${indent(depth)}${item.ref} table${quoted(item.name)} ${item.rows.length} ${rows} × ${item.columns} cols`
+  return `${indent(depth)}${item.ref} table${quoted(item.name)} ${item.rows.length} rows × ${item.columns} cols`
 }
 
 /**
@@ -288,20 +287,6 @@ function tableHeader(item: TableItem, depth: number, refs: RefTable): string[] {
   if (item.header.length === 0) return []
   const cells = item.header.map(cell => cellText(cell, refs, HEADER_CELL_LIMIT))
   return [`${indent(depth + 1)}header: ${cells.join(CELL_SEPARATOR)}`]
-}
-
-/**
- * A table's pagination line, when a strip pages it. The strip's own words are
- * printed as the page draws them and nothing is read out of them: what a page
- * says about how many rows there are, and in which language, is the page's to
- * say.
- * @param item - the table item.
- * @param depth - the nesting depth the block prints at.
- * @returns the rendered line, or nothing.
- */
-function tablePagination(item: TableItem, depth: number): string[] {
-  if (item.pagination === undefined) return []
-  return [`${indent(depth + 1)}pagination: ${item.pagination}`]
 }
 
 /**
@@ -322,7 +307,7 @@ function tableBlock(item: TableItem, depth: number, refs: RefTable): string {
     const cells = first.cells.map(cell => cell.sample)
     lines.push(`${inner}sample: ${cells.join(CELL_SEPARATOR)}`, `${inner}${ROWS_HINT}`)
   }
-  return [...lines, ...tablePagination(item, depth)].join('\n')
+  return lines.join('\n')
 }
 
 /**
@@ -438,7 +423,7 @@ function entryElement(item: Item): Element | undefined {
 function scopedTableEntries(item: TableItem, refs: RefTable): Entry[] {
   return [
     entry(item.el, refs, () => [
-      tableHead(item, item.depth), ...tableHeader(item, item.depth, refs), ...tablePagination(item, item.depth),
+      tableHead(item, item.depth), ...tableHeader(item, item.depth, refs),
     ].join('\n')),
     ...item.rows.map(row => entry(row.el, refs, () => rowLine(row, indent(item.depth + 1), '', refs))),
   ]

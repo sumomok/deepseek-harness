@@ -130,7 +130,7 @@ export const MAX_URL_CHARS = 2048
 
 /**
  * Longest header field a posted snapshot may carry — the document title, the
- * breadcrumb trail, the open dialog's name — in characters. The reader clips
+ * open dialog's name — in characters. The reader clips
  * every text it prints at the same 200, so this is that clip restated where the
  * document crosses the process.
  */
@@ -176,10 +176,10 @@ export const MAX_TEXT_BYTES_PER_CHAR = 4
  * written with.
  *
  * A listing report with every string empty and nine-digit counters serializes
- * to 273 bytes, and the union of that form's keys with a failure's to 317 —
+ * to 257 bytes, and the union of that form's keys with a failure's to 301 —
  * with both discriminants empty. The values a real report writes there,
  * `outline` and `not-a-page`, add 17 bytes that no per-field allowance covers,
- * so 334 is what the envelope has to leave room for; a bound covering both
+ * so 318 is what the envelope has to leave room for; a bound covering both
  * forms cannot be read off either one alone. Rounded up from there, with room
  * for counters longer than nine digits.
  */
@@ -188,7 +188,7 @@ export const REPORT_SYNTAX_BYTES = 512
 /**
  * Bytes of JSON the largest report carries around its listing, allowing
  * {@link MAX_TEXT_BYTES_PER_CHAR} UTF-8 bytes per character: the document's
- * address, the three header fields, the four names (two ids, the page's id and
+ * address, the two header fields, the four names (two ids, the page's id and
  * its title, or a failure's kind and title), the cursor, and a failure message
  * — each at the bound the wire holds it to — plus {@link REPORT_SYNTAX_BYTES}
  * for the punctuation, key names and discriminant values around them.
@@ -203,8 +203,8 @@ export const REPORT_SYNTAX_BYTES = 512
  * its own. Every report spends two of the four names on the call's id and the
  * tab's; a report of steps spends the other two on the page's id and title, and
  * adds the document's title, its own body against the budget, and one step
- * list. Against a listing it spends nothing on the address, the other two
- * header fields, or the cursor — 9,920 bytes of allowance left unspent.
+ * list. Against a listing it spends nothing on the address, the other header
+ * field, or the cursor — 9,120 bytes of allowance left unspent.
  * What the step list costs inside that is the one failing step's message, which
  * is the same 2000 characters the failure arm's message is bounded by and which
  * a report of steps carries in place of it, plus about 35 bytes of punctuation
@@ -217,7 +217,7 @@ export const REPORT_SYNTAX_BYTES = 512
  * sum.
  */
 export const REPORT_ENVELOPE_BYTES = MAX_TEXT_BYTES_PER_CHAR * (
-  MAX_URL_CHARS + 3 * MAX_HEADER_CHARS + MAX_OUTCOME_MESSAGE_CHARS + 4 * MAX_NAME_CHARS + MAX_CURSOR_CHARS
+  MAX_URL_CHARS + 2 * MAX_HEADER_CHARS + MAX_OUTCOME_MESSAGE_CHARS + 4 * MAX_NAME_CHARS + MAX_CURSOR_CHARS
 ) + REPORT_SYNTAX_BYTES
 
 /**
@@ -398,8 +398,6 @@ export interface ReadSnapshot {
   url: string
   /** The document's title. */
   title: string
-  /** The visible breadcrumb trail. */
-  breadcrumb?: string
   /** The name of the dialog the page has open. */
   modal?: string
   /** True when the page is asking the user to sign in. */
@@ -523,9 +521,7 @@ function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | und
   if (typeof candidate.settled !== 'boolean') return undefined
   if (!isText(candidate.text, maxTextChars)) return undefined
   if (!isCount(candidate.shown) || !isCount(candidate.total)) return undefined
-  for (const optional of [candidate.breadcrumb, candidate.modal]) {
-    if (optional !== undefined && !isText(optional, MAX_HEADER_CHARS)) return undefined
-  }
+  if (candidate.modal !== undefined && !isText(candidate.modal, MAX_HEADER_CHARS)) return undefined
   if (candidate.cursor !== undefined && !isText(candidate.cursor, MAX_CURSOR_CHARS)) return undefined
   const busy = parseBusy(candidate.busy)
   if (busy === undefined) return undefined
@@ -533,7 +529,6 @@ function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | und
     kind: candidate.kind,
     url: candidate.url,
     title: candidate.title,
-    ...typeof candidate.breadcrumb === 'string' ? { breadcrumb: candidate.breadcrumb } : {},
     ...typeof candidate.modal === 'string' ? { modal: candidate.modal } : {},
     signIn: candidate.signIn,
     text: candidate.text,

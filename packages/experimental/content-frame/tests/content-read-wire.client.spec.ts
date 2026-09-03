@@ -115,7 +115,7 @@ describe('report wire boundary', () => {
   it('keeps the optional header fields a page supplied', () => {
     const outcome: ReadOutcome = {
       ...READ,
-      snapshot: { ...READ.snapshot, breadcrumb: 'Home › Fleet', modal: 'Confirm', cursor: 'e12' },
+      snapshot: { ...READ.snapshot, modal: 'Confirm', cursor: 'e12' },
     }
     expect(parseChannelReport(report(outcome), MAX_TEXT, MAX_ACT_STEPS)?.outcome).toEqual(outcome)
   })
@@ -203,7 +203,6 @@ describe('report wire boundary', () => {
       // no items in it.
       { ...READ.snapshot, shown: -1 },
       { ...READ.snapshot, total: -1 },
-      { ...READ.snapshot, breadcrumb: 7 },
       { ...READ.snapshot, modal: 7 },
       { ...READ.snapshot, cursor: 7 },
     ]) {
@@ -262,7 +261,6 @@ describe('report wire boundary', () => {
       ['text', { ...READ, snapshot: { ...READ.snapshot, text: `1 main${CONTROL}` } }],
       ['url', { ...READ, snapshot: { ...READ.snapshot, url: `http://x/${CONTROL}` } }],
       ['title', { ...READ, snapshot: { ...READ.snapshot, title: `Fleet${LONE_SURROGATE}` } }],
-      ['breadcrumb', { ...READ, snapshot: { ...READ.snapshot, breadcrumb: `Home${CONTROL}` } }],
       ['modal', { ...READ, snapshot: { ...READ.snapshot, modal: `Confirm${LONE_SURROGATE}` } }],
       ['cursor', { ...READ, snapshot: { ...READ.snapshot, cursor: `e1${CONTROL}` } }],
       ['page.title', { ...READ, page: { id: 'home', title: `Home${CONTROL}` } }],
@@ -385,7 +383,7 @@ describe('what a posted report of steps must carry', () => {
 })
 
 describe('what the envelope leaves a report of steps', () => {
-  it('leaves 9,920 bytes unspent, which a hundred steps of punctuation fit inside', () => {
+  it('leaves 9,120 bytes unspent, which a hundred steps of punctuation fit inside', () => {
     // The figure the two constants' own prose states, computed from them
     // rather than quoted: every report spends two of the four names on the
     // call's id and the tab's, and a report of steps spends the other two on
@@ -393,7 +391,7 @@ describe('what the envelope leaves a report of steps', () => {
     // the message allowance on its one failing step.
     const spent = 4 * MAX_NAME_CHARS + MAX_HEADER_CHARS + MAX_OUTCOME_MESSAGE_CHARS
     const unspent = REPORT_ENVELOPE_BYTES - REPORT_SYNTAX_BYTES - spent * MAX_TEXT_BYTES_PER_CHAR
-    expect(unspent).toBe(9920)
+    expect(unspent).toBe(9120)
     // And what {@link MAX_ACT_STEPS} is chosen against: about 35 bytes of
     // punctuation a step.
     expect(MAX_ACT_STEPS * 35).toBeLessThan(unspent)

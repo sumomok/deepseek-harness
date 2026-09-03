@@ -559,7 +559,6 @@ async function readPage(
         kind: read.kind,
         url: forWire(read.header.url, MAX_URL_CHARS),
         title: forWire(read.header.title, MAX_HEADER_CHARS),
-        ...read.header.breadcrumb === undefined ? {} : { breadcrumb: forWire(read.header.breadcrumb, MAX_HEADER_CHARS) },
         ...read.header.modal === undefined ? {} : { modal: forWire(read.header.modal, MAX_HEADER_CHARS) },
         signIn: read.header.signIn,
         text,

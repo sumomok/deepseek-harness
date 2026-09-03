@@ -201,9 +201,6 @@ const TEXT_KEPT = 197
 /** The keywords a page draws nothing around an element with. */
 const DRAWS_NOTHING = /^(?:none|normal)$/u
 
-/** Text that only separates the items either side of it. */
-const SEPARATOR = /^[/>›»|:·•\-–—]+$/
-
 /**
  * The code points a page writes to control how text breaks, joins, or runs
  * rather than to put a character on the screen: the zero-width space, the
@@ -264,15 +261,6 @@ export function clipTo(text: string, limit: number): string {
 }
 
 /**
- * True when the text says nothing but "the next item follows".
- * @param text - one collapsed text run.
- * @returns whether the run is punctuation between items.
- */
-export function isSeparator(text: string): boolean {
-  return SEPARATOR.test(text)
-}
-
-/**
  * True for an element whose text flows into the run around it.
  * @param el - the element to classify.
  * @returns whether text either side of the element is one run.
@@ -292,17 +280,17 @@ export function childHost(el: Element): ParentNode {
 }
 
 /**
- * What one selector matches inside a subtree, in document order. Callers read
- * the result as a sequence of the page — the first heading of a section, the
- * strip nearest a table. A browser answers a selector in document order; the
- * sort here makes the reading hold whatever order an engine answers in.
+ * What one selector matches inside a subtree, as an array. Callers read the
+ * result as a sequence of the page — the first heading of a section, the first
+ * dialog it has open — which is what the DOM answers a selector in: tree order,
+ * over one tree, and this is that answer in a form the callers can iterate more
+ * than once.
  * @param root - the subtree to search.
  * @param selector - the selector to match.
  * @returns the matching elements, first in the document first.
  */
 export function queryInOrder(root: ParentNode, selector: string): Element[] {
   return [...root.querySelectorAll(selector)]
-    .sort((a, b) => ((a.compareDocumentPosition(b) & Node.DOCUMENT_POSITION_FOLLOWING) === 0 ? 1 : -1))
 }
 
 /**
@@ -511,33 +499,6 @@ export function containerName(el: Element, isVisible: (el: Element) => boolean):
 }
 
 /**
- * The selector matching every element that could carry one of the markers
- * pages name a widget by convention with — a breadcrumb trail, a pagination
- * strip. A search reads these candidates rather than every element of the
- * page, and confirms each one with `isMarked`.
- * @param marker - the lower-case word the convention uses.
- * @returns the selector.
- */
-export function markedSelector(marker: string): string {
-  return `[class*="${marker}" i], [aria-label*="${marker}" i]`
-}
-
-/**
- * True when an element carrying the marker means it, which for a class name it
- * always does and for a label only a navigation region does. The role is
- * computed last: it is the expensive half of the test and the class names
- * settle most candidates without it.
- * @param el - a candidate that matched {@link markedSelector} for this marker.
- * @param marker - the lower-case word the convention uses.
- * @returns whether the element is the widget the marker names.
- */
-export function isMarked(el: Element, marker: string): boolean {
-  const className = el.getAttribute('class')
-  if (className !== null && className.toLowerCase().includes(marker)) return true
-  return roleOf(el) === 'navigation'
-}
-
-/**
  * True for an element that carries no content of its own, as opposed to one
  * the page merely hides: what is inside it is source, not page.
  * @param el - the element to classify.
@@ -585,7 +546,7 @@ export function isHiddenAround(el: Element, isVisible: (el: Element) => boolean)
  * with everything inside them; every subtree is read when it is omitted.
  * @returns the collapsed, non-empty runs.
  */
-export function visibleTextParts(
+function visibleTextParts(
   el: Element,
   isVisible: (el: Element) => boolean,
   stopAt?: (child: Element) => boolean,

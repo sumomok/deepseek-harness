@@ -119,12 +119,12 @@ const SEAT_ENVELOPE_BYTES = 266
 
 /**
  * The envelope the route allows a report, which no deployment configures: four
- * bytes for each character of a `url` (2048), three header fields (200 each), a
+ * bytes for each character of a `url` (2048), two header fields (200 each), a
  * failure message (2000), four names (256 each) and a cursor (32), plus 512 for
  * the punctuation and key names. Written out rather than imported, so a bound
  * moving under it is a failure here and not a silent agreement.
  */
-const ENVELOPE_BYTES = 23328
+const ENVELOPE_BYTES = 22528
 
 /** What the seat's first report cost on the wire, which is the total the route counts. */
 function reportedBytes(): number {
@@ -142,31 +142,26 @@ function reportedBytes(): number {
  * every figure below a column count. Each text arrives cut to 200 characters,
  * and the block then takes a header cell to 40 of them and a sample cell to 24,
  * so a column is 70 characters — 74 bytes of one-byte text, 198 of three-byte.
- * The rest of the block — the table's name line, the rows hint, and the
- * pagination line — is 548 where the name and the pagination line both run past
- * that cut, each printing 197 characters and an ellipsis. Thirteen of those 548
- * are the strip's own doing: a table a pagination strip pages counts `rows on
- * this page` rather than `rows`, because that is what its rows are, and every
- * fixture here hangs a strip on its table. Two adjustments on top of that. The
- * column count printed in the name line gains a digit at ten columns and at a
- * hundred. And a listing whose one row runs past the budget ends with a line
- * saying so, which is 77 characters and 80 bytes.
+ * The rest of the block — the table's name line and the rows hint — is 322
+ * where the name runs past that cut and prints 197 characters and an ellipsis.
+ * Two adjustments on top of that. The column count printed in the name line
+ * gains a digit at ten columns and at a hundred. And a listing whose one row
+ * runs past the budget ends with a line saying so, which is 77 characters and
+ * 80 bytes.
  *
- * A pagination line inside the cut is the exception, and the one a fixture
- * tunes its last bytes with: passed at exactly 200 characters it is printed
- * whole, which puts the base at 550 rather than 548 and lets one `甲` swapped
- * for one `é` move the body a byte without moving its length.
+ * The name is what a fixture tunes its last bytes with: it is cut by character
+ * and printed whole, so one `甲` swapped for one `é` inside that cut moves the
+ * body a byte without moving its length.
  * @param columns - how many columns the table has.
- * @param fill - the character its name and cells are made of.
- * @param pagination - the pagination line, as the page has it.
+ * @param fill - the character its cells are made of.
+ * @param name - what follows `FLEET` in the table's own name.
  * @returns the page's HTML.
  */
-function wideTable(columns: number, fill: string, pagination: string): string {
+function wideTable(columns: number, fill: string, name: string): string {
   const cell = (tag: string): string => `<${tag}>${fill.repeat(300)}</${tag}>`
   const cells = (tag: string): string => Array.from({ length: columns }, () => cell(tag)).join('')
-  return `<table aria-label="FLEET${fill.repeat(295)}">`
+  return `<table aria-label="FLEET${name}">`
     + `<thead><tr>${cells('th')}</tr></thead><tbody><tr>${cells('td')}</tr></tbody></table>`
-    + `<nav class="pagination">${pagination}</nav>`
 }
 
 /** Drive one read of {@link wideTable} under a budget, filtered to the table alone. */
@@ -562,11 +557,10 @@ describe('what the reader reports', () => {
     // closest to the character bound the parser holds a listing to.
     const cell = (tag: string, seed: string): string => `<${tag}>${seed.repeat(300)}</${tag}>`
     const cells = (tag: string): string =>
-      Array.from({ length: 8 }, (_, column) => cell(tag, `c${String(column)}`)).join('')
+      Array.from({ length: 12 }, (_, column) => cell(tag, `c${String(column)}`)).join('')
     const frame = mountFrame(
       `<table aria-label="${'N'.repeat(300)}">`
-      + `<thead><tr>${cells('th')}</tr></thead><tbody><tr>${cells('td')}</tr></tbody></table>`
-      + `<nav class="pagination">${'P'.repeat(300)}</nav>`,
+      + `<thead><tr>${cells('th')}</tr></thead><tbody><tr>${cells('td')}</tr></tbody></table>`,
     )
     drive(seatOf({
       frames: { current: new Map([[FRAME, frame]]) },
@@ -637,10 +631,10 @@ describe('what the reader reports', () => {
     // over-long row is complete rather than cut, and ends with a line saying it
     // ran past the budget — so the seat is the only place the model can be told
     // to read a smaller part of the page. At the smallest budget a deployment
-    // may set, the widest table the character bound takes is forty-eight
-    // columns: 548 + 70 × 48, one more for the two-digit column count and 77
+    // may set, the widest table the character bound takes is fifty-one
+    // columns: 322 + 70 × 51, one more for the two-digit column count and 77
     // for that closing line, against a bound of four times the budget.
-    const inside = readTable(wideTable(48, 'c', 'P'.repeat(300)), MIN_OUTLINE_CHARS)
+    const inside = readTable(wideTable(51, 'c', 'P'.repeat(300)), MIN_OUTLINE_CHARS)
     await settled()
     const outcome = reported()
     if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
@@ -648,15 +642,15 @@ describe('what the reader reports', () => {
       chars: outcome.snapshot.text.length,
       body: reportedBytes(),
       charBound: MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
-    }).toEqual({ chars: 3986, body: 4458, charBound: 4000 })
+    }).toEqual({ chars: 3970, body: 4451, charBound: 4000 })
     expect(parseChannelReport(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS))
       .toBeDefined()
     inside.unmount()
 
     posted = []
-    // One column more is 70 characters and 74 bytes more — 4056 against 4000,
-    // and 4532 against 27,328 — so the character half is what ends it.
-    const past = readTable(wideTable(49, 'c', 'P'.repeat(300)), MIN_OUTLINE_CHARS)
+    // One column more is 70 characters and 74 bytes more — 4040 against 4000,
+    // and 4516 against 26,528 — so the character half is what ends it.
+    const past = readTable(wideTable(52, 'c', 'P'.repeat(300)), MIN_OUTLINE_CHARS)
     await settled()
     expect(reported()).toEqual({
       status: 'error',
@@ -681,8 +675,8 @@ describe('what the reader reports', () => {
     // a character costing one JSON byte and once with one costing three. The
     // two listings are the same length, so the character bound cannot tell them
     // apart; the byte bound can, and at the shipped budget it is the one a page
-    // written in a three-byte language actually meets. That width is where it
-    // meets it: the same 25,267 characters either way — 548 + 70 × 352, two
+    // written in a three-byte language actually meets. That width is past where
+    // it meets it: the same 25,041 characters either way — 322 + 70 × 352, two
     // more for the three-digit column count and 77 for the over-budget line —
     // in bodies that differ only in what a column costs in bytes.
     const thin = readTable(wideTable(352, '~', '~'.repeat(300)), DEFAULT_OUTLINE_CHARS)
@@ -705,14 +699,14 @@ describe('what the reader reports', () => {
       charBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
       byteBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
     }).toEqual({
-      thinChars: 25267,
-      thinBytes: 26689,
-      thinBody: 26955,
-      wideChars: 25267,
-      wideBytes: 71115,
-      wideBody: 71381,
+      thinChars: 25041,
+      thinBytes: 26460,
+      thinBody: 26726,
+      wideChars: 25041,
+      wideBytes: 70492,
+      wideBody: 70758,
       charBound: 48000,
-      byteBound: 71328,
+      byteBound: 70528,
     })
 
     posted = []
@@ -733,13 +727,13 @@ describe('what the reader reports', () => {
     // the report each one would be posted in. Both listings cost more than the
     // budget in bytes on their own, so a check against the listing's share
     // alone answers both with a sentence; against the whole body's bound — the
-    // same budget in bytes plus the envelope's 23,328 — both are pages the
-    // model gets to read. At 198 bytes a column, 236 columns is the narrowest
-    // table whose listing passes that share — 235 costs 47,949 — and 351 the
-    // widest whose whole body stays inside the bound, 352 costing 71,381.
+    // same budget in bytes plus the envelope's 22,528 — both are pages the
+    // model gets to read. At 198 bytes a column, 239 columns is the narrowest
+    // table whose listing passes that share — 238 costs 47,920 — and 350 the
+    // widest whose whole body stays inside the bound, 351 costing 70,560.
     for (const [columns, chars, listing, body] of [
-      [236, 17147, 48147, 48413],
-      [351, 25197, 70917, 71183],
+      [239, 17131, 48118, 48384],
+      [350, 24901, 70096, 70362],
     ] as const) {
       posted = []
       const view = readTable(wideTable(columns, '甲', '甲'.repeat(300)), DEFAULT_OUTLINE_CHARS)
@@ -753,7 +747,7 @@ describe('what the reader reports', () => {
         body: reportedBytes(),
         share: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR,
         byteBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
-      }).toEqual({ columns, chars, listing, body, share: 48000, byteBound: 71328 })
+      }).toEqual({ columns, chars, listing, body, share: 48000, byteBound: 70528 })
       // And the host takes what the seat sent, at both of its own bounds.
       expect(parseChannelReport(of(CONTENT_REPORT_ROUTE)[0], DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS))
         .toBeDefined()
@@ -772,11 +766,11 @@ describe('what the reader reports', () => {
 
   it('refuses on characters a listing whose bytes the route would have taken', async () => {
     // One-byte text, where the character bound is the tighter of the two: the
-    // envelope puts the byte bound 23,328 above four times the budget, so a
+    // envelope puts the byte bound 22,528 above four times the budget, so a
     // listing of ASCII can pass what the whole body is held to and still be
     // past what the parser takes for `text`. At 70 characters a column that
-    // happens at 677 columns, and 676 is the last one taken.
-    const inside = readTable(wideTable(676, 'c', 'P'.repeat(300)), DEFAULT_OUTLINE_CHARS)
+    // happens at 680 columns, and 679 is the last one taken.
+    const inside = readTable(wideTable(679, 'c', 'P'.repeat(300)), DEFAULT_OUTLINE_CHARS)
     await settled()
     const outcome = reported()
     if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
@@ -785,22 +779,22 @@ describe('what the reader reports', () => {
       body: reportedBytes(),
       charBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
       byteBound: DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
-    }).toEqual({ chars: 47947, body: 50931, charBound: 48000, byteBound: 71328 })
+    }).toEqual({ chars: 47931, body: 50924, charBound: 48000, byteBound: 70528 })
     inside.unmount()
 
     posted = []
-    const past = readTable(wideTable(677, 'c', 'P'.repeat(300)), DEFAULT_OUTLINE_CHARS)
+    const past = readTable(wideTable(680, 'c', 'P'.repeat(300)), DEFAULT_OUTLINE_CHARS)
     await settled()
     expect(reported()).toMatchObject({ status: 'error', code: 'frame', message: FRAME_WIDE_LISTING_MESSAGE })
     past.unmount()
 
     // Which half that was, read off the same table rather than written out: a
     // budget of 20,000 characters takes it on both — 80,000 characters and
-    // 103,328 bytes — so it is posted, and what it costs there is past the
+    // 102,528 bytes — so it is posted, and what it costs there is past the
     // shipped budget's character bound while the whole report is inside that
     // budget's byte bound.
     posted = []
-    const taken = readTable(wideTable(677, 'c', 'P'.repeat(300)), 20000)
+    const taken = readTable(wideTable(680, 'c', 'P'.repeat(300)), 20000)
     await settled()
     const listing = reported()
     if (listing.status !== 'ok') throw new Error('the reader answered a failure')
@@ -811,25 +805,23 @@ describe('what the reader reports', () => {
       body,
       pastCharBound: chars > DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
       insideByteBound: body <= DEFAULT_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
-    }).toEqual({ chars: 48017, body: 51005, pastCharBound: true, insideByteBound: true })
+    }).toEqual({ chars: 48001, body: 50998, pastCharBound: true, insideByteBound: true })
     taken.unmount()
   })
 
   it('takes a report whose bytes land on the bound, and stops one byte past it', async () => {
     // Built the way the bound is reached rather than guessed at. Two hundred
-    // columns of Chinese is a table the byte half decides: 550 + 70 × 200, two
+    // columns of Chinese is a table the byte half decides: 322 + 70 × 200, two
     // more for the three-digit column count and 77 for the over-budget line,
-    // so 14,629 characters against a character bound of 17,960. The base is
-    // 550 rather than 548 because this fixture's pagination line is exactly
-    // 200 characters and prints whole — which is also what makes it the knob
-    // this case turns. All `甲`, it puts the report at 41,291 bytes; swapping
-    // three of its characters for `é` takes one byte off each, and 41,288 is
-    // exactly 4490 × 4 + 23,328: a budget above the floor, whole in
+    // so 14,401 characters against a character bound of 18,132. The knob this
+    // case turns is the table's own name, which the reader cuts by character:
+    // two of its `甲` swapped for `é` take one byte off each, and 40,660 is
+    // exactly 4533 × 4 + 22,528 — a budget above the floor, whole in
     // characters, whose bound this report lands on. The two fixtures differ in
-    // one character of that line, so the listings are the same length and the
+    // one character of that name, so the listings are the same length and the
     // bodies are one byte apart.
-    const budget = 4490
-    const at = readTable(wideTable(200, '甲', `${'甲'.repeat(197)}${'é'.repeat(3)}`), budget)
+    const budget = 4533
+    const at = readTable(wideTable(200, '甲', `${'é'.repeat(2)}${'甲'.repeat(300)}`), budget)
     await settled()
     const outcome = reported()
     if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
@@ -839,15 +831,15 @@ describe('what the reader reports', () => {
       charBound: budget * MAX_TEXT_BUDGET_MULTIPLE,
       byteBound: budget * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
       aboveFloor: budget >= MIN_OUTLINE_CHARS,
-    }).toEqual({ chars: 14629, body: 41288, charBound: 17960, byteBound: 41288, aboveFloor: true })
+    }).toEqual({ chars: 14401, body: 40660, charBound: 18132, byteBound: 40660, aboveFloor: true })
     at.unmount()
 
     posted = []
-    const past = readTable(wideTable(200, '甲', `${'甲'.repeat(198)}${'é'.repeat(2)}`), budget)
+    const past = readTable(wideTable(200, '甲', `${'é'.repeat(1)}${'甲'.repeat(300)}`), budget)
     await settled()
     expect(reported()).toMatchObject({ status: 'error', code: 'frame', message: FRAME_WIDE_LISTING_MESSAGE })
     // The first listing with that one character swapped is the second listing,
-    // unit for unit: the same 14,629 characters in a body of 41,289 bytes. One
+    // unit for unit: the same 14,401 characters in a body of 40,661 bytes. One
     // byte is the whole difference between the two answers.
     expect(SEAT_ENVELOPE_BYTES + jsonBytesOf(outcome.snapshot.text.replace('é', '甲')))
       .toBe(budget * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES + 1)
@@ -856,8 +848,8 @@ describe('what the reader reports', () => {
 
   it('holds a forty-eight-column table of three-byte text at the smallest budget a deployment may set', async () => {
     // What the floor on the budget is stated for: four times 1000 characters
-    // holds a table block of forty-eight columns, and the byte bound on the
-    // body is nowhere near binding there.
+    // holds a table block of forty-eight columns with room to spare, and the
+    // byte bound on the body is nowhere near binding there.
     const inside = readTable(wideTable(48, '甲', '甲'.repeat(300)), MIN_OUTLINE_CHARS)
     await settled()
     const outcome = reported()
@@ -870,31 +862,31 @@ describe('what the reader reports', () => {
       charBound: MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE,
       byteBound: MIN_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES,
       // The room left over, which is what makes this the character half's
-      // promise and not a byte one: 14 characters against 16,140 bytes.
+      // promise and not a byte one: 240 characters against 15,963 bytes.
       charsLeft: MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE - chars,
       bytesLeft: MIN_OUTLINE_CHARS * MAX_TEXT_BYTES_PER_CHAR + ENVELOPE_BYTES - body,
-    }).toEqual({ chars: 3986, body: 11188, charBound: 4000, byteBound: 27328, charsLeft: 14, bytesLeft: 16140 })
+    }).toEqual({ chars: 3760, body: 10565, charBound: 4000, byteBound: 26528, charsLeft: 240, bytesLeft: 15963 })
     expect(parseChannelReport(of(CONTENT_REPORT_ROUTE)[0], MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS))
       .toBeDefined()
     inside.unmount()
 
     posted = []
-    // A forty-ninth column is 70 characters more, which is what puts the block
-    // past four times the floor. The column count the floor is chosen for, not
-    // a byte count, is what ends this — so the same table under a budget one
-    // hundred characters wider is read, and the body it posts there is the
-    // measure of how far the byte bound was from binding.
-    const past = readTable(wideTable(49, '甲', '甲'.repeat(300)), MIN_OUTLINE_CHARS)
+    // A fifty-second column is what first puts the block past four times the
+    // floor, at 70 characters a column. The column count the floor is chosen
+    // for, not a byte count, is what ends this — so the same table under a
+    // budget one hundred characters wider is read, and the body it posts there
+    // is the measure of how far the byte bound was from binding.
+    const past = readTable(wideTable(52, '甲', '甲'.repeat(300)), MIN_OUTLINE_CHARS)
     await settled()
     expect(reported()).toMatchObject({ status: 'error', code: 'frame', message: FRAME_WIDE_LISTING_MESSAGE })
     past.unmount()
 
     posted = []
-    const wider = readTable(wideTable(49, '甲', '甲'.repeat(300)), MIN_OUTLINE_CHARS + 100)
+    const wider = readTable(wideTable(52, '甲', '甲'.repeat(300)), MIN_OUTLINE_CHARS + 100)
     await settled()
     const taken = reported()
     if (taken.status !== 'ok') throw new Error('the reader answered a failure on the wider budget')
-    expect({ chars: taken.snapshot.text.length, body: reportedBytes() }).toEqual({ chars: 4056, body: 11386 })
+    expect({ chars: taken.snapshot.text.length, body: reportedBytes() }).toEqual({ chars: 4040, body: 11357 })
     wider.unmount()
   })
 
@@ -1038,10 +1030,9 @@ describe('what the reader reports', () => {
     expect(reported()).toMatchObject({ status: 'error', code: 'engine' })
   })
 
-  it('carries the page\'s trail, its open dialog, and the cursor of a listing it had to cut', async () => {
+  it('carries the page\'s open dialog and the cursor of a listing it had to cut', async () => {
     const frames = new Map([[FRAME, mountFrame(
-      '<nav class="breadcrumb">Home / Fleet</nav>'
-      + '<dialog open aria-modal="true" aria-label="Confirm delete"><button>Delete</button></dialog>'
+      '<dialog open aria-modal="true" aria-label="Confirm delete"><button>Delete</button></dialog>'
       + '<main><button>Refresh one</button><button>Refresh two</button><button>Refresh three</button></main>',
     )]])
     drive(seatOf({
@@ -1054,7 +1045,6 @@ describe('what the reader reports', () => {
     await settled()
     const outcome = reported()
     if (outcome.status !== 'ok') throw new Error('the reader answered a failure')
-    expect(outcome.snapshot.breadcrumb).toContain('Home')
     expect(outcome.snapshot.modal).toContain('Confirm delete')
     expect(outcome.snapshot.truncated).toBe(true)
     expect(outcome.snapshot.cursor).toMatch(/^e\d+$/)

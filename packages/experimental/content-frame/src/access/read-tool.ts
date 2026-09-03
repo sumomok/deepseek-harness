@@ -49,8 +49,6 @@ export interface ContentReadValue {
   url: string
   /** Which listing came back. */
   kind: 'outline' | 'map'
-  /** The visible breadcrumb trail. */
-  breadcrumb?: string
   /** The name of the dialog the page has open. */
   modal?: string
   /** The listing itself. */
@@ -120,7 +118,6 @@ function valueOf(outcome: ReadOutcome): ContentReadValue {
     title: snapshot.title,
     url: pathOf(snapshot.url),
     kind: snapshot.kind,
-    ...snapshot.breadcrumb === undefined ? {} : { breadcrumb: snapshot.breadcrumb },
     ...snapshot.modal === undefined ? {} : { modal: snapshot.modal },
     text: snapshot.text,
     truncated: snapshot.truncated,
@@ -196,7 +193,6 @@ export function contentReadTool(
           title: { type: 'string', required: true, description: 'The document\'s own title.' },
           url: { type: 'string', required: true, description: 'Where in the application the frame is, origin dropped.' },
           kind: { type: 'string', enum: ['outline', 'map'], required: true, description: 'Which listing came back.' },
-          breadcrumb: { type: 'string', description: 'The visible trail saying where the user is.' },
           modal: { type: 'string', description: 'The name of the dialog the page has open.' },
           text: { type: 'string', required: true, description: 'The numbered listing.' },
           truncated: { type: 'boolean', required: true, description: 'Whether the listing stops short of the whole answer.' },
@@ -221,7 +217,6 @@ export function contentReadTool(
           page: value.page.title,
           url: value.url,
           title: value.title,
-          ...value.breadcrumb === undefined ? {} : { breadcrumb: value.breadcrumb },
           ...value.modal === undefined ? {} : { modal: value.modal },
           kind: value.kind,
           truncated: value.truncated,

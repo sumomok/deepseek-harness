@@ -11,22 +11,13 @@
  * and never what it holds.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/snapshot
  */
-import {
-  DIALOG_SELECTOR, clip, containerName, isMarked, isSeparator, isSkipped, markedSelector, queryInOrder,
-  readableDocuments, visibleTextParts,
-} from './dom.ts'
+import { DIALOG_SELECTOR, containerName, isSkipped, queryInOrder, readableDocuments } from './dom.ts'
 import { collect } from './collect.ts'
 import { render } from './render.ts'
 import type { RefTable } from './refs.ts'
 import type { Snapshot, SnapshotHeader, SnapshotOptions } from './model.ts'
 
 export type { ContainerType, Snapshot, SnapshotHeader, SnapshotMode, SnapshotOptions } from './model.ts'
-
-/** What joins two steps of a breadcrumb trail. */
-const BREADCRUMB_SEPARATOR = ' › '
-
-/** The word pages use to mark the trail showing where the user is. */
-const BREADCRUMB_MARKER = 'breadcrumb'
 
 /** The fields whose visible pairing means the page is asking the user to sign in. */
 const SIGN_IN_PARTNER = 'input[type="text"], input[type="email"], input:not([type])'
@@ -78,24 +69,6 @@ function openDialogName(documents: readonly Document[], isVisible: (el: Element)
 }
 
 /**
- * The trail saying where in the application the user currently is.
- * @param documents - every readable document.
- * @param isVisible - injected visibility.
- * @returns the trail, or undefined when the page shows none.
- */
-function breadcrumbTrail(documents: readonly Document[], isVisible: (el: Element) => boolean): string | undefined {
-  for (const doc of documents) {
-    for (const el of queryInOrder(doc, markedSelector(BREADCRUMB_MARKER))) {
-      if (!isMarked(el, BREADCRUMB_MARKER) || isSkipped(el, isVisible)) continue
-      // The punctuation between steps is the trail's own drawing, not a step.
-      const steps = visibleTextParts(el, isVisible).filter(part => !isSeparator(part))
-      if (steps.length > 0) return clip(steps.join(BREADCRUMB_SEPARATOR))
-    }
-  }
-  return undefined
-}
-
-/**
  * True when the page is asking the user to sign in: a visible password box
  * with a visible box to name the account beside it. Beside means inside the
  * same form, or failing that the same region of the page; a page with no
@@ -120,20 +93,18 @@ function asksToSignIn(documents: readonly Document[], isVisible: (el: Element) =
 
 /**
  * What the page is, read across every frame it is built from rather than from
- * the root document alone: an application hosted in a frame keeps its title
- * bar, its trail, and its dialogs inside that frame.
+ * the root document alone: an application hosted in a frame keeps its title bar
+ * and its dialogs inside that frame.
  * @param root - the root document.
  * @param options - the read's options.
  * @returns the header.
  */
 function readHeader(root: Document, options: SnapshotOptions): SnapshotHeader {
   const documents = readableDocuments(root)
-  const breadcrumb = breadcrumbTrail(documents, options.isVisible)
   const modal = openDialogName(documents, options.isVisible)
   return {
     url: root.URL,
     title: root.title,
-    ...(breadcrumb === undefined ? {} : { breadcrumb }),
     ...(modal === undefined ? {} : { modal }),
     signIn: asksToSignIn(documents, options.isVisible),
   }

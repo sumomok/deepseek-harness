@@ -251,8 +251,6 @@ export interface ReadHeaderText {
   url: string
   /** The document's own title. */
   title: string
-  /** The visible breadcrumb trail. */
-  breadcrumb?: string
   /** The name of the dialog the page has open. */
   modal?: string
   /** Which listing came back. */
@@ -279,12 +277,11 @@ export interface ReadHeaderText {
  * @returns the leading line, plus a line for each qualification that applies.
  */
 export function readHeaderText(header: ReadHeaderText): string {
-  const trail = header.breadcrumb === undefined ? '' : `, breadcrumb ${header.breadcrumb}`
   const outsized = header.truncated && header.kind === 'map'
     ? ` [${header.total} items — too large for one read; this is the map]`
     : ''
   return [
-    `Page: ${header.page} — the app is at ${header.url}, title "${header.title}"${trail}${outsized}`,
+    `Page: ${header.page} — the app is at ${header.url}, title "${header.title}"${outsized}`,
     ...header.modal === undefined
       ? []
       : [`dialog "${header.modal}" open (modal) — the rest of the page is behind its mask`],

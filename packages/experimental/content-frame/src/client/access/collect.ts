@@ -15,9 +15,9 @@
 import {
   CHECKED_ROLES, CLICKABLE_ROLE, DIALOG_SELECTOR, FIELD_ROLES, NAME_FROM_CONTENT_ROLES,
   QUANTITY_ROLES, childHost, clip, clipTo, collapse, containerName, drawsNothing, drawnAround, fieldValue,
-  frameDocument, headingText, insideOpaque, isChecked, isDisabled, isInline, isMarked, isNameable,
-  isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole, looksClickable, markedSelector,
-  nameOf, quantityValue, queryInOrder, roleOf, visibleText,
+  frameDocument, headingText, insideOpaque, isChecked, isDisabled, isInline, isNameable,
+  isNonContent, isOpaque, isPassword, isReadonly, isSkipped, libraryRole, looksClickable, nameOf,
+  quantityValue, queryInOrder, roleOf, visibleText,
 } from './dom.ts'
 import type {
   CellControl, ContainerFace, ContainerItem, ContainerType, ControlFace, ControlState, ElementItem,
@@ -76,24 +76,8 @@ const REQUIRED_MARKS: readonly string[] = ['*', '＊']
 /** How long the words drawn in front of a field may run before they are no label. */
 const LABEL_LIMIT = 40
 
-/** The word pages use to mark the strip that pages through a table. */
-const PAGINATION_MARKER = 'pagination'
-
 /** Every element that reads as a table. */
 const TABLE_SELECTOR = 'table, [role~="table"], [role~="grid"], [role~="treegrid"]'
-
-/**
- * Every element that opens a region of the page, which is how far a table looks
- * for the other half of itself: two tables in two regions are two tables,
- * however they are drawn.
- */
-const CONTAINER_SELECTOR = [
-  'main', 'nav', 'form', 'section', 'article', 'aside', 'dialog', 'ul', 'ol', 'iframe',
-  '[role~="main"]', '[role~="navigation"]', '[role~="form"]', '[role~="search"]', '[role~="dialog"]',
-  '[role~="alertdialog"]', '[role~="region"]', '[role~="article"]', '[role~="complementary"]',
-  '[role~="tabpanel"]', '[role~="tablist"]', '[role~="menu"]', '[role~="menubar"]', '[role~="tree"]',
-  '[role~="radiogroup"]', '[role~="listbox"]', '[role~="toolbar"]', '[role~="list"]', '[role~="feed"]',
-].join(', ')
 
 /** The group a tree node or a menu item holds the nodes under it in. */
 const GROUP_SELECTOR = '[role~="group"], [role~="menu"], [role~="tree"], [role~="menubar"]'
@@ -622,118 +606,6 @@ function tableShape(el: Element, walk: Walk): TableShape {
 }
 
 /**
- * The whole of a strip a page has marked, which is the landmark around it as
- * well as the list inside: a page marks its pager as a navigation landmark
- * (`<nav aria-label="Pagination">`) or marks the list and wraps it in one
- * (`<nav><ul class="pagination">`), and the two are one widget drawn two ways.
- * Reading the landmark as a region of its own would leave the second kind
- * standing beside no table at all.
- * @param el - the marked element.
- * @returns the outermost navigation landmark around it, or the element itself.
- */
-function wholeStrip(el: Element): Element {
-  let at = el
-  while (at.parentElement !== null && roleOf(at.parentElement) === 'navigation') at = at.parentElement
-  return at
-}
-
-/**
- * True where a strip is drawn beside what stands in one region: the landmark a
- * page wraps a strip in is part of the pager, and where the page draws the
- * table inside that landmark too, the landmark is the region the two share.
- * Either reading places the strip beside the table.
- * @param el - the marked strip.
- * @param region - the region the table stands in.
- * @returns whether the strip is drawn beside it.
- */
-function standsBy(el: Element, region: Element | null): boolean {
-  return regionOf(wholeStrip(el)) === region || regionOf(el) === region
-}
-
-/**
- * The region an element stands in: the container holding it, never the element
- * itself, because a page draws the strip that pages a table as a `nav` as
- * readily as it draws it as a `div`, and a strip is not a region of its own.
- * @param el - the element to place.
- * @returns the region, or null for an element no region encloses.
- */
-function regionOf(el: Element): Element | null {
-  const parent = el.parentElement
-  return parent === null ? null : parent.closest(CONTAINER_SELECTOR)
-}
-
-/**
- * The text of a pagination strip, when the candidate really is one that shows
- * something.
- * @param el - the candidate element.
- * @param walk - the walk in progress.
- * @returns the strip's text, or undefined when it is not one or shows nothing.
- */
-function stripText(el: Element, walk: Walk): string | undefined {
-  if (!isMarked(el, PAGINATION_MARKER) || isSkipped(el, walk.isVisible)) return undefined
-  const text = clip(visibleText(el, walk.isVisible))
-  return text === '' ? undefined : text
-}
-
-/**
- * The first pagination strip among the elements between one table and the next,
- * scanning away from the table.
- * @param nodes - the tables and candidates on one side of the table, nearest first.
- * @param walk - the walk in progress.
- * @returns the strip's text, or undefined when another table comes first.
- */
-function nearestStrip(nodes: readonly Element[], walk: Walk): string | undefined {
-  for (const node of nodes) {
-    if (node.matches(TABLE_SELECTOR)) return undefined
-    const text = stripText(node, walk)
-    if (text !== undefined) return text
-  }
-  return undefined
-}
-
-/**
- * The strip drawn above a table, which pages that table only when no table at
- * all sits above the strip: a strip between two tables pages the one it is
- * drawn under, and belongs to no other.
- * @param above - the tables and candidates before the table, in document order.
- * @param walk - the walk in progress.
- * @returns the strip's text, or undefined when a table comes before it.
- */
-function stripAbove(above: readonly Element[], walk: Walk): string | undefined {
-  if (above.some(node => node.matches(TABLE_SELECTOR))) return undefined
-  return nearestStrip([...above].reverse(), walk)
-}
-
-/**
- * The pagination strip that belongs to a table: the one under it, or failing
- * that the one over it, never one that belongs to the table next to it. Each
- * strip pages one table, so a strip already under a table is not also over the
- * next one. A strip drawn inside any table belongs to that table's rows, not
- * beside it. Any other table stops the search, so a strip between two tables
- * pages the one above it alone.
- *
- * The search runs over the region the table stands in, rather than over the
- * read's scope, so a read scoped to one table by ref reports the strip that
- * pages it exactly as a read of the whole page does. A strip pages the table
- * only where the two stand in the same region — a page drawing its table in one
- * region and a strip in another has said they are not beside each other. The
- * navigation landmark a page draws around a strip is part of the strip, so the
- * region that landmark stands in counts as the strip's own — and so does the
- * landmark itself, for a page that draws the table inside it too.
- * @param el - the table element.
- * @param walk - the walk in progress.
- * @returns the strip's text, or undefined when the table has none.
- */
-function paginationText(el: Element, walk: Walk): string | undefined {
-  const region = regionOf(el)
-  const inside = region ?? (el.getRootNode() as ParentNode)
-  const nodes = queryInOrder(inside, `${TABLE_SELECTOR}, ${markedSelector(PAGINATION_MARKER)}`)
-    .filter(node => node.matches(TABLE_SELECTOR) || (node.closest(TABLE_SELECTOR) === null && standsBy(node, region)))
-  const at = nodes.indexOf(el)
-  return nearestStrip(nodes.slice(at + 1), walk) ?? stripAbove(nodes.slice(0, at), walk)
-}
-
-/**
  * One data row, read from the page only as far as a listing asks. A whole page
  * prints one sample row and counts the rest, so the rest are counted and not
  * read; a read scoped to the table or filtered by `find` reads what it prints.
@@ -793,7 +665,6 @@ function readTable(el: Element, walk: Walk, place: Place, name: string): TableIt
     header,
     rows,
     columns: Math.max(header.length, rows[0]?.width ?? 0),
-    pagination: paginationText(el, walk),
     container: place.container,
     depth: place.depth,
   }

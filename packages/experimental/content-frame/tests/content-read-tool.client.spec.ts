@@ -408,11 +408,10 @@ describe('the listing content_read answers with', () => {
     expect(result.meta).toEqual({ page: 'Home' })
   })
 
-  it('states the trail and the open dialog when the page has them', async () => {
-    const result = await settleWith(read({ breadcrumb: 'Home › Fleet › Machine 12', modal: 'Confirm delete' }))
+  it('states the open dialog when the page has one', async () => {
+    const result = await settleWith(read({ modal: 'Confirm delete' }))
     expect(text(result)).toBe(
-      'Page: Home — the app is at /content-app/reports/?q=open#top, title "Fleet console", '
-      + 'breadcrumb Home › Fleet › Machine 12\n'
+      'Page: Home — the app is at /content-app/reports/?q=open#top, title "Fleet console"\n'
       + 'dialog "Confirm delete" open (modal) — the rest of the page is behind its mask\n'
       + '1 main\n  2 button "Refresh" e12',
     )

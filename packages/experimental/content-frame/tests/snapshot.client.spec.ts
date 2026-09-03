@@ -93,11 +93,12 @@ describe('reading a page', () => {
       '    e8 toolbar',
       '      e9 button "查询" (toolbar)',
       '      e10 button "导出" (disabled) (toolbar)',
-      '  e11 table 2 rows on this page × 3 cols',
+      '  e11 table 2 rows × 3 cols',
       '    header: 名称 | 唯一标识 | 操作',
       '    sample: 东风站 | P-0001 | [编辑 删除]',
       "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-      '    pagination: 上一页 1 2 下一页',
+      // The strip that pages the table is a run of the page like any other: the
+      // reader prints the words and reads nothing out of them.
       '  text "上一页 1 2 下一页" (in main "站点管理")',
     ].join('\n'))
   })
@@ -128,9 +129,8 @@ describe('reading a page', () => {
     read(refs)
     const snap = read(refs, { scope: refOf(refs, 'table') })
     expect(snap.text).toBe([
-      'e11 table 2 rows on this page × 3 cols',
+      'e11 table 2 rows × 3 cols',
       '  header: 名称 | 唯一标识 | 操作',
-      '  pagination: 上一页 1 2 下一页',
       '  row 1: 东风站 | P-0001 | e14 button "编辑"  e15 button "删除"',
       '  row 2: 朝阳站 | P-0002 | e17 button "编辑"  e18 button "删除"',
     ].join('\n'))
@@ -238,27 +238,23 @@ describe('reading a page', () => {
 })
 
 describe('what a page says about itself', () => {
-  it('reports the document it read and the trail saying where the user is', () => {
+  it('reports the document it read', () => {
     document.title = '站点管理 - 运维平台'
     const refs = page(CONSOLE)
     const header = read(refs).header
     expect(header.url).toBe(document.URL)
     expect(header.title).toBe('站点管理 - 运维平台')
-    expect(header.breadcrumb).toBe('首页 › 站点管理')
     expect(header.modal).toBeUndefined()
     expect(header.signIn).toBe(false)
   })
 
-  it('reads a breadcrumb a page marks with a navigation label', () => {
+  it('reads the trail saying where the user is as the run of text the page drew', () => {
+    // The trail is a widget no specification names. Its words print as the page
+    // draws them, inside the region it drew them in, and the header says
+    // nothing about them.
     const refs = page('<nav class="top" aria-label="Breadcrumb"><a href="/">首页</a><span>›</span><span>详情</span></nav>')
-    expect(read(refs).header.breadcrumb).toBe('首页 › 详情')
-  })
-
-  it('reports no trail for a marked strip that shows nothing, for a label on no trail, or for a page with none', () => {
-    expect(read(page('<div class="breadcrumb"></div><p>正文</p>')).header.breadcrumb).toBeUndefined()
-    expect(read(page('<div class="breadcrumb" data-hidden>首页</div>')).header.breadcrumb).toBeUndefined()
-    expect(read(page('<div aria-label="breadcrumb of the report">正文</div>')).header.breadcrumb).toBeUndefined()
-    expect(read(page('<p>正文</p>')).header.breadcrumb).toBeUndefined()
+    expect(read(refs).text).toBe(['e1 nav "Breadcrumb"', '  e2 link "首页" (in nav "Breadcrumb")',
+      '  text "› 详情" (in nav "Breadcrumb")'].join('\n'))
   })
 
   it('names the dialog the page has open, preferring the one that declares itself modal', () => {
@@ -2094,19 +2090,6 @@ describe('the console table this reader was written against', () => {
     expect(listed[1]?.startsWith('  row 1:  |  | element:gas_transport_vehicle_info | 公用专题 |')).toBe(true)
   })
 
-  it('pages the piece the strip is drawn under', () => {
-    // The strip of the page this table is drawn on, as it is written there:
-    // `div.crud-pagination` holding `.el-pagination`, after every piece.
-    const refs = page(`${CONSOLE_TABLE}<div class="crud-pagination">`
-      + '<div class="el-pagination">共 89 条 10条/页 1 2 3 4 5 前往 页</div></div>')
-    const lines = read(refs).text.split('\n')
-    expect(lines).toContain('e6 table 2 rows on this page × 20 cols')
-    expect(lines).toContain('  pagination: 共 89 条 10条/页 1 2 3 4 5 前往 页')
-    // The words of the strip are the page's own, and a read searching for them
-    // answers with the run they are drawn in.
-    expect(read(refs, { find: '共' }).text).toContain('共 89 条 10条/页 1 2 3 4 5 前往 页')
-  })
-
   it('finds a row by a name the piece pinned left draws', () => {
     const refs = page(CONSOLE_TABLE)
     expect(read(refs, { find: '东风站' }).text.startsWith('row 1:  | 东风站 |')).toBe(true)
@@ -2464,168 +2447,6 @@ describe('tables', () => {
     ])
   })
 
-  it('reads past the strips that show nothing, say nothing, or are not strips at all', () => {
-    const refs = page(`
-      <section aria-label="站点">
-        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-        <div class="pagination"></div>
-        <div class="pagination" data-hidden>看不见的分页</div>
-        <div aria-label="pagination summary">这是说明不是分页</div>
-        <nav aria-label="Pagination navigation">共 2 页</nav>
-      </section>`)
-    expect(read(refs).text).toContain('    pagination: 共 2 页')
-  })
-
-  it('reports no pagination for a page whose only strip shows nothing', () => {
-    const refs = page(`
-      <section aria-label="站点">
-        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-        <div class="pagination"></div>
-      </section>`)
-    expect(read(refs).text).not.toContain('pagination:')
-  })
-
-  it('gives each table on a page the strip that pages it, not the one beside its neighbour', () => {
-    const refs = page(`
-      <section aria-label="站点">
-        <table aria-label="甲表"><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-        <div class="el-pagination">甲表 共 2 页</div>
-        <table aria-label="乙表"><thead><tr><th>名称</th></tr></thead><tbody><tr><td>朝阳站</td></tr></tbody></table>
-        <div class="el-pagination">乙表 共 9 页</div>
-      </section>`)
-    const text = read(refs).text
-    expect(text).toContain('    pagination: 甲表 共 2 页')
-    expect(text).toContain('    pagination: 乙表 共 9 页')
-  })
-
-  it('pages a table by no strip drawn in another region than its own', () => {
-    // A strip pages the table it is drawn beside, and a page that draws the two
-    // in different regions has said they are not beside each other.
-    const outside = page(`
-      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-      <section aria-label="别处"><div class="el-pagination">共 2 页</div></section>`)
-    expect(read(outside).text).not.toContain('pagination:')
-    const inside = page(`
-      <section aria-label="站点">
-        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-      </section>
-      <div class="el-pagination">共 2 页</div>`)
-    expect(read(inside).text).not.toContain('pagination:')
-  })
-
-  it('pages a table by a strip a page wraps in a navigation landmark, wherever the mark is written', () => {
-    // Bootstrap marks the list and wraps it in a landmark; the ARIA practices
-    // guide marks the landmark itself. Both are one pager drawn beside a table.
-    const wrapped = page(`
-      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-      <nav aria-label="Page navigation"><ul class="pagination"><li>上一页</li><li>1</li><li>2</li></ul></nav>`)
-    expect(read(wrapped).text).toContain('  pagination: 上一页 1 2')
-    const marked = page(`
-      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-      <nav aria-label="Pagination"><ul><li>共 2 页</li></ul></nav>`)
-    expect(read(marked).text).toContain('  pagination: 共 2 页')
-    const region = page(`
-      <section aria-label="站点">
-        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-        <nav aria-label="Page navigation"><ul class="pagination"><li>共 3 页</li></ul></nav>
-      </section>`)
-    expect(read(region).text).toContain('    pagination: 共 3 页')
-  })
-
-  it('pages a table by no wrapped strip standing in another region, nor by a pager drawn in a menu', () => {
-    const outside = page(`
-      <section aria-label="站点">
-        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-      </section>
-      <nav aria-label="Page navigation"><ul class="pagination"><li>共 3 页</li></ul></nav>`)
-    expect(read(outside).text).not.toContain('pagination:')
-    // The dots a page draws in its own menu stand where the menu stands, so a
-    // table drawn inside a region of its own is paged by neither reading of
-    // them. A table the page leaves loose beside the menu would be paged by
-    // them, which is the price of finding a pager by the word on it.
-    const menu = page(`
-      <nav aria-label="主菜单"><a href="/a">站点</a><div class="pagination-dots">1 2 3</div></nav>
-      <section aria-label="站点">
-        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-      </section>`)
-    expect(read(menu).text).not.toContain('pagination:')
-  })
-
-  it('pages a table by a strip wrapped in landmark after landmark, and by one drawn in the landmark it stands in', () => {
-    // A page nests its pager inside the landmark that holds its whole footer,
-    // so the search climbs out of every landmark around the strip rather than
-    // the innermost one.
-    const nested = page(`
-      <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-      <nav><nav aria-label="Pages"><ul class="pagination"><li>共 4 页</li></ul></nav></nav>`)
-    expect(read(nested).text).toContain('  pagination: 共 4 页')
-    // Where the landmark holds the table as well, it is the region the two
-    // share rather than a wrapper around the pager, and they are still beside
-    // each other.
-    const together = page(`
-      <nav aria-label="列表">
-        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-        <ul class="pagination"><li>共 5 页</li></ul>
-      </nav>`)
-    expect(read(together).text).toContain('pagination: 共 5 页')
-  })
-
-  it('pages a table by the strip drawn beside it inside a shadow root', () => {
-    // Neither stands in a region: the root of a shadow tree is no element, and
-    // a table and a strip alone in one are drawn beside each other.
-    const refs = page('<div id="host"></div>')
-    const host = document.querySelector('#host')
-    if (host === null) throw new Error('fixture has no host')
-    host.attachShadow({ mode: 'open' }).innerHTML =
-      '<table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>'
-      + '<div class="el-pagination">共 2 页</div>'
-    expect(read(refs).text).toContain('  pagination: 共 2 页')
-  })
-
-  it('gives a strip between two tables to the table it is drawn under, and no strip to the one below', () => {
-    const refs = page(`
-      <section aria-label="站点">
-        <table aria-label="甲表"><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-        <div class="el-pagination">共 2 页</div>
-        <table aria-label="乙表"><thead><tr><th>名称</th></tr></thead><tbody><tr><td>朝阳站</td></tr></tbody></table>
-      </section>`)
-    expect(read(refs).text).toBe([
-      'e1 section "站点"',
-      '  e2 table "甲表" 1 rows on this page × 1 cols',
-      '    header: 名称',
-      '    sample: 东风站',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-      '    pagination: 共 2 页',
-      '  text "共 2 页" (in section "站点")',
-      '  e3 table "乙表" 1 rows × 1 cols',
-      '    header: 名称',
-      '    sample: 朝阳站',
-      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
-    ].join('\n'))
-  })
-
-  it('takes the strip above a table when there is none below it', () => {
-    const refs = page(`
-      <section aria-label="站点">
-        <div class="el-pagination">共 2 页</div>
-        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
-      </section>`)
-    expect(read(refs).text).toContain('    pagination: 共 2 页')
-  })
-
-  it('leaves a strip drawn inside a table out of the table beside it', () => {
-    const refs = page(`
-      <section aria-label="站点">
-        <table aria-label="甲表">
-          <thead><tr><th>名称</th></tr></thead>
-          <tfoot><tr><td><div class="el-pagination">表内分页</div></td></tr></tfoot>
-          <tbody><tr><td>东风站</td></tr></tbody>
-        </table>
-        <table aria-label="乙表"><thead><tr><th>名称</th></tr></thead><tbody><tr><td>朝阳站</td></tr></tbody></table>
-      </section>`)
-    expect(read(refs).text).not.toContain('pagination:')
-  })
-
   it('reads what a cell shows, through the wrappers around it and past what it hides', () => {
     const refs = page(`
       <table>
@@ -2718,9 +2539,23 @@ describe('tables', () => {
     expect(read(refs).text.split('\n')[0]).toBe('e1 table 2 rows × 2 cols')
   })
 
-  it('reports no pagination for a table that has none beside it', () => {
-    const refs = page('<table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>')
-    expect(read(refs).text).not.toContain('pagination')
+  it('reads the strip that pages a table as the run of text the page drew', () => {
+    // A pager is a widget no specification names, and the words in it are the
+    // page's own: they print where the page draws them, and what they mean —
+    // how many rows there are behind them — is for a skill to know.
+    const refs = page(`
+      <section aria-label="站点">
+        <table><thead><tr><th>名称</th></tr></thead><tbody><tr><td>东风站</td></tr></tbody></table>
+        <div class="el-pagination">共 89 条 10条/页 1 2 3</div>
+      </section>`)
+    expect(read(refs).text).toBe([
+      'e1 section "站点"',
+      '  e2 table 1 rows × 1 cols',
+      '    header: 名称',
+      '    sample: 东风站',
+      "    rows: pass scope with this table's ref to list rows, or find a row by its text",
+      '  text "共 89 条 10条/页 1 2 3" (in section "站点")',
+    ].join('\n'))
   })
 })
 

@@ -54,8 +54,6 @@ export interface SnapshotHeader {
   readonly url: string
   /** The root document's title. */
   readonly title: string
-  /** The visible breadcrumb trail, joined with ` › `. */
-  readonly breadcrumb?: string
   /** The name of the dialog the page currently has open. */
   readonly modal?: string
   /** True when a visible password box sits beside a visible text or email box. */
@@ -251,8 +249,6 @@ export interface TableItem extends ContainerFace {
    * every cell of the table to answer how wide the table is.
    */
   readonly columns: number
-  /** The adjacent pagination control's text. */
-  readonly pagination: string | undefined
   /** The container this row sits in. */
   readonly container: ContainerItem | undefined
   /** How many containers enclose this row. */
