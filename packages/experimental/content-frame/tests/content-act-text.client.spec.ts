@@ -15,7 +15,7 @@
 import { describe, expect, it } from 'vitest'
 import { notAPageRefusal, READ_VOICE } from '../src/access/text.ts'
 import {
-  ACT_VOICE, actReportText, approvalReason, cannotActReason, dialogLine, disabledReason, labelChangedReason, messageLine,
+  ACT_VOICE, actReportText, approvalReason, cannotActReason, dialogLine, disabledReason, labelChangedReason,
   navigationLine, noOptionReason, occludedReason, ranSummary, refGoneReason, stepClause, stepRefusal,
   stepRefusalText, tooLongRefusal, tooManyStepsRefusal, unverifiedRefusal, waitedReason, windowLine,
 } from '../src/access/act-text.ts'
@@ -135,8 +135,7 @@ describe('what the model reads when one step stops the call', () => {
 })
 
 describe('what the page did on its own', () => {
-  it('pins the four lines', () => {
-    expect(messageLine('查询成功', 2100)).toBe('message "查询成功" (shown for 2.1s, gone before the snapshot)')
+  it('pins the three lines', () => {
     expect(dialogLine('confirm', '确定删除？', 'cancel')).toBe('dialog (confirm) "确定删除？" — answered cancel')
     expect(dialogLine('alert', '已保存', 'accept')).toBe('dialog (alert) "已保存" — answered accept')
     expect(navigationLine('/ini-web2/#/detail/8812')).toBe('navigation to /ini-web2/#/detail/8812')
@@ -153,12 +152,12 @@ describe('the three sections one call answers with', () => {
       results: [{ index: 1, status: 'ok' }, { index: 2, status: 'ok' }],
       redacted: [false, false],
       settledMs: 800,
-      events: [{ kind: 'message', line: messageLine('查询成功', 2100) }],
+      events: [{ kind: 'dialog', line: dialogLine('confirm', '确定删除？', 'accept') }],
       snapshot: '1 main\n  2 button "查询" e5',
     })).toBe(
       'Done 2/2 on 点位信息: fill "名称" ← "东风"; click "查询" (settled after 0.8s).\n'
       + 'Page events during these steps:\n'
-      + '  message "查询成功" (shown for 2.1s, gone before the snapshot)\n'
+      + '  dialog (confirm) "确定删除？" — answered accept\n'
       + 'Page now:\n'
       + '1 main\n  2 button "查询" e5',
     )

@@ -647,7 +647,7 @@ async function actOnPage(
     // same-origin document the reader walked, which is where its refs come
     // from.
     const documents = readableDocuments(ready.view.document)
-    watch = watchPage(documents, request.args.dialogs ?? 'cancel', isVisible)
+    watch = watchPage(documents, request.args.dialogs ?? 'cancel')
     const run = await runSteps(request.args.steps, {
       doc: ready.view.document,
       docs: documents,
@@ -670,11 +670,11 @@ async function actOnPage(
     const read = snapshot(ready.view.document, options)
     // Withheld rather than described, exactly as a read withholds it: what the
     // steps left in front of the user is a credential form, and its structure
-    // is not what the model needs to see. The message lines go with it, being
-    // the only ones that quote what the page draws — what the seat answered a
-    // dialog, or where the page went, is the seat's own record of the call.
+    // is not what the model needs to see. What the seat answered a dialog, or
+    // where the page went, is the seat's own record of the call and quotes
+    // nothing the page drew, so it is reported either way.
     const now = read.header.signIn
-      ? { text: SIGN_IN_REFUSAL, truncated: false, events: events.filter(event => event.kind !== 'message') }
+      ? { text: SIGN_IN_REFUSAL, truncated: false, events }
       : { text: read.text, truncated: read.truncated, events }
     const outcome: ActOutcome = {
       status: run.results.some(result => result.status === 'failed') ? 'failed' : 'done',

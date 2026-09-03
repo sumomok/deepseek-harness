@@ -399,29 +399,12 @@ export function cannotActReason(ref: string, action: string): string {
   return `${ref} is not something "${action}" can be done to; read the page for what it offers.`
 }
 
-/** One thing the page did on its own while the steps ran. */
+/** One thing the browser did on the page's own account while the steps ran. */
 export interface ActPageEvent {
-  /** Which of the four kinds it is. */
-  readonly kind: 'message' | 'dialog' | 'navigation' | 'window'
+  /** Which of the three kinds it is. */
+  readonly kind: 'dialog' | 'navigation' | 'window'
   /** The line it prints, already composed by the half that observed it. */
   readonly line: string
-}
-
-/**
- * The line a message the page showed while the steps ran prints.
- *
- * Two endings, because they leave the model in different positions. Text the
- * page has already taken away is in no read that follows, so how long it stayed
- * is the whole of what can still be said about it. Text still in front of the
- * user is in the closing read as well — and that read never says the steps
- * produced it, which is what this line adds.
- * @param text - the message the page showed.
- * @param shownMs - how long it stayed, or undefined for one the page has not taken away.
- * @returns the line.
- */
-export function messageLine(text: string, shownMs: number | undefined): string {
-  if (shownMs === undefined) return `message "${text}" (still shown)`
-  return `message "${text}" (shown for ${(shownMs / 1000).toFixed(1)}s, gone before the snapshot)`
 }
 
 /**

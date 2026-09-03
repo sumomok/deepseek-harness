@@ -547,110 +547,31 @@ describe('what stops a call', () => {
 })
 
 describe('what the page did on its own', () => {
-  it('reports a message that came and went', async () => {
-    mount('<main><button id="go">保存</button><div id="host"></div></main>')
+  it('leaves what the page drew while the steps ran to the closing read', async () => {
+    // A page answers a step by drawing: a toast that comes and goes, a banner
+    // that stays, a list it redraws underneath. None of it is reported as
+    // something the page did — telling a message from a framework's own redraw
+    // meant guessing — and what is still in front of the user is in the read
+    // the call closes with, which is what a read is for.
+    mount('<main><button id="go">保存</button><div id="host"></div><div id="done"></div></main>')
     at('#go').addEventListener('click', () => {
       const toast = doc().createElement('div')
       toast.textContent = '查询成功'
       at('#host').append(toast)
-      setTimeout(() => { toast.remove() }, 10)
+      setTimeout(() => {
+        toast.remove()
+        at('#done').textContent = '已保存 12 条'
+      }, 10)
     })
     const outcome = await run([
       { action: 'click', ref: ref('#go'), label: '保存' },
-      { action: 'wait', text: 'Fleet' },
-    ], undefined)
-    expect(outcome.text).toMatch(/message "查询成功" \(shown for \d\.\ds, gone before the snapshot\)/)
-  })
-
-  it('reports a message the page wrote while it was hidden and then showed', async () => {
-    // What an application actually does: the box is in the markup all along,
-    // the words are written into it hidden, and it is revealed. Watching for
-    // added text alone sees the words on no screen and reports nothing.
-    mount('<main><button id="go">添加</button><div id="toast" hidden></div><div id="done"></div></main>')
-    at('#go').addEventListener('click', () => {
-      const toast = at('#toast') as HTMLElement
-      toast.textContent = 'Added mill-09'
-      toast.hidden = false
-      setTimeout(() => {
-        toast.hidden = true
-        toast.textContent = ''
-        // Waited for below, so the toast is gone before the report is composed
-        // however the scheduler orders the two.
-        at('#done').textContent = '完成'
-      }, 20)
-    })
-    const outcome = await run([
-      { action: 'click', ref: ref('#go'), label: '添加' },
-      { action: 'wait', text: '完成' },
+      { action: 'wait', text: '已保存' },
     ])
-    expect(outcome.text).toMatch(/message "Added mill-09" \(shown for \d\.\ds, gone before the snapshot\)/)
-  })
-
-  it('reports a message a class change put in front of the user', async () => {
-    mount('<style>.is-hidden { display: none }</style>'
-      + '<main><button id="go">保存</button><div id="toast" class="toast is-hidden">已保存</div>'
-      + '<div id="done"></div></main>')
-    at('#go').addEventListener('click', () => {
-      at('#toast').setAttribute('class', 'toast')
-      setTimeout(() => {
-        at('#toast').setAttribute('class', 'toast is-hidden')
-        at('#done').textContent = '完成'
-      }, 20)
-    })
-    const outcome = await run([
-      { action: 'click', ref: ref('#go'), label: '保存' },
-      { action: 'wait', text: '完成' },
-    ])
-    expect(outcome.text).toMatch(/message "已保存" \(shown for \d\.\ds, gone before the snapshot\)/)
-  })
-
-  it('reports a message the page has not taken away yet', async () => {
-    // The closing read shows it too, and says nothing about where it came
-    // from; this line is what says these steps produced it.
-    mount('<main><button id="go">保存</button><div id="host"></div></main>')
-    at('#go').addEventListener('click', () => {
-      const toast = doc().createElement('div')
-      toast.textContent = '保存成功'
-      at('#host').append(toast)
-    })
-    const outcome = await run([{ action: 'click', ref: ref('#go'), label: '保存' }])
-    expect(outcome.text).toContain('message "保存成功" (still shown)')
-    expect(outcome.text).toContain('Page now:')
-  })
-
-  it('says nothing of text the page took away, and finds what an aria reveal showed', async () => {
-    // Two halves of the same rule. What was on the page before the steps is
-    // the page, not a message: hiding it is a change the closing read shows.
-    // What the steps put in front of the user is a message however the page
-    // uncovered it.
-    mount('<main><button id="go">切换</button><div id="panel">面板</div>'
-      + '<div id="toast" aria-hidden="true">已保存</div><div id="done"></div></main>')
-    at('#go').addEventListener('click', () => {
-      ;(at('#panel') as HTMLElement).hidden = true
-      at('#toast').removeAttribute('aria-hidden')
-      setTimeout(() => {
-        at('#toast').setAttribute('aria-hidden', 'true')
-        at('#done').textContent = '完成'
-      }, 20)
-    })
-    const outcome = await run([
-      { action: 'click', ref: ref('#go'), label: '切换' },
-      { action: 'wait', text: '完成' },
-    ])
-    expect(outcome.text).toMatch(/message "已保存" \(shown for \d\.\ds, gone before the snapshot\)/)
-    expect(outcome.text).not.toContain('面板')
-  })
-
-  it('lets go of text the page rewrote and removed in the same breath', async () => {
-    // The one mutation whose target has no element left to look at.
-    mount('<main><button id="go">刷新</button><div id="host">旧</div></main>')
-    at('#go').addEventListener('click', () => {
-      const text = at('#host').firstChild as Text
-      text.data = '新'
-      text.remove()
-    })
-    const outcome = await run([{ action: 'click', ref: ref('#go'), label: '刷新' }])
     expect(outcome.text).toContain('Page events during these steps: none.')
+    expect(outcome.text).not.toContain('查询成功')
+    // And the banner the page left behind, in the listing rather than in a line
+    // of its own saying the steps produced it.
+    expect(outcome.text).toContain('已保存 12 条')
   })
 
   it('answers a confirm the page opens, and says what it said', async () => {
@@ -722,6 +643,18 @@ describe('what the page did on its own', () => {
       .toContain('the page tried to open /reports/8812 in a new window; it was not opened')
   })
 
+  it('stops at the bound when the page keeps doing things', async () => {
+    // A protocol bound: a page answering one click with a run of windows is
+    // reported as far as the bound and no further.
+    mount('<main><button id="go">导出</button></main>')
+    at('#go').addEventListener('click', () => {
+      for (let attempt = 0; attempt < 12; attempt += 1) view().open(`/reports/${String(attempt)}`)
+    })
+    const outcome = await run([{ action: 'click', ref: ref('#go'), label: '导出' }])
+    expect(outcome.text.split('\n').filter(line => line.includes('in a new window'))).toHaveLength(8)
+    expect(outcome.text).not.toContain('/reports/8 ')
+  })
+
   it('stops a link that would open a new window, and reports the attempt', async () => {
     mount('<main><a id="out" href="/reports/8812" target="_blank">导出</a>'
       + '<a id="bare" role="link" target="_new">导出全部</a></main>')
@@ -734,65 +667,6 @@ describe('what the page did on its own', () => {
     // A link with a target and no address still opens a window, and is still
     // reported rather than followed.
     expect(outcome.text).toContain('the page tried to open  in a new window; it was not opened')
-  })
-
-  it('reports what it can of a page that churns, and stops at the bound', async () => {
-    // An application redrawing a list adds and removes far more than a model
-    // can use; the watch keeps the first few and drops the rest.
-    mount('<main><button id="go">刷新</button><div id="host"></div><div id="done"></div></main>')
-    at('#go').addEventListener('click', () => {
-      const host = at('#host')
-      // A node that is neither text nor an element, which is what a framework
-      // leaves behind as a placeholder.
-      host.append(doc().createComment('anchor'))
-      // A wrapper removed with the message inside it, rather than the message
-      // itself: what went away is the subtree, and the text went with it.
-      const wrapper = doc().createElement('div')
-      const inner = doc().createElement('span')
-      inner.textContent = '正在刷新'
-      wrapper.append(inner)
-      host.append(wrapper)
-      for (let at = 0; at < 12; at += 1) {
-        const toast = doc().createElement('div')
-        toast.textContent = `第 ${String(at)} 条`
-        host.append(toast)
-      }
-      setTimeout(() => { host.replaceChildren() }, 10)
-      // Once the bound is full nothing further can be reported, and the watch
-      // stops looking: this one arrives in a batch of its own after it.
-      setTimeout(() => { at('#done').textContent = '完成'; host.append('迟到的一条') }, 30)
-    })
-    const outcome = await run([
-      { action: 'click', ref: ref('#go'), label: '刷新' },
-      { action: 'wait', text: '完成' },
-    ])
-    expect(outcome.text).toContain('message "正在刷新" (shown for')
-    expect(outcome.text.split('\n').filter(line => line.includes('message "'))).toHaveLength(8)
-    expect(outcome.text).not.toContain('message "迟到的一条"')
-  })
-
-  it('reports the text a user could read, and nothing else the page added', async () => {
-    // Everything an application adds while it re-renders passes through the
-    // same observer: a bare text node and a hidden node are added and removed
-    // like any other, and neither is something the user saw.
-    mount('<main><button id="go">保存</button><div id="host"></div></main>')
-    at('#go').addEventListener('click', () => {
-      const host = at('#host')
-      const bare = doc().createTextNode('已保存')
-      const blank = doc().createTextNode('   ')
-      const hidden = doc().createElement('div')
-      hidden.setAttribute('style', 'display: none')
-      hidden.textContent = '内部状态'
-      const empty = doc().createElement('div')
-      host.append(bare, blank, hidden, empty)
-      setTimeout(() => { host.replaceChildren() }, 10)
-    })
-    const outcome = await run([
-      { action: 'click', ref: ref('#go'), label: '保存' },
-      { action: 'wait', text: '保存' },
-    ])
-    expect(outcome.text).toContain('message "已保存" (shown for')
-    expect(outcome.text).not.toContain('内部状态')
   })
 
   it('stands in for a dialog and a window the page opens with nothing to say', async () => {
@@ -1046,23 +920,18 @@ describe('the documents one call reaches', () => {
     expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }, { index: 2, status: 'ok' }])
   })
 
-  it('reports a message and a route change from inside that frame', async () => {
+  it('reports a route change the page made from inside that frame', async () => {
     const inner = nest(
       '<main><iframe id="inner"></iframe></main>',
       '<main><button id="go">保存</button><div id="host"></div></main>',
     )
     atIn(inner.doc, '#go').addEventListener('click', () => {
-      const toast = inner.doc.createElement('div')
-      toast.textContent = '查询成功'
-      atIn(inner.doc, '#host').append(toast)
-      setTimeout(() => { toast.remove() }, 10)
       inner.view.location.hash = '#/detail/8812'
     })
     const outcome = await run([
       { action: 'click', ref: refIn(inner.doc, '#go'), label: '保存' },
       { action: 'wait', text: '保存' },
     ])
-    expect(outcome.text).toMatch(/message "查询成功" \(shown for \d\.\ds, gone before the snapshot\)/)
     expect(outcome.text).toContain('#/detail/8812')
   })
 
@@ -1150,14 +1019,14 @@ describe('what the call answers with', () => {
     expect(outcome.page).toEqual({ id: 'home', title: 'Home' })
     const [first, ...rest] = outcome.text.split('\n')
     expect(first).toMatch(/^Done 2\/2 on Home: fill "名称" ← "东风"; click "查询" \(settled after \d\.\ds\)\.$/)
-    // What the click drew is still on the page, and the closing read shows it
-    // without saying these steps produced it — which is what this line says.
-    expect(rest[0]).toBe('Page events during these steps:')
-    expect(rest[1]).toBe('  message "结果" (still shown)')
-    expect(rest[2]).toBe('Page now:')
+    // What the click drew is in the closing read and nowhere else: the browser
+    // did nothing of its own, and what the page drew is what a read is for.
+    expect(rest[0]).toBe('Page events during these steps: none.')
+    expect(rest[1]).toBe('Page now:')
     // The closing snapshot is a whole read at the deployment's own budget, so
     // the refs it names are the ones the model's next call can use.
-    expect(rest.slice(3).join('\n')).toContain('textbox "名称"')
+    expect(rest.slice(2).join('\n')).toContain('textbox "名称"')
+    expect(rest.slice(2).join('\n')).toContain('heading "结果"')
   })
 
   it('withholds the page when the steps left a sign-in form in front of the user', async () => {
@@ -1171,8 +1040,8 @@ describe('what the call answers with', () => {
     const outcome = await run([{ action: 'click', ref: ref('#out'), label: '退出登录' }])
     expect(outcome.status).toBe('done')
     expect(outcome.text).toContain('Page now:\nThe page shows a sign-in form; ask the user to sign in, then retry.')
-    // The message lines go with the listing: they are the only ones that quote
-    // what the page draws, and what it draws here is the credential form.
+    // Nothing the page drew is quoted anywhere else in the report, so the form
+    // it drew is withheld whole.
     expect(outcome.text).toContain('Page events during these steps: none.')
     expect(outcome.text).not.toContain('用户名')
     expect(outcome.truncated).toBe(false)
