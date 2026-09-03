@@ -25,48 +25,45 @@ import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 // Type-only: pulls this package's own `contentAccess` projection declarations.
 import type { ContentAccessRequest, ContentActRequest, ContentAccessView, ContentReadRequest } from '../types.ts'
 import {
-  CONTENT_ACT_TOOL_NAME, CONTENT_READ_TOOL_NAME, DIALOG_ANSWERS, MAX_ACT_STEPS, parseActArgs, type ActArgs,
-  type ActStep, type ReadArgs,
+  CONTENT_ACT_TOOL_NAME, CONTENT_READ_TOOL_NAME, parseActArgs, type ActArgs, type ReadArgs,
 } from './wire.ts'
+import { UNPUBLISHABLE_CALL_REFUSAL } from './text.ts'
 
 /** The `contentAccess` unit as the registry's client-visible overload takes it: `wire` is required, not optional. */
 type ContentAccessProjectionDefinition =
   & Omit<ProjectionDefinition<'contentAccess', ContentAccessRequest[]>, 'wire'>
   & { wire: NonNullable<ProjectionDefinition<'contentAccess', ContentAccessRequest[]>['wire']> }
 
-/** One call's arguments; the transform drops the absent ones rather than carrying explicit `undefined`. */
-const argsSchema: ZodType<ReadArgs> = zod.object({
-  mode: zod.enum(['outline', 'map']).optional(),
-  scope: zod.string().optional(),
-  after: zod.string().optional(),
-  find: zod.string().optional(),
-}).strict().transform(({ mode, scope, after, find }) => ({
-  ...mode === undefined ? {} : { mode },
-  ...scope === undefined ? {} : { scope },
-  ...after === undefined ? {} : { after },
-  ...find === undefined ? {} : { find },
-}))
+/** The issue a value carries when the parser this schema is could not read it. */
+const UNREADABLE_ARGS = 'not a set of arguments this tool takes'
 
-/** One target, shared by the four steps that name an element. */
-const targetSchema = { ref: zod.string(), label: zod.string() }
+/**
+ * The schema form of one parser: the value becomes whatever that parser makes
+ * of it, and a value the parser cannot read is refused.
+ *
+ * The alternative is a second declaration of the same arguments beside the
+ * tool's own reading of them, which drifts the first time a field is added —
+ * silently, and only for calls that have already been accepted everywhere else.
+ * That is how a step's `mark` reached one console as `unrecognized_keys` about
+ * a field the tool documents: the tool took the call, the fold took it, and the
+ * projection then refused the value it had just built.
+ * @param read - the parser the tool and the fold already read these arguments with.
+ * @returns the schema, whose output is the parser's own value.
+ */
+function parsedBy<T>(read: (value: unknown) => T | undefined): ZodType<T> {
+  return zod.unknown().transform((value, ctx) => {
+    const parsed = read(value)
+    if (parsed !== undefined) return parsed
+    ctx.addIssue({ code: 'custom', message: UNREADABLE_ARGS })
+    return zod.NEVER
+  })
+}
 
-/** One step: one arm per action, each carrying exactly the fields that action needs. */
-const stepSchema: ZodType<ActStep> = zod.discriminatedUnion('action', [
-  zod.object({ action: zod.literal('click'), ...targetSchema }).strict(),
-  zod.object({ action: zod.literal('fill'), ...targetSchema, text: zod.string() }).strict(),
-  zod.object({ action: zod.literal('select'), ...targetSchema, value: zod.string() }).strict(),
-  zod.object({ action: zod.literal('press'), ...targetSchema, key: zod.string() }).strict(),
-  zod.object({ action: zod.literal('wait'), text: zod.string() }).strict(),
-])
+/** One read call's arguments, read by {@link readArgs}. */
+const argsSchema: ZodType<ReadArgs> = parsedBy(readArgs)
 
-/** One act call's arguments; the transform drops an absent `dialogs` rather than carrying explicit `undefined`. */
-const actArgsSchema: ZodType<ActArgs> = zod.object({
-  steps: zod.array(stepSchema).min(1).max(MAX_ACT_STEPS),
-  dialogs: zod.enum([...DIALOG_ANSWERS]).optional(),
-}).strict().transform(({ steps, dialogs }) => ({
-  steps,
-  ...dialogs === undefined ? {} : { dialogs },
-}))
+/** One act call's arguments, read by the wire's own {@link parseActArgs}. */
+const actArgsSchema: ZodType<ActArgs> = parsedBy(parseActArgs)
 
 /** One open call of either tool, as both the persisted checkpoint and the wire payload carry it. */
 const requestSchema: ZodType<ContentAccessRequest> = zod.union([
@@ -187,10 +184,42 @@ function settledCallId(event: SessionEvent): string | undefined {
 }
 
 /**
+ * What this unit needs of a logger: one line for a call it folded and then
+ * refused, which is the whole of what the model's own sentence leaves out.
+ */
+export interface ProjectionLogger {
+  /**
+   * Record one line.
+   * @param message - the line.
+   */
+  readonly warn: (message: string) => void
+}
+
+/**
+ * The view this unit publishes, checked against the schema that guards it.
+ *
+ * The registry parses every view before it leaves, and a failure there reaches
+ * the model as the validator's raw issue list — an argument to change, about a
+ * call whose arguments are fine. Checking here turns the same defect into one
+ * sentence the model can act on and one log line carrying the issues.
+ * @param pending - the calls this fold holds open.
+ * @param logger - where the refused value's issues are recorded.
+ * @returns the wire value.
+ */
+function publishable(pending: ContentAccessRequest[], logger: ProjectionLogger): ContentAccessView {
+  const value = { pending }
+  const read = viewSchema.safeParse(value)
+  if (read.success) return value
+  logger.warn(`contentAccess refused its own view: ${JSON.stringify(read.error.issues)}`)
+  throw new Error(UNPUBLISHABLE_CALL_REFUSAL)
+}
+
+/**
  * Build the `contentAccess` projection unit.
+ * @param logger - where a value this unit folded and then refused is recorded.
  * @returns the definition to hand to `ctx.sessionProjections.register`.
  */
-export function contentAccessProjection(): ContentAccessProjectionDefinition {
+export function contentAccessProjection(logger: ProjectionLogger): ContentAccessProjectionDefinition {
   return {
     key: 'contentAccess',
     stateSchema,
@@ -203,7 +232,7 @@ export function contentAccessProjection(): ContentAccessProjectionDefinition {
       const at = state.findIndex(request => request.callId === settled)
       return at === -1 ? state : [...state.slice(0, at), ...state.slice(at + 1)]
     },
-    wire: { viewSchema, view: pending => ({ pending }) },
+    wire: { viewSchema, view: pending => publishable(pending, logger) },
     stateVersion: 2,
   }
 }

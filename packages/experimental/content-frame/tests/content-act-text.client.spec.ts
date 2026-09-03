@@ -77,8 +77,8 @@ describe('what the model reads when a call is refused before it runs', () => {
     expect(tooLongRefusal('key', 32)).toBe('key must be at most 32 characters')
     // Every field one step can be refused over, keyed the way the wire names it.
     expect([
-      'action', 'ref', 'label', 'mark', 'mark-on-named', 'fill-text', 'wait-text', 'value', 'key',
-      'label-length', 'text-length', 'value-length', 'key-length', 'mark-length',
+      'action', 'ref', 'label', 'mark', 'mark-printed', 'mark-on-named', 'fill-text', 'wait-text', 'value',
+      'key', 'label-length', 'text-length', 'value-length', 'key-length', 'mark-length',
     ].map(refusal => stepRefusalText(refusal as Parameters<typeof stepRefusalText>[0]))).toEqual([
       '"click" a control; "fill" replaces a box\'s whole value with text; "select" chooses the option whose '
       + 'visible text is value; "press" sends one key such as Enter or Escape; "wait" waits for text to appear '
@@ -86,8 +86,12 @@ describe('what the model reads when a call is refused before it runs', () => {
       'every step but "wait" needs ref, a ref like "e12" from a previous content_read',
       'every step but "wait" needs label, the element\'s name exactly as content_read printed it, '
       + 'or "" for a row it printed with no name',
-      'a row the read printed with no name is named by its mark: pass mark, the class tokens the read '
-      + 'printed for it inside {class: ...}, with label ""',
+      'a row the read printed with no name is named by its mark: where the read printed e7 clickable '
+      + '{class: el-icon-delete}, pass ref "e7", label "" and mark "el-icon-delete" — the tokens alone, '
+      + 'without the braces and without the "class:" printed in front of them',
+      'mark is the class tokens themselves, not the whole of what the read printed there: where the read '
+      + 'printed e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and mark "el-icon-delete" — '
+      + 'the tokens alone, without the braces and without the "class:" printed in front of them',
       'a row has one identity: pass label for a row the read named, or mark with label "" for one it did not '
       + '— not both',
       'a "fill" step needs text, the value to type into the box',

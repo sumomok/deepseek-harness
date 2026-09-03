@@ -29,7 +29,7 @@ export const CONTENT_ACT_DESCRIPTION =
   + 'from a list, press a key, or wait for text to appear. Every target is a ref from a content_read, and every '
   + 'label is that element\'s name copied from the read — the browser checks the name before it acts, so a page '
   + 'that changed since the read stops the call instead of clicking something else; for a row the read printed '
-  + 'with no name, pass label "" and mark, its {class: ...} tokens copied from the read. The steps run in '
+  + 'with no name, pass label "" and its mark, the class tokens the read printed for it. The steps run in '
   + 'order and stop at the first failure; the answer reports each step, what the page did while they ran, and a fresh '
   + 'reading of the page. One call is one approval request, so put the steps that belong together in one call.'
 
@@ -52,10 +52,19 @@ export const LABEL_DESCRIPTION =
   + 'another name there. Pass "" for a row the read printed with no name, and give mark as well. Omit only '
   + 'for "wait"'
 
+/**
+ * The one form a mark takes, in both the parameter's description and every
+ * refusal about it. A model that has just read `e7 clickable {class: el-icon-delete}`
+ * has to know which part of that row goes in the field.
+ */
+export const MARK_EXAMPLE =
+  'where the read printed e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and mark '
+  + '"el-icon-delete" — the tokens alone, without the braces and without the "class:" printed in front of them'
+
 /** The `mark` parameter line. */
 export const MARK_DESCRIPTION =
-  'only for a row the read printed with no name: its class tokens exactly as the read printed them inside '
-  + '{class: ...}, which is what the browser checks that row by. Omit for every row that has a name'
+  'only for a row the read printed with no name: the class tokens the read printed for it, which is what the '
+  + `browser checks that row by. ${MARK_EXAMPLE}. Omit for every row that has a name`
 
 /** The `text` parameter line. */
 export const TEXT_DESCRIPTION = 'what "fill" types, and what "wait" waits to see'
@@ -118,8 +127,11 @@ export const PRESS_KEY_REFUSAL = 'a "press" step needs key, such as "Enter"'
 
 /** Refusal for a step naming a row the read printed with no name and carrying no mark for it. */
 export const MARK_REFUSAL =
-  'a row the read printed with no name is named by its mark: pass mark, the class tokens the read printed '
-  + 'for it inside {class: ...}, with label ""'
+  `a row the read printed with no name is named by its mark: ${MARK_EXAMPLE}`
+
+/** Refusal for a mark carrying the listing's own punctuation rather than the tokens inside it. */
+export const MARK_PRINTED_REFUSAL =
+  `mark is the class tokens themselves, not the whole of what the read printed there: ${MARK_EXAMPLE}`
 
 /** Refusal for a step carrying both a name and a mark. */
 export const MARK_ON_NAMED_REFUSAL =
@@ -139,6 +151,7 @@ export function stepRefusalText(refusal: ActStepRefusal): string {
     case 'ref': return REF_REFUSAL
     case 'label': return LABEL_REFUSAL
     case 'mark': return MARK_REFUSAL
+    case 'mark-printed': return MARK_PRINTED_REFUSAL
     case 'mark-on-named': return MARK_ON_NAMED_REFUSAL
     case 'fill-text': return FILL_TEXT_REFUSAL
     case 'wait-text': return WAIT_TEXT_REFUSAL

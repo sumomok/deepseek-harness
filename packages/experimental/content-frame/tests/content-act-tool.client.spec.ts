@@ -194,8 +194,8 @@ describe('what content_act offers the model', () => {
         + 'control, fill a box, choose from a list, press a key, or wait for text to appear. Every target is a '
         + 'ref from a content_read, and every label is that element\'s name copied from the read — the browser '
         + 'checks the name before it acts, so a page that changed since the read stops the call instead of '
-        + 'clicking something else; for a row the read printed with no name, pass label "" and mark, its '
-        + '{class: ...} tokens copied from the read. The steps run in order and stop at the first failure; '
+        + 'clicking something else; for a row the read printed with no name, pass label "" and its mark, the '
+        + 'class tokens the read printed for it. The steps run in order and stop at the first failure; '
         + 'the answer reports '
         + 'each step, what the page did while they ran, and a fresh reading of the page. One call is one '
         + 'approval request, so put the steps that belong together in one call.',
@@ -229,9 +229,11 @@ describe('what content_act offers the model', () => {
                 },
                 mark: {
                   type: 'string',
-                  description: 'only for a row the read printed with no name: its class tokens exactly as the '
-                    + 'read printed them inside {class: ...}, which is what the browser checks that row by. '
-                    + 'Omit for every row that has a name',
+                  description: 'only for a row the read printed with no name: the class tokens the read '
+                    + 'printed for it, which is what the browser checks that row by. where the read printed '
+                    + 'e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and mark "el-icon-delete" '
+                    + '— the tokens alone, without the braces and without the "class:" printed in front of '
+                    + 'them. Omit for every row that has a name',
                 },
                 text: { type: 'string', description: 'what "fill" types, and what "wait" waits to see' },
                 value: { type: 'string', description: 'the option "select" chooses, by the text the user would read' },
@@ -353,8 +355,25 @@ describe('what content_act refuses before anyone is asked', () => {
       // instead, and a row has one identity: a name or a mark, never both.
       [
         [{ action: 'click', ref: 'e5', label: '' }],
-        'content_act step 1: a row the read printed with no name is named by its mark: pass mark, the class '
-        + 'tokens the read printed for it inside {class: ...}, with label ""',
+        'content_act step 1: a row the read printed with no name is named by its mark: where the read printed '
+        + 'e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and mark "el-icon-delete" — the '
+        + 'tokens alone, without the braces and without the "class:" printed in front of them',
+      ],
+      // The row as the listing printed it, copied whole into the field: what a
+      // console's own log shows a model doing three times over.
+      [
+        [{ action: 'click', ref: 'e5', label: '', mark: '{class: el-icon-delete}' }],
+        'content_act step 1: mark is the class tokens themselves, not the whole of what the read printed '
+        + 'there: where the read printed e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and '
+        + 'mark "el-icon-delete" — the tokens alone, without the braces and without the "class:" printed in '
+        + 'front of them',
+      ],
+      [
+        [{ action: 'click', ref: 'e5', label: '', mark: 'class: el-icon-delete' }],
+        'content_act step 1: mark is the class tokens themselves, not the whole of what the read printed '
+        + 'there: where the read printed e7 clickable {class: el-icon-delete}, pass ref "e7", label "" and '
+        + 'mark "el-icon-delete" — the tokens alone, without the braces and without the "class:" printed in '
+        + 'front of them',
       ],
       [
         [{ action: 'click', ref: 'e5', label: '编辑', mark: 'el-icon-edit' }],

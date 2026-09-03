@@ -11,14 +11,28 @@
  * not the face under test.
  */
 
-import { describe, expect, it } from 'vitest'
+import { beforeEach, describe, expect, it } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEventMap } from '@deepseek-ai/dsh-session/types'
 import { contentAccessProjection } from '../src/access/requests-projection.ts'
+import { UNPUBLISHABLE_CALL_REFUSAL } from '../src/access/text.ts'
 import type { ContentAccessRequest } from '../src/types.ts'
 
 /** The branded call id, derived from the log's own declaration. */
 type LoggedCallId = SessionEventMap['tool/call']['callId']
+
+/** Every line this unit logged, in order; each case starts with none. */
+let warnings: string[] = []
+
+/** The logger the unit is built over, which only a refused view ever reaches. */
+const logger = { warn: (message: string): void => { warnings.push(message) } }
+
+/** Build the unit under test over this case's logger. */
+function projection(): ReturnType<typeof contentAccessProjection> {
+  return contentAccessProjection(logger)
+}
+
+beforeEach(() => { warnings = [] })
 
 let sessions = 0
 
@@ -73,7 +87,7 @@ function dispatched(target: Session, subCallId: string): void {
 
 /** Fold one session's whole log through the unit under test. */
 function fold(target: Session): ContentAccessRequest[] {
-  const unit = contentAccessProjection()
+  const unit = projection()
   let state = unit.init()
   for (const event of target.events) state = unit.apply(state, event)
   return state
@@ -81,13 +95,13 @@ function fold(target: Session): ContentAccessRequest[] {
 
 /** Fold one session's log and validate the wire value the browser receives. */
 function published(target: Session): unknown {
-  const unit = contentAccessProjection()
+  const unit = projection()
   return unit.wire.viewSchema.parse(unit.wire.view(fold(target)))
 }
 
 describe('the pending-read projection', () => {
   it('declares the key and cache version the registry stores it under', () => {
-    const unit = contentAccessProjection()
+    const unit = projection()
     expect(unit.key).toBe('contentAccess')
     expect(unit.stateVersion).toBe(2)
     expect(unit.init()).toEqual([])
@@ -148,7 +162,7 @@ describe('the pending-read projection', () => {
     // An id the fold does not carry: the removal finds nothing and changes nothing.
     result(target, 'call_absent')
     target.append('content/shown', { page: 'home', by: 'agent' })
-    const unit = contentAccessProjection()
+    const unit = projection()
     const opened = unit.apply(unit.init(), target.events[0]!)
     let state = opened
     for (const event of target.events.slice(1)) {
@@ -204,6 +218,30 @@ describe('the pending-read projection', () => {
     expect(fold(target)).toEqual([])
   })
 
+  it('publishes a step that names a row the read printed with no name', () => {
+    // What a console found: the tool took the step, the fold took it, and the
+    // projection then refused the value it had just built, so the model was
+    // handed `unrecognized_keys` about a field the tool documents. The schemas
+    // here are the tool's own parser now, so a step cannot pass one and fail
+    // the other.
+    const target = session()
+    const steps = [{ action: 'click', ref: 'e7', label: '', mark: 'el-icon-delete' }]
+    call(target, 'call_act', JSON.stringify({ steps }), 'content_act')
+    expect(published(target)).toEqual({ pending: [{ callId: 'call_act', tool: 'content_act', args: { steps } }] })
+  })
+
+  it('tells the model what it can do about a call it folded and then refused', () => {
+    // The registry parses every view before it leaves, and a failure there
+    // reaches the model as the validator's raw issue list — an argument to
+    // change, about arguments that are fine. One sentence goes to the model and
+    // the issues go to the log.
+    const unit = projection()
+    expect(() => unit.wire.view([{ callId: 'call_1', tool: 'content_act', args: { steps: [] } }]))
+      .toThrow(UNPUBLISHABLE_CALL_REFUSAL)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain('contentAccess refused its own view')
+  })
+
   it('accepts the state it produced back from a persisted checkpoint', () => {
     const target = session()
     call(target, 'call_1', JSON.stringify({ mode: 'outline', find: 'Ada' }))
@@ -211,7 +249,7 @@ describe('the pending-read projection', () => {
       steps: [{ action: 'press', ref: 'e4', label: '名称', key: 'Enter' }],
       dialogs: 'cancel',
     }), 'content_act')
-    const unit = contentAccessProjection()
+    const unit = projection()
     expect(unit.stateSchema.parse(fold(target))).toEqual(fold(target))
   })
 })

@@ -711,6 +711,8 @@ export type ActStepRefusal =
   | 'label'
   /** A row the listing named nothing carries no mark to check it by. */
   | 'mark'
+  /** The mark carries the listing's own punctuation rather than the tokens inside it. */
+  | 'mark-printed'
   /** A named row carries a mark as well as its name. */
   | 'mark-on-named'
   /** A `fill` carries nothing to type. */
@@ -761,6 +763,16 @@ export type ActStepRead =
 const REF_PATTERN = /^e\d+$/
 
 /**
+ * What a listing puts around a mark: the braces the row prints it in, and the
+ * `class:` in front of the tokens. Either one in a mark means the printed row
+ * was copied whole into the field. A class attribute could carry a brace or a
+ * token starting with `class:` — nothing that draws a page writes one, and a
+ * page that did would have that row refused with the example rather than
+ * silently failing the seat's check one round trip later.
+ */
+const PRINTED_MARK = /[{}]|^\s*class:/i
+
+/**
  * Whether one field arrived as text the wire carries at that length.
  * @param value - the field as it arrived.
  * @param max - the longest value it takes, in characters.
@@ -784,6 +796,11 @@ export function readActStep(raw: RawStep): ActStepRead {
   const refuse = (refusal: ActStepRefusal): ActStepRead => ({ kind: 'refusal', refusal })
   if (raw.label !== undefined && !isField(raw.label, MAX_NAME_CHARS)) return refuse('label-length')
   if (raw.mark !== undefined && !isField(raw.mark, MAX_ACT_TEXT_CHARS)) return refuse('mark-length')
+  // The listing prints a mark inside `{class: ...}`, and a model that copies
+  // the row rather than the tokens sends a mark that matches no element on any
+  // page. Refusing it says which part of the row to copy; taking it would fail
+  // the seat's check instead, one round trip later and with no remedy in it.
+  if (typeof raw.mark === 'string' && PRINTED_MARK.test(raw.mark)) return refuse('mark-printed')
   if (raw.text !== undefined && !isField(raw.text, MAX_ACT_TEXT_CHARS)) return refuse('text-length')
   if (raw.value !== undefined && !isField(raw.value, MAX_ACT_TEXT_CHARS)) return refuse('value-length')
   if (raw.key !== undefined && !isField(raw.key, MAX_ACT_KEY_CHARS)) return refuse('key-length')

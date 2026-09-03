@@ -521,7 +521,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     registerActApproval(toolCtx, approvals, maxSteps)
   })
   ctx.inject(['sessionProjections'], (projectionCtx) => {
-    projectionCtx.sessionProjections.register(contentAccessProjection())
+    projectionCtx.sessionProjections.register(contentAccessProjection(projectionCtx.logger))
   })
   return {
     outlineChars,

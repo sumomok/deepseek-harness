@@ -88,7 +88,7 @@
 ### 页面没给名字的控件读出来是什么
 
 - **名字的位置上打的是这个元素的 class token。** `e17 clickable {class: el-tooltip operation-modify el-icon-edit}`——元素携带的全部 token，按它自己携带的顺序；元素没有 class 就什么都不打。一个字都不裁：这串 token 同时是这一行的标记，步骤要原样带回来、座位要逐字比对，裁短了就对不上任何东西。只对「页面提供出来供人操作、却没给名字」的行打：可点目标、按钮、链接、可填的框；别的不打——标题和区域用自己的 role 说清了自己是什么。
-- **这些 token 一个字都不解读。** 这一行的名字仍然是空的：指向它的步骤传 `label: ""`，并把同一串 token 作为 `mark` 带回来；动手之前座位把两样都重算一遍——页面现在仍然没给它名字，也仍然这样标着它。`el-icon-edit` 是什么意思，由懂这个应用的技能去说，本包绝不猜。
+- **这些 token 一个字都不解读。** 这一行的名字仍然是空的：指向它的步骤传 `label: ""`，并把同一串 token 作为 `mark` 带回来；动手之前座位把两样都重算一遍——页面现在仍然没给它名字，也仍然这样标着它。标记就是这串 token 本身，外面那层什么都不带：清单打出 `e7 clickable {class: el-icon-delete}` 时，步骤带的是 `ref: "e7"`、`label: ""`、`mark: "el-icon-delete"`；带上花括号、或带上清单印在 token 前面那个 `class:` 的标记会被拒绝并给出这个例子——class token 里不可能有这两样，那只能是把整行原样抄了进去。`el-icon-edit` 是什么意思，由懂这个应用的技能去说，本包绝不猜。
 
 ### 一张控制台表单读出来是什么
 
@@ -230,7 +230,7 @@ No open console is showing this session's content column (waited 3s); the page "
 
 #### What the model sees
 
-一个工具 `content_act`，凡部署方配置了 `pageAccess` 的地方就与 `content_read` 并排提供。两个参数：`steps` 必填，每一步是 `{action, ref, label, mark?, text?, value?, key?}`——`mark` 是「读取没给名字的那一行」的点名方式：`label: ""` 加上那次读取为它印出的 class token——`action` 五选一 `click`、`fill`、`select`、`press`、`wait`；以及 `dialogs`，`cancel` 或 `accept`，用于步骤运行期间页面自己弹出的原生对话框。描述里写明浏览器会在动手之前拿 label 与页面核对，好让模型知道一份过期的读取会让调用停下、而不是动到错的元素；也写明一次调用就是一次审批请求，这是「把该在一起的步骤放进一次调用」背后的成本模型。
+一个工具 `content_act`，凡部署方配置了 `pageAccess` 的地方就与 `content_read` 并排提供。两个参数：`steps` 必填，每一步是 `{action, ref, label, mark?, text?, value?, key?}`——`mark` 是「读取没给名字的那一行」的点名方式：`label: ""` 加上那次读取为它印出的 class token 本身、外面什么都不带——`action` 五选一 `click`、`fill`、`select`、`press`、`wait`；以及 `dialogs`，`cancel` 或 `accept`，用于步骤运行期间页面自己弹出的原生对话框。描述里写明浏览器会在动手之前拿 label 与页面核对，好让模型知道一份过期的读取会让调用停下、而不是动到错的元素；也写明一次调用就是一次审批请求，这是「把该在一起的步骤放进一次调用」背后的成本模型。
 
 #### Token effect
 

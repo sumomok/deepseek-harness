@@ -147,6 +147,22 @@ export function unclaimedRefusal(claimTimeoutMs: number, front: FrontEntry | und
 }
 
 /**
+ * What the model is told when the host folded one of its calls into the
+ * session's open calls and then refused its own value for them.
+ *
+ * The two readings of a call — the tool's own parser and the projection's
+ * schemas — are meant to be one, and a call that passes the first and fails the
+ * second is a defect here rather than anything the model wrote. The validator's
+ * own issue list says `unrecognized_keys` about a field the tool documents,
+ * which reads as an argument to change and is not one; what the model can act
+ * on is that nothing ran and the call can be sent again.
+ */
+export const UNPUBLISHABLE_CALL_REFUSAL =
+  'The console channel could not publish this call: the host accepted the arguments and then refused its own '
+  + 'value for them. Nothing ran. This is a defect in the host rather than in the arguments — send the call '
+  + 'again, and tell the user if it repeats; the host\'s log carries what was refused.'
+
+/**
  * The failure for a console that claimed a read and then went quiet.
  * @param readTimeoutMs - the deadline that passed.
  * @returns the model-facing sentence.

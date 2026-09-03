@@ -427,6 +427,13 @@ describe('what a browser half may be asked to run', () => {
       [{ action: 'click', ref: 'e5', label: '编辑', mark: 'el-icon-edit' }],
       // A mark past what the wire carries.
       [{ action: 'click', ref: 'e5', label: '', mark: 'c'.repeat(MAX_ACT_TEXT_CHARS + 1) }],
+      // The row as the listing printed it rather than the tokens inside it: a
+      // class token holds neither a brace nor the `class:` printed in front, so
+      // either one is the whole row copied into the field. It would match no
+      // element on any page, and the refusal says which part to copy.
+      [{ action: 'click', ref: 'e5', label: '', mark: '{class: el-icon-edit}' }],
+      [{ action: 'click', ref: 'e5', label: '', mark: 'class: el-icon-edit' }],
+      [{ action: 'click', ref: 'e5', label: '', mark: 'el-icon-edit}' }],
     ]) {
       expect({ steps, parsed: parseActArgs({ steps }) }).toEqual({ steps, parsed: undefined })
     }
