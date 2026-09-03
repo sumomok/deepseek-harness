@@ -41,7 +41,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@haoran/dsh-default-model`](apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz) | MIT |
 | [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.5.tgz) | MIT |
 | [`@haoran/dsh-plugin-updates`](apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.0.tgz) | MIT |
-| [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz) | MIT |
+| [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.1.tgz) | MIT |
 | [`@haoran/dsh-vision-switch`](apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.0.tgz) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
 | [`@jridgewell/gen-mapping`](https://github.com/jridgewell/sourcemaps) | MIT |

@@ -836,8 +836,8 @@ importers:
         specifier: file:./vendor/haoran-dsh-plugin-updates-0.2.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
       '@haoran/dsh-screenshot':
-        specifier: file:./vendor/haoran-dsh-screenshot-0.5.0.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz(5402c161ceb777e6d1cb0deee8cd1fd3)
+        specifier: file:./vendor/haoran-dsh-screenshot-0.5.1.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.1.tgz(5402c161ceb777e6d1cb0deee8cd1fd3)
       '@haoran/dsh-vision-switch':
         specifier: file:./vendor/haoran-dsh-vision-switch-0.2.0.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-api-session-controller@packages+api+session-controller)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-renderer@packages+client+ui-renderer)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -11888,9 +11888,9 @@ packages:
       react:
         optional: true
 
-  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz':
-    resolution: {integrity: sha512-BuzSI5Nso59fSdz5TjVqk4Ex9Dfb6ULOTIc9EW8ODvzQntqI5auKlSmcQfLrrACqKzVBHdrjPWV2T3RmwSnuWA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz}
-    version: 0.5.0
+  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.1.tgz':
+    resolution: {integrity: sha512-MZkyVRmhsvj8OJKHvAVwiqqgRU6Es/G+HHuW2oyvHEJJZ52IjC2xGtliOHTsgiS5Z86pfnndEhdq4eWUbD4A1w==, tarball: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.1.tgz}
+    version: 0.5.1
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
       '@deepseek-ai/dsh-agent': '>=0.1.2-alpha.2 <0.2.0-0'
@@ -17018,10 +17018,6 @@ packages:
     resolution: {integrity: sha512-aBiNayCfTQxuIJBm06M+xR14cYaYlDlSXZbgsnKzKNxDKUVq7KFwTjwBSsb7m9Y5xO8WfPnBc63WaYFMTGlvqw==}
     hasBin: true
 
-  tldts@7.4.5:
-    resolution: {integrity: sha512-RfEzKWcq5fHUOFq7J3rl3Oz6ylKGtcHqUznzj4EcXsxLSIjJcvpbXAQtWGeJQ0xKnimR5e0Cn+cn9TssfMzm+g==}
-    hasBin: true
-
   tmp-promise@3.0.3:
     resolution: {integrity: sha512-RwM7MoPojPxsOBYnyd2hy0bxtIlVrihNs9pj5SUvY8Zz1sQcQG2tG1hSr8PDxfgEB8RNKDhqbIlroIarSNDNsQ==}
 
@@ -18911,7 +18907,7 @@ snapshots:
       '@deepseek-ai/schemastery': link:vendor/schemastery
       react: 18.3.1
 
-  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.0.tgz(5402c161ceb777e6d1cb0deee8cd1fd3)':
+  '@haoran/dsh-screenshot@file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.1.tgz(5402c161ceb777e6d1cb0deee8cd1fd3)':
     dependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-attachment': link:packages/attachment/attachment
@@ -24274,10 +24270,6 @@ snapshots:
     dependencies:
       tldts-core: 7.4.11
 
-  tldts@7.4.5:
-    dependencies:
-      tldts-core: 7.4.11
-
   tmp-promise@3.0.3:
     dependencies:
       tmp: 0.2.7
@@ -24288,7 +24280,7 @@ snapshots:
 
   tough-cookie@6.0.1:
     dependencies:
-      tldts: 7.4.5
+      tldts: 7.4.11
 
   tr46@6.0.0:
     dependencies:
