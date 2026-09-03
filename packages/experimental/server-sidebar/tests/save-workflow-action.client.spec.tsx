@@ -27,8 +27,8 @@ function mount(overrides: Partial<Bench> = {}, onSave = vi.fn(() => Promise.reso
   const bench: Bench = { hasUserMessage: false, contentSurface: undefined, ...overrides }
   const props: SaveWorkflowActionProps = {
     sessionId: 'session-a' as SaveWorkflowActionProps['sessionId'],
-    useSession: ((<S,>(selector: (s: { chat: { legacy: { nodes: { kind: string }[] } } }) => S): S =>
-      selector({ chat: { legacy: { nodes: bench.hasUserMessage ? [{ kind: 'user' }] : [] } } })) as unknown) as SaveWorkflowActionProps['useSession'],
+    useChat: ((<S,>(selector: (s: { legacy: { nodes: { kind: string }[] } }) => S): S =>
+      selector({ legacy: { nodes: bench.hasUserMessage ? [{ kind: 'user' }] : [] } })) as unknown) as SaveWorkflowActionProps['useChat'],
     useProjection: ((_key: string) => bench.contentSurface) as SaveWorkflowActionProps['useProjection'],
     onSave,
     t,

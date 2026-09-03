@@ -6,7 +6,7 @@
  * would pin the store's identity in the module cache and survive plugin
  * reloads as a de-facto singleton.
  */
-import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-runtime/client'
+import { defineStore, type EngineStoreHandle } from '@deepseek-ai/dsh-client-store'
 
 /** Panel state: the session column's fold and the details band's open flag. */
 export type PanelState = {

@@ -19,6 +19,8 @@
 import { useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
+// Type-only: pulls ui-chat's `useChat` session standard prop.
+import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import { captureNavSnapshot } from './nav-snapshot.ts'
 import css from './SaveWorkflowAction.module.css'
 
@@ -43,9 +45,9 @@ export type SaveWorkflowActionProps =
  * @param props - see {@link SaveWorkflowActionProps}.
  * @returns the trigger (or its in-place name field), or `null`.
  */
-export function SaveWorkflowAction({ sessionId, useSession, useProjection, onSave, t }: SaveWorkflowActionProps) {
+export function SaveWorkflowAction({ sessionId, useChat, useProjection, onSave, t }: SaveWorkflowActionProps) {
   const [adding, setAdding] = useState(false)
-  const hasUserMessage = useSession(s => s.chat.legacy.nodes.some(node => node.kind === 'user'))
+  const hasUserMessage = useChat(s => s.legacy.nodes.some(node => node.kind === 'user'))
   const contentSurface = useProjection('contentSurface')
 
   if (!hasUserMessage) return null

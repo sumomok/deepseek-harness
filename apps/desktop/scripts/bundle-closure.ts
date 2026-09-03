@@ -140,7 +140,11 @@ function entryPointsOf(manifest: Record<string, unknown>): string[] {
  *   produces a path rather than a module, so nothing is inlined and the
  *   directory has to be there at run time.
  *
- * What neither form reaches is a name that does not appear as a literal: a
+ * The third form is a require built and invoked in one expression,
+ * `createRequire(import.meta.url)('name')`: the bundler cannot inline what
+ * only a run-time call names, so the directory must survive the walk.
+ *
+ * What none of the forms reaches is a name that does not appear as a literal: a
  * template with a substitution (`@img/sharp-${platform}-${arch}`, how sharp and
  * `@vscode/ripgrep` select their platform package) and the dynamic library
  * search a `.node` performs on its own. Those are what `NATIVE` is for.
@@ -153,6 +157,10 @@ export function specifierFor(name: string): RegExp {
   return new RegExp([
     String.raw`(?:from|require|import)\s*\(?\s*` + literal,
     String.raw`(?:import\s*\.\s*meta|[\w$]*[Rr]equire[\w$]*|createRequire\s*\([^()]*\))\s*\.\s*resolve\s*\(\s*` + literal,
+    // A require built and invoked in one expression — `createRequire(url)('x')`
+    // — loads the module at run time without the bundler ever seeing it, and
+    // the directory has to be there just as for a resolution call.
+    String.raw`createRequire\s*\([^()]*\)\s*\(\s*` + literal,
   ].join('|'))
 }
 

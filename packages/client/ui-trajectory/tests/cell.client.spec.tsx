@@ -5,12 +5,29 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render, screen } from '@testing-library/react'
+import { createElement, type ComponentProps } from 'react'
 import {
-  formatElapsedSeconds,
-  TrajectoryCell,
+  formatElapsedSeconds as formatElapsedSecondsWithLocale,
+  TrajectoryCell as LocalizedTrajectoryCell,
   type TrajectoryCellKind,
 } from '../src/client/TrajectoryCell.tsx'
-import { formatDurationMillis } from '../src/client/trajectory-record.ts'
+import { formatDurationMillis as formatDurationMillisWithLocale } from '../src/client/trajectory-record.ts'
+import { t } from './locale.client.ts'
+
+const formatDurationMillis = (value: number | null) => formatDurationMillisWithLocale(value, t)
+const formatElapsedSeconds = (value: number | null) => formatElapsedSecondsWithLocale(value, t)
+
+// `createElement`, not JSX: this line is compiled in the Client aggregate
+// alongside `dsh-experimental-vue2-echarts-poc`, and Vue 2.7's type entry
+// unconditionally loads `vue/types/jsx.d.ts`, which augments the GLOBAL
+// `JSX.IntrinsicAttributes` with `slot?: string`. Under
+// `exactOptionalPropertyTypes` that rejects every React spread of props
+// carrying `slot?: string | undefined`. `createElement` checks against
+// `React.Attributes` instead of the global JSX seat, so the Vue POC's
+// presence in the program cannot reach this wrapper.
+function TrajectoryCell(props: Omit<ComponentProps<typeof LocalizedTrajectoryCell>, 't'>) {
+  return createElement(LocalizedTrajectoryCell, { ...props, t })
+}
 
 afterEach(cleanup)
 
@@ -52,7 +69,7 @@ describe('TrajectoryCell', () => {
       />,
     )
     expect(screen.getByText('#6')).toBeTruthy()
-    expect(screen.getByText('Tool')).toBeTruthy()
+    expect(screen.getByText('TOOL')).toBeTruthy()
     expect(screen.getByText('bash · Read src/index.ts')).toBeTruthy()
     expect(screen.getByText('5,000 ms')).toBeTruthy()
   })
@@ -88,8 +105,8 @@ describe('TrajectoryCell', () => {
   })
 
   it.each([
-    ['user', 'User'],
-    ['tool', 'Tool'],
+    ['user', 'USER'],
+    ['tool', 'TOOL'],
   ] as const)('kind %s shows the %s tag and no metric columns', (kind: TrajectoryCellKind, label: string) => {
     const { container } = render(
       <TrajectoryCell index={1} kind={kind} text="summary" timeSeconds={kind === 'user' ? 0 : null} input={1} output={2} think={3} />,

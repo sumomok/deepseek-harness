@@ -75,7 +75,7 @@ async function run(ctx: Context, agent: Agent, command: string, rawInput: string
 
 /** Every payload of one type the session recorded, in order. */
 function recorded(session: Session, type: string): unknown[] {
-  return session.events
+  return session.snapshotEvents()
     .filter((event: SessionEvent) => (event.type as string) === type)
     .map((event: SessionEvent) => event.data)
 }
@@ -138,8 +138,9 @@ describe('dismiss-content-entry command', () => {
     })
     // Appended first, injected second: the log carries the fact before the
     // sentence about it, and the notice is queued rather than delivered.
-    const at = session.events.findIndex((event: SessionEvent) => event.type === 'content-surface/dismissed')
-    expect(session.events[at]!.seq).toBeLessThan(notice.atSeq)
+    const events = session.snapshotEvents()
+    const at = events.findIndex((event: SessionEvent) => event.type === 'content-surface/dismissed')
+    expect(events[at]!.seq).toBeLessThan(notice.atSeq)
   })
 
   it('records the dismissal and says nothing when the pair names no live entry', async () => {

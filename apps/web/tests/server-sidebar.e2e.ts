@@ -44,7 +44,7 @@ import type { Browser, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-commands/types'
 import type {} from '@deepseek-ai/dsh-workspace'
@@ -71,13 +71,43 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 const GHOST_SESSION_ID = 'server-sidebar-e2e-ghost-session'
 const GHOST_WORKFLOW_ID = 'ghost-workflow'
 /** This package's own settings namespace; a bare string literal, not an import (see the module doc above). */
-const SERVER_SIDEBAR_NAMESPACE = settingsNamespace('server-sidebar')
+const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
 
 // A fresh session's composer still carries the hero placeholder
 // (`placeholder.hero` in dsh-client-ui-conversation) until a message lands
-// on it, then falls back to the established-session default.
-const HERO_PLACEHOLDER = 'Describe what you want to build'
-const ESTABLISHED_PLACEHOLDER = 'Message the agent'
+// on it, then falls back to the established-session default. The composer is
+// a contenteditable that carries its copy on `data-placeholder`, never as a
+// real `placeholder` attribute, so no by-placeholder query reaches it (the
+// same locator `command-image-envelope.expected.e2e.ts` uses).
+/**
+ * `dsh-client-ui-conversation`'s `placeholder.workspace`, rendered by the
+ * inert composer while no Workspace is connected. Named here because a
+ * scenario below pins it as the one leak this package cannot close.
+ */
+const LEAKED_PLACEHOLDER = 'Choose a workspace to start'
+
+/**
+ * The complete access-preset set the overlay's `permission` row names, in
+ * table order. The row replaces the whole preset table rather than merging
+ * into it, so a preset left out of the overlay disappears from the product —
+ * this list is what keeps that a deliberate choice instead of a typo.
+ */
+const PRESET_NAMES = ['只读', '可修改文件', '完全放开'] as const
+/** The write preset, named on its own where a scenario needs just the one. */
+const RENAMED_PRESET = PRESET_NAMES[1]
+
+const HERO_PLACEHOLDER = 'Describe what you want to build... / commands, @ files or sessions'
+const ESTABLISHED_PLACEHOLDER = 'Message or run a task... / commands, @ files or sessions'
+
+/**
+ * The one composer carrying a given placeholder.
+ * @param page - the browser page.
+ * @param placeholder - exact `data-placeholder` copy.
+ * @returns the composer locator.
+ */
+function composer(page: Page, placeholder: string): Locator {
+  return page.locator(`[data-composer-input][data-placeholder="${placeholder}"]`)
+}
 
 /**
  * This deployment's local shape for the server-menu settings document —
@@ -117,6 +147,50 @@ const workflowsSection = (page: Page): Locator => sidebar(page).locator('[data-s
 const activeFrame = (page: Page): Locator => page.locator('iframe[data-content-frame][data-content-active]')
 const shellColumn = (page: Page, name: string): Locator => page.locator(`[data-shell-column="${name}"]`)
 
+/**
+ * One element the de-terminology stylesheet hides: present in the DOM and
+ * rendering nothing. Both halves matter — every rule in `terminology-guard.ts`
+ * is a class-substring match against a CSS-module local name, so the way it
+ * fails is the element ceasing to match, and a bare `isVisible() === false`
+ * passes just as happily on an element that is not there at all.
+ * @param scope - the region the element lives in.
+ * @param className - CSS-module local-name substring the guard rule targets.
+ */
+async function expectGuardHides(scope: Locator, className: string): Promise<void> {
+  const target = scope.locator(`[class*="${className}"]`)
+  expect(await target.count(), `${className}: no element for the guard rule to hide`).toBeGreaterThan(0)
+  await expect(target.first().isVisible()).resolves.toBe(false)
+}
+
+/** Every banned spelling of the vendor's Workspace vocabulary. */
+const WORKSPACE_WORDS = ['workspace', 'Workspace', 'WORKSPACE', '工作区'] as const
+
+/**
+ * The composer's access-preset chip, located by its accessible name. Its
+ * visible label collapses to the glyph alone once the composer row is narrow:
+ * `InputBar.module.css` makes the control row a size container, and
+ * `PermissionSelect.module.css`'s own `@container (max-width: 460px)` query
+ * hides the label inside it. The rendered text is therefore not a stable
+ * anchor, while the accessible name carries the preset at either width.
+ * @param page - the browsing page.
+ * @returns the chip locator.
+ */
+function accessChip(page: Page): Locator {
+  return shellColumn(page, 'chat').getByRole('button', { name: /^Access mode, current:/ })
+}
+
+/**
+ * The banned words present in the conversation column's rendered text.
+ * `innerText` is what a reader sees: it omits `display: none` subtrees (the
+ * hero row `terminology-guard.ts` hides) and `hidden="until-found"` ones.
+ * @param page - the browsing page.
+ * @returns each banned word the column currently shows.
+ */
+async function workspaceWordsInChat(page: Page): Promise<string[]> {
+  const text = await shellColumn(page, 'chat').innerText()
+  return WORKSPACE_WORDS.filter(word => text.includes(word))
+}
+
 /** One element's rendered width; `server-layout.e2e.ts`'s own helper, restated for this scenario's column checks. */
 async function columnWidth(locator: Locator): Promise<number> {
   const rect = await locator.boundingBox()
@@ -147,7 +221,7 @@ interface ShownPageData {
 
 /** Whether any live agent's session recorded showing `page` with the given writer. */
 function anySessionShowed(scaffold: WebScaffold, page: string, by: 'agent' | 'user'): boolean {
-  return scaffold.ctx.agents.list().some(agent => agent.session.events.some((event: SessionEvent) => {
+  return scaffold.ctx.agents.list().some(agent => agent.session.snapshotEvents().some((event: SessionEvent) => {
     // `'content/shown'` augments `SessionEventMap` from content-frame, which
     // apps/web cannot import (see the module doc), so this compilation's
     // `SessionEvent['type']` union has no such member to narrow on — widen
@@ -174,7 +248,7 @@ function readServerMenu(scaffold: WebScaffold): LocalServerMenu {
 function commandTripleTypes(scaffold: WebScaffold, sessionId: string): string[] {
   const agent = scaffold.ctx.agents.get(SessionId(sessionId))
   if (agent === undefined) return []
-  return agent.session.events
+  return agent.session.snapshotEvents()
     .map((event: SessionEvent) => event.type as string)
     .filter(type => type === 'command/run' || type === 'content/shown' || type === 'command/done')
 }
@@ -245,11 +319,14 @@ describe('web e2e: the product-console sidebar', () => {
     })
     // Registered before the browser ever connects, so the client's initial
     // boot payload already carries it — no live-push race to synchronize
-    // against, and no interference with `dsh-client-runtime`'s own one-shot
-    // `startInitialSelection`: that mechanism and this scenario's own
-    // explicit workbench click both resolve through the same
-    // `WorkspaceRuntime.connectWorkspace` coalescing, so whichever gets
-    // there first, the session left open is the same one either way.
+    // against. The sidebar's own auto-land and this scenario's explicit
+    // workbench click both resolve through the same
+    // `UiWorkspace.connectWorkspace` coalescing, so whichever gets there
+    // first, the session left open is the same one either way.
+    // The directory name carries the banned word deliberately: the hero chip
+    // renders the Workspace title, so a guard rule that stopped matching would
+    // put that exact string on screen and `workspaceWordsInChat` would see it.
+    // Renaming this directory to something innocuous weakens that scan.
     const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-workspace')
     await mkdir(workspaceDir, { recursive: true })
     await scaffold.ctx.workspaceRegistry.create(workspaceDir)
@@ -257,7 +334,7 @@ describe('web e2e: the product-console sidebar', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await sidebar(page).waitFor({ timeout: 30_000 })
   }, 180_000)
 
@@ -282,9 +359,10 @@ describe('web e2e: the product-console sidebar', () => {
 
     // Scoped to this package's own chrome: decision ②'s banned-word list is
     // this package's obligation for its own copy, not a system-wide audit of
-    // every shipped package's strings (content-column's empty-state copy and
-    // the hero's workspace-picker copy are pre-existing, out-of-scope text —
-    // see the package README's Known Limitations).
+    // every shipped package's strings (content-column's empty-state copy is
+    // pre-existing, out-of-scope text). The conversation column has its own
+    // scan — `workspaceWordsInChat` below — which covers the hero, since
+    // `ShellFrame` seats the whole `conversation` slot inside the chat column.
     const sidebarText = await sidebar(page).innerText()
     for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /会话/, /新会话/]) {
       expect(sidebarText, `banned text matched ${banned}`).not.toMatch(banned)
@@ -301,7 +379,7 @@ describe('web e2e: the product-console sidebar', () => {
     expect(identityChildren).toBe(2)
   }, 60_000)
 
-  it('replaces the hero fish mark and headline with the sidebar\'s own brand copy, hides the preview badge and the dead workspace row, and drops the agent-preset dropdown entirely', async () => {
+  it('replaces the hero fish mark and headline with the sidebar\'s own brand copy, hides the preview badge and the live workspace row, and drops the agent-preset dropdown entirely', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-hero-facade'))
     const heroRoot = page.locator('[data-phase="hero"]')
     await heroRoot.waitFor({ timeout: 15_000 })
@@ -316,9 +394,9 @@ describe('web e2e: the product-console sidebar', () => {
       headlineText.evaluate(el => getComputedStyle(el, '::after').content),
     ).resolves.toContain('工作台小助手')
 
-    await expect(heroRoot.locator('[class*="fishHitbox"]').isVisible()).resolves.toBe(false)
-    await expect(heroRoot.locator('[class*="previewBadge"]').isVisible()).resolves.toBe(false)
-    await expect(heroRoot.locator('[class*="heroWorkspaceRow"]').isVisible()).resolves.toBe(false)
+    await expectGuardHides(heroRoot, 'fishHitbox')
+    await expectGuardHides(heroRoot, 'previewBadge')
+    await expectGuardHides(heroRoot, 'heroWorkspaceRow')
 
     // ui-agent-preset is disabled outright (decision: not merely hidden by
     // the heroWorkspaceRow CSS rule above) — its hero chip, its read-only
@@ -340,7 +418,7 @@ describe('web e2e: the product-console sidebar', () => {
       // session-resolution.ts) guarantees a click never mints a second
       // session alongside one auto-open already created.
       await workbenchButton(page).click()
-      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
 
       // No homePage is configured in this overlay: a blank workbench draft
       // shows nothing in the content column, so the shell collapses it
@@ -359,7 +437,7 @@ describe('web e2e: the product-console sidebar', () => {
       await page.reload({ waitUntil: 'load' })
       acknowledgeReloadConnectionLoss(tripwire, warningStart)
       await sidebar(page).waitFor({ timeout: 15_000 })
-      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
       expect(readServerMenu(scaffold).workbenchSessionId).toBe(workbenchSessionId)
       expect(scaffold.ctx.agents.list()).toHaveLength(1)
     },
@@ -445,7 +523,7 @@ describe('web e2e: the product-console sidebar', () => {
       await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).toBe(priorWorkbenchSessionId)
 
       await workbenchButton(page).click()
-      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
 
       // Load-time continuity reopens a non-blank session as-is; a click
       // instead lands on a brand-new one and repoints workbenchSessionId.
@@ -556,13 +634,47 @@ describe('web e2e: the product-console sidebar', () => {
     expect(readServerMenu(scaffold).workflows.find(w => w.name === 'Ghost Workflow')?.order).toBe(1)
   }, 30_000)
 
+  it('renders no Workspace vocabulary anywhere in the conversation column', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-vocabulary'))
+    // The chip's accessible name, not the column's rendered text: the visible
+    // label collapses to a glyph at narrow composer widths, and which width
+    // this scenario lands on depends on whether the content column is open.
+    // The name is also the half a screen reader announces, so it is the half
+    // that must not say "Workspace".
+    const chipName = await accessChip(page).getAttribute('aria-label')
+    expect(chipName).toBe(`Access mode, current: ${RENAMED_PRESET}`)
+    // Two independent sources, pinned together because both are silent when
+    // they break: the hero chip-and-picker row (hidden by
+    // `terminology-guard.ts`'s class-substring rule, which a renamed CSS
+    // module class would stop matching) and the access chip above, which
+    // reverts to "Workspace Write" the moment the overlay's `permission` row
+    // stops overriding the shipped preset table.
+    expect(await workspaceWordsInChat(page)).toEqual([])
+  }, 30_000)
+
+  it('offers every access preset under a customer-facing name', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-presets'))
+    // The rendered menu, not the composed config: this asserts what the
+    // customer can actually pick, so a preset the overlay drops fails here
+    // whether the loss was deliberate or a miscopied table.
+    const chip = accessChip(page)
+    await chip.click()
+    const items = page.getByRole('menu').getByRole('menuitem')
+    await expect.poll(() => items.count(), { timeout: 10_000 }).toBe(PRESET_NAMES.length)
+    expect(await items.allInnerTexts()).toEqual([...PRESET_NAMES])
+    // Closing through the trigger, not Escape: the menu is the chip's own
+    // popup and a stray Escape would reach the composer behind it.
+    await chip.click()
+    await expect.poll(() => page.getByRole('menu').count(), { timeout: 10_000 }).toBe(0)
+  }, 30_000)
+
   it('leaves the Chat/Trajectory tab switcher and the model selector out of the customer-form composition', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-de-terminology'))
     expect(await page.getByRole('tab').count()).toBe(0)
     expect(await page.getByRole('button', { name: /^Select model, current/ }).count()).toBe(0)
     // The composer itself must not be stuck blocked now that no plugin
     // registers `useComposerBlock` (ui-model-selection is disabled).
-    await expect(page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).isEnabled()).resolves.toBe(true)
+    await expect(composer(page, ESTABLISHED_PLACEHOLDER).isEnabled()).resolves.toBe(true)
   }, 30_000)
 
   it('leaves the console clean', () => {
@@ -593,7 +705,7 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await sidebar(page).waitFor({ timeout: 30_000 })
   }, 180_000)
 
@@ -610,7 +722,7 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
     async () => {
       onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-homepage'))
       await workbenchButton(page).click()
-      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
 
       await expectShown(page, '/content-app/')
       await expect.poll(() => anySessionShowed(scaffold, 'home', 'user'), { timeout: 15_000 }).toBe(true)
@@ -620,6 +732,71 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
       await expect.poll(() => columnWidth(shellColumn(page, 'content')), { timeout: 10_000 }).toBeGreaterThan(0)
     },
     60_000,
+  )
+
+  it('leaves the console clean', () => {
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+})
+
+describe('web e2e: the product-console sidebar with no workspace connected', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let harnessHome: string
+  let tripwire: ReturnType<typeof watchConsole>
+  const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
+
+  beforeAll(async () => {
+    harnessHome = await harnessHomeWithRowLinks()
+    process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
+    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY })
+    // Deliberately no `workspaceRegistry.create`: this is the fresh-install
+    // state the other two describes set up past.
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await sidebar(page).waitFor({ timeout: 30_000 })
+  }, 180_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+    await rm(harnessHome, { recursive: true, force: true })
+    if (inheritedAppRoot === undefined) delete process.env.DSH_CONTENT_APP_ROOT
+    else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
+  })
+
+  it('keeps the sidebar free of Workspace vocabulary with none connected', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-vocabulary-empty'))
+    expect(WORKSPACE_WORDS.filter(word => LEAKED_PLACEHOLDER.includes(word))).not.toEqual([])
+    expect(await sidebar(page).innerText()).not.toMatch(/workspace/iu)
+  }, 30_000)
+
+  it(
+    'leaves the composer placeholder as the only Workspace word in the conversation column',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-vocabulary-empty-chat'))
+      // With no Workspace there is no session to open, so `ConversationRoot`
+      // renders its inert composer under `placeholder.workspace`. That string
+      // belongs to `dsh-client-ui-conversation`'s own locale namespace, which
+      // no other plugin may register into (the registry throws on a duplicate
+      // namespace/locale pair), and it is not a preset name a composition can
+      // rename — so this scenario pins the leak rather than asserting it away.
+      // See the package README's Known Limitations.
+      const composerBox = page.locator(`[data-composer-input][data-placeholder="${LEAKED_PLACEHOLDER}"]`)
+      await composerBox.waitFor({ timeout: 15_000 })
+      const remaining = await shellColumn(page, 'chat').innerText()
+      // Everything except that one placeholder is already clean, so a new leak
+      // anywhere else in the column turns this red.
+      expect(remaining.replace(LEAKED_PLACEHOLDER, '')).not.toMatch(/workspace/iu)
+      // The hero chip-and-picker row stays hidden in this state too: with no
+      // Workspace its chip would read the placeholder label, not a title.
+      await expect(page.locator('[class*="heroWorkspaceRow"]').isVisible()).resolves.toBe(false)
+    },
+    30_000,
   )
 
   it('leaves the console clean', () => {

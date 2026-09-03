@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-24-content-surface-router.md
-2026-08-24-content-surface-router.md: 84cfbd5f90be79f711fa55d40d9c0bd8b35ebccf
-2026-08-24-content-surface-router.zh.md: 7caefa10248641ed08d458a943fa449ebff34c4e
+2026-08-24-content-surface-router.md: 3b1a16a4a8d2c2e9538cda5e9baf938f4f0ab485
+2026-08-24-content-surface-router.zh.md: ed89df8bd59f611e551782a7c74307285ca055e0

@@ -1,17 +1,46 @@
+---
+description: "让 agent 拿到服务线外壳内容列的把手：一条覆盖单个目录的具名 webserver 路由、覆盖其配置页面的 content_show 工具、记录每一列正在展示什么的投影，以及为每个会话保持一个活帧的浏览器半边；面向发布自有页面的部署方与这条路径的维护者。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-content-frame
 
 [English](README.md) | 中文
+
+## 概述
 
 服务形态外壳 content 栏的 `page` 类型，也是控制这一栏的两条通路：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，由一个铺满该栏的 iframe 呈现——栏里放部署方配置的哪一个页面，既可以由 agent 通过 `content_show` 工具决定，也可以由用户直接在侧边栏的页面导航菜单（`@deepseek-ai/dsh-experimental-server-sidebar`）里点选，后者会执行 `show-content-page` 命令。里面的应用由运行 harness 的人自己编写和部署；本包既不构建它，也不关心它用什么框架。
 
 七块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`show-content-page` 把同一份页面清单交给执行命令的 UI，并在用户选定时追加同一个事件。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。部署方开启后，`content_read` 让 agent 把那个 frame 里的页面读成一份带编号的结构。
 
+## 目录
+
+- [信任边界](#trust-boundary)
+- [提供文件](#serving-the-application)
+- [谁把页面放上台面](#who-put-a-page-on-display)
+- [agent 可展示的页面](#pages-the-agent-may-show)
+- [每个（会话，页面）各一个活着的 frame](#one-live-frame-per-session-and-page)
+- [读取 agent 放进去的那个页面](#reading-the-page-the-agent-put-there)
+- [在用户正看着的页面上动手](#acting-on-the-page-the-user-is-looking-at)
+- [读取 frame 里的页面](#reading-the-page-in-the-frame)
+- [agent 对这一栏知道些什么](#what-the-agent-knows-about-the-column)
+- [读一个还没画完的页面](#reading-a-page-that-has-not-finished-drawing-itself)
+- [在聊天记录里隐藏 `show-content-page` 命令](#hiding-the-show-content-page-command-from-the-chat-transcript)
+- [组合方式](#composition)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="trust-boundary"></a>
 ## 信任边界
 
 **被托管的页面拥有与外壳相同的权限。** 它们由 dsh 同源提供，且 iframe 不带 `sandbox` 属性，这使每个文档都与外壳同源：它可以直接调用 dsh HTTP API——会话、工具、设置，浏览器能触及的一切——无需任何额外授权。因此 `root` 必须指向一个「与 harness 本身同等可信」的目录。
 
 这是设计本意而非疏漏。content 栏里的第一方应用本就应当与 harness 对话，而 opaque origin 做不到：API 的 Origin 校验会拒绝 `null`，所以不带 `allow-same-origin` 的 `sandbox` 会让这个 frame 什么都做不了，带上它则等于什么都没限制。要托管**不该**拥有这份权限的内容——agent 生成的页面、第三方产物、用户随手投放的东西——需要另一个带沙箱的插件，而不是本包上的一个开关。
 
+<a id="serving-the-application"></a>
 ## 提供文件
 
 `root` 必填且无默认值：部署方托管哪个应用，正是本插件承担的全部决策。它必须是指向已存在目录的绝对路径；否则该行在加载时就失败，而不是提供一个空 frame。该路径经 `realpath` 解析一次，之后每个请求都对照这个解析结果校验。
@@ -27,12 +56,14 @@
 
 第二条 exact 路由 `/content-frame/settings` 把 browser 半边必须遵守的配置值提供给它：`cacheSize`、整份 `pages` 清单，以及部署方配置了页面读取时，读取器的预算与它工作所在的两道截止时间。它之所以存在，是因为 browser 半边根本收不到任何 cordis 配置：boot manifest 携带的是插件名，不是它们的 `config` 块。settings 文档不可达或不可用时，browser 那一行直接失败，而不是让这一栏跑在一个没人选过的上限上。页面清单也走这同一条路由而不是新开一条——侧边栏的页面导航菜单是这条路由的第二个读取方，它按约定（写死路由路径与 JSON 形状）而非导入本包来匹配这份数据，因为跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式。
 
+<a id="who-put-a-page-on-display"></a>
 ## 谁把页面放上台面
 
 `content/shown` 携带一个 `by: 'agent' | 'user'` 字段：`content_show`（模型的工具）写 `'agent'`，`show-content-page`（侧边栏菜单的命令）写 `'user'`。这个字段出现之前写下的日志两者都没有，任何读取方都把这种情况默认成 `'agent'`——那时候工具是唯一的写入者。两个写入者追加的是同一类型下完全相同的事件，因此用户点开的页面与模型选定的页面，在 `content-surface` 的流里占据同一条 entry（按页面 id 去重），在 `content` projection 里也是同一个值；用哪个既有 kind、哪个既有 projection 都不因写入者而变。
 
 `content` projection 刻意丢弃了 `by`——它回答的是「这一栏当前展示什么」，不需要区分写入者——而 `page` extractor 在其存储值与解析后的 payload 里都保留了它，留给以后想要展示这一区别的渲染器；目前的 frame 渲染器还没有这么做（见「已知限制」）。
 
+<a id="pages-the-agent-may-show"></a>
 ## agent 可展示的页面
 
 `pages` 是这一栏在部署里的全部词汇，且至少要有一项——`content_show` 存在的意义就是在其中挑选。每个页面声明 agent 传入的 `id`、用户读到的 `title`、以 agent 的语汇写成的 `description`（它会成为工具描述里的清单行），以及同源的 `url`。带协议或主机名的 URL 会让该行在加载时失败：这个 frame 携带外壳权限，因此只能寻址 dsh 同源地址。
@@ -41,16 +72,19 @@
 
 `homePage` 指定 `@deepseek-ai/dsh-experimental-server-sidebar` 的工作台第一次落到空稿时自动展示的页面。与 `defaultPage` 不同，这不是一个被动读取的 projection 值——侧栏会真的发起一次 `/show-content-page` 调用，因此这一栏确实会展示该页面，并留下通常那条 `content/shown` 日志记录。确切差异见本包 `Config` 类型的说明；侧栏包是这个字段唯一的消费者。
 
+<a id="one-live-frame-per-session-and-page"></a>
 ## 每个（会话，页面）各一个活着的 frame
 
 这一栏的 kind 槽是 `root` 作用域，且别的 kind 上台时这一栏仍保持本座位挂载，因此 browser 半边把每个被缓存的 frame 全部挂着，只显示当前那一个。用户回到某个页面时，它还是被离开时的样子——滚动位置、表单状态、文档持有的一切——因为那个元素从未被销毁；换页面、换成图表、换会话都一样。`cacheSize` 限定能存活多少个，按（会话，页面）组合计；超出后最久未展示的那个被丢弃，再次回来时重新加载。正在展示的 frame 永远不会是被丢弃的那个。
 
+<a id="reading-the-page-the-agent-put-there"></a>
 ## 读取 agent 放进去的那个页面
 
 `pageAccess` 把 `content_read` 交给 agent：一次调用把用户正在看的页面答成一份带编号的结构——容器、控件、标题与文本，每个控件都带一个像 `e12` 的 ref，后续调用可以指着它。结构进模型，数据不进：表格只报表头、规模和一行样例，只有当某次读取按 ref 点名这张表、或按文本匹配到某一行时才列行；密码框——无论是靠 type，还是靠页面把密码显示出来、并在 `autocomplete` 里说明的那种文本框——只报「它在那里」，从不报它装着什么；正在要求登录的页面回的是一句拒绝，而不是正文。
 
 **缺席即关闭，而缺席是默认。** 没有这个块就没有工具、没有路由、没有待办 projection、settings 文档里没有 `pageAccess` 字段、浏览器里也没有读取器——只展示页面的部署不必为一项没要过的能力付账。写成空对象即取全部默认值。八个字段——`claimTimeoutMs`、`readTimeoutMs`、`pinMs`、`settleQuietMs`、`outlineChars`、`actTimeoutMs`、`maxSteps`、`settleMaxMs`——文档在 `Config` 类型上；其中 `outlineChars` 决定一次读取花多少上下文，因为它就是渲染这份列表的字符预算。它有一道 1000 的下限，低于它会在加载时被拒：列表的第一行不管多长都会整行渲染，而低于这道下限时，一张普通表格的第一行就已经超过回报路由能收的量了。另有三道是上限而非下限，都在加载时拒：`settleQuietMs` 必须装得进 `readTimeoutMs` 的静默份额，因为一个预算容不下的静默窗口会让每一次读取都报「页面还在变」；`settleMaxMs` 必须不小于 `settleQuietMs`，而 `maxSteps` 个它加起来必须少于 `actTimeoutMs` 的四分之三——那是步骤自己那一份——因为每一步都可能等满这个上限的部署，就是一次调用把整条截止都花在等页面静下来、永远到不了最后一步的部署；`maxSteps` 封顶 100，正是它把一次「跑了哪些步骤」的回报保持在回报路由允许的信封之内。
 
+<a id="acting-on-the-page-the-user-is-looking-at"></a>
 ## 在用户正看着的页面上动手
 
 同一个块把 `content_act` 交给 agent：一次调用最多带 `maxSteps` 步——`click`、`fill`、`select`、`press`、`wait`——按顺序跑在用户面前的那个页面上，首个失败即停。除 `wait` 外每一步都要两次点名它的元素：一次是某次读取给出的 `ref`，一次是那次读取印出的 `label`——那次读取没印出名字的行，则是它印在名字位置上的 `mark`；浏览器在动手之前先核对拿到的这一个，而且是用清单印它时的同一套算法算出来的——一个取名函数，读取每印一行调一次，浏览器每跑一步调一次，因为名字要是算两遍，凡是两者算不到一块儿的元素，点名它的每一步都会被拒。上次读取之后重绘过表格的页面，同样的 ref 指的已是别的行，这道核对正是让调用停下、而不是去按此刻占着那个位置的东西的原因。另有四种结局会让某一步停下：页面上已经没有的元素、页面已经不再显示的元素、被页面挡在用户面前的对话框后面的元素、以及页面已经禁用掉的元素。要用户登录的页面会让整次调用在第一步之前就停下，这与读取拒绝交出这种页面清单的是同一条规矩；跑完步骤之后才变成登录页的，收尾读取同样被扣下。
@@ -75,6 +109,7 @@
 
 读取这一半住在 page 座位里，因为只有这个位置持有 frame 元素。可见性与几何都向元素自己的 window 询问，而不是顶层的那个——frame 的布局属于那个 frame——并且不可见的标签页不认领任何调用，因为读取的定义就是「用户眼前的那个页面」。这样的标签页唯一不会停下的，是遗忘它放弃过的那些调用；隐身的座位若把这一步也跳过，丢掉的那次调用在它余下的生命里就再也认领不到了。
 
+<a id="reading-the-page-in-the-frame"></a>
 ## 读取 frame 里的页面
 
 `src/client/access/` 把 frame 里的文档读成带编号的结构——各个区域、各个控件、每张表的形状——交给看不见它的模型。它依据的规则、以及每条规则各自舍弃了什么，记在[阅读 Agent Note](../../../.agents/notes/implemented/feature/2026-09-02-content-snapshot-engine.zh.md) 里。里面没有任何一条挂在 class 名、组件库或命名习惯上：页面用 HTML 与 ARIA 说了什么就读什么；规范没有定义的部件——给表分页的分页条、说明「用户在哪儿」的面包屑——按页面把它们画成的那段文字打出来。
@@ -95,6 +130,7 @@
 - **字段的名字，是画在它前面的那个 `label`。** 表单不把标签绑到字段上时，字段由「在同时容纳两者的最小元素之内、画在它之前的最后一个 `label`」来命名，向外最远找到字段所在的那个区域为止；这个标签随后只印一次，作为字段的名字——写的是什么、有多长，都照印。只要有别的、读者能操作的东西横在两者之间，搜索就停下；页面自己的其他文字——公告、标题、说明——一律不作名字，各自照常印出自己那一行。
 - **页面要求填写的字段会说出来。** 只有页面用 `required` 或 `aria-required` 标过的字段，行尾才跟一个 `(required)`。表单换一种说法——用样式表在标签前面画一颗星——那是画在屏幕上的、不在任何属性里；哪些字段是必填的，属于「关于这张表单要懂的事」，不是能从文档里读出来的事。
 - **画成两半的选择器是一个字段。** 读者不能键入的框标 `(readonly)`；页面画在同一个元素之内、用来打开候选项的那个无名箭头，印在字段那一行上作为 `[e4 opens]`，而不是自己单独成行。
+<a id="what-the-agent-knows-about-the-column"></a>
 ## agent 对这一栏知道些什么
 
 这一栏由浏览器绘制，因此除非本包把它送过去，否则里面的任何东西都到不了模型。有三件事到得了，各走各的通路，选哪条取决于它变得有多勤。
@@ -107,6 +143,7 @@
 
 三者都是从该会话自己的日志折出来的——`contentSurface` 的 entry 流，以及本包的 `contentPages` 状态，后者记录每个页面是谁打开的、它的 frame 又去了哪里。`contentPages` 只在宿主：没有浏览器读它，因此它不带 `wire`。
 
+<a id="reading-a-page-that-has-not-finished-drawing-itself"></a>
 ## 读一个还没画完的页面
 
 触发过 `load` 的 frame 并不等于画完了的页面：单页应用会取数、绘制、再重绘，要多久有多久，而落在这中间的一次读取，读到的是用户从未见过的那个页面。所以一次读取会等：在加载等待之后、遍历之前，对 frame 的文档挂一个 `MutationObserver`，只要文档静止满 `settleQuietMs` 就立刻作答，到 `readTimeoutMs × 0.25` 就放弃。回报截止时间的这两份份额——一半给还在加载的页面，四分之一给还在绘制的页面——把剩下的留给遍历与回程。
@@ -115,12 +152,14 @@
 
 `content/navigated` 不等：地址一变，frame 一沉降就报，等这个地址背后的页面画完是「读它」的事。ref 的失效由引擎按自己的规则处理——frame 加载新文档时 ref 表被重置，元素已离开文档的 ref 解析为空，过期的 `scope` 或 `after` 会被拒绝并告诉模型重新读一次。
 
+<a id="hiding-the-show-content-page-command-from-the-chat-transcript"></a>
 ## 在聊天记录里隐藏 `show-content-page` 命令
 
 用户点一次页面就是一次命令调用，每条命令都会在日志上留下一对 `command/run`/`command/done`——侧栏菜单和一切回放都依赖这条持久记录。放任不管的话，`dsh-client-ui-conversation` 的聊天视图会把这一对渲染成一条普通的命令行（"Now showing `<title>` in the content column."）：对 agent 自己发出的命令这条信息有意义，对用户刚点出来的这次点击却是多余的。browser 半边在 `conversation.chat.commandview` 这个每条命令行都要经过的 keyed 槽的 `show-content-page` 键位上注册一个空组件，让这一行的业务内容永不出现。
 
 一个空组件仍然会在聊天列里留下一个零高度的 flex 项，而列的 `gap: 16px` 不管高度多少都会为它留一份间距。browser 半边因此还注入了一条 CSS 规则，把这一整行折叠掉（`[data-chat-flow-kind="command"]:has([data-slot="conversation.chat.commandview"]:empty)`），它耦合了两个本包并不拥有的 DOM 结构——`dsh-client-ui-conversation` 的 `data-chat-flow-kind` 属性和 `dsh-client-ui-renderer` 的 `data-slot` 锚点包装——见 Known Limitations。
 
+<a id="composition"></a>
 ## 组合方式
 
 本包与外壳都不属于任何出厂 bundle。`overlay/content-column.patch.yml` 把四者一并叠加到 Web 形态上——外壳替换 `ui-layout`，`content-surface` 把该会话已记录的事件折叠成 entry 流，`content-column` 占据外壳开出的那一栏，本行贡献 `page` 类型：
@@ -156,6 +195,7 @@
 
 工具、命令、各 projection 与 page extractor 都是可选子节点：没有 `ctx.tools`、`ctx.commands`、`ctx.sessionProjections` 或 `ctx.contentSurface` 的组合仍保留路由，只是这一栏里什么都不显示；任何一项缺席都不会让该行失败。
 
+<a id="model-experience"></a>
 ## Model Experience
 
 ### The `content_show` offer
@@ -309,6 +349,7 @@ The console claimed this call but did not report within 60s; the steps may have 
 
 只在对话末尾追加，因此不会让已缓存的任何内容失效。
 
+<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
 
 - **`content/navigated` 与 `content/shown` 一样，读取时必需** —— 两条事件都不带 `ignorable` 标记，因为今天的 `Session.append` 没有办法设置它；会话词汇表里没有本包的运行时会拒绝整份日志，而不是跳过这两条。
@@ -344,3 +385,13 @@ The console claimed this call but did not report within 60s; the steps may have 
 - **一次读取携带结构，绝不携带数据** —— 没有任何模式会返回一张表的内容，本包也不打算加：列表是模型指着页面所需要的东西，它背后的数据属于产出它的那一方。
 - **jsdom 顶替不了真实 frame** —— 它没有布局，也永远不会加载指向真实路由的 frame，因此本包自己的测试读的是手工挂载的文档，真实路径只由浏览器车道覆盖。
 - **空命令行的 CSS 折叠是 DOM 结构耦合，不是契约** —— 它依赖 `dsh-client-ui-conversation` 的 `data-chat-flow-kind` 属性和 `dsh-client-ui-renderer` 的 `data-slot` 锚点包装，两者都不是本包拥有、也不是对方承诺维持的结构。任一形状将来发生变化都会悄悄解除这次折叠（该行连同它的 16px 间距一起重新出现），而不是显式报错；`server-sidebar.e2e.ts` 里断言该行始终不可见的场景是这个耦合唯一的绊线。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

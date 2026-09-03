@@ -35,12 +35,13 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, ConsoleMessage, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import type { Agent } from '@deepseek-ai/dsh-agent'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
 const SHELL_PACKAGE = '@deepseek-ai/dsh-experimental-server-layout'
 const SHELL_DIR = join(REPO_ROOT, 'packages/experimental/server-layout')
 const OVERLAY = join(SHELL_DIR, 'overlay/three-column.patch.yml')
@@ -59,8 +60,8 @@ const TOLERANCE = 0.02
 
 /** English copy of this shell's dictionary; the page advertises en-US. */
 const PLACEHOLDER_TITLE = 'Content column is empty'
-/** The composer's own English placeholder — the chat column's landmark. */
-const COMPOSER_PLACEHOLDER = 'Message the agent'
+/** The composer's own stable attribute — the chat column's landmark. */
+const COMPOSER = '[data-composer-input]'
 
 /**
  * Prepare a harness home whose profile fallback resolves every named
@@ -94,6 +95,28 @@ async function expectInsideColumn(target: Locator, name: string, page: Page): Pr
   expect(inner.right).toBeLessThanOrEqual(outer.right + 1)
 }
 
+/**
+ * The Host agent for a session the browser has just opened. Opening is a round
+ * trip: the composer `openFirstSession` waits on renders from the client's own
+ * list entry, ahead of the Host registering the agent, so this polls the
+ * registry instead of reading it once (`expect.poll` is unavailable in a
+ * `beforeAll`).
+ * @param scaffold - the running Web scaffold.
+ * @param sessionId - the opened session's id.
+ * @returns the live agent.
+ */
+async function liveAgent(scaffold: WebScaffold, sessionId: string): Promise<Agent> {
+  const deadline = Date.now() + 15_000
+  for (;;) {
+    const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+    if (agent !== undefined) return agent
+    if (Date.now() > deadline) {
+      throw new Error(`server-layout content e2e: no live agent for the seeded session ${sessionId}`)
+    }
+    await new Promise(resolve => setTimeout(resolve, 100))
+  }
+}
+
 /** Open the workspace tree's first session row and wait for its composer. */
 async function openFirstSession(page: Page): Promise<void> {
   // The workspace group row precedes its sessions; expanding it lists them.
@@ -101,7 +124,7 @@ async function openFirstSession(page: Page): Promise<void> {
   const row = page.locator('[role="treeitem"]').nth(1)
   await row.waitFor({ timeout: 15_000 })
   await row.click()
-  await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
 }
 
 describe.skipIf(MODE === 'record')('web e2e: service-line three-column shell', () => {
@@ -123,7 +146,7 @@ describe.skipIf(MODE === 'record')('web e2e: service-line three-column shell', (
     page.on('console', (message: ConsoleMessage) => {
       if (message.type() === 'error') consoleErrors.push(message.text())
     })
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await column(page, 'content').waitFor({ state: 'attached', timeout: 30_000 })
     await openFirstSession(page)
   }, 180_000)
@@ -171,7 +194,7 @@ describe.skipIf(MODE === 'record')('web e2e: service-line three-column shell', (
   it('keeps the session list in the left column and the composer in the right one', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-layout-occupants'))
     await expectInsideColumn(page.locator('[role="treeitem"]').first(), 'session', page)
-    await expectInsideColumn(page.getByPlaceholder(COMPOSER_PLACEHOLDER), 'chat', page)
+    await expectInsideColumn(page.locator(COMPOSER).first(), 'chat', page)
   }, 90_000)
 
   it('keeps its own empty-state body mounted in the unclaimed content column even though the column itself is collapsed', async () => {
@@ -215,7 +238,7 @@ describe.skipIf(MODE === 'record')('web e2e: service-line shell with a populated
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await column(page, 'content').waitFor({ state: 'attached', timeout: 30_000 })
     await openFirstSession(page)
 
@@ -227,8 +250,7 @@ describe.skipIf(MODE === 'record')('web e2e: service-line shell with a populated
     // compilation knows (content-frame's `SessionEventMap` merge is not
     // importable from apps/web), so the call is widened past `append`'s
     // typed overload rather than trusted from an imported type.
-    const agent = scaffold.ctx.agents.get(SessionId(CONTENT_SESSION))
-    if (agent === undefined) throw new Error('server-layout content e2e: no live agent for the seeded session')
+    const agent = await liveAgent(scaffold, CONTENT_SESSION)
     // Widened as a method call, not a detached function: `append` reads `this`.
     const session = agent.session as unknown as { append: (type: string, data: unknown) => number }
     session.append('content/shown', { page: 'home', by: 'agent' })

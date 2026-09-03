@@ -18,13 +18,7 @@
       "path": "../../../vendor/schemastery"
     },
     {
-      "path": "../../client/runtime"
-    },
-    {
       "path": "../../host/webserver"
-    },
-    {
-      "path": "../../runtime-diagnostics/invariants"
     }
   ]
 }

@@ -7,7 +7,8 @@
  * are composed together.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/workflow-actions
  */
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { resolveOrCreateSession } from './session-resolution.ts'
 import { replayNavSnapshot } from './open-page.ts'
 import type { ServerMenuWorkflow } from './workflow-api.ts'

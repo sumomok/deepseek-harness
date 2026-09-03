@@ -1,17 +1,39 @@
+---
+description: "Host half of the content surface: extractors turn logged session events into one per-session stream of typed content entries, published as the contentSurface projection; for maintainers registering an extractor or reading the stream."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-content-surface
 
 English | [中文](README.zh.md)
+
+## Summary
 
 The service-line shell opens one content column, and more than one package wants it. This row turns that single seat into a router: host plugins register **extractors** that recognize their own already-logged events, and this row folds them into one per-session stream of typed **entries**. Drawing them is [`content-column`](../content-column/README.md)'s job — the two halves are separate packages because a Cordis service and a browser plugin cannot share one Typert face.
 
 Almost nothing here is a new fact. Every entry is derived from something another package already writes to the session log — `content/shown` for a page, a `show_chart` call for a chart — so the column is reconstructable from the log alone. The one exception this row owns directly is dismissal: closing an entry's tab is not a fact any other package's log carries, so this package appends `content-surface/dismissed` itself (see "Dismissing an entry" below).
 
+## Table of Contents
+
+- [The entry stream](#the-entry-stream)
+- [`ContentSurfaceRegistry` (ctx key: `contentSurface`)](#contentsurfaceregistry-ctx-key-contentsurface)
+- [Dismissing an entry](#dismissing-an-entry)
+- [Which entry is in front](#which-entry-is-in-front)
+- [Composition](#composition)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="the-entry-stream"></a>
 ## The entry stream
 
 An entry is `{ kind, entryId, seq, title, payload }`. `kind` names the extractor that produced it and the client slot key that draws it; `entryId` is its identity **within** that kind, and a later record naming the same pair replaces the earlier one rather than adding a second row. That is what makes a redrawn chart and a re-shown page one entry each. The published value lists the live entries newest first and names which one is in `front`, so `entries[0]` is what the column shows until the user picks something else (see "Which entry is in front" below).
 
 The [subsystem page](../../../docs/subsystems/content-surface.md) carries the literal `ContentSurfaceExtractor`, `ContentSurfaceRecord`, and `ContentSurfaceEntry` declarations.
 
+<a id="contentsurfaceregistry-ctx-key-contentsurface"></a>
 ## `ContentSurfaceRegistry` (ctx key: `contentSurface`)
 
 `ctx.contentSurface.register(extractor): () => void` takes one kind's whole contribution and returns the disposer (an effect on the calling fiber, so a row that unloads takes its kind with it):
@@ -31,6 +53,7 @@ So this registry registers a **new** unit for every table change. The projection
 
 The one cost is push latency. The registry publishes a changed value only while driving an event, so a browser already connected when a kind row is hot-loaded reads the previous stream until that session's next event. Boot-time composition never hits this; HMR does.
 
+<a id="dismissing-an-entry"></a>
 ## Dismissing an entry
 
 The switcher strip's close button executes `/dismiss-content-entry <kind> <entryId>` against the current session, through `ctx.commands.execute` — the same command seam every other user-triggered write in this router's neighborhood uses (`content-frame`'s `show-content-page`). The handler splits its raw input on the first space (`kind` values never carry whitespace; `entryId` keeps everything after that space, whole) and appends `content-surface/dismissed` with `by: 'user'`.
@@ -43,6 +66,7 @@ A dismissal is also the one thing this row tells the agent about. After the appe
 
 Content-column hides this command's own chat echo the same way [`content-frame`](../content-frame/README.md) hides `show-content-page`'s: the durable record is the point, not a chat message narrating a click the user just made.
 
+<a id="which-entry-is-in-front"></a>
 ## Which entry is in front
 
 The column shows one entry, and which one is a decision the log carries. The switcher's tab buttons execute `/select-content-entry <kind> <entryId>`, which appends `content-surface/selected` with `by: 'user'`; the fold keeps the latest such selection beside the records and publishes the result as the stream's `front`.
@@ -53,6 +77,7 @@ Unlike dismissal, a selection injects no notice. Closing a tab is the user putti
 
 Neither `content-surface/selected` nor `content-surface/dismissed` is `ignorable` — `Session.append` has no way to set that marker today — so a runtime whose vocabulary excludes this package refuses the log rather than silently showing the wrong tab. Adding the selection bumped `FOLD_SEMANTICS_VERSION` to `3`, for both reasons a bump exists: the fold gained a case, and its stored state changed from a bare record list to `{ records, selected }`.
 
+<a id="composition"></a>
 ## Composition
 
 Neither this package nor the shell is part of any shipped bundle. [`overlay/full-surface.patch.yml`](overlay/full-surface.patch.yml) composes the everything demo — the shell, both halves of the surface, [`content-frame`](../content-frame/README.md)'s `page` kind over a hosted application, and [`vue2-echarts-tool-poc`](../vue2-echarts-tool-poc/README.md)'s `chart` kind:
@@ -84,6 +109,7 @@ Neither this package nor the shell is part of any shipped bundle. [`overlay/full
 
 Both children are optional. An assembly without `ctx.sessionProjections` keeps the extractor table, publishes nothing, and the column shows its empty state; an assembly without `ctx.systemPrompt` keeps the table and contributes no guidance. Neither is a precondition for the other, and the row is composed the same way either way.
 
+<a id="model-experience"></a>
 ## Model Experience
 
 ### System prompt: working with content already on display
@@ -106,7 +132,7 @@ About 70 words of static text, carried in every request of every turn of every a
 
 #### KV Cache effect
 
-Prefix-stable: the text is static and orders after every section registered today, so the assembled prompt gains a constant tail and the prefix ahead of it is untouched. Loading or unloading this row changes the prompt and invalidates reuse from that tail; a section registered at an order above `200` would push this one earlier and invalidate reuse from wherever it lands.
+Prefix-stable: the text is static and its position is fixed by its order, so the assembled prompt gains a constant block and the prefix ahead of it is untouched. Sections do order after it — `dsh-client-ui-deliverables` registers at `DELIVERABLE_FILE_REFERENCES`, far above `200` — and each of those is likewise static, so the tail stays constant too. Loading or unloading this row changes the prompt and invalidates reuse from this block onward.
 
 ### The notice a closed tab injects
 
@@ -122,6 +148,7 @@ One short sentence per closed tab, permanently on the conversation. A session wh
 
 Append-only, at the tail of the conversation, so it invalidates nothing already cached.
 
+<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
 
 - **A kind may store a whole document** — the fold keeps one record per live entry, but that record holds whatever the extractor put in `data`, and the `chart` kind puts the option there. A session with many live charts carries them all in the projection state, the wire value, and the persisted checkpoint.
@@ -134,3 +161,13 @@ Append-only, at the tail of the conversation, so it invalidates nothing already 
 - **A dismissal is never validated against the live stream** — the command appends `content-surface/dismissed` for whatever `(kind, entryId)` its input names, without checking that an entry so identified currently exists. That is a deliberate design choice (see "Dismissing an entry" above), not an oversight, but it also means a malformed client could dismiss a pair that never existed with no error surfaced anywhere.
 - **Split from its browser half by the toolchain** — a package whose host entry declares a Cordis service and whose `src/client` reaches the client runtime puts both faces' Context merges in one Typert program, which fails the generator on a duplicated key. Keeping the service here and the column in [`content-column`](../content-column/README.md) is what avoids that; the two are composed together and neither is useful alone.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

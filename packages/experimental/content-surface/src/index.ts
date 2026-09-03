@@ -59,8 +59,10 @@ export type {
  * Prompt order of the on-display rule. It sits past the `100–199` tool-guidance
  * band because it is read against whatever each tool just said about its own
  * arguments: the rule tells the model WHEN to reuse an identity, and each tool
- * schema owns what that identity is called. Nothing registers a later section
- * today, so this is the last thing the assembled prompt says.
+ * schema owns what that identity is called. Shipped sections register past it
+ * (`dsh-client-ui-deliverables` at `DELIVERABLE_FILE_REFERENCES`), so this is
+ * not the end of the assembled prompt; only its position relative to the tool
+ * band carries meaning.
  */
 const ON_DISPLAY_SECTION_ORDER = 200
 

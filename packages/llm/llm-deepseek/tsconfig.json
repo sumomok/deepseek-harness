@@ -24,6 +24,12 @@
       "path": "../../attachment/attachment"
     },
     {
+      "path": "../../attachment/attachment-spill"
+    },
+    {
+      "path": "../../fs/fs"
+    },
+    {
       "path": "../../util/atomic-write"
     },
     {
@@ -36,13 +42,13 @@
       "path": "../../credentials/credentials"
     },
     {
+      "path": "../deepseek-llm-api-extensions"
+    },
+    {
       "path": "../../util/launch-environment"
     },
     {
       "path": "../../settings/settings"
-    },
-    {
-      "path": "../../runtime-diagnostics/invariants"
     },
     {
       "path": "../../util/timeout"

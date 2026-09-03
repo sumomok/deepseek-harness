@@ -31,6 +31,10 @@ afterEach(() => {
   vi.unstubAllEnvs()
 })
 
+/** No Session has a pending interaction in these fixtures. */
+const noPendingInteraction: ServerSidebarRootComponentProps['useSessionPendingInteraction'] =
+  selector => selector(new Map())
+
 interface Bench {
   workflows: ServerMenuWorkflow[]
   workbenchSessionId: string | undefined
@@ -40,9 +44,9 @@ interface Bench {
   phase: 'pending' | 'ready'
   /**
    * Defaults to an available Workspace, so pre-existing scenarios keep
-   * auto-opening immediately (see workbenchIsLive/recentWorkspaceId gating).
+   * auto-opening immediately (see workbenchIsLive/hasWorkspace gating).
    */
-  recentWorkspaceId: string | undefined
+  hasWorkspace: boolean
 }
 
 function mount(overrides: Partial<Bench> = {}) {
@@ -58,7 +62,7 @@ function mount(overrides: Partial<Bench> = {}) {
     current: undefined,
     byId: {},
     phase: 'ready',
-    recentWorkspaceId: 'workspace-1',
+    hasWorkspace: true,
     ...overrides,
   }
   const root = () => (
@@ -74,9 +78,10 @@ function mount(overrides: Partial<Bench> = {}) {
       ): S => sel({ workflows: current.workflows, workbenchSessionId: current.workbenchSessionId, error: current.workflowsError }))}
       actions={{ setServerMenu: vi.fn(), setError: vi.fn() }}
       useSessions={((<S,>(sel: (s: Bench) => S): S => sel(current)) as unknown) as ServerSidebarRootComponentProps['useSessions']}
-      useWorkspaces={((<S,>(sel: (s: { recentWorkspaceId: string | undefined }) => S): S => (
-        sel({ recentWorkspaceId: current.recentWorkspaceId })
+      useWorkspaces={((<S,>(sel: (s: { phase: 'ready'; items: readonly object[] }) => S): S => (
+        sel({ phase: 'ready', items: current.hasWorkspace ? [{}] : [] })
       )) as unknown) as ServerSidebarRootComponentProps['useWorkspaces']}
+      useSessionPendingInteraction={noPendingInteraction}
       renderSlot={((
         key: string,
         _owner: unknown,
@@ -174,23 +179,23 @@ describe('ServerSidebarRoot', () => {
         current: undefined,
         workbenchSessionId: 'home-1',
         byId: { 'home-1': { displayTitle: 'Home' } },
-        recentWorkspaceId: undefined,
+        hasWorkspace: false,
       })
       expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledWith('home-1', true)
     })
 
     it('withholds the attempt while no live session and no Workspace are available, firing once one appears', () => {
-      const b = mount({ phase: 'ready', current: undefined, recentWorkspaceId: undefined })
+      const b = mount({ phase: 'ready', current: undefined, hasWorkspace: false })
       expect(b.onOpenWorkbenchOnLoad).not.toHaveBeenCalled()
-      b.rerender({ recentWorkspaceId: 'workspace-1' })
+      b.rerender({ hasWorkspace: true })
       expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledTimes(1)
       expect(b.onOpenWorkbenchOnLoad).toHaveBeenCalledWith(undefined, false)
     })
 
     it('never fires once current gets a value, even if a Workspace later appears', () => {
-      const b = mount({ phase: 'ready', current: undefined, recentWorkspaceId: undefined })
+      const b = mount({ phase: 'ready', current: undefined, hasWorkspace: false })
       b.rerender({ current: 'elsewhere' })
-      b.rerender({ recentWorkspaceId: 'workspace-1' })
+      b.rerender({ hasWorkspace: true })
       expect(b.onOpenWorkbenchOnLoad).not.toHaveBeenCalled()
     })
   })

@@ -16,7 +16,8 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import { useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
-import type { SessionId, SessionListState } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { ShellFrame, type ShellFrameProps } from '../src/client/ShellFrame.tsx'
 import { createPanelStore } from '../src/client/stores.ts'
 import { CHAT_UNITS, CONTENT_UNITS, SESSION_RAIL, SESSION_UNITS, solveTracks } from '../src/client/tracks.ts'
@@ -96,13 +97,16 @@ function mountFrame(occupied: readonly string[] = [], contentEntries: ContentFix
     calls.push({ key, owner })
     return occupied.includes(key) ? <div data-testid={`${key}-occupant`} /> : opts?.fallback ?? null
   }
-  // The frame reads five of its seats; the rest of the composed share is
+  // The frame reads six of its seats; the rest of the composed share is
   // framework-supplied and never touched, so the bench supplies only these.
+  // The renderer injects `SessionProvider`; this bench renders its children
+  // straight through, because no assertion here turns on the scope binding.
   const props = {
     useStore: hookOf(instance),
     useSessions: useSessionsStub(contentEntries),
     actions: instance.actions,
     renderSlot,
+    SessionProvider: ({ children }: { children?: ReactNode }) => <>{children}</>,
     t: makeTranslate(zh),
   } as unknown as ShellFrameProps
   const view = render(<ShellFrame {...props} />)

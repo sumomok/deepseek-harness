@@ -10,7 +10,7 @@
  * ordinary bundle rows a customer overlay disables outright (see the package
  * README's Composition section and `overlay/customer.patch.yml`).
  *
- * The turns/steps stats row (`dsh-client-ui-conversation`'s `StatsLine`,
+ * The turns/steps stats row (`dsh-client-ui-chat`'s `StatsLine`,
  * mounted on the composer's `conversation.composer.dock` list) has neither: no
  * Config flag gates it, and it carries no stable `data-*` attribute of its
  * own. The nearest stable anchor is the composer card's own
@@ -19,9 +19,11 @@
  * one: a future `ui-conversation` change that inserts another sibling between
  * the card and the stats row, or that stops rendering the stats footer as a
  * sibling at all, silently breaks this hide without a compile-time signal.
- * The package README records this fragility, and an e2e scenario pins "this
- * row renders invisible under the customer composition" so a broken selector
- * turns the gate red instead of shipping the banned vocabulary silently.
+ * The package README records this fragility, and an e2e scenario pins that the
+ * row is present AND renders nothing, so a broken selector turns the gate red
+ * instead of shipping the banned vocabulary silently. Both halves are the
+ * assertion: an element that stopped matching is also an element that is not
+ * visible, so invisibility alone would pass on the very failure it guards.
  *
  * The hero-phase rules below carry the identical class-substring coupling
  * for the same reason: `dsh-client-ui-conversation`'s
@@ -48,14 +50,18 @@
  *   Limitations for this residual gap).
  * - `heroWorkspaceRow` (`ConversationRoot.module.css`) hides the whole
  *   workspace-chip-plus-picker row outright, not scoped to `[data-phase='hero']`:
- *   `ConversationRoot.tsx` only ever mounts it during the hero phase, and with
- *   `ui-workspace` disabled (see the package README) the row's own
- *   `WorkspaceChip` is a dead control — clicking it opens a picker menu no
- *   plugin fills. `conversation.hero.agentPreset`, the row's other seat, is
- *   emptied at the composition level instead (`ui-agent-preset` disabled
- *   outright — see `overlay/customer.patch.yml`), not by this CSS: disabling
- *   the whole package also removes its session-header preset label and its
- *   Settings row, which this hero-only rule could not reach.
+ *   `ConversationRoot.tsx` only ever mounts it during the hero phase. This is
+ *   the ONLY thing keeping workspace vocabulary off the page — `ui-workspace`
+ *   is composed (`dsh-client-ui-conversation` requires its `uiWorkspace`
+ *   service; see the package README), so the chip carries a real Workspace
+ *   title and its picker menu is live. A row this rule stopped matching would
+ *   put both back on screen, which is why an e2e scenario asserts the row is
+ *   present and renders nothing, rather than trusting the selector.
+ *   `conversation.hero.agentPreset`, the row's other seat, is emptied at the
+ *   composition level instead (`ui-agent-preset` disabled outright — see
+ *   `overlay/customer.patch.yml`), not by this CSS: disabling the whole
+ *   package also removes its session-header preset label and its Settings
+ *   row, which this hero-only rule could not reach.
  *
  * This plugin is unconditional (see its own module doc on why): this package
  * now exists solely for the customer/service-line product experience, not as

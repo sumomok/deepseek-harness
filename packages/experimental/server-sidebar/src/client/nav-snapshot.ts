@@ -19,7 +19,7 @@
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/nav-snapshot
  */
 import type {} from '@deepseek-ai/dsh-experimental-content-surface/types'
-import type { SessionProjectionMap } from '@deepseek-ai/dsh-client-runtime/client'
+import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 
 /** Literal copy of content-frame's `PAGE_KIND` (see the module doc for why). */
 const PAGE_KIND = 'page'

@@ -1,18 +1,43 @@
+---
+description: "The product console sidebar: replaces ui-sidebar through a patch overlay with a fixed workbench/navigation/workflows console, adds a session-header save-as-workflow action, and carries the de-terminology layer a customer-form page needs; for deployments composing the customer/service-line experience."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-server-sidebar
 
 English | [中文](README.zh.md)
+
+## Summary
 
 A fixed-width product-console sidebar: a drop-in replacement for the shipped [`dsh-client-ui-sidebar`](../../client/ui-sidebar/README.md) that removes session/workspace browsing entirely and replaces it with three sections — 工作台 (workbench, one persistent default conversation), 导航 (navigation, `@deepseek-ai/dsh-experimental-content-frame`'s configured pages), and 我的工作流 (my workflows, a user's own named shortcuts back to conversations they taught the agent something in). It replaces ui-sidebar in a composition rather than sitting beside it, because `sidebar` is a single slot and its child slots may be declared only once.
 
 This package targets a "customer form" composition: an end customer using the product never needs to know a conversation is a durable, resumable object with a Workspace behind it. Every session/workspace management step (creating one, reconnecting one, choosing which one is "current") happens inside this package's own actions; the vocabulary itself — 会话/session, 工作区/workspace — is banned from every string this package's own dictionaries carry, and the composition disables the shipped controls that would otherwise leak it (see De-terminology below).
 
+## Table of Contents
+
+- [Replacing the shipped sidebar](#replacing-the-shipped-sidebar)
+- [Workbench](#workbench)
+- [Navigation](#navigation)
+- [My Workflows](#my-workflows)
+- [Selection highlight](#selection-highlight)
+- [De-terminology](#de-terminology)
+- [Brand and hero facade](#brand-and-hero-facade)
+- [Composition](#composition)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="replacing-the-shipped-sidebar"></a>
 ## Replacing the shipped sidebar
 
-- **Four child slots survive** — `sidebar.brand.mark`, `sidebar.brand.name`, `sidebar.settings`, and `sidebar.footer.action` keep the kinds and scopes `dsh-client-ui-sidebar` declared, reused by type import rather than restated, so ui-settings's existing registration keeps working unchanged (a brand package filling either identity slot is disabled in the customer composition instead — see Brand and hero facade below). `sidebar.workspaces` is dropped outright: this shell has no session-browsing region for it to seat in. `ui-workspace`'s `sidebar.workspaces` registration goes through `ctx.slots.inject`, which is declaration-gated (it waits for a declaration and simply never fires without one — `SlotRegistry.inject`'s own contract) rather than a hard requirement, so composing `ui-workspace` unchanged would not throw at boot; it would just leave that half of it permanently inert. The customer composition still never composes `ui-workspace` (see Composition below), because its OTHER registration targets `conversation.hero.workspace` — a slot `dsh-client-ui-conversation` always declares — and would revive the hero-phase workspace-picker menu there.
+- **Four child slots survive** — `sidebar.brand.mark`, `sidebar.brand.name`, `sidebar.settings`, and `sidebar.footer.action` keep the kinds and scopes `dsh-client-ui-sidebar` declared, reused by type import rather than restated, so ui-settings's existing registration keeps working unchanged (a brand package filling either identity slot is disabled in the customer composition instead — see Brand and hero facade below). `sidebar.workspaces` is dropped outright: this shell has no session-browsing region for it to seat in. `ui-workspace`'s `sidebar.workspaces` registration goes through `ctx.slots.inject`, which is declaration-gated (it waits for a declaration and simply never fires without one — `SlotRegistry.inject`'s own contract) rather than a hard requirement, so `ui-workspace` composes with that half of it permanently inert. It is composed, not disabled: `dsh-client-ui-conversation` requires its `uiWorkspace` service, so disabling it would leave the whole conversation column and every sibling that depends on it unactivated. Its other registration — `conversation.hero.workspace`, a slot `dsh-client-ui-conversation` always declares — therefore does land, and the hero row carrying it is hidden by `terminology-guard.ts` instead (see Brand and hero facade below).
 - **The New Session button is gone.** There is no "start an ad-hoc conversation" affordance in this shell; every entry point (工作台, a 导航 page, a 我的工作流 row) resolves or creates its own session internally.
 - **The 56px collapse rail is gone.** This shell never calls a collapse action and always renders its full content regardless of the `collapsed` owner prop — see the Known Limitations entry on the residual coupling this leaves with the surrounding shell's own track geometry.
 - **The pointer-driven scrollbar behavior is unchanged** — the column's scrollbars draw while the pointer is inside it and for two seconds after it leaves, canceling a pending hide if the pointer returns, tracked geometrically rather than by DOM containment (so a portalled overlay that is a DOM descendant of the column, as ui-settings renders its panel, does not read as "the pointer left").
 
+<a id="workbench"></a>
 ## Workbench
 
 工作台 is the one persistent default conversation this shell lands on — but landing on it means something different depending on how you got there.
@@ -26,12 +51,14 @@ The load path's mount-time auto-open withholds its one-shot attempt rather than 
 
 **A configured home page auto-shows on a clean click, never on the load path.** When content-frame's `homePage` config names a page (see Navigation below), `onOpenWorkbench` executes `/show-content-page <homePage>` against the session `openWorkbenchOnClick` just resolved — the freshly created session on a create outcome, or the reused one on a reused-blank outcome — the instant after that resolution settles, so a new or blank-draft conversation opens onto a populated column instead of an empty one. This runs only from the click handler: the load path's own continuity semantics (resume exactly where a live session left off) would be broken by forcing a page onto a session that already carries different content, so `openWorkbenchOnLoad` never calls it. The auto-open command is an ordinary `show-content-page` invocation — it appends the same `content/shown` event and leaves the same durable log record a user's own click would, and does not itself count toward `SessionSummary.blank` (see `sessionBlank` in `dsh-host-apiproxy`), so a blank-draft session that only ever received its home page still reads as blank.
 
+<a id="navigation"></a>
 ## Navigation
 
 导航 lists `@deepseek-ai/dsh-experimental-content-frame`'s configured pages, read once from its `/content-frame/settings` route before this entry registers (a hardcoded route path and locally validated JSON shape, not an imported value or type — a cross-package value import is not this repository's sanctioned way to couple two client-adjacent plugins). Clicking a page executes content-frame's `show-content-page` command against the current session (creating one first when none is open, through the same resolution the workbench and every workflow action share — see `client/session-resolution.ts`), through `ctx.remote.commands.execute` — the same command seam a session log can replay, not a direct service call. The command's handler appends `content/shown` with `by: 'user'`. Navigation order follows deployment configuration order; it is never user-reordered (decision ⑤).
 
 The same response also carries content-frame's optional `homePage` field (`pages.ts`'s `readContentPages`), read once alongside the page list and consumed by the workbench's click handler above. A bad value is contained rather than thrown here: unlike the node-side `Config` validation, which fails the whole load, this browser-side read reports a non-string or unknown-page value with `console.warn` and treats `homePage` as absent — a load-bearing shell surface should not go down over one misconfigured field on an otherwise-working deployment.
 
+<a id="my-workflows"></a>
 ## My Workflows
 
 我的工作流 is a user's own named shortcuts, persisted per account (this deployment model's one-process-per-user shape — "per account" means "per `$DSH_HOME`"). One workflow binds exactly one conversation (v1 boundary; see Known Limitations): `{id, name, order, homeSessionId, navSnapshot, savedAt}`.
@@ -51,10 +78,12 @@ The durable document (`{workflows, workbenchSessionId}`) lives in this package's
 
 The browser cannot call `settings.*` RPC directly — it is a loopback-privileged method group a reverse proxy answers 403 for — so this package's node half is an optional child that registers the route only when both `ctx.settings` and `ctx.webServer` are composed; without them the sidebar itself still works (navigation is unaffected), just with nothing to show or persist under 我的工作流.
 
+<a id="selection-highlight"></a>
 ## Selection highlight
 
 Exactly one row marks the current session, favoring specificity: a workflow whose `homeSessionId` equals `useSessions(state => state.current)` draws the highlight; the workbench draws it only when the current session is its own `workbenchSessionId` **and** no workflow already binds that session — a workflow's binding always wins over the workbench, so a session named by both never lights up two rows at once. Each row carries a boolean `data-active` attribute; `ServerSidebarRoot.module.css` styles the workbench's active state with an inset brand-colored ring (`.workbench[data-active='true']`) and `SidebarGroups.module.css` styles a workflow row's with the same `--dsw-alias-interactive-bg-active` fill `dsh-client-ui-trajectory` already uses for its own selected-row state, keeping this package's palette to tokens already established elsewhere in the product.
 
+<a id="de-terminology"></a>
 ## De-terminology
 
 Decision ② bans 会话/新会话/session/workspace from every user-visible string this composition renders, on top of the whole-shell restructure above. Four more shipped surfaces name this vocabulary and are removed the same way ui-sidebar/ui-workspace are — by disabling the row in the customer overlay, never by patching the row's own copy:
@@ -68,17 +97,20 @@ Decision ② bans 会话/新会话/session/workspace from every user-visible str
 
 The turns/steps row has no official channel to remove, so this package falls back to a scoped CSS injection: a client-only effect (`terminology-guard.ts`) inserts `[data-composer-card] + * { display: none !important; }` into the document head. `data-composer-card` is the composer's own card wrapper (`InputBar.tsx`); its next sibling is the composer's footer/dock region, which in the shipped composition carries only `StatsLine` (`conversation.composer.dock`, order 0) — so this hides exactly the turns/steps row today, but it is a DOM-order-coupled selector, not a Config flag: a future plugin registering into `conversation.composer.dock`, or a DOM restructure of the composer's own markup, would silently change what this rule hides without either package's tests catching it from the other side. It is pinned by this package's own e2e scenario (`apps/web/tests/server-sidebar.e2e.ts`), which fails loud if the row becomes visible again.
 
+<a id="brand-and-hero-facade"></a>
 ## Brand and hero facade
 
 Two more surfaces carry DeepSeek's own product identity or internal-status copy rather than banned vocabulary, and are replaced or removed for the same customer-form reason as De-terminology above:
 
 - **Sidebar brand row.** `sidebar.brand.mark` renders with no fallback at all (previously a fish icon); `sidebar.brand.name`'s fallback is plain text — locale key `brand.name.fallback` ("工作台小助手" / "Workbench Assistant") — with no build-revision badge. `@deepseek-ai/dsh-client-ui-brand-official` (an official-build-only occupant of both slots, plus `conversation.hero.brand.mark`) is disabled outright in the customer overlay; this package's own `client/index.ts` also takes over `conversation.hero.brand.mark` at priority -1 (the slot's shadowing rank — ascending, lowest renders — with an empty component), so a deployment that forgets to disable `ui-brand-official` still gets this package's no-icon hero mark rather than the official one.
-- **Conversation hero chrome.** The blank-draft hero headline (`dsh-client-ui-conversation`'s `HeroShell`/`ConversationRoot`) carries a fish icon, a "PREVIEW" status pill, and a workspace-picker-plus-agent-preset row — none of it has a Config flag or a disable seat of its own, so `terminology-guard.ts` extends its CSS injection to also: hide the (now slot-empty) fish hitbox and the preview badge; collapse the headline text to `font-size: 0` and paint this package's own brand copy over it through a `::after` pseudo-element (the original headline text node stays in the DOM and the accessibility tree unchanged — see Known Limitations); and hide the workspace-picker row outright, which `ui-workspace` being disabled (see Composition below) already turns into a dead control (`WorkspaceChip` still renders, but nothing fills the menu it opens). `conversation.hero.agentPreset`, the same row's other seat, is emptied at the composition level instead: `ui-agent-preset` is disabled outright in both overlays, which also removes its read-only session-header preset label and its Settings row — surfaces this row's own CSS rule could not reach.
+- **Conversation hero chrome.** The blank-draft hero headline (`dsh-client-ui-conversation`'s `HeroShell`/`ConversationRoot`) carries a fish icon, a "PREVIEW" status pill, and a workspace-picker-plus-agent-preset row — none of it has a Config flag or a disable seat of its own, so `terminology-guard.ts` extends its CSS injection to also: hide the (now slot-empty) fish hitbox and the preview badge; collapse the headline text to `font-size: 0` and paint this package's own brand copy over it through a `::after` pseudo-element (the original headline text node stays in the DOM and the accessibility tree unchanged — see Known Limitations); and hide the workspace-picker row outright. That rule is load-bearing rather than belt-and-suspenders: `ui-workspace` is composed (see Composition below), so the chip carries a real Workspace title and opens a live picker menu — hiding the row is the only thing keeping both off a customer-form page, which is why an e2e scenario asserts the row is present **and** renders nothing, instead of trusting the selector: an element that stopped matching the rule is also an element that is not visible, so an invisibility assertion alone would pass on the one failure it exists to catch. `conversation.hero.agentPreset`, the same row's other seat, is emptied at the composition level instead: `ui-agent-preset` is disabled outright in the customer overlay, which also removes its read-only session-header preset label and its Settings row — surfaces this row's own CSS rule could not reach.
 
+<a id="composition"></a>
 ## Composition
 
-The plugin is not part of any shipped bundle. `overlay/customer.patch.yml` is the full customer-form overlay: it disables `ui-layout`, `ui-sidebar`, `ui-workspace`, `ui-agent-preset`, `ui-brand-official`, `ui-cordis`, `ui-trajectory`, `ui-model-selection`, and `session-log-download`, and inserts `server-layout`, `content-surface`, `content-column`, and this package. It does not insert `content-frame` — the deployment's own page catalog is composed separately, alongside it. Apply it with `dsh --profile <name> --patch <path>`; the package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile <name> add <path>` or an equivalent link — release bundles must not declare an experimental package.
+The plugin is not part of any shipped bundle. `overlay/customer.patch.yml` is the full customer-form overlay: it disables `ui-layout`, `ui-sidebar`, `ui-agent-preset`, `ui-brand-official`, `ui-cordis`, `ui-trajectory`, `ui-model-selection`, and `session-log-download`, and inserts `server-layout`, `content-surface`, `content-column`, and this package. It also reconfigures one shipped row rather than disabling it: the `permission` row's preset table is restated with customer-facing names, because the shipped `workspace-write` name is what the composer's access chip, the `/permission` popup, and the Settings default row all display. Both client surfaces fall back to a host-supplied name verbatim whenever it differs from the built-in default, so renaming the table there replaces the word on every surface at once. It does not insert `content-frame` — the deployment's own page catalog is composed separately, alongside it. Apply it with `dsh --profile <name> --patch <path>`; the package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile <name> add <path>` or an equivalent link — release bundles must not declare an experimental package.
 
+<a id="model-experience"></a>
 ## Model Experience
 
 None, as this package manages browser viewing state and a user-driven workflow document; the commands it executes run outside any model turn and reach no model request.
@@ -89,13 +121,26 @@ None; this package neither assembles nor sends a provider request.
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **Literal 240px is not independently enforced.** This shell never fixes an inline pixel width; it renders at whatever `width` its owner (`dsh-experimental-server-layout`) hands it, and never toggles collapse. `server-layout`'s frozen 3:16:5 track ratio happens to equal exactly 240px at its own 1920px reference frame width (`1920 * 3/24 = 240`), but at any other frame width the column is proportional, not fixed. Making it literally fixed would require changing `server-layout`'s own frozen, deliberately non-configurable geometry, which is out of this change's scope.
 - **Decision ③'s user-message check is a paged-window approximation.** Visibility of "存为工作流" reads `useSession(s => s.chat.legacy.nodes)`, the same paged conversation-snapshot window `StatsLine.tsx` reads from — a user message far enough back to have paged out of the window would not be found. A whole-log check would need a durable projection this v1 does not add.
 - **The turns/steps status row is hidden by a DOM-order-coupled CSS selector, not a Config flag.** See De-terminology above for the exact fragility and what pins it.
 - **`navSnapshot` never captures a chart-kind entry.** `captureNavSnapshot` filters the content-surface projection to `kind === 'page'` entries only; a workflow saved while a chart holds the column replays only the page entries, dropping the chart from the degraded re-creation.
 - **The green-dot mechanism reuses `completed` rather than new bookkeeping, and is unit-tested only.** It is an exact match for "finished while not selected and not yet opened," but proving it end to end would require a real agent-loop running→idle transition while unselected — `SessionManager`'s `running` bit is a host-frame push tied to actual execution, not something a log-only append can fake. This scenario's own e2e suite issues no model calls (matching its established design), so the mechanism is pinned by `packages/experimental/server-sidebar`'s own unit tests instead.
 - **Rename/remove use hover-revealed icon buttons, not a native context menu.** A v1 downgrade the task's own brief explicitly permitted ("若实现体量失控，降级为右键菜单「上移/下移」") for reordering too, until reordering moved to native HTML5 drag-and-drop; the context-menu downgrade for rename/remove remains, since a second interaction pattern for two occasional actions is still not justified on its own.
-- **`ui-workspace` is disabled outright, not merely hidden — because composing it would revive the hero workspace picker, not because composing it would fail.** Its `sidebar.workspaces` registration is already inert once this shell drops that slot (`ctx.slots.inject` just never fires — see Replacing the shipped sidebar above); its `conversation.hero.workspace` registration is the one that still lands, since `dsh-client-ui-conversation` always declares that slot. A zero-Workspace fresh install still leaves a page or workflow click a contained no-op (see Navigation above) — an existing, already-accepted edge case carried forward from the prior favorites-based design, not new here. The workbench's own load-time auto-open goes further and never even attempts in this case (see Workbench above), waiting indefinitely for a Workspace rather than firing once and warning.
+- **`ui-workspace` is composed, and only a CSS rule keeps its hero picker off the page.** It cannot be disabled: `dsh-client-ui-conversation` injects its `uiWorkspace` service, so a composition without it never activates the conversation column at all. Its `sidebar.workspaces` half is inert once this shell drops that slot (`ctx.slots.inject` just never fires — see Replacing the shipped sidebar above), but its `conversation.hero.workspace` registration lands, and `terminology-guard.ts`'s `heroWorkspaceRow` rule is what hides it — a class-substring coupling that breaks silently if that class is renamed. A zero-Workspace fresh install still leaves a page or workflow click a contained no-op (see Navigation above) — an existing, already-accepted edge case carried forward from the prior favorites-based design, not new here. The workbench's own load-time auto-open goes further and never even attempts in this case (see Workbench above), waiting indefinitely for a Workspace rather than firing once and warning.
+- **With no Workspace connected, the composer names one.** `ConversationRoot` renders its inert composer under `placeholder.workspace` ("Choose a workspace to start"), the one piece of banned vocabulary this package cannot reach. It is not chrome a CSS rule should hide — the composer is genuinely unusable in that state and the placeholder is the only thing saying so — and it is not renameable from a composition: it belongs to `dsh-client-ui-conversation`'s own locale namespace, and the locale registry rejects a second registration for a namespace/locale pair it already holds, so no plugin can shadow another's key. Closing it means either a deployment that always has a Workspace (the state the whole console already degrades to a no-op in — see Navigation above) or an override seam in the locale registry. An e2e scenario pins the leak to that one placeholder so a second one cannot appear unnoticed.
 - **The hero headline's original text node survives in the DOM and the accessibility tree.** `terminology-guard.ts`'s `::after` swap only changes what the headline paints (`font-size: 0` on the real text plus a pseudo-element carrying this package's own copy); a screen reader or any DOM-text query still finds `dsh-client-ui-conversation`'s own English/Chinese headline string, not this package's brand copy.
 - **The settings route assumes an HTTP carrier.** The browser half fetches `/server-menu/workflows` relative to the page origin. A transport that serves the shell without exposing the harness over HTTP would fail the row, the same way content-frame's settings route would.
 - **Not covered by an assembled snapshot.** The browser evidence is a Playwright scenario against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

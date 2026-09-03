@@ -3,7 +3,7 @@
  * `conversation.chat.commandview` registrant (`HiddenCommandRow.tsx`) leaves
  * behind.
  *
- * `dsh-client-ui-conversation`'s chat column lays out its rows with a flex
+ * `dsh-client-ui-chat`'s chat column lays out its rows with a flex
  * `gap: 16px`; an empty flex item still reserves that gap even at zero
  * height, so a registrant that renders nothing leaves an invisible 16px hole
  * rather than making the row disappear. `ChatNodeSeat.tsx`'s
@@ -25,6 +25,10 @@
 /** Marks the injected stylesheet so a second `apply()` (HMR) does not duplicate it. */
 const STYLE_ID = 'dsh-content-frame-hide-empty-command-row'
 
+/* jscpd:ignore-start -- byte-identical to the sibling package's copy on purpose (see the
+ * module doc): the two install under distinct STYLE_IDs so composing both never collides,
+ * and neither package may depend on the other.
+ */
 /**
  * Inject the row-collapsing stylesheet.
  * @returns a disposer that removes the stylesheet.
@@ -38,3 +42,4 @@ export function installHiddenCommandRowStyle(): () => void {
   document.head.append(style)
   return () => { style.remove() }
 }
+/* jscpd:ignore-end */

@@ -7,24 +7,32 @@
  * command that ran but answered its own `error` result.
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import { openContentPage, replayNavSnapshot } from '../src/client/open-page.ts'
 
 /** Build a minimal fake context exposing only what `openContentPage` reads. */
 function fakeContext(overrides: {
   currentSessionId?: string
   recentWorkspaceId?: string
-  connectWorkspace?: () => Promise<string>
+  createSession?: () => Promise<string>
   execute?: () => Promise<unknown>
 }): ClientContext {
   return {
     sessions: {
-      list: { getSnapshot: () => ({ current: overrides.currentSessionId }) },
+      list: { getSnapshot: () => ({ current: overrides.currentSessionId, phase: 'ready', ids: [], byId: {} }) },
+      create: overrides.createSession ?? (() => Promise.resolve('new-session')),
       open: vi.fn(),
     },
     workspaces: {
-      list: { getSnapshot: () => ({ recentWorkspaceId: overrides.recentWorkspaceId }) },
-      connectWorkspace: overrides.connectWorkspace ?? (() => Promise.resolve('new-session')),
+      list: {
+        getSnapshot: () => ({
+          phase: 'ready',
+          archivedSessionIds: [],
+          items: overrides.recentWorkspaceId === undefined
+            ? []
+            : [{ workspaceId: overrides.recentWorkspaceId, path: '/workspace', sessionIds: [], createdAt: '2026-01-01T00:00:00.000Z' }],
+        }),
+      },
     },
     remote: {
       commands: { execute: overrides.execute ?? (() => Promise.resolve({ ok: true, value: undefined })) },
@@ -47,7 +55,7 @@ describe('openContentPage failure paths', () => {
     const execute = vi.fn()
     const ctx = fakeContext({
       recentWorkspaceId: 'workspace-1',
-      connectWorkspace: () => Promise.reject(new Error('boot failed')),
+      createSession: () => Promise.reject(new Error('boot failed')),
       execute,
     })
     await openContentPage(ctx, 'home')

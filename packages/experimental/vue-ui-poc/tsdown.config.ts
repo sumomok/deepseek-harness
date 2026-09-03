@@ -16,7 +16,7 @@ import { clientBundle } from '../../client/tsdown.client.ts'
 
 const ID = '@deepseek-ai/dsh-experimental-vue-ui-poc'
 
-const preset = clientBundle(ID, ['lib/types/index.js', 'lib/types/invariant.js'])
+const preset = clientBundle(ID, ['lib/types/index.js'])
 
 const VUE_RUNTIME_DEFINES = {
   __VUE_OPTIONS_API__: 'true',

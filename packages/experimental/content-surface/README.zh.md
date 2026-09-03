@@ -1,17 +1,39 @@
+---
+description: "内容面的宿主半边：抽取器把已记录的会话事件变成每会话一条的定型内容条目流，作为 contentSurface 投影发布；面向注册抽取器或读取这条流的维护者。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-content-surface
 
 [English](README.md) | 中文
+
+## 概述
 
 服务形态外壳只开出一栏 content，而想要它的包不止一个。本行把这个独占座位变成一个路由器：宿主插件注册 **extractor**，各自认领自己早已记入日志的事件，本行再把它们折叠成每会话一条按类型分列的 **entry** 流。把它们画出来是 [`content-column`](../content-column/README.zh.md) 的事——两半之所以是两个包，是因为一个 Cordis 服务与一个浏览器插件无法共用同一个 Typert face。
 
 这里几乎没有任何新事实。每条 entry 都派生自别的包已经写进会话日志的东西——页面来自 `content/shown`，图表来自一次 `show_chart` 调用——因此这一栏仅凭日志即可重建。本行唯一亲自拥有的例外是关闭 entry：关掉一个标签页不是任何其他包的日志已经记下的事实，因此本包自己追加 `content-surface/dismissed`（见下文「关闭一条 entry」）。
 
+## 目录
+
+- [entry 流](#the-entry-stream)
+- [`ContentSurfaceRegistry`（ctx key：`contentSurface`）](#contentsurfaceregistry-ctx-key-contentsurface)
+- [关闭一条 entry](#dismissing-an-entry)
+- [在前面的是哪一条](#which-entry-is-in-front)
+- [组合方式](#composition)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="the-entry-stream"></a>
 ## entry 流
 
 一条 entry 是 `{ kind, entryId, seq, title, payload }`。`kind` 既指出产生它的 extractor，也指出画出它的客户端槽 key；`entryId` 是它**在该 kind 内**的身份，后来的记录若指名同一组合，就替换掉先前那条而不是再添一行。这正是「重绘的图表」和「重新展示的页面」各自只占一条 entry 的原因。发布出来的值把存活的 entry 按最新在前排列，并指出其中哪一条在 `front`，因此在用户另选之前，这一栏展示的就是 `entries[0]`（见下文「在前面的是哪一条」）。
 
 [子系统页](../../../docs/subsystems/content-surface.zh.md)载有 `ContentSurfaceExtractor`、`ContentSurfaceRecord` 与 `ContentSurfaceEntry` 的字面声明。
 
+<a id="contentsurfaceregistry-ctx-key-contentsurface"></a>
 ## `ContentSurfaceRegistry`（ctx key：`contentSurface`）
 
 `ctx.contentSurface.register(extractor): () => void` 接收某个 kind 的全部贡献并返回 disposer（挂在调用方 fiber 上的 effect，因此某一行卸载时会带走它的 kind）：
@@ -31,6 +53,7 @@ projection registry 在注册那一刻固定一个 unit 的 fold 与 `stateVersi
 
 唯一的代价是推送延迟。registry 只在驱动事件时发布变更值，因此在某个 kind 行被热加载时已经连着的浏览器，会一直读到旧的流，直到该会话的下一条事件。启动期的组合不会遇到这一点，HMR 会。
 
+<a id="dismissing-an-entry"></a>
 ## 关闭一条 entry
 
 切换条上的关闭按钮针对当前会话执行 `/dismiss-content-entry <kind> <entryId>`，走的是 `ctx.commands.execute`——与这个路由器周边每一个用户触发的写入用的是同一条命令通路（`content-frame` 的 `show-content-page` 亦然）。处理函数在第一个空格处切分原始输入（`kind` 取值从不带空白；`entryId` 保留该空格之后的全部内容，整段不再拆分），随后追加带 `by: 'user'` 的 `content-surface/dismissed`。
@@ -43,6 +66,7 @@ projection registry 在注册那一刻固定一个 unit 的 fold 与 `stateVersi
 
 内容列隐藏这条命令自己的聊天回声，方式与 [`content-frame`](../content-frame/README.zh.md) 隐藏 `show-content-page` 的一样：持久记录才是关键，而不是一条复述用户刚做过的点击的聊天消息。
 
+<a id="which-entry-is-in-front"></a>
 ## 在前面的是哪一条
 
 这一栏只展示一条 entry，而是哪一条由日志决定。切换条的标签按钮执行 `/select-content-entry <kind> <entryId>`，它以 `by: 'user'` 追加一条 `content-surface/selected`；fold 把最新的这次选择与记录一并保留，并把结果作为流的 `front` 发布出来。
@@ -53,6 +77,7 @@ projection registry 在注册那一刻固定一个 unit 的 fold 与 `stateVersi
 
 `content-surface/selected` 和 `content-surface/dismissed` 都不是 `ignorable`——今天的 `Session.append` 没有办法设置这个标记——所以会话词汇表里没有本包的运行时会拒绝这份日志，而不是默默展示错的标签。加入选择把 `FOLD_SEMANTICS_VERSION` 提到了 `3`，两个提升理由都占：fold 多了一种情况，它存下的状态也从一串裸记录变成了 `{ records, selected }`。
 
+<a id="composition"></a>
 ## 组合方式
 
 本包与外壳都不属于任何出厂 bundle。[`overlay/full-surface.patch.yml`](overlay/full-surface.patch.yml) 组合出「全都要」的演示——外壳、这条 surface 的两半、[`content-frame`](../content-frame/README.zh.md) 基于托管应用提供的 `page` kind，以及 [`vue2-echarts-tool-poc`](../vue2-echarts-tool-poc/README.zh.md) 提供的 `chart` kind：
@@ -84,6 +109,7 @@ projection registry 在注册那一刻固定一个 unit 的 fold 与 `stateVersi
 
 两个子节点都是可选的。没有 `ctx.sessionProjections` 的装配保留 extractor 表、不发布任何内容，这一栏显示空状态；没有 `ctx.systemPrompt` 的装配保留该表、不贡献任何指引。两者互不为前提，本行的组合方式在哪种情况下都一样。
 
+<a id="model-experience"></a>
 ## Model Experience
 
 ### System prompt: working with content already on display
@@ -106,7 +132,7 @@ When the user refers to something you have already produced and put on display �
 
 #### KV Cache effect
 
-前缀稳定：文本是静态的，且排在今天注册的所有 section 之后，因此组装出的提示词只是多了一段恒定的尾巴，它前面的前缀不受影响。加载或卸载本行会改变提示词并从那段尾巴起失效重用；任何 order 高于 `200` 的 section 会把这一段往前挤，并从它落到的位置起失效重用。
+前缀稳定：文本是静态的，位置由它的 order 固定，因此组装出的提示词只是多了一段恒定的内容，它前面的前缀不受影响。确实有 section 排在它之后——`dsh-client-ui-deliverables` 注册在 `DELIVERABLE_FILE_REFERENCES`，远高于 `200`——而那些同样是静态的，所以尾巴也是恒定的。加载或卸载本行会改变提示词，并从这一段起失效重用。
 
 ### The notice a closed tab injects
 
@@ -122,6 +148,7 @@ When the user refers to something you have already produced and put on display �
 
 只在对话末尾追加，因此不会让已缓存的任何内容失效。
 
+<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
 
 - **一个 kind 可能存下整份文档** —— fold 为每条存活 entry 保留一条记录，但那条记录装着 extractor 放进 `data` 的任何东西，而 `chart` kind 放进去的是 option。一个存有大量图表的会话会把它们全部带在 projection 状态、wire 值和持久化 checkpoint 里。
@@ -134,3 +161,13 @@ When the user refers to something you have already produced and put on display �
 - **一次关闭从不对照活的流做校验** —— 命令会为其输入指名的任意 `(kind, entryId)` 追加 `content-surface/dismissed`，不检查这样标识的 entry 当下是否真的存在。这是一个刻意的设计选择（见上文「关闭一条 entry」），不是疏漏，但也意味着一个畸形的客户端可以关闭一个从未存在过的组合，且不会在任何地方报出错误。
 - **被工具链拆离了它的浏览器半边** —— 一个包若宿主入口声明了 Cordis 服务、`src/client` 又触及客户端运行时，两个 face 的 Context 合并会落进同一个 Typert 程序，使生成器因重复 key 而失败。把服务留在这里、把这一栏放进 [`content-column`](../content-column/README.zh.md)，正是为了避开这一点；两者总是一起组合，单独一个都不成事。
 - **未被 assembled snapshot 覆盖** —— 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

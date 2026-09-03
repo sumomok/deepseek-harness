@@ -1,17 +1,46 @@
+---
+description: "The agent's handle on the service-line shell's content column: a named webserver route over one directory, the content_show tool over its configured pages, the projection recording what each column shows, and the browser half keeping one live frame per session; for deployments publishing their own pages and the maintainers of that path."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-content-frame
 
 English | [中文](README.zh.md)
+
+## Summary
 
 The `page` kind of the service-line shell's content column, and the two ways to control it: a directory of static files on the host, served under one dsh route, shown in an iframe that fills the column — with the agent choosing which of the deployment's pages is in it through the `content_show` tool, and a user choosing directly through the sidebar's page-navigation menu (`@deepseek-ai/dsh-experimental-server-sidebar`), which executes the `show-content-page` command. The application inside is written and deployed by whoever runs the harness; this package neither builds it nor knows what framework it uses.
 
 Seven pieces, one decision each. The node half serves the configured directory under `/content-app`. `content_show` offers the deployment's page list to the model and appends `content/shown` when it chooses. `show-content-page` offers the same page list to a command-executing UI and appends the same event when a user chooses. The `page` extractor turns each shown id into an entry of [`content-surface`](../content-surface/README.md)'s stream, resolved against the page list running now. The `content` projection resolves the last recorded id the same way, for a consumer that wants the column's current page rather than its history. The browser half claims the `page` key of the column's kind slot and keeps one live frame per (session, page) pair. Where the deployment turns it on, `content_read` lets the agent read the page in that frame as a numbered structure.
 
+## Table of Contents
+
+- [Trust boundary](#trust-boundary)
+- [Serving the application](#serving-the-application)
+- [Who put a page on display](#who-put-a-page-on-display)
+- [Pages the agent may show](#pages-the-agent-may-show)
+- [One live frame per session and page](#one-live-frame-per-session-and-page)
+- [Reading the page the agent put there](#reading-the-page-the-agent-put-there)
+- [Acting on the page the user is looking at](#acting-on-the-page-the-user-is-looking-at)
+- [Reading the page in the frame](#reading-the-page-in-the-frame)
+- [What the agent knows about the column](#what-the-agent-knows-about-the-column)
+- [Reading a page that has not finished drawing itself](#reading-a-page-that-has-not-finished-drawing-itself)
+- [Hiding the `show-content-page` command from the chat transcript](#hiding-the-show-content-page-command-from-the-chat-transcript)
+- [Composition](#composition)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="trust-boundary"></a>
 ## Trust boundary
 
 **The hosted pages run with the shell's own authority.** They are served from the dsh origin and the iframe carries no `sandbox` attribute, which makes each document same-origin with the shell: it can call the dsh HTTP API — sessions, tools, settings, everything the browser can reach — without any further permission. `root` must therefore name a directory whose contents are trusted exactly as much as the harness itself.
 
 That is the point of the design rather than an oversight. A first-party application in the content column is expected to talk to the harness, and an opaque origin cannot: the API's Origin check rejects `null`, so a `sandbox` without `allow-same-origin` would leave the frame unable to do anything, while a `sandbox` with it removes nothing. Hosting content that should **not** have that authority — agent-generated pages, third-party bundles, anything a user drops in — needs a separate, sandboxed plugin, not a flag here.
 
+<a id="serving-the-application"></a>
 ## Serving the application
 
 `root` is required and takes no default: which application a deployment hosts is the whole decision this plugin carries. It must be an absolute path to an existing directory; anything else fails the row at load rather than serving an empty frame. The path is resolved through `realpath` once, and every request is checked against that resolved root.
@@ -27,12 +56,14 @@ The route deliberately does not behave like the dsh SPA dist server that owns th
 
 A second, exact route — `/content-frame/settings` — serves the browser half the configured values it must obey: `cacheSize`, the whole `pages` catalog, and, where the deployment configured page access, the reader's budget and the two deadlines it works inside. It exists because a browser half receives no cordis config at all: the boot manifest carries plugin names, not their `config` blocks. An unreachable or unusable settings document fails the browser row rather than letting the column run on a bound nobody chose. The page catalog travels this same route rather than a second one — the sidebar's page-navigation menu is this route's second reader, matching its shape by convention (hardcoded route path and JSON shape) rather than by importing this package, since a cross-package value import is not this repository's sanctioned way to couple two client-adjacent plugins.
 
+<a id="who-put-a-page-on-display"></a>
 ## Who put a page on display
 
 `content/shown` carries a `by: 'agent' | 'user'` field: `content_show` (the model's tool) writes `'agent'`, and `show-content-page` (the sidebar menu's command) writes `'user'`. A log written before this field existed carries neither, and every reader defaults that case to `'agent'` — the tool was the only writer then. The two writers append the identical event under the identical type, so a page shown by a user click and a page shown by the model occupy the same one entry in `content-surface`'s stream (deduplicated by page id) and the same `content` projection value; nothing about which existing kind or projection is used changes with the writer.
 
 The `content` projection deliberately drops `by` — it answers "what page is on display," which needs no writer distinction — while the `page` extractor keeps it in its stored and resolved payload, for a renderer that wants to show the distinction later; today's frame renderer does not (see Known Limitations).
 
+<a id="pages-the-agent-may-show"></a>
 ## Pages the agent may show
 
 `pages` is the deployment's whole vocabulary for the column, and at least one entry is required — `content_show` exists to choose among them. Each page declares an `id` the agent passes, a `title` the user reads, a `description` written in the agent's terms (it becomes the catalogue line in the tool description), and a same-origin `url`. A URL that names a scheme or a host fails the row at load: the frame carries the shell's authority, so it may only address the dsh origin.
@@ -41,16 +72,19 @@ The `content` projection deliberately drops `by` — it answers "what page is on
 
 `homePage` names the page `@deepseek-ai/dsh-experimental-server-sidebar`'s workbench shows automatically the first time a session lands on a blank draft. Unlike `defaultPage`, this is not a projection value read passively — the sidebar issues an actual `/show-content-page` invocation, so the column really does show the page and the usual `content/shown` log record follows. Read this package's `Config` type for the exact difference; the sidebar package is this field's only consumer.
 
+<a id="one-live-frame-per-session-and-page"></a>
 ## One live frame per session and page
 
 The column's kind slot is `root`-scoped and the column keeps this seat mounted even while another kind is on display, so the browser half keeps every cached frame mounted at once with all but the current one hidden. A page the user returns to therefore looks exactly as it was left — scroll position, form state, whatever the document holds — because the element was never destroyed, across a switch to another page, to a chart, or to another session. `cacheSize` bounds how many survive, counted over (session, page) pairs; past it the least recently shown one is dropped and reloads when it comes back. The frame on display is never the one dropped.
 
+<a id="reading-the-page-the-agent-put-there"></a>
 ## Reading the page the agent put there
 
 `pageAccess` gives the agent `content_read`: one call answers with the page the user is looking at as a numbered structure — containers, controls, headings and text, each control carrying a ref like `e12` that a later call can point at. Structure reaches the model and data does not: a table reports its header, its size and one sample row, and lists rows only when a read names that table by ref or matches one by its text; a password box — by its type, or by a page showing the password in a text box that says so in `autocomplete` — reports that it is there and never what it holds; a page asking for a sign-in answers with a refusal instead of a listing.
 
 **Absent is off, and absent is the default.** Without the block there are no tools, no route, no pending projection, no `pageAccess` field in the settings document, and no reader in the browser — a deployment that only shows pages does not pay for a capability it did not ask for. Present with an empty object takes every default. The eight fields — `claimTimeoutMs`, `readTimeoutMs`, `pinMs`, `settleQuietMs`, `outlineChars`, `actTimeoutMs`, `maxSteps`, `settleMaxMs` — are documented on the `Config` type; `outlineChars` is the one that decides what a read costs in context, because it is the character budget the listing is rendered under. It has a floor of 1000, refused at load: a listing's first row is rendered however long it is, and below that floor an ordinary table's first row is already past what the report route takes. Three have ceilings instead of floors, all refused at load: `settleQuietMs` must fit inside the settle share of `readTimeoutMs`, because a quiet window the budget cannot hold would make every read report a page that never settled; `settleMaxMs` must be at least `settleQuietMs`, and `maxSteps` of it must come to less than three quarters of `actTimeoutMs` — the steps' own share of that deadline — because a deployment whose steps could each settle to the ceiling is one where a call spends its whole deadline settling and never reaches its last step; and `maxSteps` is capped at 100, which is what keeps a report of steps inside the envelope the report route allows.
 
+<a id="acting-on-the-page-the-user-is-looking-at"></a>
 ## Acting on the page the user is looking at
 
 The same block gives the agent `content_act`: one call carries up to `maxSteps` steps — `click`, `fill`, `select`, `press`, `wait` — run in order against the page in front of the user and stopping at the first failure. Every step but `wait` names its element twice, by the `ref` a read returned and by the `label` that read printed — or, where that read printed no name, by the `mark` it printed in the name's place — and the browser checks what it was given before it acts, computing it the same way the listing printed it — one naming function, called once per row by the read and once per step by the browser, because a name computed two ways would refuse every step naming an element the two disagree about. A page that re-rendered its table between the read and the call has the same refs pointing at different rows, and the check is what stops the call rather than pressing whatever now sits there. Four more endings stop a step — an element the page no longer has, one it no longer shows, one behind a dialog the page has put in front of the user, and one the page has switched off. A page asking the user to sign in stops the whole call before its first step, the same rule that withholds such a page's listing from a read; a page that becomes one while the steps run has its closing reading withheld the same way.
@@ -75,6 +109,7 @@ Neither deadline is spent on a single attempt. A claim the host does not know ye
 
 The reading half lives in the page seat because that is the only placement holding the frame elements. Visibility and geometry are asked of each element's own window rather than the top one — a frame's layout belongs to that frame — and a tab that is not visible claims nothing, because the read is defined as the page in front of the user. What such a tab does not stop doing is forgetting the calls it gave up on; a hidden seat that skipped that would leave the call it lost unclaimable for the rest of its life.
 
+<a id="reading-the-page-in-the-frame"></a>
 ## Reading the page in the frame
 
 `src/client/access/` reads the document in the frame as numbered structure — the regions, the controls, and the shape of each table — for a model that cannot see it. The rules it is written by, and what each of them gives up, are recorded in [the reading Agent Note](../../../.agents/notes/implemented/feature/2026-09-02-content-snapshot-engine.md). Nothing in it is keyed to a class name, a component library, or a naming habit: what a page states in HTML and ARIA is what it reads, and a widget no specification names — the strip that pages a table, the trail saying where the user is — prints as the run of text the page drew it as.
@@ -95,6 +130,7 @@ The reading half lives in the page seat because that is the only placement holdi
 - **A field is named by the `label` drawn in front of it.** A form that ties no label to its field is named by the last `label` drawn before it, inside the smallest element holding both, as far out as the region the field stands in; that label then prints once, as the field's name, whatever it says and however long it runs. Anything else the reader can act on between the two ends the search, and any other run of the page — a notice, a heading, a caption — names nothing and keeps its own row.
 - **A field the page asks for says so.** `(required)` follows a field the page marks with `required` or `aria-required`, and nothing else. A form that says it another way — the star a stylesheet draws in front of a label — says it on the screen and in no attribute, and which fields those are is a thing to know about the form rather than a thing to read out of the document.
 - **A picker drawn in two halves is one field.** A box the reader cannot type into says `(readonly)`, and the nameless arrow the page draws inside the same element to open what the field offers prints on the field's row as `[e4 opens]` rather than as a row of its own.
+<a id="what-the-agent-knows-about-the-column"></a>
 ## What the agent knows about the column
 
 The column is drawn by the browser, so nothing in it reaches the model unless this package puts it there. Three facts do, by three different routes, each chosen for how often it changes.
@@ -107,6 +143,7 @@ The column is drawn by the browser, so nothing in it reaches the model unless th
 
 All three fold from this session's own log — `contentSurface`'s entry stream and this package's `contentPages` state, which records who opened each page and where its frame went. `contentPages` is host-only: no browser reads it, so it carries no `wire`.
 
+<a id="reading-a-page-that-has-not-finished-drawing-itself"></a>
 ## Reading a page that has not finished drawing itself
 
 A frame that has fired `load` is not a page that is done: a single-page application fetches, paints, and repaints for as long as it takes, and a read landing in the middle of that is a listing of a page the user never saw. So a read waits, after the load wait and before the walk: a `MutationObserver` over the frame's document, answering as soon as the document has held still for `settleQuietMs`, and giving up at `readTimeoutMs × 0.25`. The two shares of the report deadline — half for a page still loading, a quarter for one still drawing — leave the walk and the trip back the rest.
@@ -115,12 +152,14 @@ The wait's two outcomes both reach the model. A page that never settled is read 
 
 `content/navigated` does not wait: an address change is reported the moment the frame settles at it, and waiting for the page behind that address belongs to reading it. Refs are invalidated by the engine on its own terms — the ref table is reset when the frame loads a new document, a ref whose element left the document resolves to nothing, and a stale `scope` or `after` is refused with a message telling the model to read again.
 
+<a id="hiding-the-show-content-page-command-from-the-chat-transcript"></a>
 ## Hiding the `show-content-page` command from the chat transcript
 
 A user's page click is a command invocation, and every command leaves a `command/run`/`command/done` pair on the log — the durable record the sidebar menu and every replay rely on. Left alone, `dsh-client-ui-conversation`'s chat view renders that pair as an ordinary command row ("Now showing `<title>` in the content column."): informative for the agent's own commands, redundant for a click the user just made. The browser half registers an empty component into `conversation.chat.commandview`'s `show-content-page` key — the keyed slot every command row dispatches through — so the row's business content never appears.
 
 An empty registrant still leaves a zero-height flex item in the chat column, and the column's `gap: 16px` reserves space for it regardless of height. The browser half also injects one CSS rule collapsing that specific empty row (`[data-chat-flow-kind="command"]:has([data-slot="conversation.chat.commandview"]:empty)`), coupled to two DOM shapes this package does not own — `dsh-client-ui-conversation`'s `data-chat-flow-kind` attribute and `dsh-client-ui-renderer`'s `data-slot` anchor wrapper — see Known Limitations.
 
+<a id="composition"></a>
 ## Composition
 
 Neither this package nor the shell is part of any shipped bundle. `overlay/content-column.patch.yml` composes all four over the Web surface — the shell replaces `ui-layout`, `content-surface` folds the session's logged events into the entry stream, `content-column` claims the column the shell opens, and this row contributes the `page` kind:
@@ -156,6 +195,7 @@ The empty `pageAccess` block is this service line's own choice: it takes every d
 
 The tools, the command, the projections, and the page extractor are optional children: a composition without `ctx.tools`, `ctx.commands`, `ctx.sessionProjections`, or `ctx.contentSurface` keeps the routes and shows nothing in the column, and no absence fails the row.
 
+<a id="model-experience"></a>
 ## Model Experience
 
 ### The `content_show` offer
@@ -309,6 +349,7 @@ One short sentence per click, permanently on the conversation.
 
 Append-only, at the tail of the conversation, so it invalidates nothing already cached.
 
+<a id="known-limitations-and-deferred-work"></a>
 ## Known Limitations and Deferred Work
 
 - **`content/navigated` is required on read, like `content/shown`** — neither event carries an `ignorable` marker, because `Session.append` has no way to set one today; a runtime whose session vocabulary excludes this package refuses the whole log rather than skipping the events.
@@ -344,3 +385,13 @@ Append-only, at the tail of the conversation, so it invalidates nothing already 
 - **A read carries structure, never data** — there is no mode that returns a table's contents, and none is planned here: a listing is what the model needs to point at the page, and the data behind it belongs to whatever produced it.
 - **jsdom cannot stand in for the frame** — it has no layout and never loads a frame pointed at a real route, so the package's own suites read hand-mounted documents and the real path is covered by the browser lane alone.
 - **The empty-command-row CSS collapse is a DOM-shape coupling, not a contract** — it keys off `dsh-client-ui-conversation`'s `data-chat-flow-kind` attribute and `dsh-client-ui-renderer`'s `data-slot` anchor wrapper, neither of which this package owns or that package promises to keep. A future change to either shape silently un-collapses the row (it reappears with its 16px gap) rather than failing loud; the `server-sidebar.e2e.ts` scenario asserting the row stays invisible is this coupling's only tripwire.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

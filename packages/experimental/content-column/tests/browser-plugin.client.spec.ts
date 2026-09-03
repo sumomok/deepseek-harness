@@ -10,8 +10,7 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
@@ -19,7 +18,6 @@ import { apply as nodeApply } from '../src/index.ts'
 import { ContentSurface, type ContentSurfaceInjected } from '../src/client/ContentSurface.tsx'
 import { HiddenCommandRow } from '../src/client/HiddenCommandRow.tsx'
 import { en, NS, zh } from '../src/client/locales.ts'
-import * as ContentColumnInvariant from '../src/invariant.ts'
 
 const HIDE_STYLE_ID = 'dsh-content-column-hide-empty-command-row'
 
@@ -159,19 +157,5 @@ describe('content-column browser half', () => {
 describe('content-column node half', () => {
   it('contributes no host behavior', () => {
     expect(nodeApply).not.toThrow()
-  })
-})
-
-describe('content-column invariant companion', () => {
-  it('reserves package ownership under its declared companion name', async () => {
-    const ctx = new Context()
-    await ctx.plugin(InvariantRegistry, { enabled: true })
-    const fiber = ctx.plugin(ContentColumnInvariant)
-    await fiber.await()
-    expect(ContentColumnInvariant.name).toBe('experimental-content-column-invariant')
-    expect(ContentColumnInvariant.inject).toEqual(['invariants'])
-    // Emitting an unrelated event proves the companion installed no audit.
-    expect(() => { (ctx.emit as (event: string) => void)('slots/changed') }).not.toThrow()
-    await fiber.dispose()
   })
 })

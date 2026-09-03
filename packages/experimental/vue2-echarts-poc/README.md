@@ -1,11 +1,31 @@
+---
+description: "Proof of concept: a Vue 2.7 ECharts component rendered inside the React slot system through a thin React bridge, with its measured bundle cost; for maintainers weighing a Vue 2.7 chart surface in a slot."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-vue2-echarts-poc
 
 English | [中文](README.zh.md)
+
+## Summary
 
 A component library row: real ECharts charts written as **Vue 2.7** components, wrapped so React can render them anywhere. The package knows nothing about layouts and registers no slot — its browser half registers its dictionaries and exports the components. Where they render is a placement plugin's decision; [`vue2-echarts-tool-poc`](../vue2-echarts-tool-poc/README.md) paints a model-supplied option both inside the conversation transcript and in the service-line shell's content column.
 
 It is the Vue 2 counterpart of [`vue-ui-poc`](../vue-ui-poc/README.md), which probes the same question for Vue 3.
 
+## Table of Contents
+
+- [The bridge](#the-bridge)
+- [The row surface](#the-row-surface)
+- [Composition](#composition)
+- [Bundle cost](#bundle-cost)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="the-bridge"></a>
 ## The bridge
 
 The slot system takes React function components only, so the Vue tree reaches React through `Vue2Bridge`, one React component that owns a Vue root. Vue 2 has no standalone `render(vnode, container)` — the Vue 3 bridge's whole mechanism — so three Vue 2 facts shape this one instead:
@@ -18,6 +38,7 @@ The record is copied and frozen on the way in. Vue 2's observer walks every obje
 
 `props` is the entire contract between the frameworks. The React side resolves every slot share first and hands Vue a flat record of strings, arrays of plain data, a boolean, and one callback. Callbacks cross as **function-typed props**, never `on:` listeners: the props object is the whole surface, exactly as in the Vue 3 bridge. Nothing below the bridge imports React, nothing above it imports Vue, and no hook, store handle, Cordis context, or React node crosses.
 
+<a id="the-row-surface"></a>
 ## The row surface
 
 `./client` exports three React components, layered so a placement can pick the one it needs:
@@ -44,18 +65,21 @@ This bundle carries the only copy. A second Vue 2 package must therefore request
 
 and take `Vue` and the composition API from the re-exports above. The rule is what the re-exports exist for.
 
+<a id="composition"></a>
 ## Composition
 
 The plugin is not part of any shipped bundle, and on its own it draws nothing: it is a library row plus its dictionaries. Compose it with the placement that renders its components — [`overlay/show-chart.patch.yml`](../vue2-echarts-tool-poc/overlay/show-chart.patch.yml) mounts both rows over the shipped surface, and [`overlay/show-chart-three-column.patch.yml`](../vue2-echarts-tool-poc/overlay/show-chart-three-column.patch.yml) adds the service-line shell and the content column beside it.
 
 The package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
 
+<a id="bundle-cost"></a>
 ## Bundle cost
 
 Neither Vue nor ECharts is in the shell's shared module table, so this package's `lib/client.js` carries both: 1.50 MB raw, 342 kB gzipped. React and the Cordis/slot layers stay external and resolve through the loader's injected `require`.
 
 Two build decisions keep it at that size rather than larger. `vue` is pinned to `vue/dist/vue.runtime.esm.js`, the runtime-only ESM build, because the full build drags the template compiler into a bundle that renders through `h()` and compiles no template. And `process.env.NODE_ENV` is defined as `"production"`, which both removes Vue 2's development branches and is required for the bundle to run at all: Vue 2's ESM build reads that name as a bare global on every reactivity path, so without the define the browser throws `process is not defined` at the first mount. ECharts is imported through `echarts/core` with only the four supported chart types, the grid, the tooltip, the legend, the title, the radar coordinate system, and the canvas renderer registered.
 
+<a id="model-experience"></a>
 ## Model Experience
 
 None, as the package renders browser-only chart components and touches no prompt, message, schema, stream, or tool result.
@@ -66,9 +90,23 @@ None; the package never assembles or sends provider requests.
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **Demo data only** — `ChartPanel` plots a fixed seven-bar week and randomizes it in the browser. Nothing reaches a host, a session log, or a model; `EChartsBar` and `EChartsOption` are the exports a data-carrying placement uses.
 - **No theme plumbing** — `ChartPanel` always passes `dark: false`. A canvas resolves no CSS custom properties, so the chart's two palettes are literal values in `echarts-host.ts` rather than the `--dsw-*` tokens the DOM around it reads, and nothing in this row switches between them. Which palette a chart is built with is the placement's decision.
 - **Vue 2.7 is end-of-life** — 2.7 is the last Vue 2 line and receives no further releases. The package exists to prove that an existing Vue 2 component tree can be hosted, not to recommend building new ones.
 - **Single-file components are not on the supported path** — the repository's Vitest configuration has no Vue plugin, so any spec reaching an SFC fails to parse, and `.vue` sits outside the coverage gate's `packages/*/*/src/**/*.{ts,tsx}` glob. This package uses `defineComponent` + `h()`; [`vue-ui-poc`](../vue-ui-poc/README.md) records the full analysis.
 - **One bridge, one component** — the bridge mounts a single Vue component and passes it one prop record. Slot children, Vue `provide`/`inject` across bridges, `<Teleport>`, Vue Router, and Vuex are all unexplored.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario run against a real composition, not a recorded transcript; the snapshot lanes project model-visible and conversation output, which this package has none of.
+
+**Runtime invariant:** No companion is published. This package owns no event stream and no mutable durable data. Its only relationship — the dictionary registration and its removal on teardown — is a locale effect this package's own tests exercise, and the Vue tree its components host lives entirely inside one browser container.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

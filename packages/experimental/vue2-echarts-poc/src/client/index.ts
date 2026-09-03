@@ -16,7 +16,7 @@
  * consuming package needs.
  * @module @deepseek-ai/dsh-experimental-vue2-echarts-poc/client
  */
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { en, NS, zh, type Vue2EchartsPocKey } from './locales.ts'

@@ -8,14 +8,12 @@
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import { SlotRegistry } from '@deepseek-ai/dsh-client-runtime/client'
+import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, inject } from '../src/client/index.ts'
 import { ChartSurface } from '../src/client/ChartSurface.tsx'
 import { ShowChartRow } from '../src/client/ShowChartRow.tsx'
-import * as ShowChartInvariant from '../src/invariant.ts'
 import { SHOW_CHART_SETTINGS_ROUTE } from '../src/route.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
@@ -177,19 +175,5 @@ describe('show-chart browser half', () => {
 
   it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
-  })
-})
-
-describe('show-chart invariant companion', () => {
-  it('reserves package ownership under its declared companion name', async () => {
-    const ctx = new Context()
-    await ctx.plugin(InvariantRegistry, { enabled: true })
-    const fiber = ctx.plugin(ShowChartInvariant)
-    await fiber.await()
-    expect(ShowChartInvariant.name).toBe('experimental-vue2-echarts-tool-poc-invariant')
-    expect(ShowChartInvariant.inject).toEqual(['invariants'])
-    // Emitting an unrelated event proves the companion installed no audit.
-    expect(() => { (ctx.emit as (event: string) => void)('slots/changed') }).not.toThrow()
-    await fiber.dispose()
   })
 })

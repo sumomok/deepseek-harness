@@ -79,7 +79,7 @@ async function run(ctx: Context, agent: Agent, rawInput: string): Promise<Comman
 
 /** Every payload of one type the session recorded, in order. */
 function recorded(session: Session, type: string): unknown[] {
-  return session.events
+  return session.snapshotEvents()
     .filter((event: SessionEvent) => (event.type as string) === type)
     .map((event: SessionEvent) => event.data)
 }
@@ -129,8 +129,9 @@ describe('show-content-page command', () => {
     })
     // Appended first, injected second: the log carries the fact before the
     // sentence about it, and the notice is queued rather than delivered.
-    const at = session.events.findIndex((event: SessionEvent) => event.type === 'content/shown')
-    expect(session.events[at]!.seq).toBeLessThan(atSeq)
+    const events = session.snapshotEvents()
+    const at = events.findIndex((event: SessionEvent) => event.type === 'content/shown')
+    expect(events[at]!.seq).toBeLessThan(atSeq)
   })
 
   it('says nothing to the agent when the id names no configured page', async () => {

@@ -1,11 +1,33 @@
+---
+description: "The show_chart tool: the agent hands over an ECharts option, the transcript paints it as a Vue 2.7 chart, and the browser's render verdict comes back into the tool result; for maintainers of the chart tool and the deployments composing it."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-vue2-echarts-tool-poc
 
 English | [中文](README.zh.md)
+
+## Summary
 
 `show_chart`: the agent hands over a complete ECharts option, the conversation transcript paints it as a live **Vue 2.7** chart where the call sits, and what the browser actually painted comes back into the tool result.
 
 The components come from [`vue2-echarts-poc`](../vue2-echarts-poc/README.md), which knows no layout. This package knows no layout either — it claims two keyed slots and no column: the `show_chart` key of the transcript's `tool.call.toolview` slot, which the shipped conversation owns, and the `chart` kind of the [content surface](../content-surface/README.md)'s column, which exists only where a composition opens one. The same row therefore renders under the shipped shell and under the service-line one, and where there is a column to gain it takes the column and gives the conversation back its space.
 
+## Table of Contents
+
+- [Composition](#composition)
+- [Configuration](#configuration)
+- [The three feedback layers](#the-three-feedback-layers)
+- [Where the chart is drawn](#where-the-chart-is-drawn)
+- [One chart, several calls](#one-chart-several-calls)
+- [Trust](#trust)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="composition"></a>
 ## Composition
 
 Two overlays, both over the shipped Web surface:
@@ -21,6 +43,7 @@ pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-ch
 
 Every package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
 
+<a id="configuration"></a>
 ## Configuration
 
 | Field | Default | What it bounds |
@@ -30,6 +53,7 @@ Every package must be resolvable from the profile directory, which for an out-of
 | `verdictTimeoutMs` | `8000` | How long the call waits for a browser to report what it painted. |
 | `screenshot` | `false` | Whether the painted chart is captured as a PNG and returned to the model as an image block. |
 
+<a id="the-three-feedback-layers"></a>
 ## The three feedback layers
 
 A call passes through three gates, in order, and each one can end it.
@@ -44,6 +68,7 @@ Until a verdict arrives the chart is laid out but invisible (`visibility: hidden
 
 Both halves meet on two routes this package owns, `/show-chart/settings` (the capture switch, read once per boot) and `/show-chart/report` (the verdict).
 
+<a id="where-the-chart-is-drawn"></a>
 ## Where the chart is drawn
 
 Under the shipped layout the transcript row *is* the chart: a 340px stage where the call sits, revealed by its verdict.
@@ -54,6 +79,7 @@ The row reads which case it is from the presence of the `contentSurface` project
 
 Clicking the compact card does not select that chart in the column: nothing carries a selection between the two packages' components.
 
+<a id="one-chart-several-calls"></a>
 ## One chart, several calls
 
 A call may name a stable chart `id` (trimmed, non-empty, at most 64 characters). Reusing an earlier chart's id means *this call replaces that chart*: both calls stay in the transcript, because the log is what happened, but the older row collapses to a one-line notice with no canvas, no engine, and no verdict behind it. A call naming no id is its own chart and can supersede nothing.
@@ -66,6 +92,7 @@ The fold recognizes both shapes a chart call takes in the log: a top-level `tool
 
 The projection unit activates only when a projection registry is composed. Without one the tool and the rows work unchanged and every chart is simply the call that drew it.
 
+<a id="trust"></a>
 ## Trust
 
 `option` is model output, rendered by a real engine inside the shell's own origin. It is not markup and it is not code — the host accepts only JSON — but three ECharts features turn plain JSON into a document the browser interprets, so the browser half rewrites exactly those three before painting ([`src/client/sanitize.ts`](src/client/sanitize.ts)):
@@ -78,6 +105,7 @@ Everything else passes through unchanged: a model writing ordinary ECharts is th
 
 The report route is same-site and JSON-only: a request a browser labels `sec-fetch-site: cross-site` is refused 403 and one that does not declare `application/json` is refused 415, both before the body is read, so a cross-origin page cannot post a verdict as a preflight-free simple request. Past that fence it accepts a verdict from anything that can reach the dsh origin, exactly as the rest of the HTTP API does; a report can only settle a call already waiting for one, and its worst outcome is a wrong verdict line on one chart the user is looking at.
 
+<a id="model-experience"></a>
 ## Model Experience
 
 ### The `show_chart` offer
@@ -110,6 +138,8 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **Four series types** — `bar`, `line`, `pie`, and `radar`. The set is [`SUPPORTED_SERIES_TYPES`](../vue2-echarts-poc/src/chart-types.ts) in the component row, which registers exactly those ECharts modules; adding one is a constant plus a module entry, and the tool description and its refusals follow automatically.
 - **JSON only** — the option crosses a tool-call boundary, so an ECharts feature expressed as a function (a `formatter` callback, a `symbolSize` function, a custom series renderer) cannot be sent at all.
 - **The verdict comes from the first client that reports** — several browsers may show the same session, and whichever paints first answers the call. They are painting the same document, so the counts agree; a browser whose engine refused a document another accepted would not.
@@ -124,3 +154,15 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **The projection grows with the session's chart calls** — one small entry per call, kept for the life of the session, and its `title` is carried as the model wrote it. Nothing trims either; a session that draws hundreds of charts pushes a correspondingly larger value to the browser.
 - **No interaction reaches the model** — a click, a legend toggle, or a zoom stays in the browser. The agent can put a chart in front of the user; it cannot learn what the user did with it.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition, and the model-visible text is pinned verbatim in unit tests; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
+
+**Runtime invariant:** No companion is published. This package owns no event stream and no mutable durable data. A `show_chart` call appends nothing of its own — the tool result is the loop's and the durable screenshot is the attachment service's — the pending-verdict table is process-local state whose single-shot settlement this package's own tests exercise, and the `showCharts` projection owns no data either: it is a pure fold over the loop's own tool events, recomputed from them on every replay.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

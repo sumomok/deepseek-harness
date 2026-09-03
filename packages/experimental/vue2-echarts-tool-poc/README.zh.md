@@ -1,11 +1,33 @@
+---
+description: "show_chart 工具：agent 交出一份 ECharts option，对话记录把它画成 Vue 2.7 图表，浏览器的渲染判定再回到工具结果里；面向图表工具的维护者与组合它的部署方。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-vue2-echarts-tool-poc
 
 [English](README.md) | 中文
+
+## 概述
 
 `show_chart`：agent 交出一份完整的 ECharts option，会话记录就在这次调用所在的位置把它画成一张活的 **Vue 2.7** 图表，浏览器究竟画出了什么再回到工具结果里。
 
 组件来自 [`vue2-echarts-poc`](../vue2-echarts-poc/README.zh.md)，那个包不认识任何布局。本包同样不认识——它认领两个 keyed 槽位而不认领任何一栏：会话记录 `tool.call.toolview` 槽位上的 `show_chart` key（那个槽位属于已发布的会话区），以及 [content surface](../content-surface/README.zh.md) 那一栏的 `chart` kind（只有当某个组合开出这一栏时它才存在）。因此同一行在已发布外壳和服务线外壳下都渲染；有栏可占时它占上那一栏，并把会话里的位置还回去。
 
+## 目录
+
+- [组合方式](#composition)
+- [配置](#configuration)
+- [三层反馈](#the-three-feedback-layers)
+- [图表画在哪里](#where-the-chart-is-drawn)
+- [同一张图，多次调用](#one-chart-several-calls)
+- [信任](#trust)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="composition"></a>
 ## 组合方式
 
 两份 overlay，都叠在已发布的 Web 表面之上：
@@ -21,6 +43,7 @@ pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-ch
 
 所有包都必须能从 profile 目录解析到，对树外插件而言意味着 `dsh plugin --profile web add <路径>` 或等价的链接——release bundle 不得声明实验包。
 
+<a id="configuration"></a>
 ## 配置
 
 | 字段 | 默认值 | 约束什么 |
@@ -30,6 +53,7 @@ pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-ch
 | `verdictTimeoutMs` | `8000` | 调用等待浏览器汇报绘制结果的时长。 |
 | `screenshot` | `false` | 是否把画好的图表截成 PNG，作为图像块返回给模型。 |
 
+<a id="the-three-feedback-layers"></a>
 ## 三层反馈
 
 一次调用按顺序穿过三道闸，每一道都可能就此结束它。
@@ -44,6 +68,7 @@ pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-ch
 
 两个半边在本包自有的两条路由上会合：`/show-chart/settings`（截图开关，每次启动读一次）与 `/show-chart/report`（判定）。
 
+<a id="where-the-chart-is-drawn"></a>
 ## 图表画在哪里
 
 在已发布布局下，会话记录里的那一行**就是**图表：调用所在处一块 340px 的舞台，由它自己的判定揭开。
@@ -54,6 +79,7 @@ pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-ch
 
 点击紧凑卡不会在栏里选中那张图：两个包的组件之间没有任何东西传递选择。
 
+<a id="one-chart-several-calls"></a>
 ## 同一张图，多次调用
 
 一次调用可以声明一个稳定的图表 `id`（去掉首尾空白后非空，至多 64 个字符）。复用先前那张图的 id 意味着**这次调用取代那张图**：两次调用都留在会话记录里，因为日志就是发生过的事；但较早那一行会收缩成一行提示，背后没有 canvas、没有引擎、也没有判定。没有声明 id 的调用是它自己那张图，取代不了任何东西。
@@ -66,6 +92,7 @@ pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-ch
 
 投影单元只在组合了投影注册表时才激活。没有它时工具和各行照常工作，每张图就是画出它的那次调用。
 
+<a id="trust"></a>
 ## 信任
 
 `option` 是模型输出，由一个真实引擎在外壳自己的源里渲染。它既不是标记也不是代码——宿主只接受 JSON——但有三个 ECharts 特性会把纯 JSON 变成浏览器要解释的文档，所以浏览器半边在绘制前只改写这三处（[`src/client/sanitize.ts`](src/client/sanitize.ts)）：
@@ -78,6 +105,7 @@ pnpm dsh web --patch packages/experimental/vue2-echarts-tool-poc/overlay/show-ch
 
 report 路由只接同站点、只收 JSON：被浏览器标为 `sec-fetch-site: cross-site` 的请求以 403 拒绝，未声明 `application/json` 的以 415 拒绝，两者都发生在读取正文之前，于是跨源页面无法把一次判定作为免预检的简单请求发出来。越过这道闸之后，它接受任何能抵达 dsh 源的一方发来的判定，与 HTTP API 的其余部分一致；一次汇报只能结算一个已经在等它的调用，最坏的后果是用户正看着的某一张图上多出一行错误的判定文字。
 
+<a id="model-experience"></a>
 ## Model Experience
 
 ### `show_chart` 的对外面
@@ -110,6 +138,8 @@ report 路由只接同站点、只收 JSON：被浏览器标为 `sec-fetch-site:
 
 ## Known Limitations and Deferred Work
 
+<a id="known-limitations-and-deferred-work"></a>
+
 - **四种 series 类型** —— `bar`、`line`、`pie`、`radar`。这个集合是组件行里的 [`SUPPORTED_SERIES_TYPES`](../vue2-echarts-poc/src/chart-types.ts)，那一行注册的正是这几个 ECharts 模块；加一种是一个常量加一个模块条目，工具描述和它的拒绝文案会自动跟上。
 - **只能是 JSON** —— option 要跨过工具调用边界，因此任何以函数表达的 ECharts 特性（`formatter` 回调、`symbolSize` 函数、自定义 series 渲染器）根本发不过来。
 - **判定来自第一个汇报的客户端** —— 可能有多个浏览器在看同一个 session，谁先画完谁回答这次调用。它们画的是同一份文档，所以计数一致；但如果某个浏览器的引擎拒绝了另一个接受的文档，就不一致了。
@@ -124,3 +154,15 @@ report 路由只接同站点、只收 JSON：被浏览器标为 `sec-fetch-site:
 - **投影随本 session 的图表调用数增长** —— 每次调用一条很小的条目，存活到 session 结束，其 `title` 按模型写下的原样携带。两者都不做截断；画上几百张图的 session 推给浏览器的值也会相应变大。
 - **没有任何交互抵达模型** —— 点击、图例切换、缩放都留在浏览器里。agent 能把一张图摆到用户面前，却学不到用户对它做了什么。
 - **未被组装态快照覆盖** —— 浏览器证据是跑在真实组合上的 Playwright 场景，模型可见文本在单元测试里逐字锁定；快照通道回放的是已发布组合，而它不组合实验行。
+
+**运行时不变式：** 不发布伴生入口。本包不拥有任何事件流，也不拥有可变的持久数据。一次 `show_chart` 调用不追加任何属于自己的东西——工具结果是循环的，持久截图是附件服务的——待定裁决表是进程内状态，其一次性结算由本包自己的测试演练；`showCharts` 投影同样不拥有数据：它是对循环自身工具事件的纯折叠，每次重放都从它们重算。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

@@ -13,18 +13,18 @@ import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import LlmRuntime from '@deepseek-ai/dsh-llm'
 import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
+import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import AgentLoop from '@deepseek-ai/dsh-agent-loop'
 import FileSettingsProvider from '@deepseek-ai/dsh-settings-file'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import { describe, expect, it } from 'vitest'
 import AgentPresets, { COMPOSITION_FILE, SETTINGS_NAMESPACE } from '@deepseek-ai/dsh-agent-presets'
 
 const FIXTURES = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const ROOTS = [{ path: join(FIXTURES, 'system'), trust: 'system' as const }]
-const NS = settingsNamespace(SETTINGS_NAMESPACE)
+const NS = SETTINGS_NAMESPACE
 
 /**
  * A composition with a real file-backed settings provider. `settingsFiber` is
@@ -43,13 +43,14 @@ async function harness(
   ctx.loader.builtins.include = Include
   await ctx.plugin(LlmRuntime)
   await ctx.plugin(SessionStore)
+  await ctx.plugin(SessionProjectionRegistry)
   await ctx.plugin(SystemPrompt, { persona: '' })
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(AgentLoop, { agents: [] })
   const settingsFiber = ctx.plugin(FileSettingsProvider, { path: settingsFile, watch: false })
   await settingsFiber
-  await ctx.plugin(AgentPresets, { default: 'standard', roots: [...ROOTS, ...extraRoots], includeUserRoot: false })
+  await ctx.plugin(AgentPresets, { default: 'standard', roots: [...ROOTS, ...extraRoots], includeShippedRoot: false, includeUserRoot: false })
   return { ctx, settingsFile, settingsFiber }
 }
 
@@ -69,6 +70,45 @@ describe('the default preset as a user setting', () => {
     await ctx.settings.update(NS, { default: 'minimal' })
 
     expect(ctx.agentPresets.defaultId).toBe('minimal')
+  })
+
+  it('resolves the legacy `code` id to the shipped `ptc` preset when no root supplies `code`', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-legacy-'))
+    await mkdir(join(root, 'ptc'))
+    await writeFile(join(root, 'ptc', 'agent.cordis.yml'), '- id: beta\n  name: ../../plugins/contribute.js\n  config:\n    tool: beta\n')
+    const { ctx } = await harness([{ path: root, trust: 'user' as const }])
+    // A settings file written by a release that shipped the preset as `code`.
+    await ctx.settings.update(NS, { default: 'code' })
+
+    expect((await ctx.agentPresets.resolve()).id).toBe('ptc')
+    expect((await ctx.agentPresets.resolve('code')).id).toBe('ptc')
+    expect((await ctx.agentPresets.remoteExportList()).presets.find(preset => preset.isDefault)?.id).toBe('ptc')
+    expect((await ctx.agentPresets.compositionInventory()).find(composition => composition.isDefault)?.id).toBe('ptc')
+  })
+
+  it('does not resolve a prototype member name through the alias table', async () => {
+    const { ctx } = await harness()
+
+    await expect(ctx.agentPresets.resolve('constructor')).rejects.toMatchObject({ code: 'agent-preset/not-found' })
+  })
+
+  it('keeps a user-authored `code` preset ahead of the legacy alias', async () => {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-preset-legacy-'))
+    for (const id of ['code', 'ptc']) {
+      await mkdir(join(root, id))
+      await writeFile(join(root, id, 'agent.cordis.yml'), '- id: beta\n  name: ../../plugins/contribute.js\n  config:\n    tool: beta\n')
+    }
+    const { ctx } = await harness([{ path: root, trust: 'user' as const }])
+    await ctx.settings.update(NS, { default: 'code' })
+
+    expect((await ctx.agentPresets.resolve('code')).id).toBe('code')
+    expect((await ctx.agentPresets.remoteExportList()).presets.find(preset => preset.isDefault)?.id).toBe('code')
+  })
+
+  it('still refuses an id that is neither in a root nor a legacy alias', async () => {
+    const { ctx } = await harness()
+
+    await expect(ctx.agentPresets.resolve('nope')).rejects.toMatchObject({ code: 'agent-preset/not-found' })
   })
 
   it('composes a new session from the user default', async () => {

@@ -53,6 +53,10 @@ const FRONTEND_DIST_INDEX = join('node_modules', '@deepseek-ai', 'dsh-web-fronte
 const NODE_VERSION = 'v24.15.0'
 const NODE_WIN_X64_URL = `https://nodejs.org/dist/${NODE_VERSION}/win-x64/node.exe`
 const CACHE_DIR = join(APP_DIR, '.cache')
+/** The staged package manager, copied into `resources/runtime/pnpm` by scripts/after-pack.cjs. */
+const PNPM_STAGING = join(STAGING, 'pnpm')
+/** The staged package manager's entry, which `resolvePnpmLauncher` runs under the bundled Node. */
+const PNPM_ENTRY = join('bin', 'pnpm.mjs')
 
 interface Cli {
   mac: boolean
@@ -314,11 +318,64 @@ async function stageWindowsVariants(): Promise<void> {
   console.log(`package: staged native artifacts:\n  ${natives.join('\n  ')}`)
 }
 
-/** Stage the bundled Node runtime for one platform. */
+/**
+ * The pnpm version this build ships, from the repository's own
+ * `packageManager` pin.
+ *
+ * One home for the fact: the package manager the desktop lends its users is the
+ * one this repository is developed and tested with, and a second literal here
+ * would be a version nobody updates.
+ * @returns the version, without the `pnpm@` prefix.
+ * @throws when the root manifest pins something other than pnpm.
+ */
+async function pnpmVersion(): Promise<string> {
+  const { packageManager } = JSON.parse(await readFile(join(ROOT, 'package.json'), 'utf8')) as { packageManager?: string }
+  const pinned = /^pnpm@(\d+\.\d+\.\d+)$/.exec(packageManager ?? '')?.[1]
+  if (pinned === undefined) {
+    throw new Error(`package: the repository's packageManager is ${String(packageManager)}; the bundled package manager must be a pinned pnpm version.`)
+  }
+  return pinned
+}
+
+/**
+ * Stage the package manager the shell lends the embedded server.
+ *
+ * The customers this product is for have no pnpm on PATH, so the plugin-admin
+ * service runs this copy under the bundled Node instead. pnpm publishes as a
+ * self-contained directory — `bin/pnpm.mjs` beside the `dist/` siblings it
+ * loads at runtime, natives included — so the whole extracted package is what
+ * ships, not the entry alone.
+ *
+ * It is staged once for every platform, because it is JavaScript and its
+ * natives are published for all four of them in the same tarball. It lands
+ * under `runtime/` rather than beside the server closure because
+ * [[bundleClosure]]'s sweep deletes anything under `server/` the closure does
+ * not reference, and nothing in that closure references pnpm; scripts/
+ * after-pack.cjs is what puts it there, because that tree contains a
+ * `node_modules` and the builder's own extraResources copier hard-excludes
+ * those.
+ */
+async function stagePnpm(): Promise<void> {
+  const version = await pnpmVersion()
+  const spec = `pnpm@${version}`
+  console.log(`package: staging ${spec}`)
+  const packDir = join(CACHE_DIR, 'npm-pack')
+  await mkdir(packDir, { recursive: true })
+  await run(`npm pack ${spec}`, 'npm', ['pack', spec, '--pack-destination', packDir], APP_DIR)
+  const tarball = `pnpm-${version}.tgz`
+  if (!existsSync(join(packDir, tarball))) throw new Error(`package: npm pack produced no tarball for ${spec}`)
+  await rm(PNPM_STAGING, { recursive: true, force: true })
+  await mkdir(PNPM_STAGING, { recursive: true })
+  await run(`extract ${tarball}`, 'tar', ['-xzf', join(packDir, tarball), '-C', PNPM_STAGING, '--strip-components', '1'], APP_DIR)
+  if (!existsSync(join(PNPM_STAGING, PNPM_ENTRY))) throw new Error(`package: the staged ${spec} has no ${PNPM_ENTRY}.`)
+}
+
+/** Stage the bundled Node runtime, and the pnpm that runs on it, for one platform. */
 async function stageRuntime(platform: 'darwin' | 'win'): Promise<void> {
   const dir = join(STAGING, 'runtime', platform)
   await rm(dir, { recursive: true, force: true })
   await mkdir(dir, { recursive: true })
+  await stagePnpm()
   if (platform === 'darwin') {
     // The build machine's own Node is the tested engines match.
     if (!process.version.startsWith('v24.')) {
@@ -400,7 +457,7 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
       }, 90_000)
       const onChunk = (chunk: Buffer): void => {
         collected += chunk.toString()
-        const match = /dsh web: (http:\/\/127\.0\.0\.1:\d+)/.exec(collected)
+        const match = /dsh web: (http:\/\/127\.0\.0\.1:\d+\S*)/.exec(collected)
         if (match?.[1] !== undefined) {
           clearTimeout(timer)
           resolvePromise(match[1])
@@ -413,13 +470,23 @@ async function verifyStagedBoot(root: string, buildHome: string): Promise<void> 
         reject(new Error(`package: staged boot exited (${String(code)}) before its URL line.\n${collected.split('\n').slice(-20).join('\n')}`))
       })
     })
-    const response = await fetch(url)
+    // The URL line carries the launch token; loading it exchanges the token
+    // for the browser-session cookie (303 to clean `/`), and every later
+    // request authenticates by that cookie alone.
+    const exchange = await fetch(url, { redirect: 'manual' })
+    const setCookie = exchange.headers.get('set-cookie')
+    if (exchange.status !== 303 || setCookie === null) {
+      throw new Error(`package: staged boot did not exchange the launch token (status ${String(exchange.status)}).`)
+    }
+    const cookie = setCookie.split(';', 1)[0] ?? ''
+    const base = new URL('/', url).href
+    const response = await fetch(base, { headers: { cookie } })
     const index = await response.text()
     if (!response.ok || !index.includes('__DSH_BOOT__')) {
-      throw new Error(`package: staged boot served an unexpected index from ${url}.`)
+      throw new Error(`package: staged boot served an unexpected index from ${base}.`)
     }
-    await verifyClientModules(root, url, index)
-    console.log(`package: staged boot verified at ${url}`)
+    await verifyClientModules(root, base, index, cookie)
+    console.log(`package: staged boot verified at ${base}`)
   } finally {
     child.kill('SIGTERM')
     await new Promise<void>((resolvePromise) => {
@@ -463,10 +530,16 @@ async function servesClientModule(root: string, name: string): Promise<boolean> 
  * @param root - the staged server tree, whose manifests say which built-ins have a browser half.
  * @param base - the booted server's URL.
  * @param index - the index HTML, which names every client bundle.
+ * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
  */
-async function verifyClientModules(root: string, base: string, index: string): Promise<void> {
-  const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)].map(match => match[0]))]
+async function verifyClientModules(root: string, base: string, index: string, cookie: string): Promise<void> {
+  // alpha.2 serves client modules through combo URLs — `/plugins/??a/client.js,b/client.js&rev=…`
+  // (HTML-attribute occurrences carry `&amp;`) — so module names are the
+  // `<name>/client.js` segments inside each URL, not URL path prefixes.
+  const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)]
+    .map(match => match[0].replaceAll('&amp;', '&')))]
   if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
+  const served = new Set(paths.flatMap(path => [...path.matchAll(/([^?,&]+\/client\.js)/g)].map(match => match[1])))
   // A built-in with a browser half reaches the page only if the payload carried
   // it, the seed named it, and the Loader resolved it; nothing else in this
   // build fails when one of those three stops being true. A built-in without
@@ -477,7 +550,7 @@ async function verifyClientModules(root: string, base: string, index: string): P
   for (const name of BUILTIN_WEB_BUNDLES) {
     if (!await servesClientModule(root, name)) continue
     withClient++
-    if (!paths.some(path => path.startsWith(`/plugins/${name}/`))) {
+    if (!served.has(`${name}/client.js`)) {
       throw new Error(`package: staged boot served no client module for the built-in plugin ${name}.`)
     }
   }
@@ -486,7 +559,7 @@ async function verifyClientModules(root: string, base: string, index: string): P
   }
   for (const path of paths) {
     const target = new URL(path, base)
-    const response = await fetch(target)
+    const response = await fetch(target, { headers: { cookie } })
     const body = await response.text()
     if (!response.ok) throw new Error(`package: client module ${path} answered ${String(response.status)}.`)
     if (!body.includes('__ModuleLoader__')) {

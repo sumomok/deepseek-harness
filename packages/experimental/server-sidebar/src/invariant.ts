@@ -4,21 +4,21 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import type { ServerMenuSettings } from './workflows.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-server-sidebar'
 /**
- * This package's settings namespace, recomputed rather than imported from
- * `workflows.ts` (`settingsNamespace` is a pure value transform, so the two
- * calls produce an equal, comparable string either way): sharing the runtime
+ * This package's settings namespace, restated rather than imported from
+ * `workflows.ts` (both spell the same literal, so the two produce an equal,
+ * comparable string either way): sharing the runtime
  * value across this module and `index.ts` would give tsdown's two entry
  * bundles a common chunk to split out, which the built-package-invariant
  * gate's file allowlist (this package's `package.json#files`) cannot name
  * (its hash is content-addressed) — see the package README.
  */
-const SERVER_SIDEBAR_NAMESPACE = settingsNamespace('server-sidebar')
+const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
 
 /** Cordis companion plugin name. */
 export const name = 'experimental-server-sidebar-invariant'

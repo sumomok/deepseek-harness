@@ -29,7 +29,7 @@ import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type Web
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
 const OVERLAY = fileURLToPath(new URL('./content-show.overlay.yml', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
 /** Every experimental row the overlay inserts, as package name and source directory. */
@@ -44,8 +44,8 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 const HOME_SESSION = 'content-show-web-e2e-home'
 const REPORTS_SESSION = 'content-show-web-e2e-reports'
 
-/** The composer's own English placeholder — the signal that a session is open. */
-const COMPOSER_PLACEHOLDER = 'Message the agent'
+/** The composer's own stable attribute — the signal that a session is open. */
+const COMPOSER = '[data-composer-input]'
 
 /** Attribute the probe stamps on a live iframe element. */
 const PROBE_ATTRIBUTE = 'data-dsh-probe'
@@ -89,7 +89,7 @@ async function openSession(page: Page, index: number): Promise<void> {
   const row = page.locator('[role="treeitem"]').nth(index)
   await row.waitFor({ timeout: 15_000 })
   await row.click()
-  await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
 }
 
 /** The two pages the overlay configures, by URL, with the heading each document renders. */
@@ -190,7 +190,7 @@ describe.skipIf(MODE === 'record')('web e2e: the agent-driven content column', (
     page.on('console', (message: ConsoleMessage) => {
       if (message.type() === 'error') consoleErrors.push(message.text())
     })
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     // No session is open yet, so the shell's content-empty collapse (see
     // `dsh-experimental-server-layout`'s `ShellFrame.tsx`) holds the column at
     // zero width here; only its presence in the DOM is asserted.

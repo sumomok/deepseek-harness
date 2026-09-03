@@ -3,7 +3,8 @@
  * group, creating a session first when none is current.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/open-page
  */
-import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { resolveOrCreateSession } from './session-resolution.ts'
 
 /**

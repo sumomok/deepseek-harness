@@ -6,6 +6,7 @@ Root `CLAUDE.md` is upstream's `AGENTS.md` (budgeted, never edited here); this f
 
 - `master` mirrors `upstream/master`; never push to `upstream`. `develop` is the fork line (desktop, PWA, server apps, built-in plugins): every change branches from `develop` and merges back there. `core-patches` holds the upstream patches re-applied on every sync. `product/server-console` is a separate long-lived line that never merges into `develop`.
 - One `git worktree` per task, created from `origin/develop` after `git fetch`; build, pack, and commit only in a worktree that has `node_modules` (lefthook runs from it). Never `--no-verify`.
+- Every `core-patches` addition, modification, or retirement is registered in the same change in [`.claude/core-patches.md`](core-patches.md) (what changed / why / intended effect / retirement condition); unregistered, it does not merge.
 
 ## Desktop release (`apps/desktop`)
 

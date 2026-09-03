@@ -15,16 +15,16 @@
       "path": "../../client/locale"
     },
     {
-      "path": "../../client/runtime"
+      "path": "../../client/ui-chat"
     },
     {
-      "path": "../../client/ui-conversation"
+      "path": "../../client/ui-renderer"
     },
     {
       "path": "../../client/ui-slots"
     },
     {
-      "path": "../../runtime-diagnostics/invariants"
+      "path": "../../core/session"
     },
     {
       "path": "../content-surface"

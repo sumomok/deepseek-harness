@@ -176,6 +176,10 @@ describe.skipIf(MODE === 'record')('web e2e: single sign-on in front of the shel
 
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
+    // `dsh web` gates the origin behind a one-time launch token; exchanging it
+    // here leaves the session cookie, so the navigations below exercise the
+    // deployment's own sign-on rather than the harness's.
+    await page.context().request.get(scaffold.authenticatedUrl, { maxRedirects: 0 })
     await page.addInitScript(LOAD_COUNTER)
     // The deployment's login page, served into the shell's own origin: only a
     // same-origin page can leave the token where the gate reads it.

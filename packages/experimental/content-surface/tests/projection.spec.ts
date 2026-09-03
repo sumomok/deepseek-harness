@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
+import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { contentSurfaceProjection } from '../src/projection.ts'
 import { eraseExtractor, foldVersion } from '../src/extractor.ts'
 import type { ContentSurfaceFold } from '../src/types.ts'
@@ -54,7 +54,7 @@ const STATE: ContentSurfaceFold = {
 
 /** One dismissal event, as the fold receives it. */
 function dismissal(kind: string, entryId: string, seq: number): SessionEvent {
-  return { type: 'content-surface/dismissed', seq, time: 0, data: { kind, entryId, by: 'user' } }
+  return { type: 'content-surface/dismissed', seq: SessionSeq(seq), time: 0, data: { kind, entryId, by: 'user' } }
 }
 
 /** One selection event, as the fold receives it. */

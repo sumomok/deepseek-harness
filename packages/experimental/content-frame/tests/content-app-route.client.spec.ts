@@ -184,7 +184,7 @@ describe('hosted application route', () => {
     })
     const execution = await loaded.commands.execute(commandAgent, '/show-content-page home', [], new AbortController().signal)
     expect(execution?.result).toEqual({ kind: 'success', text: 'Now showing Home in the content column.' })
-    expect(commandSession.events.filter(event => event.type === 'content/shown').map(event => event.data))
+    expect(commandSession.snapshotEvents().filter(event => event.type === 'content/shown').map(event => event.data))
       .toEqual([{ page: 'home', by: 'user' }])
     // The notice the composition actually injects, not a hand-built handler's.
     expect(injected.map(message => message.content)).toEqual([[{

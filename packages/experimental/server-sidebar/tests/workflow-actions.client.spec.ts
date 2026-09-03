@@ -4,7 +4,7 @@
  * (session-orchestration, decisions ①/⑥/⑧).
  */
 import { describe, expect, it, vi } from 'vitest'
-import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
+import type { Context as ClientContext } from '@deepseek-ai/cordis'
 import {
   nextOrder, openWorkbenchOnClick, openWorkbenchOnLoad, openWorkflow, reordered, sortedWorkflows,
 } from '../src/client/workflow-actions.ts'
@@ -131,12 +131,22 @@ function fakeContext(overrides: {
   const open = vi.fn()
   const ctx = {
     sessions: {
-      list: { getSnapshot: () => ({ current: undefined }) },
+      list: { getSnapshot: () => ({ current: undefined, phase: 'ready', ids: [], byId: {} }) },
       open,
     },
-    workspaces: {
-      list: { getSnapshot: () => ({ recentWorkspaceId: overrides.recentWorkspaceId }) },
+    uiWorkspace: {
       connectWorkspace: overrides.connectWorkspace ?? (() => Promise.resolve('new-session')),
+    },
+    workspaces: {
+      list: {
+        getSnapshot: () => ({
+          phase: 'ready',
+          archivedSessionIds: [],
+          items: overrides.recentWorkspaceId === undefined
+            ? []
+            : [{ workspaceId: overrides.recentWorkspaceId, path: '/workspace', sessionIds: [], createdAt: '2026-01-01T00:00:00.000Z' }],
+        }),
+      },
     },
     remote: {
       commands: { execute: overrides.execute ?? (() => Promise.resolve({ ok: true, value: undefined })) },

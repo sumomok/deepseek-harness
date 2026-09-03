@@ -4,7 +4,7 @@
  * that command to append `content-surface/dismissed` with `by: 'user'` — the
  * durable record is the point, not a chat message narrating a tab the user
  * just closed themselves. Registering this component at the command's key
- * replaces `dsh-client-ui-conversation`'s default `GenericCommandCard`
+ * replaces `dsh-client-ui-chat`'s default `GenericCommandCard`
  * fallback with nothing.
  *
  * The row's DOM anchor still exists after this returns null — the sibling

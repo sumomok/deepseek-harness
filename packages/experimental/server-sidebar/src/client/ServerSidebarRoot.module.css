@@ -69,7 +69,7 @@
   padding: 8px 12px;
   margin: 0 2px 12px;
   box-sizing: border-box;
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
   border-radius: 12px;
   background: var(--dsw-alias-button-elevated-fill);
   color: var(--dsw-alias-label-primary);
@@ -138,8 +138,9 @@
   width: 24px;
   height: 24px;
   border-radius: 50%;
+  corner-shape: round;
   background: var(--dsw-alias-button-elevated-fill);
-  border: 1px solid var(--dsw-alias-border-l2);
+  border: 0.5px solid var(--dsw-alias-border-l2);
 }
 
 .avatarName {

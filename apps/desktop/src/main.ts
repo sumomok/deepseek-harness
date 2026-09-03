@@ -23,22 +23,34 @@
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
-import { app, BrowserWindow, shell } from 'electron'
+import { app, BrowserWindow, dialog, Notification, shell } from 'electron'
 import { recordRun } from './desktop-state.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
+import { isExternalNavigationTarget } from './navigation.ts'
 import { setupNotifications } from './notifications.ts'
-import { describeSeed, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
+import {
+  ENDPOINT_ENV as PLUGIN_ADMIN_ENDPOINT_ENV, PLUGIN_ADMIN_LIMITS, resolvePnpmLauncher, spawnPnpm,
+  startPluginAdminService, TOKEN_ENV as PLUGIN_ADMIN_TOKEN_ENV,
+  type ConfirmRequest, type PluginAdminHandle,
+} from './plugin-admin-service.ts'
+import { describeSeed, quarantineLoadFailureFromOutput, resolveHarnessHome, seedBuiltinBundles } from './profile-seed.ts'
 import { RENDER_LIMITS, startRenderService, type RenderServiceHandle } from './render-service.ts'
 import { renderInHiddenWindow } from './render-window.ts'
-import { startServer, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
+import { clearLoginSession, openLoginWindow } from './login-window.ts'
+import {
+  classifyStoppedDialogAnswer, initialSupervisorState, isRecoveryRelaunchInstance, RECOVERY_RELAUNCH_FLAG,
+  runRecoveryLadder, STOPPED_DIALOG_BUTTONS, STOPPED_DIALOG_CANCEL_INDEX, type SupervisorState,
+} from './server-supervision.ts'
+import { startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import { launchGate, setupUpdates } from './updater.ts'
 
 /**
  * A server launch plus the shipped closure the built-in plugins are seeded
- * from. The environment additions are not part of it: they carry the render
- * service's address, which does not exist yet when the paths are resolved.
+ * from. The environment additions are not part of it: they carry the two
+ * loopback services' addresses, which do not exist yet when the paths are
+ * resolved.
  */
 interface LaunchSpec extends Omit<ServerSpec, 'env'> {
   /** `node_modules` of the shipped server closure, holding the built-in plugin packages. */
@@ -75,9 +87,30 @@ function resolveSpec(): LaunchSpec {
 
 let server: ServerHandle | undefined
 let renderService: RenderServiceHandle | undefined
+let pluginAdminService: PluginAdminHandle | undefined
 let quitting = false
 /** Set once the log file is known; before that there is nowhere to write. */
 let logLine: (chunk: string) => void = () => {}
+/** Set once the log file's own path is known, for the L2 "打开日志" button. */
+let logFile = ''
+
+/**
+ * The launch spec the running server was started (or last rebound) with —
+ * paths plus the loopback-service environment additions. Recorded once the
+ * first startup succeeds; every automatic or manual rebind reuses it
+ * unchanged, since the loopback services it points at keep running across a
+ * server-only crash.
+ */
+let activeServerSpec: ServerSpec | undefined
+
+/** The recovery ladder's own memory between unexpected server exits; see [[@deepseek-ai/dsh-desktop/server-supervision]]. */
+let supervisorState: SupervisorState = initialSupervisorState
+
+/** Wall-clock ms this process started, for the L2 guard window. */
+const processStartedAt = Date.now()
+
+/** Whether this launch is L1's own relaunch after repeated server crashes. */
+const isRecoveryRelaunch = isRecoveryRelaunchInstance(process.argv)
 
 /**
  * How long a quit waits for the server to stop before exiting regardless.
@@ -119,6 +152,152 @@ async function stopServerBounded(): Promise<void> {
 }
 
 /**
+ * Point every window showing the served UI at a new URL — the one holder the
+ * ordinary reload path (`will-navigate`, `reveal`) does not cover on its own,
+ * because both of those read `server.url` live and are already correct once
+ * {@link server} itself is reassigned. `mainWindow`'s own discriminator
+ * (`isResizable`) is what tells the served UI apart from the fixed-size
+ * progress and login windows, which this must leave alone.
+ * @param url - the rebound server's new authenticated URL.
+ */
+function retargetWindows(url: string): void {
+  for (const window of BrowserWindow.getAllWindows()) {
+    if (window.isResizable() && !window.isDestroyed()) void window.loadURL(url)
+  }
+}
+
+/**
+ * Tell the user an L0 rebind is under way, on both platforms — the window
+ * itself is showing whatever a dead backend renders as, which explains nothing.
+ */
+function notifyRecovering(): void {
+  const body = '后台服务已停止,正在恢复…'
+  logLine(`[desktop] notify: ${body}\n`)
+  if (!Notification.isSupported()) return
+  new Notification({ title: 'DSH Desktop', body }).show()
+}
+
+/**
+ * Attempt one rebind of the embedded server: start it again from
+ * {@link activeServerSpec}, and on success retarget every window and the
+ * notification streams, and resume supervising the new child. Used both by
+ * the L0 ladder and by the L2 dialog's manual retry.
+ * @returns true once the server is back up.
+ */
+async function performRebind(): Promise<boolean> {
+  const spec = activeServerSpec
+  if (spec === undefined) return false
+  try {
+    const handle = await startServerWithQuarantine(spec, logLine, quarantineLoadFailureFromOutput, resolveHarnessHome())
+    server = handle
+    logLine(`[desktop] server rebind succeeded at ${handle.url}\n`)
+    retargetWindows(handle.authenticatedUrl)
+    setupNotifications({ log: logLine, reveal }, handle.authenticatedUrl)
+    attachSupervision()
+    return true
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    logLine(`[desktop] rebind attempt failed: ${message}\n`)
+    return false
+  }
+}
+
+/**
+ * Watch the current {@link server} for its own exit and log the autopsy line
+ * for an unexpected one, then hand it to the recovery ladder. Called once
+ * after the very first successful startup and again after every successful
+ * rebind, because `onExit` fires once per child.
+ */
+function attachSupervision(): void {
+  server?.onExit((info) => {
+    if (info.expected) return
+    const code = info.code === null ? 'null' : String(info.code)
+    const signal = info.signal ?? 'null'
+    logLine(`[desktop] server exited unexpectedly: code=${code} signal=${signal}\n${info.tail}\n`)
+    void handleUnexpectedServerExit()
+  })
+}
+
+/**
+ * Run the recovery ladder for one unexpected server exit and carry out its
+ * verdict: nothing further on a recovered rebind, a marked whole-app relaunch
+ * on `relaunch`, or the L2 dialog on `stop`.
+ */
+async function handleUnexpectedServerExit(): Promise<void> {
+  // The app is already on its way out through a deliberate stop; that exit is
+  // `expected` and never reaches here, but a second, unrelated crash racing
+  // the same teardown must not start a rebind the quit is about to undo.
+  if (quitting) return
+  const { state, outcome } = await runRecoveryLadder(supervisorState, Date.now(), isRecoveryRelaunch, processStartedAt, {
+    sleep: ms => new Promise((resolve) => { setTimeout(resolve, ms) }),
+    notifyRecovering,
+    rebind: performRebind,
+  })
+  supervisorState = state
+  if (outcome === 'relaunch') relaunchForRecovery()
+  else if (outcome === 'stop') void runStoppedDialog()
+}
+
+/**
+ * Escalate to L1: relaunch the whole app once, marked so the next instance
+ * knows it is this relaunch (the L2 guard reads it). Goes through
+ * `app.quit()`, not `app.exit()`, so the ordinary `before-quit` teardown
+ * (closing the loopback services, `quitting` already true here so the tray's
+ * close guard stands aside) still runs — there is nothing left to stop on the
+ * server itself, which already exited.
+ */
+function relaunchForRecovery(): void {
+  logLine('[desktop] escalating to a full relaunch after repeated server crashes\n')
+  quitting = true
+  const args = process.argv.includes(RECOVERY_RELAUNCH_FLAG)
+    ? process.argv.slice(1)
+    : [...process.argv.slice(1), RECOVERY_RELAUNCH_FLAG]
+  app.relaunch({ args })
+  app.quit()
+}
+
+/**
+ * Escalate to L2: put the decision in front of the user instead of trying
+ * again automatically. 「重试」makes exactly one more manual rebind attempt
+ * and, on failure, shows the dialog again — repeatable, but never on a timer.
+ * 「打开日志」reveals the log file and reshows the dialog, since the user asked
+ * for information, not to end anything. 「关闭」ends the dialog loop and
+ * returns with the backend left down and nothing further attempted
+ * automatically; {@link STOPPED_DIALOG_CANCEL_INDEX} routes Esc and every
+ * other way of dismissing the dialog to the same button, so a user who
+ * cannot fix the crash always has a way out that is not quitting the whole
+ * app.
+ */
+async function runStoppedDialog(): Promise<void> {
+  logLine('[desktop] automatic recovery stopped after repeated crashes; asking the user\n')
+  for (;;) {
+    const window = mainWindow()
+    const options = {
+      type: 'error' as const,
+      title: 'DSH Desktop',
+      message: '后台服务多次崩溃,已停止自动恢复',
+      buttons: [...STOPPED_DIALOG_BUTTONS],
+      defaultId: 0,
+      cancelId: STOPPED_DIALOG_CANCEL_INDEX,
+    }
+    const answer = window === undefined ? await dialog.showMessageBox(options) : await dialog.showMessageBox(window, options)
+    const outcome = classifyStoppedDialogAnswer(answer.response)
+    if (outcome === 'retry') {
+      if (await performRebind()) return
+      continue
+    }
+    if (outcome === 'open-log') {
+      void shell.openPath(logFile).then((failure) => {
+        if (failure !== '') shell.showItemInFolder(logFile)
+      })
+      continue
+    }
+    logLine('[desktop] user dismissed the crash dialog; backend stays down\n')
+    return
+  }
+}
+
+/**
  * Start the loopback render service and return what the server child needs to
  * reach it.
  *
@@ -133,7 +312,12 @@ async function stopServerBounded(): Promise<void> {
 async function startRenderServiceForServer(log: (chunk: string) => void): Promise<Record<string, string>> {
   let started: RenderServiceHandle
   try {
-    started = await startRenderService({ renderer: renderInHiddenWindow, limits: RENDER_LIMITS })
+    started = await startRenderService({
+      renderer: renderInHiddenWindow,
+      openLogin: openLoginWindow,
+      clearLoginSession,
+      limits: RENDER_LIMITS,
+    })
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     log(`[desktop] render service unavailable (${message}); screenshots fall back to a browser on this machine\n`)
@@ -142,6 +326,76 @@ async function startRenderServiceForServer(log: (chunk: string) => void): Promis
   renderService = started
   log(`[desktop] render service on ${started.endpoint}\n`)
   return { DSH_DESKTOP_RENDER_ENDPOINT: started.endpoint, DSH_DESKTOP_RENDER_TOKEN: started.token }
+}
+
+/**
+ * Put one plugin-admin confirmation on screen.
+ *
+ * A native modal rather than anything the web UI draws: the page asking for an
+ * install is the page a compromised plugin would draw its own confirmation in,
+ * and this window is the one it cannot paint over. It is parented to the main
+ * window when there is one, so it is modal to the app rather than a dialog the
+ * user can lose behind it.
+ * @param request - what the service wants asked.
+ * @returns true when the user chose the confirming button.
+ */
+async function confirmPluginAdmin(request: ConfirmRequest): Promise<boolean> {
+  const options = {
+    type: 'question' as const,
+    title: request.title,
+    message: request.message,
+    ...request.detail === undefined ? {} : { detail: request.detail },
+    buttons: [request.confirmLabel, request.cancelLabel],
+    defaultId: 0,
+    // Dismissing the dialog installs nothing and restarts nothing.
+    cancelId: 1,
+  }
+  const window = mainWindow()
+  const answer = window === undefined
+    ? await dialog.showMessageBox(options)
+    : await dialog.showMessageBox(window, options)
+  return answer.response === 0
+}
+
+/**
+ * Start the loopback plugin-admin service and return what the server child
+ * needs to reach it.
+ *
+ * The shell ships a package manager the machine does not have, and lending it
+ * is what lets a plugin be updated from the Settings window. Failing to open a
+ * loopback listener is not a reason to refuse the launch: a server told nothing
+ * reports the capability unavailable and hides the tab, which is what every
+ * non-desktop install already does.
+ * @param spec - this launch's paths, for the pnpm the packaged build ships.
+ * @param log - the server log sink; receives one line either way, never the token.
+ * @returns the environment additions for the server process, empty when the service did not start.
+ */
+async function startPluginAdminForServer(spec: LaunchSpec, log: (chunk: string) => void): Promise<Record<string, string>> {
+  const launcher = resolvePnpmLauncher({
+    packaged: app.isPackaged,
+    resourcesPath: process.resourcesPath,
+    nodeBin: spec.nodeBin,
+  })
+  let started: PluginAdminHandle
+  try {
+    started = await startPluginAdminService({
+      home: resolveHarnessHome(),
+      run: spawnPnpm(launcher),
+      confirm: confirmPluginAdmin,
+      relaunch: () => {
+        app.relaunch()
+        app.quit()
+      },
+      limits: PLUGIN_ADMIN_LIMITS,
+    })
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log(`[desktop] plugin admin service unavailable (${message}); plugin updates are not offered\n`)
+    return {}
+  }
+  pluginAdminService = started
+  log(`[desktop] plugin admin service on ${started.endpoint}, pnpm: ${[launcher.command, ...launcher.prefixArgs].join(' ')}\n`)
+  return { [PLUGIN_ADMIN_ENDPOINT_ENV]: started.endpoint, [PLUGIN_ADMIN_TOKEN_ENV]: started.token }
 }
 
 /**
@@ -343,7 +597,7 @@ function createBootWindow(receipt?: string): BootView {
   window.webContents.on('will-navigate', (event, target) => {
     if (server === undefined || !target.startsWith(server.url)) {
       event.preventDefault()
-      if (target.startsWith('http')) void shell.openExternal(target)
+      if (isExternalNavigationTarget(target)) void shell.openExternal(target)
     }
   })
   guardWindowClose(window)
@@ -387,7 +641,7 @@ function reveal(): void {
     revealMainWindow()
     return
   }
-  if (server !== undefined) createAppWindow(server.url)
+  if (server !== undefined) createAppWindow(server.authenticatedUrl)
 }
 
 const locked = app.requestSingleInstanceLock()
@@ -419,6 +673,7 @@ if (!locked) {
     // Best-effort and unawaited: the listener dies with the process anyway, and
     // this quit must not wait on a render that is still running.
     void renderService?.close()
+    void pluginAdminService?.close()
     if (server === undefined) return
     event.preventDefault()
     void stopServerBounded().finally(() => { app.exit(0) })
@@ -429,7 +684,7 @@ if (!locked) {
     const upgradedFrom = recordRun()
     const view = createBootWindow(upgradedFrom === undefined ? undefined : `已更新到 v${app.getVersion()}`)
     const logDir = app.getPath('logs')
-    const logFile = join(logDir, 'dsh-server.log')
+    logFile = join(logDir, 'dsh-server.log')
     try {
       mkdirSync(logDir, { recursive: true })
     } catch {
@@ -454,6 +709,7 @@ if (!locked) {
     sink(`[desktop] server entry: ${spec.entry} (exists: ${String(existsSync(spec.entry))})\n`)
     sink(`[desktop] server cwd: ${spec.cwd}\n`)
     if (upgradedFrom !== undefined) sink(`[desktop] first run after updating from ${upgradedFrom}\n`)
+    if (isRecoveryRelaunch) sink('[desktop] this launch is an automatic recovery relaunch after repeated server crashes\n')
     view.phase(1)
     const host = {
       log: sink,
@@ -490,7 +746,11 @@ if (!locked) {
       // Before the spawn, because the address and token reach the server as
       // environment variables of that child and of nothing else.
       const renderEnv = await startRenderServiceForServer(sink)
-      server = await startServer({ ...spec, env: renderEnv }, sink)
+      const pluginAdminEnv = await startPluginAdminForServer(spec, sink)
+      activeServerSpec = { ...spec, env: { ...renderEnv, ...pluginAdminEnv } }
+      server = await startServerWithQuarantine(
+        activeServerSpec, sink, quarantineLoadFailureFromOutput, resolveHarnessHome(),
+      )
       clearInterval(ticker)
       sink(`[desktop] server ready at ${server.url}\n`)
       view.phase(2)
@@ -505,8 +765,9 @@ if (!locked) {
       }
       // After the gate, so a launch that must update first never subscribes to
       // a server it is about to take down.
-      setupNotifications({ log: sink, reveal }, server.url)
-      view.showApp(server.url)
+      setupNotifications({ log: sink, reveal }, server.authenticatedUrl)
+      attachSupervision()
+      view.showApp(server.authenticatedUrl)
     } catch (error) {
       clearInterval(ticker)
       const message = error instanceof Error ? error.message : String(error)

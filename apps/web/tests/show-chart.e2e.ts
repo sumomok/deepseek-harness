@@ -38,10 +38,10 @@ import type { Browser, ConsoleMessage, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
-import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
+import { expandTurnProcesses, newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
 const TOOL_DIR = join(REPO_ROOT, 'packages/experimental/vue2-echarts-tool-poc')
 const OFFICIAL_OVERLAY = join(TOOL_DIR, 'overlay/show-chart.patch.yml')
 const THREE_COLUMN_OVERLAY = join(TOOL_DIR, 'overlay/show-chart-three-column.patch.yml')
@@ -58,8 +58,8 @@ const ROWS = [
 /** Where the run's evidence lands. */
 const ARTIFACTS = join(REPO_ROOT, '.artifacts')
 
-/** The composer's own English placeholder — the signal that a session is open. */
-const COMPOSER_PLACEHOLDER = 'Message the agent'
+/** The composer's own stable attribute — the signal that a session is open. */
+const COMPOSER = '[data-composer-input]'
 
 /** The four seeded calls, by call id and caption. */
 const BAR_CALL = 'call_00_chart_bar'
@@ -133,8 +133,30 @@ async function harnessHomeWithRowLinks(): Promise<string> {
   return home
 }
 
-/** One settled `show_chart` call, as the log records it. */
-function chartCall(callId: string, title: string, option: unknown, points: number, id?: string): string[] {
+/**
+ * One settled `show_chart` call, as the log records it.
+ *
+ * A settled result is one identified tool-result message, not a bare content
+ * array: the reader rejects a `tool/result` whose `data.message` has no `id`,
+ * `role: 'user'`, `source.kind`, or `content` array, so the seed carries the
+ * whole message and takes its identity from the fixture's own `{{message:N}}`
+ * token space. Ordinals 1-5 belong to the recorded fixture; these continue it.
+ * @param callId - the call id the row is addressed by.
+ * @param messageOrdinal - the fixture identity ordinal for the result message.
+ * @param title - the chart caption the call carries.
+ * @param option - the ECharts option the call carries.
+ * @param points - how many data points the result text reports.
+ * @param id - the chart id the call claims, when it claims one.
+ * @returns the `tool/call` and `tool/result` lines, in log order.
+ */
+function chartCall(
+  callId: string,
+  messageOrdinal: number,
+  title: string,
+  option: unknown,
+  points: number,
+  id?: string,
+): string[] {
   const args = JSON.stringify({ ...id === undefined ? {} : { id }, title, option })
   return [
     JSON.stringify({
@@ -146,9 +168,17 @@ function chartCall(callId: string, title: string, option: unknown, points: numbe
       data: {
         turn: 1,
         step: 1,
-        callId,
-        content: [{ type: 'text', text: `Rendered: ${title} — 1 series, ${points} points` }],
-        isError: false,
+        message: {
+          id: `{{message:${messageOrdinal}}}`,
+          role: 'user',
+          source: { kind: 'tool', callId },
+          content: [{
+            type: 'tool-result',
+            toolCallId: callId,
+            content: [{ type: 'text', text: `Rendered: ${title} — 1 series, ${points} points` }],
+            isError: false,
+          }],
+        },
       },
       surfaceOp: 'append',
     }),
@@ -168,10 +198,10 @@ function withChartCalls(fixtureText: string): string {
   if (closing === -1) throw new Error('seed fixture has no step/end to splice before')
   return [
     ...lines.slice(0, closing),
-    ...chartCall(BAR_CALL, BAR_TITLE, BAR_OPTION, 5),
-    ...chartCall(PIE_CALL, PIE_TITLE, PIE_OPTION, 3),
-    ...chartCall(DEMO_OLD_CALL, DEMO_OLD_TITLE, DEMO_OLD_OPTION, 3, DEMO_ID),
-    ...chartCall(DEMO_NEW_CALL, DEMO_NEW_TITLE, DEMO_NEW_OPTION, 3, DEMO_ID),
+    ...chartCall(BAR_CALL, 6, BAR_TITLE, BAR_OPTION, 5),
+    ...chartCall(PIE_CALL, 7, PIE_TITLE, PIE_OPTION, 3),
+    ...chartCall(DEMO_OLD_CALL, 8, DEMO_OLD_TITLE, DEMO_OLD_OPTION, 3, DEMO_ID),
+    ...chartCall(DEMO_NEW_CALL, 9, DEMO_NEW_TITLE, DEMO_NEW_OPTION, 3, DEMO_ID),
     ...lines.slice(closing),
   ].join('\n')
 }
@@ -219,13 +249,19 @@ async function openWorld(overlayPath: string, sessionId: string): Promise<World>
   page.on('console', (message: ConsoleMessage) => {
     if (message.type() === 'error') consoleErrors.push(message.text())
   })
-  await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+  await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
   // The workspace group row precedes its sessions; expanding it lists them.
   await page.locator('[role="treeitem"]').first().click()
   const row = page.locator('[role="treeitem"]').nth(1)
   await row.waitFor({ timeout: 15_000 })
   await row.click()
-  await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
+  // Every seeded call sits in a closed turn, whose intermediate steps the
+  // product-default compact presentation folds behind one summary row
+  // (`hidden="until-found"`, so the rows are in the DOM but render nothing).
+  // This scenario is about what a chart row draws, not about the fold, so it
+  // opens every group once here rather than at each assertion.
+  await expandTurnProcesses(page)
   return { scaffold, browser, page, harnessHome, tripwire, consoleErrors }
 }
 

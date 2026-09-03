@@ -9,7 +9,7 @@
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
-import { settingsNamespace } from '@deepseek-ai/dsh-settings'
+import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import * as ServerSidebarInvariant from '../src/invariant.ts'
 import { SERVER_SIDEBAR_NAMESPACE } from '../src/workflows.ts'
 
@@ -48,7 +48,7 @@ describe('server-sidebar invariants', () => {
   it('ignores a commit for an unrelated namespace', async () => {
     const ctx = await setup()
     expect(() => {
-      ctx.emit('settings/updated', settingsNamespace('ui-theme'), { theme: 'dark' }, { theme: 'light' }, 'update')
+      ctx.emit('settings/updated', 'ui-theme' as SettingsNamespace, { theme: 'dark' }, { theme: 'light' }, 'update')
     }).not.toThrow()
   })
 })
