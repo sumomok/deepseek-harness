@@ -198,6 +198,29 @@ async function directZipFiles(rootContent: string): Promise<Record<string, Uint8
   return unzipSync(new Uint8Array(await new Response(stream).arrayBuffer()))
 }
 
+/**
+ * A descendant `open` that answers the extent-measuring pass and then blocks
+ * the streaming pass until the producer signal aborts, reporting that signal.
+ * @param report - receives the streaming pass's cancellation signal.
+ * @returns the persistence `open` fixture.
+ */
+function descendantBlockingOnStream(report: (signal: AbortSignal) => void) {
+  let measured = false
+  return async (id: SessionId, _access: SessionAccess, options?: { signal?: AbortSignal }) => {
+    if (id === sid('session-root')) return readHandle(log('session-root'))
+    if (!measured) {
+      measured = true
+      return readHandle(log('child-a', sid('session-root')))
+    }
+    const signal = options?.signal
+    if (signal === undefined) throw new Error('missing descendant signal')
+    report(signal)
+    return new Promise<SessionHandle>((_resolve, reject) => {
+      signal.addEventListener('abort', () => { reject(signal.reason as Error) }, { once: true })
+    })
+  }
+}
+
 describe('session export compression config', () => {
   it('defaults to level 6 and rejects values outside the integer 0-9 range', () => {
     expect(SessionLogExport.Config({})).toEqual({
@@ -383,7 +406,11 @@ describe('session.export download endpoint', () => {
       new Request('http://host/api/session.export?sessionId=session-root&includeDescendants=true'),
     )
     const files = unzipSync(await responseBytes(response))
-    expect(flushed).toEqual([sid('session-root'), sid('child-a')])
+    // The root is flushed once, by the route, before its log is read for both
+    // passes; each descendant is flushed by the extent measurement and again
+    // by the stream, each time immediately before that pass reads its log. The
+    // second barrier has nothing left to make durable.
+    expect(flushed).toEqual([sid('session-root'), sid('child-a'), sid('child-a')])
     expect(strFromU8(files['session.jsonl'] as Uint8Array)).toBe(logText(durable['session-root'] as StoredLog))
     expect(strFromU8(files['subagents/child-a/session.jsonl'] as Uint8Array)).toBe(logText(durable['child-a'] as StoredLog))
   })
@@ -615,17 +642,7 @@ describe('session.export download endpoint', () => {
       reportDescendantStarted = resolve
     })
     const api = await buildApi({}, [node('child-a')], {
-      open: async (id, _access, options) => {
-        if (id === sid('session-root')) return readHandle(log('session-root'))
-        const signal = options?.signal
-        if (signal === undefined) throw new Error('missing descendant signal')
-        reportDescendantStarted(signal)
-        return new Promise((_, reject) => {
-          signal.addEventListener('abort', () => {
-            reject(signal.reason as Error)
-          }, { once: true })
-        })
-      },
+      open: descendantBlockingOnStream(reportDescendantStarted),
     })
     const response = await api.downloads.sessionLog(
       { sessionId: sid('session-root'), includeDescendants: true },
@@ -676,17 +693,7 @@ describe('session.export download endpoint', () => {
       reportDescendantStarted = resolve
     })
     const api = await buildApi({}, [node('child-a')], {
-      open: async (id, _access, options) => {
-        if (id === sid('session-root')) return readHandle(log('session-root'))
-        const signal = options?.signal
-        if (signal === undefined) throw new Error('missing descendant signal')
-        reportDescendantStarted(signal)
-        return new Promise((_, reject) => {
-          signal.addEventListener('abort', () => {
-            reject(signal.reason as Error)
-          }, { once: true })
-        })
-      },
+      open: descendantBlockingOnStream(reportDescendantStarted),
     })
     const response = await api.downloads.sessionLog(
       { sessionId: sid('session-root'), includeDescendants: true },
@@ -814,5 +821,126 @@ describe('session.export download endpoint', () => {
     )
     expect(response.status).toBe(500)
     expect(await response.text()).toContain('attachments')
+  })
+})
+
+describe('session export extent headers', () => {
+  /** The Host's calibrated text-to-wire ratio, restated so a change to it is deliberate. */
+  const TEXT_DEFLATE_RATIO = 0.14
+
+  /** Root + one child, each referencing a distinct image: four archive entries. */
+  async function treeWithMedia(compressionLevel?: 0 | 9) {
+    return buildApi({
+      'session-root': log('session-root', undefined, [imageEvent('img-1')]),
+      'child-a': log('child-a', sid('session-root'), [imageEvent('img-2', 'image/jpeg')]),
+    }, [node('child-a')], compressionLevel === undefined ? {} : { compressionLevel })
+  }
+
+  /** The UTF-8 size of the two logs this fixture exports. */
+  function fixtureLogBytes(): number {
+    const encoder = new TextEncoder()
+    return encoder.encode(logText(log('session-root', undefined, [imageEvent('img-1')]))).byteLength
+      + encoder.encode(logText(log('child-a', sid('session-root'), [imageEvent('img-2', 'image/jpeg')]))).byteLength
+  }
+
+  it('announces the entry count and uncompressed size the archive actually carries', async () => {
+    const api = await treeWithMedia()
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root&includeDescendants=true'),
+    )
+
+    expect(response.status).toBe(200)
+    const files = unzipSync(await responseBytes(response))
+    expect(Object.keys(files).sort()).toEqual([
+      'media/img-1.png',
+      'media/img-2.jpg',
+      'session.jsonl',
+      'subagents/child-a/session.jsonl',
+    ])
+    const uncompressed = Object.values(files).reduce((total, file) => total + file.byteLength, 0)
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER))
+      .toBe(String(Object.keys(files).length))
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER))
+      .toBe(String(uncompressed))
+    // Logs are scaled by the calibrated ratio; media is already-compressed
+    // raster data that deflate leaves at its stored size.
+    const mediaBytes = storedImage('img-1').ref.bytes + storedImage('img-2', 'image/jpeg').ref.bytes
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER))
+      .toBe(String(Math.round(fixtureLogBytes() * TEXT_DEFLATE_RATIO + mediaBytes)))
+  })
+
+  it('estimates the exact wire size when the archive stores instead of deflating', async () => {
+    const api = await treeWithMedia(0)
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root&includeDescendants=true'),
+    )
+
+    // At level 0 every entry reaches the wire at its uncompressed size, so the
+    // estimate stops being an estimate.
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER))
+      .toBe(response.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER))
+    await response.body?.cancel()
+  })
+
+  it('answers the same extent on HEAD, before any archive byte is produced', async () => {
+    const api = await treeWithMedia()
+    const head = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root&includeDescendants=true', {
+        method: 'HEAD',
+      }),
+    )
+
+    expect(head.status).toBe(200)
+    expect(head.body).toBeNull()
+    expect(head.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER)).toBe('4')
+    expect(head.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER)).toBe(
+      String(new TextEncoder().encode(logText(log('session-root', undefined, [imageEvent('img-1')]))).byteLength
+        + new TextEncoder().encode(
+          logText(log('child-a', sid('session-root'), [imageEvent('img-2', 'image/jpeg')])),
+        ).byteLength
+        + storedImage('img-1').ref.bytes
+        + storedImage('img-2', 'image/jpeg').ref.bytes),
+    )
+  })
+
+  it('counts only the root when descendants are not requested', async () => {
+    const api = await treeWithMedia()
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+
+    // The root log and the one image it references; the child and its image
+    // are outside this archive.
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER)).toBe('2')
+    const files = unzipSync(await responseBytes(response))
+    expect(Object.keys(files).sort()).toEqual(['media/img-1.png', 'session.jsonl'])
+  })
+
+  it('omits the extent when the archive cannot be measured, and still fails the stream', async () => {
+    const api = await buildApi({ 'session-root': log('session-root') }, [node('child-missing')])
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root&includeDescendants=true'),
+    )
+
+    expect(response.status).toBe(200)
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER)).toBeNull()
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER)).toBeNull()
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER)).toBeNull()
+    await expect(response.arrayBuffer()).rejects.toThrow()
+  })
+
+  it('rethrows a request abort raised while measuring', async () => {
+    const abort = new AbortController()
+    const api = await buildApi({ 'session-root': log('session-root') }, [], {
+      traceSession: async () => {
+        abort.abort(new Error('browser left before the archive was measured'))
+        throw new Error('lineage read interrupted')
+      },
+    })
+
+    await expect(api.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: true },
+      abort.signal,
+    )).rejects.toThrow('browser left before the archive was measured')
   })
 })
