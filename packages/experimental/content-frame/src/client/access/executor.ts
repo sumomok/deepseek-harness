@@ -59,7 +59,7 @@ import type { SnapshotOptions } from './snapshot.ts'
 const PAGE_KIND = 'page'
 
 /** Reason for an outcome whose model-facing sentence the tool composes instead. */
-const EMPTY_REASON = 'the content column is empty'
+const NO_ENTRY_REASON = 'the content column is empty'
 
 /** Reason for an outcome whose model-facing sentence the tool composes instead. */
 const NOT_A_PAGE_REASON = 'the entry in front is not a page'
@@ -487,7 +487,7 @@ type Prepared =
  */
 async function prepare(seat: ContentReadSeat, timeoutMs: number): Promise<Prepared> {
   const failed = (outcome: ReadOutcome): Prepared => ({ kind: 'failed', outcome })
-  if (seat.entries.length === 0) return failed({ status: 'error', code: 'empty', message: EMPTY_REASON })
+  if (seat.entries.length === 0) return failed({ status: 'error', code: 'empty', message: NO_ENTRY_REASON })
   if (seat.page === undefined) {
     return failed({ status: 'error', code: 'not-a-page', message: NOT_A_PAGE_REASON, ...otherKind(seat.entries) })
   }

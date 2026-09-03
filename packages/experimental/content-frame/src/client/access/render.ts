@@ -618,6 +618,15 @@ function nothingInside(scope: string): string {
 }
 
 /**
+ * What a read whose `find` matched no row says instead.
+ * @param find - the words the read searched for.
+ * @returns the body.
+ */
+function nothingMatching(find: string): string {
+  return `No item matches "${find}" — try a shorter word, or read without find.`
+}
+
+/**
  * How a skeleton says where to read next.
  * @param ref - the ref of the container holding the most of the page.
  * @returns the closing line.
@@ -824,8 +833,7 @@ export function render(items: readonly Item[], options: SnapshotOptions, scope: 
   if (find !== undefined) {
     const found = findEntries(listed, find, refs)
     if (found.length === 0) {
-      const text = `No item matches "${find}" — try a shorter word, or read without find.`
-      return { kind: 'outline', text, truncated: false, shown: 0, total: 0, cursor: undefined }
+      return { kind: 'outline', text: nothingMatching(find), truncated: false, shown: 0, total: 0, cursor: undefined }
     }
     return resume('outline', found, options)
   }
