@@ -863,7 +863,7 @@ describe('widgets built out of several elements', () => {
     // drawing with no row is a thing the model cannot reach at all.
     const beside = page('<div><span>东风站</span><svg data-pointer class="close"><path d="M0 0"></path></svg></div>')
     expect(read(beside, { isClickable: pointer }).text)
-      .toBe(['text "东风站"', 'e1 clickable {{class: close}}'].join('\n'))
+      .toBe(['text "东风站"', 'e1 clickable {class: close}'].join('\n'))
     // The name is what the page wrote on the drawing and nothing else: the
     // title inside it is a tooltip, and the words in it label the picture.
     const labelled = page('<svg data-pointer aria-label="关闭"><title>关闭</title></svg>')
@@ -1215,7 +1215,7 @@ describe('widgets built out of several elements', () => {
     expect(read(antd).text).toBe([
       'e1 menu "操作"',
       // Named nowhere, so the row carries what the page wrote on it instead.
-      '  e2 menuitem {{class: ant-dropdown-menu-item}}',
+      '  e2 menuitem {class: ant-dropdown-menu-item}',
       '    e3 button "删除" (menuitem)',
     ].join('\n'))
     // A leaf drawn as one switch or one tick box: the control that would name
@@ -2006,7 +2006,7 @@ describe('a drawing the page only draws', () => {
       '  e4 button "删除" (in toolbar "操作")',
       // The page draws this one as something to click and says nothing else
       // about it; the one after it says nothing at all and prints nothing.
-      '  e5 clickable {{class: el-icon-star}} (in toolbar "操作")',
+      '  e5 clickable {class: el-icon-star} (in toolbar "操作")',
     ].join('\n'))
   })
 })
@@ -2020,9 +2020,9 @@ describe('what a row says where the page named nothing', () => {
       + '<input class="el-input__inner"></main>')
     expect(read(refs, { isClickable: pointer }).text).toBe([
       'e1 main',
-      '  e2 clickable {{class: el-tooltip operation-modify el-icon-edit}} (main)',
-      '  e3 button {{class: el-button el-button--text}} (main)',
-      '  e4 textbox {{class: el-input__inner}} = "" (main)',
+      '  e2 clickable {class: el-tooltip operation-modify el-icon-edit} (main)',
+      '  e3 button {class: el-button el-button--text} (main)',
+      '  e4 textbox {class: el-input__inner} = "" (main)',
     ].join('\n'))
   })
 
@@ -2033,7 +2033,7 @@ describe('what a row says where the page named nothing', () => {
     const refs = page('<main><button class="a b c d e f"></button><button></button></main>')
     expect(read(refs).text).toBe([
       'e1 main',
-      '  e2 button {{class: a b c d e f}} (main)',
+      '  e2 button {class: a b c d e f} (main)',
       '  e3 button (main)',
     ].join('\n'))
   })
@@ -2300,7 +2300,7 @@ describe('a field the page names by drawing the words beside it', () => {
       'e3 textbox "城市" = ""',
       'e4 clickable "清除"',
       'e5 textbox "区县" = ""',
-      'e6 clickable {{class: outside}}',
+      'e6 clickable {class: outside}',
     ].join('\n'))
   })
 
@@ -2319,7 +2319,7 @@ describe('a field the page names by drawing the words beside it', () => {
   it('folds no click target into a row that is not a field', () => {
     const refs = page('<div class="box"><button>展开</button><i data-pointer class="caret"></i></div>')
     expect(read(refs, { isClickable: pointer }).text)
-      .toBe(['e1 button "展开"', 'e2 clickable {{class: caret}}'].join('\n'))
+      .toBe(['e1 button "展开"', 'e2 clickable {class: caret}'].join('\n'))
   })
 })
 
@@ -2456,7 +2456,7 @@ describe('tables', () => {
     expect(read(refs, { isClickable: pointer }).text.split('\n')[2]).toBe('  sample: 东风站 | [clickable clickable]')
     const listed = read(refs, { scope: refOf(refs, 'table'), isClickable: pointer }).text
     expect(listed.split('\n')[2])
-      .toBe('  row 1: 东风站 | e3 clickable {{class: modify}}  e4 clickable {{class: remove}}')
+      .toBe('  row 1: 东风站 | e3 clickable {class: modify}  e4 clickable {class: remove}')
     // The confirmation the page keeps beside them is drawn nowhere until the
     // reader asks for it, and reaches the cell nowhere either.
     expect(listed).not.toContain('确定删除吗')

@@ -87,7 +87,7 @@ The reading half lives in the page seat because that is the only placement holdi
 
 ### What a control the page names nowhere reads as
 
-- **The row carries the element's class tokens where its name would go.** `e17 clickable {{class: el-tooltip operation-modify el-icon-edit}}` — every token the element carries, in the order it carries them, and nothing at all where the element carries no class. Nothing is cut: the string is also the row's mark, which a step carries back and the seat compares token for token, so a shortened one would match nothing. It is printed for the things a page offers to act on and names nowhere — a click target, a button, a link, a box to fill — and for nothing else: a heading or a region says what it is in its role.
+- **The row carries the element's class tokens where its name would go.** `e17 clickable {class: el-tooltip operation-modify el-icon-edit}` — every token the element carries, in the order it carries them, and nothing at all where the element carries no class. Nothing is cut: the string is also the row's mark, which a step carries back and the seat compares token for token, so a shortened one would match nothing. It is printed for the things a page offers to act on and names nowhere — a click target, a button, a link, a box to fill — and for nothing else: a heading or a region says what it is in its role.
 - **Nothing is read out of them.** The row is still named nothing: a step naming it passes `label: ""` and that same token string as `mark`, and the seat recomputes both before it acts — the page names the row nothing still, and marks it the same way still. What `el-icon-edit` means is for a skill about that application to say, and this package never guesses.
 
 ### What a console form reads as

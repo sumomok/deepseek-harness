@@ -342,8 +342,8 @@ describe('what stops a call', () => {
     expect(outcome.steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'e1 is now marked {{class: el-tooltip el-icon-delete}}, '
-        + 'not {{class: el-tooltip el-icon-edit}} — the page changed; call content_read for current refs.',
+      message: 'e1 is now marked {class: el-tooltip el-icon-delete}, '
+        + 'not {class: el-tooltip el-icon-edit} — the page changed; call content_read for current refs.',
     }])
   })
 

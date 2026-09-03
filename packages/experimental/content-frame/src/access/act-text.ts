@@ -29,7 +29,7 @@ export const CONTENT_ACT_DESCRIPTION =
   + 'from a list, press a key, or wait for text to appear. Every target is a ref from a content_read, and every '
   + 'label is that element\'s name copied from the read — the browser checks the name before it acts, so a page '
   + 'that changed since the read stops the call instead of clicking something else; for a row the read printed '
-  + 'with no name, pass label "" and mark, its {{class: ...}} tokens copied from the read. The steps run in '
+  + 'with no name, pass label "" and mark, its {class: ...} tokens copied from the read. The steps run in '
   + 'order and stop at the first failure; the answer reports each step, what the page did while they ran, and a fresh '
   + 'reading of the page. One call is one approval request, so put the steps that belong together in one call.'
 
@@ -55,7 +55,7 @@ export const LABEL_DESCRIPTION =
 /** The `mark` parameter line. */
 export const MARK_DESCRIPTION =
   'only for a row the read printed with no name: its class tokens exactly as the read printed them inside '
-  + '{{class: ...}}, which is what the browser checks that row by. Omit for every row that has a name'
+  + '{class: ...}, which is what the browser checks that row by. Omit for every row that has a name'
 
 /** The `text` parameter line. */
 export const TEXT_DESCRIPTION = 'what "fill" types, and what "wait" waits to see'
@@ -119,7 +119,7 @@ export const PRESS_KEY_REFUSAL = 'a "press" step needs key, such as "Enter"'
 /** Refusal for a step naming a row the read printed with no name and carrying no mark for it. */
 export const MARK_REFUSAL =
   'a row the read printed with no name is named by its mark: pass mark, the class tokens the read printed '
-  + 'for it inside {{class: ...}}, with label ""'
+  + 'for it inside {class: ...}, with label ""'
 
 /** Refusal for a step carrying both a name and a mark. */
 export const MARK_ON_NAMED_REFUSAL =
@@ -279,7 +279,7 @@ export const DIALOGS_UNAPPROVED_REFUSAL =
  * @returns the quoted name or the mark, as the listing printed it.
  */
 function ranTarget(step: ActTarget): string {
-  return step.mark === undefined ? `"${step.label}"` : `{{class: ${step.mark}}}`
+  return step.mark === undefined ? `"${step.label}"` : `{class: ${step.mark}}`
 }
 
 /** How one step reads in the first section of the answer. */
@@ -393,7 +393,7 @@ export function labelChangedReason(ref: string, now: string, expected: string): 
  * @returns the reason, without the step prefix.
  */
 export function markChangedReason(ref: string, now: string, expected: string): string {
-  return `${ref} is now marked {{class: ${now}}}, not {{class: ${expected}}} — the page changed; `
+  return `${ref} is now marked {class: ${now}}, not {class: ${expected}} — the page changed; `
     + 'call content_read for current refs.'
 }
 

@@ -36,7 +36,7 @@ Status: implemented
 
 ### 只加了一样
 
-页面提供出来供人操作、却没给名字的行，在名字的位置上打这个元素的 class token：`e17 clickable {{class: el-tooltip operation-modify el-icon-edit}}`。最多四个 token，按元素自己携带的顺序，多出来的以省略号收尾，元素没有 class 就什么都不打；只对 `OFFERED_ROLES` 里的角色打——可点目标、按钮、链接、可填的框。这些 token 一个字都不解读，这一行的名字仍然是空的：指向它的步骤传 `label: ""`（动手侧的 wire 现在收这个值），座位核对的是「页面现在仍然没给它名字」。`el-icon-edit` 是什么意思，由技能去说。
+页面提供出来供人操作、却没给名字的行，在名字的位置上打这个元素的 class token：`e17 clickable {class: el-tooltip operation-modify el-icon-edit}`。最多四个 token，按元素自己携带的顺序，多出来的以省略号收尾，元素没有 class 就什么都不打；只对 `OFFERED_ROLES` 里的角色打——可点目标、按钮、链接、可填的框。这些 token 一个字都不解读，这一行的名字仍然是空的：指向它的步骤传 `label: ""`（动手侧的 wire 现在收这个值），座位核对的是「页面现在仍然没给它名字」。`el-icon-edit` 是什么意思，由技能去说。
 
 ## Alternatives considered
 

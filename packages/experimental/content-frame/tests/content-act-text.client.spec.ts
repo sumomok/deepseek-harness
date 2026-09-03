@@ -87,7 +87,7 @@ describe('what the model reads when a call is refused before it runs', () => {
       'every step but "wait" needs label, the element\'s name exactly as content_read printed it, '
       + 'or "" for a row it printed with no name',
       'a row the read printed with no name is named by its mark: pass mark, the class tokens the read '
-      + 'printed for it inside {{class: ...}}, with label ""',
+      + 'printed for it inside {class: ...}, with label ""',
       'a row has one identity: pass label for a row the read named, or mark with label "" for one it did not '
       + '— not both',
       'a "fill" step needs text, the value to type into the box',

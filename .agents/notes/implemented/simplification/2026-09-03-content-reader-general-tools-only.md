@@ -36,7 +36,7 @@ Every rule keyed to a page's own spelling is retired. What the reader states is 
 
 ### The one thing added
 
-A row for something the page offers to act on and names nowhere prints the element's class tokens where the name would go: `e17 clickable {{class: el-tooltip operation-modify el-icon-edit}}`. At most four tokens, in the order the element carries them, an ellipsis where there are more, nothing at all where the element carries no class, and only for the roles in `OFFERED_ROLES` — a click target, a button, a link, a box to fill. Nothing is read out of them and the row is still named nothing: a step naming it passes `label: ""`, which the act wire now takes, and the seat holds the row to being named nothing still. What `el-icon-edit` means is a skill's to say.
+A row for something the page offers to act on and names nowhere prints the element's class tokens where the name would go: `e17 clickable {class: el-tooltip operation-modify el-icon-edit}`. At most four tokens, in the order the element carries them, an ellipsis where there are more, nothing at all where the element carries no class, and only for the roles in `OFFERED_ROLES` — a click target, a button, a link, a box to fill. Nothing is read out of them and the row is still named nothing: a step naming it passes `label: ""`, which the act wire now takes, and the seat holds the row to being named nothing still. What `el-icon-edit` means is a skill's to say.
 
 ## Alternatives considered
 

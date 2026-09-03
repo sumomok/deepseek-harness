@@ -110,12 +110,17 @@ function quoted(name: string): string {
  * model can point a step at: it carries the mark back, and the seat holds the
  * element to still carrying it. That is why {@link elementMark} prints every
  * token whole — the string is an identity to compare, not a summary to read.
+ *
+ * One brace on each side. The listing spends `"..."` on names and `(...)` on
+ * its own asides, so braces are free for the page's own markup; two of them is
+ * how the frameworks these consoles are written in spell an interpolation, and
+ * a row printing `{{class: ...}}` reads as a template nobody rendered.
  * @param el - the element the row names.
  * @returns the hint, or the empty string for an element carrying no class.
  */
 function classHint(el: Element): string {
   const mark = elementMark(el)
-  return mark === '' ? '' : ` {{class: ${mark}}}`
+  return mark === '' ? '' : ` {class: ${mark}}`
 }
 
 /**
