@@ -2026,11 +2026,14 @@ describe('what a row says where the page named nothing', () => {
     ].join('\n'))
   })
 
-  it('prints four tokens and says there are more, and nothing for an element carrying none', () => {
+  it('prints every token whole, and nothing for an element carrying none', () => {
+    // The hint is the row's mark, which a step carries back and the seat
+    // compares character for character: a cut would leave the two unable to
+    // agree on the row they are both naming.
     const refs = page('<main><button class="a b c d e f"></button><button></button></main>')
     expect(read(refs).text).toBe([
       'e1 main',
-      '  e2 button {{class: a b c d …}} (main)',
+      '  e2 button {{class: a b c d e f}} (main)',
       '  e3 button (main)',
     ].join('\n'))
   })

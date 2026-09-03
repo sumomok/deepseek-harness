@@ -12,7 +12,8 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  isActOutcome, MAX_ACT_STEPS, MAX_BUSY_NAMES, MAX_HEADER_CHARS, MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS,
+  isActOutcome, MAX_ACT_STEPS, MAX_ACT_TEXT_CHARS, MAX_BUSY_NAMES, MAX_HEADER_CHARS, MAX_NAME_CHARS,
+  MAX_OUTCOME_MESSAGE_CHARS,
   MAX_TEXT_BYTES_PER_CHAR, parseActArgs, parseChannelReport, parseClaimRequest, REPORT_ENVELOPE_BYTES,
   REPORT_SYNTAX_BYTES, sanitize, type ActOutcome, type ReadOutcome,
 } from '../src/access/wire.ts'
@@ -410,6 +411,25 @@ describe('what a browser half may be asked to run', () => {
     expect(parseActArgs({ steps, dialogs: 'accept' })).toEqual({ steps, dialogs: 'accept' })
     expect(parseActArgs({ steps: [{ action: 'click', ref: 'e5', label: 'Go' }] }))
       .toEqual({ steps: [{ action: 'click', ref: 'e5', label: 'Go' }] })
+  })
+
+  it('takes a step naming a row the read printed with no name by its mark', () => {
+    // One row, one identity: an unnamed row carries the mark the listing
+    // printed for it, and a named one carries its name and nothing else.
+    const marked = [{ action: 'click', ref: 'e5', label: '', mark: 'el-tooltip el-icon-edit' }]
+    expect(parseActArgs({ steps: marked })).toEqual({ steps: marked })
+    for (const steps of [
+      // An unnamed row with nothing to check it by.
+      [{ action: 'click', ref: 'e5', label: '' }],
+      [{ action: 'click', ref: 'e5', label: '', mark: '' }],
+      // A named row carrying a mark as well, which would leave the seat
+      // choosing which of the two to hold the row to.
+      [{ action: 'click', ref: 'e5', label: '编辑', mark: 'el-icon-edit' }],
+      // A mark past what the wire carries.
+      [{ action: 'click', ref: 'e5', label: '', mark: 'c'.repeat(MAX_ACT_TEXT_CHARS + 1) }],
+    ]) {
+      expect({ steps, parsed: parseActArgs({ steps }) }).toEqual({ steps, parsed: undefined })
+    }
   })
 
   it('refuses arguments no seat could run', () => {

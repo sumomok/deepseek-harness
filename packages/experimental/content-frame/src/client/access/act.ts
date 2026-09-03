@@ -29,8 +29,8 @@
 
 import type { ActStep, ActStepResult } from '../../access/wire.ts'
 import {
-  cannotActReason, disabledReason, hiddenReason, labelChangedReason, noOptionReason, occludedReason,
-  outOfTimeReason, refGoneReason, waitedReason,
+  cannotActReason, disabledReason, hiddenReason, labelChangedReason, markChangedReason, noOptionReason,
+  occludedReason, outOfTimeReason, refGoneReason, waitedReason,
 } from '../../access/act-text.ts'
 import {
   DIALOG_SELECTOR, containerName, isDisabled, isHiddenAround, isPassword, isSkipped, queryInOrder, visibleText,
@@ -75,6 +75,13 @@ export interface ActPage {
    * same computation that printed it and never against a second one.
    */
   readonly name: (el: Element) => string
+  /**
+   * Injected marking, the reader's own: what a listing prints in place of a
+   * name for a row the page named nothing. One row has one identity, so a row
+   * with a name is checked by {@link ActPage.name} and one without by this,
+   * against the same computation that printed it.
+   */
+  readonly mark: (el: Element) => string
 }
 
 /** How long the steps may wait, as the deployment configured it. */
@@ -344,6 +351,13 @@ async function runStep(
   // place.
   const name = page.name(el)
   if (name !== step.label) return labelChangedReason(step.ref, name, step.label)
+  // A row the listing named nothing is held to the mark it printed instead: the
+  // page redrawing that position leaves the ref resolving to something else,
+  // and the mark is all either side has to tell the two apart.
+  if (step.mark !== undefined) {
+    const mark = page.mark(el)
+    if (mark !== step.mark) return markChangedReason(step.ref, mark, step.mark)
+  }
   const dialog = occluder(page, el)
   if (dialog !== undefined) {
     return occludedReason(step.ref, containerName(dialog, page.isVisible))

@@ -645,8 +645,23 @@ export interface ActTarget {
    * The element's name, copied from that read. The seat checks it against the
    * page before it acts, so a page that changed since the read stops the call
    * instead of acting on whatever now holds that position.
+   *
+   * Empty for a row the listing printed with no name, which carries a
+   * {@link ActTarget.mark} instead.
    */
   readonly label: string
+  /**
+   * The class tokens the listing printed for a row it named nothing, copied
+   * from that read, and absent for every named row. One row has one identity:
+   * a named row is checked by its name and an unnamed one by its mark, and a
+   * step carrying both is refused rather than checked against whichever the
+   * seat prefers.
+   *
+   * It is bounded by {@link MAX_ACT_TEXT_CHARS} rather than by
+   * {@link MAX_NAME_CHARS}: a mark is a page's own markup, which runs longer
+   * than a name and is printed whole because the seat compares it whole.
+   */
+  readonly mark?: string
 }
 
 /**
@@ -694,6 +709,10 @@ export type ActStepRefusal =
   | 'ref'
   /** The label is absent. */
   | 'label'
+  /** A row the listing named nothing carries no mark to check it by. */
+  | 'mark'
+  /** A named row carries a mark as well as its name. */
+  | 'mark-on-named'
   /** A `fill` carries nothing to type. */
   | 'fill-text'
   /** A `wait` carries nothing to wait for. */
@@ -710,6 +729,8 @@ export type ActStepRefusal =
   | 'value-length'
   /** The key name is longer than the wire carries. */
   | 'key-length'
+  /** The mark is longer than the wire carries. */
+  | 'mark-length'
 
 /** One step as it arrived, before this module has checked it. */
 interface RawStep {
@@ -719,6 +740,8 @@ interface RawStep {
   readonly ref?: unknown
   /** The element's name. */
   readonly label?: unknown
+  /** The class tokens the listing printed for a row it named nothing. */
+  readonly mark?: unknown
   /** What `fill` types, and what `wait` waits to see. */
   readonly text?: unknown
   /** The option `select` chooses. */
@@ -760,6 +783,7 @@ function isField(value: unknown, max: number): value is string {
 export function readActStep(raw: RawStep): ActStepRead {
   const refuse = (refusal: ActStepRefusal): ActStepRead => ({ kind: 'refusal', refusal })
   if (raw.label !== undefined && !isField(raw.label, MAX_NAME_CHARS)) return refuse('label-length')
+  if (raw.mark !== undefined && !isField(raw.mark, MAX_ACT_TEXT_CHARS)) return refuse('mark-length')
   if (raw.text !== undefined && !isField(raw.text, MAX_ACT_TEXT_CHARS)) return refuse('text-length')
   if (raw.value !== undefined && !isField(raw.value, MAX_ACT_TEXT_CHARS)) return refuse('value-length')
   if (raw.key !== undefined && !isField(raw.key, MAX_ACT_KEY_CHARS)) return refuse('key-length')
@@ -775,10 +799,19 @@ export function readActStep(raw: RawStep): ActStepRead {
   }
   if (typeof raw.ref !== 'string' || !REF_PATTERN.test(raw.ref)) return refuse('ref')
   // The empty string is a label: a listing prints a row for what a page offers
-  // and names nowhere, and the seat holds that row to being named nothing
-  // still. A step with no label at all is the model not having read the page.
+  // and names nowhere. A step with no label at all is the model not having read
+  // the page.
   if (typeof raw.label !== 'string') return refuse('label')
-  const target: ActTarget = { ref: raw.ref, label: raw.label }
+  // One row, one identity. An unnamed row is checked by the mark the listing
+  // printed for it, so a step naming one carries that mark and a step naming a
+  // named row carries none.
+  if (raw.label === '' && (typeof raw.mark !== 'string' || raw.mark === '')) return refuse('mark')
+  if (raw.label !== '' && raw.mark !== undefined) return refuse('mark-on-named')
+  const target: ActTarget = {
+    ref: raw.ref,
+    label: raw.label,
+    ...typeof raw.mark === 'string' ? { mark: raw.mark } : {},
+  }
   switch (action) {
     case 'click': return { kind: 'step', step: { ...target, action } }
     case 'fill':

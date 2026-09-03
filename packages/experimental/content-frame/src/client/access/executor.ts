@@ -44,7 +44,7 @@ import type { ContentAccessRequest, ContentActRequest, ContentReadRequest } from
 import { settlePage } from '../perception/settle.ts'
 import { runSteps } from './act.ts'
 import { watchPage, type ActWatch } from './watch.ts'
-import { readableDocuments } from './dom.ts'
+import { elementMark, readableDocuments } from './dom.ts'
 import { itemName } from './collect.ts'
 import { RefTable } from './refs.ts'
 import { snapshot } from './snapshot.ts'
@@ -656,6 +656,8 @@ async function actOnPage(
       // The reader's own naming, under this read's own injections: what the
       // listing printed for an element is what a step naming it is held to.
       name: el => itemName(el, options),
+      // And the reader's own marking, for the rows it printed no name for.
+      mark: elementMark,
     }, {
       settleQuietMs: access.settleQuietMs,
       settleMaxMs: access.settleMaxMs,

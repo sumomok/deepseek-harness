@@ -6,7 +6,7 @@
  * list and no way to reach the rest.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/render
  */
-import { CLICKABLE_ROLE, FIELD_ROLES, OFFERED_ROLES, clipTo } from './dom.ts'
+import { CLICKABLE_ROLE, FIELD_ROLES, OFFERED_ROLES, clipTo, elementMark } from './dom.ts'
 import type {
   ContainerFace, ContainerItem, ControlFace, ControlState, ElementItem, Item, RowCell, SnapshotMode,
   SnapshotOptions, TableItem, TableRowItem, TextItem,
@@ -30,9 +30,6 @@ const ROWS_HINT = "rows: pass scope with this table's ref to list rows, or find 
 
 /** How much of a cell the header shows, which names a column and is worth more room. */
 const HEADER_CELL_LIMIT = 40
-
-/** How many class tokens a row prints for something the page offers and names nowhere. */
-const HINT_TOKENS = 4
 
 /** How much of a cell a listed row shows, which the walk has already cut to. */
 const ROW_CELL_LIMIT = 200
@@ -107,26 +104,18 @@ function quoted(name: string): string {
 }
 
 /**
- * The class tokens an element carries, printed where a page offers something
- * and names it nowhere.
+ * The mark a row prints where a page offers something and names it nowhere.
  *
- * A class is the page's own spelling and this reader reads nothing out of it:
- * the tokens are copied as they stand, in the order the element carries them,
- * and what they mean is for whoever knows this application to say. A row that
- * would otherwise be `e17 clickable` and unusable becomes one the model can ask
- * about, and a skill written against that application can answer.
- *
- * Four of them, because the words a library writes come first and a page's own
- * layout classes follow; a longer list ends in an ellipsis rather than spending
- * a listing on markup.
+ * A row that would otherwise be `e17 clickable` and unusable becomes one the
+ * model can point a step at: it carries the mark back, and the seat holds the
+ * element to still carrying it. That is why {@link elementMark} prints every
+ * token whole — the string is an identity to compare, not a summary to read.
  * @param el - the element the row names.
  * @returns the hint, or the empty string for an element carrying no class.
  */
 function classHint(el: Element): string {
-  const tokens = [...el.classList]
-  if (tokens.length === 0) return ''
-  const shown = tokens.slice(0, HINT_TOKENS).join(' ')
-  return ` {{class: ${shown}${tokens.length > HINT_TOKENS ? ' …' : ''}}}`
+  const mark = elementMark(el)
+  return mark === '' ? '' : ` {{class: ${mark}}}`
 }
 
 /**

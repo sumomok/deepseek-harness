@@ -203,7 +203,9 @@ describe('what each step dispatches at the page', () => {
       + '<td><i id="edit" style="cursor: pointer" class="el-tooltip el-icon-edit"></i></td>'
       + '</tr></tbody></table></main>')
     const seen = listen(at('#edit'), ['click'])
-    const outcome = await run([{ action: 'click', ref: ref('#edit'), label: '' }])
+    const outcome = await run([
+      { action: 'click', ref: ref('#edit'), label: '', mark: 'el-tooltip el-icon-edit' },
+    ])
     expect(seen).toEqual(['click'])
     expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
   })
@@ -321,6 +323,28 @@ describe('what stops a call', () => {
       'Step 2 failed: e1 is now "重置", not "查询" — the page changed; call content_read for current refs. '
       + 'Step 1 ran; later steps were skipped.',
     )
+  })
+
+  it('refuses a step for an unnamed row whose mark is not what the read printed', async () => {
+    // A row the page names nowhere is known by the class tokens the read
+    // printed for it, so the seat checks those the way it checks a name.
+    // Element libraries swap the icon class when a row's state changes, and
+    // that row is a different offer than the one the model was approved for.
+    mount('<main><table><tbody><tr><td>东风站</td>'
+      + '<td><i id="edit" style="cursor: pointer" class="el-tooltip el-icon-edit"></i></td>'
+      + '</tr></tbody></table></main>')
+    const held = ref('#edit')
+    const seen = listen(at('#edit'), ['click'])
+    at('#edit').className = 'el-tooltip el-icon-delete'
+    const outcome = await run([{ action: 'click', ref: held, label: '', mark: 'el-tooltip el-icon-edit' }])
+    expect(seen).toEqual([])
+    expect(outcome.status).toBe('failed')
+    expect(outcome.steps).toEqual([{
+      index: 1,
+      status: 'failed',
+      message: 'e1 is now marked {{class: el-tooltip el-icon-delete}}, '
+        + 'not {{class: el-tooltip el-icon-edit}} — the page changed; call content_read for current refs.',
+    }])
   })
 
   it('reports every step after the failure as skipped, and runs none of them', async () => {

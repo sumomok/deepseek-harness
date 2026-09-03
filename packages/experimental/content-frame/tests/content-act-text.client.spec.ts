@@ -43,6 +43,22 @@ describe('what the user is asked to approve', () => {
     })).toBe('在「当前展示的这一项」上：在「站点」里选「东风」；在「名称」上按 Enter；等「保存成功」出现')
   })
 
+  it('names a row the read printed with no name by the mark it carries', () => {
+    // 点「」 says nothing about what is being approved. The mark is the page's
+    // own markup and is shown as that, because it is all either side has.
+    expect(approvalReason({
+      steps: [
+        { action: 'click', ref: 'e5', label: '', mark: 'el-tooltip el-icon-edit' },
+        { action: 'fill', ref: 'e6', label: '', mark: 'el-input__inner', text: '东风' },
+        { action: 'select', ref: 'e7', label: '', mark: 'el-select', value: '启用' },
+        { action: 'press', ref: 'e8', label: '', mark: 'el-input__inner', key: 'Enter' },
+      ],
+    })).toBe('在「当前展示的这一项」上：点标为「class: el-tooltip el-icon-edit」的无名控件；'
+      + '填标为「class: el-input__inner」的无名框为「东风」；'
+      + '在标为「class: el-select」的无名项里选「启用」；'
+      + '在标为「class: el-input__inner」的无名控件上按 Enter')
+  })
+
   it('says outright when the page\'s own confirmation will be confirmed too', () => {
     expect(approvalReason({ steps: [CLICK], dialogs: 'accept' }))
       .toBe('在「当前展示的这一项」上：点「查询」，并确认页面弹出的确认框')
@@ -61,8 +77,8 @@ describe('what the model reads when a call is refused before it runs', () => {
     expect(tooLongRefusal('key', 32)).toBe('key must be at most 32 characters')
     // Every field one step can be refused over, keyed the way the wire names it.
     expect([
-      'action', 'ref', 'label', 'fill-text', 'wait-text', 'value', 'key',
-      'label-length', 'text-length', 'value-length', 'key-length',
+      'action', 'ref', 'label', 'mark', 'mark-on-named', 'fill-text', 'wait-text', 'value', 'key',
+      'label-length', 'text-length', 'value-length', 'key-length', 'mark-length',
     ].map(refusal => stepRefusalText(refusal as Parameters<typeof stepRefusalText>[0]))).toEqual([
       '"click" a control; "fill" replaces a box\'s whole value with text; "select" chooses the option whose '
       + 'visible text is value; "press" sends one key such as Enter or Escape; "wait" waits for text to appear '
@@ -70,6 +86,10 @@ describe('what the model reads when a call is refused before it runs', () => {
       'every step but "wait" needs ref, a ref like "e12" from a previous content_read',
       'every step but "wait" needs label, the element\'s name exactly as content_read printed it, '
       + 'or "" for a row it printed with no name',
+      'a row the read printed with no name is named by its mark: pass mark, the class tokens the read '
+      + 'printed for it inside {{class: ...}}, with label ""',
+      'a row has one identity: pass label for a row the read named, or mark with label "" for one it did not '
+      + '— not both',
       'a "fill" step needs text, the value to type into the box',
       'a "wait" step needs text, the words to wait for',
       'a "select" step needs value, the option\'s visible text',
@@ -78,6 +98,7 @@ describe('what the model reads when a call is refused before it runs', () => {
       'text must be at most 1000 characters',
       'value must be at most 1000 characters',
       'key must be at most 32 characters',
+      'mark must be at most 1000 characters',
     ])
   })
 

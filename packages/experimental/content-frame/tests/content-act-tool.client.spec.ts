@@ -194,8 +194,9 @@ describe('what content_act offers the model', () => {
         + 'control, fill a box, choose from a list, press a key, or wait for text to appear. Every target is a '
         + 'ref from a content_read, and every label is that element\'s name copied from the read — the browser '
         + 'checks the name before it acts, so a page that changed since the read stops the call instead of '
-        + 'clicking something else; for a row the read printed with no name, pass label "". The steps run in '
-        + 'order and stop at the first failure; the answer reports '
+        + 'clicking something else; for a row the read printed with no name, pass label "" and mark, its '
+        + '{{class: ...}} tokens copied from the read. The steps run in order and stop at the first failure; '
+        + 'the answer reports '
         + 'each step, what the page did while they ran, and a fresh reading of the page. One call is one '
         + 'approval request, so put the steps that belong together in one call.',
       parameters: {
@@ -204,7 +205,7 @@ describe('what content_act offers the model', () => {
         properties: {
           steps: {
             type: 'array',
-            description: 'the steps to run in order, each {action, ref, label, text?, value?, key?}',
+            description: 'the steps to run in order, each {action, ref, label, mark?, text?, value?, key?}',
             items: {
               type: 'object',
               additionalProperties: false,
@@ -223,7 +224,14 @@ describe('what content_act offers the model', () => {
                 label: {
                   type: 'string',
                   description: 'the element\'s name exactly as the read printed it; the browser refuses the '
-                    + 'step when the page now shows another name there. Omit only for "wait"',
+                    + 'step when the page now shows another name there. Pass "" for a row the read printed '
+                    + 'with no name, and give mark as well. Omit only for "wait"',
+                },
+                mark: {
+                  type: 'string',
+                  description: 'only for a row the read printed with no name: its class tokens exactly as the '
+                    + 'read printed them inside {{class: ...}}, which is what the browser checks that row by. '
+                    + 'Omit for every row that has a name',
                 },
                 text: { type: 'string', description: 'what "fill" types, and what "wait" waits to see' },
                 value: { type: 'string', description: 'the option "select" chooses, by the text the user would read' },

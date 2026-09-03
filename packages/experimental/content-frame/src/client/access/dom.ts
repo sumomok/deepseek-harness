@@ -164,6 +164,25 @@ const GLOBAL_ARIA_SELECTOR = [
 export const CLICKABLE_ROLE = 'clickable'
 
 /**
+ * The mark a row carries for something the page offers and names nowhere: every
+ * class token the element holds, in the order it holds them, separated by one
+ * space, and empty for an element carrying no class.
+ *
+ * Whole and uncut, because this string is that row's identity: the listing
+ * prints it, a step naming that row carries it back, and the seat recomputes it
+ * here and compares the two character for character. A cut would leave the
+ * seat comparing a mark against a shortened copy of itself.
+ *
+ * Nothing is read out of the tokens. They are the page's own spelling, printed
+ * as they stand, and what they mean is for whoever knows the application.
+ * @param el - the element to mark.
+ * @returns the tokens, or the empty string for an element carrying no class.
+ */
+export function elementMark(el: Element): string {
+  return [...el.classList].join(' ')
+}
+
+/**
  * The roles of the things a page offers to act on, the click target it declares
  * no role for included. What a row under one of these says is what the model
  * can point a step at, so a row printing one of them and no name is a row it

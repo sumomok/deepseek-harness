@@ -21,9 +21,9 @@ import type { CallTimeouts, PendingCalls } from './pending.ts'
 import type { DialogApprovals } from './dialog-approvals.ts'
 import {
   ACT_VOICE, ACTION_DESCRIPTION, approvalReason, CANCELLED_REFUSAL, CONTENT_ACT_DESCRIPTION,
-  DIALOGS_DESCRIPTION, DIALOGS_UNAPPROVED_REFUSAL, KEY_DESCRIPTION, LABEL_DESCRIPTION, NO_AGENT_REFUSAL,
-  NO_STEPS_REFUSAL, NOTHING_DONE, REF_DESCRIPTION, STEPS_DESCRIPTION, stepRefusal, stepRefusalText,
-  TEXT_DESCRIPTION, tooManyStepsRefusal, unverifiedRefusal, VALUE_DESCRIPTION,
+  DIALOGS_DESCRIPTION, DIALOGS_UNAPPROVED_REFUSAL, KEY_DESCRIPTION, LABEL_DESCRIPTION, MARK_DESCRIPTION,
+  NO_AGENT_REFUSAL, NO_STEPS_REFUSAL, NOTHING_DONE, REF_DESCRIPTION, STEPS_DESCRIPTION, stepRefusal,
+  stepRefusalText, TEXT_DESCRIPTION, tooManyStepsRefusal, unverifiedRefusal, VALUE_DESCRIPTION,
 } from './act-text.ts'
 import { failureRefusal, MISREPORTED_REFUSAL, unclaimedRefusal } from './text.ts'
 import {
@@ -144,6 +144,7 @@ export function contentActTool(
             action: { type: 'string', enum: [...ACT_ACTIONS], required: true, description: ACTION_DESCRIPTION },
             ref: { type: 'string', description: REF_DESCRIPTION },
             label: { type: 'string', description: LABEL_DESCRIPTION },
+            mark: { type: 'string', description: MARK_DESCRIPTION },
             text: { type: 'string', description: TEXT_DESCRIPTION },
             value: { type: 'string', description: VALUE_DESCRIPTION },
             key: { type: 'string', description: KEY_DESCRIPTION },

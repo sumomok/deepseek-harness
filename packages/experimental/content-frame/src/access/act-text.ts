@@ -13,8 +13,8 @@
 
 import type { ToolVoice } from './text.ts'
 import {
-  MAX_ACT_KEY_CHARS, MAX_ACT_TEXT_CHARS, MAX_NAME_CHARS, type ActArgs, type ActStep, type ActStepResult,
-  type ActStepRefusal, type DialogAnswer,
+  MAX_ACT_KEY_CHARS, MAX_ACT_TEXT_CHARS, MAX_NAME_CHARS, type ActArgs, type ActStep, type ActStepRefusal,
+  type ActStepResult, type ActTarget, type DialogAnswer,
 } from './wire.ts'
 
 /**
@@ -29,13 +29,13 @@ export const CONTENT_ACT_DESCRIPTION =
   + 'from a list, press a key, or wait for text to appear. Every target is a ref from a content_read, and every '
   + 'label is that element\'s name copied from the read — the browser checks the name before it acts, so a page '
   + 'that changed since the read stops the call instead of clicking something else; for a row the read printed '
-  + 'with no name, pass label "". The steps run in order and '
-  + 'stop at the first failure; the answer reports each step, what the page did while they ran, and a fresh '
+  + 'with no name, pass label "" and mark, its {{class: ...}} tokens copied from the read. The steps run in '
+  + 'order and stop at the first failure; the answer reports each step, what the page did while they ran, and a fresh '
   + 'reading of the page. One call is one approval request, so put the steps that belong together in one call.'
 
 /** The `steps` parameter line. */
 export const STEPS_DESCRIPTION =
-  'the steps to run in order, each {action, ref, label, text?, value?, key?}'
+  'the steps to run in order, each {action, ref, label, mark?, text?, value?, key?}'
 
 /** The `action` parameter line. */
 export const ACTION_DESCRIPTION =
@@ -49,7 +49,13 @@ export const REF_DESCRIPTION = 'the element\'s ref from a previous content_read,
 /** The `label` parameter line. */
 export const LABEL_DESCRIPTION =
   'the element\'s name exactly as the read printed it; the browser refuses the step when the page now shows '
-  + 'another name there. Omit only for "wait"'
+  + 'another name there. Pass "" for a row the read printed with no name, and give mark as well. Omit only '
+  + 'for "wait"'
+
+/** The `mark` parameter line. */
+export const MARK_DESCRIPTION =
+  'only for a row the read printed with no name: its class tokens exactly as the read printed them inside '
+  + '{{class: ...}}, which is what the browser checks that row by. Omit for every row that has a name'
 
 /** The `text` parameter line. */
 export const TEXT_DESCRIPTION = 'what "fill" types, and what "wait" waits to see'
@@ -110,6 +116,16 @@ export const SELECT_VALUE_REFUSAL = 'a "select" step needs value, the option\'s 
 /** Refusal for a `press` with no key named. */
 export const PRESS_KEY_REFUSAL = 'a "press" step needs key, such as "Enter"'
 
+/** Refusal for a step naming a row the read printed with no name and carrying no mark for it. */
+export const MARK_REFUSAL =
+  'a row the read printed with no name is named by its mark: pass mark, the class tokens the read printed '
+  + 'for it inside {{class: ...}}, with label ""'
+
+/** Refusal for a step carrying both a name and a mark. */
+export const MARK_ON_NAMED_REFUSAL =
+  'a row has one identity: pass label for a row the read named, or mark with label "" for one it did not — '
+  + 'not both'
+
 /**
  * The sentence for the field one step could not be read over.
  * @param refusal - which field the wire could not use.
@@ -122,6 +138,8 @@ export function stepRefusalText(refusal: ActStepRefusal): string {
     case 'action': return ACTION_DESCRIPTION
     case 'ref': return REF_REFUSAL
     case 'label': return LABEL_REFUSAL
+    case 'mark': return MARK_REFUSAL
+    case 'mark-on-named': return MARK_ON_NAMED_REFUSAL
     case 'fill-text': return FILL_TEXT_REFUSAL
     case 'wait-text': return WAIT_TEXT_REFUSAL
     case 'value': return SELECT_VALUE_REFUSAL
@@ -130,6 +148,7 @@ export function stepRefusalText(refusal: ActStepRefusal): string {
     case 'text-length': return tooLongRefusal('text', MAX_ACT_TEXT_CHARS)
     case 'value-length': return tooLongRefusal('value', MAX_ACT_TEXT_CHARS)
     case 'key-length': return tooLongRefusal('key', MAX_ACT_KEY_CHARS)
+    case 'mark-length': return tooLongRefusal('mark', MAX_ACT_TEXT_CHARS)
     /* v8 ignore next 2 -- the refusal union is closed and typed; the arm keeps a new member loud. */
     default: return ACTION_DESCRIPTION
   }
@@ -191,16 +210,32 @@ export const APPROVAL_SUBJECT = '当前展示的这一项'
 export const APPROVAL_DIALOG_CLAUSE = '并确认页面弹出的确认框'
 
 /**
+ * How the approval request names one step's target: what the read called it, or
+ * — for a row the read named nothing — the mark it carries instead.
+ *
+ * A row the page named nothing would otherwise reach the user as 点「」, which
+ * says nothing about what is being approved. The mark is the page's own markup
+ * and is shown as that, because it is the only thing either side has.
+ * @param step - the validated step, an action that names an element; the wire
+ * gives it a mark when, and only when, the read named the row nothing.
+ * @param noun - what to call the thing where the read named it nothing.
+ * @returns the phrase, quotes included.
+ */
+function approvalTarget(step: ActTarget, noun: string): string {
+  return step.mark === undefined ? `「${step.label}」` : `标为「class: ${step.mark}」的无名${noun}`
+}
+
+/**
  * One step as the approval request says it, in the user's own words.
  * @param step - the validated step.
  * @returns the clause, without punctuation around it.
  */
 function approvalClause(step: ActStep): string {
   switch (step.action) {
-    case 'click': return `点「${step.label}」`
-    case 'fill': return `填「${step.label}」为「${step.text}」`
-    case 'select': return `在「${step.label}」里选「${step.value}」`
-    case 'press': return `在「${step.label}」上按 ${step.key}`
+    case 'click': return `点${approvalTarget(step, '控件')}`
+    case 'fill': return `填${approvalTarget(step, '框')}为「${step.text}」`
+    case 'select': return `在${approvalTarget(step, '项')}里选「${step.value}」`
+    case 'press': return `在${approvalTarget(step, '控件')}上按 ${step.key}`
     case 'wait': return `等「${step.text}」出现`
     /* v8 ignore next 2 -- the action union is closed and every arm returns; the arm keeps a new member loud. */
     default: return ''
@@ -211,8 +246,10 @@ function approvalClause(step: ActStep): string {
  * The approval request, composed from the arguments and nothing else.
  *
  * The panel title reads this and the card reads `presentCall`, and both may
- * only see the arguments — which is the whole reason `label` is required. A
- * request that named the page would be naming something the host has not seen.
+ * only see the arguments — which is why every step carries what the read called
+ * its target: a name, or the mark that stands in for one where the read printed
+ * no name. A request that named the page would be naming something the host has
+ * not seen.
  * @param args - the validated arguments.
  * @returns the user-facing sentence.
  */
@@ -235,13 +272,23 @@ export const DIALOGS_UNAPPROVED_REFUSAL =
   'content_act: dialogs "accept" needs an approval request that says the page\'s own confirmation will be '
   + 'confirmed too; this call was approved without it'
 
+/**
+ * How one step names its target in the answer: what the read called it, or the
+ * mark it carries where the read named it nothing.
+ * @param step - the validated step, an action that names an element.
+ * @returns the quoted name or the mark, as the listing printed it.
+ */
+function ranTarget(step: ActTarget): string {
+  return step.mark === undefined ? `"${step.label}"` : `{{class: ${step.mark}}}`
+}
+
 /** How one step reads in the first section of the answer. */
 function ranClause(step: ActStep): string {
   switch (step.action) {
-    case 'click': return `click "${step.label}"`
-    case 'fill': return `fill "${step.label}" ← "${step.text}"`
-    case 'select': return `select "${step.value}" in "${step.label}"`
-    case 'press': return `press ${step.key} on "${step.label}"`
+    case 'click': return `click ${ranTarget(step)}`
+    case 'fill': return `fill ${ranTarget(step)} ← "${step.text}"`
+    case 'select': return `select "${step.value}" in ${ranTarget(step)}`
+    case 'press': return `press ${step.key} on ${ranTarget(step)}`
     case 'wait': return `wait for "${step.text}"`
     /* v8 ignore next 2 -- the action union is closed and every arm returns; the arm keeps a new member loud. */
     default: return ''
@@ -335,6 +382,19 @@ export const SIGN_IN_ACT_REFUSAL =
  */
 export function labelChangedReason(ref: string, now: string, expected: string): string {
   return `${ref} is now "${now}", not "${expected}" — the page changed; call content_read for current refs.`
+}
+
+/**
+ * The failure for a row the read named nothing whose mark is not the one the
+ * step carries: the page has redrawn what stands at that ref.
+ * @param ref - the ref the step named.
+ * @param now - the mark the page carries there now.
+ * @param expected - the mark the step carried.
+ * @returns the reason, without the step prefix.
+ */
+export function markChangedReason(ref: string, now: string, expected: string): string {
+  return `${ref} is now marked {{class: ${now}}}, not {{class: ${expected}}} — the page changed; `
+    + 'call content_read for current refs.'
 }
 
 /**
