@@ -395,6 +395,63 @@ describe('when the reader claims', () => {
       .toEqual({ bids, reports: [] })
   })
 
+  it('takes a call up again after giving it up while the tab was away', async () => {
+    // The field failure this pins, from one console's own log: the model opened
+    // a call, the user left the console while its approval sat unanswered, the
+    // pending list blipped empty for one render, and the user came back and
+    // allowed it — and the seat never bid for that call again, so the host's
+    // window expired and the model was told no console is showing this
+    // session's content column, five seconds before the next call read the same
+    // page in 288ms. Forgetting a call the seat gave up on is not a thing a
+    // hidden tab may skip: it is what lets the seat take that call up again.
+    claims = Array.from({ length: 40 }, () => ({ claimed: false, reason: 'unknown' as const }))
+    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+    const seat = seatOf({ frames: { current: frames } })
+    const view = drive(seat)
+    await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThanOrEqual(1) })
+
+    await act(async () => {
+      setVisibility('hidden')
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    // One blip of the projection feed: the call is off the list for a render,
+    // which is what the bidding loop reads as the call being over.
+    await act(async () => { drive({ ...seat, pending: [] }, view) })
+    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF * 2) })
+    const gaveUpAfter = of(CONTENT_CLAIM_ROUTE).length
+
+    // The next frame carries the same still-open call, and the user comes back
+    // to the console to answer the approval.
+    await act(async () => { drive({ ...seat, pending: [READ] }, view) })
+    await act(async () => {
+      setVisibility('visible')
+      document.dispatchEvent(new Event('visibilitychange'))
+    })
+    await vi.waitFor(() => {
+      expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThan(gaveUpAfter)
+    }, { timeout: 5000 })
+    view.unmount()
+  }, 30_000)
+
+  it('takes a call up again after a bid the route refused', async () => {
+    // The same leak without a hidden tab. Every give-up but the call leaving
+    // the list — one refusal from a proxy in front of the console, a claim
+    // another tab held, the ten-minute ceiling — leaves a call the host is
+    // still waiting for, and giving up is not answering.
+    fates.set(CONTENT_CLAIM_ROUTE, [403])
+    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+    const seat = seatOf({ frames: { current: frames } })
+    const view = drive(seat)
+    await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1) })
+    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS) })
+
+    // The same call arrives on the next projection frame, as it does until its
+    // result reaches the log.
+    await act(async () => { drive({ ...seat, pending: [{ ...READ }] }, view) })
+    await settled()
+    expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThan(1)
+  }, 30_000)
+
   it('reads nothing for a call another tab took, or one already answered', async () => {
     for (const reason of ['taken', 'settled'] as const) {
       posted = []

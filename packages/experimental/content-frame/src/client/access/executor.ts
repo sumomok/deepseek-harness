@@ -710,17 +710,27 @@ async function actOnPage(
  * Claim one call and answer it from the page this seat holds.
  * @param seat - the live seat, re-read after the claim round trip.
  * @param mounted - whether this seat is still mounted, which bounds the bidding.
+ * @param started - the calls this seat has taken up; a call given up on is
+ * dropped from it, because it is still open on the host.
  * @param request - the pending call, of either tool.
  * @param access - the node half's budget and deadlines, settled when the seat booted.
  */
 async function answer(
   seat: MutableRefObject<ContentReadSeat>,
   mounted: MutableRefObject<boolean>,
+  started: MutableRefObject<Set<string>>,
   request: ContentAccessRequest,
   access: ContentFrameAccessSettings,
 ): Promise<void> {
   const claimed = await claimRead(seat, mounted, request.callId)
-  if (claimed === undefined) return
+  if (claimed === undefined) {
+    // Giving up is not answering. Every ending but the call leaving the list —
+    // a refused bid, a claim another tab held, the bidding ceiling, a pending
+    // list that blipped empty — leaves a call the host is still waiting for, so
+    // the seat forgets it and can take it up again.
+    started.current.delete(request.callId)
+    return
+  }
   await reportRead(request.tool === 'content_read'
     ? await readPage(seat.current, request, access)
     : await actOnPage(seat.current, request, access, claimed.page))
@@ -735,6 +745,12 @@ async function answer(
  * that failure — it is bid again, at a widening interval, for as long as the
  * call is on the list — and neither is a report that never lands, which is
  * posted once more.
+ *
+ * A call the bidding gave up on is forgotten instead: it is still open on the
+ * host, so the seat must be able to take it up again when the next projection
+ * frame carries it. That forgetting happens whether or not this seat can read
+ * at all, because a hidden tab that skipped it would leave the call unclaimable
+ * for the rest of the seat's life.
  *
  * Each call is answered by background work nobody awaits: this hook returns as
  * soon as the reads are under way, and every result reaches the host over the
@@ -760,19 +776,22 @@ export function useContentRead(seat: ContentReadSeat): void {
   }, [])
 
   useEffect(() => {
-    const access = seat.access
-    if (access === undefined || !visible) return
     // A call that has left the list has settled and cannot come back, so the
-    // memory of having answered it is dropped with it — a tab left open for a
-    // long session would otherwise accumulate one id per read it ever saw.
+    // memory of having taken it up is dropped with it — a tab left open for a
+    // long session would otherwise accumulate one id per read it ever saw. This
+    // runs before the two guards below: a seat that cannot read still has to
+    // forget, or a call it gave up on while the tab was away stays skipped when
+    // the tab comes back with the call still open.
     const open = new Set(seat.pending.map(request => request.callId))
     for (const callId of started.current) {
       if (!open.has(callId)) started.current.delete(callId)
     }
+    const access = seat.access
+    if (access === undefined || !visible) return
     for (const request of seat.pending) {
       if (started.current.has(request.callId)) continue
       started.current.add(request.callId)
-      void answer(live, mounted, request, access)
+      void answer(live, mounted, started, request, access)
     }
   }, [seat.access, seat.pending, visible])
 }
