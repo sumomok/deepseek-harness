@@ -1,0 +1,24 @@
+# The bundled library-knowledge layer: one isolated `skill-filesystem` provider
+# over `@deepseek-ai/dsh-experimental-library-skills`'s own `skills/` directory.
+#
+# `providerName` must differ from every other provider in the layer — a repeated
+# name throws at insert. `includeDefaultRoots: false` keeps the row off the
+# project, user, and environment roots, so it contributes this one directory and
+# nothing else. `bundledSkillDir` mounts it at `BUNDLED_SKILL_RANK` (600), below
+# every user-writable root, which is what lets a user's same-named skill replace
+# a shipped one.
+#
+# The path resolves the package by name from the profile this layer is installed
+# into, so the skills travel with the package version rather than with a
+# deployment path. This row therefore makes that package a deployment dependency
+# of every composition carrying it: a profile that cannot resolve it throws
+# MODULE_NOT_FOUND while the row loads, and the boot fails. The quiet failure is
+# the other one — a resolvable package whose `skills/` is missing or empty mounts
+# a root that lists nothing.
+- insert:
+    - id: library-skills
+      name: '@deepseek-ai/dsh-skill-filesystem'
+      config:
+        providerName: library-skills
+        includeDefaultRoots: false
+        bundledSkillDir: !!js "process.getBuiltinModule('node:path').resolve(process.getBuiltinModule('node:module').createRequire(baseUrl).resolve('@deepseek-ai/dsh-experimental-library-skills/package.json'), '../skills')"

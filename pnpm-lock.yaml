@@ -5384,6 +5384,16 @@ importers:
         specifier: ^4.19.2
         version: 4.22.4
 
+  packages/experimental/library-skills:
+    dependencies:
+      '@deepseek-ai/dsh-skill-filesystem':
+        specifier: workspace:^
+        version: link:../../skill/skill-filesystem
+    devDependencies:
+      '@deepseek-ai/cordis':
+        specifier: workspace:^
+        version: link:../../../vendor/cordis
+
   packages/experimental/server-layout:
     devDependencies:
       '@deepseek-ai/cordis':

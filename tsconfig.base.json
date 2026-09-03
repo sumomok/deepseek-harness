@@ -235,6 +235,7 @@
       "@deepseek-ai/dsh-experimental-content-surface": ["./packages/experimental/content-surface/src"],
       "@deepseek-ai/dsh-experimental-content-surface/invariant": ["./packages/experimental/content-surface/src/invariant.ts"],
       "@deepseek-ai/dsh-experimental-content-surface/types": ["./packages/experimental/content-surface/src/types.ts"],
+      "@deepseek-ai/dsh-experimental-library-skills": ["./packages/experimental/library-skills/src"],
       "@deepseek-ai/dsh-experimental-server-layout": ["./packages/experimental/server-layout/src"],
       "@deepseek-ai/dsh-experimental-server-layout/client": ["./packages/experimental/server-layout/src/client/index.ts"],
       "@deepseek-ai/dsh-experimental-server-sidebar": ["./packages/experimental/server-sidebar/src"],

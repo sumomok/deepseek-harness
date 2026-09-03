@@ -34,6 +34,7 @@ kind: "package-group"
 | [`content-frame`](content-frame/README.zh.md) | 托管一份由部署方配置的静态 web 应用，并把它作为 content 栏的 `page` 类型贡献进去 | — |
 | [`content-surface`](content-surface/README.zh.md) | content surface 的宿主半边：extractor 把已记录事件折叠成每会话一条按类型分列的内容 entry 流 | `ctx.contentSurface` |
 | [`inspector`](inspector/README.zh.md) | 用于 Host 调试、Client Runtime 检查、网络采集与 Cordis 树的跨 realm CDP hub | `ctx.inspector` |
+| [`library-skills`](library-skills/README.zh.md) | 把组件库惯例做成随包出厂的 SKILL，以最低 skill rank 挂载 | — |
 | [`server-layout`](server-layout/README.zh.md) | 服务形态外壳：常驻四轨框架（session、content、chat、details），替换出厂外壳 | `ctx.layout` |
 | [`server-sidebar`](server-sidebar/README.zh.md) | 产品控制台侧边栏：用固定的工作台/导航/工作流控制台替换出厂侧边栏，并承载客户表单页所需的去术语层 | — |
 | [`tool-agent-team`](tool-agent-team/README.zh.md) | 让模型创建、发消息与协调 teammate 的九个工具 | 按作用域注册工具到 `ctx.tools` |
