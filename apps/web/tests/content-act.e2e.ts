@@ -271,7 +271,16 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the 
     // page as it reads now. The first is composed by the seat around the steps
     // the model sent, and the third is a whole read of the page it changed.
     expect(last).toMatch(/^Done \d+\/\d+ on Home: /)
-    expect(answers.some(answer => answer.includes(`fill "Machine name" ← "${AFTER}"`))).toBe(true)
+    // The fill is reported in one of two shapes, and which one is how the model
+    // split its steps: a call that ran to the end names every step it ran, and
+    // a call that stopped at a later step opens with that failure and says how
+    // many steps ran before it — the clause for the ones that did is not
+    // printed there. The page assertions above are what prove the box holds
+    // mill-09; this pins that the answer said so too.
+    const ranBeforeFailure = /^Step \d+ failed: .* (?:Step 1|Steps 1–\d+) ran; later steps were skipped\.$/
+    const firstLine = (answer: string): string => answer.split('\n')[0] ?? ''
+    expect(answers.some(answer => answer.includes(`fill "Machine name" ← "${AFTER}"`))
+      || answers.some(answer => ranBeforeFailure.test(firstLine(answer)))).toBe(true)
     expect(last.split('\n').some(line => line.startsWith('Page events during these steps'))).toBe(true)
     expect(last).toContain('\nPage now:\n')
     // The step the page moved under: refused before it ran, and told to read
