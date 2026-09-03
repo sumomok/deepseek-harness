@@ -276,7 +276,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the 
     // a call that stopped at a later step opens with that failure and says how
     // many steps ran before it — the clause for the ones that did is not
     // printed there. The page assertions above are what prove the box holds
-    // mill-09; this pins that the answer said so too.
+    // mill-09; this pins that the answer reported steps having run.
     const ranBeforeFailure = /^Step \d+ failed: .* (?:Step 1|Steps 1–\d+) ran; later steps were skipped\.$/
     const firstLine = (answer: string): string => answer.split('\n')[0] ?? ''
     expect(answers.some(answer => answer.includes(`fill "Machine name" ← "${AFTER}"`))

@@ -765,12 +765,32 @@ const REF_PATTERN = /^e\d+$/
 /**
  * What a listing puts around a mark: the braces the row prints it in, and the
  * `class:` in front of the tokens. Either one in a mark means the printed row
- * was copied whole into the field. A class attribute could carry a brace or a
- * token starting with `class:` — nothing that draws a page writes one, and a
- * page that did would have that row refused with the example rather than
- * silently failing the seat's check one round trip later.
+ * was copied whole into the field.
+ *
+ * The cost is exact rather than a delay: an element whose own class attribute
+ * holds a brace, or whose first token begins `class:`, is unactable for good.
+ * The listing prints its mark, every step carrying that mark is refused here,
+ * and the refusal tells the model to drop punctuation the page put there.
+ * Nothing that draws a page writes such a class, and the rule catches a mistake
+ * a model makes on rows it meets constantly, so the trade stands.
  */
-const PRINTED_MARK = /[{}]|^\s*class:/i
+const PRINTED_MARK = /[{}]|^class:/i
+
+/**
+ * One mark as the seat computes it: the element's class tokens joined by single
+ * spaces.
+ *
+ * The seat compares a step's mark against that string character for character,
+ * so the same tokens written with a leading space or a doubled one are the same
+ * mark spelled differently. Reading them as that is what keeps the comparison a
+ * literal one; without it such a step reaches the page and fails there, a round
+ * trip later, saying the page changed when it did not.
+ * @param mark - the mark as it arrived.
+ * @returns the tokens, single-spaced, with nothing around them.
+ */
+function normalizedMark(mark: string): string {
+  return mark.trim().replace(/\s+/g, ' ')
+}
 
 /**
  * Whether one field arrived as text the wire carries at that length.
@@ -796,11 +816,12 @@ export function readActStep(raw: RawStep): ActStepRead {
   const refuse = (refusal: ActStepRefusal): ActStepRead => ({ kind: 'refusal', refusal })
   if (raw.label !== undefined && !isField(raw.label, MAX_NAME_CHARS)) return refuse('label-length')
   if (raw.mark !== undefined && !isField(raw.mark, MAX_ACT_TEXT_CHARS)) return refuse('mark-length')
+  const mark = typeof raw.mark === 'string' ? normalizedMark(raw.mark) : undefined
   // The listing prints a mark inside `{class: ...}`, and a model that copies
   // the row rather than the tokens sends a mark that matches no element on any
   // page. Refusing it says which part of the row to copy; taking it would fail
   // the seat's check instead, one round trip later and with no remedy in it.
-  if (typeof raw.mark === 'string' && PRINTED_MARK.test(raw.mark)) return refuse('mark-printed')
+  if (mark !== undefined && PRINTED_MARK.test(mark)) return refuse('mark-printed')
   if (raw.text !== undefined && !isField(raw.text, MAX_ACT_TEXT_CHARS)) return refuse('text-length')
   if (raw.value !== undefined && !isField(raw.value, MAX_ACT_TEXT_CHARS)) return refuse('value-length')
   if (raw.key !== undefined && !isField(raw.key, MAX_ACT_KEY_CHARS)) return refuse('key-length')
@@ -822,12 +843,12 @@ export function readActStep(raw: RawStep): ActStepRead {
   // One row, one identity. An unnamed row is checked by the mark the listing
   // printed for it, so a step naming one carries that mark and a step naming a
   // named row carries none.
-  if (raw.label === '' && (typeof raw.mark !== 'string' || raw.mark === '')) return refuse('mark')
-  if (raw.label !== '' && raw.mark !== undefined) return refuse('mark-on-named')
+  if (raw.label === '' && (mark === undefined || mark === '')) return refuse('mark')
+  if (raw.label !== '' && mark !== undefined) return refuse('mark-on-named')
   const target: ActTarget = {
     ref: raw.ref,
     label: raw.label,
-    ...typeof raw.mark === 'string' ? { mark: raw.mark } : {},
+    ...mark === undefined ? {} : { mark },
   }
   switch (action) {
     case 'click': return { kind: 'step', step: { ...target, action } }

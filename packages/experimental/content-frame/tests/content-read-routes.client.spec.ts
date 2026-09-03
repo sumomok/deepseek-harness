@@ -946,18 +946,33 @@ describe('page-access configuration', () => {
     }
   })
 
-  it('rejects a step bound past what the report envelope covers', async () => {
-    const ctx = new Context()
-    ctx.provide('webServer', { register: () => () => {} } as never)
-    await expect(ContentFrame.apply(ctx, {
-      root: APP_ROOT,
-      pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
-      pageAccess: {
-        claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, settleQuietMs: 1, outlineChars: MIN_OUTLINE_CHARS,
-        actTimeoutMs: 1000, maxSteps: MAX_ACT_STEPS + 1, settleMaxMs: 1,
-      },
-    })).rejects.toThrow(`content-frame: pageAccess.maxSteps must be at most ${String(MAX_ACT_STEPS)}, received 101`)
-    await ctx.fiber.dispose()
+  it('holds a deployment\'s step bound to the wire\'s own, which is what publishes a call at all', async () => {
+    // One number, in two places that must agree. A row allowed to raise
+    // `maxSteps` past MAX_ACT_STEPS would have the tool take such a call, open
+    // its wait and ask the user about it — while the parser the projection
+    // folds and publishes calls with refuses the same arguments, so no console
+    // would ever see it and the model would be told none is open with the
+    // console in front of the user. The bound is also what the report envelope
+    // was sized against.
+    const bounded = (maxSteps: number): Promise<void> => {
+      const ctx = new Context()
+      ctx.provide('webServer', { register: () => () => {} } as never)
+      return ContentFrame.apply(ctx, {
+        root: APP_ROOT,
+        pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
+        pageAccess: {
+          claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, settleQuietMs: 1, outlineChars: MIN_OUTLINE_CHARS,
+          actTimeoutMs: 1000, maxSteps, settleMaxMs: 1,
+        },
+      })
+    }
+    await expect(bounded(MAX_ACT_STEPS + 1)).rejects.toThrow(
+      `content-frame: pageAccess.maxSteps must be at most ${String(MAX_ACT_STEPS)}, `
+      + `received ${String(MAX_ACT_STEPS + 1)}`,
+    )
+    // And the bound itself is taken, so the refusal is the wire's number rather
+    // than one below it.
+    await expect(bounded(MAX_ACT_STEPS)).resolves.toBeUndefined()
   })
 
   it('rejects a per-step settle ceiling the quiet window or the steps of one call cannot live with', async () => {

@@ -413,6 +413,22 @@ describe('what a browser half may be asked to run', () => {
       .toEqual({ steps: [{ action: 'click', ref: 'e5', label: 'Go' }] })
   })
 
+  it('reads a mark as the tokens the seat joins with single spaces', () => {
+    // The seat computes a mark by joining the element's class tokens with one
+    // space and compares it character for character, so a model that writes the
+    // same tokens with a leading or doubled space means the same row. Read as
+    // written, such a step passes the wire, passes the approval, and fails on
+    // the page a round trip later saying the page changed when it did not.
+    for (const written of [' el-icon-delete', 'el-icon-delete ', ' el-icon-delete\n']) {
+      expect(parseActArgs({ steps: [{ action: 'click', ref: 'e5', label: '', mark: written }] }))
+        .toEqual({ steps: [{ action: 'click', ref: 'e5', label: '', mark: 'el-icon-delete' }] })
+    }
+    expect(parseActArgs({ steps: [{ action: 'click', ref: 'e5', label: '', mark: 'a  b' }] }))
+      .toEqual({ steps: [{ action: 'click', ref: 'e5', label: '', mark: 'a b' }] })
+    // Nothing but spacing is left, so a mark of spaces is a row with no mark.
+    expect(parseActArgs({ steps: [{ action: 'click', ref: 'e5', label: '', mark: '   ' }] })).toBeUndefined()
+  })
+
   it('takes a step naming a row the read printed with no name by its mark', () => {
     // One row, one identity: an unnamed row carries the mark the listing
     // printed for it, and a named one carries its name and nothing else.
