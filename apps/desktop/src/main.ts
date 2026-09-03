@@ -22,13 +22,14 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
-import { join } from 'node:path'
-import { app, BrowserWindow, dialog, Notification, shell } from 'electron'
+import { basename, join } from 'node:path'
+import { app, BrowserWindow, dialog, Notification, shell, type DownloadItem } from 'electron'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
 import { recordRun } from './desktop-state.ts'
+import { decideDownload } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { isExternalNavigationTarget } from './navigation.ts'
-import { setupNotifications } from './notifications.ts'
+import { announceDownload, setupNotifications } from './notifications.ts'
 import {
   ENDPOINT_ENV as PLUGIN_ADMIN_ENDPOINT_ENV, PLUGIN_ADMIN_LIMITS, resolvePnpmLauncher, spawnPnpm,
   startPluginAdminService, TOKEN_ENV as PLUGIN_ADMIN_TOKEN_ENV,
@@ -595,6 +596,97 @@ interface BootView {
 }
 
 /**
+ * How each unsuccessful terminal download state is announced. Only the
+ * interrupted one names a remedy: a transfer the user cancelled needs no
+ * instructions, and one that broke mid-stream is worth starting again.
+ */
+const DOWNLOAD_FAILURES: Record<'cancelled' | 'interrupted', { title: string; body: (filename: string) => string }> = {
+  cancelled: { title: '下载已取消', body: filename => filename },
+  interrupted: { title: '下载失败', body: filename => `${filename}:传输中断,请重新导出` },
+}
+
+/**
+ * Paths already handed to a transfer that has not finished. A download's name
+ * is derived from what it exports, so a second gesture on one session suggests
+ * the name the first is about to write; nothing is on disk under it until the
+ * first byte arrives, and this set is what keeps the second from overwriting it.
+ */
+const claimedDownloadPaths = new Set<string>()
+
+/**
+ * Say where a download the shell placed ended up, in the log and to the user.
+ * @param state - the terminal state Electron reported for the transfer.
+ * @param path - the path the transfer was given.
+ */
+function reportDownload(state: 'completed' | 'cancelled' | 'interrupted', path: string): void {
+  const filename = basename(path)
+  if (state === 'completed') {
+    logLine(`[desktop] download saved: ${path}\n`)
+    announceDownload({ title: '已保存到下载', body: filename, savePath: path })
+    return
+  }
+  const failure = DOWNLOAD_FAILURES[state]
+  logLine(`[desktop] download ${state}: ${path}\n`)
+  announceDownload({ title: failure.title, body: failure.body(filename) })
+}
+
+/**
+ * Place what the served UI downloads, instead of letting Electron ask.
+ *
+ * The window is a browser surface without a browser's download manager, so
+ * Electron answers a download with a modal Save As sheet that explains
+ * nothing — while the page that started it has already said it started, the
+ * session-log export announcing 「Session 导出已开始下载」 the moment the
+ * transfer begins, and a dismissed sheet drops the transfer while that page
+ * still reads as success. A transfer from the embedded server therefore goes
+ * straight to the user's downloads folder, and its outcome is reported the way
+ * a download manager reports it: the plugin that owns the export delegates
+ * mid-stream failures to exactly that.
+ *
+ * Every other origin keeps Electron's default, sheet and all — a file the
+ * shell did not serve is not the shell's to place.
+ * @param window - the app window whose session the downloads arrive on.
+ */
+function attachDownloadHandling(window: BrowserWindow): void {
+  // The default session: this window names no partition, and neither does any
+  // window opened after it, so all of them share this one.
+  const windowSession = window.webContents.session
+  const onWillDownload = (_event: Electron.Event, item: DownloadItem): void => {
+    if (server === undefined) return
+    const downloadsDir = app.getPath('downloads')
+    const decision = decideDownload({
+      urls: item.getURLChain(),
+      serverOrigin: server.url,
+      filename: item.getFilename(),
+      downloadsDir,
+      claimed: claimedDownloadPaths,
+      exists: existsSync,
+    })
+    if (decision.kind === 'default') {
+      // A download from elsewhere is the ordinary case and says nothing; a
+      // folder with no free name left is not, and the sheet the user then sees
+      // has a reason in the file they are asked to send.
+      if (decision.reason === 'no-free-name') {
+        logLine(`[desktop] download left to Electron: ${item.getFilename()} (no free name under ${downloadsDir})\n`)
+      }
+      return
+    }
+    const { path } = decision
+    claimedDownloadPaths.add(path)
+    item.setSavePath(path)
+    item.once('done', (_doneEvent, state) => {
+      claimedDownloadPaths.delete(path)
+      reportDownload(state, path)
+    })
+  }
+  windowSession.on('will-download', onWillDownload)
+  // The session outlives the window, so the listener is removed with the
+  // window rather than left to accumulate one copy per window the user closes
+  // and reopens — which on macOS is every trip through the Dock.
+  window.once('closed', () => { windowSession.off('will-download', onWillDownload) })
+}
+
+/**
  * Open the window on the boot page and return its update handle.
  * @param receipt - the update confirmation line, when there is one to show.
  */
@@ -624,6 +716,7 @@ function createBootWindow(receipt?: string): BootView {
     }
   })
   guardWindowClose(window)
+  attachDownloadHandling(window)
   void window.loadURL(bootPage(app.getVersion(), appearance, receipt))
   let booting = true
   const push = (script: string): void => {
