@@ -5,9 +5,8 @@
  * things a read says when it cannot show everything — the skeleton, the cursor,
  * and the refusal of a ref the page no longer has.
  *
- * Visibility and geometry arrive injected, as they do in the browser: these
- * fixtures declare them with `data-hidden` and `data-rect` because jsdom lays
- * nothing out.
+ * Visibility arrives injected, as it does in the browser: these fixtures
+ * declare it with `data-hidden` because jsdom shows everything.
  */
 import { getRole } from 'dom-accessibility-api'
 import { afterEach, describe, expect, it } from 'vitest'
@@ -2082,28 +2081,26 @@ describe('the console table this reader was written against', () => {
   const LEFT = [0, 1]
   const RIGHT = [19]
 
-  /** One cell, drawn where the page draws it and holding what that piece shows. */
-  function cell(tag: 'th' | 'td', column: number, row: number, shift: number, shows: boolean): string {
-    const rect = `${String(69 + column * 160 + shift)},${String(152 + row * 40)},160,40`
+  /** One cell, holding what the piece it belongs to shows there. */
+  function cell(tag: 'th' | 'td', column: number, shows: boolean): string {
     const inside = column === 19 && tag === 'td' ? COMMANDS : (tag === 'th' ? NAMES[column] : VALUES[column] ?? '—')
-    return `<${tag} data-rect="${rect}"><div class="cell"${shows ? '' : ' data-hidden'}>${inside}</div></${tag}>`
+    return `<${tag}><div class="cell"${shows ? '' : ' data-hidden'}>${inside}</div></${tag}>`
   }
 
   /** One piece of the table: a header half and a body half, drawn over the rest. */
-  function piece(shows: (column: number) => boolean, shift: number, gutter: boolean): string {
-    const head = NAMES.map((_, column) => cell('th', column, 0, shift, shows(column))).join('')
-      + (gutter ? `<th class="gutter" data-rect="${String(69 + 3200 + shift)},152,10,40"></th>` : '')
-    const rows = [1, 2].map(row =>
-      `<tr>${NAMES.map((_, column) => cell('td', column, row, shift, shows(column))).join('')}</tr>`).join('')
-    const rect = (top: number, height: number): string => `${String(69 + shift)},${String(top)},3204,${String(height)}`
-    return `<div class="head"><table data-rect="${rect(112, 40)}"><thead><tr>${head}</tr></thead></table></div>`
-      + `<div class="body"><table data-rect="${rect(152, 818)}"><tbody>${rows}</tbody></table></div>`
+  function piece(shows: (column: number) => boolean, gutter: boolean): string {
+    const head = NAMES.map((_, column) => cell('th', column, shows(column))).join('')
+      + (gutter ? '<th class="gutter"></th>' : '')
+    const rows = [1, 2].map(() =>
+      `<tr>${NAMES.map((_, column) => cell('td', column, shows(column))).join('')}</tr>`).join('')
+    return `<div class="head"><table><thead><tr>${head}</tr></thead></table></div>`
+      + `<div class="body"><table><tbody>${rows}</tbody></table></div>`
   }
 
   const CONSOLE_TABLE = '<div class="el-table">'
-    + piece(column => !LEFT.includes(column) && !RIGHT.includes(column), 0, true)
-    + `<div class="fixed-left">${piece(column => LEFT.includes(column), 0, false)}</div>`
-    + `<div class="fixed-right">${piece(column => RIGHT.includes(column), -1756, false)}</div>`
+    + piece(column => !LEFT.includes(column) && !RIGHT.includes(column), true)
+    + `<div class="fixed-left">${piece(column => LEFT.includes(column), false)}</div>`
+    + `<div class="fixed-right">${piece(column => RIGHT.includes(column), false)}</div>`
     + '</div>'
 
   it('reads each table the page draws as the table it is, header halves and pinned copies alike', () => {
