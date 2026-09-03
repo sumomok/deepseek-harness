@@ -1,0 +1,8 @@
+version: 1
+scenario: content-read
+profile: web
+composition: web-content
+recording: live
+header:
+  class: web-content
+  pin: true

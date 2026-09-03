@@ -1,0 +1,7 @@
+version: 1
+scenario: content-read-dom
+profile: web
+composition: web-content
+recording: live
+header:
+  class: web-content

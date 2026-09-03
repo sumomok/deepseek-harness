@@ -71,7 +71,12 @@ DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/
 DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-act.e2e.ts
 DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-read-dom.e2e.ts
 DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-read-attrs.e2e.ts
-DSH_SNAPSHOT=refresh pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-read.e2e.ts
+DSH_SNAPSHOT=refresh pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-read.e2e.ts \
+  apps/web/tests/content-act.e2e.ts apps/web/tests/content-read-dom.e2e.ts apps/web/tests/content-read-attrs.e2e.ts
 ```
 
-The last one is keyless and writes the two sidecars the pinned header owns. Until the recordings land, each spec skips itself: the corpus enumerator requires a `session.jsonl` beside every manifest, so the manifests land with the recordings and not before. This is what ends the deviation [the fixtures-outside-the-corpus note](../testing/2026-09-03-content-access-fixtures-outside-the-corpus.md) recorded.
+The last one is keyless and is not optional for any of the four: a recording carries what the live provider resolved — the request's `maxTokens` and reasoning effort, and one `request/context` event — which a replayed run never produces, so the refresh normalizes each fixture to what a replay persists and writes the two sidecars the pinned header owns. What the model said is untouched by it: the prompts, the tool calls, the results and the answers are the recording's.
+
+Bringing the four in took one change to the Web scaffold. A manifest beside a `session.jsonl` turns on the persisted-log comparison, and all four seed a round into the session they then drive — which `recordFixture`'s `afterSeed` trim drops from the recording, because a replay fixture carrying a seeded round would answer the live run's first model call with a reply from a turn it never made. `assertReplaySession` now cuts the live log at that same `session/end-seed` boundary before it matches a fixture to a session, compares the two, or reads the header pin, and refresh writes back through the same trim. A scenario that seeds nothing has no boundary to cut at and is compared whole, as it was.
+
+This is what ends the deviation [the fixtures-outside-the-corpus note](../testing/2026-09-03-content-access-fixtures-outside-the-corpus.md) recorded.

@@ -71,7 +71,12 @@ DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/
 DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-act.e2e.ts
 DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-read-dom.e2e.ts
 DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-read-attrs.e2e.ts
-DSH_SNAPSHOT=refresh pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-read.e2e.ts
+DSH_SNAPSHOT=refresh pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-read.e2e.ts \
+  apps/web/tests/content-act.e2e.ts apps/web/tests/content-read-dom.e2e.ts apps/web/tests/content-read-attrs.e2e.ts
 ```
 
-最后一条不需要密钥，它写出被钉住的 header 所拥有的那两份边车文件。录制落地之前，每个 spec 自行跳过：语料库遍历器要求每份清单旁边都有 `session.jsonl`，因此清单与录制一同落地，不会先行。这就是 [fixture 留在语料库之外那份记录](../testing/2026-09-03-content-access-fixtures-outside-the-corpus.zh.md) 所记的那处偏离的终点。
+最后一条不需要密钥，而且四份都少不了它：一次录制带着实时供应商解析出来的东西——请求的 `maxTokens` 与推理力度，以及一条 `request/context` 事件——而重放跑不会产生这些，因此这一遍刷新把每份 fixture 归一到「重放所落盘的样子」，并写出被钉住的 header 所拥有的那两份边车文件。模型说过的话不受它影响：提示词、工具调用、结果与回答，仍是那次录制的。
+
+把这四份收进语料库，动了 Web scaffold 一处。清单一旦与 `session.jsonl` 并排，落盘日志比对就被打开；而四者都会先把一轮种进它们随后要驱动的那个会话——`recordFixture` 的 `afterSeed` 修剪正是把这一轮从录制里去掉的，因为一份带着已种轮次的重放 fixture，会拿一次它从未发生过的回合的答复去应答实跑的第一次模型调用。`assertReplaySession` 现在在把 fixture 对上会话、与之比对、或读取 header 钉子之前，先在同一个 `session/end-seed` 边界上裁剪实时日志，刷新写回也走同一处修剪。什么都没种的场景没有可裁的边界，整份比对，一如既往。
+
+这就是 [fixture 留在语料库之外那份记录](../testing/2026-09-03-content-access-fixtures-outside-the-corpus.zh.md) 所记的那处偏离的终点。

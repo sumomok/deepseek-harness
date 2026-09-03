@@ -24,7 +24,7 @@ Both scenarios replay keyless against the built app and are green, and the Web b
 
 Re-recording them still needs a key and `DSH_SNAPSHOT=record`, and `recordFixture`'s `afterSeed` trim — the reason this line touched the harvest at all — keeps working from either location. [`docs/testing.md`](../../../../docs/testing.md) requires every Web recording to live under `snapshots/web/`: the next time either fixture needs re-recording, it is recorded there with its manifest, and this deviation ends.
 
-**That is what happened.** [The markup reads](../feature/2026-09-03-content-markup-reads.md) changed the tool schemas both scenarios' requests carry, which made re-recording them necessary. That slice records both under `snapshots/web/` with manifests, beside its own two new scenarios, and ends this deviation; until those recordings and manifests land, the decision below still describes the tree.
+**That is what happened.** [The markup reads](../feature/2026-09-03-content-markup-reads.md) changed the tool schemas both scenarios' requests carry, which made re-recording them necessary. Both are now recorded under `snapshots/web/` with manifests, beside that slice's own two new scenarios, and the deviation is over. Bringing them in also took the change this note said the move would need: a corpus manifest turns on the persisted-log comparison, and these scenarios seed a round into the session they drive, so `assertReplaySession` cuts the live log at the `session/end-seed` boundary `recordFixture`'s `afterSeed` trim already cut the recording at. The decision below no longer describes the tree.
 
 ## Alternatives considered
 

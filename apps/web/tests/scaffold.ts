@@ -845,9 +845,6 @@ export interface RecordFixtureOptions {
  * of the script answers the live run's first call with a reply from a turn that
  * run never made. The seeded prompts reach {@link fixtureUserPrompts} as well,
  * which is what ties a spec's drive steps to the recording.
- *
- * The trim is by line rather than through {@link parseSeedFixture}, so the
- * packed chunk runs the harvest wrote survive it byte for byte.
  * @param fixtureText - the harvested fixture, session header first.
  * @returns that fixture without the seeded events.
  * @throws {Error} when no `session/end-seed` boundary follows the header —
@@ -855,14 +852,28 @@ export interface RecordFixtureOptions {
  * harvest is not a session log at all.
  */
 function withoutSeededHistory(fixtureText: string): string {
-  const lines = fixtureText.split('\n')
+  const kept = afterSeededHistory(fixtureText)
+  if (kept === undefined) {
+    throw new Error('record harvest: afterSeed was asked for, but no session/end-seed boundary follows the header')
+  }
+  return kept
+}
+
+/**
+ * Cut a session log at its seeded-history boundary, keeping the session header
+ * and every event appended after the seed.
+ *
+ * The trim is by line rather than through {@link parseSeedFixture}, so the
+ * packed chunk runs a harvest wrote survive it byte for byte.
+ * @param log - a raw session log, session header first.
+ * @returns the log without its seeded round, or undefined when it carries none.
+ */
+function afterSeededHistory(log: string): string | undefined {
+  const lines = log.split('\n')
   const boundary = lines.findIndex(
     line => line.trim().length > 0 && (JSON.parse(line) as { type?: unknown }).type === 'session/end-seed',
   )
-  if (boundary <= 0) {
-    throw new Error('record harvest: afterSeed was asked for, but no session/end-seed boundary follows the header')
-  }
-  return [...lines.slice(0, 1), ...lines.slice(boundary + 1)].join('\n')
+  return boundary <= 0 ? undefined : [...lines.slice(0, 1), ...lines.slice(boundary + 1)].join('\n')
 }
 
 function normalizeWebSessionVolatiles(log: string): string {
@@ -909,22 +920,23 @@ async function assertReplaySession(
 ): Promise<void> {
   let expected = await readFile(fixturePath, 'utf8')
   const userPrompts = fixtureUserPrompts(expected)
-  const candidates = sessions.filter((session) => {
-    if (session.header.parentSession !== undefined) return false
-    const actual = session.snapshotEvents().flatMap((event) => {
-      if (event.type !== 'user/message' || event.data.source.kind !== 'user') return []
-      const text = event.data.content.filter(block => block.type === 'text').map(block => block.text).join('')
-      return text.length === 0 ? [] : [text]
-    })
-    return JSON.stringify(actual) === JSON.stringify(userPrompts)
-  })
+  // A scenario that seeds a round into the session it then drives records only
+  // what the turn appended, so the live log is cut at the same boundary before
+  // it is matched against the fixture, compared with it, or read for the header
+  // pin — see {@link RecordFixtureOptions.afterSeed}.
+  const drivenLog = (candidate: Session): string => {
+    const log = rawSessionLog(candidate)
+    return afterSeededHistory(log) ?? log
+  }
+  const candidates = sessions.filter(candidate => candidate.header.parentSession === undefined
+    && JSON.stringify(fixtureUserPrompts(drivenLog(candidate))) === JSON.stringify(userPrompts))
   expect(candidates, `Web replay fixture ${fixturePath} must match one live root session`).toHaveLength(1)
   const session = candidates[0] as Session
   const sessionCwd = session.header.cwd
   if (sessionCwd === undefined) throw new Error(`${fixturePath}: replayed session has no cwd`)
-  const actual = rawSessionLog(session)
+  const actual = drivenLog(session)
   if (mode === 'refresh') {
-    expected = stableSessionFixture(session, expected, sessionCwd)
+    expected = stableSessionFixture(session, expected, sessionCwd, log => afterSeededHistory(log) ?? log)
     await writeFile(fixturePath, expected)
   }
   const expectedHeader = JSON.parse(expected.split('\n').find(line => line.trim() !== '') ?? '{}') as {

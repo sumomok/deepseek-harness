@@ -24,7 +24,7 @@ Status: implemented
 
 重录它们仍然需要密钥与 `DSH_SNAPSHOT=record`，而 `recordFixture` 的 `afterSeed` 裁剪——这条线当初改动那段采集的原因——在哪个位置都照常工作。[`docs/testing.md`](../../../../docs/testing.zh.md) 要求每一份 Web 录制都放在 `snapshots/web/` 下：下一次任一份 fixture 需要重录时，就录进那里并补上清单，这处偏离到此为止。
 
-**这件事已经发生。**[三件原文读取](../feature/2026-09-03-content-markup-reads.zh.md) 改动了这两个场景请求所带的工具 schema，于是重录成为必需。该片会把两份连同它自己新增的两个场景一起录在 `snapshots/web/` 下并各带清单，这一偏离到那时结束；在那些录制与清单落地之前，下面的决定仍然描述当前的仓库。
+**这件事已经发生。**[三件原文读取](../feature/2026-09-03-content-markup-reads.zh.md) 改动了这两个场景请求所带的工具 schema，于是重录成为必需。两份现已连同该片自己新增的两个场景一起，录在 `snapshots/web/` 下并各带清单，这一偏离到此结束。把它们收进去，也正需要本记录当初说这次搬家会需要的那处改动：语料库清单会打开落盘日志比对，而这些场景会先把一轮种进它们要驱动的那个会话，于是 `assertReplaySession` 改为在 `session/end-seed` 边界上裁剪实时日志——`recordFixture` 的 `afterSeed` 修剪早已在同一处裁过录制。下面的决定不再描述当前的仓库。
 
 ## 备选方案
 
