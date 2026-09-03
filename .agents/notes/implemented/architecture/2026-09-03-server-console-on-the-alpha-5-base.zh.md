@@ -1,12 +1,12 @@
-# Agent Note: The product-console line on the 0.1.2-alpha.4 base — composition over accommodation
+# Agent Note: The product-console line on the 0.1.2-alpha.5 base — composition over accommodation
 
 Status: implemented
 
-[English](2026-09-02-server-console-on-the-alpha-4-base.md) | 中文
+[English](2026-09-03-server-console-on-the-alpha-5-base.md) | 中文
 
 ## Problem
 
-`product/server-console` 这条线由九个 `packages/experimental/*` 包组成，它们把出厂外壳、侧边栏与内容列替换成一套面向客户的控制台，另有八个浏览器场景钉住它。它此前钉在 0.1.1 时代的基座上。迁到 0.1.2-alpha.4 跨过了一次包退役（`dsh-client-runtime` 拆成五个归属）、一次把工作区导航移到本线刻意移除的那个插件背后的服务搬迁、若干 Session API 改名，以及一次浏览器测试脚手架变更。在新基座上这条线编译不过；编译过了起不来；起来了八个场景一个也不过。每一处修复都要回答同一个问题：是在我们自己的包里迁就基座、给基座打补丁，还是改组合加载什么。
+`product/server-console` 这条线由九个 `packages/experimental/*` 包组成，它们把出厂外壳、侧边栏与内容列替换成一套面向客户的控制台，另有八个浏览器场景钉住它。它此前钉在 0.1.1 时代的基座上。迁到 0.1.2-alpha.4 跨过了一次包退役（`dsh-client-runtime` 拆成五个归属）、一次把工作区导航移到本线刻意移除的那个插件背后的服务搬迁、若干 Session API 改名，以及一次浏览器测试脚手架变更。在那个基座上这条线编译不过；编译过了起不来；起来了八个场景一个也不过。从 alpha.4 到 alpha.5 这一步是另一个量级——四处合并冲突、两处修复——但它栽在同一个地方：一份存下来的会话日志允许包含什么变严了，而本线自己种下的 fixture 是照着旧规则写的。无论哪个量级，每一处修复都要回答同一个问题：是在我们自己的包里迁就基座、给基座打补丁，还是改组合加载什么。
 
 ## Decision
 
@@ -34,9 +34,15 @@ alpha.4 把 `dsh-client-ui-conversation` 的客户端注入从 `workspaces` 控�
 
 连接那个工作区则是委派而不是重述。`UiWorkspaceService.connectWorkspace` 持有一张按工作区索引的在途 Promise 表；重述它的空白会话复用逻辑就会丢掉这张表，而丢掉它不是外观问题——挂载期的自动落位与一次工作台点击会相隔数毫秒各造一个会话，因为第二个调用方重读到的工作区快照里还没有第一个调用方刚建的那个会话。本线遵循的规则是：可以重述一个上游没有暴露的决策，绝不重述一个协调机制。
 
+## alpha.5 这一步的代价
+
+两处修复，都落在本线自己的文件里。alpha.5 的会话读路径会校验每一条重放的 `tool/result`：`data.message` 必须带 `id`、`role: "user"`、`source.kind` 与数组 `content`。本线的两个图表场景仍在拼旧的扁平载荷——`callId`、`content`、`isError` 直接挂在 `data` 下——于是每一份种下的日志一打开就被判为 corrupt。故障是在两层之外冒头的：会话流渲染成空白，共用的 `expandTurnProcesses` 助手卡在一个从未存在的展开控件上超时——所以该先读的是种子日志自己的拒绝信息，而不是被它弄坏的那个助手。种子 fixture 就是一份手写的会话日志，因此读路径每收紧一次，对它就是一次迁移。另一处修复是版本对齐：`check-workspace-constraints` 要求每个工作区包的 package.json 版本等于根版本，而本线自有的九个包是唯一还留在 `0.1.2-alpha.4` 的。
+
+合并本身冲突四处，比上一次的二十二处少：两份包表 README 手工并成两侧行的并集、其配对记录重录，一份生成的 client catalog 重新生成而不是手改。`.gitattributes` 的配对合并驱动在属主文件仍处于冲突时拒绝重算哈希，这正是它自己的注释写明的 fail-closed 行为。
+
 ## 本次迁移发现的上游缺口
 
-三处，除门禁逼出来的那一处外本线都不修。`packages/attachment/attachment-spill` 的版本是 `0.1.2-alpha.2`、根版本是 `0.1.2-alpha.4`（`pnpm run constraints`），并且带着一个仓库自己的规则明令拒绝的空 invariant 伴生（`pnpm run verify-package-invariants`）；两条在干净的上游树上都能复现。`packages/experimental/client-ui-agent-team/src/css-modules.d.ts` 没有写进 `tsconfig.client.json` 的 include，因此 Client 聚合从不加载它；上游自己的 `scripts/client-tsconfig.spec.ts` 只检查两个包组、看不到它，把该 spec 扩到 experimental 组正是照出它的原因。第三条在这里修掉了，因为那个扩宽的门禁是本线自己的，留红就意味着要把上游那个包从检查里豁免出去。
+三处，逐条在 alpha.5 上重核。`packages/attachment/attachment-spill` 的版本曾是 `0.1.2-alpha.2`、根版本是 `0.1.2-alpha.4`（`pnpm run constraints`），并且带着一个仓库自己的规则明令拒绝的空 invariant 伴生（`pnpm run verify-package-invariants`）；这两条在 alpha.5 上都已由上游修掉——该包现在与根版本一致，它的 `src/invariant.ts` 也已不在。`packages/experimental/client-ui-agent-team/src/css-modules.d.ts` 仍然没有写进 `tsconfig.client.json` 的 include，因此 Client 聚合从不加载它；上游自己的 `scripts/client-tsconfig.spec.ts` 只检查两个包组、看不到它，把该 spec 扩到 experimental 组正是照出它的原因。第三条在这里修掉了，因为那个扩宽的门禁是本线自己的，留红就意味着要把上游那个包从检查里豁免出去。
 
 ## Alternatives considered
 
@@ -48,4 +54,6 @@ alpha.4 把 `dsh-client-ui-conversation` 的客户端注入从 `workspaces` 控�
 
 ## Consequences
 
-这条线在新基座上编译得过、起得来、八个浏览器场景全过，九个包逐文件 100% 覆盖率，全仓零覆盖率违规。两个上游文件带着已登记的改动；Vue 那条在探针包拿到自己的编译面时退役，聚合那条在上游写进自己的声明文件时退役。`terminology-guard.ts` 现在带着一条承重规则而不是一条冗余规则，这正是它的场景要钉元素存在而不只是钉不可见的原因。重述的 `recentWorkspace` 在上游导出它、或把它放上 `UiWorkspace` 接口时退役。本线的两个会话事件（`content/shown`、`content-surface/dismissed`）仍是 required-on-read，因此一个由本组合写出的 `DSH_HOME` 被出厂 profile 重新打开时会拒读它的日志——这是本线既有的性质、本次未改变，值得在部署迁移前实测一次。
+这条线在 alpha.5 基座上编译得过、起得来、八个浏览器场景全过，九个包逐文件 100% 覆盖率，全仓零覆盖率违规。两个上游文件带着已登记的改动，本次都重核过：把 trajectory-cell 测试还原成 JSX 展开仍报 TS2375，上游的 include 仍未写上 Agent Teams 的声明文件，因此两条都继续在役。Vue 那条在探针包拿到自己的编译面时退役，聚合那条在上游写进自己的声明文件时退役。`terminology-guard.ts` 现在带着一条承重规则而不是一条冗余规则，这正是它的场景要钉元素存在而不只是钉不可见的原因。重述的 `recentWorkspace` 在上游导出它、或把它放上 `UiWorkspace` 接口时退役。
+
+本线的两个会话事件（`content/shown`、`content-surface/dismissed`）仍是 required-on-read，因此一个由本组合写出的 `DSH_HOME` 被出厂 profile 重新打开时会拒读它的日志——这是既有性质、本次未改变，值得在部署迁移前实测一次。alpha.5 没有让它变松。信封仍保留 `ignorable?: true`，读路径仍认它，但 `Session.append` 给不出设置它的手段：它唯一的可选参数是 `SurfaceIntent`，只携带 `surfaceOp` 与 `sourceEventSeqs`，此外没有别的，而且全仓没有任何第一方代码写出这个标记。在本仓库内，这两个事件都在生成的 `KNOWN_SESSION_EVENT_TYPES` 里，所以本树读得回来；把这些包搬到树外插件仓，它们就落在该集合之外，而能豁免它们的那个标记又没有写方接口。这是抽包之前要先了结的前提，不是抽完再说。

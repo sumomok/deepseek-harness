@@ -154,7 +154,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **改了什么**：`tsconfig.client.json` 的 `include` 新增一行 `packages/experimental/client-ui-agent-team/src/css-modules.d.ts`。
 - **为什么**：这是**上游自己的缺口**，不是本线的适配需要。rc.27 的 `806642b064` 新增了 `client-ui-agent-team` 及其 `css-modules.d.ts`，但只在 `tsconfig.client.json` 里加了 `{"path": …}` 引用、没有把该声明文件写进聚合的 `include`，于是聚合从不加载它。上游的 `scripts/client-tsconfig.spec.ts` 只检查 `client` 与 `extensions` 两组，看不到 `experimental` 组，因此这个缺口在上游是静默的；本线把该 spec 的 `clientGroups` 扩到 `experimental`（为覆盖本线自己的实验包），扩完就照出了它。
 - **要达到的效果**：聚合加载该 CSS 模块声明，`experimental` 组的 client 包在同一条规则下受检，而不是为了让门禁过关把 `client-ui-agent-team` 从检查里豁免掉——那样会把上游的真缺口藏起来。
-- **退役条件**：上游自己把这一行写进 `tsconfig.client.json`（本条与另外两处上游缺口一起记在 [Agent Note 的 Upstream gaps 一节](../.agents/notes/implemented/architecture/2026-09-02-server-console-on-the-alpha-4-base.md#upstream-gaps-this-migration-found)；复现方法：给 `scripts/client-tsconfig.spec.ts` 的 `clientGroups` 加上 `'experimental'` 后跑该 spec）。
+- **退役条件**：上游自己把这一行写进 `tsconfig.client.json`（本条与另外两处上游缺口一起记在 [Agent Note 的 Upstream gaps 一节](../.agents/notes/implemented/architecture/2026-09-03-server-console-on-the-alpha-5-base.md#upstream-gaps-this-migration-found)；复现方法：给 `scripts/client-tsconfig.spec.ts` 的 `clientGroups` 加上 `'experimental'` 后跑该 spec）。
 - **状态**：在役。
 
 ## rc.26 合并事故复核：`e6991dfba2` 手工解析删掉了两个父都有的内容（已修）
@@ -371,3 +371,33 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 3. **feedback 两场景**：见上文 `a426a88c90` 条目的「副作用与处置」。
 
 **`pnpm run duplication` 现状：4 → 3**（file-sniff 那一份重复随删除消失）。剩下三处**全在补丁线我方 hunk 内，本轮不修，登记为补丁线技术债**：`api/session-controller/src/commands.ts` 两对（`[353:86-367:16]`↔`[394:68-408:16]` 15 行 76 token；`[589:23-596:17]`↔`[643:22-650:17]` 8 行 62 token）与 `client/ui-attachment/src/FileChip.tsx [111:57-123:8]` 复制 `AttachmentRail.tsx [176:21-188:8]` 的 13 行 65 token。该门禁在 develop 顶端同样红（当时 4 处），**不是本次集成引入**；抽取动作排到下一次滚动同步，抽完两边一起过门。
+
+## rc.28 基座合并：`feat/base-develop` ← `origin/develop`（`0da04a8ade`，上游 alpha.5+38）
+
+产品线 `product/server-console` 的开发分支 `feat/base-develop` 换基座：合并基 `719cec2365`（上一次合并带进来的 develop 顶端），带进 **120 个上游提交**，本线 **21 个适配提交全部保留**（`merge`，不 rebase），合并提交 `4f28d3eb1a`。根版本 `0.1.2-alpha.4` → `0.1.2-alpha.5`。
+
+**冲突 4 个**（上一次合并是 22 个），无一是静默错合：
+
+- `packages/experimental/README.md` / `README.zh.md`——包表两侧各自加行。手工并集：上游九行 + 本线九行 = 18 行，并采纳上游对 `tool-agent-team` 的更正（`Eight tools` → `Nine tools`／`九个工具`；对着 `origin/develop` 数 `tools.register(defineTool({` 实证为 9）。中英两侧行数与目录清单机械核对相等。
+- `packages/experimental/README.i18n.yaml`——`.gitattributes` 的 `merge=dsh-translation-pairing` 驱动**按设计 fail-closed**：它检出 `README.md` 的属主冲突后拒绝重算配对哈希，只报 `has content conflicts` 并把索引留在未解析态（驱动脚本的注释写明「干净的文本合并仍然是未经验证的配对元数据」）。属主两侧手工解完后跑 `verify-translation-pairing --write` 重录，`doc-sync` 的 translation pairing 门禁绿。**结论：配对哈希自动重算的链路完好，只是它拒绝在属主未定时先行重算——这是正确行为，不是缺陷。**
+- `packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`——生成物。不手改，跑 `gen-client-catalog` 重生成（结果是两父的超集），`verify-client-catalog` 在 doc-sync 里绿。
+
+**上游三处待回报缺口在 alpha.5 的状态（逐条实证）**：
+
+1. `packages/attachment/attachment-spill` 版本号与根不符——**已修**。该包现为 `0.1.2-alpha.5`，`pnpm run constraints` 不再报它。
+2. 该包的空 invariant 伴生文件——**已修**。`packages/attachment/attachment-spill/src/invariant.ts` 已不在树上（补丁线 `9127951ebb` 删除），`verify-package-invariants` 报 `42 hand-owned package companion(s) conform.`。
+3. `packages/experimental/client-ui-agent-team/src/css-modules.d.ts` 未进 Client 聚合 `include`——**仍在**。`git show origin/develop:tsconfig.client.json` 只有 `packages/client/*/src/css-modules.d.ts` 与 `packages/extensions/ui-cordis/src/css-modules.d.ts` 两行，仍不覆盖 `experimental` 组。本线 `e72dec971a` 的那一行 **继续在役**。
+
+**两条在役上游改动的复核**：
+
+- `3bdd0135a5`（trajectory-cell 测试包装函数用 `createElement`）——按本文件登记的机械退役判定实测：把那一行还原成 JSX 展开后跑 `pnpm run typecheck`，仍报 `packages/client/ui-trajectory/tests/cell.client.spec.tsx:29:11 - error TS2375 … 'slot?: string | undefined'`。**在役**（已还原回 `createElement`）。
+- `e72dec971a`（`tsconfig.client.json` 的一行 include）——见上文缺口 3。**在役**。
+
+**本次合并后必需的两处本线适配**（各自独立提交）：
+
+- `fef729bf36` — alpha.5 的会话读路径新增 `assertMessageEventShape`：每条重放的 `tool/result` 的 `data.message` 必须带 `id`、`role: "user"`、`source.kind` 与数组 `content`。`show-chart.e2e.ts` 与 `content-surface.e2e.ts` 两个场景仍在拼 alpha.5 之前的扁平载荷（`callId`/`content`/`isError` 直接挂在 `data` 下），于是种下的日志一打开就被判为 corrupt（`stored session … is corrupt: session event at seq 66 lacks an identified message`），整条会话流渲染为空，`expandTurnProcesses` 卡在一个从未存在的控件上超时。两处改为写出完整的 tool-result 消息，身份沿用 fixture 自己的 `{{message:N}}` 记号空间（1–5 属录制 fixture，本线从 6 起）。
+- `1f35f1c06a` — 本线九个 `packages/experimental/*` 包的 `package.json` 版本从 `0.1.2-alpha.4` 抬到 `0.1.2-alpha.5`。`check-workspace-constraints` 要求每个工作区包版本等于根版本，合并把根抬到 alpha.5 后只剩这九个落在后面。
+
+**门禁**：`typecheck` 0、`lint` 0、`build` 0、`doc-sync` 32/32、`hygiene` 15/15（含 `constraints`）、包内 vitest 628/64 未变、8 条浏览器场景 55/55、三份 overlay 的 `--dump-config` 均为三档（`read-only`/`workspace-write`/`danger-full-access` → 只读／可修改文件／完全放开），三份 overlay 的 `permission` 块 md5 一致（`02ad6f547495e2235a55a77d684ab2f7`）。
+
+**特别核：alpha.5 的 `Session.append` 仍无 writer 面**（只报告，未改动）。信封字段 `ignorable?: true` 保留在 `packages/core/session/src/types.ts:454`，读路径 `session-persistence/src/storage-contract.ts:72` 以它决定是否拒绝未知事件类型；但 `Session.append(type, data, ...opts)` 的 `opts` 只有 `SurfaceIntent`（`surfaceOp` / `sourceEventSeqs`），**没有任何参数或重载能让写方把某条事件标成 `ignorable`**，全仓也没有一处生产代码写出 `ignorable: true`。上游 `2026-08-30-retain-ignorable-external-session-events` 明确记载该字段是为**树外第三方插件**保留的、由其自己的持久化路径写出，并明确否决了「按已挂载插件名注册已知事件」的替代方案。对本线的含义：本线的 `content/shown` 与 `content-surface/dismissed` 目前**在仓内**，已进 `KNOWN_SESSION_EVENT_TYPES`（`known-event-types.ts:37-38`），因此读得回来；一旦这两个包被抽到树外插件仓，它们就落在该集合之外，而 `Session.append` 给不出标记 `ignorable` 的手段——**卸载插件即锁死会话日志**的风险在 alpha.5 上原样存在，悬案未消。
