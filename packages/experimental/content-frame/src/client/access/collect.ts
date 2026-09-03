@@ -24,12 +24,6 @@ import type {
   Item, RowCell, SnapshotOptions, TableItem, TableRowItem,
 } from './model.ts'
 
-/** How many items a `ul` or `ol` needs before it reads as a list of its own. */
-const LIST_MIN = 3
-
-/** How many buttons an element needs to read as a toolbar without saying so. */
-const TOOLBAR_MIN = 2
-
 /** How much of its own text names a click target the page has not labelled. */
 const CLICK_NAME_LIMIT = 40
 
@@ -177,18 +171,6 @@ function flush(walk: Walk, place: Place): void {
 }
 
 /**
- * A list long enough to read as one.
- * @param el - the element to classify.
- * @returns the container face, or undefined for a short or non-list element.
- */
-function listFace(el: Element): ContainerFace | undefined {
-  const tag = el.localName
-  if (tag !== 'ul' && tag !== 'ol') return undefined
-  const items = [...el.children].filter(child => child.localName === 'li')
-  return items.length >= LIST_MIN ? { type: 'list', name: nameOf(el) } : undefined
-}
-
-/**
  * A region the page titled, which is what makes it worth naming.
  * @param el - the element to classify.
  * @param walk - the walk in progress.
@@ -197,21 +179,6 @@ function listFace(el: Element): ContainerFace | undefined {
 function sectionFace(el: Element, walk: Walk): ContainerFace | undefined {
   const name = containerName(el, walk.isVisible)
   return name === '' ? undefined : { type: 'section', name }
-}
-
-/**
- * A row of buttons, which reads as a toolbar whether or not it says so.
- * @param el - the element to classify.
- * @param role - the element's role.
- * @param walk - the walk in progress.
- * @returns the container face, or undefined for anything else.
- */
-function buttonRowFace(el: Element, role: string | null, walk: Walk): ContainerFace | undefined {
-  if (role !== null) return undefined
-  const children = [...el.children].filter(child => !isSkipped(child, walk.isVisible))
-  return children.length >= TOOLBAR_MIN && children.every(child => roleOf(child) === 'button')
-    ? { type: 'toolbar', name: '' }
-    : undefined
 }
 
 /**
@@ -242,12 +209,12 @@ function containerFace(el: Element, role: string | null, walk: Walk): ContainerF
     // rather than a region it looks inside.
     case 'listbox': return el.localName === 'select' ? undefined : { type: 'listbox', name: nameOf(el) }
     case 'list':
-    case 'feed': return listFace(el)
+    case 'feed': return { type: 'list', name: nameOf(el) }
     case 'region':
     case 'article':
     case 'complementary':
       return sectionFace(el, walk)
-    default: return buttonRowFace(el, role, walk)
+    default: return undefined
   }
 }
 
@@ -258,11 +225,8 @@ function containerFace(el: Element, role: string | null, walk: Walk): ContainerF
  * walk's, so the regions are exactly the ones it reads apart from what is
  * around them rather than a second list of the roles that open one.
  *
- * A region the walk infers from shape rather than from a role is not one of
- * them: {@link buttonRowFace} reads a row of buttons the page wrote no role on
- * as a toolbar, and inside a control that row is the chips the control holds. A
- * table the page marks as layout is not one either, and the text a page draws in
- * one is the text of whatever holds it.
+ * A table the page marks as layout is not one of them, and the text a page
+ * draws in one is the text of whatever holds it.
  * @param el - the element to classify.
  * @param walk - the walk in progress.
  * @returns whether the element's role opens a region.
@@ -1027,9 +991,8 @@ function makesRow(el: Element, walk: Walk): boolean {
   if (insideOpaque(el)) return false
   if (el.matches(ITEM_TAGS)) return true
   const role = roleOf(el)
-  // The order is the walk's own: a row of buttons opens a toolbar whether or
-  // not the page gave it a role, and a role reaches a row of its own only where
-  // it opens no region.
+  // The order is the walk's own: a role reaches a row of its own only where it
+  // opens no region.
   if (containerFace(el, role, walk) !== undefined) return true
   if (role === null) return false
   return isTableRole(role) || rowRole(el, role)

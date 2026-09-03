@@ -85,10 +85,9 @@ describe('reading a page', () => {
       '    e5 textbox "名称" = "东风" (in form "查询")',
       '    e6 combobox "状态" = "停用" (in form "查询")',
       '    e7 checkbox "仅看我的" [x] (in form "查询")',
-      '    e8 toolbar',
-      '      e9 button "查询" (toolbar)',
-      '      e10 button "导出" (disabled) (toolbar)',
-      '  e11 table 2 rows × 3 cols',
+      '    e8 button "查询" (in form "查询")',
+      '    e9 button "导出" (disabled) (in form "查询")',
+      '  e10 table 2 rows × 3 cols',
       '    header: 名称 | 唯一标识 | 操作',
       '    sample: 东风站 | P-0001 | [编辑 删除]',
       "    rows: pass scope with this table's ref to list rows, or find a row by its text",
@@ -112,10 +111,9 @@ describe('reading a page', () => {
     expect(snap.text).toBe([
       'e1 main "站点管理"  3 texts',
       '  e2 nav  1 texts',
-      '  e4 form "查询"  3 fields',
-      '    e8 toolbar  2 buttons',
-      '  e11 table  2 rows',
-      '  e12 dialog "导入设置"  hidden',
+      '  e4 form "查询"  3 fields, 2 buttons',
+      '  e10 table  2 rows',
+      '  e11 dialog "导入设置"  hidden',
     ].join('\n'))
   })
 
@@ -124,10 +122,10 @@ describe('reading a page', () => {
     read(refs)
     const snap = read(refs, { scope: refOf(refs, 'table') })
     expect(snap.text).toBe([
-      'e11 table 2 rows × 3 cols',
+      'e10 table 2 rows × 3 cols',
       '  header: 名称 | 唯一标识 | 操作',
-      '  row 1: 东风站 | P-0001 | e14 button "编辑"  e15 button "删除"',
-      '  row 2: 朝阳站 | P-0002 | e17 button "编辑"  e18 button "删除"',
+      '  row 1: 东风站 | P-0001 | e13 button "编辑"  e14 button "删除"',
+      '  row 2: 朝阳站 | P-0002 | e16 button "编辑"  e17 button "删除"',
     ].join('\n'))
   })
 
@@ -138,14 +136,14 @@ describe('reading a page', () => {
     if (row === null) throw new Error('fixture has no row')
     // A ref nobody has printed has never been minted, so the row takes the next
     // free number rather than one spent during the walk.
-    expect(refs.ref(row)).toBe('e13')
+    expect(refs.ref(row)).toBe('e12')
   })
 
   it('finds a row by its text and answers with that row alone', () => {
     const refs = page(CONSOLE)
     read(refs)
     expect(read(refs, { find: '朝阳' }).text)
-      .toBe('row 2: 朝阳站 | P-0002 | e14 button "编辑"  e15 button "删除" (table)')
+      .toBe('row 2: 朝阳站 | P-0002 | e13 button "编辑"  e14 button "删除" (table)')
   })
 
   it('finds controls, containers, and text anywhere on the page, flat, each saying where it lives', () => {
@@ -225,9 +223,8 @@ describe('reading a page', () => {
       '  e5 textbox "名称" = "东风" (in form "查询")',
       '  e6 combobox "状态" = "停用" (in form "查询")',
       '  e7 checkbox "仅看我的" [x] (in form "查询")',
-      '  e8 toolbar',
-      '    e9 button "查询" (toolbar)',
-      '    e10 button "导出" (disabled) (toolbar)',
+      '  e8 button "查询" (in form "查询")',
+      '  e9 button "导出" (disabled) (in form "查询")',
     ].join('\n'))
   })
 })
@@ -539,35 +536,34 @@ describe('text', () => {
 })
 
 describe('containers the page does not name outright', () => {
-  it('reads a row of buttons as a toolbar, and a row of other things as neither', () => {
-    const refs = page('<div><button>新增</button><button>导入</button></div><div><button>删除</button><span>提示</span></div>')
+  it('reads a row of buttons as the buttons it is, and a toolbar only where the page says so', () => {
+    // A page groups its buttons in a `div` for the layout as readily as for the
+    // meaning; which of the two it meant is what `role="toolbar"` says.
+    const refs = page('<div><button>新增</button><button>导入</button></div>'
+      + '<div role="toolbar"><button>删除</button></div>')
     expect(read(refs).text).toBe([
-      'e1 toolbar',
-      '  e2 button "新增" (toolbar)',
-      '  e3 button "导入" (toolbar)',
-      'e4 button "删除"',
-      'text "提示"',
+      'e1 button "新增"',
+      'e2 button "导入"',
+      'e3 toolbar',
+      '  e4 button "删除" (toolbar)',
     ].join('\n'))
   })
 
-  it('counts only what a reader can see when deciding a row of buttons is a toolbar', () => {
-    const refs = page('<div><button>新增</button><button>导入</button><span data-hidden>提示</span></div>')
-    expect(read(refs).text.startsWith('e1 toolbar')).toBe(true)
-  })
-
-  it('reads a list of three as a list and a list of two as its contents', () => {
+  it('reads a list as the list HTML says it is, however few items it holds', () => {
     const refs = page(`
       <ul aria-label="站点"><li><a href="/a">甲</a></li><li><a href="/b">乙</a></li><li><a href="/c">丙</a></li></ul>
       <ol><li>一</li><li>二</li></ol>
-      <div role="list"><span>不是列表</span></div>`)
+      <div role="list"><span>页面自己说是列表</span></div>`)
     expect(read(refs).text).toBe([
       'e1 list "站点"',
       '  e2 link "甲" (in list "站点")',
       '  e3 link "乙" (in list "站点")',
       '  e4 link "丙" (in list "站点")',
-      'text "一"',
-      'text "二"',
-      'text "不是列表"',
+      'e5 list',
+      '  text "一" (list)',
+      '  text "二" (list)',
+      'e6 list',
+      '  text "页面自己说是列表" (list)',
     ].join('\n'))
   })
 
@@ -1628,7 +1624,7 @@ describe('widgets built out of several elements', () => {
     ].join('\n'))
   })
 
-  it('reads a feed of three as a list and reads through a feed that is not one', () => {
+  it('reads a feed as the list it is', () => {
     const refs = page(`
       <ul role="feed" aria-label="动态"><li><a href="/a">甲</a></li><li><a href="/b">乙</a></li><li><a href="/c">丙</a></li></ul>
       <div role="feed"><p>只有一条</p></div>`)
@@ -1637,7 +1633,8 @@ describe('widgets built out of several elements', () => {
       '  e2 link "甲" (in list "动态")',
       '  e3 link "乙" (in list "动态")',
       '  e4 link "丙" (in list "动态")',
-      'text "只有一条"',
+      'e5 list',
+      '  text "只有一条" (list)',
     ].join('\n'))
   })
 
@@ -1829,11 +1826,12 @@ describe('controls', () => {
       </div>`)).text).toBe('e1 textbox "备注" = "正文"')
     expect(read(page('<div role="combobox" aria-label="站点"><div><button>东风 ×</button><button>朝阳 ×</button></div></div>')).text)
       .toBe('e1 combobox "站点" = "东风 × 朝阳 ×"')
-    // A list is a region by the role HTML gives `ul`, so three chips in list
-    // items are lost where two are kept: the list needs three to read as one.
+    // A `ul` is a list by the role HTML gives it, so chips a page draws as list
+    // items are a region inside the control and are lost with it, however few
+    // of them there are.
     const chips = (...labels: string[]): string =>
       `<div role="combobox" aria-label="站点"><ul>${labels.map(label => `<li><button>${label} ×</button></li>`).join('')}</ul></div>`
-    expect(read(page(chips('甲', '乙'))).text).toBe('e1 combobox "站点" = "甲 × 乙 ×"')
+    expect(read(page(chips('甲', '乙'))).text).toBe('e1 combobox "站点"')
     expect(read(page(chips('甲', '乙', '丙'))).text).toBe('e1 combobox "站点"')
   })
 
@@ -2608,14 +2606,13 @@ describe('when there is more page than budget', () => {
     expect(snap.text).toBe([
       'e1 main "站点管理"  3 texts',
       '  e2 nav  1 texts',
-      '  e4 form "查询"  3 fields',
-      '    e8 toolbar  2 buttons',
-      '  e11 table  2 rows',
-      '  e12 dialog "导入设置"  hidden',
+      '  e4 form "查询"  3 fields, 2 buttons',
+      '  e10 table  2 rows',
+      '  e11 dialog "导入设置"  hidden',
       'Read a part with scope, e.g. content_read({ scope: "e1" }).',
     ].join('\n'))
-    expect(snap.shown).toBe(6)
-    expect(snap.total).toBe(6)
+    expect(snap.shown).toBe(5)
+    expect(snap.total).toBe(5)
   })
 
   it('cuts the skeleton itself when even that is more than the budget, and says to continue as a skeleton', () => {
@@ -2628,10 +2625,10 @@ describe('when there is more page than budget', () => {
     // skeleton, so the line that ends a skeleton asks for one again.
     expect(snap.text).toBe([
       'e1 main "站点管理"  3 texts',
-      '(cut after e1 — pass after: "e1" and mode: "map" to continue; 5 items remain)',
+      '(cut after e1 — pass after: "e1" and mode: "map" to continue; 4 items remain)',
     ].join('\n'))
     expect(snap.shown).toBe(1)
-    expect(snap.total).toBe(6)
+    expect(snap.total).toBe(5)
   })
 
   it('continues a skeleton from the ref it was cut at', () => {
@@ -2639,10 +2636,9 @@ describe('when there is more page than budget', () => {
     read(refs)
     expect(read(refs, { mode: 'map', after: 'e1' }).text).toBe([
       '  e2 nav  1 texts',
-      '  e4 form "查询"  3 fields',
-      '    e8 toolbar  2 buttons',
-      '  e11 table  2 rows',
-      '  e12 dialog "导入设置"  hidden',
+      '  e4 form "查询"  3 fields, 2 buttons',
+      '  e10 table  2 rows',
+      '  e11 dialog "导入设置"  hidden',
     ].join('\n'))
   })
 
@@ -2660,7 +2656,7 @@ describe('when there is more page than budget', () => {
     const snap = read(refs, { scope: refOf(refs, 'form'), budgetChars: 1 })
     expect(snap.text).toBe([
       'e4 form "查询"',
-      '(cut after e4 — pass after: "e4" to continue; 6 items remain)',
+      '(cut after e4 — pass after: "e4" to continue; 5 items remain)',
     ].join('\n'))
     expect(snap.shown).toBe(1)
   })
@@ -2845,10 +2841,10 @@ describe('when there is more page than budget', () => {
     expect(snap.text).toBe([
       'e4 form "查询"',
       '  e5 textbox "名称" = "东风" (in form "查询")',
-      '(cut after e5 — pass after: "e5" to continue; 5 items remain)',
+      '(cut after e5 — pass after: "e5" to continue; 4 items remain)',
     ].join('\n'))
     expect(snap.shown).toBe(2)
-    expect(snap.total).toBe(7)
+    expect(snap.total).toBe(6)
   })
 
   it('tells a read cut at rows the model cannot name to narrow itself instead', () => {
@@ -2871,7 +2867,7 @@ describe('when there is more page than budget', () => {
     const rest = read(refs, { scope, after: first.cursor ?? '' })
     expect([...first.text.split('\n').slice(0, first.shown), ...rest.text.split('\n')]).toEqual(whole)
     expect(rest.truncated).toBe(false)
-    expect(rest.total).toBe(5)
+    expect(rest.total).toBe(4)
   })
 
   it('backs a cut off the trailing rows the model cannot name, so a continuation repeats none of them', () => {
@@ -2911,7 +2907,7 @@ describe('when there is more page than budget', () => {
   it('says the same of a skeleton continued past its last container', () => {
     const refs = page(CONSOLE)
     read(refs)
-    expect(read(refs, { mode: 'map', after: 'e12' }).text).toBe('(nothing after e12 — the listing ended there)')
+    expect(read(refs, { mode: 'map', after: 'e11' }).text).toBe('(nothing after e11 — the listing ended there)')
   })
 
   it('refuses a continuation that names something this read did not list', () => {
@@ -2919,7 +2915,7 @@ describe('when there is more page than budget', () => {
     read(refs)
     const scope = refOf(refs, 'form')
     expect(() => read(refs, { scope, after: refOf(refs, 'table') }))
-      .toThrow('after: "e11" is not an item of this read — pass the cursor from the same scope and find, or omit after')
+      .toThrow('after: "e10" is not an item of this read — pass the cursor from the same scope and find, or omit after')
   })
 
   it('refuses a ref the page no longer has', () => {
