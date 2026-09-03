@@ -1,0 +1,25 @@
+/* A browser applies this sheet only when the route answers `text/css`, so the
+   heading's computed color is the e2e's evidence for the route's MIME table. */
+#fixture-heading {
+  color: rgb(0, 128, 0);
+  font-family: system-ui, sans-serif;
+}
+
+/* The row commands: drawn, sized, and named nowhere. Deliberately without
+   `cursor: pointer`, which is the one thing this reader would have read them by
+   — the console this fixture records draws its own commands the same way, and
+   the whole point of the markup reads is the column that comes back empty. */
+.op {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  margin-right: 8px;
+}
+
+.op-a {
+  background: rgb(51, 102, 204);
+}
+
+.op-b {
+  background: rgb(204, 51, 51);
+}

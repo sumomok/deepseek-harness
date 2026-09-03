@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Content markup fixture</title>
+    <link rel="stylesheet" href="./app.css" />
+  </head>
+  <body>
+    <h1 id="fixture-heading">Machine operations</h1>
+    <!-- A page whose commands a structural read cannot name. Each operation is
+         drawn as a bare element with a class and a data attribute: no role, no
+         name, no title, and no pointer cursor, so the read prints the whole
+         Operations column empty and what those commands are is written only in
+         the markup and in the attributes. The notice below is longer than a
+         tree line prints, so the reader has something to ask the whole text
+         for. -->
+    <main>
+      <p id="notice">Scheduled maintenance runs every Sunday at 02:00 UTC. Machines paused for maintenance keep their queue position, resume automatically once the window closes, and report the pause in the operations log for the following seven days.</p>
+      <table aria-label="Fleet">
+        <thead>
+          <tr><th>Machine</th><th>Status</th><th>Operations</th></tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>mill-01</td><td>Running</td>
+            <td class="ops"><i class="op op-a" data-op="edit" data-machine="mill-01"></i><i class="op op-b" data-op="delete" data-machine="mill-01"></i></td>
+          </tr>
+          <tr>
+            <td>mill-02</td><td>Idle</td>
+            <td class="ops"><i class="op op-a" data-op="edit" data-machine="mill-02"></i><i class="op op-b" data-op="delete" data-machine="mill-02"></i></td>
+          </tr>
+        </tbody>
+      </table>
+    </main>
+    <script src="./app.js"></script>
+  </body>
+</html>

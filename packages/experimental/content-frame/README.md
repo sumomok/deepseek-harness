@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 
 The `page` kind of the service-line shell's content column, and the two ways to control it: a directory of static files on the host, served under one dsh route, shown in an iframe that fills the column — with the agent choosing which of the deployment's pages is in it through the `content_show` tool, and a user choosing directly through the sidebar's page-navigation menu (`@deepseek-ai/dsh-experimental-server-sidebar`), which executes the `show-content-page` command. The application inside is written and deployed by whoever runs the harness; this package neither builds it nor knows what framework it uses.
 
-Seven pieces, one decision each. The node half serves the configured directory under `/content-app`. `content_show` offers the deployment's page list to the model and appends `content/shown` when it chooses. `show-content-page` offers the same page list to a command-executing UI and appends the same event when a user chooses. The `page` extractor turns each shown id into an entry of [`content-surface`](../content-surface/README.md)'s stream, resolved against the page list running now. The `content` projection resolves the last recorded id the same way, for a consumer that wants the column's current page rather than its history. The browser half claims the `page` key of the column's kind slot and keeps one live frame per (session, page) pair. Where the deployment turns it on, `content_read` lets the agent read the page in that frame as a numbered structure.
+Seven pieces, one decision each. The node half serves the configured directory under `/content-app`. `content_show` offers the deployment's page list to the model and appends `content/shown` when it chooses. `show-content-page` offers the same page list to a command-executing UI and appends the same event when a user chooses. The `page` extractor turns each shown id into an entry of [`content-surface`](../content-surface/README.md)'s stream, resolved against the page list running now. The `content` projection resolves the last recorded id the same way, for a consumer that wants the column's current page rather than its history. The browser half claims the `page` key of the column's kind slot and keeps one live frame per (session, page) pair. Where the deployment turns it on, `content_read` lets the agent read the page in that frame as a numbered structure, and three markup reads let it read that page as it was written.
 
 ## Table of Contents
 
@@ -21,6 +21,7 @@ Seven pieces, one decision each. The node half serves the configured directory u
 - [Pages the agent may show](#pages-the-agent-may-show)
 - [One live frame per session and page](#one-live-frame-per-session-and-page)
 - [Reading the page the agent put there](#reading-the-page-the-agent-put-there)
+- [Reading the page as it was written](#reading-the-page-as-it-was-written)
 - [Acting on the page the user is looking at](#acting-on-the-page-the-user-is-looking-at)
 - [Reading the page in the frame](#reading-the-page-in-the-frame)
 - [What the agent knows about the column](#what-the-agent-knows-about-the-column)
@@ -82,7 +83,20 @@ The column's kind slot is `root`-scoped and the column keeps this seat mounted e
 
 `pageAccess` gives the agent `content_read`: one call answers with the page the user is looking at as a numbered structure — containers, controls, headings and text, each control carrying a ref like `e12` that a later call can point at. Structure reaches the model and data does not: a table reports its header, its size and one sample row, and lists rows only when a read names that table by ref or matches one by its text; a password box — by its type, or by a page showing the password in a text box that says so in `autocomplete` — reports that it is there and never what it holds; a page asking for a sign-in answers with a refusal instead of a listing.
 
-**Absent is off, and absent is the default.** Without the block there are no tools, no route, no pending projection, no `pageAccess` field in the settings document, and no reader in the browser — a deployment that only shows pages does not pay for a capability it did not ask for. Present with an empty object takes every default. The eight fields — `claimTimeoutMs`, `readTimeoutMs`, `pinMs`, `settleQuietMs`, `outlineChars`, `actTimeoutMs`, `maxSteps`, `settleMaxMs` — are documented on the `Config` type; `outlineChars` is the one that decides what a read costs in context, because it is the character budget the listing is rendered under. It has a floor of 1000, refused at load: a listing's first row is rendered however long it is, and below that floor an ordinary table's first row is already past what the report route takes. Three have ceilings instead of floors, all refused at load: `settleQuietMs` must fit inside the settle share of `readTimeoutMs`, because a quiet window the budget cannot hold would make every read report a page that never settled; `settleMaxMs` must be at least `settleQuietMs`, and `maxSteps` of it must come to less than three quarters of `actTimeoutMs` — the steps' own share of that deadline — because a deployment whose steps could each settle to the ceiling is one where a call spends its whole deadline settling and never reaches its last step; and `maxSteps` is capped at 100, which is what keeps a report of steps inside the envelope the report route allows.
+**Absent is off, and absent is the default.** Without the block there are none of the five tools, no route, no pending projection, no `pageAccess` field in the settings document, and no reader in the browser — a deployment that only shows pages does not pay for a capability it did not ask for. Present with an empty object takes every default. The eight fields — `claimTimeoutMs`, `readTimeoutMs`, `pinMs`, `settleQuietMs`, `outlineChars`, `actTimeoutMs`, `maxSteps`, `settleMaxMs` — are documented on the `Config` type; `outlineChars` is the one that decides what a read costs in context, because it is the character budget the listing is rendered under. It has a floor of 1000, refused at load: a listing's first row is rendered however long it is, and below that floor an ordinary table's first row is already past what the report route takes. Three have ceilings instead of floors, all refused at load: `settleQuietMs` must fit inside the settle share of `readTimeoutMs`, because a quiet window the budget cannot hold would make every read report a page that never settled; `settleMaxMs` must be at least `settleQuietMs`, and `maxSteps` of it must come to less than three quarters of `actTimeoutMs` — the steps' own share of that deadline — because a deployment whose steps could each settle to the ceiling is one where a call spends its whole deadline settling and never reaches its last step; and `maxSteps` is capped at 100, which is what keeps a report of steps inside the envelope the report route allows.
+
+<a id="reading-the-page-as-it-was-written"></a>
+## Reading the page as it was written
+
+The same block gives the agent three more reads, and all three answer about markup rather than about meaning: `content_read_dom` prints one subtree as an indented tree — a line per element with its tag, its `#id`, its class tokens as `{class: …}`, a ref of its own and the start of the text it holds directly; `content_read_attrs` prints one element's every attribute, name and value as the page wrote them; and `content_read_dom_content` prints one element's whole visible text, line-broken where the page breaks lines and never cut.
+
+**They exist for the row `content_read` can name nothing.** A component library's row commands carry no role, no name, no title and no pointer cursor, so the listing prints that column empty and the user sees two icons in it. `content_read` is still the read to start from — it is the page as HTML and ARIA describe it, an order of magnitude smaller than the markup under it, and the only place refs come from — and each of the three says so in its own description, `content_read_dom`'s most of all: `scope` is required, so a listing has to have run first, and the description refuses outright the idea of using it as the ordinary way to read a page.
+
+**Nothing is interpreted, ever.** A tag, an id, a class token and an attribute value are printed as the document spells them, in the order the document holds them. What `op-a` or `el-icon-edit` means is for a skill about that application to say; this package prints and never guesses. The class tokens a tree line prints are the same `elementMark` the listing prints for an unnamed row, so a `content_act` step naming a row a tree found carries the string the tree showed and the seat compares the two character for character.
+
+**What each one bounds, and how.** The tree is rendered under `outlineChars` exactly as a listing is and returns a cursor for the rest — pass it back as `after` with the same `scope`. The other two are never cut: an element's attributes and an element's text are answered whole or not at all, and an answer past what the report route carries is refused with its size in characters and the remedy — a smaller ref for the text, and for the attributes the deployment's own `outlineChars`, because one element's attributes have no narrower read. Every element a tree prints keeps a ref, so a `content_read_dom` of a row is also how the model reaches an element that no listing gave it a handle on.
+
+Reads only, and the same conditions as the listing: the same claim and report routes, the same pending projection, the same page in front, and the same withholding — a page asking the user to sign in answers a refusal rather than its markup, because a sign-in page's markup is the credential form itself. `content_read_attrs` never returns a password control's `value`, and neither a tree line nor a whole-text read prints the text a `textarea` declaring a password in `autocomplete` keeps its value in: all three answer `(password withheld)` in its place, and a control is a password control by its `type` or by that attribute, on any of the three tags HTML gives an autofill field name to.
 
 <a id="acting-on-the-page-the-user-is-looking-at"></a>
 ## Acting on the page the user is looking at
@@ -267,6 +281,59 @@ Bounded by `outlineChars` — a listing is rendered under that budget, so one re
 
 Append-only. The listing is a fact about the page at that moment; a second read of a changed page is a new result rather than a rewrite of the first.
 
+### The three markup-read offers
+
+#### What the model sees
+
+Three tools beside `content_read`, offered on the same `pageAccess` condition. `content_read_dom` takes `scope` (required) and `after`; `content_read_attrs` and `content_read_dom_content` take `ref` (required) and nothing else. Each description says what the tool prints, that nothing in it is interpreted, and where it sits against `content_read` — which is the whole risk of offering them: a model that has just been shown a way to read a page's real markup will reach for it first, and a whole page of markup is an order of magnitude larger than the listing it would have got. `content_read_dom`'s description therefore says outright not to use it as the ordinary read, and its required `scope` makes a prior read the only way to call it at all.
+
+#### Token effect
+
+Three fixed descriptions and four parameter lines between them, on every request where the tools are visible.
+
+#### KV Cache effect
+
+The descriptions are constants and never vary within a deployment, so the tool blocks stay byte-identical across requests and the prefix holds.
+
+### A markup read's result
+
+#### What the model sees
+
+One text block opening with `Page: <title> — the app is at <path>` and, on its own line where it applies, the same still-changing sentence a listing carries — and then the tree, the attributes, or the text. The header is shorter than a listing's by the three facts these reads do not answer: what the document calls itself, what dialog it has open, and what it marks as still loading are questions about the page, and `content_read` is the read that answers them.
+
+##### A tree of the rows a listing named nothing
+
+```markdown
+Page: 点位信息 — the app is at /content-app/points/
+e33 tbody {class: el-table__body}
+  e34 tr {class: el-table__row}
+    e35 td {class: el-table__cell}
+      e36 i {class: el-tooltip operation-modify el-icon-edit}
+```
+
+##### One element's attributes
+
+```markdown
+Page: 点位信息 — the app is at /content-app/points/
+e36 i
+  class="el-tooltip operation-modify el-icon-edit"
+  data-op="edit"
+```
+
+##### A text too large for one result
+
+```markdown
+The text of e12 comes to 61204 characters, past what this deployment's report route carries (pageAccess.outlineChars is 12000). Call content_read_dom with scope "e12" to find a smaller element to read, or ask the user to raise pageAccess.outlineChars.
+```
+
+#### Token effect
+
+The tree is bounded by `outlineChars` and returns a cursor, like a listing. The other two are bounded by nothing they cut: an element's attributes and an element's text arrive whole, and an answer past what the report route carries is refused with its size rather than shortened, so the cost of one of those calls is the size of what it asked for.
+
+#### KV Cache effect
+
+Append-only. Each answer is a fact about the page at that moment, so a second read is a new result rather than a rewrite of the first.
+
 ### The `content_act` offer
 
 #### What the model sees
@@ -382,10 +449,15 @@ Append-only, at the tail of the conversation, so it invalidates nothing already 
 - **A star a stylesheet draws says nothing here** — a form marking its required fields with a drawn `*` and no `required` attribute reads as a form of optional fields.
 - **A command a page draws with nothing but a class of its own reaches the read as nothing** — a component library's row commands (`<i class="el-tooltip operation-modify el-icon-edit">`) carry no role, no name, no title, and no pointer cursor, so no row is printed for them and the column they fill reads as empty. Measured on that console on 2026-09-03: a whole-page read is 2507 characters and six tables, and `e33` — the body pinned to the right, where the 操作 column is drawn — prints twenty rows with every cell empty. Where the page does mark such an element as something to click, the row it prints carries the class tokens and no name; the same read prints `e3 button {class: el-button el-tooltip head-btn el-button--text …}` for a command drawn as a button — that read cut the tokens at four, which this build no longer does. What either says is a skill's to know: the reader states what the document says and guesses nothing from a vendor's spelling.
 - **A table a component library draws in pieces reaches the model as those pieces** — a frozen header is one table and the body under it another, a pinned column is a third, and a page that draws its list six times over reads as six tables with the columns split between them. Nothing is merged: which pieces make up the table a user sees is a skill's to know.
-- **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition, and the model-visible text is pinned verbatim in unit tests; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
+- **The corpus holds the recordings, and the browser lane replays them** — the four content scenarios live under `snapshots/web/` with manifests declaring the `web-content` composition, so `pnpm run test:snapshot` enumerates them and holds their storage invariants; the replay itself is the Web browser lane's, because these scenarios boot a patched composition and the shipped one composes no experimental row. The model-visible text is pinned verbatim in unit tests besides.
 - **The read routes carry no Host fence** — like the shell's own `/api`, they refuse a request a browser labelled `sec-fetch-site: cross-site` and require `application/json`, but neither check survives DNS rebinding, and the webserver has no Host allow-list of its own (`trustedHosts` guards `/api` alone). What stands in its place is the call id: an attacker who reaches the routes can neither claim a read nor answer one without knowing an id the host minted and published only into that session's own projection stream, and a claim or report for an unknown id changes nothing. That id's unguessability is the LLM provider's property, not this package's — DeepSeek mints `call_00_` plus twenty-four alphanumeric characters whose last four are digits, and a code-mode subcall is that same id plus `:code:<n>` — and nothing here checks the format or strengthens it, so a provider numbering its calls `call_1`, `call_2` would leave both routes open to any page that can reach this host. A deployment exposing the harness to an untrusted network needs a fence at its reverse proxy, as it does for every other route.
 - **Which entry is "in front" is the page seat's answer, not the log's** — which entry the user picked is a viewing decision the column keeps in component state, so a read reaching a session whose column holds several other kinds says the entry in front is not a page without naming which one it is.
 - **A read carries structure, never data** — there is no mode that returns a table's contents, and none is planned here: a listing is what the model needs to point at the page, and the data behind it belongs to whatever produced it.
+- **A markup tree stops at the frame it started in** — `content_read_dom` walks an open shadow root in place of the light children it renders, and prints an `iframe` as the one element it is rather than descending into that frame's document. A ref inside a same-origin frame still works as `scope`, because the listing walks into those frames and numbers what it finds there; what has no ref has no way in.
+- **A markup tree prints what the page hides** — visibility is the listing's filter and deliberately not the tree's: a row the listing dropped for being invisible is exactly what a reader comes to the tree for. A page with a large hidden subtree therefore spends budget on it, and the cursor is the only thing bounding that.
+- **A tree line's text allowance is the reader's own number** — 80 characters, chosen against a line whose job is to say which element this is; past it the line says so and names the ref `content_read_dom_content` prints the rest from. It is not a `Config` field, for the reason the listing's own 200-character run is not one.
+- **One element's attributes have no narrower read** — the tool answers all of them or refuses. An element carrying a data URI or an inline stylesheet larger than the report route allows is unreadable through this tool at that deployment's `outlineChars`, and the refusal says so rather than offering a call that cannot help.
+- **`content_read_dom_content` stands in for `innerText` rather than calling it** — the seat has to answer for documents in a DOM implementation without layout, so a line breaks where the element is not an inline one and at a `<br>`, which is the rule a page's markup states rather than the one its stylesheet produces. A page that makes a `span` a block, or a `div` inline, is broken the way its markup reads and not the way it is drawn. The inline set is this package's own — phrasing content less what a browser draws itself and less what a user operates — so `del`, `ins`, `button`, `input`, `output`, `select` and `slot` break a line here where a browser would have kept one.
 - **jsdom cannot stand in for the frame** — it has no layout and never loads a frame pointed at a real route, so the package's own suites read hand-mounted documents and the real path is covered by the browser lane alone.
 - **The empty-command-row CSS collapse is a DOM-shape coupling, not a contract** — it keys off `dsh-client-ui-conversation`'s `data-chat-flow-kind` attribute and `dsh-client-ui-renderer`'s `data-slot` anchor wrapper, neither of which this package owns or that package promises to keep. A future change to either shape silently un-collapses the row (it reappears with its 16px gap) rather than failing loud; the `server-sidebar.e2e.ts` scenario asserting the row stays invisible is this coupling's only tripwire.
 

@@ -22,6 +22,15 @@ export const CONTENT_REPORT_ROUTE = '/content-frame/report'
 /** Wire name of the structural page read. */
 export const CONTENT_READ_TOOL_NAME = 'content_read'
 
+/** Wire name of the read that prints one subtree's markup as the page wrote it. */
+export const CONTENT_READ_DOM_TOOL_NAME = 'content_read_dom'
+
+/** Wire name of the read that prints one element's attributes. */
+export const CONTENT_READ_ATTRS_TOOL_NAME = 'content_read_attrs'
+
+/** Wire name of the read that prints one element's whole text. */
+export const CONTENT_READ_DOM_CONTENT_TOOL_NAME = 'content_read_dom_content'
+
 /**
  * How long a claim from a tab that is not the session's preferred one waits for
  * the preferred tab to claim first. A protocol constant: it bounds one race
@@ -320,6 +329,53 @@ export interface ReadArgs {
   find?: string
 }
 
+/** What one markup read asks of the page, after the tool has validated it. */
+export interface DomArgs {
+  /** A ref: print that element and everything inside it. Required. */
+  scope: string
+  /** A ref a cut tree returned: continue after the element it names. */
+  after?: string
+}
+
+/** What one read of a single element asks of the page, after the tool has validated it. */
+export interface ElementArgs {
+  /** A ref: the one element to read. Required. */
+  ref: string
+}
+
+/**
+ * Read one markup call's arguments from a decoded value.
+ *
+ * The two places outside the tool body that need a call before it can be
+ * published read it through this — the pending projection and the seat that
+ * claims it — so the arguments a browser receives are the ones the tool
+ * validated, never a second reading of the same JSON.
+ * @param value - the decoded arguments, however malformed.
+ * @returns the arguments, or `undefined` when the value names no subtree.
+ */
+export function parseDomArgs(value: unknown): DomArgs | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const candidate = value as Partial<Record<keyof DomArgs, unknown>>
+  if (typeof candidate.scope !== 'string') return undefined
+  if (candidate.after !== undefined && typeof candidate.after !== 'string') return undefined
+  return {
+    scope: candidate.scope,
+    ...typeof candidate.after === 'string' ? { after: candidate.after } : {},
+  }
+}
+
+/**
+ * Read one single-element call's arguments from a decoded value, for the same
+ * two readers {@link parseDomArgs} serves.
+ * @param value - the decoded arguments, however malformed.
+ * @returns the arguments, or `undefined` when the value names no element.
+ */
+export function parseElementArgs(value: unknown): ElementArgs | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const candidate = value as Partial<Record<keyof ElementArgs, unknown>>
+  return typeof candidate.ref === 'string' ? { ref: candidate.ref } : undefined
+}
+
 /** One seat's bid to answer one pending read. */
 export interface ClaimRequest {
   /** The pending call the seat is bidding for. */
@@ -389,10 +445,25 @@ export interface ReadPage {
   title: string
 }
 
+/**
+ * What one posted read answers with: the two listings `content_read` renders,
+ * the element tree `content_read_dom` prints, one element's attributes, and one
+ * element's whole text.
+ *
+ * One document carries all five because they cross one route and one claim.
+ * What differs is what a row is — an item of the page, an element of the
+ * markup, one attribute, one line of text — which is why the counters below say
+ * "row" rather than naming any one of them.
+ */
+export type ReadKind = 'outline' | 'map' | 'dom' | 'attrs' | 'content'
+
+/** Every kind, for the parser and for a tool checking it was answered its own call. */
+export const READ_KINDS: readonly ReadKind[] = ['outline', 'map', 'dom', 'attrs', 'content']
+
 /** One structural read, as the seat posts it. */
 export interface ReadSnapshot {
   /** Which listing came back. */
-  kind: 'outline' | 'map'
+  kind: ReadKind
   /** The document's own URL, absolute as the browser reports it. */
   url: string
   /** The document's title. */
@@ -514,7 +585,8 @@ export function parseClaimRequest(body: unknown): ClaimRequest | undefined {
 function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | undefined {
   if (value === null || typeof value !== 'object') return undefined
   const candidate = value as Partial<Record<keyof ReadSnapshot, unknown>>
-  if (candidate.kind !== 'outline' && candidate.kind !== 'map') return undefined
+  const kind = READ_KINDS.find(known => known === candidate.kind)
+  if (kind === undefined) return undefined
   if (!isText(candidate.url, MAX_URL_CHARS) || !isText(candidate.title, MAX_HEADER_CHARS)) return undefined
   if (typeof candidate.signIn !== 'boolean' || typeof candidate.truncated !== 'boolean') return undefined
   if (typeof candidate.settled !== 'boolean') return undefined
@@ -525,7 +597,7 @@ function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | und
   const busy = parseBusy(candidate.busy)
   if (busy === undefined) return undefined
   return {
-    kind: candidate.kind,
+    kind,
     url: candidate.url,
     title: candidate.title,
     ...typeof candidate.modal === 'string' ? { modal: candidate.modal } : {},
@@ -759,8 +831,13 @@ export type ActStepRead =
   /** It is not, and this is the field to say so about. */
   | { readonly kind: 'refusal'; readonly refusal: ActStepRefusal }
 
-/** The form every ref takes, which is also the form the refusals quote. */
-const REF_PATTERN = /^e\d+$/
+/**
+ * The form every ref takes, which is also the form the refusals quote. One
+ * home: the tools that validate a ref, the step reader, and the seat's own
+ * numbering all mean the same string, and a second spelling would take refs one
+ * of them mints and another refuses.
+ */
+export const REF_PATTERN = /^e\d+$/
 
 /**
  * What a listing puts around a mark: the braces the row prints it in, and the

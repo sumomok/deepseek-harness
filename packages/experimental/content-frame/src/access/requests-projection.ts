@@ -1,7 +1,8 @@
 /**
  * The `contentAccess` projection unit: the page-channel calls one session has
- * open right now — the `content_read` calls waiting for a listing and the
- * `content_act` calls waiting for their steps to run.
+ * open right now — the four reads waiting for a listing, a tree, an element's
+ * attributes or its text, and the `content_act` calls waiting for their steps
+ * to run.
  *
  * It is the request half of the read channel. A host cannot address a browser,
  * so a waiting call announces itself here, the seat showing that session sees
@@ -23,9 +24,11 @@ import type { ZodType } from 'zod'
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 // Type-only: pulls this package's own `contentAccess` projection declarations.
-import type { ContentAccessRequest, ContentActRequest, ContentAccessView, ContentReadRequest } from '../types.ts'
+import type { ContentAccessRequest, ContentAccessView } from '../types.ts'
 import {
-  CONTENT_ACT_TOOL_NAME, CONTENT_READ_TOOL_NAME, parseActArgs, type ActArgs, type ReadArgs,
+  CONTENT_ACT_TOOL_NAME, CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_CONTENT_TOOL_NAME,
+  CONTENT_READ_DOM_TOOL_NAME, CONTENT_READ_TOOL_NAME, parseActArgs, parseDomArgs, parseElementArgs,
+  type ActArgs, type DomArgs, type ElementArgs, type ReadArgs,
 } from './wire.ts'
 import { UNPUBLISHABLE_CALL_REFUSAL } from './text.ts'
 
@@ -65,7 +68,13 @@ const argsSchema: ZodType<ReadArgs> = parsedBy(readArgs)
 /** One act call's arguments, read by the wire's own {@link parseActArgs}. */
 const actArgsSchema: ZodType<ActArgs> = parsedBy(parseActArgs)
 
-/** One open call of either tool, as both the persisted checkpoint and the wire payload carry it. */
+/** One element-tree call's arguments, read by the wire's own {@link parseDomArgs}. */
+const domArgsSchema: ZodType<DomArgs> = parsedBy(parseDomArgs)
+
+/** One single-element call's arguments, read by the wire's own {@link parseElementArgs}. */
+const elementArgsSchema: ZodType<ElementArgs> = parsedBy(parseElementArgs)
+
+/** One open call of any tool, as both the persisted checkpoint and the wire payload carry it. */
 const requestSchema: ZodType<ContentAccessRequest> = zod.union([
   zod.object({
     callId: zod.string(),
@@ -76,6 +85,21 @@ const requestSchema: ZodType<ContentAccessRequest> = zod.union([
     callId: zod.string(),
     tool: zod.literal(CONTENT_ACT_TOOL_NAME),
     args: actArgsSchema,
+  }).strict(),
+  zod.object({
+    callId: zod.string(),
+    tool: zod.literal(CONTENT_READ_DOM_TOOL_NAME),
+    args: domArgsSchema,
+  }).strict(),
+  zod.object({
+    callId: zod.string(),
+    tool: zod.literal(CONTENT_READ_ATTRS_TOOL_NAME),
+    args: elementArgsSchema,
+  }).strict(),
+  zod.object({
+    callId: zod.string(),
+    tool: zod.literal(CONTENT_READ_DOM_CONTENT_TOOL_NAME),
+    args: elementArgsSchema,
   }).strict(),
 ])
 
@@ -124,47 +148,69 @@ function decodeArgs(raw: string): { value: unknown } | undefined {
   }
 }
 
-/**
- * Read the act call one event's arguments open.
- * @param value - the decoded arguments, however malformed.
- * @param callId - the id to claim and report against.
- * @returns the request, or `undefined` when the arguments are not a runnable set.
- */
-function actRequest(value: unknown, callId: string): ContentActRequest | undefined {
-  const args = parseActArgs(value)
-  return args === undefined ? undefined : { callId, tool: CONTENT_ACT_TOOL_NAME, args }
-}
+/** Every tool whose calls this fold publishes, for the check that runs before the arguments are decoded. */
+const CHANNEL_TOOLS: ReadonlySet<string> = new Set([
+  CONTENT_READ_TOOL_NAME, CONTENT_ACT_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME, CONTENT_READ_ATTRS_TOOL_NAME,
+  CONTENT_READ_DOM_CONTENT_TOOL_NAME,
+])
 
 /**
- * Read the read one event's arguments open.
+ * Read the call one event's arguments open, for whichever of this channel's
+ * tools the event names.
+ *
+ * One switch rather than one reader per tool: the two log shapes reach it with
+ * the same three values, and a tool added to the channel and not to this switch
+ * would publish nothing for a browser to claim.
+ * @param name - the tool the event names.
  * @param value - the decoded arguments, however malformed.
  * @param callId - the id to claim and report against.
- * @returns the request, or `undefined` when the arguments are not a readable set.
+ * @returns the request, or `undefined` when the event names another tool or its
+ * arguments are not a usable set.
  */
-function readRequest(value: unknown, callId: string): ContentReadRequest | undefined {
-  const args = readArgs(value)
-  return args === undefined ? undefined : { callId, tool: CONTENT_READ_TOOL_NAME, args }
+function requestFor(name: string, value: unknown, callId: string): ContentAccessRequest | undefined {
+  switch (name) {
+    case CONTENT_READ_TOOL_NAME: {
+      const args = readArgs(value)
+      return args === undefined ? undefined : { callId, tool: CONTENT_READ_TOOL_NAME, args }
+    }
+    case CONTENT_ACT_TOOL_NAME: {
+      const args = parseActArgs(value)
+      return args === undefined ? undefined : { callId, tool: CONTENT_ACT_TOOL_NAME, args }
+    }
+    case CONTENT_READ_DOM_TOOL_NAME: {
+      const args = parseDomArgs(value)
+      return args === undefined ? undefined : { callId, tool: CONTENT_READ_DOM_TOOL_NAME, args }
+    }
+    case CONTENT_READ_ATTRS_TOOL_NAME: {
+      const args = parseElementArgs(value)
+      return args === undefined ? undefined : { callId, tool: CONTENT_READ_ATTRS_TOOL_NAME, args }
+    }
+    case CONTENT_READ_DOM_CONTENT_TOOL_NAME: {
+      const args = parseElementArgs(value)
+      return args === undefined ? undefined : { callId, tool: CONTENT_READ_DOM_CONTENT_TOOL_NAME, args }
+    }
+    // The log carries every tool's calls; this fold publishes this channel's.
+    default: return undefined
+  }
 }
 
 /**
  * Read the call one committed event opened, in either of the two log shapes and
- * for either tool.
+ * for any of the channel's tools.
  * @param event - the committed session event.
  * @returns the request, or `undefined` when the event opens no usable call.
  */
 export function readContentAccessCall(event: SessionEvent): ContentAccessRequest | undefined {
   if (event.type === 'tool/call') {
-    if (event.data.name !== CONTENT_READ_TOOL_NAME && event.data.name !== CONTENT_ACT_TOOL_NAME) return undefined
+    // The name is read before the arguments are: this fold runs over every
+    // event of every session, and parsing the JSON of every tool call in the
+    // log to throw it away is a cost the whole harness would pay for.
+    if (!CHANNEL_TOOLS.has(event.data.name)) return undefined
     const decoded = decodeArgs(event.data.arguments)
-    if (decoded === undefined) return undefined
-    return event.data.name === CONTENT_READ_TOOL_NAME
-      ? readRequest(decoded.value, event.data.callId)
-      : actRequest(decoded.value, event.data.callId)
+    return decoded === undefined ? undefined : requestFor(event.data.name, decoded.value, event.data.callId)
   }
   if (event.type === 'tool/code-dispatch-start') {
-    if (event.data.name === CONTENT_READ_TOOL_NAME) return readRequest(event.data.arguments, event.data.subCallId)
-    if (event.data.name === CONTENT_ACT_TOOL_NAME) return actRequest(event.data.arguments, event.data.subCallId)
-    return undefined
+    return requestFor(event.data.name, event.data.arguments, event.data.subCallId)
   }
   return undefined
 }
@@ -233,6 +279,6 @@ export function contentAccessProjection(logger: ProjectionLogger): ContentAccess
       return at === -1 ? state : [...state.slice(0, at), ...state.slice(at + 1)]
     },
     wire: { viewSchema, view: pending => publishable(pending, logger) },
-    stateVersion: 2,
+    stateVersion: 3,
   }
 }

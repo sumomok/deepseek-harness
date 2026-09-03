@@ -18,18 +18,14 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepseek-ai/dsh-tools'
-import type { Session } from '@deepseek-ai/dsh-session'
 import type { CallTimeouts, PendingCalls } from './pending.ts'
 import {
-  AFTER_DESCRIPTION, AFTER_REFUSAL, CANCELLED_REFUSAL, CONTENT_READ_DESCRIPTION, failureRefusal,
-  FIND_DESCRIPTION, FIND_REFUSAL, MISREPORTED_REFUSAL, MODE_DESCRIPTION, NO_AGENT_REFUSAL, READ_VOICE,
-  readHeaderText, SCOPE_DESCRIPTION, SCOPE_REFUSAL, SIGN_IN_REFUSAL, unansweredRefusal, unclaimedRefusal,
-  type FrontEntry,
+  AFTER_DESCRIPTION, AFTER_REFUSAL, CONTENT_READ_DESCRIPTION, failureRefusal,
+  FIND_DESCRIPTION, FIND_REFUSAL, MISREPORTED_REFUSAL, MODE_DESCRIPTION, READ_VOICE,
+  readHeaderText, SCOPE_DESCRIPTION, SCOPE_REFUSAL, SIGN_IN_REFUSAL,
 } from './text.ts'
-import { CONTENT_READ_TOOL_NAME, isActOutcome, type ReadArgs, type ReadOutcome } from './wire.ts'
-
-/** The form every ref takes, which is also the form the refusals quote. */
-const REF_PATTERN = /^e\d+$/
+import { awaitRead, PAGE_VALUE_SCHEMA, pathOf, readBody, type FrontEntryLookup } from './read-value.ts'
+import { CONTENT_READ_TOOL_NAME, REF_PATTERN, type ReadArgs, type ReadOutcome } from './wire.ts'
 
 /** Longest accepted `find`, stated in its own refusal. */
 const MAX_FIND_CHARS = 200
@@ -80,26 +76,6 @@ function refuseArgs(args: ReadArgs): string | undefined {
 }
 
 /**
- * The part of a frame's URL worth spending tokens on.
- *
- * The origin carries no information — every page the column can show is a path
- * on the dsh origin — so the model is told where in the application it is
- * looking, not which host it is talking to.
- * @param url - the document's own URL as the browser reported it.
- * @returns the path, query, and fragment, or the whole value when it is not a URL.
- */
-function pathOf(url: string): string {
-  try {
-    const parsed = new URL(url)
-    return `${parsed.pathname}${parsed.search}${parsed.hash}`
-  } catch (_reportedUrlIsNotAbsolute) {
-    // A wire value: the browser sends `document.URL`, which is absolute, but
-    // this route takes JSON from anything that can reach the origin.
-    return url
-  }
-}
-
-/**
  * Turn one posted outcome into the call's answer.
  * @param outcome - what the claiming seat reported.
  * @returns the canonical value for a page that was read.
@@ -112,6 +88,9 @@ function valueOf(outcome: ReadOutcome): ContentReadValue {
   // Withheld rather than described: the page is asking for a password, and the
   // model's next step is to hand the keyboard back, not to narrate the form.
   if (snapshot.signIn) throw new Error(SIGN_IN_REFUSAL)
+  // One channel carries five tools' answers, so a listing arriving under
+  // another read's kind is a document answering a call this one did not make.
+  if (snapshot.kind !== 'outline' && snapshot.kind !== 'map') throw new Error(MISREPORTED_REFUSAL)
   return {
     status: 'ok',
     page: outcome.page,
@@ -119,12 +98,7 @@ function valueOf(outcome: ReadOutcome): ContentReadValue {
     url: pathOf(snapshot.url),
     kind: snapshot.kind,
     ...snapshot.modal === undefined ? {} : { modal: snapshot.modal },
-    text: snapshot.text,
-    truncated: snapshot.truncated,
-    shown: snapshot.shown,
-    total: snapshot.total,
-    ...snapshot.cursor === undefined ? {} : { cursor: snapshot.cursor },
-    settled: snapshot.settled,
+    ...readBody(snapshot),
     ...snapshot.busy === undefined ? {} : { busy: snapshot.busy },
   }
 }
@@ -142,16 +116,6 @@ function callSummary(args: ReadArgs): string {
     ...args.find === undefined ? [] : [`find "${args.find}"`],
   ].join(', ')
 }
-
-/**
- * Read the entry one session's column has in front.
- *
- * Only the unclaimed refusal reads it, and only to say what the model should
- * do instead. A composition with no projection registry supplies a lookup that
- * answers `undefined`, which is the same answer an empty column gives and the
- * same advice it earns.
- */
-export type FrontEntryLookup = (session: Session) => FrontEntry | undefined
 
 /**
  * Build the `content_read` tool for one deployment.
@@ -180,16 +144,7 @@ export function contentReadTool(
         additionalProperties: false,
         properties: {
           status: { type: 'string', enum: ['ok'], required: true, description: 'Always "ok"; every other ending is an error.' },
-          page: {
-            type: 'object',
-            additionalProperties: false,
-            required: true,
-            description: 'The page the column had in front.',
-            properties: {
-              id: { type: 'string', required: true, description: 'The id content_show names this page by.' },
-              title: { type: 'string', required: true, description: 'The page\'s configured title.' },
-            },
-          },
+          page: PAGE_VALUE_SCHEMA,
           title: { type: 'string', required: true, description: 'The document\'s own title.' },
           url: { type: 'string', required: true, description: 'Where in the application the frame is, origin dropped.' },
           kind: { type: 'string', enum: ['outline', 'map'], required: true, description: 'Which listing came back.' },
@@ -237,28 +192,7 @@ export function contentReadTool(
     async execute(args, exec): Promise<ContentReadValue> {
       const refusal = refuseArgs(args)
       if (refusal !== undefined) throw new Error(refusal)
-      // The column is per-session state, and the pending list a browser reads
-      // is that session's projection; a caller with no owning session has no
-      // column to be shown one.
-      if (!exec.agent) throw new Error(NO_AGENT_REFUSAL)
-      const settlement = await pending.open(exec.callId, exec.agent.session.header.id, exec.signal, timeouts)
-      switch (settlement.kind) {
-        case 'reported': {
-          // The table holds both tools' calls and hands over whatever was
-          // posted; a document reporting steps answers a different call than
-          // this one asked.
-          const outcome = settlement.outcome
-          if (isActOutcome(outcome)) throw new Error(MISREPORTED_REFUSAL)
-          return valueOf(outcome)
-        }
-        case 'unclaimed': throw new Error(unclaimedRefusal(timeouts.claimTimeoutMs, front(exec.agent.session)))
-        case 'unanswered': throw new Error(unansweredRefusal(timeouts.answerTimeoutMs))
-        // Whatever this returns is replaced by the registry's aborted result;
-        // the message exists for a caller reading the rejection directly.
-        case 'aborted': throw new Error(CANCELLED_REFUSAL)
-        /* v8 ignore next 2 -- the settlement union is closed and typed; the arm keeps a new member loud. */
-        default: throw new Error(`content_read: unknown settlement ${JSON.stringify(settlement)}`)
-      }
+      return await awaitRead({ pending, timeouts, front }, CONTENT_READ_TOOL_NAME, exec, valueOf)
     },
     presentCall: (args): GenericCallView => {
       const summary = callSummary(args)

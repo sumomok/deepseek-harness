@@ -11,7 +11,7 @@ kind: "package-reference"
 
 服务形态外壳 content 栏的 `page` 类型，也是控制这一栏的两条通路：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，由一个铺满该栏的 iframe 呈现——栏里放部署方配置的哪一个页面，既可以由 agent 通过 `content_show` 工具决定，也可以由用户直接在侧边栏的页面导航菜单（`@deepseek-ai/dsh-experimental-server-sidebar`）里点选，后者会执行 `show-content-page` 命令。里面的应用由运行 harness 的人自己编写和部署；本包既不构建它，也不关心它用什么框架。
 
-七块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`show-content-page` 把同一份页面清单交给执行命令的 UI，并在用户选定时追加同一个事件。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。部署方开启后，`content_read` 让 agent 把那个 frame 里的页面读成一份带编号的结构。
+七块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`show-content-page` 把同一份页面清单交给执行命令的 UI，并在用户选定时追加同一个事件。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。部署方开启后，`content_read` 让 agent 把那个 frame 里的页面读成一份带编号的结构，另有三件原文读取让它按页面实际写法来读同一个页面。
 
 ## 目录
 
@@ -21,6 +21,7 @@ kind: "package-reference"
 - [agent 可展示的页面](#pages-the-agent-may-show)
 - [每个（会话，页面）各一个活着的 frame](#one-live-frame-per-session-and-page)
 - [读取 agent 放进去的那个页面](#reading-the-page-the-agent-put-there)
+- [按页面原样读取](#reading-the-page-as-it-was-written)
 - [在用户正看着的页面上动手](#acting-on-the-page-the-user-is-looking-at)
 - [读取 frame 里的页面](#reading-the-page-in-the-frame)
 - [agent 对这一栏知道些什么](#what-the-agent-knows-about-the-column)
@@ -82,7 +83,20 @@ kind: "package-reference"
 
 `pageAccess` 把 `content_read` 交给 agent：一次调用把用户正在看的页面答成一份带编号的结构——容器、控件、标题与文本，每个控件都带一个像 `e12` 的 ref，后续调用可以指着它。结构进模型，数据不进：表格只报表头、规模和一行样例，只有当某次读取按 ref 点名这张表、或按文本匹配到某一行时才列行；密码框——无论是靠 type，还是靠页面把密码显示出来、并在 `autocomplete` 里说明的那种文本框——只报「它在那里」，从不报它装着什么；正在要求登录的页面回的是一句拒绝，而不是正文。
 
-**缺席即关闭，而缺席是默认。** 没有这个块就没有工具、没有路由、没有待办 projection、settings 文档里没有 `pageAccess` 字段、浏览器里也没有读取器——只展示页面的部署不必为一项没要过的能力付账。写成空对象即取全部默认值。八个字段——`claimTimeoutMs`、`readTimeoutMs`、`pinMs`、`settleQuietMs`、`outlineChars`、`actTimeoutMs`、`maxSteps`、`settleMaxMs`——文档在 `Config` 类型上；其中 `outlineChars` 决定一次读取花多少上下文，因为它就是渲染这份列表的字符预算。它有一道 1000 的下限，低于它会在加载时被拒：列表的第一行不管多长都会整行渲染，而低于这道下限时，一张普通表格的第一行就已经超过回报路由能收的量了。另有三道是上限而非下限，都在加载时拒：`settleQuietMs` 必须装得进 `readTimeoutMs` 的静默份额，因为一个预算容不下的静默窗口会让每一次读取都报「页面还在变」；`settleMaxMs` 必须不小于 `settleQuietMs`，而 `maxSteps` 个它加起来必须少于 `actTimeoutMs` 的四分之三——那是步骤自己那一份——因为每一步都可能等满这个上限的部署，就是一次调用把整条截止都花在等页面静下来、永远到不了最后一步的部署；`maxSteps` 封顶 100，正是它把一次「跑了哪些步骤」的回报保持在回报路由允许的信封之内。
+**缺席即关闭，而缺席是默认。** 没有这个块，五件工具一件都没有，没有路由、没有待办 projection、settings 文档里没有 `pageAccess` 字段、浏览器里也没有读取器——只展示页面的部署不必为一项没要过的能力付账。写成空对象即取全部默认值。八个字段——`claimTimeoutMs`、`readTimeoutMs`、`pinMs`、`settleQuietMs`、`outlineChars`、`actTimeoutMs`、`maxSteps`、`settleMaxMs`——文档在 `Config` 类型上；其中 `outlineChars` 决定一次读取花多少上下文，因为它就是渲染这份列表的字符预算。它有一道 1000 的下限，低于它会在加载时被拒：列表的第一行不管多长都会整行渲染，而低于这道下限时，一张普通表格的第一行就已经超过回报路由能收的量了。另有三道是上限而非下限，都在加载时拒：`settleQuietMs` 必须装得进 `readTimeoutMs` 的静默份额，因为一个预算容不下的静默窗口会让每一次读取都报「页面还在变」；`settleMaxMs` 必须不小于 `settleQuietMs`，而 `maxSteps` 个它加起来必须少于 `actTimeoutMs` 的四分之三——那是步骤自己那一份——因为每一步都可能等满这个上限的部署，就是一次调用把整条截止都花在等页面静下来、永远到不了最后一步的部署；`maxSteps` 封顶 100，正是它把一次「跑了哪些步骤」的回报保持在回报路由允许的信封之内。
+
+<a id="reading-the-page-as-it-was-written"></a>
+## 按页面原样读取
+
+同一个块再交给 agent 三件读取，三件回答的都是原文而不是含义：`content_read_dom` 把一棵子树打成缩进的树——一行一个元素，带它的标签名、`#id`、以 `{class: …}` 形式给出的 class 词元、它自己的 ref，以及它直接持有的文字的开头；`content_read_attrs` 打印一个元素的全部属性，名与值按页面写的原样给出；`content_read_dom_content` 打印一个元素的全部可见文字，页面在哪里换行就在哪里换行，且从不截断。
+
+**它们是为 `content_read` 叫不出名字的那一行而存在的。** 一个组件库的行内命令没有 role、没有名字、没有 title、也没有指针光标，于是清单把那一列打成空的，而用户在那里看见两个图标。`content_read` 仍是起手要用的那一读——它是页面按 HTML 与 ARIA 所描述的样子，比其下的原文小一个数量级，并且是 ref 的唯一来源——三件读取各自的描述都这么说，`content_read_dom` 说得最重：`scope` 必填，因此必须先跑过一次清单；描述里更直接拒绝了「拿它当默认读法」这个念头。
+
+**任何时候都不解读。** 标签名、id、class 词元与属性值，按文档的拼写、按文档持有的顺序原样打印。`op-a` 或 `el-icon-edit` 是什么意思，该由一份关于那个应用的技能来说；本包只打印，绝不猜。树形行打印的 class 词元，与清单为无名行打印的是同一个 `elementMark`，因此一次 `content_act` 步骤点名树里找到的行时，带的就是树给它看的那串字符，座位会逐字符比对两者。
+
+**各自的天花板与做法。** 树与清单一样按 `outlineChars` 渲染，并为其余部分给出游标——把它连同同一个 `scope` 一起作为 `after` 传回。另外两件从不裁断：一个元素的属性与一个元素的文字，要么整份答出、要么不答；超出回报路由所能承载的答案会被拒绝，并报出它的字符数与补救办法——文字读取的补救是换一个更小的 ref，属性读取的补救则是部署方自己的 `outlineChars`，因为一个元素的属性没有更窄的读法。树打印的每个元素都保留一个 ref，因此对某一行做一次 `content_read_dom`，也是模型够到某个清单从未给过它把手的元素的方式。
+
+只读，条件与清单完全相同：同样的认领与回报路由、同样的待办 projection、同样的「面前那个页面」、以及同样的扣留——正在要求登录的页面回的是一句拒绝而不是它的原文，因为一个登录页的原文就是那张凭据表单本身。`content_read_attrs` 从不返回密码控件的 `value`，树形行与整文读取也都不打印一个在 `autocomplete` 里声明了密码的 `textarea` 把值存在其中的那段文本：三者都在它的位置上回 `(password withheld)`；而一个控件是不是密码控件，看的是它的 `type` 或那个属性，在 HTML 给了自动填充字段名的那三种标签上都算。
 
 <a id="acting-on-the-page-the-user-is-looking-at"></a>
 ## 在用户正看着的页面上动手
@@ -267,6 +281,59 @@ No open console is showing this session's content column (waited 3s); the page "
 
 只追加。列表是关于页面在那一刻的事实；对已变化页面的第二次读取是一份新结果，而不是对第一份的改写。
 
+### The three markup-read offers
+
+#### What the model sees
+
+在 `content_read` 旁边再提供三件工具，开启条件与它同为 `pageAccess`。`content_read_dom` 收 `scope`（必填）与 `after`；`content_read_attrs` 与 `content_read_dom_content` 各收一个 `ref`（必填），别的都不收。每段描述都写明这件工具打印什么、其中没有任何解读，以及它相对 `content_read` 站在哪里——而这正是提供它们的全部风险：一个刚被展示了「有办法读到页面真正原文」的模型会先伸手去拿，而整页原文比它本可以拿到的清单大一个数量级。因此 `content_read_dom` 的描述直说不要拿它当默认读法，而它必填的 `scope` 让「先读一次」成为调用它的唯一途径。
+
+#### Token effect
+
+三段固定描述，加上它们之间共四行参数说明，出现在这些工具可见的每一次请求里。
+
+#### KV Cache effect
+
+这些描述都是常量，在一个部署内不会变化，因此工具块在各次请求间逐字节一致，前缀得以保持。
+
+### A markup read's result
+
+#### What the model sees
+
+一个文本块，开头是 `Page: <title> — the app is at <path>`；适用时另起一行的是与清单相同的那句「页面仍在变化」；再往下是树、属性或文字。这个页首比清单的短，少的正是这三件读取不回答的三件事：文档怎么称呼自己、它开着哪个对话框、它标记了什么还在加载，都是关于页面的问题，而回答它们的读取是 `content_read`。
+
+##### A tree of the rows a listing named nothing
+
+```markdown
+Page: 点位信息 — the app is at /content-app/points/
+e33 tbody {class: el-table__body}
+  e34 tr {class: el-table__row}
+    e35 td {class: el-table__cell}
+      e36 i {class: el-tooltip operation-modify el-icon-edit}
+```
+
+##### One element's attributes
+
+```markdown
+Page: 点位信息 — the app is at /content-app/points/
+e36 i
+  class="el-tooltip operation-modify el-icon-edit"
+  data-op="edit"
+```
+
+##### A text too large for one result
+
+```markdown
+The text of e12 comes to 61204 characters, past what this deployment's report route carries (pageAccess.outlineChars is 12000). Call content_read_dom with scope "e12" to find a smaller element to read, or ask the user to raise pageAccess.outlineChars.
+```
+
+#### Token effect
+
+树与清单一样以 `outlineChars` 为界并返回游标。另外两件不受任何它们会裁断的东西约束：一个元素的属性与一个元素的文字整份抵达，超出回报路由所能承载者被拒绝并报出字数、而不是被截短，因此这两种调用的开销就是它所索要之物的大小。
+
+#### KV Cache effect
+
+只追加。每一份答案都是关于页面在那一刻的事实，因此第二次读取是一份新结果，而不是对第一份的改写。
+
 ### The `content_act` offer
 
 #### What the model sees
@@ -382,10 +449,15 @@ The console claimed this call but did not report within 60s; the steps may have 
 - **样式表画出来的星在这里什么都不说** —— 只用画出来的 `*` 标必填、不写 `required` 属性的表单，读出来是一张全是选填字段的表单。
 - **页面只用自家 class 画出来的命令，在这套读法里等于不存在** —— 组件库的行内命令（`<i class="el-tooltip operation-modify el-icon-edit">`）没有 role、没有名字、没有 title、也没有指针光标，于是不为它们打任何一行，它们所在那一列读出来是空的。2026-09-03 在那台控制台上实测：整页读取是 2507 字符、六张表，其中 `e33`——固定在右边、画着 操作 列的那张表体——打出二十行，每一格都是空的。页面若确实把这类元素标成了可点的，那一行会带上它的 class token、没有名字；同一次读取为一个画成按钮的命令打出 `e3 button {class: el-button el-tooltip head-btn el-button--text …}`——那次读取把 token 裁到四个，这个版本不再裁。两者是什么意思都由技能去懂：读取器只说文档说了什么，不从厂商的拼法里猜。
 - **组件库分片画出来的表，到模型那儿就是这些片** —— 冻结表头是一张表，它下面的表体是另一张，固定列是第三张；把列表画了六遍的页面读出来就是六张表，各列分散在它们之间。不做任何合并：用户眼里的那一张表由哪几片拼成，交给技能去懂。
-- **未被 assembled snapshot 覆盖** —— 浏览器侧证据是针对真实组合运行的 Playwright 场景，模型可见文本则由单测逐字钉住；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。
+- **录制归语料库，重放归浏览器车道** —— 四个 content 场景位于 `snapshots/web/` 下并各带清单，清单声明的组合是 `web-content`，因此 `pnpm run test:snapshot` 会遍历到它们并守住它们的存储不变量；重放本身归 Web 浏览器车道，因为这些场景启动的是一份打过补丁的组合，而出厂组合不会组合实验性行。除此之外，模型可见文本仍由单测逐字钉住。
 - **两条读取路由不带 Host 栅栏** —— 与外壳自己的 `/api` 一样，它们拒绝浏览器标记为 `sec-fetch-site: cross-site` 的请求并要求 `application/json`，但这两道检查都挡不住 DNS rebinding，而 webserver 自身没有 Host 白名单（`trustedHosts` 只守 `/api`）。顶替它位置的是 callId：能打到路由的攻击者，若不知道宿主铸出、且只发布进该会话自己 projection 流里的那个 id，既认领不了读取也回报不了；针对未知 id 的认领与回报什么都不改变。这个 id 猜不出来是 LLM 供应商的性质，不是本包的：DeepSeek 铸出的是 `call_00_` 加 24 位字母数字（末四位为数字），code-mode 子调用是同一个 id 再加 `:code:<n>`；本包既不校验这个格式也不为它补强，所以换一家把调用编成 `call_1`、`call_2` 的供应商，这两条路由就等于对任何能打到本机的页面开放。把 harness 暴露在不可信网络上的部署需要在自己的反向代理上设栅栏——这一栏与其他每一条路由并无不同。
 - **「在前面的那一项」是 page 座位的判断，不是日志的** —— 用户选中了哪一项是一次观看决定，这一栏把它留在组件状态里，因此当某个会话的内容区里还有好几个别的 kind 时，读取只会说「在前面的不是页面」而不点名是哪一个。
 - **一次读取携带结构，绝不携带数据** —— 没有任何模式会返回一张表的内容，本包也不打算加：列表是模型指着页面所需要的东西，它背后的数据属于产出它的那一方。
+- **一棵原文树止于它出发的那个 frame** —— `content_read_dom` 会用打开的 shadow root 顶替它所渲染的 light children，并把 `iframe` 当作它本身那一个元素打印，而不下潜进那个 frame 的文档。同源 frame 里的 ref 仍然可以当 `scope` 用，因为清单会走进那些 frame 并给里面的东西编号；没有 ref 的东西就没有入口。
+- **一棵原文树会打印页面藏起来的东西** —— 可见性是清单的过滤器，并且刻意不是树的：清单因不可见而丢掉的那一行，恰恰是读者到树里来找的东西。因此一个带大片隐藏子树的页面会把预算花在上面，而游标是唯一约束它的东西。
+- **树形行的文字额度是阅读器自己的数字** —— 80 个字符，是对着「这一行的职责是说清这是哪个元素」选的；超出后该行会说明这一点，并点名由 `content_read_dom_content` 从哪个 ref 打印其余部分。它不是 `Config` 字段，理由与清单自己那 200 字符的文本段不是字段相同。
+- **一个元素的属性没有更窄的读法** —— 这件工具要么全给、要么拒绝。一个带着 data URI 或内联样式表、且大过回报路由所允许量的元素，在那个部署的 `outlineChars` 下就是读不出来的，而拒绝语直说这一点，不去给一个帮不上忙的调用。
+- **`content_read_dom_content` 是在替 `innerText` 站位，而不是在调用它** —— 座位要为一个没有布局的 DOM 实现里的文档作答，因此行在元素不是行内元素处以及 `<br>` 处结束，这是页面原文所陈述的规则，而不是它的样式表所产生的结果。一个把 `span` 改成块级、或把 `div` 改成行内的页面，是按它的原文而不是按它被画出来的样子断行的。行内元素这一集合是本包自己的——短语内容减去浏览器自己绘制的那些，再减去用户可操作的那些——因此 `del`、`ins`、`button`、`input`、`output`、`select` 与 `slot` 在这里会断行，而浏览器本会把它们留在同一行里。
 - **jsdom 顶替不了真实 frame** —— 它没有布局，也永远不会加载指向真实路由的 frame，因此本包自己的测试读的是手工挂载的文档，真实路径只由浏览器车道覆盖。
 - **空命令行的 CSS 折叠是 DOM 结构耦合，不是契约** —— 它依赖 `dsh-client-ui-conversation` 的 `data-chat-flow-kind` 属性和 `dsh-client-ui-renderer` 的 `data-slot` 锚点包装，两者都不是本包拥有、也不是对方承诺维持的结构。任一形状将来发生变化都会悄悄解除这次折叠（该行连同它的 16px 间距一起重新出现），而不是显式报错；`server-sidebar.e2e.ts` 里断言该行始终不可见的场景是这个耦合唯一的绊线。
 

@@ -24,6 +24,8 @@ Status: implemented
 
 重录它们仍然需要密钥与 `DSH_SNAPSHOT=record`，而 `recordFixture` 的 `afterSeed` 裁剪——这条线当初改动那段采集的原因——在哪个位置都照常工作。[`docs/testing.md`](../../../../docs/testing.zh.md) 要求每一份 Web 录制都放在 `snapshots/web/` 下：下一次任一份 fixture 需要重录时，就录进那里并补上清单，这处偏离到此为止。
 
+**这件事已经发生。**[三件原文读取](../feature/2026-09-03-content-markup-reads.zh.md) 改动了这两个场景请求所带的工具 schema，于是重录成为必需。该片会把两份连同它自己新增的两个场景一起录在 `snapshots/web/` 下并各带清单，这一偏离到那时结束；在那些录制与清单落地之前，下面的决定仍然描述当前的仓库。
+
 ## 备选方案
 
 **在这次合并里就把 fixture 搬走并补上最小清单。** 一份为了满足遍历器而写、并非对着录制实测出来的 `composition` 与 `header`，钉不住任何东西；语料库随后会把两个没有录制作为依据的场景报告成已覆盖。

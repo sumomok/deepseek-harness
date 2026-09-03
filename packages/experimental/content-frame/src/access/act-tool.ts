@@ -30,7 +30,7 @@ import {
   ACT_ACTIONS, CONTENT_ACT_TOOL_NAME, DIALOG_ANSWERS, isActOutcome, parseActArgs, readActStep, type ActArgs,
   type ActOutcome, type ActStep, type ActStepResult,
 } from './wire.ts'
-import type { FrontEntryLookup } from './read-tool.ts'
+import type { FrontEntryLookup } from './read-value.ts'
 
 /** Title of the call card, in the pending and the settled state alike. */
 const CALL_TITLE = 'Act on the page in the content column'

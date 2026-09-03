@@ -28,7 +28,9 @@ import type { MutableRefObject } from 'react'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
-  ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_BID_MS,
+  ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_ACT_TOOL_NAME, CONTENT_CLAIM_ROUTE, CONTENT_READ_ATTRS_TOOL_NAME,
+  CONTENT_READ_DOM_CONTENT_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME, CONTENT_READ_TOOL_NAME,
+  CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_BID_MS,
   MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
   MAX_CLAIM_BACKOFF, MAX_URL_CHARS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
@@ -37,16 +39,17 @@ import {
 } from '../../access/wire.ts'
 import {
   FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
-  SIGN_IN_REFUSAL,
+  SIGN_IN_REFUSAL, wideAttrsMessage, wideTextMessage, WIDE_DOM_MESSAGE,
 } from '../../access/text.ts'
 import { actReportText, frontChangedRefusal, SIGN_IN_ACT_REFUSAL } from '../../access/act-text.ts'
 import type { ContentFrameAccessSettings } from '../../route.ts'
-import type { ContentAccessRequest, ContentActRequest, ContentReadRequest } from '../../types.ts'
+import type { ContentAccessRequest, ContentActRequest, ContentReadingRequest } from '../../types.ts'
 import { settlePage } from '../perception/settle.ts'
 import { runSteps } from './act.ts'
 import { watchPage, type ActWatch } from './watch.ts'
 import { elementMark, looksClickable, readableDocuments } from './dom.ts'
 import { itemName } from './collect.ts'
+import { markup } from './markup.ts'
 import { RefTable } from './refs.ts'
 import { snapshot } from './snapshot.ts'
 import type { SnapshotOptions } from './snapshot.ts'
@@ -415,20 +418,23 @@ function tableFor(tables: MutableRefObject<Map<string, RefTable>>, frameId: stri
  * @param outcome - the answer about to be posted.
  * @param text - the part of it the character bound holds: the listing, or the body of a call that ran steps.
  * @param access - the deployment's budget, which both bounds are computed from.
- * @returns the weighed report, or the one saying the page is too wide to post.
+ * @param wide - what the model is told instead, which each call composes for
+ * itself: what to narrow, and whether narrowing is even available to it.
+ * @returns the weighed report, or the one saying the answer is too wide to post.
  */
 function weigh(
   report: (outcome: ChannelOutcome) => Report,
   outcome: ChannelOutcome,
   text: string,
   access: ContentFrameAccessSettings,
+  wide: string,
 ): Report {
   const weighed = report(outcome)
   if (
     text.length > access.outlineChars * MAX_TEXT_BUDGET_MULTIPLE
     || weighed.bytes > access.outlineChars * MAX_TEXT_BYTES_PER_CHAR + REPORT_ENVELOPE_BYTES
   ) {
-    return report(frameError(FRAME_WIDE_LISTING_MESSAGE))
+    return report(frameError(wide))
   }
   return weighed
 }
@@ -505,7 +511,56 @@ async function prepare(seat: ContentReadSeat, timeoutMs: number): Promise<Prepar
 }
 
 /**
+ * What one read asks of the page beyond the deployment's own budget.
+ *
+ * Only the listing adds anything: what the three markup reads were asked is
+ * read off the call by the reader that prints them, so the seat hands them the
+ * budget, the numbering and the injected layout and nothing else.
+ * @param request - the pending call.
+ * @returns the options that call adds.
+ */
+function readOptions(request: ContentReadingRequest): Partial<SnapshotOptions> {
+  if (request.tool !== CONTENT_READ_TOOL_NAME) return {}
+  const args = request.args
+  return {
+    ...args.mode === undefined ? {} : { mode: args.mode },
+    ...args.scope === undefined ? {} : { scope: args.scope },
+    ...args.after === undefined ? {} : { after: args.after },
+    ...args.find === undefined ? {} : { find: args.find },
+  }
+}
+
+/**
+ * What one read is told when its answer is too wide for the wire.
+ *
+ * Each read composes its own, because what a model can do about it differs:
+ * a listing narrows with `find` or `scope`, a tree with a ref further down, an
+ * element's text with a smaller element, and an element's attributes with
+ * nothing at all — that last one says so rather than offering a call that
+ * cannot help.
+ * @param request - the pending call.
+ * @param chars - how long the answer came out.
+ * @param budget - the deployment's configured listing budget.
+ * @returns the model-facing sentence.
+ */
+function wideMessage(request: ContentReadingRequest, chars: number, budget: number): string {
+  switch (request.tool) {
+    case CONTENT_READ_TOOL_NAME: return FRAME_WIDE_LISTING_MESSAGE
+    case CONTENT_READ_DOM_TOOL_NAME: return WIDE_DOM_MESSAGE
+    case CONTENT_READ_ATTRS_TOOL_NAME: return wideAttrsMessage(chars, request.args.ref, budget)
+    case CONTENT_READ_DOM_CONTENT_TOOL_NAME: return wideTextMessage(chars, request.args.ref, budget)
+    /* v8 ignore next 2 -- the reading union is closed and typed; the arm keeps a new read loud. */
+    default: return FRAME_WIDE_LISTING_MESSAGE
+  }
+}
+
+/**
  * Read the page one call asked for, or say why there was none to read.
+ *
+ * Shared by all four reads: what each of them wants of the page differs, and a
+ * column with nothing in it, a frame out of reach, a page still loading, a page
+ * still drawing and a page asking for a sign-in are the same five answers for
+ * every one of them.
  * @param seat - the seat as it stands now.
  * @param request - the pending call: what it asks of the page, and the id the
  * report carrying the answer will be posted under.
@@ -514,7 +569,7 @@ async function prepare(seat: ContentReadSeat, timeoutMs: number): Promise<Prepar
  */
 async function readPage(
   seat: ContentReadSeat,
-  request: ContentReadRequest,
+  request: ContentReadingRequest,
   access: ContentFrameAccessSettings,
 ): Promise<Report> {
   const report = (outcome: ChannelOutcome): Report => reportOf(seat, request.callId, outcome)
@@ -530,20 +585,18 @@ async function readPage(
     { quietMs: access.settleQuietMs, budgetMs: access.readTimeoutMs * SETTLE_WAIT_SHARE },
     isVisible,
   )
-  const args = request.args
   const options: SnapshotOptions = {
     refs: ready.refs,
     budgetChars: access.outlineChars,
-    ...args.mode === undefined ? {} : { mode: args.mode },
-    ...args.scope === undefined ? {} : { scope: args.scope },
-    ...args.after === undefined ? {} : { after: args.after },
-    ...args.find === undefined ? {} : { find: args.find },
+    ...readOptions(request),
     isVisible,
     isClickable: looksClickable,
   }
   try {
     // Re-read after the wait: a navigation replaces the frame's document.
-    const read = snapshot(ready.view.document, options)
+    const read = request.tool === CONTENT_READ_TOOL_NAME
+      ? snapshot(ready.view.document, options)
+      : markup(ready.view.document, request, options)
     const text = sanitize(read.text)
     // Every string below the listing itself comes from the document, and the
     // wire holds each of them to a length and to what JSON carries cheaply; a
@@ -567,7 +620,7 @@ async function readPage(
         ...settlement.busy.length === 0 ? {} : { busy: [...settlement.busy] },
       },
     }
-    return weigh(report, listing, text, access)
+    return weigh(report, listing, text, access, wideMessage(request, text.length, access.outlineChars))
   } catch (refusal) {
     return report(engineFailure(refusal))
   }
@@ -693,7 +746,7 @@ async function actOnPage(
       })),
       truncated: now.truncated,
     }
-    return weigh(report, outcome, outcome.text, access)
+    return weigh(report, outcome, outcome.text, access, FRAME_WIDE_LISTING_MESSAGE)
   } catch (refusal) {
     return report(engineFailure(refusal))
   } finally {
@@ -728,9 +781,9 @@ async function answer(
     started.current.delete(request.callId)
     return
   }
-  await reportRead(request.tool === 'content_read'
-    ? await readPage(seat.current, request, access)
-    : await actOnPage(seat.current, request, access, claimed.page))
+  await reportRead(request.tool === CONTENT_ACT_TOOL_NAME
+    ? await actOnPage(seat.current, request, access, claimed.page)
+    : await readPage(seat.current, request, access))
 }
 
 /**

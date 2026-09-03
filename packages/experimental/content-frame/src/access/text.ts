@@ -1,36 +1,47 @@
 /**
- * Every sentence `content_read` puts in front of the model: the description it
- * chooses the tool from, the parameter lines, the refusals, and the header the
- * result opens with — plus the endings both tools of the channel share, since a
- * column with nothing in it refuses a read and a set of steps alike.
+ * Every sentence the four reading tools put in front of the model: the
+ * descriptions they are chosen from, the parameter lines, the refusals, and the
+ * headers their results open with — plus the endings every tool of the channel
+ * shares, since a column with nothing in it refuses a read and a set of steps
+ * alike.
  *
- * One home for all of it, and no imports beyond the wire's own types, because
- * both halves author some of it: the node half turns a settled call into text,
- * and the browser seat composes the `frame` failures, which are the only
- * refusals the host cannot describe. A failure is the only tool text the model reads while deciding what
- * to do next, so each one names the parameter or the call that fixes it.
+ * One home for all of it, and nothing imported beyond the wire's own
+ * vocabulary, because both halves author some of it: the node half turns a
+ * settled call into text, and the browser seat composes the `frame` failures,
+ * which are the only refusals the host cannot describe. A failure is the only
+ * tool text the model reads while deciding what to do next, so each one names
+ * the parameter or the call that fixes it.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/text
  */
 
-import type { ReadFailure } from './wire.ts'
+import { CONTENT_READ_TOOL_NAME, type ReadFailure } from './wire.ts'
 
 /**
  * The model-facing description. It names the column in the user's own words
  * because the model is told about the page in a conversation, not in English
  * schema terms, and it states the three answers a read can give — a listing, a
  * map, a cursor — so a first call already knows how to continue.
+ *
+ * It also says which of the four reads this is. `content_read` is the page as
+ * HTML and ARIA describe it and is the read to start from; the three markup
+ * reads are the page as it was written, and a model that has not been told the
+ * difference reaches for whichever name it saw last.
  */
 export const CONTENT_READ_DESCRIPTION =
   'Read the page the user is looking at in the content column (内容区 — the column between the sidebar and '
   + 'this conversation) as a numbered structure: containers, controls, headings '
-  + 'and text, each control carrying a ref like e12 that later calls can point at. The default mode "outline" '
+  + 'and text, each control carrying a ref like e12 that later calls can point at. This is the read to start '
+  + 'from: it is the page as HTML and ARIA describe it, and it costs a fraction of the page\'s own markup. '
+  + 'The default mode "outline" '
   + 'lists everything in a scope; when the whole page is too large it answers with the page\'s map — its '
   + 'containers with counts — and names the scope to read next. Tables report their header, size and one '
   + 'sample row: pass scope with the table\'s ref to list its rows, or find with a row\'s text to get that '
   + 'row and its buttons\' refs. A control the page names nowhere prints its class tokens as {class: ...} '
   + 'instead of a name: that is the page\'s own markup, unread — what it means is for a skill about this '
-  + 'application to say. A cut listing returns a cursor; pass it as after to continue. Reads only the entry in '
-  + 'front — call content_show first to put a page there. Never returns a password box\'s value.'
+  + 'application to say, and where the tokens are not enough content_read_dom prints that row\'s markup and '
+  + 'content_read_attrs its attributes. A cut listing returns a cursor; pass it as after to continue. Reads '
+  + 'only the entry in front — call content_show first to put a page there. Never returns a password box\'s '
+  + 'value.'
 
 /** The `mode` parameter line. */
 export const MODE_DESCRIPTION =
@@ -67,11 +78,28 @@ export const AFTER_REFUSAL = 'after must be a ref like "e12" from a previous rea
 /** Refusal for a `find` outside the accepted length. */
 export const FIND_REFUSAL = 'find must be 1–200 characters'
 
-/** Refusal for a call with no owning session, which has no column to read. */
-export const NO_AGENT_REFUSAL = 'content_read requires an owning agent session'
+/**
+ * Refusal for a call with no owning session, which has no column to read.
+ *
+ * The four reading tools spell it in their own names: the model is deciding
+ * what to do next about the tool it just called, and a sentence naming another
+ * one sends it to the wrong place.
+ * @param tool - the tool that was called.
+ * @returns the model-facing sentence.
+ */
+export function noAgentRefusal(tool: string): string {
+  return `${tool} requires an owning agent session`
+}
 
-/** Failure for a call the agent loop cancelled while it waited. */
-export const CANCELLED_REFUSAL = 'content_read was cancelled'
+/**
+ * Failure for a call the agent loop cancelled while it waited, named the same
+ * way and for the same reason.
+ * @param tool - the tool that was called.
+ * @returns the model-facing sentence.
+ */
+export function cancelledRefusal(tool: string): string {
+  return `${tool} was cancelled`
+}
 
 /** Failure for a column that holds nothing at all. */
 export const EMPTY_COLUMN_REFUSAL = 'The content column is empty. Call content_show to put a page there, then retry.'
@@ -229,11 +257,20 @@ export interface ToolVoice {
   readonly cannot: string
 }
 
-/** How `content_read` names itself in the two endings whose wording is the caller's. */
-export const READ_VOICE: ToolVoice = {
-  emptyColumn: EMPTY_COLUMN_REFUSAL,
-  cannot: 'content_read cannot read',
+/**
+ * How one reading tool names itself in the two endings whose wording is the
+ * caller's. All four say the same thing about an empty column — there is
+ * nothing to read, whichever read was asked for — and each names itself in the
+ * other.
+ * @param tool - the tool that was called.
+ * @returns that tool's voice.
+ */
+export function readVoice(tool: string): ToolVoice {
+  return { emptyColumn: EMPTY_COLUMN_REFUSAL, cannot: `${tool} cannot read` }
 }
+
+/** How `content_read` names itself in the two endings whose wording is the caller's. */
+export const READ_VOICE: ToolVoice = readVoice(CONTENT_READ_TOOL_NAME)
 
 /**
  * The model-facing sentence for a call the seat could not run at all.
@@ -243,7 +280,7 @@ export const READ_VOICE: ToolVoice = {
  * whether the call was going to read the page or act on it. Two of the four
  * name the tool the model should reach for next, so those two are the caller's
  * to word; the frame's own message and the reader's are neither tool's. A
- * A sign-in page and a column showing another page than the call was approved
+ * sign-in page and a column showing another page than the call was approved
  * against are two more endings only a call that would have acted posts, and the
  * seat words both, so they pass through with the frame's.
  * @param outcome - the failure the seat posted.
@@ -304,6 +341,167 @@ export function readHeaderText(header: ReadHeaderText): string {
       ? []
       : [`dialog "${header.modal}" open (modal) — the rest of the page is behind its mask`],
     ...header.busy.length === 0 ? [] : [stillLoadingLine(header.busy)],
+    ...header.settled ? [] : [STILL_CHANGING_LINE],
+  ].join('\n')
+}
+
+/**
+ * The model-facing description of the element tree.
+ *
+ * It refuses the one mistake this tool invites: a model that has just been
+ * offered a way to see the page's real markup will reach for it first, and a
+ * whole page of markup is an order of magnitude larger than the listing it
+ * would have got. So the description says outright that this is not the read to
+ * start with, and `scope` is required, which makes a prior read the only way to
+ * call it at all.
+ */
+export const CONTENT_READ_DOM_DESCRIPTION =
+  'Print the page\'s own markup under one ref: every element inside it, one per line and indented by nesting, '
+  + 'each with its tag, its #id, its class tokens as {class: ...}, a ref of its own, and the start of the text '
+  + 'it holds directly. Nothing is interpreted — this is what the document says, verbatim. Do not use it as the '
+  + 'ordinary way to read a page: content_read is that, it costs a fraction as much, and scope is required '
+  + 'here, so a ref has to come from a read first. Reach for this one when content_read printed a row it could '
+  + 'name nothing, or printed nothing where the user can see something, and a skill about this application '
+  + 'needs the tokens or the tag to say what that row is. Every element printed keeps a ref content_act can act '
+  + 'on and the other reads can point at. A long text is cut on its line and says so; content_read_dom_content '
+  + 'prints one element\'s whole text and content_read_attrs prints its attributes. A cut tree returns a '
+  + 'cursor: pass it as after, with the same scope. Never prints a password box\'s value.'
+
+/** The model-facing description of the attribute read. */
+export const CONTENT_READ_ATTRS_DESCRIPTION =
+  'Print every attribute of one element, name and value exactly as the page wrote them — data-*, href, type, '
+  + 'style, whatever it carries — and nothing else. The ref comes from a previous content_read or '
+  + 'content_read_dom. Reach for it when a row\'s class tokens do not say enough and what identifies the row is '
+  + 'written in an attribute; what any of it means is for a skill about this application to say and never for '
+  + 'this tool. A password box\'s value is withheld.'
+
+/** The model-facing description of the whole-text read. */
+export const CONTENT_READ_DOM_CONTENT_DESCRIPTION =
+  'Print the whole visible text of one element as the page renders it: a line break wherever the page breaks '
+  + 'the line, and nothing the page hides. Nothing is cut. The ref comes from a previous content_read or '
+  + 'content_read_dom — reach for it when a listing or a tree line cut a text short and the rest of it is what '
+  + 'you need. A text larger than one result can carry is refused, with its size, rather than shortened.'
+
+/** The `scope` parameter line of the element tree. */
+export const DOM_SCOPE_DESCRIPTION =
+  'a ref from a previous content_read or content_read_dom: the element whose markup to print, and everything '
+  + 'inside it'
+
+/** The `after` parameter line of the element tree. */
+export const DOM_AFTER_DESCRIPTION =
+  'the cursor a cut tree returned; continues right after it — pass the same scope with it'
+
+/** The `ref` parameter line of the two single-element reads. */
+export const ELEMENT_REF_DESCRIPTION =
+  'a ref from a previous content_read or content_read_dom: the one element to read'
+
+/** Refusal for a `scope` that is not a ref. */
+export const DOM_SCOPE_REFUSAL = 'scope must be a ref like "e12" from a previous content_read or content_read_dom'
+
+/** Refusal for an `after` that is not a ref. */
+export const DOM_AFTER_REFUSAL = 'after must be a ref like "e12" that a cut content_read_dom returned'
+
+/** Refusal for a `ref` that is not a ref. */
+export const ELEMENT_REF_REFUSAL = 'ref must be a ref like "e12" from a previous content_read or content_read_dom'
+
+/** What the attribute read prints for an element the page wrote no attribute on. */
+export const NO_ATTRIBUTES_LINE = '(this element carries no attributes)'
+
+/** What the whole-text read prints for an element that shows no text at all. */
+export const NO_TEXT_LINE = '(this element shows no text)'
+
+/**
+ * What every read prints in place of what a password control holds: the
+ * attribute read for its `value`, and the tree and whole-text reads for the
+ * text a `textarea` keeps its value in.
+ *
+ * The token names the credential rather than the withholding, because a read
+ * that only said it was hidden would read as a statement about the page's own
+ * styling, next to the two lines that report exactly that.
+ */
+export const WITHHELD = '(password withheld)'
+
+/**
+ * How one tree line says the text it printed is the start of what the element
+ * holds rather than all of it, and which call prints the rest.
+ *
+ * The ref is named in the marker because the line the model is reading names
+ * several elements' refs by the time it reaches this one, and the remedy is
+ * useless if it has to be guessed at.
+ * @param ref - the element whose text was cut.
+ * @returns the marker, led by one space.
+ */
+export function moreTextMarker(ref: string): string {
+  return ` (text cut — content_read_dom_content with ref "${ref}" prints all of it)`
+}
+
+/**
+ * Failure the seat posts when one element of a tree is wider on its own than
+ * a report may carry, which is the one way a budgeted, cursored listing can
+ * still be too large.
+ */
+export const WIDE_DOM_MESSAGE =
+  'One element of this subtree is wider on its own than this deployment\'s read budget. Call content_read_dom '
+  + 'with scope and a ref further down the tree, or ask the user to raise pageAccess.outlineChars.'
+
+/**
+ * Failure the seat posts when one element's attributes run past what a report
+ * may carry.
+ *
+ * There is no narrower read of one element's attributes — the tool answers all
+ * of them or none — so the only remedy is the deployment's, and the message
+ * says so instead of offering the model a call that cannot help.
+ * @param chars - how long the answer would have been.
+ * @param ref - the element the read asked for.
+ * @param budget - the deployment's configured listing budget.
+ * @returns the model-facing sentence.
+ */
+export function wideAttrsMessage(chars: number, ref: string, budget: number): string {
+  return `The attributes of ${ref} come to ${chars} characters, past what this deployment's report route `
+    + `carries (pageAccess.outlineChars is ${budget}). One element's attributes have no narrower read: ask the `
+    + 'user to raise pageAccess.outlineChars.'
+}
+
+/**
+ * Failure the seat posts when one element's text runs past what a report may
+ * carry. The text is refused whole rather than cut, because a tool that
+ * promises the whole text and quietly returns part of it is worse than one that
+ * says it cannot.
+ * @param chars - how long the text is.
+ * @param ref - the element the read asked for.
+ * @param budget - the deployment's configured listing budget.
+ * @returns the model-facing sentence.
+ */
+export function wideTextMessage(chars: number, ref: string, budget: number): string {
+  return `The text of ${ref} comes to ${chars} characters, past what this deployment's report route carries `
+    + `(pageAccess.outlineChars is ${budget}). Call content_read_dom with scope "${ref}" to find a smaller `
+    + 'element to read, or ask the user to raise pageAccess.outlineChars.'
+}
+
+/** The header fields one markup result opens with. */
+export interface MarkupHeaderText {
+  /** The configured page title. */
+  page: string
+  /** The path the frame is at, origin dropped. */
+  url: string
+  /** False when the page was still changing when the read ran. */
+  settled: boolean
+}
+
+/**
+ * The line naming the page a markup read ran on, and the one qualification such
+ * a read can carry.
+ *
+ * Shorter than the listing's own header by the three facts a markup read does
+ * not answer: what the document calls itself, what dialog it has open, and what
+ * it marks as still loading are questions about the page, and `content_read` is
+ * the read that answers them.
+ * @param header - what the read found above the markup itself.
+ * @returns the leading line, plus the still-changing line where it applies.
+ */
+export function markupHeaderText(header: MarkupHeaderText): string {
+  return [
+    `Page: ${header.page} — the app is at ${header.url}`,
     ...header.settled ? [] : [STILL_CHANGING_LINE],
   ].join('\n')
 }

@@ -6,6 +6,7 @@
  * list and no way to reach the rest.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/render
  */
+import type { ReadKind } from '../../access/wire.ts'
 import { CLICKABLE_ROLE, FIELD_ROLES, OFFERED_ROLES, clipTo, elementMark } from './dom.ts'
 import type {
   ContainerFace, ContainerItem, ControlFace, ControlState, ElementItem, Item, RowCell, SnapshotMode,
@@ -43,7 +44,7 @@ const ITEM_ROLES: ReadonlySet<string> =
  * a row numbers what it prints, so a listing that stops short never spends refs
  * on rows nobody has seen.
  */
-interface Entry {
+export interface Entry {
   /** The element the row names, absent for a row the model cannot name. */
   readonly el: Element | undefined
   /** Render the row, which may run to several lines. */
@@ -59,7 +60,7 @@ interface Entry {
  * @param render - how the row prints.
  * @returns the entry.
  */
-function entry(el: Element | undefined, refs: RefTable, render: () => string): Entry {
+export function entry(el: Element | undefined, refs: RefTable, render: () => string): Entry {
   return {
     el,
     line: (): string => {
@@ -69,10 +70,10 @@ function entry(el: Element | undefined, refs: RefTable, render: () => string): E
   }
 }
 
-/** One rendered listing, before the header is attached. */
+/** One rendered answer, before the header is attached. */
 export interface Listing {
-  /** Which listing this is. */
-  readonly kind: SnapshotMode
+  /** Which answer this is. */
+  readonly kind: ReadKind
   /** The rendered body. */
   readonly text: string
   /** True when the listing stops short of everything this read would have shown. */
@@ -86,11 +87,12 @@ export interface Listing {
 }
 
 /**
- * The indentation one nesting depth prints.
+ * The indentation one nesting depth prints. The markup reads print at the same
+ * step, so a reader moving between a listing and a tree reads one shape.
  * @param depth - how many containers enclose the row.
  * @returns the leading spaces.
  */
-function indent(depth: number): string {
+export function indent(depth: number): string {
   return INDENT.repeat(depth)
 }
 
@@ -119,7 +121,7 @@ function quoted(name: string): string {
  * @returns the mark in braces, led by one space, or the empty string for an
  * element carrying no class.
  */
-function printedMark(el: Element): string {
+export function printedMark(el: Element): string {
   const mark = elementMark(el)
   return mark === '' ? '' : ` {class: ${mark}}`
 }
@@ -541,38 +543,50 @@ function findEntries(items: readonly Item[], find: string, refs: RefTable): Entr
  * @param entries - the listing.
  * @param after - the ref to resume after, if any.
  * @param refs - the page's numbering.
+ * @param kind - which answer this is, for the parameters the refusal names.
  * @returns the remaining entries.
  * @throws {Error} when `after` names no row of this listing, which means the
  * read changed scope or filter between the two calls and the continuation would
  * silently start over.
  */
-function dropBefore(entries: Entry[], after: string | undefined, refs: RefTable): Entry[] {
+function dropBefore(entries: Entry[], after: string | undefined, refs: RefTable, kind: ReadKind): Entry[] {
   if (after === undefined) return entries
   const named = refs.resolve(after)
   const at = entries.findIndex(entry => entry.el !== undefined && entry.el === named)
   if (at === -1) {
-    throw new Error(`after: "${after}" is not an item of this read — pass the cursor from the same scope and find, or omit after`)
+    // Named per read, because a refusal that offers a parameter the tool does
+    // not take is a remedy the model cannot follow.
+    const same = kind === 'dom' ? 'the same scope' : 'the same scope and find'
+    throw new Error(`after: "${after}" is not an item of this read — pass the cursor from ${same}, or omit after`)
   }
   return entries.slice(at + 1)
 }
 
 /**
- * What a cut skeleton adds to the way on: a continuation carrying `after` alone
- * answers with the items of the page, so continuing a skeleton means asking for
- * a skeleton again.
+ * What a continuation of each answer must carry besides `after`.
+ *
+ * A skeleton continued with `after` alone answers with the items of the page,
+ * so continuing one means asking for a skeleton again; a tree's `scope` is
+ * required and a continuation that dropped it would be refused. The two reads
+ * that are never cut carry nothing, and never print this line.
  */
-const MAP_AGAIN = ' and mode: "map"'
+const CONTINUATION: Record<ReadKind, string> = {
+  outline: '',
+  map: ' and mode: "map"',
+  dom: ', with the same scope,',
+  attrs: '',
+  content: '',
+}
 
 /**
- * How a listing cut at a row the model can name says where to continue.
- * @param kind - which listing this is.
+ * How an answer cut at a row the model can name says where to continue.
+ * @param kind - which answer this is.
  * @param cursor - the ref of the last rendered row.
- * @param remaining - how many rows the listing did not render.
+ * @param remaining - how many rows the answer did not render.
  * @returns the closing line.
  */
-function cutAfter(kind: SnapshotMode, cursor: string, remaining: number): string {
-  const again = kind === 'map' ? MAP_AGAIN : ''
-  return `(cut after ${cursor} — pass after: "${cursor}"${again} to continue; ${remaining} items remain)`
+function cutAfter(kind: ReadKind, cursor: string, remaining: number): string {
+  return `(cut after ${cursor} — pass after: "${cursor}"${CONTINUATION[kind]} to continue; ${remaining} items remain)`
 }
 
 /**
@@ -651,7 +665,7 @@ function scopeHint(ref: string): string {
  * @param refs - the page's numbering.
  * @returns the reserved characters, the closing newline included.
  */
-function reserveFor(kind: SnapshotMode, entries: readonly Entry[], hint: string | undefined, refs: RefTable): number {
+function reserveFor(kind: ReadKind, entries: readonly Entry[], hint: string | undefined, refs: RefTable): number {
   const remaining = Number('9'.repeat(String(entries.length).length))
   const widest = refs.widthAfter(entries.length)
   return Math.max(cutHere(remaining).length, cutAfter(kind, 'e'.repeat(widest), remaining).length, hint?.length ?? 0) + 1
@@ -704,7 +718,7 @@ function fill(entries: readonly Entry[], budget: number, refs: RefTable): string
  * @returns the rendered listing.
  */
 function assemble(
-  kind: SnapshotMode,
+  kind: ReadKind,
   entries: readonly Entry[],
   budgetChars: number,
   hint: string | undefined,
@@ -742,18 +756,22 @@ function assemble(
 }
 
 /**
- * One listing, from the row a continuation resumes at. A continuation that
- * names the listing's last row has reached the end and says so; every other
+ * One answer, from the row a continuation resumes at. A continuation that
+ * names the answer's last row has reached the end and says so; every other
  * read fills the budget as usual.
- * @param kind - which listing this is.
- * @param entries - the whole listing, before the continuation is applied.
+ *
+ * The markup tree fills the budget through this too, because a tree cut in the
+ * middle needs the same cursor and the same wound-back numbering a listing
+ * does, and two implementations of that would cut differently.
+ * @param kind - which answer this is.
+ * @param entries - the whole answer, before the continuation is applied.
  * @param options - the read's options.
- * @returns the rendered listing.
- * @throws {Error} when `after` names no row of this listing.
+ * @returns the rendered answer.
+ * @throws {Error} when `after` names no row of this answer.
  */
-function resume(kind: SnapshotMode, entries: Entry[], options: SnapshotOptions): Listing {
+export function resume(kind: ReadKind, entries: Entry[], options: SnapshotOptions): Listing {
   const { after, refs } = options
-  const rest = dropBefore(entries, after, refs)
+  const rest = dropBefore(entries, after, refs, kind)
   if (after !== undefined && rest.length === 0) {
     return { kind, text: nothingAfter(after), truncated: false, shown: 0, total: 0, cursor: undefined }
   }

@@ -7,6 +7,7 @@
  * whether a field was set or merely absent.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/model
  */
+import type { ReadKind } from '../../access/wire.ts'
 import type { RefTable } from './refs.ts'
 
 /** How much of the page one read renders: every item, or containers only. */
@@ -46,7 +47,7 @@ export interface SnapshotOptions {
   readonly isClickable?: (el: Element) => boolean
 }
 
-/** What the page is, above the items themselves. */
+/** What the page is, above whatever a read prints of it. */
 export interface SnapshotHeader {
   /** The root document's URL. */
   readonly url: string
@@ -58,10 +59,10 @@ export interface SnapshotHeader {
   readonly signIn: boolean
 }
 
-/** One structural read of the page. */
+/** One read of the page: the structural listing, or one of the three markup reads. */
 export interface Snapshot {
-  /** Which listing came back. */
-  readonly kind: SnapshotMode
+  /** Which answer came back. */
+  readonly kind: ReadKind
   /** What the page is. */
   readonly header: SnapshotHeader
   /** The rendered body, without the `Page` line the tool composes. */

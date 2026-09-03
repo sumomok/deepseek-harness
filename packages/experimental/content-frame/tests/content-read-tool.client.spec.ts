@@ -124,13 +124,17 @@ describe('what content_read offers the model', () => {
       name: 'content_read',
       description: 'Read the page the user is looking at in the content column (内容区 — the column between the '
         + 'sidebar and this conversation) as a numbered structure: containers, '
-        + 'controls, headings and text, each control carrying a ref like e12 that later calls can point at. The '
+        + 'controls, headings and text, each control carrying a ref like e12 that later calls can point at. '
+        + 'This is the read to start from: it is the page as HTML and ARIA describe it, and it costs a '
+        + 'fraction of the page\'s own markup. The '
         + 'default mode "outline" lists everything in a scope; when the whole page is too large it answers with '
         + 'the page\'s map — its containers with counts — and names the scope to read next. Tables report their '
         + 'header, size and one sample row: pass scope with the table\'s ref to list its rows, or find with a '
         + 'row\'s text to get that row and its buttons\' refs. A control the page names nowhere prints its class '
         + 'tokens as {class: ...} instead of a name: that is the page\'s own markup, unread — what it means is '
-        + 'for a skill about this application to say. A cut listing returns a cursor; pass it as after to '
+        + 'for a skill about this application to say, and where the tokens are not enough content_read_dom '
+        + 'prints that row\'s markup and content_read_attrs its attributes. A cut listing returns a cursor; '
+        + 'pass it as after to '
         + 'continue. Reads only the entry in front — call content_show first to put a page there. Never returns '
         + 'a password box\'s value.',
       parameters: {
@@ -279,6 +283,16 @@ describe('what content_read answers when no listing arrives', () => {
     expect(text(result)).toBe(
       'Error: The console claimed this read but did not answer within 0.06s; '
       + 'retry once, and if it repeats ask the user to reload the console.',
+    )
+  })
+
+  it('refuses a listing posted under another read\'s kind', async () => {
+    // One channel carries five tools' answers, so a document arriving under a
+    // markup read's kind answers a call this one did not make.
+    const result = await settleWith(read({ kind: 'dom', text: 'e1 main' }))
+    expect(result.isError).toBe(true)
+    expect(text(result)).toBe(
+      'Error: The console answered this call with something else; call content_read to see where the page is now.',
     )
   })
 

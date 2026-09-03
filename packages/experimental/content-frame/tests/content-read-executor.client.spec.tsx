@@ -21,9 +21,9 @@ import {
   parseChannelReport,
   PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, type ClaimAck, type ReadOutcome,
 } from '../src/access/wire.ts'
-import { FRAME_WIDE_LISTING_MESSAGE } from '../src/access/text.ts'
-import type { RefTable } from '../src/client/access/refs.ts'
-import type { ContentReadRequest } from '../src/types.ts'
+import { FRAME_WIDE_LISTING_MESSAGE, WIDE_DOM_MESSAGE, wideAttrsMessage, wideTextMessage } from '../src/access/text.ts'
+import { RefTable } from '../src/client/access/refs.ts'
+import type { ContentAccessRequest, ContentReadRequest } from '../src/types.ts'
 
 /** The frame id every case here reads through. */
 const FRAME = 'session_1 home'
@@ -1104,5 +1104,159 @@ describe('what the reader reports', () => {
     expect(outcome.snapshot.modal).toContain('Confirm delete')
     expect(outcome.snapshot.truncated).toBe(true)
     expect(outcome.snapshot.cursor).toMatch(/^e\d+$/)
+  })
+})
+
+describe('the three markup reads through the same seat', () => {
+  /** Mount one frame, number one of its elements the way a previous read would have, and read it. */
+  function markupSeat(
+    html: string,
+    selector: string,
+    call: (ref: string) => ContentAccessRequest,
+    outlineChars = ACCESS.outlineChars,
+  ): ContentReadSeat {
+    const frame = mountFrame(html)
+    const doc = frame.contentWindow?.document
+    const el = doc?.querySelector(selector)
+    if (el === null || el === undefined) throw new Error(`the fixture has no ${selector}`)
+    const table = new RefTable()
+    return seatOf({
+      frames: { current: new Map([[FRAME, frame]]) },
+      tables: { current: new Map([[FRAME, table]]) },
+      access: { ...ACCESS, outlineChars },
+      pending: [call(table.ref(el))],
+    })
+  }
+
+  /** The listing the seat posted, whatever read produced it. */
+  function postedSnapshot(): { kind: string; text: string } {
+    const outcome = reported()
+    if (outcome.status !== 'ok') throw new Error(`the seat posted a failure: ${JSON.stringify(outcome)}`)
+    return outcome.snapshot
+  }
+
+  it('walks the subtree the call named and posts it under its own kind', async () => {
+    drive(markupSeat(
+      '<section id="ops" class="panel"><i class="el-icon-edit"></i></section>',
+      '#ops',
+      scope => ({ callId: 'call_1', tool: 'content_read_dom', args: { scope } }),
+    ))
+    await settled()
+    expect(postedSnapshot()).toMatchObject({
+      kind: 'dom',
+      text: 'e1 section#ops {class: panel}\n  e2 i {class: el-icon-edit}',
+    })
+  })
+
+  it('continues a cut tree from the cursor the call carried', async () => {
+    const frame = mountFrame('<ul id="list"><li>a</li><li>b</li></ul>')
+    const doc = frame.contentWindow?.document
+    const list = doc?.querySelector('#list')
+    const first = doc?.querySelector('li')
+    if (list === null || list === undefined || first === null || first === undefined) {
+      throw new Error('the fixture lost its list')
+    }
+    const table = new RefTable()
+    const scope = table.ref(list)
+    const after = table.ref(first)
+    drive(seatOf({
+      frames: { current: new Map([[FRAME, frame]]) },
+      tables: { current: new Map([[FRAME, table]]) },
+      pending: [{ callId: 'call_1', tool: 'content_read_dom', args: { scope, after } }],
+    }))
+    await settled()
+    expect(postedSnapshot().text).toBe('  e3 li "b"')
+  })
+
+  it('posts one element\'s attributes', async () => {
+    drive(markupSeat(
+      '<i id="edit" class="el-icon-edit" title="编辑"></i>',
+      '#edit',
+      ref => ({ callId: 'call_1', tool: 'content_read_attrs', args: { ref } }),
+    ))
+    await settled()
+    expect(postedSnapshot()).toMatchObject({
+      kind: 'attrs',
+      text: 'e1 i\n  id="edit"\n  class="el-icon-edit"\n  title="编辑"',
+    })
+  })
+
+  it('posts one element\'s whole text', async () => {
+    drive(markupSeat(
+      '<div id="card"><p>one</p><p>two</p></div>',
+      '#card',
+      ref => ({ callId: 'call_1', tool: 'content_read_dom_content', args: { ref } }),
+    ))
+    await settled()
+    expect(postedSnapshot()).toMatchObject({ kind: 'content', text: 'one\ntwo' })
+  })
+
+  it('answers a tree whose one element is wider than the wire with the ref to go further down', async () => {
+    drive(markupSeat(
+      `<div id="host" class="${'c'.repeat(MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE)}"></div>`,
+      '#host',
+      scope => ({ callId: 'call_1', tool: 'content_read_dom', args: { scope } }),
+      MIN_OUTLINE_CHARS,
+    ))
+    await settled()
+    expect(reported()).toEqual({ status: 'error', code: 'frame', message: WIDE_DOM_MESSAGE })
+  })
+
+  it('says how large an element\'s attributes are, and that there is no narrower read of them', async () => {
+    const wide = 'a'.repeat(MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE)
+    drive(markupSeat(
+      `<div id="host" data-note="${wide}"></div>`,
+      '#host',
+      ref => ({ callId: 'call_1', tool: 'content_read_attrs', args: { ref } }),
+      MIN_OUTLINE_CHARS,
+    ))
+    await settled()
+    const outcome = reported()
+    if (outcome.status !== 'error') throw new Error('the seat posted a listing it could not carry')
+    // The size the message names is the whole answer the read would have
+    // posted, not the one attribute that made it too large.
+    const printed = ['e1 div', '  id="host"', `  data-note=${JSON.stringify(wide)}`].join('\n')
+    expect(outcome.message).toBe(wideAttrsMessage(printed.length, 'e1', MIN_OUTLINE_CHARS))
+  })
+
+  it('says how large an element\'s text is, and which call finds a smaller one', async () => {
+    const wide = 'a'.repeat(MIN_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE + 1)
+    drive(markupSeat(
+      `<div id="host">${wide}</div>`,
+      '#host',
+      ref => ({ callId: 'call_1', tool: 'content_read_dom_content', args: { ref } }),
+      MIN_OUTLINE_CHARS,
+    ))
+    await settled()
+    const outcome = reported()
+    if (outcome.status !== 'error') throw new Error('the seat posted a listing it could not carry')
+    expect(outcome.message).toBe(wideTextMessage(wide.length, 'e1', MIN_OUTLINE_CHARS))
+  })
+
+  it('answers a markup read of a stale ref with the reader\'s own refusal', async () => {
+    const frame = mountFrame('<div id="gone">x</div>')
+    const doc = frame.contentWindow?.document
+    const el = doc?.querySelector('#gone')
+    if (el === null || el === undefined) throw new Error('the fixture lost its element')
+    const table = new RefTable()
+    const ref = table.ref(el)
+    el.remove()
+    drive(seatOf({
+      frames: { current: new Map([[FRAME, frame]]) },
+      tables: { current: new Map([[FRAME, table]]) },
+      pending: [{ callId: 'call_1', tool: 'content_read_attrs', args: { ref } }],
+    }))
+    await settled()
+    expect(reported()).toEqual({
+      status: 'error',
+      code: 'engine',
+      message: `ref: "${ref}" names no element on the page now`,
+    })
+  })
+
+  it('withholds nothing of the failures a markup read shares with the listing', async () => {
+    drive(seatOf({ entries: [], pending: [{ callId: 'call_1', tool: 'content_read_dom', args: { scope: 'e1' } }] }))
+    await settled()
+    expect(reported()).toMatchObject({ status: 'error', code: 'empty' })
   })
 })

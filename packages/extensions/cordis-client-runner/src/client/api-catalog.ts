@@ -726,6 +726,10 @@ export const TYPE_API: readonly TypeApiEntry[] = [
     declaration: 'export type PropsStore<H> = H extends StoreHandle<infer T, infer A> ? {\n    useStore: SnapshotSelectorHook<T>;\n    actions: BakedActions<T, A>;\n} : object;',
   },
   {
+    name: 'ReadKind',
+    declaration: 'export type ReadKind = \'outline\' | \'map\' | \'dom\' | \'attrs\' | \'content\';',
+  },
+  {
     name: 'RemoteHostFacts',
     declaration: 'export interface RemoteHostFacts {\n    readonly home: string | undefined;\n    readonly isLoopback: boolean;\n}',
   },
@@ -855,15 +859,11 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'Snapshot',
-    declaration: 'export interface Snapshot {\n    readonly kind: SnapshotMode;\n    readonly header: SnapshotHeader;\n    readonly text: string;\n    readonly truncated: boolean;\n    readonly shown: number;\n    readonly total: number;\n    readonly cursor?: string;\n}',
+    declaration: 'export interface Snapshot {\n    readonly kind: ReadKind;\n    readonly header: SnapshotHeader;\n    readonly text: string;\n    readonly truncated: boolean;\n    readonly shown: number;\n    readonly total: number;\n    readonly cursor?: string;\n}',
   },
   {
     name: 'SnapshotHeader',
     declaration: 'export interface SnapshotHeader {\n    readonly url: string;\n    readonly title: string;\n    readonly modal?: string;\n    readonly signIn: boolean;\n}',
-  },
-  {
-    name: 'SnapshotMode',
-    declaration: 'export type SnapshotMode = \'outline\' | \'map\';',
   },
   {
     name: 'SnapshotSelectorHook',

@@ -8,7 +8,7 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/types
  */
 
-import type { ActArgs, ReadArgs } from './access/wire.ts'
+import type { ActArgs, DomArgs, ElementArgs, ReadArgs } from './access/wire.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
   interface SessionEventMap {
@@ -79,8 +79,9 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
      */
     content: ContentPageView
     /**
-     * The page-channel calls this session has open: every `content_read` and
-     * `content_act` the log recorded without a result yet, in log order. It is
+     * The page-channel calls this session has open: every call of this
+     * channel's tools — the four reads and `content_act` — the log recorded
+     * without a result yet, in log order. It is
      * how the host asks a browser to read or act on the page — no host reaches
      * a browser directly, so the request rides the session's own projection
      * stream and whichever seat is showing that session picks it up.
@@ -137,8 +138,53 @@ export interface ContentActRequest {
   readonly args: ActArgs
 }
 
-/** One open call of either tool, as the seat receives it. */
-export type ContentAccessRequest = ContentReadRequest | ContentActRequest
+/** One `content_read_dom` call still waiting for a browser to answer it. */
+export interface ContentReadDomRequest {
+  /** The call to claim and report against. */
+  readonly callId: string
+  /** The tool that asked; the seat dispatches on it. */
+  readonly tool: 'content_read_dom'
+  /** The subtree to print, and where a cut tree continues from. */
+  readonly args: DomArgs
+}
+
+/** One `content_read_attrs` call still waiting for a browser to answer it. */
+export interface ContentReadAttrsRequest {
+  /** The call to claim and report against. */
+  readonly callId: string
+  /** The tool that asked; the seat dispatches on it. */
+  readonly tool: 'content_read_attrs'
+  /** The element whose attributes to print. */
+  readonly args: ElementArgs
+}
+
+/** One `content_read_dom_content` call still waiting for a browser to answer it. */
+export interface ContentReadDomContentRequest {
+  /** The call to claim and report against. */
+  readonly callId: string
+  /** The tool that asked; the seat dispatches on it. */
+  readonly tool: 'content_read_dom_content'
+  /** The element whose text to print. */
+  readonly args: ElementArgs
+}
+
+/** One open call of any of this channel's tools, as the seat receives it. */
+export type ContentAccessRequest =
+  | ContentReadRequest
+  | ContentActRequest
+  | ContentReadDomRequest
+  | ContentReadAttrsRequest
+  | ContentReadDomContentRequest
+
+/**
+ * One open call of a tool that only reads. The seat answers all four the same
+ * way — claim, wait for the page, walk it, post — and differs only in what it
+ * walks, which is why they share one path and `content_act` does not.
+ */
+export type ContentReadingRequest = Exclude<ContentAccessRequest, ContentActRequest>
+
+/** One open call of a tool that prints the page's own markup. */
+export type ContentMarkupRequest = Exclude<ContentReadingRequest, ContentReadRequest>
 
 /** Whole current value of the `contentAccess` projection. */
 export interface ContentAccessView {

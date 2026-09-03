@@ -49,6 +49,7 @@ import {
 import { PendingCalls, type CallTimeouts } from './access/pending.ts'
 import { contentAccessProjection } from './access/requests-projection.ts'
 import { contentReadTool } from './access/read-tool.ts'
+import { contentReadAttrsTool, contentReadDomContentTool, contentReadDomTool } from './access/markup-tool.ts'
 import { contentActTool } from './access/act-tool.ts'
 import { DialogApprovals } from './access/dialog-approvals.ts'
 import { registerActApproval } from './access/act-approval.ts'
@@ -146,11 +147,13 @@ export interface Config {
    */
   contextFieldChars?: number
   /**
-   * Lets the agent read the page in the column through `content_read` and act
-   * on it through `content_act`. Absent turns the whole channel off: no tools,
-   * no claim or report route, no pending projection, and no reader in the
-   * browser — a deployment that only shows pages does not pay for a capability
-   * it did not ask for. Present with an empty object takes every default below.
+   * Lets the agent read the page in the column — through `content_read`, and
+   * through the three markup reads `content_read_dom`, `content_read_attrs` and
+   * `content_read_dom_content` — and act on it through `content_act`. Absent
+   * turns the whole channel off: no tools, no claim or report route, no pending
+   * projection, and no reader in the browser — a deployment that only shows
+   * pages does not pay for a capability it did not ask for. Present with an
+   * empty object takes every default below.
    */
   pageAccess?: PageAccessConfig
 }
@@ -383,7 +386,8 @@ const CLAIM_ROUTE_NAME = 'the read claim route'
 const REPORT_ROUTE_NAME = 'the read report route'
 
 /**
- * Claim the two read routes, the read tool, and the pending projection.
+ * Claim the two read routes, the four reading tools, the acting tool, and the
+ * pending projection.
  *
  * Every registration lives inside this one call, so a deployment that
  * configures no `pageAccess` has none of them: the routes 404, the model is
@@ -516,7 +520,11 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     const front = (session: Session): FrontEntry | undefined => frontEntry(
       ctx.get('sessionProjections')?.snapshot(session).values.contentSurface,
     )
+    const wait = { pending, timeouts, front }
     toolCtx.tools.register(contentReadTool(pending, timeouts, front))
+    toolCtx.tools.register(contentReadDomTool(wait))
+    toolCtx.tools.register(contentReadAttrsTool(wait))
+    toolCtx.tools.register(contentReadDomContentTool(wait))
     toolCtx.tools.register(contentActTool(pending, actTimeouts, maxSteps, front, approvals))
     registerActApproval(toolCtx, approvals, maxSteps)
   })

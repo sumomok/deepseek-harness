@@ -758,11 +758,13 @@ export interface Config {
    */
   contextFieldChars?: number
   /**
-   * Lets the agent read the page in the column through `content_read` and act
-   * on it through `content_act`. Absent turns the whole channel off: no tools,
-   * no claim or report route, no pending projection, and no reader in the
-   * browser — a deployment that only shows pages does not pay for a capability
-   * it did not ask for. Present with an empty object takes every default below.
+   * Lets the agent read the page in the column — through `content_read`, and
+   * through the three markup reads `content_read_dom`, `content_read_attrs` and
+   * `content_read_dom_content` — and act on it through `content_act`. Absent
+   * turns the whole channel off: no tools, no claim or report route, no pending
+   * projection, and no reader in the browser — a deployment that only shows
+   * pages does not pay for a capability it did not ask for. Present with an
+   * empty object takes every default below.
    */
   pageAccess?: PageAccessConfig
 }

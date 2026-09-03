@@ -27,6 +27,9 @@ const INLINE_TAGS: ReadonlySet<string> = new Set([
   'sub', 'sup', 'time', 'u', 'var', 'wbr',
 ])
 
+/** Controls HTML gives an autofill field name to, which is where `autocomplete` says what a control holds. */
+const AUTOFILL_TAGS: ReadonlySet<string> = new Set(['input', 'select', 'textarea'])
+
 /** Elements whose `disabled` property the page can set. */
 const DISABLEABLE_TAGS: ReadonlySet<string> = new Set(['button', 'fieldset', 'input', 'optgroup', 'option', 'select', 'textarea'])
 
@@ -321,19 +324,24 @@ export function queryInOrder(root: ParentNode, selector: string): Element[] {
 }
 
 /**
- * True for a password box, whose value never leaves the page.
+ * True for a control holding a password, whose value never leaves the page.
  *
  * The type is not the only way a page says so: a box with its own show/hide
  * toggle is a `text` box while the password is showing, and what it holds is
  * declared in `autocomplete` instead — `current-password` or `new-password`.
  * Both are read, because what the rule protects is the credential, not the
  * attribute.
+ *
+ * `autocomplete` is read on every control HTML gives an autofill field to, not
+ * on `input` alone: a `textarea` declaring a password holds one, and holds it
+ * in a text node rather than an attribute, which is where the reads that print
+ * an element's own text would otherwise find it.
  * @param el - the element to classify.
- * @returns whether the element is a password box.
+ * @returns whether the element holds a password.
  */
 export function isPassword(el: Element): boolean {
-  if (el.localName !== 'input') return false
-  if (el.getAttribute('type')?.toLowerCase() === 'password') return true
+  if (!AUTOFILL_TAGS.has(el.localName)) return false
+  if (el.localName === 'input' && el.getAttribute('type')?.toLowerCase() === 'password') return true
   return el.getAttribute('autocomplete')?.toLowerCase().includes('password') ?? false
 }
 

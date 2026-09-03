@@ -104,7 +104,7 @@ describe('the pending-read projection', () => {
     const unit = projection()
     const empty = session()
     expect(unit.key).toBe('contentAccess')
-    expect(unit.stateVersion).toBe(2)
+    expect(unit.stateVersion).toBe(3)
     expect(unit.init(empty.header, empty.inheritedEventCount)).toEqual([])
   })
 
@@ -244,6 +244,26 @@ describe('the pending-read projection', () => {
     expect(warnings[0]).toContain('contentAccess refused its own view')
   })
 
+  it('publishes a call of each of the three markup reads, in both log shapes', () => {
+    const target = session()
+    call(target, 'call_dom', JSON.stringify({ scope: 'e12', after: 'e20' }), 'content_read_dom')
+    call(target, 'call_attrs', JSON.stringify({ ref: 'e12' }), 'content_read_attrs')
+    dispatch(target, 'call_text', { ref: 'e12' }, 'content_read_dom_content')
+    expect(fold(target)).toEqual([
+      { callId: 'call_dom', tool: 'content_read_dom', args: { scope: 'e12', after: 'e20' } },
+      { callId: 'call_attrs', tool: 'content_read_attrs', args: { ref: 'e12' } },
+      { callId: 'call_text', tool: 'content_read_dom_content', args: { ref: 'e12' } },
+    ])
+  })
+
+  it('publishes nothing for a markup call whose arguments no seat could read', () => {
+    const target = session()
+    call(target, 'call_dom', JSON.stringify({ after: 'e20' }), 'content_read_dom')
+    call(target, 'call_attrs', JSON.stringify({ ref: 12 }), 'content_read_attrs')
+    call(target, 'call_text', JSON.stringify({}), 'content_read_dom_content')
+    expect(fold(target)).toEqual([])
+  })
+
   it('accepts the state it produced back from a persisted checkpoint', () => {
     const target = session()
     call(target, 'call_1', JSON.stringify({ mode: 'outline', find: 'Ada' }))
@@ -251,6 +271,9 @@ describe('the pending-read projection', () => {
       steps: [{ action: 'press', ref: 'e4', label: '名称', key: 'Enter' }],
       dialogs: 'cancel',
     }), 'content_act')
+    call(target, 'call_dom', JSON.stringify({ scope: 'e12' }), 'content_read_dom')
+    call(target, 'call_attrs', JSON.stringify({ ref: 'e12' }), 'content_read_attrs')
+    call(target, 'call_text', JSON.stringify({ ref: 'e12' }), 'content_read_dom_content')
     const unit = projection()
     expect(unit.stateSchema.parse(fold(target))).toEqual(fold(target))
   })

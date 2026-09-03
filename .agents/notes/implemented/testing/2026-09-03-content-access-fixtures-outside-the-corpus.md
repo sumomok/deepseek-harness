@@ -24,6 +24,8 @@ Both scenarios replay keyless against the built app and are green, and the Web b
 
 Re-recording them still needs a key and `DSH_SNAPSHOT=record`, and `recordFixture`'s `afterSeed` trim — the reason this line touched the harvest at all — keeps working from either location. [`docs/testing.md`](../../../../docs/testing.md) requires every Web recording to live under `snapshots/web/`: the next time either fixture needs re-recording, it is recorded there with its manifest, and this deviation ends.
 
+**That is what happened.** [The markup reads](../feature/2026-09-03-content-markup-reads.md) changed the tool schemas both scenarios' requests carry, which made re-recording them necessary. That slice records both under `snapshots/web/` with manifests, beside its own two new scenarios, and ends this deviation; until those recordings and manifests land, the decision below still describes the tree.
+
 ## Alternatives considered
 
 **Move the fixtures and author minimal manifests in this merge.** A manifest whose `composition` and `header` were written to satisfy the enumerator rather than measured against a recording is a pin that pins nothing, and the corpus would then report two scenarios as covered that no recording backs.

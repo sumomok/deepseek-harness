@@ -22,42 +22,25 @@
  * The application under the steps is this scenario's own — `tests/fixtures/
  * act-app` — because the read scenario's fixture is a page nothing happens on,
  * and a click has to change something for the last assertion to mean anything.
- *
- * An experimental package cannot be a dependency of `apps/web`, so the profile
- * links the loader resolves the rows through are created here rather than by
- * `healProfilesModuleFallback`.
  */
 
 import { existsSync } from 'node:fs'
-import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { fileURLToPath } from 'node:url'
-import type { Browser, Page } from 'playwright'
-import { chromium } from 'playwright'
+import { readFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import type { Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import {
-  fixtureUserPrompts, launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode,
-  type WebScaffold,
+  fixtureUserPrompts, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
-import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
+import { COMPOSER, FRAME_DIR, fixtureFor, openContentColumn, toolResults } from './content-column.ts'
+import { saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('./snapshots/content-act/session.jsonl', import.meta.url))
-const SEED = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
-const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
-const OVERLAY = join(FRAME_DIR, 'overlay/content-column.patch.yml')
-/** Every experimental row the overlay inserts, as package name and source directory. */
-const ROWS = [
-  ['@deepseek-ai/dsh-experimental-server-layout', join(REPO_ROOT, 'packages/experimental/server-layout')],
-  ['@deepseek-ai/dsh-experimental-content-surface', join(REPO_ROOT, 'packages/experimental/content-surface')],
-  ['@deepseek-ai/dsh-experimental-content-column', join(REPO_ROOT, 'packages/experimental/content-column')],
-  ['@deepseek-ai/dsh-experimental-content-frame', FRAME_DIR],
-] as const
+const SCENARIO = 'content-act'
+const FIXTURE = fixtureFor(SCENARIO)
 /** The hosted application these steps run against; the overlay reads it from the environment. */
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/act-app')
-const SEEDED_SESSION = 'content-act-web-e2e'
 
 /**
  * Whether this scenario's recording is on disk. A replay run without it is
@@ -67,9 +50,6 @@ const SEEDED_SESSION = 'content-act-web-e2e'
  * tree this is always true.
  */
 const RECORDED = existsSync(FIXTURE)
-
-/** The composer's own input, whose presence is the signal that a session is open. */
-const COMPOSER = '[data-composer-input]'
 
 /** What the user asks. Deliberately about the page, never about the tool. */
 const PROMPT = '把内容区那个表单里的机器名改成 mill-09，然后点添加；再点一下页面上那个没有名字的红色小图标'
@@ -94,101 +74,21 @@ const AFTER = 'mill-09'
 /** What the page says once the unnamed command has run, whatever order the steps came in. */
 const TRIMMED = 'Extra machines: cleared'
 
-/**
- * Prepare a harness home whose profile fallback resolves every experimental row.
- * @returns the harness home the scaffold should adopt.
- */
-async function harnessHomeWithRowLinks(): Promise<string> {
-  const home = await mkdtemp(join(tmpdir(), 'dsh-content-act-'))
-  const scope = join(home, 'profiles', 'node_modules', '@deepseek-ai')
-  await mkdir(scope, { recursive: true })
-  for (const [packageName, dir] of ROWS) {
-    await symlink(dir, join(scope, packageName.slice('@deepseek-ai/'.length)), 'dir')
-  }
-  return home
-}
-
-/**
- * Splice one `content/shown` event into a recorded session, before its closing turn.
- * @param fixtureText - the committed seed fixture.
- * @param shown - the page id the agent showed.
- * @returns the fixture text to seed.
- */
-function withShownPage(fixtureText: string, shown: string): string {
-  const lines = fixtureText.split('\n')
-  const closing = lines.findIndex(line => line.includes('"type":"turn/end"'))
-  if (closing === -1) throw new Error('seed fixture has no turn/end to splice before')
-  return [
-    ...lines.slice(0, closing),
-    JSON.stringify({ type: 'content/shown', data: { page: shown } }),
-    ...lines.slice(closing),
-  ].join('\n')
-}
-
-/** Open the sidebar's nth session row and wait for its composer. */
-async function openSession(page: Page, index: number): Promise<void> {
-  const row = page.locator('[role="treeitem"]').nth(index)
-  await row.waitFor({ timeout: 15_000 })
-  await row.click()
-  await page.locator(COMPOSER).first().waitFor({ timeout: 15_000 })
-}
-
-/** The model-facing text of every `content_act` result the log recorded. */
-function actResults(events: readonly SessionEvent[]): string[] {
-  const calls = new Set(events.flatMap(event => (
-    event.type === 'tool/call' && event.data.name === 'content_act' ? [String(event.data.callId)] : []
-  )))
-  return events.flatMap((event) => {
-    if (event.type !== 'tool/result') return []
-    if (!calls.has(String(event.data.message.source.callId))) return []
-    return event.data.message.content[0].content.flatMap(
-      block => (block.type === 'text' ? [block.text] : []),
-    )
-  })
-}
-
 describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the page in the content column', () => {
   let scaffold: WebScaffold
-  let browser: Browser
   let page: Page
-  let harnessHome: string
   let tripwire: ReturnType<typeof watchConsole>
+  let close: () => Promise<void>
   const sessionEvents: SessionEvent[] = []
-  const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
 
   beforeAll(async () => {
-    harnessHome = await harnessHomeWithRowLinks()
-    if (MODE === 'record') await mkdir(dirname(FIXTURE), { recursive: true })
-    // The overlay's `!!js` expression resolves against this process, which is
-    // where the scaffold runs the Loader.
-    process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
-    scaffold = await launchWebScaffold({
-      harnessHome,
-      extraOverlayPath: OVERLAY,
-      ...(MODE === 'record' ? {} : { replayFixture: FIXTURE, paceMs: 15 }),
-    })
-    scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { sessionEvents.push(event) })
-    await seedSession(scaffold, withShownPage(await readFile(SEED, 'utf8'), 'home'), SEEDED_SESSION)
-
-    browser = await chromium.launch()
-    page = await newEnglishPage(browser)
-    tripwire = watchConsole(page)
-    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
-    await page.locator('[data-shell-column="content"]').waitFor({ state: 'attached', timeout: 30_000 })
-    await page.locator('[role="treeitem"]').first().click()
-    await openSession(page, 1)
-    // The steps run against the page in front of the user, so the frame has to
-    // be showing it before the turn starts.
-    await page.frameLocator('iframe[data-content-frame][data-content-active]')
-      .locator('#fixture-heading').waitFor({ timeout: 30_000 })
+    ({ close, page, scaffold, tripwire } = await openContentColumn({
+      scenario: SCENARIO, appRoot: APP_ROOT, events: sessionEvents,
+    }))
   }, 180_000)
 
   afterAll(async () => {
-    await browser?.close()
-    await scaffold?.close()
-    await rm(harnessHome, { recursive: true, force: true })
-    if (inheritedAppRoot === undefined) delete process.env.DSH_CONTENT_APP_ROOT
-    else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
+    await close?.()
   })
 
   it('runs the steps a user approved, and answers with what the page became', async () => {
@@ -261,7 +161,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the 
     expect(reasons.some(text => text.includes(AFTER))).toBe(true)
     expect(reasons.some(text => text.includes(`点标为「class: ${ROW_MARK}」的无名控件`))).toBe(true)
 
-    const answers = actResults(sessionEvents)
+    const answers = toolResults(sessionEvents, 'content_act')
     // How many calls it takes is the model's to choose — a read first, then the
     // steps, or the steps split in two — so what is pinned is what every one of
     // them promises rather than how many there were.

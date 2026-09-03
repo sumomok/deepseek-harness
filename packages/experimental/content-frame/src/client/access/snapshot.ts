@@ -9,11 +9,15 @@
  * never its contents, and rows arrive only when a read asks for that table by
  * ref or searches for one by its text. A password box reports that it is there
  * and never what it holds.
+ *
+ * It also holds the three things every read of the page shares, markup reads
+ * included: what the page is above whatever is printed of it, the lookup that
+ * turns a ref into an element, and the assembly of the two into one answer.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/snapshot
  */
 import { DIALOG_SELECTOR, containerName, isSkipped, queryInOrder, readableDocuments } from './dom.ts'
 import { collect } from './collect.ts'
-import { render } from './render.ts'
+import { render, type Listing } from './render.ts'
 import type { RefTable } from './refs.ts'
 import type { Snapshot, SnapshotHeader, SnapshotOptions } from './model.ts'
 
@@ -33,14 +37,16 @@ const SIGN_IN_SCOPE = [
 ].join(', ')
 
 /**
- * The element one ref names, or a refusal the model can act on.
+ * The element one ref names, or a refusal the model can act on. Shared by every
+ * read that takes a ref, so a stale one is answered the same sentence whichever
+ * tool asked.
  * @param option - the option that carried the ref, named as the model wrote it.
  * @param ref - the ref to resolve.
  * @param refs - the page's numbering.
  * @returns the element.
  * @throws {Error} when the ref names nothing on the page any more.
  */
-function resolveOrThrow(option: string, ref: string, refs: RefTable): Element {
+export function resolveRef(option: string, ref: string, refs: RefTable): Element {
   const el = refs.resolve(ref)
   if (el === undefined) throw new Error(`${option}: "${ref}" names no element on the page now`)
   return el
@@ -95,18 +101,40 @@ function asksToSignIn(documents: readonly Document[], isVisible: (el: Element) =
  * What the page is, read across every frame it is built from rather than from
  * the root document alone: an application hosted in a frame keeps its title bar
  * and its dialogs inside that frame.
+ *
+ * Every read of the page takes it, the markup reads included: the sign-in
+ * verdict is what withholds a credential form from all four, and a read that
+ * computed it its own way would be the way around that.
  * @param root - the root document.
- * @param options - the read's options.
+ * @param isVisible - injected visibility.
  * @returns the header.
  */
-function readHeader(root: Document, options: SnapshotOptions): SnapshotHeader {
+export function pageHeader(root: Document, isVisible: (el: Element) => boolean): SnapshotHeader {
   const documents = readableDocuments(root)
-  const modal = openDialogName(documents, options.isVisible)
+  const modal = openDialogName(documents, isVisible)
   return {
     url: root.URL,
     title: root.title,
     ...(modal === undefined ? {} : { modal }),
-    signIn: asksToSignIn(documents, options.isVisible),
+    signIn: asksToSignIn(documents, isVisible),
+  }
+}
+
+/**
+ * One read, from what it found above the page and what it printed of it.
+ * @param header - what the page is.
+ * @param listing - the rendered answer.
+ * @returns the read the seat posts.
+ */
+export function readOf(header: SnapshotHeader, listing: Listing): Snapshot {
+  return {
+    kind: listing.kind,
+    header,
+    text: listing.text,
+    truncated: listing.truncated,
+    shown: listing.shown,
+    total: listing.total,
+    ...(listing.cursor === undefined ? {} : { cursor: listing.cursor }),
   }
 }
 
@@ -121,16 +149,7 @@ function readHeader(root: Document, options: SnapshotOptions): SnapshotHeader {
  */
 export function snapshot(root: Document, options: SnapshotOptions): Snapshot {
   options.refs.sweep()
-  const scope = options.scope === undefined ? undefined : resolveOrThrow('scope', options.scope, options.refs)
-  if (options.after !== undefined) resolveOrThrow('after', options.after, options.refs)
-  const listing = render(collect(root, options, scope), options, scope)
-  return {
-    kind: listing.kind,
-    header: readHeader(root, options),
-    text: listing.text,
-    truncated: listing.truncated,
-    shown: listing.shown,
-    total: listing.total,
-    ...(listing.cursor === undefined ? {} : { cursor: listing.cursor }),
-  }
+  const scope = options.scope === undefined ? undefined : resolveRef('scope', options.scope, options.refs)
+  if (options.after !== undefined) resolveRef('after', options.after, options.refs)
+  return readOf(pageHeader(root, options.isVisible), render(collect(root, options, scope), options, scope))
 }

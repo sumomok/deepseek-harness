@@ -14,7 +14,8 @@ import { describe, expect, it } from 'vitest'
 import {
   isActOutcome, MAX_ACT_STEPS, MAX_ACT_TEXT_CHARS, MAX_BUSY_NAMES, MAX_HEADER_CHARS, MAX_NAME_CHARS,
   MAX_OUTCOME_MESSAGE_CHARS,
-  MAX_TEXT_BYTES_PER_CHAR, parseActArgs, parseChannelReport, parseClaimRequest, REPORT_ENVELOPE_BYTES,
+  MAX_TEXT_BYTES_PER_CHAR, parseActArgs, parseChannelReport, parseClaimRequest, parseDomArgs,
+  parseElementArgs, REPORT_ENVELOPE_BYTES,
   REPORT_SYNTAX_BYTES, sanitize, type ActOutcome, type ReadOutcome,
 } from '../src/access/wire.ts'
 
@@ -472,6 +473,30 @@ describe('what a browser half may be asked to run', () => {
       { steps: Array.from({ length: MAX_ACT_STEPS + 1 }, () => ({ action: 'click', ref: 'e5', label: 'Go' })) },
     ]) {
       expect({ args, parsed: parseActArgs(args) }).toEqual({ args, parsed: undefined })
+    }
+  })
+})
+
+describe('reading one markup call\'s arguments', () => {
+  it('takes a subtree with and without a cursor', () => {
+    expect(parseDomArgs({ scope: 'e12' })).toEqual({ scope: 'e12' })
+    expect(parseDomArgs({ scope: 'e12', after: 'e20' })).toEqual({ scope: 'e12', after: 'e20' })
+    // The tool refuses a scope that is not a ref with a sentence naming the
+    // parameter; this reading is what a browser and the pending projection get,
+    // and shape is the whole of what they can check.
+    expect(parseDomArgs({ scope: 'twelve' })).toEqual({ scope: 'twelve' })
+  })
+
+  it('refuses a subtree call no seat could answer', () => {
+    for (const args of [undefined, null, 'e12', {}, { after: 'e20' }, { scope: 12 }, { scope: 'e12', after: 20 }]) {
+      expect({ args, parsed: parseDomArgs(args) }).toEqual({ args, parsed: undefined })
+    }
+  })
+
+  it('takes a single-element call, and refuses one naming no element', () => {
+    expect(parseElementArgs({ ref: 'e12' })).toEqual({ ref: 'e12' })
+    for (const args of [undefined, null, 'e12', {}, { ref: 12 }, { scope: 'e12' }]) {
+      expect({ args, parsed: parseElementArgs(args) }).toEqual({ args, parsed: undefined })
     }
   })
 })
