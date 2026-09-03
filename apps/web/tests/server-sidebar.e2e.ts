@@ -57,13 +57,19 @@ const OVERLAY = fileURLToPath(new URL('./server-sidebar.overlay.yml', import.met
 /** Identical to {@link OVERLAY}, plus content-frame's `homePage` config. */
 const HOMEPAGE_OVERLAY = fileURLToPath(new URL('./server-sidebar-homepage.overlay.yml', import.meta.url))
 const FRAME_DIR = join(REPO_ROOT, 'packages/experimental/content-frame')
-/** Every experimental row the overlay inserts, as package name and source directory. */
+/**
+ * Every experimental package the overlay's rows need resolvable, as package name
+ * and source directory. Most are inserted by name; `library-skills` is instead
+ * named by the `bundledSkillDir` expression of the overlay's `skill-filesystem`
+ * row, which resolves it from the profile the same way.
+ */
 const ROWS = [
   ['@deepseek-ai/dsh-experimental-server-layout', join(REPO_ROOT, 'packages/experimental/server-layout')],
   ['@deepseek-ai/dsh-experimental-content-surface', join(REPO_ROOT, 'packages/experimental/content-surface')],
   ['@deepseek-ai/dsh-experimental-content-column', join(REPO_ROOT, 'packages/experimental/content-column')],
   ['@deepseek-ai/dsh-experimental-content-frame', FRAME_DIR],
   ['@deepseek-ai/dsh-experimental-server-sidebar', join(REPO_ROOT, 'packages/experimental/server-sidebar')],
+  ['@deepseek-ai/dsh-experimental-library-skills', join(REPO_ROOT, 'packages/experimental/library-skills')],
 ] as const
 /** The hosted application this scenario serves; the overlay reads it from the environment. */
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
