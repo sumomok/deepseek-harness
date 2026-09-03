@@ -26,9 +26,9 @@ Status: implemented
 
 `pnpm-workspace.yaml` 中的 `@deepseek-ai/dsh-client-runtime` override 已删除。`pnpm install` 零 `ERR_PNPM_NO_MATCHING_VERSION` 通过。
 
-## 仍有两个范围外插件引入了这个已退役的包名
+## 本决定范围外的那两个插件已不再引入这个已退役的包名
 
-`pnpm why @deepseek-ai/dsh-client-runtime` 并非空:`dsh-at-file`(GitHub release tarball 依赖,peer 为 `*`)与 `dsh-better-sidebar`(npm 依赖,peer 为 `^0.1.0-rc.8`)各自在其自己发布的 manifest 里仍声明了对这个已退役包名的可选 peer。这两者都不属于本决定覆盖的九个 `apps/desktop-server/vendor/*.tgz` 第三方插件——它们是各自独立维护的上游项目,通过自己的安装机制(GitHub ref / 注册表版本)接入,而非本仓库构建的 vendor tarball。override 删除后,pnpm 会自行把两者的 peer 都解析到真实的、仍在注册表上的 `0.1.1-rc.2`;安装成功,且本仓库没有任何源码引入这个被解析出来的包——这与已退役 override 自己的注释里"引用仅限于随附的 `.d.ts` 文件"这一事实完全一致。重新 vendor 或以其他方式修复这两个插件自己声明的 peer,超出本笔记范围,亦未被本笔记跟踪。
+`pnpm why @deepseek-ai/dsh-client-runtime` 是空的。`dsh-at-file` 与 `dsh-better-sidebar` 是各自独立维护的上游项目,不是本仓库构建的插件,因而在本决定覆盖的九个之外;如今它们也各因自己的理由,成了 `apps/desktop-server/vendor/` 下的 vendor tarball。`dsh-better-sidebar` 的 manifest 里已完全不再出现这个已退役的包名;`dsh-at-file` 的 manifest 仍把它声明为可选 peer,`pnpm-lock.yaml` 记下了这条声明,却没有任何东西去安装它——因为 pnpm 从不自动安装可选 peer,而本工作区没有任何包依赖这个名字。本笔记当初不打算加的那条窄 override,现在依然不需要。[vendored plugin reference gate](2026-09-03-vendored-plugin-reference-gate.zh.md) 负责其中每一份归档如何命名,以及如何与复述它的那些文档保持一致。
 
 ## 权衡过的替代方案
 
@@ -38,4 +38,4 @@ Status: implemented
 
 ## 后果
 
-临时桥接已经拆除:`apps/desktop-server` 的九个 vendor 插件现在全部依赖真实的、当前的包名,不再有一条覆盖全工作区的 override 替一个 `pnpm-workspace.yaml` 自己的注释都已点名已退役的包顶着。代价是仍有两条来自无关第三方插件的 `dsh-client-runtime` peer 残留,本决定是明知故留——它们今天能无害地解析通过,而是否处理它们,是留给那两个插件各自下一次重新 vendor 时才需要做的、独立的后续决定,不是本决定自身留下的缺口。
+临时桥接已经拆除:`apps/desktop-server` 的九个 vendor 插件现在全部依赖真实的、当前的包名,不再有一条覆盖全工作区的 override 替一个 `pnpm-workspace.yaml` 自己的注释都已点名已退役的包顶着。代价是 `dsh-at-file` 仍带着那条 `dsh-client-runtime` 可选 peer 声明,本决定是明知故留——没有任何东西会去解析它,而是否处理它属于那个插件自己的上游,不属于本决定。

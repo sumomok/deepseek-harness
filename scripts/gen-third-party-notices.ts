@@ -61,10 +61,12 @@ export function isOwnerAuthorizedRuntime(name: string): boolean {
 }
 
 /**
- * Metadata overrides where the installed manifest is wrong or unreachable.
- * Each entry documents why the store cannot answer.
+ * Metadata overrides, admitted on either of two grounds: the installed manifest
+ * is wrong or unreachable, or this payload ships an archive rather than any
+ * upstream a manifest could name, so the notice must point at the archive.
+ * Each entry's comment says which ground it stands on.
  */
-const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
+export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   // Rust workspaces publishing npm bins without `license` in package.json.
   'oxlint': { license: 'MIT', repo: 'https://github.com/oxc-project/oxc' },
   'oxlint-tsgolint': { license: 'MIT', repo: 'https://github.com/oxc-project/tsgolint' },
@@ -74,12 +76,12 @@ const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@modelcontextprotocol/server-filesystem': { license: 'MIT / Apache-2.0', repo: 'https://github.com/modelcontextprotocol/servers' },
   // No repository field in the published manifest.
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
-  // Declared as a GitHub release tarball, which carries no repository field.
+  // Vendored tarball whose manifest carries no repository field.
   'dsh-at-file': { repo: 'https://github.com/omdsh-dev/dsh-at-file' },
-  // Unpublished and vendored as tarballs, so the archives committed here are the
-  // only source of record there is to name.
-  '@haoran/dsh-clickable-refs': { repo: 'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.0.tgz' },
-  '@haoran/dsh-connection-banner': { repo: 'apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.0.tgz' },
+  // Vendored as tarballs; the archive committed here, not a registry version, is
+  // the artifact this payload ships, so the archive is what the notice names.
+  '@haoran/dsh-clickable-refs': { repo: 'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz' },
+  '@haoran/dsh-connection-banner': { repo: 'apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.1.tgz' },
   '@haoran/dsh-default-model': { repo: 'apps/desktop-server/vendor/haoran-dsh-default-model-0.1.2.tgz' },
   '@haoran/dsh-llm-permission-gateway': { repo: 'apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.5.tgz' },
   '@haoran/dsh-plugin-updates': { repo: 'apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.0.tgz' },
