@@ -7,11 +7,14 @@
   },
   "files": [
     "src/client/Dialog.tsx",
+    "src/client/byte-size.ts",
     "src/client/HeaderAction.tsx",
     "src/client/controller.ts",
     "src/client/index.ts",
     "src/client/locales.ts",
-    "src/css-modules.d.ts"
+    "src/client/progress.ts",
+    "src/css-modules.d.ts",
+    "src/export-extent.ts"
   ],
   "references": [
     { "path": "../../../vendor/cordis" },

@@ -32,6 +32,7 @@ import { sessionFormatLogFilename } from '@deepseek-ai/dsh-session-format'
 import type { SessionEvent, SessionHeader, SessionId, SessionStore } from '@deepseek-ai/dsh-session'
 import type { SessionHandle, SessionPersistence } from '@deepseek-ai/dsh-session-persistence'
 import { SessionPersistenceNotFoundError } from '@deepseek-ai/dsh-session-persistence'
+import type { SessionLogExportExtent } from './export-extent.ts'
 
 /** Valid fflate DEFLATE levels accepted by session-log export. */
 export type SessionLogCompressionLevel = 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9
@@ -311,14 +312,81 @@ export function sessionLogZipFilename(sessionId: string): string {
   return `dsh-session-${safeSessionIdSegment(sessionId)}.zip`
 }
 
+/** One exported session log: its archive path and the canonical JSONL text. */
+interface SessionLogTextEntry {
+  readonly path: string
+  readonly content: string
+}
+
 /**
- * Yield the export entries in zip order: the preloaded root log first, then
- * every subagent descendant in lineage order (each flushed when live, read
- * through a persistence read handle right before it is yielded, and dropped
- * after the consumer moves on), then every distinct attachment referenced by
- * the included logs. Images are read and verified as bounded stored objects;
- * generic files remain streamed through the ZIP writer. The host holds at most
- * one descendant log, one image, and one file chunk beyond the root.
+ * Yield the archive's log entries in zip order — the preloaded root log first,
+ * then every subagent descendant in lineage order (each flushed when live,
+ * read through a persistence read handle right before it is yielded, and
+ * dropped after the consumer moves on) — while filling `media` and `files`
+ * with every distinct attachment reference those logs name. The traversal
+ * holds at most one descendant's log text at a time beyond the root; the entry
+ * stream and the extent measurement share it so the two cannot disagree about
+ * what an export contains.
+ * @param deps - the mounted export services (the caller answered 500 before this runs).
+ * @param rootContent - the already-serialized root log.
+ * @param sessionId - the root session id.
+ * @param includeDescendants - whether to include every subagent descendant.
+ * @param media - dedupe map filled with the referenced images, keyed by attachment id.
+ * @param files - dedupe map filled with the referenced generic files, keyed by attachment id.
+ * @param signal - optional cancellation forwarded to lineage and persistence reads.
+ * @returns the log entries in zip order.
+ */
+async function* sessionLogTextEntries(
+  deps: SessionLogExportReady,
+  rootContent: string,
+  sessionId: SessionId,
+  includeDescendants: boolean,
+  media: Map<string, ImageAttachmentRef>,
+  files: Map<string, FileAttachmentRef>,
+  signal?: AbortSignal,
+): AsyncGenerator<SessionLogTextEntry> {
+  const rememberAttachments = (content: string): void => {
+    const refs = attachmentRefsInArtifact(content)
+    for (const [id, ref] of refs.images) media.set(id, ref)
+    for (const [id, ref] of refs.files) files.set(id, ref)
+  }
+  rememberAttachments(rootContent)
+  yield { path: SESSION_LOG_FILENAME, content: rootContent }
+  if (!includeDescendants) return
+  const seen = new Set<SessionId>([sessionId])
+  const collect = async function* (
+    nodes: readonly SessionLineageNode[],
+  ): AsyncGenerator<SessionLogTextEntry> {
+    for (const node of nodes) {
+      signal?.throwIfAborted()
+      const id = node.session.header.id
+      if (seen.has(id)) continue
+      seen.add(id)
+      await flushLiveSessionLog(deps, id, signal)
+      const content = await readSessionLogText(deps.sessionPersistence, id, signal)
+      signal?.throwIfAborted()
+      if (content === undefined) {
+        throw new Error(`subagent "${id}" has no stored log`)
+      }
+      rememberAttachments(content)
+      yield {
+        path: `subagents/${safeSessionIdSegment(id)}/${SESSION_LOG_FILENAME}`,
+        content,
+      }
+      yield* collect(node.descendants)
+    }
+  }
+  const lineage = await deps.sessionQuery.traceSession(sessionId, signal)
+  signal?.throwIfAborted()
+  yield* collect(lineage.descendants)
+}
+
+/**
+ * Yield the export entries in zip order: every session log, then every
+ * distinct attachment those logs reference. Images are read and verified as
+ * bounded stored objects; generic files remain streamed through the ZIP
+ * writer. The host holds at most one descendant log, one image, and one file
+ * chunk beyond the root.
  * @param deps - the mounted export services (the caller answered 500 before this runs).
  * @param rootContent - the already-serialized root log (read by the caller so
  * the missing-session path can answer cleanly before streaming starts).
@@ -336,41 +404,7 @@ export async function* sessionLogZipEntries(
 ): AsyncGenerator<SessionLogZipEntry> {
   const media = new Map<string, ImageAttachmentRef>()
   const files = new Map<string, FileAttachmentRef>()
-  const rememberAttachments = (content: string): void => {
-    const refs = attachmentRefsInArtifact(content)
-    for (const [id, ref] of refs.images) media.set(id, ref)
-    for (const [id, ref] of refs.files) files.set(id, ref)
-  }
-  rememberAttachments(rootContent)
-  yield { path: SESSION_LOG_FILENAME, content: rootContent }
-  if (includeDescendants) {
-    const seen = new Set<SessionId>([sessionId])
-    const collect = async function* (
-      nodes: readonly SessionLineageNode[],
-    ): AsyncGenerator<SessionLogZipEntry> {
-      for (const node of nodes) {
-        signal?.throwIfAborted()
-        const id = node.session.header.id
-        if (seen.has(id)) continue
-        seen.add(id)
-        await flushLiveSessionLog(deps, id, signal)
-        const content = await readSessionLogText(deps.sessionPersistence, id, signal)
-        signal?.throwIfAborted()
-        if (content === undefined) {
-          throw new Error(`subagent "${id}" has no stored log`)
-        }
-        rememberAttachments(content)
-        yield {
-          path: `subagents/${safeSessionIdSegment(id)}/${SESSION_LOG_FILENAME}`,
-          content,
-        }
-        yield* collect(node.descendants)
-      }
-    }
-    const lineage = await deps.sessionQuery.traceSession(sessionId, signal)
-    signal?.throwIfAborted()
-    yield* collect(lineage.descendants)
-  }
+  yield* sessionLogTextEntries(deps, rootContent, sessionId, includeDescendants, media, files, signal)
   for (const ref of media.values()) {
     signal?.throwIfAborted()
     const stored = await deps.attachments.readImage(ref, signal)
@@ -384,6 +418,80 @@ export async function* sessionLogZipEntries(
       chunks: deps.attachments.readFileStream(ref, signal),
     }
   }
+}
+
+/**
+ * Share of its uncompressed size that one session log occupies on the wire
+ * once deflated. Calibrated from real exports: the seeded fixtures land at
+ * 0.13, and canonical session JSONL sits in the 0.13-0.15 band across the
+ * levels above 0. It is a measured property of this one text shape, not a
+ * deployment choice — it only scales a progress bar, and the package README
+ * states how the bar behaves when a particular archive compresses harder or
+ * softer than the calibration.
+ */
+const TEXT_DEFLATE_RATIO = 0.14
+
+/**
+ * Share of its uncompressed size one entry occupies on the wire.
+ * @param compressionLevel - the resolved DEFLATE level for every ZIP entry.
+ * @param compressible - whether the entry is session-log text; a stored
+ * attachment is already-compressed or opaque data that deflate leaves at
+ * roughly its stored size.
+ * @returns the multiplier from uncompressed bytes to wire bytes.
+ */
+function wireRatio(compressionLevel: SessionLogCompressionLevel, compressible: boolean): number {
+  // Level 0 stores, so every entry reaches the wire at its uncompressed size.
+  if (compressionLevel === 0) return 1
+  return compressible ? TEXT_DEFLATE_RATIO : 1
+}
+
+/**
+ * Measure what the export will contain before any byte is produced: the entry
+ * count, the summed uncompressed entry size, and an estimate of the bytes the
+ * response body will carry. Log sizes are the exact UTF-8 length of the text
+ * the stream pushes; attachment sizes are each reference's recorded `bytes`,
+ * so measuring re-reads the descendant logs but never re-reads a stored
+ * attachment. Not reading them is also why an attachment the stream turns out
+ * to be unable to read is counted here at its recorded size rather than at the
+ * few hundred bytes its `.error.txt` record occupies: the entry count is exact
+ * either way, and the size totals read high for that entry.
+ * The wire estimate scales those sizes by {@link wireRatio} and ignores ZIP
+ * framing, which is tens of bytes per entry.
+ * @param deps - the mounted export services (the caller answered 500 before this runs).
+ * @param rootContent - the already-serialized root log.
+ * @param sessionId - the root session id.
+ * @param includeDescendants - whether to include every subagent descendant.
+ * @param compressionLevel - the resolved DEFLATE level, which decides the wire ratio.
+ * @param signal - optional cancellation forwarded to lineage and persistence reads.
+ * @returns the archive's entry count, uncompressed byte total, and estimated wire size.
+ */
+export async function measureSessionLogZip(
+  deps: SessionLogExportReady,
+  rootContent: string,
+  sessionId: SessionId,
+  includeDescendants: boolean,
+  compressionLevel: SessionLogCompressionLevel,
+  signal?: AbortSignal,
+): Promise<SessionLogExportExtent> {
+  const media = new Map<string, ImageAttachmentRef>()
+  const files = new Map<string, FileAttachmentRef>()
+  const encoder = new TextEncoder()
+  let entries = 0
+  let bytes = 0
+  let estimatedWireBytes = 0
+  const logs = sessionLogTextEntries(deps, rootContent, sessionId, includeDescendants, media, files, signal)
+  for await (const entry of logs) {
+    entries += 1
+    const size = encoder.encode(entry.content).byteLength
+    bytes += size
+    estimatedWireBytes += size * wireRatio(compressionLevel, true)
+  }
+  for (const ref of [...media.values(), ...files.values()]) {
+    entries += 1
+    bytes += ref.bytes
+    estimatedWireBytes += ref.bytes * wireRatio(compressionLevel, false)
+  }
+  return { entries, bytes, estimatedWireBytes: Math.round(estimatedWireBytes) }
 }
 
 /** How many code units of Session-log text one zip push carries (bounded encode memory). */

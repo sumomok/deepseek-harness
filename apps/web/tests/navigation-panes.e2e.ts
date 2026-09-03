@@ -295,15 +295,21 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     }
     expect(headerBox.x + headerBox.width - (buttonBox.x + buttonBox.width)).toBeLessThanOrEqual(32)
     const responsePromise = page.waitForResponse(response =>
-      response.request().method() === 'HEAD'
+      response.request().method() === 'GET'
       && new URL(response.url()).pathname === '/api/session.export', { timeout: 30_000 })
     const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
     await exportButton.click()
     const response = await responsePromise
     expect(response.status()).toBe(200)
+    // The page reads the archive itself, so the route announces the extent it
+    // scales its progress bar by before the first archive byte.
+    const extent = await response.allHeaders()
+    expect(Number(extent['x-session-export-entries'])).toBe(1)
+    expect(Number(extent['x-session-export-bytes'])).toBeGreaterThan(0)
+    expect(Number(extent['x-session-export-estimated-wire-bytes'])).toBeGreaterThan(0)
     const download = await downloadPromise
     expect(download.suggestedFilename()).toMatch(/^dsh-session-.+\.zip$/)
-    const dialog = page.getByRole('dialog', { name: 'Session download started' })
+    const dialog = page.getByRole('dialog', { name: 'Export complete' })
     await dialog.waitFor({ timeout: 30_000 })
     // The real host streamed the ZIP; its root entry is the persisted log
     // text verbatim (the assembled seam: real route, real persistence read).
@@ -356,12 +362,12 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       const exportDone = slashEvents.find(event =>
         event.type === 'command/done' && event.data.commandId === exportRun.data.commandId)
       expect(exportDone?.type).toBe('command/done')
-      await page.getByRole('dialog', { name: 'Session download started' }).waitFor({ timeout: 30_000 })
-      await page.getByRole('dialog', { name: 'Session download started' })
+      await page.getByRole('dialog', { name: 'Export complete' }).waitFor({ timeout: 30_000 })
+      await page.getByRole('dialog', { name: 'Export complete' })
         .getByText('Close', { exact: true }).click()
       await observer.getByText('Session log download requested.', { exact: true }).waitFor({ timeout: 30_000 })
       expect(observerDownloads).toBe(0)
-      expect(await observer.getByRole('dialog', { name: 'Session download started' }).count()).toBe(0)
+      expect(await observer.getByRole('dialog', { name: 'Export complete' }).count()).toBe(0)
       expect({
         pageErrors: observerTripwire.pageErrors,
         slotErrors: observerSlotErrors,

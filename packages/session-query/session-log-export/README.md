@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`dsh-session-log-export` lets the Web interface download a session's full history: a `Session log` button in the Session Header and an `/export` slash command both hand the session tree — the session, its sub-sessions, and attachments — to the browser as a ZIP download. The package owns the Host archive stream, its authenticated Fetch route, and the browser controls and feedback. The browser chooses the download destination. Setup and usage come first; implementation details follow.
+`dsh-session-log-export` lets the Web interface download a session's full history: a `Session log` button in the Session Header and an `/export` slash command both hand the session tree — the session, its sub-sessions, and attachments — to the browser as a ZIP download. The package owns the Host archive stream, its authenticated Fetch route, and the browser controls and feedback. The page reads the archive itself and shows how far it has come, so an export's advance and any mid-transfer failure are visible without a browser download manager; the browser still chooses where the finished archive lands. Setup and usage come first; implementation details follow.
 
 ## Table of Contents
 
@@ -53,13 +53,26 @@ The Web bundle mounts the package with Connection, `dsh-commands`, `dsh-client-u
 | `/export` | Records a human-command lifecycle; the submitting browser downloads `GET /api/session.export?sessionId=<id>&includeDescendants=true` |
 | `/export <path>` | An error; browser downloads choose their destination through the browser's ordinary download behavior |
 
+### Route response fields
+
+| Field | Meaning |
+|---|---|
+| `Content-Disposition` | `attachment` with the archive filename, `dsh-session-<id>.zip`. |
+| `X-Session-Export-Entries` | ZIP entries the archive holds: one per included session log, one per referenced media object. |
+| `X-Session-Export-Bytes` | Summed uncompressed size of those entries. |
+| `X-Session-Export-Estimated-Wire-Bytes` | Estimated size of the response body, which the browser scales its progress bar by. |
+
+`GET` and `HEAD` answer with the same fields. The three extent fields travel together and are absent when the archive could not be measured before streaming, and the browser then shows an indeterminate bar instead of a percentage.
+
+The wire estimate is exactly the uncompressed total when `compressionLevel` is `0`, because the archive then stores rather than deflates. Above `0` it applies a calibrated ratio — 0.14, from real exports of session logs, which land between 0.13 and 0.15 — to the log entries and takes media at face value, since PNG and JPEG do not deflate further; ZIP framing, tens of bytes per entry, is ignored. So the bar is honest but not exact: an archive that compresses harder than the calibration reaches 99% before the stream ends and waits there, and one that compresses softer completes from around four fifths.
+
 ### What to expect
 
-The dialog reports three phases: preparing, download started, or failed. Closing the dialog does not cancel an in-flight download, and the dialog does not reopen when that operation later settles. One session admits one active download at a time; repeated gestures share that operation. The export includes the live session's newest events: the host endpoint flushes a live root session before reading, so a slash-triggered ZIP includes the `command/run` and `command/done` pair that started the download; cold persisted sessions need no flush. Each logical log uses the current generation's canonical filename inside the archive (`session.jsonl` for v0, otherwise `session.vN.jsonl`), including beneath each sub-session directory. Images use `media/<attachmentId>.<ext>`, and generic files use `files/<digest-prefix>/<digest>/<name>`. Generic-file bytes are read and compressed as bounded chunks, so exporting a large upload does not buffer it in full.
+The panel reports three phases: exporting, complete, or failed. While it exports it shows a progress bar over the bytes received. The bar is determinate whenever the route announced the archive's extent, including for the single-entry archive a session with no sub-sessions and no attachments produces; it is indeterminate only when the route announced none. `Cancel` abandons the transfer and saves nothing; closing the panel leaves the transfer running and still saves the archive, and the panel does not reopen when that operation later settles. One session admits one active download at a time; repeated gestures share that operation. The export includes the live session's newest events: the host endpoint flushes a live root session before reading, so a slash-triggered ZIP includes the `command/run` and `command/done` pair that started the download; cold persisted sessions need no flush. Each logical log uses the current generation's canonical filename inside the archive (`session.jsonl` for v0, otherwise `session.vN.jsonl`), including beneath each sub-session directory. Images use `media/<attachmentId>.<ext>`, and generic files use `files/<digest-prefix>/<digest>/<name>`. Generic-file bytes are read and compressed as bounded chunks, so exporting a large upload does not buffer it in full.
 
 ### Failures
 
-The dialog shows a preparation error when the preflight fails before ZIP streaming starts — for example an unreachable or misconfigured host endpoint. A descendant or attachment read failure after the browser accepts the GET is reported by the browser download manager, not by the dialog.
+The panel names every failure, because the page holds the transfer from the first byte to the last: the HTTP status and the host's message when the route refuses the request before streaming, and the browser's transport error when the connection fails or when a descendant or attachment read tears the archive mid-stream. A host cannot describe a failure that happens after its response has begun — a torn archive reaches the page as `network error` — so the panel reports that the export tore, not why. A failed export saves nothing.
 
 -----
 
@@ -77,7 +90,9 @@ The package has two halves. The Host half ([`src/index.ts`](src/index.ts)) regis
 
 ### Download flow
 
-Both entry paths issue a `HEAD` preflight to `GET /api/session.export?...`, then hand the GET URL to the browser download manager without buffering the ZIP in JavaScript. One controller owns one in-flight download per session, collapses concurrent gestures into that operation, and cancels the preflight on plugin disposal. Modal state lives in a snapshot store keyed by session, so the button and the command share one dialog per session.
+Both entry paths `GET /api/session.export?...` through `fetch` and read the response body chunk by chunk. [`src/client/progress.ts`](src/client/progress.ts) turns the received bytes and the ZIP local file header signatures inside them into one fraction — the larger of two lower bounds, held below 1 until the stream ends. Received bytes are scaled by the announced wire estimate, which is what carries a single-entry archive; the entry count raises that off its floor for an archive that compresses harder than the calibration, and an entry counts as finished only once the next entry's header arrives, because a header precedes its own data. Progress reaches the panel once per animation frame rather than once per chunk. The controller then assembles the chunks into a `Blob` and clicks a detached download anchor at its object URL. One controller owns one in-flight download per session, collapses concurrent gestures into that operation, and aborts the transfer on cancellation and on plugin disposal. Panel state lives in a snapshot store keyed by session, so the button and the command share one panel per session.
+
+Before the first archive byte, the Host walks the export once to count its entries and sum their uncompressed sizes — log sizes from the text the stream will push, media sizes from each reference's recorded byte length — and answers with those totals. Measuring re-reads each descendant log and never re-reads a stored image; a measurement failure only drops the two extent fields, because the streaming pass reaches that same failure and owns the outcome.
 
 The Host route is a feature-owned exact Fetch contribution. Connection applies its Host/Origin and browser-session checks and bridges the streaming `Response`; this package owns query validation, live-session flushes, handle-based log reads and attachment reads, ZIP generation, and HTTP status semantics.
 
@@ -122,7 +137,9 @@ None. The log-only command lifecycle and browser download do not change the deri
 These limits define when this package is a poor fit or needs special operational care. They are current package constraints, not a task backlog.
 
 - **Browser download, not a Host-path writer** — the browser chooses the local destination; no Host path or native folder action is returned.
-- **Preflight reports only pre-stream failures** — a descendant or attachment failure after the browser accepts the GET is reported by the browser download manager, not by the dialog.
+- **The whole archive is held in memory before it is saved** — the page assembles every received chunk into one `Blob`, which briefly costs twice the archive's size while the chunk list and the `Blob` coexist, so an export is bounded by the tab's memory rather than by free disk space. Session archives are megabyte-scale in practice; a multi-gigabyte tree is out of reach.
+- **A mid-stream failure has no host-authored reason** — the archive's status and headers are already sent when a descendant or attachment read fails, so the page can only report the browser's transport error. The host log carries the real cause.
+- **The first byte waits for the measurement** — the route walks the whole export before it answers, so time-to-first-byte grows with the number of sub-sessions. A session with none costs one extra lineage call and no extra log read.
 
 <a id="dev-note"></a>
 ### Dev Note

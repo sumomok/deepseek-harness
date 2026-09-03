@@ -28,12 +28,6 @@ const ATTACHMENT = {
   width: 1,
   height: 1,
 } as const
-const FILE_ATTACHMENT = {
-  attachmentId: AttachmentId('file-1'),
-  name: 'notes.md',
-  bytes: 9,
-} as const
-
 type ChatInstance = ReturnType<ReturnType<typeof createChatStore>['create']>
 type ChatActions = ChatInstance['actions']
 
@@ -44,10 +38,6 @@ function sessionFakeFor() {
     readAttachment: vi.fn<ISession['readAttachment']>(() => Promise.resolve({
       ok: true,
       value: { attachment: ATTACHMENT, data: Uint8Array.of(1) },
-    })),
-    readFile: vi.fn<ISession['readFile']>(() => Promise.resolve({
-      ok: true,
-      value: { attachment: FILE_ATTACHMENT, text: 'file body' },
     })),
     prompt: vi.fn<ISession['prompt']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),
     cancel: vi.fn<ISession['cancel']>(() => Promise.resolve({ ok: true, value: { accepted: true } })),

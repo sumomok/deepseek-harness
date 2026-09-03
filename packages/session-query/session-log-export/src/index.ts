@@ -9,6 +9,7 @@ import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
+  measureSessionLogZip,
   readSessionLogText,
   sessionLogExportDeps,
   sessionLogZipFilename,
@@ -16,10 +17,17 @@ import {
   type SessionLogCompressionLevel,
   type SessionLogExportReady,
 } from './archive.ts'
+import {
+  SESSION_EXPORT_BYTES_HEADER,
+  SESSION_EXPORT_ENTRIES_HEADER,
+  SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
+  type SessionLogExportExtent,
+} from './export-extent.ts'
 
 export {
   DEFAULT_SESSION_LOG_COMPRESSION_LEVEL,
   flushLiveSessionLog,
+  measureSessionLogZip,
   readSessionLogText,
   serializeSessionLog,
   SESSION_LOG_FILENAME,
@@ -34,6 +42,12 @@ export type {
   SessionLogExportReady,
   SessionLogZipEntry,
 } from './archive.ts'
+export {
+  SESSION_EXPORT_BYTES_HEADER,
+  SESSION_EXPORT_ENTRIES_HEADER,
+  SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
+} from './export-extent.ts'
+export type { SessionLogExportExtent } from './export-extent.ts'
 
 export const name = 'session-log-download'
 export const inject = ['commands', 'connection']
@@ -147,12 +161,27 @@ async function sessionLogExportResponse(
   if (rootContent === undefined) {
     return new Response('session not found', { status: 404 })
   }
-  const response = new Response(
+  const includeDescendants = descendantsValue === 'true'
+  let extent: SessionLogExportExtent | undefined
+  try {
+    extent = await measureSessionLogZip(
+      ready, rootContent, sessionId, includeDescendants, compressionLevel, request.signal,
+    )
+  } catch {
+    // Measuring walks the same lineage and the same persistence reads the
+    // producer walks, so every failure reachable here — a missing descendant
+    // log, an unreadable handle, a lineage error — is reached again by the
+    // stream, which owns the outcome (an errored stream, never a truncated
+    // archive). Swallowing it here only drops the browser to an indeterminate
+    // progress bar; cancellation is not a measurement failure and is rethrown.
+    request.signal.throwIfAborted()
+  }
+  return new Response(
     streamSessionLogZip(
       ready,
       rootContent,
       sessionId,
-      descendantsValue === 'true',
+      includeDescendants,
       compressionLevel,
       request.signal,
     ),
@@ -160,8 +189,12 @@ async function sessionLogExportResponse(
       headers: {
         'content-type': 'application/zip',
         'content-disposition': `attachment; filename="${sessionLogZipFilename(sessionId)}"`,
+        ...extent === undefined ? {} : {
+          [SESSION_EXPORT_ENTRIES_HEADER]: String(extent.entries),
+          [SESSION_EXPORT_BYTES_HEADER]: String(extent.bytes),
+          [SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER]: String(extent.estimatedWireBytes),
+        },
       },
     },
   )
-  return response
 }
