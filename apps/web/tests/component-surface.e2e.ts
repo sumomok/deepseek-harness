@@ -5,12 +5,21 @@
  * The composition is the shipped Web surface with the console overlay: the
  * shell, the entry stream, the column that routes it by kind, the component row
  * carrying the renderers, and the row that offers the tool. The seeded log
- * carries three settled calls under two entry ids, the later of the pair last,
- * so what the assertions read is the whole path — a durable log, the `component`
- * extractor judging each recorded call, the `contentSurface` projection folding
- * one entry per id, the tail page carrying it to the browser, and finally the
- * one thing only a real browser answers: whether the block a user sees is the
- * one the surviving call placed, with its buttons and their labels.
+ * carries four settled calls under three entry ids, the pair sharing one id
+ * outermost, so what the assertions read is the whole path — a durable log, the
+ * `component` extractor judging each recorded call, the `contentSurface`
+ * projection folding one entry per id, the tail page carrying it to the browser,
+ * and finally the one thing only a real browser answers: whether the block a
+ * user sees is the one the surviving call placed, with its buttons and their
+ * labels.
+ *
+ * One of the four places a `toy.record`, whose renderer mounts a Vue 2
+ * component compiled outside this repository onto the runtime the chart row
+ * owns. Nothing short of a browser answers what that costs: whether the
+ * vendored component's own markup is what the user ends up looking at, whether
+ * it survives the unmount a tab switch performs, and whether the page is left
+ * with a second Vue on `window` — which is invisible until the day two rows
+ * stop seeing each other's reactivity.
  *
  * The press is the same path in reverse, and it is asserted here because it is
  * assertable nowhere else: `/component-action` reaches the host only through
@@ -63,6 +72,7 @@ const ROWS = [
   ['@deepseek-ai/dsh-experimental-server-layout', join(REPO_ROOT, 'packages/experimental/server-layout')],
   ['@deepseek-ai/dsh-experimental-content-surface', join(REPO_ROOT, 'packages/experimental/content-surface')],
   ['@deepseek-ai/dsh-experimental-content-column', join(REPO_ROOT, 'packages/experimental/content-column')],
+  ['@deepseek-ai/dsh-experimental-vue2-echarts-poc', join(REPO_ROOT, 'packages/experimental/vue2-echarts-poc')],
   ['@deepseek-ai/dsh-experimental-component-kit', join(REPO_ROOT, 'packages/experimental/component-kit')],
   ['@deepseek-ai/dsh-experimental-component-surface', join(REPO_ROOT, 'packages/experimental/component-surface')],
 ] as const
@@ -75,12 +85,14 @@ const COMPOSER_PLACEHOLDER = 'Message the agent'
 
 const SESSION = 'component-surface-web-e2e'
 
-/** The entry ids the three seeded calls own, and the titles the user reads. */
+/** The entry ids the four seeded calls own, and the titles the user reads. */
 const BUDGET_ID = 'budget'
 const CLEANUP_ID = 'cleanup'
+const RECORD_ID = 'site'
 const BUDGET_DRAFT_TITLE = 'Budget, first draft'
 const BUDGET_TITLE = 'Budget approval'
 const CLEANUP_TITLE = 'Clean up the branch'
+const RECORD_TITLE = 'Site A-1'
 
 /** The prompts the three seeded blocks carry, which is what the seat draws as a heading. */
 const BUDGET_DRAFT_PROMPT = 'Approve the draft budget?'
@@ -163,6 +175,28 @@ const CLEANUP_SPEC = {
 }
 
 /**
+ * The rows the `site` call placed, and the spec that placed them.
+ *
+ * `toy.record` is the block drawn by a Vue 2 component compiled outside this
+ * repository, so this is the entry that proves the whole vendored path end to
+ * end: the tarball, the element-ui the row installs, and the one Vue runtime the
+ * page is allowed to have.
+ */
+const RECORD_ROWS = [
+  { label: 'Number', display: 'A-1' },
+  { label: 'Name', display: 'North gate' },
+  { label: 'Status', display: 'In service' },
+] as const
+
+const RECORD_SPEC = {
+  nodes: [{
+    id: 'facts',
+    component: 'toy.record',
+    props: { dataList: RECORD_ROWS.map(row => ({ ...row })), labelWidth: 96, columnNum: 1 },
+  }],
+}
+
+/**
  * Prepare a harness home whose profile fallback resolves every experimental row.
  * @returns the harness home the scaffold should adopt.
  */
@@ -206,10 +240,12 @@ function componentCall(callId: string, id: string, title: string, spec: unknown)
 }
 
 /**
- * Splice three settled component calls into a recorded session, inside its open step.
+ * Splice four settled component calls into a recorded session, inside its open step.
  *
  * The first and the last share the `budget` id, older first, so the column has
- * to fold them into one entry owned by the later call.
+ * to fold them into one entry owned by the later call. The `budget` pair stays
+ * outermost so the newest record in the stream is still the one the assertions
+ * below start from.
  * @param fixtureText - the committed seed fixture.
  * @returns the fixture text to seed.
  */
@@ -221,6 +257,7 @@ function withComponentCalls(fixtureText: string): string {
     ...lines.slice(0, closing),
     ...componentCall('call_00_component_budget_old', BUDGET_ID, BUDGET_DRAFT_TITLE, BUDGET_DRAFT_SPEC),
     ...componentCall('call_00_component_cleanup', CLEANUP_ID, CLEANUP_TITLE, CLEANUP_SPEC),
+    ...componentCall('call_00_component_site', RECORD_ID, RECORD_TITLE, RECORD_SPEC),
     ...componentCall('call_00_component_budget_new', BUDGET_ID, BUDGET_TITLE, BUDGET_SPEC),
     ...lines.slice(closing),
   ].join('\n')
@@ -324,10 +361,10 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
 
   it('folds the two calls sharing an id into one tab and keeps the other beside it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-supersede'))
-    // Three calls, two entries: the superseded draft has no tab of its own, and
+    // Four calls, three entries: the superseded draft has no tab of its own, and
     // the tab that survived carries the later call's title.
     await tab(page, CLEANUP_ID).waitFor({ timeout: 30_000 })
-    expect(await page.locator('[data-content-surface-entry]').count()).toBe(2)
+    expect(await page.locator('[data-content-surface-entry]').count()).toBe(3)
     expect(await tab(page, BUDGET_ID).textContent()).toContain(BUDGET_TITLE)
     expect(await page.getByText(BUDGET_DRAFT_TITLE, { exact: true }).count()).toBe(0)
     expect(await page.getByText(BUDGET_DRAFT_PROMPT, { exact: true }).count()).toBe(0)
@@ -344,6 +381,50 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     expect(await seat(page).getByRole('button').allTextContents()).toEqual(['Delete'])
     await evidence(page, 'web-e2e-component-surface-switch')
 
+    await tab(page, BUDGET_ID).click()
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(BUDGET_PROMPT)
+  }, 120_000)
+
+  it('draws the vendored Vue component itself, and leaves the page without a global Vue', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-record'))
+    await tab(page, RECORD_ID).click()
+    const block = seat(page).locator('[data-component-block="toy.record"]')
+    await block.waitFor({ timeout: 30_000 })
+    // `.form-detail` and `.form-item-content` are the vendored component's own
+    // class names, so reading the values out of them is the assertion that the
+    // tarball's Vue component drew this and not something restated here.
+    expect(await block.locator('.form-detail').count()).toBe(1)
+    await expect.poll(async () => await block.locator('.form-item-content').allTextContents(), { timeout: 15_000 })
+      .toEqual(RECORD_ROWS.map(row => row.display))
+    for (const row of RECORD_ROWS) {
+      expect(await block.getByText(row.label, { exact: false }).count()).toBeGreaterThan(0)
+    }
+    // element-ui is installed on the runtime the chart row owns, and nothing
+    // publishes that runtime globally: a second copy on `window` is how a page
+    // ends up with two Vues whose reactivity does not reach each other, and how
+    // element-ui's own auto-install would run a second time.
+    expect(await page.evaluate(() => 'Vue' in globalThis)).toBe(false)
+    await awaitOpenColumn(page)
+    await evidence(page, 'web-e2e-component-surface-record')
+  }, 120_000)
+
+  it('draws the record again after the column has shown another entry in between', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-record-return'))
+    // The seat discards this kind's DOM on every switch, so coming back is a
+    // fresh mount of the Vue root — the case a bridge that tore down its
+    // instance without rebuilding it would fail on a second visit.
+    await tab(page, CLEANUP_ID).click()
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(CLEANUP_PROMPT)
+    expect(await seat(page).locator('[data-component-block="toy.record"]').count()).toBe(0)
+
+    await tab(page, RECORD_ID).click()
+    await expect.poll(
+      async () => await seat(page).locator('[data-component-block="toy.record"] .form-item-content').allTextContents(),
+      { timeout: 15_000 },
+    ).toEqual(RECORD_ROWS.map(row => row.display))
+    await evidence(page, 'web-e2e-component-surface-record-return')
+
+    // Hand the budget entry back to the tests below, which press its bar.
     await tab(page, BUDGET_ID).click()
     await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(BUDGET_PROMPT)
   }, 120_000)

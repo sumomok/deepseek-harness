@@ -126,6 +126,14 @@ export type ComponentSurfaceProps =
 
 /**
  * Read the blocks one surface entry puts on display.
+ *
+ * `validateComponentSpec` judges the payload and, on the way through, reads
+ * every declared property as the narrower thing its component declared it to be
+ * and freezes what it accepts. Both are inside validation rather than beside it,
+ * so this seat cannot draw a block that skipped either: a renderer receives
+ * properties it may read and may not write, which is what a Vue 2 renderer needs
+ * — Vue makes what a component receives reactive by rewriting it, and this memo
+ * is what the rewrite would have reached.
  * @param payload - the entry's payload, as the column handed it over.
  * @returns the blocks to draw, or undefined when the payload carries no spec this build accepts.
  */

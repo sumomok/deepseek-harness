@@ -1,3 +1,7 @@
+// @vitest-environment jsdom
+// The row's browser barrel reaches element-ui, whose own module reads
+// `document` as it evaluates. A claim about that barrel is type-level, but
+// importing it is not, so this file needs a DOM like every other browser spec.
 /**
  * The pin between this package's catalog and the component row's renderer
  * table: every catalog id must name a renderer, and the compiler must be the

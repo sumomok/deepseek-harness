@@ -24,6 +24,9 @@ import { componentExtractor, type ComponentSurfaceData } from '../src/surface.ts
 const FIRST = { nodes: [{ id: 'bar', component: 'el.confirm-bar', props: { title: '本月预算', buttons: [{ id: 'ok', label: '确认' }] } }] }
 const SECOND = { nodes: [{ id: 'bar', component: 'el.confirm-bar', props: { title: '下月预算', buttons: [{ id: 'ok', label: '确认' }] } }] }
 
+/** One accepted record spec: the component nothing comes back from. */
+const RECORD = { nodes: [{ id: 'facts', component: 'toy.record', props: { dataList: [{ label: '编号', display: 'A-1' }], columnNum: 1 } }] }
+
 interface Bench {
   session: Session
   /** Append one top-level call, the shape a model calling the tool directly logs. */
@@ -76,6 +79,22 @@ describe('the component kind', () => {
       seq: 0,
       title: '预算确认',
       payload: { spec: FIRST },
+    }])
+  })
+
+  it('records a record block the same way as one that answers back', async () => {
+    // Which component a call names is nothing to the extractor: it reads the
+    // call's identity and hands the spec on. Pinned because a display-only
+    // component reports nothing, and a fold that treated the two differently
+    // would leave the record with no entry to be drawn in.
+    const { call, entries } = await bench()
+    call('call_1', { id: 'site-a1', title: '站点详情', spec: RECORD })
+    expect(entries()).toEqual([{
+      kind: COMPONENT_KIND,
+      entryId: 'site-a1',
+      seq: 0,
+      title: '站点详情',
+      payload: { spec: RECORD },
     }])
   })
 

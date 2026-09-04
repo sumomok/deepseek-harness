@@ -36,22 +36,29 @@ const AGENT = {
 }
 
 /**
- * Both scenarios compose the same cordis.yml, so they are one header class and
- * `show-chart-turn` pins it for both: its `tool-schemas.expected.json` carries
- * every tool the console offers, `show_component` included, and its
+ * Every scenario composes the same cordis.yml, so they are one header class and
+ * `show-chart-turn` pins it for all of them: its `tool-schemas.expected.json`
+ * carries every tool the console offers, `show_component` included, and its
  * `system-prompt.expected.md` carries the composed prompt. Each scenario still
  * owns its own stdout and session log, which is where a tool's result text is.
  *
- * `recorded: false` on both because no browser can answer this composition under
- * ACP: a chart's verdict deadline always lapses and a placed block is never
- * looked at, so the live API would only re-decide which chart or which wording
- * the model sends, never which code path the fixture exercises. A key-holder who
- * wants a live transcript flips one to `true` and runs
+ * The two `show_component` scenarios are one per component the catalog offers,
+ * because what a placed block costs a model is the arguments it has to get right
+ * and those differ per component: `show-component-turn` places the one that asks
+ * a question, `show-record-turn` the one that only displays — a vendored Vue
+ * component whose properties are a list of rows rather than a list of buttons.
+ *
+ * `recorded: false` on all of them because no browser can answer this
+ * composition under ACP: a chart's verdict deadline always lapses and a placed
+ * block is never looked at, so the live API would only re-decide which chart or
+ * which wording the model sends, never which code path the fixture exercises. A
+ * key-holder who wants a live transcript flips one to `true` and runs
  * `pnpm run test:snapshot:record -t <name>`.
  */
 const SCENARIOS: Scenario[] = [
   { name: 'show-chart-turn', hasModelTurn: true, recorded: false, pinsHeader: true },
   { name: 'show-component-turn', hasModelTurn: true, recorded: false },
+  { name: 'show-record-turn', hasModelTurn: true, recorded: false },
 ]
 
 /**

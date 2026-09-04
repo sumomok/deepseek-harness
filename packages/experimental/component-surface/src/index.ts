@@ -15,17 +15,20 @@
  * already writes, so both directions replay from the log the agent actually
  * wrote and removing this row leaves every past session readable.
  *
- * The catalog, the ceilings, and the judgement live in two modules of their own
- * — `component-call.ts` and `validate.ts` — because the browser seat runs the
- * identical pass over the payload arriving on the wire and must not pull a tool
- * runtime into a page to do it. `component-call.ts` therefore imports nothing at
- * all, and `validate.ts` imports only it.
+ * The catalog, the ceilings, and the judgement live in three modules of their
+ * own — `component-call.ts`, `sanitize.ts` and `validate.ts` — because the
+ * browser seat runs the identical pass over the payload arriving on the wire and
+ * must not pull a tool runtime into a page to do it. `component-call.ts`
+ * therefore imports nothing at all, `sanitize.ts` imports only it, and
+ * `validate.ts` imports only those two.
  *
  * Trust: `spec` is model output that becomes a rendered block inside the
  * shell's own origin. It is bounded rather than trusted, and the bound is the
- * catalog's property schema rather than a sanitizer — the schema cannot express
- * markup, a function body, or a URL, so there is no such value for a later pass
- * to have to recognize (see the README's trust section).
+ * catalog's property schema — which cannot express markup or a function body, so
+ * there is no such value for a later pass to have to recognize. The one thing a
+ * schema cannot say is what a string means, so a component reading one as a
+ * path, a color, or a renderer name declares that beside the schema and
+ * `sanitize.ts` drops what falls outside it (see the README's trust section).
  * @module @deepseek-ai/dsh-experimental-component-surface
  */
 

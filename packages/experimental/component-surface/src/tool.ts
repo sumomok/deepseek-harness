@@ -18,6 +18,7 @@ import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import {
   catalogLabels,
+  COMPONENT_CATALOG,
   describeCatalog,
   MAX_ENTRY_ID_LENGTH,
   MAX_NODES,
@@ -40,23 +41,30 @@ export interface ShowComponentValue {
  * Build the model-facing description of the offer.
  *
  * The catalog is spliced in rather than summarized, so a model that has never
- * placed a block knows the whole choice from the tool list alone and needs no
- * system-prompt section of its own.
+ * placed a block knows the whole choice — which components exist, which
+ * properties each one takes, and which of them answer back — from the tool list
+ * alone and needs no system-prompt section of its own. Which components answer
+ * back matters on its own line, because a model told a block reports what the
+ * user did would otherwise place a display-only one and wait for an answer that
+ * is not coming.
  * @returns the complete description.
  */
 export function describeShowComponent(): string {
   return 'Put a block of interface in the content panel beside the conversation — the area the user sees '
     + 'without opening or scrolling anything. Use it to place a choice or a summary in front of the user '
     + 'while you talk about it.\n\nComponents:\n'
-    + describeCatalog()
+    + describeCatalog(COMPONENT_CATALOG)
     + '\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry '
     + 'shows, and a new id adds a second entry beside it. When the user asks to change something already on '
     + 'display, reuse that entry\'s id.\n\n'
     + `A call places between 1 and ${MAX_NODES} blocks, and \`spec\` is at most ${MAX_SPEC_BYTES} bytes of JSON. `
-    + 'Each block carries only the properties its component declares above; anything else is refused, and the '
-    + 'refusal names the property.\n\n'
-    + 'What the user does inside a block comes back to you, naming the entry and the block it happened in. '
-    + 'Do not also ask in the conversation for an answer a block is already asking for.'
+    + 'A block carries the properties listed under its component and no others — a `props:` line names each one, '
+    + 'marks the ones a call may leave out with `?`, and writes a list as `[{item properties}]`. Anything else is '
+    + 'refused, and the refusal names what you sent and lists the properties that component accepts.\n\n'
+    + 'What the user does inside a block comes back to you, naming the entry and the block it happened in, '
+    + 'unless the list above says nothing comes back from that component. Do not also ask in the conversation '
+    + 'for an answer a block is already asking for, and do not place a block that sends nothing back to ask a '
+    + 'question with.'
 }
 
 /**

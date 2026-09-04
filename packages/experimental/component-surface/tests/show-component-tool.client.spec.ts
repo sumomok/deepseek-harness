@@ -4,9 +4,10 @@
  * and the two outcomes a call has.
  *
  * The description is pinned rather than sampled because it carries the whole
- * catalog: it is the only place a model learns which components exist, so a
- * component added without its line reaching the description is a component no
- * model will ever place.
+ * catalog: it is the only place a model learns which components exist and which
+ * properties each one takes, so a component added without its lines reaching the
+ * description is a component no model will ever place, and a property missing
+ * from them is one no model will ever send.
  */
 
 import { describe, expect, it } from 'vitest'
@@ -60,14 +61,21 @@ describe('show_component model-visible surface', () => {
       + 'without opening or scrolling anything. Use it to place a choice or a summary in front of the user '
       + 'while you talk about it.\n\nComponents:\n'
       + '- el.confirm-bar — 确认条 — A short prompt above a row of buttons, for putting one decision in front of the user.'
+      + '\n  props: title?, message?, buttons[{id, label, tone?}] (1–5)'
+      + '\n- toy.record — 记录详情 — One record laid out as label-and-value pairs, for putting the details of a single thing'
+      + ' in front of the user. Nothing comes back from it.'
+      + '\n  props: dataList[{label, display}] (1–60), labelWidth? (40–240), columnNum? (1|2|3)'
       + '\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry '
       + 'shows, and a new id adds a second entry beside it. When the user asks to change something already on '
       + 'display, reuse that entry\'s id.\n\n'
       + 'A call places between 1 and 8 blocks, and `spec` is at most 65536 bytes of JSON. '
-      + 'Each block carries only the properties its component declares above; anything else is refused, and the '
-      + 'refusal names the property.\n\n'
-      + 'What the user does inside a block comes back to you, naming the entry and the block it happened in. '
-      + 'Do not also ask in the conversation for an answer a block is already asking for.',
+      + 'A block carries the properties listed under its component and no others — a `props:` line names each one, '
+      + 'marks the ones a call may leave out with `?`, and writes a list as `[{item properties}]`. Anything else is '
+      + 'refused, and the refusal names what you sent and lists the properties that component accepts.\n\n'
+      + 'What the user does inside a block comes back to you, naming the entry and the block it happened in, '
+      + 'unless the list above says nothing comes back from that component. Do not also ask in the conversation '
+      + 'for an answer a block is already asking for, and do not place a block that sends nothing back to ask a '
+      + 'question with.',
     )
     expect(describeShowComponent()).toBe(definition.description)
   })
@@ -157,6 +165,41 @@ describe('one show_component call', () => {
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('show_component: spec.nodes[0].component — names no component of this deployment')
     expect(text(result)).toContain('- el.confirm-bar — 确认条 —')
+    expect(text(result)).toContain('- toy.record — 记录详情 —')
+    // The properties come back with the list, so the corrected call needs no
+    // second refusal to learn what the component it picks instead accepts.
+    expect(text(result)).toContain('props: dataList[{label, display}] (1–60), labelWidth? (40–240), columnNum? (1|2|3)')
+  })
+
+  it('places a record detail, and answers naming it the way the user reads it', async () => {
+    const { run } = await bench()
+    const result = await run({
+      id: 'device',
+      title: '设备详情',
+      spec: { nodes: [{ id: 'detail', component: 'toy.record', props: { dataList: [{ label: '编号', display: 'A-1' }], columnNum: 2 } }] },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(text(result)).toContain('the content panel: 记录详情.')
+  })
+
+  it('denies a record detail carrying a formatter, and names the parameter to drop', async () => {
+    const { run } = await bench()
+    const result = await run({
+      id: 'device',
+      title: '设备详情',
+      spec: {
+        nodes: [{
+          id: 'detail',
+          component: 'toy.record',
+          props: { dataList: [{ label: '编号', display: 'A-1' }], formatter: 'function(row){ return row.name }' },
+        }],
+      },
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toBe(
+      'Error: show_component: spec.nodes[0].props.formatter — is not accepted here. '
+      + 'Accepted properties: dataList, labelWidth, columnNum.',
+    )
   })
 
   it('denies a call whose block carries a property the component does not declare', async () => {

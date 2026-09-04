@@ -75,17 +75,49 @@ describe('an accepted call', () => {
   it('accepts a spec on its own, the pass the browser seat repeats on the wire', () => {
     expect(validateComponentSpec({ nodes: [confirmBar()] }).ok).toBe(true)
   })
+
+  it('leaves an accepted node\'s properties frozen, which is what a Vue renderer is given', () => {
+    // The seat reaches every renderer through here, so this is where a block's
+    // properties become something a framework below cannot rewrite.
+    const result = validateComponentSpec({ nodes: [confirmBar({ title: '本月预算', buttons: [{ id: 'ok', label: '确认' }] })] })
+    if (!result.ok) throw new Error(result.failure.text)
+    const props = result.spec.nodes[0]?.props as Record<string, unknown>
+    expect(Object.isFrozen(props)).toBe(true)
+    expect(Object.isFrozen(props['buttons'])).toBe(true)
+    expect(Object.isFrozen((props['buttons'] as readonly unknown[])[0])).toBe(true)
+  })
+
+  it('answers with the record the tightening pass rebuilt, not the one the call carried', () => {
+    // The other half of the same wiring: freezing alone would be satisfied by
+    // freezing the caller's own object in place. The pass walks the schema
+    // instead, so what comes back is a new record carrying the declared
+    // properties in the schema's order, whatever order the call wrote them in.
+    const buttons = [{ label: '确认', id: 'ok' }]
+    const props = { buttons, message: '同意后立即生效。' }
+    const result = validateComponentSpec({ nodes: [confirmBar(props)] })
+    if (!result.ok) throw new Error(result.failure.text)
+    const accepted = result.spec.nodes[0]?.props as Record<string, unknown>
+    expect(accepted).not.toBe(props)
+    expect(Object.keys(accepted)).toEqual(['message', 'buttons'])
+    expect(accepted['buttons']).not.toBe(buttons)
+    expect(Object.keys((accepted['buttons'] as Record<string, unknown>[])[0] as object)).toEqual(['id', 'label'])
+    expect(Object.isFrozen(props)).toBe(false)
+  })
 })
 
 /** One accepted value for a declared property, built to the deepest shape its schema allows. */
 function sampleField(schema: PropsFieldSchema): unknown {
   switch (schema.kind) {
     case 'string': return 'a'
+    case 'number': return schema.min
     case 'enum': return schema.values[0]
     case 'object': return sampleProps(schema.fields)
     case 'array': return Array.from(
       { length: Math.max(schema.minItems, 1) },
-      (_unused, index) => ({ ...sampleProps(schema.item.fields), [schema.uniqueBy]: `i${index}` }),
+      (_unused, index) => ({
+        ...sampleProps(schema.item.fields),
+        ...(schema.uniqueBy === undefined ? {} : { [schema.uniqueBy]: `i${index}` }),
+      }),
     )
   }
 }
@@ -103,6 +135,74 @@ describe('the deepest document the catalog declares as legal', () => {
   it.each(COMPONENT_CATALOG.map(entry => [entry.id, entry] as const))('accepts a fully populated %s', (id, entry) => {
     expect(validateComponentSpec({ nodes: [{ id: 'n1', component: id, props: sampleProps(entry.propsSchema) }] }))
       .toMatchObject({ ok: true })
+  })
+})
+
+describe('the record detail', () => {
+  /** One node drawing a record detail. */
+  function record(props: Record<string, unknown>): Record<string, unknown> {
+    return { id: 'n1', component: 'toy.record', props }
+  }
+
+  it('accepts rows, an optional label width, and an optional column count', () => {
+    expect(validateComponentSpec({
+      nodes: [record({
+        dataList: [{ label: '编号', display: 'A-1' }, { label: '状态', display: '在用' }],
+        labelWidth: 120,
+        columnNum: 2,
+      })],
+    })).toMatchObject({ ok: true })
+  })
+
+  it('accepts two rows carrying the same label, because a row is not something the user points at', () => {
+    expect(validateComponentSpec({
+      nodes: [record({ dataList: [{ label: '附件', display: 'a.pdf' }, { label: '附件', display: 'b.pdf' }] })],
+    })).toMatchObject({ ok: true })
+  })
+
+  it.each([
+    ['no rows at all', { dataList: [] }, 'spec.nodes[0].props.dataList', /lists 0 items; between 1 and 60 are accepted/],
+    ['more rows than a panel holds', { dataList: Array.from({ length: 61 }, (_unused, index) => ({ label: `l${index}`, display: 'v' })) }, 'spec.nodes[0].props.dataList', /lists 61 items; between 1 and 60 are accepted/],
+    ['an oversized label', { dataList: [{ label: '编'.repeat(41), display: 'A-1' }] }, 'spec.nodes[0].props.dataList[0].label', /is 41 characters; at most 40 are accepted/],
+    ['an oversized value', { dataList: [{ label: '编号', display: 'A'.repeat(401) }] }, 'spec.nodes[0].props.dataList[0].display', /is 401 characters; at most 400 are accepted/],
+    ['a row with no value', { dataList: [{ label: '编号' }] }, 'spec.nodes[0].props.dataList[0].display', /is required/],
+    ['a label width that is not a number', { dataList: [{ label: '编号', display: 'A-1' }], labelWidth: '120' }, 'spec.nodes[0].props.labelWidth', /must be a number/],
+    ['a label width no layout can carry', { dataList: [{ label: '编号', display: 'A-1' }], labelWidth: Infinity }, 'spec.nodes[0].props.labelWidth', /must be a number/],
+    ['a label width below the range', { dataList: [{ label: '编号', display: 'A-1' }], labelWidth: 39 }, 'spec.nodes[0].props.labelWidth', /is 39; between 40 and 240 is accepted/],
+    ['a label width above the range', { dataList: [{ label: '编号', display: 'A-1' }], labelWidth: 241 }, 'spec.nodes[0].props.labelWidth', /is 241; between 40 and 240 is accepted/],
+    ['a column count outside the set', { dataList: [{ label: '编号', display: 'A-1' }], columnNum: 4 }, 'spec.nodes[0].props.columnNum', /must be one of 1, 2, 3/],
+    ['a column count that is not a number at all', { dataList: [{ label: '编号', display: 'A-1' }], columnNum: '2' }, 'spec.nodes[0].props.columnNum', /must be one of 1, 2, 3/],
+    ['a column count that is no scalar', { dataList: [{ label: '编号', display: 'A-1' }], columnNum: true }, 'spec.nodes[0].props.columnNum', /must be one of 1, 2, 3/],
+  ])('refuses %s', (_case, props, path, message) => {
+    const failure = refusal(call({ nodes: [record(props)] }))
+    expect(failure.path).toBe(path)
+    expect(failure.text).toMatch(message)
+  })
+})
+
+describe('a property the schema has no way to express', () => {
+  // The judgement the whole security argument rests on: a model reaching for a
+  // formatter, a template, or a handler is not refused by a sanitizer that
+  // recognized a function body — there is no property to write one into, so the
+  // call ends at the undeclared-property rule and the refusal names the
+  // parameter the model has to drop.
+  it.each([
+    ['el.confirm-bar', { formatter: 'function(row){ return row.name }', buttons: [{ id: 'ok', label: '确认' }] }, 'title, message, buttons'],
+    ['toy.record', { formatter: 'function(row){ return row.name }', dataList: [{ label: '编号', display: 'A-1' }] }, 'dataList, labelWidth, columnNum'],
+  ])('refuses a %s carrying a function body, naming the parameter', (component, props, accepted) => {
+    const failure = refusal(call({ nodes: [{ id: 'n1', component, props }] }))
+    expect(failure).toEqual({
+      path: 'spec.nodes[0].props.formatter',
+      text: `show_component: spec.nodes[0].props.formatter — is not accepted here. Accepted properties: ${accepted}.`,
+    })
+  })
+
+  it('refuses a function body inside a row as well, naming the row', () => {
+    const failure = refusal(call({
+      nodes: [{ id: 'n1', component: 'toy.record', props: { dataList: [{ label: '编号', display: 'A-1', render: 'function(){}' }] } }],
+    }))
+    expect(failure.path).toBe('spec.nodes[0].props.dataList[0].render')
+    expect(failure.text).toContain('Accepted properties: label, display.')
   })
 })
 
@@ -192,7 +292,7 @@ describe('refusing a node', () => {
     // The whole list, not a count: a model that guessed wrong is told the same
     // catalog it was offered, so the next call needs no extra round trip.
     expect(failure.text).toBe(
-      `show_component: spec.nodes[0].component — names no component of this deployment. Available components:\n${describeCatalog()}`,
+      `show_component: spec.nodes[0].component — names no component of this deployment. Available components:\n${describeCatalog(COMPONENT_CATALOG)}`,
     )
   })
 })

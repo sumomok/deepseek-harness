@@ -18,6 +18,11 @@
 # - `component-kit` carries the renderers and their copy; the row below requires
 #   it through the loader's module table, which is what keeps one copy of the
 #   components in the page.
+# - `vue2-echarts-poc` owns the page's only Vue 2.7 runtime, which `component-kit`
+#   requires through the same module table for the components it draws with Vue.
+#   Vue 2 reactivity does not cross runtime copies, so this row is what keeps
+#   there being one; a composition without it leaves `component-kit` requesting a
+#   module nothing provides.
 # - `component-surface` offers `show_component`, judges each call against the
 #   catalog, claims the `component` kind of the column, and claims the seat that
 #   draws it.
@@ -32,6 +37,8 @@
 # out-of-tree plugin means `dsh plugin --profile web add <path>` or an
 # equivalent link — release bundles must not declare an experimental package.
 - insert:
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
     - id: component-kit
       name: '@deepseek-ai/dsh-experimental-component-kit'
     - id: show-component

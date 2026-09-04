@@ -11,14 +11,19 @@
  * the state it is handed, so a stub would only re-state this file's own
  * fixtures. What is faked is the session feed, which is the framework's.
  */
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, waitFor } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { en } from '@deepseek-ai/dsh-experimental-component-kit/src/client/locales.ts'
+import { installElementUI } from '@deepseek-ai/dsh-experimental-component-kit/src/client/element-ui.ts'
 import { ComponentSurface, type ComponentSurfaceProps } from '../src/client/ComponentSurface.tsx'
 import type { ComponentActionRecord } from '../src/action-state.ts'
 import { pendingPressKey, type ActionDispatch, type PendingPresses } from '../src/client/action.ts'
-import { CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID } from '../src/component-call.ts'
+import { CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID, RECORD_DETAIL_ID } from '../src/component-call.ts'
+
+// One of the two components this seat draws is a Vue 2 component on element-ui,
+// which the component row installs when its own client plugin starts.
+beforeAll(installElementUI)
 
 const t: ComponentSurfaceProps['t'] = makeTranslate(en)
 
@@ -362,6 +367,25 @@ describe('component content seat', () => {
     // rather than waiting on a log entry no one wrote.
     await waitFor(() => { expect(stateLine(view)).toBe(en['confirmBar.refused']) })
     expect(view.pending.size).toBe(0)
+  })
+
+  it('draws a record block through the vendored component the row carries', () => {
+    const view = mount({
+      entry: componentEntry([{
+        id: 'facts',
+        component: RECORD_DETAIL_ID,
+        props: { dataList: [{ label: '编号', display: 'A-1' }, { label: '状态', display: '在用' }], columnNum: 1 },
+      }]),
+    })
+    const block = view.container.querySelector(`[data-component-block="${RECORD_DETAIL_ID}"]`)
+    expect(block?.getAttribute('data-component-node')).toBe('facts')
+    // Not the seat's own markup: the labels and the values are drawn by the Vue
+    // component inside element-ui form items, one column wide as the call asked.
+    expect([...view.container.querySelectorAll('.form-item-content')].map(cell => cell.textContent))
+      .toEqual(['A-1', '在用'])
+    expect(view.container.querySelector('.el-col-24')).not.toBeNull()
+    // And nothing about a record answers back, so the seat draws no control.
+    expect(view.queryByRole('button')).toBeNull()
   })
 
   it('draws nothing at all while another kind holds the column', () => {

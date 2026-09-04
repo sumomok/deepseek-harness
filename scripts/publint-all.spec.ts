@@ -17,10 +17,12 @@ function fixture(options: {
   exportPath?: string
   indexSource?: string
   files?: Record<string, string>
+  area?: string
+  dependencies?: Record<string, string>
 } = {}): string {
   const root = mkdtempSync(join(tmpdir(), 'dsh-publint-all-'))
   roots.push(root)
-  const packageDir = join(root, 'packages/core/probe')
+  const packageDir = join(root, options.area ?? 'packages/core', 'probe')
   mkdirSync(join(packageDir, 'lib'), { recursive: true })
   writeFileSync(join(packageDir, 'package.json'), `${JSON.stringify({
     name: '@deepseek-ai/dsh-probe',
@@ -31,6 +33,7 @@ function fixture(options: {
     sideEffects: false,
     files: ['lib'],
     exports: { '.': { default: options.exportPath ?? './lib/index.js' } },
+    ...options.dependencies === undefined ? {} : { dependencies: options.dependencies },
   }, null, 2)}\n`)
   writeFileSync(join(packageDir, 'README.md'), '# Probe\n')
   writeFileSync(join(packageDir, 'lib/index.js'), options.indexSource ?? 'export const probe = true\n')
@@ -91,5 +94,42 @@ describe('publint package runner', () => {
     expect(result.status).toBe(1)
     expect(result.stderr).toContain('imports "./missing.js"')
     expect(result.stderr).toContain('imports "./missing.css"')
+  })
+})
+
+/**
+ * The one message the runner drops, and the two halves of the condition it
+ * drops it under.
+ *
+ * publint reports a `file:` dependency as an error because an end user
+ * installing from a registry cannot resolve it. Nothing under
+ * `packages/experimental/` is published, so the check has nothing left to
+ * protect there — and nowhere else. Both halves are asserted by their
+ * counterexample, because an exemption that quietly widened to another area, or
+ * to another message, would look exactly like a passing gate.
+ */
+describe('the vendored-tarball exemption', () => {
+  const VENDORED = { '@sumomok/probe-kit': 'file:./vendor/sumomok-probe-kit-0.1.0.tgz' }
+
+  it('accepts a tarball dependency in the tier that is never published', () => {
+    const result = run(fixture({ area: 'packages/experimental', dependencies: VENDORED }))
+    expect(result.status, result.stderr).toBe(0)
+    expect(result.stdout).toContain('All good!')
+  })
+
+  it('still rejects a tarball dependency anywhere a package is published from', () => {
+    const result = run(fixture({ dependencies: VENDORED }))
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('@sumomok/probe-kit')
+  })
+
+  it('still reports every other publint error in the exempt tier', () => {
+    const result = run(fixture({
+      area: 'packages/experimental',
+      dependencies: VENDORED,
+      exportPath: './unpublished.js',
+    }))
+    expect(result.status).toBe(1)
+    expect(result.stdout).toContain('unpublished.js')
   })
 })

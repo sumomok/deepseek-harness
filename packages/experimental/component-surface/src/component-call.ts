@@ -107,12 +107,29 @@ export interface StringCharset {
   readonly hint: string
 }
 
-/** One property whose value must be one of a fixed set of strings. */
+/** One property whose value must be one of a fixed set of scalars. */
 export interface EnumFieldSchema {
   /** Discriminant. */
   readonly kind: 'enum'
   /** The accepted values, in the order a refusal lists them. */
-  readonly values: readonly string[]
+  readonly values: readonly (string | number)[]
+}
+
+/**
+ * One property whose value is a number inside declared bounds.
+ *
+ * A range rather than a set, for a quantity a component reads as a measurement:
+ * a width in pixels is any number the layout can carry. A property with a
+ * handful of legal values is an {@link EnumFieldSchema} instead, because a range
+ * would also admit the values between them.
+ */
+export interface NumberFieldSchema {
+  /** Discriminant. */
+  readonly kind: 'number'
+  /** Smallest accepted value. */
+  readonly min: number
+  /** Largest accepted value. */
+  readonly max: number
 }
 
 /** One property whose value is a record of further declared properties. */
@@ -140,20 +157,35 @@ export interface ArrayFieldSchema {
   readonly minItems: number
   /** Most accepted items. */
   readonly maxItems: number
-  /** Item property that must be unique across the list. */
-  readonly uniqueBy: string
+  /**
+   * Item property that must be unique across the list; absent when the items
+   * carry no identity.
+   *
+   * Present wherever an item is something the user points at, because a
+   * reported gesture names the item by that property and two items sharing it
+   * name neither. A list nothing reports back from — rows of a record, read and
+   * not touched — declares none, and repeated values there are the data rather
+   * than a mistake.
+   */
+  readonly uniqueBy?: string
 }
 
 /**
  * What a declared property may be.
  *
- * The union is the security boundary rather than a convenience: there is no
- * member that can express rich text, a function body, or a URL, so a model
- * cannot write one into a component's props and no sanitizer downstream has to
- * recognize one. Every string reaches the seat as a text value.
+ * The union is the security boundary rather than a convenience: no member can
+ * express rich text or a function body, so a model cannot write either into a
+ * component's props and nothing downstream has to recognize one. Every string
+ * reaches the seat as a text value.
+ *
+ * Where a component needs a string read as something narrower than text — a
+ * path, a color — the narrowing is a {@link SanitizeClass} declared beside the
+ * schema rather than a schema member of its own, which is what keeps the
+ * tightened readings a closed list instead of a spelling each component invents.
  */
 export type PropsFieldSchema =
   | StringFieldSchema
+  | NumberFieldSchema
   | EnumFieldSchema
   | ObjectFieldSchema
   | ArrayFieldSchema
@@ -168,6 +200,27 @@ export interface PropsField {
 
 /** A component's declared properties, keyed by property name. */
 export type PropsSchema = Readonly<Record<string, PropsField>>
+
+/**
+ * What a declared string is read as, where text is not a tight enough reading.
+ *
+ * A closed list, and every member is a value the seat hands the browser as
+ * something other than text: `path` reaches an address something navigates to,
+ * `color` reaches a style, `related-component` chooses which renderer draws a
+ * cell. What each one accepts, and whether a value outside it is dropped or
+ * falls back, is `sanitize.ts`'s.
+ */
+export type SanitizeClass = 'path' | 'color' | 'related-component'
+
+/**
+ * The tightened readings of one component's properties, keyed by property name.
+ *
+ * By name rather than by path, because a reading follows the name wherever it
+ * appears: a `relatedComponent` inside a list item chooses a renderer exactly as
+ * one at the top level does, and a component declaring the tighter reading for
+ * one of the two would have declared it only where it remembered to.
+ */
+export type SanitizeRules = Readonly<Record<string, SanitizeClass>>
 
 /**
  * What the host does with one reported action.
@@ -246,6 +299,8 @@ export interface ComponentCatalogEntry {
   readonly propsSchema: PropsSchema
   /** The only actions this component reports back; empty for a component nothing comes back from. */
   readonly actions: readonly ComponentActionDefinition[]
+  /** Properties read as something narrower than text; absent when every string of this component is text. */
+  readonly sanitize?: SanitizeRules
 }
 
 /** Catalog id of the confirmation bar. */
@@ -332,6 +387,37 @@ const CONFIRM_BAR_ACTIONS: readonly ComponentActionDefinition[] = [{
   },
 }]
 
+/** Catalog id of the record detail. */
+export const RECORD_DETAIL_ID = 'toy.record'
+
+/**
+ * The record detail's declared properties.
+ *
+ * The rows are the whole component: a label and the text beside it, already
+ * written out. Nothing here says where a value came from or how to format it —
+ * the model sends what it wants read, and a row is drawn as the two strings it
+ * carries.
+ */
+const RECORD_DETAIL_PROPS: PropsSchema = {
+  dataList: {
+    required: true,
+    schema: {
+      kind: 'array',
+      minItems: 1,
+      maxItems: 60,
+      item: {
+        kind: 'object',
+        fields: {
+          label: { required: true, schema: { kind: 'string', maxLength: 40 } },
+          display: { required: true, schema: { kind: 'string', maxLength: 400 } },
+        },
+      },
+    },
+  },
+  labelWidth: { required: false, schema: { kind: 'number', min: 40, max: 240 } },
+  columnNum: { required: false, schema: { kind: 'enum', values: [1, 2, 3] } },
+}
+
 /**
  * Every component a call may place.
  *
@@ -351,6 +437,13 @@ export const COMPONENT_CATALOG = [
     purpose: 'A short prompt above a row of buttons, for putting one decision in front of the user.',
     propsSchema: CONFIRM_BAR_PROPS,
     actions: CONFIRM_BAR_ACTIONS,
+  },
+  {
+    id: RECORD_DETAIL_ID,
+    label: '记录详情',
+    purpose: 'One record laid out as label-and-value pairs, for putting the details of a single thing in front of the user.',
+    propsSchema: RECORD_DETAIL_PROPS,
+    actions: [],
   },
 ] as const satisfies readonly ComponentCatalogEntry[]
 
@@ -374,6 +467,7 @@ const SPEC_FRAME_DEPTH = 4
 function fieldDepth(field: PropsFieldSchema): number {
   switch (field.kind) {
     case 'string':
+    case 'number':
     case 'enum': return 0
     case 'object': return 1 + schemaDepth(field.fields)
     case 'array': return 2 + schemaDepth(field.item.fields)
@@ -440,14 +534,81 @@ export function catalogEntry(id: unknown): ComponentCatalogEntry | undefined {
 }
 
 /**
- * Render the whole catalog as model-facing lines.
+ * Name one schema's properties in declaration order, marking the optional ones.
+ *
+ * One level only: an entry inside a nested record or list is named here without
+ * what it accepts, so a description stops at the property names one level down.
+ * A call that gets a deeper property wrong learns what it accepts from the
+ * refusal instead. Revisit when `toy.table` lands a nested list.
+ * @param schema - the declared properties.
+ * @returns the names, comma-separated, each suffixed with `?` where a call may omit it.
+ */
+function fieldNames(schema: PropsSchema): string {
+  return Object.entries(schema).map(([name, field]) => `${name}${field.required ? '' : '?'}`).join(', ')
+}
+
+/**
+ * Render what one declared property accepts, as the suffix of its name.
+ *
+ * Bounds and alphabets are left out on purpose: a refusal states the one the
+ * call broke, and stating all of them in the description would cost every
+ * request the text of a rule the model mostly keeps anyway. What the model
+ * cannot recover from a refusal is which properties exist and which are records
+ * or lists, so that is what the suffix carries.
+ * @param field - the declared property.
+ * @returns the suffix, empty for a plain string.
+ */
+function describeField(field: PropsFieldSchema): string {
+  switch (field.kind) {
+    case 'string': return ''
+    case 'number': return ` (${field.min}–${field.max})`
+    case 'enum': return ` (${field.values.join('|')})`
+    case 'object': return `{${fieldNames(field.fields)}}`
+    case 'array': return `[{${fieldNames(field.item.fields)}}] (${field.minItems}–${field.maxItems})`
+    /* v8 ignore start -- PropsFieldSchema is closed and every variant returns above. */
+    default: {
+      // Not `assertNever` from dsh-llm, for the reason validate.ts states at its
+      // own exhaustiveness check: this module is loaded by the browser seat.
+      const unhandled: never = field
+      throw new Error(`component-surface: unhandled props schema ${JSON.stringify(unhandled)}`)
+    }
+    /* v8 ignore stop */
+  }
+}
+
+/**
+ * Render one component's declared properties as the line under its own.
+ * @param schema - the component's declared properties.
+ * @returns the summary, one property after another in declaration order.
+ */
+function describeProps(schema: PropsSchema): string {
+  return Object.entries(schema)
+    .map(([name, field]) => `${name}${field.required ? '' : '?'}${describeField(field.schema)}`)
+    .join(', ')
+}
+
+/**
+ * Render a catalog as model-facing lines.
  *
  * Shared by the tool description and by the refusal an unknown component id
  * gets, so a model that guessed wrong is told the same list it was offered.
- * @returns one `- id — label — purpose` line per component.
+ * A component declaring no action says so on its own line rather than in the
+ * paragraph below the list: what comes back is a fact about one component, and a
+ * model reading the list one line at a time is the reader the line is for.
+ *
+ * Each component's properties are derived from its own `propsSchema` rather
+ * than written beside it, so a component whose schema grows a property offers
+ * it in the same edit. Without them the description would be the only place a
+ * model could learn a component exists and the last place it could learn what
+ * to send it — one refused call per component, every session.
+ * @param catalog - the components a call may place.
+ * @returns two lines per component: `- id — label — purpose`, then its properties.
  */
-export function describeCatalog(): string {
-  return COMPONENT_CATALOG.map(entry => `- ${entry.id} — ${entry.label} — ${entry.purpose}`).join('\n')
+export function describeCatalog(catalog: readonly ComponentCatalogEntry[]): string {
+  return catalog
+    .map(entry => `- ${entry.id} — ${entry.label} — ${entry.purpose}${entry.actions.length === 0 ? ' Nothing comes back from it.' : ''}`
+      + `\n  props: ${describeProps(entry.propsSchema)}`)
+    .join('\n')
 }
 
 /**

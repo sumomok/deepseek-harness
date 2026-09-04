@@ -18,6 +18,7 @@ import {
   describeCatalog,
   MAX_SPEC_DEPTH,
   maxSpecDepthOf,
+  RECORD_DETAIL_ID,
   parseComponentCall,
   readComponentCall,
   SHOW_COMPONENT_TOOL_NAME,
@@ -36,23 +37,69 @@ describe('component catalog', () => {
     expect(Object.keys(entry?.propsSchema ?? {})).toEqual(['title', 'message', 'buttons'])
   })
 
+  it('offers the record detail under a Chinese name, with nothing coming back from it', () => {
+    const entry = catalogEntry(RECORD_DETAIL_ID)
+    expect(entry?.label).toBe('记录详情')
+    expect(Object.keys(entry?.propsSchema ?? {})).toEqual(['dataList', 'labelWidth', 'columnNum'])
+    expect(entry?.actions).toEqual([])
+  })
+
   it('knows no component it does not list', () => {
     expect(catalogEntry('toy.table')).toBeUndefined()
     expect(catalogEntry(42)).toBeUndefined()
   })
 
-  it('renders every component as one id — label — purpose line', () => {
-    expect(describeCatalog()).toBe(
-      '- el.confirm-bar — 确认条 — A short prompt above a row of buttons, for putting one decision in front of the user.',
+  it('renders every component as an identity line and the properties it declares', () => {
+    expect(describeCatalog(COMPONENT_CATALOG)).toBe(
+      '- el.confirm-bar — 确认条 — A short prompt above a row of buttons, for putting one decision in front of the user.'
+      + '\n  props: title?, message?, buttons[{id, label, tone?}] (1–5)'
+      + '\n- toy.record — 记录详情 — One record laid out as label-and-value pairs, for putting the details of a single thing'
+      + ' in front of the user. Nothing comes back from it.'
+      + '\n  props: dataList[{label, display}] (1–60), labelWidth? (40–240), columnNum? (1|2|3)',
     )
-    expect(describeCatalog().split('\n')).toHaveLength(COMPONENT_CATALOG.length)
+    expect(describeCatalog(COMPONENT_CATALOG).split('\n')).toHaveLength(2 * COMPONENT_CATALOG.length)
+  })
+
+  it('derives the property line from the schema a call is judged against', () => {
+    // Not written beside the catalog: a property the schema grows and the
+    // description does not is a property no model will ever send.
+    const probe: ComponentCatalogEntry = {
+      id: 'toy.probe',
+      label: '探针',
+      purpose: 'Described, never placed.',
+      propsSchema: {
+        header: {
+          required: true,
+          schema: {
+            kind: 'object',
+            fields: {
+              title: { required: true, schema: { kind: 'string', maxLength: 8 } },
+              icon: { required: false, schema: { kind: 'string', maxLength: 8 } },
+            },
+          },
+        },
+        width: { required: false, schema: { kind: 'number', min: 1, max: 10 } },
+        mode: { required: false, schema: { kind: 'enum', values: ['wide', 2] } },
+      },
+      actions: [],
+    }
+    expect(describeCatalog([probe]).split('\n')[1]).toBe('  props: header{title, icon?}, width? (1–10), mode? (wide|2)')
+  })
+
+  it('says on a component\'s own line that nothing comes back from it, and only there', () => {
+    // The model reads this list one line at a time; a component that answers
+    // nothing and one that answers a press must not read alike.
+    const lines = describeCatalog(COMPONENT_CATALOG).split('\n')
+    const silent = lines.filter(line => line.includes('Nothing comes back from it.'))
+    expect(silent).toHaveLength(COMPONENT_CATALOG.filter(entry => entry.actions.length === 0).length)
+    expect(silent[0]).toContain(RECORD_DETAIL_ID)
   })
 
   it('names the components a spec places in the wording shown on screen', () => {
     expect(catalogLabels([
       { id: 'a', component: CONFIRM_BAR_ID, props: {} },
-      { id: 'b', component: CONFIRM_BAR_ID, props: {} },
-    ])).toBe('确认条、确认条')
+      { id: 'b', component: RECORD_DETAIL_ID, props: {} },
+    ])).toBe('确认条、记录详情')
   })
 
   it('falls back to the raw id for a node naming no catalog entry', () => {

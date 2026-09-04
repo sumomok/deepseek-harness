@@ -8,14 +8,22 @@
  * model-facing text that names the offending parameter path, because the model
  * has no other way to learn which of eight nodes it got wrong.
  *
- * The module imports nothing but {@link module:@deepseek-ai/dsh-experimental-component-surface/src/component-call},
- * so the browser seat can run the identical pass over a payload arriving on the
- * wire, where a value's declared type is a claim rather than a guarantee.
+ * An accepted node leaves here with its properties already tightened: the
+ * schema says which properties exist and what kind of value each is, and
+ * {@link module:@deepseek-ai/dsh-experimental-component-surface/src/sanitize}
+ * says how to read the ones a component declared as narrower than text. Both
+ * are on the way in, so no later reader has to remember to run the second.
+ *
+ * The module imports nothing but that pass and
+ * {@link module:@deepseek-ai/dsh-experimental-component-surface/src/component-call},
+ * so the browser seat can run the identical judgement over a payload arriving on
+ * the wire, where a value's declared type is a claim rather than a guarantee.
  * @module @deepseek-ai/dsh-experimental-component-surface/src/validate
  */
 
 import {
   catalogEntry,
+  COMPONENT_CATALOG,
   describeCatalog,
   MAX_ENTRY_ID_LENGTH,
   MAX_NODE_ID_LENGTH,
@@ -33,6 +41,7 @@ import {
   type PropsSchema,
   type StringCharset,
 } from './component-call.ts'
+import { sanitizeNodeProps } from './sanitize.ts'
 
 /** One refusal: where in the arguments it happened, and what the model is told. */
 export interface ComponentCallFailure {
@@ -142,6 +151,28 @@ function validateString(
 }
 
 /**
+ * Validate one numeric property against its declared bounds.
+ * @param value - the property value, however malformed.
+ * @param schema - the declared numeric property.
+ * @param path - parameter path used in the refusal.
+ * @returns the refusal, or `undefined` when the value is accepted.
+ */
+function validateNumber(
+  value: unknown,
+  schema: Extract<PropsFieldSchema, { kind: 'number' }>,
+  path: string,
+): ComponentCallFailure | undefined {
+  // `Number.isFinite` rather than `typeof` alone: a persisted checkpoint is
+  // plain JSON, but the browser seat repeats this pass over a value another
+  // build wrote, and a non-finite number is not a measurement anything can draw.
+  if (typeof value !== 'number' || !Number.isFinite(value)) return refuse(path, 'must be a number.')
+  if (value < schema.min || value > schema.max) {
+    return refuse(path, `is ${value}; between ${schema.min} and ${schema.max} is accepted.`)
+  }
+  return undefined
+}
+
+/**
  * Validate one enumerated property.
  * @param value - the property value, however malformed.
  * @param schema - the declared enumeration.
@@ -153,7 +184,7 @@ function validateEnum(
   schema: Extract<PropsFieldSchema, { kind: 'enum' }>,
   path: string,
 ): ComponentCallFailure | undefined {
-  if (typeof value === 'string' && schema.values.includes(value)) return undefined
+  if ((typeof value === 'string' || typeof value === 'number') && schema.values.includes(value)) return undefined
   const accepted = schema.values.map(one => JSON.stringify(one)).join(', ')
   return refuse(path, `must be one of ${accepted}.`)
 }
@@ -183,6 +214,7 @@ function validateArray(
     const itemPath = `${path}[${index}]`
     const failure = validateField(item, schema.item, itemPath)
     if (failure !== undefined) return failure
+    if (schema.uniqueBy === undefined) continue
     const identity = (item as Record<string, unknown>)[schema.uniqueBy]
     if (seen.has(identity)) {
       return refuse(
@@ -209,6 +241,7 @@ function validateField(
 ): ComponentCallFailure | undefined {
   switch (schema.kind) {
     case 'string': return validateString(value, schema, path)
+    case 'number': return validateNumber(value, schema, path)
     case 'enum': return validateEnum(value, schema, path)
     case 'object': return validateProps(value, schema.fields, path)
     case 'array': return validateArray(value, schema, path)
@@ -302,13 +335,17 @@ function validateNode(
       ok: false,
       failure: refuse(
         `${path}.component`,
-        `names no component of this deployment. Available components:\n${describeCatalog()}`,
+        `names no component of this deployment. Available components:\n${describeCatalog(COMPONENT_CATALOG)}`,
       ),
     }
   }
   const failure = validateProps(record['props'], entry.propsSchema, `${path}.props`)
   if (failure !== undefined) return { ok: false, failure }
-  return { ok: true, node: { id, component: entry.id, props: record['props'] as Record<string, unknown> } }
+  // The one call site of the tightening pass, so the tool, the fold over the
+  // log, and the browser seat — all three of which reach a node through here —
+  // draw the same properties rather than three readings of them.
+  const props = sanitizeNodeProps(entry, record['props'] as Record<string, unknown>)
+  return { ok: true, node: { id, component: entry.id, props } }
 }
 
 /**

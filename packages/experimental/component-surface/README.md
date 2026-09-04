@@ -2,7 +2,7 @@
 
 English | [中文](README.zh.md)
 
-`show_component`: the agent places a block of interface — a prompt with a row of buttons, today — in the content panel beside the conversation, chosen from a catalog this package owns and judged against that catalog before anything is drawn.
+`show_component`: the agent places a block of interface — a prompt with a row of buttons, or the details of one record — in the content panel beside the conversation, chosen from a catalog this package owns and judged against that catalog before anything is drawn.
 
 The package is both halves. The host half offers the tool, validates each call, and claims the `component` kind of the [content surface](../content-surface/README.md)'s entry stream; the browser half claims the `component` key of the content column's `content.surface.kind` slot and draws each entry's spec. Neither half owns a component: the renderers come from [`component-kit`](../component-kit/README.md), which knows no layout, and this package is what puts one of its blocks in a column.
 
@@ -26,13 +26,26 @@ An action's report grade is not a ceiling and is not configuration either. It sa
 
 One tool for every component, rather than one tool per component. Which blocks exist is a deployment's catalog, and a catalog is cheaper to state once inside a description than to spread across a growing tool list the model reads on every request. The catalog is a static table in `component-call.ts`; replace it with a registered seam when a package this one does not own needs to contribute a component.
 
-Today it holds one entry, `el.confirm-bar` — 确认条 — an optional title, an optional message, and one to five buttons each carrying an id, a label, and an optional tone.
+Today it holds two entries:
 
-A component's properties are declared as a small schema of four shapes: a bounded string (optionally restricted to an alphabet), a fixed set of strings, a record of further declared properties, and a bounded list of identified records. That union is the security boundary rather than a convenience, for the reason the trust section below states.
+| Component | 名称 | What it draws | What comes back |
+|---|---|---|---|
+| `el.confirm-bar` | 确认条 | an optional title, an optional message, and one to five buttons each carrying an id, a label, and an optional tone | `press`, carrying the pressed button's id |
+| `toy.record` | 记录详情 | one to sixty rows, each a label of at most 40 characters and a value of at most 400, with an optional label width of 40 to 240 and an optional column count of 1, 2 or 3 | nothing |
+
+A component reporting no action says so on its own line of the tool description — a model told a block answers back would otherwise place a display-only one and wait. Each component's properties are stated under that line, derived from its `propsSchema` rather than written beside it, so what the model is offered and what a call is judged against cannot drift apart and a model learns what to send without spending a refused call on finding out. What that line leaves out is every bound a refusal already states — a string's length, a token's alphabet — because the description is paid for on every request and a refusal is paid for once.
+
+A record's row keeps its place when its value is the empty string: the component draws the label with nothing beside it, which is what an attribute the record has but does not fill looks like.
+
+A component's properties are declared as a small schema of five shapes: a bounded string (optionally restricted to an alphabet), a number in a declared range, a fixed set of strings or numbers, a record of further declared properties, and a bounded list of records. A list whose items are something the user points at also names the item property that identifies them; a list nothing comes back from — the rows of a record — declares none, and two rows sharing a label are the data rather than a mistake. That union is the security boundary rather than a convenience, for the reason the trust section below states.
+
+What a schema cannot say is what a string *means*. A component that reads one as a path, a color, or the name of a cell renderer declares that reading beside the schema, from a closed list of three, and [`src/sanitize.ts`](src/sanitize.ts) enforces it on the way in: a path that is not one same-origin path and a color outside `#RGB`, `#RRGGBB`, `rgb()` and `rgba()` are dropped, and a renderer name outside the whitelist falls back to the plain renderer rather than leaving a cell with nothing to draw it. No component declares one today; the pass runs regardless, because the alternative is a rule that arrives with the first component that needs it and has never run before.
 
 ## What a call is judged against
 
 In order, and each step can end the call: the entry `id` and the `title`; the spec's nesting depth; its size in bytes; the properties a spec and a node may carry at all; every node's id, its uniqueness within the call, and the component it names; and finally every property of that component.
+
+An accepted node leaves that judgement with its properties already tightened, because validation is the one path all three readers take — the tool, the fold over the log, and the browser seat — and a second pass a caller has to remember to run is a second pass that eventually is not run.
 
 Depth is measured before size because both walk the document and only the depth walk is bounded by construction — it stops at the ceiling rather than at the bottom of the value.
 
@@ -96,9 +109,13 @@ Not here. This row places no write tool and requests no approval of its own — 
 
 ## Trust
 
-`spec` is model output that becomes a rendered block inside the shell's own origin. It is bounded rather than trusted, and the bound is the property schema rather than a sanitizer: there is no member of that schema union which can express markup, a function body, or a URL, so there is no such value for a later pass to have to recognize. A property the component does not declare is refused outright rather than dropped, so a model writing `onClick` learns that it did.
+`spec` is model output that becomes a rendered block inside the shell's own origin. It is bounded rather than trusted, and the first bound is the property schema: no member of that union can express markup or a function body, so a model reaching for a `formatter` or an `onClick` is refused by the absence of a property to write it into rather than by a sanitizer that recognized a function body. A property the component does not declare is refused outright rather than dropped, so a model writing one learns that it did, and the refusal names it.
+
+The second bound is the tightening pass above, and it covers what a schema cannot state: a declared reading is enforced value by value, and a value outside its reading is dropped from the block rather than refused to the model, because the pass also runs where no model is waiting — over a stored record on the way to the seat. The pass drops undeclared properties too, which through validation can never happen; that arm is what a record written by another build gets.
 
 The browser seat re-runs the identical judgement over the payload arriving on the wire, which is why the catalog and the validator sit in modules of their own that import nothing but each other: the seat reads them without pulling a tool runtime into a page, and the two halves cannot drift onto different rules.
+
+What the pass answers with is frozen, deeply. A renderer may draw a block with a Vue 2 component, and Vue makes a component's props reactive by rewriting them property by property — which would leave the seat's own memo and the Vue tree disagreeing about what changed. Vue walks past a frozen value, so freezing on the way out is what settles it, for the React renderers too: what a renderer is lent, it may read and may not write.
 
 ## The seat
 
@@ -116,11 +133,11 @@ The seat carries no dictionary. It translates through `componentKit`, the compon
 
 #### What the model sees
 
-One tool, `show_component`, with a required `id` string, a required `title` string, and a required `spec` object whose `nodes` array is required. The description carries the whole catalog as one `- id — label — purpose` line per component, the reuse rule for `id`, the node and byte ceilings, the refusal rule for undeclared properties, and the sentence naming what comes back: what the user does inside a block reaches the model, with the entry and the block it happened in. The component labels in that list are the Chinese names the end user reads, so a model naming a block in conversation names it the way the user sees it. This package contributes no system-prompt section.
+One tool, `show_component`, with a required `id` string, a required `title` string, and a required `spec` object whose `nodes` array is required. The description carries the whole catalog as two lines per component: `- id — label — purpose`, with `Nothing comes back from it.` on the line of a component that reports no action, and beneath it a `props:` line naming every property that component declares — `?` on the ones a call may omit, `(min–max)` on a number, `(a|b|c)` on a fixed set, and `[{item properties}] (min–max)` on a list. Then the reuse rule for `id`, the node and byte ceilings, the refusal rule for undeclared properties, and the sentence naming what comes back: what the user does inside a block reaches the model, with the entry and the block it happened in, unless that component's line said otherwise. The component labels in that list are the Chinese names the end user reads, so a model naming a block in conversation names it the way the user sees it. This package contributes no system-prompt section.
 
 #### Token effect
 
-One fixed description plus the parameter schema, on every request where the tool is visible. The description grows by one line per catalog entry; the `spec` schema stays shallow — one object with one array — because the per-component shape is in the catalog lines rather than in a nested JSON Schema.
+One fixed description plus the parameter schema, on every request where the tool is visible. The description grows by two lines per catalog entry, the second as long as that component's property list; the `spec` schema stays shallow — one object with one array — because the per-component properties are in the catalog lines rather than in a nested JSON Schema.
 
 #### KV Cache effect
 
@@ -130,7 +147,7 @@ The description is assembled once when the row loads and depends on nothing but 
 
 #### What the model sees
 
-An accepted call answers `Now showing "<title>" in the content panel: <labels>.` followed by the sentence naming the id to reuse. A refused call answers `Error: show_component: <path> — <what is wrong and what to send instead>`, and for an unknown component the whole catalog again.
+An accepted call answers `Now showing "<title>" in the content panel: <labels>.` followed by the sentence naming the id to reuse. A refused call answers `Error: show_component: <path> — <what is wrong and what to send instead>`, and for an unknown component the whole catalog again, property lines included, so the corrected call needs no second refusal to learn what the component it picks instead accepts.
 
 #### Token effect
 
@@ -153,7 +170,9 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **The return channel has no assembled-transcript coverage** — the `content-console` lane drives an ACP agent, and the ACP protocol has no command method, so no recorded transcript can carry a press. The lane composes the command registry regardless, because the description it pins tells the model a press comes back; the press itself is covered by the Playwright scenario against a real console composition, where the browser, the RPC gateway, the command registry, and the session log are all the shipped ones.
 - **The model cannot see what the panel holds** — there is no read path. The agent knows which calls it made, not which entry the user is looking at, whether one was dismissed, or what any block currently shows.
 - **No layout and no binding between blocks** — a spec is a flat list of nodes drawn top to bottom. There is no row/column tree, no width, and no way for one block's state to feed another's properties.
-- **One catalog entry** — `el.confirm-bar`. The mapping from a real component library to catalog entries, and the packaging that gets those components into a browser bundle, are separate work.
+- **An empty value is drawn as an empty value** — a `toy.record` row whose `display` is the empty string keeps its label and shows nothing beside it. That is deliberate: the alternative reading, dropping the row, hides from the user that the record has the attribute at all. A model that means "this attribute is not set" writes the words for it.
+- **Two catalog entries** — `el.confirm-bar` and `toy.record`. The mapping from the rest of a real component library to catalog entries, and the packaging that gets those components into a browser bundle, are separate work.
+- **No tightened reading is declared by a component yet** — the path, color and renderer-name rules are enforced and tested, but every property of both catalog entries is plain text, so the pass changes nothing about what is drawn today. The first component declaring one is what puts the rules on a real screen.
 - **No block's own input survives being unselected** — the seat draws the selected entry alone and nothing at all while another kind holds the column, so switching kinds, or switching between two `component` entries, discards whatever the user had typed into the blocks that were on display. A reported gesture does survive, because it is in the log rather than in the block.
 - **An entry this build cannot fully accept shows nothing at all** — the seat re-judges the whole payload, so one node naming a component this catalog no longer carries costs the entry every block it could have drawn, not just that one.
 - **The ceilings are protocol constants, not configuration** — the configuration section above states why, and what has to exist before they can become a deployment's choice.
