@@ -28,10 +28,12 @@
         defaultPage: home
         pageAccess: {}
 
-# And the session has to be routed somewhere that takes pictures: the read
-# refuses a route declaring no image input before it exports anything, so a
-# scenario left on the shipped text default would record one refusal and no
-# picture. The replay catalog in `scaffold.ts` publishes this same route.
+# What this composition's sessions start on. It is not what routes the session
+# this scenario drives: that one replays a seed whose log already carries a
+# request header, and a session that logged one derives its route from its own
+# log — the spec selects the route on it the way the composer's picker does.
+# The row is here so a session created in this composition starts where the
+# picture read can run. The replay catalog in `scaffold.ts` publishes the route.
 - id: agent-default-model
   config:
     provider: deepseek-official

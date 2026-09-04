@@ -9,9 +9,13 @@
  * the host commits them to the real attachment store before the call settles.
  * What the model is shown is a real image block referencing a real object.
  *
- * The layer differs from the four text scenarios' in one row: the session is
- * routed to a model that declares image input, because the read refuses a route
- * that does not before it exports anything.
+ * The session is routed to a model that declares image input, because the read
+ * refuses a route that does not before it exports anything. That takes two
+ * things, and the second is the one that does the work: the patch layer names
+ * the route this composition's sessions start on, and the spec then selects it
+ * on the seeded session itself, because a session that already logged a request
+ * header derives its route from its own log and never from the composition's
+ * default.
  *
  * The application is `tests/fixtures/markup-app`, whose pairing code carries no
  * alternative text, no title and no name — the listing has nothing to print for
@@ -35,7 +39,7 @@ import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import type { Page } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import {
   fixtureUserPrompts, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
@@ -55,6 +59,14 @@ const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/markup-app')
 const OVERLAY = fileURLToPath(new URL('./content-read-image.overlay.yml', import.meta.url))
 
 /**
+ * The route this scenario's session runs on, selected on the seeded session
+ * itself. The overlay's `agent-default-model` row alone would not put the
+ * session here: a session that already logged a request header derives its
+ * route from its own log, and the seed logged one.
+ */
+const ROUTE = { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp' } as const
+
+/**
  * Whether this scenario's recording is on disk. A replay run without it is
  * skipped rather than failed: the recording needs a real key, so the spec and
  * its fixture can land in different commits, and a lane with no key must not
@@ -72,11 +84,12 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
   let page: Page
   let tripwire: ReturnType<typeof watchConsole>
   let close: () => Promise<void>
+  let seeded: SessionId
   const sessionEvents: SessionEvent[] = []
 
   beforeAll(async () => {
-    ({ close, page, scaffold, tripwire } = await openContentColumn({
-      scenario: SCENARIO, appRoot: APP_ROOT, events: sessionEvents, overlay: OVERLAY,
+    ({ close, page, scaffold, sessionId: seeded, tripwire } = await openContentColumn({
+      scenario: SCENARIO, appRoot: APP_ROOT, events: sessionEvents, overlay: OVERLAY, model: ROUTE,
     }))
   }, 180_000)
 
@@ -89,6 +102,17 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
     if (MODE !== 'record') {
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
     }
+    // Before anything is driven: this read refuses a route that declares no
+    // image input, so a session sitting on the wrong route answers refusals
+    // for every call and says nothing about why. Both halves of the condition
+    // are asserted here, where a keyless run reaches them.
+    const session = scaffold.ctx.sessions.get(seeded)
+    if (session === undefined) throw new Error(`seeded session "${seeded}" is not live`)
+    expect(scaffold.ctx.sessionProjections.snapshot(session).values.modelSelection?.next)
+      .toMatchObject(ROUTE)
+    expect((await scaffold.ctx.llm.resolveModelInfo(ROUTE.provider, ROUTE.model)).inputModalities)
+      .toContain('image')
+
     const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled(MODE === 'record' ? 240_000 : 90_000)

@@ -14,7 +14,8 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { expect } from 'vitest'
+import type { SessionEvent, SessionId } from '@deepseek-ai/dsh-session'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT } from './support.ts'
 
@@ -151,12 +152,26 @@ export interface ContentColumnScenario {
    * one, so a scenario's layer replaces rather than extends it.
    */
   overlay?: string
+  /**
+   * The route this scenario's session must run on, selected on the seeded
+   * session the way the composer's model picker selects one.
+   *
+   * A composition's `agent-default-model` row is not enough and cannot be: a
+   * session that already logged a request header keeps deriving its route from
+   * its own log, and the default applies only to a session that logged none
+   * (`packages/api/session-controller/src/agent.ts`, `selectionFor`). The seed
+   * every scenario here replays logged one, so a scenario that needs another
+   * route has to select it.
+   */
+  model?: { provider: string; model: string }
 }
 
 /** One assembled content-column run: what a spec drives, and how it is taken down. */
 export interface ContentColumnRun {
   /** The booted harness, for the session events and the turn barrier. */
   scaffold: WebScaffold
+  /** The seeded session the browser opened, which this run drives. */
+  sessionId: SessionId
   /** The browser page showing the harness, its content column already up. */
   page: Page
   /** The page's console watch, which every scenario asserts is clean. */
@@ -193,7 +208,16 @@ export async function openContentColumn(scenario: ContentColumnScenario): Promis
     ...(mode === 'record' ? {} : { replayFixture: fixture, paceMs: 15 }),
   })
   scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { scenario.events.push(event) })
-  await seedSession(scaffold, withShownPage(await readFile(SEED, 'utf8'), 'home'), `${scenario.scenario}-web-e2e`)
+  const sessionId = await seedSession(
+    scaffold, withShownPage(await readFile(SEED, 'utf8'), 'home'), `${scenario.scenario}-web-e2e`,
+  )
+  if (scenario.model !== undefined) {
+    // The same call the composer's picker makes, on the same session, before
+    // anything drives a turn: it appends `model/selection`, which is the one
+    // tier that outranks the route the seed logged.
+    const selected = await scaffold.ctx.sessionController.selectModel({ sessionId, ...scenario.model })
+    expect(selected.selected, `${scenario.scenario}: selected route`).toMatchObject(scenario.model)
+  }
 
   const browser: Browser = await chromium.launch()
   const page = await newEnglishPage(browser)
@@ -208,6 +232,7 @@ export async function openContentColumn(scenario: ContentColumnScenario): Promis
 
   return {
     scaffold,
+    sessionId,
     page,
     tripwire,
     close: async (): Promise<void> => {
