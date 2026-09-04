@@ -45,5 +45,46 @@ export function routeServices(parts: RouteServiceParts): ModelRouteServices {
 export function fixedModalities(modalities?: readonly string[]): RouteModalities {
   return {
     resolveModelInfo: () => Promise.resolve(modalities === undefined ? {} : { inputModalities: modalities }),
+    listProviders: () => [],
+    listModels: () => Promise.resolve([]),
+  }
+}
+
+/** One model a stood-in catalogue lists. */
+export interface CatalogueModel {
+  /** The model id a route names. */
+  readonly id: string
+  /** The model's own display name. */
+  readonly name: string
+  /** What it declares it accepts, absent for a model that declares nothing. */
+  readonly inputModalities?: readonly string[]
+}
+
+/** One provider a stood-in catalogue lists. */
+export interface CatalogueProvider {
+  /** The registered provider route. */
+  readonly id: string
+  /** The provider's own display name. */
+  readonly name: string
+  /** Its models, absent for a provider whose catalogue cannot be read. */
+  readonly models?: readonly CatalogueModel[]
+}
+
+/**
+ * An LLM registry over one deployment's catalogue.
+ * @param providers - what the deployment has registered.
+ * @param modalities - what every route resolves as, for a gate that also asks.
+ * @returns the narrowed registry.
+ */
+export function catalogue(providers: readonly CatalogueProvider[], modalities?: readonly string[]): RouteModalities {
+  return {
+    ...fixedModalities(modalities),
+    listProviders: () => providers.map(({ id, name }) => ({ id, name })),
+    listModels: (provider) => {
+      const listed = providers.find(one => one.id === provider)?.models
+      return listed === undefined
+        ? Promise.reject(new Error(`the catalogue of "${provider}" cannot be read`))
+        : Promise.resolve(listed)
+    },
   }
 }

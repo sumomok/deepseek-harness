@@ -14,10 +14,12 @@
 import { describe, expect, it } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
-import { effectiveRoute, routeGate } from '../src/access/model-switch.ts'
-import type { RouteSelectionState } from '../src/access/model-switch.ts'
+import {
+  effectiveRoute, imageCapableRoutes, optionLabels, routeGate, switchQuestion,
+} from '../src/access/model-switch.ts'
+import type { CandidateRoute, RouteSelectionState } from '../src/access/model-switch.ts'
 import { noImageRouteRefusal, UNRESOLVED_ROUTE_REFUSAL } from '../src/access/text.ts'
-import { fixedModalities, routeServices } from './route-services.client.ts'
+import { catalogue, fixedModalities, routeServices } from './route-services.client.ts'
 
 /** The provider every route here is registered under. */
 const PROVIDER = 'deepseek-official'
@@ -136,5 +138,106 @@ describe('what the gate answers', () => {
   it('refuses a composition with no registry to resolve the route through', async () => {
     const { exec } = execution({ agentOptions: { provider: PROVIDER, model: VISION_MODEL } })
     expect(await routeGate(routeServices({}), exec)).toBe(UNRESOLVED_ROUTE_REFUSAL)
+  })
+})
+
+/** The catalogue a deployment with one vision route and two text routes lists. */
+const DEPLOYMENT = [
+  {
+    id: PROVIDER,
+    name: 'DeepSeek',
+    models: [
+      { id: TEXT_MODEL, name: 'DeepSeek-V4-Flash' },
+      { id: 'deepseek-v4-pro', name: 'DeepSeek-V4-Pro', inputModalities: ['text'] },
+      { id: VISION_MODEL, name: 'DeepSeek-V4-Flash-Vision-Exp', inputModalities: ['text', 'image'] },
+    ],
+  },
+]
+
+describe('which routes the card can offer', () => {
+  it('lists every configured route that declares image input, and no other', async () => {
+    expect(await imageCapableRoutes(catalogue(DEPLOYMENT))).toEqual([{
+      provider: PROVIDER,
+      model: VISION_MODEL,
+      providerName: 'DeepSeek',
+      modelName: 'DeepSeek-V4-Flash-Vision-Exp',
+    }])
+  })
+
+  it('lists nothing where no configured route declares image input', async () => {
+    expect(await imageCapableRoutes(catalogue([
+      { id: PROVIDER, name: 'DeepSeek', models: [{ id: TEXT_MODEL, name: 'DeepSeek-V4-Flash' }] },
+    ]))).toEqual([])
+  })
+
+  it('leaves out a provider whose catalogue cannot be read and keeps the rest', async () => {
+    const candidates = await imageCapableRoutes(catalogue([
+      { id: 'broken', name: 'Broken' },
+      ...DEPLOYMENT,
+    ]))
+    expect(candidates.map(candidate => candidate.model)).toEqual([VISION_MODEL])
+  })
+})
+
+describe('how the options are labelled', () => {
+  it('names the provider and the model where that already tells them apart', () => {
+    expect(optionLabels([
+      { provider: PROVIDER, model: VISION_MODEL, providerName: 'DeepSeek', modelName: 'Vision' },
+      { provider: 'other', model: 'other-vision', providerName: 'Other', modelName: 'Vision' },
+    ])).toEqual([
+      { provider: PROVIDER, model: VISION_MODEL, label: 'DeepSeek：Vision' },
+      { provider: 'other', model: 'other-vision', label: 'Other：Vision' },
+    ])
+  })
+
+  it('adds the model id where two providers share a name and a model name', () => {
+    const twins: CandidateRoute[] = [
+      { provider: 'a', model: 'first', providerName: 'DeepSeek', modelName: 'Vision' },
+      { provider: 'b', model: 'second', providerName: 'DeepSeek', modelName: 'Vision' },
+    ]
+    expect(optionLabels(twins).map(route => route.label))
+      .toEqual(['DeepSeek：Vision · first', 'DeepSeek：Vision · second'])
+  })
+
+  it('adds the model id where one provider lists two models under one name', () => {
+    const twins: CandidateRoute[] = [
+      { provider: PROVIDER, model: 'exp-1', providerName: 'DeepSeek', modelName: 'Vision' },
+      { provider: PROVIDER, model: 'exp-2', providerName: 'DeepSeek', modelName: 'Vision' },
+    ]
+    expect(optionLabels(twins).map(route => route.label))
+      .toEqual(['DeepSeek：Vision · exp-1', 'DeepSeek：Vision · exp-2'])
+  })
+
+  it('leaves a label alone where no other candidate carries it', () => {
+    expect(optionLabels([
+      { provider: PROVIDER, model: VISION_MODEL, providerName: '先不换', modelName: 'Vision' },
+    ]).map(route => route.label)).toEqual(['先不换：Vision'])
+  })
+})
+
+describe('the card the user is asked', () => {
+  it('offers no route under the label of the option that changes nothing', () => {
+    const options = switchQuestion(optionLabels([
+      { provider: PROVIDER, model: VISION_MODEL, providerName: '先不换', modelName: '先不换' },
+    ])).options ?? []
+    expect(new Set(options.map(option => option.label)).size).toBe(options.length)
+  })
+
+  it('asks one single-select question, listing every route and one that changes nothing', () => {
+    expect(switchQuestion(optionLabels([{
+      provider: PROVIDER,
+      model: VISION_MODEL,
+      providerName: 'DeepSeek',
+      modelName: 'DeepSeek-V4-Flash-Vision-Exp',
+    }]))).toEqual({
+      id: 'content-image-model',
+      header: '内容区的图',
+      question: '当前模型看不了图片，换一个能看图的模型吗？',
+      detail: '换过之后，这次对话接下来都用你选的那个模型；你随时可以自己换回来。',
+      options: [
+        { label: 'DeepSeek：DeepSeek-V4-Flash-Vision-Exp' },
+        { label: '先不换', description: '这次就不看这张图了' },
+      ],
+    })
   })
 })

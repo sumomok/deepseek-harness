@@ -22,10 +22,18 @@ import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 // Type-only: `modelSelection` is the session controller's own projection key,
 // and this gate's first tier is the selection that projection holds.
 import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller'
+import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions'
 import { noImageRouteRefusal, UNRESOLVED_ROUTE_REFUSAL } from './text.ts'
+import {
+  DECLINE_DESCRIPTION, DECLINE_LABEL, distinctRouteLabel, MODEL_SWITCH_DETAIL, MODEL_SWITCH_HEADER,
+  MODEL_SWITCH_QUESTION, routeLabel,
+} from './switch-text.ts'
 
 /** The modality this read needs the session's route to declare. */
 const IMAGE_MODALITY = 'image'
+
+/** The card's own id, echoed back on the answer. */
+const MODEL_SWITCH_QUESTION_ID = 'content-image-model'
 
 /** One exact route: the provider a request goes to and the model it names. */
 export interface RouteChoice {
@@ -52,6 +60,20 @@ export interface RouteModalities {
     model: string,
     signal?: AbortSignal,
   ) => Promise<{ inputModalities?: readonly string[] }>
+  /**
+   * Every provider route with a registered adapter.
+   * @returns those routes, in registration order.
+   */
+  readonly listProviders: () => readonly { id: string; name: string }[]
+  /**
+   * What one provider says it has. Catalog membership is the deployment's own
+   * claim, which is exactly what a card offering a change needs.
+   * @param provider - the registered provider route to list.
+   * @returns that provider's models, in adapter-preferred order.
+   */
+  readonly listModels: (
+    provider: string,
+  ) => Promise<readonly { id: string; name: string; inputModalities?: readonly string[] }[]>
 }
 
 /**
@@ -108,6 +130,111 @@ export function effectiveRoute(services: ModelRouteServices, exec: ToolRunContex
   if (logged !== undefined) return { provider: logged.provider, model: logged.model }
   const { provider, model } = agent.options
   return provider === undefined || model === undefined ? undefined : { provider, model }
+}
+
+/** One route the card could offer, before it has a label. */
+export interface CandidateRoute extends RouteChoice {
+  /** The provider's own display name. */
+  readonly providerName: string
+  /** The model's own display name. */
+  readonly modelName: string
+}
+
+/** One route the card does offer, under the label its answer comes back as. */
+export interface LabelledRoute extends RouteChoice {
+  /** The option label, which is this route's identity in the answer. */
+  readonly label: string
+}
+
+/**
+ * Every configured route that declares image input.
+ *
+ * The catalogue is the deployment's own claim about what it has, which is what
+ * a card offering a change needs; whether a route accepts a request is settled
+ * by the host when the change is made. A provider whose catalogue cannot be
+ * read is left out and the rest of the card stands, the way the session
+ * controller's own catalogue isolates one provider's failure.
+ * @param llm - the mounted LLM registry.
+ * @returns the candidates, in provider registration and adapter-preferred order.
+ */
+export async function imageCapableRoutes(llm: RouteModalities): Promise<CandidateRoute[]> {
+  const candidates: CandidateRoute[] = []
+  for (const provider of llm.listProviders()) {
+    let listed: readonly { id: string; name: string; inputModalities?: readonly string[] }[]
+    try {
+      listed = await llm.listModels(provider.id)
+    } catch (_thisProvidersCatalogueCouldNotBeRead) {
+      continue
+    }
+    for (const model of listed) {
+      if (model.inputModalities?.includes(IMAGE_MODALITY) !== true) continue
+      candidates.push({
+        provider: provider.id,
+        model: model.id,
+        providerName: provider.name,
+        modelName: model.name,
+      })
+    }
+  }
+  return candidates
+}
+
+/**
+ * Label every candidate so no two options on one card read the same.
+ *
+ * A label is the identity the answer comes back as, so two options sharing one
+ * would make a choice unreadable. Two candidates whose provider and model
+ * display names agree carry their model id as well. A route can never read as
+ * the option that changes nothing, because every route's label carries the
+ * separator between the two names and that option's does not. Two provider
+ * routes registered under one display name and listing one model id are the
+ * case these labels cannot tell apart; the README's Known Limitations owns it.
+ *
+ * A display name ending in the conventional recommendation suffix is shown
+ * without it and answered with it, so no candidate is lost to one.
+ * @param candidates - the routes to offer, in the order the card lists them.
+ * @returns the same routes, each under its label.
+ */
+export function optionLabels(candidates: readonly CandidateRoute[]): LabelledRoute[] {
+  const seen = new Set<string>()
+  const shared = new Set<string>()
+  for (const candidate of candidates) {
+    const label = routeLabel(candidate.providerName, candidate.modelName)
+    if (seen.has(label)) shared.add(label)
+    seen.add(label)
+  }
+  return candidates.map((candidate) => {
+    const label = routeLabel(candidate.providerName, candidate.modelName)
+    return {
+      provider: candidate.provider,
+      model: candidate.model,
+      label: shared.has(label) ? distinctRouteLabel(label, candidate.model) : label,
+    }
+  })
+}
+
+/**
+ * The card itself: one single-select question listing every route that can look
+ * at pictures, and one option that changes nothing.
+ *
+ * No presentation intent is declared, so the console renders the generic option
+ * list. The decline option is an option rather than the card's own skip control,
+ * because declining is an answer to this question and skipping is a control the
+ * console offers on every question.
+ * @param routes - the labelled candidates to offer.
+ * @returns the question to ask.
+ */
+export function switchQuestion(routes: readonly LabelledRoute[]): AskUserQuestionItem {
+  return {
+    id: MODEL_SWITCH_QUESTION_ID,
+    header: MODEL_SWITCH_HEADER,
+    question: MODEL_SWITCH_QUESTION,
+    detail: MODEL_SWITCH_DETAIL,
+    options: [
+      ...routes.map(route => ({ label: route.label })),
+      { label: DECLINE_LABEL, description: DECLINE_DESCRIPTION },
+    ],
+  }
 }
 
 /**

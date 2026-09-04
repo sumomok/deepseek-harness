@@ -51,6 +51,9 @@
       "path": "../../llm/llm"
     },
     {
+      "path": "../../interaction/user-questions"
+    },
+    {
       "path": "../../runtime-diagnostics/invariants"
     },
     {
