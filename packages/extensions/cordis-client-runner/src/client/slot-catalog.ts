@@ -129,11 +129,12 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'useSessions: SnapshotSelectorHook<SessionListState>',
       'useWorkspaces: SnapshotSelectorHook<import(\'./workspaces/service.ts\').WorkspaceListState>',
     ],
-    keyDomain: 'open: any string the owner dispatches (no compile-time key set), already taken: chart, page',
+    keyDomain: 'open: any string the owner dispatches (no compile-time key set), already taken: chart, component, page',
     hookContext: '',
     slotInject: '',
     declaredBy: 'an entry in \'content\' (experimental-content-column), so it exists while that entry is mounted',
     occupants: [
+      'experimental-component-surface ComponentSurface key \'component\'',
       'experimental-content-frame ContentFrame key \'page\'',
       'experimental-vue2-echarts-tool-poc ChartSurface key \'chart\'',
     ],

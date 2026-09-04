@@ -1,0 +1,77 @@
+{
+  "initial": [
+    {
+      "name": "show_chart",
+      "description": "Draw a chart inside the conversation the user is reading. Pass a complete ECharts option document as JSON in `option`; it renders where this call appears in the transcript, and the result reports what was painted.\n\nSupported series types: bar, line, pie, radar. JSON only — no functions and no expressions. Put the numbers inline in series[].data; at most 2000 data points across all series. Tooltips render as rich text, so tooltip markup is shown literally. The UI picks the theme; set explicit colors only when a specific color carries meaning.\n\nThe chart is drawn in a conversation column roughly 500×340 CSS pixels. Put the legend at the bottom and let ECharts place the chart itself; absolute `grid` offsets collide at that size.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable id of the chart, at most 64 characters. Reuse an earlier chart's id when correcting or updating it: the newer call replaces the older one where the user is reading. When the user asks to change, extend, or fix a chart already drawn — quoting it, naming its title, or otherwise pointing at it — send that chart's own id; a new id draws a second chart beside the old one instead. Omit it for a chart that stands on its own."
+          },
+          "title": {
+            "type": "string",
+            "description": "Short caption shown with the chart. Omit for none."
+          },
+          "option": {
+            "type": "object",
+            "description": "The complete ECharts option document.",
+            "additionalProperties": true,
+            "properties": {
+              "series": {
+                "type": "array",
+                "description": "One entry per series; each declares a \"type\" of bar, line, pie, radar and inline \"data\".",
+                "items": {}
+              }
+            },
+            "required": [
+              "series"
+            ]
+          }
+        },
+        "required": [
+          "option"
+        ]
+      }
+    },
+    {
+      "name": "show_component",
+      "description": "Put a block of interface in the content panel beside the conversation — the area the user sees without opening or scrolling anything. Use it to place a choice or a summary in front of the user while you talk about it.\n\nComponents:\n- el.confirm-bar — 确认条 — A short prompt above a row of buttons, for putting one decision in front of the user.\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry shows, and a new id adds a second entry beside it. When the user asks to change something already on display, reuse that entry's id.\n\nA call places between 1 and 8 blocks, and `spec` is at most 65536 bytes of JSON. Each block carries only the properties its component declares above; anything else is refused, and the refusal names the property.\n\nThe block is display only: what the user does with it does not come back to you. Ask for an answer in the conversation rather than waiting for one from the block.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Stable id of the entry this call owns, at most 64 letters, digits, underscores and hyphens, such as \"budget-confirm\". Reuse it to replace what the entry shows; a new id adds a second entry beside it."
+          },
+          "title": {
+            "type": "string",
+            "description": "Short phrase naming the entry for the user, at most 24 characters. Write it in the language the user is writing in; it is read by the user, not by you."
+          },
+          "spec": {
+            "type": "object",
+            "description": "What to put in the panel.",
+            "additionalProperties": false,
+            "properties": {
+              "nodes": {
+                "type": "array",
+                "description": "The blocks to draw, top to bottom. Each entry is {\"id\": \"<name unique in this call>\", \"component\": \"<id from the list above>\", \"props\": {…}}.",
+                "items": {}
+              }
+            },
+            "required": [
+              "nodes"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "spec"
+        ]
+      }
+    }
+  ],
+  "changes": []
+}

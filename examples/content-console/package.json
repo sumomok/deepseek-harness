@@ -1,0 +1,7 @@
+{
+  "name": "content-console-example",
+  "private": true,
+  "version": "0.0.1",
+  "type": "module",
+  "description": "Console backend spine: the content-surface entry stream and the show_chart / show_component tools under the ACP automation transport"
+}

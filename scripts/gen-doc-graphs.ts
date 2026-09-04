@@ -500,7 +500,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     pkg: 'content-surface',
     title: 'Content-column entry stream',
     mode: 'core',
-    consumers: ['content-frame', 'vue2-echarts-tool-poc'],
+    consumers: ['content-frame', 'vue2-echarts-tool-poc', 'component-surface'],
     note: 'Owns the extractor table and the single `contentSurface` projection folded from it; each content kind registers what it recognizes in the log and content-column draws the selected entry through a keyed slot.',
   },
   {

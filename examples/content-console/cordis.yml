@@ -1,0 +1,88 @@
+# The console's backend spine, reduced to what a recorded transcript can see.
+#
+# Everything here reaches a model request or the session log: the adapter, the
+# ACP automation app, the projection registry, the content-surface entry stream
+# (which contributes a system-prompt section), the HTTP host `show_chart` needs
+# for its two routes, and the two tools that place an entry in the column. The
+# console's browser rows — `server-layout`, `content-column`, `server-sidebar`,
+# `vue2-echarts-poc`, `component-kit` — are absent by construction: they
+# register no tool, no prompt section and no session event, so a transcript
+# cannot tell them from their own absence. Their evidence is the Playwright lane
+# under `apps/web/tests`.
+#
+# With `DSH_SNAPSHOT=record` the app bin runs the real DeepSeek adapter and the
+# harness harvests the persisted log; the bin loads the gitignored root `.env`
+# before this config. No stdout logger and no HMR: stdout carries ACP JSON-RPC.
+
+# The DeepSeek adapter. `deepseek-v4-flash` is the recorded model, so the replay
+# overlay needs no config restatement to stay reproducible.
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    thinking: enabled
+    reasoningEffort: max
+    models:
+      - id: deepseek-v4-flash
+      - id: deepseek-v4-pro
+
+# The ACP automation app: agent spine + JSONL persistence + protocol bridge.
+# Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets
+# it, else ./.sessions. Snapshot modes need raw JSONL for the harvest.
+# `workspaceContext: false` keeps AGENTS.md discovery out of the header, so the
+# pinned prompt describes the composition rather than the run's cwd.
+- id: acp-agent
+  name: '@deepseek-ai/dsh-acp-demo'
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-flash
+    persistenceRoot: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? './.sessions'
+    persistenceCompression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+    workspaceContext: false
+    # Every tool family the spine offers by default is off: this lane exists to
+    # pin the console's own model-visible surface, so an upstream edit to the
+    # skill, goal, or background-job descriptions must not churn its pin.
+    skills:
+      enabled: false
+    goals: false
+    toolJobs: false
+    persona: |
+      You are the console assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+
+      Answer with what you did, briefly.
+
+# Projection registry: `show_chart` folds its session's calls through it to tell
+# a current chart from one a later call replaced.
+- id: session-projection
+  name: '@deepseek-ai/dsh-session-projection'
+
+# The content column as one per-session entry stream. Model-visible through its
+# on-display prompt section; the browser half that renders the column is not
+# composed here.
+- id: content-surface
+  name: '@deepseek-ai/dsh-experimental-content-surface'
+
+# `show_chart` claims two HTTP routes, so the host must exist before it applies.
+# Port 0 takes an OS-assigned port: snapshot scenarios run in parallel and a
+# fixed port would collide.
+- id: webserver
+  name: '@deepseek-ai/dsh-host-webserver'
+  config:
+    host: 127.0.0.1
+    port: 0
+
+# The chart tool. No browser is attached under ACP, so every call answers
+# `unverified` after the deadline — one second here, because the deadline is
+# quoted verbatim in the model-facing result line and the lane pays it in real
+# time on every call.
+- id: show-chart
+  name: '@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc'
+  config:
+    verdictTimeoutMs: 1000
+
+# The component tool. Its browser seat and the component row that draws the
+# blocks are absent here for the same reason the column is: they register
+# nothing a transcript can see. What this row contributes is the offer itself —
+# the catalog spliced into the description, the three parameters, and the
+# result line a call reads back.
+- id: show-component
+  name: '@deepseek-ai/dsh-experimental-component-surface'

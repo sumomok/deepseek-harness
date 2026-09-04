@@ -26,6 +26,8 @@
     // Client packages outside packages/client with a local CSS module face.
     "packages/extensions/ui-cordis/src/css-modules.d.ts",
     "packages/experimental/content-frame/src/css-modules.d.ts",
+    "packages/experimental/component-kit/src/css-modules.d.ts",
+    "packages/experimental/component-surface/src/css-modules.d.ts",
     "packages/experimental/content-column/src/css-modules.d.ts",
     "packages/experimental/server-layout/src/css-modules.d.ts",
     "packages/experimental/server-sidebar/src/css-modules.d.ts",
@@ -99,6 +101,8 @@
     { "path": "./packages/experimental/server-sidebar" },
     { "path": "./packages/experimental/content-frame" },
     { "path": "./packages/experimental/content-column" },
+    { "path": "./packages/experimental/component-kit" },
+    { "path": "./packages/experimental/component-surface" },
     { "path": "./packages/experimental/vue-ui-poc" },
     { "path": "./packages/experimental/vue2-echarts-poc" },
     { "path": "./packages/experimental/vue2-echarts-tool-poc" },

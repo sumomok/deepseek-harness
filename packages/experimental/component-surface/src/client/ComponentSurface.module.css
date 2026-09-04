@@ -1,0 +1,39 @@
+/* The seat fills the content column's stage: one caption over the blocks the
+   call placed, stacked top to bottom in the order it wrote them. Tokens only. */
+
+.seat {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 12px 16px 16px;
+}
+
+.caption {
+  flex: none;
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}
+
+/* Scrolls rather than compresses: a block sizes itself to its content, and the
+   column's height is solved by the shell rather than by what the call placed. */
+.stack {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  overflow-y: auto;
+}
+
+.notice {
+  margin: 0;
+  padding: 24px;
+  text-align: center;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+}

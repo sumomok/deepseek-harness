@@ -3482,6 +3482,8 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-command-goal` — requires `commands` · `goals` ([`packages/goal/command-goal/src/index.ts`](../packages/goal/command-goal/src/index.ts))
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
 - `@deepseek-ai/dsh-cordis-client-runner` ([`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts))
+- `@deepseek-ai/dsh-experimental-component-kit` ([`packages/experimental/component-kit/src/index.ts`](../packages/experimental/component-kit/src/index.ts))
+- `@deepseek-ai/dsh-experimental-component-surface` — requires `tools` ([`packages/experimental/component-surface/src/index.ts`](../packages/experimental/component-surface/src/index.ts))
 - `@deepseek-ai/dsh-experimental-content-column` ([`packages/experimental/content-column/src/index.ts`](../packages/experimental/content-column/src/index.ts))
 - `@deepseek-ai/dsh-experimental-content-surface` ([`packages/experimental/content-surface/src/index.ts`](../packages/experimental/content-surface/src/index.ts))
 - `@deepseek-ai/dsh-experimental-server-layout` ([`packages/experimental/server-layout/src/index.ts`](../packages/experimental/server-layout/src/index.ts))

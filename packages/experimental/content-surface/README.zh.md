@@ -106,4 +106,4 @@ When the user refers to something you have already produced and put on display �
 - **一条事件只归一个 kind** —— 第一个认得某条事件的 extractor 赢走它，而没有任何机制能发现两个 kind 在读同一条事件。派生自不同工具调用或不同事件类型的 kind 不会相撞。
 - **一次关闭从不对照活的流做校验** —— 命令会为其输入指名的任意 `(kind, entryId)` 追加 `content-surface/dismissed`，不检查这样标识的 entry 当下是否真的存在。这是一个刻意的设计选择（见上文「关闭一条 entry」），不是疏漏，但也意味着一个畸形的客户端可以关闭一个从未存在过的组合，且不会在任何地方报出错误。
 - **被工具链拆离了它的浏览器半边** —— 一个包若宿主入口声明了 Cordis 服务、`src/client` 又触及客户端运行时，两个 face 的 Context 合并会落进同一个 Typert 程序，使生成器因重复 key 而失败。把服务留在这里、把这一栏放进 [`content-column`](../content-column/README.zh.md)，正是为了避开这一点；两者总是一起组合，单独一个都不成事。
-- **未被 assembled snapshot 覆盖** —— 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。
+- **画出来的那一列未被 assembled snapshot 覆盖** —— 本包贡献的「已展示内容」提示词段落由 [`examples/content-console`](../../../examples/content-console/README.zh.md) 泳道钉住，那条泳道真实组合了这一行；而一条条目在列里画成什么样属于浏览器侧证据，那是针对真实组合运行的 Playwright 场景。

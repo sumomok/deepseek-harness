@@ -1,0 +1,32 @@
+# `show_component` under the service-line console: the agent places a block of
+# interface in the content column while it talks about it.
+#
+# Layered over the console composition in
+# `../../server-sidebar/overlay/customer.patch.yml`, which already disables
+# `ui-layout` and inserts `server-layout`, `content-surface`, and
+# `content-column`. Apply both, console first:
+#
+#   dsh --profile web \
+#     --patch packages/experimental/server-sidebar/overlay/customer.patch.yml \
+#     --patch packages/experimental/component-surface/overlay/component-surface.patch.yml
+#
+# - `content-surface` folds the session's logged `show_component` calls into the
+#   entry stream and `content-column` routes the column by entry kind. Both must
+#   already be composed: this row registers the `component` extractor through
+#   `ctx.inject`, which simply never fires without the router, and the tool is
+#   then offered with nothing to draw it.
+# - `component-kit` carries the renderers and their copy; the row below requires
+#   it through the loader's module table, which is what keeps one copy of the
+#   components in the page.
+# - `component-surface` offers `show_component`, judges each call against the
+#   catalog, claims the `component` kind of the column, and claims the seat that
+#   draws it.
+#
+# Every package must be resolvable from the profile directory, which for an
+# out-of-tree plugin means `dsh plugin --profile web add <path>` or an
+# equivalent link — release bundles must not declare an experimental package.
+- insert:
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+    - id: show-component
+      name: '@deepseek-ai/dsh-experimental-component-surface'
