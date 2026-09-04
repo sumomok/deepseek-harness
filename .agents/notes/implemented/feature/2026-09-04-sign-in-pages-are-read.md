@@ -53,7 +53,7 @@ Nothing in this package withholds a credential the user types into the conversat
 
 **The model reads and acts on sign-in forms.** It can list the boxes, print their markup, read a captcha's `alt` text or a QR code's element, and fill and click on the page under the same approval every other `content_act` call takes.
 
-**A refusal fewer to explain.** The read tools' failure set is the four the seat can reach for any read; the act tool's is that set plus the front-changed refusal. `failureRefusal` has one arm fewer and the closed union it switches on ends in the same `assertNever` default.
+**A refusal fewer to explain.** The read tools' failure set is the four the seat can reach for any read; the act tool's is that set plus the front-changed refusal. `failureRefusal` has one arm fewer, and the closed union it switches on ends in the same explained default arm: `packages/experimental/content-frame/src/access/text.ts:236` returns `content-frame: unknown outcome` with the outcome serialized after it, under a `v8 ignore` comment, so a code no arm handles is spoken rather than swallowed.
 
 **The credential rule is one rule with one home.** `isPassword` decides it, every read path asks it, and the README states it once. A page's shape decides nothing.
 

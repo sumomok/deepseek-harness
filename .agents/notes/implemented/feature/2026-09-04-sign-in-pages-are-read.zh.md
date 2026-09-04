@@ -53,7 +53,7 @@ Status: implemented
 
 **模型会读也会动登录表单。** 它能列出这些框、印出它们的原文、读验证码的 `alt` 文字或二维码那个元素，也能在这页上填和点，走的是每一次 `content_act` 调用都要走的同一道审批。
 
-**少一种拒绝要解释。** 读取工具的失败集合就是座位对任何一次读取都能到达的那四种；动手工具的是那四种加上「前面的页面换了」。`failureRefusal` 少一支，它 switch 的那个封闭 union 仍以同一个 `assertNever` 兜底收尾。
+**少一种拒绝要解释。** 读取工具的失败集合就是座位对任何一次读取都能到达的那四种；动手工具的是那四种加上「前面的页面换了」。`failureRefusal` 少一支，它 switch 的那个封闭 union 仍以同一个带说明的兜底分支收尾：`packages/experimental/content-frame/src/access/text.ts:236` 在一行 `v8 ignore` 注释下返回 `content-frame: unknown outcome` 加上序列化的 outcome，于是没有任何分支认领的 code 会被说出来，而不是被吞掉。
 
 **凭据规矩是一条规矩、一处归属。** `isPassword` 定它，每条读取路径问它，README 说它一次。页面的形状什么都不定。
 
