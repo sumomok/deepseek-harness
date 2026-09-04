@@ -10,11 +10,12 @@
  * [section](../../../../.agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.md#where-the-rules-do-not-reach)
  * owns them.
  *
- * This spec walks three surfaces. It reads the two text modules' whole export
+ * This spec walks three surfaces. It reads the three text modules' whole export
  * surface rather than a list of strings, so a constant or a sentence added
  * later is covered the day it is written: an exported function with no
  * arguments recorded here fails, and so does an export that is neither a string
- * nor a function. It assembles all seven tool definitions and reads every
+ * nor a function. `switch-text.ts` is walked with them although a person rather
+ * than a model reads it: a tool name has no place in either audience's copy. It assembles all seven tool definitions and reads every
  * `description` each one carries — its own, its parameter schema's at any
  * depth, and its output schema's — which is what covers the descriptions
  * composed in `tool.ts`, `read-tool.ts`, `markup-tool.ts`, `image-tool.ts`,
@@ -30,6 +31,7 @@
 import { describe, expect, it } from 'vitest'
 import type { ToolDefinition } from '@deepseek-ai/dsh-tools'
 import * as actText from '../src/access/act-text.ts'
+import * as switchText from '../src/access/switch-text.ts'
 import * as readText from '../src/access/text.ts'
 import { contentActTool } from '../src/access/act-tool.ts'
 import { DialogApprovals } from '../src/access/dialog-approvals.ts'
@@ -100,6 +102,10 @@ const ARGUMENTS: Record<string, readonly unknown[][]> = {
   wideTextMessage: [[9000, 'e12', 4000]],
   markupHeaderText: [[{ page: 'Home', url: '/home', settled: false }]],
   noImageRouteRefusal: [['deepseek-v4-flash']],
+  noImageAnywhereRefusal: [['deepseek-v4-flash']],
+  routeSwitchRefusal: [['session/model-unavailable: no adapter registered for provider "none"']],
+  routeLabel: [['DeepSeek', 'DeepSeek-V4-Flash-Vision-Exp']],
+  distinctRouteLabel: [['DeepSeek：DeepSeek-V4-Flash-Vision-Exp', 'deepseek-v4-flash-vision-exp']],
   notAnImageRefusal: [['e12', 'div']],
   hiddenImageRefusal: [['e12']],
   unloadedImageRefusal: [['e12']],
@@ -236,8 +242,12 @@ const PAGE = `
 </main>`
 
 describe('every sentence this package puts in front of the model', () => {
-  it('names no tool of this package, in either text module', () => {
-    const sentences = [...sentencesOf(readText, 'text.ts'), ...sentencesOf(actText, 'act-text.ts')]
+  it('names no tool of this package, in any of the three text modules', () => {
+    const sentences = [
+      ...sentencesOf(readText, 'text.ts'),
+      ...sentencesOf(actText, 'act-text.ts'),
+      ...sentencesOf(switchText, 'switch-text.ts'),
+    ]
     // The walk is worthless if it found nothing to walk.
     expect(sentences.length).toBeGreaterThan(60)
     expect(sentences.filter(sentence => TOOL_NAMES.some(tool => sentence.includes(tool)))).toEqual([])

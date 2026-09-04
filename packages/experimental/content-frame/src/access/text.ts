@@ -464,8 +464,31 @@ export function noImageRouteRefusal(model: string): string {
   return `The session's model "${model}" does not declare image input.`
 }
 
+/**
+ * Refusal for a session whose route takes no picture and a deployment where no
+ * other route does either. Stated separately from
+ * {@link noImageRouteRefusal} because the two differ in what is true of the
+ * deployment, not only of this session.
+ * @param model - the model the session's route resolves to.
+ * @returns the model-facing sentence.
+ */
+export function noImageAnywhereRefusal(model: string): string {
+  return `The session's model "${model}" does not declare image input, and no configured model does.`
+}
+
 /** Refusal for a session whose provider and model could not be read at all. */
 export const UNRESOLVED_ROUTE_REFUSAL = 'The current model route could not be resolved.'
+
+/**
+ * Refusal for a model change the host would not make. The reason is the
+ * host's own, quoted rather than restated, because what refused the change is
+ * the route validation this package does not perform.
+ * @param reason - what the host answered.
+ * @returns the model-facing sentence.
+ */
+export function routeSwitchRefusal(reason: string): string {
+  return `The session's model could not be changed. ${reason}`
+}
 
 /**
  * Refusal for an element that draws no picture of its own.
