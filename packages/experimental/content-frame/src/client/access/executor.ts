@@ -39,9 +39,9 @@ import {
 } from '../../access/wire.ts'
 import {
   FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
-  SIGN_IN_REFUSAL, wideAttrsMessage, wideTextMessage, WIDE_DOM_MESSAGE,
+  wideAttrsMessage, wideTextMessage, WIDE_DOM_MESSAGE,
 } from '../../access/text.ts'
-import { actReportText, frontChangedRefusal, SIGN_IN_ACT_REFUSAL } from '../../access/act-text.ts'
+import { actReportText, frontChangedRefusal } from '../../access/act-text.ts'
 import type { ContentFrameAccessSettings } from '../../route.ts'
 import type { ContentAccessRequest, ContentActRequest, ContentReadingRequest } from '../../types.ts'
 import { settlePage } from '../perception/settle.ts'
@@ -557,9 +557,8 @@ function wideMessage(request: ContentReadingRequest, chars: number, budget: numb
  * Read the page one call asked for, or say why there was none to read.
  *
  * Shared by all four reads: what each of them wants of the page differs, and a
- * column with nothing in it, a frame out of reach, a page still loading, a page
- * still drawing and a page asking for a sign-in are the same five answers for
- * every one of them.
+ * column with nothing in it, a frame out of reach, a page still loading and a
+ * page still drawing are the same four answers for every one of them.
  * @param seat - the seat as it stands now.
  * @param request - the pending call: what it asks of the page, and the id the
  * report carrying the answer will be posted under.
@@ -609,7 +608,6 @@ async function readPage(
         url: forWire(read.header.url, MAX_URL_CHARS),
         title: forWire(read.header.title, MAX_HEADER_CHARS),
         ...read.header.modal === undefined ? {} : { modal: forWire(read.header.modal, MAX_HEADER_CHARS) },
-        signIn: read.header.signIn,
         text,
         truncated: read.truncated,
         shown: read.shown,
@@ -632,14 +630,6 @@ async function readPage(
  * is composed, so what it collected is exactly what the page did in answer to
  * these steps — and the two functions it stands in for are back before anything
  * else can reach them.
- *
- * A page asking the user to sign in is refused before the first step, by the
- * reader's own verdict rather than by a second opinion of what a sign-in form
- * looks like: `content_read` withholds such a page's listing, and a channel
- * that typed into it would be the way around that. The same verdict is taken
- * again on the closing read, because the steps themselves can produce one — a
- * sign-out, a session that expired mid-call — and the page's structure is then
- * withheld from the report the way the read withholds it.
  *
  * The closing snapshot is a whole read of the page at the deployment's own
  * budget, taken after the last step settled. It is the model's next move: the
@@ -689,9 +679,6 @@ async function actOnPage(
   }
   let watch: ActWatch | undefined
   try {
-    if (snapshot(ready.view.document, options).header.signIn) {
-      return report({ status: 'error', code: 'sign-in', message: SIGN_IN_ACT_REFUSAL })
-    }
     // The documents this call is scoped to, fixed before the first step: every
     // same-origin document the reader walked, which is where its refs come
     // from.
@@ -719,14 +706,6 @@ async function actOnPage(
     // Re-read after the steps: a navigation replaces the frame's document, and
     // the closing snapshot is of the page the user is looking at now.
     const read = snapshot(ready.view.document, options)
-    // Withheld rather than described, exactly as a read withholds it: what the
-    // steps left in front of the user is a credential form, and its structure
-    // is not what the model needs to see. What the seat answered a dialog, or
-    // where the page went, is the seat's own record of the call and quotes
-    // nothing the page drew, so it is reported either way.
-    const now = read.header.signIn
-      ? { text: SIGN_IN_REFUSAL, truncated: false, events }
-      : { text: read.text, truncated: read.truncated, events }
     const outcome: ActOutcome = {
       status: run.results.some(result => result.status === 'failed') ? 'failed' : 'done',
       page: { id: ready.page.id, title: forWire(ready.page.title, MAX_NAME_CHARS) },
@@ -740,10 +719,10 @@ async function actOnPage(
         results: run.results,
         redacted: run.redacted,
         settledMs: run.settledMs,
-        events: now.events,
-        snapshot: now.text,
+        events,
+        snapshot: read.text,
       })),
-      truncated: now.truncated,
+      truncated: read.truncated,
     }
     return weigh(report, outcome, outcome.text, access, FRAME_WIDE_LISTING_MESSAGE)
   } catch (refusal) {

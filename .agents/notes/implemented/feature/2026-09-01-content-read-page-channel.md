@@ -64,7 +64,7 @@ The disagreement runs the other way as well, without reaching this ending. A con
 
 ### Every ending is a sentence, and every failure throws
 
-The tool returns a value for exactly one outcome: a listing. Everything else — no console, no answer, an empty column, another kind in front, a stale ref, an unreadable frame, a sign-in form — throws, with a sentence naming what to do next. A failure is the only tool text a model reads while deciding its next step, so an outcome returned as a `status: 'empty'` value would be read past. The sign-in case is the sharpest: the listing exists and is withheld, because a password form is where the agent hands the keyboard back rather than narrating.
+The tool returns a value for exactly one outcome: a listing. Everything else — no console, no answer, an empty column, another kind in front, a stale ref, an unreadable frame — throws, with a sentence stating why. A failure is the only tool text a model reads while deciding its next step, so an outcome returned as a `status: 'empty'` value would be read past. A page showing a sign-in form was one of these endings until [the sign-in pages note](2026-09-04-sign-in-pages-are-read.md) retired it.
 
 ### An unclaimed read says something different when the column is not empty
 

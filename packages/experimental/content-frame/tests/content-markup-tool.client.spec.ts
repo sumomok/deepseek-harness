@@ -35,7 +35,6 @@ const TREE: ReadSnapshot = {
   kind: 'dom',
   url: 'http://127.0.0.1:5173/content-app/reports/?q=open#top',
   title: 'Fleet console',
-  signIn: false,
   text: 'e1 section#ops {class: panel}\n  e2 i {class: el-icon-edit}',
   truncated: false,
   shown: 2,
@@ -280,14 +279,6 @@ describe('what a markup read refuses', () => {
       })
       expect(text(result)).toBe('Error: This call has no owning agent session')
     }
-  })
-
-  it('withholds the markup of a page asking the user to sign in', async () => {
-    // A sign-in page's markup is the credential form itself, which is the one
-    // page whose spelling the model has no business reading.
-    const result = await settleWith('content_read_dom', { scope: 'e1' }, posted({ signIn: true }))
-    expect(result.isError).toBe(true)
-    expect(text(result)).toBe('Error: The page in the content column shows a sign-in form, which is not read.')
   })
 
   it('refuses an answer that came back under another read\'s kind', async () => {

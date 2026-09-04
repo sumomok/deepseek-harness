@@ -237,7 +237,6 @@ describe('what a page says about itself', () => {
     expect(header.url).toBe(document.URL)
     expect(header.title).toBe('站点管理 - 运维平台')
     expect(header.modal).toBeUndefined()
-    expect(header.signIn).toBe(false)
   })
 
   it('reads the trail saying where the user is as the run of text the page drew', () => {
@@ -331,35 +330,24 @@ describe('what a page says about itself', () => {
     expect(read(refs).header.modal).toBe('删除确认')
   })
 
-  it('recognises a sign-in page by a password box beside a box naming the account', () => {
-    const refs = page(`
-      <form aria-label="登录">
-        <input type="text" aria-label="账号">
-        <input type="password" aria-label="密码">
-        <button>登录</button>
-      </form>`)
-    expect(read(refs).header.signIn).toBe(true)
-  })
-
-  it('recognises a sign-in page whose fields sit in no form at all', () => {
-    expect(read(page('<input aria-label="账号"><input type="password" aria-label="密码">')).header.signIn).toBe(true)
-  })
-
-  it('is not a sign-in page when the account box is hidden, or when there is none', () => {
-    expect(read(page('<div data-hidden><input type="text"></div><input type="password">')).header.signIn).toBe(false)
-    expect(read(page('<input type="password" aria-label="密码">')).header.signIn).toBe(false)
-    expect(read(page('<div data-hidden><input type="password"></div><input type="text">')).header.signIn).toBe(false)
-  })
-
-  it('is not a sign-in page when the only text box sits in another part of the page', () => {
-    const refs = page(`
-      <header><input type="search" aria-label="搜索"><input type="text" aria-label="快捷跳转"></header>
-      <main><input type="password" aria-label="新密码"><button>保存</button></main>`)
-    expect(read(refs).header.signIn).toBe(false)
-  })
 })
 
 describe('what never reaches the model', () => {
+  it('lists a sign-in form like any other page, with the password box\'s value withheld', () => {
+    const refs = page(`
+      <form aria-label="登录">
+        <input type="text" aria-label="账号" value="admin">
+        <input type="password" aria-label="密码" value="hunter2">
+        <button>登录</button>
+      </form>`)
+    expect(read(refs).text).toBe([
+      'e1 form "登录"',
+      '  e2 textbox "账号" = "admin" (in form "登录")',
+      '  e3 textbox "密码" = (hidden) (in form "登录")',
+      '  e4 button "登录" (in form "登录")',
+    ].join('\n'))
+  })
+
   it('reports a password box and never what it holds', () => {
     const refs = page('<input type="password" aria-label="密码" value="hunter2">')
     expect(read(refs).text).toBe('e1 textbox "密码" = (hidden)')
@@ -2254,6 +2242,19 @@ describe('a field the page names by drawing the words beside it', () => {
       <div class="item">
         <label>名称</label>
         <div class="tools"><button data-hidden>清空</button></div>
+        <input type="text">
+      </div>`)
+    expect(read(refs).text).toBe('e1 textbox "名称" = ""')
+  })
+
+  it('keeps the label of a field the page hides a control between', () => {
+    // The control would print a row of its own anywhere it could be seen, and
+    // the page hides it: nothing a reader can act on stands between the words
+    // and the field, so the words still name it.
+    const refs = page(`
+      <div class="item">
+        <label>名称</label>
+        <button data-hidden>清空</button>
         <input type="text">
       </div>`)
     expect(read(refs).text).toBe('e1 textbox "名称" = ""')

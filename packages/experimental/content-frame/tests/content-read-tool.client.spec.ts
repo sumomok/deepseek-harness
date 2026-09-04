@@ -36,7 +36,6 @@ const LISTING: ReadSnapshot = {
   kind: 'outline',
   url: 'http://127.0.0.1:5173/content-app/reports/?q=open#top',
   title: 'Fleet console',
-  signIn: false,
   text: '1 main\n  2 button "Refresh" e12',
   truncated: false,
   shown: 2,
@@ -355,12 +354,6 @@ describe('what content_read answers when there is no page to read', () => {
     expect(text(result)).toBe('Error: The page in the content column had not finished loading when this read gave up on it.')
   })
 
-  it('withholds the listing of a page asking the user to sign in', async () => {
-    const result = await settleWith(read({ signIn: true, text: '1 form\n  2 textbox "Email" e3' }))
-    expect(result.isError).toBe(true)
-    expect(text(result)).toBe('Error: The page in the content column shows a sign-in form, which is not read.')
-    expect(text(result)).not.toContain('textbox')
-  })
 })
 
 describe('the listing content_read answers with', () => {

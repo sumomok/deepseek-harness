@@ -863,7 +863,7 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'SnapshotHeader',
-    declaration: 'export interface SnapshotHeader {\n    readonly url: string;\n    readonly title: string;\n    readonly modal?: string;\n    readonly signIn: boolean;\n}',
+    declaration: 'export interface SnapshotHeader {\n    readonly url: string;\n    readonly title: string;\n    readonly modal?: string;\n}',
   },
   {
     name: 'SnapshotSelectorHook',

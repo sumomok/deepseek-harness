@@ -25,7 +25,6 @@ import {
   CONTENT_READ_ATTRS_DESCRIPTION, CONTENT_READ_DOM_CONTENT_DESCRIPTION, CONTENT_READ_DOM_DESCRIPTION,
   DOM_AFTER_DESCRIPTION, DOM_AFTER_REFUSAL, DOM_SCOPE_DESCRIPTION, DOM_SCOPE_REFUSAL,
   ELEMENT_REF_DESCRIPTION, ELEMENT_REF_REFUSAL, failureRefusal, markupHeaderText, MISREPORTED_REFUSAL,
-  SIGN_IN_REFUSAL,
 } from './text.ts'
 import { awaitRead, PAGE_VALUE_SCHEMA, pathOf, readBody, type ReadWait } from './read-value.ts'
 import {
@@ -103,16 +102,11 @@ const MARKUP_OUTPUT = {
  * @param outcome - what the claiming seat reported.
  * @param kind - which of the three reads asked, which is the kind its answer comes back under.
  * @returns the canonical value.
- * @throws {Error} for every outcome that is not this read's own answer,
- * including a page asking the user to sign in.
+ * @throws {Error} for every outcome that is not this read's own answer.
  */
 function markupValue(outcome: ReadOutcome, kind: MarkupKind): ContentMarkupValue {
   if (outcome.status === 'error') throw new Error(failureRefusal(outcome))
   const { snapshot } = outcome
-  // Withheld exactly as the listing withholds it: a sign-in page's markup is
-  // the credential form itself, which is the one page whose spelling the model
-  // has no business reading.
-  if (snapshot.signIn) throw new Error(SIGN_IN_REFUSAL)
   // One channel carries five tools' answers, so a document arriving under
   // another read's kind answers a call this one did not make.
   if (snapshot.kind !== kind) throw new Error(MISREPORTED_REFUSAL)

@@ -185,10 +185,10 @@ export const MAX_TEXT_BYTES_PER_CHAR = 4
  * written with.
  *
  * A listing report with every string empty and nine-digit counters serializes
- * to 257 bytes, and the union of that form's keys with a failure's to 301 —
+ * to 242 bytes, and the union of that form's keys with a failure's to 286 —
  * with both discriminants empty. The values a real report writes there,
  * `outline` and `not-a-page`, add 17 bytes that no per-field allowance covers,
- * so 318 is what the envelope has to leave room for; a bound covering both
+ * so 303 is what the envelope has to leave room for; a bound covering both
  * forms cannot be read off either one alone. Rounded up from there, with room
  * for counters longer than nine digits.
  */
@@ -245,7 +245,7 @@ export const REPORT_ENVELOPE_BYTES = MAX_TEXT_BYTES_PER_CHAR * (
  * columns, and the 48 columns of the console this floor was chosen against with
  * 240 to spare — in any language, because the byte bound the route holds a
  * whole report to does not bind there: 48 columns of three-byte text is 3760
- * characters in a body of 10,565 bytes against 26,528.
+ * characters in a body of 10,550 bytes against 26,528.
  *
  * All three cuts are the reader's own, recorded with the rules they belong to
  * in .agents/notes/implemented/feature/2026-09-02-content-snapshot-engine.md;
@@ -424,13 +424,6 @@ export type ReadErrorCode =
   /** The frame's document could not be reached or did not finish loading. */
   | 'frame'
   /**
-   * The page is asking the user to sign in, so the call was not run on it.
-   * Posted by a call that would have acted: a read carries the same verdict in
-   * its listing's own `signIn`, because there the header is worth reporting
-   * whether or not the listing under it is withheld.
-   */
-  | 'sign-in'
-  /**
    * The column has another page in front than the one the call was approved
    * against, so the steps were not run. Posted by a call that would have
    * acted: a read is defined as the page in front and has nothing to compare.
@@ -470,8 +463,6 @@ export interface ReadSnapshot {
   title: string
   /** The name of the dialog the page has open. */
   modal?: string
-  /** True when the page is asking the user to sign in. */
-  signIn: boolean
   /** The rendered listing. */
   text: string
   /** True when the listing stops short of everything the read would have shown. */
@@ -588,7 +579,7 @@ function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | und
   const kind = READ_KINDS.find(known => known === candidate.kind)
   if (kind === undefined) return undefined
   if (!isText(candidate.url, MAX_URL_CHARS) || !isText(candidate.title, MAX_HEADER_CHARS)) return undefined
-  if (typeof candidate.signIn !== 'boolean' || typeof candidate.truncated !== 'boolean') return undefined
+  if (typeof candidate.truncated !== 'boolean') return undefined
   if (typeof candidate.settled !== 'boolean') return undefined
   if (!isText(candidate.text, maxTextChars)) return undefined
   if (!isCount(candidate.shown) || !isCount(candidate.total)) return undefined
@@ -601,7 +592,6 @@ function parseSnapshot(value: unknown, maxTextChars: number): ReadSnapshot | und
     url: candidate.url,
     title: candidate.title,
     ...typeof candidate.modal === 'string' ? { modal: candidate.modal } : {},
-    signIn: candidate.signIn,
     text: candidate.text,
     truncated: candidate.truncated,
     shown: candidate.shown,
@@ -630,7 +620,7 @@ function parseBusy(value: unknown): string[] | undefined {
 }
 
 /** Every code a posted failure may name. */
-const ERROR_CODES: readonly ReadErrorCode[] = ['empty', 'not-a-page', 'engine', 'frame', 'sign-in', 'front-changed']
+const ERROR_CODES: readonly ReadErrorCode[] = ['empty', 'not-a-page', 'engine', 'frame', 'front-changed']
 
 /**
  * Read one posted outcome as a listing or a failure.

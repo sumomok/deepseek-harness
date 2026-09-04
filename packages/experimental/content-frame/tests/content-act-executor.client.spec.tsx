@@ -433,28 +433,22 @@ describe('what stops a call', () => {
     expect(outcome.status).toBe('done')
   })
 
-  it('refuses to act on a page asking the user to sign in', async () => {
-    // The listing of such a page is withheld from `content_read`; a channel
-    // that typed into it would be the way around that.
+  it('acts on a sign-in form like any other page, and never reads the password back', async () => {
     mount('<main><form><label for="u">用户名</label><input id="u">'
       + '<label for="p">密码</label><input id="p" type="password">'
       + '<button id="in">登录</button></form></main>')
-    const held = ref('#u')
-    render(<Probe seat={seatOf({
-      callId: 'call_1',
-      tool: 'content_act',
-      args: { steps: [{ action: 'fill', ref: held, label: '用户名', text: 'admin' }] },
-    })} />)
-    await vi.waitFor(
-      () => { expect(posted.filter(entry => entry.route === CONTENT_REPORT_ROUTE)).toHaveLength(1) },
-      { timeout: 5000 },
-    )
-    expect((at('#u') as HTMLInputElement).value).toBe('')
-    expect(posted.find(entry => entry.route === CONTENT_REPORT_ROUTE)?.body.outcome).toEqual({
-      status: 'error',
-      code: 'sign-in',
-      message: 'The page in the content column shows a sign-in form, which is not acted on.',
-    })
+    const outcome = await run([
+      { action: 'fill', ref: ref('#u'), label: '用户名', text: 'admin' },
+      { action: 'fill', ref: ref('#p'), label: '密码', text: 'hunter2' },
+    ])
+    expect(outcome.status).toBe('done')
+    expect((at('#u') as HTMLInputElement).value).toBe('admin')
+    expect((at('#p') as HTMLInputElement).value).toBe('hunter2')
+    expect(outcome.text).toContain('fill "用户名" ← "admin"; fill "密码" ← (hidden)')
+    // The closing read lists the form the steps left in front of the user, and
+    // the password box's own value is the one thing it does not print.
+    expect(outcome.text).toContain('textbox "密码" = (hidden)')
+    expect(outcome.text).not.toContain('hunter2')
   })
 
   it('refuses a control the page has switched off', async () => {
@@ -1063,21 +1057,19 @@ describe('what the call answers with', () => {
     expect(rest.slice(2).join('\n')).toContain('heading "结果"')
   })
 
-  it('withholds the page when the steps left a sign-in form in front of the user', async () => {
+  it('reads back the sign-in form the steps left in front of the user', async () => {
     // A sign-out, or a session that expired mid-call: the closing read is a
-    // read like any other, and `content_read` would not hand this one over.
+    // read like any other, and it lists this page like any other.
     mount('<main><button id="out">退出登录</button><div id="host"></div></main>')
     at('#out').addEventListener('click', () => {
-      at('#host').innerHTML = '<form><label for="u">用户名</label><input id="u">'
-        + '<label for="p">密码</label><input id="p" type="password"><button>登录</button></form>'
+      at('#host').innerHTML = '<form><label for="u">用户名</label><input id="u" value="admin">'
+        + '<label for="p">密码</label><input id="p" type="password" value="hunter2"><button>登录</button></form>'
     })
     const outcome = await run([{ action: 'click', ref: ref('#out'), label: '退出登录' }])
     expect(outcome.status).toBe('done')
-    expect(outcome.text).toContain('Page now:\nThe page in the content column shows a sign-in form, which is not read.')
-    // Nothing the page drew is quoted anywhere else in the report, so the form
-    // it drew is withheld whole.
-    expect(outcome.text).toContain('Page events during these steps: none.')
-    expect(outcome.text).not.toContain('用户名')
+    expect(outcome.text).toContain('textbox "用户名" = "admin"')
+    expect(outcome.text).toContain('textbox "密码" = (hidden)')
+    expect(outcome.text).not.toContain('hunter2')
     expect(outcome.truncated).toBe(false)
   })
 

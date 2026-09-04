@@ -631,10 +631,10 @@ describe('what content_act answers with', () => {
         // words it, and this tool hands it over as it stands.
         {
           status: 'error',
-          code: 'sign-in',
-          message: 'The page in the content column shows a sign-in form, which is not acted on.',
+          code: 'front-changed',
+          message: 'The page in front is now "报表", not "点位信息" the steps were approved for; nothing was done.',
         },
-        'Error: The page in the content column shows a sign-in form, which is not acted on.',
+        'Error: The page in front is now "报表", not "点位信息" the steps were approved for; nothing was done.',
       ],
     ] as const) {
       const result = await settleWith(outcome)
@@ -653,7 +653,6 @@ describe('what content_act answers with', () => {
         kind: 'outline',
         url: 'http://127.0.0.1:5173/content-app/points',
         title: '点位信息',
-        signIn: false,
         text: '1 main',
         truncated: false,
         shown: 1,

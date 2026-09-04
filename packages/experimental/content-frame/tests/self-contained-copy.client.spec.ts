@@ -67,7 +67,6 @@ const FAILURES: ReadFailure[] = [
   { status: 'error', code: 'not-a-page', message: 'the entry in front is not a page', kind: 'chart', title: '黄金' },
   { status: 'error', code: 'engine', message: 'scope: "e12" names no element on the page now' },
   { status: 'error', code: 'frame', message: readText.FRAME_LOADING_MESSAGE },
-  { status: 'error', code: 'sign-in', message: actText.SIGN_IN_ACT_REFUSAL },
   { status: 'error', code: 'front-changed', message: actText.frontChangedRefusal('报表', '点位信息') },
 ]
 

@@ -10,10 +10,7 @@
  *
  * Every ending is a sentence stating why the call was refused and naming no
  * other tool, which is the rule
- * [the shared text module](./text.ts) holds every string of this channel to. A
- * page asking for a sign-in is a failure too: its listing is withheld rather
- * than described, so a password form never becomes something the model narrates
- * around.
+ * [the shared text module](./text.ts) holds every string of this channel to.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/read-tool
  */
 
@@ -23,7 +20,7 @@ import type { CallTimeouts, PendingCalls } from './pending.ts'
 import {
   AFTER_DESCRIPTION, AFTER_REFUSAL, CONTENT_READ_DESCRIPTION, failureRefusal,
   FIND_DESCRIPTION, FIND_REFUSAL, MISREPORTED_REFUSAL, MODE_DESCRIPTION,
-  readHeaderText, SCOPE_DESCRIPTION, SCOPE_REFUSAL, SIGN_IN_REFUSAL,
+  readHeaderText, SCOPE_DESCRIPTION, SCOPE_REFUSAL,
 } from './text.ts'
 import { awaitRead, PAGE_VALUE_SCHEMA, pathOf, readBody, type FrontEntryLookup } from './read-value.ts'
 import { CONTENT_READ_TOOL_NAME, REF_PATTERN, type ReadArgs, type ReadOutcome } from './wire.ts'
@@ -80,15 +77,11 @@ function refuseArgs(args: ReadArgs): string | undefined {
  * Turn one posted outcome into the call's answer.
  * @param outcome - what the claiming seat reported.
  * @returns the canonical value for a page that was read.
- * @throws {Error} for every outcome that is not a listing, including a page
- * asking the user to sign in.
+ * @throws {Error} for every outcome that is not a listing.
  */
 function valueOf(outcome: ReadOutcome): ContentReadValue {
   if (outcome.status === 'error') throw new Error(failureRefusal(outcome))
   const { snapshot } = outcome
-  // Withheld rather than described: the page is asking for a password, and the
-  // model's next step is to hand the keyboard back, not to narrate the form.
-  if (snapshot.signIn) throw new Error(SIGN_IN_REFUSAL)
   // One channel carries five tools' answers, so a listing arriving under
   // another read's kind is a document answering a call this one did not make.
   if (snapshot.kind !== 'outline' && snapshot.kind !== 'map') throw new Error(MISREPORTED_REFUSAL)

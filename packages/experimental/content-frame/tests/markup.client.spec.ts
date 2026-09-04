@@ -271,17 +271,12 @@ describe('printing one element\'s whole text', () => {
 })
 
 describe('what every markup read says about the page it ran on', () => {
-  it('carries the page\'s address, its title and the sign-in verdict', () => {
+  it('carries the page\'s address and its title', () => {
     document.title = 'Fleet console'
     const refs = page('<div id="host">x</div>')
     const read = tree(refs, '#host')
     expect(read.header.title).toBe('Fleet console')
     expect(read.header.url).toBe(document.URL)
-    expect(read.header.signIn).toBe(false)
-  })
-
-  it('reports a page asking the user to sign in, so the tool can withhold its markup', () => {
-    const refs = page('<form id="signin"><input type="text"><input type="password"></form>')
-    expect(tree(refs, '#signin').header.signIn).toBe(true)
+    expect(read.header.modal).toBeUndefined()
   })
 })

@@ -288,7 +288,6 @@ const LISTING: ReadOutcome = {
     kind: 'outline',
     url: 'http://127.0.0.1/content-app/',
     title: 'Hosted content app',
-    signIn: false,
     text: '1 heading "Hosted content app"',
     truncated: false,
     shown: 1,
@@ -586,7 +585,7 @@ describe('the read channel over real HTTP', () => {
       parsed: parseChannelReport(JSON.parse(body), DEFAULT_OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE, MAX_ACT_STEPS) !== undefined,
       bytes: new TextEncoder().encode(body).length,
       byteBound: DEFAULT_OUTLINE_CHARS * 4 + ENVELOPE_BYTES,
-    }).toEqual({ chars: 32696, charBound: 48000, parsed: true, bytes: 98355, byteBound: 70528 })
+    }).toEqual({ chars: 32696, charBound: 48000, parsed: true, bytes: 98340, byteBound: 70528 })
     const refused = await raw(ctx, CONTENT_REPORT_ROUTE, { body })
     expect({ status: refused.status, body: JSON.parse(refused.body) as unknown }).toEqual({
       status: 413,
@@ -603,11 +602,11 @@ describe('the read channel over real HTTP', () => {
     const bodyOf = (text: string): string =>
       JSON.stringify({ callId: 'c', tabId: TAB, outcome: { ...LISTING, snapshot: { ...LISTING.snapshot, text } } })
     // Three-byte characters up to the bound, then the same document with one
-    // ASCII character more. The parser takes both listings — 23,421 and 23,422
+    // ASCII character more. The parser takes both listings — 23,426 and 23,427
     // characters against its own bound of 48,000 — so what tells the two
     // answers apart is the byte the body crossed and nothing else.
-    const at = bodyOf(`${'甲'.repeat(23420)}x`)
-    const past = bodyOf(`${'甲'.repeat(23420)}xx`)
+    const at = bodyOf(`${'甲'.repeat(23425)}x`)
+    const past = bodyOf(`${'甲'.repeat(23425)}xx`)
     expect([new TextEncoder().encode(at).length, new TextEncoder().encode(past).length, bound])
       .toEqual([70528, 70529, 70528])
     const taken = await raw(ctx, CONTENT_REPORT_ROUTE, { body: at })
@@ -622,7 +621,7 @@ describe('the read channel over real HTTP', () => {
     // budget, whose listing alone is 58,637 bytes — past the budget in bytes,
     // and served, because what both halves measure is the whole body.
     const seatSized = bodyOf(`${'甲'.repeat(19545)}xx`)
-    expect(new TextEncoder().encode(seatSized).length).toBe(58904)
+    expect(new TextEncoder().encode(seatSized).length).toBe(58889)
     expect((await raw(ctx, CONTENT_REPORT_ROUTE, { body: seatSized })).status).toBe(200)
   })
 
@@ -667,7 +666,7 @@ describe('the read channel over real HTTP', () => {
         page: { id: '', title: '' },
         snapshot: {
           kind: '', url: '', title: '', modal: '',
-          signIn: false, text: '', truncated: false, shown: 123456789, total: 123456789, cursor: '',
+          text: '', truncated: false, shown: 123456789, total: 123456789, cursor: '',
           settled: false, busy: ['', '', ''],
         },
       },
@@ -682,7 +681,7 @@ describe('the read channel over real HTTP', () => {
       outcome: { ...union.outcome, snapshot: { ...union.outcome.snapshot, kind: 'outline' }, code: 'not-a-page' },
     }
     expect([JSON.stringify(empty).length, JSON.stringify(union).length, JSON.stringify(named).length])
-      .toEqual([257, 301, 318])
+      .toEqual([242, 286, 303])
     expect(JSON.stringify(named).length).toBeLessThan(SYNTAX_BYTES)
   })
 
@@ -705,7 +704,6 @@ describe('the read channel over real HTTP', () => {
         url: wide(MAX_URL_CHARS),
         title: wide(MAX_HEADER_CHARS),
         modal: wide(MAX_HEADER_CHARS),
-        signIn: false,
         text: wide(OUTLINE_CHARS * MAX_TEXT_BUDGET_MULTIPLE),
         truncated: true,
         shown: 1,
@@ -718,7 +716,7 @@ describe('the read channel over real HTTP', () => {
     const body = JSON.stringify({ callId: wide(MAX_NAME_CHARS), tabId: wide(MAX_NAME_CHARS), outcome })
     // Written out because the margin is the claim: the widest report a seat can
     // post is thousands of bytes inside the bound, not at it.
-    expect(new TextEncoder().encode(body).length).toBe(25063)
+    expect(new TextEncoder().encode(body).length).toBe(25048)
     expect(REPORT_BYTES).toBe(26528)
     const answer = await raw(ctx, CONTENT_REPORT_ROUTE, { body })
     expect({ status: answer.status, body: JSON.parse(answer.body) as unknown })

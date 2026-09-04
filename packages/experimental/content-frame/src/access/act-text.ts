@@ -361,16 +361,6 @@ export function frontChangedRefusal(now: string, approved: string): string {
 }
 
 /**
- * The failure for a page asking the user to sign in, which no call acts on.
- *
- * The reads withhold such a page's reading; this withholds the steps. The two
- * are the same rule about the same page — an agent does not type into a
- * credential form — and each says why the call it refused was refused.
- */
-export const SIGN_IN_ACT_REFUSAL =
-  'The page in the content column shows a sign-in form, which is not acted on.'
-
-/**
  * The failure for an element whose name is not the one the read printed.
  * @param ref - the ref the step named.
  * @param now - the name the page shows there now.

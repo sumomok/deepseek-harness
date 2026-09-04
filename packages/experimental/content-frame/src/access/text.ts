@@ -111,9 +111,6 @@ export const EMPTY_COLUMN_REFUSAL = 'The content column is empty.'
  */
 export const MISREPORTED_REFUSAL = 'The console answered this call with another call\'s document.'
 
-/** Failure for a page that is asking the user to sign in; its reading is withheld with it. */
-export const SIGN_IN_REFUSAL = 'The page in the content column shows a sign-in form, which is not read.'
-
 /** Failure the seat posts when the column's frame element or its document is out of reach. */
 export const FRAME_UNREACHABLE_MESSAGE = 'The content column\'s frame could not be read from the console.'
 
@@ -223,10 +220,10 @@ export function stillLoadingLine(busy: readonly string[]): string {
  * column with nothing in it, an entry that is not a page, an unreachable frame
  * and a reader that threw are the same endings whether the call was going to
  * read the page or act on it, and the reason each of them refused does not
- * change with which tool asked. A sign-in page and a column showing another
- * page than the call was approved against are two more endings only a call that
- * would have acted posts, and the seat words both, so they pass through with
- * the frame's and the reader's.
+ * change with which tool asked. A column showing another page than the call was
+ * approved against is one more ending only a call that would have acted posts,
+ * and the seat words it, so it passes through with the frame's and the
+ * reader's.
  * @param outcome - the failure the seat posted.
  * @returns the sentence to reject with.
  */
@@ -234,7 +231,7 @@ export function failureRefusal(outcome: ReadFailure): string {
   switch (outcome.code) {
     case 'empty': return EMPTY_COLUMN_REFUSAL
     case 'not-a-page': return notAPageRefusal(outcome)
-    case 'engine': case 'frame': case 'sign-in': case 'front-changed': return outcome.message
+    case 'engine': case 'frame': case 'front-changed': return outcome.message
     /* v8 ignore next 2 -- the code union is closed and the wire parser rejects every other value; the arm keeps a new member loud. */
     default: return `content-frame: unknown outcome ${JSON.stringify(outcome)}`
   }

@@ -30,7 +30,6 @@ const READ: ReadOutcome = {
     kind: 'outline',
     url: 'http://localhost/content-app/',
     title: 'Fleet',
-    signIn: false,
     text: '1 main',
     truncated: false,
     shown: 1,
@@ -125,7 +124,7 @@ describe('report wire boundary', () => {
   it('drops optional header fields the page did not supply rather than carrying undefined', () => {
     const parsed = parseChannelReport(report(READ), MAX_TEXT, MAX_ACT_STEPS)
     expect(parsed?.outcome.status === 'ok' && Object.keys(parsed.outcome.snapshot).sort())
-      .toEqual(['kind', 'settled', 'shown', 'signIn', 'text', 'title', 'total', 'truncated', 'url'])
+      .toEqual(['kind', 'settled', 'shown', 'text', 'title', 'total', 'truncated', 'url'])
   })
 
   it('takes each failure code, with the entry naming only where one is carried', () => {
@@ -196,7 +195,6 @@ describe('report wire boundary', () => {
       { ...READ.snapshot, kind: 'sketch' },
       { ...READ.snapshot, url: 7 },
       { ...READ.snapshot, title: null },
-      { ...READ.snapshot, signIn: 'no' },
       { ...READ.snapshot, truncated: 'no' },
       { ...READ.snapshot, text: 7 },
       { ...READ.snapshot, shown: 1.5 },

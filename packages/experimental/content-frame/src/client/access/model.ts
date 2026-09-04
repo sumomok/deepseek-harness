@@ -55,8 +55,6 @@ export interface SnapshotHeader {
   readonly title: string
   /** The name of the dialog the page currently has open. */
   readonly modal?: string
-  /** True when a visible password box sits beside a visible text or email box. */
-  readonly signIn: boolean
 }
 
 /** One read of the page: the structural listing, or one of the three markup reads. */

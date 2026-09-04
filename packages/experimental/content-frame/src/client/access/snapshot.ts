@@ -23,19 +23,6 @@ import type { Snapshot, SnapshotHeader, SnapshotOptions } from './model.ts'
 
 export type { ContainerType, Snapshot, SnapshotHeader, SnapshotMode, SnapshotOptions } from './model.ts'
 
-/** The fields whose visible pairing means the page is asking the user to sign in. */
-const SIGN_IN_PARTNER = 'input[type="text"], input[type="email"], input:not([type])'
-
-/**
- * How far around a password box the search for the box naming the account
- * reaches when no form encloses it: a password box in one part of the page and
- * a search box in another are not a sign-in form.
- */
-const SIGN_IN_SCOPE = [
-  'form', '[role~="form"]', 'dialog', '[role~="dialog"]', 'main', '[role~="main"]',
-  'section', '[role~="region"]', '[role~="tabpanel"]',
-].join(', ')
-
 /**
  * The element one ref names, or a refusal the model can act on. Shared by every
  * read that takes a ref, so a stale one is answered the same sentence whichever
@@ -75,36 +62,12 @@ function openDialogName(documents: readonly Document[], isVisible: (el: Element)
 }
 
 /**
- * True when the page is asking the user to sign in: a visible password box
- * with a visible box to name the account beside it. Beside means inside the
- * same form, or failing that the same region of the page; a page with no
- * regions at all is searched whole, because then there is nowhere else the two
- * could be.
- * @param documents - every readable document.
- * @param isVisible - injected visibility.
- * @returns whether the page is a sign-in page.
- */
-function asksToSignIn(documents: readonly Document[], isVisible: (el: Element) => boolean): boolean {
-  for (const doc of documents) {
-    for (const secret of doc.querySelectorAll<HTMLInputElement>('input[type="password"]')) {
-      if (isSkipped(secret, isVisible)) continue
-      const form: ParentNode = secret.form ?? secret.closest(SIGN_IN_SCOPE) ?? doc
-      for (const partner of form.querySelectorAll(SIGN_IN_PARTNER)) {
-        if (!isSkipped(partner, isVisible)) return true
-      }
-    }
-  }
-  return false
-}
-
-/**
  * What the page is, read across every frame it is built from rather than from
  * the root document alone: an application hosted in a frame keeps its title bar
  * and its dialogs inside that frame.
  *
- * Every read of the page takes it, the markup reads included: the sign-in
- * verdict is what withholds a credential form from all four, and a read that
- * computed it its own way would be the way around that.
+ * Every read of the page takes it, the markup reads included, so what a read
+ * says the page is does not depend on which of the four asked.
  * @param root - the root document.
  * @param isVisible - injected visibility.
  * @returns the header.
@@ -116,7 +79,6 @@ export function pageHeader(root: Document, isVisible: (el: Element) => boolean):
     url: root.URL,
     title: root.title,
     ...(modal === undefined ? {} : { modal }),
-    signIn: asksToSignIn(documents, isVisible),
   }
 }
 
