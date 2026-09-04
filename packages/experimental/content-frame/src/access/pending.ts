@@ -105,6 +105,8 @@ interface PendingCall {
   readonly page: ReadPage | undefined
   /** The tab that claimed it, once one has. */
   tabId: string | undefined
+  /** Whether one post has taken this call's settlement; see {@link PendingCalls.reserveReport}. */
+  reserved: boolean
   /** The current phase's deadline. */
   timer: ReturnType<typeof setTimeout>
   /** A non-preferred tab's claim, waiting out the preferred tab's window. */
@@ -161,6 +163,7 @@ export class PendingCalls {
         timeouts,
         page,
         tabId: undefined,
+        reserved: false,
         timer: setTimeout(() => { this.finish(entry, { kind: 'unclaimed' }) }, timeouts.claimTimeoutMs),
         hold: undefined,
         resolve,
@@ -216,24 +219,37 @@ export class PendingCalls {
   }
 
   /**
-   * Whether {@link report} would take an answer for this call from this tab.
+   * Take the one settlement a waiting call has, for a report that must do
+   * durable work before it can be delivered.
    *
-   * It exists for the one route that does durable work before it reports: a
-   * picture is written to an attachment store that collects nothing, so a post
-   * naming a call nobody is waiting on has to be recognised before the bytes
-   * are committed rather than after. Both answers come from the same lookup, so
-   * a `true` here and a refusal there cannot disagree.
+   * It exists for the one route that writes before it reports: a picture is
+   * committed to an attachment store that collects nothing, so a post naming a
+   * call nobody is waiting on has to be recognised before the bytes are
+   * committed rather than after — and so does a second post for a call another
+   * one is already storing for, since only one of them can settle it and the
+   * store takes none of them back. The reservation is read through the same
+   * lookup {@link report} accepts by, so the two cannot disagree, and it lives
+   * on the entry: {@link finish} dropping the entry is what releases it, so a
+   * call that ended reported, unanswered, unclaimed or aborted holds none.
+   *
+   * A reservation whose holder never reaches {@link report} costs its call the
+   * rest of its own report deadline and nothing else — the entry's timer still
+   * ends it — while every later post for that call is refused.
    * @param callId - the call the report names.
    * @param tabId - the tab posting it.
-   * @returns whether that call is waiting on that tab.
+   * @returns whether this post now owns that call's settlement, which is true
+   * for at most one post per waiting call.
    */
-  isWaiting(callId: string, tabId: string): boolean {
-    return this.claimant(callId, tabId) !== undefined
+  reserveReport(callId: string, tabId: string): boolean {
+    const entry = this.claimant(callId, tabId)
+    if (entry === undefined || entry.reserved) return false
+    entry.reserved = true
+    return true
   }
 
   /**
    * The waiting call one tab may answer, which is the single acceptance
-   * {@link report} and {@link isWaiting} both read.
+   * {@link report} and {@link reserveReport} both read.
    * @param callId - the call the report names.
    * @param tabId - the tab posting it.
    * @returns that entry, or `undefined` when no call of that id is waiting on that tab.

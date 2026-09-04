@@ -17,7 +17,7 @@ import { looksClickable } from '../src/client/access/dom.ts'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE,
   IMAGE_MEDIA_TYPE,
-  LOAD_WAIT_SHARE, MAX_HEADER_CHARS, MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS,
+  LOAD_WAIT_SHARE, MAX_CURSOR_CHARS, MAX_HEADER_CHARS, MAX_OUTCOME_MESSAGE_CHARS,
   MAX_ACT_STEPS, MAX_CLAIM_BACKOFF, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS,
   MAX_BID_MS, MIN_OUTLINE_CHARS,
   parseChannelReport, parseImageReport,
@@ -40,7 +40,10 @@ const FRAME = 'session_1 home'
  * the reader gives up inside rather than crossing.
  */
 const ACCESS = {
-  outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 1000, settleQuietMs: 5,
+  // The read deadline is deliberately not a multiple of eight: the export's
+  // share of it is then a fraction of a millisecond, which is what the reader
+  // rounds before naming it in a refusal.
+  outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 1004, settleQuietMs: 5,
   actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 20,
 }
 
@@ -1346,7 +1349,7 @@ describe('the seat exporting one picture', () => {
   })
 
   it('posts a refusal about an element the page named longer than the wire carries', async () => {
-    const name = `x-${'o'.repeat(MAX_NAME_CHARS * 2)}`
+    const name = `x-${'o'.repeat(MAX_CURSOR_CHARS * 2)}`
     const ref = drivePicture(`<${name} id="ops">x</${name}>`, '#ops', () => {
       throw new Error('nothing here draws')
     })
@@ -1355,7 +1358,7 @@ describe('the seat exporting one picture', () => {
     // MAX_OUTCOME_MESSAGE_CHARS and answers 400 for one past it, which the seat
     // reads as final — the model would then get the generic timeout sentence
     // instead of the refusal this read composed.
-    const message = notAnImageRefusal(ref, `${name.slice(0, MAX_NAME_CHARS - 1)}…`)
+    const message = notAnImageRefusal(ref, `${name.slice(0, MAX_CURSOR_CHARS - 1)}…`)
     expect(captured()).toEqual({ status: 'error', code: 'frame', message })
     expect(message.length).toBeLessThanOrEqual(MAX_OUTCOME_MESSAGE_CHARS)
     expect(parseImageReport(of(CONTENT_IMAGE_ROUTE)[0])).toBeDefined()
@@ -1371,11 +1374,12 @@ describe('the seat exporting one picture', () => {
     // A drawing a browser never finishes cannot be cancelled, so what the
     // deadline ends is the wait for it: the seat posts this rather than nothing,
     // and the call settles here rather than at the host's report deadline with
-    // a sentence about a console that went quiet.
+    // a sentence about a console that went quiet. The deadline the refusal
+    // names is the rounded share, because that is the one the wait ran under.
     expect(captured()).toEqual({
       status: 'error',
       code: 'frame',
-      message: slowImageRefusal(ref, ACCESS.readTimeoutMs * EXPORT_WAIT_SHARE),
+      message: slowImageRefusal(ref, Math.round(ACCESS.readTimeoutMs * EXPORT_WAIT_SHARE)),
     })
   })
 

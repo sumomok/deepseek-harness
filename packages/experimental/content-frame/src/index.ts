@@ -61,9 +61,9 @@ import { DialogApprovals } from './access/dialog-approvals.ts'
 import { registerActApproval } from './access/act-approval.ts'
 import type { FrontEntry } from './access/text.ts'
 import {
-  ACT_RUN_SHARE, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, IMAGE_REPORT_BYTES, MAX_ACT_STEPS,
-  MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MIN_OUTLINE_CHARS, parseChannelReport, parseClaimRequest,
-  parseImageReport, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
+  ACT_RUN_SHARE, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE,
+  IMAGE_REPORT_BYTES, MAX_ACT_STEPS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MIN_OUTLINE_CHARS,
+  parseChannelReport, parseClaimRequest, parseImageReport, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
 } from './access/wire.ts'
 import { contentPagesProjection } from './perception/pages-projection.ts'
 import { registerColumnContext } from './perception/context.ts'
@@ -178,7 +178,10 @@ export interface PageAccessConfig {
   /**
    * How long a claimed read waits for its listing. It bounds the whole walk of
    * a document, including waiting for a page that is still loading, so a heavy
-   * application needs more of it than a static one.
+   * application needs more of it than a static one. At least 8, refused at
+   * load: a picture read gives the export an eighth of it, and below that floor
+   * the share is a fraction of a millisecond — every picture would be refused
+   * as one the console did not draw in time, and the refusal would name it.
    */
   readTimeoutMs: number
   /**
@@ -266,6 +269,16 @@ const DEFAULT_CONTEXT_FIELD_CHARS = 120
  * survive it.
  */
 const MIN_CONTEXT_FIELD_CHARS = 8
+
+/**
+ * The shortest report deadline that leaves a picture's export a whole
+ * millisecond, derived from {@link EXPORT_WAIT_SHARE} rather than written down
+ * beside it: the export runs under that share of the read's deadline, and
+ * under this floor the share is a fraction of a millisecond — no drawing a
+ * browser really does meets it, and the refusal names it as the time the
+ * console had.
+ */
+const MIN_READ_TIMEOUT_MS = Math.ceil(1 / EXPORT_WAIT_SHARE)
 
 /** Claim window used when a deployment enables page access and configures none. */
 const DEFAULT_CLAIM_TIMEOUT_MS = 3000
@@ -453,6 +466,17 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     throw new Error(
       `content-frame: pageAccess.settleQuietMs must fit in ${String(settleBudgetMs)}ms `
       + `(${String(SETTLE_WAIT_SHARE)} of readTimeoutMs), received ${String(settleQuietMs)}`,
+    )
+  }
+  // Loud at load and self-contained as well: a picture read gives the export a
+  // share of this same deadline, and a deadline whose share is a fraction of a
+  // millisecond answers every picture with a refusal naming that fraction.
+  // Checked here rather than where the picture read is claimed, so a deployment
+  // learns it at load rather than the day it mounts an attachment store.
+  if (timeouts.answerTimeoutMs * EXPORT_WAIT_SHARE < 1) {
+    throw new Error(
+      `content-frame: pageAccess.readTimeoutMs must be at least ${String(MIN_READ_TIMEOUT_MS)} for the export's `
+      + `${String(EXPORT_WAIT_SHARE)} share to be a whole millisecond, received ${String(timeouts.answerTimeoutMs)}`,
     )
   }
   // The character bound the parser holds a posted listing to: it covers the one
