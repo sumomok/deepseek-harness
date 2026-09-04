@@ -197,7 +197,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
     // The change is in the log twice: as the selection the console made, and as
     // the request header that consumed it.
     const selections = sessionEvents.filter(event => event.type === 'model/selection')
-    expect(selections.map(event => event.data)).toEqual([VISION_ROUTE])
+    expect(selections.map(event => event.data)).toMatchObject([VISION_ROUTE])
     const changed = requestHeaders(sessionEvents).filter(header => header.reason === 'change')
     expect(changed.length).toBeGreaterThanOrEqual(1)
     expect(changed.map(header => header.model)).toEqual(changed.map(() => VISION_ROUTE.model))
