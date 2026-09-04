@@ -165,7 +165,7 @@ Status: implemented
 
 `tests/content-read-image-tool.client.spec.ts` 守住整套设计所依赖的次序：用一张没人应答的卡，断言 `PendingCalls.open` 在取消前后都从未被调用。`tests/self-contained-copy.client.spec.ts` 把 `switch-text.ts` 与另外两个面向模型的文案模块一起走查，于是卡片文案受同一条规则约束。`src/` 保持逐文件 100% 覆盖。
 
-一个 Web 场景为它兜底：`apps/web/tests/content-read-image-switch.e2e.ts`，组合、应用与 preset 都与[读图场景](2026-09-04-content-read-image.zh.md)相同，只差一件事——它不在种子会话上选路由，于是会话留在种子日志记下的 `deepseek-v4-flash` 上。spec 在驱动任何东西之前先断言那条路由与它缺失的图片模态，随后等卡、把卡的可访问性快照钉成 `card.expected.md`、点视觉选项并提交，然后断言答案描述了那张图、有一条 `model/selection` 被 append、其后跟着一条模型为视觉模型的 `reason: 'change'` 请求头。点击在录制与重放两种模式下都是测试自己的动作，与审批场景的做法相同。本场景的请求头从第一条起就与读图场景不同，因此它自带 `header.class` 与自己的 pin，并长出两份带 `<!-- request/header change 1 -->` 段的 sidecar。带钥录制：
+一个 Web 场景为它兜底：`apps/web/tests/content-read-image-switch.e2e.ts`，组合、应用与 preset 都与[读图场景](2026-09-04-content-read-image.zh.md)相同，只差一件事——它不在种子会话上选路由，于是会话留在种子日志记下的 `deepseek-v4-flash` 上。spec 在驱动任何东西之前先断言两条路由各自声明了什么，随后等卡，并把路由断言放在那里而不是放在最前面：没有任何东西打开过的会话在主机侧不是活的——其余 content 场景之所以是活的，只因为选路由那一步把它们的 agent 解析了出来——而卡竖着时，抵达这道闸的那次请求已经落日志，于是断言的是那次请求确实跑在 `deepseek-v4-flash` 上、且当时没有待生效的选择。接着把卡的可访问性快照钉成 `card.expected.md`、点视觉选项并提交，然后断言答案描述了那张图、有一条 `model/selection` 被 append、其后跟着一条模型为视觉模型的 `reason: 'change'` 请求头。点击在录制与重放两种模式下都是测试自己的动作，与审批场景的做法相同。本场景的请求头从第一条起就与读图场景不同，因此它自带 `header.class` 与自己的 pin，并长出两份带 `<!-- request/header change 1 -->` 段的 sidecar。带钥录制：
 
 ```sh
 DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/content-read-image-switch.e2e.ts

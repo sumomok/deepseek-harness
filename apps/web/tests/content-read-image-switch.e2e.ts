@@ -15,6 +15,14 @@
  * alike. What the card says is pinned as its own golden, because it is the one
  * surface of the content column a person rather than a model reads.
  *
+ * The route this scenario is about is asserted while the card stands rather
+ * than before the prompt. A session nothing has opened is not live host-side —
+ * the other content scenarios are live only because selecting their route
+ * resolved their agent — and the card is a stable waiting state where the
+ * request that raised it has already been logged. Asserting there says more
+ * than asserting up front: the request that reached the gate really ran on the
+ * text-only route.
+ *
  * What the fixture then pins is that the change really happened and really
  * carried the picture: a `model/selection`, a `request/header` recorded as a
  * change onto the vision route, and an answer describing what the page drew. A
@@ -89,6 +97,17 @@ const OFFERED = [
  */
 const RECORDED = existsSync(FIXTURE)
 
+/**
+ * Every request header this run has recorded, in log order.
+ * @param events - the session events observed so far.
+ * @returns why each header was written, and the model its request went to.
+ */
+function requestHeaders(events: readonly SessionEvent[]): { reason: string; model: string }[] {
+  return events.flatMap(event => (event.type === 'request/header'
+    ? [{ reason: event.data.reason, model: event.data.header.config.model }]
+    : []))
+}
+
 /** What the user asks: about the page, never about the model it runs on. */
 const PROMPT = '内容区那个页面表格下面有一张小方图，看不出是什么。'
   + '你看看那张图上画的到底是什么东西，然后告诉我。'
@@ -120,25 +139,14 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
     if (MODE !== 'record') {
       expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
     }
-    // Before anything is driven: the session is on the route its seed logged,
-    // and that route takes no pictures. Both halves are asserted here, where a
-    // keyless run reaches them — a session that had somehow started on the
-    // vision route would raise no card and pass every assertion below for the
-    // wrong reason.
-    const session = scaffold.ctx.sessions.get(seeded)
-    if (session === undefined) throw new Error(`seeded session "${seeded}" is not live`)
-    expect(scaffold.ctx.sessionProjections.snapshot(session).values.modelSelection?.next)
-      .toMatchObject(SEEDED_ROUTE)
+    // Before anything is driven: what the two routes declare. A composition
+    // whose text route accepted pictures would raise no card, and one whose
+    // vision route did not would leave the card with nothing to offer — either
+    // way every assertion below would pass for the wrong reason.
     expect((await scaffold.ctx.llm.resolveModelInfo(SEEDED_ROUTE.provider, SEEDED_ROUTE.model)).inputModalities)
       .not.toContain('image')
     expect((await scaffold.ctx.llm.resolveModelInfo(VISION_ROUTE.provider, VISION_ROUTE.model)).inputModalities)
       .toContain('image')
-
-    // And what the session may reach for: the content column's own tools and
-    // nothing else, so the picture is the only way to answer the prompt.
-    const agent = scaffold.ctx.agents.get(seeded)
-    if (agent === undefined) throw new Error(`seeded session "${seeded}" has no live agent`)
-    expect(scaffold.ctx.tools.schemas(agent).map(schema => schema.name).sort()).toEqual(OFFERED)
 
     // One picture on the page, for the reason the picture scenario records: the
     // recording pins a content hash of every export the turn makes.
@@ -157,6 +165,24 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
     // is answered, so a plain wait is race-free.
     const composer = page.locator('[data-question-key]')
     await composer.waitFor({ timeout: MODE === 'record' ? 180_000 : 60_000 })
+
+    // The card stands, so the request that reached the gate is logged and the
+    // session is live: it ran on the route the seed logged, and no selection
+    // has been made yet.
+    const asked = requestHeaders(sessionEvents)
+    expect(asked.length).toBeGreaterThanOrEqual(1)
+    expect(asked.at(-1)?.model).toBe(SEEDED_ROUTE.model)
+    const session = scaffold.ctx.sessions.get(seeded)
+    if (session === undefined) throw new Error(`seeded session "${seeded}" is not live while its card stands`)
+    expect(scaffold.ctx.sessionProjections.snapshot(session).values.modelSelection?.next)
+      .toMatchObject(SEEDED_ROUTE)
+
+    // And what the session may reach for: the content column's own tools and
+    // nothing else, so the picture is the only way to answer the prompt.
+    const agent = scaffold.ctx.agents.get(seeded)
+    if (agent === undefined) throw new Error(`seeded session "${seeded}" has no live agent`)
+    expect(scaffold.ctx.tools.schemas(agent).map(schema => schema.name).sort()).toEqual(OFFERED)
+
     if (MODE !== 'record') {
       const card = await captureStableAria(page, '[data-question-key]', scaffold.workspaceCwd)
       await compareOrRefreshGolden(CARD_EXPECTED, card, MODE)
@@ -172,12 +198,9 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
     // the request header that consumed it.
     const selections = sessionEvents.filter(event => event.type === 'model/selection')
     expect(selections.map(event => event.data)).toEqual([VISION_ROUTE])
-    const changed = sessionEvents.filter(
-      event => event.type === 'request/header' && event.data.reason === 'change',
-    )
+    const changed = requestHeaders(sessionEvents).filter(header => header.reason === 'change')
     expect(changed.length).toBeGreaterThanOrEqual(1)
-    expect(changed.map(event => (event.data as { header: { config: { model: string } } }).header.config.model))
-      .toEqual(changed.map(() => VISION_ROUTE.model))
+    expect(changed.map(header => header.model)).toEqual(changed.map(() => VISION_ROUTE.model))
 
     // And the read ran on it. How the model reaches the element is its own to
     // choose; what is pinned is what every route promises.
