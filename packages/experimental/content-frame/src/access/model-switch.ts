@@ -44,6 +44,45 @@ const MODEL_SWITCH_QUESTION_ID = 'content-image-model'
 /** The agent a call runs for, which this gate needs whole rather than by id. */
 type CallingAgent = NonNullable<ToolRunContext['agent']>
 
+/**
+ * The route decision in flight for one session, so the next one waits for it.
+ *
+ * A picture read declares itself safe to run beside its siblings, so two of
+ * them in one step reach this gate at once. Undecided, both would find the same
+ * text-only route and both would put a card up. Serialized, the second one runs
+ * after the first has changed the model and reads that change as its own first
+ * tier, so it passes without asking anything.
+ *
+ * Keyed weakly, and never held past the decision: what it orders is this
+ * package's own route decision and nothing else.
+ */
+const decisions = new WeakMap<Session, Promise<unknown>>()
+
+/**
+ * The sessions whose user has already answered one of these cards with
+ * anything other than a route.
+ *
+ * A refused read is one the model may retry, and a card put up again on every
+ * retry is a person answering the same question until the turn is cancelled.
+ * The mark suppresses the card only: a session whose user later changes the
+ * model in the console passes this gate at its first step, mark or no mark.
+ * It lives as long as the process does, so a reloaded session is asked once
+ * more.
+ */
+const declined = new WeakSet<Session>()
+
+/**
+ * Run one session's route decision after any decision already in flight for it.
+ * @param session - the session whose decisions are ordered.
+ * @param decide - the decision to run.
+ * @returns what the decision answered.
+ */
+function serializeDecision<T>(session: Session, decide: () => Promise<T>): Promise<T> {
+  const result = (decisions.get(session) ?? Promise.resolve()).then(decide)
+  decisions.set(session, result.catch(() => undefined))
+  return result
+}
+
 /** One exact route: the provider a request goes to and the model it names. */
 export interface RouteChoice {
   /** The registered provider route. */
@@ -322,6 +361,7 @@ async function offerSwitch(
   route: RouteChoice,
   llm: RouteModalities,
 ): Promise<string | undefined> {
+  if (declined.has(agent.session)) return noImageRouteRefusal(route.model)
   const routes = optionLabels(await imageCapableRoutes(llm))
   if (routes.length === 0) return noImageAnywhereRefusal(route.model)
   const asker = services.get('userQuestions')
@@ -333,11 +373,17 @@ async function offerSwitch(
   } catch (_theCardWasNotAnswered) {
     // A composition with no one to show the card, a child agent that has no
     // human to ask, and a card the user closed all reach here; the call is
-    // cancelled only when its own signal says so.
-    return exec.signal.aborted ? CANCELLED_REFUSAL : noImageRouteRefusal(route.model)
+    // cancelled only when its own signal says so, and a cancelled call is not
+    // an answer to record.
+    if (exec.signal.aborted) return CANCELLED_REFUSAL
+    declined.add(agent.session)
+    return noImageRouteRefusal(route.model)
   }
   const chosen = chosenRoute(routes, answer)
-  if (chosen === undefined) return noImageRouteRefusal(route.model)
+  if (chosen === undefined) {
+    declined.add(agent.session)
+    return noImageRouteRefusal(route.model)
+  }
   try {
     await switcher.selectModel({
       sessionId: agent.session.header.id,
@@ -345,6 +391,8 @@ async function offerSwitch(
       model: chosen.model,
     })
   } catch (error) {
+    // The user did answer, and what refused the change is the host's route
+    // validation rather than their decision, so the next read asks again.
     return routeSwitchRefusal(error instanceof Error ? error.message : String(error))
   }
   return undefined
@@ -367,9 +415,11 @@ export async function routeGate(
   const agent = exec.agent
   const llm = services.get('llm')
   if (agent === undefined || llm === undefined) return UNRESOLVED_ROUTE_REFUSAL
-  const route = effectiveRoute(services, agent)
-  if (route === undefined) return UNRESOLVED_ROUTE_REFUSAL
-  const active = await llm.resolveModelInfo(route.provider, route.model, exec.signal)
-  if (active.inputModalities?.includes(IMAGE_MODALITY) === true) return undefined
-  return await offerSwitch(services, exec, agent, route, llm)
+  return await serializeDecision(agent.session, async () => {
+    const route = effectiveRoute(services, agent)
+    if (route === undefined) return UNRESOLVED_ROUTE_REFUSAL
+    const active = await llm.resolveModelInfo(route.provider, route.model, exec.signal)
+    if (active.inputModalities?.includes(IMAGE_MODALITY) === true) return undefined
+    return await offerSwitch(services, exec, agent, route, llm)
+  })
 }

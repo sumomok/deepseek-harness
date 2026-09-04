@@ -342,6 +342,65 @@ describe('the card the gate puts up', () => {
   })
 })
 
+describe('one decision per session', () => {
+  it('answers two parallel reads with one card and one model change', async () => {
+    let pending: { provider: string; model: string } | null = null
+    const asked: AskUserQuestionRequest[] = []
+    const changed: SessionSelectModelRequest[] = []
+    const services = routeServices({
+      llm: {
+        ...catalogue(DEPLOYMENT),
+        resolveModelInfo: (_provider, model) => Promise.resolve(
+          model === VISION_MODEL ? { inputModalities: ['text', 'image'] } : { inputModalities: ['text'] },
+        ),
+      },
+      selection: { stateOf: () => ({ pending }) },
+      asker: {
+        ask: (request) => {
+          asked.push(request)
+          return Promise.resolve(chose(VISION_LABEL))
+        },
+      },
+      switcher: {
+        selectModel: (request) => {
+          changed.push(request)
+          pending = { provider: request.provider, model: request.model }
+          return Promise.resolve({ selected: { provider: request.provider, model: request.model } })
+        },
+      },
+    })
+    const { exec } = call({ header: { provider: PROVIDER, model: TEXT_MODEL } })
+    expect(await Promise.all([routeGate(services, exec), routeGate(services, exec)]))
+      .toEqual([undefined, undefined])
+    // The second read runs after the first has changed the model and reads that
+    // change as its own first tier.
+    expect(asked).toHaveLength(1)
+    expect(changed).toHaveLength(1)
+  })
+
+  it('asks once per session, however many times the model retries', async () => {
+    const { service, asked } = asker(chose('先不换'))
+    const services = textRouteComposition({ asker: service, switcher: switcher().service })
+    const { exec } = call({ agentOptions: { provider: PROVIDER, model: TEXT_MODEL } })
+    expect(await routeGate(services, exec)).toBe(noImageRouteRefusal(TEXT_MODEL))
+    expect(await routeGate(services, exec)).toBe(noImageRouteRefusal(TEXT_MODEL))
+    expect(asked).toHaveLength(1)
+    // Having said no once suppresses the card and nothing else: a session whose
+    // model the user changes in the console passes at the first tier.
+    expect(await routeGate(routeServices({ llm: catalogue(DEPLOYMENT, ['text', 'image']) }), exec))
+      .toBeUndefined()
+  })
+
+  it('leaves the session decidable again after a route lookup failed', async () => {
+    const { exec } = call({ agentOptions: { provider: PROVIDER, model: TEXT_MODEL } })
+    const broken = routeServices({
+      llm: { ...fixedModalities(), resolveModelInfo: () => Promise.reject(new Error('the route could not be read')) },
+    })
+    await expect(routeGate(broken, exec)).rejects.toThrow('the route could not be read')
+    expect(await routeGate(routeServices({ llm: fixedModalities(['text', 'image']) }), exec)).toBeUndefined()
+  })
+})
+
 describe('which routes the card can offer', () => {
   it('lists every configured route that declares image input, and no other', async () => {
     expect(await imageCapableRoutes(catalogue(DEPLOYMENT))).toEqual([{
