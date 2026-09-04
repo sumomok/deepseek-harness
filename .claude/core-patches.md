@@ -459,3 +459,10 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 **第三次合并后门禁实跑**（合并提交 `331f51b188`，工作树 `../dsh-rc29`）：`pnpm install --frozen-lockfile` 0；`typecheck` 0；`lint` 0；`vitest run packages/session-query/session-log-export apps/desktop/tests` **28 文件 544 条全绿**；`DSH_SNAPSHOT=replay vitest --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` 7 通过 1 跳过；`doc-sync` **33/33**；`verify-vendored-plugin-versions` 11 个供应商插件三处命名一致。
 
 **分支 HEAD 登记**：`rc29-integration` 三次合并依次为 `b4275d2c35`、`79162d0f1f`、`331f51b188`。桌面版本号在前两次合并时不动；本节所在的这个 `docs(core-patches)` 提交之后即 `release(desktop): 0.1.0-rc.29`（只改 `apps/desktop/package.json` 一行，照 rc.28 的 `9b21859de6` 原样），随后打包。
+
+## rc.30 集成合并审计：`develop` 线 × `core-patches-v6`（基座 0.1.2-rc.1，上游零新提交）
+
+集成分支 `rc30-integration` 起自 `origin/develop`（`7c64d32f85`，rc.29 发布提交）。先 `--ff-only` 并入同辈分支 `feat/desktop-save-dialog`（`e39163b05b`，桌面壳对内嵌服务器的下载改弹系统保存对话框、完成后在文件管理器选中文件，删除通知路径），再 `--no-ff` 并入补丁线顶端 `473b700a53`（导出补丁 `4f3e1b462d` + 其登记提交）。补丁线相对 develop 已含的 `fa7d5afc65` 只多这两条提交。
+
+- **唯一冲突**：`.claude/core-patches.md`。develop 侧在同一位置带着 rc.26 合并事故复核段，v6 侧带着新补丁登记段，取并集（develop 段在前、v6 段在后）。`comm` 逐行实证：merged ⊇ develop 侧（0 行缺失）；v6 侧缺 3 行，全部是三条「状态」行——rc.29 审计已决定取 develop 侧措辞的同三行，非本轮内容。
+- **其余文件**零冲突自动合并：补丁只动 `packages/session-query/session-log-export`、`apps/web/tests/navigation-panes.e2e.ts`、两组 Agent Note；壳分支只动 `apps/desktop` 与两组 Agent Note，互不重叠。
