@@ -143,8 +143,11 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
     // whose text route accepted pictures would raise no card, and one whose
     // vision route did not would leave the card with nothing to offer — either
     // way every assertion below would pass for the wrong reason.
-    expect((await scaffold.ctx.llm.resolveModelInfo(SEEDED_ROUTE.provider, SEEDED_ROUTE.model)).inputModalities)
-      .not.toContain('image')
+    // Read as the gate reads it: a route whose modalities are unknown declares
+    // no picture input either, which is what the keyless replay's catalogue says
+    // of the text route.
+    expect((await scaffold.ctx.llm.resolveModelInfo(SEEDED_ROUTE.provider, SEEDED_ROUTE.model)).inputModalities
+      ?.includes('image')).not.toBe(true)
     expect((await scaffold.ctx.llm.resolveModelInfo(VISION_ROUTE.provider, VISION_ROUTE.model)).inputModalities)
       .toContain('image')
 
