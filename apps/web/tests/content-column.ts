@@ -1,12 +1,12 @@
 /**
- * What the four content-column Web scenarios share: the profile links their
+ * What the content-column Web scenarios share: the profile links their
  * composition needs, the seed that puts a page in the column, and the two
  * readings of a finished turn every one of them asserts on.
  *
- * One home, because the scenarios differ in the prompt, the hosted application
- * and what they assert — and in nothing about how the composition is assembled,
- * which is why assembling it lives here as well. A fifth scenario is a spec
- * that imports this and says what it is for.
+ * One home, because the scenarios differ in the prompt, the hosted application,
+ * what they assert, and at most one patch layer — and in nothing about how the
+ * composition is assembled, which is why assembling it lives here as well. A
+ * further scenario is a spec that imports this and says what it is for.
  */
 
 import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
@@ -144,6 +144,13 @@ export interface ContentColumnScenario {
   appRoot: string
   /** Where the run appends every session event it observes, in order. */
   events: SessionEvent[]
+  /**
+   * The patch layer to compose instead of this package's own, for a scenario
+   * whose composition differs — a route declaring image input, say. It must
+   * carry everything the package's own overlay does: the scaffold takes exactly
+   * one, so a scenario's layer replaces rather than extends it.
+   */
+  overlay?: string
 }
 
 /** One assembled content-column run: what a spec drives, and how it is taken down. */
@@ -182,7 +189,7 @@ export async function openContentColumn(scenario: ContentColumnScenario): Promis
   process.env.DSH_CONTENT_APP_ROOT = scenario.appRoot
   const scaffold = await launchWebScaffold({
     harnessHome,
-    extraOverlayPath: OVERLAY,
+    extraOverlayPath: scenario.overlay ?? OVERLAY,
     ...(mode === 'record' ? {} : { replayFixture: fixture, paceMs: 15 }),
   })
   scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { scenario.events.push(event) })

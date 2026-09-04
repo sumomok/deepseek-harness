@@ -145,10 +145,22 @@ const INSTALL_ANCHOR = join(REPO_ROOT, 'apps/cli/package.json')
 // catch-all would leave resolveModelInfo unroutable and compaction-basic's
 // post-step pressure check would warn every step). The published
 // contextWindow keeps that pressure path provably inert for small fixtures.
+// The vision route is published beside the text one because a scenario that
+// reads a picture has to be routed to a model declaring image input: the tools
+// that answer with an image refuse a route that declares none, and a replayed
+// route resolves its modalities from this catalog alone.
 const REPLAY_PROVIDERS = [{
   id: 'deepseek-official',
   name: 'DeepSeek',
-  models: [{ id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 }],
+  models: [
+    { id: 'deepseek-v4-flash', name: 'DeepSeek-V4-Flash', contextWindow: 128_000 },
+    {
+      id: 'deepseek-v4-flash-vision-exp',
+      name: 'DeepSeek-V4-Flash-Vision-Exp',
+      contextWindow: 128_000,
+      inputModalities: ['text', 'image'] as const,
+    },
+  ],
 }]
 
 /**

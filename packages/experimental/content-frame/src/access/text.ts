@@ -1,5 +1,5 @@
 /**
- * Every sentence the four reading tools put in front of the model: the
+ * Every sentence the five reading tools put in front of the model: the
  * descriptions they are chosen from, the parameter lines, the refusals, and the
  * headers their results open with — plus the endings every tool of the channel
  * shares, since a column with nothing in it refuses a read and a set of steps
@@ -426,4 +426,165 @@ export function markupHeaderText(header: MarkupHeaderText): string {
     `Page: ${header.page} — the app is at ${header.url}`,
     ...header.settled ? [] : [STILL_CHANGING_LINE],
   ].join('\n')
+}
+
+/**
+ * The model-facing description of the picture read.
+ *
+ * It states what the element has to be and what the export does to it, because
+ * both are conditions on the answer rather than advice: a page draws its QR
+ * codes and its icons in four tags and in no other, and a picture the browser
+ * will not let this console export has no answer at all.
+ */
+export const CONTENT_READ_IMAGE_DESCRIPTION =
+  'Return one picture on the page as an image, so the model can look at what the page draws rather than at how '
+  + 'it is written: the element\'s own rendered pixels, exported and attached to the result. The ref comes from '
+  + 'an earlier read of this page and must name an img, canvas, svg or picture element. It answers what a page '
+  + 'shows and never spells out — a QR code, a captcha, a chart, an icon drawn as a shape rather than as a '
+  + 'character. A bitmap is exported at its own natural size and never enlarged; a vector is rasterized large '
+  + 'enough to stay legible; anything past the request\'s pixel budget is scaled down to it. The picture is '
+  + 'attached and nothing is read out of it — what it shows is the model\'s to say. The element must be visible, '
+  + 'must have finished loading, and must be drawn from this origin, because a browser lets no other origin\'s '
+  + 'pixels be exported. Requires the session\'s model to accept image input.'
+
+/** The `ref` parameter line of the picture read. */
+export const IMAGE_REF_DESCRIPTION =
+  'a ref (like e12) printed by an earlier read of this page: the img, canvas, svg or picture element to export'
+
+/**
+ * Refusal for a route this session's next request would carry no image on.
+ *
+ * Checked before anything is exported or stored, so a text-only session costs
+ * one refused call rather than a picture kept forever that the model was never
+ * shown.
+ * @param model - the model the session's route resolves to.
+ * @returns the model-facing sentence.
+ */
+export function noImageRouteRefusal(model: string): string {
+  return `The session's model "${model}" does not declare image input.`
+}
+
+/** Refusal for a session whose provider and model could not be read at all. */
+export const UNRESOLVED_ROUTE_REFUSAL = 'The current model route could not be resolved.'
+
+/**
+ * Refusal for an element that draws no picture of its own.
+ * @param ref - the element the read asked for.
+ * @param tag - that element's tag, as the document spells it.
+ * @returns the model-facing sentence.
+ */
+export function notAnImageRefusal(ref: string, tag: string): string {
+  return `${ref} is a <${tag}>, which carries no picture of its own.`
+}
+
+/**
+ * Refusal for an element the page is not showing. A hidden element has no
+ * rendered pixels, which is what this read answers with.
+ * @param ref - the element the read asked for.
+ * @returns the model-facing sentence.
+ */
+export function hiddenImageRefusal(ref: string): string {
+  return `${ref} is not visible on the page, so it has no rendered pixels.`
+}
+
+/**
+ * Refusal for an image element whose own bytes have not arrived.
+ * @param ref - the element the read asked for.
+ * @returns the model-facing sentence.
+ */
+export function unloadedImageRefusal(ref: string): string {
+  return `${ref} has not finished loading its image.`
+}
+
+/**
+ * Refusal for an element drawn at no size at all — an empty canvas, a vector
+ * the page has laid out to nothing.
+ * @param ref - the element the read asked for.
+ * @returns the model-facing sentence.
+ */
+export function emptyImageRefusal(ref: string): string {
+  return `${ref} is drawn at zero pixels.`
+}
+
+/**
+ * Refusal for a picture another origin supplied.
+ *
+ * The browser marks the drawing surface as soon as such a picture is drawn on
+ * it and refuses to hand the pixels back; nothing this console does changes
+ * that, so the sentence states it as the condition it is.
+ * @param ref - the element the read asked for.
+ * @returns the model-facing sentence.
+ */
+export function taintedImageRefusal(ref: string): string {
+  return `${ref} is drawn from another origin, and a browser does not let those pixels be exported.`
+}
+
+/**
+ * Refusal for an export past the bytes one image may carry. The size is named
+ * because it is the bound that was crossed, which is the whole reason the read
+ * has no answer.
+ * @param ref - the element the read asked for.
+ * @param bytes - how large the export came out.
+ * @param max - the bytes one image may carry.
+ * @returns the model-facing sentence.
+ */
+export function wideImageRefusal(ref: string, bytes: number, max: number): string {
+  return `${ref} exports to ${bytes} bytes, past the ${max} bytes one image may carry.`
+}
+
+/**
+ * Refusal for an export the browser encoded as something this channel does not
+ * carry. The type is read back off the exported bytes rather than taken from
+ * what was asked for, so this is what actually came out.
+ * @param ref - the element the read asked for.
+ * @param mediaType - the type the export came out as.
+ * @returns the model-facing sentence.
+ */
+export function unexportableImageRefusal(ref: string, mediaType: string): string {
+  return `${ref} exported as ${mediaType}, which is not one of the image formats this channel carries.`
+}
+
+/**
+ * Failure for an export the attachment store would not keep.
+ *
+ * The store's own reason is passed through: it is the only half that knows
+ * which of its bounds the image crossed, and the model is told that nothing
+ * was kept.
+ * @param reason - the store's own sentence.
+ * @returns the model-facing sentence.
+ */
+export function imageStoreRefusal(reason: string): string {
+  return `The exported image could not be stored. ${reason}`
+}
+
+/** The facts one picture result states about the element it exported. */
+export interface ImageHeaderText {
+  /** The ref the read named. */
+  ref: string
+  /** That element's tag, as the document spells it. */
+  tag: string
+  /** The element's own pixel size, before the export scaled it. */
+  natural: { width: number; height: number }
+  /** The stored image's pixel size. */
+  exported: { width: number; height: number }
+  /** The stored image's media type. */
+  mediaType: string
+  /** The stored image's exact encoded length. */
+  bytes: number
+}
+
+/**
+ * The line naming what was exported, which sits under the page line and above
+ * the picture itself.
+ *
+ * Both sizes are stated because they answer different questions: the natural
+ * size is what the page draws, and the exported size is what the model is
+ * looking at — a vector enlarged to stay legible and a bitmap scaled down to
+ * the budget both show up as the two differing.
+ * @param header - what the export produced.
+ * @returns the one line.
+ */
+export function imageHeaderText(header: ImageHeaderText): string {
+  return `${header.ref} <${header.tag}> ${header.natural.width}×${header.natural.height} px, `
+    + `exported ${header.exported.width}×${header.exported.height} as ${header.mediaType}, ${header.bytes} bytes`
 }

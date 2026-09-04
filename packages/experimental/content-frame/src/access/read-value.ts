@@ -1,19 +1,19 @@
 /**
  * What every reading tool of the page channel shares: the address its answer
- * prints, the page its answer names, and how it reads the settlement its wait
- * ended with.
+ * prints, the page its answer names, the card its settled call shows, and how
+ * it reads the settlement its wait ended with.
  *
- * The four reads — the listing, the element tree, one element's attributes, one
- * element's text — differ in what the browser seat walks and in nothing this
- * side does. So the waiting, the four endings, and the sentence each ending
- * earns live here once, and a read is a description, a parameter list and a
- * kind. `content_act` keeps its own: one of its endings is a value rather than
- * a rejection, because steps that ran cannot be reported as nothing having
- * happened.
+ * The five reads — the listing, the element tree, one element's attributes, one
+ * element's text, one element's pixels — differ in what the browser seat walks
+ * and in nothing this side does. So the waiting, the four endings, and the
+ * sentence each ending earns live here once, and a read is a description, a
+ * parameter list and a kind. `content_act` keeps its own: one of its endings is
+ * a value rather than a rejection, because steps that ran cannot be reported as
+ * nothing having happened.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/read-value
  */
 
-import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { GenericResultView, ToolResult, ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CallTimeouts, PendingCalls } from './pending.ts'
 import {
@@ -91,6 +91,20 @@ export function readBody(snapshot: ReadSnapshot): ReadBody {
     ...snapshot.cursor === undefined ? {} : { cursor: snapshot.cursor },
     settled: snapshot.settled,
   }
+}
+
+/**
+ * The settled card's title: the first line of what the model was told, which
+ * names the page, and the call's own title where the result carries no text.
+ *
+ * One home for all five reads, because a read's settled card differs in the
+ * fallback title and in nothing else.
+ * @param result - the final model-facing tool result.
+ * @param title - the call card's title, as the fallback.
+ * @returns the card.
+ */
+export function readResultView(result: ToolResult, title: string): GenericResultView {
+  return { card: 'generic', title: result.content.find(block => block.type === 'text')?.text.split('\n')[0] ?? title }
 }
 
 /**

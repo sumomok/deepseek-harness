@@ -284,6 +284,25 @@ describe('what content_read answers when no listing arrives', () => {
     )
   })
 
+  it('refuses one element\'s pixels posted against a read', async () => {
+    // The third arm a read can settle as, and the one this tool never asked
+    // for: what it answers with is a listing.
+    const result = await settleWith({
+      status: 'image',
+      page: { id: 'home', title: 'Home' },
+      url: 'http://127.0.0.1/content-app/',
+      ref: 'e12',
+      tag: 'img',
+      natural: { width: 240, height: 240 },
+      settled: true,
+      image: { attachmentId: 'sha256:abc', mediaType: 'image/png', bytes: 3, width: 240, height: 240 },
+    })
+    expect(result.isError).toBe(true)
+    expect(text(result)).toBe(
+      'Error: The console answered this call with another call\'s document.',
+    )
+  })
+
   it('refuses a report of steps posted against a read', async () => {
     // One table, one claim, two tools: the tool that opened the wait is what
     // knows whether the document it was handed answers its own call.

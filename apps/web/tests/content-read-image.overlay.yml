@@ -1,0 +1,38 @@
+# Identical to `packages/experimental/content-frame/overlay/content-column.patch.yml`,
+# plus the one thing a picture read needs and the four text-read scenarios do
+# not: a route that declares image input. The attachment store the read keeps
+# its pixels in is already in the shipped base bundle (`attachment-local`).
+# Kept as a full standalone file rather than composed with the package's own
+# overlay: `extraOverlayPath` takes exactly one path, and every other overlay in
+# this suite is likewise self-contained.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: content-frame
+      name: '@deepseek-ai/dsh-experimental-content-frame'
+      config:
+        root: !!js process.env.DSH_CONTENT_APP_ROOT
+        pages:
+          - id: home
+            title: Home
+            description: The hosted application's entry page.
+            url: /content-app/
+        defaultPage: home
+        pageAccess: {}
+
+# And the session has to be routed somewhere that takes pictures: the read
+# refuses a route declaring no image input before it exports anything, so a
+# scenario left on the shipped text default would record one refusal and no
+# picture. The replay catalog in `scaffold.ts` publishes this same route.
+- id: agent-default-model
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-flash-vision-exp

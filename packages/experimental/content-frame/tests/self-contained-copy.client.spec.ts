@@ -14,13 +14,14 @@
  * surface rather than a list of strings, so a constant or a sentence added
  * later is covered the day it is written: an exported function with no
  * arguments recorded here fails, and so does an export that is neither a string
- * nor a function. It assembles all six tool definitions and reads every
+ * nor a function. It assembles all seven tool definitions and reads every
  * `description` each one carries — its own, its parameter schema's at any
  * depth, and its output schema's — which is what covers the descriptions
- * composed in `tool.ts`, `read-tool.ts`, `markup-tool.ts`, `act-tool.ts` and
- * `read-value.ts` rather than exported as sentences. And the map listing's
- * closing line is checked through a real read, because `render.ts` composes it
- * privately and the rendered listing is where the model meets it.
+ * composed in `tool.ts`, `read-tool.ts`, `markup-tool.ts`, `image-tool.ts`,
+ * `act-tool.ts` and `read-value.ts` rather than exported as sentences. And the
+ * map listing's closing line is checked through a real read, because
+ * `render.ts` composes it privately and the rendered listing is where the model
+ * meets it.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
@@ -32,6 +33,7 @@ import * as actText from '../src/access/act-text.ts'
 import * as readText from '../src/access/text.ts'
 import { contentActTool } from '../src/access/act-tool.ts'
 import { DialogApprovals } from '../src/access/dialog-approvals.ts'
+import { contentReadImageTool, type ModelRoutes } from '../src/access/image-tool.ts'
 import {
   contentReadAttrsTool, contentReadDomContentTool, contentReadDomTool,
 } from '../src/access/markup-tool.ts'
@@ -43,7 +45,8 @@ import { CONTENT_SHOW_TOOL_NAME, contentShowTool } from '../src/tool.ts'
 import type { ContentPage } from '../src/types.ts'
 import {
   CONTENT_ACT_TOOL_NAME, CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_CONTENT_TOOL_NAME,
-  CONTENT_READ_DOM_TOOL_NAME, CONTENT_READ_TOOL_NAME, type ActStep, type ActStepRefusal, type ReadFailure,
+  CONTENT_READ_DOM_TOOL_NAME, CONTENT_READ_IMAGE_TOOL_NAME, CONTENT_READ_TOOL_NAME, MAX_EXPORT_BYTES,
+  type ActStep, type ActStepRefusal, type ReadFailure,
 } from '../src/access/wire.ts'
 import { RefTable } from '../src/client/access/refs.ts'
 import { snapshot } from '../src/client/access/snapshot.ts'
@@ -54,6 +57,7 @@ const TOOL_NAMES = [
   CONTENT_READ_DOM_TOOL_NAME,
   CONTENT_READ_ATTRS_TOOL_NAME,
   CONTENT_READ_DOM_CONTENT_TOOL_NAME,
+  CONTENT_READ_IMAGE_TOOL_NAME,
   CONTENT_ACT_TOOL_NAME,
   CONTENT_SHOW_TOOL_NAME,
 ]
@@ -94,6 +98,23 @@ const ARGUMENTS: Record<string, readonly unknown[][]> = {
   wideAttrsMessage: [[9000, 'e12', 4000]],
   wideTextMessage: [[9000, 'e12', 4000]],
   markupHeaderText: [[{ page: 'Home', url: '/home', settled: false }]],
+  noImageRouteRefusal: [['deepseek-v4-flash']],
+  notAnImageRefusal: [['e12', 'div']],
+  hiddenImageRefusal: [['e12']],
+  unloadedImageRefusal: [['e12']],
+  emptyImageRefusal: [['e12']],
+  taintedImageRefusal: [['e12']],
+  wideImageRefusal: [['e12', 3_500_000, MAX_EXPORT_BYTES]],
+  unexportableImageRefusal: [['e12', 'image/avif']],
+  imageStoreRefusal: [['Image batch exceeds the configured image-count limit.']],
+  imageHeaderText: [[{
+    ref: 'e12',
+    tag: 'img',
+    natural: { width: 240, height: 240 },
+    exported: { width: 240, height: 240 },
+    mediaType: 'image/png',
+    bytes: 3182,
+  }]],
   stepRefusalText: STEP_REFUSALS.map(refusal => [refusal]),
   tooManyStepsRefusal: [[20]],
   stepRefusal: [[2, 'a "fill" step needs text, the value to type into the box']],
@@ -159,12 +180,15 @@ const TIMEOUTS: CallTimeouts = { claimTimeoutMs: 30, answerTimeoutMs: 60, pinMs:
 /** The steps bound the assembled `content_act` is built under. */
 const MAX_STEPS = 20
 
+/** A composition with no LLM registry; nothing here resolves a route. */
+const NO_ROUTES: ModelRoutes = { get: () => undefined }
+
 /**
- * The six tools a deployment registers, assembled the way it assembles them.
+ * The seven tools a deployment registers, assembled the way it assembles them.
  *
  * Descriptions composed at assembly rather than exported as sentences — the
- * page catalogue `content_show` carries, the parameter lines the four reads and
- * `content_act` declare inline, the output-schema fields all six declare —
+ * page catalogue `content_show` carries, the parameter lines the five reads and
+ * `content_act` declare inline, the output-schema fields all seven declare —
  * reach the model only through these objects, which is why the walk builds them
  * instead of reading the modules' exports.
  * @returns the definitions, in the order a composition registers them.
@@ -179,6 +203,7 @@ function toolDefinitions(): ToolDefinition[] {
     contentReadDomTool(wait),
     contentReadAttrsTool(wait),
     contentReadDomContentTool(wait),
+    contentReadImageTool(wait, NO_ROUTES),
     contentActTool(pending, TIMEOUTS, MAX_STEPS, front, new DialogApprovals()),
   ]
 }
@@ -216,7 +241,7 @@ describe('every sentence this package puts in front of the model', () => {
     expect(sentences.filter(sentence => TOOL_NAMES.some(tool => sentence.includes(tool)))).toEqual([])
   })
 
-  it('names no tool in any description of the six tools the model is offered', () => {
+  it('names no tool in any description of the seven tools the model is offered', () => {
     const tools = toolDefinitions()
     const descriptions = tools.flatMap(tool => [
       tool.description,

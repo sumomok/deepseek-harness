@@ -22,7 +22,9 @@ import {
   FIND_DESCRIPTION, FIND_REFUSAL, MISREPORTED_REFUSAL, MODE_DESCRIPTION,
   readHeaderText, SCOPE_DESCRIPTION, SCOPE_REFUSAL,
 } from './text.ts'
-import { awaitRead, PAGE_VALUE_SCHEMA, pathOf, readBody, type FrontEntryLookup } from './read-value.ts'
+import {
+  awaitRead, PAGE_VALUE_SCHEMA, pathOf, readBody, readResultView, type FrontEntryLookup,
+} from './read-value.ts'
 import { CONTENT_READ_TOOL_NAME, REF_PATTERN, type ReadArgs, type ReadOutcome } from './wire.ts'
 
 /** Longest accepted `find`, stated in its own refusal. */
@@ -81,9 +83,11 @@ function refuseArgs(args: ReadArgs): string | undefined {
  */
 function valueOf(outcome: ReadOutcome): ContentReadValue {
   if (outcome.status === 'error') throw new Error(failureRefusal(outcome))
+  // One channel carries six tools' answers, so a listing arriving under another
+  // read's kind — or as pixels rather than as text at all — is a document
+  // answering a call this one did not make.
+  if (outcome.status !== 'ok') throw new Error(MISREPORTED_REFUSAL)
   const { snapshot } = outcome
-  // One channel carries five tools' answers, so a listing arriving under
-  // another read's kind is a document answering a call this one did not make.
   if (snapshot.kind !== 'outline' && snapshot.kind !== 'map') throw new Error(MISREPORTED_REFUSAL)
   return {
     status: 'ok',
@@ -197,9 +201,6 @@ export function contentReadTool(
         ...summary === '' ? {} : { rawInput: summary },
       }
     },
-    presentResult: (_args, result): GenericResultView => ({
-      card: 'generic',
-      title: result.content.find(block => block.type === 'text')?.text.split('\n')[0] ?? CALL_TITLE,
-    }),
+    presentResult: (_args, result): GenericResultView => readResultView(result, CALL_TITLE),
   })
 }

@@ -19,6 +19,16 @@ export const CONTENT_CLAIM_ROUTE = '/content-frame/claim'
 /** Exact route a browser seat posts one read's outcome to. */
 export const CONTENT_REPORT_ROUTE = '/content-frame/report'
 
+/**
+ * Exact route a browser seat posts one element's exported pixels to.
+ *
+ * A route of its own because the bytes are of another order than any listing:
+ * the report route's byte bound is computed from the deployment's character
+ * budget, and carrying an image through it would raise the bound on every
+ * text read as well.
+ */
+export const CONTENT_IMAGE_ROUTE = '/content-frame/image'
+
 /** Wire name of the structural page read. */
 export const CONTENT_READ_TOOL_NAME = 'content_read'
 
@@ -30,6 +40,9 @@ export const CONTENT_READ_ATTRS_TOOL_NAME = 'content_read_attrs'
 
 /** Wire name of the read that prints one element's whole text. */
 export const CONTENT_READ_DOM_CONTENT_TOOL_NAME = 'content_read_dom_content'
+
+/** Wire name of the read that answers with one element's own rendered pixels. */
+export const CONTENT_READ_IMAGE_TOOL_NAME = 'content_read_image'
 
 /**
  * How long a claim from a tab that is not the session's preferred one waits for
@@ -493,6 +506,31 @@ export type ReadOutcome =
     snapshot: ReadSnapshot
   }
   | {
+    /**
+     * Discriminant: one element's pixels, already stored.
+     *
+     * The one arm no seat ever constructs. What crosses the wire for an image
+     * read is an {@link ImageCapture} carrying bytes, and the host turns it
+     * into this arm once the attachment store has committed them — so the
+     * settled call carries a durable reference and never a payload.
+     */
+    status: 'image'
+    /** The page that was read. */
+    page: ReadPage
+    /** The document's own URL, absolute as the browser reported it. */
+    url: string
+    /** The ref the read named. */
+    ref: string
+    /** That element's tag, as the document spells it. */
+    tag: string
+    /** The element's own pixel size, before this export scaled it. */
+    natural: ImageSize
+    /** False when the page was still changing when the export ran. */
+    settled: boolean
+    /** The stored image, as the attachment store committed it. */
+    image: ImageAnswer
+  }
+  | {
     /** Discriminant. */
     status: 'error'
     /** Which of the four refusals this is. */
@@ -641,7 +679,18 @@ function parseOutcome(
     const snapshot = parseSnapshot(candidate.snapshot, maxTextChars)
     return snapshot === undefined ? undefined : { status: 'ok', page: { id: page.id, title: page.title }, snapshot }
   }
-  if (candidate.status !== 'error') return undefined
+  return candidate.status === 'error' ? parseFailure(candidate) : undefined
+}
+
+/**
+ * Read one posted failure, which is the arm every read of this channel shares —
+ * the listing routes' and the image route's alike.
+ * @param candidate - the decoded failure, already known to carry `status: 'error'`.
+ * @returns the failure, or `undefined` when the value is not one.
+ */
+function parseFailure(
+  candidate: Partial<Record<'code' | 'message' | 'kind' | 'title', unknown>>,
+): ReadFailure | undefined {
   const code = ERROR_CODES.find(known => known === candidate.code)
   if (code === undefined) return undefined
   if (!isText(candidate.message, MAX_OUTCOME_MESSAGE_CHARS)) return undefined
@@ -655,6 +704,288 @@ function parseOutcome(
     ...typeof candidate.kind === 'string' ? { kind: candidate.kind } : {},
     ...typeof candidate.title === 'string' ? { title: candidate.title } : {},
   }
+}
+
+
+/**
+ * The one media type an export asks a browser for.
+ *
+ * A protocol constant rather than a deployment choice, and PNG for three
+ * reasons a deployment cannot change: the export is lossless, which is what a
+ * QR code or a captcha needs; it keeps the alpha channel an icon is drawn
+ * with; and it is the format `HTMLCanvasElement.toBlob` falls back to for any
+ * type an engine does not support, so asking for it is the one request no
+ * engine answers with something else. What the model finally receives is
+ * re-encoded by the attachment layer for the route anyway, so the choice here
+ * costs bytes on one same-origin post and on disk, and no fidelity.
+ */
+export const IMAGE_MEDIA_TYPE = 'image/png'
+
+/**
+ * Total pixels one exported image may carry.
+ *
+ * The provider's own request budget, restated here so the seat posts an image
+ * the route can price rather than one the attachment layer will resample:
+ * `DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET` in `packages/llm/llm-deepseek/src/
+ * request-pricing.ts` is the same 640,000, and the geometry the seat scales by
+ * is `requestImageDimensions`'. A protocol constant: a deployment raising it
+ * would post bytes the request projection then throws away.
+ */
+export const IMAGE_PIXEL_BUDGET = 640_000
+
+/**
+ * Total pixels an `svg` is rasterized up to before it is exported.
+ *
+ * The provider's own vision floor, restated: `MIN_PIXELS` in
+ * `packages/llm/llm-deepseek/src/image-tokens.ts` is the same 384 × 384, and
+ * the provider scales anything under it up before projecting it onto the patch
+ * grid. Rasterizing a vector at its layout box and letting the provider
+ * enlarge the result would throw away information the vector still had, and
+ * enlarging it here costs no tokens, because the token count is the same on
+ * both sides of that floor. It applies to vectors alone: enlarging a bitmap
+ * adds nothing to enlarge.
+ */
+export const SVG_RASTER_MIN_PIXELS = 384 * 384
+
+/**
+ * Most bytes one exported image may come to.
+ *
+ * Above the provider's own per-image request budget —
+ * `DEFAULT_REQUEST_IMAGE_MAX_BYTES` in `packages/llm/llm-deepseek/src/
+ * request-pricing.ts` is 1 MiB — because what crosses this route is a lossless
+ * PNG and what reaches the provider is the attachment layer's re-encoding of
+ * it, which is smaller. Twice that budget is the headroom losslessness needs
+ * inside a bound that still keeps one unauthenticated post finite. A protocol
+ * constant: the bytes past it are bytes the model would never have seen.
+ */
+export const MAX_EXPORT_BYTES = 2 * 1024 * 1024
+
+/**
+ * Longest base64 payload a posted capture may carry, in characters. Base64
+ * writes four characters per three bytes, and the last group is padded — which
+ * is why this is computed from {@link MAX_EXPORT_BYTES} rather than estimated
+ * from it.
+ */
+export const MAX_IMAGE_DATA_CHARS = Math.ceil(MAX_EXPORT_BYTES / 3) * 4
+
+/**
+ * Bytes of JSON one posted capture carries around its payload, allowing
+ * {@link MAX_TEXT_BYTES_PER_CHAR} UTF-8 bytes per character: the document's
+ * address, the four names (the call's id, the tab's, the page's id and its
+ * title), the ref and the tag at the cursor's own bound, and a failure
+ * message — each at the bound the wire holds it to — plus
+ * {@link REPORT_SYNTAX_BYTES} for the punctuation, key names and discriminant
+ * values around them. The sum is over both arms, and no capture carries all of
+ * them: a failure carries no address, ref or tag.
+ */
+export const IMAGE_ENVELOPE_BYTES = MAX_TEXT_BYTES_PER_CHAR * (
+  MAX_URL_CHARS + 4 * MAX_NAME_CHARS + 2 * MAX_CURSOR_CHARS + MAX_OUTCOME_MESSAGE_CHARS
+) + REPORT_SYNTAX_BYTES
+
+/**
+ * The byte bound {@link CONTENT_IMAGE_ROUTE} holds a whole body to: one
+ * payload at its own bound plus the envelope around it.
+ *
+ * Both halves read it — the node half as the route's bound, the seat as what
+ * it measures a capture against before posting — and it is a protocol constant
+ * because every term of it is. The listing routes' own bound is computed from
+ * the deployment's character budget and is untouched by this.
+ */
+export const IMAGE_REPORT_BYTES = MAX_IMAGE_DATA_CHARS + IMAGE_ENVELOPE_BYTES
+
+/** One image's pixel dimensions. */
+export interface ImageSize {
+  /** Width in pixels. */
+  width: number
+  /** Height in pixels. */
+  height: number
+}
+
+/** Every media type a posted capture may name, which is what the attachment store takes. */
+export const CAPTURE_MEDIA_TYPES = ['image/png', 'image/jpeg', 'image/webp', 'image/gif'] as const
+
+/**
+ * The media type one export came out as, read back off the exported blob
+ * rather than taken from what was asked for.
+ *
+ * Spelled here rather than imported from the attachment vocabulary, the way
+ * every other type of this module is: both halves read this file, and the seat
+ * has no attachment service.
+ */
+export type CaptureMediaType = (typeof CAPTURE_MEDIA_TYPES)[number]
+
+/** The stored image one settled image read carries, as the attachment store committed it. */
+export interface ImageAnswer {
+  /** The store's own content-addressed id. */
+  attachmentId: string
+  /** The media type the store verified from the stored bytes. */
+  mediaType: CaptureMediaType
+  /** The stored image's exact encoded length. */
+  bytes: number
+  /** The stored image's width in pixels. */
+  width: number
+  /** The stored image's height in pixels. */
+  height: number
+  /** The store's display name for it. */
+  name?: string
+}
+
+/**
+ * One element's exported pixels, as the seat posts them.
+ *
+ * The document that crosses {@link CONTENT_IMAGE_ROUTE}, and the asymmetry the
+ * image read is built on: this carries bytes and no reference, while the arm
+ * the call settles as ({@link ReadOutcome} `status: 'image'`) carries a
+ * reference and no bytes. The seat never constructs that arm and the host
+ * never receives one.
+ */
+export interface ImageCapture {
+  /** Discriminant. */
+  status: 'captured'
+  /** The page the column had in front. */
+  page: ReadPage
+  /** The document's own URL, absolute as the browser reports it. */
+  url: string
+  /** The ref the read named. */
+  ref: string
+  /** That element's tag, as the document spells it. */
+  tag: string
+  /** The element's own pixel size, before this export scaled it. */
+  natural: ImageSize
+  /** False when the page was still changing when the export ran. */
+  settled: boolean
+  /** The media type read back off the exported blob. */
+  mediaType: CaptureMediaType
+  /** The exported bytes, base64. */
+  data: string
+}
+
+/** What one claimed image read posts: the pixels, or why there are none. */
+export type ImageReport = ImageCapture | ReadFailure
+
+/** One claimed image read's answer as the browser half posts it. */
+export interface ImageReportRequest {
+  /** The call being answered. */
+  readonly callId: string
+  /** The claiming tab; a report from any other tab changes nothing. */
+  readonly tabId: string
+  /** The pixels, or the failure in their place. */
+  readonly capture: ImageReport
+}
+
+/** What a base64 payload may be written with, padding included. */
+const BASE64 = /^[A-Za-z0-9+/]+={0,2}$/
+
+/**
+ * Whether one decoded value is canonical base64 inside a bound.
+ *
+ * Checked rather than trusted because the host decodes it: `Buffer.from(…,
+ * 'base64')` drops what it does not recognize instead of refusing, so a
+ * payload with a stray character would be stored as different bytes than the
+ * seat exported and the model would be shown them.
+ * @param value - the decoded value.
+ * @param max - the longest accepted payload, in characters.
+ * @returns whether the value is such a payload.
+ */
+function isBase64(value: unknown, max: number): value is string {
+  if (typeof value !== 'string' || value.length === 0 || value.length > max) return false
+  return value.length % 4 === 0 && BASE64.test(value)
+}
+
+/**
+ * Whether one decoded value is a pixel dimension a real element can have had.
+ * Zero is refused with the negatives: an export of no pixels is not an export.
+ */
+function isExtent(value: unknown): value is number {
+  return Number.isInteger(value) && (value as number) > 0
+}
+
+/**
+ * Read the pixel size one posted capture carries.
+ * @param value - the decoded `natural`, however malformed.
+ * @returns the size, or `undefined` when the value is not one.
+ */
+function parseSize(value: unknown): ImageSize | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const candidate = value as Partial<Record<keyof ImageSize, unknown>>
+  if (!isExtent(candidate.width) || !isExtent(candidate.height)) return undefined
+  return { width: candidate.width, height: candidate.height }
+}
+
+/**
+ * Read the page one posted document names.
+ * @param value - the decoded `page`, however malformed.
+ * @returns the page, or `undefined` when the value is not one.
+ */
+function parsePage(value: unknown): ReadPage | undefined {
+  if (value === null || typeof value !== 'object') return undefined
+  const candidate = value as { id?: unknown; title?: unknown }
+  if (!isName(candidate.id) || !isText(candidate.title, MAX_NAME_CHARS)) return undefined
+  return { id: candidate.id, title: candidate.title }
+}
+
+/**
+ * Read one posted capture.
+ * @param candidate - the decoded `capture`, already known to carry `status: 'captured'`.
+ * @returns the capture, or `undefined` when the value is not one.
+ */
+function parseCapture(candidate: Partial<Record<keyof ImageCapture, unknown>>): ImageCapture | undefined {
+  const page = parsePage(candidate.page)
+  const natural = parseSize(candidate.natural)
+  if (page === undefined || natural === undefined) return undefined
+  if (!isText(candidate.url, MAX_URL_CHARS)) return undefined
+  if (typeof candidate.ref !== 'string' || !REF_PATTERN.test(candidate.ref)) return undefined
+  if (!isText(candidate.tag, MAX_CURSOR_CHARS) || candidate.tag.length === 0) return undefined
+  if (typeof candidate.settled !== 'boolean') return undefined
+  const mediaType = CAPTURE_MEDIA_TYPES.find(known => known === candidate.mediaType)
+  if (mediaType === undefined) return undefined
+  if (!isBase64(candidate.data, MAX_IMAGE_DATA_CHARS)) return undefined
+  return {
+    status: 'captured',
+    page,
+    url: candidate.url,
+    ref: candidate.ref,
+    tag: candidate.tag,
+    natural,
+    settled: candidate.settled,
+    mediaType,
+    data: candidate.data,
+  }
+}
+
+/**
+ * Read one posted image report.
+ *
+ * A wire boundary: the document crossed a process, so its own contract is
+ * checked here rather than trusted from the type. Every field carries a bound
+ * of its own — the payload's is {@link MAX_IMAGE_DATA_CHARS}, which is what
+ * {@link IMAGE_REPORT_BYTES} is computed from — so a forged report cannot make
+ * the host buffer an arbitrary body, through the payload or around it.
+ * @param body - the decoded request body, however malformed.
+ * @returns the report, or `undefined` when the body is not one.
+ */
+export function parseImageReport(body: unknown): ImageReportRequest | undefined {
+  if (body === null || typeof body !== 'object') return undefined
+  const candidate = body as { callId?: unknown; tabId?: unknown; capture?: unknown }
+  if (!isName(candidate.callId) || !isName(candidate.tabId)) return undefined
+  const posted = candidate.capture
+  if (posted === null || typeof posted !== 'object') return undefined
+  const capture = posted as Partial<Record<keyof ImageCapture, unknown>> & { code?: unknown; message?: unknown }
+  const parsed = parseImageOutcome(capture)
+  return parsed === undefined ? undefined : { callId: candidate.callId, tabId: candidate.tabId, capture: parsed }
+}
+
+/**
+ * Read the two arms one posted image report can carry.
+ * @param capture - the decoded `capture`, already known to be an object.
+ * @returns the pixels or the failure, or `undefined` when the value is neither.
+ */
+function parseImageOutcome(
+  capture: Partial<Record<keyof ImageCapture, unknown>> & { code?: unknown; message?: unknown },
+): ImageReport | undefined {
+  if (capture.status === 'captured') return parseCapture(capture)
+  if (capture.status === 'error') return parseFailure(capture)
+  return undefined
 }
 
 
@@ -1102,14 +1433,14 @@ export interface ChannelReportRequest {
 /**
  * Whether one settled call's outcome is a report of steps that ran.
  *
- * Stated as what it is not, because that is what narrows: the listing's own two
- * arms are single literals and this one carries two, which a pair of positive
- * tests cannot subtract from the union.
- * @param outcome - what the claiming seat posted.
- * @returns whether it reports steps rather than a listing or a failure.
+ * Stated as what it is: a read settles as a listing, a failure, or one stored
+ * image, so naming the two step statuses is the only test that stays true as
+ * the read side gains arms.
+ * @param outcome - what the call settled as.
+ * @returns whether it reports steps rather than anything a read answers with.
  */
 export function isActOutcome(outcome: ChannelOutcome): outcome is ActOutcome {
-  return outcome.status !== 'ok' && outcome.status !== 'error'
+  return outcome.status === 'done' || outcome.status === 'failed'
 }
 
 /**

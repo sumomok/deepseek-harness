@@ -32,11 +32,16 @@ import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surfac
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
+import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
+import type {
+  FileAttachmentLimits, ImageAttachmentLimits, ImageAttachmentRef, SaveImageAttachment,
+} from '@deepseek-ai/dsh-attachment'
 import * as ContentFrame from '../src/index.ts'
 import {
-  CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_BUSY_NAMES, MAX_CURSOR_CHARS, MAX_HEADER_CHARS,
-  MAX_ACT_STEPS, MAX_NAME_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS, parseChannelReport,
-  type ClaimAck, type ReadOutcome,
+  CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, IMAGE_REPORT_BYTES, MAX_BUSY_NAMES,
+  MAX_CURSOR_CHARS, MAX_HEADER_CHARS,
+  MAX_ACT_STEPS, MAX_IMAGE_DATA_CHARS, MAX_NAME_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_URL_CHARS, MIN_OUTLINE_CHARS,
+  parseChannelReport, type ClaimAck, type ImageCapture, type ReadOutcome,
 } from '../src/access/wire.ts'
 import { CONTENT_SETTINGS_ROUTE } from '../src/route.ts'
 
@@ -76,10 +81,77 @@ const CONTROL = String.fromCharCode(1)
 /** The tab every case here answers from. */
 const TAB = 'tab_1'
 
+/** Every image this composition's store was asked to keep, in order. */
+let stored: SaveImageAttachment[] = []
+
+/** The content-addressed id the stub store hands back. */
+const STORED_ID = 'sha256:b1ff9c8ea3a780bad09b346c423d2d0e46815926879b18e841d928376a946640'
+
+/**
+ * The smallest attachment store the picture read needs.
+ *
+ * It keeps what it is given and answers with a reference, which is the whole
+ * of what the route reads back; the real store's decoding and normalization
+ * belong to that package's own suite.
+ */
+class StubAttachments extends AttachmentStore {
+  override readonly imageLimits: ImageAttachmentLimits = {
+    maxImageBytes: 8 * 1024 * 1024,
+    maxImagesPerMessage: 8,
+    maxMessageImageBytes: 8 * 1024 * 1024,
+    maxImagePixels: 40_000_000,
+    maxImageDimension: 8000,
+    mediaTypes: ['image/png', 'image/jpeg', 'image/webp', 'image/gif'],
+  }
+
+  override readonly fileLimits: FileAttachmentLimits = {
+    maxFileBytes: 1024,
+    maxFilesPerMessage: 1,
+    maxMessageFileBytes: 1024,
+    mediaTypes: [],
+  } as unknown as FileAttachmentLimits
+
+  override validateImage(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  override saveImage(input: SaveImageAttachment): Promise<ImageAttachmentRef> {
+    stored.push(input)
+    return Promise.resolve({
+      attachmentId: STORED_ID,
+      mediaType: input.mediaType,
+      bytes: input.data.byteLength,
+      width: 240,
+      height: 240,
+      ...input.name === undefined ? {} : { name: input.name },
+    } as ImageAttachmentRef)
+  }
+
+  override readImage(): never {
+    throw new Error('this store is written for the route, not for reading back')
+  }
+
+  override validateFile(): Promise<void> {
+    return Promise.resolve()
+  }
+
+  override saveFile(): never {
+    throw new Error('this store keeps images only')
+  }
+
+  override readFile(): never {
+    throw new Error('this store keeps images only')
+  }
+}
+
+/** The row that mounts {@link StubAttachments} into a composition. */
+const ATTACHMENT_ROW = "- name: '@deepseek-ai/dsh-attachment-stub'"
+
 let world: string | undefined
 let context: Context | undefined
 
 afterEach(async () => {
+  stored = []
   await context?.fiber.dispose()
   context = undefined
   if (world !== undefined) await rm(world, { recursive: true, force: true })
@@ -152,6 +224,7 @@ async function loadComposition(
     ['@deepseek-ai/dsh-session-projection', SessionProjectionRegistry],
     ['@deepseek-ai/dsh-experimental-content-frame', ContentFrame],
     ['@deepseek-ai/dsh-experimental-content-surface', ContentSurfaceRegistry],
+    ['@deepseek-ai/dsh-attachment-stub', StubAttachments],
   ])
   context.loader.internal = {
     version: 'v2',
@@ -1027,5 +1100,125 @@ describe('page-access configuration', () => {
     // And the window that lands exactly on the share is a composition that
     // boots, checked where every other composition here is checked.
     await expect(loadComposition(true, ['      settleQuietMs: 1250'])).resolves.toBeInstanceOf(Context)
+  })
+})
+
+/** One capture as a seat posts it: three bytes of PNG, base64. */
+const CAPTURE: ImageCapture = {
+  status: 'captured',
+  page: { id: 'home', title: 'Home' },
+  url: 'http://127.0.0.1/content-app/',
+  ref: 'e12',
+  tag: 'img',
+  natural: { width: 240, height: 240 },
+  settled: true,
+  mediaType: 'image/png',
+  data: 'AQID',
+}
+
+describe('the picture route over real HTTP', () => {
+  /**
+   * Boot a composition with an attachment store mounted, which is what the
+   * picture read and its route are claimed inside.
+   * @returns the booted context.
+   */
+  function withStore(): Promise<Context> {
+    return loadComposition(true, [], OUTLINE_CHARS, [ATTACHMENT_ROW])
+  }
+
+  it('offers the picture read only where there is a store to keep a picture in', async () => {
+    const withoutStore = await loadComposition(true)
+    expect(withoutStore.tools.schemas().map(schema => schema.name)).not.toContain('content_read_image')
+    // And the route it would post to is not served either: a seat that
+    // exported pixels would have nowhere to put them.
+    expect((await postJson(withoutStore, CONTENT_IMAGE_ROUTE, { callId: 'c', tabId: TAB, capture: CAPTURE })).status)
+      .toBe(404)
+    await withoutStore.fiber.dispose()
+    context = undefined
+
+    const ctx = await withStore()
+    expect(ctx.tools.schemas().map(schema => schema.name)).toContain('content_read_image')
+    expect((await postJson(ctx, CONTENT_IMAGE_ROUTE, { callId: 'c', tabId: TAB, capture: CAPTURE })).status).toBe(200)
+  })
+
+  it('keeps the posted pixels and says whether a call took them', async () => {
+    const ctx = await withStore()
+    const answer = await postJson(ctx, CONTENT_IMAGE_ROUTE, { callId: 'call_gone', tabId: TAB, capture: CAPTURE })
+    expect({ status: answer.status, body: JSON.parse(answer.body) as unknown })
+      .toEqual({ status: 200, body: { accepted: false } })
+    expect(stored).toHaveLength(1)
+    expect([...(stored[0]?.data ?? [])]).toEqual([1, 2, 3])
+    expect(stored[0]?.name).toBe('content-home-e12.png')
+  })
+
+  it('refuses a capture no seat of this package wrote', async () => {
+    const ctx = await withStore()
+    for (const capture of [
+      { ...CAPTURE, ref: 'twelve' },
+      { ...CAPTURE, data: 'AQI' },
+      { ...CAPTURE, mediaType: 'image/avif' },
+      { ...CAPTURE, status: 'ok' },
+    ]) {
+      const answer = await postJson(ctx, CONTENT_IMAGE_ROUTE, { callId: 'c', tabId: TAB, capture })
+      expect({ capture, status: answer.status, body: JSON.parse(answer.body) as unknown }).toEqual({
+        capture,
+        status: 400,
+        body: { error: 'content-frame: expected a JSON body with callId, tabId, and capture' },
+      })
+    }
+    expect(stored).toEqual([])
+  })
+
+  it('holds a body to a bound of its own, which is not the report route\'s', async () => {
+    const ctx = await withStore()
+    // The two bounds are computed from different things: this one from the
+    // bytes one export may carry, the report route's from the deployment's
+    // character budget. Carrying pixels through that route would have raised
+    // it for every text read.
+    expect(IMAGE_REPORT_BYTES).toBeGreaterThan(REPORT_BYTES)
+    const answer = await raw(ctx, CONTENT_IMAGE_ROUTE, {
+      body: JSON.stringify({ callId: 'c', tabId: TAB, capture: { ...CAPTURE, data: 'A'.repeat(IMAGE_REPORT_BYTES) } }),
+      chunked: true,
+    })
+    expect({ status: answer.status, connection: answer.connection, body: JSON.parse(answer.body) as unknown }).toEqual({
+      status: 413,
+      connection: 'close',
+      body: { error: `content-frame: the picture report route refuses a body past ${IMAGE_REPORT_BYTES} bytes` },
+    })
+    expect(stored).toEqual([])
+  })
+
+  it('takes a payload at the bound one export implies', async () => {
+    const ctx = await withStore()
+    const data = 'A'.repeat(MAX_IMAGE_DATA_CHARS)
+    const answer = await postJson(ctx, CONTENT_IMAGE_ROUTE, { callId: 'c', tabId: TAB, capture: { ...CAPTURE, data } })
+    expect(answer.status).toBe(200)
+    expect(stored).toHaveLength(1)
+  })
+
+  it('serves POST only, and same-site JSON only', async () => {
+    const ctx = await withStore()
+    const method = await call(ctx, CONTENT_IMAGE_ROUTE)
+    expect({ status: method.status, allow: method.allow, cacheControl: method.cacheControl })
+      .toEqual({ status: 405, allow: 'POST', cacheControl: 'no-store' })
+    const crossSite = await call(ctx, CONTENT_IMAGE_ROUTE, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'sec-fetch-site': 'cross-site' },
+      body: JSON.stringify({ callId: 'c', tabId: TAB, capture: CAPTURE }),
+    })
+    expect({ status: crossSite.status, body: JSON.parse(crossSite.body) as unknown }).toEqual({
+      status: 403,
+      body: { error: 'content-frame: the picture report route serves same-site requests only' },
+    })
+    const form = await call(ctx, CONTENT_IMAGE_ROUTE, {
+      method: 'POST',
+      headers: { 'content-type': 'text/plain' },
+      body: JSON.stringify({ callId: 'c', tabId: TAB, capture: CAPTURE }),
+    })
+    expect({ status: form.status, body: JSON.parse(form.body) as unknown }).toEqual({
+      status: 415,
+      body: { error: 'content-frame: the picture report route accepts application/json only' },
+    })
+    expect(stored).toEqual([])
   })
 })

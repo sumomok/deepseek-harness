@@ -12,11 +12,13 @@
 
 import { describe, expect, it } from 'vitest'
 import {
-  isActOutcome, MAX_ACT_STEPS, MAX_ACT_TEXT_CHARS, MAX_BUSY_NAMES, MAX_HEADER_CHARS, MAX_NAME_CHARS,
+  IMAGE_ENVELOPE_BYTES, IMAGE_REPORT_BYTES,
+  isActOutcome, MAX_ACT_STEPS, MAX_ACT_TEXT_CHARS, MAX_BUSY_NAMES, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES,
+  MAX_HEADER_CHARS, MAX_IMAGE_DATA_CHARS, MAX_NAME_CHARS,
   MAX_OUTCOME_MESSAGE_CHARS,
-  MAX_TEXT_BYTES_PER_CHAR, parseActArgs, parseChannelReport, parseClaimRequest, parseDomArgs,
-  parseElementArgs, REPORT_ENVELOPE_BYTES,
-  REPORT_SYNTAX_BYTES, sanitize, type ActOutcome, type ReadOutcome,
+  MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS, parseActArgs, parseChannelReport, parseClaimRequest, parseDomArgs,
+  parseElementArgs, parseImageReport, REPORT_ENVELOPE_BYTES,
+  REPORT_SYNTAX_BYTES, sanitize, type ActOutcome, type ImageCapture, type ReadOutcome,
 } from '../src/access/wire.ts'
 
 /** The listing bound these cases are written against. */
@@ -379,6 +381,26 @@ describe('what a posted report of steps must carry', () => {
     expect(isActOutcome(ACT)).toBe(true)
     expect(isActOutcome(READ)).toBe(false)
     expect(isActOutcome({ status: 'error', code: 'frame', message: 'why' })).toBe(false)
+    // The third arm a read can settle as. It reaches the same table as the
+    // other two, so a test naming what a report of steps is not would have let
+    // this one through as one.
+    expect(isActOutcome({
+      status: 'image',
+      page: { id: 'home', title: 'Home' },
+      url: 'http://localhost/content-app/',
+      ref: 'e12',
+      tag: 'img',
+      natural: { width: 240, height: 240 },
+      settled: true,
+      image: { attachmentId: 'sha256:abc', mediaType: 'image/png', bytes: 3, width: 240, height: 240 },
+    })).toBe(false)
+  })
+
+  it('refuses a picture arm posted to the listing routes, which no seat writes', () => {
+    // The seat posts bytes on the picture route and the host composes this arm
+    // once they are stored; a poster claiming to have composed it is not this
+    // package's browser half.
+    expect(parseChannelReport(report({ status: 'image' }), MAX_TEXT, MAX_ACT_STEPS)).toBeUndefined()
   })
 })
 
@@ -496,5 +518,128 @@ describe('reading one markup call\'s arguments', () => {
     for (const args of [undefined, null, 'e12', {}, { ref: 12 }, { scope: 'e12' }]) {
       expect({ args, parsed: parseElementArgs(args) }).toEqual({ args, parsed: undefined })
     }
+  })
+})
+
+/** One capture as the seat posts it. */
+const CAPTURE: ImageCapture = {
+  status: 'captured',
+  page: { id: 'home', title: 'Home' },
+  url: 'http://localhost/content-app/',
+  ref: 'e12',
+  tag: 'img',
+  natural: { width: 240, height: 240 },
+  settled: true,
+  mediaType: 'image/png',
+  data: 'AQID',
+}
+
+/**
+ * One posted picture report around a capture.
+ * @param capture - the capture or failure the body carries.
+ * @returns the body as it goes on the wire.
+ */
+function imageReport(capture: unknown): unknown {
+  return { callId: 'call_1', tabId: 'tab_1', capture }
+}
+
+describe('reading one posted picture report', () => {
+  it('takes a well-formed capture whole', () => {
+    expect(parseImageReport(imageReport(CAPTURE))).toEqual({ callId: 'call_1', tabId: 'tab_1', capture: CAPTURE })
+  })
+
+  it('takes the failure arm every read of this channel shares', () => {
+    const failure = { status: 'error', code: 'engine', message: 'e12 is drawn at zero pixels.' }
+    expect(parseImageReport(imageReport(failure))).toEqual({ callId: 'call_1', tabId: 'tab_1', capture: failure })
+  })
+
+  it('refuses a body that is not a report of either arm', () => {
+    for (const body of [
+      undefined,
+      null,
+      'capture',
+      {},
+      { callId: 'call_1', tabId: 'tab_1' },
+      { callId: '', tabId: 'tab_1', capture: CAPTURE },
+      { callId: 'call_1', tabId: 12, capture: CAPTURE },
+      imageReport(null),
+      imageReport('captured'),
+      imageReport({ status: 'ok' }),
+      imageReport({ status: 'error', code: 'nowhere', message: 'why' }),
+    ]) {
+      expect({ body, parsed: parseImageReport(body) }).toEqual({ body, parsed: undefined })
+    }
+  })
+
+  it('refuses a capture whose every field is bounded, one field at a time', () => {
+    for (const field of [
+      { page: undefined },
+      { page: null },
+      { page: { id: '', title: 'Home' } },
+      { page: { id: 'home', title: 'x'.repeat(MAX_NAME_CHARS + 1) } },
+      { url: undefined },
+      { url: 'x'.repeat(MAX_URL_CHARS + 1) },
+      { ref: 'twelve' },
+      { ref: 12 },
+      { tag: '' },
+      { tag: 'x'.repeat(MAX_CURSOR_CHARS + 1) },
+      { natural: undefined },
+      { natural: { width: 240 } },
+      { natural: { width: 0, height: 240 } },
+      { natural: { width: -1, height: 240 } },
+      { natural: { width: 240.5, height: 240 } },
+      { settled: undefined },
+      { settled: 'yes' },
+      { mediaType: 'image/avif' },
+      { mediaType: undefined },
+    ]) {
+      const capture = { ...CAPTURE, ...field }
+      expect({ field, parsed: parseImageReport(imageReport(capture)) }).toEqual({ field, parsed: undefined })
+    }
+  })
+
+  it('refuses a payload that is not canonical base64', () => {
+    // The host decodes it, and `Buffer.from(…, 'base64')` drops what it does
+    // not recognize rather than refusing — so a payload with a stray character
+    // would be stored as different bytes than the seat exported.
+    for (const data of [
+      '',
+      'AQI',
+      'AQ ID',
+      'AQI*',
+      'A===',
+      12,
+      undefined,
+      'A'.repeat(MAX_IMAGE_DATA_CHARS + 4),
+    ]) {
+      const capture = { ...CAPTURE, data }
+      expect({ data, parsed: parseImageReport(imageReport(capture)) }).toEqual({ data, parsed: undefined })
+    }
+  })
+
+  it('takes a payload exactly at the bound one export\'s own ceiling implies', () => {
+    const data = 'A'.repeat(MAX_IMAGE_DATA_CHARS)
+    expect(parseImageReport(imageReport({ ...CAPTURE, data }))).toMatchObject({ capture: { data } })
+  })
+})
+
+describe('what the picture route holds a body to', () => {
+  it('computes its payload bound from the bytes one export may carry', () => {
+    // Base64 writes four characters per three bytes and pads the last group,
+    // so the bound is computed rather than estimated: four thirds of the byte
+    // ceiling is one character short of it.
+    expect(MAX_IMAGE_DATA_CHARS).toBe(Math.ceil(MAX_EXPORT_BYTES / 3) * 4)
+    expect(MAX_IMAGE_DATA_CHARS).toBeGreaterThan(Math.ceil(MAX_EXPORT_BYTES * 4 / 3))
+  })
+
+  it('leaves the envelope room for every field beside the payload', () => {
+    const spent = MAX_URL_CHARS + 4 * MAX_NAME_CHARS + 2 * MAX_CURSOR_CHARS + MAX_OUTCOME_MESSAGE_CHARS
+    expect(IMAGE_ENVELOPE_BYTES).toBe(spent * MAX_TEXT_BYTES_PER_CHAR + REPORT_SYNTAX_BYTES)
+    expect(IMAGE_REPORT_BYTES).toBe(MAX_IMAGE_DATA_CHARS + IMAGE_ENVELOPE_BYTES)
+  })
+
+  it('holds a real posted capture well inside that bound', () => {
+    const body = JSON.stringify(imageReport({ ...CAPTURE, data: 'A'.repeat(MAX_IMAGE_DATA_CHARS) }))
+    expect(new TextEncoder().encode(body).length).toBeLessThanOrEqual(IMAGE_REPORT_BYTES)
   })
 })

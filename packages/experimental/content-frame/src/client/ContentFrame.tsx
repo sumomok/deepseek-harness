@@ -42,6 +42,7 @@ import type { ContentPageView, ContentAccessRequest } from '../types.ts'
 import { foldFrames, NO_FRAMES, type CachedFrame, type FrameCache } from './frame-cache.ts'
 import { RefTable } from './access/refs.ts'
 import { TAB_ID, useContentRead } from './access/executor.ts'
+import { exportPixels } from './access/export-pixels.ts'
 import { watchFrame, type FrameAddress, type FrameWatch } from './perception/navigation.ts'
 import css from './ContentFrame.module.css'
 
@@ -168,6 +169,7 @@ export function ContentFrame(props: ContentFrameProps) {
     tables,
     access: pageAccess,
     tabId: TAB_ID,
+    draw: exportPixels,
   })
 
   const activeFrameId = active?.frameId

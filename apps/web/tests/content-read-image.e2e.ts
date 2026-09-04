@@ -1,0 +1,132 @@
+/**
+ * Web e2e scenario: the agent looks at a picture the page draws, because the
+ * page says nothing at all about what it is.
+ *
+ * The composition is the shipped Web surface plus this scenario's own patch
+ * layer, so the whole channel is the real one — the session publishes its open
+ * call, the page seat in a real browser claims it, exports the element's own
+ * rendered pixels out of a real iframe, posts them to the picture route, and
+ * the host commits them to the real attachment store before the call settles.
+ * What the model is shown is a real image block referencing a real object.
+ *
+ * The layer differs from the four text scenarios' in one row: the session is
+ * routed to a model that declares image input, because the read refuses a route
+ * that does not before it exports anything.
+ *
+ * The application is `tests/fixtures/markup-app`, whose pairing code carries no
+ * alternative text, no title and no name — the listing has nothing to print for
+ * it and the markup says only that an `img` is there. What it shows is in its
+ * pixels and nowhere else, which is the condition this read exists for.
+ *
+ * Only the `img` is pinned. A checked-in PNG is decoded and re-encoded, which
+ * is the one export path that produces the same bytes on the recording machine
+ * and the replaying one; a canvas and a vector are rasterized by the browser,
+ * where fonts and antialiasing are not promised to agree across platforms, and
+ * a fixture pinning a content-addressed id of those would drift. Both live in
+ * the same page and belong to this package's own suite.
+ *
+ * The fixture pins what the MODEL said; every read and every export executes
+ * for real.
+ */
+
+import { existsSync } from 'node:fs'
+import { readFile } from 'node:fs/promises'
+import { fileURLToPath } from 'node:url'
+import { join } from 'node:path'
+import type { Page } from 'playwright'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import {
+  fixtureUserPrompts, recordFixture, watchConsole, webSnapshotMode, type WebScaffold,
+} from './scaffold.ts'
+import {
+  COMPOSER, FRAME_DIR, fixtureFor, lastAnswerText, openContentColumn, toolResults,
+} from './content-column.ts'
+import { saveFailureShot } from './support.ts'
+
+const MODE = webSnapshotMode()
+const SCENARIO = 'content-read-image'
+const FIXTURE = fixtureFor(SCENARIO)
+
+/** The hosted application this scenario serves; the overlay reads it from the environment. */
+const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/markup-app')
+
+/** This scenario's own patch layer: the content column, on a route that takes pictures. */
+const OVERLAY = fileURLToPath(new URL('./content-read-image.overlay.yml', import.meta.url))
+
+/**
+ * Whether this scenario's recording is on disk. A replay run without it is
+ * skipped rather than failed: the recording needs a real key, so the spec and
+ * its fixture can land in different commits, and a lane with no key must not
+ * go red for a scenario nobody has recorded yet. Once the fixture is in the
+ * tree this is always true.
+ */
+const RECORDED = existsSync(FIXTURE)
+
+/** What the user asks: about the page, never about the tools. */
+const PROMPT = '内容区那个页面表格下面有一张小方图，看不出是什么。'
+  + '你看看那张图上画的到底是什么东西，然后告诉我。'
+
+describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a picture on the page', () => {
+  let scaffold: WebScaffold
+  let page: Page
+  let tripwire: ReturnType<typeof watchConsole>
+  let close: () => Promise<void>
+  const sessionEvents: SessionEvent[] = []
+
+  beforeAll(async () => {
+    ({ close, page, scaffold, tripwire } = await openContentColumn({
+      scenario: SCENARIO, appRoot: APP_ROOT, events: sessionEvents, overlay: OVERLAY,
+    }))
+  }, 180_000)
+
+  afterAll(async () => {
+    await close?.()
+  })
+
+  it('answers from the pixels a real browser exported, which no reading of the page prints', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-content-read-image'))
+    if (MODE !== 'record') {
+      expect(fixtureUserPrompts(await readFile(FIXTURE, 'utf8'))).toEqual([PROMPT])
+    }
+    const input = page.locator(COMPOSER).first()
+    await input.waitFor({ timeout: 10_000 })
+    const settled = scaffold.whenTurnSettled(MODE === 'record' ? 240_000 : 90_000)
+    await input.fill(PROMPT)
+    await input.press('Enter')
+    const sessionId = await settled
+
+    // How the model reaches the element is its own to choose — a listing then a
+    // markup read, or a markup read straight from the page. What is pinned is
+    // what every route promises.
+    const pictures = toolResults(sessionEvents, 'content_read_image')
+    expect(pictures.length).toBeGreaterThanOrEqual(1)
+    // Every answer opens with the page line the tool composes around whatever
+    // the seat exported, and carries the one line of facts about what came out.
+    expect(pictures.filter(text => !text.startsWith('Page: Home — the app is at /content-app/'))).toEqual([])
+    expect(pictures.some(text => /e\d+ <img> 348×348 px, exported \d+×\d+ as image\/png, \d+ bytes/u.test(text)))
+      .toBe(true)
+
+    // The picture itself reaches the model as an image block referencing a
+    // stored object, which is the whole point: the text above it says nothing
+    // about what the page drew.
+    const blocks = sessionEvents.flatMap((event) => {
+      if (event.type !== 'tool/result') return []
+      return event.data.message.content.flatMap(result => result.content.filter(block => block.type === 'image'))
+    })
+    expect(blocks.length).toBeGreaterThanOrEqual(1)
+    expect(blocks[0]).toMatchObject({ attachment: { mediaType: 'image/png', width: 348, height: 348 } })
+
+    // And the answer is the model's own reading of those pixels. The probe this
+    // scenario was designed against showed a vision model naming a matrix code
+    // for what it is and declining to invent its payload, so what is asserted
+    // is that it said what the picture is — in either language.
+    expect(lastAnswerText(sessionEvents)).toMatch(/二维码|qr|matrix code|barcode|条码/iu)
+    if (MODE === 'record') await recordFixture(scaffold, sessionId, FIXTURE, { afterSeed: true })
+  }, 300_000)
+
+  it.skipIf(MODE === 'record')('leaves the console clean', () => {
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+})

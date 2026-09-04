@@ -35,6 +35,10 @@ import type {} from '@deepseek-ai/dsh-experimental-content-surface'
 import type {} from '@deepseek-ai/dsh-commands'
 // Type-only: resolves ctx.systemPrompt for the optional content-column context child.
 import type {} from '@deepseek-ai/dsh-system-prompt'
+// Type-only: resolves ctx.attachments for the optional picture-read child.
+import type {} from '@deepseek-ai/dsh-attachment'
+// Type-only: resolves ctx.llm, which the picture read asks for the session's route.
+import type {} from '@deepseek-ai/dsh-llm'
 import type { ContentPage } from './types.ts'
 import { indexPages } from './pages.ts'
 import { contentProjection } from './projection.ts'
@@ -50,14 +54,16 @@ import { PendingCalls, type CallTimeouts } from './access/pending.ts'
 import { contentAccessProjection } from './access/requests-projection.ts'
 import { contentReadTool } from './access/read-tool.ts'
 import { contentReadAttrsTool, contentReadDomContentTool, contentReadDomTool } from './access/markup-tool.ts'
+import { contentReadImageTool } from './access/image-tool.ts'
+import { settleImageReport } from './access/image-report.ts'
 import { contentActTool } from './access/act-tool.ts'
 import { DialogApprovals } from './access/dialog-approvals.ts'
 import { registerActApproval } from './access/act-approval.ts'
 import type { FrontEntry } from './access/text.ts'
 import {
-  ACT_RUN_SHARE, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, MAX_ACT_STEPS, MAX_TEXT_BUDGET_MULTIPLE,
-  MAX_TEXT_BYTES_PER_CHAR, MIN_OUTLINE_CHARS, parseChannelReport, parseClaimRequest, REPORT_ENVELOPE_BYTES,
-  SETTLE_WAIT_SHARE,
+  ACT_RUN_SHARE, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, IMAGE_REPORT_BYTES, MAX_ACT_STEPS,
+  MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MIN_OUTLINE_CHARS, parseChannelReport, parseClaimRequest,
+  parseImageReport, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
 } from './access/wire.ts'
 import { contentPagesProjection } from './perception/pages-projection.ts'
 import { registerColumnContext } from './perception/context.ts'
@@ -147,13 +153,15 @@ export interface Config {
    */
   contextFieldChars?: number
   /**
-   * Lets the agent read the page in the column — through `content_read`, and
+   * Lets the agent read the page in the column — through `content_read`,
    * through the three markup reads `content_read_dom`, `content_read_attrs` and
-   * `content_read_dom_content` — and act on it through `content_act`. Absent
-   * turns the whole channel off: no tools, no claim or report route, no pending
-   * projection, and no reader in the browser — a deployment that only shows
-   * pages does not pay for a capability it did not ask for. Present with an
-   * empty object takes every default below.
+   * `content_read_dom_content`, and, where an attachment store is mounted,
+   * through `content_read_image`, which answers with one element's own rendered
+   * pixels — and act on it through `content_act`. Absent turns the whole
+   * channel off: no tools, no routes, no pending projection, and no reader in
+   * the browser — a deployment that only shows pages does not pay for a
+   * capability it did not ask for. Present with an empty object takes every
+   * default below.
    */
   pageAccess?: PageAccessConfig
 }
@@ -385,14 +393,20 @@ const CLAIM_ROUTE_NAME = 'the read claim route'
 /** What the report route calls itself in its own refusals. */
 const REPORT_ROUTE_NAME = 'the read report route'
 
+/** What the picture route calls itself in its own refusals. */
+const IMAGE_ROUTE_NAME = 'the picture report route'
+
 /**
- * Claim the two read routes, the four reading tools, the acting tool, and the
+ * Claim the three read routes, the five reading tools, the acting tool, and the
  * pending projection.
  *
  * Every registration lives inside this one call, so a deployment that
  * configures no `pageAccess` has none of them: the routes 404, the model is
  * offered no tool, no session publishes a pending list, and the browser half
- * reads the absent settings field and installs no reader.
+ * reads the absent settings field and installs no reader. The picture read and
+ * the route its pixels arrive on are claimed one level further in, where an
+ * attachment store is mounted: pixels reach the model as a stored attachment,
+ * so a deployment with nowhere to keep them is offered neither.
  * @param ctx - plugin context carrying the webServer service.
  * @param config - the deployment's page-access block.
  * @returns the settings the browser half needs to run a read.
@@ -469,6 +483,13 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     oversize: `content-frame: ${REPORT_ROUTE_NAME} refuses a body past ${reportBytes} bytes`,
     shape: 'content-frame: expected a JSON body with callId, tabId, and outcome',
   }
+  // A bound of its own, computed from the protocol's own picture constants
+  // rather than from the deployment's character budget: carrying pixels through
+  // the report route would have raised the bound on every text read with them.
+  const imageRefusals: BodyRefusals = {
+    oversize: `content-frame: ${IMAGE_ROUTE_NAME} refuses a body past ${IMAGE_REPORT_BYTES} bytes`,
+    shape: 'content-frame: expected a JSON body with callId, tabId, and capture',
+  }
   const pending = new PendingCalls()
   const approvals = new DialogApprovals()
 
@@ -512,21 +533,47 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     },
   }), 'content-frame: page read report route')
 
+  // The projection registry is an optional seam, and this is the one thing a
+  // composition without it goes without: the unclaimed refusal falls back to
+  // the advice an empty column earns, which is what an unreadable column is
+  // from here.
+  const front = (session: Session): FrontEntry | undefined => frontEntry(
+    ctx.get('sessionProjections')?.snapshot(session).values.contentSurface,
+  )
+  const wait = { pending, timeouts, front }
   ctx.inject(['tools'], (toolCtx) => {
-    // The projection registry is an optional seam, and this is the one thing a
-    // composition without it goes without: the unclaimed refusal falls back to
-    // the advice an empty column earns, which is what an unreadable column is
-    // from here.
-    const front = (session: Session): FrontEntry | undefined => frontEntry(
-      ctx.get('sessionProjections')?.snapshot(session).values.contentSurface,
-    )
-    const wait = { pending, timeouts, front }
     toolCtx.tools.register(contentReadTool(pending, timeouts, front))
     toolCtx.tools.register(contentReadDomTool(wait))
     toolCtx.tools.register(contentReadAttrsTool(wait))
     toolCtx.tools.register(contentReadDomContentTool(wait))
     toolCtx.tools.register(contentActTool(pending, actTimeouts, maxSteps, front, approvals))
     registerActApproval(toolCtx, approvals, maxSteps)
+  })
+  // One level in from the tools above: the picture read answers with a stored
+  // attachment, so it exists only where there is a store to keep one in, and
+  // the route its pixels arrive on exists with it.
+  ctx.inject(['tools', 'attachments'], (imageCtx) => {
+    const attachments = imageCtx.attachments
+    imageCtx.tools.register(contentReadImageTool(wait, imageCtx))
+    imageCtx.effect(() => imageCtx.webServer.register({
+      kind: 'exact',
+      path: CONTENT_IMAGE_ROUTE,
+      handler: async (req, res) => {
+        if (req.method !== 'POST') {
+          rejectMethod(req, res, 'POST', IMAGE_REPORT_BYTES)
+          return
+        }
+        if (rejectUntrustedPost(req, res, IMAGE_ROUTE_NAME, IMAGE_REPORT_BYTES)) return
+        const body = takeJsonBody(res, await readJsonBody(req, IMAGE_REPORT_BYTES), imageRefusals)
+        if (body === undefined) return
+        const report = parseImageReport(body.value)
+        if (report === undefined) {
+          answerJson(res, 400, { error: imageRefusals.shape })
+          return
+        }
+        answerJson(res, 200, await settleImageReport(attachments, pending, report))
+      },
+    }), 'content-frame: page picture report route')
   })
   ctx.inject(['sessionProjections'], (projectionCtx) => {
     projectionCtx.sessionProjections.register(contentAccessProjection(projectionCtx.logger))

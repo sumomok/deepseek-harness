@@ -20,13 +20,13 @@
  */
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView, GenericResultView, ToolDefinition, ToolResult } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import {
   CONTENT_READ_ATTRS_DESCRIPTION, CONTENT_READ_DOM_CONTENT_DESCRIPTION, CONTENT_READ_DOM_DESCRIPTION,
   DOM_AFTER_DESCRIPTION, DOM_AFTER_REFUSAL, DOM_SCOPE_DESCRIPTION, DOM_SCOPE_REFUSAL,
   ELEMENT_REF_DESCRIPTION, ELEMENT_REF_REFUSAL, failureRefusal, markupHeaderText, MISREPORTED_REFUSAL,
 } from './text.ts'
-import { awaitRead, PAGE_VALUE_SCHEMA, pathOf, readBody, type ReadWait } from './read-value.ts'
+import { awaitRead, PAGE_VALUE_SCHEMA, pathOf, readBody, readResultView, type ReadWait } from './read-value.ts'
 import {
   CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_CONTENT_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME, REF_PATTERN,
   type ReadKind, type ReadOutcome,
@@ -106,10 +106,11 @@ const MARKUP_OUTPUT = {
  */
 function markupValue(outcome: ReadOutcome, kind: MarkupKind): ContentMarkupValue {
   if (outcome.status === 'error') throw new Error(failureRefusal(outcome))
+  // One channel carries six tools' answers, so a document arriving under
+  // another read's kind — or as pixels rather than as text at all — answers a
+  // call this one did not make.
+  if (outcome.status !== 'ok' || outcome.snapshot.kind !== kind) throw new Error(MISREPORTED_REFUSAL)
   const { snapshot } = outcome
-  // One channel carries five tools' answers, so a document arriving under
-  // another read's kind answers a call this one did not make.
-  if (snapshot.kind !== kind) throw new Error(MISREPORTED_REFUSAL)
   return { status: 'ok', page: outcome.page, url: pathOf(snapshot.url), kind, ...readBody(snapshot) }
 }
 
@@ -135,17 +136,6 @@ function renderMarkup(_args: unknown, value: ContentMarkupValue): { type: 'text'
  */
 function markupMeta(_args: unknown, value: ContentMarkupValue): { page: string } {
   return { page: value.page.title }
-}
-
-/**
- * The settled card's title: the first line of what the model was told, which
- * names the page, and the call's own title where the result carries no text.
- * @param result - the final model-facing tool result.
- * @param title - the call card's title, as the fallback.
- * @returns the card.
- */
-function markupResultView(result: ToolResult, title: string): GenericResultView {
-  return { card: 'generic', title: result.content.find(block => block.type === 'text')?.text.split('\n')[0] ?? title }
 }
 
 /** What one of the two single-element reads differs in. */
@@ -191,7 +181,7 @@ function elementReadTool(wait: ReadWait, spec: ElementReadSpec): ToolDefinition 
       kind: 'other',
       rawInput: `ref ${args.ref}`,
     }),
-    presentResult: (_args, result): GenericResultView => markupResultView(result, spec.title),
+    presentResult: (_args, result): GenericResultView => readResultView(result, spec.title),
   })
 }
 
@@ -221,7 +211,7 @@ export function contentReadDomTool(wait: ReadWait): ToolDefinition {
       kind: 'other',
       rawInput: `scope ${args.scope}${args.after === undefined ? '' : `, after ${args.after}`}`,
     }),
-    presentResult: (_args, result): GenericResultView => markupResultView(result, DOM_CALL_TITLE),
+    presentResult: (_args, result): GenericResultView => readResultView(result, DOM_CALL_TITLE),
   })
 }
 

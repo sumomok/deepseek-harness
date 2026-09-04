@@ -15,14 +15,18 @@ import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-
 import { isVisible, TAB_ID, useContentRead, type ContentReadSeat } from '../src/client/access/executor.ts'
 import { looksClickable } from '../src/client/access/dom.ts'
 import {
-  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
+  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, IMAGE_MEDIA_TYPE,
+  LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
   MAX_ACT_STEPS, MAX_CLAIM_BACKOFF, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS,
   MAX_BID_MS, MIN_OUTLINE_CHARS,
-  parseChannelReport,
-  PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, type ClaimAck, type ReadOutcome,
+  parseChannelReport, parseImageReport,
+  PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, type ClaimAck, type ImageReport, type ReadOutcome,
 } from '../src/access/wire.ts'
-import { FRAME_WIDE_LISTING_MESSAGE, WIDE_DOM_MESSAGE, wideAttrsMessage, wideTextMessage } from '../src/access/text.ts'
+import {
+  FRAME_WIDE_LISTING_MESSAGE, notAnImageRefusal, WIDE_DOM_MESSAGE, wideAttrsMessage, wideTextMessage,
+} from '../src/access/text.ts'
 import { RefTable } from '../src/client/access/refs.ts'
+import type { ExportPixels } from '../src/client/access/capture.ts'
 import type { ContentAccessRequest, ContentReadRequest } from '../src/types.ts'
 
 /** The frame id every case here reads through. */
@@ -195,6 +199,14 @@ function mountFrame(html: string): HTMLIFrameElement {
   return frame
 }
 
+/**
+ * The drawing a text read never reaches; a case that exports pixels overrides it.
+ * @returns never.
+ */
+const NO_DRAWING = (): never => {
+  throw new Error('a text read exported no picture')
+}
+
 /** Build one seat over the given frames and entries. */
 function seatOf(overrides: Partial<ContentReadSeat> = {}): ContentReadSeat {
   return {
@@ -206,6 +218,7 @@ function seatOf(overrides: Partial<ContentReadSeat> = {}): ContentReadSeat {
     tables: { current: new Map<string, RefTable>() },
     access: ACCESS,
     tabId: TAB_ID,
+    draw: NO_DRAWING,
     ...overrides,
   }
 }
@@ -227,6 +240,16 @@ function drive(seat: ContentReadSeat, view?: ReturnType<typeof render>): ReturnT
 /** Wait until one report has been posted. */
 async function settled(): Promise<void> {
   await vi.waitFor(() => { expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(1) }, { timeout: 3000 })
+}
+
+/** Wait until one picture report has been posted. */
+async function exported(): Promise<void> {
+  await vi.waitFor(() => { expect(of(CONTENT_IMAGE_ROUTE)).toHaveLength(1) }, { timeout: 3000 })
+}
+
+/** What the first posted picture report carries. */
+function captured(): ImageReport {
+  return of(CONTENT_IMAGE_ROUTE)[0]?.capture as ImageReport
 }
 
 /** Set the tab's visibility the way the browser does. */
@@ -1253,5 +1276,109 @@ describe('the three markup reads through the same seat', () => {
     drive(seatOf({ entries: [], pending: [{ callId: 'call_1', tool: 'content_read_dom', args: { scope: 'e1' } }] }))
     await settled()
     expect(reported()).toMatchObject({ status: 'error', code: 'empty' })
+  })
+})
+
+describe('the seat exporting one picture', () => {
+  /**
+   * Mount a frame holding one element, number it, and drive a picture read of
+   * that ref.
+   * @param html - the fragment the frame holds.
+   * @param selector - the element the ref names.
+   * @param draw - the drawing to inject.
+   * @returns the ref the read names.
+   */
+  function drivePicture(html: string, selector: string, draw: ExportPixels): string {
+    const frame = mountFrame(html)
+    const el = frame.contentWindow?.document.querySelector(selector)
+    if (el === null || el === undefined) throw new Error(`the fixture has no ${selector}`)
+    const table = new RefTable()
+    const ref = table.ref(el)
+    drive(seatOf({
+      frames: { current: new Map([[FRAME, frame]]) },
+      tables: { current: new Map([[FRAME, table]]) },
+      pending: [{ callId: 'call_1', tool: 'content_read_image', args: { ref } }],
+      draw,
+    }))
+    return ref
+  }
+
+  it('posts the pixels to the picture route and leaves the report route alone', async () => {
+    const ref = drivePicture(
+      '<canvas id="chart" width="320" height="180"></canvas>',
+      '#chart',
+      () => Promise.resolve({ data: 'AQID', mediaType: IMAGE_MEDIA_TYPE, bytes: 3 }),
+    )
+    await exported()
+    expect(of(CONTENT_REPORT_ROUTE)).toEqual([])
+    expect(captured()).toEqual({
+      status: 'captured',
+      page: { id: 'home', title: 'Home' },
+      url: 'about:blank',
+      ref,
+      tag: 'canvas',
+      natural: { width: 320, height: 180 },
+      settled: true,
+      mediaType: IMAGE_MEDIA_TYPE,
+      data: 'AQID',
+    })
+  })
+
+  it('posts a document the host\'s own parser takes', async () => {
+    drivePicture(
+      '<canvas id="chart" width="8" height="8"></canvas>',
+      '#chart',
+      () => Promise.resolve({ data: 'AQID', mediaType: IMAGE_MEDIA_TYPE, bytes: 3 }),
+    )
+    await exported()
+    expect(parseImageReport(of(CONTENT_IMAGE_ROUTE)[0])).toBeDefined()
+  })
+
+  it('posts the export\'s own refusal on the same route', async () => {
+    const ref = drivePicture('<div id="ops">x</div>', '#ops', () => {
+      throw new Error('nothing here draws')
+    })
+    await exported()
+    expect(captured()).toEqual({ status: 'error', code: 'frame', message: notAnImageRefusal(ref, 'div') })
+    expect(of(CONTENT_REPORT_ROUTE)).toEqual([])
+  })
+
+  it('posts the reader\'s own refusal for a ref the page no longer has', async () => {
+    const frame = mountFrame('<canvas id="gone" width="8" height="8"></canvas>')
+    const el = frame.contentWindow?.document.querySelector('#gone')
+    if (el === null || el === undefined) throw new Error('the fixture lost its element')
+    const table = new RefTable()
+    const ref = table.ref(el)
+    el.remove()
+    drive(seatOf({
+      frames: { current: new Map([[FRAME, frame]]) },
+      tables: { current: new Map([[FRAME, table]]) },
+      pending: [{ callId: 'call_1', tool: 'content_read_image', args: { ref } }],
+      draw: () => Promise.resolve({ data: 'AQID', mediaType: IMAGE_MEDIA_TYPE, bytes: 3 }),
+    }))
+    await exported()
+    expect(captured()).toEqual({
+      status: 'error',
+      code: 'engine',
+      message: `ref: "${ref}" names no element on the page now`,
+    })
+  })
+
+  it('reports a browser that failed to draw as the reader failing', async () => {
+    drivePicture('<canvas id="chart" width="8" height="8"></canvas>', '#chart', () => {
+      throw new Error('content-frame: the console gave no drawing surface for this picture')
+    })
+    await exported()
+    expect(captured()).toEqual({
+      status: 'error',
+      code: 'engine',
+      message: 'content-frame: the console gave no drawing surface for this picture',
+    })
+  })
+
+  it('shares the failures every read of the page has, on its own route', async () => {
+    drive(seatOf({ entries: [], pending: [{ callId: 'call_1', tool: 'content_read_image', args: { ref: 'e1' } }] }))
+    await exported()
+    expect(captured()).toMatchObject({ status: 'error', code: 'empty' })
   })
 })

@@ -1,8 +1,8 @@
 /**
  * The `contentAccess` projection unit: the page-channel calls one session has
  * open right now — the four reads waiting for a listing, a tree, an element's
- * attributes or its text, and the `content_act` calls waiting for their steps
- * to run.
+ * attributes or its text, the read waiting for one element's pixels, and the
+ * `content_act` calls waiting for their steps to run.
  *
  * It is the request half of the read channel. A host cannot address a browser,
  * so a waiting call announces itself here, the seat showing that session sees
@@ -27,8 +27,8 @@ import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
 import type { ContentAccessRequest, ContentAccessView } from '../types.ts'
 import {
   CONTENT_ACT_TOOL_NAME, CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_CONTENT_TOOL_NAME,
-  CONTENT_READ_DOM_TOOL_NAME, CONTENT_READ_TOOL_NAME, parseActArgs, parseDomArgs, parseElementArgs,
-  type ActArgs, type DomArgs, type ElementArgs, type ReadArgs,
+  CONTENT_READ_DOM_TOOL_NAME, CONTENT_READ_IMAGE_TOOL_NAME, CONTENT_READ_TOOL_NAME, parseActArgs, parseDomArgs,
+  parseElementArgs, type ActArgs, type DomArgs, type ElementArgs, type ReadArgs,
 } from './wire.ts'
 import { UNPUBLISHABLE_CALL_REFUSAL } from './text.ts'
 
@@ -101,6 +101,11 @@ const requestSchema: ZodType<ContentAccessRequest> = zod.union([
     tool: zod.literal(CONTENT_READ_DOM_CONTENT_TOOL_NAME),
     args: elementArgsSchema,
   }).strict(),
+  zod.object({
+    callId: zod.string(),
+    tool: zod.literal(CONTENT_READ_IMAGE_TOOL_NAME),
+    args: elementArgsSchema,
+  }).strict(),
 ])
 
 /** Fold state: the open calls in log order. */
@@ -151,7 +156,7 @@ function decodeArgs(raw: string): { value: unknown } | undefined {
 /** Every tool whose calls this fold publishes, for the check that runs before the arguments are decoded. */
 const CHANNEL_TOOLS: ReadonlySet<string> = new Set([
   CONTENT_READ_TOOL_NAME, CONTENT_ACT_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME, CONTENT_READ_ATTRS_TOOL_NAME,
-  CONTENT_READ_DOM_CONTENT_TOOL_NAME,
+  CONTENT_READ_DOM_CONTENT_TOOL_NAME, CONTENT_READ_IMAGE_TOOL_NAME,
 ])
 
 /**
@@ -188,6 +193,10 @@ function requestFor(name: string, value: unknown, callId: string): ContentAccess
     case CONTENT_READ_DOM_CONTENT_TOOL_NAME: {
       const args = parseElementArgs(value)
       return args === undefined ? undefined : { callId, tool: CONTENT_READ_DOM_CONTENT_TOOL_NAME, args }
+    }
+    case CONTENT_READ_IMAGE_TOOL_NAME: {
+      const args = parseElementArgs(value)
+      return args === undefined ? undefined : { callId, tool: CONTENT_READ_IMAGE_TOOL_NAME, args }
     }
     // The log carries every tool's calls; this fold publishes this channel's.
     default: return undefined
@@ -279,6 +288,6 @@ export function contentAccessProjection(logger: ProjectionLogger): ContentAccess
       return at === -1 ? state : [...state.slice(0, at), ...state.slice(at + 1)]
     },
     wire: { viewSchema, view: pending => publishable(pending, logger) },
-    stateVersion: 3,
+    stateVersion: 4,
   }
 }

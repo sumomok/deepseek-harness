@@ -11,7 +11,7 @@ English | [中文](README.zh.md)
 
 The `page` kind of the service-line shell's content column, and the two ways to control it: a directory of static files on the host, served under one dsh route, shown in an iframe that fills the column — with the agent choosing which of the deployment's pages is in it through the `content_show` tool, and a user choosing directly through the sidebar's page-navigation menu (`@deepseek-ai/dsh-experimental-server-sidebar`), which executes the `show-content-page` command. The application inside is written and deployed by whoever runs the harness; this package neither builds it nor knows what framework it uses.
 
-Seven pieces, one decision each. The node half serves the configured directory under `/content-app`. `content_show` offers the deployment's page list to the model and appends `content/shown` when it chooses. `show-content-page` offers the same page list to a command-executing UI and appends the same event when a user chooses. The `page` extractor turns each shown id into an entry of [`content-surface`](../content-surface/README.md)'s stream, resolved against the page list running now. The `content` projection resolves the last recorded id the same way, for a consumer that wants the column's current page rather than its history. The browser half claims the `page` key of the column's kind slot and keeps one live frame per (session, page) pair. Where the deployment turns it on, `content_read` lets the agent read the page in that frame as a numbered structure, and three markup reads let it read that page as it was written.
+Seven pieces, one decision each. The node half serves the configured directory under `/content-app`. `content_show` offers the deployment's page list to the model and appends `content/shown` when it chooses. `show-content-page` offers the same page list to a command-executing UI and appends the same event when a user chooses. The `page` extractor turns each shown id into an entry of [`content-surface`](../content-surface/README.md)'s stream, resolved against the page list running now. The `content` projection resolves the last recorded id the same way, for a consumer that wants the column's current page rather than its history. The browser half claims the `page` key of the column's kind slot and keeps one live frame per (session, page) pair. Where the deployment turns it on, `content_read` lets the agent read the page in that frame as a numbered structure, three markup reads let it read that page as it was written, and — where an attachment store is mounted — `content_read_image` answers with one element's own rendered pixels.
 
 ## Table of Contents
 
@@ -22,6 +22,7 @@ Seven pieces, one decision each. The node half serves the configured directory u
 - [One live frame per session and page](#one-live-frame-per-session-and-page)
 - [Reading the page the agent put there](#reading-the-page-the-agent-put-there)
 - [Reading the page as it was written](#reading-the-page-as-it-was-written)
+- [Reading one picture on the page](#reading-one-picture-on-the-page)
 - [Acting on the page the user is looking at](#acting-on-the-page-the-user-is-looking-at)
 - [Reading the page in the frame](#reading-the-page-in-the-frame)
 - [What the agent knows about the column](#what-the-agent-knows-about-the-column)
@@ -86,7 +87,7 @@ The column's kind slot is `root`-scoped and the column keeps this seat mounted e
 
 **A password box's value is the one thing no tool of this package prints.** Every read reports that the box is there and none of them reports what it holds: the listing prints `= (hidden)` where a value would go, `content_read_attrs` answers `(password withheld)` for `value`, and a tree line and a whole-text read answer the same for the text a `textarea` declaring a password in `autocomplete` keeps its value in. A `content_act` `fill` into one is reported as having filled it and never with what. A control is a password control by its `type` or by that attribute, on any of the three tags HTML gives an autofill field name to, and that one rule is the whole of what this package withholds for a credential — a page showing a sign-in form is read and acted on like any other page.
 
-**Absent is off, and absent is the default.** Without the block there are none of the five tools, no route, no pending projection, no `pageAccess` field in the settings document, and no reader in the browser — a deployment that only shows pages does not pay for a capability it did not ask for. Present with an empty object takes every default. The eight fields — `claimTimeoutMs`, `readTimeoutMs`, `pinMs`, `settleQuietMs`, `outlineChars`, `actTimeoutMs`, `maxSteps`, `settleMaxMs` — are documented on the `Config` type; `outlineChars` is the one that decides what a read costs in context, because it is the character budget the listing is rendered under. It has a floor of 1000, refused at load: a listing's first row is rendered however long it is, and below that floor an ordinary table's first row is already past what the report route takes. Three have ceilings instead of floors, all refused at load: `settleQuietMs` must fit inside the settle share of `readTimeoutMs`, because a quiet window the budget cannot hold would make every read report a page that never settled; `settleMaxMs` must be at least `settleQuietMs`, and `maxSteps` of it must come to less than three quarters of `actTimeoutMs` — the steps' own share of that deadline — because a deployment whose steps could each settle to the ceiling is one where a call spends its whole deadline settling and never reaches its last step; and `maxSteps` is capped at 100, which is what keeps a report of steps inside the envelope the report route allows.
+**Absent is off, and absent is the default.** Without the block there are none of the six tools, no route, no pending projection, no `pageAccess` field in the settings document, and no reader in the browser — a deployment that only shows pages does not pay for a capability it did not ask for. Present with an empty object takes every default. The eight fields — `claimTimeoutMs`, `readTimeoutMs`, `pinMs`, `settleQuietMs`, `outlineChars`, `actTimeoutMs`, `maxSteps`, `settleMaxMs` — are documented on the `Config` type; `outlineChars` is the one that decides what a read costs in context, because it is the character budget the listing is rendered under. It has a floor of 1000, refused at load: a listing's first row is rendered however long it is, and below that floor an ordinary table's first row is already past what the report route takes. Three have ceilings instead of floors, all refused at load: `settleQuietMs` must fit inside the settle share of `readTimeoutMs`, because a quiet window the budget cannot hold would make every read report a page that never settled; `settleMaxMs` must be at least `settleQuietMs`, and `maxSteps` of it must come to less than three quarters of `actTimeoutMs` — the steps' own share of that deadline — because a deployment whose steps could each settle to the ceiling is one where a call spends its whole deadline settling and never reaches its last step; and `maxSteps` is capped at 100, which is what keeps a report of steps inside the envelope the report route allows.
 
 <a id="reading-the-page-as-it-was-written"></a>
 ## Reading the page as it was written
@@ -100,6 +101,23 @@ The same block gives the agent three more reads, and all three answer about mark
 **What each one bounds, and how.** The tree is rendered under `outlineChars` exactly as a listing is and returns a cursor for the rest — pass it back as `after` with the same `scope`. The other two are never cut: an element's attributes and an element's text are answered whole or not at all, and an answer past what the report route carries is refused with its size in characters and the budget it ran past. Every element a tree prints keeps a ref, so a `content_read_dom` of a row is also how the model reaches an element that no listing gave it a handle on.
 
 Reads only, and the same conditions as the listing: the same claim and report routes, the same pending projection, the same page in front, and the same withholding of what a password control holds.
+
+<a id="reading-one-picture-on-the-page"></a>
+## Reading one picture on the page
+
+The same block gives the agent `content_read_image`, and it answers the question the other four cannot: what a page **draws**. A QR code, a captcha, a chart painted into a canvas, an icon drawn as a shape — the listing prints a row for it at best, the markup prints `<img src="/pairing?ts=…">`, and neither says what is in it. One call takes a `ref` from an earlier read of this page and returns that element's own rendered pixels as an image the model looks at, beside one line of facts about what came out.
+
+**Four tags, and what each exports.** An `img` and a `canvas` export their own stored raster — `naturalWidth × naturalHeight` and the backing store's `width × height`. A `picture` exports the `img` it renders through, under the wrapper's own tag. An `svg` has no stored raster, so its layout box is rasterized. Anything else is refused by its tag.
+
+**A bitmap is never enlarged, and a vector always is.** The provider scales a small image up before it prices one (`MIN_PIXELS`, 384 × 384, in `packages/llm/llm-deepseek/src/image-tokens.ts`), so enlarging a bitmap here would add bytes and no detail; a vector has detail at every size, so rasterizing it at a 24-pixel layout box would throw away exactly what that floor is about to ask for. Both are then held to the request's own pixel budget — 640,000, `DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET` — by the same geometry the attachment layer projects a request image with.
+
+**PNG, and 2 MiB.** The export asks for PNG because the answer has to be lossless (a QR code loses nothing), because an icon's alpha channel survives it, and because it is the format a canvas falls back to for any type an engine does not support — so asking for it is the one request no engine answers with something else. What the model finally receives is the attachment layer's own re-encoding for the route, so the format here costs bytes on one same-origin post and on disk, and no fidelity. An export past 2 MiB is refused with its size rather than re-encoded at a lower quality; the bound is twice the provider's own per-image request budget, which is the headroom losslessness needs.
+
+**The pixels travel their own route.** A seat posts them to `POST /content-frame/image` as base64 inside JSON — the same same-site, `application/json` fence the other two routes keep — and that route has a byte bound of its own, computed from the bytes one export may carry rather than from the deployment's character budget. Carrying an image through the report route would have raised the bound on every text read with it. The host commits the bytes to `ctx.attachments` **before** the call settles, so the reference the session log records names an object that is already on disk.
+
+**Two gates before anything is exported.** The `ref` is checked for shape, and then the session's own route is checked for declaring image input at all. The second is a gate rather than a graceful degrade because its failure is not recoverable: a picture reaches the model through a stored attachment, the store keeps what it is given for good, and a text-only route would drop the image block from the request after the pixels were already on disk.
+
+**No store, no tool.** The read is registered inside `ctx.inject(['tools', 'attachments'], …)`, so a deployment with no attachment store is offered the five text tools and neither this one nor its route. The shipped `base` bundle mounts one.
 
 <a id="acting-on-the-page-the-user-is-looking-at"></a>
 ## Acting on the page the user is looking at
@@ -222,7 +240,7 @@ Two rules hold over this package's tool copy — every tool description, every p
 
 **A failure states why the call was refused, and nothing else.** No refusal names a tool to call instead, tells the user to be asked something, or says to retry: the column was empty, the entry in front is not a page, no visible console tab claimed the call within the wait, the answer ran past the budget. A refusal does name this tool's own parameter where the parameter is the reason — `scope must be a ref like "e12" printed by an earlier read of this page` — because that is the reason and not a remedy.
 
-The rules changed together after an A/B on a real console: two prompts, one fresh session per cell, cross-referenced copy against self-contained. Under the cross-referenced copy the refused call was `content_read` with `mode: "dom"` in prompt A and `content_read` with `scope: ""` in prompt B, one each. Under the self-contained copy prompt A went straight to `content_read_dom` and then spent two calls on `content_read` with `mode: "find"`, and prompt B opened with `content_read` and `scope: "__page__"` — two refused calls and one. The misroute the change targets did not recur; both conditions still invented a `scope` value on a first call and read a word as a `mode` value, which is why that parameter line now says omitting `scope` reads the whole page. Total calls fell 13→11 and 11→9, whole-tree DOM reads fell 3→1 and 2→1, and all four cells answered correctly; with n = 1 per cell and temperature uncontrolled those counts are observations, not measurements. [`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) walks both text modules' whole export surface, the listing a read answers with, and every description of the six assembled tool definitions, and fails on any tool name in any of it.
+The rules changed together after an A/B on a real console: two prompts, one fresh session per cell, cross-referenced copy against self-contained. Under the cross-referenced copy the refused call was `content_read` with `mode: "dom"` in prompt A and `content_read` with `scope: ""` in prompt B, one each. Under the self-contained copy prompt A went straight to `content_read_dom` and then spent two calls on `content_read` with `mode: "find"`, and prompt B opened with `content_read` and `scope: "__page__"` — two refused calls and one. The misroute the change targets did not recur; both conditions still invented a `scope` value on a first call and read a word as a `mode` value, which is why that parameter line now says omitting `scope` reads the whole page. Total calls fell 13→11 and 11→9, whole-tree DOM reads fell 3→1 and 2→1, and all four cells answered correctly; with n = 1 per cell and temperature uncontrolled those counts are observations, not measurements. [`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) walks both text modules' whole export surface, the listing a read answers with, and every description of the seven assembled tool definitions, and fails on any tool name in any of it.
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -348,6 +366,65 @@ The tree is bounded by `outlineChars` and returns a cursor, like a listing. The 
 
 Append-only. Each answer is a fact about the page at that moment, so a second read is a new result rather than a rewrite of the first.
 
+### The `content_read_image` offer
+
+#### What the model sees
+
+One tool, `content_read_image`, offered on the same `pageAccess` condition and only where an attachment store is mounted. One required parameter, `ref`. The description says what the element has to be — an `img`, `canvas`, `svg` or `picture` — and what the export does to it, because both are conditions on the answer rather than advice: a page draws its codes and its icons in those four tags and in no other, and a picture the browser will not let this console export has no answer at all. It closes by saying the session's model must accept image input, which is the one condition the page has nothing to do with.
+
+#### Token effect
+
+One fixed description and one parameter line, on every request where the tool is visible.
+
+#### KV Cache effect
+
+The description is a constant and never varies within a deployment, so the tool block stays byte-identical across requests and the prefix holds.
+
+### The picture result
+
+#### What the model sees
+
+Two blocks. The first is text: the same `Page: <title> — the app is at <path>` line every markup read opens with, the still-changing sentence where it applies, and one line of facts. Both sizes are on that line because they answer different questions: the natural size is what the page draws, and the exported size is what the model is looking at, so a vector enlarged to stay legible and a bitmap scaled down to the budget both show up as the two differing. The second block is the picture itself, an image block referencing the stored attachment. Every ending that is not a picture is one line naming the condition it found and nothing else — a ref that is not a picture, an element hidden (`e12 is not visible on the page, so it has no rendered pixels.`), still loading (`e12 has not finished loading its image.`), drawn at nothing (`e12 is drawn at zero pixels.`), drawn by another origin, too large, or a session whose model takes no pictures at all.
+
+##### One picture, and the line above it
+
+```markdown
+Page: Home — the app is at /content-app/
+e12 <img> 240×240 px, exported 240×240 as image/png, 3182 bytes
+```
+
+##### A ref that names no picture
+
+```markdown
+e12 is a <div>, which carries no picture of its own.
+```
+
+##### A picture the browser will not export
+
+```markdown
+e12 is drawn from another origin, and a browser does not let those pixels be exported.
+```
+
+##### An export too large for one result
+
+```markdown
+e12 exports to 3145728 bytes, past the 2097152 bytes one image may carry.
+```
+
+##### A session whose model takes no pictures
+
+```markdown
+The session's model "deepseek-v4-flash" does not declare image input.
+```
+
+#### Token effect
+
+The text block is two lines. The picture costs what the provider prices it at: 117 tokens for anything at or under 384 × 384 after its own floor, 201 for 512 × 512, and 349 for a square picture at the whole 640,000-pixel budget — never more than the provider's own 384-token cap (`MAX_IMAGE_TOKENS`). That is cheap against a subtree of markup and is not a substitute for one: it answers what one element shows, and nothing about what the page is.
+
+#### KV Cache effect
+
+The picture enters the request as a synthetic `user` message immediately after the tool result that produced it (`packages/llm/llm-deepseek/src/serialize.ts`), so the request suffix changes from the first picture read onward while the prefix in front of it still holds.
+
 ### The `content_act` offer
 
 #### What the model sees
@@ -463,6 +540,11 @@ Append-only, at the tail of the conversation, so it invalidates nothing already 
 - **A star a stylesheet draws says nothing here** — a form marking its required fields with a drawn `*` and no `required` attribute reads as a form of optional fields.
 - **A command a page draws with nothing but a class of its own reaches the read as nothing** — a component library's row commands (`<i class="el-tooltip operation-modify el-icon-edit">`) carry no role, no name, no title, and no pointer cursor, so no row is printed for them and the column they fill reads as empty. Measured on that console on 2026-09-03: a whole-page read is 2507 characters and six tables, and `e33` — the body pinned to the right, where the 操作 column is drawn — prints twenty rows with every cell empty. Where the page does mark such an element as something to click, the row it prints carries the class tokens and no name; the same read prints `e3 button {class: el-button el-tooltip head-btn el-button--text …}` for a command drawn as a button — that read cut the tokens at four, which this build no longer does. What either says is a skill's to know: the reader states what the document says and guesses nothing from a vendor's spelling.
 - **A table a component library draws in pieces reaches the model as those pieces** — a frozen header is one table and the body under it another, a pinned column is a third, and a page that draws its list six times over reads as six tables with the columns split between them. Nothing is merged: which pieces make up the table a user sees is a skill's to know.
+- **The session card shows the line and not the picture** — the `tool.call.images` child slot upstream is declared by exactly one entry (`packages/client/ui-tool`'s `read-image` row, and `packages/client/ui-slots` throws at load on a second declaration), so this package registers no toolview and the settled card falls back to the generic one, which shows the header line. The picture reaches the model regardless; showing it in the card needs that slot to become keyed or to accept more than one declaration, which is an upstream change this package does not make.
+- **A WebGL canvas may export a blank frame** — a context created without `preserveDrawingBuffer` has nothing to read back after it has composited, and whether a page created one is not visible from outside it. The export succeeds and the pixels are empty; nothing here can tell that from a page that drew nothing.
+- **A vector that points outside itself rasterizes without what it points at** — an `svg` is serialized as it stands, so an external stylesheet, a webfont glyph, or a linked image is not part of what is drawn. What the element holds inline is what comes out.
+- **`video` is not read, and neither is a subtree** — there is no frame grab and no way to rasterize a region of the page: the read takes one element that has pixels of its own. Rasterizing arbitrary markup means a DOM-to-canvas dependency, which this package does not take.
+- **A stored picture is permanent** — the attachment store keeps what it is given and collects nothing (`packages/attachment/attachment-local/README.md`), so every picture this read exports stays in `$DSH_HOME/attachments/` for the life of that home and travels with any export of the session log. A sign-in QR code read once is a sign-in QR code kept forever.
 - **The corpus holds the recordings, and the browser lane replays them** — the four content scenarios live under `snapshots/web/` with manifests declaring the `web-content` composition, so `pnpm run test:snapshot` enumerates them and holds their storage invariants; the replay itself is the Web browser lane's, because these scenarios boot a patched composition and the shipped one composes no experimental row. The model-visible text is pinned verbatim in unit tests besides.
 - **The read routes carry no Host fence** — like the shell's own `/api`, they refuse a request a browser labelled `sec-fetch-site: cross-site` and require `application/json`, but neither check survives DNS rebinding, and the webserver has no Host allow-list of its own (`trustedHosts` guards `/api` alone). What stands in its place is the call id: an attacker who reaches the routes can neither claim a read nor answer one without knowing an id the host minted and published only into that session's own projection stream, and a claim or report for an unknown id changes nothing. That id's unguessability is the LLM provider's property, not this package's — DeepSeek mints `call_00_` plus twenty-four alphanumeric characters whose last four are digits, and a code-mode subcall is that same id plus `:code:<n>` — and nothing here checks the format or strengthens it, so a provider numbering its calls `call_1`, `call_2` would leave both routes open to any page that can reach this host. A deployment exposing the harness to an untrusted network needs a fence at its reverse proxy, as it does for every other route.
 - **Which entry is "in front" is the page seat's answer, not the log's** — which entry the user picked is a viewing decision the column keeps in component state, so a read reaching a session whose column holds several other kinds says the entry in front is not a page without naming which one it is.

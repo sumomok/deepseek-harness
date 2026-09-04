@@ -31,6 +31,19 @@
           </tr>
         </tbody>
       </table>
+      <!-- Three pictures, appended after the table so the numbering of
+           everything above them does not move. Each is a thing the page draws
+           and never writes down: a pairing code, a chart drawn by script, and
+           a glyph drawn as a shape. None of them carries a name, a title or
+           alternative text, so nothing but the pixels says what any of them
+           is. -->
+      <section class="pictures">
+        <img id="pairing" class="code" src="./pairing-code.png" alt="">
+        <canvas id="throughput" width="320" height="180"></canvas>
+        <svg id="glyph" class="glyph" viewBox="0 0 24 24" width="48" height="48">
+          <path d="M12 2 15.1 8.6 22 9.6l-5 5 1.2 7.1L12 18.4 5.8 21.7 7 14.6l-5-5 6.9-1z" fill="#33f"></path>
+        </svg>
+      </section>
     </main>
     <script src="./app.js"></script>
   </body>

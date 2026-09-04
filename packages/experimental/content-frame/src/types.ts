@@ -80,7 +80,7 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     content: ContentPageView
     /**
      * The page-channel calls this session has open: every call of this
-     * channel's tools — the four reads and `content_act` — the log recorded
+     * channel's tools — the five reads and `content_act` — the log recorded
      * without a result yet, in log order. It is
      * how the host asks a browser to read or act on the page — no host reaches
      * a browser directly, so the request rides the session's own projection
@@ -168,6 +168,16 @@ export interface ContentReadDomContentRequest {
   readonly args: ElementArgs
 }
 
+/** One `content_read_image` call still waiting for a browser to answer it. */
+export interface ContentReadImageRequest {
+  /** The call to claim and report against. */
+  readonly callId: string
+  /** The tool that asked; the seat dispatches on it. */
+  readonly tool: 'content_read_image'
+  /** The element whose rendered pixels to export. */
+  readonly args: ElementArgs
+}
+
 /** One open call of any of this channel's tools, as the seat receives it. */
 export type ContentAccessRequest =
   | ContentReadRequest
@@ -175,13 +185,17 @@ export type ContentAccessRequest =
   | ContentReadDomRequest
   | ContentReadAttrsRequest
   | ContentReadDomContentRequest
+  | ContentReadImageRequest
 
 /**
- * One open call of a tool that only reads. The seat answers all four the same
- * way — claim, wait for the page, walk it, post — and differs only in what it
- * walks, which is why they share one path and `content_act` does not.
+ * One open call of a tool that answers with text. The seat answers all four the
+ * same way — claim, wait for the page, walk it, post one listing — and differs
+ * only in what it walks, which is why they share one path. `content_act` does
+ * not, because it acts before it reads; `content_read_image` does not, because
+ * it exports pixels and posts them to a route of their own.
  */
-export type ContentReadingRequest = Exclude<ContentAccessRequest, ContentActRequest>
+export type ContentReadingRequest =
+  Exclude<ContentAccessRequest, ContentActRequest | ContentReadImageRequest>
 
 /** One open call of a tool that prints the page's own markup. */
 export type ContentMarkupRequest = Exclude<ContentReadingRequest, ContentReadRequest>

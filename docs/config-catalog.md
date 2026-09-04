@@ -756,13 +756,15 @@ export interface Config {
    */
   contextFieldChars?: number
   /**
-   * Lets the agent read the page in the column — through `content_read`, and
+   * Lets the agent read the page in the column — through `content_read`,
    * through the three markup reads `content_read_dom`, `content_read_attrs` and
-   * `content_read_dom_content` — and act on it through `content_act`. Absent
-   * turns the whole channel off: no tools, no claim or report route, no pending
-   * projection, and no reader in the browser — a deployment that only shows
-   * pages does not pay for a capability it did not ask for. Present with an
-   * empty object takes every default below.
+   * `content_read_dom_content`, and, where an attachment store is mounted,
+   * through `content_read_image`, which answers with one element's own rendered
+   * pixels — and act on it through `content_act`. Absent turns the whole
+   * channel off: no tools, no routes, no pending projection, and no reader in
+   * the browser — a deployment that only shows pages does not pay for a
+   * capability it did not ask for. Present with an empty object takes every
+   * default below.
    */
   pageAccess?: PageAccessConfig
 }
@@ -850,7 +852,7 @@ export interface PageAccessConfig {
 }
 ```
 
-Source: [`packages/experimental/content-frame/src/index.ts:78`](../packages/experimental/content-frame/src/index.ts)
+Source: [`packages/experimental/content-frame/src/index.ts:84`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-inspector"></a>
 

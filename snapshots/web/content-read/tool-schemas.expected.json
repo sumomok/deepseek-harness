@@ -258,6 +258,22 @@
       }
     },
     {
+      "name": "content_read_image",
+      "description": "Return one picture on the page as an image, so the model can look at what the page draws rather than at how it is written: the element's own rendered pixels, exported and attached to the result. The ref comes from an earlier read of this page and must name an img, canvas, svg or picture element. It answers what a page shows and never spells out — a QR code, a captcha, a chart, an icon drawn as a shape rather than as a character. A bitmap is exported at its own natural size and never enlarged; a vector is rasterized large enough to stay legible; anything past the request's pixel budget is scaled down to it. The picture is attached and nothing is read out of it — what it shows is the model's to say. The element must be visible, must have finished loading, and must be drawn from this origin, because a browser lets no other origin's pixels be exported. Requires the session's model to accept image input.",
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "ref": {
+            "type": "string",
+            "description": "a ref (like e12) printed by an earlier read of this page: the img, canvas, svg or picture element to export"
+          }
+        },
+        "required": [
+          "ref"
+        ]
+      }
+    },
+    {
       "name": "content_show",
       "description": "Show one of this deployment's pages in the content column of the user's GUI — the panel beside the conversation, which the user sees immediately without opening or scrolling anything. Use it to put a page in front of the user while you talk about it. The column keeps showing that page until you change it, and each session has its own column.\n\nPages:\n- home — Home — The hosted application's entry page.\n\nPass `none` to empty the column instead of showing a page. Any other id that is not in the list above changes nothing and comes back as an error.",
       "parameters": {

@@ -22,6 +22,8 @@ Status: implemented
 
 `content_read` 不退役，而是重新定位：它是页面按 HTML 与 ARIA 所描述的样子，仍是一页从那里起手的读法。它的描述曾经把这句话说出来，并点名另外两件在 class 词元不够用时打印某一行原文与属性的读取；[只写自身文案那篇记录](2026-09-04-self-contained-tool-copy.zh.md) 把两者都删掉了，因为一段替同伴摆位的描述在真机上把模型带错了路。它仍保留的两条推断——指针光标标记可点目标、字段前方绘制的 `label` 为其命名——沿用 [退役记录](../simplification/2026-09-03-content-reader-general-tools-only.zh.md) 给它们的退役条件。
 
+这四件答的都是页面写成什么样。页面**画**出来的东西——二维码、验证码、`canvas` 里的图表——由同一条通道上的第五件读取来答：[一张图，作为模型直接看的像素](2026-09-04-content-read-image.zh.md)。
+
 ### 决策闸
 
 - **新面。** 三件工具、三种 wire 请求种类、一个被放宽的 `ReadSnapshot.kind`、三种输出格式、三段描述。零 `Config` 字段：预算、超时与认领窗口都是 `content_read` 的，原样共用。

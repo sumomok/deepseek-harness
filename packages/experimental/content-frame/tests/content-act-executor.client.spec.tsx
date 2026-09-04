@@ -121,6 +121,15 @@ function atIn(nested: Document, selector: string): Element {
   return el
 }
 
+/**
+ * The drawing a seat running steps never reaches: no call here is a picture
+ * read, so a seat that drew anything would be answering the wrong call.
+ * @returns never.
+ */
+const NO_DRAWING = (): never => {
+  throw new Error('a set of steps exported no picture')
+}
+
 /** Build one seat over the mounted frame. */
 function seatOf(request: ContentActRequest): ContentReadSeat {
   return {
@@ -132,6 +141,7 @@ function seatOf(request: ContentActRequest): ContentReadSeat {
     tables: { current: new Map([[FRAME, refs]]) },
     access: ACCESS,
     tabId: TAB_ID,
+    draw: NO_DRAWING,
   }
 }
 

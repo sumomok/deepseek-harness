@@ -241,13 +241,14 @@ export function contentActTool(
       )
       switch (settlement.kind) {
         case 'reported': {
-          // Three arms reach here. Steps that ran are the answer; the listing
-          // channel's failure arm is how the seat says there was no page to
-          // run them on, which is the same set of endings a read has; and a
-          // listing answering a call that asked for steps is no answer at all.
+          // Three kinds of arm reach here. Steps that ran are the answer; the
+          // listing channel's failure arm is how the seat says there was no
+          // page to run them on, which is the same set of endings a read has;
+          // and anything a read answers with — a listing, one element's pixels
+          // — is no answer to a call that asked for steps.
           const outcome = settlement.outcome
           if (isActOutcome(outcome)) return valueOf(outcome)
-          if (outcome.status === 'ok') throw new Error(MISREPORTED_REFUSAL)
+          if (outcome.status !== 'error') throw new Error(MISREPORTED_REFUSAL)
           throw new Error(failureRefusal(outcome))
         }
         case 'unclaimed': {

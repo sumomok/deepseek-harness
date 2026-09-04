@@ -22,6 +22,8 @@ Three more reads, all read-only, all on the channel `content_read` already uses.
 
 `content_read` is not retired and is repositioned instead: it is the page as HTML and ARIA describe it and stays the read a page starts from. Its description said so and named the two reads that print a row's markup where its class tokens are not enough; [the self-contained-copy note](2026-09-04-self-contained-tool-copy.md) removed both, because a description that positions its siblings misrouted the model on a real console. The two inferences it still makes — a pointer cursor marks a click target, and a `label` drawn in front of a field names it — keep the retirement conditions [the retirement note](../simplification/2026-09-03-content-reader-general-tools-only.md) gave them.
 
+All four answer what a page is written as. What a page *draws* — a QR code, a captcha, a chart in a `canvas` — is answered by a fifth read on the same channel: [one picture as pixels the model looks at](2026-09-04-content-read-image.md).
+
 ### The gate
 
 - **New surface.** Three tools, three wire request kinds, one widened `ReadSnapshot.kind`, three output formats, three descriptions. Zero `Config` fields: the budget, the deadlines and the claim window are `content_read`'s and are shared unchanged.

@@ -11,7 +11,7 @@ kind: "package-reference"
 
 服务形态外壳 content 栏的 `page` 类型，也是控制这一栏的两条通路：宿主机上的一个静态文件目录，通过一条 dsh 路由对外提供，由一个铺满该栏的 iframe 呈现——栏里放部署方配置的哪一个页面，既可以由 agent 通过 `content_show` 工具决定，也可以由用户直接在侧边栏的页面导航菜单（`@deepseek-ai/dsh-experimental-server-sidebar`）里点选，后者会执行 `show-content-page` 命令。里面的应用由运行 harness 的人自己编写和部署；本包既不构建它，也不关心它用什么框架。
 
-七块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`show-content-page` 把同一份页面清单交给执行命令的 UI，并在用户选定时追加同一个事件。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。部署方开启后，`content_read` 让 agent 把那个 frame 里的页面读成一份带编号的结构，另有三件原文读取让它按页面实际写法来读同一个页面。
+七块拼图，各承担一项决策。node 半边把配置目录挂在 `/content-app` 下提供。`content_show` 把部署方的页面清单交给模型选择，并在它选定时追加 `content/shown`。`show-content-page` 把同一份页面清单交给执行命令的 UI，并在用户选定时追加同一个事件。`page` extractor 把每个被展示的 id 变成 [`content-surface`](../content-surface/README.zh.md) 那条流里的一条 entry，对照当下运行的页面清单解析。`content` projection 以同样方式解析最后记录的那个 id，供想要「这一栏当前的页面」而非其历史的消费者使用。browser 半边认领这一栏 kind 槽的 `page` key，并为每个（会话，页面）组合各保活一个 frame。部署方开启后，`content_read` 让 agent 把那个 frame 里的页面读成一份带编号的结构，另有三件原文读取让它按页面实际写法来读同一个页面；挂了附件仓库的部署里，`content_read_image` 还能答出某一个元素自己画出来的像素。
 
 ## 目录
 
@@ -22,6 +22,7 @@ kind: "package-reference"
 - [每个（会话，页面）各一个活着的 frame](#one-live-frame-per-session-and-page)
 - [读取 agent 放进去的那个页面](#reading-the-page-the-agent-put-there)
 - [按页面原样读取](#reading-the-page-as-it-was-written)
+- [读页面上的一张图](#reading-one-picture-on-the-page)
 - [在用户正看着的页面上动手](#acting-on-the-page-the-user-is-looking-at)
 - [读取 frame 里的页面](#reading-the-page-in-the-frame)
 - [agent 对这一栏知道些什么](#what-the-agent-knows-about-the-column)
@@ -86,7 +87,7 @@ kind: "package-reference"
 
 **密码框装着的东西，是本包所有工具都不打印的那一样。** 每一种读取都报「这个框在那里」，没有一种报它装着什么：清单在值的位置上印 `= (hidden)`，`content_read_attrs` 对 `value` 回 `(password withheld)`，树形行与整文读取对一个在 `autocomplete` 里声明了密码的 `textarea` 把值存在其中的那段文本也回同一句。往这种框里 `content_act` `fill`，只报「填了」，从不报填了什么。一个控件是不是密码控件，看的是它的 `type` 或那个属性，在 HTML 给了自动填充字段名的那三种标签上都算；这一条规矩就是本包为凭据所做扣留的全部——显示着登录表单的页面，读与动手都和别的页面一样。
 
-**缺席即关闭，而缺席是默认。** 没有这个块，五件工具一件都没有，没有路由、没有待办 projection、settings 文档里没有 `pageAccess` 字段、浏览器里也没有读取器——只展示页面的部署不必为一项没要过的能力付账。写成空对象即取全部默认值。八个字段——`claimTimeoutMs`、`readTimeoutMs`、`pinMs`、`settleQuietMs`、`outlineChars`、`actTimeoutMs`、`maxSteps`、`settleMaxMs`——文档在 `Config` 类型上；其中 `outlineChars` 决定一次读取花多少上下文，因为它就是渲染这份列表的字符预算。它有一道 1000 的下限，低于它会在加载时被拒：列表的第一行不管多长都会整行渲染，而低于这道下限时，一张普通表格的第一行就已经超过回报路由能收的量了。另有三道是上限而非下限，都在加载时拒：`settleQuietMs` 必须装得进 `readTimeoutMs` 的静默份额，因为一个预算容不下的静默窗口会让每一次读取都报「页面还在变」；`settleMaxMs` 必须不小于 `settleQuietMs`，而 `maxSteps` 个它加起来必须少于 `actTimeoutMs` 的四分之三——那是步骤自己那一份——因为每一步都可能等满这个上限的部署，就是一次调用把整条截止都花在等页面静下来、永远到不了最后一步的部署；`maxSteps` 封顶 100，正是它把一次「跑了哪些步骤」的回报保持在回报路由允许的信封之内。
+**缺席即关闭，而缺席是默认。** 没有这个块，六件工具一件都没有，没有路由、没有待办 projection、settings 文档里没有 `pageAccess` 字段、浏览器里也没有读取器——只展示页面的部署不必为一项没要过的能力付账。写成空对象即取全部默认值。八个字段——`claimTimeoutMs`、`readTimeoutMs`、`pinMs`、`settleQuietMs`、`outlineChars`、`actTimeoutMs`、`maxSteps`、`settleMaxMs`——文档在 `Config` 类型上；其中 `outlineChars` 决定一次读取花多少上下文，因为它就是渲染这份列表的字符预算。它有一道 1000 的下限，低于它会在加载时被拒：列表的第一行不管多长都会整行渲染，而低于这道下限时，一张普通表格的第一行就已经超过回报路由能收的量了。另有三道是上限而非下限，都在加载时拒：`settleQuietMs` 必须装得进 `readTimeoutMs` 的静默份额，因为一个预算容不下的静默窗口会让每一次读取都报「页面还在变」；`settleMaxMs` 必须不小于 `settleQuietMs`，而 `maxSteps` 个它加起来必须少于 `actTimeoutMs` 的四分之三——那是步骤自己那一份——因为每一步都可能等满这个上限的部署，就是一次调用把整条截止都花在等页面静下来、永远到不了最后一步的部署；`maxSteps` 封顶 100，正是它把一次「跑了哪些步骤」的回报保持在回报路由允许的信封之内。
 
 <a id="reading-the-page-as-it-was-written"></a>
 ## 按页面原样读取
@@ -100,6 +101,23 @@ kind: "package-reference"
 **各自的天花板与做法。** 树与清单一样按 `outlineChars` 渲染，并为其余部分给出游标——把它连同同一个 `scope` 一起作为 `after` 传回。另外两件从不裁断：一个元素的属性与一个元素的文字，要么整份答出、要么不答；超出回报路由所能承载的答案会被拒绝，并报出它的字符数与它越过的那个预算。树打印的每个元素都保留一个 ref，因此对某一行做一次 `content_read_dom`，也是模型够到某个清单从未给过它把手的元素的方式。
 
 只读，条件与清单完全相同：同样的认领与回报路由、同样的待办 projection、同样的「面前那个页面」、以及同样地扣留密码控件装着的东西。
+
+<a id="reading-one-picture-on-the-page"></a>
+## 读页面上的一张图
+
+同一个块还给 agent 一件 `content_read_image`，它回答的是前面四件都答不了的那个问题：页面**画**出来的是什么。一个二维码、一张验证码、一幅画进 canvas 的图表、一个以形状而非字符画成的图标——清单顶多为它打出一行，原文打出的是 `<img src="/pairing?ts=…">`，两者都没说里面是什么。一次调用取走前一次读取给出的一个 `ref`，把那个元素自己渲染出来的像素作为一张图答回去，让模型直接看，旁边配一行关于「导出的是什么」的事实。
+
+**四种标签，各自导出什么。** `img` 与 `canvas` 导出自己存着的那份栅格——`naturalWidth × naturalHeight` 与画布后备存储的 `width × height`。`picture` 导出它实际渲染的那个 `img`，标签仍记外层那个。`svg` 没有存着的栅格，于是按它的布局盒栅格化。其余标签按标签直接拒绝。
+
+**位图从不放大，矢量一定放大。** 供应商在计价之前会先把小图放大（`MIN_PIXELS`，384 × 384，见 `packages/llm/llm-deepseek/src/image-tokens.ts`），所以在这里放大位图只多出字节、不多出细节；而矢量在任何尺寸上都有细节，按 24 像素的布局盒栅格化，扔掉的恰恰是那道下限马上要问的东西。两者随后都被请求自己的像素预算——640,000，`DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET`——按附件层投射请求图片所用的同一套几何压住。
+
+**PNG，以及 2 MiB。** 导出要 PNG，因为这个答案必须无损（二维码丢一点都不行），因为图标的 alpha 通道要活下来，也因为它正是 canvas 对任何引擎不支持的类型所退回的格式——于是点名要它，是唯一一个不会被引擎换成别的东西的请求。模型最终收到的是附件层为那条路由自己做的重编码，所以这里的格式花掉的是一次同源投递和磁盘上的字节，不是保真度。超过 2 MiB 的导出会带着它的大小被拒，而不是压低质量重编码；这道上限是供应商单图请求预算的两倍，正是无损所需要的余量。
+
+**像素走自己的路由。** 座位把它们以 base64 装进 JSON，投到 `POST /content-frame/image`——与另外两条路由同一道 same-site、`application/json` 的围栏——而这条路由有自己的一道字节上限，按一次导出可携带的字节算出，而不是按部署的字符预算。让图片走回报路由，等于把每一次文字读取的上限也一起抬高。宿主在调用落定**之前**把字节交给 `ctx.attachments`，于是会话日志记下的那个引用，指向的是一个已经在磁盘上的对象。
+
+**导出任何东西之前的两道闸。** 先核 `ref` 的写法，再核这次会话自己的路由到底认不认图片输入。第二道之所以是闸而不是降级，是因为它的失败不可回收：图片经由一份存下来的附件到达模型，仓库对交给它的东西一律长期保留，而一条纯文字路由会在像素已经落盘之后，把图片块从请求里丢掉。
+
+**没有仓库，就没有这件工具。** 这一读注册在 `ctx.inject(['tools', 'attachments'], …)` 里，所以没挂附件仓库的部署拿到的是五件文字工具，既没有这一件、也没有它那条路由。出厂的 `base` bundle 挂了一个。
 
 <a id="acting-on-the-page-the-user-is-looking-at"></a>
 ## 在用户正看着的页面上动手
@@ -222,7 +240,7 @@ kind: "package-reference"
 
 **一句失败只说这次调用为何被拒，别的都不说。** 没有哪句拒绝会点名该改调哪件工具、要求去问用户、或者叫人重试：栏是空的、在前面那一项不是页面、等待窗口内没有可见的控制台标签页认领、答案超出了预算。拒绝确实会点名这件工具自己的参数——比如 `scope must be a ref like "e12" printed by an earlier read of this page`——因为那正是理由，而不是补救。
 
-两条规则是在一次真机 A/B 之后一起改的：两条提示，每格一个全新会话，互相点名的文案对只写自己的文案。互相点名那一臂里，提示 A 被拒的那一次调用是 `content_read` 传 `mode: "dom"`，提示 B 是 `content_read` 传 `scope: ""`，各一次。只写自己那一臂里，提示 A 直接调了 `content_read_dom`，但另花两次调用给 `content_read` 传 `mode: "find"`；提示 B 首调 `content_read` 传 `scope: "__page__"`——被拒调用分别是两次和一次。这次改动针对的那个误路由没有复现；两臂都仍然在首调时自己编了一个 `scope` 值，也都把一个词当成了 `mode` 的取值，所以那一行参数说明现在写明「不传 `scope` 即读整页」。调用总数从 13→11、11→9，整树 DOM 读取从 3→1、2→1，四格答案全部正确；每格 n = 1 且温度未控，这些数字是观察，不是测量。[`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) 走遍两个文案模块的全部导出、一次读取回复的清单，以及六件工具装配后定义里的每一段描述，其中出现任何工具名都会失败。
+两条规则是在一次真机 A/B 之后一起改的：两条提示，每格一个全新会话，互相点名的文案对只写自己的文案。互相点名那一臂里，提示 A 被拒的那一次调用是 `content_read` 传 `mode: "dom"`，提示 B 是 `content_read` 传 `scope: ""`，各一次。只写自己那一臂里，提示 A 直接调了 `content_read_dom`，但另花两次调用给 `content_read` 传 `mode: "find"`；提示 B 首调 `content_read` 传 `scope: "__page__"`——被拒调用分别是两次和一次。这次改动针对的那个误路由没有复现；两臂都仍然在首调时自己编了一个 `scope` 值，也都把一个词当成了 `mode` 的取值，所以那一行参数说明现在写明「不传 `scope` 即读整页」。调用总数从 13→11、11→9，整树 DOM 读取从 3→1、2→1，四格答案全部正确；每格 n = 1 且温度未控，这些数字是观察，不是测量。[`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) 走遍两个文案模块的全部导出、一次读取回复的清单，以及七件工具装配后定义里的每一段描述，其中出现任何工具名都会失败。
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -348,6 +366,65 @@ The text of e12 comes to 61204 characters, past what this deployment's report ro
 
 只追加。每一份答案都是关于页面在那一刻的事实，因此第二次读取是一份新结果，而不是对第一份的改写。
 
+### The `content_read_image` offer
+
+#### What the model sees
+
+一件 `content_read_image`，按同一个 `pageAccess` 条件出现，且只在挂了附件仓库时出现。一个必填参数 `ref`。描述写明那个元素必须是什么——`img`、`canvas`、`svg` 或 `picture`——以及导出会对它做什么，因为这两样都是答案的前提而不是建议：页面把自己的码和图标画在这四种标签里，别处没有；而浏览器不肯让这个控制台导出的图，根本没有答案。最后一句写明本次会话的模型必须接受图片输入，这是唯一一条与页面无关的前提。
+
+#### Token effect
+
+一段固定描述加一行参数说明，出现在每一次这件工具可见的请求里。
+
+#### KV Cache effect
+
+描述是常量，在一个部署内从不变化，因此工具块在各次请求间逐字节一致，前缀成立。
+
+### The picture result
+
+#### What the model sees
+
+两个块。第一个是文字：与每件原文读取开头相同的那行 `Page: <title> — the app is at <path>`、适用时那句「还在变」，以及一行事实。两个尺寸都写在那一行上，因为它们回答不同的问题：natural 是页面画成什么样，exported 是模型正在看的是什么样，于是「为保持可读而被放大的矢量」和「被压到预算里的位图」，都表现为这两者不一致。第二个块是图本身，一个指向已存附件的 image 块。凡不是图的结局都是一行，只点名它撞上的那个条件，别的都不说——ref 指的不是图、元素不可见（`e12 is not visible on the page, so it has no rendered pixels.`）、还没加载完（`e12 has not finished loading its image.`）、画出来是零（`e12 is drawn at zero pixels.`）、由另一个源画出、太大，或者这次会话的模型根本不收图。
+
+##### One picture, and the line above it
+
+```markdown
+Page: Home — the app is at /content-app/
+e12 <img> 240×240 px, exported 240×240 as image/png, 3182 bytes
+```
+
+##### A ref that names no picture
+
+```markdown
+e12 is a <div>, which carries no picture of its own.
+```
+
+##### A picture the browser will not export
+
+```markdown
+e12 is drawn from another origin, and a browser does not let those pixels be exported.
+```
+
+##### An export too large for one result
+
+```markdown
+e12 exports to 3145728 bytes, past the 2097152 bytes one image may carry.
+```
+
+##### A session whose model takes no pictures
+
+```markdown
+The session's model "deepseek-v4-flash" does not declare image input.
+```
+
+#### Token effect
+
+文字块两行。图按供应商的计价算：经过它自己那道下限后不超过 384 × 384 的一律 117 tokens，512 × 512 是 201，占满 640,000 像素预算的方图是 349——一律不超过供应商自己那道 384 tokens 的上限（`MAX_IMAGE_TOKENS`）。对着一棵原文子树，这很便宜，但它不是子树的替代品：它答的是某一个元素画了什么，关于这个页面是什么则一个字都没有。
+
+#### KV Cache effect
+
+图作为一条合成的 `user` 消息，紧跟在产出它的那条工具结果之后进入请求（`packages/llm/llm-deepseek/src/serialize.ts`），因此从第一次读图起请求后缀就变了，而它前面的前缀仍然成立。
+
 ### The `content_act` offer
 
 #### What the model sees
@@ -436,6 +513,11 @@ The console claimed this call but did not report within 60s; the steps may have 
 <a id="known-limitations-and-deferred-work"></a>
 
 
+- **会话卡片显示的是那一行，不是那张图** —— 上游的 `tool.call.images` 子槽有且只有一个声明者（`packages/client/ui-tool` 的 `read-image` 行，而 `packages/client/ui-slots` 会在第二份声明加载时直接抛错），所以本包不注册 toolview，落定后的卡片退回通用卡片，显示的是那行标题。图照样到达模型；要让卡片也显示它，需要那个槽改成按 key 分发或允许多份声明，那是本包不做的上游改动。
+- **WebGL canvas 可能导出一张空帧** —— 没有 `preserveDrawingBuffer` 创建的上下文，在合成之后已无内容可回读，而页面是否创建了这样一个上下文，从外面看不出来。导出照样成功，像素是空的；这里没有任何东西能把它与「页面本来就什么都没画」区分开。
+- **指向自身之外的矢量，栅格化时不带它指的东西** —— `svg` 按原样序列化，因此外部样式表、webfont 字形、外链图片都不属于被画出来的内容。元素内联持有的东西，才是导出来的东西。
+- **不读 `video`，也不读子树** —— 没有抓帧，也没有办法把页面的某一块区域栅格化：这一读取的是一个自己就有像素的元素。把任意标记栅格化意味着引入一个 DOM 转 canvas 的依赖，本包不引入。
+- **存下来的图是永久的** —— 附件仓库对交给它的东西一律保留、从不回收（`packages/attachment/attachment-local/README.zh.md`），因此这一读导出的每一张图，都在 `$DSH_HOME/attachments/` 里活到那个 home 的尽头，并随会话日志的任何一次导出一起走。读过一次的登录二维码，就是永久留着的登录二维码。
 - **`content/navigated` 与 `content/shown` 一样，读取时必需** —— 两条事件都不带 `ignorable` 标记，因为今天的 `Session.append` 没有办法设置它；会话词汇表里没有本包的运行时会拒绝整份日志，而不是跳过这两条。
 - **一次路由变化要花掉一个轮询间隔** —— `pushState` 什么都不触发，因此路由完就静止的应用要到下一次轮询（默认一秒）加上沉降窗口才被察觉。调小 `navigationPollMs` 买到的是延迟，付出的是每个 frame 每个间隔一次同源属性读取；本包刻意不给 frame 自己的 `history` 打补丁。
 - **导航监视只覆盖在前面的那个 frame** —— 被缓存、已隐藏的 frame 自行路由不在监视之内，这次移动要等该页面回到前面才被察觉。

@@ -104,7 +104,7 @@ describe('the pending-read projection', () => {
     const unit = projection()
     const empty = session()
     expect(unit.key).toBe('contentAccess')
-    expect(unit.stateVersion).toBe(3)
+    expect(unit.stateVersion).toBe(4)
     expect(unit.init(empty.header, empty.inheritedEventCount)).toEqual([])
   })
 
@@ -264,6 +264,30 @@ describe('the pending-read projection', () => {
     expect(fold(target)).toEqual([])
   })
 
+  it('publishes a picture read in both log shapes, so a seat can claim one', () => {
+    const target = session()
+    call(target, 'call_shot', JSON.stringify({ ref: 'e12' }), 'content_read_image')
+    dispatch(target, 'call_shot_2', { ref: 'e20' }, 'content_read_image')
+    expect(fold(target)).toEqual([
+      { callId: 'call_shot', tool: 'content_read_image', args: { ref: 'e12' } },
+      { callId: 'call_shot_2', tool: 'content_read_image', args: { ref: 'e20' } },
+    ])
+    // The wire view is what the browser receives; a tool the schema does not
+    // carry would be folded here and refused on the way out.
+    expect(published(target)).toEqual({
+      pending: [
+        { callId: 'call_shot', tool: 'content_read_image', args: { ref: 'e12' } },
+        { callId: 'call_shot_2', tool: 'content_read_image', args: { ref: 'e20' } },
+      ],
+    })
+  })
+
+  it('publishes nothing for a picture call naming no element', () => {
+    const target = session()
+    call(target, 'call_shot', JSON.stringify({ scope: 'e12' }), 'content_read_image')
+    expect(fold(target)).toEqual([])
+  })
+
   it('accepts the state it produced back from a persisted checkpoint', () => {
     const target = session()
     call(target, 'call_1', JSON.stringify({ mode: 'outline', find: 'Ada' }))
@@ -274,6 +298,7 @@ describe('the pending-read projection', () => {
     call(target, 'call_dom', JSON.stringify({ scope: 'e12' }), 'content_read_dom')
     call(target, 'call_attrs', JSON.stringify({ ref: 'e12' }), 'content_read_attrs')
     call(target, 'call_text', JSON.stringify({ ref: 'e12' }), 'content_read_dom_content')
+    call(target, 'call_shot', JSON.stringify({ ref: 'e12' }), 'content_read_image')
     const unit = projection()
     expect(unit.stateSchema.parse(fold(target))).toEqual(fold(target))
   })

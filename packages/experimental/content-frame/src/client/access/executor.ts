@@ -1,5 +1,5 @@
 /**
- * The reading half of `content_read`, living in the seat that owns the frames.
+ * The reading half of the page channel, living in the seat that owns the frames.
  *
  * A host cannot address a browser, so the call comes the other way: the session
  * publishes its open reads in the `contentAccess` projection, this seat claims
@@ -28,14 +28,15 @@ import type { MutableRefObject } from 'react'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
-  ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_ACT_TOOL_NAME, CONTENT_CLAIM_ROUTE, CONTENT_READ_ATTRS_TOOL_NAME,
-  CONTENT_READ_DOM_CONTENT_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME, CONTENT_READ_TOOL_NAME,
+  ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_ACT_TOOL_NAME, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE,
+  CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_CONTENT_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME,
+  CONTENT_READ_IMAGE_TOOL_NAME, CONTENT_READ_TOOL_NAME,
   CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_BID_MS,
   MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
   MAX_CLAIM_BACKOFF, MAX_URL_CHARS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
-  SETTLE_WAIT_SHARE, type ActOutcome, type ChannelOutcome, type ClaimAck, type ReadOutcome, type ReadPage,
-  type ReportAck,
+  SETTLE_WAIT_SHARE, type ActOutcome, type ChannelOutcome, type ClaimAck, type ImageReport, type ReadFailure,
+  type ReadOutcome, type ReadPage, type ReportAck,
 } from '../../access/wire.ts'
 import {
   FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
@@ -43,15 +44,18 @@ import {
 } from '../../access/text.ts'
 import { actReportText, frontChangedRefusal } from '../../access/act-text.ts'
 import type { ContentFrameAccessSettings } from '../../route.ts'
-import type { ContentAccessRequest, ContentActRequest, ContentReadingRequest } from '../../types.ts'
+import type {
+  ContentAccessRequest, ContentActRequest, ContentReadImageRequest, ContentReadingRequest,
+} from '../../types.ts'
 import { settlePage } from '../perception/settle.ts'
+import { captureElement, type ExportPixels } from './capture.ts'
 import { runSteps } from './act.ts'
 import { watchPage, type ActWatch } from './watch.ts'
 import { elementMark, looksClickable, readableDocuments } from './dom.ts'
 import { itemName } from './collect.ts'
 import { markup } from './markup.ts'
 import { RefTable } from './refs.ts'
-import { snapshot } from './snapshot.ts'
+import { resolveRef, snapshot } from './snapshot.ts'
 import type { SnapshotOptions } from './snapshot.ts'
 
 /**
@@ -146,10 +150,16 @@ export interface ContentReadSeat {
   access: ContentFrameAccessSettings | undefined
   /** This tab's id. */
   tabId: string
+  /**
+   * The browser's own drawing, which a picture read exports one element
+   * through. Injected for the reason `./capture.ts` states: every decision an
+   * export makes is testable without a browser and this is not.
+   */
+  draw: ExportPixels
 }
 
 /** One failure the seat itself composes, for a frame it could not read. */
-function frameError(message: string): ReadOutcome {
+function frameError(message: string): ReadFailure {
   return { status: 'error', code: 'frame', message }
 }
 
@@ -207,7 +217,32 @@ interface Report {
  * @returns the report as it goes on the wire.
  */
 function reportOf(seat: ContentReadSeat, callId: string, outcome: ChannelOutcome): Report {
-  const body = JSON.stringify({ callId, tabId: seat.tabId, outcome })
+  return weighed({ callId, tabId: seat.tabId, outcome })
+}
+
+/**
+ * Serialize one picture read's report and measure what it costs the route,
+ * which is the same measurement {@link reportOf} makes of every other read.
+ *
+ * The document differs because the route does: what a picture read posts is a
+ * capture carrying bytes, and the arm the call settles as is composed on the
+ * host once those bytes are stored.
+ * @param seat - the seat the read ran on, for the tab id the report carries.
+ * @param callId - the call being answered.
+ * @param capture - the pixels, or the failure in their place.
+ * @returns the report as it goes on the wire.
+ */
+function captureOf(seat: ContentReadSeat, callId: string, capture: ImageReport): Report {
+  return weighed({ callId, tabId: seat.tabId, capture })
+}
+
+/**
+ * Serialize one document and count the bytes the route will receive.
+ * @param document - the report, in whichever of the two forms its route takes.
+ * @returns the serialized body and its exact UTF-8 length.
+ */
+function weighed(document: unknown): Report {
+  const body = JSON.stringify(document)
   return { body, bytes: new TextEncoder().encode(body).length }
 }
 
@@ -329,12 +364,14 @@ async function claimRead(
  * own deadline is the right place for it to end. A report the route refused is
  * not that ending and is not sent again — the second post would carry the same
  * document to the same check.
+ * @param route - the route this call settles on, which is the picture route for
+ * a picture read and the report route for every other call.
  * @param report - the read's report, as {@link readPage} weighed it.
  */
-async function reportRead(report: Report): Promise<void> {
-  if ((await post<ReportAck>(CONTENT_REPORT_ROUTE, report.body)).kind !== 'undelivered') return
+async function reportRead(route: string, report: Report): Promise<void> {
+  if ((await post<ReportAck>(route, report.body)).kind !== 'undelivered') return
   await delay(CLAIM_RETRY_MS)
-  await post<ReportAck>(CONTENT_REPORT_ROUTE, report.body)
+  await post<ReportAck>(route, report.body)
 }
 
 /**
@@ -445,7 +482,7 @@ function weigh(
  * @param refusal - whatever was thrown.
  * @returns the failure to post.
  */
-function engineFailure(refusal: unknown): ReadOutcome {
+function engineFailure(refusal: unknown): ReadFailure {
   /* v8 ignore next 2 -- the reader throws Error and nothing else; String() keeps a thrown non-Error readable. */
   const message = refusal instanceof Error ? refusal.message : String(refusal)
   return { status: 'error', code: 'engine', message: forWire(message, MAX_OUTCOME_MESSAGE_CHARS) }
@@ -473,7 +510,7 @@ type Prepared =
     /** Discriminant: there was not, and this is what the model is told. */
     kind: 'failed'
     /** The failure to post. */
-    outcome: ReadOutcome
+    outcome: ReadFailure
   }
 
 /**
@@ -488,7 +525,7 @@ type Prepared =
  * @returns the page and its document, or the failure to post.
  */
 async function prepare(seat: ContentReadSeat, timeoutMs: number): Promise<Prepared> {
-  const failed = (outcome: ReadOutcome): Prepared => ({ kind: 'failed', outcome })
+  const failed = (outcome: ReadFailure): Prepared => ({ kind: 'failed', outcome })
   if (seat.entries.length === 0) return failed({ status: 'error', code: 'empty', message: NO_ENTRY_REASON })
   if (seat.page === undefined) {
     return failed({ status: 'error', code: 'not-a-page', message: NOT_A_PAGE_REASON, ...otherKind(seat.entries) })
@@ -618,6 +655,59 @@ async function readPage(
       },
     }
     return weigh(report, listing, text, access, wideMessage(request, text.length, access.outlineChars))
+  } catch (refusal) {
+    return report(engineFailure(refusal))
+  }
+}
+
+/**
+ * Export one element's pixels, or say why there are none to export.
+ *
+ * It shares the front half of every other read — the same claim, the same page
+ * in front, the same wait for a document that is still loading and then for one
+ * that is still drawing — and parts from them at the answer: what it posts is
+ * bytes, on a route of their own, because a listing's route is bounded by the
+ * deployment's character budget and pixels are of another order.
+ * @param seat - the seat as it stands now.
+ * @param request - the pending call: the ref to export, and the id the report is posted under.
+ * @param access - the node half's budget and deadline.
+ * @returns the report to post.
+ */
+async function readImage(
+  seat: ContentReadSeat,
+  request: ContentReadImageRequest,
+  access: ContentFrameAccessSettings,
+): Promise<Report> {
+  const report = (capture: ImageReport): Report => captureOf(seat, request.callId, capture)
+  const ready = await prepare(seat, access.readTimeoutMs)
+  if (ready.kind === 'failed') return report(ready.outcome)
+  // The same second wait every other read takes: an application that just
+  // changed route has its markup and not yet the picture it is going to draw.
+  const settlement = await settlePage(
+    ready.view.document,
+    { quietMs: access.settleQuietMs, budgetMs: access.readTimeoutMs * SETTLE_WAIT_SHARE },
+    isVisible,
+  )
+  try {
+    // Re-read after the wait: a navigation replaces the frame's document.
+    ready.refs.sweep()
+    const el = resolveRef('ref', request.args.ref, ready.refs)
+    const capture = await captureElement(el, { ref: request.args.ref, isVisible, draw: seat.draw })
+    if (capture.kind === 'refused') return report(frameError(capture.message))
+    // No weighing here, unlike a listing: the payload is bounded by the export
+    // itself and every string beside it is cut to the wire's own bound, so the
+    // envelope the route's bound is computed from covers what this posts.
+    return report({
+      status: 'captured',
+      page: { id: ready.page.id, title: forWire(ready.page.title, MAX_NAME_CHARS) },
+      url: forWire(ready.view.document.URL, MAX_URL_CHARS),
+      ref: request.args.ref,
+      tag: capture.tag,
+      natural: capture.natural,
+      settled: settlement.settled,
+      mediaType: capture.mediaType,
+      data: capture.data,
+    })
   } catch (refusal) {
     return report(engineFailure(refusal))
   }
@@ -759,9 +849,17 @@ async function answer(
     started.current.delete(request.callId)
     return
   }
-  await reportRead(request.tool === CONTENT_ACT_TOOL_NAME
-    ? await actOnPage(seat.current, request, access, claimed.page)
-    : await readPage(seat.current, request, access))
+  if (request.tool === CONTENT_ACT_TOOL_NAME) {
+    await reportRead(CONTENT_REPORT_ROUTE, await actOnPage(seat.current, request, access, claimed.page))
+    return
+  }
+  // One call, one settling route: a picture read's failures travel the picture
+  // route too, so no call id is ever raced by two routes.
+  if (request.tool === CONTENT_READ_IMAGE_TOOL_NAME) {
+    await reportRead(CONTENT_IMAGE_ROUTE, await readImage(seat.current, request, access))
+    return
+  }
+  await reportRead(CONTENT_REPORT_ROUTE, await readPage(seat.current, request, access))
 }
 
 /**
