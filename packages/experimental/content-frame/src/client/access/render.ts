@@ -641,12 +641,13 @@ function nothingMatching(find: string): string {
 }
 
 /**
- * How a skeleton says where to read next.
+ * How a skeleton says where to read next: the parameter and the ref to give it,
+ * without spelling a call, which is the tool's own to name.
  * @param ref - the ref of the container holding the most of the page.
  * @returns the closing line.
  */
 function scopeHint(ref: string): string {
-  return `Read a part with scope, e.g. content_read({ scope: "${ref}" }).`
+  return `Read a part with scope "${ref}".`
 }
 
 /**

@@ -131,20 +131,18 @@ describe('what the three markup reads offer the model', () => {
       description: 'Print the page\'s own markup under one ref: every element inside it, one per line and '
         + 'indented by nesting, each with its tag, its #id, its class tokens as {class: ...}, a ref of its own, '
         + 'and the start of the text it holds directly. Nothing is interpreted — this is what the document '
-        + 'says, verbatim. Do not use it as the ordinary way to read a page: content_read is that, it costs a '
-        + 'fraction as much, and scope is required here, so a ref has to come from a read first. Reach for this '
-        + 'one when content_read printed a row it could name nothing, or printed nothing where the user can see '
-        + 'something, and a skill about this application needs the tokens or the tag to say what that row is. '
-        + 'Every element printed keeps a ref content_act can act on and the other reads can point at. A long '
-        + 'text is cut on its line and says so; content_read_dom_content prints one element\'s whole text and '
-        + 'content_read_attrs prints its attributes. A cut tree returns a cursor: pass it as after, with the '
-        + 'same scope. Never prints a password box\'s value.',
+        + 'says, verbatim. It answers what a row of the page is built from — the tag, the id and the class '
+        + 'tokens — which is what a skill about this application reads to say what a row the page names nowhere '
+        + 'is. scope is required, so the markup is always printed under one element. Every element printed '
+        + 'keeps a ref that later calls can point at and act on. A long text is cut on its line and says so. '
+        + 'A cut tree returns a cursor: pass it as after, with the same scope. Never prints a password box\'s '
+        + 'value.',
       parameters: {
         type: 'object',
         properties: {
           scope: {
             type: 'string',
-            description: 'a ref from a previous content_read or content_read_dom: the element whose markup to '
+            description: 'a ref (like e12) printed by an earlier read of this page: the element whose markup to '
               + 'print, and everything inside it',
           },
           after: {
@@ -162,16 +160,16 @@ describe('what the three markup reads offer the model', () => {
     expect(ctx.tools.schemas().find(schema => schema.name === 'content_read_attrs')).toEqual({
       name: 'content_read_attrs',
       description: 'Print every attribute of one element, name and value exactly as the page wrote them — '
-        + 'data-*, href, type, style, whatever it carries — and nothing else. The ref comes from a previous '
-        + 'content_read or content_read_dom. Reach for it when a row\'s class tokens do not say enough and what '
-        + 'identifies the row is written in an attribute; what any of it means is for a skill about this '
-        + 'application to say and never for this tool. A password box\'s value is withheld.',
+        + 'data-*, href, type, style, whatever it carries — and nothing else. The ref comes from an earlier '
+        + 'read of this page. It answers what identifies a row where that is written in an attribute rather '
+        + 'than in its class tokens; what any of it means is for a skill about this application to say and '
+        + 'never for this tool. A password box\'s value is withheld.',
       parameters: {
         type: 'object',
         properties: {
           ref: {
             type: 'string',
-            description: 'a ref from a previous content_read or content_read_dom: the one element to read',
+            description: 'a ref (like e12) printed by an earlier read of this page: the one element to read',
           },
         },
         required: ['ref'],
@@ -183,10 +181,9 @@ describe('what the three markup reads offer the model', () => {
     const { ctx } = await bench()
     expect(ctx.tools.schemas().find(schema => schema.name === 'content_read_dom_content')?.description).toBe(
       'Print the whole visible text of one element as the page renders it: a line break wherever the page '
-      + 'breaks the line, and nothing the page hides. Nothing is cut. The ref comes from a previous '
-      + 'content_read or content_read_dom — reach for it when a listing or a tree line cut a text short and the '
-      + 'rest of it is what you need. A text larger than one result can carry is refused, with its size, rather '
-      + 'than shortened.',
+      + 'breaks the line, and nothing the page hides. Nothing is cut, so a long text — a paragraph, a cell, a '
+      + 'message — arrives entire. The ref comes from an earlier read of this page. A text larger than one '
+      + 'result can carry is refused, with its size, rather than shortened.',
     )
   })
 
@@ -258,13 +255,13 @@ describe('what a markup read refuses', () => {
     const { run } = await bench()
     for (const [name, args, refusal] of [
       ['content_read_dom', { scope: 'twelve' },
-        'scope must be a ref like "e12" from a previous content_read or content_read_dom'],
+        'scope must be a ref like "e12" printed by an earlier read of this page'],
       ['content_read_dom', { scope: 'e1', after: '12' },
-        'after must be a ref like "e12" that a cut content_read_dom returned'],
+        'after must be a ref like "e12" that a cut tree returned'],
       ['content_read_attrs', { ref: 'e' },
-        'ref must be a ref like "e12" from a previous content_read or content_read_dom'],
+        'ref must be a ref like "e12" printed by an earlier read of this page'],
       ['content_read_dom_content', { ref: 'twelve' },
-        'ref must be a ref like "e12" from a previous content_read or content_read_dom'],
+        'ref must be a ref like "e12" printed by an earlier read of this page'],
     ] as const) {
       const result = await run(name, { ...args }).settled
       expect({ name, isError: result.isError, text: text(result) })
@@ -281,7 +278,7 @@ describe('what a markup read refuses', () => {
         arguments: name === 'content_read_dom' ? { scope: 'e1' } : { ref: 'e1' },
         signal: new AbortController().signal,
       })
-      expect(text(result)).toBe(`Error: ${name} requires an owning agent session`)
+      expect(text(result)).toBe('Error: This call has no owning agent session')
     }
   })
 
@@ -290,14 +287,14 @@ describe('what a markup read refuses', () => {
     // page whose spelling the model has no business reading.
     const result = await settleWith('content_read_dom', { scope: 'e1' }, posted({ signIn: true }))
     expect(result.isError).toBe(true)
-    expect(text(result)).toBe('Error: The page shows a sign-in form; ask the user to sign in, then retry.')
+    expect(text(result)).toBe('Error: The page in the content column shows a sign-in form, which is not read.')
   })
 
   it('refuses an answer that came back under another read\'s kind', async () => {
     const result = await settleWith('content_read_attrs', { ref: 'e1' }, posted())
     expect(result.isError).toBe(true)
     expect(text(result)).toBe(
-      'Error: The console answered this call with something else; call content_read to see where the page is now.',
+      'Error: The console answered this call with another call\'s document.',
     )
   })
 
@@ -311,7 +308,7 @@ describe('what a markup read refuses', () => {
       truncated: false,
     } as never)
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('The console answered this call with something else')
+    expect(text(result)).toContain('The console answered this call with another call\'s document.')
   })
 
   it('names itself where the column holds nothing and where it holds another kind', async () => {
@@ -319,15 +316,13 @@ describe('what a markup read refuses', () => {
       status: 'error', code: 'empty', message: 'the content column is empty',
     })
     expect(text(empty)).toBe(
-      'Error: The content column is empty. Call content_show to put a page there, then retry.',
+      'Error: The content column is empty.',
     )
     const chart = await settleWith('content_read_attrs', { ref: 'e1' }, {
       status: 'error', code: 'not-a-page', message: 'the entry in front is not a page', kind: 'chart', title: '黄金',
     })
     expect(text(chart)).toBe(
-      'Error: The entry in front is not a page (the chart "黄金"), which content_read_attrs cannot read; '
-      + 'a chart drawn by show_chart keeps its data in that call\'s arguments. '
-      + 'Call content_show to put a page in front.',
+      'Error: The entry the content column has in front is not a page (the chart "黄金").',
     )
   })
 
@@ -336,7 +331,7 @@ describe('what a markup read refuses', () => {
       status: 'error', code: 'engine', message: 'scope: "e9" names no element on the page now',
     })
     expect(text(stale)).toBe(
-      'Error: scope: "e9" names no element on the page now Call content_read without scope or after for fresh refs.',
+      'Error: scope: "e9" names no element on the page now',
     )
   })
 
@@ -345,8 +340,7 @@ describe('what a markup read refuses', () => {
     const result = await run('content_read_dom', { scope: 'e1' }).settled
     expect(result.isError).toBe(true)
     expect(text(result)).toBe(
-      'Error: No open console is showing this session\'s content column (waited 0.03s). '
-      + 'Call content_show to put a page there, or ask the user to open the console, then retry.',
+      'Error: No open, visible console tab is showing this session\'s content column (waited 0.03s).',
     )
   })
 
@@ -359,8 +353,7 @@ describe('what a markup read refuses', () => {
     }
     const result = await settled
     expect(text(result)).toBe(
-      'Error: The console claimed this read but did not answer within 0.06s; '
-      + 'retry once, and if it repeats ask the user to reload the console.',
+      'Error: The console claimed this read but did not answer within 0.06s.',
     )
   })
 
@@ -377,7 +370,7 @@ describe('what a markup read refuses', () => {
         callId: 'call_abort' as ToolExecutionInput['callId'],
         agent: agentWithSession(session),
         signal: control.signal,
-      } as never)).rejects.toThrow('content_read_dom_content was cancelled')
+      } as never)).rejects.toThrow('This call was cancelled')
   })
 })
 

@@ -13,9 +13,9 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { notAPageRefusal, READ_VOICE } from '../src/access/text.ts'
+import { EMPTY_COLUMN_REFUSAL, notAPageRefusal } from '../src/access/text.ts'
 import {
-  ACT_VOICE, actReportText, approvalReason, cannotActReason, dialogLine, disabledReason, labelChangedReason,
+  actReportText, approvalReason, cannotActReason, dialogLine, disabledReason, labelChangedReason,
   navigationLine, noOptionReason, occludedReason, ranSummary, refGoneReason, stepClause, stepRefusal,
   stepRefusalText, tooLongRefusal, tooManyStepsRefusal, unverifiedRefusal, waitedReason, windowLine,
 } from '../src/access/act-text.ts'
@@ -72,8 +72,8 @@ describe('what the user is asked to approve', () => {
 describe('what the model reads when a call is refused before it runs', () => {
   it('names the step and the parameter', () => {
     expect(stepRefusal(2, 'a "fill" step needs text, the value to type into the box'))
-      .toBe('content_act step 2: a "fill" step needs text, the value to type into the box')
-    expect(tooManyStepsRefusal(20)).toBe('steps must hold at most 20 steps; split the rest into another call')
+      .toBe('step 2: a "fill" step needs text, the value to type into the box')
+    expect(tooManyStepsRefusal(20)).toBe('steps must hold at most 20 steps')
     expect(tooLongRefusal('key', 32)).toBe('key must be at most 32 characters')
     // Every field one step can be refused over, keyed the way the wire names it.
     expect([
@@ -83,8 +83,8 @@ describe('what the model reads when a call is refused before it runs', () => {
       '"click" a control; "fill" replaces a box\'s whole value with text; "select" chooses the option whose '
       + 'visible text is value; "press" sends one key such as Enter or Escape; "wait" waits for text to appear '
       + 'anywhere on the page',
-      'every step but "wait" needs ref, a ref like "e12" from a previous content_read',
-      'every step but "wait" needs label, the element\'s name exactly as content_read printed it, '
+      'every step but "wait" needs ref, a ref like "e12" printed by an earlier read of this page',
+      'every step but "wait" needs label, the element\'s name exactly as the read printed it, '
       + 'or "" for a row it printed with no name',
       'a row the read printed with no name is named by its mark: where the read printed e7 clickable '
       + '{class: row-action danger}, pass ref "e7", label "" and mark "row-action danger" — the tokens '
@@ -108,49 +108,36 @@ describe('what the model reads when a call is refused before it runs', () => {
 
   it('says what is unknown when the console goes quiet after claiming the call', () => {
     // The one ending that cannot say what happened: the steps may have run in
-    // full, in part, or not at all, so the only honest advice is to look.
+    // full, in part, or not at all, and the sentence says exactly that.
     expect(unverifiedRefusal(60000)).toBe(
-      'The console claimed this call but did not report within 60s; the steps may have run partially or fully. '
-      + 'Call content_read before deciding to retry.',
+      'The console claimed this call but did not report within 60s; the steps may have run partially or fully.',
     )
   })
 })
 
-describe('what each tool says about an entry it cannot use', () => {
-  it('pins both sentences, which differ in the tool they send the model to', () => {
-    // One ending, two callers. The advice that fixes it is the same call, but
-    // the tool named as unable is the one the model reaches for next, so a
-    // shared sentence would send a call that asked for steps back to the
-    // reader.
+describe('what every tool of the channel says about an entry it cannot use', () => {
+  it('pins one sentence for each ending, whichever tool asked', () => {
+    // One ending, every caller. The reason does not change with the tool that
+    // asked, so neither does the sentence, and none of them names a tool to
+    // call instead.
     const chart = { kind: 'chart', title: '黄金走势' }
-    expect(notAPageRefusal(chart, READ_VOICE.cannot)).toBe(
-      'The entry in front is not a page (the chart "黄金走势"), which content_read cannot read; '
-      + 'a chart drawn by show_chart keeps its data in that call\'s arguments. Call content_show to put a page in front.',
-    )
-    expect(notAPageRefusal(chart, ACT_VOICE.cannot)).toBe(
-      'The entry in front is not a page (the chart "黄金走势"), which content_act cannot act on; '
-      + 'a chart drawn by show_chart keeps its data in that call\'s arguments. Call content_show to put a page in front.',
-    )
-    // And the two empty-column sentences, which differ in what they tell the
-    // model to do once a page is there.
-    expect(READ_VOICE.emptyColumn).toBe('The content column is empty. Call content_show to put a page there, then retry.')
-    expect(ACT_VOICE.emptyColumn).toBe(
-      'The content column is empty. Call content_show to put a page there, then read it before acting on it.',
-    )
+    expect(notAPageRefusal(chart))
+      .toBe('The entry the content column has in front is not a page (the chart "黄金走势").')
+    expect(notAPageRefusal({})).toBe('The entry the content column has in front is not a page.')
+    expect(EMPTY_COLUMN_REFUSAL).toBe('The content column is empty.')
   })
 })
 
 describe('what the model reads when one step stops the call', () => {
   it('pins each failure verbatim', () => {
     expect(labelChangedReason('e5', '重置', '查询'))
-      .toBe('e5 is now "重置", not "查询" — the page changed; call content_read for current refs.')
-    expect(refGoneReason('e3')).toBe('e3 is no longer on the page; call content_read for current refs.')
-    expect(occludedReason('e7', '编辑设备'))
-      .toBe('e7 is behind the open dialog "编辑设备"; act inside the dialog or close it first.')
+      .toBe('e5 is now "重置", not "查询" — the page changed.')
+    expect(refGoneReason('e3')).toBe('e3 is no longer on the page.')
+    expect(occludedReason('e7', '编辑设备')).toBe('e7 is behind the open dialog "编辑设备".')
     expect(disabledReason('e4', '保存')).toBe('e4 "保存" is disabled.')
-    expect(noOptionReason('e6', '东风')).toBe('no option reading "东风" appeared for e6; read the page to see what it offers.')
+    expect(noOptionReason('e6', '东风')).toBe('no option reading "东风" appeared for e6.')
     expect(waitedReason('保存成功', 5000)).toBe('"保存成功" did not appear within 5s.')
-    expect(cannotActReason('e2', 'fill')).toBe('e2 is not something "fill" can be done to; read the page for what it offers.')
+    expect(cannotActReason('e2', 'fill')).toBe('e2 is not something "fill" can be done to.')
   })
 
   it('says how much of the call ran before it stopped', () => {
@@ -204,7 +191,7 @@ describe('the three sections one call answers with', () => {
       events: [],
       snapshot: '1 main',
     })).toBe(
-      'Step 2 failed: e5 is now "重置", not "查询" — the page changed; call content_read for current refs. '
+      'Step 2 failed: e5 is now "重置", not "查询" — the page changed. '
       + 'Step 1 ran; later steps were skipped.\n'
       + 'Page events during these steps: none.\n'
       + 'Page now:\n1 main',

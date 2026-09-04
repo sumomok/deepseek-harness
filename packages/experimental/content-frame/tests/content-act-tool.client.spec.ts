@@ -175,12 +175,12 @@ describe('the entry one call was approved against', () => {
     const result = await settleWith({
       status: 'error',
       code: 'front-changed',
-      message: 'The page in front is now "报表", not "点位信息" the steps were approved for; '
-        + 'nothing was done. Ask the user, then retry.',
+      message: 'The page in front is now "报表", not "点位信息" the steps were approved for; nothing was done.',
     })
     expect(result.isError).toBe(true)
-    expect(text(result)).toBe('Error: The page in front is now "报表", not "点位信息" the steps were approved for; '
-      + 'nothing was done. Ask the user, then retry.')
+    expect(text(result)).toBe(
+      'Error: The page in front is now "报表", not "点位信息" the steps were approved for; nothing was done.',
+    )
   })
 })
 
@@ -192,8 +192,9 @@ describe('what content_act offers the model', () => {
       description: 'Act on the page the user is looking at in the content column (内容区 — the column between '
         + 'the sidebar and this conversation), the way the user would: click a '
         + 'control, fill a box, choose from a list, press a key, or wait for text to appear. Every target is a '
-        + 'ref from a content_read, and every label is that element\'s name copied from the read — the browser '
-        + 'checks the name before it acts, so a page that changed since the read stops the call instead of '
+        + 'ref from an earlier read of this page, and every label is that element\'s name copied from the '
+        + 'read — the browser checks the name before it acts, so a page that changed since the read stops the '
+        + 'call instead of '
         + 'clicking something else; for a row the read printed with no name, pass label "" and its mark, the '
         + 'class tokens the read printed for it. The steps run in order and stop at the first failure; '
         + 'the answer reports '
@@ -219,7 +220,7 @@ describe('what content_act offers the model', () => {
                 },
                 ref: {
                   type: 'string',
-                  description: 'the element\'s ref from a previous content_read, like "e12"; omit only for "wait"',
+                  description: 'the element\'s ref, like "e12", printed by an earlier read of this page; omit only for "wait"',
                 },
                 label: {
                   type: 'string',
@@ -328,34 +329,34 @@ describe('what content_act refuses before anyone is asked', () => {
       [[], 'steps must name at least one step'],
       [
         Array.from({ length: MAX_STEPS + 1 }, () => ({ action: 'click', ref: 'e1', label: 'x' })),
-        'steps must hold at most 20 steps; split the rest into another call',
+        'steps must hold at most 20 steps',
       ],
-      [[{ action: 'click', label: '查询' }], 'content_act step 1: every step but "wait" needs ref, a ref like "e12" from a previous content_read'],
-      [[{ action: 'click', ref: 'twelve', label: '查询' }], 'content_act step 1: every step but "wait" needs ref, a ref like "e12" from a previous content_read'],
+      [[{ action: 'click', label: '查询' }], 'step 1: every step but "wait" needs ref, a ref like "e12" printed by an earlier read of this page'],
+      [[{ action: 'click', ref: 'twelve', label: '查询' }], 'step 1: every step but "wait" needs ref, a ref like "e12" printed by an earlier read of this page'],
       [
         [{ action: 'click', ref: 'e5' }],
-        'content_act step 1: every step but "wait" needs label, the element\'s name exactly as content_read printed it, '
+        'step 1: every step but "wait" needs label, the element\'s name exactly as the read printed it, '
         + 'or "" for a row it printed with no name',
       ],
       [
         [STEPS[1], { action: 'fill', ref: 'e4', label: '名称' }],
-        'content_act step 2: a "fill" step needs text, the value to type into the box',
+        'step 2: a "fill" step needs text, the value to type into the box',
       ],
-      [[{ action: 'select', ref: 'e6', label: '站点' }], 'content_act step 1: a "select" step needs value, the option\'s visible text'],
-      [[{ action: 'press', ref: 'e4', label: '名称' }], 'content_act step 1: a "press" step needs key, such as "Enter"'],
-      [[{ action: 'wait' }], 'content_act step 1: a "wait" step needs text, the words to wait for'],
+      [[{ action: 'select', ref: 'e6', label: '站点' }], 'step 1: a "select" step needs value, the option\'s visible text'],
+      [[{ action: 'press', ref: 'e4', label: '名称' }], 'step 1: a "press" step needs key, such as "Enter"'],
+      [[{ action: 'wait' }], 'step 1: a "wait" step needs text, the words to wait for'],
       // The same refusal for the empty string, which every page's visible text
       // contains: the step would answer at once having waited for nothing.
-      [[{ action: 'wait', text: '' }], 'content_act step 1: a "wait" step needs text, the words to wait for'],
-      [[{ action: 'fill', ref: 'e4', label: '名称', text: 'x'.repeat(1001) }], 'content_act step 1: text must be at most 1000 characters'],
-      [[{ action: 'select', ref: 'e6', label: '站点', value: 'x'.repeat(1001) }], 'content_act step 1: value must be at most 1000 characters'],
-      [[{ action: 'press', ref: 'e4', label: '名称', key: 'x'.repeat(33) }], 'content_act step 1: key must be at most 32 characters'],
-      [[{ action: 'click', ref: 'e5', label: 'x'.repeat(257) }], 'content_act step 1: label must be at most 256 characters'],
+      [[{ action: 'wait', text: '' }], 'step 1: a "wait" step needs text, the words to wait for'],
+      [[{ action: 'fill', ref: 'e4', label: '名称', text: 'x'.repeat(1001) }], 'step 1: text must be at most 1000 characters'],
+      [[{ action: 'select', ref: 'e6', label: '站点', value: 'x'.repeat(1001) }], 'step 1: value must be at most 1000 characters'],
+      [[{ action: 'press', ref: 'e4', label: '名称', key: 'x'.repeat(33) }], 'step 1: key must be at most 32 characters'],
+      [[{ action: 'click', ref: 'e5', label: 'x'.repeat(257) }], 'step 1: label must be at most 256 characters'],
       // A row the read printed with no name is named by the mark it printed
       // instead, and a row has one identity: a name or a mark, never both.
       [
         [{ action: 'click', ref: 'e5', label: '' }],
-        'content_act step 1: a row the read printed with no name is named by its mark: where the read printed '
+        'step 1: a row the read printed with no name is named by its mark: where the read printed '
         + 'e7 clickable {class: row-action danger}, pass ref "e7", label "" and mark "row-action danger" — '
         + 'the tokens alone, without the braces and without the "class:" printed in front of them',
       ],
@@ -363,26 +364,26 @@ describe('what content_act refuses before anyone is asked', () => {
       // console's own log shows a model doing three times over.
       [
         [{ action: 'click', ref: 'e5', label: '', mark: '{class: el-icon-delete}' }],
-        'content_act step 1: mark is the class tokens themselves, not the whole of what the read printed '
+        'step 1: mark is the class tokens themselves, not the whole of what the read printed '
         + 'there: where the read printed e7 clickable {class: row-action danger}, pass ref "e7", label "" and '
         + 'mark "row-action danger" — the tokens alone, without the braces and without the "class:" printed '
         + 'in front of them',
       ],
       [
         [{ action: 'click', ref: 'e5', label: '', mark: 'class: el-icon-delete' }],
-        'content_act step 1: mark is the class tokens themselves, not the whole of what the read printed '
+        'step 1: mark is the class tokens themselves, not the whole of what the read printed '
         + 'there: where the read printed e7 clickable {class: row-action danger}, pass ref "e7", label "" and '
         + 'mark "row-action danger" — the tokens alone, without the braces and without the "class:" printed '
         + 'in front of them',
       ],
       [
         [{ action: 'click', ref: 'e5', label: '编辑', mark: 'el-icon-edit' }],
-        'content_act step 1: a row has one identity: pass label for a row the read named, or mark with label "" '
+        'step 1: a row has one identity: pass label for a row the read named, or mark with label "" '
         + 'for one it did not — not both',
       ],
       [
         [{ action: 'click', ref: 'e5', label: '', mark: 'x'.repeat(1001) }],
-        'content_act step 1: mark must be at most 1000 characters',
+        'step 1: mark must be at most 1000 characters',
       ],
     ] as const) {
       const result = await run({ steps }).settled
@@ -411,7 +412,7 @@ describe('what content_act refuses before anyone is asked', () => {
     expect(asked).toEqual([])
     expect({ isError: result.isError, text: text(result) }).toEqual({
       isError: true,
-      text: 'Error: steps must hold at most 20 steps; split the rest into another call',
+      text: 'Error: steps must hold at most 20 steps',
     })
   })
 
@@ -445,7 +446,7 @@ describe('what the body refuses on its own', () => {
       token: {},
     } as unknown as Parameters<NonNullable<typeof tool.execute>>[1]
     await expect(tool.execute?.({ steps: STEPS }, exec))
-      .rejects.toThrow('content_act requires an owning agent session')
+      .rejects.toThrow('This call has no owning agent session')
   })
 })
 
@@ -516,7 +517,7 @@ describe('the approval every set of steps runs under', () => {
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toBe(
-      'Error: content_act: dialogs "accept" needs an approval request that says the page\'s own confirmation '
+      'Error: dialogs "accept" needs an approval request that says the page\'s own confirmation '
       + 'will be confirmed too; this call was approved without it',
     )
   })
@@ -562,9 +563,9 @@ describe('what content_act answers with', () => {
       title: '点位信息',
       steps: [
         { index: 1, status: 'ok' },
-        { index: 2, status: 'failed', message: 'e5 is now "重置", not "查询" — the page changed; call content_read for current refs.' },
+        { index: 2, status: 'failed', message: 'e5 is now "重置", not "查询" — the page changed.' },
       ],
-      text: 'Step 2 failed: e5 is now "重置", not "查询" — the page changed; call content_read for current refs. '
+      text: 'Step 2 failed: e5 is now "重置", not "查询" — the page changed. '
         + 'Step 1 ran; later steps were skipped.\nPage events during these steps: none.\nPage now:\n1 main',
       truncated: false,
     }
@@ -578,8 +579,8 @@ describe('what content_act answers with', () => {
     const result = await run({ steps: STEPS }).settled
     expect(result.isError).toBe(true)
     expect(text(result)).toBe(
-      'Error: No open console is showing this session\'s content column (waited 0.03s). '
-      + 'Call content_show to put a page there, or ask the user to open the console, then retry. Nothing was done.',
+      'Error: No open, visible console tab is showing this session\'s content column (waited 0.03s). '
+      + 'Nothing was done.',
     )
   })
 
@@ -598,7 +599,7 @@ describe('what content_act answers with', () => {
       status: 'unverified',
       steps: [],
       text: 'The console claimed this call but did not report within 0.06s; the steps may have run partially or '
-        + 'fully. Call content_read before deciding to retry.',
+        + 'fully.',
       truncated: false,
     })
   })
@@ -607,7 +608,7 @@ describe('what content_act answers with', () => {
     for (const [outcome, refusal] of [
       [
         { status: 'error', code: 'empty', message: 'the content column is empty' },
-        'Error: The content column is empty. Call content_show to put a page there, then read it before acting on it.',
+        'Error: The content column is empty.',
       ],
       [
         { status: 'error', code: 'not-a-page', message: 'the entry in front is not a page', kind: 'chart', title: '黄金走势' },
@@ -615,16 +616,15 @@ describe('what content_act answers with', () => {
         // entry is something `content_read cannot read` has been told about
         // the wrong call, and it is the tool it was told about that it reaches
         // for next.
-        'Error: The entry in front is not a page (the chart "黄金走势"), which content_act cannot act on; '
-        + 'a chart drawn by show_chart keeps its data in that call\'s arguments. Call content_show to put a page in front.',
+        'Error: The entry the content column has in front is not a page (the chart "黄金走势").',
       ],
       [
-        { status: 'error', code: 'frame', message: 'The page in the content column had not finished loading; retry once.' },
-        'Error: The page in the content column had not finished loading; retry once.',
+        { status: 'error', code: 'frame', message: 'The page in the content column had not finished loading when this read gave up on it.' },
+        'Error: The page in the content column had not finished loading when this read gave up on it.',
       ],
       [
         { status: 'error', code: 'engine', message: 'no element carries the ref e4' },
-        'Error: no element carries the ref e4 Call content_read without scope or after for fresh refs.',
+        'Error: no element carries the ref e4',
       ],
       [
         // The one ending only a call that would have acted reaches: the seat
@@ -632,9 +632,9 @@ describe('what content_act answers with', () => {
         {
           status: 'error',
           code: 'sign-in',
-          message: 'The page shows a sign-in form; content_act will not act on it. Ask the user to sign in, then retry.',
+          message: 'The page in the content column shows a sign-in form, which is not acted on.',
         },
-        'Error: The page shows a sign-in form; content_act will not act on it. Ask the user to sign in, then retry.',
+        'Error: The page in the content column shows a sign-in form, which is not acted on.',
       ],
     ] as const) {
       const result = await settleWith(outcome)
@@ -663,7 +663,7 @@ describe('what content_act answers with', () => {
     })
     expect(result.isError).toBe(true)
     expect(text(result))
-      .toBe('Error: The console answered this call with something else; call content_read to see where the page is now.')
+      .toBe('Error: The console answered this call with another call\'s document.')
   })
 
   it('names the cancellation the agent loop replaces with its own outcome', async () => {
@@ -681,7 +681,7 @@ describe('what content_act answers with', () => {
     } as unknown as Parameters<NonNullable<typeof tool.execute>>[1]
     const settled = tool.execute?.({ steps: STEPS }, exec)
     aborter.abort()
-    await expect(settled).rejects.toThrow('content_act was cancelled')
+    await expect(settled).rejects.toThrow('This call was cancelled')
   })
 })
 

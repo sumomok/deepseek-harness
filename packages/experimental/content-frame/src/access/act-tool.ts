@@ -20,12 +20,14 @@ import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepse
 import type { CallTimeouts, PendingCalls } from './pending.ts'
 import type { DialogApprovals } from './dialog-approvals.ts'
 import {
-  ACT_VOICE, ACTION_DESCRIPTION, approvalReason, CANCELLED_REFUSAL, CONTENT_ACT_DESCRIPTION,
+  ACTION_DESCRIPTION, approvalReason, CONTENT_ACT_DESCRIPTION,
   DIALOGS_DESCRIPTION, DIALOGS_UNAPPROVED_REFUSAL, KEY_DESCRIPTION, LABEL_DESCRIPTION, MARK_DESCRIPTION,
-  NO_AGENT_REFUSAL, NO_STEPS_REFUSAL, NOTHING_DONE, REF_DESCRIPTION, STEPS_DESCRIPTION, stepRefusal,
+  NO_STEPS_REFUSAL, NOTHING_DONE, REF_DESCRIPTION, STEPS_DESCRIPTION, stepRefusal,
   stepRefusalText, TEXT_DESCRIPTION, tooManyStepsRefusal, unverifiedRefusal, VALUE_DESCRIPTION,
 } from './act-text.ts'
-import { failureRefusal, MISREPORTED_REFUSAL, unclaimedRefusal } from './text.ts'
+import {
+  CANCELLED_REFUSAL, failureRefusal, MISREPORTED_REFUSAL, NO_AGENT_REFUSAL, unclaimedRefusal,
+} from './text.ts'
 import {
   ACT_ACTIONS, CONTENT_ACT_TOOL_NAME, DIALOG_ANSWERS, isActOutcome, parseActArgs, readActStep, type ActArgs,
   type ActOutcome, type ActStep, type ActStepResult,
@@ -169,7 +171,7 @@ export function contentActTool(
             additionalProperties: false,
             description: 'The page the steps ran on.',
             properties: {
-              id: { type: 'string', required: true, description: 'The id content_show names this page by.' },
+              id: { type: 'string', required: true, description: 'The page\'s configured id.' },
               title: { type: 'string', required: true, description: 'The page\'s configured title.' },
             },
           },
@@ -246,7 +248,7 @@ export function contentActTool(
           const outcome = settlement.outcome
           if (isActOutcome(outcome)) return valueOf(outcome)
           if (outcome.status === 'ok') throw new Error(MISREPORTED_REFUSAL)
-          throw new Error(failureRefusal(outcome, ACT_VOICE))
+          throw new Error(failureRefusal(outcome))
         }
         case 'unclaimed': {
           throw new Error(`${unclaimedRefusal(timeouts.claimTimeoutMs, front(exec.agent.session))}${NOTHING_DONE}`)
@@ -264,7 +266,7 @@ export function contentActTool(
         // the message exists for a caller reading the rejection directly.
         case 'aborted': throw new Error(CANCELLED_REFUSAL)
         /* v8 ignore next 2 -- the settlement union is closed and typed; the arm keeps a new member loud. */
-        default: throw new Error(`content_act: unknown settlement ${JSON.stringify(settlement)}`)
+        default: throw new Error(`content-frame: unknown settlement ${JSON.stringify(settlement)}`)
       }
     },
     // Display only, and it runs on replay of whatever was logged, so it reads

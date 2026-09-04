@@ -28,6 +28,7 @@ Seven pieces, one decision each. The node half serves the configured directory u
 - [Reading a page that has not finished drawing itself](#reading-a-page-that-has-not-finished-drawing-itself)
 - [Hiding the `show-content-page` command from the chat transcript](#hiding-the-show-content-page-command-from-the-chat-transcript)
 - [Composition](#composition)
+- [What the tools say and what they never say](#the-copy-rule)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [Dev Note](#dev-note)
@@ -90,11 +91,11 @@ The column's kind slot is `root`-scoped and the column keeps this seat mounted e
 
 The same block gives the agent three more reads, and all three answer about markup rather than about meaning: `content_read_dom` prints one subtree as an indented tree — a line per element with its tag, its `#id`, its class tokens as `{class: …}`, a ref of its own and the start of the text it holds directly; `content_read_attrs` prints one element's every attribute, name and value as the page wrote them; and `content_read_dom_content` prints one element's whole visible text, line-broken where the page breaks lines and never cut.
 
-**They exist for the row `content_read` can name nothing.** A component library's row commands carry no role, no name, no title and no pointer cursor, so the listing prints that column empty and the user sees two icons in it. `content_read` is still the read to start from — it is the page as HTML and ARIA describe it, an order of magnitude smaller than the markup under it, and the only place refs come from — and each of the three says so in its own description, `content_read_dom`'s most of all: `scope` is required, so a listing has to have run first, and the description refuses outright the idea of using it as the ordinary way to read a page.
+**They exist for the row `content_read` can name nothing.** A component library's row commands carry no role, no name, no title and no pointer cursor, so the listing prints that column empty and the user sees two icons in it. `content_read` is still the read a page starts from — it is the page as HTML and ARIA describe it, an order of magnitude smaller than the markup under it, and the only place refs come from — but no description says so, because [every description here describes only its own tool](#the-copy-rule). What holds a whole page of markup back is `content_read_dom`'s required `scope`, which makes a prior read the only way to call it at all.
 
 **Nothing is interpreted, ever.** A tag, an id, a class token and an attribute value are printed as the document spells them, in the order the document holds them. What `op-a` or `el-icon-edit` means is for a skill about that application to say; this package prints and never guesses. The class tokens a tree line prints are the same `elementMark` the listing prints for an unnamed row, so a `content_act` step naming a row a tree found carries the string the tree showed and the seat compares the two character for character.
 
-**What each one bounds, and how.** The tree is rendered under `outlineChars` exactly as a listing is and returns a cursor for the rest — pass it back as `after` with the same `scope`. The other two are never cut: an element's attributes and an element's text are answered whole or not at all, and an answer past what the report route carries is refused with its size in characters and the remedy — a smaller ref for the text, and for the attributes the deployment's own `outlineChars`, because one element's attributes have no narrower read. Every element a tree prints keeps a ref, so a `content_read_dom` of a row is also how the model reaches an element that no listing gave it a handle on.
+**What each one bounds, and how.** The tree is rendered under `outlineChars` exactly as a listing is and returns a cursor for the rest — pass it back as `after` with the same `scope`. The other two are never cut: an element's attributes and an element's text are answered whole or not at all, and an answer past what the report route carries is refused with its size in characters and the budget it ran past. Every element a tree prints keeps a ref, so a `content_read_dom` of a row is also how the model reaches an element that no listing gave it a handle on.
 
 Reads only, and the same conditions as the listing: the same claim and report routes, the same pending projection, the same page in front, and the same withholding — a page asking the user to sign in answers a refusal rather than its markup, because a sign-in page's markup is the credential form itself. `content_read_attrs` never returns a password control's `value`, and neither a tree line nor a whole-text read prints the text a `textarea` declaring a password in `autocomplete` keeps its value in: all three answer `(password withheld)` in its place, and a control is a password control by its `type` or by that attribute, on any of the three tags HTML gives an autofill field name to.
 
@@ -117,7 +118,7 @@ What the page itself draws in answer to a step is not watched for: a toast, a ba
 
 A host cannot address a browser, so the call travels the other way. Both tools share it. The tool body writes nothing: it registers a wait and publishes the call in the session's own `contentAccess` projection, which every connected browser already receives. The page seat showing that session claims the call on `POST /content-frame/claim`, does the work — walking the frame's document, or running the steps against it — and posts the answer to `POST /content-frame/report`. Only the claiming tab's report is taken, which is why the claim is a round trip rather than an announcement, and it is also why two consoles open on one session run one copy of a set of steps rather than two. What differs between the two tools is the document posted back, discriminated by its own status; the tool that opened the wait is what decides whether the document it was handed answers its own call.
 
-Two deadlines, because "no console is open" and "the console that answered went quiet" are different facts and the model acts differently on each. A call unclaimed within `claimTimeoutMs` is told no console is showing this session — and, for a set of steps, that nothing was done; a claimed read unanswered within `readTimeoutMs` is told to retry once, while a claimed set of steps unanswered within `actTimeoutMs` is told the steps may have run partially or fully and to read the page before deciding, because that is the one ending where nothing on this side knows what happened. One session's consecutive reads stick to one tab: the tab that last answered is preferred for `pinMs`, and another tab's claim is held briefly so the preferred one can take it first. Refs name elements of one document, so two consoles answering alternate reads would hand the model refs that name nothing.
+Two deadlines, because "no console is open" and "the console that answered went quiet" are different facts and the model acts differently on each. A call unclaimed within `claimTimeoutMs` is told no console is showing this session — and, for a set of steps, that nothing was done; a claimed read unanswered within `readTimeoutMs` is told the console never answered, while a claimed set of steps unanswered within `actTimeoutMs` is told the steps may have run partially or fully, because that is the one ending where nothing on this side knows what happened. One session's consecutive reads stick to one tab: the tab that last answered is preferred for `pinMs`, and another tab's claim is held briefly so the preferred one can take it first. Refs name elements of one document, so two consoles answering alternate reads would hand the model refs that name nothing.
 
 Neither deadline is spent on a single attempt. A claim the host does not know yet is bid again for as long as the call is on the session's pending list, at an interval that doubles from 200ms to one second — the seat's own bidding is bounded by the call still waiting rather than by either deadline, and by a ten-minute ceiling past which it lets go for good: a host that stopped mid-write leaves a call opened and never settled, and no approval a person means to answer is still open by then. That is what an approval needs: `content_act` registers its wait only after a person has answered its request, so every claim before that is answered "unknown", and a seat that gave up at the host's claim window would stop bidding while the user is still reading. A claim that never lands — a dropped request, a moment offline — is bid again the same way, and a listing whose first post never lands is posted once more: one dropped request must not be what tells the model there is no console, with the console in front of the user the whole time. A call this seat gave up on — a refused bid, a claim another tab held, the ceiling, a pending list that blipped empty under it — is forgotten rather than remembered as answered, because it is still open on the host: the next projection frame carrying it is one this seat bids for again. Within the report deadline the seat spends at most half on a page that is still loading, because the host started counting the moment it granted the claim and the walk and the trip back need the rest.
 
@@ -210,6 +211,17 @@ The empty `pageAccess` block is this service line's own choice: it takes every d
 
 The tools, the command, the projections, and the page extractor are optional children: a composition without `ctx.tools`, `ctx.commands`, `ctx.sessionProjections`, or `ctx.contentSurface` keeps the routes and shows nothing in the column, and no absence fails the row.
 
+<a id="the-copy-rule"></a>
+## What the tools say and what they never say
+
+Two rules hold over this package's tool copy — every tool description, every parameter description, every refusal and failure text, every result hint, and every field description of an output schema — and [the self-contained-copy Agent Note](../../../.agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.md) owns why. The request-context lines in `src/perception/text.ts` are outside the rules and still name `content_read` and `content_show`: they are [the content-column context](#the-content-column-context), the model's map of the channel rather than one tool's own copy, and the Note's [Where the rules do not reach](../../../.agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.md#where-the-rules-do-not-reach) section owns them.
+
+**A description describes its own tool, or its own parameter, and names no other tool.** No description says a sibling is cheaper, is the read to start from, or is where a ref comes from; each says what it takes, what it prints and what it answers. The model picks a tool by reading all of them.
+
+**A failure states why the call was refused, and nothing else.** No refusal names a tool to call instead, tells the user to be asked something, or says to retry: the column was empty, the entry in front is not a page, the page shows a sign-in form, no visible console tab claimed the call within the wait, the answer ran past the budget. A refusal does name this tool's own parameter where the parameter is the reason — `scope must be a ref like "e12" printed by an earlier read of this page` — because that is the reason and not a remedy.
+
+The rules changed together after an A/B on a real console: two prompts, one fresh session per cell, cross-referenced copy against self-contained. Under the cross-referenced copy the refused call was `content_read` with `mode: "dom"` in prompt A and `content_read` with `scope: ""` in prompt B, one each. Under the self-contained copy prompt A went straight to `content_read_dom` and then spent two calls on `content_read` with `mode: "find"`, and prompt B opened with `content_read` and `scope: "__page__"` — two refused calls and one. The misroute the change targets did not recur; both conditions still invented a `scope` value on a first call and read a word as a `mode` value, which is why that parameter line now says omitting `scope` reads the whole page. Total calls fell 13→11 and 11→9, whole-tree DOM reads fell 3→1 and 2→1, and all four cells answered correctly; with n = 1 per cell and temperature uncontrolled those counts are observations, not measurements. [`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) walks both text modules' whole export surface, the listing a read answers with, and every description of the six assembled tool definitions, and fails on any tool name in any of it.
+
 <a id="model-experience"></a>
 ## Model Experience
 
@@ -231,7 +243,7 @@ The description is assembled once when the row loads and never varies within a d
 
 #### What the model sees
 
-A successful call answers with exactly `Now showing <title> in the content column.` or `Content column cleared.` An id the deployment does not configure answers `Error: unknown page "<id>". Available pages:` followed by the whole catalogue again, so the model corrects itself from the result instead of guessing at a retry; that call changes nothing. A call with no owning session answers `Error: content_show requires an owning agent session`. The `content/shown` session event each successful call appends is UI and replay state, not a second model message.
+A successful call answers with exactly `Now showing <title> in the content column.` or `Content column cleared.` An id the deployment does not configure answers `Error: unknown page "<id>". Available pages:` followed by the whole catalogue again, so the model corrects itself from the result instead of guessing at a retry; that call changes nothing. A call with no owning session answers `Error: This call has no owning agent session`. The `content/shown` session event each successful call appends is UI and replay state, not a second model message.
 
 #### Token effect
 
@@ -259,18 +271,18 @@ The description is a constant and never varies within a deployment, so the tool 
 
 #### What the model sees
 
-A successful read answers with one text block: a `Page: <title> — the app is at <path>, title "<document title>"` line and, each on its own line, the name of any dialog the page has open, what the page marks as still loading, and whether it was still changing when the read ran — followed by the listing itself. A whole page too large for the budget answers with the page's map and says so on that first line; a listing cut short ends with the cursor to pass back as `after`. Every other ending is an error naming what to do next: call `content_show`, drop `scope`, read a smaller part of the page or raise `outlineChars`, ask the user to sign in, ask the user to open the console, or retry once. One of them takes two forms, because the right next step depends on what the column already holds: over an empty column the claim timeout keeps the offer that fixes it, and over a column with something in front it withdraws that offer and says so, naming the entry by its own kind word — `the chart "…"` for a chart — because the column's key domain is open and `content_show` helps a chart in front no more than a page. A composition with no projection registry reads no column and takes the first form.
+A successful read answers with one text block: a `Page: <title> — the app is at <path>, title "<document title>"` line and, each on its own line, the name of any dialog the page has open, what the page marks as still loading, and whether it was still changing when the read ran — followed by the listing itself. A whole page too large for the budget answers with the page's map and says so on that first line; a listing cut short ends with the cursor to pass back as `after`. Every other ending is an error stating why the read was refused and nothing more — an empty column, an entry that is not a page, a page still loading, a sign-in form, a budget the first block ran past, a claim window that passed. One of them takes two forms, because a column holding something is half the reason: over an empty column the claim timeout is the wait alone, and over a column with something in front it names that entry by its own kind word — `the chart "…"` for a chart — because the column's key domain is open. A composition with no projection registry reads no column and takes the first form.
 
 ##### The claim timeout over an empty column
 
 ```markdown
-No open console is showing this session's content column (waited 3s). Call content_show to put a page there, or ask the user to open the console, then retry.
+No open, visible console tab is showing this session's content column (waited 3s).
 ```
 
 ##### The claim timeout over a column with an entry in front
 
 ```markdown
-No open console is showing this session's content column (waited 3s); the page "点位信息" is already in front. Ask the user whether they have the console open on this session, then retry. content_show cannot help here.
+No open, visible console tab is showing this session's content column (waited 3s); the page "点位信息" is already in front.
 ```
 
 #### Token effect
@@ -285,7 +297,7 @@ Append-only. The listing is a fact about the page at that moment; a second read 
 
 #### What the model sees
 
-Three tools beside `content_read`, offered on the same `pageAccess` condition. `content_read_dom` takes `scope` (required) and `after`; `content_read_attrs` and `content_read_dom_content` take `ref` (required) and nothing else. Each description says what the tool prints, that nothing in it is interpreted, and where it sits against `content_read` — which is the whole risk of offering them: a model that has just been shown a way to read a page's real markup will reach for it first, and a whole page of markup is an order of magnitude larger than the listing it would have got. `content_read_dom`'s description therefore says outright not to use it as the ordinary read, and its required `scope` makes a prior read the only way to call it at all.
+Three tools beside `content_read`, offered on the same `pageAccess` condition. `content_read_dom` takes `scope` (required) and `after`; `content_read_attrs` and `content_read_dom_content` take `ref` (required) and nothing else. Each description says what the tool prints, what it answers, and that nothing in it is interpreted, and names no sibling. The risk that rule gives up naming is real: a model shown a way to read a page's real markup may reach for it first, and a whole page of markup is an order of magnitude larger than the listing it would have got. What is left standing against it is `content_read_dom`'s required `scope`, which makes a prior read the only way to call it at all.
 
 #### Token effect
 
@@ -323,7 +335,7 @@ e36 i
 ##### A text too large for one result
 
 ```markdown
-The text of e12 comes to 61204 characters, past what this deployment's report route carries (pageAccess.outlineChars is 12000). Call content_read_dom with scope "e12" to find a smaller element to read, or ask the user to raise pageAccess.outlineChars.
+The text of e12 comes to 61204 characters, past what this deployment's report route carries (pageAccess.outlineChars is 12000).
 ```
 
 #### Token effect
@@ -368,7 +380,7 @@ Page now:
 ##### A call one step stopped
 
 ```markdown
-Step 2 failed: e5 is now "重置", not "查询" — the page changed; call content_read for current refs. Step 1 ran; later steps were skipped.
+Step 2 failed: e5 is now "重置", not "查询" — the page changed. Step 1 ran; later steps were skipped.
 Page events during these steps: none.
 Page now:
 1 main
@@ -378,7 +390,7 @@ Page now:
 ##### The console claimed the call and went quiet
 
 ```markdown
-The console claimed this call but did not report within 60s; the steps may have run partially or fully. Call content_read before deciding to retry.
+The console claimed this call but did not report within 60s; the steps may have run partially or fully.
 ```
 
 #### Token effect

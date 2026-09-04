@@ -771,11 +771,10 @@ describe('the read channel over real HTTP', () => {
     })
   })
 
-  it('tells a read the column is not empty, so the model stops reaching for content_show', async () => {
+  it('names the entry a read\'s column already holds', async () => {
     // The wiring, over the real Loader: the tool reads this session's own
-    // `contentSurface` value to decide which advice the timeout earns. A
-    // recorded run without it spent ten calls showing a page that was already
-    // in front, because the refusal named `content_show` first.
+    // `contentSurface` value to name what the column was holding while no
+    // visible tab answered for it.
     const ctx = await loadComposition(true, [], OUTLINE_CHARS, [
       "- name: '@deepseek-ai/dsh-experimental-content-surface'",
     ], 30)
@@ -784,23 +783,20 @@ describe('the read channel over real HTTP', () => {
     const result = await startRead(ctx, session, 'call_front')
     expect({ isError: result.isError, text: textOf(result) }).toEqual({
       isError: true,
-      text: 'Error: No open console is showing this session\'s content column (waited 0.03s); '
-        + 'the page "Home" is already in front. '
-        + 'Ask the user whether they have the console open on this session, then retry. '
-        + 'content_show cannot help here.',
+      text: 'Error: No open, visible console tab is showing this session\'s content column (waited 0.03s); '
+        + 'the page "Home" is already in front.',
     })
   })
 
-  it('offers content_show to a read whose column has nothing in it', async () => {
-    // The same composition with nothing shown: an empty column is the one case
-    // `content_show` does fix.
+  it('states only the wait for a read whose column has nothing in it', async () => {
+    // The same composition with nothing shown: there is no entry to name, so
+    // the sentence is the wait alone.
     const ctx = await loadComposition(true, [], OUTLINE_CHARS, [
       "- name: '@deepseek-ai/dsh-experimental-content-surface'",
     ], 30)
     const result = await startRead(ctx, hostSession(ctx), 'call_empty')
     expect(textOf(result)).toBe(
-      'Error: No open console is showing this session\'s content column (waited 0.03s). '
-      + 'Call content_show to put a page there, or ask the user to open the console, then retry.',
+      'Error: No open, visible console tab is showing this session\'s content column (waited 0.03s).',
     )
   })
 

@@ -533,11 +533,10 @@ function readOptions(request: ContentReadingRequest): Partial<SnapshotOptions> {
 /**
  * What one read is told when its answer is too wide for the wire.
  *
- * Each read composes its own, because what a model can do about it differs:
- * a listing narrows with `find` or `scope`, a tree with a ref further down, an
- * element's text with a smaller element, and an element's attributes with
- * nothing at all — that last one says so rather than offering a call that
- * cannot help.
+ * Each read composes its own, because what ran past the budget differs: the
+ * listing's first block, one element of a tree, one element's whole text, and
+ * one element's attributes, the last two of which say how many characters they
+ * came to.
  * @param request - the pending call.
  * @param chars - how long the answer came out.
  * @param budget - the deployment's configured listing budget.

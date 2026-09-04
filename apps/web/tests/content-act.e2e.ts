@@ -183,10 +183,10 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent acts on the 
       || answers.some(answer => ranBeforeFailure.test(firstLine(answer)))).toBe(true)
     expect(last.split('\n').some(line => line.startsWith('Page events during these steps'))).toBe(true)
     expect(last).toContain('\nPage now:\n')
-    // The step the page moved under: refused before it ran, and told to read
-    // again rather than press whatever now stands at that ref.
+    // The step the page moved under: refused before it ran, stating what the
+    // page carries at that ref now rather than what to do about it.
     expect(answers.some(answer => answer.includes(
-      `is now marked {class: ${BUSY_MARK}}, not {class: ${ROW_MARK}} — the page changed;`,
+      `is now marked {class: ${BUSY_MARK}}, not {class: ${ROW_MARK}} — the page changed.`,
     ))).toBe(true)
     // And the step that ran, naming the row by the mark the page shows now.
     expect(answers.some(answer => answer.includes(`click {class: ${BUSY_MARK}}`))).toBe(true)

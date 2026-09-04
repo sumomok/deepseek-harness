@@ -2662,7 +2662,7 @@ describe('when there is more page than budget', () => {
       '  e4 form "查询"  3 fields, 2 buttons',
       '  e10 table  2 rows',
       '  e11 dialog "导入设置"  hidden',
-      'Read a part with scope, e.g. content_read({ scope: "e1" }).',
+      'Read a part with scope "e1".',
     ].join('\n'))
     expect(snap.shown).toBe(5)
     expect(snap.total).toBe(5)
@@ -2741,7 +2741,7 @@ describe('when there is more page than budget', () => {
     expect(snap.kind).toBe('map')
     expect(snap.text).toBe([
       'e1 table  6 rows',
-      'Read a part with scope, e.g. content_read({ scope: "e1" }).',
+      'Read a part with scope "e1".',
     ].join('\n'))
   })
 
@@ -2758,7 +2758,7 @@ describe('when there is more page than budget', () => {
       'e1 main',
       '  e2 section "大区"  30 buttons',
       '  e33 section "小区"  1 buttons',
-      'Read a part with scope, e.g. content_read({ scope: "e2" }).',
+      'Read a part with scope "e2".',
     ].join('\n'))
   })
 

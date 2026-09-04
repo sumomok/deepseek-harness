@@ -3,31 +3,35 @@
  * description, the parameter lines, the refusals, the approval request, and the
  * three sections one call answers with.
  *
- * One home for all of it and no imports beyond the wire's own vocabulary and
- * the shared failures' one type, because both halves author some of it — the host composes what it knows
+ * One home for all of it and no imports beyond the wire's own vocabulary,
+ * because both halves author some of it — the host composes what it knows
  * before a browser has claimed the call, and the seat composes what only the
- * page can say. A failure is the only text the model reads while deciding what
- * to do next, so each one names the ref, the step, or the call that fixes it.
+ * page can say. The two rules [the shared text module](./text.ts) states hold
+ * here as well: the description describes this tool and its own parameters and
+ * names no other tool, and a failure states why the call was refused — the ref,
+ * the step or the bound that stopped it — and nothing about which tool to reach
+ * for next. The endings this tool shares with the reads are worded once, over
+ * there.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/act-text
  */
 
-import type { ToolVoice } from './text.ts'
 import {
   MAX_ACT_KEY_CHARS, MAX_ACT_TEXT_CHARS, MAX_NAME_CHARS, type ActArgs, type ActStep, type ActStepRefusal,
   type ActStepResult, type ActTarget, type DialogAnswer,
 } from './wire.ts'
 
 /**
- * The model-facing description. It names the column the way `content_read`
- * does, states that every target comes from a read, and says outright that one
- * call is one approval — the model's cost model for batching is otherwise
- * invisible to it.
+ * The model-facing description. It names the column in the user's own words,
+ * states that every target comes from an earlier read of the page, and says
+ * outright that one call is one approval — the model's cost model for batching
+ * is otherwise invisible to it.
  */
 export const CONTENT_ACT_DESCRIPTION =
   'Act on the page the user is looking at in the content column (内容区 — the column between the sidebar and '
   + 'this conversation), the way the user would: click a control, fill a box, choose '
-  + 'from a list, press a key, or wait for text to appear. Every target is a ref from a content_read, and every '
-  + 'label is that element\'s name copied from the read — the browser checks the name before it acts, so a page '
+  + 'from a list, press a key, or wait for text to appear. Every target is a ref from an earlier read of this '
+  + 'page, and every label is that element\'s name copied from the read — the browser checks the name before '
+  + 'it acts, so a page '
   + 'that changed since the read stops the call instead of clicking something else; for a row the read printed '
   + 'with no name, pass label "" and its mark, the class tokens the read printed for it. The steps run in '
   + 'order and stop at the first failure; the answer reports each step, what the page did while they ran, and a fresh '
@@ -44,7 +48,8 @@ export const ACTION_DESCRIPTION =
   + 'the page'
 
 /** The `ref` parameter line. */
-export const REF_DESCRIPTION = 'the element\'s ref from a previous content_read, like "e12"; omit only for "wait"'
+export const REF_DESCRIPTION =
+  'the element\'s ref, like "e12", printed by an earlier read of this page; omit only for "wait"'
 
 /** The `label` parameter line. */
 export const LABEL_DESCRIPTION =
@@ -82,36 +87,16 @@ export const DIALOGS_DESCRIPTION =
   + 'records what it said and stops at that step; "accept" is only permitted when the approval request said so, '
   + 'so pass it only when the user is being asked to approve confirming as well'
 
-/** Refusal for a call with no owning session, which has no column to act on. */
-export const NO_AGENT_REFUSAL = 'content_act requires an owning agent session'
-
-/** Refusal for a call the agent loop cancelled while it waited. */
-export const CANCELLED_REFUSAL = 'content_act was cancelled'
-
-/** Refusal for a column that holds nothing at all. */
-export const EMPTY_COLUMN_REFUSAL =
-  'The content column is empty. Call content_show to put a page there, then read it before acting on it.'
-
-/**
- * How `content_act` names itself in the two endings whose wording is the
- * caller's. A model told the entry in front is something `content_read cannot
- * read` has been told about the wrong call: what it asked for was steps, and
- * the tool it is told about is the one it reaches for next.
- */
-export const ACT_VOICE: ToolVoice = {
-  emptyColumn: EMPTY_COLUMN_REFUSAL,
-  cannot: 'content_act cannot act on',
-}
-
 /** Refusal for a call whose steps list is empty. */
 export const NO_STEPS_REFUSAL = 'steps must name at least one step'
 
 /** Refusal for a step whose `ref` is not one a read returned. */
-export const REF_REFUSAL = 'every step but "wait" needs ref, a ref like "e12" from a previous content_read'
+export const REF_REFUSAL =
+  'every step but "wait" needs ref, a ref like "e12" printed by an earlier read of this page'
 
 /** Refusal for a step with no `label` to check the page against. */
 export const LABEL_REFUSAL =
-  'every step but "wait" needs label, the element\'s name exactly as content_read printed it, '
+  'every step but "wait" needs label, the element\'s name exactly as the read printed it, '
   + 'or "" for a row it printed with no name'
 
 /** Refusal for a `fill` with nothing to type. */
@@ -174,7 +159,7 @@ export function stepRefusalText(refusal: ActStepRefusal): string {
  * @returns the model-facing sentence.
  */
 export function tooManyStepsRefusal(maxSteps: number): string {
-  return `steps must hold at most ${String(maxSteps)} steps; split the rest into another call`
+  return `steps must hold at most ${String(maxSteps)} steps`
 }
 
 /**
@@ -184,16 +169,15 @@ export function tooManyStepsRefusal(maxSteps: number): string {
  * @returns the model-facing sentence.
  */
 export function stepRefusal(at: number, reason: string): string {
-  return `content_act step ${String(at)}: ${reason}`
+  return `step ${String(at)}: ${reason}`
 }
 
 /**
- * What the tool adds to the unclaimed refusal it shares with `content_read`.
+ * What this tool adds to the unclaimed refusal it shares with the reads.
  *
- * The read's own sentence says a console has to be open; this says the one
- * thing a model deciding whether to retry an action needs on top of it, which
- * the read never has to say because a read that did not run changed nothing
- * either way.
+ * The shared sentence says why no browser answered; this says the one further
+ * fact a model deciding whether to retry an action needs, which a read never
+ * has to say because a read that did not run changed nothing either way.
  */
 export const NOTHING_DONE = ' Nothing was done.'
 
@@ -208,7 +192,7 @@ export const NOTHING_DONE = ' Nothing was done.'
  */
 export function unverifiedRefusal(actTimeoutMs: number): string {
   return `The console claimed this call but did not report within ${actTimeoutMs / 1000}s; `
-    + 'the steps may have run partially or fully. Call content_read before deciding to retry.'
+    + 'the steps may have run partially or fully.'
 }
 
 /**
@@ -283,7 +267,7 @@ export function approvalReason(args: ActArgs): string {
  * whose request never mentioned the dialog may not answer one.
  */
 export const DIALOGS_UNAPPROVED_REFUSAL =
-  'content_act: dialogs "accept" needs an approval request that says the page\'s own confirmation will be '
+  'dialogs "accept" needs an approval request that says the page\'s own confirmation will be '
   + 'confirmed too; this call was approved without it'
 
 /**
@@ -342,7 +326,7 @@ export function ranSummary(ran: number): string {
  * @returns the reason, without the step prefix.
  */
 export function refGoneReason(ref: string): string {
-  return `${ref} is no longer on the page; call content_read for current refs.`
+  return `${ref} is no longer on the page.`
 }
 
 /**
@@ -356,7 +340,7 @@ export function refGoneReason(ref: string): string {
  * @returns the reason, without the step prefix.
  */
 export function hiddenReason(ref: string): string {
-  return `${ref} is not visible now; call content_read for current refs.`
+  return `${ref} is not visible now.`
 }
 
 /**
@@ -373,19 +357,18 @@ export function hiddenReason(ref: string): string {
  * @returns the model-facing sentence.
  */
 export function frontChangedRefusal(now: string, approved: string): string {
-  return `The page in front is now "${now}", not "${approved}" the steps were approved for; `
-    + 'nothing was done. Ask the user, then retry.'
+  return `The page in front is now "${now}", not "${approved}" the steps were approved for; nothing was done.`
 }
 
 /**
  * The failure for a page asking the user to sign in, which no call acts on.
  *
- * `content_read` withholds such a page's listing; this withholds the steps.
- * The two are the same rule about the same page — an agent does not type into
- * a credential form — said by whichever tool the model reached for.
+ * The reads withhold such a page's reading; this withholds the steps. The two
+ * are the same rule about the same page — an agent does not type into a
+ * credential form — and each says why the call it refused was refused.
  */
 export const SIGN_IN_ACT_REFUSAL =
-  'The page shows a sign-in form; content_act will not act on it. Ask the user to sign in, then retry.'
+  'The page in the content column shows a sign-in form, which is not acted on.'
 
 /**
  * The failure for an element whose name is not the one the read printed.
@@ -395,7 +378,7 @@ export const SIGN_IN_ACT_REFUSAL =
  * @returns the reason, without the step prefix.
  */
 export function labelChangedReason(ref: string, now: string, expected: string): string {
-  return `${ref} is now "${now}", not "${expected}" — the page changed; call content_read for current refs.`
+  return `${ref} is now "${now}", not "${expected}" — the page changed.`
 }
 
 /**
@@ -407,8 +390,7 @@ export function labelChangedReason(ref: string, now: string, expected: string): 
  * @returns the reason, without the step prefix.
  */
 export function markChangedReason(ref: string, now: string, expected: string): string {
-  return `${ref} is now marked {class: ${now}}, not {class: ${expected}} — the page changed; `
-    + 'call content_read for current refs.'
+  return `${ref} is now marked {class: ${now}}, not {class: ${expected}} — the page changed.`
 }
 
 /**
@@ -418,7 +400,7 @@ export function markChangedReason(ref: string, now: string, expected: string): s
  * @returns the reason, without the step prefix.
  */
 export function occludedReason(ref: string, dialog: string): string {
-  return `${ref} is behind the open dialog "${dialog}"; act inside the dialog or close it first.`
+  return `${ref} is behind the open dialog "${dialog}".`
 }
 
 /**
@@ -438,7 +420,7 @@ export function disabledReason(ref: string, label: string): string {
  * @returns the reason, without the step prefix.
  */
 export function noOptionReason(ref: string, value: string): string {
-  return `no option reading "${value}" appeared for ${ref}; read the page to see what it offers.`
+  return `no option reading "${value}" appeared for ${ref}.`
 }
 
 /**
@@ -472,7 +454,7 @@ export function waitedReason(text: string, waitedMs: number): string {
  * @returns the reason, without the step prefix.
  */
 export function cannotActReason(ref: string, action: string): string {
-  return `${ref} is not something "${action}" can be done to; read the page for what it offers.`
+  return `${ref} is not something "${action}" can be done to.`
 }
 
 /** One thing the browser did on the page's own account while the steps ran. */

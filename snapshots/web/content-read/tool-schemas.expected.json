@@ -110,7 +110,7 @@
     },
     {
       "name": "content_act",
-      "description": "Act on the page the user is looking at in the content column (内容区 — the column between the sidebar and this conversation), the way the user would: click a control, fill a box, choose from a list, press a key, or wait for text to appear. Every target is a ref from a content_read, and every label is that element's name copied from the read — the browser checks the name before it acts, so a page that changed since the read stops the call instead of clicking something else; for a row the read printed with no name, pass label \"\" and its mark, the class tokens the read printed for it. The steps run in order and stop at the first failure; the answer reports each step, what the page did while they ran, and a fresh reading of the page. One call is one approval request, so put the steps that belong together in one call.",
+      "description": "Act on the page the user is looking at in the content column (内容区 — the column between the sidebar and this conversation), the way the user would: click a control, fill a box, choose from a list, press a key, or wait for text to appear. Every target is a ref from an earlier read of this page, and every label is that element's name copied from the read — the browser checks the name before it acts, so a page that changed since the read stops the call instead of clicking something else; for a row the read printed with no name, pass label \"\" and its mark, the class tokens the read printed for it. The steps run in order and stop at the first failure; the answer reports each step, what the page did while they ran, and a fresh reading of the page. One call is one approval request, so put the steps that belong together in one call.",
       "parameters": {
         "type": "object",
         "properties": {
@@ -134,7 +134,7 @@
                 },
                 "ref": {
                   "type": "string",
-                  "description": "the element's ref from a previous content_read, like \"e12\"; omit only for \"wait\""
+                  "description": "the element's ref, like \"e12\", printed by an earlier read of this page; omit only for \"wait\""
                 },
                 "label": {
                   "type": "string",
@@ -178,13 +178,13 @@
     },
     {
       "name": "content_read",
-      "description": "Read the page the user is looking at in the content column (内容区 — the column between the sidebar and this conversation) as a numbered structure: containers, controls, headings and text, each control carrying a ref like e12 that later calls can point at. This is the read to start from: it is the page as HTML and ARIA describe it, and it costs a fraction of the page's own markup. The default mode \"outline\" lists everything in a scope; when the whole page is too large it answers with the page's map — its containers with counts — and names the scope to read next. Tables report their header, size and one sample row: pass scope with the table's ref to list its rows, or find with a row's text to get that row and its buttons' refs. A control the page names nowhere prints its class tokens as {class: ...} instead of a name: that is the page's own markup, unread — what it means is for a skill about this application to say, and where the tokens are not enough content_read_dom prints that row's markup and content_read_attrs its attributes. A cut listing returns a cursor; pass it as after to continue. Reads only the entry in front — call content_show first to put a page there. Never returns a password box's value.",
+      "description": "Read the page the user is looking at in the content column (内容区 — the column between the sidebar and this conversation) as a numbered structure: containers, controls, headings and text, each control carrying a ref like e12 that later calls can point at. It answers with the page as HTML and ARIA describe it. The default mode \"outline\" lists everything in a scope; when the whole page is too large it answers with the page's map — its containers with counts — and names the scope to read next. Tables report their header, size and one sample row: pass scope with the table's ref to list its rows, or find with a row's text to get that row and its buttons' refs. A control the page names nowhere prints its class tokens as {class: ...} instead of a name: that is the page's own markup, unread — what it means is for a skill about this application to say. A cut listing returns a cursor; pass it as after to continue. Reads only the entry the content column has in front. Never returns a password box's value.",
       "parameters": {
         "type": "object",
         "properties": {
           "mode": {
             "type": "string",
-            "description": "\"outline\" (default) lists every item in the scope with refs; \"map\" lists only the page's containers with counts — read it first on an unfamiliar page",
+            "description": "\"outline\" (default) lists every item in the scope with refs; \"map\" lists only the page's containers with counts",
             "enum": [
               "outline",
               "map"
@@ -192,7 +192,7 @@
           },
           "scope": {
             "type": "string",
-            "description": "a ref from a previous read; read only that element's subtree — a table to list its rows, a dialog, a section"
+            "description": "a ref from a previous read; read only that element's subtree — a table to list its rows, a dialog, a section. Omit it to read the whole page"
           },
           "after": {
             "type": "string",
@@ -207,13 +207,13 @@
     },
     {
       "name": "content_read_attrs",
-      "description": "Print every attribute of one element, name and value exactly as the page wrote them — data-*, href, type, style, whatever it carries — and nothing else. The ref comes from a previous content_read or content_read_dom. Reach for it when a row's class tokens do not say enough and what identifies the row is written in an attribute; what any of it means is for a skill about this application to say and never for this tool. A password box's value is withheld.",
+      "description": "Print every attribute of one element, name and value exactly as the page wrote them — data-*, href, type, style, whatever it carries — and nothing else. The ref comes from an earlier read of this page. It answers what identifies a row where that is written in an attribute rather than in its class tokens; what any of it means is for a skill about this application to say and never for this tool. A password box's value is withheld.",
       "parameters": {
         "type": "object",
         "properties": {
           "ref": {
             "type": "string",
-            "description": "a ref from a previous content_read or content_read_dom: the one element to read"
+            "description": "a ref (like e12) printed by an earlier read of this page: the one element to read"
           }
         },
         "required": [
@@ -223,13 +223,13 @@
     },
     {
       "name": "content_read_dom",
-      "description": "Print the page's own markup under one ref: every element inside it, one per line and indented by nesting, each with its tag, its #id, its class tokens as {class: ...}, a ref of its own, and the start of the text it holds directly. Nothing is interpreted — this is what the document says, verbatim. Do not use it as the ordinary way to read a page: content_read is that, it costs a fraction as much, and scope is required here, so a ref has to come from a read first. Reach for this one when content_read printed a row it could name nothing, or printed nothing where the user can see something, and a skill about this application needs the tokens or the tag to say what that row is. Every element printed keeps a ref content_act can act on and the other reads can point at. A long text is cut on its line and says so; content_read_dom_content prints one element's whole text and content_read_attrs prints its attributes. A cut tree returns a cursor: pass it as after, with the same scope. Never prints a password box's value.",
+      "description": "Print the page's own markup under one ref: every element inside it, one per line and indented by nesting, each with its tag, its #id, its class tokens as {class: ...}, a ref of its own, and the start of the text it holds directly. Nothing is interpreted — this is what the document says, verbatim. It answers what a row of the page is built from — the tag, the id and the class tokens — which is what a skill about this application reads to say what a row the page names nowhere is. scope is required, so the markup is always printed under one element. Every element printed keeps a ref that later calls can point at and act on. A long text is cut on its line and says so. A cut tree returns a cursor: pass it as after, with the same scope. Never prints a password box's value.",
       "parameters": {
         "type": "object",
         "properties": {
           "scope": {
             "type": "string",
-            "description": "a ref from a previous content_read or content_read_dom: the element whose markup to print, and everything inside it"
+            "description": "a ref (like e12) printed by an earlier read of this page: the element whose markup to print, and everything inside it"
           },
           "after": {
             "type": "string",
@@ -243,13 +243,13 @@
     },
     {
       "name": "content_read_dom_content",
-      "description": "Print the whole visible text of one element as the page renders it: a line break wherever the page breaks the line, and nothing the page hides. Nothing is cut. The ref comes from a previous content_read or content_read_dom — reach for it when a listing or a tree line cut a text short and the rest of it is what you need. A text larger than one result can carry is refused, with its size, rather than shortened.",
+      "description": "Print the whole visible text of one element as the page renders it: a line break wherever the page breaks the line, and nothing the page hides. Nothing is cut, so a long text — a paragraph, a cell, a message — arrives entire. The ref comes from an earlier read of this page. A text larger than one result can carry is refused, with its size, rather than shortened.",
       "parameters": {
         "type": "object",
         "properties": {
           "ref": {
             "type": "string",
-            "description": "a ref from a previous content_read or content_read_dom: the one element to read"
+            "description": "a ref (like e12) printed by an earlier read of this page: the one element to read"
           }
         },
         "required": [

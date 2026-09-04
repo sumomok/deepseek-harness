@@ -8,11 +8,12 @@
  * session with no console open is told exactly that rather than given a stale
  * or invented answer.
  *
- * Every ending is a sentence naming what to do next — call `content_show`, drop
- * `scope`, ask the user, retry once — because a failure is the only tool text
- * the model reads while deciding its next step. A page asking for a sign-in is
- * a failure too: its listing is withheld rather than described, so a password
- * form never becomes something the model narrates around.
+ * Every ending is a sentence stating why the call was refused and naming no
+ * other tool, which is the rule
+ * [the shared text module](./text.ts) holds every string of this channel to. A
+ * page asking for a sign-in is a failure too: its listing is withheld rather
+ * than described, so a password form never becomes something the model narrates
+ * around.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/read-tool
  */
 
@@ -21,7 +22,7 @@ import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepse
 import type { CallTimeouts, PendingCalls } from './pending.ts'
 import {
   AFTER_DESCRIPTION, AFTER_REFUSAL, CONTENT_READ_DESCRIPTION, failureRefusal,
-  FIND_DESCRIPTION, FIND_REFUSAL, MISREPORTED_REFUSAL, MODE_DESCRIPTION, READ_VOICE,
+  FIND_DESCRIPTION, FIND_REFUSAL, MISREPORTED_REFUSAL, MODE_DESCRIPTION,
   readHeaderText, SCOPE_DESCRIPTION, SCOPE_REFUSAL, SIGN_IN_REFUSAL,
 } from './text.ts'
 import { awaitRead, PAGE_VALUE_SCHEMA, pathOf, readBody, type FrontEntryLookup } from './read-value.ts'
@@ -83,7 +84,7 @@ function refuseArgs(args: ReadArgs): string | undefined {
  * asking the user to sign in.
  */
 function valueOf(outcome: ReadOutcome): ContentReadValue {
-  if (outcome.status === 'error') throw new Error(failureRefusal(outcome, READ_VOICE))
+  if (outcome.status === 'error') throw new Error(failureRefusal(outcome))
   const { snapshot } = outcome
   // Withheld rather than described: the page is asking for a password, and the
   // model's next step is to hand the keyboard back, not to narrate the form.
@@ -192,7 +193,7 @@ export function contentReadTool(
     async execute(args, exec): Promise<ContentReadValue> {
       const refusal = refuseArgs(args)
       if (refusal !== undefined) throw new Error(refusal)
-      return await awaitRead({ pending, timeouts, front }, CONTENT_READ_TOOL_NAME, exec, valueOf)
+      return await awaitRead({ pending, timeouts, front }, exec, valueOf)
     },
     presentCall: (args): GenericCallView => {
       const summary = callSummary(args)

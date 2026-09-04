@@ -17,17 +17,17 @@ import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { CallTimeouts, PendingCalls } from './pending.ts'
 import {
-  cancelledRefusal, MISREPORTED_REFUSAL, noAgentRefusal, unansweredRefusal, unclaimedRefusal, type FrontEntry,
+  CANCELLED_REFUSAL, MISREPORTED_REFUSAL, NO_AGENT_REFUSAL, unansweredRefusal, unclaimedRefusal, type FrontEntry,
 } from './text.ts'
 import { isActOutcome, type ReadOutcome, type ReadSnapshot } from './wire.ts'
 
 /**
  * Read the entry one session's column has in front.
  *
- * Only the unclaimed refusal reads it, and only to say what the model should
- * do instead. A composition with no projection registry supplies a lookup that
- * answers `undefined`, which is the same answer an empty column gives and the
- * same advice it earns.
+ * Only the unclaimed refusal reads it, and only to state what the column was
+ * holding while no seat answered for it. A composition with no projection
+ * registry supplies a lookup that answers `undefined`, which is the same answer
+ * an empty column gives and the same sentence it earns.
  */
 export type FrontEntryLookup = (session: Session) => FrontEntry | undefined
 
@@ -52,7 +52,7 @@ export const PAGE_VALUE_SCHEMA = {
   required: true,
   description: 'The page the column had in front.',
   properties: {
-    id: { type: 'string', required: true, description: 'The id content_show names this page by.' },
+    id: { type: 'string', required: true, description: 'The page\'s configured id.' },
     title: { type: 'string', required: true, description: 'The page\'s configured title.' },
   },
 } as const
@@ -117,12 +117,10 @@ export function pathOf(url: string): string {
  * Wait for a browser to answer one read, and turn what it posted into the
  * calling tool's own value.
  *
- * Every ending but the listing itself is a rejection naming what to do next,
- * and each names the tool that was called: a model deciding its next step reads
- * the sentence about the call it just made, and one naming another tool sends
- * it somewhere it did not ask about.
+ * Every ending but the listing itself is a rejection stating why this call was
+ * refused. None of them names a tool: the reason is the same whichever read
+ * asked, and what to do about it is read off the tools' own descriptions.
  * @param wait - the table, the deadlines, and the column lookup the unclaimed refusal reads.
- * @param tool - the calling tool's wire name.
  * @param exec - the execution: its call id opens the wait and its signal cancels it.
  * @param take - how the calling tool reads the outcome it was answered.
  * @returns the calling tool's value.
@@ -131,14 +129,13 @@ export function pathOf(url: string): string {
  */
 export async function awaitRead<T>(
   wait: ReadWait,
-  tool: string,
   exec: ToolRunContext,
   take: (outcome: ReadOutcome) => T,
 ): Promise<T> {
   // The column is per-session state, and the pending list a browser reads is
   // that session's projection; a caller with no owning session has no column to
   // be shown one.
-  if (!exec.agent) throw new Error(noAgentRefusal(tool))
+  if (!exec.agent) throw new Error(NO_AGENT_REFUSAL)
   const settlement = await wait.pending.open(exec.callId, exec.agent.session.header.id, exec.signal, wait.timeouts)
   switch (settlement.kind) {
     case 'reported': {
@@ -152,8 +149,8 @@ export async function awaitRead<T>(
     case 'unanswered': throw new Error(unansweredRefusal(wait.timeouts.answerTimeoutMs))
     // Whatever this throws is replaced by the registry's aborted result; the
     // message exists for a caller reading the rejection directly.
-    case 'aborted': throw new Error(cancelledRefusal(tool))
+    case 'aborted': throw new Error(CANCELLED_REFUSAL)
     /* v8 ignore next 2 -- the settlement union is closed and typed; the arm keeps a new member loud. */
-    default: throw new Error(`${tool}: unknown settlement ${JSON.stringify(settlement)}`)
+    default: throw new Error(`content-frame: unknown settlement ${JSON.stringify(settlement)}`)
   }
 }

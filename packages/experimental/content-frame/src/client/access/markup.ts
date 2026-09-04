@@ -20,7 +20,7 @@
 import {
   CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME,
 } from '../../access/wire.ts'
-import { moreTextMarker, NO_ATTRIBUTES_LINE, NO_TEXT_LINE, WITHHELD } from '../../access/text.ts'
+import { MORE_TEXT_MARKER, NO_ATTRIBUTES_LINE, NO_TEXT_LINE, WITHHELD } from '../../access/text.ts'
 import type { ContentMarkupRequest } from '../../types.ts'
 import { childHost, clipTo, collapse, isInline, isNonContent, isOpaque, isPassword, isSkipped } from './dom.ts'
 import { entry, indent, printedMark, resume, type Entry, type Listing } from './render.ts'
@@ -32,11 +32,10 @@ import type { RefTable } from './refs.ts'
  * How much of one element's own text a tree line prints before it is cut.
  *
  * A tree line exists to say which element this is, and the first words an
- * element holds are what say it; the rest is what `content_read_dom_content`
- * is for, and the cut line names that call. Shorter than the listing's own
- * 200-character run because a tree prints a line per element rather than per
- * item, so a subtree of fifty elements would spend its whole budget on text
- * nobody asked for.
+ * element holds are what say it; a line that printed only part of them says so.
+ * Shorter than the listing's own 200-character run because a tree prints a line
+ * per element rather than per item, so a subtree of fifty elements would spend
+ * its whole budget on text nobody asked for.
  */
 const LINE_TEXT_LIMIT = 80
 
@@ -84,7 +83,7 @@ function treeLine(el: Element, depth: number, refs: RefTable): string {
   if (isPassword(el)) return `${head} ${WITHHELD}`
   const own = collapse(directText(el))
   const cut = own.length > LINE_TEXT_LIMIT
-  return `${head}${own === '' ? '' : ` "${clipTo(own, LINE_TEXT_LIMIT)}"`}${cut ? moreTextMarker(ref) : ''}`
+  return `${head}${own === '' ? '' : ` "${clipTo(own, LINE_TEXT_LIMIT)}"`}${cut ? MORE_TEXT_MARKER : ''}`
 }
 
 /**

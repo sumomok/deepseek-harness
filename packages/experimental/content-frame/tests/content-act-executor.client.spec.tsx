@@ -315,11 +315,11 @@ describe('what stops a call', () => {
       {
         index: 2,
         status: 'failed',
-        message: 'e1 is now "重置", not "查询" — the page changed; call content_read for current refs.',
+        message: 'e1 is now "重置", not "查询" — the page changed.',
       },
     ])
     expect(outcome.text).toContain(
-      'Step 2 failed: e1 is now "重置", not "查询" — the page changed; call content_read for current refs. '
+      'Step 2 failed: e1 is now "重置", not "查询" — the page changed. '
       + 'Step 1 ran; later steps were skipped.',
     )
   })
@@ -342,7 +342,7 @@ describe('what stops a call', () => {
       index: 1,
       status: 'failed',
       message: 'e1 is now marked {class: el-tooltip el-icon-delete}, '
-        + 'not {class: el-tooltip el-icon-edit} — the page changed; call content_read for current refs.',
+        + 'not {class: el-tooltip el-icon-edit} — the page changed.',
     }])
   })
 
@@ -356,7 +356,7 @@ describe('what stops a call', () => {
       { action: 'click', ref: ref('#save'), label: '保存' },
     ])
     expect(outcome.steps).toEqual([
-      { index: 1, status: 'failed', message: 'e1 is no longer on the page; call content_read for current refs.' },
+      { index: 1, status: 'failed', message: 'e1 is no longer on the page.' },
       { index: 2, status: 'skipped' },
     ])
     expect(seen).toEqual([])
@@ -370,7 +370,7 @@ describe('what stops a call', () => {
     expect(outcome.steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'e1 is behind the open dialog "编辑设备"; act inside the dialog or close it first.',
+      message: 'e1 is behind the open dialog "编辑设备".',
     }])
   })
 
@@ -405,7 +405,7 @@ describe('what stops a call', () => {
     expect(outcome.steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'e1 is not visible now; call content_read for current refs.',
+      message: 'e1 is not visible now.',
     }])
   })
 
@@ -420,8 +420,7 @@ describe('what stops a call', () => {
     expect(outcome).toEqual({
       status: 'error',
       code: 'front-changed',
-      message: 'The page in front is now "Home", not "报表" the steps were approved for; '
-        + 'nothing was done. Ask the user, then retry.',
+      message: 'The page in front is now "Home", not "报表" the steps were approved for; nothing was done.',
     })
   })
 
@@ -454,8 +453,7 @@ describe('what stops a call', () => {
     expect(posted.find(entry => entry.route === CONTENT_REPORT_ROUTE)?.body.outcome).toEqual({
       status: 'error',
       code: 'sign-in',
-      message: 'The page shows a sign-in form; content_act will not act on it. '
-        + 'Ask the user to sign in, then retry.',
+      message: 'The page in the content column shows a sign-in form, which is not acted on.',
     })
   })
 
@@ -472,7 +470,7 @@ describe('what stops a call', () => {
     expect(native.steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'no option reading "东风" appeared for e1; read the page to see what it offers.',
+      message: 'no option reading "东风" appeared for e1.',
     }])
   })
 
@@ -485,7 +483,7 @@ describe('what stops a call', () => {
     expect(outcome.steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'no option reading "东风" appeared for e1; read the page to see what it offers.',
+      message: 'no option reading "东风" appeared for e1.',
     }])
   }, 10_000)
 
@@ -496,7 +494,7 @@ describe('what stops a call', () => {
     expect(outcome.steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'e1 is behind the open dialog "筛选"; act inside the dialog or close it first.',
+      message: 'e1 is behind the open dialog "筛选".',
     }])
   })
 
@@ -506,7 +504,7 @@ describe('what stops a call', () => {
     expect(outcome.steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'e1 is not something "fill" can be done to; read the page for what it offers.',
+      message: 'e1 is not something "fill" can be done to.',
     }])
   })
 
@@ -995,7 +993,7 @@ describe('the documents one call reaches', () => {
     expect(outcome.steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'e1 is behind the open dialog "编辑设备"; act inside the dialog or close it first.',
+      message: 'e1 is behind the open dialog "编辑设备".',
     }])
   })
 
@@ -1023,7 +1021,7 @@ describe('the documents one call reaches', () => {
     expect(outcome.steps).toEqual([{
       index: 1,
       status: 'failed',
-      message: 'e1 is behind the open dialog "编辑设备"; act inside the dialog or close it first.',
+      message: 'e1 is behind the open dialog "编辑设备".',
     }])
   })
 
@@ -1075,7 +1073,7 @@ describe('what the call answers with', () => {
     })
     const outcome = await run([{ action: 'click', ref: ref('#out'), label: '退出登录' }])
     expect(outcome.status).toBe('done')
-    expect(outcome.text).toContain('Page now:\nThe page shows a sign-in form; ask the user to sign in, then retry.')
+    expect(outcome.text).toContain('Page now:\nThe page in the content column shows a sign-in form, which is not read.')
     // Nothing the page drew is quoted anywhere else in the report, so the form
     // it drew is withheld whole.
     expect(outcome.text).toContain('Page events during these steps: none.')

@@ -46,7 +46,7 @@ Two things are asked of the page as a whole instead: a `wait` step looks for its
 
 ### Not on a page asking the user to sign in
 
-`content_read` refuses to hand over the listing of a page showing a sign-in form. A channel that types into one would be the way around that rule, so the same verdict — the reader's own, taken from the page's header — gates the steps: a call against such a page fails before its first step and says so. The closing read is checked again, because the steps themselves can produce one (a sign-out, a session that expired mid-call), and its structure is withheld from the report the way the read withholds it. The refusal is a wire code of its own, worded by the seat, because the model reaching for `content_act` is the one being told.
+`content_read` refuses to hand over the listing of a page showing a sign-in form. A channel that types into one would be the way around that rule, so the same verdict — the reader's own, taken from the page's header — gates the steps: a call against such a page fails before its first step and says so. The closing read is checked again, because the steps themselves can produce one (a sign-out, a session that expired mid-call), and its structure is withheld from the report the way the read withholds it. The refusal is a wire code of its own, worded by the seat: what it states is that no steps are run on a credential form, which is a different fact from the reads' own refusal of the same page, and [the self-contained-copy note](2026-09-04-self-contained-tool-copy.md) holds both to stating why and nothing more.
 
 ### The events are the ones a user produces
 

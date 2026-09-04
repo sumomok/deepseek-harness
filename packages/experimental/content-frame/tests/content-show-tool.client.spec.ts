@@ -109,7 +109,7 @@ describe('content_show', () => {
       signal,
     })
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain('content_show requires an owning agent session')
+    expect(text(result)).toContain('This call has no owning agent session')
   })
 
   it('pins the model-visible schema verbatim', async () => {

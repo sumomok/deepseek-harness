@@ -28,6 +28,7 @@ kind: "package-reference"
 - [读一个还没画完的页面](#reading-a-page-that-has-not-finished-drawing-itself)
 - [在聊天记录里隐藏 `show-content-page` 命令](#hiding-the-show-content-page-command-from-the-chat-transcript)
 - [组合方式](#composition)
+- [工具说什么，以及永远不说什么](#the-copy-rule)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
 - [开发备注](#dev-note)
@@ -90,11 +91,11 @@ kind: "package-reference"
 
 同一个块再交给 agent 三件读取，三件回答的都是原文而不是含义：`content_read_dom` 把一棵子树打成缩进的树——一行一个元素，带它的标签名、`#id`、以 `{class: …}` 形式给出的 class 词元、它自己的 ref，以及它直接持有的文字的开头；`content_read_attrs` 打印一个元素的全部属性，名与值按页面写的原样给出；`content_read_dom_content` 打印一个元素的全部可见文字，页面在哪里换行就在哪里换行，且从不截断。
 
-**它们是为 `content_read` 叫不出名字的那一行而存在的。** 一个组件库的行内命令没有 role、没有名字、没有 title、也没有指针光标，于是清单把那一列打成空的，而用户在那里看见两个图标。`content_read` 仍是起手要用的那一读——它是页面按 HTML 与 ARIA 所描述的样子，比其下的原文小一个数量级，并且是 ref 的唯一来源——三件读取各自的描述都这么说，`content_read_dom` 说得最重：`scope` 必填，因此必须先跑过一次清单；描述里更直接拒绝了「拿它当默认读法」这个念头。
+**它们是为 `content_read` 叫不出名字的那一行而存在的。** 一个组件库的行内命令没有 role、没有名字、没有 title、也没有指针光标，于是清单把那一列打成空的，而用户在那里看见两个图标。`content_read` 仍是一页从那里起手的读法——它是页面按 HTML 与 ARIA 所描述的样子，比其下的原文小一个数量级，并且是 ref 的唯一来源——但没有任何一段描述这么说，因为[这里每段描述只描述自己那件工具](#the-copy-rule)。挡住「整页原文」的是 `content_read_dom` 必填的 `scope`：它让「先读一次」成为调用它的唯一途径。
 
 **任何时候都不解读。** 标签名、id、class 词元与属性值，按文档的拼写、按文档持有的顺序原样打印。`op-a` 或 `el-icon-edit` 是什么意思，该由一份关于那个应用的技能来说；本包只打印，绝不猜。树形行打印的 class 词元，与清单为无名行打印的是同一个 `elementMark`，因此一次 `content_act` 步骤点名树里找到的行时，带的就是树给它看的那串字符，座位会逐字符比对两者。
 
-**各自的天花板与做法。** 树与清单一样按 `outlineChars` 渲染，并为其余部分给出游标——把它连同同一个 `scope` 一起作为 `after` 传回。另外两件从不裁断：一个元素的属性与一个元素的文字，要么整份答出、要么不答；超出回报路由所能承载的答案会被拒绝，并报出它的字符数与补救办法——文字读取的补救是换一个更小的 ref，属性读取的补救则是部署方自己的 `outlineChars`，因为一个元素的属性没有更窄的读法。树打印的每个元素都保留一个 ref，因此对某一行做一次 `content_read_dom`，也是模型够到某个清单从未给过它把手的元素的方式。
+**各自的天花板与做法。** 树与清单一样按 `outlineChars` 渲染，并为其余部分给出游标——把它连同同一个 `scope` 一起作为 `after` 传回。另外两件从不裁断：一个元素的属性与一个元素的文字，要么整份答出、要么不答；超出回报路由所能承载的答案会被拒绝，并报出它的字符数与它越过的那个预算。树打印的每个元素都保留一个 ref，因此对某一行做一次 `content_read_dom`，也是模型够到某个清单从未给过它把手的元素的方式。
 
 只读，条件与清单完全相同：同样的认领与回报路由、同样的待办 projection、同样的「面前那个页面」、以及同样的扣留——正在要求登录的页面回的是一句拒绝而不是它的原文，因为一个登录页的原文就是那张凭据表单本身。`content_read_attrs` 从不返回密码控件的 `value`，树形行与整文读取也都不打印一个在 `autocomplete` 里声明了密码的 `textarea` 把值存在其中的那段文本：三者都在它的位置上回 `(password withheld)`；而一个控件是不是密码控件，看的是它的 `type` 或那个属性，在 HTML 给了自动填充字段名的那三种标签上都算。
 
@@ -117,7 +118,7 @@ kind: "package-reference"
 
 宿主无法指名某个浏览器，所以调用是反向走的。两个工具共用这条通道。工具体不写任何东西：它登记一次等待，并把这次调用发布到该会话自己的 `contentAccess` projection 上，而每个已连接的浏览器本来就在接收它。正在展示该会话的 page 座位在 `POST /content-frame/claim` 上认领这次调用，把活干完——遍历 frame 的文档，或者把步骤跑在它上面——再把答案 `POST /content-frame/report` 回来。只有认领方那个标签页的回报会被接受——这也是「认领」是一次往返而不是一次通告的原因，也是同一个会话上开着的两个控制台只会跑一份步骤而不是两份的原因。两个工具的差别只在回传的那份文档，由它自己的 status 区分；开出这次等待的那个工具，才是判断手上这份文档答不答得了自己这次调用的那一方。
 
-两道截止时间，因为「没有打开的控制台」和「应答过的控制台失联了」是两个不同的事实，模型对二者的下一步也不同。`claimTimeoutMs` 内无人认领的调用被告知没有控制台在展示这个会话；已认领但 `readTimeoutMs` 内没有回报的调用被告知重试一次。同一会话连续的读取黏在同一个标签页上：上次应答的标签页在 `pinMs` 内优先，别的标签页的认领会被短暂挂起，好让优先的那个先拿。ref 指的是某一份文档里的元素，两个控制台轮流应答会把指不到任何东西的 ref 交给模型。
+两道截止时间，因为「没有打开的控制台」和「应答过的控制台失联了」是两个不同的事实，模型对二者的下一步也不同。`claimTimeoutMs` 内无人认领的调用被告知没有控制台在展示这个会话；已认领但 `readTimeoutMs` 内没有回报的调用被告知控制台没有作答。同一会话连续的读取黏在同一个标签页上：上次应答的标签页在 `pinMs` 内优先，别的标签页的认领会被短暂挂起，好让优先的那个先拿。ref 指的是某一份文档里的元素，两个控制台轮流应答会把指不到任何东西的 ref 交给模型。
 
 两道截止时间都不是一次尝试就用完的。宿主还不知道的那次认领会一直重新出价——只要这次调用还在该会话的待办列表上——间隔从 200ms 翻倍到一秒：座位这一侧的竞领由「调用还在等」界住，而不是由那两道截止界住；此外还有一道十分钟的上限，过了就彻底放手：写到一半停下的宿主会留下一个开了却永不结束的调用，而一份人打算去答的审批，到那时早就答完了。审批需要的正是这一点：`content_act` 要等有人答完请求之后才登记等待，所以在那之前每一次认领都被答「不知道这次调用」，而一个在宿主认领窗口就放弃的座位，会在用户还在读那份请求的时候停止竞领。认领没能送达——请求丢了、断网了一下——同样这么重投；列表的第一次回报没能送达时会再发一次：用户眼前一直摆着控制台，不该由一次丢包去告诉模型这里没有控制台。座位放弃过的调用——出价被拒、认领被别的标签页拿走、到了上限、待办列表在底下抖空了一帧——不会被记成「已回答」，而是被遗忘，因为它在宿主那儿还开着：下一帧带着它的投影，就是这个座位重新出价的那一帧。在回报截止时间之内，座位最多花一半等一个还在加载的页面，因为宿主从授予认领那一刻就开始计时，遍历与回程需要剩下的那一半。
 
@@ -210,6 +211,17 @@ kind: "package-reference"
 
 工具、命令、各 projection 与 page extractor 都是可选子节点：没有 `ctx.tools`、`ctx.commands`、`ctx.sessionProjections` 或 `ctx.contentSurface` 的组合仍保留路由，只是这一栏里什么都不显示；任何一项缺席都不会让该行失败。
 
+<a id="the-copy-rule"></a>
+## 工具说什么，以及永远不说什么
+
+这个包的工具文案受两条规则约束——每段工具描述、每段参数说明、每句拒绝与失败文案、每条结果提示、输出 schema 的每个字段说明——理由归 [self-contained-copy Agent Note](../../../.agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.zh.md) 记载。`src/perception/text.ts` 里的请求上下文行不在这两条规则之内，仍然点名 `content_read` 和 `content_show`：它们是[内容栏上下文](#the-content-column-context)，是模型对这条通道的地图，而不是某一件工具自己的文案；它们归该 Note 的 [Where the rules do not reach](../../../.agents/notes/implemented/feature/2026-09-04-self-contained-tool-copy.zh.md#where-the-rules-do-not-reach) 一节管辖。
+
+**一段描述只描述它自己那件工具，或者它自己那个参数，不点名任何别的工具。** 没有哪段描述会说某个同伴更便宜、是起手那一读、或者 ref 从哪里来；每段只说它收什么、打印什么、答什么。模型是读完全部描述之后挑工具的。
+
+**一句失败只说这次调用为何被拒，别的都不说。** 没有哪句拒绝会点名该改调哪件工具、要求去问用户、或者叫人重试：栏是空的、在前面那一项不是页面、页面显示的是登录表单、等待窗口内没有可见的控制台标签页认领、答案超出了预算。拒绝确实会点名这件工具自己的参数——比如 `scope must be a ref like "e12" printed by an earlier read of this page`——因为那正是理由，而不是补救。
+
+两条规则是在一次真机 A/B 之后一起改的：两条提示，每格一个全新会话，互相点名的文案对只写自己的文案。互相点名那一臂里，提示 A 被拒的那一次调用是 `content_read` 传 `mode: "dom"`，提示 B 是 `content_read` 传 `scope: ""`，各一次。只写自己那一臂里，提示 A 直接调了 `content_read_dom`，但另花两次调用给 `content_read` 传 `mode: "find"`；提示 B 首调 `content_read` 传 `scope: "__page__"`——被拒调用分别是两次和一次。这次改动针对的那个误路由没有复现；两臂都仍然在首调时自己编了一个 `scope` 值，也都把一个词当成了 `mode` 的取值，所以那一行参数说明现在写明「不传 `scope` 即读整页」。调用总数从 13→11、11→9，整树 DOM 读取从 3→1、2→1，四格答案全部正确；每格 n = 1 且温度未控，这些数字是观察，不是测量。[`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) 走遍两个文案模块的全部导出、一次读取回复的清单，以及六件工具装配后定义里的每一段描述，其中出现任何工具名都会失败。
+
 <a id="model-experience"></a>
 ## Model Experience
 
@@ -231,7 +243,7 @@ kind: "package-reference"
 
 #### What the model sees
 
-调用成功时回复恰好是 `Now showing <title> in the content column.` 或 `Content column cleared.`。部署未配置的 id 回复 `Error: unknown page "<id>". Available pages:` 后接完整清单，因此模型从结果里自纠错，而不是靠猜测重试；这次调用不改变任何东西。没有归属会话的调用回复 `Error: content_show requires an owning agent session`。每次成功调用追加的 `content/shown` 事件属于 UI 与重放状态，不是第二条模型消息。
+调用成功时回复恰好是 `Now showing <title> in the content column.` 或 `Content column cleared.`。部署未配置的 id 回复 `Error: unknown page "<id>". Available pages:` 后接完整清单，因此模型从结果里自纠错，而不是靠猜测重试；这次调用不改变任何东西。没有归属会话的调用回复 `Error: This call has no owning agent session`。每次成功调用追加的 `content/shown` 事件属于 UI 与重放状态，不是第二条模型消息。
 
 #### Token effect
 
@@ -259,18 +271,18 @@ kind: "package-reference"
 
 #### What the model sees
 
-读取成功时回复一个文本块：一行 `Page: <title> — the app is at <path>, title "<document title>"`；随后各占一行的是页面打开着的对话框名称、页面自称还在加载的东西、以及这次读取时它是否还在变；再往下是列表本身。整页超出预算时回的是页面骨架，并在第一行说明这一点；被截断的列表末尾给出接着读的游标，作为 `after` 传回。其余每一种结局都是一句写明下一步的错误：调用 `content_show`、去掉 `scope`、读页面更小的一块或者把 `outlineChars` 调大、请用户登录、请用户打开控制台，或者重试一次。其中一种有两副面孔，因为下一步该做什么取决于这一栏已经装着什么：空栏上的认领超时保留那句能修好它的建议；已经有东西在前面的栏上，这句建议被收回并明说收回，那一项按它自己的 kind 词点名——图表就是 `the chart "…"`——因为这一栏的 key 域是开放的，而 `content_show` 对在前面的图表和对页面一样帮不上忙。没有组合 projection registry 的装配读不到栏，走第一副面孔。
+读取成功时回复一个文本块：一行 `Page: <title> — the app is at <path>, title "<document title>"`；随后各占一行的是页面打开着的对话框名称、页面自称还在加载的东西、以及这次读取时它是否还在变；再往下是列表本身。整页超出预算时回的是页面骨架，并在第一行说明这一点；被截断的列表末尾给出接着读的游标，作为 `after` 传回。其余每一种结局都是一句只写明这次读取为何被拒的错误，别的什么都不写——栏是空的、在前面那一项不是页面、页面正在要求登录、第一块就超出了预算、认领窗口过去了。其中一种有两副面孔，因为「栏里装着东西」本身就是理由的另一半：空栏上的认领超时只说这次等待；已经有东西在前面的栏上，那一项按它自己的 kind 词点名——图表就是 `the chart "…"`——因为这一栏的 key 域是开放的。没有组合 projection registry 的装配读不到栏，走第一副面孔。
 
 ##### The claim timeout over an empty column
 
 ```markdown
-No open console is showing this session's content column (waited 3s). Call content_show to put a page there, or ask the user to open the console, then retry.
+No open, visible console tab is showing this session's content column (waited 3s).
 ```
 
 ##### The claim timeout over a column with an entry in front
 
 ```markdown
-No open console is showing this session's content column (waited 3s); the page "点位信息" is already in front. Ask the user whether they have the console open on this session, then retry. content_show cannot help here.
+No open, visible console tab is showing this session's content column (waited 3s); the page "点位信息" is already in front.
 ```
 
 #### Token effect
@@ -285,7 +297,7 @@ No open console is showing this session's content column (waited 3s); the page "
 
 #### What the model sees
 
-在 `content_read` 旁边再提供三件工具，开启条件与它同为 `pageAccess`。`content_read_dom` 收 `scope`（必填）与 `after`；`content_read_attrs` 与 `content_read_dom_content` 各收一个 `ref`（必填），别的都不收。每段描述都写明这件工具打印什么、其中没有任何解读，以及它相对 `content_read` 站在哪里——而这正是提供它们的全部风险：一个刚被展示了「有办法读到页面真正原文」的模型会先伸手去拿，而整页原文比它本可以拿到的清单大一个数量级。因此 `content_read_dom` 的描述直说不要拿它当默认读法，而它必填的 `scope` 让「先读一次」成为调用它的唯一途径。
+在 `content_read` 旁边再提供三件工具，开启条件与它同为 `pageAccess`。`content_read_dom` 收 `scope`（必填）与 `after`；`content_read_attrs` 与 `content_read_dom_content` 各收一个 `ref`（必填），别的都不收。每段描述都写明这件工具打印什么、答的是什么问题、其中没有任何解读，并且不点名任何同伴。这条规则放弃点名所换来的风险是真的：一个刚被展示了「有办法读到页面真正原文」的模型可能先伸手去拿，而整页原文比它本可以拿到的清单大一个数量级。仍然挡在那里的是 `content_read_dom` 必填的 `scope`：它让「先读一次」成为调用它的唯一途径。
 
 #### Token effect
 
@@ -323,7 +335,7 @@ e36 i
 ##### A text too large for one result
 
 ```markdown
-The text of e12 comes to 61204 characters, past what this deployment's report route carries (pageAccess.outlineChars is 12000). Call content_read_dom with scope "e12" to find a smaller element to read, or ask the user to raise pageAccess.outlineChars.
+The text of e12 comes to 61204 characters, past what this deployment's report route carries (pageAccess.outlineChars is 12000).
 ```
 
 #### Token effect
@@ -368,7 +380,7 @@ Page now:
 ##### A call one step stopped
 
 ```markdown
-Step 2 failed: e5 is now "重置", not "查询" — the page changed; call content_read for current refs. Step 1 ran; later steps were skipped.
+Step 2 failed: e5 is now "重置", not "查询" — the page changed. Step 1 ran; later steps were skipped.
 Page events during these steps: none.
 Page now:
 1 main
@@ -378,7 +390,7 @@ Page now:
 ##### The console claimed the call and went quiet
 
 ```markdown
-The console claimed this call but did not report within 60s; the steps may have run partially or fully. Call content_read before deciding to retry.
+The console claimed this call but did not report within 60s; the steps may have run partially or fully.
 ```
 
 #### Token effect

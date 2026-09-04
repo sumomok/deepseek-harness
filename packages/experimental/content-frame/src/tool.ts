@@ -10,7 +10,11 @@
 
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
+import { NO_AGENT_REFUSAL } from './access/text.ts'
 import { CLEAR_PAGE, type PageIndex } from './pages.ts'
+
+/** Wire name of the tool that puts one page in the content column. */
+export const CONTENT_SHOW_TOOL_NAME = 'content_show'
 
 /** Opening paragraph: what the column is, from where the model sits. */
 const DESCRIPTION_HEAD =
@@ -63,7 +67,7 @@ const CLEARED_TEXT = 'Content column cleared.'
  */
 export function contentShowTool(pages: PageIndex): ToolDefinition {
   return defineTool({
-    name: 'content_show',
+    name: CONTENT_SHOW_TOOL_NAME,
     description: describeContentShow(pages),
     parameters: {
       page: {
@@ -89,7 +93,7 @@ export function contentShowTool(pages: PageIndex): ToolDefinition {
     execute(args, exec) {
       // The column is per-session state, and the session log is where it
       // lives; a caller with no owning session has nowhere to write it.
-      if (!exec.agent) throw new Error('content_show requires an owning agent session')
+      if (!exec.agent) throw new Error(NO_AGENT_REFUSAL)
       if (args.page === CLEAR_PAGE) {
         exec.agent.session.append('content/shown', { page: null, by: 'agent' })
         return Promise.resolve({ page: CLEAR_PAGE })

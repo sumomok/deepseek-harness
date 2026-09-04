@@ -711,9 +711,7 @@ describe('what the reader reports', () => {
     expect(reported()).toEqual({
       status: 'error',
       code: 'frame',
-      message: 'The page\'s first block alone is wider than this deployment\'s read budget. '
-        + 'Call content_read with find, or with scope and a ref from a previous read, '
-        + 'to read a smaller part of the page, or ask the user to raise pageAccess.outlineChars.',
+      message: 'The page\'s first block alone is wider than this deployment\'s read budget (pageAccess.outlineChars).',
     })
     // The same sentence the seat holds, so a wording change moves both.
     expect(reported()).toMatchObject({ message: FRAME_WIDE_LISTING_MESSAGE })
@@ -999,8 +997,7 @@ describe('what the reader reports', () => {
     expect(reported()).toEqual({
       status: 'error',
       code: 'frame',
-      message: 'The page in front is no longer in this deployment\'s page list, so there is nothing to read. '
-        + 'Call content_show to put a page in front.',
+      message: 'The page in front is no longer in this deployment\'s page list, so there is nothing to read.',
     })
   })
 
@@ -1013,8 +1010,7 @@ describe('what the reader reports', () => {
       expect(reported()).toMatchObject({
         status: 'error',
         code: 'frame',
-        message: 'The content column\'s frame could not be read from the console; '
-          + 'ask the user to reload the console, then retry.',
+        message: 'The content column\'s frame could not be read from the console.',
       })
       view.unmount()
     }
@@ -1046,7 +1042,7 @@ describe('what the reader reports', () => {
     expect(reported()).toEqual({
       status: 'error',
       code: 'frame',
-      message: 'The page in the content column had not finished loading; retry once.',
+      message: 'The page in the content column had not finished loading when this read gave up on it.',
     })
     // At most half, because the host started its report deadline when it
     // granted the claim: the walk and the trip back need the other half, and a

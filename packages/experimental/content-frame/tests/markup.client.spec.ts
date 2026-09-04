@@ -105,7 +105,7 @@ describe('printing one subtree as it was written', () => {
     const long = 'x'.repeat(120)
     const refs = page(`<p id="note">${long}</p>`)
     expect(tree(refs, '#note').text).toBe(
-      `e1 p#note "${'x'.repeat(79)}…" (text cut — content_read_dom_content with ref "e1" prints all of it)`,
+      `e1 p#note "${'x'.repeat(79)}…" (text cut)`,
     )
   })
 
