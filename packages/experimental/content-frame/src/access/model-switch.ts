@@ -74,21 +74,22 @@ const decisions = new WeakMap<Session, Promise<unknown>>()
  * It lives as long as the process does, so a reloaded session is asked once
  * more.
  *
- * Only a decision is recorded here. A card that never reached anyone, or whose
- * channel broke while it stood, leaves no mark and is put up again by the next
- * read — a browser tab reloaded mid-card must not cost the user the offer for
- * the rest of the process.
+ * Only a decision is recorded here. A card nobody was there to answer, or one
+ * whose channel broke while it stood, leaves no mark and is put up again by the
+ * next read — a console with no tab open, and a tab reloaded mid-card, must not
+ * cost the user the offer for the rest of the process.
  */
 const declined = new WeakSet<Session>()
 
 /**
- * The `UserQuestionError` codes that end a card as a decision rather than as a
- * failure to reach anyone: the user closed it, no answerer was composed, and a
- * delegated child agent has no human of its own. Every other rejection — a
- * caller the registry no longer holds, a transport that dropped, an answerer
- * that threw — says nothing about what the user wants.
+ * The `UserQuestionError` codes that end a card as a decision: the user closed
+ * it, and a delegated child agent that can never reach a human of its own.
+ * Every other rejection says nothing about what the user wants — a caller the
+ * registry no longer holds, a transport that dropped, an answerer that threw,
+ * and `NO_PROVIDER`, which reports that no console was connected at that
+ * moment rather than that anyone declined.
  */
-const DECIDED_CODES: ReadonlySet<string> = new Set(['ASK_CANCELLED', 'NO_PROVIDER', 'DELEGATED_CALLER'])
+const DECIDED_CODES: ReadonlySet<string> = new Set(['ASK_CANCELLED', 'DELEGATED_CALLER'])
 
 /**
  * Whether one rejection from the card settles the question for this session.
@@ -412,10 +413,10 @@ async function offerSwitch(
     answer = await asker.ask({ questions: [switchQuestion(routes)], agent, signal: exec.signal })
   } catch (theCardWasNotAnswered) {
     // The call is cancelled only when its own signal says so, and a cancelled
-    // call is not an answer to record. Of the rest, only the codes that mean
-    // the card was closed or reached nobody settle the question for this
-    // session; a channel that broke while the card stood is answered the same
-    // way and asked again by the next read.
+    // call is not an answer to record. Of the rest, only a card the user closed
+    // and a caller that can never be asked settle the question for this
+    // session; a console nobody had open, and a channel that broke while the
+    // card stood, are answered the same way and asked again by the next read.
     if (exec.signal.aborted) return CANCELLED_REFUSAL
     if (decidedTheCard(theCardWasNotAnswered)) declined.add(agent.session)
     return noImageRouteRefusal(route.model)

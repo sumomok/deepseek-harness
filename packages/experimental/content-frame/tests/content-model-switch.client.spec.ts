@@ -415,11 +415,12 @@ describe('one decision per session', () => {
       .toBeUndefined()
   })
 
-  it('asks again after a card that reached nobody, and stops after one the user closed', async () => {
-    // Only what the card itself decided is recorded. The four shapes below are
-    // a channel that broke, an answerer that threw, a rejection that is not an
-    // error at all, and a failure code that says nothing about the user.
+  it('asks again after a card nobody answered, and stops after one the user closed', async () => {
+    // Only what the card itself decided is recorded. The five shapes below are
+    // a console nobody had open, a channel that broke, an answerer that threw,
+    // a rejection that is not an error at all, and a code that is not a string.
     for (const broken of [
+      Object.assign(new Error('no user-questions answerer accepted the request'), { code: 'NO_PROVIDER' }),
       Object.assign(new Error('the client disconnected'), { code: 'TRANSPORT_CLOSED' }),
       new Error('the answerer threw'),
       Object.assign(new Error('a code that is not a string'), { code: 500 }),
@@ -432,7 +433,7 @@ describe('one decision per session', () => {
       expect(await routeGate(services, exec), broken.message).toBe(noImageRouteRefusal(TEXT_MODEL))
       expect(asked, broken.message).toHaveLength(2)
     }
-    for (const decided of ['ASK_CANCELLED', 'NO_PROVIDER', 'DELEGATED_CALLER']) {
+    for (const decided of ['ASK_CANCELLED', 'DELEGATED_CALLER']) {
       const { service, asked } = asker(Object.assign(new Error('the card ended'), { code: decided }))
       const services = textRouteComposition({ asker: service, switcher: switcher().service })
       const { exec } = call({ agentOptions: { provider: PROVIDER, model: TEXT_MODEL } })
