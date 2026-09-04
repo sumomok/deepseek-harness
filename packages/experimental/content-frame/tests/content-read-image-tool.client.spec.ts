@@ -22,7 +22,7 @@ import type { ModelRouteServices } from '../src/access/model-switch.ts'
 import { catalogue, fixedModalities, routeServices } from './route-services.client.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
 import {
-  ELEMENT_REF_REFUSAL, EMPTY_COLUMN_REFUSAL, MISREPORTED_REFUSAL, noImageAnywhereRefusal, UNRESOLVED_ROUTE_REFUSAL,
+  ELEMENT_REF_REFUSAL, EMPTY_COLUMN_REFUSAL, MISREPORTED_REFUSAL, noImageRouteRefusal, UNRESOLVED_ROUTE_REFUSAL,
 } from '../src/access/text.ts'
 import { CONTENT_READ_IMAGE_TOOL_NAME, type ReadOutcome } from '../src/access/wire.ts'
 
@@ -185,14 +185,14 @@ describe('the picture read', () => {
     const { run } = await bench(TEXT_MODEL, routes(['text']))
     const result = await run({ ref: 'e12' }).settled
     expect(result.isError).toBe(true)
-    // This composition offers no route that takes pictures, so the gate has
-    // nothing to put on a card and refuses on the spot.
-    expect(text(result)).toContain(noImageAnywhereRefusal(TEXT_MODEL))
+    // This composition has nobody to put a card in front of, so the gate
+    // refuses without offering anything.
+    expect(text(result)).toContain(noImageRouteRefusal(TEXT_MODEL))
   })
 
   it('refuses a route that declares nothing at all', async () => {
     const { run } = await bench(TEXT_MODEL, routes(undefined))
-    expect(text(await run({ ref: 'e12' }).settled)).toContain(noImageAnywhereRefusal(TEXT_MODEL))
+    expect(text(await run({ ref: 'e12' }).settled)).toContain(noImageRouteRefusal(TEXT_MODEL))
   })
 
   it('refuses a composition with no registry to resolve the route through', async () => {

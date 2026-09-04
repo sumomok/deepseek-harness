@@ -7,9 +7,11 @@
  * to draw one. That decision needs the route the NEXT request would go to,
  * which is not one field: a selection the user just made outranks the route the
  * session's last request logged, which outranks the options the agent was
- * created with. The three tiers are the ones
- * `packages/api/session-controller/src/agent.ts` reads in `selectionFor`, in
- * that order.
+ * created with. The first two tiers and their order are
+ * `packages/api/session-controller/src/agent.ts`'s in `selectionFor`; the last
+ * one is not — the controller falls back to the deployment default, which this
+ * Client-face program cannot read. Nothing reaches that tier inside a tool
+ * execution, because a tool call implies a request and a request logs a header.
  *
  * Every service this gate reads is narrowed to the methods it calls, so the
  * gate is a pure function of what a composition actually mounted and a test
@@ -71,8 +73,38 @@ const decisions = new WeakMap<Session, Promise<unknown>>()
  * model in the console passes this gate at its first step, mark or no mark.
  * It lives as long as the process does, so a reloaded session is asked once
  * more.
+ *
+ * Only a decision is recorded here. A card that never reached anyone, or whose
+ * channel broke while it stood, leaves no mark and is put up again by the next
+ * read — a browser tab reloaded mid-card must not cost the user the offer for
+ * the rest of the process.
  */
 const declined = new WeakSet<Session>()
+
+/**
+ * The `UserQuestionError` codes that end a card as a decision rather than as a
+ * failure to reach anyone: the user closed it, no answerer was composed, and a
+ * delegated child agent has no human of its own. Every other rejection — a
+ * caller the registry no longer holds, a transport that dropped, an answerer
+ * that threw — says nothing about what the user wants.
+ */
+const DECIDED_CODES: ReadonlySet<string> = new Set(['ASK_CANCELLED', 'NO_PROVIDER', 'DELEGATED_CALLER'])
+
+/**
+ * Whether one rejection from the card settles the question for this session.
+ *
+ * The value is read structurally rather than by class: it is a rejection, and
+ * it reaches this package restored from a remote waterfall rather than thrown
+ * across a typed call.
+ * @param error - what `ask` rejected with.
+ * @returns whether it is a decision rather than a broken channel.
+ */
+function decidedTheCard(error: unknown): boolean {
+  return error instanceof Error
+    && 'code' in error
+    && typeof error.code === 'string'
+    && DECIDED_CODES.has(error.code)
+}
 
 /**
  * Run one session's route decision after any decision already in flight for it.
@@ -197,10 +229,12 @@ export interface ModelRouteServices {
 /**
  * The route this session's next request would go to.
  *
- * Read in the three tiers `selectionFor` reads, because a gate reading fewer
- * refuses a session the user has already moved: the console's model picker
- * appends a selection that no request has consumed yet, and until one does, the
- * logged header still names the route the session came from.
+ * Read in three tiers, because a gate reading fewer refuses a session the user
+ * has already moved: the console's model picker appends a selection that no
+ * request has consumed yet, and until one does, the logged header still names
+ * the route the session came from. The first two are `selectionFor`'s own; the
+ * third is this agent's options rather than the deployment default the
+ * controller falls back to, and no tool execution reaches it.
  * @param services - the mounted services this gate reads.
  * @param agent - the agent whose session names the route.
  * @returns that route, or `undefined` when no tier names one.
@@ -365,21 +399,25 @@ async function offerSwitch(
   llm: RouteModalities,
 ): Promise<string | undefined> {
   if (declined.has(agent.session)) return noImageRouteRefusal(route.model)
-  const routes = optionLabels(await imageCapableRoutes(llm))
-  if (routes.length === 0) return noImageAnywhereRefusal(route.model)
+  // Read before the catalogue is walked: a composition that cannot put a card
+  // up has nothing to do with what the deployment could offer, and asking each
+  // provider for its models is an adapter call.
   const asker = services.get('userQuestions')
   const switcher = services.get('sessionController')
   if (asker === undefined || switcher === undefined) return noImageRouteRefusal(route.model)
+  const routes = optionLabels(await imageCapableRoutes(llm))
+  if (routes.length === 0) return noImageAnywhereRefusal(route.model)
   let answer: AskUserQuestionAnswer
   try {
     answer = await asker.ask({ questions: [switchQuestion(routes)], agent, signal: exec.signal })
-  } catch (_theCardWasNotAnswered) {
-    // A composition with no one to show the card, a child agent that has no
-    // human to ask, and a card the user closed all reach here; the call is
-    // cancelled only when its own signal says so, and a cancelled call is not
-    // an answer to record.
+  } catch (theCardWasNotAnswered) {
+    // The call is cancelled only when its own signal says so, and a cancelled
+    // call is not an answer to record. Of the rest, only the codes that mean
+    // the card was closed or reached nobody settle the question for this
+    // session; a channel that broke while the card stood is answered the same
+    // way and asked again by the next read.
     if (exec.signal.aborted) return CANCELLED_REFUSAL
-    declined.add(agent.session)
+    if (decidedTheCard(theCardWasNotAnswered)) declined.add(agent.session)
     return noImageRouteRefusal(route.model)
   }
   const chosen = chosenRoute(routes, answer)
@@ -394,10 +432,16 @@ async function offerSwitch(
       model: chosen.model,
     })
   } catch (error) {
-    // The user did answer, and what refused the change is the host's route
-    // validation rather than their decision, so the next read asks again.
+    // The user did answer, and what refused the change is the host's own route
+    // resolution rather than their decision, so the next read asks again.
     return routeSwitchRefusal(error instanceof Error ? error.message : String(error))
   }
+  // The catalogue said this route takes pictures and the host accepted the
+  // change; neither statement is the criterion this gate is built on. A
+  // deployment whose catalogue and whose resolved route disagree would
+  // otherwise export and store a picture for a request that drops it.
+  const moved = await llm.resolveModelInfo(chosen.provider, chosen.model, exec.signal)
+  if (moved.inputModalities?.includes(IMAGE_MODALITY) !== true) return noImageRouteRefusal(chosen.model)
   return undefined
 }
 

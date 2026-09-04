@@ -24,15 +24,15 @@ Status: implemented
 
 卡问在原先做模态检查的那个位置：`execute` 里，`awaitRead` 注册等待之前、任何浏览器被要求作画之前。这个位置正是「这里能问一张卡」的全部理由——被拒掉的切换不得留下任何已存的图，而这次读取自己的认领截止时间是三秒，卡却可能竖上好几分钟。
 
-**路由判三级。** `effectiveRoute` 读的正是 [`selectionFor`](../../../../packages/api/session-controller/src/agent.ts) 所读的，顺序也相同：还没有任何请求消费掉的 `model/selection`，其次是会话已落日志的 `request/header`，最后是 agent 的选项。每一级上，`inputModalities` 缺失一律当否定。
+**路由判三级。** `effectiveRoute` 先读还没有任何请求消费掉的 `model/selection`，其次是会话已落日志的 `request/header`，最后是 agent 的选项。前两级及其顺序取自 [`selectionFor`](../../../../packages/api/session-controller/src/agent.ts)；第三级不是。控制器在那里回落到部署默认，而本包的 Client 面程序不再添一个依赖就读不到它；工具执行也永远到不了这一级——有工具调用就有请求，有请求就有请求头——因此这处不一致是记录下来而不是抹平。每一级上，`inputModalities` 缺失一律当否定。
 
-**每会话一次决定，每会话一张卡。** 同一会话的路由决定经一个 `WeakMap` 串行，于是并行两次读取的第二次跑在第一次换完模型之后，并把那次变更当作自己的第一级读到——它不弹第二张卡就直接放行。用户以「不是某条路由」的方式作答，就被记进一个 `WeakSet`，该会话之后的读取不再问、直接拒；这个记号只压卡片，永不压放行。
+**每会话一次决定，每会话一张卡。** 同一会话的路由决定经一个 `WeakMap` 串行，于是并行两次读取的第二次跑在第一次换完模型之后，并把那次变更当作自己的第一级读到——它不弹第二张卡就直接放行。用户以「不是某条路由」的方式作答，就被记进一个 `WeakSet`，该会话之后的读取不再问、直接拒；这个记号只压卡片，永不压放行。只有作出决定才记：被用户关掉的卡、以及没有任何应答者可问的卡，把问题就此定下；其余任何拒绝——注册表已经不再持有的调用者、卡竖着时断掉的传输、抛错的应答者——都不留记号，下一次读取照样再问。算数的那三个码（`ASK_CANCELLED`、`NO_PROVIDER`、`DELEGATED_CALLER`）是从拒绝值上按字段读的，不是按类判的，因为它经远程 waterfall 还原后才到达本包。
 
 **换模型只经 `ctx.sessionController.selectModel`，别无他途。** 它 append `model/selection`、把选择装到活着的 agent 上，并让控制台的选择器与 `modelSelection` projection 跟上。这次调用还会把选择存成部署默认（`agentDefaultModel.saveSelection`），这是本包管不着的一个后果，见下文 Consequences。
 
 **工具结果回程的那一次请求就已生效。** `installModelSelection` 挂在 `system-prompt/assemble` 与 `agent/request` 上，而这两者都是每步一次而不是每轮一次（[`agent-loop`](../../../../packages/core/agent-loop/src/agent.ts)）。把这条工具结果送回模型的那一步因此已经跑在新路由上，它的系统提示词里也已经是新模型名——这正是工具结果对这次切换只字不提的原因。
 
-**卡上列的是部署自己的宣称。** `imageCapableRoutes` 走 `ctx.llm.listProviders()` 与 `listModels(provider)`；控制台选择器渲染的 `modelCatalog` projection 不带模态，答不了这个问题。某个供应商的目录抛错就把它整个略过，卡上其余的照常。目录成员资格只是宣称——路由是否接受请求由 `selectModel` 里的 `resolveCallConfig` 裁定，它的拒绝以 `routeSwitchRefusal` 到达模型。
+**卡上列的是部署自己的宣称。** `imageCapableRoutes` 走 `ctx.llm.listProviders()` 与 `listModels(provider)`；控制台选择器渲染的 `modelCatalog` projection 不带模态，答不了这个问题。某个供应商的目录抛错就把它整个略过，卡上其余的照常；而没人可问的组合在走任何一个供应商之前就拒绝。目录成员资格只是宣称，`selectModel` 里的 `resolveCallConfig` 校验的是选中的路由能不能解析出来、不是它接受什么——它的拒绝以 `routeSwitchRefusal` 到达模型——因此会话换过去的那条路由，会在读取继续之前再过一遍这道闸自己的判据。目录与解析结果不一致的部署，最终得到的是一条纯文字路由本该得到的那句拒绝：切换已经做了，图一张也没导出。
 
 **告诉模型的话里从不出现这张卡。** 被拒掉的切换、无人可问的组合、被用户关掉的卡，答的都是这次读取原本就有的那句拒绝：`The session's model "X" does not declare image input.` 它仍然是真话，也不给模型任何可以把卡再弹起来的把手。新增两条拒绝：一条给「没有任何已配置模型收图」的部署，一条给「主机不肯做的切换」。
 
@@ -99,7 +99,7 @@ Status: implemented
 #### M4 — 数出能看图的路由
 
 - **0 — 已定原则里哪条替你说了。** session controller 自己的目录对单个供应商的失败做隔离而不是清空整表，这里照抄这个姿态。「No hardcoded tunables in plugins」对候选数上限说了不：上限是会随部署变的数，那就要么是 `Config` 字段、要么不存在，而它不存在。「An empty `catch` names what it swallows」给这一处点了名：某个供应商的目录读不出来。
-- **1 — 新面：2。** `imageCapableRoutes` 与 `optionLabels`。
+- **1 — 新面：2。** `imageCapableRoutes` 与 `optionLabels`。两者都跑在「闸已经读到卡所需的那两个服务」之后，于是问不了人的组合根本不会走任何一个供应商。
 - **2 — v0。** 就是这两个函数。更小的做法——复用控制台选择器已经渲染的 `session/modelCatalog` RPC——不成立：那份投影带的是 `{id, name, description?, reasoning?}`，没有模态。
 - **3 — 缝还是写死。** 写死：不排序、不打分、不推荐、不记住上次选的那个、不设上限。
 - **4 — 边界。**
@@ -110,11 +110,11 @@ Status: implemented
 | 邻居 | 目录是 `llm` 的。本包不缓存、不补齐、不硬编码，包里不出现任何模型名。 | 部署换了目录，卡还在提供一个它已经没有的模型。 | permanent |
 | 诱惑 | 把这份统计发布成通用的「谁能看图」API 或 projection。 | 在 `modelCatalog` 旁边长出第二套目录。 | permanent |
 | 天花板 | 能看图的路由有多少列多少。配了几十条视觉路由的部署会得到一张几十项的卡。 | 一张没法用的卡被当成枚举的缺陷，而不是部署的。 | deferred — 触发器：真实部署里候选数超过八 |
-| 假设 | `listModels` 是部署的宣称而不是路由校验；校验是 `selectModel` 的。 | 卡上提供了一条换不过去的路由，且没人说为什么。 | permanent |
+| 假设 | `listModels` 只是部署的宣称，仅此而已。`selectModel` 校验的是选中的路由能不能解析出来、不是它接受什么，因此模态判据会对「会话换过去的那条路由」再施加一次。 | 卡上提供了一条换不过去的路由，且没人说为什么；以及目录为某条路由宣称了 `image` 而适配器解析出来没有，于是存下一张请求会丢掉的图。 | permanent |
 
 #### M5 — 第一级、决定链与拒绝记号
 
-- **0 — 已定原则里哪条替你说了。**「Prefer symmetry for parallel values；unexplained asymmetry usually signals a missed extraction」正是它把缺的那一级判成缺陷而不是选择——`selectionFor` 读三级而这次读取读两级，没有给出任何理由。「Runtime invariants assert owned relationships」把链和记号挡在日志之外、也挡在所有 projection 之外：它们是本包自己的运行时状态。defensive-patterns 里关于生命周期的规则让两者都用以 `Session` 为键的弱集合。
+- **0 — 已定原则里哪条替你说了。**「Prefer symmetry for parallel values；unexplained asymmetry usually signals a missed extraction」正是它把缺的那一级判成缺陷而不是选择——`selectionFor` 先读待生效的选择而这次读取不读，没有给出任何理由。同一条规则把第三级的不对称有意留着：读部署默认要付出这一面拿不了的一个依赖，而工具执行到不了那一级。「Runtime invariants assert owned relationships」把链和记号挡在日志之外、也挡在所有 projection 之外：它们是本包自己的运行时状态。defensive-patterns 里关于生命周期的规则让两者都用以 `Session` 为键的弱集合。
 - **1 — 新面：3。** 经 `RouteSelectionState` 的第一级、`serializeDecision`、拒绝记号。
 - **2 — v0。** 只补那一级，也正是手动探针所需要的。链和记号在发布版本里不能省：没有链，同一步里并行两次读取就是两张卡；没有记号，模型重试一次被拒的读取就多一张卡。三件齐了，「只问一次」才成为可核查的性质。
 - **3 — 缝还是写死。** 写死为每会话一张卡。按轮次更好，而 `ToolExecution` 不带轮或步的身份可作键；加一个是改动工具运行时。
@@ -124,7 +124,7 @@ Status: implemented
 | --- | --- | --- | --- |
 | 契约 | 第一级只读 `pending`，从不读 `lastUsed`——那是已被某次请求消费掉的选择，等价于第二级。 | 把一个选择数两遍，把会话已经离开的路由当成当前的。 | permanent |
 | 诱惑 | 拿这条决定链去串别的东西——导出、上传、报告。 | 一条锁把本来可并行的通道串成单线程。 | permanent |
-| 红线 | 记号只压卡片，永不压放行。 | 已经在控制台里换过模型的用户仍然被拒。 | permanent |
+| 红线 | 记号只压卡片、永不压放行，且只有作出决定才置位：关掉的卡与没有应答者的卡把问题定下，断掉的通道不算。 | 已经在控制台里换过模型的用户仍然被拒；以及卡竖着时重载了浏览器标签页，就让那次会话在整个进程余下的时间里再也拿不到这个提议。 | permanent |
 | 天花板 | 记号在内存里：重载会话或重启主机之后会再问一次。 | 「我说了不换怎么又问」被当成缺陷，而不是一张卡的代价。 | deferred — 触发器：用户报怨重启后被再问 |
 | 假设 | `stateOf` 同步反映刚 append 的选择，因为它折的是会话自己的日志。 | 并行两次读取的第二次为第一次已经做完的切换再弹一张卡。 | permanent |
 
@@ -151,6 +151,8 @@ Status: implemented
 
 **每次接受的切换多两条事件，且不新增事件类型。** 先 `model/selection`，然后是消费它的那条 `reason: 'change'` 的 `request/header`。`SESSION_FORMAT_VERSION` 不动，没有任何 projection 的 `stateVersion` 变化，`contentAccess` 一个字不改。
 
+**没送到任何人面前的卡不算作答。** 只问一次的记号只记决定，因此断掉的连接或出错的应答者会把这个提议留给模型的下一次尝试，代价是再多一张卡。
+
 **问答本身不进任何日志。** `user-questions` 没有 `SessionEventMap` 成员，因此重放看不到卡曾竖起、也看不到用户拒过。录制的场景靠点击来复现那个答案。
 
 **现在有一个主机插件依赖 BFF 层。** 第一个；它守住的线写在上面的 Decision 里。
@@ -161,7 +163,7 @@ Status: implemented
 
 ## Testing
 
-`tests/content-model-switch.client.spec.ts` 用替身服务驱动这道闸：三级各自命中与相互压制、放行时既不读目录也不问任何人、候选为空、缺 asker 或缺 switcher 的组合、逐字比对本篇记录的卡片文案、带确切请求的模型切换、每一种「不是所提供路由」的答案（跳过、自由文本、拒绝项、未知 label、两个 label、另一道题的 id、以及没人应答的卡）、被取消的调用、切换被拒的两条臂、一个供应商失败时的目录枚举、三种 label 情形，以及机制所依赖的两条运行时事实——并行两道闸只产生一张卡与一次切换，以及无论模型重试多少次每会话只问一次。
+`tests/content-model-switch.client.spec.ts` 用替身服务驱动这道闸：三级各自命中与相互压制、放行时既不读目录也不问任何人、候选为空、缺 asker 或缺 switcher 的组合、逐字比对本篇记录的卡片文案、带确切请求的模型切换、每一种「不是所提供路由」的答案（跳过、自由文本、拒绝项、未知 label、两个 label、另一道题的 id、以及没人应答的卡）、被取消的调用、切换被拒的两条臂、目录提供了而部署解析出来不收图的路由、哪些拒绝把问题定下与哪些把提议留着、一个供应商失败时的目录枚举、三种 label 情形，以及机制所依赖的两条运行时事实——并行两道闸只产生一张卡与一次切换，以及无论模型重试多少次每会话只问一次。
 
 `tests/content-read-image-tool.client.spec.ts` 守住整套设计所依赖的次序：用一张没人应答的卡，断言 `PendingCalls.open` 在取消前后都从未被调用。`tests/self-contained-copy.client.spec.ts` 把 `switch-text.ts` 与另外两个面向模型的文案模块一起走查，于是卡片文案受同一条规则约束。`src/` 保持逐文件 100% 覆盖。
 

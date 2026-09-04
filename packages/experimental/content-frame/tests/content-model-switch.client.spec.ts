@@ -109,7 +109,7 @@ function selectionState(pending: { provider: string; model: string } | null): Ro
  * nobody answered.
  * @returns the narrowed service, and every request it received.
  */
-function asker(answer: AskUserQuestionAnswer | Error): {
+function asker(answer: AskUserQuestionAnswer | { message: string } | Error): {
   service: RouteQuestionAsker
   asked: AskUserQuestionRequest[]
 } {
@@ -117,9 +117,12 @@ function asker(answer: AskUserQuestionAnswer | Error): {
   return {
     asked,
     service: {
-      ask: (request) => {
+      ask: async (request) => {
         asked.push(request)
-        return answer instanceof Error ? Promise.reject(answer) : Promise.resolve(answer)
+        // A rejection is whatever rejected, which is one of the shapes the
+        // decline rule has to tell apart.
+        if (!('answers' in answer)) throw answer
+        return answer
       },
     },
   }
@@ -249,15 +252,20 @@ describe('what the gate answers before it asks anyone', () => {
     expect(asked).toEqual([])
   })
 
-  it('refuses without a card where nobody could be asked or nothing could change the model', async () => {
+  it('refuses without a card, or a catalogue read, where nobody could be asked', async () => {
+    const llm = catalogue(DEPLOYMENT, ['text'])
+    const listModels = vi.spyOn(llm, 'listModels')
     const { service, asked } = asker(chose(VISION_LABEL))
     const noAsker = call({ agentOptions: { provider: PROVIDER, model: TEXT_MODEL } })
-    expect(await routeGate(textRouteComposition({ switcher: switcher().service }), noAsker.exec))
+    expect(await routeGate(routeServices({ llm, switcher: switcher().service }), noAsker.exec))
       .toBe(noImageRouteRefusal(TEXT_MODEL))
     const noSwitcher = call({ agentOptions: { provider: PROVIDER, model: TEXT_MODEL } })
-    expect(await routeGate(textRouteComposition({ asker: service }), noSwitcher.exec))
+    expect(await routeGate(routeServices({ llm, asker: service }), noSwitcher.exec))
       .toBe(noImageRouteRefusal(TEXT_MODEL))
     expect(asked).toEqual([])
+    // Asking every provider what it has is an adapter call, and a composition
+    // that cannot put a card up has no use for the answer.
+    expect(listModels).not.toHaveBeenCalled()
   })
 })
 
@@ -340,6 +348,22 @@ describe('the card the gate puts up', () => {
     })
     expect(await routeGate(services, exec)).toBe(routeSwitchRefusal('session/model-unavailable'))
   })
+
+  it('refuses a route the catalogue offered but the deployment resolves without pictures', async () => {
+    // The one deployment the enumeration cannot be trusted on: the catalogue
+    // entry says the route takes pictures and the resolved route does not.
+    const changer = switcher()
+    const { exec } = call({ agentOptions: { provider: PROVIDER, model: TEXT_MODEL } })
+    const services = routeServices({
+      llm: { ...catalogue(DEPLOYMENT), resolveModelInfo: () => Promise.resolve({ inputModalities: ['text'] }) },
+      asker: asker(chose(VISION_LABEL)).service,
+      switcher: changer.service,
+    })
+    expect(await routeGate(services, exec)).toBe(noImageRouteRefusal(VISION_MODEL))
+    // The change was made — the gate cannot unmake it — but nothing downstream
+    // of the gate runs, so no picture is exported for a request that drops it.
+    expect(changer.changed).toHaveLength(1)
+  })
 })
 
 describe('one decision per session', () => {
@@ -389,6 +413,33 @@ describe('one decision per session', () => {
     // model the user changes in the console passes at the first tier.
     expect(await routeGate(routeServices({ llm: catalogue(DEPLOYMENT, ['text', 'image']) }), exec))
       .toBeUndefined()
+  })
+
+  it('asks again after a card that reached nobody, and stops after one the user closed', async () => {
+    // Only what the card itself decided is recorded. The four shapes below are
+    // a channel that broke, an answerer that threw, a rejection that is not an
+    // error at all, and a failure code that says nothing about the user.
+    for (const broken of [
+      Object.assign(new Error('the client disconnected'), { code: 'TRANSPORT_CLOSED' }),
+      new Error('the answerer threw'),
+      Object.assign(new Error('a code that is not a string'), { code: 500 }),
+      { message: 'a rejection that is not an error' },
+    ]) {
+      const { service, asked } = asker(broken)
+      const services = textRouteComposition({ asker: service, switcher: switcher().service })
+      const { exec } = call({ agentOptions: { provider: PROVIDER, model: TEXT_MODEL } })
+      expect(await routeGate(services, exec), broken.message).toBe(noImageRouteRefusal(TEXT_MODEL))
+      expect(await routeGate(services, exec), broken.message).toBe(noImageRouteRefusal(TEXT_MODEL))
+      expect(asked, broken.message).toHaveLength(2)
+    }
+    for (const decided of ['ASK_CANCELLED', 'NO_PROVIDER', 'DELEGATED_CALLER']) {
+      const { service, asked } = asker(Object.assign(new Error('the card ended'), { code: decided }))
+      const services = textRouteComposition({ asker: service, switcher: switcher().service })
+      const { exec } = call({ agentOptions: { provider: PROVIDER, model: TEXT_MODEL } })
+      expect(await routeGate(services, exec), decided).toBe(noImageRouteRefusal(TEXT_MODEL))
+      expect(await routeGate(services, exec), decided).toBe(noImageRouteRefusal(TEXT_MODEL))
+      expect(asked, decided).toHaveLength(1)
+    }
   })
 
   it('leaves the session decidable again after a route lookup failed', async () => {

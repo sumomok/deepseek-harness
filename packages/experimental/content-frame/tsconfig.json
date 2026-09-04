@@ -48,10 +48,10 @@
       "path": "../../interaction/commands"
     },
     {
-      "path": "../../llm/llm"
+      "path": "../../interaction/user-questions"
     },
     {
-      "path": "../../interaction/user-questions"
+      "path": "../../llm/llm"
     },
     {
       "path": "../../runtime-diagnostics/invariants"

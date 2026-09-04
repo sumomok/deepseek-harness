@@ -81,13 +81,23 @@ export interface CatalogueProvider {
 
 /**
  * An LLM registry over one deployment's catalogue.
+ *
+ * A route resolves as the catalogue lists it, so the gate's two reads of one
+ * model — the enumeration and the check on the route it moved to — agree the
+ * way a real adapter deriving both from one entry makes them agree. A
+ * deployment where they disagree is composed explicitly by the spec that tests
+ * for it.
  * @param providers - what the deployment has registered.
- * @param modalities - what every route resolves as, for a gate that also asks.
+ * @param unlisted - what a route the catalogue gives no modalities resolves as.
  * @returns the narrowed registry.
  */
-export function catalogue(providers: readonly CatalogueProvider[], modalities?: readonly string[]): RouteModalities {
+export function catalogue(providers: readonly CatalogueProvider[], unlisted?: readonly string[]): RouteModalities {
   return {
-    ...fixedModalities(modalities),
+    resolveModelInfo: (provider, model) => {
+      const listed = providers.find(one => one.id === provider)?.models?.find(one => one.id === model)
+      const modalities = listed?.inputModalities ?? unlisted
+      return Promise.resolve(modalities === undefined ? {} : { inputModalities: modalities })
+    },
     listProviders: () => providers.map(({ id, name }) => ({ id, name })),
     listModels: (provider) => {
       const listed = providers.find(one => one.id === provider)?.models

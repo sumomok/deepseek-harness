@@ -15,7 +15,8 @@
  * later is covered the day it is written: an exported function with no
  * arguments recorded here fails, and so does an export that is neither a string
  * nor a function. `switch-text.ts` is walked with them although a person rather
- * than a model reads it: a tool name has no place in either audience's copy. It assembles all seven tool definitions and reads every
+ * than a model reads it: a tool name has no place in either audience's copy. It
+ * assembles all seven tool definitions and reads every
  * `description` each one carries — its own, its parameter schema's at any
  * depth, and its output schema's — which is what covers the descriptions
  * composed in `tool.ts`, `read-tool.ts`, `markup-tool.ts`, `image-tool.ts`,
