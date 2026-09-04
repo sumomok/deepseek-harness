@@ -54,7 +54,7 @@ describe('auth-gate token reading', () => {
   })
 
   it('reads a payload carrying characters outside latin-1', () => {
-    expect(tokenSubject(jwt({ sub: '郝然', exp: NOW / 1000 + 1 }))).toBe('郝然')
+    expect(tokenSubject(jwt({ sub: '用户甲', exp: NOW / 1000 + 1 }))).toBe('用户甲')
   })
 
   it('reads nothing out of a payload that is not an object of claims', () => {
