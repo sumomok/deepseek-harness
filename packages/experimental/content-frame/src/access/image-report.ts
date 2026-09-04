@@ -9,6 +9,15 @@
  * the second, and it commits the pixels before the call settles — the log's
  * reference must name an object that is already on disk when the `tool/result`
  * event is appended.
+ *
+ * Committed only for a call that is waiting, though. The store keeps what it is
+ * given and collects nothing, so storing first for every post would let anything
+ * that can reach the route write bytes nothing will ever read or remove; the
+ * table is therefore asked whether it would take this report before the bytes
+ * are decoded, and a post for a call nobody is waiting on leaves the store as
+ * it found it. A call whose own deadline runs out while the store is writing
+ * still leaves its bytes behind: the window that costs an object is the one
+ * save, rather than every post that reaches the route.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/image-report
  */
 
@@ -66,10 +75,13 @@ export async function storeCapture(attachments: AttachmentStore, capture: ImageC
 /**
  * Deliver one posted image report to the call waiting for it.
  *
- * A failed export is delivered as posted; pixels are stored first. Both arms go
- * to the same call and the same table, so one call id is never raced by two
- * routes: an image read's failures travel this route too rather than the
- * listing routes'.
+ * A failed export is delivered as posted; a capture's pixels are stored first,
+ * and only once the table has said it is holding this call for this tab — the
+ * same acceptance `report` applies, read before rather than after the bytes are
+ * committed, because a store that collects nothing cannot take back what a post
+ * for an unknown call would have written. Both arms go to the same call and the
+ * same table, so one call id is never raced by two routes: an image read's
+ * failures travel this route too rather than the listing routes'.
  * @param attachments - the deployment's attachment store.
  * @param pending - the table calls wait on.
  * @param report - the posted report, already checked against the wire.
@@ -80,6 +92,7 @@ export async function settleImageReport(
   pending: PendingCalls,
   report: ImageReportRequest,
 ): Promise<ReportAck> {
+  if (!pending.isWaiting(report.callId, report.tabId)) return { accepted: false }
   const outcome = report.capture.status === 'error'
     ? report.capture
     : await storeCapture(attachments, report.capture)

@@ -31,7 +31,7 @@ import {
   ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_ACT_TOOL_NAME, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE,
   CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_CONTENT_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME,
   CONTENT_READ_IMAGE_TOOL_NAME, CONTENT_READ_TOOL_NAME,
-  CONTENT_REPORT_ROUTE, LOAD_WAIT_SHARE, MAX_BID_MS,
+  CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE, forWire, LOAD_WAIT_SHARE, MAX_BID_MS,
   MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
   MAX_CLAIM_BACKOFF, MAX_URL_CHARS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
@@ -161,38 +161,6 @@ export interface ContentReadSeat {
 /** One failure the seat itself composes, for a frame it could not read. */
 function frameError(message: string): ReadFailure {
   return { status: 'error', code: 'frame', message }
-}
-
-/**
- * Cut one string to the length the wire takes, so a document with a long title
- * or address is posted rather than refused.
- *
- * A cut falling between the two halves of one character takes the leading half
- * with it: the wire refuses a lone surrogate, so a cut that left one would
- * refuse the report this cut exists to save.
- * @param value - the string, already free of what the wire refuses.
- * @param max - the wire's bound on that field, in characters.
- * @returns the string, ending in an ellipsis when it was too long.
- */
-function clipTo(value: string, max: number): string {
-  if (value.length <= max) return value
-  const kept = value.slice(0, max - 1)
-  return `${kept.isWellFormed() ? kept : kept.slice(0, -1)}…`
-}
-
-/**
- * Take one string the page supplied to what the wire carries: what a posted
- * document may not hold removed, then cut to that field's own bound.
- *
- * That order is what {@link clipTo} is written against: it looks for a
- * surrogate pair the cut split, which only means anything on a string carrying
- * no stray half of its own.
- * @param value - the string as the page had it.
- * @param max - the wire's bound on that field, in characters.
- * @returns the string as the seat posts it.
- */
-function forWire(value: string, max: number): string {
-  return clipTo(sanitize(value), max)
 }
 
 /** One read's report, ready to post. */
@@ -668,6 +636,11 @@ async function readPage(
  * that is still drawing — and parts from them at the answer: what it posts is
  * bytes, on a route of their own, because a listing's route is bounded by the
  * deployment's character budget and pixels are of another order.
+ *
+ * The export gets a share of that same deadline of its own, after the load wait
+ * and the settle wait ({@link EXPORT_WAIT_SHARE}), so a drawing that never
+ * settles ends as a refusal naming this picture rather than as the host's own
+ * report deadline and its sentence about a console that went quiet.
  * @param seat - the seat as it stands now.
  * @param request - the pending call: the ref to export, and the id the report is posted under.
  * @param access - the node half's budget and deadline.
@@ -692,8 +665,20 @@ async function readImage(
     // Re-read after the wait: a navigation replaces the frame's document.
     ready.refs.sweep()
     const el = resolveRef('ref', request.args.ref, ready.refs)
-    const capture = await captureElement(el, { ref: request.args.ref, isVisible, draw: seat.draw })
-    if (capture.kind === 'refused') return report(frameError(capture.message))
+    const capture = await captureElement(el, {
+      ref: request.args.ref,
+      isVisible,
+      draw: seat.draw,
+      // Rounded, because the deadline is named in the refusal a drawing that
+      // never settles composes, and a share of a configured number is not
+      // always a whole millisecond.
+      budgetMs: Math.round(access.readTimeoutMs * EXPORT_WAIT_SHARE),
+    })
+    // Clipped like every other page-supplied string this seat posts: the
+    // refusal names the element's own tag, which a custom element spells
+    // however long it likes, and a message past the wire's bound would be
+    // refused by the route rather than delivered to the model.
+    if (capture.kind === 'refused') return report(frameError(forWire(capture.message, MAX_OUTCOME_MESSAGE_CHARS)))
     // No weighing here, unlike a listing: the payload is bounded by the export
     // itself and every string beside it is cut to the wire's own bound, so the
     // envelope the route's bound is computed from covers what this posts.

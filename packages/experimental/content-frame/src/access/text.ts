@@ -520,6 +520,18 @@ export function taintedImageRefusal(ref: string): string {
 }
 
 /**
+ * Refusal for a drawing that did not finish inside the export's own share of
+ * the read's deadline. The deadline is named because it is the condition that
+ * ended the read, the way the byte cap is named when that is.
+ * @param ref - the element the read asked for.
+ * @param budgetMs - how long the export was given.
+ * @returns the model-facing sentence.
+ */
+export function slowImageRefusal(ref: string, budgetMs: number): string {
+  return `${ref} did not finish exporting within ${budgetMs / 1000}s.`
+}
+
+/**
  * Refusal for an export past the bytes one image may carry. The size is named
  * because it is the bound that was crossed, which is the whole reason the read
  * has no answer.

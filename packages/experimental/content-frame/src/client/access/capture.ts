@@ -15,12 +15,12 @@
  */
 
 import {
-  CAPTURE_MEDIA_TYPES, IMAGE_PIXEL_BUDGET, MAX_EXPORT_BYTES, SVG_RASTER_MIN_PIXELS, type CaptureMediaType,
-  type ImageSize,
+  CAPTURE_MEDIA_TYPES, forWire, IMAGE_PIXEL_BUDGET, MAX_EXPORT_BYTES, MAX_NAME_CHARS, SVG_RASTER_MIN_PIXELS,
+  type CaptureMediaType, type ImageSize,
 } from '../../access/wire.ts'
 import {
-  emptyImageRefusal, hiddenImageRefusal, notAnImageRefusal, taintedImageRefusal, unexportableImageRefusal,
-  unloadedImageRefusal, wideImageRefusal,
+  emptyImageRefusal, hiddenImageRefusal, notAnImageRefusal, slowImageRefusal, taintedImageRefusal,
+  unexportableImageRefusal, unloadedImageRefusal, wideImageRefusal,
 } from '../../access/text.ts'
 import { isSkipped } from './dom.ts'
 
@@ -93,6 +93,11 @@ export interface CaptureOptions {
   readonly isVisible: (el: Element) => boolean
   /** The browser's own drawing. */
   readonly draw: ExportPixels
+  /**
+   * How long the drawing may take before this read gives up on it, which is the
+   * share of the call's own deadline the export gets.
+   */
+  readonly budgetMs: number
 }
 
 /**
@@ -203,6 +208,34 @@ function isTaint(refusal: unknown): boolean {
 }
 
 /**
+ * Draw one element inside the deadline the read gave the export.
+ *
+ * The drawing is not cancelled, because nothing in a browser cancels one: a
+ * `toBlob` or an `image.decode()` that never settles stays pending for the life
+ * of the tab. What the deadline ends is this read's wait for it, so the seat
+ * posts a refusal naming the picture instead of posting nothing and leaving the
+ * host to end the call as a console that went quiet. A drawing that finishes
+ * after the deadline resolves into the race that already settled, which is
+ * where its value and its throw are both absorbed.
+ * @param el - the element to draw.
+ * @param size - the size to draw it at.
+ * @param options - the injected drawing and its deadline.
+ * @returns the export, or `undefined` when the deadline came first.
+ * @throws whatever the drawing threw, when it threw inside the deadline.
+ */
+async function drawWithin(el: Element, size: ImageSize, options: CaptureOptions): Promise<ExportedImage | undefined> {
+  let deadline: ReturnType<typeof setTimeout> | undefined
+  try {
+    return await Promise.race([
+      options.draw(el, size),
+      new Promise<undefined>((resolve) => { deadline = setTimeout(() => { resolve(undefined) }, options.budgetMs) }),
+    ])
+  } finally {
+    clearTimeout(deadline)
+  }
+}
+
+/**
  * Export one element's own rendered pixels, or say why there are none.
  *
  * The order of the checks is the order in which each becomes knowable, and each
@@ -215,7 +248,10 @@ function isTaint(refusal: unknown): boolean {
  */
 export async function captureElement(el: Element, options: CaptureOptions): Promise<Capture> {
   const { ref } = options
-  const tag = el.localName
+  // The page names its own tags and a custom element's name has no length of
+  // its own, so the tag is taken to the wire's bound here, where it is read:
+  // both the refusal below and the arm the seat posts carry it.
+  const tag = forWire(el.localName, MAX_NAME_CHARS)
   const drawn = drawnElement(el)
   if (drawn === undefined) return { kind: 'refused', message: notAnImageRefusal(ref, tag) }
   if (isSkipped(drawn, options.isVisible)) return { kind: 'refused', message: hiddenImageRefusal(ref) }
@@ -225,15 +261,16 @@ export async function captureElement(el: Element, options: CaptureOptions): Prom
   }
   const natural = naturalSize(drawn)
   if (natural.width <= 0 || natural.height <= 0) return { kind: 'refused', message: emptyImageRefusal(ref) }
-  let exported: ExportedImage
+  let exported: ExportedImage | undefined
   try {
-    exported = await options.draw(drawn, exportSize(natural, drawn.localName === VECTOR_TAG))
+    exported = await drawWithin(drawn, exportSize(natural, drawn.localName === VECTOR_TAG), options)
   } catch (refusal) {
     // The one throw this read can describe: a browser marks the surface the
     // moment another origin's pixels reach it and refuses to hand them back.
     if (!isTaint(refusal)) throw refusal
     return { kind: 'refused', message: taintedImageRefusal(ref) }
   }
+  if (exported === undefined) return { kind: 'refused', message: slowImageRefusal(ref, options.budgetMs) }
   const mediaType = CAPTURE_MEDIA_TYPES.find(known => known === exported.mediaType)
   if (mediaType === undefined) return { kind: 'refused', message: unexportableImageRefusal(ref, exported.mediaType) }
   if (exported.bytes > MAX_EXPORT_BYTES) {

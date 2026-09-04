@@ -1141,14 +1141,15 @@ describe('the picture route over real HTTP', () => {
     expect((await postJson(ctx, CONTENT_IMAGE_ROUTE, { callId: 'c', tabId: TAB, capture: CAPTURE })).status).toBe(200)
   })
 
-  it('keeps the posted pixels and says whether a call took them', async () => {
+  it('keeps nothing for a call nobody is waiting on, and says so', async () => {
     const ctx = await withStore()
     const answer = await postJson(ctx, CONTENT_IMAGE_ROUTE, { callId: 'call_gone', tabId: TAB, capture: CAPTURE })
     expect({ status: answer.status, body: JSON.parse(answer.body) as unknown })
       .toEqual({ status: 200, body: { accepted: false } })
-    expect(stored).toHaveLength(1)
-    expect([...(stored[0]?.data ?? [])]).toEqual([1, 2, 3])
-    expect(stored[0]?.name).toBe('content-home-e12.png')
+    // The same answer the report route gives an unknown call id, and the same
+    // absence of any other effect: this store collects nothing, so bytes
+    // written for a call that will never take them would stay for good.
+    expect(stored).toEqual([])
   })
 
   it('refuses a capture no seat of this package wrote', async () => {
@@ -1192,8 +1193,11 @@ describe('the picture route over real HTTP', () => {
     const ctx = await withStore()
     const data = 'A'.repeat(MAX_IMAGE_DATA_CHARS)
     const answer = await postJson(ctx, CONTENT_IMAGE_ROUTE, { callId: 'c', tabId: TAB, capture: { ...CAPTURE, data } })
-    expect(answer.status).toBe(200)
-    expect(stored).toHaveLength(1)
+    // 200 rather than 400 is the parser taking it; whether anything is kept is
+    // the table's answer, and no call of this id is waiting.
+    expect({ status: answer.status, body: JSON.parse(answer.body) as unknown })
+      .toEqual({ status: 200, body: { accepted: false } })
+    expect(stored).toEqual([])
   })
 
   it('serves POST only, and same-site JSON only', async () => {

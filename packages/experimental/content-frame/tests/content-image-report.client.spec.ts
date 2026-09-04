@@ -3,9 +3,10 @@
  * between the route that received them and the call waiting for them.
  *
  * It is where the wire's asymmetry is resolved, so what these cases hold is
- * that the bytes reach the store before the call settles, that the settled call
- * carries a reference and no bytes, and that a store which refuses ends the
- * call rather than leaving it to time out.
+ * that the bytes reach the store before the call settles, that they reach it
+ * only for a call the table is holding for the posting tab, that the settled
+ * call carries a reference and no bytes, and that a store which refuses ends
+ * the call rather than leaving it to time out.
  *
  * The `.client.` suffix names the typecheck aggregate this package belongs to,
  * not the face under test.
@@ -148,6 +149,18 @@ describe('the pixels a seat posted', () => {
 
 describe('delivering one picture report to the call waiting for it', () => {
   /**
+   * Claim the open call for {@link TAB}, retrying while the wait is opening.
+   * @param pending - the table the call was opened on.
+   */
+  async function claimed(pending: PendingCalls): Promise<void> {
+    for (let attempt = 0; attempt < 200; attempt += 1) {
+      if ((await pending.claim({ callId: 'call_1', tabId: TAB })).claimed) return
+      await new Promise<void>((resolve) => { setTimeout(resolve, 2) })
+    }
+    throw new Error('the case never claimed its call')
+  }
+
+  /**
    * Open one wait and deliver one report to it.
    * @param report - the posted capture or failure.
    * @param attachments - the store to keep the pixels in.
@@ -159,10 +172,7 @@ describe('delivering one picture report to the call waiting for it', () => {
   ): Promise<{ accepted: boolean; settled: unknown }> {
     const pending = new PendingCalls()
     const waiting = pending.open('call_1', 'session_1', new AbortController().signal, SLOW)
-    for (let attempt = 0; attempt < 200; attempt += 1) {
-      if ((await pending.claim({ callId: 'call_1', tabId: TAB })).claimed) break
-      await new Promise<void>((resolve) => { setTimeout(resolve, 2) })
-    }
+    await claimed(pending)
     const ack = await settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: report })
     return { accepted: ack.accepted, settled: await waiting }
   }
@@ -184,13 +194,49 @@ describe('delivering one picture report to the call waiting for it', () => {
     expect(settled).toEqual({ kind: 'reported', outcome: failure })
   })
 
-  it('takes nothing for a call nobody is waiting on', async () => {
+  it('takes nothing and stores nothing for a call nobody is waiting on', async () => {
     const { attachments, saved } = store()
     const pending = new PendingCalls()
     const ack = await settleImageReport(attachments, pending, { callId: 'call_gone', tabId: TAB, capture: CAPTURE })
     expect(ack).toEqual({ accepted: false })
-    // The pixels were kept before the table was asked, which is the order the
-    // log needs: a reference must name an object that is already on disk.
-    expect(saved).toHaveLength(1)
+    // The store keeps what it is given and collects nothing, so a post naming a
+    // call this host never ran has to leave it as it found it.
+    expect(saved).toEqual([])
+  })
+
+  it('takes nothing and stores nothing for a call another tab claimed', async () => {
+    const { attachments, saved } = store()
+    const pending = new PendingCalls()
+    const waiting = pending.open('call_1', 'session_1', new AbortController().signal, SLOW)
+    await claimed(pending)
+    const ack = await settleImageReport(attachments, pending, { callId: 'call_1', tabId: 'tab_2', capture: CAPTURE })
+    expect(ack).toEqual({ accepted: false })
+    expect(saved).toEqual([])
+    // The same acceptance the report route applies, so the call the claiming
+    // tab holds is still there for that tab to answer.
+    expect(await settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE }))
+      .toEqual({ accepted: true })
+    expect(await waiting).toMatchObject({ kind: 'reported' })
+  })
+
+  it('keeps the pixels before it lets the call settle', async () => {
+    const order: string[] = []
+    const attachments = {
+      saveImage: (input: SaveImageAttachment): Promise<ImageAttachmentRef> => {
+        order.push('stored')
+        return Promise.resolve({
+          attachmentId: STORED_ID, mediaType: input.mediaType, bytes: input.data.byteLength, width: 240, height: 240,
+        } as ImageAttachmentRef)
+      },
+    } as unknown as AttachmentStore
+    const pending = new PendingCalls()
+    const waiting = pending.open('call_1', 'session_1', new AbortController().signal, SLOW)
+      .then(() => { order.push('settled') })
+    await claimed(pending)
+    await settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE })
+    await waiting
+    // The order the log needs: the reference a `tool/result` event carries must
+    // name an object that is already on disk when the event is appended.
+    expect(order).toEqual(['stored', 'settled'])
   })
 })

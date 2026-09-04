@@ -2,7 +2,8 @@
 /**
  * What an export decides before a browser draws anything: which elements have
  * pixels of their own, whether the page is showing this one, what size the
- * pixels come out at, and which endings the model is told about.
+ * pixels come out at, how long it waits for the drawing, and which endings the
+ * model is told about.
  *
  * The drawing itself is a stub here for the reason the module states — jsdom
  * has no canvas, and this package takes no native canvas dependency to give it
@@ -18,11 +19,11 @@ import {
   captureElement, exportSize, type Capture, type ExportedImage, type ExportPixels,
 } from '../src/client/access/capture.ts'
 import {
-  emptyImageRefusal, hiddenImageRefusal, notAnImageRefusal, taintedImageRefusal, unexportableImageRefusal,
-  unloadedImageRefusal, wideImageRefusal,
+  emptyImageRefusal, hiddenImageRefusal, notAnImageRefusal, slowImageRefusal, taintedImageRefusal,
+  unexportableImageRefusal, unloadedImageRefusal, wideImageRefusal,
 } from '../src/access/text.ts'
 import {
-  IMAGE_MEDIA_TYPE, IMAGE_PIXEL_BUDGET, MAX_EXPORT_BYTES, SVG_RASTER_MIN_PIXELS, type ImageSize,
+  IMAGE_MEDIA_TYPE, IMAGE_PIXEL_BUDGET, MAX_EXPORT_BYTES, MAX_NAME_CHARS, SVG_RASTER_MIN_PIXELS, type ImageSize,
 } from '../src/access/wire.ts'
 
 /** The ref every case here names, which every refusal opens with. */
@@ -30,6 +31,12 @@ const REF = 'e12'
 
 /** What a browser hands back for a picture it drew. */
 const DRAWN: ExportedImage = { data: 'AAAA', mediaType: IMAGE_MEDIA_TYPE, bytes: 3 }
+
+/**
+ * The export deadline every case here runs under: past anything a drawing that
+ * answers at all takes, and short enough for the one case that waits it out.
+ */
+const BUDGET_MS = 40
 
 /** Every size the stub was asked to draw at, in order. */
 let asked: { el: Element; size: ImageSize }[] = []
@@ -63,7 +70,7 @@ function capture(
   draw: ExportPixels = draws(),
   visible: (target: Element) => boolean = () => true,
 ): Promise<Capture> {
-  return captureElement(el, { ref: REF, isVisible: visible, draw })
+  return captureElement(el, { ref: REF, isVisible: visible, draw, budgetMs: BUDGET_MS })
 }
 
 /**
@@ -230,6 +237,23 @@ describe('what one element exports as a picture', () => {
     const el = mount('<canvas width="8" height="8"></canvas>', 'canvas')
     const broken: ExportPixels = () => Promise.reject(new Error('the console gave no drawing surface'))
     await expect(capture(el, broken)).rejects.toThrow('the console gave no drawing surface')
+  })
+
+  it('refuses a drawing that never finishes, naming the deadline it was given', async () => {
+    const el = mount('<canvas width="8" height="8"></canvas>', 'canvas')
+    // Nothing in a browser cancels a draw, so what the deadline ends is this
+    // read's wait for it: the export answers, and the promise stays pending.
+    const never: ExportPixels = () => new Promise<ExportedImage>(() => {})
+    expect(refusal(await capture(el, never))).toBe(slowImageRefusal(REF, BUDGET_MS))
+  })
+
+  it('cuts a tag the page spelled longer than the wire carries, rather than posting it whole', async () => {
+    const name = `x-${'o'.repeat(MAX_NAME_CHARS * 2)}`
+    const el = mount(`<${name}>ops</${name}>`, name)
+    // Clipped where the tag is read, so the refusal is one the route takes:
+    // the wire refuses a message past its own bound outright.
+    expect(refusal(await capture(el)))
+      .toBe(notAnImageRefusal(REF, `${name.slice(0, MAX_NAME_CHARS - 1)}…`))
   })
 })
 

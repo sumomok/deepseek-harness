@@ -121,6 +121,19 @@ export const LOAD_WAIT_SHARE = 0.5
 export const SETTLE_WAIT_SHARE = 0.25
 
 /**
+ * The share of a picture read's report deadline the export itself may spend.
+ *
+ * Half of the quarter the two waits above leave, so the trip back keeps the
+ * other half. It is a deadline rather than a budget because a browser's drawing
+ * cannot be cancelled: a `toBlob` or an `image.decode()` that never settles
+ * leaves a promise pending for the life of the tab, and without this the seat
+ * would post nothing at all — the call would end at the host's own report
+ * deadline, and the model would be told the console went quiet rather than that
+ * this picture did not come out.
+ */
+export const EXPORT_WAIT_SHARE = 0.125
+
+/**
  * The share of a set of steps' report deadline the steps themselves may spend.
  *
  * A share of its own rather than the read's, because what the rest pays for is
@@ -328,6 +341,43 @@ export function sanitize(value: string): string {
     if (isPrintable(point)) kept += point
   }
   return kept
+}
+
+/**
+ * Cut one string to the length the wire takes, so a document with a long title
+ * or address is posted rather than refused.
+ *
+ * A cut falling between the two halves of one character takes the leading half
+ * with it: the wire refuses a lone surrogate, so a cut that left one would
+ * refuse the report this cut exists to save.
+ * @param value - the string, already free of what the wire refuses.
+ * @param max - the wire's bound on that field, in characters.
+ * @returns the string, ending in an ellipsis when it was too long.
+ */
+function clipTo(value: string, max: number): string {
+  if (value.length <= max) return value
+  const kept = value.slice(0, max - 1)
+  return `${kept.isWellFormed() ? kept : kept.slice(0, -1)}…`
+}
+
+/**
+ * Take one string the page supplied to what the wire carries: what a posted
+ * document may not hold removed, then cut to that field's own bound.
+ *
+ * That order is what {@link clipTo} is written against: it looks for a
+ * surrogate pair the cut split, which only means anything on a string carrying
+ * no stray half of its own.
+ *
+ * It lives beside the bounds rather than in the seat that posts, because the
+ * seat is not the only half that reads a page-supplied string: an export names
+ * the element's own tag, and the refusal carrying that tag is composed where
+ * the export decides it.
+ * @param value - the string as the page had it.
+ * @param max - the wire's bound on that field, in characters.
+ * @returns the string as the seat posts it.
+ */
+export function forWire(value: string, max: number): string {
+  return clipTo(sanitize(value), max)
 }
 
 /** What one read asks of the page, after the tool has validated it. */

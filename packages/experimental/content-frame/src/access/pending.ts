@@ -209,10 +209,38 @@ export class PendingCalls {
    * @returns whether a waiting call took it.
    */
   report(request: ChannelReportRequest): ReportAck {
-    const entry = this.waiting.get(request.callId)
-    if (entry === undefined || entry.tabId !== request.tabId) return { accepted: false }
+    const entry = this.claimant(request.callId, request.tabId)
+    if (entry === undefined) return { accepted: false }
     this.finish(entry, { kind: 'reported', outcome: request.outcome })
     return { accepted: true }
+  }
+
+  /**
+   * Whether {@link report} would take an answer for this call from this tab.
+   *
+   * It exists for the one route that does durable work before it reports: a
+   * picture is written to an attachment store that collects nothing, so a post
+   * naming a call nobody is waiting on has to be recognised before the bytes
+   * are committed rather than after. Both answers come from the same lookup, so
+   * a `true` here and a refusal there cannot disagree.
+   * @param callId - the call the report names.
+   * @param tabId - the tab posting it.
+   * @returns whether that call is waiting on that tab.
+   */
+  isWaiting(callId: string, tabId: string): boolean {
+    return this.claimant(callId, tabId) !== undefined
+  }
+
+  /**
+   * The waiting call one tab may answer, which is the single acceptance
+   * {@link report} and {@link isWaiting} both read.
+   * @param callId - the call the report names.
+   * @param tabId - the tab posting it.
+   * @returns that entry, or `undefined` when no call of that id is waiting on that tab.
+   */
+  private claimant(callId: string, tabId: string): PendingCall | undefined {
+    const entry = this.waiting.get(callId)
+    return entry === undefined || entry.tabId !== tabId ? undefined : entry
   }
 
   /**

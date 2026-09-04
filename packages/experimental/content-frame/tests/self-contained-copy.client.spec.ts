@@ -104,6 +104,7 @@ const ARGUMENTS: Record<string, readonly unknown[][]> = {
   unloadedImageRefusal: [['e12']],
   emptyImageRefusal: [['e12']],
   taintedImageRefusal: [['e12']],
+  slowImageRefusal: [['e12', 1875]],
   wideImageRefusal: [['e12', 3_500_000, MAX_EXPORT_BYTES]],
   unexportableImageRefusal: [['e12', 'image/avif']],
   imageStoreRefusal: [['Image batch exceeds the configured image-count limit.']],

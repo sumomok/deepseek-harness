@@ -15,15 +15,17 @@ import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-
 import { isVisible, TAB_ID, useContentRead, type ContentReadSeat } from '../src/client/access/executor.ts'
 import { looksClickable } from '../src/client/access/dom.ts'
 import {
-  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, IMAGE_MEDIA_TYPE,
-  LOAD_WAIT_SHARE, MAX_HEADER_CHARS,
+  CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE,
+  IMAGE_MEDIA_TYPE,
+  LOAD_WAIT_SHARE, MAX_HEADER_CHARS, MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS,
   MAX_ACT_STEPS, MAX_CLAIM_BACKOFF, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS,
   MAX_BID_MS, MIN_OUTLINE_CHARS,
   parseChannelReport, parseImageReport,
   PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, type ClaimAck, type ImageReport, type ReadOutcome,
 } from '../src/access/wire.ts'
 import {
-  FRAME_WIDE_LISTING_MESSAGE, notAnImageRefusal, WIDE_DOM_MESSAGE, wideAttrsMessage, wideTextMessage,
+  FRAME_WIDE_LISTING_MESSAGE, notAnImageRefusal, slowImageRefusal, WIDE_DOM_MESSAGE, wideAttrsMessage,
+  wideTextMessage,
 } from '../src/access/text.ts'
 import { RefTable } from '../src/client/access/refs.ts'
 import type { ExportPixels } from '../src/client/access/capture.ts'
@@ -1341,6 +1343,40 @@ describe('the seat exporting one picture', () => {
     await exported()
     expect(captured()).toEqual({ status: 'error', code: 'frame', message: notAnImageRefusal(ref, 'div') })
     expect(of(CONTENT_REPORT_ROUTE)).toEqual([])
+  })
+
+  it('posts a refusal about an element the page named longer than the wire carries', async () => {
+    const name = `x-${'o'.repeat(MAX_NAME_CHARS * 2)}`
+    const ref = drivePicture(`<${name} id="ops">x</${name}>`, '#ops', () => {
+      throw new Error('nothing here draws')
+    })
+    await exported()
+    // Cut rather than refused: the host's parser holds a posted message to
+    // MAX_OUTCOME_MESSAGE_CHARS and answers 400 for one past it, which the seat
+    // reads as final — the model would then get the generic timeout sentence
+    // instead of the refusal this read composed.
+    const message = notAnImageRefusal(ref, `${name.slice(0, MAX_NAME_CHARS - 1)}…`)
+    expect(captured()).toEqual({ status: 'error', code: 'frame', message })
+    expect(message.length).toBeLessThanOrEqual(MAX_OUTCOME_MESSAGE_CHARS)
+    expect(parseImageReport(of(CONTENT_IMAGE_ROUTE)[0])).toBeDefined()
+  })
+
+  it('gives the export a share of the read\'s deadline of its own', async () => {
+    const ref = drivePicture(
+      '<canvas id="chart" width="8" height="8"></canvas>',
+      '#chart',
+      () => new Promise(() => {}),
+    )
+    await exported()
+    // A drawing a browser never finishes cannot be cancelled, so what the
+    // deadline ends is the wait for it: the seat posts this rather than nothing,
+    // and the call settles here rather than at the host's report deadline with
+    // a sentence about a console that went quiet.
+    expect(captured()).toEqual({
+      status: 'error',
+      code: 'frame',
+      message: slowImageRefusal(ref, ACCESS.readTimeoutMs * EXPORT_WAIT_SHARE),
+    })
   })
 
   it('posts the reader\'s own refusal for a ref the page no longer has', async () => {
