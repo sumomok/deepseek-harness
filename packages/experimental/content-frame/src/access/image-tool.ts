@@ -12,18 +12,20 @@
  * Two gates run before the wait opens, in this order and for the same reason:
  * a stored picture is permanent, so the call has to fail before anything is
  * exported rather than after. The ref is checked for shape, and the session's
- * own route is checked for declaring image input at all.
+ * own route is put through `access/model-switch.ts`, which decides whether a
+ * picture can reach the model on it.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/image-tool
  */
 
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import { defineTool } from '@deepseek-ai/dsh-tools'
-import type { GenericCallView, GenericResultView, ToolDefinition, ToolRunContext } from '@deepseek-ai/dsh-tools'
+import type { GenericCallView, GenericResultView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import {
   CONTENT_READ_IMAGE_DESCRIPTION, ELEMENT_REF_REFUSAL, failureRefusal, IMAGE_REF_DESCRIPTION, imageHeaderText,
-  markupHeaderText, MISREPORTED_REFUSAL, noImageRouteRefusal, UNRESOLVED_ROUTE_REFUSAL,
+  markupHeaderText, MISREPORTED_REFUSAL,
 } from './text.ts'
+import { routeGate, type ModelRouteServices } from './model-switch.ts'
 import { awaitRead, PAGE_VALUE_SCHEMA, pathOf, readResultView, type ReadWait } from './read-value.ts'
 import {
   CAPTURE_MEDIA_TYPES, CONTENT_READ_IMAGE_TOOL_NAME, REF_PATTERN, type ImageAnswer, type ImageSize,
@@ -32,42 +34,6 @@ import {
 
 /** Title of the call card, in the pending and the settled state alike. */
 const CALL_TITLE = 'Read one picture in the content column'
-
-/** The modality this read needs the session's route to declare. */
-const IMAGE_MODALITY = 'image'
-
-/**
- * The one thing this tool asks of whichever LLM registry a composition mounted:
- * what an exact route declares it accepts.
- */
-export interface RouteModalities {
-  /**
-   * Resolve one exact route's metadata.
-   * @param provider - the registered provider route.
-   * @param model - the exact model id.
-   * @param signal - cancellation for the adapter's own lookup.
-   * @returns that route's metadata; `inputModalities` is what this reads.
-   */
-  readonly resolveModelInfo: (
-    provider: string,
-    model: string,
-    signal?: AbortSignal,
-  ) => Promise<{ inputModalities?: readonly string[] }>
-}
-
-/**
- * What this tool needs of the plugin context: the LLM registry, if one is
- * mounted. Narrowed to the one lookup rather than taken whole, so the gate
- * below is a pure function of what a composition actually provides.
- */
-export interface ModelRoutes {
-  /**
-   * The mounted LLM registry.
-   * @param service - always `llm`.
-   * @returns the registry, or `undefined` in a composition without one.
-   */
-  readonly get: (service: 'llm') => RouteModalities | undefined
-}
 
 /** The canonical outcome declared by the `content_read_image` output schema. */
 export interface ContentImageValue {
@@ -137,32 +103,6 @@ const IMAGE_OUTPUT = {
     image: IMAGE_VALUE_SCHEMA,
   },
 } as const
-
-/**
- * Whether the session's next request would carry a picture at all.
- *
- * The route is read the way every other consumer of this fact reads it: the
- * session's own request header first, the agent's options behind it, and an
- * absent `inputModalities` as a negative answer rather than an unknown one —
- * a route that does not say it accepts images is one this read cannot use.
- *
- * It is a gate rather than a graceful degrade because the failure it prevents
- * is not recoverable: a picture reaches the model through a stored attachment,
- * the store keeps what it is given for good, and a text-only route would drop
- * the block from the request after the pixels were already on disk.
- * @param routes - the mounted LLM registry, if any.
- * @param exec - the execution whose session names the route.
- * @returns the refusal, or `undefined` when the route declares image input.
- */
-async function routeRefusal(routes: ModelRoutes, exec: ToolRunContext): Promise<string | undefined> {
-  const routed = exec.agent?.session.requestHeader()?.config
-  const provider = routed?.provider ?? exec.agent?.options.provider
-  const model = routed?.model ?? exec.agent?.options.model
-  const llm = routes.get('llm')
-  if (provider === undefined || model === undefined || llm === undefined) return UNRESOLVED_ROUTE_REFUSAL
-  const active = await llm.resolveModelInfo(provider, model, exec.signal)
-  return active.inputModalities?.includes(IMAGE_MODALITY) === true ? undefined : noImageRouteRefusal(model)
-}
 
 /**
  * Turn one settled call into this read's answer.
@@ -237,10 +177,10 @@ function renderImage(
 /**
  * Build the `content_read_image` tool for one deployment.
  * @param wait - the channel this tool waits on.
- * @param routes - the mounted LLM registry, read for the calling session's route.
+ * @param routes - the mounted services the route gate reads.
  * @returns the definition to hand to `ctx.tools.register`.
  */
-export function contentReadImageTool(wait: ReadWait, routes: ModelRoutes): ToolDefinition {
+export function contentReadImageTool(wait: ReadWait, routes: ModelRouteServices): ToolDefinition {
   return defineTool({
     name: CONTENT_READ_IMAGE_TOOL_NAME,
     description: CONTENT_READ_IMAGE_DESCRIPTION,
@@ -260,7 +200,7 @@ export function contentReadImageTool(wait: ReadWait, routes: ModelRoutes): ToolD
     isConcurrencySafe: () => true,
     async execute(args, exec): Promise<ContentImageValue> {
       if (!REF_PATTERN.test(args.ref)) throw new Error(ELEMENT_REF_REFUSAL)
-      const refusal = await routeRefusal(routes, exec)
+      const refusal = await routeGate(routes, exec)
       if (refusal !== undefined) throw new Error(refusal)
       return await awaitRead(wait, exec, imageValue)
     },

@@ -33,7 +33,8 @@ import * as actText from '../src/access/act-text.ts'
 import * as readText from '../src/access/text.ts'
 import { contentActTool } from '../src/access/act-tool.ts'
 import { DialogApprovals } from '../src/access/dialog-approvals.ts'
-import { contentReadImageTool, type ModelRoutes } from '../src/access/image-tool.ts'
+import { contentReadImageTool } from '../src/access/image-tool.ts'
+import type { ModelRouteServices } from '../src/access/model-switch.ts'
 import {
   contentReadAttrsTool, contentReadDomContentTool, contentReadDomTool,
 } from '../src/access/markup-tool.ts'
@@ -182,7 +183,7 @@ const TIMEOUTS: CallTimeouts = { claimTimeoutMs: 30, answerTimeoutMs: 60, pinMs:
 const MAX_STEPS = 20
 
 /** A composition with no LLM registry; nothing here resolves a route. */
-const NO_ROUTES: ModelRoutes = { get: () => undefined }
+const NO_ROUTES: ModelRouteServices = { get: () => undefined }
 
 /**
  * The seven tools a deployment registers, assembled the way it assembles them.

@@ -17,7 +17,9 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
-import { contentReadImageTool, type ModelRoutes } from '../src/access/image-tool.ts'
+import { contentReadImageTool } from '../src/access/image-tool.ts'
+import type { ModelRouteServices } from '../src/access/model-switch.ts'
+import { fixedModalities, routeServices } from './route-services.client.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
 import {
   ELEMENT_REF_REFUSAL, EMPTY_COLUMN_REFUSAL, MISREPORTED_REFUSAL, noImageRouteRefusal, UNRESOLVED_ROUTE_REFUSAL,
@@ -42,21 +44,17 @@ const TEXT_MODEL = 'deepseek-v4-flash'
 let calls = 0
 
 /**
- * An LLM registry answering for one route.
+ * A composition whose LLM registry answers for one route.
  * @param modalities - what that route declares it accepts, absent for a route
  * that declares nothing.
- * @returns the narrowed registry the tool reads.
+ * @returns the narrowed services the tool reads.
  */
-function routes(modalities?: readonly string[]): ModelRoutes {
-  return {
-    get: () => ({
-      resolveModelInfo: () => Promise.resolve(modalities === undefined ? {} : { inputModalities: modalities }),
-    }),
-  }
+function routes(modalities?: readonly string[]): ModelRouteServices {
+  return routeServices({ llm: fixedModalities(modalities) })
 }
 
 /** A composition with no LLM registry at all. */
-const NO_ROUTES: ModelRoutes = { get: () => undefined }
+const NO_ROUTES: ModelRouteServices = { get: () => undefined }
 
 /** One settled picture, as the host composes it once the pixels are stored. */
 const STORED: Extract<ReadOutcome, { status: 'image' }> = {
@@ -89,7 +87,7 @@ interface Bench {
  * @param registry - the LLM registry the modality gate reads.
  * @returns the bench.
  */
-async function bench(model: string, registry: ModelRoutes): Promise<Bench> {
+async function bench(model: string, registry: ModelRouteServices): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
