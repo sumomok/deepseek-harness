@@ -14,8 +14,10 @@
  * therefore exactly what the proxy already granted: reaching the MCP servers
  * this deployment configured, as the user the proxy routed here.
  *
- * The token is held in memory for the process lifetime and written nowhere —
- * no session event, no settings document, no log line, no diagnostic.
+ * The token is held in memory and written nowhere — no session event, no
+ * settings document, no log line, no diagnostic. It is dropped when the browser
+ * half gives it up, which is what the sign-out route is for, and otherwise when
+ * the process ends.
  * @module @deepseek-ai/dsh-experimental-auth-gate
  */
 
@@ -25,6 +27,7 @@ import type {} from '@deepseek-ai/dsh-host-webserver'
 import { answerJson, readBoundedText, rejectCrossSite, rejectMethod, rejectNonJson } from './http.ts'
 import { forwardWithToken, resolveUpstreams } from './proxy.ts'
 import {
+  AUTH_GATE_LOGOUT_ROUTE,
   AUTH_GATE_MCP_PREFIX,
   AUTH_GATE_SETTINGS_ROUTE,
   AUTH_GATE_TOKEN_ROUTE,
@@ -34,6 +37,7 @@ import {
 
 export {
   ACCESS_TOKEN_STORAGE_KEY,
+  AUTH_GATE_LOGOUT_ROUTE,
   AUTH_GATE_MCP_PREFIX,
   AUTH_GATE_SETTINGS_ROUTE,
   AUTH_GATE_TOKEN_ROUTE,
@@ -92,6 +96,9 @@ const MAX_TOKEN_POST_CHARS = 8 * 1024
 
 /** How the token route names itself in a refusal. */
 const TOKEN_ROUTE_LABEL = 'token route'
+
+/** How the sign-out route names itself in a refusal. */
+const LOGOUT_ROUTE_LABEL = 'sign-out route'
 
 /**
  * Reject a login destination the browser half cannot build a redirect from.
@@ -179,6 +186,30 @@ export function apply(ctx: Context, config: Config): void {
       res.end()
     },
   }), 'auth-gate: token route')
+
+  ctx.effect(() => ctx.webServer.register({
+    kind: 'exact',
+    path: AUTH_GATE_LOGOUT_ROUTE,
+    handler: (req, res) => {
+      if (req.method !== 'POST') {
+        rejectMethod(res, 'POST')
+        return
+      }
+      // Both halves of the fence the token route carries, for the same reason:
+      // same-site alone leaves the route reachable by a cross-origin page as a
+      // preflight-free simple request, because a request carrying no
+      // `sec-fetch-site` at all passes it. Requiring `application/json`
+      // withdraws it from that set, so a cross-origin page cannot sign a visitor
+      // out of the deployment they are working in. No body is read even so — the
+      // route names no token, it drops whichever one is held, which is the token
+      // of the one visitor this process serves.
+      if (rejectCrossSite(req, res, LOGOUT_ROUTE_LABEL)) return
+      if (rejectNonJson(req, res, LOGOUT_ROUTE_LABEL)) return
+      held = undefined
+      res.writeHead(204)
+      res.end()
+    },
+  }), 'auth-gate: sign-out route')
 
   for (const upstream of upstreams) {
     const routePath = `${AUTH_GATE_MCP_PREFIX}/${upstream.name}`

@@ -14,12 +14,17 @@ export interface GateBrowser {
   now(): number
   /** The address the visitor is on, which is also the address they return to after signing in. */
   currentHref(): string
-  /** The stored access token, or `null` when nothing is stored. */
+  /** The stored access token with any `Bearer` scheme removed, or `null` when nothing is stored. */
   readToken(): string | null
   /** The named cookie's value, or `undefined` when the visitor carries no such cookie. */
   readCookie(name: string): string | undefined
   /** Write the named cookie for the whole origin. */
   writeCookie(name: string, value: string): void
+  /**
+   * Remove the named cookie from the whole origin.
+   * @param name - the cookie to remove.
+   */
+  clearCookie(name: string): void
   /** Leave for another address. */
   navigate(url: string): void
   /** Load the current address again. */
@@ -72,6 +77,47 @@ export function mirrorCookieLine(name: string, value: string): string {
 }
 
 /**
+ * The line that removes one mirrored cookie from the whole origin.
+ *
+ * `Path`, `Secure`, and `SameSite` repeat {@link mirrorCookieLine} verbatim: a
+ * browser matches a removal against an existing cookie by name, path, and
+ * domain, so a line that differs in the path writes a second, empty cookie and
+ * leaves the mirrored token in place.
+ * @param name - the cookie name.
+ * @returns the assignment for `document.cookie`.
+ */
+export function clearCookieLine(name: string): string {
+  return `${name}=; Path=/; Secure; SameSite=Lax; Max-Age=0`
+}
+
+/**
+ * One stored value with the login page's `Bearer` scheme removed.
+ *
+ * A contract with the deployment's login page, not a tolerance: that page
+ * stores `"Bearer <jwt>"` under `localStorage.accessToken`, because its own HTTP
+ * client puts the stored value into the `Authorization` header verbatim. Every
+ * place the gate carries a token onward — the mirror cookie the reverse proxy
+ * reads, the token route, the credential the node half's forward spends —
+ * carries the bare JWT, so the scheme is dropped exactly once, here, where a
+ * stored value enters the gate. The wire boundary itself stays strict: the token
+ * route accepts nothing but a three-segment JWT.
+ *
+ * What it tolerates: any casing of the scheme, whitespace before it, and any run
+ * of whitespace between it and the token. Everything else is left as it stands,
+ * a repeated scheme included — a JWT carries no whitespace, so a value still
+ * holding one after this fails `isJwtShaped` and sends the visitor to the login
+ * page, which is a better end than a credential the reverse proxy would refuse.
+ * Applying this to its own result changes nothing for the value the contract
+ * produces, since a bare JWT carries neither scheme nor whitespace.
+ * @param raw - the stored value, or `null` when nothing is stored.
+ * @returns the bare token, unchanged when it carries no scheme, or `null` when
+ * nothing is stored.
+ */
+export function storedToken(raw: string | null): string | null {
+  return raw === null ? null : raw.replace(/^\s*Bearer\s+/i, '')
+}
+
+/**
  * The gate's browser, backed by the page's own globals.
  * @returns the operations bound to `window`, `document`, and `localStorage`.
  */
@@ -79,9 +125,10 @@ export function windowGateBrowser(): GateBrowser {
   return {
     now: () => Date.now(),
     currentHref: () => location.href,
-    readToken: () => localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
+    readToken: () => storedToken(localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)),
     readCookie: name => readCookieFrom(document.cookie, name),
     writeCookie: (name, value) => { document.cookie = mirrorCookieLine(name, value) },
+    clearCookie: (name) => { document.cookie = clearCookieLine(name) },
     navigate: (url) => { location.href = url },
     reload: () => { location.reload() },
     onStorageChanged: (listener) => {

@@ -17,6 +17,12 @@ export const AUTH_GATE_SETTINGS_ROUTE = '/auth-gate/settings'
 /** Exact route the browser half posts the current access token to. */
 export const AUTH_GATE_TOKEN_ROUTE = '/auth-gate/token'
 
+/**
+ * Exact route the browser half posts to when it gives up the token it was
+ * running on, so the node half stops spending it.
+ */
+export const AUTH_GATE_LOGOUT_ROUTE = '/auth-gate/logout'
+
 /** Prefix under which each configured MCP upstream gets its forwarding route; no trailing slash, which is the webserver's route form. */
 export const AUTH_GATE_MCP_PREFIX = '/auth-gate/mcp'
 

@@ -3,9 +3,11 @@
  * cordis.yml booted through the vendored Loader mounts the webserver and the
  * auth-gate row, a fixture HTTP server stands in for the MCP upstream, and
  * every assertion observes the served HTTP surface — the settings document, the
- * token route's refusals and the one body it takes, the header the forwarding
- * route injects and the ones it drops, the answer while no token is held, an
- * event stream arriving incrementally, and route release on fiber disposal.
+ * token route's refusals and the one body it takes, the sign-out route's
+ * refusals and the 503 the forwarding routes go back to once it has run, the
+ * header the forwarding route injects and the ones it drops, the answer while no
+ * token is held, an event stream arriving incrementally, and route release on
+ * fiber disposal.
  *
  * The configuration cases call `apply` and the pure resolvers directly: a
  * rejected configuration never reaches a served surface, so there is nothing
@@ -29,7 +31,13 @@ import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import * as AuthGate from '../src/index.ts'
 import { requesterFor, resolveUpstreams, upstreamUrlFor } from '../src/proxy.ts'
-import { AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, isJwtShaped, parseTokenPost } from '../src/route.ts'
+import {
+  AUTH_GATE_LOGOUT_ROUTE,
+  AUTH_GATE_SETTINGS_ROUTE,
+  AUTH_GATE_TOKEN_ROUTE,
+  isJwtShaped,
+  parseTokenPost,
+} from '../src/route.ts'
 
 /** A JWT-shaped token; nothing in the node half reads its claims. */
 const TOKEN = 'aGVhZGVy.eyJzdWIiOiJ1LTEifQ.c2ln'
@@ -290,6 +298,62 @@ describe('auth-gate token route', () => {
   })
 })
 
+describe('auth-gate sign-out route', () => {
+  /** POST one sign-out, declaring the content type the route requires. */
+  function postLogout(ctx: Context, headers: Record<string, string> = {}): Promise<Answer> {
+    return call(ctx, AUTH_GATE_LOGOUT_ROUTE, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+    })
+  }
+
+  it('states the complete method set it serves', async () => {
+    const ctx = await loadComposition()
+    const answer = await call(ctx, AUTH_GATE_LOGOUT_ROUTE)
+    expect({ status: answer.status, allow: answer.allow }).toEqual({ status: 405, allow: 'POST' })
+  })
+
+  it('refuses a sign-out a browser labelled cross-site', async () => {
+    // A cross-origin page that could reach this route could sign a visitor out
+    // of the deployment they are working in.
+    const ctx = await loadComposition()
+    const answer = await postLogout(ctx, { 'sec-fetch-site': 'cross-site' })
+    expect(answer.status).toBe(403)
+    expect(JSON.parse(answer.body)).toEqual({ error: 'auth-gate: the sign-out route serves same-site requests only' })
+  })
+
+  it('refuses a sign-out that is not sent as JSON, which is what a simple request would be', async () => {
+    // `sec-fetch-site` alone is not a fence: a request carrying none at all
+    // passes it. Requiring the content type is what withdraws this route from
+    // the set a cross-origin page can post to without a preflight — the same
+    // two-layer fence the token route carries.
+    const ctx = await loadComposition()
+    for (const headers of [{ 'content-type': 'text/plain;charset=UTF-8' }, {}]) {
+      const answer = await call(ctx, AUTH_GATE_LOGOUT_ROUTE, { method: 'POST', headers })
+      expect(answer.status).toBe(415)
+      expect(JSON.parse(answer.body)).toEqual({ error: 'auth-gate: the sign-out route accepts application/json only' })
+    }
+  })
+
+  it('drops the held token, so the forwarding routes go back to answering 503', async () => {
+    upstream = await startUpstream()
+    const ctx = await loadComposition({ fixture: `${upstream.origin}/mcp` })
+    await postToken(ctx, { token: TOKEN })
+    expect((await call(ctx, MCP_ROUTE, { method: 'POST', body: '{}' })).status).toBe(200)
+
+    const signedOut = await postLogout(ctx)
+    expect({ status: signedOut.status, body: signedOut.body }).toEqual({ status: 204, body: '' })
+
+    const afterwards = await call(ctx, MCP_ROUTE, { method: 'POST', body: '{}' })
+    expect(afterwards.status).toBe(503)
+    expect(JSON.parse(afterwards.body)).toEqual({
+      error: 'auth-gate: no access token is held yet, so the "fixture" upstream cannot be reached',
+    })
+    // The forward the token was still held for is the only one that reached it.
+    expect(upstream?.seen.length).toBe(1)
+  })
+})
+
 describe('auth-gate MCP forwarding', () => {
   /** Boot a composition whose one upstream is the fixture, optionally holding a token. */
   async function forwarding(token?: string): Promise<Context> {
@@ -417,7 +481,7 @@ describe('auth-gate MCP forwarding', () => {
     const base = origin(ctx)
     const row = [...ctx.loader.entries()].find(entry => entry.options.id === 'auth-gate')
     await row?.fiber?.dispose()
-    for (const path of [AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, MCP_ROUTE]) {
+    for (const path of [AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, AUTH_GATE_LOGOUT_ROUTE, MCP_ROUTE]) {
       // The webserver's own fallback answers a path nobody claims.
       const answer = await fetch(`${base}${path}`)
       expect({ path, status: answer.status }).toEqual({ path, status: 404 })
@@ -462,7 +526,13 @@ describe('auth-gate configuration', () => {
 
   it('claims one forwarding route per configured upstream, under its own name', () => {
     expect(claimedRoutes(gateConfig({ mcpUpstreams: { crm: 'https://mcp.internal/crm', docs: 'http://docs.internal' } })))
-      .toEqual([AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, '/auth-gate/mcp/crm', '/auth-gate/mcp/docs'])
+      .toEqual([
+        AUTH_GATE_SETTINGS_ROUTE,
+        AUTH_GATE_TOKEN_ROUTE,
+        AUTH_GATE_LOGOUT_ROUTE,
+        '/auth-gate/mcp/crm',
+        '/auth-gate/mcp/docs',
+      ])
   })
 
   it('rejects a login destination the browser half cannot build a redirect from', () => {

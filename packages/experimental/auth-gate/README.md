@@ -9,8 +9,8 @@ It exists for one deployment shape: a reverse proxy in front of many dsh process
 ## What the gate does on every page load
 
 1. Read this plugin's browser-facing configuration from `/auth-gate/settings`. A browser half receives no cordis config — the boot manifest carries plugin names, not their `config` blocks — so an unreachable or unusable settings document fails the row rather than letting the gate run on a login address nobody chose.
-2. Read `localStorage.accessToken`. The key is fixed rather than configured: it is the key the deployment's login page writes, so it is a contract with that page rather than a choice this plugin makes.
-3. **No token, an unreadable one, one with no `exp`, or one already past it** — leave for `<loginUrl>?redirect=<the encoded current URL>`. A token without `exp` is refused rather than treated as eternal, because the gate's whole schedule is built on that claim.
+2. Read `localStorage.accessToken`, and drop a leading `Bearer ` from what it holds. Both halves of that are a contract with the deployment's login page rather than a choice this plugin makes: the key is the key that page writes, and the value is what that page's own HTTP client puts into the `Authorization` header verbatim, scheme included. Everything downstream of this one point — the mirror cookie a reverse proxy reads, the token route, the credential the node half's forward spends — carries the bare JWT, and the token route itself accepts nothing else.
+3. **No token, an unreadable one, one with no `exp`, or one already past it** — give the token up and leave for `<loginUrl>?redirect=<the encoded return address>`, which is the page the visitor asked for with the login page's own credential parameters taken out. **Giving the token up** below states the three steps and the order they run in. A token without `exp` is refused rather than treated as eternal, because the gate's whole schedule is built on that claim.
 4. **A usable token the cookie does not carry** — write the cookie, then load the page again so the request that follows already carries it.
 5. **A usable token the cookie already carries** — run the page, and `POST /auth-gate/token` so the node half can spend it.
 
@@ -32,17 +32,30 @@ The cookie exists because requests that carry no `Authorization` header — a na
 
 `refreshMarginSeconds` before the token's `exp`, the gate acts. In this package that means sending the visitor back through the login page, which is the one renewal route every deployment has. `handleTokenExpiring` in `src/client/run.ts` is the single place that decision is made and the only reader of the margin: a deployment whose sign-on offers a renewal endpoint replaces that function's body, and nothing else in the gate depends on how a token is renewed.
 
+### Giving the token up
+
+Three decisions leave for the login page: a boot that found no usable token, a token another tab removed or let expire, and the expiry margin. All three run the same three steps, in this order.
+
+1. **`POST /auth-gate/logout`**, so the node half stops spending a credential the visitor no longer has. The request is `keepalive`, because the navigation in step 3 would otherwise cancel a request the document owns.
+2. **Clear the mirror cookie**, under the exact `Path`, `Secure`, and `SameSite` the mirror was written with — a browser matches a removal against an existing cookie by name, path, and domain, so a line differing in any of them writes a second, empty cookie and leaves the token in place. A dead token surviving here would go on being presented to the reverse proxy in front of this process on every request the login page itself makes.
+3. **Navigate to the login page**, with `token` and `token4a` removed from the return address — from its query and from its fragment alike. Those are the parameters the deployment's login page reads a credential out of; handing one back would return the token this gate has just refused, through the browser's history and through every referrer the login page sends. The fragment is stripped as well because that page reads a parameter out of the whole address rather than out of its query — toy-core's `getUrlParam` parses everything past the first `?` in `location.href` — so removing only the query's would uncover the fragment's by taking away the `?` that was hiding it. The fragment's own route and its other parameters survive: these pages are hash-routed, so the fragment is the address.
+
+That order rests on when the browser attaches cookies. Step 1's request reaches this process through the same reverse proxy, which routes it by the very mirror cookie step 2 removes a moment later, and the sequence holds because a browser attaches cookies when a fetch is initiated, which is what Chromium does. One that read them at send time instead would present none, the proxy would refuse the sign-out, and the only trace would be a warning in the console while the node half went on holding the token until the process ends.
+
 ## Routes
 
 | Route | Method | Purpose |
 |---|---|---|
 | `/auth-gate/settings` | GET, HEAD | The three configured values the browser half must obey. `no-store`: the browser reads it once per boot and the values come from the row it booted with. |
 | `/auth-gate/token` | POST | Takes the token the browser found. Answers 204 and no body. |
+| `/auth-gate/logout` | POST | Drops the held token. Answers 204 and no body. |
 | `/auth-gate/mcp/<name>` | any | Forwards to the upstream configured under `<name>`, with the held token attached. |
 
 The token route is same-site and JSON-only: a request a browser labels `sec-fetch-site: cross-site` is refused 403 and one that does not declare `application/json` is refused 415, both before the body is read, so a cross-origin page cannot post a token as a preflight-free simple request. A body that is not a JSON document whose `token` field is a three-segment JWT is refused 400, and neither refusal quotes what was posted — a diagnostic naming a near-miss credential would put it wherever the response is read.
 
-The token is held in a closure inside the plugin, for the process lifetime, and written nowhere: no session event, no settings document, no log line, no diagnostic. There is no route that reads it back.
+The sign-out route carries both halves of that fence and reads no body at all: it names no token, it drops whichever one is held, which is the token of the one visitor this process serves. A cross-origin page that could reach it could sign that visitor out of the deployment they are working in, and same-site alone would not stop one — a request carrying no `sec-fetch-site` header passes that check, so it is the `application/json` requirement that withdraws this route from the preflight-free simple set as well. The browser half declares the content type and posts no body.
+
+The token is held in a closure inside the plugin and written nowhere: no session event, no settings document, no log line, no diagnostic. There is no route that reads it back, and the only route that changes it either replaces it with a newer one or drops it.
 
 ## Forwarding MCP requests with the token
 
@@ -110,6 +123,8 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **Expiry sends the visitor back through the login page.** There is no renewal call, so a token that runs out costs a full navigation even when the deployment's sign-on could have issued a new one silently. The seam for that is `handleTokenExpiring` and nothing else.
 - **The forward is HTTP only.** There is no upgrade route, so an MCP server reached over WebSocket cannot be forwarded through it; streamable-HTTP and its event streams are what the route serves.
 - **One token for the whole process.** The node half holds the newest token any browser posted. That matches the deployment this package is for — one process per signed-in person — and would be wrong for a process several people reach, where the last browser to load a page would decide whose credential every MCP call spends.
-- **Nothing revokes the held token.** There is no route that clears it, and a browser signing out leaves the process holding the token it last posted until the process ends or another browser posts a newer one.
+- **Only the gate's own three login decisions sign out.** `POST /auth-gate/logout` drops the held token, and nothing but the browser half's boot, storage-change, and expiry paths calls it — there is no sign-out control, and no interruption of whatever the agent loop is doing at the time. A visitor who closes the tab instead leaves the process holding the token until it ends or another browser posts a newer one.
+- **A visitor carrying no token signs out too.** The boot decision takes that exit whether or not anything was stored — deliberately, because the node half may still hold the token of whoever loaded the page before — and behind a reverse proxy that request carries no mirror cookie, comes back 401, and leaves one harmless warning in the console.
+- **A revocation is not undone.** The browser half hands the node half a token in one place — the boot or storage-change decision that armed the page — so a sign-out that arrives while a page is still running leaves that page's MCP forwarding answering 503 until it loads again, with nothing on screen saying so. Two things reach that state: a sign-out request that arrives late enough to drop a token posted after it, and a cross-origin page that gets past the route's fence. Closing it means either naming the token to drop in the request, so a late one cannot hit a newer credential, or re-posting the current token when the page is shown again.
 - **The settings route assumes an HTTP carrier.** The browser half fetches `/auth-gate/settings` relative to the page origin, so a transport that serves the shell without exposing the harness over HTTP would fail the row.
 - **Not covered by an assembled snapshot** — the browser evidence is the Playwright scenario in `apps/web/tests/auth-gate.e2e.ts` against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.

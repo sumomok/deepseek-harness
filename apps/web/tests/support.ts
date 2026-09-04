@@ -3,7 +3,7 @@ import { existsSync, mkdirSync } from 'node:fs'
 import { createServer } from 'node:net'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import type { Browser, Page } from 'playwright'
+import type { Browser, BrowserContext, BrowserContextOptions, Page } from 'playwright'
 
 /** The built page under test; `pnpm run test:web` rebuilds it before running. */
 export const DIST_INDEX = fileURLToPath(new URL('../dist/index.html', import.meta.url))
@@ -18,6 +18,17 @@ export const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
 export const ZH_BROWSER_LOCALE = 'zh-CN'
 
 /**
+ * The lane's viewport and browser language, shared by the page and context
+ * helpers so a scenario that needs its own context boots the same surface as
+ * one that does not.
+ * @param height - Viewport height; width is fixed to the lane baseline.
+ * @returns the Playwright options both helpers pass.
+ */
+function englishOptions(height: number): Pick<BrowserContextOptions, 'locale' | 'viewport'> {
+  return { viewport: { width: 1680, height }, locale: 'en-US' }
+}
+
+/**
  * Open the standard browser-test page advertising English before client boot.
  * This keeps role locators and goldens deterministic while leaving the Host
  * settings document free to override the provisional browser-derived locale;
@@ -28,7 +39,21 @@ export const ZH_BROWSER_LOCALE = 'zh-CN'
  * @returns the initialized page.
  */
 export async function newEnglishPage(browser: Browser, height = 1000): Promise<Page> {
-  return await browser.newPage({ viewport: { width: 1680, height }, locale: 'en-US' })
+  return await browser.newPage(englishOptions(height))
+}
+
+/**
+ * {@link newEnglishPage}'s context, for a scenario that needs a second tab of
+ * the same origin: Playwright refuses `page.context().newPage()` on the default
+ * context a bare `browser.newPage()` creates, and only pages of one context
+ * share `localStorage` and see each other's `storage` events. The caller owns
+ * the context and closes it.
+ * @param browser - Playwright browser owning the context.
+ * @param height - Viewport height; width is fixed to the lane baseline.
+ * @returns the initialized context, with no page open yet.
+ */
+export async function newEnglishContext(browser: Browser, height = 1000): Promise<BrowserContext> {
+  return await browser.newContext(englishOptions(height))
 }
 
 /** Fail loud on a stale checkout instead of testing yesterday's bundle. */

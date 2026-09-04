@@ -655,7 +655,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/auth-gate/src/index.ts:50`](../packages/experimental/auth-gate/src/index.ts)
+Source: [`packages/experimental/auth-gate/src/index.ts:54`](../packages/experimental/auth-gate/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 

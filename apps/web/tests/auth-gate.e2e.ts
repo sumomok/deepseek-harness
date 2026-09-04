@@ -13,10 +13,12 @@
  *
  * The rest is what only a real browser can answer: that the mirror reloads once
  * and then stops, that the token reaches the node half well enough to be spent
- * on an MCP request, and that a signed-in load is quiet. The load count is read
- * out of `sessionStorage`, which survives a reload of the same tab — the loop
- * this scenario guards against would show up there as a fourth load rather than
- * as a failed assertion anywhere else.
+ * on an MCP request, that a signed-in load is quiet, and that giving the token
+ * up reaches all three of the places it lives — the node half's memory, the
+ * mirror cookie, and the address the tab is on. The load count is read out of
+ * `sessionStorage`, which survives a reload of the same tab — the loop this
+ * scenario guards against would show up there as a fourth load rather than as a
+ * failed assertion anywhere else.
  *
  * An experimental package cannot be a dependency of `apps/web`, so the profile
  * link the loader resolves the row through is created here rather than by
@@ -28,7 +30,7 @@ import { mkdir, mkdtemp, rm, symlink, writeFile } from 'node:fs/promises'
 import type { AddressInfo } from 'node:net'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { Browser, ConsoleMessage, Page } from 'playwright'
+import type { Browser, BrowserContext, ConsoleMessage, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
@@ -38,7 +40,7 @@ import {
   webSnapshotMode,
   type WebScaffold,
 } from './scaffold.ts'
-import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
+import { newEnglishContext, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const GATE_DIR = join(REPO_ROOT, 'packages/experimental/auth-gate')
@@ -49,6 +51,8 @@ const LOGIN_URL = '/auth-gate-e2e-login/#/'
 /** Its path, which is all the browser requests — the fragment never leaves the tab. */
 const LOGIN_PATH = '/auth-gate-e2e-login/'
 const COOKIE_NAME = 'accessToken'
+/** A blank same-origin page for the second tab, which must run no gate of its own. */
+const SCRATCH_PATH = '/auth-gate-e2e-scratch/'
 /** The forwarding route the configured upstream claims. */
 const MCP_ROUTE = '/auth-gate/mcp/fixture'
 /** Where the load counter keeps its tally, for this tab. */
@@ -69,6 +73,14 @@ const TOKEN = [
 ].join('.')
 
 /**
+ * What the deployment's login page actually stores: the value its own HTTP
+ * client puts into the `Authorization` header verbatim, scheme included. The
+ * mirror cookie and the forwarded credential are asserted against the bare
+ * `TOKEN`, which is what makes the scheme's removal observable end to end.
+ */
+const STORED_TOKEN = `Bearer ${TOKEN}`
+
+/**
  * The stub login page's body, in the two behaviors this scenario needs.
  * @param signIn - whether the page stores the token and follows the return
  * address, the way the deployment's own page does.
@@ -83,7 +95,7 @@ function loginPage(signIn: boolean): string {
   var back = new URLSearchParams(hash.slice(hash.indexOf('?'))).get('redirect');
   document.getElementById('stub-login').dataset.redirect = back;
   if (${String(signIn)}) {
-    localStorage.setItem('accessToken', ${JSON.stringify(TOKEN)});
+    localStorage.setItem('accessToken', ${JSON.stringify(STORED_TOKEN)});
     location.href = back;
   }
 </script></body></html>`
@@ -160,6 +172,10 @@ async function stageComposition(upstreamUrl: string): Promise<{ harnessHome: str
 describe.skipIf(MODE === 'record')('web e2e: single sign-on in front of the shell', () => {
   let scaffold: WebScaffold
   let browser: Browser
+  // Own context, not the default one a bare `browser.newPage()` opens: the
+  // sign-out case removes the token from a second tab, which has to share this
+  // page's origin storage.
+  let context: BrowserContext
   let page: Page
   let harnessHome: string
   let upstream: FixtureUpstream
@@ -175,7 +191,8 @@ describe.skipIf(MODE === 'record')('web e2e: single sign-on in front of the shel
     scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: staged.overlayPath })
 
     browser = await chromium.launch()
-    page = await newEnglishPage(browser)
+    context = await newEnglishContext(browser)
+    page = await context.newPage()
     await page.addInitScript(LOAD_COUNTER)
     // The deployment's login page, served into the shell's own origin: only a
     // same-origin page can leave the token where the gate reads it.
@@ -188,6 +205,7 @@ describe.skipIf(MODE === 'record')('web e2e: single sign-on in front of the shel
   }, 180_000)
 
   afterAll(async () => {
+    await context?.close()
     await browser?.close()
     await scaffold?.close()
     await upstream?.close()
@@ -274,5 +292,40 @@ describe.skipIf(MODE === 'record')('web e2e: single sign-on in front of the shel
     expect(tripwire.pageErrors).toEqual([])
     expect(consoleErrors).toEqual([])
     expect(tripwire.warnings).toEqual([])
+  }, 120_000)
+
+  it('gives the token up in all three places when another tab removes it', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-auth-gate-sign-out'))
+    // The stub stays put again: a page that signed the visitor straight back in
+    // would undo the three effects this case exists to observe.
+    stubSignsIn = false
+    // A `storage` event reaches every document of the origin except the one that
+    // wrote, so the removal has to come from a second tab in the same context —
+    // a blank same-origin page, which runs no gate of its own.
+    const other = await page.context().newPage()
+    await other.route(url => url.pathname === SCRATCH_PATH, route =>
+      route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: '<!doctype html><title>scratch</title>' }))
+    await other.goto(`${scaffold.baseUrl}${SCRATCH_PATH}`, { waitUntil: 'load' })
+    await other.evaluate(() => { localStorage.removeItem('accessToken') })
+
+    // The mirror stops presenting a token the visitor no longer has, and the
+    // gate leaves for the login page carrying where it was.
+    await expect.poll(async () => (await page.context().cookies()).some(cookie => cookie.name === COOKIE_NAME), {
+      timeout: 30_000,
+    }).toBe(false)
+    await expect.poll(() => new URL(page.url()).pathname, { timeout: 30_000 }).toBe(LOGIN_PATH)
+
+    // And the node half stops spending it: the sign-out the gate posts before
+    // it navigates is what puts the forwarding route back to 503.
+    await expect.poll(async () => {
+      const response = await fetch(`${scaffold.baseUrl}${MCP_ROUTE}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 2 }),
+      })
+      await response.arrayBuffer()
+      return response.status
+    }, { timeout: 30_000 }).toBe(503)
+    await other.close()
   }, 120_000)
 })

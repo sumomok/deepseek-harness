@@ -657,7 +657,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/experimental/auth-gate/src/index.ts:50`](../packages/experimental/auth-gate/src/index.ts)
+来源：[`packages/experimental/auth-gate/src/index.ts:54`](../packages/experimental/auth-gate/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 

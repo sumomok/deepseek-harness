@@ -15,7 +15,12 @@
  */
 
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
-import { AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, type AuthGateSettings } from '../route.ts'
+import {
+  AUTH_GATE_LOGOUT_ROUTE,
+  AUTH_GATE_SETTINGS_ROUTE,
+  AUTH_GATE_TOKEN_ROUTE,
+  type AuthGateSettings,
+} from '../route.ts'
 import { windowGateBrowser } from './browser.ts'
 import { runGate } from './run.ts'
 
@@ -67,6 +72,28 @@ async function postToken(token: string): Promise<void> {
 }
 
 /**
+ * Tell the node half to drop the token it holds.
+ * @returns nothing, once the node half has dropped it.
+ * @throws {Error} when the route refuses the request.
+ */
+async function postLogout(): Promise<void> {
+  // `keepalive`: every caller is about to navigate to the login page, and a
+  // request the document owns is cancelled the moment it does.
+  //
+  // The request declares `application/json` and carries no body, and the route
+  // reads none either. The declaration is there to withdraw the route from the
+  // CORS-simple set, so a cross-origin page cannot post it without a preflight.
+  const response = await fetch(AUTH_GATE_LOGOUT_ROUTE, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    keepalive: true,
+  })
+  if (!response.ok) {
+    throw new Error(`auth-gate: ${AUTH_GATE_LOGOUT_ROUTE} answered ${response.status}`)
+  }
+}
+
+/**
  * Client plugin body: read the gate's settings, then run it for this page load.
  * @param ctx - client root context.
  */
@@ -77,5 +104,10 @@ export async function apply(ctx: ClientContext): Promise<void> {
     // forwarding routes report as 503. The page itself stays usable, so this
     // is a warning rather than a failed row.
     postToken(token).catch((error: unknown) => { ctx.logger.warn(error) })
+  }, () => {
+    // A refused revoke leaves the node half holding a token the visitor has
+    // given up. The page is leaving for the login page either way, so this is a
+    // warning rather than something to hold the navigation for.
+    postLogout().catch((error: unknown) => { ctx.logger.warn(error) })
   }), 'auth-gate: browser boot gate')
 }
