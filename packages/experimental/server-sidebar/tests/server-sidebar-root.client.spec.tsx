@@ -43,6 +43,8 @@ interface Bench {
    * auto-opening immediately (see workbenchIsLive/recentWorkspaceId gating).
    */
   recentWorkspaceId: string | undefined
+  /** What the identity source currently answers; absent is the anonymous footer. */
+  displayName: string | undefined
 }
 
 function mount(overrides: Partial<Bench> = {}) {
@@ -51,6 +53,7 @@ function mount(overrides: Partial<Bench> = {}) {
   const onOpenWorkbench = vi.fn(() => Promise.resolve())
   const onOpenWorkflow = vi.fn(() => Promise.resolve())
   const onSaveWorkflows = vi.fn(() => Promise.resolve())
+  const onSignOut = vi.fn()
   let current: Bench = {
     workflows: [],
     workbenchSessionId: undefined,
@@ -59,6 +62,7 @@ function mount(overrides: Partial<Bench> = {}) {
     byId: {},
     phase: 'ready',
     recentWorkspaceId: 'workspace-1',
+    displayName: undefined,
     ...overrides,
   }
   const root = () => (
@@ -68,7 +72,8 @@ function mount(overrides: Partial<Bench> = {}) {
       pages={PAGES} onOpenPage={onOpenPage}
       onOpenWorkbenchOnLoad={onOpenWorkbenchOnLoad}
       onOpenWorkbench={onOpenWorkbench}
-      onOpenWorkflow={onOpenWorkflow} onSaveWorkflows={onSaveWorkflows}
+      onOpenWorkflow={onOpenWorkflow} onSaveWorkflows={onSaveWorkflows} onSignOut={onSignOut}
+      useDisplayName={<S,>(sel: (name: string | undefined) => S): S => sel(current.displayName)}
       useStore={(<S,>(
         sel: (s: { workflows: ServerMenuWorkflow[]; workbenchSessionId: string | undefined; error: string | undefined }) => S,
       ): S => sel({ workflows: current.workflows, workbenchSessionId: current.workbenchSessionId, error: current.workflowsError }))}
@@ -91,6 +96,7 @@ function mount(overrides: Partial<Bench> = {}) {
     onOpenWorkbench,
     onOpenWorkflow,
     onSaveWorkflows,
+    onSignOut,
     rerender(next: Partial<Bench>) {
       current = { ...current, ...next }
       view.rerender(root())
@@ -110,6 +116,31 @@ describe('ServerSidebarRoot', () => {
   it('renders no brand-mark fallback (the slot takeover leaves it empty)', () => {
     mount()
     expect(screen.getByTestId('sidebar.brand.mark').firstChild).toBeNull()
+  })
+
+  describe('footer identity', () => {
+    it('names the signed-in person when the token carries a name', () => {
+      mount({ displayName: 'Signed-in Person' })
+      expect(screen.getByText('Signed-in Person')).toBeTruthy()
+      expect(screen.queryByText(en['avatar.namePlaceholder'])).toBeNull()
+    })
+
+    it('keeps the anonymous placeholder when there is no name to show', () => {
+      mount()
+      expect(screen.getByText(en['avatar.namePlaceholder'])).toBeTruthy()
+    })
+
+    it('follows the identity source when the name moves under a mounted shell', () => {
+      const b = mount({ displayName: 'Signed-in Person' })
+      b.rerender({ displayName: 'The Other Person' })
+      expect(screen.getByText('The Other Person')).toBeTruthy()
+    })
+
+    it('hands a sign-out click to the injected action', () => {
+      const b = mount()
+      fireEvent.click(screen.getByRole('button', { name: en['signOut.action'] }))
+      expect(b.onSignOut).toHaveBeenCalledTimes(1)
+    })
   })
 
   describe('workbench click: blank-draft semantics', () => {

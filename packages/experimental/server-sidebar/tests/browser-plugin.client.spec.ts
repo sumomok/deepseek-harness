@@ -6,9 +6,9 @@
  * the four child seats it declares (`sidebar.workspaces` deliberately
  * absent — decision ①), the `conversation.session.header.actions`
  * registration for the "存为工作流" action, the workbench/workflow/page
- * business logic each injected callback wires, removal on fiber teardown
- * (HMR safety), the dictionaries, and the invariant companion's ownership
- * reservation.
+ * business logic each injected callback wires, the footer's identity source
+ * and its sign-out action, removal on fiber teardown (HMR safety), the
+ * dictionaries, and the invariant companion's ownership reservation.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -39,7 +39,8 @@ interface BenchWorkspaces {
 /** Mocked `sessions` service face this bench provides. */
 interface BenchSessions {
   open: ReturnType<typeof vi.fn>
-  list: { getSnapshot: () => { current: string | undefined } }
+  list: { getSnapshot: () => { ids: string[]; byId: Record<string, { running: boolean }>; current: string | undefined } }
+  scope: (id: string) => { get: (service: string) => { cancel: ReturnType<typeof vi.fn> } }
 }
 
 /** Mocked `remote` service face this bench provides. */
@@ -54,10 +55,21 @@ interface BenchResult {
   workspaces: BenchWorkspaces
   sessions: BenchSessions
   remote: BenchRemote
+  /** The one cancel face every session scope in this bench resolves to. */
+  cancel: ReturnType<typeof vi.fn>
 }
 
 const CONTENT_FRAME_SETTINGS_ROUTE = '/content-frame/settings'
 const SERVER_MENU_ROUTE = '/server-menu/workflows'
+const SERVER_IDENTITY_ROUTE = '/server-menu/identity'
+const AUTH_GATE_SETTINGS_ROUTE = '/auth-gate/settings'
+const AUTH_GATE_LOGOUT_ROUTE = '/auth-gate/logout'
+
+/** A JWT-shaped token whose payload carries one display-name claim. */
+function jwt(name: string): string {
+  const body = btoa(JSON.stringify({ login_uname: name })).replaceAll('+', '-').replaceAll('/', '_').replaceAll('=', '')
+  return `header.${body}.signature`
+}
 
 const CONTENT_FRAME_PAGES = [{ id: 'home', title: 'Home', description: '', url: '/content-app/' }]
 const PAGES = [{ id: 'home', title: 'Home' }]
@@ -99,7 +111,15 @@ function declareSlots(ctx: Context): void {
 
 /** Boot the browser half over a real slot tree, with every service it calls stubbed. */
 async function bench(
-  options: { currentSessionId?: string; recentWorkspaceId?: string; homePage?: string } = {},
+  options: {
+    currentSessionId?: string
+    recentWorkspaceId?: string
+    homePage?: string
+    /** Omit auth-gate's settings route, as a composition without that plugin does. */
+    withoutAuthGate?: boolean
+    /** Refuse this package's own identity route, as a composition with no webserver does. */
+    withoutIdentity?: boolean
+  } = {},
 ): Promise<BenchResult> {
   stubFetch({
     [CONTENT_FRAME_SETTINGS_ROUTE]: {
@@ -110,6 +130,16 @@ async function bench(
       },
     },
     [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW] } },
+    [SERVER_IDENTITY_ROUTE]: options.withoutIdentity === true
+      ? { ok: false, body: {} }
+      : { body: { displayNameClaim: 'login_uname' } },
+    [AUTH_GATE_LOGOUT_ROUTE]: { body: undefined },
+    // A fragment-only login address, so the one test that lets the whole
+    // sign-out run through leaves the jsdom page where it is (a path
+    // navigation is the one thing jsdom refuses to perform).
+    ...options.withoutAuthGate === true
+      ? { [AUTH_GATE_SETTINGS_ROUTE]: { ok: false, body: {} } }
+      : { [AUTH_GATE_SETTINGS_ROUTE]: { body: { loginUrl: '#/toy-login', cookieName: 'accessToken' } } },
   })
   const ctx = new Context()
   await ctx.plugin(SlotRegistry).await()
@@ -118,7 +148,18 @@ async function bench(
     connectWorkspace: vi.fn(() => Promise.resolve('new-session')),
     list: { getSnapshot: () => ({ recentWorkspaceId: options.recentWorkspaceId }) },
   }
-  const sessions = { open: vi.fn(), list: { getSnapshot: () => ({ current: options.currentSessionId }) } }
+  const cancel = vi.fn(() => Promise.resolve())
+  const sessions = {
+    open: vi.fn(),
+    list: {
+      getSnapshot: () => ({
+        ids: options.currentSessionId === undefined ? [] : [options.currentSessionId],
+        byId: options.currentSessionId === undefined ? {} : { [options.currentSessionId]: { running: false } },
+        current: options.currentSessionId,
+      }),
+    },
+    scope: () => ({ get: () => ({ cancel }) }),
+  }
   const remote = { commands: { execute: vi.fn(() => Promise.resolve({ ok: true, value: undefined })) } }
   ctx.provide('workspaces', workspaces as never)
   ctx.provide('sessions', sessions as never)
@@ -127,7 +168,7 @@ async function bench(
   ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
   const fiber = ctx.plugin({ inject: [...inject], apply })
   await fiber.await()
-  return { ctx, fiber, workspaces, sessions, remote }
+  return { ctx, fiber, workspaces, sessions, remote, cancel }
 }
 
 /** Fresh mocked store actions, as the sidebar's inject factory receives them. */
@@ -152,6 +193,7 @@ function injectHeaderAction(ctx: Context, sessionId: string): SaveWorkflowInject
 
 afterEach(() => {
   vi.unstubAllGlobals()
+  localStorage.clear()
 })
 
 describe('server-sidebar browser half: sidebar registration', () => {
@@ -357,6 +399,46 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW, other] })
   })
 
+  it('seeds the footer\'s name from the claim the identity route named', async () => {
+    localStorage.setItem('accessToken', `Bearer ${jwt('Signed-in Person')}`)
+    const { ctx } = await bench()
+    const { injected } = injectSidebar(ctx)
+    expect(injected.hooks.displayName.getSnapshot()).toBe('Signed-in Person')
+  })
+
+  it('leaves the footer anonymous when the identity route answers nothing usable', async () => {
+    localStorage.setItem('accessToken', `Bearer ${jwt('Signed-in Person')}`)
+    const { ctx } = await bench({ withoutIdentity: true })
+    const { injected } = injectSidebar(ctx)
+    expect(injected.hooks.displayName.getSnapshot()).toBeUndefined()
+  })
+
+  it('signs the visitor out: stops the open conversation, drops the held token, and clears the stored keys', async () => {
+    localStorage.setItem('accessToken', `Bearer ${jwt('Signed-in Person')}`)
+    localStorage.setItem('userInfo', '{}')
+    localStorage.setItem('someOtherApp.session', 'kept')
+    const { ctx, cancel } = await bench({ currentSessionId: 'session-a' })
+    const { injected } = injectSidebar(ctx)
+    injected.onSignOut()
+    await vi.waitFor(() => {
+      expect(localStorage.getItem('accessToken')).toBeNull()
+    })
+    expect(cancel).toHaveBeenCalledTimes(1)
+    expect(fetch).toHaveBeenCalledWith(AUTH_GATE_LOGOUT_ROUTE, expect.objectContaining({ method: 'POST', keepalive: true }))
+    expect(localStorage.getItem('userInfo')).toBeNull()
+    expect(localStorage.getItem('someOtherApp.session')).toBe('kept')
+  })
+
+  it('reports a sign-out it cannot perform rather than sending the visitor nowhere', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx, cancel } = await bench({ withoutAuthGate: true })
+    const { injected } = injectSidebar(ctx)
+    injected.onSignOut()
+    expect(cancel).not.toHaveBeenCalled()
+    expect(warn).toHaveBeenCalledWith('server-sidebar: cannot sign out, the login page and mirror cookie are unknown')
+    warn.mockRestore()
+  })
+
   it('removes the sidebar entry and child declarations on teardown (HMR safety)', async () => {
     const { ctx, fiber } = await bench()
     await fiber.dispose()
@@ -422,6 +504,8 @@ describe('server-sidebar browser half: dictionaries', () => {
     stubFetch({
       [CONTENT_FRAME_SETTINGS_ROUTE]: { body: { cacheSize: 1, pages: CONTENT_FRAME_PAGES } },
       [SERVER_MENU_ROUTE]: { body: { workflows: [] } },
+      [SERVER_IDENTITY_ROUTE]: { body: { displayNameClaim: 'login_uname' } },
+      [AUTH_GATE_SETTINGS_ROUTE]: { body: { loginUrl: '#/toy-login', cookieName: 'accessToken' } },
     })
     const ctx = new Context()
     await ctx.plugin(SlotRegistry).await()

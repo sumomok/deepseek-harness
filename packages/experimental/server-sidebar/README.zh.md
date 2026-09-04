@@ -55,6 +55,34 @@
 
 只有一行会标记当前会话，且优先精确匹配：一条工作流若其 `homeSessionId` 等于 `useSessions(state => state.current)`，就会画出高亮；工作台只在「当前会话就是自己的 `workbenchSessionId`」且「没有任何工作流已经绑定这个会话」两个条件同时成立时才画出高亮——工作流的绑定始终优先于工作台，因此一个同时被两者指名的会话，绝不会同时点亮两行。每一行都携带一个布尔型 `data-active` 属性；`ServerSidebarRoot.module.css` 用一圈内嵌的品牌色描边来呈现工作台的高亮态（`.workbench[data-active='true']`），`SidebarGroups.module.css` 则用 `dsh-client-ui-trajectory` 自己给选中行用的同一个 `--dsw-alias-interactive-bg-active` 底色来呈现工作流行的高亮态，把本包的配色继续限定在产品里已经确立过的这套变量之内。
 
+## 身份显示与退出
+
+侧栏底部写明部署方为谁登录了这台工作台，并给出撤销它的那一个控件。两半都不进模型：没有任何会话事件携带这个名字，这里也没有任何东西能到达一次模型请求。
+
+**名字只是用于显示的副本，不是权威。** `client/identity.ts` 从 `localStorage.accessToken` 里读出部署方的访问令牌，剥掉登录页写入的 `Bearer` 前缀，不做任何验证地解码 payload，展示 `Config.displayNameClaim` 指名的那个 claim（本部署所用登录体系里是 `login_uname`）。令牌解不开、claim 不存在或不是字符串、以及页面上压根没有令牌，这三种情况都退回匿名占位（「用户」/「User」）。没有任何东西以这个值为准——有能力验证令牌的是这套进程前面的反向代理，页面加载时它早已判定过对面是谁。名字跟随 `storage` 事件变化，因此另一个标签页换人登录后，这里无需刷新即可跟上。
+
+**退出按固定顺序跑五步，且无论前一步结果如何，每一步都会执行**（`client/sign-out.ts`）。
+
+1. **停掉正在进行的工作**——当前打开的那个对话，以及会话列表中每一个 `running` 为真的对话，都走出厂停止按钮所用的同一条按会话作用域取到的 `conversation.cancel()`。当前打开的那个不看这一位也照停；对空闲会话的停止是宿主直接应答的空操作。这一步最多等三秒：宿主始终不应答的一次取消，只能花掉访客这三秒，而不能把真正丢掉令牌的后四步一并拖住。
+2. **`POST /auth-gate/logout`**，让进程不再花用它持有的那枚令牌。请求带 `keepalive`，否则第 5 步的跳转会把这个由文档持有的请求取消掉——这也正是这条请求只发出、不等待的原因：一条被代理挂到自己读超时才断的路由，否则就会把访客扣在一个工作已经停下、令牌下一步就要被丢弃的页面上。
+3. **按名字逐个删除登录页自己的存储键**——绝不用 `localStorage.clear()`，那会把外壳自己的私有键、以及同源上其它应用的键一并带走。
+4. **清掉镜像 cookie**，用 auth-gate 写入它时逐字一致的 `Path`、`Secure` 与 `SameSite`。
+5. **跳转到登录页**，带上 `?redirect=` 与回跳地址：就是当前地址，只把登录页自己的凭证参数（`token`、`token4a`）从查询串与 hash 两处一并剔掉，其余参数逐字节保留它们到达时的样子，hash 里的路由也原样带回——这些页面是 hash 路由的，hash 就是地址。
+
+任何一步失败都只记一条 `console.warn`：访客反正要离开，一步跑不通不构成把其余几步一起放弃的理由。
+
+**逐字复制，而非导入。** `Bearer` 剥离、JWT 解码、`/auth-gate/settings`、`/auth-gate/logout`、那行 cookie 与回跳地址的剔参规则，都是 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md) 自己那份的复制品，理由与 `client/pages.ts` 复制 content-frame 路由的理由相同：跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式，而且本侧栏还必须能在压根不组合 auth-gate 的组合里工作。两个包在本 fork 里一同维护，这六项约定必须同步。
+
+## 配置
+
+| 字段 | 用途 |
+| --- | --- |
+| `displayNameClaim` | 部署方访问令牌里携带登录者显示名的那个 claim（本部署所用的 toy-core 登录体系里是 `login_uname`）。必填，且在加载期拒绝空白值：无人指名的 claim 会让每一个登录者都显示为匿名，而现场没有任何线索说明原因。 |
+
+它通过又一条同源路由送到 browser 半边，因为 browser 半边收不到任何 cordis 配置——启动清单携带的是插件名，不是它们的 `config` 块：
+
+- `GET /server-menu/identity`——`{ displayNameClaim }`，`cache-control: no-store`。没有任何东西写它；其它方法一律 405 并列出它确实提供的方法集。与 server-menu 路由不同，这一条只需要 `ctx.webServer`：没有组合 settings 能力的部署照样能写明登录者是谁。
+
 ## 去术语化
 
 决策②在上述整体重构之上,进一步禁止会话/新会话/session/workspace 出现在本组合渲染的任何用户可见字符串里。还有四处出厂界面携带这套词汇，移除方式与 ui-sidebar/ui-workspace 相同——禁用组合层里的那一行，而不是修改该行自己的文案：
@@ -77,7 +105,7 @@
 
 ## 组合方式
 
-本插件不属于任何出厂 bundle。`overlay/customer.patch.yml` 就是完整的客户表单 overlay：它禁用 `ui-layout`、`ui-sidebar`、`ui-workspace`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`，并插入 `server-layout`、`content-surface`、`content-column` 与本包。它不插入 `content-frame`——部署自己的页面目录需要单独组合，与它并列。用 `dsh --profile <name> --patch <path>` 应用；该包必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile <name> add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
+本插件不属于任何出厂 bundle。`overlay/customer.patch.yml` 就是完整的客户表单 overlay：它禁用 `ui-layout`、`ui-sidebar`、`ui-workspace`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`，并插入 `server-layout`、`content-surface`、`content-column` 与本包。它不插入 `content-frame`——部署自己的页面目录需要单独组合，与它并列。它同样不插入 [`auth-gate`](../auth-gate/README.zh.md)，而底部那个退出按钮正需要这一行：没有组合它时按钮照样渲染，但按下去只会向控制台报告登录页未知，然后停在原地。两份 overlay 都携带本包那一个必填的 `config` 字段（见上文「配置」）；缺了它的行会在加载期失败。用 `dsh --profile <name> --patch <path>` 应用；该包必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile <name> add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
 
 ## Model Experience
 
@@ -97,5 +125,11 @@
 - **改名/移除用悬停显现的图标按钮，而非原生右键菜单。** 这是任务本身明确允许的 v1 降级（「若实现体量失控，降级为右键菜单「上移/下移」」）——这条降级条款曾经也覆盖重新排序，直到重新排序改为原生 HTML5 拖拽为止；改名/移除这一半的降级依然保留，因为为这两个偶发动作再引入第二种交互模式依然没有正当理由。
 - **`ui-workspace` 被彻底禁用、而非仅仅被隐藏——原因是组合它会复活英雄区的工作区选择器，而不是因为组合它会失败。** 它的 `sidebar.workspaces` 注册在本外壳去掉那个槽之后已经失效（`ctx.slots.inject` 只是永远不会触发——见上文「替换出厂侧边栏」）；真正还会落地的是它的 `conversation.hero.workspace` 注册，因为 `dsh-client-ui-conversation` 始终会声明那个槽。一次零工作区的全新安装,依然会让页面或工作流点击成为一次被吸收的空操作（见上文「导航」）——这是从此前基于收藏的设计里延续下来的、已经被接受的既有边界情况，并非本次新引入。工作台自己的加载态自动落位比这更进一步：这种情况下它根本不会去尝试（见上文「工作台」），而是一直等待工作区出现，而不是先尝试一次再报一次警告。
 - **英雄区标题原本的文本节点在 DOM 与无障碍树里原样保留。** `terminology-guard.ts` 的 `::after` 替换只改变了标题画出来的内容（把真实文本压到 `font-size: 0`，另用一个伪元素承载本包自己的文案）；屏幕阅读器或任何针对 DOM 文本的查询，找到的依然是 `dsh-client-ui-conversation` 自己的中/英文标题字符串，而不是本包的品牌文案。
+- **退出不会通知部署方自己的登录体系。** 它把本浏览器和本进程持有的令牌就地全部丢弃，并把访客送回登录页；令牌本身在签发方那一侧仍然有效，直到它自己过期——本包不知道任何吊销接口。有这样一个接口的部署，在上面那套顺序的第 2 步调用它即可。
+- **没有二次确认。** 一次点击就停掉正在进行的工作并退出登录。停止一个回合会保留该对话及其待处理的排队内容（这里的 `cancel` 就是这个含义），因此误点的代价是重新登录一次，而不是丢失工作。
+- **展示的名字是一份非权威副本。** 它是在浏览器里从一枚未经验证的令牌解码得来的；任何能在同源上写 `localStorage` 的人都能改变底部显示的内容。没有任何东西以它为准，所以这买到的只是一个错误的名字。
+- **镜像 cookie 的 `Path=/` 在两个包里都是字面量。** 部署到某个 base path 之下时，必须在本包与 auth-gate 里一起改——一行路径不一致的删除指令只会再写一个空 cookie，而把那枚被镜像的令牌原样留下。
+- **停止扫描以 `SessionSummary.running` 为判据。** 一个 running 位尚未推到本浏览器、又不是当前打开的那个对话，不会被停止，宿主侧的回合会一直跑到它自己结束。
+- **退出这套流程没有浏览器级证据。** Playwright 场景只断言这个控件渲染出来了、底部那一带装得下它，到此为止：本包的场景没有组合 `auth-gate` 行（那个包会以令牌为门槛拦住整个页面，于是场景里其余每一条断言都得先自带令牌），因此「点退出→cookie 消失→落到登录页」是由针对注入式 browser 的单测覆盖证明的，而不是端到端证明的。
 - **settings 路由假定存在 HTTP 载体。** browser 半边以页面 origin 为基准请求 `/server-menu/workflows`。如果某种传输提供了外壳却没有把 harness 暴露在 HTTP 上，该行会失败——与 content-frame 自己那条 settings 路由的处境相同。
 - **未被 assembled snapshot 覆盖。** 浏览器侧证据是针对真实组合运行的 Playwright 场景；snapshot 各条重放的是出厂组合，而出厂组合不会组合实验性行。

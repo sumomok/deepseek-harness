@@ -30,7 +30,7 @@ import clsx from 'clsx'
 // deliberately NOT reused: decision ① removes the whole session-browsing
 // region this sidebar used to seat (see the package README and Agent Note).
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
-import type { PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
+import type { HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { NavGroup } from './NavGroup.tsx'
 import { WorkflowGroup } from './WorkflowGroup.tsx'
 import type { MenuPage } from './pages.ts'
@@ -85,6 +85,16 @@ export interface ServerSidebarInjected {
    * it returns a promise so tests can.
    */
   onSaveWorkflows: (next: ServerMenuWorkflow[]) => Promise<void>
+  /** Sign the visitor out. Not awaited by the component: the page is leaving. */
+  onSignOut: () => void
+  hooks: {
+    /**
+     * Who the deployment's access token says is signed in, absent while
+     * there is no readable name. Display only, never authority — see
+     * `client/identity.ts`.
+     */
+    displayName: HostObservable<string | undefined>
+  }
 }
 
 /** Full component props: layout owner state/actions, the declared holes, the workflow store, and this package's own share. */
@@ -92,7 +102,7 @@ export type ServerSidebarRootComponentProps =
   PropsRuntime<'sidebar'>
   & PropsRenderSlots<'sidebar.brand.mark' | 'sidebar.brand.name' | 'sidebar.settings' | 'sidebar.footer.action'>
   & PropsStore<ReturnType<typeof createWorkflowStore>>
-  & ServerSidebarInjected & PropsLocale<'serverSidebar'>
+  & InjectFace<ServerSidebarInjected> & PropsLocale<'serverSidebar'>
 
 /**
  * Render the sidebar column shell.
@@ -101,9 +111,10 @@ export type ServerSidebarRootComponentProps =
  */
 export function ServerSidebarRoot({
   width, t, renderSlot,
-  pages, onOpenPage, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveWorkflows,
-  useStore, useSessions, useWorkspaces,
+  pages, onOpenPage, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveWorkflows, onSignOut,
+  useStore, useSessions, useWorkspaces, useDisplayName,
 }: ServerSidebarRootComponentProps) {
+  const displayName = useDisplayName(name => name)
   const workflows = useStore(state => state.workflows)
   const workbenchSessionId = useStore(state => state.workbenchSessionId)
   const workflowsError = useStore(state => state.error)
@@ -256,7 +267,15 @@ export function ServerSidebarRoot({
         <div className={css.identityRow} data-server-sidebar-section="identity">
           <div className={css.avatarRow}>
             <span className={css.avatarCircle} aria-hidden="true" />
-            <span className={css.avatarName}>{t('avatar.namePlaceholder')}</span>
+            <span className={css.avatarName}>{displayName ?? t('avatar.namePlaceholder')}</span>
+            <button
+              type="button"
+              className={css.signOut}
+              data-server-sidebar-action="sign-out"
+              onClick={onSignOut}
+            >
+              {t('signOut.action')}
+            </button>
           </div>
           <div className={css.settingsArea}>{renderSlot('sidebar.settings', { wide: true })}</div>
         </div>

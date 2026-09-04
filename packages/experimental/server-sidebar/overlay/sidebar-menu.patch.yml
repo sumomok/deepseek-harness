@@ -2,6 +2,11 @@
 # single slot and its five child slots may be declared only once, so the
 # ui-sidebar row is disabled and this row inserted in its place — the same
 # pattern `server-layout`'s own overlay uses for `ui-layout`.
+#
+# The sidebar footer's sign-out button needs `dsh-experimental-auth-gate`,
+# which this overlay does not insert either: compose it alongside, or the
+# button renders with no login page to return to and reports that to the
+# console when pressed.
 - id: ui-sidebar
   name: '@deepseek-ai/dsh-client-ui-sidebar'
   disabled: true
@@ -9,3 +14,8 @@
 - insert:
     - id: server-sidebar
       name: '@deepseek-ai/dsh-experimental-server-sidebar'
+      config:
+        # Claim of this deployment's access token that carries the signed-in
+        # person's display name, shown in the sidebar's footer; toy-core's
+        # sign-on writes it as `login_uname`.
+        displayNameClaim: login_uname

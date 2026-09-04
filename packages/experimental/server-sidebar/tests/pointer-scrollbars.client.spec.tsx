@@ -44,7 +44,8 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
       pages={[]} onOpenPage={() => Promise.resolve()}
       onOpenWorkbenchOnLoad={() => Promise.resolve()}
       onOpenWorkbench={() => Promise.resolve()} onOpenWorkflow={() => Promise.resolve()}
-      onSaveWorkflows={() => Promise.resolve()}
+      onSaveWorkflows={() => Promise.resolve()} onSignOut={() => {}}
+      useDisplayName={<S,>(sel: (name: string | undefined) => S): S => sel(undefined)}
       useStore={(<S,>(sel: (s: { workflows: never[]; workbenchSessionId: undefined; error: undefined }) => S): S =>
         sel({ workflows: [], workbenchSessionId: undefined, error: undefined }))}
       actions={{ setServerMenu: vi.fn(), setError: vi.fn() }}

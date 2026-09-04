@@ -726,6 +726,26 @@ export interface ContentPage {
 
 Source: [`packages/experimental/content-frame/src/index.ts:50`](../packages/experimental/content-frame/src/index.ts)
 
+<a id="deepseek-aidsh-experimental-server-sidebar"></a>
+
+## `@deepseek-ai/dsh-experimental-server-sidebar`
+
+```ts config-catalog
+/** Plugin config: the one browser-facing value this shell cannot work out for itself. */
+export interface Config {
+  /**
+   * Claim of the deployment's access token that carries the signed-in
+   * person's display name, as the sidebar's footer shows it (`login_uname`
+   * for the toy-core sign-on this deployment runs). Deployment-varying: a
+   * different sign-on names it differently, and no claim is standard enough
+   * to default to.
+   */
+  displayNameClaim: string
+}
+```
+
+Source: [`packages/experimental/server-sidebar/src/index.ts:42`](../packages/experimental/server-sidebar/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 
 ## `@deepseek-ai/dsh-experimental-tool-agent-team`
@@ -3428,7 +3448,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-experimental-content-column` ([`packages/experimental/content-column/src/index.ts`](../packages/experimental/content-column/src/index.ts))
 - `@deepseek-ai/dsh-experimental-content-surface` ([`packages/experimental/content-surface/src/index.ts`](../packages/experimental/content-surface/src/index.ts))
 - `@deepseek-ai/dsh-experimental-server-layout` ([`packages/experimental/server-layout/src/index.ts`](../packages/experimental/server-layout/src/index.ts))
-- `@deepseek-ai/dsh-experimental-server-sidebar` ([`packages/experimental/server-sidebar/src/index.ts`](../packages/experimental/server-sidebar/src/index.ts))
 - `@deepseek-ai/dsh-experimental-vue-ui-poc` ([`packages/experimental/vue-ui-poc/src/index.ts`](../packages/experimental/vue-ui-poc/src/index.ts))
 - `@deepseek-ai/dsh-experimental-vue2-echarts-poc` ([`packages/experimental/vue2-echarts-poc/src/index.ts`](../packages/experimental/vue2-echarts-poc/src/index.ts))
 - `@deepseek-ai/dsh-fs-e2b` — requires `e2b` ([`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts))

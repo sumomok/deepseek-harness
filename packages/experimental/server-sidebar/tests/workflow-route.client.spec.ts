@@ -70,6 +70,8 @@ async function loadComposition(existingWorld?: string): Promise<Context> {
     '    watch: false',
     '- id: server-sidebar',
     "  name: '@deepseek-ai/dsh-experimental-server-sidebar'",
+    '  config:',
+    "    displayNameClaim: 'login_uname'",
     '',
   ].join('\n'))
 
@@ -236,6 +238,8 @@ describe('server-sidebar without the settings capability', () => {
       "    host: '127.0.0.1'",
       '    port: 0',
       "- name: '@deepseek-ai/dsh-experimental-server-sidebar'",
+      '  config:',
+      "    displayNameClaim: 'login_uname'",
       '',
     ].join('\n'))
     context = new Context()

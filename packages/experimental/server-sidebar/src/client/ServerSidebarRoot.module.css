@@ -115,11 +115,20 @@
    SettingsRoot.module.css), which a shrink-to-fit flex item (no explicit
    width) resolves against the button's own content size rather than the
    row's, so the button renders at icon+label width and this row's
-   `justify-content: space-between` can push it flush right. */
+   `justify-content: space-between` can push it flush right.
+
+   The band wraps because it does not always fit: at the column widths this
+   console runs at (the width is a share of the frame), the name, the sign-out
+   button and the settings trigger together exceed one line, and a single line
+   resolves that by shrinking the only flexible item — the name — to nothing
+   and clipping the sign-out label against `.avatarRow`'s `overflow: hidden`.
+   Wrapping drops the settings trigger onto its own line and keeps both halves
+   readable; a column wide enough for all three still renders the one band. */
 .identityRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 8px;
   min-width: 0;
 }
@@ -149,6 +158,26 @@
   white-space: nowrap;
   font-size: 13px;
   color: var(--dsw-alias-label-secondary);
+}
+
+/* Sign out sits inside the identity cluster rather than as a third child of
+   `.identityRow`: the row is a two-part band (who is signed in on the left,
+   the settings trigger flush right), and the way to stop being that person
+   belongs with the name. `flex: none` keeps it whole while `.avatarName`
+   takes the truncation. */
+.signOut {
+  flex: none;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  line-height: 18px;
+  cursor: pointer;
+}
+
+.signOut:hover {
+  color: var(--dsw-alias-label-primary);
 }
 
 .settingsArea {

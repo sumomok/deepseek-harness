@@ -7,6 +7,11 @@
 # `pages`/`root` config) separately, the same way `overlay/sidebar-menu.patch.yml`
 # already documents — this file does not assume any one page catalog.
 #
+# Compose `dsh-experimental-auth-gate` separately as well: it is what the
+# sidebar footer's sign-out button needs. Without that row the button still
+# renders, but pressing it reports the missing login page to the console and
+# goes nowhere.
+#
 # 'root' and 'sidebar' are each a single slot, so their shipped occupants are
 # disabled outright rather than composed alongside the replacements (the same
 # pattern `server-layout`'s and this package's own minimal overlay use).
@@ -85,3 +90,8 @@
       name: '@deepseek-ai/dsh-experimental-content-column'
     - id: server-sidebar
       name: '@deepseek-ai/dsh-experimental-server-sidebar'
+      config:
+        # Claim of this deployment's access token that carries the signed-in
+        # person's display name, shown in the sidebar's footer; toy-core's
+        # sign-on writes it as `login_uname`.
+        displayNameClaim: login_uname

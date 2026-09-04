@@ -52,6 +52,8 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
 import { readContentPages } from './pages.ts'
+import { createDisplayNameSource, readIdentitySettings } from './identity.ts'
+import { readAuthGateSettings, signOut, windowSignOutBrowser } from './sign-out.ts'
 import { openContentPage, openHomePage } from './open-page.ts'
 import { readServerMenu, saveServerMenu, type ServerMenuWorkflow } from './workflow-api.ts'
 import { createWorkflowStore } from './workflow-store.ts'
@@ -120,8 +122,21 @@ export async function apply(ctx: ClientContext): Promise<void> {
     'server-sidebar: hero brand-mark takeover',
   )
 
-  const [{ pages, homePage }, initialMenu] = await Promise.all([readContentPages(), readServerMenu()])
+  const [{ pages, homePage }, initialMenu, identity, authGate] = await Promise.all([
+    readContentPages(),
+    readServerMenu(),
+    readIdentitySettings(),
+    // Read on the same read-before-register pass as the rest, and contained
+    // the same way: a composition without `dsh-experimental-auth-gate` leaves
+    // the sign-out button in place and reports the missing login page when it
+    // is pressed (see the package README's Known Limitations).
+    readAuthGateSettings().catch((error: unknown) => {
+      console.warn('server-sidebar: sign-out has no login page to return to:', error)
+      return undefined
+    }),
+  ])
   const workflowStore = createWorkflowStore(initialMenu)
+  const displayName = createDisplayNameSource(identity?.displayNameClaim)
 
   // Set once the sidebar's own inject factory runs (see the module doc for
   // why the header action needs this rather than its own store instance).
@@ -176,6 +191,16 @@ export async function apply(ctx: ClientContext): Promise<void> {
             await persistServerMenu({ workflows: next }, actions)
           },
           onSaveWorkflows: next => persistServerMenu({ workflows: next }, actions),
+          onSignOut: () => {
+            if (authGate === undefined) {
+              console.warn('server-sidebar: cannot sign out, the login page and mirror cookie are unknown')
+              return
+            }
+            // `signOut` reports each step's own refusal and never rejects (see
+            // its doc), so there is nothing here to catch.
+            void signOut(windowSignOutBrowser(ctx), authGate)
+          },
+          hooks: { displayName },
         }
       },
     }, ServerSidebarRoot),

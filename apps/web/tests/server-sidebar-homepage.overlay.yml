@@ -36,6 +36,11 @@
 - insert:
     - id: server-sidebar
       name: '@deepseek-ai/dsh-experimental-server-sidebar'
+      config:
+        # Claim of this deployment's access token that carries the signed-in
+        # person's display name, shown in the sidebar's footer; toy-core's
+        # sign-on writes it as `login_uname`.
+        displayNameClaim: login_uname
 
 - id: ui-workspace
   name: '@deepseek-ai/dsh-client-ui-workspace'

@@ -10,7 +10,9 @@
  * fish/preview-badge/headline/workspace-row/agent-preset hero rules — see the
  * package README's Brand and hero facade section), the workbench's
  * blank-draft click semantics, the current-selection highlight, drag-and-drop
- * workflow reordering, (`@deepseek-ai/dsh-experimental-content-frame`)
+ * workflow reordering, the footer's identity band (the signed-in name and
+ * the sign-out control, both fitting the column),
+ * (`@deepseek-ai/dsh-experimental-content-frame`)
  * hiding the `show-content-page` command's own chat echo while its durable
  * `command/run`/`content/shown`/`command/done` lifecycle still lands on the
  * log, and (`@deepseek-ai/dsh-experimental-server-layout`) the content
@@ -299,6 +301,14 @@ describe('web e2e: the product-console sidebar', () => {
     await identityRow.getByText('User').waitFor()
     const identityChildren = await identityRow.evaluate(el => el.children.length)
     expect(identityChildren).toBe(2)
+    // The band fits what it renders: at this column width the settings seat
+    // wraps onto its own line rather than squeezing the name to nothing or
+    // clipping the sign-out label against the identity cluster's own
+    // `overflow: hidden`.
+    await expect(identityRow.getByRole('button', { name: 'Sign out' }).isVisible()).resolves.toBe(true)
+    await expect(
+      identityRow.locator('> :first-child').evaluate(el => el.scrollWidth <= el.clientWidth),
+    ).resolves.toBe(true)
   }, 60_000)
 
   it('replaces the hero fish mark and headline with the sidebar\'s own brand copy, hides the preview badge and the dead workspace row, and drops the agent-preset dropdown entirely', async () => {
