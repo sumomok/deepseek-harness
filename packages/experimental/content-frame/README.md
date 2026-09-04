@@ -115,7 +115,28 @@ The same block gives the agent `content_read_image`, and it answers the question
 
 **The pixels travel their own route.** A seat posts them to `POST /content-frame/image` as base64 inside JSON — the same same-site, `application/json` fence the other two routes keep — and that route has a byte bound of its own, computed from the bytes one export may carry rather than from the deployment's character budget. Carrying an image through the report route would have raised the bound on every text read with it. The host commits the bytes to `ctx.attachments` **before** the call settles, so the reference the session log records names an object that is already on disk.
 
-**Two gates before anything is exported.** The `ref` is checked for shape, and then the session's own route is checked for declaring image input at all. The second is a gate rather than a graceful degrade because its failure is not recoverable: a picture reaches the model through a stored attachment, the store keeps what it is given for good, and a text-only route would drop the image block from the request after the pixels were already on disk.
+**Two gates before anything is exported.** The `ref` is checked for shape, and then the session's own route is put through `access/model-switch.ts`. The second is a gate rather than a graceful degrade because its failure is not recoverable: a picture reaches the model through a stored attachment, the store keeps what it is given for good, and a text-only route would drop the image block from the request after the pixels were already on disk. It has three endings. A route that declares image input passes. A route that does not, in a deployment where some other route does, puts one card in front of the user asking whether to change the session's model — and where they choose one, the session is moved to it through `sessionController.selectModel` and the read runs. Every other answer refuses the call and changes nothing. The card is asked here, before the wait opens and before a browser is asked to draw, because a change the user declines must leave no stored picture behind; a user is asked once per session, because a refused read is one the model may retry.
+
+The change lasts: the session's remaining turns run on the chosen model until the user changes it back, and `selectModel` also saves the choice as the deployment's default, so a session opened later starts there too. The card says the first of those in one sentence and not the second.
+
+**The route the gate decides on.** Three tiers, the ones `packages/api/session-controller/src/agent.ts` reads in `selectionFor`: a model selection the console made that no request has consumed yet, then the route the session's last request header logged, then the options the agent was created with. The first tier is why a user who changes the model in the picker and asks again is not refused, and why the second of two parallel reads passes without a second card.
+
+**Which models the card lists.** Every model of every registered provider whose catalogue declares `image` input, in provider registration and adapter-preferred order — read through `ctx.llm`, because the model catalog the console's picker renders carries no modality. `inputModalities` is the only criterion and an absent one is a negative answer. A provider whose catalogue cannot be read is left out and the rest of the card stands. Where no configured model declares image input the card is not shown at all and the call is refused saying so.
+
+**What the model is told never mentions the card.** A declined change, a card the user closed, and a composition with nobody to ask are all answered with the refusal the read already had — the session's model does not declare image input, which stays true and gives the model no handle to raise the card again.
+
+**What the card says.** The one surface of this package a person reads rather than a model, in the console's question composer, as host-side Chinese literals:
+
+```
+内容区的图
+当前模型看不了图片，换一个能看图的模型吗？
+换过之后，这次对话接下来都用你选的那个模型；你随时可以自己换回来。
+
+  1. DeepSeek：DeepSeek-V4-Flash-Vision-Exp
+  2. 先不换  这次就不看这张图了
+```
+
+One option per model, labelled `厂商：模型` and carrying its model id as well wherever two options would otherwise read the same; one option that changes nothing, last. Single-select, and no presentation intent, so the console renders its generic option list.
 
 **No store, no tool.** The read is registered inside `ctx.inject(['tools', 'attachments'], …)`, so a deployment with no attachment store is offered the five text tools and neither this one nor its route. The shipped `base` bundle mounts one.
 
@@ -224,6 +245,8 @@ Neither this package nor the shell is part of any shipped bundle. `overlay/conte
         defaultPage: home
         pageAccess: {}
 ```
+
+The card the picture read puts up needs a `userQuestions` answerer and `ctx.sessionController` in the same composition; the Web surface mounts both. Without either, the picture read refuses a text-only route the way it did before the card existed, and the other six tools are unaffected.
 
 `dsh --profile web --patch <path>` applies it. The overlay reads the directory from the environment so one file serves any application; a deployment that hosts a fixed one writes the literal absolute path in its place. Every package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
 
@@ -417,6 +440,18 @@ e12 exports to 3145728 bytes, past the 2097152 bytes one image may carry.
 The session's model "deepseek-v4-flash" does not declare image input.
 ```
 
+##### A deployment where no model takes pictures
+
+```markdown
+The session's model "deepseek-v4-flash" does not declare image input, and no configured model does.
+```
+
+##### A model change the host would not make
+
+```markdown
+The session's model could not be changed. no adapter registered for provider "deepseek-official"
+```
+
 #### Token effect
 
 The text block is two lines. The picture costs what the provider prices it at: 117 tokens for anything at or under 384 × 384 after its own floor, 201 for 512 × 512, and 349 for a square picture at the whole 640,000-pixel budget — never more than the provider's own 384-token cap (`MAX_IMAGE_TOKENS`). That is cheap against a subtree of markup and is not a substitute for one: it answers what one element shows, and nothing about what the page is.
@@ -513,6 +548,11 @@ Append-only, at the tail of the conversation, so it invalidates nothing already 
 <a id="known-limitations-and-deferred-work"></a>
 
 
+- **The card is Chinese, whatever language the console is set to** — `locale` is a browser-side service and the host has none, so the card's four lines are host-side literals, the same way the `content_act` approval request is. An English console shows them as they are.
+- **Nothing changes the model back** — a session moved to a vision model stays there, and the model it left may have been the better one for the rest of the conversation. `selectModel` also saves the choice as the deployment's default, so a session opened afterwards starts on the new model as well; the card says the conversation will keep using it and says nothing about the default.
+- **The one-card mark is per process** — a user who declines is not asked again in that session, but the mark lives in memory, so a reloaded session or a restarted host asks once more.
+- **The card lists every image-capable route, however many there are** — no cap, no ordering, no recommendation. A deployment with many vision routes configured produces a card with an option for each of them.
+- **Two providers registered under one display name are indistinguishable on the card** — an option's label is the provider's display name, the model's display name, and, where two would otherwise read the same, the model id. Two provider routes registered under one display name and listing one model id therefore produce two options that read alike, and the first of them answers for both.
 - **`content/navigated` is required on read, like `content/shown`** — neither event carries an `ignorable` marker, because `Session.append` has no way to set one today; a runtime whose session vocabulary excludes this package refuses the whole log rather than skipping the events.
 - **A route change costs one poll interval** — `pushState` fires nothing, so an application that routes and then sits still is noticed on the next poll (default one second) plus the settling window. Lowering `navigationPollMs` buys latency and spends a same-origin property read per frame per interval; the frame's own `history` is deliberately not patched.
 - **The navigation watch covers only the frame in front** — a cached, hidden frame that routes itself is not watched, and the move is noticed when that page comes back to the front.

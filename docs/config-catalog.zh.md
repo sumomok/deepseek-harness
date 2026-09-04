@@ -854,7 +854,7 @@ export interface PageAccessConfig {
 }
 ```
 
-来源：[`packages/experimental/content-frame/src/index.ts:71`](../packages/experimental/content-frame/src/index.ts)
+来源：[`packages/experimental/content-frame/src/index.ts:88`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-inspector"></a>
 

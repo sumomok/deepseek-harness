@@ -852,7 +852,7 @@ export interface PageAccessConfig {
 }
 ```
 
-Source: [`packages/experimental/content-frame/src/index.ts:84`](../packages/experimental/content-frame/src/index.ts)
+Source: [`packages/experimental/content-frame/src/index.ts:88`](../packages/experimental/content-frame/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-inspector"></a>
 
