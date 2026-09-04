@@ -11,9 +11,17 @@
  * the gate. A failed read fails the row: a gate that silently used some other
  * login address or margin would be indistinguishable from one that honored the
  * deployment's.
+ *
+ * The node half registers its routes at the server root; a reverse proxy
+ * serving this shell under a path prefix strips that prefix before the request
+ * arrives, so every route this file requests goes through `clientUrl` to get
+ * the prefix back. Each diagnostic names the resolved URL rather than the route
+ * constant, which is what tells a misconfigured deployment prefix apart from an
+ * unreachable route.
  * @module @deepseek-ai/dsh-experimental-auth-gate/client
  */
 
+import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   AUTH_GATE_LOGOUT_ROUTE,
@@ -31,23 +39,24 @@ import { runGate } from './run.ts'
  * document the gate cannot run on.
  */
 async function readSettings(): Promise<AuthGateSettings> {
-  const response = await fetch(AUTH_GATE_SETTINGS_ROUTE, { cache: 'no-store' })
+  const url = clientUrl(AUTH_GATE_SETTINGS_ROUTE)
+  const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
-    throw new Error(`auth-gate: ${AUTH_GATE_SETTINGS_ROUTE} answered ${response.status}`)
+    throw new Error(`auth-gate: ${url.href} answered ${response.status}`)
   }
   const settings = await response.json() as Partial<AuthGateSettings>
   // A wire boundary: the document crossed a process, so its own contract is
   // checked here rather than trusted from the type.
   const { loginUrl, cookieName, refreshMarginSeconds } = settings
   if (typeof loginUrl !== 'string' || loginUrl.length === 0) {
-    throw new Error(`auth-gate: ${AUTH_GATE_SETTINGS_ROUTE} answered an unusable loginUrl: ${JSON.stringify(loginUrl)}`)
+    throw new Error(`auth-gate: ${url.href} answered an unusable loginUrl: ${JSON.stringify(loginUrl)}`)
   }
   if (typeof cookieName !== 'string' || cookieName.length === 0) {
-    throw new Error(`auth-gate: ${AUTH_GATE_SETTINGS_ROUTE} answered an unusable cookieName: ${JSON.stringify(cookieName)}`)
+    throw new Error(`auth-gate: ${url.href} answered an unusable cookieName: ${JSON.stringify(cookieName)}`)
   }
   if (typeof refreshMarginSeconds !== 'number' || !Number.isInteger(refreshMarginSeconds) || refreshMarginSeconds < 0) {
     throw new Error(
-      `auth-gate: ${AUTH_GATE_SETTINGS_ROUTE} answered an unusable refreshMarginSeconds: ${JSON.stringify(refreshMarginSeconds)}`,
+      `auth-gate: ${url.href} answered an unusable refreshMarginSeconds: ${JSON.stringify(refreshMarginSeconds)}`,
     )
   }
   return { loginUrl, cookieName, refreshMarginSeconds }
@@ -61,13 +70,14 @@ async function readSettings(): Promise<AuthGateSettings> {
  * message.
  */
 async function postToken(token: string): Promise<void> {
-  const response = await fetch(AUTH_GATE_TOKEN_ROUTE, {
+  const url = clientUrl(AUTH_GATE_TOKEN_ROUTE)
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ token }),
   })
   if (!response.ok) {
-    throw new Error(`auth-gate: ${AUTH_GATE_TOKEN_ROUTE} answered ${response.status}`)
+    throw new Error(`auth-gate: ${url.href} answered ${response.status}`)
   }
 }
 
@@ -83,13 +93,14 @@ async function postLogout(): Promise<void> {
   // The request declares `application/json` and carries no body, and the route
   // reads none either. The declaration is there to withdraw the route from the
   // CORS-simple set, so a cross-origin page cannot post it without a preflight.
-  const response = await fetch(AUTH_GATE_LOGOUT_ROUTE, {
+  const url = clientUrl(AUTH_GATE_LOGOUT_ROUTE)
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     keepalive: true,
   })
   if (!response.ok) {
-    throw new Error(`auth-gate: ${AUTH_GATE_LOGOUT_ROUTE} answered ${response.status}`)
+    throw new Error(`auth-gate: ${url.href} answered ${response.status}`)
   }
 }
 

@@ -33,6 +33,7 @@
  * host ignores whatever slips past it anyway.
  */
 import { useMemo, useRef, useState } from 'react'
+import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import type { PropsLocale } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ToolCallBlock } from '@deepseek-ai/dsh-client-runtime/client'
 import type { ToolCallViewProps } from '@deepseek-ai/dsh-client-ui-tool/client'
@@ -63,7 +64,7 @@ function argumentsOf(block: ToolCallBlock): string | undefined {
 
 /** Post one verdict to the node half; a lost report is the tool's own deadline to answer. */
 function postReport(report: ShowChartReport): void {
-  void fetch(SHOW_CHART_REPORT_ROUTE, {
+  void fetch(clientUrl(SHOW_CHART_REPORT_ROUTE), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(report),

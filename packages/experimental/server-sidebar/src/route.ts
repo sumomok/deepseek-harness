@@ -5,6 +5,11 @@
  * half and the browser half must agree on them, and nothing outside this
  * package addresses them.
  *
+ * The value is the path the node half registers, which is root-absolute
+ * because a reverse proxy serving this shell under a path prefix strips that
+ * prefix before the request arrives. The browser half puts the prefix back by
+ * resolving this constant with `clientUrl`, and never requests it as it stands.
+ *
  * A second, unrelated wire agreement lives outside this file, by design: the
  * browser half also reads `@deepseek-ai/dsh-experimental-content-frame`'s
  * `/content-frame/settings` route (for the navigation menu's catalog) and

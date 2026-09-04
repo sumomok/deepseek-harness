@@ -5,6 +5,7 @@ import { AbstractApiClient } from './api.ts'
 import { hostFrameSchema, muxFrameSchema } from '@deepseek-ai/dsh-host-apiproxy/api/events.schema'
 import { serverRequestSchema } from '@deepseek-ai/dsh-host-apiproxy/api/rpc.schema'
 import { HOST_EVENTS_PATH, MUX_EVENTS_PATH } from '../api-path.ts'
+import { clientUrl, resolveClientBase } from './base.ts'
 
 type SocketItem<F> = { kind: 'frame'; envelope: RpcRequest<F> } | { kind: 'end' }
 type Parser<F> = { parse(value: unknown): F }
@@ -13,6 +14,17 @@ type Parser<F> = { parse(value: unknown): F }
 export class WebApiClient extends AbstractApiClient {
   protected doFetch(input: URL, init?: RequestInit): Promise<Response> {
     return globalThis.fetch(input, init)
+  }
+
+  /**
+   * The page's deployment base, so the inherited unary and respond legs reach
+   * the Host under the same path prefix the downlinks below use. The carrier's
+   * own default knows only the origin, which is right for the in-process and
+   * Node clients and wrong for a page served under a prefix.
+   * @returns the page's deployment base, ending in `/`.
+   */
+  protected override resolveBase(): string {
+    return resolveClientBase()
   }
 
   protected override openMux(
@@ -37,7 +49,7 @@ export class WebApiClient extends AbstractApiClient {
     frameSchema: Parser<F>,
     onOpen?: () => void,
   ): AsyncGenerator<RpcRequest<F>> {
-    const url = new URL(path, this.resolveBase())
+    const url = clientUrl(path)
     url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
     const socket = new WebSocket(url)
     const inbox: SocketItem<F>[] = []

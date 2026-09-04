@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-04-server-sidebar-identity-and-sign-out.md
-2026-09-04-server-sidebar-identity-and-sign-out.md: 33a22118dae72c79780f77e98cae36eeec5e5555
-2026-09-04-server-sidebar-identity-and-sign-out.zh.md: 75b6b19f1ca7d19e1cc00db9a5880ffe8aee479e
+2026-09-04-server-sidebar-identity-and-sign-out.md: 9b23479f5c8a8941d0dc9ae12d47ba3a85198e1f
+2026-09-04-server-sidebar-identity-and-sign-out.zh.md: 77445b2d81b18375105ada04799e7daad38f0f34

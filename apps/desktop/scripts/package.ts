@@ -465,7 +465,12 @@ async function servesClientModule(root: string, name: string): Promise<boolean> 
  * @param index - the index HTML, which names every client bundle.
  */
 async function verifyClientModules(root: string, base: string, index: string): Promise<void> {
-  const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)].map(match => match[0]))]
+  // The manifest's bundle urls are relative (`plugins/<id>/client.js?rev=…`)
+  // so a deployment served under a path prefix resolves them against the
+  // page's base; the leading slash is optional here and dropped, which keeps
+  // one shape for the membership check and the resolution below.
+  const paths = [...new Set([...index.matchAll(/(?<=["'])\/?plugins\/[^"']+?client\.js[^"']*/g)]
+    .map(match => match[0].replace(/^\//, '')))]
   if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
   // A built-in with a browser half reaches the page only if the payload carried
   // it, the seed named it, and the Loader resolved it; nothing else in this
@@ -477,7 +482,7 @@ async function verifyClientModules(root: string, base: string, index: string): P
   for (const name of BUILTIN_WEB_BUNDLES) {
     if (!await servesClientModule(root, name)) continue
     withClient++
-    if (!paths.some(path => path.startsWith(`/plugins/${name}/`))) {
+    if (!paths.some(path => path.startsWith(`plugins/${name}/`))) {
       throw new Error(`package: staged boot served no client module for the built-in plugin ${name}.`)
     }
   }

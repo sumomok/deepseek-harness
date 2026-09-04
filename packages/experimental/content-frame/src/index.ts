@@ -59,7 +59,9 @@ export interface Config {
    * The pages the agent may put in the column, in the order the tool
    * description offers them. At least one is required — `content_show` exists
    * to choose among these, and an empty list leaves the model a tool it can
-   * never call successfully. Each `url` must be a same-origin path.
+   * never call successfully. Each `url` must be a same-origin path, written as
+   * the browser addresses it — a deployment served under a path prefix carries
+   * that prefix in the value (see {@link ContentPage.url}).
    */
   pages: ContentPage[]
   /**

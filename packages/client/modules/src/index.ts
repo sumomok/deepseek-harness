@@ -163,11 +163,18 @@ function shortHash(input: string | Buffer): string {
   return createHash('sha1').update(input).digest('hex').slice(0, 12)
 }
 
-/** Graph row for one bundle rev (url carries the rev as its cache-busting query). */
+/**
+ * Graph row for one bundle rev (url carries the rev as its cache-busting
+ * query). The url is relative on purpose: it is the only place a bundle URL is
+ * composed, and both consumers — the parser preloads below and the module
+ * system's `<script src>` — then resolve it against the page's deployment base
+ * instead of the server root, which is what lets the app be served under a
+ * path prefix a reverse proxy strips.
+ */
 function graphRow(id: string, rev: string, fields: WebBootRowFields): WebBootEntry {
   return {
     id,
-    url: `/plugins/${id}/client.js?rev=${rev}`,
+    url: `plugins/${id}/client.js?rev=${rev}`,
     rev,
     ...(fields.inject !== undefined ? { inject: fields.inject } : {}),
     ...(fields.immediately ? { immediately: true } : {}),

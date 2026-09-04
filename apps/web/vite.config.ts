@@ -108,6 +108,12 @@ function npmPackageOf(id: string): string | undefined {
 }
 
 export default defineConfig({
+  // Relative asset references, so one build serves any deployment path: the
+  // emitted index.html points at ./assets/… instead of /assets/…, which is what
+  // a <base href> injected by the serving process can then govern. A literal
+  // prefix here would be baked into the artifact, and one build could serve only
+  // one deployment.
+  base: './',
   plugins: [rejectStandaloneServe(), clientDocumentTitle(), react()],
   build: {
     sourcemap: true,

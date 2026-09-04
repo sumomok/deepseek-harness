@@ -12,6 +12,7 @@ import { WebApiClient } from '../src/client/web-api-client.ts'
 
 type Win = { location?: { hostname: string; search: string; origin?: string } }
 type WebSocketGlobal = { WebSocket?: typeof WebSocket }
+type BaseGlobal = { __DSH_BASE__?: string }
 
 const originalWebSocket = globalThis.WebSocket
 const sockets: FakeWebSocket[] = []
@@ -49,6 +50,7 @@ class FakeWebSocket extends EventTarget {
 
 afterEach(() => {
   delete (globalThis as Win).location
+  delete (globalThis as BaseGlobal).__DSH_BASE__
   sockets.length = 0
   if (originalWebSocket === undefined) delete (globalThis as WebSocketGlobal).WebSocket
   else globalThis.WebSocket = originalWebSocket
@@ -263,6 +265,41 @@ describe('connection client apply', () => {
     const iterator = client.events.mux({}, abort.signal)[Symbol.asyncIterator]()
     const pending = iterator.next()
     await vi.waitFor(() => { expect(sockets[0]?.url).toBe('wss://harness.example/api/events.mux') })
+    abort.abort()
+    await expect(pending).resolves.toMatchObject({ done: true })
+  })
+
+  it('reaches the Host through the deployment prefix on every browser carrier leg', async () => {
+    ;(globalThis as Win).location = {
+      hostname: 'harness.example', search: '', origin: 'https://harness.example',
+    }
+    ;(globalThis as BaseGlobal).__DSH_BASE__ = '/console/'
+    ;(globalThis as WebSocketGlobal).WebSocket = FakeWebSocket as unknown as typeof WebSocket
+    const handle = await mount()
+    const original = globalThis.fetch
+    const seen: string[] = []
+    globalThis.fetch = (async (input: URL) => {
+      seen.push(input.href)
+      return new Response('unavailable', { status: 503 })
+    }) as unknown as typeof fetch
+    try {
+      // Generic RPC channel and the inherited unary leg build their URLs
+      // through different code; both must keep the prefix.
+      await expect(handle.rpc.call('/api', 'goals/create', {})).rejects.toThrow('HTTP 503')
+      await expect(handle.api.sessions.list({})).rejects.toThrow('HTTP 503')
+    } finally {
+      globalThis.fetch = original
+    }
+    expect(seen).toEqual([
+      'https://harness.example/console/api/goals/create',
+      'https://harness.example/console/api/session.list',
+    ])
+    const abort = new AbortController()
+    const iterator = handle.api.events.mux({}, abort.signal)[Symbol.asyncIterator]()
+    const pending = iterator.next()
+    await vi.waitFor(() => {
+      expect(sockets[0]?.url).toBe('wss://harness.example/console/api/events.mux')
+    })
     abort.abort()
     await expect(pending).resolves.toMatchObject({ done: true })
   })

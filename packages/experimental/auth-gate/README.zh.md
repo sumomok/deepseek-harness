@@ -24,7 +24,7 @@
 
 ### 镜像 cookie 为什么不是 `HttpOnly`
 
-token 本来就住在 `localStorage` 里，是部署方的登录页放进去的，页面上任何脚本都读得到。一个页面自己的脚本读不到的 cookie 并不能收窄任何攻击面——被注入的脚本直接读原件即可——却会让镜像无法与之保持一致。`Secure` 与 `SameSite=Lax` 仍然生效：前者让它不走明文链路，后者让它不出现在跨站子请求里。
+token 本来就住在 `localStorage` 里，是部署方的登录页放进去的，页面上任何脚本都读得到。一个页面自己的脚本读不到的 cookie 并不能收窄任何攻击面——被注入的脚本直接读原件即可——却会让镜像无法与之保持一致。`Secure` 与 `SameSite=Lax` 仍然生效：前者让它不走明文链路，后者让它不出现在跨站子请求里。`Path` 取外壳被挂载的部署前缀——挂在源根上是 `/`，挂在带路径前缀的反向代理后面是 `/console/`——这个页面发出的每一次请求都带着它，而同一主机上挂在另一个前缀下的第二个 harness 拿不到它。
 
 这枚 cookie 存在，是因为那些不带 `Authorization` 头的请求——导航、图片、iframe、下载——同样得向立在本进程之前的东西表明访客身份。
 
@@ -79,6 +79,8 @@ token 被放在插件内部的一个闭包里，且不写去任何地方：没�
     url: http://127.0.0.1:3080/auth-gate/mcp/crm
 ```
 
+这个 `url` 里的端口必须是本进程自己监听的端口：这条路由是本进程的，而一个被照抄的字面量会把每位访客的 MCP 调用都指向占着那个端口的那个进程——也就是指向另一个人持有的 token。一位登录用户一个进程的部署要从环境里取它（`` url: !!js `http://127.0.0.1:${process.env.DSH_PORT}/auth-gate/mcp/crm` ``），而不是写死一个数字。
+
 转发骑在 dsh webserver 自己的路由注册表上，而不是自管一个监听。它的 `WebRoute` handler 拥有完整的响应生命周期，而这正是一次 MCP streamable-HTTP 交换所需要的：一次 POST 以 JSON 文档或一条挂住的事件流作答，一次 GET 为服务器到客户端的流长期挂住。两个方向都按字节中继而不解码，因此事件流是增量抵达 MCP 客户端的。
 
 这次转发改动了什么，以及仅此而已：
@@ -109,6 +111,8 @@ token 被放在插件内部的一个闭包里，且不写去任何地方：没�
 
 每一个配置值都是必填并在加载时校验的：空的 `loginUrl`、已经带了 query string 的 `loginUrl`、不是纯 cookie 名的 `cookieName`、不是纯路由段的上游名，以及不是「无 query 无 fragment 的绝对 HTTP(S) URL」的目标，都会让这一行失败，而不是变成「跳去一个不存在的地方」或「首次调用才失败的工具」。
 
+`loginUrl` 是浏览器侧地址，按写就发出：挂在路径前缀下的部署要把前缀写进这个值（`/console/toy-proxy/toy-login/#/`），因为没有任何一处会拿部署基址再解析它一次。登录页留在外壳前缀之外（就像上面的样例）同样成立，只是拿不到镜像 cookie —— 那枚 cookie 的作用域就是这段前缀。
+
 ## Model Experience
 
 None, as this package registers no tool, prompt section, or result: it carries a credential between the browser, the process, and the MCP servers the process forwards to, all of which happens outside any model request, and the tools those servers publish are `dsh-mcp-client`'s model-facing contribution rather than this package's.
@@ -126,5 +130,5 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **只有闸门自己那三处登录决定会登出。** `POST /auth-gate/logout` 会丢掉持有的 token，而调用它的只有 browser 半边的启动、storage 变化与过期这三条路径——没有登出控件，也不会打断此刻正在跑的 agent loop。访客若是直接关掉标签页，进程就会继续持有那枚 token，直到进程结束，或另一个浏览器投递了更新的一枚。
 - **不带 token 的访客也会登出一次。** 启动决定无论存过东西与否都走这个出口——这是有意的，因为 node 半边可能仍持着上一位加载过页面的访客的 token——而在反向代理后面，这次请求不带镜像 cookie、被答以 401，只在控制台留下一条无害的 warn。
 - **一次撤销不会被撤回。** browser 半边只在一个地方把 token 交给 node 半边——那次让页面跑起来的启动决定或 storage 变化决定——因此一次在页面仍在运行时抵达的登出，会让这个页面的 MCP 转发一直答 503 直到它重新加载，而屏幕上没有任何提示。有两种情况会走到那里：一次晚到的登出请求丢掉了它之后才被投递的那一枚 token，以及一个越过了这条路由栅栏的跨源页面。要关掉它，要么在请求里点名要丢的那一枚 token，让晚到的那次撞不到更新的凭据，要么在页面重新可见时把当前这一枚再投递一次。
-- **设置路由假定存在 HTTP 载体。** browser 半边按页面源相对地址 fetch `/auth-gate/settings`，因此一个「提供外壳但不经 HTTP 暴露 harness」的传输会让这一行失败。
+- **设置路由假定存在 HTTP 载体。** browser 半边 fetch `/auth-gate/settings`——node 半边注册的那条根绝对路由，按页面的部署基址解析而来——因此一个「提供外壳但不经 HTTP 暴露 harness」的传输会让这一行失败。
 - **不被任何组装快照覆盖** —— 浏览器侧的证据是 `apps/web/tests/auth-gate.e2e.ts` 里那个针对真实组合的 Playwright 场景；快照通道回放的是已发布组合，而它不组合实验性行。

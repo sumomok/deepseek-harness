@@ -36,6 +36,10 @@ export {
   transportError,
 } from './api.ts'
 
+// Deployment-base resolution: every browser URL built from a Host route
+// constant goes through clientUrl, in this package and in its consumers.
+export { INTERNAL_BASE, clientUrl, resolveClientBase } from './base.ts'
+
 // Connection loop types are public through ConnectionHandle.start; the
 // controller remains package-internal.
 export type { ConnectionConfig, ConnectionSinks, ConnectionState }

@@ -57,6 +57,12 @@ export interface Config {
    * `?redirect=<the encoded page it came from>`, so the value may not already
    * carry a query string. A hash-routed login page (`/sign-in/#/`) takes the
    * parameter inside its fragment, which is where a hash router reads it.
+   *
+   * A browser-side address, assigned as it stands: a deployment served under a
+   * path prefix writes that prefix into the value, because nothing resolves it
+   * against the deployment base. A login page outside the shell's prefix is a
+   * valid choice, and it receives no mirror cookie — that cookie is scoped to
+   * the prefix.
    */
   loginUrl: string
   /**

@@ -1,0 +1,22 @@
+# The deployment prefix a dsh process is served under, for a reverse proxy that
+# strips that prefix before the request arrives. One row: the served index gains
+# a `<base>` element and a `__DSH_BASE__` global, both carrying `basePath`.
+#
+# `basePath` is the path as the BROWSER addresses it, leading and trailing slash
+# included. It is not a server-side route prefix: every route this process
+# registers stays root-absolute, which is why the proxy has to strip. The sample
+# in `deploy/nginx.console.conf` is the matching proxy half of `/console/`.
+#
+# A process served at the origin root needs no row at all; `/` is what the
+# browser assumes without one.
+#
+# A prefix alone does not make the process reachable under a public name: the
+# /api browser-trust fence still refuses any Host that is neither loopback nor
+# a declared authority, so the layer carrying this row also declares
+# `client-connection`'s `trustedHosts`. Both halves are written out in
+# `deploy/nginx.console.conf`.
+- insert:
+    - id: server-base
+      name: '@deepseek-ai/dsh-experimental-server-base'
+      config:
+        basePath: /console/

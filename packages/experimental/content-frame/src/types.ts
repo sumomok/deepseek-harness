@@ -69,6 +69,13 @@ export interface ContentPage {
   readonly title: string
   /** What the page is for, in the agent's terms — this is what the tool description offers it to choose from. */
   readonly description: string
-  /** Same-origin path of the page, from the site root (`/content-app/reports/`). */
+  /**
+   * Same-origin path of the page as the browser addresses it, complete: a
+   * deployment served under a path prefix writes that prefix into this value
+   * (`/console/content-app/reports/`), because the frame requests it as it
+   * stands and nothing resolves it against the deployment base a second time.
+   * Not `CONTENT_APP_ROUTE`, which is the process-side route the node half
+   * claims after a reverse proxy has stripped that prefix.
+   */
   readonly url: string
 }

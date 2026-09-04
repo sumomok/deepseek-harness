@@ -6,11 +6,12 @@
  * and filtering paths that path never exercises.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { CONTENT_SETTINGS_ROUTE } from '@deepseek-ai/dsh-experimental-content-frame/src/route.ts'
 import { readContentPages } from '../src/client/pages.ts'
 
 const ROUTE = '/content-frame/settings'
 
-function stubFetch(impl: (input: string) => Promise<{ ok: boolean; json: () => Promise<unknown> }>): void {
+function stubFetch(impl: (input: URL) => Promise<{ ok: boolean; json: () => Promise<unknown> }>): void {
   vi.stubGlobal('fetch', vi.fn(impl))
 }
 
@@ -19,9 +20,28 @@ afterEach(() => {
 })
 
 describe('readContentPages', () => {
+  it('addresses the route content-frame actually serves', () => {
+    // The literal above is a deliberate copy rather than a value import (see
+    // the module documentation); a test-only import of the owning constant is
+    // what makes the copy mechanically checkable, since a drift would
+    // otherwise only show as an empty navigation menu.
+    expect(ROUTE).toBe(CONTENT_SETTINGS_ROUTE)
+  })
+
+  it('requests it through the deployment prefix the shell is served under', async () => {
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const requested: string[] = []
+    stubFetch(async (input) => {
+      requested.push(input.pathname)
+      return { ok: true, json: () => Promise.resolve({ pages: [] }) }
+    })
+    await readContentPages()
+    expect(requested).toEqual(['/console/content-frame/settings'])
+  })
+
   it('reduces a well-formed catalog to id/title pairs', async () => {
     stubFetch(async (input) => {
-      expect(input).toBe(ROUTE)
+      expect(input.pathname).toBe(ROUTE)
       return { ok: true, json: () => Promise.resolve({ pages: [{ id: 'home', title: 'Home', description: '', url: '/x' }] }) }
     })
     expect(await readContentPages()).toEqual({ pages: [{ id: 'home', title: 'Home' }] })

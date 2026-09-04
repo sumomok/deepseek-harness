@@ -17,8 +17,8 @@ afterEach(() => {
 
 describe('readServerMenu', () => {
   it('filters out malformed workflow entries and keeps a valid workbenchSessionId', async () => {
-    vi.stubGlobal('fetch', vi.fn((input: string) => {
-      expect(input).toBe(ROUTE)
+    vi.stubGlobal('fetch', vi.fn((input: URL) => {
+      expect(input.pathname).toBe(ROUTE)
       return Promise.resolve({
         ok: true,
         json: () => Promise.resolve({
@@ -57,10 +57,24 @@ describe('readServerMenu', () => {
   })
 })
 
+describe('server-menu requests under a deployment prefix', () => {
+  it('sends both the read and the write through the prefix the shell is served under', async () => {
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const requested: string[] = []
+    vi.stubGlobal('fetch', vi.fn((input: URL) => {
+      requested.push(input.pathname)
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ workflows: [] }) })
+    }))
+    await readServerMenu()
+    await saveServerMenu({ workflows: [] })
+    expect(requested).toEqual(['/console/server-menu/workflows', '/console/server-menu/workflows'])
+  })
+})
+
 describe('saveServerMenu', () => {
   it('posts the given patch and answers the server\'s authoritative filtered document', async () => {
-    vi.stubGlobal('fetch', vi.fn((input: string, init: RequestInit) => {
-      expect(input).toBe(ROUTE)
+    vi.stubGlobal('fetch', vi.fn((input: URL, init: RequestInit) => {
+      expect(input.pathname).toBe(ROUTE)
       expect(JSON.parse(init.body as string)).toEqual({ workflows: [WORKFLOW] })
       return Promise.resolve({
         ok: true,
@@ -71,7 +85,7 @@ describe('saveServerMenu', () => {
   })
 
   it('posts a workbenchSessionId-only patch', async () => {
-    vi.stubGlobal('fetch', vi.fn((_input: string, init: RequestInit) => {
+    vi.stubGlobal('fetch', vi.fn((_input: URL, init: RequestInit) => {
       expect(JSON.parse(init.body as string)).toEqual({ workbenchSessionId: 'home-1' })
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ workflows: [], workbenchSessionId: 'home-1' }) })
     }))

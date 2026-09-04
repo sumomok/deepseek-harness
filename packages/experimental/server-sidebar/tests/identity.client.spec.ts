@@ -9,6 +9,7 @@
  * assertion states exactly what storage held and what the page was told.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { INTERNAL_BASE } from '@deepseek-ai/dsh-client-connection/client'
 import {
   createDisplayNameSource,
   decodeJwtPayload,
@@ -86,8 +87,8 @@ describe('displayNameFrom', () => {
 describe('readIdentitySettings', () => {
   /** Stub one answer from the identity route. */
   function stubRoute(answer: { ok?: boolean; body?: unknown; reject?: boolean }): ReturnType<typeof vi.fn> {
-    const fetcher = vi.fn((input: string) => {
-      expect(input).toBe(SERVER_IDENTITY_ROUTE)
+    const fetcher = vi.fn((input: URL) => {
+      expect(input.pathname).toBe(SERVER_IDENTITY_ROUTE)
       // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- a transport failure with no Error is the case under test.
       if (answer.reject === true) return Promise.reject('offline')
       return Promise.resolve({
@@ -103,7 +104,18 @@ describe('readIdentitySettings', () => {
   it('reads the configured claim, uncached', async () => {
     const fetcher = stubRoute({ body: { displayNameClaim: 'login_uname' } })
     await expect(readIdentitySettings()).resolves.toEqual({ displayNameClaim: 'login_uname' })
-    expect(fetcher).toHaveBeenCalledWith(SERVER_IDENTITY_ROUTE, { cache: 'no-store' })
+    expect(fetcher).toHaveBeenCalledWith(new URL(SERVER_IDENTITY_ROUTE, INTERNAL_BASE), { cache: 'no-store' })
+  })
+
+  it('requests it through the deployment prefix the shell is served under', async () => {
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const requested: string[] = []
+    vi.stubGlobal('fetch', vi.fn((input: URL) => {
+      requested.push(input.pathname)
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ displayNameClaim: 'login_uname' }) })
+    }))
+    await readIdentitySettings()
+    expect(requested).toEqual(['/console/server-menu/identity'])
   })
 
   it('contains a route the composition never claimed', async () => {

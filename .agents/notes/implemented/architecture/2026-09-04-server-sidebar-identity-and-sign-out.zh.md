@@ -19,7 +19,7 @@ Status: implemented
 
 **claim 名是 `Config`，通过第二条只读路由送达。** browser 半边收不到任何 cordis 配置——启动清单携带的是插件名，不是它们的 `config` 块——所以 `GET /server-menu/identity` 应答 `{ displayNameClaim }`，与 auth-gate 自己那条 settings 路由应答它那三个值的做法一致。这个字段必填，并在加载期拒绝空白值，因为它挡住的那种失败是无声的：claim 名写错的部署会把每一个登录者都显示成匿名，而页面上和日志里都没有任何线索说明原因。该路由只需要 `ctx.webServer`，不需要 `ctx.settings`：写明登录者是谁并不是持久状态，没有组合 settings 能力的部署照样应当有底部。
 
-**与 auth-gate 之间的六项约定是逐字复制，不是导入。** `Bearer` 剥离、JWT payload 解码、`/auth-gate/settings`、`/auth-gate/logout`、那行删除 cookie 的指令，以及把登录页凭证参数从回跳地址里剔掉的那条规则，都在本包里重新写了一遍。跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式（`packages/client/AGENTS.md` 的导出纪律一节），而且本包出于同样的理由已经有过一份这样的副本——`client/pages.ts` 复制 content-frame 的 settings 路由而不是导入它。改为发明一条共享缝（第三个包，或一个插件注册、另一个插件消费的 `ctx` 服务），会让 auth-gate 在每一种组合里都成为侧栏的硬依赖，包括那些什么也不设门槛的组合，而换来的只是省下六段本来就由两个同仓维护的包一起改动的短字面量。每一处复制点与两份 README 都写明了它是复制品，这才是 auth-gate 变动时能被找到的保证。
+**与 auth-gate 之间的六项约定是逐字复制，不是导入。** `Bearer` 剥离、JWT payload 解码、`/auth-gate/settings`、`/auth-gate/logout`、那行删除 cookie 的指令，以及把登录页凭证参数从回跳地址里剔掉的那条规则，都在本包里重新写了一遍。跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式（`packages/client/AGENTS.md` 的导出纪律一节），而且本包出于同样的理由已经有过一份这样的副本——`client/pages.ts` 复制 content-frame 的 settings 路由而不是导入它。改为发明一条共享缝（第三个包，或一个插件注册、另一个插件消费的 `ctx` 服务），会让 auth-gate 在每一种组合里都成为侧栏的硬依赖，包括那些什么也不设门槛的组合，而换来的只是省下六段本来就由两个同仓维护的包一起改动的短字面量。每一处复制点与两份 README 都写明了它是复制品，这才是 auth-gate 变动时能被找到的保证。其中两项不只是拼写一致，还包括寻址方式：两条路由都经 `clientUrl` 请求，那行删除指令也带上 auth-gate 写入镜像时所用的部署前缀，两个包各自从同一个页面事实解析出这个前缀。
 
 **退出按固定顺序跑五步，且无论前一步结果如何，每一步都会执行。** 停掉正在进行的工作；`POST /auth-gate/logout`；删除登录页的存储键；清掉镜像 cookie；跳转到登录页。这个顺序本身就是论证：
 

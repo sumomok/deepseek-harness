@@ -19,10 +19,14 @@ import * as ShowChartInvariant from '../src/invariant.ts'
 import { SHOW_CHART_SETTINGS_ROUTE } from '../src/route.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
-/** Answer the node half's settings route with one document. */
+/**
+ * Answer the node half's settings route with one document. The browser half
+ * asks for a URL resolved against the deployment base, so the route is matched
+ * by the tail of its path.
+ */
 function serveSettings(body: unknown, ok = true): void {
-  vi.stubGlobal('fetch', vi.fn((input: string) => {
-    if (input !== SHOW_CHART_SETTINGS_ROUTE) throw new Error(`unexpected fetch: ${input}`)
+  vi.stubGlobal('fetch', vi.fn((input: URL) => {
+    if (!input.pathname.endsWith(SHOW_CHART_SETTINGS_ROUTE)) throw new Error(`unexpected fetch: ${input.href}`)
     return Promise.resolve({ ok, status: ok ? 200 : 503, json: () => Promise.resolve(body) })
   }))
 }

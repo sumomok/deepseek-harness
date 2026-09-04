@@ -1,5 +1,5 @@
 {
-  "extends": "../../../tsconfig.base.json",
+  "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
     "outDir": "lib/types",
@@ -19,6 +19,9 @@
     },
     {
       "path": "../../../vendor/loader"
+    },
+    {
+      "path": "../connection/tsconfig.client.json"
     },
     {
       "path": "../modules"

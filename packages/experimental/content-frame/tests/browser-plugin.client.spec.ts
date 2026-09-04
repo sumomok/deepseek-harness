@@ -26,12 +26,22 @@ const HIDE_STYLE_ID = 'dsh-content-frame-hide-empty-command-row'
 /** The settings document the bench serves. */
 const SETTINGS = { cacheSize: 5 }
 
-/** Answer the node half's settings route with one document. */
-function serveSettings(body: unknown, ok = true): void {
-  vi.stubGlobal('fetch', vi.fn((input: string) => {
-    if (input !== CONTENT_SETTINGS_ROUTE) throw new Error(`unexpected fetch: ${input}`)
+/**
+ * Answer the node half's settings route with one document. The browser half
+ * resolves the route against the page's deployment base, so the bench routes on
+ * the resolved path rather than on the route constant.
+ * @param body - the settings document to answer with.
+ * @param ok - whether the route answers 200.
+ * @returns the URLs the browser half asked for, in order.
+ */
+function serveSettings(body: unknown, ok = true): URL[] {
+  const asked: URL[] = []
+  vi.stubGlobal('fetch', vi.fn((input: URL) => {
+    asked.push(input)
+    if (!input.pathname.endsWith(CONTENT_SETTINGS_ROUTE)) throw new Error(`unexpected fetch: ${input.href}`)
     return Promise.resolve({ ok, status: ok ? 200 : 503, json: () => Promise.resolve(body) })
   }))
+  return asked
 }
 
 /** Declare the content column's kind slot and the chat view's per-command slot, the way their owners do. */
@@ -146,6 +156,20 @@ describe('content-frame browser half', () => {
       await expect(apply(ctx)).rejects.toThrow(message)
     }
     expect(ctx.slots.entries('content.surface.kind')).toHaveLength(0)
+  })
+
+  it('reads the settings route through the deployment prefix the page is served under', async () => {
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const asked = serveSettings(SETTINGS)
+    const ctx = new Context()
+    await ctx.plugin(SlotRegistry).await()
+    declareColumn(ctx)
+    ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
+    await apply(ctx)
+    // The node half registers the route root-absolute and a reverse proxy
+    // strips the prefix again; the browser is the half that has to put it back.
+    expect(asked.map(url => url.pathname)).toEqual(['/console/content-frame/settings'])
+    expect(asked[0]?.origin).toBe(location.origin)
   })
 
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {

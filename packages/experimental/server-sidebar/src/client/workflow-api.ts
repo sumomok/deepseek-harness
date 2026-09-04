@@ -2,9 +2,12 @@
  * Server-menu HTTP client: the browser half of this package's own
  * workbench/workflow route. Same-package import of `../route.ts` — this is
  * this package's own wire agreement with itself, not the cross-package kind
- * `pages.ts` and `open-page.ts` avoid.
+ * `pages.ts` and `open-page.ts` avoid. Both requests resolve that route
+ * against the page's deployment base, which is what a shell served under a
+ * reverse-proxy path prefix needs.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/workflow-api
  */
+import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { SERVER_MENU_ROUTE } from '../route.ts'
 import type { ServerMenuWorkflow } from '../workflows.ts'
 
@@ -54,7 +57,7 @@ function readState(body: { workflows?: unknown; workbenchSessionId?: unknown }):
  */
 export async function readServerMenu(): Promise<ServerMenuState> {
   try {
-    const response = await fetch(SERVER_MENU_ROUTE, { cache: 'no-store' })
+    const response = await fetch(clientUrl(SERVER_MENU_ROUTE), { cache: 'no-store' })
     if (!response.ok) return EMPTY_STATE
     return readState(await response.json() as { workflows?: unknown; workbenchSessionId?: unknown })
   } catch {
@@ -78,7 +81,7 @@ export async function readServerMenu(): Promise<ServerMenuState> {
 export async function saveServerMenu(
   patch: Partial<{ workflows: readonly ServerMenuWorkflow[]; workbenchSessionId: string }>,
 ): Promise<ServerMenuState> {
-  const response = await fetch(SERVER_MENU_ROUTE, {
+  const response = await fetch(clientUrl(SERVER_MENU_ROUTE), {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify(patch),

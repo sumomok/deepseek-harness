@@ -250,12 +250,16 @@ describe('shared module declarations', () => {
   it('accepts external requests and carries them onto the graph row', () => {
     const packageName = '@fixture/shared-declared'
     writeBuiltPackage(packageName, { external: ['react'] })
-    expect(construct([packageName]).graph().entries).toEqual([{
+    const entries = construct([packageName]).graph().entries
+    expect(entries).toEqual([{
       id: packageName,
-      url: expect.stringContaining(`/plugins/${packageName}/client.js?rev=`) as unknown as string,
+      url: expect.stringContaining(`plugins/${packageName}/client.js?rev=`) as unknown as string,
       rev: expect.any(String) as unknown as string,
       external: ['react'],
     }])
+    // Relative on purpose: the browser resolves it against the page's
+    // deployment base, so a root-absolute url would ignore a served prefix.
+    expect(entries[0]?.url.startsWith('plugins/')).toBe(true)
   })
 
   it('omits external when the package declares no requests', () => {

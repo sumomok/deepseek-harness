@@ -75,11 +75,15 @@ const CONTENT_FRAME_PAGES = [{ id: 'home', title: 'Home', description: '', url: 
 const PAGES = [{ id: 'home', title: 'Home' }]
 const WORKFLOW = { id: 'w1', name: 'Alpha', order: 0, homeSessionId: 'session-a', navSnapshot: ['home'], savedAt: 1 }
 
-/** Route the stubbed fetch by path; unhandled paths throw so a spec must ask for exactly what it uses. */
+/**
+ * Route the stubbed fetch by path; unhandled paths throw so a spec must ask for
+ * exactly what it uses. The browser half asks for URLs resolved against the
+ * deployment base, so the path is read off them.
+ */
 function stubFetch(routes: Partial<Record<string, { ok?: boolean; body: unknown }>>): void {
-  vi.stubGlobal('fetch', vi.fn((input: string) => {
-    const route = routes[input]
-    if (route === undefined) throw new Error(`unexpected fetch: ${input}`)
+  vi.stubGlobal('fetch', vi.fn((input: URL) => {
+    const route = routes[input.pathname]
+    if (route === undefined) throw new Error(`unexpected fetch: ${input.href}`)
     return Promise.resolve({
       ok: route.ok ?? true,
       status: route.ok === false ? 503 : 200,
@@ -388,8 +392,8 @@ describe('server-sidebar browser half: sidebar registration', () => {
     const { ctx, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     let posted: unknown
-    vi.stubGlobal('fetch', vi.fn((input: string, init?: RequestInit) => {
-      expect(input).toBe(SERVER_MENU_ROUTE)
+    vi.stubGlobal('fetch', vi.fn((input: URL, init?: RequestInit) => {
+      expect(input.pathname).toBe(SERVER_MENU_ROUTE)
       if (init?.method === 'POST') posted = JSON.parse(init.body as string)
       return Promise.resolve({ ok: true, json: () => Promise.resolve({ workflows: [WORKFLOW, other] }) })
     }))
@@ -424,7 +428,9 @@ describe('server-sidebar browser half: sidebar registration', () => {
       expect(localStorage.getItem('accessToken')).toBeNull()
     })
     expect(cancel).toHaveBeenCalledTimes(1)
-    expect(fetch).toHaveBeenCalledWith(AUTH_GATE_LOGOUT_ROUTE, expect.objectContaining({ method: 'POST', keepalive: true }))
+    expect(fetch).toHaveBeenCalledWith(
+      new URL(AUTH_GATE_LOGOUT_ROUTE, location.href), expect.objectContaining({ method: 'POST', keepalive: true }),
+    )
     expect(localStorage.getItem('userInfo')).toBeNull()
     expect(localStorage.getItem('someOtherApp.session')).toBe('kept')
   })

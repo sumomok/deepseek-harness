@@ -17,7 +17,7 @@ export const inject = ['invariants']
 /**
  * Owned relation: the node half's boot entry graph must stay self-consistent
  * — every row must resolve a clientPath under the same id (the
- * /plugins/<id>/client.js URL it advertises would otherwise 404 on a browser
+ * plugins/<id>/client.js URL it advertises would otherwise 404 on a browser
  * that just received the graph). Checked on every scan trigger (cordis
  * 'internal/plugin'): graph() and clientPath() read the same table object,
  * so the relation holds at any instant — no need to wait out the node half's

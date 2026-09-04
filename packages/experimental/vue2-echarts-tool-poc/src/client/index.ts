@@ -9,21 +9,24 @@
  * the shipped one on `develop`, the service-line one on this branch. That is
  * why the placement is here rather than in a layout-aware package.
  *
- * `EChartsOption` is a value import across packages, which the client bundle
- * purity gate allows only for a declared module request: the manifest's
- * `dsh.client.external` names the component row's `/client` specifier, the
- * modules node half orders that row ahead of this one, and the loader answers
- * the require from the same materialized bundle. That is also what keeps one
- * Vue runtime in the graph.
+ * `EChartsOption` and `clientUrl` are value imports across packages, which the
+ * client bundle purity gate allows only for a declared module request: the
+ * manifest's `dsh.client.external` names the component row's `/client`
+ * specifier and the connection package's, and the loader answers each require
+ * from the same materialized bundle. The modules node half orders the component
+ * row ahead of this one, which is also what keeps one Vue runtime in the graph.
  *
  * Whether a painted chart is captured is host configuration, and a browser half
  * receives no cordis config — the boot manifest carries plugin names, not their
  * `config` blocks — so apply reads it from the node half's settings route
  * before claiming the key. A failed read fails the row: a transcript that
  * silently captured nothing would be indistinguishable from one honoring the
- * setting.
+ * setting. That route, like the report route the row posts to, is registered
+ * root-absolute and requested through `clientUrl`, which puts back the path
+ * prefix a reverse proxy stripped before the request arrived.
  * @module @deepseek-ai/dsh-experimental-vue2-echarts-tool-poc/client
  */
+import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
@@ -57,15 +60,16 @@ export const inject = ['slots', 'locale']
  * document without a usable capture switch.
  */
 async function readSettings(): Promise<ShowChartSettings> {
-  const response = await fetch(SHOW_CHART_SETTINGS_ROUTE, { cache: 'no-store' })
+  const url = clientUrl(SHOW_CHART_SETTINGS_ROUTE)
+  const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
-    throw new Error(`show-chart: ${SHOW_CHART_SETTINGS_ROUTE} answered ${response.status}`)
+    throw new Error(`show-chart: ${url.href} answered ${response.status}`)
   }
   const settings = await response.json() as Partial<ShowChartSettings>
   // A wire boundary: the document crossed a process, so its own contract is
   // checked here rather than trusted from the type.
   if (typeof settings.screenshot !== 'boolean') {
-    throw new Error(`show-chart: ${SHOW_CHART_SETTINGS_ROUTE} answered an unusable screenshot switch: ${JSON.stringify(settings.screenshot)}`)
+    throw new Error(`show-chart: ${url.href} answered an unusable screenshot switch: ${JSON.stringify(settings.screenshot)}`)
   }
   return { screenshot: settings.screenshot }
 }

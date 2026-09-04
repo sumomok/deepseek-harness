@@ -13,7 +13,14 @@
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/pages
  */
 
-/** Must match `@deepseek-ai/dsh-experimental-content-frame`'s `CONTENT_SETTINGS_ROUTE`. */
+import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
+
+/**
+ * Must match `@deepseek-ai/dsh-experimental-content-frame`'s
+ * `CONTENT_SETTINGS_ROUTE`, which `tests/pages.client.spec.ts` asserts by
+ * importing that package's own constant — a drift shows up as an empty
+ * navigation menu and nothing else, since the read below contains its failure.
+ */
 const CONTENT_FRAME_SETTINGS_ROUTE = '/content-frame/settings'
 
 /** One configured page, as the menu needs it. */
@@ -82,7 +89,7 @@ function validateHomePage(value: unknown, pages: readonly MenuPage[]): string | 
  */
 export async function readContentPages(): Promise<ContentPages> {
   try {
-    const response = await fetch(CONTENT_FRAME_SETTINGS_ROUTE, { cache: 'no-store' })
+    const response = await fetch(clientUrl(CONTENT_FRAME_SETTINGS_ROUTE), { cache: 'no-store' })
     if (!response.ok) return { pages: [] }
     const settings = await response.json() as { pages?: unknown; homePage?: unknown }
     const pages = Array.isArray(settings.pages) ? settings.pages.filter(isMenuPage).map(page => ({ id: page.id, title: page.title })) : []

@@ -12,12 +12,18 @@
  * the sequence opens with never answers either.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { INTERNAL_BASE } from '@deepseek-ai/dsh-client-connection/client'
+import { clearCookieLine as authGateClearCookieLine } from '@deepseek-ai/dsh-experimental-auth-gate/src/client/browser.ts'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import {
   readAuthGateSettings, signOut, stopRunningTurns, windowSignOutBrowser, type SignOutBrowser,
 } from '../src/client/sign-out.ts'
 
 const SETTINGS = { loginUrl: '/toy-login/#/', cookieName: 'accessToken' }
+
+/** Both routes as this carrier resolves them: no page globals, so the base is {@link INTERNAL_BASE}. */
+const LOGOUT_URL = new URL('/auth-gate/logout', INTERNAL_BASE)
+const SETTINGS_URL = new URL('/auth-gate/settings', INTERNAL_BASE)
 
 /** Keys the login page owns, in the order the module removes them. */
 const OWNED_KEYS = [
@@ -38,7 +44,7 @@ function benchBrowser(options: { href?: string; stopTurns?: () => Promise<void> 
       return Promise.resolve()
     }),
     removeStoredKey: (key) => { log.push(`remove:${key}`) },
-    writeCookieLine: (line) => { log.push(`cookie:${line}`) },
+    clearCookie: (name) => { log.push(`clearCookie:${name}`) },
     currentHref: () => options.href ?? 'https://console.example/app/#/board',
     navigate: (url) => { log.push(`navigate:${url}`) },
   }
@@ -72,7 +78,7 @@ describe('signOut', () => {
     const fetcher = stubFetch()
     const { browser, log } = benchBrowser()
     await signOut(browser, SETTINGS)
-    expect(fetcher).toHaveBeenCalledWith('/auth-gate/logout', {
+    expect(fetcher).toHaveBeenCalledWith(LOGOUT_URL, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       keepalive: true,
@@ -80,7 +86,7 @@ describe('signOut', () => {
     expect(log).toEqual([
       'stop',
       ...OWNED_KEYS.map(key => `remove:${key}`),
-      'cookie:accessToken=; Path=/; Secure; SameSite=Lax; Max-Age=0',
+      'clearCookie:accessToken',
       'navigate:/toy-login/#/?redirect=https%3A%2F%2Fconsole.example%2Fapp%2F%23%2Fboard',
     ])
   })
@@ -137,7 +143,7 @@ describe('signOut', () => {
     )
     expect(log).toEqual([
       ...OWNED_KEYS.map(key => `remove:${key}`),
-      'cookie:accessToken=; Path=/; Secure; SameSite=Lax; Max-Age=0',
+      'clearCookie:accessToken',
       'navigate:/toy-login/#/?redirect=https%3A%2F%2Fconsole.example%2Fapp%2F%23%2Fboard',
     ])
   })
@@ -161,7 +167,7 @@ describe('signOut', () => {
     // The request is sent, not waited on, so its own report lands after the
     // sequence has already finished leaving.
     await flushMicrotasks()
-    expect(warn).toHaveBeenCalledWith('server-sidebar: /auth-gate/logout answered 503')
+    expect(warn).toHaveBeenCalledWith(`server-sidebar: ${LOGOUT_URL.href} answered 503`)
   })
 
   it('goes on after a sign-out route that could not be reached', async () => {
@@ -171,7 +177,7 @@ describe('signOut', () => {
     await signOut(browser, SETTINGS)
     expect(log.at(-1)).toContain('navigate:')
     await flushMicrotasks()
-    expect(warn).toHaveBeenCalledWith('server-sidebar: /auth-gate/logout could not be reached', 'offline')
+    expect(warn).toHaveBeenCalledWith(`server-sidebar: ${LOGOUT_URL.href} could not be reached`, 'offline')
   })
 
   it('leaves without waiting for a sign-out route that never answers', async () => {
@@ -209,7 +215,7 @@ describe('signOut', () => {
     const { browser, log } = benchBrowser()
     const refusing: SignOutBrowser = {
       ...browser,
-      writeCookieLine: () => { throw new Error('site data is blocked') },
+      clearCookie: () => { throw new Error('site data is blocked') },
     }
     await signOut(refusing, SETTINGS)
     expect(warn).toHaveBeenCalledWith('server-sidebar: could not clear the mirror cookie', expect.any(Error))
@@ -223,7 +229,7 @@ describe('signOut', () => {
     const refusing: SignOutBrowser = { ...browser, navigate: () => { throw new Error('navigation refused') } }
     await expect(signOut(refusing, SETTINGS)).resolves.toBeUndefined()
     expect(warn).toHaveBeenCalledWith('server-sidebar: could not leave for the login page', expect.any(Error))
-    expect(log.at(-1)).toBe('cookie:accessToken=; Path=/; Secure; SameSite=Lax; Max-Age=0')
+    expect(log.at(-1)).toBe('clearCookie:accessToken')
   })
 })
 
@@ -320,7 +326,7 @@ describe('readAuthGateSettings', () => {
   it('reads the login address and the mirror cookie name, uncached', async () => {
     const fetcher = stubSettings({ body: { ...SETTINGS, refreshMarginSeconds: 60 } })
     await expect(readAuthGateSettings()).resolves.toEqual(SETTINGS)
-    expect(fetcher).toHaveBeenCalledWith('/auth-gate/settings', { cache: 'no-store' })
+    expect(fetcher).toHaveBeenCalledWith(SETTINGS_URL, { cache: 'no-store' })
   })
 
   it('refuses a composition whose settings route is not there', async () => {
@@ -360,12 +366,31 @@ describe('windowSignOutBrowser', () => {
     const browser = windowSignOutBrowser(ctx)
     await browser.stopTurns()
     browser.removeStoredKey('accessToken')
-    browser.writeCookieLine('accessToken=; Path=/; Secure; SameSite=Lax; Max-Age=0')
+    browser.clearCookie('accessToken')
     expect(browser.currentHref()).toBe('https://console.example/app/')
     browser.navigate('/toy-login/#/?redirect=x')
 
     expect(removed).toEqual(['accessToken'])
     expect(written).toEqual(['accessToken=; Path=/; Secure; SameSite=Lax; Max-Age=0'])
     expect(navigations).toEqual(['/toy-login/#/?redirect=x'])
+  })
+
+  it('scopes the removal to the deployment prefix the shell is served under', () => {
+    // The mirror auth-gate wrote is scoped to this prefix, and a removal line
+    // naming another path writes a second, empty cookie instead of removing
+    // it. The two lines are compared to that package's own, not merely to a
+    // literal, so a change on either side fails here rather than in a
+    // deployment.
+    const written: string[] = []
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    vi.stubGlobal('document', { set cookie(value: string) { written.push(value) } })
+    const ctx = {
+      sessions: { list: { getSnapshot: () => ({ ids: [], byId: {}, current: undefined }) } },
+    } as unknown as ClientContext
+
+    windowSignOutBrowser(ctx).clearCookie('accessToken')
+
+    expect(written).toEqual(['accessToken=; Path=/console/; Secure; SameSite=Lax; Max-Age=0'])
+    expect(written).toEqual([authGateClearCookieLine('accessToken', '/console/')])
   })
 })

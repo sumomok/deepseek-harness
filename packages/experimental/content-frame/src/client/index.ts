@@ -31,6 +31,7 @@ import type {} from '@deepseek-ai/dsh-experimental-content-column/client'
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls this package's own `content` SessionProjectionMap merge.
 import type {} from '../types.ts'
+import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { CONTENT_SETTINGS_ROUTE } from '../route.ts'
 import { ContentFrame } from './ContentFrame.tsx'
 import { HiddenCommandRow } from './HiddenCommandRow.tsx'
@@ -60,16 +61,21 @@ export const inject = ['slots', 'locale']
  * document without a usable cache bound.
  */
 async function readSettings(): Promise<{ cacheSize: number }> {
-  const response = await fetch(CONTENT_SETTINGS_ROUTE, { cache: 'no-store' })
+  // CONTENT_SETTINGS_ROUTE is the path the node half registers; the page
+  // resolves it against its deployment base, which a reverse proxy strips
+  // again. The diagnostics name the resolved URL, which is what separates a
+  // misconfigured prefix from an unreachable route.
+  const url = clientUrl(CONTENT_SETTINGS_ROUTE)
+  const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
-    throw new Error(`content-frame: ${CONTENT_SETTINGS_ROUTE} answered ${response.status}`)
+    throw new Error(`content-frame: ${url.href} answered ${response.status}`)
   }
   const settings = await response.json() as { cacheSize?: unknown }
   const cacheSize = settings.cacheSize
   // A wire boundary: the document crossed a process, so its own contract is
   // checked here rather than trusted from the type.
   if (typeof cacheSize !== 'number' || !Number.isInteger(cacheSize) || cacheSize < 1) {
-    throw new Error(`content-frame: ${CONTENT_SETTINGS_ROUTE} answered an unusable cacheSize: ${JSON.stringify(cacheSize)}`)
+    throw new Error(`content-frame: ${url.href} answered an unusable cacheSize: ${JSON.stringify(cacheSize)}`)
   }
   return { cacheSize }
 }

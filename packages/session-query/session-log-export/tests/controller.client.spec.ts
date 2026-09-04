@@ -113,6 +113,27 @@ describe('SessionLogDownloadController', () => {
     expect(click).toHaveBeenCalledOnce()
   })
 
+  it('asks for the export under the served deployment prefix and saves that absolute URL', async () => {
+    vi.stubGlobal('location', { origin: 'https://harness.example' })
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const asked: URL[] = []
+    const fetcher = async (input: string | URL): Promise<Response> => {
+      asked.push(input as URL)
+      return new Response('zip')
+    }
+    const save = vi.fn()
+
+    await new SessionLogDownloadController(fetcher, save).download(SID)
+
+    const requested = asked[0]!
+    expect(requested.href).toBe(
+      `https://harness.example/console/api/session.export?sessionId=${SID}&includeDescendants=true`,
+    )
+    // The browser download manager resolves the href it is handed on its own,
+    // so the saved URL has to stay absolute.
+    expect(save).toHaveBeenCalledWith(requested.href, sessionLogZipFilename(SID))
+  })
+
   it('defaults dialog openness when state is externally cleared before settlement', async () => {
     const success = Promise.withResolvers<Response>()
     const successful = new SessionLogDownloadController(() => success.promise, vi.fn())

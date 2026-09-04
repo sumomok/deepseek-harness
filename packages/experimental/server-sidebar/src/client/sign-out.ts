@@ -30,7 +30,10 @@
  * export-discipline section), and the sidebar must also work in a composition
  * that does not compose auth-gate — where the settings read fails, the button
  * reports that and stays put. The copies must keep step with that package; see
- * this package's README.
+ * this package's README. Both routes are requested through `clientUrl` and the
+ * mirror cookie is cleared at the deployment prefix this shell is served
+ * under: auth-gate writes that cookie under the same prefix, and a removal
+ * line differing in the path removes nothing.
  *
  * Nothing here is model-visible: no session event carries it, and a model
  * request can reach none of it. Cancelling a turn is the one step a model
@@ -38,6 +41,7 @@
  * person presses stop.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/sign-out
  */
+import { clientUrl, resolveClientBase } from '@deepseek-ai/dsh-client-connection/client'
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 // Type-only: pulls dsh-client-ui-conversation's `ctx.conversation` Context
 // merge, which is what a session scope resolves the cancel face out of.
@@ -107,10 +111,12 @@ export interface SignOutBrowser {
    */
   removeStoredKey(key: string): void
   /**
-   * Assign one line to the page's cookie jar.
-   * @param line - the assignment, already formed.
+   * Remove the named cookie from the deployment path the shell is served
+   * under. The path is the browser's to know, exactly as it is in auth-gate's
+   * own `GateBrowser`, so the line itself is formed at this edge.
+   * @param name - the cookie to remove.
    */
-  writeCookieLine(line: string): void
+  clearCookie(name: string): void
   /** The address the visitor is on, which is also the address they come back to. */
   currentHref(): string
   /**
@@ -121,18 +127,19 @@ export interface SignOutBrowser {
 }
 
 /**
- * The line that removes one mirrored cookie from the whole origin.
+ * The line that removes one mirrored cookie from one deployment.
  *
  * Byte-for-byte auth-gate's own `clearCookieLine`, and it must stay that way:
  * a browser matches a removal against an existing cookie by name, path, and
  * domain, so a line differing in the path writes a second, empty cookie and
- * leaves the mirrored token in place. A deployment served under a base path
- * changes `Path` in both packages together or in neither.
+ * leaves the mirrored token in place. Both packages take the same resolved
+ * deployment prefix, which is the one auth-gate wrote the mirror under.
  * @param name - the cookie name.
+ * @param path - the deployment prefix the mirror was written under.
  * @returns the assignment for `document.cookie`.
  */
-function clearCookieLine(name: string): string {
-  return `${name}=; Path=/; Secure; SameSite=Lax; Max-Age=0`
+function clearCookieLine(name: string, path: string): string {
+  return `${name}=; Path=${path}; Secure; SameSite=Lax; Max-Age=0`
 }
 
 /**
@@ -208,18 +215,19 @@ function returnAddress(currentHref: string): string {
  * a composition without auth-gate looks like from here.
  */
 export async function readAuthGateSettings(): Promise<AuthGateBrowserSettings> {
-  const response = await fetch(AUTH_GATE_SETTINGS_ROUTE, { cache: 'no-store' })
+  const url = clientUrl(AUTH_GATE_SETTINGS_ROUTE)
+  const response = await fetch(url, { cache: 'no-store' })
   if (!response.ok) {
-    throw new Error(`server-sidebar: ${AUTH_GATE_SETTINGS_ROUTE} answered ${String(response.status)}`)
+    throw new Error(`server-sidebar: ${url.href} answered ${String(response.status)}`)
   }
   // A wire boundary: the document crossed a process, so its own contract is
   // checked here rather than trusted from the type.
   const { loginUrl, cookieName } = await response.json() as Partial<AuthGateBrowserSettings>
   if (typeof loginUrl !== 'string' || loginUrl.length === 0) {
-    throw new Error(`server-sidebar: ${AUTH_GATE_SETTINGS_ROUTE} answered an unusable loginUrl: ${JSON.stringify(loginUrl)}`)
+    throw new Error(`server-sidebar: ${url.href} answered an unusable loginUrl: ${JSON.stringify(loginUrl)}`)
   }
   if (typeof cookieName !== 'string' || cookieName.length === 0) {
-    throw new Error(`server-sidebar: ${AUTH_GATE_SETTINGS_ROUTE} answered an unusable cookieName: ${JSON.stringify(cookieName)}`)
+    throw new Error(`server-sidebar: ${url.href} answered an unusable cookieName: ${JSON.stringify(cookieName)}`)
   }
   return { loginUrl, cookieName }
 }
@@ -286,17 +294,18 @@ export async function stopRunningTurns(ctx: ClientContext): Promise<void> {
  * @returns nothing, once the route has answered or failed.
  */
 async function postLogout(): Promise<void> {
+  const url = clientUrl(AUTH_GATE_LOGOUT_ROUTE)
   try {
-    const response = await fetch(AUTH_GATE_LOGOUT_ROUTE, {
+    const response = await fetch(url, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       keepalive: true,
     })
     if (!response.ok) {
-      console.warn(`server-sidebar: ${AUTH_GATE_LOGOUT_ROUTE} answered ${String(response.status)}`)
+      console.warn(`server-sidebar: ${url.href} answered ${String(response.status)}`)
     }
   } catch (error) {
-    console.warn(`server-sidebar: ${AUTH_GATE_LOGOUT_ROUTE} could not be reached`, error)
+    console.warn(`server-sidebar: ${url.href} could not be reached`, error)
   }
 }
 
@@ -362,7 +371,7 @@ export async function signOut(browser: SignOutBrowser, settings: AuthGateBrowser
   for (const key of SIGNED_OUT_STORAGE_KEYS) {
     attempt(`remove the stored key "${key}"`, () => { browser.removeStoredKey(key) })
   }
-  attempt('clear the mirror cookie', () => { browser.writeCookieLine(clearCookieLine(settings.cookieName)) })
+  attempt('clear the mirror cookie', () => { browser.clearCookie(settings.cookieName) })
   attempt('leave for the login page', () => {
     browser.navigate(`${settings.loginUrl}?redirect=${encodeURIComponent(returnAddress(browser.currentHref()))}`)
   })
@@ -375,10 +384,14 @@ export async function signOut(browser: SignOutBrowser, settings: AuthGateBrowser
  * @returns the operations bound to `window`, `document`, and `localStorage`.
  */
 export function windowSignOutBrowser(ctx: ClientContext): SignOutBrowser {
+  // The deployment prefix this shell is served under, resolved the way
+  // auth-gate's own browser resolves it: the only path at which a removal line
+  // matches the mirror that package wrote.
+  const cookiePath = new URL(resolveClientBase()).pathname
   return {
     stopTurns: () => stopRunningTurns(ctx),
     removeStoredKey: (key) => { localStorage.removeItem(key) },
-    writeCookieLine: (line) => { document.cookie = line },
+    clearCookie: (name) => { document.cookie = clearCookieLine(name, cookiePath) },
     currentHref: () => location.href,
     navigate: (url) => { location.href = url },
   }

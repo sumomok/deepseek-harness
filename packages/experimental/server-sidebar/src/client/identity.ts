@@ -22,6 +22,7 @@
  * package's README.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/identity
  */
+import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import type { HostObservable } from '@deepseek-ai/dsh-client-ui-slots'
 import { SERVER_IDENTITY_ROUTE, type ServerIdentitySettings } from '../route.ts'
 
@@ -100,7 +101,7 @@ export function displayNameFrom(raw: string | null, claim: string): string | und
  */
 export async function readIdentitySettings(): Promise<ServerIdentitySettings | undefined> {
   try {
-    const response = await fetch(SERVER_IDENTITY_ROUTE, { cache: 'no-store' })
+    const response = await fetch(clientUrl(SERVER_IDENTITY_ROUTE), { cache: 'no-store' })
     if (!response.ok) return undefined
     // A wire boundary: the document crossed a process, so its own contract is
     // checked here rather than trusted from the type.

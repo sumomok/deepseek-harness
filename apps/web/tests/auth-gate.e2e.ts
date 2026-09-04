@@ -101,9 +101,18 @@ function loginPage(signIn: boolean): string {
 </script></body></html>`
 }
 
+/**
+ * The deployment prefix the shell is published under. This lane serves it from
+ * the origin root; behind a prefix-stripping proxy it loads at `/<prefix>/`,
+ * and the counter below has to follow it. A counter pinned to `/` would tally
+ * zero there and turn "the mirror reloaded exactly once" into "the shell never
+ * loaded" without failing anywhere the reader would look.
+ */
+const SHELL_PATH = '/'
+
 /** Counts each load of the shell itself, across the reload the gate performs. */
 const LOAD_COUNTER = `
-  if (location.pathname === '/') {
+  if (location.pathname === ${JSON.stringify(SHELL_PATH)}) {
     var key = ${JSON.stringify(LOAD_KEY)};
     sessionStorage.setItem(key, String(Number(sessionStorage.getItem(key) || '0') + 1));
   }`

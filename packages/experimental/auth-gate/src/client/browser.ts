@@ -6,6 +6,7 @@
  * @module @deepseek-ai/dsh-experimental-auth-gate/src/client/browser
  */
 
+import { resolveClientBase } from '@deepseek-ai/dsh-client-connection/client'
 import { ACCESS_TOKEN_STORAGE_KEY } from '../route.ts'
 
 /** The browser operations the gate performs. */
@@ -18,10 +19,10 @@ export interface GateBrowser {
   readToken(): string | null
   /** The named cookie's value, or `undefined` when the visitor carries no such cookie. */
   readCookie(name: string): string | undefined
-  /** Write the named cookie for the whole origin. */
+  /** Write the named cookie for the deployment path the shell is served under. */
   writeCookie(name: string, value: string): void
   /**
-   * Remove the named cookie from the whole origin.
+   * Remove the named cookie from the deployment path the shell is served under.
    * @param name - the cookie to remove.
    */
   clearCookie(name: string): void
@@ -60,7 +61,7 @@ export function readCookieFrom(jar: string, name: string): string | undefined {
 }
 
 /**
- * The cookie line that mirrors one token for the whole origin.
+ * The cookie line that mirrors one token for one deployment.
  *
  * Not `HttpOnly`, deliberately: the token already lives in `localStorage`, where
  * the deployment's login page put it and where any script on the page can read
@@ -70,24 +71,30 @@ export function readCookieFrom(jar: string, name: string): string | undefined {
  * subrequests.
  * @param name - the cookie name.
  * @param value - the token to mirror.
+ * @param path - the deployment prefix the shell is served under (`/` at an
+ * origin root, `/console/` behind a path-prefixed reverse proxy). Every request
+ * this page makes goes to that prefix, and a second harness under another
+ * prefix on the same host receives nothing.
  * @returns the assignment for `document.cookie`.
  */
-export function mirrorCookieLine(name: string, value: string): string {
-  return `${name}=${encodeURIComponent(value)}; Path=/; Secure; SameSite=Lax`
+export function mirrorCookieLine(name: string, value: string, path: string): string {
+  return `${name}=${encodeURIComponent(value)}; Path=${path}; Secure; SameSite=Lax`
 }
 
 /**
- * The line that removes one mirrored cookie from the whole origin.
+ * The line that removes one mirrored cookie from one deployment.
  *
  * `Path`, `Secure`, and `SameSite` repeat {@link mirrorCookieLine} verbatim: a
  * browser matches a removal against an existing cookie by name, path, and
  * domain, so a line that differs in the path writes a second, empty cookie and
- * leaves the mirrored token in place.
+ * leaves the mirrored token in place. Both lines therefore take the same
+ * resolved deployment prefix from their one caller.
  * @param name - the cookie name.
+ * @param path - the deployment prefix the mirror was written under.
  * @returns the assignment for `document.cookie`.
  */
-export function clearCookieLine(name: string): string {
-  return `${name}=; Path=/; Secure; SameSite=Lax; Max-Age=0`
+export function clearCookieLine(name: string, path: string): string {
+  return `${name}=; Path=${path}; Secure; SameSite=Lax; Max-Age=0`
 }
 
 /**
@@ -122,13 +129,17 @@ export function storedToken(raw: string | null): string | null {
  * @returns the operations bound to `window`, `document`, and `localStorage`.
  */
 export function windowGateBrowser(): GateBrowser {
+  // The deployment prefix this shell is served under: the widest path every
+  // request from this page still carries, and the narrowest one the mirror may
+  // be scoped to.
+  const cookiePath = new URL(resolveClientBase()).pathname
   return {
     now: () => Date.now(),
     currentHref: () => location.href,
     readToken: () => storedToken(localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)),
     readCookie: name => readCookieFrom(document.cookie, name),
-    writeCookie: (name, value) => { document.cookie = mirrorCookieLine(name, value) },
-    clearCookie: (name) => { document.cookie = clearCookieLine(name) },
+    writeCookie: (name, value) => { document.cookie = mirrorCookieLine(name, value, cookiePath) },
+    clearCookie: (name) => { document.cookie = clearCookieLine(name, cookiePath) },
     navigate: (url) => { location.href = url },
     reload: () => { location.reload() },
     onStorageChanged: (listener) => {

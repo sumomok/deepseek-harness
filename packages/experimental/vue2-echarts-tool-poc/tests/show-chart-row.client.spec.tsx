@@ -40,12 +40,18 @@ vi.mock('@deepseek-ai/dsh-experimental-vue2-echarts-poc/client', () => ({
 
 /** Every report the row posted, decoded. */
 let posted: unknown[] = []
+/** The path each report was posted to. */
+let requested: string[] = []
 
 beforeEach(() => {
   bridge.renders.length = 0
   posted = []
-  vi.stubGlobal('fetch', vi.fn((input: string, init: { body: string }) => {
-    if (input !== SHOW_CHART_REPORT_ROUTE) throw new Error(`unexpected fetch: ${input}`)
+  requested = []
+  vi.stubGlobal('fetch', vi.fn((input: URL, init: { body: string }) => {
+    // The row posts to a URL resolved against the deployment base, so the
+    // route is matched by the tail of its path rather than compared whole.
+    if (!input.pathname.endsWith(SHOW_CHART_REPORT_ROUTE)) throw new Error(`unexpected fetch: ${input.href}`)
+    requested.push(input.pathname)
     posted.push(JSON.parse(init.body))
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ accepted: true }) })
   }))
@@ -200,6 +206,13 @@ describe('ShowChartRow', () => {
     // already answered.
     await paint()
     expect(posted).toHaveLength(1)
+  })
+
+  it('posts through the deployment prefix the shell is served under', async () => {
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    mount(running({ option: OPTION }))
+    await paint()
+    expect(requested).toEqual(['/console/show-chart/report'])
   })
 
   it('shows the engine\'s own message instead of the chart, and reports the failure', async () => {

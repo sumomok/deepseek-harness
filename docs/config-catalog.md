@@ -631,6 +631,12 @@ export interface Config {
    * `?redirect=<the encoded page it came from>`, so the value may not already
    * carry a query string. A hash-routed login page (`/sign-in/#/`) takes the
    * parameter inside its fragment, which is where a hash router reads it.
+   *
+   * A browser-side address, assigned as it stands: a deployment served under a
+   * path prefix writes that prefix into the value, because nothing resolves it
+   * against the deployment base. A login page outside the shell's prefix is a
+   * valid choice, and it receives no mirror cookie — that cookie is scoped to
+   * the prefix.
    */
   loginUrl: string
   /**
@@ -677,7 +683,9 @@ export interface Config {
    * The pages the agent may put in the column, in the order the tool
    * description offers them. At least one is required — `content_show` exists
    * to choose among these, and an empty list leaves the model a tool it can
-   * never call successfully. Each `url` must be a same-origin path.
+   * never call successfully. Each `url` must be a same-origin path, written as
+   * the browser addresses it — a deployment served under a path prefix carries
+   * that prefix in the value (see {@link ContentPage.url}).
    */
   pages: ContentPage[]
   /**
@@ -719,12 +727,41 @@ export interface ContentPage {
   readonly title: string
   /** What the page is for, in the agent's terms — this is what the tool description offers it to choose from. */
   readonly description: string
-  /** Same-origin path of the page, from the site root (`/content-app/reports/`). */
+  /**
+   * Same-origin path of the page as the browser addresses it, complete: a
+   * deployment served under a path prefix writes that prefix into this value
+   * (`/console/content-app/reports/`), because the frame requests it as it
+   * stands and nothing resolves it against the deployment base a second time.
+   * Not `CONTENT_APP_ROUTE`, which is the process-side route the node half
+   * claims after a reverse proxy has stripped that prefix.
+   */
   readonly url: string
 }
 ```
 
 Source: [`packages/experimental/content-frame/src/index.ts:50`](../packages/experimental/content-frame/src/index.ts)
+
+<a id="deepseek-aidsh-experimental-server-base"></a>
+
+## `@deepseek-ai/dsh-experimental-server-base`
+
+Requires: `webServer`
+
+```ts config-catalog
+/** Plugin config: the path prefix this process is served under. */
+export interface Config {
+  /**
+   * Deployment prefix as the browser addresses it, leading and trailing slash
+   * included — `/console/` for a process behind `location /console/`, `/` for
+   * one served at the origin root. It must carry no query string, no fragment,
+   * and no empty segment, because every browser-side URL is resolved against
+   * it.
+   */
+  basePath: string
+}
+```
+
+Source: [`packages/experimental/server-base/src/index.ts:47`](../packages/experimental/server-base/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-server-sidebar"></a>
 

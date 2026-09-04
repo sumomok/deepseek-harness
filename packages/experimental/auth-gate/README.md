@@ -24,7 +24,7 @@ The guard is structural rather than a counter. A mirror writes the cookie, **rea
 
 ### Why the mirror cookie is not `HttpOnly`
 
-The token already lives in `localStorage`, where the deployment's login page put it and where any script on the page can read it. A cookie the page's own script could not read would narrow no attack surface — an injected script would simply read the original — while making the mirror impossible to keep in step with it. `Secure` and `SameSite=Lax` do still apply: the first keeps the cookie off plaintext hops, the second keeps it off cross-site subrequests.
+The token already lives in `localStorage`, where the deployment's login page put it and where any script on the page can read it. A cookie the page's own script could not read would narrow no attack surface — an injected script would simply read the original — while making the mirror impossible to keep in step with it. `Secure` and `SameSite=Lax` do still apply: the first keeps the cookie off plaintext hops, the second keeps it off cross-site subrequests. `Path` is the deployment prefix the shell is served under — `/` at an origin root, `/console/` behind a path-prefixed reverse proxy — which every request from this page carries and a second harness under another prefix on the same host does not.
 
 The cookie exists because requests that carry no `Authorization` header — a navigation, an image, an iframe, a download — still have to identify the visitor to whatever sits in front of this process.
 
@@ -79,6 +79,8 @@ The token is held in a closure inside the plugin and written nowhere: no session
     url: http://127.0.0.1:3080/auth-gate/mcp/crm
 ```
 
+The port in that `url` must be the port this very process listens on: the route is this process's own, and a copied literal points every visitor's MCP calls at whichever process took that port — which is to say, at another person's held token. A deployment running one process per signed-in person reads it from the environment (`` url: !!js `http://127.0.0.1:${process.env.DSH_PORT}/auth-gate/mcp/crm` ``) rather than writing a number.
+
 The forward rides on the dsh webserver's own route registry rather than a listener of its own. Its `WebRoute` handler owns the full response lifecycle, which is what an MCP streamable-HTTP exchange needs: a POST answered with either a JSON document or an event stream held open, and a GET held open for the server-to-client stream. Bytes are relayed in both directions rather than decoded, so an event stream arrives at the MCP client incrementally.
 
 What the forward changes, and nothing else:
@@ -109,6 +111,8 @@ This package is in no shipped bundle. `overlay/auth-gate.patch.yml` inserts the 
 
 Every configured value is required and validated at load: an empty `loginUrl` or one already carrying a query string, a `cookieName` that is not a bare cookie name, an upstream name that is not a plain route segment, and a target that is not an absolute HTTP(S) URL without query or fragment each fail the row rather than surfacing as a redirect to nowhere or a tool call that fails on first use.
 
+`loginUrl` is a browser-side address, assigned as it stands: a deployment served under a path prefix writes that prefix into the value (`/console/toy-proxy/toy-login/#/`), because nothing resolves it against the deployment base. A login page kept outside the shell's prefix, as the example above does, stays valid and simply receives no mirror cookie — that cookie is scoped to the prefix.
+
 ## Model Experience
 
 None, as this package registers no tool, prompt section, or result: it carries a credential between the browser, the process, and the MCP servers the process forwards to, all of which happens outside any model request, and the tools those servers publish are `dsh-mcp-client`'s model-facing contribution rather than this package's.
@@ -126,5 +130,5 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **Only the gate's own three login decisions sign out.** `POST /auth-gate/logout` drops the held token, and nothing but the browser half's boot, storage-change, and expiry paths calls it — there is no sign-out control, and no interruption of whatever the agent loop is doing at the time. A visitor who closes the tab instead leaves the process holding the token until it ends or another browser posts a newer one.
 - **A visitor carrying no token signs out too.** The boot decision takes that exit whether or not anything was stored — deliberately, because the node half may still hold the token of whoever loaded the page before — and behind a reverse proxy that request carries no mirror cookie, comes back 401, and leaves one harmless warning in the console.
 - **A revocation is not undone.** The browser half hands the node half a token in one place — the boot or storage-change decision that armed the page — so a sign-out that arrives while a page is still running leaves that page's MCP forwarding answering 503 until it loads again, with nothing on screen saying so. Two things reach that state: a sign-out request that arrives late enough to drop a token posted after it, and a cross-origin page that gets past the route's fence. Closing it means either naming the token to drop in the request, so a late one cannot hit a newer credential, or re-posting the current token when the page is shown again.
-- **The settings route assumes an HTTP carrier.** The browser half fetches `/auth-gate/settings` relative to the page origin, so a transport that serves the shell without exposing the harness over HTTP would fail the row.
+- **The settings route assumes an HTTP carrier.** The browser half fetches `/auth-gate/settings` — the root-absolute route the node half registers, resolved against the page's deployment base — so a transport that serves the shell without exposing the harness over HTTP would fail the row.
 - **Not covered by an assembled snapshot** — the browser evidence is the Playwright scenario in `apps/web/tests/auth-gate.e2e.ts` against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.

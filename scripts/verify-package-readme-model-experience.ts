@@ -88,6 +88,7 @@ const SENTENCE_MODEL_EXPERIENCE: Readonly<Record<string, SentenceContract>> = {
   'packages/client/ui-user-questions': { kind: 'indirect', reason: 'The package mounts dsh-tool-ask-user; that tool owns the model-visible schema and answer rendering.' },
   'packages/client/ui-trajectory': { kind: 'none', reason: 'Browser-side UI plugin layer; registers nothing model-facing.' },
   'packages/experimental/auth-gate': { kind: 'none', reason: 'Carries an access token between the browser, the process, and the MCP servers it forwards to; dsh-mcp-client owns every model-facing effect those servers have.' },
+  'packages/experimental/server-base': { kind: 'none', reason: 'Injects the deployment path prefix into the served index; the rows are read by the browser and never reach a model request.' },
   'packages/experimental/server-layout': { kind: 'none', reason: 'Browser-side shell frame and viewing state; registers nothing model-facing.' },
   'packages/experimental/server-sidebar': { kind: 'none', reason: 'Browser-side sidebar menu and a user-driven favorites document; the command it executes runs outside any model turn and registers no prompt, schema, or tool.' },
   'packages/experimental/vue-ui-poc': { kind: 'none', reason: 'Browser-side framework-hosting probe; registers nothing model-facing.' },

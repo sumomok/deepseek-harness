@@ -802,4 +802,30 @@ describe('resolveBase', () => {
       delete globalWithLocation.location
     }
   })
+
+  it('keeps a deployment path prefix a browser subclass bases the carrier under', async () => {
+    class Prefixed extends AbstractApiClient {
+      urls: string[] = []
+
+      protected async doFetch(input: URL, init?: RequestInit): Promise<Response> {
+        this.urls.push(input.href)
+        if (input.pathname.endsWith('/events.mux')) return new Response('')
+        if (typeof init?.body !== 'string') throw new TypeError('expected a JSON string request body')
+        const { rpcId } = JSON.parse(init.body) as { rpcId: string }
+        return Response.json({ type: 'server-response', rpcId, result: { ok: true, value: { items: [] } } })
+      }
+
+      protected override resolveBase(): string {
+        return 'https://harness.example/console/'
+      }
+    }
+    const probe = new Prefixed()
+    await probe.sessions.list({})
+    const stream = probe.events.mux({}, new AbortController().signal)[Symbol.asyncIterator]()
+    await expect(stream.next()).resolves.toMatchObject({ done: true })
+    expect(probe.urls).toEqual([
+      'https://harness.example/console/api/session.list',
+      'https://harness.example/console/api/events.mux',
+    ])
+  })
 })
