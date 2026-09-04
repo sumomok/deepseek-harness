@@ -38,7 +38,9 @@ Status: implemented
 
 ### 这次跨过的分层
 
-`@deepseek-ai/dsh-api-session-controller` 是 BFF 层的包，在此之前，除了 `packages/api/remotes`、`packages/bundle/web-app` 与 `packages/client/ui-*` 那一排，没有任何东西依赖它。本包是第一个消费它的服务的主机插件。守住的线是：只调 `selectModel`，只经公开服务，且所有 import 都是 type-only 的——只为把 `ctx.sessionController` 与 `modelSelection` projection 键并进本包的 Context。`scripts/package-dependency-policy.ts` 把 `packages/experimental/` 排除在分层检查外，因此机械上拦不住下一个；这一段就是「这是一次决定」的记录。
+`@deepseek-ai/dsh-api-session-controller` 是 BFF 层的包，在此之前，除了 `packages/api/remotes`、`packages/bundle/web-app` 与 `packages/client/ui-*` 那一排，没有任何东西依赖它。本包是第一个消费它的服务的主机插件。守住的线是：只调 `selectModel`，只经公开服务，且唯一的 import 是从浏览器安全的 `/types` 面拿的 type-only import——只为模型选择词汇与 `modelSelection` projection 键。
+
+主机那一面够不着，也就一直够不着。本包自己的程序是 Client 面，而 `scripts/project-reference-faces.ts` 要求 Client 面进入拆分包时只能进它的 client 半边——那半边带的是 `/types`，不带 `ctx.sessionController` 的声明。因此这个服务经由 cordis 为「不在类型化 Context 面上的名字」声明的 `get(name: string): any` 重载取到，而 `RouteSwitcher` 负责把类型还回来。`scripts/package-dependency-policy.ts` 把 `packages/experimental/` 排除在分层检查外，因此机械上拦不住下一个这样的依赖；这一节就是「这是一次决定」的记录。
 
 ### 决策闸
 

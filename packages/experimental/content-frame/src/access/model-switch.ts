@@ -19,11 +19,14 @@
 
 import type { Session } from '@deepseek-ai/dsh-session'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
-// Type-only: `modelSelection` is the session controller's own projection key,
-// and this gate's first tier is the selection that projection holds.
+// Type-only, and from the browser-safe face rather than the host one: the
+// session controller is a split package this Client-face program may only enter
+// through its client half, and that half owns both the model-selection
+// vocabulary and the `modelSelection` projection key this gate's first tier
+// reads.
 import type {
   ModelSelection, SessionSelectModelRequest, SessionSelectModelValue,
-} from '@deepseek-ai/dsh-api-session-controller'
+} from '@deepseek-ai/dsh-api-session-controller/types'
 import type {
   AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
 } from '@deepseek-ai/dsh-user-questions'

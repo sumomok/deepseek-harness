@@ -38,7 +38,9 @@ The card is asked where the modality check was asked: in `execute`, before `awai
 
 ### The layering this crosses
 
-`@deepseek-ai/dsh-api-session-controller` is a BFF-layer package, and until now nothing outside `packages/api/remotes`, `packages/bundle/web-app` and the `packages/client/ui-*` row depended on it. This package is the first host plugin to consume one of its services. The line held: only `selectModel` is called, only through the public service, and the only imports are type-only ones that merge `ctx.sessionController` and the `modelSelection` projection key into this package's Context. `scripts/package-dependency-policy.ts` exempts `packages/experimental/` from the layering check, so nothing mechanical stops the next one; this paragraph is the record that it was a decision.
+`@deepseek-ai/dsh-api-session-controller` is a BFF-layer package, and until now nothing outside `packages/api/remotes`, `packages/bundle/web-app` and the `packages/client/ui-*` row depended on it. This package is the first host plugin to consume one of its services. The line held: only `selectModel` is called, only through the public service, and the only import is a type-only one from the browser-safe `/types` face, for the model-selection vocabulary and the `modelSelection` projection key.
+
+The host face is out of reach and stays that way. This package's own program is a Client face, and `scripts/project-reference-faces.ts` requires a Client face entering a split package to enter its client half — which is what carries `/types` and does not carry the `ctx.sessionController` declaration. The service is therefore reached through the `get(name: string): any` overload cordis declares for names outside the typed Context surface, and `RouteSwitcher` is what gives the call back its types. `scripts/package-dependency-policy.ts` exempts `packages/experimental/` from the layering check, so nothing mechanical stops the next such dependency; this section is the record that it was a decision.
 
 ### The gate
 

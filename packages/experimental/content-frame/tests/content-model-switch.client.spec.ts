@@ -17,7 +17,7 @@ import { describe, expect, it, vi } from 'vitest'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 import type { AskUserQuestionAnswer, AskUserQuestionRequest } from '@deepseek-ai/dsh-user-questions'
-import type { SessionSelectModelRequest } from '@deepseek-ai/dsh-api-session-controller'
+import type { SessionSelectModelRequest } from '@deepseek-ai/dsh-api-session-controller/types'
 import {
   effectiveRoute, imageCapableRoutes, optionLabels, routeGate, switchQuestion,
 } from '../src/access/model-switch.ts'
