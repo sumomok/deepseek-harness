@@ -161,21 +161,27 @@ export async function apply(ctx: ClientContext): Promise<void> {
         sidebarActions = actions
         return {
           pages,
+          ...homePage === undefined ? {} : { homePage },
           onOpenPage: pageId => openContentPage(ctx, pageId),
           onOpenWorkbenchOnLoad: async (workbenchSessionId, isLive) => {
             const outcome = await openWorkbenchOnLoad(ctx, workbenchSessionId, isLive)
             if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
           },
-          onOpenWorkbench: async (workbenchSessionId, isLive, isBlank) => {
-            const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isBlank)
+          onOpenWorkbench: async (workbenchSessionId, isLive, isClean, homePageAlreadyShown) => {
+            const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isClean)
             if (outcome === undefined) return
             if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
-            // Every outcome of a click lands on a blank draft (reused-blank or
+            // Every outcome of a click lands on a clean draft (reused-clean or
             // freshly created — see `openWorkbenchOnClick`'s own doc), so a
-            // configured home page always applies here; the auto-open-on-load
+            // configured home page always belongs on it; a reused draft that
+            // already shows it — the only content a clean draft may carry —
+            // skips the repeat call so it does not append a second
+            // `content/shown` record for the same page. The auto-open-on-load
             // path (above) leaves whatever the reopened session already shows
-            // untouched (continuity semantics).
-            if (homePage !== undefined) await openHomePage(ctx, outcome.sessionId, homePage)
+            // untouched (continuity semantics) and never calls this at all.
+            if (homePage !== undefined && (outcome.created || !homePageAlreadyShown)) {
+              await openHomePage(ctx, outcome.sessionId, homePage)
+            }
           },
           onOpenWorkflow: async (workflow, isLive) => {
             const outcome = await openWorkflow(ctx, workflow, isLive)

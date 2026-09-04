@@ -9,7 +9,7 @@
  * priority-shadowed `conversation.hero.brand.mark` takeover, and the
  * fish/preview-badge/headline/workspace-row/agent-preset hero rules — see the
  * package README's Brand and hero facade section), the workbench's
- * blank-draft click semantics, the current-selection highlight, drag-and-drop
+ * clean-draft click semantics, the current-selection highlight, drag-and-drop
  * workflow reordering, the footer's identity band (the signed-in name and
  * the sign-out control, both fitting the column),
  * (`@deepseek-ai/dsh-experimental-content-frame`)
@@ -18,8 +18,13 @@
  * log, and (`@deepseek-ai/dsh-experimental-server-layout`) the content
  * column collapsing on a content-less blank draft. A second describe block
  * reruns the workbench-click scenario under content-frame's `homePage`
- * config, proving the opposite pairing: an auto-shown home page and a
- * content column that never collapses.
+ * config, proving the opposite pairing — an auto-shown home page and a
+ * content column that never collapses — and, on that same draft, both
+ * answers the clean-draft judgment gives: a second click reuses the draft its
+ * own first click populated and adds no second home-page record, while a
+ * draft the visitor has navigated elsewhere in is unclean and takes the
+ * create path, which shows the home page again (on the same conversation —
+ * see the package README's Known Limitations).
  *
  * Mostly zero model calls, the same shape `rail-search-expand.e2e.ts` uses
  * for a pure client-layout scenario: every session this scenario opens is
@@ -433,7 +438,7 @@ describe('web e2e: the product-console sidebar', () => {
   )
 
   it(
-    'produces a fresh conversation when the workbench is clicked again now that it carries a user message (blank-draft semantics)',
+    'produces a fresh conversation when the workbench is clicked again now that it carries a user message (clean-draft semantics)',
     async () => {
       onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-blank-draft'))
       const priorWorkbenchSessionId = workbenchSessionId
@@ -587,6 +592,8 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
   let page: Page
   let harnessHome: string
   let tripwire: ReturnType<typeof watchConsole>
+  /** The workbench's persistent session id, captured once the first test creates it. */
+  let workbenchSessionId: string
   const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
 
   beforeAll(async () => {
@@ -628,6 +635,60 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
       // page configured, a blank draft is never actually empty, so the
       // content column stays expanded rather than collapsing.
       await expect.poll(() => columnWidth(shellColumn(page, 'content')), { timeout: 10_000 }).toBeGreaterThan(0)
+
+      await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBeUndefined()
+      workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
+      expect(commandTripleTypes(scaffold, workbenchSessionId)).toEqual(['command/run', 'content/shown', 'command/done'])
+    },
+    60_000,
+  )
+
+  it(
+    'reuses that same draft on a second click, showing the home page it already carries only once',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-homepage-reuse'))
+      const agentsBefore = scaffold.ctx.agents.list().length
+      await workbenchButton(page).click()
+      await expectShown(page, '/content-app/')
+
+      // The draft is clean by both halves of the judgment: it has run no
+      // turn, and the one page its content column carries is the home page
+      // the first click itself put there. So this click reuses it instead of
+      // minting a second conversation, and skips the repeat
+      // `show-content-page` rather than appending a second identical triple.
+      await page.waitForTimeout(1000)
+      expect(readServerMenu(scaffold).workbenchSessionId).toBe(workbenchSessionId)
+      expect(scaffold.ctx.agents.list()).toHaveLength(agentsBefore)
+      expect(commandTripleTypes(scaffold, workbenchSessionId)).toEqual(['command/run', 'content/shown', 'command/done'])
+    },
+    60_000,
+  )
+
+  it(
+    'shows the home page again on the next click once the visitor has navigated the draft elsewhere',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-homepage-navigated'))
+      const priorWorkbenchSessionId = workbenchSessionId
+      await navSection(page).getByRole('button', { name: 'Weekly reports' }).click()
+      await expectShown(page, '/content-app/reports/')
+
+      // The draft has still run no turn, so the blank bit alone would have
+      // called it reusable; the reports entry on its content column is what
+      // makes it unclean, which sends this click down the create path and so
+      // shows the home page again rather than skipping it as a repeat.
+      await workbenchButton(page).click()
+      await expectShown(page, '/content-app/')
+      expect(commandTripleTypes(scaffold, priorWorkbenchSessionId)).toEqual([
+        'command/run', 'content/shown', 'command/done',
+        'command/run', 'content/shown', 'command/done',
+        'command/run', 'content/shown', 'command/done',
+      ])
+      // ...but it lands on the same conversation all the same: the create
+      // path resolves through `connectWorkspace`, which reuses any blank
+      // session already in the Workspace, and this draft is one. See the
+      // package README's Known Limitations for what a real displacement of a
+      // blank draft would take.
+      expect(readServerMenu(scaffold).workbenchSessionId).toBe(priorWorkbenchSessionId)
     },
     60_000,
   )

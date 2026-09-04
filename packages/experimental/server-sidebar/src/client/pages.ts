@@ -35,7 +35,7 @@ export interface MenuPage {
 export interface ContentPages {
   /** The configured pages, in declaration order; empty when the route is unreachable or unusable. */
   pages: MenuPage[]
-  /** Page id to show automatically on a blank workbench draft; absent when unconfigured or invalid. */
+  /** Page id to show automatically on a clean workbench draft; absent when unconfigured or invalid. */
   homePage?: string
 }
 

@@ -77,6 +77,58 @@ export interface OpenOutcome {
 }
 
 /**
+ * Defensively-typed shape of one content-surface entry, read off
+ * `SessionSummary.projectionValues.contentSurface.entries` (see
+ * `ServerSidebarRoot.tsx`'s own read, which mirrors
+ * `dsh-experimental-server-layout`'s `ShellFrame`): `isCleanWorkbenchDraft`
+ * and `hasShownHomePage` only ever compare these two fields, so nothing else
+ * about the real `ContentSurfaceEntry`
+ * (`@deepseek-ai/dsh-experimental-content-surface/types`) needs to reach
+ * this module.
+ */
+export interface ContentSurfaceEntryLike {
+  /** The extractor kind that produced the entry; `'page'` for content-frame's own pages. */
+  readonly kind?: unknown
+  /** Identity within the kind; a page entry's id is the page id. */
+  readonly entryId?: unknown
+}
+
+/**
+ * Whether a workbench draft counts as clean for {@link openWorkbenchOnClick}'s
+ * reuse decision: it has not run a conversation turn, and its content column
+ * carries nothing beyond the deployment's own configured home page — a page
+ * click, a chart the agent drew, or any other page all disqualify it, while
+ * the home page itself does not, since a clean click's own auto-open step
+ * (`client/index.ts`'s `onOpenWorkbench`) is expected to have put it there.
+ * @param isBlank - `SessionSummary.blank`: whether the session has run a turn.
+ * @param entries - the session's content-surface entries (see {@link ContentSurfaceEntryLike}).
+ * @param homePage - the deployment's configured home page id, or `undefined`
+ * when none is configured — with no home page, any entry at all disqualifies
+ * the draft, since none can satisfy the exception.
+ * @returns whether the draft is clean.
+ */
+export function isCleanWorkbenchDraft(
+  isBlank: boolean, entries: readonly ContentSurfaceEntryLike[], homePage: string | undefined,
+): boolean {
+  return isBlank && entries.every(entry => entry.kind === 'page' && entry.entryId === homePage)
+}
+
+/**
+ * Whether entries already carry the deployment's configured home page as a
+ * shown page — consulted only when a click reuses a clean draft, so the
+ * click path's own home-page auto-open step (`client/index.ts`'s
+ * `onOpenWorkbench`) does not re-append an identical `content/shown` record
+ * onto a draft that already carries one.
+ * @param entries - the session's content-surface entries (see {@link ContentSurfaceEntryLike}).
+ * @param homePage - the deployment's configured home page id, or `undefined`
+ * when none is configured.
+ * @returns whether one entry is the home page, shown as a page.
+ */
+export function hasShownHomePage(entries: readonly ContentSurfaceEntryLike[], homePage: string | undefined): boolean {
+  return homePage !== undefined && entries.some(entry => entry.kind === 'page' && entry.entryId === homePage)
+}
+
+/**
  * Shared workbench open-or-create mechanism: reopen the recorded session
  * when `reuse` holds, otherwise create a fresh one against the recent
  * Workspace and report it as newly created. `openWorkbenchOnLoad` and
@@ -112,7 +164,7 @@ async function openOrCreateWorkbench(
  * same weak-reference degrade a workflow's `homeSessionId` gets (decision ⑧
  * applies to the workbench too, since it is a weak reference by the same
  * reasoning). Contrast {@link openWorkbenchOnClick}, which additionally
- * requires the recorded session to still be blank.
+ * requires the recorded session to still be clean.
  * @param ctx - client root context.
  * @param workbenchSessionId - the recorded id, or `undefined` before first use.
  * @param isLive - whether that id names a session the workspace domain still lists.
@@ -126,28 +178,29 @@ export async function openWorkbenchOnLoad(
 }
 
 /**
- * Open the workbench on an explicit click: blank-draft semantics. A click
+ * Open the workbench on an explicit click: clean-draft semantics. A click
  * always lands on a clean page, so the recorded session reopens only when it
- * is both live and still blank (`SessionSummary.blank`); otherwise a fresh
- * session is created and the caller must repoint `workbenchSessionId` at it
- * (see `client/index.ts`'s `created` handling). The displaced session is not
- * deleted — see the package README's Workflows section for what keeps it
- * reachable. Contrast {@link openWorkbenchOnLoad}, which reopens a live
- * session regardless of its content.
+ * is both live and still clean (see {@link isCleanWorkbenchDraft}: no turn
+ * run, and its content column carries nothing beyond the deployment's own
+ * configured home page); otherwise a fresh session is created and the caller
+ * must repoint `workbenchSessionId` at it (see `client/index.ts`'s `created`
+ * handling). The displaced session is not deleted — see the package README's
+ * Workflows section for what keeps it reachable. Contrast
+ * {@link openWorkbenchOnLoad}, which reopens a live session regardless of its
+ * content.
  * @param ctx - client root context.
  * @param workbenchSessionId - the recorded id, or `undefined` before first use.
  * @param isLive - whether that id names a session the workspace domain still lists.
- * @param isBlank - whether that session has not yet run a turn (standalone
- * events — including this row's own home-page auto-open — do not count; see
- * `sessionBlank` in `dsh-host-apiproxy`); irrelevant (and never consulted)
- * when `isLive` is `false`.
+ * @param isClean - whether that session is a clean draft (see
+ * {@link isCleanWorkbenchDraft}); irrelevant (and never consulted) when
+ * `isLive` is `false`.
  * @returns the outcome, or `undefined` when there was nowhere to create a
  * session (no Workspace at all) — a contained no-op.
  */
 export async function openWorkbenchOnClick(
-  ctx: ClientContext, workbenchSessionId: string | undefined, isLive: boolean, isBlank: boolean,
+  ctx: ClientContext, workbenchSessionId: string | undefined, isLive: boolean, isClean: boolean,
 ): Promise<OpenOutcome | undefined> {
-  return openOrCreateWorkbench(ctx, workbenchSessionId, isLive && isBlank)
+  return openOrCreateWorkbench(ctx, workbenchSessionId, isLive && isClean)
 }
 
 /**

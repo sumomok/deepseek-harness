@@ -36,6 +36,7 @@ import { WorkflowGroup } from './WorkflowGroup.tsx'
 import type { MenuPage } from './pages.ts'
 import type { ServerMenuWorkflow } from './workflow-api.ts'
 import type { createWorkflowStore } from './workflow-store.ts'
+import { hasShownHomePage, isCleanWorkbenchDraft, type ContentSurfaceEntryLike } from './workflow-actions.ts'
 import css from './ServerSidebarRoot.module.css'
 
 /**
@@ -49,12 +50,44 @@ import css from './ServerSidebarRoot.module.css'
 const SCROLLBAR_LINGER_MS = 2000
 
 /**
+ * Read one session's content-surface entries defensively off the standard
+ * session-list feed's `projectionValues`, matching
+ * `dsh-experimental-server-layout`'s `ShellFrame` (see its own module doc):
+ * this package composes `dsh-experimental-content-surface` for real, but the
+ * read still stays untyped at this exact point rather than trusting an
+ * imported projection type, so a session missing the key (the capability was
+ * never composed, or nothing has ever been shown) degrades to an empty list
+ * instead of throwing mid-render.
+ * @param byId - the `useSessions` snapshot's row-by-id map.
+ * @param sessionId - the session to read; `undefined` reads as no entries.
+ * @returns the session's content-surface entries (each of unknown shape,
+ * narrowed defensively by `isCleanWorkbenchDraft`/`hasShownHomePage`), or an
+ * empty array when there is nothing to read.
+ */
+function contentSurfaceEntries(
+  byId: Record<string, { projectionValues?: unknown }>, sessionId: string | undefined,
+): readonly ContentSurfaceEntryLike[] {
+  if (sessionId === undefined) return []
+  const projectionValues = byId[sessionId]?.projectionValues as Record<string, unknown> | undefined
+  const contentSurface = projectionValues?.contentSurface as { entries?: readonly ContentSurfaceEntryLike[] } | undefined
+  return contentSurface?.entries ?? []
+}
+
+/**
  * Registrant-private injected share: the shell's own workbench/navigation/
  * workflow actions.
  */
 export interface ServerSidebarInjected {
   /** The deployment's configured content-column pages, in declaration order. */
   pages: readonly MenuPage[]
+  /**
+   * The deployment's configured home page id (content-frame's `homePage`
+   * config), or `undefined` when none is configured — read alongside `pages`
+   * (`client/index.ts`'s `readContentPages`) and consulted here only for the
+   * workbench click's own clean-draft judgment (see `workbenchIsClean`
+   * below); the auto-open-page call itself stays in `client/index.ts`.
+   */
+  homePage?: string
   /**
    * Open a configured page, creating a session first when none is current.
    * The menu does not await this — it returns a promise so tests can.
@@ -69,12 +102,24 @@ export interface ServerSidebarInjected {
    */
   onOpenWorkbenchOnLoad: (workbenchSessionId: string | undefined, isLive: boolean) => Promise<void>
   /**
-   * Open the workbench on a click: blank-draft semantics — always lands on
+   * Open the workbench on a click: clean-draft semantics — always lands on
    * an empty page, reusing the recorded session only when it is both live
-   * and still blank. Not awaited by the component. Contrast
-   * `onOpenWorkbenchOnLoad`, the auto-open-on-load path.
+   * and still clean (no turn run, and its content column carries nothing
+   * beyond the configured home page — see `workbenchIsClean` below). Not
+   * awaited by the component. Contrast `onOpenWorkbenchOnLoad`, the
+   * auto-open-on-load path.
+   * @param workbenchSessionId - the recorded id, or `undefined` before first use.
+   * @param isLive - whether that id names a session the workspace domain still lists.
+   * @param isClean - whether that session is a clean draft; irrelevant when `isLive` is `false`.
+   * @param homePageAlreadyShown - whether that session's content column
+   * already shows the configured home page — lets the caller skip a repeat
+   * `show-content-page` call on a reused clean draft that already carries
+   * one; meaningless (and never consulted) on a freshly created session,
+   * which always needs the call.
    */
-  onOpenWorkbench: (workbenchSessionId: string | undefined, isLive: boolean, isBlank: boolean) => Promise<void>
+  onOpenWorkbench: (
+    workbenchSessionId: string | undefined, isLive: boolean, isClean: boolean, homePageAlreadyShown: boolean,
+  ) => Promise<void>
   /**
    * Open a workflow, degrading to a fresh conversation with its navigation
    * snapshot replayed when its bound one is gone. Not awaited by the component.
@@ -111,7 +156,7 @@ export type ServerSidebarRootComponentProps =
  */
 export function ServerSidebarRoot({
   width, t, renderSlot,
-  pages, onOpenPage, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveWorkflows, onSignOut,
+  pages, homePage, onOpenPage, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveWorkflows, onSignOut,
   useStore, useSessions, useWorkspaces, useDisplayName,
 }: ServerSidebarRootComponentProps) {
   const displayName = useDisplayName(name => name)
@@ -132,6 +177,9 @@ export function ServerSidebarRoot({
   )
   const workbenchIsLive = workbenchSessionId !== undefined && liveSessionIds.has(workbenchSessionId)
   const workbenchIsBlank = workbenchSessionId !== undefined && blankSessionIds.has(workbenchSessionId)
+  const workbenchEntries = contentSurfaceEntries(byId, workbenchSessionId)
+  const workbenchIsClean = isCleanWorkbenchDraft(workbenchIsBlank, workbenchEntries, homePage)
+  const workbenchHomePageShown = hasShownHomePage(workbenchEntries, homePage)
   // Decision ④'s green dot reuses the session list's own `completed` bit
   // ("finished while not selected and not yet opened") rather than a second
   // last-seen bookkeeping mechanism — see the package README.
@@ -243,7 +291,7 @@ export function ServerSidebarRoot({
         data-server-sidebar-section="workbench"
         data-active={workbenchActive}
         onClick={() => {
-          void onOpenWorkbench(workbenchSessionId, workbenchIsLive, workbenchIsBlank)
+          void onOpenWorkbench(workbenchSessionId, workbenchIsLive, workbenchIsClean, workbenchHomePageShown)
         }}
       >
         {t('workbench.label')}

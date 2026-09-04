@@ -275,19 +275,19 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
-  it('onOpenWorkbench (click) reopens the recorded session directly when it is live and still blank', async () => {
+  it('onOpenWorkbench (click) reopens the recorded session directly when it is live and still clean', async () => {
     const { ctx, sessions } = await bench()
     const { injected, actions } = injectSidebar(ctx)
-    await injected.onOpenWorkbench('home-1', true, true)
+    await injected.onOpenWorkbench('home-1', true, true, false)
     expect(sessions.open).toHaveBeenCalledWith('home-1')
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
-  it('onOpenWorkbench (click) creates a fresh session when the recorded one is live but no longer blank', async () => {
+  it('onOpenWorkbench (click) creates a fresh session when the recorded one is live but no longer clean', async () => {
     const { ctx, workspaces, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
-    await injected.onOpenWorkbench('home-1', true, false)
+    await injected.onOpenWorkbench('home-1', true, false, false)
     expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
@@ -297,7 +297,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     const { ctx, workspaces, sessions } = await bench({ recentWorkspaceId: 'workspace-1' })
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
-    await injected.onOpenWorkbench(undefined, false, false)
+    await injected.onOpenWorkbench(undefined, false, false, false)
     expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
@@ -306,30 +306,39 @@ describe('server-sidebar browser half: sidebar registration', () => {
   it('onOpenWorkbench (click) leaves a workbench open with no session and no workspace to create one in', async () => {
     const { ctx, sessions } = await bench()
     const { injected, actions } = injectSidebar(ctx)
-    await injected.onOpenWorkbench(undefined, false, false)
+    await injected.onOpenWorkbench(undefined, false, false, false)
     expect(sessions.open).not.toHaveBeenCalled()
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
 
-  it('onOpenWorkbench (click) shows the configured home page on a reused blank draft', async () => {
+  it('onOpenWorkbench (click) shows the configured home page on a reused clean draft that has not shown it yet', async () => {
     const { ctx, remote } = await bench({ homePage: 'home' })
     const { injected } = injectSidebar(ctx)
-    await injected.onOpenWorkbench('home-1', true, true)
+    await injected.onOpenWorkbench('home-1', true, true, false)
     expect(remote.commands.execute).toHaveBeenCalledWith('home-1', '/show-content-page home', [])
   })
 
-  it('onOpenWorkbench (click) shows the configured home page on a freshly created session', async () => {
+  it('onOpenWorkbench (click) skips the repeat call on a reused clean draft that already shows the home page', async () => {
+    const { ctx, remote } = await bench({ homePage: 'home' })
+    const { injected } = injectSidebar(ctx)
+    await injected.onOpenWorkbench('home-1', true, true, true)
+    expect(remote.commands.execute).not.toHaveBeenCalled()
+  })
+
+  it('onOpenWorkbench (click) shows the configured home page on a freshly created session, ignoring homePageAlreadyShown', async () => {
     const { ctx, remote } = await bench({ recentWorkspaceId: 'workspace-1', homePage: 'home' })
     const { injected } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
-    await injected.onOpenWorkbench(undefined, false, false)
+    // `homePageAlreadyShown` describes the DISPLACED session, not the fresh
+    // one — a create outcome must show the home page regardless of its value.
+    await injected.onOpenWorkbench(undefined, false, false, true)
     expect(remote.commands.execute).toHaveBeenCalledWith('new-session', '/show-content-page home', [])
   })
 
   it('onOpenWorkbench (click) shows nothing extra when no home page is configured', async () => {
     const { ctx, remote } = await bench()
     const { injected } = injectSidebar(ctx)
-    await injected.onOpenWorkbench('home-1', true, true)
+    await injected.onOpenWorkbench('home-1', true, true, false)
     expect(remote.commands.execute).not.toHaveBeenCalled()
   })
 

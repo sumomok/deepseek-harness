@@ -1,12 +1,14 @@
 /**
- * `nextOrder`/`sortedWorkflows`/`reordered` (pure array helpers) and
+ * `nextOrder`/`sortedWorkflows`/`reordered`/`isCleanWorkbenchDraft`/
+ * `hasShownHomePage` (pure array/predicate helpers) and
  * `openWorkbenchOnLoad`/`openWorkbenchOnClick`/`openWorkflow`
  * (session-orchestration, decisions ①/⑥/⑧).
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  nextOrder, openWorkbenchOnClick, openWorkbenchOnLoad, openWorkflow, reordered, sortedWorkflows,
+  hasShownHomePage, isCleanWorkbenchDraft, nextOrder, openWorkbenchOnClick, openWorkbenchOnLoad, openWorkflow,
+  reordered, sortedWorkflows, type ContentSurfaceEntryLike,
 } from '../src/client/workflow-actions.ts'
 import type { ServerMenuWorkflow } from '../src/client/workflow-api.ts'
 
@@ -117,6 +119,66 @@ describe('reordered', () => {
   })
 })
 
+function pageEntry(entryId: string): ContentSurfaceEntryLike {
+  return { kind: 'page', entryId }
+}
+
+describe('isCleanWorkbenchDraft', () => {
+  it('is clean when blank with no entries at all, home page configured or not', () => {
+    expect(isCleanWorkbenchDraft(true, [], undefined)).toBe(true)
+    expect(isCleanWorkbenchDraft(true, [], 'home')).toBe(true)
+  })
+
+  it('is clean when blank and the only entry is the configured home page', () => {
+    expect(isCleanWorkbenchDraft(true, [pageEntry('home')], 'home')).toBe(true)
+  })
+
+  it('is not clean when a turn has run, regardless of entries', () => {
+    expect(isCleanWorkbenchDraft(false, [], undefined)).toBe(false)
+    expect(isCleanWorkbenchDraft(false, [pageEntry('home')], 'home')).toBe(false)
+  })
+
+  it('is not clean when the one entry names a page other than the configured home page', () => {
+    expect(isCleanWorkbenchDraft(true, [pageEntry('reports')], 'home')).toBe(false)
+  })
+
+  it('is not clean when an entry matches the home page id but not the page kind', () => {
+    expect(isCleanWorkbenchDraft(true, [{ kind: 'chart', entryId: 'home' }], 'home')).toBe(false)
+  })
+
+  it('is not clean when no home page is configured but an entry exists anyway', () => {
+    expect(isCleanWorkbenchDraft(true, [pageEntry('home')], undefined)).toBe(false)
+  })
+
+  it('is not clean when a second, non-home entry accompanies the home page entry', () => {
+    expect(isCleanWorkbenchDraft(true, [pageEntry('home'), pageEntry('reports')], 'home')).toBe(false)
+  })
+
+  it('is not clean when entries are of an unrecognized shape', () => {
+    expect(isCleanWorkbenchDraft(true, [{}], 'home')).toBe(false)
+  })
+})
+
+describe('hasShownHomePage', () => {
+  it('is false with no home page configured, regardless of entries', () => {
+    expect(hasShownHomePage([pageEntry('home')], undefined)).toBe(false)
+    expect(hasShownHomePage([], undefined)).toBe(false)
+  })
+
+  it('is true when one entry is the configured home page, shown as a page', () => {
+    expect(hasShownHomePage([pageEntry('home')], 'home')).toBe(true)
+  })
+
+  it('is false when entries carry a different page, or none at all', () => {
+    expect(hasShownHomePage([pageEntry('reports')], 'home')).toBe(false)
+    expect(hasShownHomePage([], 'home')).toBe(false)
+  })
+
+  it('is false when an entry matches the home page id but not the page kind', () => {
+    expect(hasShownHomePage([{ kind: 'chart', entryId: 'home' }], 'home')).toBe(false)
+  })
+})
+
 /**
  * Build a fake context, plus the raw `sessions.open` spy on the side: reading
  * it back off `ctx` for an assertion would type it as `ClientContext`'s
@@ -174,22 +236,22 @@ describe('openWorkbenchOnLoad', () => {
 })
 
 describe('openWorkbenchOnClick', () => {
-  it('reopens the recorded session when it is live and still blank', async () => {
+  it('reopens the recorded session when it is live and still clean', async () => {
     const { ctx, open } = fakeContext({})
     const outcome = await openWorkbenchOnClick(ctx, 'home-1', true, true)
     expect(outcome).toEqual({ sessionId: 'home-1', created: false })
     expect(open).toHaveBeenCalledWith('home-1')
   })
 
-  it('creates a fresh session when the recorded one is live but no longer blank', async () => {
+  it('creates a fresh session when the recorded one is live but no longer clean', async () => {
     const { ctx, open } = fakeContext({ recentWorkspaceId: 'workspace-1' })
     const outcome = await openWorkbenchOnClick(ctx, 'home-1', true, false)
     expect(outcome).toEqual({ sessionId: 'new-session', created: true })
-    // The fresh session, not the recorded (non-blank) one, is what gets opened.
+    // The fresh session, not the recorded (no-longer-clean) one, is what gets opened.
     expect(open).toHaveBeenCalledWith('new-session')
   })
 
-  it('creates a fresh session when the recorded id is no longer live, ignoring isBlank', async () => {
+  it('creates a fresh session when the recorded id is no longer live, ignoring isClean', async () => {
     const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1' })
     const outcome = await openWorkbenchOnClick(ctx, 'gone', false, true)
     expect(outcome).toEqual({ sessionId: 'new-session', created: true })

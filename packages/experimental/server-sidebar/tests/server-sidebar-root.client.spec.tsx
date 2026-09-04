@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 /**
  * `ServerSidebarRoot`'s three-section console: the brand row, the workbench
- * entry (decision ①'s auto-open-on-load, the blank-draft click path, and the
- * active highlight), the navigation and workflow groups it seats, and the
- * footer avatar row. Pointer-driven scrollbar behavior is
- * `pointer-scrollbars.client.spec.tsx`'s own concern, ported unchanged from
- * the original shell and not re-asserted here.
+ * entry (decision ①'s auto-open-on-load, the clean-draft click path — both
+ * the blank bit and the content-surface check — and the active highlight),
+ * the navigation and workflow groups it seats, and the footer avatar row.
+ * Pointer-driven scrollbar behavior is `pointer-scrollbars.client.spec.tsx`'s
+ * own concern, ported unchanged from the original shell and not re-asserted
+ * here.
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -36,7 +37,7 @@ interface Bench {
   workbenchSessionId: string | undefined
   workflowsError: string | undefined
   current: string | undefined
-  byId: Record<string, { displayTitle: string; completed?: boolean; blank?: boolean }>
+  byId: Record<string, { displayTitle: string; completed?: boolean; blank?: boolean; projectionValues?: unknown }>
   phase: 'pending' | 'ready'
   /**
    * Defaults to an available Workspace, so pre-existing scenarios keep
@@ -45,6 +46,8 @@ interface Bench {
   recentWorkspaceId: string | undefined
   /** What the identity source currently answers; absent is the anonymous footer. */
   displayName: string | undefined
+  /** The deployment's configured home page id, or `undefined` when none is configured. */
+  homePage: string | undefined
 }
 
 function mount(overrides: Partial<Bench> = {}) {
@@ -63,6 +66,7 @@ function mount(overrides: Partial<Bench> = {}) {
     phase: 'ready',
     recentWorkspaceId: 'workspace-1',
     displayName: undefined,
+    homePage: undefined,
     ...overrides,
   }
   const root = () => (
@@ -70,6 +74,7 @@ function mount(overrides: Partial<Bench> = {}) {
       collapsed={false} width={240}
       t={t}
       pages={PAGES} onOpenPage={onOpenPage}
+      {...current.homePage === undefined ? {} : { homePage: current.homePage }}
       onOpenWorkbenchOnLoad={onOpenWorkbenchOnLoad}
       onOpenWorkbench={onOpenWorkbench}
       onOpenWorkflow={onOpenWorkflow} onSaveWorkflows={onSaveWorkflows} onSignOut={onSignOut}
@@ -143,13 +148,13 @@ describe('ServerSidebarRoot', () => {
     })
   })
 
-  describe('workbench click: blank-draft semantics', () => {
-    it('reopens the recorded session directly when it is live and still blank', () => {
+  describe('workbench click: clean-draft semantics', () => {
+    it('reopens the recorded session directly when it is live, blank, and carries no content-surface entries', () => {
       const b = mount({
         workbenchSessionId: 'home-1', byId: { 'home-1': { displayTitle: 'Home', blank: true } }, current: 'home-1',
       })
       fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
-      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, true)
+      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, true, false)
     })
 
     it('creates a fresh session when the recorded session is live but no longer blank', () => {
@@ -157,13 +162,61 @@ describe('ServerSidebarRoot', () => {
         workbenchSessionId: 'home-1', byId: { 'home-1': { displayTitle: 'Home', blank: false } }, current: 'home-1',
       })
       fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
-      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, false)
+      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, false, false)
     })
 
-    it('reports the recorded workbench id as not live (and not blank) once its session leaves the list', () => {
+    it('reports the recorded workbench id as not live (and not clean) once its session leaves the list', () => {
       const b = mount({ workbenchSessionId: 'home-1', byId: {}, current: 'other' })
       fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
-      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', false, false)
+      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', false, false, false)
+    })
+
+    it('reopens the recorded session when its only content-surface entry is the configured home page', () => {
+      const b = mount({
+        workbenchSessionId: 'home-1',
+        byId: {
+          'home-1': {
+            displayTitle: 'Home',
+            blank: true,
+            projectionValues: { contentSurface: { entries: [{ kind: 'page', entryId: 'home' }] } },
+          },
+        },
+        current: 'home-1',
+        homePage: 'home',
+      })
+      fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
+      // Both the reuse decision (isClean) and the auto-open dedup hint
+      // (homePageAlreadyShown) read true: the draft is clean, and it already
+      // shows the one entry it is allowed to carry.
+      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, true, true)
+    })
+
+    it('reports a blank draft carrying a content-surface entry beyond the configured home page as not clean', () => {
+      const b = mount({
+        workbenchSessionId: 'home-1',
+        byId: {
+          'home-1': {
+            displayTitle: 'Home',
+            blank: true,
+            projectionValues: { contentSurface: { entries: [{ kind: 'page', entryId: 'reports' }] } },
+          },
+        },
+        current: 'home-1',
+        homePage: 'home',
+      })
+      fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
+      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, false, false)
+    })
+
+    it('treats a session with no projectionValues at all as carrying no content-surface entries, falling back to the blank bit alone', () => {
+      const b = mount({
+        workbenchSessionId: 'home-1',
+        byId: { 'home-1': { displayTitle: 'Home', blank: true } },
+        current: 'home-1',
+        homePage: 'home',
+      })
+      fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
+      expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, true, false)
     })
   })
 
