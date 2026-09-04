@@ -153,6 +153,17 @@ export interface ContentColumnScenario {
    */
   overlay?: string
   /**
+   * The preset this scenario's session is composed from, as a roster root to
+   * scan and the id inside it.
+   *
+   * Every model tool the Web profile offers comes from a preset — the profile
+   * disables all of its `tool-*` rows (`packages/bundle/web-app/cordis.patch.yml`)
+   * and `standard` mounts them again — so a scenario that must not be able to
+   * shell out cannot take `bash` away in a patch layer and names a preset that
+   * never mounts it instead.
+   */
+  preset?: { root: string; id: string }
+  /**
    * The route this scenario's session must run on, selected on the seeded
    * session the way the composer's model picker selects one.
    *
@@ -205,11 +216,17 @@ export async function openContentColumn(scenario: ContentColumnScenario): Promis
   const scaffold = await launchWebScaffold({
     harnessHome,
     extraOverlayPath: scenario.overlay ?? OVERLAY,
+    ...(scenario.preset === undefined
+      ? {}
+      : { agentPresets: { roots: [{ path: scenario.preset.root, trust: 'user' as const }], default: 'standard' } }),
     ...(mode === 'record' ? {} : { replayFixture: fixture, paceMs: 15 }),
   })
   scaffold.ctx.on('session/event', (_session, event: SessionEvent) => { scenario.events.push(event) })
   const sessionId = await seedSession(
-    scaffold, withShownPage(await readFile(SEED, 'utf8'), 'home'), `${scenario.scenario}-web-e2e`,
+    scaffold,
+    withShownPage(await readFile(SEED, 'utf8'), 'home'),
+    `${scenario.scenario}-web-e2e`,
+    scenario.preset?.id,
   )
   if (scenario.model !== undefined) {
     // The same call the composer's picker makes, on the same session, before

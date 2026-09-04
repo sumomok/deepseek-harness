@@ -1,0 +1,19 @@
+# The agent plane of a content-column scenario: a persona, and no tools at all.
+#
+# Every model tool in the Web profile comes from a preset — `packages/bundle/web-app/cordis.patch.yml`
+# disables all of its `tool-*` rows, and `presets/standard/agent.cordis.yml` mounts them
+# again behind the preset realm. A profile patch layer therefore cannot take
+# `bash` or `read_image` away from a scenario; naming a preset that never mounts
+# them is what does.
+#
+# What the session is left with is the host plane's own contributions, which for
+# this composition is the content column: `content_show` and the reads and steps
+# the `content-frame` row registers. That is the whole point — a scenario about
+# what a page draws must not be able to answer by shelling out, and a recording
+# that installs packages over the network is not a recording anything can replay.
+- id: persona
+  name: '@deepseek-ai/dsh-persona'
+  config:
+    text: >-
+      You are an assistant powered by the {{model}} model, working with the user in a console.
+      Your working directory is {{cwd}}.

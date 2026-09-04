@@ -17,6 +17,12 @@
  * header derives its route from its own log and never from the composition's
  * default.
  *
+ * The session is composed from a preset that mounts no tools at all, so the
+ * only tools it is offered are the content column's. That is what makes the
+ * picture the only way to answer: handed a QR code and a shell, this model
+ * installed OpenCV over the network and read the payload out of the stored
+ * attachment, which is a transcript no replay can reproduce.
+ *
  * The application is `tests/fixtures/markup-app`, whose pairing code carries no
  * alternative text, no title and no name — the listing has nothing to print for
  * it and the markup says only that an `img` is there. What it shows is in its
@@ -67,6 +73,23 @@ const OVERLAY = fileURLToPath(new URL('./content-read-image.overlay.yml', import
 const ROUTE = { provider: 'deepseek-official', model: 'deepseek-v4-flash-vision-exp' } as const
 
 /**
+ * The preset this scenario's session is composed from: a persona and no tools
+ * at all, so the only tools left are the content column's own.
+ */
+const PRESET = { root: fileURLToPath(new URL('./fixtures/presets', import.meta.url)), id: 'content-column' }
+
+/** Every tool the session may be offered, which is the whole content column and nothing else. */
+const OFFERED = [
+  'content_act',
+  'content_read',
+  'content_read_attrs',
+  'content_read_dom',
+  'content_read_dom_content',
+  'content_read_image',
+  'content_show',
+]
+
+/**
  * Whether this scenario's recording is on disk. A replay run without it is
  * skipped rather than failed: the recording needs a real key, so the spec and
  * its fixture can land in different commits, and a lane with no key must not
@@ -89,7 +112,12 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
 
   beforeAll(async () => {
     ({ close, page, scaffold, sessionId: seeded, tripwire } = await openContentColumn({
-      scenario: SCENARIO, appRoot: APP_ROOT, events: sessionEvents, overlay: OVERLAY, model: ROUTE,
+      scenario: SCENARIO,
+      appRoot: APP_ROOT,
+      events: sessionEvents,
+      overlay: OVERLAY,
+      model: ROUTE,
+      preset: PRESET,
     }))
   }, 180_000)
 
@@ -112,6 +140,16 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
       .toMatchObject(ROUTE)
     expect((await scaffold.ctx.llm.resolveModelInfo(ROUTE.provider, ROUTE.model)).inputModalities)
       .toContain('image')
+
+    // And what the session may reach for. A model handed a QR code and a shell
+    // decodes it with a shell: the first recording of this scenario had the
+    // model install OpenCV over the network and read the payload out, which is
+    // a transcript no replay can reproduce. The composition is what makes the
+    // picture the only way to answer, so it is asserted here rather than asked
+    // for in the prompt.
+    const agent = scaffold.ctx.agents.get(seeded)
+    if (agent === undefined) throw new Error(`seeded session "${seeded}" has no live agent`)
+    expect(scaffold.ctx.tools.schemas(agent).map(schema => schema.name).sort()).toEqual(OFFERED)
 
     const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })

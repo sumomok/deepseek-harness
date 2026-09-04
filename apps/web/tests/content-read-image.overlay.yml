@@ -5,6 +5,13 @@
 # Kept as a full standalone file rather than composed with the package's own
 # overlay: `extraOverlayPath` takes exactly one path, and every other overlay in
 # this suite is likewise self-contained.
+#
+# What is NOT here is the scenario's other half. Every model tool this profile
+# offers comes from a preset — `packages/bundle/web-app/cordis.patch.yml`
+# disables all of its `tool-*` rows and `presets/standard/agent.cordis.yml`
+# mounts them again — so a patch layer cannot take `bash` or `read_image` away
+# from a session. The spec composes its session from `tests/fixtures/presets/`
+# instead, which mounts none of them.
 - id: ui-layout
   name: '@deepseek-ai/dsh-client-ui-layout'
   disabled: true
