@@ -179,9 +179,9 @@ export interface PageAccessConfig {
    * How long a claimed read waits for its listing. It bounds the whole walk of
    * a document, including waiting for a page that is still loading, so a heavy
    * application needs more of it than a static one. At least 8, refused at
-   * load: a picture read gives the export an eighth of it, and below that floor
-   * the share is a fraction of a millisecond — every picture would be refused
-   * as one the console did not draw in time, and the refusal would name it.
+   * load: a picture read gives the export an eighth of it rounded to
+   * milliseconds, and below that floor that budget is zero or one millisecond —
+   * every picture would be refused as one the console did not draw in time.
    */
   readTimeoutMs: number
   /**
@@ -273,10 +273,10 @@ const MIN_CONTEXT_FIELD_CHARS = 8
 /**
  * The shortest report deadline that leaves a picture's export a whole
  * millisecond, derived from {@link EXPORT_WAIT_SHARE} rather than written down
- * beside it: the export runs under that share of the read's deadline, and
- * under this floor the share is a fraction of a millisecond — no drawing a
- * browser really does meets it, and the refusal names it as the time the
- * console had.
+ * beside it: the export runs under that share of the read's deadline, rounded
+ * to milliseconds, and under this floor that budget is zero or one millisecond
+ * — no drawing a browser really does meets it, and the refusal names it as the
+ * time the console had.
  */
 const MIN_READ_TIMEOUT_MS = Math.ceil(1 / EXPORT_WAIT_SHARE)
 
@@ -431,7 +431,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   const pinMs = requireAtLeast('pinMs', config.pinMs, 1)
   const timeouts: CallTimeouts = {
     claimTimeoutMs,
-    answerTimeoutMs: requireAtLeast('readTimeoutMs', config.readTimeoutMs, 1),
+    answerTimeoutMs: requireAtLeast('readTimeoutMs', config.readTimeoutMs, MIN_READ_TIMEOUT_MS),
     pinMs,
   }
   const actTimeouts: CallTimeouts = {
@@ -466,17 +466,6 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     throw new Error(
       `content-frame: pageAccess.settleQuietMs must fit in ${String(settleBudgetMs)}ms `
       + `(${String(SETTLE_WAIT_SHARE)} of readTimeoutMs), received ${String(settleQuietMs)}`,
-    )
-  }
-  // Loud at load and self-contained as well: a picture read gives the export a
-  // share of this same deadline, and a deadline whose share is a fraction of a
-  // millisecond answers every picture with a refusal naming that fraction.
-  // Checked here rather than where the picture read is claimed, so a deployment
-  // learns it at load rather than the day it mounts an attachment store.
-  if (timeouts.answerTimeoutMs * EXPORT_WAIT_SHARE < 1) {
-    throw new Error(
-      `content-frame: pageAccess.readTimeoutMs must be at least ${String(MIN_READ_TIMEOUT_MS)} for the export's `
-      + `${String(EXPORT_WAIT_SHARE)} share to be a whole millisecond, received ${String(timeouts.answerTimeoutMs)}`,
     )
   }
   // The character bound the parser holds a posted listing to: it covers the one

@@ -81,11 +81,12 @@ export async function storeCapture(attachments: AttachmentStore, capture: ImageC
  * acceptance `report` applies, taken before rather than read after the bytes
  * are committed, because a store that collects nothing takes back neither what
  * a post for an unknown call nor what a second post for this one would have
- * written. A reservation always reaches `report`: the store's own refusals are
- * settlements here rather than throws, so the call ends on this post either
- * way. Both arms go to the same call and the same table, so one call id is
- * never raced by two routes: an image read's failures travel this route too
- * rather than the listing routes'.
+ * written. A store's own refusals are settlements here rather than throws, so a
+ * store that answers at all ends the call on this post; a save that never
+ * settles holds the reservation until the call's own deadline ends it, on the
+ * terms {@link PendingCalls.reserveReport} states. Both arms go to the same
+ * call and the same table, so one call id is never raced by two routes: an
+ * image read's failures travel this route too rather than the listing routes'.
  * @param attachments - the deployment's attachment store.
  * @param pending - the table calls wait on.
  * @param report - the posted report, already checked against the wire.

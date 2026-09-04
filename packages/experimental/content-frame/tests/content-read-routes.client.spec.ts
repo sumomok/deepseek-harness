@@ -1020,7 +1020,6 @@ describe('page-access configuration', () => {
     // that hold an ordinary table.
     for (const [field, least] of [
       ['claimTimeoutMs', 1],
-      ['readTimeoutMs', 1],
       ['pinMs', 1],
       ['settleQuietMs', 1],
       ['outlineChars', MIN_OUTLINE_CHARS],
@@ -1144,27 +1143,31 @@ describe('page-access configuration', () => {
 
   it('rejects a read deadline whose export share is not a whole millisecond, and takes the one that is', async () => {
     // The third pair of numbers in this one block: a picture read gives the
-    // export an eighth of this deadline, and under the floor that share is a
-    // fraction of a millisecond — every picture would be refused as one the
-    // console did not draw in time, with the refusal naming that share.
-    const bootable = (readTimeoutMs: number): Promise<void> => {
-      const ctx = new Context()
-      ctx.provide('webServer', { register: () => () => {} } as never)
-      return ContentFrame.apply(ctx, {
-        root: APP_ROOT,
-        pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
-        pageAccess: {
-          claimTimeoutMs: 1, readTimeoutMs, pinMs: 1, settleQuietMs: 1, outlineChars: MIN_OUTLINE_CHARS,
-          actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 1,
-        },
-      })
-    }
-    await expect(bootable(7)).rejects.toThrow(
-      'content-frame: pageAccess.readTimeoutMs must be at least 8 for the export\'s 0.125 share to be a whole '
-      + 'millisecond, received 7',
+    // export an eighth of this deadline rounded to milliseconds, and under the
+    // floor that budget is zero or one millisecond — every picture would be
+    // refused as one the console did not draw in time.
+    const row = (readTimeoutMs: number): ContentFrame.Config => ({
+      root: APP_ROOT,
+      pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
+      pageAccess: {
+        claimTimeoutMs: 1, readTimeoutMs, pinMs: 1, settleQuietMs: 1, outlineChars: MIN_OUTLINE_CHARS,
+        actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 1,
+      },
+    })
+    const under = new Context()
+    under.provide('webServer', { register: () => () => {} } as never)
+    await expect(ContentFrame.apply(under, row(7))).rejects.toThrow(
+      'content-frame: pageAccess.readTimeoutMs must be at least 8, received 7',
     )
-    // And the deadline the share lands exactly on a millisecond of is taken.
-    await expect(bootable(8)).resolves.toBeUndefined()
+    await under.fiber.dispose()
+
+    // And the deadline the share lands exactly on a millisecond of is taken,
+    // mounted through the registry so the row's whole startup is settled before
+    // this context is disposed.
+    const exact = new Context()
+    exact.provide('webServer', { register: () => () => {} } as never)
+    await expect(exact.plugin(ContentFrame, row(8))).resolves.toBeDefined()
+    await exact.fiber.dispose()
   })
 })
 
