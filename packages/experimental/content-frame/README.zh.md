@@ -384,7 +384,7 @@ The text of e12 comes to 61204 characters, past what this deployment's report ro
 
 #### What the model sees
 
-两个块。第一个是文字：与每件原文读取开头相同的那行 `Page: <title> — the app is at <path>`、适用时那句「还在变」，以及一行事实。两个尺寸都写在那一行上，因为它们回答不同的问题：natural 是页面画成什么样，exported 是模型正在看的是什么样，于是「为保持可读而被放大的矢量」和「被压到预算里的位图」，都表现为这两者不一致。第二个块是图本身，一个指向已存附件的 image 块。凡不是图的结局都是一行，只点名它撞上的那个条件，别的都不说——ref 指的不是图、元素不可见（`e12 is not visible on the page, so it has no rendered pixels.`）、还没加载完（`e12 has not finished loading its image.`）、画出来是零（`e12 is drawn at zero pixels.`）、由另一个源画出、太大，或者这次会话的模型根本不收图。
+两个块。第一个是文字：与每件原文读取开头相同的那行 `Page: <title> — the app is at <path>`、适用时那句「还在变」，以及一行事实。两个尺寸都写在那一行上，因为它们回答不同的问题：natural 是页面画成什么样，exported 是模型正在看的是什么样，于是「为保持可读而被放大的矢量」和「被压到预算里的位图」，都表现为这两者不一致。第二个块是图本身，一个指向已存附件的 image 块。凡不是图的结局都是一行，只点名它撞上的那个条件，别的都不说——ref 指的不是图、元素不可见（`e12 is not visible on the page, so it has no rendered pixels.`）、还没加载完（`e12 has not finished loading its image.`）、画出来是零（`e12 is drawn at zero pixels.`）、由另一个源画出、太大、控制台没能在导出所分到的那份读取截止时间之内画完——`readTimeoutMs` 的八分之一，按默认值就是 `e12 did not finish exporting within 1.875s.`——或者这次会话的模型根本不收图。
 
 ##### One picture, and the line above it
 

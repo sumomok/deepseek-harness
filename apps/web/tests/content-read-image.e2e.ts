@@ -28,12 +28,17 @@
  * it and the markup says only that an `img` is there. What it shows is in its
  * pixels and nowhere else, which is the condition this read exists for.
  *
- * Only the `img` is pinned. A checked-in PNG is decoded and re-encoded, which
- * is the one export path that produces the same bytes on the recording machine
- * and the replaying one; a canvas and a vector are rasterized by the browser,
- * where fonts and antialiasing are not promised to agree across platforms, and
- * a fixture pinning a content-addressed id of those would drift. Both live in
- * the same page and belong to this package's own suite.
+ * The page is served at `?pictures=code`, which takes its other two pictures
+ * out, and what that is for is what the fixture pins. The harness compares the
+ * whole replayed log against the recorded one, and a picture's `attachmentId`
+ * is a content hash of the exported bytes, re-derived live by the replay — so
+ * the recording pins every export this turn makes, not only the one the
+ * assertions below read. A checked-in PNG decoded and re-encoded produces the
+ * same bytes wherever it replays; the canvas and the vector in that page are
+ * rasterized by the browser, where fonts and antialiasing are not promised to
+ * agree across platforms or across engine versions, and a recording that had
+ * read them would drift on both. They stay in the page for this package's own
+ * suite, which holds the export decisions rather than the bytes.
  *
  * The fixture pins what the MODEL said; every read and every export executes
  * for real.
@@ -151,6 +156,16 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
     if (agent === undefined) throw new Error(`seeded session "${seeded}" has no live agent`)
     expect(scaffold.ctx.tools.schemas(agent).map(schema => schema.name).sort()).toEqual(OFFERED)
 
+    // And what the page in front of it draws: exactly one picture, the
+    // checked-in PNG. The recording pins a content hash of every export the
+    // turn makes, so a page still drawing the canvas and the star would pin
+    // bytes a browser is free to rasterize differently. The flag is the
+    // application's own and is applied by its script, so the wait is for the
+    // canvas to be gone rather than for the frame to be loaded.
+    const frame = page.frameLocator('iframe[data-content-frame][data-content-active]')
+    await frame.locator('#throughput').waitFor({ state: 'detached', timeout: 15_000 })
+    expect(await frame.locator('img, canvas, svg').count()).toBe(1)
+
     const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })
     const settled = scaffold.whenTurnSettled(MODE === 'record' ? 240_000 : 90_000)
@@ -165,9 +180,13 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
     expect(pictures.length).toBeGreaterThanOrEqual(1)
     // Every answer opens with the page line the tool composes around whatever
     // the seat exported, and carries the one line of facts about what came out.
-    expect(pictures.filter(text => !text.startsWith('Page: Home — the app is at /content-app/'))).toEqual([])
+    expect(pictures.filter(text => !text.startsWith('Page: Home — the app is at /content-app/?pictures=code')))
+      .toEqual([])
     expect(pictures.some(text => /e\d+ <img> 348×348 px, exported \d+×\d+ as image\/png, \d+ bytes/u.test(text)))
       .toBe(true)
+    // And nothing else was exported: the two the browser would rasterize are
+    // not on this page, so no recorded hash depends on how it rasterizes.
+    expect(pictures.filter(text => /<(?:canvas|svg)>/u.test(text))).toEqual([])
 
     // The picture itself reaches the model as an image block referencing a
     // stored object, which is the whole point: the text above it says nothing

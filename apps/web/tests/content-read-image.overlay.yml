@@ -1,10 +1,12 @@
 # Identical to `packages/experimental/content-frame/overlay/content-column.patch.yml`,
-# plus the one thing a picture read needs and the four text-read scenarios do
-# not: a route that declares image input. The attachment store the read keeps
-# its pixels in is already in the shipped base bundle (`attachment-local`).
-# Kept as a full standalone file rather than composed with the package's own
-# overlay: `extraOverlayPath` takes exactly one path, and every other overlay in
-# this suite is likewise self-contained.
+# plus the two things a picture read needs and the four text-read scenarios do
+# not: a route that declares image input, and the hosted application's own
+# `?pictures=code`, which leaves the page one picture — the checked-in PNG — so
+# this scenario's recording pins no browser-rasterized bytes. The attachment
+# store the read keeps its pixels in is already in the shipped base bundle
+# (`attachment-local`). Kept as a full standalone file rather than composed with
+# the package's own overlay: `extraOverlayPath` takes exactly one path, and
+# every other overlay in this suite is likewise self-contained.
 #
 # What is NOT here is the scenario's other half. Every model tool this profile
 # offers comes from a preset — `packages/bundle/web-app/cordis.patch.yml`
@@ -31,7 +33,7 @@
           - id: home
             title: Home
             description: The hosted application's entry page.
-            url: /content-app/
+            url: /content-app/?pictures=code
         defaultPage: home
         pageAccess: {}
 

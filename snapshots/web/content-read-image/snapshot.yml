@@ -1,8 +1,0 @@
-version: 1
-scenario: content-read-image
-profile: web
-composition: web-content-image
-recording: live
-header:
-  class: web-content-image
-  pin: true
