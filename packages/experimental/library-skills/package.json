@@ -1,7 +1,7 @@
 {
   "name": "@deepseek-ai/dsh-experimental-library-skills",
   "description": "Private bundle whose skills/ directory ships component-library conventions as bundled SKILLs, mounted by one isolated skill-filesystem row at the lowest skill rank",
-  "version": "0.1.2-alpha.5",
+  "version": "0.1.2-rc.1",
   "private": true,
   "repository": {
     "type": "git",
