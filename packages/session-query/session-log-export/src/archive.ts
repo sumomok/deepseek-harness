@@ -7,9 +7,12 @@
  * current generation's canonical `session[.vN].jsonl` name; each subagent
  * descendant uses `subagents/<id>/session[.vN].jsonl`; each image referenced by any included log
  * under `media/<attachmentId>.<ext>` (content-addressed, so one archive never
- * duplicates a shared image); each generic file sits under
+ * duplicates a shared image), or, when the attachment store cannot produce
+ * that image, a `media/<attachmentId>.<ext>.error.txt` record naming the
+ * reference and the failure in its place; each generic file sits under
  * `files/<prefix>/<digest>/<name>` and streams from the attachment store. No
- * manifest is written. Before each live session's log read, the SessionStore
+ * manifest is written — every file is self-describing through its own header
+ * line or media type. Before each live session's log read, the SessionStore
  * flush barrier makes the current in-memory log durable; cold sessions need no
  * barrier. Request abort and response-consumer cancellation share one producer
  * signal and terminate the active compressor.
@@ -194,6 +197,94 @@ function fileEntryPath(ref: FileAttachmentRef): string {
   const name = ref.name.replace(/[\\/\u0000-\u001f\u007f]/gu, '_')
   const safeName = name === '.' || name === '..' || name === '' ? 'file' : name
   return `files/${digest.slice(0, 2)}/${digest}/${safeName}`
+}
+
+/**
+ * The archive path for one media object the export could not read: the media
+ * entry's own path plus a `.error.txt` suffix, so the record sits beside the
+ * log reference that names the image. One attachment id yields the image entry
+ * or this one, never both, so the suffix cannot collide with a stored object.
+ * @param ref - the durable reference from a session log.
+ * @returns the archive path for the failure record.
+ */
+function unreadableMediaEntryPath(ref: ImageAttachmentRef): string {
+  return `${mediaEntryPath(ref)}.error.txt`
+}
+
+/**
+ * The failure lines one unreadable media object contributes to its record. An
+ * `AttachmentError` is quoted by `code` and `message`: its declaring class
+ * requires the message to describe the failure without raw bytes or host
+ * paths, and the code separates a missing object from bytes that no longer
+ * match their reference. Any other failure is recorded without its message,
+ * which carries no such requirement — a filesystem error's message names an
+ * absolute host path, and the archive reaches a browser.
+ * The match is structural on `name` because this package depends on
+ * `@deepseek-ai/dsh-attachment` for types only, so there is no constructor
+ * here to test with `instanceof`. A code test alone would not do: a Node
+ * filesystem error also carries a string `code`, and quoting its message is
+ * exactly what leaks a host path. That is stricter than the `route on code,
+ * never on the prototype chain` rule the error class documents, which admits
+ * any structurally compatible error; the stricter side is the one that decides
+ * whether text is safe to copy into a downloaded file.
+ * @param error - the failure the attachment read rejected with.
+ * @returns the failure lines, without a trailing newline.
+ */
+function unreadableMediaReason(error: unknown): string {
+  if (error instanceof Error && error.name === 'AttachmentError'
+    && 'code' in error && typeof error.code === 'string') {
+    return `code: ${error.code}\nreason: ${error.message}`
+  }
+  return 'reason: the attachment store rejected the read without a stable failure code'
+}
+
+/**
+ * The archive entry that records one unreadable media object: the reference
+ * the log carries and why the store could not produce its bytes.
+ * @param ref - the durable reference from a session log.
+ * @param error - the failure the attachment read rejected with.
+ * @returns the text entry that stands in for the image.
+ */
+function unreadableMediaEntry(ref: ImageAttachmentRef, error: unknown): SessionLogZipEntry {
+  return {
+    path: unreadableMediaEntryPath(ref),
+    content: `${[
+      'This image could not be read from the attachment store, so the archive records'
+      + ' the failure in its place. Every other file in this archive is complete.',
+      `attachmentId: ${String(ref.attachmentId)}`,
+      `mediaType: ${ref.mediaType}`,
+      `bytes: ${ref.bytes}`,
+      `width: ${ref.width}`,
+      `height: ${ref.height}`,
+      unreadableMediaReason(error),
+    ].join('\n')}\n`,
+  }
+}
+
+/**
+ * Read one media object into its archive entry, recording an unreadable object
+ * rather than failing the archive. A stored image the deployment can no longer
+ * produce is a property of that one attachment — a reference written with the
+ * wrong media type, an object deleted or rewritten under the store — and every
+ * other file in the export is still exact. Cancellation is not an unreadable
+ * attachment and is rethrown.
+ * @param attachments - the mounted attachment store.
+ * @param ref - the durable reference from a session log.
+ * @param signal - optional cancellation forwarded to the store read.
+ * @returns the image entry, or the record that stands in for it.
+ */
+async function mediaEntry(
+  attachments: AttachmentStore,
+  ref: ImageAttachmentRef,
+  signal?: AbortSignal,
+): Promise<SessionLogZipEntry> {
+  try {
+    const stored = await attachments.readImage(ref, signal)
+    return { path: mediaEntryPath(ref), data: stored.data }
+  } catch (error) {
+    signal?.throwIfAborted()
+    return unreadableMediaEntry(ref, error)
+  }
 }
 
 /**
@@ -384,9 +475,10 @@ async function* sessionLogTextEntries(
 }
 
 /**
- * Yield the export entries in zip order: every session log, then every
- * distinct attachment those logs reference. Images are read and verified as
- * bounded stored objects; generic files remain streamed through the ZIP
+ * Yield the export entries in zip order: every session log, then one entry per
+ * distinct attachment those logs reference — an image's verified bytes read
+ * from the attachment store, the `.error.txt` record that stands in for an
+ * image the store cannot produce, or a generic file streamed through the ZIP
  * writer. The host holds at most one descendant log, one image, and one file
  * chunk beyond the root.
  * @param deps - the mounted export services (the caller answered 500 before this runs).
@@ -409,9 +501,9 @@ export async function* sessionLogZipEntries(
   yield* sessionLogTextEntries(deps, rootContent, sessionId, includeDescendants, media, files, signal)
   for (const ref of media.values()) {
     signal?.throwIfAborted()
-    const stored = await deps.attachments.readImage(ref, signal)
+    const entry = await mediaEntry(deps.attachments, ref, signal)
     signal?.throwIfAborted()
-    yield { path: mediaEntryPath(ref), data: stored.data }
+    yield entry
   }
   for (const ref of files.values()) {
     signal?.throwIfAborted()
@@ -626,7 +718,8 @@ async function pushArtifactChunks(
  * missing services answer cleanly before any byte is produced); each entry is
  * then encoded and deflated in bounded chunks as it is produced, so the
  * archive bytes arrive incrementally. A descendant that fails to read errors
- * the stream (fail-loud, never silent under-export).
+ * the stream (fail-loud, never silent under-export); an unreadable media
+ * object does not, because the archive records it and stays complete.
  * @param deps - the mounted export services (the caller answered 500 before this runs).
  * @param rootContent - the already-serialized root log (first zip entry).
  * @param sessionId - the root session id.
