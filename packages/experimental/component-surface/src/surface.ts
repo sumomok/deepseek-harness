@@ -55,11 +55,12 @@ interface StoredRecord {
 const UNREADABLE_TITLE = '无法显示的内容'
 
 /**
- * Read the two fields `resolve` needs off a stored record.
+ * Read the two fields a stored record is used for: the switcher line `resolve`
+ * serves, and the spec the action command resolves a reported action against.
  * @param data - the stored record, as a live fold or a persisted checkpoint carries it.
  * @returns the record's fields, or `undefined` when it is not a record this build can read.
  */
-function readStoredRecord(data: unknown): ComponentSurfaceData | undefined {
+export function readComponentSurfaceData(data: unknown): ComponentSurfaceData | undefined {
   if (data === null || typeof data !== 'object') return undefined
   const { title, spec } = data as StoredRecord
   if (typeof title !== 'string') return undefined
@@ -86,7 +87,7 @@ export function componentExtractor(): ContentSurfaceExtractor<ComponentSurfaceDa
       return { entryId: result.call.id, data: { title: result.call.title, spec: result.call.spec } }
     },
     resolve: (data) => {
-      const record = readStoredRecord(data)
+      const record = readComponentSurfaceData(data)
       // A record with no spec still becomes an entry rather than nothing: the
       // extractor contract has no "skip" answer, and a payload the seat refuses
       // is already one sentence in the column.

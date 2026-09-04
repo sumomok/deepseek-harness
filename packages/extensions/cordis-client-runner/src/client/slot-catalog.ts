@@ -255,11 +255,12 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'useInput: SnapshotSelectorHook<InputState>',
       'inputActions: InputActions',
     ],
-    keyDomain: 'open: any string the owner dispatches (no compile-time key set), already taken: dismiss-content-entry, show-content-page',
+    keyDomain: 'open: any string the owner dispatches (no compile-time key set), already taken: component-action, dismiss-content-entry, show-content-page',
     hookContext: '',
     slotInject: '',
     declaredBy: 'an entry in \'conversation.chat.node\' (client-ui-conversation), so it exists while that entry is mounted',
     occupants: [
+      'experimental-component-surface ActionCommandRow key \'component-action\'',
       'experimental-content-column HiddenCommandRow key \'dismiss-content-entry\'',
       'experimental-content-frame HiddenCommandRow key \'show-content-page\'',
     ],

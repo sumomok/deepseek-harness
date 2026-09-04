@@ -361,6 +361,23 @@ export function validateComponentSpec(value: unknown): ComponentSpecResult {
 }
 
 /**
+ * Decide whether one reported action's payload is what its catalog action
+ * declares: no undeclared property, every required property present, and every
+ * value in range — the same pass a component's props go through.
+ *
+ * Only the verdict is returned. An action's refusal is read by the person who
+ * clicked rather than by a model, and a parameter path is not something that
+ * person can act on; the half that has to send a declared payload is the seat,
+ * which ships in this package and reads the same declaration.
+ * @param payload - the payload as the action document carried it.
+ * @param schema - the properties the action declares.
+ * @returns whether the payload is accepted.
+ */
+export function acceptsActionPayload(payload: unknown, schema: PropsSchema): boolean {
+  return validateProps(payload, schema, 'payload') === undefined
+}
+
+/**
  * Validate one whole `show_component` call.
  *
  * Also the reader the content-surface extractor uses over the log: a call the

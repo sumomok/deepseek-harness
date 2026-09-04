@@ -77,3 +77,28 @@
 .danger:hover {
   background: var(--dsw-alias-interactive-bg-hover-danger);
 }
+
+/* A bar that has spoken: every button refuses further presses, and the line
+   below the row says where the press went. Such a bar keeps each button's
+   tone and loses its affordance, so it still reads as the decision it drew
+   rather than as a control that failed. Pointer events go with it, because a
+   disabled button still matches `:hover` and would otherwise light up under a
+   cursor that can no longer press it. A refused gesture leaves the buttons
+   enabled — pressing again is the only thing left to try. */
+.actions button:disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.state {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* The one state that is not a report of progress: a gesture nobody received
+   reads as the failure it is, beside buttons that still work. */
+.state[data-component-state='refused'] {
+  color: var(--dsw-alias-state-error-primary);
+}

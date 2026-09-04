@@ -18,15 +18,55 @@ import type { ComponentKitKey } from './locales.ts'
 export type ComponentKitTranslate = Translate<ComponentKitKey>
 
 /**
+ * What one gesture carries beyond the id of the control that produced it.
+ *
+ * A record of values the user could already read on screen — the rows a table
+ * has selected, the option a filter now holds — never the data a component was
+ * given in full. Which properties one action may carry is the placement
+ * package's catalog to declare, and keeping to it is this row's obligation:
+ * a renderer puts nothing here that the catalog does not name for that action.
+ * Every value must survive `JSON.stringify`, because the placement package
+ * sends the record as one command line.
+ */
+export type ComponentActionPayload = Readonly<Record<string, unknown>>
+
+/**
  * What one user gesture inside a block reports.
  *
  * The block never acts on it: a component in this row performs no navigation,
  * no network call, and no write. It says what happened and the placement
  * package decides whether anything comes of it.
- * @param actionId - the id declared by whichever control the user used.
- * @param nodeId - {@link ComponentRendererProps.nodeId} of the block it happened in.
+ *
+ * Nothing identifying the block travels through this call. The placement
+ * package binds one handler per block and already holds
+ * {@link ComponentRendererProps.nodeId}, so a renderer that reported it too
+ * would give one fact two sources.
+ * @param actionId - the id of the action this gesture is, as the placement package's catalog declares it.
+ * @param payload - what the gesture carries; the empty record when the action declares no properties.
  */
-export type ComponentActionHandler = (actionId: string, nodeId: string) => void
+export type ComponentActionHandler = (actionId: string, payload: ComponentActionPayload) => void
+
+/**
+ * How far the gesture a block last reported got, as the placement package folds
+ * it out of the session's own records.
+ *
+ * A renderer is told rather than remembering: the placement package unmounts a
+ * block whenever the user looks at something else, so a bar that kept its own
+ * pressed flag would come back untouched and let one decision be reported
+ * twice. `idle` is a block nobody has pressed and the only state besides
+ * `refused` from which a gesture may still be reported.
+ */
+export type ComponentActionState =
+  /** Nothing reported yet, or nothing reported for the call now on display. */
+  | 'idle'
+  /** Reported, and the record settling it has not come back yet. */
+  | 'sending'
+  /** The placement package handed it over and the agent is reading it now. */
+  | 'sent'
+  /** It is waiting for the agent, which will read it when the user writes again. */
+  | 'queued'
+  /** It reached nobody — refused where it was resolved, or never recorded at all; reporting it again is the only thing left to try. */
+  | 'refused'
 
 /** One block's props. */
 export interface ComponentRendererProps<P = Readonly<Record<string, unknown>>> {
@@ -44,6 +84,12 @@ export interface ComponentRendererProps<P = Readonly<Record<string, unknown>>> {
   readonly props: P
   /** Where a user gesture goes. */
   readonly onAction: ComponentActionHandler
+  /**
+   * How far this block's last reported gesture got. A renderer draws it and
+   * decides from it whether a further gesture may be reported; it never keeps a
+   * copy of its own.
+   */
+  readonly state: ComponentActionState
   /** This row's translate, for the copy a renderer owns rather than receives. */
   readonly t: ComponentKitTranslate
 }

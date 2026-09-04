@@ -28,6 +28,8 @@ export { NS } from './locales.ts'
 export type { ComponentKitKey } from './locales.ts'
 export type {
   ComponentActionHandler,
+  ComponentActionPayload,
+  ComponentActionState,
   ComponentKitTranslate,
   ComponentRenderer,
   ComponentRendererProps,

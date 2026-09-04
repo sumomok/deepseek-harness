@@ -1,14 +1,16 @@
 # The console's backend spine, reduced to what a recorded transcript can see.
 #
-# Everything here reaches a model request or the session log: the adapter, the
-# ACP automation app, the projection registry, the content-surface entry stream
-# (which contributes a system-prompt section), the HTTP host `show_chart` needs
-# for its two routes, and the two tools that place an entry in the column. The
-# console's browser rows — `server-layout`, `content-column`, `server-sidebar`,
-# `vue2-echarts-poc`, `component-kit` — are absent by construction: they
-# register no tool, no prompt section and no session event, so a transcript
-# cannot tell them from their own absence. Their evidence is the Playwright lane
-# under `apps/web/tests`.
+# Everything here either reaches a model request or the session log, or is the
+# host half of something one of those promises: the adapter, the ACP automation
+# app, the projection registry, the content-surface entry stream (which
+# contributes a system-prompt section), the HTTP host `show_chart` needs for its
+# two routes, the command registry `show_component`'s description promises a
+# press comes back through, and the two tools that place an entry in the
+# column. The console's browser rows — `server-layout`, `content-column`,
+# `server-sidebar`, `vue2-echarts-poc`, `component-kit` — are absent by
+# construction: they register no tool, no prompt section and no session event,
+# so a transcript cannot tell them from their own absence. Their evidence is the
+# Playwright lane under `apps/web/tests`.
 #
 # With `DSH_SNAPSHOT=record` the app bin runs the real DeepSeek adapter and the
 # harness harvests the persisted log; the bin loads the gitignored root `.env`
@@ -54,6 +56,17 @@
 # a current chart from one a later call replaced.
 - id: session-projection
   name: '@deepseek-ai/dsh-session-projection'
+
+# The command registry, which is the host half of the component tool's return
+# channel: `/component-action` is the one way a press inside a drawn block
+# reaches the agent, and `show_component`'s description — pinned by this lane —
+# tells the model that a press comes back. A composition that offers that
+# description without this row promises the model something it cannot keep, so
+# the row is here even though it registers no tool and no prompt section of its
+# own. No transcript here carries a press: that needs the browser seat, which
+# is absent for the reason every other browser row is.
+- id: commands
+  name: '@deepseek-ai/dsh-commands'
 
 # The content column as one per-session entry stream. Model-visible through its
 # on-display prompt section; the browser half that renders the column is not

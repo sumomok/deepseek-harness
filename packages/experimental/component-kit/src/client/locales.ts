@@ -16,6 +16,10 @@ export const zh = {
   'block.unsupported': '这里暂时没有能显示这块内容的组件。',
   'block.unreadable': '这块内容暂时显示不了。',
   'confirmBar.actions': '可选操作',
+  'confirmBar.sending': '正在发送…',
+  'confirmBar.sent': '已发送到对话',
+  'confirmBar.queued': '已记下，你下次发消息时对话会看到',
+  'confirmBar.refused': '这个动作没能记下来，可以再试',
 } satisfies Record<string, string>
 
 /** The componentKit namespace key union. */
@@ -26,6 +30,10 @@ export const en = {
   'block.unsupported': 'Nothing here can draw this block yet.',
   'block.unreadable': 'This block cannot be displayed.',
   'confirmBar.actions': 'Available actions',
+  'confirmBar.sending': 'Sending…',
+  'confirmBar.sent': 'Sent to the conversation',
+  'confirmBar.queued': 'Noted — the conversation will see it with your next message',
+  'confirmBar.refused': 'This was not recorded. You can try again.',
 } satisfies Record<ComponentKitKey, string>
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

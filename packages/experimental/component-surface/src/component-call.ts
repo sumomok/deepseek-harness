@@ -1,7 +1,9 @@
 /**
- * What one `show_component` call is from outside the tool body: the wire tool
- * name, the content kind the call claims, the catalog of components a call may
- * place, and the protocol ceilings a spec is measured against.
+ * What one `show_component` call is from outside the tool body, and what one
+ * action reported back out of a drawn block is: the wire tool name, the command
+ * name the seat reports through, the content kind the call claims, the catalog
+ * of components a call may place with the actions each of them reports, and the
+ * protocol ceilings both directions are measured against.
  *
  * One home, because three readers must agree on the same rules. The tool
  * refuses a call the seat could not draw; the content-surface extractor decides
@@ -18,6 +20,43 @@
 
 /** The wire tool name this package offers the model. */
 export const SHOW_COMPONENT_TOOL_NAME = 'show_component'
+
+/**
+ * Command name the browser seat reports one action through. Both halves of the
+ * seam live in this package, so both read this constant rather than keeping
+ * their own literal copies.
+ */
+export const COMPONENT_ACTION_COMMAND = 'component-action'
+
+/**
+ * `source.plugin` of every notice an action produces.
+ *
+ * Names the seam the user is looking at — a component in the content column —
+ * rather than this package's Cordis plugin name, because it is the id the chat
+ * transcript prints beside the collapsed row.
+ */
+export const COMPONENT_ACTION_PLUGIN = 'content-component'
+
+/**
+ * Largest action document, in UTF-8 bytes, that is carried to the model.
+ *
+ * The command's own record is written verbatim before any handler runs, so this
+ * is not a ceiling on what reaches the log — it is the point past which the
+ * action is not delivered to the agent at all (see the README's Known
+ * Limitations).
+ */
+export const MAX_ACTION_PAYLOAD_BYTES = 2048
+
+/**
+ * Turns actions may open on one agent before a human message refills the
+ * budget.
+ *
+ * A budget rather than a rate: a block whose every press wakes the agent turns
+ * a user drumming on a button into an unbounded chain of turns, and the refill
+ * is the human's next message, which is the only evidence the chain is still
+ * wanted.
+ */
+export const WAKE_BUDGET = 3
 
 /**
  * Kind key this package owns in the content column, and the `content.surface.kind`
@@ -130,6 +169,71 @@ export interface PropsField {
 /** A component's declared properties, keyed by property name. */
 export type PropsSchema = Readonly<Record<string, PropsField>>
 
+/**
+ * What the host does with one reported action.
+ *
+ * Three grades and no fourth. `silent` is swallowed where it happens; `context`
+ * waits in the agent's inbox and is read at its next step; `wake` opens a turn
+ * of its own. The grade belongs to the action rather than to a deployment,
+ * because it follows from what the gesture means — a sort order is not news, a
+ * pressed confirmation is the answer the agent was waiting for — and a
+ * deployment that moved it would be changing what the agent is told happened.
+ */
+export type ActionReport = 'silent' | 'context' | 'wake'
+
+/**
+ * Everything one action's account is built from, all of it host-side: the entry
+ * as the log recorded it, the node the block was drawn from, and the payload
+ * after it passed the action's declared properties.
+ *
+ * The seat's own text is deliberately absent. What the user pressed is named
+ * from the catalog and from the spec the model itself wrote, so a page that
+ * lies about its labels cannot put words in the user's mouth.
+ */
+export interface ComponentActionContext {
+  /** The content entry the block belongs to; also what the model reuses to replace it. */
+  readonly entryId: string
+  /** The entry's user-facing title, as the accepted call wrote it. */
+  readonly entryTitle: string
+  /** The node the block was drawn from, as validation accepted it. */
+  readonly node: ComponentNode
+  /** The catalog entry the node names. */
+  readonly component: ComponentCatalogEntry
+  /** The action's payload, after it passed {@link ComponentActionDefinition.payloadSchema}. */
+  readonly payload: Readonly<Record<string, unknown>>
+}
+
+/** The two accounts one reported action produces. */
+export interface ComponentActionNotice {
+  /**
+   * What the agent is told, from the agent's own vantage: what the user did,
+   * and the entry and node ids to name it by. English, like every other
+   * model-facing string in this package; the labels quoted inside it are the
+   * end user's own wording.
+   */
+  readonly text: string
+  /** The one line the user reads on the collapsed transcript row. Chinese, like every other user-facing string here. */
+  readonly summary: string
+}
+
+/** One action a component reports back out of a drawn block. */
+export interface ComponentActionDefinition {
+  /** Stable id the seat writes in the action document's `actionId`. */
+  readonly id: string
+  /** What the host does with it. */
+  readonly report: ActionReport
+  /** The only payload properties this action accepts; anything else is refused, exactly as for a component's props. */
+  readonly payloadSchema: PropsSchema
+  /**
+   * Build the two accounts of one occurrence.
+   * @param context - the entry, the node, the catalog entry, and the accepted payload.
+   * @returns the accounts, or `undefined` when the payload names nothing the
+   *   drawn block actually carries — a press of a button that is not on screen
+   *   is reported to nobody.
+   */
+  readonly describe: (context: ComponentActionContext) => ComponentActionNotice | undefined
+}
+
 /** One component a call may place. */
 export interface ComponentCatalogEntry {
   /** Stable id the model writes in `spec.nodes[i].component`. */
@@ -140,6 +244,8 @@ export interface ComponentCatalogEntry {
   readonly purpose: string
   /** The only properties this component accepts. */
   readonly propsSchema: PropsSchema
+  /** The only actions this component reports back; empty for a component nothing comes back from. */
+  readonly actions: readonly ComponentActionDefinition[]
 }
 
 /** Catalog id of the confirmation bar. */
@@ -175,6 +281,57 @@ const CONFIRM_BAR_PROPS: PropsSchema = {
   },
 }
 
+/** Action id the confirmation bar reports a button press under. */
+export const CONFIRM_BAR_PRESS_ID = 'press'
+
+/**
+ * Read one button's user-facing label out of the spec the panel is drawing.
+ *
+ * The cast is what validation already proved: the node reached here only
+ * through the confirmation bar's own `propsSchema`, where `buttons` is a
+ * required list whose every item carries a required string `id` and a required
+ * string `label`.
+ * @param node - the drawn node, as validation accepted it.
+ * @param buttonId - the pressed button's id, as the action's payload carried it.
+ * @returns the label, or `undefined` when the drawn bar carries no such button.
+ */
+function buttonLabel(node: ComponentNode, buttonId: unknown): string | undefined {
+  const buttons = node.props['buttons'] as readonly { readonly id: string; readonly label: string }[]
+  return buttons.find(button => button.id === buttonId)?.label
+}
+
+/**
+ * The confirmation bar's one action.
+ *
+ * `wake` because a press is the whole reason the bar was placed: the agent put
+ * a decision in front of the user and stopped, and the answer arriving as
+ * quiet context would leave it sitting there. The payload carries the button's
+ * id and nothing else — the label the notice quotes is read back out of the
+ * spec, so the seat cannot report a press of "Cancel" as a press of "Delete".
+ */
+const CONFIRM_BAR_ACTIONS: readonly ComponentActionDefinition[] = [{
+  id: CONFIRM_BAR_PRESS_ID,
+  report: 'wake',
+  payloadSchema: {
+    buttonId: {
+      required: true,
+      schema: {
+        kind: 'string',
+        maxLength: MAX_BUTTON_ID_LENGTH,
+        charset: { allowed: TOKEN_CHARSET, hint: TOKEN_HINT },
+      },
+    },
+  },
+  describe: ({ entryId, entryTitle, node, component, payload }) => {
+    const label = buttonLabel(node, payload['buttonId'])
+    if (label === undefined) return undefined
+    return {
+      text: `The user pressed "${label}" in content panel entry "${entryId}" ("${entryTitle}"), on the ${component.label} block "${node.id}".`,
+      summary: `用户在「${entryTitle}」里点了「${label}」`,
+    }
+  },
+}]
+
 /**
  * Every component a call may place.
  *
@@ -193,6 +350,7 @@ export const COMPONENT_CATALOG = [
     label: '确认条',
     purpose: 'A short prompt above a row of buttons, for putting one decision in front of the user.',
     propsSchema: CONFIRM_BAR_PROPS,
+    actions: CONFIRM_BAR_ACTIONS,
   },
 ] as const satisfies readonly ComponentCatalogEntry[]
 
@@ -261,6 +419,16 @@ export function maxSpecDepthOf(catalog: readonly ComponentCatalogEntry[]): numbe
  * refusing it bounds the work every later check does.
  */
 export const MAX_SPEC_DEPTH = maxSpecDepthOf(COMPONENT_CATALOG)
+
+/**
+ * Look one action up on the component that declares it.
+ * @param component - the catalog entry the drawn node names.
+ * @param actionId - the `actionId` an action document carried, however malformed.
+ * @returns the action, or `undefined` when that component reports no such action.
+ */
+export function catalogAction(component: ComponentCatalogEntry, actionId: unknown): ComponentActionDefinition | undefined {
+  return component.actions.find(action => action.id === actionId)
+}
 
 /**
  * Look one component up by the id a call named.
@@ -366,4 +534,92 @@ export function parseComponentCall(argsRaw: string): ComponentCallArguments | un
     return undefined
   }
   return readComponentCall(parsed)
+}
+
+/**
+ * One action reported back out of a drawn block, as the command line carries it.
+ *
+ * Every field but `payload` is an identifier the host resolves against the log:
+ * the entry, the node inside it, the component that node names, and the action
+ * that component declares. Nothing here is displayed as written — see
+ * {@link ComponentActionNotice}.
+ */
+export interface ComponentAction {
+  /** The content entry the block belongs to. */
+  readonly entryId: string
+  /** Catalog id of the component that reported it; must be the one the named node draws. */
+  readonly componentId: string
+  /** Which of that component's actions occurred. */
+  readonly actionId: string
+  /** Which node of the entry's spec reported it, so two blocks of one component stay distinguishable. */
+  readonly nodeId: string
+  /** The action's declared properties, and only those; the seat trims everything else before reporting. */
+  readonly payload: Readonly<Record<string, unknown>>
+}
+
+/** The action-document properties that must each be a string. */
+const ACTION_ID_FIELDS = ['entryId', 'componentId', 'actionId', 'nodeId'] as const
+
+/** Every property an action document may carry, and the only ones read. */
+const ACTION_FIELDS: readonly string[] = [...ACTION_ID_FIELDS, 'payload']
+
+/**
+ * Read one action document off a decoded value.
+ *
+ * A document carrying a property this reader does not know is refused whole,
+ * the same way {@link ComponentAction.payload} is judged against the action's
+ * own declared properties: one rule for both levels of the document, so a seat
+ * sending a field nobody reads learns that it did instead of having it
+ * silently dropped.
+ * @param value - the decoded document, however malformed.
+ * @returns the action, or `undefined` when the value is not an action document at all.
+ */
+export function readComponentAction(value: unknown): ComponentAction | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) return undefined
+  const record = value as Record<string, unknown>
+  for (const key of Object.keys(record)) {
+    if (!ACTION_FIELDS.includes(key)) return undefined
+  }
+  for (const field of ACTION_ID_FIELDS) {
+    if (typeof record[field] !== 'string') return undefined
+  }
+  const payload = record['payload']
+  if (payload === null || typeof payload !== 'object' || Array.isArray(payload)) return undefined
+  return {
+    entryId: record['entryId'] as string,
+    componentId: record['componentId'] as string,
+    actionId: record['actionId'] as string,
+    nodeId: record['nodeId'] as string,
+    payload: payload as Record<string, unknown>,
+  }
+}
+
+/**
+ * Read one action document off the command's raw input.
+ * @param rawInput - everything after the command name, as the invocation carries it.
+ * @returns the action, or `undefined` when the input is unreadable or is not an action document.
+ */
+export function parseComponentActionLine(rawInput: string): ComponentAction | undefined {
+  let parsed: unknown
+  try {
+    parsed = JSON.parse(rawInput)
+  } catch (_actionIsNotJson) {
+    // Nothing else can reach the reason: the input is one JSON document by
+    // construction on the seat, and a line that is not one names no action.
+    return undefined
+  }
+  return readComponentAction(parsed)
+}
+
+/**
+ * Write the command line that reports one action.
+ *
+ * The seat's half of the wire contract: both halves ship in this package, so
+ * the line is written and read through one pair of functions rather than
+ * assembled by hand on either side.
+ * @param action - the action to report.
+ * @returns the complete command line, leading slash included.
+ */
+export function formatComponentActionLine(action: ComponentAction): string {
+  return `/${COMPONENT_ACTION_COMMAND} ${JSON.stringify(action)}`
 }

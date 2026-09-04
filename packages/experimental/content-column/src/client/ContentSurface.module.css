@@ -66,14 +66,6 @@
   white-space: nowrap;
 }
 
-.entryKind {
-  flex: none;
-  font-size: 10px;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--dsw-alias-label-tertiary);
-}
-
 .dismiss {
   flex: none;
   display: flex;

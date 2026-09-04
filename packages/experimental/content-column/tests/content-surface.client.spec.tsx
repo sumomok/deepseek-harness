@@ -137,6 +137,12 @@ describe('content column', () => {
     expect(activeSeat(view)).toBe('chart')
   })
 
+  it('puts the entry\'s title on its tab and nothing else — no kind is shown to the user', () => {
+    const { view } = mount({ current: 'a', entries: { a: [CHART, PAGE] } }, ['page', 'chart'])
+    expect([...view.container.querySelectorAll('[data-content-surface-entry]')].map(tab => tab.textContent))
+      .toEqual([CHART.title, PAGE.title])
+  })
+
   it('hands the selected entry to its own kind and nothing to the others', () => {
     const { calls } = mount({ current: 'a', entries: { a: [CHART, PAGE] } }, ['page', 'chart'])
     expect(perSeat(calls).map(call => [call.entryKey, (call.owner as { entry?: unknown }).entry])).toEqual([

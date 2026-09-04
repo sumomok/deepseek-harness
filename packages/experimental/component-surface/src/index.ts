@@ -2,17 +2,18 @@
  * @deepseek-ai/dsh-experimental-component-surface — the agent places a block of
  * interface in the content panel.
  *
- * The host half is the whole of this package today: it offers `show_component`
- * to the model, judges each call against a fixed catalog before anything is
- * drawn, and claims the `component` kind of the
- * [content surface](../content-surface/README.md)'s entry stream. What the
- * column then draws is a component package's — a browser row claims the
- * `component` key of the `content.surface.kind` slot and receives each entry's
- * validated spec as its payload.
+ * The host half offers `show_component` to the model, judges each call against
+ * a fixed catalog before anything is drawn, claims the `component` kind of the
+ * [content surface](../content-surface/README.md)'s entry stream, and takes back
+ * what the user does inside a drawn block through the `/component-action`
+ * command. What the column draws is a component package's — a browser row claims
+ * the `component` key of the `content.surface.kind` slot and receives each
+ * entry's validated spec as its payload.
  *
  * Nothing here appends a session event. A call's record is the `tool/call` the
- * loop already writes, so what the panel shows replays from the log the agent
- * actually wrote, and removing this row leaves every past session readable.
+ * loop already writes, and an action's is the `command/run` the command registry
+ * already writes, so both directions replay from the log the agent actually
+ * wrote and removing this row leaves every past session readable.
  *
  * The catalog, the ceilings, and the judgement live in two modules of their own
  * — `component-call.ts` and `validate.ts` — because the browser seat runs the
@@ -31,6 +32,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 // Type-only: resolves ctx.contentSurface for the optional extractor child.
 import type {} from '@deepseek-ai/dsh-experimental-content-surface'
+// Type-only: resolves ctx.commands for the optional /component-action child.
+import type {} from '@deepseek-ai/dsh-commands'
+import { installComponentAction } from './command.ts'
 import { componentExtractor } from './surface.ts'
 import { showComponentTool } from './tool.ts'
 
@@ -48,19 +52,25 @@ export const inject = ['tools']
 /*
  * No `Config`.
  *
- * The three numbers a deployment might want to move — the spec byte ceiling,
- * the node ceiling, and the nesting ceiling — are enforced twice: here, and
- * again by the browser seat over the value that arrives on the wire. The seat
- * receives no Cordis configuration (`content-frame`'s `route.ts` records why),
- * so a per-deployment ceiling would be a ceiling the two halves disagree on:
- * a block silently missing from the column instead of a refusal the model can
- * act on. They stay protocol constants in `component-call.ts` until the seat
- * can read a deployment's settings, at which point the ceilings and the route
- * that serves them arrive together.
+ * The numbers a deployment might want to move — the spec byte ceiling, the node
+ * ceiling, the nesting ceiling, the action byte ceiling — are enforced twice:
+ * here, and again by the browser seat over the value that arrives on the wire.
+ * The seat receives no Cordis configuration (`content-frame`'s `route.ts`
+ * records why), so a per-deployment ceiling would be a ceiling the two halves
+ * disagree on: a block silently missing from the column instead of a refusal the
+ * model can act on. They stay protocol constants in `component-call.ts` until
+ * the seat can read a deployment's settings, at which point the ceilings and the
+ * route that serves them arrive together.
+ *
+ * An action's report grade is not a ceiling and is not configuration either. It
+ * says what a gesture means — a pressed confirmation is the answer the agent
+ * stopped for — so it is declared beside the action in the catalog, and a
+ * deployment that moved it would be changing what the agent is told happened.
  */
 
 /**
- * Claim the tool, and the content kind wherever a column is composed.
+ * Claim the tool, and the content kind and its return channel wherever a column
+ * is composed.
  * @param ctx - plugin context carrying the tool runtime.
  */
 export function apply(ctx: Context): void {
@@ -70,4 +80,9 @@ export function apply(ctx: Context): void {
     // releases the kind when the fiber goes away.
     surfaceCtx.contentSurface.register(componentExtractor())
   })
+  // The return channel needs all three: the registry the command lives in, the
+  // router that made the entry, and the projection the entry is read out of.
+  // Without a column there is nothing on screen for an action to name, so the
+  // command is absent rather than answering every gesture with a refusal.
+  ctx.inject(['commands', 'contentSurface', 'sessionProjections'], installComponentAction)
 }

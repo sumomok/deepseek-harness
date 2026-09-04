@@ -4,7 +4,7 @@
 
 控制台后端主干在 ACP 自动化传输下的组合：录制出来的会话记录能观察到的控制台行全在这里，只负责绘制浏览器界面的行一个都不在。
 
-组合内容：DeepSeek 适配器、ACP 自动化应用、投影注册表、[`content-surface`](../../packages/experimental/content-surface/README.zh.md)（把内容列表达成每会话一条条目流，并贡献一段系统提示词）、监听系统分配端口的 [`host-webserver`](../../packages/host/webserver/README.zh.md)，以及会往这一列里摆条目的两把工具——[`show_chart`](../../packages/experimental/vue2-echarts-tool-poc/README.zh.md) 与 [`show_component`](../../packages/experimental/component-surface/README.zh.md)。
+组合内容：DeepSeek 适配器、ACP 自动化应用、投影注册表、[`content-surface`](../../packages/experimental/content-surface/README.zh.md)（把内容列表达成每会话一条条目流，并贡献一段系统提示词）、监听系统分配端口的 [`host-webserver`](../../packages/host/webserver/README.zh.md)、`show_component` 描述里承诺按下会经其回来的命令注册表，以及会往这一列里摆条目的两把工具——[`show_chart`](../../packages/experimental/vue2-echarts-tool-poc/README.zh.md) 与 [`show_component`](../../packages/experimental/component-surface/README.zh.md)。
 
 按设计缺席的是 `server-layout`、`content-column`、`server-sidebar`、Vue 图表行，以及把摆好的块画出来的组件行：它们不注册工具、不贡献提示词段落、不写会话事件，会话记录无法把它们和它们的缺席区分开；它们的证据在 [`apps/web/tests`](../../apps/web/tests) 的 Playwright 泳道。主干自带的技能、目标、后台作业工具出于相反的理由关掉——它们真实存在，但不属于控制台，留着只会让上游改动它们的描述时冲刷本例的表头基线。
 

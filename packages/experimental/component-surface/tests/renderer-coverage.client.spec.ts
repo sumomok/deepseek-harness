@@ -23,6 +23,7 @@ const CATALOG_AHEAD = [
     label: '未画',
     purpose: 'Stands in for a component declared before its renderer exists.',
     propsSchema: {},
+    actions: [],
   },
 ] as const satisfies readonly ComponentCatalogEntry[]
 

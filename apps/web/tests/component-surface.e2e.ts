@@ -12,9 +12,22 @@
  * one thing only a real browser answers: whether the block a user sees is the
  * one the surviving call placed, with its buttons and their labels.
  *
- * The live path — a tool body judging a call the model is making right now — is
- * covered by the package's host specs; a keyless replay lane runs no model and
- * therefore issues no live call.
+ * The press is the same path in reverse, and it is asserted here because it is
+ * assertable nowhere else: `/component-action` reaches the host only through
+ * `remote.commands`, which is the browser's seam, and the ACP protocol the
+ * snapshot lane speaks has no command method to invoke it with. That lane
+ * composes the command registry all the same — the description it pins tells
+ * the model a press comes back — but it cannot press. One click here therefore
+ * has to carry the whole return channel — the recorded command input, the chat
+ * echo that input does not leave, the notice the agent is given, the turn it
+ * opens, the collapsed row the user reads, the model's own next words, and the
+ * pressed bar a tab round trip brings back still pressed — against the shipped
+ * bundles, the real gateway, and a real session log.
+ *
+ * The live outbound path — a tool body judging a call the model is making right
+ * now — is covered by the package's host specs; a keyless replay lane runs no
+ * model of its own and answers the one request this scenario makes from a
+ * committed script.
  *
  * An experimental package cannot be a dependency of `apps/web`, so the profile
  * links the loader resolves the rows through are created here rather than by
@@ -28,12 +41,22 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, ConsoleMessage, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
 
 const MODE = webSnapshotMode()
 const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
 const OVERLAY = fileURLToPath(new URL('./component-surface.overlay.yml', import.meta.url))
+// The one model answer this scenario consumes: the turn a press opens. Written
+// by hand rather than recorded, because the press is what has to be driven and
+// no key is needed to script the reply it earns. Its text is not a fixed
+// string: it opens with a `{{fromRequest:}}` pattern that llm-replay resolves
+// against the live request, so the reply can only be produced at all if the
+// notice built from the press is in that request — a pattern matching nothing
+// throws instead of answering.
+const REPLAY = fileURLToPath(new URL('./snapshots/component-surface-action/session.jsonl', import.meta.url))
 
 /** Every experimental row the overlay inserts, as package name and source directory. */
 const ROWS = [
@@ -93,6 +116,39 @@ const BUDGET_SPEC = {
     },
   }],
 }
+
+/** The button pressed in the return-channel test, and the words that press earns. */
+const APPROVE_LABEL = 'Approve'
+const APPROVE_ID = 'approve'
+/**
+ * The reply the scripted turn produces — which is the fixture's tail with the
+ * button's name substituted into its head out of the request. Seeing this exact
+ * sentence in the transcript is therefore the assertion that the notice naming
+ * the pressed button reached the model.
+ */
+const MODEL_REPLY = `${APPROVE_LABEL} it is — I will submit the revised budget now.`
+/** What the agent is told the press was, verbatim, and what the user reads on the collapsed row. */
+const PRESS_TEXT = `The user pressed "${APPROVE_LABEL}" in content panel entry "${BUDGET_ID}" ("${BUDGET_TITLE}"), on the 确认条 block "ask".`
+const PRESS_SUMMARY = `用户在「${BUDGET_TITLE}」里点了「${APPROVE_LABEL}」`
+/** The plugin id the notice declares, which is also what the collapsed row prints as its producer. */
+const NOTICE_PLUGIN = 'content-component'
+/**
+ * What the pressed bar itself says, in the English this lane's browser asks
+ * for. The line is `component-kit`'s `confirmBar.sent`, restated here because
+ * an experimental package cannot be a dependency of `apps/web`; the Chinese an
+ * end user reads (`已发送到对话`) is pinned in that package's own spec.
+ */
+const SENT_LINE = 'Sent to the conversation'
+/**
+ * The one sentence every unrecordable gesture earns, as `command.ts` writes it.
+ * A refused press reaches no agent, so this row in the chat is the only thing
+ * that tells the person who pressed that nothing came of it.
+ */
+const ACTION_NOT_RECORDED = '这个动作没能记下来。'
+/** A `/component-action` line naming no action at all — the shape a hand-typed one takes. */
+const MALFORMED_ACTION = '/component-action {"entryId":"budget"}'
+/** The header the shell draws over any logged non-user message, in English. */
+const CONTEXT_ROW_HEADING = 'Context injection'
 
 /** The spec the `cleanup` call placed, so the column holds two entries at once. */
 const CLEANUP_SPEC = {
@@ -195,6 +251,21 @@ async function awaitOpenColumn(page: Page): Promise<void> {
     .toBeGreaterThan(200)
 }
 
+/**
+ * The scenario session's log as the running host holds it.
+ *
+ * Read in process rather than off disk: the scaffold's own readiness barrier
+ * hands over the live agent, and its session is the same durable record the
+ * JSONL provider writes.
+ * @param scaffold - the booted scaffold.
+ * @returns every event the session carries, in order.
+ */
+function liveEvents(scaffold: WebScaffold): readonly SessionEvent[] {
+  const agent = scaffold.ctx.agents.get(SessionId(SESSION))
+  if (agent === undefined) throw new Error(`no live agent for ${SESSION}`)
+  return agent.session.events
+}
+
 /** Save one screenshot under the repository's artifact directory. */
 async function evidence(page: Page, name: string): Promise<void> {
   // Evidence for the composition, not a failure artifact.
@@ -211,7 +282,7 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
 
   beforeAll(async () => {
     harnessHome = await harnessHomeWithRowLinks()
-    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY })
+    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY, replayFixture: REPLAY })
     await seedSession(scaffold, withComponentCalls(await readFile(FIXTURE, 'utf8')), SESSION)
 
     browser = await chromium.launch()
@@ -275,6 +346,149 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
 
     await tab(page, BUDGET_ID).click()
     await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(BUDGET_PROMPT)
+  }, 120_000)
+
+  it('carries a press back to the agent and puts the answer in the transcript', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-action'))
+    // The budget entry is the one on display, and its bar carries the button.
+    const approve = seat(page).locator(`[data-component-action="${APPROVE_ID}"]`)
+    await expect.poll(async () => await approve.textContent(), { timeout: 15_000 }).toBe(APPROVE_LABEL)
+    // The barrier is armed before the press, not after: what the bar itself
+    // draws is asserted in between, and the scripted turn can settle while
+    // those reads are in flight.
+    const settled = scaffold.whenTurnSettled(60_000)
+    await approve.click()
+
+    // What the bar answers with on its own, before the agent has said anything:
+    // the whole row refuses further presses and the block says where the press
+    // went. The agent's own answer is a turn away, and a bar that looked
+    // untouched until it arrived would leave a recorded press and a lost one
+    // looking the same.
+    await expect.poll(async () => await seat(page).getByText(SENT_LINE, { exact: true }).count(), { timeout: 15_000 })
+      .toBe(1)
+    expect(await seat(page).getByRole('button').evaluateAll(
+      buttons => buttons.map(button => (button as HTMLButtonElement).disabled),
+    )).toEqual([true, true, true])
+
+    await settled
+
+    // What the log kept: the command's own recorded input, verbatim and
+    // log-only, and no event this row invented for itself.
+    const events = liveEvents(scaffold)
+    const run = events.find(event => event.type === 'command/run')
+    expect(run?.type === 'command/run' && run.data.name).toBe('component-action')
+    expect(run?.type === 'command/run' && run.data.args).toBe(
+      ` {"entryId":"${BUDGET_ID}","componentId":"el.confirm-bar","actionId":"press","nodeId":"ask","payload":{"buttonId":"${APPROVE_ID}"}}`,
+    )
+    expect(events.filter(event => event.type.startsWith('component'))).toEqual([])
+
+    // What the agent was given, and the turn it was given it in. The press
+    // opened turn 2 — the seeded log closed turn 1 — and the notice is a plugin
+    // message, never a forged user one.
+    const notice = events.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
+    expect(notice?.type === 'user/message' && notice.data.content).toEqual([{ type: 'text', text: PRESS_TEXT }])
+    expect(notice?.type === 'user/message' && notice.data.source).toEqual({
+      kind: 'plugin',
+      plugin: NOTICE_PLUGIN,
+      form: 'notice',
+      summary: PRESS_SUMMARY,
+    })
+    // The set and the causal order, not a fixed interleaving: `command/run` is
+    // written before the handler runs, the wake opens the turn inside it, and
+    // the notice is claimed into that turn. The seed closed turn 1, so the
+    // press's is the second and last.
+    const opened = events.filter(event => event.type === 'turn/start')
+    expect(opened.length).toBe(2)
+    const pressTurn = opened[1]
+    expect(pressTurn?.seq ?? 0).toBeGreaterThan(run?.seq ?? Infinity)
+    expect(pressTurn?.seq ?? Infinity).toBeLessThan(notice?.seq ?? 0)
+
+    // What the user reads: a collapsed row headed by the shell's own wording for
+    // any logged non-user message, naming the producer and this press. The
+    // summary is asserted through the DOM rather than through visibility: it is
+    // a `flex: 1 1 auto` cell with `overflow: hidden`, so at the console's
+    // three-column chat width it is squeezed to nothing and the reader is left
+    // with the heading and the plugin id alone.
+    const row = page.locator('[data-disclosure-row]', { hasText: PRESS_SUMMARY })
+    await row.waitFor({ state: 'attached', timeout: 30_000 })
+    await row.scrollIntoViewIfNeeded()
+    await expect.poll(async () => await row.isVisible(), { timeout: 15_000 }).toBe(true)
+    expect(await row.locator('[data-context-source]').textContent()).toBe(NOTICE_PLUGIN)
+    expect(await row.locator('[data-context-summary]').textContent()).toBe(PRESS_SUMMARY)
+    // The heading is the shell's own, drawn the same for every producer; this
+    // row records the exact wording an end user is shown beside the press.
+    expect(await row.textContent()).toContain(CONTEXT_ROW_HEADING)
+    // And what expanding it opens on, which is the README's limitation as the
+    // user meets it: the model-facing English sentence, internal identifiers
+    // included. A `notice` renders its own body, so the source field table the
+    // opaque fallback would add is not there — the sentence is the whole of it.
+    await row.click()
+    const body = page.locator('[data-context-injection-body]', { hasText: PRESS_TEXT })
+    await body.waitFor({ state: 'attached', timeout: 15_000 })
+    expect(await body.locator('[data-context-text]').textContent()).toBe(PRESS_TEXT)
+    expect(await body.locator('[data-context-fields]').count()).toBe(0)
+
+    // The press is not narrated in chat: the command row this row registers for
+    // `component-action` renders nothing, so the reader is left with the notice
+    // above rather than an English `component-action · Completed` line. The slot
+    // anchor is what proves the row was folded and then emptied, instead of
+    // never having been rendered at all.
+    expect(await page.locator('[data-slot="conversation.chat.commandview"]').count()).toBeGreaterThan(0)
+    expect(await page.getByText('component-action', { exact: true }).count()).toBe(0)
+
+    // And what the model said about it, in the turn the press opened. The
+    // script's own head is `{{fromRequest:pressed "([^"]+)" in content panel
+    // entry}}`, so this sentence exists only because the notice built from the
+    // press was in the request that earned it.
+    await expect.poll(async () => await page.getByText(MODEL_REPLY, { exact: false }).count(), { timeout: 30_000 })
+      .toBe(1)
+    await evidence(page, 'web-e2e-component-surface-action')
+  }, 120_000)
+
+  it('still reads as pressed after the column has drawn something else and come back', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-pressed-persists'))
+    // The column discards this kind's DOM on every switch, so the bar that
+    // comes back is a fresh mount. What makes it read as pressed is the
+    // session's own log: the press's command records are folded on the host and
+    // published with the session's projection values. Take that fold away and
+    // this tab round trip hands the user a bar they can answer twice.
+    await tab(page, CLEANUP_ID).click()
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(CLEANUP_PROMPT)
+    expect(await seat(page).getByText(SENT_LINE, { exact: true }).count()).toBe(0)
+
+    await tab(page, BUDGET_ID).click()
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(BUDGET_PROMPT)
+    await expect.poll(async () => await seat(page).getByText(SENT_LINE, { exact: true }).count(), { timeout: 15_000 })
+      .toBe(1)
+    expect(await seat(page).getByRole('button').evaluateAll(
+      buttons => buttons.map(button => (button as HTMLButtonElement).disabled),
+    )).toEqual([true, true, true])
+    await evidence(page, 'web-e2e-component-surface-pressed-persists')
+  }, 120_000)
+
+  it('tells the person who pressed when the gesture reached nobody', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-refused'))
+    // Typed by hand rather than pressed, because a seat only ever sends what
+    // the drawn spec carries: the reachable way to a refusal is a line naming
+    // an action that resolves against nothing. The command is in the slash menu
+    // — the registry has no way to keep a row out of it — so this is also the
+    // path an end user can stumble into.
+    const composer = page.getByPlaceholder(COMPOSER_PLACEHOLDER)
+    await composer.fill(MALFORMED_ACTION)
+    await composer.press('Enter')
+
+    // The refusal is the row itself. Nothing reached the agent, so no notice
+    // and no answer follows it — and the row is not the chat view's English
+    // `component-action · Completed` fallback either.
+    const refused = page.locator('[data-chat-flow-kind="command"]', { hasText: ACTION_NOT_RECORDED })
+    await refused.waitFor({ state: 'attached', timeout: 30_000 })
+    await refused.scrollIntoViewIfNeeded()
+    await expect.poll(async () => await refused.isVisible(), { timeout: 15_000 }).toBe(true)
+    expect(await refused.locator('[data-component-action-refused]').textContent()).toBe(ACTION_NOT_RECORDED)
+    expect(await page.getByText('component-action', { exact: true }).count()).toBe(0)
+    // Two command rows now: the press's, emptied and collapsed, and this one.
+    expect(await page.locator('[data-chat-flow-kind="command"]').count()).toBe(2)
+    await evidence(page, 'web-e2e-component-surface-refused')
   }, 120_000)
 
   it('leaves the console clean', () => {

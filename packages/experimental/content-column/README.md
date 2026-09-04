@@ -18,7 +18,7 @@ The key domain is open — it is whatever kind a host extractor produces — so 
 
 ## Choosing an entry
 
-Above the seats, a switcher strip lists the session's entries newest first as `title` plus the kind key. Selecting one is a UI-local act: the choice lives in component state keyed by session id, defaults to the newest entry, falls back to the newest when the entry it named is replaced, and never reaches the session log. A session that has produced nothing gets the empty-state notice, and so does a browser with no current session.
+Above the seats, a switcher strip lists the session's entries newest first, each tab carrying that entry's title and nothing else — a kind is how the column routes an entry to a seat, not a word to put in front of a user. Selecting one is a UI-local act: the choice lives in component state keyed by session id, defaults to the newest entry, falls back to the newest when the entry it named is replaced, and never reaches the session log. A session that has produced nothing gets the empty-state notice, and so does a browser with no current session.
 
 ## Closing an entry's tab
 
@@ -44,7 +44,7 @@ None; this package neither assembles nor sends a provider request.
 
 - **No pinning** — the column shows one entry at a time and the selection is a single choice per session. There is no way to keep an entry beside another, and no split view.
 - **The selection is per browser tab** — it lives in component state, so a reload, a second tab, and a second device each start from the newest entry. Making it durable would be a new logged fact, which the column deliberately does not have.
-- **The switcher badges the raw kind key** — `page`, `chart`. The column cannot localize a name for a kind it does not know, and no per-kind label contribution exists yet; the product copy around it is Chinese while the badge is not.
+- **A tab says only its title** — two entries whose titles read alike are told apart by selecting one, because nothing on the tab says which kind it is. The column cannot name a kind it does not know, and no per-kind label contribution exists for one that would name itself.
 - **A seat is never released** — a kind that appeared once keeps its mounted seat for the page's lifetime, even after the session that produced it is gone. That is the keepalive guarantee, and its cost is that a long-lived tab accumulates one mounted renderer per kind it has ever seen.
 - **The hidden command row is coupled to a DOM shape this package does not own** — `hide-empty-command-row.ts`'s selector reaches through `ChatNodeSeat.tsx`'s `data-chat-flow-kind` attribute and `dsh-client-ui-renderer`'s `data-slot` anchor wrapper, neither a contract this package can rely on staying stable; a shape change on either side silently un-collapses the row instead of failing loud (the same fragility `content-frame`'s identical mechanism already carries).
 - **A dismissal is dispatched with no confirmation UI** — clicking the close button fires the command immediately; there is no undo affordance beyond re-navigating to (or having the agent redraw) the same `(kind, entryId)`, which the fold treats as an ordinary fresh entry.

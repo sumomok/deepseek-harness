@@ -38,7 +38,8 @@ describe('component content seat without a matching component row', () => {
       title: 'Budget approval',
       payload: { spec: { nodes: [{ id: 'ask', component: CONFIRM_BAR_ID, props: { buttons: [{ id: 'go', label: 'Go' }] } }] } },
     }
-    const view = render(<ComponentSurface {...{ sessionId: 'a', entry, t } as unknown as ComponentSurfaceProps} />)
+    const useSessions = ((selector: (snapshot: unknown) => unknown) => selector({ byId: {} })) as ComponentSurfaceProps['useSessions']
+    const view = render(<ComponentSurface {...{ sessionId: 'a', entry, useSessions, pending: new Map(), t } as unknown as ComponentSurfaceProps} />)
     expect(view.getByText('Budget approval')).toBeTruthy()
     expect(view.container.querySelector(`[data-component-surface-unsupported="${CONFIRM_BAR_ID}"]`)?.textContent)
       .toBe(en['block.unsupported'])

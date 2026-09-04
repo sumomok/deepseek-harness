@@ -21,6 +21,12 @@
 # - `component-surface` offers `show_component`, judges each call against the
 #   catalog, claims the `component` kind of the column, and claims the seat that
 #   draws it.
+# - The return channel — `/component-action`, the command a drawn block reports
+#   a press through — additionally needs the command registry and the projection
+#   registry the entry is read out of. The console composition carries both, and
+#   a composition missing either must not insert this row: `show_component`'s
+#   description tells the model that a press comes back, and without the command
+#   nothing carries one.
 #
 # Every package must be resolvable from the profile directory, which for an
 # out-of-tree plugin means `dsh plugin --profile web add <path>` or an

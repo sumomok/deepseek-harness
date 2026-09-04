@@ -66,7 +66,7 @@ describe('component catalog', () => {
 describe('the spec nesting ceiling', () => {
   /** One catalog entry around a declared property, for measuring what that property costs. */
   function entryWith(schema: ComponentCatalogEntry['propsSchema']): ComponentCatalogEntry {
-    return { id: 'toy.probe', label: '探针', purpose: 'Measured, never placed.', propsSchema: schema }
+    return { id: 'toy.probe', label: '探针', purpose: 'Measured, never placed.', propsSchema: schema, actions: [] }
   }
 
   it('leaves room for the deepest document this deployment declares as legal', () => {

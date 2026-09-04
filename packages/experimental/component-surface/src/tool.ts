@@ -55,8 +55,8 @@ export function describeShowComponent(): string {
     + `A call places between 1 and ${MAX_NODES} blocks, and \`spec\` is at most ${MAX_SPEC_BYTES} bytes of JSON. `
     + 'Each block carries only the properties its component declares above; anything else is refused, and the '
     + 'refusal names the property.\n\n'
-    + 'The block is display only: what the user does with it does not come back to you. Ask for an answer in '
-    + 'the conversation rather than waiting for one from the block.'
+    + 'What the user does inside a block comes back to you, naming the entry and the block it happened in. '
+    + 'Do not also ask in the conversation for an answer a block is already asking for.'
 }
 
 /**

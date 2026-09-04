@@ -35,6 +35,7 @@
       "inject": [
         "@deepseek-ai/dsh-client-locale",
         "@deepseek-ai/dsh-client-runtime",
+        "@deepseek-ai/dsh-client-ui-conversation",
         "@deepseek-ai/dsh-experimental-component-kit",
         "@deepseek-ai/dsh-experimental-content-column"
       ],
@@ -46,14 +47,21 @@
     "watch": "tsdown --watch"
   },
   "license": "MIT",
+  "dependencies": {
+    "zod": "^4.4.3"
+  },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-experimental-component-kit": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-column": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
+    "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-projection": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^"
@@ -62,10 +70,13 @@
     "@deepseek-ai/cordis": "workspace:^",
     "@deepseek-ai/cordis-plugin-include": "workspace:^",
     "@deepseek-ai/cordis-plugin-loader": "workspace:^",
+    "@deepseek-ai/dsh-agent": "workspace:^",
     "@deepseek-ai/dsh-client-locale": "workspace:^",
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-test-runtime": "workspace:^",
+    "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
+    "@deepseek-ai/dsh-commands": "workspace:^",
     "@deepseek-ai/dsh-experimental-component-kit": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-column": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
@@ -74,6 +85,7 @@
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-projection": "workspace:^",
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
+    "@deepseek-ai/dsh-tool-todo": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
     "@types/react": "~18.3.1",
     "react": "^18.2.0"
