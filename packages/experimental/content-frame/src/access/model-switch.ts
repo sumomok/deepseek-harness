@@ -21,9 +21,15 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import type { ToolRunContext } from '@deepseek-ai/dsh-tools'
 // Type-only: `modelSelection` is the session controller's own projection key,
 // and this gate's first tier is the selection that projection holds.
-import type { ModelSelection } from '@deepseek-ai/dsh-api-session-controller'
-import type { AskUserQuestionItem } from '@deepseek-ai/dsh-user-questions'
-import { noImageRouteRefusal, UNRESOLVED_ROUTE_REFUSAL } from './text.ts'
+import type {
+  ModelSelection, SessionSelectModelRequest, SessionSelectModelValue,
+} from '@deepseek-ai/dsh-api-session-controller'
+import type {
+  AskUserQuestionAnswer, AskUserQuestionItem, AskUserQuestionRequest,
+} from '@deepseek-ai/dsh-user-questions'
+import {
+  CANCELLED_REFUSAL, noImageAnywhereRefusal, noImageRouteRefusal, routeSwitchRefusal, UNRESOLVED_ROUTE_REFUSAL,
+} from './text.ts'
 import {
   DECLINE_DESCRIPTION, DECLINE_LABEL, distinctRouteLabel, MODEL_SWITCH_DETAIL, MODEL_SWITCH_HEADER,
   MODEL_SWITCH_QUESTION, routeLabel,
@@ -34,6 +40,9 @@ const IMAGE_MODALITY = 'image'
 
 /** The card's own id, echoed back on the answer. */
 const MODEL_SWITCH_QUESTION_ID = 'content-image-model'
+
+/** The agent a call runs for, which this gate needs whole rather than by id. */
+type CallingAgent = NonNullable<ToolRunContext['agent']>
 
 /** One exact route: the provider a request goes to and the model it names. */
 export interface RouteChoice {
@@ -94,6 +103,37 @@ export interface RouteSelectionState {
 }
 
 /**
+ * The one thing this gate asks of whichever question service a composition
+ * mounted: put one question in front of the user and wait for the answer.
+ */
+export interface RouteQuestionAsker {
+  /**
+   * Ask the composed answerers and wait.
+   * @param request - the questions, the owning agent, and the cancellation.
+   * @returns what the user chose or typed.
+   */
+  readonly ask: (request: AskUserQuestionRequest) => Promise<AskUserQuestionAnswer>
+}
+
+/**
+ * The one thing this gate asks of whichever session controller a composition
+ * mounted: change one session's model.
+ *
+ * This is the only way this package changes a route. Appending the selection
+ * event alone would not move a live agent, and installing a second selection
+ * reference would leave the console's picker and the projection behind the
+ * route actually in use.
+ */
+export interface RouteSwitcher {
+  /**
+   * Validate and install one model selection for the next request.
+   * @param request - the session and the route to put it on.
+   * @returns the normalized selection the host installed.
+   */
+  readonly selectModel: (request: SessionSelectModelRequest) => Promise<SessionSelectModelValue>
+}
+
+/**
  * What this gate needs of the plugin context, each service narrowed to the one
  * thing the gate asks it. A composition without any of them is a composition
  * this gate answers for anyway — an absent service is a refusal, never a crash.
@@ -107,6 +147,8 @@ export interface ModelRouteServices {
   readonly get: {
     (service: 'llm'): RouteModalities | undefined
     (service: 'sessionProjections'): RouteSelectionState | undefined
+    (service: 'userQuestions'): RouteQuestionAsker | undefined
+    (service: 'sessionController'): RouteSwitcher | undefined
   }
 }
 
@@ -118,12 +160,10 @@ export interface ModelRouteServices {
  * appends a selection that no request has consumed yet, and until one does, the
  * logged header still names the route the session came from.
  * @param services - the mounted services this gate reads.
- * @param exec - the execution whose session names the route.
+ * @param agent - the agent whose session names the route.
  * @returns that route, or `undefined` when no tier names one.
  */
-export function effectiveRoute(services: ModelRouteServices, exec: ToolRunContext): RouteChoice | undefined {
-  const agent = exec.agent
-  if (agent === undefined) return undefined
+export function effectiveRoute(services: ModelRouteServices, agent: CallingAgent): RouteChoice | undefined {
   const picked = services.get('sessionProjections')?.stateOf(agent.session, 'modelSelection')?.pending ?? undefined
   if (picked !== undefined) return { provider: picked.provider, model: picked.model }
   const logged = agent.session.requestHeader()?.config
@@ -238,22 +278,98 @@ export function switchQuestion(routes: readonly LabelledRoute[]): AskUserQuestio
 }
 
 /**
- * Decide whether this session's next request would carry a picture at all.
+ * The route the user chose, or `undefined` for every other answer.
+ *
+ * The answer comes back from a browser, so a label that is not one this card
+ * offered names no route: skipping, typing free text, and choosing the option
+ * that changes nothing all end here, and so does an answer to another question.
+ * @param routes - the labelled candidates this card offered.
+ * @param answer - what came back.
+ * @returns the chosen route, or `undefined`.
+ */
+function chosenRoute(
+  routes: readonly LabelledRoute[],
+  answer: AskUserQuestionAnswer,
+): LabelledRoute | undefined {
+  const answered = answer.answers.find(one => one.id === MODEL_SWITCH_QUESTION_ID)
+  if (answered === undefined || answered.selected.length !== 1) return undefined
+  const [label] = answered.selected
+  return routes.find(route => route.label === label)
+}
+
+/**
+ * Ask whether to change this session's model, and change it when the user says
+ * so.
+ *
+ * Runs where the modality check ran, before the wait opens and before a browser
+ * is asked to draw: a declined change must leave no stored picture behind, and
+ * a card can stand for minutes while the read's own claim deadline is seconds.
+ *
+ * Every ending but the change itself answers the model with the refusal it
+ * would have received anyway. The card is not mentioned to it: what the model
+ * is told is that this route takes no picture, which stays true.
+ * @param services - the mounted services this gate reads.
+ * @param exec - the execution the card belongs to.
+ * @param agent - the agent whose session would be moved.
+ * @param route - the route the session is on now.
+ * @param llm - the mounted LLM registry.
+ * @returns the refusal, or `undefined` once the session is on a route that takes pictures.
+ */
+async function offerSwitch(
+  services: ModelRouteServices,
+  exec: ToolRunContext,
+  agent: CallingAgent,
+  route: RouteChoice,
+  llm: RouteModalities,
+): Promise<string | undefined> {
+  const routes = optionLabels(await imageCapableRoutes(llm))
+  if (routes.length === 0) return noImageAnywhereRefusal(route.model)
+  const asker = services.get('userQuestions')
+  const switcher = services.get('sessionController')
+  if (asker === undefined || switcher === undefined) return noImageRouteRefusal(route.model)
+  let answer: AskUserQuestionAnswer
+  try {
+    answer = await asker.ask({ questions: [switchQuestion(routes)], agent, signal: exec.signal })
+  } catch (_theCardWasNotAnswered) {
+    // A composition with no one to show the card, a child agent that has no
+    // human to ask, and a card the user closed all reach here; the call is
+    // cancelled only when its own signal says so.
+    return exec.signal.aborted ? CANCELLED_REFUSAL : noImageRouteRefusal(route.model)
+  }
+  const chosen = chosenRoute(routes, answer)
+  if (chosen === undefined) return noImageRouteRefusal(route.model)
+  try {
+    await switcher.selectModel({
+      sessionId: agent.session.header.id,
+      provider: chosen.provider,
+      model: chosen.model,
+    })
+  } catch (error) {
+    return routeSwitchRefusal(error instanceof Error ? error.message : String(error))
+  }
+  return undefined
+}
+
+/**
+ * Decide whether this session's next request would carry a picture, asking the
+ * user to change the model when it would not.
  *
  * An absent `inputModalities` is a negative answer rather than an unknown one:
  * a route that does not say it accepts images is one this read cannot use.
  * @param services - the mounted services this gate reads.
  * @param exec - the execution whose session names the route.
- * @returns the refusal, or `undefined` when the route declares image input.
+ * @returns the refusal, or `undefined` when a picture can reach the model.
  */
 export async function routeGate(
   services: ModelRouteServices,
   exec: ToolRunContext,
 ): Promise<string | undefined> {
-  const route = effectiveRoute(services, exec)
+  const agent = exec.agent
   const llm = services.get('llm')
-  if (route === undefined || llm === undefined) return UNRESOLVED_ROUTE_REFUSAL
+  if (agent === undefined || llm === undefined) return UNRESOLVED_ROUTE_REFUSAL
+  const route = effectiveRoute(services, agent)
+  if (route === undefined) return UNRESOLVED_ROUTE_REFUSAL
   const active = await llm.resolveModelInfo(route.provider, route.model, exec.signal)
   if (active.inputModalities?.includes(IMAGE_MODALITY) === true) return undefined
-  return noImageRouteRefusal(route.model)
+  return await offerSwitch(services, exec, agent, route, llm)
 }

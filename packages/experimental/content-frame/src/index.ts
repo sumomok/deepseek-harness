@@ -39,6 +39,10 @@ import type {} from '@deepseek-ai/dsh-system-prompt'
 import type {} from '@deepseek-ai/dsh-attachment'
 // Type-only: resolves ctx.llm, which the picture read asks for the session's route.
 import type {} from '@deepseek-ai/dsh-llm'
+// Type-only: resolves ctx.userQuestions and ctx.sessionController, which the picture read's
+// route gate asks to offer a model change and to make one. Both are optional to it.
+import type {} from '@deepseek-ai/dsh-user-questions'
+import type {} from '@deepseek-ai/dsh-api-session-controller'
 import type { ContentPage } from './types.ts'
 import { indexPages } from './pages.ts'
 import { contentProjection } from './projection.ts'

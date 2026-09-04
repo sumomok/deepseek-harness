@@ -11,7 +11,7 @@
  */
 
 import type {
-  ModelRouteServices, RouteModalities, RouteSelectionState,
+  ModelRouteServices, RouteModalities, RouteQuestionAsker, RouteSelectionState, RouteSwitcher,
 } from '../src/access/model-switch.ts'
 
 /** Which services a stood-in composition mounts; an absent one is not mounted. */
@@ -20,6 +20,10 @@ export interface RouteServiceParts {
   readonly llm?: RouteModalities
   /** The projection registry, for a composition whose model-selection unit is registered. */
   readonly selection?: RouteSelectionState
+  /** The question service, for a composition with someone to answer a card. */
+  readonly asker?: RouteQuestionAsker
+  /** The session controller, for a composition that can change a model. */
+  readonly switcher?: RouteSwitcher
 }
 
 /**
@@ -30,8 +34,13 @@ export interface RouteServiceParts {
 export function routeServices(parts: RouteServiceParts): ModelRouteServices {
   function get(service: 'llm'): RouteModalities | undefined
   function get(service: 'sessionProjections'): RouteSelectionState | undefined
-  function get(service: string): RouteModalities | RouteSelectionState | undefined {
-    return service === 'llm' ? parts.llm : parts.selection
+  function get(service: 'userQuestions'): RouteQuestionAsker | undefined
+  function get(service: 'sessionController'): RouteSwitcher | undefined
+  function get(service: string): RouteModalities | RouteSelectionState | RouteQuestionAsker | RouteSwitcher
+    | undefined {
+    if (service === 'llm') return parts.llm
+    if (service === 'sessionProjections') return parts.selection
+    return service === 'userQuestions' ? parts.asker : parts.switcher
   }
   return { get }
 }

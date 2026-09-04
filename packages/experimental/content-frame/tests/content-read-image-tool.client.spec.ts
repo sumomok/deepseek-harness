@@ -11,7 +11,7 @@
  * not the face under test.
  */
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
@@ -19,10 +19,10 @@ import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-t
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { contentReadImageTool } from '../src/access/image-tool.ts'
 import type { ModelRouteServices } from '../src/access/model-switch.ts'
-import { fixedModalities, routeServices } from './route-services.client.ts'
+import { catalogue, fixedModalities, routeServices } from './route-services.client.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
 import {
-  ELEMENT_REF_REFUSAL, EMPTY_COLUMN_REFUSAL, MISREPORTED_REFUSAL, noImageRouteRefusal, UNRESOLVED_ROUTE_REFUSAL,
+  ELEMENT_REF_REFUSAL, EMPTY_COLUMN_REFUSAL, MISREPORTED_REFUSAL, noImageAnywhereRefusal, UNRESOLVED_ROUTE_REFUSAL,
 } from '../src/access/text.ts'
 import { CONTENT_READ_IMAGE_TOOL_NAME, type ReadOutcome } from '../src/access/wire.ts'
 
@@ -185,12 +185,14 @@ describe('the picture read', () => {
     const { run } = await bench(TEXT_MODEL, routes(['text']))
     const result = await run({ ref: 'e12' }).settled
     expect(result.isError).toBe(true)
-    expect(text(result)).toContain(noImageRouteRefusal(TEXT_MODEL))
+    // This composition offers no route that takes pictures, so the gate has
+    // nothing to put on a card and refuses on the spot.
+    expect(text(result)).toContain(noImageAnywhereRefusal(TEXT_MODEL))
   })
 
   it('refuses a route that declares nothing at all', async () => {
     const { run } = await bench(TEXT_MODEL, routes(undefined))
-    expect(text(await run({ ref: 'e12' }).settled)).toContain(noImageRouteRefusal(TEXT_MODEL))
+    expect(text(await run({ ref: 'e12' }).settled)).toContain(noImageAnywhereRefusal(TEXT_MODEL))
   })
 
   it('refuses a composition with no registry to resolve the route through', async () => {
@@ -299,6 +301,49 @@ describe('the picture read', () => {
       card: 'generic',
       title: 'Page: Home — the app is at /content-app/',
     })
+  })
+
+  it('puts the card up before the wait opens, so a declined change leaves nothing stored', async () => {
+    const ctx = new Context()
+    await ctx.plugin(SystemPrompt)
+    await ctx.plugin(ToolRuntime)
+    const pending = new PendingCalls()
+    const open = vi.spyOn(pending, 'open')
+    let asked = 0
+    ctx.tools.register(contentReadImageTool({ pending, timeouts: FAST, front: () => undefined }, routeServices({
+      llm: catalogue([{
+        id: PROVIDER,
+        name: 'DeepSeek',
+        models: [{ id: VISION_MODEL, name: 'Vision', inputModalities: ['text', 'image'] }],
+      }], ['text']),
+      // The card the console shows stands until a person answers it, which is
+      // the state this case holds the tool in.
+      asker: {
+        ask: request => new Promise((_answered, abandoned) => {
+          asked += 1
+          request.signal?.addEventListener('abort', () => { abandoned(new Error('the card was closed')) })
+        }),
+      },
+      switcher: { selectModel: request => Promise.resolve({ selected: request }) },
+    })))
+    const session = Session.create(SessionId(`content-image-${++calls}`))
+    const controller = new AbortController()
+    const settled = ctx.tools.execute({
+      callId: `call-${++calls}` as ToolExecutionInput['callId'],
+      name: CONTENT_READ_IMAGE_TOOL_NAME,
+      arguments: { ref: 'e12' },
+      agent: { id: session.id, session, options: { provider: PROVIDER, model: TEXT_MODEL } } as unknown as
+        NonNullable<ToolExecutionInput['agent']>,
+      signal: controller.signal,
+    })
+    await vi.waitFor(() => { expect(asked).toBe(1) })
+    // The claim deadline is seconds and a card can stand for minutes, so the
+    // wait must not have opened: it would have expired unclaimed, and every
+    // export it admitted would be stored for good.
+    expect(open).not.toHaveBeenCalled()
+    controller.abort()
+    await settled
+    expect(open).not.toHaveBeenCalled()
   })
 
   it('falls back to the call\'s own title where the result carries no text', async () => {
