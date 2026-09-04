@@ -15,7 +15,7 @@
  */
 
 import {
-  CAPTURE_MEDIA_TYPES, forWire, IMAGE_PIXEL_BUDGET, MAX_EXPORT_BYTES, MAX_NAME_CHARS, SVG_RASTER_MIN_PIXELS,
+  CAPTURE_MEDIA_TYPES, forWire, IMAGE_PIXEL_BUDGET, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES, SVG_RASTER_MIN_PIXELS,
   type CaptureMediaType, type ImageSize,
 } from '../../access/wire.ts'
 import {
@@ -249,9 +249,10 @@ async function drawWithin(el: Element, size: ImageSize, options: CaptureOptions)
 export async function captureElement(el: Element, options: CaptureOptions): Promise<Capture> {
   const { ref } = options
   // The page names its own tags and a custom element's name has no length of
-  // its own, so the tag is taken to the wire's bound here, where it is read:
+  // its own, so the tag is taken here, where it is read, to the bound the
+  // parser holds a posted `tag` to and the route's envelope was sized against:
   // both the refusal below and the arm the seat posts carry it.
-  const tag = forWire(el.localName, MAX_NAME_CHARS)
+  const tag = forWire(el.localName, MAX_CURSOR_CHARS)
   const drawn = drawnElement(el)
   if (drawn === undefined) return { kind: 'refused', message: notAnImageRefusal(ref, tag) }
   if (isSkipped(drawn, options.isVisible)) return { kind: 'refused', message: hiddenImageRefusal(ref) }

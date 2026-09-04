@@ -219,6 +219,68 @@ describe('delivering one picture report to the call waiting for it', () => {
     expect(await waiting).toMatchObject({ kind: 'reported' })
   })
 
+  it('stores one object for two posts racing the same waiting call', async () => {
+    const { attachments, saved } = store()
+    const pending = new PendingCalls()
+    const waiting = pending.open('call_1', 'session_1', new AbortController().signal, SLOW)
+    await claimed(pending)
+    // Both posts pass the same lookup; only one of them may reach the store,
+    // because a call has one settlement and this store collects nothing — the
+    // loser's bytes would stay for good with nothing ever reading them.
+    const first = settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE })
+    const second = settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE })
+    expect(await first).toEqual({ accepted: true })
+    expect(await second).toEqual({ accepted: false })
+    expect(saved).toHaveLength(1)
+    expect(await waiting).toMatchObject({ kind: 'reported', outcome: { status: 'image' } })
+  })
+
+  it('refuses a post that arrives while the reserved save is still writing', async () => {
+    const saved: SaveImageAttachment[] = []
+    let finishSave = (): void => {}
+    const writing = new Promise<void>((resolve) => { finishSave = resolve })
+    const attachments = {
+      saveImage: async (input: SaveImageAttachment): Promise<ImageAttachmentRef> => {
+        saved.push(input)
+        await writing
+        return {
+          attachmentId: STORED_ID, mediaType: input.mediaType, bytes: input.data.byteLength, width: 240, height: 240,
+        } as ImageAttachmentRef
+      },
+    } as unknown as AttachmentStore
+    const pending = new PendingCalls()
+    const waiting = pending.open('call_1', 'session_1', new AbortController().signal, SLOW)
+    await claimed(pending)
+    const held = settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE })
+    // The window a lookup alone leaves open: the call is still waiting and its
+    // one save has not returned, which is where a second post would otherwise
+    // decode its own payload and write a second object.
+    expect(await settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE }))
+      .toEqual({ accepted: false })
+    expect(saved).toHaveLength(1)
+    finishSave()
+    expect(await held).toEqual({ accepted: true })
+    expect(await waiting).toMatchObject({ kind: 'reported', outcome: { status: 'image' } })
+  })
+
+  it('holds the reservation for one call rather than for its id', async () => {
+    const { attachments, saved } = store()
+    const pending = new PendingCalls()
+    const first = pending.open('call_1', 'session_1', new AbortController().signal, SLOW)
+    await claimed(pending)
+    expect(await settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE }))
+      .toEqual({ accepted: true })
+    expect(await first).toMatchObject({ kind: 'reported' })
+    // A settled call leaves the table, and the reservation goes with it: the
+    // same id opened again is a call whose settlement is there to be taken.
+    const second = pending.open('call_1', 'session_1', new AbortController().signal, SLOW)
+    await claimed(pending)
+    expect(await settleImageReport(attachments, pending, { callId: 'call_1', tabId: TAB, capture: CAPTURE }))
+      .toEqual({ accepted: true })
+    expect(await second).toMatchObject({ kind: 'reported' })
+    expect(saved).toHaveLength(2)
+  })
+
   it('keeps the pixels before it lets the call settle', async () => {
     const order: string[] = []
     const attachments = {

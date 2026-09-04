@@ -61,9 +61,9 @@ import { DialogApprovals } from './access/dialog-approvals.ts'
 import { registerActApproval } from './access/act-approval.ts'
 import type { FrontEntry } from './access/text.ts'
 import {
-  ACT_RUN_SHARE, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, IMAGE_REPORT_BYTES, MAX_ACT_STEPS,
-  MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MIN_OUTLINE_CHARS, parseChannelReport, parseClaimRequest,
-  parseImageReport, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
+  ACT_RUN_SHARE, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE,
+  IMAGE_REPORT_BYTES, MAX_ACT_STEPS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MIN_OUTLINE_CHARS,
+  parseChannelReport, parseClaimRequest, parseImageReport, REPORT_ENVELOPE_BYTES, SETTLE_WAIT_SHARE,
 } from './access/wire.ts'
 import { contentPagesProjection } from './perception/pages-projection.ts'
 import { registerColumnContext } from './perception/context.ts'
@@ -178,7 +178,10 @@ export interface PageAccessConfig {
   /**
    * How long a claimed read waits for its listing. It bounds the whole walk of
    * a document, including waiting for a page that is still loading, so a heavy
-   * application needs more of it than a static one.
+   * application needs more of it than a static one. At least 8, refused at
+   * load: a picture read gives the export an eighth of it rounded to
+   * milliseconds, and below that floor that budget is zero or one millisecond —
+   * every picture would be refused as one the console did not draw in time.
    */
   readTimeoutMs: number
   /**
@@ -266,6 +269,16 @@ const DEFAULT_CONTEXT_FIELD_CHARS = 120
  * survive it.
  */
 const MIN_CONTEXT_FIELD_CHARS = 8
+
+/**
+ * The shortest report deadline that leaves a picture's export a whole
+ * millisecond, derived from {@link EXPORT_WAIT_SHARE} rather than written down
+ * beside it: the export runs under that share of the read's deadline, rounded
+ * to milliseconds, and under this floor that budget is zero or one millisecond
+ * — no drawing a browser really does meets it, and the refusal names it as the
+ * time the console had.
+ */
+const MIN_READ_TIMEOUT_MS = Math.ceil(1 / EXPORT_WAIT_SHARE)
 
 /** Claim window used when a deployment enables page access and configures none. */
 const DEFAULT_CLAIM_TIMEOUT_MS = 3000
@@ -418,7 +431,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   const pinMs = requireAtLeast('pinMs', config.pinMs, 1)
   const timeouts: CallTimeouts = {
     claimTimeoutMs,
-    answerTimeoutMs: requireAtLeast('readTimeoutMs', config.readTimeoutMs, 1),
+    answerTimeoutMs: requireAtLeast('readTimeoutMs', config.readTimeoutMs, MIN_READ_TIMEOUT_MS),
     pinMs,
   }
   const actTimeouts: CallTimeouts = {

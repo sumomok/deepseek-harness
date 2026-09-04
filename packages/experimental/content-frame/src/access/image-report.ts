@@ -10,14 +10,15 @@
  * reference must name an object that is already on disk when the `tool/result`
  * event is appended.
  *
- * Committed only for a call that is waiting, though. The store keeps what it is
- * given and collects nothing, so storing first for every post would let anything
- * that can reach the route write bytes nothing will ever read or remove; the
- * table is therefore asked whether it would take this report before the bytes
- * are decoded, and a post for a call nobody is waiting on leaves the store as
- * it found it. A call whose own deadline runs out while the store is writing
- * still leaves its bytes behind: the window that costs an object is the one
- * save, rather than every post that reaches the route.
+ * Committed only for a call that is waiting, and only once for it. The store
+ * keeps what it is given and collects nothing, so storing first for every post
+ * would let anything that can reach the route write bytes nothing will ever
+ * read or remove; the call's one settlement is therefore taken from the table
+ * before the bytes are decoded, and both a post for a call nobody is waiting on
+ * and a second post for a call whose save is already running leave the store as
+ * it found it. What is left over is one object per call rather than one per
+ * post: a call whose own deadline runs out while its one reserved save is
+ * writing still leaves those bytes behind.
  * @module @deepseek-ai/dsh-experimental-content-frame/access/image-report
  */
 
@@ -76,23 +77,28 @@ export async function storeCapture(attachments: AttachmentStore, capture: ImageC
  * Deliver one posted image report to the call waiting for it.
  *
  * A failed export is delivered as posted; a capture's pixels are stored first,
- * and only once the table has said it is holding this call for this tab — the
- * same acceptance `report` applies, read before rather than after the bytes are
- * committed, because a store that collects nothing cannot take back what a post
- * for an unknown call would have written. Both arms go to the same call and the
- * same table, so one call id is never raced by two routes: an image read's
- * failures travel this route too rather than the listing routes'.
+ * and only for the one post that took the call's settlement — the same
+ * acceptance `report` applies, taken before rather than read after the bytes
+ * are committed, because a store that collects nothing takes back neither what
+ * a post for an unknown call nor what a second post for this one would have
+ * written. A store's own refusals are settlements here rather than throws, so a
+ * store that answers at all ends the call on this post; a save that never
+ * settles holds the reservation until the call's own deadline ends it, on the
+ * terms {@link PendingCalls.reserveReport} states. Both arms go to the same
+ * call and the same table, so one call id is never raced by two routes: an
+ * image read's failures travel this route too rather than the listing routes'.
  * @param attachments - the deployment's attachment store.
  * @param pending - the table calls wait on.
  * @param report - the posted report, already checked against the wire.
- * @returns whether a waiting call took it.
+ * @returns whether this post took the waiting call, which at most one post for
+ * a call does.
  */
 export async function settleImageReport(
   attachments: AttachmentStore,
   pending: PendingCalls,
   report: ImageReportRequest,
 ): Promise<ReportAck> {
-  if (!pending.isWaiting(report.callId, report.tabId)) return { accepted: false }
+  if (!pending.reserveReport(report.callId, report.tabId)) return { accepted: false }
   const outcome = report.capture.status === 'error'
     ? report.capture
     : await storeCapture(attachments, report.capture)

@@ -159,12 +159,15 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
     // And what the page in front of it draws: exactly one picture, the
     // checked-in PNG. The recording pins a content hash of every export the
     // turn makes, so a page still drawing the canvas and the star would pin
-    // bytes a browser is free to rasterize differently. The flag is the
-    // application's own and is applied by its script, so the wait is for the
-    // canvas to be gone rather than for the frame to be loaded.
+    // bytes a browser is free to rasterize differently. Polled rather than read
+    // once: the column is opened on a heading the markup carries before the
+    // pictures, and the flag is applied by the application's own script. The
+    // count of one is read while the document is still parsing if the `img`
+    // alone has arrived, so the chart the script removes is polled for as well:
+    // a run whose script never executed fails here rather than on the hashes.
     const frame = page.frameLocator('iframe[data-content-frame][data-content-active]')
-    await frame.locator('#throughput').waitFor({ state: 'detached', timeout: 15_000 })
-    expect(await frame.locator('img, canvas, svg').count()).toBe(1)
+    await expect.poll(() => frame.locator('img, canvas, svg').count(), { timeout: 15_000 }).toBe(1)
+    await expect.poll(() => frame.locator('#throughput').count(), { timeout: 15_000 }).toBe(0)
 
     const input = page.locator(COMPOSER).first()
     await input.waitFor({ timeout: 10_000 })

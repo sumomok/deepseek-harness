@@ -793,7 +793,10 @@ export interface PageAccessConfig {
   /**
    * How long a claimed read waits for its listing. It bounds the whole walk of
    * a document, including waiting for a page that is still loading, so a heavy
-   * application needs more of it than a static one.
+   * application needs more of it than a static one. At least 8, refused at
+   * load: a picture read gives the export an eighth of it rounded to
+   * milliseconds, and below that floor that budget is zero or one millisecond —
+   * every picture would be refused as one the console did not draw in time.
    */
   readTimeoutMs: number
   /**

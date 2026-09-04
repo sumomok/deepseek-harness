@@ -23,7 +23,7 @@ import {
   unexportableImageRefusal, unloadedImageRefusal, wideImageRefusal,
 } from '../src/access/text.ts'
 import {
-  IMAGE_MEDIA_TYPE, IMAGE_PIXEL_BUDGET, MAX_EXPORT_BYTES, MAX_NAME_CHARS, SVG_RASTER_MIN_PIXELS, type ImageSize,
+  IMAGE_MEDIA_TYPE, IMAGE_PIXEL_BUDGET, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES, SVG_RASTER_MIN_PIXELS, type ImageSize,
 } from '../src/access/wire.ts'
 
 /** The ref every case here names, which every refusal opens with. */
@@ -248,12 +248,13 @@ describe('what one element exports as a picture', () => {
   })
 
   it('cuts a tag the page spelled longer than the wire carries, rather than posting it whole', async () => {
-    const name = `x-${'o'.repeat(MAX_NAME_CHARS * 2)}`
+    const name = `x-${'o'.repeat(MAX_CURSOR_CHARS * 2)}`
     const el = mount(`<${name}>ops</${name}>`, name)
-    // Clipped where the tag is read, so the refusal is one the route takes:
-    // the wire refuses a message past its own bound outright.
+    // Cut to the bound the parser holds a posted `tag` to, which is the bound
+    // the route's envelope was sized against: a captured arm carrying a longer
+    // one is answered 400, and the seat reads that as final.
     expect(refusal(await capture(el)))
-      .toBe(notAnImageRefusal(REF, `${name.slice(0, MAX_NAME_CHARS - 1)}…`))
+      .toBe(notAnImageRefusal(REF, `${name.slice(0, MAX_CURSOR_CHARS - 1)}…`))
   })
 })
 

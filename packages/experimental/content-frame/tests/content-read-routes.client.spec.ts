@@ -147,6 +147,20 @@ class StubAttachments extends AttachmentStore {
 /** The row that mounts {@link StubAttachments} into a composition. */
 const ATTACHMENT_ROW = "- name: '@deepseek-ai/dsh-attachment-stub'"
 
+/**
+ * The smallest LLM registry the picture read's modality gate takes: one route
+ * declaring it accepts pictures, which is what lets a call of that tool reach
+ * its wait rather than refusing before anything is exported.
+ */
+const StubModels = {
+  apply(ctx: Context): void {
+    ctx.provide('llm', { resolveModelInfo: () => Promise.resolve({ inputModalities: ['text', 'image'] }) } as never)
+  },
+}
+
+/** The row that mounts {@link StubModels} into a composition. */
+const MODEL_ROW = "- name: '@deepseek-ai/dsh-llm-stub'"
+
 let world: string | undefined
 let context: Context | undefined
 
@@ -225,6 +239,7 @@ async function loadComposition(
     ['@deepseek-ai/dsh-experimental-content-frame', ContentFrame],
     ['@deepseek-ai/dsh-experimental-content-surface', ContentSurfaceRegistry],
     ['@deepseek-ai/dsh-attachment-stub', StubAttachments],
+    ['@deepseek-ai/dsh-llm-stub', StubModels],
   ])
   context.loader.internal = {
     version: 'v2',
@@ -353,6 +368,37 @@ function startRead(ctx: Context, session: Session, callId: string): Promise<Tool
   })
 }
 
+/** Start one `content_read_image` for a session, the way an agent loop would. */
+function startImageRead(ctx: Context, session: Session, callId: string, ref: string): Promise<ToolExecutionResult> {
+  return ctx.tools.execute({
+    callId: callId as ToolExecutionInput['callId'],
+    name: 'content_read_image',
+    arguments: { ref },
+    // The modality gate reads the session's own request header first and the
+    // agent's options behind it; a session that has made no request has only
+    // the second.
+    agent: { id: session.id, session, options: { provider: 'stub', model: 'vision' } } as unknown as
+      NonNullable<ToolExecutionInput['agent']>,
+    signal: new AbortController().signal,
+  })
+}
+
+/**
+ * Claim one open call for {@link TAB} over the route, retrying while the tool
+ * body is still registering its wait: the wait opens inside the body, so a
+ * claim before the dispatch has reached it is answered `unknown`.
+ * @param ctx - the booted composition.
+ * @param callId - the call being claimed.
+ */
+async function claimOverHttp(ctx: Context, callId: string): Promise<void> {
+  for (let attempt = 0; attempt < 200; attempt += 1) {
+    const claim = await postJson(ctx, CONTENT_CLAIM_ROUTE, { callId, tabId: TAB })
+    if ((JSON.parse(claim.body) as ClaimAck).claimed) return
+    await new Promise<void>((resolve) => { setTimeout(resolve, 5) })
+  }
+  throw new Error(`the case never claimed ${callId}`)
+}
+
 /** One listing, as a browser seat posts it. */
 const LISTING: ReadOutcome = {
   status: 'ok',
@@ -387,13 +433,7 @@ describe('the read channel over real HTTP', () => {
     const ctx = await loadComposition(true)
     const session = hostSession(ctx)
     const settled = startRead(ctx, session, 'call_live')
-    // The wait is registered inside the tool body; the claim only wins once the
-    // dispatch has reached it, which is exactly what `unknown` means here.
-    for (let attempt = 0; attempt < 200; attempt += 1) {
-      const claim = await postJson(ctx, CONTENT_CLAIM_ROUTE, { callId: 'call_live', tabId: TAB })
-      if ((JSON.parse(claim.body) as ClaimAck).claimed) break
-      await new Promise<void>((resolve) => { setTimeout(resolve, 5) })
-    }
+    await claimOverHttp(ctx, 'call_live')
     const report = await postJson(ctx, CONTENT_REPORT_ROUTE, { callId: 'call_live', tabId: TAB, outcome: LISTING })
     expect(JSON.parse(report.body)).toEqual({ accepted: true })
     const result = await settled
@@ -980,7 +1020,6 @@ describe('page-access configuration', () => {
     // that hold an ordinary table.
     for (const [field, least] of [
       ['claimTimeoutMs', 1],
-      ['readTimeoutMs', 1],
       ['pinMs', 1],
       ['settleQuietMs', 1],
       ['outlineChars', MIN_OUTLINE_CHARS],
@@ -1101,6 +1140,35 @@ describe('page-access configuration', () => {
     // boots, checked where every other composition here is checked.
     await expect(loadComposition(true, ['      settleQuietMs: 1250'])).resolves.toBeInstanceOf(Context)
   })
+
+  it('rejects a read deadline whose export share is not a whole millisecond, and takes the one that is', async () => {
+    // The third pair of numbers in this one block: a picture read gives the
+    // export an eighth of this deadline rounded to milliseconds, and under the
+    // floor that budget is zero or one millisecond — every picture would be
+    // refused as one the console did not draw in time.
+    const row = (readTimeoutMs: number): ContentFrame.Config => ({
+      root: APP_ROOT,
+      pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
+      pageAccess: {
+        claimTimeoutMs: 1, readTimeoutMs, pinMs: 1, settleQuietMs: 1, outlineChars: MIN_OUTLINE_CHARS,
+        actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 1,
+      },
+    })
+    const under = new Context()
+    under.provide('webServer', { register: () => () => {} } as never)
+    await expect(ContentFrame.apply(under, row(7))).rejects.toThrow(
+      'content-frame: pageAccess.readTimeoutMs must be at least 8, received 7',
+    )
+    await under.fiber.dispose()
+
+    // And the deadline the share lands exactly on a millisecond of is taken,
+    // mounted through the registry so the row's whole startup is settled before
+    // this context is disposed.
+    const exact = new Context()
+    exact.provide('webServer', { register: () => () => {} } as never)
+    await expect(exact.plugin(ContentFrame, row(8))).resolves.toBeDefined()
+    await exact.fiber.dispose()
+  })
 })
 
 /** One capture as a seat posts it: three bytes of PNG, base64. */
@@ -1139,6 +1207,38 @@ describe('the picture route over real HTTP', () => {
     const ctx = await withStore()
     expect(ctx.tools.schemas().map(schema => schema.name)).toContain('content_read_image')
     expect((await postJson(ctx, CONTENT_IMAGE_ROUTE, { callId: 'c', tabId: TAB, capture: CAPTURE })).status).toBe(200)
+  })
+
+  it('stores the pixels for a waiting call and settles it with the reference', async () => {
+    const ctx = await loadComposition(true, [], OUTLINE_CHARS, [ATTACHMENT_ROW, MODEL_ROW])
+    const session = hostSession(ctx)
+    const settled = startImageRead(ctx, session, 'call_picture', 'e12')
+    await claimOverHttp(ctx, 'call_picture')
+    const answer = await postJson(ctx, CONTENT_IMAGE_ROUTE, { callId: 'call_picture', tabId: TAB, capture: CAPTURE })
+    expect({ status: answer.status, body: JSON.parse(answer.body) as unknown })
+      .toEqual({ status: 200, body: { accepted: true } })
+    // The payload reaches the store decoded, under a name made of the page and
+    // the element, and the model is handed the reference rather than the bytes.
+    expect(stored).toHaveLength(1)
+    expect(stored[0]?.data).toEqual(new Uint8Array([1, 2, 3]))
+    expect(stored[0]?.name).toBe('content-home-e12.png')
+    expect((await settled).content).toEqual([
+      {
+        type: 'text',
+        text: 'Page: Home — the app is at /content-app/\ne12 <img> 240×240 px, exported 240×240 as image/png, 3 bytes',
+      },
+      {
+        type: 'image',
+        attachment: {
+          attachmentId: STORED_ID,
+          mediaType: 'image/png',
+          bytes: 3,
+          width: 240,
+          height: 240,
+          name: 'content-home-e12.png',
+        },
+      },
+    ])
   })
 
   it('keeps nothing for a call nobody is waiting on, and says so', async () => {
