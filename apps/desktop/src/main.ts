@@ -22,14 +22,14 @@
  */
 
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
-import { basename, join } from 'node:path'
+import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Notification, shell, type DownloadItem } from 'electron'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
 import { recordRun } from './desktop-state.ts'
-import { decideDownload } from './download-policy.ts'
+import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
 import { mainWindow, revealMainWindow } from './main-window.ts'
 import { isExternalNavigationTarget } from './navigation.ts'
-import { announceDownload, setupNotifications } from './notifications.ts'
+import { setupNotifications } from './notifications.ts'
 import {
   ENDPOINT_ENV as PLUGIN_ADMIN_ENDPOINT_ENV, PLUGIN_ADMIN_LIMITS, resolvePnpmLauncher, spawnPnpm,
   startPluginAdminService, TOKEN_ENV as PLUGIN_ADMIN_TOKEN_ENV,
@@ -596,52 +596,34 @@ interface BootView {
 }
 
 /**
- * How each unsuccessful terminal download state is announced. Only the
- * interrupted one names a remedy: a transfer the user cancelled needs no
- * instructions, and one that broke mid-stream is worth starting again.
+ * Tell the user a download they agreed to did not arrive.
+ *
+ * Attached to the app's own window, like every other dialog this module puts
+ * up: the message answers something the user just did in that window, and an
+ * unparented box is free to open behind whatever they moved on to. It carries
+ * one button, so nothing is decided by dismissing it.
+ * @param alert - what to say, from {@link downloadOutcome}.
  */
-const DOWNLOAD_FAILURES: Record<'cancelled' | 'interrupted', { title: string; body: (filename: string) => string }> = {
-  cancelled: { title: '下载已取消', body: filename => filename },
-  interrupted: { title: '下载失败', body: filename => `${filename}:传输中断,请重新导出` },
+function reportDownloadFailure(alert: DownloadAlert): void {
+  const options = { type: 'error' as const, title: 'DSH Desktop', message: alert.message, detail: alert.detail }
+  const window = mainWindow()
+  // Nothing waits on the answer: the transfer is over either way, and the
+  // `done` handler this runs in must not hold the download session open.
+  void (window === undefined ? dialog.showMessageBox(options) : dialog.showMessageBox(window, options))
 }
 
 /**
- * Paths already handed to a transfer that has not finished. A download's name
- * is derived from what it exports, so a second gesture on one session suggests
- * the name the first is about to write; nothing is on disk under it until the
- * first byte arrives, and this set is what keeps the second from overwriting it.
- */
-const claimedDownloadPaths = new Set<string>()
-
-/**
- * Say where a download the shell placed ended up, in the log and to the user.
- * @param state - the terminal state Electron reported for the transfer.
- * @param path - the path the transfer was given.
- */
-function reportDownload(state: 'completed' | 'cancelled' | 'interrupted', path: string): void {
-  const filename = basename(path)
-  if (state === 'completed') {
-    logLine(`[desktop] download saved: ${path}\n`)
-    announceDownload({ title: '已保存到下载', body: filename, savePath: path })
-    return
-  }
-  const failure = DOWNLOAD_FAILURES[state]
-  logLine(`[desktop] download ${state}: ${path}\n`)
-  announceDownload({ title: failure.title, body: failure.body(filename) })
-}
-
-/**
- * Place what the served UI downloads, instead of letting Electron ask.
+ * Ask where to put what the served UI downloads, then show where it went.
  *
  * The window is a browser surface without a browser's download manager, so
- * Electron answers a download with a modal Save As sheet that explains
- * nothing — while the page that started it has already said it started, the
- * session-log export announcing 「Session 导出已开始下载」 the moment the
- * transfer begins, and a dismissed sheet drops the transfer while that page
- * still reads as success. A transfer from the embedded server therefore goes
- * straight to the user's downloads folder, and its outcome is reported the way
- * a download manager reports it: the plugin that owns the export delegates
- * mid-stream failures to exactly that.
+ * Electron answers a download with a Save As sheet that explains nothing —
+ * while the page that started it has already said it started, the session-log
+ * export announcing 「Session 导出已开始下载」 the moment the transfer begins.
+ * A transfer from the embedded server therefore gets a dialog that names the
+ * file and opens on a free name in the downloads folder, and when it completes
+ * the file is selected in the system file manager: the shell shows the result
+ * rather than announcing it, because a notification the platform never posts
+ * is the same as saying nothing.
  *
  * Every other origin keeps Electron's default, sheet and all — a file the
  * shell did not serve is not the shell's to place.
@@ -653,30 +635,20 @@ function attachDownloadHandling(window: BrowserWindow): void {
   const windowSession = window.webContents.session
   const onWillDownload = (_event: Electron.Event, item: DownloadItem): void => {
     if (server === undefined) return
-    const downloadsDir = app.getPath('downloads')
     const decision = decideDownload({
       urls: item.getURLChain(),
       serverOrigin: server.url,
       filename: item.getFilename(),
-      downloadsDir,
-      claimed: claimedDownloadPaths,
+      downloadsDir: app.getPath('downloads'),
       exists: existsSync,
     })
-    if (decision.kind === 'default') {
-      // A download from elsewhere is the ordinary case and says nothing; a
-      // folder with no free name left is not, and the sheet the user then sees
-      // has a reason in the file they are asked to send.
-      if (decision.reason === 'no-free-name') {
-        logLine(`[desktop] download left to Electron: ${item.getFilename()} (no free name under ${downloadsDir})\n`)
-      }
-      return
-    }
-    const { path } = decision
-    claimedDownloadPaths.add(path)
-    item.setSavePath(path)
+    if (decision.kind === 'default') return
+    item.setSaveDialogOptions(decision.dialog)
     item.once('done', (_doneEvent, state) => {
-      claimedDownloadPaths.delete(path)
-      reportDownload(state, path)
+      const outcome = downloadOutcome(state, item.getSavePath(), item.getFilename())
+      logLine(outcome.line)
+      if (outcome.reveal !== undefined) shell.showItemInFolder(outcome.reveal)
+      if (outcome.alert !== undefined) reportDownloadFailure(outcome.alert)
     })
   }
   windowSession.on('will-download', onWillDownload)

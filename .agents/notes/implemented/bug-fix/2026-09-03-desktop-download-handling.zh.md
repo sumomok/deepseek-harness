@@ -16,23 +16,25 @@ Status: implemented
 
 壳只安置自己服务出去的东西,别的一概不碰。
 
-[`apps/desktop/src/download-policy.ts`](../../../../apps/desktop/src/download-policy.ts) 把整个判定装成一个纯函数。`decideDownload` 读 `DownloadItem.getURLChain()`,给出 `{ kind: 'save', path }` 或 `{ kind: 'default', reason }`。这条链上的每一跳都必须属于内嵌服务器的 origin——也就是 `ServerHandle.url`,它本身就是一个纯 origin——因为传输最终停在哪个 URL,说明不了它从哪里起手:从别的站点起手再重定向进服务器的下载,不归这个壳安置;从服务器起手再重定向出去的,也已经不是服务器的文件了。空链同样算作未被服务。
+**已被[导出会话日志时先问存到哪里](2026-09-04-desktop-download-save-dialog.zh.md)部分取代。**仍然现行的:整条重定向链上的同源判定、`uniquePath` 的编号、`NSDownloadsFolderUsageDescription` 这个键,以及文末记下的两条上游缺陷。在那份 Note 里被替换掉的:被接管的下载改为弹一个保存对话框、不再静默写盘,于是 `decideDownload` 给出 `{ kind: 'ask', dialog }`,在途 `claimed` 集合与 `no-free-name` 结局随静默写盘一起消失,`announceDownload` 也随那条播报结果的通知一起消失。下面各段会说明它们各自现在的状态。
+
+[`apps/desktop/src/download-policy.ts`](../../../../apps/desktop/src/download-policy.ts) 把整个判定装成一个纯函数。`decideDownload` 读 `DownloadItem.getURLChain()`,回答壳接不接管这次下载——当时是 `{ kind: 'save', path }`,现在是 `{ kind: 'ask', dialog }`——还是把它留给 Electron。这条链上的每一跳都必须属于内嵌服务器的 origin——也就是 `ServerHandle.url`,它本身就是一个纯 origin——因为传输最终停在哪个 URL,说明不了它从哪里起手:从别的站点起手再重定向进服务器的下载,不归这个壳安置;从服务器起手再重定向出去的,也已经不是服务器的文件了。空链同样算作未被服务。
 
 每一跳的 origin 从解析后的 URL 读、而不是去测 scheme,正是这条策略能扛住导出功能自身演进的原因:`blob:` URL 解析出来的是铸造它的那个页面的 origin,所以一个页面自己带进度条 fetch 完再把结果交给 `<a download>`,就是在从自己这里下载,与直连 `/api` URL 同等对待。`data:`、`about:`、`file:` 以及不透明的 `blob:` 都解析成 origin `null`,任何服务器 origin 都不可能与之相等,因此永远不会被接管。
 
-存盘用的文件名是下载自己建议的那个名字取最后一段路径,拼到 `app.getPath('downloads')` 上,再由 `uniquePath` 去重:在最后一个点后缀之前插入 ` (2)`、` (3)` ……,于是 `session.tar.gz` 编号成 `session.tar (2).gz`,`.zshrc` 成 `.zshrc (2)`。一个名字被占用,指的是它已在磁盘上,**或者**本进程已经把它交给了一次尚未结束的传输——也就是壳传进来的 `claimed` 集合。导出的文件名由会话 id 推导而来,所以对同一个会话点两次会建议出同一个名字,而在第一次传输写下第一个字节之前,磁盘上并没有这个文件;没有这份认领,第二次下载就会拿到第一次的路径并把它覆盖掉。这个搜索是有界的;万一某个目录把所有候选名都占满了,它给出 `{ kind: 'default', reason: 'no-free-name' }` 而不是一个已经是文件的路径——比弹面板更糟的只有覆盖。Chromium 在壳看到之前就已经把 `DownloadItem.getFilename()` 清洗过了;策略仍然再次剥掉路径分隔符与光秃秃的 `.`/`..` 段,因为它是「建议的名字」与「写下的路径」之间唯一的一步,必须自己读起来就站得住。
+存盘用的文件名是下载自己建议的那个名字取最后一段路径,拼到 `app.getPath('downloads')` 上,再由 `uniquePath` 去重:在最后一个点后缀之前插入 ` (2)`、` (3)` ……,于是 `session.tar.gz` 编号成 `session.tar (2).gz`,`.zshrc` 成 `.zshrc (2)`。当时一个名字被占用,指的是它已在磁盘上,**或者**本进程已经把它交给了一次尚未结束的传输——也就是壳传进来的 `claimed` 集合;导出的文件名由会话 id 推导而来,所以对同一个会话点两次会建议出同一个名字,而在第一次传输写下第一个字节之前,磁盘上并没有这个文件。这个搜索是有界的;万一某个目录把所有候选名都占满了,它给出 `{ kind: 'default', reason: 'no-free-name' }` 而不是一个已经是文件的路径——比弹面板更糟的只有覆盖。这两道保险都属于静默写盘,随它一起退场;取代它们的东西见那份接续的 Note。Chromium 在壳看到之前就已经把 `DownloadItem.getFilename()` 清洗过了;策略仍然再次剥掉路径分隔符与光秃秃的 `.`/`..` 段,因为它是「建议的名字」与「写下的路径」之间唯一的一步,必须自己读起来就站得住。
 
-`main.ts` 把这个判定接进 `createBootWindow`。`attachDownloadHandling` 在 `window.webContents.session` 上注册 `will-download`——应用窗口没声明 partition,所以那就是默认 session——在 `save` 判定上设置存盘路径并把它加入认领,在 `default` 判定上原封不动地返回,于是 Electron 的面板留在它原来的位置。因为别的 origin 而走 `default` 是家常便饭,不说话;而 `no-free-name` 会写一行 `[desktop] download left to Electron: <filename> (no free name under <dir>)`,于是用户随后看到的那张面板,在你请他发来的那个文件里是有缘由的。监听器在窗口的 `closed` 事件里摘除:session 活得比窗口长,而 macOS 每次走一趟 Dock 都会销毁并重建窗口,留下的监听器会一趟攒一个。`done` 时先释放认领,再由 `reportDownload` 往 `dsh-server.log` 的 sink 写一行——`[desktop] download saved: <path>`,或 `[desktop] download cancelled|interrupted: <path>`——并把结果播报出去。
+`main.ts` 把这个判定接进 `createBootWindow`。`attachDownloadHandling` 在 `window.webContents.session` 上注册 `will-download`——应用窗口没声明 partition,所以那就是默认 session——回答一次被接管的下载——当时是设置存盘路径并把它加入认领,现在是设置对话框选项——在 `default` 判定上原封不动地返回,于是 Electron 的面板留在它原来的位置。因为别的 origin 而走 `default` 是家常便饭,不说话;当时为 `no-free-name` 写的那行日志随那个结局一起消失。监听器在窗口的 `closed` 事件里摘除:session 活得比窗口长,而 macOS 每次走一趟 Dock 都会销毁并重建窗口,留下的监听器会一趟攒一个。`done` 时先释放认领,再由 `reportDownload` 往 `dsh-server.log` 的 sink 写一行——`[desktop] download saved: <path>`,或 `[desktop] download cancelled|interrupted: <path>`——并把结果播报出去。
 
-播报走 [`apps/desktop/src/notifications.ts`](../../../../apps/desktop/src/notifications.ts) 里新增的第二个入口。`announceDownload` 与该模块既有的 `announce` 有两处不同,恰是一次下载所需要的:它在 macOS 上也投递,因为 Dock 角标既带不出文件名也给不出通往文件的路;它不管窗口有没有人看着都投递,因为页面只说了下载开始,文件去了哪里不在这里说就没地方说。点击一条完成通知会对存盘路径调用 `shell.showItemInFolder`。只有中断那条会给出补救——「传输中断,请重新导出」——因为用户自己取消的传输不需要任何指示。注意力事件那套「角标 + 弹跳」的分野原样不动,该模块自己的文档现在把范围收窄到了它们身上。
+当时播报走 [`apps/desktop/src/notifications.ts`](../../../../apps/desktop/src/notifications.ts) 里新增的第二个入口,它与下面这套理由一起被接续的 Note 删掉了。`announceDownload` 与该模块既有的 `announce` 有两处不同,恰是一次下载所需要的:它在 macOS 上也投递,因为 Dock 角标既带不出文件名也给不出通往文件的路;它不管窗口有没有人看着都投递,因为页面只说了下载开始,文件去了哪里不在这里说就没地方说。点击一条完成通知会对存盘路径调用 `shell.showItemInFolder`。只有中断那条会给出补救——「传输中断,请重新导出」——因为用户自己取消的传输不需要任何指示。注意力事件那套「角标 + 弹跳」的分野原样不动。
 
 [`apps/desktop/electron-builder.yml`](../../../../apps/desktop/electron-builder.yml) 新增一段 `mac.extendInfo`,写入中文的 `NSDownloadsFolderUsageDescription`,与应用其余面向用户的文案一致。macOS 把 `~/Downloads` 拦在 TCC 后面,首次往那里写会拉起系统自己的授权弹窗;没有这个键,弹窗说不出任何理由。这也是该文件里第一条 Info.plist 字符串——这个应用并不声明摄像头或麦克风用途——所以这一段是新增而非扩充。
 
 ## Testing
 
-[`apps/desktop/tests/download-policy.spec.ts`](../../../../apps/desktop/tests/download-policy.spec.ts) 覆盖判定本身:同源 `/api` URL 与同源 `blob:` URL 都被安置;换端口、换主机、换 scheme、跨源 `blob:`,以及 `data:`/`about:`/`file:`/不透明 `blob:` 一律留给 Electron;从别处进入服务器的链与离开服务器的链都被拒绝,而服务器内部的两跳链被安置,空链亦被拒绝;建议的文件名被削到最后一段,只剩路径语法时回落到 `download`;去重器从 2 开始数,跨过磁盘上的名字、尚未结束的传输所持有的名字,以及两者叠加的情形;而一个对什么都答 true 的判定得到的是 `no-free-name` 而非一个已被占用的路径。
+[`apps/desktop/tests/download-policy.spec.ts`](../../../../apps/desktop/tests/download-policy.spec.ts) 覆盖判定本身:同源 `/api` URL 与同源 `blob:` URL 都被接管;换端口、换主机、换 scheme、跨源 `blob:`,以及 `data:`/`about:`/`file:`/不透明 `blob:` 一律留给 Electron;从别处进入服务器的链与离开服务器的链都被拒绝,而服务器内部的两跳链被接管,空链亦被拒绝;建议的文件名被削到最后一段,只剩路径语法时回落到 `download`;去重器从 2 开始数,跨过磁盘上已有的名字。针对 `claimed` 集合与 `no-free-name` 的那几条用例随这两个结局一起退场。
 
-[`apps/desktop/tests/notifications.spec.ts`](../../../../apps/desktop/tests/notifications.spec.ts) 用一个替身 `electron` 覆盖 `announceDownload`,因为它承载的那个承诺——点一下就定位到存下的文件——是一个任何日志行都显示不出来的回调:完成通知注册的 click 会带着存盘路径调用 `shell.showItemInFolder`,失败通知根本不注册 click,而一个自称不支持通知的平台上一条也不会被构造出来。
+[`apps/desktop/tests/notifications.spec.ts`](../../../../apps/desktop/tests/notifications.spec.ts) 当时用一个替身 `electron` 覆盖 `announceDownload`,因为它承载的那个承诺——点一下就定位到存下的文件——是一个任何日志行都显示不出来的回调:完成通知注册的 click 会带着存盘路径调用 `shell.showItemInFolder`,失败通知根本不注册 click,而一个自称不支持通知的平台上一条也不会被构造出来。这三条用例连同那个替身随函数一起退场。
 
 Electron 那一半——处理器究竟落在哪个 session 上,以及面板是否真的不见了——单元测试够不着,改由真进程检查覆盖:把构建好的壳跑在 Electron 43 上、对着一个临时 `$DSH_HOME`,点会话头部的「Session 日志」按钮,再读产出的文件与日志行。
 
@@ -50,7 +52,7 @@ Electron 那一半——处理器究竟落在哪个 session 上,以及面板是�
 
 ## Consequences
 
-用户失去了选位置的机会。来自内嵌服务器的下载落在系统下载文件夹里,壳这边无法改道,文件只能事后再挪。换来的是上游那句提示第一次在桌面端为真:「Session 导出已开始下载」之后跟着的是一次真的能完成的下载,以及一条点名产出文件并能定位到它的通知。两个平台行为一致——同一个文件夹、同一套编号、同一条通知与同一个点击去向——这与同一模块里对注意力事件刻意做的平台分野是相反的取向。
+用户当时失去了选位置的机会:来自内嵌服务器的下载落在系统下载文件夹里,壳这边无法改道,文件只能事后再挪。换来的是上游那句提示第一次在桌面端为真——「Session 导出已开始下载」之后跟着的是一次真的能完成的下载。两个平台行为一致,同一个文件夹、同一套编号,这与同一模块里对注意力事件刻意做的平台分野是相反的取向。选位置这件事在接续的 Note 里回来了;那条播报结果的通知没有,因为它在报告问题的用户机器上什么都不投递。
 
 macOS 的授权弹窗是否会带着这段新描述出现,并未在签名构建上验证过;键已声明,而真进程检查跑的是未签名的开发壳,它的 TCC 身份并不是打包应用的身份。只有打包构建才能确认这一点。
 

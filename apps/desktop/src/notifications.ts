@@ -55,15 +55,11 @@
  * **The two platforms are told differently, and on purpose.** Windows gets a
  * system toast that raises the window when clicked. macOS gets a Dock badge and
  * one bounce, and no notification centre entry at all.
- *
- * That split covers attention events only. A finished download is announced
- * through {@link announceDownload}, which posts on both platforms and leads
- * back to the file rather than to the window; the reasons are stated there.
  * @module @deepseek-ai/dsh-desktop/notifications
  */
 
 import { randomUUID } from 'node:crypto'
-import { app, Notification, shell } from 'electron'
+import { app, Notification } from 'electron'
 import { mainWindow } from './main-window.ts'
 
 /** Path of the multiplexed Remote stream WebSocket (`REMOTE_STREAM_MUX_PATH` on the server). */
@@ -230,35 +226,6 @@ function announce(host: NotifyHost, title: string, body: string): void {
   if (!Notification.isSupported()) return
   const notification = new Notification({ title, body })
   notification.on('click', () => { host.reveal() })
-  notification.show()
-}
-
-/** One finished download, as the user is told about it. */
-export interface DownloadNotice {
-  /** The headline: where the file went, or that it did not get there. */
-  title: string
-  /** One line naming the file, and for a broken transfer what to do about it. */
-  body: string
-  /** Where it landed, when it did — clicking the notification reveals it there. */
-  savePath?: string
-}
-
-/**
- * Say where a download the shell placed itself ended up.
- *
- * Two things separate this from {@link announce}, which serves attention
- * events. It posts on macOS as well, because a Dock badge carries neither the
- * file's name nor a way to reach it, and the download is the one thing the
- * user asked for by name. And it posts whether or not the window is attended,
- * because the page that started the download says only that it started: where
- * the file went is said here or nowhere.
- * @param notice - what to say, and the file a click reveals.
- */
-export function announceDownload(notice: DownloadNotice): void {
-  if (!Notification.isSupported()) return
-  const notification = new Notification({ title: notice.title, body: notice.body })
-  const savePath = notice.savePath
-  if (savePath !== undefined) notification.on('click', () => { shell.showItemInFolder(savePath) })
   notification.show()
 }
 
