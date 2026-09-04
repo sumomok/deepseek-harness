@@ -3,7 +3,8 @@
  * files are the sessions' logical logs serialized as canonical JSONL (root +
  * optional descendants) read through persistence read handles, and the
  * degenerate compositions fail loudly (missing services → 500, missing root →
- * 404, missing descendant → errored stream).
+ * 404, missing descendant → errored stream), while an unreadable media object
+ * becomes a record inside a complete archive.
  */
 
 import { SESSION_FORMAT_VERSION, SessionSeq } from '@deepseek-ai/dsh-session'
@@ -11,6 +12,7 @@ import { randomBytes } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import { unzipSync, strFromU8 } from 'fflate'
+import { AttachmentError } from '@deepseek-ai/dsh-attachment'
 import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionLineageNode } from '@deepseek-ai/dsh-session-query'
@@ -883,16 +885,126 @@ describe('session.export download endpoint', () => {
     ])
   })
 
-  it('fails the whole export when a referenced image cannot be read', async () => {
-    const stored = log('session-root', undefined, [imageEvent('gone-img')])
+  it('records an unreadable image in the archive and still completes the export', async () => {
+    // The real class, so the cross-package coupling this record depends on —
+    // `AttachmentError` sets `name` in its constructor — is under assertion.
+    const corrupt = new AttachmentError(
+      'Stored attachment metadata does not match its reference.', 'ATTACHMENT_CORRUPT',
+    )
+    const both = {
+      type: 'user/message', seq: SessionSeq(1), time: 1000,
+      data: {
+        content: [
+          { type: 'image', attachment: { attachmentId: 'bad-img', mediaType: 'image/png', bytes: 425977, width: 1920, height: 1080 } },
+          { type: 'image', attachment: { attachmentId: 'ok-img', mediaType: 'image/png', bytes: 4, width: 2, height: 2 } },
+        ],
+      },
+    } as unknown as SessionEvent
+    const stored = log('session-root', undefined, [both])
     const api = await buildApi({ 'session-root': stored }, [], {
-      attachments: async () => { throw new Error('attachment bytes missing') },
+      attachments: async (ref) => {
+        if (String(ref.attachmentId) === 'bad-img') throw corrupt
+        return storedImage(String(ref.attachmentId), ref.mediaType)
+      },
     })
     const response = await toFetchHandler(api).fetch(
       new Request('http://host/api/session.export?sessionId=session-root'),
     )
+
     expect(response.status).toBe(200)
-    await expect(response.arrayBuffer()).rejects.toThrow('attachment bytes missing')
+    const files = unzipSync(await responseBytes(response))
+    expect(Object.keys(files).sort()).toEqual([
+      'media/bad-img.png.error.txt',
+      'media/ok-img.png',
+      exportLogName,
+    ])
+    expect(files['media/ok-img.png']).toEqual(storedImage('ok-img').data)
+    expect(strFromU8(files['media/bad-img.png.error.txt'] as Uint8Array)).toBe(
+      'This image could not be read from the attachment store, so the archive records'
+      + ' the failure in its place. Every other file in this archive is complete.\n'
+      + 'attachmentId: bad-img\nmediaType: image/png\nbytes: 425977\nwidth: 1920\nheight: 1080\n'
+      + 'code: ATTACHMENT_CORRUPT\nreason: Stored attachment metadata does not match its reference.\n',
+    )
+    // The record occupies one entry, exactly like the image it stands in for,
+    // and the announced size still counts that entry at the reference's
+    // recorded byte length, which measuring never re-reads.
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER)).toBe('3')
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER)).toBe(
+      String(new TextEncoder().encode(logText(stored)).byteLength + 425977 + 4),
+    )
+  })
+
+  it('records a failure that is not an AttachmentError without its code or message', async () => {
+    // Only AttachmentError promises a message free of host paths, so every
+    // other failure reaches the archive as the anonymous reason line.
+    const failures: Record<string, unknown> = {
+      'not-error': 'attachment bytes missing',
+      'other-error': new Error('ENOENT: /host/private/attachments/v1/objects/ab/cdef'),
+      'no-code': Object.assign(new Error('nameless'), { name: 'AttachmentError' }),
+      'code-not-string': Object.assign(new Error('numeric'), { name: 'AttachmentError', code: 7 }),
+    }
+    const event = {
+      type: 'user/message', seq: SessionSeq(1), time: 1000,
+      data: {
+        content: Object.keys(failures).map(id => ({
+          type: 'image',
+          attachment: { attachmentId: id, mediaType: 'image/png', bytes: 4, width: 2, height: 2 },
+        })),
+      },
+    } as unknown as SessionEvent
+    const api = await buildApi({ 'session-root': log('session-root', undefined, [event]) }, [], {
+      attachments: async (ref) => { throw failures[String(ref.attachmentId)] },
+    })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+
+    const files = unzipSync(await responseBytes(response))
+    expect(Object.keys(files).sort()).toEqual([
+      'media/code-not-string.png.error.txt',
+      'media/no-code.png.error.txt',
+      'media/not-error.png.error.txt',
+      'media/other-error.png.error.txt',
+      exportLogName,
+    ])
+    for (const id of Object.keys(failures)) {
+      const record = strFromU8(files[`media/${id}.png.error.txt`] as Uint8Array)
+      expect(record).toContain(`attachmentId: ${id}\n`)
+      expect(record.endsWith(
+        'reason: the attachment store rejected the read without a stable failure code\n',
+      )).toBe(true)
+      expect(record).not.toContain('code:')
+      expect(record).not.toContain('/host/private/')
+    }
+  })
+
+  it('still errors the stream when cancellation lands during a media read', async () => {
+    let reportAttachmentStarted!: (signal: AbortSignal) => void
+    const attachmentStarted = new Promise<AbortSignal>((resolve) => {
+      reportAttachmentStarted = resolve
+    })
+    const stored = log('session-root', undefined, [imageEvent('slow-img')])
+    const api = await buildApi({ 'session-root': stored }, [], {
+      attachments: async (_ref, signal) => {
+        if (signal === undefined) throw new Error('missing attachment signal')
+        reportAttachmentStarted(signal)
+        return new Promise((_, reject) => {
+          signal.addEventListener('abort', () => { reject(signal.reason as Error) }, { once: true })
+        })
+      },
+    })
+    const controller = new AbortController()
+    const response = await api.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: false },
+      controller.signal,
+    )
+    const body = response.arrayBuffer()
+    await attachmentStarted
+    const cancellation = new Error('request cancelled during the attachment read')
+    controller.abort(cancellation)
+    // Cancellation is not an unreadable attachment: it tears the archive
+    // rather than becoming a record inside it.
+    await expect(body).rejects.toBe(cancellation)
   })
 
   it('answers 500 when the deployment mounts no attachments service', async () => {

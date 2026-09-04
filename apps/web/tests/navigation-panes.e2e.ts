@@ -14,7 +14,10 @@ import { chromium } from 'playwright'
 import { strFromU8, unzipSync } from 'fflate'
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTestFailed, vi } from 'vitest'
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
-import { SESSION_FORMAT_VERSION, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import type {} from '@deepseek-ai/dsh-session-title'
 import {
   assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
   launchWebScaffold, recordFixture, seedSession, watchConsole, webSnapshotMode, type WebScaffold,
@@ -35,6 +38,72 @@ const EXPORTED_LOG_FILE = `session.v${SESSION_FORMAT_VERSION}.jsonl`
 // known-matching query ('navscenario') without depending on a live title call.
 const PROMPT_TURN1 = 'NavScenario: first run bash to print exactly NAVIGATION_OK, then read nav-a.md and nav-b.md using two read calls in ONE assistant message, then reply with the single word FIRST_DONE and stop.'
 const PROMPT_TURN2 = 'Reply in markdown with: a level-2 heading "Navigation Summary", a bulleted list of exactly two items, and a fenced code block containing echo WATERFALL. Then stop.'
+
+// A second, hand-written seed for the export's unreadable-media path. The id
+// is well-formed for attachment-local's `sha256:<64 hex>` reference pattern
+// and no object is ever written for it, so the export's own attachment read
+// raises ATTACHMENT_NOT_FOUND and the archive must record that entry instead
+// of tearing. Hand-written rather than recorded: no model call can produce a
+// reference to an object that does not exist.
+const MEDIA_SEED_ID = 'navigation-panes-unreadable-media-web-e2e'
+const MISSING_ATTACHMENT_ID = `sha256:${'0'.repeat(64)}`
+const MEDIA_ENTRY = `media/${MISSING_ATTACHMENT_ID}.png.error.txt`
+const MEDIA_MARKER = 'MISSINGMEDIA'
+const MEDIA_DONE = 'MISSING_MEDIA_DONE'
+
+/** One closed turn whose user message references an attachment object that is not on disk. */
+function unreadableMediaFixture(): string {
+  const session = Session.create(SessionId('navigation-panes-unreadable-media-source'))
+  const eventTimeOrigin = new Date().setHours(12, 0, 0, 0)
+  session.append('turn/start', { turn: 1 })
+  const user = session.append('user/message', createUserMessage({
+    content: [
+      { type: 'text', text: `${MEDIA_MARKER}: this message references a screenshot the store cannot produce.` },
+      {
+        type: 'image',
+        attachment: {
+          attachmentId: MISSING_ATTACHMENT_ID,
+          mediaType: 'image/png',
+          bytes: 4,
+          width: 2,
+          height: 2,
+        },
+      },
+    ] as never,
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('session/title', {
+    title: 'Unreadable media export',
+    messageSeqs: [user.seq],
+    source: { kind: 'fallback' },
+  })
+  session.append('step/start', { turn: 1, step: 1 })
+  session.append('assistant/message', {
+    turn: 1,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: MEDIA_DONE }],
+      source: { kind: 'model', provider: 'fixture', model: 'fixture' },
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('step/end', { turn: 1, step: 1 })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  return [
+    JSON.stringify({
+      type: 'session',
+      version: SESSION_FORMAT_VERSION,
+      id: '{{sessionId}}',
+      createdAt: 0,
+      cwd: '{{cwd}}',
+    }),
+    ...session.snapshotEvents().map(event => JSON.stringify({
+      ...event,
+      time: eventTimeOrigin + event.seq * 1_000,
+    })),
+    '',
+  ].join('\n')
+}
 
 async function baselineResponse(
   page: Page,
@@ -77,6 +146,26 @@ async function ensureSeedOpen(page: Page): Promise<void> {
   }
 }
 
+/** Open the unreadable-media seed through sidebar search, whatever is open now. */
+async function openMediaSeed(page: Page): Promise<void> {
+  const welcome = page.locator('[class*="onboardingOverlay"]')
+  if (await welcome.count() > 0) {
+    await welcome.getByRole('button').click()
+    await welcome.waitFor({ state: 'detached', timeout: 15_000 })
+  }
+  const searchButton = page.getByRole('button', { name: 'Search sessions' })
+  if (await searchButton.getAttribute('aria-expanded') !== 'true') await searchButton.click()
+  const search = page.getByPlaceholder('Search sessions', { exact: false })
+  await search.fill(MEDIA_MARKER)
+  const result = page.getByRole('tree', { name: 'Search results' }).getByRole('treeitem')
+  await expect.poll(() => result.count(), { timeout: 30_000 }).toBe(1)
+  await result.click()
+  await page.getByRole('tab', { name: 'Chat', exact: true }).waitFor({ timeout: 15_000 })
+  await page.getByText(MEDIA_DONE, { exact: true }).waitFor({ timeout: 15_000 })
+  await search.fill('')
+  await expect.poll(() => search.inputValue(), { timeout: 5_000 }).toBe('')
+}
+
 describe('web e2e: navigation & panes over a rich seeded session', () => {
   let scaffold: WebScaffold
   let browser: Browser
@@ -98,6 +187,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       expect(fixtureUserPrompts(raw), 'seed fixture must carry exactly the two drive prompts')
         .toEqual([PROMPT_TURN1, PROMPT_TURN2])
       await seedSession(scaffold, raw, SEED_ID)
+      await seedSession(scaffold, unreadableMediaFixture(), MEDIA_SEED_ID)
     }
     browser = await chromium.launch()
   }, 120_000)
@@ -512,6 +602,42 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
       .toBe('Copied')
     expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('NAVIGATION_OK')
   }, 60_000)
+
+  it.skipIf(MODE === 'record')('records an attachment the store cannot read and still completes the export', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-export-unreadable-media'))
+    await openMediaSeed(page)
+    const exportButton = page.getByRole('button', { name: 'Session log' })
+    const responsePromise = page.waitForResponse(response =>
+      response.request().method() === 'GET'
+      && new URL(response.url()).pathname === '/api/session.export', { timeout: 30_000 })
+    const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
+    await exportButton.click()
+
+    // The archive completes: the route answers 200 and the body arrives whole,
+    // where an attachment read that reached the ZIP producer would have cut it.
+    const response = await responsePromise
+    expect(response.status()).toBe(200)
+    // The record occupies the entry the image would have, so the extent the
+    // page scales its bar by counts both files.
+    expect((await response.allHeaders())['x-session-export-entries']).toBe('2')
+    const download = await downloadPromise
+    const dialog = page.getByRole('dialog', { name: 'Export complete' })
+    await dialog.waitFor({ timeout: 30_000 })
+
+    const files = unzipSync(await readFile(await download.path()))
+    expect(Object.keys(files).sort()).toEqual([MEDIA_ENTRY, 'session.jsonl'])
+    const record = strFromU8(files[MEDIA_ENTRY] as Uint8Array)
+    expect(record).toContain(`attachmentId: ${MISSING_ATTACHMENT_ID}`)
+    expect(record).toContain('mediaType: image/png')
+    // The real host store's own failure, through the real route: the object
+    // named by a well-formed reference is not on disk.
+    expect(record).toContain('code: ATTACHMENT_NOT_FOUND')
+    expect(record).toContain('reason: Attachment object is missing.')
+    const log = strFromU8(files['session.jsonl'] as Uint8Array)
+    expect(log.split('\n')[0]).toContain(MEDIA_SEED_ID)
+    expect(log).toContain(MEDIA_DONE)
+    await dialog.getByText('Close', { exact: true }).click()
+  }, 90_000)
 
   it.skipIf(MODE === 'record')('keeps the recorded fixture inventory exact', async () => {
     await assertFixtureInventory(SNAPSHOT_DIR, [

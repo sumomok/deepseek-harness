@@ -1,0 +1,47 @@
+# Agent Note: An unreadable attachment is recorded in the export archive
+
+Status: implemented
+
+English | [中文](2026-09-04-export-records-unreadable-media.zh.md)
+
+## Problem
+
+A session log holds each image as an `ImageAttachmentRef` — an attachment id, a media type, a byte length, and pixel dimensions — and the export reads every referenced object back through `AttachmentStore.readImage`, which verifies the stored bytes against all of those fields. When one does not hold, the read rejects with an `AttachmentError`, and `sessionLogZipEntries` let that rejection reach the ZIP producer. After the first byte the producer's only answer is `controller.error`, so one image took the whole download with it: the route had already sent `200` and the three extent fields, the response body was cut mid-archive, the page reported the browser's `network error` with no host-authored reason, and nothing was saved. Nothing recorded the cause either — the failure is raised and consumed inside the stream, and the host log never sees it.
+
+This is not hypothetical, and the store is not at fault. Version 0.5.0 of the out-of-repo `@haoran/dsh-screenshot` plugin saved JPEG bytes while declaring `image/png`; every reference it wrote carries that wrong media type, and the fix in 0.5.1 cannot reach references already in a log. On one real session a 426 KB screenshot therefore made a 6.1 MB log — a log with nothing wrong with it — permanently unexportable. Every other way a stored object can go missing behaves identically: an object deleted or rewritten underneath the store, or a store that cannot open it at all.
+
+The export's own guarantee argues against the old behavior. Refusing to ship a truncated archive is what keeps a session log trustworthy, and a session log is exactly what the archive still holds in full when one image is unreadable. Failing the download trades a complete log the user can read for nothing.
+
+## Decision
+
+`sessionLogZipEntries` reads each media object through `mediaEntry` in [`src/archive.ts`](../../../../packages/session-query/session-log-export/src/archive.ts), which turns a rejected read into an archive entry instead of a thrown failure. The entry is text at `media/<attachmentId>.<ext>.error.txt` — the media entry's own path plus a suffix, so the record sits where the image would have been and cannot collide with a stored object, since one attachment id produces one entry or the other and never both. Its lines name the reference the log carries — attachment id, media type, byte length, width, height — and then the failure. The archive continues and ends normally, so the download succeeds and every other file in it is exact.
+
+Cancellation is not an unreadable attachment. Two checks keep it that way, and either one alone would carry the aborted case: `mediaEntry`'s handler calls `signal?.throwIfAborted()` before it records anything, and the loop in `sessionLogZipEntries` re-checks the same signal after every `await` before it yields. The loop's check is not redundant — it is the one that covers a read that *succeeds* after the signal aborted — so both stay. An aborted request or a departed response consumer therefore still terminates the compressor and errors the stream, exactly as before. A descendant log that cannot be read still errors the stream too: a missing session log is a missing part of the history the archive exists to carry, while a missing image is a missing part of one message.
+
+The record quotes an `AttachmentError`'s `code` and `message`, and nothing else's. `AttachmentError`'s declaring class requires its message to describe the failure without raw bytes or host paths, which is what licenses copying that text into a file a browser downloads; the code separates a missing object from bytes that no longer match their reference, which is the distinction that identifies a defect like the one above. Any other failure is recorded without its own text — a filesystem error's message names an absolute host path, and the route deliberately withholds such text from the browser on its 500 path for the same reason. The test suite pins that separation by exporting four differently-shaped failures and asserting no `code:` line and no host path reaches the archive.
+
+The route's announced extent is unchanged and stays exact in its entry count: measuring produces one entry per media reference either way. It never opens a stored object — it takes each reference's recorded `bytes` — so an image the stream turns out to be unable to read is still counted at its recorded size rather than at the few hundred bytes its record occupies. The two size fields therefore read high for that entry, so the page divides its received bytes by a wire estimate larger than the body it gets and the bar advances more slowly than the transfer does, then jumps to complete from wherever it had reached. On the real session that motivated this change the body is 468779 bytes against an announced 1281573, and the last frame before completion reports 0.5 — held there by the entry measure, one of two entries finished, since the byte measure had fallen below it. That is the same direction as an archive compressing more softly than the calibration, which the wire estimate already completes early from. Re-reading every stored image during measurement is the only way to make those totals exact, and that is the cost the [export-progress note](../feature/2026-09-03-session-export-progress.md) already declined to pay.
+
+## Alternatives considered
+
+**Skip the unreadable image and export nothing in its place.** The archive would be complete-looking and silently short one file, with the log still referencing an id no entry answers. The whole point of failing loudly was to never under-export without saying so; a named record keeps that promise at one entry's cost.
+
+**Write the record but still fail the export at the end.** It preserves the "an export either succeeds entirely or fails" rule while making the reason readable. The reason is unreadable in practice: a failed download saves nothing, so the record would be produced and immediately discarded, and the page would still show `network error`.
+
+**Repair the reference instead — re-probe the object and export it under its true media type.** This rescues exactly the defect that motivated the change, and only that one. It makes the export a writer of attachment metadata, needs the probe the export package does not own, and does nothing for a deleted or unreadable object. Rescuing existing bad references was considered separately as a data question and declined.
+
+**Put the failure in the session log instead of the archive.** A session event would make the failure visible in the app and reconstructible from the log. It writes to a durable log during a read-only export, and the export is what the user is looking at; the failure belongs where they will find it.
+
+**Name the entry `media/<attachmentId>.error.txt`, without the image extension.** Shorter, but it no longer reads as "the file that should have been `media/<id>.png`", and it can collide with a hypothetical second reference to one id under a different media type.
+
+## Consequences
+
+An export of a session whose attachments are all readable is byte-identical to before. An export that would have torn now completes, and the archive holds one text file naming what could not be read. The panel's failure state keeps its meaning: after this change it reports a torn transfer only for a connection failure, a cancellation, or a descendant log that cannot be read.
+
+A user who opens the archive sees the failure rather than the image, which is the intended report — there is no other surface where a host-side attachment failure could reach them once the response has begun. The `network error` limitation that the [export-progress note](../feature/2026-09-03-session-export-progress.md) recorded is unchanged for the failures that still tear.
+
+`archive.host.spec.ts` pins the behavior: an archive whose two references split into one image entry and one record, with the record's exact text and the announced entry count and byte total; four non-`AttachmentError` failure shapes, each recorded without a code and without its message; and a cancellation landing during a media read, which still errors the stream. Package coverage stays at per-file 100%.
+
+The assembled application is covered by a second seeded session in `apps/web/tests/navigation-panes.e2e.ts`. Its user message references `sha256:` followed by sixty-four zeros — well-formed for `attachment-local`'s reference pattern, with no object ever written for it — so the real route, the real store, and the real page produce `ATTACHMENT_NOT_FOUND` end to end. The case asserts the `200`, the announced entry count of two, the archive's two entries, the record's `code` and `reason` lines, and the page's `Export complete` panel. It needs no golden and no recorded model call: no model call can produce a reference to an object that does not exist, so the seed is hand-written.
+
+Retire this patch when upstream lands the equivalent — an export that tolerates an attachment it cannot read — or when upstream offers a way to repair the references that make one unreadable.
