@@ -46,4 +46,6 @@ Host 在归档字节之前先声明它的规模，页面则自己完成传输。
 
 包内测试钉住了模型与两个半包：`progress.client.spec.ts` 覆盖响应字段解析、按线上估算缩放的单条目归档、被切开的签名计数、封顶、单调性与 0.99 天花板；`controller.client.spec.ts` 用返回分块 `ReadableStream` 的 mock `fetch` 驱动，断言进度序列、拼出的 `Blob`、两种 `Content-Disposition` 文件名形态，以及 HTTP、传输、缺失响应体、中途失败与取消各条路径；`archive.host.spec.ts` 断言在「一个子会话加两个附件」的会话树上，声明的总数等于归档真实的条目数与未压缩大小，断言 level 0 下估算值即精确值，并断言测量失败时这些字段缺席。整机装配在本代码树内由 `apps/web/tests/navigation-panes.e2e.ts` 覆盖，并随本次改动更新：它对着真实路由驱动 Session Header 按钮，断言 `GET` 带有三个规模字段，并解压页面保存下来的归档。
 
+存储读不出来的附件不再撕裂归档：[读不出的媒体 Note](../bug-fix/2026-09-04-export-records-unreadable-media.zh.md)改为把那条条目记录进导出内部，因此面板的传输撕裂态如今覆盖的是连接失败、取消，或读不出来的子会话日志。
+
 上游落地同等能力即退役：一次导出的进度与失败在页面里可见。
