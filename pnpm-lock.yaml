@@ -11835,7 +11835,7 @@ packages:
         optional: true
 
   '@haoran/dsh-btw@file:apps/desktop-server/vendor/haoran-dsh-btw-0.1.0.tgz':
-    resolution: {integrity: sha512-EnvARmsg30MI9HwBcGKAN/GcPalXkH5rSmM9LUbmdPV8N2xjgcvgtdDiKPihkAjoNJlwJNSIwWLmj5+lNiJBlw==, tarball: file:apps/desktop-server/vendor/haoran-dsh-btw-0.1.0.tgz}
+    resolution: {integrity: sha512-GwZdFplyZkA9SvKH5f9W/y0ZX2RD0esElh+Rkn1GE/rVqhAQl+OY2E71pjhhiyXj8/W5TeBDOF/7vGBZyEDPtQ==, tarball: file:apps/desktop-server/vendor/haoran-dsh-btw-0.1.0.tgz}
     version: 0.1.0
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1

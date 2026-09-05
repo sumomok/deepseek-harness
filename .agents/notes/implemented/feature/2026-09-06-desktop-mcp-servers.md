@@ -10,7 +10,7 @@ The harness ships an MCP client, [`@deepseek-ai/dsh-mcp-client`](../../../../pac
 
 ## Decision
 
-`@haoran/dsh-mcp-servers` 0.1.0 becomes the twelfth desktop built-in, vendored as `apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.1.0.tgz` (sha256 `2bffa01b9792b43fd0521cebfcd37c6ff6635d52d9dd80de539590b1df1d0d40`). It is an out-of-repository package from the `dsh-plugins` workspace and reaches the payload only as that `pnpm pack` archive, like every other built-in.
+`@haoran/dsh-mcp-servers` 0.1.0 joins the desktop built-ins listed in [`apps/desktop/README.md`](../../../../apps/desktop/README.md), vendored as `apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.1.0.tgz` (sha256 `2bffa01b9792b43fd0521cebfcd37c6ff6635d52d9dd80de539590b1df1d0d40`). It is an out-of-repository package from the `dsh-plugins` workspace and reaches the payload only as that `pnpm pack` archive, like every other built-in.
 
 It drives the upstream client from the settings document instead of from composition, and puts two answers in front of it. A stored server carries the fingerprint of the destination someone confirmed — command, arguments, working directory, environment, or URL and headers — and a change to any of them stops the server and asks again. A tool is registered only after its exact name, description, and input schema were ticked; a server that rewrites a tool's wording returns it to the waiting list, so it leaves the model's schema list rather than merely failing its next call. With no server stored the plugin registers no tool, starts no process, and adds nothing to any request.
 
@@ -22,7 +22,7 @@ The plugin's host half imports the client and mounts it per server with `ctx.plu
 
 ### Position in the bundle stack
 
-The name is appended last in `BUILTIN_WEB_BUNDLES` ([`apps/desktop/src/profile-seed.ts`](../../../../apps/desktop/src/profile-seed.ts)). Order between bundle layers decides nothing except where two layers patch the same entry id: `@haoran/dsh-default-model` replaces the whole `config` of the `agent-default-model` and `llm-deepseek` rows, so no later layer may target either, and this plugin's `cordis.patch.yml` only inserts a row of its own under the id `mcp-servers`. The `product/server-console` line's `feat/desktop-content-search` branch appends `@deepseek-ai/dsh-desktop-app`, which must stay last there; where the two branches meet, that name goes after this one.
+The name is appended in `BUILTIN_WEB_BUNDLES` ([`apps/desktop/src/profile-seed.ts`](../../../../apps/desktop/src/profile-seed.ts)) after `@haoran/dsh-default-model` and before `@haoran/dsh-btw`. Order between bundle layers decides nothing except where two layers patch the same entry id: `@haoran/dsh-default-model` replaces the whole `config` of the `agent-default-model` and `llm-deepseek` rows, so no later layer may target either, and this plugin's `cordis.patch.yml` only inserts a row of its own under the id `mcp-servers`, which no other layer sets. The `product/server-console` line's `feat/desktop-content-search` branch appends `@deepseek-ai/dsh-desktop-app`, which must stay last there; where the two branches meet, that name goes after every name in this list.
 
 ### What the desktop gives up by mounting it
 
@@ -30,7 +30,9 @@ The name is appended last in `BUILTIN_WEB_BUNDLES` ([`apps/desktop/src/profile-s
 
 **Every ticked tool's definition enters every request.** Tool definitions are not loaded on demand, so ticking thirty tools costs thirty names, descriptions, and input schemas in each turn.
 
-**The review model judges every MCP call.** `@haoran/dsh-llm-permission-gateway` skips only the tools named in its `readOnlyTools` and, under a sandbox, its `walledTools`; neither list carries an `mcp__*` name and neither can, since the names depend on which servers a machine holds. Under 自动审查 every MCP tool call therefore costs one review call, and outside it the calls are unreviewed and unwalled alike.
+**The review model judges every MCP call.** `@haoran/dsh-llm-permission-gateway` skips only the tools named in its `readOnlyTools` and, under a sandbox, its `walledTools`; neither default list carries an `mcp__*` name, and a machine's names are not knowable in advance because they follow the servers it holds. Both lists are plain string arrays a profile layer can rewrite, so a deployment that wants a particular MCP tool skipped can name it — nothing here is a red line. Under `/review auto` every MCP tool call therefore costs one review call, and under `/review manual` the calls are unreviewed and unwalled alike.
+
+**No gate in this repository starts an MCP server.** `verifyStagedBoot` boots the payload against a throwaway `$DSH_HOME` with no server stored, so it proves the plugin loads, composes, and serves its browser half, and nothing more: no stdio child is spawned and no Streamable HTTP endpoint is reached. The transport code is not even a package of its own by then — `bundleClosure` ([`apps/desktop/scripts/bundle-closure.ts`](../../../../apps/desktop/scripts/bundle-closure.ts)) treats only `@deepseek-ai/*`, the packages declaring `dsh.bundle`, and the native list as external, so `@modelcontextprotocol/sdk` is inlined into `@deepseek-ai/dsh-mcp-client/lib/`. Whether that inlined copy still starts a process and speaks the protocol from inside a packaged application is a real-machine acceptance item, not something a gate here can answer.
 
 **A tool description is the server's own text.** Nothing rewrites or screens it, so a server can put instructions to the model into a description that a person approved by reading it.
 
