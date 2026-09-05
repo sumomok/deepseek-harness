@@ -454,10 +454,10 @@ export const CONTENT_READ_IMAGE_DESCRIPTION =
   + 'it is written: the element\'s own rendered pixels, exported and attached to the result. The ref comes from '
   + 'an earlier read of this page and must name an img, canvas, svg or picture element. It answers what a page '
   + 'shows and never spells out — a QR code, a captcha, a chart, an icon drawn as a shape rather than as a '
-  + 'character. A picture too small to read well is enlarged — a bitmap by a whole multiple of its own pixels, a '
-  + 'vector rasterized large — and anything past the request\'s pixel budget is scaled down to it. The picture '
-  + 'is attached and nothing is read out of it — what it shows is the model\'s to say. The element must be '
-  + 'visible, must have finished loading, and must be drawn from this origin, because a browser lets no other '
+  + 'character. A very small picture is enlarged before it is attached — a bitmap by a whole multiple of its own '
+  + 'pixels, a vector rasterized large — and anything past the request\'s pixel budget is scaled down to it. The '
+  + 'picture is attached and nothing is read out of it — what it shows is the model\'s to say. The element must '
+  + 'be visible, must have finished loading, and must be drawn from this origin, because a browser lets no other '
   + 'origin\'s pixels be exported. Requires the session\'s model to accept image input.'
 
 /** The `ref` parameter line of the picture read. */

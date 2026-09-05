@@ -185,9 +185,9 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
     // the seat exported, and carries the one line of facts about what came out.
     expect(pictures.filter(text => !text.startsWith('Page: Home — the app is at /content-app/?pictures=code')))
       .toEqual([])
-    // 348 is under the raster floor and twice it is over, so the seat draws the
-    // stored PNG at twice its own size: the line carries both numbers.
-    expect(pictures.some(text => /e\d+ <img> 348×348 px, exported 696×696 as image\/png, \d+ bytes/u.test(text)))
+    // Twice 348 is four times its area and past the floor the provider prices
+    // at, so the seat draws this one at the size it stores.
+    expect(pictures.some(text => /e\d+ <img> 348×348 px, exported 348×348 as image\/png, \d+ bytes/u.test(text)))
       .toBe(true)
     // And nothing else was exported: the two the browser would rasterize are
     // not on this page, so no recorded hash depends on how it rasterizes.
@@ -201,7 +201,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the agent looks at a p
       return event.data.message.content.flatMap(result => result.content.filter(block => block.type === 'image'))
     })
     expect(blocks.length).toBeGreaterThanOrEqual(1)
-    expect(blocks[0]).toMatchObject({ attachment: { mediaType: 'image/png', width: 696, height: 696 } })
+    expect(blocks[0]).toMatchObject({ attachment: { mediaType: 'image/png', width: 348, height: 348 } })
 
     // And the answer is the model's own reading of those pixels. The probe this
     // scenario was designed against showed a vision model naming a matrix code
