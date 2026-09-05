@@ -24,20 +24,28 @@
  * A waterfall delivery is owed an answer: the Host holds the request until
  * every client it was delivered to has answered, and settles it as unanswered
  * (`next` — a refused approval, an unanswerable question) only when the last
- * one does. The shell never decides anything, so its answer is always `next`
- * — but WHEN it answers matters, because the browser page that does decide
- * is not always registered: it is loading, reloading after a rebind or an
- * F5, recovering from a renderer crash, or — on macOS, where closing the
- * window destroys it and the app lives on in the Dock — simply gone. An
- * immediate `next` in any of those moments would settle the request before
- * the user could see it, where a shell-less server would have kept it
- * pending and replayed it to the page when it registered. So the shell
- * answers late: {@link NEXT_GRACE_MS} after the delivery while an app window
- * exists (long enough for a page to load and register, short enough that a
- * request the page declines to handle still falls through), and not at all
- * while there is no window — those answers wait for the next window to be
- * created and then take the same grace. A `cancel` frame (someone answered)
- * drops the pending answer.
+ * one does. The shell answers `next` for every delivery the user did not
+ * answer on its own toast — but WHEN it answers matters, because the browser
+ * page that carries the request is not always registered: it is loading,
+ * reloading after a rebind or an F5, recovering from a renderer crash, or —
+ * on macOS, where closing the window destroys it and the app lives on in the
+ * Dock — simply gone. An immediate `next` in any of those moments would
+ * settle the request before the user could see it, where a shell-less server
+ * would have kept it pending and replayed it to the page when it registered.
+ * So the shell answers late: {@link NEXT_GRACE_MS} after the delivery while
+ * an app window exists (long enough for a page to load and register, short
+ * enough that a request the page declines to handle still falls through),
+ * and not at all while there is no window — those answers wait for the next
+ * window to be created and then take the same grace. A `cancel` frame
+ * (someone answered) drops the pending answer.
+ *
+ * The one decision the shell does carry is the user's own: an approval toast
+ * offers 「拒绝」, and pressing it answers that delivery with {@link REJECTED}.
+ * A `result` from any client settles the request for all of them at once, so
+ * the page's approval card goes away as the button is pressed. There is no
+ * 「批准」 on the toast: it names the tool and nothing else, and an approval is
+ * given in front of what is being approved. A button pressed on a toast the
+ * user kept — the request settled elsewhere meanwhile — does nothing.
  *
  * A Node client sends no `Origin` header, and the server's trust fence accepts
  * an absent one on a loopback `Host` — so no `Origin` is set here, and none may
@@ -53,13 +61,14 @@
  * which is what an expired cookie looks like from here.
  *
  * **The two platforms are told differently, and on purpose.** Windows gets a
- * system toast that raises the window when clicked. macOS gets a Dock badge and
- * one bounce, and no notification centre entry at all.
+ * system toast that raises the window when clicked, with buttons on the ones
+ * that want an answer. macOS gets a Dock badge and one bounce, and no
+ * notification centre entry at all.
  * @module @deepseek-ai/dsh-desktop/notifications
  */
 
 import { randomUUID } from 'node:crypto'
-import { app, Notification } from 'electron'
+import { app, Notification, type NotificationAction } from 'electron'
 import { mainWindow } from './main-window.ts'
 
 /** Path of the multiplexed Remote stream WebSocket (`REMOTE_STREAM_MUX_PATH` on the server). */
@@ -117,6 +126,14 @@ const RECONNECT_LOG_EVERY = 10
 const NEXT_GRACE_MS = 60_000
 
 /**
+ * The approval vocabulary's word for a refusal (`ApprovalOutcome` in
+ * `dsh-user-approval`). A word outside that vocabulary is normalized to
+ * `unavailable`, which refuses the tool call too — so a shell that sent the
+ * wrong one could only over-refuse, never approve.
+ */
+const REJECTED = 'rejected'
+
+/**
  * The reconnect delay before the `attempt`th consecutive attempt (1 for the
  * first attempt after a close), exponential up to {@link RECONNECT_MAX_MS}.
  * Pure so the backoff schedule is unit-testable without a real socket.
@@ -144,6 +161,40 @@ export interface NotifyHost {
   log: (line: string) => void
   /** Bring the app window back; what clicking a notification does. */
   reveal: () => void
+}
+
+/** One button on a toast: what it says, and what pressing it does. */
+export interface ToastAction {
+  /** The button's label. */
+  readonly text: string
+  /** What pressing the button does. */
+  readonly press: () => void
+}
+
+/**
+ * The `actions` a toast carrying these buttons is constructed with. Windows
+ * draws them; the only other platform reaching a `Notification` here is Linux,
+ * whose implementation ignores `actions`, so they are dropped rather than
+ * promised. Pure, so the platform rule is unit-tested without Electron.
+ * @param actions - the buttons the caller wants, in the order they are drawn.
+ * @param platform - `process.platform` of the running main process.
+ * @returns the action list to construct the notification with, empty off Windows.
+ */
+export function toastButtons(actions: readonly ToastAction[], platform: string): NotificationAction[] {
+  if (platform !== 'win32') return []
+  return actions.map(action => ({ type: 'button', text: action.text }))
+}
+
+/**
+ * The buttons an approval toast carries, in the order they are drawn: the one
+ * answer that is safe to give without reading the request, and a way to go and
+ * read it.
+ * @param reject - answers the delivery with {@link REJECTED}.
+ * @param reveal - brings the window back, as clicking the toast itself does.
+ * @returns the two buttons.
+ */
+export function approvalActions(reject: () => void, reveal: () => void): ToastAction[] {
+  return [{ text: '拒绝', press: reject }, { text: '去看看', press: reveal }]
 }
 
 /** Unseen attention events, which is what the macOS Dock badge counts. */
@@ -213,8 +264,10 @@ function unattended(): boolean {
  * @param host - logging, and the window a clicked notification leads back to.
  * @param title - the headline; the notification title on Windows.
  * @param body - one line of detail.
+ * @param actions - buttons to offer, in the order they are drawn; empty for a
+ * message that asks for nothing.
  */
-function announce(host: NotifyHost, title: string, body: string): void {
+function announce(host: NotifyHost, title: string, body: string, actions: readonly ToastAction[] = []): void {
   if (!unattended()) return
   host.log(`[desktop] notify: ${title} — ${body}\n`)
   if (process.platform === 'darwin') {
@@ -224,8 +277,14 @@ function announce(host: NotifyHost, title: string, body: string): void {
     return
   }
   if (!Notification.isSupported()) return
-  const notification = new Notification({ title, body })
+  const notification = new Notification({ title, body, actions: toastButtons(actions, process.platform) })
   notification.on('click', () => { host.reveal() })
+  notification.on('action', ({ actionIndex }) => {
+    // Windows keeps a shown toast in the action centre, buttons and all,
+    // until it is dismissed; the pressed one has had its say.
+    notification.close()
+    actions[actionIndex]?.press()
+  })
   notification.show()
 }
 
@@ -377,25 +436,46 @@ async function rpc(generation: Generation, endpoint: string, args: unknown): Pro
   return nested(result, 'value')
 }
 
+/** How one waterfall delivery is answered on {@link RESULT_ENDPOINT}. */
+type DeliveryOutcome = { readonly kind: 'next' } | { readonly kind: 'result'; readonly value: string }
+
 /**
- * Answer one waterfall delivery with `next`: the shell decides nothing, it
- * only stops being the client the Host is waiting on.
+ * Answer one waterfall delivery and stop being a client the Host is waiting
+ * on.
  * @param generation - the generation the delivery belongs to.
  * @param eventId - the delivery to answer.
+ * @param outcome - `next` to abstain, or a `result` that settles the request
+ * for every client at once.
  */
-function answerNext(generation: Generation, eventId: string): void {
+function answer(generation: Generation, eventId: string, outcome: DeliveryOutcome): void {
   const timer = generation.pending.get(eventId)
   if (timer !== undefined) clearTimeout(timer)
   generation.pending.delete(eventId)
   if (generation.stopped || generation.clientId === undefined) return
   const clientId = generation.clientId
-  void rpc(generation, RESULT_ENDPOINT, { clientId, eventId, outcome: { kind: 'next' } }).catch((error: unknown) => {
+  void rpc(generation, RESULT_ENDPOINT, { clientId, eventId, outcome }).catch((error: unknown) => {
     // A delivery that was already settled (answered elsewhere, or cancelled)
     // is a no-op on the Host; what fails here is the carrier or the client
     // registration, and the reopen path owns both.
     const message = error instanceof Error ? error.message : String(error)
     generation.host.log(`[desktop] event answer ${eventId} not accepted: ${message}\n`)
   })
+}
+
+/**
+ * Answer one approval delivery with the user's refusal, from its toast.
+ * A delivery this generation no longer waits on was settled without it — by
+ * the page, by another client, or by its own grace answer — and the Host
+ * discards a late answer, so the button does nothing rather than appear to.
+ * @param generation - the generation the delivery belongs to.
+ * @param eventId - the approval delivery the toast announced.
+ */
+function answerRejected(generation: Generation, eventId: string): void {
+  if (!generation.pending.has(eventId)) {
+    generation.host.log(`[desktop] approval ${eventId} was answered already; its toast button does nothing\n`)
+    return
+  }
+  answer(generation, eventId, { kind: 'result', value: REJECTED })
 }
 
 /**
@@ -413,7 +493,7 @@ function scheduleNext(generation: Generation, eventId: string): void {
   }
   // Unreferenced: a pending answer must never be the reason the app is still
   // alive after quitting began.
-  generation.pending.set(eventId, setTimeout(() => { answerNext(generation, eventId) }, NEXT_GRACE_MS).unref())
+  generation.pending.set(eventId, setTimeout(() => { answer(generation, eventId, { kind: 'next' }) }, NEXT_GRACE_MS).unref())
 }
 
 /**
@@ -499,7 +579,10 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
       if (frame['event'] === 'approval/request') {
         const tool = text(request, 'toolName') ?? '工具'
         void subject(generation, sessionId).then((who) => {
-          announce(host, '需要你的确认', `${who}请求执行 ${tool},正在等你批准。`)
+          announce(host, '需要你的确认', `${who}请求执行 ${tool},正在等你批准。`, approvalActions(
+            () => { answerRejected(generation, eventId) },
+            () => { host.reveal() },
+          ))
         })
       } else if (frame['event'] === 'user-questions/request') {
         void subject(generation, sessionId).then((who) => {
