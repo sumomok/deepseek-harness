@@ -183,52 +183,52 @@ function lowerTo(size: ImageSize, budget: number): ImageSize {
 }
 
 /**
- * Enlarge one stored raster by a whole multiple of itself, so its short side
- * reaches a floor.
+ * The largest whole multiple of one stored raster whose area still fits inside
+ * a floor.
  *
- * The multiple is whole, and the short side is what it is measured against, so
- * that every stored pixel becomes the same square block of exported pixels and
- * no edge in the picture lands between two of them. The short side is also the
- * side that decides legibility: a 100 × 2000 strip carried by its long side
- * would be exported at the size it already had.
+ * Whole, so that every stored pixel becomes the same square block of exported
+ * pixels and no edge in the picture lands between two of them. Bounded by the
+ * floor's area rather than carried to it, because the provider prices two
+ * images of one ratio identically while both are at or under that area and by
+ * their pixels above it: the largest multiple inside the floor is the largest
+ * enlargement that costs nothing. A raster past a quarter of the floor has no
+ * such multiple and answers 1.
  * @param size - the element's own size.
- * @param floor - the pixels the short side is carried to.
- * @returns the enlarged size, or the source when its short side already reaches
- * the floor.
+ * @param floor - the pixels the enlarged raster must stay within.
+ * @returns the multiple to draw at, which is 1 for a raster no enlargement fits.
  */
-function magnify(size: ImageSize, floor: number): ImageSize {
-  const short = Math.min(size.width, size.height)
-  if (short >= floor) return size
-  const factor = Math.ceil(floor / short)
-  return { width: size.width * factor, height: size.height * factor }
+function wholeMultiple(size: ImageSize, floor: number): number {
+  return Math.max(1, Math.floor(Math.sqrt(floor / (size.width * size.height))))
 }
 
 /**
  * The size one element's pixels are exported at, and how they are drawn there.
  *
- * Both kinds are carried up to the provider's own floor and then held to the
- * request's pixel budget, and they reach the floor differently because they
- * have different things to reach it with. A vector has detail at every size,
- * so it is rasterized to the floor's own area at whatever ratio its layout box
- * has. A bitmap has only the pixels it stores, so it is enlarged by a whole
- * multiple of itself and drawn with interpolation off: nothing between two
- * stored pixels is invented, and the model looks at the edges the page drew
- * rather than at a blur across them.
+ * Both kinds are held to the provider's own floor area and then to the
+ * request's pixel budget, and they meet the floor differently because they
+ * have different things to meet it with. A vector has detail at every size, so
+ * it is rasterized up to that area at whatever ratio its layout box has. A
+ * bitmap has only the pixels it stores, so it is drawn at the largest whole
+ * multiple of itself that fits inside the area, with interpolation off:
+ * nothing between two stored pixels is invented, and the model looks at the
+ * edges the page drew rather than at a blur across them.
  *
- * Interpolation is off for that enlargement and on for every other draw. A
- * picture being scaled down to the budget has more pixels than the export
- * carries and needs them averaged rather than dropped, and a picture drawn at
+ * An enlarged raster is never scaled afterwards. The floor's area is a
+ * fraction of the pixel budget, so the budget cannot bite an enlargement, and
+ * the net ratio the browser draws at is exactly that whole multiple. Every
+ * other draw keeps interpolation on: a picture scaled down to the budget needs
+ * its dropped pixels averaged rather than discarded, and a picture drawn at
  * the size it already had is drawn one to one, where smoothing decides nothing.
  * @param natural - the element's own size.
  * @param vector - whether the element is drawn from a vector.
  * @returns the size to draw at and the smoothing to draw it with.
  */
 export function exportSpec(natural: ImageSize, vector: boolean): ExportSpec {
-  const raised = vector
-    ? raiseTo(natural, RASTER_MIN_SIDE * RASTER_MIN_SIDE)
-    : magnify(natural, RASTER_MIN_SIDE)
-  const size = lowerTo(raised, IMAGE_PIXEL_BUDGET)
-  return { size, smooth: vector || size.width <= natural.width }
+  const floor = RASTER_MIN_SIDE * RASTER_MIN_SIDE
+  if (vector) return { size: lowerTo(raiseTo(natural, floor), IMAGE_PIXEL_BUDGET), smooth: true }
+  const factor = wholeMultiple(natural, floor)
+  const enlarged = { width: natural.width * factor, height: natural.height * factor }
+  return { size: lowerTo(enlarged, IMAGE_PIXEL_BUDGET), smooth: factor === 1 }
 }
 
 /**

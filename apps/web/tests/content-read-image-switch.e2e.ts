@@ -211,9 +211,9 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
     expect(pictures.length).toBeGreaterThanOrEqual(1)
     expect(pictures.filter(text => !text.startsWith('Page: Home — the app is at /content-app/?pictures=code')))
       .toEqual([])
-    // 348 is under the raster floor and twice it is over, so the seat draws the
-    // stored PNG at twice its own size: the line carries both numbers.
-    expect(pictures.some(text => /e\d+ <img> 348×348 px, exported 696×696 as image\/png, \d+ bytes/u.test(text)))
+    // Twice 348 is four times its area and past the floor the provider prices
+    // at, so the seat draws this one at the size it stores.
+    expect(pictures.some(text => /e\d+ <img> 348×348 px, exported 348×348 as image\/png, \d+ bytes/u.test(text)))
       .toBe(true)
 
     const blocks = sessionEvents.flatMap((event) => {
@@ -221,7 +221,7 @@ describe.skipIf(MODE !== 'record' && !RECORDED)('web e2e: the user is asked to c
       return event.data.message.content.flatMap(result => result.content.filter(block => block.type === 'image'))
     })
     expect(blocks.length).toBeGreaterThanOrEqual(1)
-    expect(blocks[0]).toMatchObject({ attachment: { mediaType: 'image/png', width: 696, height: 696 } })
+    expect(blocks[0]).toMatchObject({ attachment: { mediaType: 'image/png', width: 348, height: 348 } })
 
     // The picture reached the model rather than a placeholder: a change that had
     // not taken effect would have left the model nothing to describe.

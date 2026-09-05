@@ -120,7 +120,7 @@ function refusal(capture: Capture): string {
 }
 
 describe('what one element exports as a picture', () => {
-  it('exports a decoded image, reporting the raster it stores rather than the size it was drawn at', async () => {
+  it('exports a decoded image at its own stored size when no whole multiple of it fits the floor', async () => {
     const el = mount('<img src="/qr.png" alt="">', 'img')
     decoded(el, { width: 240, height: 240 })
     const answer = await capture(el)
@@ -131,17 +131,16 @@ describe('what one element exports as a picture', () => {
       mediaType: IMAGE_MEDIA_TYPE,
       data: DRAWN.data,
     })
-    // Its short side is under the floor, so it is drawn at the whole multiple
-    // of itself that reaches it, with the browser told to invent nothing
-    // between two stored pixels.
-    expect(asked).toEqual([{ el, spec: { size: { width: 480, height: 480 }, smooth: false } }])
+    expect(asked).toEqual([{ el, spec: { size: { width: 240, height: 240 }, smooth: true } }])
   })
 
-  it('exports a raster already at the floor at the size it stores, drawn one to one', async () => {
-    const el = mount('<img src="/photo.png" alt="">', 'img')
-    decoded(el, { width: 500, height: 400 })
-    expect(await capture(el)).toMatchObject({ kind: 'captured', natural: { width: 500, height: 400 } })
-    expect(asked).toEqual([{ el, spec: { size: { width: 500, height: 400 }, smooth: true } }])
+  it('exports a small image at a whole multiple of itself, reporting the raster it stores', async () => {
+    const el = mount('<img src="/logo.png" alt="">', 'img')
+    decoded(el, { width: 32, height: 32 })
+    expect(await capture(el)).toMatchObject({ kind: 'captured', tag: 'img', natural: { width: 32, height: 32 } })
+    // Twelve times over, with the browser told to invent nothing between two
+    // stored pixels.
+    expect(asked).toEqual([{ el, spec: { size: { width: 384, height: 384 }, smooth: false } }])
   })
 
   it('exports the image a picture element renders through, under the wrapper\'s own tag', async () => {
@@ -190,10 +189,10 @@ describe('what one element exports as a picture', () => {
     expect(refusal(await capture(el))).toBe(unloadedImageRefusal(REF))
   })
 
-  it('reports a canvas at its backing store\'s own size, whatever it was drawn at', async () => {
+  it('exports a canvas at its backing store\'s own size', async () => {
     const el = mount('<canvas width="320" height="180"></canvas>', 'canvas')
     expect(await capture(el)).toMatchObject({ kind: 'captured', tag: 'canvas', natural: { width: 320, height: 180 } })
-    expect(asked).toEqual([{ el, spec: { size: { width: 960, height: 540 }, smooth: false } }])
+    expect(asked).toEqual([{ el, spec: { size: { width: 320, height: 180 }, smooth: true } }])
   })
 
   it('refuses a canvas the page draws nothing in', async () => {
@@ -271,37 +270,61 @@ describe('what one element exports as a picture', () => {
 })
 
 describe('the size one element\'s pixels are exported at', () => {
-  it('carries a small raster to the floor by a whole multiple of itself', () => {
-    // Twelve times a 32-pixel side, which is the first whole multiple of it
-    // that reaches the floor.
+  /** The area every export is enlarged toward and never past. */
+  const FLOOR = RASTER_MIN_SIDE * RASTER_MIN_SIDE
+
+  it('draws a small raster twelve times over, landing on the floor\'s own area', () => {
     expect(exportSpec({ width: 32, height: 32 }, false))
       .toEqual({ size: { width: 384, height: 384 }, smooth: false })
   })
 
-  it('takes the next whole multiple up when the floor lands between two', () => {
-    // 348 is under the floor and twice it is over: the multiple is whole, so
-    // the export overshoots rather than landing on the floor exactly.
+  it('draws a raster a quarter of the floor twice over', () => {
+    expect(exportSpec({ width: 64, height: 64 }, false))
+      .toEqual({ size: { width: 384, height: 384 }, smooth: false })
+  })
+
+  it('measures the multiple by area, so a long raster is enlarged by its own ratio', () => {
+    // 16 × 64 has the area of a 32 × 32 and takes the same twelve, which a
+    // side-by-side rule would have cut to six.
+    expect(exportSpec({ width: 16, height: 64 }, false))
+      .toEqual({ size: { width: 192, height: 768 }, smooth: false })
+  })
+
+  it('takes the largest whole multiple that fits rather than the one that reaches the floor', () => {
+    // Four times over would be 400 × 400, past the floor and past what the
+    // provider prices at the floor; three is the largest that stays inside it.
+    expect(exportSpec({ width: 100, height: 100 }, false))
+      .toEqual({ size: { width: 300, height: 300 }, smooth: false })
+  })
+
+  it('leaves a raster no whole multiple fits exactly as it is', () => {
+    // Twice over is four times the area, so anything past a quarter of the
+    // floor is exported as it stands — including the 348 × 348 the recorded
+    // Web scenario exports.
+    expect(exportSpec({ width: 240, height: 240 }, false))
+      .toEqual({ size: { width: 240, height: 240 }, smooth: true })
     expect(exportSpec({ width: 348, height: 348 }, false))
-      .toEqual({ size: { width: 696, height: 696 }, smooth: false })
+      .toEqual({ size: { width: 348, height: 348 }, smooth: true })
   })
 
-  it('enlarges a raster whose short side alone is under the floor', () => {
-    expect(exportSpec({ width: 400, height: 300 }, false))
-      .toEqual({ size: { width: 800, height: 600 }, smooth: false })
+  it('leaves a strip already past the floor\'s area as it is', () => {
+    expect(exportSpec({ width: 100, height: 2000 }, false))
+      .toEqual({ size: { width: 100, height: 2000 }, smooth: true })
   })
 
-  it('leaves a raster whose short side already reaches the floor exactly as it is', () => {
-    expect(exportSpec({ width: 400, height: 400 }, false))
-      .toEqual({ size: { width: 400, height: 400 }, smooth: true })
-  })
-
-  it('measures a strip by its short side, then holds the multiple to the pixel budget', () => {
-    const strip = exportSpec({ width: 100, height: 2000 }, false)
-    // Four times a 100-pixel side is 400 × 8000, five times the budget, so what
-    // is drawn is the multiple walked back down inside it: the short side no
-    // longer reaches the floor, and there was no size that both did.
-    expect(strip).toEqual({ size: { width: 179, height: 3575 }, smooth: false })
-    expect(strip.size.width * strip.size.height).toBeLessThanOrEqual(IMAGE_PIXEL_BUDGET)
+  it('never enlarges a raster past the area the provider prices at the floor', () => {
+    // Which is what makes the enlargement free: the provider scales anything
+    // under this area up to exactly it, so an enlarged raster and its own
+    // natural size land on one grid and are priced the same.
+    for (const natural of [
+      { width: 1, height: 1 }, { width: 32, height: 32 }, { width: 13, height: 17 },
+      { width: 16, height: 64 }, { width: 100, height: 100 }, { width: 191, height: 191 },
+    ]) {
+      const { size } = exportSpec(natural, false)
+      expect(size.width * size.height).toBeLessThanOrEqual(FLOOR)
+      expect(size.width % natural.width).toBe(0)
+      expect(size.width / natural.width).toBe(size.height / natural.height)
+    }
   })
 
   it('enlarges a vector to the floor\'s own area, keeping its ratio', () => {
@@ -309,7 +332,7 @@ describe('the size one element\'s pixels are exported at', () => {
     // Both axes are rounded, so the pair lands just past the floor rather than
     // exactly on it — which is the side of it that matters.
     expect(raised).toEqual({ size: { width: 543, height: 272 }, smooth: true })
-    expect(raised.size.width * raised.size.height).toBeGreaterThanOrEqual(RASTER_MIN_SIDE * RASTER_MIN_SIDE)
+    expect(raised.size.width * raised.size.height).toBeGreaterThanOrEqual(FLOOR)
   })
 
   it('leaves a vector already past the floor alone', () => {

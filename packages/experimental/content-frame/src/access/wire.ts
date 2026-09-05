@@ -784,18 +784,22 @@ export const IMAGE_MEDIA_TYPE = 'image/png'
 export const IMAGE_PIXEL_BUDGET = 640_000
 
 /**
- * Pixels along one side that an exported image is enlarged to reach.
+ * The side of the square whose area one export is enlarged toward.
  *
  * The provider's own vision floor, restated: `MIN_PIXELS` in
- * `packages/llm/llm-deepseek/src/image-tokens.ts` is the same 384 × 384, and
- * the provider scales anything under it up before projecting it onto the patch
- * grid. Reaching it in the seat costs no tokens, because the token count is
- * the same on both sides of that floor, and a picture that arrives under it is
- * read wrong whether or not the pricing enlarges it afterwards. Each kind of
- * source reaches the floor differently — a vector by area, since its ratio is
- * a layout box rather than a stored grid, and a bitmap by its short side,
- * since what it is enlarged by has to be a whole multiple of the grid it
- * stores.
+ * `packages/llm/llm-deepseek/src/image-tokens.ts` is the same 384 × 384 total
+ * pixels, and the provider scales any image under that area up to exactly it,
+ * at its own ratio, before projecting it onto the patch grid. Two images with
+ * one ratio and an area at or under the floor therefore land on the same grid
+ * and are priced identically, which is what makes an enlargement inside the
+ * floor free and one past it expensive: 117 tokens at or under the floor, 201
+ * at twice its area, and 349 at the whole pixel budget, against the provider's
+ * 384-token cap.
+ *
+ * Both kinds of source are held to that area and reach it differently. A
+ * vector is rasterized to it, at whatever ratio its layout box has. A bitmap
+ * is enlarged by the largest whole multiple of itself that still fits inside
+ * it, which is 1 — no enlargement — for anything past a quarter of it.
  */
 export const RASTER_MIN_SIDE = 384
 
