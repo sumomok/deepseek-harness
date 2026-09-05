@@ -263,7 +263,7 @@ Two rules hold over this package's tool copy — every tool description, every p
 
 **A description describes its own tool, or its own parameter, and names no other tool.** No description says a sibling is cheaper, is the read to start from, or is where a ref comes from; each says what it takes, what it prints and what it answers. The model picks a tool by reading all of them.
 
-**A failure states why the call was refused, and nothing else.** No refusal names a tool to call instead, tells the user to be asked something, or says to retry: the column was empty, the entry in front is not a page, no visible console tab claimed the call within the wait, the answer ran past the budget. A refusal does name this tool's own parameter where the parameter is the reason — `scope must be a ref like "e12" printed by an earlier read of this page` — because that is the reason and not a remedy.
+**A failure states why the call was refused, and nothing else.** No refusal names a tool to call instead, tells the user to be asked something, or says to retry: the column was empty, the entry in front is not a page, no console tab claimed the call within the wait, the answer ran past the budget. A refusal does name this tool's own parameter where the parameter is the reason — `scope must be a ref like "e12" printed by an earlier read of this page` — because that is the reason and not a remedy.
 
 The rules changed together after an A/B on a real console: two prompts, one fresh session per cell, cross-referenced copy against self-contained. Under the cross-referenced copy the refused call was `content_read` with `mode: "dom"` in prompt A and `content_read` with `scope: ""` in prompt B, one each. Under the self-contained copy prompt A went straight to `content_read_dom` and then spent two calls on `content_read` with `mode: "find"`, and prompt B opened with `content_read` and `scope: "__page__"` — two refused calls and one. The misroute the change targets did not recur; both conditions still invented a `scope` value on a first call and read a word as a `mode` value, which is why that parameter line now says omitting `scope` reads the whole page. Total calls fell 13→11 and 11→9, whole-tree DOM reads fell 3→1 and 2→1, and all four cells answered correctly; with n = 1 per cell and temperature uncontrolled those counts are observations, not measurements. [`tests/self-contained-copy.client.spec.ts`](tests/self-contained-copy.client.spec.ts) walks both text modules' whole export surface, the listing a read answers with, and every description of the seven assembled tool definitions, and fails on any tool name in any of it.
 
@@ -321,13 +321,13 @@ A successful read answers with one text block: a `Page: <title> — the app is a
 ##### The claim timeout over an empty column
 
 ```markdown
-No open, visible console tab is showing this session's content column (waited 3s).
+No console tab is showing this session's content column (waited 3s).
 ```
 
 ##### The claim timeout over a column with an entry in front
 
 ```markdown
-No open, visible console tab is showing this session's content column (waited 3s); the page "点位信息" is already in front.
+No console tab is showing this session's content column (waited 3s); the page "点位信息" is already in front.
 ```
 
 #### Token effect

@@ -579,7 +579,7 @@ describe('what content_act answers with', () => {
     const result = await run({ steps: STEPS }).settled
     expect(result.isError).toBe(true)
     expect(text(result)).toBe(
-      'Error: No open, visible console tab is showing this session\'s content column (waited 0.03s). '
+      'Error: No console tab is showing this session\'s content column (waited 0.03s). '
       + 'Nothing was done.',
     )
   })

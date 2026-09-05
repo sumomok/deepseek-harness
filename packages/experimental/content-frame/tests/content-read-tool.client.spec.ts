@@ -220,13 +220,13 @@ describe('what content_read refuses before it waits', () => {
 describe('what content_read answers when no listing arrives', () => {
   it('pins the two deadline sentences against the deployment defaults', () => {
     expect(unclaimedRefusal(3000, undefined)).toBe(
-      'No open, visible console tab is showing this session\'s content column (waited 3s).',
+      'No console tab is showing this session\'s content column (waited 3s).',
     )
     // A column that already holds something states that as well: it is the
     // other half of the reason, and a tab that is open but not visible is what
     // a real machine hit here.
     expect(unclaimedRefusal(3000, { entryId: 'points', kind: 'page', title: '点位信息' })).toBe(
-      'No open, visible console tab is showing this session\'s content column (waited 3s); '
+      'No console tab is showing this session\'s content column (waited 3s); '
       + 'the page "点位信息" is already in front.',
     )
     // Named by its own kind word, because the column's key domain is open and
@@ -244,7 +244,7 @@ describe('what content_read answers when no listing arrives', () => {
     const result = await run({}).settled
     expect(result.isError).toBe(true)
     expect(text(result)).toBe(
-      'Error: No open, visible console tab is showing this session\'s content column (waited 0.03s).',
+      'Error: No console tab is showing this session\'s content column (waited 0.03s).',
     )
   })
 
@@ -255,7 +255,7 @@ describe('what content_read answers when no listing arrives', () => {
     const result = await run({}).settled
     expect(result.isError).toBe(true)
     expect(text(result)).toBe(
-      'Error: No open, visible console tab is showing this session\'s content column (waited 0.03s); '
+      'Error: No console tab is showing this session\'s content column (waited 0.03s); '
       + 'the page "Home" is already in front.',
     )
   })

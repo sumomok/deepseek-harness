@@ -894,7 +894,7 @@ describe('the read channel over real HTTP', () => {
     const result = await startRead(ctx, session, 'call_front')
     expect({ isError: result.isError, text: textOf(result) }).toEqual({
       isError: true,
-      text: 'Error: No open, visible console tab is showing this session\'s content column (waited 0.03s); '
+      text: 'Error: No console tab is showing this session\'s content column (waited 0.03s); '
         + 'the page "Home" is already in front.',
     })
   })
@@ -907,7 +907,7 @@ describe('the read channel over real HTTP', () => {
     ], 30)
     const result = await startRead(ctx, hostSession(ctx), 'call_empty')
     expect(textOf(result)).toBe(
-      'Error: No open, visible console tab is showing this session\'s content column (waited 0.03s).',
+      'Error: No console tab is showing this session\'s content column (waited 0.03s).',
     )
   })
 

@@ -346,7 +346,7 @@ describe('what a markup read refuses', () => {
     const result = await run('content_read_dom', { scope: 'e1' }).settled
     expect(result.isError).toBe(true)
     expect(text(result)).toBe(
-      'Error: No open, visible console tab is showing this session\'s content column (waited 0.03s).',
+      'Error: No console tab is showing this session\'s content column (waited 0.03s).',
     )
   })
 

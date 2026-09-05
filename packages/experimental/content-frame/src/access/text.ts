@@ -136,11 +136,12 @@ export const FRAME_WIDE_LISTING_MESSAGE =
 /**
  * The failure for a claim window that passed with no browser in it.
  *
- * A tab that is open but not visible does not claim — the seat's scan runs
- * again when the tab comes back — so the sentence says visible rather than
- * open: a real machine spent four reads and an unhelpful `content_show` on this
- * ending while the screen was locked, with the tab in front of a locked display
- * and `document.visibilityState` `hidden`.
+ * The sentence says showing rather than open, because showing is what a seat
+ * bids on: a console with no live frame for this session's column claims
+ * nothing, whether it never had that column's page on display or its frame has
+ * since been evicted. Visibility is no part of it — a tab the user is not
+ * looking at holds the same frames and bids for the same calls, one grace
+ * window later — so the sentence does not name it.
  *
  * The entry in front is stated where there is one, because it is the other half
  * of the reason: the column holds something and no seat answered for it. It is
@@ -151,7 +152,7 @@ export const FRAME_WIDE_LISTING_MESSAGE =
  * @returns the model-facing sentence.
  */
 export function unclaimedRefusal(claimTimeoutMs: number, front: FrontEntry | undefined): string {
-  const waited = 'No open, visible console tab is showing this session\'s content column '
+  const waited = 'No console tab is showing this session\'s content column '
     + `(waited ${claimTimeoutMs / 1000}s)`
   if (front === undefined) return `${waited}.`
   return `${waited}; the ${front.kind} "${front.title}" is already in front.`
