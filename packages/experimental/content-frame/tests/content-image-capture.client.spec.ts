@@ -16,14 +16,14 @@
 
 import { beforeEach, describe, expect, it } from 'vitest'
 import {
-  captureElement, exportSize, type Capture, type ExportedImage, type ExportPixels,
+  captureElement, exportSpec, type Capture, type ExportedImage, type ExportPixels, type ExportSpec,
 } from '../src/client/access/capture.ts'
 import {
   emptyImageRefusal, hiddenImageRefusal, notAnImageRefusal, slowImageRefusal, taintedImageRefusal,
   unexportableImageRefusal, unloadedImageRefusal, wideImageRefusal,
 } from '../src/access/text.ts'
 import {
-  IMAGE_MEDIA_TYPE, IMAGE_PIXEL_BUDGET, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES, SVG_RASTER_MIN_PIXELS, type ImageSize,
+  IMAGE_MEDIA_TYPE, IMAGE_PIXEL_BUDGET, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES, RASTER_MIN_SIDE, type ImageSize,
 } from '../src/access/wire.ts'
 
 /** The ref every case here names, which every refusal opens with. */
@@ -38,8 +38,8 @@ const DRAWN: ExportedImage = { data: 'AAAA', mediaType: IMAGE_MEDIA_TYPE, bytes:
  */
 const BUDGET_MS = 40
 
-/** Every size the stub was asked to draw at, in order. */
-let asked: { el: Element; size: ImageSize }[] = []
+/** Every drawing the stub was asked for, in order. */
+let asked: { el: Element; spec: ExportSpec }[] = []
 
 beforeEach(() => {
   asked = []
@@ -52,8 +52,8 @@ beforeEach(() => {
  * @returns the injected drawing.
  */
 function draws(exported: ExportedImage = DRAWN): ExportPixels {
-  return (el, size) => {
-    asked.push({ el, size })
+  return (el, spec) => {
+    asked.push({ el, spec })
     return Promise.resolve(exported)
   }
 }
@@ -120,7 +120,7 @@ function refusal(capture: Capture): string {
 }
 
 describe('what one element exports as a picture', () => {
-  it('exports a decoded image at its own stored size and never larger', async () => {
+  it('exports a decoded image, reporting the raster it stores rather than the size it was drawn at', async () => {
     const el = mount('<img src="/qr.png" alt="">', 'img')
     decoded(el, { width: 240, height: 240 })
     const answer = await capture(el)
@@ -131,7 +131,17 @@ describe('what one element exports as a picture', () => {
       mediaType: IMAGE_MEDIA_TYPE,
       data: DRAWN.data,
     })
-    expect(asked).toEqual([{ el, size: { width: 240, height: 240 } }])
+    // Its short side is under the floor, so it is drawn at the whole multiple
+    // of itself that reaches it, with the browser told to invent nothing
+    // between two stored pixels.
+    expect(asked).toEqual([{ el, spec: { size: { width: 480, height: 480 }, smooth: false } }])
+  })
+
+  it('exports a raster already at the floor at the size it stores, drawn one to one', async () => {
+    const el = mount('<img src="/photo.png" alt="">', 'img')
+    decoded(el, { width: 500, height: 400 })
+    expect(await capture(el)).toMatchObject({ kind: 'captured', natural: { width: 500, height: 400 } })
+    expect(asked).toEqual([{ el, spec: { size: { width: 500, height: 400 }, smooth: true } }])
   })
 
   it('exports the image a picture element renders through, under the wrapper\'s own tag', async () => {
@@ -180,10 +190,10 @@ describe('what one element exports as a picture', () => {
     expect(refusal(await capture(el))).toBe(unloadedImageRefusal(REF))
   })
 
-  it('exports a canvas at its backing store\'s own size', async () => {
+  it('reports a canvas at its backing store\'s own size, whatever it was drawn at', async () => {
     const el = mount('<canvas width="320" height="180"></canvas>', 'canvas')
     expect(await capture(el)).toMatchObject({ kind: 'captured', tag: 'canvas', natural: { width: 320, height: 180 } })
-    expect(asked).toEqual([{ el, size: { width: 320, height: 180 } }])
+    expect(asked).toEqual([{ el, spec: { size: { width: 960, height: 540 }, smooth: false } }])
   })
 
   it('refuses a canvas the page draws nothing in', async () => {
@@ -204,7 +214,9 @@ describe('what one element exports as a picture', () => {
     // The element's own size is what it was laid out at; the export is what a
     // vector still has detail for.
     expect(answer).toMatchObject({ kind: 'captured', tag: 'svg', natural: { width: 24, height: 24 } })
-    expect(asked[0]?.size).toEqual({ width: 384, height: 384 })
+    // A vector has no stored grid to keep the edges of, so the browser
+    // interpolates the way it does for every drawing but an enlarged raster.
+    expect(asked[0]?.spec).toEqual({ size: { width: 384, height: 384 }, smooth: true })
   })
 
   it('reports what the browser encoded rather than what was asked for', async () => {
@@ -259,35 +271,64 @@ describe('what one element exports as a picture', () => {
 })
 
 describe('the size one element\'s pixels are exported at', () => {
-  it('leaves a bitmap inside the budget exactly as it is', () => {
-    expect(exportSize({ width: 220, height: 40 }, false)).toEqual({ width: 220, height: 40 })
+  it('carries a small raster to the floor by a whole multiple of itself', () => {
+    // Twelve times a 32-pixel side, which is the first whole multiple of it
+    // that reaches the floor.
+    expect(exportSpec({ width: 32, height: 32 }, false))
+      .toEqual({ size: { width: 384, height: 384 }, smooth: false })
   })
 
-  it('never enlarges a bitmap, however small', () => {
-    expect(exportSize({ width: 16, height: 16 }, false)).toEqual({ width: 16, height: 16 })
+  it('takes the next whole multiple up when the floor lands between two', () => {
+    // 348 is under the floor and twice it is over: the multiple is whole, so
+    // the export overshoots rather than landing on the floor exactly.
+    expect(exportSpec({ width: 348, height: 348 }, false))
+      .toEqual({ size: { width: 696, height: 696 }, smooth: false })
   })
 
-  it('enlarges a vector to the pixel floor, keeping its ratio', () => {
-    const raised = exportSize({ width: 48, height: 24 }, true)
+  it('enlarges a raster whose short side alone is under the floor', () => {
+    expect(exportSpec({ width: 400, height: 300 }, false))
+      .toEqual({ size: { width: 800, height: 600 }, smooth: false })
+  })
+
+  it('leaves a raster whose short side already reaches the floor exactly as it is', () => {
+    expect(exportSpec({ width: 400, height: 400 }, false))
+      .toEqual({ size: { width: 400, height: 400 }, smooth: true })
+  })
+
+  it('measures a strip by its short side, then holds the multiple to the pixel budget', () => {
+    const strip = exportSpec({ width: 100, height: 2000 }, false)
+    // Four times a 100-pixel side is 400 × 8000, five times the budget, so what
+    // is drawn is the multiple walked back down inside it: the short side no
+    // longer reaches the floor, and there was no size that both did.
+    expect(strip).toEqual({ size: { width: 179, height: 3575 }, smooth: false })
+    expect(strip.size.width * strip.size.height).toBeLessThanOrEqual(IMAGE_PIXEL_BUDGET)
+  })
+
+  it('enlarges a vector to the floor\'s own area, keeping its ratio', () => {
+    const raised = exportSpec({ width: 48, height: 24 }, true)
     // Both axes are rounded, so the pair lands just past the floor rather than
     // exactly on it — which is the side of it that matters.
-    expect(raised).toEqual({ width: 543, height: 272 })
-    expect(raised.width * raised.height).toBeGreaterThanOrEqual(SVG_RASTER_MIN_PIXELS)
+    expect(raised).toEqual({ size: { width: 543, height: 272 }, smooth: true })
+    expect(raised.size.width * raised.size.height).toBeGreaterThanOrEqual(RASTER_MIN_SIDE * RASTER_MIN_SIDE)
   })
 
   it('leaves a vector already past the floor alone', () => {
-    expect(exportSize({ width: 800, height: 400 }, true)).toEqual({ width: 800, height: 400 })
+    expect(exportSpec({ width: 800, height: 400 }, true))
+      .toEqual({ size: { width: 800, height: 400 }, smooth: true })
   })
 
   it('scales anything past the pixel budget down inside it, keeping its ratio', () => {
-    const lowered = exportSize({ width: 4000, height: 2000 }, false)
+    const lowered = exportSpec({ width: 4000, height: 2000 }, false)
     // Flooring the long side and rounding the short one off it can still land
-    // past the budget, so the pair is walked down until it does not.
-    expect(lowered).toEqual({ width: 1130, height: 565 })
-    expect(lowered.width * lowered.height).toBeLessThanOrEqual(IMAGE_PIXEL_BUDGET)
+    // past the budget, so the pair is walked down until it does not. Nothing is
+    // enlarged here, so the browser averages the pixels it drops rather than
+    // discarding them.
+    expect(lowered).toEqual({ size: { width: 1130, height: 565 }, smooth: true })
+    expect(lowered.size.width * lowered.size.height).toBeLessThanOrEqual(IMAGE_PIXEL_BUDGET)
   })
 
   it('scales a tall picture down by its own long side', () => {
-    expect(exportSize({ width: 2000, height: 4000 }, false)).toEqual({ width: 565, height: 1130 })
+    expect(exportSpec({ width: 2000, height: 4000 }, false))
+      .toEqual({ size: { width: 565, height: 1130 }, smooth: true })
   })
 })

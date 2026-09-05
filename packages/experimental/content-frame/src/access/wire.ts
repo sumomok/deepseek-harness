@@ -784,18 +784,20 @@ export const IMAGE_MEDIA_TYPE = 'image/png'
 export const IMAGE_PIXEL_BUDGET = 640_000
 
 /**
- * Total pixels an `svg` is rasterized up to before it is exported.
+ * Pixels along one side that an exported image is enlarged to reach.
  *
  * The provider's own vision floor, restated: `MIN_PIXELS` in
  * `packages/llm/llm-deepseek/src/image-tokens.ts` is the same 384 × 384, and
  * the provider scales anything under it up before projecting it onto the patch
- * grid. Rasterizing a vector at its layout box and letting the provider
- * enlarge the result would throw away information the vector still had, and
- * enlarging it here costs no tokens, because the token count is the same on
- * both sides of that floor. It applies to vectors alone: enlarging a bitmap
- * adds nothing to enlarge.
+ * grid. Reaching it in the seat costs no tokens, because the token count is
+ * the same on both sides of that floor, and a picture that arrives under it is
+ * read wrong whether or not the pricing enlarges it afterwards. Each kind of
+ * source reaches the floor differently — a vector by area, since its ratio is
+ * a layout box rather than a stored grid, and a bitmap by its short side,
+ * since what it is enlarged by has to be a whole multiple of the grid it
+ * stores.
  */
-export const SVG_RASTER_MIN_PIXELS = 384 * 384
+export const RASTER_MIN_SIDE = 384
 
 /**
  * Most bytes one exported image may come to.

@@ -15,7 +15,7 @@
  */
 
 import {
-  CAPTURE_MEDIA_TYPES, forWire, IMAGE_PIXEL_BUDGET, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES, SVG_RASTER_MIN_PIXELS,
+  CAPTURE_MEDIA_TYPES, forWire, IMAGE_PIXEL_BUDGET, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES, RASTER_MIN_SIDE,
   type CaptureMediaType, type ImageSize,
 } from '../../access/wire.ts'
 import {
@@ -51,18 +51,26 @@ export interface ExportedImage {
   readonly bytes: number
 }
 
+/** What one export asks a browser for, which {@link exportSpec} resolves whole. */
+export interface ExportSpec {
+  /** The size to draw at. */
+  readonly size: ImageSize
+  /** Whether the browser may interpolate between the source's own pixels while it draws. */
+  readonly smooth: boolean
+}
+
 /**
- * Draw one element at a given size and encode the result.
+ * Draw one element as one export asks for it and encode the result.
  *
  * Injected rather than called directly, for one reason: a DOM implementation
  * without a canvas cannot draw at all, and this package takes no native canvas
  * dependency to give one to a test. `./export-pixels.ts` is the browser's own.
  * @param el - the element to draw: an `img`, a `canvas`, or an `svg`.
- * @param size - the size to draw it at.
+ * @param spec - the size to draw it at and the smoothing to draw it with.
  * @returns the encoded bytes.
  * @throws a `SecurityError` when another origin's pixels marked the surface.
  */
-export type ExportPixels = (el: Element, size: ImageSize) => Promise<ExportedImage>
+export type ExportPixels = (el: Element, spec: ExportSpec) => Promise<ExportedImage>
 
 /** What one export produced, or why there was nothing to produce. */
 export type Capture =
@@ -175,19 +183,52 @@ function lowerTo(size: ImageSize, budget: number): ImageSize {
 }
 
 /**
- * The size one element's pixels are exported at.
+ * Enlarge one stored raster by a whole multiple of itself, so its short side
+ * reaches a floor.
  *
- * A bitmap is never enlarged: the provider scales a small image up before it
- * prices one, so enlarging here would add bytes and no information and no
- * detail. A vector is enlarged, because it has detail at every size and
- * rasterizing it at its layout box would throw away what the provider's own
- * floor is about to ask for. Both are then held to the request's pixel budget.
+ * The multiple is whole, and the short side is what it is measured against, so
+ * that every stored pixel becomes the same square block of exported pixels and
+ * no edge in the picture lands between two of them. The short side is also the
+ * side that decides legibility: a 100 × 2000 strip carried by its long side
+ * would be exported at the size it already had.
+ * @param size - the element's own size.
+ * @param floor - the pixels the short side is carried to.
+ * @returns the enlarged size, or the source when its short side already reaches
+ * the floor.
+ */
+function magnify(size: ImageSize, floor: number): ImageSize {
+  const short = Math.min(size.width, size.height)
+  if (short >= floor) return size
+  const factor = Math.ceil(floor / short)
+  return { width: size.width * factor, height: size.height * factor }
+}
+
+/**
+ * The size one element's pixels are exported at, and how they are drawn there.
+ *
+ * Both kinds are carried up to the provider's own floor and then held to the
+ * request's pixel budget, and they reach the floor differently because they
+ * have different things to reach it with. A vector has detail at every size,
+ * so it is rasterized to the floor's own area at whatever ratio its layout box
+ * has. A bitmap has only the pixels it stores, so it is enlarged by a whole
+ * multiple of itself and drawn with interpolation off: nothing between two
+ * stored pixels is invented, and the model looks at the edges the page drew
+ * rather than at a blur across them.
+ *
+ * Interpolation is off for that enlargement and on for every other draw. A
+ * picture being scaled down to the budget has more pixels than the export
+ * carries and needs them averaged rather than dropped, and a picture drawn at
+ * the size it already had is drawn one to one, where smoothing decides nothing.
  * @param natural - the element's own size.
  * @param vector - whether the element is drawn from a vector.
- * @returns the size to draw at.
+ * @returns the size to draw at and the smoothing to draw it with.
  */
-export function exportSize(natural: ImageSize, vector: boolean): ImageSize {
-  return lowerTo(vector ? raiseTo(natural, SVG_RASTER_MIN_PIXELS) : natural, IMAGE_PIXEL_BUDGET)
+export function exportSpec(natural: ImageSize, vector: boolean): ExportSpec {
+  const raised = vector
+    ? raiseTo(natural, RASTER_MIN_SIDE * RASTER_MIN_SIDE)
+    : magnify(natural, RASTER_MIN_SIDE)
+  const size = lowerTo(raised, IMAGE_PIXEL_BUDGET)
+  return { size, smooth: vector || size.width <= natural.width }
 }
 
 /**
@@ -218,16 +259,16 @@ function isTaint(refusal: unknown): boolean {
  * after the deadline resolves into the race that already settled, which is
  * where its value and its throw are both absorbed.
  * @param el - the element to draw.
- * @param size - the size to draw it at.
+ * @param spec - the size to draw it at and the smoothing to draw it with.
  * @param options - the injected drawing and its deadline.
  * @returns the export, or `undefined` when the deadline came first.
  * @throws whatever the drawing threw, when it threw inside the deadline.
  */
-async function drawWithin(el: Element, size: ImageSize, options: CaptureOptions): Promise<ExportedImage | undefined> {
+async function drawWithin(el: Element, spec: ExportSpec, options: CaptureOptions): Promise<ExportedImage | undefined> {
   let deadline: ReturnType<typeof setTimeout> | undefined
   try {
     return await Promise.race([
-      options.draw(el, size),
+      options.draw(el, spec),
       new Promise<undefined>((resolve) => { deadline = setTimeout(() => { resolve(undefined) }, options.budgetMs) }),
     ])
   } finally {
@@ -264,7 +305,7 @@ export async function captureElement(el: Element, options: CaptureOptions): Prom
   if (natural.width <= 0 || natural.height <= 0) return { kind: 'refused', message: emptyImageRefusal(ref) }
   let exported: ExportedImage | undefined
   try {
-    exported = await drawWithin(drawn, exportSize(natural, drawn.localName === VECTOR_TAG), options)
+    exported = await drawWithin(drawn, exportSpec(natural, drawn.localName === VECTOR_TAG), options)
   } catch (refusal) {
     // The one throw this read can describe: a browser marks the surface the
     // moment another origin's pixels reach it and refuses to hand them back.

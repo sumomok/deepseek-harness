@@ -15,8 +15,8 @@
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/export-pixels
  */
 
-import { IMAGE_MEDIA_TYPE, type ImageSize } from '../../access/wire.ts'
-import type { ExportedImage } from './capture.ts'
+import { IMAGE_MEDIA_TYPE } from '../../access/wire.ts'
+import type { ExportedImage, ExportSpec } from './capture.ts'
 
 /* v8 ignore start -- every line below is a canvas call, which a DOM
    implementation without a canvas runs none of; `./capture.ts` holds every
@@ -62,21 +62,28 @@ async function decodeVector(el: Element): Promise<CanvasImageSource> {
 }
 
 /**
- * Draw one element at a given size and encode the result.
+ * Draw one element as the export asks for it and encode the result.
+ *
+ * Every choice the drawing makes is the spec's: the surface is the size it
+ * names, and the browser interpolates between the source's pixels only where it
+ * says so. Smoothing is set on the context rather than left at the default,
+ * because the default is on and an enlarged raster drawn that way arrives as a
+ * blur across the edges the page drew.
  * @param el - the element to draw: an `img`, a `canvas`, or an `svg`.
- * @param size - the size to draw it at.
+ * @param spec - the size to draw it at and the smoothing to draw it with.
  * @returns the encoded bytes and the media type read back off them.
  * @throws {Error} when the browser gives no drawing surface or no bytes, and a
  * `SecurityError` when another origin's pixels marked the surface.
  */
-export async function exportPixels(el: Element, size: ImageSize): Promise<ExportedImage> {
+export async function exportPixels(el: Element, spec: ExportSpec): Promise<ExportedImage> {
   const surface = el.ownerDocument.createElement('canvas')
-  surface.width = size.width
-  surface.height = size.height
+  surface.width = spec.size.width
+  surface.height = spec.size.height
   const context = surface.getContext('2d')
   if (context === null) throw new Error('content-frame: the console gave no drawing surface for this picture')
+  context.imageSmoothingEnabled = spec.smooth
   const source = el.localName === 'svg' ? await decodeVector(el) : el as CanvasImageSource
-  context.drawImage(source, 0, 0, size.width, size.height)
+  context.drawImage(source, 0, 0, spec.size.width, spec.size.height)
   const blob = await new Promise<Blob | null>((resolve) => { surface.toBlob(resolve, IMAGE_MEDIA_TYPE) })
   if (blob === null) throw new Error('content-frame: the console encoded no bytes for this picture')
   const bytes = new Uint8Array(await blob.arrayBuffer())

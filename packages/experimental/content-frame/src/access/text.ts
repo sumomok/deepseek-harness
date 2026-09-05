@@ -441,11 +441,11 @@ export const CONTENT_READ_IMAGE_DESCRIPTION =
   + 'it is written: the element\'s own rendered pixels, exported and attached to the result. The ref comes from '
   + 'an earlier read of this page and must name an img, canvas, svg or picture element. It answers what a page '
   + 'shows and never spells out — a QR code, a captcha, a chart, an icon drawn as a shape rather than as a '
-  + 'character. A bitmap is exported at its own natural size and never enlarged; a vector is rasterized large '
-  + 'enough to stay legible; anything past the request\'s pixel budget is scaled down to it. The picture is '
-  + 'attached and nothing is read out of it — what it shows is the model\'s to say. The element must be visible, '
-  + 'must have finished loading, and must be drawn from this origin, because a browser lets no other origin\'s '
-  + 'pixels be exported. Requires the session\'s model to accept image input.'
+  + 'character. A picture too small to read well is enlarged — a bitmap by a whole multiple of its own pixels, a '
+  + 'vector rasterized large — and anything past the request\'s pixel budget is scaled down to it. The picture '
+  + 'is attached and nothing is read out of it — what it shows is the model\'s to say. The element must be '
+  + 'visible, must have finished loading, and must be drawn from this origin, because a browser lets no other '
+  + 'origin\'s pixels be exported. Requires the session\'s model to accept image input.'
 
 /** The `ref` parameter line of the picture read. */
 export const IMAGE_REF_DESCRIPTION =
@@ -614,8 +614,8 @@ export interface ImageHeaderText {
  *
  * Both sizes are stated because they answer different questions: the natural
  * size is what the page draws, and the exported size is what the model is
- * looking at — a vector enlarged to stay legible and a bitmap scaled down to
- * the budget both show up as the two differing.
+ * looking at — a small picture enlarged to stay legible and a large one scaled
+ * down to the budget both show up as the two differing.
  * @param header - what the export produced.
  * @returns the one line.
  */

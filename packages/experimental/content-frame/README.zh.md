@@ -109,7 +109,7 @@ kind: "package-reference"
 
 **四种标签，各自导出什么。** `img` 与 `canvas` 导出自己存着的那份栅格——`naturalWidth × naturalHeight` 与画布后备存储的 `width × height`。`picture` 导出它实际渲染的那个 `img`，标签仍记外层那个。`svg` 没有存着的栅格，于是按它的布局盒栅格化。其余标签按标签直接拒绝。
 
-**位图从不放大，矢量一定放大。** 供应商在计价之前会先把小图放大（`MIN_PIXELS`，384 × 384，见 `packages/llm/llm-deepseek/src/image-tokens.ts`），所以在这里放大位图只多出字节、不多出细节；而矢量在任何尺寸上都有细节，按 24 像素的布局盒栅格化，扔掉的恰恰是那道下限马上要问的东西。两者随后都被请求自己的像素预算——640,000，`DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET`——按附件层投射请求图片所用的同一套几何压住。
+**小到读不出的图会被放大，两类各按各的方式放。** 供应商在计价之前会先把小图放大（`MIN_PIXELS`，384 × 384，见 `packages/llm/llm-deepseek/src/image-tokens.ts`），而且这道下限两侧计价相同，所以在浏览器里够到它是免费的——够到它，小图才读得出来，因为供应商在计价前所做的那次放大，不是模型读到的那一张。矢量栅格化到这道下限自己的面积，因为它的比例来自布局盒而不是存下来的像素网格。位图则按能把它的短边送到下限的那个整数倍绘制，并关掉平滑，于是每个存下来的像素成为一个方块，没有一条边落在两个像素之间；其余每次绘制都开着平滑，因为被缩小的图需要把丢掉的像素求平均，而不是直接扔掉。两者随后都被请求自己的像素预算——640,000，`DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET`——按附件层投射请求图片所用的同一套几何压住；一条长条的整数倍越过这份预算时，把它走回来的也是这套几何。
 
 **PNG，以及 2 MiB。** 导出要 PNG，因为这个答案必须无损（二维码丢一点都不行），因为图标的 alpha 通道要活下来，也因为它正是 canvas 对任何引擎不支持的类型所退回的格式——于是点名要它，是唯一一个不会被引擎换成别的东西的请求。模型最终收到的是附件层为那条路由自己做的重编码，所以这里的格式花掉的是一次同源投递和磁盘上的字节，不是保真度。超过 2 MiB 的导出会带着它的大小被拒，而不是压低质量重编码；这道上限是供应商单图请求预算的两倍，正是无损所需要的余量。
 
@@ -409,13 +409,13 @@ The text of e12 comes to 61204 characters, past what this deployment's report ro
 
 #### What the model sees
 
-两个块。第一个是文字：与每件原文读取开头相同的那行 `Page: <title> — the app is at <path>`、适用时那句「还在变」，以及一行事实。两个尺寸都写在那一行上，因为它们回答不同的问题：natural 是页面画成什么样，exported 是模型正在看的是什么样，于是「为保持可读而被放大的矢量」和「被压到预算里的位图」，都表现为这两者不一致。第二个块是图本身，一个指向已存附件的 image 块。凡不是图的结局都是一行，只点名它撞上的那个条件，别的都不说——ref 指的不是图、元素不可见（`e12 is not visible on the page, so it has no rendered pixels.`）、还没加载完（`e12 has not finished loading its image.`）、画出来是零（`e12 is drawn at zero pixels.`）、由另一个源画出、太大、控制台没能在导出所分到的那份读取截止时间之内画完——`readTimeoutMs` 的八分之一，按默认值就是 `e12 did not finish exporting within 1.875s.`——或者这次会话的模型根本不收图。
+两个块。第一个是文字：与每件原文读取开头相同的那行 `Page: <title> — the app is at <path>`、适用时那句「还在变」，以及一行事实。两个尺寸都写在那一行上，因为它们回答不同的问题：natural 是页面画成什么样，exported 是模型正在看的是什么样，于是「为保持可读而被放大的小图」和「被压到预算里的大图」，都表现为这两者不一致。第二个块是图本身，一个指向已存附件的 image 块。凡不是图的结局都是一行，只点名它撞上的那个条件，别的都不说——ref 指的不是图、元素不可见（`e12 is not visible on the page, so it has no rendered pixels.`）、还没加载完（`e12 has not finished loading its image.`）、画出来是零（`e12 is drawn at zero pixels.`）、由另一个源画出、太大、控制台没能在导出所分到的那份读取截止时间之内画完——`readTimeoutMs` 的八分之一，按默认值就是 `e12 did not finish exporting within 1.875s.`——或者这次会话的模型根本不收图。
 
 ##### One picture, and the line above it
 
 ```markdown
 Page: Home — the app is at /content-app/
-e12 <img> 240×240 px, exported 240×240 as image/png, 3182 bytes
+e12 <img> 240×240 px, exported 480×480 as image/png, 4270 bytes
 ```
 
 ##### A ref that names no picture
