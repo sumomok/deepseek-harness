@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-claude-skills-root.md
-2026-09-06-claude-skills-root.md: 379afe98f013cdd3d05954e9adafec136c931a50
-2026-09-06-claude-skills-root.zh.md: d7d130bd98f6cf183a73f1aaba8981a2b2586758
+2026-09-06-claude-skills-root.md: 1266486d87eee26c41551b11593b3c8ad80075df
+2026-09-06-claude-skills-root.zh.md: c31e7e568569e070fe52cab413a75337628f2713
