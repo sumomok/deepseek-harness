@@ -1483,10 +1483,10 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
       },
       {
         signature: '@Remote(\'openWorkspacePath\') async openWorkspacePath( request: SessionOpenWorkspacePathRequest, signal: AbortSignal, ): Promise<SessionOpenWorkspacePathValue>',
-        description: 'Open one path prepared by a Session-aware caller on the Host desktop.',
+        description: 'Open one path prepared by a Session-aware caller on the Host desktop. A does-not-exist path is checked explicitly before the opener runs: the opener is a shelled-out platform command (`open`, `xdg-open`, PowerShell\'s `Invoke-Item`), never a Node fs call, so it never raises a `NodeJS.ErrnoException` this process could read a reliable code from — its "no such file" text is platform-specific and unparsed. The pre-check leaves every other failure (permission, no registered application, the platform command itself missing) exactly as it was: folded into `gateway/internal` below.',
         parameters: [{ name: 'request', description: 'path after best-effort Session workspace resolution.' }, { name: 'signal', description: 'caller lifetime; abort terminates the native command.' }],
         returns: 'confirmation after the native opener accepts the path.',
-        throws: ['RemoteError when the request is invalid, cancelled, or the opener fails.'],
+        throws: ['RemoteError when the request is invalid, the path does not exist, cancelled, or the opener fails.'],
       },
       {
         signature: '@Remote(\'probeTargets\') async probeTargets(request: SessionProbeTargetsRequest): Promise<SessionProbeTargetsValue>',
