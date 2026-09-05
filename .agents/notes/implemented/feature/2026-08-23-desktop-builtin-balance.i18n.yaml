@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-23-desktop-builtin-balance.md
-2026-08-23-desktop-builtin-balance.md: 932512311f63de6a160f6ff4866245b157d45be8
-2026-08-23-desktop-builtin-balance.zh.md: 60e83d5a082172348e67d4f2a996c5ad48457676
+2026-08-23-desktop-builtin-balance.md: c8d62c6fa58d29d83f34fe137ebb17a23668ffb8
+2026-08-23-desktop-builtin-balance.zh.md: 68e99547dc3fbc0ccf1ae04387b68f2d7809a20b
