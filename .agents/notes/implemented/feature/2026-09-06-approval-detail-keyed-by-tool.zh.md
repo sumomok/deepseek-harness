@@ -20,7 +20,9 @@ Status: implemented
 
 `APPROVAL_DIFF_MAX_LINES` 取 40，对照会话行的 8 与图元自身默认的 16。会话行是读者一扫而过的摘要；审批卡片是读者做决定的地方，而卡片正文本来就在 composer 的高度上滚动，因此再长的预览也挤不走按钮。剩下的部分由 `DiffBlock` 的折叠开关展开。
 
-hunk 路径在位于会话工作区之内时按相对路径显示，否则逐字显示，因此一次写到工作区之外的操作会把它要动的绝对路径亮出来。卡片不另加标题：`DiffBlock` 以路径开头，而它上方的 reason 行已经说明了这次要求是什么。
+hunk 路径在位于会话工作区之内时按相对路径显示，否则把 POSIX home 缩写成 `~` 显示，因此一次写到工作区之外的操作会把去向亮出来，又不必把账户目录整段拼出来。Host home 经由 `ToolCallTree` 与 `ToolDetails` 本就在用的条目级 inject 送到渲染器，这段被抽成 [`toolHostInject`](../../../../packages/client/ui-tool/src/client/host-info.ts)，让五处注册共用同一个 observable，而不是同一件事写两遍。卡片不另加标题：`DiffBlock` 以路径开头，而它上方的 reason 行已经说明了这次要求是什么。
+
+卡片的详情外壳改名 `.detail`，只保留卡片次级正文的字体表现——颜色、字号、行高——占位者可以按自己的内容覆盖。它原先还带着的等宽字体与 `word-break: break-all` 描述的是一条 shell 命令，而不是现在被所有工具渲染器共用的座位，于是搬进 `ApprovalCommand` 自己的类；否则 `break-all` 会继承给 diff 里除 `white-space: pre` 行之外的一切。
 
 `write` 会把全部内容显示为新增行，因为浏览器在审批时刻无从得知目标是否已存在——客户端没有文件读取能力，而 `intendedDiff` 一直把 write 建模为 `oldText: null`。因此卡片只声称它能声称的：这个路径、这份内容。
 
@@ -36,16 +38,22 @@ hunk 路径在位于会话工作区之内时按相对路径显示，否则逐字
 
 **改为在派发点用 `fallback` 承接 shell 键。** `renderSlot` 的 keyed 形态对未占位的键接受一个 `fallback`，把 `ApprovalCommand` 放进去就能让每一个未注册工具保持今天的行为。`ui-approval` 引用不到它：依赖方向是 `ui-chat` 依赖 `ui-approval` 而非相反；而且这个 fallback 会在 owner 处重新引入「一个渲染器替所有工具做决定」的形状。
 
+**在本补丁里恢复侧栏插件 `terminal_create` 的命令行。** 桌面随附的 `dsh-better-sidebar` 声明了一个 `terminal_create`，它必填的字符串 `command` 正是旧占位者会打印的东西，按键派发后这一行没了（见 Consequences）。`terminal_create` 不是上游工具，因此没有哪个上游包能名正言顺地占这个键；而 `ui-chat` 既没导出 `ApprovalCommand` 也没导出 `commandOf`，所以要恢复这一行，就得由 fork 插件自带四行 `commandOf` 并注册在它自家工具的键上——这是那个插件在打开这组工具时自己该做的决定，不是本补丁的。
+
 **取更大的上限，或者不设上限。** 正文会滚动，因此不设上限也读得完。折叠让「决策按钮距卡片顶部的距离」在一次上千行的写入面前仍然有界，而 40 行正是「不靠滚动就能看全」的那条界线。
 
 ## Consequences
 
-`str_replace_editor` 的审批此前会显示它的 `command` 参数——字面上的 `create` 或 `str_replace`——因为 `commandOf` 接受该键下的任意字符串。现在它改为显示 diff。任何其他参数里恰好带有字符串 `command` 的工具会失去这一行附带产物；在已发布的工具里，除两个 shell 与 `str_replace_editor` 外没有这样的工具。
+`str_replace_editor` 的审批此前会显示它的 `command` 参数——字面上的 `create` 或 `str_replace`——因为 `commandOf` 接受该键下的任意字符串。现在它改为显示 diff。有一个已发货的工具会失去这一行且没有替代：桌面随附的 `dsh-better-sidebar`（`apps/desktop-server/vendor/dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz`）声明的 `terminal_create` 带一个必填字符串 `command`，因此它的审批卡片退回到只剩 reason 一行。该插件其余七个 `terminal_*` 都不带 `command`，而且这组工具只有在用户打开插件的 `agentTerminalTools`（默认 false）之后才会注册。其余随附插件、以及除两个 shell 与 `str_replace_editor` 外的第一方工具，都没有字符串 `command`。
 
-`ui-tool` 为槽声明合并新增了一条对 `ui-approval` 的纯类型依赖，与 `ui-chat` 的同款。依赖方向不变：`ui-tool` → `ui-chat` → `ui-approval`，没有任何运行期值跨过去。
+桌面跑的就是这套 UI，不是它的副本，因此这次改动不需要动桌面侧任何一行：`apps/desktop-server/package.json:15` 依赖 `@deepseek-ai/dsh`，后者的 `apps/cli/package.json:93` 拉入 `dsh-web-app`，而 `packages/bundle/web-app/package.json:53`、`:56`、`:83` 把 `ui-approval`、`ui-chat`、`ui-tool` 三个包都列为 `workspace:^`；`apps/desktop/src/profile-seed.ts:309` 让每个桌面 profile 以 `['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']` 打底。三个包都是双面 `dsh.client` 包，浏览器侧取的是各包的 `lib/client.js`；`apps/desktop-server/vendor/` 下那 11 个 tgz 全是第三方插件，没有一个是 client-UI 包。把 `write` 那条注册删掉、只重打 `ui-tool` 的 bundle，整机通路就变红——卡片里根本不出现 `[data-diff]`——这正是「发货产物本身带着这个条目，而不只是源码树带着」的证据。
+
+审批卡片与已结算的会话行对同一个路径有意写成两种样子。`FileMutationRow` 在自己的 diff 里逐字画出工具给的路径，只把折叠摘要那一行做缩写（[`tool-call-model.ts:241`](../../../../packages/client/ui-tool/src/client/tool/models/tool-call-model.ts)）：已结算的行是「发生了什么」的记录，模型面对的那个路径本身就是记录的一部分。审批卡片是决策，于是取「仍能说清文件在哪」的最短写法，为这一处有意覆盖 `DiffHunk.path` 的逐字规则。
+
+`ui-tool` 为槽声明合并新增了一条对 `ui-approval` 的纯类型依赖，与 `ui-chat` 的同款。依赖方向不变：`ui-tool` → `ui-chat` → `ui-approval`，没有任何运行期值跨过去。审批那条注册为拿 Host 事实注入了 `remote`，而 `ui-tool` 的 apply 本来就要求它。
 
 生成的 Client 槽目录现在给出了键域（`open: … already taken: bash, edit, pwsh, str_replace_editor, write`）并列出五个占位者，因此想给自家工具加审批预览的插件不用读本 Note 也能看见这个座位。
 
-包内测试覆盖派发与渲染器：`ui-approval` 对一个已注册与一个未注册的工具名断言 `entryKey`，`ui-chat` 断言它的两个键，`ui-tool` 的 [`approval-diff-row.client.spec.tsx`](../../../../packages/client/ui-tool/tests/approval-diff-row.client.spec.tsx) 覆盖 write、edit、`str_replace_editor` 两个可预览子命令、工作区外路径与无工作区路径、缺失／不相关／已结算的调用、尚未描述出变更的参数，以及三处注册。
+包内测试覆盖派发与渲染器：`ui-approval` 对一个已注册与一个未注册的工具名断言 `entryKey`，`ui-chat` 断言它的两个键，`ui-tool` 的 [`approval-diff-row.client.spec.tsx`](../../../../packages/client/ui-tool/tests/approval-diff-row.client.spec.tsx) 覆盖 write、edit、`str_replace_editor` 两个可预览子命令、工作区外路径、无工作区路径、home 下的路径、四十行上限的两侧、缺失／不相关／已结算的调用、尚未描述出变更的参数，以及三处注册。上限那两条用例的行数是写死的字面量而不是从 `APPROVAL_DIFF_MAX_LINES` 推出来的：用被守护的常量去给用例定尺寸，常量取任何值它都会过。
 
-整机取证是 [`apps/web/tests/approval-preview-diff.e2e.ts`](../../../../apps/web/tests/approval-preview-diff.e2e.ts)，一条无密钥的通路：一份手写回放脚本在 Read Only 下发出一次携带 `sandbox_permissions: workspace-write` 的 `write`，金样记录下卡片在提权 reason 旁显示 `notes.txt`、它的三行新增内容与 `+3 -0 · 1 file` 页脚，随后落盘文件与这几行逐字相符。脚本是手写而非录制，因为该场景只是一次确定性调用，手写能让这条通路在没有模型密钥时也跑得起来。`approval-composer` 的录制金样逐字节不变，这是 shell 分支的回归证据。
+整机取证是 [`apps/web/tests/approval-preview-diff.e2e.ts`](../../../../apps/web/tests/approval-preview-diff.e2e.ts)，一条无密钥的通路：一份手写回放脚本在 Read Only 下发出一次携带 `sandbox_permissions: workspace-write` 的 `write`，金样记录下卡片在提权 reason 旁显示 `notes.txt`、它的三行新增内容与 `+3 -0 · 1 file` 页脚，随后落盘文件与这几行逐字相符。脚本是手写而非录制，因为该场景只是一次确定性调用，手写能让这条通路在没有模型密钥时也跑得起来。该通路还把最终工作区整棵树与 `workspace.expected/` 比对，因此这次被批准的提权确实只写了那一个文件、没写别的。`relativizeToCwd` 是这条通路够不着的唯一一条呈现规则：手写脚本里的 `file_path` 本就是工作区相对路径，而且没有占位符能把它变成绝对路径——`{{cwd}}` 是会话日志的归一化记号，只有在把 fixture 当作既有会话「播种」时才会被还原；`llm-replay` 只解析 `{{session:N}}` 与 `{{fromRequest:<regex>}}`，后者的语料是本次请求的 messages，从来不含携带工作区路径的 `system` 字段。相对化与 home 缩写这两种写法改由包内测试覆盖。`approval-composer` 的录制金样逐字节不变，这是 shell 分支的回归证据。
