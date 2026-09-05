@@ -56,6 +56,7 @@ import {
   loadOverlayPatches,
   type Profile,
 } from '@deepseek-ai/dsh-app-boot'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import { dshHomePath } from '@deepseek-ai/dsh-home-paths'
 import { LlmAdapter } from '@deepseek-ai/dsh-llm'
 import type {
@@ -402,11 +403,12 @@ export async function launchWebScaffold(options: LaunchOptions = {}): Promise<We
   // the resolved harness home so a scaffold sharing another's home — the
   // cross-port persistence scenario — pins the same roots the settings and
   // credentials rows were configured with.
-  const skillRootEnvironment = {
-    DSH_HOME: harnessHome,
-    DSH_AGENTS_HOME: join(workspaceCwd, '.agents-home'),
-    DSH_BUNDLED_SKILL_DIR: join(workspaceCwd, '.bundled-skills'),
-  }
+  const skillRootEnvironment = isolatedSkillRootEnv(workspaceCwd, {
+    dshHome: harnessHome,
+    agentsHome: join(workspaceCwd, '.agents-home'),
+    claudeHome: join(workspaceCwd, '.claude-home'),
+    bundledSkillDir: join(workspaceCwd, '.bundled-skills'),
+  })
   const originalSkillRootEnvironment = Object.fromEntries(
     Object.keys(skillRootEnvironment).map(key => [key, process.env[key]]),
   )

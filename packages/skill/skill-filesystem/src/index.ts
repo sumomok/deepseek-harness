@@ -33,11 +33,16 @@ import {
   type SkillSource,
 } from '@deepseek-ai/dsh-skill'
 
+// A skill name found in more than one root resolves to the lowest rank, so each
+// tier prefers the harness's own root, then the shared `.agents` convention,
+// then the Claude Code `.claude` root other clients also read.
 const PROJECT_DSH_RANK = 100
 const PROJECT_AGENTS_RANK = 200
+const PROJECT_CLAUDE_RANK = 210
 const CUSTOM_RANK = 300
 const USER_DSH_RANK = 400
 const USER_AGENTS_RANK = 500
+const USER_CLAUDE_RANK = 510
 const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
 const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
@@ -55,6 +60,8 @@ export interface Config {
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
+  /** Claude Code config root. Defaults to `$DSH_CLAUDE_HOME` or `~/.claude`. */
+  claudeHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
   /** Whether host-local skill roots are watched for catalog changes. */
@@ -78,6 +85,7 @@ export const Config: Schema<Config> = z.object({
   includeDefaultRoots: z.boolean().default(true),
   dshHome: z.string(),
   agentsHome: z.string(),
+  claudeHome: z.string(),
   customSkillDirs: z.array(z.string()).default([]),
   watch: z.boolean().default(true),
   watchUsePolling: z.boolean().default(false),
@@ -148,6 +156,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly includeDefaultRoots: boolean
   private readonly dshHome: string
   private readonly agentsHome: string
+  private readonly claudeHome: string
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
   private readonly bundledSkillDir: string | undefined
@@ -162,6 +171,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
+    this.claudeHome = resolve(config.claudeHome ?? process.env.DSH_CLAUDE_HOME ?? join(homedir(), '.claude'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
@@ -245,6 +255,7 @@ export class FileSystemSkillProvider implements SkillProvider {
       roots.push(
         { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
         { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
+        { path: join(projectRoot, '.claude/skills'), source: 'project-claude', rank: PROJECT_CLAUDE_RANK, projectRoot },
       )
     }
     roots.push(...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
@@ -252,12 +263,51 @@ export class FileSystemSkillProvider implements SkillProvider {
       roots.push(
         { path: join(this.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
         { path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
+        { path: join(this.claudeHome, 'skills'), source: 'user-claude', rank: USER_CLAUDE_RANK },
       )
     }
     if (this.bundledSkillDir !== undefined) {
       roots.push({ path: this.bundledSkillDir, source: 'bundled', rank: BUNDLED_SKILL_RANK, trustedHost: true })
     }
-    return roots
+    return await deduplicateRoots(roots)
+  }
+}
+
+/**
+ * Keep the first root of every distinct directory, in ascending rank order.
+ *
+ * A checkout whose `.claude/skills` is a symbolic link to `.agents/skills`
+ * offers each skill under two roots: the registry would resolve every duplicate
+ * name to the higher-priority root and warn once per skill, and the watch
+ * manager would open two host watchers on the one directory.
+ * @param roots - candidate roots in ascending rank order.
+ * @returns the roots whose canonical path no earlier root already covers.
+ */
+async function deduplicateRoots(roots: readonly SkillRoot[]): Promise<SkillRoot[]> {
+  const covered = new Set<string>()
+  const kept: SkillRoot[] = []
+  for (const root of roots) {
+    const canonical = await canonicalRootKey(root.path)
+    if (covered.has(canonical)) continue
+    covered.add(canonical)
+    kept.push(root)
+  }
+  return kept
+}
+
+/**
+ * Resolve the identity a root is deduplicated by.
+ * @param path - the configured root path, which need not exist yet.
+ * @returns the canonical path, or the configured path when it cannot resolve.
+ */
+async function canonicalRootKey(path: string): Promise<string> {
+  try {
+    return await canonicalizeWatchPath(path)
+  } catch {
+    // canonicalizeWatchPath rejects when an ancestor is unreadable or is not a
+    // directory, never for ordinary absence. The configured path stays this
+    // root's identity so discovery still scans it and reports that failure.
+    return path
   }
 }
 
