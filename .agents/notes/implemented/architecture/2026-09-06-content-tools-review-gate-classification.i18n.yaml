@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-06-content-tools-review-gate-classification.md
-2026-09-06-content-tools-review-gate-classification.md: 2ffca72f7b00fb7390be8e65ed3e94bd03de2d48
-2026-09-06-content-tools-review-gate-classification.zh.md: 9fba7bede19dd03a7a84943e56b40ca0ceed0e81
+2026-09-06-content-tools-review-gate-classification.md: 1aa824cae5c15ba3b4c91c3e86b274d59b090dce
+2026-09-06-content-tools-review-gate-classification.zh.md: 86b47b34f78ab9e8f3e9e4f890d73bc50bbbcf24
