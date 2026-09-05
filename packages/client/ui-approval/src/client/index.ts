@@ -84,7 +84,7 @@ export function apply(ctx: ClientContext): void {
       pendingInteraction instanceof PendingApproval ? pendingInteraction : null,
     locale: NS,
     children: {
-      'conversation.approval.detail': { kind: 'single', scope: 'session' },
+      'conversation.approval.detail': { kind: 'keyed', scope: 'session' },
     },
   }, ApprovalPanel))
   ctx.remote.$on('approval/request', function (request, next) {

@@ -314,7 +314,12 @@ export function apply(ctx: Context): void {
       name: 'conversation.composer.dock', id: 'stats', order: 0, locale: NS,
     }, StatsPills))
 
-  ctx.slots.inject('conversation.approval.detail', () =>
-    ctx.slots.register({ name: 'conversation.approval.detail' }, ApprovalCommand))
+  // The shell family is this package's key domain here: `bash` and `pwsh` are
+  // the wire names of both the one-shot and the persistent shells, and their
+  // arguments are the only ones this renderer reads.
+  ctx.slots.inject('conversation.approval.detail', function* () {
+    yield ctx.slots.register({ name: 'conversation.approval.detail', key: 'bash' }, ApprovalCommand)
+    yield ctx.slots.register({ name: 'conversation.approval.detail', key: 'pwsh' }, ApprovalCommand)
+  })
 
 }

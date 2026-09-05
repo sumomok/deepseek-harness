@@ -62,7 +62,7 @@ async function bench() {
   runtime.slots.installLocale(locale)
   await runtime.root.declare({
     'main': { kind: 'keyed', scope: 'root' },
-    'conversation.approval.detail': { kind: 'single', scope: 'session' },
+    'conversation.approval.detail': { kind: 'keyed', scope: 'session' },
     'settings.general.item': { kind: 'list', scope: 'root' },
   }, (_props: { renderSlot?: unknown }) => null)
   const conversation = await runtime.mount({
@@ -92,6 +92,8 @@ describe('Chat apply wiring', () => {
       .toEqual(['stats'])
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
       .toEqual(['transcript-view', 'composer-enter'])
+    expect(b.runtime.slots.entries('conversation.approval.detail').map(row => row.options.key))
+      .toEqual(['bash', 'pwsh'])
     await b.runtime.dispose()
   })
 
