@@ -1,0 +1,7 @@
+- text: Waiting for approval
+- group "Approval details":
+  - text: "escalate sandbox to workspace-write: Creating the notes.txt file the user asked for."
+  - button "Copy"
+  - text: notes.txt + alpha + beta + gamma └ +3 -0 · 1 file
+- button "Reject"
+- button "Allow once"

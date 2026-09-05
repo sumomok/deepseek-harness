@@ -13,7 +13,11 @@ export function ApprovalPanel(props: ApprovalComposerProps) {
   const approval = props.matched
   const detail = approval.callId === undefined
     ? null
-    : props.renderSlot('conversation.approval.detail', { callId: approval.callId })
+    : props.renderSlot(
+      'conversation.approval.detail',
+      { callId: approval.callId },
+      { entryKey: approval.toolName },
+    )
   return <ApprovalFlow key={approval.key} pending={approval} detail={detail} t={props.t} />
 }
 
