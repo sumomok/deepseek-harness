@@ -86,6 +86,7 @@ function unreadableMediaFixture(): string {
       content: [{ type: 'text', text: MEDIA_DONE }],
       source: { kind: 'model', provider: 'fixture', model: 'fixture' },
     }),
+    stream: [],
   }, { surfaceOp: 'append' })
   session.append('step/end', { turn: 1, step: 1 })
   session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
