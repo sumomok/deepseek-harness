@@ -442,7 +442,7 @@ async function awaitOpenColumn(page: Page): Promise<void> {
 function liveEvents(scaffold: WebScaffold): readonly SessionEvent[] {
   const agent = scaffold.ctx.agents.get(SessionId(SESSION))
   if (agent === undefined) throw new Error(`no live agent for ${SESSION}`)
-  return agent.session.events
+  return agent.session.snapshotEvents()
 }
 
 /** Save one screenshot under the repository's artifact directory. */

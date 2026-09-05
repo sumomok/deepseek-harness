@@ -17,7 +17,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import { CallId } from '@deepseek-ai/dsh-llm/brand'
+import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -61,16 +61,16 @@ async function bench(): Promise<Bench> {
       session.append('tool/call', {
         turn: 1,
         step: 1,
-        callId: CallId(callId),
+        callId: ToolCallId(callId),
         name,
         arguments: typeof args === 'string' ? args : JSON.stringify(args),
       })
     },
     dispatch: (subCallId, args, name = 'show_component') => {
       session.append('tool/code-dispatch-start', {
-        rootCallId: CallId('root'),
-        parentCallId: CallId('root'),
-        subCallId: CallId(subCallId),
+        rootCallId: ToolCallId('root'),
+        parentCallId: ToolCallId('root'),
+        subCallId: ToolCallId(subCallId),
         name,
         arguments: args,
       })

@@ -29,7 +29,7 @@
  * that same rule leaves it alone.
  * @module @deepseek-ai/dsh-experimental-component-surface/client/ActionCommandRow
  */
-import type { CommandRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { CommandRowProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import css from './ActionCommandRow.module.css'
 
 /**

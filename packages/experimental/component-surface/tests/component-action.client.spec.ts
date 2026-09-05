@@ -14,7 +14,7 @@ import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry, { emitAgentEvent, Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime, { CommandId } from '@deepseek-ai/dsh-commands'
-import { CallId } from '@deepseek-ai/dsh-llm/brand'
+import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -189,7 +189,7 @@ function show(session: Session, id: string, title: string, spec: unknown = SPEC)
   session.append('tool/call', {
     turn: 1,
     step: 1,
-    callId: CallId(`call-${id}`),
+    callId: ToolCallId(`call-${id}`),
     name: 'show_component',
     arguments: JSON.stringify({ id, title, spec }),
   })
@@ -319,9 +319,9 @@ describe('the /component-action command', () => {
     expect(followup).not.toHaveBeenCalled()
     // The record is the command registry's, written before the handler ran:
     // this package appends no session event of its own in either direction.
-    const run1 = session.events.find(event => event.type === 'command/run')
+    const run1 = session.snapshotEvents().find(event => event.type === 'command/run')
     expect(run1?.data).toMatchObject({ name: COMPONENT_ACTION_COMMAND, args: ' {"nope":1}' })
-    expect(session.events.map(event => event.type)).toEqual(['command/run', 'command/done'])
+    expect(session.snapshotEvents().map(event => event.type)).toEqual(['command/run', 'command/done'])
   })
 
   it('refuses an action too large to carry, and still leaves it in the log', async () => {
@@ -334,7 +334,7 @@ describe('the /component-action command', () => {
 
     expect(await run(ctx, agent, oversized)).toEqual({ kind: 'error', text: ACTION_TOO_LARGE })
     expect(followup).not.toHaveBeenCalled()
-    expect(session.events.some(event => event.type === 'command/run')).toBe(true)
+    expect(session.snapshotEvents().some(event => event.type === 'command/run')).toBe(true)
   })
 
   it('names the pressed button from the entry\'s own spec, and wakes the agent', async () => {

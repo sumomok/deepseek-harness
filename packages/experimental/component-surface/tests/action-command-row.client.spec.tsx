@@ -11,7 +11,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
-import type { CommandRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { CommandRowProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { ActionCommandRow } from '../src/client/ActionCommandRow.tsx'
 
 /** The refusal every unresolvable action earns, as `command.ts` writes it. */

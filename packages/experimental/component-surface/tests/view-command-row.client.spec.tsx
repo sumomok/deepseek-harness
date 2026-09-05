@@ -11,7 +11,7 @@
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
-import type { CommandRowProps } from '@deepseek-ai/dsh-client-ui-conversation/client'
+import type { CommandRowProps } from '@deepseek-ai/dsh-client-ui-chat/client'
 import { ViewCommandRow } from '../src/client/ViewCommandRow.tsx'
 
 /** The refusal a click naming no configured view earns, as `view-command.ts` writes it. */

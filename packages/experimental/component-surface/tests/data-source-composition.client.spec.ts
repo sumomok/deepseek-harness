@@ -21,7 +21,7 @@ import { Context, Service } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm/brand'
+import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -194,7 +194,7 @@ function openTurn(ctx: Context): { session: Session; agent: Agent } {
  */
 function run(ctx: Context, agent: Agent, args: Record<string, unknown>): Promise<ToolExecutionResult> {
   return ctx.tools.execute({
-    callId: CallId('call-1'),
+    callId: ToolCallId('call-1'),
     name: 'show_component',
     arguments: args,
     agent,
@@ -232,7 +232,7 @@ describe('the composed data-source row', () => {
     const { session, agent } = openTurn(ctx)
     const before = reads.length
     const result = await run(ctx, agent, { id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE })
-    const asked = session.events.filter(event => event.type === 'approval/asked')
+    const asked = session.snapshotEvents().filter(event => event.type === 'approval/asked')
     expect(asked).toHaveLength(1)
     expect((asked[0] as { data: { toolName: string; reason?: string } }).data.reason).toBe(
       '用您的账号查一份数据：从「图层配置」里取最多 200 条，只取「名称」等 2 列。\n'
@@ -241,10 +241,10 @@ describe('the composed data-source row', () => {
     )
     // `policy: never` answers every question without an answerer, so this is
     // the refusal path end to end: nothing was read, and nothing was recorded.
-    expect(session.events.filter(event => event.type === 'approval/decided')).toHaveLength(1)
+    expect(session.snapshotEvents().filter(event => event.type === 'approval/decided')).toHaveLength(1)
     expect(result.isError).toBe(true)
     expect(reads).toHaveLength(before)
-    expect(session.events.filter(event => event.type === 'content-component/resolved')).toEqual([])
+    expect(session.snapshotEvents().filter(event => event.type === 'content-component/resolved')).toEqual([])
     expect(ctx.sessionProjections.snapshot(session).values.contentSurface?.entries).toEqual([])
   })
 

@@ -13,7 +13,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
-import { CallId } from '@deepseek-ai/dsh-llm/brand'
+import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent } from '@deepseek-ai/dsh-session'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
@@ -164,7 +164,7 @@ async function bench(
     described,
     searched,
     run: args => ctx.tools.execute({
-      callId: CallId(`call-${++calls}`),
+      callId: ToolCallId(`call-${++calls}`),
       name: SHOW_COMPONENT_TOOL_NAME,
       arguments: args,
       agent,
@@ -180,7 +180,7 @@ function text(result: ToolExecutionResult): string {
 
 /** Every `content-component/resolved` one session's log holds. */
 function resolvedEvents(session: Session): SessionEvent<'content-component/resolved'>[] {
-  return session.events.filter(
+  return session.snapshotEvents().filter(
     (event): event is SessionEvent<'content-component/resolved'> => event.type === 'content-component/resolved')
 }
 
@@ -727,7 +727,7 @@ describe('a question the user did not grant', () => {
     ctx.provide('bizBackend', { describe: request, search: request } as never)
     ctx.tools.register(showComponentTool(ctx, READING))
     const result = await ctx.tools.execute({
-      callId: CallId('call-orphan'),
+      callId: ToolCallId('call-orphan'),
       name: SHOW_COMPONENT_TOOL_NAME,
       arguments: { id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE },
       signal: new AbortController().signal,
@@ -1035,7 +1035,7 @@ describe('what the column reads out of the log', () => {
       data: {
         turn: 1,
         step: 1,
-        callId: CallId('call-x'),
+        callId: ToolCallId('call-x'),
         name: SHOW_COMPONENT_TOOL_NAME,
         arguments: JSON.stringify({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE }),
       },

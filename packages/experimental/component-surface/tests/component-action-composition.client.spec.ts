@@ -29,7 +29,7 @@ import AgentRegistry from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime from '@deepseek-ai/dsh-commands'
 import type { UserMessage } from '@deepseek-ai/dsh-llm'
-import { CallId } from '@deepseek-ai/dsh-llm/brand'
+import { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import SessionStore from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
@@ -139,7 +139,7 @@ function agentShowingTheBar(ctx: Context, followup: (message: UserMessage) => vo
   session.append('tool/call', {
     turn: 1,
     step: 1,
-    callId: CallId('call-1'),
+    callId: ToolCallId('call-1'),
     name: 'show_component',
     arguments: JSON.stringify({ id: 'budget', title: '确认删除', spec: SPEC }),
   })
@@ -181,14 +181,14 @@ describe('a press on the composed console', () => {
 
     await ctx.commands.execute(agent, PRESS_LINE, [], signal)
 
-    const run = agent.session.events.find(event => event.type === 'command/run')
+    const run = agent.session.snapshotEvents().find(event => event.type === 'command/run')
     expect(run?.type === 'command/run' && run.data).toMatchObject({
       name: COMPONENT_ACTION_COMMAND,
       args: PRESS_LINE.slice(`/${COMPONENT_ACTION_COMMAND}`.length),
       source: { kind: 'user' },
     })
-    expect(agent.session.events.map(event => event.type)).toContain('command/done')
-    expect(agent.session.events.filter(event => event.type.startsWith('component'))).toEqual([])
+    expect(agent.session.snapshotEvents().map(event => event.type)).toContain('command/done')
+    expect(agent.session.snapshotEvents().filter(event => event.type.startsWith('component'))).toEqual([])
   })
 
   it('publishes what became of the press, per block, so a redrawn block still reads as pressed', async () => {
@@ -201,7 +201,7 @@ describe('a press on the composed console', () => {
     await ctx.commands.execute(agent, PRESS_LINE, [], signal)
 
     const published = ctx.sessionProjections.snapshot(agent.session).values.componentActions
-    const run = agent.session.events.find(event => event.type === 'command/run')
+    const run = agent.session.snapshotEvents().find(event => event.type === 'command/run')
     expect(published).toEqual({
       actions: [{ entryId: 'budget', nodeId: 'bar', seq: run?.seq, outcome: 'sent' }],
     })
@@ -227,7 +227,7 @@ describe('a press on the composed console', () => {
 
     const result = await ctx.tools.execute({
       signal,
-      callId: CallId('call-2'),
+      callId: ToolCallId('call-2'),
       name: 'todo_write',
       arguments: { todos: [{ content: '删除这条记录', status: 'in_progress' }] },
       agent,

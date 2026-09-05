@@ -45,6 +45,8 @@
  * @module @deepseek-ai/dsh-experimental-component-surface/client
  */
 import type { Context as ClientContext } from '@deepseek-ai/cordis'
+// Type-only: pulls the SlotRegistry service merge (ctx.slots).
+import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 // Type-only: pulls the content column's `content.surface.kind` SlotMap declaration.

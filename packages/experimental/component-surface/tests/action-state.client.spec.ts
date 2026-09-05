@@ -11,7 +11,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { CommandId } from '@deepseek-ai/dsh-commands'
-import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session'
 import {
   applyComponentAction,
   componentActionsView,
@@ -38,7 +38,7 @@ function args(action: ComponentAction): string {
 function run(seq: number, commandId: string, line: string, name = COMPONENT_ACTION_COMMAND): SessionEvent {
   return {
     type: 'command/run',
-    seq,
+    seq: SessionSeq(seq),
     time: 0,
     data: { commandId: CommandId(commandId), name, args: line, source: { kind: 'user' } },
   }
@@ -48,7 +48,7 @@ function run(seq: number, commandId: string, line: string, name = COMPONENT_ACTI
 function done(seq: number, commandId: string, settlement: { kind: 'success' | 'error'; text?: string }): SessionEvent {
   return {
     type: 'command/done',
-    seq,
+    seq: SessionSeq(seq),
     time: 0,
     data: { commandId: CommandId(commandId), ...settlement },
   }
@@ -174,7 +174,7 @@ describe('the per-block gesture fold', () => {
 
   it('leaves every other event alone, by reference', () => {
     const before = fold([run(10, 'cmd-1', args(PRESS))])
-    const after = applyComponentAction(before, { type: 'turn/start', seq: 12, time: 0, data: { turn: 1 } })
+    const after = applyComponentAction(before, { type: 'turn/start', seq: SessionSeq(12), time: 0, data: { turn: 1 } })
     expect(after).toBe(before)
   })
 

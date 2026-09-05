@@ -319,7 +319,7 @@ function commandTripleTypes(scaffold: WebScaffold, sessionId: string): string[] 
 function viewCommandTripleTypes(scaffold: WebScaffold, sessionId: string): string[] {
   const agent = scaffold.ctx.agents.get(SessionId(sessionId))
   if (agent === undefined) return []
-  return agent.session.events
+  return agent.session.snapshotEvents()
     .map((event: SessionEvent) => event.type as string)
     .filter(type => type === 'command/run' || type === 'content-component/shown' || type === 'command/done')
 }

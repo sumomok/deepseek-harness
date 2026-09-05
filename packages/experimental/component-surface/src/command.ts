@@ -335,7 +335,7 @@ export function componentActionCommand(ctx: Context, memory: ActionMemory): Comm
       const action = parseComponentActionLine(rawInput)
       if (action === undefined) return { kind: 'error', text: ACTION_NOT_RECORDED }
       const session: Session = invocation.agent.session
-      const records = ctx.sessionProjections.stateOf(session, 'contentSurface') ?? NO_RECORDS
+      const records = ctx.sessionProjections.stateOf(session, 'contentSurface')?.records ?? NO_RECORDS
       const resolved = resolveAction(records, action)
       if (resolved.kind === 'too-large') return { kind: 'error', text: ACTION_TOO_LARGE }
       if (resolved.kind === 'unresolved') return { kind: 'error', text: ACTION_NOT_RECORDED }

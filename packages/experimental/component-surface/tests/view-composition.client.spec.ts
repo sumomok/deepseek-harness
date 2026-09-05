@@ -238,7 +238,7 @@ describe('a click on a configured view', () => {
       entryId: 'site-overview',
       // The entry is dated by the event the click wrote, which sits between the
       // command runtime's own two records.
-      seq: session.events.findIndex(event => event.type === 'content-component/shown'),
+      seq: session.snapshotEvents().findIndex(event => event.type === 'content-component/shown'),
       title: '站点概览',
       // The spec the seat draws, `layout` and `$from` included, exactly as
       // load-time validation accepted it.

@@ -39,7 +39,7 @@ export const inject = ['invariants']
  */
 function authorizedEntryIds(session: Session): Set<string> {
   const ids = new Set<string>()
-  for (const event of session.events) {
+  for (const event of session.snapshotEvents()) {
     const args = readComponentEvent(event)
     if (args === undefined) continue
     const result = validateComponentCall(args)
@@ -67,7 +67,7 @@ function authorizedEntryIds(session: Session): Set<string> {
  * @param fail - reporter bound to this package.
  */
 function auditSession(ctx: Context, session: Session, fail: InvariantFailure): void {
-  const records: readonly ContentSurfaceRecord[] | undefined = ctx.sessionProjections.stateOf(session, 'contentSurface')
+  const records: readonly ContentSurfaceRecord[] | undefined = ctx.sessionProjections.stateOf(session, 'contentSurface')?.records
   const owned = (records ?? []).filter(record => record.kind === COMPONENT_KIND)
   if (owned.length === 0) return
   const authorized = authorizedEntryIds(session)

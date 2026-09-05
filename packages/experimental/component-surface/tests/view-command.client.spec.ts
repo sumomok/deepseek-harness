@@ -60,7 +60,7 @@ async function run(ctx: Context, agent: Agent, rawInput: string): Promise<Comman
 
 /** Every `content-component/shown` payload the session recorded, in order. */
 function shown(session: Session): unknown[] {
-  return session.events
+  return session.snapshotEvents()
     .filter((event: SessionEvent) => event.type === 'content-component/shown')
     .map((event: SessionEvent) => event.data)
 }
@@ -92,7 +92,7 @@ describe('show-content-view command', () => {
   it('records the input verbatim, the way every other command the sidebar runs does', async () => {
     const { ctx, agent, session } = await bench()
     await run(ctx, agent, ' alerts')
-    const started = session.events.find((event: SessionEvent) => event.type === 'command/run')
+    const started = session.snapshotEvents().find((event: SessionEvent) => event.type === 'command/run')
     expect(started?.type === 'command/run' && started.data).toMatchObject({
       name: SHOW_CONTENT_VIEW_COMMAND,
       args: ' alerts',

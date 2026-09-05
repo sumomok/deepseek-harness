@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh-experimental-component-surface/types
  */
 
-import type { CallId } from '@deepseek-ai/dsh-llm/brand'
+import type { ToolCallId } from '@deepseek-ai/dsh-llm/brand'
 import type { ComponentSpec } from './component-call.ts'
 
 declare module '@deepseek-ai/dsh-session/types' {
@@ -85,7 +85,7 @@ declare module '@deepseek-ai/dsh-session/types' {
      */
     'content-component/resolved': {
       /** The tool call the rows were read for, which pairs this with that call's own `tool/call`. */
-      callId: CallId
+      callId: ToolCallId
       /** The content-column entry this now owns, which is the call's `id`. */
       entryId: string
       /** The line the user reads on the entry's tab, as the call wrote it. */
