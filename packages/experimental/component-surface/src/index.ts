@@ -10,6 +10,15 @@
  * the `component` key of the `content.surface.kind` slot and receives each
  * entry's validated spec as its payload.
  *
+ * A call can also fill a data table from the deployment's own backend instead
+ * of writing its rows out. That half is off unless `dataSource` says otherwise,
+ * and where it is on the tool waits for both the backend and an approval
+ * answerer before it is offered at all: the description would otherwise promise
+ * a parameter nothing can honour. It is the one path in this package that asks
+ * the user a question and the one that appends a record for a call — the rows
+ * are not in the `tool/call`, so `content-component/resolved` is what the column
+ * replays from.
+ *
  * The same column also takes blocks nobody asked the model for: a deployment
  * writes views of its own in `views`, the sidebar lists them off this row's
  * `/component-surface/views` route, and a click runs `/show-content-view`,
@@ -17,7 +26,7 @@
  * that append is the path a call already took — one judgement, one extractor,
  * one seat.
  *
- * Nothing the agent does appends a session event. A call's record is the
+ * A call that writes its own rows appends no session event. Its record is the
  * `tool/call` the loop already writes, and an action's is the `command/run` the
  * command registry already writes, so both directions replay from the log the
  * agent actually wrote and removing this row leaves every past session
@@ -48,10 +57,15 @@ import type {} from '@deepseek-ai/dsh-experimental-content-surface'
 import type {} from '@deepseek-ai/dsh-commands'
 // Type-only: resolves ctx.webServer for the optional view-catalog route.
 import type {} from '@deepseek-ai/dsh-host-webserver'
+// Type-only: resolves ctx.bizBackend, which the optional data-source child reads through.
+import type {} from '@deepseek-ai/dsh-experimental-biz-backend'
+// Type-only: resolves ctx.approval, which that child asks the user through.
+import type {} from '@deepseek-ai/dsh-user-approval'
+import { MAX_TABLE_ROWS } from './component-call.ts'
 import { installComponentAction } from './command.ts'
 import { viewCatalogRoute, type ComponentViewsDocument } from './route.ts'
 import { componentExtractor } from './surface.ts'
-import { showComponentTool } from './tool.ts'
+import { showComponentTool, type ShowComponentOptions } from './tool.ts'
 import type { ContentView } from './types.ts'
 import { showContentViewCommand } from './view-command.ts'
 import { indexViews } from './views.ts'
@@ -72,7 +86,7 @@ export const name = 'show-component'
  */
 export const inject = ['tools']
 
-/** Plugin config: the views this deployment offers the user beside the ones the agent draws. */
+/** Plugin config: the views this deployment offers the user, and whether a call may read its own rows. */
 export interface Config {
   /**
    * Blocks a person wrote, offered to the user through the sidebar rather than
@@ -92,6 +106,24 @@ export interface Config {
    * same durable record a real click would.
    */
   homeView?: string
+  /**
+   * Whether a call may fill a data table from this deployment's own data
+   * backend. Off by default, because the read spends the signed-in visitor's
+   * own credential and a deployment has to say that it wants that.
+   *
+   * Where it is on, the tool is offered only once `bizBackend` and `approval`
+   * are both composed — the offer names a parameter, and a parameter with no
+   * backend behind it or no way to ask the user is an offer that cannot be
+   * kept.
+   */
+  dataSource?: boolean
+  /**
+   * Rows one read asks for when the call names no count of its own, which is
+   * also the number the user is shown on the approval card. A deployment whose
+   * tables are wide wants a smaller one; the ceiling is the table's own
+   * {@link MAX_TABLE_ROWS}.
+   */
+  dataDefaultPageSize?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -101,6 +133,8 @@ export const Config: z<Config> = z.object({
     spec: z.any().required(),
   })).default([]),
   homeView: z.string(),
+  dataSource: z.boolean().default(false),
+  dataDefaultPageSize: z.natural().default(200),
 })
 
 /**
@@ -108,7 +142,25 @@ export const Config: z<Config> = z.object({
  * default, so a deployment that omits the field reaches `apply` with an empty
  * list rather than with nothing. `homeView` has no default and stays optional.
  */
-type ResolvedConfig = Config & { readonly views: readonly ContentView[] }
+type ResolvedConfig = Config & {
+  readonly views: readonly ContentView[]
+  readonly dataSource: boolean
+  readonly dataDefaultPageSize: number
+}
+
+/**
+ * Read the two data-source fields into what the tool takes.
+ * @param config - the validated config, with its defaults already applied.
+ * @returns what this composition's `show_component` offers.
+ * @throws {Error} when the default row count is outside what a table can draw.
+ */
+function dataSourceOptions(config: ResolvedConfig): ShowComponentOptions {
+  if (config.dataDefaultPageSize < 1 || config.dataDefaultPageSize > MAX_TABLE_ROWS) {
+    throw new Error(
+      `component-surface: dataDefaultPageSize must be between 1 and ${MAX_TABLE_ROWS}, received ${config.dataDefaultPageSize}`)
+  }
+  return { dataSource: config.dataSource, defaultPageSize: config.dataDefaultPageSize }
+}
 
 /*
  * The ceilings are not configuration.
@@ -141,8 +193,22 @@ export function apply(ctx: Context, config: Config): void {
   // shows an empty column when a user clicks it, with nothing anywhere saying
   // why. The judgement is the tool's own, so what a deployment may write is
   // exactly what the model may send.
-  const views = indexViews((config as ResolvedConfig).views, config.homeView)
-  ctx.effect(() => ctx.tools.register(showComponentTool()), 'show-component: the show_component tool')
+  const resolved = config as ResolvedConfig
+  const views = indexViews(resolved.views, config.homeView)
+  const options = dataSourceOptions(resolved)
+  if (!options.dataSource) {
+    ctx.effect(() => ctx.tools.register(showComponentTool(ctx, options)), 'show-component: the show_component tool')
+  } else {
+    // Both services or no tool: a deployment that announced a data source has
+    // to be offered one that works, and a description promising a parameter
+    // whose backend is absent is worse than a row that never loaded.
+    ctx.inject(['bizBackend', 'approval'], (dataCtx) => {
+      dataCtx.effect(
+        () => dataCtx.tools.register(showComponentTool(dataCtx, options)),
+        'show-component: the show_component tool, reading from the data source',
+      )
+    })
+  }
   ctx.inject(['contentSurface'], (surfaceCtx) => {
     // `register` scopes its own disposer to the injected child, which is what
     // releases the kind when the fiber goes away.

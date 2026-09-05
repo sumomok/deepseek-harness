@@ -113,11 +113,13 @@ const SPEC_KEYS: readonly string[] = ['nodes', 'layout']
  *
  * Every refusal in this module goes through here, so the path is in the text by
  * construction rather than by each call site remembering to put it there.
+ * Exported for the host-only `dataSource` pass, which refuses a parameter of
+ * the same call in the same sentence shape.
  * @param path - parameter path of the offending value.
  * @param message - what is wrong with it and what to send instead.
  * @returns the refusal.
  */
-function refuse(path: string, message: string): ComponentCallFailure {
+export function refuse(path: string, message: string): ComponentCallFailure {
   return { path, text: `show_component: ${path} — ${message}`, oversize: false }
 }
 

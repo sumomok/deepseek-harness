@@ -16,8 +16,13 @@ import { validateComponentCall } from './validate.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-component-surface'
 
-/** The other writer an entry can be authorized by, named in the failure so the reader knows both were looked for. */
-const SHOWN_EVENT = 'content-component/shown'
+/**
+ * The writers other than a `show_component` call that an entry can be
+ * authorized by, named in the failure so the reader knows all three were looked
+ * for: a user's click on a configured view, and the tool's own record of a call
+ * whose rows it read from the data backend.
+ */
+const APPENDED_EVENTS: readonly string[] = ['content-component/shown', 'content-component/resolved']
 
 /** Cordis companion plugin name. */
 export const name = 'experimental-component-surface-invariant'
@@ -26,9 +31,9 @@ export const inject = ['invariants']
 
 /**
  * Entry ids one session's log authorizes: one per accepted `show_component`
- * call and one per view the user opened, counted by the same reader the
- * extractor uses, so the audit's two sides cannot drift by counting different
- * things.
+ * call, one per view the user opened, and one per call whose rows were read
+ * from the data backend, counted by the same reader the extractor uses, so the
+ * audit's two sides cannot drift by counting different things.
  * @param session - the session whose log is read.
  * @returns the authorized entry ids.
  */
@@ -68,7 +73,7 @@ function auditSession(ctx: Context, session: Session, fail: InvariantFailure): v
   const authorized = authorizedEntryIds(session)
   for (const record of owned) {
     if (!authorized.has(record.entryId)) {
-      fail(`session ${session.id} carries a ${COMPONENT_KIND} content entry ${JSON.stringify(record.entryId)} that nothing in its log recorded: no accepted ${SHOW_COMPONENT_TOOL_NAME} call and no ${SHOWN_EVENT} event`)
+      fail(`session ${session.id} carries a ${COMPONENT_KIND} content entry ${JSON.stringify(record.entryId)} that nothing in its log recorded: no accepted ${SHOW_COMPONENT_TOOL_NAME} call and no ${APPENDED_EVENTS.join(' or ')} event`)
     }
   }
 }

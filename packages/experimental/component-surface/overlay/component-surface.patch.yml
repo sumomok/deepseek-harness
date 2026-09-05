@@ -32,6 +32,17 @@
 #   a composition missing either must not insert this row: `show_component`'s
 #   description tells the model that a press comes back, and without the command
 #   nothing carries one.
+# - Rows the model asks this deployment for, rather than writes out, are
+#   `config.dataSource: true` plus `config.dataDefaultPageSize`. Neither is set
+#   here, for the reason the views are not: whether a console lets the agent
+#   read its deployment's own data with the signed-in visitor's own credential
+#   is that deployment's decision, and the row is complete without it. Turning
+#   it on needs two further rows in the composition — `auth-gate` configured
+#   with a `bizUpstream` (the deployment's own API prefix, ending in `/`; the
+#   standard one is `https://<host>/ini-server/`), and `user-approval`, because
+#   every read is put to the user first. Without both, this row simply does not
+#   register `show_component` at all. The package README's "Rows read from the
+#   deployment's own data" section is the whole of how to write it.
 # - Views a person wrote go in this row's `config.views`, and the view a blank
 #   draft opens on in `config.homeView`; the package README's "Views the
 #   deployment writes" section is the whole of how to write one. None are set

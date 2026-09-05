@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "prompt",
+      "text": "Put this deployment’s own 图层配置 table in the content panel as a table the user can tick, reading the rows from the data source instead of writing them yourself — the table is SpaceLayer and the columns are zh_label, layer_id and belong_map_topic. Then reply with exactly the single word DONE."
+    }
+  ],
+  "permissionAnswers": [
+    {
+      "kind": "allow_once"
+    }
+  ]
+}

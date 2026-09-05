@@ -5,7 +5,7 @@
  * One entry per id, so a correction and the call it corrects are one row in the
  * column's switcher and the later one owns it — and a configured view the user
  * opens twice is that same one row, because a view owns one entry too
- * (`projection.ts` reads all three log shapes into the same three values). The
+ * (`projection.ts` reads all four log shapes into the same three values). The
  * entry carries the validated spec itself — the record is self-contained,
  * everything the seat draws is in it — so nothing is resolved against live
  * state at view time and the column can draw a block without reaching into the
@@ -15,7 +15,17 @@
  * judgement over it: an unreadable or refused call records no entry at all,
  * rather than an entry whose seat would have nothing to draw. A view's event
  * takes the identical pass — its spec was judged once at load, and judging the
- * record rather than trusting it is what keeps one reading of the log.
+ * record rather than trusting it is what keeps one reading of the log. It is
+ * also what makes a call that reads its rows from the data backend produce
+ * exactly one entry: that call's own `tool/call` names blocks with no rows in
+ * them, fails this pass, and records nothing, while the
+ * `content-component/resolved` written after the rows arrived carries the whole
+ * filled spec and records the entry.
+ *
+ * `dataVersion` is 2. The stored record is the same two fields it always was;
+ * what changed is which log shapes are read into one, so a checkpoint written
+ * by a build that did not read the fourth shape is discarded and refolded
+ * rather than replayed as a column missing every read.
  *
  * `resolve` deliberately consults no catalog. The catalog is a build-time table
  * that grows and changes; a persisted checkpoint written before a component was
@@ -82,7 +92,7 @@ export function readComponentSurfaceData(data: unknown): ComponentSurfaceData | 
 export function componentExtractor(): ContentSurfaceExtractor<ComponentSurfaceData> {
   return {
     kind: COMPONENT_KIND,
-    dataVersion: 1,
+    dataVersion: 2,
     read: (event) => {
       const args = readComponentEvent(event)
       if (args === undefined) return undefined

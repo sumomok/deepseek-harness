@@ -92,6 +92,25 @@ What the forward changes, and nothing else:
 
 While no browser has posted a token, every forwarding route answers 503 naming the upstream — the honest answer for a credential the process does not have yet. An upstream that cannot be reached is 502; one that drops mid-answer truncates the response, because the status was already sent.
 
+## Reading the deployment's data backend
+
+The deployment that issues the token also serves its own data. `bizUpstream` gives this process the base those requests are built onto, and the gate constructs [`dsh-experimental-biz-backend`](../biz-backend/README.md)'s `ctx.bizBackend` over it, with the token it already holds. That package owns the two reads, what they put on the wire, and how every answer is classified.
+
+```yaml
+- id: auth-gate
+  name: '@deepseek-ai/dsh-experimental-auth-gate'
+  config:
+    loginUrl: /toy-proxy/toy-login/#/
+    cookieName: accessToken
+    refreshMarginSeconds: 300
+    mcpUpstreams: {}
+    bizUpstream: https://<host>/ini-server/
+```
+
+`bizUpstream` must be an absolute `http(s)` address with no query string, fragment, or credentials of its own, and a path ending in `/`. That path is the deployment's API prefix, which is the frontend's own `VUE_APP_BASE_URL`: a standard install builds `/ini-server/`, and an install built without one publishes at the origin root. There is no default. A value left out means this deployment offers no data backend, so `bizBackend` is not constructed at all and a row consuming it stays pending with the missing service named — rather than installing one whose every read fails.
+
+The token reaches those reads the same way it reaches a forward: by reference, as the closure this package holds it in. The reads spend it on both the `Authorization` and `CertificationToken` headers, and give it up through the same closure when the backend refuses it — which is this package's own sign-out state, and what the limitations below record.
+
 ## Composition
 
 This package is in no shipped bundle. `overlay/auth-gate.patch.yml` inserts the row over any surface:
@@ -109,7 +128,7 @@ This package is in no shipped bundle. `overlay/auth-gate.patch.yml` inserts the 
 
 `dsh --profile web --patch <path>` applies it. Every package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
 
-Every configured value is required and validated at load: an empty `loginUrl` or one already carrying a query string, a `cookieName` that is not a bare cookie name, an upstream name that is not a plain route segment, and a target that is not an absolute HTTP(S) URL without query or fragment each fail the row rather than surfacing as a redirect to nowhere or a tool call that fails on first use.
+Every configured value is validated at load, and every one but `bizUpstream` is required: an empty `loginUrl` or one already carrying a query string, a `cookieName` that is not a bare cookie name, an upstream name that is not a plain route segment, a target that is not an absolute HTTP(S) URL without query or fragment, and an unusable `bizUpstream` each fail the row rather than surfacing as a redirect to nowhere, a tool call that fails on first use, or a credential sent to the wrong address. A refused address is quoted back with any user name and password written into it removed, and a value the URL parser could not read at all is not quoted back at all — such a value can carry a password no check here recognizes, and a load failure is read wherever this row's output goes.
 
 `loginUrl` is a browser-side address, assigned as it stands: a deployment served under a path prefix writes that prefix into the value (`/console/toy-proxy/toy-login/#/`), because nothing resolves it against the deployment base. A login page kept outside the shell's prefix, as the example above does, stays valid and simply receives no mirror cookie — that cookie is scoped to the prefix.
 
@@ -132,5 +151,9 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **A revocation is not undone.** The browser half hands the node half a token in one place — the boot or storage-change decision that armed the page — so a sign-out that arrives while a page is still running leaves that page's MCP forwarding answering 503 until it loads again, with nothing on screen saying so. Two things reach that state: a sign-out request that arrives late enough to drop a token posted after it, and a cross-origin page that gets past the route's fence. Closing it means either naming the token to drop in the request, so a late one cannot hit a newer credential, or re-posting the current token when the page is shown again.
 - **A refused token is not a reason to leave.** The browser half decides on shape and expiry alone — what it leaves for is a stored value that is not a JWT with an `exp` still ahead — so a token an outer gate refuses while it is still unexpired (revoked, signed with a rotated key, an account since disabled) reads as usable here. The shell paints, every gated call behind it fails, and nothing sends the visitor anywhere; the expiry schedule is the only exit this package has, and it fires at the margin before `exp` rather than when the refusal starts. Treating a 401 from this package's own calls as a fourth reason to leave for the login page is the missing half, and it belongs beside the three decisions in `src/client/run.ts` that already do.
 - **The sign-out order assumes the mirror cookie still opens the proxy.** Step 1's post reaches this process only while the reverse proxy accepts the cookie it carries, and a proxy that validates that cookie rather than only routing by it — a site gate asking the deployment's own authentication service, as `dsh-experimental-server-base`'s nginx sample does — refuses the post on exactly the paths that surrender a token it will not accept: one already past `exp`, and one refused upstream while unexpired. The node half then holds the dead token until the process ends or a newer one is posted. Steps 2 and 3 run regardless, so the visitor still leaves; what stays is process-side.
+- **A read the backend refuses stops MCP forwarding as well.** HTTP 401 or 403 from the data backend makes the process give up the token, which is the sign-out route's terminal state, so every forwarding route answers 503 from then on and every read answers `unauthenticated` — until some browser posts a new token. One read's failure is therefore process-wide rather than local to that read.
+- **The process then knows something the page does not.** The node half is the first place in this process to learn that the token it holds was refused, and it has no channel for telling the browser: that page runs on until its own expiry schedule fires. Closing it means a fourth departure decision beside the three in `src/client/run.ts` — the token route answering 409 once the credential was dropped as refused is the cheapest form.
+- **Nothing reads the reason a credential was dropped.** `HeldCredential.drop` takes `'sign-out'` or `'refused-by-backend'`, both call sites pass the true one, and both reach the same terminal state; the closure reads neither. The parameter exists for the departure decision above, whose 409 answer has to tell the two apart, and it has no reader until that lands.
+- **`Bearer ` is added back.** The gate holds the bare JWT, and both data-backend headers get the scheme put back on, on the premise that this deployment's login page stores `"Bearer <jwt>"` — the contract `src/client/browser.ts` states. A deployment whose login page stores a bare JWT receives one scheme more than its own page sends.
 - **The settings route assumes an HTTP carrier.** The browser half fetches `/auth-gate/settings` — the root-absolute route the node half registers, resolved against the page's deployment base — so a transport that serves the shell without exposing the harness over HTTP would fail the row.
 - **Not covered by an assembled snapshot** — the browser evidence is the Playwright scenario in `apps/web/tests/auth-gate.e2e.ts` against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.

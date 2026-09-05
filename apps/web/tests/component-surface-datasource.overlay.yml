@@ -1,0 +1,37 @@
+# The console composition of `component-surface.overlay.yml`, plus the two rows
+# a call reading its own rows needs: the gate that holds the visitor's access
+# token and names the data backend it may be spent on, and the `dataSource`
+# offer on the tool itself. The approval service the read asks its question
+# through is already in the shipped composition, which is what makes the
+# question answerable in the browser rather than by a stub.
+#
+# `bizUpstream` comes from the environment because the fake data backend this
+# scenario starts binds an OS-assigned port; the address still carries a path
+# prefix, so the request this lane makes is built the way a real deployment's is.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+    - id: auth-gate
+      name: '@deepseek-ai/dsh-experimental-auth-gate'
+      config:
+        loginUrl: /component-surface-datasource-login/#/
+        cookieName: accessToken
+        refreshMarginSeconds: 300
+        mcpUpstreams: {}
+        bizUpstream: !!js process.env.DSH_E2E_BIZ_UPSTREAM
+    - id: show-component
+      name: '@deepseek-ai/dsh-experimental-component-surface'
+      config:
+        dataSource: true

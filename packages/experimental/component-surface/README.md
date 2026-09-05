@@ -20,7 +20,7 @@ The row activates in three independent pieces. The tool needs a tool runtime and
 
 ## Configuration
 
-Two fields, `views` and `homeView`, both about blocks a person wrote rather than about anything the model does; the next section is their whole documentation. Everything else is fixed.
+Four fields. `views` and `homeView` are about blocks a person wrote rather than about anything the model does, and the next section is their whole documentation. `dataSource` and `dataDefaultPageSize` are about rows the model asks this deployment for rather than writes out, and the section after that is theirs. Everything else is fixed.
 
 The numbers a deployment might want to move — the spec byte ceiling, the node ceiling, the nesting ceiling, the action byte ceiling — are enforced twice: here, and again by the browser seat over the value that arrives on the wire. The seat receives no Cordis configuration, so a per-deployment ceiling would be a ceiling the two halves disagree on: a block silently missing from the column rather than a refusal the model can act on. They are protocol constants in [`src/component-call.ts`](src/component-call.ts) until the seat can read a deployment's settings, at which point the ceilings and the route that serves them arrive together. The nesting ceiling is not written down even there: it is measured off the catalog, so a component declaring a nested property widens it by exactly what that property needs and no legal document is refused as malformed.
 
@@ -76,6 +76,73 @@ Loud rather than skipped, because a view quietly dropped is a menu row that show
 Two registrations exist only where views do. `GET /component-surface/views` answers the catalog a navigation menu is built from — `{"views":[{"id","title"},…],"homeView"?}` — and nothing more: a spec never travels this route, so a page cannot ask for a view the deployment did not configure. `/show-content-view <id>` is what a click runs; it appends the event below, draws nothing in the chat for a click the host took, and answers a click naming no view with one sentence, `没有这个视图。`, which is the only thing its chat row ever draws. Clicking the view already on screen appends again, which is what moves that entry back to the front of the switcher strip rather than doing nothing.
 
 `content-component/shown` is the one session event this package writes. It is Log-only — nothing about it reaches a model request, because what the model is told about the column is what the tool it called said — and it carries the whole spec rather than the view id, so a view the deployment later edits or drops still replays as what the user actually saw. The entry is folded out of it by the extractor that folds a call, under the entry id the view owns.
+
+## Rows read from the deployment's own data
+
+Off by default. A deployment sets `dataSource: true`, and the row then waits for both of the seams a read needs before offering the tool at all: `bizBackend`, which [`auth-gate`](../auth-gate/README.md) registers when it is configured with a `bizUpstream`, and `approval`. With either missing, `show_component` is not registered — a description promising a parameter with nothing behind it is worse than a row that never loaded.
+
+```yml
+- name: '@deepseek-ai/dsh-experimental-auth-gate'
+  config:
+    bizUpstream: https://<host>/ini-server/
+- name: '@deepseek-ai/dsh-user-approval'
+- id: show-component
+  name: '@deepseek-ai/dsh-experimental-component-surface'
+  config:
+    dataSource: true
+    dataDefaultPageSize: 200
+```
+
+`bizUpstream` is the deployment's own API prefix and ends in `/`; it has no default, and leaving it out is how a deployment says it serves no data.
+
+Where it is on, a call may send `dataSource` beside `spec`: one entry per `toy.table` block whose rows it wants read rather than written out.
+
+| Field | Required | What it is |
+|---|---|---|
+| `nodeId` | ✅ | a `toy.table` block of this same call |
+| `meta` | ✅ | the table's name in the backend |
+| `metaLabel` | ✅ | that table's name in the user's own language, at most 20 characters of one plain line; this is what the approval card shows |
+| `conditions` | | at most ten `{key, op, value}`; `op` is one of the sixteen strategies the filter bar offers, and a value is text, a number, a yes-or-no, or a list of at most twenty of the first two |
+| `matchMode` | | `AND` (the default) or `OR` |
+| `page` | | `{pageSize}`, between 1 and 500; `dataDefaultPageSize` where the call leaves it out |
+| `asc` / `desc` | | one attribute, one direction; sending both is refused |
+
+A block named here sends no `displayValueList` and no `rawValueList`, and a `toy.table` block **not** named here must still send its own rows. Both are refused before anything is asked of anyone.
+
+Which attributes are read is not a parameter. It is that block's own `tableConfig.gridItems[].relatedMetaAttr`, hidden columns included, so a call asks for exactly the columns it declared it would draw — and no read can ask for an attribute the block does not name.
+
+### The order, and what each step costs
+
+1. `dataSource` and every block it names are judged — and so is the rest of the call, over a copy carrying one stand-in row per table to be filled. A title too long, a thirteenth block, a component this deployment does not have and a thirty-first column have nothing to do with the rows, so all of them are refused here rather than after a person has answered for them. Nothing has been asked and nothing has been spent.
+2. Whether a credential is held at all is read off the gate, which costs nothing and reaches nothing. A session holding none is refused here, because allowing a read this process cannot perform buys the person who allowed it nothing.
+3. The user is asked once — one card for the whole call, however many tables it names, and once per call because `allowed-once` is the only grant the approval service has.
+4. The table's dictionary is read, and every attribute the read names is checked against it: each column's `relatedMetaAttr`, each condition's `key`, and the attribute sorted by. One the table does not have is refused here, with the dictionary's own first ten names, because nothing downstream treats it as an error. A column would simply arrive without its key and draw blank in front of the user; a filter or a sort is the backend's to interpret, and a backend that ignores an unknown filter answers a read the user allowed as a narrowed one with everything up to the page size. The dictionary also supplies a header for every column the call wrote none for.
+5. The rows are read, one table after another, and each row is held to the columns the call declared — the backend answers with the attributes it chose, putting its own row identifier in front of every set of attributes it is given, and the card named the declared columns. The first failure ends the whole call, and the rows already read are dropped.
+6. The rows are put in, and the filled call is judged again by the same pass a hand-written one gets — this time for what only the rows can decide: how many arrived, and how many bytes the filled call is.
+7. `content-component/resolved` records the whole filled entry.
+
+Nothing is appended and nothing is drawn unless step 7 is reached, so every way of failing leaves the column exactly as it was — and the `tool/call` of a reading call records no entry either, because the blocks in its own arguments are missing the rows they are required to carry.
+
+### What the user is asked
+
+The card is Chinese, free of any term the console does not otherwise show a person, and carries the table's backend name on a line of its own — small print for someone who wants to check what was really asked for, out of the way of someone who does not. The example below is the card as it is written; the panel that draws it today runs those lines together, which the limitations at the end of this document record.
+
+That identifier line is the only part of the card the model did not write, so nothing the model writes can reach it. Each table's description is cut to its share of a three-hundred-character prose budget **before** its identifier line and the closing promise are appended, so neither can be pushed off the card by a long header or a long label; and every word the model contributes to the card — `metaLabel` and each column header — is refused unless it is one plain line without a `「」` bracket, a control or format character, or a Unicode line or paragraph separator, so none can draw a line the card never wrote.
+
+```
+用您的账号查一份数据：从「图层配置」里取最多 200 条，只取「名称、图层id、所属地图主题」这几列。
+数据表：SpaceLayer
+
+取回来的数据画成表格放在右边，小助手看不到表里的内容；您在表里勾选的行，会作为您的选择告诉小助手。
+```
+
+Every table gets a paragraph and its own identifier line, however many there are. A column is named by the header the call wrote for it, at most three of them and then a count; a column with no header of its own is counted rather than named, because the only other name it has is the attribute the backend keys it by and the dictionary that could translate that is not read until this question has been answered. Filters follow the same rule and never carry a value — they are named by header and strategy where every filtered column has a header, counted otherwise, since a condition can carry another person's identifier and the card's job is to say what is about to be read, not to repeat it. The last sentence is the one that must always be there: a ticked row leaves the panel through `/component-action` and reaches the model as the user's own answer, so a card promising the rows stay out of the conversation would be promising something this row does not do.
+
+### What is recorded, and what the model is told
+
+`content-component/resolved` carries the call id, the entry id, the title, the whole filled spec, and one `fetched` entry per table naming the block, the table, how many rows arrived, how many match, and which attributes the read asked for — which are the only ones the recorded rows carry, because a backend answers with the attributes it chose and this row keeps the columns the call declared. It carries no credential, no request URL and no trace identifier. It is the record the column replays from, for the same reason a view's click writes one: the rows are nowhere in the `tool/call`, and replaying by reading again would be a second read of a person's data at a moment nobody asked for it.
+
+The model is told the same counts and attribute names and nothing out of any row.
 
 ## The catalog
 
@@ -261,7 +328,7 @@ The seat carries no dictionary. It translates through `componentKit`, the compon
 
 #### What the model sees
 
-One tool, `show_component`, with a required `id` string, a required `title` string, and a required `spec` object carrying a required `nodes` array and an optional `layout`. The description carries the whole catalog as two lines per component: `- id — label — purpose`, with `Nothing comes back from it.` on the line of a component that reports no action, and beneath it a `props:` line naming every property that component declares — `?` on the ones a call may omit, `(min–max)` on a number, `(a|b|c)` on a fixed set, `(true|false)` on a yes-or-no, `[what one item is] (min–max)` on a list, `{…}` on an object of declared properties, and `{<field>: text|number|boolean}` on an object whose keys the model chooses. A component another block can read from carries a third line, `outputs:`, naming each value and writing its form in the same notation, which is what makes a binding writable: the reference names one of those ids, and whether the property it is bound to accepts the value is decided against the form on that line. Then the reuse rule for `id`, the node and byte ceilings, the refusal rule for undeclared properties, one paragraph on the layout tree and one on reading another block, and the sentence naming what comes back: what the user does inside a block reaches the model, with the entry and the block it happened in, unless that component's line said otherwise. The component labels in that list are the Chinese names the end user reads, so a model naming a block in conversation names it the way the user sees it. This package contributes no system-prompt section.
+One tool, `show_component`, with a required `id` string, a required `title` string, and a required `spec` object carrying a required `nodes` array and an optional `layout`. The description carries the whole catalog as two lines per component: `- id — label — purpose`, with `Nothing comes back from it.` on the line of a component that reports no action, and beneath it a `props:` line naming every property that component declares — `?` on the ones a call may omit, `(min–max)` on a number, `(a|b|c)` on a fixed set, `(true|false)` on a yes-or-no, `[what one item is] (min–max)` on a list, `{…}` on an object of declared properties, and `{<field>: text|number|boolean}` on an object whose keys the model chooses. A component another block can read from carries a third line, `outputs:`, naming each value and writing its form in the same notation, which is what makes a binding writable: the reference names one of those ids, and whether the property it is bound to accepts the value is decided against the form on that line. Then the reuse rule for `id`, the node and byte ceilings, the refusal rule for undeclared properties, one paragraph on the layout tree and one on reading another block, and the sentence naming what comes back: what the user does inside a block reaches the model, with the entry and the block it happened in, unless that component's line said otherwise. The component labels in that list are the Chinese names the end user reads, so a model naming a block in conversation names it the way the user sees it. This package contributes no system-prompt section. Where the deployment composed a data source, the offer carries one further optional `dataSource` array and one further paragraph: the fields of an entry, the sixteen match strategies by name, the row ceiling, that a named block sends no rows of its own while its `gridItems` still say which attributes to read, that the user is asked once per call and a refusal draws nothing, and that what comes back is a count and a list of attributes rather than the rows. Where it composed none, neither the parameter nor the paragraph exists, so those deployments' request bytes are unchanged.
 
 #### Token effect
 
@@ -275,7 +342,7 @@ The description is assembled once when the row loads and depends on nothing but 
 
 #### What the model sees
 
-An accepted call answers `Now showing "<title>" in the content panel: <labels>.` followed by the sentence naming the id to reuse. A refused call answers `Error: show_component: <path> — <what is wrong and what to send instead>`, and for an unknown component the whole catalog again, property lines included, so the corrected call needs no second refusal to learn what the component it picks instead accepts.
+An accepted call answers `Now showing "<title>" in the content panel: <labels>.` followed by the sentence naming the id to reuse. A refused call answers `Error: show_component: <path> — <what is wrong and what to send instead>`, and for an unknown component the whole catalog again, property lines included, so the corrected call needs no second refusal to learn what the component it picks instead accepts. A call that read its rows adds one sentence per filled block — `Read 20 of 89 matching rows from "SpaceLayer" into block "rows", for the attributes zh_label, layer_id.` — and nothing out of any row. A read that did not happen answers one sentence saying which of the six ways it did not: no credential is held, the user did not allow it, the backend answered something else, the table has no attribute by that name (with the dictionary's own first ten, so the next call needs no second refusal either), nothing matched, or the rows that arrived are more than a spec carries.
 
 #### Token effect
 
@@ -287,6 +354,18 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 
 ## Known Limitations and Deferred Work
 
+- **Row-level trimming is the backend's, and this row cannot prove it happens** — the deployment's own frontend has a row and column permission pass, but with no signed-in profile it returns early and opens the data up rather than closing it down, so it is not a boundary. If the backend does not trim rows against the token it was handed, one read can draw rows a person was not meant to see onto that person's screen and write them into that person's session log — and signing out does not clean a log already written. Closing it needs an answer from whoever owns that backend, not code here.
+- **The identifier line is written on a line of its own and is not drawn on one** — the approval panel renders the reason's line breaks as spaces, so `数据表：SpaceLayer` reads as a clause inside the sentence rather than as small print beneath it. Everything that makes that line trustworthy still holds — it is the one part of the card no word the model wrote can reach — but a person checking the card has to find it inside a paragraph. Keeping the line breaks is the panel's to do.
+- **The table's name on the card is the model's word for it** — `metaLabel` is written by the call, not read out of the backend's dictionary. The dictionary is only read after the user has already answered, so a model that mislabelled the table has already been believed. Reading a name before asking would mean spending the credential before the question, which is the one order this row will not take. What the identifier line beneath it can do is let a person notice the mismatch; what it cannot do is stop a plausible wrong label from being read as right.
+- **A header is the dictionary's only where the call wrote none** — a column carrying `alias` keeps it, whatever the backend calls that attribute. A model naming a column something it is not is therefore visible only to someone who knows the table.
+- **A read that fails leaves the previous table on screen, with nothing saying it is stale** — the entry is untouched, so a replacement that could not be read shows what the last successful call put there. The model is told and should say so in the conversation; making the block itself say it needs the entry to carry a staleness bit, which is another change.
+- **This row asks for fewer columns than the deployment's own page does** — the component library sends every column of a scheme, hidden ones included; a call here sends the columns it declared. That is a deliberate narrowing, not a failed alignment, and it is why a table drawn here can hold less than the same table on the deployment's own page.
+- **Rows in the log are checkpoint weight** — a filled spec is up to 65536 bytes, once per live entry, carried in every checkpoint the content surface writes. It is the same cost a chart's whole option document already has, and this route pays it per read.
+- **One page, never a second** — `page` names a size and not a number, so there is no way to ask for rows 201 to 400. A wider read is a larger `pageSize` up to the table's own 500-row ceiling, and past that the model narrows the conditions.
+- **A view the deployment wrote cannot read its own rows** — `dataSource` is a parameter of the call, so a view configured in `cordis.yml` carries whatever rows the person who wrote it typed there and nothing else. A console whose home view is meant to show live data has no way to say so today. Giving a view its own read means asking the user at click time rather than at call time, since a configured view has no model turn to hang the question on, and that is the next slice rather than this one.
+- **A cell the table cannot draw is dropped, not refused** — the rows are text, numbers and yes-or-no; a null, a nested record or a list is left out of the row rather than failing the read, because an absent cell is what a table already draws for one. Where the backend returns a different number of stored rows than displayed ones, the stored rows are left out entirely, since the table's two lists stand one for one.
+- **No service account, by decision** — a session with no signed-in credential is refused and the visitor signs in. The alternative would make the approval card's first three characters, 用您的账号, untrue for whoever the fallback account turned out to be.
+- **A read's record is required on read** — `content-component/resolved` carries no `ignorable` marker, for the same reason `content-component/shown` does not: `Session.append` gives an appending plugin no way to set one. Every build of this repository knows the type.
 - **The payload whitelist is the block's own promise, not something the host enforces** — the command registry records a command's input verbatim before any handler runs, so an over-full action document is in the log by the time this row refuses it. What the host still enforces is the byte ceiling and the declared properties: past the ceiling, or carrying a property its action does not declare, the action is not delivered to the agent at all. Sending only what the action declares is the seat's obligation, and both halves ship here.
 - **The transcript row names the mechanism rather than the block** — a notice arrives as a collapsed row headed `上下文注入 · content-component` (`Context injection · content-component` in English), a term and a plugin id in front of an end user, and the one-line summary beside them is a flexible cell that the console's three-column chat width squeezes to nothing. Expanding it is no better: what it opens on is the model-facing English sentence with the internal identifiers inside it — `The user pressed "Approve" in content panel entry "budget" ("Budget approval"), on the 确认条 block "ask".` — which is the account written for the agent, shown to the person who made the gesture. Both the row and the body are drawn by [`ui-conversation`](../../client/ui-conversation/README.md) for every producer alike; the review trigger for all of it is the `develop`-line change that gives a producer its own display name, which is where per-producer copy for the expanded body belongs too.
 - **The command is in the end user's slash menu** — `commands.register` has no way to keep a row out of the menu the composer offers, so `/component-action` is listed there with the hint `<json>` beside it, in a product where every other row is something a person is meant to type. What that row can be is a sentence saying it is not: the description is end-user Chinese naming the buttons in the content panel and saying the page sends it. A line typed there by hand resolves against nothing and answers with the same refusal a lost press gets — and, where it is well-formed enough to name an entry and a node, it repaints that block with that refusal, because the gesture fold reads the identifiers a line carries and only the handler resolves them against the entry on display. Keeping it out of the menu is a `dsh-commands` change — one `listed` field on the descriptor — and it belongs with whichever row needs it second.

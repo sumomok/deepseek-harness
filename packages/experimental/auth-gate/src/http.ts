@@ -81,3 +81,22 @@ export async function readBoundedText(req: IncomingMessage, limit: number): Prom
   }
   return text
 }
+
+/**
+ * Decode one body as JSON.
+ *
+ * The only caller-visible difference between a malformed document and an absent
+ * one is this function's `undefined`; each caller states what that means on its
+ * own route.
+ * @param text - the body text.
+ * @returns the decoded value, or `undefined` when the text is not JSON.
+ */
+export function decodeJson(text: string): unknown {
+  try {
+    return JSON.parse(text) as unknown
+  } catch (_bodyIsNotJson) {
+    // A body that does not parse carries no further detail to report; every
+    // caller answers with its own refusal rather than the parser's message.
+    return undefined
+  }
+}

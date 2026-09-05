@@ -504,6 +504,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns the extractor table and the single `contentSurface` projection folded from it; each content kind registers what it recognizes in the log and content-column draws the selected entry through a keyed slot.',
   },
   {
+    key: 'bizBackend',
+    pkg: 'biz-backend',
+    title: 'Deployment data-backend reads',
+    mode: 'core',
+    consumers: ['component-surface'],
+    note: 'Owns two named reads of a deployment\'s own data backend, spent with the visitor\'s access token; auth-gate constructs the service with the base it validated and the token it holds, so the credential stays in that package\'s closure.',
+  },
+  {
     key: 'jobs',
     pkg: 'jobs',
     title: 'Background job registry',

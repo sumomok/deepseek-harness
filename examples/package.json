@@ -84,6 +84,7 @@
     "@deepseek-ai/dsh-system-prompt": "workspace:*",
     "@deepseek-ai/dsh-jobs-local": "workspace:*",
     "@deepseek-ai/dsh-experimental-agent-team": "workspace:*",
+    "@deepseek-ai/dsh-experimental-auth-gate": "workspace:*",
     "@deepseek-ai/dsh-experimental-component-surface": "workspace:*",
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:*",
     "@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc": "workspace:*",

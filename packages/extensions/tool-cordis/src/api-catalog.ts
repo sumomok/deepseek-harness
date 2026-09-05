@@ -502,6 +502,31 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'bizBackend',
+    summary: '`ctx.bizBackend`: the two reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.',
+    description: '`ctx.bizBackend`: the two reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
+    methods: [
+      {
+        signature: 'holdsCredential(): boolean',
+        description: 'Whether a token is held for the signed-in visitor at all.\n\nReading the slot spends nothing and reaches no network, so a consumer that asks a person for permission before reading can find out beforehand that the answer could not be honoured. It promises nothing about the next call: the backend can refuse the token in between, and every call answers `unauthenticated` on its own whether or not anyone asked here.',
+        parameters: [],
+        returns: 'true while a token is held.',
+      },
+      {
+        signature: 'async search(request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchResult | BizBackendFailure>',
+        description: 'Read one page of one resource model\'s rows.',
+        parameters: [{ name: 'request', description: 'the model to read and how to narrow it.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        returns: 'the rows, or why there are none.',
+      },
+      {
+        signature: 'async describe(meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure>',
+        description: 'Read one resource model\'s attribute names, under both of the names the deployment keeps for each.',
+        parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        returns: 'the model\'s attributes, or why they could not be read.',
+      },
+    ],
+  },
+  {
     key: 'clientModules',
     summary: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index injection rows.',
     description: 'The web plugin table service: incremental `dsh.client` scan + wire composition + bundle route + index injection rows. Construction runs the activation scan synchronously — a malformed declaration or missing bundle among the already-loaded entries aggregates into one loud throw (FAILED fiber; the boot activation audit reports it).',
@@ -3025,6 +3050,30 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BashEnvVariableInfo',
     declaration: 'export interface BashEnvVariableInfo extends BashEnvVariable {\n    contributor: string;\n    key: DshEnvironmentKey;\n}',
+  },
+  {
+    name: 'BizBackendFailure',
+    declaration: 'export type BizBackendFailure = {\n    readonly kind: \'unauthenticated\';\n} | {\n    readonly kind: \'refused\';\n    readonly status: number;\n} | {\n    readonly kind: \'rejected\';\n    readonly status: number;\n    readonly code?: number;\n    readonly message?: string;\n} | {\n    readonly kind: \'unreachable\';\n    readonly detail: string;\n};',
+  },
+  {
+    name: 'BizCondition',
+    declaration: 'export interface BizCondition {\n    readonly key: string;\n    readonly op: string;\n    readonly value: string | number | boolean | readonly (string | number)[];\n}',
+  },
+  {
+    name: 'BizMetaAttribute',
+    declaration: 'export interface BizMetaAttribute {\n    readonly attributeEnName: string;\n    readonly attributeCnName: string;\n}',
+  },
+  {
+    name: 'BizMetaResult',
+    declaration: 'export interface BizMetaResult {\n    readonly attributes: readonly BizMetaAttribute[];\n}',
+  },
+  {
+    name: 'BizSearchRequest',
+    declaration: 'export interface BizSearchRequest {\n    readonly meta: string;\n    readonly conditions?: readonly BizCondition[];\n    readonly matchMode?: \'AND\' | \'OR\';\n    readonly source?: readonly string[];\n    readonly page?: {\n        readonly currentPage: number;\n        readonly pageSize: number;\n    };\n    readonly asc?: string;\n    readonly desc?: string;\n}',
+  },
+  {
+    name: 'BizSearchResult',
+    declaration: 'export interface BizSearchResult {\n    readonly rawValue: readonly Readonly<Record<string, unknown>>[];\n    readonly displayValue: readonly Readonly<Record<string, unknown>>[];\n    readonly total?: number;\n}',
   },
   {
     name: 'Branded',

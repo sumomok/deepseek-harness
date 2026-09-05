@@ -45,6 +45,9 @@
       "path": "../../interaction/commands"
     },
     {
+      "path": "../../interaction/user-approval"
+    },
+    {
       "path": "../../llm/llm"
     },
     {
@@ -52,6 +55,9 @@
     },
     {
       "path": "../../session/session-projection"
+    },
+    {
+      "path": "../biz-backend"
     },
     {
       "path": "../component-kit"

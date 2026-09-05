@@ -510,6 +510,24 @@ describe('runScenario', () => {
     expect(result.rawStdout).toContain('workspace:committed.txt,runtime.txt')
   })
 
+  it('runs the post-spawn hook once, before the first step', { timeout: 20_000 }, async () => {
+    const { fixtureFile } = await scenario({})
+    const calls: number[] = []
+
+    const result = await runScenario(
+      { steps: boot },
+      {
+        agent: AGENT,
+        mode: 'replay',
+        fixtureFile,
+        afterSpawn: () => { calls.push(calls.length) },
+      },
+    )
+
+    expect(calls).toEqual([0])
+    expect(result.sessionId).toBeDefined()
+  })
+
   it('creates the generated workspace under an explicit parent', { timeout: 20_000 }, async () => {
     const { fixtureFile } = await scenario({})
     const workspaceParent = await mkdtemp(join(tmpdir(), 'acp-snap-parent-'))

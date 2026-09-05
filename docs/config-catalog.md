@@ -658,10 +658,23 @@ export interface Config {
    * nothing.
    */
   mcpUpstreams: Record<string, string>
+  /**
+   * Base URL of this deployment's own data backend, ending in `/` and carrying
+   * the deployment's API prefix — `https://<host>/ini-server/` for a standard
+   * install. That prefix is the frontend's `VUE_APP_BASE_URL`, so it is read off
+   * the deployment rather than assumed: an install built without one publishes
+   * its API at the origin root instead.
+   *
+   * There is no default. Left out, the `bizBackend` service is not registered
+   * at all, and a row that consumes it stays pending with the missing service
+   * named — a deployment that does not offer a data backend says so by staying
+   * silent, rather than by registering reads that always fail.
+   */
+  bizUpstream?: string
 }
 ```
 
-Source: [`packages/experimental/auth-gate/src/index.ts:54`](../packages/experimental/auth-gate/src/index.ts)
+Source: [`packages/experimental/auth-gate/src/index.ts:59`](../packages/experimental/auth-gate/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-component-surface"></a>
 
@@ -670,7 +683,7 @@ Source: [`packages/experimental/auth-gate/src/index.ts:54`](../packages/experime
 Requires: `tools`
 
 ```ts config-catalog
-/** Plugin config: the views this deployment offers the user beside the ones the agent draws. */
+/** Plugin config: the views this deployment offers the user, and whether a call may read its own rows. */
 export interface Config {
   /**
    * Blocks a person wrote, offered to the user through the sidebar rather than
@@ -690,6 +703,24 @@ export interface Config {
    * same durable record a real click would.
    */
   homeView?: string
+  /**
+   * Whether a call may fill a data table from this deployment's own data
+   * backend. Off by default, because the read spends the signed-in visitor's
+   * own credential and a deployment has to say that it wants that.
+   *
+   * Where it is on, the tool is offered only once `bizBackend` and `approval`
+   * are both composed — the offer names a parameter, and a parameter with no
+   * backend behind it or no way to ask the user is an offer that cannot be
+   * kept.
+   */
+  dataSource?: boolean
+  /**
+   * Rows one read asks for when the call names no count of its own, which is
+   * also the number the user is shown on the approval card. A deployment whose
+   * tables are wide wants a smaller one; the ceiling is the table's own
+   * {@link MAX_TABLE_ROWS}.
+   */
+  dataDefaultPageSize?: number
 }
 
 /** One view a deployment configures, as `cordis.yml` writes it and before anything has judged it. */
@@ -712,7 +743,7 @@ export interface ContentView {
 }
 ```
 
-Source: [`packages/experimental/component-surface/src/index.ts:76`](../packages/experimental/component-surface/src/index.ts)
+Source: [`packages/experimental/component-surface/src/index.ts:90`](../packages/experimental/component-surface/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 
@@ -3603,6 +3634,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-client-web` ([`packages/client/web/src/index.ts`](../packages/client/web/src/index.ts))
 - `@deepseek-ai/dsh-cmdline` ([`packages/boot/cmdline/src/index.ts`](../packages/boot/cmdline/src/index.ts))
 - `@deepseek-ai/dsh-code-runtime-python` ([`packages/code-runtime/code-runtime-python/src/index.ts`](../packages/code-runtime/code-runtime-python/src/index.ts))
+- `@deepseek-ai/dsh-experimental-biz-backend` ([`packages/experimental/biz-backend/src/index.ts`](../packages/experimental/biz-backend/src/index.ts))
 - `@deepseek-ai/dsh-home-paths` ([`packages/util/home-paths/src/index.ts`](../packages/util/home-paths/src/index.ts))
 - `@deepseek-ai/dsh-hook-protocol` ([`packages/hooks/hook-protocol/src/index.ts`](../packages/hooks/hook-protocol/src/index.ts))
 - `@deepseek-ai/dsh-launch-environment` ([`packages/util/launch-environment/src/index.ts`](../packages/util/launch-environment/src/index.ts))

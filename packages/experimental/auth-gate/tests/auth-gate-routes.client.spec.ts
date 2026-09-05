@@ -29,6 +29,7 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
+import { BizBackendService } from '@deepseek-ai/dsh-experimental-biz-backend'
 import * as AuthGate from '../src/index.ts'
 import { requesterFor, resolveUpstreams, upstreamUrlFor } from '../src/proxy.ts'
 import {
@@ -491,8 +492,12 @@ describe('auth-gate MCP forwarding', () => {
 })
 
 describe('auth-gate configuration', () => {
-  /** Apply the plugin against a webServer that only records what it claimed. */
-  function claimedRoutes(config: AuthGate.Config): string[] {
+  /**
+   * Apply the plugin against a webServer that only records what it claimed.
+   * @param config - the configuration under test.
+   * @returns the context it applied onto, and the routes it claimed.
+   */
+  function applyGate(config: AuthGate.Config): { ctx: Context; claimed: string[] } {
     const claimed: string[] = []
     const ctx = new Context()
     ctx.provide('webServer', {
@@ -502,7 +507,16 @@ describe('auth-gate configuration', () => {
       },
     } as never)
     AuthGate.apply(ctx, config)
-    return claimed
+    return { ctx, claimed }
+  }
+
+  /**
+   * The routes one configuration claims.
+   * @param config - the configuration under test.
+   * @returns the claimed route paths, in declaration order.
+   */
+  function claimedRoutes(config: AuthGate.Config): string[] {
+    return applyGate(config).claimed
   }
 
   /**
@@ -515,12 +529,14 @@ describe('auth-gate configuration', () => {
     loginUrl?: string
     cookieName?: string
     mcpUpstreams?: Record<string, string>
+    bizUpstream?: string | undefined
   } = {}): AuthGate.Config {
     return {
       loginUrl: fields.loginUrl ?? '/toy-proxy/toy-login/#/',
       cookieName: fields.cookieName ?? 'accessToken',
       refreshMarginSeconds: 300,
       mcpUpstreams: fields.mcpUpstreams ?? {},
+      ...fields.bizUpstream === undefined ? {} : { bizUpstream: fields.bizUpstream },
     }
   }
 
@@ -559,6 +575,98 @@ describe('auth-gate configuration', () => {
       ],
     ] as const) {
       expect(() => resolveUpstreams(table)).toThrow(message)
+    }
+  })
+
+  it('registers the data-backend service only where a base for one is configured', () => {
+    expect(applyGate(gateConfig({ bizUpstream: 'https://biz.example/ini-server/' })).ctx.get('bizBackend'))
+      .toBeInstanceOf(BizBackendService)
+    for (const bizUpstream of [undefined, '']) {
+      // No base is how a deployment says it offers no data backend. Nothing is
+      // registered, so a row that consumes the service stays pending with the
+      // missing name reported, rather than reading through one that always fails.
+      expect(applyGate(gateConfig({ bizUpstream })).ctx.get('bizBackend')).toBeUndefined()
+    }
+  })
+
+  it('accepts a base written as an origin alone, which an install without an API prefix publishes at', () => {
+    expect(applyGate(gateConfig({ bizUpstream: 'http://10.0.0.1:9532' })).ctx.get('bizBackend'))
+      .toBeInstanceOf(BizBackendService)
+  })
+
+  it('fails the row before claiming a route when the data-backend base is unusable', () => {
+    // The value decides where this visitor's credential is sent, so it is
+    // refused at load like every other address here.
+    for (const [bizUpstream, message] of [
+      ['/ini-server/', 'auth-gate: bizUpstream must be an absolute URL'],
+      ['ftp://biz.example/', 'auth-gate: bizUpstream must be an http or https URL, received "ftp://biz.example/"'],
+      [
+        'https://biz.example/?a=1',
+        'auth-gate: bizUpstream must carry no query string or fragment, received "https://biz.example/?a=1"',
+      ],
+      [
+        'https://biz.example/#x',
+        'auth-gate: bizUpstream must carry no query string or fragment, received "https://biz.example/#x"',
+      ],
+      [
+        'https://biz.example/ini-server',
+        'auth-gate: bizUpstream must end in "/", received "https://biz.example/ini-server"',
+      ],
+      [
+        'https://biz.example/ini//server/',
+        'auth-gate: bizUpstream must carry no empty path segment, received "https://biz.example/ini//server/"',
+      ],
+    ] as const) {
+      expect(() => claimedRoutes(gateConfig({ bizUpstream }))).toThrow(message)
+    }
+  })
+
+  it('names no value when it rejects a data-backend base carrying credentials of its own', () => {
+    // Repeating the address would put the password into whatever reads the
+    // load failure, which is the whole reason this case is refused.
+    const unusable = gateConfig({ bizUpstream: 'https://someone:s3cret@biz.example/' })
+    expect(() => claimedRoutes(unusable)).toThrow('auth-gate: bizUpstream must carry no credentials of its own')
+    try {
+      claimedRoutes(unusable)
+    } catch (refusal) {
+      expect(String(refusal)).not.toContain('s3cret')
+    }
+  })
+
+  it('drops the password from a base the parser reads as a scheme of its own', () => {
+    // `someone:s3cret@biz example` parses, as an opaque scheme carrying an
+    // opaque path, so the credentials check above never sees the password.
+    const refused = gateConfig({ bizUpstream: 'someone:s3cret@biz example' })
+    expect(() => claimedRoutes(refused))
+      .toThrow('auth-gate: bizUpstream must be an http or https URL, received "biz example"')
+    try {
+      claimedRoutes(refused)
+    } catch (refusal) {
+      expect(String(refusal)).not.toContain('s3cret')
+    }
+  })
+
+  it('names no value at all when the parser cannot read the base', () => {
+    // A value the parser refuses never reaches the credentials check below it,
+    // and a protocol-relative address is refused there with its userinfo where
+    // no sanitizing of the quoted form would find it. The field name is what
+    // this branch says, and it is enough to locate the fault.
+    for (const bizUpstream of [
+      'https://someone:s3cret@biz.example:99999/',
+      'https://someone:s3cret@biz example/ini-server/',
+      'https://someone:s3cret@biz example',
+      '//someone:s3cret@biz.example/',
+      '//someone:s3cret@biz.example',
+    ]) {
+      const refused = gateConfig({ bizUpstream })
+      expect(() => claimedRoutes(refused)).toThrow('auth-gate: bizUpstream must be an absolute URL')
+      try {
+        claimedRoutes(refused)
+      } catch (refusal) {
+        expect(String(refusal)).not.toContain('s3cret')
+        expect(String(refusal)).not.toContain('biz.example')
+        expect(String(refusal)).not.toContain('received')
+      }
     }
   })
 

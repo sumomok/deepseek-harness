@@ -74,11 +74,11 @@ function audit(ctx: Context, session: Session): void {
 }
 
 /**
- * What the audit says about an entry nothing in the log authorized: both
+ * What the audit says about an entry nothing in the log authorized: all three
  * writers are named, so a reader knows the companion looked for each.
  */
-const UNAUTHORIZED = 'that nothing in its log recorded: '
-  + 'no accepted show_component call and no content-component/shown event'
+const UNAUTHORIZED = 'that nothing in its log recorded: no accepted show_component call and no '
+  + 'content-component/shown or content-component/resolved event'
 
 describe('the component-entry invariant', () => {
   it('reserves package ownership under its declared companion name', async () => {

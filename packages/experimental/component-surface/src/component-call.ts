@@ -199,7 +199,7 @@ export const MATCH_OPERATORS = [
 ] as const satisfies readonly { readonly value: string; readonly label: string }[]
 
 /** Just the ids of {@link MATCH_OPERATORS}: the set one condition's `op` is judged against. */
-const MATCH_OPERATOR_IDS: readonly string[] = MATCH_OPERATORS.map(operator => operator.value)
+export const MATCH_OPERATOR_IDS: readonly string[] = MATCH_OPERATORS.map(operator => operator.value)
 
 /**
  * How a filter joins its conditions, as the condition editor spells the choice
@@ -725,6 +725,13 @@ export const MAX_TABLE_OPERATIONS = 5
 /** Keys one table row may carry: the columns it is read through, plus the fields nothing draws. */
 const MAX_ROW_KEYS = 40
 
+/**
+ * Largest accepted column header, in characters. Exported because a header
+ * taken from a data backend's own dictionary is judged against it before it is
+ * written into a column, and the two must be one number.
+ */
+export const MAX_COLUMN_ALIAS_LENGTH = 40
+
 /** Largest accepted value inside one table row, in characters. */
 const MAX_ROW_VALUE_LENGTH = 200
 
@@ -781,7 +788,7 @@ const TABLE_PROPS: PropsSchema = {
               kind: 'object',
               fields: {
                 relatedMetaAttr: { required: true, schema: FIELD_NAME },
-                alias: { required: false, schema: { kind: 'string', maxLength: 40 } },
+                alias: { required: false, schema: { kind: 'string', maxLength: MAX_COLUMN_ALIAS_LENGTH } },
                 isShow: { required: false, schema: { kind: 'boolean' } },
                 isSortable: { required: false, schema: { kind: 'boolean' } },
                 relatedComponent: { required: false, schema: { kind: 'enum', values: RELATED_COMPONENTS } },

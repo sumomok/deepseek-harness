@@ -254,6 +254,8 @@
       "@deepseek-ai/dsh-experimental-content-surface/types": ["./packages/experimental/content-surface/src/types.ts"],
       "@deepseek-ai/dsh-experimental-component-kit": ["./packages/experimental/component-kit/src"],
       "@deepseek-ai/dsh-experimental-component-kit/client": ["./packages/experimental/component-kit/src/client"],
+      "@deepseek-ai/dsh-experimental-auth-gate": ["./packages/experimental/auth-gate/src"],
+      "@deepseek-ai/dsh-experimental-biz-backend": ["./packages/experimental/biz-backend/src"],
       "@deepseek-ai/dsh-experimental-component-surface": ["./packages/experimental/component-surface/src"],
       "@deepseek-ai/dsh-experimental-component-surface/client": ["./packages/experimental/component-surface/src/client"],
       "@deepseek-ai/dsh-experimental-server-base": ["./packages/experimental/server-base/src"],

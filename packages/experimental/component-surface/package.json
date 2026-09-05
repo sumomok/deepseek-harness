@@ -58,6 +58,7 @@
     "@deepseek-ai/dsh-client-runtime": "workspace:^",
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
+    "@deepseek-ai/dsh-experimental-biz-backend": "workspace:^",
     "@deepseek-ai/dsh-experimental-component-kit": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-column": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
@@ -66,7 +67,8 @@
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
     "@deepseek-ai/dsh-session-projection": "workspace:^",
-    "@deepseek-ai/dsh-tools": "workspace:^"
+    "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-user-approval": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -79,6 +81,7 @@
     "@deepseek-ai/dsh-client-ui-conversation": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/dsh-commands": "workspace:^",
+    "@deepseek-ai/dsh-experimental-biz-backend": "workspace:^",
     "@deepseek-ai/dsh-experimental-component-kit": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-column": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
@@ -90,6 +93,7 @@
     "@deepseek-ai/dsh-system-prompt": "workspace:^",
     "@deepseek-ai/dsh-tool-todo": "workspace:^",
     "@deepseek-ai/dsh-tools": "workspace:^",
+    "@deepseek-ai/dsh-user-approval": "workspace:^",
     "@types/react": "~18.3.1",
     "react": "^18.2.0"
   },

@@ -64,6 +64,9 @@ function stabilize(
 }
 const RECORD_SRC = fileURLToPath(new URL('./fixtures/record-suite', import.meta.url))
 
+// Scenarios that named a post-spawn hook, recorded in the order it ran them.
+const afterSpawnCalls: string[] = []
+
 // Replay pins explicit header classes; recording covers the default fallback.
 const REPLAY_SCENARIOS: Scenario[] = [
   { name: 'pin-turn', hasModelTurn: true, recorded: true, pinsHeader: true, expectedHeaderChanges: 1, headerClass: 'main' },
@@ -90,6 +93,7 @@ const REPLAY_SCENARIOS: Scenario[] = [
     prepareWorkspace: (cwd) => {
       writeFileSync(join(cwd, 'seed.txt'), 'prepared at runtime')
     },
+    afterSpawn: () => { afterSpawnCalls.push('plain-turn') },
   },
   { name: 'no-model', hasModelTurn: false, recorded: false, headerClass: 'main' },
   { name: 'blocked-log', hasModelTurn: false, comparesLog: true, recorded: false, headerClass: 'main' },
@@ -155,6 +159,15 @@ describe('defineAcpSnapshotSuite: replay mode', () => {
 // pinned fixture FIRST, so rec-child's uniformity guard reads the fresh pin.
 describe('defineAcpSnapshotSuite: record mode', () => {
   defineAcpSnapshotSuite({ agent: AGENT, snapshotsDir: recordDir, scenarios: RECORD_SCENARIOS, mode: 'record' })
+})
+
+describe('the post-spawn hook a scenario names', () => {
+  it('ran for the scenario that named one, once per run of it', () => {
+    // Replay and refresh each run `plain-turn`, and only that scenario names a
+    // hook, so every entry is that name and nothing else registered one.
+    expect(afterSpawnCalls.length).toBeGreaterThan(0)
+    expect(new Set(afterSpawnCalls)).toEqual(new Set(['plain-turn']))
+  })
 })
 
 describe('defineAcpSnapshotSuite: refresh mode', () => {

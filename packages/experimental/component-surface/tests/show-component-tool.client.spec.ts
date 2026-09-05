@@ -16,7 +16,10 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { COMPONENT_CATALOG, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
-import { describeShowComponent, showComponentTool } from '../src/tool.ts'
+import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
+
+/** The offer of a deployment that composed no data backend, which is what this suite pins. */
+const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200 }
 
 let calls = 0
 
@@ -31,7 +34,7 @@ async function bench(): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  const definition = showComponentTool()
+  const definition = showComponentTool(ctx, PLAIN)
   ctx.tools.register(definition)
   return {
     definition,
@@ -86,7 +89,7 @@ describe('show_component model-visible surface', () => {
       + 'for an answer a block is already asking for, and do not place a block that sends nothing back to ask a '
       + 'question with.',
     )
-    expect(describeShowComponent()).toBe(definition.description)
+    expect(describeShowComponent(PLAIN)).toBe(definition.description)
     expect(definition.description).toContain('- toy.table — 数据表 —')
     expect(definition.description).toContain('- el.filter-bar — 筛选条件 —')
     expect(definition.description).toContain('- el.metric — 指标球 — ')

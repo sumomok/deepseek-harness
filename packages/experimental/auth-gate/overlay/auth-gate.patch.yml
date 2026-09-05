@@ -11,6 +11,14 @@
 # claims `/auth-gate/mcp/crm`, and the matching `dsh-mcp-client` row then points
 # its `url` at that path instead of at the server, which is how it gets a
 # per-visitor token it could not otherwise obtain.
+#
+# `bizUpstream` is absent for the same reason, and its absence means this
+# deployment offers no data backend: nothing registers `bizBackend`, and a row
+# that consumes it stays pending with the missing service named. A deployment
+# that does offer one writes its base here, ending in `/` and carrying the API
+# prefix its frontend was built with — `bizUpstream: https://<host>/ini-server/`
+# for a standard install, and the origin root for an install built without a
+# prefix.
 - insert:
     - id: auth-gate
       name: '@deepseek-ai/dsh-experimental-auth-gate'

@@ -424,6 +424,71 @@ Source: [`packages/experimental/content-frame/src/types.ts:21`](../packages/expe
 
 ### `content-component/*`
 
+<a id="content-componentresolved--log-only"></a>
+
+#### `content-component/resolved` — log-only
+
+```ts persistence-catalog
+/**
+ * A `show_component` call read rows out of the deployment's own data
+ * backend, and this is the whole entry those rows became. Written by the
+ * tool itself, once the user allowed the read and every table answered, and
+ * by nothing else.
+ *
+ * Log-only, and never a model-visible input. What the model receives is the
+ * arguments it wrote plus a result line counting rows and naming attributes;
+ * the rows themselves reach the browser seat and this record and go nowhere
+ * near a model request.
+ *
+ * The whole filled spec is recorded rather than the rows alone, because the
+ * column's reader is per-event, synchronous and pure: it cannot join a base
+ * spec in one record to rows in another, and the later record for an entry
+ * id replaces the earlier one outright. It is recorded rather than replayed
+ * for the further reason that replaying would mean reading the backend
+ * again — a second read of a person's data, at a moment nobody asked for it,
+ * possibly answering differently.
+ *
+ * There is no `by` field, unlike `content-component/shown`: a view can be
+ * opened by a person and a call cannot, so there is only one writer to name.
+ *
+ * Required on read, like this package's other event and for the same reason:
+ * the envelope's `ignorable` marker is not something an appending plugin can
+ * set, so a runtime whose session vocabulary does not carry this type
+ * refuses the whole log rather than skipping the event.
+ */
+'content-component/resolved': {
+  /** The tool call the rows were read for, which pairs this with that call's own `tool/call`. */
+  callId: CallId
+  /** The content-column entry this now owns, which is the call's `id`. */
+  entryId: string
+  /** The line the user reads on the entry's tab, as the call wrote it. */
+  title: string
+  /** The blocks to draw with the rows already in them, exactly as validation accepted them. */
+  spec: ComponentSpec
+  /**
+   * What each read returned: never a cell, only the counts and the
+   * attribute names the model was told, so this record carries no row
+   * content that the spec above does not already carry.
+   */
+  fetched: {
+    /** The block the rows went into. */
+    nodeId: string
+    /** The table they were read from, by its name in the backend. */
+    meta: string
+    /** How many rows arrived. */
+    rows: number
+    /** How many rows match across every page, where the backend reported it. */
+    total?: number
+    /** The attributes this read asked for, which are the only ones the rows above carry. */
+    columns: string[]
+  }[]
+}
+```
+
+Types: [CallId](subsystems/core.md)
+
+Source: [`packages/experimental/component-surface/src/types.ts:86`](../packages/experimental/component-surface/src/types.ts)
+
 <a id="content-componentshown--log-only"></a>
 
 #### `content-component/shown` — log-only
@@ -471,7 +536,7 @@ Source: [`packages/experimental/content-frame/src/types.ts:21`](../packages/expe
 }
 ```
 
-Source: [`packages/experimental/component-surface/src/types.ts:42`](../packages/experimental/component-surface/src/types.ts)
+Source: [`packages/experimental/component-surface/src/types.ts:43`](../packages/experimental/component-surface/src/types.ts)
 
 ### `content-surface/*`
 

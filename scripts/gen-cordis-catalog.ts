@@ -61,6 +61,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   apiProxy: 'typert.md',
   approval: 'approval.md',
   attachments: 'attachment.md',
+  bizBackend: 'biz-backend.md',
   shell: 'shell.md',
   shellEnv: 'shell.md',
   clientModules: 'client-modules.md',
@@ -618,6 +619,10 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   Translate: 'service-local bound translator is owned by packages/client/i18n/src/index.ts',
   WebUpgradeRoute:
     'upgrade route registration contract is owned by packages/host/webserver/src/index.ts',
+  BizBackendFailure: 'read failure union is owned by packages/experimental/biz-backend/README.md',
+  BizMetaResult: 'model description result is owned by packages/experimental/biz-backend/README.md',
+  BizSearchRequest: 'read request fields are owned by packages/experimental/biz-backend/README.md',
+  BizSearchResult: 'read result fields are owned by packages/experimental/biz-backend/README.md',
   InvariantRegistration: 'service-local lifecycle handle is owned by packages/runtime-diagnostics/invariants/README.md',
   JsonValue: 'JSON value union is owned by packages/core/session/src/json.ts',
   KnobState: 'projection unit state fields are owned by packages/interaction/permission-presets/README.md',

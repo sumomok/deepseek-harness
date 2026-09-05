@@ -166,6 +166,11 @@ export interface Scenario {
    */
   prepareWorkspace?: (cwd: string) => void | Promise<void>
   /**
+   * Preparation run after this scenario's agent has spawned and before its
+   * first input step, for state that only exists once the composition is up.
+   */
+  afterSpawn?: () => void | Promise<void>
+  /**
    * Whether Windows additionally compares stdout with native separators against
    * `stdout.expected.windows.jsonl`. The shared canonical stdout expected output is still
    * compared on every platform, and the fixture guard requires this sidecar
@@ -1193,6 +1198,7 @@ export function defineAcpSnapshotSuite(options: SnapshotSuiteOptions): void {
           ...!RECORDING && childFixtureFiles.length > 0 ? { childFiles: childFixtureFiles.map(file => join(dir, file)) } : {},
           ...existsSync(workspaceDir) ? { workspaceDir } : {},
           ...scenario.prepareWorkspace !== undefined ? { prepareWorkspace: scenario.prepareWorkspace } : {},
+          ...scenario.afterSpawn !== undefined ? { afterSpawn: scenario.afterSpawn } : {},
           ...scenario.workspaceParent !== undefined ? { workspaceParent: scenario.workspaceParent } : {},
           // A scenario booting an overlay tree passes its own live config; the
           // bin's replay swap derives the sibling `*cordis.snapshot.yml` from it.
