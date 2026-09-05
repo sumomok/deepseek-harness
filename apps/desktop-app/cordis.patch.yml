@@ -1,7 +1,8 @@
 # The desktop application's deployment layer. `apps/desktop`'s profile seed
-# names this package last in the desktop profile's `dsh.profile.bundles`, so it
-# applies after dsh-base, dsh-web-app, and every built-in plugin layer, and
-# before `$DSH_HOME/profiles/desktop/cordis.patch.yml` — a row here is a
+# names this package after dsh-base, dsh-web-app, and every built-in plugin
+# layer in the desktop profile's `dsh.profile.bundles`, and before the user
+# layers — `$DSH_HOME/profiles/desktop/cordis.patch.yml`, then
+# `$DSH_HOME/cordis.patch.yml`, then any `--patch` overlay — so a row here is a
 # deployment default the user's own patch layer can still replace.
 #
 # A patch replaces the targeted row's whole `config`, so each row restates

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-desktop-composition-layer-content-search.md
-2026-09-06-desktop-composition-layer-content-search.md: f13ea2e55a90b4813900d24e29167dcd9c0a80f1
-2026-09-06-desktop-composition-layer-content-search.zh.md: c173775a0c7959868e9a456d82deaa8285a2ab83
+2026-09-06-desktop-composition-layer-content-search.md: d76692861fa3c3cbb687d495f114bd331d92cea3
+2026-09-06-desktop-composition-layer-content-search.zh.md: 0a84e7f473b640b34ff4aa854de043f9e5519a8e

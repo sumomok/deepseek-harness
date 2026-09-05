@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-把 `@haoran/dsh-default-model` 0.1.1 与另外两个 `@haoran/` tarball 一起 vendor 到 `apps/desktop-server/vendor/` 下,并在 `BUILTIN_WEB_BUNDLES` 里写上它的名字,于是 `apps/desktop/src/profile-seed.ts` 会在内嵌服务端读取 profile 之前把它放进 `desktop` profile。它是第五个内置插件,也是最后一个 bundle 层,正因为在最后,它才定得下前四个都不去碰的那些条目。
+把 `@haoran/dsh-default-model` 0.1.1 与另外两个 `@haoran/` tarball 一起 vendor 到 `apps/desktop-server/vendor/` 下,并在 `BUILTIN_WEB_BUNDLES` 里写上它的名字,于是 `apps/desktop/src/profile-seed.ts` 会在内嵌服务端读取 profile 之前把它放进 `desktop` profile。它排在其余每一个内置插件之后,正因如此,它才定得下前面那些层都不去碰的那些条目;唯一排在它之后的 bundle 层是[桌面组合层](2026-09-06-desktop-composition-layer-content-search.zh.md),而后者不碰它的任何条目。
 
 **这个包只是一个 patch 层,别的什么都不是。**它没有 `src/`、没有 `lib/`、也没有入口点,全部实质就是 `cordis.patch.yml`。这行得通是因为 harness 从不 import 一个 bundle:`loadProfile` 读 bundle 包的清单,取 `dsh.bundle.patch` 里的路径,再解析那份 YAML。同一条声明也是它留在载荷里的原因——`scripts/bundle-closure.ts` 会删掉每一个没有可达代码 import 的第三方包,而把声明了 `dsh.bundle` 的清单当作要完整保留的 profile bundle。它没有声明 `dsh.client`,所以打包构建的 client 模块检查会跳过它:默认模型属于编排,不是页面要加载的东西。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 **两个块都写成完整的 config 值,因为 patch 机制不给别的选择。**`applyEntryPatches`(`vendor/include/src/index.ts`)按 `id` 把 patch 匹配到条目,然后把 patch 的每个顶层 key 赋上去——`target[key] = value`——所以 `config` 是整块替换条目原有的 config,前一层设过而这一层没写的任何 key 都退回插件的 schema 默认值。在这一层这不花什么代价:`dsh-base` 根本没给 `llm-deepseek` 任何 config,给 `agent-default-model` 的也正是这个包要设的那两个 key。但这是之后每一层都继承的规则,包括用户自己的 `cordis.patch.yml`。
 
-**播种按名字来,所以这里不需要任何与版本相关的处理。**`seedBuiltinBundles` 会把缺的名字追加进已有 profile 的 `dsh.profile.bundles`,并把包链接进 `$DSH_HOME/profiles/node_modules`,两件事都是追加式且幂等的;patch 层本身则在每次启动时从随包的那份副本读取。已经在跑某个桌面构建的机器,会把这个名字追加在它已列出的四个之后,而这正是这一层需要的位置。
+**播种按名字来,所以这里不需要任何与版本相关的处理。**`seedBuiltinBundles` 会把缺的名字追加进已有 profile 的 `dsh.profile.bundles`,并把包链接进 `$DSH_HOME/profiles/node_modules`,两件事都是追加式且幂等的;patch 层本身则在每次启动时从随包的那份副本读取。已经在跑某个桌面构建的机器,会把这个名字追加在它已列出的那些之后,而这正是这一层需要的位置。
 
 ## 已有安装看到的是什么
 

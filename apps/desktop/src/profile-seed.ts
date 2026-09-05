@@ -1,6 +1,6 @@
 /**
- * Create the `desktop` profile and put the plugins the installer ships beside
- * the server closure into it, before the embedded server reads it.
+ * Create the `desktop` profile and put the bundle packages the installer ships
+ * beside the server closure into it, before the embedded server reads it.
  *
  * The shell boots a profile of its own rather than the `web` profile every
  * `dsh web` shares, so nothing it writes into `$DSH_HOME` can only be satisfied
@@ -110,9 +110,14 @@ import { dirname, join, resolve } from 'node:path'
  * product's own composition layer — no code, one `cordis.patch.yml` — and it
  * comes last on purpose: a name absent from an existing profile is appended to
  * `dsh.profile.bundles`, so last here is the only position a fresh profile and
- * an upgraded one both give it. Applying last puts its deployment defaults over
- * every layer above, while the profile's own `cordis.patch.yml` still applies
- * after it.
+ * an upgraded one both give it, and it puts this layer's deployment defaults
+ * over every bundle layer this list carries.
+ *
+ * Last here is not last in `dsh.profile.bundles` for good: {@link
+ * syncWebBundles} appends what it migrates from the `web` profile after these,
+ * and so does {@link addBundleName}. The user layers apply later still —
+ * the profile's own `cordis.patch.yml`, then `$DSH_HOME/cordis.patch.yml`,
+ * then any `--patch` overlay (`allPatches` in `apps/cli/src/profile-boot.ts`).
  *
  * A scoped name is an ordinary member: every path this module builds from one
  * — the payload directory, the manifest entry, the flat-fallback link — is

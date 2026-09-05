@@ -14,11 +14,13 @@ Status: implemented
 
 `apps/desktop-app`（`@deepseek-ai/dsh-desktop-app`）就是这一层：一个只有 patch 的 bundle 包——一份 `cordis.patch.yml` 与指向它的 `dsh.bundle.patch` 清单字段，没有代码、没有 `main`、没有任何要 Loader 去导入的东西，因为 `loadProfile` 读 bundle 层时并不导入该包。`apps/desktop-server` 把它列为依赖，于是它进入 `pnpm deploy` materialize 成 Electron 应用 `resources/server` 的那棵树；`apps/desktop/src/profile-seed.ts` 里的 `BUILTIN_WEB_BUNDLES` 点了它的名，这正是把它放进桌面 profile 的 `dsh.profile.bundles`、并链接进扁平模块兜底目录的那一步。
 
-它在那份名单里排**最后**。已存在的 profile 对缺失的名字采取追加，所以末位是全新 profile 与升级而来的 profile 都会给它的唯一位置——而这个位置本身也重要：该层于是盖过 `dsh-base`、`dsh-web-app` 与每一个内置插件层，而 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 仍在它之后生效，所以这里的一行是用户可以替换的默认值，而不是无法摆脱的设定。
+它在那份名单里排**最后**。已存在的 profile 对缺失的名字采取追加，所以末位是全新 profile 与升级而来的 profile 都会给它的唯一位置——而这个位置本身也重要：该层于是盖过 `dsh-base`、`dsh-web-app` 与每一个内置插件层，包括[内置的出厂默认模型](2026-08-23-desktop-builtin-default-model.zh.md)，而后者的条目本层一个也不碰。
+
+在那里排最后，只是播种那一刻的最后，不是永远的最后。同一次 `seedBuiltinBundles` 运行里，`syncWebBundles` 从 `web` profile 迁移过来的每一个名字都被追加到 `dsh.profile.bundles` 末尾，而插件管理服务重新启用一个插件时调用的 `addBundleName` 也追加在那里，所以本次构建之后才接纳的插件排在本层之后。每一个 bundle 层之上还坐着三个用户层，依次是：`$DSH_HOME/profiles/desktop/cordis.patch.yml`、home 级的 `$DSH_HOME/cordis.patch.yml`，以及任何 `--patch` overlay（`apps/cli/src/profile-boot.ts` 里的 `allPatches`）。所以这里的一行是用户可以替换的部署默认值，而不是无法摆脱的设定。
 
 它携带的唯一一行把 `session-query-sqlite` 重述为 `openAt: first-search` 与 `path: dshHomePath('session-search/desktop.db')`。`first-search` 把 `node:sqlite` 的导入与索引的打开挡在启动之外，于是一次从不搜索的运行不付任何代价，Node 的 SQLite 实验特性警告也不会进入启动输出。路径取持久文件而非出厂的 `:memory:`，是因为这份索引是派生的而非权威的：留着它，意味着此后某次运行的首次搜索只对账新增与变更的日志，而不是重建整个语料库——这正是「只付一次构建」与「每次启动都付一次」的差别。它刻意落在 `dshHomePath('sessions')` 之外——派生索引与会话持久化存储是两个存储，后端也拒绝把权威数据库当作自己的来打开。
 
-`apps/desktop/tests/desktop-content-search.spec.ts` 通过 `composeEntries` 组合真实的 `dsh-base`、`dsh-web-app` 与桌面层，断言桌面 profile 最终得到的那一行、断言只有出厂两层时仍组合出 `never`、并断言组合里没有别的东西被动过。
+`apps/desktop/tests/desktop-content-search.spec.ts` 通过 `composeEntries` 组合 profile 的整个层栈——`dsh-base`、`dsh-web-app` 与十二个 bundle 层，每个内置层都按启动时的方式经 `resolveBundleDir` 解析——断言桌面 profile 最终得到的那一行、断言同一层栈去掉本层后仍组合出 `never`、并断言组合里没有别的东西被动过。此后某个内置插件开始 patch 同一行，就是一条挂掉的用例，而不是现场的意外。
 
 ## 首次搜索的代价
 

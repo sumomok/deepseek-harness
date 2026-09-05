@@ -12,7 +12,7 @@ A fresh desktop install opens its first session on `deepseek-v4-flash`, because 
 
 ## Decision
 
-Vendor `@haoran/dsh-default-model` 0.1.1 beside the other two `@haoran/` tarballs under `apps/desktop-server/vendor/`, and name it in `BUILTIN_WEB_BUNDLES` so `apps/desktop/src/profile-seed.ts` puts it in the `desktop` profile before the embedded server reads that profile. It is the fifth built-in and the last bundle layer, which is what lets it settle entries the four before it leave alone.
+Vendor `@haoran/dsh-default-model` 0.1.1 beside the other two `@haoran/` tarballs under `apps/desktop-server/vendor/`, and name it in `BUILTIN_WEB_BUNDLES` so `apps/desktop/src/profile-seed.ts` puts it in the `desktop` profile before the embedded server reads that profile. It is named after every other built-in plugin, which is what lets it settle entries the layers before it leave alone; the one bundle layer named after it is [the desktop composition layer](2026-09-06-desktop-composition-layer-content-search.md), which touches none of its entries.
 
 **The package is a patch layer and nothing else.** It has no `src/`, no `lib/`, and no entry point; its whole substance is `cordis.patch.yml`. That works because the harness never imports a bundle: `loadProfile` reads the bundle package's manifest, takes the path in `dsh.bundle.patch`, and parses that YAML. The same declaration is what keeps it in the payload — `scripts/bundle-closure.ts` deletes every third-party package nothing reachable imports, and treats a manifest declaring `dsh.bundle` as a profile bundle kept whole. It declares no `dsh.client`, so the packaging build's client-module check passes over it: a default model is composition, not something the page loads.
 
@@ -20,7 +20,7 @@ Vendor `@haoran/dsh-default-model` 0.1.1 beside the other two `@haoran/` tarball
 
 **Both blocks are written as whole config values because the patch mechanism gives no choice.** `applyEntryPatches` (`vendor/include/src/index.ts`) matches a patch to an entry by `id` and then assigns each of the patch's top-level keys onto it — `target[key] = value` — so `config` replaces the entry's config outright and any key the earlier layer set and this one omits falls back to the plugin's schema default. It costs nothing at this layer: `dsh-base` gives `llm-deepseek` no config at all, and gives `agent-default-model` the same two keys this package sets. It is the rule any later layer inherits, including a user's own `cordis.patch.yml`.
 
-**The seed is name-keyed, so this needs no version-specific handling.** `seedBuiltinBundles` appends any missing name to an existing profile's `dsh.profile.bundles` and links the package into `$DSH_HOME/profiles/node_modules`, both additively and idempotently; the patch layer itself is read from the shipped copy on every launch. A machine already running a desktop build gets the name appended after the four it already lists, which is the position this layer needs.
+**The seed is name-keyed, so this needs no version-specific handling.** `seedBuiltinBundles` appends any missing name to an existing profile's `dsh.profile.bundles` and links the package into `$DSH_HOME/profiles/node_modules`, both additively and idempotently; the patch layer itself is read from the shipped copy on every launch. A machine already running a desktop build gets the name appended after the ones it already lists, which is the position this layer needs.
 
 ## What an existing installation sees
 
