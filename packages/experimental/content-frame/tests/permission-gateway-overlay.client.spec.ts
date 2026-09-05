@@ -34,13 +34,12 @@ import { CONTENT_SHOW_TOOL_NAME } from '../src/tool.ts'
  * so the set follows the source. A rename of the suffix convention empties this
  * and is caught by the count assertion below rather than passing vacuously.
  */
-const declaredToolNames = Object.entries(wire)
+const declaredToolNames: string[] = Object.entries(wire)
   .filter(([key]) => key.endsWith('_TOOL_NAME'))
-  .map(([, value]) => value)
-  .filter((value): value is string => typeof value === 'string')
+  .flatMap(([, value]) => typeof value === 'string' ? [value] : [])
 
 /** The names the overlay must classify: everything declared but the act tool. */
-const readsToClassify = declaredToolNames.filter(name => name !== wire.CONTENT_ACT_TOOL_NAME)
+const readsToClassify: string[] = declaredToolNames.filter(name => name !== wire.CONTENT_ACT_TOOL_NAME)
 
 interface GatewayRow {
   id?: string
