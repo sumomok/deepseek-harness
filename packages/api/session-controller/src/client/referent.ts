@@ -2,8 +2,9 @@
  * The `referent/open` seam: one ROOT-scope cordis waterfall event every
  * "open this reference" click in the browser conversation UI dispatches
  * through, so a listener anywhere in the tree can intercept a click on a
- * tool-row path or a mention before the pre-existing open action runs —
- * without every affordance importing a bespoke intercept point of its own.
+ * tool-row path, a produced-file chip, or a mention before the pre-existing
+ * open action runs — without every affordance importing a bespoke intercept
+ * point of its own.
  *
  * @module @deepseek-ai/dsh-api-session-controller/client/referent
  */
