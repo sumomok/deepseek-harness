@@ -295,6 +295,14 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **状态**：在役（0.1.3-alpha.1 本线新增）。
 - **本轮（`core-patches-v8`）**：在役，提交 `c9fb4951de`，自动合并干净。
 
+## patch(skill-filesystem): scan the project and user `.claude/skills` roots — 6c198bcd27
+
+- **改了什么**：`packages/skill/skill-filesystem/src/index.ts`（新增 `PROJECT_CLAUDE_RANK` 210 / `USER_CLAUDE_RANK` 510 两个根、`claudeHome` 配置字段（覆盖变量 `$DSH_CLAUDE_HOME`）、`roots()` 按规范路径去重）、`packages/skill/skill/src/index.ts`（`SkillSource` 增加 `project-claude` / `user-claude`）及两者的测试；`packages/test-support/loader-smoke` 新增并导出 `isolatedSkillRootEnv(cwd, overrides)`（钉根环境块收敛为一个函数，附单测与中英 README 小节），改由它驱动的站点：`loader-smoke` 自身、`session-snapshot` 的 `launcher.ts`/`harness.ts`、`snapshots/sdk/sdk.snapshot.ts`、`apps/web/tests/{scaffold.ts,smoke-real.e2e.ts}`、`apps/cli/tests/{agent-team-headless,web-auth,github-webhook-real,headless-shutdown,web-browser-open.expected}.e2e.ts`、`scripts/publish-npm-baseline.ts`、`scripts/release/verify-packed-install.ts`；`scripts/smoke-python-runtime.py` 两处就地补钉（Python 无法调用该函数）；三份 README、`docs/subsystems/skills`、`docs/config-catalog` 与生成的 `api-catalog.ts` 同步。不碰启动包：`DSH_` 前缀已被 `app-boot` 的 bootstrap-only 规则覆盖。原落在 `feat/claude-skills-root`（基 `origin/develop` = `1125f329b3`），随 `core-patches-v9` 回补丁线。
+- **为什么**：为其他 agent 客户端写的 skill 放在 `.claude/skills`，多数主流客户端都读它，而 DSH 每层只扫 `.dsh/skills` 与 `.agents/skills`。组合层表达不了这两个根：`customSkillDirs` 只收加载时固定的绝对路径，无法随每次 `list()` 的 cwd 重解析项目根；另起一个 `SkillProvider` 则要复制根扫描、frontmatter 语法、缺失根探测与 Chokidar 管理器，且同名冲突改由提供方注册顺序而非 rank 决定。根目录列表是上游提供方内部的固定数组。
+- **要达到的效果**：项目级 `.claude/skills` 与用户级 `$DSH_CLAUDE_HOME`（回退 `~/.claude`）下的 skill 直接进入会话目录，各自紧排在同层 `.agents` 根之下（同名解析为 `.agents`，本仓库 `.claude/skills` 正是指向 `.agents/skills` 的符号链接）；`includeDefaultRoots: false` 仍同时省略两者；watch 管理器按路径建键，无需改动即覆盖新根；符号链接造成的重复根（本仓库 `.claude/skills` → `.agents/skills`）在发现与监视前按规范路径去重，既无 11 条重名 warn 也无第二个 watcher；不读 Claude Code 自己的 `CLAUDE_CONFIG_DIR`，别家工具的环境改不动本工具的加载根，与 `.agents` 根只认 `DSH_AGENTS_HOME` 同理。
+- **退役条件**：上游 `skill-filesystem` 自己扫描 `.claude/skills`（在 `upstream/master` 的该包内 grep `.claude/skills` 非空）。
+- **状态**：在役
+
 ## rc.26 同步二阶段 B 族收尾：基座环境敏感测试红（不修，仅记录）
 `pnpm run test`（全仓）在本次 B 族收尾扫描中发现 3 项稳定红，与 Family A/B 的任何提交均无关（`git log --oneline 8c87b9ef19..HEAD -- <各自文件>` 均为空，两族从未触碰这三个文件），去沙箱（`dangerouslyDisableSandbox: true`）复现结果相同，单独重跑一次结果依旧相同——三次独立复现（全量套件、去沙箱、单文件隔离跑）结果完全一致，均判定为**稳定红（非抖动）**，不是间歇性失败：
 - `scripts/benchmark-npm-resolution.spec.ts` › `npm resolution benchmark > force-kills a timed-out process tree`：`Error: child reported invalid pid`——子进程树 PID 上报在本环境不可见。
