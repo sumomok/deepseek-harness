@@ -7,9 +7,9 @@
  *
  * Decision ① replaces the shipped shell's whole session-browsing contract
  * with a fixed three-section console: 工作台 (workbench, a persistent default
- * conversation), 导航 (navigation, `dsh-experimental-content-frame`'s
- * configured pages), and 我的工作流 (my workflows, a user's own named
- * shortcuts). The four child slots this shell keeps —
+ * conversation), 导航 (navigation, the deployment's configured pages and
+ * views — see `nav-catalog.ts`), and 我的工作流 (my workflows, a user's own
+ * named shortcuts). The four child slots this shell keeps —
  * `sidebar.brand.mark`/`sidebar.brand.name`/`sidebar.settings`/
  * `sidebar.footer.action` — are reused by type import exactly as the prior
  * design did (see `ServerSidebarRoot.tsx`'s module doc); `sidebar.workspaces`
@@ -56,12 +56,15 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // 'conversation.session.header.actions'.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import { readContentPages } from './pages.ts'
-import { openContentPage, openHomePage } from './open-page.ts'
-import { readServerMenu, saveServerMenu, type ServerMenuWorkflow } from './workflow-api.ts'
+import { mergeNavCatalogs, readContentPages, readContentViews } from './nav-catalog.ts'
+import { createDisplayNameSource, readIdentitySettings } from './identity.ts'
+import { readAuthGateSettings, signOut, windowSignOutBrowser } from './sign-out.ts'
+import { openHome, openNavItem } from './open-nav.ts'
+import { readServerMenu, saveServerMenu, type ServerMenuPatch, type ServerMenuWorkflow } from './workflow-api.ts'
 import { createWorkflowStore } from './workflow-store.ts'
 import {
-  nextOrder, openWorkbenchOnClick, openWorkbenchOnLoad, openWorkflow,
+  dismissTemporarySession, nextOrder, openTemporarySession,
+  openWorkbenchOnClick, openWorkbenchOnLoad, openWorkflow,
 } from './workflow-actions.ts'
 import { ServerSidebarRoot, type ServerSidebarInjected } from './ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from './SaveWorkflowAction.tsx'
@@ -97,7 +100,7 @@ export const inject = ['slots', 'sessions', 'workspaces', 'uiWorkspace', 'locale
  * @param actions - the bound actions to commit the result (or the failure) into.
  */
 async function persistServerMenu(
-  patch: Partial<{ workflows: ServerMenuWorkflow[]; workbenchSessionId: string }>, actions: BoundWorkflowActions,
+  patch: ServerMenuPatch, actions: BoundWorkflowActions,
 ): Promise<void> {
   try {
     const saved = await saveServerMenu(patch)
@@ -105,6 +108,24 @@ async function persistServerMenu(
   } catch (error) {
     actions.setError(error instanceof Error ? error.message : String(error))
   }
+}
+
+/**
+ * Land the console on the workbench, recording the id of a conversation this
+ * had to create. Shared by the load-time auto-open and by a dismissal that
+ * archives the conversation on screen: both have to leave the console resting
+ * on a conversation, and both reopen the recorded one whenever it is still
+ * live (see `workflow-actions.ts#openWorkbenchOnLoad` for the reuse rule).
+ * @param ctx - client root context.
+ * @param workbenchSessionId - the recorded id, or `undefined` before first use.
+ * @param isLive - whether that id names a session the workspace domain still lists.
+ * @param actions - the bound actions a created id is committed through.
+ */
+async function landOnWorkbench(
+  ctx: ClientContext, workbenchSessionId: string | undefined, isLive: boolean, actions: BoundWorkflowActions,
+): Promise<void> {
+  const outcome = await openWorkbenchOnLoad(ctx, workbenchSessionId, isLive)
+  if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
 }
 
 /**
@@ -125,8 +146,26 @@ export async function apply(ctx: ClientContext): Promise<void> {
     'server-sidebar: hero brand-mark takeover',
   )
 
-  const [{ pages, homePage }, initialMenu] = await Promise.all([readContentPages(), readServerMenu()])
+  const [pageCatalog, viewCatalog, initialMenu, identity, authGate] = await Promise.all([
+    readContentPages(),
+    readContentViews(),
+    readServerMenu(),
+    readIdentitySettings(),
+    // Read on the same read-before-register pass as the rest, and contained
+    // the same way: a composition without `dsh-experimental-auth-gate` leaves
+    // the sign-out button in place and reports the missing login page when it
+    // is pressed (see the package README's Known Limitations).
+    readAuthGateSettings().catch((error: unknown) => {
+      console.warn('server-sidebar: sign-out has no login page to return to:', error)
+      return undefined
+    }),
+  ])
+  // Loud at load, unlike the two contained reads it merges: two configured
+  // automatic homes is a deployment mistake nothing downstream can resolve
+  // (see `mergeNavCatalogs`).
+  const { items: navItems, home } = mergeNavCatalogs(pageCatalog, viewCatalog)
   const workflowStore = createWorkflowStore(initialMenu)
+  const displayName = createDisplayNameSource(identity?.displayNameClaim)
 
   // Set once the sidebar's own inject factory runs (see the module doc for
   // why the header action needs this rather than its own store instance).
@@ -150,22 +189,27 @@ export async function apply(ctx: ClientContext): Promise<void> {
       inject: (actions: BoundWorkflowActions): ServerSidebarInjected => {
         sidebarActions = actions
         return {
-          pages,
-          onOpenPage: pageId => openContentPage(ctx, pageId),
-          onOpenWorkbenchOnLoad: async (workbenchSessionId, isLive) => {
-            const outcome = await openWorkbenchOnLoad(ctx, workbenchSessionId, isLive)
-            if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
-          },
-          onOpenWorkbench: async (workbenchSessionId, isLive, isBlank) => {
-            const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isBlank)
+          navItems,
+          ...home === undefined ? {} : { home },
+          onOpenNavItem: target => openNavItem(ctx, target),
+          onOpenWorkbenchOnLoad: (workbenchSessionId, isLive) => (
+            landOnWorkbench(ctx, workbenchSessionId, isLive, actions)
+          ),
+          onOpenWorkbench: async (workbenchSessionId, isLive, isClean, homeAlreadyShown) => {
+            const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isClean)
             if (outcome === undefined) return
             if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
-            // Every outcome of a click lands on a blank draft (reused-blank or
+            // Every outcome of a click lands on a clean draft (reused-clean or
             // freshly created — see `openWorkbenchOnClick`'s own doc), so a
-            // configured home page always applies here; the auto-open-on-load
-            // path (above) leaves whatever the reopened session already shows
-            // untouched (continuity semantics).
-            if (homePage !== undefined) await openHomePage(ctx, outcome.sessionId, homePage)
+            // configured automatic home always belongs on it; a reused draft
+            // that already shows it — the only content a clean draft may carry
+            // — skips the repeat call so it does not append a second record
+            // for the same target. The auto-open-on-load path (above) leaves
+            // whatever the reopened session already shows untouched
+            // (continuity semantics) and never calls this at all.
+            if (home !== undefined && (outcome.created || !homeAlreadyShown)) {
+              await openHome(ctx, outcome.sessionId, home)
+            }
           },
           onOpenWorkflow: async (workflow, isLive) => {
             const outcome = await openWorkflow(ctx, workflow, isLive)
@@ -180,7 +224,46 @@ export async function apply(ctx: ClientContext): Promise<void> {
             ))
             await persistServerMenu({ workflows: next }, actions)
           },
-          onSaveWorkflows: next => persistServerMenu({ workflows: next }, actions),
+          // One patch rather than a call per list: deleting a group has to
+          // clear its members' `groupId` in the same write, and the route
+          // refuses the intermediate document either half would leave behind
+          // (see `src/index.ts` and `validateServerMenu`).
+          onSaveMenu: patch => persistServerMenu(patch, actions),
+          onOpenTemporary: sessionId => openTemporarySession(ctx, sessionId),
+          onDismissTemporary: async (sessionId, workbenchSessionId, workbenchIsLive) => {
+            // Read the selection before the archive, not after: the workspace
+            // domain sweeps an archived selection into the no-conversation
+            // state as part of the same call, so afterwards there is nothing
+            // left to compare against.
+            const wasOnScreen = ctx.sessions.list.getSnapshot().current === sessionId
+            try {
+              await dismissTemporarySession(ctx, sessionId)
+            } catch (error) {
+              // Reported inline the way a failed save is — not as an unhandled
+              // rejection out of a click the component never awaits — but in
+              // its own section and its own fixed words: nothing here is a
+              // save, and the refusal's own text is the host runtime's (see
+              // `locales.ts`), which is why it goes to the console instead.
+              console.warn('server-sidebar: could not take this conversation off the list:', error)
+              actions.setTemporaryFailed(true)
+              return
+            }
+            actions.setTemporaryFailed(false)
+            // The console always rests on a conversation: archiving the one on
+            // screen leaves none selected, and the shell's own load-time
+            // landing is a one-shot that never fires a second time.
+            if (wasOnScreen) await landOnWorkbench(ctx, workbenchSessionId, workbenchIsLive, actions)
+          },
+          onSignOut: () => {
+            if (authGate === undefined) {
+              console.warn('server-sidebar: cannot sign out, the login page and mirror cookie are unknown')
+              return
+            }
+            // `signOut` reports each step's own refusal and never rejects (see
+            // its doc), so there is nothing here to catch.
+            void signOut(windowSignOutBrowser(ctx), authGate)
+          },
+          hooks: { displayName },
         }
       },
     }, ServerSidebarRoot),
@@ -197,6 +280,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
       order: 30,
       locale: NS,
       inject: (): SaveWorkflowInjected => ({
+        navItems,
         onSave: async (sessionId, name, navSnapshot) => {
           const current = await readServerMenu()
           const workflow: ServerMenuWorkflow = {

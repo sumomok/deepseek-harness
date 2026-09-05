@@ -14,6 +14,22 @@ import { formatMessage } from 'publint/utils'
 import ts from 'typescript'
 
 const CONCURRENCY_ENV = 'DSH_PUBLINT_CONCURRENCY'
+
+/**
+ * Workspace area whose packages may depend on a tarball they carry themselves.
+ *
+ * publint reports a `file:` dependency as an error because an end user
+ * installing the package from a registry cannot resolve it. Nothing under
+ * `packages/experimental/` is published — the tier is private prototypes
+ * excluded from official releases — so a vendored tarball there reaches no end
+ * user, and the check has nothing left to protect. Everything else publint says
+ * about these packages still applies, and this exemption covers exactly the one
+ * message.
+ */
+const LOCAL_DEPENDENCY_AREA = 'packages/experimental/'
+
+/** publint's code for a dependency that names a path instead of a registry range. */
+const LOCAL_DEPENDENCY = 'LOCAL_DEPENDENCY'
 const repositoryRoot = resolve(import.meta.dirname, '..')
 const { values: options } = parseArgs({
   args: process.argv.slice(2),
@@ -193,6 +209,18 @@ function isBrowserBundleFormatFalsePositive(message: Message): boolean {
     || /(^|\/)\.\/(client|worker)$/.test(exportKey)
 }
 
+/**
+ * Whether one publint message is the `file:` dependency report a package in
+ * {@link LOCAL_DEPENDENCY_AREA} is allowed to carry.
+ * @param target - the package being linted.
+ * @param message - one message publint produced for it.
+ * @returns true when the message may be dropped.
+ */
+function isExemptLocalDependency(target: PackageTarget, message: Message): boolean {
+  return message.code === LOCAL_DEPENDENCY
+    && `${target.path.split(sep).join('/')}/`.startsWith(LOCAL_DEPENDENCY_AREA)
+}
+
 async function runPublint(target: PackageTarget): Promise<PublintResult> {
   try {
     const files = publicationFiles(target)
@@ -202,7 +230,8 @@ async function runPublint(target: PackageTarget): Promise<PublintResult> {
       pack: { files },
     })
     const manifest = result.pkg as Record<string, unknown>
-    const messages = result.messages.filter(message => !isBrowserBundleFormatFalsePositive(message))
+    const messages = result.messages.filter(message =>
+      !isBrowserBundleFormatFalsePositive(message) && !isExemptLocalDependency(target, message))
     return messages.some(message => message.type === 'error') || closureViolations.length > 0
       ? { path: target.path, status: 'failed', messages, closureViolations, manifest }
       : { path: target.path, status: 'passed', messages, closureViolations, manifest }

@@ -1,0 +1,5 @@
+.state {
+  margin: 0.5rem 0 0;
+  font-size: 0.8125rem;
+  color: var(--dsh-text-secondary, #6b7280);
+}

@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "prompt",
+      "text": "Put these three sites in the content panel with show_component — 一号站点 在用, 二号站点 停用, 三号站点 在用 — as a table the user can tick with a record block under it in the same column, and have the record show the fields of whichever row is ticked. Then reply with exactly the single word DONE."
+    }
+  ]
+}

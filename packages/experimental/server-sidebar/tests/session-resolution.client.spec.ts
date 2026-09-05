@@ -1,7 +1,7 @@
 /**
  * `resolveOrCreateSession`'s resolution order in isolation:
- * `browser-plugin.client.spec.ts` and `open-page.client.spec.ts` cover it
- * indirectly through `openContentPage`; this file pins the `reuseCurrent`
+ * `browser-plugin.client.spec.ts` and `open-nav.client.spec.ts` cover it
+ * indirectly through `openNavItem`; this file pins the `reuseCurrent`
  * branch directly, since the workbench and workflow degrade paths
  * (`workflow-actions.ts`) call it with `reuseCurrent: false`.
  *

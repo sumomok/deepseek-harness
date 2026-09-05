@@ -1,0 +1,30 @@
+# Keyless replay counterpart to cordis.yml: the whole console spine stays real —
+# the tool re-executes, the routes are claimed, the deadline is really waited
+# out — and only the DeepSeek adapter is replaced by `llm-replay`, which serves
+# the committed model script without a key or network. No config restatement is
+# needed because cordis.yml already names the recorded model and already selects
+# raw JSONL under `DSH_SNAPSHOT`.
+#
+# With `DSH_SNAPSHOT=replay` the app bin reads `DSH_SNAPSHOT_FILE` and optional
+# `DSH_SNAPSHOT_OVERRIDE` from the harness. The one-shot patch applies at include
+# load time, and stdout remains reserved for ACP JSON-RPC.
+- id: base
+  name: '@deepseek-ai/cordis-plugin-include'
+  config:
+    path: ./cordis.yml
+    patches:
+      # `name` asserts the target: a mismatch skips the patch and warns only
+      # when a logger exists, and this tree has none.
+      - id: llm-deepseek
+        name: '@deepseek-ai/dsh-llm-deepseek'
+        disabled: true
+      - insert:
+          - id: llm-replay
+            name: '@deepseek-ai/dsh-llm-replay'
+            config:
+              providers:
+                - id: deepseek-official
+                  name: DeepSeek
+                  models:
+                    - id: deepseek-v4-flash
+                    - id: deepseek-v4-pro

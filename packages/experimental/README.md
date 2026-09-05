@@ -28,13 +28,17 @@ The experimental group contains prototype capabilities that are not part of any 
 | [`agent-team`](agent-team/README.md) | Named teammates with durable messages and a shared task board | `ctx.agentTeams` |
 | [`agent-team-web-profile`](agent-team-web-profile/README.md) | Explicit source-checkout Web layer for Agent Teams | — |
 | [`auth-gate`](auth-gate/README.md) | Sends a browser without an access token to the deployment's login page, mirrors the one it returns with into a cookie, and injects it into forwarded MCP requests | — |
+| [`biz-backend`](biz-backend/README.md) | Two reads of a deployment's own data backend, made with the visitor's own access token | `ctx.bizBackend` |
 | [`client-ui-agent-team`](client-ui-agent-team/README.md) | Team roster, task board, and teammate navigation for Web | — |
 | [`code-runtime-python`](code-runtime-python/README.md) | CPython subprocess backend for the code-execution seam | `ctx.codeRuntime` |
+| [`component-kit`](component-kit/README.md) | Component row: the React renderers a placement package draws a validated block with, and the table that names them | — |
+| [`component-surface`](component-surface/README.md) | The `show_component` tool and the content column's `component` kind: blocks from a fixed catalog, judged before anything is drawn | — |
 | [`content-column`](content-column/README.md) | Browser half of the content surface: claims the shell's content column, lists the session's entries, and dispatches the selected one by kind | — |
 | [`content-frame`](content-frame/README.md) | Serves one operator-configured static web application and contributes it as the content column's `page` kind | — |
 | [`content-surface`](content-surface/README.md) | Host half of the content surface: extractors fold logged events into a per-session stream of typed content entries | `ctx.contentSurface` |
 | [`inspector`](inspector/README.md) | Cross-realm CDP hub for Host debugging, Client Runtime inspection, network capture, and Cordis trees | `ctx.inspector` |
 | [`library-skills`](library-skills/README.md) | Ships component-library conventions as bundled SKILLs mounted at the lowest skill rank | — |
+| [`server-base`](server-base/README.md) | Tells the browser which path prefix this process is served under, so every URL the page builds keeps it | — |
 | [`server-layout`](server-layout/README.md) | Service-line shell: a permanent four-track frame (session, content, chat, details) replacing the shipped one | `ctx.layout` |
 | [`server-sidebar`](server-sidebar/README.md) | Product console sidebar: a fixed workbench/navigation/workflows console replacing the shipped one, plus the de-terminology layer a customer-form page needs | — |
 | [`tool-agent-team`](tool-agent-team/README.md) | Nine tools that let the model create, message, and coordinate teammates | registers scoped tools on `ctx.tools` |

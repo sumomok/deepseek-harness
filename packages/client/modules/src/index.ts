@@ -250,10 +250,24 @@ function artifactRevision(bundle: Buffer, sourceMap: WebPluginRecord['sourceMap'
   return framedHash('plugin-artifact', sourceMap === undefined ? [bundle] : [bundle, sourceMap.body])
 }
 
-/** Address one ordered plugin-file list through the shared combo route. */
+/** Address one ordered plugin-file list through the shared combo route, as the Host registers it. */
 function comboUrl(ids: readonly string[], rev: string, sourceMap = false): string {
   const resources = ids.map(id => `${id}/client.js${sourceMap ? '.map' : ''}`).join(',')
   return `/plugins/??${resources}&rev=${rev}`
+}
+
+/**
+ * The same address as the page must ask for it. Relative on purpose: the
+ * browser resolves it against the page's deployment base, so a deployment
+ * served under a path prefix its reverse proxy strips keeps that prefix, which
+ * a root-absolute address would replace. The route constants stay root-absolute
+ * — that is what reaches the process — and this is the only projection of one
+ * into a URL the page requests.
+ * @param route - the combo route as {@link comboUrl} composes it.
+ * @returns the same address, relative to the deployment base.
+ */
+function pageUrl(route: string): string {
+  return route.replace(/^\/+/, '')
 }
 
 /** Measure the longer map-form URL used to partition a startup resource list. */
@@ -409,15 +423,21 @@ function buildBatch(phase: WebBootBatchPhase, records: readonly WebPluginRecord[
   const artifact = buildCombo(records)
   return {
     ...artifact,
-    descriptor: { phase, url: artifact.url, rev: artifact.rev, entries: artifact.entries },
+    descriptor: { phase, url: pageUrl(artifact.url), rev: artifact.rev, entries: artifact.entries },
   }
 }
 
-/** Graph row for one bundle rev (url carries the rev as its cache-busting query). */
+/**
+ * Graph row for one bundle rev (url carries the rev as its cache-busting
+ * query). The url is the page projection ({@link pageUrl}) of the combo route:
+ * both consumers — the parser preloads below and the module system's
+ * `<script src>` — resolve it against the page's deployment base rather than
+ * the server root.
+ */
 function graphRow(id: string, rev: string, fields: WebBootRowFields): WebBootEntry {
   return {
     id,
-    url: comboUrl([id], rev),
+    url: pageUrl(comboUrl([id], rev)),
     rev,
     ...(fields.inject !== undefined ? { inject: fields.inject } : {}),
     ...(fields.immediately ? { immediately: true } : {}),
@@ -695,7 +715,7 @@ export class ClientModuleRegistry extends Service {
 
     const batchResponses = new Map<string, { body: Buffer; contentType: string }>()
     for (const artifact of artifacts) {
-      batchResponses.set(artifact.descriptor.url, {
+      batchResponses.set(artifact.url, {
         body: artifact.script,
         contentType: 'text/javascript; charset=utf-8',
       })

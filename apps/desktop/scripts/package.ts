@@ -535,11 +535,14 @@ async function servesClientModule(root: string, name: string): Promise<boolean> 
  * @param cookie - the browser-session cookie pair minted by the launch-token exchange.
  */
 async function verifyClientModules(root: string, base: string, index: string, cookie: string): Promise<void> {
-  // alpha.2 serves client modules through combo URLs — `/plugins/??a/client.js,b/client.js&rev=…`
+  // Client modules are served through combo URLs — `plugins/??a/client.js,b/client.js&rev=…`
   // (HTML-attribute occurrences carry `&amp;`) — so module names are the
-  // `<name>/client.js` segments inside each URL, not URL path prefixes.
-  const paths = [...new Set([...index.matchAll(/\/plugins\/[^"']+?client\.js[^"']*/g)]
-    .map(match => match[0].replaceAll('&amp;', '&')))]
+  // `<name>/client.js` segments inside each URL, not URL path prefixes. Those
+  // urls are relative, so a deployment served under a path prefix resolves them
+  // against the page's base; a leading slash is optional here and dropped,
+  // which keeps one shape for the membership check and the resolution below.
+  const paths = [...new Set([...index.matchAll(/(?<=["'])\/?plugins\/[^"']+?client\.js[^"']*/g)]
+    .map(match => match[0].replaceAll('&amp;', '&').replace(/^\//, '')))]
   if (paths.length === 0) throw new Error('package: staged boot served an index naming no client modules.')
   const served = new Set(paths.flatMap(path => [...path.matchAll(/([^?,&]+\/client\.js)/g)].map(match => match[1])))
   // A built-in with a browser half reaches the page only if the payload carried

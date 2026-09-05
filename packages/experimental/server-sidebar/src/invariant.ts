@@ -4,21 +4,10 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
-import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
-import type { ServerMenuSettings } from './workflows.ts'
+import { SERVER_SIDEBAR_NAMESPACE, validateServerMenu, type ServerMenuSettings } from './workflows.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-server-sidebar'
-/**
- * This package's settings namespace, restated rather than imported from
- * `workflows.ts` (both spell the same literal, so the two produce an equal,
- * comparable string either way): sharing the runtime
- * value across this module and `index.ts` would give tsdown's two entry
- * bundles a common chunk to split out, which the built-package-invariant
- * gate's file allowlist (this package's `package.json#files`) cannot name
- * (its hash is content-addressed) — see the package README.
- */
-const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
 
 /** Cordis companion plugin name. */
 export const name = 'experimental-server-sidebar-invariant'
@@ -26,22 +15,39 @@ export const name = 'experimental-server-sidebar-invariant'
 export const inject = ['invariants']
 
 /**
- * Check the one relation this package's durable data must hold: every commit
- * to its settings namespace carries at most one workflow per id. The
- * registration's own `validate` hook already refuses a write that would
- * break this before it persists — this listener re-checks the committed,
- * authoritative value as the independent proof the mechanism note requires.
+ * Run the document's cross-element constraints against a committed value.
+ * Separated from the listener so the `fail()` call — which throws — stays
+ * outside the `try`, where a caught rethrow would swallow the failure the
+ * registry raised.
+ * @param value - the committed section.
+ * @returns the broken constraint's message, or `undefined` when the document holds.
+ */
+function brokenConstraint(value: ServerMenuSettings): string | undefined {
+  try {
+    validateServerMenu(value)
+  } catch (error: unknown) {
+    // `validateServerMenu` raises `Error` and nothing else (same package, one
+    // throw site per constraint), so its message is read without a narrowing
+    // branch no committed document can reach.
+    return (error as Error).message
+  }
+  return undefined
+}
+
+/**
+ * Check the relations this package's durable data must hold: one workflow per
+ * id, one group per id, no group claiming the reserved temporary id, no blank
+ * or over-long group name, and no workflow filed under a group nothing
+ * defines. The registration's own `validate` hook already refuses a write
+ * that would break any of them before it persists — this listener re-checks
+ * the committed, authoritative value through that same function as the
+ * independent proof the mechanism note requires.
  */
 const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure) => {
   ctx.on('settings/updated', (ns, next) => {
     if (ns !== SERVER_SIDEBAR_NAMESPACE) return
-    const seen = new Set<string>()
-    for (const workflow of (next as ServerMenuSettings).workflows) {
-      if (seen.has(workflow.id)) {
-        fail(`server-sidebar: committed workflows carry a duplicate id "${workflow.id}"`)
-      }
-      seen.add(workflow.id)
-    }
+    const broken = brokenConstraint(next as ServerMenuSettings)
+    if (broken !== undefined) fail(`server-sidebar: committed server-menu document: ${broken}`)
   })
 }
 

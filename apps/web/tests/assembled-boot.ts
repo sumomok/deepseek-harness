@@ -7,6 +7,12 @@
 //
 // Keyless and deterministic: the fixture is the fake server, so nothing here
 // reaches a model or the network.
+//
+// The harness mounts on a deployment prefix as well as on the origin root. A
+// prefixed mount reproduces what `dsh-server-base` injects at run time — the
+// page address, `<base href>`, and `__DSH_BASE__` — so a scenario can assert
+// that the shell resolves its own URLs against the deployment prefix instead of
+// the origin root.
 import { globSync, readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname, join, resolve } from 'node:path'
@@ -25,6 +31,8 @@ interface AssembledPlugin extends WebBootEntry {
 interface AssembledBootOptions {
   /** Package ids omitted from this mounted composition. */
   readonly exclude?: readonly string[]
+  /** Deployment prefix the page is served under; the origin root by default. */
+  readonly basePath?: string
 }
 
 interface ClientPackageManifest {
@@ -85,8 +93,13 @@ function resolveClientExport(packagePath: string, pkg: ClientPackageManifest): s
   return resolve(dirname(packagePath), relative)
 }
 
+// Mirrors the url `graphRow` in @deepseek-ai/dsh-client-modules mints for a
+// bundle row: relative, so a page served under a deployment prefix resolves it
+// under that prefix. It is a mirror, not an import (that helper is private), so
+// it moves whenever that one does — the prefixed-mount scenario is what makes a
+// drift fail rather than pass quietly.
 const comboUrl = (ids: readonly string[], rev: string): string =>
-  `/plugins/??${ids.map(id => `${id}/client.js`).join(',')}&rev=${rev}`
+  `plugins/??${ids.map(id => `${id}/client.js`).join(',')}&rev=${rev}`
 
 /** Derive the assembled browser graph from the same bundle patches and package declarations as `dsh web`. */
 function loadAssembledPlugins(): readonly AssembledPlugin[] {
@@ -126,7 +139,7 @@ const PLUGINS = loadAssembledPlugins()
 const BOOTSTRAP_IDS = ['@deepseek-ai/dsh-client-modules'] as const
 
 /** Build the fixture graph after applying per-scenario package exclusions. */
-function bootGraph(plugins: readonly AssembledPlugin[]): WebBootGraph {
+function bootGraph(plugins: readonly AssembledPlugin[] = PLUGINS): WebBootGraph {
   const bootstrapEntries = plugins
     .map(plugin => plugin.id)
     .filter(id => BOOTSTRAP_IDS.includes(id as typeof BOOTSTRAP_IDS[number]))
@@ -171,8 +184,23 @@ function bundleTable(graph: WebBootGraph, plugins: readonly AssembledPlugin[]): 
   return bundles
 }
 
+/** Deployment prefix of an origin-root mount, which is where this lane serves the shell. */
+const ROOT_BASE_PATH = '/'
+
+/**
+ * Reject a prefix the Host would reject: `dsh-server-base` requires a leading
+ * and a trailing slash so `<base href>` names a directory rather than a file.
+ * @param basePath - the deployment prefix under test.
+ */
+function assertBasePath(basePath: string): void {
+  if (!basePath.startsWith('/') || !basePath.endsWith('/')) {
+    throw new Error(`assembled boot: deployment prefix ${JSON.stringify(basePath)} must start and end with '/'`)
+  }
+}
+
 interface FixtureWindow extends Window {
   __DSH_BOOT__?: WebBootGraph
+  __DSH_BASE__?: string
   __ModuleLoader__?: ClientModuleLoaderTarget
 }
 
@@ -235,8 +263,10 @@ export function installAssembledBootEnv(): void {
     delete win.__ModuleLoader__
     document.body.innerHTML = ''
     document.head.querySelectorAll('style[data-plugin]').forEach((style) => { style.remove() })
+    document.head.querySelectorAll('base[data-dsh-base]').forEach((base) => { base.remove() })
+    delete win.__DSH_BASE__
     document.title = ''
-    history.replaceState(null, '', '/')
+    history.replaceState(null, '', ROOT_BASE_PATH)
     // Deleting the own properties uncovers jsdom's own accessors again
     // (Navigator declares both readonly, hence the erased receiver).
     const ownNavigator = navigator as unknown as Record<string, unknown>
@@ -247,33 +277,69 @@ export function installAssembledBootEnv(): void {
 }
 
 /**
+ * Put the document on a deployment prefix the way `dsh-server-base` does at run
+ * time: the page address, the `<base href>` head row, and the `__DSH_BASE__`
+ * global. The teardown registered by installAssembledBootEnv undoes all three.
+ * @param basePath - deployment prefix, leading and trailing slash included.
+ * @param search - query string appended to the page address.
+ */
+export function installDeploymentBase(basePath = ROOT_BASE_PATH, search = ''): void {
+  assertBasePath(basePath)
+  history.replaceState(null, '', `${basePath}${search}`)
+  // The Host injects this row first in `<head>`, ahead of every asset the shell
+  // references, so a relative `<script src>` resolves under the prefix. One
+  // document carries one base — the first in tree order is the one the parser
+  // honors, so a second call replaces rather than shadows.
+  document.head.querySelectorAll('base[data-dsh-base]').forEach((stale) => { stale.remove() })
+  const base = document.createElement('base')
+  base.setAttribute('href', basePath)
+  base.setAttribute('data-dsh-base', '')
+  document.head.prepend(base)
+  win.__DSH_BASE__ = basePath
+}
+
+/**
+ * Every URL the boot manifest asks the browser to fetch: the graph rows the
+ * module loader resolves and the parser-blocking preloads the Host injects as
+ * `<script src>`. A URL that resolves outside the deployment prefix is a
+ * request the reverse proxy never routes.
+ * @returns the manifest urls followed by the injected preload sources.
+ */
+export function bootRequestUrls(): readonly string[] {
+  const graph = bootGraph()
+  const preloads = bootInjections(graph)
+    .flatMap(row => row.kind === 'script-src' || row.kind === 'script-preload' ? [row.src] : [])
+  return [...graph.entries.map(entry => entry.url), ...preloads]
+}
+
+/**
  * Mount the assembled application on the fixture transport; the teardown
  * registered by installAssembledBootEnv disposes it.
  * @param search - fixture query string used to select deterministic host behavior.
- * @param options - composition changes applied to this mount.
+ * @param options - composition changes and the deployment prefix applied to this mount.
  */
 export function mountAssembledApp(search = '?fixture', options: AssembledBootOptions = {}): void {
   const excluded = new Set(options.exclude)
   const plugins = PLUGINS.filter(plugin => !excluded.has(plugin.id))
-  history.replaceState(null, '', `/${search}`)
+  installDeploymentBase(options.basePath ?? ROOT_BASE_PATH, search)
   const root = document.createElement('div')
   root.id = 'root'
   document.body.appendChild(root)
   const graph = bootGraph(plugins)
-  const bundles = bundleTable(graph, plugins)
+  const sources = bundleTable(graph, plugins)
   win.__DSH_BOOT__ = graph
   const [facadeRow] = bootInjections(win.__DSH_BOOT__)
   if (facadeRow?.kind !== 'script') throw new Error('missing injected ModuleLoader facade row')
   ;(0, eval)(facadeRow.text)
   // Mirror the blocking Host-injected bootstrap batch before the Vite entry calls create().
   const bootstrapUrl = graph.batches.find(batch => batch.phase === 'bootstrap')?.url
-  const bootstrap = bootstrapUrl === undefined ? undefined : bundles.get(bootstrapUrl)
+  const bootstrap = bootstrapUrl === undefined ? undefined : sources.get(bootstrapUrl)
   if (bootstrap === undefined) throw new Error('missing parser-preloaded fixture batch')
   ;(0, eval)(bootstrap)
   act(() => {
     const entry = new AppWebEntry(root, {
       loadBundle: async (url) => {
-        const code = bundles.get(url)
+        const code = sources.get(url)
         if (code === undefined) throw new Error(`missing built bundle ${url}`)
         ;(0, eval)(code)
       },

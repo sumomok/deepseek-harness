@@ -2472,6 +2472,28 @@ describe('Remote stream client carrier lifecycle', () => {
     })
   })
 
+  it('opens the mux socket under the deployment prefix the page is served under', async () => {
+    await withFakeWebSocket('https://harness.example', async () => {
+      Object.defineProperty(globalThis, '__DSH_BASE__', { configurable: true, value: '/console/' })
+      try {
+        const client = new RemoteStreamMuxClient()
+        client.start()
+        const stream = client.open('feed/follow', {}, new AbortController().signal)[Symbol.asyncIterator]()
+        const pending = stream.next()
+        await vi.waitFor(() => { expect(FakeWebSocket.sockets).toHaveLength(1) })
+        expect(FakeWebSocket.sockets[0]?.url).toBe('wss://harness.example/console/api/remote.mux')
+        const socket = FakeWebSocket.sockets[0]!
+        await vi.waitFor(() => { expect(socket.sent).toHaveLength(1) })
+        const { streamId } = JSON.parse(socket.sent[0]!) as { streamId: string }
+        socket.receive({ type: 'end', streamId })
+        await expect(pending).resolves.toEqual({ done: true, value: undefined })
+        await client.close()
+      } finally {
+        Reflect.deleteProperty(globalThis, '__DSH_BASE__')
+      }
+    })
+  })
+
   it('fails waiters with one socket attempt and lets the owner start the next attempt', async () => {
     await withFakeWebSocket('null', async () => {
       FakeWebSocket.autoOpen = false

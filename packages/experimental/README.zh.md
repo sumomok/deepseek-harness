@@ -28,13 +28,17 @@ kind: "package-group"
 | [`agent-team`](agent-team/README.zh.md) | 具名 teammate，成员之间持久消息与共享任务板 | `ctx.agentTeams` |
 | [`agent-team-web-profile`](agent-team-web-profile/README.zh.md) | Agent Teams 的显式源码 checkout Web 层 | — |
 | [`auth-gate`](auth-gate/README.zh.md) | 把没有 access token 的浏览器送去部署方的登录页，把带回来的那一枚镜像进 cookie，并注入到转发出去的 MCP 请求里 | — |
+| [`biz-backend`](biz-backend/README.zh.md) | 对本部署自己的数据后端的两次读取，用的是访客自己的访问令牌 | `ctx.bizBackend` |
 | [`client-ui-agent-team`](client-ui-agent-team/README.zh.md) | Web Team roster、任务板与 teammate 导航 | — |
 | [`code-runtime-python`](code-runtime-python/README.zh.md) | 代码执行 seam 的 CPython 子进程后端 | `ctx.codeRuntime` |
+| [`component-kit`](component-kit/README.zh.md) | 组件行：落位包用来画出一块已校验内容的 React 渲染器，以及给它们命名的那张表 | — |
+| [`component-surface`](component-surface/README.zh.md) | `show_component` 工具与 content 栏的 `component` 类型：来自固定目录的内容块，在画出来之前先判定 | — |
 | [`content-column`](content-column/README.zh.md) | content surface 的浏览器半边：认领外壳的 content 栏，列出该会话的 entry，并按 kind 派发选中的那一条 | — |
 | [`content-frame`](content-frame/README.zh.md) | 托管一份由部署方配置的静态 web 应用，并把它作为 content 栏的 `page` 类型贡献进去 | — |
 | [`content-surface`](content-surface/README.zh.md) | content surface 的宿主半边：extractor 把已记录事件折叠成每会话一条按类型分列的内容 entry 流 | `ctx.contentSurface` |
 | [`inspector`](inspector/README.zh.md) | 用于 Host 调试、Client Runtime 检查、网络采集与 Cordis 树的跨 realm CDP hub | `ctx.inspector` |
 | [`library-skills`](library-skills/README.zh.md) | 把组件库惯例做成随包出厂的 SKILL，以最低 skill rank 挂载 | — |
+| [`server-base`](server-base/README.zh.md) | 告诉浏览器：这个进程被挂在哪个路径前缀下，让页面构造的每个 URL 都带上它 | — |
 | [`server-layout`](server-layout/README.zh.md) | 服务形态外壳：常驻四轨框架（session、content、chat、details），替换出厂外壳 | `ctx.layout` |
 | [`server-sidebar`](server-sidebar/README.zh.md) | 产品控制台侧边栏：用固定的工作台/导航/工作流控制台替换出厂侧边栏，并承载客户表单页所需的去术语层 | — |
 | [`tool-agent-team`](tool-agent-team/README.zh.md) | 让模型创建、发消息与协调 teammate 的九个工具 | 按作用域注册工具到 `ctx.tools` |

@@ -6,9 +6,9 @@ import {
   type RpcId as RpcIdType,
 } from '../rpc.ts'
 import type { ClientConnectionRpc, ConnectionRpcResult } from '../rpc.ts'
+import { clientUrl } from './base.ts'
 import { randomUuid } from './random-uuid.ts'
 
-const INTERNAL_BASE = 'http://dsh.internal'
 const CHANNEL_PATTERN = /^\/[A-Za-z0-9._~-]+$/
 const ENDPOINT_SEGMENT_PATTERN = /^[A-Za-z0-9_$.-]+$/
 
@@ -41,7 +41,7 @@ export function createWebConnectionRpc(doFetch?: RpcFetch, openStream?: RpcStrea
         payload,
       }
       const response = await send(
-        new URL(`${channel}/${endpoint}`, resolveBase()),
+        clientUrl(`${channel}/${endpoint}`),
         {
           method: 'POST',
           headers: { 'content-type': 'application/json' },
@@ -103,11 +103,6 @@ function parseConnectionResponse(value: unknown): {
 
 function isRecord(value: unknown): value is Record<PropertyKey, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value)
-}
-
-function resolveBase(): string {
-  const location = (globalThis as { location?: { origin?: string } }).location
-  return location?.origin !== undefined && location.origin !== 'null' ? location.origin : INTERNAL_BASE
 }
 
 function assertTarget(channel: string, endpoint: string): void {

@@ -1,0 +1,9 @@
+/* The one thing a view click can draw in the chat, where the emptied command
+   row would have been: the host's refusal. Tokens only. */
+
+.refusal {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  line-height: 24px;
+}

@@ -15,10 +15,18 @@
 import { Context } from '@deepseek-ai/cordis'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { apply } from '../src/client/index.ts'
-import { mirrorCookieLine, readCookieFrom, windowGateBrowser, type GateBrowser } from '../src/client/browser.ts'
+import {
+  clearCookieLine,
+  mirrorCookieLine,
+  readCookieFrom,
+  storedToken,
+  windowGateBrowser,
+  type GateBrowser,
+} from '../src/client/browser.ts'
 import { runGate } from '../src/client/run.ts'
 import {
   ACCESS_TOKEN_STORAGE_KEY,
+  AUTH_GATE_LOGOUT_ROUTE,
   AUTH_GATE_SETTINGS_ROUTE,
   AUTH_GATE_TOKEN_ROUTE,
   type AuthGateSettings,
@@ -26,7 +34,8 @@ import {
 
 const NOW = 1_800_000_000_000
 const SETTINGS: AuthGateSettings = { loginUrl: '/toy-login/#/', cookieName: 'accessToken', refreshMarginSeconds: 300 }
-const HREF = 'https://harness.example/chat'
+const ORIGIN = 'https://harness.example'
+const HREF = `${ORIGIN}/chat`
 const LOGIN = `/toy-login/#/?redirect=${encodeURIComponent(HREF)}`
 
 /** Base64url-encode one JSON value the way a JWT carries a segment. */
@@ -52,6 +61,11 @@ class Bench implements GateBrowser {
   /** Whether a cookie write is kept, as a browser refusing `Secure` over plain HTTP would not. */
   cookieWritesTake = true
   readonly navigations: string[] = []
+  /**
+   * Every effect the gate performed, in order, so the sign-out sequence is
+   * assertable as a sequence rather than as three independent facts.
+   */
+  readonly log: string[] = []
   reloads = 0
   readonly timers: { delayMs: number; run: () => void }[] = []
   cancelledTimers = 0
@@ -77,8 +91,14 @@ class Bench implements GateBrowser {
     if (this.cookieWritesTake) this.cookies.set(name, value)
   }
 
+  clearCookie(name: string): void {
+    this.cookies.delete(name)
+    this.log.push(`clearCookie:${name}`)
+  }
+
   navigate(url: string): void {
     this.navigations.push(url)
+    this.log.push(`navigate:${url}`)
   }
 
   reload(): void {
@@ -110,9 +130,17 @@ class Bench implements GateBrowser {
 /** Run the gate over a bench prepared with `token` already in the cookie jar. */
 function boot(bench: Bench): { dispose: () => void; pushed: string[] } {
   const pushed: string[] = []
-  const dispose = runGate(bench, SETTINGS, token => pushed.push(token))
+  const dispose = runGate(
+    bench,
+    SETTINGS,
+    token => pushed.push(token),
+    () => { bench.log.push('revoke') },
+  )
   return { dispose, pushed }
 }
+
+/** The sign-out sequence, in the one order it is allowed to happen in. */
+const SIGN_OUT = ['revoke', 'clearCookie:accessToken', `navigate:${LOGIN}`]
 
 describe('auth-gate boot', () => {
   it('sends a visitor with no token to the login page, carrying where they were', () => {
@@ -122,13 +150,17 @@ describe('auth-gate boot', () => {
     expect({ reloads: bench.reloads, cookies: bench.cookies.size, pushed }).toEqual({
       reloads: 0, cookies: 0, pushed: [],
     })
+    // The order is the contract: the node half stops spending the token first,
+    // the mirror stops presenting it to the reverse proxy second, and only then
+    // does the page leave.
+    expect(bench.log).toEqual(SIGN_OUT)
   })
 
   it('sends a visitor whose token ran out to the login page', () => {
     const bench = new Bench()
     bench.token = STALE
     boot(bench)
-    expect(bench.navigations).toEqual([LOGIN])
+    expect(bench.log).toEqual(SIGN_OUT)
   })
 
   it('mirrors a token the cookie does not carry, then reloads exactly once', () => {
@@ -189,7 +221,10 @@ describe('auth-gate boot', () => {
     bench.cookies.set('accessToken', LIVE)
     boot(bench)
     bench.timers[0]?.run()
-    expect(bench.navigations).toEqual([LOGIN])
+    // An expiring token is given up the same way a missing one is: the process
+    // must not go on spending a credential that is about to be refused.
+    expect(bench.log).toEqual(SIGN_OUT)
+    expect(bench.cookies.has('accessToken')).toBe(false)
   })
 })
 
@@ -225,7 +260,10 @@ describe('auth-gate while the page runs', () => {
   it('sends the visitor to the login page when the token is removed elsewhere', () => {
     const { bench } = running()
     bench.storageWrote(null)
-    expect({ navigations: bench.navigations, reloads: bench.reloads }).toEqual({ navigations: [LOGIN], reloads: 0 })
+    expect({ log: bench.log, reloads: bench.reloads }).toEqual({ log: SIGN_OUT, reloads: 0 })
+    // A tab that signed out must not leave the mirror behind for the next
+    // request this tab makes.
+    expect(bench.cookies.has('accessToken')).toBe(false)
   })
 
   it('releases the storage subscription and the pending expiry on disposal (HMR safety)', () => {
@@ -260,8 +298,60 @@ describe('auth-gate cookie handling', () => {
     expect(readCookieFrom('novalue; accessToken=x', 'accessToken')).toBe('x')
   })
 
-  it('mirrors for the whole origin, over TLS, and not on cross-site subrequests', () => {
-    expect(mirrorCookieLine('accessToken', 'a.b.c')).toBe('accessToken=a.b.c; Path=/; Secure; SameSite=Lax')
+  it('mirrors for the deployment path, over TLS, and not on cross-site subrequests', () => {
+    expect(mirrorCookieLine('accessToken', 'a.b.c', '/')).toBe('accessToken=a.b.c; Path=/; Secure; SameSite=Lax')
+    // Behind a path-prefixed reverse proxy the mirror narrows to that prefix,
+    // which is still on every request this page makes.
+    expect(mirrorCookieLine('accessToken', 'a.b.c', '/console/'))
+      .toBe('accessToken=a.b.c; Path=/console/; Secure; SameSite=Lax')
+  })
+
+  it('removes the mirror with the attributes it was written under', () => {
+    // A browser matches a removal by name, path, and domain: an attribute that
+    // differs from the mirror's writes a second, empty cookie and leaves the
+    // token in place.
+    expect(clearCookieLine('accessToken', '/')).toBe('accessToken=; Path=/; Secure; SameSite=Lax; Max-Age=0')
+    const [mirrored, cleared] = [
+      mirrorCookieLine('accessToken', 'a.b.c', '/console/'),
+      clearCookieLine('accessToken', '/console/'),
+    ]
+    expect(cleared.startsWith(`accessToken=; ${mirrored.slice('accessToken=a.b.c; '.length)}`)).toBe(true)
+  })
+})
+
+describe('auth-gate stored token', () => {
+  it('drops the scheme the deployment\'s login page stores with the token', () => {
+    // That page writes what its own HTTP client puts into the `Authorization`
+    // header verbatim; everything downstream of the gate carries the bare JWT.
+    for (const raw of ['Bearer a.b.c', 'bearer a.b.c', 'BEARER a.b.c', 'Bearer    a.b.c']) {
+      expect(storedToken(raw)).toBe('a.b.c')
+    }
+  })
+
+  it('tolerates whitespace around the scheme rather than the login page\'s exact spacing', () => {
+    for (const raw of ['Bearer\ta.b.c', ' Bearer a.b.c', '\n Bearer \t a.b.c']) {
+      expect(storedToken(raw)).toBe('a.b.c')
+    }
+  })
+
+  it('returns a bare token and an empty store unchanged', () => {
+    expect(storedToken('a.b.c')).toBe('a.b.c')
+    expect(storedToken(null)).toBeNull()
+    // Only the scheme at the front, and only when whitespace follows it.
+    expect(storedToken('Bearera.b.c')).toBe('Bearera.b.c')
+    expect(storedToken('a.b.Bearer c')).toBe('a.b.Bearer c')
+  })
+
+  it('leaves a repeated scheme in place, so the gate refuses it rather than spending it', () => {
+    // A JWT carries no whitespace, so what survives here fails `isJwtShaped` and
+    // sends the visitor to the login page.
+    expect(storedToken('Bearer Bearer a.b.c')).toBe('Bearer a.b.c')
+  })
+
+  it('is idempotent, so a value already stripped survives a second pass', () => {
+    for (const raw of ['Bearer a.b.c', 'a.b.c', null]) {
+      expect(storedToken(storedToken(raw))).toBe(storedToken(raw))
+    }
   })
 })
 
@@ -288,6 +378,7 @@ describe('auth-gate window browser', () => {
     vi.stubGlobal('localStorage', { getItem: (key: string) => (key === ACCESS_TOKEN_STORAGE_KEY ? token : null) })
     vi.stubGlobal('location', {
       href: HREF,
+      origin: ORIGIN,
       reload: () => { reloads.push(1) },
     })
     vi.stubGlobal('addEventListener', (type: string, listener: (event: StorageEvent) => void) => {
@@ -312,15 +403,39 @@ describe('auth-gate window browser', () => {
     expect(browser.now()).toBeGreaterThan(0)
   })
 
-  it('writes the mirror cookie, navigates, and reloads through the page itself', () => {
+  it('strips the scheme the login page stored the token under', () => {
+    // The one place a stored value enters the gate, and the reason a page whose
+    // login wrote "Bearer <jwt>" does not send its visitor back to the login
+    // page forever.
+    stubPage('', `Bearer ${LIVE}`)
+    expect(windowGateBrowser().readToken()).toBe(LIVE)
+  })
+
+  it('writes and removes the mirror cookie, navigates, and reloads through the page itself', () => {
     const page = stubPage('', null)
     const browser = windowGateBrowser()
     browser.writeCookie('accessToken', 'a.b.c')
+    browser.clearCookie('accessToken')
     browser.navigate('/toy-login/#/?redirect=x')
     browser.reload()
-    expect(page.written).toEqual(['accessToken=a.b.c; Path=/; Secure; SameSite=Lax'])
+    expect(page.written).toEqual([
+      'accessToken=a.b.c; Path=/; Secure; SameSite=Lax',
+      'accessToken=; Path=/; Secure; SameSite=Lax; Max-Age=0',
+    ])
     expect(page.navigations).toEqual(['/toy-login/#/?redirect=x'])
     expect(page.reloads).toEqual([1])
+  })
+
+  it('scopes the mirror to the deployment prefix the shell is served under', () => {
+    const page = stubPage('', null)
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const browser = windowGateBrowser()
+    browser.writeCookie('accessToken', 'a.b.c')
+    browser.clearCookie('accessToken')
+    expect(page.written).toEqual([
+      'accessToken=a.b.c; Path=/console/; Secure; SameSite=Lax',
+      'accessToken=; Path=/console/; Secure; SameSite=Lax; Max-Age=0',
+    ])
   })
 
   it('reacts to the token key and to a cleared store, and to nothing else', () => {
@@ -354,18 +469,32 @@ describe('auth-gate browser plugin', () => {
     vi.unstubAllGlobals()
   })
 
-  /** Answer the node half's two routes; record what the token route received. */
-  function serve(settings: unknown, ok = true, tokenOk = true): { posted: string[] } {
+  /** Answer the node half's three routes; record what the token and sign-out routes received. */
+  function serve(settings: unknown, ok = true, tokenOk = true, logoutOk = true): {
+    posted: string[]
+    revoked: { keepalive: boolean; contentType: string | undefined }[]
+    requested: string[]
+  } {
     const posted: string[] = []
-    vi.stubGlobal('fetch', vi.fn((input: string, init?: { body?: string }) => {
-      if (input === AUTH_GATE_SETTINGS_ROUTE) {
+    const revoked: { keepalive: boolean; contentType: string | undefined }[] = []
+    const requested: string[] = []
+    type Init = { body?: string; keepalive?: boolean; headers?: Record<string, string> }
+    // The browser half asks for absolute URLs resolved against the deployment
+    // base, so the routes are matched by their tail rather than compared whole.
+    vi.stubGlobal('fetch', vi.fn((input: URL, init?: Init) => {
+      requested.push(input.href)
+      if (input.pathname.endsWith(AUTH_GATE_SETTINGS_ROUTE)) {
         return Promise.resolve({ ok, status: ok ? 200 : 503, json: () => Promise.resolve(settings) })
       }
-      if (input !== AUTH_GATE_TOKEN_ROUTE) throw new Error(`unexpected fetch: ${input}`)
+      if (input.pathname.endsWith(AUTH_GATE_LOGOUT_ROUTE)) {
+        revoked.push({ keepalive: init?.keepalive === true, contentType: init?.headers?.['content-type'] })
+        return Promise.resolve({ ok: logoutOk, status: logoutOk ? 204 : 405 })
+      }
+      if (!input.pathname.endsWith(AUTH_GATE_TOKEN_ROUTE)) throw new Error(`unexpected fetch: ${input.href}`)
       posted.push(init?.body ?? '')
       return Promise.resolve({ ok: tokenOk, status: tokenOk ? 204 : 400 })
     }))
-    return { posted }
+    return { posted, revoked, requested }
   }
 
   /**
@@ -378,10 +507,31 @@ describe('auth-gate browser plugin', () => {
     const token = `${segment({ alg: 'none' })}.${segment({ sub: 'u-1', exp: Date.now() / 1000 + 3600 })}.c2ln`
     vi.stubGlobal('document', { get cookie() { return `accessToken=${token}` }, set cookie(_value: string) {} })
     vi.stubGlobal('localStorage', { getItem: () => token })
-    vi.stubGlobal('location', { href: HREF, reload: () => {} })
+    vi.stubGlobal('location', { href: HREF, origin: ORIGIN, reload: () => {} })
     vi.stubGlobal('addEventListener', () => {})
     vi.stubGlobal('removeEventListener', () => {})
     return token
+  }
+
+  /**
+   * A page carrying no token at all, which is the boot that signs the visitor
+   * out and leaves.
+   * @returns what the gate did to the page.
+   */
+  function stubSignedOutPage(): { navigations: string[]; cookieWrites: string[] } {
+    const navigations: string[] = []
+    const cookieWrites: string[] = []
+    vi.stubGlobal('document', { get cookie() { return '' }, set cookie(value: string) { cookieWrites.push(value) } })
+    vi.stubGlobal('localStorage', { getItem: () => null })
+    vi.stubGlobal('location', { href: HREF, origin: ORIGIN, reload: () => {} })
+    vi.stubGlobal('addEventListener', () => {})
+    vi.stubGlobal('removeEventListener', () => {})
+    const target = globalThis as unknown as { location: { href: string } }
+    Object.defineProperty(target.location, 'href', {
+      get: () => HREF,
+      set: (value: string) => { navigations.push(value) },
+    })
+    return { navigations, cookieWrites }
   }
 
   it('runs the gate on the settings its node half served, and hands the token over', async () => {
@@ -407,6 +557,59 @@ describe('auth-gate browser plugin', () => {
     // Whatever reads the warning must not learn the credential from it.
     expect(reported).not.toContain(token)
     await fiber.dispose()
+  })
+
+  it('tells the node half to drop the token before it clears the mirror and leaves', async () => {
+    const served = serve(SETTINGS)
+    const page = stubSignedOutPage()
+    const ctx = new Context()
+    const fiber = ctx.plugin({ apply })
+    await fiber.await()
+    // `keepalive`, because the navigation on the next line would otherwise
+    // cancel the request with the document; `application/json`, because that is
+    // what keeps the route out of the set a cross-origin page can post to
+    // without a preflight.
+    expect(served.revoked).toEqual([{ keepalive: true, contentType: 'application/json' }])
+    expect(page.cookieWrites).toEqual(['accessToken=; Path=/; Secure; SameSite=Lax; Max-Age=0'])
+    expect(page.navigations).toEqual([LOGIN])
+    await fiber.dispose()
+  })
+
+  it('warns rather than holding the page when the node half refuses the sign-out', async () => {
+    serve(SETTINGS, true, true, false)
+    stubSignedOutPage()
+    const ctx = new Context()
+    const warn = vi.spyOn(ctx.logger, 'warn').mockImplementation(() => {})
+    const fiber = ctx.plugin({ apply })
+    await fiber.await()
+    await new Promise(resolve => setTimeout(resolve, 5))
+    expect(String(warn.mock.calls[0]?.[0])).toContain(`${AUTH_GATE_LOGOUT_ROUTE} answered 405`)
+    await fiber.dispose()
+  })
+
+  it('asks the node half through the deployment prefix the shell is served under', async () => {
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const ctx = new Context()
+
+    const signedIn = serve(SETTINGS)
+    stubSignedInPage()
+    const armed = ctx.plugin({ apply })
+    await armed.await()
+    expect(signedIn.requested).toEqual([
+      'https://harness.example/console/auth-gate/settings',
+      'https://harness.example/console/auth-gate/token',
+    ])
+    await armed.dispose()
+
+    const signedOut = serve(SETTINGS)
+    stubSignedOutPage()
+    const leaving = ctx.plugin({ apply })
+    await leaving.await()
+    expect(signedOut.requested).toEqual([
+      'https://harness.example/console/auth-gate/settings',
+      'https://harness.example/console/auth-gate/logout',
+    ])
+    await leaving.dispose()
   })
 
   it('fails the row rather than guessing when the settings route is unusable', async () => {

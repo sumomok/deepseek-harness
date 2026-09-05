@@ -18,6 +18,7 @@ kind: "package-reference"
 - [每次页面加载时，这道闸做什么](#what-the-gate-does-on-every-page-load)
 - [路由](#routes)
 - [带着 token 转发 MCP 请求](#forwarding-mcp-requests-with-the-token)
+- [读这套部署自己的数据后端](#reading-the-deployments-data-backend)
 - [组合](#composition)
 - [Model Experience](#model-experience)
 - [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
@@ -29,8 +30,8 @@ kind: "package-reference"
 ## 每次页面加载时，这道闸做什么
 
 1. 从 `/auth-gate/settings` 读取本插件面向浏览器的那部分配置。browser 半边拿不到任何 cordis 配置——boot manifest 携带的是插件名，不是它们的 `config` 块——所以设置文档不可达或不可用时直接让这一行失败，而不是让闸门跑在一个谁也没选过的登录地址上。
-2. 读 `localStorage.accessToken`。这个 key 是固定的而非可配的：它是部署方登录页写入的 key，因此属于与那个页面的约定，而不是本插件做的选择。
-3. **没有 token、读不出来的 token、没有 `exp` 的 token，或是已经过期的** —— 离开当前页，前往 `<loginUrl>?redirect=<编码后的当前 URL>`。没有 `exp` 的 token 会被拒绝而不是当作永不过期，因为闸门的整套排期都建立在这一项声明之上。
+2. 读 `localStorage.accessToken`，并把它开头的 `Bearer ` 去掉。这两半都是与部署方登录页的约定，而不是本插件做的选择：key 是那个页面写入的 key，值是那个页面自己的 HTTP 客户端原样放进 `Authorization` 头的东西，连 scheme 一起。这一点之下的一切——反向代理读的那枚镜像 cookie、token 路由、node 半边转发时花掉的凭据——携带的都是裸 JWT，而 token 路由本身也只接受裸 JWT。
+3. **没有 token、读不出来的 token、没有 `exp` 的 token，或是已经过期的** —— 交出这枚 token 并前往 `<loginUrl>?redirect=<编码后的返回地址>`，而返回地址就是访客请求的那个页面、去掉登录页自己那些凭据参数之后的样子。下文的**交出 token**给出这三步以及它们的先后。没有 `exp` 的 token 会被拒绝而不是当作永不过期，因为闸门的整套排期都建立在这一项声明之上。
 4. **可用的 token，但 cookie 里还不是它** —— 写 cookie，然后重新加载页面，这样接下来的那次请求就已经带上了它。
 5. **可用的 token，且 cookie 里已经是它** —— 让页面跑起来，并 `POST /auth-gate/token`，好让 node 半边可以花它。
 
@@ -44,13 +45,23 @@ kind: "package-reference"
 
 ### 镜像 cookie 为什么不是 `HttpOnly`
 
-token 本来就住在 `localStorage` 里，是部署方的登录页放进去的，页面上任何脚本都读得到。一个页面自己的脚本读不到的 cookie 并不能收窄任何攻击面——被注入的脚本直接读原件即可——却会让镜像无法与之保持一致。`Secure` 与 `SameSite=Lax` 仍然生效：前者让它不走明文链路，后者让它不出现在跨站子请求里。
+token 本来就住在 `localStorage` 里，是部署方的登录页放进去的，页面上任何脚本都读得到。一个页面自己的脚本读不到的 cookie 并不能收窄任何攻击面——被注入的脚本直接读原件即可——却会让镜像无法与之保持一致。`Secure` 与 `SameSite=Lax` 仍然生效：前者让它不走明文链路，后者让它不出现在跨站子请求里。`Path` 取外壳被挂载的部署前缀——挂在源根上是 `/`，挂在带路径前缀的反向代理后面是 `/console/`——这个页面发出的每一次请求都带着它，而同一主机上挂在另一个前缀下的第二个 harness 拿不到它。
 
 这枚 cookie 存在，是因为那些不带 `Authorization` 头的请求——导航、图片、iframe、下载——同样得向立在本进程之前的东西表明访客身份。
 
 ### 过期
 
 在 token 的 `exp` 之前 `refreshMarginSeconds` 时，闸门动作。在本包里这意味着把访客送回登录页——这是每个部署都有的那一条续期路径。`src/client/run.ts` 里的 `handleTokenExpiring` 是这项决定唯一被做出的地方，也是那个余量唯一的读者：若某个部署的单点登录提供续期端点，就替换这个函数的函数体，闸门的其余部分都不依赖 token 是怎么续的。
+
+### 交出 token
+
+有三处决定会前往登录页：启动时没找到可用 token、另一个标签页删掉了 token 或让它过期、以及到达过期余量。三者跑的是同一套三步，顺序固定。
+
+1. **`POST /auth-gate/logout`**，让 node 半边不再花一枚访客已经没有的凭据。请求带 `keepalive`，否则第 3 步的跳转会把这个由文档持有的请求取消掉。
+2. **清掉镜像 cookie**，用与写入镜像时逐字相同的 `Path`、`Secure`、`SameSite`——浏览器是按名字、路径和域来把一次删除对应到已有 cookie 的，任何一项不同都会写出第二枚空 cookie，而把 token 原样留在那里。一枚在这里活下来的死 token，会继续在登录页自己发出的每一个请求上呈给立在本进程前的反向代理。
+3. **跳转到登录页**，并把返回地址里的 `token` 与 `token4a` 去掉——查询串里的和片段里的一并去掉。这两个正是部署方登录页读取凭据的参数；把其中之一交回去，等于把闸门刚刚拒绝掉的那枚 token 经由浏览器历史、以及登录页发出的每一个 referrer 又送了回去。片段也要剥，是因为那个页面读参数读的是整个地址而不是它的查询串——toy-core 的 `getUrlParam` 解析的是 `location.href` 里第一个 `?` 之后的全部内容——所以只去掉查询串里的那一枚，反而会把挡着片段那一枚的 `?` 一起拿走，把它露出来。片段自己的路由和其余参数都保留：这些页面是 hash 路由的，片段就是地址。
+
+这个顺序成立与否，取决于浏览器在什么时刻附上 cookie。第 1 步的请求经由同一个反向代理抵达本进程，而代理正是靠第 2 步随即删掉的那枚镜像 cookie 来路由它的；这一序列之所以成立，是因为浏览器在 fetch 发起的时刻就附上 cookie，Chromium 便是如此。若某个浏览器改在发送时才读，它就会一枚都不带，代理会拒掉这次登出，唯一的痕迹是控制台里的一条 warn，而 node 半边会继续持有那枚 token 直到进程结束。
 
 <a id="routes"></a>
 ## 路由
@@ -59,11 +70,14 @@ token 本来就住在 `localStorage` 里，是部署方的登录页放进去的�
 |---|---|---|
 | `/auth-gate/settings` | GET、HEAD | browser 半边必须遵守的那三个配置值。`no-store`：浏览器每次启动读一次，值来自它启动时那一行。 |
 | `/auth-gate/token` | POST | 接收浏览器找到的 token。以 204 且无正文作答。 |
+| `/auth-gate/logout` | POST | 丢掉持有的 token。以 204 且无正文作答。 |
 | `/auth-gate/mcp/<name>` | 任意 | 转发到 `<name>` 下配置的上游，并带上持有的 token。 |
 
 token 路由只接同站点、只收 JSON：被浏览器标为 `sec-fetch-site: cross-site` 的请求以 403 拒绝，未声明 `application/json` 的以 415 拒绝，两者都发生在读取正文之前，于是跨源页面无法把一枚 token 作为免预检的简单请求发出来。正文不是一份 `token` 字段为三段式 JWT 的 JSON 文档时以 400 拒绝，而且两种拒绝都不会引用被投递的内容——一条点名了「差一点就对」的凭据的诊断，会把它送到任何读这份响应的地方。
 
-token 被放在插件内部的一个闭包里，存活到进程结束，且不写去任何地方：没有会话事件、没有设置文档、没有日志行、没有诊断。也没有任何一条路由能把它读回来。
+登出路由带着这道栅栏的两层，并且完全不读正文：它不点名任何 token，只是丢掉当前持有的那一枚——而那正是本进程所服务的唯一一位访客的 token。一个能够到达它的跨源页面，就能把这位访客从他正在使用的部署里登出去，而只有同站这一层是拦不住的——完全不带 `sec-fetch-site` 头的请求就能通过那一项检查，所以真正把这条路由从「免预检的简单请求」集合里撤出来的是 `application/json` 这项要求。browser 半边会声明这个 content type，且不发送任何正文。
+
+token 被放在插件内部的一个闭包里，且不写去任何地方：没有会话事件、没有设置文档、没有日志行、没有诊断。没有任何一条路由能把它读回来，而唯一会改动它的路由，要么把它换成更新的一枚，要么把它丢掉。
 
 <a id="forwarding-mcp-requests-with-the-token"></a>
 ## 带着 token 转发 MCP 请求
@@ -88,6 +102,8 @@ token 被放在插件内部的一个闭包里，存活到进程结束，且不�
     url: http://127.0.0.1:3080/auth-gate/mcp/crm
 ```
 
+这个 `url` 里的端口必须是本进程自己监听的端口：这条路由是本进程的，而一个被照抄的字面量会把每位访客的 MCP 调用都指向占着那个端口的那个进程——也就是指向另一个人持有的 token。一位登录用户一个进程的部署要从环境里取它（`` url: !!js `http://127.0.0.1:${process.env.DSH_PORT}/auth-gate/mcp/crm` ``），而不是写死一个数字。
+
 转发骑在 dsh webserver 自己的路由注册表上，而不是自管一个监听。它的 `WebRoute` handler 拥有完整的响应生命周期，而这正是一次 MCP streamable-HTTP 交换所需要的：一次 POST 以 JSON 文档或一条挂住的事件流作答，一次 GET 为服务器到客户端的流长期挂住。两个方向都按字节中继而不解码，因此事件流是增量抵达 MCP 客户端的。
 
 这次转发改动了什么，以及仅此而已：
@@ -98,6 +114,28 @@ token 被放在插件内部的一个闭包里，存活到进程结束，且不�
 - **路由前缀之后的路径与 query string 会被带上**，接到目标自己的路径之后。
 
 在还没有任何浏览器投递过 token 之前，每条转发路由都以 503 作答并点名该上游——对于一枚进程尚未持有的凭据，这是诚实的答复。上游不可达是 502；答到一半掉线的，响应被截断，因为状态码已经发出去了。
+
+<a id="reading-the-deployments-data-backend"></a>
+## 读这套部署自己的数据后端
+
+签发 token 的那套部署，同时也在供自己的数据。`bizUpstream` 把这些请求所构建于的基址交给本进程，闸门在它之上构造出 [`dsh-experimental-biz-backend`](../biz-backend/README.zh.md) 的 `ctx.bizBackend`，用的是它已经持有的那枚 token。那个包拥有这两次读取本身、它们放到线上的东西，以及每种答复如何被归类。
+
+```yaml
+- id: auth-gate
+  name: '@deepseek-ai/dsh-experimental-auth-gate'
+  config:
+    loginUrl: /toy-proxy/toy-login/#/
+    cookieName: accessToken
+    refreshMarginSeconds: 300
+    mcpUpstreams: {}
+    bizUpstream: https://<host>/ini-server/
+```
+
+`bizUpstream` 必须是绝对的 `http(s)` 地址，不带 query string、不带 fragment、不带它自己的凭据，路径以 `/` 结尾。这段路径就是这套部署的 API 前缀，也就是前端自己的 `VUE_APP_BASE_URL`：标准安装编译出的是 `/ini-server/`，而不带前缀编译的安装则发布在源站根上。没有默认值。留空即表示这套部署不提供数据后端，于是 `bizBackend` 根本不构造，消费它的那一行会明确挂起并被点名缺哪个服务——而不是安装一个每次读都失败的服务。
+
+token 抵达这些读取的方式与抵达转发的方式相同：按引用，就是本包持有它的那个闭包。这些读取把它花在 `Authorization` 与 `CertificationToken` 两个头上，并在后端拒绝它时通过同一个闭包交出它——那正是本包自己的登出终态，也是下面那些限制所记录的东西。
+
+-----
 
 <a id="composition"></a>
 ## 组合
@@ -117,7 +155,9 @@ token 被放在插件内部的一个闭包里，存活到进程结束，且不�
 
 用 `dsh --profile web --patch <path>` 应用它。每个包都必须能从 profile 目录解析到，对于树外插件这意味着 `dsh plugin --profile web add <path>` 或等价的链接——发布 bundle 不得声明实验性包。
 
-每一个配置值都是必填并在加载时校验的：空的 `loginUrl`、已经带了 query string 的 `loginUrl`、不是纯 cookie 名的 `cookieName`、不是纯路由段的上游名，以及不是「无 query 无 fragment 的绝对 HTTP(S) URL」的目标，都会让这一行失败，而不是变成「跳去一个不存在的地方」或「首次调用才失败的工具」。
+每一个配置值都在加载时校验，且除 `bizUpstream` 之外都是必填：空的 `loginUrl`、已经带了 query string 的 `loginUrl`、不是纯 cookie 名的 `cookieName`、不是纯路由段的上游名、不是「无 query 无 fragment 的绝对 HTTP(S) URL」的目标，以及不可用的 `bizUpstream`，都会让这一行失败，而不是变成「跳去一个不存在的地方」「首次调用才失败的工具」或「把凭据发去错误的地址」。被拒的地址在回显时会去掉写在里面的用户名与口令，而 URL 解析器根本读不动的值则一个字都不回显——这样的值可能带着这里任何检查都认不出的口令，而加载失败会被这一行输出所到之处读到。
+
+`loginUrl` 是浏览器侧地址，按写就发出：挂在路径前缀下的部署要把前缀写进这个值（`/console/toy-proxy/toy-login/#/`），因为没有任何一处会拿部署基址再解析它一次。登录页留在外壳前缀之外（就像上面的样例）同样成立，只是拿不到镜像 cookie —— 那枚 cookie 的作用域就是这段前缀。
 
 <a id="model-experience"></a>
 ## Model Experience
@@ -136,8 +176,16 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **过期时把访客送回登录页。** 没有续期调用，因此即便部署方的单点登录本可以静默签发一枚新的，token 用完仍要付一次完整导航的代价。为此留的位置只有 `handleTokenExpiring`，别无其他。
 - **转发只走 HTTP。** 没有 upgrade 路由，因此以 WebSocket 抵达的 MCP 服务器无法经它转发；这条路由服务的是 streamable-HTTP 及其事件流。
 - **整个进程只有一枚 token。** node 半边持有任何浏览器投递过的最新一枚。这与本包面向的部署形态相符——一位登录用户一个进程——而对于多人共用一个进程的场景则是错的：那时最后加载页面的那个浏览器会决定每一次 MCP 调用花谁的凭据。
-- **没有任何东西吊销持有的 token。** 没有清除它的路由，浏览器登出后进程仍持有它最后投递的那一枚，直到进程结束，或另一个浏览器投递了更新的一枚。
-- **设置路由假定存在 HTTP 载体。** browser 半边按页面源相对地址 fetch `/auth-gate/settings`，因此一个「提供外壳但不经 HTTP 暴露 harness」的传输会让这一行失败。
+- **只有闸门自己那三处登录决定会登出。** `POST /auth-gate/logout` 会丢掉持有的 token，而调用它的只有 browser 半边的启动、storage 变化与过期这三条路径——没有登出控件，也不会打断此刻正在跑的 agent loop。访客若是直接关掉标签页，进程就会继续持有那枚 token，直到进程结束，或另一个浏览器投递了更新的一枚。
+- **不带 token 的访客也会登出一次。** 启动决定无论存过东西与否都走这个出口——这是有意的，因为 node 半边可能仍持着上一位加载过页面的访客的 token——而在反向代理后面，这次请求不带镜像 cookie、被答以 401，只在控制台留下一条无害的 warn。
+- **一次撤销不会被撤回。** browser 半边只在一个地方把 token 交给 node 半边——那次让页面跑起来的启动决定或 storage 变化决定——因此一次在页面仍在运行时抵达的登出，会让这个页面的 MCP 转发一直答 503 直到它重新加载，而屏幕上没有任何提示。有两种情况会走到那里：一次晚到的登出请求丢掉了它之后才被投递的那一枚 token，以及一个越过了这条路由栅栏的跨源页面。要关掉它，要么在请求里点名要丢的那一枚 token，让晚到的那次撞不到更新的凭据，要么在页面重新可见时把当前这一枚再投递一次。
+- **一枚被拒的 token 不构成离开的理由。** browser 半边只按形状与过期判断——让它离开的，是「存着的值不是一枚 `exp` 仍在未来的 JWT」——所以一枚仍未过期、却被外层闸拒绝的 token（被吊销、密钥已轮换、账号已停用），在这里读起来是可用的。外壳照画，它背后每一个被拦的调用都失败，而没有任何东西把访客送去别处；本包自己的出口只有那张过期时间表，而它是在 `exp` 之前的那个边界上触发，不是在拒绝开始时。把本包自己的调用被答 401 也当成第四条离开的理由，是缺掉的那一半，它该放在 `src/client/run.ts` 里已有的那三处决定旁边。
+- **退出的次序假定镜像 cookie 仍能打开代理。** 第 1 步那次 POST 只有在反向代理还接受它所带的那枚 cookie 时才到得了本进程；而一个会校验这枚 cookie、而不只是拿它路由的代理——比如 `dsh-experimental-server-base` 的 nginx 样例里那道向部署方认证服务发问的站点闸——恰恰会在「交还的正是它不接受的那枚 token」的路径上拒绝这次 POST：一枚已过 `exp`，一枚未过期却被上游拒绝。node 半边于是攥着这枚死 token，直到进程结束或有更新的一枚被投递进来。第 2、3 步无论如何都会执行，所以访客本人照样走得掉；留下的残余在进程侧。
+- **一次被后端拒掉的读，会连带停掉 MCP 转发。** 数据后端答 HTTP 401 或 403 时，进程交出这枚 token，那正是登出路由的终态，于是此后每条转发路由都答 503、每次读都答 `unauthenticated`——直到某个浏览器投递一枚新的。因此一次读的失败是进程范围的，而不是只属于那一次读。
+- **进程于是知道了页面不知道的事。** node 半边是这个进程里第一个知道「手上这枚 token 被拒了」的地方，而它没有任何通道告诉浏览器：那个页面照旧跑到自己的过期计划触发为止。要闭掉它，就得在 `src/client/run.ts` 已有的三条离场判据旁边加第四条——最便宜的形态是：凭据刚以「被后端拒」丢掉之后，token 路由答 409。
+- **凭据是因为什么被丢掉的，今天没有读者。** `HeldCredential.drop` 收 `'sign-out'` 或 `'refused-by-backend'`，两个调用点都传了真实的那个，而两者抵达同一个终态；闭包一个都不读。这个形参是为上面那条离场判据留的——它的 409 答复必须分得清这两者——在那条落地之前它没有读者。
+- **`Bearer ` 是我们加回去的。** 闸门持有的是裸 JWT，两个数据后端请求头的 scheme 都由我们重新加上，前提是这套部署的登录页存的是 `"Bearer <jwt>"`——`src/client/browser.ts` 写明的那条契约。存裸 JWT 的部署，收到的头会比它自己的页面多一个 scheme。
+- **设置路由假定存在 HTTP 载体。** browser 半边 fetch `/auth-gate/settings`——node 半边注册的那条根绝对路由，按页面的部署基址解析而来——因此一个「提供外壳但不经 HTTP 暴露 harness」的传输会让这一行失败。
 - **不被任何组装快照覆盖** —— 浏览器侧的证据是 `apps/web/tests/auth-gate.e2e.ts` 里那个针对真实组合的 Playwright 场景；快照通道回放的是已发布组合，而它不组合实验性行。
 
 **运行时不变式：** 不发布伴生入口。本包不追加任何会话事件，也不拥有任何持久数据。它唯一拥有的可变状态——持有的那枚 access token——被刻意做成除持有它的插件闭包外无处可达，因为不变式能用的读取口也就是攻击者能用的读取口；它的形状由 token 路由自己的解析在入口处强制。

@@ -1,0 +1,28 @@
+# The console composition plus the component rows: the service-line shell, the
+# entry stream, the column that routes it by kind, the component row that
+# carries the renderers, and the row that offers `show_component` and claims the
+# column's `component` kind.
+#
+# Same rows as the package's own overlay, restated here because that one layers
+# over the console patch while this scenario boots the shipped Web surface
+# directly. `vue2-echarts-poc` is here for its Vue 2.7 runtime alone — no chart
+# is drawn — because `component-kit` requests that runtime through the loader's
+# module table and a page must never hold two. `content-frame` is deliberately
+# absent: this scenario draws no page, so the column's other kind never occurs.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+    - id: show-component
+      name: '@deepseek-ai/dsh-experimental-component-surface'

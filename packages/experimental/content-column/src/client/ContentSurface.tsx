@@ -22,8 +22,11 @@
  *
  * Each tab is a wrapper `<div>` around two sibling `<button>`s — selection and
  * close — never a button nested inside a button. `data-content-surface-entry`
- * and `data-content-surface-selected` stay on the selection button exactly as
- * before; the wrapper carries no attribute of its own.
+ * and `data-content-surface-selected` stay on the selection button; the wrapper
+ * carries no attribute of its own. A tab shows the entry's title and nothing
+ * else: the kind is how the column routes an entry to a seat, not a word this
+ * column can put in front of a user, and it stays in `data-content-surface-entry`
+ * for tests and styling.
  *
  * Pure presentation: the seats and the selection are pure folds over the
  * framework's own session feed, and every string comes from the locale seat.
@@ -113,7 +116,6 @@ export function ContentSurface({ useSessions, renderSlot, onDismiss, onSelect, t
                   }}
                 >
                   <span className={css.entryTitle}>{entry.title}</span>
-                  <span className={css.entryKind}>{entry.kind}</span>
                 </button>
                 {/* A sibling button, never nested inside the one above: closing
                     a tab and selecting it are two independent gestures. */}

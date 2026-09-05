@@ -17,6 +17,7 @@
   ],
   "references": [
     { "path": "../../../vendor/cordis" },
+    { "path": "../../client/connection/tsconfig.client.json" },
     { "path": "../../client/locale" },
     { "path": "../../client/store" },
     { "path": "../../client/ui-commands" },

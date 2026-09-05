@@ -1,0 +1,104 @@
+/* A prompt over a row of buttons. The block sizes itself to its content: the
+   column stacks blocks vertically and owns the space around them. */
+
+.bar {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 14px 16px;
+  border: 1px solid var(--dsw-alias-border-l2);
+  border-radius: 10px;
+  background: var(--dsw-alias-bg-layer-1);
+}
+
+.title {
+  margin: 0;
+  color: var(--dsw-alias-label-primary);
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 22px;
+}
+
+.message {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 20px;
+  white-space: pre-wrap;
+}
+
+/* Wraps rather than scrolls: the content column's width is solved at runtime
+   from the shell's track layout, so the number of buttons that fit on one line
+   is not known where the block is written. */
+.actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+/* Shape lives on the element, prominence on the class: a tone class is the
+   whole className, so no button ever gets its class by string concatenation. */
+.actions button {
+  flex: none;
+  padding: 5px 14px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font-size: 13px;
+  line-height: 20px;
+  cursor: pointer;
+}
+
+.default {
+  border-color: var(--dsw-alias-border-l2);
+  background: transparent;
+  color: var(--dsw-alias-label-primary);
+}
+
+.default:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.primary {
+  background: var(--dsw-alias-button-primary-fill);
+  color: var(--dsw-alias-label-primary-foreground);
+}
+
+.primary:hover {
+  background: var(--dsw-alias-button-primary-hover);
+}
+
+.danger {
+  border-color: var(--dsw-alias-state-error-primary);
+  background: transparent;
+  color: var(--dsw-alias-state-error-primary);
+}
+
+.danger:hover {
+  background: var(--dsw-alias-interactive-bg-hover-danger);
+}
+
+/* A bar that has spoken: every button refuses further presses, and the line
+   below the row says where the press went. Such a bar keeps each button's
+   tone and loses its affordance, so it still reads as the decision it drew
+   rather than as a control that failed. Pointer events go with it, because a
+   disabled button still matches `:hover` and would otherwise light up under a
+   cursor that can no longer press it. A refused gesture leaves the buttons
+   enabled — pressing again is the only thing left to try. */
+.actions button:disabled {
+  opacity: 0.55;
+  pointer-events: none;
+}
+
+.state {
+  margin: 0;
+  color: var(--dsw-alias-label-tertiary);
+  font-size: 12px;
+  line-height: 18px;
+}
+
+/* The one state that is not a report of progress: a gesture nobody received
+   reads as the failure it is, beside buttons that still work. */
+.state[data-component-state='refused'] {
+  color: var(--dsw-alias-state-error-primary);
+}

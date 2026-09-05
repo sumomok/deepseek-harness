@@ -162,6 +162,10 @@ const packageFileExtras: Readonly<Record<string, readonly string[]>> = {
   // sandbox-local resolves it through the package's ./runner export. tsdown
   // also shares its generated FFI code through a hashed runtime chunk.
   '@deepseek-ai/dsh-sandbox-windows-acl': ['lib/runner.js', 'lib/types-*.js'],
+  // The tool entry and the invariant companion both judge a call with the same
+  // catalog and validator, so tsdown shares those modules through one hashed
+  // runtime chunk rather than emitting the judgement twice.
+  '@deepseek-ai/dsh-experimental-component-surface': ['lib/validate-*.js'],
   '@deepseek-ai/dsh-skill-badge': ['assets'],
   // The bundled library-knowledge SKILLs are the package: its patch mounts
   // this directory as one isolated skill root, so they travel with its version.

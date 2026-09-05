@@ -37,6 +37,11 @@
 - insert:
     - id: server-sidebar
       name: '@deepseek-ai/dsh-experimental-server-sidebar'
+      config:
+        # Claim of this deployment's access token that carries the signed-in
+        # person's display name, shown in the sidebar's footer; toy-core's
+        # sign-on writes it as `login_uname`.
+        displayNameClaim: login_uname
 
 # The read-only Agent-preset dropdown ("PTC mode" and friends): disabling the
 # whole package removes its hero chip, its session-header preset label, and
@@ -71,6 +76,9 @@
   disabled: true
 - id: session-log-download
   name: '@deepseek-ai/dsh-session-log-export'
+  disabled: true
+- id: ui-settings-models
+  name: '@deepseek-ai/dsh-client-ui-settings-models'
   disabled: true
 
 # Decision ②: the shipped preset table names its rows in vendor vocabulary —

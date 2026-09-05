@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "prompt",
+      "text": "Put the details of site A-1 in the content panel as a record — its number A-1, its name 一号站点, and its status 在用 — using show_component. Then reply with exactly the single word DONE."
+    }
+  ]
+}

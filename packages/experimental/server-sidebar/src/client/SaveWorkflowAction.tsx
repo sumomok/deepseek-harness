@@ -22,17 +22,23 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 // Type-only: pulls ui-chat's `useChat` session standard prop.
 import type {} from '@deepseek-ai/dsh-client-ui-chat/client'
 import { captureNavSnapshot } from './nav-snapshot.ts'
+import type { NavSnapshotItem } from '../workflows.ts'
 import css from './SaveWorkflowAction.module.css'
 
 /** This action's own injected face, wired in `client/index.ts`. */
 export interface SaveWorkflowInjected {
+  /**
+   * The deployment's merged navigation menu, which is what a captured stop may
+   * name (see `nav-snapshot.ts`'s `captureNavSnapshot`).
+   */
+  navItems: readonly NavSnapshotItem[]
   /**
    * Save the current session as a new workflow under `name`, capturing its
    * current navigation snapshot. Not awaited by this component — the
    * commit is fire-and-forget, matching every other write in this package's
    * menu (see `WorkflowGroup.tsx`).
    */
-  onSave: (sessionId: string, name: string, navSnapshot: readonly string[]) => Promise<void>
+  onSave: (sessionId: string, name: string, navSnapshot: readonly NavSnapshotItem[]) => Promise<void>
 }
 
 /** Full props: session-scope runtime share + this action's own injected face + the locale seat. */
@@ -45,7 +51,7 @@ export type SaveWorkflowActionProps =
  * @param props - see {@link SaveWorkflowActionProps}.
  * @returns the trigger (or its in-place name field), or `null`.
  */
-export function SaveWorkflowAction({ sessionId, useChat, useProjection, onSave, t }: SaveWorkflowActionProps) {
+export function SaveWorkflowAction({ sessionId, useChat, useProjection, navItems, onSave, t }: SaveWorkflowActionProps) {
   const [adding, setAdding] = useState(false)
   const hasUserMessage = useChat(s => s.legacy.nodes.some(node => node.kind === 'user'))
   const contentSurface = useProjection('contentSurface')
@@ -56,7 +62,7 @@ export function SaveWorkflowAction({ sessionId, useChat, useProjection, onSave, 
     setAdding(false)
     const name = draft.trim()
     if (name.length === 0) return
-    void onSave(sessionId, name, captureNavSnapshot(contentSurface))
+    void onSave(sessionId, name, captureNavSnapshot(contentSurface, navItems))
   }
 
   return adding

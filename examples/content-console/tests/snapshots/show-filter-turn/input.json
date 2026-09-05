@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "prompt",
+      "text": "Put a filter in the content panel so the user can tell you what to look for — over a site's 名称 and its 状态, matching by 等于 or 模糊匹配 — using show_component. Then reply with exactly the single word DONE."
+    }
+  ]
+}

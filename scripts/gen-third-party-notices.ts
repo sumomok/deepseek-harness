@@ -38,11 +38,22 @@ const DEV_ONLY_AREAS = [
   'native/',
 ] as const
 
-/** First-party public native packages: reachable at runtime but not third-party. */
+/**
+ * Packages this project builds itself: reachable at runtime, and not third
+ * party, so this file neither discloses them nor states terms for them.
+ *
+ * `@sumomok/toy-surface-kit` is one of them. It is built in a sibling
+ * repository from source the same owner supplies, and it is vendored as a
+ * tarball rather than published, so the store's `UNLICENSED` field is the
+ * absence of a public license rather than a restrictive one. Naming it here is
+ * a statement about who owns it, not a license claim on the sources it
+ * compiles; those terms are recorded in that repository's `SOURCES.md`.
+ */
 const FIRST_PARTY = new Set([
   '@deepseek-ai/node-addon-landlock-run',
   '@deepseek-ai/node-addon-landlock-run-linux-arm64',
   '@deepseek-ai/node-addon-landlock-run-linux-x64',
+  '@sumomok/toy-surface-kit',
 ])
 
 /** Official SDK identity covered by the project's narrow owner authorization. */
@@ -76,6 +87,9 @@ export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@modelcontextprotocol/server-filesystem': { license: 'MIT / Apache-2.0', repo: 'https://github.com/modelcontextprotocol/servers' },
   // No repository field in the published manifest.
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
+  // Repository declared in scp-style ssh form (`git@host:owner/repo.git`),
+  // which is not a URL and which the normalizer below cannot rewrite.
+  'element-ui': { repo: 'https://github.com/ElemeFE/element' },
   // Vendored tarball whose manifest carries no repository field.
   'dsh-at-file': { repo: 'https://github.com/omdsh-dev/dsh-at-file' },
   // Vendored as tarballs; the archive committed here, not a registry version, is

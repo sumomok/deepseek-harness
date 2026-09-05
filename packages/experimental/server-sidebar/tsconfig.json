@@ -21,6 +21,9 @@
       "path": "../../api/workspace-controller/tsconfig.client.json"
     },
     {
+      "path": "../../client/connection/tsconfig.client.json"
+    },
+    {
       "path": "../../client/locale"
     },
     {

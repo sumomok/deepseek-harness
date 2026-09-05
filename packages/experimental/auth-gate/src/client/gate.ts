@@ -126,6 +126,63 @@ export function decideChange(next: string | null, current: string, nowMs: number
 }
 
 /**
+ * Query parameters the deployment's login page reads a credential out of. A
+ * return address carrying one would hand the login page a token it has just
+ * decided is unusable, and would leave that token in the browser's history and
+ * in every referrer the login page sends.
+ */
+const CREDENTIAL_QUERY_PARAMS = new Set(['token', 'token4a'])
+
+/**
+ * One query parameter's name, as written.
+ * @param pair - one `&`-separated piece of a query string.
+ * @returns the text before the first `=`, or the whole piece when it carries none.
+ */
+function parameterName(pair: string): string {
+  const at = pair.indexOf('=')
+  return at === -1 ? pair : pair.slice(0, at)
+}
+
+/**
+ * One piece of an address with the login page's credential parameters removed
+ * from its query.
+ *
+ * The remaining query is spliced textually rather than re-serialized, so every
+ * parameter the page was asked for comes back encoded exactly as it arrived.
+ * @param piece - a path whose query, if it has one, starts at its first `?`.
+ * @returns the same piece without `token` and `token4a`.
+ */
+function withoutCredentials(piece: string): string {
+  const queryAt = piece.indexOf('?')
+  if (queryAt === -1) return piece
+  const kept = piece.slice(queryAt + 1).split('&')
+    .filter(pair => !CREDENTIAL_QUERY_PARAMS.has(parameterName(pair)))
+  return `${piece.slice(0, queryAt)}${kept.length === 0 ? '' : `?${kept.join('&')}`}`
+}
+
+/**
+ * The address a visitor comes back to, with the login page's own credential
+ * parameters removed from the query and from the fragment alike.
+ *
+ * The fragment gets the same treatment as the query because the login page reads
+ * a parameter out of the whole address rather than out of its query: toy-core's
+ * `getUrlParam` parses everything past the first `?` in `location.href`
+ * (`utils/commonUtils.js:60`), so a credential sitting in the fragment is one
+ * that page reads — and removing only the query's would uncover it, by taking
+ * away the `?` that was hiding it. The fragment's path and every other parameter
+ * survive: this deployment's pages are hash-routed, so the fragment is the
+ * address of the page the visitor comes back to.
+ * @param currentHref - the page the visitor asked for.
+ * @returns the same address without `token` and `token4a`.
+ */
+function returnAddress(currentHref: string): string {
+  const hashAt = currentHref.indexOf('#')
+  if (hashAt === -1) return withoutCredentials(currentHref)
+  const beforeHash = withoutCredentials(currentHref.slice(0, hashAt))
+  return `${beforeHash}#${withoutCredentials(currentHref.slice(hashAt + 1))}`
+}
+
+/**
  * Where an unauthenticated visitor is sent, carrying the page to come back to.
  * @param loginUrl - the configured login destination, which carries no query
  * string of its own.
@@ -133,7 +190,7 @@ export function decideChange(next: string | null, current: string, nowMs: number
  * @returns the login URL with the return address appended.
  */
 export function loginHref(loginUrl: string, currentHref: string): string {
-  return `${loginUrl}?redirect=${encodeURIComponent(currentHref)}`
+  return `${loginUrl}?redirect=${encodeURIComponent(returnAddress(currentHref))}`
 }
 
 /**

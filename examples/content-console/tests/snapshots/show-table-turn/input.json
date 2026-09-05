@@ -1,0 +1,14 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "prompt",
+      "text": "Put these three sites in the content panel as a table the user can tick — 一号站点 在用, 二号站点 停用, 三号站点 在用 — with an 导出 button on each row, using show_component. Then reply with exactly the single word DONE."
+    }
+  ]
+}

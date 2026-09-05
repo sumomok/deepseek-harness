@@ -1,0 +1,1006 @@
+/**
+ * Web e2e scenario: `show_component` calls drawn as real blocks in the content
+ * column of the service-line console.
+ *
+ * The composition is the shipped Web surface with the console overlay: the
+ * shell, the entry stream, the column that routes it by kind, the component row
+ * carrying the renderers, and the row that offers the tool. The seeded log
+ * carries four settled calls under three entry ids, the pair sharing one id
+ * outermost, so what the assertions read is the whole path — a durable log, the
+ * `component` extractor judging each recorded call, the `contentSurface`
+ * projection folding one entry per id, the tail page carrying it to the browser,
+ * and finally the one thing only a real browser answers: whether the block a
+ * user sees is the one the surviving call placed, with its buttons and their
+ * labels.
+ *
+ * One of the four places a `toy.record`, whose renderer mounts a Vue 2
+ * component compiled outside this repository onto the runtime the chart row
+ * owns. Nothing short of a browser answers what that costs: whether the
+ * vendored component's own markup is what the user ends up looking at, whether
+ * it survives the unmount a tab switch performs, and whether the page is left
+ * with a second Vue on `window` — which is invisible until the day two rows
+ * stop seeing each other's reactivity.
+ *
+ * The press is the same path in reverse, and it is asserted here because it is
+ * assertable nowhere else: `/component-action` reaches the host only through
+ * `remote.commands`, which is the browser's seam, and the ACP protocol the
+ * snapshot lane speaks has no command method to invoke it with. That lane
+ * composes the command registry all the same — the description it pins tells
+ * the model a press comes back — but it cannot press. One click here therefore
+ * has to carry the whole return channel — the recorded command input, the chat
+ * echo that input does not leave, the notice the agent is given, the turn it
+ * opens, the collapsed row the user reads, the model's own next words, and the
+ * pressed bar a tab round trip brings back still pressed — against the shipped
+ * bundles, the real gateway, and a real session log.
+ *
+ * The live outbound path — a tool body judging a call the model is making right
+ * now — is covered by the package's host specs; a keyless replay lane runs no
+ * model of its own and answers the one request this scenario makes from a
+ * committed script.
+ *
+ * An experimental package cannot be a dependency of `apps/web`, so the profile
+ * links the loader resolves the rows through are created here rather than by
+ * `healProfilesModuleFallback`.
+ */
+
+import { mkdir, mkdtemp, readFile, rm, symlink } from 'node:fs/promises'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
+import type { Browser, ConsoleMessage, Locator, Page } from 'playwright'
+import { chromium } from 'playwright'
+import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
+import { SessionId } from '@deepseek-ai/dsh-session'
+import type { SessionEvent } from '@deepseek-ai/dsh-session'
+import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
+import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
+
+const MODE = webSnapshotMode()
+const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const OVERLAY = fileURLToPath(new URL('./component-surface.overlay.yml', import.meta.url))
+// The one model answer this scenario consumes: the turn a press opens. Written
+// by hand rather than recorded, because the press is what has to be driven and
+// no key is needed to script the reply it earns. Its text is not a fixed
+// string: it opens with a `{{fromRequest:}}` pattern that llm-replay resolves
+// against the live request, so the reply can only be produced at all if the
+// notice built from the press is in that request — a pattern matching nothing
+// throws instead of answering.
+const REPLAY = fileURLToPath(new URL('./snapshots/component-surface-action/session.jsonl', import.meta.url))
+
+/** Every experimental row the overlay inserts, as package name and source directory. */
+const ROWS = [
+  ['@deepseek-ai/dsh-experimental-server-layout', join(REPO_ROOT, 'packages/experimental/server-layout')],
+  ['@deepseek-ai/dsh-experimental-content-surface', join(REPO_ROOT, 'packages/experimental/content-surface')],
+  ['@deepseek-ai/dsh-experimental-content-column', join(REPO_ROOT, 'packages/experimental/content-column')],
+  ['@deepseek-ai/dsh-experimental-vue2-echarts-poc', join(REPO_ROOT, 'packages/experimental/vue2-echarts-poc')],
+  ['@deepseek-ai/dsh-experimental-component-kit', join(REPO_ROOT, 'packages/experimental/component-kit')],
+  ['@deepseek-ai/dsh-experimental-component-surface', join(REPO_ROOT, 'packages/experimental/component-surface')],
+] as const
+
+/** Where the run's evidence lands. */
+const ARTIFACTS = join(REPO_ROOT, '.artifacts')
+
+/** The composer's own English placeholder — the signal that a session is open. */
+const COMPOSER_PLACEHOLDER = 'Message the agent'
+
+const SESSION = 'component-surface-web-e2e'
+
+/** The entry ids the four seeded calls own, and the titles the user reads. */
+const BUDGET_ID = 'budget'
+const CLEANUP_ID = 'cleanup'
+const RECORD_ID = 'site'
+const BUDGET_DRAFT_TITLE = 'Budget, first draft'
+const BUDGET_TITLE = 'Budget approval'
+const CLEANUP_TITLE = 'Clean up the branch'
+const RECORD_TITLE = 'Site A-1'
+
+/** The prompts the three seeded blocks carry, which is what the seat draws as a heading. */
+const BUDGET_DRAFT_PROMPT = 'Approve the draft budget?'
+const BUDGET_PROMPT = 'Approve the revised budget?'
+const BUDGET_MESSAGE = 'It raises the quarterly total by one eighth.'
+const CLEANUP_PROMPT = 'Delete the merged branch?'
+
+/** The spec the superseded `budget` call placed. */
+const BUDGET_DRAFT_SPEC = {
+  nodes: [{
+    id: 'ask',
+    component: 'el.confirm-bar',
+    props: {
+      title: BUDGET_DRAFT_PROMPT,
+      buttons: [{ id: 'approve', label: 'Approve draft', tone: 'primary' }],
+    },
+  }],
+}
+
+/** The spec the later `budget` call placed under the same id. */
+const BUDGET_SPEC = {
+  nodes: [{
+    id: 'ask',
+    component: 'el.confirm-bar',
+    props: {
+      title: BUDGET_PROMPT,
+      message: BUDGET_MESSAGE,
+      buttons: [
+        { id: 'approve', label: 'Approve', tone: 'primary' },
+        { id: 'later', label: 'Decide later' },
+        { id: 'reject', label: 'Reject', tone: 'danger' },
+      ],
+    },
+  }],
+}
+
+/** The button pressed in the return-channel test, and the words that press earns. */
+const APPROVE_LABEL = 'Approve'
+const APPROVE_ID = 'approve'
+/**
+ * The reply the scripted turn produces — which is the fixture's tail with the
+ * button's name substituted into its head out of the request. Seeing this exact
+ * sentence in the transcript is therefore the assertion that the notice naming
+ * the pressed button reached the model.
+ */
+const MODEL_REPLY = `${APPROVE_LABEL} it is — I will submit the revised budget now.`
+/** What the agent is told the press was, verbatim, and what the user reads on the collapsed row. */
+const PRESS_TEXT = `The user pressed "${APPROVE_LABEL}" in content panel entry "${BUDGET_ID}" ("${BUDGET_TITLE}"), on the 确认条 block "ask".`
+const PRESS_SUMMARY = `用户在「${BUDGET_TITLE}」里点了「${APPROVE_LABEL}」`
+/** The plugin id the notice declares, which is also what the collapsed row prints as its producer. */
+const NOTICE_PLUGIN = 'content-component'
+/**
+ * What the pressed bar itself says, in the English this lane's browser asks
+ * for. The line is `component-kit`'s `confirmBar.sent`, restated here because
+ * an experimental package cannot be a dependency of `apps/web`; the Chinese an
+ * end user reads (`已发送到对话`) is pinned in that package's own spec.
+ */
+const SENT_LINE = 'Sent to the conversation'
+/**
+ * The one sentence every unrecordable gesture earns, as `command.ts` writes it.
+ * A refused press reaches no agent, so this row in the chat is the only thing
+ * that tells the person who pressed that nothing came of it.
+ */
+const ACTION_NOT_RECORDED = '这个动作没能记下来。'
+/** A `/component-action` line naming no action at all — the shape a hand-typed one takes. */
+const MALFORMED_ACTION = '/component-action {"entryId":"budget"}'
+/** The header the shell draws over any logged non-user message, in English. */
+const CONTEXT_ROW_HEADING = 'Context injection'
+
+/** The spec the `cleanup` call placed, so the column holds two entries at once. */
+const CLEANUP_SPEC = {
+  nodes: [{
+    id: 'ask',
+    component: 'el.confirm-bar',
+    props: {
+      title: CLEANUP_PROMPT,
+      buttons: [{ id: 'delete', label: 'Delete', tone: 'danger' }],
+    },
+  }],
+}
+
+/**
+ * The rows the `site` call placed, and the spec that placed them.
+ *
+ * `toy.record` is the block drawn by a Vue 2 component compiled outside this
+ * repository, so this is the entry that proves the whole vendored path end to
+ * end: the tarball, the element-ui the row installs, and the one Vue runtime the
+ * page is allowed to have.
+ */
+const RECORD_ROWS = [
+  { label: 'Number', display: 'A-1' },
+  { label: 'Name', display: 'North gate' },
+  { label: 'Status', display: 'In service' },
+] as const
+
+const RECORD_SPEC = {
+  nodes: [{
+    id: 'facts',
+    component: 'toy.record',
+    props: { dataList: RECORD_ROWS.map(row => ({ ...row })), labelWidth: 96, columnNum: 1 },
+  }],
+}
+
+/** The entry ids and titles of the three blocks whose gestures the tests below drive. */
+const TABLE_ID = 'sites'
+const TABLE_TITLE = 'Site list'
+const FILTER_ID = 'filter'
+const FILTER_TITLE = 'Find a site'
+const METRIC_ID = 'load'
+const METRIC_TITLE = 'Capacity'
+
+/**
+ * The rows the `sites` call places.
+ *
+ * Every field is a column the call draws, and `site` is the first of them —
+ * which is what every notice names a row by. A row carries no identifier of its
+ * own: what a gesture reports is a position in this list, and the host reads the
+ * row back out of the call the model wrote.
+ */
+const TABLE_ROWS = [
+  { site: 'A-1', state: 'In service' },
+  { site: 'A-2', state: 'Retired' },
+  { site: 'A-3', state: 'In service' },
+] as const
+
+const TABLE_SPEC = {
+  nodes: [{
+    id: 'grid',
+    component: 'toy.table',
+    props: {
+      tableConfig: {
+        gridItems: [
+          { relatedMetaAttr: 'site', alias: 'Site', isSortable: true },
+          { relatedMetaAttr: 'state', alias: 'State', relatedComponent: 'display_default' },
+        ],
+      },
+      displayValueList: TABLE_ROWS.map(row => ({ ...row })),
+      selectMode: 'checkbox',
+      customOperations: [{ key: 'export', label: 'Export' }],
+    },
+  }],
+}
+
+/** The two rows ticked in the table test, and what the notice therefore names them by. */
+const TICKED = [TABLE_ROWS[0].site, TABLE_ROWS[2].site]
+/** The words the ticked rows earn, once the user's next message carries the inbox to the model. */
+const TABLE_REPLY = `Starting with ${TICKED[0]} — I will export those rows.`
+/** What the user types to open the turn that reads the ticked rows out of the inbox. */
+const TABLE_PROMPT = 'Go ahead with those.'
+
+const FILTER_SPEC = {
+  nodes: [{
+    id: 'query',
+    component: 'el.filter-bar',
+    props: {
+      relatedMeta: 'site',
+      metaConfig: {
+        attributes: [
+          { attributeEnName: 'site', alias: 'Site', dataType: 'string' },
+          { attributeEnName: 'state', alias: 'State', dataType: 'string' },
+        ],
+      },
+      attrEqEnums: [{ value: 'EQ', label: 'is' }, { value: 'LIKE', label: 'contains' }],
+    },
+  }],
+}
+
+/** The two conditions built in the filter test, in the order the bar's rows carry them. */
+const CONDITIONS = [
+  { attribute: 'Site', operator: 'is', value: 'A-1' },
+  { attribute: 'State', operator: 'contains', value: 'service' },
+] as const
+/** What the submitted filter earns from the model, built from the first condition in the request. */
+const FILTER_REPLY = `Filtering by ${CONDITIONS[0].attribute} ${CONDITIONS[0].operator} "${CONDITIONS[0].value}" now.`
+/** The English label of the button this renderer draws beside the bar — `component-kit`'s `filterBar.submit`. */
+const SEARCH_LABEL = 'Search'
+
+const METRIC_SPEC = {
+  nodes: [{
+    id: 'ball',
+    component: 'el.metric',
+    props: { process: 42, text: 'Load', size: 120, background: '#2f855a', isPointShow: true },
+  }],
+}
+
+/** The entry id and title of the call that arranges two blocks and feeds one from the other. */
+const VIEW_ID = 'linked'
+const VIEW_TITLE = 'Site list with details'
+
+/**
+ * The two blocks the `linked` call places, and the arrangement it places them
+ * in: a table above a record whose rows are whatever the table's first ticked
+ * row is, taken through `$from`.
+ *
+ * The record declares no `dataList` of its own — the binding is the whole value
+ * of that property — so before anything is ticked the record has nothing
+ * required to draw from, which is the waiting line the first assertion reads.
+ * The column headings are what makes the fed value legible: `selectionDetail`
+ * labels each field with the column's `alias`, so what the record shows is
+ * `Site` and `State` rather than the field names the rows carry.
+ */
+const VIEW_SPEC = {
+  nodes: [
+    {
+      id: 'grid',
+      component: 'toy.table',
+      props: {
+        tableConfig: {
+          gridItems: [
+            { relatedMetaAttr: 'site', alias: 'Site', isSortable: true },
+            { relatedMetaAttr: 'state', alias: 'State' },
+          ],
+        },
+        displayValueList: TABLE_ROWS.map(row => ({ ...row })),
+        selectMode: 'checkbox',
+      },
+    },
+    {
+      id: 'detail',
+      component: 'toy.record',
+      props: { dataList: { $from: 'node:grid.selectionDetail' }, labelWidth: 96, columnNum: 1 },
+    },
+  ],
+  layout: {
+    node: 'stack',
+    dir: 'col',
+    gap: 'md',
+    children: [
+      { node: 'component', id: 'grid', flex: 2 },
+      { node: 'component', id: 'detail', flex: 1 },
+    ],
+  },
+}
+
+/**
+ * The line the seat draws in place of a block still waiting on what feeds it —
+ * `component-kit`'s `block.awaiting`, in this lane's English.
+ */
+const AWAITING_LINE = 'Pick something to show here'
+
+/**
+ * Prepare a harness home whose profile fallback resolves every experimental row.
+ * @returns the harness home the scaffold should adopt.
+ */
+async function harnessHomeWithRowLinks(): Promise<string> {
+  const home = await mkdtemp(join(tmpdir(), 'dsh-component-surface-'))
+  const scope = join(home, 'profiles', 'node_modules', '@deepseek-ai')
+  await mkdir(scope, { recursive: true })
+  for (const [packageName, dir] of ROWS) {
+    await symlink(dir, join(scope, packageName.slice('@deepseek-ai/'.length)), 'dir')
+  }
+  return home
+}
+
+/**
+ * One settled `show_component` call, as the log records it.
+ * @param callId - the tool call id.
+ * @param id - the entry the call owns.
+ * @param title - the line the user reads in the switcher strip.
+ * @param spec - what the call placed.
+ * @returns the two log lines the loop writes for one settled call.
+ */
+function componentCall(callId: string, id: string, title: string, spec: unknown): string[] {
+  const args = JSON.stringify({ id, title, spec })
+  return [
+    JSON.stringify({
+      type: 'tool/call',
+      data: { turn: 1, step: 1, callId, name: 'show_component', arguments: args },
+    }),
+    JSON.stringify({
+      type: 'tool/result',
+      data: {
+        turn: 1,
+        step: 1,
+        callId,
+        content: [{ type: 'text', text: `Now showing "${title}" in the content panel.` }],
+        isError: false,
+      },
+      surfaceOp: 'append',
+    }),
+  ]
+}
+
+/**
+ * Splice eight settled component calls into a recorded session, inside its open
+ * step.
+ *
+ * The first and the last share the `budget` id, older first, so the column has
+ * to fold them into one entry owned by the later call. The `budget` pair stays
+ * outermost so the newest record in the stream is still the one the assertions
+ * below start from.
+ * @param fixtureText - the committed seed fixture.
+ * @returns the fixture text to seed.
+ */
+function withComponentCalls(fixtureText: string): string {
+  const lines = fixtureText.split('\n')
+  const closing = lines.findIndex(line => line.includes('"type":"step/end"'))
+  if (closing === -1) throw new Error('seed fixture has no step/end to splice before')
+  return [
+    ...lines.slice(0, closing),
+    ...componentCall('call_00_component_budget_old', BUDGET_ID, BUDGET_DRAFT_TITLE, BUDGET_DRAFT_SPEC),
+    ...componentCall('call_00_component_cleanup', CLEANUP_ID, CLEANUP_TITLE, CLEANUP_SPEC),
+    ...componentCall('call_00_component_site', RECORD_ID, RECORD_TITLE, RECORD_SPEC),
+    ...componentCall('call_00_component_table', TABLE_ID, TABLE_TITLE, TABLE_SPEC),
+    ...componentCall('call_00_component_filter', FILTER_ID, FILTER_TITLE, FILTER_SPEC),
+    ...componentCall('call_00_component_metric', METRIC_ID, METRIC_TITLE, METRIC_SPEC),
+    ...componentCall('call_00_component_linked', VIEW_ID, VIEW_TITLE, VIEW_SPEC),
+    ...componentCall('call_00_component_budget_new', BUDGET_ID, BUDGET_TITLE, BUDGET_SPEC),
+    ...lines.slice(closing),
+  ].join('\n')
+}
+
+/** The component seat of the content column. */
+const seat = (page: Page): Locator => page.locator('[data-content-surface-seat="component"]')
+
+/** One entry's tab in the column's switcher strip, addressed by the key the column builds. */
+const tab = (page: Page, entryId: string): Locator =>
+  page.locator(`[data-content-surface-entry="component ${entryId}"]`)
+
+/** The prompt the seat currently draws, or null while it draws no block. */
+async function shownPrompt(page: Page): Promise<string | null> {
+  return await seat(page).getByRole('heading').textContent()
+}
+
+/**
+ * Wait until the shell has given the content column a width.
+ *
+ * The column collapses to zero while the current session's surface is empty
+ * and widens once its entries arrive, so a seat can hold a fully drawn block
+ * one paint before the track it sits in is wide enough to show it.
+ * @param page - the browsing page.
+ */
+async function awaitOpenColumn(page: Page): Promise<void> {
+  await expect.poll(async () => (await seat(page).boundingBox())?.width ?? 0, { timeout: 15_000 })
+    .toBeGreaterThan(200)
+}
+
+/**
+ * The scenario session's log as the running host holds it.
+ *
+ * Read in process rather than off disk: the scaffold's own readiness barrier
+ * hands over the live agent, and its session is the same durable record the
+ * JSONL provider writes.
+ * @param scaffold - the booted scaffold.
+ * @returns every event the session carries, in order.
+ */
+function liveEvents(scaffold: WebScaffold): readonly SessionEvent[] {
+  const agent = scaffold.ctx.agents.get(SessionId(SESSION))
+  if (agent === undefined) throw new Error(`no live agent for ${SESSION}`)
+  return agent.session.events
+}
+
+/** Save one screenshot under the repository's artifact directory. */
+async function evidence(page: Page, name: string): Promise<void> {
+  // Evidence for the composition, not a failure artifact.
+  await page.screenshot({ path: join(ARTIFACTS, `${name}.png`), fullPage: true })
+}
+
+describe.skipIf(MODE === 'record')('web e2e: show_component in the content column', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let harnessHome: string
+  let tripwire: ReturnType<typeof watchConsole>
+  const consoleErrors: string[] = []
+
+  beforeAll(async () => {
+    harnessHome = await harnessHomeWithRowLinks()
+    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY, replayFixture: REPLAY })
+    await seedSession(scaffold, withComponentCalls(await readFile(FIXTURE, 'utf8')), SESSION)
+
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    page.on('console', (message: ConsoleMessage) => {
+      if (message.type() === 'error') consoleErrors.push(message.text())
+    })
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    // The workspace group row precedes its sessions; expanding it lists them.
+    await page.locator('[role="treeitem"]').first().click()
+    const row = page.locator('[role="treeitem"]').nth(1)
+    await row.waitFor({ timeout: 15_000 })
+    await row.click()
+    await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  }, 180_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+    await rm(harnessHome, { recursive: true, force: true })
+  })
+
+  it('draws the block the newest call placed, with its own buttons', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface'))
+    const block = seat(page).locator('[data-component-block="el.confirm-bar"]')
+    await block.waitFor({ timeout: 30_000 })
+    // The caption is the entry's title; the heading, the sentence, and the
+    // buttons are what the call itself wrote into the spec.
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(BUDGET_PROMPT)
+    expect(await block.getByText(BUDGET_MESSAGE, { exact: true }).count()).toBe(1)
+    expect(await block.getByRole('button').allTextContents()).toEqual(['Approve', 'Decide later', 'Reject'])
+    expect(await seat(page).getByText(BUDGET_TITLE, { exact: true }).count()).toBe(1)
+    // The block is not only drawn but on display: the shell widened the column
+    // it sits in, which it only does once the session's surface has an entry.
+    await awaitOpenColumn(page)
+    await evidence(page, 'web-e2e-component-surface')
+  }, 120_000)
+
+  it('folds the two calls sharing an id into one tab and keeps the other beside it', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-supersede'))
+    // Four calls, three entries: the superseded draft has no tab of its own, and
+    // the tab that survived carries the later call's title.
+    await tab(page, CLEANUP_ID).waitFor({ timeout: 30_000 })
+    expect(await page.locator('[data-content-surface-entry]').count()).toBe(7)
+    expect(await tab(page, BUDGET_ID).textContent()).toContain(BUDGET_TITLE)
+    expect(await page.getByText(BUDGET_DRAFT_TITLE, { exact: true }).count()).toBe(0)
+    expect(await page.getByText(BUDGET_DRAFT_PROMPT, { exact: true }).count()).toBe(0)
+
+    // And the surviving entry is the one on display, since it owns the newest
+    // record in the stream.
+    expect(await shownPrompt(page)).toBe(BUDGET_PROMPT)
+  }, 120_000)
+
+  it('draws the other entry in the same seat when the user picks it', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-switch'))
+    await tab(page, CLEANUP_ID).click()
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(CLEANUP_PROMPT)
+    expect(await seat(page).getByRole('button').allTextContents()).toEqual(['Delete'])
+    await evidence(page, 'web-e2e-component-surface-switch')
+
+    await tab(page, BUDGET_ID).click()
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(BUDGET_PROMPT)
+  }, 120_000)
+
+  it('draws the vendored Vue component itself, and leaves the page without a global Vue', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-record'))
+    await tab(page, RECORD_ID).click()
+    const block = seat(page).locator('[data-component-block="toy.record"]')
+    await block.waitFor({ timeout: 30_000 })
+    // `.form-detail` and `.form-item-content` are the vendored component's own
+    // class names, so reading the values out of them is the assertion that the
+    // tarball's Vue component drew this and not something restated here.
+    expect(await block.locator('.form-detail').count()).toBe(1)
+    await expect.poll(async () => await block.locator('.form-item-content').allTextContents(), { timeout: 15_000 })
+      .toEqual(RECORD_ROWS.map(row => row.display))
+    for (const row of RECORD_ROWS) {
+      expect(await block.getByText(row.label, { exact: false }).count()).toBeGreaterThan(0)
+    }
+    // element-ui is installed on the runtime the chart row owns, and nothing
+    // publishes that runtime globally: a second copy on `window` is how a page
+    // ends up with two Vues whose reactivity does not reach each other, and how
+    // element-ui's own auto-install would run a second time.
+    expect(await page.evaluate(() => 'Vue' in globalThis)).toBe(false)
+    await awaitOpenColumn(page)
+    await evidence(page, 'web-e2e-component-surface-record')
+  }, 120_000)
+
+  it('draws the record again after the column has shown another entry in between', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-record-return'))
+    // The seat discards this kind's DOM on every switch, so coming back is a
+    // fresh mount of the Vue root — the case a bridge that tore down its
+    // instance without rebuilding it would fail on a second visit.
+    await tab(page, CLEANUP_ID).click()
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(CLEANUP_PROMPT)
+    expect(await seat(page).locator('[data-component-block="toy.record"]').count()).toBe(0)
+
+    await tab(page, RECORD_ID).click()
+    await expect.poll(
+      async () => await seat(page).locator('[data-component-block="toy.record"] .form-item-content').allTextContents(),
+      { timeout: 15_000 },
+    ).toEqual(RECORD_ROWS.map(row => row.display))
+    await evidence(page, 'web-e2e-component-surface-record-return')
+
+    // Hand the budget entry back to the tests below, which press its bar.
+    await tab(page, BUDGET_ID).click()
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(BUDGET_PROMPT)
+  }, 120_000)
+
+  it('carries a press back to the agent and puts the answer in the transcript', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-action'))
+    // The budget entry is the one on display, and its bar carries the button.
+    const approve = seat(page).locator(`[data-component-action="${APPROVE_ID}"]`)
+    await expect.poll(async () => await approve.textContent(), { timeout: 15_000 }).toBe(APPROVE_LABEL)
+    // The barrier is armed before the press, not after: what the bar itself
+    // draws is asserted in between, and the scripted turn can settle while
+    // those reads are in flight.
+    const settled = scaffold.whenTurnSettled(60_000)
+    await approve.click()
+
+    // What the bar answers with on its own, before the agent has said anything:
+    // the whole row refuses further presses and the block says where the press
+    // went. The agent's own answer is a turn away, and a bar that looked
+    // untouched until it arrived would leave a recorded press and a lost one
+    // looking the same.
+    await expect.poll(async () => await seat(page).getByText(SENT_LINE, { exact: true }).count(), { timeout: 15_000 })
+      .toBe(1)
+    expect(await seat(page).getByRole('button').evaluateAll(
+      buttons => buttons.map(button => (button as HTMLButtonElement).disabled),
+    )).toEqual([true, true, true])
+
+    await settled
+
+    // What the log kept: the command's own recorded input, verbatim and
+    // log-only, and no event this row invented for itself.
+    const events = liveEvents(scaffold)
+    const run = events.find(event => event.type === 'command/run')
+    expect(run?.type === 'command/run' && run.data.name).toBe('component-action')
+    expect(run?.type === 'command/run' && run.data.args).toBe(
+      ` {"entryId":"${BUDGET_ID}","componentId":"el.confirm-bar","actionId":"press","nodeId":"ask","payload":{"buttonId":"${APPROVE_ID}"}}`,
+    )
+    expect(events.filter(event => event.type.startsWith('component'))).toEqual([])
+
+    // What the agent was given, and the turn it was given it in. The press
+    // opened turn 2 — the seeded log closed turn 1 — and the notice is a plugin
+    // message, never a forged user one.
+    const notice = events.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
+    expect(notice?.type === 'user/message' && notice.data.content).toEqual([{ type: 'text', text: PRESS_TEXT }])
+    expect(notice?.type === 'user/message' && notice.data.source).toEqual({
+      kind: 'plugin',
+      plugin: NOTICE_PLUGIN,
+      form: 'notice',
+      summary: PRESS_SUMMARY,
+    })
+    // The set and the causal order, not a fixed interleaving: `command/run` is
+    // written before the handler runs, the wake opens the turn inside it, and
+    // the notice is claimed into that turn. The seed closed turn 1, so the
+    // press's is the second and last.
+    const opened = events.filter(event => event.type === 'turn/start')
+    expect(opened.length).toBe(2)
+    const pressTurn = opened[1]
+    expect(pressTurn?.seq ?? 0).toBeGreaterThan(run?.seq ?? Infinity)
+    expect(pressTurn?.seq ?? Infinity).toBeLessThan(notice?.seq ?? 0)
+
+    // What the user reads: a collapsed row headed by the shell's own wording for
+    // any logged non-user message, naming the producer and this press. The
+    // summary is asserted through the DOM rather than through visibility: it is
+    // a `flex: 1 1 auto` cell with `overflow: hidden`, so at the console's
+    // three-column chat width it is squeezed to nothing and the reader is left
+    // with the heading and the plugin id alone.
+    const row = page.locator('[data-disclosure-row]', { hasText: PRESS_SUMMARY })
+    await row.waitFor({ state: 'attached', timeout: 30_000 })
+    await row.scrollIntoViewIfNeeded()
+    await expect.poll(async () => await row.isVisible(), { timeout: 15_000 }).toBe(true)
+    expect(await row.locator('[data-context-source]').textContent()).toBe(NOTICE_PLUGIN)
+    expect(await row.locator('[data-context-summary]').textContent()).toBe(PRESS_SUMMARY)
+    // The heading is the shell's own, drawn the same for every producer; this
+    // row records the exact wording an end user is shown beside the press.
+    expect(await row.textContent()).toContain(CONTEXT_ROW_HEADING)
+    // And what expanding it opens on, which is the README's limitation as the
+    // user meets it: the model-facing English sentence, internal identifiers
+    // included. A `notice` renders its own body, so the source field table the
+    // opaque fallback would add is not there — the sentence is the whole of it.
+    await row.click()
+    const body = page.locator('[data-context-injection-body]', { hasText: PRESS_TEXT })
+    await body.waitFor({ state: 'attached', timeout: 15_000 })
+    expect(await body.locator('[data-context-text]').textContent()).toBe(PRESS_TEXT)
+    expect(await body.locator('[data-context-fields]').count()).toBe(0)
+
+    // The press is not narrated in chat: the command row this row registers for
+    // `component-action` renders nothing, so the reader is left with the notice
+    // above rather than an English `component-action · Completed` line. The slot
+    // anchor is what proves the row was folded and then emptied, instead of
+    // never having been rendered at all.
+    expect(await page.locator('[data-slot="conversation.chat.commandview"]').count()).toBeGreaterThan(0)
+    expect(await page.getByText('component-action', { exact: true }).count()).toBe(0)
+
+    // And what the model said about it, in the turn the press opened. The
+    // script's own head is `{{fromRequest:pressed "([^"]+)" in content panel
+    // entry}}`, so this sentence exists only because the notice built from the
+    // press was in the request that earned it.
+    await expect.poll(async () => await page.getByText(MODEL_REPLY, { exact: false }).count(), { timeout: 30_000 })
+      .toBe(1)
+    await evidence(page, 'web-e2e-component-surface-action')
+  }, 120_000)
+
+  it('still reads as pressed after the column has drawn something else and come back', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-pressed-persists'))
+    // The column discards this kind's DOM on every switch, so the bar that
+    // comes back is a fresh mount. What makes it read as pressed is the
+    // session's own log: the press's command records are folded on the host and
+    // published with the session's projection values. Take that fold away and
+    // this tab round trip hands the user a bar they can answer twice.
+    await tab(page, CLEANUP_ID).click()
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(CLEANUP_PROMPT)
+    expect(await seat(page).getByText(SENT_LINE, { exact: true }).count()).toBe(0)
+
+    await tab(page, BUDGET_ID).click()
+    await expect.poll(async () => await shownPrompt(page), { timeout: 15_000 }).toBe(BUDGET_PROMPT)
+    await expect.poll(async () => await seat(page).getByText(SENT_LINE, { exact: true }).count(), { timeout: 15_000 })
+      .toBe(1)
+    expect(await seat(page).getByRole('button').evaluateAll(
+      buttons => buttons.map(button => (button as HTMLButtonElement).disabled),
+    )).toEqual([true, true, true])
+    await evidence(page, 'web-e2e-component-surface-pressed-persists')
+  }, 120_000)
+
+  it('tells the person who pressed when the gesture reached nobody', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-refused'))
+    // Typed by hand rather than pressed, because a seat only ever sends what
+    // the drawn spec carries: the reachable way to a refusal is a line naming
+    // an action that resolves against nothing. The command is in the slash menu
+    // — the registry has no way to keep a row out of it — so this is also the
+    // path an end user can stumble into.
+    const composer = page.getByPlaceholder(COMPOSER_PLACEHOLDER)
+    await composer.fill(MALFORMED_ACTION)
+    await composer.press('Enter')
+
+    // The refusal is the row itself. Nothing reached the agent, so no notice
+    // and no answer follows it — and the row is not the chat view's English
+    // `component-action · Completed` fallback either.
+    const refused = page.locator('[data-chat-flow-kind="command"]', { hasText: ACTION_NOT_RECORDED })
+    await refused.waitFor({ state: 'attached', timeout: 30_000 })
+    await refused.scrollIntoViewIfNeeded()
+    await expect.poll(async () => await refused.isVisible(), { timeout: 15_000 }).toBe(true)
+    expect(await refused.locator('[data-component-action-refused]').textContent()).toBe(ACTION_NOT_RECORDED)
+    expect(await page.getByText('component-action', { exact: true }).count()).toBe(0)
+    // Two command rows now: the press's, emptied and collapsed, and this one.
+    expect(await page.locator('[data-chat-flow-kind="command"]').count()).toBe(2)
+    await evidence(page, 'web-e2e-component-surface-refused')
+  }, 120_000)
+
+  it('draws the vendored table and carries a selection to the model with the user\'s next message', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-table'))
+    await tab(page, TABLE_ID).click()
+    const block = seat(page).locator('[data-component-block="toy.table"]')
+    await block.waitFor({ timeout: 30_000 })
+    // `.el-table__header-wrapper` and `.el-table__body-wrapper` are element-ui's
+    // own, so reading the headings and the cells out of them is the assertion
+    // that the vendored table drew this rather than anything restated here.
+    await expect.poll(
+      async () => await block.locator('.el-table__header-wrapper th .cell').allTextContents(),
+      { timeout: 15_000 },
+      // The first heading is the selection column's and the last is the
+      // operation column's — `操作`, compiled into the vendored component and
+      // therefore Chinese in an English interface, which is the component row's
+      // recorded limitation as a user meets it.
+    ).toEqual(['', 'Site', 'State', '操作'])
+    expect(await block.locator('.el-table__body-wrapper tbody tr').count()).toBe(TABLE_ROWS.length)
+    for (const row of TABLE_ROWS) {
+      expect(await block.getByText(row.site, { exact: true }).count()).toBeGreaterThan(0)
+    }
+    await awaitOpenColumn(page)
+    await evidence(page, 'web-e2e-component-surface-table')
+
+    // Two ticks, first and third. Each is a `context` gesture: it is recorded
+    // and handed to the inbox, and it is not the block\'s own answer — so the
+    // table keeps taking ticks and its Export buttons stay pressable, which a
+    // fold that settled every gesture into the block\'s one cell would take away
+    // at the first tick.
+    // The name column is fixed, so element-ui draws the body twice and only the
+    // fixed copy is on top; the native input inside each box is transparent and
+    // unclickable, so what is clicked is the box a user clicks.
+    const boxes = block.locator('.el-checkbox__inner:visible')
+    await boxes.nth(0).click()
+    await boxes.nth(2).click()
+    await expect.poll(
+      () => liveEvents(scaffold).filter(event => event.type === 'command/run'
+        && event.data.args?.includes('"actionId":"select"') === true).length,
+      { timeout: 30_000 },
+    ).toBe(2)
+    const ticks = liveEvents(scaffold).filter(event => event.type === 'command/run'
+      && event.data.args?.includes('"actionId":"select"') === true)
+    const last = ticks[ticks.length - 1]
+    expect(last?.type === 'command/run' && last.data.args).toBe(
+      ` {"entryId":"${TABLE_ID}","componentId":"toy.table","actionId":"select","nodeId":"grid","payload":{"rowIndexes":[0,2]}}`,
+    )
+    expect(await seat(page).getByText(SENT_LINE, { exact: true }).count()).toBe(0)
+    // And nothing about the two ticks is written into the conversation. A tick
+    // is the user working, not a question anyone is waiting on an answer to, so
+    // its settlement carries no sentence and the command row this row registers
+    // draws nothing — the alternative is one 已记下 line per ticked row, in a
+    // chat the user is reading for the agent's replies. The waiting rows drawn
+    // for the presses that really are waiting carry this attribute, so counting
+    // them is what tells the two apart.
+    // The two ticks folded a command row each, and neither says anything: the
+    // waiting attribute is what the row carries when it draws the handler's
+    // sentence, so counting it is what tells a collapsed row from a receipt.
+    await expect.poll(async () => await page.locator('[data-chat-flow-kind="command"]').count(), { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(2)
+    expect(await page.locator('[data-component-action-waiting]').count()).toBe(0)
+    // The operation column is what `state` gates, through a rule that takes
+    // `pointer-events` away from it; a tick is not the block's answer, so the
+    // Export buttons are still there to press.
+    expect(await block.locator('.column-operation:visible').first()
+      .evaluate(cell => getComputedStyle(cell).pointerEvents)).not.toBe('none')
+
+    // The blocks go with the draw and come back from the payload, so a tab round
+    // trip is what proves the table is rebuilt rather than remembered.
+    await tab(page, RECORD_ID).click()
+    await expect.poll(async () => await seat(page).locator('[data-component-block="toy.table"]').count(), { timeout: 15_000 })
+      .toBe(0)
+    await tab(page, TABLE_ID).click()
+    await expect.poll(
+      async () => await seat(page).locator('[data-component-block="toy.table"] .el-table__body-wrapper tbody tr').count(),
+      { timeout: 15_000 },
+    ).toBe(TABLE_ROWS.length)
+
+    // A `context` gesture waits in the inbox until a human writes, so the turn
+    // that reads it is one the user opens. The scripted reply\'s head is a
+    // `{{fromRequest:}}` pattern over the notice\'s own wording, so this sentence
+    // exists only because the ticked rows — named by what their first column
+    // shows — were in the request the message earned.
+    const settled = scaffold.whenTurnSettled(60_000)
+    const composer = page.getByPlaceholder(COMPOSER_PLACEHOLDER)
+    await composer.fill(TABLE_PROMPT)
+    await composer.press('Enter')
+    await settled
+    const claimed = liveEvents(scaffold).find(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.content.some(part => part.type === 'text' && part.text.includes('selected 2 rows')))
+    expect(claimed?.type === 'user/message' && claimed.data.content).toEqual([{
+      type: 'text',
+      text: `The user selected 2 rows in content panel entry "${TABLE_ID}" ("${TABLE_TITLE}"), on the 数据表 block "grid": `
+        + `${TICKED.map(name => JSON.stringify(name)).join(', ')}.`,
+    }])
+    await expect.poll(async () => await page.getByText(TABLE_REPLY, { exact: false }).count(), { timeout: 30_000 })
+      .toBe(1)
+  }, 180_000)
+
+  it('draws the vendored condition editor and sends back what the user built', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-filter'))
+    await tab(page, FILTER_ID).click()
+    const block = seat(page).locator('[data-component-block="el.filter-bar"]')
+    await block.waitFor({ timeout: 30_000 })
+    // `.query-cond-adv` and `.query-row` are the vendored component's own class
+    // names; the button beside them is this row's React one, labelled from
+    // `component-kit`'s dictionary in the language the browser asked for.
+    expect(await block.locator('.query-cond-adv').count()).toBe(1)
+    await expect.poll(async () => await block.locator('.query-row').count(), { timeout: 15_000 }).toBe(1)
+    expect(await block.getByRole('button', { name: SEARCH_LABEL }).count()).toBe(1)
+    // The call declares no layout at all, so this is the bar as it is drawn out
+    // of the box: no AND/OR control, so every control on it is one the answer
+    // this bar sends carries.
+    expect(await block.locator('.title-options .el-radio').count()).toBe(0)
+    await awaitOpenColumn(page)
+    await evidence(page, 'web-e2e-component-surface-filter')
+
+    // Build the second condition row with the component's own 增加 button, then
+    // fill both: an attribute, a match strategy, and the value the user types.
+    await block.locator('.query-row').first().locator('.query-btns button').first().click()
+    await expect.poll(async () => await block.locator('.query-row').count(), { timeout: 15_000 }).toBe(2)
+    for (const [index, condition] of CONDITIONS.entries()) {
+      const row = block.locator('.query-row').nth(index)
+      const selects = row.locator('.el-select')
+      await selects.nth(0).click()
+      await page.locator('.el-select-dropdown__item:visible', { hasText: `${condition.attribute}(` }).first().click()
+      await selects.nth(1).click()
+      await page.locator('.el-select-dropdown__item:visible', { hasText: condition.operator }).first().click()
+      await row.locator('input.el-input__inner').last().fill(condition.value)
+    }
+
+    // An edit is a `silent` gesture and is not the bar's own answer, so the
+    // button that sends the filter is still live after every reported edit.
+    expect(await block.getByRole('button', { name: SEARCH_LABEL }).isEnabled()).toBe(true)
+
+    const settled = scaffold.whenTurnSettled(60_000)
+    await block.getByRole('button', { name: SEARCH_LABEL }).click()
+    // A `submit` is the bar's answer, so this one does settle the block: the
+    // button refuses a second press and the block says where the first went.
+    await expect.poll(async () => await block.getByText(SENT_LINE, { exact: true }).count(), { timeout: 30_000 }).toBe(1)
+    await settled
+
+    const submitted = liveEvents(scaffold).find(event => event.type === 'command/run'
+      && event.data.args?.includes('"actionId":"submit"') === true)
+    expect(submitted?.type === 'command/run' && submitted.data.args).toBe(
+      ` {"entryId":"${FILTER_ID}","componentId":"el.filter-bar","actionId":"submit","nodeId":"query","payload":{"conditions":[`
+      + `{"key":"site","op":"EQ","value":"${CONDITIONS[0].value}"},`
+      + `{"key":"state","op":"LIKE","value":"${CONDITIONS[1].value}"}]}}`,
+    )
+    // The attribute names and the strategy wording come from the spec the model
+    // wrote; the values are the user's own text, quoted as the data they are.
+    const notice = liveEvents(scaffold).find(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.content.some(part => part.type === 'text' && part.text.includes('submitted a filter')))
+    expect(notice?.type === 'user/message' && notice.data.content).toEqual([{
+      type: 'text',
+      text: `The user submitted a filter in content panel entry "${FILTER_ID}" ("${FILTER_TITLE}"), on the 筛选条件 block "query": `
+        + CONDITIONS.map(one => `${one.attribute} ${one.operator} ${JSON.stringify(one.value)}`).join('; ') + '.',
+    }])
+    await expect.poll(async () => await page.getByText(FILTER_REPLY, { exact: false }).count(), { timeout: 30_000 })
+      .toBe(1)
+  }, 180_000)
+
+  it('draws the vendored metric ball, which answers nothing back', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-metric'))
+    await tab(page, METRIC_ID).click()
+    const block = seat(page).locator('[data-component-block="el.metric"]')
+    await block.waitFor({ timeout: 30_000 })
+    // `.tmo-process-ball` is the vendored component's own class, and the two
+    // paragraphs inside it are the number and the word the call carried.
+    await expect.poll(
+      async () => await block.locator('.tmo-process-ball .text-content p').allTextContents(),
+      { timeout: 15_000 },
+    ).toEqual(['42', 'Load'])
+    // A metric declares no action, so the seat draws it with nothing to press.
+    expect(await block.getByRole('button').count()).toBe(0)
+    await awaitOpenColumn(page)
+    await evidence(page, 'web-e2e-component-surface-metric')
+
+    // Still no second Vue after four vendored components have mounted and been
+    // torn down: element-ui's UMD build installs itself onto whatever it finds
+    // on `window`, and one such copy is enough to stop two rows seeing each
+    // other's reactivity, with no error anywhere.
+    expect(await page.evaluate(() => 'Vue' in globalThis)).toBe(false)
+  }, 120_000)
+
+  it('arranges two blocks and feeds the lower one from what the user ticks in the upper', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-linked'))
+    await tab(page, VIEW_ID).click()
+    const table = seat(page).locator('[data-component-block="toy.table"]')
+    await table.waitFor({ timeout: 30_000 })
+    await awaitOpenColumn(page)
+
+    // The arrangement is the call's own: one column, the table taking twice the
+    // record's share of it. Reading it off the drawn element rather than off the
+    // spec is what says the layout survived the trip through the log, the fold,
+    // and the page.
+    const stack = seat(page).locator('[data-component-stack]')
+    await expect.poll(async () => await stack.first().getAttribute('data-component-stack'), { timeout: 15_000 })
+      .toBe('col')
+    expect(await stack.first().getAttribute('data-component-gap')).toBe('md')
+
+    // Nothing is ticked yet, so the record's one required property has nothing
+    // to stand for it and the seat draws the waiting line in its place — not an
+    // error, and not an empty record: the block is fine, it is the user who has
+    // not acted.
+    const waiting = seat(page).locator('[data-component-surface-awaiting="detail"]')
+    await expect.poll(async () => await waiting.count(), { timeout: 15_000 }).toBe(1)
+    expect(await waiting.textContent()).toBe(AWAITING_LINE)
+    expect(await seat(page).locator('[data-component-block="toy.record"]').count()).toBe(0)
+    await evidence(page, 'web-e2e-component-surface-linked-waiting')
+
+    // Tick the second row, addressed by what it shows rather than by position:
+    // element-ui draws the ticked column twice — once in the table and once in
+    // the pinned layer over it — and puts a tick-everything box in the header,
+    // so an index into the boxes on screen is an index into whichever copy won.
+    const tick = (site: string): Locator =>
+      table.locator('tr', { hasText: site }).locator('.el-checkbox__inner:visible').first()
+    await tick(TABLE_ROWS[1].site).click()
+    // The record is drawn from `selectionDetail`, whose labels are the column
+    // aliases the call wrote — so `Site` and `State` rather than the
+    // `site`/`state` field names the rows themselves carry.
+    const record = seat(page).locator('[data-component-block="toy.record"]')
+    await record.waitFor({ timeout: 30_000 })
+    await expect.poll(
+      async () => await record.locator('.el-form-item__label')
+        .evaluateAll(cells => cells.map(cell => cell.textContent?.trim() ?? '')),
+      { timeout: 15_000 },
+    ).toEqual(['Site', 'State'])
+    await expect.poll(
+      async () => await record.locator('.form-item-content').allTextContents(),
+      { timeout: 15_000 },
+    ).toEqual([TABLE_ROWS[1].site, TABLE_ROWS[1].state])
+    await evidence(page, 'web-e2e-component-surface-linked-fed')
+
+    // Tick the third as well. `selectMode: 'checkbox'` keeps both ticks, and
+    // `selectionDetail` describes the first of them in the order the table holds
+    // them — so the record still shows the second row, not the third.
+    await tick(TABLE_ROWS[2].site).click()
+    // Named by the entry as well as the action: the `sites` entry above places
+    // its own table under the same node id, and its two ticks are in this same
+    // log.
+    const ticksHere = (): readonly SessionEvent[] => liveEvents(scaffold).filter(event =>
+      event.type === 'command/run'
+      && event.data.args !== undefined
+      && event.data.args.includes(`"entryId":"${VIEW_ID}"`)
+      && event.data.args.includes('"actionId":"select"'))
+    await expect.poll(() => ticksHere().length, { timeout: 30_000 }).toBe(2)
+    const ticks = ticksHere()
+    const last = ticks[ticks.length - 1]
+    expect(last?.type === 'command/run' && last.data.args).toBe(
+      ` {"entryId":"${VIEW_ID}","componentId":"toy.table","actionId":"select","nodeId":"grid","payload":{"rowIndexes":[1,2]}}`,
+    )
+    await expect.poll(
+      async () => await record.locator('.form-item-content').allTextContents(),
+      { timeout: 15_000 },
+    ).toEqual([TABLE_ROWS[1].site, TABLE_ROWS[1].state])
+
+    // And the table has not been redrawn out from under the user: the two rows
+    // ticked are the two still ticked. Feeding the record re-reads the entry's
+    // payload, and a table handed a fresh row array clears its own selection —
+    // so this is the assertion that the block nothing fed kept the properties
+    // object it already had.
+    await expect.poll(
+      // The header's tick-everything box reads as checked too; the rows are the
+      // ones outside `thead`.
+      async () => await table.locator('.el-checkbox.is-checked:visible')
+        .evaluateAll(ticked => ticked.filter(box => box.closest('thead') === null)
+          .map(box => box.closest('tr')?.textContent ?? '')),
+      { timeout: 15_000 },
+    ).toEqual([
+      `${TABLE_ROWS[1].site}${TABLE_ROWS[1].state}`,
+      `${TABLE_ROWS[2].site}${TABLE_ROWS[2].state}`,
+    ])
+    expect(await table.locator('.el-table__body-wrapper tbody tr').count()).toBe(TABLE_ROWS.length)
+    // What is asserted is the tick the component holds, not the tick the user
+    // sees: the vendored table draws a ticked box with the same white fill as an
+    // unticked one — `getComputedStyle` reads `rgb(255, 255, 255)` for both — on
+    // this entry and equally on the `sites` entry above, which shipped before
+    // any of this. That is the component row's own styling to answer for, and it
+    // is recorded rather than asserted here so this lane fails for its own
+    // subject only.
+    await evidence(page, 'web-e2e-component-surface-linked')
+  }, 180_000)
+
+  it('leaves the console clean', () => {
+    expect(tripwire.pageErrors).toEqual([])
+    expect(consoleErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+})

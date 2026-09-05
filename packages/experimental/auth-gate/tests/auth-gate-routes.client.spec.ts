@@ -3,9 +3,11 @@
  * cordis.yml booted through the vendored Loader mounts the webserver and the
  * auth-gate row, a fixture HTTP server stands in for the MCP upstream, and
  * every assertion observes the served HTTP surface — the settings document, the
- * token route's refusals and the one body it takes, the header the forwarding
- * route injects and the ones it drops, the answer while no token is held, an
- * event stream arriving incrementally, and route release on fiber disposal.
+ * token route's refusals and the one body it takes, the sign-out route's
+ * refusals and the 503 the forwarding routes go back to once it has run, the
+ * header the forwarding route injects and the ones it drops, the answer while no
+ * token is held, an event stream arriving incrementally, and route release on
+ * fiber disposal.
  *
  * The configuration cases call `apply` and the pure resolvers directly: a
  * rejected configuration never reaches a served surface, so there is nothing
@@ -27,9 +29,16 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
+import { BizBackendService } from '@deepseek-ai/dsh-experimental-biz-backend'
 import * as AuthGate from '../src/index.ts'
 import { requesterFor, resolveUpstreams, upstreamUrlFor } from '../src/proxy.ts'
-import { AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, isJwtShaped, parseTokenPost } from '../src/route.ts'
+import {
+  AUTH_GATE_LOGOUT_ROUTE,
+  AUTH_GATE_SETTINGS_ROUTE,
+  AUTH_GATE_TOKEN_ROUTE,
+  isJwtShaped,
+  parseTokenPost,
+} from '../src/route.ts'
 
 /** A JWT-shaped token; nothing in the node half reads its claims. */
 const TOKEN = 'aGVhZGVy.eyJzdWIiOiJ1LTEifQ.c2ln'
@@ -290,6 +299,62 @@ describe('auth-gate token route', () => {
   })
 })
 
+describe('auth-gate sign-out route', () => {
+  /** POST one sign-out, declaring the content type the route requires. */
+  function postLogout(ctx: Context, headers: Record<string, string> = {}): Promise<Answer> {
+    return call(ctx, AUTH_GATE_LOGOUT_ROUTE, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', ...headers },
+    })
+  }
+
+  it('states the complete method set it serves', async () => {
+    const ctx = await loadComposition()
+    const answer = await call(ctx, AUTH_GATE_LOGOUT_ROUTE)
+    expect({ status: answer.status, allow: answer.allow }).toEqual({ status: 405, allow: 'POST' })
+  })
+
+  it('refuses a sign-out a browser labelled cross-site', async () => {
+    // A cross-origin page that could reach this route could sign a visitor out
+    // of the deployment they are working in.
+    const ctx = await loadComposition()
+    const answer = await postLogout(ctx, { 'sec-fetch-site': 'cross-site' })
+    expect(answer.status).toBe(403)
+    expect(JSON.parse(answer.body)).toEqual({ error: 'auth-gate: the sign-out route serves same-site requests only' })
+  })
+
+  it('refuses a sign-out that is not sent as JSON, which is what a simple request would be', async () => {
+    // `sec-fetch-site` alone is not a fence: a request carrying none at all
+    // passes it. Requiring the content type is what withdraws this route from
+    // the set a cross-origin page can post to without a preflight — the same
+    // two-layer fence the token route carries.
+    const ctx = await loadComposition()
+    for (const headers of [{ 'content-type': 'text/plain;charset=UTF-8' }, {}]) {
+      const answer = await call(ctx, AUTH_GATE_LOGOUT_ROUTE, { method: 'POST', headers })
+      expect(answer.status).toBe(415)
+      expect(JSON.parse(answer.body)).toEqual({ error: 'auth-gate: the sign-out route accepts application/json only' })
+    }
+  })
+
+  it('drops the held token, so the forwarding routes go back to answering 503', async () => {
+    upstream = await startUpstream()
+    const ctx = await loadComposition({ fixture: `${upstream.origin}/mcp` })
+    await postToken(ctx, { token: TOKEN })
+    expect((await call(ctx, MCP_ROUTE, { method: 'POST', body: '{}' })).status).toBe(200)
+
+    const signedOut = await postLogout(ctx)
+    expect({ status: signedOut.status, body: signedOut.body }).toEqual({ status: 204, body: '' })
+
+    const afterwards = await call(ctx, MCP_ROUTE, { method: 'POST', body: '{}' })
+    expect(afterwards.status).toBe(503)
+    expect(JSON.parse(afterwards.body)).toEqual({
+      error: 'auth-gate: no access token is held yet, so the "fixture" upstream cannot be reached',
+    })
+    // The forward the token was still held for is the only one that reached it.
+    expect(upstream?.seen.length).toBe(1)
+  })
+})
+
 describe('auth-gate MCP forwarding', () => {
   /** Boot a composition whose one upstream is the fixture, optionally holding a token. */
   async function forwarding(token?: string): Promise<Context> {
@@ -417,7 +482,7 @@ describe('auth-gate MCP forwarding', () => {
     const base = origin(ctx)
     const row = [...ctx.loader.entries()].find(entry => entry.options.id === 'auth-gate')
     await row?.fiber?.dispose()
-    for (const path of [AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, MCP_ROUTE]) {
+    for (const path of [AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, AUTH_GATE_LOGOUT_ROUTE, MCP_ROUTE]) {
       // The webserver's own fallback answers a path nobody claims.
       const answer = await fetch(`${base}${path}`)
       expect({ path, status: answer.status }).toEqual({ path, status: 404 })
@@ -427,8 +492,12 @@ describe('auth-gate MCP forwarding', () => {
 })
 
 describe('auth-gate configuration', () => {
-  /** Apply the plugin against a webServer that only records what it claimed. */
-  function claimedRoutes(config: AuthGate.Config): string[] {
+  /**
+   * Apply the plugin against a webServer that only records what it claimed.
+   * @param config - the configuration under test.
+   * @returns the context it applied onto, and the routes it claimed.
+   */
+  function applyGate(config: AuthGate.Config): { ctx: Context; claimed: string[] } {
     const claimed: string[] = []
     const ctx = new Context()
     ctx.provide('webServer', {
@@ -438,7 +507,16 @@ describe('auth-gate configuration', () => {
       },
     } as never)
     AuthGate.apply(ctx, config)
-    return claimed
+    return { ctx, claimed }
+  }
+
+  /**
+   * The routes one configuration claims.
+   * @param config - the configuration under test.
+   * @returns the claimed route paths, in declaration order.
+   */
+  function claimedRoutes(config: AuthGate.Config): string[] {
+    return applyGate(config).claimed
   }
 
   /**
@@ -451,18 +529,26 @@ describe('auth-gate configuration', () => {
     loginUrl?: string
     cookieName?: string
     mcpUpstreams?: Record<string, string>
+    bizUpstream?: string | undefined
   } = {}): AuthGate.Config {
     return {
       loginUrl: fields.loginUrl ?? '/toy-proxy/toy-login/#/',
       cookieName: fields.cookieName ?? 'accessToken',
       refreshMarginSeconds: 300,
       mcpUpstreams: fields.mcpUpstreams ?? {},
+      ...fields.bizUpstream === undefined ? {} : { bizUpstream: fields.bizUpstream },
     }
   }
 
   it('claims one forwarding route per configured upstream, under its own name', () => {
     expect(claimedRoutes(gateConfig({ mcpUpstreams: { crm: 'https://mcp.internal/crm', docs: 'http://docs.internal' } })))
-      .toEqual([AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, '/auth-gate/mcp/crm', '/auth-gate/mcp/docs'])
+      .toEqual([
+        AUTH_GATE_SETTINGS_ROUTE,
+        AUTH_GATE_TOKEN_ROUTE,
+        AUTH_GATE_LOGOUT_ROUTE,
+        '/auth-gate/mcp/crm',
+        '/auth-gate/mcp/docs',
+      ])
   })
 
   it('rejects a login destination the browser half cannot build a redirect from', () => {
@@ -489,6 +575,98 @@ describe('auth-gate configuration', () => {
       ],
     ] as const) {
       expect(() => resolveUpstreams(table)).toThrow(message)
+    }
+  })
+
+  it('registers the data-backend service only where a base for one is configured', () => {
+    expect(applyGate(gateConfig({ bizUpstream: 'https://biz.example/ini-server/' })).ctx.get('bizBackend'))
+      .toBeInstanceOf(BizBackendService)
+    for (const bizUpstream of [undefined, '']) {
+      // No base is how a deployment says it offers no data backend. Nothing is
+      // registered, so a row that consumes the service stays pending with the
+      // missing name reported, rather than reading through one that always fails.
+      expect(applyGate(gateConfig({ bizUpstream })).ctx.get('bizBackend')).toBeUndefined()
+    }
+  })
+
+  it('accepts a base written as an origin alone, which an install without an API prefix publishes at', () => {
+    expect(applyGate(gateConfig({ bizUpstream: 'http://10.0.0.1:9532' })).ctx.get('bizBackend'))
+      .toBeInstanceOf(BizBackendService)
+  })
+
+  it('fails the row before claiming a route when the data-backend base is unusable', () => {
+    // The value decides where this visitor's credential is sent, so it is
+    // refused at load like every other address here.
+    for (const [bizUpstream, message] of [
+      ['/ini-server/', 'auth-gate: bizUpstream must be an absolute URL'],
+      ['ftp://biz.example/', 'auth-gate: bizUpstream must be an http or https URL, received "ftp://biz.example/"'],
+      [
+        'https://biz.example/?a=1',
+        'auth-gate: bizUpstream must carry no query string or fragment, received "https://biz.example/?a=1"',
+      ],
+      [
+        'https://biz.example/#x',
+        'auth-gate: bizUpstream must carry no query string or fragment, received "https://biz.example/#x"',
+      ],
+      [
+        'https://biz.example/ini-server',
+        'auth-gate: bizUpstream must end in "/", received "https://biz.example/ini-server"',
+      ],
+      [
+        'https://biz.example/ini//server/',
+        'auth-gate: bizUpstream must carry no empty path segment, received "https://biz.example/ini//server/"',
+      ],
+    ] as const) {
+      expect(() => claimedRoutes(gateConfig({ bizUpstream }))).toThrow(message)
+    }
+  })
+
+  it('names no value when it rejects a data-backend base carrying credentials of its own', () => {
+    // Repeating the address would put the password into whatever reads the
+    // load failure, which is the whole reason this case is refused.
+    const unusable = gateConfig({ bizUpstream: 'https://someone:s3cret@biz.example/' })
+    expect(() => claimedRoutes(unusable)).toThrow('auth-gate: bizUpstream must carry no credentials of its own')
+    try {
+      claimedRoutes(unusable)
+    } catch (refusal) {
+      expect(String(refusal)).not.toContain('s3cret')
+    }
+  })
+
+  it('drops the password from a base the parser reads as a scheme of its own', () => {
+    // `someone:s3cret@biz example` parses, as an opaque scheme carrying an
+    // opaque path, so the credentials check above never sees the password.
+    const refused = gateConfig({ bizUpstream: 'someone:s3cret@biz example' })
+    expect(() => claimedRoutes(refused))
+      .toThrow('auth-gate: bizUpstream must be an http or https URL, received "biz example"')
+    try {
+      claimedRoutes(refused)
+    } catch (refusal) {
+      expect(String(refusal)).not.toContain('s3cret')
+    }
+  })
+
+  it('names no value at all when the parser cannot read the base', () => {
+    // A value the parser refuses never reaches the credentials check below it,
+    // and a protocol-relative address is refused there with its userinfo where
+    // no sanitizing of the quoted form would find it. The field name is what
+    // this branch says, and it is enough to locate the fault.
+    for (const bizUpstream of [
+      'https://someone:s3cret@biz.example:99999/',
+      'https://someone:s3cret@biz example/ini-server/',
+      'https://someone:s3cret@biz example',
+      '//someone:s3cret@biz.example/',
+      '//someone:s3cret@biz.example',
+    ]) {
+      const refused = gateConfig({ bizUpstream })
+      expect(() => claimedRoutes(refused)).toThrow('auth-gate: bizUpstream must be an absolute URL')
+      try {
+        claimedRoutes(refused)
+      } catch (refusal) {
+        expect(String(refusal)).not.toContain('s3cret')
+        expect(String(refusal)).not.toContain('biz.example')
+        expect(String(refusal)).not.toContain('received')
+      }
     }
   })
 

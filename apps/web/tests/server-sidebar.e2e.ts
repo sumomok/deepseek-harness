@@ -9,15 +9,22 @@
  * priority-shadowed `conversation.hero.brand.mark` takeover, and the
  * fish/preview-badge/headline/workspace-row/agent-preset hero rules — see the
  * package README's Brand and hero facade section), the workbench's
- * blank-draft click semantics, the current-selection highlight, drag-and-drop
- * workflow reordering, (`@deepseek-ai/dsh-experimental-content-frame`)
+ * clean-draft click semantics, the current-selection highlight, drag-and-drop
+ * workflow reordering, the footer's identity band (the signed-in name and
+ * the sign-out control, both fitting the column),
+ * (`@deepseek-ai/dsh-experimental-content-frame`)
  * hiding the `show-content-page` command's own chat echo while its durable
  * `command/run`/`content/shown`/`command/done` lifecycle still lands on the
  * log, and (`@deepseek-ai/dsh-experimental-server-layout`) the content
  * column collapsing on a content-less blank draft. A second describe block
  * reruns the workbench-click scenario under content-frame's `homePage`
- * config, proving the opposite pairing: an auto-shown home page and a
- * content column that never collapses.
+ * config, proving the opposite pairing — an auto-shown home page and a
+ * content column that never collapses — and, on that same draft, both
+ * answers the clean-draft judgment gives: a second click reuses the draft its
+ * own first click populated and adds no second home-page record, while a
+ * draft the visitor has navigated elsewhere in is unclean and takes the
+ * create path, which shows the home page again (on the same conversation —
+ * see the package README's Known Limitations).
  *
  * Mostly zero model calls, the same shape `rail-search-expand.e2e.ts` uses
  * for a pure client-layout scenario: every session this scenario opens is
@@ -51,7 +58,7 @@ import type {} from '@deepseek-ai/dsh-workspace'
 import {
   acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, type WebScaffold,
 } from './scaffold.ts'
-import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
+import { newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const OVERLAY = fileURLToPath(new URL('./server-sidebar.overlay.yml', import.meta.url))
 /** Identical to {@link OVERLAY}, plus content-frame's `homePage` config. */
@@ -70,6 +77,18 @@ const ROWS = [
   ['@deepseek-ai/dsh-experimental-content-frame', FRAME_DIR],
   ['@deepseek-ai/dsh-experimental-server-sidebar', join(REPO_ROOT, 'packages/experimental/server-sidebar')],
   ['@deepseek-ai/dsh-experimental-library-skills', join(REPO_ROOT, 'packages/experimental/library-skills')],
+] as const
+/**
+ * Identical to {@link OVERLAY}, plus the component rows and one configured
+ * view — the one composition here where both catalogs exist to be merged.
+ */
+const VIEWS_OVERLAY = fileURLToPath(new URL('./server-sidebar-views.overlay.yml', import.meta.url))
+/** {@link ROWS} plus the three rows {@link VIEWS_OVERLAY} adds. */
+const VIEW_ROWS = [
+  ...ROWS,
+  ['@deepseek-ai/dsh-experimental-vue2-echarts-poc', join(REPO_ROOT, 'packages/experimental/vue2-echarts-poc')],
+  ['@deepseek-ai/dsh-experimental-component-kit', join(REPO_ROOT, 'packages/experimental/component-kit')],
+  ['@deepseek-ai/dsh-experimental-component-surface', join(REPO_ROOT, 'packages/experimental/component-surface')],
 ] as const
 /** The hosted application this scenario serves; the overlay reads it from the environment. */
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
@@ -99,6 +118,8 @@ const LEAKED_PLACEHOLDER = 'Choose a workspace to start'
  * this list is what keeps that a deliberate choice instead of a typo.
  */
 const PRESET_NAMES = ['只读', '可修改文件', '完全放开'] as const
+/** The same three rows by the id `/permission` selects them with, in the same order. */
+const PRESET_IDS = ['read-only', 'workspace-write', 'danger-full-access'] as const
 /** The write preset, named on its own where a scenario needs just the one. */
 const RENAMED_PRESET = PRESET_NAMES[1]
 
@@ -119,16 +140,27 @@ function composer(page: Page, placeholder: string): Locator {
  * This deployment's local shape for the server-menu settings document —
  * apps/web cannot import the experimental package (see the module doc above).
  */
+interface LocalNavStop {
+  kind: 'page' | 'view'
+  entryId: string
+}
 interface LocalWorkflow {
   id: string
   name: string
   order: number
   homeSessionId: string
-  navSnapshot: string[]
+  navSnapshot: LocalNavStop[]
   savedAt: number
 }
+interface LocalGroup {
+  id: string
+  name: string
+  pinned: boolean
+  order: number
+}
 interface LocalServerMenu {
-  workflows: LocalWorkflow[]
+  workflows: (LocalWorkflow & { groupId?: string })[]
+  groups: LocalGroup[]
   workbenchSessionId?: string
 }
 
@@ -136,11 +168,11 @@ interface LocalServerMenu {
  * Prepare a harness home whose profile fallback resolves every experimental row.
  * @returns the harness home the scaffold should adopt.
  */
-async function harnessHomeWithRowLinks(): Promise<string> {
+async function harnessHomeWithRowLinks(rows: readonly (readonly [string, string])[] = ROWS): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), 'dsh-server-sidebar-'))
   const scope = join(home, 'profiles', 'node_modules', '@deepseek-ai')
   await mkdir(scope, { recursive: true })
-  for (const [packageName, dir] of ROWS) {
+  for (const [packageName, dir] of rows) {
     await symlink(dir, join(scope, packageName.slice('@deepseek-ai/'.length)), 'dir')
   }
   return home
@@ -172,17 +204,18 @@ async function expectGuardHides(scope: Locator, className: string): Promise<void
 const WORKSPACE_WORDS = ['workspace', 'Workspace', 'WORKSPACE', '工作区'] as const
 
 /**
- * The composer's access-preset chip, located by its accessible name. Its
- * visible label collapses to the glyph alone once the composer row is narrow:
- * `InputBar.module.css` makes the control row a size container, and
- * `PermissionSelect.module.css`'s own `@container (max-width: 460px)` query
- * hides the label inside it. The rendered text is therefore not a stable
- * anchor, while the accessible name carries the preset at either width.
+ * The composer's access-preset chip, located by the `aria-label` attribute
+ * rather than by role: `terminology-guard.ts` hides the control in CSS, and a
+ * role query resolves nothing for a `display: none` element. The attribute is
+ * still the half that carries the preset name at either composer width — the
+ * visible label collapses to the glyph alone once the row is narrow
+ * (`PermissionSelect.module.css`'s own `@container (max-width: 460px)` query
+ * inside the size container `InputBar.module.css` establishes).
  * @param page - the browsing page.
  * @returns the chip locator.
  */
 function accessChip(page: Page): Locator {
-  return shellColumn(page, 'chat').getByRole('button', { name: /^Access mode, current:/ })
+  return shellColumn(page, 'chat').locator('[aria-label^="Access mode, current:"]')
 }
 
 /**
@@ -195,6 +228,20 @@ function accessChip(page: Page): Locator {
 async function workspaceWordsInChat(page: Page): Promise<string[]> {
   const text = await shellColumn(page, 'chat').innerText()
   return WORKSPACE_WORDS.filter(word => text.includes(word))
+}
+
+/** Where a passing scenario leaves its own screenshots — the gitignored repo convention `saveFailureShot` also writes to. */
+const ARTIFACTS = join(REPO_ROOT, '.artifacts')
+
+/**
+ * Save a screenshot of a state worth showing a reviewer. Evidence for the
+ * composition, not a failure artifact.
+ * @param page - the browsing page.
+ * @param name - the artifact's file name, without extension.
+ */
+async function evidence(page: Page, name: string): Promise<void> {
+  await mkdir(ARTIFACTS, { recursive: true })
+  await page.screenshot({ path: join(ARTIFACTS, `${name}.png`), fullPage: true })
 }
 
 /** One element's rendered width; `server-layout.e2e.ts`'s own helper, restated for this scenario's column checks. */
@@ -260,6 +307,24 @@ function commandTripleTypes(scaffold: WebScaffold, sessionId: string): string[] 
 }
 
 /**
+ * The given session's `show-content-view` command-lifecycle event types, in
+ * log order (`command/run` → `content-component/shown` → `command/done`, one
+ * triple per click). The middle member needs the same widening
+ * `anySessionShowed` uses: `content-component/shown` augments
+ * `SessionEventMap` from component-surface, which apps/web cannot import.
+ * @param scaffold - the live scaffold.
+ * @param sessionId - the session to read.
+ * @returns the event types, in log order.
+ */
+function viewCommandTripleTypes(scaffold: WebScaffold, sessionId: string): string[] {
+  const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+  if (agent === undefined) return []
+  return agent.session.events
+    .map((event: SessionEvent) => event.type as string)
+    .filter(type => type === 'command/run' || type === 'content-component/shown' || type === 'command/done')
+}
+
+/**
  * Seed a full, closed turn (`turn/start` → `user/message` → `step/start` →
  * `assistant/message` → `step/end` → `turn/end`) directly onto a live
  * session's log, with no model call. `user/message` satisfies decision ③'s
@@ -319,7 +384,7 @@ describe('web e2e: the product-console sidebar', () => {
         name: 'Ghost Workflow',
         order: 0,
         homeSessionId: GHOST_SESSION_ID,
-        navSnapshot: ['reports'],
+        navSnapshot: [{ kind: 'page', entryId: 'reports' }],
         savedAt: Date.now(),
       }],
     })
@@ -360,8 +425,10 @@ describe('web e2e: the product-console sidebar', () => {
     await expect(navSection(page).getByRole('button', { name: 'Weekly reports' }).isVisible()).resolves.toBe(true)
     await expect(workflowsSection(page).getByText('My Workflows').isVisible()).resolves.toBe(true)
     await expect(workflowsSection(page).getByRole('button', { name: /Ghost Workflow/ }).isVisible()).resolves.toBe(true)
-    // No fold/collapse rail control survives decision ①.
-    expect(await page.getByRole('button', { name: /collapse|Open the pages/i }).count()).toBe(0)
+    // No fold/collapse rail control survives decision ①. Named exactly: this
+    // shell's own group and temporary sections carry their own 收起/展开
+    // carets, which are section folds, not the removed column rail.
+    expect(await page.getByRole('button', { name: /collapse sidebar|Open the pages/i }).count()).toBe(0)
 
     // Scoped to this package's own chrome: decision ②'s banned-word list is
     // this package's obligation for its own copy, not a system-wide audit of
@@ -383,6 +450,14 @@ describe('web e2e: the product-console sidebar', () => {
     await identityRow.getByText('User').waitFor()
     const identityChildren = await identityRow.evaluate(el => el.children.length)
     expect(identityChildren).toBe(2)
+    // The band fits what it renders: at this column width the settings seat
+    // wraps onto its own line rather than squeezing the name to nothing or
+    // clipping the sign-out label against the identity cluster's own
+    // `overflow: hidden`.
+    await expect(identityRow.getByRole('button', { name: 'Sign out' }).isVisible()).resolves.toBe(true)
+    await expect(
+      identityRow.locator('> :first-child').evaluate(el => el.scrollWidth <= el.clientWidth),
+    ).resolves.toBe(true)
   }, 60_000)
 
   it('replaces the hero fish mark and headline with the sidebar\'s own brand copy, hides the preview badge and the live workspace row, and drops the agent-preset dropdown entirely', async () => {
@@ -501,13 +576,13 @@ describe('web e2e: the product-console sidebar', () => {
 
       await expect.poll(() => readServerMenu(scaffold).workflows.find(w => w.name === 'My Workflow'), {
         timeout: 10_000,
-      }).toMatchObject({ homeSessionId: workbenchSessionId, navSnapshot: ['home'] })
+      }).toMatchObject({ homeSessionId: workbenchSessionId, navSnapshot: [{ kind: 'page', entryId: 'home' }] })
     },
     90_000,
   )
 
   it(
-    'produces a fresh conversation when the workbench is clicked again now that it carries a user message (blank-draft semantics)',
+    'produces a fresh conversation when the workbench is clicked again now that it carries a user message (clean-draft semantics)',
     async () => {
       onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-blank-draft'))
       const priorWorkbenchSessionId = workbenchSessionId
@@ -658,21 +733,184 @@ describe('web e2e: the product-console sidebar', () => {
     expect(await workspaceWordsInChat(page)).toEqual([])
   }, 30_000)
 
-  it('offers every access preset under a customer-facing name', async () => {
+  it('names every access preset the customer-facing way when one is selected', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-presets'))
-    // The rendered menu, not the composed config: this asserts what the
-    // customer can actually pick, so a preset the overlay drops fails here
-    // whether the loss was deliberate or a miscopied table.
-    const chip = accessChip(page)
-    await chip.click()
-    const items = page.getByRole('menu').getByRole('menuitem')
-    await expect.poll(() => items.count(), { timeout: 10_000 }).toBe(PRESET_NAMES.length)
-    expect(await items.allInnerTexts()).toEqual([...PRESET_NAMES])
-    // Closing through the trigger, not Escape: the menu is the chip's own
-    // popup and a stray Escape would reach the composer behind it.
-    await chip.click()
-    await expect.poll(() => page.getByRole('menu').count(), { timeout: 10_000 }).toBe(0)
-  }, 30_000)
+    // Driven through `/permission`, not the chip's own menu: the guard hides
+    // that menu's trigger in this composition, so the command is the surface a
+    // customer's selection still reaches. What is asserted is the same as
+    // before — the rendered name of each preset the overlay's table names, so
+    // a preset the overlay drops fails here whether the loss was deliberate or
+    // a miscopied table.
+    const input = composer(page, ESTABLISHED_PLACEHOLDER)
+    for (const [index, id] of PRESET_IDS.entries()) {
+      await writeComposerDraft(page, input, `/permission ${id}`)
+      await input.press('Enter')
+      await expect.poll(
+        () => accessChip(page).getAttribute('aria-label'),
+        { timeout: 10_000 },
+      ).toBe(`Access mode, current: ${PRESET_NAMES[index]}`)
+    }
+    // Put the session back on the preset the rest of this block reads.
+    await writeComposerDraft(page, input, '/permission workspace-write')
+    await input.press('Enter')
+    await expect.poll(
+      () => accessChip(page).getAttribute('aria-label'),
+      { timeout: 10_000 },
+    ).toBe(`Access mode, current: ${RENAMED_PRESET}`)
+  }, 60_000)
+
+  it('files a workflow under a group the visitor names, pins that group, and remembers the fold across a reload', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-groups'))
+    const section = workflowsSection(page)
+    await section.getByRole('button', { name: 'New group' }).click()
+    const nameField = section.getByRole('textbox')
+    await nameField.fill('Reports')
+    await nameField.press('Enter')
+    await expect.poll(() => readServerMenu(scaffold).groups.map(g => g.name), { timeout: 10_000 }).toEqual(['Reports'])
+    const groupId = readServerMenu(scaffold).groups[0]!.id
+
+    // Move a row in through its own 移动到… menu rather than by dragging:
+    // HTML5 drag-and-drop has no touch equivalent, so this is the path touch
+    // has (see the package README).
+    const ghostRow = section.locator('li').filter({ hasText: 'Ghost Workflow' })
+    await ghostRow.hover()
+    await ghostRow.getByRole('button', { name: 'Move to…' }).click()
+    await page.getByRole('menuitem', { name: 'Reports' }).click()
+    await expect.poll(
+      () => readServerMenu(scaffold).workflows.find(w => w.name === 'Ghost Workflow')?.groupId,
+      { timeout: 10_000 },
+    ).toBe(groupId)
+    // The other workflow stayed where it was: a move is not a re-file of the list.
+    expect(readServerMenu(scaffold).workflows.find(w => w.name === 'My Workflow')?.groupId).toBeUndefined()
+
+    // The row's controls are revealed by a hover on the row OR by the focus
+    // being inside it, so focusing its own always-drawn name button brings
+    // them up and the next Tab walks into them. That is as far as the
+    // keyboard goes here — the list this trigger opens is portaled past every
+    // other focusable element on the page, which the package README records
+    // as a limitation rather than a path.
+    await page.mouse.move(5, 5)
+    await ghostRow.getByRole('button', { name: /Ghost Workflow/ }).focus()
+    await expect(ghostRow.getByRole('button', { name: 'Move to…' }).isVisible()).resolves.toBe(true)
+    await page.keyboard.press('Tab')
+    await expect(page.evaluate(() => document.activeElement?.getAttribute('aria-label')))
+      .resolves.toBe('Move to…')
+
+    const laneHead = section.locator('[class*="laneHead"]').filter({ hasText: 'Reports' })
+    await laneHead.hover()
+    await laneHead.getByRole('button', { name: 'Pin to top' }).click()
+    await expect.poll(() => readServerMenu(scaffold).groups[0]?.pinned, { timeout: 10_000 }).toBe(true)
+    await expect(laneHead.getByRole('img', { name: 'Pinned' }).isVisible()).resolves.toBe(true)
+    // The pinned lane sorts ahead of the ungrouped rows it now precedes.
+    const lanes = section.locator('[class*="lane"][data-pinned]')
+    await expect(lanes.first().getAttribute('data-pinned')).resolves.toBe('true')
+    await evidence(page, 'web-e2e-server-sidebar-group-pinned')
+
+    await laneHead.getByRole('button', { name: 'Collapse' }).click()
+    await expect.poll(() => ghostRow.count(), { timeout: 10_000 }).toBe(0)
+
+    // The fold is a browser-local preference (`dsh.server-sidebar.view.v1`),
+    // so it survives a reload without any write to the deployment's document.
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await sidebar(page).waitFor({ timeout: 15_000 })
+    await laneHead.waitFor({ timeout: 15_000 })
+    expect(await section.locator('li').filter({ hasText: 'Ghost Workflow' }).count()).toBe(0)
+    await expect(laneHead.getByRole('button', { name: 'Expand' }).isVisible()).resolves.toBe(true)
+    await evidence(page, 'web-e2e-server-sidebar-group-folded')
+  }, 90_000)
+
+  it('lists a displaced draft under the temporary section and takes it off the list on a confirmed removal', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-temporary'))
+    // Make the current workbench draft unreusable, then click the workbench:
+    // clean-draft semantics mint a fresh conversation and leave this one with
+    // no row of its own anywhere else in the shell, which is exactly what the
+    // temporary section is for.
+    const displaced = workbenchSessionId
+    seedClosedTurn(scaffold, displaced)
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await sidebar(page).waitFor({ timeout: 15_000 })
+    await workbenchButton(page).click()
+    await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBe(displaced)
+    workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
+
+    const temporary = sidebar(page).locator('[data-server-sidebar-section="temporary"]')
+    await expect(temporary.getByText('Temporary workflows').isVisible()).resolves.toBe(true)
+    await expect.poll(() => temporary.locator('li').count(), { timeout: 15_000 }).toBe(1)
+    const row = temporary.locator('li').first()
+    // The conversation's own durable title, plus how long ago it changed.
+    // Nothing else: the session list's `displayTitle` falls back to the
+    // Workspace directory's basename and then to the bare id — the first is
+    // banned vocabulary, and the second is not something a banned-word check
+    // can catch, so both are asserted absent below. (A conversation with no
+    // durable title shows the section's fixed copy instead; that branch is
+    // pinned by the package's own unit coverage.)
+    await expect(row.getByText('Build the weekly report page.').isVisible()).resolves.toBe(true)
+    await expect(row.getByText('Just now').isVisible()).resolves.toBe(true)
+    const temporaryText = await temporary.innerText()
+    for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /会话/, /新会话/]) {
+      expect(temporaryText, `banned text matched ${banned}`).not.toMatch(banned)
+    }
+    expect(temporaryText).not.toContain('server-sidebar-workspace')
+    expect(temporaryText).not.toContain(displaced)
+    await evidence(page, 'web-e2e-server-sidebar-temporary')
+
+    await row.hover()
+    // A double click cannot archive by accident: the armed row opens 确定移出
+    // to the left and puts 取消 exactly where the 移出列表 icon was, so the
+    // second press of a double click disarms the row instead of committing it.
+    await row.getByRole('button', { name: 'Remove from list' }).dblclick()
+    await expect.poll(() => row.getByRole('button', { name: 'Confirm removal' }).count(), { timeout: 10_000 }).toBe(0)
+    expect(await temporary.locator('li').count()).toBe(1)
+
+    // Open it before taking it off the list, so the row being removed is the
+    // conversation on screen — the case that decides where the shell rests
+    // afterwards.
+    await row.getByRole('button', { name: /Build the weekly report page/ }).click()
+    await page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await expect(row.getByRole('button', { name: /Build the weekly report page/ }).getAttribute('data-active'))
+      .resolves.toBe('true')
+
+    await row.hover()
+    await row.getByRole('button', { name: 'Remove from list' }).click()
+    // One click arms, a second commits: archiving is one-way from inside this
+    // console (see the package README's Known Limitations).
+    await expect(row.getByRole('button', { name: 'Confirm removal' }).isVisible()).resolves.toBe(true)
+    await evidence(page, 'web-e2e-server-sidebar-temporary-confirm')
+    await row.getByRole('button', { name: 'Confirm removal' }).click()
+    await expect.poll(() => temporary.locator('li').count(), { timeout: 15_000 }).toBe(0)
+    await expect(temporary.getByText('Nothing temporary right now').isVisible()).resolves.toBe(true)
+    // Archived, not deleted: the conversation's own agent is still live on the host.
+    expect(scaffold.ctx.agents.get(SessionId(displaced))).toBeDefined()
+
+    // The console rests on a conversation rather than on nothing: archiving
+    // the open one clears the selection, and the sidebar's own load-time
+    // landing is a one-shot, so the dismissal lands on 工作台 itself. The
+    // recorded workbench conversation is still live, so it is reopened rather
+    // than re-created.
+    await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    expect(await page.locator('[data-phase="inert"]').count()).toBe(0)
+    await expect(workbenchButton(page).getAttribute('data-active')).resolves.toBe('true')
+    expect(readServerMenu(scaffold).workbenchSessionId).toBe(workbenchSessionId)
+    // The state a dismissal leaves behind is the one that used to read
+    // "Choose a workspace to start", so the whole page is screened here, not
+    // just this package's own column. `innerText` reports rendered text, so
+    // this also screens what the terminology guard's stylesheet hides.
+    const landedText = await page.locator('body').innerText()
+    for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /会话/, /新会话/]) {
+      expect(landedText, `banned text matched ${banned}`).not.toMatch(banned)
+    }
+    await evidence(page, 'web-e2e-server-sidebar-temporary-landed')
+
+    // Leave the page on an established conversation, the state the remaining
+    // assertions in this block read.
+    await workflowsSection(page).getByRole('button', { name: /My Workflow/ }).click()
+    await page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  }, 120_000)
 
   it('leaves the Chat/Trajectory tab switcher and the model selector out of the customer-form composition', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-de-terminology'))
@@ -681,6 +919,14 @@ describe('web e2e: the product-console sidebar', () => {
     // The composer itself must not be stuck blocked now that no plugin
     // registers `useComposerBlock` (ui-model-selection is disabled).
     await expect(composer(page, ESTABLISHED_PLACEHOLDER).isEnabled()).resolves.toBe(true)
+    // The permission-preset chip is `ui-conversation`'s own composer control
+    // with no disable row: the terminology guard hides it in CSS, so it stays
+    // in the DOM and visibility is what this screens. The established
+    // conversation this block rests on is what makes the chip render at all.
+    for (const chip of await page.getByText(RENAMED_PRESET).all()) {
+      await expect(chip.isVisible()).resolves.toBe(false)
+    }
+    expect(await page.locator('[data-composer-card]').innerText()).not.toMatch(/workspace/i)
   }, 30_000)
 
   it('leaves the console clean', () => {
@@ -695,6 +941,8 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
   let page: Page
   let harnessHome: string
   let tripwire: ReturnType<typeof watchConsole>
+  /** The workbench's persistent session id, captured once the first test creates it. */
+  let workbenchSessionId: string
   const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
 
   beforeAll(async () => {
@@ -736,8 +984,231 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
       // page configured, a blank draft is never actually empty, so the
       // content column stays expanded rather than collapsing.
       await expect.poll(() => columnWidth(shellColumn(page, 'content')), { timeout: 10_000 }).toBeGreaterThan(0)
+
+      await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBeUndefined()
+      workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
+      expect(commandTripleTypes(scaffold, workbenchSessionId)).toEqual(['command/run', 'content/shown', 'command/done'])
     },
     60_000,
+  )
+
+  it(
+    'reuses that same draft on a second click, showing the home page it already carries only once',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-homepage-reuse'))
+      const agentsBefore = scaffold.ctx.agents.list().length
+      await workbenchButton(page).click()
+      await expectShown(page, '/content-app/')
+
+      // The draft is clean by both halves of the judgment: it has run no
+      // turn, and the one page its content column carries is the home page
+      // the first click itself put there. So this click reuses it instead of
+      // minting a second conversation, and skips the repeat
+      // `show-content-page` rather than appending a second identical triple.
+      await page.waitForTimeout(1000)
+      expect(readServerMenu(scaffold).workbenchSessionId).toBe(workbenchSessionId)
+      expect(scaffold.ctx.agents.list()).toHaveLength(agentsBefore)
+      expect(commandTripleTypes(scaffold, workbenchSessionId)).toEqual(['command/run', 'content/shown', 'command/done'])
+    },
+    60_000,
+  )
+
+  it(
+    'shows the home page again on the next click once the visitor has navigated the draft elsewhere',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-homepage-navigated'))
+      const priorWorkbenchSessionId = workbenchSessionId
+      await navSection(page).getByRole('button', { name: 'Weekly reports' }).click()
+      await expectShown(page, '/content-app/reports/')
+
+      // The draft has still run no turn, so the blank bit alone would have
+      // called it reusable; the reports entry on its content column is what
+      // makes it unclean, which sends this click down the create path and so
+      // shows the home page again rather than skipping it as a repeat.
+      await workbenchButton(page).click()
+      await expectShown(page, '/content-app/')
+      expect(commandTripleTypes(scaffold, priorWorkbenchSessionId)).toEqual([
+        'command/run', 'content/shown', 'command/done',
+        'command/run', 'content/shown', 'command/done',
+        'command/run', 'content/shown', 'command/done',
+      ])
+      // ...but it lands on the same conversation all the same: the create
+      // path resolves through `connectWorkspace`, which reuses any blank
+      // session already in the Workspace, and this draft is one. See the
+      // package README's Known Limitations for what a real displacement of a
+      // blank draft would take.
+      expect(readServerMenu(scaffold).workbenchSessionId).toBe(priorWorkbenchSessionId)
+    },
+    60_000,
+  )
+
+  it('leaves the console clean', () => {
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+})
+describe('web e2e: the product-console sidebar over both content catalogs', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let harnessHome: string
+  let tripwire: ReturnType<typeof watchConsole>
+  /** The workbench's persistent session id, captured once the first test creates it. */
+  let workbenchSessionId: string
+  const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
+
+  beforeAll(async () => {
+    harnessHome = await harnessHomeWithRowLinks(VIEW_ROWS)
+    process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
+    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: VIEWS_OVERLAY })
+    const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-views-workspace')
+    await mkdir(workspaceDir, { recursive: true })
+    await scaffold.ctx.workspaceRegistry.create(workspaceDir)
+
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await sidebar(page).waitFor({ timeout: 30_000 })
+  }, 180_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+    await rm(harnessHome, { recursive: true, force: true })
+    if (inheritedAppRoot === undefined) delete process.env.DSH_CONTENT_APP_ROOT
+    else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
+  })
+
+  it(
+    'offers both catalogs in one menu — content-frame\'s pages first, then component-surface\'s views',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-views-menu'))
+      // The merge is the whole point of this composition: two same-origin
+      // routes read at mount, each contributing rows in its own declaration
+      // order, pages ahead of views. A menu missing the last row is what a
+      // drifted route path looks like, which is why the order is pinned
+      // exactly rather than by presence.
+      await expect.poll(
+        async () => await navSection(page).getByRole('button').allTextContents(),
+        { timeout: 20_000 },
+      ).toEqual(['Home', 'Weekly reports', 'Site overview'])
+      // Each row carries which catalog it came from, because the two are
+      // opened by different commands.
+      expect(await navSection(page).locator('[data-server-sidebar-nav-kind]').evaluateAll(
+        rows => rows.map(row => row.getAttribute('data-server-sidebar-nav-kind')),
+      )).toEqual(['page', 'page', 'view'])
+    },
+    60_000,
+  )
+
+  it(
+    'puts the configured view in the content column on click, drawing both of its blocks in the layout order the spec declares',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-views-open'))
+      await workbenchButton(page).click()
+      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBeUndefined()
+      workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
+
+      await navSection(page).getByRole('button', { name: 'Site overview' }).click()
+
+      const seat = page.locator('[data-content-surface-seat="component"]')
+      const table = seat.locator('[data-component-block="toy.table"]')
+      const record = seat.locator('[data-component-block="toy.record"]')
+      await table.waitFor({ timeout: 20_000 })
+      await expect.poll(
+        async () => await table.locator('.el-table__body-wrapper tbody tr').count(),
+        { timeout: 20_000 },
+      ).toBe(2)
+      // Nothing is ticked yet, so the `$from` binding the record block waits on
+      // has produced nothing and the seat draws its waiting line in place of
+      // the component. The node still holds its place in the stack rather than
+      // the column closing over it, which is what the awaiting line being the
+      // second child proves.
+      expect(await record.count()).toBe(0)
+      await seat.locator('[data-component-surface-awaiting="detail"]').waitFor({ timeout: 20_000 })
+
+      // The click's own durable record: a command triple whose middle event is
+      // this package's own, not content-frame's — the two nav kinds dispatch
+      // to two different commands.
+      await expect.poll(
+        () => viewCommandTripleTypes(scaffold, workbenchSessionId),
+        { timeout: 15_000 },
+      ).toEqual(['command/run', 'content-component/shown', 'command/done'])
+      await evidence(page, 'web-e2e-server-sidebar-views-open')
+    },
+    90_000,
+  )
+
+  it(
+    'drives the detail block from the table\'s own selection, with no round trip through the host',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-views-binding'))
+      const seat = page.locator('[data-content-surface-seat="component"]')
+      const record = seat.locator('[data-component-block="toy.record"]')
+
+      // element-ui draws the table body more than once, and the native input
+      // inside each control is transparent and unclickable — so what is clicked
+      // is the visible box a user clicks (component-surface.e2e.ts does the
+      // same for its checkbox table).
+      const radios = seat.locator('[data-component-block="toy.table"] .el-radio__inner:visible')
+      await radios.nth(0).click()
+      await expect.poll(
+        async () => await record.locator('.form-item-content').allTextContents(),
+        { timeout: 20_000 },
+      ).toEqual(['North plant', 'Running'])
+
+      // Picking the other row re-reads the binding rather than appending to it.
+      await radios.nth(1).click()
+      await expect.poll(
+        async () => await record.locator('.form-item-content').allTextContents(),
+        { timeout: 20_000 },
+      ).toEqual(['South plant', 'Stopped'])
+      await evidence(page, 'web-e2e-server-sidebar-views-binding')
+
+      // Each tick is a recorded `select` gesture of the table's own — a
+      // `command/run`/`command/done` pair carrying no content event. What the
+      // binding does NOT do is place the view again: `content-component/shown`
+      // is still the single one the navigation click wrote, so the detail
+      // block is being fed on the seat rather than by a round trip that
+      // re-appends the entry.
+      expect(viewCommandTripleTypes(scaffold, workbenchSessionId))
+        .toEqual([
+          'command/run', 'content-component/shown', 'command/done',
+          'command/run', 'command/done',
+          'command/run', 'command/done',
+        ])
+    },
+    90_000,
+  )
+
+  it(
+    'captures the open view as a `view` stop when the conversation is saved as a workflow',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-views-workflow'))
+      seedClosedTurn(scaffold, workbenchSessionId)
+      await page.getByRole('button', { name: 'Save as workflow' }).click()
+      const nameField = page.getByPlaceholder('Workflow name')
+      await nameField.waitFor({ timeout: 10_000 })
+      await nameField.fill('Site Flow')
+      await nameField.press('Enter')
+
+      await expect.poll(async () => await workflowsSection(page).getByRole('button', { name: /Site Flow/ }).isVisible(), {
+        timeout: 10_000,
+      }).toBe(true)
+
+      // The stop carries the kind, which is what a replay needs to pick the
+      // command to run — a snapshot of bare ids could not.
+      await expect.poll(() => readServerMenu(scaffold).workflows.find(w => w.name === 'Site Flow'), {
+        timeout: 10_000,
+      }).toMatchObject({
+        homeSessionId: workbenchSessionId,
+        navSnapshot: [{ kind: 'view', entryId: 'site-overview' }],
+      })
+      await evidence(page, 'web-e2e-server-sidebar-views-workflow')
+    },
+    90_000,
   )
 
   it('leaves the console clean', () => {

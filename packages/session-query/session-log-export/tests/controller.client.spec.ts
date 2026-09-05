@@ -311,6 +311,25 @@ describe('SessionLogDownloadController', () => {
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:dsh/archive')
   })
 
+  it('asks for the export under the served deployment prefix', async () => {
+    vi.stubGlobal('location', { origin: 'https://harness.example' })
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const asked: URL[] = []
+    const controller = new SessionLogDownloadController(
+      async (input) => {
+        asked.push(input as URL)
+        return archiveResponse([entryChunk()], { headers: EXTENT_HEADERS })
+      },
+      vi.fn(),
+    )
+
+    await controller.download(SID)
+
+    expect(asked[0]?.href).toBe(
+      `https://harness.example/console/api/session.export?sessionId=${SID}&includeDescendants=true`,
+    )
+  })
+
   it('defaults panel openness when state is externally cleared before settlement', async () => {
     const settled = heldArchive({ headers: EXTENT_HEADERS })
     const successful = new SessionLogDownloadController(async () => settled.response, vi.fn())

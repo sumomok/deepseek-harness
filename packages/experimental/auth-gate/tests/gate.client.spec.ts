@@ -54,7 +54,7 @@ describe('auth-gate token reading', () => {
   })
 
   it('reads a payload carrying characters outside latin-1', () => {
-    expect(tokenSubject(jwt({ sub: '郝然', exp: NOW / 1000 + 1 }))).toBe('郝然')
+    expect(tokenSubject(jwt({ sub: '用户甲', exp: NOW / 1000 + 1 }))).toBe('用户甲')
   })
 
   it('reads nothing out of a payload that is not an object of claims', () => {
@@ -141,6 +141,47 @@ describe('auth-gate login address', () => {
   it('appends the return address to a hash-routed login page', () => {
     expect(loginHref('/toy-proxy/toy-login/#/', 'https://harness.example/chat?session=a b'))
       .toBe('/toy-proxy/toy-login/#/?redirect=https%3A%2F%2Fharness.example%2Fchat%3Fsession%3Da%20b')
+  })
+
+  /** The return address the login page is handed, read back out of the redirect. */
+  function returnAddress(currentHref: string): string {
+    return decodeURIComponent(loginHref('/toy-login/#/', currentHref).slice('/toy-login/#/?redirect='.length))
+  }
+
+  it('drops the login page\'s own credential parameters from the return address', () => {
+    // The deployment's login page reads a credential out of `token` and
+    // `token4a`; handing either back would return the token the gate has just
+    // decided is unusable, through the browser's history and every referrer.
+    expect(returnAddress('https://harness.example/chat?token=t.t.t&token4a=t4&session=a'))
+      .toBe('https://harness.example/chat?session=a')
+  })
+
+  it('drops the query string entirely when it carried nothing else', () => {
+    expect(returnAddress('https://harness.example/chat?token4a=t4')).toBe('https://harness.example/chat')
+  })
+
+  it('keeps a valueless parameter and the parameters it did not come for', () => {
+    expect(returnAddress('https://harness.example/chat?flag&tokenish=1&token=t.t.t'))
+      .toBe('https://harness.example/chat?flag&tokenish=1')
+  })
+
+  it('drops the credential parameters the fragment carries as well', () => {
+    // The login page parses everything past the first `?` in the whole address,
+    // so a credential in the fragment is one it reads — and dropping only the
+    // query's would uncover it by taking away the `?` that was hiding it.
+    expect(returnAddress('https://harness.example/chat?token=t.t.t#/board?token=t.t.t'))
+      .toBe('https://harness.example/chat#/board')
+  })
+
+  it('keeps the fragment\'s own route and the parameters it did not come for', () => {
+    // This deployment's pages are hash-routed: the fragment is the address of
+    // the page the visitor comes back to.
+    expect(returnAddress('https://harness.example/chat#/board?view=grid&token4a=t4'))
+      .toBe('https://harness.example/chat#/board?view=grid')
+  })
+
+  it('leaves an address that carries no query string exactly as it is', () => {
+    expect(returnAddress('https://harness.example/chat#/board')).toBe('https://harness.example/chat#/board')
   })
 })
 

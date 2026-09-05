@@ -7,10 +7,9 @@ import {
   type RemoteStreamClientMessage,
   type RemoteStreamServerMessage,
 } from '../stream-protocol.ts'
+import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { Deque } from '@deepseek-ai/dsh-deque'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
-
-const INTERNAL_BASE = 'http://dsh.internal'
 
 /** Physical Remote stream socket failure that may be retried by a domain transport. */
 export class RemoteStreamCarrierError extends Error {
@@ -301,10 +300,15 @@ class StreamInbox {
   }
 }
 
+/**
+ * Address of the mux downlink as the page must open it: resolved against the
+ * deployment base, so a deployment served under a path prefix its reverse
+ * proxy strips keeps that prefix, which the root-absolute route constant would
+ * replace.
+ * @returns the socket URL, `ws:`/`wss:` matching the page scheme.
+ */
 function remoteStreamUrl(): string {
-  const location = (globalThis as { location?: { origin?: string } }).location
-  const base = location?.origin !== undefined && location.origin !== 'null' ? location.origin : INTERNAL_BASE
-  const url = new URL(REMOTE_STREAM_MUX_PATH, base)
+  const url = clientUrl(REMOTE_STREAM_MUX_PATH)
   url.protocol = url.protocol === 'https:' ? 'wss:' : 'ws:'
   return url.href
 }

@@ -1,5 +1,6 @@
 /** Browser download state shared by the Session Header button and `/export`. */
 
+import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { createSnapshotStore, type SnapshotStore } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import {
@@ -27,6 +28,9 @@ export interface SessionLogDownloadState {
 
 type Fetch = (input: string | URL, init?: RequestInit) => Promise<Response>
 type Save = (archive: Blob, filename: string) => void
+
+/** Host route streaming one Session's ZIP, as the Host registers it. */
+const SESSION_EXPORT_ROUTE = '/api/session.export'
 
 const INITIAL: SessionLogDownloadState = { bySession: {} }
 
@@ -105,12 +109,6 @@ export function downloadBlob(archive: Blob, filename: string): void {
   // Revoking in the same task can race the browser's read of the anchor's
   // href; one task later the save has been handed off.
   setTimeout(() => { URL.revokeObjectURL(url) }, 0)
-}
-
-/** Resolve the browser's Host base with the connection carrier's null-origin fallback. */
-function hostBase(): string {
-  const origin = (globalThis as { location?: { origin?: string } }).location?.origin
-  return origin !== undefined && origin !== 'null' ? origin : 'http://dsh.internal'
 }
 
 function messageOf(error: unknown): string {
@@ -194,7 +192,9 @@ export class SessionLogDownloadController {
       open: true, status: 'downloading', error: null, progress: SESSION_EXPORT_PROGRESS_START,
     })
     try {
-      const url = new URL('/api/session.export', hostBase())
+      // Resolved against the page's deployment base: under a served path
+      // prefix the root-absolute route would address the origin root instead.
+      const url = clientUrl(SESSION_EXPORT_ROUTE)
       url.searchParams.set('sessionId', sessionId)
       url.searchParams.set('includeDescendants', 'true')
       const response = await this.fetcher(url, { method: 'GET', signal })

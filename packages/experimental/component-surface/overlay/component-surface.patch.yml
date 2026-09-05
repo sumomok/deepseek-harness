@@ -1,0 +1,64 @@
+# `show_component` under the service-line console: the agent places a block of
+# interface in the content column while it talks about it.
+#
+# Layered over the console composition in
+# `../../server-sidebar/overlay/customer.patch.yml`, which already disables
+# `ui-layout` and inserts `server-layout`, `content-surface`, and
+# `content-column`. Apply both, console first:
+#
+#   dsh --profile web \
+#     --patch packages/experimental/server-sidebar/overlay/customer.patch.yml \
+#     --patch packages/experimental/component-surface/overlay/component-surface.patch.yml
+#
+# - `content-surface` folds the session's logged `show_component` calls into the
+#   entry stream and `content-column` routes the column by entry kind. Both must
+#   already be composed: this row registers the `component` extractor through
+#   `ctx.inject`, which simply never fires without the router, and the tool is
+#   then offered with nothing to draw it.
+# - `component-kit` carries the renderers and their copy; the row below requires
+#   it through the loader's module table, which is what keeps one copy of the
+#   components in the page.
+# - `vue2-echarts-poc` owns the page's only Vue 2.7 runtime, which `component-kit`
+#   requires through the same module table for the components it draws with Vue.
+#   Vue 2 reactivity does not cross runtime copies, so this row is what keeps
+#   there being one; a composition without it leaves `component-kit` requesting a
+#   module nothing provides.
+# - `component-surface` offers `show_component`, judges each call against the
+#   catalog, claims the `component` kind of the column, and claims the seat that
+#   draws it.
+# - The return channel — `/component-action`, the command a drawn block reports
+#   a press through — additionally needs the command registry and the projection
+#   registry the entry is read out of. The console composition carries both, and
+#   a composition missing either must not insert this row: `show_component`'s
+#   description tells the model that a press comes back, and without the command
+#   nothing carries one.
+# - Rows the model asks this deployment for, rather than writes out, are
+#   `config.dataSource: true` plus `config.dataDefaultPageSize`. Neither is set
+#   here, for the reason the views are not: whether a console lets the agent
+#   read its deployment's own data with the signed-in visitor's own credential
+#   is that deployment's decision, and the row is complete without it. Turning
+#   it on needs two further rows in the composition — `auth-gate` configured
+#   with a `bizUpstream` (the deployment's own API prefix, ending in `/`; the
+#   standard one is `https://<host>/ini-server/`), and `user-approval`, because
+#   every read is put to the user first. Without both, this row simply does not
+#   register `show_component` at all. The package README's "Rows read from the
+#   deployment's own data" section is the whole of how to write it.
+# - Views a person wrote go in this row's `config.views`, and the view a blank
+#   draft opens on in `config.homeView`; the package README's "Views the
+#   deployment writes" section is the whole of how to write one. None are set
+#   here because which views a console offers is that deployment's own decision,
+#   and the row is complete without any: what they add is the catalog route the
+#   sidebar builds its navigation menu from, and the `/show-content-view` command
+#   a click on that menu runs. Both need the same webserver and command registry
+#   the console composition already carries.
+#
+# Every package must be resolvable from the profile directory, which for an
+# out-of-tree plugin means `dsh plugin --profile web add <path>` or an
+# equivalent link — release bundles must not declare an experimental package.
+- insert:
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+    - id: show-component
+      name: '@deepseek-ai/dsh-experimental-component-surface'

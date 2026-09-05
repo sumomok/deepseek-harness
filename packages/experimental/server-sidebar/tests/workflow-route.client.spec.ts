@@ -70,6 +70,8 @@ async function loadComposition(existingWorld?: string): Promise<Context> {
     '    watch: false',
     '- id: server-sidebar',
     "  name: '@deepseek-ai/dsh-experimental-server-sidebar'",
+    '  config:',
+    "    displayNameClaim: 'login_uname'",
     '',
   ].join('\n'))
 
@@ -119,7 +121,16 @@ function postPatch(ctx: Context, body: unknown, headers: Record<string, string> 
   })
 }
 
-const WORKFLOW = { id: 'w1', name: 'Alpha', order: 0, homeSessionId: 's1', navSnapshot: ['home'], savedAt: 1 }
+const WORKFLOW = {
+  id: 'w1', name: 'Alpha', order: 0, homeSessionId: 's1',
+  navSnapshot: [{ kind: 'page', entryId: 'home' }, { kind: 'view', entryId: 'sales' }], savedAt: 1,
+}
+const GROUP = { id: 'g1', name: '每日', pinned: true, order: 0 }
+
+/** The stored document as the route answers it, with the fields the schema defaults filled in. */
+function document(fields: Record<string, unknown>): Record<string, unknown> {
+  return { workflows: [], groups: [], ...fields }
+}
 
 describe('server-sidebar server-menu route', () => {
   it('answers an empty document before anything is saved, uncached', async () => {
@@ -128,7 +139,7 @@ describe('server-sidebar server-menu route', () => {
     expect(answer.status).toBe(200)
     expect(answer.type).toBe('application/json')
     expect(answer.cacheControl).toBe('no-store')
-    expect(JSON.parse(answer.body)).toEqual({ workflows: [] })
+    expect(JSON.parse(answer.body)).toEqual(document({}))
   })
 
   it('serves a HEAD of the server-menu document', async () => {
@@ -140,23 +151,72 @@ describe('server-sidebar server-menu route', () => {
     const ctx = await loadComposition()
     const posted = await postPatch(ctx, { workflows: [WORKFLOW] })
     expect(posted.status).toBe(200)
-    expect(JSON.parse(posted.body)).toEqual({ workflows: [WORKFLOW] })
+    expect(JSON.parse(posted.body)).toEqual(document({ workflows: [WORKFLOW] }))
 
     const read = await call(ctx, SERVER_MENU_ROUTE)
-    expect(JSON.parse(read.body)).toEqual({ workflows: [WORKFLOW] })
+    expect(JSON.parse(read.body)).toEqual(document({ workflows: [WORKFLOW] }))
   })
 
   it('merges a workbenchSessionId-only patch without disturbing an existing workflow list', async () => {
     const ctx = await loadComposition()
     await postPatch(ctx, { workflows: [WORKFLOW] })
     const posted = await postPatch(ctx, { workbenchSessionId: 'home-1' })
-    expect(JSON.parse(posted.body)).toEqual({ workflows: [WORKFLOW], workbenchSessionId: 'home-1' })
+    expect(JSON.parse(posted.body)).toEqual(document({ workflows: [WORKFLOW], workbenchSessionId: 'home-1' }))
 
     const workflowsOnly = await postPatch(ctx, { workflows: [WORKFLOW, { ...WORKFLOW, id: 'w2', name: 'Beta', order: 1 }] })
-    expect(JSON.parse(workflowsOnly.body)).toEqual({
+    expect(JSON.parse(workflowsOnly.body)).toEqual(document({
       workflows: [WORKFLOW, { ...WORKFLOW, id: 'w2', name: 'Beta', order: 1 }],
       workbenchSessionId: 'home-1',
+    }))
+  })
+
+  it('persists a posted groups patch and answers the server\'s authoritative document', async () => {
+    const ctx = await loadComposition()
+    const posted = await postPatch(ctx, { groups: [GROUP] })
+    expect(posted.status).toBe(200)
+    expect(JSON.parse(posted.body)).toEqual(document({ groups: [GROUP] }))
+  })
+
+  it('merges a groups-only patch without disturbing an existing workflow list', async () => {
+    const ctx = await loadComposition()
+    await postPatch(ctx, { workflows: [WORKFLOW] })
+    const posted = await postPatch(ctx, { groups: [GROUP] })
+    expect(JSON.parse(posted.body)).toEqual(document({ workflows: [WORKFLOW], groups: [GROUP] }))
+  })
+
+  it('takes a workflow and the group it is filed under in one patch', async () => {
+    const ctx = await loadComposition()
+    const filed = { ...WORKFLOW, groupId: GROUP.id }
+    const posted = await postPatch(ctx, { workflows: [filed], groups: [GROUP] })
+    expect(posted.status).toBe(200)
+    expect(JSON.parse(posted.body)).toEqual(document({ workflows: [filed], groups: [GROUP] }))
+  })
+
+  it('refuses a groups patch that would orphan a stored workflow\'s group', async () => {
+    const ctx = await loadComposition()
+    await postPatch(ctx, { workflows: [{ ...WORKFLOW, groupId: GROUP.id }], groups: [GROUP] })
+    const answer = await postPatch(ctx, { groups: [] })
+    expect(answer.status).toBe(400)
+    expect(JSON.parse(answer.body)).toEqual({
+      error: 'server-sidebar: workflow "w1" names group "g1", which no group defines',
     })
+    expect(JSON.parse((await call(ctx, SERVER_MENU_ROUTE)).body))
+      .toEqual(document({ workflows: [{ ...WORKFLOW, groupId: GROUP.id }], groups: [GROUP] }))
+  })
+
+  it('refuses a groups list with a duplicate id', async () => {
+    const ctx = await loadComposition()
+    const answer = await postPatch(ctx, { groups: [GROUP, { ...GROUP, name: 'Duplicate' }] })
+    expect(answer.status).toBe(400)
+    expect(JSON.parse(answer.body)).toEqual({ error: 'server-sidebar: duplicate group id "g1"' })
+    expect(JSON.parse((await call(ctx, SERVER_MENU_ROUTE)).body)).toEqual(document({}))
+  })
+
+  it('refuses a group with a blank name', async () => {
+    const ctx = await loadComposition()
+    const answer = await postPatch(ctx, { groups: [{ ...GROUP, name: '  ' }] })
+    expect(answer.status).toBe(400)
+    expect(JSON.parse(answer.body)).toEqual({ error: 'server-sidebar: group "g1" has a blank name' })
   })
 
   it('refuses a workflows list with a duplicate id', async () => {
@@ -164,12 +224,24 @@ describe('server-sidebar server-menu route', () => {
     const answer = await postPatch(ctx, { workflows: [WORKFLOW, { ...WORKFLOW, name: 'Duplicate' }] })
     expect(answer.status).toBe(400)
     expect(JSON.parse(answer.body)).toEqual({ error: 'server-sidebar: duplicate workflow id "w1"' })
-    expect(JSON.parse((await call(ctx, SERVER_MENU_ROUTE)).body)).toEqual({ workflows: [] })
+    expect(JSON.parse((await call(ctx, SERVER_MENU_ROUTE)).body)).toEqual(document({}))
+  })
+
+  it('refuses a pre-view navSnapshot, naming the converter an operator has to run', async () => {
+    const ctx = await loadComposition()
+    const answer = await postPatch(ctx, { workflows: [{ ...WORKFLOW, navSnapshot: ['home'] }] })
+    expect(answer.status).toBe(400)
+    expect((JSON.parse(answer.body) as { error: string }).error)
+      .toContain('run convert-nav-snapshot')
+    expect(JSON.parse((await call(ctx, SERVER_MENU_ROUTE)).body)).toEqual(document({}))
   })
 
   it('refuses a body shaped wrong before it ever reaches the schema', async () => {
     const ctx = await loadComposition()
-    for (const body of ['not json', {}, { workflows: 'nope' }, { workbenchSessionId: 42 }, { workflows: [{ id: 1 }] }]) {
+    for (const body of [
+      'not json', {}, { workflows: 'nope' }, { groups: 'nope' }, { workbenchSessionId: 42 }, { workflows: [{ id: 1 }] },
+      { groups: [{ id: 1 }] },
+    ]) {
       const answer = await postPatch(ctx, body)
       expect(answer.status).toBe(400)
     }
@@ -213,7 +285,8 @@ describe('server-sidebar server-menu route', () => {
     context = undefined
 
     const reloaded = await loadComposition(world1)
-    expect(JSON.parse((await call(reloaded, SERVER_MENU_ROUTE)).body)).toEqual({ workflows: [WORKFLOW], workbenchSessionId: 'home-1' })
+    expect(JSON.parse((await call(reloaded, SERVER_MENU_ROUTE)).body))
+      .toEqual(document({ workflows: [WORKFLOW], workbenchSessionId: 'home-1' }))
   })
 
   it('releases the route when the fiber disposes (HMR safety)', async () => {
@@ -236,6 +309,8 @@ describe('server-sidebar without the settings capability', () => {
       "    host: '127.0.0.1'",
       '    port: 0',
       "- name: '@deepseek-ai/dsh-experimental-server-sidebar'",
+      '  config:',
+      "    displayNameClaim: 'login_uname'",
       '',
     ].join('\n'))
     context = new Context()

@@ -1,0 +1,7 @@
+{
+  "steps": [
+    { "op": "initialize" },
+    { "op": "newSession" },
+    { "op": "prompt", "text": "Put a confirmation bar in the content panel asking the user to approve the revised Q3 budget, with an Approve button and a Reject button, using show_component. Then reply with exactly the single word DONE." }
+  ]
+}

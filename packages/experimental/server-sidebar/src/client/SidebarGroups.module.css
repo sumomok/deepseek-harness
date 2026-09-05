@@ -1,7 +1,9 @@
-/* Shared styling for the sidebar's navigation and workflow groups: a plain
-   vertical list under an uppercase group title, matching the retrofit menu's
-   original visual language (this is a straight carry-over of the former
-   MenuSection.module.css, minus the collapsed-rail form decision ① removes). */
+/* Shared styling for the sidebar's navigation, workflow and temporary
+   sections: a plain vertical list under an uppercase section title, matching
+   the retrofit menu's original visual language (a carry-over of the former
+   MenuSection.module.css, minus the collapsed-rail form decision ① removes),
+   plus the one extra level the workflow section adds — a group lane with its
+   own foldable header, pin marker and drop highlight. */
 
 .group {
   display: flex;
@@ -13,10 +15,114 @@
 .groupHead {
   display: flex;
   align-items: center;
-  justify-content: space-between;
+  gap: 2px;
 }
 
+.lane {
+  display: flex;
+  flex-direction: column;
+}
+
+.laneHead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 4px;
+  border-radius: 6px;
+}
+
+.laneHead[data-drop-lane='true'],
+.empty[data-drop-lane='true'] {
+  box-shadow: inset 0 0 0 1.5px var(--dsw-alias-brand-primary);
+}
+
+.laneName {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--dsw-alias-label-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.caret {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 16px;
+  height: 16px;
+  padding: 0;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--dsw-alias-label-tertiary);
+  cursor: pointer;
+  transition: transform 120ms ease;
+}
+
+.caret[data-expanded='true'] {
+  transform: rotate(90deg);
+}
+
+.pinBadge {
+  flex: none;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--dsw-alias-brand-primary);
+}
+
+.rowName {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rowTime {
+  flex: none;
+  font-size: 11px;
+  color: var(--dsw-alias-label-tertiary);
+}
+
+.moreButton {
+  align-self: flex-start;
+  margin: 2px 0 0;
+  padding: 2px 4px;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.moreButton:hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.confirmButton {
+  flex: none;
+  padding: 2px 6px;
+  border: none;
+  border-radius: 6px;
+  background: var(--dsw-alias-interactive-bg-hover);
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 12px;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+/* The title takes the slack so a section's own trailing control (the workflow
+   section's add button) sits at the far edge whether or not a leading caret
+   precedes it. */
 .groupTitle {
+  flex: 1;
+  min-width: 0;
   margin: 0;
   padding: 0 4px;
   font-size: 11px;
@@ -115,8 +221,33 @@
   gap: 2px;
 }
 
-.workflowRow:hover .workflowActions {
+/* The controls follow the pointer, and the keyboard as well: `:focus-within`
+   has to sit on the ancestor, because a `display: none` subtree holds nothing
+   focusable and could never match it on the container itself. The row's own
+   name button and a group head's fold caret are always drawn, so focusing
+   either reveals the controls behind it and the next Tab walks into them. */
+.workflowRow:hover .workflowActions,
+.laneHead:hover .workflowActions,
+.workflowRow:focus-within .workflowActions,
+.laneHead:focus-within .workflowActions {
   display: flex;
+}
+
+/* The 移出列表 confirmation stays on screen once asked for: it is a second
+   click the pointer has to travel to, and hiding it on pointer-out would take
+   the question away mid-answer. */
+.workflowActions:has(.confirmButton) {
+  display: flex;
+}
+
+/* A device with no hover cannot reveal them either way: the only always-drawn
+   control a row has is its own name button, and tapping that opens the
+   workflow instead of focusing it. On a coarse pointer the controls are drawn
+   from the start, which is what a touch list does anyway. */
+@media (hover: none) {
+  .workflowActions {
+    display: flex;
+  }
 }
 
 .iconButton {

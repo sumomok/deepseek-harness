@@ -1,0 +1,15 @@
+{"type":"session","version":0,"id":"component-surface-datasource","createdAt":1785015039278,"cwd":"{{cwd}}/workspace"}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"tool-call","id":"call_00_datasource000000000000001","name":"show_component","arguments":"{\"id\":\"layers\",\"title\":\"图层配置\",\"spec\":{\"nodes\":[{\"id\":\"rows\",\"component\":\"toy.table\",\"props\":{\"selectMode\":\"checkbox\",\"tableConfig\":{\"gridItems\":[{\"relatedMetaAttr\":\"zh_label\",\"alias\":\"名称\"},{\"relatedMetaAttr\":\"layer_id\"},{\"relatedMetaAttr\":\"belong_map_topic\"}]}}}]},\"dataSource\":[{\"nodeId\":\"rows\",\"meta\":\"SpaceLayer\",\"metaLabel\":\"图层配置\",\"page\":{\"pageSize\":200}}]}"}}}}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":1,"outputTokens":1}}}}
+{"type":"assistant/chunk","data":{"turn":1,"step":1,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
+{"type":"assistant/chunk","data":{"turn":1,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
+{"type":"assistant/chunk","data":{"turn":1,"step":2,"chunk":{"type":"text-delta","index":0,"text":"DONE"}}}
+{"type":"assistant/chunk","data":{"turn":1,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"DONE"}}}}
+{"type":"assistant/chunk","data":{"turn":1,"step":2,"chunk":{"type":"usage","usage":{"inputTokens":1,"outputTokens":1}}}}
+{"type":"assistant/chunk","data":{"turn":1,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/chunk","data":{"turn":2,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
+{"type":"assistant/chunk","data":{"turn":2,"step":1,"chunk":{"type":"text-delta","index":0,"text":"Starting with {{fromRequest:数据表 block \"[^\"]+\": \"([^\"]+)\"}} — I will export those rows."}}}
+{"type":"assistant/chunk","data":{"turn":2,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"Starting with {{fromRequest:数据表 block \"[^\"]+\": \"([^\"]+)\"}} — I will export those rows."}}}}
+{"type":"assistant/chunk","data":{"turn":2,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":1,"outputTokens":1}}}}
+{"type":"assistant/chunk","data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}

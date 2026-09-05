@@ -31,6 +31,9 @@
   },
   "dsh": {
     "client": {
+      "external": [
+        "@deepseek-ai/dsh-client-connection/client"
+      ],
       "inject": [
         "@deepseek-ai/dsh-typert-registry",
         "@deepseek-ai/dsh-client-connection"
@@ -58,7 +61,8 @@
     "@deepseek-ai/dsh-typert-protocol": "workspace:^"
   },
   "peerDependencies": {
-    "@deepseek-ai/cordis": "workspace:^"
+    "@deepseek-ai/cordis": "workspace:^",
+    "@deepseek-ai/dsh-client-connection": "workspace:^"
   },
   "devDependencies": {
     "@deepseek-ai/dsh-brand": "workspace:^",

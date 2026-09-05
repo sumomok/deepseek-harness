@@ -439,6 +439,24 @@ describe('connection client apply', () => {
     })
   })
 
+  it('reaches the Host through the deployment prefix the page is served under', async () => {
+    ;(globalThis as Win).location = { hostname: 'harness.example', search: '', origin: 'https://harness.example' }
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    const handle = await mount()
+    const original = globalThis.fetch
+    const seen: string[] = []
+    globalThis.fetch = (async (input: URL) => {
+      seen.push(input.href)
+      return new Response('unavailable', { status: 503 })
+    }) as unknown as typeof fetch
+    try {
+      await expect(handle.rpc.call('/api', 'goals/create', {})).rejects.toThrow('HTTP 503')
+    } finally {
+      globalThis.fetch = original
+    }
+    expect(seen).toEqual(['https://harness.example/console/api/goals/create'])
+  })
+
   it('exposes a worker-local Gateway stream through connection.rpc.open', async () => {
     ;(globalThis as Win).location = { hostname: 'preview.example', search: '' }
     const openStream = vi.fn<NonNullable<ClientTransportHooks['openStream']>>(

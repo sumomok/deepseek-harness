@@ -1,0 +1,19 @@
+/* The two things a press can draw in the chat, both where the emptied command
+   row would have been: the host's refusal, and the host's notice that a press
+   is waiting for the user's next message. Tokens only. */
+
+.refusal {
+  margin: 0;
+  color: var(--dsw-alias-state-error-primary);
+  font-size: 13px;
+  line-height: 24px;
+}
+
+/* A press that was taken but not acted on yet is not a failure, so it reads as
+   an ordinary secondary line rather than in the error colour. */
+.notice {
+  margin: 0;
+  color: var(--dsw-alias-label-secondary);
+  font-size: 13px;
+  line-height: 24px;
+}

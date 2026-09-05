@@ -190,6 +190,16 @@ export interface RunOptions {
    */
   prepareWorkspace?: (cwd: string) => void | Promise<void>
   /**
+   * Optional preparation run after the agent process has spawned and before the
+   * first input step. This is for state that only exists once the composition
+   * is up — a route the scenario has to reach before the model turn does, such
+   * as posting the credential a gated row would otherwise be missing. It runs
+   * inside the scenario's failure-safe teardown, so a throw here tears the
+   * child down like any other failure. State that exists before the boot
+   * belongs in {@link prepareWorkspace}.
+   */
+  afterSpawn?: () => void | Promise<void>
+  /**
    * Parent directory for the generated session cwd. Defaults to
    * `os.tmpdir()`. A scenario that must distinguish its workspace from the
    * sandbox's always-writable temporary roots can place the generated child
@@ -311,6 +321,7 @@ export async function runScenario(input: InputScript, opts: RunOptions): Promise
     })
     const active = launched
     await active.spawned
+    await opts.afterSpawn?.()
     const { client } = active
 
     for (const step of input.steps) {

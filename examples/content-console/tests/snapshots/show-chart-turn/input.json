@@ -1,0 +1,7 @@
+{
+  "steps": [
+    { "op": "initialize" },
+    { "op": "newSession" },
+    { "op": "prompt", "text": "Draw a bar chart of quarterly revenue (Q1 120, Q2 132, Q3 101, Q4 134) with show_chart, then reply with exactly the single word DONE." }
+  ]
+}

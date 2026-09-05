@@ -213,7 +213,19 @@ function buildFace(value: unknown): BuildFace {
   throw new Error(`tsdown: --env.DSH_BUILD_FACE must be host or client, received ${String(value)}`)
 }
 
-function clientLibraryConfig(
+/**
+ * Build one Node-side library config. Exported so a package whose entries
+ * share a workspace module can emit them as independent single-entry bundles
+ * — a two-entry build hoists the shared module into a hash-named chunk that
+ * the exact `files` list cannot publish — without restating the dependency
+ * rules below (see `packages/experimental/server-sidebar/tsdown.config.ts`).
+ * @param id - package name, used in tsdown diagnostics and to read the
+ * manifest's production dependencies.
+ * @param libEntry - emitted JavaScript entries consumed from `lib/types`.
+ * @param overrides - fields replacing the defaults on the returned config.
+ * @returns the tsdown config for those entries.
+ */
+export function clientLibraryConfig(
   id: string,
   libEntry: readonly string[],
   overrides: UserConfig = {},

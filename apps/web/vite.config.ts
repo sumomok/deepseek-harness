@@ -138,8 +138,12 @@ function npmPackageOf(id: string): string | undefined {
 }
 
 export default defineConfig({
-  // Relative asset URLs: preview.html mounts the same output under any base
-  // directory, and the served index resolves identically from the site root.
+  // Relative asset references, so one build serves any deployment path: the
+  // emitted index.html points at ./assets/… instead of /assets/…, which is what
+  // a <base href> injected by the serving process can then govern. A literal
+  // prefix here would be baked into the artifact, and one build could serve only
+  // one deployment; preview.html mounts the same output under any base directory
+  // for the same reason.
   base: './',
   plugins: [rejectStandaloneServe(), clientDocumentTitle(), react(), emitPreviewPage()],
   build: {

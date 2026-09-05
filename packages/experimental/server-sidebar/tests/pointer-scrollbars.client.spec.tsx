@@ -28,8 +28,9 @@ const t: ServerSidebarRootComponentProps['t'] = (key, vars?: Record<string, unkn
 const noPendingInteraction: ServerSidebarRootComponentProps['useSessionPendingInteraction'] =
   selector => selector(new Map())
 
-const emptySessions = (<S,>(sel: (s: { current: undefined; byId: Record<string, never>; phase: 'ready' }) => S): S =>
-  sel({ current: undefined, byId: {}, phase: 'ready' })) as unknown as ServerSidebarRootComponentProps['useSessions']
+const emptySessions = (<S,>(
+  sel: (s: { ids: never[]; current: undefined; byId: Record<string, never>; phase: 'ready' }) => S,
+): S => sel({ ids: [], current: undefined, byId: {}, phase: 'ready' })) as unknown as ServerSidebarRootComponentProps['useSessions']
 
 afterEach(() => {
   cleanup()
@@ -45,16 +46,39 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
     <ServerSidebarRoot
       collapsed={false} width={300}
       t={t}
-      pages={[]} onOpenPage={() => Promise.resolve()}
+      navItems={[]} onOpenNavItem={() => Promise.resolve()}
       onOpenWorkbenchOnLoad={() => Promise.resolve()}
       onOpenWorkbench={() => Promise.resolve()} onOpenWorkflow={() => Promise.resolve()}
-      onSaveWorkflows={() => Promise.resolve()}
-      useStore={(<S,>(sel: (s: { workflows: never[]; workbenchSessionId: undefined; error: undefined }) => S): S =>
-        sel({ workflows: [], workbenchSessionId: undefined, error: undefined }))}
-      actions={{ setServerMenu: vi.fn(), setError: vi.fn() }}
+      onSaveMenu={() => Promise.resolve()}
+      onOpenTemporary={() => Promise.resolve()} onDismissTemporary={() => Promise.resolve()}
+      onSignOut={() => {}}
+      useDisplayName={<S,>(sel: (name: string | undefined) => S): S => sel(undefined)}
+      useStore={(<S,>(sel: (s: {
+        workflows: never[]
+        groups: never[]
+        workbenchSessionId: undefined
+        error: undefined
+        temporaryFailed: false
+        view: { collapsed: Record<string, boolean>; temporaryExpanded: boolean }
+      }) => S): S => sel({
+        workflows: [],
+        groups: [],
+        workbenchSessionId: undefined,
+        error: undefined,
+        temporaryFailed: false,
+        view: { collapsed: {}, temporaryExpanded: false },
+      }))}
+      actions={{
+        setServerMenu: vi.fn(), setError: vi.fn(), setTemporaryFailed: vi.fn(),
+        setGroupCollapsed: vi.fn(), setTemporaryExpanded: vi.fn(),
+      }}
       useSessions={emptySessions}
-      useWorkspaces={((<S,>(sel: (s: { phase: 'ready'; items: readonly object[] }) => S): S => (
-        sel({ phase: 'ready', items: [{}] })
+      useWorkspaces={((<S,>(sel: (s: {
+        phase: 'ready'
+        items: readonly object[]
+        archivedSessionIds: readonly string[]
+      }) => S): S => (
+        sel({ phase: 'ready', items: [{}], archivedSessionIds: [] })
       )) as unknown) as ServerSidebarRootComponentProps['useWorkspaces']}
       useSessionPendingInteraction={noPendingInteraction}
       renderSlot={((_key: string, _owner: unknown, options?: { fallback?: ReactNode }) =>

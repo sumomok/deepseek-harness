@@ -1,0 +1,11 @@
+.table {
+  /* `.table-detail` is `height: 100%` over an `el-table` of the same, so the
+     host has to carry a height of its own or the whole table collapses. */
+  block-size: 20rem;
+  inline-size: 100%;
+}
+
+.busy :global(.column-operation) {
+  pointer-events: none;
+  opacity: 0.45;
+}

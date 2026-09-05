@@ -6,6 +6,7 @@
  * @module @deepseek-ai/dsh-experimental-auth-gate/src/client/browser
  */
 
+import { resolveClientBase } from '@deepseek-ai/dsh-client-connection/client'
 import { ACCESS_TOKEN_STORAGE_KEY } from '../route.ts'
 
 /** The browser operations the gate performs. */
@@ -14,12 +15,17 @@ export interface GateBrowser {
   now(): number
   /** The address the visitor is on, which is also the address they return to after signing in. */
   currentHref(): string
-  /** The stored access token, or `null` when nothing is stored. */
+  /** The stored access token with any `Bearer` scheme removed, or `null` when nothing is stored. */
   readToken(): string | null
   /** The named cookie's value, or `undefined` when the visitor carries no such cookie. */
   readCookie(name: string): string | undefined
-  /** Write the named cookie for the whole origin. */
+  /** Write the named cookie for the deployment path the shell is served under. */
   writeCookie(name: string, value: string): void
+  /**
+   * Remove the named cookie from the deployment path the shell is served under.
+   * @param name - the cookie to remove.
+   */
+  clearCookie(name: string): void
   /** Leave for another address. */
   navigate(url: string): void
   /** Load the current address again. */
@@ -55,7 +61,7 @@ export function readCookieFrom(jar: string, name: string): string | undefined {
 }
 
 /**
- * The cookie line that mirrors one token for the whole origin.
+ * The cookie line that mirrors one token for one deployment.
  *
  * Not `HttpOnly`, deliberately: the token already lives in `localStorage`, where
  * the deployment's login page put it and where any script on the page can read
@@ -65,10 +71,57 @@ export function readCookieFrom(jar: string, name: string): string | undefined {
  * subrequests.
  * @param name - the cookie name.
  * @param value - the token to mirror.
+ * @param path - the deployment prefix the shell is served under (`/` at an
+ * origin root, `/console/` behind a path-prefixed reverse proxy). Every request
+ * this page makes goes to that prefix, and a second harness under another
+ * prefix on the same host receives nothing.
  * @returns the assignment for `document.cookie`.
  */
-export function mirrorCookieLine(name: string, value: string): string {
-  return `${name}=${encodeURIComponent(value)}; Path=/; Secure; SameSite=Lax`
+export function mirrorCookieLine(name: string, value: string, path: string): string {
+  return `${name}=${encodeURIComponent(value)}; Path=${path}; Secure; SameSite=Lax`
+}
+
+/**
+ * The line that removes one mirrored cookie from one deployment.
+ *
+ * `Path`, `Secure`, and `SameSite` repeat {@link mirrorCookieLine} verbatim: a
+ * browser matches a removal against an existing cookie by name, path, and
+ * domain, so a line that differs in the path writes a second, empty cookie and
+ * leaves the mirrored token in place. Both lines therefore take the same
+ * resolved deployment prefix from their one caller.
+ * @param name - the cookie name.
+ * @param path - the deployment prefix the mirror was written under.
+ * @returns the assignment for `document.cookie`.
+ */
+export function clearCookieLine(name: string, path: string): string {
+  return `${name}=; Path=${path}; Secure; SameSite=Lax; Max-Age=0`
+}
+
+/**
+ * One stored value with the login page's `Bearer` scheme removed.
+ *
+ * A contract with the deployment's login page, not a tolerance: that page
+ * stores `"Bearer <jwt>"` under `localStorage.accessToken`, because its own HTTP
+ * client puts the stored value into the `Authorization` header verbatim. Every
+ * place the gate carries a token onward — the mirror cookie the reverse proxy
+ * reads, the token route, the credential the node half's forward spends —
+ * carries the bare JWT, so the scheme is dropped exactly once, here, where a
+ * stored value enters the gate. The wire boundary itself stays strict: the token
+ * route accepts nothing but a three-segment JWT.
+ *
+ * What it tolerates: any casing of the scheme, whitespace before it, and any run
+ * of whitespace between it and the token. Everything else is left as it stands,
+ * a repeated scheme included — a JWT carries no whitespace, so a value still
+ * holding one after this fails `isJwtShaped` and sends the visitor to the login
+ * page, which is a better end than a credential the reverse proxy would refuse.
+ * Applying this to its own result changes nothing for the value the contract
+ * produces, since a bare JWT carries neither scheme nor whitespace.
+ * @param raw - the stored value, or `null` when nothing is stored.
+ * @returns the bare token, unchanged when it carries no scheme, or `null` when
+ * nothing is stored.
+ */
+export function storedToken(raw: string | null): string | null {
+  return raw === null ? null : raw.replace(/^\s*Bearer\s+/i, '')
 }
 
 /**
@@ -76,12 +129,17 @@ export function mirrorCookieLine(name: string, value: string): string {
  * @returns the operations bound to `window`, `document`, and `localStorage`.
  */
 export function windowGateBrowser(): GateBrowser {
+  // The deployment prefix this shell is served under: the widest path every
+  // request from this page still carries, and the narrowest one the mirror may
+  // be scoped to.
+  const cookiePath = new URL(resolveClientBase()).pathname
   return {
     now: () => Date.now(),
     currentHref: () => location.href,
-    readToken: () => localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY),
+    readToken: () => storedToken(localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)),
     readCookie: name => readCookieFrom(document.cookie, name),
-    writeCookie: (name, value) => { document.cookie = mirrorCookieLine(name, value) },
+    writeCookie: (name, value) => { document.cookie = mirrorCookieLine(name, value, cookiePath) },
+    clearCookie: (name) => { document.cookie = clearCookieLine(name, cookiePath) },
     navigate: (url) => { location.href = url },
     reload: () => { location.reload() },
     onStorageChanged: (listener) => {

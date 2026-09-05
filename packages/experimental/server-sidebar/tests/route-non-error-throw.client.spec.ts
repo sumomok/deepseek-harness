@@ -13,6 +13,7 @@ import { describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import type { IncomingMessage, ServerResponse } from 'node:http'
 import * as ServerSidebar from '../src/index.ts'
+import { SERVER_MENU_ROUTE } from '../src/route.ts'
 
 /** A request whose body is one JSON chunk, with the headers a valid POST needs. */
 function fakeRequest(body: string): IncomingMessage {
@@ -48,9 +49,13 @@ describe('server-sidebar server-menu route: non-Error rejection fallback', () =>
       }),
     } as never)
     ctx.provide('webServer', {
-      register: (route: { handler: typeof handler }) => { handler = route.handler; return () => {} },
+      // This plugin claims two routes; only the server-menu one is under test.
+      register: (route: { path: string; handler: typeof handler }) => {
+        if (route.path === SERVER_MENU_ROUTE) handler = route.handler
+        return () => {}
+      },
     } as never)
-    await ctx.plugin(ServerSidebar).await()
+    await ctx.plugin(ServerSidebar, { displayNameClaim: 'login_uname' }).await()
     expect(handler).toBeDefined()
 
     const { res, status, body } = fakeResponse()

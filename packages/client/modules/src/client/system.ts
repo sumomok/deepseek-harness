@@ -10,7 +10,11 @@ import type {
   ClientModuleSystemOptions,
 } from './manifest.ts'
 
-/** Default bundle-load hook: same-origin external classic script. */
+/**
+ * Default bundle-load hook: same-origin external classic script. The graph's
+ * url is relative, so the browser resolves it against the document base — the
+ * deployment prefix must not be added a second time here.
+ */
 const defaultLoadBundle = (url: string): Promise<void> => new Promise((resolve, reject) => {
   const el = document.createElement('script')
   el.async = true
