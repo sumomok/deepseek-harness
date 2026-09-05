@@ -38,19 +38,17 @@ async function mount(): Promise<() => Promise<void>> {
 }
 
 describe('client-hmr browser half', () => {
-  it('opens the dev channel under the page deployment prefix and closes it with the fiber', async () => {
-    vi.stubGlobal('location', { origin: 'https://harness.example' })
-    vi.stubGlobal('__DSH_BASE__', '/console/')
+  it('opens the dev channel relative to the page and closes it with the fiber', async () => {
     const dispose = await mount()
-    expect(opened).toEqual(['https://harness.example/console/plugins/events'])
+    expect(opened).toEqual([EVENTS_ENDPOINT.replace(/^\//, '')])
     await dispose()
     expect(closed).toEqual(opened)
   })
 
-  it('opens the dev channel at the page root when nothing declares a prefix', async () => {
-    vi.stubGlobal('location', { origin: 'https://harness.example' })
+  it('names an address a page served under a deployment prefix keeps that prefix on', async () => {
     const dispose = await mount()
-    expect(opened).toEqual([`https://harness.example${EVENTS_ENDPOINT}`])
+    expect(new URL(opened[0] ?? '', 'https://harness.example/console/').href)
+      .toBe(`https://harness.example/console${EVENTS_ENDPOINT}`)
     await dispose()
   })
 })

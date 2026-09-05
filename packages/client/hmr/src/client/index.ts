@@ -63,7 +63,6 @@
  */
 import type { Context } from '@deepseek-ai/cordis'
 import type { Entry, Loader } from '@deepseek-ai/cordis-plugin-loader'
-import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import type { PluginsEventFrame } from '../events.ts'
 import { EVENTS_ENDPOINT, parsePluginsEventFrame } from '../events.ts'
 
@@ -164,9 +163,11 @@ export function apply(ctx: Context): void {
   }
 
   ctx.effect(() => {
-    // EVENTS_ENDPOINT is the path the Host registers; the page resolves it
-    // against its deployment base, which a reverse proxy strips again.
-    const source = new EventSource(clientUrl(EVENTS_ENDPOINT))
+    // EVENTS_ENDPOINT is the route the Host registers, asked for relative: the
+    // browser resolves it against the document base, which is the deployment
+    // prefix a reverse proxy strips again, and a root-absolute path would
+    // replace that prefix instead of extending it.
+    const source = new EventSource(EVENTS_ENDPOINT.replace(/^\/+/, ''))
     source.addEventListener('message', (event: MessageEvent<string>) => {
       let value: unknown
       try {
