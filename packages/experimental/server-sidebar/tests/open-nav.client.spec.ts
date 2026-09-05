@@ -26,11 +26,28 @@ function fakeContext(overrides: {
 }): ClientContext {
   return {
     sessions: {
-      list: { getSnapshot: () => ({ current: overrides.currentSessionId }) },
+      list: {
+        getSnapshot: () => ({
+          current: overrides.currentSessionId,
+          phase: 'ready' as const,
+          ids: [],
+          byId: {},
+        }),
+      },
       open: vi.fn(),
     },
     workspaces: {
-      list: { getSnapshot: () => ({ recentWorkspaceId: overrides.recentWorkspaceId }) },
+      list: {
+        getSnapshot: () => ({
+          phase: 'ready' as const,
+          archivedSessionIds: [],
+          items: overrides.recentWorkspaceId === undefined
+            ? []
+            : [{ workspaceId: overrides.recentWorkspaceId, path: '/workspace', sessionIds: [], createdAt: '2026-01-01T00:00:00.000Z' }],
+        }),
+      },
+    },
+    uiWorkspace: {
       connectWorkspace: overrides.connectWorkspace ?? (() => Promise.resolve('new-session')),
     },
     remote: {
