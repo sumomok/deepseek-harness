@@ -1,11 +1,31 @@
+---
+description: "Two credentialed reads of a deployment's own data backend — one page of a resource model's rows and one model's attribute names — performed with the token of the person using that deployment; for the composition that wires the harness to a business console's API and the maintainers of that seam."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-biz-backend
 
 English | [中文](README.zh.md)
+
+## Summary
 
 `ctx.bizBackend`: two reads of a deployment's own data backend, performed with the access token of the person using that deployment. A deployment that issues tokens usually also serves its own data — a person opening a resource list in its web console sends one request for the model's attribute names and another for a page of its rows, both carrying that person's token — and this package makes those same two requests from inside the harness process.
 
 Host-only, and it holds no credential of its own. Whoever installs the service passes the token in by reference, so the token stays in that package's closure and is never named on the context.
 
+## Table of Contents
+
+- [Installing the service](#installing-the-service)
+- [The two reads](#the-two-reads)
+- [How the credential is spent](#how-the-credential-is-spent)
+- [Nothing throws](#nothing-throws)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="installing-the-service"></a>
 ## Installing the service
 
 The service is constructed rather than composed: there is no plugin row, because the row that has the visitor's token is the only one that may create it.
@@ -25,6 +45,7 @@ In this fork that caller is [`dsh-experimental-auth-gate`](../auth-gate/README.m
 
 `upstream` must be an absolute `http(s)` address with no query string, fragment, or credentials of its own, and a path ending in `/`. That path is the deployment's API prefix, which is the frontend's own `VUE_APP_BASE_URL`: a standard install builds `/ini-server/`, and an install built without one publishes at the origin root. Every read is joined onto the base by keeping all of it and appending the service path, never by resolving one address against another — a resolve would drop the API prefix the moment the appended half began with `/`, and the request would land at the server root instead. The caller checks the base at load, because an address refused here would be refused once per read instead of once per composition.
 
+<a id="the-two-reads"></a>
 ## The two reads
 
 | Method | Reads |
@@ -40,10 +61,12 @@ Defaulting happens in one explicit step between the request a caller states and 
 
 These reads are the deployment's own two, minus the three its web page adds for itself: no cache-busting query parameter, no expansion of the browser's stored profile into request headers, and no activity record posted afterwards — writing one would put an operation into the deployment's audit trail that its user never performed.
 
+<a id="how-the-credential-is-spent"></a>
 ## How the credential is spent
 
 Both `Authorization` and `CertificationToken` carry `Bearer <token>`: the same bytes the deployment's own page sends, which stores `"Bearer <jwt>"` and puts the stored value into both headers verbatim, while the caller holds the bare JWT. `CertificationToken` is simply how this backend reads the token; it is not a second credential. Nothing else that identifies the browser goes out — no cookie, and no header derived from anything but the token itself.
 
+<a id="nothing-throws"></a>
 ## Nothing throws
 
 Every call answers with its result or with one member of a closed failure union: `unauthenticated` (no token is held, and no request was made), `refused` (the backend refused the credential itself), `rejected` (the backend answered, and its answer was no), `unreachable` (no answer this seam could read — the request never went out, never arrived, or came back as something else). A consumer switches on the tag and ends in `assertNever`, so a member added later fails its build rather than falling through.
@@ -68,3 +91,13 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **Every row in the composition can use the service.** `ctx.bizBackend` is named on the context, so any plugin loaded beside the one that constructed it can read this deployment's data as the signed-in visitor. The narrowness of the two methods is the whole of the boundary; who may call them is the composition's decision, and a third-party plugin declares no approval gate by default. The token itself stays out of reach — it is held in the caller's closure and published as no service.
 - **Reads are what this seam has.** There is no create, update, or delete, and adding one is not a matter of another method: a write spends a person's credential on a change to their own system, which needs its own consent question and its own record, and neither exists here.
 - **Not covered by an assembled snapshot** — the service is exercised by this package's own specs and, end to end, by the Playwright scenario in `apps/web/tests/component-surface-datasource.e2e.ts` against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

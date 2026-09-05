@@ -1,11 +1,31 @@
+---
+description: "通过往外壳首页注入一行 `<base href>` 和一个 `__DSH_BASE__` 全局量，告诉浏览器这个 dsh 进程被发布在哪个路径前缀下；面向与其他产品共用一个域名、靠路径区分的部署。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-server-base
 
 [English](README.md) | 中文
+
+## 概述
 
 告诉浏览器：这个 dsh 进程被挂在哪个路径前缀下。进程自己无从知道这件事——web 服务器不读任何转发前缀头，它拥有的每一条路由（`/api`、`/plugins`、外壳静态产物、各插件自己的路径）都以根绝对形式注册。因此，把外壳发布在 `/console/` 下的反向代理必须在请求抵达之前把前缀剥掉；而回给浏览器的，又是一个会重新从 origin 根去寻址上述全部路由的页面。本包补上浏览器这一半。
 
 它为一种拿不到独立域名的部署而存在：一个域名后面并列着若干产品，dsh 是其中之一，彼此靠路径区分。挂在 origin 根的进程不需要这一行。
 
+## 目录
+
+- [它注入什么](#what-it-injects)
+- [配置](#configuration)
+- [组合方式](#composition)
+- [代理那一半](#the-proxy-half)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="what-it-injects"></a>
 ## 它注入什么
 
 在 `webserver/index-inject` 上注入两行，两行携带的都是配置里的 `basePath`，别无其他：
@@ -19,12 +39,14 @@
 
 要让 `<base>` 有东西可管辖，外壳自身的资源引用必须是相对的：`apps/web/vite.config.ts` 设了 `base: './'`，这才使构建出的 `index.html` 引用 `./assets/…` 而不是 `/assets/…`。若改设 `base: '/console/'`，前缀会被烙进产物，一份构建就只能服务一个部署。
 
+<a id="configuration"></a>
 ## 配置
 
 `basePath` 是**浏览器**寻址时看到的那个路径，首尾斜杠都要带——挂在 `location /console/` 后面就是 `/console/`，挂在 origin 根就是 `/`。它不是服务端的路由前缀。
 
 任何不可用的写法都在加载期失败，否则症状只会是一个白页加每个资源一条 404，而没有任何一句话说明哪里错了：不以 `/` 开头的值、不以 `/` 结尾的值、带查询串或带片段的值、含空路径段（`//`）的值，以及含普通 URL 路径之外字符的值。最后那条检查同时也是让该值可以不经转义直接放进元素带引号属性的依据——`"`、`<`、`>`、`&` 都在被接受的字符集之外。
 
+<a id="composition"></a>
 ## 组合方式
 
 本包不在任何发布 bundle 里。`overlay/base-path.patch.yml` 把这一行插到任意界面之上：
@@ -39,6 +61,7 @@
 
 用 `dsh --profile web --patch <path>` 应用。每个包都必须能从 profile 目录解析到，对仓外插件而言这意味着 `dsh plugin --profile web add <path>` 或等价的链接——发布 bundle 不得声明实验性包。
 
+<a id="the-proxy-half"></a>
 ## 代理那一半
 
 `deploy/nginx.console.conf` 是配套的反向代理样例：`location /console/` 与 `proxy_pass http://127.0.0.1:3080/`，两处的尾斜杠正是执行剥离的部分；`Host` 原样透传；两条事件套接字所需的 WebSocket 升级头；以及为流式回答关掉的缓冲。它是为一台不含 `ngx_http_rewrite_module`、但编进了 `ngx_http_auth_request_module` 的 nginx 写的，因此不用 `rewrite`、`return`、`if`、`set`，并且只发布带尾斜杠的那种前缀写法：那里没有任何手段能把 `/console` 重定向到 `/console/`，而在不带尾斜杠的地址上服务出去的文档落在 `Path=/console/` 之外——页面正是用这个 path 写镜像 cookie 的，浏览器于是一个 cookie 都不会带回来。所有对外发布的链接都带尾斜杠。
@@ -72,3 +95,13 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **退出不一定够得着进程。** auth-gate 的顺序是先 POST `/auth-gate/logout`，好让 node 半边不再花一枚访客已经没有的凭据，而这个请求带的正是这道闸如今要校验、而不只是拿来路由的那枚镜像 cookie。在交还的那枚 token 恰好被这道闸拒绝的路径上，nginx 会对这个 POST 答 401，进程于是继续攥着那枚死 token，直到进程结束或有更新的一枚被投递进来。访客本人照样能走掉，因为后面几步无论前一步结果如何都会执行。
 - **离开页面的 URL 不在覆盖范围内。** `<base>` 与 `__DSH_BASE__` 管辖的是页面自己解析的 URL；交给别处的东西——由浏览器下载管理器抓取的下载、被复制到另一个标签页的地址——必须本来就是绝对的。那些调用点自己构造绝对 URL，本包不检查它们。
 - **没有装配级快照覆盖**——证据是本包针对已服务 index 的真实组合测试；快照泳道回放的是发布组合，而发布组合不包含实验性行。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

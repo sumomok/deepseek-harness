@@ -1,6 +1,13 @@
+---
+description: "The React renderers behind the content panel's `component` kind and the catalog-id table that names them, including the Vue 2 originals drawn through a bridge; for the placement package pinning its catalog against this table and whoever maintains those components."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-component-kit
 
 English | [中文](README.zh.md)
+
+## Summary
 
 The component row behind the content panel's `component` kind. It ships React renderers and the table that names them, and nothing else: it declares no slot, reads no configuration, serves no route, and knows no layout. A placement package decides where a block is drawn; this row decides what a block looks like.
 
@@ -8,12 +15,28 @@ The node half is an empty plugin. It exists so the row appears in the host `cord
 
 Two kinds of component live here. One is written in this repository as ordinary React and depends on nothing else. The other is a Vue 2 component compiled outside it, drawn through a bridge onto a Vue runtime another row owns. **How the originals get here**, below, records the whole of what that costs.
 
+## Table of Contents
+
+- [The renderer table](#the-renderer-table)
+- [What a renderer receives](#what-a-renderer-receives)
+- [Copy](#copy)
+- [Components](#components)
+- [How the originals get here](#how-the-originals-get-here)
+- [Composition](#composition)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="the-renderer-table"></a>
 ## The renderer table
 
 `COMPONENT_RENDERERS` maps a catalog id to the component that draws it. The keys are literal ids, so a placement package whose catalog derives a union of its own ids pins the table against that union with one `satisfies Record<CatalogId, ComponentRenderer>`, and a catalog entry this row has no renderer for becomes a compile error there rather than a blank block at runtime. The pin holds only where that union is derived from the catalog itself; a union restated by hand beside the catalog pins nothing. `ComponentSurface.tsx` in `component-surface` is the pin as written, over the `CatalogId` its `COMPONENT_CATALOG` derives.
 
 Reaching the table is a value import across packages, so the consumer declares `dsh.client.external: ['@deepseek-ai/dsh-experimental-component-kit/client']` and the loader answers the require from this row's own bundle.
 
+<a id="what-a-renderer-receives"></a>
 ## What a renderer receives
 
 Every component in the row takes the same six props (`ComponentRendererProps`): `nodeId`, the block's identity within one placement; `props`, the block's properties as the placement package's schema accepted them; `onAction(actionId, payload)`, where a user gesture goes, carrying the action's id and the properties that action declares; `onOutput(outputId, value)`, where the block's own current reading of itself goes, for the blocks beside it to take a property from; `state`, how far the gesture this block last reported got (`idle` / `sending` / `sent` / `queued` / `refused`); and `t`, this row's translate.
@@ -26,12 +49,14 @@ That is the whole contract. A renderer holds no ctx, subscribes to nothing, keep
 
 Properties arrive typed as `Record<string, unknown>` because one table type serves every component, so each renderer narrows the properties it declared. The narrowing is not a defense against the caller: the block was already checked against the catalog schema that admitted it.
 
+<a id="copy"></a>
 ## Copy
 
 The row owns one dictionary namespace, `componentKit`, and the placement package's seat declares it at its own registration rather than adding a second namespace — which components exist and what they publish is this row's fact, so the button row's accessible name, the sentence shown in place of a component this row does not have, and the line a block draws while it is still waiting on the block that feeds it all belong here. Everything else a block displays is the caller's text.
 
 The four sentences a block says about the gesture it last reported are the row's own `action.*`, drawn by one shared line under every interactive component: a renderer is told its state rather than remembering, so all of them say the same thing about the same state. `el.confirm-bar` keeps a second copy of those sentences under `confirmBar.*`, because a bar answers one question once and says so in its own words.
 
+<a id="components"></a>
 ## Components
 
 - **`el.confirm-bar`** — a short prompt over a row of buttons, for putting one decision in front of the user. Properties: `title`, `message`, and `buttons` (each `{ id, label, tone? }`, tone one of `primary` / `default` / `danger`). Pressing a button reports the `press` action, whose payload is the pressed button's `buttonId`.
@@ -52,6 +77,7 @@ The component emits nothing at all, so what the user built is read off its mount
 
 - **`el.metric`** (`TcProcessBallRenderer`) — one number over a caption, drawn as a ball filled to that number. Properties: `process` (the number, and its fill level read as a percentage), `text`, `size` (diameter in pixels), `background`, `borderColor`, `pointColor`, and `isPointShow`. It reports nothing and publishes nothing, so the action sink, the output sink and the action state go unread.
 
+<a id="how-the-originals-get-here"></a>
 ## How the originals get here
 
 Some of these components were not written here. `@sumomok/toy-surface-kit` is a build of Vue 2 components lifted out of three source libraries a customer maintains. It is compiled in a repository of its own and arrives as `vendor/sumomok-toy-surface-kit-0.3.1.tgz`, declared `"@sumomok/toy-surface-kit": "file:./vendor/sumomok-toy-surface-kit-0.3.1.tgz"`. Rewriting them in React was considered and rejected: 191 of those libraries' 354 single-file components address element-ui components directly and 153 rules reach into their markup, so a rewrite would restart a bug history the customer has already paid for.
@@ -72,6 +98,7 @@ Some of these components were not written here. `@sumomok/toy-surface-kit` is a 
 
 **Three red lines.** No `window.Vue` on the page, ever — element-ui's UMD build installs itself onto whatever it finds there, which would register its components on a runtime this row does not own and stop reactivity with no error and no warning. No `el-dialog`, `el-message`, or `el-notification` in a block: their elements sit outside the host and nothing here can close them. The poppers that are allowed — a select's dropdown, a tooltip, a popover, a date picker's panel — are a closed table in the bridge, swept when a placement package says the block is off screen, and a component drawing a fifth kind of popper is added to that table in the same change. And every record handed to a Vue component goes through `freezeDeep` first, because Vue observes what it is given however deep — an observed array has its prototype swapped, which would reach back into data React owns. A component's listener map is the one thing that cannot be frozen: Vue rewrites the object it is given, installing an invoker over each handler, so the bridge hands it a copy and the caller's own map is left as it was written.
 
+<a id="composition"></a>
 ## Composition
 
 This row is drawn by [`component-surface`](../component-surface/README.md), whose overlay composes both. Neither is part of any shipped bundle.
@@ -108,3 +135,13 @@ None; this package neither assembles nor sends a provider request.
 - **`PopupManager.nextZIndex()` only ever counts up** — element-ui hands each new popper the next z-index from 300 and never resets the counter, so a session that opens roughly seven hundred of them climbs past the approval modal at 1000 and can cover it. Hiding a block closes the poppers it opened; nothing lowers the counter. The fix is the harness raising its own layers well above element-ui's range.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 - **The one-Vue assertion over the built bundle does not run on CI** — `tests/client-bundle-vue.client.spec.ts` reads `lib/client.js`; on a pull request the only job that runs `vitest` over this package is the coverage job, which does not build, so it skips there. The master lane, `linux-primary`, runs its gates serially with the build ordered after the coverage gate, so the artifact is absent there too. It runs locally and in any lane that builds first, and the repository has no gate that reads a built client bundle's text — the two other specs of this kind, in `client/ui-trajectory` and `session/session-persistence-sqlite`, skip on CI for the same reason. What CI does cover is the consequence: the Playwright scenario draws a vendored component against the shipped bundles. The trigger for moving all three onto a gate is the first one that reads a built client bundle.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

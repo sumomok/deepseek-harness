@@ -1,6 +1,13 @@
+---
+description: "`show_component`: the agent places a block of interface — a prompt with buttons, a record, a table, a filter row, one number — in the content panel from a catalog this package owns, and a user's press comes back through the `/component-action` command; for deployments configuring their own views and the maintainers of that surface."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-component-surface
 
 English | [中文](README.zh.md)
+
+## Summary
 
 `show_component`: the agent places a block of interface — a prompt with a row of buttons, the details of one record, a table of them, a row of filter conditions, one number — in the content panel beside the conversation, chosen from a catalog this package owns and judged against that catalog before anything is drawn.
 
@@ -12,12 +19,34 @@ The same column also takes blocks nobody asked the model for: a deployment write
 
 Nothing the agent does appends a session event. A call's record is the `tool/call` the loop already writes and an action's is the `command/run` the command registry already writes, so both directions replay from the log the agent actually wrote. The one event this package writes is the user's own: the click that opens a configured view.
 
+## Table of Contents
+
+- [Composition](#composition)
+- [Configuration](#configuration)
+- [Views the deployment writes](#views-the-deployment-writes)
+- [Rows read from the deployment's own data](#rows-read-from-the-deployments-own-data)
+- [The catalog](#the-catalog)
+- [What a call is judged against](#what-a-call-is-judged-against)
+- [How the blocks are arranged](#how-the-blocks-are-arranged)
+- [What one block reads from another](#what-one-block-reads-from-another)
+- [One entry, several calls](#one-entry-several-calls)
+- [What comes back](#what-comes-back)
+- [Trust](#trust)
+- [The seat](#the-seat)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="composition"></a>
 ## Composition
 
 [`overlay/component-surface.patch.yml`](overlay/component-surface.patch.yml) inserts this row and the component row over the service-line console composition, which already carries the content surface and the content column. The overlay's own comments carry the launch line.
 
 The row activates in three independent pieces. The tool needs a tool runtime and nothing else, so a composition with no content column still offers it and still records its calls. The extractor needs the content-surface router; without it the calls are in the log and no column reads them, which is exactly what a composition growing a column later wants. The return channel needs all three of the command registry, that router, and the projection registry the entry is read out of — with no column there is nothing on screen for an action to name, so the command is absent rather than answering every gesture with a refusal.
 
+<a id="configuration"></a>
 ## Configuration
 
 Four fields. `views` and `homeView` are about blocks a person wrote rather than about anything the model does, and the next section is their whole documentation. `dataSource` and `dataDefaultPageSize` are about rows the model asks this deployment for rather than writes out, and the section after that is theirs. Everything else is fixed.
@@ -26,6 +55,7 @@ The numbers a deployment might want to move — the spec byte ceiling, the node 
 
 An action's report grade is not a ceiling and is not configuration either. It says what a gesture means — a pressed confirmation is the answer the agent stopped for — so it is declared beside the action in the catalog, and a deployment that moved it would be changing what the agent is told happened.
 
+<a id="views-the-deployment-writes"></a>
 ## Views the deployment writes
 
 A view is the same three values a `show_component` call carries — an entry id, a short title, and a spec — written by a person in `cordis.yml` instead of by the model in a tool call. That is what lets one entry kind, one extractor and one seat serve both: what differs is who wrote the spec, not what it is.
@@ -77,6 +107,7 @@ Two registrations exist only where views do. `GET /component-surface/views` answ
 
 `content-component/shown` is the one session event this package writes. It is Log-only — nothing about it reaches a model request, because what the model is told about the column is what the tool it called said — and it carries the whole spec rather than the view id, so a view the deployment later edits or drops still replays as what the user actually saw. The entry is folded out of it by the extractor that folds a call, under the entry id the view owns.
 
+<a id="rows-read-from-the-deployments-own-data"></a>
 ## Rows read from the deployment's own data
 
 Off by default. A deployment sets `dataSource: true`, and the row then waits for both of the seams a read needs before offering the tool at all: `bizBackend`, which [`auth-gate`](../auth-gate/README.md) registers when it is configured with a `bizUpstream`, and `approval`. With either missing, `show_component` is not registered — a description promising a parameter with nothing behind it is worse than a row that never loaded.
@@ -144,6 +175,7 @@ Every table gets a paragraph and its own identifier line, however many there are
 
 The model is told the same counts and attribute names and nothing out of any row.
 
+<a id="the-catalog"></a>
 ## The catalog
 
 One tool for every component, rather than one tool per component. Which blocks exist is a deployment's catalog, and a catalog is cheaper to state once inside a description than to spread across a growing tool list the model reads on every request. The catalog is a static table in `component-call.ts`; replace it with a registered seam when a package this one does not own needs to contribute a component.
@@ -174,6 +206,7 @@ What a schema cannot say is what a string *means*. A component that reads one as
 
 A caller-keyed object declares its own readings rather than sharing its component's, because its keys are data: `color` is a configuration key of a cell renderer and also a perfectly ordinary column of somebody's records, and a rule keyed by name at the component level would tighten both.
 
+<a id="what-a-call-is-judged-against"></a>
 ## What a call is judged against
 
 In order, and each step can end the call: the entry `id` and the `title`; the spec's nesting depth; its size in bytes; the properties a spec and a node may carry at all; every node's id, its uniqueness within the call, and the component it names; every property of that component; then the layout over those nodes; and last the properties one node reads from another.
@@ -186,6 +219,7 @@ Depth is measured before size because both walk the document and only the depth 
 
 Every refusal names the offending parameter path, because that path is the only channel the model has: a call carrying twelve nodes gets one sentence back, and unless the sentence says `spec.nodes[3].props.buttons[1].id` or `spec.layout.children[1].children[0].id` the next call is a guess. A call naming a component the deployment does not have gets the whole catalog back rather than a count, so the correction needs no extra round trip.
 
+<a id="how-the-blocks-are-arranged"></a>
 ## How the blocks are arranged
 
 A spec with no `layout` is the flat reading it always had: the blocks drawn top to bottom in the order the call wrote them, which is what keeps every spec written before layouts existed drawable. A `layout` is a tree of stacks, and a stack is the only primitive there is — a direction, one of three gaps, whether it wraps, and for each child placed in it the share of the stack it takes. A child is a block or a further stack, and both ask for their share under the same name: what divides a row is its children, whichever kind they are. The outermost stack asks for none: it fills the entry on its own, so a share written on it would divide nothing, and it is refused by name rather than accepted and ignored. Nesting expresses every arrangement of rectangles a panel needs, and the two candidates for a second primitive are not ones: a grid is that same nesting, and a tab strip is what the content column already does with entries of its own.
@@ -196,6 +230,7 @@ The ceilings are twelve nodes, twelve children per stack, and four stacks open a
 
 The host judges shapes and ceilings and understands nothing else about a layout. What a stack looks like is the seat's, which is why the direction and the gaps are words rather than measurements.
 
+<a id="what-one-block-reads-from-another"></a>
 ## What one block reads from another
 
 A property may be written `{"$from": "node:<id>.<output>[<index>]"}` instead of a value, and then it stands for whatever that block currently reports. The reference is the whole vocabulary: one node, one of its declared outputs, optionally one item of it. No expression, no condition, no loop — the value is assembled in the seat, inside the shell's own origin, and a language evaluated there is a template engine nobody asked for.
@@ -212,6 +247,7 @@ Values therefore travel one way. Every component that reports something reads it
 
 A binding is a whole property's value or nothing. `{"$from": …}` inside a list item or a nested object is refused where it sits, and the reason is that the alternative is a walk over every value looking for references — in the seat, on every redraw.
 
+<a id="one-entry-several-calls"></a>
 ## One entry, several calls
 
 A call owns the entry its `id` names, written in the same alphabet as a node id — letters, digits, underscores and hyphens. Calling again with the same id replaces what that entry shows — both calls stay in the transcript, because the log is what happened, but the column shows one block under one tab in its switcher strip. A different id adds a second entry beside it.
@@ -222,6 +258,7 @@ A call the tool refused is still in the log — the loop records the call, not i
 
 Resolving a stored record consults no catalog. The catalog is a build-time table that grows and changes, a persisted checkpoint written before a component was renamed must still resolve, and it is the seat — which knows which renderers it actually has — that reports a block it cannot draw. What resolving does check is that the record carries the two fields it reads. A checkpoint is plain JSON whose declared type is a claim, and one throw there would cost the column not this entry but every kind's entries at once, so a record this build cannot read resolves into an entry the seat draws its notice for.
 
+<a id="what-comes-back"></a>
 ## What comes back
 
 A block reports what the user did by running one command: `/component-action <json>`, whose whole input is a single JSON object — `entryId`, `componentId`, `actionId`, `nodeId`, and a `payload` carrying the properties that action declares and nothing else. A document carrying any other property, at either level, is refused whole rather than trimmed.
@@ -292,6 +329,7 @@ Three turns per agent. A user drumming on a button would otherwise be an unbound
 
 Not here. This row places no write tool and requests no approval of its own — a command handler can run with no turn open, and an approval request throws there. The gate is the deployment's own `tools/pre-execute` policy over whatever write tool the model reaches for in the turn a press opened, and that is what the composition test pins: an existing write tool the policy asks about does not run.
 
+<a id="trust"></a>
 ## Trust
 
 `spec` is model output that becomes a rendered block inside the shell's own origin. It is bounded rather than trusted, and the first bound is the property schema: no member of that union can express markup or a function body, so a model reaching for a `formatter` or an `onClick` is refused by the absence of a property to write it into rather than by a sanitizer that recognized a function body. A property the component does not declare is refused outright rather than dropped, so a model writing one learns that it did, and the refusal names it.
@@ -302,6 +340,7 @@ The browser seat re-runs the identical judgement over the payload arriving on th
 
 What the pass answers with is frozen, deeply. A renderer may draw a block with a Vue 2 component, and Vue makes a component's props reactive by rewriting them property by property — which would leave the seat's own memo and the Vue tree disagreeing about what changed. Vue walks past a frozen value, so freezing on the way out is what settles it, for the React renderers too: what a renderer is lent, it may read and may not write.
 
+<a id="the-seat"></a>
 ## The seat
 
 The browser half is one keyed registration: `component` of `content.surface.kind`, the content column's open key domain. The seat draws the entry's title over the blocks the call placed, arranged the way the spec's `layout` says and stacked top to bottom in call order when it says nothing, and draws nothing while another kind holds the column, which reaches it as no entry at all. What `visibility` keeps mounted there is the column's wrapper for the kind, not the blocks, whose DOM goes with the draw.
@@ -400,3 +439,13 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **A stored entry carries its whole spec** — the column's projection keeps the validated spec per live entry, so it rides the wire value and the persisted checkpoint. The byte ceiling is what bounds it.
 - **The invariant reports through the dispatch path only** — `Session.append` reports a throwing listener to the logger and carries on, so the live audit reaches a caller only where a committed event is dispatched through the context. The startup audit over loaded sessions is unaffected.
 - **The drawn block is not covered by an assembled snapshot** — the tool's whole model-visible surface, the catalog spliced into its description and the result line included, is pinned by the [`examples/content-console`](../../../examples/content-console/README.md) lane, which composes this row for real and runs a call end to end. What the seat then draws is a Playwright scenario against a real console composition.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

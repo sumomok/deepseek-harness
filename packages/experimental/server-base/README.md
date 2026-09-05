@@ -1,11 +1,31 @@
+---
+description: "Tells the browser which path prefix a dsh process is published under, by injecting a `<base href>` row and a `__DSH_BASE__` global into the shell's index; for a deployment that shares one domain with other products and separates them by path."
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-server-base
 
 English | [中文](README.zh.md)
+
+## Summary
 
 Tells the browser which path prefix a dsh process is served under. A process never learns that by itself: the web server reads no forwarded-prefix header, and every route it owns — `/api`, `/plugins`, the shell's static dist, each plugin's own path — is registered root-absolute. A reverse proxy publishing the shell at `/console/` therefore has to strip that prefix before the request arrives, and what comes back is a page that would address all of those routes from the origin root again. This package closes the browser half.
 
 It exists for the deployment that cannot have a hostname of its own: several products behind one domain, dsh among them, separated by path. A process at the origin root does not need this row.
 
+## Table of Contents
+
+- [What it injects](#what-it-injects)
+- [Configuration](#configuration)
+- [Composition](#composition)
+- [The proxy half](#the-proxy-half)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [Dev Note](#dev-note)
+
+-----
+
+<a id="what-it-injects"></a>
 ## What it injects
 
 Two rows on `webserver/index-inject`, both carrying the configured `basePath` and nothing else:
@@ -19,12 +39,14 @@ The listener is registered with `prepend`, which is what puts the `<base>` row f
 
 For the `<base>` element to have anything to act on, the shell's own asset references must be relative: `apps/web/vite.config.ts` sets `base: './'`, which is what makes the built `index.html` reference `./assets/…` instead of `/assets/…`. Building with `base: '/console/'` instead would bake one prefix into the artifact, and one build could then serve only one deployment.
 
+<a id="configuration"></a>
 ## Configuration
 
 `basePath` is the path as the **browser** addresses it, leading and trailing slash included — `/console/` behind `location /console/`, `/` at the origin root. It is not a server-side route prefix.
 
 Every unusable form fails at load, because the symptom otherwise is a blank page with a 404 for each asset and no statement of what was wrong: a value that does not start with `/`, one that does not end with `/`, one carrying a query string or a fragment, one with an empty path segment (`//`), and one carrying characters outside a plain URL path. That last check is also what makes the value safe to place in the element's quoted attribute with no escaping step in between — `"`, `<`, `>`, and `&` are outside the accepted set.
 
+<a id="composition"></a>
 ## Composition
 
 This package is in no shipped bundle. `overlay/base-path.patch.yml` inserts the row over any surface:
@@ -39,6 +61,7 @@ This package is in no shipped bundle. `overlay/base-path.patch.yml` inserts the 
 
 `dsh --profile web --patch <path>` applies it. Every package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
 
+<a id="the-proxy-half"></a>
 ## The proxy half
 
 `deploy/nginx.console.conf` is the matching reverse-proxy sample: `location /console/` and `proxy_pass http://127.0.0.1:3080/`, both with the trailing slash that performs the stripping, `Host` forwarded unchanged, the WebSocket upgrade headers for the two event sockets, and buffering off for streamed answers. It is written for an nginx built without `ngx_http_rewrite_module` but with `ngx_http_auth_request_module`, so it uses no `rewrite`, `return`, `if`, or `set`, and it publishes only the slash-terminated prefix: nothing available there can redirect `/console` to `/console/`, and a document served at the slashless address sits outside the `Path=/console/` a page writes its mirror cookie with, so the browser sends none back. Every link published outward carries the trailing slash.
@@ -72,3 +95,13 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **Sign-out cannot always reach the process.** auth-gate's sequence posts `/auth-gate/logout` first, so the node half stops spending a credential the visitor no longer has, and that request carries the mirror cookie this gate validates rather than merely routes by. On the paths that surrender a token the gate refuses, nginx answers that post 401 and the process keeps the dead token until it ends or a newer one is posted. The visitor still leaves, because the steps after it run whatever the one before did.
 - **A URL leaving the page is not covered.** `<base>` and `__DSH_BASE__` govern URLs the page resolves; anything handed to something else — a download the browser's download manager fetches, an address copied into another tab — must already be absolute. Those call sites build absolute URLs themselves and this package does not check them.
 - **Not covered by an assembled snapshot** — the evidence is this package's real-composition suite against a served index; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
+
+<a id="dev-note"></a>
+### Dev Note
+
+<details>
+<summary>Working context for maintainers — click to expand</summary>
+
+None.
+
+</details>

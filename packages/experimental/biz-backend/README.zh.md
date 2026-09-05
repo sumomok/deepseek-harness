@@ -1,11 +1,31 @@
+---
+description: "对本部署自己的数据后端的两次带凭据读取——一个资源模型的一页行，以及一个模型的属性名——用的是正在使用这个部署的那个人的令牌；面向把 harness 接到业务控制台 API 上的组合方与这条缝的维护者。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-biz-backend
 
 [English](README.md) | 中文
+
+## 概述
 
 `ctx.bizBackend`：对本部署自己的数据后端的两次读取，用的是正在使用这个部署的那个人的访问令牌。发放令牌的部署通常也提供自己的数据——一个人在它的 Web 控制台里打开一份资源清单时，会发出一次取该模型属性名的请求和一次取一页行的请求，两者都带着这个人的令牌——本包就是在 harness 进程里发出同样这两条请求。
 
 只在 Host 侧，且自己不持有任何凭据。安装这个服务的一方按引用把令牌传进来，于是令牌留在那个包的闭包里，从不在上下文上具名。
 
+## 目录
+
+- [怎么安装这个服务](#installing-the-service)
+- [这两次读取](#the-two-reads)
+- [这枚凭据怎么花](#how-the-credential-is-spent)
+- [什么都不抛](#nothing-throws)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="installing-the-service"></a>
 ## 怎么安装这个服务
 
 这个服务是被构造出来的，不是被组合进来的：没有插件行，因为只有握着访客令牌的那一行才可以创建它。
@@ -25,6 +45,7 @@ new BizBackendService(ctx, upstream, credential)
 
 `upstream` 必须是绝对的 `http(s)` 地址，不带查询串、片段或它自己的凭据，且路径以 `/` 结尾。那段路径就是本部署的 API 前缀，也就是前端自己的 `VUE_APP_BASE_URL`：标准安装编译出 `/ini-server/`，而编译时没有前缀的安装把 API 发布在源站根上。每次读取都是把基址整段保留、再把服务路径接在后面拼出来的，绝不是拿一个地址去解析另一个——一旦被接的那半以 `/` 开头，解析就会把 API 前缀整段丢掉，请求于是落到服务器根上。基址由调用方在加载期检查，因为在这里被拒的地址会变成每读一次被拒一次，而不是每组合一次被拒一次。
 
+<a id="the-two-reads"></a>
 ## 这两次读取
 
 | 方法 | 读到什么 |
@@ -40,10 +61,12 @@ new BizBackendService(ctx, upstream, credential)
 
 这两次读取就是本部署自己的那两次，只去掉它的网页为自己加的三样：不带防缓存的查询参数，不把浏览器存的用户资料摊成请求头，事后也不补一条操作记录——补一条等于往本部署的审计轨迹里写一次它的用户从没做过的操作。
 
+<a id="how-the-credential-is-spent"></a>
 ## 这枚凭据怎么花
 
 `Authorization` 与 `CertificationToken` 两个头都写 `Bearer <token>`：与本部署自己的网页发出的字节相同——那个页面存的是 `"Bearer <jwt>"`，并把存储原值逐字塞进这两个头，而调用方持有的是裸 JWT。`CertificationToken` 只是这个后端读取令牌的方式，不是第二枚凭据。别的能标识浏览器的东西一概不发——不带 cookie，也没有任何由令牌之外的东西派生出来的请求头。
 
+<a id="nothing-throws"></a>
 ## 什么都不抛
 
 每次调用要么给出结果，要么给出一个闭合失败联合里的成员：`unauthenticated`（没有持有令牌，请求根本没发）、`refused`（后端拒的是这枚凭据本身）、`rejected`（后端答了，答的是不行）、`unreachable`（这条缝读不到答复——请求没发出去、没到达，或回来的是别的东西）。消费方按标签 `switch` 并以 `assertNever` 收口，于是日后新增的成员会让它的构建失败，而不是从缺口漏过去。
@@ -68,3 +91,13 @@ None, as this package registers no tool, prompt section, or result: it performs 
 - **组合里的每一行都能用这个服务。** `ctx.bizBackend` 在上下文上具名，所以与构造它的那一行一同加载的任何插件，都能以这位已登录访客的身份读本部署的数据。这两个方法之窄就是这条边界的全部；谁可以调用它们是组合的决定，而第三方插件默认不声明任何审批闸。令牌本身仍够不着——它握在调用方的闭包里，没有作为任何服务发布。
 - **这条缝只有读。** 没有新增、修改、删除，加一个也不是再写一个方法的事：一次写入是把一个人的凭据花在改动他自己的系统上，那需要它自己的同意问句和它自己的记录，两样这里都没有。
 - **未被组装快照覆盖** ——本服务由本包自己的用例覆盖，端到端则由 `apps/web/tests/component-surface-datasource.e2e.ts` 里针对真实组合的 Playwright 场景覆盖；快照泳道回放的是出厂组合，那里不组合实验性行。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>

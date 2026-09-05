@@ -1,6 +1,13 @@
+---
+description: "内容面板 `component` 类目背后的 React 渲染器，以及给它们命名的目录 id 表，包含经桥接绘制的 Vue 2 原件；面向拿自己那份目录去钉住这张表的落位包，以及维护这些组件的人。"
+kind: "package-reference"
+---
+
 # @deepseek-ai/dsh-experimental-component-kit
 
 [English](README.md) | 中文
+
+## 概述
 
 内容面板 `component` 类目背后的组件行。它只提供 React 渲染器和给它们命名的表：不声明插槽，不读配置，不提供路由，也不认识任何布局。一块内容画在哪里由落位包决定，画成什么样由这一行决定。
 
@@ -8,12 +15,28 @@ node 半边是空插件。它存在只是为了让这一行出现在宿主 `cord
 
 这里住着两类组件。一类是仓内用普通 React 写的，不依赖别的任何东西；另一类是仓外编译好的 Vue 2 组件，经一层桥挂到另一行拥有的那份 Vue 运行时上。下面的**原件怎么进来**记着为此付出的全部代价。
 
+## 目录
+
+- [渲染器表](#the-renderer-table)
+- [渲染器收到什么](#what-a-renderer-receives)
+- [文案](#copy)
+- [组件清单](#components)
+- [原件怎么进来](#how-the-originals-get-here)
+- [组合](#composition)
+- [Model Experience](#model-experience)
+- [Known Limitations and Deferred Work](#known-limitations-and-deferred-work)
+- [开发备注](#dev-note)
+
+-----
+
+<a id="the-renderer-table"></a>
 ## 渲染器表
 
 `COMPONENT_RENDERERS` 把目录 id 映射到画它的组件。键是字面量 id，因此落位包只要让自己那份目录**派生出** id 的联合类型，再写一句 `satisfies Record<CatalogId, ComponentRenderer>`，就把两张表钉在了一起：目录里有条目而这一行没有对应渲染器，会在那里变成编译错误，而不是运行时的一块空白。钉住的前提是那个联合类型确实从目录派生；在目录旁边手写一份同名联合，什么都钉不住。写好的那一句在 `component-surface` 的 `ComponentSurface.tsx` 里，对着它的 `COMPONENT_CATALOG` 派生出的 `CatalogId`。
 
 取到这张表是一次跨包的值导入，因此消费方声明 `dsh.client.external: ['@deepseek-ai/dsh-experimental-component-kit/client']`，由加载器从这一行自己的产物里答复该 require。
 
+<a id="what-a-renderer-receives"></a>
 ## 渲染器收到什么
 
 这一行里的每个组件都收同样六个 prop（`ComponentRendererProps`）：`nodeId`，该块在一次落位中的身份；`props`，落位包的 schema 已经接受的块属性；`onAction(actionId, payload)`，用户动作的去处，带上动作 id 与该动作声明的那些属性；`onOutput(outputId, value)`，这一块对自己此刻状态的读数的去处，供旁边的块拿去当属性用；`state`，这一块上次上报的手势走到了哪一步（`idle` / `sending` / `sent` / `queued` / `refused`）；以及 `t`，这一行自己的翻译函数。
@@ -26,12 +49,14 @@ node 半边是空插件。它存在只是为了让这一行出现在宿主 `cord
 
 属性的类型是 `Record<string, unknown>`，因为一张表的类型要服务所有组件，所以每个渲染器自己收窄它声明过的属性。这个收窄不是对调用方的防御：这块内容早已按接纳它的目录 schema 校验过了。
 
+<a id="copy"></a>
 ## 文案
 
 这一行拥有一个词典命名空间 `componentKit`，落位包的座位在自己的注册处声明它，而不是再开第二个命名空间——有哪些组件、各自发什么产出是这一行的事实，所以按钮行的无障碍名称、「这一行没有这个组件」时显示的那句话，以及一块内容在等上游那块时画的那行字，都归这里。块上显示的其余文字全是调用方的。
 
 一块内容关于它上次上报的手势要说的那四句话，是这一行自己的 `action.*`，由一句共用的行画在每个可交互组件下面：渲染器的状态是被告知的、不是自己记的，所以它们对同一个状态说的是同一句话。`el.confirm-bar` 在 `confirmBar.*` 下另留了一份，因为一条确认条只回答一个问题一次，那句话要用它自己的说法。
 
+<a id="components"></a>
 ## 组件清单
 
 - **`el.confirm-bar`** —— 一段简短提示加一行按钮，用来把一个决定摆到用户面前。属性：`title`、`message`、`buttons`（每项 `{ id, label, tone? }`，tone 取 `primary` / `default` / `danger` 之一）。按下按钮会报出 `press` 动作，其 payload 是被按下按钮的 `buttonId`。
@@ -52,6 +77,7 @@ node 半边是空插件。它存在只是为了让这一行出现在宿主 `cord
 
 - **`el.metric`**（`TcProcessBallRenderer`）—— 一个数字加一行说明，画成一颗按这个数字灌满的球。属性：`process`（那个数字，同时按百分比决定水位）、`text`、`size`（直径，像素）、`background`、`borderColor`、`pointColor`、`isPointShow`。它不上报也不发产出，因此动作出口、产出出口与动作状态都不读。
 
+<a id="how-the-originals-get-here"></a>
 ## 原件怎么进来
 
 这里有些组件不是在这儿写的。`@sumomok/toy-surface-kit` 是从客户维护的三个源库里搬出来的一批 Vue 2 组件的编译产物，在它自己的仓库里构建，以 `vendor/sumomok-toy-surface-kit-0.3.1.tgz` 的形式进来，依赖写成 `"@sumomok/toy-surface-kit": "file:./vendor/sumomok-toy-surface-kit-0.3.1.tgz"`。用 React 重写这条路评估过，否掉了：那些库的 354 个单文件组件里有 191 个直接写 element-ui 的组件，还有 153 条规则伸进它们的标记，重写等于把客户已经付过账的 bug 历史重来一遍。
@@ -72,6 +98,7 @@ node 半边是空插件。它存在只是为了让这一行出现在宿主 `cord
 
 **三条红线。** 页面上永远不许出现 `window.Vue`——element-ui 的 UMD 产物会对着它找到的那份 Vue 自行安装，把组件注册到这一行并不拥有的运行时上，症状是无错误、无警告的响应式失效。块里不许用 `el-dialog`、`el-message`、`el-notification`：它们的元素落在宿主元素之外，这里没有任何东西关得掉。允许用的那几种弹层——下拉、气泡提示、popover、日期选择面板——在桥里是一张闭表，落位包说这块内容离屏时由它统一收起；组件要画第五种弹层，就得在同一次改动里加进这张表。交给 Vue 组件的记录必须先过 `freezeDeep`：Vue 会把拿到的东西一层层观测下去，被观测的数组连原型都被换掉，那会反过来动到 React 自己的数据。唯独监听器映射冻不得：Vue 会就地改写它拿到的那个对象，给每个处理函数套上自己的 invoker，所以桥交给 Vue 的是一份拷贝，调用方自己的那张表保持写下来的样子。
 
+<a id="composition"></a>
 ## 组合
 
 这一行由 [`component-surface`](../component-surface/README.zh.md) 画出来，它的覆盖层同时组合两者。两者都不属于任何发行包。
@@ -108,3 +135,13 @@ None; this package neither assembles nor sends a provider request.
 - **`PopupManager.nextZIndex()` 只会往上加** —— element-ui 从 300 起给每个新弹层发下一个 z-index，而且永不复位，于是一个开了约七百次弹层的会话会爬过 1000 的审批弹窗并盖住它。隐藏一块内容会收起它开的弹层，但没有任何东西把计数器降回去。真正的解法是外壳把自己的层级整体抬到远高于 element-ui 的区间。
 - **没有装配快照覆盖** —— 浏览器侧的证据是针对真实组合的 Playwright 场景；快照泳道回放的是发行组合，其中不含任何 experimental 行。
 - **「只有一份 Vue」这条对产物的断言在 CI 上不执行** —— `tests/client-bundle-vue.client.spec.ts` 读的是 `lib/client.js`；在 pull request 上，唯一会对这个包跑 `vitest` 的作业是覆盖率作业，它不构建，于是在那里跳过。master 的 `linux-primary` 泳道串行执行它的门禁，build 排在覆盖率门禁之后，所以那里产物同样不存在。本地、以及任何先构建的泳道里它照常执行。仓库里没有任何门禁去读一个已构建客户端产物的正文——同类的另外两个 spec，在 `client/ui-trajectory` 与 `session/session-persistence-sqlite`，在 CI 上因同一原因跳过。CI 覆盖到的是后果：Playwright 场景对着发行产物画出那个 vendored 组件。把这三条一起挂上门禁的触发器，是第一个去读已构建客户端产物的门禁出现。
+
+<a id="dev-note"></a>
+### 开发备注
+
+<details>
+<summary>维护者的工作上下文——点击展开</summary>
+
+无。
+
+</details>
