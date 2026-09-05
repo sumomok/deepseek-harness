@@ -16,6 +16,7 @@ import type {
   SessionFollowRequest,
   SessionPage,
   SessionPageRequest,
+  SessionProbeTargetsValue,
   SessionProjectionBaseline,
   SessionSelectModelRequest,
   SessionSelectModelValue,
@@ -149,6 +150,8 @@ export class FakeApiClient {
   onCancel: (payload: unknown) => Promise<RemoteResult<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onOpenWorkspacePath: (payload: unknown) => Promise<RemoteResult<{ opened: true }>> =
     () => Promise.resolve(ok({ opened: true as const }))
+  onProbeTargets: (payload: unknown) => Promise<RemoteResult<SessionProbeTargetsValue>> =
+    () => Promise.resolve(ok({ results: [] }))
 
   private readonly followConns = new Map<SessionId, ValueStreamConn<SessionFollowFrame>[]>()
   private readonly controlConns: ValueStreamConn<SessionControlFrame>[] = []
@@ -237,6 +240,7 @@ export class FakeApiClient {
           payload,
           this.onOpenWorkspacePath(payload),
         ),
+        probeTargets: payload => this.record('session.probeTargets', payload, this.onProbeTargets(payload)),
         page: request => this.page(request),
         follow: (request, signal) => this.openFollow(request, signal),
         control: signal => this.openControl(signal),
