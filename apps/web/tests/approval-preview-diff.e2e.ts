@@ -11,8 +11,8 @@ import type { Browser, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import {
-  assertFixtureInventory, captureStableAria, compareOrRefreshGolden, fixtureUserPrompts,
-  launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
+  assertFinalWorkspaceSnapshot, assertFixtureInventory, captureStableAria, compareOrRefreshGolden,
+  fixtureUserPrompts, launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold,
 } from './scaffold.ts'
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
@@ -78,9 +78,11 @@ describe.skipIf(MODE === 'record')('web e2e: the approval card shows the file ch
     await panel.getByRole('button', { name: 'Allow once' }).click()
     await settled
 
-    // The preview described the write, so the file on disk must be exactly it.
+    // The preview described the write, so the file on disk must be exactly it,
+    // and nothing else may have been written behind the one answered request.
     expect(await readFile(join(scaffold.workspaceCwd, 'workspace', 'notes.txt'), 'utf8'))
       .toBe('alpha\nbeta\ngamma\n')
+    await assertFinalWorkspaceSnapshot(SNAPSHOT_DIR, join(scaffold.workspaceCwd, 'workspace'))
     await expect.poll(() => page.getByText('DONE', { exact: true }).count(), { timeout: 20_000 })
       .toBeGreaterThanOrEqual(1)
     expect(await page.locator('[data-approval-key]').count()).toBe(0)
@@ -89,6 +91,6 @@ describe.skipIf(MODE === 'record')('web e2e: the approval card shows the file ch
   }, 180_000)
 
   it('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['session.jsonl', 'ui.expected.md', 'workspace.expected'])
   })
 })
