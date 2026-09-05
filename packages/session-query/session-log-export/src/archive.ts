@@ -278,8 +278,8 @@ function unreadableMediaEntry(ref: ImageAttachmentRef, error: unknown): SessionL
  * display name, and the local store reads every reference through its own
  * name-keyed alias, so two references to one digest can differ in readability.
  * The record shares a path with another reference's file entry only when that
- * reference's display name is this one's plus `.error.txt`, its alias reads,
- * and this one's does not.
+ * reference's sanitized display name is this one's sanitized display name plus
+ * `.error.txt`, its alias reads, and this one's does not.
  * @param ref - the durable reference from a session log.
  * @returns the archive path for the failure record.
  */
