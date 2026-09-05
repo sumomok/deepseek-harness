@@ -85,6 +85,16 @@
   name: '@deepseek-ai/dsh-session-log-export'
   disabled: true
 
+# The internal-testing notice ("内测声明") is `ui-settings-models`'s own
+# `settings.onboarding` step, shown once per acknowledgement version; the same
+# package registers the Models settings section and the DeepSeek credential
+# onboarding step. A customer deployment fixes its model and credential at the
+# deployment layer and must never show a DeepSeek-internal notice, so the whole
+# row goes; with no step registered, `settings.onboarding` renders nothing.
+- id: ui-settings-models
+  name: '@deepseek-ai/dsh-client-ui-settings-models'
+  disabled: true
+
 - insert:
     - id: server-layout
       name: '@deepseek-ai/dsh-experimental-server-layout'

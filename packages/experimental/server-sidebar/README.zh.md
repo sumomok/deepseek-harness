@@ -144,14 +144,15 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 
 ## 品牌与英雄区门面
 
-还有两处界面携带的是 DeepSeek 自己的产品身份或内部状态文案，而不是被禁词汇，出于与上文「去术语化」相同的客户形态理由被替换或移除：
+还有三处界面携带的是 DeepSeek 自己的产品身份或内部状态文案，而不是被禁词汇，出于与上文「去术语化」相同的客户形态理由被替换或移除：
 
 - **侧边栏品牌行。** `sidebar.brand.mark` 完全不渲染 fallback（此前是一个鱼图标）；`sidebar.brand.name` 的 fallback 是一段纯文本——locale key 为 `brand.name.fallback`（「工作台小助手」/「Workbench Assistant」）——不再带构建版本徽标。`@deepseek-ai/dsh-client-ui-brand-official`（仅在官方构建下才占据这两个槽、以及 `conversation.hero.brand.mark`）在客户 overlay 里被彻底禁用；本包自己的 `client/index.ts` 还会在 `conversation.hero.brand.mark` 上以优先级 -1（该槽的遮蔽等级——升序，最低者渲染）注册一个空组件抢占，因此即使某次部署忘记禁用 `ui-brand-official`，英雄区拿到的依然是本包的无图标版本，而不是官方版本。
 - **对话英雄区界面。** 空白稿态的英雄区标题（`dsh-client-ui-conversation` 的 `HeroShell`/`ConversationRoot`）携带一个鱼图标、一枚「PREVIEW」状态徽标、以及一行工作区选择器加 agent-preset 选择器——都没有 Config 开关，也没有自己的禁用席位，因此 `terminology-guard.ts` 把它的 CSS 注入扩展为同时：隐藏（此时已经槽位为空的）鱼图标外框和 preview 徽标；把标题文字压到 `font-size: 0`，改用 `::after` 伪元素画上本包自己的品牌文案（原始标题文本节点在 DOM 与无障碍树里原样保留——见「已知限制」）；以及把整行工作区选择器隐藏掉，因为 `ui-workspace` 被禁用（见下文「组合方式」）已经让它变成一个死控件（`WorkspaceChip` 仍然渲染，但打开的菜单没有任何东西去填充）。同一行的另一个席位 `conversation.hero.agentPreset` 则在组合层面清空：`ui-agent-preset` 在两份 overlay 里都被彻底禁用，这同时移除了它只读的会话头部 preset 标签与它的 Settings 行——这两处不是这一条 CSS 规则能够触达的。
+- **内测声明。** `dsh-client-ui-settings-models` 把「内测声明」弹窗注册为一个 `settings.onboarding` 步骤（每个确认版本 `WELCOME_NOTICE_VERSION` 弹一次），同一个包还注册设置里的模型分区与 DeepSeek 凭据引导步骤。客户部署在部署层固定模型与凭据，也绝不展示 DeepSeek 内部的声明，所以客户 overlay 禁用整行，而不是预先写入一个已确认版本（产品决定，2026-09-06）。步骤一个不剩，`SettingsRoot` 的引导列表就什么都不渲染。
 
 ## 组合方式
 
-本插件不属于任何出厂 bundle。`overlay/customer.patch.yml` 就是完整的客户表单 overlay：它禁用 `ui-layout`、`ui-sidebar`、`ui-workspace`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`，并插入 `server-layout`、`content-surface`、`content-column` 与本包。它不插入 `content-frame`，也不插入 `component-surface`——部署自己的页面目录与视图目录需要单独组合，与它并列，因为两者各自携带这份 overlay 无法预设的部署专属配置。它同样不插入 [`auth-gate`](../auth-gate/README.zh.md)，而底部那个退出按钮正需要这一行：没有组合它时按钮照样渲染，但按下去只会向控制台报告登录页未知，然后停在原地。两份 overlay 都携带本包那一个必填的 `config` 字段（见上文「配置」）；缺了它的行会在加载期失败。用 `dsh --profile <name> --patch <path>` 应用；该包必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile <name> add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
+本插件不属于任何出厂 bundle。`overlay/customer.patch.yml` 就是完整的客户表单 overlay：它禁用 `ui-layout`、`ui-sidebar`、`ui-workspace`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`、`ui-settings-models`，并插入 `server-layout`、`content-surface`、`content-column` 与本包。它不插入 `content-frame`，也不插入 `component-surface`——部署自己的页面目录与视图目录需要单独组合，与它并列，因为两者各自携带这份 overlay 无法预设的部署专属配置。它同样不插入 [`auth-gate`](../auth-gate/README.zh.md)，而底部那个退出按钮正需要这一行：没有组合它时按钮照样渲染，但按下去只会向控制台报告登录页未知，然后停在原地。两份 overlay 都携带本包那一个必填的 `config` 字段（见上文「配置」）；缺了它的行会在加载期失败。用 `dsh --profile <name> --patch <path>` 应用；该包必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile <name> add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
 
 ## Model Experience
 
