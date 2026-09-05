@@ -35,9 +35,11 @@
 # applies there too: a row targeting content-frame would have to restate
 # `root`, `pages` and everything else that deployment configured, in a file
 # that knows none of it. `judgedBy` is the gate's cordis plugin name, the value
-# its module exports as `name`; the content-frame row looks it up in the
-# registry on every call and refuses the steps while nothing under that name is
-# mounted.
+# its module exports as `name` — `llm-permission-gateway`, not the npm package
+# name the `name:` field below carries; a row that writes the wrong one boots
+# green and refuses every page action on its first call. The content-frame row
+# looks that name up in the registry on every call and refuses the steps while
+# nothing under it is mounted.
 - id: llm-permission-gateway
   name: '@haoran/dsh-llm-permission-gateway'
   config:

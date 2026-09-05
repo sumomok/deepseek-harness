@@ -1158,6 +1158,24 @@ describe('page-access configuration', () => {
         'content-frame: pageAccess.judgedBy "llm-permission-gateway" is read only under '
         + 'pageAccess.actApproval "judged" — set actApproval to "judged", or drop judgedBy',
       ],
+      [
+        // A bare `judgedBy:` key, which is YAML for null and which the string
+        // schema passes through: it names no reviewer, so it earns the same
+        // refusal as writing nothing at all rather than a runtime denial
+        // naming "null".
+        { actApproval: 'judged' as const, judgedBy: null as unknown as string },
+        'content-frame: pageAccess.actApproval "judged" needs pageAccess.judgedBy, the cordis plugin name '
+        + 'of the reviewer this deployment routes page actions to',
+      ],
+      [
+        // And the empty string, which is the one wrong value that would fail
+        // open: cordis records `''` as the runtime name of every inline
+        // `ctx.inject` callback, so a guard given it would find a reviewer in
+        // any composition at all.
+        { actApproval: 'judged' as const, judgedBy: '' },
+        'content-frame: pageAccess.actApproval "judged" needs pageAccess.judgedBy, the cordis plugin name '
+        + 'of the reviewer this deployment routes page actions to',
+      ],
     ] as const) {
       const ctx = new Context()
       ctx.provide('webServer', { register: () => () => {} } as never)

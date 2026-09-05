@@ -438,7 +438,7 @@ function requireAtMost(field: keyof PageAccessConfig, value: number, most: numbe
  * under `always` names something nothing reads.
  * @param config - the deployment's page-access block.
  * @returns what the listener decides by.
- * @throws {Error} when only one of the two fields is set.
+ * @throws {Error} when `judged` names no reviewer, or `always` names one.
  */
 function resolveActApproval(config: PageAccessConfig): ActApproval {
   if (config.actApproval === 'always') {
@@ -448,13 +448,22 @@ function resolveActApproval(config: PageAccessConfig): ActApproval {
       + 'pageAccess.actApproval "judged" — set actApproval to "judged", or drop judgedBy',
     )
   }
-  if (config.judgedBy === undefined) {
+  // Read as the loader delivered it, because the declared type excludes two
+  // values a row can still write. A bare `judgedBy:` key is YAML for null,
+  // which the string schema passes through untouched; an empty string is worse
+  // than absent, because cordis records `''` as the runtime name of every
+  // inline `ctx.inject` callback, so a guard handed one would report a reviewer
+  // that is not there — the one direction this guard may not fail in. A schema
+  // minimum length would catch the empty string and not the null, so both are
+  // answered in the one place that has to answer for either.
+  const judgedBy: unknown = config.judgedBy
+  if (typeof judgedBy !== 'string' || judgedBy.length === 0) {
     throw new Error(
       'content-frame: pageAccess.actApproval "judged" needs pageAccess.judgedBy, the cordis plugin name '
       + 'of the reviewer this deployment routes page actions to',
     )
   }
-  return { kind: 'judged', judgedBy: config.judgedBy }
+  return { kind: 'judged', judgedBy }
 }
 
 /**
