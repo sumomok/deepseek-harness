@@ -46,7 +46,7 @@ The name is appended last in `BUILTIN_WEB_BUNDLES` ([`apps/desktop/src/profile-s
 
 ## Consequences
 
-Twelve plugins ship inside the installer and ten of them have a browser half. Both README tables and the notices override table carry the new row, which [`verify-vendored-plugin-versions`](../../../../scripts/verify-vendored-plugin-versions.ts) requires of every vendored package in both languages.
+Both README tables and the notices override table carry the new row, which [`verify-vendored-plugin-versions`](../../../../scripts/verify-vendored-plugin-versions.ts) requires of every vendored package in both languages; the built-in plugins table in [`apps/desktop/README.md`](../../../../apps/desktop/README.md) is where the count of what ships lives.
 
 No new third-party attribution row appears: `@modelcontextprotocol/sdk` reaches the payload through `@deepseek-ai/dsh-mcp-client`'s own dependencies and `zod` through both it and the plugin, and `THIRD_PARTY_NOTICES.md` already named each.
 

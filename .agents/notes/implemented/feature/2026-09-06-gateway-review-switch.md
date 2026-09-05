@@ -32,7 +32,7 @@ The desktop moves to `@haoran/dsh-llm-permission-gateway` 0.3.1 (sha256 `9846923
 
 **The preset row keeps its id and changes its name.** `yolo-access` is now 关闭沙箱（不推荐）, described as what it is: the OS walls are gone, review still runs, and review can only raise a prompt. The access-mode control therefore reads 仅可查看 / 工作区内修改 / 完全权限 / 关闭沙箱（不推荐）.
 
-**The gateway gains a browser half.** 0.3.1 declares `dsh.client`, so eleven of the twelve built-ins now have one and the packaging boot gate requires this plugin's `client.js` among the client modules the served index names.
+**The gateway gains a browser half.** 0.3.1 declares `dsh.client`, which is what makes the server compose a `/plugins/<name>/client.js` row for it and what makes the packaging boot gate require that module among the client modules the served index names.
 
 ### Upgrade compatibility on an existing installation
 

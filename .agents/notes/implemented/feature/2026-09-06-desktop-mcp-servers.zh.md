@@ -46,7 +46,7 @@ harness 自带一个 MCP 客户端 [`@deepseek-ai/dsh-mcp-client`](../../../../p
 
 ## Consequences
 
-十二个插件随安装包分发,其中十个带浏览器那一半。两份 README 表格与 notices 的 override 表都带上了新的一行,这是 [`verify-vendored-plugin-versions`](../../../../scripts/verify-vendored-plugin-versions.ts) 对每个 vendor 包在两种语言里的要求。
+两份 README 表格与 notices 的 override 表都带上了新的一行,这是 [`verify-vendored-plugin-versions`](../../../../scripts/verify-vendored-plugin-versions.ts) 对每个 vendor 包在两种语言里的要求;分发了多少个插件这件事,住在 [`apps/desktop/README.md`](../../../../apps/desktop/README.zh.md) 的内置插件表里。
 
 没有新增第三方归属条目:`@modelcontextprotocol/sdk` 经由 `@deepseek-ai/dsh-mcp-client` 自己的依赖进入载荷,`zod` 则经由它与该插件两边进入,而 `THIRD_PARTY_NOTICES.md` 里两者早已在列。
 
