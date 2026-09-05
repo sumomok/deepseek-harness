@@ -193,7 +193,14 @@ function mediaEntryPath(ref: ImageAttachmentRef): string {
   return `media/${String(ref.attachmentId)}.${MEDIA_TYPE_EXTENSIONS[ref.mediaType]}`
 }
 
-/** Archive path that preserves one stored file reference's digest and name. */
+/**
+ * Archive path that preserves one stored file reference's digest and name.
+ * Sanitizing the display name maps distinct names onto one path: under the
+ * same digest, `a/b` and `a_b` both yield `files/<xx>/<digest>/a_b`, while the
+ * export dedupes references on the original name, so both yield an entry.
+ * @param ref - the durable reference from a session log.
+ * @returns the archive path for the stored file.
+ */
 function fileEntryPath(ref: FileAttachmentRef): string {
   const digest = String(ref.attachmentId).replace(/^sha256:/u, '')
   const name = ref.name.replace(/[\\/\u0000-\u001f\u007f]/gu, '_')
@@ -267,11 +274,12 @@ function unreadableMediaEntry(ref: ImageAttachmentRef, error: unknown): SessionL
  * The archive path for one stored file the export could not read: the file
  * entry's own path plus a `.error.txt` suffix, so the record sits in the
  * digest directory the log reference names. One reference yields the file
- * entry or this one, never both. The path keys on digest and display name, so
- * colliding with another reference's file entry takes the same digest — hence
- * the same stored object — under a display name ending in `.error.txt`; one
- * object reads the same way for both references, leaving only the race where
- * it is deleted between the two reads.
+ * entry or this one, never both. The path keys on the digest and the sanitized
+ * display name, and the local store reads every reference through its own
+ * name-keyed alias, so two references to one digest can differ in readability.
+ * The record shares a path with another reference's file entry only when that
+ * reference's display name is this one's plus `.error.txt`, its alias reads,
+ * and this one's does not.
  * @param ref - the durable reference from a session log.
  * @returns the archive path for the failure record.
  */
