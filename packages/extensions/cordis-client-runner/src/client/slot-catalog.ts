@@ -81,11 +81,18 @@ export const CLIENT_NOTES: readonly string[] = [
 export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
   {
     key: 'conversation.approval.detail',
-    kind: 'single',
+    kind: 'keyed',
     scope: 'session',
-    summary: 'Optional detail for the Tool call correlated with an approval request.',
-    doc: 'Optional detail for the Tool call correlated with an approval request.',
-    registerOptions: [],
+    summary: 'Optional detail for the Tool call correlated with an approval request, dispatched by the wire Tool name.',
+    doc: 'Optional detail for the Tool call correlated with an approval request,\ndispatched by the wire Tool name. Register with `key: \'<tool name>\'` to\nown what the pending call shows above the decision buttons — the key\ndomain is open (any wire tool name), so there is no compile-time key set\nand a typo simply never renders. A tool with no entry shows the\nrequest\'s reason alone, which is what every tool showed before any entry\nexisted. The owner passes only the correlated call\'s identity; a\nrenderer reads that call\'s arguments off the Chat snapshot, so the\ndetail stays a pure function of what the session already knows and the\napproval package never learns a tool\'s argument fields.',
+    registerOptions: [
+      {
+        name: 'key',
+        requirement: 'required',
+        type: 'string',
+        doc: 'Your cell key: the entry renders where the owner dispatches this exact key. Registering an already-occupied key replaces that occupant.',
+      },
+    ],
     ownerProps: [
       '/** Stable identity handed to an optional approval-detail renderer. */\nexport interface ApprovalDetailOwnerProps {\n  /** Tool call correlated with the request. */\n  callId: ToolCallId\n}',
     ],
@@ -107,16 +114,20 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       'useProjection: UseProjection',
       'useTrajectory: UseTrajectory',
     ],
-    keyDomain: '',
+    keyDomain: 'open: any string the owner dispatches (no compile-time key set), already taken: bash, edit, pwsh, str_replace_editor, write',
     hookContext: '',
     slotInject: '',
     declaredBy: 'an entry in \'conversation.composer\' (client-ui-approval), so it exists while that entry is mounted',
     occupants: [
-      'client-ui-chat ApprovalCommand',
+      'client-ui-chat ApprovalCommand key \'bash\'',
+      'client-ui-chat ApprovalCommand key \'pwsh\'',
+      'client-ui-tool ApprovalDiffPreview key \'write\'',
+      'client-ui-tool ApprovalDiffPreview key \'edit\'',
+      'client-ui-tool ApprovalDiffPreview key \'str_replace_editor\'',
     ],
     replaceRisk: 'shadows-shipped-ui',
-    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.approval.detail\', () => ctx.slots.register(\n      { name: \'conversation.approval.detail\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-approval/src/client/contract/slots.ts:37',
+    example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.approval.detail\', () => ctx.slots.register(\n      { name: \'conversation.approval.detail\', key: \'<one key the owner dispatches>\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
+    source: 'packages/client/ui-approval/src/client/contract/slots.ts:48',
   },
   {
     key: 'conversation.chat.assistant-actions',
