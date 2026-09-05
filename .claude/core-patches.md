@@ -215,13 +215,13 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游把这两类事件纳入清单，或为迁移边提供自定义词汇扩展点。
 - **状态**：在役（0.1.3-alpha.1 本线新增）。
 
-## patch(session-log-export): record an unreadable file in the archive instead of tearing the stream — d2cf85446d（+ `663cb9df9e`、`91743a89eb`）
+## patch(session-log-export): record an unreadable file in the archive instead of tearing the stream — d2cf85446d（+ `663cb9df9e`、`91743a89eb`、`4e00a2b851`）
 
 - **改了什么**：`packages/session-query/session-log-export/src/archive.ts` 新增 `unreadableFileEntryPath`/`unreadableFileEntry`/`resumedFileChunks`/`fileEntry`，`sessionLogZipEntries` 的 files 循环改为经 `fileEntry` 产出；`unreadableMediaReason` 改名 `unreadableAttachmentReason` 供两条路径共用；`wireRatio` 的 `compressible` 参数文档改成如实陈述。`archive.host.spec.ts` 增四条用例（不可读文件的记录文本与声明规模、非 `AttachmentError` 失败不带 code 与 message、文件读取期间取消仍撕裂、零字节文件的空流），既有「文件流失败即整包失败」一条改名并保留。README 中英与两份导出 Agent Note 同步。
 - **为什么**：图片路径早已把存储失败降级成一条 `.error.txt` 记录，通用文件却是把未打开的流直接交给 ZIP 写入器，存储拒绝该引用就撕裂整个响应——含这样一个文件的会话连日志与图片一起失去导出。上游把文件对象搬到 `file-objects/`/`files/` 之后，rc.29/rc.30 写下的文件对象在本基座上一律读不到（见「重新移植」一节的「已知破坏性变化」），这类旧会话的导出因此必须能整包完成。
 - **要达到的效果**：`fileEntry` 在产出条目前先拉存储的第一个分块（写入器本就在花的一个分块内存预算），拉取被拒时改为在 `files/<prefix>/<digest>/<name>.error.txt` 记录引用与失败；第一个分块之后才抛出的失败仍撕裂响应（字节已经上线）；取消在两条路径上都仍然撕裂。`wireRatio(..., false)` 的旧文档称「已存储附件是 deflate 压不动的数据」——对通用文本文件不成立，实际效果是分母偏高、进度条滞后后跳到完成。
 - **退役条件**：上游让导出容忍读不出来的通用文件（与图片那条同一判据）。
-- **状态**：在役（0.1.3-alpha.1 本线新增，与 `44ff8f621d` 同族）。`663cb9df9e` 与 `91743a89eb` 只改 `archive.ts` 的 JSDoc。`663cb9df9e` 推翻原论证「没有存储会产出以 `.error.txt` 结尾的名字」——`name` 是用户提交的显示名；它换上的「同 digest 即同一个存储对象、可读性一致、只剩删除竞态」同样为假，由 `91743a89eb` 改掉：`packages/attachment/attachment-local/src/file-store.ts:154` 的 `readFileStreamVerbatim` 打开的是 `storedFilePath(root, ref)` = `files/<xx>/<digest>/<ref.name>`，即按显示名键控的别名，而每次保存只为自己那个 name 发布一条别名，所以同 digest 的两个引用可读性可以永久不同（别名缺失按 name 独立），不止于竞态。现在的 JSDoc 只陈述键与碰撞前提：路径键是 digest 加消毒后的显示名；该记录与另一引用的文件条目同路径，当且仅当那个引用的显示名等于本引用显示名加 `.error.txt`、它的别名读得出、而本引用的读不出。`fileEntryPath` 的 JSDoc 同时补记消毒的多对一事实：同 digest 下 `a/b` 与 `a_b` 都落 `files/<xx>/<digest>/a_b`，而导出的去重键用原始 name（`attachmentId` + NUL + `ref.name`），这样的两个引用因此各产一个条目、路径相同。
+- **状态**：在役（0.1.3-alpha.1 本线新增，与 `44ff8f621d` 同族）。`663cb9df9e` 与 `91743a89eb` 只改 `archive.ts` 的 JSDoc。`663cb9df9e` 推翻原论证「没有存储会产出以 `.error.txt` 结尾的名字」——`name` 是用户提交的显示名；它换上的「同 digest 即同一个存储对象、可读性一致、只剩删除竞态」同样为假，由 `91743a89eb` 改掉：`packages/attachment/attachment-local/src/file-store.ts:154` 的 `readFileStreamVerbatim` 打开的是 `storedFilePath(root, ref)` = `files/<xx>/<digest>/<ref.name>`，即按显示名键控的别名，而每次保存只为自己那个 name 发布一条别名，所以同 digest 的两个引用可读性可以永久不同（别名缺失按 name 独立），不止于竞态。现在的 JSDoc 只陈述键与碰撞前提：路径键是 digest 加消毒后的显示名；该记录与另一引用的文件条目同路径，当且仅当那个引用消毒后的显示名等于本引用消毒后的显示名加 `.error.txt`、它的别名读得出、而本引用的读不出（反例：本引用名 `a/b`、另一引用名 `a_b.error.txt`，原始名不满足该式而消毒后满足）。`fileEntryPath` 的 JSDoc 同时补记消毒的多对一事实：同 digest 下 `a/b` 与 `a_b` 都落 `files/<xx>/<digest>/a_b`，而导出的去重键用原始 name（`attachmentId` + NUL + `ref.name`），这样的两个引用因此各产一个条目、路径相同。
 
 ## refactor(api-session-controller): drop the referent seam's attachment field — e7891f0499
 
@@ -454,7 +454,8 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 4. `506f302149` chore(core-patches)：除台账与生成物外，还改造了 `apps/web/tests/navigation-panes.e2e.ts` 的导出夹具——物理头按 released-v2 写出（新增 `isSeeded` 与 `delegationDepth`），归档日志名断言从字面量 `session.jsonl` 改为 `sessionFormatLogFilename(SESSION_FORMAT_VERSION)`。此项此前未在台账登记，补记于此。
 5. 返修轮（2026-09-05）：`d2cf85446d`（导出记录不可读的通用文件）、`e7891f0499`（删 `ReferentRef.attachment`）、`a121f4a7f1`（导出面板改用 `fileSizeText`）各自有小节；`39b9dec9a5` 只订正 `referent.ts` 模块 JSDoc 的派发点清单，并入 `0227d2c178` 小节的标题 SHA 串，不另开小节。
 6. 第二轮返修（2026-09-05）：`663cb9df9e` 只改 `unreadableFileEntryPath` 的 JSDoc 论证，并入 `d2cf85446d` 小节的标题 SHA 串，不另开小节。
-7. 第三轮返修（2026-09-05）：`91743a89eb` 只改 `archive.ts` 的两处 JSDoc（`unreadableFileEntryPath` 的键与碰撞前提、`fileEntryPath` 的消毒多对一事实），并入 `d2cf85446d` 小节的标题 SHA 串，不另开小节；本次台账提交订正 `d2cf85446d`、`a6b0a2c876`、`62abbac144`、`8b8308147d`/`98e602162f`、`a51dbd6624` 五处记述。
+7. 第三轮返修（2026-09-05）：`91743a89eb` 只改 `archive.ts` 的两处 JSDoc（`unreadableFileEntryPath` 的键与碰撞前提、`fileEntryPath` 的消毒多对一事实），并入 `d2cf85446d` 小节的标题 SHA 串，不另开小节；该轮台账提交订正 `d2cf85446d`、`a6b0a2c876`、`62abbac144`、`8b8308147d`/`98e602162f`、`a51dbd6624` 五处记述。
+8. 第四轮返修（2026-09-05）：`4e00a2b851` 只改 `unreadableFileEntryPath` JSDoc 里碰撞前提那一句的措辞——前提键在消毒后的显示名上，而不是原始显示名，并入 `d2cf85446d` 小节的标题 SHA 串，不另开小节。
 
 ### 已知破坏性变化：rc.29/rc.30 期间发出的文件附件不可再读取
 
@@ -504,4 +505,4 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 
 ### 分支 HEAD 登记
 
-起点 `upstream/master` = `d347e70390`（`core-patches-v7` 由 `reset --hard` 从此重建）。第一轮 29 个提交至 `506f302149`（已推 origin；`git rev-list --count d347e70390..506f302149` = 29）。返修轮追加 `d2cf85446d`、`e7891f0499`、`a121f4a7f1`、`39b9dec9a5`；第二轮返修追加 `663cb9df9e` 与其台账提交；第三轮返修追加 `91743a89eb` 与本次台账提交。`core-patches-v7` 已推过 origin，一律追加提交，不改写历史。
+起点 `upstream/master` = `d347e70390`（`core-patches-v7` 由 `reset --hard` 从此重建）。第一轮 29 个提交至 `506f302149`（已推 origin；`git rev-list --count d347e70390..506f302149` = 29）。返修轮追加 `d2cf85446d`、`e7891f0499`、`a121f4a7f1`、`39b9dec9a5`；第二轮返修追加 `663cb9df9e` 与其台账提交；第三轮返修追加 `91743a89eb` 与其台账提交；第四轮返修追加 `4e00a2b851` 与本次台账提交。`core-patches-v7` 已推过 origin，一律追加提交，不改写历史。
