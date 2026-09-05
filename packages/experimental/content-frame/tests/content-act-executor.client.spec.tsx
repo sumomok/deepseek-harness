@@ -143,6 +143,7 @@ function seatOf(request: ContentActRequest): ContentReadSeat {
       page: { id: 'home', title: 'Home' },
       frameId: FRAME,
     }],
+    openCalls: [request.callId],
     frames: { current: new Map([[FRAME, frame]]) },
     tables: { current: new Map([[FRAME, refs]]) },
     access: ACCESS,

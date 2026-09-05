@@ -9,6 +9,7 @@
  * reader and the navigation watch live, because it is the only placement
  * holding those elements.
  */
+import { useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -41,9 +42,15 @@ let published: Record<string, Published> = {}
 /** The session the console is showing, which the column also passes to the seat. */
 let current: string | undefined = 'a'
 
-/** A stand-in for the framework hook every root slot receives. */
-function useSessions<S>(select: (state: never) => S): S {
-  return select({
+/**
+ * A stand-in for the framework hook every root slot receives, memoizing the way
+ * `useSyncExternalStoreWithSelector` does: the selection keeps its identity for
+ * as long as the caller's own equality says nothing moved. The list snapshot is
+ * rebuilt on every call, which is what the real store does too.
+ */
+function useSessions<S>(select: (state: never) => S, eq?: (a: S, b: S) => boolean): S {
+  const held = useRef<{ value: S } | undefined>(undefined)
+  const next = select({
     current,
     byId: Object.fromEntries(Object.entries(published).map(([sessionId, values]) => [sessionId, {
       projectionValues: {
@@ -52,6 +59,10 @@ function useSessions<S>(select: (state: never) => S): S {
       },
     }])),
   } as never)
+  const previous = held.current
+  if (previous !== undefined && eq?.(previous.value, next) === true) return previous.value
+  held.current = { value: next }
+  return next
 }
 
 /** Every move the seat reported, in order. */

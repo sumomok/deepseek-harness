@@ -223,8 +223,8 @@ describe('what content_read answers when no listing arrives', () => {
       'No console tab is showing this session\'s content column (waited 3s).',
     )
     // A column that already holds something states that as well: it is the
-    // other half of the reason, and a tab that is open but not visible is what
-    // a real machine hit here.
+    // other half of the reason — the column holds a page and no console
+    // answered for it.
     expect(unclaimedRefusal(3000, { entryId: 'points', kind: 'page', title: '点位信息' })).toBe(
       'No console tab is showing this session\'s content column (waited 3s); '
       + 'the page "点位信息" is already in front.',
@@ -239,7 +239,7 @@ describe('what content_read answers when no listing arrives', () => {
     )
   })
 
-  it('says no visible console tab is showing the column once the claim window passes', async () => {
+  it('says no console tab is showing the column once the claim window passes', async () => {
     const { run } = await bench()
     const result = await run({}).settled
     expect(result.isError).toBe(true)
@@ -250,7 +250,7 @@ describe('what content_read answers when no listing arrives', () => {
 
   it('names the entry in front where the column already holds what the read was for', async () => {
     // The second path states the other half of the reason: the column is not
-    // empty, so what failed is that no visible tab answered for it.
+    // empty, so what failed is that no console answered for it.
     const { run } = await bench(FAST, { entryId: 'home', kind: 'page', title: 'Home' })
     const result = await run({}).settled
     expect(result.isError).toBe(true)

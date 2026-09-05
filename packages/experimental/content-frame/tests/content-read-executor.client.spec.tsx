@@ -27,8 +27,8 @@ import {
   PREFERRED_TAB_WINDOW_MS, ROUTE_REFUSAL_STATUSES, type ClaimAck, type ImageReport, type ReadOutcome,
 } from '../src/access/wire.ts'
 import {
-  FRAME_WIDE_LISTING_MESSAGE, notAnImageRefusal, slowImageRefusal, WIDE_DOM_MESSAGE, wideAttrsMessage,
-  wideTextMessage,
+  FRAME_LOST_MESSAGE, FRAME_WIDE_LISTING_MESSAGE, notAnImageRefusal, slowImageRefusal, WIDE_DOM_MESSAGE,
+  wideAttrsMessage, wideTextMessage,
 } from '../src/access/text.ts'
 import { RefTable } from '../src/client/access/refs.ts'
 import type { ExportPixels } from '../src/client/access/capture.ts'
@@ -240,6 +240,7 @@ function seatOf(
   }
   return {
     sessions: [{ sessionId, entries, pending, page, frameId }],
+    openCalls: pending.map(request => request.callId),
     frames: { current: new Map<string, HTMLIFrameElement>() },
     tables: { current: new Map<string, RefTable>() },
     access: ACCESS,
@@ -257,7 +258,11 @@ function seatOf(
  * @returns the seat to render.
  */
 function withPending(seat: ContentReadSeat, pending: readonly ContentAccessRequest[]): ContentReadSeat {
-  return { ...seat, sessions: seat.sessions.map(session => ({ ...session, pending })) }
+  return {
+    ...seat,
+    sessions: seat.sessions.map(session => ({ ...session, pending })),
+    openCalls: pending.map(request => request.callId),
+  }
 }
 
 /** Mount the reader over one seat. */
@@ -536,14 +541,30 @@ describe('when the reader claims', () => {
 
   it('answers a claim whose column left this seat between the bid and the read', async () => {
     // The host granted the claim and is waiting for a report, so the seat posts
-    // one: a column it can no longer reach reads as a column with nothing in
-    // it, which is the failure a read of an empty column already composes.
+    // one — and it says what this console lost rather than anything about the
+    // column, which may hold exactly what it held before.
     const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
     const seat = seatOf({ frames: { current: frames } })
     const view = drive(seat)
     drive({ ...seat, sessions: [] }, view)
     await settled()
-    expect(reported()).toEqual({ status: 'error', code: 'empty', message: 'the content column is empty' })
+    expect(reported()).toEqual({ status: 'error', code: 'frame', message: FRAME_LOST_MESSAGE })
+  })
+
+  it('keeps a call it is answering while that call\'s session leaves the seat and comes back', async () => {
+    // The frame a read is running in can be evicted under it. The call is still
+    // open on the host and this seat is still answering it, so the memory of
+    // having taken it up is pruned against every session's open calls rather
+    // than the servable ones' — otherwise the session's return spawns a second
+    // answer for a call already being answered.
+    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+    const seat = seatOf({ frames: { current: frames } })
+    const view = drive(seat)
+    // Out of the servable list and back, both before the claim round trip ends.
+    drive({ ...seat, sessions: [] }, view)
+    drive(seat, view)
+    await settled()
+    expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1)
   })
 
   it('takes a call up again after a bid the route refused', async () => {

@@ -9,7 +9,7 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { foldFrames, frameFor, NO_FRAMES, type CachedFrame, type FrameCache } from '../src/client/frame-cache.ts'
+import { foldFrames, framesFor, NO_FRAMES, type CachedFrame, type FrameCache } from '../src/client/frame-cache.ts'
 
 const A: CachedFrame = { frameId: 'a home', sessionId: 'a', entryId: 'home', url: '/content-app/' }
 const A2: CachedFrame = { frameId: 'a reports', sessionId: 'a', entryId: 'reports', url: '/content-app/reports/' }
@@ -76,26 +76,26 @@ describe('foldFrames', () => {
   })
 })
 
-describe('frameFor', () => {
-  it('answers a session with the page it last had in front, not the one it mounted first', () => {
+describe('framesFor', () => {
+  it('answers a session newest first, not in the order it mounted them', () => {
     // The recency list, not the rendered one: mount order is append-only, so
     // the frame a session's read runs in is only ever findable through it.
     const cache = run(3, A, A2, B)
     expect(mounted(cache)).toEqual(['a home', 'a reports', 'b reports'])
-    expect(frameFor(cache, 'a')).toBe(cache.frames[1])
+    expect(framesFor(cache, 'a')).toEqual([A2, A])
   })
 
   it('walks past another session\'s more recent frame', () => {
     const cache = run(3, A, B)
-    expect(frameFor(cache, 'a')).toEqual(A)
+    expect(framesFor(cache, 'a')).toEqual([A])
   })
 
   it('answers nothing for a session this seat never showed a page of', () => {
-    expect(frameFor(run(3, A), 'b')).toBeUndefined()
+    expect(framesFor(run(3, A), 'b')).toEqual([])
   })
 
-  it('answers nothing for a session whose frame has been evicted', () => {
+  it('answers nothing for a session whose frames have all been evicted', () => {
     const cache = run(1, A, B)
-    expect(frameFor(cache, 'a')).toBeUndefined()
+    expect(framesFor(cache, 'a')).toEqual([])
   })
 })

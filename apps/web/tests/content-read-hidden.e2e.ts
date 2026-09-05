@@ -58,6 +58,18 @@ const SEEDED_SESSION = 'content-read-hidden-web-e2e'
 /** The id the spliced call and the executed tool share; one call, one wait. */
 const CALL_ID = ToolCallId('content-read-hidden-probe')
 
+/**
+ * The route a seat bids on, and the wait a seat whose tab is not in front pays
+ * before its first bid.
+ *
+ * `apps/web` cannot import the experimental package, so both are restated:
+ * `CONTENT_CLAIM_ROUTE` and `HIDDEN_CLAIM_GRACE_MS` in
+ * `packages/experimental/content-frame/src/access/wire.ts`. A change to either
+ * must be a visible change here.
+ */
+const CLAIM_ROUTE = '/content-frame/claim'
+const HIDDEN_CLAIM_GRACE_MS = 500
+
 /** The composer's own stable attribute — the signal that a session is open. */
 const COMPOSER = '[data-composer-input]'
 
@@ -130,12 +142,18 @@ async function liveAgent(scaffold: WebScaffold, sessionId: SessionId): Promise<A
   throw new Error(`the console opened "${sessionId}" and no agent for it became live`)
 }
 
-/** Report this tab as one the user is not looking at, the way the browser does. */
+/**
+ * Report this tab as one the user is not looking at, the way the browser does.
+ *
+ * Nothing here listens for `visibilitychange`: the seat reads the value at the
+ * moment it bids, so overriding the property is the whole of what a hidden tab
+ * looks like from inside the page.
+ * @param page - the console's page.
+ */
 async function hideTab(page: Page): Promise<void> {
   await page.evaluate(() => {
     Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
     Object.defineProperty(document, 'hidden', { value: true, configurable: true })
-    document.dispatchEvent(new Event('visibilitychange'))
   })
   expect(await page.evaluate(() => document.visibilityState)).toBe('hidden')
 }
@@ -147,6 +165,10 @@ describe.skipIf(MODE === 'record')('web e2e: the console reads while its tab is 
   let harnessHome: string
   let seeded: SessionId
   let tripwire: ReturnType<typeof watchConsole>
+  /** When the console was told to open the seeded session, which is the first render that could bid. */
+  let opened = 0
+  /** When the first bid for the seeded call reached the host, as the browser sent it. */
+  let firstBid: number | undefined
   const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
 
   beforeAll(async () => {
@@ -160,10 +182,19 @@ describe.skipIf(MODE === 'record')('web e2e: the console reads while its tab is 
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
+    page.on('request', (request) => {
+      if (firstBid === undefined && request.url().endsWith(CLAIM_ROUTE)) firstBid = Date.now()
+    })
     await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.locator('[data-shell-column="content"]').waitFor({ state: 'attached', timeout: 30_000 })
+    // Hidden before the seat can see the call, which is what puts the grace on
+    // the path: no session is current yet, so the reader holds no column and
+    // has bid for nothing. Hiding it after the first bid would leave the seat's
+    // one and only claim for this call already sent from a visible tab.
+    await hideTab(page)
     // The workspace group row precedes its sessions; expanding it lists them.
     await page.locator('[role="treeitem"]').first().click()
+    opened = Date.now()
     await openSession(page, 1)
     await page.frameLocator('iframe[data-content-frame][data-content-active]')
       .locator('#fixture-heading').waitFor({ timeout: 30_000 })
@@ -179,7 +210,6 @@ describe.skipIf(MODE === 'record')('web e2e: the console reads while its tab is 
 
   it('answers the open read from a tab that is not in front', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-content-read-hidden'))
-    await hideTab(page)
     const agent = await liveAgent(scaffold, seeded)
 
     const result = await scaffold.ctx.tools.execute({
@@ -199,8 +229,15 @@ describe.skipIf(MODE === 'record')('web e2e: the console reads while its tab is 
       isError: result.isError,
       listing: text.startsWith('Page: Home — the app is at /content-app/'),
       unclaimed: text.includes('is showing this session\'s content column'),
-    }).toEqual({ isError: false, listing: true, unclaimed: false })
+      // Still hidden when the answer arrived: nothing brought the tab back.
+      hidden: await page.evaluate(() => document.visibilityState),
+    }).toEqual({ isError: false, listing: true, unclaimed: false, hidden: 'hidden' })
     expect(text).toContain('Hosted content app')
+
+    // And the grace was paid. The click that opened the session precedes the
+    // render that let the seat see the call, so this understates the wait the
+    // seat took and can only fail where the seat did not take one at all.
+    expect(firstBid ?? 0).toBeGreaterThanOrEqual(opened + HIDDEN_CLAIM_GRACE_MS)
   }, 120_000)
 
   it('leaves the console clean', () => {

@@ -38,7 +38,7 @@ import type { ContentSurfaceEntry, ContentSurfaceView } from '@deepseek-ai/dsh-e
 import type { ContentFrameAccessSettings } from '../route.ts'
 // Type-only: pulls this package's own `contentAccess` SessionProjectionMap merge.
 import type { ContentPageView, ContentAccessRequest, ContentAccessView } from '../types.ts'
-import { foldFrames, frameFor, NO_FRAMES, type CachedFrame, type FrameCache } from './frame-cache.ts'
+import { foldFrames, framesFor, NO_FRAMES, type CachedFrame, type FrameCache } from './frame-cache.ts'
 import { RefTable } from './access/refs.ts'
 import { TAB_ID, useContentRead, type SeatSession } from './access/executor.ts'
 import { exportPixels } from './access/export-pixels.ts'
@@ -118,17 +118,64 @@ interface SessionColumn {
   }>>
 }
 
+/** One session's two content views, as the seat reads them off the list snapshot. */
+interface SessionViews {
+  /** The session these views belong to. */
+  readonly sessionId: string
+  /** That session's column entries. */
+  readonly entries: readonly ContentSurfaceEntry[]
+  /** That session's open channel calls. */
+  readonly pending: readonly ContentAccessRequest[]
+}
+
+/**
+ * The two content views of every session the console holds, in list order.
+ *
+ * Selected instead of the list snapshot itself, because that snapshot is
+ * rebuilt on every notification the session store makes — for any session, for
+ * any reason — while these two arrays keep their identity until the fold behind
+ * them produces a new one. Paired with {@link sameViews} it is what keeps a
+ * projection frame about somebody else's session from re-running this seat's
+ * reader.
+ * @param byId - every session row the console holds.
+ * @returns one reading per session.
+ */
+function viewsOf(byId: Readonly<Record<string, SessionColumn>>): SessionViews[] {
+  return Object.entries(byId).map(([sessionId, summary]) => ({
+    sessionId,
+    entries: summary.projectionValues?.contentSurface?.entries ?? NO_ENTRIES,
+    pending: summary.projectionValues?.contentAccess?.pending ?? NO_CALLS,
+  }))
+}
+
+/**
+ * Whether two readings of the session list carry the same content views.
+ * @param left - the reading the seat is holding.
+ * @param right - the reading the notification produced.
+ * @returns whether nothing this seat reads has moved.
+ */
+function sameViews(left: readonly SessionViews[], right: readonly SessionViews[]): boolean {
+  return left.length === right.length && left.every((view, index) => {
+    const other = right[index]
+    return other !== undefined
+      && other.sessionId === view.sessionId
+      && other.entries === view.entries
+      && other.pending === view.pending
+  })
+}
+
 /**
  * The columns this seat can answer for, one per session it holds a page of.
  *
  * The session on display takes its page from the column's own selection, which
  * is where the user's pick among several entries lives and the only thing this
  * seat is handed rather than deriving. Every other session takes it from the
- * frame cache: the entry it last had in front is the one whose document is
- * still mounted here. A session whose entry has since left the column, stopped
- * being a shown page, or had its frame evicted is left off entirely, so the
- * reader never bids for a call it has no document to answer.
- * @param summaries - every session row the console holds, by session id.
+ * frame cache, walked newest first: the newest of its cached pages the column
+ * still shows is the one the read runs in, so an entry retired or dismissed
+ * since leaves the older page under it readable rather than taking the session
+ * away. A session with no such page at all is left off entirely, so the reader
+ * never bids for a call it has no document to answer.
+ * @param views - every session's content views.
  * @param cache - this seat's frames and their recency.
  * @param current - the session the column is showing, when one is.
  * @param entry - the entry that session has in front, when it has one.
@@ -136,35 +183,46 @@ interface SessionColumn {
  * @returns one column per session this seat can serve.
  */
 function seatSessions(
-  summaries: Readonly<Record<string, SessionColumn>>,
+  views: readonly SessionViews[],
   cache: FrameCache,
   current: string | undefined,
   entry: ContentFrameProps['entry'],
   currentFrameId: string | undefined,
 ): SeatSession[] {
   const sessions: SeatSession[] = []
-  for (const [sessionId, summary] of Object.entries(summaries)) {
-    const values = summary.projectionValues
-    const entries = values?.contentSurface?.entries ?? NO_ENTRIES
-    const pending = values?.contentAccess?.pending ?? NO_CALLS
+  for (const { sessionId, entries, pending } of views) {
     if (sessionId === current) {
       const page = entry === undefined ? undefined : { id: entry.entryId, title: entry.title }
       sessions.push({ sessionId, entries, pending, page, frameId: currentFrameId })
       continue
     }
-    const cached = frameFor(cache, sessionId)
-    if (cached === undefined) continue
-    const shown = entries.find(item => item.entryId === cached.entryId)
-    if (shown === undefined || pageView(shown.payload)?.state !== 'shown') continue
+    const cached = framesFor(cache, sessionId)
+      .map(frame => ({ frame, shown: entries.find(item => item.entryId === frame.entryId) }))
+      .find(({ shown }) => pageView(shown?.payload)?.state === 'shown')
+    if (cached?.shown === undefined) continue
     sessions.push({
       sessionId,
       entries,
       pending,
-      page: { id: shown.entryId, title: shown.title },
-      frameId: cached.frameId,
+      page: { id: cached.shown.entryId, title: cached.shown.title },
+      frameId: cached.frame.frameId,
     })
   }
   return sessions
+}
+
+/**
+ * Every channel call open on any session the console holds.
+ *
+ * Wider than what {@link seatSessions} can serve, and deliberately: it is what
+ * the reader prunes its memory of taken-up calls against, and a call whose
+ * session lost its frame mid-answer must not be forgotten while that answer is
+ * still running.
+ * @param views - every session's content views.
+ * @returns every open call id, in list order.
+ */
+function openCallsOf(views: readonly SessionViews[]): string[] {
+  return views.flatMap(view => view.pending.map(request => request.callId))
 }
 
 /** One frame's two DOM callbacks, cached so React does not re-run them every render. */
@@ -213,18 +271,23 @@ export function ContentFrame(props: ContentFrameProps) {
 
   // The seat is root-scoped, so the framework binds no `useProjection` here and
   // every session's values are read off the list snapshot every root slot gets.
-  // The whole list, not the current session's row: the frames of the sessions
-  // behind the one on display are mounted here too, and their calls are this
-  // seat's to answer.
-  const summaries = useSessions(state => state.byId)
+  // Every session's, not the current one's: the frames of the sessions behind
+  // the one on display are mounted here too, and their calls are this seat's to
+  // answer. The selection is the two content views alone, compared per session
+  // — the snapshot itself is rebuilt on every notification the session store
+  // makes, so subscribing to it whole would re-run the reader for a projection
+  // frame about a session this seat has nothing to do with.
+  const views = useSessions(state => viewsOf(state.byId), sameViews)
   const activeFrameId = active?.frameId
   const sessions = useMemo(
-    () => seatSessions(summaries, next, sessionId, entry, activeFrameId),
-    [summaries, next, sessionId, entry, activeFrameId],
+    () => seatSessions(views, next, sessionId, entry, activeFrameId),
+    [views, next, sessionId, entry, activeFrameId],
   )
+  const openCalls = useMemo(() => openCallsOf(views), [views])
 
   useContentRead({
     sessions,
+    openCalls,
     frames,
     tables,
     access: pageAccess,

@@ -118,6 +118,18 @@ export const FRAME_UNREACHABLE_MESSAGE = 'The content column\'s frame could not 
 export const FRAME_LOADING_MESSAGE =
   'The page in the content column had not finished loading when this read gave up on it.'
 
+/**
+ * Failure the seat posts when the column it claimed the call on left it before
+ * the read ran.
+ *
+ * The console holds a frame per (session, page) pair and drops the oldest to
+ * stay inside its bound, so the page a call was granted on can be gone by the
+ * time the reader reaches it. The sentence says what this console lost rather
+ * than anything about the column, which may hold as much as it did before.
+ */
+export const FRAME_LOST_MESSAGE =
+  'The console that claimed this call no longer holds the page it was claimed on.'
+
 /** Failure the seat posts when the entry in front names a page the deployment no longer configures. */
 export const FRAME_RETIRED_MESSAGE =
   'The page in front is no longer in this deployment\'s page list, so there is nothing to read.'

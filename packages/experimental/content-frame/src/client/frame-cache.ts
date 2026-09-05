@@ -35,31 +35,33 @@ export interface FrameCache {
   /**
    * Frame ids, most recently shown first; eviction takes from the tail.
    *
-   * It also answers which page each session is read through: the first entry
-   * belonging to a session is the one that session last had in front, and
-   * {@link frameFor} is that lookup.
+   * It also answers which page each session is read through: the entries
+   * belonging to a session are the pages it last had in front, newest first,
+   * and {@link framesFor} is that lookup.
    */
   readonly order: readonly string[]
 }
 
 /**
- * The frame one session's read runs in.
+ * The frames one session's read can run in, newest first.
  *
  * The recency list is the answer to "which page", because it is the only record
  * of what the user last put in front for a session other than the one on
- * display, and the frame it names is the one still holding that page's live
- * document.
+ * display, and the frames it names are the ones still holding those pages' live
+ * documents. The whole run is answered rather than its head alone: the column
+ * can have retired or dismissed the entry the newest frame holds, and the page
+ * under it is still mounted and still readable.
  * @param cache - the seat's frames and their recency.
  * @param sessionId - the session to answer for.
- * @returns that session's most recently shown frame, or undefined when it has
- * none cached.
+ * @returns that session's cached frames, most recently shown first.
  */
-export function frameFor(cache: FrameCache, sessionId: string): CachedFrame | undefined {
+export function framesFor(cache: FrameCache, sessionId: string): CachedFrame[] {
+  const mine: CachedFrame[] = []
   for (const frameId of cache.order) {
     const frame = cache.frames.find(cached => cached.frameId === frameId && cached.sessionId === sessionId)
-    if (frame !== undefined) return frame
+    if (frame !== undefined) mine.push(frame)
   }
-  return undefined
+  return mine
 }
 
 /** The empty cache, shared so a seat that has never shown a frame keeps one snapshot identity. */

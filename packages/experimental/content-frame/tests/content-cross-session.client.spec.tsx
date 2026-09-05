@@ -12,6 +12,7 @@
  * frame pointed at a real path stays forever loading with no document at all.
  * The real route through a real frame belongs to the browser lane.
  */
+import { useRef } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, render } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
@@ -41,9 +42,15 @@ let published: Record<string, Published> = {}
 /** The session the console is showing. */
 let current = 'a'
 
-/** A stand-in for the framework hook every root slot receives. */
-function useSessions<S>(select: (state: never) => S): S {
-  return select({
+/**
+ * A stand-in for the framework hook every root slot receives, memoizing the
+ * way `useSyncExternalStoreWithSelector` does: the selection keeps its identity
+ * for as long as the caller's own equality says nothing moved. The list
+ * snapshot is rebuilt on every call, which is what the real store does too.
+ */
+function useSessions<S>(select: (state: never) => S, eq?: (a: S, b: S) => boolean): S {
+  const held = useRef<{ value: S } | undefined>(undefined)
+  const next = select({
     current,
     byId: Object.fromEntries(Object.entries(published).map(([sessionId, values]) => [sessionId, {
       projectionValues: {
@@ -52,6 +59,10 @@ function useSessions<S>(select: (state: never) => S): S {
       },
     }])),
   } as never)
+  const previous = held.current
+  if (previous !== undefined && eq?.(previous.value, next) === true) return previous.value
+  held.current = { value: next }
+  return next
 }
 
 /** One shown page entry of some session's column. */
@@ -105,6 +116,11 @@ function outcomes(): ChannelOutcome[] {
   return posted.filter(entry => entry.route === CONTENT_REPORT_ROUTE).map(entry => entry.body.outcome as ChannelOutcome)
 }
 
+/** The claims posted so far. */
+function claimed(): Record<string, unknown>[] {
+  return posted.filter(entry => entry.route === CONTENT_CLAIM_ROUTE).map(entry => entry.body)
+}
+
 /** Wait until the reader has posted one outcome. */
 async function settled(): Promise<void> {
   await vi.waitFor(() => { expect(outcomes()).toHaveLength(1) }, { timeout: 3000 })
@@ -115,8 +131,9 @@ function readOf(callId: string): ContentAccessRequest {
   return { callId, tool: 'content_read', args: {} }
 }
 
-/** Session A's page, and session B's. */
+/** Session A's two pages, and session B's. */
 const A_PAGE = pageEntry('reports', 'Weekly reports')
+const A_OTHER = pageEntry('summary', 'Fleet summary')
 const B_PAGE = pageEntry('dashboard', 'Fleet dashboard')
 
 /**
@@ -207,6 +224,50 @@ describe('the page seat serving a session the console is not showing', () => {
     mount(B_PAGE, 3, view)
     await new Promise<void>((resolve) => { setTimeout(resolve, 50) })
     expect(posted).toEqual([])
+  })
+
+  it('falls back to the older page it still holds when the newest one is gone from the column', async () => {
+    // Two pages of session A are cached and the newer one is dismissed while
+    // the console is on session B. The older document is mounted and readable,
+    // so the read runs there rather than the session going unanswerable.
+    published = { a: { entries: [A_PAGE, A_OTHER] }, b: { entries: [B_PAGE] } }
+    const view = mount(A_PAGE)
+    fill(view, 'a reports', '<main><h1>Fleet A</h1></main>')
+    mount(A_OTHER, 3, view)
+    fill(view, 'a summary', '<main><h1>Fleet summary</h1></main>')
+    current = 'b'
+    mount(B_PAGE, 3, view)
+
+    published = { a: { entries: [A_PAGE], pending: [readOf('call_1')] }, b: { entries: [B_PAGE] } }
+    mount(B_PAGE, 3, view)
+    await settled()
+    const outcome = outcomes()[0]
+    if (outcome?.status !== 'ok') throw new Error('the seat answered a failure')
+    expect(outcome.page).toEqual({ id: 'reports', title: 'Weekly reports' })
+    expect(outcome.snapshot.text).toContain('Fleet A')
+  })
+
+  it('answers nothing more for a list notification that moved neither column', async () => {
+    // The session store rebuilds its whole snapshot on every notification, for
+    // any session and any reason. A refused bid leaves the call takeable again,
+    // so a re-render that carries the same two views must not become a bid: the
+    // selection compares the views, not the snapshot.
+    const view = showThenSwitch()
+    published = { a: { entries: [A_PAGE], pending: [readOf('call_1')] }, b: { entries: [B_PAGE] } }
+    // Both bids are refused, so this case ends where it began: no read runs.
+    claims = [{ claimed: false, reason: 'settled' }, { claimed: false, reason: 'settled' }]
+    mount(B_PAGE, 3, view)
+    await vi.waitFor(() => { expect(claimed()).toHaveLength(1) }, { timeout: 3000 })
+
+    mount(B_PAGE, 3, view)
+    mount(B_PAGE, 3, view)
+    await new Promise<void>((resolve) => { setTimeout(resolve, 50) })
+    expect(claimed()).toHaveLength(1)
+
+    // And the same seat does bid again the moment a view actually moves.
+    published = { a: { entries: [A_PAGE], pending: [readOf('call_2')] }, b: { entries: [B_PAGE] } }
+    mount(B_PAGE, 3, view)
+    await vi.waitFor(() => { expect(claimed()).toHaveLength(2) }, { timeout: 3000 })
   })
 
   it('reads nothing for a session whose column the host has published nothing of', async () => {

@@ -12,7 +12,7 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PendingCalls, type CallSettlement, type CallTimeouts } from '../src/access/pending.ts'
-import { PREFERRED_TAB_WINDOW_MS, type ReadOutcome } from '../src/access/wire.ts'
+import { HIDDEN_CLAIM_GRACE_MS, PREFERRED_TAB_WINDOW_MS, type ReadOutcome } from '../src/access/wire.ts'
 
 const TIMEOUTS: CallTimeouts = { claimTimeoutMs: 3000, answerTimeoutMs: 15000, pinMs: 300000 }
 
@@ -195,6 +195,39 @@ describe('the preferred tab', () => {
     expect(await table.claim({ callId: 'call_3', tabId: 'tab_b' })).toEqual({ claimed: true })
     table.report({ callId: 'call_3', tabId: 'tab_b', outcome: OUTCOME })
     await next
+  })
+
+  it('gives the read to the tab in front even where the pin names a tab that is not', async () => {
+    // The two windows are set so this is decided rather than raced: a seat
+    // whose tab is not in front waits HIDDEN_CLAIM_GRACE_MS before its first
+    // bid, and the host's hold is half of that, so the hold has already
+    // expired by the earliest moment the pinned-but-hidden tab could arrive.
+    expect(HIDDEN_CLAIM_GRACE_MS).toBeGreaterThan(PREFERRED_TAB_WINDOW_MS)
+    await pinTabA('call_1')
+    const settled = open('call_2')
+    const held = table.claim({ callId: 'call_2', tabId: 'tab_b' })
+    await vi.advanceTimersByTimeAsync(HIDDEN_CLAIM_GRACE_MS)
+    expect(await held).toEqual({ claimed: true })
+    // And the hidden tab's first bid, arriving now, finds the call taken —
+    // which is what moves the pin, and every ref of its document with it.
+    expect(await table.claim({ callId: 'call_2', tabId: 'tab_a' })).toEqual({ claimed: false, reason: 'taken' })
+    table.report({ callId: 'call_2', tabId: 'tab_b', outcome: OUTCOME })
+    await settled
+  })
+
+  it('grants a lone hidden tab well inside the claim window it is bounded by', async () => {
+    // The other side of the same arithmetic: with nothing in front, the only
+    // seat pays the grace and is then held for the pinned tab that will never
+    // come. Both windows together have to leave the claim window room to spare.
+    expect(HIDDEN_CLAIM_GRACE_MS + PREFERRED_TAB_WINDOW_MS).toBeLessThan(TIMEOUTS.claimTimeoutMs)
+    await pinTabA('call_1')
+    const settled = open('call_2')
+    await vi.advanceTimersByTimeAsync(HIDDEN_CLAIM_GRACE_MS)
+    const held = table.claim({ callId: 'call_2', tabId: 'tab_b' })
+    await vi.advanceTimersByTimeAsync(PREFERRED_TAB_WINDOW_MS)
+    expect(await held).toEqual({ claimed: true })
+    table.report({ callId: 'call_2', tabId: 'tab_b', outcome: OUTCOME })
+    await settled
   })
 
   it('refuses a second unpinned tab while one is already held', async () => {

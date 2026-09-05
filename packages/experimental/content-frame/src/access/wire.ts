@@ -61,9 +61,18 @@ export const PREFERRED_TAB_WINDOW_MS = 250
  * for the same race: it lets a console the user is looking at bid first on
  * every call, without letting a console they are not looking at answer nothing.
  * Both tabs receive the call over their own projection stream from one host, so
- * the skew between them is milliseconds and this window is two orders above it.
+ * the skew between them is milliseconds and this window is orders above it.
+ *
+ * Twice the host's hold, so the two windows decide rather than race. Where the
+ * session's pinned tab is the hidden one and another tab is in front, the
+ * host's hold expires before the hidden bid can arrive and the tab in front is
+ * granted the call — a tab the user is looking at outranks the pin. The grant
+ * then moves the pin to that tab, so every ref the hidden document minted is
+ * stale for the next read, which is the price of preferring what is on screen.
+ * With no tab in front at all, this window plus the hold is 750ms, well inside
+ * the default claim timeout.
  */
-export const HIDDEN_CLAIM_GRACE_MS = 250
+export const HIDDEN_CLAIM_GRACE_MS = PREFERRED_TAB_WINDOW_MS * 2
 
 /**
  * How long a seat waits before re-claiming a call the host does not know yet.

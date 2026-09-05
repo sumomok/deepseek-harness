@@ -40,7 +40,8 @@ import {
   type ReadOutcome, type ReadPage, type ReportAck,
 } from '../../access/wire.ts'
 import {
-  FRAME_LOADING_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE, FRAME_WIDE_LISTING_MESSAGE,
+  FRAME_LOADING_MESSAGE, FRAME_LOST_MESSAGE, FRAME_RETIRED_MESSAGE, FRAME_UNREACHABLE_MESSAGE,
+  FRAME_WIDE_LISTING_MESSAGE,
   wideAttrsMessage, wideTextMessage, WIDE_DOM_MESSAGE,
 } from '../../access/text.ts'
 import { actReportText, frontChangedRefusal } from '../../access/act-text.ts'
@@ -156,6 +157,17 @@ export interface ContentReadSeat {
    * it has no document to answer.
    */
   sessions: readonly SeatSession[]
+  /**
+   * Every channel call open on any session the console holds, served or not.
+   *
+   * It is what the memory of the calls this seat has taken up is pruned
+   * against, and it is wider than {@link sessions} on purpose: a session whose
+   * frame was evicted while one of its calls was being answered leaves this
+   * seat's servable list, and pruning against that list alone would forget a
+   * call still being worked on and take it up a second time when the session
+   * came back.
+   */
+  openCalls: readonly string[]
   /** Every mounted frame element, by frame id. */
   frames: MutableRefObject<Map<string, HTMLIFrameElement>>
   /** Each frame's element numbering, minted on first read and dropped with the frame. */
@@ -282,20 +294,6 @@ async function post<T>(route: string, body: string): Promise<Posted<T>> {
  */
 function sessionOf(seat: ContentReadSeat, sessionId: string): SeatSession | undefined {
   return seat.sessions.find(session => session.sessionId === sessionId)
-}
-
-/**
- * One session's column as this seat no longer holds it.
- *
- * A claim can outlive the frame it was going to be answered from: the console
- * switched to a page that evicted it, or the session left the console's list.
- * A read with no document to run against is a read of a column with nothing in
- * it, which is the failure {@link prepare} composes for it.
- * @param sessionId - the session the claim named.
- * @returns a column this seat can answer nothing from.
- */
-function noColumn(sessionId: string): SeatSession {
-  return { sessionId, entries: [], pending: [], page: undefined, frameId: undefined }
 }
 
 /** Wait one interval before re-claiming. */
@@ -532,12 +530,21 @@ type Prepared =
  * reach, and a page that never finished loading are not conditions a read or a
  * set of steps can tell apart.
  * @param seat - the seat as it stands now, for the frames it holds.
- * @param session - the column this call is against.
+ * @param session - the column this call is against, absent when this seat no
+ * longer holds it.
  * @param timeoutMs - this call's own report deadline, whose load share the wait spends.
  * @returns the page and its document, or the failure to post.
  */
-async function prepare(seat: ContentReadSeat, session: SeatSession, timeoutMs: number): Promise<Prepared> {
+async function prepare(
+  seat: ContentReadSeat,
+  session: SeatSession | undefined,
+  timeoutMs: number,
+): Promise<Prepared> {
   const failed = (outcome: ReadFailure): Prepared => ({ kind: 'failed', outcome })
+  // A claim can outlive the frame it was granted on: the console switched to a
+  // page that evicted it, or the session left the console's list. What is gone
+  // is this console's copy of the page, not the column, so the failure says so.
+  if (session === undefined) return failed(frameError(FRAME_LOST_MESSAGE))
   if (session.entries.length === 0) return failed({ status: 'error', code: 'empty', message: NO_ENTRY_REASON })
   if (session.page === undefined) {
     return failed({ status: 'error', code: 'not-a-page', message: NOT_A_PAGE_REASON, ...otherKind(session.entries) })
@@ -609,7 +616,8 @@ function wideMessage(request: ContentReadingRequest, chars: number, budget: numb
  * column with nothing in it, a frame out of reach, a page still loading and a
  * page still drawing are the same four answers for every one of them.
  * @param seat - the seat as it stands now, for the frames it holds.
- * @param session - the column this call is against.
+ * @param session - the column this call is against, absent when this seat no
+ * longer holds it.
  * @param request - the pending call: what it asks of the page, and the id the
  * report carrying the answer will be posted under.
  * @param access - the node half's budget and deadline.
@@ -617,7 +625,7 @@ function wideMessage(request: ContentReadingRequest, chars: number, budget: numb
  */
 async function readPage(
   seat: ContentReadSeat,
-  session: SeatSession,
+  session: SeatSession | undefined,
   request: ContentReadingRequest,
   access: ContentFrameAccessSettings,
 ): Promise<Report> {
@@ -688,14 +696,15 @@ async function readPage(
  * settles ends as a refusal naming this picture rather than as the host's own
  * report deadline and its sentence about a console that went quiet.
  * @param seat - the seat as it stands now, for the frames it holds.
- * @param session - the column this call is against.
+ * @param session - the column this call is against, absent when this seat no
+ * longer holds it.
  * @param request - the pending call: the ref to export, and the id the report is posted under.
  * @param access - the node half's budget and deadline.
  * @returns the report to post.
  */
 async function readImage(
   seat: ContentReadSeat,
-  session: SeatSession,
+  session: SeatSession | undefined,
   request: ContentReadImageRequest,
   access: ContentFrameAccessSettings,
 ): Promise<Report> {
@@ -759,7 +768,8 @@ async function readImage(
  * refs it names are the ones a following call can use, and a call that changed
  * the page therefore never has to read it again to act on what it produced.
  * @param seat - the seat as it stands now, for the frames it holds.
- * @param session - the column this call is against.
+ * @param session - the column this call is against, absent when this seat no
+ * longer holds it.
  * @param request - the pending call: the steps to run, and the id the report is posted under.
  * @param access - the node half's budget, deadlines and per-step ceiling.
  * @param approved - the entry the column had in front when the call was
@@ -768,7 +778,7 @@ async function readImage(
  */
 async function actOnPage(
   seat: ContentReadSeat,
-  session: SeatSession,
+  session: SeatSession | undefined,
   request: ContentActRequest,
   access: ContentFrameAccessSettings,
   approved: ReadPage | undefined,
@@ -780,7 +790,7 @@ async function actOnPage(
   // page there has lost the thing it was agreed about. A column now holding
   // something that is not a page, or nothing at all, is answered by the
   // failures below instead — they say more about what to do next than this one.
-  if (approved !== undefined && session.page !== undefined && session.page.id !== approved.id) {
+  if (approved !== undefined && session?.page !== undefined && session.page.id !== approved.id) {
     return report({
       status: 'error',
       code: 'front-changed',
@@ -897,7 +907,7 @@ async function answer(
   }
   // The column as it stands after the claim round trip, which is what every
   // read below runs against and what the step guard compares the approval to.
-  const session = sessionOf(seat.current, sessionId) ?? noColumn(sessionId)
+  const session = sessionOf(seat.current, sessionId)
   if (request.tool === CONTENT_ACT_TOOL_NAME) {
     await reportRead(CONTENT_REPORT_ROUTE, await actOnPage(seat.current, session, request, access, claimed.page))
     return
@@ -955,7 +965,10 @@ export function useContentRead(seat: ContentReadSeat): void {
     // long session would otherwise accumulate one id per read it ever saw. This
     // runs before the guard below: a seat that cannot read still has to forget,
     // or a call it gave up on stays skipped on the frame that carries it again.
-    const open = new Set(seat.sessions.flatMap(session => session.pending.map(request => request.callId)))
+    // The list it is pruned against is every session's, not the servable ones':
+    // a call being answered when its session left this seat is still that
+    // answer's, and forgetting it here would spawn a second one.
+    const open = new Set(seat.openCalls)
     for (const callId of started.current) {
       if (!open.has(callId)) started.current.delete(callId)
     }
@@ -968,5 +981,5 @@ export function useContentRead(seat: ContentReadSeat): void {
         void answer(live, mounted, started, session.sessionId, request, access)
       }
     }
-  }, [seat.access, seat.sessions])
+  }, [seat.access, seat.sessions, seat.openCalls])
 }
