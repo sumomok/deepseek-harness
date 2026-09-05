@@ -267,9 +267,11 @@ function unreadableMediaEntry(ref: ImageAttachmentRef, error: unknown): SessionL
  * The archive path for one stored file the export could not read: the file
  * entry's own path plus a `.error.txt` suffix, so the record sits in the
  * digest directory the log reference names. One reference yields the file
- * entry or this one, never both; two display names for one digest that differ
- * by exactly this suffix would name the same entry, which no store produces
- * because the suffixed name would have to be stored deliberately.
+ * entry or this one, never both. The path keys on digest and display name, so
+ * colliding with another reference's file entry takes the same digest — hence
+ * the same stored object — under a display name ending in `.error.txt`; one
+ * object reads the same way for both references, leaving only the race where
+ * it is deleted between the two reads.
  * @param ref - the durable reference from a session log.
  * @returns the archive path for the failure record.
  */
