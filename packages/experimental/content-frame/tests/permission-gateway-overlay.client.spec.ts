@@ -3,9 +3,11 @@
  * registers. `overlay/permission-gateway.patch.yml` classifies the content
  * column's reads for `@haoran/dsh-llm-permission-gateway`, which lives outside
  * this repository and knows nothing about this package: the two are joined by
- * tool-name strings alone, so renaming a read here and forgetting the overlay
- * would silently put that read back in front of the judge. Every name below is
- * imported rather than written out, which makes the rename fail here first.
+ * tool-name strings alone, so a read this package declares and the overlay does
+ * not classify goes silently in front of the judge. The classified set is
+ * derived from `wire.ts` rather than listed here — every `*_TOOL_NAME` export
+ * it declares, less the one the gate is meant to judge — so a read added or
+ * renamed there fails this file before it reaches a console.
  *
  * `content_act` is asserted absent. It drives the page and the gate is meant to
  * judge it, so the pin holds the negative rather than trusting the comment.
@@ -24,15 +26,20 @@ import { resolve } from 'node:path'
 import { describe, expect, it } from 'vitest'
 import * as yaml from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
-import {
-  CONTENT_ACT_TOOL_NAME,
-  CONTENT_READ_ATTRS_TOOL_NAME,
-  CONTENT_READ_DOM_CONTENT_TOOL_NAME,
-  CONTENT_READ_DOM_TOOL_NAME,
-  CONTENT_READ_IMAGE_TOOL_NAME,
-  CONTENT_READ_TOOL_NAME,
-} from '../src/access/wire.ts'
+import * as wire from '../src/access/wire.ts'
 import { CONTENT_SHOW_TOOL_NAME } from '../src/tool.ts'
+
+/**
+ * Every tool name `wire.ts` declares, taken from the module rather than listed,
+ * so the set follows the source. A rename of the suffix convention empties this
+ * and is caught by the count assertion below rather than passing vacuously.
+ */
+const declaredToolNames: string[] = Object.entries(wire)
+  .filter(([key]) => key.endsWith('_TOOL_NAME'))
+  .flatMap(([, value]) => typeof value === 'string' ? [value] : [])
+
+/** The names the overlay must classify: everything declared but the act tool. */
+const readsToClassify: string[] = declaredToolNames.filter(name => name !== wire.CONTENT_ACT_TOOL_NAME)
 
 interface GatewayRow {
   id?: string
@@ -66,22 +73,16 @@ describe('the review-gate overlay', () => {
     expect(config?.model).not.toBe('')
   })
 
-  it('classifies every read this package registers, and lists each name once', () => {
+  it('classifies every read tool the wire module declares, plus content_show, and lists each name once', () => {
     const readOnlyTools = overlay[0]?.config?.readOnlyTools
     expect(Array.isArray(readOnlyTools)).toBe(true)
     const names = readOnlyTools as string[]
-    expect(names).toEqual(expect.arrayContaining([
-      CONTENT_READ_TOOL_NAME,
-      CONTENT_READ_DOM_TOOL_NAME,
-      CONTENT_READ_ATTRS_TOOL_NAME,
-      CONTENT_READ_DOM_CONTENT_TOOL_NAME,
-      CONTENT_READ_IMAGE_TOOL_NAME,
-      CONTENT_SHOW_TOOL_NAME,
-    ]))
+    expect(readsToClassify.length).toBeGreaterThan(0)
+    expect(names).toEqual(expect.arrayContaining([...readsToClassify, CONTENT_SHOW_TOOL_NAME]))
     expect(new Set(names).size).toBe(names.length)
   })
 
   it('leaves the tool that drives the page for the judge to review', () => {
-    expect(overlay[0]?.config?.readOnlyTools).not.toContain(CONTENT_ACT_TOOL_NAME)
+    expect(overlay[0]?.config?.readOnlyTools).not.toContain(wire.CONTENT_ACT_TOOL_NAME)
   })
 })

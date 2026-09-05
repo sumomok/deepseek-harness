@@ -16,11 +16,11 @@
 # merging keys into it (vendor/include/src/index.ts:121-124). So `provider` and
 # `model` — both required, rejected empty by the gate — are restated here, and
 # the gate's whole default `readOnlyTools` list is copied rather than extended.
-# Gateway 0.3.0 moves the judge route into a setting, at which point the two
-# restated fields come out of this file. The eleven copied names are a copy and
-# nothing pins them here: the gate pins its own defaults in its own tests, and
-# a second copy of that list in this repository would be a second source of
-# truth for a value this repository does not own.
+# A later gate version is planned to move the judge route into a setting, at
+# which point the two restated fields come out of this file. The eleven copied
+# names are a copy and nothing pins them here: the gate pins its own defaults
+# in its own tests, and a second copy of that list in this repository would be
+# a second source of truth for a value this repository does not own.
 #
 # A deployment passing this file also writes, on its own content-frame row in
 # its own column overlay:
@@ -67,8 +67,6 @@
       - content_read_attrs
       - content_read_dom_content
       - content_read_image
-      # `content_act` is deliberately absent from this list, and
-      # tests/permission-gateway-overlay.client.spec.ts holds it out. It drives
-      # the page, so the review gate judges every call of it. The owner ruled on
-      # 2026-09-06 that only a dangerous page action puts a card in front of a
-      # person; the gate's own card is a separate slice.
+      # `content_act` is deliberately absent. It drives the page, so the gate
+      # judges every call of it, and
+      # tests/permission-gateway-overlay.client.spec.ts holds it out.
