@@ -4,7 +4,7 @@ import { join } from 'node:path'
 import { fileURLToPath, pathToFileURL } from 'node:url'
 import { execa } from 'execa'
 import { describe, expect, it } from 'vitest'
-import { resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
+import { isolatedSkillRootEnv, resolveExampleLaunch } from '@deepseek-ai/dsh-loader-smoke'
 
 const dshBinScript = fileURLToPath(new URL('../src/bin.ts', import.meta.url))
 const tsconfigPath = fileURLToPath(new URL('../../../tsconfig.json', import.meta.url))
@@ -57,8 +57,7 @@ describe('dsh run with Agent Teams enabled', () => {
         configArgs: ['--profile', 'headless', '请先运行 workflow 检查，再使用 Agent Teams 把调研和实现拆给两个 teammate，等待完成后汇总。'],
         tsconfigPath,
         env: {
-          DSH_HOME: home,
-          DSH_AGENTS_HOME: join(cwd, '.agents'),
+          ...isolatedSkillRootEnv(cwd, { dshHome: home }),
           DSH_TELEMETRY_DISABLED: '1',
           DEEPSEEK_API_KEY: '',
           NODE_OPTIONS: [
