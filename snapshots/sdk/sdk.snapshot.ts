@@ -53,6 +53,7 @@ import {
   type SnapshotManifest,
   type WorkspaceSnapshotEntry,
 } from '@deepseek-ai/dsh-session-snapshot'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import {
   DeepSeekHarness,
   type HarnessNotification,
@@ -568,7 +569,7 @@ async function runScenario(scenario: CorpusScenario): Promise<{
     DSH_SNAPSHOT_PROVIDER: route.provider,
     DSH_SNAPSHOT_MODEL: route.model,
     DSH_TELEMETRY_DISABLED: '1',
-    DSH_AGENTS_HOME: join(cwd, '.agents'),
+    ...isolatedSkillRootEnv(cwd),
     NODE_OPTIONS: [process.env.NODE_OPTIONS, '--disable-warning=ExperimentalWarning'].filter(Boolean).join(' '),
     ...parentFixture === undefined ? {} : {
       DSH_SNAPSHOT_FILE: parentFixture,
