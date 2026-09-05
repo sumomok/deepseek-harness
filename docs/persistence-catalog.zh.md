@@ -521,7 +521,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  */
 'content-component/resolved': {
   /** The tool call the rows were read for, which pairs this with that call's own `tool/call`. */
-  callId: CallId
+  callId: ToolCallId
   /** The content-column entry this now owns, which is the call's `id`. */
   entryId: string
   /** The line the user reads on the entry's tab, as the call wrote it. */
@@ -548,7 +548,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-类型：[CallId](subsystems/core.zh.md)
+类型：[ToolCallId](subsystems/core.zh.md)
 
 来源：[`packages/experimental/component-surface/src/types.ts:86`](../packages/experimental/component-surface/src/types.ts)
 

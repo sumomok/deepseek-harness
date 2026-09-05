@@ -583,6 +583,12 @@ export interface Config {
    * `?redirect=<the encoded page it came from>`, so the value may not already
    * carry a query string. A hash-routed login page (`/sign-in/#/`) takes the
    * parameter inside its fragment, which is where a hash router reads it.
+   *
+   * A browser-side address, assigned as it stands: a deployment served under a
+   * path prefix writes that prefix into the value, because nothing resolves it
+   * against the deployment base. A login page outside the shell's prefix is a
+   * valid choice, and it receives no mirror cookie — that cookie is scoped to
+   * the prefix.
    */
   loginUrl: string
   /**
@@ -604,10 +610,23 @@ export interface Config {
    * nothing.
    */
   mcpUpstreams: Record<string, string>
+  /**
+   * Base URL of this deployment's own data backend, ending in `/` and carrying
+   * the deployment's API prefix — `https://<host>/ini-server/` for a standard
+   * install. That prefix is the frontend's `VUE_APP_BASE_URL`, so it is read off
+   * the deployment rather than assumed: an install built without one publishes
+   * its API at the origin root instead.
+   *
+   * There is no default. Left out, the `bizBackend` service is not registered
+   * at all, and a row that consumes it stays pending with the missing service
+   * named — a deployment that does not offer a data backend says so by staying
+   * silent, rather than by registering reads that always fail.
+   */
+  bizUpstream?: string
 }
 ```
 
-Source: [`packages/experimental/auth-gate/src/index.ts:50`](../packages/experimental/auth-gate/src/index.ts)
+Source: [`packages/experimental/auth-gate/src/index.ts:59`](../packages/experimental/auth-gate/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-code-runtime-python"></a>
 
@@ -676,6 +695,75 @@ export interface Config {
 
 Source: [`packages/experimental/code-runtime-python/src/index.ts:42`](../packages/experimental/code-runtime-python/src/index.ts)
 
+<a id="deepseek-aidsh-experimental-component-surface"></a>
+
+## `@deepseek-ai/dsh-experimental-component-surface`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Plugin config: the views this deployment offers the user, and whether a call may read its own rows. */
+export interface Config {
+  /**
+   * Blocks a person wrote, offered to the user through the sidebar rather than
+   * to the model. Each carries the same three values a `show_component` call
+   * does — an entry id, a title, and a spec — and is judged by the same pass at
+   * load. Omit it, or leave it empty, for a deployment where the agent is the
+   * only one who puts anything in the column.
+   */
+  views?: ContentView[]
+  /**
+   * View the sidebar shows automatically the first time a session lands on a
+   * blank draft, so a new conversation opens onto a populated column instead of
+   * an empty one. Must name a configured view. Omit to leave a blank draft's
+   * column empty until the user or the agent chooses. The value is read by
+   * `@deepseek-ai/dsh-experimental-server-sidebar` off this row's route, and
+   * what it drives is a real `show-content-view` invocation, so it leaves the
+   * same durable record a real click would.
+   */
+  homeView?: string
+  /**
+   * Whether a call may fill a data table from this deployment's own data
+   * backend. Off by default, because the read spends the signed-in visitor's
+   * own credential and a deployment has to say that it wants that.
+   *
+   * Where it is on, the tool is offered only once `bizBackend` and `approval`
+   * are both composed — the offer names a parameter, and a parameter with no
+   * backend behind it or no way to ask the user is an offer that cannot be
+   * kept.
+   */
+  dataSource?: boolean
+  /**
+   * Rows one read asks for when the call names no count of its own, which is
+   * also the number the user is shown on the approval card. A deployment whose
+   * tables are wide wants a smaller one; the ceiling is the table's own
+   * {@link MAX_TABLE_ROWS}.
+   */
+  dataDefaultPageSize?: number
+}
+
+/** One view a deployment configures, as `cordis.yml` writes it and before anything has judged it. */
+export interface ContentView {
+  /**
+   * Stable id of the view, and of the content-column entry it owns. Read
+   * exactly as a `show_component` entry id is — the same alphabet and the same
+   * ceiling — because it becomes one.
+   */
+  readonly id: string
+  /** Short phrase naming the entry for the user, on the same ceiling a call's title is read against. */
+  readonly title: string
+  /**
+   * What to draw, in the structure `show_component`'s own `spec` parameter
+   * takes. Judged at load by the same pass that judges a call, so a deployment
+   * learns about a broken view when the row loads rather than when a user first
+   * clicks it.
+   */
+  readonly spec: unknown
+}
+```
+
+Source: [`packages/experimental/component-surface/src/index.ts:90`](../packages/experimental/component-surface/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 
 ## `@deepseek-ai/dsh-experimental-content-frame`
@@ -696,7 +784,9 @@ export interface Config {
    * The pages the agent may put in the column, in the order the tool
    * description offers them. At least one is required — `content_show` exists
    * to choose among these, and an empty list leaves the model a tool it can
-   * never call successfully. Each `url` must be a same-origin path.
+   * never call successfully. Each `url` must be a same-origin path, written as
+   * the browser addresses it — a deployment served under a path prefix carries
+   * that prefix in the value (see {@link ContentPage.url}).
    */
   pages: ContentPage[]
   /**
@@ -777,7 +867,14 @@ export interface ContentPage {
   readonly title: string
   /** What the page is for, in the agent's terms — this is what the tool description offers it to choose from. */
   readonly description: string
-  /** Same-origin path of the page, from the site root (`/content-app/reports/`). */
+  /**
+   * Same-origin path of the page as the browser addresses it, complete: a
+   * deployment served under a path prefix writes that prefix into this value
+   * (`/console/content-app/reports/`), because the frame requests it as it
+   * stands and nothing resolves it against the deployment base a second time.
+   * Not `CONTENT_APP_ROUTE`, which is the process-side route the node half
+   * claims after a reverse proxy has stripped that prefix.
+   */
   readonly url: string
 }
 
@@ -949,6 +1046,48 @@ export interface InspectorOptions {
 ```
 
 Source: [`packages/experimental/inspector/src/index.ts:66`](../packages/experimental/inspector/src/index.ts)
+
+<a id="deepseek-aidsh-experimental-server-base"></a>
+
+## `@deepseek-ai/dsh-experimental-server-base`
+
+Requires: `webServer`
+
+```ts config-catalog
+/** Plugin config: the path prefix this process is served under. */
+export interface Config {
+  /**
+   * Deployment prefix as the browser addresses it, leading and trailing slash
+   * included — `/console/` for a process behind `location /console/`, `/` for
+   * one served at the origin root. It must carry no query string, no fragment,
+   * and no empty segment, because every browser-side URL is resolved against
+   * it.
+   */
+  basePath: string
+}
+```
+
+Source: [`packages/experimental/server-base/src/index.ts:47`](../packages/experimental/server-base/src/index.ts)
+
+<a id="deepseek-aidsh-experimental-server-sidebar"></a>
+
+## `@deepseek-ai/dsh-experimental-server-sidebar`
+
+```ts config-catalog
+/** Plugin config: the one browser-facing value this shell cannot work out for itself. */
+export interface Config {
+  /**
+   * Claim of the deployment's access token that carries the signed-in
+   * person's display name, as the sidebar's footer shows it (`login_uname`
+   * for the toy-core sign-on this deployment runs). Deployment-varying: a
+   * different sign-on names it differently, and no claim is standard enough
+   * to default to.
+   */
+  displayNameClaim: string
+}
+```
+
+Source: [`packages/experimental/server-sidebar/src/index.ts:53`](../packages/experimental/server-sidebar/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 
@@ -3708,10 +3847,10 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-cordis-client-runner` ([`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts))
 - `@deepseek-ai/dsh-deepseek-llm-api-extensions` ([`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts))
 - `@deepseek-ai/dsh-experimental-client-ui-agent-team` ([`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts))
+- `@deepseek-ai/dsh-experimental-component-kit` ([`packages/experimental/component-kit/src/index.ts`](../packages/experimental/component-kit/src/index.ts))
 - `@deepseek-ai/dsh-experimental-content-column` ([`packages/experimental/content-column/src/index.ts`](../packages/experimental/content-column/src/index.ts))
 - `@deepseek-ai/dsh-experimental-content-surface` ([`packages/experimental/content-surface/src/index.ts`](../packages/experimental/content-surface/src/index.ts))
 - `@deepseek-ai/dsh-experimental-server-layout` ([`packages/experimental/server-layout/src/index.ts`](../packages/experimental/server-layout/src/index.ts))
-- `@deepseek-ai/dsh-experimental-server-sidebar` ([`packages/experimental/server-sidebar/src/index.ts`](../packages/experimental/server-sidebar/src/index.ts))
 - `@deepseek-ai/dsh-experimental-vue-ui-poc` ([`packages/experimental/vue-ui-poc/src/index.ts`](../packages/experimental/vue-ui-poc/src/index.ts))
 - `@deepseek-ai/dsh-experimental-vue2-echarts-poc` ([`packages/experimental/vue2-echarts-poc/src/index.ts`](../packages/experimental/vue2-echarts-poc/src/index.ts))
 - `@deepseek-ai/dsh-fs-e2b` — requires `e2b` ([`packages/e2b/fs-e2b/src/index.ts`](../packages/e2b/fs-e2b/src/index.ts))
@@ -3781,6 +3920,7 @@ Imported as libraries by other packages; a `cordis.yml` cannot load them.
 - `@deepseek-ai/dsh-deque` ([`packages/util/deque/src/index.ts`](../packages/util/deque/src/index.ts))
 - `@deepseek-ai/dsh-experimental-agent-team-profile` ([`packages/experimental/agent-team-profile/src/index.ts`](../packages/experimental/agent-team-profile/src/index.ts))
 - `@deepseek-ai/dsh-experimental-agent-team-web-profile` ([`packages/experimental/agent-team-web-profile/src/index.ts`](../packages/experimental/agent-team-web-profile/src/index.ts))
+- `@deepseek-ai/dsh-experimental-biz-backend` ([`packages/experimental/biz-backend/src/index.ts`](../packages/experimental/biz-backend/src/index.ts))
 - `@deepseek-ai/dsh-experimental-library-skills` ([`packages/experimental/library-skills/src/index.ts`](../packages/experimental/library-skills/src/index.ts))
 - `@deepseek-ai/dsh-experimental-webworker-packer` ([`packages/experimental/webworker-packer/src/index.ts`](../packages/experimental/webworker-packer/src/index.ts))
 - `@deepseek-ai/dsh-experimental-webworker-runtime` ([`packages/experimental/webworker-runtime/src/index.ts`](../packages/experimental/webworker-runtime/src/index.ts))

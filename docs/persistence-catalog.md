@@ -519,7 +519,7 @@ Source: [`packages/experimental/content-frame/src/types.ts:23`](../packages/expe
  */
 'content-component/resolved': {
   /** The tool call the rows were read for, which pairs this with that call's own `tool/call`. */
-  callId: CallId
+  callId: ToolCallId
   /** The content-column entry this now owns, which is the call's `id`. */
   entryId: string
   /** The line the user reads on the entry's tab, as the call wrote it. */
@@ -546,7 +546,7 @@ Source: [`packages/experimental/content-frame/src/types.ts:23`](../packages/expe
 }
 ```
 
-Types: [CallId](subsystems/core.md)
+Types: [ToolCallId](subsystems/core.md)
 
 Source: [`packages/experimental/component-surface/src/types.ts:86`](../packages/experimental/component-surface/src/types.ts)
 

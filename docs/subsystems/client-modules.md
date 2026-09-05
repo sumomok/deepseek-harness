@@ -22,7 +22,7 @@ The graph is the wire single source between the Node and browser halves. The hos
 interface WebBootEntry {
   /** Entry name == package name. */
   id: string
-  /** Revisioned single-resource combo endpoint used by HMR. */
+  /** Revisioned single-resource combo endpoint used by HMR, relative to the page's deployment base. */
   url: string
   /** Opaque plugin-artifact revision used for HMR cache busting. */
   rev: string
@@ -45,7 +45,7 @@ type WebBootBatchPhase = 'bootstrap' | 'application'
 interface WebBootBatch {
   /** Parser-blocking bootstrap or preloaded application scheduling. */
   phase: WebBootBatchPhase
-  /** Content-addressed combo script endpoint. */
+  /** Content-addressed combo script endpoint, relative to the page's deployment base. */
   url: string
   /** Revision over the combined plugin script bytes and indexed source map. */
   rev: string
