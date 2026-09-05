@@ -16,6 +16,7 @@ import type {
   SessionFormatJsonValue,
 } from '@deepseek-ai/dsh-session-format'
 import {
+  LEGACY_UNINTERPRETED_EVENT_TYPES,
   assertReleasedArtifactRelationships,
   assertReleasedPayloadSemantics,
   assertReleasedSurfaceMetadata,
@@ -98,7 +99,8 @@ function validateReleasedV2Artifact(
     const ignorableUnknown = disposition === undefined
       && mode === 'current'
       && record['ignorable'] === true
-    if (mode !== 'physical' && disposition === undefined && !installed && !ignorableUnknown) {
+    const uninterpreted = LEGACY_UNINTERPRETED_EVENT_TYPES.has(type)
+    if (mode !== 'physical' && disposition === undefined && !installed && !uninterpreted && !ignorableUnknown) {
       throw new SessionFormatUnsupportedMigrationError(
         `format v2 contains unknown event type ${JSON.stringify(type)} at seq ${index}`,
       )

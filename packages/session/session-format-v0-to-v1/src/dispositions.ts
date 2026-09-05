@@ -129,3 +129,24 @@ export const RELEASED_V0_EVENT_DISPOSITIONS: Readonly<Record<string, ReleasedV0P
 export const RELEASED_V0_EVENT_TYPES: readonly string[] = Object.freeze(
   Object.keys(RELEASED_V0_EVENT_DISPOSITIONS).sort((left, right) => left.localeCompare(right, 'en')),
 )
+
+/**
+ * Historical event types this build migrates without interpreting their payload.
+ *
+ * The released inventories are frozen per generation, so a Session written by a
+ * build that carried an event type absent from them cannot migrate: coordinate
+ * validation refuses it, and `ignorable: true` does not exempt a historical
+ * event. The Sessions already on disk cannot be rewritten, so every such type
+ * ever written by a shipped build is named here and carried through each
+ * migration edge verbatim, keeping its envelope checks and skipping only the
+ * payload disposition it has none of.
+ *
+ * - `attachment/materialized` — `@deepseek-ai/dsh-attachment-spill`, shipped in
+ *   this fork's rc.29 and rc.30 desktop builds.
+ * - `permissionRules/decision` — the out-of-repo `llm-permission-gateway`
+ *   plugin, mounted while it was under evaluation.
+ */
+export const LEGACY_UNINTERPRETED_EVENT_TYPES: ReadonlySet<string> = Object.freeze(new Set([
+  'attachment/materialized',
+  'permissionRules/decision',
+]))

@@ -12,7 +12,7 @@ import type {
   SessionFormatHeader,
   SessionFormatJsonValue,
 } from '@deepseek-ai/dsh-session-format'
-import { RELEASED_V0_EVENT_DISPOSITIONS } from './dispositions.ts'
+import { LEGACY_UNINTERPRETED_EVENT_TYPES, RELEASED_V0_EVENT_DISPOSITIONS } from './dispositions.ts'
 import { assertReleasedPayloadSemantics } from './payload-validation.ts'
 import { assertReleasedArtifactRelationships } from './relationships.ts'
 import { assertReleasedV0Keys, releasedV0Record } from './validation-helpers.ts'
@@ -78,7 +78,9 @@ export function assertReleasedV0SourceArtifact(artifact: SessionFormatArtifact):
 export function assertNormalizedReleasedV0Artifact(artifact: SessionFormatArtifact): void {
   assertReleasedSessionFormatHeader(artifact.header, 0)
   assertArtifactCoordinates(artifact, false, RELEASED_V0_EVENT_TYPE_SET)
-  for (const event of artifact.events) assertReleasedEventPayload(event, 0)
+  for (const event of artifact.events) {
+    if (RELEASED_V0_EVENT_DISPOSITIONS[event.type] !== undefined) assertReleasedEventPayload(event, 0)
+  }
   assertReleasedArtifactRelationships(artifact)
 }
 
@@ -140,8 +142,9 @@ function assertArtifactCoordinates(
     const disposition = RELEASED_V0_EVENT_DISPOSITIONS[type]
     const legacy = allowLegacySteering && LEGACY_SOURCE_TYPES.has(type)
     const currentKnown = knownEventTypes?.has(type) === true
+    const uninterpreted = LEGACY_UNINTERPRETED_EVENT_TYPES.has(type)
     const ignorableCurrent = !allowLegacySteering && !currentKnown && record['ignorable'] === true
-    if (!currentKnown && !legacy && !ignorableCurrent && !vocabularyNeutral) {
+    if (!currentKnown && !legacy && !uninterpreted && !ignorableCurrent && !vocabularyNeutral) {
       if (allowLegacySteering) {
         throw new SessionFormatUnsupportedMigrationError(
           `format v0 contains unknown historical event type ${JSON.stringify(type)} at seq ${index}; migration refuses unknown historical events even when ignorable`,

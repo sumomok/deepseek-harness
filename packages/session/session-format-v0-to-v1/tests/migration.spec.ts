@@ -236,4 +236,36 @@ describe('released Session format v0 to v1', () => {
     expect(() => { sessionFormatV0ToV1.validateTarget(extendedKnownPayload) }).toThrow(/unexpected member/)
     expect(() => restoreReleasedV1Artifact(extendedKnownPayload, generatedCurrentTypes)).not.toThrow()
   })
+
+  it('carries a named uninterpreted historical event through and marks it ignorable', () => {
+    const physicalHeader = {
+      type: 'session', version: 0, id: 'uninterpreted', createdAt: 1, delegationDepth: 0,
+    }
+    const rows = [
+      { type: 'turn/start', seq: 0, time: 2, data: { turn: 1 } },
+      { type: 'attachment/materialized', seq: 1, time: 3, data: { attachmentId: 'a', locator: 'spill:1' } },
+      { type: 'permissionRules/decision', seq: 2, time: 4, data: { toolName: 'read', outcome: 'deny' } },
+      { type: 'turn/end', seq: 3, time: 5, data: { turn: 1, reason: { kind: 'completed' } } },
+    ]
+    const source = releasedV0SessionFormatCodec.decodeArtifact(physicalHeader, rows)
+
+    const migrated = sessionFormatV0ToV1.migrate(source)
+
+    expect(migrated.events.map(one => one.type)).toEqual(rows.map(one => one.type))
+    expect(migrated.events[1]).toEqual({ ...rows[1], ignorable: true })
+    expect(migrated.events[2]).toEqual({ ...rows[2], ignorable: true })
+    expect(migrated.events[0]).toEqual(rows[0])
+    expect(() => { sessionFormatV0ToV1.validateTarget(migrated) }).not.toThrow()
+  })
+
+  it('still refuses a historical event type nobody named', () => {
+    const physicalHeader = {
+      type: 'session', version: 0, id: 'unnamed', createdAt: 1, delegationDepth: 0,
+    }
+    expect(() => releasedV0SessionFormatCodec.decodeArtifact(physicalHeader, [
+      { type: 'thirdParty/other', seq: 0, time: 2, data: {}, ignorable: true },
+    ])).toThrow(
+      /format v0 contains unknown historical event type "thirdParty\/other" at seq 0/,
+    )
+  })
 })

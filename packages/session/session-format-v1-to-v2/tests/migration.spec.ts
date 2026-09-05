@@ -396,6 +396,28 @@ describe('sessionFormatV1ToV2', () => {
     )
   })
 
+  it('carries a named uninterpreted historical event into v2 with its ignorable envelope', () => {
+    const source: SessionFormatArtifact = {
+      header: {
+        version: 1,
+        id: 'v1-uninterpreted',
+        createdAt: 1,
+        isSeeded: false,
+        delegationDepth: 0,
+      },
+      inheritedEventCount: 0,
+      events: [
+        { ...event('attachment/materialized', 0, 100, { attachmentId: 'a', locator: 'spill:1' }), ignorable: true },
+        { ...event('permissionRules/decision', 1, 101, { toolName: 'read', outcome: 'deny' }), ignorable: true },
+      ],
+    }
+
+    const migrated = sessionFormatV1ToV2.migrate(source)
+
+    expect(migrated.header.version).toBe(2)
+    expect(migrated.events).toEqual(source.events)
+  })
+
   it('refuses an undeclared v1 event even when its envelope says ignorable', () => {
     const source: SessionFormatArtifact = {
       header: {

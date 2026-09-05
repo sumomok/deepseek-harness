@@ -19,6 +19,7 @@ import {
   assertReleasedV1Header,
 } from './validation.ts'
 import { assertReleasedV0Keys, releasedV0Record } from './validation-helpers.ts'
+import { LEGACY_UNINTERPRETED_EVENT_TYPES, RELEASED_V0_EVENT_DISPOSITIONS } from './dispositions.ts'
 
 /** Identity format edge that promotes released v0 into released v1. */
 export const sessionFormatV0ToV1 = defineSessionFormatMigration({
@@ -62,12 +63,28 @@ function normalizeReleasedV0Events(
     const header = normalizeLegacyRequestHeader(end, sessionId)
     const steering = normalizeLegacySteering(header, sessionId)
     const message = normalizeLegacyMessage(steering, sessionId, messageIds)
-    assertReleasedEventPayload(message, 0)
-    output.push(message)
-    const messageId = eventMessageId(message)
-    if (messageId !== undefined) messageIds.set(message.seq, messageId)
+    if (RELEASED_V0_EVENT_DISPOSITIONS[message.type] !== undefined) assertReleasedEventPayload(message, 0)
+    const carried = markLegacyUninterpreted(message)
+    output.push(carried)
+    const messageId = eventMessageId(carried)
+    if (messageId !== undefined) messageIds.set(carried.seq, messageId)
   }
   return Object.freeze(output)
+}
+
+/**
+ * Mark one carried-through historical event as ignorable so later readers keep it.
+ *
+ * A type in {@link LEGACY_UNINTERPRETED_EVENT_TYPES} has no disposition in any
+ * released inventory, so nothing downstream can interpret its payload. Stamping
+ * the envelope here makes the migrated artifact say so, which is what the
+ * installed build's own restorer reads to admit an event it does not know.
+ * @param event - one normalized released-v0 event.
+ * @returns the event, carrying `ignorable: true` when its type is uninterpreted.
+ */
+function markLegacyUninterpreted(event: SessionFormatEvent): SessionFormatEvent {
+  if (!LEGACY_UNINTERPRETED_EVENT_TYPES.has(event.type)) return event
+  return { ...event, ignorable: true }
 }
 
 function normalizeLegacyRequestHeader(event: SessionFormatEvent, sessionId: string): SessionFormatEvent {

@@ -11,6 +11,7 @@ import type {
   SessionFormatJsonValue,
 } from '@deepseek-ai/dsh-session-format'
 import {
+  LEGACY_UNINTERPRETED_EVENT_TYPES,
   RELEASED_V0_EVENT_DISPOSITIONS,
   assertReleasedV1Artifact,
   assertReleasedV1Header,
@@ -41,7 +42,8 @@ export const sessionFormatV1ToV2 = defineSessionFormatMigration({
   },
   migrate(source) {
     assertReleasedV1Artifact(source)
-    const unknown = source.events.find(event => RELEASED_V0_EVENT_DISPOSITIONS[event.type] === undefined)
+    const unknown = source.events.find(event => RELEASED_V0_EVENT_DISPOSITIONS[event.type] === undefined
+      && !LEGACY_UNINTERPRETED_EVENT_TYPES.has(event.type))
     if (unknown !== undefined) {
       throw refusal(`format v1 contains unknown event type ${JSON.stringify(unknown.type)} at seq ${unknown.seq}`)
     }
