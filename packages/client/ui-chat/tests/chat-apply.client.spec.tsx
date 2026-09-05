@@ -57,7 +57,7 @@ async function bench() {
   await runtime.root.declare({
     'conversation': { kind: 'single', scope: 'session-maybe' },
     'details': { kind: 'single', scope: 'session' },
-    'conversation.approval.detail': { kind: 'single', scope: 'session' },
+    'conversation.approval.detail': { kind: 'keyed', scope: 'session' },
     'settings.general.item': { kind: 'list', scope: 'root' },
   }, (_props: { renderSlot?: unknown }) => null)
   const conversation = await runtime.mount({
@@ -88,6 +88,8 @@ describe('Chat apply wiring', () => {
     expect(b.runtime.slots.entries('settings.general.item').map(row => row.options.id))
       .toEqual(['transcript-view', 'composer-enter'])
     expect(b.runtime.slots.entries('details')).toHaveLength(1)
+    expect(b.runtime.slots.entries('conversation.approval.detail').map(row => row.options.key))
+      .toEqual(['bash', 'pwsh'])
     await b.runtime.dispose()
   })
 
