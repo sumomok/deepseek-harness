@@ -53,12 +53,14 @@
   line-height: 24px;
 }
 
-.command {
+/* The seat any tool's detail renderer lands in, so it sets only the card's
+   secondary body type, which an occupant overrides for its own content. The
+   monospace face and break-all that used to live here describe a shell
+   command, not a seat, and moved to the renderer that draws one. */
+.detail {
   color: var(--dsw-alias-label-tertiary);
-  font-family: var(--ds-font-family-code);
   font-size: 13px;
   line-height: 20px;
-  word-break: break-all;
 }
 
 .actionRow {

@@ -1,10 +1,13 @@
 /** Approval-time preview of the change a pending file-mutation call will make. @module */
+import { useMemo } from 'react'
 import type { Context } from '@deepseek-ai/cordis'
 import { DiffBlock, type DiffHunk } from '@deepseek-ai/dsh-client-ui-primitives'
-import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
+import type { InjectFace, PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ChatNode } from '@deepseek-ai/dsh-client-ui-chat/client'
 import type {} from '@deepseek-ai/dsh-client-ui-approval/client'
-import { relativizeToCwd } from '@deepseek-ai/dsh-util-workspace-path'
+import { abbreviateHomePath, relativizeToCwd } from '@deepseek-ai/dsh-util-workspace-path'
+import type { ToolHostInfoInjected } from '../../contract/slots.ts'
+import { toolHostInject } from '../../host-info.ts'
 import { diffCardModel } from '../models/diff-card-model.ts'
 import { diffBlockLabels } from '../models/primitive-labels.ts'
 import { CONVERSATION_NS as NS } from '../../locale.ts'
@@ -24,18 +27,25 @@ export const APPROVAL_DIFF_MAX_LINES = 40
 type ApprovalDiffProps =
   PropsRuntime<'conversation.approval.detail'>
   & PropsLocale<'conversation'>
+  & InjectFace<ToolHostInfoInjected>
 
 /**
  * Render the file change the correlated pending call intends to make.
  *
  * Hunk paths display relative to the session workspace when they are rooted
- * there and verbatim otherwise, so a write that leaves the workspace shows
- * that it does.
- * @param props - Approval identity and the Session-standard Chat and Session hooks.
+ * there, and with a POSIX home abbreviated to `~` otherwise, so a write that
+ * leaves the workspace shows that it does without spelling out the account
+ * path. This overrides {@link DiffHunk}'s verbatim-path rule for this surface
+ * alone: the card is where the reader decides, and the shortest spelling that
+ * still says where the file is reads fastest there.
+ * @param props - Approval identity, the Session-standard Chat and Session hooks, and the Host facts.
  * @returns the intended diff, or nothing when no pending call supplies one.
  */
-export function ApprovalDiffPreview({ callId, useChat, useSessions, sessionId, t }: ApprovalDiffProps) {
+export function ApprovalDiffPreview({
+  callId, useChat, useSessions, useHostInfo, sessionId, t,
+}: ApprovalDiffProps) {
   const cwd = useSessions(s => s.byId[sessionId]?.cwd)
+  const home = useHostInfo(info => info.home)
   const pending = useChat((snapshot) => {
     for (const node of snapshot.nodes.values()) {
       const root = node.kind === 'tool-call' ? (node as ChatNode<'tool-call'>).data.root : undefined
@@ -43,16 +53,20 @@ export function ApprovalDiffPreview({ callId, useChat, useSessions, sessionId, t
     }
     return undefined
   })
-  const model = pending === undefined ? null : diffCardModel(pending)
-  if (model === null) return null
-  const diffs: DiffHunk[] = model.card.diffs.map(hunk => ({
-    ...hunk,
-    path: relativizeToCwd(hunk.path, cwd),
-  }))
+  const labels = useMemo(() => diffBlockLabels(t), [t])
+  const model = useMemo(() => pending === undefined ? null : diffCardModel(pending), [pending])
+  const diffs: DiffHunk[] | null = useMemo(
+    () => model === null ? null : model.card.diffs.map(hunk => ({
+      ...hunk,
+      path: abbreviateHomePath(relativizeToCwd(hunk.path, cwd), home),
+    })),
+    [model, cwd, home],
+  )
+  if (diffs === null) return null
   return (
     <DiffBlock
       diffs={diffs}
-      labels={diffBlockLabels(t)}
+      labels={labels}
       maxLines={APPROVAL_DIFF_MAX_LINES}
       className={css.diff}
     />
@@ -66,13 +80,18 @@ export function ApprovalDiffPreview({ callId, useChat, useSessions, sessionId, t
  */
 export const approvalDiffPreview = {
   name: 'approval-diff-preview',
-  inject: ['slots'],
+  inject: ['slots', 'remote'],
   apply(ctx: Context): void {
+    const inject = toolHostInject(ctx)
     ctx.slots.inject('conversation.approval.detail', function* () {
-      yield ctx.slots.register({ name: 'conversation.approval.detail', key: 'write', locale: NS }, ApprovalDiffPreview)
-      yield ctx.slots.register({ name: 'conversation.approval.detail', key: 'edit', locale: NS }, ApprovalDiffPreview)
       yield ctx.slots.register({
-        name: 'conversation.approval.detail', key: 'str_replace_editor', locale: NS,
+        name: 'conversation.approval.detail', key: 'write', locale: NS, inject,
+      }, ApprovalDiffPreview)
+      yield ctx.slots.register({
+        name: 'conversation.approval.detail', key: 'edit', locale: NS, inject,
+      }, ApprovalDiffPreview)
+      yield ctx.slots.register({
+        name: 'conversation.approval.detail', key: 'str_replace_editor', locale: NS, inject,
       }, ApprovalDiffPreview)
     })
   },
