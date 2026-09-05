@@ -57,7 +57,7 @@ Profile integration drivers use the repository-only `tests/fixtures/production-p
 
 ### Isolating the skill roots
 
-`isolatedSkillRootEnv` returns the environment block that pins every skill root a launched harness reads — `DSH_HOME`, `DSH_AGENTS_HOME`, `DSH_CLAUDE_HOME`, and `DSH_BUNDLED_SKILL_DIR` when a launcher supplies one — under an isolated cwd, with a per-root override for a launcher that places one elsewhere. `runLoaderSmoke` applies it, and every other launcher in the repository spreads it into its child environment, so a root added to `dsh-skill-filesystem` is pinned everywhere at once instead of leaking a developer's own skills into fixtures and expected outputs.
+`isolatedSkillRootEnv` returns the environment block that pins every skill root a launched harness reads — `DSH_HOME`, `DSH_AGENTS_HOME`, `DSH_CLAUDE_HOME`, and `DSH_BUNDLED_SKILL_DIR` when a launcher supplies one — under an isolated cwd, with a per-root override for a launcher that places one elsewhere. `runLoaderSmoke` applies it, and the launchers behind recorded fixtures and expected outputs — the session-snapshot launcher and harness, the SDK snapshot runner, the Web scaffold, five CLI end-to-end suites, and the two release scripts — spread it into their child environments, so a root added to `dsh-skill-filesystem` reaches all of them at once instead of leaking a developer's own skills into fixtures and expected outputs. Two programs that cannot call it repeat the key set inline and no gate binds them to this list: `apps/web/tests/smoke-real.e2e.ts` and `scripts/smoke-python-runtime.py`.
 
 ### What can go wrong
 

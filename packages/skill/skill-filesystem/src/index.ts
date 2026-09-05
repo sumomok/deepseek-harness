@@ -310,7 +310,9 @@ async function canonicalRootKey(path: string): Promise<string> {
   } catch {
     // canonicalizeWatchPath rejects when an ancestor is unreadable or is not a
     // directory, never for ordinary absence. The configured path stays this
-    // root's identity so discovery still scans it and reports that failure.
+    // root's identity so discovery still reaches it: an ancestor that is a
+    // regular file lists empty as absence, and an unreadable one rejects out of
+    // list(), which the registry reports by skipping this whole provider.
     return path
   }
 }
