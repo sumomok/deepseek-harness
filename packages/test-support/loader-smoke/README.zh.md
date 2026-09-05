@@ -55,6 +55,10 @@ Profile 集成 driver 使用仅限仓库内部的 `tests/fixtures/production-pro
 
 `resolveExampleLaunch` 选择示例可执行文件从哪个产物启动。`src` 模式在 tsx 下运行可执行文件并设置 `TSX_TSCONFIG_PATH`，使工作区导入通过 tsconfig `paths` 映射解析——这是零构建开发路径。`lib` 模式在普通 Node 下运行构建后的 `lib/` 可执行文件，使裸包插件通过真实包 `exports` 解析，与已安装消费方的解析方式完全一致。模式来自显式值或 `DSH_EXAMPLE_MODE`（CI 设置 `lib`，开发时保持未设置）；其他任何值都会明确报错。
 
+### 隔离 skill 根目录
+
+`isolatedSkillRootEnv` 返回把被启动 harness 会读取的每一个 skill 根都钉在隔离 cwd 之下的环境变量块——`DSH_HOME`、`DSH_AGENTS_HOME`、`DSH_CLAUDE_HOME`，以及启动器提供时的 `DSH_BUNDLED_SKILL_DIR`——并为把某个根放在别处的启动器提供逐根覆盖。`runLoaderSmoke` 使用它，仓库中其他每个启动器也把它展开进子进程环境，因此 `dsh-skill-filesystem` 新增的根会被一次性钉在所有地方，而不会让开发者自己的 skill 漏进 fixture 与期望输出。
+
 ### 可能出什么问题
 
 - **进程永不退出**——冒烟测试强制执行截止时间，并在失败信息中报告捕获的流；会 spawn 自身进程树的故障 fixture 可能比冒烟测试存活更久，需要外部清理。
@@ -73,7 +77,7 @@ Profile 集成 driver 使用仅限仓库内部的 `tests/fixtures/production-pro
 
 ### 设计
 
-harness 建立在一个分离之上：冒烟测试在隔离世界中的子进程里运行，测试进程只观察与断言。`runLoaderSmoke` 创建临时 cwd（或复用调用方提供的 cwd）、在那里准备世界状态、以隔离的 DSH 主目录（该 cwd 下的 `DSH_HOME`、`DSH_AGENTS_HOME`）spawn 解析出的可执行文件、立即关闭 stdin，并在截止时间内等待干净退出，然后在每种结果下都执行检查，且只删除自己创建的 cwd。`runFixtureTurn` 留在进程内运行：它查找组合中的唯一根 agent，从持久收件箱收到任务起持续跟踪，直至整个 agent 完全停稳；随后汇总每步用量，并在返回前刷写会话。
+harness 建立在一个分离之上：冒烟测试在隔离世界中的子进程里运行，测试进程只观察与断言。`runLoaderSmoke` 创建临时 cwd（或复用调用方提供的 cwd）、在那里准备世界状态、以 `isolatedSkillRootEnv` 在该 cwd 下构造的隔离根（`DSH_HOME`、`DSH_AGENTS_HOME`、`DSH_CLAUDE_HOME`）spawn 解析出的可执行文件、立即关闭 stdin，并在截止时间内等待干净退出，然后在每种结果下都执行检查，且只删除自己创建的 cwd。`runFixtureTurn` 留在进程内运行：它查找组合中的唯一根 agent，从持久收件箱收到任务起持续跟踪，直至整个 agent 完全停稳；随后汇总每步用量，并在返回前刷写会话。
 
 ### 源码地图
 

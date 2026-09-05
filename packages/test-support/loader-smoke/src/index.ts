@@ -28,6 +28,37 @@ const DEFAULT_PROCESS_TIMEOUT_MS = 30_000
 /** Vitest deadline that leaves room for the subprocess-owned 30-second diagnostic timeout. */
 export const LOADER_SMOKE_TEST_TIMEOUT_MS = DEFAULT_PROCESS_TIMEOUT_MS + 15_000
 
+/** Per-root overrides for {@link isolatedSkillRootEnv}; each root defaults under the given cwd. */
+export interface IsolatedSkillRootEnvOptions {
+  /** Harness home behind `$DSH_HOME`. Defaults to `<cwd>/.dsh`. */
+  dshHome?: string
+  /** Shared agent root behind `$DSH_AGENTS_HOME`. Defaults to `<cwd>/.agents`. */
+  agentsHome?: string
+  /** Claude Code root behind `$DSH_CLAUDE_HOME`. Defaults to `<cwd>/.claude`. */
+  claudeHome?: string
+  /** Bundled skill root behind `$DSH_BUNDLED_SKILL_DIR`. Absent from the block when omitted. */
+  bundledSkillDir?: string
+}
+
+/**
+ * Build the environment block that pins every skill root a launched harness reads
+ * away from the host's real home. One function owns the complete key set: a root
+ * added to `dsh-skill-filesystem` is pinned by every launcher at once, instead of
+ * being pinned in some and forgotten in others, where the host's own skills reach
+ * fixtures and expected outputs on a developer machine and vanish on CI.
+ * @param cwd - isolated working directory the default roots resolve under.
+ * @param options - overrides for a launcher that places a root elsewhere.
+ * @returns environment variables to spread into the launched process environment.
+ */
+export function isolatedSkillRootEnv(cwd: string, options: IsolatedSkillRootEnvOptions = {}): Record<string, string> {
+  return {
+    DSH_HOME: options.dshHome ?? join(cwd, '.dsh'),
+    DSH_AGENTS_HOME: options.agentsHome ?? join(cwd, '.agents'),
+    DSH_CLAUDE_HOME: options.claudeHome ?? join(cwd, '.claude'),
+    ...options.bundledSkillDir === undefined ? {} : { DSH_BUNDLED_SKILL_DIR: options.bundledSkillDir },
+  }
+}
+
 /** Which artifact an example bin is booted from: unbuilt `src` via tsx, or built `lib` via plain Node. */
 export type ExampleMode = 'src' | 'lib'
 
@@ -223,8 +254,7 @@ export async function runLoaderSmoke(options: LoaderSmokeOptions): Promise<Loade
       ...options.mode !== undefined ? { mode: options.mode } : {},
       tsconfigPath: options.tsconfigPath,
       env: {
-        DSH_HOME: join(cwd, '.dsh'),
-        DSH_AGENTS_HOME: join(cwd, '.agents'),
+        ...isolatedSkillRootEnv(cwd),
         ...options.env,
       },
     })

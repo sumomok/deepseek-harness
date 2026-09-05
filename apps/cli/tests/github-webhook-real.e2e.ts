@@ -12,6 +12,7 @@ import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import WebSocket from 'ws'
 
 const REPO_ROOT = fileURLToPath(new URL('../../..', import.meta.url))
@@ -369,12 +370,11 @@ describe.skipIf(!process.env.DEEPSEEK_API_KEY)('GitHub webhook through the real 
       cwd: root,
       env: {
         ...process.env,
-        DSH_AGENTS_HOME: join(root, '.agents'),
+        ...isolatedSkillRootEnv(root),
         DSH_GITHUB_E2E_MARKER: MARKER,
         DSH_GITHUB_E2E_WORKSPACE: workspacePath,
         DSH_GITHUB_WEBHOOK_PORT: String(webhookPort),
         DSH_GITHUB_WEBHOOK_SECRET: SECRET,
-        DSH_HOME: join(root, '.dsh'),
         DSH_TELEMETRY_DISABLED: '1',
       },
       stdio: ['ignore', 'pipe', 'pipe'],

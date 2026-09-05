@@ -2465,6 +2465,8 @@ export interface Config {
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
+  /** Claude Code config root. Defaults to `$DSH_CLAUDE_HOME` or `~/.claude`. */
+  claudeHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
   /** Whether host-local skill roots are watched for catalog changes. */
@@ -2484,7 +2486,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/skill/skill-filesystem/src/index.ts:49`](../packages/skill/skill-filesystem/src/index.ts)
+来源：[`packages/skill/skill-filesystem/src/index.ts:54`](../packages/skill/skill-filesystem/src/index.ts)
 
 <a id="deepseek-aidsh-skill-office"></a>
 

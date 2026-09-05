@@ -69,12 +69,14 @@ The shipped local provider scans roots in rank order:
 |---|---|---|
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 210 | `project-claude` | `<projectRoot>/.claude/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
+| 510 | `user-claude` | `<claudeHome>/skills` |
 | 600 | `bundled` | `Config.bundledSkillDir` when configured |
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not synthesize built-in system skills; deployments supply packaged skills through configured bundled roots or dedicated providers.
+The `.claude` roots carry skills authored for the agent clients that keep them there, and rank below their tier's `.agents` root so a name in both resolves to the shared convention. The resolved list is deduplicated by canonical path: a root that resolves to a directory an earlier root already covers — a `.claude/skills` symbolic link to `.agents/skills` — is dropped before discovery and watching. The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. When `ctx.fs` is available, the git-root walk probes `.git` through the filesystem service so remote or sandboxed workspaces do not fall back to the host filesystem boundary. The user DSH root skips its `.system` child. The local provider does not synthesize built-in system skills; deployments supply packaged skills through configured bundled roots or dedicated providers.
 
 `dsh-skill-badge` registers one immutable `bundled` candidate at `BUNDLED_SKILL_RANK` and exposes its packaged asset directory through `resourceBase`. The shipped CLI declares the plugin disabled, so enabling its composition row is an explicit opt-in.
 
@@ -86,7 +88,7 @@ Skill names are kebab-case (`^[a-z0-9]+(?:-[a-z0-9]+)*$`). The local provider ac
 
 ```ts type-equiv
 /** Origin bucket for a skill contribution. The value is prompt-visible metadata, not precedence by itself. */
-type SkillSource = 'project-dsh' | 'project-agents' | 'runtime' | 'user-dsh' | 'user-agents' | 'custom' | 'bundled' | (string & {})
+type SkillSource = 'project-dsh' | 'project-agents' | 'project-claude' | 'runtime' | 'user-dsh' | 'user-agents' | 'user-claude' | 'custom' | 'bundled' | (string & {})
 ```
 
 ## Summaries, candidates, and complete definitions
