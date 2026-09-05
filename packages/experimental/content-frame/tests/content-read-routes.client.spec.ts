@@ -1040,6 +1040,7 @@ describe('page-access configuration', () => {
           actTimeoutMs: 1000,
           maxSteps: 20,
           settleMaxMs: 1,
+          actApproval: 'always' as const,
           [field]: least - 1,
         },
       }
@@ -1068,7 +1069,7 @@ describe('page-access configuration', () => {
         pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
         pageAccess: {
           claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, settleQuietMs: 1, outlineChars: MIN_OUTLINE_CHARS,
-          actTimeoutMs: 1000, maxSteps, settleMaxMs: 1,
+          actTimeoutMs: 1000, maxSteps, settleMaxMs: 1, actApproval: 'always',
         },
       })
     }
@@ -1112,7 +1113,7 @@ describe('page-access configuration', () => {
         pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
         pageAccess: {
           claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, outlineChars: MIN_OUTLINE_CHARS,
-          actTimeoutMs: 1000, maxSteps: 20, ...pageAccess,
+          actTimeoutMs: 1000, maxSteps: 20, actApproval: 'always', ...pageAccess,
         },
       })).rejects.toThrow(refusal)
       await ctx.fiber.dispose()
@@ -1129,7 +1130,7 @@ describe('page-access configuration', () => {
       pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
       pageAccess: {
         claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, settleQuietMs: 251, outlineChars: MIN_OUTLINE_CHARS,
-        actTimeoutMs: 60000, maxSteps: 20, settleMaxMs: 251,
+        actTimeoutMs: 60000, maxSteps: 20, settleMaxMs: 251, actApproval: 'always',
       },
     })).rejects.toThrow(
       'content-frame: pageAccess.settleQuietMs must fit in 250ms (0.25 of readTimeoutMs), received 251',
@@ -1139,6 +1140,50 @@ describe('page-access configuration', () => {
     // And the window that lands exactly on the share is a composition that
     // boots, checked where every other composition here is checked.
     await expect(loadComposition(true, ['      settleQuietMs: 1250'])).resolves.toBeInstanceOf(Context)
+  })
+
+  it('rejects a row that half-answers who decides an allowed set of steps', async () => {
+    // The two fields answer one question together. A row that names a reviewer
+    // without routing anything to it, or routes to one it does not name, is
+    // refused where every other page-access mismatch is: at load, in the words
+    // of the row that wrote it.
+    for (const [pageAccess, refusal] of [
+      [
+        { actApproval: 'judged' as const },
+        'content-frame: pageAccess.actApproval "judged" needs pageAccess.judgedBy, the cordis plugin name '
+        + 'of the reviewer this deployment routes page actions to',
+      ],
+      [
+        { judgedBy: 'llm-permission-gateway' },
+        'content-frame: pageAccess.judgedBy "llm-permission-gateway" is read only under '
+        + 'pageAccess.actApproval "judged" — set actApproval to "judged", or drop judgedBy',
+      ],
+    ] as const) {
+      const ctx = new Context()
+      ctx.provide('webServer', { register: () => () => {} } as never)
+      await expect(ContentFrame.apply(ctx, {
+        root: APP_ROOT,
+        pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
+        pageAccess: {
+          claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, settleQuietMs: 1, outlineChars: MIN_OUTLINE_CHARS,
+          actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 1, actApproval: 'always', ...pageAccess,
+        },
+      })).rejects.toThrow(refusal)
+      await ctx.fiber.dispose()
+    }
+    // And the pair that answers it whole is a composition that boots.
+    const judged = new Context()
+    judged.provide('webServer', { register: () => () => {} } as never)
+    await expect(judged.plugin(ContentFrame, {
+      root: APP_ROOT,
+      pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
+      pageAccess: {
+        claimTimeoutMs: 1, readTimeoutMs: 1000, pinMs: 1, settleQuietMs: 1, outlineChars: MIN_OUTLINE_CHARS,
+        actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 1,
+        actApproval: 'judged', judgedBy: 'llm-permission-gateway',
+      },
+    })).resolves.toBeDefined()
+    await judged.fiber.dispose()
   })
 
   it('rejects a read deadline whose export share is not a whole millisecond, and takes the one that is', async () => {
@@ -1151,7 +1196,7 @@ describe('page-access configuration', () => {
       pages: [{ id: 'home', title: 'Home', description: 'Entry.', url: '/content-app/' }],
       pageAccess: {
         claimTimeoutMs: 1, readTimeoutMs, pinMs: 1, settleQuietMs: 1, outlineChars: MIN_OUTLINE_CHARS,
-        actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 1,
+        actTimeoutMs: 1000, maxSteps: 20, settleMaxMs: 1, actApproval: 'always',
       },
     })
     const under = new Context()

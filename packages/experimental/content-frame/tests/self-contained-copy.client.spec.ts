@@ -128,6 +128,7 @@ const ARGUMENTS: Record<string, readonly unknown[][]> = {
   tooManyStepsRefusal: [[20]],
   stepRefusal: [[2, 'a "fill" step needs text, the value to type into the box']],
   unverifiedRefusal: [[60000]],
+  noReviewerRefusal: [['llm-permission-gateway']],
   approvalReason: [
     [{ steps: [CLICK] }],
     [{ steps: [{ action: 'fill', ref: 'e4', label: '', mark: 'el-input__inner', text: '东风' }], dialogs: 'accept' }],

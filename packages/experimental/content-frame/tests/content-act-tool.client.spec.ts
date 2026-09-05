@@ -21,7 +21,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
 import { Session, SessionId } from '@deepseek-ai/dsh-session'
 import { contentActTool } from '../src/access/act-tool.ts'
-import { registerActApproval } from '../src/access/act-approval.ts'
+import { registerActApproval, type ActApproval } from '../src/access/act-approval.ts'
 import { DialogApprovals } from '../src/access/dialog-approvals.ts'
 import { PendingCalls, type CallTimeouts } from '../src/access/pending.ts'
 import type { ActOutcome, ActStep, ChannelOutcome, ClaimAck } from '../src/access/wire.ts'
@@ -71,8 +71,32 @@ interface Bench {
   pending: PendingCalls
   /** Every reason the user was asked with, in order. */
   asked: string[]
+  /** The record the listener writes and the tool body spends. */
+  approvals: DialogApprovals
   /** Run one call, answering it from the table by hand. */
   run: (args: Record<string, unknown>) => { callId: string; settled: Promise<ToolExecutionResult> }
+}
+
+/** What every case here composes unless it is about the other setting. */
+const ASKS_ALWAYS: ActApproval = { kind: 'always' }
+
+/** The cordis plugin name the judged cases name as this deployment's reviewer. */
+const REVIEWER = 'a-reviewer-of-every-tool-call'
+
+/** What the judged cases compose. */
+const JUDGED: ActApproval = { kind: 'judged', judgedBy: REVIEWER }
+
+/**
+ * A reviewer as a deployment's own runs: a real plugin under that name,
+ * registered ahead of everything else on the waterfall, allowing by delegating.
+ * The lookup under test reads the registry, so a stub object would prove
+ * nothing about what a mounted row looks like from there.
+ */
+const Reviewer = {
+  name: REVIEWER,
+  apply: (ctx: Context) => {
+    ctx.on('tools/pre-execute', async (_exec, next) => await next(), { prepend: true })
+  },
 }
 
 /**
@@ -81,12 +105,14 @@ interface Bench {
  * @param approval - what the user's channel answers, or `none` for a deployment with no channel.
  * @param timeouts - the deadlines this case can afford to wait for.
  * @param front - the entry this deployment's column has in front.
+ * @param actApproval - who this deployment says decides an allowed set of steps.
  * @returns the bench.
  */
 async function bench(
   approval: Approval = 'allowed-once',
   timeouts: CallTimeouts = FAST,
   front?: FrontEntry,
+  actApproval: ActApproval = ASKS_ALWAYS,
 ): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
@@ -95,7 +121,7 @@ async function bench(
   const approvals = new DialogApprovals()
   const asked: string[] = []
   ctx.tools.register(contentActTool(pending, timeouts, MAX_STEPS, () => front, approvals))
-  registerActApproval(ctx, approvals, MAX_STEPS)
+  registerActApproval(ctx, approvals, MAX_STEPS, actApproval)
   if (approval !== 'none') {
     ctx.provide('approval', {
       request: (request: { reason?: string }) => {
@@ -109,6 +135,7 @@ async function bench(
     ctx,
     pending,
     asked,
+    approvals,
     run: (args) => {
       const callId = `call-${++calls}`
       return {
@@ -536,6 +563,101 @@ describe('the approval every set of steps runs under', () => {
     for (let at = 0; at <= 64; at += 1) approvals.ask(`call_${at}`)
     expect(approvals.confirmed('call_0')).toBe(false)
     expect(approvals.confirmed('call_64')).toBe(true)
+  })
+})
+
+describe('the deployment whose reviewer decides an allowed set of steps', () => {
+  it('leaves an ordinary set of steps to the reviewer, asking no one and recording nothing', async () => {
+    const { approvals, asked, ctx, pending, run } = await bench('allowed-once', FAST, undefined, JUDGED)
+    await ctx.plugin(Reviewer)
+    const { callId, settled } = run({ steps: STEPS })
+    await answer(pending, callId, DONE)
+    expect((await settled).isError).toBe(false)
+    expect(asked).toEqual([])
+    // Nothing was written for the body to spend, which is what makes the
+    // refusal above the one a `dialogs: "accept"` call would meet here.
+    expect(approvals.confirmed(callId)).toBe(false)
+  })
+
+  it('keeps a denial the rest of the waterfall reached', async () => {
+    const { asked, ctx, run } = await bench('allowed-once', FAST, undefined, JUDGED)
+    await ctx.plugin(Reviewer)
+    ctx.on('tools/pre-execute', () => Promise.resolve({ kind: 'deny', reason: 'policy says no' }))
+    const result = await run({ steps: STEPS }).settled
+    expect({ isError: result.isError, text: text(result), asked })
+      .toEqual({ isError: true, text: 'Error: policy says no', asked: [] })
+  })
+
+  it('carries a request another listener composed through unchanged', async () => {
+    // The setting hands the decision over whole: a listener that asks gets the
+    // user asked in its own words rather than in this package's.
+    const { ctx, asked, pending, run } = await bench('allowed-once', FAST, undefined, JUDGED)
+    await ctx.plugin(Reviewer)
+    ctx.on('tools/pre-execute', () => Promise.resolve({ kind: 'ask', reason: '这一步会把这单结掉' }))
+    const { callId, settled } = run({ steps: STEPS })
+    await answer(pending, callId, DONE)
+    expect((await settled).isError).toBe(false)
+    expect(asked).toEqual(['这一步会把这单结掉'])
+  })
+
+  it('asks in its own words anyway when the page\'s own confirmation is part of the call', async () => {
+    // The one clause this setting does not hand over: the request composed
+    // here is what the body reads before it answers a native dialog, so a
+    // successful run is the record having been written.
+    const { asked, ctx, pending, run } = await bench('allowed-once', FAST, undefined, JUDGED)
+    await ctx.plugin(Reviewer)
+    const { callId, settled } = run({ steps: [STEPS[1]], dialogs: 'accept' })
+    await answer(pending, callId, DONE)
+    expect((await settled).isError).toBe(false)
+    expect(asked).toEqual(['在「当前展示的这一项」上：点「查询」，并确认页面弹出的确认框'])
+  })
+
+  it('refuses every set of steps while the named reviewer is not mounted', async () => {
+    // The failure this setting has and the other does not: a row asserting a
+    // reviewer this composition has not got would otherwise run the steps with
+    // nothing between the model and the page.
+    const { approvals, asked, run } = await bench('allowed-once', FAST, undefined, JUDGED)
+    const { callId, settled } = run({ steps: STEPS, dialogs: 'accept' })
+    const result = await settled
+    expect(result.isError).toBe(true)
+    expect(text(result)).toBe(
+      `Error: this deployment sends page actions to a reviewer named "${REVIEWER}" before anyone sees them, `
+      + 'and no plugin under that name is mounted; the steps were not run',
+    )
+    expect(asked).toEqual([])
+    expect(approvals.confirmed(callId)).toBe(false)
+  })
+
+  it('stops looking for the reviewer once it is unmounted again', async () => {
+    // The lookup is per call rather than per load precisely because the answer
+    // changes while the composition runs.
+    const { ctx, pending, run } = await bench('allowed-once', FAST, undefined, JUDGED)
+    const mounted = await ctx.plugin(Reviewer)
+    const first = run({ steps: STEPS })
+    await answer(pending, first.callId, DONE)
+    expect((await first.settled).isError).toBe(false)
+    await mounted.dispose()
+    const result = await run({ steps: STEPS }).settled
+    expect(result.isError).toBe(true)
+    expect(text(result)).toContain(`reviewer named "${REVIEWER}"`)
+  })
+
+  it('leaves the arguments it cannot read and the call that is too long to the tool itself', async () => {
+    // Both early returns run before the reviewer is looked for: the refusal
+    // these calls earn is the tool's own, naming what to fix, rather than the
+    // deployment failure a mounted reviewer would have made no difference to.
+    const { asked, run } = await bench('allowed-once', FAST, undefined, JUDGED)
+    for (const [args, refusal] of [
+      [{ steps: [] }, 'Error: steps must name at least one step'],
+      [
+        { steps: Array.from({ length: MAX_STEPS + 1 }, () => ({ action: 'click', ref: 'e1', label: 'x' })) },
+        'Error: steps must hold at most 20 steps',
+      ],
+    ] as const) {
+      const result = await run(args).settled
+      expect({ isError: result.isError, text: text(result) }).toEqual({ isError: true, text: refusal })
+    }
+    expect(asked).toEqual([])
   })
 })
 
