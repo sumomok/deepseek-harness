@@ -57,6 +57,29 @@
  *   the whole package also removes its session-header preset label and its
  *   Settings row, which this hero-only rule could not reach.
  *
+ * The permission-preset chip (`PermissionSelect`, seated in `InputBar.tsx`'s
+ * `modes` row alongside the `conversation.input.plan` seat) renders as soon as
+ * a conversation carries the `permissions` projection, and labels itself off
+ * the preset's own machine name — `workspace-write` title-cased into
+ * "Workspace Write", a string no locale entry and no disable row can reach.
+ * The rule scopes on two class substrings under `[data-composer-card]`:
+ * `modes` (`InputBar.module.css`) picks the seat's own row, which keeps the
+ * rule off the other `trigger`-named controls the same card carries
+ * (`ContextMeter.module.css`'s trailing meter, `InputBar.module.css`'s own
+ * `chipTrigger`/`textRefTrigger` mirror decorations), and `trigger`
+ * (`PermissionSelect.module.css`) picks the chip button with its icon, label,
+ * and chevron spans. Renaming either class, or reseating the chip outside that
+ * row, silently un-hides it; the e2e scenario screens the whole landing page's
+ * rendered text for the banned word, so a broken selector fails the gate
+ * instead of shipping the vocabulary. The plan chip sharing the row is left
+ * alone: "Plan" is neither banned vocabulary nor internal status, and that
+ * chip is the only control that leaves plan mode. `Menu`'s wrapper span around
+ * the hidden button survives as a zero-width flex item, and the preset menu it
+ * anchors never opens, since the only control that opens it is gone. The
+ * preset in force is untouched — the Host keeps whatever `permission-presets`
+ * row the deployment composes; only the browser's control over it (full access
+ * included) goes.
+ *
  * This plugin is unconditional (see its own module doc on why): this package
  * now exists solely for the customer/service-line product experience, not as
  * a general-purpose sidebar.
@@ -78,6 +101,7 @@ const STYLE = `
   line-height: 32px;
 }
 [class*="heroWorkspaceRow"] { display: none !important; }
+[data-composer-card] [class*="modes"] [class*="trigger"] { display: none !important; }
 `
 
 /**

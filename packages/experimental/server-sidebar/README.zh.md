@@ -131,7 +131,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 
 ## 去术语化
 
-决策②在上述整体重构之上,进一步禁止会话/新会话/session/workspace 出现在本组合渲染的任何用户可见字符串里。还有四处出厂界面携带这套词汇，移除方式与 ui-sidebar/ui-workspace 相同——禁用组合层里的那一行，而不是修改该行自己的文案：
+决策②在上述整体重构之上,进一步禁止会话/新会话/session/workspace 出现在本组合渲染的任何用户可见字符串里。还有五处出厂界面携带这套词汇：其中三处的移除方式与 ui-sidebar/ui-workspace 相同——禁用组合层里的那一行，而不是修改该行自己的文案；另外两处自己没有可禁用的行，改由一次作用域受限的 CSS 注入隐藏（见下文）：
 
 | 界面 | 禁用的行 | 说明 |
 | --- | --- | --- |
@@ -139,8 +139,11 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 | 会话日志下载按钮 | `session-log-download`（`@deepseek-ai/dsh-session-log-export`） | 下载弹窗本身也携带「Session」文案；禁用这一行会同时移除触发按钮与弹窗。 |
 | 模型选择器 | `ui-model-selection` | 也是输入框自己「未选模型」阻断态的来源（`ConversationRoot.tsx` 的 `useComposerBlock`）——这一行不在了，就没有任何插件会激活这个阻断态，输入框在完全没有模型选择器的情况下依然可用。 |
 | 轮次/步骤状态行 | *（不存在可禁用的行）* | `StatsLine` 是出厂 `ui-conversation` 的一个组件，既没有 Config 开关，自己也没有可禁用的席位——见下文。 |
+| 权限预设选择器 | *（不存在可禁用的行）* | `PermissionSelect` 是 `ui-conversation` 自己的输入框控件，数据来自 Host 仍在提供的 `permission-presets` 投影；它的「Workspace Write」标签由预设的机器名逐词首字母大写转出，因此也没有任何 locale 条目能触达它——见下文。 |
 
 轮次/步骤状态行没有官方通路可以移除，本包因此退回到一个作用域受限的 CSS 注入：一个仅在客户端运行的 effect（`terminology-guard.ts`）向文档头部插入 `[data-composer-card] + * { display: none !important; }`。`data-composer-card` 是输入框自己的卡片外层（`InputBar.tsx`）；它的下一个兄弟节点是输入框的footer/dock 区域，在出厂组合里这个区域只承载 `StatsLine`（`conversation.composer.dock`，序号 0）——因此今天这条规则恰好只会隐藏轮次/步骤这一行，但它是一个与 DOM 顺序耦合的选择器,不是一个 Config 开关：未来任何插件注册进 `conversation.composer.dock`，或者输入框自身标记结构的一次重排，都会在两边任何测试都察觉不到的情况下，悄悄改变这条规则实际隐藏的内容。本包自己的 e2e 场景（`apps/web/tests/server-sidebar.e2e.ts`）钉住了这一点，一旦这一行重新可见就会让这条门禁失败。
+
+权限预设选择器同样没有官方通路，而它命名的那个预设又是本组合仍然需要的 Host 行，因此同一个 effect 追加了 `[data-composer-card] [class*="modes"] [class*="trigger"] { display: none !important; }`。只要一个对话携带 `permissions` 投影，`PermissionSelect` 就会坐进 `InputBar.tsx` 的 `modes` 行，按预设自己的机器名给自己贴标签，并展开一个列出其余全部预设（含完全访问）的菜单。这条规则耦合在两个 CSS module 的类名子串上——`[hash]_[local]` 的类名产出方式只留下了这一种耦合手段：`modes`（`InputBar.module.css`）圈定这个席位所在的那一行，正是这层作用域让规则不会碰到同一张卡片里其他带 `trigger` 的控件（右侧的上下文计量器、以及输入框镜像层自己的引用/文本引用装饰）；`trigger`（`PermissionSelect.module.css`）则选中这个选择器按钮本身，连同它的图标、文案与箭头。改掉其中任何一个类名，或者把这个选择器挪出那一行，都会在两边都没有编译期信号的情况下让它重新可见；能抓住这一点的是 e2e 对整页文本的被禁词汇筛查。同一行里的 Plan 选择器保持渲染——「Plan」既不是被禁词汇也不是内部状态，而且它是唯一能退出 plan 模式的控件——生效中的预设也原样不动：Host 保留部署组合进来的那一行 `permission-presets`，被拿掉的只是浏览器改动它的那个控件。
 
 ## 品牌与英雄区门面
 
@@ -166,7 +169,7 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 
 - **字面上的 240px 并非独立强制的。** 本外壳从不固定一个内联像素宽度；它按其 owner（`dsh-experimental-server-layout`）交给它的 `width` 渲染，也从不触发折叠。`server-layout` 冻结的 3:16:5 轨道比例恰好在其自身 1920px 参考帧宽下等于 240px（`1920 * 3/24 = 240`），但在任何其他帧宽下这一栏是等比例的，而非固定的。要让它真正固定，需要改动 `server-layout` 自己那份冻结、刻意不可配置的几何设定，这超出了本次改动的范围。
 - **决策③的用户消息判断是一个分页窗口内的近似值。** 「存为工作流」的可见性读取 `useSession(s => s.chat.legacy.nodes)`，与 `StatsLine.tsx` 读取的是同一个分页会话快照窗口——一条足够早、已经分页出这个窗口的用户消息不会被发现。要做到整份日志级别的判断，需要新增一个本 v1 没有引入的持久投影。
-- **轮次/步骤状态行由一个与 DOM 顺序耦合的 CSS 选择器隐藏，而非一个 Config 开关。** 具体的脆弱之处与钉住它的手段见上文「去术语化」。
+- **轮次/步骤状态行与权限预设选择器都由耦合式 CSS 选择器隐藏，而非 Config 开关。** 一个耦合在 DOM 顺序上，另一个耦合在两个 CSS module 类名子串上；各自具体的脆弱之处与钉住它们的手段见上文「去术语化」。
 - **`navSnapshot` 只捕获 导航 菜单列出的东西。** `captureNavSnapshot` 只在合并目录里能查到某个条目的 `{kind, entryId}` 时才保留它，所以一个寻常 content 栏里的三样东西会从降级重建中掉队：agent 画的图表、模型自己用 `show_component` 展示的组件（它的 id 是模型自由写下的，不是一份配置好的视图），以及展示时部署确实配置过、但保存时已不再配置的页面或视图。
 - **存下来的视图按今天的配置重放，而不是按保存当时的样子。** `navSnapshot` 记的是视图的 id，不是它背后的 spec——重放执行的是 `show-content-view`，读的是部署当下的 `views` 配置。部署后来改过的视图会以改过的样子回来，后来删掉的视图会得到「没有这个视图。」并被跳过。原对话的会话日志仍然携带用户当时看到的那份 spec（这正是 `content-component/shown` 记下的东西）；一条工作流的快照是一串落点，不是落点上那些内容的副本。
 - **绿点机制复用了 `completed`，而非新记账，且只有单测覆盖。** 它与「运行结束时未被选中、且尚未被打开过」的语义完全吻合，但要做到端到端验证，需要一次真实的、agent 循环从运行到空闲、且未被选中期间发生的状态切换——`SessionManager` 的 `running` 位是绑定真实执行的 host frame 推送，纯日志追加无法伪造它。本场景自己的 e2e 套件不发起任何模型调用（沿用其既有设计），因此这一机制改由 `packages/experimental/server-sidebar` 自己的单元测试钉住。

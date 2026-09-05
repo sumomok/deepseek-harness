@@ -2,7 +2,9 @@
 /**
  * `installTerminologyGuard`'s stylesheet lifecycle: one `<style>` element
  * injected, replaced rather than duplicated on a second install (HMR
- * re-apply), and removed by its own disposer.
+ * re-apply), and removed by its own disposer. Each rule is asserted as the
+ * literal selector it couples on, since a class-substring or DOM-position
+ * coupling has no compile-time signal on the `ui-conversation` side.
  */
 import { afterEach, describe, expect, it } from 'vitest'
 import { installTerminologyGuard } from '../src/client/terminology-guard.ts'
@@ -28,6 +30,12 @@ describe('installTerminologyGuard', () => {
     expect(css).toContain('[data-phase=\'hero\'] [class*="headlineText"]::after')
     expect(css).toContain('工作台小助手')
     expect(css).toContain('[class*="heroWorkspaceRow"]')
+  })
+
+  it('hides the composer\'s permission-preset chip, scoped to the seat\'s own row', () => {
+    installTerminologyGuard()
+    const css = document.getElementById('dsh-server-sidebar-terminology-guard')?.textContent ?? ''
+    expect(css).toContain('[data-composer-card] [class*="modes"] [class*="trigger"] { display: none !important; }')
   })
 
   it('replaces rather than duplicates an existing stylesheet', () => {

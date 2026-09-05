@@ -767,13 +767,9 @@ describe('web e2e: the product-console sidebar', () => {
     expect(readServerMenu(scaffold).workbenchSessionId).toBe(workbenchSessionId)
     // The state a dismissal leaves behind is the one that used to read
     // "Choose a workspace to start", so the whole page is screened here, not
-    // just this package's own column — minus the composer card's own dock,
-    // whose permission-preset chip ("Workspace Write") is a pre-existing leak
-    // of the shipped composer, not something a dismissal produces; the
-    // terminology guard's next change hides that chip and widens this screen
-    // back to the whole body.
-    const composerDockText = await page.locator('[data-composer-card]').innerText()
-    const landedText = (await page.locator('body').innerText()).replace(composerDockText, '')
+    // just this package's own column. `innerText` reports rendered text, so
+    // this also screens what the terminology guard's stylesheet hides.
+    const landedText = await page.locator('body').innerText()
     for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /会话/, /新会话/]) {
       expect(landedText, `banned text matched ${banned}`).not.toMatch(banned)
     }
@@ -792,6 +788,14 @@ describe('web e2e: the product-console sidebar', () => {
     // The composer itself must not be stuck blocked now that no plugin
     // registers `useComposerBlock` (ui-model-selection is disabled).
     await expect(page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).isEnabled()).resolves.toBe(true)
+    // The permission-preset chip is `ui-conversation`'s own composer control
+    // with no disable row: the terminology guard hides it in CSS, so it stays
+    // in the DOM and visibility is what this screens. The established
+    // conversation this block rests on is what makes the chip render at all.
+    for (const chip of await page.getByText('Workspace Write').all()) {
+      await expect(chip.isVisible()).resolves.toBe(false)
+    }
+    expect(await page.locator('[data-composer-card]').innerText()).not.toMatch(/workspace/i)
   }, 30_000)
 
   it('leaves the console clean', () => {

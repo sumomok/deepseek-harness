@@ -39,6 +39,8 @@ Status: implemented
 
 **本轮以同样的去术语化方式，移除了侧边栏剩下的 DeepSeek 品牌与内部状态界面。** 侧边栏品牌槽的 fallback 去掉了鱼图标和「DSH Local Build」+ commit hash 文案，换成一段由 locale 驱动的「工作台小助手」/「Workbench Assistant」纯文本；`ui-brand-official` 在两份 overlay 里都被彻底禁用，并由本包自己在 `conversation.hero.brand.mark` 上以优先级 -1 的抢占兜底（最低优先级者渲染，即使某次部署忘了禁用行，也依然压得过那个包默认的优先级 0）。英雄区的鱼图标外框、「PREVIEW」徽标与标题文字都没有自己的禁用席位，因此 `terminology-guard.ts` 的 CSS 注入现在也隐藏前两者，并用一个 `::after` 伪元素把标题换成本包自己的品牌文案（原始文本节点在 DOM 与无障碍树里原样未变——记为一条已知限制，而非一次经屏幕阅读器验证过的替换）。英雄区里已经死掉的工作区选择行（`ui-workspace` 被禁用后 `WorkspaceChip` 变成的死控件）也用同样方式隐藏；这一行的另一个席位——agent-preset 选择器——则改为直接彻底禁用 `ui-agent-preset`，因为那个包的会话头部标签与 Settings 行都在这条 CSS 规则触达不到的地方。侧边栏底部的头像行与设置触发器，此前是两个各占一整行的堆叠行，现在合并成一行、`space-between`：设置触发器自己的 `width: calc(100% + 4px)` 是对着自己那个收缩自适应的外层容器解析的，而不是对着这一整行，因此它按图标+文案的内容宽度渲染，而不会撑满整行。
 
+**输入框的权限预设选择器是这份样式表隐藏的第五处界面。** 只要一个对话携带 `permissions` 投影，`PermissionSelect` 就会渲染在 `InputBar.tsx` 的 `modes` 行里，把预设自己的机器名逐词首字母大写成「Workspace Write」当作自己的标签，并展开一个列出其余预设（含完全访问）的菜单——既是被禁词汇，又是一个终端客户不该握在手里的控件，而且没有任何 locale 条目、也没有任何可禁用的行能触达它（`permission-presets` 那一行本身仍然组合在内：让某个预设在 Host 上生效的正是它）。规则是 `[data-composer-card] [class*="modes"] [class*="trigger"]`，与英雄区那几条规则出于同样的 `[hash]_[local]` 原因耦合在类名子串上，靠 `modes` 这层作用域把它挡在同一张卡片里其他带 `trigger` 的控件之外。同一行里的 Plan 选择器刻意保持可见：「Plan」既不是被禁词汇也不是内部状态，而且它是唯一能退出 plan 模式的控件。e2e 里那处落位页面筛查读取整个 `body`，含输入框在内：`innerText` 报告的是渲染出来的文本，因此一旦这条规则不再隐藏这个选择器，这处筛查就会失败。
+
 ## Alternatives considered
 
 **用 `SessionSummary.blank` 而非 `chat.legacy.nodes` 扫描来判断决策③的开关。** 放弃，改用更精确的判断：`blank` 回答的是「这个会话有没有记录过任何东西」，比「用户有没有打过字」更粗——一个只携带 agent 自己注入的指令、从未有用户消息的会话，仍然会读作「非空白」。按节点 kind 扫描的做法与 `StatsLine.tsx` 自己既有的、针对同一个会话快照窗口的读取方式一致，代价是 README「已知限制」里记录的那条分页窗口近似。
