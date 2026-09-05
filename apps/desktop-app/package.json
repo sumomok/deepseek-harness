@@ -1,0 +1,20 @@
+{
+  "name": "@deepseek-ai/dsh-desktop-app",
+  "description": "The desktop application's own composition layer: a patch-only bundle carrying the deployment rows the shipped dsh-base and dsh-web-app layers leave to whoever deploys them.",
+  "version": "0.1.0-rc.7",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./cordis.patch.yml": "./cordis.patch.yml",
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "cordis.patch.yml"
+  ],
+  "license": "MIT",
+  "dsh": {
+    "bundle": {
+      "patch": "./cordis.patch.yml"
+    }
+  }
+}

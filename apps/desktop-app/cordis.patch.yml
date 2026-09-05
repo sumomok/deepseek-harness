@@ -1,0 +1,22 @@
+# The desktop application's deployment layer. `apps/desktop`'s profile seed
+# names this package last in the desktop profile's `dsh.profile.bundles`, so it
+# applies after dsh-base, dsh-web-app, and every built-in plugin layer, and
+# before `$DSH_HOME/profiles/desktop/cordis.patch.yml` — a row here is a
+# deployment default the user's own patch layer can still replace.
+#
+# A patch replaces the targeted row's whole `config`, so each row restates
+# every key it owns.
+
+# Full-text session search over conversation content, which dsh-base and
+# dsh-web-app both ship off (`openAt: never`, so `searchSessions` fails with
+# SESSION_QUERY_SEARCH_DISABLED and the sidebar matches titles and Workspace
+# names only). `first-search` defers the node:sqlite import and the index open
+# until a search actually asks for one, so an app start that never searches
+# costs nothing. The index is a derived database this deployment owns, separate
+# from the session-persistence store under `dshHomePath('sessions')`; keeping it
+# durable rather than `:memory:` means only new and changed logs are read after
+# the first index build, instead of the whole corpus on every launch.
+- id: session-query-sqlite
+  config:
+    path: !!js dshHomePath('session-search/desktop.db')
+    openAt: first-search

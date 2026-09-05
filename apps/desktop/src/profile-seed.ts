@@ -102,9 +102,17 @@ import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
 
 /**
- * Plugin packages the desktop installer ships and mounts, in the order they
+ * Bundle packages the desktop installer ships and mounts, in the order they
  * join the bundle stack. They are appended after the template's own bundles,
  * so the in-box web app composes first and these patch over it.
+ *
+ * All but the last are plugins. `@deepseek-ai/dsh-desktop-app` is this
+ * product's own composition layer — no code, one `cordis.patch.yml` — and it
+ * comes last on purpose: a name absent from an existing profile is appended to
+ * `dsh.profile.bundles`, so last here is the only position a fresh profile and
+ * an upgraded one both give it. Applying last puts its deployment defaults over
+ * every layer above, while the profile's own `cordis.patch.yml` still applies
+ * after it.
  *
  * A scoped name is an ordinary member: every path this module builds from one
  * — the payload directory, the manifest entry, the flat-fallback link — is
@@ -115,7 +123,7 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   'dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway',
   '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
   '@haoran/dsh-clickable-refs', '@haoran/dsh-plugin-updates', '@haoran/dsh-vision-switch',
-  '@haoran/dsh-default-model',
+  '@haoran/dsh-default-model', '@deepseek-ai/dsh-desktop-app',
 ]
 
 /**
