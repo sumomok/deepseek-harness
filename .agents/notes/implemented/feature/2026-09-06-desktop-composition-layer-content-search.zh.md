@@ -20,7 +20,21 @@ Status: implemented
 
 它携带的唯一一行把 `session-query-sqlite` 重述为 `openAt: first-search` 与 `path: dshHomePath('session-search/desktop.db')`。`first-search` 把 `node:sqlite` 的导入与索引的打开挡在启动之外，于是一次从不搜索的运行不付任何代价，Node 的 SQLite 实验特性警告也不会进入启动输出。路径取持久文件而非出厂的 `:memory:`，是因为这份索引是派生的而非权威的：留着它，意味着此后某次运行的首次搜索只对账新增与变更的日志，而不是重建整个语料库——这正是「只付一次构建」与「每次启动都付一次」的差别。它刻意落在 `dshHomePath('sessions')` 之外——派生索引与会话持久化存储是两个存储，后端也拒绝把权威数据库当作自己的来打开。
 
-`apps/desktop/tests/desktop-content-search.spec.ts` 通过 `composeEntries` 组合 profile 的整个层栈——`dsh-base`、`dsh-web-app` 与十二个 bundle 层，每个内置层都按启动时的方式经 `resolveBundleDir` 解析——断言桌面 profile 最终得到的那一行、断言同一层栈去掉本层后仍组合出 `never`、并断言组合里没有别的东西被动过。此后某个内置插件开始 patch 同一行，就是一条挂掉的用例，而不是现场的意外。
+`apps/desktop/tests/desktop-composition-layer.spec.ts` 通过 `composeEntries` 组合 profile 的整个层栈——`dsh-base`、`dsh-web-app` 与十二个 bundle 层，每个内置层都按启动时的方式经 `resolveBundleDir` 解析——断言桌面 profile 最终得到的那一行、断言同一层栈去掉本层后仍组合出 `never`、并断言组合里没有别的东西被动过。此后某个内置插件开始 patch 同一行，就是一条挂掉的用例，而不是现场的意外。
+
+## 第二行：等完一个限流窗口
+
+本层存在的理由是部署选择需要一个落脚处，而内容搜索只是其中第一项。第二项是 `llm-deepseek` 的 `retryPolicy.backoff.maxDelayMs`，从出厂的十秒抬到五分钟。
+
+等完限流再续跑这件事本身已经建好、也已经默认开着：`@deepseek-ai/dsh-llm-retry` 挂在 `dsh-base` 里，读取 DeepSeek 适配器从 429 上解析进 `LlmFailure.providerRetryAfterMs` 的 `Retry-After`，把 `llm/retry` 与 `llm/retry-started` 写成持久会话事件，浏览器侧还为它们渲染实时倒计时。出厂组合唯一不做的，是接受一段超过十秒的等待：`normal` 策略在 `providerRetryAfterMs` 超出 `maxDelayMs` 时会转交给下一个处理者，于是整回合带着限流错误失败。DeepSeek 的窗口常见是 30 到 120 秒，所以这套机制唯一为之存在的场景，恰恰被它拒绝了。
+
+抬高上限只改变哪些供应商时长会被采信。本地指数退避是 `min(500 * 2 ** (retry - 1), maxDelayMs)` 叠上十分之一的抖动、最多五次重试，两种取值下最长都是 8.8 秒，上限根本约束不到它；把两份策略都过一遍 `resolveRetryPolicy`，得到的两个对象只在 `maxDelayMs` 上不同，`maxRetries`、`retryableCodes`、`initialDelayMs`、`jitterRatio` 全部保持默认。
+
+**这个上限属于供应商那一行，不属于重试插件。**`llm-retry` 的 `Config` 是 `Readonly<Record<string, never>>`，它的 `validateConfig` 对任何键都抛错，遇到 `retryPolicy` 时答的是 `retryPolicy belongs under each provider configuration`。策略是适配器注册路由时捕获的、按路由持有的状态，所以配置它的地方就是 `llm-deepseek`。`llm-pi-ai` 不是第二个可设之处：它的 `retryPolicy` 是用户设置文档里每个 provider profile 的字段，不是插件配置键，而且它的错误分类是对被压平的 SDK 消息做正则，根本还原不出 `Retry-After`，这个值在那里无事可做。
+
+**这一行重述了模型目录。**`@haoran/dsh-default-model` 是本层下方的一个内置插件层，它对同一个 `llm-deepseek` id 做了一次整表替换式的 `models` patch，其中带着桌面新会话所用的视觉模型那一行。patch 是把 `config` 整个赋过去的，所以这里若只写 `retryPolicy`，就会把那份目录连同模型选择器一起删掉。测试把两份目录逐项比对，于是那个包里的目录一旦变动，就是这里的一条挂掉的用例，而不是现场少了个模型。
+
+浏览器侧画的倒计时是裸秒——`Math.max(1, Math.ceil(ms / 1000))` 填进 `{label}（{retry}/{maximum}） · {seconds}s`——所以五分钟的等待从 `300s` 起倒数，展开行里则以毫秒陈述该时长。看得懂，但这个量级上分秒格式会更好读；此处所取的值并不依赖于那件事。
 
 ## 首次搜索的代价
 

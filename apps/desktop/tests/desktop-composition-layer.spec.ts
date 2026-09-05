@@ -1,14 +1,20 @@
 /**
- * The `session-query-sqlite` row a desktop profile ends up with, composed from
- * the real layers a launch applies rather than from a description of them.
+ * The rows a desktop profile ends up with, composed from the real layers a
+ * launch applies rather than from a description of them.
  *
- * dsh-base and dsh-web-app both ship full-text search off, and
- * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way; this
- * product opts in from its own layer instead. An id-targeted patch replaces the
- * target row's whole `config`, so the desktop layer restates `path` beside
- * `openAt`, and composing every layer here is what catches a restatement that
- * stops replacing what it meant to — or a built-in plugin that starts patching
- * the same row.
+ * The layer carries two. `session-query-sqlite` opts into full-text search:
+ * dsh-base and dsh-web-app both ship it off and
+ * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
+ * this product opts in from its own layer. `llm-deepseek` raises the
+ * `Retry-After` wait a rate-limited request may accept, which dsh-llm-retry
+ * reads from the provider's own `retryPolicy` rather than from its own config.
+ *
+ * An id-targeted patch replaces the target row's whole `config`, so each row
+ * restates every key it owns — `path` beside `openAt`, and the whole model
+ * catalog beside `retryPolicy`, since a built-in plugin layer below sets it on
+ * that same row. Composing every layer here is what catches a restatement that
+ * stops replacing what it meant to, a built-in that starts patching one of
+ * these rows, and a catalog that moves below without moving here.
  * @module
  */
 
@@ -109,12 +115,39 @@ describe('the composed session-query row', () => {
       __jsExpr: "dshHomePath('session-search/desktop.db')",
     })
   })
+})
 
-  it('changes nothing else in the composition', () => {
+describe('the composed llm-deepseek row', () => {
+  it('accepts only the shipped ten-second Retry-After through the layers below', () => {
+    expect(entry(below, 'llm-deepseek').config?.['retryPolicy']).toBeUndefined()
+  })
+
+  it('waits out a five-minute rate-limit window once the desktop layer applies', () => {
+    expect(entry(desktop, 'llm-deepseek').config?.['retryPolicy']).toEqual({
+      mode: 'normal',
+      backoff: { maxDelayMs: 300_000 },
+    })
+  })
+
+  // The layer below this one owns the picker catalog and this row replaces its
+  // whole config, so the restatement has to track it. Comparing the two tables
+  // fails here when that layer ships a different catalog, which is the one way
+  // this row can silently drop a model or the vision default.
+  it('restates the catalog the layer below composes, key for key', () => {
+    const inherited = entry(below, 'llm-deepseek').config?.['models']
+    expect(inherited).toBeDefined()
+    expect(entry(desktop, 'llm-deepseek').config?.['models']).toEqual(inherited)
+  })
+})
+
+describe('the desktop composition layer as a whole', () => {
+  it('changes exactly the two rows it owns and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
     })
-    expect(changed.map(row => row.id)).toEqual(['session-query-sqlite'])
+    // Sorted, because the order these come back in is the order dsh-base
+    // happens to list them and carries nothing about this layer.
+    expect(changed.map(row => row.id).sort()).toEqual(['llm-deepseek', 'session-query-sqlite'])
   })
 })
