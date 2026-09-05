@@ -2,14 +2,12 @@
  * The `referent/open` seam: one ROOT-scope cordis waterfall event every
  * "open this reference" click in the browser conversation UI dispatches
  * through, so a listener anywhere in the tree can intercept a click on a
- * produced-file chip, a tool-row path, or a mention before the pre-existing
- * open action runs — without every affordance importing a bespoke
- * intercept point of its own.
+ * tool-row path or a mention before the pre-existing open action runs —
+ * without every affordance importing a bespoke intercept point of its own.
  *
  * @module @deepseek-ai/dsh-api-session-controller/client/referent
  */
 import { Service, type Context } from '@deepseek-ai/cordis'
-import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 
 /**
@@ -30,9 +28,8 @@ export type ReferentKind = keyof ReferentKindMap
 
 /**
  * One reference a user clicked to open. Carries identity only, never
- * content: a listener that needs bytes reads them itself (e.g. through the
- * durable attachment seam via `attachment`/`file`), the same way the
- * pre-existing open action does.
+ * content: a listener that needs bytes reads them itself from the target,
+ * the same way the pre-existing open action does.
  */
 export interface ReferentRef {
   /** What kind of target this is; see {@link ReferentKindMap}. */
@@ -41,8 +38,6 @@ export interface ReferentRef {
   target: string
   /** The raw text as it appeared at the reference's source, before any resolution. */
   raw: string
-  /** Durable attachment reference, when the target is backed by one (e.g. a sent file's card). */
-  attachment?: FileAttachmentRef
   /** Owning session, when the reference is session-scoped. */
   sessionId?: SessionId
   /** Free-form label naming the dispatch site (e.g. `'chat-view.openFile'`), for listener filtering and diagnostics. */
