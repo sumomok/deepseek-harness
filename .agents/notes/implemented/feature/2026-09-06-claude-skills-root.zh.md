@@ -1,4 +1,4 @@
-# Agent Note: The local skill provider reads the `.claude` roots
+# Agent Note: 本地 skill 提供方读取 `.claude` 根目录
 
 Status: implemented
 
@@ -18,9 +18,9 @@ Status: implemented
 
 watch 管理器无需改动。它按解析后的根路径为 watcher 建键，并从最近的既存祖先起一次跟进一个缺失路径段，对 `.agents` 或 `skills` 没有任何特例，因此两个新根被监视、被探测、被 `watchMaxProjects` 约束的方式与既有根一致。
 
-`roots()` 现在每个目录只返回一个根。符号链接会让两个根落在同一个目录上——本仓库的 `.claude/skills` 正是如此——不去重的列表会把每个 skill 提供两遍：注册表把每个重名解析到优先级更高的根，并为每个 skill 各警告一次，watch 管理器则在同一个目录上打开两个宿主 watcher。每个根都经 `canonicalizeWatchPath`（watcher 本就使用的解析器）解析，规范路径已被前一个根覆盖的根，在发现与监视之前被丢弃。无法规范化的根——祖先不可读，或祖先是普通文件——保留其配置路径作为身份并留在扫描中，由扫描给出自己的诊断。
+`roots()` 现在每个目录只返回一个根。符号链接会让两个根落在同一个目录上——本仓库的 `.claude/skills` 正是如此——不去重的列表会把每个 skill 提供两遍：注册表把每个重名解析到优先级更高的根，并为每个 skill 各警告一次，watch 管理器则在同一个目录上打开两个宿主 watcher。每个根都经 `canonicalizeWatchPath`（watcher 本就使用的解析器）解析，规范路径已被前一个根覆盖的根，在发现与监视之前被丢弃。无法规范化的根——祖先不可读，或祖先是普通文件——保留其配置路径作为身份并留在扫描中。扫描随后的行为按错误码分岔：祖先是普通文件报 `ENOTDIR`，被 `isAbsentSkillPathError` 算作不存在，该根列举为空且不给任何诊断；祖先不可读报 `EACCES`，直接从 `list()` 抛出。
 
-测试中钉住这些根的动作收敛为一个函数。`dsh-loader-smoke` 的 `isolatedSkillRootEnv(cwd, overrides)` 返回整块变量——`DSH_HOME`、`DSH_AGENTS_HOME`、`DSH_CLAUDE_HOME`，以及启动器提供时的 `DSH_BUNDLED_SKILL_DIR`——所有启动器都展开它：loader 冒烟测试、快照启动器与 harness、SDK 快照运行器、Web 脚手架及其真实冒烟测试、五个 CLI 端到端套件，以及两个构建消费方环境的发布脚本。Python 运行时冒烟测试无法调用 TypeScript，就地钉住同样这些名字。本次收敛所替代的 bug 恰恰就是漏掉一处：`snapshots/sdk/sdk.snapshot.ts` 只钉了 `DSH_AGENTS_HOME`，于是本次改动第一次运行时，开发者自己的 `~/.claude/skills` 进了 11 份录制好的 SDK 转录本。
+测试中钉住这些根的动作收敛为一个函数。`dsh-loader-smoke` 的 `isolatedSkillRootEnv(cwd, overrides)` 返回整块变量——`DSH_HOME`、`DSH_AGENTS_HOME`、`DSH_CLAUDE_HOME`，以及启动器提供时的 `DSH_BUNDLED_SKILL_DIR`——录制 fixture 与期望输出背后的启动器都展开它：`runLoaderSmoke`、session-snapshot 的启动器与 harness、SDK 快照运行器、`apps/web/tests/scaffold.ts`、五个 CLI 端到端套件，以及两个构建消费方环境的发布脚本。两个无法调用它的程序就地重复这套键名，且没有任何东西把它们绑到该函数上：`apps/web/tests/smoke-real.e2e.ts` 的五处 spawn（它属于客户端面程序，导不进宿主面函数），以及 `scripts/smoke-python-runtime.py` 的两处（Python 无法调用 TypeScript）。另有一批启动 harness 的站点仍只钉 `DSH_HOME`——`apps/cli/tests/profiles/sdk/keyless-smoke.e2e.ts`、`apps/cli/tests/lazy-search-startup.compat.spec.ts`、`apps/cli/tests/web-agent-presets.e2e.ts`、`apps/cli/tests/built-bin.e2e.ts` 与 `apps/web/tests/hmr-live.e2e.ts`——它们都不断言模型可见文本：断言的是 JSON 行生命周期事件、启动与 HMR 行为、agent preset 名册，以及 CLI profile 与插件输出，环境中的 skill 目录动不了其中任何一项。本次收敛所替代的 bug 恰恰就是漏掉一处：`snapshots/sdk/sdk.snapshot.ts` 只钉了 `DSH_AGENTS_HOME`，于是本次改动第一次运行时，开发者自己的 `~/.claude/skills` 进了 11 份录制好的 SDK 转录本。
 
 ## Alternatives considered
 
@@ -36,11 +36,15 @@ watch 管理器无需改动。它按解析后的根路径为 watcher 建键，�
 
 ## Consequences
 
-每次带 cwd 的查找如今最多解析五个项目根与用户根，而不是三个，每个根多花一次规范路径解析；缺失的根在出现之前要花一次 `fs.watchFile` 探测。当 `.claude` 根链接到同层的 `.agents` 兄弟目录时，去重把这两项开销一起抵消：该根既不扫描也不监视，本仓库的检出因此没有第二次目录列举、没有第二个 watcher，也没有不去重时产生的那 11 条重名警告。
+每次带 cwd 的查找如今装配六个项目根与用户根，而不是四个；`deduplicateRoots` 为列表中的每一个根各解析一次规范路径——自定义目录与 bundled 根也在内，而未改动的代码一次都不解析：带一个自定义目录与一个 bundled 根的部署，每次查找付出八次解析。缺失的根仍在出现之前要花一次 `fs.watchFile` 探测。当 `.claude` 根链接到同层的 `.agents` 兄弟目录时，去重把这两项开销一起抵消：该根既不扫描也不监视，本仓库的检出因此没有第二次目录列举、没有第二个 watcher，也没有不去重时产生的那 11 条重名警告。
 
-如今宿主 skill 混进 fixture 的唯一途径，是某个启动器漏钉某个根，而可漏的地方只剩一处。没有这层钉住，拥有 `~/.claude/skills` 的开发者录出的转录本会与 CI 不同——这里已被两次证实：先是包测试读到这台机器上真实存在的 skill，随后是 SDK 快照。`apps/web/tests/scaffold-hermetic.e2e.ts` 断言脚手架屏蔽环境中的 `.claude` 根，方式与它屏蔽另外三个一致。
+宿主 skill 混进 fixture 的途径依旧是某个启动器漏钉某个根。`isolatedSkillRootEnv` 让调用它的那些启动器只剩一处可漏；就地重复其键集的七处——Web 真实冒烟测试的五处 spawn 与 Python 运行时冒烟测试的两处——仍是可漏的地方，且没有任何门禁把它们约束到该函数的键名列表上。没有这层钉住，拥有 `~/.claude/skills` 的开发者录出的转录本会与 CI 不同——这里已被两次证实：先是包测试读到这台机器上真实存在的 skill，随后是 SDK 快照。`apps/web/tests/scaffold-hermetic.e2e.ts` 断言脚手架屏蔽环境中的 `.claude` 根，方式与它屏蔽另外三个一致。
 
-发行的桌面版从此默认读取终端用户的 `~/.claude/skills`。没有运行时开关：不想要它的部署方需设置 `includeDefaultRoots: false` 并列出自己想要的根，或把 `claudeHome` 指向自己掌控的目录。
+发行的桌面版从此读取终端用户的 `~/.claude/skills`。挂载该提供方的宿主面行 `packages/bundle/base/cordis.patch.yml:288` 被 `packages/bundle/web-app/cordis.patch.yml:362` 关掉，真正生效的是三条 preset 行：`presets/standard/agent.cordis.yml:83`、`presets/ptc/agent.cordis.yml:90` 与 `presets/cordis/agent.cordis.yml:255`。三者都不设 `claudeHome`，其中唯一带 `config:` 的那条只带 `customSkillDirs`。桌面版要关掉这个根，只能给三条行都加上 `config: { claudeHome: <没有 skills 子目录的路径> }`，或在服务器进程环境里设 `DSH_CLAUDE_HOME`。`includeDefaultRoots: false` 不是这个开关：它会把 `.dsh` 与 `.agents` 一起关掉。
+
+一个根不可读就把整个提供方清零。根或其祖先上的 `EACCES` 让 `list()` 以拒绝结束，而 `dsh-skill` 是按提供方而非按根捕获它的：把 `~/.claude/skills` 置为 `000` 后，注册表返回空列表且 `complete: false`，`~/.dsh/skills` 也跟着一起消失。这个故障类别早于本补丁——`.agents/skills` 不可读同样如此——但本补丁为它新增了两个可触发的目录名，而且两者都由本仓库之外维护：`~/.claude/skills` 属于另一个工具，被克隆仓库带来的 `.claude/skills` 则可能是自指符号链接，解析为 `ELOOP` 后走同一条路径。把降级粒度从提供方收到单个根，属于上游的事；退役条件不变。
+
+空串 `$DSH_CLAUDE_HOME` 会把用户根解析成 `<cwd>/skills`，因为回退链只把未设置视为未设置。`$DSH_AGENTS_HOME` 行为相同，只有 `$DSH_HOME` 守卫空串；这里 `.agents` 与 `.claude` 两行保持对称，给两者都加守卫属于上游的事。
 
 包测试在装配好的提供方上覆盖这些新根：两层 `.claude` 各自被发现且来源正确、两层中 `.agents` 的同名 skill 都胜过其 `.claude` 孪生、`includeDefaultRoots: false` 同时省略两者、`$DSH_CLAUDE_HOME` 解析、未设置该变量时回退到 `~/.claude`、被链接的重复根只被发现一次且无警告，以及该链接对只产生一个宿主 watcher。
 
