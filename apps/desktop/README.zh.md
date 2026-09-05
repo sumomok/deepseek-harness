@@ -129,7 +129,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 | `dsh-better-sidebar` | `0.18.0-alpha.0-patched1`,来自提交进本仓库的 tarball | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
 | `dsh-at-file` | `0.7.0-da602d1`,来自提交进本仓库的 tarball | 输入框里的 `@` 文件提及 |
 | `@haoran/dsh-screenshot` | `0.5.1`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面,登录墙后的页面也包括在内——截回来的图是一堵登录墙时,它变成一个问题,你的回答要么打开一个由你自己完成登录的窗口,要么复用这台机器上已有的登录,随后在那个站点自己的分区里重新截一次。没有这个回答就什么都不复用,cookie 的值从不作为工具参数或返回值出现,已存的登录在设置页的一个小节和 `/screenshot-logout <域名>` 里管理。它把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写进工作区内;配置决定 cookie 罐、user agent(默认是稳定版 Chrome 的字符串,不是壳自己的)与由哪个后端渲染 |
-| `@haoran/dsh-llm-permission-gateway` | `0.1.5`,来自提交进本仓库的 tarball | 自动审查这个权限预设——在权限选择器里带上完全权限那枚盾形图标——以及在它被选中期间逐个判断每次有副作用的工具调用的审查模型。向你提问不算其中之一:`ask_user_question` 不经审查直接放行,因为它的全部效果就是把一段文字摆在你面前等你回答,审查它只会多一次模型调用,并在它本来要显示的那个提问前面再加一道提示 |
+| `@haoran/dsh-llm-permission-gateway` | `0.3.1`,来自提交进本仓库的 tarball | 一个审查模型,判断操作系统沙箱管不到的那些有副作用的工具调用,并代你回答沙箱自己弹出的越权申请。设置页的**自动审查**是这个开关,输入框里的 `/review auto` 与 `/review manual` 是同一个,同一个小节还决定用哪个模型来审查。它最多只能问:`deny` 判决会降级成摆到你面前的一个问题,用中文写明这次调用跑起来的代价。两条红线编译在插件里,两种模式下都成立,配置也关不掉——在同一次调用里读凭据库并把数据送出这台机器,以及任何指向权限系统自身文件的参数。它同时贡献 `关闭沙箱（不推荐）` 那一行权限预设,在访问方式控件里带完全权限那枚盾形图标 |
 | `@sumomok/dsh-quote-message` | `0.3.1`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,引用 chip 在你发送时展开成一段 markdown 引用块,而对话里它显示成你这条消息上方的一段引文——左侧一条细线,引用文字用次级墨色,超过三行折起 |
 | `@sumomok/dsh-balance` | `0.4.0`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 公布的 CNY 与 USD 价格。chip 的浮层里带一个**充值**按钮,对插件收录了控制台页面的那些供应商可见,点开走系统浏览器 |
 | `@haoran/dsh-connection-banner` | `0.2.1`,来自提交进本仓库的 tarball | 连接正在重连期间,页面顶部的一条横幅——短暂的抖动不出声,断线过了几秒才现身,一恢复就立刻消失 |
@@ -141,13 +141,13 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
 
-**这个网关随包挂载,但自动审查不是默认值。**插件自带它的权限预设,所以预设控件里会在 `read-only`、`workspace-write`、`danger-full-access` 旁边多出一项自动审查。没有任何东西会替你选中它:编排出来的默认值是 `workspace-write` 加 `ask`,新会话被钉住的仍然是它。选中自动审查会把操作系统沙箱关掉——文件系统与命令不再有操作系统层面的围墙——并把一个审查模型放到那个位置上,由它逐个判断有副作用的工具调用,只在自己拿不准或审查失败时才弹审批框。此后安全性取决于那个模型的判断质量,而不再取决于沙箱。这个预设写在插件自己的 patch 层里,而不是写在你的 profile 里,所以它恰好在这个 bundle 挂载期间存在,两者同来同去。两条红线——凭据外泄,以及对权限系统自身的改动——编译在插件里,配置关不掉。
+**这个网关随包挂载,审查是开着的,沙箱也照常开着。**要不要问审查模型是插件自己的一项设置——出厂为 `auto`,在设置页的**自动审查**小节里扳动,或者用 `/review auto` 与 `/review manual`——它与选中哪种访问方式互不相干:编排出来的默认值仍是 `workspace-write` 加 `ask`,新会话被钉住的还是它。有沙箱时,这道门只审沙箱管不到的东西:`run_code` 的程序体(它跑在 harness 进程内的一个 worker 线程上),以及 `web_fetch`、`screenshot` 这类能力工具。`bash`、`pwsh`、`write`、`edit`、`str_replace_editor`、`terminal_open`、`terminal_send` 在各自的操作系统围墙还立着时不经审查直接放行,围墙不在的地方则照审。它还会代你回答沙箱自己弹出的越权申请:某次被围住的调用因为伸到墙外而被拒、agent 请求解除这次拒绝时,由同一个模型来决定,拿不准就把问题交还给你。这道门最多只能问——`deny` 判决会变成一个带着模型理由的问题——所以审查只会多出提示,不会有无声的拒绝。两条红线编译在插件里,两种模式下都成立,配置也关不掉:在同一次调用里读凭据库并把数据送出这台机器,以及任何指向本插件自己的目录、`$DSH_HOME/profiles` 或 `$DSH_HOME/settings.yaml` 的参数。访问方式控件里列的是仅可查看、工作区内修改、完全权限,以及插件自带的关闭沙箱（不推荐）;那一行写在插件自己的 patch 层里,而不是写在你的 profile 里,所以它恰好在这个 bundle 挂载期间存在。
 
 **每个内置插件都以一条 `file:` 标识符指向 `apps/desktop-server/vendor/` 下的一个 tarball**,与声明它的清单放在一起提交;那个归档就是渠道:这些内置插件没有一个是从注册表装来的。`@haoran` 那几个插件哪里都没发布。`@sumomok/dsh-balance` 的归档与它的发布版逐字节相同。`@sumomok/dsh-quote-message` 与 `dsh-at-file` 走在各自作者最新发布版之前,`dsh-better-sidebar` 的归档是一个发布版按本仓库的改动重打而成,改动登记在 `.claude/core-patches.md`。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去。
 
 **走在注册表之前,正是 profile 自己那份内置插件副本不只是重复、而是隐患的原因。**`dsh plugin add dsh-at-file` 装到的是最新发布版,而它落后于这里分发的归档,于是一个 bundle 的两半会从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`。这一行来自一个版本,代码来自另一个版本;启动会如实报告而不去修它,见下文。
 
-**十二个里有十个带浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,`dsh-at-file`、`dsh-better-sidebar`、`@haoran/dsh-screenshot`、`@haoran/dsh-plugin-updates`、`@sumomok/dsh-quote-message`、`@sumomok/dsh-balance`、`@haoran/dsh-connection-banner`、`@haoran/dsh-clickable-refs`、`@haoran/dsh-vision-switch` 与 `@haoran/dsh-mcp-servers` 声明了它。另外两个没有:权限预设与默认模型都是 loader 去读的编排,页面从不加载。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把十二个都解析了。
+**十二个里有十一个带浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,`dsh-at-file`、`dsh-better-sidebar`、`@haoran/dsh-screenshot`、`@haoran/dsh-plugin-updates`、`@sumomok/dsh-quote-message`、`@sumomok/dsh-balance`、`@haoran/dsh-connection-banner`、`@haoran/dsh-clickable-refs`、`@haoran/dsh-vision-switch`、`@haoran/dsh-mcp-servers` 与 `@haoran/dsh-llm-permission-gateway` 声明了它。没有的那一个是 `@haoran/dsh-default-model`:默认模型是 loader 去读的编排,页面从不加载。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把十二个都解析了。
 
 **`dsh-better-sidebar` 在本宿主上必须是 `0.14.0` 或更高。**`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,模块访问改由 `ctx.modules` 服务提供,这让每个懒加载 chunk 解析外部依赖的方式全面失效——`0.13.1` 会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,终端、编辑器与 Mermaid 面板一起跟着挂掉。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`,并把插件自有的全局共享给它的 chunk 副本,同时移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。
 
@@ -195,7 +195,7 @@ pnpm exec tsx apps/desktop/scripts/publish-update.ts --notes notes.txt --no-tag 
 
 改为从 `dsh.profile.bundles` 里删掉名字则只能维持到下次启动,届时会被重新播种。
 
-**网关是唯一一个不该单独禁用其行的内置插件。**它的 patch 层贡献了两行——门本身,以及那张加入自动审查的预设表——单独禁用门这一行,会让预设留在控件里而背后空无一物:此时再选中它,就是把沙箱关掉而不放任何审查进去,严格差于 `danger-full-access`。先把会话切到别的预设;若还想让它从控件里消失,就在你自己的 `cordis.patch.yml` 里重述 `permission` 行的 `presets` 而不带 `yolo-access`——以 id 为目标的 patch 会替换整个 `config`,所以那次重述必须把你要保留的预设一并写全。
+**网关是唯一一个不该单独禁用其行的内置插件。**它的 patch 层贡献了两行——门本身,以及那张加入关闭沙箱（不推荐）的预设表——单独禁用门这一行,会让那一行留在控件里而背后空无一物:此时再选中它,就是把沙箱关掉而什么都不审,严格差于完全权限——后者至少还有 `never` 这条审批策略,把沙箱本会提出的申请直接拒掉。先把会话切到别的访问方式;若还想让它从控件里消失,就在你自己的 `cordis.patch.yml` 里重述 `permission` 行的 `presets` 而不带 `yolo-access`——以 id 为目标的 patch 会替换整个 `config`,所以那次重述必须把你要保留的预设一并写全。
 
 ## 渲染服务
 
