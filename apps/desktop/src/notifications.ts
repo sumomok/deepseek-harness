@@ -44,8 +44,19 @@
  * A `result` from any client settles the request for all of them at once, so
  * the page's approval card goes away as the button is pressed. There is no
  * 「批准」 on the toast: it names the tool and nothing else, and an approval is
- * given in front of what is being approved. A button pressed on a toast the
- * user kept — the request settled elsewhere meanwhile — does nothing.
+ * given in front of what is being approved.
+ *
+ * A toast outlives the window the shell has to answer in — Windows files a
+ * shown banner into the action centre within seconds and keeps its buttons
+ * live, while the grace answer goes out a minute later — so every toast is
+ * closed the moment this shell stops waiting on its delivery: its own `next`
+ * went out, a `cancel` frame arrived, or a button answered. A button pressed
+ * on a delivery this shell no longer waits on shows the window instead of
+ * answering, because the Host discards a late answer: the approval card is
+ * either still in the window to be answered there or already gone, and either
+ * way the press lands where the user can see what it did. A refusal whose
+ * answer never reached the Host is re-sent when the delivery is replayed,
+ * rather than given a fresh grace that would answer `next` in its place.
  *
  * A Node client sends no `Origin` header, and the server's trust fence accepts
  * an absent one on a loopback `Host` — so no `Origin` is set here, and none may
@@ -173,9 +184,11 @@ export interface ToastAction {
 
 /**
  * The `actions` a toast carrying these buttons is constructed with. Windows
- * draws them; the only other platform reaching a `Notification` here is Linux,
- * whose implementation ignores `actions`, so they are dropped rather than
- * promised. Pure, so the platform rule is unit-tested without Electron.
+ * draws them. Electron also declares `actions` for macOS, which never reaches
+ * a `Notification` here — {@link announce} answers a macOS attention event
+ * with a Dock badge — and Linux's implementation ignores them, so off Windows
+ * they are dropped rather than promised. Pure, so the platform rule is
+ * unit-tested without Electron.
  * @param actions - the buttons the caller wants, in the order they are drawn.
  * @param platform - `process.platform` of the running main process.
  * @returns the action list to construct the notification with, empty off Windows.
@@ -230,6 +243,22 @@ interface Generation {
    * until the generation ends — a rebind starts a server with fresh ids.
    */
   announced: Set<string>
+  /**
+   * The toast raised for each announced delivery, until it is closed. Held so
+   * that a delivery this shell stops waiting on takes its toast with it: a
+   * shown toast survives in the action centre with its buttons live, long past
+   * the minute the shell is entitled to answer in.
+   */
+  toasts: Map<string, Notification>
+  /**
+   * Deliveries the user refused on a toast, kept for as long as a replay can
+   * ask again. The refusal's POST can fail, or the socket can close before the
+   * Host records it; the Host then replays a delivery this shell has already
+   * decided. Giving that replay the ordinary grace would answer `next` a
+   * minute later and drop the refusal in silence, because the id is in
+   * {@link Generation.announced} and no second toast would ask again.
+   */
+  rejected: Set<string>
   /** Sessions last seen running, so only the running → idle edge announces itself. */
   running: Set<string>
   /** Logging and reveal for this generation's messages. */
@@ -265,27 +294,43 @@ function unattended(): boolean {
  * @param title - the headline; the notification title on Windows.
  * @param body - one line of detail.
  * @param actions - buttons to offer, in the order they are drawn; empty for a
- * message that asks for nothing.
+ * message that asks for nothing. Each `press` is responsible for closing the
+ * toast it was pressed on, which is what {@link closeToast} does for the
+ * approval buttons.
+ * @returns the toast that was raised, or undefined when none was: the window
+ * is attended, macOS badges the Dock instead, or the platform posts no
+ * notifications at all.
  */
-function announce(host: NotifyHost, title: string, body: string, actions: readonly ToastAction[] = []): void {
-  if (!unattended()) return
+function announce(host: NotifyHost, title: string, body: string, actions: readonly ToastAction[] = []): Notification | undefined {
+  if (!unattended()) return undefined
   host.log(`[desktop] notify: ${title} — ${body}\n`)
   if (process.platform === 'darwin') {
     badge += 1
     app.dock?.setBadge(String(badge))
     app.dock?.bounce('informational')
-    return
+    return undefined
   }
-  if (!Notification.isSupported()) return
+  if (!Notification.isSupported()) return undefined
   const notification = new Notification({ title, body, actions: toastButtons(actions, process.platform) })
   notification.on('click', () => { host.reveal() })
-  notification.on('action', ({ actionIndex }) => {
-    // Windows keeps a shown toast in the action centre, buttons and all,
-    // until it is dismissed; the pressed one has had its say.
-    notification.close()
-    actions[actionIndex]?.press()
-  })
+  notification.on('action', ({ actionIndex }) => { actions[actionIndex]?.press() })
   notification.show()
+  return notification
+}
+
+/**
+ * Dismiss the toast raised for one delivery, if it is still up. Windows
+ * removes a visible toast from the screen and the action centre, and tries to
+ * remove one that already left the screen; a toast this generation has already
+ * closed is not closed twice.
+ * @param generation - the generation the delivery belongs to.
+ * @param eventId - the delivery whose toast is done.
+ */
+function closeToast(generation: Generation, eventId: string): void {
+  const toast = generation.toasts.get(eventId)
+  if (toast === undefined) return
+  generation.toasts.delete(eventId)
+  toast.close()
 }
 
 /** Drop the Dock badge; the user is looking at the window. */
@@ -451,7 +496,14 @@ function answer(generation: Generation, eventId: string, outcome: DeliveryOutcom
   const timer = generation.pending.get(eventId)
   if (timer !== undefined) clearTimeout(timer)
   generation.pending.delete(eventId)
-  if (generation.stopped || generation.clientId === undefined) return
+  closeToast(generation, eventId)
+  if (generation.stopped || generation.clientId === undefined) {
+    // The stream is between reconnects, or this generation is being torn down.
+    // The Host drops an unregistered client's deliveries and replays them to
+    // the next registration, so the request itself is not stranded.
+    generation.host.log(`[desktop] event ${eventId} left unanswered: this shell is not a registered client\n`)
+    return
+  }
   const clientId = generation.clientId
   void rpc(generation, RESULT_ENDPOINT, { clientId, eventId, outcome }).catch((error: unknown) => {
     // A delivery that was already settled (answered elsewhere, or cancelled)
@@ -463,18 +515,36 @@ function answer(generation: Generation, eventId: string, outcome: DeliveryOutcom
 }
 
 /**
- * Answer one approval delivery with the user's refusal, from its toast.
- * A delivery this generation no longer waits on was settled without it — by
- * the page, by another client, or by its own grace answer — and the Host
- * discards a late answer, so the button does nothing rather than appear to.
+ * Whether this shell can still answer one delivery. The Host counts it among
+ * a delivery's clients only while it is registered and has not answered yet,
+ * and discards an answer from anyone else; the grace `next`, a `cancel` frame,
+ * a socket close, and a press that already answered all end that standing.
+ * @param generation - the generation the delivery belongs to.
+ * @param eventId - the delivery.
+ * @returns true while an answer from here would still be taken.
+ */
+function answerable(generation: Generation, eventId: string): boolean {
+  return !generation.stopped && generation.clientId !== undefined && generation.pending.has(eventId)
+}
+
+/**
+ * Answer one approval delivery with the user's refusal, from its toast. A
+ * delivery this shell no longer waits on — the page answered it, another
+ * client did, its own grace answer went out, or the stream is between
+ * reconnects — cannot be answered from here, so the press brings the window
+ * back instead: the approval card is either still there to be answered or
+ * already gone, and both are an answer to what the button did.
  * @param generation - the generation the delivery belongs to.
  * @param eventId - the approval delivery the toast announced.
  */
 function answerRejected(generation: Generation, eventId: string): void {
-  if (!generation.pending.has(eventId)) {
-    generation.host.log(`[desktop] approval ${eventId} was answered already; its toast button does nothing\n`)
+  closeToast(generation, eventId)
+  if (!answerable(generation, eventId)) {
+    generation.host.log(`[desktop] approval ${eventId}: this shell no longer waits on it; showing the window instead\n`)
+    generation.host.reveal()
     return
   }
+  generation.rejected.add(eventId)
   answer(generation, eventId, { kind: 'result', value: REJECTED })
 }
 
@@ -526,6 +596,27 @@ function onWindowCreated(): void {
 }
 
 /**
+ * Name the session a waterfall delivery came from, then raise its message —
+ * unless the delivery was settled while the name was being looked up. The
+ * lookup is a round trip: a message for a request that is already gone is
+ * noise, and a toast for one carries buttons the request will not outlive.
+ * @param generation - the generation the delivery belongs to.
+ * @param sessionId - the session to name.
+ * @param eventId - the delivery the message is about.
+ * @param post - raises the message, given the subject phrase for the session.
+ */
+function announceDelivery(generation: Generation, sessionId: string, eventId: string, post: (who: string) => void): void {
+  void subject(generation, sessionId).then((who) => {
+    if (generation.pending.has(eventId)) {
+      post(who)
+      return
+    }
+    // The one line that explains a message the user was owed and never saw.
+    generation.host.log(`[desktop] delivery ${eventId} was settled while its session was being named; nothing announced\n`)
+  })
+}
+
+/**
  * Handle one item of the `$events` stream.
  * @param generation - the generation the stream belongs to.
  * @param host - logging and the window the notifications lead back to.
@@ -570,6 +661,14 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
       const sessionId = text(frame, 'agentId')
       const request = nested(frame, 'request') ?? {}
       if (eventId === undefined || sessionId === undefined) return
+      if (generation.rejected.has(eventId)) {
+        // The Host is asking again for a delivery the user already refused,
+        // which means the refusal never reached it. Sending it again is the
+        // only thing that keeps the user's answer: the ordinary grace would
+        // answer `next` in its place, and the id is already announced.
+        answer(generation, eventId, { kind: 'result', value: REJECTED })
+        return
+      }
       scheduleNext(generation, eventId)
       // Reopening the stream replays every delivery still pending, so an id
       // that was already announced is the same request arriving twice.
@@ -578,14 +677,15 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
       if (!unattended()) return
       if (frame['event'] === 'approval/request') {
         const tool = text(request, 'toolName') ?? '工具'
-        void subject(generation, sessionId).then((who) => {
-          announce(host, '需要你的确认', `${who}请求执行 ${tool},正在等你批准。`, approvalActions(
+        announceDelivery(generation, sessionId, eventId, (who) => {
+          const toast = announce(host, '需要你的确认', `${who}请求执行 ${tool},正在等你批准。`, approvalActions(
             () => { answerRejected(generation, eventId) },
-            () => { host.reveal() },
+            () => { closeToast(generation, eventId); host.reveal() },
           ))
+          if (toast !== undefined) generation.toasts.set(eventId, toast)
         })
       } else if (frame['event'] === 'user-questions/request') {
-        void subject(generation, sessionId).then((who) => {
+        announceDelivery(generation, sessionId, eventId, (who) => {
           announce(host, '等待你的回答', questionBody(who, request))
         })
       }
@@ -595,6 +695,10 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
       const eventId = text(frame, 'eventId')
       if (eventId === undefined) return
       generation.announced.delete(eventId)
+      generation.rejected.delete(eventId)
+      // Someone answered: the toast is asking for a decision that has been
+      // made, and Windows would keep it in the action centre until dismissed.
+      closeToast(generation, eventId)
       dropPending(generation, eventId)
       return
     }
@@ -732,7 +836,7 @@ export function setupNotifications(host: NotifyHost, authenticatedUrl: string): 
   stopCurrentGeneration()
   const generation: Generation = {
     stopped: false, socket: undefined, authenticatedUrl, cookie: undefined, clientId: undefined,
-    pending: new Map(), announced: new Set(), running: new Set(), host,
+    pending: new Map(), announced: new Set(), toasts: new Map(), rejected: new Set(), running: new Set(), host,
   }
   current = generation
   subscribe(generation, host)

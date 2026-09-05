@@ -1,13 +1,16 @@
 /**
  * What the approval toast's buttons do: the frame a pressed 「拒绝」 sends back
- * on `$events/result`, the window a pressed 「去看看」 brings back, and the
- * nothing that happens once the request was settled without them.
+ * on `$events/result`, the window a pressed 「去看看」 brings back, the window a
+ * press brings back instead when this shell can no longer answer, and when a
+ * toast is taken off the screen.
  *
  * `notifications.ts` opens a real `WebSocket` and constructs a real
  * `Notification`. Both are replaced here — the socket by the stand-in
  * installed as the global before the module is imported, `electron` by the
  * mock below — while the answers themselves travel over `fetch` to a loopback
- * server, which is where the sent frame is read.
+ * server, which is where the sent frame is read. `fetch` is wrapped rather
+ * than replaced, so a test can assert that no answer was *issued* without
+ * waiting on a round trip that is never going to arrive.
  * @module
  */
 
@@ -19,6 +22,12 @@ const CLIENT = 'client-1'
 
 /** The waterfall delivery every test in this file answers. */
 const EVENT = 'event-1'
+
+/** The path an answer is POSTed to; `RESULT_ENDPOINT` under the `/api` prefix. */
+const RESULT_PATH = '/api/$events/result'
+
+/** `NEXT_GRACE_MS`: how long the shell holds a delivery before answering `next`. */
+const GRACE_MS = 60_000
 
 /** One notification the module constructed, with the handlers it attached to it. */
 class FakeNotification {
@@ -79,21 +88,47 @@ class FakeSocket {
   }
 }
 
+/** A window the shell can find but the user is not looking at. */
+const hiddenWindow = {
+  isResizable: () => true,
+  isVisible: () => false,
+  isMinimized: () => false,
+  isFocused: () => false,
+}
+
 const notifications: FakeNotification[] = []
 const sockets: FakeSocket[] = []
 const quitHandlers: (() => void)[] = []
+const windows: (typeof hiddenWindow)[] = []
+
+/**
+ * The app-level hooks, which bind on the first `setupNotifications` call ever
+ * and stay bound for the module's life; they read the current generation, so
+ * every later test's generation is reached through the same handlers.
+ */
+const appHandlers = new Map<string, () => void>()
 
 vi.mock('electron', () => ({
   app: {
     dock: undefined,
-    on: () => undefined,
+    on: (event: string, handler: () => void) => { appHandlers.set(event, handler) },
     once: (_event: string, handler: () => void) => { quitHandlers.push(handler) },
   },
-  BrowserWindow: { getAllWindows: () => [] },
+  BrowserWindow: { getAllWindows: () => windows },
   Notification: FakeNotification,
 }))
 
 vi.stubGlobal('WebSocket', FakeSocket)
+
+/** Every `/api` path the module POSTed, recorded as the request was issued. */
+const posted: string[] = []
+
+const realFetch = globalThis.fetch
+vi.stubGlobal('fetch', async (input: string | URL | Request, init?: RequestInit): Promise<Response> => {
+  const href = typeof input === 'string' ? input : input instanceof URL ? input.href : input.url
+  if (init?.method === 'POST') posted.push(new URL(href).pathname)
+  return realFetch(input, init)
+})
 
 const { setupNotifications } = await import('../src/notifications.ts')
 
@@ -105,6 +140,9 @@ const lines: string[] = []
 
 /** How many times the shell was asked to bring the window back. */
 let reveals = 0
+
+/** Whether the next `$events/result` is answered with a server failure. */
+let failNextResult = false
 
 const realPlatform = process.platform
 let server: Server | undefined
@@ -125,7 +163,16 @@ async function serving(): Promise<string> {
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     request.on('end', () => {
       const frame = JSON.parse(body) as { method: string; payload: { args: Record<string, unknown> } }
-      if (frame.method === '$events/result') answers.push(frame.payload.args)
+      const failing = frame.method === '$events/result' && failNextResult
+      if (frame.method === '$events/result') {
+        answers.push(frame.payload.args)
+        failNextResult = false
+      }
+      if (failing) {
+        response.writeHead(500, { 'content-type': 'text/plain' })
+        response.end('nope')
+        return
+      }
       response.writeHead(200, { 'content-type': 'application/json' })
       response.end(JSON.stringify({ result: { ok: true, value: { items: [] } } }))
     })
@@ -152,20 +199,52 @@ async function until(ready: () => boolean, what: string): Promise<void> {
 }
 
 /**
- * Subscribe, register, and deliver one approval request to an unattended
- * shell on Windows.
- * @returns the toast it raised.
+ * Let every microtask a press queued run, and the event loop turn once. The
+ * module issues its answer POST from a promise chain over an already-minted
+ * cookie, so a press that answered anything has reached `fetch` — and so is in
+ * {@link posted} — by the time this resolves.
  */
-async function announcedApproval(): Promise<FakeNotification> {
+async function settle(): Promise<void> {
+  await new Promise<void>((resolve) => { setImmediate(resolve) })
+}
+
+/** How many answers the module has issued, whatever became of them. */
+function issuedAnswers(): number {
+  return posted.filter(path => path === RESULT_PATH).length
+}
+
+/**
+ * Subscribe an unattended shell on Windows and register its event client.
+ * @returns the stream socket the module opened.
+ */
+async function subscribed(): Promise<FakeSocket> {
   setupNotifications({ log: (line) => { lines.push(line) }, reveal: () => { reveals += 1 } }, await serving())
   await until(() => sockets.length === 1, 'the stream socket')
   const socket = sockets[0]!
   socket.emit('open', {})
   socket.deliver({ type: 'ready', clientId: CLIENT })
+  return socket
+}
+
+/**
+ * Deliver one `approval/request` waterfall frame.
+ * @param socket - the stream socket to deliver it on.
+ * @param eventId - the delivery's id.
+ */
+function deliverApproval(socket: FakeSocket, eventId = EVENT): void {
   socket.deliver({
-    type: 'waterfall', event: 'approval/request', eventId: EVENT, agentId: 'session-1',
+    type: 'waterfall', event: 'approval/request', eventId, agentId: 'session-1',
     request: { toolName: 'Bash' },
   })
+}
+
+/**
+ * Subscribe, register, and deliver one approval request to an unattended
+ * shell on Windows.
+ * @returns the toast it raised.
+ */
+async function announcedApproval(): Promise<FakeNotification> {
+  deliverApproval(await subscribed())
   await until(() => notifications.length === 1, 'the toast')
   return notifications[0]!
 }
@@ -173,6 +252,7 @@ async function announcedApproval(): Promise<FakeNotification> {
 describe('the approval toast', () => {
   beforeEach(() => {
     Object.defineProperty(process, 'platform', { value: 'win32', writable: false, enumerable: true, configurable: true })
+    windows.push(hiddenWindow)
   })
 
   afterEach(async () => {
@@ -182,7 +262,10 @@ describe('the approval toast', () => {
     sockets.length = 0
     answers.length = 0
     lines.length = 0
+    posted.length = 0
+    windows.length = 0
     reveals = 0
+    failNextResult = false
     const running = server
     server = undefined
     if (running !== undefined) await new Promise<void>((resolve) => { running.close(() => { resolve() }) })
@@ -214,31 +297,99 @@ describe('the approval toast', () => {
   it('brings the window back and answers nothing when 去看看 is pressed', async () => {
     const toast = await announcedApproval()
     toast.handlers.get('action')?.({ actionIndex: 1 })
+    await settle()
     expect(reveals).toBe(1)
-    expect(answers).toEqual([])
+    expect(issuedAnswers()).toBe(0)
+    expect(toast.closed).toBe(1)
   })
 
   it('still reveals the window when the toast itself is clicked', async () => {
     const toast = await announcedApproval()
     toast.handlers.get('click')?.({ actionIndex: 0 })
+    await settle()
     expect(reveals).toBe(1)
-    expect(answers).toEqual([])
+    expect(issuedAnswers()).toBe(0)
   })
 
-  it('does nothing when 拒绝 is pressed after the page answered', async () => {
+  it('shows the window instead of answering when 拒绝 is pressed after the page answered', async () => {
     const toast = await announcedApproval()
     sockets[0]?.deliver({ type: 'cancel', eventId: EVENT })
+    // The request is settled: the toast asks for a decision already made.
+    expect(toast.closed).toBe(1)
     toast.handlers.get('action')?.({ actionIndex: 0 })
-    expect(answers).toEqual([])
-    expect(lines.some(line => line.includes(`approval ${EVENT} was answered already`))).toBe(true)
+    await settle()
+    expect(issuedAnswers()).toBe(0)
+    expect(reveals).toBe(1)
+    expect(lines.some(line => line.includes(`approval ${EVENT}: this shell no longer waits on it`))).toBe(true)
   })
 
-  it('does nothing when 拒绝 is pressed twice', async () => {
+  it('shows the window instead of answering when 拒绝 is pressed twice', async () => {
     const toast = await announcedApproval()
     toast.handlers.get('action')?.({ actionIndex: 0 })
     await until(() => answers.length === 1, 'the answer')
     toast.handlers.get('action')?.({ actionIndex: 0 })
-    expect(answers).toHaveLength(1)
-    expect(lines.some(line => line.includes(`approval ${EVENT} was answered already`))).toBe(true)
+    await settle()
+    expect(issuedAnswers()).toBe(1)
+    expect(reveals).toBe(1)
+    expect(lines.some(line => line.includes(`approval ${EVENT}: this shell no longer waits on it`))).toBe(true)
+  })
+
+  it('shows the window instead of answering while the stream is between reconnects', async () => {
+    const toast = await announcedApproval()
+    // A closed socket takes this shell's registration and its deliveries with
+    // it; the Host replays what is still pending to the next registration.
+    sockets[0]?.emit('close', {})
+    toast.handlers.get('action')?.({ actionIndex: 0 })
+    await settle()
+    expect(issuedAnswers()).toBe(0)
+    expect(reveals).toBe(1)
+    expect(lines.some(line => line.includes(`approval ${EVENT}: this shell no longer waits on it`))).toBe(true)
+  })
+
+  it('raises no toast for a delivery cancelled while its session was being named', async () => {
+    const socket = await subscribed()
+    deliverApproval(socket)
+    socket.deliver({ type: 'cancel', eventId: EVENT })
+    await until(
+      () => lines.some(line => line.includes(`delivery ${EVENT} was settled while its session was being named`)),
+      'the suppressed announcement',
+    )
+    expect(notifications).toHaveLength(0)
+  })
+
+  it('closes the toast when its own grace answer goes out', async () => {
+    // No window yet: the grace does not start, so it can be armed on the fake
+    // clock below rather than on the real one this setup runs against.
+    windows.length = 0
+    const toast = await announcedApproval()
+    expect(toast.closed).toBe(0)
+    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+    try {
+      windows.push(hiddenWindow)
+      appHandlers.get('browser-window-created')?.()
+      vi.advanceTimersByTime(GRACE_MS)
+    } finally {
+      vi.useRealTimers()
+    }
+    await until(() => answers.length === 1, 'the grace answer')
+    expect(answers[0]).toEqual({ clientId: CLIENT, eventId: EVENT, outcome: { kind: 'next' } })
+    expect(toast.closed).toBe(1)
+  })
+
+  it('sends the refusal again when a delivery it failed on is replayed', async () => {
+    const toast = await announcedApproval()
+    failNextResult = true
+    toast.handlers.get('action')?.({ actionIndex: 0 })
+    await until(() => lines.some(line => line.includes(`event answer ${EVENT} not accepted`)), 'the failed answer')
+    // The Host never recorded the refusal, so it replays the delivery. A fresh
+    // grace would answer `next` in its place, and no second toast would ask.
+    deliverApproval(sockets[0]!)
+    await until(() => answers.length === 2, 'the resent answer')
+    expect(answers[1]).toEqual({
+      clientId: CLIENT,
+      eventId: EVENT,
+      outcome: { kind: 'result', value: 'rejected' },
+    })
+    expect(notifications).toHaveLength(1)
   })
 })

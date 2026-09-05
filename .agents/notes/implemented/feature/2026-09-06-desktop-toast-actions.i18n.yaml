@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-desktop-toast-actions.md
-2026-09-06-desktop-toast-actions.md: b0d5e25778814dfe044e611412f7b3a858d50ab1
-2026-09-06-desktop-toast-actions.zh.md: 1f899a3ff21823192ed05f351c7c9db36705f9e1
+2026-09-06-desktop-toast-actions.md: 470e06b60313e21f82ed5fd6e7aad38e39dbd972
+2026-09-06-desktop-toast-actions.zh.md: d87d159a89eb0f74c14949e9bdf1920f31c7366d
