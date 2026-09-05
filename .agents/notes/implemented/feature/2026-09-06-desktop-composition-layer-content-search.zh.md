@@ -30,6 +30,8 @@ Status: implemented
 
 抬高上限只改变哪些供应商时长会被采信。本地指数退避是 `min(500 * 2 ** (retry - 1), maxDelayMs)` 叠上十分之一的抖动、最多五次重试，两种取值下最长都是 8.8 秒，上限根本约束不到它；把两份策略都过一遍 `resolveRetryPolicy`，得到的两个对象只在 `maxDelayMs` 上不同，`maxRetries`、`retryableCodes`、`initialDelayMs`、`jitterRatio` 全部保持默认。
 
+这个上限约束的是单次等待，不是一个 step：落在上限之内的供应商时长会被原样等完，`maxRetries` 是 5，计数在 `step/start` 与 `turn/end` 上清零，所以单个 step 的最坏情况是五倍上限——按这个取值是 25 分钟，按它为之存在的 30 到 120 秒窗口是 2.5 到 10 分钟——而其中没有一段是用户走不掉的僵住，因为每次等待都跑在 `AbortSignal.any([signal, lifetime.signal])` 之下，用户停止本回合它就立刻结束，等待期间转录一直在倒数；[apps/desktop-app/README.zh.md](../../../../apps/desktop-app/README.zh.md) 陈述这个上界，但不展开算式。
+
 **这个上限属于供应商那一行，不属于重试插件。**`llm-retry` 的 `Config` 是 `Readonly<Record<string, never>>`，它的 `validateConfig` 对任何键都抛错，遇到 `retryPolicy` 时答的是 `retryPolicy belongs under each provider configuration`。策略是适配器注册路由时捕获的、按路由持有的状态，所以配置它的地方就是 `llm-deepseek`。`llm-pi-ai` 不是第二个可设之处：它的 `retryPolicy` 是用户设置文档里每个 provider profile 的字段，不是插件配置键，而且它的错误分类是对被压平的 SDK 消息做正则，根本还原不出 `Retry-After`，这个值在那里无事可做。
 
 **这一行重述了模型目录。**`@haoran/dsh-default-model` 是本层下方的一个内置插件层，它对同一个 `llm-deepseek` id 做了一次整表替换式的 `models` patch，其中带着桌面新会话所用的视觉模型那一行。patch 是把 `config` 整个赋过去的，所以这里若只写 `retryPolicy`，就会把那份目录连同模型选择器一起删掉。测试把两份目录逐项比对，于是那个包里的目录一旦变动，就是这里的一条挂掉的用例，而不是现场少了个模型。
@@ -57,6 +59,10 @@ Status: implemented
 **把这个包放到 `packages/bundle/` 与其他 bundle 并列。**按分组语义那才是 bundle 该待的地方，而那是上游的地盘：`packages/bundle/README.md`、`docs/module-graph.md` 及其中文对照件都逐个枚举那里的包，于是一个只属于 fork 的 bundle 会改到四份生成物或上游文档，并在每次同步时冲突。`apps/` 里本来就放着 fork 自己的产品装配件——`apps/desktop`、`apps/desktop-server`——而且没有任何文档目录去枚举它。
 
 **把这一层加进某个 vendor 来的内置插件里。**这是 fork 现有的、添加桌面专属组合行的做法，但对这一行来说是错的归属：这行属于部署，而不属于某个插件，而且它随后会住在本仓库之外的工作区里，只能通过重新打包的 tarball 抵达。
+
+**把 `apps/*/cordis.patch.yml` 纳入 `scripts/verify-cordis-config.ts` 的某个 glob。**这道门禁的元数据扫描已经读到了这份文件——`cordisConfigFiles` 在全仓 glob `**/*cordis*.yml`——但那道「把 patch 行里点名的插件对着所属 bundle 自己的依赖去解析」的按 bundle 检查走的是 `bundleManifestPaths()` 的 `packages/*/*/package.json`，因此永远够不到 `apps/desktop-app`。把它放宽就是改一个上游脚本，也就是一条每次同步都要重新施加的 core-patch 台账，而 `apps/desktop/tests/desktop-composition-layer.spec.ts` 已经用真实的十四层组合加载这份 patch 并断言它产出的那些行。
+
+**让本层接管整个 `llm-deepseek` 行，并把重述从 `@haoran/dsh-default-model` 里删掉。**这是目录耦合的终局：这一行只有一个归属方，就没有需要保持同步的表，测试也没有两份副本可比。它需要重新构建并重新 vendor 那份 tarball，而且会把模型目录从「选择默认模型的那个插件」搬进本仓库，所以这次维持重述现状。
 
 ## Consequences
 

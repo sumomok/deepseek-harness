@@ -30,14 +30,18 @@
 # windows commonly run 30 to 120 seconds, so a wait the provider explicitly
 # asked for arrives as a failed turn. Five minutes covers those windows, and
 # the browser half already counts the remaining seconds down in the transcript,
-# so the wait is visible rather than a stalled screen. Local backoff does not
-# move with it: it is `min(500 * 2 ** (retry - 1), maxDelayMs)` under a tenth
-# of jitter over at most five retries, so the ceiling never binds it and its
-# longest wait stays 8.8 seconds either way. Only the `Retry-After` value this
-# deployment is willing to honor changes. The retry executor itself
-# (`llm-retry`) takes no config at all — it rejects every key, `retryPolicy`
-# with a message naming this row — because the policy belongs to the provider
-# whose route it retries.
+# so the wait is visible rather than a stalled screen. The ceiling bounds one
+# wait, not a step: a provider delay inside it is waited out verbatim, and the
+# five-retry cap is counted per step (`step/start` and `turn/end` reset it), so
+# a step's worst case is five ceilings — 25 minutes at this value, 2.5 to 10
+# minutes across those windows — and every wait aborts the moment the user
+# stops the turn. Local backoff does not move with it: it is `min(500 * 2 **
+# (retry - 1), maxDelayMs)` under a tenth of jitter over at most five retries,
+# so the ceiling never binds it and its longest wait stays 8.8 seconds either
+# way. Only the `Retry-After` value this deployment is willing to honor
+# changes. The retry executor itself (`llm-retry`) takes no config at all — it
+# rejects every key, `retryPolicy` with a message naming this row — because the
+# policy belongs to the provider whose route it retries.
 #
 # `models` is restated because @haoran/dsh-default-model sets it on this same
 # row one layer below and a patch replaces the whole `config`; dropping it here
