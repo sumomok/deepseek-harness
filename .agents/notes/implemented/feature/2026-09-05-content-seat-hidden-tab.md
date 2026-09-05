@@ -34,7 +34,7 @@ Two facts kept the six content-column tools from answering a console that was op
 
 **2. The smallest version that shows the judgement is better.** The grace and the sentence alone: the user sends a prompt, switches to another application or locks the screen, and comes back to the answer instead of a refusal naming a console that was open the whole time. The version with no code at all — keep the tab in front — already existed, and was run first as this slice's premise.
 
-**3. Seam or hard-wired? Hard-wired.** No switch, no `Config` field, no per-visibility policy object; two protocol constants and one branch. Review trigger: a second deployment asking that a tab which is not in front never answer.
+**3. Seam or hard-wired? Hard-wired.** No switch, no `Config` field, no per-visibility policy object; one new protocol constant beside the host's existing hold, and one branch. Review trigger: a second deployment asking that a tab which is not in front never answer.
 
 **4. Boundaries.**
 
