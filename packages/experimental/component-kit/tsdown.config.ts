@@ -46,7 +46,7 @@ const ID = '@deepseek-ai/dsh-experimental-component-kit'
 /** The shared Vue 2.7 re-export every inlined `require('vue')` is sent to. */
 const VUE_SHIM = fileURLToPath(new URL('src/client/vue-shim.ts', import.meta.url))
 
-const preset = clientBundle(ID, ['lib/types/index.js', 'lib/types/invariant.js'])
+const preset = clientBundle(ID, ['lib/types/index.js'])
 
 /**
  * Add the `vue` alias to the browser bundle the preset built.

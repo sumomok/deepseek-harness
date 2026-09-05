@@ -19,14 +19,12 @@ import { afterEach, describe, expect, it } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import * as Connection from '@deepseek-ai/dsh-client-connection'
 import LocalCredentials from '@deepseek-ai/dsh-credentials-local'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
 import * as ServerBase from '../src/index.ts'
-import * as ServerBaseInvariant from '../src/invariant.ts'
 
 const BASE_PATH = '/console/'
 
@@ -243,18 +241,5 @@ describe('server-base configuration', () => {
   it('names itself and the service it waits for', () => {
     expect(ServerBase.name).toBe('server-base')
     expect(ServerBase.inject).toEqual(['webServer'])
-  })
-})
-
-describe('server-base invariant companion', () => {
-  it('reserves package ownership under its declared companion name', async () => {
-    const ctx = new Context()
-    await ctx.plugin(InvariantRegistry, { enabled: true })
-    const fiber = ctx.plugin(ServerBaseInvariant)
-    await fiber.await()
-    expect(ServerBaseInvariant.name).toBe('experimental-server-base-invariant')
-    expect(ServerBaseInvariant.inject).toEqual(['invariants'])
-    await fiber.dispose()
-    await ctx.fiber.dispose()
   })
 })

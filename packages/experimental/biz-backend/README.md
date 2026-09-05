@@ -92,6 +92,8 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **Reads are what this seam has.** There is no create, update, or delete, and adding one is not a matter of another method: a write spends a person's credential on a change to their own system, which needs its own consent question and its own record, and neither exists here.
 - **Not covered by an assembled snapshot** — the service is exercised by this package's own specs and, end to end, by the Playwright scenario in `apps/web/tests/component-surface-datasource.e2e.ts` against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 
+**Runtime invariant:** No companion is published. This package appends no session event, owns no durable data, and keeps no mutable state of its own: the token it spends belongs to whoever constructed the service and is reachable only through that closure, and what a call becomes is stated by `tests/biz-backend.spec.ts`.
+
 <a id="dev-note"></a>
 ### Dev Note
 

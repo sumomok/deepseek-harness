@@ -96,6 +96,8 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **A URL leaving the page is not covered.** `<base>` and `__DSH_BASE__` govern URLs the page resolves; anything handed to something else — a download the browser's download manager fetches, an address copied into another tab — must already be absolute. Those call sites build absolute URLs themselves and this package does not check them.
 - **Not covered by an assembled snapshot** — the evidence is this package's real-composition suite against a served index; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 
+**Runtime invariant:** No companion is published. This package contributes two index-injection rows from validated config and owns no session event, no durable data, and no mutable state; what the served document then carries is asserted by this package's own real-composition suite.
+
 <a id="dev-note"></a>
 ### Dev Note
 

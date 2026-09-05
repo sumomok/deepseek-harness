@@ -2,12 +2,10 @@
 /**
  * component-kit plugin halves: the browser entry's dictionary registration
  * against the real locale plugin (with fiber teardown proving removal — HMR
- * safety), the renderer table it publishes, the inert node entry, and the
- * invariant companion's ownership reservation.
+ * safety), the renderer table it publishes, and the inert node entry.
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it } from 'vitest'
-import InvariantRegistry from '@deepseek-ai/dsh-invariants'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
@@ -18,7 +16,6 @@ import { TableDetailRenderer } from '../src/client/TableDetailRenderer.tsx'
 import { TcProcessBallRenderer } from '../src/client/TcProcessBallRenderer.tsx'
 import { TuQueryCondAdvRenderer } from '../src/client/TuQueryCondAdvRenderer.tsx'
 import { TcFormDetailRenderer } from '../src/client/TcFormDetailRenderer.tsx'
-import * as ComponentKitInvariant from '../src/invariant.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
 
 /** Boot the browser half over a real locale registry. */
@@ -77,19 +74,5 @@ describe('component-kit node half', () => {
   it('contributes no host behavior', () => {
     // The node half exists only so the plugin appears in the Loader tree.
     expect(applyNode).not.toThrow()
-  })
-})
-
-describe('component-kit invariant companion', () => {
-  it('reserves package ownership under its declared companion name', async () => {
-    const ctx = new Context()
-    await ctx.plugin(InvariantRegistry, { enabled: true })
-    const fiber = ctx.plugin(ComponentKitInvariant)
-    await fiber.await()
-    expect(ComponentKitInvariant.name).toBe('experimental-component-kit-invariant')
-    expect(ComponentKitInvariant.inject).toEqual(['invariants'])
-    // Emitting an unrelated event proves the companion installed no audit.
-    expect(() => { (ctx.emit as (event: string) => void)('slots/changed') }).not.toThrow()
-    await fiber.dispose()
   })
 })

@@ -136,6 +136,8 @@ None; this package neither assembles nor sends a provider request.
 - **没有装配快照覆盖** —— 浏览器侧的证据是针对真实组合的 Playwright 场景；快照泳道回放的是发行组合，其中不含任何 experimental 行。
 - **「只有一份 Vue」这条对产物的断言在 CI 上不执行** —— `tests/client-bundle-vue.client.spec.ts` 读的是 `lib/client.js`；在 pull request 上，唯一会对这个包跑 `vitest` 的作业是覆盖率作业，它不构建，于是在那里跳过。master 的 `linux-primary` 泳道串行执行它的门禁，build 排在覆盖率门禁之后，所以那里产物同样不存在。本地、以及任何先构建的泳道里它照常执行。仓库里没有任何门禁去读一个已构建客户端产物的正文——同类的另外两个 spec，在 `client/ui-trajectory` 与 `session/session-persistence-sqlite`，在 CI 上因同一原因跳过。CI 覆盖到的是后果：Playwright 场景对着发行产物画出那个 vendored 组件。把这三条一起挂上门禁的触发器，是第一个去读已构建客户端产物的门禁出现。
 
+**运行时不变式：** 不发布伴生入口。本包是一张渲染器表：它的 node 半边是空插件，不追加任何会话事件，而一块内容可以画什么，由拥有目录的落位包判定。
+
 <a id="dev-note"></a>
 ### 开发备注
 

@@ -92,6 +92,8 @@ None, as this package registers no tool, prompt section, or result: it performs 
 - **这条缝只有读。** 没有新增、修改、删除，加一个也不是再写一个方法的事：一次写入是把一个人的凭据花在改动他自己的系统上，那需要它自己的同意问句和它自己的记录，两样这里都没有。
 - **未被组装快照覆盖** ——本服务由本包自己的用例覆盖，端到端则由 `apps/web/tests/component-surface-datasource.e2e.ts` 里针对真实组合的 Playwright 场景覆盖；快照泳道回放的是出厂组合，那里不组合实验性行。
 
+**运行时不变式：** 不发布伴生入口。本包不追加任何会话事件，不拥有任何持久数据，自己也不保有可变状态：它花的令牌属于构造这个服务的那一方，只经那个闭包可达；而每次调用会变成什么，由 `tests/biz-backend.spec.ts` 陈述。
+
 <a id="dev-note"></a>
 ### 开发备注
 

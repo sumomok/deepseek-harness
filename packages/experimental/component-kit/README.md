@@ -136,6 +136,8 @@ None; this package neither assembles nor sends a provider request.
 - **Not covered by an assembled snapshot** — the browser evidence is a Playwright scenario against a real composition; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 - **The one-Vue assertion over the built bundle does not run on CI** — `tests/client-bundle-vue.client.spec.ts` reads `lib/client.js`; on a pull request the only job that runs `vitest` over this package is the coverage job, which does not build, so it skips there. The master lane, `linux-primary`, runs its gates serially with the build ordered after the coverage gate, so the artifact is absent there too. It runs locally and in any lane that builds first, and the repository has no gate that reads a built client bundle's text — the two other specs of this kind, in `client/ui-trajectory` and `session/session-persistence-sqlite`, skip on CI for the same reason. What CI does cover is the consequence: the Playwright scenario draws a vendored component against the shipped bundles. The trigger for moving all three onto a gate is the first one that reads a built client bundle.
 
+**Runtime invariant:** No companion is published. This package is a renderer table: its node half is an empty plugin, it appends no session event, and what a block is allowed to draw is judged by the placement package that owns the catalog.
+
 <a id="dev-note"></a>
 ### Dev Note
 
