@@ -57,7 +57,7 @@ Profile 集成 driver 使用仅限仓库内部的 `tests/fixtures/production-pro
 
 ### 隔离 skill 根目录
 
-`isolatedSkillRootEnv` 返回把被启动 harness 会读取的每一个 skill 根都钉在隔离 cwd 之下的环境变量块——`DSH_HOME`、`DSH_AGENTS_HOME`、`DSH_CLAUDE_HOME`，以及启动器提供时的 `DSH_BUNDLED_SKILL_DIR`——并为把某个根放在别处的启动器提供逐根覆盖。`runLoaderSmoke` 使用它，仓库中其他每个启动器也把它展开进子进程环境，因此 `dsh-skill-filesystem` 新增的根会被一次性钉在所有地方，而不会让开发者自己的 skill 漏进 fixture 与期望输出。
+`isolatedSkillRootEnv` 返回把被启动 harness 会读取的每一个 skill 根都钉在隔离 cwd 之下的环境变量块——`DSH_HOME`、`DSH_AGENTS_HOME`、`DSH_CLAUDE_HOME`，以及启动器提供时的 `DSH_BUNDLED_SKILL_DIR`——并为把某个根放在别处的启动器提供逐根覆盖。`runLoaderSmoke` 使用它，录制 fixture 与期望输出背后的启动器——session-snapshot 的启动器与 harness、SDK 快照运行器、Web 脚手架、五个 CLI 端到端套件，以及两个发布脚本——也把它展开进各自的子进程环境，因此 `dsh-skill-filesystem` 新增的根会一次性到达它们全部，而不会让开发者自己的 skill 漏进 fixture 与期望输出。两个无法调用它的程序就地重复这套键名，且没有任何门禁把它们约束到这份列表上：`apps/web/tests/smoke-real.e2e.ts` 与 `scripts/smoke-python-runtime.py`。
 
 ### 可能出什么问题
 
