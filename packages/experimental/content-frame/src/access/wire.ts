@@ -48,8 +48,22 @@ export const CONTENT_READ_IMAGE_TOOL_NAME = 'content_read_image'
  * How long a claim from a tab that is not the session's preferred one waits for
  * the preferred tab to claim first. A protocol constant: it bounds one race
  * between browsers, and no deployment reads a page faster or slower for it.
+ * The host holds this window; {@link HIDDEN_CLAIM_GRACE_MS} is the seat's own
+ * half of the same race.
  */
 export const PREFERRED_TAB_WINDOW_MS = 250
+
+/**
+ * How long a seat whose tab is not in front waits before its first bid on a
+ * call.
+ *
+ * A protocol constant of the same kind as {@link PREFERRED_TAB_WINDOW_MS} and
+ * for the same race: it lets a console the user is looking at bid first on
+ * every call, without letting a console they are not looking at answer nothing.
+ * Both tabs receive the call over their own projection stream from one host, so
+ * the skew between them is milliseconds and this window is two orders above it.
+ */
+export const HIDDEN_CLAIM_GRACE_MS = 250
 
 /**
  * How long a seat waits before re-claiming a call the host does not know yet.

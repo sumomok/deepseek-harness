@@ -17,6 +17,7 @@ import { looksClickable } from '../src/client/access/dom.ts'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE,
   IMAGE_MEDIA_TYPE,
+  HIDDEN_CLAIM_GRACE_MS,
   LOAD_WAIT_SHARE, MAX_CURSOR_CHARS, MAX_HEADER_CHARS, MAX_OUTCOME_MESSAGE_CHARS,
   MAX_ACT_STEPS, MAX_CLAIM_BACKOFF, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR, MAX_URL_CHARS,
   MAX_BID_MS, MIN_OUTLINE_CHARS,
@@ -313,18 +314,51 @@ describe('the injected layout the reader runs on', () => {
 })
 
 describe('when the reader claims', () => {
-  it('claims nothing while the tab is hidden, and catches up when it comes back', async () => {
+  it('bids from a tab that is not in front too, one grace window later', async () => {
+    // The field failure this reverses, from one console's own log: macOS
+    // reports a foreground window another window covers as hidden, so the one
+    // console open claimed nothing and the model was told no console is showing
+    // this session. A tab nobody is looking at holds the same mounted frame and
+    // the same live document, so it answers — a grace window after a tab in
+    // front would have.
     setVisibility('hidden')
     const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
-    const seat = seatOf({ frames: { current: frames } })
-    drive(seat)
-    await Promise.resolve()
-    expect(posted).toEqual([])
-
-    setVisibility('visible')
-    act(() => { document.dispatchEvent(new Event('visibilitychange')) })
+    const started = Date.now()
+    drive(seatOf({ frames: { current: frames } }))
     await settled()
     expect(of(CONTENT_CLAIM_ROUTE)).toEqual([{ callId: 'call_1', tabId: TAB_ID }])
+    expect(reported()).toMatchObject({ status: 'ok' })
+    const firstBid = posted.find(entry => entry.route === CONTENT_CLAIM_ROUTE)?.at ?? 0
+    expect(firstBid - started).toBeGreaterThanOrEqual(HIDDEN_CLAIM_GRACE_MS * 0.8)
+  })
+
+  it('bids straight away from the tab in front, which is what puts it first', async () => {
+    // The other half of the ordering: the grace is what a tab in front does not
+    // pay, so between two consoles holding one session the visible one bids
+    // into an unclaimed call and the other into a claim already granted.
+    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+    const started = Date.now()
+    drive(seatOf({ frames: { current: frames } }))
+    await settled()
+    const firstBid = posted.find(entry => entry.route === CONTENT_CLAIM_ROUTE)?.at ?? 0
+    expect(firstBid - started).toBeLessThan(HIDDEN_CLAIM_GRACE_MS)
+  })
+
+  it('pays the grace once rather than on every bid the host answers unknown', async () => {
+    // A grace charged per bid would push a hidden console's re-bidding past the
+    // interval the bidding is written to, and an approval answered in minutes
+    // costs many bids.
+    setVisibility('hidden')
+    claims = Array.from({ length: 3 }, () => ({ claimed: false, reason: 'unknown' as const }))
+    const view = drive(seatOf())
+    await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThanOrEqual(2) }, { timeout: 3000 })
+    view.unmount()
+    const stamps = posted.filter(entry => entry.route === CONTENT_CLAIM_ROUTE).map(entry => entry.at)
+    const gap = (stamps[1] ?? 0) - (stamps[0] ?? 0)
+    // The re-bidding interval alone, within the slack a timer and a render
+    // take; the grace on top of it would be half as long again.
+    expect({ atLeast: gap >= CLAIM_RETRY_MS * 0.8, atMost: gap < CLAIM_RETRY_MS * 1.8 })
+      .toEqual({ atLeast: true, atMost: true })
   })
 
   it('claims each open call once, however often the seat re-renders', async () => {
@@ -437,10 +471,7 @@ describe('when the reader claims', () => {
     const view = drive(seat)
     await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThanOrEqual(1) })
 
-    await act(async () => {
-      setVisibility('hidden')
-      document.dispatchEvent(new Event('visibilitychange'))
-    })
+    setVisibility('hidden')
     // One blip of the projection feed: the call is off the list for a render,
     // which is what the bidding loop reads as the call being over.
     await act(async () => { drive({ ...seat, pending: [] }, view) })
@@ -449,11 +480,8 @@ describe('when the reader claims', () => {
 
     // The next frame carries the same still-open call, and the user comes back
     // to the console to answer the approval.
+    setVisibility('visible')
     await act(async () => { drive({ ...seat, pending: [READ] }, view) })
-    await act(async () => {
-      setVisibility('visible')
-      document.dispatchEvent(new Event('visibilitychange'))
-    })
     await vi.waitFor(() => {
       expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThan(gaveUpAfter)
     }, { timeout: 5000 })

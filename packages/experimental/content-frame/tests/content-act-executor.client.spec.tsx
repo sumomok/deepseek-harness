@@ -204,6 +204,18 @@ describe('what each step dispatches at the page', () => {
     expect(outcome.steps).toEqual([{ index: 1, status: 'ok' }])
   })
 
+  it('runs the steps from a tab that is not in front', async () => {
+    // The console the user switched away from, and the window another window
+    // covers: the frame is mounted and the document is live either way, so the
+    // steps run rather than the call ending as one no console claimed.
+    Object.defineProperty(document, 'visibilityState', { value: 'hidden', configurable: true })
+    mount('<main><button id="go">查询</button></main>')
+    const seen = listen(at('#go'), ['click'])
+    const outcome = await run([{ action: 'click', ref: ref('#go'), label: '查询' }])
+    expect(seen).toEqual(['click'])
+    expect(outcome.status).toBe('done')
+  })
+
   it('clicks a row the listing printed with a class hint and no name', async () => {
     // The row the hint is for: the page offers it and names it nowhere, so the
     // listing prints what its classes say and the step names it by the nothing

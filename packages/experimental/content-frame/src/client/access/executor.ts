@@ -12,10 +12,11 @@
  * element's own window, not of the top one, so an element inside a nested
  * same-origin frame is measured where it actually lives.
  *
- * A tab that is not visible claims nothing. Its frames are still mounted and
- * would answer, but a hidden tab is not what the user is looking at, and the
- * read is defined as the page in front of them; the scan runs again when the
- * tab comes back.
+ * Visibility orders the bidding rather than gating it. A tab the user is not
+ * looking at holds the same mounted frames and the same live documents, so it
+ * bids too, after {@link HIDDEN_CLAIM_GRACE_MS} — long enough for a tab that is
+ * in front to have bid first, short enough that a console nobody is looking at
+ * still answers rather than leaving the call to the host's claim timeout.
  *
  * A read waits twice before it walks anything: for a document that is still
  * loading, and then for a loaded document to stop changing (`../perception/
@@ -23,7 +24,7 @@
  * second one's verdict travels with the listing rather than replacing it.
  * @module @deepseek-ai/dsh-experimental-content-frame/client/access/executor
  */
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
@@ -31,7 +32,7 @@ import {
   ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_ACT_TOOL_NAME, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE,
   CONTENT_READ_ATTRS_TOOL_NAME, CONTENT_READ_DOM_CONTENT_TOOL_NAME, CONTENT_READ_DOM_TOOL_NAME,
   CONTENT_READ_IMAGE_TOOL_NAME, CONTENT_READ_TOOL_NAME,
-  CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE, forWire, LOAD_WAIT_SHARE, MAX_BID_MS,
+  CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE, forWire, HIDDEN_CLAIM_GRACE_MS, LOAD_WAIT_SHARE, MAX_BID_MS,
   MAX_HEADER_CHARS,
   MAX_NAME_CHARS, MAX_OUTCOME_MESSAGE_CHARS, MAX_TEXT_BUDGET_MULTIPLE, MAX_TEXT_BYTES_PER_CHAR,
   MAX_CLAIM_BACKOFF, MAX_URL_CHARS, REPORT_ENVELOPE_BYTES, ROUTE_REFUSAL_STATUSES, sanitize,
@@ -811,6 +812,10 @@ async function actOnPage(
 
 /**
  * Claim one call and answer it from the page this seat holds.
+ *
+ * A seat whose tab is not in front pays {@link HIDDEN_CLAIM_GRACE_MS} before
+ * its first bid and nothing after it: the wait orders the first round between
+ * two consoles, and the re-bidding inside the claim is the same for both.
  * @param seat - the live seat, re-read after the claim round trip.
  * @param mounted - whether this seat is still mounted, which bounds the bidding.
  * @param started - the calls this seat has taken up; a call given up on is
@@ -825,6 +830,11 @@ async function answer(
   request: ContentAccessRequest,
   access: ContentFrameAccessSettings,
 ): Promise<void> {
+  // A tab the user is looking at bids first. Both tabs hold the same frames and
+  // either can answer, so this orders them rather than silencing one: a window
+  // another window covers, a locked screen and a tab in the background all
+  // report `hidden`, and none of the three means the console is not there.
+  if (document.visibilityState !== 'visible') await delay(HIDDEN_CLAIM_GRACE_MS)
   const claimed = await claimRead(seat, mounted, request.callId)
   if (claimed === undefined) {
     // Giving up is not answering. Every ending but the call leaving the list —
@@ -859,9 +869,9 @@ async function answer(
  *
  * A call the bidding gave up on is forgotten instead: it is still open on the
  * host, so the seat must be able to take it up again when the next projection
- * frame carries it. That forgetting happens whether or not this seat can read
- * at all, because a hidden tab that skipped it would leave the call unclaimable
- * for the rest of the seat's life.
+ * frame carries it. That forgetting runs before the guard below and whether or
+ * not this deployment configured the reader at all, because a seat that skipped
+ * it would leave the call unclaimable for the rest of its life.
  *
  * Each call is answered by background work nobody awaits: this hook returns as
  * soon as the reads are under way, and every result reaches the host over the
@@ -872,7 +882,6 @@ export function useContentRead(seat: ContentReadSeat): void {
   const live = useRef(seat)
   const mounted = useRef(true)
   const started = useRef<Set<string>>(new Set())
-  const [visible, setVisible] = useState(() => document.visibilityState === 'visible')
 
   useEffect(() => { live.current = seat })
 
@@ -881,28 +890,21 @@ export function useContentRead(seat: ContentReadSeat): void {
   useEffect(() => () => { mounted.current = false }, [])
 
   useEffect(() => {
-    const onChange = (): void => { setVisible(document.visibilityState === 'visible') }
-    document.addEventListener('visibilitychange', onChange)
-    return () => { document.removeEventListener('visibilitychange', onChange) }
-  }, [])
-
-  useEffect(() => {
     // A call that has left the list has settled and cannot come back, so the
     // memory of having taken it up is dropped with it — a tab left open for a
     // long session would otherwise accumulate one id per read it ever saw. This
-    // runs before the two guards below: a seat that cannot read still has to
-    // forget, or a call it gave up on while the tab was away stays skipped when
-    // the tab comes back with the call still open.
+    // runs before the guard below: a seat that cannot read still has to forget,
+    // or a call it gave up on stays skipped on the frame that carries it again.
     const open = new Set(seat.pending.map(request => request.callId))
     for (const callId of started.current) {
       if (!open.has(callId)) started.current.delete(callId)
     }
     const access = seat.access
-    if (access === undefined || !visible) return
+    if (access === undefined) return
     for (const request of seat.pending) {
       if (started.current.has(request.callId)) continue
       started.current.add(request.callId)
       void answer(live, mounted, started, request, access)
     }
-  }, [seat.access, seat.pending, visible])
+  }, [seat.access, seat.pending])
 }
