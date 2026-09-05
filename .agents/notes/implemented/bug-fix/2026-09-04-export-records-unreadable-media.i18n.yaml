@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-04-export-records-unreadable-media.md
-2026-09-04-export-records-unreadable-media.md: 508094e447638b71bb39e509d0ac71021615f3ae
-2026-09-04-export-records-unreadable-media.zh.md: 08ed7cc999d5e33af4717d081324a16f8177c187
+2026-09-04-export-records-unreadable-media.md: e04a01a969f5b03d298edf47918e578231840bbf
+2026-09-04-export-records-unreadable-media.zh.md: f0b9e2fdb389dce33739e3b394f089ca72b29b03
