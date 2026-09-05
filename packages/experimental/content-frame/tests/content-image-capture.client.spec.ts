@@ -23,7 +23,7 @@ import {
   unexportableImageRefusal, unloadedImageRefusal, wideImageRefusal,
 } from '../src/access/text.ts'
 import {
-  IMAGE_MEDIA_TYPE, IMAGE_PIXEL_BUDGET, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES, RASTER_MIN_SIDE, type ImageSize,
+  IMAGE_MEDIA_TYPE, IMAGE_PIXEL_BUDGET, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES, RASTER_MIN_PIXELS, type ImageSize,
 } from '../src/access/wire.ts'
 
 /** The ref every case here names, which every refusal opens with. */
@@ -270,9 +270,6 @@ describe('what one element exports as a picture', () => {
 })
 
 describe('the size one element\'s pixels are exported at', () => {
-  /** The area every export is enlarged toward and never past. */
-  const FLOOR = RASTER_MIN_SIDE * RASTER_MIN_SIDE
-
   it('draws a small raster twelve times over, landing on the floor\'s own area', () => {
     expect(exportSpec({ width: 32, height: 32 }, false))
       .toEqual({ size: { width: 384, height: 384 }, smooth: false })
@@ -321,7 +318,7 @@ describe('the size one element\'s pixels are exported at', () => {
       { width: 16, height: 64 }, { width: 100, height: 100 }, { width: 191, height: 191 },
     ]) {
       const { size } = exportSpec(natural, false)
-      expect(size.width * size.height).toBeLessThanOrEqual(FLOOR)
+      expect(size.width * size.height).toBeLessThanOrEqual(RASTER_MIN_PIXELS)
       expect(size.width % natural.width).toBe(0)
       expect(size.width / natural.width).toBe(size.height / natural.height)
     }
@@ -332,7 +329,7 @@ describe('the size one element\'s pixels are exported at', () => {
     // Both axes are rounded, so the pair lands just past the floor rather than
     // exactly on it — which is the side of it that matters.
     expect(raised).toEqual({ size: { width: 543, height: 272 }, smooth: true })
-    expect(raised.size.width * raised.size.height).toBeGreaterThanOrEqual(FLOOR)
+    expect(raised.size.width * raised.size.height).toBeGreaterThanOrEqual(RASTER_MIN_PIXELS)
   })
 
   it('leaves a vector already past the floor alone', () => {

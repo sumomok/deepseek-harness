@@ -15,7 +15,7 @@
  */
 
 import {
-  CAPTURE_MEDIA_TYPES, forWire, IMAGE_PIXEL_BUDGET, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES, RASTER_MIN_SIDE,
+  CAPTURE_MEDIA_TYPES, forWire, IMAGE_PIXEL_BUDGET, MAX_CURSOR_CHARS, MAX_EXPORT_BYTES, RASTER_MIN_PIXELS,
   type CaptureMediaType, type ImageSize,
 } from '../../access/wire.ts'
 import {
@@ -224,9 +224,8 @@ function wholeMultiple(size: ImageSize, floor: number): number {
  * @returns the size to draw at and the smoothing to draw it with.
  */
 export function exportSpec(natural: ImageSize, vector: boolean): ExportSpec {
-  const floor = RASTER_MIN_SIDE * RASTER_MIN_SIDE
-  if (vector) return { size: lowerTo(raiseTo(natural, floor), IMAGE_PIXEL_BUDGET), smooth: true }
-  const factor = wholeMultiple(natural, floor)
+  if (vector) return { size: lowerTo(raiseTo(natural, RASTER_MIN_PIXELS), IMAGE_PIXEL_BUDGET), smooth: true }
+  const factor = wholeMultiple(natural, RASTER_MIN_PIXELS)
   const enlarged = { width: natural.width * factor, height: natural.height * factor }
   return { size: lowerTo(enlarged, IMAGE_PIXEL_BUDGET), smooth: factor === 1 }
 }

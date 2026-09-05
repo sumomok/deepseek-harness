@@ -784,24 +784,26 @@ export const IMAGE_MEDIA_TYPE = 'image/png'
 export const IMAGE_PIXEL_BUDGET = 640_000
 
 /**
- * The side of the square whose area one export is enlarged toward.
+ * Total pixels one export is enlarged toward and never past.
  *
  * The provider's own vision floor, restated: `MIN_PIXELS` in
- * `packages/llm/llm-deepseek/src/image-tokens.ts` is the same 384 × 384 total
- * pixels, and the provider scales any image under that area up to exactly it,
- * at its own ratio, before projecting it onto the patch grid. Two images with
- * one ratio and an area at or under the floor therefore land on the same grid
- * and are priced identically, which is what makes an enlargement inside the
- * floor free and one past it expensive: 117 tokens at or under the floor, 201
- * at twice its area, and 349 at the whole pixel budget, against the provider's
- * 384-token cap.
+ * `packages/llm/llm-deepseek/src/image-tokens.ts` is the same 384 × 384, and
+ * the provider scales any image under that area up to exactly it, at its own
+ * ratio, before projecting it onto the patch grid. Two images of one ratio
+ * whose areas are both at or under the floor therefore land on the same grid
+ * and are priced identically, whatever that ratio prices at — which is what
+ * makes an enlargement inside the floor free and one past it expensive. A
+ * square prices at 117 tokens at or under the floor, 201 at twice its area and
+ * 349 at the whole pixel budget, against the provider's 384-token cap; another
+ * ratio prices differently at each, because the price is the grid's rather
+ * than the area's.
  *
- * Both kinds of source are held to that area and reach it differently. A
+ * Both kinds of source are held to this area and reach it differently. A
  * vector is rasterized to it, at whatever ratio its layout box has. A bitmap
  * is enlarged by the largest whole multiple of itself that still fits inside
  * it, which is 1 — no enlargement — for anything past a quarter of it.
  */
-export const RASTER_MIN_SIDE = 384
+export const RASTER_MIN_PIXELS = 384 * 384
 
 /**
  * Most bytes one exported image may come to.
