@@ -39,6 +39,13 @@
  * is the one thing it walks past. A React renderer gains the same guarantee,
  * that what it was lent it may read and may not write.
  *
+ * A block's own property may also be read from another block instead of
+ * written out, and such a property keeps its reference here rather than a
+ * value: there is nothing to tighten yet, because what it will hold is
+ * assembled in the seat out of the user's own work. Validation is what keeps
+ * the two apart — a property read as something narrower than text cannot be
+ * bound at all, so no value ever reaches a renderer having skipped its reading.
+ *
  * Two catalog entries declare a reading. The data table declares
  * `relatedComponent` as a renderer name and, inside one column's renderer
  * configuration, `color` as a color; the metric ball declares its three colors.
@@ -52,6 +59,9 @@
  */
 
 import {
+  BINDING_KEY,
+  isBindingValue,
+  readBinding,
   RELATED_COMPONENT_FALLBACK,
   RELATED_COMPONENTS,
   type ComponentCatalogEntry,
@@ -178,6 +188,22 @@ function sanitizeKeyedRecord(
 }
 
 /**
+ * Read one property whose value is another block's output.
+ *
+ * The reference is kept, not the value: what a bound property will hold is
+ * decided in the seat, over what the user has done, and this pass runs where
+ * none of that exists yet. Rebuilt rather than passed through, for the same
+ * reason every other value here is — what comes out is this pass's own frozen
+ * object, carrying the one property a binding has.
+ * @param value - the property value, however malformed.
+ * @returns the frozen binding, or `undefined` when the value is not one.
+ */
+function sanitizeBinding(value: unknown): unknown {
+  if (!isBindingValue(value) || readBinding(value) === undefined) return undefined
+  return Object.freeze({ [BINDING_KEY]: value[BINDING_KEY] })
+}
+
+/**
  * Read one property record against a declared schema.
  *
  * The walk is over the schema rather than over the record, so a property the
@@ -186,20 +212,23 @@ function sanitizeKeyedRecord(
  * @param value - the record.
  * @param schema - the declared properties.
  * @param rules - the component's tightened readings.
+ * @param bindable - whether a property here may be read from another block, which only a block's own properties are.
  * @returns a new frozen record carrying the declared properties this pass accepted.
  */
 function sanitizeRecord(
   value: Readonly<Record<string, unknown>>,
   schema: PropsSchema,
   rules: SanitizeRules | undefined,
+  bindable = false,
 ): Record<string, unknown> {
   const kept: Record<string, unknown> = {}
   for (const [key, field] of Object.entries(schema)) {
     if (!(key in value)) continue
     const sanitizeClass = rules?.[key]
-    const cleaned = sanitizeClass === undefined
-      ? sanitizeShape(value[key], field.schema, rules)
-      : sanitizeClassValue(value[key], sanitizeClass)
+    const cleaned = (bindable ? sanitizeBinding(value[key]) : undefined)
+      ?? (sanitizeClass === undefined
+        ? sanitizeShape(value[key], field.schema, rules)
+        : sanitizeClassValue(value[key], sanitizeClass))
     if (cleaned !== undefined) kept[key] = cleaned
   }
   // Frozen on the way out, so a record is frozen only after every nested record
@@ -217,5 +246,5 @@ export function sanitizeNodeProps(
   component: ComponentCatalogEntry,
   props: Readonly<Record<string, unknown>>,
 ): Readonly<Record<string, unknown>> {
-  return sanitizeRecord(props, component.propsSchema, component.sanitize)
+  return sanitizeRecord(props, component.propsSchema, component.sanitize, true)
 }

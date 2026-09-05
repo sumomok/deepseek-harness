@@ -11,8 +11,9 @@
  * its own, so it takes no translate; it narrows the block's properties to what
  * the component declares and hands them over.
  *
- * A record reports nothing. `onAction` and the action state a placement package
- * passes are unread here, and the block draws the same in every one of them.
+ * A record reports nothing and publishes nothing. `onAction`, `onOutput` and the
+ * action state a placement package passes are unread here, and the block draws
+ * the same in every one of them.
  *
  * element-ui must already be installed on the shared runtime — the row's client
  * plugin does that when it starts, and a test drawing this block on its own
@@ -139,8 +140,8 @@ function readTcFormDetail(props: ComponentRendererProps['props']): TcFormDetailV
 /**
  * Render one record block.
  * @param rendererProps - the block's identity and its properties. A record
- * reports nothing, so the action sink, the action state, and the translate go
- * unread.
+ * reports nothing, so the action sink, the output sink, the action state, and
+ * the translate go unread.
  * @returns the host element the Vue component is mounted into.
  */
 export function TcFormDetailRenderer({ nodeId, props }: ComponentRendererProps) {

@@ -19,6 +19,11 @@
  * the user picked between them; a press holding no complete condition sends
  * nothing at all.
  *
+ * A filter bar publishes nothing for the blocks beside it, so `onOutput` goes
+ * unread here: no component in this row takes a condition list as a property,
+ * and the catalog that would name the output declares none. What an edit does
+ * reach is the agent, as the `change` gesture and its count.
+ *
  * **It reads the attribute list once.** `metaConfig` is copied into the
  * component's own data when it is created and never watched, so a later call
  * carrying different attributes would leave the user choosing from the previous
@@ -140,7 +145,7 @@ interface FilterCondition {
 }
 
 /**
- * What the submit button and the change watcher read at the moment they fire.
+ * What the change watcher reads at the moment it fires.
  *
  * The watcher is bound to the mounted instance and outlives every React commit
  * that does not remount it, so what it reports through is read out of a ref the
@@ -254,6 +259,9 @@ export function TuQueryCondAdvRenderer({ nodeId, props, onAction, state, t }: Co
   useEffect(() => {
     const instance = instanceRef.current as TuQueryCondAdvInstance
     return instance.$watch('queryConditions', () => {
+      // What the agent is told an edit was is that something changed, and how
+      // many conditions stand after it; the conditions themselves are the
+      // submit's to carry.
       context.current.onAction(CHANGE_ACTION_ID, { count: instance.getData().conditions.length })
     }, { deep: true })
   }, [mountKey])

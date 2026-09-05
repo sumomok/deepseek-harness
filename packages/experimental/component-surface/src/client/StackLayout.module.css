@@ -1,0 +1,49 @@
+/* The arrangement one call's blocks are drawn in: nested flex rows and
+   columns, sized by shares rather than by lengths. The three gaps are the whole
+   spacing vocabulary a spec may name; every stack carries all three, and
+   `data-component-gap` picks the one that stack was given. */
+
+.stack {
+  --dsh-component-stack-gap-sm: 4px;
+  --dsh-component-stack-gap-md: 12px;
+  --dsh-component-stack-gap-lg: 24px;
+
+  display: flex;
+  /* A stack is also a flex item of the stack above it: without this it refuses
+     to shrink below the width of the widest table inside it, and the column
+     scrolls sideways instead. */
+  min-width: 0;
+  min-height: 0;
+}
+
+.stack[data-component-stack='col'] {
+  flex-direction: column;
+}
+
+.stack[data-component-stack='row'] {
+  flex-direction: row;
+}
+
+.stack[data-component-wrap='wrap'] {
+  flex-wrap: wrap;
+}
+
+.stack[data-component-gap='sm'] {
+  gap: var(--dsh-component-stack-gap-sm);
+}
+
+.stack[data-component-gap='md'] {
+  gap: var(--dsh-component-stack-gap-md);
+}
+
+.stack[data-component-gap='lg'] {
+  gap: var(--dsh-component-stack-gap-lg);
+}
+
+/* One child's cell. `flex-grow` is set inline from the spec's `flex`; the basis
+   stays automatic, so a share divides what is left over rather than the whole
+   row. */
+.item {
+  min-width: 0;
+  min-height: 0;
+}

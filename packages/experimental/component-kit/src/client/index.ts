@@ -47,6 +47,7 @@ export type {
   ComponentActionPayload,
   ComponentActionState,
   ComponentKitTranslate,
+  ComponentOutputHandler,
   ComponentRenderer,
   ComponentRendererProps,
 } from './renderer.ts'

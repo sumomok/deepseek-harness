@@ -17,10 +17,13 @@
 import { defineTool } from '@deepseek-ai/dsh-tools'
 import type { GenericCallView, ToolDefinition } from '@deepseek-ai/dsh-tools'
 import {
+  BINDING_KEY,
   catalogLabels,
   COMPONENT_CATALOG,
   describeCatalog,
   MAX_ENTRY_ID_LENGTH,
+  MAX_FLEX,
+  MAX_LAYOUT_DEPTH,
   MAX_NODES,
   MAX_SPEC_BYTES,
   MAX_TITLE_LENGTH,
@@ -47,6 +50,12 @@ export interface ShowComponentValue {
  * back matters on its own line, because a model told a block reports what the
  * user did would otherwise place a display-only one and wait for an answer that
  * is not coming.
+ *
+ * The arrangement and the bindings are one short paragraph each, because both
+ * are the same offer stated once: what a stack holds, and what one block may
+ * read from another. Which values can be read is not in the paragraph — it is
+ * the `outputs:` line of the component that reports them, beside the properties
+ * that accept them.
  * @returns the complete description.
  */
 export function describeShowComponent(): string {
@@ -62,6 +71,15 @@ export function describeShowComponent(): string {
     + 'marks the ones a call may leave out with `?`, writes a list as `[what one item is] (fewest–most)`, and '
     + 'writes an object you choose the field names of as `{<field>: text|number|boolean}`. Anything else is '
     + 'refused, and the refusal names what you sent and lists the properties that component accepts.\n\n'
+    + 'By default the blocks are stacked top to bottom. To arrange them, send `layout`: '
+    + '{"node": "stack", "dir": "row" or "col", "gap"?: "sm"|"md"|"lg", "wrap"?: true|false, "children": [...]}, '
+    + 'whose children are either a further stack or {"node": "component", "id": "<one of your node ids>"}. '
+    + `A child of either kind may carry "flex": 1–${MAX_FLEX}, the share of its row or column it takes. `
+    + `A layout places every node exactly once, and stacks nest at most ${MAX_LAYOUT_DEPTH} deep.\n\n`
+    + 'A block can also read what another block of the same call reports. Where a component has an `outputs:` line, '
+    + `write {"${BINDING_KEY}": "node:<the other block\'s id>.<output name>"} — with [index] after it to take one `
+    + 'item — as the whole value of a property that accepts what that output is, and that property then follows what '
+    + 'the user does, with no further call from you. Until there is something to read, the block says it is waiting.\n\n'
     + 'What the user does inside a block comes back to you, naming the entry and the block it happened in, '
     + 'unless the list above says nothing comes back from that component. Do not also ask in the conversation '
     + 'for an answer a block is already asking for, and do not place a block that sends nothing back to ask a '
@@ -102,6 +120,10 @@ export function showComponentTool(): ToolDefinition {
             description: 'The blocks to draw, top to bottom. Each entry is '
               + '{"id": "<name unique in this call>", "component": "<id from the list above>", "props": {…}}.',
             items: { type: 'json' },
+          },
+          layout: {
+            type: 'json',
+            description: 'How the blocks are arranged, as nested stacks; leave it out to stack them top to bottom.',
           },
         },
       },

@@ -53,6 +53,15 @@ const AGENT = {
  * properties are seven scalars, which the description already states and no
  * other scenario would exercise differently.
  *
+ * Two more scenarios are about the call rather than one component's arguments.
+ * `show-view-turn` places two blocks and arranges them — a table above a record
+ * whose `dataList` is `{"$from": "node:sites.selectionDetail"}` — so the
+ * fixture carries the `layout` and the binding as the model wrote them, in the
+ * `tool/call` the `contentSurface` fold reads its entry out of, and carries the
+ * result naming both drawn blocks. `reject-view-turn` sends the same call with
+ * a layout naming a block it never placed, so the fixture carries the sentence
+ * the model reads back, which names the path it has to fix.
+ *
  * What none of them carries is a gesture. `/component-action` reaches the host
  * through `remote.commands` and the ACP protocol has no command method, so this
  * lane pins the placement and the description that promises a gesture comes
@@ -72,6 +81,8 @@ const SCENARIOS: Scenario[] = [
   { name: 'show-record-turn', hasModelTurn: true, recorded: false },
   { name: 'show-table-turn', hasModelTurn: true, recorded: false },
   { name: 'show-filter-turn', hasModelTurn: true, recorded: false },
+  { name: 'show-view-turn', hasModelTurn: true, recorded: false },
+  { name: 'reject-view-turn', hasModelTurn: true, recorded: false },
 ]
 
 /**

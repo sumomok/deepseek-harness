@@ -2,8 +2,9 @@
  * What one `show_component` call is from outside the tool body, and what one
  * action reported back out of a drawn block is: the wire tool name, the command
  * name the seat reports through, the content kind the call claims, the catalog
- * of components a call may place with the actions each of them reports, and the
- * protocol ceilings both directions are measured against.
+ * of components a call may place with the actions each of them reports and the
+ * values another block may read from them, the layout tree a call arranges its
+ * blocks in, and the protocol ceilings both directions are measured against.
  *
  * One home, because three readers must agree on the same rules. The tool
  * refuses a call the seat could not draw; the content-surface extractor decides
@@ -82,11 +83,41 @@ export const MAX_TITLE_LENGTH = 24
 /** Largest accepted `JSON.stringify(spec)`, in UTF-8 bytes. */
 export const MAX_SPEC_BYTES = 65536
 
-/** Largest accepted `spec.nodes` length. */
-export const MAX_NODES = 8
+/**
+ * Largest accepted `spec.nodes` length.
+ *
+ * Also what bounds a layout tree: a layout places every node exactly once, so
+ * this is both the most blocks one call draws and the most leaves that tree can
+ * carry.
+ */
+export const MAX_NODES = 12
+
+/**
+ * Deepest accepted layout tree: the stack a spec starts with, and three levels
+ * of stacks under it.
+ *
+ * Four levels split a panel every way twelve blocks have a reason to be split.
+ * What the ceiling buys is that the deepest legal spec is a number this module
+ * knows, which is what {@link MAX_SPEC_DEPTH} is measured from.
+ */
+export const MAX_LAYOUT_DEPTH = 4
+
+/**
+ * Largest accepted child count of one stack.
+ *
+ * The node ceiling, because every leaf of a layout is a node and a stack
+ * carrying nothing but stacks is bounded by the leaves below it.
+ */
+export const MAX_LAYOUT_CHILDREN = MAX_NODES
+
+/** Largest accepted `flex` of one placed block: the share of its stack it takes. */
+export const MAX_FLEX = 12
 
 /** Largest accepted node `id`, in characters. */
 export const MAX_NODE_ID_LENGTH = 32
+
+/** Largest accepted output `id`, in characters. */
+export const MAX_OUTPUT_ID_LENGTH = 32
 
 /** Largest accepted button `id` inside a confirmation bar, in characters. */
 export const MAX_BUTTON_ID_LENGTH = 32
@@ -327,6 +358,20 @@ export interface PropsField {
   readonly required: boolean
   /** What the value must be. */
   readonly schema: PropsFieldSchema
+  /**
+   * Why no other block's output may stand here; absent for a property that may
+   * be read from another block.
+   *
+   * Model-facing, and spliced into the refusal after the path it names, so a
+   * call that bound the property is told what this particular property is
+   * rather than that it is on a list. What makes a property one of these is
+   * that something outside the drawing of the block reads it: the host, naming
+   * what the user did in the block it drew, or a second property of the same
+   * call the component reads it against row for row. Neither reading reaches a
+   * value the page resolved — that value is in no call, and it outlives no
+   * render.
+   */
+  readonly unbindable?: string
 }
 
 /** A component's declared properties, keyed by property name. */
@@ -418,6 +463,29 @@ export interface ComponentActionDefinition {
   readonly describe: (context: ComponentActionContext) => ComponentActionNotice | undefined
 }
 
+/**
+ * One value a drawn block reports out for another block of the same call to
+ * read.
+ *
+ * An output is not an action: an action is news the agent is told about, and an
+ * output is a value that stays inside the panel. The seat holds the latest one
+ * per block and hands it to whatever bound it, and nothing about it reaches the
+ * log — which is what lets a selection drive a detail block without writing a
+ * session event every time the user ticks a row.
+ */
+export interface ComponentOutput {
+  /** Stable id a `$from` reference names after the dot. */
+  readonly id: string
+  /**
+   * What the value is, written in the vocabulary a declared property uses.
+   *
+   * The same schema union on purpose: it is what lets the host decide, before
+   * anything is drawn, whether an output can be the value of the property a
+   * call bound it to.
+   */
+  readonly shape: PropsFieldSchema
+}
+
 /** One component a call may place. */
 export interface ComponentCatalogEntry {
   /** Stable id the model writes in `spec.nodes[i].component`. */
@@ -430,6 +498,8 @@ export interface ComponentCatalogEntry {
   readonly propsSchema: PropsSchema
   /** The only actions this component reports back; empty for a component nothing comes back from. */
   readonly actions: readonly ComponentActionDefinition[]
+  /** The only outputs another block may read from this one; empty for a component nothing can be read from. */
+  readonly outputs: readonly ComponentOutput[]
   /** Properties read as something narrower than text; absent when every string of this component is text. */
   readonly sanitize?: SanitizeRules
 }
@@ -529,6 +599,11 @@ export const RECORD_DETAIL_ID = 'toy.record'
  * written out. Nothing here says where a value came from or how to format it —
  * the model sends what it wants read, and a row is drawn as the two strings it
  * carries.
+ *
+ * A row's label is bounded by {@link MAX_FIELD_NAME_LENGTH} rather than by a
+ * number of its own, because a table's `selectionDetail` is read into this list
+ * and a column with no header of its own contributes the field name it reads.
+ * Two ceilings there would be a binding the catalog offers and refuses.
  */
 const RECORD_DETAIL_PROPS: PropsSchema = {
   dataList: {
@@ -540,7 +615,7 @@ const RECORD_DETAIL_PROPS: PropsSchema = {
       item: {
         kind: 'object',
         fields: {
-          label: { required: true, schema: { kind: 'string', maxLength: 40 } },
+          label: { required: true, schema: { kind: 'string', maxLength: MAX_FIELD_NAME_LENGTH } },
           display: { required: true, schema: { kind: 'string', maxLength: 400 } },
         },
       },
@@ -721,10 +796,13 @@ const TABLE_PROPS: PropsSchema = {
   displayValueList: {
     required: true,
     schema: { kind: 'array', minItems: 1, maxItems: MAX_TABLE_ROWS, item: TABLE_ROW },
+    unbindable: 'every gesture in this table is reported to you by reading these rows back out of the call that '
+      + 'wrote them, and a value another block supplies is not in that call.',
   },
   rawValueList: {
     required: false,
     schema: { kind: 'array', minItems: 1, maxItems: MAX_TABLE_ROWS, item: TABLE_ROW },
+    unbindable: 'it stands behind the drawn rows one for one, and the drawn rows are written out by the call.',
   },
   selectMode: { required: false, schema: { kind: 'enum', values: ['checkbox', 'radio'] } },
   isNameClick: { required: false, schema: { kind: 'boolean' } },
@@ -1020,6 +1098,45 @@ const TABLE_ACTIONS: readonly ComponentActionDefinition[] = [
   },
 ]
 
+/** Output id the table reports the first ticked row, read as label-and-value rows, under. */
+export const TABLE_SELECTION_DETAIL_OUTPUT = 'selectionDetail'
+
+/**
+ * The one value another block may read out of a table.
+ *
+ * `selectionDetail` is the first ticked row already read into the
+ * label-and-value rows a record detail draws: the label is the column's own
+ * header, or the field it reads where the call gave it no header, and the value
+ * is what that row shows in it. The translation is the seat's, and it is
+ * declared here because "the ticked row, laid out" is the one reading that
+ * makes the pair of blocks a model actually places — a table over a detail of
+ * whatever is ticked — expressible without a second component.
+ *
+ * The ticked rows in the form the call wrote them are not offered beside it.
+ * Nothing in this catalog declares a property that takes rows — a table's own
+ * two row properties are {@link PropsField.unbindable}, because a table's rows
+ * are what its gestures are reported back against — so an output carrying them
+ * would be one every binding to it is refused. It is declared again with the
+ * component that takes rows as an input.
+ */
+const TABLE_OUTPUTS: readonly ComponentOutput[] = [
+  {
+    id: TABLE_SELECTION_DETAIL_OUTPUT,
+    shape: {
+      kind: 'array',
+      minItems: 0,
+      maxItems: MAX_TABLE_COLUMNS,
+      item: {
+        kind: 'object',
+        fields: {
+          label: { required: true, schema: { kind: 'string', maxLength: MAX_FIELD_NAME_LENGTH } },
+          display: { required: true, schema: { kind: 'string', maxLength: MAX_ROW_VALUE_LENGTH } },
+        },
+      },
+    },
+  },
+]
+
 /** Catalog id of the filter bar. */
 export const FILTER_BAR_ID = 'el.filter-bar'
 
@@ -1046,6 +1163,29 @@ export const MAX_EDITED_CONDITIONS = 1000
 
 /** Largest accepted condition value, in characters. */
 export const MAX_CONDITION_VALUE_LENGTH = 200
+
+/**
+ * The conditions one submitted filter carries, as the gesture reports them to
+ * the agent.
+ *
+ * The bar publishes nothing beside it: no component in this catalog declares a
+ * property that takes a condition list, so an output carrying one would be an
+ * output every binding to it is refused. It is declared with the component that
+ * takes conditions as an input.
+ */
+const FILTER_CONDITIONS: ArrayFieldSchema = {
+  kind: 'array',
+  minItems: 1,
+  maxItems: MAX_FILTER_CONDITIONS,
+  item: {
+    kind: 'object',
+    fields: {
+      key: { required: true, schema: FIELD_NAME },
+      op: { required: true, schema: { kind: 'enum', values: MATCH_OPERATOR_IDS } },
+      value: { required: true, schema: { kind: 'string', maxLength: MAX_CONDITION_VALUE_LENGTH } },
+    },
+  },
+}
 
 /**
  * The value kinds a filter attribute may declare.
@@ -1228,22 +1368,7 @@ const FILTER_BAR_ACTIONS: readonly ComponentActionDefinition[] = [
     id: FILTER_SUBMIT_ID,
     report: 'wake',
     payloadSchema: {
-      conditions: {
-        required: true,
-        schema: {
-          kind: 'array',
-          minItems: 1,
-          maxItems: MAX_FILTER_CONDITIONS,
-          item: {
-            kind: 'object',
-            fields: {
-              key: { required: true, schema: FIELD_NAME },
-              op: { required: true, schema: { kind: 'enum', values: MATCH_OPERATOR_IDS } },
-              value: { required: true, schema: { kind: 'string', maxLength: MAX_CONDITION_VALUE_LENGTH } },
-            },
-          },
-        },
-      },
+      conditions: { required: true, schema: FILTER_CONDITIONS },
       matchMode: { required: false, schema: { kind: 'enum', values: MATCH_MODES } },
     },
     describe: (context) => {
@@ -1319,6 +1444,7 @@ export const COMPONENT_CATALOG = [
     purpose: 'A short prompt above a row of buttons, for putting one decision in front of the user.',
     propsSchema: CONFIRM_BAR_PROPS,
     actions: CONFIRM_BAR_ACTIONS,
+    outputs: [],
   },
   {
     id: RECORD_DETAIL_ID,
@@ -1326,6 +1452,7 @@ export const COMPONENT_CATALOG = [
     purpose: 'One record laid out as label-and-value pairs, for putting the details of a single thing in front of the user.',
     propsSchema: RECORD_DETAIL_PROPS,
     actions: [],
+    outputs: [],
   },
   {
     id: TABLE_ID,
@@ -1333,6 +1460,7 @@ export const COMPONENT_CATALOG = [
     purpose: 'Rows and columns the user can tick, open, sort and act on, for putting a list of things in front of the user.',
     propsSchema: TABLE_PROPS,
     actions: TABLE_ACTIONS,
+    outputs: TABLE_OUTPUTS,
     sanitize: { relatedComponent: 'related-component' },
   },
   {
@@ -1341,6 +1469,7 @@ export const COMPONENT_CATALOG = [
     purpose: 'A row of conditions the user edits and submits back to you, for agreeing on what to look for before you look.',
     propsSchema: FILTER_BAR_PROPS,
     actions: FILTER_BAR_ACTIONS,
+    outputs: [],
   },
   {
     id: METRIC_ID,
@@ -1348,6 +1477,7 @@ export const COMPONENT_CATALOG = [
     purpose: 'One measurement drawn as a filling ball, for putting a single number in front of the user.',
     propsSchema: METRIC_PROPS,
     actions: [],
+    outputs: [],
     sanitize: { background: 'color', borderColor: 'color', pointColor: 'color' },
   },
 ] as const satisfies readonly ComponentCatalogEntry[]
@@ -1399,27 +1529,44 @@ function schemaDepth(schema: PropsSchema): number {
 }
 
 /**
- * Deepest spec nesting one catalog declares as legal, counting the spec object
- * itself as level one.
+ * Deepest spec nesting one catalog's declared properties make legal, counting
+ * the spec object itself as level one.
  *
  * The ceiling is measured off the catalog rather than written down, so the
  * documents a component declares as legal and the depth a spec is refused at
  * cannot drift apart: a component declaring a nested property widens the
- * ceiling by exactly what that property needs.
+ * ceiling by exactly what that property needs. The layout tree is the spec's
+ * other deep document and is measured separately, in {@link MAX_SPEC_DEPTH}.
  * @param catalog - the components a call may place.
- * @returns levels the deepest legal spec over that catalog occupies.
+ * @returns levels the deepest legal node of that catalog occupies.
  */
 export function maxSpecDepthOf(catalog: readonly ComponentCatalogEntry[]): number {
   return SPEC_FRAME_DEPTH + catalog.reduce((deepest, entry) => Math.max(deepest, schemaDepth(entry.propsSchema)), 0)
 }
 
+/** Levels a spec spends before a layout's own children: the spec object, and the stack it starts with. */
+const LAYOUT_FRAME_DEPTH = 2
+
+/** Levels one level of the layout costs: a stack's `children` list, and the child inside it. */
+const LAYOUT_LEVEL_DEPTH = 2
+
 /**
  * Deepest accepted nesting inside `spec` for this deployment's catalog.
  *
- * Anything past it is malformed regardless of which component it names, and
- * refusing it bounds the work every later check does.
+ * The deeper of the two documents a spec carries — a node's properties, and the
+ * layout tree over those nodes — plus one layout level of slack. The slack is
+ * what lets a layout that opens one stack too many be refused at the stack that
+ * opened it, rather than answered with a sentence about how deep `spec` may
+ * nest, which names nothing the model can act on. Anything past this is
+ * malformed regardless of which component it names, and refusing it before
+ * anything else bounds the work every later walk does — the byte measurement
+ * included, which is why the depth walk is the one that stops at a ceiling by
+ * construction.
  */
-export const MAX_SPEC_DEPTH = maxSpecDepthOf(COMPONENT_CATALOG)
+export const MAX_SPEC_DEPTH = Math.max(
+  maxSpecDepthOf(COMPONENT_CATALOG),
+  LAYOUT_FRAME_DEPTH + LAYOUT_LEVEL_DEPTH * (MAX_LAYOUT_DEPTH + 1),
+)
 
 /**
  * Look one action up on the component that declares it.
@@ -1438,6 +1585,16 @@ export function catalogAction(component: ComponentCatalogEntry, actionId: unknow
  */
 export function catalogEntry(id: unknown): ComponentCatalogEntry | undefined {
   return COMPONENT_CATALOG.find(entry => entry.id === id)
+}
+
+/**
+ * Look one output up on the component that declares it.
+ * @param component - the catalog entry the source node names.
+ * @param outputId - the name a `$from` reference gave, however malformed.
+ * @returns the output, or `undefined` when that component reports no such value.
+ */
+export function catalogOutput(component: ComponentCatalogEntry, outputId: unknown): ComponentOutput | undefined {
+  return component.outputs.find(output => output.id === outputId)
 }
 
 /**
@@ -1587,6 +1744,31 @@ function describeProps(schema: PropsSchema, rules: SanitizeRules | undefined): s
 }
 
 /**
+ * Render one value's declared shape on a line that names no property: an
+ * output, and either side of a refused binding.
+ *
+ * The item notation rather than the property one, because there is no property
+ * name for a suffix to hang off. A list also states its bounds, which is what
+ * makes two lists of the same items readable as different offers where one is
+ * refused for carrying more than the other accepts.
+ * @param schema - the declared value.
+ * @returns the rendering.
+ */
+export function describeSchema(schema: PropsFieldSchema): string {
+  const shape = describeItem(schema, undefined)
+  return schema.kind === 'array' ? `${shape} (${schema.minItems}–${schema.maxItems})` : shape
+}
+
+/**
+ * Render one component's outputs, as the line under its properties.
+ * @param outputs - the values another block may read from it.
+ * @returns the line's contents, one output after another in declaration order.
+ */
+function describeOutputs(outputs: readonly ComponentOutput[]): string {
+  return outputs.map(output => `${output.id} ${describeSchema(output.shape)}`).join(', ')
+}
+
+/**
  * Render a catalog as model-facing lines.
  *
  * Shared by the tool description and by the refusal an unknown component id
@@ -1600,13 +1782,19 @@ function describeProps(schema: PropsSchema, rules: SanitizeRules | undefined): s
  * it in the same edit. Without them the description would be the only place a
  * model could learn a component exists and the last place it could learn what
  * to send it — one refused call per component, every session.
+ *
+ * A component another block can read from carries a third line naming what it
+ * reports and in what form, for the same reason: a binding is refused unless
+ * the output exists and the property accepts its form, and both of those are
+ * facts of this table.
  * @param catalog - the components a call may place.
- * @returns two lines per component: `- id — label — purpose`, then its properties.
+ * @returns two lines per component — `- id — label — purpose`, then its properties — and a third for its outputs.
  */
 export function describeCatalog(catalog: readonly ComponentCatalogEntry[]): string {
   return catalog
     .map(entry => `- ${entry.id} — ${entry.label} — ${entry.purpose}${entry.actions.length === 0 ? ' Nothing comes back from it.' : ''}`
-      + `\n  props: ${describeProps(entry.propsSchema, entry.sanitize)}`)
+      + `\n  props: ${describeProps(entry.propsSchema, entry.sanitize)}`
+      + (entry.outputs.length === 0 ? '' : `\n  outputs: ${describeOutputs(entry.outputs)}`))
     .join('\n')
 }
 
@@ -1626,19 +1814,186 @@ export interface ComponentNode {
   readonly id: string
   /** Catalog id of the component to draw. */
   readonly component: string
-  /** The component's declared properties, as validation accepted them. */
+  /**
+   * The component's declared properties, as validation accepted them.
+   *
+   * A property bound to another block's output carries the binding itself —
+   * `{"$from": "node:<id>.<output>"}` — rather than a value: what it stands for
+   * is decided in the seat, where the user's own work is, and never here.
+   */
   readonly props: Readonly<Record<string, unknown>>
+}
+
+/** How one stack lays its children out. */
+export type LayoutDirection = 'row' | 'col'
+
+/** The accepted {@link LayoutDirection} values, in the order a refusal lists them. */
+export const LAYOUT_DIRECTIONS: readonly LayoutDirection[] = ['row', 'col']
+
+/** The space one stack leaves between its children. */
+export type LayoutGap = 'sm' | 'md' | 'lg'
+
+/** The accepted {@link LayoutGap} values, in the order a refusal lists them. */
+export const LAYOUT_GAPS: readonly LayoutGap[] = ['sm', 'md', 'lg']
+
+/**
+ * One row or column of the layout tree.
+ *
+ * The only layout primitive there is. Nesting stacks expresses every
+ * arrangement of rectangles a panel of blocks needs, and anything a second
+ * primitive would add — a grid, a tab strip — is either that same nesting or a
+ * thing the content column already does with entries of its own.
+ */
+export interface LayoutStack {
+  /** Discriminant. */
+  readonly node: 'stack'
+  /** Whether the children sit beside one another or above one another. */
+  readonly dir: LayoutDirection
+  /** The space between them; the seat's own default where a call names none. */
+  readonly gap?: LayoutGap
+  /** Whether children that do not fit move to a further line; off where a call names none. */
+  readonly wrap?: boolean
+  /**
+   * The share of the stack above it this one takes, read exactly as
+   * {@link LayoutBlock.flex}; absent for a stack that takes none, and refused
+   * on the outermost stack, which sits in no other and so has nothing to take a
+   * share of.
+   */
+  readonly flex?: number
+  /** What the stack lays out, in order. */
+  readonly children: readonly LayoutChild[]
+}
+
+/**
+ * The property names one {@link LayoutStack} may carry.
+ *
+ * Both readings of a layout tree use this list — the host's judgement, which
+ * names the key it refused, and the seat's own reading at the wire edge, which
+ * answers a stack carrying anything else with the plain column — so a key added
+ * to a stack is a key both of them know about.
+ */
+export const STACK_KEYS: readonly string[] = ['node', 'dir', 'gap', 'wrap', 'flex', 'children']
+
+/** One block placed in the layout, naming a node of the same spec. */
+export interface LayoutBlock {
+  /** Discriminant. */
+  readonly node: 'component'
+  /** The `spec.nodes` id this position draws. */
+  readonly id: string
+  /**
+   * The share of its stack's free space this block takes against its siblings,
+   * on top of its own size, which is what its basis stays. A block naming none
+   * takes none of that space and is drawn at its own size, and a stack with no
+   * free space to divide — a column the content panel scrolls — shows no
+   * difference between the two.
+   *
+   * A nested stack asks for its share the same way, under the same name: what
+   * divides a row is its children, and a child is either kind.
+   */
+  readonly flex?: number
+}
+
+/** The property names one {@link LayoutBlock} may carry, shared by both readings the way {@link STACK_KEYS} is. */
+export const BLOCK_KEYS: readonly string[] = ['node', 'id', 'flex']
+
+/** What one stack may hold: a block, or a further stack. */
+export type LayoutChild = LayoutBlock | LayoutStack
+
+/** The root of a layout tree, which is always a stack. */
+export type LayoutNode = LayoutStack
+
+/** The one property a bound value carries. */
+export const BINDING_KEY = '$from'
+
+/**
+ * What one bound property reads.
+ *
+ * A reference and nothing else: one source block, one of its declared outputs,
+ * and optionally one item of it. There is no expression, no condition and no
+ * loop, because the value is resolved in the seat over whatever the user has
+ * done so far and a layout language evaluated there is a template engine inside
+ * the shell's own origin.
+ */
+export interface ComponentBinding {
+  /** Node id of the block the value is read from. */
+  readonly sourceId: string
+  /** Which of that block's outputs is read. */
+  readonly outputId: string
+  /** Which item of a list output is taken; absent when the whole value is read. */
+  readonly index?: number
+}
+
+/** How a bound property's value names what it reads. */
+const BINDING_REFERENCE = new RegExp(
+  `^node:[\\w-]{1,${MAX_NODE_ID_LENGTH}}\\.[\\w-]{1,${MAX_OUTPUT_ID_LENGTH}}(?:\\[\\d{1,3}\\])?$`,
+)
+
+/**
+ * Model-facing wording of {@link BINDING_REFERENCE}, spliced into every refusal
+ * and description that states it.
+ */
+export const BINDING_HINT = 'node:<node id>.<output name>, optionally with [index]'
+
+/**
+ * Whether one property value is written as a binding at all.
+ *
+ * Lenient on purpose, and the counterpart of {@link readBinding}: what it
+ * decides is what the caller *meant*, so a malformed binding is refused as one
+ * rather than as a property of the wrong type, and a value carrying `$from`
+ * where a binding is not accepted is refused for being there.
+ * @param value - the property value, however malformed.
+ * @returns true when the value is an object carrying `$from`.
+ */
+export function isBindingValue(value: unknown): value is Readonly<Record<string, unknown>> {
+  return value !== null && typeof value === 'object' && !Array.isArray(value) && BINDING_KEY in value
+}
+
+/**
+ * Read the reference one accepted binding carries.
+ * @param reference - the `$from` value.
+ * @returns what it reads, or `undefined` when it is not a reference at all.
+ */
+export function parseBindingReference(reference: string): ComponentBinding | undefined {
+  if (!BINDING_REFERENCE.test(reference)) return undefined
+  const body = reference.slice('node:'.length)
+  const dot = body.indexOf('.')
+  const sourceId = body.slice(0, dot)
+  const rest = body.slice(dot + 1)
+  const bracket = rest.indexOf('[')
+  if (bracket < 0) return { sourceId, outputId: rest }
+  return { sourceId, outputId: rest.slice(0, bracket), index: Number(rest.slice(bracket + 1, -1)) }
+}
+
+/**
+ * Read one property value as a binding.
+ *
+ * Strict, because this is the reading the seat resolves and the tightening pass
+ * keeps: a binding is one property named `$from` carrying one reference, and
+ * anything else is not a binding whatever it was meant to be. The refusals a
+ * model reads are `validate.ts`'s, which takes the two readings apart.
+ * @param value - the property value, however malformed.
+ * @returns what the property reads, or `undefined` when the value is not an accepted binding.
+ */
+export function readBinding(value: unknown): ComponentBinding | undefined {
+  if (!isBindingValue(value)) return undefined
+  if (Object.keys(value).length !== 1) return undefined
+  const reference = value[BINDING_KEY]
+  return typeof reference === 'string' ? parseBindingReference(reference) : undefined
 }
 
 /**
  * What one call puts in the column.
  *
- * A flat node list: there is no layout tree and no cross-node binding, so a
- * spec says which blocks appear and in what order and nothing else.
+ * The nodes are the blocks; the layout, where a call writes one, says how they
+ * sit beside one another. A call with no layout is the flat reading it always
+ * had — the blocks stacked top to bottom in the order they were written — which
+ * is what keeps a spec written before layouts existed drawable.
  */
 export interface ComponentSpec {
-  /** The blocks to draw, in the order the seat stacks them. */
+  /** The blocks to draw, in the order the seat stacks them where no layout says otherwise. */
   readonly nodes: readonly ComponentNode[]
+  /** How the blocks are arranged; absent for the flat stack. */
+  readonly layout?: LayoutNode
 }
 
 /** What the browser seat receives as one `component` entry's payload. */

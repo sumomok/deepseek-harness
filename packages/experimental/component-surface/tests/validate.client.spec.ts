@@ -164,7 +164,7 @@ describe('the record detail', () => {
   it.each([
     ['no rows at all', { dataList: [] }, 'spec.nodes[0].props.dataList', /lists 0 items; between 1 and 60 are accepted/],
     ['more rows than a panel holds', { dataList: Array.from({ length: 61 }, (_unused, index) => ({ label: `l${index}`, display: 'v' })) }, 'spec.nodes[0].props.dataList', /lists 61 items; between 1 and 60 are accepted/],
-    ['an oversized label', { dataList: [{ label: '编'.repeat(41), display: 'A-1' }] }, 'spec.nodes[0].props.dataList[0].label', /is 41 characters; at most 40 are accepted/],
+    ['an oversized label', { dataList: [{ label: '编'.repeat(65), display: 'A-1' }] }, 'spec.nodes[0].props.dataList[0].label', /is 65 characters; at most 64 are accepted/],
     ['an oversized value', { dataList: [{ label: '编号', display: 'A'.repeat(401) }] }, 'spec.nodes[0].props.dataList[0].display', /is 401 characters; at most 400 are accepted/],
     ['a row with no value', { dataList: [{ label: '编号' }] }, 'spec.nodes[0].props.dataList[0].display', /is required/],
     ['a label width that is not a number', { dataList: [{ label: '编号', display: 'A-1' }], labelWidth: '120' }, 'spec.nodes[0].props.labelWidth', /must be a number/],
@@ -381,8 +381,12 @@ describe('refusing a spec', () => {
 
   it('refuses a spec nested deeper than the protocol accepts', () => {
     // Depth is measured before size, so a hostile document is walked at most
-    // MAX_SPEC_DEPTH frames deep whatever else is wrong with it.
-    const failure = refusal(call({ nodes: [confirmBar({ buttons: [{ id: 'ok', label: '确认', tone: { a: { b: { c: 1 } } } }] })] }))
+    // MAX_SPEC_DEPTH frames deep whatever else is wrong with it. Six levels of
+    // nothing inside a button's tone is past the ceiling by one, and the value
+    // is never judged against the property it sits on.
+    let tone: unknown = 1
+    for (let level = 0; level < 7; level++) tone = { deeper: tone }
+    const failure = refusal(call({ nodes: [confirmBar({ buttons: [{ id: 'ok', label: '确认', tone }] })] }))
     expect(failure.path).toBe('spec')
     expect(failure.text).toContain(`nests deeper than ${MAX_SPEC_DEPTH} levels`)
   })
@@ -394,18 +398,18 @@ describe('refusing a spec', () => {
   })
 
   it('refuses a property a spec does not carry', () => {
-    expect(refusal(call({ nodes: [confirmBar()], layout: { node: 'stack' } })))
+    expect(refusal(call({ nodes: [confirmBar()], title: '预算' })))
       .toEqual({
-        path: 'spec.layout',
-        text: 'show_component: spec.layout — is not part of a spec. A spec carries nodes.',
+        path: 'spec.title',
+        text: 'show_component: spec.title — is not part of a spec. A spec carries nodes, layout.',
         oversize: false,
       })
   })
 
   it.each([
     ['nodes that are not a list', { nodes: {} }, 'spec.nodes', /must be an array of nodes/],
-    ['an empty node list', { nodes: [] }, 'spec.nodes', /lists 0 nodes; between 1 and 8 are accepted/],
-    ['more nodes than the ceiling', { nodes: Array.from({ length: MAX_NODES + 1 }, (_unused, index) => ({ id: `n${index}`, component: 'el.confirm-bar', props: { buttons: [{ id: 'ok', label: '确认' }] } })) }, 'spec.nodes', /lists 9 nodes; between 1 and 8 are accepted/],
+    ['an empty node list', { nodes: [] }, 'spec.nodes', /lists 0 nodes; between 1 and 12 are accepted/],
+    ['more nodes than the ceiling', { nodes: Array.from({ length: MAX_NODES + 1 }, (_unused, index) => ({ id: `n${index}`, component: 'el.confirm-bar', props: { buttons: [{ id: 'ok', label: '确认' }] } })) }, 'spec.nodes', /lists 13 nodes; between 1 and 12 are accepted/],
   ])('refuses %s', (_case, spec, path, message) => {
     const failure = refusal(call(spec))
     expect(failure.path).toBe(path)

@@ -37,6 +37,19 @@
  * travels back out of the block, and the placement package reads the row it
  * names out of the call the model itself wrote.
  *
+ * The selection is also published as one output, for a block beside this one to
+ * take a property from: `selectionDetail`, the first ticked row rewritten as
+ * the label-and-value list a record block draws. It is republished on every
+ * change of selection, including the change back to nothing, so a bound block
+ * reads an empty selection as an empty list rather than as a value that never
+ * arrived. It does not leave the browser: an output is what one block lends
+ * another, and what reaches the agent is still only the four gestures above.
+ *
+ * `selectionDetail` is built from the drawn columns, in the order the block
+ * wrote them, under the headings the user is reading: a column the block hid
+ * has no heading anyone has seen, and a column the row carries no value for is
+ * left out rather than drawn empty.
+ *
  * element-ui must already be installed on the shared runtime — the row's client
  * plugin does that when it starts, and a test drawing this block on its own
  * calls `installElementUI()` first.
@@ -47,7 +60,7 @@ import { ActionStateLine, PRESSABLE } from './action-state.tsx'
 import { readBoolean, readNumber, readRecord, readList, readText, type ScalarValue } from './props.ts'
 import { useVueComponent } from './vue2-bridge.tsx'
 import css from './TableDetailRenderer.module.css'
-import type { ComponentActionHandler, ComponentRendererProps } from './renderer.ts'
+import type { ComponentActionHandler, ComponentOutputHandler, ComponentRendererProps } from './renderer.ts'
 import type { VueEventHandlers } from './vue2-bridge.tsx'
 import type { VueInstance } from './vue-shim.ts'
 
@@ -65,6 +78,9 @@ const SORT_ACTION_ID = 'sort'
 
 /** Action id a pressed per-row button is reported under. */
 const OPERATION_ACTION_ID = 'operation'
+
+/** Output id the first ticked row is published under, as a record block's rows. */
+const SELECTION_DETAIL_OUTPUT_ID = 'selectionDetail'
 
 /**
  * The sort directions this block reports, keyed by what the component's own
@@ -139,8 +155,12 @@ type TableDetailVueProps = {
 interface TableEventContext {
   /** The rows now drawn; every reported index counts into this list. */
   readonly rows: readonly TableRow[]
+  /** The columns now drawn, which is what a published selection is written out under. */
+  readonly columns: readonly TableColumn[]
   /** Where a gesture goes. */
   readonly onAction: ComponentActionHandler
+  /** Where this block's selection goes, for the blocks beside it. */
+  readonly onOutput: ComponentOutputHandler
   /** Whether a further operation may still be reported. */
   readonly pressable: boolean
   /** Whether the call made rows openable, which is what decides that a click on one is a gesture. */
@@ -218,6 +238,35 @@ function readSelectMode(value: unknown): 'checkbox' | 'radio' | null {
 }
 
 /**
+ * One row of the record block `selectionDetail` feeds: a heading and the text
+ * under it.
+ */
+type DetailRow = {
+  /** The column's heading, as the user is reading it. */
+  readonly label: string
+  /** The cell's value, as its own text. */
+  readonly display: string
+}
+
+/**
+ * Rewrite one drawn row as the rows a record block draws.
+ * @param columns - the columns, as this renderer built them for the component.
+ * @param row - the row to rewrite; `undefined` when nothing is ticked.
+ * @returns one entry per drawn column the row carries a value for, in the block's own column order; empty when nothing is ticked.
+ */
+function detailRows(columns: readonly TableColumn[], row: TableRow | undefined): readonly DetailRow[] {
+  if (row === undefined) return []
+  const rows: DetailRow[] = []
+  for (const column of columns) {
+    if (column.isShow === '0') continue
+    const cell = row[column.relatedMetaAttr]
+    if (cell === undefined) continue
+    rows.push({ label: column.alias ?? column.relatedMetaAttr, display: String(cell) })
+  }
+  return rows
+}
+
+/**
  * Read the direction of one column sort.
  * @param value - the `order` field of the component's sort event.
  * @returns the direction as this block reports it, or {@link UNSORTED} for a column the user cycled back to its original order.
@@ -259,7 +308,7 @@ function readTableDetail(props: ComponentRendererProps['props']): TableDetailVue
  * @param rendererProps - the block's identity, its properties, the action sink, how far its last gesture got, and this row's translate.
  * @returns the host element the Vue component is mounted into, over the line saying where the last gesture went.
  */
-export function TableDetailRenderer({ nodeId, props, onAction, state, t }: ComponentRendererProps) {
+export function TableDetailRenderer({ nodeId, props, onAction, onOutput, state, t }: ComponentRendererProps) {
   // Keyed on the block's property record: the placement package hands over the
   // same object until the call behind the block changes, so an unrelated React
   // commit reaches Vue as nothing at all — and a new call hands el-table a new
@@ -272,9 +321,10 @@ export function TableDetailRenderer({ nodeId, props, onAction, state, t }: Compo
   // `isNameClick` drew a table with nothing to open — which is why the absent
   // property reads the same as a declared `false` here.
   const openable = vueProps.isNameClick === true
-  const context = useRef<TableEventContext>({ rows: vueProps.displayValueList, onAction, pressable, openable })
+  const columns = vueProps.tableConfig.gridItems
+  const context = useRef<TableEventContext>({ rows: vueProps.displayValueList, columns, onAction, onOutput, pressable, openable })
   useEffect(() => {
-    context.current = { rows: vueProps.displayValueList, onAction, pressable, openable }
+    context.current = { rows: vueProps.displayValueList, columns, onAction, onOutput, pressable, openable }
   })
   // A click on the name link or on a row button reaches el-table's own cell
   // click on the way up — both sit inside the cell that handler is bound to —
@@ -293,9 +343,15 @@ export function TableDetailRenderer({ nodeId, props, onAction, state, t }: Compo
     // read back off the instance, where they are still the ones handed over.
     'table-selection-change': () => {
       const instance = instanceRef.current as TableDetailInstance
-      const { rows, onAction: report } = context.current
+      const { rows, columns: drawn, onAction: report, onOutput: publish } = context.current
       const selected = instance.doGetSelection().selection as readonly unknown[]
-      report(SELECT_ACTION_ID, { rowIndexes: selected.map(row => rows.indexOf(row as TableRow)) })
+      const indexes = selected.map(row => rows.indexOf(row as TableRow))
+      report(SELECT_ACTION_ID, { rowIndexes: indexes })
+      // Off the drawn list by the same index the gesture reports, so what a
+      // block beside this one is lent is the row this block was given rather
+      // than the copy the event carries.
+      const first = indexes.find(index => index >= 0)
+      publish(SELECTION_DETAIL_OUTPUT_ID, detailRows(drawn, first === undefined ? undefined : rows[first]))
     },
     'table-cell-click': ({ row }: { readonly row: unknown }) => {
       if (cellClickHandled.current) {

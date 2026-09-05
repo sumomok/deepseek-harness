@@ -51,12 +51,17 @@ async function draw(
   props: Record<string, unknown>,
   onAction = vi.fn(),
   state: ComponentActionState = 'idle',
-): Promise<{ view: ReturnType<typeof render>; onAction: ReturnType<typeof vi.fn> }> {
+  onOutput = vi.fn(),
+): Promise<{
+  view: ReturnType<typeof render>
+  onAction: ReturnType<typeof vi.fn>
+  onOutput: ReturnType<typeof vi.fn>
+}> {
   const view = render(
-    <TableDetailRenderer nodeId="node-1" props={props} state={state} onAction={onAction} t={t} />,
+    <TableDetailRenderer nodeId="node-1" props={props} state={state} onAction={onAction} onOutput={onOutput} t={t} />,
   )
   await flush()
-  return { view, onAction }
+  return { view, onAction, onOutput }
 }
 
 /** Every column heading the block drew, in order. */
@@ -103,6 +108,70 @@ describe('toy.table', () => {
     // The component's own event hands the rows back deep-cloned, so the index
     // is read off the instance rather than out of the event.
     expect(onAction).toHaveBeenCalledWith('select', { rowIndexes: [1] })
+  })
+
+  it('publishes the first ticked row as a record block\'s rows, and nothing beside it', async () => {
+    const { view, onOutput } = await draw({
+      tableConfig: { gridItems: [...COLUMNS, { relatedMetaAttr: 'int_id', alias: '编号', isShow: false }] },
+      displayValueList: ROWS,
+      selectMode: 'checkbox',
+    })
+    const boxes = view.container.querySelectorAll('.el-table__body-wrapper .el-checkbox__original')
+    fireEvent.click(boxes[1] as HTMLElement)
+    await flush()
+    // The drawn columns only, under the headings the user is reading: the id
+    // column the block hid has no heading anyone has seen. Read off the list
+    // the block wrote rather than out of the event, which carries deep copies.
+    expect(onOutput).toHaveBeenCalledWith('selectionDetail', [
+      { label: '名称', display: '二号站点' },
+      { label: '状态', display: '停用' },
+    ])
+    // The ticked rows in the form the call wrote them are not published beside
+    // it: no property in the catalog takes rows, so the value would reach
+    // nobody.
+    expect(onOutput.mock.calls.map((call: readonly unknown[]) => call[0])).toEqual(['selectionDetail'])
+  })
+
+  it('publishes an empty selection when the user unticks the last row', async () => {
+    const { view, onOutput } = await draw({
+      tableConfig: { gridItems: COLUMNS },
+      displayValueList: ROWS,
+      selectMode: 'checkbox',
+    })
+    const boxes = view.container.querySelectorAll('.el-table__body-wrapper .el-checkbox__original')
+    fireEvent.click(boxes[0] as HTMLElement)
+    await flush()
+    fireEvent.click(boxes[0] as HTMLElement)
+    await flush()
+    // Published rather than left standing: a block fed by this one has to be
+    // able to go back to waiting, and a value that was never republished would
+    // leave it showing the row the user has just let go of.
+    expect(onOutput).toHaveBeenLastCalledWith('selectionDetail', [])
+  })
+
+  it('leaves a column the ticked row carries no value for out of what it publishes', async () => {
+    const { view, onOutput } = await draw({
+      tableConfig: { gridItems: [...COLUMNS, { relatedMetaAttr: 'owner', alias: '负责人' }] },
+      displayValueList: ROWS,
+      selectMode: 'checkbox',
+    })
+    fireEvent.click(view.container.querySelectorAll('.el-table__body-wrapper .el-checkbox__original')[0] as HTMLElement)
+    await flush()
+    expect(onOutput).toHaveBeenCalledWith('selectionDetail', [
+      { label: '名称', display: '一号站点' },
+      { label: '状态', display: '在用' },
+    ])
+  })
+
+  it('names a published column by its own field where the block gave it no heading', async () => {
+    const { view, onOutput } = await draw({
+      tableConfig: { gridItems: [{ relatedMetaAttr: 'status' }] },
+      displayValueList: ROWS,
+      selectMode: 'checkbox',
+    })
+    fireEvent.click(view.container.querySelectorAll('.el-table__body-wrapper .el-checkbox__original')[0] as HTMLElement)
+    await flush()
+    expect(onOutput).toHaveBeenCalledWith('selectionDetail', [{ label: 'status', display: '在用' }])
   })
 
   it('reports a single row when the block asks for one at a time', async () => {
@@ -251,6 +320,7 @@ describe('toy.table', () => {
         props={{ tableConfig: { gridItems: COLUMNS }, displayValueList: [ROWS[1], ROWS[0]], isNameClick: true }}
         state="idle"
         onAction={onAction}
+        onOutput={vi.fn()}
         t={t}
       />,
     )

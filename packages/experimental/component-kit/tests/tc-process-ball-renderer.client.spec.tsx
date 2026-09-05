@@ -25,7 +25,7 @@ const t: ComponentRendererProps['t'] = makeTranslate(en)
 /** Draw one metric block over the properties under test. */
 function draw(props: Record<string, unknown>): ReturnType<typeof render> {
   return render(
-    <TcProcessBallRenderer nodeId="node-1" props={props} state="idle" onAction={vi.fn()} t={t} />,
+    <TcProcessBallRenderer nodeId="node-1" props={props} state="idle" onAction={vi.fn()} onOutput={vi.fn()} t={t} />,
   )
 }
 
@@ -86,7 +86,7 @@ describe('el.metric', () => {
     try {
       const view = draw({ process: 0 })
       view.rerender(
-        <TcProcessBallRenderer nodeId="node-1" props={{ process: 90 }} state="idle" onAction={vi.fn()} t={t} />,
+        <TcProcessBallRenderer nodeId="node-1" props={{ process: 90 }} state="idle" onAction={vi.fn()} onOutput={vi.fn()} t={t} />,
       )
       // Vue's own scheduler runs on a microtask, which is where the component
       // notices the new number and starts the chain.

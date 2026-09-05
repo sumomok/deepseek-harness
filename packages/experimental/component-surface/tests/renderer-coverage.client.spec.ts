@@ -28,6 +28,7 @@ const CATALOG_AHEAD = [
     purpose: 'Stands in for a component declared before its renderer exists.',
     propsSchema: {},
     actions: [],
+    outputs: [],
   },
 ] as const satisfies readonly ComponentCatalogEntry[]
 

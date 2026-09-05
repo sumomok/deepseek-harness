@@ -11,22 +11,29 @@
 import { describe, expect, it } from 'vitest'
 import {
   answersBlock,
+  BINDING_KEY,
   catalogEntry,
   catalogLabels,
+  catalogOutput,
   COMPONENT_CATALOG,
   COMPONENT_KIND,
   CONFIRM_BAR_ID,
   describeCatalog,
+  describeSchema,
   FILTER_BAR_ID,
+  isBindingValue,
   MATCH_OPERATORS,
   MAX_SPEC_DEPTH,
   maxSpecDepthOf,
   METRIC_ID,
+  parseBindingReference,
   RECORD_DETAIL_ID,
   parseComponentCall,
+  readBinding,
   readComponentCall,
   SHOW_COMPONENT_TOOL_NAME,
   TABLE_ID,
+  TABLE_SELECTION_DETAIL_OUTPUT,
   type ComponentCatalogEntry,
 } from '../src/component-call.ts'
 
@@ -115,6 +122,7 @@ describe('component catalog', () => {
       + ' rawValueList?[{<field>: text|number|boolean}] (1–500), selectMode? (checkbox|radio),'
       + ' isNameClick? (true|false), tableSortable? (true|false), customOperations?[{key, label}] (1–5),'
       + ' operationColumnWidth? (60–400)'
+      + '\n  outputs: selectionDetail [{label, display}] (0–30)'
       + '\n- el.filter-bar — 筛选条件 — A row of conditions the user edits and submits back to you, for agreeing on what'
       + ' to look for before you look.'
       + '\n  props: relatedMeta, metaConfig{attributes[{attributeEnName, alias,'
@@ -128,7 +136,39 @@ describe('component catalog', () => {
       + ' borderColor? (#RGB|#RRGGBB|rgb()|rgba()), pointColor? (#RGB|#RRGGBB|rgb()|rgba()),'
       + ' isPointShow? (true|false)',
     )
-    expect(describeCatalog(COMPONENT_CATALOG).split('\n')).toHaveLength(2 * COMPONENT_CATALOG.length)
+    // Two lines per component, and a third wherever another block can read
+    // something out of one.
+    expect(describeCatalog(COMPONENT_CATALOG).split('\n'))
+      .toHaveLength(2 * COMPONENT_CATALOG.length + COMPONENT_CATALOG.filter(entry => entry.outputs.length > 0).length)
+  })
+
+  it('states what another block can read out of a component, and only where there is something', () => {
+    // The `outputs:` line is what makes a binding writable: the reference names
+    // one of these ids, and whether the property it is bound to accepts the
+    // value is decided against the form stated here.
+    const lines = describeCatalog(COMPONENT_CATALOG).split('\n').filter(line => line.startsWith('  outputs: '))
+    expect(lines).toEqual(['  outputs: selectionDetail [{label, display}] (0–30)'])
+    expect(catalogEntry(CONFIRM_BAR_ID)?.outputs).toEqual([])
+    expect(catalogEntry(RECORD_DETAIL_ID)?.outputs).toEqual([])
+    expect(catalogEntry(FILTER_BAR_ID)?.outputs).toEqual([])
+    expect(catalogEntry(METRIC_ID)?.outputs).toEqual([])
+  })
+
+  it('looks one output up on the component that declares it', () => {
+    const table = catalogEntry(TABLE_ID)
+    if (table === undefined) throw new Error('the catalog has no table')
+    expect(catalogOutput(table, TABLE_SELECTION_DETAIL_OUTPUT)?.id).toBe('selectionDetail')
+    expect(catalogOutput(table, TABLE_SELECTION_DETAIL_OUTPUT)?.shape.kind).toBe('array')
+    expect(catalogOutput(table, 'rows')).toBeUndefined()
+    expect(catalogOutput(table, 42)).toBeUndefined()
+  })
+
+  it('renders one value\'s shape on a line that names no property', () => {
+    expect(describeSchema({ kind: 'string', maxLength: 8 })).toBe('text')
+    expect(describeSchema({ kind: 'number', min: 0, max: 9 })).toBe('number')
+    // A list states its bounds, which is what makes two lists of the same items
+    // readable as different offers where one is refused for carrying more.
+    expect(describeSchema({ kind: 'array', minItems: 0, maxItems: 4, item: { kind: 'boolean' } })).toBe('[true|false] (0–4)')
   })
 
   it('names a record whose keys are the caller\'s own without listing them', () => {
@@ -150,6 +190,7 @@ describe('component catalog', () => {
         },
       },
       actions: [],
+      outputs: [],
     }
     expect(describeCatalog([probe]).split('\n')[1]).toBe('  props: rows[{<field>: text|number|boolean}] (1–9)')
   })
@@ -167,6 +208,7 @@ describe('component catalog', () => {
         caption: { required: false, schema: { kind: 'string', maxLength: 80 } },
       },
       actions: [],
+      outputs: [],
       sanitize: { icon: 'path' },
     }
     expect(describeCatalog([probe]).split('\n')[1]).toBe('  props: icon? (/same-origin-path), caption?')
@@ -189,6 +231,7 @@ describe('component catalog', () => {
         grid: list({ kind: 'array', minItems: 1, maxItems: 2, item: { kind: 'string', maxLength: 4 } }),
       },
       actions: [],
+      outputs: [],
     }
     expect(describeCatalog([probe]).split('\n')[1]).toBe(
       '  props: words[text] (1–2), counts[number] (1–2), flags[true|false] (1–2), tones[wide|2] (1–2), grid[[text]] (1–2)',
@@ -217,6 +260,7 @@ describe('component catalog', () => {
         mode: { required: false, schema: { kind: 'enum', values: ['wide', 2] } },
       },
       actions: [],
+      outputs: [],
     }
     expect(describeCatalog([probe]).split('\n')[1]).toBe('  props: header{title, icon?}, width? (1–10), mode? (wide|2)')
   })
@@ -248,13 +292,17 @@ describe('component catalog', () => {
 describe('the spec nesting ceiling', () => {
   /** One catalog entry around a declared property, for measuring what that property costs. */
   function entryWith(schema: ComponentCatalogEntry['propsSchema']): ComponentCatalogEntry {
-    return { id: 'toy.probe', label: '探针', purpose: 'Measured, never placed.', propsSchema: schema, actions: [] }
+    return { id: 'toy.probe', label: '探针', purpose: 'Measured, never placed.', propsSchema: schema, actions: [], outputs: [] }
   }
 
-  it('leaves room for the deepest document this deployment declares as legal', () => {
-    // spec, nodes, one node, its props, the table's tableConfig, its gridItems
-    // list, one column, and that column's renderer configuration.
-    expect(MAX_SPEC_DEPTH).toBe(8)
+  it('leaves room for the deepest document this deployment declares as legal, and one layout level over', () => {
+    // The layout is the deeper of the two documents a spec carries: the spec,
+    // the stack it starts with, then a children list and a child per level —
+    // ten for the four stacks a layout may open. The ceiling is one level over
+    // that, so a layout opening a fifth stack is still walked far enough to be
+    // refused at the stack that opened it rather than as a document too deep to
+    // read.
+    expect(MAX_SPEC_DEPTH).toBe(12)
   })
 
   it('spends four levels on a component whose properties are all scalars', () => {
@@ -289,7 +337,53 @@ describe('the spec nesting ceiling', () => {
       },
     })
     expect(maxSpecDepthOf([nested])).toBe(5)
-    expect(maxSpecDepthOf([...COMPONENT_CATALOG, nested])).toBe(MAX_SPEC_DEPTH)
+    // The properties of the whole catalog: spec, nodes, one node, its props,
+    // the table's tableConfig, its gridItems list, one column, and that
+    // column's renderer configuration — the shallower of the two documents, and
+    // the one this function measures.
+    expect(maxSpecDepthOf([...COMPONENT_CATALOG, nested])).toBe(8)
+  })
+})
+
+describe('reading one bound property', () => {
+  // Two readings, and the split is the point: what the caller *meant* is what
+  // the refusals are written against, and what the seat resolves is only the
+  // reference that came out whole.
+  it('recognizes a value written as a binding, however malformed the reference is', () => {
+    expect(isBindingValue({ [BINDING_KEY]: 'node:t.selection' })).toBe(true)
+    expect(isBindingValue({ [BINDING_KEY]: 42, flex: 1 })).toBe(true)
+    expect(isBindingValue({ from: 'node:t.selection' })).toBe(false)
+    expect(isBindingValue([{ [BINDING_KEY]: 'node:t.selection' }])).toBe(false)
+    expect(isBindingValue(null)).toBe(false)
+    expect(isBindingValue('node:t.selection')).toBe(false)
+  })
+
+  it('reads a reference, with the item it takes where it takes one', () => {
+    expect(parseBindingReference('node:t.selection')).toEqual({ sourceId: 't', outputId: 'selection' })
+    expect(parseBindingReference('node:t.selection[0]')).toEqual({ sourceId: 't', outputId: 'selection', index: 0 })
+    expect(parseBindingReference('node:a-1_b.selectionDetail[12]'))
+      .toEqual({ sourceId: 'a-1_b', outputId: 'selectionDetail', index: 12 })
+  })
+
+  it.each([
+    ['no source at all', 'node:.selection'],
+    ['no output', 'node:t'],
+    ['another scheme', 'entry:t.selection'],
+    ['a path of its own', 'node:t.selection.first'],
+    ['an item nothing bounds', 'node:t.selection[1000]'],
+    ['a node id past the ceiling', `node:${'n'.repeat(33)}.selection`],
+    ['an expression', 'node:t.selection.length > 0'],
+  ])('reads nothing from a reference carrying %s', (_case, reference) => {
+    expect(parseBindingReference(reference)).toBeUndefined()
+  })
+
+  it('reads a binding only where the property is one reference and nothing else', () => {
+    expect(readBinding({ [BINDING_KEY]: 'node:t.selectionDetail' }))
+      .toEqual({ sourceId: 't', outputId: 'selectionDetail' })
+    expect(readBinding({ [BINDING_KEY]: 'node:t.selection', flex: 1 })).toBeUndefined()
+    expect(readBinding({ [BINDING_KEY]: 42 })).toBeUndefined()
+    expect(readBinding({ [BINDING_KEY]: 'selection' })).toBeUndefined()
+    expect(readBinding([{ label: 'a', display: 'b' }])).toBeUndefined()
   })
 })
 

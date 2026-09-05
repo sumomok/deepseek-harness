@@ -67,11 +67,20 @@ describe('show_component model-visible surface', () => {
       + '\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry '
       + 'shows, and a new id adds a second entry beside it. When the user asks to change something already on '
       + 'display, reuse that entry\'s id.\n\n'
-      + 'A call places between 1 and 8 blocks, and `spec` is at most 65536 bytes of JSON. '
+      + 'A call places between 1 and 12 blocks, and `spec` is at most 65536 bytes of JSON. '
       + 'A block carries the properties listed under its component and no others — a `props:` line names each one, '
       + 'marks the ones a call may leave out with `?`, writes a list as `[what one item is] (fewest–most)`, and '
       + 'writes an object you choose the field names of as `{<field>: text|number|boolean}`. Anything else is '
       + 'refused, and the refusal names what you sent and lists the properties that component accepts.\n\n'
+      + 'By default the blocks are stacked top to bottom. To arrange them, send `layout`: '
+      + '{"node": "stack", "dir": "row" or "col", "gap"?: "sm"|"md"|"lg", "wrap"?: true|false, "children": [...]}, '
+      + 'whose children are either a further stack or {"node": "component", "id": "<one of your node ids>"}. '
+      + 'A child of either kind may carry "flex": 1–12, the share of its row or column it takes. '
+      + 'A layout places every node exactly once, and stacks nest at most 4 deep.\n\n'
+      + 'A block can also read what another block of the same call reports. Where a component has an `outputs:` line, '
+      + 'write {"$from": "node:<the other block\'s id>.<output name>"} — with [index] after it to take one '
+      + 'item — as the whole value of a property that accepts what that output is, and that property then follows what '
+      + 'the user does, with no further call from you. Until there is something to read, the block says it is waiting.\n\n'
       + 'What the user does inside a block comes back to you, naming the entry and the block it happened in, '
       + 'unless the list above says nothing comes back from that component. Do not also ask in the conversation '
       + 'for an answer a block is already asking for, and do not place a block that sends nothing back to ask a '
@@ -110,6 +119,9 @@ describe('show_component model-visible surface', () => {
               description: 'The blocks to draw, top to bottom. Each entry is '
                 + '{"id": "<name unique in this call>", "component": "<id from the list above>", "props": {…}}.',
               items: {},
+            },
+            layout: {
+              description: 'How the blocks are arranged, as nested stacks; leave it out to stack them top to bottom.',
             },
           },
           required: ['nodes'],

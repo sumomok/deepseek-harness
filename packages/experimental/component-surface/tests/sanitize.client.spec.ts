@@ -82,6 +82,7 @@ const PROBE: ComponentCatalogEntry = {
     },
   },
   actions: [],
+  outputs: [],
   sanitize: { icon: 'path', accent: 'color', relatedComponent: 'related-component' },
 }
 

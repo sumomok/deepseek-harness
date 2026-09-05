@@ -47,6 +47,25 @@ export type ComponentActionPayload = Readonly<Record<string, unknown>>
 export type ComponentActionHandler = (actionId: string, payload: ComponentActionPayload) => void
 
 /**
+ * What one block publishes for the blocks beside it to read.
+ *
+ * An output is the block's own current reading of itself — the rows a table has
+ * ticked, the conditions a filter now holds — republished whenever it changes.
+ * It is not a gesture: nothing is recorded, nothing reaches the agent, and a
+ * block that publishes one has still reported nothing. Which outputs a
+ * component publishes is the placement package's catalog to declare, exactly as
+ * for an action, and keeping to that declaration is this row's obligation.
+ *
+ * Every value must survive `JSON.stringify` and be treated as read-only: the
+ * placement package hands it straight to another block as a property, and a
+ * value a publisher goes on mutating would be a property that changed under a
+ * component nobody re-rendered.
+ * @param outputId - the id of the output being published, as the placement package's catalog declares it.
+ * @param value - its current value.
+ */
+export type ComponentOutputHandler = (outputId: string, value: unknown) => void
+
+/**
  * How far the gesture a block last reported got, as the placement package folds
  * it out of the session's own records.
  *
@@ -84,6 +103,11 @@ export interface ComponentRendererProps<P = Readonly<Record<string, unknown>>> {
   readonly props: P
   /** Where a user gesture goes. */
   readonly onAction: ComponentActionHandler
+  /**
+   * Where this block's current reading of itself goes, for the blocks beside it
+   * to take a property from. A component that publishes nothing never calls it.
+   */
+  readonly onOutput: ComponentOutputHandler
   /**
    * How far this block's last reported gesture got. A renderer draws it and
    * decides from it whether a further gesture may be reported; it never keeps a

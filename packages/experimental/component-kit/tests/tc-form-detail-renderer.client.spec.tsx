@@ -30,7 +30,7 @@ const t: ComponentRendererProps['t'] = makeTranslate(en)
 /** Draw one record block over the properties under test. */
 function draw(props: Record<string, unknown>): ReturnType<typeof render> {
   return render(
-    <TcFormDetailRenderer nodeId="node-1" props={props} state="idle" onAction={vi.fn()} t={t} />,
+    <TcFormDetailRenderer nodeId="node-1" props={props} state="idle" onAction={vi.fn()} onOutput={vi.fn()} t={t} />,
   )
 }
 
@@ -67,6 +67,7 @@ describe('toy.record', () => {
         props={{ dataList: [{ label: '名称', display: '二号站点' }] }}
         state="idle"
         onAction={vi.fn()}
+        onOutput={vi.fn()}
         t={t}
       />,
     )

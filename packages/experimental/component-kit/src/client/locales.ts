@@ -2,10 +2,11 @@
  * `componentKit` namespace dictionaries — the vocabulary of the component row.
  *
  * One namespace covers both what a renderer draws inside a block and what a
- * placement package draws in place of a block it cannot get from this row:
- * which components exist is this package's fact, so the sentence stating that
- * one is missing belongs here rather than in the package that merely asked for
- * it.
+ * placement package draws in place of one — a block this row has no component
+ * for, and a block whose properties are still waiting on the block that feeds it.
+ * Which components exist and what they publish is this package's fact, so the
+ * sentences standing in for one belong here rather than in the package that
+ * merely asked for it.
  */
 
 /** Dictionary namespace this package owns. */
@@ -15,6 +16,7 @@ export const NS = 'componentKit'
 export const zh = {
   'block.unsupported': '这里暂时没有能显示这块内容的组件。',
   'block.unreadable': '这块内容暂时显示不了。',
+  'block.awaiting': '请先选择要看的内容',
   'confirmBar.actions': '可选操作',
   'confirmBar.sending': '正在发送…',
   'confirmBar.sent': '已发送到对话',
@@ -34,6 +36,7 @@ export type ComponentKitKey = keyof typeof zh
 export const en = {
   'block.unsupported': 'Nothing here can draw this block yet.',
   'block.unreadable': 'This block cannot be displayed.',
+  'block.awaiting': 'Pick something to show here',
   'confirmBar.actions': 'Available actions',
   'confirmBar.sending': 'Sending…',
   'confirmBar.sent': 'Sent to the conversation',

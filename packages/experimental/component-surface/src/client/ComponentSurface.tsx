@@ -14,6 +14,21 @@
  * `/component-action` line. Deciding what the agent does with it is the node
  * half's, not this seat's.
  *
+ * A block also publishes its own current reading of itself — the rows a table
+ * has ticked, the conditions a filter holds — and that goes nowhere near the
+ * log. The seat keeps the published values in React state for as long as the
+ * call that placed the blocks is on display, and `spec.ts` stands them in for
+ * the `$from` references the model wrote in the properties of the blocks beside
+ * them. A block whose required property is still waiting on one draws the
+ * component row's waiting line in place of the component. Nothing published
+ * this way is ever sent anywhere: it is a value one block lends another for as
+ * long as both are drawn, which is what lets a record follow a table's
+ * selection without every tick becoming model-visible input.
+ *
+ * Where a block goes is the spec's `layout` — nested rows and columns over the
+ * same nodes — and a call that declares none gets the plain column the seat has
+ * always drawn.
+ *
  * What became of that gesture comes back the same way it went out — through the
  * log. The seat reads the `componentActions` fold off the session's projection
  * values, the way the column itself reads its entry stream, and gives each block
@@ -46,7 +61,7 @@
  * ever carried into another session's stack, and replacing an entry's call
  * remounts every block it draws.
  */
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: the useSessions seat's own merge, and the branded id its rows are keyed by.
 import type { SessionId } from '@deepseek-ai/dsh-client-runtime/client'
@@ -55,6 +70,7 @@ import {
   type ComponentActionHandler,
   type ComponentActionState,
   type ComponentKitTranslate,
+  type ComponentOutputHandler,
   type ComponentRenderer,
 } from '@deepseek-ai/dsh-experimental-component-kit/client'
 import {
@@ -62,15 +78,16 @@ import {
   type CatalogId,
   type ComponentAction,
   type ComponentNode,
-  type ComponentSurfacePayload,
 } from '../component-call.ts'
 import {
   latestComponentAction,
   type ComponentActionRecord,
   type ComponentActionsView,
 } from '../action-state.ts'
-import { validateComponentSpec } from '../validate.ts'
 import { pendingPressKey, type ActionDispatch, type PendingPresses } from './action.ts'
+import { NO_OUTPUTS, outputKey, type OutputSink, type OutputValues } from './bindings.ts'
+import { acceptSurface, type SurfaceBlock } from './spec.ts'
+import { StackLayout } from './StackLayout.tsx'
 import css from './ComponentSurface.module.css'
 
 /**
@@ -131,23 +148,34 @@ export type ComponentSurfaceProps =
   & PropsLocale<'componentKit'>
 
 /**
- * Read the blocks one surface entry puts on display.
+ * What the entry's blocks have published, and which placing call published it.
  *
- * `validateComponentSpec` judges the payload and, on the way through, reads
- * every declared property as the narrower thing its component declared it to be
- * and freezes what it accepts. Both are inside validation rather than beside it,
- * so this seat cannot draw a block that skipped either: a renderer receives
- * properties it may read and may not write, which is what a Vue 2 renderer needs
- * — Vue makes what a component receives reactive by rewriting it, and this memo
- * is what the rewrite would have reached.
- * @param payload - the entry's payload, as the column handed it over.
- * @returns the blocks to draw, or undefined when the payload carries no spec this build accepts.
+ * The call is part of the state rather than a reset performed beside it: a
+ * later call under the same entry id draws blocks that have published nothing,
+ * and a table's rows carried into the record block of a call that never asked
+ * for them is worse than an empty one. Reading the owner is what discards the
+ * previous call's values without an effect that runs after the wrong render.
  */
-function surfaceNodes(payload: unknown): readonly ComponentNode[] | undefined {
-  if (payload === null || typeof payload !== 'object') return undefined
-  const result = validateComponentSpec((payload as Partial<ComponentSurfacePayload>).spec)
-  return result.ok ? result.spec.nodes : undefined
+interface OutputState {
+  /** The entry and placing call whose blocks published these values. */
+  readonly owner: string
+  /** What they published. */
+  readonly values: OutputValues
 }
+
+/** Nothing published, by nobody. */
+const NO_OUTPUT_STATE: OutputState = { owner: '', values: NO_OUTPUTS }
+
+/** The blocks the previous reading of one payload produced, so an unchanged block keeps its object. */
+interface HeldBlocks {
+  /** The payload that reading was of. */
+  readonly payload: unknown
+  /** What it produced. */
+  readonly blocks: readonly SurfaceBlock[]
+}
+
+/** Nothing read yet. */
+const NOTHING_HELD: HeldBlocks = { payload: undefined, blocks: [] }
 
 /** One block's own render inputs. */
 interface ComponentBlockProps {
@@ -165,6 +193,8 @@ interface ComponentBlockProps {
   readonly pendingKey: string
   /** The gesture the log records against this block for the call on display; absent while it has answered none. */
   readonly recorded: ComponentActionRecord | undefined
+  /** Where this block's own current reading of itself goes, for the blocks beside it. */
+  readonly publish: OutputSink
   /** The component row's translate, for the copy a renderer owns. */
   readonly t: ComponentKitTranslate
 }
@@ -196,10 +226,10 @@ interface ComponentBlockProps {
  * renderer receives is a fact about that block alone: a block is rebuilt when
  * its own entry is replaced or its own gesture moves, and a redraw somewhere
  * else in the stack leaves it holding exactly the props it already had.
- * @param props - the block, its entry's identity, its row in the page's table, its recorded gesture, and the translate.
+ * @param props - the block, its entry's identity, its row in the page's table, its recorded gesture, the output sink, and the translate.
  * @returns the component the block names, or the notice for one this build cannot draw.
  */
-function ComponentBlock({ entryId, seq, node, report, pending, pendingKey, recorded, t }: ComponentBlockProps) {
+function ComponentBlock({ entryId, seq, node, report, pending, pendingKey, recorded, publish, t }: ComponentBlockProps) {
   // Seeded from the page's table, so a block drawn afresh while its press is
   // still travelling comes up waiting rather than answerable. The key is fixed
   // for this mount — the seat gives each block the React identity of its own
@@ -263,8 +293,11 @@ function ComponentBlock({ entryId, seq, node, report, pending, pendingKey, recor
           setLost(from)
         })
     }
-    return <Renderer nodeId={node.id} props={node.props} onAction={onAction} state={state} t={t} />
-  }, [entryId, seq, node, report, pending, pendingKey, recorded, state, t])
+    // Bound here for the same reason the action handler is: the seat holds the
+    // block's identity, so a renderer says only what it is publishing.
+    const onOutput: ComponentOutputHandler = (outputId, value) => { publish(node.id, outputId, value) }
+    return <Renderer nodeId={node.id} props={node.props} onAction={onAction} onOutput={onOutput} state={state} t={t} />
+  }, [entryId, seq, node, report, pending, pendingKey, recorded, state, publish, t])
 }
 
 /**
@@ -274,9 +307,32 @@ function ComponentBlock({ entryId, seq, node, report, pending, pendingKey, recor
  */
 export function ComponentSurface({ sessionId, entry, useSessions, onAction, pending, t }: ComponentSurfaceProps) {
   const payload = entry?.payload
-  // Memoized on the payload: the validated node list is what every block's props
-  // identity hangs from, and a fresh list every render would rebuild the stack.
-  const nodes = useMemo(() => (payload === undefined ? undefined : surfaceNodes(payload)), [payload])
+  // The entry and the call that placed it, which is what the published values
+  // belong to: a later call under the same id starts with nothing published.
+  const owner = entry === undefined ? '' : `${entry.entryId} ${entry.seq}`
+  const [outputs, setOutputs] = useState<OutputState>(NO_OUTPUT_STATE)
+  const values = outputs.owner === owner ? outputs.values : NO_OUTPUTS
+  const publish = useCallback<OutputSink>((nodeId, outputId, value) => {
+    setOutputs(prev => ({
+      owner,
+      values: new Map(prev.owner === owner ? prev.values : NO_OUTPUTS).set(outputKey(nodeId, outputId), value),
+    }))
+  }, [owner])
+  // The previous reading of this same payload, so re-reading it because one
+  // block published something hands every other block the object it already
+  // had. Written where the reading happens rather than in an effect, because a
+  // block's identity is decided by the render that draws it.
+  const held = useRef<HeldBlocks>(NOTHING_HELD)
+  // Memoized on the payload and on what the blocks have published: the
+  // validated node list is what every block's props identity hangs from, and a
+  // fresh list every render would rebuild the stack.
+  const view = useMemo(() => {
+    const read = payload === undefined
+      ? undefined
+      : acceptSurface(payload, values, held.current.payload === payload ? held.current.blocks : [])
+    held.current = { payload, blocks: read?.blocks ?? [] }
+    return read
+  }, [payload, values])
   // The gestures this session's log records, read where the column reads its own
   // entries. Per session by construction: another session's presses sit under
   // another session's row and are never in reach here.
@@ -293,46 +349,57 @@ export function ComponentSurface({ sessionId, entry, useSessions, onAction, pend
   )
 
   if (entry === undefined) return null
-  if (nodes === undefined) {
+  if (view === undefined) {
     return (
       <div className={css.seat} data-component-surface>
         <p className={css.notice} data-component-surface-error>{t('block.unreadable')}</p>
       </div>
     )
   }
+  /**
+   * Draw one block of this entry where the arrangement puts it.
+   * @param block - the block.
+   * @returns the component, or the line saying it is waiting on the block that feeds it.
+   */
+  const drawBlock = (block: SurfaceBlock) => {
+    if (block.node === undefined) {
+      return (
+        <p className={css.notice} data-component-surface-awaiting={block.id}>{t('block.awaiting')}</p>
+      )
+    }
+    // A gesture recorded before the call that placed this block answered an
+    // earlier call under the same entry id: the agent asking again is asking
+    // afresh, and the block it drew starts unanswered.
+    const latest = latestComponentAction(actions, entry.entryId, block.id)
+    // One key for both identities: what React reuses a block for and what the
+    // page files that block's in-flight press under are the same four parts, so
+    // no block is ever handed the local waiting of a different session, entry,
+    // placing call, or node. The column keeps this seat mounted through a
+    // session switch — it hides seats rather than dropping them — which is what
+    // makes the session part load-bearing; the sequence part is what remounts a
+    // block when a later call replaces the entry, rather than handing the new
+    // spec to the components the old one left mounted.
+    const key = pendingPressKey(sessionId, entry.entryId, entry.seq, block.id)
+    return (
+      <ComponentBlock
+        key={key}
+        entryId={entry.entryId}
+        seq={entry.seq}
+        node={block.node}
+        report={report}
+        pending={pending}
+        pendingKey={key}
+        recorded={latest !== undefined && latest.seq > entry.seq ? latest : undefined}
+        publish={publish}
+        t={t}
+      />
+    )
+  }
   return (
     <div className={css.seat} data-component-surface>
       <p className={css.caption}>{entry.title}</p>
       <div className={css.stack} data-component-surface-stack>
-        {nodes.map((node) => {
-          // A gesture recorded before the call that placed this block answered an
-          // earlier call under the same entry id: the agent asking again is
-          // asking afresh, and the block it drew starts unanswered.
-          const latest = latestComponentAction(actions, entry.entryId, node.id)
-          // One key for both identities: what React reuses a block for and what
-          // the page files that block's in-flight press under are the same four
-          // parts, so no block is ever handed the local waiting of a different
-          // session, entry, placing call, or node. The column keeps this seat
-          // mounted through a session switch — it hides seats rather than
-          // dropping them — which is what makes the session part load-bearing;
-          // the sequence part is what remounts a block when a later call
-          // replaces the entry, rather than handing the new spec to the
-          // components the old one left mounted.
-          const key = pendingPressKey(sessionId, entry.entryId, entry.seq, node.id)
-          return (
-            <ComponentBlock
-              key={key}
-              entryId={entry.entryId}
-              seq={entry.seq}
-              node={node}
-              report={report}
-              pending={pending}
-              pendingKey={key}
-              recorded={latest !== undefined && latest.seq > entry.seq ? latest : undefined}
-              t={t}
-            />
-          )
-        })}
+        <StackLayout layout={view.layout} renderBlock={drawBlock} />
       </div>
     </div>
   )

@@ -278,6 +278,61 @@ const METRIC_SPEC = {
   }],
 }
 
+/** The entry id and title of the call that arranges two blocks and feeds one from the other. */
+const VIEW_ID = 'linked'
+const VIEW_TITLE = 'Site list with details'
+
+/**
+ * The two blocks the `linked` call places, and the arrangement it places them
+ * in: a table above a record whose rows are whatever the table's first ticked
+ * row is, taken through `$from`.
+ *
+ * The record declares no `dataList` of its own — the binding is the whole value
+ * of that property — so before anything is ticked the record has nothing
+ * required to draw from, which is the waiting line the first assertion reads.
+ * The column headings are what makes the fed value legible: `selectionDetail`
+ * labels each field with the column's `alias`, so what the record shows is
+ * `Site` and `State` rather than the field names the rows carry.
+ */
+const VIEW_SPEC = {
+  nodes: [
+    {
+      id: 'grid',
+      component: 'toy.table',
+      props: {
+        tableConfig: {
+          gridItems: [
+            { relatedMetaAttr: 'site', alias: 'Site', isSortable: true },
+            { relatedMetaAttr: 'state', alias: 'State' },
+          ],
+        },
+        displayValueList: TABLE_ROWS.map(row => ({ ...row })),
+        selectMode: 'checkbox',
+      },
+    },
+    {
+      id: 'detail',
+      component: 'toy.record',
+      props: { dataList: { $from: 'node:grid.selectionDetail' }, labelWidth: 96, columnNum: 1 },
+    },
+  ],
+  layout: {
+    node: 'stack',
+    dir: 'col',
+    gap: 'md',
+    children: [
+      { node: 'component', id: 'grid', flex: 2 },
+      { node: 'component', id: 'detail', flex: 1 },
+    ],
+  },
+}
+
+/**
+ * The line the seat draws in place of a block still waiting on what feeds it —
+ * `component-kit`'s `block.awaiting`, in this lane's English.
+ */
+const AWAITING_LINE = 'Pick something to show here'
+
 /**
  * Prepare a harness home whose profile fallback resolves every experimental row.
  * @returns the harness home the scaffold should adopt.
@@ -322,7 +377,7 @@ function componentCall(callId: string, id: string, title: string, spec: unknown)
 }
 
 /**
- * Splice seven settled component calls into a recorded session, inside its open
+ * Splice eight settled component calls into a recorded session, inside its open
  * step.
  *
  * The first and the last share the `budget` id, older first, so the column has
@@ -344,6 +399,7 @@ function withComponentCalls(fixtureText: string): string {
     ...componentCall('call_00_component_table', TABLE_ID, TABLE_TITLE, TABLE_SPEC),
     ...componentCall('call_00_component_filter', FILTER_ID, FILTER_TITLE, FILTER_SPEC),
     ...componentCall('call_00_component_metric', METRIC_ID, METRIC_TITLE, METRIC_SPEC),
+    ...componentCall('call_00_component_linked', VIEW_ID, VIEW_TITLE, VIEW_SPEC),
     ...componentCall('call_00_component_budget_new', BUDGET_ID, BUDGET_TITLE, BUDGET_SPEC),
     ...lines.slice(closing),
   ].join('\n')
@@ -450,7 +506,7 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // Four calls, three entries: the superseded draft has no tab of its own, and
     // the tab that survived carries the later call's title.
     await tab(page, CLEANUP_ID).waitFor({ timeout: 30_000 })
-    expect(await page.locator('[data-content-surface-entry]').count()).toBe(6)
+    expect(await page.locator('[data-content-surface-entry]').count()).toBe(7)
     expect(await tab(page, BUDGET_ID).textContent()).toContain(BUDGET_TITLE)
     expect(await page.getByText(BUDGET_DRAFT_TITLE, { exact: true }).count()).toBe(0)
     expect(await page.getByText(BUDGET_DRAFT_PROMPT, { exact: true }).count()).toBe(0)
@@ -842,6 +898,105 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // other's reactivity, with no error anywhere.
     expect(await page.evaluate(() => 'Vue' in globalThis)).toBe(false)
   }, 120_000)
+
+  it('arranges two blocks and feeds the lower one from what the user ticks in the upper', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-linked'))
+    await tab(page, VIEW_ID).click()
+    const table = seat(page).locator('[data-component-block="toy.table"]')
+    await table.waitFor({ timeout: 30_000 })
+    await awaitOpenColumn(page)
+
+    // The arrangement is the call's own: one column, the table taking twice the
+    // record's share of it. Reading it off the drawn element rather than off the
+    // spec is what says the layout survived the trip through the log, the fold,
+    // and the page.
+    const stack = seat(page).locator('[data-component-stack]')
+    await expect.poll(async () => await stack.first().getAttribute('data-component-stack'), { timeout: 15_000 })
+      .toBe('col')
+    expect(await stack.first().getAttribute('data-component-gap')).toBe('md')
+
+    // Nothing is ticked yet, so the record's one required property has nothing
+    // to stand for it and the seat draws the waiting line in its place — not an
+    // error, and not an empty record: the block is fine, it is the user who has
+    // not acted.
+    const waiting = seat(page).locator('[data-component-surface-awaiting="detail"]')
+    await expect.poll(async () => await waiting.count(), { timeout: 15_000 }).toBe(1)
+    expect(await waiting.textContent()).toBe(AWAITING_LINE)
+    expect(await seat(page).locator('[data-component-block="toy.record"]').count()).toBe(0)
+    await evidence(page, 'web-e2e-component-surface-linked-waiting')
+
+    // Tick the second row, addressed by what it shows rather than by position:
+    // element-ui draws the ticked column twice — once in the table and once in
+    // the pinned layer over it — and puts a tick-everything box in the header,
+    // so an index into the boxes on screen is an index into whichever copy won.
+    const tick = (site: string): Locator =>
+      table.locator('tr', { hasText: site }).locator('.el-checkbox__inner:visible').first()
+    await tick(TABLE_ROWS[1].site).click()
+    // The record is drawn from `selectionDetail`, whose labels are the column
+    // aliases the call wrote — so `Site` and `State` rather than the
+    // `site`/`state` field names the rows themselves carry.
+    const record = seat(page).locator('[data-component-block="toy.record"]')
+    await record.waitFor({ timeout: 30_000 })
+    await expect.poll(
+      async () => await record.locator('.el-form-item__label')
+        .evaluateAll(cells => cells.map(cell => cell.textContent?.trim() ?? '')),
+      { timeout: 15_000 },
+    ).toEqual(['Site', 'State'])
+    await expect.poll(
+      async () => await record.locator('.form-item-content').allTextContents(),
+      { timeout: 15_000 },
+    ).toEqual([TABLE_ROWS[1].site, TABLE_ROWS[1].state])
+    await evidence(page, 'web-e2e-component-surface-linked-fed')
+
+    // Tick the third as well. `selectMode: 'checkbox'` keeps both ticks, and
+    // `selectionDetail` describes the first of them in the order the table holds
+    // them — so the record still shows the second row, not the third.
+    await tick(TABLE_ROWS[2].site).click()
+    // Named by the entry as well as the action: the `sites` entry above places
+    // its own table under the same node id, and its two ticks are in this same
+    // log.
+    const ticksHere = (): readonly SessionEvent[] => liveEvents(scaffold).filter(event =>
+      event.type === 'command/run'
+      && event.data.args !== undefined
+      && event.data.args.includes(`"entryId":"${VIEW_ID}"`)
+      && event.data.args.includes('"actionId":"select"'))
+    await expect.poll(() => ticksHere().length, { timeout: 30_000 }).toBe(2)
+    const ticks = ticksHere()
+    const last = ticks[ticks.length - 1]
+    expect(last?.type === 'command/run' && last.data.args).toBe(
+      ` {"entryId":"${VIEW_ID}","componentId":"toy.table","actionId":"select","nodeId":"grid","payload":{"rowIndexes":[1,2]}}`,
+    )
+    await expect.poll(
+      async () => await record.locator('.form-item-content').allTextContents(),
+      { timeout: 15_000 },
+    ).toEqual([TABLE_ROWS[1].site, TABLE_ROWS[1].state])
+
+    // And the table has not been redrawn out from under the user: the two rows
+    // ticked are the two still ticked. Feeding the record re-reads the entry's
+    // payload, and a table handed a fresh row array clears its own selection —
+    // so this is the assertion that the block nothing fed kept the properties
+    // object it already had.
+    await expect.poll(
+      // The header's tick-everything box reads as checked too; the rows are the
+      // ones outside `thead`.
+      async () => await table.locator('.el-checkbox.is-checked:visible')
+        .evaluateAll(ticked => ticked.filter(box => box.closest('thead') === null)
+          .map(box => box.closest('tr')?.textContent ?? '')),
+      { timeout: 15_000 },
+    ).toEqual([
+      `${TABLE_ROWS[1].site}${TABLE_ROWS[1].state}`,
+      `${TABLE_ROWS[2].site}${TABLE_ROWS[2].state}`,
+    ])
+    expect(await table.locator('.el-table__body-wrapper tbody tr').count()).toBe(TABLE_ROWS.length)
+    // What is asserted is the tick the component holds, not the tick the user
+    // sees: the vendored table draws a ticked box with the same white fill as an
+    // unticked one — `getComputedStyle` reads `rgb(255, 255, 255)` for both — on
+    // this entry and equally on the `sites` entry above, which shipped before
+    // any of this. That is the component row's own styling to answer for, and it
+    // is recorded rather than asserted here so this lane fails for its own
+    // subject only.
+    await evidence(page, 'web-e2e-component-surface-linked')
+  }, 180_000)
 
   it('leaves the console clean', () => {
     expect(tripwire.pageErrors).toEqual([])

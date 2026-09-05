@@ -27,7 +27,7 @@ function mount(
     state = 'idle',
   }: { onAction?: ComponentRendererProps['onAction']; state?: ComponentActionState } = {},
 ): ReturnType<typeof render> {
-  return render(<ConfirmBar nodeId="ask" props={props} onAction={onAction} state={state} t={t} />)
+  return render(<ConfirmBar nodeId="ask" props={props} onAction={onAction} onOutput={vi.fn()} state={state} t={t} />)
 }
 
 /** Which buttons of the rendered row refuse a press. */

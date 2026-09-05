@@ -61,12 +61,17 @@ async function draw(
   props: Record<string, unknown>,
   onAction = vi.fn(),
   state: ComponentActionState = 'idle',
-): Promise<{ view: ReturnType<typeof render>; onAction: ReturnType<typeof vi.fn> }> {
+  onOutput = vi.fn(),
+): Promise<{
+  view: ReturnType<typeof render>
+  onAction: ReturnType<typeof vi.fn>
+  onOutput: ReturnType<typeof vi.fn>
+}> {
   const view = render(
-    <TuQueryCondAdvRenderer nodeId="node-1" props={props} state={state} onAction={onAction} t={t} />,
+    <TuQueryCondAdvRenderer nodeId="node-1" props={props} state={state} onAction={onAction} onOutput={onOutput} t={t} />,
   )
   await flush()
-  return { view, onAction }
+  return { view, onAction, onOutput }
 }
 
 /** The component instance behind the block, reached the way a devtool would. */
@@ -144,6 +149,16 @@ describe('el.filter-bar', () => {
     await waitFor(() => { expect(onAction).toHaveBeenCalledWith('change', { count: 2 }) })
   })
 
+  it('publishes nothing for the blocks beside it', async () => {
+    // No component in this row takes a condition list as a property, so an edit
+    // reaches the agent as its count and reaches no block at all.
+    const onAction = vi.fn()
+    const { view, onOutput } = await draw({ relatedMeta: 'site', metaConfig: { attributes: ATTRIBUTES } }, onAction)
+    instance(view.container).setData({ conditions: [{ key: 'zh_label', op: 'LIKE', value: '一号' }] })
+    await waitFor(() => { expect(onAction).toHaveBeenCalledWith('change', { count: 1 }) })
+    expect(onOutput).not.toHaveBeenCalled()
+  })
+
   it('sends nothing further while the last gesture is still travelling, and says so', async () => {
     const { view, onAction } = await draw(
       { relatedMeta: 'site', metaConfig: { attributes: ATTRIBUTES } },
@@ -180,6 +195,7 @@ describe('el.filter-bar', () => {
         props={{ relatedMeta: 'device', metaConfig: { attributes: [{ attributeEnName: 'ip', alias: '地址' }] } }}
         state="idle"
         onAction={onAction}
+        onOutput={vi.fn()}
         t={t}
       />,
     )

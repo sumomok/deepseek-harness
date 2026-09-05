@@ -6,8 +6,9 @@
  * shape a console reaches for most often, and this is the one those libraries
  * already draw it in.
  *
- * A metric reports nothing. `onAction`, the action state, and the translate go
- * unread here, and the block draws the same in every one of them.
+ * A metric reports nothing and publishes nothing. `onAction`, `onOutput`, the
+ * action state, and the translate go unread here, and the block draws the same
+ * in every one of them.
  *
  * The three colors are the caller's, and they arrive already narrowed to a
  * hex or `rgb()`/`rgba()` value by the placement package's tightening pass —
@@ -76,8 +77,8 @@ function readTcProcessBall(props: ComponentRendererProps['props']): TcProcessBal
 /**
  * Render one metric block.
  * @param rendererProps - the block's identity and its properties. A metric
- * reports nothing, so the action sink, the action state, and the translate go
- * unread.
+ * reports nothing, so the action sink, the output sink, the action state, and
+ * the translate go unread.
  * @returns the host element the Vue component is mounted into.
  */
 export function TcProcessBallRenderer({ nodeId, props }: ComponentRendererProps) {
