@@ -10,7 +10,9 @@
  * duplicates a shared image), or, when the attachment store cannot produce
  * that image, a `media/<attachmentId>.<ext>.error.txt` record naming the
  * reference and the failure in its place; each generic file sits under
- * `files/<prefix>/<digest>/<name>` and streams from the attachment store. No
+ * `files/<prefix>/<digest>/<name>` and streams from the attachment store, or,
+ * when the store refuses that file outright, a `files/<prefix>/<digest>/<name>.error.txt`
+ * record naming the reference and the failure in its place. No
  * manifest is written — every file is self-describing through its own header
  * line or media type. Before each live session's log read, the SessionStore
  * flush barrier makes the current in-memory log durable; cold sessions need no
@@ -212,7 +214,7 @@ function unreadableMediaEntryPath(ref: ImageAttachmentRef): string {
 }
 
 /**
- * The failure lines one unreadable media object contributes to its record. An
+ * The failure lines one unreadable attachment contributes to its record. An
  * `AttachmentError` is quoted by `code` and `message`: its declaring class
  * requires the message to describe the failure without raw bytes or host
  * paths, and the code separates a missing object from bytes that no longer
@@ -230,7 +232,7 @@ function unreadableMediaEntryPath(ref: ImageAttachmentRef): string {
  * @param error - the failure the attachment read rejected with.
  * @returns the failure lines, without a trailing newline.
  */
-function unreadableMediaReason(error: unknown): string {
+function unreadableAttachmentReason(error: unknown): string {
   if (error instanceof Error && error.name === 'AttachmentError'
     && 'code' in error && typeof error.code === 'string') {
     return `code: ${error.code}\nreason: ${error.message}`
@@ -256,9 +258,90 @@ function unreadableMediaEntry(ref: ImageAttachmentRef, error: unknown): SessionL
       `bytes: ${ref.bytes}`,
       `width: ${ref.width}`,
       `height: ${ref.height}`,
-      unreadableMediaReason(error),
+      unreadableAttachmentReason(error),
     ].join('\n')}\n`,
   }
+}
+
+/**
+ * The archive path for one stored file the export could not read: the file
+ * entry's own path plus a `.error.txt` suffix, so the record sits in the
+ * digest directory the log reference names. One reference yields the file
+ * entry or this one, never both; two display names for one digest that differ
+ * by exactly this suffix would name the same entry, which no store produces
+ * because the suffixed name would have to be stored deliberately.
+ * @param ref - the durable reference from a session log.
+ * @returns the archive path for the failure record.
+ */
+function unreadableFileEntryPath(ref: FileAttachmentRef): string {
+  return `${fileEntryPath(ref)}.error.txt`
+}
+
+/**
+ * The archive entry that records one unreadable stored file: the reference the
+ * log carries and why the store could not produce its bytes.
+ * @param ref - the durable reference from a session log.
+ * @param error - the failure the attachment read rejected with.
+ * @returns the text entry that stands in for the file.
+ */
+function unreadableFileEntry(ref: FileAttachmentRef, error: unknown): SessionLogZipEntry {
+  return {
+    path: unreadableFileEntryPath(ref),
+    content: `${[
+      'This file could not be read from the attachment store, so the archive records'
+      + ' the failure in its place. Every other file in this archive is complete.',
+      `attachmentId: ${String(ref.attachmentId)}`,
+      `name: ${ref.name}`,
+      `bytes: ${ref.bytes}`,
+      unreadableAttachmentReason(error),
+    ].join('\n')}\n`,
+  }
+}
+
+/**
+ * Resume one file's chunks after its first has been pulled, so the entry the
+ * ZIP writer receives streams exactly the bytes the store produces.
+ * @param first - the already-pulled first result.
+ * @param rest - the store's iterator, positioned after `first`.
+ * @returns the complete chunk sequence in order.
+ */
+async function* resumedFileChunks(
+  first: IteratorResult<Uint8Array>,
+  rest: AsyncIterator<Uint8Array>,
+): AsyncIterable<Uint8Array> {
+  if (first.done === true) return
+  yield first.value
+  yield* { [Symbol.asyncIterator]: () => rest }
+}
+
+/**
+ * Open one stored file into its archive entry, recording an unreadable object
+ * rather than failing the archive. Symmetric with {@link mediaEntry}, and
+ * bounded by the same one-chunk budget: the store's first chunk is pulled
+ * here, so a reference the store refuses outright — a deleted object, an
+ * invalid reference — becomes a record instead of a torn response. A failure
+ * the store raises after that first chunk still tears the response, because
+ * those bytes have already reached the ZIP writer. Cancellation is not an
+ * unreadable attachment and is rethrown.
+ * @param attachments - the mounted attachment store.
+ * @param ref - the durable reference from a session log.
+ * @param signal - optional cancellation forwarded to the store read.
+ * @returns the file entry, or the record that stands in for it.
+ */
+async function fileEntry(
+  attachments: AttachmentStore,
+  ref: FileAttachmentRef,
+  signal?: AbortSignal,
+): Promise<SessionLogZipEntry> {
+  const rest = attachments.readFileStream(ref, signal)[Symbol.asyncIterator]()
+  let first: IteratorResult<Uint8Array>
+  try {
+    first = await rest.next()
+  } catch (error) {
+    signal?.throwIfAborted()
+    return unreadableFileEntry(ref, error)
+  }
+  return { path: fileEntryPath(ref), chunks: resumedFileChunks(first, rest) }
 }
 
 /**
@@ -477,10 +560,10 @@ async function* sessionLogTextEntries(
 /**
  * Yield the export entries in zip order: every session log, then one entry per
  * distinct attachment those logs reference — an image's verified bytes read
- * from the attachment store, the `.error.txt` record that stands in for an
- * image the store cannot produce, or a generic file streamed through the ZIP
- * writer. The host holds at most one descendant log, one image, and one file
- * chunk beyond the root.
+ * from the attachment store, a generic file streamed through the ZIP writer,
+ * or the `.error.txt` record that stands in for either one when the store
+ * cannot produce it. The host holds at most one descendant log, one image, and
+ * one file chunk beyond the root.
  * @param deps - the mounted export services (the caller answered 500 before this runs).
  * @param rootContent - the already-serialized root log (read by the caller so
  * the missing-session path can answer cleanly before streaming starts).
@@ -507,10 +590,9 @@ export async function* sessionLogZipEntries(
   }
   for (const ref of files.values()) {
     signal?.throwIfAborted()
-    yield {
-      path: fileEntryPath(ref),
-      chunks: deps.attachments.readFileStream(ref, signal),
-    }
+    const entry = await fileEntry(deps.attachments, ref, signal)
+    signal?.throwIfAborted()
+    yield entry
   }
 }
 
@@ -528,9 +610,11 @@ const TEXT_DEFLATE_RATIO = 0.14
 /**
  * Share of its uncompressed size one entry occupies on the wire.
  * @param compressionLevel - the resolved DEFLATE level for every ZIP entry.
- * @param compressible - whether the entry is session-log text; a stored
- * attachment is already-compressed or opaque data that deflate leaves at
- * roughly its stored size.
+ * @param compressible - whether the entry is session-log text. Every stored
+ * attachment takes the unity ratio: an image is already compressed, and a
+ * generic file's content is unknown before it is read. A text file that
+ * deflates well therefore overstates the wire denominator, which makes the
+ * progress bar lag and then jump to complete instead of overshooting it.
  * @returns the multiplier from uncompressed bytes to wire bytes.
  */
 function wireRatio(compressionLevel: SessionLogCompressionLevel, compressible: boolean): number {

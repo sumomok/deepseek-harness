@@ -3,8 +3,8 @@
  * files are the sessions' logical logs serialized as canonical JSONL (root +
  * optional descendants) read through persistence read handles, and the
  * degenerate compositions fail loudly (missing services → 500, missing root →
- * 404, missing descendant → errored stream), while an unreadable media object
- * becomes a record inside a complete archive.
+ * 404, missing descendant → errored stream), while an unreadable image or
+ * file becomes a record inside a complete archive.
  */
 
 import { SESSION_FORMAT_VERSION, SessionSeq } from '@deepseek-ai/dsh-session'
@@ -790,7 +790,20 @@ describe('session.export download endpoint', () => {
     expect(reads[0]?.signal).toBeInstanceOf(AbortSignal)
   })
 
-  it('fails the whole export when a referenced file stream fails', async () => {
+  it('stores a zero-byte file whose stream carries no chunk at all', async () => {
+    const digest = '0'.repeat(64)
+    const root = log('session-root', undefined, [fileEvent(`sha256:${digest}`, 'empty.txt', 0)])
+    const api = await buildApi({ 'session-root': root }, [], {
+      readFileStream: () => (async function* (): AsyncIterable<Uint8Array> {})(),
+    })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+    const files = unzipSync(await responseBytes(response))
+    expect(files[`files/00/${digest}/empty.txt`]).toEqual(new Uint8Array())
+  })
+
+  it('fails the whole export when a file stream fails after its first chunk', async () => {
     const digest = 'b'.repeat(64)
     const id = `sha256:${digest}`
     const root = log('session-root', undefined, [fileEvent(id)])
@@ -804,6 +817,98 @@ describe('session.export download endpoint', () => {
       new Request('http://host/api/session.export?sessionId=session-root'),
     )
     await expect(response.arrayBuffer()).rejects.toThrow('file bytes missing')
+  })
+
+  it('records an unreadable file in the archive and still completes the export', async () => {
+    const missing = new AttachmentError('File attachment object is missing.', 'ATTACHMENT_NOT_FOUND')
+    const badDigest = 'b'.repeat(64)
+    const okDigest = 'a'.repeat(64)
+    const stored = log('session-root', undefined, [
+      fileEvent(`sha256:${badDigest}`, 'notes.txt', 5),
+      fileEvent(`sha256:${okDigest}`, 'ok.txt', 3, SessionSeq(2)),
+    ])
+    const api = await buildApi({ 'session-root': stored }, [], {
+      readFileStream: ref => (async function* (): AsyncIterable<Uint8Array> {
+        if (String(ref.attachmentId).includes(badDigest)) throw missing
+        yield Uint8Array.of(1, 2, 3)
+      })(),
+    })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+
+    expect(response.status).toBe(200)
+    const files = unzipSync(await responseBytes(response))
+    expect(Object.keys(files).sort()).toEqual([
+      `files/aa/${okDigest}/ok.txt`,
+      `files/bb/${badDigest}/notes.txt.error.txt`,
+      exportLogName,
+    ].sort())
+    expect(files[`files/aa/${okDigest}/ok.txt`]).toEqual(Uint8Array.of(1, 2, 3))
+    expect(strFromU8(files[`files/bb/${badDigest}/notes.txt.error.txt`] as Uint8Array)).toBe(
+      'This file could not be read from the attachment store, so the archive records'
+      + ' the failure in its place. Every other file in this archive is complete.\n'
+      + `attachmentId: sha256:${badDigest}\nname: notes.txt\nbytes: 5\n`
+      + 'code: ATTACHMENT_NOT_FOUND\nreason: File attachment object is missing.\n',
+    )
+    // The record occupies one entry, exactly like the file it stands in for,
+    // and the announced size still counts that entry at the reference's
+    // recorded byte length, which measuring never re-reads.
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_ENTRIES_HEADER)).toBe('3')
+    expect(response.headers.get(SessionLogExport.SESSION_EXPORT_BYTES_HEADER)).toBe(
+      String(new TextEncoder().encode(logText(stored)).byteLength + 5 + 3),
+    )
+  })
+
+  it('records a file failure that is not an AttachmentError without its code or message', async () => {
+    const digest = 'e'.repeat(64)
+    const root = log('session-root', undefined, [fileEvent(`sha256:${digest}`)])
+    const api = await buildApi({ 'session-root': root }, [], {
+      readFileStream: () => (async function* (): AsyncIterable<Uint8Array> {
+        throw new Error('ENOENT: /host/private/attachments/v1/file-objects/ee/beef')
+      })(),
+    })
+    const response = await toFetchHandler(api).fetch(
+      new Request('http://host/api/session.export?sessionId=session-root'),
+    )
+
+    const files = unzipSync(await responseBytes(response))
+    const record = strFromU8(files[`files/ee/${digest}/notes.txt.error.txt`] as Uint8Array)
+    expect(record).toContain(`attachmentId: sha256:${digest}\n`)
+    expect(record.endsWith(
+      'reason: the attachment store rejected the read without a stable failure code\n',
+    )).toBe(true)
+    expect(record).not.toContain('code:')
+    expect(record).not.toContain('/host/private/')
+  })
+
+  it('still errors the stream when cancellation lands during a file read', async () => {
+    let reportFileStarted!: (signal: AbortSignal) => void
+    const fileStarted = new Promise<AbortSignal>((resolve) => {
+      reportFileStarted = resolve
+    })
+    const root = log('session-root', undefined, [fileEvent(`sha256:${'f'.repeat(64)}`)])
+    const api = await buildApi({ 'session-root': root }, [], {
+      readFileStream: (_ref, signal) => (async function* (): AsyncIterable<Uint8Array> {
+        if (signal === undefined) throw new Error('missing file signal')
+        reportFileStarted(signal)
+        await new Promise((_, reject) => {
+          signal.addEventListener('abort', () => { reject(signal.reason as Error) }, { once: true })
+        })
+      })(),
+    })
+    const controller = new AbortController()
+    const response = await api.downloads.sessionLog(
+      { sessionId: sid('session-root'), includeDescendants: false },
+      controller.signal,
+    )
+    const body = response.arrayBuffer()
+    await fileStarted
+    const cancellation = new Error('request cancelled during the file read')
+    controller.abort(cancellation)
+    // Cancellation is not an unreadable attachment: it tears the archive
+    // rather than becoming a record inside it.
+    await expect(body).rejects.toBe(cancellation)
   })
 
   it('collects media referenced from nested tool results', async () => {
