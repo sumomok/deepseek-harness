@@ -81,12 +81,12 @@ interface VueNode {
  * would need, and it is exercised against probe components rather than through
  * a seat.
  */
-const POPPER_CLOSERS: Readonly<Record<string, string>> = {
-  ElSelect: 'visible',
-  ElTooltip: 'showPopper',
-  ElPopover: 'showPopper',
-  ElDatePicker: 'pickerVisible',
-}
+const POPPER_CLOSERS: ReadonlyMap<string, string> = new Map([
+  ['ElSelect', 'visible'],
+  ['ElTooltip', 'showPopper'],
+  ['ElPopover', 'showPopper'],
+  ['ElDatePicker', 'pickerVisible'],
+])
 
 /** The listener map a component with no events gets, kept stable across commits. */
 const NO_HANDLERS: VueEventHandlers = Object.freeze({})
@@ -251,7 +251,7 @@ export function VueBridge(props: VueBridgeProps) {
  */
 function closePoppers(root: VueBridgeRoot): void {
   for (const instance of descendants(root)) {
-    const property = POPPER_CLOSERS[instance.$options.name ?? '']
+    const property = POPPER_CLOSERS.get(instance.$options.name ?? '')
     if (property === undefined) continue
     ;(instance as unknown as Record<string, unknown>)[property] = false
   }
