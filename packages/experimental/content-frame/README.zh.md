@@ -256,6 +256,12 @@ kind: "package-reference"
 
 工具、命令、各 projection 与 page extractor 都是可选子节点：没有 `ctx.tools`、`ctx.commands`、`ctx.sessionProjections` 或 `ctx.contentSurface` 的组合仍保留路由，只是这一栏里什么都不显示；任何一项缺席都不会让该行失败。
 
+### 与自动审查闸同装时
+
+同时安装了 `@haoran/dsh-llm-permission-gateway`（>= 0.2.0）的部署，再多传一个 `--patch`：`overlay/permission-gateway.patch.yml`。这道闸会审查每一次没有被告知放行的工具调用，每次一趟模型往返。这份 overlay 告诉它放行五件读工具与 `content_show`，把 `content_act` 留给它审查——因为 `content_act` 是会驱动页面的那一件。没装这道闸时，这一行找不到目标，启动日志只留一条告警，别的什么都不变——所以这个文件装没装都可以照传。
+
+patch 是整体替换目标行的 `config` 而非把键并入其中，所以那个文件把闸的两个必填字段 `provider` 与 `model` 原样重写了一遍，也把它的默认放行表整份抄了下来而不是在其上追加。`tests/permission-gateway-overlay.client.spec.ts` 把这个文件钉在本包注册的工具名上。
+
 <a id="the-copy-rule"></a>
 ## 工具说什么，以及永远不说什么
 

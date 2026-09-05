@@ -256,6 +256,12 @@ The empty `pageAccess` block is this service line's own choice: it takes every d
 
 The tools, the command, the projections, and the page extractor are optional children: a composition without `ctx.tools`, `ctx.commands`, `ctx.sessionProjections`, or `ctx.contentSurface` keeps the routes and shows nothing in the column, and no absence fails the row.
 
+### Composing with the review gate
+
+A deployment that also installs `@haoran/dsh-llm-permission-gateway` (>= 0.2.0) passes `overlay/permission-gateway.patch.yml` as one more `--patch`. That gate reviews every tool call it has not been told to skip, one model round trip each. The overlay tells it to skip the five reads and `content_show`, and leaves `content_act` to be reviewed, because `content_act` is the one that drives the page. With no gate installed the row targets nothing, the load says so in one warn line, and nothing else changes — so a deployment may pass the file either way.
+
+A patch replaces the targeted row's whole `config` rather than merging keys into it, which is why that file restates the gate's two required fields, `provider` and `model`, and copies its default read-only list rather than extending it. `tests/permission-gateway-overlay.client.spec.ts` holds the file against the tool names this package registers.
+
 <a id="the-copy-rule"></a>
 ## What the tools say and what they never say
 
