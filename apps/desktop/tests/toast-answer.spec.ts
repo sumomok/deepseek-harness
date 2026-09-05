@@ -141,8 +141,8 @@ const lines: string[] = []
 /** How many times the shell was asked to bring the window back. */
 let reveals = 0
 
-/** Whether the next `$events/result` is answered with a server failure. */
-let failNextResult = false
+/** How many more `$events/result` requests are answered with a failure. */
+let resultFailures = 0
 
 const realPlatform = process.platform
 let server: Server | undefined
@@ -163,10 +163,10 @@ async function serving(): Promise<string> {
     request.on('data', (chunk: Buffer) => { body += chunk.toString('utf8') })
     request.on('end', () => {
       const frame = JSON.parse(body) as { method: string; payload: { args: Record<string, unknown> } }
-      const failing = frame.method === '$events/result' && failNextResult
+      const failing = frame.method === '$events/result' && resultFailures > 0
       if (frame.method === '$events/result') {
         answers.push(frame.payload.args)
-        failNextResult = false
+        resultFailures = Math.max(0, resultFailures - 1)
       }
       if (failing) {
         response.writeHead(500, { 'content-type': 'text/plain' })
@@ -239,6 +239,34 @@ function deliverApproval(socket: FakeSocket, eventId = EVENT): void {
 }
 
 /**
+ * Deliver one `user-questions/request` waterfall frame.
+ * @param socket - the stream socket to deliver it on.
+ */
+function deliverQuestion(socket: FakeSocket): void {
+  socket.deliver({
+    type: 'waterfall', event: 'user-questions/request', eventId: EVENT, agentId: 'session-1',
+    request: { questions: [{ question: '要继续吗?' }] },
+  })
+}
+
+/**
+ * Arm one delivery's grace on a fake clock and let it fire. The shell parks an
+ * answer with no window to wait for and starts its grace when one appears, so
+ * a test that raises its toast without a window can put the whole minute on a
+ * clock it controls.
+ */
+function graceElapses(): void {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
+  try {
+    windows.push(hiddenWindow)
+    appHandlers.get('browser-window-created')?.()
+    vi.advanceTimersByTime(GRACE_MS)
+  } finally {
+    vi.useRealTimers()
+  }
+}
+
+/**
  * Subscribe, register, and deliver one approval request to an unattended
  * shell on Windows.
  * @returns the toast it raised.
@@ -265,7 +293,7 @@ describe('the approval toast', () => {
     posted.length = 0
     windows.length = 0
     reveals = 0
-    failNextResult = false
+    resultFailures = 0
     const running = server
     server = undefined
     if (running !== undefined) await new Promise<void>((resolve) => { running.close(() => { resolve() }) })
@@ -363,22 +391,74 @@ describe('the approval toast', () => {
     windows.length = 0
     const toast = await announcedApproval()
     expect(toast.closed).toBe(0)
-    vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
-    try {
-      windows.push(hiddenWindow)
-      appHandlers.get('browser-window-created')?.()
-      vi.advanceTimersByTime(GRACE_MS)
-    } finally {
-      vi.useRealTimers()
-    }
+    graceElapses()
     await until(() => answers.length === 1, 'the grace answer')
     expect(answers[0]).toEqual({ clientId: CLIENT, eventId: EVENT, outcome: { kind: 'next' } })
     expect(toast.closed).toBe(1)
   })
 
+  it('closes a question toast too when its request is cancelled', async () => {
+    const socket = await subscribed()
+    deliverQuestion(socket)
+    await until(() => notifications.length === 1, 'the toast')
+    const toast = notifications[0]!
+    expect(toast.options.actions).toEqual([])
+    socket.deliver({ type: 'cancel', eventId: EVENT })
+    expect(toast.closed).toBe(1)
+  })
+
+  it('announces a delivery whose stream closed while its session was being named', async () => {
+    const socket = await subscribed()
+    deliverApproval(socket)
+    // The socket takes this shell's deliveries with it; the request itself is
+    // untouched, and the Host replays it to the next registration.
+    socket.emit('close', {})
+    await until(
+      () => lines.some(line => line.includes(`delivery ${EVENT} was settled while its session was being named`)),
+      'the suppressed announcement',
+    )
+    expect(notifications).toHaveLength(0)
+    socket.deliver({ type: 'ready', clientId: CLIENT })
+    deliverApproval(socket)
+    await until(() => notifications.length === 1, 'the replayed toast')
+    expect(notifications[0]?.options.title).toBe('需要你的确认')
+  })
+
+  it('forgets a refusal the Host accepted, so a later replay is not answered again', async () => {
+    const toast = await announcedApproval()
+    toast.handlers.get('action')?.({ actionIndex: 0 })
+    await until(() => answers.length === 1, 'the answer')
+    // The Host removes an answering client from the delivery before settling,
+    // so no `cancel` comes back for this shell's own refusal to clean up after.
+    deliverApproval(sockets[0]!)
+    await settle()
+    expect(issuedAnswers()).toBe(1)
+  })
+
+  it('abstains once its refusal has failed twice, rather than holding the request open', async () => {
+    windows.length = 0
+    const toast = await announcedApproval()
+    resultFailures = 2
+    toast.handlers.get('action')?.({ actionIndex: 0 })
+    await until(() => answers.length === 1, 'the failed answer')
+    deliverApproval(sockets[0]!)
+    await until(() => answers.length === 2, 'the failed resend')
+    graceElapses()
+    await until(() => answers.length === 3, 'the abstention')
+    expect(answers[2]).toEqual({ clientId: CLIENT, eventId: EVENT, outcome: { kind: 'next' } })
+  })
+
+  it('closes every toast it raised when its generation is stopped', async () => {
+    const toast = await announcedApproval()
+    // A rebind stops this generation and starts one against a new server,
+    // whose delivery ids have nothing to do with the buttons still on screen.
+    for (const stop of quitHandlers) stop()
+    expect(toast.closed).toBe(1)
+  })
+
   it('sends the refusal again when a delivery it failed on is replayed', async () => {
     const toast = await announcedApproval()
-    failNextResult = true
+    resultFailures = 1
     toast.handlers.get('action')?.({ actionIndex: 0 })
     await until(() => lines.some(line => line.includes(`event answer ${EVENT} not accepted`)), 'the failed answer')
     // The Host never recorded the refusal, so it replays the delivery. A fresh

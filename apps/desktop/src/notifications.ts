@@ -49,14 +49,19 @@
  * A toast outlives the window the shell has to answer in — Windows files a
  * shown banner into the action centre within seconds and keeps its buttons
  * live, while the grace answer goes out a minute later — so every toast is
- * closed the moment this shell stops waiting on its delivery: its own `next`
- * went out, a `cancel` frame arrived, or a button answered. A button pressed
- * on a delivery this shell no longer waits on shows the window instead of
- * answering, because the Host discards a late answer: the approval card is
- * either still in the window to be answered there or already gone, and either
- * way the press lands where the user can see what it did. A refusal whose
- * answer never reached the Host is re-sent when the delivery is replayed,
- * rather than given a fresh grace that would answer `next` in its place.
+ * closed the moment it has been acted on or the request behind it is over: a
+ * button was pressed on it, this shell's own `next` went out, a `cancel` frame
+ * arrived, or the generation was stopped. 「去看看」 is on that list without
+ * answering anything, and so is a question's toast, which carries no buttons
+ * at all. A button pressed on a delivery this shell no longer waits on shows
+ * the window instead of answering, because the Host discards a late answer:
+ * the approval card is either still in the window to be answered there or
+ * already gone, and either way the press lands where the user can see what it
+ * did. A refusal whose answer never reached the Host is re-sent when the
+ * delivery is replayed, rather than given a fresh grace that would answer
+ * `next` in its place; an answer that keeps failing takes the grace again and
+ * ends as an abstention, because a delivery this shell stops answering for is
+ * one the Host will not settle for anyone else either.
  *
  * A Node client sends no `Origin` header, and the server's trust fence accepts
  * an absent one on a loopback `Host` — so no `Origin` is set here, and none may
@@ -497,34 +502,32 @@ function answer(generation: Generation, eventId: string, outcome: DeliveryOutcom
   if (timer !== undefined) clearTimeout(timer)
   generation.pending.delete(eventId)
   closeToast(generation, eventId)
-  if (generation.stopped || generation.clientId === undefined) {
-    // The stream is between reconnects, or this generation is being torn down.
-    // The Host drops an unregistered client's deliveries and replays them to
-    // the next registration, so the request itself is not stranded.
-    generation.host.log(`[desktop] event ${eventId} left unanswered: this shell is not a registered client\n`)
-    return
-  }
+  // Unreachable while the invariant below holds, and a guard rather than an
+  // assertion because an answer sent without a registration is refused.
+  if (generation.stopped || generation.clientId === undefined) return
   const clientId = generation.clientId
-  void rpc(generation, RESULT_ENDPOINT, { clientId, eventId, outcome }).catch((error: unknown) => {
+  void rpc(generation, RESULT_ENDPOINT, { clientId, eventId, outcome }).then(() => {
+    // The Host takes the answering client out of the delivery before it
+    // settles, so this shell never receives the `cancel` for an answer it gave
+    // itself. A refusal that landed has to forget itself here, or its id would
+    // outlive the request and re-answer an unrelated replay.
+    if (outcome.kind === 'result') generation.rejected.delete(eventId)
+  }, (error: unknown) => {
     // A delivery that was already settled (answered elsewhere, or cancelled)
     // is a no-op on the Host; what fails here is the carrier or the client
-    // registration, and the reopen path owns both.
+    // registration. The Host still counts this shell among the delivery's
+    // clients and will not settle anyone else's `next` while it does, so the
+    // answer takes the grace again rather than leaving the request held open
+    // by a client that has stopped talking. A refusal that fails twice ends as
+    // the abstention it was competing with, which is the losing half of the
+    // one trade here: a request that hangs helps nobody.
     const message = error instanceof Error ? error.message : String(error)
     generation.host.log(`[desktop] event answer ${eventId} not accepted: ${message}\n`)
+    // Re-arming without a registration would invent a delivery: the Host
+    // dropped this client's deliveries with its socket and replays them, with
+    // a fresh grace, to whatever registers next.
+    if (!generation.stopped && generation.clientId !== undefined) scheduleNext(generation, eventId)
   })
-}
-
-/**
- * Whether this shell can still answer one delivery. The Host counts it among
- * a delivery's clients only while it is registered and has not answered yet,
- * and discards an answer from anyone else; the grace `next`, a `cancel` frame,
- * a socket close, and a press that already answered all end that standing.
- * @param generation - the generation the delivery belongs to.
- * @param eventId - the delivery.
- * @returns true while an answer from here would still be taken.
- */
-function answerable(generation: Generation, eventId: string): boolean {
-  return !generation.stopped && generation.clientId !== undefined && generation.pending.has(eventId)
 }
 
 /**
@@ -539,7 +542,12 @@ function answerable(generation: Generation, eventId: string): boolean {
  */
 function answerRejected(generation: Generation, eventId: string): void {
   closeToast(generation, eventId)
-  if (!answerable(generation, eventId)) {
+  // A delivery in `pending` is one the Host still counts this shell among the
+  // clients of, and that is the whole test: everything that ends the standing
+  // — the grace `next`, a `cancel` frame, a socket close, this generation
+  // being stopped, an earlier press — empties `pending` for the id as it
+  // happens, so registration and liveness need no separate check.
+  if (!generation.pending.has(eventId)) {
     generation.host.log(`[desktop] approval ${eventId}: this shell no longer waits on it; showing the window instead\n`)
     generation.host.reveal()
     return
@@ -578,6 +586,11 @@ function dropPending(generation: Generation, eventId: string): void {
   generation.pending.delete(eventId)
 }
 
+/** Close every toast one generation raised, in whatever state it left them. */
+function closeAllToasts(generation: Generation): void {
+  for (const eventId of [...generation.toasts.keys()]) closeToast(generation, eventId)
+}
+
 /** Forget every pending delivery of one generation. */
 function dropAllPending(generation: Generation): void {
   for (const eventId of [...generation.pending.keys()]) dropPending(generation, eventId)
@@ -596,23 +609,32 @@ function onWindowCreated(): void {
 }
 
 /**
- * Name the session a waterfall delivery came from, then raise its message —
- * unless the delivery was settled while the name was being looked up. The
- * lookup is a round trip: a message for a request that is already gone is
- * noise, and a toast for one carries buttons the request will not outlive.
+ * Name the session a waterfall delivery came from, then raise its message and
+ * hold the toast — unless this shell stopped waiting on the delivery while the
+ * name was being looked up. The lookup is a round trip: a message for a
+ * request that is already gone is noise, and a toast for one carries buttons
+ * the request will not outlive. The delivery is un-announced as that happens,
+ * because losing the standing is not the same as the request being over: a
+ * socket that closed takes every delivery with it and the Host replays them,
+ * and a replay that finds the id already announced would say nothing at all.
  * @param generation - the generation the delivery belongs to.
  * @param sessionId - the session to name.
  * @param eventId - the delivery the message is about.
- * @param post - raises the message, given the subject phrase for the session.
+ * @param post - raises the message, given the subject phrase for the session;
+ * returns the toast it raised, for the platforms and moments that raise one.
  */
-function announceDelivery(generation: Generation, sessionId: string, eventId: string, post: (who: string) => void): void {
+function announceDelivery(
+  generation: Generation, sessionId: string, eventId: string, post: (who: string) => Notification | undefined,
+): void {
   void subject(generation, sessionId).then((who) => {
-    if (generation.pending.has(eventId)) {
-      post(who)
+    if (!generation.pending.has(eventId)) {
+      generation.announced.delete(eventId)
+      // The one line that explains a message the user was owed and never saw.
+      generation.host.log(`[desktop] delivery ${eventId} was settled while its session was being named; nothing announced\n`)
       return
     }
-    // The one line that explains a message the user was owed and never saw.
-    generation.host.log(`[desktop] delivery ${eventId} was settled while its session was being named; nothing announced\n`)
+    const toast = post(who)
+    if (toast !== undefined) generation.toasts.set(eventId, toast)
   })
 }
 
@@ -677,17 +699,14 @@ function onEventFrame(generation: Generation, host: NotifyHost, frame: Record<st
       if (!unattended()) return
       if (frame['event'] === 'approval/request') {
         const tool = text(request, 'toolName') ?? '工具'
-        announceDelivery(generation, sessionId, eventId, (who) => {
-          const toast = announce(host, '需要你的确认', `${who}请求执行 ${tool},正在等你批准。`, approvalActions(
+        announceDelivery(generation, sessionId, eventId, who => announce(
+          host, '需要你的确认', `${who}请求执行 ${tool},正在等你批准。`, approvalActions(
             () => { answerRejected(generation, eventId) },
             () => { closeToast(generation, eventId); host.reveal() },
-          ))
-          if (toast !== undefined) generation.toasts.set(eventId, toast)
-        })
+          ),
+        ))
       } else if (frame['event'] === 'user-questions/request') {
-        announceDelivery(generation, sessionId, eventId, (who) => {
-          announce(host, '等待你的回答', questionBody(who, request))
-        })
+        announceDelivery(generation, sessionId, eventId, who => announce(host, '等待你的回答', questionBody(who, request)))
       }
       return
     }
@@ -858,4 +877,7 @@ function stopCurrentGeneration(): void {
   current.socket?.close()
   current.socket = undefined
   dropAllPending(current)
+  // Every button on them answers a delivery of a server this shell is done
+  // with — either quitting, or rebinding to a new one whose ids are fresh.
+  closeAllToasts(current)
 }
