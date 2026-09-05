@@ -1,7 +1,6 @@
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
-import { Button, Modal } from '@deepseek-ai/dsh-client-ui-primitives'
-import { byteSizeText } from './byte-size.ts'
+import { Button, Modal, fileSizeText } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { InjectFace, PropsLocale, PropsRuntime, TranslateNS } from '@deepseek-ai/dsh-client-ui-slots'
 import type { SessionLogDownloadState } from './controller.ts'
 import css from './Dialog.module.css'
@@ -33,7 +32,7 @@ function SessionExportProgressBar({ progress, t }: {
   t: TranslateNS<typeof NS>
 }) {
   const { fraction, receivedBytes } = progress
-  const detail = t('dialog.progress', { size: byteSizeText(receivedBytes) })
+  const detail = t('dialog.progress', { size: fileSizeText(receivedBytes) })
   return (
     <div className={css.progress}>
       <div
