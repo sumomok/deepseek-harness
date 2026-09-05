@@ -196,6 +196,22 @@ export function unverifiedRefusal(actTimeoutMs: number): string {
 }
 
 /**
+ * Refusal for a deployment that routes page actions to a reviewer no mounted
+ * plugin carries the name of.
+ *
+ * The deployment asserted a reviewer by name and this composition has none, so
+ * nothing standing between the model and the page would have judged the steps
+ * or asked anyone about them. The sentence carries the asserted name, because
+ * that name is the whole of what is wrong.
+ * @param judgedBy - the plugin name the deployment named as its reviewer.
+ * @returns the model-facing sentence.
+ */
+export function noReviewerRefusal(judgedBy: string): string {
+  return `this deployment sends page actions to a reviewer named "${judgedBy}" before anyone sees them, `
+    + 'and no plugin under that name is mounted; the steps were not run'
+}
+
+/**
  * How the approval request names the page.
  *
  * The request is composed before any browser has claimed the call, so the host

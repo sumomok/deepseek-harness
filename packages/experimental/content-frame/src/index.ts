@@ -58,7 +58,7 @@ import { contentReadImageTool } from './access/image-tool.ts'
 import { settleImageReport } from './access/image-report.ts'
 import { contentActTool } from './access/act-tool.ts'
 import { DialogApprovals } from './access/dialog-approvals.ts'
-import { registerActApproval } from './access/act-approval.ts'
+import { registerActApproval, type ActApproval } from './access/act-approval.ts'
 import type { FrontEntry } from './access/text.ts'
 import {
   ACT_RUN_SHARE, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE,
@@ -237,6 +237,31 @@ export interface PageAccessConfig {
    * quarters of `actTimeoutMs`, both checked at load.
    */
   settleMaxMs: number
+  /**
+   * Who decides whether one allowed set of steps reaches the person at the
+   * keyboard. `always`, the default, escalates every allowed call of
+   * `content_act` to a request of this row's own, which names each step in the
+   * user's own words. `judged` returns whatever the rest of the
+   * `tools/pre-execute` waterfall decided, so a deployment that runs a reviewer
+   * of its own in front of every tool call is asked once rather than twice —
+   * except for a call carrying `dialogs: "accept"`, which is asked here in
+   * either setting, because the request composed here is what lets the tool
+   * body answer the page's own confirmation.
+   *
+   * `judged` is an assertion about the composition that this row can only check
+   * by name: it requires `judgedBy`, and every call finds out whether a plugin
+   * of that name is mounted. It cannot check that the named plugin reviews
+   * anything, only that it is there.
+   */
+  actApproval: 'always' | 'judged'
+  /**
+   * The cordis plugin name of the reviewer this deployment routes page actions
+   * to — for a plugin the loader mounted, the value its module exports as
+   * `name`. Required with `actApproval: judged` and refused without it, both at
+   * load. A call made while no plugin of this name is mounted is refused rather
+   * than run.
+   */
+  judgedBy?: string
 }
 
 /** Default frame cache size: the current session plus the two before it. */
@@ -316,6 +341,14 @@ const DEFAULT_SETTLE_MAX_MS = 2000
  */
 const DEFAULT_SETTLE_QUIET_MS = 250
 
+/**
+ * Who asks when a deployment configures no one: this row itself. A deployment
+ * that leaves the choice out has said nothing about what else is on the
+ * waterfall, and the setting that asks is the one that is right without a
+ * reviewer.
+ */
+const DEFAULT_ACT_APPROVAL = 'always'
+
 export const Config: z<Config> = z.object({
   root: z.string().required(),
   pages: z.array(z.object({
@@ -343,6 +376,8 @@ export const Config: z<Config> = z.object({
     actTimeoutMs: z.natural().default(DEFAULT_ACT_TIMEOUT_MS),
     maxSteps: z.natural().default(DEFAULT_MAX_STEPS),
     settleMaxMs: z.natural().default(DEFAULT_SETTLE_MAX_MS),
+    actApproval: z.union([z.const('always'), z.const('judged')]).default(DEFAULT_ACT_APPROVAL),
+    judgedBy: z.string(),
   }).default(undefined as never),
 })
 
@@ -392,6 +427,34 @@ function requireAtMost(field: keyof PageAccessConfig, value: number, most: numbe
     throw new Error(`content-frame: pageAccess.${field} must be at most ${most}, received ${value}`)
   }
   return value
+}
+
+/**
+ * Resolve who asks about one allowed set of steps, at load.
+ *
+ * The two fields answer one question together, so a row that half-answers it is
+ * refused here rather than carried into a listener that would have to guess:
+ * `judged` with no reviewer named cannot check anything, and a reviewer named
+ * under `always` names something nothing reads.
+ * @param config - the deployment's page-access block.
+ * @returns what the listener decides by.
+ * @throws {Error} when only one of the two fields is set.
+ */
+function resolveActApproval(config: PageAccessConfig): ActApproval {
+  if (config.actApproval === 'always') {
+    if (config.judgedBy === undefined) return { kind: 'always' }
+    throw new Error(
+      `content-frame: pageAccess.judgedBy "${config.judgedBy}" is read only under `
+      + 'pageAccess.actApproval "judged" — set actApproval to "judged", or drop judgedBy',
+    )
+  }
+  if (config.judgedBy === undefined) {
+    throw new Error(
+      'content-frame: pageAccess.actApproval "judged" needs pageAccess.judgedBy, the cordis plugin name '
+      + 'of the reviewer this deployment routes page actions to',
+    )
+  }
+  return { kind: 'judged', judgedBy: config.judgedBy }
 }
 
 /**
@@ -449,6 +512,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
   // below the quiet window would end every step's wait before the window could
   // pass.
   const settleMaxMs = requireAtLeast('settleMaxMs', config.settleMaxMs, settleQuietMs)
+  const actApproval = resolveActApproval(config)
   // And loud at load for the three of them together: the steps of one call get
   // a share of its deadline, so a deployment whose steps could all settle to
   // the ceiling inside that share is one where a call can spend its whole
@@ -560,7 +624,7 @@ function claimPageAccess(ctx: Context, config: PageAccessConfig): ContentFrameSe
     toolCtx.tools.register(contentReadAttrsTool(wait))
     toolCtx.tools.register(contentReadDomContentTool(wait))
     toolCtx.tools.register(contentActTool(pending, actTimeouts, maxSteps, front, approvals))
-    registerActApproval(toolCtx, approvals, maxSteps)
+    registerActApproval(toolCtx, approvals, maxSteps, actApproval)
   })
   // One level in from the tools above: the picture read answers with a stored
   // attachment, so it exists only where there is a store to keep one in, and
