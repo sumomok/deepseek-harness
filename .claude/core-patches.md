@@ -32,24 +32,23 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 | `6256c16e75` | feat(ui-conversation): open a contribution seat on user messages | `slot-catalog.ts` 生成物重跑 `gen-cordis-catalog` |
 | `a0e878ee21` | feat(ui-primitives): export the ANSI line parser | 自动合并 |
 | `69054ce8ac` | fix(ui-primitives): stop silently discarding a disallowed link destination | 保留上游新增的 `anchorWrapsOnlyImages` 与 `renderSafeLink(..., glyph = true)`，只叠加回退分支；README 中英按上游新句尾为底插入我方小句后 `verify-translation-pairing --write` |
-| `97ddd81032` | fix(session-controller): a distinguishable not-found error from openWorkspacePath | 待移植 |
-| `8c93debb77` | feat(session-controller): a batch path-existence probe (probeTargets) | 待移植 |
-| `73ee25a733` | fix(ui-primitives): re-render a settled message on a referents verification tick | 待移植 |
-| `f4daa9ca2b` | test(ui-primitives): cover every linkPlainText branch | 待移植 |
-| `bc36c748b0` | test(ui-primitives): confirm a space-containing link destination survives real CommonMark parsing | 待移植 |
-| `be57190d6e` | fix(ui-chat): degrade a prose referent's not-found race to the composer's own notice | 待移植 |
-| `f54bdfacc8` `5c78d3bdf5` `495195aed4` | fix(agent-presets): 遗留 `code`→`ptc` 别名三连 | 待移植；上游 `agent-presets/src` 下 `legacy`/`alias` 仍零命中 |
+| `97ddd81032` | fix(session-controller): a distinguishable not-found error from openWorkspacePath | 自动合并 |
+| `8c93debb77` | feat(session-controller): a batch path-existence probe (probeTargets) | 自动合并；另加一条 `test(api-session-controller)` 把 `probeTargets` 补进客户端 fake 的 session 命名空间（Remote 命名空间类型要求成员齐全，v6 里这一处由已退役的 Family A 提交带入） |
+| `73ee25a733` | fix(ui-primitives): re-render a settled message on a referents verification tick | `tests/markdown.client.spec.tsx` 导入行冲突：取我方 `act`/`vi`，丢掉已退役的 `MessageText` 导入 |
+| `f4daa9ca2b` | test(ui-primitives): cover every linkPlainText branch | 自动合并 |
+| `bc36c748b0` | test(ui-primitives): confirm a space-containing link destination survives real CommonMark parsing | 自动合并 |
+| `be57190d6e` | fix(ui-chat): degrade a prose referent's not-found race to the composer's own notice | `locale.ts` 冲突：只保留 `referent.notFound` 两语言，丢掉随文件卡退役的三条 `file.*` 文案 |
+| `f54bdfacc8` `5c78d3bdf5` `495195aed4` | fix(agent-presets): 遗留 `code`→`ptc` 别名三连 | 三条都只冲突在台账文件，取新台账；上游 `agent-presets/src` 下 `legacy`/`alias` 仍零命中 |
 
 ### 改写（对着新代码重做）
 
 | 旧提交 | 标题 | 为什么要重做 |
 |---|---|---|
-| `e50c23f5fc` `26d9306242` | feat/fix(client-runtime): connection/state 粗粒度状态与三态修正 | 机制上游仍无（`packages/client/connection` 零命中），但触及 `gateway/src/client/index.ts`、`cordis-client-runner/api-catalog.ts` 与两个生成器，生成物要重跑 |
-| `63bed0e718` | feat(ui-chat,api-session-controller): file-part bubble card and the referent/open seam | **拆分**：`client/referent.ts`（`referent/open` waterfall、`ReferentRef`/`ReferentKindMap`、`dispatchReferentOpen`）与 `ui-chat/apply.ts` 接线保留重做；`FileCard`、`{kind:'file'}` 内联渲染、`loadFile`/`ISession.readFile`、事件投影 file 分支随文件族退役 |
-| `6fea5900eb` `f4f82d0304` `5ab8af0857` | feat(ui-chat,ui-primitives): proseReferents 缝 + resolveLink/subscribe + 本地路径链接目标 | 上游零命中，机制保留；`markdown/render.tsx` 与上游 `anchorWrapsOnlyImages`/`glyph` 改动同处 |
-| `dba41ca834` | fix(ui-chat,api-session-controller): route dispatchReferentOpen through an injected ctx.referent service | 依赖 `63bed0e718` 保留的那一半 |
-| `0ab9760264` | test(ui-chat,session-query): cover the file-attachment and referent seams | **拆分**：referent 部分随上条重做，文件部分退役 |
-| `f13efcd83b` `84676f680a` `fa7d5afc65` `4f3e1b462d` | feat/fix/patch(session-log-export): 页面内导出进度、两趟测量陈述、不可读媒体记录 | 上游把 `session-log-export/src/archive.ts` 改了 176 行（配合通用文件与格式代次），我方在同一文件改了 287 行 |
+| `e50c23f5fc` `26d9306242` | feat/fix(client-runtime): connection/state 粗粒度状态与三态修正 | 机制上游仍无（`packages/client/connection` 零命中）。两条都自动合并干净，生成器重跑后零改动 |
+| `63bed0e718` + `dba41ca834` | feat(ui-chat,api-session-controller): file-part bubble card and the referent/open seam（+ 走 ctx.referent 的后续修正） | **拆分后合成一条新提交** `feat(api-session-controller): a referent/open interception seam for reference clicks`：直接落最终形态（`client/referent.ts` 的 `referent/open` waterfall + `ReferentRef`/`ReferentKindMap` + `dispatchReferentOpen` + `ClientReferent`/`ctx.referent`、client `index.ts` 注册与导出、`referent.client.spec.ts`、`test-support/client-runtime` 挂载真服务、`gen-cordis-catalog` 的服务/事件豁免行、session-controller README 双语段落）。`FileCard`、`{kind:'file'}` 内联渲染、`loadFile`/`ISession.readFile`、事件投影 file 分支、`ui-trajectory` 与 `attachment-labels` 的文件文案随文件族退役 |
+| `6fea5900eb` `f4f82d0304` `5ab8af0857` | feat(ui-chat,ui-primitives): proseReferents 缝 + resolveLink/subscribe + 本地路径链接目标 | 上游零命中，机制保留。`6fea5900eb` 十处冲突：`slots.ts`/`ChatView`/`ChatNodeSeat`/`AssistantMarkdown`/`AssistantNodeView`/`ui-primitives/src/index.ts` 一律取我方侧再删掉 `loadFile`/`openReferent`/`FileAttachmentRef`/`MessageText` 这些文件族成员；`apply.ts` 取我方的 `buildProseReferents` 接线与 `openFile` 包裹，注释里删掉"file card below"一句；`slot-catalog.ts` 与 `workflow-run.client.spec.tsx` 走生成器重跑与 `referents: undefined` 一行。`5ab8af0857` 与上游的 `anchorWrapsOnlyImages`/`glyph` 同处：保留上游第四实参，只在前面插本地路径分支。`OpenReferent` 类型随其唯一消费者（文件卡）退役 |
+| `0ab9760264` | test(ui-chat,session-query): cover the file-attachment and referent seams | **拆分**：保留 `dir` referent 与 composer 提示的 session-died 竞态两条；删掉 `loadFile`/`openReferent` 两条与 `session-query/search-helpers.spec.ts` 的 file 内容块断言（上游 `extraction.ts` 不索引文件名） |
+| `f13efcd83b` `84676f680a` `fa7d5afc65` `4f3e1b462d` | feat/fix/patch(session-log-export): 页面内导出进度、两趟测量陈述、不可读媒体记录 | 上游把 `archive.ts` 改了 176 行（配合通用文件与格式代次），我方在同一文件改了 287 行，`archive.ts` **整体对着上游新版重写**：从上游的 `sessionLogZipEntries` 里抽出 `sessionLogTextEntries`，同时填 `media` 与 `files` 两张去重表（上游新增的通用文件），`sessionLogZipEntries` 变成"日志 → 图片 → 文件"三段；`measureSessionLogZip` 按 `ImageAttachmentRef.bytes` 与 `FileAttachmentRef.bytes` 计量两类附件，`wireRatio` 的"媒体"措辞改为"附件"；`mediaEntry`/`unreadableMediaEntry` 只覆盖图片（上游的通用文件走流式分块，失败仍会撕裂流——本轮不扩大范围）。测试断言里三处写死的 `session.jsonl` 改用 `exportLogName`/`subagentLogName`（上游 `SESSION_LOG_FILENAME` 现为 `session.v2.jsonl`）。`Dialog.tsx` 原先从 ui-primitives 取 `attachmentSizeText`，该文件随 composer 族退役，改为包内自有的 `client/byte-size.ts::byteSizeText` 并带上单测与 `tsconfig.client.json` 文件登记 |
 
 ### 退役（上游已实现同功能）
 
@@ -86,3 +85,9 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - 真实会话 `session-9ca7767d-…`（v0，`agentPreset:"code"`）与 `session-a6d7c058-…`（v0，`agentPreset:"ptc"`）只读拷贝后用新树读回：两者 `header.version` 读作 `2`，事件 29 / 906 条、seq 密集无洞；原 `session.jsonl.zstd` 逐字节未变，只在同目录新增 `session.v2.jsonl.zstd`；同目录未打开的两个会话零新增文件（`list()` 只读头、不迁移）。
 - 事件数对账：旧线 `core-patches-v6` 读同一份拷贝得 608 / 219417 条（含 579 / 218511 条 `assistant/chunk`），减去 chunk 后恰为 29 / 906，与新线读回数逐一相等，非 chunk 事件逐类型计数两边完全相同。
 - 服务端：`DSH_HOME` 指向 `~/.dsh.backup-2026-09-02-before-rc27` 的 scratch 副本（121 份 v0 日志），新树 `dsh web --no-open --port 0` 起服务后 `POST /api/session/list` 返回 67 条；旧线同一份副本另起服务端同为 67 条且 sessionId 集合完全相同（缺席的 54 个全在 `_no-cwd` 下，是既有的列表策略）。新线额外为 21 个会话填出了标题。服务端跑完 121 个文件 sha256 全部未变、零新增。
+
+**本轮新增的两条适配提交**：
+1. `test(api-session-controller): bind probeTargets on the client fake's session namespace` —— `probeTargets` 在 v6 里由已退役的 Family A 提交补进 `tests/fake-api.client.ts`；Remote 命名空间类型要求成员齐全，缺它客户端面不编译。
+2. `fix(ui-chat): reach referent/open through ctx.referent and stamp the v2 stream on a fixture` —— 客户端 bundle purity 禁止 `packages/client/*` 直接值导入别的插件运行时导出，`dispatchReferentOpen` 是真正的跨插件调用，改走注入的 `ctx.referent`（等价于 v6 的 `dba41ca834`，本轮在构建门禁上复现）；同一提交给 `apps/web/tests/navigation-panes.e2e.ts` 的 `assistant/message` 夹具补上 format v2 要求的 `stream` 成员。
+
+**分支 HEAD 登记**：起点 `upstream/master` = `d347e70390`（`core-patches-v7` 由 `reset --hard` 从此重建，该分支从未推过 origin）。

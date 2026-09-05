@@ -16,6 +16,7 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, onTes
 import { parseSessionLog } from '@deepseek-ai/dsh-llm-replay'
 import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import { SESSION_FORMAT_VERSION, Session, SessionId } from '@deepseek-ai/dsh-session'
+import { sessionFormatLogFilename } from '@deepseek-ai/dsh-session-format'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-title'
 import {
@@ -47,6 +48,9 @@ const PROMPT_TURN2 = 'Reply in markdown with: a level-2 heading "Navigation Summ
 // reference to an object that does not exist.
 const MEDIA_SEED_ID = 'navigation-panes-unreadable-media-web-e2e'
 const MISSING_ATTACHMENT_ID = `sha256:${'0'.repeat(64)}`
+/** The archive's log basename for the generation this build writes. */
+const EXPORT_LOG_NAME = sessionFormatLogFilename(SESSION_FORMAT_VERSION)
+
 const MEDIA_ENTRY = `media/${MISSING_ATTACHMENT_ID}.png.error.txt`
 const MEDIA_MARKER = 'MISSINGMEDIA'
 const MEDIA_DONE = 'MISSING_MEDIA_DONE'
@@ -96,6 +100,8 @@ function unreadableMediaFixture(): string {
       version: SESSION_FORMAT_VERSION,
       id: '{{sessionId}}',
       createdAt: 0,
+      isSeeded: false,
+      delegationDepth: 0,
       cwd: '{{cwd}}',
     }),
     ...session.snapshotEvents().map(event => JSON.stringify({
@@ -626,7 +632,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     await dialog.waitFor({ timeout: 30_000 })
 
     const files = unzipSync(await readFile(await download.path()))
-    expect(Object.keys(files).sort()).toEqual([MEDIA_ENTRY, 'session.jsonl'])
+    expect(Object.keys(files).sort()).toEqual([MEDIA_ENTRY, EXPORT_LOG_NAME])
     const record = strFromU8(files[MEDIA_ENTRY] as Uint8Array)
     expect(record).toContain(`attachmentId: ${MISSING_ATTACHMENT_ID}`)
     expect(record).toContain('mediaType: image/png')
@@ -634,7 +640,7 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
     // named by a well-formed reference is not on disk.
     expect(record).toContain('code: ATTACHMENT_NOT_FOUND')
     expect(record).toContain('reason: Attachment object is missing.')
-    const log = strFromU8(files['session.jsonl'] as Uint8Array)
+    const log = strFromU8(files[EXPORT_LOG_NAME] as Uint8Array)
     expect(log.split('\n')[0]).toContain(MEDIA_SEED_ID)
     expect(log).toContain(MEDIA_DONE)
     await dialog.getByText('Close', { exact: true }).click()
