@@ -80,7 +80,7 @@ describe('SessionLogDownloadDialog', () => {
     const bar = b.view.getByRole('progressbar', { name: 'Export progress' })
     expect(bar.getAttribute('aria-valuenow')).toBeNull()
     expect(bar.firstElementChild?.getAttribute('style')).toBeNull()
-    expect(dialog.textContent).toContain('Exported 0 B')
+    expect(dialog.textContent).toContain('Exported 0B')
   })
 
   it('keeps a single-entry archive indeterminate when the host announced no wire estimate', async () => {
@@ -92,7 +92,7 @@ describe('SessionLogDownloadDialog', () => {
     const dialog = await b.view.findByRole('dialog', { name: 'Exporting Session' })
     // The entry count never reaches the panel: with one entry it would read
     // 0/1 for the whole transfer.
-    expect(dialog.textContent).toContain('Exported 40 KB')
+    expect(dialog.textContent).toContain('Exported 40KB')
     expect(dialog.textContent).not.toContain('0/1')
     expect(b.view.getByRole('progressbar').getAttribute('aria-valuenow')).toBeNull()
   })
@@ -104,7 +104,7 @@ describe('SessionLogDownloadDialog', () => {
     })
 
     const dialog = await b.view.findByRole('dialog', { name: 'Exporting Session' })
-    expect(dialog.textContent).toContain('Exported 1 KB')
+    expect(dialog.textContent).toContain('Exported 1.0KB')
     expect(dialog.textContent).not.toContain('2/4')
     const bar = b.view.getByRole('progressbar')
     expect(bar.getAttribute('aria-valuenow')).toBe('50')
@@ -139,7 +139,7 @@ describe('SessionLogDownloadDialog', () => {
 
     const dialog = await b.view.findByRole('dialog', { name: 'Export complete' })
     expect(dialog.textContent).toContain('Handed to the browser to save.')
-    expect(dialog.textContent).toContain('Exported 2 KB')
+    expect(dialog.textContent).toContain('Exported 2.0KB')
     expect(b.view.getByRole('progressbar').getAttribute('aria-valuenow')).toBe('100')
   })
 

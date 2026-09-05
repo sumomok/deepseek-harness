@@ -7,7 +7,6 @@
   },
   "files": [
     "src/client/Dialog.tsx",
-    "src/client/byte-size.ts",
     "src/client/HeaderAction.tsx",
     "src/client/controller.ts",
     "src/client/index.ts",
