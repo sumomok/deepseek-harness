@@ -863,7 +863,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/server-sidebar/src/index.ts:51`](../packages/experimental/server-sidebar/src/index.ts)
+Source: [`packages/experimental/server-sidebar/src/index.ts:53`](../packages/experimental/server-sidebar/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

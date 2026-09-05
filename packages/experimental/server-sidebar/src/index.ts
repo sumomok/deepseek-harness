@@ -28,12 +28,14 @@ import type {} from '@deepseek-ai/dsh-settings'
 import { answerJson, readBoundedText, rejectCrossSite, rejectMethod, rejectNonJson } from './http.ts'
 import { SERVER_IDENTITY_ROUTE, SERVER_MENU_ROUTE, type ServerIdentitySettings } from './route.ts'
 import {
-  SERVER_SIDEBAR_NAMESPACE, ServerMenuSettingsSchema, validateServerMenu, type ServerMenuWorkflow,
+  SERVER_SIDEBAR_NAMESPACE, ServerMenuSettingsSchema, validateServerMenu,
+  type ServerMenuGroup, type ServerMenuWorkflow,
 } from './workflows.ts'
 
 export { SERVER_IDENTITY_ROUTE, SERVER_MENU_ROUTE, type ServerIdentitySettings } from './route.ts'
+export { MAX_GROUP_NAME_LENGTH, TEMPORARY_GROUP_ID } from './menu-constants.ts'
 export {
-  NAV_SNAPSHOT_CONVERTER, SERVER_SIDEBAR_NAMESPACE, ServerMenuSettingsSchema, TEMPORARY_GROUP_ID,
+  NAV_SNAPSHOT_CONVERTER, SERVER_SIDEBAR_NAMESPACE, ServerMenuSettingsSchema,
   legacyNavSnapshotMessage,
   type NavSnapshotItem, type NavSnapshotKind, type ServerMenuGroup, type ServerMenuSettings,
   type ServerMenuWorkflow,
@@ -104,22 +106,35 @@ function renderThrown(value: unknown): string {
   return value instanceof Error ? value.message : String(value)
 }
 
+/** The fields one server-menu patch may carry; each array field is a whole-value replacement. */
+type ServerMenuPatchBody = Partial<{
+  workflows: ServerMenuWorkflow[]
+  groups: ServerMenuGroup[]
+  workbenchSessionId: string
+}>
+
 /**
  * Narrow a decoded POST body to the patch shape the route accepts: any
- * subset of `{ workflows, workbenchSessionId }`.
+ * non-empty subset of `{ workflows, groups, workbenchSessionId }`. Element
+ * shapes are left to the schema and to `validateServerMenu` — this check only
+ * decides which keys the merge carries and that each names a type the merge
+ * can hold.
  * @param body - the decoded JSON body.
- * @returns the patch to merge, or `undefined` when the body carries neither
- * key with a usable type.
+ * @returns the patch to merge, or `undefined` when the body names none of the
+ * three keys, or names one with a type the merge cannot hold.
  */
-function readPatch(body: unknown): Partial<{ workflows: ServerMenuWorkflow[]; workbenchSessionId: string }> | undefined {
+function readPatch(body: unknown): ServerMenuPatchBody | undefined {
   if (!isPlainObject(body)) return undefined
   const hasWorkflows = 'workflows' in body
+  const hasGroups = 'groups' in body
   const hasWorkbenchSessionId = 'workbenchSessionId' in body
-  if (!hasWorkflows && !hasWorkbenchSessionId) return undefined
+  if (!hasWorkflows && !hasGroups && !hasWorkbenchSessionId) return undefined
   if (hasWorkflows && !Array.isArray(body.workflows)) return undefined
+  if (hasGroups && !Array.isArray(body.groups)) return undefined
   if (hasWorkbenchSessionId && typeof body.workbenchSessionId !== 'string') return undefined
-  const patch: Partial<{ workflows: ServerMenuWorkflow[]; workbenchSessionId: string }> = {}
+  const patch: ServerMenuPatchBody = {}
   if (hasWorkflows) patch.workflows = body.workflows as ServerMenuWorkflow[]
+  if (hasGroups) patch.groups = body.groups as ServerMenuGroup[]
   if (hasWorkbenchSessionId) patch.workbenchSessionId = body.workbenchSessionId as string
   return patch
 }
@@ -194,7 +209,7 @@ export function apply(ctx: Context, config: Config): void {
         const patch = readPatch(decodeJson(text))
         if (patch === undefined) {
           answerJson(res, 400, {
-            error: 'server-sidebar: expected a JSON body shaped { workflows?: [...], workbenchSessionId?: string }',
+            error: 'server-sidebar: expected a JSON body shaped { workflows?: [...], groups?: [...], workbenchSessionId?: string }',
           })
           return
         }
@@ -202,8 +217,10 @@ export function apply(ctx: Context, config: Config): void {
           // A merge, not a wholesale replace: a caller changing only
           // `workbenchSessionId` never has to resend the current workflow
           // list, and vice versa (settings/index.ts's `update` validates the
-          // resolved, merged candidate — the duplicate-id invariant still
-          // sees the complete post-merge workflow list either way).
+          // resolved, merged candidate — the duplicate-id and group-reference
+          // constraints still see the complete post-merge document either
+          // way, so a groups-only patch that would orphan a workflow's
+          // `groupId` is refused here rather than persisting).
           await scope.update(patch)
         } catch (error: unknown) {
           answerJson(res, 400, { error: `server-sidebar: ${renderThrown(error)}` })

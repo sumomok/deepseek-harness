@@ -865,7 +865,7 @@ export interface Config {
 }
 ```
 
-来源：[`packages/experimental/server-sidebar/src/index.ts:51`](../packages/experimental/server-sidebar/src/index.ts)
+来源：[`packages/experimental/server-sidebar/src/index.ts:53`](../packages/experimental/server-sidebar/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 

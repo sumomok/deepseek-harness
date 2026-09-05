@@ -24,7 +24,7 @@ Status: implemented
 | ② 去术语化 | 四条禁用行（`ui-workspace`、`ui-cordis`\*、`ui-trajectory`、`ui-model-selection`、`session-log-download`）加一条针对轮次/步骤行的 CSS 注入兜底（`terminology-guard.ts`），因为它没有 Config 开关 |
 | ③ 有条件的存为工作流 | `SaveWorkflowAction` 在 `useSession(s => s.chat.legacy.nodes)` 里找不到 `kind === 'user'` 的节点时渲染 `null` |
 | ④ 未读提示 | 原样复用 `SessionSummary.completed`——没有新记账 |
-| ⑤ 导航按配置顺序、工作流按拖拽顺序 | `NavGroup` 按给定的 `pages` 顺序渲染；`WorkflowGroup` 按用户可改的 `order` 字段排序，经原生 HTML5 拖拽（`reordered()`）重新排序 |
+| ⑤ 导航按配置顺序、工作流按拖拽顺序 | `NavGroup` 按给定的 `pages` 顺序渲染；`WorkflowGroup` 按用户可改的 `order` 字段排序，经原生 HTML5 拖拽（`reorderWithinGroup()`）重新排序 |
 | ⑥ 一条工作流绑一个对话（v1） | `ServerMenuWorkflow.homeSessionId` 是单个字段，不是一个列表 |
 | ⑦ 恢复只补齐缺失部分 | 存活的 `homeSessionId` 重新打开时不触碰任何内容；只有降级（已失效）的那种才会重放任何东西，且重放进的是一个从空白开始的会话 |
 | ⑧ 降级为一个全新对话 | `openWorkflow`/`openWorkbench` 在记录的 id 不再存活时，针对最近使用的工作区创建一个会话并重放 `navSnapshot` |
@@ -33,7 +33,7 @@ Status: implemented
 
 **「存为工作流」坐落在 `conversation.session.header.actions`，而不是侧边栏上的一个控件。** `dsh-client-ui-conversation` 已经为会话级、偶发动作声明了这个可叠加的列表槽（`ui-jobs` 的后台任务条目就是现成的先例）；一旦找到匹配的官方席位，再引入第二种交互模式（侧边栏「+」按钮，原始任务书把它作为备选方案提出）就没有正当理由了。这个注册与侧边栏自己的注册在同一个 `apply()` 里，通过一个普通变量（`sidebarActions`）闭包共享——侧边栏自己一旦挂载就会设置它：两个注册的 scope key 不同（root 对 session），store 框架永远不会在它们之间共享同一个实例，一个模块级的共享闭包是能让一条刚保存的工作流不刷新页面就进入侧边栏自己响应式列表的最小修法。
 
-**后续一次产品修正为同一套机制加了四项改进，起因是实际使用暴露出原始八项决策没有覆盖到的缺口。** 工作台点击与侧边栏自己加载态的自动落位现在分叉了：点击始终落到一个空白对话上（`openWorkbenchOnClick`，额外加上 `SessionSummary.blank` 的判断），而加载态的自动落位保留连续性语义（`openWorkbenchOnLoad`，只判断存活）——两者共用 `workflow-actions.ts` 里同一套 `openOrCreateWorkbench` 机制。工作台与工作流列表各自在其绑定会话是 `useSessions` 的 `current` 时画出 `data-active` 状态；工作流的绑定始终优先于工作台，因此一个同时被两者指名的会话，绝不会同时点亮两行。重新排序从上移/下移按钮改为原生 HTML5 拖拽，取代了下文记录的那次临时降级：`reordered()` 把每一条工作流的 `order` 字段重写为拖放后的显示位置（0..n-1）。而加载态的自动落位不再把它的一次性尝试机会，浪费在一个尚未就绪的工作区基线上：这次尝试此前会在 `phase === 'ready' && current === undefined` 第一次成立时无条件触发，这一刻可能恰好落在 `recentWorkspaceId` 解析完成之前的短暂窗口内——`resolveOrCreateSession` 此时没有工作区可供创建，只能报警并回答 `undefined`，而一次性守卫已经被消费掉，此后工作台就需要手动点击才能打开。这道守卫现在会一直保留、直到出现一个存活的已记录会话（完全不需要工作区），或者一个已解析的 `recentWorkspaceId`，才会去消费它。
+**后续一次产品修正为同一套机制加了四项改进，起因是实际使用暴露出原始八项决策没有覆盖到的缺口。** 工作台点击与侧边栏自己加载态的自动落位现在分叉了：点击始终落到一个空白对话上（`openWorkbenchOnClick`，额外加上 `SessionSummary.blank` 的判断），而加载态的自动落位保留连续性语义（`openWorkbenchOnLoad`，只判断存活）——两者共用 `workflow-actions.ts` 里同一套 `openOrCreateWorkbench` 机制。工作台与工作流列表各自在其绑定会话是 `useSessions` 的 `current` 时画出 `data-active` 状态；工作流的绑定始终优先于工作台，因此一个同时被两者指名的会话，绝不会同时点亮两行。重新排序从上移/下移按钮改为原生 HTML5 拖拽，取代了下文记录的那次临时降级：`reorderWithinGroup()` 把目标车道下一序列里点名的每一行的 `order` 字段，重写为拖放后的显示位置（0..n-1）。而加载态的自动落位不再把它的一次性尝试机会，浪费在一个尚未就绪的工作区基线上：这次尝试此前会在 `phase === 'ready' && current === undefined` 第一次成立时无条件触发，这一刻可能恰好落在 `recentWorkspaceId` 解析完成之前的短暂窗口内——`resolveOrCreateSession` 此时没有工作区可供创建，只能报警并回答 `undefined`，而一次性守卫已经被消费掉，此后工作台就需要手动点击才能打开。这道守卫现在会一直保留、直到出现一个存活的已记录会话（完全不需要工作区），或者一个已解析的 `recentWorkspaceId`，才会去消费它。
 
 **第三次产品修正加了一个可配置首页、在 content 栏没内容时把它收起、并隐藏了一条导航命令自己的聊天回显。** `dsh-experimental-content-frame` 的可选 `homePage` 配置只在一次干净的工作台点击上自动展示（见 README 的「工作台」/「导航」）；`dsh-experimental-server-layout` 的 `ShellFrame` 则单独在当前会话的 contentSurface 投影为空时把 content 栏收到零宽（给 `solveTracks` 加了第四个输入 `contentEmpty`，与 `detailsOpen` 对称）——本包里一次没配首页的空白工作台点击,正是让这个空内容场景可达的原因；content-frame 还隐藏了 `show-content-page` 自己多余的「Now showing …」聊天行（一个空的 `conversation.chat.commandview` 注册加一条收起用的 CSS 规则），同时它持久化的命令生命周期依然完整落在日志上。这三处都是各自独立提交的，此前都没有 Agent Note。
 

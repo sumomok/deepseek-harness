@@ -8,9 +8,10 @@
  */
 import { describe, expect, it } from 'vitest'
 import {
-  NAV_SNAPSHOT_CONVERTER, ServerMenuSettingsSchema, TEMPORARY_GROUP_ID,
+  NAV_SNAPSHOT_CONVERTER, ServerMenuSettingsSchema,
   legacyNavSnapshotMessage, validateServerMenu, type ServerMenuSettings,
 } from '../src/workflows.ts'
+import { TEMPORARY_GROUP_ID } from '../src/menu-constants.ts'
 import { convertSettingsText } from '../src/nav-snapshot-migration.ts'
 
 /** One workflow carrying every required field, for the fields a case is not about. */
@@ -91,8 +92,9 @@ describe('the group format', () => {
     expect(check({ groups: [group()], workflows: [workflow({ groupId: 'g1' })] })).not.toThrow()
   })
 
-  it('accepts a workflow filed under the reserved temporary group, which is never stored', () => {
-    expect(check({ workflows: [workflow({ groupId: TEMPORARY_GROUP_ID })] })).not.toThrow()
+  it('refuses a workflow filed under the reserved temporary group, which no document defines', () => {
+    expect(check({ workflows: [workflow({ groupId: TEMPORARY_GROUP_ID })] }))
+      .toThrow(`workflow "w1" names group "${TEMPORARY_GROUP_ID}", which no group defines`)
   })
 
   it('refuses a stored group claiming the reserved id', () => {

@@ -114,8 +114,15 @@ interface LocalWorkflow {
   navSnapshot: LocalNavStop[]
   savedAt: number
 }
+interface LocalGroup {
+  id: string
+  name: string
+  pinned: boolean
+  order: number
+}
 interface LocalServerMenu {
-  workflows: LocalWorkflow[]
+  workflows: (LocalWorkflow & { groupId?: string })[]
+  groups: LocalGroup[]
   workbenchSessionId?: string
 }
 
@@ -332,8 +339,10 @@ describe('web e2e: the product-console sidebar', () => {
     await expect(navSection(page).getByRole('button', { name: 'Weekly reports' }).isVisible()).resolves.toBe(true)
     await expect(workflowsSection(page).getByText('My Workflows').isVisible()).resolves.toBe(true)
     await expect(workflowsSection(page).getByRole('button', { name: /Ghost Workflow/ }).isVisible()).resolves.toBe(true)
-    // No fold/collapse rail control survives decision ①.
-    expect(await page.getByRole('button', { name: /collapse|Open the pages/i }).count()).toBe(0)
+    // No fold/collapse rail control survives decision ①. Named exactly: this
+    // shell's own group and temporary sections carry their own 收起/展开
+    // carets, which are section folds, not the removed column rail.
+    expect(await page.getByRole('button', { name: /collapse sidebar|Open the pages/i }).count()).toBe(0)
 
     // Scoped to this package's own chrome: decision ②'s banned-word list is
     // this package's obligation for its own copy, not a system-wide audit of
@@ -618,6 +627,163 @@ describe('web e2e: the product-console sidebar', () => {
     ).toBe(0)
     expect(readServerMenu(scaffold).workflows.find(w => w.name === 'Ghost Workflow')?.order).toBe(1)
   }, 30_000)
+
+  it('files a workflow under a group the visitor names, pins that group, and remembers the fold across a reload', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-groups'))
+    const section = workflowsSection(page)
+    await section.getByRole('button', { name: 'New group' }).click()
+    const nameField = section.getByRole('textbox')
+    await nameField.fill('Reports')
+    await nameField.press('Enter')
+    await expect.poll(() => readServerMenu(scaffold).groups.map(g => g.name), { timeout: 10_000 }).toEqual(['Reports'])
+    const groupId = readServerMenu(scaffold).groups[0]!.id
+
+    // Move a row in through its own 移动到… menu rather than by dragging:
+    // HTML5 drag-and-drop has no touch equivalent, so this is the path touch
+    // has (see the package README).
+    const ghostRow = section.locator('li').filter({ hasText: 'Ghost Workflow' })
+    await ghostRow.hover()
+    await ghostRow.getByRole('button', { name: 'Move to…' }).click()
+    await page.getByRole('menuitem', { name: 'Reports' }).click()
+    await expect.poll(
+      () => readServerMenu(scaffold).workflows.find(w => w.name === 'Ghost Workflow')?.groupId,
+      { timeout: 10_000 },
+    ).toBe(groupId)
+    // The other workflow stayed where it was: a move is not a re-file of the list.
+    expect(readServerMenu(scaffold).workflows.find(w => w.name === 'My Workflow')?.groupId).toBeUndefined()
+
+    // The row's controls are revealed by a hover on the row OR by the focus
+    // being inside it, so focusing its own always-drawn name button brings
+    // them up and the next Tab walks into them. That is as far as the
+    // keyboard goes here — the list this trigger opens is portaled past every
+    // other focusable element on the page, which the package README records
+    // as a limitation rather than a path.
+    await page.mouse.move(5, 5)
+    await ghostRow.getByRole('button', { name: /Ghost Workflow/ }).focus()
+    await expect(ghostRow.getByRole('button', { name: 'Move to…' }).isVisible()).resolves.toBe(true)
+    await page.keyboard.press('Tab')
+    await expect(page.evaluate(() => document.activeElement?.getAttribute('aria-label')))
+      .resolves.toBe('Move to…')
+
+    const laneHead = section.locator('[class*="laneHead"]').filter({ hasText: 'Reports' })
+    await laneHead.hover()
+    await laneHead.getByRole('button', { name: 'Pin to top' }).click()
+    await expect.poll(() => readServerMenu(scaffold).groups[0]?.pinned, { timeout: 10_000 }).toBe(true)
+    await expect(laneHead.getByRole('img', { name: 'Pinned' }).isVisible()).resolves.toBe(true)
+    // The pinned lane sorts ahead of the ungrouped rows it now precedes.
+    const lanes = section.locator('[class*="lane"][data-pinned]')
+    await expect(lanes.first().getAttribute('data-pinned')).resolves.toBe('true')
+    await evidence(page, 'web-e2e-server-sidebar-group-pinned')
+
+    await laneHead.getByRole('button', { name: 'Collapse' }).click()
+    await expect.poll(() => ghostRow.count(), { timeout: 10_000 }).toBe(0)
+
+    // The fold is a browser-local preference (`dsh.server-sidebar.view.v1`),
+    // so it survives a reload without any write to the deployment's document.
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await sidebar(page).waitFor({ timeout: 15_000 })
+    await laneHead.waitFor({ timeout: 15_000 })
+    expect(await section.locator('li').filter({ hasText: 'Ghost Workflow' }).count()).toBe(0)
+    await expect(laneHead.getByRole('button', { name: 'Expand' }).isVisible()).resolves.toBe(true)
+    await evidence(page, 'web-e2e-server-sidebar-group-folded')
+  }, 90_000)
+
+  it('lists a displaced draft under the temporary section and takes it off the list on a confirmed removal', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-temporary'))
+    // Make the current workbench draft unreusable, then click the workbench:
+    // clean-draft semantics mint a fresh conversation and leave this one with
+    // no row of its own anywhere else in the shell, which is exactly what the
+    // temporary section is for.
+    const displaced = workbenchSessionId
+    seedClosedTurn(scaffold, displaced)
+    const warningStart = tripwire.warnings.length
+    await page.reload({ waitUntil: 'load' })
+    acknowledgeReloadConnectionLoss(tripwire, warningStart)
+    await sidebar(page).waitFor({ timeout: 15_000 })
+    await workbenchButton(page).click()
+    await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBe(displaced)
+    workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
+
+    const temporary = sidebar(page).locator('[data-server-sidebar-section="temporary"]')
+    await expect(temporary.getByText('Temporary workflows').isVisible()).resolves.toBe(true)
+    await expect.poll(() => temporary.locator('li').count(), { timeout: 15_000 }).toBe(1)
+    const row = temporary.locator('li').first()
+    // The conversation's own durable title, plus how long ago it changed.
+    // Nothing else: the session list's `displayTitle` falls back to the
+    // Workspace directory's basename and then to the bare id — the first is
+    // banned vocabulary, and the second is not something a banned-word check
+    // can catch, so both are asserted absent below. (A conversation with no
+    // durable title shows the section's fixed copy instead; that branch is
+    // pinned by the package's own unit coverage.)
+    await expect(row.getByText('Build the weekly report page.').isVisible()).resolves.toBe(true)
+    await expect(row.getByText('Just now').isVisible()).resolves.toBe(true)
+    const temporaryText = await temporary.innerText()
+    for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /会话/, /新会话/]) {
+      expect(temporaryText, `banned text matched ${banned}`).not.toMatch(banned)
+    }
+    expect(temporaryText).not.toContain('server-sidebar-workspace')
+    expect(temporaryText).not.toContain(displaced)
+    await evidence(page, 'web-e2e-server-sidebar-temporary')
+
+    await row.hover()
+    // A double click cannot archive by accident: the armed row opens 确定移出
+    // to the left and puts 取消 exactly where the 移出列表 icon was, so the
+    // second press of a double click disarms the row instead of committing it.
+    await row.getByRole('button', { name: 'Remove from list' }).dblclick()
+    await expect.poll(() => row.getByRole('button', { name: 'Confirm removal' }).count(), { timeout: 10_000 }).toBe(0)
+    expect(await temporary.locator('li').count()).toBe(1)
+
+    // Open it before taking it off the list, so the row being removed is the
+    // conversation on screen — the case that decides where the shell rests
+    // afterwards.
+    await row.getByRole('button', { name: /Build the weekly report page/ }).click()
+    await page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await expect(row.getByRole('button', { name: /Build the weekly report page/ }).getAttribute('data-active'))
+      .resolves.toBe('true')
+
+    await row.hover()
+    await row.getByRole('button', { name: 'Remove from list' }).click()
+    // One click arms, a second commits: archiving is one-way from inside this
+    // console (see the package README's Known Limitations).
+    await expect(row.getByRole('button', { name: 'Confirm removal' }).isVisible()).resolves.toBe(true)
+    await evidence(page, 'web-e2e-server-sidebar-temporary-confirm')
+    await row.getByRole('button', { name: 'Confirm removal' }).click()
+    await expect.poll(() => temporary.locator('li').count(), { timeout: 15_000 }).toBe(0)
+    await expect(temporary.getByText('Nothing temporary right now').isVisible()).resolves.toBe(true)
+    // Archived, not deleted: the conversation's own agent is still live on the host.
+    expect(scaffold.ctx.agents.get(SessionId(displaced))).toBeDefined()
+
+    // The console rests on a conversation rather than on nothing: archiving
+    // the open one clears the selection, and the sidebar's own load-time
+    // landing is a one-shot, so the dismissal lands on 工作台 itself. The
+    // recorded workbench conversation is still live, so it is reopened rather
+    // than re-created.
+    await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    expect(await page.locator('[data-phase="inert"]').count()).toBe(0)
+    await expect(workbenchButton(page).getAttribute('data-active')).resolves.toBe('true')
+    expect(readServerMenu(scaffold).workbenchSessionId).toBe(workbenchSessionId)
+    // The state a dismissal leaves behind is the one that used to read
+    // "Choose a workspace to start", so the whole page is screened here, not
+    // just this package's own column — minus the composer card's own dock,
+    // whose permission-preset chip ("Workspace Write") is a pre-existing leak
+    // of the shipped composer, not something a dismissal produces; the
+    // terminology guard's next change hides that chip and widens this screen
+    // back to the whole body.
+    const composerDockText = await page.locator('[data-composer-card]').innerText()
+    const landedText = (await page.locator('body').innerText()).replace(composerDockText, '')
+    for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /会话/, /新会话/]) {
+      expect(landedText, `banned text matched ${banned}`).not.toMatch(banned)
+    }
+    await evidence(page, 'web-e2e-server-sidebar-temporary-landed')
+
+    // Leave the page on an established conversation, the state the remaining
+    // assertions in this block read.
+    await workflowsSection(page).getByRole('button', { name: /My Workflow/ }).click()
+    await page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
+  }, 120_000)
 
   it('leaves the Chat/Trajectory tab switcher and the model selector out of the customer-form composition', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-de-terminology'))

@@ -16,6 +16,7 @@
 import z from '@deepseek-ai/schemastery'
 import { settingsNamespace } from '@deepseek-ai/dsh-settings'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
+import { MAX_GROUP_NAME_LENGTH, TEMPORARY_GROUP_ID } from './menu-constants.ts'
 
 /** Settings namespace this package owns. */
 export const SERVER_SIDEBAR_NAMESPACE: SettingsNamespace = settingsNamespace('server-sidebar')
@@ -93,25 +94,6 @@ const NavSnapshotItemSchema: z<NavSnapshotItem> = z.transform(
 )
 
 /**
- * Group id the sidebar reserves for the conversations a user never named:
- * the one group nobody creates, renames, or deletes, and therefore the one
- * group that is never stored in {@link ServerMenuSettings.groups}. A
- * workflow's `groupId` naming it resolves against this constant instead (see
- * {@link validateServerMenu}), and its label comes from the `serverSidebar`
- * dictionary rather than from a stored `name`.
- *
- * Not a UUID, so a group a user creates cannot collide with it; a stored
- * group claiming it is refused rather than allowed to shadow it.
- *
- * Nothing renders groups yet — this is the durable half landing one format
- * change ahead of the interface that reads it (see the package README).
- */
-export const TEMPORARY_GROUP_ID = 'temporary'
-
-/** Longest a user-typed group name may be, in UTF-16 code units. */
-const MAX_GROUP_NAME_LENGTH = 40
-
-/**
  * One group: a user-named folder over their own workflows. Groups sort by
  * `pinned` first, then `order`; a workflow files itself into one by naming
  * its {@link ServerMenuGroup.id}, and a workflow naming none is ungrouped.
@@ -159,8 +141,8 @@ export interface ServerMenuWorkflow {
   savedAt: number
   /**
    * The group this workflow is filed under: a stored {@link ServerMenuGroup}'s
-   * id, or {@link TEMPORARY_GROUP_ID}. Absent means ungrouped, which is what
-   * every workflow saved so far is.
+   * id, and nothing else. Absent means ungrouped, which is what every
+   * workflow saved so far is.
    */
   groupId?: string
 }
@@ -234,7 +216,7 @@ export function validateServerMenu(value: ServerMenuSettings): void {
   for (const workflow of value.workflows) {
     if (seen.has(workflow.id)) throw new Error(`duplicate workflow id "${workflow.id}"`)
     seen.add(workflow.id)
-    if (workflow.groupId !== undefined && workflow.groupId !== TEMPORARY_GROUP_ID && !groupIds.has(workflow.groupId)) {
+    if (workflow.groupId !== undefined && !groupIds.has(workflow.groupId)) {
       throw new Error(`workflow "${workflow.id}" names group "${workflow.groupId}", which no group defines`)
     }
   }

@@ -27,9 +27,9 @@
 /**
  * Exact route this package's node half serves. `GET`/`HEAD` answer the
  * current server-menu document; `POST` merges a patch into it (any subset of
- * `{ workflows, workbenchSessionId }` — a caller changing only one field
- * never has to resend the other, since the underlying settings write is a
- * merge, not a wholesale replace).
+ * `{ workflows, groups, workbenchSessionId }` — a caller changing only one
+ * field never has to resend the others, since the underlying settings write is
+ * a merge, not a wholesale replace).
  */
 export const SERVER_MENU_ROUTE = '/server-menu/workflows'
 

@@ -34,6 +34,7 @@ type HeaderInjectFactory = (sessionId: string) => SaveWorkflowInjected
 /** Mocked `workspaces` service face this bench provides. */
 interface BenchWorkspaces {
   connectWorkspace: ReturnType<typeof vi.fn>
+  archiveSession: ReturnType<typeof vi.fn>
   list: { getSnapshot: () => { recentWorkspaceId: string | undefined } }
 }
 
@@ -135,6 +136,8 @@ async function bench(
     withoutAuthGate?: boolean
     /** Refuse this package's own identity route, as a composition with no webserver does. */
     withoutIdentity?: boolean
+    /** Extra ids the session directory lists alongside the current one. */
+    liveSessionIds?: readonly string[]
   } = {},
 ): Promise<BenchResult> {
   stubFetch({
@@ -165,15 +168,20 @@ async function bench(
   declareSlots(ctx)
   const workspaces = {
     connectWorkspace: vi.fn(() => Promise.resolve('new-session')),
+    archiveSession: vi.fn(() => Promise.resolve()),
     list: { getSnapshot: () => ({ recentWorkspaceId: options.recentWorkspaceId }) },
   }
   const cancel = vi.fn(() => Promise.resolve())
+  const listed = [
+    ...options.currentSessionId === undefined ? [] : [options.currentSessionId],
+    ...options.liveSessionIds ?? [],
+  ]
   const sessions = {
     open: vi.fn(),
     list: {
       getSnapshot: () => ({
-        ids: options.currentSessionId === undefined ? [] : [options.currentSessionId],
-        byId: options.currentSessionId === undefined ? {} : { [options.currentSessionId]: { running: false } },
+        ids: listed,
+        byId: Object.fromEntries(listed.map(id => [id, { running: false }])),
         current: options.currentSessionId,
       }),
     },
@@ -194,12 +202,13 @@ async function bench(
 interface MockActions {
   setServerMenu: ReturnType<typeof vi.fn>
   setError: ReturnType<typeof vi.fn>
+  setTemporaryFailed: ReturnType<typeof vi.fn>
 }
 
 /** Read the sidebar entry's inject factory with a fresh bound-actions stub. */
 function injectSidebar(ctx: Context): { injected: ServerSidebarInjected; actions: MockActions } {
   const [entry] = ctx.slots.entries('sidebar')
-  const actions: MockActions = { setServerMenu: vi.fn(), setError: vi.fn() }
+  const actions: MockActions = { setServerMenu: vi.fn(), setError: vi.fn(), setTemporaryFailed: vi.fn() }
   const injected = (entry?.inject as unknown as SidebarInjectFactory)(actions as never)
   return { injected, actions }
 }
@@ -292,7 +301,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     await injected.onOpenWorkbenchOnLoad(undefined, false)
     expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
-    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
+    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], groups: [], workbenchSessionId: 'new-session' })
   })
 
   it('onOpenWorkbenchOnLoad leaves a workbench open with no session and no workspace to create one in', async () => {
@@ -318,7 +327,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     await injected.onOpenWorkbench('home-1', true, false, false)
     expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
-    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
+    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], groups: [], workbenchSessionId: 'new-session' })
   })
 
   it('onOpenWorkbench (click) creates a fresh workbench session and persists its id when there is none recorded', async () => {
@@ -328,7 +337,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     await injected.onOpenWorkbench(undefined, false, false, false)
     expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
-    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], workbenchSessionId: 'new-session' })
+    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], groups: [], workbenchSessionId: 'new-session' })
   })
 
   it('onOpenWorkbench (click) leaves a workbench open with no session and no workspace to create one in', async () => {
@@ -402,7 +411,9 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(remote.commands.execute).toHaveBeenNthCalledWith(1, 'new-session', '/show-content-page home', [])
     expect(remote.commands.execute).toHaveBeenNthCalledWith(2, 'new-session', '/show-content-view sales', [])
-    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [{ ...WORKFLOW, homeSessionId: 'new-session' }] })
+    expect(actions.setServerMenu).toHaveBeenCalledWith(
+      { workflows: [{ ...WORKFLOW, homeSessionId: 'new-session' }], groups: [], workbenchSessionId: undefined },
+    )
   })
 
   it('persists the given workflow list wholesale on save', async () => {
@@ -410,15 +421,15 @@ describe('server-sidebar browser half: sidebar registration', () => {
     const { injected, actions } = injectSidebar(ctx)
     const next = [WORKFLOW, { ...WORKFLOW, id: 'w2', name: 'Beta', order: 1 }]
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: next } } })
-    await injected.onSaveWorkflows(next)
-    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: next })
+    await injected.onSaveMenu({ workflows: next })
+    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: next, groups: [], workbenchSessionId: undefined })
   })
 
   it('surfaces a failed save through setError rather than throwing', async () => {
     const { ctx } = await bench()
     const { injected, actions } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { ok: false, body: {} } })
-    await injected.onSaveWorkflows([])
+    await injected.onSaveMenu({ workflows: [] })
     expect(actions.setError).toHaveBeenCalledWith(expect.stringContaining('HTTP 503'))
     expect(actions.setServerMenu).not.toHaveBeenCalled()
   })
@@ -428,8 +439,85 @@ describe('server-sidebar browser half: sidebar registration', () => {
     const { injected, actions } = injectSidebar(ctx)
     // oxlint-disable-next-line typescript/prefer-promise-reject-errors -- the non-Error rejection is the scenario under test.
     vi.stubGlobal('fetch', vi.fn(() => Promise.reject('transport exploded')))
-    await injected.onSaveWorkflows([])
+    await injected.onSaveMenu({ workflows: [] })
     expect(actions.setError).toHaveBeenCalledWith('transport exploded')
+  })
+
+  it('sends a groups-only patch without resending the workflow list', async () => {
+    const { ctx } = await bench()
+    const { injected, actions } = injectSidebar(ctx)
+    const groups = [{ id: 'g1', name: 'Reports', pinned: false, order: 0 }]
+    let posted: unknown
+    vi.stubGlobal('fetch', vi.fn((input: URL, init?: RequestInit) => {
+      expect(input.pathname).toBe(SERVER_MENU_ROUTE)
+      if (init?.method === 'POST') posted = JSON.parse(init.body as string)
+      return Promise.resolve({ ok: true, json: () => Promise.resolve({ workflows: [WORKFLOW], groups }) })
+    }))
+    await injected.onSaveMenu({ groups })
+    expect(posted).toEqual({ groups })
+    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW], groups, workbenchSessionId: undefined })
+  })
+
+  it('opens one temporary conversation by selecting it, with no persist', async () => {
+    const { ctx, sessions } = await bench()
+    const { injected, actions } = injectSidebar(ctx)
+    await injected.onOpenTemporary('session-loose')
+    expect(sessions.open).toHaveBeenCalledWith('session-loose')
+    expect(actions.setServerMenu).not.toHaveBeenCalled()
+  })
+
+  it('takes one temporary conversation off the list by archiving it, never deleting it', async () => {
+    const { ctx, workspaces, sessions } = await bench({ currentSessionId: 'session-a' })
+    const { injected, actions } = injectSidebar(ctx)
+    await injected.onDismissTemporary('session-loose', 'home-1', true)
+    expect(workspaces.archiveSession).toHaveBeenCalledWith('session-loose')
+    expect(actions.setError).not.toHaveBeenCalled()
+    expect(actions.setTemporaryFailed).toHaveBeenCalledWith(false)
+    // A row that was not the one on screen leaves the selection alone.
+    expect(sessions.open).not.toHaveBeenCalled()
+  })
+
+  it('lands on the recorded workbench when the archived conversation was the one on screen', async () => {
+    const { ctx, sessions } = await bench({ currentSessionId: 'session-loose', liveSessionIds: ['home-1'] })
+    const { injected, actions } = injectSidebar(ctx)
+    await injected.onDismissTemporary('session-loose', 'home-1', true)
+    // Reopened, not re-created: the recorded workbench is still live, so
+    // nothing is written back to the document.
+    expect(sessions.open).toHaveBeenCalledWith('home-1')
+    expect(actions.setServerMenu).not.toHaveBeenCalled()
+  })
+
+  it('creates a workbench conversation and records it when the archived one on screen left none live', async () => {
+    const { ctx, workspaces, sessions } = await bench({
+      currentSessionId: 'session-loose', recentWorkspaceId: 'workspace-1',
+    })
+    const { injected, actions } = injectSidebar(ctx)
+    stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
+    await injected.onDismissTemporary('session-loose', undefined, false)
+    expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
+    expect(sessions.open).toHaveBeenCalledWith('new-session')
+    expect(actions.setServerMenu).toHaveBeenCalledWith(
+      { workflows: [WORKFLOW], groups: [], workbenchSessionId: 'new-session' },
+    )
+  })
+
+  it('reports a failed archive as a flag and keeps its host wording out of the section', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    const { ctx, workspaces, sessions } = await bench({ currentSessionId: 'session-loose' })
+    const { injected, actions } = injectSidebar(ctx)
+    const refusal = new Error('session archive failed: session-not-found: no session session-loose')
+    workspaces.archiveSession.mockRejectedValueOnce(refusal)
+    await injected.onDismissTemporary('session-loose', 'home-1', true)
+    expect(actions.setTemporaryFailed).toHaveBeenCalledWith(true)
+    // Not through the workflow section's own line, which says "save failed".
+    expect(actions.setError).not.toHaveBeenCalled()
+    // The refusal's own wording is the host's, so it goes to the console and
+    // nothing about it reaches the store the section renders from.
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('server-sidebar:'), refusal)
+    expect(actions.setTemporaryFailed.mock.calls.flat().join(' ')).not.toMatch(/\bsession\b/i)
+    // A refused archive leaves the conversation open rather than landing away from it.
+    expect(sessions.open).not.toHaveBeenCalled()
+    warn.mockRestore()
   })
 
   it('leaves other workflows untouched while repointing only the degraded one', async () => {
@@ -445,7 +533,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     await injected.onOpenWorkflow(WORKFLOW, false)
     expect(sessions.open).toHaveBeenCalledWith('new-session')
     expect(posted).toEqual({ workflows: [{ ...WORKFLOW, homeSessionId: 'new-session' }, other] })
-    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW, other] })
+    expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [WORKFLOW, other], groups: [], workbenchSessionId: undefined })
   })
 
   it('seeds the footer\'s name from the claim the identity route named', async () => {
@@ -522,7 +610,7 @@ describe('server-sidebar browser half: save-workflow header action', () => {
     stubFetch({ [SERVER_MENU_ROUTE]: { body: saved } })
     const headerInjected = injectHeaderAction(ctx, 'session-b')
     await headerInjected.onSave('session-b', 'New Flow', NAV_SNAPSHOT)
-    expect(actions.setServerMenu).toHaveBeenCalledWith(saved)
+    expect(actions.setServerMenu).toHaveBeenCalledWith({ ...saved, groups: [], workbenchSessionId: undefined })
   })
 
   it('still persists a new workflow when the sidebar has not been read yet (defensive path)', async () => {
@@ -614,6 +702,19 @@ describe('server-sidebar browser half: dictionaries', () => {
 
   it('keeps the English dictionary key-identical to the Chinese source of truth', () => {
     expect(Object.keys(en).sort()).toEqual(Object.keys(zh).sort())
+  })
+
+  // The e2e scenario screens what the page renders; this screens the source
+  // every one of those strings comes from, including the copy no ordinary
+  // run puts on screen (a refused archive, an empty group).
+  it('carries none of the banned vocabulary in any string either dictionary adds', () => {
+    for (const [locale, dictionary] of Object.entries({ zh, en })) {
+      for (const [key, copy] of Object.entries<string>(dictionary)) {
+        for (const banned of [/\bsession\b/i, /\bworkspace\b/i, /会话/, /工作区/]) {
+          expect(copy, `${locale}.${key} matched ${String(banned)}`).not.toMatch(banned)
+        }
+      }
+    }
   })
 })
 

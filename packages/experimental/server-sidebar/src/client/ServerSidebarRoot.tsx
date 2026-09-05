@@ -3,11 +3,13 @@
  * collapse rail, no fold interaction — this shell never toggles it and
  * always renders its full content regardless of the `collapsed` owner prop,
  * see below for the residual coupling this leaves with the surrounding
- * shell's own track geometry). Three sections between the brand row and the
+ * shell's own track geometry). Four sections between the brand row and the
  * footer: 工作台 (workbench, a persistent default conversation), 导航
  * (navigation, the deployment's configured pages and views — see
- * `nav-catalog.ts`), and 我的工作流 (my workflows, a user's own named
- * shortcuts to conversations they taught the agent something in).
+ * `nav-catalog.ts`), 我的工作流 (my workflows, a user's own named shortcuts to
+ * conversations they taught the agent something in, filed under groups they
+ * name themselves), and 临时工作流 (the conversations none of those rows
+ * already shows — derived here and drawn by `TemporaryGroup`).
  *
  * `collapsed`/`width` remain part of this component's props only because
  * they are part of `PropsRuntime<'sidebar'>`'s owner-share contract (declared
@@ -33,11 +35,17 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { NavGroup } from './NavGroup.tsx'
 import { WorkflowGroup } from './WorkflowGroup.tsx'
+import { TemporaryGroup } from './TemporaryGroup.tsx'
+import type { TemporaryRow } from './TemporaryGroup.tsx'
 import type { NavItem } from './nav-catalog.ts'
+import { TEMPORARY_GROUP_ID } from '../menu-constants.ts'
 import type { NavSnapshotItem } from '../workflows.ts'
-import type { ServerMenuWorkflow } from './workflow-api.ts'
+import type { ServerMenuPatch, ServerMenuWorkflow } from './workflow-api.ts'
 import type { createWorkflowStore } from './workflow-store.ts'
-import { hasShownHome, isCleanWorkbenchDraft, type ContentSurfaceEntryLike } from './workflow-actions.ts'
+import {
+  hasShownHome, isCleanWorkbenchDraft, temporarySessions,
+  type ContentSurfaceEntryLike, type TemporarySessionFacts,
+} from './workflow-actions.ts'
 import css from './ServerSidebarRoot.module.css'
 
 /**
@@ -72,6 +80,42 @@ function contentSurfaceEntries(
   const projectionValues = byId[sessionId]?.projectionValues as Record<string, unknown> | undefined
   const contentSurface = projectionValues?.contentSurface as { entries?: readonly ContentSurfaceEntryLike[] } | undefined
   return contentSurface?.entries ?? []
+}
+
+/**
+ * Session-list facts the 临时工作流 section needs, per session. It extends
+ * `temporarySessions`'s own membership fields (see `workflow-actions.ts`)
+ * with the two a row draws — the durable title and the unread bit — so one
+ * value carries both the filter's inputs and the row's own.
+ */
+interface TemporaryFacts extends TemporarySessionFacts {
+  /** The session's latest durable title, absent until the host projects one. */
+  readonly title?: string
+  /** Whether it finished while unselected and unopened (decision ④'s green dot). */
+  readonly completed?: boolean
+}
+
+/**
+ * Reduce one temporary member to the row the section draws.
+ *
+ * The title is the session's own durable title and nothing else: the session
+ * list's `displayTitle` falls back to a directory basename and then to a bare
+ * id, both of which are the internal vocabulary this console keeps off the
+ * screen (see the package README's De-terminology section). A session with
+ * none gets the section's own fixed copy instead.
+ * @param facts - one member of the temporary group.
+ * @param current - the session currently open, or `undefined`.
+ * @returns the row.
+ */
+function temporaryRow(facts: TemporaryFacts, current: string | undefined): TemporaryRow {
+  const title = facts.title?.trim()
+  return {
+    id: facts.id,
+    title: title === undefined || title.length === 0 ? undefined : title,
+    updatedAt: facts.updatedAt,
+    unread: facts.completed === true,
+    active: facts.id === current,
+  }
 }
 
 /**
@@ -129,10 +173,28 @@ export interface ServerSidebarInjected {
    */
   onOpenWorkflow: (workflow: ServerMenuWorkflow, isLive: boolean) => Promise<void>
   /**
-   * Persist the complete next workflow list. The menu does not await this —
-   * it returns a promise so tests can.
+   * Persist one server-menu patch — the complete next workflow list, the
+   * complete next group list, or both when one change touches both (deleting
+   * a group clears its members' `groupId` in the same write). The menu does
+   * not await this — it returns a promise so tests can.
    */
-  onSaveWorkflows: (next: ServerMenuWorkflow[]) => Promise<void>
+  onSaveMenu: (patch: ServerMenuPatch) => Promise<void>
+  /** Open one unnamed conversation from the 临时工作流 section. Not awaited by the component. */
+  onOpenTemporary: (sessionId: string) => Promise<void>
+  /**
+   * Take one unnamed conversation off the 临时工作流 section. It is archived,
+   * not deleted — the log survives on the host, but this console offers no way
+   * back to it. Archiving the conversation on screen leaves none selected, so
+   * this carries the same two workbench facts the click path takes and lands
+   * there when that is what happened (see `client/index.ts`). Not awaited by
+   * the component.
+   * @param sessionId - the conversation to take off the list.
+   * @param workbenchSessionId - the recorded workbench id, or `undefined` before first use.
+   * @param isLive - whether that id names a session the workspace domain still lists.
+   */
+  onDismissTemporary: (
+    sessionId: string, workbenchSessionId: string | undefined, isLive: boolean,
+  ) => Promise<void>
   /** Sign the visitor out. Not awaited by the component: the page is leaving. */
   onSignOut: () => void
   hooks: {
@@ -159,17 +221,22 @@ export type ServerSidebarRootComponentProps =
  */
 export function ServerSidebarRoot({
   width, t, renderSlot,
-  navItems, home, onOpenNavItem, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveWorkflows, onSignOut,
-  useStore, useSessions, useWorkspaces, useDisplayName,
+  navItems, home, onOpenNavItem, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveMenu,
+  onOpenTemporary, onDismissTemporary, onSignOut,
+  useStore, actions, useSessions, useWorkspaces, useDisplayName,
 }: ServerSidebarRootComponentProps) {
   const displayName = useDisplayName(name => name)
   const workflows = useStore(state => state.workflows)
+  const groups = useStore(state => state.groups)
   const workbenchSessionId = useStore(state => state.workbenchSessionId)
   const workflowsError = useStore(state => state.error)
+  const temporaryFailed = useStore(state => state.temporaryFailed)
+  const view = useStore(state => state.view)
 
   // Session liveness for the workbench and workflow group: read fresh on
   // every relevant change rather than captured once, so a re-created or
   // deleted session is reflected without a save round trip.
+  const sessionIds = useSessions(state => state.ids)
   const byId = useSessions(state => state.byId)
   const current = useSessions(state => state.current)
   const phase = useSessions(state => state.phase)
@@ -195,6 +262,27 @@ export function ServerSidebarRoot({
   // (see the package README's Selection highlight section).
   const boundHomeSessionIds = useMemo(() => new Set(workflows.map(workflow => workflow.homeSessionId)), [workflows])
   const workbenchActive = current !== undefined && current === workbenchSessionId && !boundHomeSessionIds.has(current)
+
+  // 临时工作流: the conversations no other row in this shell already shows.
+  // `archivedSessionIds` is the same list the shipped browser hides rows by,
+  // read here so a conversation taken off this list stays off it.
+  const archivedSessionIds = useWorkspaces(state => state.archivedSessionIds)
+  const archived = useMemo(() => new Set<string>(archivedSessionIds), [archivedSessionIds])
+  const temporaryRows = useMemo(() => temporarySessions(
+    sessionIds.flatMap<TemporaryFacts>((id) => {
+      const summary = byId[id]
+      // A session listed in `ids` always has a row in `byId` (one snapshot,
+      // one source); the empty branch keeps the read total rather than
+      // asserting across the store's own boundary.
+      return summary === undefined ? [] : [{ ...summary, id }]
+    }),
+    {
+      boundHomeSessionIds,
+      workbenchSessionId,
+      currentSessionId: current,
+      archivedSessionIds: archived,
+    },
+  ).map(facts => temporaryRow(facts, current)), [sessionIds, byId, boundHomeSessionIds, workbenchSessionId, current, archived])
 
   // Land on the workbench automatically when the sidebar loads with no
   // current session — evaluated at most once per mount, the same "settle
@@ -304,11 +392,26 @@ export function ServerSidebarRoot({
         <NavGroup items={navItems} onOpenNavItem={onOpenNavItem} t={t} />
         <WorkflowGroup
           workflows={workflows}
+          groups={groups}
+          collapsed={view.collapsed}
+          onSetCollapsed={(groupId, collapsed) => { actions.setGroupCollapsed(groupId, collapsed) }}
           current={current}
           unreadHomeSessionIds={unreadHomeSessionIds}
           onOpenWorkflow={workflow => onOpenWorkflow(workflow, liveSessionIds.has(workflow.homeSessionId))}
-          onSaveWorkflows={onSaveWorkflows}
+          onSaveMenu={onSaveMenu}
+          newGroupId={() => crypto.randomUUID()}
           error={workflowsError}
+          t={t}
+        />
+        <TemporaryGroup
+          rows={temporaryRows}
+          collapsed={view.collapsed[TEMPORARY_GROUP_ID] === true}
+          onSetCollapsed={(collapsed) => { actions.setGroupCollapsed(TEMPORARY_GROUP_ID, collapsed) }}
+          expanded={view.temporaryExpanded}
+          onSetExpanded={(expanded) => { actions.setTemporaryExpanded(expanded) }}
+          onOpen={onOpenTemporary}
+          onDismiss={sessionId => onDismissTemporary(sessionId, workbenchSessionId, workbenchIsLive)}
+          failed={temporaryFailed}
           t={t}
         />
       </div>
