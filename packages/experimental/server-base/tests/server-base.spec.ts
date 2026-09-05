@@ -20,6 +20,8 @@ import { Context } from '@deepseek-ai/cordis'
 import Loader from '@deepseek-ai/cordis-plugin-loader'
 import Include from '@deepseek-ai/cordis-plugin-include'
 import InvariantRegistry from '@deepseek-ai/dsh-invariants'
+import * as Connection from '@deepseek-ai/dsh-client-connection'
+import LocalCredentials from '@deepseek-ai/dsh-credentials-local'
 import HttpServer from '@deepseek-ai/dsh-host-webserver'
 import type { IndexInjection } from '@deepseek-ai/dsh-host-webserver'
 import * as FrontendStatic from '@deepseek-ai/dsh-host-frontend-static'
@@ -76,10 +78,17 @@ async function loadComposition(
   await writeFile(distIndex, DIST_INDEX)
   const configPath = join(world, 'cordis.yml')
   const rows = [
+    "- name: '@deepseek-ai/dsh-credentials-local'",
+    '  config:',
+    `    path: ${JSON.stringify(join(world, '.credentials.yaml'))}`,
+    '    watch: false',
     "- name: '@deepseek-ai/dsh-host-webserver'",
     '  config:',
     "    host: '127.0.0.1'",
     '    port: 0',
+    // The dist server authorizes an index render through the launch-token
+    // session this row owns, so the index is unreachable without it.
+    "- name: '@deepseek-ai/dsh-client-connection'",
     "- name: '@deepseek-ai/dsh-host-frontend-static'",
     '  config:',
     `    distIndex: ${JSON.stringify(distIndex)}`,
@@ -102,7 +111,9 @@ async function loadComposition(
   }
   context.loader.builtins.include = Include
   const modules = new Map<string, unknown>([
+    ['@deepseek-ai/dsh-credentials-local', LocalCredentials],
     ['@deepseek-ai/dsh-host-webserver', HttpServer],
+    ['@deepseek-ai/dsh-client-connection', Connection],
     ['@deepseek-ai/dsh-host-frontend-static', FrontendStatic],
     ['@deepseek-ai/dsh-experimental-server-base', ServerBase],
   ])
@@ -121,9 +132,19 @@ async function loadComposition(
   return context
 }
 
-/** Fetch the served index of a booted composition. */
+/**
+ * Fetch the served index of a booted composition, through the one-time launch
+ * token `dsh web` gates its origin behind: exchanging it leaves the browser
+ * session cookie the dist server authorizes an index render with.
+ * @param ctx - the booted composition.
+ * @returns the served index html.
+ */
 async function fetchIndex(ctx: Context): Promise<string> {
-  const response = await fetch(`http://127.0.0.1:${String(ctx.webServer.port)}/`)
+  const origin = `http://127.0.0.1:${String(ctx.webServer.port)}`
+  const exchange = await fetch(ctx.connection.authenticatedUrl(origin), { redirect: 'manual' })
+  const setCookie = exchange.headers.get('set-cookie')
+  if (setCookie === null) throw new Error('launch-token exchange set no session cookie')
+  const response = await fetch(`${origin}/`, { headers: { cookie: setCookie.split(';', 1)[0]! } })
   expect(response.status).toBe(200)
   return await response.text()
 }
@@ -170,9 +191,12 @@ describe('server-base index rows', () => {
     expect(html).toContain(`<script>globalThis["${ServerBase.DSH_BASE_GLOBAL}"] = "/"</script>`)
   })
 
-  it('leaves the index untouched when the row is not composed', async () => {
+  it('leaves the index on the dist server\'s own site-root anchor when the row is not composed', async () => {
     const html = await fetchIndex(await loadComposition(null))
-    expect(html).not.toContain('<base ')
+    // The dist server anchors a prefix-less deployment at the site root itself,
+    // and stands aside for the row above when one is composed; what this row's
+    // absence must leave behind is that anchor and no prefix global.
+    expect(html).toContain('<base href="/">')
     expect(html).not.toContain(ServerBase.DSH_BASE_GLOBAL)
   })
 
@@ -181,7 +205,10 @@ describe('server-base index rows', () => {
     const row = [...ctx.loader.entries()].find(entry => entry.options.id === 'server-base')
     await row?.fiber?.dispose()
     const html = await fetchIndex(ctx)
-    expect(html).not.toContain('<base ')
+    // Back to the dist server's own site-root anchor, which is what a
+    // composition without this row serves.
+    expect(html).toContain('<base href="/">')
+    expect(html).not.toContain(`<base href="${BASE_PATH}">`)
     expect(html).not.toContain(ServerBase.DSH_BASE_GLOBAL)
   })
 })

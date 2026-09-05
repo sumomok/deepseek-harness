@@ -106,6 +106,16 @@ export async function serveStatic(
 }
 
 /**
+ * Whether the rendered index already carries a `<base>` element in its head.
+ * @param html - the rendered index.
+ * @returns true when the head declares a base the parser will honor.
+ */
+function hasBaseElement(html: string): boolean {
+  const head = /<head(?:\s[^>]*)?>([\s\S]*?)<\/head>/i.exec(html)
+  return /<base[\s>]/i.test(head === null ? html : head[1] ?? '')
+}
+
+/**
  * Claim the webserver fallback seat and serve the dist.
  * @param ctx - plugin context carrying the webServer service.
  * @param config - validated {@link Config}.
@@ -119,7 +129,12 @@ export function apply(ctx: Context, config: Config): void {
   // served form anchors them at the site root ahead of every URL-bearing tag.
   const renderIndex = async (): Promise<string> => {
     const body = ctx.webServer.renderIndex(await readFile(distIndex, 'utf8'))
-    return body.replace(/<head(?:\s[^>]*)?>/i, open => `${open}<base href="/">`)
+    // One document carries one base, and the first in tree order is the one the
+    // parser honors. A deployment served under a path prefix injects its own
+    // row ahead of this one (`dsh-experimental-server-base`), so the site-root
+    // anchor is added only when the rendered index carries no base of its own —
+    // adding a second would leave a dead element the prefix row already governs.
+    return hasBaseElement(body) ? body : body.replace(/<head(?:\s[^>]*)?>/i, open => `${open}<base href="/">`)
   }
   ctx.effect(() => ctx.webServer.registerFallback(async (req, res) => {
     // Non-GET/HEAD without a matching named route is 405 (fallback-only
