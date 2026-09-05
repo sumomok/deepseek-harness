@@ -1,13 +1,13 @@
 /**
  * `nextOrder`/`sortedWorkflows`/`reordered`/`isCleanWorkbenchDraft`/
- * `hasShownHomePage` (pure array/predicate helpers) and
+ * `hasShownHome` (pure array/predicate helpers) and
  * `openWorkbenchOnLoad`/`openWorkbenchOnClick`/`openWorkflow`
  * (session-orchestration, decisions ①/⑥/⑧).
  */
 import { describe, expect, it, vi } from 'vitest'
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
 import {
-  hasShownHomePage, isCleanWorkbenchDraft, nextOrder, openWorkbenchOnClick, openWorkbenchOnLoad, openWorkflow,
+  hasShownHome, isCleanWorkbenchDraft, nextOrder, openWorkbenchOnClick, openWorkbenchOnLoad, openWorkflow,
   reordered, sortedWorkflows, type ContentSurfaceEntryLike,
 } from '../src/client/workflow-actions.ts'
 import type { ServerMenuWorkflow } from '../src/client/workflow-api.ts'
@@ -123,59 +123,72 @@ function pageEntry(entryId: string): ContentSurfaceEntryLike {
   return { kind: 'page', entryId }
 }
 
+function componentEntry(entryId: string): ContentSurfaceEntryLike {
+  return { kind: 'component', entryId }
+}
+
+const HOME_PAGE = { kind: 'page', entryId: 'home' } as const
+const HOME_VIEW = { kind: 'view', entryId: 'sales' } as const
+
 describe('isCleanWorkbenchDraft', () => {
-  it('is clean when blank with no entries at all, home page configured or not', () => {
+  it('is clean when blank with no entries at all, a home configured or not', () => {
     expect(isCleanWorkbenchDraft(true, [], undefined)).toBe(true)
-    expect(isCleanWorkbenchDraft(true, [], 'home')).toBe(true)
+    expect(isCleanWorkbenchDraft(true, [], HOME_PAGE)).toBe(true)
   })
 
   it('is clean when blank and the only entry is the configured home page', () => {
-    expect(isCleanWorkbenchDraft(true, [pageEntry('home')], 'home')).toBe(true)
+    expect(isCleanWorkbenchDraft(true, [pageEntry('home')], HOME_PAGE)).toBe(true)
+  })
+
+  it('is clean when blank and the only entry is the configured home view', () => {
+    expect(isCleanWorkbenchDraft(true, [componentEntry('sales')], HOME_VIEW)).toBe(true)
   })
 
   it('is not clean when a turn has run, regardless of entries', () => {
     expect(isCleanWorkbenchDraft(false, [], undefined)).toBe(false)
-    expect(isCleanWorkbenchDraft(false, [pageEntry('home')], 'home')).toBe(false)
+    expect(isCleanWorkbenchDraft(false, [pageEntry('home')], HOME_PAGE)).toBe(false)
   })
 
-  it('is not clean when the one entry names a page other than the configured home page', () => {
-    expect(isCleanWorkbenchDraft(true, [pageEntry('reports')], 'home')).toBe(false)
+  it('is not clean when the one entry names something other than the configured home', () => {
+    expect(isCleanWorkbenchDraft(true, [pageEntry('reports')], HOME_PAGE)).toBe(false)
   })
 
-  it('is not clean when an entry matches the home page id but not the page kind', () => {
-    expect(isCleanWorkbenchDraft(true, [{ kind: 'chart', entryId: 'home' }], 'home')).toBe(false)
+  it('is not clean when an entry matches the home id but not the kind it lands as', () => {
+    expect(isCleanWorkbenchDraft(true, [{ kind: 'chart', entryId: 'home' }], HOME_PAGE)).toBe(false)
+    expect(isCleanWorkbenchDraft(true, [pageEntry('sales')], HOME_VIEW)).toBe(false)
   })
 
-  it('is not clean when no home page is configured but an entry exists anyway', () => {
+  it('is not clean when no home is configured but an entry exists anyway', () => {
     expect(isCleanWorkbenchDraft(true, [pageEntry('home')], undefined)).toBe(false)
   })
 
-  it('is not clean when a second, non-home entry accompanies the home page entry', () => {
-    expect(isCleanWorkbenchDraft(true, [pageEntry('home'), pageEntry('reports')], 'home')).toBe(false)
+  it('is not clean when a second, non-home entry accompanies the home entry', () => {
+    expect(isCleanWorkbenchDraft(true, [pageEntry('home'), pageEntry('reports')], HOME_PAGE)).toBe(false)
   })
 
   it('is not clean when entries are of an unrecognized shape', () => {
-    expect(isCleanWorkbenchDraft(true, [{}], 'home')).toBe(false)
+    expect(isCleanWorkbenchDraft(true, [{}], HOME_PAGE)).toBe(false)
   })
 })
 
-describe('hasShownHomePage', () => {
-  it('is false with no home page configured, regardless of entries', () => {
-    expect(hasShownHomePage([pageEntry('home')], undefined)).toBe(false)
-    expect(hasShownHomePage([], undefined)).toBe(false)
+describe('hasShownHome', () => {
+  it('is false with no home configured, regardless of entries', () => {
+    expect(hasShownHome([pageEntry('home')], undefined)).toBe(false)
+    expect(hasShownHome([], undefined)).toBe(false)
   })
 
-  it('is true when one entry is the configured home page, shown as a page', () => {
-    expect(hasShownHomePage([pageEntry('home')], 'home')).toBe(true)
+  it('is true when one entry is the configured home, in either vocabulary', () => {
+    expect(hasShownHome([pageEntry('home')], HOME_PAGE)).toBe(true)
+    expect(hasShownHome([componentEntry('sales')], HOME_VIEW)).toBe(true)
   })
 
-  it('is false when entries carry a different page, or none at all', () => {
-    expect(hasShownHomePage([pageEntry('reports')], 'home')).toBe(false)
-    expect(hasShownHomePage([], 'home')).toBe(false)
+  it('is false when entries carry something else, or nothing at all', () => {
+    expect(hasShownHome([pageEntry('reports')], HOME_PAGE)).toBe(false)
+    expect(hasShownHome([], HOME_PAGE)).toBe(false)
   })
 
-  it('is false when an entry matches the home page id but not the page kind', () => {
-    expect(hasShownHomePage([{ kind: 'chart', entryId: 'home' }], 'home')).toBe(false)
+  it('is false when an entry matches the home id but not the kind it lands as', () => {
+    expect(hasShownHome([{ kind: 'chart', entryId: 'home' }], HOME_PAGE)).toBe(false)
   })
 })
 
@@ -284,10 +297,11 @@ describe('openWorkflow', () => {
   it('degrades to a fresh session and replays the navigation snapshot when the bound session is gone', async () => {
     const execute = vi.fn(() => Promise.resolve({ ok: true, value: undefined }))
     const { ctx } = fakeContext({ recentWorkspaceId: 'workspace-1', execute })
-    const outcome = await openWorkflow(ctx, workflow({ navSnapshot: ['home', 'reports'] }), false)
+    const navSnapshot = [{ kind: 'page', entryId: 'home' }, { kind: 'view', entryId: 'sales' }] as const
+    const outcome = await openWorkflow(ctx, workflow({ navSnapshot: [...navSnapshot] }), false)
     expect(outcome).toEqual({ sessionId: 'new-session', created: true })
     expect(execute).toHaveBeenNthCalledWith(1, 'new-session', '/show-content-page home', [])
-    expect(execute).toHaveBeenNthCalledWith(2, 'new-session', '/show-content-page reports', [])
+    expect(execute).toHaveBeenNthCalledWith(2, 'new-session', '/show-content-view sales', [])
   })
 
   it('answers undefined with nowhere to create a session on degrade', async () => {

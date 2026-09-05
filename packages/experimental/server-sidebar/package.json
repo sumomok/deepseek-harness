@@ -45,12 +45,14 @@
   },
   "scripts": {
     "bundle": "tsdown",
-    "watch": "tsdown --watch"
+    "watch": "tsdown --watch",
+    "convert-nav-snapshot": "tsx src/bin.ts"
   },
   "license": "MIT",
   "dependencies": {
     "@deepseek-ai/schemastery": "workspace:^",
-    "clsx": "^2.0.0"
+    "clsx": "^2.0.0",
+    "yaml": "^2.9.0"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "workspace:^",
@@ -79,6 +81,7 @@
     "@deepseek-ai/dsh-client-ui-sidebar": "workspace:^",
     "@deepseek-ai/dsh-client-ui-slots": "workspace:^",
     "@deepseek-ai/dsh-experimental-auth-gate": "workspace:^",
+    "@deepseek-ai/dsh-experimental-component-surface": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-frame": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
     "@deepseek-ai/dsh-host-webserver": "workspace:^",

@@ -10,6 +10,8 @@ Absent by construction: `server-layout`, `content-column`, `server-sidebar`, the
 
 No browser attaches to an ACP process, and neither tool needs one to settle. `show_chart` waits out its verdict deadline and answers unverified — that is the behavior under test, since the deadline is quoted verbatim in the model-facing result line, and this composition sets it to one second because the lane pays it in real time on every call. `show_component` judges its call against the catalog and answers immediately; what a placed block looks like is the browser lane's question, and what the model was offered and told is this one's.
 
+The `show_component` row also carries a `views` entry — a view this deployment wrote rather than one a model places. Nothing about it reaches a transcript: `show-content-view` is a command, and this transport has no method to invoke one. What it is here for is the boot. A configured view is judged at load by the same pass that judges a call, so a spec written by a person that the tool would refuse stops this composition from coming up at all, and every scenario below is that check having passed.
+
 ## Snapshot scenarios
 
 [`tests/content-console.snapshot.ts`](tests/content-console.snapshot.ts) is the scenario table over the [`dsh-acp-snapshot`](../../packages/test-support/acp-snapshot/README.md) suite factory. `show-chart-turn` prompts for a bar chart, `show-component-turn` prompts for a confirmation bar, and because both compose the same file they are one header class that the first pins for both:

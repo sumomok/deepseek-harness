@@ -10,14 +10,16 @@
  * prefix before the request arrives. The browser half puts the prefix back by
  * resolving this constant with `clientUrl`, and never requests it as it stands.
  *
- * A second, unrelated wire agreement lives outside this file, by design: the
- * browser half also reads `@deepseek-ai/dsh-experimental-content-frame`'s
- * `/content-frame/settings` route (for the navigation menu's catalog) and
- * executes that package's `show-content-page` command (for a page click and
- * for a workflow's navigation-snapshot replay). Both are hardcoded literals
- * in the browser half rather than values imported from that package — see
- * `src/client/pages.ts` and `src/client/open-page.ts` for why. The sign-out
- * button copies `@deepseek-ai/dsh-experimental-auth-gate`'s
+ * Other wire agreements live outside this file, by design: the browser half
+ * also reads the two navigation catalogs
+ * (`@deepseek-ai/dsh-experimental-content-frame`'s `/content-frame/settings`
+ * and `@deepseek-ai/dsh-experimental-component-surface`'s
+ * `/component-surface/views`) and executes each catalog's own command
+ * (`show-content-page` and `show-content-view`) for a menu click and for a
+ * workflow's navigation-snapshot replay. All four are hardcoded literals in
+ * the browser half rather than values imported from those packages — see
+ * `src/client/nav-catalog.ts` and `src/client/open-nav.ts` for why. The
+ * sign-out button copies `@deepseek-ai/dsh-experimental-auth-gate`'s
  * `/auth-gate/settings` and `/auth-gate/logout` paths the same way, for the
  * same reason (`src/client/sign-out.ts`).
  */

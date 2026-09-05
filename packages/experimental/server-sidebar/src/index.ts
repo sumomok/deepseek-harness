@@ -3,8 +3,9 @@
  *
  * The whole point of this package is the browser half (`./client`): the
  * product console sidebar — a persistent 工作台 (workbench) entry, a
- * navigation group over `dsh-experimental-content-frame`'s configured pages,
- * and a per-account "my workflows" menu. This node half carries the two
+ * navigation group over `dsh-experimental-content-frame`'s configured pages
+ * and `dsh-experimental-component-surface`'s configured views, and a
+ * per-account "my workflows" menu. This node half carries the two
  * parts of that which cannot live entirely in the browser: the
  * workbench/workflow feature's durable half — the settings namespace and the
  * HTTP route the browser half reads and writes it through — and this
@@ -32,8 +33,16 @@ import {
 
 export { SERVER_IDENTITY_ROUTE, SERVER_MENU_ROUTE, type ServerIdentitySettings } from './route.ts'
 export {
-  SERVER_SIDEBAR_NAMESPACE, ServerMenuSettingsSchema, type ServerMenuSettings, type ServerMenuWorkflow,
+  NAV_SNAPSHOT_CONVERTER, SERVER_SIDEBAR_NAMESPACE, ServerMenuSettingsSchema, TEMPORARY_GROUP_ID,
+  legacyNavSnapshotMessage,
+  type NavSnapshotItem, type NavSnapshotKind, type ServerMenuGroup, type ServerMenuSettings,
+  type ServerMenuWorkflow,
 } from './workflows.ts'
+// `nav-snapshot-migration.ts` is deliberately NOT re-exported here: the
+// one-time converter the durable format's refusal names is reached through the
+// `convert-nav-snapshot` package script over `bin.ts`, and re-exporting it
+// would pull `yaml` and `node:fs` into every deployment's plugin bundle for a
+// tool no deployment runs.
 
 /** Stable Cordis plugin name. */
 export const name = 'server-sidebar'
@@ -60,8 +69,8 @@ const ROUTE_LABEL = 'server-menu route'
 /**
  * Bytes a server-menu patch can plausibly need: JSON overhead plus a
  * generous per-workflow allowance (a workflow's `navSnapshot` adds a handful
- * of page ids on top of its name and ids). A protocol bound, not a
- * deployment choice — a real user's workflow list is a handful of
+ * of `{kind, entryId}` pairs on top of its name and ids). A protocol bound,
+ * not a deployment choice — a real user's workflow list is a handful of
  * conversations, not thousands.
  */
 const MAX_SERVER_MENU_POST_CHARS = 64 * 1024

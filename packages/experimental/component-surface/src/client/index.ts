@@ -36,12 +36,12 @@
  * on the way there would come back answerable and take the same decision
  * twice.
  *
- * A second, independent registration lives in the same `apply()`: the command's
- * own `conversation.chat.commandview` entry (see `ActionCommandRow.tsx`), which
- * draws nothing for a press the host took and the handler's own sentence for
- * one it refused or only queued. The command is dispatched for the durable
- * record it writes, not to narrate in chat a button the user just pressed
- * themselves.
+ * Two further, independent registrations live in the same `apply()`: the chat
+ * rows of the two commands this package owns (see `ActionCommandRow.tsx` and
+ * `ViewCommandRow.tsx`). Both are dispatched for the durable record they write,
+ * not to narrate in chat something the user just did themselves, so both rows
+ * draw nothing for the settlement the host simply took and the handler's own
+ * sentence for the one the person who clicked could not otherwise learn about.
  * @module @deepseek-ai/dsh-experimental-component-surface/client
  */
 import type { ClientContext } from '@deepseek-ai/dsh-client-runtime/client'
@@ -55,6 +55,7 @@ import { NS } from '@deepseek-ai/dsh-experimental-component-kit/client'
 import { postAction, type PendingPresses } from './action.ts'
 import { ActionCommandRow } from './ActionCommandRow.tsx'
 import { ComponentSurface, type ComponentSurfaceInjected } from './ComponentSurface.tsx'
+import { ViewCommandRow } from './ViewCommandRow.tsx'
 
 export type { ComponentSurfaceInjected, ComponentSurfaceProps } from './ComponentSurface.tsx'
 
@@ -67,8 +68,8 @@ export type { ComponentSurfaceInjected, ComponentSurfaceProps } from './Componen
 export const inject = ['slots', 'locale', 'remote', 'remote.commands']
 
 /**
- * Client plugin body: claim the column's `component` kind, and take over the
- * component-action command's chat row.
+ * Client plugin body: claim the column's `component` kind, and take over both
+ * of this package's commands' chat rows.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
@@ -94,4 +95,12 @@ export function apply(ctx: ClientContext): void {
     // same reason as the key above.
     key: 'component-action',
   }, ActionCommandRow))
+  ctx.slots.inject('conversation.chat.commandview', () => ctx.slots.register({
+    name: 'conversation.chat.commandview',
+    // The literal, not `SHOW_CONTENT_VIEW_COMMAND`, for the same reason as the
+    // two keys above. The row is registered wherever this seat is, including a
+    // deployment that configures no views: the key is free either way, and a
+    // command that is never invoked has no row to draw.
+    key: 'show-content-view',
+  }, ViewCommandRow))
 }

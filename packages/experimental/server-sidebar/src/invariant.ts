@@ -31,6 +31,11 @@ export const inject = ['invariants']
  * registration's own `validate` hook already refuses a write that would
  * break this before it persists — this listener re-checks the committed,
  * authoritative value as the independent proof the mechanism note requires.
+ *
+ * The document's other cross-element constraints (see `validateServerMenu`)
+ * are left to that hook alone while no interface writes a `groupId` or a
+ * group: a committed value nothing can produce is not a relation this
+ * companion can be proved against.
  */
 const install: InvariantInstaller = (ctx: Context, fail: InvariantFailure) => {
   ctx.on('settings/updated', (ns, next) => {

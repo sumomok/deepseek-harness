@@ -8,7 +8,9 @@ The package is both halves. The host half offers the tool, validates each call, 
 
 What the user then does inside a block comes back the other way, through one command this row owns: `/component-action`.
 
-Nothing here appends a session event. A call's record is the `tool/call` the loop already writes and an action's is the `command/run` the command registry already writes, so both directions replay from the log the agent actually wrote, and removing this row leaves every past session readable.
+The same column also takes blocks nobody asked the model for: a deployment writes views of its own, the shell's sidebar lists them, and a click puts one there, without the model being asked anything.
+
+Nothing the agent does appends a session event. A call's record is the `tool/call` the loop already writes and an action's is the `command/run` the command registry already writes, so both directions replay from the log the agent actually wrote. The one event this package writes is the user's own: the click that opens a configured view.
 
 ## Composition
 
@@ -18,9 +20,62 @@ The row activates in three independent pieces. The tool needs a tool runtime and
 
 ## Configuration
 
-None. The numbers a deployment might want to move — the spec byte ceiling, the node ceiling, the nesting ceiling, the action byte ceiling — are enforced twice: here, and again by the browser seat over the value that arrives on the wire. The seat receives no Cordis configuration, so a per-deployment ceiling would be a ceiling the two halves disagree on: a block silently missing from the column rather than a refusal the model can act on. They are protocol constants in [`src/component-call.ts`](src/component-call.ts) until the seat can read a deployment's settings, at which point the ceilings and the route that serves them arrive together. The nesting ceiling is not written down even there: it is measured off the catalog, so a component declaring a nested property widens it by exactly what that property needs and no legal document is refused as malformed.
+Two fields, `views` and `homeView`, both about blocks a person wrote rather than about anything the model does; the next section is their whole documentation. Everything else is fixed.
+
+The numbers a deployment might want to move — the spec byte ceiling, the node ceiling, the nesting ceiling, the action byte ceiling — are enforced twice: here, and again by the browser seat over the value that arrives on the wire. The seat receives no Cordis configuration, so a per-deployment ceiling would be a ceiling the two halves disagree on: a block silently missing from the column rather than a refusal the model can act on. They are protocol constants in [`src/component-call.ts`](src/component-call.ts) until the seat can read a deployment's settings, at which point the ceilings and the route that serves them arrive together. The nesting ceiling is not written down even there: it is measured off the catalog, so a component declaring a nested property widens it by exactly what that property needs and no legal document is refused as malformed.
 
 An action's report grade is not a ceiling and is not configuration either. It says what a gesture means — a pressed confirmation is the answer the agent stopped for — so it is declared beside the action in the catalog, and a deployment that moved it would be changing what the agent is told happened.
+
+## Views the deployment writes
+
+A view is the same three values a `show_component` call carries — an entry id, a short title, and a spec — written by a person in `cordis.yml` instead of by the model in a tool call. That is what lets one entry kind, one extractor and one seat serve both: what differs is who wrote the spec, not what it is.
+
+```yml
+- id: show-component
+  name: '@deepseek-ai/dsh-experimental-component-surface'
+  config:
+    homeView: site-overview
+    views:
+      - id: site-overview
+        title: 站点概览
+        spec:
+          nodes:
+            - id: sites
+              component: toy.table
+              props:
+                selectMode: radio
+                tableConfig:
+                  gridItems:
+                    - { relatedMetaAttr: name, alias: 站点 }
+                displayValueList:
+                  - { name: 一号站点 }
+            - id: detail
+              component: toy.record
+              props:
+                dataList: { $from: 'node:sites.selectionDetail' }
+                columnNum: 1
+          layout:
+            node: stack
+            dir: col
+            gap: md
+            children:
+              - { node: component, id: sites, flex: 2 }
+              - { node: component, id: detail, flex: 1 }
+```
+
+`homeView` names the view the sidebar opens by itself the first time a session lands on a blank draft, so a new conversation starts on a populated column; omit it to leave that column empty until the user or the agent chooses. It must name a configured view, and what it drives is a real click, leaving the same durable record one would.
+
+Every view is judged at load by the pass that judges a call — the same catalog, the same ceilings, the same alphabet for an id — so what a deployment may write is exactly what the model may send. A view that would not survive that judgement stops the row from loading, naming both the view a person has to go and edit and the value inside it:
+
+```
+component-surface: views[0] "site-overview" — spec.nodes[0].component — names no component of this deployment. Available components: …
+```
+
+Loud rather than skipped, because a view quietly dropped is a menu row that shows an empty column when a user clicks it, with nothing anywhere saying why. A repeated id and a `homeView` naming no configured view fail the same way.
+
+Two registrations exist only where views do. `GET /component-surface/views` answers the catalog a navigation menu is built from — `{"views":[{"id","title"},…],"homeView"?}` — and nothing more: a spec never travels this route, so a page cannot ask for a view the deployment did not configure. `/show-content-view <id>` is what a click runs; it appends the event below, draws nothing in the chat for a click the host took, and answers a click naming no view with one sentence, `没有这个视图。`, which is the only thing its chat row ever draws. Clicking the view already on screen appends again, which is what moves that entry back to the front of the switcher strip rather than doing nothing.
+
+`content-component/shown` is the one session event this package writes. It is Log-only — nothing about it reaches a model request, because what the model is told about the column is what the tool it called said — and it carries the whole spec rather than the view id, so a view the deployment later edits or drops still replays as what the user actually saw. The entry is folded out of it by the extractor that folds a call, under the entry id the view owns.
 
 ## The catalog
 
@@ -94,9 +149,9 @@ A binding is a whole property's value or nothing. `{"$from": …}` inside a list
 
 A call owns the entry its `id` names, written in the same alphabet as a node id — letters, digits, underscores and hyphens. Calling again with the same id replaces what that entry shows — both calls stay in the transcript, because the log is what happened, but the column shows one block under one tab in its switcher strip. A different id adds a second entry beside it.
 
-The fold recognizes both shapes a call takes in the log: a top-level `tool/call`, whose `arguments` is raw JSON, and a Code Mode `tool/code-dispatch-start`, whose `arguments` is already decoded. A model reaching the tool through `run_code` logs only the second.
+The fold recognizes three log shapes. Two are a call: a top-level `tool/call`, whose `arguments` is raw JSON, and a Code Mode `tool/code-dispatch-start`, whose `arguments` is already decoded — a model reaching the tool through `run_code` logs only the second. The third is `content-component/shown`, the click that opened a configured view. All three answer with the same three values, so an agent correcting the block a user opened lands on that block rather than beside it.
 
-A call the tool refused is still in the log — the loop records the call, not its outcome — and the extractor runs the same judgement over it, so a refused call records no entry rather than an entry the seat has nothing to draw.
+A call the tool refused is still in the log — the loop records the call, not its outcome — and the extractor runs the same judgement over it, so a refused call records no entry rather than an entry the seat has nothing to draw. A view's event takes the identical pass: its spec was judged once at load, and judging the record too is what keeps one reading of the log.
 
 Resolving a stored record consults no catalog. The catalog is a build-time table that grows and changes, a persisted checkpoint written before a component was renamed must still resolve, and it is the seat — which knows which renderers it actually has — that reports a block it cannot draw. What resolving does check is that the record carries the two fields it reads. A checkpoint is plain JSON whose declared type is a claim, and one throw there would cost the column not this entry but every kind's entries at once, so a record this build cannot read resolves into an entry the seat draws its notice for.
 
@@ -260,6 +315,9 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **No block's own input survives being unselected** — the seat draws the selected entry alone and nothing at all while another kind holds the column, so switching kinds, or switching between two `component` entries, discards whatever the user had typed into the blocks that were on display. A reported gesture does survive, because it is in the log rather than in the block.
 - **An entry this build cannot fully accept shows nothing at all** — the seat re-judges the whole payload, so one node naming a component this catalog no longer carries costs the entry every block it could have drawn, not just that one. The one exception is a block fed by another: what it was fed is a value from the page rather than from the call, so a value that does not fit leaves the fed blocks waiting and draws the rest.
 - **The ceilings are protocol constants, not configuration** — the configuration section above states why, and what has to exist before they can become a deployment's choice.
+- **A view click's record is required on read** — `content-component/shown` carries no `ignorable` marker, because `Session.append` gives an appending plugin no way to set one, so a runtime whose session vocabulary excludes this package refuses a log holding one rather than skipping the event. Every build of this repository knows the type; a separately built runtime that dropped this package would not. The console's other two content rows are in the same position, for the same reason.
+- **A deployment with no views serves no catalog route** — the route and the command are claimed only where `views` has an entry, so a sidebar asking a deployment that configured none gets whatever the webserver's fallback answers with rather than an empty catalog. That is the same answer it gets where this row is not composed at all, and it is a case the sidebar already contains; what it costs is that the two cannot be told apart.
+- **A view click has no assembled-transcript coverage** — the `content-console` lane drives an ACP agent and the ACP protocol has no command method, so no recorded transcript can carry a click, exactly as none can carry a press. The lane still configures a view, because the load-time judgement over it is part of what booting that composition proves; what a click then does is covered by this package's own composition suite and by the Playwright scenario against a real console.
 - **A stored entry carries its whole spec** — the column's projection keeps the validated spec per live entry, so it rides the wire value and the persisted checkpoint. The byte ceiling is what bounds it.
 - **The invariant reports through the dispatch path only** — `Session.append` reports a throwing listener to the logger and carries on, so the live audit reaches a caller only where a committed event is dispatched through the context. The startup audit over loaded sessions is unaffected.
 - **The drawn block is not covered by an assembled snapshot** — the tool's whole model-visible surface, the catalog spliced into its description and the result line included, is pinned by the [`examples/content-console`](../../../examples/content-console/README.md) lane, which composes this row for real and runs a call end to end. What the seat then draws is a Playwright scenario against a real console composition.

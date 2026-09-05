@@ -5,9 +5,9 @@
  * see below for the residual coupling this leaves with the surrounding
  * shell's own track geometry). Three sections between the brand row and the
  * footer: 工作台 (workbench, a persistent default conversation), 导航
- * (navigation, `dsh-experimental-content-frame`'s configured pages), and 我的
- * 工作流 (my workflows, a user's own named shortcuts to conversations they
- * taught the agent something in).
+ * (navigation, the deployment's configured pages and views — see
+ * `nav-catalog.ts`), and 我的工作流 (my workflows, a user's own named
+ * shortcuts to conversations they taught the agent something in).
  *
  * `collapsed`/`width` remain part of this component's props only because
  * they are part of `PropsRuntime<'sidebar'>`'s owner-share contract (declared
@@ -33,10 +33,11 @@ import type {} from '@deepseek-ai/dsh-client-ui-sidebar/client'
 import type { HostObservable, InjectFace, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore } from '@deepseek-ai/dsh-client-ui-slots'
 import { NavGroup } from './NavGroup.tsx'
 import { WorkflowGroup } from './WorkflowGroup.tsx'
-import type { MenuPage } from './pages.ts'
+import type { NavItem } from './nav-catalog.ts'
+import type { NavSnapshotItem } from '../workflows.ts'
 import type { ServerMenuWorkflow } from './workflow-api.ts'
 import type { createWorkflowStore } from './workflow-store.ts'
-import { hasShownHomePage, isCleanWorkbenchDraft, type ContentSurfaceEntryLike } from './workflow-actions.ts'
+import { hasShownHome, isCleanWorkbenchDraft, type ContentSurfaceEntryLike } from './workflow-actions.ts'
 import css from './ServerSidebarRoot.module.css'
 
 /**
@@ -61,7 +62,7 @@ const SCROLLBAR_LINGER_MS = 2000
  * @param byId - the `useSessions` snapshot's row-by-id map.
  * @param sessionId - the session to read; `undefined` reads as no entries.
  * @returns the session's content-surface entries (each of unknown shape,
- * narrowed defensively by `isCleanWorkbenchDraft`/`hasShownHomePage`), or an
+ * narrowed defensively by `isCleanWorkbenchDraft`/`hasShownHome`), or an
  * empty array when there is nothing to read.
  */
 function contentSurfaceEntries(
@@ -78,21 +79,23 @@ function contentSurfaceEntries(
  * workflow actions.
  */
 export interface ServerSidebarInjected {
-  /** The deployment's configured content-column pages, in declaration order. */
-  pages: readonly MenuPage[]
+  /** The deployment's configured navigation rows, in menu order (see `nav-catalog.ts`). */
+  navItems: readonly NavItem[]
   /**
-   * The deployment's configured home page id (content-frame's `homePage`
-   * config), or `undefined` when none is configured — read alongside `pages`
-   * (`client/index.ts`'s `readContentPages`) and consulted here only for the
+   * The deployment's configured automatic home (content-frame's `homePage`
+   * or component-surface's `homeView`, whichever one is configured), or
+   * `undefined` when neither is — merged alongside `navItems`
+   * (`client/index.ts`'s `mergeNavCatalogs`) and consulted here only for the
    * workbench click's own clean-draft judgment (see `workbenchIsClean`
-   * below); the auto-open-page call itself stays in `client/index.ts`.
+   * below); the auto-open call itself stays in `client/index.ts`.
    */
-  homePage?: string
+  home?: NavSnapshotItem
   /**
-   * Open a configured page, creating a session first when none is current.
-   * The menu does not await this — it returns a promise so tests can.
+   * Show one configured navigation target, creating a session first when none
+   * is current. The menu does not await this — it returns a promise so tests
+   * can.
    */
-  onOpenPage: (pageId: string) => Promise<void>
+  onOpenNavItem: (target: NavSnapshotItem) => Promise<void>
   /**
    * Land on the workbench once the sidebar first loads with no session
    * selected: continuity semantics — reopens the recorded session whenever
@@ -105,20 +108,20 @@ export interface ServerSidebarInjected {
    * Open the workbench on a click: clean-draft semantics — always lands on
    * an empty page, reusing the recorded session only when it is both live
    * and still clean (no turn run, and its content column carries nothing
-   * beyond the configured home page — see `workbenchIsClean` below). Not
+   * beyond the configured automatic home — see `workbenchIsClean` below). Not
    * awaited by the component. Contrast `onOpenWorkbenchOnLoad`, the
    * auto-open-on-load path.
    * @param workbenchSessionId - the recorded id, or `undefined` before first use.
    * @param isLive - whether that id names a session the workspace domain still lists.
    * @param isClean - whether that session is a clean draft; irrelevant when `isLive` is `false`.
-   * @param homePageAlreadyShown - whether that session's content column
-   * already shows the configured home page — lets the caller skip a repeat
-   * `show-content-page` call on a reused clean draft that already carries
-   * one; meaningless (and never consulted) on a freshly created session,
-   * which always needs the call.
+   * @param homeAlreadyShown - whether that session's content column already
+   * shows the configured automatic home — lets the caller skip a repeat
+   * command on a reused clean draft that already carries it; meaningless (and
+   * never consulted) on a freshly created session, which always needs the
+   * call.
    */
   onOpenWorkbench: (
-    workbenchSessionId: string | undefined, isLive: boolean, isClean: boolean, homePageAlreadyShown: boolean,
+    workbenchSessionId: string | undefined, isLive: boolean, isClean: boolean, homeAlreadyShown: boolean,
   ) => Promise<void>
   /**
    * Open a workflow, degrading to a fresh conversation with its navigation
@@ -156,7 +159,7 @@ export type ServerSidebarRootComponentProps =
  */
 export function ServerSidebarRoot({
   width, t, renderSlot,
-  pages, homePage, onOpenPage, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveWorkflows, onSignOut,
+  navItems, home, onOpenNavItem, onOpenWorkbenchOnLoad, onOpenWorkbench, onOpenWorkflow, onSaveWorkflows, onSignOut,
   useStore, useSessions, useWorkspaces, useDisplayName,
 }: ServerSidebarRootComponentProps) {
   const displayName = useDisplayName(name => name)
@@ -178,8 +181,8 @@ export function ServerSidebarRoot({
   const workbenchIsLive = workbenchSessionId !== undefined && liveSessionIds.has(workbenchSessionId)
   const workbenchIsBlank = workbenchSessionId !== undefined && blankSessionIds.has(workbenchSessionId)
   const workbenchEntries = contentSurfaceEntries(byId, workbenchSessionId)
-  const workbenchIsClean = isCleanWorkbenchDraft(workbenchIsBlank, workbenchEntries, homePage)
-  const workbenchHomePageShown = hasShownHomePage(workbenchEntries, homePage)
+  const workbenchIsClean = isCleanWorkbenchDraft(workbenchIsBlank, workbenchEntries, home)
+  const workbenchHomeShown = hasShownHome(workbenchEntries, home)
   // Decision ④'s green dot reuses the session list's own `completed` bit
   // ("finished while not selected and not yet opened") rather than a second
   // last-seen bookkeeping mechanism — see the package README.
@@ -291,14 +294,14 @@ export function ServerSidebarRoot({
         data-server-sidebar-section="workbench"
         data-active={workbenchActive}
         onClick={() => {
-          void onOpenWorkbench(workbenchSessionId, workbenchIsLive, workbenchIsClean, workbenchHomePageShown)
+          void onOpenWorkbench(workbenchSessionId, workbenchIsLive, workbenchIsClean, workbenchHomeShown)
         }}
       >
         {t('workbench.label')}
       </button>
 
       <div className={css.regionArea}>
-        <NavGroup pages={pages} onOpenPage={onOpenPage} t={t} />
+        <NavGroup items={navItems} onOpenNavItem={onOpenNavItem} t={t} />
         <WorkflowGroup
           workflows={workflows}
           current={current}

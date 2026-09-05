@@ -72,6 +72,18 @@ const ROWS = [
   ['@deepseek-ai/dsh-experimental-content-frame', FRAME_DIR],
   ['@deepseek-ai/dsh-experimental-server-sidebar', join(REPO_ROOT, 'packages/experimental/server-sidebar')],
 ] as const
+/**
+ * Identical to {@link OVERLAY}, plus the component rows and one configured
+ * view — the one composition here where both catalogs exist to be merged.
+ */
+const VIEWS_OVERLAY = fileURLToPath(new URL('./server-sidebar-views.overlay.yml', import.meta.url))
+/** {@link ROWS} plus the three rows {@link VIEWS_OVERLAY} adds. */
+const VIEW_ROWS = [
+  ...ROWS,
+  ['@deepseek-ai/dsh-experimental-vue2-echarts-poc', join(REPO_ROOT, 'packages/experimental/vue2-echarts-poc')],
+  ['@deepseek-ai/dsh-experimental-component-kit', join(REPO_ROOT, 'packages/experimental/component-kit')],
+  ['@deepseek-ai/dsh-experimental-component-surface', join(REPO_ROOT, 'packages/experimental/component-surface')],
+] as const
 /** The hosted application this scenario serves; the overlay reads it from the environment. */
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 /** A workflow naming a session nobody ever created — seeded before the browser ever reads it (decision ⑧). */
@@ -90,12 +102,16 @@ const ESTABLISHED_PLACEHOLDER = 'Message the agent'
  * This deployment's local shape for the server-menu settings document —
  * apps/web cannot import the experimental package (see the module doc above).
  */
+interface LocalNavStop {
+  kind: 'page' | 'view'
+  entryId: string
+}
 interface LocalWorkflow {
   id: string
   name: string
   order: number
   homeSessionId: string
-  navSnapshot: string[]
+  navSnapshot: LocalNavStop[]
   savedAt: number
 }
 interface LocalServerMenu {
@@ -107,11 +123,11 @@ interface LocalServerMenu {
  * Prepare a harness home whose profile fallback resolves every experimental row.
  * @returns the harness home the scaffold should adopt.
  */
-async function harnessHomeWithRowLinks(): Promise<string> {
+async function harnessHomeWithRowLinks(rows: readonly (readonly [string, string])[] = ROWS): Promise<string> {
   const home = await mkdtemp(join(tmpdir(), 'dsh-server-sidebar-'))
   const scope = join(home, 'profiles', 'node_modules', '@deepseek-ai')
   await mkdir(scope, { recursive: true })
-  for (const [packageName, dir] of ROWS) {
+  for (const [packageName, dir] of rows) {
     await symlink(dir, join(scope, packageName.slice('@deepseek-ai/'.length)), 'dir')
   }
   return home
@@ -123,6 +139,20 @@ const navSection = (page: Page): Locator => sidebar(page).locator('[data-server-
 const workflowsSection = (page: Page): Locator => sidebar(page).locator('[data-server-sidebar-section="workflows"]')
 const activeFrame = (page: Page): Locator => page.locator('iframe[data-content-frame][data-content-active]')
 const shellColumn = (page: Page, name: string): Locator => page.locator(`[data-shell-column="${name}"]`)
+
+/** Where a passing scenario leaves its own screenshots — the gitignored repo convention `saveFailureShot` also writes to. */
+const ARTIFACTS = join(REPO_ROOT, '.artifacts')
+
+/**
+ * Save a screenshot of a state worth showing a reviewer. Evidence for the
+ * composition, not a failure artifact.
+ * @param page - the browsing page.
+ * @param name - the artifact's file name, without extension.
+ */
+async function evidence(page: Page, name: string): Promise<void> {
+  await mkdir(ARTIFACTS, { recursive: true })
+  await page.screenshot({ path: join(ARTIFACTS, `${name}.png`), fullPage: true })
+}
 
 /** One element's rendered width; `server-layout.e2e.ts`'s own helper, restated for this scenario's column checks. */
 async function columnWidth(locator: Locator): Promise<number> {
@@ -187,6 +217,24 @@ function commandTripleTypes(scaffold: WebScaffold, sessionId: string): string[] 
 }
 
 /**
+ * The given session's `show-content-view` command-lifecycle event types, in
+ * log order (`command/run` → `content-component/shown` → `command/done`, one
+ * triple per click). The middle member needs the same widening
+ * `anySessionShowed` uses: `content-component/shown` augments
+ * `SessionEventMap` from component-surface, which apps/web cannot import.
+ * @param scaffold - the live scaffold.
+ * @param sessionId - the session to read.
+ * @returns the event types, in log order.
+ */
+function viewCommandTripleTypes(scaffold: WebScaffold, sessionId: string): string[] {
+  const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+  if (agent === undefined) return []
+  return agent.session.events
+    .map((event: SessionEvent) => event.type as string)
+    .filter(type => type === 'command/run' || type === 'content-component/shown' || type === 'command/done')
+}
+
+/**
  * Seed a full, closed turn (`turn/start` → `user/message` → `step/start` →
  * `assistant/message` → `step/end` → `turn/end`) directly onto a live
  * session's log, with no model call. `user/message` satisfies decision ③'s
@@ -246,7 +294,7 @@ describe('web e2e: the product-console sidebar', () => {
         name: 'Ghost Workflow',
         order: 0,
         homeSessionId: GHOST_SESSION_ID,
-        navSnapshot: ['reports'],
+        navSnapshot: [{ kind: 'page', entryId: 'reports' }],
         savedAt: Date.now(),
       }],
     })
@@ -432,7 +480,7 @@ describe('web e2e: the product-console sidebar', () => {
 
       await expect.poll(() => readServerMenu(scaffold).workflows.find(w => w.name === 'My Workflow'), {
         timeout: 10_000,
-      }).toMatchObject({ homeSessionId: workbenchSessionId, navSnapshot: ['home'] })
+      }).toMatchObject({ homeSessionId: workbenchSessionId, navSnapshot: [{ kind: 'page', entryId: 'home' }] })
     },
     90_000,
   )
@@ -691,6 +739,176 @@ describe('web e2e: the product-console sidebar with a configured home page', () 
       expect(readServerMenu(scaffold).workbenchSessionId).toBe(priorWorkbenchSessionId)
     },
     60_000,
+  )
+
+  it('leaves the console clean', () => {
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+})
+
+describe('web e2e: the product-console sidebar over both content catalogs', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let harnessHome: string
+  let tripwire: ReturnType<typeof watchConsole>
+  /** The workbench's persistent session id, captured once the first test creates it. */
+  let workbenchSessionId: string
+  const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
+
+  beforeAll(async () => {
+    harnessHome = await harnessHomeWithRowLinks(VIEW_ROWS)
+    process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
+    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: VIEWS_OVERLAY })
+    const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-views-workspace')
+    await mkdir(workspaceDir, { recursive: true })
+    await scaffold.ctx.workspaceRegistry.create(workspaceDir)
+
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await sidebar(page).waitFor({ timeout: 30_000 })
+  }, 180_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+    await rm(harnessHome, { recursive: true, force: true })
+    if (inheritedAppRoot === undefined) delete process.env.DSH_CONTENT_APP_ROOT
+    else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
+  })
+
+  it(
+    'offers both catalogs in one menu — content-frame\'s pages first, then component-surface\'s views',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-views-menu'))
+      // The merge is the whole point of this composition: two same-origin
+      // routes read at mount, each contributing rows in its own declaration
+      // order, pages ahead of views. A menu missing the last row is what a
+      // drifted route path looks like, which is why the order is pinned
+      // exactly rather than by presence.
+      await expect.poll(
+        async () => await navSection(page).getByRole('button').allTextContents(),
+        { timeout: 20_000 },
+      ).toEqual(['Home', 'Weekly reports', 'Site overview'])
+      // Each row carries which catalog it came from, because the two are
+      // opened by different commands.
+      expect(await navSection(page).locator('[data-server-sidebar-nav-kind]').evaluateAll(
+        rows => rows.map(row => row.getAttribute('data-server-sidebar-nav-kind')),
+      )).toEqual(['page', 'page', 'view'])
+    },
+    60_000,
+  )
+
+  it(
+    'puts the configured view in the content column on click, drawing both of its blocks in the layout order the spec declares',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-views-open'))
+      await workbenchButton(page).click()
+      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBeUndefined()
+      workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
+
+      await navSection(page).getByRole('button', { name: 'Site overview' }).click()
+
+      const seat = page.locator('[data-content-surface-seat="component"]')
+      const table = seat.locator('[data-component-block="toy.table"]')
+      const record = seat.locator('[data-component-block="toy.record"]')
+      await table.waitFor({ timeout: 20_000 })
+      await expect.poll(
+        async () => await table.locator('.el-table__body-wrapper tbody tr').count(),
+        { timeout: 20_000 },
+      ).toBe(2)
+      // Nothing is ticked yet, so the `$from` binding the record block waits on
+      // has produced nothing and the seat draws its waiting line in place of
+      // the component. The node still holds its place in the stack rather than
+      // the column closing over it, which is what the awaiting line being the
+      // second child proves.
+      expect(await record.count()).toBe(0)
+      await seat.locator('[data-component-surface-awaiting="detail"]').waitFor({ timeout: 20_000 })
+
+      // The click's own durable record: a command triple whose middle event is
+      // this package's own, not content-frame's — the two nav kinds dispatch
+      // to two different commands.
+      await expect.poll(
+        () => viewCommandTripleTypes(scaffold, workbenchSessionId),
+        { timeout: 15_000 },
+      ).toEqual(['command/run', 'content-component/shown', 'command/done'])
+      await evidence(page, 'web-e2e-server-sidebar-views-open')
+    },
+    90_000,
+  )
+
+  it(
+    'drives the detail block from the table\'s own selection, with no round trip through the host',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-views-binding'))
+      const seat = page.locator('[data-content-surface-seat="component"]')
+      const record = seat.locator('[data-component-block="toy.record"]')
+
+      // element-ui draws the table body more than once, and the native input
+      // inside each control is transparent and unclickable — so what is clicked
+      // is the visible box a user clicks (component-surface.e2e.ts does the
+      // same for its checkbox table).
+      const radios = seat.locator('[data-component-block="toy.table"] .el-radio__inner:visible')
+      await radios.nth(0).click()
+      await expect.poll(
+        async () => await record.locator('.form-item-content').allTextContents(),
+        { timeout: 20_000 },
+      ).toEqual(['North plant', 'Running'])
+
+      // Picking the other row re-reads the binding rather than appending to it.
+      await radios.nth(1).click()
+      await expect.poll(
+        async () => await record.locator('.form-item-content').allTextContents(),
+        { timeout: 20_000 },
+      ).toEqual(['South plant', 'Stopped'])
+      await evidence(page, 'web-e2e-server-sidebar-views-binding')
+
+      // Each tick is a recorded `select` gesture of the table's own — a
+      // `command/run`/`command/done` pair carrying no content event. What the
+      // binding does NOT do is place the view again: `content-component/shown`
+      // is still the single one the navigation click wrote, so the detail
+      // block is being fed on the seat rather than by a round trip that
+      // re-appends the entry.
+      expect(viewCommandTripleTypes(scaffold, workbenchSessionId))
+        .toEqual([
+          'command/run', 'content-component/shown', 'command/done',
+          'command/run', 'command/done',
+          'command/run', 'command/done',
+        ])
+    },
+    90_000,
+  )
+
+  it(
+    'captures the open view as a `view` stop when the conversation is saved as a workflow',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-views-workflow'))
+      seedClosedTurn(scaffold, workbenchSessionId)
+      await page.getByRole('button', { name: 'Save as workflow' }).click()
+      const nameField = page.getByPlaceholder('Workflow name')
+      await nameField.waitFor({ timeout: 10_000 })
+      await nameField.fill('Site Flow')
+      await nameField.press('Enter')
+
+      await expect.poll(async () => await workflowsSection(page).getByRole('button', { name: /Site Flow/ }).isVisible(), {
+        timeout: 10_000,
+      }).toBe(true)
+
+      // The stop carries the kind, which is what a replay needs to pick the
+      // command to run — a snapshot of bare ids could not.
+      await expect.poll(() => readServerMenu(scaffold).workflows.find(w => w.name === 'Site Flow'), {
+        timeout: 10_000,
+      }).toMatchObject({
+        homeSessionId: workbenchSessionId,
+        navSnapshot: [{ kind: 'view', entryId: 'site-overview' }],
+      })
+      await evidence(page, 'web-e2e-server-sidebar-views-workflow')
+    },
+    90_000,
   )
 
   it('leaves the console clean', () => {

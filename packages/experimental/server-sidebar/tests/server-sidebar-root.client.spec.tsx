@@ -13,7 +13,7 @@ import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import type { ReactNode } from 'react'
 import { ServerSidebarRoot, type ServerSidebarRootComponentProps } from '../src/client/ServerSidebarRoot.tsx'
 import { en } from '../src/client/locales.ts'
-import type { ServerMenuWorkflow } from '../src/client/workflow-api.ts'
+import type { NavSnapshotItem, ServerMenuWorkflow } from '../src/client/workflow-api.ts'
 
 const t: ServerSidebarRootComponentProps['t'] = (key, vars?: Record<string, unknown>) => {
   const template = (en as Record<string, string>)[key] ?? key
@@ -25,7 +25,10 @@ const t: ServerSidebarRootComponentProps['t'] = (key, vars?: Record<string, unkn
     })
 }
 
-const PAGES = [{ id: 'home', title: 'Home' }]
+const NAV_ITEMS = [
+  { kind: 'page', entryId: 'home', title: 'Home' },
+  { kind: 'view', entryId: 'sales', title: 'Sales' },
+] as const
 
 afterEach(() => {
   cleanup()
@@ -46,12 +49,12 @@ interface Bench {
   recentWorkspaceId: string | undefined
   /** What the identity source currently answers; absent is the anonymous footer. */
   displayName: string | undefined
-  /** The deployment's configured home page id, or `undefined` when none is configured. */
-  homePage: string | undefined
+  /** The deployment's configured automatic home, or `undefined` when none is configured. */
+  home: NavSnapshotItem | undefined
 }
 
 function mount(overrides: Partial<Bench> = {}) {
-  const onOpenPage = vi.fn(() => Promise.resolve())
+  const onOpenNavItem = vi.fn(() => Promise.resolve())
   const onOpenWorkbenchOnLoad = vi.fn(() => Promise.resolve())
   const onOpenWorkbench = vi.fn(() => Promise.resolve())
   const onOpenWorkflow = vi.fn(() => Promise.resolve())
@@ -66,15 +69,15 @@ function mount(overrides: Partial<Bench> = {}) {
     phase: 'ready',
     recentWorkspaceId: 'workspace-1',
     displayName: undefined,
-    homePage: undefined,
+    home: undefined,
     ...overrides,
   }
   const root = () => (
     <ServerSidebarRoot
       collapsed={false} width={240}
       t={t}
-      pages={PAGES} onOpenPage={onOpenPage}
-      {...current.homePage === undefined ? {} : { homePage: current.homePage }}
+      navItems={NAV_ITEMS} onOpenNavItem={onOpenNavItem}
+      {...current.home === undefined ? {} : { home: current.home }}
       onOpenWorkbenchOnLoad={onOpenWorkbenchOnLoad}
       onOpenWorkbench={onOpenWorkbench}
       onOpenWorkflow={onOpenWorkflow} onSaveWorkflows={onSaveWorkflows} onSignOut={onSignOut}
@@ -96,7 +99,7 @@ function mount(overrides: Partial<Bench> = {}) {
   )
   const view = render(root())
   return {
-    onOpenPage,
+    onOpenNavItem,
     onOpenWorkbenchOnLoad,
     onOpenWorkbench,
     onOpenWorkflow,
@@ -182,11 +185,11 @@ describe('ServerSidebarRoot', () => {
           },
         },
         current: 'home-1',
-        homePage: 'home',
+        home: { kind: 'page', entryId: 'home' },
       })
       fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
       // Both the reuse decision (isClean) and the auto-open dedup hint
-      // (homePageAlreadyShown) read true: the draft is clean, and it already
+      // (homeAlreadyShown) read true: the draft is clean, and it already
       // shows the one entry it is allowed to carry.
       expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, true, true)
     })
@@ -202,7 +205,7 @@ describe('ServerSidebarRoot', () => {
           },
         },
         current: 'home-1',
-        homePage: 'home',
+        home: { kind: 'page', entryId: 'home' },
       })
       fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
       expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, false, false)
@@ -213,7 +216,7 @@ describe('ServerSidebarRoot', () => {
         workbenchSessionId: 'home-1',
         byId: { 'home-1': { displayTitle: 'Home', blank: true } },
         current: 'home-1',
-        homePage: 'home',
+        home: { kind: 'page', entryId: 'home' },
       })
       fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
       expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, true, false)
@@ -298,10 +301,33 @@ describe('ServerSidebarRoot', () => {
     })
   })
 
-  it('lists the configured pages and opens one on click', () => {
+  it('lists both navigation catalogs and opens a page on click', () => {
     const b = mount()
     fireEvent.click(screen.getByRole('button', { name: 'Home' }))
-    expect(b.onOpenPage).toHaveBeenCalledWith('home')
+    expect(b.onOpenNavItem).toHaveBeenCalledWith({ kind: 'page', entryId: 'home' })
+  })
+
+  it('opens a view on click through the same menu', () => {
+    const b = mount()
+    fireEvent.click(screen.getByRole('button', { name: 'Sales' }))
+    expect(b.onOpenNavItem).toHaveBeenCalledWith({ kind: 'view', entryId: 'sales' })
+  })
+
+  it('recognizes a configured home view already shown as a component entry', () => {
+    const b = mount({
+      workbenchSessionId: 'home-1',
+      byId: {
+        'home-1': {
+          displayTitle: 'Home',
+          blank: true,
+          projectionValues: { contentSurface: { entries: [{ kind: 'component', entryId: 'sales' }] } },
+        },
+      },
+      current: 'home-1',
+      home: { kind: 'view', entryId: 'sales' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: en['workbench.label'] }))
+    expect(b.onOpenWorkbench).toHaveBeenCalledWith('home-1', true, true, true)
   })
 
   it('opens a workflow with its bound session\'s liveness', () => {

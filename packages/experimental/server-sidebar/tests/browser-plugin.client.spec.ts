@@ -22,6 +22,7 @@ import { ServerSidebarRoot } from '../src/client/ServerSidebarRoot.tsx'
 import { SaveWorkflowAction, type SaveWorkflowInjected } from '../src/client/SaveWorkflowAction.tsx'
 import type { createWorkflowStore } from '../src/client/workflow-store.ts'
 import * as ServerSidebarInvariant from '../src/invariant.ts'
+import type { NavSnapshotItem } from '../src/workflows.ts'
 import { en, zh } from '../src/client/locales.ts'
 
 /** The sidebar entry's inject factory, as `injectFace` below invokes it. */
@@ -60,6 +61,7 @@ interface BenchResult {
 }
 
 const CONTENT_FRAME_SETTINGS_ROUTE = '/content-frame/settings'
+const COMPONENT_SURFACE_VIEWS_ROUTE = '/component-surface/views'
 const SERVER_MENU_ROUTE = '/server-menu/workflows'
 const SERVER_IDENTITY_ROUTE = '/server-menu/identity'
 const AUTH_GATE_SETTINGS_ROUTE = '/auth-gate/settings'
@@ -72,8 +74,15 @@ function jwt(name: string): string {
 }
 
 const CONTENT_FRAME_PAGES = [{ id: 'home', title: 'Home', description: '', url: '/content-app/' }]
-const PAGES = [{ id: 'home', title: 'Home' }]
-const WORKFLOW = { id: 'w1', name: 'Alpha', order: 0, homeSessionId: 'session-a', navSnapshot: ['home'], savedAt: 1 }
+const COMPONENT_SURFACE_VIEWS = [{ id: 'sales', title: 'Sales' }]
+const NAV_ITEMS = [
+  { kind: 'page', entryId: 'home', title: 'Home' },
+  { kind: 'view', entryId: 'sales', title: 'Sales' },
+]
+const NAV_SNAPSHOT: NavSnapshotItem[] = [{ kind: 'page', entryId: 'home' }, { kind: 'view', entryId: 'sales' }]
+const WORKFLOW = {
+  id: 'w1', name: 'Alpha', order: 0, homeSessionId: 'session-a', navSnapshot: NAV_SNAPSHOT, savedAt: 1,
+}
 
 /**
  * Route the stubbed fetch by path; unhandled paths throw so a spec must ask for
@@ -119,6 +128,9 @@ async function bench(
     currentSessionId?: string
     recentWorkspaceId?: string
     homePage?: string
+    homeView?: string
+    /** Refuse component-surface's views route, as a composition without that plugin does. */
+    withoutComponentSurface?: boolean
     /** Omit auth-gate's settings route, as a composition without that plugin does. */
     withoutAuthGate?: boolean
     /** Refuse this package's own identity route, as a composition with no webserver does. */
@@ -133,6 +145,9 @@ async function bench(
         ...options.homePage === undefined ? {} : { homePage: options.homePage },
       },
     },
+    [COMPONENT_SURFACE_VIEWS_ROUTE]: options.withoutComponentSurface === true
+      ? { ok: false, body: {} }
+      : { body: { views: COMPONENT_SURFACE_VIEWS, ...options.homeView === undefined ? {} : { homeView: options.homeView } } },
     [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW] } },
     [SERVER_IDENTITY_ROUTE]: options.withoutIdentity === true
       ? { ok: false, body: {} }
@@ -205,7 +220,7 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(inject).toEqual(['slots', 'sessions', 'workspaces', 'locale', 'remote', 'remote.commands'])
   })
 
-  it('reads content-frame\'s pages and this package\'s own server-menu document before registering', async () => {
+  it('reads both navigation catalogs and this package\'s own server-menu document before registering', async () => {
     const { ctx } = await bench()
     expect(ctx.slots.entries('sidebar')).toHaveLength(1)
   })
@@ -236,17 +251,30 @@ describe('server-sidebar browser half: sidebar registration', () => {
     disposeCompetitor()
   })
 
-  it('wires the fetched pages onto the injected face', async () => {
+  it('wires both fetched catalogs onto the injected face, pages first', async () => {
     const { ctx } = await bench()
     const { injected } = injectSidebar(ctx)
-    expect(injected.pages).toEqual(PAGES)
+    expect(injected.navItems).toEqual(NAV_ITEMS)
+  })
+
+  it('degrades to the page catalog alone when component-surface is not composed', async () => {
+    const { ctx } = await bench({ withoutComponentSurface: true })
+    const { injected } = injectSidebar(ctx)
+    expect(injected.navItems).toEqual([NAV_ITEMS[0]])
   })
 
   it('opens a page against the current session without creating a new one', async () => {
     const { ctx, remote } = await bench({ currentSessionId: 'session-a' })
     const { injected } = injectSidebar(ctx)
-    await injected.onOpenPage('home')
+    await injected.onOpenNavItem({ kind: 'page', entryId: 'home' })
     expect(remote.commands.execute).toHaveBeenCalledWith('session-a', '/show-content-page home', [])
+  })
+
+  it('opens a view through the view command against the same session', async () => {
+    const { ctx, remote } = await bench({ currentSessionId: 'session-a' })
+    const { injected } = injectSidebar(ctx)
+    await injected.onOpenNavItem({ kind: 'view', entryId: 'sales' })
+    expect(remote.commands.execute).toHaveBeenCalledWith('session-a', '/show-content-view sales', [])
   })
 
   it('onOpenWorkbenchOnLoad reopens the recorded session directly when it is live, with no persist', async () => {
@@ -325,11 +353,18 @@ describe('server-sidebar browser half: sidebar registration', () => {
     expect(remote.commands.execute).not.toHaveBeenCalled()
   })
 
-  it('onOpenWorkbench (click) shows the configured home page on a freshly created session, ignoring homePageAlreadyShown', async () => {
+  it('onOpenWorkbench (click) shows the configured home view when that is what the deployment configured', async () => {
+    const { ctx, remote } = await bench({ homeView: 'sales' })
+    const { injected } = injectSidebar(ctx)
+    await injected.onOpenWorkbench('home-1', true, true, false)
+    expect(remote.commands.execute).toHaveBeenCalledWith('home-1', '/show-content-view sales', [])
+  })
+
+  it('onOpenWorkbench (click) shows the configured home page on a freshly created session, ignoring homeAlreadyShown', async () => {
     const { ctx, remote } = await bench({ recentWorkspaceId: 'workspace-1', homePage: 'home' })
     const { injected } = injectSidebar(ctx)
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW], workbenchSessionId: 'new-session' } } })
-    // `homePageAlreadyShown` describes the DISPLACED session, not the fresh
+    // `homeAlreadyShown` describes the DISPLACED session, not the fresh
     // one — a create outcome must show the home page regardless of its value.
     await injected.onOpenWorkbench(undefined, false, false, true)
     expect(remote.commands.execute).toHaveBeenCalledWith('new-session', '/show-content-page home', [])
@@ -365,7 +400,8 @@ describe('server-sidebar browser half: sidebar registration', () => {
     await injected.onOpenWorkflow(WORKFLOW, false)
     expect(workspaces.connectWorkspace).toHaveBeenCalledWith('workspace-1')
     expect(sessions.open).toHaveBeenCalledWith('new-session')
-    expect(remote.commands.execute).toHaveBeenCalledWith('new-session', '/show-content-page home', [])
+    expect(remote.commands.execute).toHaveBeenNthCalledWith(1, 'new-session', '/show-content-page home', [])
+    expect(remote.commands.execute).toHaveBeenNthCalledWith(2, 'new-session', '/show-content-view sales', [])
     expect(actions.setServerMenu).toHaveBeenCalledWith({ workflows: [{ ...WORKFLOW, homeSessionId: 'new-session' }] })
   })
 
@@ -477,10 +513,15 @@ describe('server-sidebar browser half: save-workflow header action', () => {
   it('saves a new workflow and pushes the server\'s answer into the mounted sidebar\'s own store', async () => {
     const { ctx } = await bench()
     const { actions } = injectSidebar(ctx)
-    const saved = { workflows: [WORKFLOW, { id: 'w2', name: 'New Flow', order: 1, homeSessionId: 'session-b', navSnapshot: ['home'], savedAt: 2 }] }
+    const saved = {
+      workflows: [
+        WORKFLOW,
+        { id: 'w2', name: 'New Flow', order: 1, homeSessionId: 'session-b', navSnapshot: NAV_SNAPSHOT, savedAt: 2 },
+      ],
+    }
     stubFetch({ [SERVER_MENU_ROUTE]: { body: saved } })
     const headerInjected = injectHeaderAction(ctx, 'session-b')
-    await headerInjected.onSave('session-b', 'New Flow', ['home'])
+    await headerInjected.onSave('session-b', 'New Flow', NAV_SNAPSHOT)
     expect(actions.setServerMenu).toHaveBeenCalledWith(saved)
   })
 
@@ -491,7 +532,7 @@ describe('server-sidebar browser half: save-workflow header action', () => {
     // still unset for this call.
     stubFetch({ [SERVER_MENU_ROUTE]: { body: { workflows: [WORKFLOW] } } })
     const headerInjected = injectHeaderAction(ctx, 'session-a')
-    await expect(headerInjected.onSave('session-a', 'Alpha', ['home'])).resolves.toBeUndefined()
+    await expect(headerInjected.onSave('session-a', 'Alpha', NAV_SNAPSHOT)).resolves.toBeUndefined()
   })
 
   it('warns rather than throwing when the defensive path\'s own save also fails', async () => {
@@ -506,7 +547,7 @@ describe('server-sidebar browser half: save-workflow header action', () => {
         : Promise.resolve({ ok: false, status: 503, json: () => Promise.resolve({}) })
     }))
     const headerInjected = injectHeaderAction(ctx, 'session-a')
-    await headerInjected.onSave('session-a', 'Alpha', ['home'])
+    await headerInjected.onSave('session-a', 'Alpha', NAV_SNAPSHOT)
     expect(warn).toHaveBeenCalledWith(
       expect.stringContaining('failed to save workflow (sidebar not mounted)'), expect.any(Error),
     )
@@ -514,10 +555,31 @@ describe('server-sidebar browser half: save-workflow header action', () => {
   })
 })
 
+describe('server-sidebar browser half: the deployment\'s automatic home', () => {
+  it('refuses at load when both packages configure one', async () => {
+    stubFetch({
+      [CONTENT_FRAME_SETTINGS_ROUTE]: { body: { pages: CONTENT_FRAME_PAGES, homePage: 'home' } },
+      [COMPONENT_SURFACE_VIEWS_ROUTE]: { body: { views: COMPONENT_SURFACE_VIEWS, homeView: 'sales' } },
+      [SERVER_MENU_ROUTE]: { body: { workflows: [] } },
+      [SERVER_IDENTITY_ROUTE]: { body: { displayNameClaim: 'login_uname' } },
+      [AUTH_GATE_SETTINGS_ROUTE]: { body: { loginUrl: '#/toy-login', cookieName: 'accessToken' } },
+    })
+    const ctx = new Context()
+    await ctx.plugin(SlotRegistry).await()
+    declareSlots(ctx)
+    ctx.provide('locale', { register: () => () => {}, bind: () => () => '' } as never)
+    // The plugin body itself, not a fiber: a rejecting apply is what fails the
+    // row, and the fiber only reports it (the same shape auth-gate's own
+    // load-time refusals are asserted in).
+    await expect(apply(ctx)).rejects.toThrow(/one automatic home, not both/)
+  })
+})
+
 describe('server-sidebar browser half: dictionaries', () => {
   it('registers both dictionaries under its own namespace and releases them with the fiber', async () => {
     stubFetch({
       [CONTENT_FRAME_SETTINGS_ROUTE]: { body: { cacheSize: 1, pages: CONTENT_FRAME_PAGES } },
+      [COMPONENT_SURFACE_VIEWS_ROUTE]: { body: { views: COMPONENT_SURFACE_VIEWS } },
       [SERVER_MENU_ROUTE]: { body: { workflows: [] } },
       [SERVER_IDENTITY_ROUTE]: { body: { displayNameClaim: 'login_uname' } },
       [AUTH_GATE_SETTINGS_ROUTE]: { body: { loginUrl: '#/toy-login', cookieName: 'accessToken' } },

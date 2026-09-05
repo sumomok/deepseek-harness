@@ -663,6 +663,57 @@ export interface Config {
 
 Source: [`packages/experimental/auth-gate/src/index.ts:54`](../packages/experimental/auth-gate/src/index.ts)
 
+<a id="deepseek-aidsh-experimental-component-surface"></a>
+
+## `@deepseek-ai/dsh-experimental-component-surface`
+
+Requires: `tools`
+
+```ts config-catalog
+/** Plugin config: the views this deployment offers the user beside the ones the agent draws. */
+export interface Config {
+  /**
+   * Blocks a person wrote, offered to the user through the sidebar rather than
+   * to the model. Each carries the same three values a `show_component` call
+   * does — an entry id, a title, and a spec — and is judged by the same pass at
+   * load. Omit it, or leave it empty, for a deployment where the agent is the
+   * only one who puts anything in the column.
+   */
+  views?: ContentView[]
+  /**
+   * View the sidebar shows automatically the first time a session lands on a
+   * blank draft, so a new conversation opens onto a populated column instead of
+   * an empty one. Must name a configured view. Omit to leave a blank draft's
+   * column empty until the user or the agent chooses. The value is read by
+   * `@deepseek-ai/dsh-experimental-server-sidebar` off this row's route, and
+   * what it drives is a real `show-content-view` invocation, so it leaves the
+   * same durable record a real click would.
+   */
+  homeView?: string
+}
+
+/** One view a deployment configures, as `cordis.yml` writes it and before anything has judged it. */
+export interface ContentView {
+  /**
+   * Stable id of the view, and of the content-column entry it owns. Read
+   * exactly as a `show_component` entry id is — the same alphabet and the same
+   * ceiling — because it becomes one.
+   */
+  readonly id: string
+  /** Short phrase naming the entry for the user, on the same ceiling a call's title is read against. */
+  readonly title: string
+  /**
+   * What to draw, in the structure `show_component`'s own `spec` parameter
+   * takes. Judged at load by the same pass that judges a call, so a deployment
+   * learns about a broken view when the row loads rather than when a user first
+   * clicks it.
+   */
+  readonly spec: unknown
+}
+```
+
+Source: [`packages/experimental/component-surface/src/index.ts:76`](../packages/experimental/component-surface/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 
 ## `@deepseek-ai/dsh-experimental-content-frame`
@@ -781,7 +832,7 @@ export interface Config {
 }
 ```
 
-Source: [`packages/experimental/server-sidebar/src/index.ts:42`](../packages/experimental/server-sidebar/src/index.ts)
+Source: [`packages/experimental/server-sidebar/src/index.ts:51`](../packages/experimental/server-sidebar/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-tool-agent-team"></a>
 
@@ -3483,7 +3534,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-commands` ([`packages/interaction/commands/src/index.ts`](../packages/interaction/commands/src/index.ts))
 - `@deepseek-ai/dsh-cordis-client-runner` ([`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts))
 - `@deepseek-ai/dsh-experimental-component-kit` ([`packages/experimental/component-kit/src/index.ts`](../packages/experimental/component-kit/src/index.ts))
-- `@deepseek-ai/dsh-experimental-component-surface` — requires `tools` ([`packages/experimental/component-surface/src/index.ts`](../packages/experimental/component-surface/src/index.ts))
 - `@deepseek-ai/dsh-experimental-content-column` ([`packages/experimental/content-column/src/index.ts`](../packages/experimental/content-column/src/index.ts))
 - `@deepseek-ai/dsh-experimental-content-surface` ([`packages/experimental/content-surface/src/index.ts`](../packages/experimental/content-surface/src/index.ts))
 - `@deepseek-ai/dsh-experimental-server-layout` ([`packages/experimental/server-layout/src/index.ts`](../packages/experimental/server-layout/src/index.ts))

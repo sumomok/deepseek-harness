@@ -2,16 +2,21 @@
  * Server-menu HTTP client: the browser half of this package's own
  * workbench/workflow route. Same-package import of `../route.ts` — this is
  * this package's own wire agreement with itself, not the cross-package kind
- * `pages.ts` and `open-page.ts` avoid. Both requests resolve that route
+ * `nav-catalog.ts` and `open-nav.ts` avoid. Both requests resolve that route
  * against the page's deployment base, which is what a shell served under a
  * reverse-proxy path prefix needs.
+ *
+ * A decoded workflow is passed through as it arrived rather than rebuilt field
+ * by field, so a field this browser half has no use for yet — `groupId`, which
+ * nothing renders until groups get their interface — survives a read, an edit
+ * of some other field, and the write back.
  * @module @deepseek-ai/dsh-experimental-server-sidebar/client/workflow-api
  */
 import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import { SERVER_MENU_ROUTE } from '../route.ts'
-import type { ServerMenuWorkflow } from '../workflows.ts'
+import type { NavSnapshotItem, ServerMenuWorkflow } from '../workflows.ts'
 
-export type { ServerMenuWorkflow } from '../workflows.ts'
+export type { NavSnapshotItem, ServerMenuWorkflow } from '../workflows.ts'
 
 /** The server-menu document as the browser half needs it: absent `workbenchSessionId` reads as `undefined`, never omitted. */
 export interface ServerMenuState {
@@ -24,6 +29,21 @@ export interface ServerMenuState {
 /** The empty document a failed or absent read answers. */
 const EMPTY_STATE: ServerMenuState = { workflows: [], workbenchSessionId: undefined }
 
+/**
+ * Narrow one decoded `navSnapshot` entry to a usable {@link NavSnapshotItem}.
+ *
+ * The pre-view `string` form fails this check like any other unusable entry:
+ * the node half refuses such a document at load (see `../workflows.ts`), so a
+ * browser that somehow reads one drops the workflow rather than replaying its
+ * ids as pages behind an operator who never converted the document.
+ */
+function isNavSnapshotItem(value: unknown): value is NavSnapshotItem {
+  const candidate = value as Partial<NavSnapshotItem> | null
+  return typeof candidate === 'object' && candidate !== null
+    && (candidate.kind === 'page' || candidate.kind === 'view')
+    && typeof candidate.entryId === 'string'
+}
+
 /** Narrow one decoded array entry to a usable {@link ServerMenuWorkflow}. */
 function isWorkflow(value: unknown): value is ServerMenuWorkflow {
   const candidate = value as Partial<ServerMenuWorkflow> | null
@@ -33,7 +53,8 @@ function isWorkflow(value: unknown): value is ServerMenuWorkflow {
     && typeof candidate.order === 'number'
     && typeof candidate.homeSessionId === 'string'
     && typeof candidate.savedAt === 'number'
-    && Array.isArray(candidate.navSnapshot) && candidate.navSnapshot.every(id => typeof id === 'string')
+    && (candidate.groupId === undefined || typeof candidate.groupId === 'string')
+    && Array.isArray(candidate.navSnapshot) && candidate.navSnapshot.every(isNavSnapshotItem)
 }
 
 /** Reduce a decoded server-menu document to its usable, filtered shape. */
@@ -48,7 +69,7 @@ function readState(body: { workflows?: unknown; workbenchSessionId?: unknown }):
  * Read the current server-menu document.
  *
  * Failure is contained rather than thrown, for the same reason
- * `pages.ts#readContentPages` contains its own: a deployment without the
+ * `nav-catalog.ts#readCatalog` contains its own: a deployment without the
  * settings capability composed (so this package's own node half never claims
  * the route) is an ordinary, expected composition, and the menu renders
  * empty rather than taking the sidebar down with it.

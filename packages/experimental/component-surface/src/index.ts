@@ -10,10 +10,18 @@
  * the `component` key of the `content.surface.kind` slot and receives each
  * entry's validated spec as its payload.
  *
- * Nothing here appends a session event. A call's record is the `tool/call` the
- * loop already writes, and an action's is the `command/run` the command registry
- * already writes, so both directions replay from the log the agent actually
- * wrote and removing this row leaves every past session readable.
+ * The same column also takes blocks nobody asked the model for: a deployment
+ * writes views of its own in `views`, the sidebar lists them off this row's
+ * `/component-surface/views` route, and a click runs `/show-content-view`,
+ * which appends the one session event this package writes. Everything after
+ * that append is the path a call already took — one judgement, one extractor,
+ * one seat.
+ *
+ * Nothing the agent does appends a session event. A call's record is the
+ * `tool/call` the loop already writes, and an action's is the `command/run` the
+ * command registry already writes, so both directions replay from the log the
+ * agent actually wrote and removing this row leaves every past session
+ * readable.
  *
  * The catalog, the ceilings, and the judgement live in three modules of their
  * own — `component-call.ts`, `sanitize.ts` and `validate.ts` — because the
@@ -33,13 +41,25 @@
  */
 
 import type { Context } from '@deepseek-ai/cordis'
+import z from '@deepseek-ai/schemastery'
 // Type-only: resolves ctx.contentSurface for the optional extractor child.
 import type {} from '@deepseek-ai/dsh-experimental-content-surface'
 // Type-only: resolves ctx.commands for the optional /component-action child.
 import type {} from '@deepseek-ai/dsh-commands'
+// Type-only: resolves ctx.webServer for the optional view-catalog route.
+import type {} from '@deepseek-ai/dsh-host-webserver'
 import { installComponentAction } from './command.ts'
+import { viewCatalogRoute, type ComponentViewsDocument } from './route.ts'
 import { componentExtractor } from './surface.ts'
 import { showComponentTool } from './tool.ts'
+import type { ContentView } from './types.ts'
+import { showContentViewCommand } from './view-command.ts'
+import { indexViews } from './views.ts'
+
+// The `content-component/shown` declaration lives in src/types.ts (its one
+// home); this re-export projects the type face onto the package root and keeps
+// the module edge in the emitted index.d.ts.
+export type * from './types.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'show-component'
@@ -52,8 +72,46 @@ export const name = 'show-component'
  */
 export const inject = ['tools']
 
+/** Plugin config: the views this deployment offers the user beside the ones the agent draws. */
+export interface Config {
+  /**
+   * Blocks a person wrote, offered to the user through the sidebar rather than
+   * to the model. Each carries the same three values a `show_component` call
+   * does — an entry id, a title, and a spec — and is judged by the same pass at
+   * load. Omit it, or leave it empty, for a deployment where the agent is the
+   * only one who puts anything in the column.
+   */
+  views?: ContentView[]
+  /**
+   * View the sidebar shows automatically the first time a session lands on a
+   * blank draft, so a new conversation opens onto a populated column instead of
+   * an empty one. Must name a configured view. Omit to leave a blank draft's
+   * column empty until the user or the agent chooses. The value is read by
+   * `@deepseek-ai/dsh-experimental-server-sidebar` off this row's route, and
+   * what it drives is a real `show-content-view` invocation, so it leaves the
+   * same durable record a real click would.
+   */
+  homeView?: string
+}
+
+export const Config: z<Config> = z.object({
+  views: z.array(z.object({
+    id: z.string().required(),
+    title: z.string().required(),
+    spec: z.any().required(),
+  })).default([]),
+  homeView: z.string(),
+})
+
+/**
+ * {@link Config} after the schema above has run: `views` carries its own
+ * default, so a deployment that omits the field reaches `apply` with an empty
+ * list rather than with nothing. `homeView` has no default and stays optional.
+ */
+type ResolvedConfig = Config & { readonly views: readonly ContentView[] }
+
 /*
- * No `Config`.
+ * The ceilings are not configuration.
  *
  * The numbers a deployment might want to move — the spec byte ceiling, the node
  * ceiling, the nesting ceiling, the action byte ceiling — are enforced twice:
@@ -72,11 +130,18 @@ export const inject = ['tools']
  */
 
 /**
- * Claim the tool, and the content kind and its return channel wherever a column
- * is composed.
+ * Claim the tool, the content kind and its return channel wherever a column is
+ * composed, and — where the deployment configured any — the view catalog and
+ * the command that shows one.
  * @param ctx - plugin context carrying the tool runtime.
+ * @param config - validated {@link Config}; the views are judged before anything is claimed.
  */
-export function apply(ctx: Context): void {
+export function apply(ctx: Context, config: Config): void {
+  // Loud at load: a view whose spec the tool would refuse is a menu row that
+  // shows an empty column when a user clicks it, with nothing anywhere saying
+  // why. The judgement is the tool's own, so what a deployment may write is
+  // exactly what the model may send.
+  const views = indexViews((config as ResolvedConfig).views, config.homeView)
   ctx.effect(() => ctx.tools.register(showComponentTool()), 'show-component: the show_component tool')
   ctx.inject(['contentSurface'], (surfaceCtx) => {
     // `register` scopes its own disposer to the injected child, which is what
@@ -88,4 +153,23 @@ export function apply(ctx: Context): void {
   // Without a column there is nothing on screen for an action to name, so the
   // command is absent rather than answering every gesture with a refusal.
   ctx.inject(['commands', 'contentSurface', 'sessionProjections'], installComponentAction)
+  if (views.size === 0) return
+  // Both pieces exist only where views do, and each waits for the seam it needs
+  // the way every other piece of this row does. A deployment that configures
+  // views composes the console's webserver and command registry — the overlay
+  // that inserts this row is what guarantees it — and one that composes neither
+  // has no sidebar to click in either.
+  const catalog: ComponentViewsDocument = {
+    views: [...views.values()].map(view => ({ id: view.id, title: view.title })),
+    ...config.homeView === undefined ? {} : { homeView: config.homeView },
+  }
+  ctx.inject(['webServer'], (serverCtx) => {
+    serverCtx.effect(
+      () => serverCtx.webServer.register(viewCatalogRoute(catalog)),
+      'show-component: the view catalog route',
+    )
+  })
+  ctx.inject(['commands'], (commandsCtx) => {
+    commandsCtx.commands.register(showContentViewCommand(views))
+  })
 }

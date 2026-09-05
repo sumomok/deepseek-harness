@@ -9,8 +9,9 @@
  */
 import type { ClientContext, SessionId } from '@deepseek-ai/dsh-client-runtime/client'
 import { resolveOrCreateSession } from './session-resolution.ts'
-import { replayNavSnapshot } from './open-page.ts'
-import type { ServerMenuWorkflow } from './workflow-api.ts'
+import { replayNavSnapshot } from './open-nav.ts'
+import { surfaceKindOf } from './nav-snapshot.ts'
+import type { NavSnapshotItem, ServerMenuWorkflow } from './workflow-api.ts'
 
 /**
  * Compute the next display order for an appended workflow: one past the current highest.
@@ -81,51 +82,63 @@ export interface OpenOutcome {
  * `SessionSummary.projectionValues.contentSurface.entries` (see
  * `ServerSidebarRoot.tsx`'s own read, which mirrors
  * `dsh-experimental-server-layout`'s `ShellFrame`): `isCleanWorkbenchDraft`
- * and `hasShownHomePage` only ever compare these two fields, so nothing else
+ * and `hasShownHome` only ever compare these two fields, so nothing else
  * about the real `ContentSurfaceEntry`
  * (`@deepseek-ai/dsh-experimental-content-surface/types`) needs to reach
  * this module.
  */
 export interface ContentSurfaceEntryLike {
-  /** The extractor kind that produced the entry; `'page'` for content-frame's own pages. */
+  /** The extractor kind that produced the entry; `'page'` for a content-frame page, `'component'` for a view. */
   readonly kind?: unknown
-  /** Identity within the kind; a page entry's id is the page id. */
+  /** Identity within the kind; a page entry's id is the page id, a component entry's is the view id. */
   readonly entryId?: unknown
+}
+
+/**
+ * Whether one content-surface entry is the deployment's configured automatic
+ * home, compared in the content-surface vocabulary the entry itself carries
+ * (see `nav-snapshot.ts`'s `surfaceKindOf`).
+ * @param entry - one entry, of unknown shape.
+ * @param home - the configured home target.
+ * @returns whether the entry is that target.
+ */
+function isHomeEntry(entry: ContentSurfaceEntryLike, home: NavSnapshotItem): boolean {
+  return entry.kind === surfaceKindOf(home.kind) && entry.entryId === home.entryId
 }
 
 /**
  * Whether a workbench draft counts as clean for {@link openWorkbenchOnClick}'s
  * reuse decision: it has not run a conversation turn, and its content column
- * carries nothing beyond the deployment's own configured home page — a page
- * click, a chart the agent drew, or any other page all disqualify it, while
- * the home page itself does not, since a clean click's own auto-open step
- * (`client/index.ts`'s `onOpenWorkbench`) is expected to have put it there.
+ * carries nothing beyond the deployment's own configured automatic home — a
+ * menu click, a chart the agent drew, or any other content all disqualify it,
+ * while the home target itself does not, since a clean click's own auto-open
+ * step (`client/index.ts`'s `onOpenWorkbench`) is expected to have put it
+ * there.
  * @param isBlank - `SessionSummary.blank`: whether the session has run a turn.
  * @param entries - the session's content-surface entries (see {@link ContentSurfaceEntryLike}).
- * @param homePage - the deployment's configured home page id, or `undefined`
- * when none is configured — with no home page, any entry at all disqualifies
- * the draft, since none can satisfy the exception.
+ * @param home - the deployment's configured automatic home, or `undefined`
+ * when none is configured — with no home, any entry at all disqualifies the
+ * draft, since none can satisfy the exception.
  * @returns whether the draft is clean.
  */
 export function isCleanWorkbenchDraft(
-  isBlank: boolean, entries: readonly ContentSurfaceEntryLike[], homePage: string | undefined,
+  isBlank: boolean, entries: readonly ContentSurfaceEntryLike[], home: NavSnapshotItem | undefined,
 ): boolean {
-  return isBlank && entries.every(entry => entry.kind === 'page' && entry.entryId === homePage)
+  return isBlank && (home === undefined ? entries.length === 0 : entries.every(entry => isHomeEntry(entry, home)))
 }
 
 /**
- * Whether entries already carry the deployment's configured home page as a
- * shown page — consulted only when a click reuses a clean draft, so the
- * click path's own home-page auto-open step (`client/index.ts`'s
- * `onOpenWorkbench`) does not re-append an identical `content/shown` record
- * onto a draft that already carries one.
+ * Whether entries already carry the deployment's configured automatic home —
+ * consulted only when a click reuses a clean draft, so the click path's own
+ * auto-open step (`client/index.ts`'s `onOpenWorkbench`) does not re-append an
+ * identical record onto a draft that already carries one.
  * @param entries - the session's content-surface entries (see {@link ContentSurfaceEntryLike}).
- * @param homePage - the deployment's configured home page id, or `undefined`
+ * @param home - the deployment's configured automatic home, or `undefined`
  * when none is configured.
- * @returns whether one entry is the home page, shown as a page.
+ * @returns whether one entry is that target.
  */
-export function hasShownHomePage(entries: readonly ContentSurfaceEntryLike[], homePage: string | undefined): boolean {
-  return homePage !== undefined && entries.some(entry => entry.kind === 'page' && entry.entryId === homePage)
+export function hasShownHome(entries: readonly ContentSurfaceEntryLike[], home: NavSnapshotItem | undefined): boolean {
+  return home !== undefined && entries.some(entry => isHomeEntry(entry, home))
 }
 
 /**

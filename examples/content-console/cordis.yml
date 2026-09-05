@@ -97,5 +97,46 @@
 # nothing a transcript can see. What this row contributes is the offer itself —
 # the catalog spliced into the description, the three parameters, and the
 # result line a call reads back.
+#
+# `views` is the other half of this row, and it is here for what booting proves
+# rather than for what a transcript carries: a deployment's own view is judged
+# at load by the pass that judges a call, so a spec written by a person that the
+# tool would refuse stops this composition from coming up at all. Nothing about
+# a view reaches a model request — `show-content-view` is a click, and the ACP
+# protocol has no command method — so the fixtures are unaffected by it.
+#
+# The view itself is the arrangement a service-line console actually writes: the
+# list of sites above the details of whichever row the user picks, bound with
+# `$from` so the second block follows the first.
 - id: show-component
   name: '@deepseek-ai/dsh-experimental-component-surface'
+  config:
+    homeView: site-overview
+    views:
+      - id: site-overview
+        title: 站点概览
+        spec:
+          nodes:
+            - id: sites
+              component: toy.table
+              props:
+                selectMode: radio
+                tableConfig:
+                  gridItems:
+                    - { relatedMetaAttr: name, alias: 站点 }
+                    - { relatedMetaAttr: status, alias: 状态 }
+                displayValueList:
+                  - { name: 一号站点, status: 运行中 }
+                  - { name: 二号站点, status: 已停机 }
+            - id: detail
+              component: toy.record
+              props:
+                dataList: { $from: 'node:sites.selectionDetail' }
+                columnNum: 1
+          layout:
+            node: stack
+            dir: col
+            gap: md
+            children:
+              - { node: component, id: sites, flex: 2 }
+              - { node: component, id: detail, flex: 1 }

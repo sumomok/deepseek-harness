@@ -121,7 +121,15 @@ function postPatch(ctx: Context, body: unknown, headers: Record<string, string> 
   })
 }
 
-const WORKFLOW = { id: 'w1', name: 'Alpha', order: 0, homeSessionId: 's1', navSnapshot: ['home'], savedAt: 1 }
+const WORKFLOW = {
+  id: 'w1', name: 'Alpha', order: 0, homeSessionId: 's1',
+  navSnapshot: [{ kind: 'page', entryId: 'home' }, { kind: 'view', entryId: 'sales' }], savedAt: 1,
+}
+
+/** The stored document as the route answers it, with the fields the schema defaults filled in. */
+function document(fields: Record<string, unknown>): Record<string, unknown> {
+  return { workflows: [], groups: [], ...fields }
+}
 
 describe('server-sidebar server-menu route', () => {
   it('answers an empty document before anything is saved, uncached', async () => {
@@ -130,7 +138,7 @@ describe('server-sidebar server-menu route', () => {
     expect(answer.status).toBe(200)
     expect(answer.type).toBe('application/json')
     expect(answer.cacheControl).toBe('no-store')
-    expect(JSON.parse(answer.body)).toEqual({ workflows: [] })
+    expect(JSON.parse(answer.body)).toEqual(document({}))
   })
 
   it('serves a HEAD of the server-menu document', async () => {
@@ -142,23 +150,23 @@ describe('server-sidebar server-menu route', () => {
     const ctx = await loadComposition()
     const posted = await postPatch(ctx, { workflows: [WORKFLOW] })
     expect(posted.status).toBe(200)
-    expect(JSON.parse(posted.body)).toEqual({ workflows: [WORKFLOW] })
+    expect(JSON.parse(posted.body)).toEqual(document({ workflows: [WORKFLOW] }))
 
     const read = await call(ctx, SERVER_MENU_ROUTE)
-    expect(JSON.parse(read.body)).toEqual({ workflows: [WORKFLOW] })
+    expect(JSON.parse(read.body)).toEqual(document({ workflows: [WORKFLOW] }))
   })
 
   it('merges a workbenchSessionId-only patch without disturbing an existing workflow list', async () => {
     const ctx = await loadComposition()
     await postPatch(ctx, { workflows: [WORKFLOW] })
     const posted = await postPatch(ctx, { workbenchSessionId: 'home-1' })
-    expect(JSON.parse(posted.body)).toEqual({ workflows: [WORKFLOW], workbenchSessionId: 'home-1' })
+    expect(JSON.parse(posted.body)).toEqual(document({ workflows: [WORKFLOW], workbenchSessionId: 'home-1' }))
 
     const workflowsOnly = await postPatch(ctx, { workflows: [WORKFLOW, { ...WORKFLOW, id: 'w2', name: 'Beta', order: 1 }] })
-    expect(JSON.parse(workflowsOnly.body)).toEqual({
+    expect(JSON.parse(workflowsOnly.body)).toEqual(document({
       workflows: [WORKFLOW, { ...WORKFLOW, id: 'w2', name: 'Beta', order: 1 }],
       workbenchSessionId: 'home-1',
-    })
+    }))
   })
 
   it('refuses a workflows list with a duplicate id', async () => {
@@ -166,7 +174,16 @@ describe('server-sidebar server-menu route', () => {
     const answer = await postPatch(ctx, { workflows: [WORKFLOW, { ...WORKFLOW, name: 'Duplicate' }] })
     expect(answer.status).toBe(400)
     expect(JSON.parse(answer.body)).toEqual({ error: 'server-sidebar: duplicate workflow id "w1"' })
-    expect(JSON.parse((await call(ctx, SERVER_MENU_ROUTE)).body)).toEqual({ workflows: [] })
+    expect(JSON.parse((await call(ctx, SERVER_MENU_ROUTE)).body)).toEqual(document({}))
+  })
+
+  it('refuses a pre-view navSnapshot, naming the converter an operator has to run', async () => {
+    const ctx = await loadComposition()
+    const answer = await postPatch(ctx, { workflows: [{ ...WORKFLOW, navSnapshot: ['home'] }] })
+    expect(answer.status).toBe(400)
+    expect((JSON.parse(answer.body) as { error: string }).error)
+      .toContain('run convert-nav-snapshot')
+    expect(JSON.parse((await call(ctx, SERVER_MENU_ROUTE)).body)).toEqual(document({}))
   })
 
   it('refuses a body shaped wrong before it ever reaches the schema', async () => {
@@ -215,7 +232,8 @@ describe('server-sidebar server-menu route', () => {
     context = undefined
 
     const reloaded = await loadComposition(world1)
-    expect(JSON.parse((await call(reloaded, SERVER_MENU_ROUTE)).body)).toEqual({ workflows: [WORKFLOW], workbenchSessionId: 'home-1' })
+    expect(JSON.parse((await call(reloaded, SERVER_MENU_ROUTE)).body))
+      .toEqual(document({ workflows: [WORKFLOW], workbenchSessionId: 'home-1' }))
   })
 
   it('releases the route when the fiber disposes (HMR safety)', async () => {

@@ -7,9 +7,9 @@
  *
  * Decision ① replaces the shipped shell's whole session-browsing contract
  * with a fixed three-section console: 工作台 (workbench, a persistent default
- * conversation), 导航 (navigation, `dsh-experimental-content-frame`'s
- * configured pages), and 我的工作流 (my workflows, a user's own named
- * shortcuts). The four child slots this shell keeps —
+ * conversation), 导航 (navigation, the deployment's configured pages and
+ * views — see `nav-catalog.ts`), and 我的工作流 (my workflows, a user's own
+ * named shortcuts). The four child slots this shell keeps —
  * `sidebar.brand.mark`/`sidebar.brand.name`/`sidebar.settings`/
  * `sidebar.footer.action` — are reused by type import exactly as the prior
  * design did (see `ServerSidebarRoot.tsx`'s module doc); `sidebar.workspaces`
@@ -51,10 +51,10 @@ import type {} from '@deepseek-ai/dsh-client-ui-layout/client'
 // 'conversation.session.header.actions'.
 import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type { BoundActions } from '@deepseek-ai/dsh-client-ui-slots'
-import { readContentPages } from './pages.ts'
+import { mergeNavCatalogs, readContentPages, readContentViews } from './nav-catalog.ts'
 import { createDisplayNameSource, readIdentitySettings } from './identity.ts'
 import { readAuthGateSettings, signOut, windowSignOutBrowser } from './sign-out.ts'
-import { openContentPage, openHomePage } from './open-page.ts'
+import { openHome, openNavItem } from './open-nav.ts'
 import { readServerMenu, saveServerMenu, type ServerMenuWorkflow } from './workflow-api.ts'
 import { createWorkflowStore } from './workflow-store.ts'
 import {
@@ -122,8 +122,9 @@ export async function apply(ctx: ClientContext): Promise<void> {
     'server-sidebar: hero brand-mark takeover',
   )
 
-  const [{ pages, homePage }, initialMenu, identity, authGate] = await Promise.all([
+  const [pageCatalog, viewCatalog, initialMenu, identity, authGate] = await Promise.all([
     readContentPages(),
+    readContentViews(),
     readServerMenu(),
     readIdentitySettings(),
     // Read on the same read-before-register pass as the rest, and contained
@@ -135,6 +136,10 @@ export async function apply(ctx: ClientContext): Promise<void> {
       return undefined
     }),
   ])
+  // Loud at load, unlike the two contained reads it merges: two configured
+  // automatic homes is a deployment mistake nothing downstream can resolve
+  // (see `mergeNavCatalogs`).
+  const { items: navItems, home } = mergeNavCatalogs(pageCatalog, viewCatalog)
   const workflowStore = createWorkflowStore(initialMenu)
   const displayName = createDisplayNameSource(identity?.displayNameClaim)
 
@@ -160,27 +165,27 @@ export async function apply(ctx: ClientContext): Promise<void> {
       inject: (actions: BoundWorkflowActions): ServerSidebarInjected => {
         sidebarActions = actions
         return {
-          pages,
-          ...homePage === undefined ? {} : { homePage },
-          onOpenPage: pageId => openContentPage(ctx, pageId),
+          navItems,
+          ...home === undefined ? {} : { home },
+          onOpenNavItem: target => openNavItem(ctx, target),
           onOpenWorkbenchOnLoad: async (workbenchSessionId, isLive) => {
             const outcome = await openWorkbenchOnLoad(ctx, workbenchSessionId, isLive)
             if (outcome?.created === true) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
           },
-          onOpenWorkbench: async (workbenchSessionId, isLive, isClean, homePageAlreadyShown) => {
+          onOpenWorkbench: async (workbenchSessionId, isLive, isClean, homeAlreadyShown) => {
             const outcome = await openWorkbenchOnClick(ctx, workbenchSessionId, isLive, isClean)
             if (outcome === undefined) return
             if (outcome.created) await persistServerMenu({ workbenchSessionId: outcome.sessionId }, actions)
             // Every outcome of a click lands on a clean draft (reused-clean or
             // freshly created — see `openWorkbenchOnClick`'s own doc), so a
-            // configured home page always belongs on it; a reused draft that
-            // already shows it — the only content a clean draft may carry —
-            // skips the repeat call so it does not append a second
-            // `content/shown` record for the same page. The auto-open-on-load
-            // path (above) leaves whatever the reopened session already shows
-            // untouched (continuity semantics) and never calls this at all.
-            if (homePage !== undefined && (outcome.created || !homePageAlreadyShown)) {
-              await openHomePage(ctx, outcome.sessionId, homePage)
+            // configured automatic home always belongs on it; a reused draft
+            // that already shows it — the only content a clean draft may carry
+            // — skips the repeat call so it does not append a second record
+            // for the same target. The auto-open-on-load path (above) leaves
+            // whatever the reopened session already shows untouched
+            // (continuity semantics) and never calls this at all.
+            if (home !== undefined && (outcome.created || !homeAlreadyShown)) {
+              await openHome(ctx, outcome.sessionId, home)
             }
           },
           onOpenWorkflow: async (workflow, isLive) => {
@@ -223,6 +228,7 @@ export async function apply(ctx: ClientContext): Promise<void> {
       order: 30,
       locale: NS,
       inject: (): SaveWorkflowInjected => ({
+        navItems,
         onSave: async (sessionId, name, navSnapshot) => {
           const current = await readServerMenu()
           const workflow: ServerMenuWorkflow = {

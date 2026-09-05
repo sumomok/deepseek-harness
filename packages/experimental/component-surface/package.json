@@ -48,6 +48,7 @@
   },
   "license": "MIT",
   "dependencies": {
+    "@deepseek-ai/schemastery": "workspace:^",
     "zod": "^4.4.3"
   },
   "peerDependencies": {
@@ -60,6 +61,7 @@
     "@deepseek-ai/dsh-experimental-component-kit": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-column": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
+    "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",
@@ -80,6 +82,7 @@
     "@deepseek-ai/dsh-experimental-component-kit": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-column": "workspace:^",
     "@deepseek-ai/dsh-experimental-content-surface": "workspace:^",
+    "@deepseek-ai/dsh-host-webserver": "workspace:^",
     "@deepseek-ai/dsh-invariants": "workspace:^",
     "@deepseek-ai/dsh-llm": "workspace:^",
     "@deepseek-ai/dsh-session": "workspace:^",

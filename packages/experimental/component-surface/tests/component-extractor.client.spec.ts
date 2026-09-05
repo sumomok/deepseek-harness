@@ -1,7 +1,13 @@
 /**
  * The `component` kind against the real content-surface router over a real
- * session log: which logged calls become entries, which entry each one owns,
- * and what a second call on one id does to the stream the column reads.
+ * session log: which logged records become entries, which entry each one owns,
+ * and what a second record on one id does to the stream the column reads.
+ *
+ * Three log shapes carry a block and all three count — a top-level `tool/call`,
+ * a Code Mode `tool/code-dispatch-start`, and the `content-component/shown` a
+ * user's click on a configured view writes — so the cases run each of them
+ * through the same assertions. A reader recognizing fewer would leave a whole
+ * class of block out of the column with nothing saying why.
  *
  * The supersede rule itself is the router's — one record per (kind, entryId) —
  * so what these cases prove is that this extractor names the same entry a
@@ -17,8 +23,10 @@ import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
-import { COMPONENT_KIND } from '../src/component-call.ts'
+import { COMPONENT_KIND, type ComponentSpec } from '../src/component-call.ts'
 import { componentExtractor, type ComponentSurfaceData } from '../src/surface.ts'
+// Type-only: this package's own `content-component/shown` SessionEventMap merge.
+import type {} from '../src/types.ts'
 
 /** One accepted confirmation-bar spec, and a second one differing only in its text. */
 const FIRST = { nodes: [{ id: 'bar', component: 'el.confirm-bar', props: { title: '本月预算', buttons: [{ id: 'ok', label: '确认' }] } }] }
@@ -33,6 +41,8 @@ interface Bench {
   call: (callId: string, args: unknown, name?: string) => void
   /** Append one Code Mode sub-dispatch, the shape a model calling through `run_code` logs. */
   dispatch: (subCallId: string, args: unknown, name?: string) => void
+  /** Append one view click, the shape the `show-content-view` command logs. */
+  shown: (id: string, title: string, spec: unknown) => void
   /** The live entry stream the column reads. */
   entries: () => readonly ContentSurfaceEntry[]
 }
@@ -63,6 +73,17 @@ async function bench(): Promise<Bench> {
         subCallId: CallId(subCallId),
         name,
         arguments: args,
+      })
+    },
+    shown: (id, title, spec) => {
+      // The spec is cast the way the command hands one over: it comes out of
+      // load-time validation, and what these cases exercise is the extractor's
+      // own reading of the record rather than that pass.
+      session.append('content-component/shown', {
+        entryId: id,
+        title,
+        spec: spec as ComponentSpec,
+        by: 'user',
       })
     },
     entries: () => ctx.sessionProjections.snapshot(session).values.contentSurface?.entries ?? [],
@@ -110,6 +131,51 @@ describe('the component kind', () => {
       title: '预算确认',
       payload: { spec: FIRST },
     }])
+  })
+
+  it('records a view the user opened under the entry that view owns', async () => {
+    // The third shape, and the only one no agent wrote: a click on a configured
+    // view. It becomes the same entry a call does, so one seat draws both.
+    const { shown, entries } = await bench()
+    shown('site-overview', '站点概览', RECORD)
+    expect(entries()).toEqual([{
+      kind: COMPONENT_KIND,
+      entryId: 'site-overview',
+      seq: 0,
+      title: '站点概览',
+      payload: { spec: RECORD },
+    }])
+  })
+
+  it('leaves one entry when the user opens the same view twice, newest last-written', async () => {
+    const { shown, entries } = await bench()
+    shown('site-overview', '站点概览', FIRST)
+    const before = entries()
+    shown('site-overview', '站点概览', SECOND)
+    const after = entries()
+    expect(after).toHaveLength(before.length)
+    expect(after[0]?.seq).toBeGreaterThan(before[0]?.seq ?? 0)
+    expect(after[0]?.payload).toEqual({ spec: SECOND })
+  })
+
+  it('gives a view and a call two entries when they name different ids, and one when they do not', async () => {
+    // Nothing downstream distinguishes the writer: an id is an id, so an agent
+    // correcting the block a user opened lands on that block.
+    const { call, shown, entries } = await bench()
+    shown('site-overview', '站点概览', FIRST)
+    call('call_1', { id: 'budget', title: '预算确认', spec: FIRST })
+    expect(entries().map(entry => entry.entryId)).toEqual(['budget', 'site-overview'])
+    call('call_2', { id: 'site-overview', title: '站点概览（已更新）', spec: SECOND })
+    expect(entries().map(entry => entry.entryId)).toEqual(['site-overview', 'budget'])
+    expect(entries()[0]?.title).toBe('站点概览（已更新）')
+  })
+
+  it('records nothing for a view event carrying a spec the tool would have refused', async () => {
+    // The spec was judged once at load; judging the record too is what keeps
+    // one reading of the log, including a log a different deployment wrote.
+    const { shown, entries } = await bench()
+    shown('site-overview', '站点概览', { nodes: [{ id: 'x', component: 'toy.chart', props: {} }] })
+    expect(entries()).toEqual([])
   })
 
   it('leaves one entry when a second call corrects the first, carrying the newer document', async () => {

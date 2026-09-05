@@ -4628,6 +4628,9 @@ importers:
 
   packages/experimental/component-surface:
     dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
       zod:
         specifier: ^4.4.3
         version: 4.4.3
@@ -4671,6 +4674,9 @@ importers:
       '@deepseek-ai/dsh-experimental-content-surface':
         specifier: workspace:^
         version: link:../content-surface
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../../host/webserver
       '@deepseek-ai/dsh-invariants':
         specifier: workspace:^
         version: link:../../runtime-diagnostics/invariants
@@ -4899,6 +4905,9 @@ importers:
       clsx:
         specifier: ^2.0.0
         version: 2.1.1
+      yaml:
+        specifier: ^2.9.0
+        version: 2.9.0
     devDependencies:
       '@deepseek-ai/cordis':
         specifier: workspace:^
@@ -4939,6 +4948,9 @@ importers:
       '@deepseek-ai/dsh-experimental-auth-gate':
         specifier: workspace:^
         version: link:../auth-gate
+      '@deepseek-ai/dsh-experimental-component-surface':
+        specifier: workspace:^
+        version: link:../component-surface
       '@deepseek-ai/dsh-experimental-content-frame':
         specifier: workspace:^
         version: link:../content-frame

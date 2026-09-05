@@ -92,7 +92,7 @@ export function displayNameFrom(raw: string | null, claim: string): string | und
 /**
  * Read this package's browser-facing settings from its node half.
  *
- * Failure is contained rather than thrown, the same way `pages.ts` contains
+ * Failure is contained rather than thrown, the same way `nav-catalog.ts` contains
  * its own: a deployment composing this sidebar without a webserver is an
  * ordinary composition, and a footer that cannot name the signed-in person
  * must not take the whole sidebar down with it.

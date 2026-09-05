@@ -16,6 +16,9 @@ import { validateComponentCall } from './validate.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-component-surface'
 
+/** The other writer an entry can be authorized by, named in the failure so the reader knows both were looked for. */
+const SHOWN_EVENT = 'content-component/shown'
+
 /** Cordis companion plugin name. */
 export const name = 'experimental-component-surface-invariant'
 /** Service required before the companion can reserve package ownership. */
@@ -23,8 +26,9 @@ export const inject = ['invariants']
 
 /**
  * Entry ids one session's log authorizes: one per accepted `show_component`
- * call, counted by the same reader the extractor uses, so the audit's two sides
- * cannot drift by counting different things.
+ * call and one per view the user opened, counted by the same reader the
+ * extractor uses, so the audit's two sides cannot drift by counting different
+ * things.
  * @param session - the session whose log is read.
  * @returns the authorized entry ids.
  */
@@ -64,7 +68,7 @@ function auditSession(ctx: Context, session: Session, fail: InvariantFailure): v
   const authorized = authorizedEntryIds(session)
   for (const record of owned) {
     if (!authorized.has(record.entryId)) {
-      fail(`session ${session.id} carries a ${COMPONENT_KIND} content entry ${JSON.stringify(record.entryId)} that no accepted ${SHOW_COMPONENT_TOOL_NAME} call in its log recorded`)
+      fail(`session ${session.id} carries a ${COMPONENT_KIND} content entry ${JSON.stringify(record.entryId)} that nothing in its log recorded: no accepted ${SHOW_COMPONENT_TOOL_NAME} call and no ${SHOWN_EVENT} event`)
     }
   }
 }

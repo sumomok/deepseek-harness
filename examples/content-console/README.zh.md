@@ -10,6 +10,8 @@
 
 ACP 进程里没有浏览器接入，两把工具也都不需要浏览器才能结算。`show_chart` 会等满渲染回执期限，最后以未经确认作答——这正是被测行为，因为该期限会逐字出现在模型可见的结果文本里，而本组合把它设为一秒，因为泳道每次调用都要真实等待这段时间。`show_component` 对着目录判定这次调用后立即作答；摆好的块长什么样是浏览器泳道的问题，模型被提供了什么、被告知了什么才是这条泳道的问题。
 
+`show_component` 这一行还带了一条 `views` 条目——一块由本部署自己写下、而非模型摆上去的视图。它的任何部分都到不了会话记录：`show-content-view` 是命令，而这条传输没有调用命令的方法。它在这里是为了启动这件事。配置的视图在加载期由判定调用的同一道判定过关，所以一份由人写下、工具却会拒绝的 spec，会让整个组合根本起不来；下面每一个场景，都是这道检查已经通过的结果。
+
 ## 快照场景
 
 [`tests/content-console.snapshot.ts`](tests/content-console.snapshot.ts) 是交给 [`dsh-acp-snapshot`](../../packages/test-support/acp-snapshot/README.zh.md) 套件工厂的场景表。`show-chart-turn` 请求画一张柱状图，`show-component-turn` 请求摆一条确认条；两者组合的是同一个文件，因此同属一个表头类，由前者替两者钉住：

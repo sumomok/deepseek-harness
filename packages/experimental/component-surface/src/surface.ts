@@ -2,16 +2,20 @@
  * This package's contribution to the content column's entry stream: the
  * `component` kind.
  *
- * One entry per call `id`, so a correction and the call it corrects are one row
- * in the column's switcher and the later one owns it. The entry carries the
- * validated spec itself — a call is self-contained, everything the seat draws
- * is in its arguments — so nothing is resolved against live state at view time
- * and the column can draw a block without reaching into the conversation the
- * call sits in.
+ * One entry per id, so a correction and the call it corrects are one row in the
+ * column's switcher and the later one owns it — and a configured view the user
+ * opens twice is that same one row, because a view owns one entry too
+ * (`projection.ts` reads all three log shapes into the same three values). The
+ * entry carries the validated spec itself — the record is self-contained,
+ * everything the seat draws is in it — so nothing is resolved against live
+ * state at view time and the column can draw a block without reaching into the
+ * conversation it sits in.
  *
  * A call the tool refused is still in the log, and this extractor runs the same
  * judgement over it: an unreadable or refused call records no entry at all,
- * rather than an entry whose seat would have nothing to draw.
+ * rather than an entry whose seat would have nothing to draw. A view's event
+ * takes the identical pass — its spec was judged once at load, and judging the
+ * record rather than trusting it is what keeps one reading of the log.
  *
  * `resolve` deliberately consults no catalog. The catalog is a build-time table
  * that grows and changes; a persisted checkpoint written before a component was

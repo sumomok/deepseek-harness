@@ -7,9 +7,13 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { readServerMenu, saveServerMenu } from '../src/client/workflow-api.ts'
+import type { ServerMenuWorkflow } from '../src/workflows.ts'
 
 const ROUTE = '/server-menu/workflows'
-const WORKFLOW = { id: 'w1', name: 'A', order: 0, homeSessionId: 's1', navSnapshot: ['home'], savedAt: 1 }
+const WORKFLOW: ServerMenuWorkflow = {
+  id: 'w1', name: 'A', order: 0, homeSessionId: 's1',
+  navSnapshot: [{ kind: 'page', entryId: 'home' }, { kind: 'view', entryId: 'sales' }], savedAt: 1,
+}
 
 afterEach(() => {
   vi.unstubAllGlobals()
@@ -26,7 +30,13 @@ describe('readServerMenu', () => {
             WORKFLOW,
             { id: 'w2', name: 'B' },
             { id: 3, name: 'C', order: 1, homeSessionId: 's2', navSnapshot: [], savedAt: 2 },
-            { ...WORKFLOW, id: 'w3', navSnapshot: ['home', 1] },
+            // The pre-view string form, refused here for the reason the node
+            // half refuses it at load — see workflow-api.ts's isNavSnapshotItem.
+            { ...WORKFLOW, id: 'w3', navSnapshot: ['home'] },
+            { ...WORKFLOW, id: 'w4', navSnapshot: [{ kind: 'chart', entryId: 'c1' }] },
+            { ...WORKFLOW, id: 'w5', navSnapshot: [{ kind: 'page', entryId: 42 }] },
+            { ...WORKFLOW, id: 'w6', navSnapshot: [null] },
+            { ...WORKFLOW, id: 'w7', groupId: 42 },
             null,
           ],
           workbenchSessionId: 'home-1',

@@ -3,9 +3,13 @@
 # de-terminology layer — every shipped surface that would otherwise leak
 # session/workspace vocabulary or model-internal status to an end user.
 #
-# Compose `dsh-experimental-content-frame` (with its deployment-specific
-# `pages`/`root` config) separately, the same way `overlay/sidebar-menu.patch.yml`
-# already documents — this file does not assume any one page catalog.
+# Compose the two navigation catalogs separately, the same way
+# `overlay/sidebar-menu.patch.yml` already documents — this file assumes
+# neither: `dsh-experimental-content-frame` (with its deployment-specific
+# `pages`/`root` config) and `dsh-experimental-component-surface` (with its
+# `views`/`homeView` config). The sidebar's navigation group merges whichever
+# of the two is present, and configuring an automatic home in both fails at
+# load.
 #
 # Compose `dsh-experimental-auth-gate` separately as well: it is what the
 # sidebar footer's sign-out button needs. Without that row the button still

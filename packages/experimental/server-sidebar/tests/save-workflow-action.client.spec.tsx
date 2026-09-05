@@ -21,15 +21,22 @@ const t: SaveWorkflowActionProps['t'] = (key, vars?: Record<string, unknown>) =>
 interface Bench {
   hasUserMessage: boolean
   contentSurface: { entries: { kind: string; entryId: string; seq: number; title: string; payload: unknown }[] } | undefined
+  navItems: SaveWorkflowActionProps['navItems']
 }
 
+const NAV_ITEMS: SaveWorkflowActionProps['navItems'] = [
+  { kind: 'page', entryId: 'home' },
+  { kind: 'view', entryId: 'sales' },
+]
+
 function mount(overrides: Partial<Bench> = {}, onSave = vi.fn(() => Promise.resolve())) {
-  const bench: Bench = { hasUserMessage: false, contentSurface: undefined, ...overrides }
+  const bench: Bench = { hasUserMessage: false, contentSurface: undefined, navItems: NAV_ITEMS, ...overrides }
   const props: SaveWorkflowActionProps = {
     sessionId: 'session-a' as SaveWorkflowActionProps['sessionId'],
     useSession: ((<S,>(selector: (s: { chat: { legacy: { nodes: { kind: string }[] } } }) => S): S =>
       selector({ chat: { legacy: { nodes: bench.hasUserMessage ? [{ kind: 'user' }] : [] } } })) as unknown) as SaveWorkflowActionProps['useSession'],
     useProjection: ((_key: string) => bench.contentSurface) as SaveWorkflowActionProps['useProjection'],
+    navItems: bench.navItems,
     onSave,
     t,
   } as SaveWorkflowActionProps
@@ -54,13 +61,38 @@ describe('SaveWorkflowAction', () => {
   it('opens a name field on click and saves the trimmed name with the captured navigation snapshot on blur', () => {
     const { onSave } = mount({
       hasUserMessage: true,
-      contentSurface: { entries: [{ kind: 'page', entryId: 'home', seq: 1, title: 'Home', payload: {} }] },
+      contentSurface: {
+        entries: [
+          { kind: 'component', entryId: 'sales', seq: 2, title: 'Sales', payload: {} },
+          { kind: 'page', entryId: 'home', seq: 1, title: 'Home', payload: {} },
+        ],
+      },
     })
     fireEvent.click(screen.getByRole('button', { name: en['saveWorkflow.action'] }))
     const input = screen.getByRole('textbox') as HTMLInputElement
     fireEvent.change(input, { target: { value: '  My Workflow  ' } })
     fireEvent.blur(input)
-    expect(onSave).toHaveBeenCalledWith('session-a', 'My Workflow', ['home'])
+    expect(onSave).toHaveBeenCalledWith('session-a', 'My Workflow', [
+      { kind: 'page', entryId: 'home' },
+      { kind: 'view', entryId: 'sales' },
+    ])
+  })
+
+  it('leaves out a shown component the navigation menu does not list', () => {
+    const { onSave } = mount({
+      hasUserMessage: true,
+      contentSurface: {
+        entries: [
+          { kind: 'component', entryId: 'budget-confirm', seq: 2, title: '确认预算', payload: {} },
+          { kind: 'page', entryId: 'home', seq: 1, title: 'Home', payload: {} },
+        ],
+      },
+    })
+    fireEvent.click(screen.getByRole('button', { name: en['saveWorkflow.action'] }))
+    const input = screen.getByRole('textbox')
+    fireEvent.change(input, { target: { value: 'Named' } })
+    fireEvent.blur(input)
+    expect(onSave).toHaveBeenCalledWith('session-a', 'Named', [{ kind: 'page', entryId: 'home' }])
   })
 
   it('commits on Enter through the same blur path', () => {

@@ -2,7 +2,7 @@
 
 [English](README.md) | 中文
 
-一个固定宽度的产品外壳侧边栏：对出厂的 [`dsh-client-ui-sidebar`](../../client/ui-sidebar/README.zh.md) 的直接替换，彻底移除会话/工作区浏览，代之以三段结构——工作台（一个持久的默认对话）、导航（`@deepseek-ai/dsh-experimental-content-frame` 配置的页面）、我的工作流（用户自己命名的、返回「教过 agent 一些事」的对话的快捷方式）。它在组合里替换 ui-sidebar，而不是与之并存，因为 `sidebar` 是单一槽，其子槽只能被声明一次。
+一个固定宽度的产品外壳侧边栏：对出厂的 [`dsh-client-ui-sidebar`](../../client/ui-sidebar/README.zh.md) 的直接替换，彻底移除会话/工作区浏览，代之以三段结构——工作台（一个持久的默认对话）、导航（部署配置好的页面与视图）、我的工作流（用户自己命名的、返回「教过 agent 一些事」的对话的快捷方式）。它在组合里替换 ui-sidebar，而不是与之并存，因为 `sidebar` 是单一槽，其子槽只能被声明一次。
 
 本包面向「客户表单」组合：终端客户在使用产品时，完全不需要知道一个对话是一个背后挂着工作区的、持久可续的对象。每一处会话/工作区管理动作（创建一个、重新连接一个、决定「当前是哪个」）都发生在本包自己的动作内部；这套词汇本身——会话/session、工作区/workspace——被本包所有字典里的每一条字符串禁止出现，组合层也禁用了本会泄漏这些词汇的出厂控件（见下文「去术语化」）。
 
@@ -26,19 +26,27 @@
 
 加载路径这一侧，挂载时的自动落位会保留它的一次性尝试机会，而不是把它花在一个尚未就绪的工作区基线上：重新打开一个存活的已记录会话完全不需要工作区，但创建一个新会话需要，而 `recentWorkspaceId` 无法区分「工作区基线还没加载完」与「这个部署确实一个工作区都没有」——因此这个 effect 会一直等到出现一个存活的已记录会话、或者一个已解析的工作区，才会去尝试；一旦会话通过任何其他途径变为当前会话，它就永久放弃这次机会。
 
-**配置好的首页只在一次干净的点击上自动展示，绝不出现在加载路径上。** 当 content-frame 的 `homePage` 配置项指名了一个页面时（见下文「导航」），`onOpenWorkbench` 会在 `openWorkbenchOnClick` 刚解析出的那个会话——创建结果得到的新会话，或复用结果得到的那份已存在的干净稿——上，紧接着这次解析一落定就执行 `/show-content-page <homePage>`，让一段新的或干净稿状态的对话打开时内容列已经有内容，而不是空的。一份已经在展示首页的复用草稿会跳过这次调用（`hasShownHomePage`）：那个页面是一份干净稿唯一被允许携带的内容，重复执行这条命令只会为已经摆在眼前的那个页面再追加一条 `content/shown` 记录。这只从点击处理函数里触发：加载路径自己的连续性语义（精确恢复到一个存活会话离开时的状态）会被「把一个页面强加到一个已经携带不同内容的会话上」破坏，因此 `openWorkbenchOnLoad` 从不调用它。这次自动展示是一次普通的 `show-content-page` 调用——它追加的是同一个 `content/shown` 事件，留下的是与用户亲自点击完全相同的持久日志记录。
+**配置好的自动首屏只在一次干净的点击上自动展示，绝不出现在加载路径上。** 当部署配置了一个时（content-frame 的 `homePage` 或 component-surface 的 `homeView`，见下文「导航」），`onOpenWorkbench` 会在 `openWorkbenchOnClick` 刚解析出的那个会话——创建结果得到的新会话，或复用结果得到的那份已存在的干净稿——上，紧接着这次解析一落定就执行该目标自己的命令，让一段新的或干净稿状态的对话打开时内容列已经有内容，而不是空的。一份已经在展示它的复用草稿会跳过这次调用（`hasShownHome`）：那个目标是一份干净稿唯一被允许携带的内容，重复执行这条命令只会为已经摆在眼前的东西再追加一条记录。这只从点击处理函数里触发：加载路径自己的连续性语义（精确恢复到一个存活会话离开时的状态）会被「把一段内容强加到一个已经携带别的东西的会话上」破坏，因此 `openWorkbenchOnLoad` 从不调用它。这次自动展示是一次普通的菜单调用——它追加的是同一个会话事件，留下的是与用户亲自点击完全相同的持久日志记录。
 
 ## 导航
 
-导航列出 `@deepseek-ai/dsh-experimental-content-frame` 配置的页面，在本条目注册之前一次性从它的 `/content-frame/settings` 路由读取（写死的路由路径与本地校验的 JSON 形状，不是导入的值或类型——跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式）。点击一个页面会针对当前会话执行 content-frame 的 `show-content-page` 命令（没有会话打开时先创建一个，走工作台与每一条工作流动作共用的同一套解析——见 `client/session-resolution.ts`），通过 `ctx.remote.commands.execute`——这是会话日志能够重放的命令通路，而非直接的服务调用。该命令的处理函数追加 `by: 'user'` 的 `content/shown`。导航顺序跟随部署配置顺序，绝不由用户重新排序（决策⑤）。
+导航列出部署配置好的、一次点击就能摆进内容列的全部东西，由两份目录合并而成（`client/nav-catalog.ts`）：[`content-frame`](../content-frame/README.zh.md) 的页面，从 `/content-frame/settings` 读取；[`component-surface`](../component-surface/README.zh.md) 拼装出的视图，从 `/component-surface/views` 读取。两次读取都在本条目注册之前一次性完成，走写死的路由路径与本地校验的 JSON 形状，而不是导入的值或类型——跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式，而本包自己的测试会导入各自那个常量，让这些复制品可被机械校验。每一行都携带它来自哪一份目录，因为两者由不同的命令打开，落地成不同的 content-surface 条目 kind。
 
-同一份响应还携带 content-frame 可选的 `homePage` 字段（`pages.ts` 的 `readContentPages`），与页面列表一起一次性读取，供上文工作台的点击处理函数使用。这里的坏值是被兜住的，而不是抛出：与节点侧会让整次加载失败的 `Config` 校验不同，浏览器侧这次读取只用 `console.warn` 报告一个非字符串或指名了未配置页面的值，并把 `homePage` 当作缺失处理——一个承载着关键功能的外壳表面，不应该因为一个配置错误的字段就让原本正常工作的部署整体倒下。
+**菜单顺序是先页面、后视图，各自按自己的声明顺序。** 导航顺序跟随部署配置，绝不由用户重新排序（决策⑤）；一个固定的来源顺序让这一点在两份目录之间继续成立，而不必再引入第三个需要同步维护的配置字段。
+
+点击一行会针对当前会话执行这一行自己的命令（没有会话打开时先创建一个，走工作台与每一条工作流动作共用的同一套解析——见 `client/session-resolution.ts`），通过 `ctx.remote.commands.execute`——这是会话日志能够重放的命令通路，而非直接的服务调用。页面执行 content-frame 的 `show-content-page`，其处理函数追加 `by: 'user'` 的 `content/shown`；视图执行 component-surface 的 `show-content-view`，其处理函数追加 `by: 'user'` 的 `content-component/shown`。
+
+**部署已摘掉的行，两种 kind 的回应不一样。** 导航菜单在加载时构建一次，此后从配置里去掉的页面或视图在下次刷新前仍是一行，工作流回放也可能点到部署已不再配置的落点。死掉的视图行会在聊天里自己的命令行位置画出 component-surface 的那句「没有这个视图。」；死掉的页面行什么都不画——content-frame 的命令行是无条件隐藏的，它的拒绝文案又是开发者口吻的英文，不该给终端用户看。把两者对齐是 content-frame 的改动，不属于本包；在那之前，页面消失就是无声地消失。
+
+**只组合两个包之一是寻常组合，不是错误。** 每次读取都被兜住：路由不可达、非 200 应答、或一份不可用的文档，都只是不贡献任何行，而不是把整个侧边栏一起拖垮——因此只组合 content-frame 的部署得到一份只有页面的菜单，两个都不组合的部署得到那句空态文案。
+
+每份目录还各自携带一个可选的自动首屏——content-frame 的 `homePage`、component-surface 的 `homeView`——与自己的行一起读取，供上文工作台的点击处理函数使用。一个指名了同一份响应并未配置之物的值是被兜住的，而不是抛出：与节点侧会让整次加载失败的 `Config` 校验不同，浏览器侧这次读取只用 `console.warn` 报告它并把该字段当作缺失处理，因为一个承载着关键功能的外壳表面，不应该因为一个配置错误的字段就让原本正常工作的部署整体倒下。**两个都配则是唯一的例外，会在加载期失败**：内容列一次只展示一样东西，一个指名了两个的部署表达的是这个外壳无法执行的意图，而听信哪条路由先应答就用哪个，只会让另一个被配置的值什么都不做、也无从解释为什么。
 
 ## 我的工作流
 
-我的工作流是用户自己命名的快捷方式，按账号持久化（对应这一部署形态「一个用户一个进程」的形状——这里的「按账号」即「按 `$DSH_HOME`」）。v1 中一条工作流恰好绑定一个对话（v1 边界，见「已知限制」）：`{id, name, order, homeSessionId, navSnapshot, savedAt}`。
+我的工作流是用户自己命名的快捷方式，按账号持久化（对应这一部署形态「一个用户一个进程」的形状——这里的「按账号」即「按 `$DSH_HOME`」）。v1 中一条工作流恰好绑定一个对话（v1 边界，见「已知限制」）：`{id, name, order, homeSessionId, navSnapshot, savedAt, groupId?}`。
 
-- **存**——「存为工作流」动作坐落在对话自己的会话头部（`conversation.session.header.actions`，序号 30，排在子代理目录与后台任务之后），而不是侧边栏上的一个「+」按钮：一个面向会话级、偶发动作的常规席位已经存在，为同一类动作再引入一种新的交互模式没有正当理由。它只在当前对话至少携带一条用户自己写下的消息时才可见（决策③，通过 `chat.legacy.nodes` 判断——这一 v1 近似的边界见「已知限制」），这符合直觉：工作流是回到一个用户真正开始过的对话的快捷方式,而不是一个空对话的快捷方式。保存时会把当前会话 id 记为 `homeSessionId`，把 content 栏当下展示的页面 id（从旧到新）记为 `navSnapshot`。
+- **存**——「存为工作流」动作坐落在对话自己的会话头部（`conversation.session.header.actions`，序号 30，排在子代理目录与后台任务之后），而不是侧边栏上的一个「+」按钮：一个面向会话级、偶发动作的常规席位已经存在，为同一类动作再引入一种新的交互模式没有正当理由。它只在当前对话至少携带一条用户自己写下的消息时才可见（决策③，通过 `chat.legacy.nodes` 判断——这一 v1 近似的边界见「已知限制」），这符合直觉：工作流是回到一个用户真正开始过的对话的快捷方式,而不是一个空对话的快捷方式。保存时会把当前会话 id 记为 `homeSessionId`，把 content 栏当下展示、且 导航 菜单自己列出的那些落点（从旧到新）记为 `navSnapshot`——栏里的其余东西不会记（见「已知限制」）。
 - **开**——点击一条工作流,在其 `homeSessionId` 仍然存活时直接重新打开它。**恢复只补齐缺失的部分**（决策⑦）：重新打开一个存活会话从不触碰它的内容，因为没有任何缺失需要补齐。
 - **降级**（决策⑧）——当 `homeSessionId` 已经不在时，打开这条工作流会针对最近使用的工作区创建一个新会话，按顺序（从旧到新，因此最后重放的那一个会停留在展示位，与保存这条工作流时展示的内容一致）把 `navSnapshot` 重放到新会话上，并把 `homeSessionId` 重新指向这个新会话。一个全新会话从空白开始，因此「补齐缺失的部分」在此就是重放整份快照。
 - **改名／移除**——用悬停显现的图标按钮（沿用原收藏菜单自己的交互习惯），而非原生右键菜单；见「已知限制」。
@@ -46,10 +54,29 @@
 - **未读提示**（决策④）——一条工作流所绑定的 `homeSessionId` 若有尚未查看的产出，会显示绿点，原样复用会话列表自己的 `completed` 位（「运行结束时未被选中、且尚未被打开过」），而不是原始任务提议作为备选方案的第二套「最后查看时间」记账机制：`completed` 本身的语义与此完全吻合,并且 `sessions.open` 一旦选中该会话就会立即清除它。为什么这一机制只有单测覆盖、没有端到端覆盖，见「已知限制」。
 - **被顶掉的对话不会被删除。** 一次工作台点击若落到一个全新会话上（见上文「工作台」），并不会删除被它顶掉的那一个：若某条工作流已经绑定它，那条工作流会继续原样管着它；若没有任何东西绑定它，它就只是不再被任何东西指着而已。本组合没有会话概念可供用户查看或清理（决策②），因此一个未被绑定的、被顶掉的对话只会自然淡出，不需要任何处置。
 
-持久文档（`{workflows, workbenchSessionId}`）存在本包自己的 settings 命名空间里，并在一条同源路由上对外提供：
+### 导航快照的存储形式
+
+`navSnapshot` 是一串 `{kind, entryId}`——`kind` 是 `page` 或 `view`，`entryId` 是那份目录自己的 id——因为两种 kind 由不同的命令重放、落地成不同的 content-surface 条目 kind，单凭一个 id 已经说不清该拿它怎么办。只有 导航 菜单列出的条目会被捕获：一个落点靠重跑它自己的命令来重放，而两条命令都会拒绝部署未配置的 id（见「已知限制」）。
+
+**仍然存着改版前 `string[]` 形式的文档会在加载期被拒绝，而不是被重新解读。** 存下来的每一个 id 当年都指页面，所以照此解读本可以精确无误——但一份被进程悄悄重新解读的文档，是一份永远不会有人去转换的文档，而本仓库的预发布立场是直接拒收旧的落盘格式。这条拒绝会点名出问题的那一项，以及修复它的一次性转换脚本：
+
+```sh
+pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snapshot ~/.dsh/settings.yaml --dry-run
+pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snapshot ~/.dsh/settings.yaml
+```
+
+路径是必填而非有默认值的（一个靠猜决定自己在改写哪份文档的转换器，就是一个能改错文档的转换器）；把它指向 settings 文件 provider 实际提供的那份文档，通常是 `$DSH_HOME/settings.yaml`。它把每一个存下来的 id 改写成 `{kind: 'page', entryId: id}`，在文档没有 `groups` 键时补上当前格式携带的那个空列表，对一份已经是当前格式的文档逐字节保持原样，并在 `--dry-run` 下什么都不写。YAML 那条路径通过 `yaml` 的文档模型编辑，而不是解析后重新序列化，因此运维自己的注释与键顺序都会保留。
+
+### 分组
+
+持久格式携带 `groups`——每个分组是 `{id, name, pinned, order}`——以及每条工作流上一个可选的 `groupId`，指名它被归在哪个分组下；不指名的工作流即未分组。`TEMPORARY_GROUP_ID`（`"temporary"`，刻意不是 UUID）为用户从未命名的那些对话保留：它是唯一一个没有人创建、重命名或删除的分组，因此从不存进 `groups`，一个想占用这个 id 的存储分组会被拒绝，而且它不带存储的 `name`——先画出分组列表的那一片自己给出它的显示名。`validateServerMenu` 会拒绝重复的分组 id、空白或超过 40 字的分组名，以及指名了不存在分组的 `groupId`。
+
+**这一切目前都还没有任何界面。** 这是持久层先于读它的界面落地一次格式变更：侧边栏仍然画一份平铺的工作流列表，一条工作流带不带 `groupId` 都不改变它的画法，也没有任何控件去创建、重命名、置顶或填充一个分组。分组列表、置顶排序与临时分组是下一片的工作。
+
+持久文档（`{workflows, groups, workbenchSessionId}`）存在本包自己的 settings 命名空间里，并在一条同源路由上对外提供：
 
 - `GET /server-menu/workflows`——当前文档，`cache-control: no-store`。
-- `POST /server-menu/workflows`——把提交的补丁（`{workflows?, workbenchSessionId?}`）**合并**进当前文档，而不是整体替换，因此只改 `workbenchSessionId` 的调用方从不需要重新提交当前的工作流列表,反之亦然。合并结果中出现重复的工作流 id,会在提交前被拒绝,路由的 `validate` 钩子与本包的 invariant 各自把关一次。
+- `POST /server-menu/workflows`——把提交的补丁（`{workflows?, workbenchSessionId?}`）**合并**进当前文档，而不是整体替换，因此只改 `workbenchSessionId` 的调用方从不需要重新提交当前的工作流列表,反之亦然。`groups` 目前还不是可打补丁的字段，一份不带它的补丁会保留已存储的内容；上文每一条规则（重复的工作流 id、改版前的 `navSnapshot`、任一条分组约束）都会在提交前被拒绝，路由的 `validate` 钩子与本包的 invariant 各自把关一次。
 
 浏览器无法直接调用 `settings.*` RPC——这是一组 loopback 特权方法，经反向代理进来的请求会被外壳自身的信任栅栏答以 403，而不是被反代配置里的某条规则拦下——因此本包的 node 半边是一个可选子节点，只在 `ctx.settings` 与 `ctx.webServer` 同时被组合时才注册这条路由；两者都不存在时侧边栏本身依然可用（导航不受影响），只是我的工作流下面没有东西可展示或持久化。
 
@@ -73,7 +100,7 @@
 
 任何一步失败都只记一条 `console.warn`：访客反正要离开，一步跑不通不构成把其余几步一起放弃的理由。
 
-**逐字复制，而非导入。** `Bearer` 剥离、JWT 解码、`/auth-gate/settings`、`/auth-gate/logout`、那行 cookie 与回跳地址的剔参规则，都是 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md) 自己那份的复制品，理由与 `client/pages.ts` 复制 content-frame 路由的理由相同：跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式，而且本侧栏还必须能在压根不组合 auth-gate 的组合里工作。两个包在本 fork 里一同维护，这六项约定必须同步，连同它们各自的寻址方式：两条路由都经 `clientUrl` 请求，那枚 cookie 也在 auth-gate 写入它时所用的同一个部署前缀下清除。
+**逐字复制，而非导入。** `Bearer` 剥离、JWT 解码、`/auth-gate/settings`、`/auth-gate/logout`、那行 cookie 与回跳地址的剔参规则，都是 [`dsh-experimental-auth-gate`](../auth-gate/README.zh.md) 自己那份的复制品，理由与 `client/nav-catalog.ts` 复制那两条目录路由的理由相同：跨包直接导入符号并非本仓库为两个客户端相邻插件设计的耦合方式，而且本侧栏还必须能在压根不组合 auth-gate 的组合里工作。两个包在本 fork 里一同维护，这六项约定必须同步，连同它们各自的寻址方式：两条路由都经 `clientUrl` 请求，那枚 cookie 也在 auth-gate 写入它时所用的同一个部署前缀下清除。
 
 ## 配置
 
@@ -107,7 +134,7 @@
 
 ## 组合方式
 
-本插件不属于任何出厂 bundle。`overlay/customer.patch.yml` 就是完整的客户表单 overlay：它禁用 `ui-layout`、`ui-sidebar`、`ui-workspace`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`，并插入 `server-layout`、`content-surface`、`content-column` 与本包。它不插入 `content-frame`——部署自己的页面目录需要单独组合，与它并列。它同样不插入 [`auth-gate`](../auth-gate/README.zh.md)，而底部那个退出按钮正需要这一行：没有组合它时按钮照样渲染，但按下去只会向控制台报告登录页未知，然后停在原地。两份 overlay 都携带本包那一个必填的 `config` 字段（见上文「配置」）；缺了它的行会在加载期失败。用 `dsh --profile <name> --patch <path>` 应用；该包必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile <name> add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
+本插件不属于任何出厂 bundle。`overlay/customer.patch.yml` 就是完整的客户表单 overlay：它禁用 `ui-layout`、`ui-sidebar`、`ui-workspace`、`ui-agent-preset`、`ui-brand-official`、`ui-cordis`、`ui-trajectory`、`ui-model-selection`、`session-log-download`，并插入 `server-layout`、`content-surface`、`content-column` 与本包。它不插入 `content-frame`，也不插入 `component-surface`——部署自己的页面目录与视图目录需要单独组合，与它并列，因为两者各自携带这份 overlay 无法预设的部署专属配置。它同样不插入 [`auth-gate`](../auth-gate/README.zh.md)，而底部那个退出按钮正需要这一行：没有组合它时按钮照样渲染，但按下去只会向控制台报告登录页未知，然后停在原地。两份 overlay 都携带本包那一个必填的 `config` 字段（见上文「配置」）；缺了它的行会在加载期失败。用 `dsh --profile <name> --patch <path>` 应用；该包必须能从 profile 目录解析到——对树外插件而言即 `dsh plugin --profile <name> add <path>` 或等价的链接；发布 bundle 不得声明实验性包。
 
 ## Model Experience
 
@@ -122,7 +149,8 @@
 - **字面上的 240px 并非独立强制的。** 本外壳从不固定一个内联像素宽度；它按其 owner（`dsh-experimental-server-layout`）交给它的 `width` 渲染，也从不触发折叠。`server-layout` 冻结的 3:16:5 轨道比例恰好在其自身 1920px 参考帧宽下等于 240px（`1920 * 3/24 = 240`），但在任何其他帧宽下这一栏是等比例的，而非固定的。要让它真正固定，需要改动 `server-layout` 自己那份冻结、刻意不可配置的几何设定，这超出了本次改动的范围。
 - **决策③的用户消息判断是一个分页窗口内的近似值。** 「存为工作流」的可见性读取 `useSession(s => s.chat.legacy.nodes)`，与 `StatsLine.tsx` 读取的是同一个分页会话快照窗口——一条足够早、已经分页出这个窗口的用户消息不会被发现。要做到整份日志级别的判断，需要新增一个本 v1 没有引入的持久投影。
 - **轮次/步骤状态行由一个与 DOM 顺序耦合的 CSS 选择器隐藏，而非一个 Config 开关。** 具体的脆弱之处与钉住它的手段见上文「去术语化」。
-- **`navSnapshot` 从不捕获图表（chart）类型的条目。** `captureNavSnapshot` 只筛选 content-surface 投影里 `kind === 'page'` 的条目；在图表占据 content 栏时保存的工作流,重放降级时只会重放页面条目，图表不会出现在降级重建后的对话里。
+- **`navSnapshot` 只捕获 导航 菜单列出的东西。** `captureNavSnapshot` 只在合并目录里能查到某个条目的 `{kind, entryId}` 时才保留它，所以一个寻常 content 栏里的三样东西会从降级重建中掉队：agent 画的图表、模型自己用 `show_component` 展示的组件（它的 id 是模型自由写下的，不是一份配置好的视图），以及展示时部署确实配置过、但保存时已不再配置的页面或视图。
+- **存下来的视图按今天的配置重放，而不是按保存当时的样子。** `navSnapshot` 记的是视图的 id，不是它背后的 spec——重放执行的是 `show-content-view`，读的是部署当下的 `views` 配置。部署后来改过的视图会以改过的样子回来，后来删掉的视图会得到「没有这个视图。」并被跳过。原对话的会话日志仍然携带用户当时看到的那份 spec（这正是 `content-component/shown` 记下的东西）；一条工作流的快照是一串落点，不是落点上那些内容的副本。
 - **绿点机制复用了 `completed`，而非新记账，且只有单测覆盖。** 它与「运行结束时未被选中、且尚未被打开过」的语义完全吻合，但要做到端到端验证，需要一次真实的、agent 循环从运行到空闲、且未被选中期间发生的状态切换——`SessionManager` 的 `running` 位是绑定真实执行的 host frame 推送，纯日志追加无法伪造它。本场景自己的 e2e 套件不发起任何模型调用（沿用其既有设计），因此这一机制改由 `packages/experimental/server-sidebar` 自己的单元测试钉住。
 - **改名/移除用悬停显现的图标按钮，而非原生右键菜单。** 这是任务本身明确允许的 v1 降级（「若实现体量失控，降级为右键菜单「上移/下移」」）——这条降级条款曾经也覆盖重新排序，直到重新排序改为原生 HTML5 拖拽为止；改名/移除这一半的降级依然保留，因为为这两个偶发动作再引入第二种交互模式依然没有正当理由。
 - **`ui-workspace` 被彻底禁用、而非仅仅被隐藏——原因是组合它会复活英雄区的工作区选择器，而不是因为组合它会失败。** 它的 `sidebar.workspaces` 注册在本外壳去掉那个槽之后已经失效（`ctx.slots.inject` 只是永远不会触发——见上文「替换出厂侧边栏」）；真正还会落地的是它的 `conversation.hero.workspace` 注册，因为 `dsh-client-ui-conversation` 始终会声明那个槽。一次零工作区的全新安装,依然会让页面或工作流点击成为一次被吸收的空操作（见上文「导航」）——这是从此前基于收藏的设计里延续下来的、已经被接受的既有边界情况，并非本次新引入。工作台自己的加载态自动落位比这更进一步：这种情况下它根本不会去尝试（见上文「工作台」），而是一直等待工作区出现，而不是先尝试一次再报一次警告。

@@ -2,9 +2,9 @@
 /**
  * The show-component browser half against the real SlotRegistry: the wait for
  * the content column's declaration, the kind key it claims, the component row's
- * namespace it translates through, the action face it injects, the empty
- * `conversation.chat.commandview` registration that owns what a press draws in
- * the chat, and removal on fiber teardown (HMR safety).
+ * namespace it translates through, the action face it injects, the two
+ * `conversation.chat.commandview` registrations that own what this package's
+ * commands draw in the chat, and removal on fiber teardown (HMR safety).
  */
 import { Context } from '@deepseek-ai/cordis'
 import { describe, expect, it, vi } from 'vitest'
@@ -15,6 +15,7 @@ import { NS } from '@deepseek-ai/dsh-experimental-component-kit/client'
 import { apply, inject } from '../src/client/index.ts'
 import { ComponentSurface, type ComponentSurfaceInjected } from '../src/client/ComponentSurface.tsx'
 import { ActionCommandRow } from '../src/client/ActionCommandRow.tsx'
+import { ViewCommandRow } from '../src/client/ViewCommandRow.tsx'
 import { CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID } from '../src/component-call.ts'
 
 /**
@@ -74,17 +75,18 @@ describe('show-component browser half', () => {
   })
 
   it(
-    'registers the component-action row at that command\'s key, and teardown removes it (HMR safety)',
+    'registers a chat row for each of its commands, and teardown removes both (HMR safety)',
     async () => {
-      // A press runs the command for the record it writes; without this seat
+      // Both commands are run for the record they write; without these seats
       // `ui-conversation` falls back to its GenericCommandCard and the reader
-      // gets an English `component-action · Completed` row for a button they
-      // pressed themselves. What the row draws instead is
-      // `action-command-row.client.spec.tsx`'s subject.
+      // gets an English `component-action · Completed` or `show-content-view ·
+      // Completed` row for something they did themselves. What each row draws
+      // instead is `action-command-row.client.spec.tsx`'s and
+      // `view-command-row.client.spec.tsx`'s subject.
       const { ctx, fiber } = await bench()
-      const [entry] = ctx.slots.entries('conversation.chat.commandview')
-      expect(entry?.component).toBe(ActionCommandRow)
-      expect(entry?.options.key).toBe('component-action')
+      const rows = ctx.slots.entries('conversation.chat.commandview')
+      expect(new Map(rows.map(entry => [entry.options.key, entry.component])))
+        .toEqual(new Map([['component-action', ActionCommandRow], ['show-content-view', ViewCommandRow]]))
 
       await fiber.dispose()
       expect(ctx.slots.entries('conversation.chat.commandview')).toHaveLength(0)

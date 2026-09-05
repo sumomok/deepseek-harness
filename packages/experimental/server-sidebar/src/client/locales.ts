@@ -14,7 +14,7 @@
 export const zh = {
   'workbench.label': '工作台',
   'nav.title': '导航',
-  'nav.empty': '未配置页面',
+  'nav.empty': '未配置内容',
   'workflows.title': '我的工作流',
   'workflows.empty': '暂无工作流',
   'workflows.rename': '重命名',
@@ -34,7 +34,7 @@ export type ServerSidebarKey = keyof typeof zh
 export const en = {
   'workbench.label': 'Workbench',
   'nav.title': 'Navigation',
-  'nav.empty': 'No pages configured',
+  'nav.empty': 'Nothing configured',
   'workflows.title': 'My Workflows',
   'workflows.empty': 'No workflows yet',
   'workflows.rename': 'Rename',

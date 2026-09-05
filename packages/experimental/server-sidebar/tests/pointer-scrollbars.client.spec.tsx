@@ -41,7 +41,7 @@ function mountColumn(): { column: HTMLElement; quiet: () => boolean } {
     <ServerSidebarRoot
       collapsed={false} width={300}
       t={t}
-      pages={[]} onOpenPage={() => Promise.resolve()}
+      navItems={[]} onOpenNavItem={() => Promise.resolve()}
       onOpenWorkbenchOnLoad={() => Promise.resolve()}
       onOpenWorkbench={() => Promise.resolve()} onOpenWorkflow={() => Promise.resolve()}
       onSaveWorkflows={() => Promise.resolve()} onSignOut={() => {}}

@@ -3,6 +3,10 @@
 # ui-sidebar row is disabled and this row inserted in its place — the same
 # pattern `server-layout`'s own overlay uses for `ui-layout`.
 #
+# The 导航 group is built from `dsh-experimental-content-frame`'s pages and
+# `dsh-experimental-component-surface`'s views; this overlay composes neither,
+# so add whichever the deployment configures alongside it.
+#
 # The sidebar footer's sign-out button needs `dsh-experimental-auth-gate`,
 # which this overlay does not insert either: compose it alongside, or the
 # button renders with no login page to return to and reports that to the

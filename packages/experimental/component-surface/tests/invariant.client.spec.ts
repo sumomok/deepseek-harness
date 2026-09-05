@@ -1,7 +1,8 @@
 /**
  * The package-owned invariant: every `component` entry the content surface
- * holds must be one an accepted `show_component` call in that session's log
- * recorded.
+ * holds must be one that session's log recorded — an accepted
+ * `show_component` call, or the `content-component/shown` a view click
+ * writes.
  *
  * The relation can genuinely break, which is why it is checked at all. The
  * fold is seeded from persisted checkpoints, and the content surface decides
@@ -72,6 +73,13 @@ function audit(ctx: Context, session: Session): void {
   ctx.emit('session/event', session, { type: 'turn/start', seq: 0, time: 0, data: { turn: 1 } } as SessionEvent)
 }
 
+/**
+ * What the audit says about an entry nothing in the log authorized: both
+ * writers are named, so a reader knows the companion looked for each.
+ */
+const UNAUTHORIZED = 'that nothing in its log recorded: '
+  + 'no accepted show_component call and no content-component/shown event'
+
 describe('the component-entry invariant', () => {
   it('reserves package ownership under its declared companion name', async () => {
     const { ctx } = await bench()
@@ -121,7 +129,7 @@ describe('the component-entry invariant', () => {
     await ctx.plugin(ComponentSurfaceInvariant).await()
     session.append('todo/write', { todos: [] })
     expect(() => { audit(ctx, session) })
-      .toThrow(/carries a component content entry "ghost" that no accepted show_component call in its log recorded/)
+      .toThrow(`carries a component content entry "ghost" ${UNAUTHORIZED}`)
   })
 
   it('rejects the same entry on a log that already carried it before the companion loaded', async () => {
@@ -130,7 +138,7 @@ describe('the component-entry invariant', () => {
     // Reading the fold once at startup is what covers a log that was on disk:
     // the live listener never fires for an entry nothing appended.
     await expect(ctx.plugin(ComponentSurfaceInvariant).then(() => undefined))
-      .rejects.toThrow(/no accepted show_component call in its log recorded/)
+      .rejects.toThrow(UNAUTHORIZED)
   })
 
   it('counts only calls the tool would have accepted', async () => {
