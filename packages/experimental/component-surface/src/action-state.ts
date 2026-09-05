@@ -11,6 +11,13 @@
  * which is what makes a second press replace the first rather than accumulate
  * beside it.
  *
+ * Only a `wake` reaches a cell at all. A block's state is the answer it was
+ * placed for, and a component declaring several gestures has one cell for all
+ * of them — so a table whose selection claimed that cell would report a tick as
+ * an answer and refuse the row button underneath it, and a filter bar would
+ * disable its own submit the moment the user typed. Which gestures are answers
+ * is the catalog's, read through {@link answersBlock}.
+ *
  * The fold is the host's because the log is: the browser reads the folded value
  * off the session's projection values, exactly as the content column reads its
  * entry stream, and decides nothing about it beyond whether the gesture belongs
@@ -26,7 +33,7 @@
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 // Type-only: pulls the command registry's `command/run` / `command/done` SessionEventMap merge.
 import type {} from '@deepseek-ai/dsh-commands/types'
-import { COMPONENT_ACTION_COMMAND, parseComponentActionLine } from './component-call.ts'
+import { answersBlock, COMPONENT_ACTION_COMMAND, parseComponentActionLine } from './component-call.ts'
 
 declare module '@deepseek-ai/dsh-session-projection/types' {
   interface SessionProjectionStateMap {
@@ -99,12 +106,11 @@ export interface ComponentActionsView {
  * agent will only read when the user writes again, and a silent success is one
  * the agent has already been handed.
  *
- * A `silent` action would settle as that same textless success and be read here
- * as `sent`, which is the one wrong thing this table can say: nobody was told,
- * and the block would claim the conversation has it. No catalog action declares
- * `silent` today, and the first one that does decides what its block says at the
- * same time — either its own outcome here, or a settlement the handler makes
- * distinguishable.
+ * A `silent` action settles as that same textless success, which read here
+ * would say the conversation has something nobody was told. It never reaches
+ * this function: a gesture that is not its block's answer opens no cell, so the
+ * only settlements paired here belong to `wake` gestures, where a textless
+ * success is a turn that was opened.
  * @param settlement - the `command/done` payload.
  * @returns the outcome the block should show.
  */
@@ -130,6 +136,11 @@ export function applyComponentAction(state: ComponentActionCell[], event: Sessio
     // handler resolves them against the entry on display.
     const action = parseComponentActionLine((event.data.args ?? '').trim())
     if (action === undefined) return state
+    // Only the gesture a block was placed to receive settles that block. The
+    // rest — a selection, a sort, an unsubmitted edit — are reported and leave
+    // no cell, so the block they came from is neither answered by them nor
+    // stopped from being answered later.
+    if (!answersBlock(action.componentId, action.actionId)) return state
     const cell: ComponentActionCell = {
       entryId: action.entryId,
       nodeId: action.nodeId,

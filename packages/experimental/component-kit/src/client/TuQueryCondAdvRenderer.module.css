@@ -1,0 +1,24 @@
+.bar {
+  display: block;
+}
+
+.actions {
+  display: flex;
+  justify-content: flex-end;
+  padding: 0 3rem;
+}
+
+.submit {
+  padding: 0.375rem 1.25rem;
+  border: none;
+  border-radius: 0.25rem;
+  background: var(--dsh-accent, #2563eb);
+  color: #fff;
+  font: inherit;
+  cursor: pointer;
+}
+
+.submit:disabled {
+  opacity: 0.5;
+  cursor: default;
+}

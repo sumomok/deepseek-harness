@@ -42,7 +42,9 @@ describe('the renderer table against the catalog', () => {
     // this line compile and let a blank block reach a user.
     const uncovered: Record<IdAhead, ComponentRenderer> = COMPONENT_RENDERERS
     // The same table today, which is the positive half: every id the real
-    // catalog declares, and nothing the catalog does not.
-    expect(Object.keys(uncovered)).toEqual(COMPONENT_CATALOG.map(entry => entry.id))
+    // catalog declares, and nothing the catalog does not. As a set, because the
+    // order a row lists its renderers in is that row's business — the order
+    // blocks are drawn in is the spec's.
+    expect(Object.keys(uncovered).sort()).toEqual(COMPONENT_CATALOG.map(entry => entry.id).toSorted())
   })
 })

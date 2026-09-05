@@ -196,6 +196,88 @@ const RECORD_SPEC = {
   }],
 }
 
+/** The entry ids and titles of the three blocks whose gestures the tests below drive. */
+const TABLE_ID = 'sites'
+const TABLE_TITLE = 'Site list'
+const FILTER_ID = 'filter'
+const FILTER_TITLE = 'Find a site'
+const METRIC_ID = 'load'
+const METRIC_TITLE = 'Capacity'
+
+/**
+ * The rows the `sites` call places.
+ *
+ * Every field is a column the call draws, and `site` is the first of them —
+ * which is what every notice names a row by. A row carries no identifier of its
+ * own: what a gesture reports is a position in this list, and the host reads the
+ * row back out of the call the model wrote.
+ */
+const TABLE_ROWS = [
+  { site: 'A-1', state: 'In service' },
+  { site: 'A-2', state: 'Retired' },
+  { site: 'A-3', state: 'In service' },
+] as const
+
+const TABLE_SPEC = {
+  nodes: [{
+    id: 'grid',
+    component: 'toy.table',
+    props: {
+      tableConfig: {
+        gridItems: [
+          { relatedMetaAttr: 'site', alias: 'Site', isSortable: true },
+          { relatedMetaAttr: 'state', alias: 'State', relatedComponent: 'display_default' },
+        ],
+      },
+      displayValueList: TABLE_ROWS.map(row => ({ ...row })),
+      selectMode: 'checkbox',
+      customOperations: [{ key: 'export', label: 'Export' }],
+    },
+  }],
+}
+
+/** The two rows ticked in the table test, and what the notice therefore names them by. */
+const TICKED = [TABLE_ROWS[0].site, TABLE_ROWS[2].site]
+/** The words the ticked rows earn, once the user's next message carries the inbox to the model. */
+const TABLE_REPLY = `Starting with ${TICKED[0]} — I will export those rows.`
+/** What the user types to open the turn that reads the ticked rows out of the inbox. */
+const TABLE_PROMPT = 'Go ahead with those.'
+
+const FILTER_SPEC = {
+  nodes: [{
+    id: 'query',
+    component: 'el.filter-bar',
+    props: {
+      relatedMeta: 'site',
+      metaConfig: {
+        attributes: [
+          { attributeEnName: 'site', alias: 'Site', dataType: 'string' },
+          { attributeEnName: 'state', alias: 'State', dataType: 'string' },
+        ],
+      },
+      attrEqEnums: [{ value: 'EQ', label: 'is' }, { value: 'LIKE', label: 'contains' }],
+    },
+  }],
+}
+
+/** The two conditions built in the filter test, in the order the bar's rows carry them. */
+const CONDITIONS = [
+  { attribute: 'Site', operator: 'is', value: 'A-1' },
+  { attribute: 'State', operator: 'contains', value: 'service' },
+] as const
+/** What the submitted filter earns from the model, built from the first condition in the request. */
+const FILTER_REPLY = `Filtering by ${CONDITIONS[0].attribute} ${CONDITIONS[0].operator} "${CONDITIONS[0].value}" now.`
+/** The English label of the button this renderer draws beside the bar — `component-kit`'s `filterBar.submit`. */
+const SEARCH_LABEL = 'Search'
+
+const METRIC_SPEC = {
+  nodes: [{
+    id: 'ball',
+    component: 'el.metric',
+    props: { process: 42, text: 'Load', size: 120, background: '#2f855a', isPointShow: true },
+  }],
+}
+
 /**
  * Prepare a harness home whose profile fallback resolves every experimental row.
  * @returns the harness home the scaffold should adopt.
@@ -240,7 +322,8 @@ function componentCall(callId: string, id: string, title: string, spec: unknown)
 }
 
 /**
- * Splice four settled component calls into a recorded session, inside its open step.
+ * Splice seven settled component calls into a recorded session, inside its open
+ * step.
  *
  * The first and the last share the `budget` id, older first, so the column has
  * to fold them into one entry owned by the later call. The `budget` pair stays
@@ -258,6 +341,9 @@ function withComponentCalls(fixtureText: string): string {
     ...componentCall('call_00_component_budget_old', BUDGET_ID, BUDGET_DRAFT_TITLE, BUDGET_DRAFT_SPEC),
     ...componentCall('call_00_component_cleanup', CLEANUP_ID, CLEANUP_TITLE, CLEANUP_SPEC),
     ...componentCall('call_00_component_site', RECORD_ID, RECORD_TITLE, RECORD_SPEC),
+    ...componentCall('call_00_component_table', TABLE_ID, TABLE_TITLE, TABLE_SPEC),
+    ...componentCall('call_00_component_filter', FILTER_ID, FILTER_TITLE, FILTER_SPEC),
+    ...componentCall('call_00_component_metric', METRIC_ID, METRIC_TITLE, METRIC_SPEC),
     ...componentCall('call_00_component_budget_new', BUDGET_ID, BUDGET_TITLE, BUDGET_SPEC),
     ...lines.slice(closing),
   ].join('\n')
@@ -364,7 +450,7 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // Four calls, three entries: the superseded draft has no tab of its own, and
     // the tab that survived carries the later call's title.
     await tab(page, CLEANUP_ID).waitFor({ timeout: 30_000 })
-    expect(await page.locator('[data-content-surface-entry]').count()).toBe(3)
+    expect(await page.locator('[data-content-surface-entry]').count()).toBe(6)
     expect(await tab(page, BUDGET_ID).textContent()).toContain(BUDGET_TITLE)
     expect(await page.getByText(BUDGET_DRAFT_TITLE, { exact: true }).count()).toBe(0)
     expect(await page.getByText(BUDGET_DRAFT_PROMPT, { exact: true }).count()).toBe(0)
@@ -570,6 +656,191 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // Two command rows now: the press's, emptied and collapsed, and this one.
     expect(await page.locator('[data-chat-flow-kind="command"]').count()).toBe(2)
     await evidence(page, 'web-e2e-component-surface-refused')
+  }, 120_000)
+
+  it('draws the vendored table and carries a selection to the model with the user\'s next message', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-table'))
+    await tab(page, TABLE_ID).click()
+    const block = seat(page).locator('[data-component-block="toy.table"]')
+    await block.waitFor({ timeout: 30_000 })
+    // `.el-table__header-wrapper` and `.el-table__body-wrapper` are element-ui's
+    // own, so reading the headings and the cells out of them is the assertion
+    // that the vendored table drew this rather than anything restated here.
+    await expect.poll(
+      async () => await block.locator('.el-table__header-wrapper th .cell').allTextContents(),
+      { timeout: 15_000 },
+      // The first heading is the selection column's and the last is the
+      // operation column's — `操作`, compiled into the vendored component and
+      // therefore Chinese in an English interface, which is the component row's
+      // recorded limitation as a user meets it.
+    ).toEqual(['', 'Site', 'State', '操作'])
+    expect(await block.locator('.el-table__body-wrapper tbody tr').count()).toBe(TABLE_ROWS.length)
+    for (const row of TABLE_ROWS) {
+      expect(await block.getByText(row.site, { exact: true }).count()).toBeGreaterThan(0)
+    }
+    await awaitOpenColumn(page)
+    await evidence(page, 'web-e2e-component-surface-table')
+
+    // Two ticks, first and third. Each is a `context` gesture: it is recorded
+    // and handed to the inbox, and it is not the block\'s own answer — so the
+    // table keeps taking ticks and its Export buttons stay pressable, which a
+    // fold that settled every gesture into the block\'s one cell would take away
+    // at the first tick.
+    // The name column is fixed, so element-ui draws the body twice and only the
+    // fixed copy is on top; the native input inside each box is transparent and
+    // unclickable, so what is clicked is the box a user clicks.
+    const boxes = block.locator('.el-checkbox__inner:visible')
+    await boxes.nth(0).click()
+    await boxes.nth(2).click()
+    await expect.poll(
+      () => liveEvents(scaffold).filter(event => event.type === 'command/run'
+        && event.data.args?.includes('"actionId":"select"') === true).length,
+      { timeout: 30_000 },
+    ).toBe(2)
+    const ticks = liveEvents(scaffold).filter(event => event.type === 'command/run'
+      && event.data.args?.includes('"actionId":"select"') === true)
+    const last = ticks[ticks.length - 1]
+    expect(last?.type === 'command/run' && last.data.args).toBe(
+      ` {"entryId":"${TABLE_ID}","componentId":"toy.table","actionId":"select","nodeId":"grid","payload":{"rowIndexes":[0,2]}}`,
+    )
+    expect(await seat(page).getByText(SENT_LINE, { exact: true }).count()).toBe(0)
+    // And nothing about the two ticks is written into the conversation. A tick
+    // is the user working, not a question anyone is waiting on an answer to, so
+    // its settlement carries no sentence and the command row this row registers
+    // draws nothing — the alternative is one 已记下 line per ticked row, in a
+    // chat the user is reading for the agent's replies. The waiting rows drawn
+    // for the presses that really are waiting carry this attribute, so counting
+    // them is what tells the two apart.
+    // The two ticks folded a command row each, and neither says anything: the
+    // waiting attribute is what the row carries when it draws the handler's
+    // sentence, so counting it is what tells a collapsed row from a receipt.
+    await expect.poll(async () => await page.locator('[data-chat-flow-kind="command"]').count(), { timeout: 15_000 })
+      .toBeGreaterThanOrEqual(2)
+    expect(await page.locator('[data-component-action-waiting]').count()).toBe(0)
+    // The operation column is what `state` gates, through a rule that takes
+    // `pointer-events` away from it; a tick is not the block's answer, so the
+    // Export buttons are still there to press.
+    expect(await block.locator('.column-operation:visible').first()
+      .evaluate(cell => getComputedStyle(cell).pointerEvents)).not.toBe('none')
+
+    // The blocks go with the draw and come back from the payload, so a tab round
+    // trip is what proves the table is rebuilt rather than remembered.
+    await tab(page, RECORD_ID).click()
+    await expect.poll(async () => await seat(page).locator('[data-component-block="toy.table"]').count(), { timeout: 15_000 })
+      .toBe(0)
+    await tab(page, TABLE_ID).click()
+    await expect.poll(
+      async () => await seat(page).locator('[data-component-block="toy.table"] .el-table__body-wrapper tbody tr').count(),
+      { timeout: 15_000 },
+    ).toBe(TABLE_ROWS.length)
+
+    // A `context` gesture waits in the inbox until a human writes, so the turn
+    // that reads it is one the user opens. The scripted reply\'s head is a
+    // `{{fromRequest:}}` pattern over the notice\'s own wording, so this sentence
+    // exists only because the ticked rows — named by what their first column
+    // shows — were in the request the message earned.
+    const settled = scaffold.whenTurnSettled(60_000)
+    const composer = page.getByPlaceholder(COMPOSER_PLACEHOLDER)
+    await composer.fill(TABLE_PROMPT)
+    await composer.press('Enter')
+    await settled
+    const claimed = liveEvents(scaffold).find(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.content.some(part => part.type === 'text' && part.text.includes('selected 2 rows')))
+    expect(claimed?.type === 'user/message' && claimed.data.content).toEqual([{
+      type: 'text',
+      text: `The user selected 2 rows in content panel entry "${TABLE_ID}" ("${TABLE_TITLE}"), on the 数据表 block "grid": `
+        + `${TICKED.map(name => JSON.stringify(name)).join(', ')}.`,
+    }])
+    await expect.poll(async () => await page.getByText(TABLE_REPLY, { exact: false }).count(), { timeout: 30_000 })
+      .toBe(1)
+  }, 180_000)
+
+  it('draws the vendored condition editor and sends back what the user built', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-filter'))
+    await tab(page, FILTER_ID).click()
+    const block = seat(page).locator('[data-component-block="el.filter-bar"]')
+    await block.waitFor({ timeout: 30_000 })
+    // `.query-cond-adv` and `.query-row` are the vendored component's own class
+    // names; the button beside them is this row's React one, labelled from
+    // `component-kit`'s dictionary in the language the browser asked for.
+    expect(await block.locator('.query-cond-adv').count()).toBe(1)
+    await expect.poll(async () => await block.locator('.query-row').count(), { timeout: 15_000 }).toBe(1)
+    expect(await block.getByRole('button', { name: SEARCH_LABEL }).count()).toBe(1)
+    // The call declares no layout at all, so this is the bar as it is drawn out
+    // of the box: no AND/OR control, so every control on it is one the answer
+    // this bar sends carries.
+    expect(await block.locator('.title-options .el-radio').count()).toBe(0)
+    await awaitOpenColumn(page)
+    await evidence(page, 'web-e2e-component-surface-filter')
+
+    // Build the second condition row with the component's own 增加 button, then
+    // fill both: an attribute, a match strategy, and the value the user types.
+    await block.locator('.query-row').first().locator('.query-btns button').first().click()
+    await expect.poll(async () => await block.locator('.query-row').count(), { timeout: 15_000 }).toBe(2)
+    for (const [index, condition] of CONDITIONS.entries()) {
+      const row = block.locator('.query-row').nth(index)
+      const selects = row.locator('.el-select')
+      await selects.nth(0).click()
+      await page.locator('.el-select-dropdown__item:visible', { hasText: `${condition.attribute}(` }).first().click()
+      await selects.nth(1).click()
+      await page.locator('.el-select-dropdown__item:visible', { hasText: condition.operator }).first().click()
+      await row.locator('input.el-input__inner').last().fill(condition.value)
+    }
+
+    // An edit is a `silent` gesture and is not the bar's own answer, so the
+    // button that sends the filter is still live after every reported edit.
+    expect(await block.getByRole('button', { name: SEARCH_LABEL }).isEnabled()).toBe(true)
+
+    const settled = scaffold.whenTurnSettled(60_000)
+    await block.getByRole('button', { name: SEARCH_LABEL }).click()
+    // A `submit` is the bar's answer, so this one does settle the block: the
+    // button refuses a second press and the block says where the first went.
+    await expect.poll(async () => await block.getByText(SENT_LINE, { exact: true }).count(), { timeout: 30_000 }).toBe(1)
+    await settled
+
+    const submitted = liveEvents(scaffold).find(event => event.type === 'command/run'
+      && event.data.args?.includes('"actionId":"submit"') === true)
+    expect(submitted?.type === 'command/run' && submitted.data.args).toBe(
+      ` {"entryId":"${FILTER_ID}","componentId":"el.filter-bar","actionId":"submit","nodeId":"query","payload":{"conditions":[`
+      + `{"key":"site","op":"EQ","value":"${CONDITIONS[0].value}"},`
+      + `{"key":"state","op":"LIKE","value":"${CONDITIONS[1].value}"}]}}`,
+    )
+    // The attribute names and the strategy wording come from the spec the model
+    // wrote; the values are the user's own text, quoted as the data they are.
+    const notice = liveEvents(scaffold).find(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin'
+      && event.data.content.some(part => part.type === 'text' && part.text.includes('submitted a filter')))
+    expect(notice?.type === 'user/message' && notice.data.content).toEqual([{
+      type: 'text',
+      text: `The user submitted a filter in content panel entry "${FILTER_ID}" ("${FILTER_TITLE}"), on the 筛选条件 block "query": `
+        + CONDITIONS.map(one => `${one.attribute} ${one.operator} ${JSON.stringify(one.value)}`).join('; ') + '.',
+    }])
+    await expect.poll(async () => await page.getByText(FILTER_REPLY, { exact: false }).count(), { timeout: 30_000 })
+      .toBe(1)
+  }, 180_000)
+
+  it('draws the vendored metric ball, which answers nothing back', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-surface-metric'))
+    await tab(page, METRIC_ID).click()
+    const block = seat(page).locator('[data-component-block="el.metric"]')
+    await block.waitFor({ timeout: 30_000 })
+    // `.tmo-process-ball` is the vendored component's own class, and the two
+    // paragraphs inside it are the number and the word the call carried.
+    await expect.poll(
+      async () => await block.locator('.tmo-process-ball .text-content p').allTextContents(),
+      { timeout: 15_000 },
+    ).toEqual(['42', 'Load'])
+    // A metric declares no action, so the seat draws it with nothing to press.
+    expect(await block.getByRole('button').count()).toBe(0)
+    await awaitOpenColumn(page)
+    await evidence(page, 'web-e2e-component-surface-metric')
+
+    // Still no second Vue after four vendored components have mounted and been
+    // torn down: element-ui's UMD build installs itself onto whatever it finds
+    // on `window`, and one such copy is enough to stop two rows seeing each
+    // other's reactivity, with no error anywhere.
+    expect(await page.evaluate(() => 'Vue' in globalThis)).toBe(false)
   }, 120_000)
 
   it('leaves the console clean', () => {

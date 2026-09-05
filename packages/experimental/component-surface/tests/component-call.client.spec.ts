@@ -10,18 +10,23 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  answersBlock,
   catalogEntry,
   catalogLabels,
   COMPONENT_CATALOG,
   COMPONENT_KIND,
   CONFIRM_BAR_ID,
   describeCatalog,
+  FILTER_BAR_ID,
+  MATCH_OPERATORS,
   MAX_SPEC_DEPTH,
   maxSpecDepthOf,
+  METRIC_ID,
   RECORD_DETAIL_ID,
   parseComponentCall,
   readComponentCall,
   SHOW_COMPONENT_TOOL_NAME,
+  TABLE_ID,
   type ComponentCatalogEntry,
 } from '../src/component-call.ts'
 
@@ -44,20 +49,150 @@ describe('component catalog', () => {
     expect(entry?.actions).toEqual([])
   })
 
+  it('offers the data table, the filter bar and the metric ball under Chinese names', () => {
+    expect(catalogEntry(TABLE_ID)?.label).toBe('数据表')
+    expect(Object.keys(catalogEntry(TABLE_ID)?.propsSchema ?? {})).toEqual([
+      'tableConfig', 'displayValueList', 'rawValueList', 'selectMode',
+      'isNameClick', 'tableSortable', 'customOperations', 'operationColumnWidth',
+    ])
+    expect(catalogEntry(FILTER_BAR_ID)?.label).toBe('筛选条件')
+    expect(Object.keys(catalogEntry(FILTER_BAR_ID)?.propsSchema ?? {}))
+      .toEqual(['relatedMeta', 'metaConfig', 'attrEqEnums', 'confStyle'])
+    expect(catalogEntry(METRIC_ID)?.label).toBe('指标球')
+    expect(catalogEntry(METRIC_ID)?.actions).toEqual([])
+  })
+
+  it('declares the four gestures a table reports, at the grade each one means', () => {
+    expect(catalogEntry(TABLE_ID)?.actions.map(action => [action.id, action.report])).toEqual([
+      ['select', 'context'],
+      ['row-click', 'context'],
+      ['sort', 'silent'],
+      ['operation', 'wake'],
+    ])
+    expect(catalogEntry(FILTER_BAR_ID)?.actions.map(action => [action.id, action.report]))
+      .toEqual([['submit', 'wake'], ['change', 'silent']])
+  })
+
+  it('offers every match strategy the condition editor draws', () => {
+    // The table has to be the editor's own: a strategy the user can pick and
+    // this package cannot name is a filter the person builds and is then told
+    // was not recorded. `NOT_BETWEEN` is the one `matchUtil` has no branch for,
+    // and it is here because nothing in this package evaluates a condition.
+    expect(MATCH_OPERATORS).toHaveLength(16)
+    expect(MATCH_OPERATORS.map(operator => operator.value)).toContain('NOT_BETWEEN')
+    expect(MATCH_OPERATORS[0]).toEqual({ value: 'EQ', label: '等于' })
+  })
+
   it('knows no component it does not list', () => {
-    expect(catalogEntry('toy.table')).toBeUndefined()
+    expect(catalogEntry('toy.chart')).toBeUndefined()
     expect(catalogEntry(42)).toBeUndefined()
+  })
+
+  it('calls a wake the block\'s own answer, and nothing else', () => {
+    expect(answersBlock('el.confirm-bar', 'press')).toBe(true)
+    expect(answersBlock('toy.table', 'operation')).toBe(true)
+    expect(answersBlock('el.filter-bar', 'submit')).toBe(true)
+    expect(answersBlock('toy.table', 'select')).toBe(false)
+    expect(answersBlock('toy.table', 'sort')).toBe(false)
+    expect(answersBlock('el.filter-bar', 'change')).toBe(false)
+    expect(answersBlock('toy.table', 'double-press')).toBe(false)
+    expect(answersBlock('toy.chart', 'press')).toBe(false)
   })
 
   it('renders every component as an identity line and the properties it declares', () => {
     expect(describeCatalog(COMPONENT_CATALOG)).toBe(
       '- el.confirm-bar — 确认条 — A short prompt above a row of buttons, for putting one decision in front of the user.'
-      + '\n  props: title?, message?, buttons[{id, label, tone?}] (1–5)'
+      + '\n  props: title?, message?, buttons[{id, label, tone? (primary|default|danger)}] (1–5)'
       + '\n- toy.record — 记录详情 — One record laid out as label-and-value pairs, for putting the details of a single thing'
       + ' in front of the user. Nothing comes back from it.'
-      + '\n  props: dataList[{label, display}] (1–60), labelWidth? (40–240), columnNum? (1|2|3)',
+      + '\n  props: dataList[{label, display}] (1–60), labelWidth? (40–240), columnNum? (1|2|3)'
+      + '\n- toy.table — 数据表 — Rows and columns the user can tick, open, sort and act on, for putting a list of things'
+      + ' in front of the user.'
+      + '\n  props: tableConfig{gridItems[{relatedMetaAttr, alias?, isShow? (true|false), isSortable? (true|false),'
+      + ' relatedComponent? (display_default|display_yesno|display_progress|display_circle|display_tag),'
+      + ' relatedComponentObj?{<field>: text|number|boolean, color?: #RGB|#RRGGBB|rgb()|rgba()}}] (1–30)},'
+      + ' displayValueList[{<field>: text|number|boolean}] (1–500),'
+      + ' rawValueList?[{<field>: text|number|boolean}] (1–500), selectMode? (checkbox|radio),'
+      + ' isNameClick? (true|false), tableSortable? (true|false), customOperations?[{key, label}] (1–5),'
+      + ' operationColumnWidth? (60–400)'
+      + '\n- el.filter-bar — 筛选条件 — A row of conditions the user edits and submits back to you, for agreeing on what'
+      + ' to look for before you look.'
+      + '\n  props: relatedMeta, metaConfig{attributes[{attributeEnName, alias,'
+      + ' dataType? (string|date|datetosecond|integer|long|float|double)}] (1–40)},'
+      + ' attrEqEnums?[{value (EQ|NOT_EQ|IN|NOT_IN|LIKE|NOT_LIKE|IS_NULL|NOT_NULL|PREFIX|NOT_PREFIX|GREATER_THAN'
+      + '|EQ_AND_GREATER_THAN|LESS_THAN|LESS_AND_EQ_THAN|BETWEEN|NOT_BETWEEN), label}] (1–16),'
+      + ' confStyle?{gutter? (0–100), showMatchMode? (true|false)}'
+      + '\n- el.metric — 指标球 — One measurement drawn as a filling ball, for putting a single number in front of the'
+      + ' user. Nothing comes back from it.'
+      + '\n  props: size? (40–400), process (0–100), text?, background? (#RGB|#RRGGBB|rgb()|rgba()),'
+      + ' borderColor? (#RGB|#RRGGBB|rgb()|rgba()), pointColor? (#RGB|#RRGGBB|rgb()|rgba()),'
+      + ' isPointShow? (true|false)',
     )
     expect(describeCatalog(COMPONENT_CATALOG).split('\n')).toHaveLength(2 * COMPONENT_CATALOG.length)
+  })
+
+  it('names a record whose keys are the caller\'s own without listing them', () => {
+    // The keys are the model's to choose, so what the line has to carry is that
+    // they are field names and that each one holds a scalar.
+    const probe: ComponentCatalogEntry = {
+      id: 'toy.probe',
+      label: '探针',
+      purpose: 'Described, never placed.',
+      propsSchema: {
+        rows: {
+          required: true,
+          schema: {
+            kind: 'array',
+            minItems: 1,
+            maxItems: 9,
+            item: { kind: 'record', key: { kind: 'string', maxLength: 8 }, maxKeys: 4, maxValueLength: 8, minValue: 0, maxValue: 1 },
+          },
+        },
+      },
+      actions: [],
+    }
+    expect(describeCatalog([probe]).split('\n')[1]).toBe('  props: rows[{<field>: text|number|boolean}] (1–9)')
+  })
+
+  it('states the notation of a string the component reads as something narrower', () => {
+    // The reading is enforced by a pass that drops the value rather than
+    // refusing the call, so a model not told the notation is never told why
+    // what it sent disappeared.
+    const probe: ComponentCatalogEntry = {
+      id: 'toy.probe',
+      label: '探针',
+      purpose: 'Described, never placed.',
+      propsSchema: {
+        icon: { required: false, schema: { kind: 'string', maxLength: 80 } },
+        caption: { required: false, schema: { kind: 'string', maxLength: 80 } },
+      },
+      actions: [],
+      sanitize: { icon: 'path' },
+    }
+    expect(describeCatalog([probe]).split('\n')[1]).toBe('  props: icon? (/same-origin-path), caption?')
+  })
+
+  it('names what one item of a list is, whatever shape the item has', () => {
+    // A list of bare values is what a reported gesture carries — the row numbers
+    // one selection covers — so the rendering has to reach past a list of records.
+    const list = (item: ComponentCatalogEntry['propsSchema'][string]['schema']): ComponentCatalogEntry['propsSchema'][string] =>
+      ({ required: true, schema: { kind: 'array', minItems: 1, maxItems: 2, item } })
+    const probe: ComponentCatalogEntry = {
+      id: 'toy.probe',
+      label: '探针',
+      purpose: 'Described, never placed.',
+      propsSchema: {
+        words: list({ kind: 'string', maxLength: 4 }),
+        counts: list({ kind: 'number', min: 0, max: 9 }),
+        flags: list({ kind: 'boolean' }),
+        tones: list({ kind: 'enum', values: ['wide', 2] }),
+        grid: list({ kind: 'array', minItems: 1, maxItems: 2, item: { kind: 'string', maxLength: 4 } }),
+      },
+      actions: [],
+    }
+    expect(describeCatalog([probe]).split('\n')[1]).toBe(
+      '  props: words[text] (1–2), counts[number] (1–2), flags[true|false] (1–2), tones[wide|2] (1–2), grid[[text]] (1–2)',
+    )
   })
 
   it('derives the property line from the schema a call is judged against', () => {
@@ -106,7 +241,7 @@ describe('component catalog', () => {
     // Reachable from a persisted entry written before a component was renamed:
     // `resolve` deliberately consults no catalog, so a stored spec can outlive
     // the table the call was accepted against.
-    expect(catalogLabels([{ id: 'a', component: 'toy.table', props: {} }])).toBe('toy.table')
+    expect(catalogLabels([{ id: 'a', component: 'toy.chart', props: {} }])).toBe('toy.chart')
   })
 })
 
@@ -117,12 +252,33 @@ describe('the spec nesting ceiling', () => {
   }
 
   it('leaves room for the deepest document this deployment declares as legal', () => {
-    // spec, nodes, one node, its props, the buttons list, one button.
-    expect(MAX_SPEC_DEPTH).toBe(6)
+    // spec, nodes, one node, its props, the table's tableConfig, its gridItems
+    // list, one column, and that column's renderer configuration.
+    expect(MAX_SPEC_DEPTH).toBe(8)
   })
 
   it('spends four levels on a component whose properties are all scalars', () => {
     expect(maxSpecDepthOf([entryWith({ text: { required: true, schema: { kind: 'string', maxLength: 8 } } })])).toBe(4)
+  })
+
+  it('widens by one for a record whose keys are the caller\'s own', () => {
+    const keyed = entryWith({
+      row: {
+        required: true,
+        schema: { kind: 'record', key: { kind: 'string', maxLength: 8 }, maxKeys: 4, maxValueLength: 8, minValue: 0, maxValue: 1 },
+      },
+    })
+    expect(maxSpecDepthOf([keyed])).toBe(5)
+  })
+
+  it('spends one level on a list of bare values, and two on a list of records', () => {
+    const scalars = entryWith({
+      picked: {
+        required: true,
+        schema: { kind: 'array', minItems: 0, maxItems: 4, item: { kind: 'number', min: 0, max: 9 } },
+      },
+    })
+    expect(maxSpecDepthOf([scalars])).toBe(5)
   })
 
   it('widens by one for a record-valued property', () => {

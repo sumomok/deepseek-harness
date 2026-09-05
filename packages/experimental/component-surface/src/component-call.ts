@@ -44,8 +44,16 @@ export const COMPONENT_ACTION_PLUGIN = 'content-component'
  * is not a ceiling on what reaches the log — it is the point past which the
  * action is not delivered to the agent at all (see the README's Known
  * Limitations).
+ *
+ * Wide enough for the widest document any component here writes, which is a
+ * table's select-all: {@link MAX_TABLE_ROWS} indexes, every one of them at its
+ * full width, inside a frame whose four identifiers are at their own ceilings.
+ * `catalog-actions.client.spec.ts` measures that document against this number,
+ * so a component that widens what a gesture reports fails there rather than
+ * leaving a user whose only mistake was ticking every row told their action was
+ * too large.
  */
-export const MAX_ACTION_PAYLOAD_BYTES = 2048
+export const MAX_ACTION_PAYLOAD_BYTES = 4096
 
 /**
  * Turns actions may open on one agent before a human message refills the
@@ -88,6 +96,85 @@ export const TOKEN_CHARSET = /^[\w-]+$/
 
 /** Model-facing wording of {@link TOKEN_CHARSET}, spliced into every refusal and description that states it. */
 export const TOKEN_HINT = 'letters, digits, underscores and hyphens'
+
+/**
+ * Characters a data field name may use — a column's source field, a filter
+ * attribute, a key of a row.
+ *
+ * Tighter than {@link TOKEN_CHARSET} at the first character, because these names
+ * are spliced into a component's own property lookups rather than compared as
+ * opaque ids, and a name that may start with a digit or a hyphen is one a model
+ * can write to look like something else.
+ */
+export const FIELD_CHARSET = /^[A-Za-z_][\w-]*$/
+
+/** Model-facing wording of {@link FIELD_CHARSET}, spliced into every refusal that states it. */
+export const FIELD_HINT = 'a letter or an underscore, then letters, digits, underscores and hyphens'
+
+/** Largest accepted data field name, in characters. */
+export const MAX_FIELD_NAME_LENGTH = 64
+
+/**
+ * The cell renderers a table column may name.
+ *
+ * A whitelist rather than a check for a legal identifier: the value chooses code
+ * that draws a cell, so a name outside this list is not a renderer this build
+ * has, whatever it is spelled like. One home, because it is both the set a call
+ * is refused against and the set the tightening pass falls back from.
+ */
+export const RELATED_COMPONENTS: readonly string[] = [
+  'display_default',
+  'display_yesno',
+  'display_progress',
+  'display_circle',
+  'display_tag',
+]
+
+/** The renderer a column naming something outside {@link RELATED_COMPONENTS} is drawn with. */
+export const RELATED_COMPONENT_FALLBACK = 'display_default'
+
+/**
+ * The match strategies a filter condition may name, each with the wording the
+ * user reads beside it.
+ *
+ * The sixteen the editor draws, in its own order and with its own wording. The
+ * table has to be the editor's rather than a narrower one, because a strategy
+ * missing here is one the user can still pick and the host then refuses whole:
+ * the person would tick a strategy the console itself offered and be told their
+ * filter was not recorded.
+ *
+ * `NOT_BETWEEN` is the one the component library's own `matchUtil` does not
+ * evaluate. It is here all the same, because this package runs no query — the
+ * conditions reach the model as an account of what the user asked for, and what
+ * a backend does with `NOT_BETWEEN` is that backend's answer to give.
+ */
+export const MATCH_OPERATORS = [
+  { value: 'EQ', label: '等于' },
+  { value: 'NOT_EQ', label: '不等于' },
+  { value: 'IN', label: '包含' },
+  { value: 'NOT_IN', label: '不包含' },
+  { value: 'LIKE', label: '模糊匹配' },
+  { value: 'NOT_LIKE', label: '模糊不匹配' },
+  { value: 'IS_NULL', label: '空值' },
+  { value: 'NOT_NULL', label: '不为空' },
+  { value: 'PREFIX', label: '以***为前缀' },
+  { value: 'NOT_PREFIX', label: '不以***为前缀' },
+  { value: 'GREATER_THAN', label: '大于' },
+  { value: 'EQ_AND_GREATER_THAN', label: '大于等于' },
+  { value: 'LESS_THAN', label: '小于' },
+  { value: 'LESS_AND_EQ_THAN', label: '小于等于' },
+  { value: 'BETWEEN', label: '在***之间' },
+  { value: 'NOT_BETWEEN', label: '不在***之间' },
+] as const satisfies readonly { readonly value: string; readonly label: string }[]
+
+/** Just the ids of {@link MATCH_OPERATORS}: the set one condition's `op` is judged against. */
+const MATCH_OPERATOR_IDS: readonly string[] = MATCH_OPERATORS.map(operator => operator.value)
+
+/**
+ * How a filter joins its conditions, as the condition editor spells the choice
+ * the user makes between them.
+ */
+const MATCH_MODES: readonly string[] = ['AND', 'OR']
 
 /** One restricted string property: bounded length, optionally a restricted alphabet. */
 export interface StringFieldSchema {
@@ -132,7 +219,13 @@ export interface NumberFieldSchema {
   readonly max: number
 }
 
-/** One property whose value is a record of further declared properties. */
+/** One property whose value is `true` or `false`. */
+export interface BooleanFieldSchema {
+  /** Discriminant. */
+  readonly kind: 'boolean'
+}
+
+/** One property whose value is a nested object of further declared properties. */
 export interface ObjectFieldSchema {
   /** Discriminant. */
   readonly kind: 'object'
@@ -141,18 +234,53 @@ export interface ObjectFieldSchema {
 }
 
 /**
- * One property whose value is a bounded list of identified records.
+ * One property whose value is an object whose keys are the caller's rather than
+ * this schema's: a row of a table, keyed by the fields its columns read.
  *
- * Items are records rather than scalars, and one of their properties always
- * identifies the item, because that is what every list a component draws is:
- * rows the user can point at. Widen it when a component needs a list of bare
- * values.
+ * The keys are data, so they are bounded by an alphabet, a length and a count
+ * instead of being listed one by one; the values are scalars only, which is
+ * what keeps a row from carrying a document nothing declared. Where an
+ * {@link ObjectFieldSchema} would be a lie about who names the keys, this is
+ * the honest declaration of the same JSON.
+ */
+export interface RecordFieldSchema {
+  /** Discriminant. */
+  readonly kind: 'record'
+  /** What every key must be. */
+  readonly key: StringFieldSchema
+  /** Most keys one record may carry. */
+  readonly maxKeys: number
+  /** Largest accepted string value, in characters. */
+  readonly maxValueLength: number
+  /** Smallest accepted numeric value. */
+  readonly minValue: number
+  /** Largest accepted numeric value. */
+  readonly maxValue: number
+  /**
+   * Keys of this record read as something narrower than text, by key name.
+   *
+   * Declared here rather than in the component's own {@link SanitizeRules}
+   * because a record's keys are data: a table column named `color` is a field
+   * of the caller's own records, and a component-level rule keyed by that name
+   * would tighten every row's cell as well as the one configuration key that
+   * really is a color.
+   */
+  readonly sanitize?: SanitizeRules
+}
+
+/**
+ * One property whose value is a bounded list.
+ *
+ * An item is most often a record — a list a component draws is usually rows the
+ * user can point at, and one of their properties then identifies the item — but
+ * it may be any declared shape, because a reported gesture also carries lists
+ * of bare values: the row numbers one selection covers.
  */
 export interface ArrayFieldSchema {
   /** Discriminant. */
   readonly kind: 'array'
   /** Schema every item is measured against. */
-  readonly item: ObjectFieldSchema
+  readonly item: PropsFieldSchema
   /** Fewest accepted items. */
   readonly minItems: number
   /** Most accepted items. */
@@ -176,7 +304,8 @@ export interface ArrayFieldSchema {
  * The union is the security boundary rather than a convenience: no member can
  * express rich text or a function body, so a model cannot write either into a
  * component's props and nothing downstream has to recognize one. Every string
- * reaches the seat as a text value.
+ * reaches the seat as a text value, and a record's values are scalars, so a
+ * caller-keyed object cannot smuggle back what the union excludes.
  *
  * Where a component needs a string read as something narrower than text — a
  * path, a color — the narrowing is a {@link SanitizeClass} declared beside the
@@ -186,8 +315,10 @@ export interface ArrayFieldSchema {
 export type PropsFieldSchema =
   | StringFieldSchema
   | NumberFieldSchema
+  | BooleanFieldSchema
   | EnumFieldSchema
   | ObjectFieldSchema
+  | RecordFieldSchema
   | ArrayFieldSchema
 
 /** One declared property of a component. */
@@ -377,12 +508,13 @@ const CONFIRM_BAR_ACTIONS: readonly ComponentActionDefinition[] = [{
       },
     },
   },
-  describe: ({ entryId, entryTitle, node, component, payload }) => {
-    const label = buttonLabel(node, payload['buttonId'])
-    if (label === undefined) return undefined
+  describe: (context) => {
+    const pressed = buttonLabel(context.node, context.payload['buttonId'])
+    if (pressed === undefined) return undefined
+    const label = quote(pressed)
     return {
-      text: `The user pressed "${label}" in content panel entry "${entryId}" ("${entryTitle}"), on the ${component.label} block "${node.id}".`,
-      summary: `用户在「${entryTitle}」里点了「${label}」`,
+      text: `The user pressed ${label.agent} in ${place(context)}.`,
+      summary: `用户在「${entryName(context)}」里点了「${label.user}」`,
     }
   },
 }]
@@ -419,6 +551,756 @@ const RECORD_DETAIL_PROPS: PropsSchema = {
 }
 
 /**
+ * One thing a notice states twice: once in the agent's English account, once in
+ * the user's Chinese line.
+ *
+ * Every value a notice quotes takes this form, because each has to read
+ * naturally in two places at once — as data inside an English sentence, and as
+ * the words themselves inside a Chinese one.
+ */
+interface NoticePhrase {
+  /** The wording inside the agent's account. */
+  readonly agent: string
+  /** The wording inside the user's line. */
+  readonly user: string
+}
+
+/**
+ * Characters free text is stripped of before it is read back to anyone.
+ *
+ * The user's line is one line in a chat row. A newline, a tab, or a
+ * bidirectional override anywhere in it becomes a space rather than rearranging
+ * the sentence it sits in — and every value in that sentence is free text
+ * somebody wrote: the title the model gave the entry, the header it put on a
+ * column, the label on a button, what a row's first cell shows, and what the
+ * user typed into a filter.
+ */
+const NOT_ONE_LINE = /[\p{Cc}\p{Cf}]/gu
+
+/**
+ * Read one piece of free text back on a single line.
+ * @param value - the text, as the spec or the payload carries it.
+ * @returns the text with everything that would take it off one line replaced by a space.
+ */
+function plainLine(value: string): string {
+  return value.replace(NOT_ONE_LINE, ' ')
+}
+
+/**
+ * State one piece of free text in both accounts, as the data it is.
+ *
+ * Every value a notice quotes goes through here, so the two halves of one
+ * sentence cannot treat their neighbouring values differently: the agent reads
+ * it escaped the way JSON writes a string, so nothing inside it can end the
+ * quotation it sits in, and the user reads what was written, on one line.
+ * @param value - the text, as the spec or the payload carries it.
+ * @returns the two wordings, the agent's already carrying its own quotation marks.
+ */
+function quote(value: string): NoticePhrase {
+  return { agent: JSON.stringify(value), user: plainLine(value) }
+}
+
+/**
+ * Name the place one gesture happened, in the wording every notice shares.
+ * @param context - the entry, the node and the catalog entry the action resolved against.
+ * @returns the phrase every action's account ends with, after `in `.
+ */
+function place({ entryId, entryTitle, node, component }: ComponentActionContext): string {
+  return `content panel entry "${entryId}" (${quote(entryTitle).agent}), on the ${component.label} block "${node.id}"`
+}
+
+/**
+ * Name the entry the way the user's own line names it.
+ * @param context - the action's context, carrying the title the placing call wrote.
+ * @returns the title on one line, for the brackets every summary puts it in.
+ */
+function entryName({ entryTitle }: ComponentActionContext): string {
+  return plainLine(entryTitle)
+}
+
+/** One data field name, as a column, a filter attribute and a record key all declare it. */
+const FIELD_NAME: StringFieldSchema = {
+  kind: 'string',
+  maxLength: MAX_FIELD_NAME_LENGTH,
+  charset: { allowed: FIELD_CHARSET, hint: FIELD_HINT },
+}
+
+/** Widest numeric value a record may carry: every integer JSON carries exactly. */
+const MAX_RECORD_NUMBER = Number.MAX_SAFE_INTEGER
+
+/** Catalog id of the data table. */
+export const TABLE_ID = 'toy.table'
+
+/**
+ * Largest accepted row count of one table.
+ *
+ * Every drawn row is a row the user may tick, and a select-all reports all of
+ * them at once, so this ceiling and {@link MAX_SELECTED_ROWS} are one number:
+ * a table wider than one selection can carry is a table whose header checkbox
+ * reports nothing.
+ */
+export const MAX_TABLE_ROWS = 500
+
+/** Largest accepted column count of one table. */
+export const MAX_TABLE_COLUMNS = 30
+
+/** Largest accepted custom-operation count of one table. */
+export const MAX_TABLE_OPERATIONS = 5
+
+/** Keys one table row may carry: the columns it is read through, plus the fields nothing draws. */
+const MAX_ROW_KEYS = 40
+
+/** Largest accepted value inside one table row, in characters. */
+const MAX_ROW_VALUE_LENGTH = 200
+
+/** One row of a table, keyed by the fields its columns read. */
+const TABLE_ROW: RecordFieldSchema = {
+  kind: 'record',
+  key: FIELD_NAME,
+  maxKeys: MAX_ROW_KEYS,
+  maxValueLength: MAX_ROW_VALUE_LENGTH,
+  minValue: -MAX_RECORD_NUMBER,
+  maxValue: MAX_RECORD_NUMBER,
+}
+
+/**
+ * One cell renderer's configuration, handed to whichever renderer the column
+ * named.
+ *
+ * Its `color` key reaches a style rather than a text node, which is why the
+ * record declares that reading itself: the same key name in a row is a field of
+ * the caller's data and stays text.
+ */
+const CELL_CONFIG: RecordFieldSchema = {
+  kind: 'record',
+  key: FIELD_NAME,
+  maxKeys: 20,
+  maxValueLength: 64,
+  minValue: -MAX_RECORD_NUMBER,
+  maxValue: MAX_RECORD_NUMBER,
+  sanitize: { color: 'color' },
+}
+
+/**
+ * The data table's declared properties.
+ *
+ * `tableConfig.gridItems` is the column list and `displayValueList` is the rows,
+ * exactly as the component library's own backend scheme names them: a column
+ * reads its cell out of a row by `relatedMetaAttr`, so the two halves are one
+ * vocabulary rather than a mapping this package invents.
+ */
+const TABLE_PROPS: PropsSchema = {
+  tableConfig: {
+    required: true,
+    schema: {
+      kind: 'object',
+      fields: {
+        gridItems: {
+          required: true,
+          schema: {
+            kind: 'array',
+            minItems: 1,
+            maxItems: MAX_TABLE_COLUMNS,
+            uniqueBy: 'relatedMetaAttr',
+            item: {
+              kind: 'object',
+              fields: {
+                relatedMetaAttr: { required: true, schema: FIELD_NAME },
+                alias: { required: false, schema: { kind: 'string', maxLength: 40 } },
+                isShow: { required: false, schema: { kind: 'boolean' } },
+                isSortable: { required: false, schema: { kind: 'boolean' } },
+                relatedComponent: { required: false, schema: { kind: 'enum', values: RELATED_COMPONENTS } },
+                relatedComponentObj: { required: false, schema: CELL_CONFIG },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  displayValueList: {
+    required: true,
+    schema: { kind: 'array', minItems: 1, maxItems: MAX_TABLE_ROWS, item: TABLE_ROW },
+  },
+  rawValueList: {
+    required: false,
+    schema: { kind: 'array', minItems: 1, maxItems: MAX_TABLE_ROWS, item: TABLE_ROW },
+  },
+  selectMode: { required: false, schema: { kind: 'enum', values: ['checkbox', 'radio'] } },
+  isNameClick: { required: false, schema: { kind: 'boolean' } },
+  tableSortable: { required: false, schema: { kind: 'boolean' } },
+  customOperations: {
+    required: false,
+    schema: {
+      kind: 'array',
+      minItems: 1,
+      maxItems: MAX_TABLE_OPERATIONS,
+      uniqueBy: 'key',
+      item: {
+        kind: 'object',
+        fields: {
+          key: {
+            required: true,
+            schema: {
+              kind: 'string',
+              maxLength: MAX_BUTTON_ID_LENGTH,
+              charset: { allowed: TOKEN_CHARSET, hint: TOKEN_HINT },
+            },
+          },
+          label: { required: true, schema: { kind: 'string', maxLength: 20 } },
+        },
+      },
+    },
+  },
+  operationColumnWidth: { required: false, schema: { kind: 'number', min: 60, max: 400 } },
+}
+
+/** Action id the table reports a change of selection under. */
+export const TABLE_SELECT_ID = 'select'
+
+/**
+ * Action id the table reports an opened row under.
+ *
+ * Reported only by a table whose call asked for openable rows — `isNameClick` —
+ * and then for a click anywhere in the row, which is where the component's own
+ * cell click is bound. A table that asked for none reports nothing when a cell
+ * is clicked, because on such a table a click opens nothing.
+ */
+export const TABLE_ROW_CLICK_ID = 'row-click'
+
+/** Action id the table reports a change of sort order under. */
+export const TABLE_SORT_ID = 'sort'
+
+/** Action id the table reports a press of a custom operation under. */
+export const TABLE_OPERATION_ID = 'operation'
+
+/**
+ * Rows one reported selection may carry: every row the table drew.
+ *
+ * Not a ceiling of its own. The table's header checkbox ticks every drawn row
+ * in one gesture, and a number below {@link MAX_TABLE_ROWS} would make that one
+ * gesture unreportable on a full table — with nothing on screen saying so,
+ * because a selection is `context` and leaves the block no state to draw. What
+ * bounds the document instead is {@link MAX_ACTION_PAYLOAD_BYTES}, which is set
+ * wide enough to carry this.
+ */
+export const MAX_SELECTED_ROWS = MAX_TABLE_ROWS
+
+/** Rows one notice names before it stops naming them and counts the rest. */
+const MAX_NAMED_ROWS = 5
+
+/** One row index, as every action that names a row declares it. */
+const ROW_INDEX: NumberFieldSchema = { kind: 'number', min: 0, max: MAX_TABLE_ROWS - 1 }
+
+/** One declared column, as validation accepted it. */
+interface TableColumn {
+  /** The row field this column reads its cell out of. */
+  readonly relatedMetaAttr: string
+  /** The column header, where the call wrote one. */
+  readonly alias?: string
+  /** Whether the column is drawn; a column the call hid carries `false`. */
+  readonly isShow?: boolean
+}
+
+/** One declared custom operation, as validation accepted it. */
+interface TableOperation {
+  /** The id a press reports. */
+  readonly key: string
+  /** The button's user-facing text. */
+  readonly label: string
+}
+
+/** One row a reported index resolved to. */
+interface DrawnRow {
+  /** The row itself, as the call wrote it. */
+  readonly row: Readonly<Record<string, unknown>>
+  /** Its position in the drawn list. */
+  readonly index: number
+}
+
+/**
+ * The columns one table block draws — the ones the user can see.
+ *
+ * A column the call hid is left out, because every notice built from this list
+ * names something the user is looking at: a hidden column's header is not a
+ * column they sorted, and its cell is not what a row shows. `isShow` is the
+ * component's own reading, so only an explicit `false` hides a column.
+ *
+ * The cast is what validation already proved: `tableConfig` is required, its
+ * `gridItems` is a required list of at least one item, and every item carries a
+ * required `relatedMetaAttr` string.
+ * @param node - the drawn node, as validation accepted it.
+ * @returns the drawn columns, in the order the call wrote them; empty where the call hid every one.
+ */
+function tableColumns(node: ComponentNode): readonly TableColumn[] {
+  const config = node.props['tableConfig'] as { readonly gridItems: readonly [TableColumn, ...TableColumn[]] }
+  return config.gridItems.filter(column => column.isShow !== false)
+}
+
+/**
+ * The rows one table block draws.
+ * @param node - the drawn node, as validation accepted it.
+ * @returns the rows, in the order the call wrote them.
+ */
+function tableRows(node: ComponentNode): readonly Readonly<Record<string, unknown>>[] {
+  return node.props['displayValueList'] as readonly Readonly<Record<string, unknown>>[]
+}
+
+/**
+ * Resolve one reported row index against the rows the block actually drew.
+ * @param node - the drawn node.
+ * @param index - the reported index, however malformed.
+ * @returns the row and its position, or `undefined` when the block drew no such row.
+ */
+function drawnRow(node: ComponentNode, index: unknown): DrawnRow | undefined {
+  if (typeof index !== 'number' || !Number.isInteger(index)) return undefined
+  const row = tableRows(node)[index]
+  return row === undefined ? undefined : { row, index }
+}
+
+/**
+ * Read what one row shows in the first column the table draws.
+ * @param node - the drawn node.
+ * @param row - the row.
+ * @returns the cell as text, or `undefined` where the table draws no column or that column shows nothing readable.
+ */
+function firstColumnValue(node: ComponentNode, row: Readonly<Record<string, unknown>>): string | undefined {
+  const column = tableColumns(node)[0]
+  if (column === undefined) return undefined
+  const value = row[column.relatedMetaAttr]
+  if (typeof value === 'number') return String(value)
+  if (typeof value === 'string' && value.length > 0) return value
+  return undefined
+}
+
+/**
+ * Name one drawn row the way the user sees it: by what its first column shows,
+ * and by its position where that column shows nothing.
+ * @param node - the drawn node.
+ * @param drawn - the resolved row.
+ * @returns the two namings.
+ */
+function nameRow(node: ComponentNode, drawn: DrawnRow): NoticePhrase {
+  const label = firstColumnValue(node, drawn.row)
+  if (label === undefined) return { agent: `#${drawn.index + 1}`, user: `第 ${drawn.index + 1} 行` }
+  return quote(label)
+}
+
+/**
+ * Name every row one selection reported, in the order it reported them.
+ * @param node - the drawn node.
+ * @param indexes - the reported indexes, however malformed.
+ * @returns the names, or `undefined` when any index names a row the block did not draw.
+ */
+function nameRows(node: ComponentNode, indexes: readonly unknown[]): readonly NoticePhrase[] | undefined {
+  const names: NoticePhrase[] = []
+  for (const index of indexes) {
+    const drawn = drawnRow(node, index)
+    if (drawn === undefined) return undefined
+    names.push(nameRow(node, drawn))
+  }
+  return names
+}
+
+/**
+ * The four gestures a table reports.
+ *
+ * The grades follow what each gesture means rather than how loud it is. A
+ * selection and an opened row are `context`: they change what the agent should
+ * be reasoning about without answering anything it stopped for. A
+ * sort is `silent`, because the order rows are drawn in is the user arranging
+ * their own screen. A custom operation is `wake`, because the model put that
+ * button there to be pressed and the press is the answer.
+ *
+ * Every notice is built from the entry's own spec: the rows are named by what
+ * the first drawn column shows, a column by the header the call wrote, and an
+ * operation by its declared label. An index outside the drawn rows, an
+ * operation the table does not carry, and a column the call hid resolve to
+ * nothing at all rather than to a notice naming something the user never saw.
+ */
+const TABLE_ACTIONS: readonly ComponentActionDefinition[] = [
+  {
+    id: TABLE_SELECT_ID,
+    report: 'context',
+    payloadSchema: {
+      rowIndexes: {
+        required: true,
+        schema: { kind: 'array', minItems: 0, maxItems: MAX_SELECTED_ROWS, item: ROW_INDEX },
+      },
+    },
+    describe: (context) => {
+      const indexes = context.payload['rowIndexes']
+      if (!Array.isArray(indexes)) return undefined
+      const names = nameRows(context.node, indexes)
+      if (names === undefined) return undefined
+      const where = place(context)
+      if (names.length === 0) {
+        return {
+          text: `The user cleared the selection in ${where}.`,
+          summary: `用户在「${entryName(context)}」里取消了选择`,
+        }
+      }
+      const shown = names.slice(0, MAX_NAMED_ROWS)
+      const hidden = names.length - shown.length
+      return {
+        text: `The user selected ${names.length} row${names.length === 1 ? '' : 's'} in ${where}: `
+          + `${shown.map(name => name.agent).join(', ')}${hidden === 0 ? '' : ` and ${hidden} more`}.`,
+        summary: `用户在「${entryName(context)}」里选中了 ${names.length} 行：`
+          + `${shown.map(name => name.user).join('、')}${hidden === 0 ? '' : ` 等 ${names.length} 行`}`,
+      }
+    },
+  },
+  {
+    id: TABLE_ROW_CLICK_ID,
+    report: 'context',
+    payloadSchema: { rowIndex: { required: true, schema: ROW_INDEX } },
+    describe: (context) => {
+      const drawn = drawnRow(context.node, context.payload['rowIndex'])
+      if (drawn === undefined) return undefined
+      const name = nameRow(context.node, drawn)
+      return {
+        text: `The user clicked row ${name.agent} in ${place(context)}.`,
+        summary: `用户在「${entryName(context)}」里点了「${name.user}」`,
+      }
+    },
+  },
+  {
+    id: TABLE_SORT_ID,
+    report: 'silent',
+    payloadSchema: {
+      prop: { required: true, schema: FIELD_NAME },
+      order: { required: true, schema: { kind: 'enum', values: ['asc', 'desc', 'none'] } },
+    },
+    describe: (context) => {
+      const column = tableColumns(context.node).find(one => one.relatedMetaAttr === context.payload['prop'])
+      if (column === undefined) return undefined
+      const order = context.payload['order']
+      const where = place(context)
+      if (order === 'none') {
+        return {
+          text: `The user cleared the sort in ${where}.`,
+          summary: `用户取消了「${entryName(context)}」的排序`,
+        }
+      }
+      if (order !== 'asc' && order !== 'desc') return undefined
+      const header = quote(column.alias ?? column.relatedMetaAttr)
+      return {
+        text: `The user sorted by ${header.agent}, ${order === 'asc' ? 'ascending' : 'descending'}, in ${where}.`,
+        summary: `用户把「${entryName(context)}」按「${header.user}」${order === 'asc' ? '升序' : '降序'}排列`,
+      }
+    },
+  },
+  {
+    id: TABLE_OPERATION_ID,
+    report: 'wake',
+    payloadSchema: {
+      opId: {
+        required: true,
+        schema: {
+          kind: 'string',
+          maxLength: MAX_BUTTON_ID_LENGTH,
+          charset: { allowed: TOKEN_CHARSET, hint: TOKEN_HINT },
+        },
+      },
+      rowIndex: { required: true, schema: ROW_INDEX },
+    },
+    describe: (context) => {
+      const operations = context.node.props['customOperations'] as readonly TableOperation[] | undefined
+      const operation = operations?.find(one => one.key === context.payload['opId'])
+      if (operation === undefined) return undefined
+      const drawn = drawnRow(context.node, context.payload['rowIndex'])
+      if (drawn === undefined) return undefined
+      const name = nameRow(context.node, drawn)
+      const label = quote(operation.label)
+      return {
+        text: `The user pressed ${label.agent} on row ${name.agent} in ${place(context)}.`,
+        summary: `用户在「${entryName(context)}」里对「${name.user}」点了「${label.user}」`,
+      }
+    },
+  },
+]
+
+/** Catalog id of the filter bar. */
+export const FILTER_BAR_ID = 'el.filter-bar'
+
+/** Largest accepted attribute count of one filter bar. */
+export const MAX_FILTER_ATTRIBUTES = 40
+
+/** Largest accepted condition count of one submitted filter. */
+export const MAX_FILTER_CONDITIONS = 10
+
+/**
+ * Largest condition count one unsubmitted edit may report.
+ *
+ * Deliberately not {@link MAX_FILTER_CONDITIONS}. The condition editor adds a
+ * row whenever the user presses its own add button and stops at nothing, and an
+ * edit reports only how many rows are standing. Bounding that report by what a
+ * submitted filter may carry would answer every edit past the tenth row with
+ * the sentence saying the gesture was not recorded — once per keystroke the
+ * user commits, for a report they never asked to send. A count is one integer
+ * whatever it holds, so nothing about the document argues for the tighter
+ * number; what a filter over the ceiling cannot do is be submitted, and that is
+ * answered at the submit.
+ */
+export const MAX_EDITED_CONDITIONS = 1000
+
+/** Largest accepted condition value, in characters. */
+export const MAX_CONDITION_VALUE_LENGTH = 200
+
+/**
+ * The value kinds a filter attribute may declare.
+ *
+ * The seven the value control reads. Everything else the component library's own
+ * attribute metadata can say — the kinds that make the control fetch its options
+ * from a backend — is absent, because those controls reach a service this
+ * package has none of and would draw a disabled input.
+ */
+const FILTER_DATA_TYPES: readonly string[] = ['string', 'date', 'datetosecond', 'integer', 'long', 'float', 'double']
+
+/**
+ * The filter bar's declared properties.
+ *
+ * `relatedMeta` and `metaConfig.attributes` are the model's description of what
+ * is being filtered; nothing is fetched, so a bar draws exactly the attributes
+ * the call listed. `attrEqEnums` narrows the match strategies on offer, and a
+ * call that omits it offers all sixteen — every one the editor draws.
+ */
+const FILTER_BAR_PROPS: PropsSchema = {
+  relatedMeta: { required: true, schema: FIELD_NAME },
+  metaConfig: {
+    required: true,
+    schema: {
+      kind: 'object',
+      fields: {
+        attributes: {
+          required: true,
+          schema: {
+            kind: 'array',
+            minItems: 1,
+            maxItems: MAX_FILTER_ATTRIBUTES,
+            uniqueBy: 'attributeEnName',
+            item: {
+              kind: 'object',
+              fields: {
+                attributeEnName: { required: true, schema: FIELD_NAME },
+                alias: { required: true, schema: { kind: 'string', maxLength: 40 } },
+                dataType: { required: false, schema: { kind: 'enum', values: FILTER_DATA_TYPES } },
+              },
+            },
+          },
+        },
+      },
+    },
+  },
+  attrEqEnums: {
+    required: false,
+    schema: {
+      kind: 'array',
+      minItems: 1,
+      maxItems: MATCH_OPERATORS.length,
+      uniqueBy: 'value',
+      item: {
+        kind: 'object',
+        fields: {
+          value: { required: true, schema: { kind: 'enum', values: MATCH_OPERATOR_IDS } },
+          label: { required: true, schema: { kind: 'string', maxLength: 20 } },
+        },
+      },
+    },
+  },
+  confStyle: {
+    required: false,
+    schema: {
+      kind: 'object',
+      fields: {
+        gutter: { required: false, schema: { kind: 'number', min: 0, max: 100 } },
+        showMatchMode: { required: false, schema: { kind: 'boolean' } },
+      },
+    },
+  },
+}
+
+/** Action id the filter bar reports a submitted filter under. */
+export const FILTER_SUBMIT_ID = 'submit'
+
+/** Action id the filter bar reports an unsubmitted edit under. */
+export const FILTER_CHANGE_ID = 'change'
+
+/** One match strategy a filter bar offers, as the call declared it or as the default table carries it. */
+interface FilterOperator {
+  /** The id a condition's `op` carries. */
+  readonly value: string
+  /** The strategy's user-facing text. */
+  readonly label: string
+}
+
+/** One declared filter attribute, as validation accepted it. */
+interface FilterAttribute {
+  /** The field name a condition's `key` carries. */
+  readonly attributeEnName: string
+  /** The attribute's user-facing text. */
+  readonly alias: string
+}
+
+/**
+ * The attributes one filter block offers.
+ *
+ * The cast is what validation proved: `metaConfig` is required and its
+ * `attributes` is a required list whose items each carry a required
+ * `attributeEnName` and a required `alias`.
+ * @param node - the drawn node.
+ * @returns the attributes, in the order the call wrote them.
+ */
+function filterAttributes(node: ComponentNode): readonly FilterAttribute[] {
+  const config = node.props['metaConfig'] as { readonly attributes: readonly FilterAttribute[] }
+  return config.attributes
+}
+
+/**
+ * The match strategies one filter block offers.
+ * @param node - the drawn node.
+ * @returns the strategies the call declared, or the whole default table where it declared none.
+ */
+function filterOperators(node: ComponentNode): readonly FilterOperator[] {
+  return (node.props['attrEqEnums'] as readonly FilterOperator[] | undefined) ?? MATCH_OPERATORS
+}
+
+/**
+ * State the user's choice between the two match modes.
+ *
+ * The wording is written here rather than read off the payload: what the wire
+ * carries is one of two ids the schema admits, and the sentence around it is
+ * this package's.
+ * @param mode - the reported mode, as the payload carried it.
+ * @returns the two wordings, or `undefined` where the bar offered no choice and the payload carries none.
+ */
+function matchModeWording(mode: unknown): NoticePhrase | undefined {
+  switch (mode) {
+    case 'AND': return { agent: 'all of', user: '同时满足' }
+    case 'OR': return { agent: 'any of', user: '满足其一' }
+    default: return undefined
+  }
+}
+
+/**
+ * State one submitted condition in both languages.
+ * @param node - the drawn node.
+ * @param condition - one condition, as the payload carried it.
+ * @returns the two statements, or `undefined` when the condition names something the bar does not offer.
+ */
+function stateCondition(node: ComponentNode, condition: unknown): NoticePhrase | undefined {
+  const record = condition as Readonly<Record<string, unknown>>
+  const attribute = filterAttributes(node).find(one => one.attributeEnName === record['key'])
+  if (attribute === undefined) return undefined
+  const operator = filterOperators(node).find(one => one.value === record['op'])
+  if (operator === undefined) return undefined
+  const value = record['value']
+  if (typeof value !== 'string') return undefined
+  // The attribute name and the strategy wording sit outside the quotation the
+  // value is written into, so they are read back on one line rather than as
+  // data: what they must not do is take the sentence off its line.
+  const named = `${plainLine(attribute.alias)} ${plainLine(operator.label)}`
+  const typed = quote(value)
+  return {
+    agent: `${named} ${typed.agent}`,
+    user: `${named} “${typed.user}”`,
+  }
+}
+
+/**
+ * The two gestures a filter bar reports.
+ *
+ * A submitted filter is `wake`: the bar was placed to be answered, and the
+ * answer is what the model needs before it can fetch anything. An unsubmitted
+ * edit is `silent` — the editor reports one every time the user commits an
+ * edit, which is each time they pick an attribute, pick a strategy, or leave a
+ * value box they were typing in, and a model told about a filter still being
+ * built would be answering a question nobody has asked yet.
+ *
+ * The attribute names, the strategy wording and the match mode in a notice come
+ * from the spec the model wrote and from this package. The condition values do
+ * not: they are what the user typed. The agent's account quotes them as JSON
+ * writes a string, so nothing in a value can end the quotation it sits in; the
+ * user's line reads them back as they wrote them, on one line.
+ */
+const FILTER_BAR_ACTIONS: readonly ComponentActionDefinition[] = [
+  {
+    id: FILTER_SUBMIT_ID,
+    report: 'wake',
+    payloadSchema: {
+      conditions: {
+        required: true,
+        schema: {
+          kind: 'array',
+          minItems: 1,
+          maxItems: MAX_FILTER_CONDITIONS,
+          item: {
+            kind: 'object',
+            fields: {
+              key: { required: true, schema: FIELD_NAME },
+              op: { required: true, schema: { kind: 'enum', values: MATCH_OPERATOR_IDS } },
+              value: { required: true, schema: { kind: 'string', maxLength: MAX_CONDITION_VALUE_LENGTH } },
+            },
+          },
+        },
+      },
+      matchMode: { required: false, schema: { kind: 'enum', values: MATCH_MODES } },
+    },
+    describe: (context) => {
+      const conditions = context.payload['conditions']
+      if (!Array.isArray(conditions) || conditions.length === 0) return undefined
+      const stated: NoticePhrase[] = []
+      for (const condition of conditions) {
+        const one = stateCondition(context.node, condition)
+        if (one === undefined) return undefined
+        stated.push(one)
+      }
+      const mode = matchModeWording(context.payload['matchMode'])
+      return {
+        text: `The user submitted a filter in ${place(context)}${mode === undefined ? '' : `, matching ${mode.agent}`}`
+          + `: ${stated.map(one => one.agent).join('; ')}.`,
+        summary: `用户提交了筛选条件${mode === undefined ? '' : `（${mode.user}）`}`
+          + `：${stated.map(one => one.user).join('；')}`,
+      }
+    },
+  },
+  {
+    id: FILTER_CHANGE_ID,
+    report: 'silent',
+    payloadSchema: {
+      count: { required: true, schema: { kind: 'number', min: 0, max: MAX_EDITED_CONDITIONS } },
+    },
+    describe: (context) => {
+      const count = context.payload['count']
+      if (typeof count !== 'number') return undefined
+      return {
+        text: `The user is editing the filter in ${place(context)}: ${count} condition${count === 1 ? '' : 's'} so far.`,
+        summary: `用户正在改「${entryName(context)}」的筛选条件（${count} 条）`,
+      }
+    },
+  },
+]
+
+/** Catalog id of the metric ball. */
+export const METRIC_ID = 'el.metric'
+
+/**
+ * The metric ball's declared properties.
+ *
+ * One number and the word beside it. The three colors reach a style rather than
+ * a text node, so each is declared as a color and read as one.
+ */
+const METRIC_PROPS: PropsSchema = {
+  size: { required: false, schema: { kind: 'number', min: 40, max: 400 } },
+  process: { required: true, schema: { kind: 'number', min: 0, max: 100 } },
+  text: { required: false, schema: { kind: 'string', maxLength: 20 } },
+  background: { required: false, schema: { kind: 'string', maxLength: 32 } },
+  borderColor: { required: false, schema: { kind: 'string', maxLength: 32 } },
+  pointColor: { required: false, schema: { kind: 'string', maxLength: 32 } },
+  isPointShow: { required: false, schema: { kind: 'boolean' } },
+}
+
+/**
  * Every component a call may place.
  *
  * A static table rather than a registry service, because one package owns every
@@ -445,6 +1327,29 @@ export const COMPONENT_CATALOG = [
     propsSchema: RECORD_DETAIL_PROPS,
     actions: [],
   },
+  {
+    id: TABLE_ID,
+    label: '数据表',
+    purpose: 'Rows and columns the user can tick, open, sort and act on, for putting a list of things in front of the user.',
+    propsSchema: TABLE_PROPS,
+    actions: TABLE_ACTIONS,
+    sanitize: { relatedComponent: 'related-component' },
+  },
+  {
+    id: FILTER_BAR_ID,
+    label: '筛选条件',
+    purpose: 'A row of conditions the user edits and submits back to you, for agreeing on what to look for before you look.',
+    propsSchema: FILTER_BAR_PROPS,
+    actions: FILTER_BAR_ACTIONS,
+  },
+  {
+    id: METRIC_ID,
+    label: '指标球',
+    purpose: 'One measurement drawn as a filling ball, for putting a single number in front of the user.',
+    propsSchema: METRIC_PROPS,
+    actions: [],
+    sanitize: { background: 'color', borderColor: 'color', pointColor: 'color' },
+  },
 ] as const satisfies readonly ComponentCatalogEntry[]
 
 /**
@@ -468,9 +1373,11 @@ function fieldDepth(field: PropsFieldSchema): number {
   switch (field.kind) {
     case 'string':
     case 'number':
+    case 'boolean':
     case 'enum': return 0
+    case 'record': return 1
     case 'object': return 1 + schemaDepth(field.fields)
-    case 'array': return 2 + schemaDepth(field.item.fields)
+    case 'array': return 1 + fieldDepth(field.item)
     /* v8 ignore start -- PropsFieldSchema is closed and every variant returns above. */
     default: {
       // Not `assertNever` from dsh-llm, for the reason validate.ts states at its
@@ -534,37 +1441,125 @@ export function catalogEntry(id: unknown): ComponentCatalogEntry | undefined {
 }
 
 /**
- * Name one schema's properties in declaration order, marking the optional ones.
+ * Whether one reported gesture is the answer its block was placed for — the
+ * gesture the block draws a line about and refuses a second of.
  *
- * One level only: an entry inside a nested record or list is named here without
- * what it accepts, so a description stops at the property names one level down.
- * A call that gets a deeper property wrong learns what it accepts from the
- * refusal instead. Revisit when `toy.table` lands a nested list.
- * @param schema - the declared properties.
- * @returns the names, comma-separated, each suffixed with `?` where a call may omit it.
+ * A `wake` is that gesture and nothing else is. The other two grades are the
+ * user working rather than answering: ticking rows, cycling a sort, typing into
+ * a filter that has not been submitted. A block whose every gesture claimed the
+ * cell would say the conversation has a sort order, and — because a claimed
+ * cell is also what stops a second answer — would kill its own submit button
+ * the moment the user edited anything.
+ *
+ * Read off the catalog rather than off the document, so the browser seat and
+ * the session fold decide it the same way from the same table.
+ * @param componentId - the `componentId` an action document carried, however malformed.
+ * @param actionId - the `actionId` it carried, however malformed.
+ * @returns true when that component declares that action as a `wake`.
  */
-function fieldNames(schema: PropsSchema): string {
-  return Object.entries(schema).map(([name, field]) => `${name}${field.required ? '' : '?'}`).join(', ')
+export function answersBlock(componentId: unknown, actionId: unknown): boolean {
+  const component = catalogEntry(componentId)
+  if (component === undefined) return false
+  return catalogAction(component, actionId)?.report === 'wake'
+}
+
+/**
+ * How a record whose keys are the caller's own is written in a property line.
+ *
+ * The keys cannot be listed, because they are the model's to choose; what the
+ * line has to say is that they are field names and that each one carries a
+ * scalar.
+ */
+const RECORD_HINT = '<field>: text|number|boolean'
+
+/**
+ * How each tightened reading is stated to the model, as the suffix of the
+ * property that declares it.
+ *
+ * A reading is enforced by `sanitize.ts`, which drops the value it refuses
+ * rather than refusing the call, so a model not told the notation writes one
+ * that disappears and is never told why. Each wording is the notation that
+ * module accepts.
+ */
+const SANITIZE_HINTS: Readonly<Record<SanitizeClass, string>> = {
+  path: '/same-origin-path',
+  color: '#RGB|#RRGGBB|rgb()|rgba()',
+  'related-component': RELATED_COMPONENTS.join('|'),
+}
+
+/**
+ * Render one object whose keys are the caller's own.
+ *
+ * The keys are the model's to choose, so what the line states is the bound —
+ * field names carrying scalars — followed by the keys the record reads as
+ * something narrower than text, which are the ones whose spelling matters. Each
+ * of those carries the `?` a property line gives an optional property, in the
+ * same notation and for the same reason: no key of such a record is required.
+ * @param schema - the declared record.
+ * @returns the contents of its braces.
+ */
+function describeRecord(schema: RecordFieldSchema): string {
+  const readings = Object.entries(schema.sanitize ?? {}).map(([key, reading]) => `${key}?: ${SANITIZE_HINTS[reading]}`)
+  return [RECORD_HINT, ...readings].join(', ')
+}
+
+/**
+ * Name one value inside a list, as it appears between the list's brackets.
+ *
+ * An item carries no property name of its own, so a component's readings are
+ * matched against the properties below it rather than against the item.
+ * @param schema - the declared item.
+ * @param rules - the component's tightened readings, matched by property name at every level.
+ * @returns the item's own rendering, with no bounds of its own.
+ */
+function describeItem(schema: PropsFieldSchema, rules: SanitizeRules | undefined): string {
+  switch (schema.kind) {
+    case 'string': return 'text'
+    case 'number': return 'number'
+    case 'boolean': return 'true|false'
+    case 'enum': return schema.values.join('|')
+    case 'record': return `{${describeRecord(schema)}}`
+    case 'object': return `{${describeProps(schema.fields, rules)}}`
+    case 'array': return `[${describeItem(schema.item, rules)}]`
+    /* v8 ignore start -- PropsFieldSchema is closed and every variant returns above. */
+    default: {
+      const unhandled: never = schema
+      throw new Error(`component-surface: unhandled props schema ${JSON.stringify(unhandled)}`)
+    }
+    /* v8 ignore stop */
+  }
 }
 
 /**
  * Render what one declared property accepts, as the suffix of its name.
  *
- * Bounds and alphabets are left out on purpose: a refusal states the one the
- * call broke, and stating all of them in the description would cost every
- * request the text of a rule the model mostly keeps anyway. What the model
- * cannot recover from a refusal is which properties exist and which are records
- * or lists, so that is what the suffix carries.
+ * Alphabets and string lengths are left out on purpose: a refusal states the one
+ * the call broke, and stating all of them would cost every request the text of a
+ * rule the model mostly keeps anyway. What the model cannot recover from a
+ * refusal is the structure — which properties exist, which are lists, and what
+ * an item of a list carries — so that is what the suffix carries, all the way
+ * down. A nested list stated only as a name is a list whose item properties cost
+ * one refused call each to discover. A string the component reads as something
+ * narrower does state its notation, because that reading is enforced by a pass
+ * that drops the value instead of refusing the call.
  * @param field - the declared property.
- * @returns the suffix, empty for a plain string.
+ * @param rules - the component's tightened readings, matched by property name at every level.
+ * @param reading - this property's own tightened reading, where it declares one.
+ * @returns the suffix, empty for a plain string that declares no reading.
  */
-function describeField(field: PropsFieldSchema): string {
+function describeField(
+  field: PropsFieldSchema,
+  rules: SanitizeRules | undefined,
+  reading: SanitizeClass | undefined,
+): string {
   switch (field.kind) {
-    case 'string': return ''
+    case 'string': return reading === undefined ? '' : ` (${SANITIZE_HINTS[reading]})`
     case 'number': return ` (${field.min}–${field.max})`
+    case 'boolean': return ' (true|false)'
     case 'enum': return ` (${field.values.join('|')})`
-    case 'object': return `{${fieldNames(field.fields)}}`
-    case 'array': return `[{${fieldNames(field.item.fields)}}] (${field.minItems}–${field.maxItems})`
+    case 'record': return `{${describeRecord(field)}}`
+    case 'object': return `{${describeProps(field.fields, rules)}}`
+    case 'array': return `[${describeItem(field.item, rules)}] (${field.minItems}–${field.maxItems})`
     /* v8 ignore start -- PropsFieldSchema is closed and every variant returns above. */
     default: {
       // Not `assertNever` from dsh-llm, for the reason validate.ts states at its
@@ -577,13 +1572,17 @@ function describeField(field: PropsFieldSchema): string {
 }
 
 /**
- * Render one component's declared properties as the line under its own.
- * @param schema - the component's declared properties.
+ * Render one set of declared properties: a component's, or a nested object's.
+ *
+ * One function at every level, which is what makes a nested list state its own
+ * item properties instead of stopping at a name.
+ * @param schema - the declared properties.
+ * @param rules - the component's tightened readings, matched by property name at every level.
  * @returns the summary, one property after another in declaration order.
  */
-function describeProps(schema: PropsSchema): string {
+function describeProps(schema: PropsSchema, rules: SanitizeRules | undefined): string {
   return Object.entries(schema)
-    .map(([name, field]) => `${name}${field.required ? '' : '?'}${describeField(field.schema)}`)
+    .map(([name, field]) => `${name}${field.required ? '' : '?'}${describeField(field.schema, rules, rules?.[name])}`)
     .join(', ')
 }
 
@@ -607,7 +1606,7 @@ function describeProps(schema: PropsSchema): string {
 export function describeCatalog(catalog: readonly ComponentCatalogEntry[]): string {
   return catalog
     .map(entry => `- ${entry.id} — ${entry.label} — ${entry.purpose}${entry.actions.length === 0 ? ' Nothing comes back from it.' : ''}`
-      + `\n  props: ${describeProps(entry.propsSchema)}`)
+      + `\n  props: ${describeProps(entry.propsSchema, entry.sanitize)}`)
     .join('\n')
 }
 

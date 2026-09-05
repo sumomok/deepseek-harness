@@ -14,6 +14,9 @@ import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-c
 import { apply, COMPONENT_RENDERERS, inject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { ConfirmBar } from '../src/client/ConfirmBar.tsx'
+import { TableDetailRenderer } from '../src/client/TableDetailRenderer.tsx'
+import { TcProcessBallRenderer } from '../src/client/TcProcessBallRenderer.tsx'
+import { TuQueryCondAdvRenderer } from '../src/client/TuQueryCondAdvRenderer.tsx'
 import { TcFormDetailRenderer } from '../src/client/TcFormDetailRenderer.tsx'
 import * as ComponentKitInvariant from '../src/invariant.ts'
 import { en, NS, zh } from '../src/client/locales.ts'
@@ -62,7 +65,10 @@ describe('component-kit browser half', () => {
   it('publishes every component under the catalog id a block names', () => {
     expect(COMPONENT_RENDERERS).toEqual({
       'el.confirm-bar': ConfirmBar,
+      'el.filter-bar': TuQueryCondAdvRenderer,
+      'el.metric': TcProcessBallRenderer,
       'toy.record': TcFormDetailRenderer,
+      'toy.table': TableDetailRenderer,
     })
   })
 })

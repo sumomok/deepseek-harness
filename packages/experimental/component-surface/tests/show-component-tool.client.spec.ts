@@ -15,7 +15,7 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
+import { COMPONENT_CATALOG, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
 import { describeShowComponent, showComponentTool } from '../src/tool.ts'
 
 let calls = 0
@@ -56,21 +56,21 @@ describe('show_component model-visible surface', () => {
   it('offers one tool whose description carries the whole catalog', async () => {
     const { definition } = await bench()
     expect(definition.name).toBe('show_component')
+    // The catalog lines themselves are pinned verbatim where they are built, in
+    // `component-call.client.spec.ts`; what this file owns is the frame around
+    // them and the fact that the whole catalog goes inside it.
     expect(definition.description).toBe(
       'Put a block of interface in the content panel beside the conversation — the area the user sees '
       + 'without opening or scrolling anything. Use it to place a choice or a summary in front of the user '
       + 'while you talk about it.\n\nComponents:\n'
-      + '- el.confirm-bar — 确认条 — A short prompt above a row of buttons, for putting one decision in front of the user.'
-      + '\n  props: title?, message?, buttons[{id, label, tone?}] (1–5)'
-      + '\n- toy.record — 记录详情 — One record laid out as label-and-value pairs, for putting the details of a single thing'
-      + ' in front of the user. Nothing comes back from it.'
-      + '\n  props: dataList[{label, display}] (1–60), labelWidth? (40–240), columnNum? (1|2|3)'
+      + describeCatalog(COMPONENT_CATALOG)
       + '\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry '
       + 'shows, and a new id adds a second entry beside it. When the user asks to change something already on '
       + 'display, reuse that entry\'s id.\n\n'
       + 'A call places between 1 and 8 blocks, and `spec` is at most 65536 bytes of JSON. '
       + 'A block carries the properties listed under its component and no others — a `props:` line names each one, '
-      + 'marks the ones a call may leave out with `?`, and writes a list as `[{item properties}]`. Anything else is '
+      + 'marks the ones a call may leave out with `?`, writes a list as `[what one item is] (fewest–most)`, and '
+      + 'writes an object you choose the field names of as `{<field>: text|number|boolean}`. Anything else is '
       + 'refused, and the refusal names what you sent and lists the properties that component accepts.\n\n'
       + 'What the user does inside a block comes back to you, naming the entry and the block it happened in, '
       + 'unless the list above says nothing comes back from that component. Do not also ask in the conversation '
@@ -78,6 +78,9 @@ describe('show_component model-visible surface', () => {
       + 'question with.',
     )
     expect(describeShowComponent()).toBe(definition.description)
+    expect(definition.description).toContain('- toy.table — 数据表 —')
+    expect(definition.description).toContain('- el.filter-bar — 筛选条件 —')
+    expect(definition.description).toContain('- el.metric — 指标球 — ')
   })
 
   it('requires an id, a title, and a spec carrying nodes', async () => {
@@ -160,7 +163,7 @@ describe('one show_component call', () => {
     const result = await run({
       id: 'budget',
       title: '预算确认',
-      spec: { nodes: [{ id: 'bar', component: 'toy.table', props: {} }] },
+      spec: { nodes: [{ id: 'bar', component: 'toy.chart', props: {} }] },
     })
     expect(result.isError).toBe(true)
     expect(text(result)).toContain('show_component: spec.nodes[0].component — names no component of this deployment')
@@ -180,6 +183,23 @@ describe('one show_component call', () => {
     })
     expect(result.isError).toBeFalsy()
     expect(text(result)).toContain('the content panel: 记录详情.')
+  })
+
+  it('places a filter bar, a table and a metric ball in one call, naming each the way the user reads it', async () => {
+    const { run } = await bench()
+    const result = await run({
+      id: 'devices',
+      title: '设备列表',
+      spec: {
+        nodes: [
+          { id: 'filter', component: 'el.filter-bar', props: { relatedMeta: 'device', metaConfig: { attributes: [{ attributeEnName: 'zh_label', alias: '名称' }] } } },
+          { id: 'table', component: 'toy.table', props: { tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label', alias: '名称' }] }, displayValueList: [{ zh_label: 'A-1' }] } },
+          { id: 'rate', component: 'el.metric', props: { process: 72, text: '在用率' } },
+        ],
+      },
+    })
+    expect(result.isError).toBeFalsy()
+    expect(text(result)).toContain('the content panel: 筛选条件、数据表、指标球.')
   })
 
   it('denies a record detail carrying a formatter, and names the parameter to drop', async () => {

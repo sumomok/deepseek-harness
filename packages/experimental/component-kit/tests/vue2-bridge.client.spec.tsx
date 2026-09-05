@@ -14,10 +14,11 @@
  * and a real `el-select` would answer that question with a Popper layout jsdom
  * cannot do.
  */
+import { createRef } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { defineComponent, h, ref } from '@deepseek-ai/dsh-experimental-vue2-echarts-poc/client'
-import Vue from '../src/client/vue-shim.ts'
+import Vue, { type VueInstance } from '../src/client/vue-shim.ts'
 import { VueBridge } from '../src/client/vue2-bridge.tsx'
 
 afterEach(cleanup)
@@ -63,6 +64,13 @@ const AnonymousProbe = defineComponent({
   render: () => h('span', { attrs: { 'data-testid': 'anonymous' } }, 'anonymous'),
 })
 
+/** Stands in for `el-date-picker`: a popper the filter bar's date attributes open. */
+const DatePickerProbe = defineComponent({
+  name: 'ElDatePicker',
+  data: () => ({ pickerVisible: true }),
+  render: () => h('span', { attrs: { 'data-testid': 'picker' } }, 'picker'),
+})
+
 /** Stands in for `el-select`: a focusable control whose dropdown escapes the host. */
 const SelectProbe = defineComponent({
   name: 'ElSelect',
@@ -70,6 +78,7 @@ const SelectProbe = defineComponent({
   render: create => create('span', [
     create('input', { attrs: { 'data-testid': 'select-input' } }),
     create(TooltipProbe),
+    create(DatePickerProbe),
     create(PlainProbe),
     create(AnonymousProbe),
   ]),
@@ -196,12 +205,14 @@ describe('VueBridge', () => {
     const instances = instancesByName(container.firstElementChild)
     expect(instances.get('ElSelect')?.visible).toBe(true)
     expect(instances.get('ElTooltip')?.showPopper).toBe(true)
+    expect(instances.get('ElDatePicker')?.pickerVisible).toBe(true)
 
     rerender(<VueBridge component={PopperProbe} props={{}} visible={false} />)
     await Promise.resolve()
     expect(instances.get('ElSelect')?.visible).toBe(false)
     // Two levels down from the root: the sweep walks the whole tree.
     expect(instances.get('ElTooltip')?.showPopper).toBe(false)
+    expect(instances.get('ElDatePicker')?.pickerVisible).toBe(false)
     // A component the table does not name keeps whatever state it had, whether
     // it declared a name of its own or none.
     expect(instances.get('PlainChild')?.showPopper).toBe(true)
@@ -236,6 +247,18 @@ describe('VueBridge', () => {
     rerender(<VueBridge component={PopperProbe} props={{}} visible />)
     await Promise.resolve()
     expect(instances.get('ElSelect')?.visible).toBe(true)
+  })
+
+  it('publishes the mounted component, not the root it owns, and takes it back on unmount', () => {
+    const instanceRef = createRef<VueInstance | null>() as { current: VueInstance | null }
+    const { unmount } = render(
+      <VueBridge component={Probe} props={{ label: 'first' }} instanceRef={instanceRef} />,
+    )
+    // The root is this bridge's own scaffolding; what a renderer calls a method
+    // on is the component it asked for.
+    expect(instanceRef.current?.$options.name).toBe('BridgeProbe')
+    unmount()
+    expect(instanceRef.current).toBeNull()
   })
 
   it('tears the Vue instance down on unmount, not just its DOM', () => {

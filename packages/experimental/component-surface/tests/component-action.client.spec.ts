@@ -11,7 +11,7 @@
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
-import AgentRegistry, { emitAgentEvent } from '@deepseek-ai/dsh-agent'
+import AgentRegistry, { emitAgentEvent, Inbox } from '@deepseek-ai/dsh-agent'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import CommandRuntime, { CommandId } from '@deepseek-ai/dsh-commands'
 import { CallId } from '@deepseek-ai/dsh-llm/brand'
@@ -24,7 +24,7 @@ import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import type { ContentSurfaceExtractor } from '@deepseek-ai/dsh-experimental-content-surface'
-import { componentActionCommand, deliverAction } from '../src/command.ts'
+import { actionMemory, componentActionCommand, deliverAction } from '../src/command.ts'
 import {
   catalogAction,
   catalogEntry,
@@ -34,9 +34,19 @@ import {
   CONFIRM_BAR_ID,
   CONFIRM_BAR_PRESS_ID,
   formatComponentActionLine,
+  FILTER_BAR_ID,
+  FILTER_CHANGE_ID,
+  FILTER_SUBMIT_ID,
   MAX_ACTION_PAYLOAD_BYTES,
+  MAX_FILTER_CONDITIONS,
+  MAX_TABLE_ROWS,
   parseComponentActionLine,
   readComponentAction,
+  TABLE_ID,
+  TABLE_OPERATION_ID,
+  TABLE_ROW_CLICK_ID,
+  TABLE_SELECT_ID,
+  TABLE_SORT_ID,
   WAKE_BUDGET,
   type ComponentAction,
 } from '../src/component-call.ts'
@@ -80,6 +90,12 @@ const PRESS_SUMMARY = '用户在「确认删除」里点了「删除」'
 /** What a press that only reached the inbox is answered with, verbatim. */
 const ACTION_QUEUED = '已记下，你下次发消息时对话会看到。'
 
+/** What a gesture carrying more than its action accepts is answered with, verbatim. */
+const ACTION_TOO_LARGE = '内容太多了，少选几项或写短一些再试。'
+
+/** What a gesture that reached nobody is answered with, verbatim. */
+const ACTION_NOT_RECORDED = '这个动作没能记下来。'
+
 /**
  * A composition carrying the tool, the entry stream, the command registry, and
  * this row.
@@ -122,8 +138,15 @@ function newSession(ctx: Context): Session {
 }
 
 /**
- * A fake agent over a real session: the command registry needs an agent, and
- * what this suite asserts is which delivery method the handler reached for.
+ * A fake agent over a real session and a real {@link Inbox}: the command
+ * registry needs an agent, what this suite asserts is which delivery method the
+ * handler reached for, and the one thing it must not fake is the inbox — a
+ * superseded notice is replaced only while the inbox still holds it, which is
+ * `Inbox.replace`'s answer and nothing this file could stand in for.
+ *
+ * Both delivery methods route through that inbox exactly as the live agent's
+ * do, so a spy handed here counts the deliveries that appended a notice and not
+ * the ones that rewrote a notice already pending.
  */
 function fakeAgent(
   ctx: Context,
@@ -135,26 +158,40 @@ function fakeAgent(
   } = {},
 ): Agent {
   const scopeFiber = ctx.plugin(() => {})
+  const inbox = new Inbox(session, { inserted: () => {}, discarded: () => {}, claimed: () => {} })
   const agent = {
     id: session.id,
     ctx: scopeFiber.ctx,
     session,
-    inject: delivery.inject ?? ((): void => {}),
-    followup: delivery.followup ?? ((): void => {}),
+    inbox,
+    inject: (message: UserMessage): void => {
+      inbox.splice('next-step', Infinity, 0, [message])
+      delivery.inject?.(message)
+    },
+    followup: (message: UserMessage): void => {
+      inbox.splice('next-turn', Infinity, 0, [message])
+      delivery.followup?.(message)
+    },
     status: delivery.status ?? 'idle',
   } as unknown as Agent
   ctx.agents.register(agent)
   return agent
 }
 
-/** Record one accepted `show_component` call, which is what makes the entry. */
-function show(session: Session, id: string, title: string): void {
+/**
+ * Record one accepted `show_component` call, which is what makes the entry.
+ * @param session - the session the call is logged into.
+ * @param id - the entry the call owns.
+ * @param title - the line the user reads.
+ * @param spec - what the call places; the confirmation bar unless stated.
+ */
+function show(session: Session, id: string, title: string, spec: unknown = SPEC): void {
   session.append('tool/call', {
     turn: 1,
     step: 1,
     callId: CallId(`call-${id}`),
     name: 'show_component',
-    arguments: JSON.stringify({ id, title, spec: SPEC }),
+    arguments: JSON.stringify({ id, title, spec }),
   })
 }
 
@@ -206,22 +243,27 @@ describe('the catalog of actions', () => {
 describe('delivering one resolved action', () => {
   const notice = { text: PRESS_TEXT, summary: PRESS_SUMMARY }
 
+  /** Which block's which gesture, as the resolved identifiers spell it. */
+  const KEY = JSON.stringify(['budget', 'bar', CONFIRM_BAR_PRESS_ID])
+
   it('tells the agent nothing about a silent action, and says nothing landed', async () => {
     const ctx = await setup()
     const inject = vi.fn()
     const followup = vi.fn()
-    const landed = deliverAction(fakeAgent(ctx, newSession(ctx), { inject, followup }), new WeakMap(), { notice, report: 'silent' })
+    const landed = deliverAction(fakeAgent(ctx, newSession(ctx), { inject, followup }), actionMemory(), { notice, report: 'silent', key: KEY })
     expect(landed).toBe('none')
     expect(inject).not.toHaveBeenCalled()
     expect(followup).not.toHaveBeenCalled()
   })
 
-  it('stages a context action without opening a turn, and says it is waiting', async () => {
+  it('stages a context action without opening a turn, and reports it as the delivery it asked for', async () => {
     const ctx = await setup()
     const inject = vi.fn()
     const followup = vi.fn()
-    const landed = deliverAction(fakeAgent(ctx, newSession(ctx), { inject, followup }), new WeakMap(), { notice, report: 'context' })
-    expect(landed).toBe('queued')
+    // Not `queued`: nobody is waiting on an answer to it, so the handler owes
+    // the person who made the gesture no sentence about where it went.
+    const landed = deliverAction(fakeAgent(ctx, newSession(ctx), { inject, followup }), actionMemory(), { notice, report: 'context', key: KEY })
+    expect(landed).toBe('context')
     expect(followup).not.toHaveBeenCalled()
     expect(inject).toHaveBeenCalledTimes(1)
     const message = inject.mock.calls[0]?.[0] as UserMessage
@@ -237,7 +279,7 @@ describe('delivering one resolved action', () => {
   it('wakes an idle agent, and stages the same notice into a busy one', async () => {
     const ctx = await setup()
     const idleFollowup = vi.fn()
-    const opened = deliverAction(fakeAgent(ctx, newSession(ctx), { followup: idleFollowup }), new WeakMap(), { notice, report: 'wake' })
+    const opened = deliverAction(fakeAgent(ctx, newSession(ctx), { followup: idleFollowup }), actionMemory(), { notice, report: 'wake', key: KEY })
     expect(opened).toBe('opened')
     expect(idleFollowup).toHaveBeenCalledTimes(1)
 
@@ -246,9 +288,20 @@ describe('delivering one resolved action', () => {
     const busy = fakeAgent(ctx, newSession(ctx), { inject: busyInject, followup: busyFollowup, status: 'running' })
     // The declared grade is still `wake`; where it landed is not, which is the
     // whole reason the delivery is reported rather than the grade.
-    expect(deliverAction(busy, new WeakMap(), { notice, report: 'wake' })).toBe('queued')
+    expect(deliverAction(busy, actionMemory(), { notice, report: 'wake', key: KEY })).toBe('queued')
     expect(busyFollowup).not.toHaveBeenCalled()
     expect(busyInject).toHaveBeenCalledTimes(1)
+  })
+
+  it('queues every wake that missed its turn, one notice each', async () => {
+    const ctx = await setup()
+    const memory = actionMemory()
+    const busy = fakeAgent(ctx, newSession(ctx), { status: 'running' })
+    // A wake is the user answering something the agent stopped for, so two of
+    // them are two answers: only the working gestures are superseded.
+    expect(deliverAction(busy, memory, { notice, report: 'wake', key: KEY })).toBe('queued')
+    expect(deliverAction(busy, memory, { notice, report: 'wake', key: KEY })).toBe('queued')
+    expect(busy.inbox.nextStep).toHaveLength(2)
   })
 })
 
@@ -261,7 +314,7 @@ describe('the /component-action command', () => {
     const agent = fakeAgent(ctx, session, { inject, followup })
 
     expect(await run(ctx, agent, `/${COMPONENT_ACTION_COMMAND} {"nope":1}`))
-      .toEqual({ kind: 'error', text: '这个动作没能记下来。' })
+      .toEqual({ kind: 'error', text: ACTION_NOT_RECORDED })
     expect(inject).not.toHaveBeenCalled()
     expect(followup).not.toHaveBeenCalled()
     // The record is the command registry's, written before the handler ran:
@@ -279,7 +332,7 @@ describe('the /component-action command', () => {
     show(session, 'budget', '确认删除')
     const oversized = formatComponentActionLine({ ...PRESS, payload: { buttonId: 'd'.repeat(MAX_ACTION_PAYLOAD_BYTES) } })
 
-    expect(await run(ctx, agent, oversized)).toEqual({ kind: 'error', text: '选中的内容太多了，少选一些再试。' })
+    expect(await run(ctx, agent, oversized)).toEqual({ kind: 'error', text: ACTION_TOO_LARGE })
     expect(followup).not.toHaveBeenCalled()
     expect(session.events.some(event => event.type === 'command/run')).toBe(true)
   })
@@ -312,14 +365,18 @@ describe('the /component-action command', () => {
     const refused = [
       { ...PRESS, entryId: 'other' },
       { ...PRESS, nodeId: 'other' },
+      // A component this deployment really has, reporting a gesture of a block
+      // that draws another one: the identifiers are resolved against the entry's
+      // own spec rather than believed.
       { ...PRESS, componentId: 'toy.table' },
+      { ...PRESS, componentId: 'toy.chart' },
       { ...PRESS, actionId: 'submit' },
       { ...PRESS, payload: { buttonId: 'delete', buttonLabel: '删除' } },
       { ...PRESS, payload: { buttonId: 'never-drawn' } },
     ]
     for (const action of refused) {
       expect(await run(ctx, agent, formatComponentActionLine(action)))
-        .toEqual({ kind: 'error', text: '这个动作没能记下来。' })
+        .toEqual({ kind: 'error', text: ACTION_NOT_RECORDED })
     }
     expect(inject).not.toHaveBeenCalled()
     expect(followup).not.toHaveBeenCalled()
@@ -333,7 +390,7 @@ describe('the /component-action command', () => {
     show(session, 'budget', '确认删除')
 
     expect(await run(ctx, agent, formatComponentActionLine(PRESS)))
-      .toEqual({ kind: 'error', text: '这个动作没能记下来。' })
+      .toEqual({ kind: 'error', text: ACTION_NOT_RECORDED })
     expect(followup).not.toHaveBeenCalled()
   })
 
@@ -345,7 +402,7 @@ describe('the /component-action command', () => {
     show(session, 'budget', '确认删除')
 
     expect(await run(ctx, agent, formatComponentActionLine(PRESS)))
-      .toEqual({ kind: 'error', text: '这个动作没能记下来。' })
+      .toEqual({ kind: 'error', text: ACTION_NOT_RECORDED })
     expect(followup).not.toHaveBeenCalled()
   })
 
@@ -361,7 +418,7 @@ describe('the /component-action command', () => {
     const bare = new Context()
     contexts.push(bare)
     await bare.plugin(SessionProjectionRegistry)
-    const standalone = componentActionCommand(bare, new WeakMap())
+    const standalone = componentActionCommand(bare, actionMemory())
 
     expect(standalone.handler({
       commandId: CommandId('cmd-1'),
@@ -369,7 +426,214 @@ describe('the /component-action command', () => {
       rawInput: JSON.stringify(PRESS),
       attachments: [],
       signal,
-    })).toEqual({ kind: 'error', text: '这个动作没能记下来。' })
+    })).toEqual({ kind: 'error', text: ACTION_NOT_RECORDED })
+    expect(followup).not.toHaveBeenCalled()
+  })
+})
+
+describe('a table reporting back', () => {
+  /** One table entry: two rows and one custom operation. */
+  const TABLE_SPEC = {
+    nodes: [{
+      id: 'grid',
+      component: TABLE_ID,
+      props: {
+        tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label', alias: '名称' }] },
+        displayValueList: [{ zh_label: 'A-1' }, { zh_label: 'A-2' }],
+        customOperations: [{ key: 'export', label: '导出' }],
+      },
+    }],
+  }
+
+  /** One action reported out of that table. */
+  function gesture(actionId: string, payload: Record<string, unknown>): ComponentAction {
+    return { entryId: 'devices', componentId: TABLE_ID, actionId, nodeId: 'grid', payload }
+  }
+
+  it('opens a turn for a pressed operation, and stages a change of selection', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const agent = fakeAgent(ctx, session, { inject, followup })
+    show(session, 'devices', '设备列表', TABLE_SPEC)
+
+    expect(await run(ctx, agent, formatComponentActionLine(gesture(TABLE_OPERATION_ID, { opId: 'export', rowIndex: 1 }))))
+      .toEqual({ kind: 'success' })
+    expect((followup.mock.calls[0]?.[0] as UserMessage).content).toEqual([{
+      type: 'text',
+      text: 'The user pressed "导出" on row "A-2" in content panel entry "devices" ("设备列表"), on the 数据表 block "grid".',
+    }])
+
+    // A selection is news the agent should have at its next step, not an answer
+    // it stopped for: it waits in the inbox, and it is answered with no
+    // sentence at all, because a receipt for it would put a line in the
+    // conversation for every row the user ticks.
+    expect(await run(ctx, agent, formatComponentActionLine(gesture(TABLE_SELECT_ID, { rowIndexes: [0] }))))
+      .toEqual({ kind: 'success' })
+    expect(inject).toHaveBeenCalledTimes(1)
+    expect(followup).toHaveBeenCalledTimes(1)
+  })
+
+  it('leaves one unclaimed notice for a block ticked three times, and never rewrites a claimed one', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const agent = fakeAgent(ctx, session)
+    show(session, 'devices', '设备列表', TABLE_SPEC)
+
+    for (const rowIndexes of [[0], [], [0, 1]]) {
+      expect(await run(ctx, agent, formatComponentActionLine(gesture(TABLE_SELECT_ID, { rowIndexes }))))
+        .toEqual({ kind: 'success' })
+    }
+    // What the user has selected is one fact, not three, and the inbox has no
+    // ceiling of its own: the two earlier notices were replaced rather than
+    // queued beside this one, which is also why the survivor is the latest.
+    expect(agent.inbox.nextStep).toHaveLength(1)
+    expect(agent.inbox.nextStep[0]?.content).toEqual([{
+      type: 'text',
+      text: 'The user selected 2 rows in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1", "A-2".',
+    }])
+
+    // A gesture of its own keeps its own place: the key is the block and the
+    // action together, so an opened row does not overwrite a selection.
+    expect(await run(ctx, agent, formatComponentActionLine(gesture(TABLE_ROW_CLICK_ID, { rowIndex: 1 }))))
+      .toEqual({ kind: 'success' })
+    expect(agent.inbox.nextStep).toHaveLength(2)
+
+    // Claiming is what the model reading a notice looks like from here — the
+    // loop's own step-boundary read. A notice the model has already been given
+    // is not something a later tick may rewrite, so the tick after it appends.
+    const claimed = agent.inbox.claim('next-step', 1)
+    expect(claimed).toHaveLength(2)
+    expect(await run(ctx, agent, formatComponentActionLine(gesture(TABLE_SELECT_ID, { rowIndexes: [1] }))))
+      .toEqual({ kind: 'success' })
+    expect(agent.inbox.nextStep).toHaveLength(1)
+    expect(claimed[0]?.content).toEqual([{
+      type: 'text',
+      text: 'The user selected 2 rows in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": "A-1", "A-2".',
+    }])
+  })
+
+  it('tells the agent nothing at all about a sort', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const agent = fakeAgent(ctx, session, { inject, followup })
+    show(session, 'devices', '设备列表', TABLE_SPEC)
+
+    expect(await run(ctx, agent, formatComponentActionLine(gesture(TABLE_SORT_ID, { prop: 'zh_label', order: 'asc' }))))
+      .toEqual({ kind: 'success' })
+    expect(inject).not.toHaveBeenCalled()
+    expect(followup).not.toHaveBeenCalled()
+  })
+
+  it('reports nothing for a row the entry does not draw', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const followup = vi.fn()
+    const agent = fakeAgent(ctx, session, { followup })
+    show(session, 'devices', '设备列表', TABLE_SPEC)
+
+    expect(await run(ctx, agent, formatComponentActionLine(gesture(TABLE_OPERATION_ID, { opId: 'export', rowIndex: 7 }))))
+      .toEqual({ kind: 'error', text: ACTION_NOT_RECORDED })
+    expect(followup).not.toHaveBeenCalled()
+  })
+
+  it('carries a selection of every row a full table draws', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const inject = vi.fn()
+    const agent = fakeAgent(ctx, session, { inject })
+    const rows = Array.from({ length: MAX_TABLE_ROWS }, (_unused, index) => ({ zh_label: `A-${index}` }))
+    show(session, 'devices', '设备列表', {
+      nodes: [{
+        id: 'grid',
+        component: TABLE_ID,
+        props: {
+          tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label', alias: '名称' }] },
+          displayValueList: rows,
+          selectMode: 'checkbox',
+        },
+      }],
+    })
+    // The header checkbox of a full table, which is the one gesture the two
+    // row ceilings have to agree about: ticking every drawn row must reach the
+    // agent rather than be answered as too much.
+    const all = gesture(TABLE_SELECT_ID, { rowIndexes: rows.map((_unused, index) => index) })
+
+    expect(await run(ctx, agent, formatComponentActionLine(all))).toEqual({ kind: 'success' })
+    expect((inject.mock.calls[0]?.[0] as UserMessage).content).toEqual([{
+      type: 'text',
+      text: `The user selected ${MAX_TABLE_ROWS} rows in content panel entry "devices" ("设备列表"), on the 数据表 block "grid": `
+        + '"A-0", "A-1", "A-2", "A-3", "A-4" and 495 more.',
+    }])
+  })
+
+  it('says there is too much where a selection carries more rows than any table draws', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const inject = vi.fn()
+    const agent = fakeAgent(ctx, session, { inject })
+    show(session, 'devices', '设备列表', TABLE_SPEC)
+    const past = gesture(TABLE_SELECT_ID, { rowIndexes: Array.from({ length: MAX_TABLE_ROWS + 1 }, () => 0) })
+
+    expect(await run(ctx, agent, formatComponentActionLine(past))).toEqual({ kind: 'error', text: ACTION_TOO_LARGE })
+    expect(inject).not.toHaveBeenCalled()
+  })
+})
+
+describe('a filter bar reporting back', () => {
+  /** One filter entry: two attributes and the two strategies the call narrowed to. */
+  const FILTER_SPEC = {
+    nodes: [{
+      id: 'query',
+      component: FILTER_BAR_ID,
+      props: {
+        relatedMeta: 'device',
+        metaConfig: {
+          attributes: [
+            { attributeEnName: 'zh_label', alias: '名称' },
+            { attributeEnName: 'state', alias: '状态' },
+          ],
+        },
+        attrEqEnums: [{ value: 'EQ', label: '等于' }],
+      },
+    }],
+  }
+
+  /** One action reported out of that bar. */
+  function gesture(actionId: string, payload: Record<string, unknown>): ComponentAction {
+    return { entryId: 'devices', componentId: FILTER_BAR_ID, actionId, nodeId: 'query', payload }
+  }
+
+  it('keeps taking edits past the count a submitted filter carries', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const inject = vi.fn()
+    const followup = vi.fn()
+    const agent = fakeAgent(ctx, session, { inject, followup })
+    show(session, 'devices', '设备列表', FILTER_SPEC)
+    // The condition editor adds rows without limit and reports every committed
+    // edit on its own, so an edit standing past the submit ceiling is an
+    // ordinary silent report rather than a refusal the user never asked for.
+    const editing = gesture(FILTER_CHANGE_ID, { count: MAX_FILTER_CONDITIONS + 1 })
+
+    expect(await run(ctx, agent, formatComponentActionLine(editing))).toEqual({ kind: 'success' })
+    expect(inject).not.toHaveBeenCalled()
+    expect(followup).not.toHaveBeenCalled()
+  })
+
+  it('says there is too much where a submitted filter carries more conditions than it may', async () => {
+    const ctx = await setup()
+    const session = newSession(ctx)
+    const followup = vi.fn()
+    const agent = fakeAgent(ctx, session, { followup })
+    show(session, 'devices', '设备列表', FILTER_SPEC)
+    const conditions = Array.from({ length: MAX_FILTER_CONDITIONS + 1 }, () => ({ key: 'state', op: 'EQ', value: '在用' }))
+
+    expect(await run(ctx, agent, formatComponentActionLine(gesture(FILTER_SUBMIT_ID, { conditions }))))
+      .toEqual({ kind: 'error', text: ACTION_TOO_LARGE })
     expect(followup).not.toHaveBeenCalled()
   })
 })

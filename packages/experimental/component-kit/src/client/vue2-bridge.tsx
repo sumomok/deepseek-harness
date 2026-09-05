@@ -27,10 +27,12 @@
  * The `props` record is the whole contract between the two frameworks: the
  * React side resolves every framework hook and slot share before calling this,
  * so what crosses is plain data and callbacks — never a hook, a store handle, a
- * Cordis context, or a React node.
+ * Cordis context, or a React node. `instanceRef` is the one thing that crosses
+ * the other way, for the vendored components that answer through an instance
+ * method rather than through an event.
  * @module @deepseek-ai/dsh-experimental-component-kit/src/client/vue2-bridge
  */
-import { useEffect, useRef, type RefObject } from 'react'
+import { useEffect, useRef, type MutableRefObject, type RefObject } from 'react'
 import Vue, { type VueComponentOptions, type VueInstance } from './vue-shim.ts'
 import { freezeDeep } from './freeze.ts'
 
@@ -65,16 +67,25 @@ interface VueNode {
  * Component instances whose popper element escapes the host subtree, mapped to
  * the instance property that closes it.
  *
- * A closed table of the three element-ui components a block may use:
- * `el-dialog`, `el-message`, and `el-notification` are forbidden outright,
- * because nothing here can close them. A fourth popper-bearing component used
- * by a block must be added here in the same change, or it stays on screen after
- * the block it belongs to is hidden.
+ * A closed table of the element-ui components a block may use: `el-dialog`,
+ * `el-message`, and `el-notification` are forbidden outright, because nothing
+ * here can close them. A further popper-bearing component used by a block must
+ * be added here in the same change, or it stays on screen after the block it
+ * belongs to is hidden — `el-date-picker` is here because the filter bar draws
+ * one for an attribute whose values are dates.
+ *
+ * The sweep runs only for a caller that passes `visible: false`. No placement
+ * package in this repository does: the content column unmounts a block that
+ * leaves the screen, and element-ui's own `beforeDestroy` takes the popper off
+ * the body with it. The table is what a placement that hides rather than drops
+ * would need, and it is exercised against probe components rather than through
+ * a seat.
  */
 const POPPER_CLOSERS: Readonly<Record<string, string>> = {
   ElSelect: 'visible',
   ElTooltip: 'showPopper',
   ElPopover: 'showPopper',
+  ElDatePicker: 'pickerVisible',
 }
 
 /** The listener map a component with no events gets, kept stable across commits. */
@@ -119,8 +130,35 @@ export interface VueBridgeOptions {
    * Whether the block is on screen. `false` closes the poppers the component
    * opened outside the host; it does not hide the host, which stays the
    * placement package's own decision. Defaults to `true`.
+   *
+   * It is for a placement package that keeps a hidden block mounted. The one
+   * placement package here unmounts instead, so nothing passes it today and the
+   * popper sweep it turns on is covered by this module's own tests rather than
+   * by a seat.
    */
   readonly visible?: boolean
+  /**
+   * Where the mounted component's own instance is published, for a renderer
+   * that has to call a method on it.
+   *
+   * Some of the vendored components hand their data over through instance
+   * methods rather than through an event — `TuQueryCondAdv.getData()` is the
+   * one this exists for — and a few report a gesture with the rows deep-cloned,
+   * so the identity a renderer reports by has to be read back off the instance.
+   * The ref holds `root.$children[0]`, the component itself rather than the Vue
+   * root this bridge owns, because the root is this module's own scaffolding
+   * and its single child is the component the caller asked for.
+   *
+   * Read once, at mount, like {@link component}: the ref object a caller passes
+   * on its first render is the one written to and cleared. It holds the
+   * instance for exactly as long as the bridge is mounted, and `null` outside
+   * that, so a renderer reads it only from an event handler or an effect.
+   *
+   * What comes back is a live Vue instance, and calling anything on it that
+   * writes is reaching around the prop record the two frameworks agree on.
+   * Renderers use it to read.
+   */
+  readonly instanceRef?: MutableRefObject<VueInstance | null>
 }
 
 /** Props of {@link VueBridge}. */
@@ -138,7 +176,7 @@ export type VueBridgeProps = VueBridgeOptions
 export function useVueComponent<E extends HTMLElement = HTMLSpanElement>(
   options: VueBridgeOptions,
 ): RefObject<E> {
-  const { component, props, on = NO_HANDLERS, visible = true } = options
+  const { component, props, on = NO_HANDLERS, visible = true, instanceRef } = options
   const hostRef = useRef<E>(null)
   const rootRef = useRef<VueBridgeRoot | null>(null)
   const handlersRef = useRef<VueEventHandlers | null>(null)
@@ -162,12 +200,17 @@ export function useVueComponent<E extends HTMLElement = HTMLSpanElement>(
     root.$mount(placeholder)
     rootRef.current = root
     handlersRef.current = on
+    if (instanceRef !== undefined) instanceRef.current = root.$children[0] as VueInstance
     return () => {
       const mounted = root.$el
       root.$destroy()
       mounted.remove()
       rootRef.current = null
       handlersRef.current = null
+      // React runs every passive cleanup of a commit before any of its passive
+      // effects, so a caller remounting the bridge under a new key has this run
+      // before the new mount publishes its own instance.
+      if (instanceRef !== undefined) instanceRef.current = null
     }
   }, [])
 

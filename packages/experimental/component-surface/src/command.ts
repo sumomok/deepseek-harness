@@ -24,13 +24,17 @@
  * `componentId` and `nodeId` are identifiers checked against that spec rather
  * than text.
  *
- * What the handler answers with is the delivery, not the grade: a gesture that
- * only reached the inbox is answered with the one sentence saying so, because
- * a user told "sent to the conversation" while nothing is going to happen until
- * they write again is a user left waiting. That answer is durable too — it is
- * the `command/done` this command's own fold reads back (`action-state.ts`), so
- * a block that has been pressed keeps saying what became of the press after the
- * seat drawing it has been unmounted and drawn again.
+ * What the handler answers with is the delivery, not the grade, and only one
+ * delivery earns a sentence: a gesture the agent stopped for that reached the
+ * inbox instead of a turn, because a user told "sent to the conversation" while
+ * nothing is going to happen until they write again is a user left waiting.
+ * Ticking a row is not that gesture — it is the user working, nobody is waiting
+ * on a reply to it, and a sentence per tick would be a line of chat per tick —
+ * so it is answered with a textless success, which the chat row draws nothing
+ * for. That answer is durable either way — it is the `command/done` this
+ * command's own fold reads back (`action-state.ts`), so a block that has been
+ * pressed keeps saying what became of the press after the seat drawing it has
+ * been unmounted and drawn again.
  * @module @deepseek-ai/dsh-experimental-component-surface/src/command
  */
 
@@ -38,6 +42,7 @@ import type { Context } from '@deepseek-ai/cordis'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import type { CommandDefinition, CommandResult } from '@deepseek-ai/dsh-commands'
 import { boundContextSummary, createUserMessage } from '@deepseek-ai/dsh-llm'
+import type { MessageId, UserMessage } from '@deepseek-ai/dsh-llm'
 import type { Session } from '@deepseek-ai/dsh-session'
 // Type-only: resolves ctx.sessionProjections, which the entry is read through.
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -71,17 +76,28 @@ import { acceptsActionPayload, validateComponentSpec } from './validate.ts'
  */
 const ACTION_NOT_RECORDED = '这个动作没能记下来。'
 
-/** What an action too large to carry is answered with. */
-const ACTION_TOO_LARGE = '选中的内容太多了，少选一些再试。'
+/**
+ * What an action too large to carry is answered with.
+ *
+ * Every way past a ceiling is the same event from where the person is sitting:
+ * too many rows ticked, too many conditions built, or too much typed into one
+ * of them. Reached both from the byte ceiling on the whole document and from a
+ * declared ceiling inside it, so that a gesture nobody could have known was too
+ * big is never reported as one that simply went nowhere.
+ */
+const ACTION_TOO_LARGE = '内容太多了，少选几项或写短一些再试。'
 
 /**
- * What a gesture that reached the agent's inbox rather than a turn is answered
- * with.
+ * What a gesture that asked for an answer and reached the agent's inbox instead
+ * of a turn is answered with.
  *
- * The one delivery a user would otherwise wait on forever: the notice is
- * recorded and will be read, but nothing is going to happen until they write
- * again. The two deliveries that need no sentence say so by carrying none —
- * a turn is open, or the action declared that nothing should follow it.
+ * The one delivery a user would otherwise wait on forever: they pressed a
+ * button the agent stopped for, the notice is recorded and will be read, and
+ * nothing is going to happen until they write again. The other three
+ * deliveries need no sentence and carry none — a turn is open, the action
+ * declared that nothing should follow it, or the gesture was the user working
+ * rather than answering, which is news for the agent's next step and not
+ * something its author is waiting on a reply to.
  */
 const ACTION_QUEUED = '已记下，你下次发消息时对话会看到。'
 
@@ -94,7 +110,34 @@ export interface ResolvedAction {
   readonly notice: ComponentActionNotice
   /** The grade the action declares. */
   readonly report: ActionReport
+  /**
+   * Which block's which gesture this is, as the resolved identifiers spell it:
+   * the entry the log carries, the node its spec draws, and the action the
+   * catalog declares. Two occurrences of one gesture on one block share it,
+   * which is what lets the later one replace the earlier one's unclaimed
+   * notice instead of queueing beside it.
+   */
+  readonly key: string
 }
+
+/**
+ * What one reported action came to.
+ *
+ * Three outcomes rather than two, because the person who made the gesture is
+ * answered with each of them differently: the notice is delivered, or the
+ * gesture carried more than the action accepts and doing less would help, or it
+ * named nothing on display and nothing they do will change that.
+ */
+export type ActionResolution =
+  /** The accounts to deliver, and the grade to deliver them at. */
+  | { readonly kind: 'resolved'; readonly action: ResolvedAction }
+  /** A declared ceiling inside the payload was crossed. */
+  | { readonly kind: 'too-large' }
+  /** The document names nothing this session has on display, or nothing the catalog declares. */
+  | { readonly kind: 'unresolved' }
+
+/** The one outcome with nothing to carry, shared by every lookup that misses. */
+const UNRESOLVED: ActionResolution = { kind: 'unresolved' }
 
 /**
  * Resolve one reported action against the entry the log says is on display.
@@ -106,34 +149,33 @@ export interface ResolvedAction {
  * that action declares.
  * @param records - the session's folded content-surface records.
  * @param action - the reported action, as the command line carried it.
- * @returns the resolved action, or `undefined` when it names nothing on display.
+ * @returns what the action came to.
  */
 function resolveAction(
   records: readonly ContentSurfaceRecord[],
   action: ComponentAction,
-): ResolvedAction | undefined {
+): ActionResolution {
   const record = records.find(one => one.kind === COMPONENT_KIND && one.entryId === action.entryId)
-  if (record === undefined) return undefined
+  if (record === undefined) return UNRESOLVED
   // The record is a fold cell that a persisted checkpoint may have seeded, so
   // its declared type is a claim; the spec is re-judged rather than trusted,
   // and that judgement is what gives the node its accepted properties.
   const stored = readComponentSurfaceData(record.data)
-  if (stored === undefined) return undefined
+  if (stored === undefined) return UNRESOLVED
   const spec = validateComponentSpec(stored.spec)
-  if (!spec.ok) return undefined
+  if (!spec.ok) return UNRESOLVED
   const component = catalogEntry(action.componentId)
-  if (component === undefined) return undefined
+  if (component === undefined) return UNRESOLVED
   const node = spec.spec.nodes.find(one => one.id === action.nodeId)
-  if (node === undefined) return undefined
-  /* v8 ignore start -- the catalog holds one component today, so a resolvable
-     componentId cannot disagree with a validated node's own; the check is what
-     keeps a seat from reporting one component's gesture as another's once the
-     catalog holds more. */
-  if (node.component !== component.id) return undefined
-  /* v8 ignore stop */
+  if (node === undefined) return UNRESOLVED
+  // What keeps a seat from reporting one component's gesture as another's: the
+  // named component must be the one that node actually draws.
+  if (node.component !== component.id) return UNRESOLVED
   const definition = catalogAction(component, action.actionId)
-  if (definition === undefined) return undefined
-  if (!acceptsActionPayload(action.payload, definition.payloadSchema)) return undefined
+  if (definition === undefined) return UNRESOLVED
+  const verdict = acceptsActionPayload(action.payload, definition.payloadSchema)
+  if (verdict === 'too-large') return { kind: 'too-large' }
+  if (verdict === 'refused') return UNRESOLVED
   const notice = definition.describe({
     entryId: record.entryId,
     entryTitle: stored.title,
@@ -141,8 +183,11 @@ function resolveAction(
     component,
     payload: action.payload,
   })
-  if (notice === undefined) return undefined
-  return { notice, report: definition.report }
+  if (notice === undefined) return UNRESOLVED
+  // Built from what the lookups returned rather than from what the document
+  // said, so two seats spelling one gesture differently cannot land on two keys.
+  const key = JSON.stringify([record.entryId, node.id, definition.id])
+  return { kind: 'resolved', action: { notice, report: definition.report, key } }
 }
 
 /**
@@ -150,16 +195,69 @@ function resolveAction(
  *
  * Not the grade the catalog declared but what became of it, because the two
  * differ exactly where a user would otherwise be left waiting: a `wake` past
- * the budget, or one on an agent already working, is `queued`. The handler
- * turns this into what the person who pressed is told.
+ * the budget, or one on an agent already working, is `queued`, while a
+ * `context` notice reaching that same inbox is the delivery its action asked
+ * for. The handler turns this into what the person who made the gesture is
+ * told, which is a sentence for `queued` alone.
  */
 export type ActionDelivery =
   /** The action declared that nothing should follow it; the agent was told nothing. */
   | 'none'
   /** A turn was opened for it and the agent will read it now. */
   | 'opened'
-  /** It waits in the agent's inbox until something else claims a step. */
+  /** It asked for an answer and got the inbox: nothing follows it until the user writes again. */
   | 'queued'
+  /** It is news for the agent's next step, and waits in the inbox as the action asked. */
+  | 'context'
+
+/**
+ * What the command remembers between two gestures on one agent.
+ *
+ * Both tables are keyed by the live {@link Agent} object, so a same-session
+ * replacement starts clean and a disposed one is collected with what it held;
+ * neither survives a restart, which the README records as the wake budget's own
+ * limitation and which costs a `context` gesture nothing but one extra notice.
+ */
+export interface ActionMemory {
+  /** Turns each agent's actions have opened since it last claimed human input. */
+  readonly spentWakes: WeakMap<Agent, number>
+  /** The still-unclaimed `context` notice each gesture last left, by {@link ResolvedAction.key}. */
+  readonly pendingContext: WeakMap<Agent, Map<string, MessageId>>
+}
+
+/**
+ * Build the tables one installation's presses share.
+ * @returns the empty tables, which the command and the budget's refill listener both hold.
+ */
+export function actionMemory(): ActionMemory {
+  return { spentWakes: new WeakMap(), pendingContext: new WeakMap() }
+}
+
+/**
+ * Hand one `context` notice to the agent, replacing the one the same gesture
+ * left unclaimed.
+ *
+ * A tick, an untick and a third tick are one fact about what the user has
+ * selected, not three, and the inbox has no ceiling of its own: without this,
+ * a user working a table drives an unbounded queue of notices, every one of
+ * them stating something the next already corrects. `Inbox.replace` cancels the
+ * earlier notice and inserts this one in its place, which the agent log's own
+ * accounting reads as work still pending rather than as work dropped unrun.
+ *
+ * The replacement is attempted only where this gesture left a notice that is
+ * still pending: `replace` answers false for one the agent has already claimed
+ * or cleared, and a claimed notice is one the model has read, so the new
+ * gesture is appended as an ordinary injection instead.
+ * @param agent - the agent whose seat reported the action.
+ * @param pending - this agent's unclaimed notices, by gesture key.
+ * @param key - which block's which gesture this is.
+ * @param message - the notice to deliver.
+ */
+function deliverContext(agent: Agent, pending: Map<string, MessageId>, key: string, message: UserMessage): void {
+  const previous = pending.get(key)
+  if (previous === undefined || !agent.inbox.replace(previous, message)) agent.inject(message)
+  pending.set(key, message.id)
+}
 
 /**
  * Deliver one resolved action at the grade it declares.
@@ -167,17 +265,20 @@ export type ActionDelivery =
  * The three grades, and nothing between them. `silent` reaches the agent not at
  * all, so it costs no inbox entry and no budget. `context` waits in the
  * next-step inbox, which a running turn reads without a turn boundary of its
- * own. `wake` opens a turn while the agent is idle and within budget, because
- * an answer the agent stopped for is one it never hears if nothing claims it;
- * past the budget, and on an agent already working, it degrades to `context`.
+ * own, and supersedes whatever the same gesture left there unclaimed. `wake`
+ * opens a turn while the agent is idle and within budget, because an answer the
+ * agent stopped for is one it never hears if nothing claims it; past the budget,
+ * and on an agent already working, it takes that same inbox — and is reported as
+ * `queued` rather than as `context`, because the person who pressed is waiting
+ * on an answer that will not come until they write again.
  * @param agent - the agent whose seat reported the action.
- * @param spentWakes - turns each agent's actions have opened since it last claimed human input.
- * @param resolved - the accounts to deliver, and the grade to deliver them at.
+ * @param memory - the tables this installation's presses share.
+ * @param resolved - the accounts to deliver, the grade to deliver them at, and which gesture they are.
  * @returns where the action landed, which is what the press is answered with.
  */
 export function deliverAction(
   agent: Agent,
-  spentWakes: WeakMap<Agent, number>,
+  memory: ActionMemory,
   resolved: ResolvedAction,
 ): ActionDelivery {
   if (resolved.report === 'silent') return 'none'
@@ -190,27 +291,33 @@ export function deliverAction(
       summary: boundContextSummary(resolved.notice.summary),
     },
   })
-  const spent = spentWakes.get(agent) ?? 0
+  const spent = memory.spentWakes.get(agent) ?? 0
   if (resolved.report === 'wake' && agent.status === 'idle' && spent < WAKE_BUDGET) {
-    spentWakes.set(agent, spent + 1)
+    memory.spentWakes.set(agent, spent + 1)
     agent.followup(message)
     return 'opened'
   }
-  agent.inject(message)
-  return 'queued'
+  if (resolved.report === 'wake') {
+    agent.inject(message)
+    return 'queued'
+  }
+  const pending = memory.pendingContext.get(agent) ?? new Map<string, MessageId>()
+  memory.pendingContext.set(agent, pending)
+  deliverContext(agent, pending, resolved.key, message)
+  return 'context'
 }
 
 /**
  * Build the `/component-action` command.
  *
- * The wake budget is passed in rather than owned here so that the refill
+ * The memory is passed in rather than owned here so that the budget's refill
  * listener and the spending site share one table; {@link installComponentAction}
  * is what wires the pair together.
  * @param ctx - context carrying the projection registry the entry is resolved through.
- * @param spentWakes - turns each agent's actions have opened since it last claimed human input.
+ * @param memory - the wake budget and the unclaimed context notices, per agent.
  * @returns the definition to hand to `ctx.commands.register`.
  */
-export function componentActionCommand(ctx: Context, spentWakes: WeakMap<Agent, number>): CommandDefinition {
+export function componentActionCommand(ctx: Context, memory: ActionMemory): CommandDefinition {
   return {
     name: COMPONENT_ACTION_COMMAND,
     // Chinese, and free of this package's vocabulary: the command registry has
@@ -230,11 +337,17 @@ export function componentActionCommand(ctx: Context, spentWakes: WeakMap<Agent, 
       const session: Session = invocation.agent.session
       const records = ctx.sessionProjections.stateOf(session, 'contentSurface') ?? NO_RECORDS
       const resolved = resolveAction(records, action)
-      if (resolved === undefined) return { kind: 'error', text: ACTION_NOT_RECORDED }
-      // The delivery, not the grade: a press that only reached the inbox is
-      // answered with the sentence saying so, and the block that drew it shows
-      // that sentence rather than claiming the conversation already has it.
-      const delivery = deliverAction(invocation.agent, spentWakes, resolved)
+      if (resolved.kind === 'too-large') return { kind: 'error', text: ACTION_TOO_LARGE }
+      if (resolved.kind === 'unresolved') return { kind: 'error', text: ACTION_NOT_RECORDED }
+      // The delivery, not the grade: a gesture the agent stopped for and that
+      // only reached the inbox is answered with the sentence saying so, and the
+      // block that drew it shows that sentence rather than claiming the
+      // conversation already has it. The other three deliveries answer with no
+      // sentence at all — a turn is open, nothing was to follow, or the user was
+      // working rather than waiting — and a settlement carrying no sentence is
+      // the one the chat row draws nothing for, so ticking rows leaves no
+      // receipt behind in the conversation.
+      const delivery = deliverAction(invocation.agent, memory, resolved.action)
       return delivery === 'queued' ? { kind: 'success', text: ACTION_QUEUED } : { kind: 'success' }
     },
   }
@@ -255,16 +368,14 @@ export function componentActionCommand(ctx: Context, spentWakes: WeakMap<Agent, 
  * @param ctx - context carrying the command registry and the projection registry.
  */
 export function installComponentAction(ctx: Context): void {
-  // Keyed by the exact Agent, so a same-session replacement starts with a full
-  // budget and a disposed one is collected with its count.
-  const spentWakes = new WeakMap<Agent, number>()
+  const memory = actionMemory()
   ctx.on('agent/inbox/claimed', ({ agent, message }) => {
     // Claiming is the point human input actually enters a step; a notice this
     // package queued must not refill the budget it just spent.
-    if (message.source.kind === 'user') spentWakes.delete(agent)
+    if (message.source.kind === 'user') memory.spentWakes.delete(agent)
   })
   ctx.effect(
-    () => ctx.commands.register(componentActionCommand(ctx, spentWakes)),
+    () => ctx.commands.register(componentActionCommand(ctx, memory)),
     `show-component: the /${COMPONENT_ACTION_COMMAND} command`,
   )
   ctx.effect(

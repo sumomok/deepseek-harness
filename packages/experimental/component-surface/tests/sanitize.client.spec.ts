@@ -1,19 +1,23 @@
 /**
  * The tightening pass, one rule at a time.
  *
- * Every case is stated over a probe component rather than over the deployment's
- * catalog, because the rules outlive the components that use them: no catalog
- * entry today declares a path, a color, or a renderer name, and a rule that were
- * only exercised through whichever component happens to declare it would be a
- * rule nobody could see the shape of until that component landed.
- *
- * What the real catalog is asked here is the negative: it declares no tightened
- * reading at all, so the pass over a real block returns the block's properties
- * unchanged.
+ * Each rule is stated over a probe component rather than over whichever catalog
+ * entry happens to declare it, because the rules outlive those components: a
+ * rule seen only through one component is a rule nobody can see the shape of
+ * until that component changes. The real catalog is then asked the two
+ * questions the probe cannot answer — that the components declaring a reading
+ * get it, and that the components declaring none are left alone.
  */
 
 import { describe, expect, it } from 'vitest'
-import { catalogEntry, CONFIRM_BAR_ID, RECORD_DETAIL_ID, type ComponentCatalogEntry } from '../src/component-call.ts'
+import {
+  catalogEntry,
+  CONFIRM_BAR_ID,
+  METRIC_ID,
+  RECORD_DETAIL_ID,
+  TABLE_ID,
+  type ComponentCatalogEntry,
+} from '../src/component-call.ts'
 import { sanitizeNodeProps } from '../src/sanitize.ts'
 
 /** A component declaring one of every schema shape, and one of every tightened reading. */
@@ -26,6 +30,7 @@ const PROBE: ComponentCatalogEntry = {
     accent: { required: false, schema: { kind: 'string', maxLength: 32 } },
     caption: { required: false, schema: { kind: 'string', maxLength: 32 } },
     width: { required: false, schema: { kind: 'number', min: 1, max: 10 } },
+    dense: { required: false, schema: { kind: 'boolean' } },
     mode: { required: false, schema: { kind: 'enum', values: ['wide', 2] } },
     header: {
       required: false,
@@ -52,6 +57,29 @@ const PROBE: ComponentCatalogEntry = {
         },
       },
     },
+    row: {
+      required: false,
+      schema: {
+        kind: 'record',
+        key: { kind: 'string', maxLength: 32 },
+        maxKeys: 8,
+        maxValueLength: 32,
+        minValue: -10,
+        maxValue: 10,
+      },
+    },
+    cell: {
+      required: false,
+      schema: {
+        kind: 'record',
+        key: { kind: 'string', maxLength: 32 },
+        maxKeys: 8,
+        maxValueLength: 32,
+        minValue: -10,
+        maxValue: 10,
+        sanitize: { accent: 'color' },
+      },
+    },
   },
   actions: [],
   sanitize: { icon: 'path', accent: 'color', relatedComponent: 'related-component' },
@@ -70,6 +98,55 @@ describe('a component declaring no tightened reading', () => {
       ? { title: '本月预算', message: '同意后立即生效。', buttons: [{ id: 'ok', label: '确认', tone: 'primary' }] }
       : { dataList: [{ label: '编号', display: 'A-1' }], labelWidth: 120, columnNum: 2 }
     expect(sanitizeNodeProps(component, props)).toEqual(props)
+  })
+})
+
+describe('the components that do declare one', () => {
+  /** One catalog entry's properties after the pass. */
+  function realBlock(id: string, props: Record<string, unknown>): Readonly<Record<string, unknown>> {
+    const component = catalogEntry(id)
+    if (component === undefined) throw new Error(`the catalog no longer carries ${id}`)
+    return sanitizeNodeProps(component, props)
+  }
+
+  /** One table around one column. */
+  function withColumn(column: Record<string, unknown>): Record<string, unknown> {
+    return { tableConfig: { gridItems: [column] }, displayValueList: [{ zh_label: 'A-1' }] }
+  }
+
+  it('falls the table back to the plain cell renderer rather than leaving a cell undrawn', () => {
+    const props = realBlock(TABLE_ID, withColumn({ relatedMetaAttr: 'state', relatedComponent: 'display_download' }))
+    const columns = (props['tableConfig'] as { gridItems: Record<string, unknown>[] }).gridItems
+    expect(columns[0]?.['relatedComponent']).toBe('display_default')
+  })
+
+  it('drops a cell colour the browser would have read as something else', () => {
+    const props = realBlock(TABLE_ID, withColumn({
+      relatedMetaAttr: 'state',
+      relatedComponent: 'display_tag',
+      relatedComponentObj: { color: 'var(--danger)', size: 20 },
+    }))
+    const columns = (props['tableConfig'] as { gridItems: Record<string, unknown>[] }).gridItems
+    expect(columns[0]?.['relatedComponentObj']).toEqual({ size: 20 })
+  })
+
+  it('leaves a table row alone whose own field is called colour', () => {
+    // The rule the record-level declaration buys: `color` is a configuration key
+    // of a cell renderer and a perfectly ordinary column of somebody's data.
+    const props = realBlock(TABLE_ID, {
+      tableConfig: { gridItems: [{ relatedMetaAttr: 'color' }] },
+      displayValueList: [{ color: '红色' }],
+    })
+    expect(props['displayValueList']).toEqual([{ color: '红色' }])
+  })
+
+  it('keeps the metric ball\'s colours and drops the ones that are not colours', () => {
+    expect(realBlock(METRIC_ID, {
+      process: 72,
+      background: '#00D27A',
+      borderColor: 'rgba(0,210,122,0.4)',
+      pointColor: 'url(/x.png)',
+    })).toEqual({ process: 72, background: '#00D27A', borderColor: 'rgba(0,210,122,0.4)' })
   })
 })
 
@@ -159,9 +236,42 @@ describe('a renderer name', () => {
   })
 })
 
+describe('a record whose keys are the caller\'s own', () => {
+  it('keeps every scalar it carries, whatever the keys are called', () => {
+    expect(sanitized({ row: { zh_label: 'A-1', state: 0, spare: false } }))
+      .toEqual({ row: { zh_label: 'A-1', state: 0, spare: false } })
+  })
+
+  it('drops a key whose value is not a scalar, keeping the rest', () => {
+    expect(sanitized({ row: { zh_label: 'A-1', nested: { text: 'A-1' }, listed: ['A-1'], missing: null } }))
+      .toEqual({ row: { zh_label: 'A-1' } })
+  })
+
+  it('reads a key the record itself declares as narrower than text', () => {
+    expect(sanitized({ cell: { accent: '#67C23A', size: 20 } })).toEqual({ cell: { accent: '#67C23A', size: 20 } })
+    expect(sanitized({ cell: { accent: 'var(--danger)', size: 20 } })).toEqual({ cell: { size: 20 } })
+  })
+
+  it('leaves the same key name alone in a record that declares no reading for it', () => {
+    // The whole reason a record declares its own readings rather than sharing
+    // the component's: a field of the caller's data that happens to be called
+    // what a configuration key is called is still data.
+    expect(sanitized({ row: { accent: '红色' } })).toEqual({ row: { accent: '红色' } })
+  })
+
+  it('drops a record-valued property carrying something that is not a record', () => {
+    expect(sanitized({ row: ['A-1'], caption: '在用' })).toEqual({ caption: '在用' })
+  })
+
+  it('freezes what it answers with, so a Vue renderer cannot observe a row', () => {
+    const result = sanitized({ row: { zh_label: 'A-1' } })
+    expect(Object.isFrozen(result['row'])).toBe(true)
+  })
+})
+
 describe('the shapes the pass descends through', () => {
-  it('keeps a number and an enumerated value as they are', () => {
-    expect(sanitized({ width: 4, mode: 2 })).toEqual({ width: 4, mode: 2 })
+  it('keeps a number, a yes-or-no and an enumerated value as they are', () => {
+    expect(sanitized({ width: 4, dense: false, mode: 2 })).toEqual({ width: 4, dense: false, mode: 2 })
   })
 
   it.each([

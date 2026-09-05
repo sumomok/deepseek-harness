@@ -49,6 +49,16 @@ export interface ComponentCallFailure {
   readonly path: string
   /** The model-facing sentence, which always names {@link path}. */
   readonly text: string
+  /**
+   * Whether the value crossed a declared ceiling on how much it carries — a
+   * list's item count, a string's length, a record's field count — rather than
+   * being the wrong thing altogether.
+   *
+   * The distinction exists for the return channel, where the refusal is read by
+   * whoever made the gesture: "there is too much here" names something they can
+   * act on, and "this was not recorded" is what everything else honestly is.
+   */
+  readonly oversize: boolean
 }
 
 /** Outcome of validating one whole call. */
@@ -77,7 +87,20 @@ const SPEC_KEYS: readonly string[] = ['nodes']
  * @returns the refusal.
  */
 function refuse(path: string, message: string): ComponentCallFailure {
-  return { path, text: `show_component: ${path} — ${message}` }
+  return { path, text: `show_component: ${path} — ${message}`, oversize: false }
+}
+
+/**
+ * Build one refusal for a value past a declared ceiling on how much it carries.
+ *
+ * Same sentence as {@link refuse} builds; what it adds is the one bit a reported
+ * gesture is answered differently for.
+ * @param path - parameter path of the offending value.
+ * @param message - what is wrong with it and what to send instead.
+ * @returns the refusal, marked oversize.
+ */
+function refuseSize(path: string, message: string): ComponentCallFailure {
+  return { ...refuse(path, message), oversize: true }
 }
 
 /**
@@ -103,7 +126,7 @@ function readBoundedString(
   if (trimmed.length > maxLength) {
     return {
       ok: false,
-      failure: refuse(path, `is ${trimmed.length} characters; at most ${maxLength} are accepted.`),
+      failure: refuseSize(path, `is ${trimmed.length} characters; at most ${maxLength} are accepted.`),
     }
   }
   if (charset !== undefined && !charset.allowed.test(trimmed)) {
@@ -142,7 +165,7 @@ function validateString(
 ): ComponentCallFailure | undefined {
   if (typeof value !== 'string') return refuse(path, 'must be a string.')
   if (value.length > schema.maxLength) {
-    return refuse(path, `is ${value.length} characters; at most ${schema.maxLength} are accepted.`)
+    return refuseSize(path, `is ${value.length} characters; at most ${schema.maxLength} are accepted.`)
   }
   if (schema.charset !== undefined && !schema.charset.allowed.test(value)) {
     return refuse(path, `may use only ${schema.charset.hint}.`)
@@ -170,6 +193,84 @@ function validateNumber(
     return refuse(path, `is ${value}; between ${schema.min} and ${schema.max} is accepted.`)
   }
   return undefined
+}
+
+/**
+ * Validate one boolean property.
+ * @param value - the property value, however malformed.
+ * @param path - parameter path used in the refusal.
+ * @returns the refusal, or `undefined` when the value is accepted.
+ */
+function validateBoolean(value: unknown, path: string): ComponentCallFailure | undefined {
+  if (typeof value !== 'boolean') return refuse(path, 'must be true or false.')
+  return undefined
+}
+
+/**
+ * Validate one record whose keys are the caller's own: the key count, every
+ * key's name, and every value.
+ *
+ * The keys are judged rather than listed, because the schema declares an
+ * alphabet and a count instead of the names — a row of a table is keyed by
+ * whatever the columns read. A key past the length ceiling is refused without
+ * being quoted back, and one that is merely outside the alphabet is quoted,
+ * because by then it is short enough to name.
+ * @param value - the property value, however malformed.
+ * @param schema - the declared record.
+ * @param path - parameter path used in the refusal.
+ * @returns the refusal, or `undefined` when the record is accepted.
+ */
+function validateRecord(
+  value: unknown,
+  schema: Extract<PropsFieldSchema, { kind: 'record' }>,
+  path: string,
+): ComponentCallFailure | undefined {
+  if (value === null || typeof value !== 'object' || Array.isArray(value)) {
+    return refuse(path, 'must be an object of your own field names.')
+  }
+  const entries = Object.entries(value)
+  if (entries.length > schema.maxKeys) {
+    return refuseSize(path, `carries ${entries.length} fields; at most ${schema.maxKeys} are accepted.`)
+  }
+  for (const [key, entry] of entries) {
+    if (key.length > schema.key.maxLength) {
+      return refuseSize(path, `carries a field name of ${key.length} characters; at most ${schema.key.maxLength} are accepted.`)
+    }
+    if (schema.key.charset !== undefined && !schema.key.charset.allowed.test(key)) {
+      return refuse(path, `carries the field name ${JSON.stringify(key)}, which may use only ${schema.key.charset.hint}.`)
+    }
+    const failure = validateRecordValue(entry, schema, `${path}.${key}`)
+    if (failure !== undefined) return failure
+  }
+  return undefined
+}
+
+/**
+ * Validate one value inside a caller-keyed record.
+ * @param value - the value, however malformed.
+ * @param schema - the declared record.
+ * @param path - parameter path used in the refusal.
+ * @returns the refusal, or `undefined` when the value is accepted.
+ */
+function validateRecordValue(
+  value: unknown,
+  schema: Extract<PropsFieldSchema, { kind: 'record' }>,
+  path: string,
+): ComponentCallFailure | undefined {
+  if (typeof value === 'boolean') return undefined
+  if (typeof value === 'string') {
+    if (value.length > schema.maxValueLength) {
+      return refuseSize(path, `is ${value.length} characters; at most ${schema.maxValueLength} are accepted.`)
+    }
+    return undefined
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) {
+    if (value < schema.minValue || value > schema.maxValue) {
+      return refuse(path, `is ${value}; between ${schema.minValue} and ${schema.maxValue} is accepted.`)
+    }
+    return undefined
+  }
+  return refuse(path, 'must be text, a number, or true or false.')
 }
 
 /**
@@ -203,12 +304,12 @@ function validateArray(
   path: string,
 ): ComponentCallFailure | undefined {
   if (!Array.isArray(value)) return refuse(path, 'must be an array.')
-  if (value.length < schema.minItems || value.length > schema.maxItems) {
-    return refuse(
-      path,
-      `lists ${value.length} items; between ${schema.minItems} and ${schema.maxItems} are accepted.`,
-    )
-  }
+  // One sentence for both bounds, because the model is told what the list
+  // accepts either way; the two are built apart only so that a list carrying
+  // too much is answered as too much where a reported gesture reads it.
+  const bounds = `lists ${value.length} items; between ${schema.minItems} and ${schema.maxItems} are accepted.`
+  if (value.length > schema.maxItems) return refuseSize(path, bounds)
+  if (value.length < schema.minItems) return refuse(path, bounds)
   const seen = new Set<unknown>()
   for (const [index, item] of value.entries()) {
     const itemPath = `${path}[${index}]`
@@ -242,7 +343,9 @@ function validateField(
   switch (schema.kind) {
     case 'string': return validateString(value, schema, path)
     case 'number': return validateNumber(value, schema, path)
+    case 'boolean': return validateBoolean(value, path)
     case 'enum': return validateEnum(value, schema, path)
+    case 'record': return validateRecord(value, schema, path)
     case 'object': return validateProps(value, schema.fields, path)
     case 'array': return validateArray(value, schema, path)
     /* v8 ignore start -- PropsFieldSchema is closed and every variant returns above. */
@@ -398,20 +501,39 @@ export function validateComponentSpec(value: unknown): ComponentSpecResult {
 }
 
 /**
- * Decide whether one reported action's payload is what its catalog action
- * declares: no undeclared property, every required property present, and every
- * value in range — the same pass a component's props go through.
+ * What one reported action's payload was judged to be.
  *
- * Only the verdict is returned. An action's refusal is read by the person who
- * clicked rather than by a model, and a parameter path is not something that
- * person can act on; the half that has to send a declared payload is the seat,
- * which ships in this package and reads the same declaration.
+ * Two ways of not being accepted, because the person who clicked is told them
+ * apart: one names something they can do about it, and the other is everything
+ * else.
+ */
+export type ActionPayloadVerdict =
+  /** Exactly what the action declares. */
+  | 'accepted'
+  /** Past a declared ceiling on how much a value carries — too many rows ticked, too much typed. */
+  | 'too-large'
+  /** Not what the action declares, in a way sending less would not fix. */
+  | 'refused'
+
+/**
+ * Judge one reported action's payload against what its catalog action declares:
+ * no undeclared property, every required property present, and every value in
+ * range — the same pass a component's props go through.
+ *
+ * No parameter path is returned. An action's refusal is read by the person who
+ * clicked rather than by a model, and a path is not something that person can
+ * act on; the half that has to send a declared payload is the seat, which ships
+ * in this package and reads the same declaration. What the verdict does carry
+ * is whether the payload was merely too big, which is the one refusal a user
+ * can answer by ticking or typing less.
  * @param payload - the payload as the action document carried it.
  * @param schema - the properties the action declares.
- * @returns whether the payload is accepted.
+ * @returns the verdict.
  */
-export function acceptsActionPayload(payload: unknown, schema: PropsSchema): boolean {
-  return validateProps(payload, schema, 'payload') === undefined
+export function acceptsActionPayload(payload: unknown, schema: PropsSchema): ActionPayloadVerdict {
+  const failure = validateProps(payload, schema, 'payload')
+  if (failure === undefined) return 'accepted'
+  return failure.oversize ? 'too-large' : 'refused'
 }
 
 /**

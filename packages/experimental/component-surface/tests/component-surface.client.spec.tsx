@@ -19,7 +19,7 @@ import { installElementUI } from '@deepseek-ai/dsh-experimental-component-kit/sr
 import { ComponentSurface, type ComponentSurfaceProps } from '../src/client/ComponentSurface.tsx'
 import type { ComponentActionRecord } from '../src/action-state.ts'
 import { pendingPressKey, type ActionDispatch, type PendingPresses } from '../src/client/action.ts'
-import { CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID, RECORD_DETAIL_ID } from '../src/component-call.ts'
+import { CONFIRM_BAR_ID, CONFIRM_BAR_PRESS_ID, RECORD_DETAIL_ID, TABLE_ID } from '../src/component-call.ts'
 
 // One of the two components this seat draws is a Vue 2 component on element-ui,
 // which the component row installs when its own client plugin starts.
@@ -386,6 +386,30 @@ describe('component content seat', () => {
     expect(view.container.querySelector('.el-col-24')).not.toBeNull()
     // And nothing about a record answers back, so the seat draws no control.
     expect(view.queryByRole('button')).toBeNull()
+  })
+
+  it('leaves a block as it found it when the gesture is not that block\'s own answer', async () => {
+    // A table reports four gestures and the block holds one state. A tick is
+    // not an answer: nothing settles it, so filing it as one would pin the
+    // block at `sending` and refuse the row button under it for good.
+    const table = {
+      id: 'devices',
+      component: TABLE_ID,
+      props: {
+        tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label', alias: '名称' }] },
+        displayValueList: [{ zh_label: 'A-1' }, { zh_label: 'A-2' }],
+        selectMode: 'checkbox',
+        customOperations: [{ key: 'export', label: '导出' }],
+      },
+    }
+    const view = mount({ entry: componentEntry([table]) })
+    await new Promise((resolve) => { setTimeout(resolve, 0) })
+    const boxes = view.container.querySelectorAll('.el-table__body-wrapper .el-checkbox__original')
+    fireEvent.click(boxes[0] as HTMLElement)
+    await new Promise((resolve) => { setTimeout(resolve, 0) })
+    expect(view.onAction).toHaveBeenCalledWith('a', expect.objectContaining({ actionId: 'select' }))
+    expect(view.pending.size).toBe(0)
+    expect(stateLine(view)).toBeUndefined()
   })
 
   it('draws nothing at all while another kind holds the column', () => {

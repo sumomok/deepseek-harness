@@ -52,7 +52,7 @@ const viewSchema: ZodType<ComponentActionsView> = zod.object({
  * stored cell fields or the pairing semantics change, so checkpoints written
  * by an older fold are discarded rather than forward-applied.
  */
-const STATE_VERSION = 1
+const STATE_VERSION = 2
 
 /**
  * Build the `componentActions` unit.

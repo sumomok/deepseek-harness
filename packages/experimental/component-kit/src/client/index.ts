@@ -31,7 +31,10 @@ import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { ConfirmBar } from './ConfirmBar.tsx'
 import { installElementUI } from './element-ui.ts'
 import { en, NS, zh } from './locales.ts'
+import { TableDetailRenderer } from './TableDetailRenderer.tsx'
 import { TcFormDetailRenderer } from './TcFormDetailRenderer.tsx'
+import { TcProcessBallRenderer } from './TcProcessBallRenderer.tsx'
+import { TuQueryCondAdvRenderer } from './TuQueryCondAdvRenderer.tsx'
 import type { ComponentRenderer } from './renderer.ts'
 
 export { NS } from './locales.ts'
@@ -68,7 +71,10 @@ export type { VueComponentOptions, VueInstance } from './vue-shim.ts'
  */
 export const COMPONENT_RENDERERS = {
   'el.confirm-bar': ConfirmBar,
+  'el.filter-bar': TuQueryCondAdvRenderer,
+  'el.metric': TcProcessBallRenderer,
   'toy.record': TcFormDetailRenderer,
+  'toy.table': TableDetailRenderer,
 } satisfies Readonly<Record<string, ComponentRenderer>>
 
 /** Required service: the locale registry this row's dictionaries land in. */

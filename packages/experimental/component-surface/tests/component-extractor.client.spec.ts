@@ -137,7 +137,7 @@ describe('the component kind', () => {
     // Refused calls are in the log all the same — the loop records the call,
     // not the outcome — and an entry for one would be a block the seat has
     // nothing to draw.
-    call('call_1', { id: 'budget', title: '预算确认', spec: { nodes: [{ id: 'bar', component: 'toy.table', props: {} }] } })
+    call('call_1', { id: 'budget', title: '预算确认', spec: { nodes: [{ id: 'bar', component: 'toy.chart', props: {} }] } })
     call('call_2', { title: '预算确认', spec: FIRST })
     dispatch('<root>:code:1', { id: 'budget', title: '预算确认', spec: { nodes: [] } })
     expect(entries()).toEqual([])

@@ -11,6 +11,14 @@
  * except a renderer name, which falls back to the plain one rather than leaving
  * a cell with nothing to draw it.
  *
+ * That fallback is for a value the schema in force did not judge. The one
+ * component declaring a renderer name also declares it as an enum, so a call
+ * naming a renderer outside the whitelist is refused outright and the model is
+ * told what it may send; what reaches the fallback instead is a stored record
+ * written against a catalog whose whitelist has since narrowed, which no
+ * refusal can reach. The other two classes have no such enum and are the pass's
+ * own work in every path.
+ *
  * The pass is total and silent. It answers with properties, never with a
  * refusal, because it runs where a refusal has nowhere to go: after validation
  * has already accepted the call on the host, and again on the wire in the
@@ -31,42 +39,28 @@
  * is the one thing it walks past. A React renderer gains the same guarantee,
  * that what it was lent it may read and may not write.
  *
- * No catalog entry declares a {@link SanitizeClass} yet, so the readings below
- * are exercised only by a probe component in the tests; the tightening layer is
- * scheduled ahead of the first component that needs one. Review trigger: the
- * entry that declares the first reading — a reading nothing declares by then
- * leaves with that change rather than waiting for a later component.
+ * Two catalog entries declare a reading. The data table declares
+ * `relatedComponent` as a renderer name and, inside one column's renderer
+ * configuration, `color` as a color; the metric ball declares its three colors.
+ * `path` is the one reading nothing declares yet: it is enforced and tested
+ * here, and the first component that addresses an asset is what puts it on a
+ * screen.
  *
  * The module imports nothing but the catalog vocabulary, so the browser half
  * runs the identical pass.
  * @module @deepseek-ai/dsh-experimental-component-surface/src/sanitize
  */
 
-import type {
-  ComponentCatalogEntry,
-  PropsFieldSchema,
-  PropsSchema,
-  SanitizeClass,
-  SanitizeRules,
+import {
+  RELATED_COMPONENT_FALLBACK,
+  RELATED_COMPONENTS,
+  type ComponentCatalogEntry,
+  type PropsFieldSchema,
+  type PropsSchema,
+  type RecordFieldSchema,
+  type SanitizeClass,
+  type SanitizeRules,
 } from './component-call.ts'
-
-/**
- * The renderers a `related-component` property may name.
- *
- * A whitelist rather than a check for a legal identifier: the value chooses code
- * that draws a cell, so a name outside this list is not a renderer this build
- * has, whatever it is spelled like.
- */
-const RELATED_COMPONENTS: readonly string[] = [
-  'display_default',
-  'display_yesno',
-  'display_progress',
-  'display_circle',
-  'display_tag',
-]
-
-/** The renderer a `related-component` outside {@link RELATED_COMPONENTS} is drawn with. */
-const RELATED_COMPONENT_FALLBACK = 'display_default'
 
 /**
  * One same-origin path: exactly one leading slash, then nothing that ends an
@@ -133,7 +127,9 @@ function sanitizeShape(value: unknown, schema: PropsFieldSchema, rules: Sanitize
   switch (schema.kind) {
     case 'string':
     case 'number':
+    case 'boolean':
     case 'enum': return value
+    case 'record': return isRecord(value) ? sanitizeKeyedRecord(value, schema) : undefined
     case 'object': return isRecord(value) ? sanitizeRecord(value, schema.fields, rules) : undefined
     case 'array': return Array.isArray(value)
       ? Object.freeze(value.map(item => sanitizeShape(item, schema.item, rules)).filter(item => item !== undefined))
@@ -145,6 +141,40 @@ function sanitizeShape(value: unknown, schema: PropsFieldSchema, rules: Sanitize
     }
     /* v8 ignore stop */
   }
+}
+
+/**
+ * Keep one value a caller-keyed record is allowed to carry.
+ * @param value - the value, however malformed.
+ * @returns the value when it is a scalar, or `undefined` when the key is dropped.
+ */
+function scalarValue(value: unknown): unknown {
+  if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') return value
+  return undefined
+}
+
+/**
+ * Read one record whose keys are the caller's own.
+ *
+ * The walk is over the record rather than over a schema, because there is no
+ * list of keys to walk: what bounds it is that every value must be a scalar and
+ * that the record itself declares which of its keys are read as something
+ * narrower than text.
+ * @param value - the record.
+ * @param schema - the declared record.
+ * @returns a new frozen record carrying the keys this pass accepted.
+ */
+function sanitizeKeyedRecord(
+  value: Readonly<Record<string, unknown>>,
+  schema: RecordFieldSchema,
+): Record<string, unknown> {
+  const kept: Record<string, unknown> = {}
+  for (const [key, entry] of Object.entries(value)) {
+    const sanitizeClass = schema.sanitize?.[key]
+    const cleaned = sanitizeClass === undefined ? scalarValue(entry) : sanitizeClassValue(entry, sanitizeClass)
+    if (cleaned !== undefined) kept[key] = cleaned
+  }
+  return Object.freeze(kept)
 }
 
 /**

@@ -42,11 +42,22 @@ const AGENT = {
  * `system-prompt.expected.md` carries the composed prompt. Each scenario still
  * owns its own stdout and session log, which is where a tool's result text is.
  *
- * The two `show_component` scenarios are one per component the catalog offers,
- * because what a placed block costs a model is the arguments it has to get right
- * and those differ per component: `show-component-turn` places the one that asks
- * a question, `show-record-turn` the one that only displays — a vendored Vue
- * component whose properties are a list of rows rather than a list of buttons.
+ * The `show_component` scenarios are one per component whose arguments are a
+ * shape of their own, because what a placed block costs a model is the arguments
+ * it has to get right: `show-component-turn` places the one that asks a
+ * question, `show-record-turn` the one that only displays, `show-table-turn` the
+ * one whose properties nest a column list inside a configuration object and
+ * whose rows are records the model chooses the field names of, and
+ * `show-filter-turn` the one whose properties are an attribute table and a
+ * narrowed list of match strategies. The metric ball has no scenario: its
+ * properties are seven scalars, which the description already states and no
+ * other scenario would exercise differently.
+ *
+ * What none of them carries is a gesture. `/component-action` reaches the host
+ * through `remote.commands` and the ACP protocol has no command method, so this
+ * lane pins the placement and the description that promises a gesture comes
+ * back, and `apps/web/tests/component-surface.e2e.ts` pins the gesture itself
+ * against a real browser and the shipped bundles.
  *
  * `recorded: false` on all of them because no browser can answer this
  * composition under ACP: a chart's verdict deadline always lapses and a placed
@@ -59,6 +70,8 @@ const SCENARIOS: Scenario[] = [
   { name: 'show-chart-turn', hasModelTurn: true, recorded: false, pinsHeader: true },
   { name: 'show-component-turn', hasModelTurn: true, recorded: false },
   { name: 'show-record-turn', hasModelTurn: true, recorded: false },
+  { name: 'show-table-turn', hasModelTurn: true, recorded: false },
+  { name: 'show-filter-turn', hasModelTurn: true, recorded: false },
 ]
 
 /**

@@ -59,7 +59,8 @@ export function describeShowComponent(): string {
     + 'display, reuse that entry\'s id.\n\n'
     + `A call places between 1 and ${MAX_NODES} blocks, and \`spec\` is at most ${MAX_SPEC_BYTES} bytes of JSON. `
     + 'A block carries the properties listed under its component and no others — a `props:` line names each one, '
-    + 'marks the ones a call may leave out with `?`, and writes a list as `[{item properties}]`. Anything else is '
+    + 'marks the ones a call may leave out with `?`, writes a list as `[what one item is] (fewest–most)`, and '
+    + 'writes an object you choose the field names of as `{<field>: text|number|boolean}`. Anything else is '
     + 'refused, and the refusal names what you sent and lists the properties that component accepts.\n\n'
     + 'What the user does inside a block comes back to you, naming the entry and the block it happened in, '
     + 'unless the list above says nothing comes back from that component. Do not also ask in the conversation '

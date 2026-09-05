@@ -126,6 +126,30 @@ describe('the per-block gesture fold', () => {
     expect(fold([run(10, 'cmd-1', ' sales', 'show-content-page')])).toEqual([])
   })
 
+  it('records nothing for a gesture that is not the block\'s own answer', () => {
+    // A table reports four gestures and holds one cell. If a tick claimed it,
+    // the block would read as answered by a selection and the row button under
+    // it would be refused for the rest of the entry.
+    const ticked = { ...PRESS, componentId: 'toy.table', actionId: 'select', nodeId: 'devices', payload: { rowIndexes: [0] } }
+    const sorted = { ...ticked, actionId: 'sort', payload: { prop: 'state', order: 'asc' } }
+    const typed = { ...PRESS, componentId: 'el.filter-bar', actionId: 'change', nodeId: 'query', payload: { count: 1 } }
+    expect(fold([run(10, 'cmd-1', args(ticked)), run(11, 'cmd-2', args(sorted)), run(12, 'cmd-3', args(typed))])).toEqual([])
+  })
+
+  it('records the gesture a block was placed to receive', () => {
+    const pressed = { ...PRESS, componentId: 'toy.table', actionId: 'operation', nodeId: 'devices', payload: { opId: 'export', rowIndex: 0 } }
+    const submitted = { ...PRESS, componentId: 'el.filter-bar', actionId: 'submit', nodeId: 'query', payload: { conditions: [] } }
+    expect(fold([run(10, 'cmd-1', args(pressed))]).map(cell => cell.nodeId)).toEqual(['devices'])
+    expect(fold([run(10, 'cmd-1', args(submitted))]).map(cell => cell.nodeId)).toEqual(['query'])
+  })
+
+  it('records nothing for a document naming a component or an action the catalog does not declare', () => {
+    const unknownComponent = { ...PRESS, componentId: 'toy.chart' }
+    const unknownAction = { ...PRESS, actionId: 'double-press' }
+    expect(fold([run(10, 'cmd-1', args(unknownComponent))])).toEqual([])
+    expect(fold([run(10, 'cmd-1', args(unknownAction))])).toEqual([])
+  })
+
   it('records nothing for a line naming no action document', () => {
     // The path a hand-typed line takes: it is refused by the handler and leaves
     // no cell, so it cannot repaint a block the user really did press.

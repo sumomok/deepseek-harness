@@ -13,11 +13,14 @@ import { describe, expect, it } from 'vitest'
 import {
   COMPONENT_CATALOG,
   describeCatalog,
+  FILTER_BAR_ID,
   MAX_ENTRY_ID_LENGTH,
   MAX_NODES,
   MAX_SPEC_BYTES,
   MAX_SPEC_DEPTH,
   MAX_TITLE_LENGTH,
+  METRIC_ID,
+  TABLE_ID,
   type PropsFieldSchema,
   type PropsSchema,
 } from '../src/component-call.ts'
@@ -110,15 +113,13 @@ function sampleField(schema: PropsFieldSchema): unknown {
   switch (schema.kind) {
     case 'string': return 'a'
     case 'number': return schema.min
+    case 'boolean': return true
     case 'enum': return schema.values[0]
+    case 'record': return { field: 'a' }
     case 'object': return sampleProps(schema.fields)
-    case 'array': return Array.from(
-      { length: Math.max(schema.minItems, 1) },
-      (_unused, index) => ({
-        ...sampleProps(schema.item.fields),
-        ...(schema.uniqueBy === undefined ? {} : { [schema.uniqueBy]: `i${index}` }),
-      }),
-    )
+    // One item, which is what every list in the catalog declares as its fewest,
+    // so the identifying property of a list that has one needs no widening here.
+    case 'array': return Array.from({ length: Math.max(schema.minItems, 1) }, () => sampleField(schema.item))
   }
 }
 
@@ -180,6 +181,155 @@ describe('the record detail', () => {
   })
 })
 
+describe('the data table', () => {
+  /** One node drawing a data table. */
+  function table(props: Record<string, unknown>): Record<string, unknown> {
+    return { id: 'n1', component: TABLE_ID, props }
+  }
+
+  /** The narrowest table a call can place: one column, one row. */
+  const MINIMAL: Record<string, unknown> = {
+    tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label' }] },
+    displayValueList: [{ zh_label: 'A-1' }],
+  }
+
+  /** One table with the property under test replacing the minimal one's. */
+  function withProps(props: Record<string, unknown>): Record<string, unknown> {
+    return { ...MINIMAL, ...props }
+  }
+
+  it('accepts the narrowest table: one column and one row', () => {
+    expect(validateComponentSpec({ nodes: [table(MINIMAL)] })).toMatchObject({ ok: true })
+  })
+
+  it('accepts every declared property at once', () => {
+    expect(validateComponentSpec({
+      nodes: [table({
+        tableConfig: {
+          gridItems: [
+            { relatedMetaAttr: 'zh_label', alias: '名称', isShow: true, isSortable: true },
+            { relatedMetaAttr: 'state', alias: '状态', relatedComponent: 'display_tag', relatedComponentObj: { color: '#67C23A', size: 20, dense: false } },
+          ],
+        },
+        displayValueList: [{ zh_label: 'A-1', state: '在用' }, { zh_label: 'A-2', state: 1, spare: true }],
+        rawValueList: [{ zh_label: 'A-1', state: 0 }],
+        selectMode: 'radio',
+        isNameClick: true,
+        tableSortable: false,
+        customOperations: [{ key: 'export', label: '导出' }, { key: 'retire', label: '停用' }],
+        operationColumnWidth: 120,
+      })],
+    })).toMatchObject({ ok: true })
+  })
+
+  it('accepts two rows carrying the same values, because a row is not something the call identifies', () => {
+    expect(validateComponentSpec({
+      nodes: [table(withProps({ displayValueList: [{ zh_label: 'A-1' }, { zh_label: 'A-1' }] }))],
+    })).toMatchObject({ ok: true })
+  })
+
+  it.each([
+    ['no columns', withProps({ tableConfig: { gridItems: [] } }), 'spec.nodes[0].props.tableConfig.gridItems', /lists 0 items; between 1 and 30 are accepted/],
+    ['more columns than a table holds', withProps({ tableConfig: { gridItems: Array.from({ length: 31 }, (_unused, index) => ({ relatedMetaAttr: `c${index}` })) } }), 'spec.nodes[0].props.tableConfig.gridItems', /lists 31 items; between 1 and 30 are accepted/],
+    ['two columns reading one field', withProps({ tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label' }, { relatedMetaAttr: 'zh_label' }] } }), 'spec.nodes[0].props.tableConfig.gridItems[1].relatedMetaAttr', /repeats "zh_label"/],
+    ['a field name starting with a digit', withProps({ tableConfig: { gridItems: [{ relatedMetaAttr: '1st' }] } }), 'spec.nodes[0].props.tableConfig.gridItems[0].relatedMetaAttr', /may use only a letter or an underscore, then letters, digits, underscores and hyphens/],
+    ['a field name past the ceiling', withProps({ tableConfig: { gridItems: [{ relatedMetaAttr: `a${'b'.repeat(64)}` }] } }), 'spec.nodes[0].props.tableConfig.gridItems[0].relatedMetaAttr', /is 65 characters; at most 64 are accepted/],
+    ['a cell renderer this build does not have', withProps({ tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label', relatedComponent: 'display_download' }] } }), 'spec.nodes[0].props.tableConfig.gridItems[0].relatedComponent', /must be one of "display_default", "display_yesno", "display_progress", "display_circle", "display_tag"/],
+    ['a column visibility that is not a yes or a no', withProps({ tableConfig: { gridItems: [{ relatedMetaAttr: 'zh_label', isShow: '1' }] } }), 'spec.nodes[0].props.tableConfig.gridItems[0].isShow', /must be true or false/],
+    ['no rows at all', withProps({ displayValueList: [] }), 'spec.nodes[0].props.displayValueList', /lists 0 items; between 1 and 500 are accepted/],
+    ['more rows than a table holds', withProps({ displayValueList: Array.from({ length: 501 }, () => ({ zh_label: 'A' })) }), 'spec.nodes[0].props.displayValueList', /lists 501 items; between 1 and 500 are accepted/],
+    ['a row that is not an object', withProps({ displayValueList: ['A-1'] }), 'spec.nodes[0].props.displayValueList[0]', /must be an object of your own field names/],
+    ['a row field name outside the alphabet', withProps({ displayValueList: [{ 'zh label': 'A-1' }] }), 'spec.nodes[0].props.displayValueList[0]', /carries the field name "zh label", which may use only a letter or an underscore/],
+    ['a row field name past the ceiling', withProps({ displayValueList: [{ [`a${'b'.repeat(64)}`]: 'A-1' }] }), 'spec.nodes[0].props.displayValueList[0]', /carries a field name of 65 characters; at most 64 are accepted/],
+    ['a row carrying more fields than a row may', withProps({ displayValueList: [Object.fromEntries(Array.from({ length: 41 }, (_unused, index) => [`f${index}`, 'v']))] }), 'spec.nodes[0].props.displayValueList[0]', /carries 41 fields; at most 40 are accepted/],
+    ['a row value that is a document of its own', withProps({ displayValueList: [{ zh_label: { text: 'A-1' } }] }), 'spec.nodes[0].props.displayValueList[0].zh_label', /must be text, a number, or true or false/],
+    ['a row value that is nothing at all', withProps({ displayValueList: [{ zh_label: null }] }), 'spec.nodes[0].props.displayValueList[0].zh_label', /must be text, a number, or true or false/],
+    ['an oversized row value', withProps({ displayValueList: [{ zh_label: 'A'.repeat(201) }] }), 'spec.nodes[0].props.displayValueList[0].zh_label', /is 201 characters; at most 200 are accepted/],
+    ['a row number no JSON carries exactly', withProps({ displayValueList: [{ zh_label: Number.MAX_SAFE_INTEGER + 2 }] }), 'spec.nodes[0].props.displayValueList[0].zh_label', /between -9007199254740991 and 9007199254740991 is accepted/],
+    ['a selection mode outside the set', withProps({ selectMode: 'single' }), 'spec.nodes[0].props.selectMode', /must be one of "checkbox", "radio"/],
+    ['more operations than the column holds', withProps({ customOperations: Array.from({ length: 6 }, (_unused, index) => ({ key: `op${index}`, label: '操作' })) }), 'spec.nodes[0].props.customOperations', /lists 6 items; between 1 and 5 are accepted/],
+    ['two operations sharing a key', withProps({ customOperations: [{ key: 'export', label: '导出' }, { key: 'export', label: '再导出' }] }), 'spec.nodes[0].props.customOperations[1].key', /repeats "export"/],
+    ['an oversized operation label', withProps({ customOperations: [{ key: 'export', label: '导'.repeat(21) }] }), 'spec.nodes[0].props.customOperations[0].label', /is 21 characters; at most 20 are accepted/],
+    ['an operation column narrower than a button', withProps({ operationColumnWidth: 59 }), 'spec.nodes[0].props.operationColumnWidth', /is 59; between 60 and 400 is accepted/],
+    ['a table with no rows declared at all', { tableConfig: MINIMAL['tableConfig'] }, 'spec.nodes[0].props.displayValueList', /is required/],
+  ])('refuses %s', (_case, props, path, message) => {
+    const failure = refusal(call({ nodes: [table(props)] }))
+    expect(failure.path).toBe(path)
+    expect(failure.text).toMatch(message)
+  })
+})
+
+describe('the filter bar', () => {
+  /** One node drawing a filter bar. */
+  function filter(props: Record<string, unknown>): Record<string, unknown> {
+    return { id: 'n1', component: FILTER_BAR_ID, props }
+  }
+
+  /** The narrowest filter bar a call can place. */
+  const MINIMAL: Record<string, unknown> = {
+    relatedMeta: 'device',
+    metaConfig: { attributes: [{ attributeEnName: 'zh_label', alias: '名称' }] },
+  }
+
+  it('accepts every declared property at once', () => {
+    expect(validateComponentSpec({
+      nodes: [filter({
+        relatedMeta: 'device',
+        metaConfig: {
+          attributes: [
+            { attributeEnName: 'zh_label', alias: '名称', dataType: 'string' },
+            { attributeEnName: 'created', alias: '创建时间', dataType: 'datetosecond' },
+          ],
+        },
+        attrEqEnums: [{ value: 'EQ', label: '等于' }, { value: 'LIKE', label: '模糊匹配' }],
+        confStyle: { gutter: 20, showMatchMode: false },
+      })],
+    })).toMatchObject({ ok: true })
+  })
+
+  it('accepts a bar that declares no strategies, which offers all fifteen', () => {
+    expect(validateComponentSpec({ nodes: [filter(MINIMAL)] })).toMatchObject({ ok: true })
+  })
+
+  it.each([
+    ['a model name outside the alphabet', { ...MINIMAL, relatedMeta: '2device' }, 'spec.nodes[0].props.relatedMeta', /may use only a letter or an underscore/],
+    ['no attributes at all', { ...MINIMAL, metaConfig: { attributes: [] } }, 'spec.nodes[0].props.metaConfig.attributes', /lists 0 items; between 1 and 40 are accepted/],
+    ['more attributes than a bar holds', { ...MINIMAL, metaConfig: { attributes: Array.from({ length: 41 }, (_unused, index) => ({ attributeEnName: `a${index}`, alias: '名' })) } }, 'spec.nodes[0].props.metaConfig.attributes', /lists 41 items; between 1 and 40 are accepted/],
+    ['two attributes naming one field', { ...MINIMAL, metaConfig: { attributes: [{ attributeEnName: 'zh_label', alias: '名称' }, { attributeEnName: 'zh_label', alias: '别名' }] } }, 'spec.nodes[0].props.metaConfig.attributes[1].attributeEnName', /repeats "zh_label"/],
+    ['an attribute with no name the user can read', { ...MINIMAL, metaConfig: { attributes: [{ attributeEnName: 'zh_label' }] } }, 'spec.nodes[0].props.metaConfig.attributes[0].alias', /is required/],
+    ['a value kind the control cannot draw', { ...MINIMAL, metaConfig: { attributes: [{ attributeEnName: 'zh_label', alias: '名称', dataType: 'trans' }] } }, 'spec.nodes[0].props.metaConfig.attributes[0].dataType', /must be one of "string", "date", "datetosecond", "integer", "long", "float", "double"/],
+    ['a strategy the editor does not draw', { ...MINIMAL, attrEqEnums: [{ value: 'SOUNDS_LIKE', label: '听起来像' }] }, 'spec.nodes[0].props.attrEqEnums[0].value', /must be one of "EQ", "NOT_EQ"/],
+  ])('refuses %s', (_case, props, path, message) => {
+    const failure = refusal(call({ nodes: [filter(props)] }))
+    expect(failure.path).toBe(path)
+    expect(failure.text).toMatch(message)
+  })
+})
+
+describe('the metric ball', () => {
+  /** One node drawing a metric ball. */
+  function metric(props: Record<string, unknown>): Record<string, unknown> {
+    return { id: 'n1', component: METRIC_ID, props }
+  }
+
+  it('accepts a measurement, its word, its size and its three colors', () => {
+    expect(validateComponentSpec({
+      nodes: [metric({ size: 160, process: 72, text: '在用率', background: '#00D27A', borderColor: 'rgb(0,210,122)', pointColor: '#0d2', isPointShow: false })],
+    })).toMatchObject({ ok: true })
+  })
+
+  it.each([
+    ['a ball with no measurement', {}, 'spec.nodes[0].props.process', /is required/],
+    ['a measurement past full', { process: 101 }, 'spec.nodes[0].props.process', /is 101; between 0 and 100 is accepted/],
+    ['a ball smaller than its own text', { process: 10, size: 39 }, 'spec.nodes[0].props.size', /is 39; between 40 and 400 is accepted/],
+    ['a word too long to fit on the ball', { process: 10, text: '在'.repeat(21) }, 'spec.nodes[0].props.text', /is 21 characters; at most 20 are accepted/],
+  ])('refuses %s', (_case, props, path, message) => {
+    const failure = refusal(call({ nodes: [metric(props)] }))
+    expect(failure.path).toBe(path)
+    expect(failure.text).toMatch(message)
+  })
+})
+
 describe('a property the schema has no way to express', () => {
   // The judgement the whole security argument rests on: a model reaching for a
   // formatter, a template, or a handler is not refused by a sanitizer that
@@ -194,6 +344,7 @@ describe('a property the schema has no way to express', () => {
     expect(failure).toEqual({
       path: 'spec.nodes[0].props.formatter',
       text: `show_component: spec.nodes[0].props.formatter — is not accepted here. Accepted properties: ${accepted}.`,
+      oversize: false,
     })
   })
 
@@ -231,7 +382,7 @@ describe('refusing a spec', () => {
   it('refuses a spec nested deeper than the protocol accepts', () => {
     // Depth is measured before size, so a hostile document is walked at most
     // MAX_SPEC_DEPTH frames deep whatever else is wrong with it.
-    const failure = refusal(call({ nodes: [confirmBar({ buttons: [{ id: 'ok', label: '确认', tone: { deeper: { deepest: 1 } } }] })] }))
+    const failure = refusal(call({ nodes: [confirmBar({ buttons: [{ id: 'ok', label: '确认', tone: { a: { b: { c: 1 } } } }] })] }))
     expect(failure.path).toBe('spec')
     expect(failure.text).toContain(`nests deeper than ${MAX_SPEC_DEPTH} levels`)
   })
@@ -244,7 +395,11 @@ describe('refusing a spec', () => {
 
   it('refuses a property a spec does not carry', () => {
     expect(refusal(call({ nodes: [confirmBar()], layout: { node: 'stack' } })))
-      .toEqual({ path: 'spec.layout', text: 'show_component: spec.layout — is not part of a spec. A spec carries nodes.' })
+      .toEqual({
+        path: 'spec.layout',
+        text: 'show_component: spec.layout — is not part of a spec. A spec carries nodes.',
+        oversize: false,
+      })
   })
 
   it.each([
@@ -267,7 +422,11 @@ describe('refusing a node', () => {
 
   it('refuses a property a node does not carry', () => {
     expect(refusal(call({ nodes: [{ ...confirmBar(), flex: 2 }] })))
-      .toEqual({ path: 'spec.nodes[0].flex', text: 'show_component: spec.nodes[0].flex — is not part of a node. A node carries id, component, props.' })
+      .toEqual({
+        path: 'spec.nodes[0].flex',
+        text: 'show_component: spec.nodes[0].flex — is not part of a node. A node carries id, component, props.',
+        oversize: false,
+      })
   })
 
   it.each([
@@ -287,7 +446,7 @@ describe('refusing a node', () => {
   })
 
   it('hands the whole catalog back for a component this deployment does not have', () => {
-    const failure = refusal(call({ nodes: [{ ...confirmBar(), component: 'toy.table' }] }))
+    const failure = refusal(call({ nodes: [{ ...confirmBar(), component: 'toy.chart' }] }))
     expect(failure.path).toBe('spec.nodes[0].component')
     // The whole list, not a count: a model that guessed wrong is told the same
     // catalog it was offered, so the next call needs no extra round trip.
@@ -308,12 +467,17 @@ describe('refusing a component\'s properties', () => {
       .toEqual({
         path: 'spec.nodes[0].props.subtitle',
         text: 'show_component: spec.nodes[0].props.subtitle — is not accepted here. Accepted properties: title, message, buttons.',
+        oversize: false,
       })
   })
 
   it('refuses a call missing a required property', () => {
     expect(propsRefusal({ title: '本月预算' }))
-      .toEqual({ path: 'spec.nodes[0].props.buttons', text: 'show_component: spec.nodes[0].props.buttons — is required.' })
+      .toEqual({
+        path: 'spec.nodes[0].props.buttons',
+        text: 'show_component: spec.nodes[0].props.buttons — is required.',
+        oversize: false,
+      })
   })
 
   it.each([

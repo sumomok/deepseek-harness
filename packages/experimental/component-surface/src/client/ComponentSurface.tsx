@@ -22,6 +22,11 @@
  * entry's is its placing call's, so a later call under the same id leaves every
  * earlier press behind it and the blocks it draws start unanswered.
  *
+ * Only the gesture a block was placed to receive has a state at all. A
+ * selection, a sort, an unsubmitted edit are reported and leave the block as
+ * they found it — the fold writes them no cell, and the seat files them no row
+ * in the page's waiting table, because there is no settlement coming for them.
+ *
  * While another kind holds the column, the column hands the seat no entry and the
  * seat draws nothing; what `visibility` keeps mounted is the column's own wrapper
  * for the kind, not the blocks. Their DOM goes with the draw, so nothing a user
@@ -53,6 +58,7 @@ import {
   type ComponentRenderer,
 } from '@deepseek-ai/dsh-experimental-component-kit/client'
 import {
+  answersBlock,
   type CatalogId,
   type ComponentAction,
   type ComponentNode,
@@ -231,11 +237,19 @@ function ComponentBlock({ entryId, seq, node, report, pending, pendingKey, recor
     // seat holds the node and the entry it belongs to, so a renderer says only
     // what the user did.
     const onAction: ComponentActionHandler = (actionId, payload) => {
+      const action = { entryId, componentId: node.component, actionId, nodeId: node.id, payload }
+      // A gesture that is not the block's own answer leaves no cell in the fold,
+      // so there is no settlement for it to wait on: filing a row for it would
+      // pin the block at `sending` for the rest of the session.
+      if (!answersBlock(node.component, actionId)) {
+        void report(action)
+        return
+      }
       const from = recorded?.seq ?? NOTHING_RECORDED
       pending.set(pendingKey, from)
       setAwaiting(from)
       setLost(undefined)
-      void report({ entryId, componentId: node.component, actionId, nodeId: node.id, payload })
+      void report(action)
         .then((dispatch) => {
           if (dispatch === 'dispatched') return
           // The browser saw no command run, so nothing it knows of is coming to

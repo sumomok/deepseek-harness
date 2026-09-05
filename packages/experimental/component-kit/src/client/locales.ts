@@ -20,6 +20,11 @@ export const zh = {
   'confirmBar.sent': '已发送到对话',
   'confirmBar.queued': '已记下，你下次发消息时对话会看到',
   'confirmBar.refused': '这个动作没能记下来，可以再试',
+  'action.sending': '正在发送…',
+  'action.sent': '已发送到对话',
+  'action.queued': '已记下，你下次发消息时对话会看到',
+  'action.refused': '这个动作没能记下来，可以再试',
+  'filterBar.submit': '查询',
 } satisfies Record<string, string>
 
 /** The componentKit namespace key union. */
@@ -34,6 +39,11 @@ export const en = {
   'confirmBar.sent': 'Sent to the conversation',
   'confirmBar.queued': 'Noted — the conversation will see it with your next message',
   'confirmBar.refused': 'This was not recorded. You can try again.',
+  'action.sending': 'Sending…',
+  'action.sent': 'Sent to the conversation',
+  'action.queued': 'Noted — the conversation will see it with your next message',
+  'action.refused': 'This was not recorded. You can try again.',
+  'filterBar.submit': 'Search',
 } satisfies Record<ComponentKitKey, string>
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {
