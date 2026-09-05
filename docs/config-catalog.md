@@ -852,6 +852,31 @@ export interface PageAccessConfig {
    * quarters of `actTimeoutMs`, both checked at load.
    */
   settleMaxMs: number
+  /**
+   * Who decides whether one allowed set of steps reaches the person at the
+   * keyboard. `always`, the default, escalates every allowed call of
+   * `content_act` to a request of this row's own, which names each step in the
+   * user's own words. `judged` returns whatever the rest of the
+   * `tools/pre-execute` waterfall decided, so a deployment that runs a reviewer
+   * of its own in front of every tool call is asked once rather than twice —
+   * except for a call carrying `dialogs: "accept"`, which is asked here in
+   * either setting, because the request composed here is what lets the tool
+   * body answer the page's own confirmation.
+   *
+   * `judged` is an assertion about the composition that this row can only check
+   * by name: it requires `judgedBy`, and every call finds out whether a plugin
+   * of that name is mounted. It cannot check that the named plugin reviews
+   * anything, only that it is there.
+   */
+  actApproval: 'always' | 'judged'
+  /**
+   * The cordis plugin name of the reviewer this deployment routes page actions
+   * to — for a plugin the loader mounted, the value its module exports as
+   * `name`. Required with `actApproval: judged` and refused without it, both at
+   * load. A call made while no plugin of this name is mounted is refused rather
+   * than run.
+   */
+  judgedBy?: string
 }
 ```
 

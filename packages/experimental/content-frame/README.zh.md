@@ -87,7 +87,7 @@ kind: "package-reference"
 
 **密码框装着的东西，是本包所有工具都不打印的那一样。** 每一种读取都报「这个框在那里」，没有一种报它装着什么：清单在值的位置上印 `= (hidden)`，`content_read_attrs` 对 `value` 回 `(password withheld)`，树形行与整文读取对一个在 `autocomplete` 里声明了密码的 `textarea` 把值存在其中的那段文本也回同一句。往这种框里 `content_act` `fill`，只报「填了」，从不报填了什么。一个控件是不是密码控件，看的是它的 `type` 或那个属性，在 HTML 给了自动填充字段名的那三种标签上都算；这一条规矩就是本包为凭据所做扣留的全部——显示着登录表单的页面，读与动手都和别的页面一样。
 
-**缺席即关闭，而缺席是默认。** 没有这个块，六件工具一件都没有，没有路由、没有待办 projection、settings 文档里没有 `pageAccess` 字段、浏览器里也没有读取器——只展示页面的部署不必为一项没要过的能力付账。写成空对象即取全部默认值。八个字段——`claimTimeoutMs`、`readTimeoutMs`、`pinMs`、`settleQuietMs`、`outlineChars`、`actTimeoutMs`、`maxSteps`、`settleMaxMs`——文档在 `Config` 类型上；其中 `outlineChars` 决定一次读取花多少上下文，因为它就是渲染这份列表的字符预算。它有一道 1000 的下限，低于它会在加载时被拒：列表的第一行不管多长都会整行渲染，而低于这道下限时，一张普通表格的第一行就已经超过回报路由能收的量了。`readTimeoutMs` 另有一道 8 的下限，同样在加载时拒、也同样是这类理由：读图把它的八分之一四舍五入到毫秒后给导出，低于这道下限时这份预算不是零毫秒就是一毫秒，于是每一张图都会被当成「控制台没画完」而拒绝。另有三道是上限而非下限，都在加载时拒：`settleQuietMs` 必须装得进 `readTimeoutMs` 的静默份额，因为一个预算容不下的静默窗口会让每一次读取都报「页面还在变」；`settleMaxMs` 必须不小于 `settleQuietMs`，而 `maxSteps` 个它加起来必须少于 `actTimeoutMs` 的四分之三——那是步骤自己那一份——因为每一步都可能等满这个上限的部署，就是一次调用把整条截止都花在等页面静下来、永远到不了最后一步的部署；`maxSteps` 封顶 100，正是它把一次「跑了哪些步骤」的回报保持在回报路由允许的信封之内。
+**缺席即关闭，而缺席是默认。** 没有这个块，六件工具一件都没有，没有路由、没有待办 projection、settings 文档里没有 `pageAccess` 字段、浏览器里也没有读取器——只展示页面的部署不必为一项没要过的能力付账。写成空对象即取全部默认值。十个字段——`claimTimeoutMs`、`readTimeoutMs`、`pinMs`、`settleQuietMs`、`outlineChars`、`actTimeoutMs`、`maxSteps`、`settleMaxMs`、`actApproval`、`judgedBy`——文档在 `Config` 类型上；其中 `outlineChars` 决定一次读取花多少上下文，因为它就是渲染这份列表的字符预算。它有一道 1000 的下限，低于它会在加载时被拒：列表的第一行不管多长都会整行渲染，而低于这道下限时，一张普通表格的第一行就已经超过回报路由能收的量了。`readTimeoutMs` 另有一道 8 的下限，同样在加载时拒、也同样是这类理由：读图把它的八分之一四舍五入到毫秒后给导出，低于这道下限时这份预算不是零毫秒就是一毫秒，于是每一张图都会被当成「控制台没画完」而拒绝。另有三道是上限而非下限，都在加载时拒：`settleQuietMs` 必须装得进 `readTimeoutMs` 的静默份额，因为一个预算容不下的静默窗口会让每一次读取都报「页面还在变」；`settleMaxMs` 必须不小于 `settleQuietMs`，而 `maxSteps` 个它加起来必须少于 `actTimeoutMs` 的四分之三——那是步骤自己那一份——因为每一步都可能等满这个上限的部署，就是一次调用把整条截止都花在等页面静下来、永远到不了最后一步的部署；`maxSteps` 封顶 100，正是它把一次「跑了哪些步骤」的回报保持在回报路由允许的信封之内。最后两个说的是：一批已放行的步骤要不要走到键盘前的那个人跟前，由谁来定。`actApproval` 默认 `always`，即由这一行对每一次已放行的调用发问；`judged` 则改为把 `tools/pre-execute` 瀑布上其余监听器给出的裁决原样返回——见[与审查闸门组合](#composing-with-the-review-gate)。`judged` 必须同时写 `judgedBy`，即审查方的 cordis 插件名；`always` 下写了 `judgedBy` 会在加载时被拒——两个字段合起来才回答一个问题。
 
 <a id="reading-the-page-as-it-was-written"></a>
 ## 按页面原样读取
@@ -256,11 +256,14 @@ kind: "package-reference"
 
 工具、命令、各 projection 与 page extractor 都是可选子节点：没有 `ctx.tools`、`ctx.commands`、`ctx.sessionProjections` 或 `ctx.contentSurface` 的组合仍保留路由，只是这一栏里什么都不显示；任何一项缺席都不会让该行失败。
 
+<a id="composing-with-the-review-gate"></a>
 ### 与自动审查闸同装时
 
 同时安装了 `@haoran/dsh-llm-permission-gateway`（>= 0.2.0）的部署，再多传一个 `--patch`：`overlay/permission-gateway.patch.yml`。这道闸会审查每一次没有被告知放行的工具调用，每次一趟模型往返。这份 overlay 告诉它放行五件读工具与 `content_show`，把 `content_act` 留给它审查——因为 `content_act` 是会驱动页面的那一件。没装这道闸时，这一行找不到目标，启动日志只留一条告警，别的什么都不变——所以这个文件装没装都可以照传。
 
 patch 是整体替换目标行的 `config` 而非把键并入其中，所以那个文件把闸的两个必填字段 `provider` 与 `model` 原样重写了一遍，也把它的默认放行表整份抄了下来而不是在其上追加。`tests/permission-gateway-overlay.client.spec.ts` 把这个文件钉在本包注册的工具名上。
+
+传了那个文件的部署，还要在自己已经在写的那份 column overlay 里，给自己的 content-frame 行写上 `pageAccess.actApproval: judged` 与 `pageAccess.judgedBy: llm-permission-gateway`。不写的话，闸和这一行会对同一次调用各判一次，于是闸已经放行的一批步骤，仍旧会弹出一张卡。这一对设置没有放进闸的那份 overlay，理由与那个文件重写 `provider` 与 `model` 是同一条：patch 整体替换目标行的 `config`，所以一行指向本包的 patch 就得把 `root`、`pages` 以及那个部署配过的其余字段全部重写一遍。`overlay/content-column.patch.yml` 保持默认，因为部署完全可以在没有任何闸的情况下组合这一栏，而没有闸时，由这一行发问才是对的答案。
 
 <a id="the-copy-rule"></a>
 ## 工具说什么，以及永远不说什么

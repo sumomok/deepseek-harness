@@ -21,6 +21,23 @@
 # nothing pins them here: the gate pins its own defaults in its own tests, and
 # a second copy of that list in this repository would be a second source of
 # truth for a value this repository does not own.
+#
+# A deployment passing this file also writes, on its own content-frame row in
+# its own column overlay:
+#
+#     pageAccess:
+#       actApproval: judged
+#       judgedBy: llm-permission-gateway
+#
+# Without it the gate and the content-frame row both decide the same call, and
+# a set of steps the gate allowed still puts a card in front of a person. That
+# pair is not a second row in this file because whole-`config` replacement
+# applies there too: a row targeting content-frame would have to restate
+# `root`, `pages` and everything else that deployment configured, in a file
+# that knows none of it. `judgedBy` is the gate's cordis plugin name, the value
+# its module exports as `name`; the content-frame row looks it up in the
+# registry on every call and refuses the steps while nothing under that name is
+# mounted.
 - id: llm-permission-gateway
   name: '@haoran/dsh-llm-permission-gateway'
   config:
