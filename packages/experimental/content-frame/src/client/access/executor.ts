@@ -133,16 +133,29 @@ export function isVisible(el: Element): boolean {
   return checkable.checkVisibility({ visibilityProperty: true, contentVisibilityAuto: true })
 }
 
+/** One session's column, as this seat can serve it. */
+export interface SeatSession {
+  /** The session the calls and the column below belong to. */
+  readonly sessionId: string
+  /** Every live entry of that session's column, newest first. */
+  readonly entries: readonly ContentSurfaceEntry[]
+  /** That session's open calls of both tools, as the host published them. */
+  readonly pending: readonly ContentAccessRequest[]
+  /** The page in front, when one is; absent while another kind holds the column. */
+  readonly page: ReadPage | undefined
+  /** The frame showing that page, when it has one. */
+  readonly frameId: string | undefined
+}
+
 /** Everything the reader needs from the seat that owns the frames. */
 export interface ContentReadSeat {
-  /** Every live entry of the session's column, newest first. */
-  entries: readonly ContentSurfaceEntry[]
-  /** The session's open calls of both tools, as the host published them. */
-  pending: readonly ContentAccessRequest[]
-  /** The page in front, when one is; absent while another kind holds the column. */
-  page: ReadPage | undefined
-  /** The frame showing that page, when it has one. */
-  activeFrameId: string | undefined
+  /**
+   * Every session this seat can answer for: the one the console has on display,
+   * and every other one whose page it still holds a frame of. A session with no
+   * frame here is absent rather than empty, so this seat never bids for a call
+   * it has no document to answer.
+   */
+  sessions: readonly SeatSession[]
   /** Every mounted frame element, by frame id. */
   frames: MutableRefObject<Map<string, HTMLIFrameElement>>
   /** Each frame's element numbering, minted on first read and dropped with the frame. */
@@ -261,6 +274,30 @@ async function post<T>(route: string, body: string): Promise<Posted<T>> {
   }
 }
 
+/**
+ * One session's column as this seat holds it now.
+ * @param seat - the seat as it stands.
+ * @param sessionId - the session to look up.
+ * @returns that session's column, or undefined when this seat holds no frame of it.
+ */
+function sessionOf(seat: ContentReadSeat, sessionId: string): SeatSession | undefined {
+  return seat.sessions.find(session => session.sessionId === sessionId)
+}
+
+/**
+ * One session's column as this seat no longer holds it.
+ *
+ * A claim can outlive the frame it was going to be answered from: the console
+ * switched to a page that evicted it, or the session left the console's list.
+ * A read with no document to run against is a read of a column with nothing in
+ * it, which is the failure {@link prepare} composes for it.
+ * @param sessionId - the session the claim named.
+ * @returns a column this seat can answer nothing from.
+ */
+function noColumn(sessionId: string): SeatSession {
+  return { sessionId, entries: [], pending: [], page: undefined, frameId: undefined }
+}
+
 /** Wait one interval before re-claiming. */
 function delay(ms: number): Promise<void> {
   return new Promise<void>((resolve) => { setTimeout(resolve, ms) })
@@ -293,12 +330,14 @@ function delay(ms: number): Promise<void> {
  * than five.
  * @param seat - the live seat, re-read on every attempt.
  * @param mounted - whether this seat is still mounted; a bid outlives nothing.
+ * @param sessionId - the session whose pending list bounds the bidding.
  * @param callId - the call to claim.
  * @returns whether this tab owns the call.
  */
 async function claimRead(
   seat: MutableRefObject<ContentReadSeat>,
   mounted: MutableRefObject<boolean>,
+  sessionId: string,
   callId: string,
 ): Promise<ClaimAck | undefined> {
   let waitMs = CLAIM_RETRY_MS
@@ -315,8 +354,11 @@ async function claimRead(
     // The seat went with the tab, the session, or the column: there is nothing
     // left here to read the page with, whatever the last pending list said.
     if (!mounted.current) return undefined
-    // The result reached the log while this seat waited: the call is over.
-    if (!seat.current.pending.some(request => request.callId === callId)) return undefined
+    // The result reached the log while this seat waited, or the column this
+    // session was read through left this seat: the call is over here either way.
+    if (sessionOf(seat.current, sessionId)?.pending.some(request => request.callId === callId) !== true) {
+      return undefined
+    }
     // And the ceiling, for the call that never leaves the list at all: a host
     // that stopped mid-write leaves one opened and never settled, and nobody is
     // coming back to an approval this old.
@@ -489,18 +531,19 @@ type Prepared =
  * with nothing in it, an entry that is not a page, a frame the seat cannot
  * reach, and a page that never finished loading are not conditions a read or a
  * set of steps can tell apart.
- * @param seat - the seat as it stands now.
+ * @param seat - the seat as it stands now, for the frames it holds.
+ * @param session - the column this call is against.
  * @param timeoutMs - this call's own report deadline, whose load share the wait spends.
  * @returns the page and its document, or the failure to post.
  */
-async function prepare(seat: ContentReadSeat, timeoutMs: number): Promise<Prepared> {
+async function prepare(seat: ContentReadSeat, session: SeatSession, timeoutMs: number): Promise<Prepared> {
   const failed = (outcome: ReadFailure): Prepared => ({ kind: 'failed', outcome })
-  if (seat.entries.length === 0) return failed({ status: 'error', code: 'empty', message: NO_ENTRY_REASON })
-  if (seat.page === undefined) {
-    return failed({ status: 'error', code: 'not-a-page', message: NOT_A_PAGE_REASON, ...otherKind(seat.entries) })
+  if (session.entries.length === 0) return failed({ status: 'error', code: 'empty', message: NO_ENTRY_REASON })
+  if (session.page === undefined) {
+    return failed({ status: 'error', code: 'not-a-page', message: NOT_A_PAGE_REASON, ...otherKind(session.entries) })
   }
-  if (seat.activeFrameId === undefined) return failed(frameError(FRAME_RETIRED_MESSAGE))
-  const frame = seat.frames.current.get(seat.activeFrameId)
+  if (session.frameId === undefined) return failed(frameError(FRAME_RETIRED_MESSAGE))
+  const frame = seat.frames.current.get(session.frameId)
   if (frame === undefined || frame.contentWindow === null) return failed(frameError(FRAME_UNREACHABLE_MESSAGE))
   // A share of the deadline, not all of it: the host started counting when it
   // granted the claim, so the work and the trip back need what is left.
@@ -509,10 +552,10 @@ async function prepare(seat: ContentReadSeat, timeoutMs: number): Promise<Prepar
   }
   return {
     kind: 'ready',
-    page: seat.page,
+    page: session.page,
     frame,
     view: frame.contentWindow,
-    refs: tableFor(seat.tables, seat.activeFrameId),
+    refs: tableFor(seat.tables, session.frameId),
   }
 }
 
@@ -565,7 +608,8 @@ function wideMessage(request: ContentReadingRequest, chars: number, budget: numb
  * Shared by all four reads: what each of them wants of the page differs, and a
  * column with nothing in it, a frame out of reach, a page still loading and a
  * page still drawing are the same four answers for every one of them.
- * @param seat - the seat as it stands now.
+ * @param seat - the seat as it stands now, for the frames it holds.
+ * @param session - the column this call is against.
  * @param request - the pending call: what it asks of the page, and the id the
  * report carrying the answer will be posted under.
  * @param access - the node half's budget and deadline.
@@ -573,11 +617,12 @@ function wideMessage(request: ContentReadingRequest, chars: number, budget: numb
  */
 async function readPage(
   seat: ContentReadSeat,
+  session: SeatSession,
   request: ContentReadingRequest,
   access: ContentFrameAccessSettings,
 ): Promise<Report> {
   const report = (outcome: ChannelOutcome): Report => reportOf(seat, request.callId, outcome)
-  const ready = await prepare(seat, access.readTimeoutMs)
+  const ready = await prepare(seat, session, access.readTimeoutMs)
   if (ready.kind === 'failed') return report(ready.outcome)
   // A loaded document is not a drawn one: an application that just changed
   // route has its markup and not yet its data. This is the second share of the
@@ -642,18 +687,20 @@ async function readPage(
  * and the settle wait ({@link EXPORT_WAIT_SHARE}), so a drawing that never
  * settles ends as a refusal naming this picture rather than as the host's own
  * report deadline and its sentence about a console that went quiet.
- * @param seat - the seat as it stands now.
+ * @param seat - the seat as it stands now, for the frames it holds.
+ * @param session - the column this call is against.
  * @param request - the pending call: the ref to export, and the id the report is posted under.
  * @param access - the node half's budget and deadline.
  * @returns the report to post.
  */
 async function readImage(
   seat: ContentReadSeat,
+  session: SeatSession,
   request: ContentReadImageRequest,
   access: ContentFrameAccessSettings,
 ): Promise<Report> {
   const report = (capture: ImageReport): Report => captureOf(seat, request.callId, capture)
-  const ready = await prepare(seat, access.readTimeoutMs)
+  const ready = await prepare(seat, session, access.readTimeoutMs)
   if (ready.kind === 'failed') return report(ready.outcome)
   // The same second wait every other read takes: an application that just
   // changed route has its markup and not yet the picture it is going to draw.
@@ -711,7 +758,8 @@ async function readImage(
  * budget, taken after the last step settled. It is the model's next move: the
  * refs it names are the ones a following call can use, and a call that changed
  * the page therefore never has to read it again to act on what it produced.
- * @param seat - the seat as it stands now.
+ * @param seat - the seat as it stands now, for the frames it holds.
+ * @param session - the column this call is against.
  * @param request - the pending call: the steps to run, and the id the report is posted under.
  * @param access - the node half's budget, deadlines and per-step ceiling.
  * @param approved - the entry the column had in front when the call was
@@ -720,6 +768,7 @@ async function readImage(
  */
 async function actOnPage(
   seat: ContentReadSeat,
+  session: SeatSession,
   request: ContentActRequest,
   access: ContentFrameAccessSettings,
   approved: ReadPage | undefined,
@@ -731,12 +780,12 @@ async function actOnPage(
   // page there has lost the thing it was agreed about. A column now holding
   // something that is not a page, or nothing at all, is answered by the
   // failures below instead — they say more about what to do next than this one.
-  if (approved !== undefined && seat.page !== undefined && seat.page.id !== approved.id) {
+  if (approved !== undefined && session.page !== undefined && session.page.id !== approved.id) {
     return report({
       status: 'error',
       code: 'front-changed',
       message: frontChangedRefusal(
-        forWire(seat.page.title, MAX_NAME_CHARS),
+        forWire(session.page.title, MAX_NAME_CHARS),
         forWire(approved.title, MAX_NAME_CHARS),
       ),
     })
@@ -745,7 +794,7 @@ async function actOnPage(
   // is where the call's own deadline begins — before the wait for a frame that
   // has not finished loading, which spends the same deadline.
   const started = Date.now()
-  const ready = await prepare(seat, access.actTimeoutMs)
+  const ready = await prepare(seat, session, access.actTimeoutMs)
   if (ready.kind === 'failed') return report(ready.outcome)
   const options: SnapshotOptions = {
     refs: ready.refs,
@@ -820,6 +869,7 @@ async function actOnPage(
  * @param mounted - whether this seat is still mounted, which bounds the bidding.
  * @param started - the calls this seat has taken up; a call given up on is
  * dropped from it, because it is still open on the host.
+ * @param sessionId - the session whose column the call is against.
  * @param request - the pending call, of either tool.
  * @param access - the node half's budget and deadlines, settled when the seat booted.
  */
@@ -827,6 +877,7 @@ async function answer(
   seat: MutableRefObject<ContentReadSeat>,
   mounted: MutableRefObject<boolean>,
   started: MutableRefObject<Set<string>>,
+  sessionId: string,
   request: ContentAccessRequest,
   access: ContentFrameAccessSettings,
 ): Promise<void> {
@@ -835,7 +886,7 @@ async function answer(
   // another window covers, a locked screen and a tab in the background all
   // report `hidden`, and none of the three means the console is not there.
   if (document.visibilityState !== 'visible') await delay(HIDDEN_CLAIM_GRACE_MS)
-  const claimed = await claimRead(seat, mounted, request.callId)
+  const claimed = await claimRead(seat, mounted, sessionId, request.callId)
   if (claimed === undefined) {
     // Giving up is not answering. Every ending but the call leaving the list —
     // a refused bid, a claim another tab held, the bidding ceiling, a pending
@@ -844,21 +895,30 @@ async function answer(
     started.current.delete(request.callId)
     return
   }
+  // The column as it stands after the claim round trip, which is what every
+  // read below runs against and what the step guard compares the approval to.
+  const session = sessionOf(seat.current, sessionId) ?? noColumn(sessionId)
   if (request.tool === CONTENT_ACT_TOOL_NAME) {
-    await reportRead(CONTENT_REPORT_ROUTE, await actOnPage(seat.current, request, access, claimed.page))
+    await reportRead(CONTENT_REPORT_ROUTE, await actOnPage(seat.current, session, request, access, claimed.page))
     return
   }
   // One call, one settling route: a picture read's failures travel the picture
   // route too, so no call id is ever raced by two routes.
   if (request.tool === CONTENT_READ_IMAGE_TOOL_NAME) {
-    await reportRead(CONTENT_IMAGE_ROUTE, await readImage(seat.current, request, access))
+    await reportRead(CONTENT_IMAGE_ROUTE, await readImage(seat.current, session, request, access))
     return
   }
-  await reportRead(CONTENT_REPORT_ROUTE, await readPage(seat.current, request, access))
+  await reportRead(CONTENT_REPORT_ROUTE, await readPage(seat.current, session, request, access))
 }
 
 /**
- * Answer this session's open `content_read` calls from the frames this seat holds.
+ * Answer the open channel calls of every session this seat holds a frame of.
+ *
+ * The console shows one session and this seat serves them all: the frames of
+ * the sessions behind it are still mounted and still hold their documents, so a
+ * call against one of them is answered from the page that session last had in
+ * front. A session with no frame here is not on the list at all, and its call
+ * ends on the host's claim window instead.
  *
  * One call is answered at most once from this tab: a call the seat has taken up
  * is remembered until it leaves the pending list, so no amount of re-rendering
@@ -895,16 +955,18 @@ export function useContentRead(seat: ContentReadSeat): void {
     // long session would otherwise accumulate one id per read it ever saw. This
     // runs before the guard below: a seat that cannot read still has to forget,
     // or a call it gave up on stays skipped on the frame that carries it again.
-    const open = new Set(seat.pending.map(request => request.callId))
+    const open = new Set(seat.sessions.flatMap(session => session.pending.map(request => request.callId)))
     for (const callId of started.current) {
       if (!open.has(callId)) started.current.delete(callId)
     }
     const access = seat.access
     if (access === undefined) return
-    for (const request of seat.pending) {
-      if (started.current.has(request.callId)) continue
-      started.current.add(request.callId)
-      void answer(live, mounted, started, request, access)
+    for (const session of seat.sessions) {
+      for (const request of session.pending) {
+        if (started.current.has(request.callId)) continue
+        started.current.add(request.callId)
+        void answer(live, mounted, started, session.sessionId, request, access)
+      }
     }
-  }, [seat.access, seat.pending])
+  }, [seat.access, seat.sessions])
 }

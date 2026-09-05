@@ -31,17 +31,16 @@
  * folded from the entry the column hands over, and every string comes from the
  * locale seat.
  */
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { PropsLocale, PropsRuntime } from '@deepseek-ai/dsh-client-ui-slots'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
 // Also pulls the content surface's `contentSurface` SessionProjectionMap merge.
-import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
+import type { ContentSurfaceEntry, ContentSurfaceView } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import type { ContentFrameAccessSettings } from '../route.ts'
 // Type-only: pulls this package's own `contentAccess` SessionProjectionMap merge.
-import type { ContentPageView, ContentAccessRequest } from '../types.ts'
-import { foldFrames, NO_FRAMES, type CachedFrame, type FrameCache } from './frame-cache.ts'
+import type { ContentPageView, ContentAccessRequest, ContentAccessView } from '../types.ts'
+import { foldFrames, frameFor, NO_FRAMES, type CachedFrame, type FrameCache } from './frame-cache.ts'
 import { RefTable } from './access/refs.ts'
-import { TAB_ID, useContentRead } from './access/executor.ts'
+import { TAB_ID, useContentRead, type SeatSession } from './access/executor.ts'
 import { exportPixels } from './access/export-pixels.ts'
 import { watchFrame, type FrameAddress, type FrameWatch } from './perception/navigation.ts'
 import css from './ContentFrame.module.css'
@@ -105,7 +104,67 @@ function activeFrame(
   if (sessionId === undefined || entry === undefined) return undefined
   const view = pageView(entry.payload)
   if (view?.state !== 'shown') return undefined
-  return { frameId: `${sessionId} ${entry.entryId}`, url: view.url }
+  return { frameId: `${sessionId} ${entry.entryId}`, sessionId, entryId: entry.entryId, url: view.url }
+}
+
+/** One session row as this seat reads it: the two projection views its column publishes. */
+interface SessionColumn {
+  /** Absent for a session the host has published no projection value of yet. */
+  readonly projectionValues?: Readonly<Partial<{
+    /** That session's column entries. */
+    contentSurface: ContentSurfaceView
+    /** That session's open channel calls. */
+    contentAccess: ContentAccessView
+  }>>
+}
+
+/**
+ * The columns this seat can answer for, one per session it holds a page of.
+ *
+ * The session on display takes its page from the column's own selection, which
+ * is where the user's pick among several entries lives and the only thing this
+ * seat is handed rather than deriving. Every other session takes it from the
+ * frame cache: the entry it last had in front is the one whose document is
+ * still mounted here. A session whose entry has since left the column, stopped
+ * being a shown page, or had its frame evicted is left off entirely, so the
+ * reader never bids for a call it has no document to answer.
+ * @param summaries - every session row the console holds, by session id.
+ * @param cache - this seat's frames and their recency.
+ * @param current - the session the column is showing, when one is.
+ * @param entry - the entry that session has in front, when it has one.
+ * @param currentFrameId - the frame that entry is showing, when it has one.
+ * @returns one column per session this seat can serve.
+ */
+function seatSessions(
+  summaries: Readonly<Record<string, SessionColumn>>,
+  cache: FrameCache,
+  current: string | undefined,
+  entry: ContentFrameProps['entry'],
+  currentFrameId: string | undefined,
+): SeatSession[] {
+  const sessions: SeatSession[] = []
+  for (const [sessionId, summary] of Object.entries(summaries)) {
+    const values = summary.projectionValues
+    const entries = values?.contentSurface?.entries ?? NO_ENTRIES
+    const pending = values?.contentAccess?.pending ?? NO_CALLS
+    if (sessionId === current) {
+      const page = entry === undefined ? undefined : { id: entry.entryId, title: entry.title }
+      sessions.push({ sessionId, entries, pending, page, frameId: currentFrameId })
+      continue
+    }
+    const cached = frameFor(cache, sessionId)
+    if (cached === undefined) continue
+    const shown = entries.find(item => item.entryId === cached.entryId)
+    if (shown === undefined || pageView(shown.payload)?.state !== 'shown') continue
+    sessions.push({
+      sessionId,
+      entries,
+      pending,
+      page: { id: shown.entryId, title: shown.title },
+      frameId: cached.frameId,
+    })
+  }
+  return sessions
 }
 
 /** One frame's two DOM callbacks, cached so React does not re-run them every render. */
@@ -153,18 +212,19 @@ export function ContentFrame(props: ContentFrameProps) {
   useEffect(() => { live.current = props })
 
   // The seat is root-scoped, so the framework binds no `useProjection` here and
-  // the session's values are read off the list snapshot every root slot gets.
-  const key = sessionId as SessionId | undefined
-  const entries = useSessions(state => (
-    key === undefined ? undefined : state.byId[key]?.projectionValues?.contentSurface?.entries)) ?? NO_ENTRIES
-  const pending = useSessions(state => (
-    key === undefined ? undefined : state.byId[key]?.projectionValues?.contentAccess?.pending)) ?? NO_CALLS
+  // every session's values are read off the list snapshot every root slot gets.
+  // The whole list, not the current session's row: the frames of the sessions
+  // behind the one on display are mounted here too, and their calls are this
+  // seat's to answer.
+  const summaries = useSessions(state => state.byId)
+  const activeFrameId = active?.frameId
+  const sessions = useMemo(
+    () => seatSessions(summaries, next, sessionId, entry, activeFrameId),
+    [summaries, next, sessionId, entry, activeFrameId],
+  )
 
   useContentRead({
-    entries,
-    pending,
-    page: entry === undefined ? undefined : { id: entry.entryId, title: entry.title },
-    activeFrameId: active?.frameId,
+    sessions,
     frames,
     tables,
     access: pageAccess,
@@ -172,7 +232,6 @@ export function ContentFrame(props: ContentFrameProps) {
     draw: exportPixels,
   })
 
-  const activeFrameId = active?.frameId
   const activeUrl = active?.url
   const page = entry?.entryId
   useEffect(() => {

@@ -25,27 +25,32 @@ function pageEntry(page: string, payload: ContentPageView): ContentFrameProps['e
   return { kind: 'page', entryId: page, seq: 1, title: page, payload }
 }
 
-/** What the seat reads off the session list: the column's entries and its open reads. */
+/** What the seat reads off the session list for one session: its entries and its open reads. */
 interface Published {
   entries?: readonly ContentSurfaceEntry[]
   pending?: readonly ContentReadRequest[]
 }
 
-/** The values the framework's session-list hook serves this seat. */
-let published: Published = {}
+/**
+ * The values the framework's session-list hook serves this seat, by session id.
+ * The seat reads the whole list rather than one row, so a case naming a second
+ * session is what puts a column behind the one on display.
+ */
+let published: Record<string, Published> = {}
+
+/** The session the console is showing, which the column also passes to the seat. */
+let current: string | undefined = 'a'
 
 /** A stand-in for the framework hook every root slot receives. */
 function useSessions<S>(select: (state: never) => S): S {
   return select({
-    current: 'a',
-    byId: {
-      a: {
-        projectionValues: {
-          contentSurface: { entries: published.entries },
-          contentAccess: { pending: published.pending },
-        },
+    current,
+    byId: Object.fromEntries(Object.entries(published).map(([sessionId, values]) => [sessionId, {
+      projectionValues: {
+        contentSurface: { entries: values.entries },
+        contentAccess: { pending: values.pending },
       },
-    },
+    }])),
   } as never)
 }
 
@@ -97,6 +102,7 @@ const DASHBOARD: ContentPageView = { state: 'shown', page: 'dashboard', url: '/c
 
 beforeEach(() => {
   published = {}
+  current = 'a'
   navigated = []
 })
 
@@ -336,7 +342,7 @@ describe('the page seat as the reader\'s seat', () => {
   }
 
   it('reads the document of the frame it holds, for the page it has in front', async () => {
-    published = { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] }
+    published = { a: { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] } }
     const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 })
     fill(view, '<main><button>Refresh</button></main>')
     await settled(1)
@@ -347,7 +353,7 @@ describe('the page seat as the reader\'s seat', () => {
   })
 
   it('retires a frame\'s numbering when the page inside it navigates', async () => {
-    published = { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] }
+    published = { a: { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] } }
     const view = mount('a', ENTRY, 3, undefined, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 })
     const frame = fill(view, '<main><button>Refresh</button></main>')
     await settled(1)
@@ -356,7 +362,7 @@ describe('the page seat as the reader\'s seat', () => {
     // A load is what a navigation looks like from the seat, and every ref the
     // model still holds names an element of the document that just left.
     frame.dispatchEvent(new Event('load'))
-    published = { entries: [ENTRY], pending: [{ callId: 'call_2', tool: 'content_read', args: {} }] }
+    published = { a: { entries: [ENTRY], pending: [{ callId: 'call_2', tool: 'content_read', args: {} }] } }
     mount('a', ENTRY, 3, view, { outlineChars: 4000, claimTimeoutMs: 300, readTimeoutMs: 500, settleQuietMs: 5 })
     await settled(2)
     const after = outcomes()[1]
@@ -368,7 +374,7 @@ describe('the page seat as the reader\'s seat', () => {
   })
 
   it('installs no reader at all where the deployment configured no page access', async () => {
-    published = { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] }
+    published = { a: { entries: [ENTRY], pending: [{ callId: 'call_1', tool: 'content_read', args: {} }] } }
     const view = mount('a', ENTRY)
     fill(view, '<main><button>Refresh</button></main>')
     await new Promise<void>((resolve) => { setTimeout(resolve, 20) })

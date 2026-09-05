@@ -9,11 +9,12 @@
  */
 
 import { describe, expect, it } from 'vitest'
-import { foldFrames, NO_FRAMES, type CachedFrame, type FrameCache } from '../src/client/frame-cache.ts'
+import { foldFrames, frameFor, NO_FRAMES, type CachedFrame, type FrameCache } from '../src/client/frame-cache.ts'
 
-const A: CachedFrame = { frameId: 'a home', url: '/content-app/' }
-const B: CachedFrame = { frameId: 'b reports', url: '/content-app/reports/' }
-const C: CachedFrame = { frameId: 'c home', url: '/content-app/' }
+const A: CachedFrame = { frameId: 'a home', sessionId: 'a', entryId: 'home', url: '/content-app/' }
+const A2: CachedFrame = { frameId: 'a reports', sessionId: 'a', entryId: 'reports', url: '/content-app/reports/' }
+const B: CachedFrame = { frameId: 'b reports', sessionId: 'b', entryId: 'reports', url: '/content-app/reports/' }
+const C: CachedFrame = { frameId: 'c home', sessionId: 'c', entryId: 'home', url: '/content-app/' }
 
 /** Fold a run of active frames from the empty cache. */
 function run(limit: number, ...actives: (CachedFrame | undefined)[]): FrameCache {
@@ -56,10 +57,10 @@ describe('foldFrames', () => {
 
   it('navigates a cached frame in place when its page url moved under it', () => {
     const before = run(3, B, A)
-    const moved = foldFrames(before, { frameId: 'a home', url: '/content-app/reports/' }, 3)
+    const moved = foldFrames(before, { ...A, url: '/content-app/reports/' }, 3)
     // One entry per frame id still, in the same mount order: the frame
     // navigates rather than a second one mounting beside it.
-    expect(moved.frames).toEqual([B, { frameId: 'a home', url: '/content-app/reports/' }])
+    expect(moved.frames).toEqual([B, { ...A, url: '/content-app/reports/' }])
     // The other frame's entry is the very same object, so React leaves it be.
     expect(moved.frames[0]).toBe(before.frames[0])
   })
@@ -72,5 +73,29 @@ describe('foldFrames', () => {
 
   it('never evicts the frame on display, even at a bound of one', () => {
     expect(run(1, A, B)).toEqual({ frames: [B], order: ['b reports'] })
+  })
+})
+
+describe('frameFor', () => {
+  it('answers a session with the page it last had in front, not the one it mounted first', () => {
+    // The recency list, not the rendered one: mount order is append-only, so
+    // the frame a session's read runs in is only ever findable through it.
+    const cache = run(3, A, A2, B)
+    expect(mounted(cache)).toEqual(['a home', 'a reports', 'b reports'])
+    expect(frameFor(cache, 'a')).toBe(cache.frames[1])
+  })
+
+  it('walks past another session\'s more recent frame', () => {
+    const cache = run(3, A, B)
+    expect(frameFor(cache, 'a')).toEqual(A)
+  })
+
+  it('answers nothing for a session this seat never showed a page of', () => {
+    expect(frameFor(run(3, A), 'b')).toBeUndefined()
+  })
+
+  it('answers nothing for a session whose frame has been evicted', () => {
+    const cache = run(1, A, B)
+    expect(frameFor(cache, 'a')).toBeUndefined()
   })
 })

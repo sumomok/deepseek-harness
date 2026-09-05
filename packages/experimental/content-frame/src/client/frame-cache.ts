@@ -20,6 +20,10 @@
 export interface CachedFrame {
   /** One session's view of one page; also this frame's React key. */
   readonly frameId: string
+  /** The session whose column put this page on display. */
+  readonly sessionId: string
+  /** The column entry this frame holds the page of. */
+  readonly entryId: string
   /** Same-origin URL the frame is pointed at. */
   readonly url: string
 }
@@ -28,8 +32,34 @@ export interface CachedFrame {
 export interface FrameCache {
   /** Mount order, never reordered — this is what the seat renders. */
   readonly frames: readonly CachedFrame[]
-  /** Frame ids, most recently shown first; eviction takes from the tail. */
+  /**
+   * Frame ids, most recently shown first; eviction takes from the tail.
+   *
+   * It also answers which page each session is read through: the first entry
+   * belonging to a session is the one that session last had in front, and
+   * {@link frameFor} is that lookup.
+   */
   readonly order: readonly string[]
+}
+
+/**
+ * The frame one session's read runs in.
+ *
+ * The recency list is the answer to "which page", because it is the only record
+ * of what the user last put in front for a session other than the one on
+ * display, and the frame it names is the one still holding that page's live
+ * document.
+ * @param cache - the seat's frames and their recency.
+ * @param sessionId - the session to answer for.
+ * @returns that session's most recently shown frame, or undefined when it has
+ * none cached.
+ */
+export function frameFor(cache: FrameCache, sessionId: string): CachedFrame | undefined {
+  for (const frameId of cache.order) {
+    const frame = cache.frames.find(cached => cached.frameId === frameId && cached.sessionId === sessionId)
+    if (frame !== undefined) return frame
+  }
+  return undefined
 }
 
 /** The empty cache, shared so a seat that has never shown a frame keeps one snapshot identity. */

@@ -26,8 +26,11 @@ import { FRAME_WIDE_LISTING_MESSAGE } from '../src/access/text.ts'
 import { RefTable } from '../src/client/access/refs.ts'
 import type { ContentActRequest } from '../src/types.ts'
 
+/** The session every case here acts for. */
+const SESSION = 'session_1'
+
 /** The frame id every case here acts through. */
-const FRAME = 'session_1 home'
+const FRAME = `${SESSION} home`
 
 /** The seat's settings: deadlines short enough for a test to sit through. */
 const ACCESS = {
@@ -133,10 +136,13 @@ const NO_DRAWING = (): never => {
 /** Build one seat over the mounted frame. */
 function seatOf(request: ContentActRequest): ContentReadSeat {
   return {
-    entries: [PAGE_ENTRY],
-    pending: [request],
-    page: { id: 'home', title: 'Home' },
-    activeFrameId: FRAME,
+    sessions: [{
+      sessionId: SESSION,
+      entries: [PAGE_ENTRY],
+      pending: [request],
+      page: { id: 'home', title: 'Home' },
+      frameId: FRAME,
+    }],
     frames: { current: new Map([[FRAME, frame]]) },
     tables: { current: new Map([[FRAME, refs]]) },
     access: ACCESS,
@@ -1136,7 +1142,8 @@ describe('what the call answers with', () => {
       tool: 'content_act',
       args: { steps: [{ action: 'click', ref: 'e1', label: '查询' }] },
     }
-    render(<Probe seat={{ ...seatOf(request), entries: [] }} />)
+    const seat = seatOf(request)
+    render(<Probe seat={{ ...seat, sessions: seat.sessions.map(session => ({ ...session, entries: [] })) }} />)
     await vi.waitFor(
       () => { expect(posted.filter(entry => entry.route === CONTENT_REPORT_ROUTE)).toHaveLength(1) },
       { timeout: 5000 },

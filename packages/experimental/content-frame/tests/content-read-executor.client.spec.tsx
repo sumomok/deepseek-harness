@@ -12,7 +12,9 @@
 import { act, cleanup, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
-import { isVisible, TAB_ID, useContentRead, type ContentReadSeat } from '../src/client/access/executor.ts'
+import {
+  isVisible, TAB_ID, useContentRead, type ContentReadSeat, type SeatSession,
+} from '../src/client/access/executor.ts'
 import { looksClickable } from '../src/client/access/dom.ts'
 import {
   CLAIM_RETRY_MS, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE, EXPORT_WAIT_SHARE,
@@ -32,8 +34,11 @@ import { RefTable } from '../src/client/access/refs.ts'
 import type { ExportPixels } from '../src/client/access/capture.ts'
 import type { ContentAccessRequest, ContentReadRequest } from '../src/types.ts'
 
+/** The session every case here reads for. */
+const SESSION = 'session_1'
+
 /** The frame id every case here reads through. */
-const FRAME = 'session_1 home'
+const FRAME = `${SESSION} home`
 
 /**
  * The reader's settings. Both deadlines are short enough for a test to sit
@@ -213,20 +218,46 @@ const NO_DRAWING = (): never => {
   throw new Error('a text read exported no picture')
 }
 
-/** Build one seat over the given frames and entries. */
-function seatOf(overrides: Partial<ContentReadSeat> = {}): ContentReadSeat {
+/**
+ * Build one seat over the given frames and entries.
+ *
+ * The column's own four values are taken flat, because all but one case here
+ * drives a seat holding exactly one session; a case about two of them passes
+ * `sessions` instead and the flat four are ignored.
+ */
+function seatOf(
+  overrides: Partial<Omit<ContentReadSeat, 'sessions'> & SeatSession & Pick<ContentReadSeat, 'sessions'>> = {},
+): ContentReadSeat {
+  const {
+    sessionId, entries, pending, page, frameId, ...seat
+  } = {
+    sessionId: SESSION,
+    entries: [PAGE_ENTRY] as readonly ContentSurfaceEntry[],
+    pending: [READ] as readonly ContentAccessRequest[],
+    page: { id: 'home', title: 'Home' } as SeatSession['page'],
+    frameId: FRAME as string | undefined,
+    ...overrides,
+  }
   return {
-    entries: [PAGE_ENTRY],
-    pending: [READ],
-    page: { id: 'home', title: 'Home' },
-    activeFrameId: FRAME,
+    sessions: [{ sessionId, entries, pending, page, frameId }],
     frames: { current: new Map<string, HTMLIFrameElement>() },
     tables: { current: new Map<string, RefTable>() },
     access: ACCESS,
     tabId: TAB_ID,
     draw: NO_DRAWING,
-    ...overrides,
+    ...seat,
   }
+}
+
+/**
+ * The same seat carrying a different pending list, which is what every later
+ * projection frame of one open call looks like.
+ * @param seat - the seat to re-drive.
+ * @param pending - the calls its one session now has open.
+ * @returns the seat to render.
+ */
+function withPending(seat: ContentReadSeat, pending: readonly ContentAccessRequest[]): ContentReadSeat {
+  return { ...seat, sessions: seat.sessions.map(session => ({ ...session, pending })) }
 }
 
 /** Mount the reader over one seat. */
@@ -367,7 +398,7 @@ describe('when the reader claims', () => {
     const view = drive(seat)
     // A fresh list carrying the same call, which is what every later projection
     // frame looks like until the result lands.
-    drive({ ...seat, pending: [{ ...READ }] }, view)
+    drive(withPending(seat, [{ ...READ }]), view)
     await settled()
     expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1)
   })
@@ -447,7 +478,7 @@ describe('when the reader claims', () => {
     const seat = seatOf()
     const view = drive(seat)
     await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1) })
-    drive({ ...seat, pending: [] }, view)
+    drive(withPending(seat, []), view)
     const bids = of(CONTENT_CLAIM_ROUTE).length
     await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF * 3) })
     // Not one more and then stop: the list is read after the wait and before
@@ -474,19 +505,46 @@ describe('when the reader claims', () => {
     setVisibility('hidden')
     // One blip of the projection feed: the call is off the list for a render,
     // which is what the bidding loop reads as the call being over.
-    await act(async () => { drive({ ...seat, pending: [] }, view) })
+    await act(async () => { drive(withPending(seat, []), view) })
     await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF * 2) })
     const gaveUpAfter = of(CONTENT_CLAIM_ROUTE).length
 
     // The next frame carries the same still-open call, and the user comes back
     // to the console to answer the approval.
     setVisibility('visible')
-    await act(async () => { drive({ ...seat, pending: [READ] }, view) })
+    await act(async () => { drive(withPending(seat, [READ]), view) })
     await vi.waitFor(() => {
       expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThan(gaveUpAfter)
     }, { timeout: 5000 })
     view.unmount()
   }, 30_000)
+
+  it('stops bidding when the column it would have read left this seat', async () => {
+    // The other way a bid ends: the frame the read was going to run in was
+    // evicted, or the console lost the session. The call is still open on the
+    // host, and the host's own window is what answers it.
+    claims = Array.from({ length: 20 }, () => ({ claimed: false, reason: 'unknown' as const }))
+    const seat = seatOf()
+    const view = drive(seat)
+    await vi.waitFor(() => { expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1) })
+    drive({ ...seat, sessions: [] }, view)
+    const bids = of(CONTENT_CLAIM_ROUTE).length
+    await new Promise<void>((resolve) => { setTimeout(resolve, CLAIM_RETRY_MS * MAX_CLAIM_BACKOFF * 3) })
+    expect({ bids: of(CONTENT_CLAIM_ROUTE).length, reports: of(CONTENT_REPORT_ROUTE) })
+      .toEqual({ bids, reports: [] })
+  })
+
+  it('answers a claim whose column left this seat between the bid and the read', async () => {
+    // The host granted the claim and is waiting for a report, so the seat posts
+    // one: a column it can no longer reach reads as a column with nothing in
+    // it, which is the failure a read of an empty column already composes.
+    const frames = new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]])
+    const seat = seatOf({ frames: { current: frames } })
+    const view = drive(seat)
+    drive({ ...seat, sessions: [] }, view)
+    await settled()
+    expect(reported()).toEqual({ status: 'error', code: 'empty', message: 'the content column is empty' })
+  })
 
   it('takes a call up again after a bid the route refused', async () => {
     // The same leak without a hidden tab. Every give-up but the call leaving
@@ -502,7 +560,7 @@ describe('when the reader claims', () => {
 
     // The same call arrives on the next projection frame, as it does until its
     // result reaches the log.
-    await act(async () => { drive({ ...seat, pending: [{ ...READ }] }, view) })
+    await act(async () => { drive(withPending(seat, [{ ...READ }]), view) })
     await settled()
     expect(of(CONTENT_CLAIM_ROUTE).length).toBeGreaterThan(1)
   }, 30_000)
@@ -570,11 +628,11 @@ describe('when the reader claims', () => {
     const view = drive(seat)
     await settled()
     // The result reached the log, so the host stopped publishing the call.
-    drive({ ...seat, pending: [] }, view)
+    drive(withPending(seat, []), view)
     posted = []
     // No agent loop reuses a live call id; the same id arriving again is how a
     // test can see whether the seat still remembers having answered it.
-    drive({ ...seat, pending: [{ ...READ }] }, view)
+    drive(withPending(seat, [{ ...READ }]), view)
     await settled()
     expect(of(CONTENT_CLAIM_ROUTE)).toHaveLength(1)
   })
@@ -1010,7 +1068,7 @@ describe('what the reader reports', () => {
     await settled()
     const first = reported()
     posted = []
-    drive({ ...seat, pending: [{ ...READ, callId: 'call_2' }] }, view)
+    drive(withPending(seat, [{ ...READ, callId: 'call_2' }]), view)
     await settled()
     const second = reported()
     if (first.status !== 'ok' || second.status !== 'ok') throw new Error('the reader answered a failure')
@@ -1019,7 +1077,7 @@ describe('what the reader reports', () => {
   })
 
   it('says the column is empty when the session has produced nothing', async () => {
-    drive(seatOf({ entries: [], page: undefined, activeFrameId: undefined }))
+    drive(seatOf({ entries: [], page: undefined, frameId: undefined }))
     await settled()
     expect(reported()).toMatchObject({ status: 'error', code: 'empty' })
   })
@@ -1028,7 +1086,7 @@ describe('what the reader reports', () => {
     drive(seatOf({
       entries: [otherEntry('revenue', 'Revenue'), PAGE_ENTRY],
       page: undefined,
-      activeFrameId: undefined,
+      frameId: undefined,
     }))
     await settled()
     expect(reported()).toMatchObject({ status: 'error', code: 'not-a-page', kind: 'chart', title: 'Revenue' })
@@ -1038,7 +1096,7 @@ describe('what the reader reports', () => {
     drive(seatOf({
       entries: [otherEntry('revenue', 'Revenue'), otherEntry('traffic', 'Traffic')],
       page: undefined,
-      activeFrameId: undefined,
+      frameId: undefined,
     }))
     await settled()
     const outcome = reported()
@@ -1047,7 +1105,7 @@ describe('what the reader reports', () => {
   })
 
   it('says there is nothing to read when the page in front left the deployment', async () => {
-    drive(seatOf({ activeFrameId: undefined }))
+    drive(seatOf({ frameId: undefined }))
     await settled()
     expect(reported()).toEqual({
       status: 'error',
