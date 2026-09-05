@@ -43,7 +43,7 @@ function ApprovalFlow({ pending, detail, t }: {
           aria-label={t('detail.aria')}
         >
           <div className={css.headline}>{pending.reason ?? t('escalation', { toolName: pending.toolName })}</div>
-          {detail !== null && <div className={css.command}>{detail}</div>}
+          {detail !== null && <div className={css.detail}>{detail}</div>}
         </div>
         <div className={css.actionRow}>
           <Button variant="outline" className={css.reject} disabled={answered} onClick={() => { answer('rejected') }}>
