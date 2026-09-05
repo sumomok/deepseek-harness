@@ -1,0 +1,55 @@
+# How the content column's tools are classified for the review gate
+# (`@haoran/dsh-llm-permission-gateway`, >= 0.2.0). A deployment that installs
+# the gate passes this file as one more `--patch` beside
+# `overlay/content-column.patch.yml`; a deployment without the gate gets one
+# `patch: entry %C not found` warn line at load and nothing else
+# (vendor/include/src/index.ts:110-114), so passing it unconditionally is safe
+# and silent. `name` is declared so that a mistyped `id` still warns — an id
+# that matches nothing warns as above, and an id that matches the wrong row
+# warns as a name mismatch and skips (vendor/include/src/index.ts:116-118).
+#
+# Layer order is what makes this file win: the gate's own bundle patch applies
+# with the bundles, and every `--patch` overlay applies after all of them
+# (apps/cli/reference/README.md, "Profile boot").
+#
+# A patch replaces the targeted row's complete `config` value rather than
+# merging keys into it (vendor/include/src/index.ts:121-124). So `provider` and
+# `model` — both required, rejected empty by the gate — are restated here, and
+# the gate's whole default `readOnlyTools` list is copied rather than extended.
+# Gateway 0.3.0 moves the judge route into a setting, at which point the two
+# restated fields come out of this file. The eleven copied names are a copy and
+# nothing pins them here: the gate pins its own defaults in its own tests, and
+# a second copy of that list in this repository would be a second source of
+# truth for a value this repository does not own.
+- id: llm-permission-gateway
+  name: '@haoran/dsh-llm-permission-gateway'
+  config:
+    provider: deepseek-official
+    model: deepseek-v4-flash
+    readOnlyTools:
+      # Gateway 0.2.0's eleven defaults, copied verbatim.
+      - read
+      - read_image
+      - glob
+      - grep
+      - todo_write
+      - plan
+      - ask_user_question
+      - show_chart
+      - job_output
+      - content_show
+      - web_search
+      # This deployment's addition: the content column's five reads. None of
+      # them writes anything on this machine or leaves it. Each registers a
+      # wait that the browser seat answers by reading the page the user
+      # already has in front of them, and posts the result back.
+      - content_read
+      - content_read_dom
+      - content_read_attrs
+      - content_read_dom_content
+      - content_read_image
+      # `content_act` is deliberately absent from this list, and
+      # tests/permission-gateway-overlay.client.spec.ts holds it out. It drives
+      # the page, so the review gate judges every call of it. The owner ruled on
+      # 2026-09-06 that only a dangerous page action puts a card in front of a
+      # person; the gate's own card is a separate slice.
