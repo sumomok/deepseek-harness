@@ -148,11 +148,17 @@ async function fetchIndex(ctx: Context): Promise<string> {
 }
 
 describe('server-base index rows', () => {
-  it('serves the configured prefix as a base element inside the head', async () => {
+  it('serves the configured prefix as the document\'s only base element', async () => {
     const html = await fetchIndex(await loadComposition())
     const headAt = html.indexOf('<head>')
     const baseAt = html.indexOf(`<base href="${BASE_PATH}">`)
     expect(baseAt).toBeGreaterThan(headAt)
+    // The dist server prepends its own `<base href="/">` after `<head>`, ahead
+    // of the injected rows, so a revert of its stand-aside guard leaves two
+    // base elements and the parser honors the root one — while every ordering
+    // case below still passes, because both precede the assets. The count is
+    // the only assertion that fails.
+    expect(html.match(/<base\b/gi)).toHaveLength(1)
   })
 
   it('places the base element ahead of every asset reference it has to govern', async () => {

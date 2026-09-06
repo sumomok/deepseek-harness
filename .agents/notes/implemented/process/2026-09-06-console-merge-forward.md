@@ -60,7 +60,7 @@ The console line's browser scenarios now run against the rc.1 shell, which is th
 
 The `examples/content-console` tree is dormant: it is carried, it is not run, and nothing gates it. It stays a decision to make rather than a silent deletion.
 
-Two failure modes are now covered that were not before. A dist server injecting its own `<base>` ahead of a deployment's is a blank page under a prefix, and `packages/experimental/server-base/tests/server-base.spec.ts` asserts the served document carries exactly one base. A composition that disables a row another row injects renders nothing with no error anywhere, and the views scenario is what would catch it again.
+Two failure modes are now covered that were not before. A dist server injecting its own `<base>` ahead of a deployment's is a blank page under a prefix, and `packages/experimental/server-base/tests/server-base.spec.ts` counts the base elements in the served document. Counting is the whole coverage: the ordering cases in that file pass just as happily with two base elements present, because both precede the assets, so the count is the only assertion that a revert of the dist server's stand-aside guard fails. A composition that disables a row another row injects renders nothing with no error anywhere, and the views scenario is what would catch it again.
 
 ## Testing
 

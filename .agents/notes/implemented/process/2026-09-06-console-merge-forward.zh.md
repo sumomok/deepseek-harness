@@ -60,7 +60,7 @@ console 线的浏览器场景现在跑在 rc.1 外壳上，这是让它的部署
 
 `examples/content-console` 这棵树处于休眠：带着，但不跑，也没有门禁看着它。它保持为一个待拍的决定，而不是一次无声的删除。
 
-有两类故障现在被覆盖住了。dist 服务器把自己的 `<base>` 注在部署的那一个之前，在前缀下就是一张白页，而 `packages/experimental/server-base/tests/server-base.spec.ts` 断言送出的文档恰好只有一个 base。一个组合禁用了另一行所注入服务的提供者，会什么都不画且哪里都不报错，views 场景就是下次抓住它的东西。
+有两类故障现在被覆盖住了。dist 服务器把自己的 `<base>` 注在部署的那一个之前，在前缀下就是一张白页，而 `packages/experimental/server-base/tests/server-base.spec.ts` 会数送出文档里的 base 元素个数。数个数就是全部覆盖：该文件里那几条顺序用例在存在两个 base 时同样会通过——两个都排在资源之前——所以一旦 dist 服务器的让位判断被改回去，只有这一条计数断言会失败。一个组合禁用了另一行所注入服务的提供者，会什么都不画且哪里都不报错，views 场景就是下次抓住它的东西。
 
 ## Testing
 
