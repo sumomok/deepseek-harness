@@ -36,7 +36,7 @@ import type { SessionEvent } from '@deepseek-ai/dsh-session'
 // Empty type imports: the two session-event merges this scenario reads by type.
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { launchWebScaffold, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
-import { connectFreshWorkspace, newEnglishContext, REPO_ROOT, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishContext, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const MODE = webSnapshotMode()
 const OVERLAY = fileURLToPath(new URL('./component-surface-datasource.overlay.yml', import.meta.url))
@@ -55,6 +55,18 @@ const ROWS = [
 
 /** Where the run's evidence lands. */
 const ARTIFACTS = join(REPO_ROOT, '.artifacts')
+
+/**
+ * The live composer of the open session — a contenteditable surface, which is
+ * why it is addressed by its own attribute rather than as a form control. The
+ * placeholder is deliberately not part of it: the same surface reads one way on
+ * a blank draft and another once the conversation has a turn in it.
+ * @param page - the page under test.
+ * @returns the composer input locator.
+ */
+function composerInput(page: Page): Locator {
+  return page.locator('[data-composer-input]').first()
+}
 
 /** The stub login page's path, matching the `loginUrl` the overlay configures. */
 const LOGIN_PATH = '/component-surface-datasource-login/'
@@ -242,7 +254,7 @@ describe.skipIf(MODE === 'record')('web e2e: a call that reads the deployment\'s
     })
     // The first load finds no token and leaves for the login page, which stores
     // one and comes back; the shell then mirrors it and reloads once more.
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await page.waitForSelector('[class*="frame"]', { timeout: 60_000 })
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
     // Signing in navigates away twice — once to the login page, once for the
@@ -269,10 +281,10 @@ describe.skipIf(MODE === 'record')('web e2e: a call that reads the deployment\'s
 
   it('asks the user in their own words, reads the rows, and draws them', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-component-datasource'))
-    const input = page.locator('textarea').first()
+    const input = composerInput(page)
     await input.waitFor({ timeout: 30_000 })
-    await input.fill(PROMPT)
-    await input.press('Enter')
+    await writeComposerDraft(page, input, PROMPT)
+    await page.keyboard.press('Enter')
 
     // The approval panel takes the composer over while the tool waits, and it
     // is a stable waiting state, so waiting for it is race-free.
@@ -354,9 +366,9 @@ describe.skipIf(MODE === 'record')('web e2e: a call that reads the deployment\'s
     // The scripted reply is not a fixed string: llm-replay resolves its head
     // against the live request, so the sentence below can only be produced at
     // all if the notice naming the ticked row was in that request.
-    const input = page.locator('textarea').first()
-    await input.fill(TICK_PROMPT)
-    await input.press('Enter')
+    const input = composerInput(page)
+    await writeComposerDraft(page, input, TICK_PROMPT)
+    await page.keyboard.press('Enter')
     await expect.poll(async () => await page.getByText(TICK_REPLY, { exact: false }).count(), { timeout: 60_000 })
       .toBeGreaterThan(0)
     await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-datasource-tick.png'), fullPage: true })

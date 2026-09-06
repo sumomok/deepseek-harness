@@ -38,7 +38,7 @@ import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { launchWebScaffold, webSnapshotMode, type WebScaffold } from './scaffold.ts'
 import { startPrefixProxy, type PrefixProxy } from './prefix-proxy.ts'
-import { connectFreshWorkspace, newEnglishContext, REPO_ROOT, saveFailureShot } from './support.ts'
+import { connectFreshWorkspace, newEnglishContext, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const MODE = webSnapshotMode()
 const BASE_DIR = join(REPO_ROOT, 'packages/experimental/server-base')
@@ -133,9 +133,10 @@ async function stageComposition(): Promise<{ harnessHome: string; overlayPath: s
  * answered, without a WebSocket library: only the three outcomes matter here.
  * @param origin - scheme and authority to ask.
  * @param path - request path, prefix included.
+ * @param cookie - the session cookie this authority answers to.
  * @returns `upgraded`, `http-<status>`, or `refused` when the socket died first.
  */
-async function probeUpgrade(origin: string, path: string): Promise<string> {
+async function probeUpgrade(origin: string, path: string, cookie: string): Promise<string> {
   const { hostname, host, port } = new URL(origin)
   return await new Promise<string>((resolve) => {
     const req = httpRequest({
@@ -144,6 +145,7 @@ async function probeUpgrade(origin: string, path: string): Promise<string> {
       path,
       headers: {
         host,
+        cookie,
         connection: 'Upgrade',
         upgrade: 'websocket',
         'sec-websocket-key': Buffer.from('base-path-probe0').toString('base64'),
@@ -170,6 +172,8 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
   let harnessHome: string
   /** Whether the stub login page signs the visitor in, or only records where it was asked to send them. */
   let stubSignsIn = false
+  /** The session cookie the launch-token exchange minted for the proxy's authority. */
+  let session = ''
   /** Every request the tab issued, and the status each was answered with. */
   const requested: Request[] = []
   const statuses = new Map<string, number>()
@@ -191,6 +195,19 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
     // same-origin page can leave the token where the gate reads it.
     await page.route(url => url.pathname === LOGIN_PATH, route =>
       route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: loginPage(stubSignsIn) }))
+    // The index is served only to a request carrying the authority-bound
+    // session cookie, which a browser earns once by presenting this process's
+    // launch token. The exchange goes through the proxy, whose forwarded Host
+    // is what the cookie is bound to, so it is the tab's own address that is
+    // authenticated. Its 303 is not followed: that answer names the origin
+    // root, which is off the prefix this deployment publishes.
+    const exchange = await context.request.get(
+      `${proxy.baseUrl}${new URL(scaffold.authenticatedUrl).search}`,
+      { maxRedirects: 0 },
+    )
+    const minted = exchange.headers()['set-cookie']
+    if (minted === undefined) throw new Error('base-path e2e: the launch-token exchange minted no session cookie')
+    session = minted.split(';', 1)[0] ?? ''
     page.on('request', (request: Request) => { requested.push(request) })
     page.on('response', (response: Response) => { statuses.set(response.url(), response.status()) })
     page.on('websocket', (socket: WebSocket) => { sockets.push(socket) })
@@ -244,24 +261,32 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
       expect(shellPaths().filter(path => path.startsWith(route)).length).toBeGreaterThan(0)
     }
 
-    // Both WebSocket downlinks live under the prefix; the harness registers
-    // them as exact upgrade paths, so a prefix left on or stripped twice is a
-    // destroyed socket rather than a 404. Distinct paths, because the boot
-    // reconnects each downlink as the graph settles.
+    // The mux downlink lives under the prefix; the harness registers it as an
+    // exact upgrade path, so a prefix left on or stripped twice is a destroyed
+    // socket rather than a 404. One path however often the boot reconnects it,
+    // because every reconnect addresses the same route.
     await expect.poll(() => [...new Set(sockets.map(socket => new URL(socket.url()).pathname))].sort(), {
       timeout: 30_000,
-    }).toEqual([`${PREFIX}api/events.host`, `${PREFIX}api/events.mux`])
+    }).toEqual([`${PREFIX}api/remote.mux`])
 
-    // Every plugin bundle — the two parser-blocking preloads the Host injects
-    // and the rows the module loader fetches itself — resolved through the
-    // page's base and was served.
+    // Every plugin bundle — the two the Host puts in the head and the rows the
+    // module loader fetches itself — resolved through the page's base and was
+    // served.
     const bundles = [...statuses].filter(([url]) => new URL(url).pathname.startsWith(`${PREFIX}plugins/`))
     expect(bundles.filter(([, status]) => status !== 200)).toEqual([])
     expect(bundles.length).toBeGreaterThan(2)
-    const preloaded = await page.evaluate(() =>
-      [...document.querySelectorAll('head script[src]')].map(script => script.getAttribute('src') ?? ''))
-    expect(preloaded.filter(src => src.startsWith('plugins/')).length).toBe(2)
-    expect(preloaded.filter(src => src.startsWith('/'))).toEqual([])
+    // The two the parser acts on before the shell runs: the blocking bootstrap
+    // script and the application batch's preload link. Both are written
+    // relative, which is what the page's base is then applied to; a
+    // root-absolute one would have addressed the origin root.
+    const injected = await page.evaluate(() => ({
+      scripts: [...document.querySelectorAll('head script[src]')].map(node => node.getAttribute('src') ?? ''),
+      preloads: [...document.querySelectorAll('head link[rel="preload"][as="script"]')]
+        .map(node => node.getAttribute('href') ?? ''),
+    }))
+    expect(injected.scripts.filter(src => src.startsWith('plugins/')).length).toBe(1)
+    expect(injected.preloads.filter(href => href.startsWith('plugins/')).length).toBe(1)
+    expect([...injected.scripts, ...injected.preloads].filter(src => src.startsWith('/'))).toEqual([])
 
     // The mirror cookie is scoped to the prefix, not to the whole origin: the
     // page's own requests all carry it, and nothing else on the host does.
@@ -274,18 +299,18 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
     // A world with a workspace: connecting one births the blank session whose
     // live composer accepts the slash line the export controller listens for.
     await connectFreshWorkspace(page, scaffold.workspaceCwd)
-    const input = page.locator('textarea').first()
+    const input = page.locator('[data-composer-input]').first()
     await input.waitFor({ timeout: 30_000 })
-    await input.fill('/export')
-    await input.press('Enter')
+    await writeComposerDraft(page, input, '/export')
+    await page.keyboard.press('Enter')
 
     // The export builds its own URL — neither through the RPC channel nor
-    // through the carrier's unary leg — and hands the resolved absolute URL to
-    // the browser's download manager, which resolves nothing against the page.
+    // through the carrier's unary leg — and fetches the archive with it, so
+    // the address it resolved is the one the tab actually asked for.
     await expect.poll(() => requested
       .filter(request => new URL(request.url()).pathname === `${PREFIX}api/session.export`)
       .map(request => request.method()), { timeout: 60_000 })
-      .toContain('HEAD')
+      .toContain('GET')
   }, 180_000)
 
   it('gives the token up and returns to the login page still under the prefix', async () => {
@@ -337,9 +362,12 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
         headers: { 'content-type': 'application/json' },
         body: JSON.stringify({ type: 'client-request', rpcId: 'probe', payload: {} }),
       }
-      const unstripped = await fetch(`${passthrough.origin}${PREFIX}api/session.list`, rpcBody)
+      const unstripped = await fetch(`${passthrough.origin}${PREFIX}api/session/list`, rpcBody)
       await unstripped.arrayBuffer()
-      const stripped = await fetch(`${proxy.origin}${PREFIX}api/session.list`, rpcBody)
+      const stripped = await fetch(`${proxy.origin}${PREFIX}api/session/list`, {
+        ...rpcBody,
+        headers: { ...rpcBody.headers, cookie: session },
+      })
       await stripped.arrayBuffer()
       expect({ unstripped: unstripped.status, stripped: stripped.status })
         .toEqual({ unstripped: 405, stripped: 200 })
@@ -347,8 +375,8 @@ describe.skipIf(MODE === 'record')('web e2e: the shell published under a deploym
       // The downlinks are matched by exact pathname and there is no status code
       // to read: an unmatched upgrade is a destroyed socket. The same probe
       // against the stripping proxy is what proves it is the prefix that did it.
-      expect(await probeUpgrade(passthrough.origin, `${PREFIX}api/events.mux`)).toBe('refused')
-      expect(await probeUpgrade(proxy.origin, `${PREFIX}api/events.mux`)).toBe('upgraded')
+      expect(await probeUpgrade(passthrough.origin, `${PREFIX}api/remote.mux`, session)).toBe('refused')
+      expect(await probeUpgrade(proxy.origin, `${PREFIX}api/remote.mux`, session)).toBe('upgraded')
     } finally {
       await passthrough.close()
     }

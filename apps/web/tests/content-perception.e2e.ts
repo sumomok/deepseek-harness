@@ -54,7 +54,7 @@ const ROWS = [
 const APP_ROOT = join(FRAME_DIR, 'tests/fixtures/app')
 
 /** A fresh conversation's composer placeholder — the signal that the workbench opened one. */
-const HERO_PLACEHOLDER = 'Describe what you want to build'
+const HERO_PLACEHOLDER = 'Describe what you want to build... / commands, @ files or sessions'
 
 /** Switcher keys the column mints, as `<kind> <entryId>`. */
 const HOME_ENTRY = 'page home'
@@ -205,10 +205,10 @@ describe('web e2e: what the agent knows about the content column', () => {
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await sidebar(page).waitFor({ timeout: 30_000 })
     await workbenchButton(page).click()
-    await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await page.locator(`[data-composer-input][data-placeholder="${HERO_PLACEHOLDER}"]`).waitFor({ timeout: 15_000 })
     sessionId = String((await theOneAgent(scaffold)).session.id)
   }, 180_000)
 

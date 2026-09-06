@@ -53,10 +53,10 @@ import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionEvent } from '@deepseek-ai/dsh-session'
 import { launchWebScaffold, seedSession, watchConsole, webSnapshotMode, type WebScaffold } from './scaffold.ts'
-import { newEnglishPage, REPO_ROOT, saveFailureShot } from './support.ts'
+import { expandOwningTurnProcess, newEnglishPage, REPO_ROOT, saveFailureShot, writeComposerDraft } from './support.ts'
 
 const MODE = webSnapshotMode()
-const FIXTURE = fileURLToPath(new URL('./snapshots/fresh-round-trip/session.jsonl', import.meta.url))
+const FIXTURE = fileURLToPath(new URL('../../../snapshots/web/fresh-round-trip/session.jsonl', import.meta.url))
 const OVERLAY = fileURLToPath(new URL('./component-surface.overlay.yml', import.meta.url))
 // The one model answer this scenario consumes: the turn a press opens. Written
 // by hand rather than recorded, because the press is what has to be driven and
@@ -81,7 +81,17 @@ const ROWS = [
 const ARTIFACTS = join(REPO_ROOT, '.artifacts')
 
 /** The composer's own English placeholder — the signal that a session is open. */
-const COMPOSER_PLACEHOLDER = 'Message the agent'
+/**
+ * The live composer of the open session — a contenteditable surface, which is
+ * why it is addressed by its own attribute rather than as a form control. The
+ * placeholder is deliberately not part of it: the same surface reads one way on
+ * a blank draft and another once the conversation has a turn in it.
+ * @param page - the page under test.
+ * @returns the composer input locator.
+ */
+function composerInput(page: Page): Locator {
+  return page.locator('[data-composer-input]').first()
+}
 
 const SESSION = 'component-surface-web-e2e'
 
@@ -355,7 +365,7 @@ async function harnessHomeWithRowLinks(): Promise<string> {
  * @param spec - what the call placed.
  * @returns the two log lines the loop writes for one settled call.
  */
-function componentCall(callId: string, id: string, title: string, spec: unknown): string[] {
+function componentCall(callId: string, id: string, title: string, spec: unknown, message: number): string[] {
   const args = JSON.stringify({ id, title, spec })
   return [
     JSON.stringify({
@@ -367,9 +377,21 @@ function componentCall(callId: string, id: string, title: string, spec: unknown)
       data: {
         turn: 1,
         step: 1,
-        callId,
-        content: [{ type: 'text', text: `Now showing "${title}" in the content panel.` }],
-        isError: false,
+        // A result is a message of its own, identified: a stored session whose
+        // result carries none is refused as corrupt before anything reads it.
+        // The ordinal continues the seed fixture's own, so no two events in the
+        // realized log claim one id.
+        message: {
+          source: { kind: 'tool', callId },
+          content: [{
+            type: 'tool-result',
+            toolCallId: callId,
+            content: [{ type: 'text', text: `Now showing "${title}" in the content panel.` }],
+            isError: false,
+          }],
+          role: 'user',
+          id: `{{message:${String(message)}}}`,
+        },
       },
       surfaceOp: 'append',
     }),
@@ -393,14 +415,14 @@ function withComponentCalls(fixtureText: string): string {
   if (closing === -1) throw new Error('seed fixture has no step/end to splice before')
   return [
     ...lines.slice(0, closing),
-    ...componentCall('call_00_component_budget_old', BUDGET_ID, BUDGET_DRAFT_TITLE, BUDGET_DRAFT_SPEC),
-    ...componentCall('call_00_component_cleanup', CLEANUP_ID, CLEANUP_TITLE, CLEANUP_SPEC),
-    ...componentCall('call_00_component_site', RECORD_ID, RECORD_TITLE, RECORD_SPEC),
-    ...componentCall('call_00_component_table', TABLE_ID, TABLE_TITLE, TABLE_SPEC),
-    ...componentCall('call_00_component_filter', FILTER_ID, FILTER_TITLE, FILTER_SPEC),
-    ...componentCall('call_00_component_metric', METRIC_ID, METRIC_TITLE, METRIC_SPEC),
-    ...componentCall('call_00_component_linked', VIEW_ID, VIEW_TITLE, VIEW_SPEC),
-    ...componentCall('call_00_component_budget_new', BUDGET_ID, BUDGET_TITLE, BUDGET_SPEC),
+    ...componentCall('call_00_component_budget_old', BUDGET_ID, BUDGET_DRAFT_TITLE, BUDGET_DRAFT_SPEC, 6),
+    ...componentCall('call_00_component_cleanup', CLEANUP_ID, CLEANUP_TITLE, CLEANUP_SPEC, 7),
+    ...componentCall('call_00_component_site', RECORD_ID, RECORD_TITLE, RECORD_SPEC, 8),
+    ...componentCall('call_00_component_table', TABLE_ID, TABLE_TITLE, TABLE_SPEC, 9),
+    ...componentCall('call_00_component_filter', FILTER_ID, FILTER_TITLE, FILTER_SPEC, 10),
+    ...componentCall('call_00_component_metric', METRIC_ID, METRIC_TITLE, METRIC_SPEC, 11),
+    ...componentCall('call_00_component_linked', VIEW_ID, VIEW_TITLE, VIEW_SPEC, 12),
+    ...componentCall('call_00_component_budget_new', BUDGET_ID, BUDGET_TITLE, BUDGET_SPEC, 13),
     ...lines.slice(closing),
   ].join('\n')
 }
@@ -470,13 +492,13 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     page.on('console', (message: ConsoleMessage) => {
       if (message.type() === 'error') consoleErrors.push(message.text())
     })
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     // The workspace group row precedes its sessions; expanding it lists them.
     await page.locator('[role="treeitem"]').first().click()
     const row = page.locator('[role="treeitem"]').nth(1)
     await row.waitFor({ timeout: 15_000 })
     await row.click()
-    await page.getByPlaceholder(COMPOSER_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await composerInput(page).waitFor({ timeout: 15_000 })
   }, 180_000)
 
   afterAll(async () => {
@@ -598,7 +620,9 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // What the log kept: the command's own recorded input, verbatim and
     // log-only, and no event this row invented for itself.
     const events = liveEvents(scaffold)
-    const run = events.find(event => event.type === 'command/run')
+    // By name, not by position: picking a tab is a command of the column's own
+    // (`select-content-entry`), and this scenario picked several before pressing.
+    const run = events.find(event => event.type === 'command/run' && event.data.name === 'component-action')
     expect(run?.type === 'command/run' && run.data.name).toBe('component-action')
     expect(run?.type === 'command/run' && run.data.args).toBe(
       ` {"entryId":"${BUDGET_ID}","componentId":"el.confirm-bar","actionId":"press","nodeId":"ask","payload":{"buttonId":"${APPROVE_ID}"}}`,
@@ -608,7 +632,10 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // What the agent was given, and the turn it was given it in. The press
     // opened turn 2 — the seeded log closed turn 1 — and the notice is a plugin
     // message, never a forged user one.
-    const notice = events.find(event => event.type === 'user/message' && event.data.source.kind === 'plugin')
+    // By plugin, not by kind: the runtime-context row posts a plugin message of
+    // its own ahead of this one.
+    const notice = events.find(event => event.type === 'user/message'
+      && event.data.source.kind === 'plugin' && event.data.source.plugin === NOTICE_PLUGIN)
     expect(notice?.type === 'user/message' && notice.data.content).toEqual([{ type: 'text', text: PRESS_TEXT }])
     expect(notice?.type === 'user/message' && notice.data.source).toEqual({
       kind: 'plugin',
@@ -634,6 +661,9 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // with the heading and the plugin id alone.
     const row = page.locator('[data-disclosure-row]', { hasText: PRESS_SUMMARY })
     await row.waitFor({ state: 'attached', timeout: 30_000 })
+    // The shell's compact chat keeps a turn's process rows folded; this row is
+    // one of them, so its own group is opened before it can be read.
+    await expandOwningTurnProcess(page, row)
     await row.scrollIntoViewIfNeeded()
     await expect.poll(async () => await row.isVisible(), { timeout: 15_000 }).toBe(true)
     expect(await row.locator('[data-context-source]').textContent()).toBe(NOTICE_PLUGIN)
@@ -696,9 +726,9 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // an action that resolves against nothing. The command is in the slash menu
     // — the registry has no way to keep a row out of it — so this is also the
     // path an end user can stumble into.
-    const composer = page.getByPlaceholder(COMPOSER_PLACEHOLDER)
-    await composer.fill(MALFORMED_ACTION)
-    await composer.press('Enter')
+    const composer = composerInput(page)
+    await writeComposerDraft(page, composer, MALFORMED_ACTION)
+    await page.keyboard.press('Enter')
 
     // The refusal is the row itself. Nothing reached the agent, so no notice
     // and no answer follows it — and the row is not the chat view's English
@@ -709,8 +739,13 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     await expect.poll(async () => await refused.isVisible(), { timeout: 15_000 }).toBe(true)
     expect(await refused.locator('[data-component-action-refused]').textContent()).toBe(ACTION_NOT_RECORDED)
     expect(await page.getByText('component-action', { exact: true }).count()).toBe(0)
-    // Two command rows now: the press's, emptied and collapsed, and this one.
-    expect(await page.locator('[data-chat-flow-kind="command"]').count()).toBe(2)
+    // Every other command row on this transcript renders nothing and is
+    // collapsed away — the press's own, and one per tab this scenario picked,
+    // which the column records as a command of its own. The refusal is the only
+    // command row with anything to say.
+    const said = (await page.locator('[data-chat-flow-kind="command"]').allTextContents())
+      .filter(text => text.trim() !== '')
+    expect(said.length).toBe(1)
     await evidence(page, 'web-e2e-component-surface-refused')
   }, 120_000)
 
@@ -796,9 +831,9 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // exists only because the ticked rows — named by what their first column
     // shows — were in the request the message earned.
     const settled = scaffold.whenTurnSettled(60_000)
-    const composer = page.getByPlaceholder(COMPOSER_PLACEHOLDER)
-    await composer.fill(TABLE_PROMPT)
-    await composer.press('Enter')
+    const composer = composerInput(page)
+    await writeComposerDraft(page, composer, TABLE_PROMPT)
+    await page.keyboard.press('Enter')
     await settled
     const claimed = liveEvents(scaffold).find(event => event.type === 'user/message'
       && event.data.source.kind === 'plugin'

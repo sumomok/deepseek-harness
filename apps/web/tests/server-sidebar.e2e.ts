@@ -834,7 +834,7 @@ describe('web e2e: the product-console sidebar', () => {
     acknowledgeReloadConnectionLoss(tripwire, warningStart)
     await sidebar(page).waitFor({ timeout: 15_000 })
     await workbenchButton(page).click()
-    await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
     await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBe(displaced)
     workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
 
@@ -871,7 +871,7 @@ describe('web e2e: the product-console sidebar', () => {
     // conversation on screen — the case that decides where the shell rests
     // afterwards.
     await row.getByRole('button', { name: /Build the weekly report page/ }).click()
-    await page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await composer(page, ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
     await expect(row.getByRole('button', { name: /Build the weekly report page/ }).getAttribute('data-active'))
       .resolves.toBe('true')
 
@@ -892,7 +892,7 @@ describe('web e2e: the product-console sidebar', () => {
     // landing is a one-shot, so the dismissal lands on 工作台 itself. The
     // recorded workbench conversation is still live, so it is reopened rather
     // than re-created.
-    await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
     expect(await page.locator('[data-phase="inert"]').count()).toBe(0)
     await expect(workbenchButton(page).getAttribute('data-active')).resolves.toBe('true')
     expect(readServerMenu(scaffold).workbenchSessionId).toBe(workbenchSessionId)
@@ -909,7 +909,7 @@ describe('web e2e: the product-console sidebar', () => {
     // Leave the page on an established conversation, the state the remaining
     // assertions in this block read.
     await workflowsSection(page).getByRole('button', { name: /My Workflow/ }).click()
-    await page.getByPlaceholder(ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await composer(page, ESTABLISHED_PLACEHOLDER).waitFor({ timeout: 15_000 })
   }, 120_000)
 
   it('leaves the Chat/Trajectory tab switcher and the model selector out of the customer-form composition', async () => {
@@ -1068,7 +1068,7 @@ describe('web e2e: the product-console sidebar over both content catalogs', () =
     browser = await chromium.launch()
     page = await newEnglishPage(browser)
     tripwire = watchConsole(page)
-    await page.goto(scaffold.baseUrl, { waitUntil: 'load' })
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
     await sidebar(page).waitFor({ timeout: 30_000 })
   }, 180_000)
 
@@ -1107,7 +1107,7 @@ describe('web e2e: the product-console sidebar over both content catalogs', () =
     async () => {
       onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-views-open'))
       await workbenchButton(page).click()
-      await page.getByPlaceholder(HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+      await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
       await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBeUndefined()
       workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
 
