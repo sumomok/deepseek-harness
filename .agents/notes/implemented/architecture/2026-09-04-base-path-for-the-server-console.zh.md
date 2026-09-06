@@ -68,7 +68,7 @@ server 线要在一台共享 nginx 后面给每位用户发一个外壳，唯一
 
 ## Consequences
 
-有两处测试台改动必须先于产品改动落地，否则回归会照常全绿。`assembled-boot.ts` 新增了 `installDeploymentBase(basePath, search)`，复刻插件注入的那三样东西；新增的 `apps/web/tests/base-path-boot.snapshot.ts` 断言没有任何 boot URL——41 条 manifest 行加 2 条 preload——解析到前缀之外；对着根绝对的 manifest，43 条全在外面。`auth-gate.e2e.ts` 的加载计数器改成与具名的 `SHELL_PATH` 比较，不再写死 `'/'`。
+有两处测试台改动必须先于产品改动落地，否则回归会照常全绿。`assembled-boot.ts` 新增了 `installDeploymentBase(basePath, search)`，复刻插件注入的那三样东西；新增的 `apps/web/tests/base-path-boot.e2e.ts` 断言没有任何 boot URL——41 条 manifest 行加 2 条 preload——解析到前缀之外；对着根绝对的 manifest，43 条全在外面。`auth-gate.e2e.ts` 的加载计数器改成与具名的 `SHELL_PATH` 比较，不再写死 `'/'`。
 
 `apps/web/tests/base-path.e2e.ts` 把整条链路跑在 `prefix-proxy.ts` 后面——一个四十行的部署 nginx 替身，剥前缀、透传 upgrade，并对任何不该由它剥的路径答 404。它观察到：44 个 bundle 响应落在 `/console/plugins/` 下、`<head>` 里恰有两条相对 preload 且一条根绝对的都没有、两条下行开在 `/console/api/events.{mux,host}`、导出控制器的 HEAD 打在 `/console/api/session.export`、镜像 cookie 的 `Path=/console/`，以及没有任何一个请求打到无前缀的 `/api`、`/plugins` 或 `/auth-gate`。它的最后一例是负向的：经一个恒等代理，同一个 harness 对文档答 404、对 RPC 上行答 405，并直接销毁 WebSocket 升级——这就是让「必须把前缀剥净」成为机械可观测事实、而不是部署手册里一句话的那条证据。
 
