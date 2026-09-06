@@ -56,7 +56,7 @@ API Gateway 拥有 Remote transport、stream 生命周期和 Remote Event 协调
 `-- compose Session and Workspace domain state for consumers
 ```
 
-API Proxy 不拥有 Session 或 Workspace Remote namespace，也不拥有 Host 下行事件 carrier。`/api/events.host`、`HostFrame`、`stream/error`、`ServerRequest` 及其 WebSocket／SSE 分支不参与这条数据链路。
+API Proxy 不拥有 Session 或 Workspace Remote namespace，也不拥有 Host 下行事件 carrier。`HostFrame`、`stream/error`、`ServerRequest` 及其 WebSocket／SSE 分支不参与这条数据链路。
 
 ### Connection generation 与物理连接
 

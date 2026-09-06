@@ -39,18 +39,18 @@ Windows 上点关闭按钮弹一个对话框:「最小化到托盘」或「退�
 
 ### 壳订阅它自己启动的那个服务器
 
-有两个时刻值得打扰:会话**跑完了**,以及会话**在等一个答复**。两者都从运行中的 `dsh web` 上读,走浏览器 UI 自己也在消费的那两条下行 WebSocket,连的就是 `startServer` 早已报出来的回环地址。**上游没有任何改动。**
+有两个时刻值得打扰:会话**跑完了**,以及会话**在等一个答复**。两者都从运行中的 `dsh web` 上读,走 `/api/remote.mux`,也就是浏览器 UI 在消费的那条 WebSocket,在它上面开一条 `$events` 逻辑流,连的就是 `startServer` 早已报出来的回环地址。**上游没有任何改动。**
 
-- `/api/events.host` 送 `host/session-status`,它的 `running` 位是唯一真正的「agent 停了」边沿。持久日志事件 `turn/end` 不是这个边沿——一个 turn 后面可以紧跟另一个——而且工具等批准期间这一位仍然是 `running`,这正是让两种情况不重叠的原因。
-- `/api/events.mux` 送 `approval/requested`、`question/requested` 及各自的 `resolved`,外加全部会话事件,其中只留 `session/title`:用作消息里那个名字。
+- 这条流送 `host/session-status`,它的 `running` 位是唯一真正的「agent 停了」边沿。持久日志事件 `turn/end` 不是这个边沿——一个 turn 后面可以紧跟另一个——而且工具等批准期间这一位仍然是 `running`,这正是让两种情况不重叠的原因。
+- 它同时送 `approval/requested`、`question/requested` 及各自的 `resolved`,外加全部会话事件,其中只留 `session/title`:用作消息里那个名字。
 
-两条流都是全会话、无订阅握手,而且都是**只下行**——客户端一发东西就被 1008 关掉,所以 `src/notifications.ts` 里没有任何地方往 socket 里写。
+这条流是全会话、无按会话订阅:一条点名 `$events` 的 `open` 帧把它开起来,格式不对的 stream 请求会让 socket 被 1008 关掉,而 `src/notifications.ts` 除此之外不往里写任何东西。
 
-这两条流有三个承重性质,而且没有一个是显然的:
+这条流有三个承重性质,而且没有一个是显然的:
 
-**SSE 不可用,是服务器自己的决定。**这两个路径上的 `GET` 在 fetch 处理器之前就被 connection 插件答成 `426 Upgrade Required`,它们背后的 SSE 分支只有进程内载体够得着。WebSocket 在这里不是更优的传输,而是唯一的传输。
+**SSE 不可用,是服务器自己的决定。**这个路径上的 `GET` 在 fetch 处理器之前就被 connection 插件答成 `426 Upgrade Required`,它背后的 SSE 分支只有进程内载体够得着。WebSocket 在这里不是更优的传输,而是唯一的传输。
 
-**Node 客户端靠不发 `Origin` 通过信任闸。**这道闸要求 `Host` 是回环(满足),并接受 `Origin` 缺失,而一个不等于所服务 authority 的 `Origin` 会被裸 403 拒掉。所以这些 socket 上不设这个头,也不能设。
+**Node 客户端靠不发 `Origin` 通过信任闸。**这道闸要求 `Host` 是回环(满足),并接受 `Origin` 缺失,而一个不等于所服务 authority 的 `Origin` 会被裸 403 拒掉。所以这条 socket 上不设这个头,也不能设。
 
 **重开一条流会重放仍然挂着的请求**,所以每个请求都按 id 记下,重复的丢掉而不是再报一次——批准按 `approvalId`,提问按会话 id,因为 `question/resolved` 用 rpc id 而不是当初问出去的那些 question id 来指认被回答的请求。
 
@@ -96,7 +96,7 @@ macOS 走 Dock 角标加一次弹跳,完全不进通知中心。这是产品决�
 
 ## Testing
 
-在 macOS 上对着活的 `dsh web` 验证过:两条 socket 都接受不带 origin 的 Electron-Node 客户端,`host/session-status` 在下 prompt 时报 `running: true`、在取消时报 `running: false`,`session/title` 到两次(先 fallback 后 LLM provider)且后到的胜出。
+在 macOS 上对着活的 `dsh web` 验证过:这条 socket 接受不带 origin 的 Electron-Node 客户端,`host/session-status` 在下 prompt 时报 `running: true`、在取消时报 `running: false`,`session/title` 到两次(先 fallback 后 LLM provider)且后到的胜出。
 
 随后按发布形态跑了通知器本身——真实 Electron 主进程里的 `lib/notifications.js`——对着一个说着已验证信封的桩服务器。它报出了批准、计划审阅和完成三条;对重放的 `approval/requested`、以及没有前置 `running: true` 的 `running: false` 保持沉默;窗口最小化期间 macOS Dock 角标读 `3`,窗口获得焦点后清空。
 

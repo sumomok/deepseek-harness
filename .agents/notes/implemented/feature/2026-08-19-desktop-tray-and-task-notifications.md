@@ -39,18 +39,18 @@ Reads tolerate a missing or unreadable file and writes tolerate failing, in both
 
 ### The shell subscribes to the server it already started
 
-Two moments interrupt: a session **finished running**, and a session is **waiting for an answer**. Both are read from the running `dsh web` over the two downlink WebSockets the browser UI itself consumes, opened against the loopback URL `startServer` already reported. **No upstream package changed.**
+Two moments interrupt: a session **finished running**, and a session is **waiting for an answer**. Both are read from the running `dsh web` over `/api/remote.mux`, the same WebSocket the browser UI consumes, as one `$events` stream on it, opened against the loopback URL `startServer` already reported. **No upstream package changed.**
 
-- `/api/events.host` carries `host/session-status`, whose `running` bit is the only true "the agent stopped" edge. The durable `turn/end` log event is not that edge — a turn can be followed immediately by another — and the bit stays `running` while a tool waits for an approval, which is what keeps the two cases from overlapping.
-- `/api/events.mux` carries `approval/requested`, `question/requested`, and their `resolved` counterparts, plus every session event, of which only `session/title` is kept: as the name to put in the message.
+- The stream carries `host/session-status`, whose `running` bit is the only true "the agent stopped" edge. The durable `turn/end` log event is not that edge — a turn can be followed immediately by another — and the bit stays `running` while a tool waits for an approval, which is what keeps the two cases from overlapping.
+- It also carries `approval/requested`, `question/requested`, and their `resolved` counterparts, plus every session event, of which only `session/title` is kept: as the name to put in the message.
 
-Both streams are all-sessions with no subscribe handshake, and both are **downlink only** — a client that sends anything is closed with 1008, so nothing in `src/notifications.ts` ever writes to a socket.
+The stream is all-sessions with no per-session subscribe: one `open` frame naming `$events` starts it, a malformed stream request closes the socket with 1008, and `src/notifications.ts` writes nothing else to it.
 
-Three properties of those streams are load-bearing and none of them is obvious:
+Three properties of that stream are load-bearing and none of them is obvious:
 
-**SSE is not available, by the server's own decision.** `GET` on either path is answered `426 Upgrade Required` by the connection plugin before the fetch handler runs, so the SSE branches behind them are reachable only from the in-process carrier. WebSocket is not the preferred transport here; it is the only one.
+**SSE is not available, by the server's own decision.** `GET` on that path is answered `426 Upgrade Required` by the connection plugin before the fetch handler runs, so the SSE branch behind it is reachable only from the in-process carrier. WebSocket is not the preferred transport here; it is the only one.
 
-**A Node client passes the trust fence by sending no `Origin`.** The fence requires a loopback `Host` (satisfied) and accepts an absent `Origin`, while an `Origin` that is not exactly the served authority is refused with a raw 403. So no header is set on these sockets, and none may be.
+**A Node client passes the trust fence by sending no `Origin`.** The fence requires a loopback `Host` (satisfied) and accepts an absent `Origin`, while an `Origin` that is not exactly the served authority is refused with a raw 403. So no header is set on this socket, and none may be.
 
 **Reopening a stream replays what is still pending**, so every request is remembered by id and a repeat is dropped rather than announced twice — `approvalId` for approvals, and the session id for questions, because `question/resolved` names the answered request by its rpc id rather than by the question ids that were asked.
 
@@ -96,7 +96,7 @@ Clicking a notification lands the user in the app but not in the session. Until 
 
 ## Testing
 
-Verified against a live `dsh web` on macOS: both sockets accept an origin-less Electron-Node client, `host/session-status` reports `running: true` on prompt and `running: false` on cancel, and `session/title` arrives twice (fallback then LLM provider) with the latest winning.
+Verified against a live `dsh web` on macOS: the socket accepts an origin-less Electron-Node client, `host/session-status` reports `running: true` on prompt and `running: false` on cancel, and `session/title` arrives twice (fallback then LLM provider) with the latest winning.
 
 The notifier itself was then run as shipped — `lib/notifications.js` inside a real Electron main process — against a stub speaking the verified envelope. It announced the approval, the plan review, and the completion; it stayed silent for a replayed `approval/requested` and for a `running: false` with no preceding `running: true`; and the macOS Dock badge read `3` while the window was minimized and cleared when it was focused.
 

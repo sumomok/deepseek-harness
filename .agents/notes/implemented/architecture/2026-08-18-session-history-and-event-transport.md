@@ -56,7 +56,7 @@ Current ownership is:
 `-- compose Session and Workspace domain state for consumers
 ```
 
-API Proxy owns neither the Session or Workspace Remote namespace nor the Host downlink event carrier. `/api/events.host`, `HostFrame`, `stream/error`, `ServerRequest`, and their WebSocket/SSE branches do not participate in this data path.
+API Proxy owns neither the Session or Workspace Remote namespace nor the Host downlink event carrier. `HostFrame`, `stream/error`, `ServerRequest`, and their WebSocket/SSE branches do not participate in this data path.
 
 ### Connection generation and physical connections
 
