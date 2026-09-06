@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-06-console-merge-forward.md
-2026-09-06-console-merge-forward.md: e8ec98d7d126baa880d96b246de82a6c4a6a8f1b
-2026-09-06-console-merge-forward.zh.md: d8717f406d3b9a6510c7aef4d8880a9d1c0c5116
+2026-09-06-console-merge-forward.md: 8568cc6b27fed9ca25e94c09980ac1599225aa06
+2026-09-06-console-merge-forward.zh.md: ca376e6612d315cd06b2a7d81dc5e062b94a9c40
