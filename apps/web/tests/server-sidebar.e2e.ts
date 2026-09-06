@@ -114,8 +114,11 @@ const LEAKED_PLACEHOLDER = 'Choose a workspace to start'
 /**
  * The complete access-preset set the overlay's `permission` row names, in
  * table order. The row replaces the whole preset table rather than merging
- * into it, so a preset left out of the overlay disappears from the product —
- * this list is what keeps that a deliberate choice instead of a typo.
+ * into it, so a preset left out of the overlay disappears from the product and
+ * one added to it appears. The preset scenario reads this list's length
+ * against the `/permission` popup and each entry against the chip the matching
+ * id settles on, which is what keeps either change a deliberate choice instead
+ * of a typo.
  */
 const PRESET_NAMES = ['只读', '可修改文件', '完全放开'] as const
 /** The same three rows by the id `/permission` selects them with, in the same order. */
@@ -737,11 +740,22 @@ describe('web e2e: the product-console sidebar', () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-presets'))
     // Driven through `/permission`, not the chip's own menu: the guard hides
     // that menu's trigger in this composition, so the command is the surface a
-    // customer's selection still reaches. What is asserted is the same as
-    // before — the rendered name of each preset the overlay's table names, so
-    // a preset the overlay drops fails here whether the loss was deliberate or
-    // a miscopied table.
+    // customer's selection still reaches. Two halves, because either alone
+    // leaves a way for the overlay's table to drift. The bare invocation's
+    // popup is the rendered set, so a preset the overlay drops and a fourth
+    // one it gains both fail here; the loop below then applies each preset by
+    // id and reads the name the chip settles on, so a row whose name is
+    // miscopied fails too.
     const input = composer(page, ESTABLISHED_PLACEHOLDER)
+    await writeComposerDraft(page, input, '/permission')
+    await input.press('Enter')
+    const popup = page.getByRole('listbox', { name: '/permission matches' })
+    await popup.waitFor({ timeout: 10_000 })
+    await expect.poll(() => popup.getByRole('option').count(), { timeout: 10_000 })
+      .toBe(PRESET_NAMES.length)
+    // Escape closes the popup shell first, ahead of the composer behind it.
+    await input.press('Escape')
+    await expect.poll(() => popup.count(), { timeout: 10_000 }).toBe(0)
     for (const [index, id] of PRESET_IDS.entries()) {
       await writeComposerDraft(page, input, `/permission ${id}`)
       await input.press('Enter')
