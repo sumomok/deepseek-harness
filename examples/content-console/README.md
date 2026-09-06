@@ -23,14 +23,11 @@ The `show_component` row also carries a `views` entry — a view this deployment
 | `stdout.expected.jsonl` | The ACP JSON-RPC the client sees |
 | `session.jsonl` | Each scenario's own persisted log, including the arguments its call recorded and the result text the model reads back |
 
-Both scenarios are `authored`, not `recorded`: no browser can answer this composition, so the live API would only re-decide which chart or which wording the model sends, never which code path the fixture exercises. The root `test:snapshot` scripts run every suite, so address this one through vitest directly — the first line replays it keyless, the second rewrites every generated fixture from the committed model script, also keyless.
+Both scenarios are `authored`, not `recorded`: no browser can answer this composition, so the live API would only re-decide which chart or which wording the model sends, never which code path the fixture exercises.
 
-```sh
-pnpm exec vitest run --config vitest.snapshot.config.ts examples/content-console
-DSH_SNAPSHOT=refresh pnpm exec vitest run --config vitest.snapshot.config.ts examples/content-console
-```
+**Nothing here runs on this root.** `examples/` is outside every glob in `pnpm-workspace.yaml`, so this directory is not a workspace member and the five `workspace:*` dependencies in its `package.json` are never resolved. `vitest.snapshot.config.ts` includes `scripts/session-snapshot-corpus.corpus.ts` and `snapshots/**/*.snapshot.ts` and no path under `examples/`, and no other vitest config names it either, so `pnpm run test:snapshot` does not carry this suite and a vitest invocation pointed at this directory matches zero files and exits having run nothing. The composition itself would not start: `cordis.yml` names `@deepseek-ai/dsh-acp-demo`, and `packages/examples/` no longer exists on this root.
 
-To take a live transcript instead, set `recorded: true` on a scenario and record with `DEEPSEEK_API_KEY` in the environment or the gitignored root `.env`: `DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.snapshot.config.ts --update examples/content-console`.
+The tree is carried, not run. Where it should live — beside the other suites under `snapshots/`, or nowhere — is an open decision, which is why it is still here rather than deleted.
 
 ## Runtime environment
 

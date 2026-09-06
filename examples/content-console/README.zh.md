@@ -23,14 +23,11 @@ ACP 进程里没有浏览器接入，两把工具也都不需要浏览器才能�
 | `stdout.expected.jsonl` | 客户端看到的 ACP JSON-RPC |
 | `session.jsonl` | 每个场景各自的持久化日志，含本次调用记下的参数与模型读回的结果文本 |
 
-两个场景都是手写（`authored`）而非录制（`recorded`）：没有浏览器能回应这套组合，真实 API 只会改变模型画哪张图、写哪句话，不会改变基线走到哪条代码路径。根 `test:snapshot` 脚本会跑全部套件，单独运行本套件请直接调 vitest——下面第一行是无密钥回放，第二行同样无密钥，按已提交的模型脚本重写全部生成基线。
+两个场景都是手写（`authored`）而非录制（`recorded`）：没有浏览器能回应这套组合，真实 API 只会改变模型画哪张图、写哪句话，不会改变基线走到哪条代码路径。
 
-```sh
-pnpm exec vitest run --config vitest.snapshot.config.ts examples/content-console
-DSH_SNAPSHOT=refresh pnpm exec vitest run --config vitest.snapshot.config.ts examples/content-console
-```
+**在当前基座上，这里没有任何东西会跑起来。** `examples/` 落在 `pnpm-workspace.yaml` 的所有 glob 之外，所以这个目录不是工作区成员，它 `package.json` 里那五个 `workspace:*` 依赖从来没被解析过。`vitest.snapshot.config.ts` 的 include 只有 `scripts/session-snapshot-corpus.corpus.ts` 与 `snapshots/**/*.snapshot.ts`，没有任何 `examples/` 下的路径，其余 vitest 配置也都没点名它；因此 `pnpm run test:snapshot` 不含本套件，而把 vitest 指向本目录会匹配到零个文件、什么都没跑就退出。这套组合本身也起不来：`cordis.yml` 点名的 `@deepseek-ai/dsh-acp-demo` 所在的 `packages/examples/` 在当前基座上已不存在。
 
-若要改用真实录制，把某个场景的 `recorded` 改为 `true`，在环境变量或被 gitignore 的根 `.env` 里备好 `DEEPSEEK_API_KEY`，然后运行 `DSH_SNAPSHOT=record pnpm exec vitest run --config vitest.snapshot.config.ts --update examples/content-console`。
+这棵树是带着而不是跑着。它该住在哪里——挪到 `snapshots/` 下与其余套件为伍，还是哪儿都不去——是一个尚未拍板的决定，所以它还留在原地，而不是被删掉。
 
 ## 运行时环境
 
