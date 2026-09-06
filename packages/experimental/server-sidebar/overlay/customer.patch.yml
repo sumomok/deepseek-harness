@@ -27,6 +27,18 @@
   name: '@deepseek-ai/dsh-client-ui-sidebar'
   disabled: true
 
+# `@deepseek-ai/dsh-client-ui-workspace` is composed here, not disabled, even
+# though `sidebar.workspaces` is dropped outright (see ServerSidebarRoot.tsx's
+# module doc). `dsh-client-ui-conversation` names `uiWorkspace` in its `inject`
+# list and reads the service in its `apply()`, so a disable row would leave the
+# whole conversation column pending and the page would draw nothing. Its other
+# registration, `conversation.hero.workspace`, therefore lands: the hero-phase
+# chip carries a real Workspace title and its picker menu is live. The only
+# thing keeping that vocabulary off the page is terminology-guard.ts's
+# `heroWorkspaceRow` rule, which hides the row in CSS — an e2e scenario asserts
+# the row is present and renders nothing, so a selector that stopped matching
+# fails the gate rather than shipping the vocabulary.
+
 # The read-only Agent-preset dropdown ("PTC 模式" and friends) has no
 # customer-facing counterpart; disabling the whole package (not merely
 # hiding its hero chip — see terminology-guard.ts's `heroWorkspaceRow` rule)

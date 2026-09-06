@@ -38,7 +38,9 @@ Status: implemented
 
 console 线带来的 `apps/web` 场景，写的时候面对的是没有启动令牌闸、输入框是 `<textarea>`、路由表也不一样的基座。每一处都是适配而不是放宽：场景先经 `scaffold.authenticatedUrl` 建立会话（`base-path.e2e.ts` 经代理进行，好让 cookie 绑定到标签页实际使用的 authority）；输入框是 `[data-composer-input]`，经 `writeComposerDraft` 驱动；RPC 探针问的是 `/api/session/list`；唯一的 WebSocket 下行是 `/api/remote.mux`；导出控制器是抓取而不是探测；应用批次以 preload 链接而不是第二个阻塞解析的脚本进入 head；种子里的 `tool/result` 带上有身份的 message，否则仓库会把整个会话判为损坏；折叠的回合过程在读取其中的上下文行之前先展开。
 
-`apps/web/tests/server-sidebar-views.overlay.yml` 不再禁用 `@deepseek-ai/dsh-client-ui-workspace`。在 rc.1 上 `dsh-client-ui-conversation` 注入 `uiWorkspace`，禁用那一行会让整条对话栏一直挂起、页面什么都画不出来。这份 overlay 现在名副其实——就是它的兄弟文件加上组件行——而它当初为之禁用那一行的工作区词汇，本来就由 `terminology-guard.ts` 藏掉，兄弟组合自己的场景即是明证。
+有四份组合不再禁用 `@deepseek-ai/dsh-client-ui-workspace`：出厂的 `packages/experimental/server-sidebar/overlay/customer.patch.yml`，以及三份测试 overlay `apps/web/tests/server-sidebar.overlay.yml`、`server-sidebar-homepage.overlay.yml`、`server-sidebar-views.overlay.yml`。在 rc.1 上 `dsh-client-ui-conversation` 把 `uiWorkspace` 写在 `inject` 里，并在 `apply()` 中取用该服务，禁用那一行会让整条对话栏一直挂起、页面什么都画不出来。
+
+这改变的不只是测试组合的内容，也包括客户部署实际装载的内容。hero 阶段的工作区 chip 及其选择菜单，从「根本不装载」变成了「装载、挂载、再用 CSS 藏起来」：`ui-workspace` 的 `conversation.hero.workspace` 注册如今真的落地，chip 带着真实的 Workspace 标题，选择菜单也活在 `display: none` 背后。唯一的屏障是 `terminology-guard.ts` 的 `heroWorkspaceRow` 规则——这正是那条规则要用「元素存在且不可见」而不是只用「不可见」来断言的原因，也是出厂 overlay 要在原先那行禁用行的位置留一段注释说明缘由的原因。
 
 ## Alternatives considered
 
