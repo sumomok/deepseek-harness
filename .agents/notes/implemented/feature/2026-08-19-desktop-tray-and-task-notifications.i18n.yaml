@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-19-desktop-tray-and-task-notifications.md
-2026-08-19-desktop-tray-and-task-notifications.md: f3aab5d60f08a7464725530d2ac7d49af17bc0b6
-2026-08-19-desktop-tray-and-task-notifications.zh.md: 5a97c34afb628743e9f283866458d449da792eb8
+2026-08-19-desktop-tray-and-task-notifications.md: 12756b88f4c226a23b84f7516ca735a1b492610b
+2026-08-19-desktop-tray-and-task-notifications.zh.md: d575c4400eb2c0abcd71d2aa2c1f7f2158490e76

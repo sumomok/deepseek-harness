@@ -41,18 +41,18 @@ Windows 上点关闭按钮弹一个对话框:「最小化到托盘」或「退�
 
 有两个时刻值得打扰:会话**跑完了**,以及会话**在等一个答复**。两者都从运行中的 `dsh web` 上读,走 `/api/remote.mux`,也就是浏览器 UI 在消费的那条 WebSocket,在它上面开一条 `$events` 逻辑流,连的就是 `startServer` 早已报出来的回环地址。**上游没有任何改动。**
 
-- 这条流送 `host/session-status`,它的 `running` 位是唯一真正的「agent 停了」边沿。持久日志事件 `turn/end` 不是这个边沿——一个 turn 后面可以紧跟另一个——而且工具等批准期间这一位仍然是 `running`,这正是让两种情况不重叠的原因。
-- 它同时送 `approval/requested`、`question/requested` 及各自的 `resolved`,外加全部会话事件,其中只留 `session/title`:用作消息里那个名字。
+- 这条流送 `api-session/status`,带 `(sessionId, running)` 两个参数;这一位从真变假是唯一真正的「agent 停了」边沿。持久日志事件 `turn/end` 不是这个边沿——一个 turn 后面可以紧跟另一个——而且工具等批准期间这一位仍然是 `running`,这正是让两种情况不重叠的原因。
+- 它同时以 waterfall 投递送 `approval/request` 与 `user-questions/request`,每条带一个 `eventId`,有人答过之后由随后的 `cancel` 帧点名。消息里那个名字根本不在这条流上:它来自消息将要发出时的一次 `session/list` 调用。
 
 这条流是全会话、无按会话订阅:一条点名 `$events` 的 `open` 帧把它开起来,格式不对的 stream 请求会让 socket 被 1008 关掉,而 `src/notifications.ts` 除此之外不往里写任何东西。
 
 这条流有三个承重性质,而且没有一个是显然的:
 
-**SSE 不可用,是服务器自己的决定。**这个路径上的 `GET` 在 fetch 处理器之前就被 connection 插件答成 `426 Upgrade Required`,它背后的 SSE 分支只有进程内载体够得着。WebSocket 在这里不是更优的传输,而是唯一的传输。
+**SSE 不可用,因为这个路径只是一条 upgrade route,再无别的。**`/api/remote.mux` 只在 `packages/api/gateway/src/index.ts` 里经 `webServer.registerUpgrade` 注册,所以它不在任何 HTTP route 表里,普通 `GET` 会落到兜底 handler;upgrade 本身唯一的拒绝是 `packages/api/gateway/src/stream-server.ts` 里的 `rejectRemoteStreamUpgrade(socket, 401 | 403)`。WebSocket 在这里不是更优的传输,而是唯一的传输。
 
 **Node 客户端靠不发 `Origin` 通过信任闸。**这道闸要求 `Host` 是回环(满足),并接受 `Origin` 缺失,而一个不等于所服务 authority 的 `Origin` 会被裸 403 拒掉。所以这条 socket 上不设这个头,也不能设。
 
-**重开一条流会重放仍然挂着的请求**,所以每个请求都按 id 记下,重复的丢掉而不是再报一次——批准按 `approvalId`,提问按会话 id,因为 `question/resolved` 用 rpc id 而不是当初问出去的那些 question id 来指认被回答的请求。
+**重开这条流会重放仍然挂着的每一条投递**,所以每个 `eventId` 都记下,重复的丢掉而不是再报一次。一个 id 管两种:结算一条投递的 `cancel` 帧,用的就是它 `waterfall` 帧带来的那个 `eventId`。
 
 空闲边沿用同样的方式上膛:一个会话只有在这个壳看见它开始过,才会宣布它跑完了。否则一条打开时就面对若干已空闲会话的流,会去宣布历史。
 
@@ -78,7 +78,7 @@ macOS 走 Dock 角标加一次弹跳,完全不进通知中心。这是产品决�
 
 **macOS 上也加托盘。**那边关窗本来就把应用留在 Dock 里,`window-all-closed` 不退出,`activate` 重开窗口。菜单栏图标会成为 Dock 已经在表达的那个状态的第二套控件。macOS 保留自己的习惯;托盘只在 Windows。
 
-**拿 `turn/end` 当「任务完成」事件。**它是那个名字对、意思不对的持久日志事件:turn 会接龙,于是一个多 turn 的任务会把自己宣布好几遍。`host/session-status` 是 agent 自身 `idle`/`running` 状态的桥接形态,每次停下只发一次。
+**拿 `turn/end` 当「任务完成」事件。**它是那个名字对、意思不对的持久日志事件:turn 会接龙,于是一个多 turn 的任务会把自己宣布好几遍。`api-session/status` 是 agent 自身 `idle`/`running` 状态的桥接形态,每次停下只发一次。
 
 **轮询 `session.list`。**能用、是一元调用、而且不对:它拿服务器已经提供的推送去换一个定时器,而这个定时器要么慢到没用、要么频繁到不诚实,并且照样看不见一个在两次轮询之间开了又关的批准提示。
 
@@ -96,8 +96,8 @@ macOS 走 Dock 角标加一次弹跳,完全不进通知中心。这是产品决�
 
 ## Testing
 
-在 macOS 上对着活的 `dsh web` 验证过:这条 socket 接受不带 origin 的 Electron-Node 客户端,`host/session-status` 在下 prompt 时报 `running: true`、在取消时报 `running: false`,`session/title` 到两次(先 fallback 后 LLM provider)且后到的胜出。
+在 macOS 上对着活的 `dsh web` 验证过:这条 socket 接受不带 origin 的 Electron-Node 客户端,`api-session/status` 在下 prompt 时报 `running: true`、在取消时报 `running: false`。
 
-随后按发布形态跑了通知器本身——真实 Electron 主进程里的 `lib/notifications.js`——对着一个说着已验证信封的桩服务器。它报出了批准、计划审阅和完成三条;对重放的 `approval/requested`、以及没有前置 `running: true` 的 `running: false` 保持沉默;窗口最小化期间 macOS Dock 角标读 `3`,窗口获得焦点后清空。
+随后按发布形态跑了通知器本身——真实 Electron 主进程里的 `lib/notifications.js`——对着一个说着已验证信封的桩服务器。它报出了批准、计划审阅和完成三条;对重放的 `approval/request`、以及没有前置 `running: true` 的 `running: false` 保持沉默;窗口最小化期间 macOS Dock 角标读 `3`,窗口获得焦点后清空。
 
 Windows 的托盘驻留、关闭对话框和 toast 投递结构上完整、未经真机验证:它们需要一台真的 Windows 机器,跟这个客户端发布的其他每一项 Windows 行为一样。
