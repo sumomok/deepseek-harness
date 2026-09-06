@@ -16,7 +16,7 @@ Status: implemented
 
 ### 三处搬到已消失的包上的移植
 
-`packages/host/apiproxy` 没了。它的 fetch 客户端那套部署基址行为——基址带尾斜杠，私有的路径拼接先剥掉前导斜杠，好让前缀被延长而不是被顶替——如今分住两处。`packages/client/connection/src/client/rpc.ts:64` 用 `clientUrl(`${channel}/${endpoint}`)` 构造上行，自己不再有 `resolveBase()`；`packages/api/gateway/src/client/stream-client.ts` 承载下行，其 `remoteStreamUrl()` 把 `REMOTE_STREAM_MUX_PATH` 经 `clientUrl` 解析后再把协议换成 `ws:`/`wss:`。于是 Gateway 声明 `@deepseek-ai/dsh-client-connection/client` 为 `dsh.client.external`——它可以这么做，因为它不是 `packages/client/` 下的一行。
+`packages/host/apiproxy` 没了。它的 fetch 客户端那套部署基址行为——基址带尾斜杠，私有的路径拼接先剥掉前导斜杠，好让前缀被延长而不是被顶替——如今分住两处。`packages/client/connection/src/client/rpc.ts:44` 用 `clientUrl(`${channel}/${endpoint}`)` 构造上行，自己不再有 `resolveBase()`；`packages/api/gateway/src/client/stream-client.ts` 承载下行，其 `remoteStreamUrl()` 把 `REMOTE_STREAM_MUX_PATH` 经 `clientUrl` 解析后再把协议换成 `ws:`/`wss:`。于是 Gateway 声明 `@deepseek-ai/dsh-client-connection/client` 为 `dsh.client.external`——它可以这么做，因为它不是 `packages/client/` 下的一行。
 
 `packages/client/runtime` 没了：`ClientContext` 就是 `@deepseek-ai/cordis` 的 `Context`，`SlotRegistry` 来自 `@deepseek-ai/dsh-client-ui-renderer/client`，`SessionId` 来自 `@deepseek-ai/dsh-session/types`。
 
