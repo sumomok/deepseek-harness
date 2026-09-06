@@ -80,7 +80,6 @@ const ROWS = [
 /** Where the run's evidence lands. */
 const ARTIFACTS = join(REPO_ROOT, '.artifacts')
 
-/** The composer's own English placeholder — the signal that a session is open. */
 /**
  * The live composer of the open session — a contenteditable surface, which is
  * why it is addressed by its own attribute rather than as a form control. The
@@ -727,24 +726,30 @@ describe.skipIf(MODE === 'record')('web e2e: show_component in the content colum
     // — the registry has no way to keep a row out of it — so this is also the
     // path an end user can stumble into.
     const composer = composerInput(page)
+    const commandRows = page.locator('[data-chat-flow-kind="command"]')
+    // Every tab this scenario has picked so far is a `select-content-entry`
+    // command of the column's own, and the press earlier in the block is one
+    // more, so the transcript already carries rows before this line is typed.
+    // Counting them here is what makes the assertion below exact: the malformed
+    // action must add one row and only one.
+    const before = await commandRows.count()
     await writeComposerDraft(page, composer, MALFORMED_ACTION)
     await page.keyboard.press('Enter')
 
     // The refusal is the row itself. Nothing reached the agent, so no notice
     // and no answer follows it — and the row is not the chat view's English
     // `component-action · Completed` fallback either.
-    const refused = page.locator('[data-chat-flow-kind="command"]', { hasText: ACTION_NOT_RECORDED })
+    const refused = commandRows.filter({ hasText: ACTION_NOT_RECORDED })
     await refused.waitFor({ state: 'attached', timeout: 30_000 })
     await refused.scrollIntoViewIfNeeded()
     await expect.poll(async () => await refused.isVisible(), { timeout: 15_000 }).toBe(true)
     expect(await refused.locator('[data-component-action-refused]').textContent()).toBe(ACTION_NOT_RECORDED)
     expect(await page.getByText('component-action', { exact: true }).count()).toBe(0)
     // Every other command row on this transcript renders nothing and is
-    // collapsed away — the press's own, and one per tab this scenario picked,
-    // which the column records as a command of its own. The refusal is the only
-    // command row with anything to say.
-    const said = (await page.locator('[data-chat-flow-kind="command"]').allTextContents())
-      .filter(text => text.trim() !== '')
+    // collapsed away. The refusal is the one addition and the only row with
+    // anything to say.
+    await expect.poll(async () => await commandRows.count(), { timeout: 15_000 }).toBe(before + 1)
+    const said = (await commandRows.allTextContents()).filter(text => text.trim() !== '')
     expect(said.length).toBe(1)
     await evidence(page, 'web-e2e-component-surface-refused')
   }, 120_000)
