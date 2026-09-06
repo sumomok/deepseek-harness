@@ -20,15 +20,28 @@ const UI_RENDERER_ID = '@deepseek-ai/dsh-client-ui-renderer'
 const comboUrl = (ids: readonly string[], rev: string): string =>
   `/plugins/??${ids.map(id => `${id}/client.js`).join(',')}&rev=${rev}`
 const mapUrl = (url: string): string => url.replace(/\/client\.js(?=,|&rev=)/g, '/client.js.map')
+/** Deployment bases a served page is read under: the site root and a stripped path prefix. */
+const DEPLOYMENT_BASES = ['https://host/', 'https://host/console/'] as const
+
 /**
- * The route a graph row's page-relative url addresses. A stamped
- * `sourceMappingURL` names the route as the Host registers it, while a graph
- * row names it as the page asks for it, so an assertion over the stamped
- * comment goes through this and one over the served response does not have to.
- * @param url - a graph row's or batch's url.
- * @returns the same address, root-absolute.
+ * Assert the map a stamped script points at, rather than how the stamp is
+ * spelled. A `sourceMappingURL` reference resolves against the script's own
+ * address (TC39 source-map specification §11.1), so the only property that
+ * matters is that resolving it from where the script was served reaches the
+ * map route beside it — under every deployment base, since one build serves
+ * them all.
+ * @param script - the served script body carrying the stamp.
+ * @param url - the graph row's or batch's page-relative url for that script.
  */
-const routeOf = (url: string): string => url.startsWith('/') ? url : `/${url}`
+function expectStampResolvesToMap(script: string, url: string): void {
+  const stamp = /\/\/# sourceMappingURL=(\S+)/.exec(script)?.[1]
+  expect(stamp, 'no sourceMappingURL comment on the served script').toBeDefined()
+  for (const base of DEPLOYMENT_BASES) {
+    const servedFrom = new URL(url, base)
+    expect(new URL(stamp!, servedFrom).href, `stamp ${stamp!} resolved from ${servedFrom.href}`)
+      .toBe(new URL(mapUrl(url), base).href)
+  }
+}
 const BOOTSTRAP_URL = comboUrl([MODULES_ID], 'boot')
 const APPLICATION_URL = comboUrl([UI_RENDERER_ID], 'app')
 
@@ -467,8 +480,8 @@ describe('client bundle activation', () => {
     writeFileSync(`${clientPath}.map`, '{')
     const torn = constructWithRoute([packageName])
     const tornRow = torn.service.graph().entries[0]!
-    expect((await routeRequest(torn.route, tornRow.url)).body.toString('utf8'))
-      .toContain(`sourceMappingURL=${mapUrl(routeOf(tornRow.url))}`)
+    expectStampResolvesToMap(
+      (await routeRequest(torn.route, tornRow.url)).body.toString('utf8'), tornRow.url)
     const fallback = await routeRequest(torn.route, mapUrl(torn.service.graph().batches[0]!.url))
     expect(JSON.parse(fallback.body.toString('utf8'))).toMatchObject({
       sections: [{ map: { sources: [`/plugins/${packageName}/client.js`] } }],
@@ -493,7 +506,7 @@ describe('client bundle activation', () => {
     const batch = service.graph().batches[0]!
     const script = (await routeRequest(route, batch.url)).body.toString('utf8')
     expect(script).not.toContain('//# sourceURL=')
-    expect(script).toContain(`//# sourceMappingURL=${mapUrl(routeOf(batch.url))}`)
+    expectStampResolvesToMap(script, batch.url)
     const payload = JSON.parse((await routeRequest(route, mapUrl(batch.url))).body.toString('utf8')) as {
       sections: { map: { mappings: string; sources: string[]; sourcesContent: string[] } }[]
     }
@@ -612,7 +625,7 @@ describe('client bundle activation', () => {
     const { service, route } = constructWithRoute([packageName])
     const row = service.graph().entries[0]!
     const singleScript = await routeRequest(route, row.url)
-    expect(singleScript.body.toString('utf8')).toContain(`sourceMappingURL=${mapUrl(routeOf(row.url))}`)
+    expectStampResolvesToMap(singleScript.body.toString('utf8'), row.url)
     const singleMap = await routeRequest(route, mapUrl(row.url))
     expect(singleMap.status).toBe(200)
     expect(singleMap.headers).toEqual({
@@ -636,7 +649,7 @@ describe('client bundle activation', () => {
     const batchScript = await routeRequest(route, batch.url)
     expect(batchScript.status).toBe(200)
     expect(batchScript.headers?.['cache-control']).toBe('public, max-age=31536000, immutable')
-    expect(batchScript.body.toString('utf8')).toContain(`//# sourceMappingURL=${mapUrl(routeOf(batch.url))}`)
+    expectStampResolvesToMap(batchScript.body.toString('utf8'), batch.url)
     expect((await routeRequest(route, batch.url, 'HEAD')).body).toHaveLength(0)
     expect((await routeRequest(route, batch.url, 'POST')).status).toBe(405)
     const batchMap = await routeRequest(route, mapUrl(batch.url))

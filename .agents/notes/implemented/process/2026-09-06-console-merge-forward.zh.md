@@ -24,7 +24,9 @@ Status: implemented
 
 ### 部署前缀在 rc.1 基座上的代价
 
-`packages/client/modules/src/index.ts` 仍以根绝对形式铸造 combo 路由，并只在页面真正读取它的那一个点上投影成页面相对 URL：`pageUrl()` 为图行和批描述符剥掉前导斜杠，而被服务的响应表仍以根绝对路由为键。打进产物的 `sourceMappingURL` 保留路由写法，所以 `packages/client/modules/tests/node-half.client.spec.ts` 用 `routeOf()` 把两者对上。
+`packages/client/modules/src/index.ts` 仍以根绝对形式铸造 combo 路由，并在进程之外的读者索取地址时按需投影；被服务的响应表与 Host 路由仍以根绝对路由为键。`pageUrl()` 为图行与批描述符剥掉前导斜杠，这两者都由页面按自身部署基址解析。
+
+打进 combo 产物的 `sourceMappingURL` 走的是另一种投影，因为 source map 引用是按生成代码自身的 source origin 解析的，而不是按文档（TC39 source map 规范 §11.1；Chromium 的 `SourceMapManager` 就是拿脚本 URL 去补全它）。两种完整地址没有一种能同时服务两类部署：根绝对写法会丢掉路径前缀，页面相对写法会被接在脚本自己的目录后面，变成去要 `/plugins/plugins/??…`。`comboUrl()` 把脚本和它的 map 铸造在同一条路径上、只有查询串不同，所以 `scriptRelativeMapUrl()` 只打那段查询串，浏览器则保留脚本实际被服务的那个路径。`packages/client/modules/tests/node-half.client.spec.ts` 断言的是这一行解析到哪里，而不是它怎么拼写，站点根基址与 `/console/` 基址都要断言一遍。
 
 `packages/host/frontend-static/src/index.ts` 会往它渲染的每一份首页里注入 `<base href="/">`，位置在 `webserver/index-inject` 贡献的各行之前。一份文档只认一个 base，且解析器只认树序里的第一个，所以那个默认值会悄悄顶替掉 `dsh-experimental-server-base` 注入的前缀。现在 dist 服务器只往自己不带 base 的文档里注入默认值，这就是两个包之间耦合的全部。
 

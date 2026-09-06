@@ -159,7 +159,13 @@ interface WebPluginRecord {
   sourceMap?: { body: Buffer; parsed: Record<string, unknown> }
 }
 
-/** Fields shared by every generated combo response. */
+/**
+ * Fields shared by every generated combo response. Both `url` and
+ * `sourceMapUrl` are root-absolute: they are the keys the response map and the
+ * Host route are registered under. {@link pageUrl} projects one wherever the
+ * page asks for the address, and {@link scriptRelativeMapUrl} projects the map
+ * route for the one reader that resolves against the script instead.
+ */
 interface ComboArtifactBase {
   url: string
   rev: string
@@ -270,6 +276,32 @@ function pageUrl(route: string): string {
   return route.replace(/^\/+/, '')
 }
 
+/**
+ * The map route as a reference the browser resolves correctly from the script
+ * that carries it. A `sourceMappingURL` comment resolves against the generated
+ * code's own source origin, not against the document (TC39 source-map
+ * specification §11.1), so neither spelling of a whole address works for both
+ * deployments: a root-absolute one drops a path prefix, and a page-relative one
+ * is appended to the script's own directory. {@link comboUrl} mints the script
+ * and its map on one path (`/plugins/`) that differs only in the query, so the
+ * query alone is the reference — the browser keeps whatever path the script was
+ * actually served from and swaps the query for this one.
+ * @param scriptRoute - the script's combo route as {@link comboUrl} composes it.
+ * @param mapRoute - the map's combo route for the same ids and revision.
+ * @returns the map route from its first `?` onward.
+ * @throws when the two routes do not share a path, which would make a
+ * query-only reference address the wrong resource.
+ */
+function scriptRelativeMapUrl(scriptRoute: string, mapRoute: string): string {
+  const scriptQueryAt = scriptRoute.indexOf('?')
+  const mapQueryAt = mapRoute.indexOf('?')
+  const sharePath = scriptQueryAt !== -1 && mapQueryAt !== -1
+    && scriptRoute.slice(0, scriptQueryAt) === mapRoute.slice(0, mapQueryAt)
+  /* v8 ignore next -- one comboUrl pair over the same ids differs only in the query. */
+  if (!sharePath) throw new Error(`client-modules: ${mapRoute} does not share the path of ${scriptRoute}`)
+  return mapRoute.slice(mapQueryAt)
+}
+
 /** Measure the longer map-form URL used to partition a startup resource list. */
 function projectedComboUrlBytes(records: readonly WebPluginRecord[]): number {
   return Buffer.byteLength(comboUrl(
@@ -324,7 +356,12 @@ function comboSource(record: WebPluginRecord): ComboSource {
   return { source, fallbackSource }
 }
 
-/** Stamp a combo script's absolute indexed-map URL onto its executable bytes. */
+/**
+ * Stamp a combo script's indexed-map reference onto its executable bytes. The
+ * reference is the query-only form {@link scriptRelativeMapUrl} returns,
+ * because the browser resolves the comment against the script's own address
+ * rather than against the document.
+ */
 function comboScript(input: string, sourceMapUrl?: string): Buffer {
   return Buffer.from(sourceMapUrl === undefined ? input : `${input}//# sourceMappingURL=${sourceMapUrl}\n`)
 }
@@ -415,7 +452,8 @@ function buildCombo(records: readonly WebPluginRecord[], revision?: string): Com
   const entries = records.map(record => record.entry.id)
   const url = comboUrl(entries, rev)
   const sourceMapUrl = comboUrl(entries, rev, true)
-  return { url, rev, entries, script: comboScript(source, sourceMapUrl), sourceMap, sourceMapUrl }
+  const script = comboScript(source, scriptRelativeMapUrl(url, sourceMapUrl))
+  return { url, rev, entries, script, sourceMap, sourceMapUrl }
 }
 
 /** Add initial-load scheduling metadata to a combo artifact. */
