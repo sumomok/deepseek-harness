@@ -151,19 +151,19 @@ it('answers a path outside the prefix itself instead of forwarding it', async ()
 })
 
 it('passes an upgrade handshake through in both directions', async () => {
-  const reply = await rawUpgrade(proxy, `${PREFIX}api/events.mux`)
+  const reply = await rawUpgrade(proxy, `${PREFIX}api/remote.mux`)
   expect(reply.startsWith('HTTP/1.1 101 Switching Protocols')).toBe(true)
   expect(reply).toContain('Upgrade: websocket')
-  expect(reply).toContain('X-Upstream-Path: /api/events.mux')
+  expect(reply).toContain('X-Upstream-Path: /api/remote.mux')
   // The client's own handshake headers reached the upstream unaltered; a
   // dropped `Sec-WebSocket-Key` is what a rewritten header set looks like.
   expect(reply).toContain('X-Upstream-Key: dGhlIHNhbXBsZSBub25jZQ==')
-  expect(upstream.upgrades.map(entry => entry.path)).toEqual(['/api/events.mux'])
+  expect(upstream.upgrades.map(entry => entry.path)).toEqual(['/api/remote.mux'])
   expect(upstream.upgrades[0]?.headers.upgrade).toBe('websocket')
 })
 
 it('destroys an upgrade whose path is outside the prefix', async () => {
-  expect(await rawUpgrade(proxy, '/api/events.mux')).toBe('')
+  expect(await rawUpgrade(proxy, '/api/remote.mux')).toBe('')
   expect(upstream.upgrades).toEqual([])
 })
 
