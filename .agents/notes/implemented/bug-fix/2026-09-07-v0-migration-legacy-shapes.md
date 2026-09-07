@@ -1,0 +1,61 @@
+# Agent Note: The v0 identity edge accepts three legacy shapes this fork's Sessions carry
+
+Status: implemented
+
+English | [中文](2026-09-07-v0-migration-legacy-shapes.zh.md)
+
+## Problem
+
+The released v0→v1 identity edge refuses any event type outside its frozen inventory and any payload member outside a type's disposition. That policy is what keeps a migrated Session exact, and it assumes the inventory names every shape a shipped build ever wrote. This fork shipped builds that wrote three shapes it does not name, so the Sessions those builds wrote no longer open.
+
+A refusal does not stay inside the Session that carries it. `SqliteSessionQuery._reconcile` cold-reads every persisted Session it has not indexed, and one rejected read aborts the whole observation: `_observeStable` wraps it as `SESSION_QUERY_PERSISTENCE_FAILED` in [`session-query-sqlite/src/index.ts`](../../../../packages/session-query/session-query-sqlite/src/index.ts), the search falls back to name matching, and the workspace browser shows `内容搜索暂不可用，仅显示名称匹配。` for every Session in the library. One old log therefore costs content search entirely, in addition to costing its own history.
+
+The measurement is a cold-read replay of both libraries through `JsonlSessionPersistence.open(id, 'read').read()`, the same call the reconcile makes: 15 of the 128 Sessions in `~/.dsh` and 21 of the 121 in the pre-rc.27 backup were refused. Because the edge stops at the first fault in a Session, those 36 refusals name three distinct reasons.
+
+`permission/preset N data has unexpected member "origin"` — 11 Sessions in each library. A build from mid-2026-08 recorded next to the preset name where the name came from: `{"type":"permission/preset","seq":0,"time":1787322888043,"data":{"preset":"workspace-write","origin":"default"}}` and `{"type":"permission/preset","seq":4,"time":1787322901591,"data":{"preset":"yolo-access","origin":"selection"}}`. Those two values are the only ones on disk, and `@deepseek-ai/dsh-permission-presets` now appends `{ preset }` alone.
+
+`subagent/descriptor N uses unsupported descriptor version 2` — 4 Sessions in each library, for example `{"type":"subagent/descriptor","seq":0,"time":1787709640297,"data":{"version":2,"mode":"continuable","provider":"spawn","label":"调研黄金类资产与矿股PE","agentProvider":"deepseek-official","agentModel":"deepseek-v4-flash-vision-exp"}}`. Upstream raised `SUBAGENT_DESCRIPTOR_VERSION` from 2 to 3 on 2026-08-24 in `f76a225a7d`; the payload validator accepts version 3 only.
+
+`format v0 contains unknown historical event type "content/shown"` — 6 Sessions in the backup library, for example `{"type":"content/shown","seq":209,"time":1788074166009,"data":{"page":"reports","by":"user"}}`. The content surface of this fork's `product/server-console` line wrote it while desktop builds mounted that console.
+
+## Decision
+
+[`migration.ts`](../../../../packages/session/session-format-v0-to-v1/src/migration.ts) gains two normalizers in the chain each v0 event already passes through before its payload is validated. `normalizeLegacyPermissionPreset` removes the `origin` member and nothing else. `normalizeLegacySubagentDescriptor` rewrites `version: 2` to `version: 3` and touches no other member. [`dispositions.ts`](../../../../packages/session/session-format-v0-to-v1/src/dispositions.ts) names `content/shown` and `content-surface/dismissed` in `LEGACY_UNINTERPRETED_EVENT_TYPES`, so both are carried verbatim and reach v2 marked `ignorable: true` for the installed restorer. `session-format-v1-to-v2` reads that same set, so naming a type once covers both edges.
+
+The descriptor is renumbered rather than carried through because the promotion is total. The `f76a225a7d` diff adds one optional member, `agentReasoningEffort`, to the continuable descriptor and changes nothing else, so a version-2 payload is exactly a version-3 payload that declares no child reasoning effort — no field has to be guessed and none is lost. Carrying version 2 through, the way the v1 branch of `assertReleasedEventPayload` already tolerates a non-3 version, would open the Session and still lose what the event describes: `parseSubagentDescriptor` in `@deepseek-ai/dsh-subagent` reads version 3 only, so the delegation would be dropped at restore.
+
+The `origin` member is removed rather than admitted to the inventory. `RELEASED_V0_EVENT_DISPOSITIONS` states that every member it lists is preserved by the identity edge, and `session-format-v1-to-v2` derives the v2 inventory from it, so listing a member the edge drops would be false in one package and would admit the member into two later generations no writer emits it in. Removing it in a normalizer is what the edge already does with the obsolete `request/header.header.messagePrefix`.
+
+Nothing here widens into a general rule. The allowlist stays a list of types observed on disk, an unexpected payload member other than `origin` is still refused, a descriptor version other than 2 is still refused, and an event type marked `ignorable: true` that nobody named is still refused.
+
+## What the two libraries say now
+
+The same replay after the change: 127 of 128 and 120 of 121 open. Both remaining refusals are the same Session, `session-c5f7ab97-7485-4955-9ee0-f07c98a05d85`, which is present in both libraries and was previously refused for its `origin` member. Behind that member it holds a fourth defect: turn 11 opens and never closes, and `turn/start 12` meets an open turn, so `assertReleasedArtifactRelationships` refuses it. The log itself is missing the `turn/end` — its rows run `step/end {turn: 11, step: 5}`, `agent/inbox/spliced`, `turn/start {turn: 12}`.
+
+That defect is not addressed here. Repairing it means synthesizing an event the writer never wrote and inserting it into the sequence, which renumbers every later `seq` and every reference to one — `sourceEventSeqs`, `surfaceOp`, `messageSeqs`, `shadowedSeqs`, `shadowedRange`, `sourceEventSeq`, `throughSeq`, and `inheritedEventCount`. That is the mechanism `session-format-v1-to-v2` owns for a different purpose, and it is a separate decision from naming shapes that were written as they stand.
+
+`content-surface/dismissed` was found the same way — it only became reachable once the shapes ahead of it stopped refusing first. A scan of every row in both libraries, run afterwards, bounds the remaining set: outside the frozen inventory and the packed physical row tags the two libraries hold exactly `content/shown`, `content-surface/dismissed`, and the already-named `permissionRules/decision`; `permission/preset` carries no member beyond `preset` and `origin`; and no `subagent/descriptor` on disk is at a version other than 2.
+
+## Alternatives considered
+
+**Admit `origin` as an optional member of the frozen `permission/preset` disposition and keep it in the migrated Session.** It is the smaller edit and preserves a fact the old build recorded. It also makes the inventory contradict its own documented meaning, propagates the member into the v2 inventory that `session-format-v1-to-v2` derives from it, and lets a v1 or v2 artifact carry a member no released writer emits, where nothing downstream reads it.
+
+**Carry a version-2 `subagent/descriptor` through unchanged.** The v1 branch of the payload check already returns without complaint for a non-3 version, so extending that to v0 is a two-line change with no promotion logic. It restores the Session and silently loses the subagent inside it, because the installed descriptor parser accepts version 3 only — the reader would open a delegation-bearing history with no delegation in it.
+
+**Let any historical event marked `ignorable: true` through the edge.** This would have covered `content/shown` and `content-surface/dismissed` at once, and every future out-of-repo event type without another patch. The edge's refusal message says explicitly that `ignorable: true` does not exempt a historical event, and that stance is what stops an arbitrary third-party payload from entering a frozen generation unexamined. A named list costs one line per type actually observed.
+
+**Repair the refusing Sessions on disk.** Rewriting the 36 logs would need no code change to the edge at all. It edits durable history the fork does not own, it cannot reach a user's machine, and it would have to be repeated for every library that still holds these builds' output.
+
+**Synthesize the missing `turn/end` for the fourth defect.** It would take both libraries to zero refusals, which is what the fix set out to do. It writes an event no build ever wrote, and it requires renumbering the whole sequence and every seq-valued reference in it; the risk of a silently mis-remapped reference outweighs one Session out of 128 while the shape is understood but the repair is not designed.
+
+## Consequences
+
+A Session carrying any of the three shapes opens, migrates, and indexes, and content search stops failing library-wide because of it. The v0 file on disk is unchanged — the migration writes `session.v2.jsonl.zstd` beside it — so the previous refusal is recoverable by removing the migrated generation. A migrated `permission/preset` no longer records where the preset came from; nothing in the current build reads that fact, and the preset name itself is preserved. A migrated `subagent/descriptor` reports version 3, and its `agentReasoningEffort` is absent, which is what the version-2 payload meant.
+
+One Session in each library still refuses, for the unclosed turn described above. Its history stays unreadable and, because the reconcile aborts on the first rejected read, content search stays unavailable in any library that holds it. That is the same product cost as before the change, now attributable to one known defect rather than to three.
+
+## Testing
+
+`legacy.spec.ts` in `session-format-v0-to-v1` pins each shape with the payload taken verbatim from the corpus, and pins the refusal that proves the acceptance is narrow: a `permission/preset` payload with a `foo` member, a descriptor at version 1, and an unnamed `content-surface/whatever` event. Package coverage stays at per-file 100%.
+
+The corpus replay is not a repository test. It reads a private copy of two real libraries, so it lives outside the tree and its numbers are recorded above.
