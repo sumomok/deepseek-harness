@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile } from 'node:fs/promises'
+import {
+  chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, symlink, writeFile,
+} from 'node:fs/promises'
 import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
@@ -270,6 +272,63 @@ describe('FileSystemSkillProvider', () => {
       ['linked', 'project-agents'],
     ])
     expect(warnings).toEqual([])
+  })
+
+  // `chmod 000` denies nothing on Windows, which has no POSIX directory mode.
+  it.skipIf(process.platform === 'win32')('keeps the other roots when one root denies reading', async () => {
+    const home = await tempDir('skill-unreadable-home')
+    const project = await tempDir('skill-unreadable-project')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.dsh/skills'), 'project-skill', 'project dsh skill')
+    await writeSkill(join(home, '.agents/skills'), 'user-skill', 'user agents skill')
+    const unreadable = join(home, '.claude/skills')
+    await mkdir(unreadable, { recursive: true })
+    await chmod(unreadable, 0o000)
+
+    try {
+      const ctx = await setupLocal(home)
+      const warnings: string[] = []
+      ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+      const snapshot = await ctx.skills.snapshot({ cwd: project })
+      expect(snapshot.skills.map(skill => [skill.name, skill.source])).toEqual([
+        ['project-skill', 'project-dsh'],
+        ['user-skill', 'user-agents'],
+      ])
+      // The catalog is missing whatever the denied root holds, so it stays
+      // uncacheable and the next lookup rescans.
+      expect(snapshot.complete).toBe(false)
+      // The absent `.agents`, `.claude`, and `.dsh` roots of the other tiers
+      // stay silent; only the denied one is reported.
+      expect(warnings).toHaveLength(1)
+      expect(warnings[0]).toContain(unreadable)
+      expect(warnings[0]).toContain('EACCES')
+    } finally {
+      await chmod(unreadable, 0o700)
+    }
+  })
+
+  it('keeps the other roots when one root links to itself', async () => {
+    const home = await tempDir('skill-looping-home')
+    const project = await tempDir('skill-looping-project')
+    await mkdir(join(project, '.git'), { recursive: true })
+    await writeSkill(join(project, '.agents/skills'), 'project-skill', 'project agents skill')
+    await writeSkill(join(home, '.dsh/skills'), 'user-skill', 'user dsh skill')
+    await mkdir(join(project, '.claude'), { recursive: true })
+    const looping = join(project, '.claude/skills')
+    await symlink(looping, looping)
+
+    const ctx = await setupLocal(home)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const snapshot = await ctx.skills.snapshot({ cwd: project })
+    expect(snapshot.skills.map(skill => [skill.name, skill.source])).toEqual([
+      ['project-skill', 'project-agents'],
+      ['user-skill', 'user-dsh'],
+    ])
+    expect(snapshot.complete).toBe(false)
+    expect(warnings).toHaveLength(1)
+    expect(warnings[0]).toContain(looping)
+    expect(warnings[0]).toContain('ELOOP')
   })
 
   it('lets project skills override runtime while runtime overrides custom and user skills', async () => {
