@@ -81,10 +81,18 @@
  * alone: "Plan" is neither banned vocabulary nor internal status, and that
  * chip is the only control that leaves plan mode. `Menu`'s wrapper span around
  * the hidden button survives as a zero-width flex item, and the preset menu it
- * anchors never opens, since the only control that opens it is gone. The
- * preset in force is untouched — the Host keeps whatever `permission-presets`
- * row the deployment composes; only the browser's control over it (full access
- * included) goes.
+ * anchors never opens, since the only control that opens it is gone.
+ *
+ * This rule closes one permission surface of three. The console offers an end
+ * user no permission switch of any kind (product decision, 2026-09-07), and
+ * the other two are closed at the composition level rather than here:
+ * `overlay/customer.patch.yml` disables the `ui-permission` row, which is the
+ * Settings → General default-preset control, and sets
+ * `isolate: { commands: true }` on the `permission-presets` row, so that
+ * package's command child never activates and `/permission` is never
+ * registered. The preset in force is untouched by all three — the Host keeps
+ * whatever `permission-presets` row the deployment composes, pinned to the
+ * `defaultPreset` that overlay names.
  *
  * This plugin is unconditional (see its own module doc on why): this package
  * now exists solely for the customer/service-line product experience, not as
