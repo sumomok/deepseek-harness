@@ -651,3 +651,57 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 ### 分支 HEAD 登记
 
 起点 `upstream/master` = `d347e70390`（`core-patches-v7` 由 `reset --hard` 从此重建）。第一轮 29 个提交至 `506f302149`（已推 origin；`git rev-list --count d347e70390..506f302149` = 29）。返修轮追加 `d2cf85446d`、`e7891f0499`、`a121f4a7f1`、`39b9dec9a5`；第二轮返修追加 `663cb9df9e` 与其台账提交；第三轮返修追加 `91743a89eb` 与其台账提交；第四轮返修追加 `4e00a2b851` 与本次台账提交。`core-patches-v7` 已推过 origin，一律追加提交，不改写历史。
+## rc.31 集成合并审计：`develop` 线 × `core-patches-v7` × 五条功能分支（基座 0.1.2-rc.1 → 0.1.3-alpha.1）
+
+集成分支 `rc31-integration` 起自 `origin/develop` = `1125f329b3`（`release(desktop): 0.1.0-rc.30`）。六次 `--no-ff` 合并，first-parent 依次为 `0e6ddc026b`（v7）、`df13f0ab82`（content-search）、`910d187c5f`（toast-actions）、`e94386dc0a`（approval-diff-preview）、`207a9cceea`（desktop-mcp-servers）、`e3e9ab695c`（claude-skills-root），另有三条本线提交 `49504d8075`、`47bf2b82ba`、`799d45eee5`。桌面版本号本次不动，仍是 `0.1.0-rc.30`。
+
+### 第一次合并：`core-patches-v7`（`1930a2321b`）
+
+`git merge-base --all` 唯一，为 `76fda72979`（上游 0.1.2-rc.1 发布合并）。v7 **不是 v6 的变基**而是重新移植（`git merge-base --is-ancestor 473b700a53 1930a2321b` 为假，对 `1125f329b3` 为真），所以合并基是上游提交、fork 独有文件全部以 add/add 落入冲突——与 rc.27–rc.29 同一机理。**109 个冲突文件**（98 UU + 11 AA）。
+
+**逐文件改用真正的内容祖先 `473b700a53`（`core-patches-v6` 顶端，develop 已含）做 `git merge-file`**：109 个里 **102 个机械消解为零冲突**，其中 **101 个 `ours` 与祖先逐字节相同**（develop 从未在补丁线之外碰过它们，结果即 v7 侧），只有 `tsconfig.host.json` 是真三方并集（同时保留 develop 的 `apps/desktop/**` 与上游新增的 `session-format{,-v0-to-v1,-v1-to-v2,-catalog}`、`client/file-upload` 引用）。剩余 7 个手判：
+
+- `.claude/core-patches.md`：四处冲突。前两处取 v7（v7 把每条补丁的状态行改写为「退役/保留 + 上一轮状态」，是旧行的严格超集）；第三处并集，保留 develop 的「rc.26 合并事故复核」整段，标题行取 v7 的新 SHA（`4f3e1b462d` → `44ff8f621d`）；第四处并集，develop 的 rc.29/rc.30 集成审计段在前、v7 的「重新移植」段在后。`comm` 逐行实证：merged ⊇ v7 侧 **0 行缺失**；develop 侧缺 36 行，逐行归类为 12 条被 v7 改写 SHA 的标题、19 条被 v7 收进「上一轮状态」的状态行、1 条被 v7 同义替换的「当前补丁线」指针，**无内容丢失**。
+- `packages/client/connection/src/client/fixture.ts`、`docs/subsystems/attachment.{md,zh.md,i18n.yaml}`：整取 v7。develop 侧这几处的差异全部来自 v7 已登记退役的文本文件附件族（fixture 的 `file` prompt part 来自 develop 的 `a1131f9121`，文档来自 `packages/attachment` 的自建文本文件存储边界）。
+- `scripts/gen-third-party-notices.ts`：并集——fork 的十条 vendored tarball 覆盖项与上游新增的 `fs-ext` 许可覆盖项同时保留。
+- `pnpm-lock.yaml`：整取 v7 侧，再跑 `pnpm install` 让补丁线没有的四个 importer（`apps/desktop`、`apps/desktop-server`、`apps/desktop-app`、`apps/pwa`）重新解析；退出码 0。
+
+**「两侧都改过」的非冲突文件同样按内容祖先重判**（git 用上游合并基自动合并会把补丁计两次）：补丁线拥有、develop 未动的 8956 个路径里 **56 个的自动合并结果与 v7 不符**，逐个改回 v7 内容（含 `llm-deepseek`/`llm-pi-ai` 的 adapter 与 `packages/bundle/base/package.json` 等溢出附件接线）；`packages/bundle/base/cordis.patch.yml` 与 `docs/module-graph.i18n.yaml` 两个「两侧都改过」的自动合并结果也偏离三方结果，按内容祖先重解（前者的 `attachment-spill` 插件行随族退役）。
+
+**删除复活护栏**：以 `473b700a53` 为准，v7 侧删除且不在合并基上的 fork 文件 **45 个**，git 全部当作 develop 单侧新增而保留——逐个删除，与 v7 台账「被删除的 fork Agent Note（6 份）」与文件附件族整族退役一一对应。护栏另两向为零：结果树中「两个父都没有」的文件 0 个；v7 有而结果缺的路径 2 个，是 `attachment-labels.*` → `image-labels.*` 的改名对，按 v7 路径补回。族退役的树内余波另修：删除 `apps/web/tests/{file-display.expected,secret-container-confirmation}.e2e.ts` 与后者金样、`apps/web/tsconfig.json` 的对应条目、`apps/desktop-server` 的 `dsh-attachment-spill` 依赖、`scripts/type-equiv.manifest.json` 的五条 `docs/subsystems/attachment.md` 条目，以及四组只记录该族的 develop 侧 Agent Note（`2026-08-28-file-attachment-{composer-intake,wire-log-request,build-purity-and-stale-copy}`、`2026-08-30-attachment-spill-materialization`）。
+
+**生成物一律重跑不手改**：13 个生成器全跑，**只有 `docs/module-graph.{md,zh.md}` 有改动**（`attachment-spill` 行消失），其余零 diff；`verify-translation-pairing` 1189 对全绿。
+
+**三道机械护栏跑遍 211 个「两侧都改过」的文件**（`git diff --name-only 76fda72979 <each side>` 求交，一个不跳）：① 抑制注释逐字计数，7 条「丢失」逐条核对**全部是退役内容**——`.claude/core-patches.md` 那条是被 v7 收进「上一轮状态」的状态行，`attachment-local/src/{index,store}.ts` 与 `ui-conversation/.../InputBar.tsx` 三个文件的结果均与 v7 blob **逐字节相同**（store.ts 结果反而比 develop 多 4 条）；② 行频超额 59 条，全在 `pnpm-lock.yaml`（生成物，四个 importer 带来的新行）与本轮两条适配提交自己的新代码行，无合并重复。
+
+### 第二至六次合并：五条功能分支
+
+五条都以 `1125f329b3` 为合并基（真正的共同祖先，不吃 add/add）。
+
+- **`feat/desktop-content-search`（`d839e191b9`，4 提交）**：零冲突。新增私有 app `apps/desktop-app`（组合层，`private: true`、`0.1.0-rc.7`）、`desktop-composition-layer.spec.ts`，并把 `session-query-sqlite` 的 `openAt` 与 `llm-deepseek` 的 `maxDelayMs` 落到该层。
+- **`feat/desktop-toast-actions`（`0242abf8a9`，5 提交）**：零冲突。
+- **`feat/approval-diff-preview`（`c60fecede2`，4 提交）**：唯一冲突 `.claude/core-patches.md`，并集（v7 补丁登记区在前、本分支的 keyed 审批详情补丁段在后）。`comm` 实证 merged ⊇ 本线 0 行缺失；分支侧缺的 35 行全部是 rc.30 期台账被 v7 改写的同一批行。
+- **`feat/desktop-mcp-servers`（`ebca8637e8`，5 提交）**：5 个冲突。`apps/desktop/src/profile-seed.ts` 的 `BUILTIN_WEB_BUNDLES` 取并集并定终序——`… @haoran/dsh-default-model, @haoran/dsh-mcp-servers, @haoran/dsh-btw, @deepseek-ai/dsh-desktop-app`（14 项，组合层末位）；同一常量的 JSDoc 末段按事实改写：`@deepseek-ai/dsh-desktop-app` 从末位再次 patch `llm-deepseek`，靠自己那一行重述 default-model 设的模型目录。`apps/desktop/README.{md,zh.md}` 逐段并集：内置插件计数取分支侧的 13（12 个带浏览器半边），清单句与首段尾句补回本线的 `@deepseek-ai/dsh-desktop-app`；同文件另两处自动合并后仍留旧计数（「十一个」「第十二个 bundle」），一并订正为「十三个」「第十四个」。`README.i18n.yaml` 由配对合并驱动解出后 `--write` 重录。`pnpm-lock.yaml` 取分支侧再 `pnpm install`。
+- **`feat/claude-skills-root`（`a98f9bfb13`，7 提交）**：4 个冲突，三处是导入行并集（`skill-filesystem.spec.ts`/`tool-skill.spec.ts` 保留本线的 `afterEach`/`rm` 与分支侧的 `chmod`；`session-snapshot/src/harness.ts` 两侧导入并存），`.claude/core-patches.md` 取并集并把该分支的补丁登记段移进补丁登记区（落在 keyed 审批详情段之后、rc.26 B 族段之前），不留在文件末尾的同步/审计区。
+
+### 本线三条适配提交
+
+1. `49504d8075` `fix(scripts)`：上游 0.1.3-alpha.1 新增 `checkDshFamilyVersion`（每个 `@deepseek-ai/dsh*` 工作区清单版本须等于根版本），`apps/desktop`（`0.1.0-rc.30`）、`apps/desktop-server`、`apps/pwa`、`apps/desktop-app`（`0.1.0-rc.7`）带的是各自的产品发行版本，四个一起挂。`checkWorkspaceManifest` 在 `isPrivateApp` 为真时跳过该检查，`.spec.ts` 正反各钉一条。登记见本文件 `8238c1385d` 小节的「rc.31 集成期扩展」条。
+2. `47bf2b82ba` `test(scripts)`：上条新增用例读根清单时未标类型，`no-unsafe-assignment`/`no-unsafe-member-access` 两条 lint 报错，改用 `PackageManifest`。
+3. `799d45eee5` `test(snapshot)`：`snapshots/web/approval-preview-diff` 的手写脚本是 rc.30 基座上的 v0，新基座的 `assertV2SnapshotCorpusPolicy` 要求每个被选中的 Session 角色为 v2。脚本改写为 released-v2 物理头 + 每步顶层 assistant chunk 折进该步 `assistant/message` 的 `stream`；其 `session/title` 原引 seq 1 而它指名的用户消息在 seq 2（v0 读路径不校验、迁移校验器会拒），随迁一并订正；e2e 与夹具清单断言改用 `session.v2.jsonl`。
+
+### 门禁实跑（HEAD `799d45eee5`，工作树 `../dsh-rc31`）
+
+`pnpm install` 0 → `build` 0（222 个客户端产物）→ `typecheck` 0 → `lint` 0 → `vitest run apps/desktop/tests packages/skill packages/client/ui-tool packages/client/ui-approval packages/client/ui-chat` **72 文件 / 1267 条全绿** → `doc-sync` **35/35**（rc.30 是 34，`ebca8637e8` 新增一道第三方许可门）→ `hygiene` **16/16** → `test:snapshot` **121 条中 118 通过 / 2 跳过 / 1 红**，唯一的红是 `ptc-python-turn`（本机 CPython 3.9.6 低于该包要求的 3.10+，非本次引入）→ `DSH_SNAPSHOT=replay` 四场景 e2e（`approval-preview-diff`、`approval-composer`、`shipped-composition`、`scaffold-hermetic`）**4 文件 8 条全绿** → `desktop-composition-layer.spec.ts` 10 条全绿，`BUILTIN_WEB_BUNDLES` 14 项、末位为 `@deepseek-ai/dsh-desktop-app`。
+
+### 旧会话可读性预审（合并 v7 之后、并入功能分支之前）
+
+`~/.dsh/sessions` 下最近三份真实会话只读复制到 scratch `DSH_HOME`，用合并树源码起服务端（`--profile web --port 0 --no-open`；scratch DSH_HOME 里没有桌面壳才会播种的 `desktop` profile，故用它内嵌的同一套 `web` profile）：`session/list` 返回 3 条且此时**原文件零改动、零新增**（`list()` 只读头）；逐份 `session/page` 读回 **29 / 145 / 906 条**事件，seq 0 起密集无洞，`session/title` 两条标题与首条用户消息正文与原 `.jsonl` 逐字相同。逐类型对账：`9ca7767d`（v0，`agentPreset:"code"`）与 `a6d7c058`（v0，`ptc`）与原日志非 chunk 记录数**逐类型完全相等**；`08684352` 多出 18 条 `assistant/attempt`，是 v1→v2 迁移把该会话 15 次 `llm/retry` 对应的尝试显式化，其余类型逐一相等。三份原 `session.jsonl.zstd` 的 sha256 读后不变，各只新增一个 `session.v2.jsonl.zstd`，新头 `version: 2` 且 `agentPreset` 保留（`code` 未被改写）。
+
+**仓外历史事件**：本机 128 份日志逐份解压扫描，`permissionRules/decision` 命中 **3 份**、`attachment/materialized` **0 份**，与 v7 台账 `d929cdfd2a` 条的实证一致。三份只读副本在合并树上**全部 OPEN ok**（133 / 47 / 37 条，seq 密集），各保留 1 条 `permissionRules/decision`，envelope 键为 `['data','ignorable','seq','time','type']`、`ignorable` 为 `true`——按 legacy uninterpreted 迁移而不是拒读；原文件 sha256 不变。
+
+**整机列表**：`~/.dsh.backup-2026-09-02-before-rc27` 的 `sessions/` 只读副本（**121 份 v0 日志**）作 DSH_HOME 启动到 URL 行，`session/list` 返回 **67** 条，与 v7 台账在纯上游树上取得的数字相同；跑完 121 个文件 sha256 全部未变、零新增。
+
+### 分支 HEAD 登记
+
+`rc31-integration` = `799d45eee5`。起点 `origin/develop` = `1125f329b3`；补丁线 `core-patches-v7` = `1930a2321b`（未动）；五条功能分支顶依次 `d839e191b9`、`0242abf8a9`、`c60fecede2`、`ebca8637e8`、`a98f9bfb13`（均未动）。本分支未推 origin。
