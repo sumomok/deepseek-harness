@@ -86,29 +86,53 @@
   name: '@deepseek-ai/dsh-client-ui-settings-models'
   disabled: true
 
+# The Settings → General "Permission" row: the default preset for new sessions,
+# and the last user-facing permission control once the composer chip is hidden
+# (`terminology-guard.ts`) and `/permission` is isolated away above. The same
+# package's only other registration is the `/permission` popup decoration,
+# which has no host command left to decorate. With this row gone the preset is
+# a deployment constant: `defaultPreset` sets it, `pinInitialPermission` stamps
+# it onto every new session, and no browser path writes it again.
+- id: ui-permission
+  name: '@deepseek-ai/dsh-client-ui-permission-presets'
+  disabled: true
+
 # Decision ②: the shipped preset table names its rows in vendor vocabulary —
 # "workspace-write" renders as "Workspace Write" on the composer's access chip
-# (`dsh-client-ui-conversation`'s `PermissionSelect`), in the `/permission`
-# popup, and in the Settings default row. None of that is CSS chrome this
-# package could hide, and none of it is reachable from a dictionary: those
-# labels belong to `dsh-client-ui-conversation`'s own locale namespace, which
+# (`dsh-client-ui-conversation`'s `PermissionSelect`). That is not CSS chrome
+# this package could rename, and it is not reachable from a dictionary: the
+# label belongs to `dsh-client-ui-conversation`'s own locale namespace, which
 # no other plugin may register into.
 #
-# The preset table itself is the seam. Both client surfaces resolve a label
-# the same way — a host-supplied `name` that still matches the built-in
-# default renders the vendor's product label, anything else passes through
-# verbatim (`PermissionSelect.tsx`'s `permissionLabel`,
-# `presentation.ts`'s `displayPermissionPreset`). Renaming the rows here
-# therefore replaces the vocabulary on every surface at once, with no patch to
-# an upstream package.
+# The preset table itself is the seam. The chip resolves its label from the
+# host-supplied `name`: one that still matches the built-in default renders the
+# vendor's product label, anything else passes through verbatim
+# (`PermissionSelect.tsx`'s `permissionLabel`). Renaming the rows here
+# therefore replaces the vocabulary with no patch to an upstream package.
 #
 # All three shipped presets are restated, knob values (`sandbox`, `approval`)
 # unchanged: this row replaces the whole table, so omitting one drops that
-# preset rather than inheriting it — a customer would simply lose that choice.
-# `apps/web/tests/server-sidebar.e2e.ts` asserts the resulting set.
+# preset rather than inheriting it. With no switch offered, the only surface
+# these names still reach is the hidden chip's `aria-label`;
+# `packages/experimental/server-sidebar/tests/customer-overlay.client.spec.ts`
+# asserts the table, and `apps/web/tests/server-sidebar.e2e.ts` reads the
+# effective preset's name off that label.
 - id: permission
   name: '@deepseek-ai/dsh-permission-presets'
+  # No permission switch reaches an end user (product decision, 2026-09-07).
+  # `commands` resolves inside this entry to a realm nothing implements, so the
+  # row's `ctx.inject(['commands'], …)` child never activates: `/permission` is
+  # never registered, `commands.list` never names it, and the slash menu has no
+  # row to filter. Isolation is per entry, so the registry the base bundle
+  # composes is untouched — the switcher strip's tab and close buttons, the
+  # sidebar's navigation rows, `show_component`'s press return path, and
+  # `SessionFace.command()` all keep the `commands` they inject.
+  isolate:
+    commands: true
   config:
+    # What this table derives today from the composed sandbox and approval
+    # defaults (workspace-write + ask, `packages/bundle/base/cordis.patch.yml`).
+    defaultPreset: workspace-write
     presets:
       read-only:
         sandbox: read-only
