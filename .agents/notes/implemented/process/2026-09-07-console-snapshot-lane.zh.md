@@ -77,11 +77,11 @@ Status: implemented
 
 控制台模型可见的内容重新被门禁看着了。对任一把工具的描述、拼进描述的组件目录、某个参数描述，或 `content-surface` 提示词段落的改动，现在都会在必需的快照泳道里落成一处需要过目的基线 diff，而不是无声地抵达模型——这正是这条泳道当初为之而建、后来却不再做的事。
 
-`pnpm run lint` 在这个基座上第一次全绿。那两条常驻错误并不是适配器的缺陷：这个文件命中了类型感知的 `examples/**` oxlint 覆盖规则，同时又落在所有 tsconfig 程序之外，于是 `@deepseek-ai/dsh-session-snapshot` 解析成 `error` 类型，对它的每一次使用都被报成不安全。在 `snapshots/` 下没有任何类型感知覆盖规则命中它，与 `snapshots/acp/acp.snapshot.ts` 完全一样；而 `.oxlintrc.json` 里那些已死的 `examples/**` glob，连同仅为它们存在的那一条覆盖规则，都已删除。
+`pnpm run lint` 在这个基座上第一次全绿。那两条常驻错误并不是适配器的缺陷：这个文件命中了类型感知的 `examples/**` oxlint 覆盖规则，同时又落在所有 tsconfig 程序之外，于是 `@deepseek-ai/dsh-session-snapshot` 解析成 `error` 类型，对它的每一次使用都被报成不安全。离开那棵树就是全部的修法：`.oxlintrc.json` 在任何一条覆盖规则里都没有提到 `snapshots`，所以这个适配器落在所有类型感知规则集之外，正是 `snapshots/acp/acp.snapshot.ts`、`snapshots/sdk/sdk.snapshot.ts` 与 `snapshots/session/headless.snapshot.ts` 早就待着的位置。
 
 代价是这条泳道的会话基线现在带上了发行剖面的权限与沙箱事件，以及随之而来的文件策略段落。那是控制台并不关心的三行，而上游一旦改动那段文字，就会冲刷十一份会话日志。表头基线——描述控制台的那部分——与此隔离，因为工具行是逐行关掉的，而不是交给某个骨干开关。
 
-`examples/` 被删除。它在 `.gitignore` 里的两条模式与 `.oxlintrc.json` 里的六条 glob 随之而去，`docs/AGENTS.md` 也去掉了那条为「这个基座从来没有过的 `examples/AGENTS.md`」写的字数预算。
+`examples/` 被删除，`docs/AGENTS.md` 也去掉了那条为「这个基座从来没有过的 `examples/AGENTS.md`」写的字数预算。`.gitignore` 与 `.oxlintrc.json` 里的 `examples/` 模式与 glob 原封不动：上游自己也没有 `examples/` 目录，却带着同样这些条目，它们在这里同样什么都匹配不到；而本分叉只在不得已时才改上游拥有的文件——每一处这样的改动，都是下一次同步时的一个冲突块。
 
 ## Testing
 

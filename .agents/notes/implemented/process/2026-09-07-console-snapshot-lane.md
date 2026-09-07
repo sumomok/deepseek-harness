@@ -77,11 +77,11 @@ That last check keyed on the corpus directory name, which no longer determines t
 
 The console's model-visible surface is gated again. An edit to either tool's description, to the component catalog spliced into it, to a parameter description, or to `content-surface`'s prompt section now lands as a reviewed fixture diff in the required snapshot lane instead of reaching a model unnoticed — which is what the lane was built for and what it had stopped doing.
 
-`pnpm run lint` is green for the first time on this root. The two standing errors were not a defect in the adapter: the file matched the type-aware `examples/**` oxlint override while sitting outside every tsconfig program, so `@deepseek-ai/dsh-session-snapshot` resolved as an `error` type and every use of it was reported unsafe. Under `snapshots/` no type-aware override matches, exactly as for `snapshots/acp/acp.snapshot.ts`, and the dead `examples/**` globs are gone from `.oxlintrc.json` along with the one override that existed only for them.
+`pnpm run lint` is green for the first time on this root. The two standing errors were not a defect in the adapter: the file matched the type-aware `examples/**` oxlint override while sitting outside every tsconfig program, so `@deepseek-ai/dsh-session-snapshot` resolved as an `error` type and every use of it was reported unsafe. Leaving that tree is the whole fix: `.oxlintrc.json` names `snapshots` in no override at all, so the adapter sits outside every type-aware rule set, exactly where `snapshots/acp/acp.snapshot.ts`, `snapshots/sdk/sdk.snapshot.ts` and `snapshots/session/headless.snapshot.ts` already sit.
 
 The cost is that the lane's session fixtures now carry the shipped profile's permission and sandbox events and the file-policy paragraph that comes with them. Those are three rows the console does not care about, and an upstream edit to that paragraph will churn eleven session logs. The header pin — the part that describes the console — is insulated from it, because the tool rows are disabled per row rather than left to a spine flag.
 
-`examples/` is deleted. Its two `.gitignore` patterns and six `.oxlintrc.json` globs go with it, and `docs/AGENTS.md` loses the budget line for an `examples/AGENTS.md` that this root never had.
+`examples/` is deleted, and `docs/AGENTS.md` loses the budget line for an `examples/AGENTS.md` that this root never had. `.gitignore` and `.oxlintrc.json` keep their `examples/` patterns and globs untouched: upstream carries the same entries against no `examples/` directory of its own, they match nothing here either, and this fork edits an upstream-owned file only when unavoidable — every such hunk is a conflict on the next sync.
 
 ## Testing
 
