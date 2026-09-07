@@ -60,11 +60,24 @@
 
 # The Settings → General "Permission" row: the default preset for new sessions,
 # and the last user-facing permission control once the composer chip is hidden
-# (`terminology-guard.ts`) and `/permission` is isolated away above. The same
-# package's only other registration is the `/permission` popup decoration,
-# which has no host command left to decorate. With this row gone the preset is
-# a deployment constant: `defaultPreset` sets it, `pinInitialPermission` stamps
-# it onto every new session, and no browser path writes it again.
+# (`terminology-guard.ts`) and `/permission` is isolated on the `permission` row
+# below. The same package's only other registration is the `/permission` popup
+# decoration, which has no host command left to decorate.
+#
+# Disabling this row closes the last surface that writes
+# `permission.defaultPreset`; it does not erase a value already written. The
+# settings service resolves schema defaults, then the composition `base`, then
+# the user layer (`packages/settings/settings/src/index.ts:739`), so a stored
+# key still outranks the `defaultPreset` below. A deployment upgraded from a
+# build where this row was live clears it by deleting
+#
+#     permission:
+#       defaultPreset: <name>
+#
+# from `<harness home>/settings.yaml` — `$DSH_HOME/settings.yaml`, else
+# `~/.dsh/settings.yaml`, else the `path` the `settings-file` row configures
+# (`packages/settings/settings-file/src/index.ts:23-24,51-57`). No composition
+# key clears or pins it: `base` is the only layer a row supplies.
 - id: ui-permission
   name: '@deepseek-ai/dsh-client-ui-permission-presets'
   disabled: true
@@ -102,8 +115,11 @@
   isolate:
     commands: true
   config:
-    # What this table derives today from the composed sandbox and approval
-    # defaults (workspace-write + ask, `packages/bundle/base/cordis.patch.yml`).
+    # The composition `base` for the preset a new session is pinned to: what
+    # this table derives today from the composed sandbox and approval defaults
+    # (workspace-write + ask, `packages/bundle/base/cordis.patch.yml`). A
+    # stored `permission.defaultPreset` still outranks it — see the
+    # `ui-permission` row above.
     defaultPreset: workspace-write
     presets:
       read-only:

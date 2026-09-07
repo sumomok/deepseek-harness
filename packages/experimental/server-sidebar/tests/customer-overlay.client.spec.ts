@@ -44,6 +44,19 @@ const TEST_OVERLAYS = [
 const PRESET_IDS = ['read-only', 'workspace-write', 'danger-full-access'] as const
 /** The same three rows by the customer-facing name each renders under, in the same order. */
 const PRESET_NAMES = ['只读', '可修改文件', '完全放开'] as const
+/**
+ * The knob pair each row bundles, in the same order. These are what the
+ * deployment actually enforces, and what `defaultPreset` resolves against —
+ * a row renamed in place would keep this file green, a row whose `sandbox`
+ * moved would not.
+ */
+const PRESET_KNOBS = [
+  { sandbox: 'read-only', approval: 'ask' },
+  { sandbox: 'workspace-write', approval: 'ask' },
+  { sandbox: 'danger-full-access', approval: 'never' },
+] as const
+/** The preset a new session is pinned to, absent a stored `permission.defaultPreset`. */
+const PINNED_PRESET = 'workspace-write'
 
 interface PermissionRow {
   id?: string
@@ -88,12 +101,29 @@ describe('the console overlay\'s permission row', () => {
     expect(PRESET_IDS.map(id => presets?.[id]?.name)).toEqual([...PRESET_NAMES])
   })
 
-  it('isolates the command registry, which is what keeps /permission unregistered', () => {
-    expect(shipped?.isolate?.['commands']).toBe(true)
+  it('keeps each row on the knob pair it bundles', () => {
+    const presets = shipped?.config?.presets
+    expect(PRESET_IDS.map(id => ({ sandbox: presets?.[id]?.sandbox, approval: presets?.[id]?.approval })))
+      .toEqual(PRESET_KNOBS.map(knobs => ({ ...knobs })))
   })
 
-  it('states the pinned default rather than leaving it to be derived, and names a preset the table has', () => {
+  it('isolates the command registry, and only that name, which is what keeps /permission unregistered', () => {
+    expect(shipped?.isolate?.['commands']).toBe(true)
+    // A second isolated name would silence a different injected child of the
+    // same package with no other signal.
+    expect(Object.keys(shipped?.isolate ?? {})).toEqual(['commands'])
+  })
+
+  it('states the pinned default rather than leaving it to be derived', () => {
+    expect(shipped?.config?.defaultPreset).toBe(PINNED_PRESET)
     expect(PRESET_IDS).toContain(shipped?.config?.defaultPreset)
+  })
+
+  it('reconfigures the row rather than disabling it', () => {
+    // A `disabled: true` here would take the whole permission service with it —
+    // the chip's projection and the per-session pin included — while every
+    // assertion above still passed.
+    expect(shipped).not.toHaveProperty('disabled')
   })
 
   it('disables the Settings row that would otherwise still write that default', () => {
