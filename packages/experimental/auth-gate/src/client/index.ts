@@ -2,8 +2,9 @@
  * auth-gate browser half: the first thing a page does about who is looking at
  * it. No slot, no component, no copy — it reads the access token the
  * deployment's login page left in `localStorage`, sends a visitor without one
- * to that login page, mirrors the one it finds into a cookie, and hands it to
- * the node half.
+ * to that login page, mirrors the one it finds into a cookie, hands it to the
+ * node half, and — where the deployment offers a renewal endpoint — replaces it
+ * with a fresh one before it runs out, in place and without a navigation.
  *
  * Its configuration is host configuration, and a browser half receives no
  * cordis config — the boot manifest carries plugin names, not their `config`
@@ -27,6 +28,9 @@ import {
   AUTH_GATE_LOGOUT_ROUTE,
   AUTH_GATE_SETTINGS_ROUTE,
   AUTH_GATE_TOKEN_ROUTE,
+  isOwnOriginPath,
+  MAX_RENEWAL_INTERVAL_SECONDS,
+  type AuthGateRenewalSettings,
   type AuthGateSettings,
 } from '../route.ts'
 import { windowGateBrowser } from './browser.ts'
@@ -59,7 +63,42 @@ async function readSettings(): Promise<AuthGateSettings> {
       `auth-gate: ${url.href} answered an unusable refreshMarginSeconds: ${JSON.stringify(refreshMarginSeconds)}`,
     )
   }
-  return { loginUrl, cookieName, refreshMarginSeconds }
+  const renewal = readRenewal(url, settings.renewal)
+  return { loginUrl, cookieName, refreshMarginSeconds, ...renewal === undefined ? {} : { renewal } }
+}
+
+/**
+ * Read the renewal half of that same document, which a deployment offering no
+ * renewal endpoint leaves out entirely.
+ * @param url - the settings route, named in every diagnostic.
+ * @param served - whatever the document carried under `renewal`, however
+ * malformed.
+ * @returns the renewal settings, or `undefined` where the document carries none.
+ * @throws {Error} when the document carries a renewal the gate cannot spend a
+ * token on. A path naming another origin is refused here as it is at the node
+ * half, by the same {@link isOwnOriginPath} resolution: the value decides where
+ * this visitor's credential is sent. An interval longer than a browser timer
+ * waits is refused here as well — the timer would fire on the next tick instead,
+ * and every tick carries that credential.
+ */
+function readRenewal(url: URL, served: unknown): AuthGateRenewalSettings | undefined {
+  if (served === undefined) return undefined
+  if (served === null || typeof served !== 'object') {
+    throw new Error(`auth-gate: ${url.href} answered an unusable renewal: ${JSON.stringify(served)}`)
+  }
+  const { path, intervalSeconds } = served as { path?: unknown; intervalSeconds?: unknown }
+  if (typeof path !== 'string' || !isOwnOriginPath(path)) {
+    throw new Error(`auth-gate: ${url.href} answered an unusable renewal path: ${JSON.stringify(path)}`)
+  }
+  if (
+    typeof intervalSeconds !== 'number' || !Number.isInteger(intervalSeconds)
+    || intervalSeconds <= 0 || intervalSeconds > MAX_RENEWAL_INTERVAL_SECONDS
+  ) {
+    throw new Error(
+      `auth-gate: ${url.href} answered an unusable renewal intervalSeconds: ${JSON.stringify(intervalSeconds)}`,
+    )
+  }
+  return { path, intervalSeconds }
 }
 
 /**

@@ -128,8 +128,17 @@ async function startUpstream(): Promise<FixtureUpstream> {
   }
 }
 
-/** Write a two-row cordis.yml and boot it through the real Loader. */
-async function loadComposition(upstreams: Record<string, string> = {}): Promise<Context> {
+/**
+ * Write a two-row cordis.yml and boot it through the real Loader.
+ * @param upstreams - the MCP servers this composition forwards to.
+ * @param renewal - the renewal endpoint this deployment offers, where it offers
+ * one.
+ * @returns the booted context.
+ */
+async function loadComposition(
+  upstreams: Record<string, string> = {},
+  renewal?: { path: string; intervalSeconds: number },
+): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-auth-gate-'))
   const configPath = join(world, 'cordis.yml')
   await writeFile(configPath, [
@@ -143,6 +152,9 @@ async function loadComposition(upstreams: Record<string, string> = {}): Promise<
     "    loginUrl: '/toy-proxy/toy-login/#/'",
     '    cookieName: accessToken',
     '    refreshMarginSeconds: 300',
+    ...renewal === undefined
+      ? []
+      : [`    renewalPath: '${renewal.path}'`, `    renewalIntervalSeconds: ${String(renewal.intervalSeconds)}`],
     '    mcpUpstreams:',
     ...Object.entries(upstreams).map(([name, url]) => `      ${name}: '${url}'`),
     ...Object.keys(upstreams).length === 0 ? ['      {}'] : [],
@@ -206,10 +218,12 @@ function postToken(ctx: Context, body: unknown, headers: Record<string, string> 
 }
 
 describe('auth-gate settings route', () => {
-  it('serves the browser half the three values its gate must obey', async () => {
+  it('serves the browser half the values its gate must obey', async () => {
     const ctx = await loadComposition()
     const answer = await call(ctx, AUTH_GATE_SETTINGS_ROUTE)
     expect(answer.status).toBe(200)
+    // No renewal at all rather than an empty one: a deployment that offers no
+    // renewal endpoint says so by carrying nothing.
     expect(JSON.parse(answer.body)).toEqual({
       loginUrl: '/toy-proxy/toy-login/#/',
       cookieName: 'accessToken',
@@ -218,6 +232,17 @@ describe('auth-gate settings route', () => {
     // Read once per boot from the row that booted; a cached copy would outlive
     // its own truth.
     expect(answer.cacheControl).toBe('no-store')
+  })
+
+  it('serves the renewal endpoint a deployment that offers one configured', async () => {
+    const renewal = { path: '/toy-proxy/ini-server/nrms-auth/api/renewal', intervalSeconds: 1800 }
+    const ctx = await loadComposition({}, renewal)
+    expect(JSON.parse((await call(ctx, AUTH_GATE_SETTINGS_ROUTE)).body)).toEqual({
+      loginUrl: '/toy-proxy/toy-login/#/',
+      cookieName: 'accessToken',
+      refreshMarginSeconds: 300,
+      renewal,
+    })
   })
 
   it('serves a HEAD of the settings document and refuses other methods', async () => {
@@ -530,6 +555,8 @@ describe('auth-gate configuration', () => {
     cookieName?: string
     mcpUpstreams?: Record<string, string>
     bizUpstream?: string | undefined
+    renewalPath?: string | undefined
+    renewalIntervalSeconds?: number | undefined
   } = {}): AuthGate.Config {
     return {
       loginUrl: fields.loginUrl ?? '/toy-proxy/toy-login/#/',
@@ -537,6 +564,8 @@ describe('auth-gate configuration', () => {
       refreshMarginSeconds: 300,
       mcpUpstreams: fields.mcpUpstreams ?? {},
       ...fields.bizUpstream === undefined ? {} : { bizUpstream: fields.bizUpstream },
+      ...fields.renewalPath === undefined ? {} : { renewalPath: fields.renewalPath },
+      ...fields.renewalIntervalSeconds === undefined ? {} : { renewalIntervalSeconds: fields.renewalIntervalSeconds },
     }
   }
 
@@ -555,6 +584,51 @@ describe('auth-gate configuration', () => {
     expect(() => claimedRoutes(gateConfig({ loginUrl: '' }))).toThrow('auth-gate: loginUrl must not be empty')
     expect(() => claimedRoutes(gateConfig({ loginUrl: '/login?next=1' })))
       .toThrow('auth-gate: loginUrl must carry no query string, received "/login?next=1"')
+  })
+
+  it('rejects a renewal configured in halves, or against another origin', () => {
+    // Both directions are loud: a path the browser cannot address would renew
+    // nothing and sign the visitor out every time a token ran out, and an
+    // interval with no path is a deployment that believes it renews.
+    expect(() => claimedRoutes(gateConfig({ renewalIntervalSeconds: 1800 })))
+      .toThrow('auth-gate: renewalIntervalSeconds needs a renewalPath to spend it on')
+    expect(() => claimedRoutes(gateConfig({ renewalPath: '/api/renewal' })))
+      .toThrow('auth-gate: renewalPath needs a renewalIntervalSeconds to renew on')
+    expect(() => claimedRoutes(gateConfig({ renewalPath: '', renewalIntervalSeconds: 1800 })))
+      .toThrow('auth-gate: renewalPath must not be empty')
+    expect(() => claimedRoutes(gateConfig({ renewalPath: '/api/renewal', renewalIntervalSeconds: 0 })))
+      .toThrow('auth-gate: renewalIntervalSeconds must be above zero')
+    // An interval a browser timer cannot hold is worse than one that never
+    // fires: the browser clamps a delay that does not fit down to the next tick,
+    // which turns the schedule into a request loop carrying this visitor's
+    // credential. The longest one it does hold still loads.
+    expect(() => claimedRoutes(gateConfig({ renewalPath: '/api/renewal', renewalIntervalSeconds: 2_147_484 })))
+      .toThrow('auth-gate: renewalIntervalSeconds must be at most 2147483,'
+        + ' which is as long as a browser timer waits, received 2147484')
+    expect(claimedRoutes(gateConfig({ renewalPath: '/api/renewal', renewalIntervalSeconds: 2_147_483 })))
+      .toHaveLength(3)
+    // `/\host/path` and `/\/host/path` each name another origin to the parser
+    // that resolves this value, while starting with one slash and no second one;
+    // `/\[oops` names one the parser refuses outright.
+    const offOrigin = [
+      'https://elsewhere.example/api/renewal',
+      '//elsewhere.example/api/renewal',
+      'api/renewal',
+      '/\\elsewhere.example/api/renewal',
+      '/\\/elsewhere.example/api/renewal',
+      '/\\[oops',
+    ]
+    for (const renewalPath of offOrigin) {
+      expect(() => claimedRoutes(gateConfig({ renewalPath, renewalIntervalSeconds: 1800 })))
+        .toThrow(`auth-gate: renewalPath must be a path on this deployment's own origin, received "${renewalPath}"`)
+    }
+  })
+
+  it('claims the same routes for a deployment that renews', () => {
+    // Renewal is the browser half's business: it changes what the settings
+    // document carries and nothing about what this half serves.
+    expect(claimedRoutes(gateConfig({ renewalPath: '/api/renewal', renewalIntervalSeconds: 1800 })))
+      .toEqual([AUTH_GATE_SETTINGS_ROUTE, AUTH_GATE_TOKEN_ROUTE, AUTH_GATE_LOGOUT_ROUTE])
   })
 
   it('rejects a cookie name that cannot be written as one', () => {

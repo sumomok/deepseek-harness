@@ -7,7 +7,8 @@
  */
 
 import { resolveClientBase } from '@deepseek-ai/dsh-client-connection/client'
-import { ACCESS_TOKEN_STORAGE_KEY } from '../route.ts'
+import { ACCESS_TOKEN_STORAGE_KEY, MAX_TIMER_DELAY_MS } from '../route.ts'
+import { REQUEST_ID_LENGTH, requestIdFrom } from './renewal.ts'
 
 /** The browser operations the gate performs. */
 export interface GateBrowser {
@@ -15,8 +16,22 @@ export interface GateBrowser {
   now(): number
   /** The address the visitor is on, which is also the address they return to after signing in. */
   currentHref(): string
-  /** The stored access token with any `Bearer` scheme removed, or `null` when nothing is stored. */
-  readToken(): string | null
+  /**
+   * One value out of the storage the deployment's own pages share with this
+   * one, exactly as it is stored, or `null` when nothing is stored under that
+   * key. Every reading of a stored value — dropping the login page's scheme
+   * included — happens above this seam.
+   * @param key - the storage key to read.
+   * @returns the stored value, or `null`.
+   */
+  readStorage(key: string): string | null
+  /**
+   * Put one value into that same storage, so the deployment's own pages on this
+   * origin read what this one wrote.
+   * @param key - the storage key to write.
+   * @param value - the value to store, as it is to be read back.
+   */
+  writeStorage(key: string, value: string): void
   /** The named cookie's value, or `undefined` when the visitor carries no such cookie. */
   readCookie(name: string): string | undefined
   /** Write the named cookie for the deployment path the shell is served under. */
@@ -44,6 +59,22 @@ export interface GateBrowser {
    * @returns the disposer cancelling it.
    */
   schedule(delayMs: number, run: () => void): () => void
+  /**
+   * A fresh value for the deployment's own `TINY-REQUEST-ID` header.
+   * @returns the request id.
+   */
+  requestId(): string
+  /**
+   * Ask the deployment for one JSON document, on this page's own origin and
+   * with this page's own cookies.
+   * @param path - the path to ask, resolved against the page's address.
+   * @param headers - the headers to send.
+   * @param signal - aborts the request when the gate is released.
+   * @returns the decoded answer.
+   * @throws {Error} when the request fails, is refused, or answers something
+   * other than JSON. No token is named in the message.
+   */
+  requestJson(path: string, headers: Record<string, string>, signal: AbortSignal): Promise<unknown>
 }
 
 /**
@@ -136,7 +167,8 @@ export function windowGateBrowser(): GateBrowser {
   return {
     now: () => Date.now(),
     currentHref: () => location.href,
-    readToken: () => storedToken(localStorage.getItem(ACCESS_TOKEN_STORAGE_KEY)),
+    readStorage: key => localStorage.getItem(key),
+    writeStorage: (key, value) => { localStorage.setItem(key, value) },
     readCookie: name => readCookieFrom(document.cookie, name),
     writeCookie: (name, value) => { document.cookie = mirrorCookieLine(name, value, cookiePath) },
     clearCookie: (name) => { document.cookie = clearCookieLine(name, cookiePath) },
@@ -151,8 +183,31 @@ export function windowGateBrowser(): GateBrowser {
       return () => { removeEventListener('storage', onStorage) }
     },
     schedule: (delayMs, run) => {
-      const timer = setTimeout(run, delayMs)
+      let timer: ReturnType<typeof setTimeout>
+      const sleep = (remainingMs: number): void => {
+        timer = remainingMs > MAX_TIMER_DELAY_MS
+          ? setTimeout(() => { sleep(remainingMs - MAX_TIMER_DELAY_MS) }, MAX_TIMER_DELAY_MS)
+          : setTimeout(run, remainingMs)
+      }
+      sleep(delayMs)
+      // The link currently armed, which is the only one outstanding: each waits
+      // out its own share before arming the next.
       return () => { clearTimeout(timer) }
+    },
+    requestId: () => requestIdFrom(crypto.getRandomValues(new Uint8Array(REQUEST_ID_LENGTH))),
+    requestJson: async (path, headers, signal) => {
+      // Resolved against the page rather than passed to `fetch` as it stands, so
+      // the request goes to this origin whatever `<base>` the document carries.
+      // Same-origin, so the page's own cookies ride along the way the
+      // deployment's own client sends them.
+      const url = new URL(path, location.href)
+      const response = await fetch(url, { method: 'GET', headers, cache: 'no-store', signal })
+      if (!response.ok) {
+        // The path and the status, and nothing the request carried: the headers
+        // this diagnostic could otherwise quote are two copies of a credential.
+        throw new Error(`auth-gate: ${url.pathname} answered ${String(response.status)}`)
+      }
+      return await response.json() as unknown
     },
   }
 }

@@ -19,6 +19,15 @@
 # prefix its frontend was built with — `bizUpstream: https://<host>/ini-server/`
 # for a standard install, and the origin root for an install built without a
 # prefix.
+#
+# `renewalPath` and `renewalIntervalSeconds` are absent for the same reason, and
+# their absence means the expiry margin sends the visitor back through the login
+# page. A deployment whose sign-on renews writes both — `renewalPath:
+# /toy-proxy/ini-server/nrms-auth/api/renewal` and `renewalIntervalSeconds:
+# 1800` for a standard install — and the browser half then replaces the token in
+# place, without a navigation. The path is a browser-side address on this
+# deployment's own origin, carrying whatever prefix the reverse proxy serves it
+# under, and one field without the other fails the row.
 - insert:
     - id: auth-gate
       name: '@deepseek-ai/dsh-experimental-auth-gate'

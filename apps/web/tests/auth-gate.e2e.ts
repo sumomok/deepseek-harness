@@ -53,6 +53,12 @@ const LOGIN_PATH = '/auth-gate-e2e-login/'
 const COOKIE_NAME = 'accessToken'
 /** A blank same-origin page for the second tab, which must run no gate of its own. */
 const SCRATCH_PATH = '/auth-gate-e2e-scratch/'
+/** The deployment's renewal endpoint, as this deployment publishes it. */
+const RENEWAL_PATH = '/auth-gate-e2e-auth/api/renewal'
+/** How long a token is held before the gate asks for a new one; seconds, because a scenario waits them out. */
+const RENEWAL_INTERVAL_SECONDS = 1
+/** The header table the deployment's login page leaves for its own HTTP client. */
+const LOGIN_USER_INFO = { 'X-Tenant': 'acme' }
 /** The forwarding route the configured upstream claims. */
 const MCP_ROUTE = '/auth-gate/mcp/fixture'
 /** Where the load counter keeps its tally, for this tab. */
@@ -65,12 +71,24 @@ function segment(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
 }
 
-/** The one JWT the stub login page hands out; nothing verifies its signature. */
-const TOKEN = [
-  segment({ alg: 'none', typ: 'JWT' }),
-  segment({ sub: 'e2e-visitor', exp: Math.floor(Date.now() / 1000) + 3600 }),
-  'c2ln',
-].join('.')
+/**
+ * One JWT for this visitor, alive for an hour; nothing verifies its signature.
+ * @param lifetimeSeconds - how long past now it runs.
+ * @returns the token.
+ */
+function visitorToken(lifetimeSeconds: number): string {
+  return [
+    segment({ alg: 'none', typ: 'JWT' }),
+    segment({ sub: 'e2e-visitor', exp: Math.floor(Date.now() / 1000) + lifetimeSeconds }),
+    'c2ln',
+  ].join('.')
+}
+
+/** The one JWT the stub login page hands out. */
+const TOKEN = visitorToken(3600)
+
+/** The one the deployment's renewal endpoint answers with, when a case asks it to. */
+const RENEWED_TOKEN = visitorToken(7200)
 
 /**
  * What the deployment's login page actually stores: the value its own HTTP
@@ -96,6 +114,7 @@ function loginPage(signIn: boolean): string {
   document.getElementById('stub-login').dataset.redirect = back;
   if (${String(signIn)}) {
     localStorage.setItem('accessToken', ${JSON.stringify(STORED_TOKEN)});
+    localStorage.setItem('loginUserInfo', ${JSON.stringify(JSON.stringify(LOGIN_USER_INFO))});
     location.href = back;
   }
 </script></body></html>`
@@ -171,6 +190,8 @@ async function stageComposition(upstreamUrl: string): Promise<{ harnessHome: str
     `        loginUrl: '${LOGIN_URL}'`,
     `        cookieName: ${COOKIE_NAME}`,
     '        refreshMarginSeconds: 300',
+    `        renewalPath: '${RENEWAL_PATH}'`,
+    `        renewalIntervalSeconds: ${String(RENEWAL_INTERVAL_SECONDS)}`,
     '        mcpUpstreams:',
     `          fixture: '${upstreamUrl}'`,
     '',
@@ -192,6 +213,16 @@ describe.skipIf(MODE === 'record')('web e2e: single sign-on in front of the shel
   const consoleErrors: string[] = []
   /** Whether the stub login page signs the visitor in, or only records where it was asked to send them. */
   let stubSignsIn = false
+  /**
+   * What the deployment's renewal endpoint answers with. The token already in
+   * hand until the renewal case sets a later one, so the renewal running
+   * throughout this scenario answers each request with the token it was given.
+   * The gate refuses an answer whose `exp` is not later — nothing is stored,
+   * mirrored or posted — so every earlier case reads exactly what it stored.
+   */
+  let renewalAnswer = STORED_TOKEN
+  /** The headers each renewal request reached the endpoint with. */
+  const renewalRequests: Record<string, string>[] = []
 
   beforeAll(async () => {
     upstream = await startUpstream()
@@ -211,6 +242,16 @@ describe.skipIf(MODE === 'record')('web e2e: single sign-on in front of the shel
     // same-origin page can leave the token where the gate reads it.
     await page.route(url => url.pathname === LOGIN_PATH, route =>
       route.fulfill({ status: 200, contentType: 'text/html; charset=utf-8', body: loginPage(stubSignsIn) }))
+    // The deployment's renewal endpoint, in the shape its own `tokenRenewal`
+    // reads: an envelope whose `token` field carries the value to store.
+    await page.route(url => url.pathname === RENEWAL_PATH, (route) => {
+      renewalRequests.push(route.request().headers())
+      return route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ code: 0, msg: 'success', token: renewalAnswer }),
+      })
+    })
     tripwire = watchConsole(page)
     page.on('console', (message: ConsoleMessage) => {
       if (message.type() === 'error') consoleErrors.push(message.text())
@@ -307,11 +348,65 @@ describe.skipIf(MODE === 'record')('web e2e: single sign-on in front of the shel
     expect(tripwire.warnings).toEqual([])
   }, 120_000)
 
+  it('renews the token in place, with the headers the deployment\'s own client sends', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-auth-gate-renewal'))
+    // The endpoint answers with a new token from here on; the gate is holding
+    // one it accepted, so the next tick is what picks it up.
+    renewalAnswer = `Bearer ${RENEWED_TOKEN}`
+
+    await expect.poll(async () => {
+      const cookies = await page.context().cookies()
+      return cookies.find(cookie => cookie.name === COOKIE_NAME)?.value
+    }, { timeout: 30_000 }).toBe(RENEWED_TOKEN)
+
+    // Stored the way the deployment's own `setToken` stores it: the answer's
+    // value as it came, and the time it was stored beside it, so the
+    // deployment's own pages on this origin read the token this page renewed.
+    const [storedNow, storedAt] = await page.evaluate(() =>
+      [localStorage.getItem('accessToken'), localStorage.getItem('accessTokenTime')])
+    expect(storedNow).toBe(`Bearer ${RENEWED_TOKEN}`)
+    expect(Number.isNaN(Date.parse(storedAt ?? ''))).toBe(false)
+
+    // In place: no navigation, and no fifth load of the shell.
+    expect(page.url()).toBe(`${scaffold.baseUrl}/`)
+    expect(await shellLoads()).toBe(4)
+
+    // What the endpoint saw: the stored token on both header names, the header
+    // table the login page left, and a request id of the deployment's own form.
+    const sent = renewalRequests.at(-1) ?? {}
+    expect({
+      authorization: sent.authorization,
+      certificationToken: sent.certificationtoken,
+      tenant: sent['x-tenant'],
+    }).toEqual({
+      authorization: STORED_TOKEN,
+      certificationToken: STORED_TOKEN,
+      tenant: LOGIN_USER_INFO['X-Tenant'],
+    })
+    expect(sent['tiny-request-id']).toMatch(/^[A-Za-z0-9]{16}$/)
+
+    // And the node half spends the renewed token, which is the whole point of
+    // renewing rather than signing the visitor out.
+    await expect.poll(async () => {
+      const response = await fetch(`${scaffold.baseUrl}${MCP_ROUTE}`, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({ jsonrpc: '2.0', method: 'tools/list', id: 3 }),
+      })
+      await response.arrayBuffer()
+      return upstream.credentials.at(-1)
+    }, { timeout: 30_000 }).toBe(`Bearer ${RENEWED_TOKEN}`)
+  }, 120_000)
+
   it('gives the token up in all three places when another tab removes it', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-auth-gate-sign-out'))
     // The stub stays put again: a page that signed the visitor straight back in
-    // would undo the three effects this case exists to observe.
+    // would undo the three effects this case exists to observe. The renewal
+    // endpoint stops handing out usable tokens for the same reason: one landing
+    // between the removal and the gate's reaction would put a token back where
+    // this case has just watched it leave.
     stubSignsIn = false
+    renewalAnswer = `Bearer ${visitorToken(-1)}`
     // A `storage` event reaches every document of the origin except the one that
     // wrote, so the removal has to come from a second tab in the same context —
     // a blank same-origin page, which runs no gate of its own.

@@ -625,10 +625,36 @@ export interface Config {
    * silent, rather than by registering reads that always fail.
    */
   bizUpstream?: string
+  /**
+   * The deployment's own renewal endpoint, as a path on the page's own origin —
+   * `/<the API prefix>/nrms-auth/api/renewal` for a standard install, where the
+   * prefix is the frontend's `VUE_APP_BASE_URL`. A browser-side address, like
+   * `loginUrl`: a deployment served under a path prefix writes that prefix into
+   * the value, because nothing resolves it against the deployment base.
+   *
+   * There is no default. Left out, this deployment offers no renewal and the
+   * expiry margin sends the visitor back through the login page, which is the
+   * one renewal route every deployment has. Set, it must be paired with
+   * {@link Config.renewalIntervalSeconds}.
+   */
+  renewalPath?: string
+  /**
+   * How many seconds the browser half holds a token before asking the renewal
+   * endpoint for a new one: above zero, and at most 2147483, which is as long
+   * as a browser timer waits. The deployment's own client renews on its next
+   * request once the token it holds is older than `accessTokenRenewalTime`
+   * minutes, 30 by default; this is that rule as a timer, so a value well under
+   * the token's lifetime is what keeps a console left open signed in.
+   *
+   * Required when {@link Config.renewalPath} is set, and refused when it is
+   * not: an interval configured against no endpoint is a deployment that
+   * believes it renews and does not.
+   */
+  renewalIntervalSeconds?: number
 }
 ```
 
-来源：[`packages/experimental/auth-gate/src/index.ts:59`](../packages/experimental/auth-gate/src/index.ts)
+来源：[`packages/experimental/auth-gate/src/index.ts:62`](../packages/experimental/auth-gate/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-code-runtime-python"></a>
 

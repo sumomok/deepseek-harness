@@ -38,7 +38,7 @@ A boot that mirrors ends in a reload; a reload that decided to mirror again woul
 
 ### Expiry is a navigation, with one named seam
 
-`refreshMarginSeconds` before `exp`, the gate acts, and acting means sending the visitor back through the login page — the one renewal route every deployment has. `handleTokenExpiring` in `src/client/run.ts` is the single place that decision is made and the only reader of the margin. A deployment whose sign-on gains a renewal endpoint replaces that function's body; nothing else in the gate depends on how a token is renewed. A token carrying no `exp` is refused rather than treated as eternal, because that claim is what the whole schedule is built on.
+`refreshMarginSeconds` before `exp`, the gate acts, and acting means sending the visitor back through the login page — the one renewal route every deployment has. `onMargin` in `src/client/run.ts` is the single place that decision is made and the only reader of the margin. A deployment whose sign-on gains a renewal endpoint gives that decision a second answer, which is what [the renewal note](../feature/2026-09-07-auth-gate-token-renewal.md) later did; nothing else in the gate depends on how a token is renewed. A token carrying no `exp` is refused rather than treated as eternal, because that claim is what the whole schedule is built on.
 
 ### The forward rides the dsh webserver
 

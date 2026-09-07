@@ -36,7 +36,10 @@ import {
   AUTH_GATE_MCP_PREFIX,
   AUTH_GATE_SETTINGS_ROUTE,
   AUTH_GATE_TOKEN_ROUTE,
+  isOwnOriginPath,
+  MAX_RENEWAL_INTERVAL_SECONDS,
   parseTokenPost,
+  type AuthGateRenewalSettings,
   type AuthGateSettings,
 } from './route.ts'
 
@@ -47,7 +50,7 @@ export {
   AUTH_GATE_SETTINGS_ROUTE,
   AUTH_GATE_TOKEN_ROUTE,
 } from './route.ts'
-export type { AuthGateSettings } from './route.ts'
+export type { AuthGateRenewalSettings, AuthGateSettings } from './route.ts'
 
 /** Stable Cordis plugin name. */
 export const name = 'auth-gate'
@@ -102,6 +105,32 @@ export interface Config {
    * silent, rather than by registering reads that always fail.
    */
   bizUpstream?: string
+  /**
+   * The deployment's own renewal endpoint, as a path on the page's own origin —
+   * `/<the API prefix>/nrms-auth/api/renewal` for a standard install, where the
+   * prefix is the frontend's `VUE_APP_BASE_URL`. A browser-side address, like
+   * `loginUrl`: a deployment served under a path prefix writes that prefix into
+   * the value, because nothing resolves it against the deployment base.
+   *
+   * There is no default. Left out, this deployment offers no renewal and the
+   * expiry margin sends the visitor back through the login page, which is the
+   * one renewal route every deployment has. Set, it must be paired with
+   * {@link Config.renewalIntervalSeconds}.
+   */
+  renewalPath?: string
+  /**
+   * How many seconds the browser half holds a token before asking the renewal
+   * endpoint for a new one: above zero, and at most 2147483, which is as long
+   * as a browser timer waits. The deployment's own client renews on its next
+   * request once the token it holds is older than `accessTokenRenewalTime`
+   * minutes, 30 by default; this is that rule as a timer, so a value well under
+   * the token's lifetime is what keeps a console left open signed in.
+   *
+   * Required when {@link Config.renewalPath} is set, and refused when it is
+   * not: an interval configured against no endpoint is a deployment that
+   * believes it renews and does not.
+   */
+  renewalIntervalSeconds?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -110,6 +139,8 @@ export const Config: z<Config> = z.object({
   refreshMarginSeconds: z.natural().required(),
   mcpUpstreams: z.dict(z.string()).required(),
   bizUpstream: z.string(),
+  renewalPath: z.string(),
+  renewalIntervalSeconds: z.natural(),
 })
 
 /**
@@ -237,6 +268,58 @@ function requireBizUpstream(raw: string): string {
   return parsed.href
 }
 
+/**
+ * Reject a renewal configuration the browser half cannot spend a token on.
+ *
+ * Loud at load, in both directions: a path the browser cannot address would
+ * surface as a renewal that quietly never happens and a visitor signed out
+ * every time a token runs out, and an interval configured against no path is a
+ * deployment that believes it renews and does not.
+ *
+ * The path is required to name this deployment's own origin because the value
+ * decides where this visitor's credential is sent, and the browser half resolves
+ * it against the page's own address: a value naming another origin — a
+ * protocol-relative `//host/path`, or the `/\host/path` the URL parser reads as
+ * one — would send the token off this deployment. {@link isOwnOriginPath}
+ * answers that by resolving the value rather than by reading its first
+ * characters.
+ * @param path - the configured `renewalPath`, absent where this deployment
+ * offers no renewal.
+ * @param intervalSeconds - the configured `renewalIntervalSeconds`.
+ * @returns the renewal settings to serve the browser half, or `undefined` where
+ * no renewal is configured.
+ * @throws {Error} when one field is configured without the other, when the path
+ * is empty or is not a path on this deployment's own origin, or when the
+ * interval is zero or longer than a browser timer waits.
+ */
+function requireRenewal(path: string | undefined, intervalSeconds: number | undefined): AuthGateRenewalSettings | undefined {
+  if (path === undefined) {
+    if (intervalSeconds !== undefined) {
+      throw new Error('auth-gate: renewalIntervalSeconds needs a renewalPath to spend it on')
+    }
+    return undefined
+  }
+  if (path.length === 0) throw new Error('auth-gate: renewalPath must not be empty')
+  if (!isOwnOriginPath(path)) {
+    throw new Error(`auth-gate: renewalPath must be a path on this deployment's own origin, received "${path}"`)
+  }
+  if (intervalSeconds === undefined) {
+    throw new Error('auth-gate: renewalPath needs a renewalIntervalSeconds to renew on')
+  }
+  if (intervalSeconds === 0) {
+    throw new Error('auth-gate: renewalIntervalSeconds must be above zero')
+  }
+  // Refused rather than slept in links the way the expiry margin's own delay is:
+  // an interval past what one browser timer carries names a schedule first
+  // firing 24 days out, which no token this deployment issues lives to reach.
+  if (intervalSeconds > MAX_RENEWAL_INTERVAL_SECONDS) {
+    throw new Error(
+      `auth-gate: renewalIntervalSeconds must be at most ${String(MAX_RENEWAL_INTERVAL_SECONDS)},`
+      + ` which is as long as a browser timer waits, received ${String(intervalSeconds)}`,
+    )
+  }
+  return { path, intervalSeconds }
+}
 
 /**
  * The process's memory of one access token, as the three operations anything is
@@ -269,12 +352,15 @@ function holdCredential(): HeldCredential {
 export function apply(ctx: Context, config: Config): void {
   // Loud at load, all of it: an unusable login destination would send every
   // visitor nowhere, a cookie name that cannot be written would make the gate
-  // reload forever, and a malformed upstream would answer the MCP client with
-  // a route that fails only on the first tool call.
+  // reload forever, a half-configured renewal would sign the visitor out every
+  // time a token ran out, and a malformed upstream would answer the MCP client
+  // with a route that fails only on the first tool call.
+  const renewal = requireRenewal(config.renewalPath, config.renewalIntervalSeconds)
   const settings: AuthGateSettings = {
     loginUrl: requireLoginUrl(config.loginUrl),
     cookieName: requireCookieName(config.cookieName),
     refreshMarginSeconds: config.refreshMarginSeconds,
+    ...renewal === undefined ? {} : { renewal },
   }
   const upstreams = resolveUpstreams(config.mcpUpstreams)
   // An unusable data-backend base would send this visitor's credential to the

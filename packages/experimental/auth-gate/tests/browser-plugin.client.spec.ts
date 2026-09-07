@@ -1,9 +1,9 @@
 /**
  * The gate as it runs in a page: the boot sequence over a fake browser, the
  * mirror that reloads exactly once and the one that refuses to loop, the
- * account switch, the expiry schedule, the real `window`-backed browser against
- * stubbed globals, and the plugin body that reads its settings before running
- * any of it.
+ * account switch, the expiry schedule, the renewal a deployment that offers one
+ * gets, the real `window`-backed browser against stubbed globals, and the plugin
+ * body that reads its settings before running any of it.
  *
  * The fake browser is what makes the reload count observable at all: a real one
  * would have navigated away before the assertion.
@@ -26,14 +26,25 @@ import {
 import { runGate } from '../src/client/run.ts'
 import {
   ACCESS_TOKEN_STORAGE_KEY,
+  ACCESS_TOKEN_TIME_STORAGE_KEY,
   AUTH_GATE_LOGOUT_ROUTE,
   AUTH_GATE_SETTINGS_ROUTE,
   AUTH_GATE_TOKEN_ROUTE,
+  LOGIN_USER_INFO_STORAGE_KEY,
+  MAX_TIMER_DELAY_MS,
   type AuthGateSettings,
 } from '../src/route.ts'
 
 const NOW = 1_800_000_000_000
 const SETTINGS: AuthGateSettings = { loginUrl: '/toy-login/#/', cookieName: 'accessToken', refreshMarginSeconds: 300 }
+/** The path a deployment that renews configures, and how often it is asked. */
+const RENEWAL_PATH = '/toy-proxy/ini-server/nrms-auth/api/renewal'
+const RENEWAL_INTERVAL_SECONDS = 1800
+/** The same deployment, with its renewal endpoint configured. */
+const RENEWING: AuthGateSettings = {
+  ...SETTINGS,
+  renewal: { path: RENEWAL_PATH, intervalSeconds: RENEWAL_INTERVAL_SECONDS },
+}
 const ORIGIN = 'https://harness.example'
 const HREF = `${ORIGIN}/chat`
 const LOGIN = `/toy-login/#/?redirect=${encodeURIComponent(HREF)}`
@@ -51,15 +62,30 @@ function jwt(sub: string, lifetimeSeconds: number): string {
 
 const LIVE = jwt('u-1', 3600)
 const RENEWED = jwt('u-1', 7200)
+/** Later still, as the token another tab renewed to while this one was waiting. */
+const LATEST = jwt('u-1', 10_800)
 const OTHER = jwt('u-2', 3600)
 const STALE = jwt('u-1', -1)
+/** Inside `refreshMarginSeconds` already, so the margin is armed with no delay. */
+const NEAR_MARGIN = jwt('u-1', 60)
+/** Later than {@link NEAR_MARGIN} and still inside that margin. */
+const NEAR_MARGIN_NEWER = jwt('u-1', 120)
+
+/** One renewal request the gate sent, as the assertions read it. */
+interface RenewalRequest {
+  path: string
+  headers: Record<string, string>
+  signal: AbortSignal
+}
 
 /** A browser whose every effect is recorded rather than performed. */
 class Bench implements GateBrowser {
-  token: string | null = null
+  readonly storage = new Map<string, string>()
   readonly cookies = new Map<string, string>()
   /** Whether a cookie write is kept, as a browser refusing `Secure` over plain HTTP would not. */
   cookieWritesTake = true
+  /** Whether a storage write throws, as one out of quota or in a private window with none does. */
+  storageWritesThrow = false
   readonly navigations: string[] = []
   /**
    * Every effect the gate performed, in order, so the sign-out sequence is
@@ -69,7 +95,21 @@ class Bench implements GateBrowser {
   reloads = 0
   readonly timers: { delayMs: number; run: () => void }[] = []
   cancelledTimers = 0
+  readonly renewals: RenewalRequest[] = []
+  /** What the deployment's renewal endpoint answers; refusing is the default. */
+  renewalAnswer: () => Promise<unknown> = () => Promise.reject(new Error('bench: no renewal endpoint'))
+  private requestIds = 0
   private listener: (() => void) | undefined
+
+  /** The access token, which most cases set and read as one value. */
+  get token(): string | null {
+    return this.storage.get(ACCESS_TOKEN_STORAGE_KEY) ?? null
+  }
+
+  set token(next: string | null) {
+    if (next === null) this.storage.delete(ACCESS_TOKEN_STORAGE_KEY)
+    else this.storage.set(ACCESS_TOKEN_STORAGE_KEY, next)
+  }
 
   now(): number {
     return NOW
@@ -79,8 +119,24 @@ class Bench implements GateBrowser {
     return HREF
   }
 
-  readToken(): string | null {
-    return this.token
+  readStorage(key: string): string | null {
+    return this.storage.get(key) ?? null
+  }
+
+  writeStorage(key: string, value: string): void {
+    if (this.storageWritesThrow) throw new Error('bench: this browser stores nothing')
+    this.storage.set(key, value)
+    this.log.push(`writeStorage:${key}`)
+  }
+
+  requestId(): string {
+    this.requestIds += 1
+    return `r-${String(this.requestIds)}`
+  }
+
+  async requestJson(path: string, headers: Record<string, string>, signal: AbortSignal): Promise<unknown> {
+    this.renewals.push({ path, headers, signal })
+    return await this.renewalAnswer()
   }
 
   readCookie(name: string): string | undefined {
@@ -128,15 +184,24 @@ class Bench implements GateBrowser {
 }
 
 /** Run the gate over a bench prepared with `token` already in the cookie jar. */
-function boot(bench: Bench): { dispose: () => void; pushed: string[] } {
+function boot(bench: Bench, settings: AuthGateSettings = SETTINGS): { dispose: () => void; pushed: string[] } {
   const pushed: string[] = []
   const dispose = runGate(
     bench,
-    SETTINGS,
+    settings,
     token => pushed.push(token),
     () => { bench.log.push('revoke') },
   )
   return { dispose, pushed }
+}
+
+/**
+ * Let every promise the gate is waiting on settle. A macrotask, so the whole
+ * microtask queue behind one renewal answer has run by the time it resolves.
+ * @returns nothing, once the queue is empty.
+ */
+function settled(): Promise<void> {
+  return new Promise(resolve => setTimeout(resolve, 0))
 }
 
 /** The sign-out sequence, in the one order it is allowed to happen in. */
@@ -283,6 +348,372 @@ describe('auth-gate while the page runs', () => {
   })
 })
 
+describe('auth-gate renewal', () => {
+  /** The stored form of a token, which is what the login page and the endpoint both write. */
+  function stored(token: string): string {
+    return `Bearer ${token}`
+  }
+
+  /** A running gate on `LIVE`, in a deployment that offers a renewal endpoint. */
+  function renewing(): { bench: Bench; pushed: string[]; dispose: () => void } {
+    const bench = new Bench()
+    bench.token = stored(LIVE)
+    bench.cookies.set('accessToken', LIVE)
+    const { pushed, dispose } = boot(bench, RENEWING)
+    return { bench, pushed, dispose }
+  }
+
+  /** The renewal timer currently armed, which is always the last one scheduled. */
+  function nextRenewal(bench: Bench): { delayMs: number; run: () => void } | undefined {
+    return bench.timers.at(-1)
+  }
+
+  it('arms the renewal beside the expiry, from the moment the token was accepted', () => {
+    const { bench } = renewing()
+    expect(bench.timers.map(timer => timer.delayMs))
+      .toEqual([(3600 - 300) * 1000, RENEWAL_INTERVAL_SECONDS * 1000])
+  })
+
+  it('renews in place: the endpoint is asked as the deployment asks it, and nothing navigates', async () => {
+    const { bench, pushed } = renewing()
+    bench.storage.set(LOGIN_USER_INFO_STORAGE_KEY, JSON.stringify({ tenant: 'acme' }))
+    bench.renewalAnswer = () => Promise.resolve({ code: 0, token: stored(RENEWED) })
+    bench.timers[1]?.run()
+    await settled()
+
+    // The stored value on both token headers, the deployment's own stored header
+    // table under them, and a fresh request id: what its own client sends.
+    expect(bench.renewals).toEqual([{
+      path: RENEWAL_PATH,
+      headers: {
+        tenant: 'acme',
+        Authorization: stored(LIVE),
+        CertificationToken: stored(LIVE),
+        'TINY-REQUEST-ID': 'r-1',
+      },
+      signal: expect.anything() as AbortSignal,
+    }])
+    // Stored the way the deployment's own `setToken` stores it, so its pages on
+    // this origin read the new token and its true age.
+    expect({
+      token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY),
+      time: bench.storage.get(ACCESS_TOKEN_TIME_STORAGE_KEY),
+      cookie: bench.cookies.get('accessToken'),
+    }).toEqual({
+      token: stored(RENEWED),
+      time: new Date(NOW).toISOString(),
+      cookie: RENEWED,
+    })
+    // The page stays where it is, and the node half is handed the new token.
+    expect({ pushed, reloads: bench.reloads, navigations: bench.navigations })
+      .toEqual({ pushed: [LIVE, RENEWED], reloads: 0, navigations: [] })
+    // Both schedules are re-armed against the token now in hand.
+    expect(bench.timers.map(timer => timer.delayMs)).toEqual([
+      (3600 - 300) * 1000,
+      RENEWAL_INTERVAL_SECONDS * 1000,
+      (7200 - 300) * 1000,
+      RENEWAL_INTERVAL_SECONDS * 1000,
+    ])
+  })
+
+  it('keeps a failed periodic attempt silent, and asks again on the next tick', async () => {
+    const { bench } = renewing()
+    bench.timers[1]?.run()
+    await settled()
+    // Nothing on screen, nothing given up: the token in hand is still usable,
+    // and the margin owns the case where it is not.
+    expect({ log: bench.log, navigations: bench.navigations, reloads: bench.reloads })
+      .toEqual({ log: [], navigations: [], reloads: 0 })
+    expect(nextRenewal(bench)?.delayMs).toBe(RENEWAL_INTERVAL_SECONDS * 1000)
+
+    bench.renewalAnswer = () => Promise.resolve({ token: stored(RENEWED) })
+    nextRenewal(bench)?.run()
+    await settled()
+    expect(bench.cookies.get('accessToken')).toBe(RENEWED)
+  })
+
+  it('renews at the expiry margin instead of sending the visitor back through the login page', async () => {
+    const { bench, pushed } = renewing()
+    bench.renewalAnswer = () => Promise.resolve({ token: stored(RENEWED) })
+    bench.timers[0]?.run()
+    await settled()
+    expect({ log: bench.log, navigations: bench.navigations }).toEqual({ log: ['writeStorage:accessToken', 'writeStorage:accessTokenTime'], navigations: [] })
+    expect({ cookie: bench.cookies.get('accessToken'), pushed }).toEqual({ cookie: RENEWED, pushed: [LIVE, RENEWED] })
+  })
+
+  it('falls back to the login page when the renewal at the margin fails', async () => {
+    const { bench } = renewing()
+    bench.timers[0]?.run()
+    await settled()
+    // The one exit every deployment has, taken exactly as it is without a
+    // renewal endpoint.
+    expect(bench.log).toEqual(SIGN_OUT)
+    expect(bench.cookies.has('accessToken')).toBe(false)
+  })
+
+  it('never asks with a token that has already run out, or with none at all', async () => {
+    const { bench } = renewing()
+    bench.token = stored(STALE)
+    bench.timers[1]?.run()
+    await settled()
+    bench.token = null
+    nextRenewal(bench)?.run()
+    await settled()
+    // A dead token buys nothing at the endpoint, and the margin owns that case.
+    expect(bench.renewals).toEqual([])
+  })
+
+  it('keeps the token it has when the answer carries no usable one', async () => {
+    const { bench } = renewing()
+    for (const answer of [null, 'not a document', { code: 2, msg: 'refused' }, { token: 7 }, { token: 'not-a-jwt' }, { token: stored(STALE) }]) {
+      bench.renewalAnswer = () => Promise.resolve(answer)
+      nextRenewal(bench)?.run()
+      await settled()
+    }
+    expect({ token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY), cookie: bench.cookies.get('accessToken') })
+      .toEqual({ token: stored(LIVE), cookie: LIVE })
+  })
+
+  it('stores nothing when the browser does not keep the renewed mirror', async () => {
+    const { bench } = renewing()
+    bench.renewalAnswer = () => Promise.resolve({ token: stored(RENEWED) })
+    bench.cookieWritesTake = false
+    bench.timers[1]?.run()
+    await settled()
+    // The cookie the reverse proxy reads and the stored token never disagree:
+    // the page runs on the token it already had until the margin ends it.
+    expect({ token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY), cookie: bench.cookies.get('accessToken') })
+      .toEqual({ token: stored(LIVE), cookie: LIVE })
+  })
+
+  it('leaves exactly one renewal armed when another tab signs in during a failed attempt', async () => {
+    const { bench } = renewing()
+    let answer: ((value: unknown) => void) | undefined
+    bench.renewalAnswer = () => new Promise((resolve) => { answer = resolve })
+    bench.timers[1]?.run()
+    await settled()
+    // The same person, a newer token, from another tab: this arms both
+    // schedules against it while the attempt is still out.
+    bench.storageWrote(stored(RENEWED))
+    answer?.({ nothing: 'usable' })
+    await settled()
+    // Five armed and three cancelled: the failed attempt's retry replaces the
+    // renewal that arrival armed rather than running beside it for good.
+    expect({ armed: bench.timers.length, cancelled: bench.cancelledTimers })
+      .toEqual({ armed: 5, cancelled: 3 })
+  })
+
+  it('renews once at a time, and a margin arriving during one waits for its answer', async () => {
+    const { bench, pushed } = renewing()
+    let answer: ((value: unknown) => void) | undefined
+    bench.renewalAnswer = () => new Promise((resolve) => { answer = resolve })
+    bench.timers[1]?.run()
+    await settled()
+    bench.timers[0]?.run()
+    await settled()
+    expect(bench.renewals).toHaveLength(1)
+
+    answer?.({ token: stored(RENEWED) })
+    await settled()
+    // The margin left for nowhere: the renewal it waited for is the one that
+    // landed.
+    expect({ navigations: bench.navigations, cookie: bench.cookies.get('accessToken'), pushed })
+      .toEqual({ navigations: [], cookie: RENEWED, pushed: [LIVE, RENEWED] })
+  })
+
+  it('acts on nothing a renewal answers after the gate was released, and aborts the request', async () => {
+    const { bench, dispose } = renewing()
+    let answer: ((value: unknown) => void) | undefined
+    bench.renewalAnswer = () => new Promise((resolve) => { answer = resolve })
+    bench.timers[0]?.run()
+    await settled()
+    dispose()
+    expect(bench.renewals[0]?.signal.aborted).toBe(true)
+
+    answer?.({ token: stored(RENEWED) })
+    await settled()
+    // Neither the token this page no longer runs on, nor the navigation the
+    // margin would otherwise have made.
+    expect({ navigations: bench.navigations, token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY) })
+      .toEqual({ navigations: [], token: stored(LIVE) })
+  })
+
+  it('arms no further attempt once the gate is released mid-attempt', async () => {
+    const { bench, dispose } = renewing()
+    let answer: ((value: unknown) => void) | undefined
+    bench.renewalAnswer = () => new Promise((resolve) => { answer = resolve })
+    bench.timers[1]?.run()
+    await settled()
+    const armed = bench.timers.length
+    dispose()
+
+    answer?.({ token: stored(RENEWED) })
+    await settled()
+    expect({ timers: bench.timers.length, token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY) })
+      .toEqual({ timers: armed, token: stored(LIVE) })
+  })
+
+  it('releases the gate before reloading for another person, so a renewal in flight cannot land', async () => {
+    const { bench, pushed } = renewing()
+    let answer: ((value: unknown) => void) | undefined
+    bench.renewalAnswer = () => new Promise((resolve) => { answer = resolve })
+    bench.timers[1]?.run()
+    await settled()
+    // Somebody else signed in on this origin while this tab's renewal was out.
+    bench.storageWrote(OTHER)
+    expect({
+      reloads: bench.reloads,
+      subscribed: bench.subscribed,
+      aborted: bench.renewals[0]?.signal.aborted,
+      armed: bench.timers.length,
+      cancelled: bench.cancelledTimers,
+    }).toEqual({ reloads: 1, subscribed: false, aborted: true, armed: 2, cancelled: 2 })
+
+    answer?.({ token: stored(RENEWED) })
+    await settled()
+    // The reload takes time, and the previous account's renewed token must
+    // reach none of the three places the document coming up reads its identity
+    // from: storage, the mirror this whole origin carries, and the node half.
+    expect({
+      token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY),
+      cookie: bench.cookies.get('accessToken'),
+      pushed,
+      armed: bench.timers.length,
+    }).toEqual({ token: OTHER, cookie: OTHER, pushed: [LIVE], armed: 2 })
+  })
+
+  it('asks once and leaves when the endpoint answers with the token it was given', async () => {
+    const { bench } = renewing()
+    bench.renewalAnswer = () => Promise.resolve({ token: stored(LIVE) })
+    bench.timers[0]?.run()
+    await settled()
+    // An answer that does not move the expiry re-arms the margin with no delay,
+    // so taking it would ask again in the same tick, without end.
+    expect({ asked: bench.renewals.length, log: bench.log }).toEqual({ asked: 1, log: SIGN_OUT })
+  })
+
+  it('asks once and leaves when the token it renewed to is itself inside the margin', async () => {
+    const bench = new Bench()
+    bench.token = stored(NEAR_MARGIN)
+    bench.cookies.set('accessToken', NEAR_MARGIN)
+    boot(bench, RENEWING)
+    bench.renewalAnswer = () => Promise.resolve({ token: stored(NEAR_MARGIN_NEWER) })
+    // A token this close to `exp` arms the margin with no delay, and so does the
+    // later one the endpoint answers with: a deployment whose renewal does not
+    // outrun its own margin renews here for good unless the margin stops.
+    expect(bench.timers[0]?.delayMs).toBe(0)
+    bench.timers[0]?.run()
+    await settled()
+    expect({ asked: bench.renewals.length, log: bench.log.slice(-3) }).toEqual({ asked: 1, log: SIGN_OUT })
+  })
+
+  it('renews nothing once the margin has given the token up, however the endpoint recovers', async () => {
+    const { bench, pushed, dispose } = renewing()
+    bench.timers[0]?.run()
+    await settled()
+    expect(bench.log).toEqual(SIGN_OUT)
+    const asked = bench.renewals.length
+
+    // The periodic timer was dequeued before the gate gave the token up, so it
+    // still runs; renewing from it would put the cookie, the stored token, and
+    // the node half's copy back for a visitor who has just signed out.
+    bench.renewalAnswer = () => Promise.resolve({ token: stored(RENEWED) })
+    bench.timers[1]?.run()
+    await settled()
+    expect({
+      asked: bench.renewals.length,
+      token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY),
+      cookie: bench.cookies.get('accessToken'),
+      pushed,
+    }).toEqual({ asked, token: stored(LIVE), cookie: undefined, pushed: [LIVE] })
+
+    // And the disposer finds the gate already released, with nothing left to stop.
+    const cancelled = bench.cancelledTimers
+    dispose()
+    expect(bench.cancelledTimers).toBe(cancelled)
+  })
+
+  it('signs the visitor out of nothing when a later token arrived while the margin renewal was out', async () => {
+    const { bench, pushed } = renewing()
+    let answer: ((value: unknown) => void) | undefined
+    bench.renewalAnswer = () => new Promise((resolve) => { answer = resolve })
+    bench.timers[0]?.run()
+    await settled()
+    // Another tab renewed, or an embedded deployment page did, or the visitor
+    // signed in again: this tab takes that token and arms a margin of its own.
+    bench.storageWrote(stored(LATEST))
+
+    answer?.({ nothing: 'usable' })
+    await settled()
+    // The margin was answering for the token this page no longer runs on.
+    // Leaving here would give up a credential hours from its expiry, revoke it
+    // at the node half, and clear the mirror the whole origin reads.
+    expect({
+      log: bench.log,
+      navigations: bench.navigations,
+      cookie: bench.cookies.get('accessToken'),
+      token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY),
+      pushed,
+    }).toEqual({ log: [], navigations: [], cookie: LATEST, token: stored(LATEST), pushed: [LIVE, LATEST] })
+  })
+
+  it('stays where it is when a margin answer is older than the token that arrived meanwhile', async () => {
+    const { bench, pushed } = renewing()
+    let answer: ((value: unknown) => void) | undefined
+    bench.renewalAnswer = () => new Promise((resolve) => { answer = resolve })
+    bench.timers[0]?.run()
+    await settled()
+    bench.storageWrote(stored(LATEST))
+
+    // Later than the token the request was sent with and earlier than the one
+    // that arrived meanwhile, so the answer is refused — and the token that
+    // refusal would have given up is the newer one.
+    answer?.({ token: stored(RENEWED) })
+    await settled()
+    expect({
+      log: bench.log,
+      navigations: bench.navigations,
+      cookie: bench.cookies.get('accessToken'),
+      token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY),
+      pushed,
+    }).toEqual({ log: [], navigations: [], cookie: LATEST, token: stored(LATEST), pushed: [LIVE, LATEST] })
+  })
+
+  it('takes a storage write the browser refuses as a renewal that produced nothing', async () => {
+    const { bench, pushed } = renewing()
+    bench.renewalAnswer = () => Promise.resolve({ token: stored(RENEWED) })
+    bench.storageWritesThrow = true
+    bench.timers[0]?.run()
+    await settled()
+    // A browser that stores nothing throws on the write. The renewal produced no
+    // token the deployment's pages can read, so the margin ends where it ends
+    // without an endpoint at all, rather than rejecting a promise nothing awaits
+    // and leaving the page with no schedule.
+    expect({ log: bench.log, token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY), pushed })
+      .toEqual({ log: SIGN_OUT, token: stored(LIVE), pushed: [LIVE] })
+  })
+
+  it('keeps the later token another tab stored while this attempt was out', async () => {
+    const { bench, pushed } = renewing()
+    let answer: ((value: unknown) => void) | undefined
+    bench.renewalAnswer = () => new Promise((resolve) => { answer = resolve })
+    bench.timers[1]?.run()
+    await settled()
+    // Another tab's own renewal landed first. Written without the `storage`
+    // event, which a browser delivers on its own schedule: the answer below can
+    // arrive before this tab has been told.
+    bench.storage.set(ACCESS_TOKEN_STORAGE_KEY, stored(LATEST))
+
+    answer?.({ token: stored(RENEWED) })
+    await settled()
+    expect({
+      token: bench.storage.get(ACCESS_TOKEN_STORAGE_KEY),
+      cookie: bench.cookies.get('accessToken'),
+      pushed,
+    }).toEqual({ token: stored(LATEST), cookie: LIVE, pushed: [LIVE] })
+  })
+})
+
 describe('auth-gate cookie handling', () => {
   it('finds one cookie among the others a page carries', () => {
     const jar = 'other=1; accessToken=a.b.c; trailing=2'
@@ -357,6 +788,8 @@ describe('auth-gate stored token', () => {
 
 describe('auth-gate window browser', () => {
   afterEach(() => {
+    vi.restoreAllMocks()
+    vi.useRealTimers()
     vi.unstubAllGlobals()
   })
 
@@ -366,16 +799,22 @@ describe('auth-gate window browser', () => {
     navigations: string[]
     reloads: number[]
     listeners: Map<string, (event: StorageEvent) => void>
+    stored: Map<string, string>
   } {
     const written: string[] = []
     const navigations: string[] = []
     const reloads: number[] = []
     const listeners = new Map<string, (event: StorageEvent) => void>()
+    const stored = new Map<string, string>()
+    if (token !== null) stored.set(ACCESS_TOKEN_STORAGE_KEY, token)
     vi.stubGlobal('document', {
       get cookie() { return cookie },
       set cookie(value: string) { written.push(value) },
     })
-    vi.stubGlobal('localStorage', { getItem: (key: string) => (key === ACCESS_TOKEN_STORAGE_KEY ? token : null) })
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => stored.get(key) ?? null,
+      setItem: (key: string, value: string) => { stored.set(key, value) },
+    })
     vi.stubGlobal('location', {
       href: HREF,
       origin: ORIGIN,
@@ -391,24 +830,29 @@ describe('auth-gate window browser', () => {
       get: () => HREF,
       set: (value: string) => { navigations.push(value) },
     })
-    return { written, navigations, reloads, listeners }
+    return { written, navigations, reloads, listeners, stored }
   }
 
   it('reads the token and the mirror cookie off the page', () => {
     stubPage('accessToken=a.b.c', LIVE)
     const browser = windowGateBrowser()
-    expect(browser.readToken()).toBe(LIVE)
+    expect(browser.readStorage(ACCESS_TOKEN_STORAGE_KEY)).toBe(LIVE)
     expect(browser.readCookie('accessToken')).toBe('a.b.c')
     expect(browser.currentHref()).toBe(HREF)
     expect(browser.now()).toBeGreaterThan(0)
   })
 
-  it('strips the scheme the login page stored the token under', () => {
-    // The one place a stored value enters the gate, and the reason a page whose
-    // login wrote "Bearer <jwt>" does not send its visitor back to the login
-    // page forever.
-    stubPage('', `Bearer ${LIVE}`)
-    expect(windowGateBrowser().readToken()).toBe(LIVE)
+  it('reads every stored value the deployment shares with this page, and writes one back', () => {
+    // One storage seam: the token, the time it was stored, and the header table
+    // the deployment's own client sends are all values its pages wrote.
+    const page = stubPage('', `Bearer ${LIVE}`)
+    const browser = windowGateBrowser()
+    // The scheme the login page stored the token under is dropped above this
+    // seam, which is why the raw value comes back here.
+    expect(storedToken(browser.readStorage(ACCESS_TOKEN_STORAGE_KEY))).toBe(LIVE)
+    expect(browser.readStorage(LOGIN_USER_INFO_STORAGE_KEY)).toBeNull()
+    browser.writeStorage(ACCESS_TOKEN_TIME_STORAGE_KEY, '2027-01-15T08:00:00.000Z')
+    expect(page.stored.get(ACCESS_TOKEN_TIME_STORAGE_KEY)).toBe('2027-01-15T08:00:00.000Z')
   })
 
   it('writes and removes the mirror cookie, navigates, and reloads through the page itself', () => {
@@ -461,6 +905,86 @@ describe('auth-gate window browser', () => {
     browser.schedule(0, () => ran.push('cancelled'))()
     await new Promise(resolve => setTimeout(resolve, 5))
     expect(ran).toEqual(['kept'])
+  })
+
+  it('sleeps a delay longer than one browser timer holds in links of that length', () => {
+    stubPage('', null)
+    vi.useFakeTimers()
+    const armed = vi.spyOn(globalThis, 'setTimeout')
+    const browser = windowGateBrowser()
+    const ran: string[] = []
+    // The expiry margin of a token a month from `exp`. Handed to one timer, a
+    // browser fires it on the next tick and the visitor is signed out at boot.
+    browser.schedule(MAX_TIMER_DELAY_MS + 5_000, () => ran.push('kept'))
+    expect(armed.mock.calls.map(call => call[1])).toEqual([MAX_TIMER_DELAY_MS])
+
+    vi.advanceTimersByTime(MAX_TIMER_DELAY_MS)
+    expect({ delays: armed.mock.calls.map(call => call[1]), ran })
+      .toEqual({ delays: [MAX_TIMER_DELAY_MS, 5_000], ran: [] })
+
+    vi.advanceTimersByTime(5_000)
+    expect(ran).toEqual(['kept'])
+  })
+
+  it('cancels the link a chained delay currently has armed', () => {
+    stubPage('', null)
+    vi.useFakeTimers()
+    const browser = windowGateBrowser()
+    const ran: string[] = []
+    const cancel = browser.schedule(MAX_TIMER_DELAY_MS + 5_000, () => ran.push('cancelled'))
+    // The first link has already handed over to the second, so cancelling has
+    // to reach the one armed now rather than the one it started with.
+    vi.advanceTimersByTime(MAX_TIMER_DELAY_MS)
+    cancel()
+
+    vi.advanceTimersByTime(5_000)
+    expect({ ran, pending: vi.getTimerCount() }).toEqual({ ran: [], pending: 0 })
+  })
+
+  it('draws a fresh request id of the deployment\'s own length', () => {
+    stubPage('', null)
+    const browser = windowGateBrowser()
+    const id = browser.requestId()
+    // Which characters those are is the alphabet `requestIdFrom` draws from;
+    // what this pins is that the real browser draws sixteen of them, freshly,
+    // so the deployment reads each request as its own trace.
+    expect(id).toMatch(/^[A-Za-z0-9]{16}$/)
+    expect(browser.requestId()).not.toBe(id)
+  })
+
+  it('asks the deployment on this page\'s own origin, with its cookies and no cache', async () => {
+    stubPage('', null)
+    const seen: { url: URL; init: RequestInit }[] = []
+    vi.stubGlobal('fetch', vi.fn((url: URL, init: RequestInit) => {
+      seen.push({ url, init })
+      return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ token: 'a.b.c' }) })
+    }))
+    const controller = new AbortController()
+    const answer = await windowGateBrowser().requestJson('/api/renewal', { Authorization: 'Bearer a.b.c' }, controller.signal)
+    expect(answer).toEqual({ token: 'a.b.c' })
+    expect(seen[0]?.url.href).toBe(`${ORIGIN}/api/renewal`)
+    expect({
+      method: seen[0]?.init.method,
+      cache: seen[0]?.init.cache,
+      headers: seen[0]?.init.headers,
+      signal: seen[0]?.init.signal === controller.signal,
+    }).toEqual({
+      method: 'GET',
+      cache: 'no-store',
+      headers: { Authorization: 'Bearer a.b.c' },
+      signal: true,
+    })
+  })
+
+  it('refuses an answer that is not a 2xx, naming the path and the status and nothing it sent', async () => {
+    stubPage('', null)
+    vi.stubGlobal('fetch', vi.fn(() => Promise.resolve({ ok: false, status: 401 })))
+    const request = windowGateBrowser()
+      .requestJson('/api/renewal', { Authorization: 'Bearer a.b.c' }, new AbortController().signal)
+    // The headers of that request are two copies of a credential, so the
+    // diagnostic carries neither.
+    await expect(request).rejects.toThrow('auth-gate: /api/renewal answered 401')
+    await expect(request).rejects.toThrow(expect.not.stringContaining('a.b.c'))
   })
 })
 
@@ -622,11 +1146,49 @@ describe('auth-gate browser plugin', () => {
       [{ ...SETTINGS, refreshMarginSeconds: -1 }, true, /unusable refreshMarginSeconds: -1/],
       [{ ...SETTINGS, refreshMarginSeconds: 1.5 }, true, /unusable refreshMarginSeconds: 1.5/],
       [{ ...SETTINGS, refreshMarginSeconds: 'soon' }, true, /unusable refreshMarginSeconds: "soon"/],
+      [{ ...SETTINGS, renewal: null }, true, /unusable renewal: null/],
+      [{ ...SETTINGS, renewal: 7 }, true, /unusable renewal: 7/],
+      // A renewal path is where this visitor's credential is sent, so one
+      // naming another origin — or naming one without looking like it — fails
+      // the row here as well as at the node half.
+      [{ ...SETTINGS, renewal: { path: 'https://elsewhere.example/renew', intervalSeconds: 60 } }, true, /unusable renewal path: "https:/],
+      [{ ...SETTINGS, renewal: { path: '//elsewhere.example/renew', intervalSeconds: 60 } }, true, /unusable renewal path: "\/\//],
+      // `\` is `/` to the parser that resolves this value against the page, so
+      // one leading slash and no second one is no proof of the origin it names.
+      [
+        { ...SETTINGS, renewal: { path: '/\\elsewhere.example/renew', intervalSeconds: 60 } },
+        true,
+        'unusable renewal path: "/\\\\elsewhere.example/renew"',
+      ],
+      [
+        { ...SETTINGS, renewal: { path: '/\\/elsewhere.example/renew', intervalSeconds: 60 } },
+        true,
+        'unusable renewal path: "/\\\\/elsewhere.example/renew"',
+      ],
+      [{ ...SETTINGS, renewal: { path: '', intervalSeconds: 60 } }, true, /unusable renewal path: ""/],
+      [{ ...SETTINGS, renewal: { path: RENEWAL_PATH } }, true, /unusable renewal intervalSeconds: undefined/],
+      [{ ...SETTINGS, renewal: { path: RENEWAL_PATH, intervalSeconds: 0 } }, true, /unusable renewal intervalSeconds: 0/],
+      [{ ...SETTINGS, renewal: { path: RENEWAL_PATH, intervalSeconds: 1.5 } }, true, /unusable renewal intervalSeconds: 1.5/],
+      // Longer than a browser timer holds: the delay would be clamped to the
+      // next tick, and every tick carries this visitor's credential.
+      [{ ...SETTINGS, renewal: { path: RENEWAL_PATH, intervalSeconds: 2_147_484 } }, true, /unusable renewal intervalSeconds: 2147484/],
     ] as const) {
       serve(body, ok)
       // The plugin body itself, not a fiber: a rejecting apply is what fails
       // the row, and the fiber only reports it.
       await expect(apply(ctx)).rejects.toThrow(message)
     }
+  })
+
+  it('runs the gate on a settings document that carries a renewal endpoint', async () => {
+    const served = serve(RENEWING)
+    const token = stubSignedInPage()
+    const ctx = new Context()
+    const fiber = ctx.plugin({ apply })
+    await fiber.await()
+    // The renewal itself is a timer away; what this pins is that a document
+    // carrying one is accepted and the gate runs on it.
+    expect(served.posted).toEqual([JSON.stringify({ token })])
+    await fiber.dispose()
   })
 })
