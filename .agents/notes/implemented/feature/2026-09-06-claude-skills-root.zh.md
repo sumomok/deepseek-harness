@@ -18,7 +18,9 @@ Status: implemented
 
 watch 管理器无需改动。它按解析后的根路径为 watcher 建键，并从最近的既存祖先起一次跟进一个缺失路径段，对 `.agents` 或 `skills` 没有任何特例，因此两个新根被监视、被探测、被 `watchMaxProjects` 约束的方式与既有根一致。
 
-`roots()` 现在每个目录只返回一个根。符号链接会让两个根落在同一个目录上——本仓库的 `.claude/skills` 正是如此——不去重的列表会把每个 skill 提供两遍：注册表把每个重名解析到优先级更高的根，并为每个 skill 各警告一次，watch 管理器则在同一个目录上打开两个宿主 watcher。每个根都经 `canonicalizeWatchPath`（watcher 本就使用的解析器）解析，规范路径已被前一个根覆盖的根，在发现与监视之前被丢弃。无法规范化的根——祖先不可读，或祖先是普通文件——保留其配置路径作为身份并留在扫描中。扫描随后的行为按错误码分岔：祖先是普通文件报 `ENOTDIR`，被 `isAbsentSkillPathError` 算作不存在，该根列举为空且不给任何诊断；祖先不可读报 `EACCES`，直接从 `list()` 抛出。
+`roots()` 现在每个目录只返回一个根。符号链接会让两个根落在同一个目录上——本仓库的 `.claude/skills` 正是如此——不去重的列表会把每个 skill 提供两遍：注册表把每个重名解析到优先级更高的根，并为每个 skill 各警告一次，watch 管理器则在同一个目录上打开两个宿主 watcher。每个根都经 `canonicalizeWatchPath`（watcher 本就使用的解析器）解析，规范路径已被前一个根覆盖的根，在发现与监视之前被丢弃。无法规范化的根——祖先不可读，或祖先是普通文件——保留其配置路径作为身份并留在扫描中。扫描随后的行为按错误码分岔：祖先是普通文件报 `ENOTDIR`，被 `isAbsentSkillPathError` 算作不存在，该根列举为空且不给任何诊断；祖先不可读报 `EACCES`，只把该根单独丢弃。
+
+一个根扫描失败，丢的是这个根，不是整个提供方。`list()` 把每个根的扫描各自放进一个 `try`：除“不存在”以外的任何失败——根或其祖先上的 `EACCES`、解析到自身而报 `ELOOP` 的 `.claude/skills` 符号链接、发生故障的设备——都会以一条警告点名该目录及其错误码，随后继续扫描其余根，并返回 `{ candidates, complete: false }`。若不捕获，该拒绝就会离开 `list()`，而 `dsh-skill` 是整个跳过一个拒绝的提供方而非按根跳过，于是模式 `000` 的 `~/.claude/skills` 会清空整份目录，并把 `~/.dsh/skills` 一起带走。`complete: false` 正是注册表既有的说法，用来表示候选项可直接加载但不具权威性，因此消费方保留自己最后一份可用的过滤视图，且这份不完整目录永远不会被缓存。watch 管理器不需要相应改动：它本就会为附加不上的根记日志，并在下一次查找时重试，因此变回可读的根无需重启即可回来。
 
 测试中钉住这些根的动作收敛为一个函数。`dsh-loader-smoke` 的 `isolatedSkillRootEnv(cwd, overrides)` 返回整块变量——`DSH_HOME`、`DSH_AGENTS_HOME`、`DSH_CLAUDE_HOME`，以及启动器提供时的 `DSH_BUNDLED_SKILL_DIR`——录制 fixture 与期望输出背后的启动器都展开它：`runLoaderSmoke`、session-snapshot 的启动器与 harness、SDK 快照运行器、`apps/web/tests/scaffold.ts`、五个 CLI 端到端套件，以及两个构建消费方环境的发布脚本。两个无法调用它的程序就地重复这套键名，且没有任何东西把它们绑到该函数上：`apps/web/tests/smoke-real.e2e.ts` 的五处 spawn（它属于客户端面程序，导不进宿主面函数），以及 `scripts/smoke-python-runtime.py` 的两处（Python 无法调用 TypeScript）。另有一批启动 harness 的站点仍只钉 `DSH_HOME`——`apps/cli/tests/profiles/sdk/keyless-smoke.e2e.ts`、`apps/cli/tests/lazy-search-startup.compat.spec.ts`、`apps/cli/tests/web-agent-presets.e2e.ts`、`apps/cli/tests/built-bin.e2e.ts` 与 `apps/web/tests/hmr-live.e2e.ts`——它们都不断言模型可见文本：断言的是 JSON 行生命周期事件、启动与 HMR 行为、agent preset 名册，以及 CLI profile 与插件输出，环境中的 skill 目录动不了其中任何一项。本次收敛所替代的 bug 恰恰就是漏掉一处：`snapshots/sdk/sdk.snapshot.ts` 只钉了 `DSH_AGENTS_HOME`，于是本次改动第一次运行时，开发者自己的 `~/.claude/skills` 进了 11 份录制好的 SDK 转录本。
 
@@ -42,10 +44,10 @@ watch 管理器无需改动。它按解析后的根路径为 watcher 建键，�
 
 发行的桌面版从此读取终端用户的 `~/.claude/skills`。挂载该提供方的宿主面行 `packages/bundle/base/cordis.patch.yml:288` 被 `packages/bundle/web-app/cordis.patch.yml:362` 关掉，真正生效的是三条 preset 行：`presets/standard/agent.cordis.yml:83`、`presets/ptc/agent.cordis.yml:90` 与 `presets/cordis/agent.cordis.yml:255`。三者都不设 `claudeHome`，其中唯一带 `config:` 的那条只带 `customSkillDirs`。桌面版要关掉这个根，只能给三条行都加上 `config: { claudeHome: <没有 skills 子目录的路径> }`，或在服务器进程环境里设 `DSH_CLAUDE_HOME`。`includeDefaultRoots: false` 不是这个开关：它会把 `.dsh` 与 `.agents` 一起关掉。
 
-一个根不可读就把整个提供方清零。根或其祖先上的 `EACCES` 让 `list()` 以拒绝结束，而 `dsh-skill` 是按提供方而非按根捕获它的：把 `~/.claude/skills` 置为 `000` 后，注册表返回空列表且 `complete: false`，`~/.dsh/skills` 也跟着一起消失。这个故障类别早于本补丁——`.agents/skills` 不可读同样如此——但本补丁为它新增了两个可触发的目录名，而且两者都由本仓库之外维护：`~/.claude/skills` 属于另一个工具，被克隆仓库带来的 `.claude/skills` 则可能是自指符号链接，解析为 `ELOOP` 后走同一条路径。把降级粒度从提供方收到单个根，属于上游的事；退役条件不变。
+一个根不可读，代价是重扫，不是整份目录。观测不完整因而永不缓存：持续不可读的根会让每一次查找重扫全部根、并再次发出它那条警告，直到该目录可读或消失——这与 watch 管理器对附加不上的根本就采用的节奏相同。粒度止于根：某个原本可读的目录里有一个读不了的 `SKILL.md`，会把整个目录一起移出本次观测，因为一次扫描只有一个结果；而本补丁新增的两个目录名都由本仓库之外维护——`~/.claude/skills` 属于另一个工具，被克隆仓库带来的 `.claude/skills` 可能是自指链接。本 fork 要求技能根不可读时绝不能让整份目录归零，因此这层容错落在这里而不是等上游，并在上游覆盖同一处时随本补丁一同退役。
 
 空串 `$DSH_CLAUDE_HOME` 会把用户根解析成 `<cwd>/skills`，因为回退链只把未设置视为未设置。`$DSH_AGENTS_HOME` 行为相同，只有 `$DSH_HOME` 守卫空串；这里 `.agents` 与 `.claude` 两行保持对称，给两者都加守卫属于上游的事。
 
-包测试在装配好的提供方上覆盖这些新根：两层 `.claude` 各自被发现且来源正确、两层中 `.agents` 的同名 skill 都胜过其 `.claude` 孪生、`includeDefaultRoots: false` 同时省略两者、`$DSH_CLAUDE_HOME` 解析、未设置该变量时回退到 `~/.claude`、被链接的重复根只被发现一次且无警告，以及该链接对只产生一个宿主 watcher。
+包测试在装配好的提供方上覆盖这些新根：两层 `.claude` 各自被发现且来源正确、两层中 `.agents` 的同名 skill 都胜过其 `.claude` 孪生、`includeDefaultRoots: false` 同时省略两者、`$DSH_CLAUDE_HOME` 解析、未设置该变量时回退到 `~/.claude`、被链接的重复根只被发现一次且无警告，以及该链接对只产生一个宿主 watcher。另有两项覆盖降级：模式 `000` 的用户根与指向自身的项目根，都让其余每个根的 skill 照常列出、把快照标为不完整，并恰好产生一条点名该目录及其 `EACCES` 或 `ELOOP` 错误码的警告，而它们旁边缺失的根保持静默。`chmod` 那例在 Windows 上跳过——该系统没有可用来拒绝访问的 POSIX 目录模式。
 
-上游自己的 `skill-filesystem` 扫描 `.claude` 根即退役。
+上游自己的 `skill-filesystem` 扫描 `.claude` 根即退役。上游的 `skill-filesystem` 或其上的 `dsh-skill` 聚合层改为按根降级而非按提供方降级时，按根降级这一层随之退役。
