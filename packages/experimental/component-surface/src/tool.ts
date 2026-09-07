@@ -29,6 +29,7 @@ import type {
   BizBackendFailure,
   BizCondition,
   BizMetaResult,
+  BizSchemeResult,
   BizSearchResult,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
 // Type-only: resolves ctx.approval, the question one read is asked through.
@@ -56,8 +57,10 @@ import {
   applyDataSourceRows,
   dataSourceApprovalReason,
   dataSourceEmpty,
+  dataSourceNoDefaultColumns,
   dataSourceOversize,
   dataSourceRejected,
+  dataSourceSchemeAttribute,
   dataSourceUndrawable,
   dataSourceUnknownAttribute,
   dataSourceUnreachable,
@@ -68,7 +71,10 @@ import {
   probeDataSourceSpec,
   readDataSourceBlocks,
   resolveDataSourceTargets,
+  settleDefaultColumns,
+  type DataSourceColumn,
   type DataSourceFill,
+  type DataSourceRead,
   type DataSourceTarget,
 } from './data-source.ts'
 // Type-only: this package's own `content-component/resolved` SessionEventMap merge.
@@ -121,8 +127,14 @@ interface FetchSummary {
   readonly rows: number
   /** How many rows match across every page, where the backend reported it. */
   readonly total?: number
-  /** The attributes this read asked for, which is the columns the call declared. */
+  /** The attributes this read asked for, which is the columns the call declared or the table's own default ones. */
   readonly columns: readonly string[]
+  /** Which page was read, counting from 1. */
+  readonly currentPage: number
+  /** How many pages of this size the matching rows fill, where the backend reported a total. */
+  readonly pages?: number
+  /** The attributes no row that arrived carried a value for, in the order they are drawn. */
+  readonly empty: readonly string[]
 }
 
 /** Every table read for one call: the rows to put in, and what to say about them. */
@@ -149,15 +161,18 @@ function describeDataSource(defaultPageSize: number): string {
     + '"meta": "<the table\'s name in the data source>", "metaLabel": "<that same table\'s name in the user\'s '
     + 'language, which is what the user is shown when asked>", "conditions"?: [{"key": "<attribute>", "op": "<one of '
     + `${MATCH_OPERATOR_IDS.join(', ')}>", "value": text, a number, a yes-or-no, or a list of those}], `
-    + `"matchMode"?: "AND" or "OR", "page"?: {"pageSize": 1–${MAX_TABLE_ROWS}}, "asc"? or "desc"?: "<attribute>"}. `
-    + `A read asks for ${defaultPageSize} rows where it names no count, and there is no way to ask for a second `
-    + 'page — to see rows a first page did not reach, narrow the conditions. '
+    + `"matchMode"?: "AND" or "OR", "page"?: {"pageSize": 1–${MAX_TABLE_ROWS}, "currentPage": 1 or more}, `
+    + '"asc"? or "desc"?: "<attribute>"}. '
+    + `A read asks for ${defaultPageSize} rows of the first page where it names neither. `
     + 'A block named here sends no '
-    + '`displayValueList` and no `rawValueList` — the rows are read for you and put in — while its '
-    + '`tableConfig.gridItems` still says which attributes to read and what to head each column with. '
+    + '`displayValueList` and no `rawValueList` — the rows are read for you and put in. Its '
+    + '`tableConfig.gridItems` says which attributes to read and what to head each column with; leave `gridItems` '
+    + 'out (or leave `tableConfig` out entirely) and the table is read and drawn with the columns this deployment '
+    + 'shows for it by default, which is what to do when you do not know its attribute names. '
     + 'The user is asked once per call before anything is read, and an unanswered or refused question draws '
-    + 'nothing at all. What comes back to you is how many rows arrived and which attributes they carry; the rows '
-    + 'themselves go to the panel and not into this conversation.'
+    + 'nothing at all. What comes back to you is how many rows arrived, which attributes they carry, which page '
+    + 'was read, and which of those attributes were empty in every row; the rows themselves go to the panel and '
+    + 'not into this conversation.'
 }
 
 /**
@@ -228,9 +243,48 @@ function acceptedText(call: ComponentCall): string {
 function fetchedText(summaries: readonly FetchSummary[]): string {
   return summaries.map((summary) => {
     const of = summary.total === undefined ? '' : ` of ${summary.total} matching`
+    const pages = summary.pages === undefined ? '' : ` of ${summary.pages}`
+    // Named only when there are any: a list that is empty every time teaches a
+    // model to stop reading the line it is the point of.
+    const empty = summary.empty.length === 0 ? '' : ` No value in any read row: ${summary.empty.join(', ')}.`
+    // The page is a sentence of its own: inside the attribute list it reads as
+    // one more attribute, which is the one thing this line must not say wrong.
     return ` Read ${summary.rows}${of} rows from "${summary.meta}" into block "${summary.nodeId}", `
-      + `for the attributes ${summary.columns.join(', ')}.`
+      + `for the attributes ${summary.columns.join(', ')}. Page ${summary.currentPage}${pages}.${empty}`
   }).join('')
+}
+
+/**
+ * The attributes no row that arrived carried a value for.
+ *
+ * A column that is empty in every row draws as a header over blank cells, which
+ * is what makes a table say less than the model tells the user it says. The
+ * model is the only party that can act on it — by reading a different attribute
+ * or narrowing to rows that have one — so it is named in the result line rather
+ * than dropped from the table, which would silently change what the user
+ * approved.
+ * @param columns - the attributes the read asked for, in the order they are drawn.
+ * @param rows - the drawn rows, already held to those attributes.
+ * @returns the attributes with no value anywhere, in the same order.
+ */
+function emptyAttributes(
+  columns: readonly string[],
+  rows: readonly Readonly<Record<string, unknown>>[],
+): readonly string[] {
+  return columns.filter(attr => !rows.some((row) => {
+    const value = row[attr]
+    return value !== undefined && value !== ''
+  }))
+}
+
+/**
+ * How many pages of one size the matching rows fill.
+ * @param total - rows matching across every page, as the backend reported it.
+ * @param pageSize - rows one page asks for.
+ * @returns the page count; at least one, so a read that matched nothing is still page 1 of 1.
+ */
+function pageCount(total: number, pageSize: number): number {
+  return Math.max(1, Math.ceil(total / pageSize))
 }
 
 /**
@@ -261,7 +315,9 @@ function failureText(meta: string, failure: BizBackendFailure): string {
  * @param answer - what the seam returned.
  * @returns true when it is a classified failure.
  */
-function isFailure(answer: BizSearchResult | BizMetaResult | BizBackendFailure): answer is BizBackendFailure {
+function isFailure(
+  answer: BizSearchResult | BizMetaResult | BizSchemeResult | BizBackendFailure,
+): answer is BizBackendFailure {
   return 'kind' in answer
 }
 
@@ -278,20 +334,32 @@ function isFailure(answer: BizSearchResult | BizMetaResult | BizBackendFailure):
  * answers the model with the backend's rejection instead of the sentence that
  * names the attribute to fix. The dictionary that settles all three is already
  * in hand.
- * @param target - the resolved read.
+ *
+ * A column out of the table's own default query scheme is checked by the same
+ * rule and refused in different words: the call named no columns, so a sentence
+ * telling it which of its columns is wrong would name something it never wrote.
+ * @param read - the resolved read with its columns settled.
  * @param described - the table's attributes as the backend lists them.
  * @returns the headers to write, or the sentence naming the attribute that does not exist.
  */
 function checkColumns(
-  target: DataSourceTarget,
+  read: DataSourceRead,
   described: BizMetaResult,
 ): { readonly ok: true; readonly aliases: ReadonlyMap<string, string> } | { readonly ok: false; readonly text: string } {
+  const { target } = read
+  const fromScheme = target.columns === undefined
   const known = new Map(described.attributes.map(attribute => [attribute.attributeEnName, attribute.attributeCnName]))
   const aliases = new Map<string, string>()
-  for (const column of target.columns) {
+  for (const column of read.columns) {
     const named = known.get(column.attr)
     if (named === undefined) {
-      return { ok: false, text: dataSourceUnknownAttribute(target.block.meta, column.attr, described.attributes) }
+      const meta = target.block.meta
+      return {
+        ok: false,
+        text: fromScheme
+          ? dataSourceSchemeAttribute(meta, column.attr, described.attributes)
+          : dataSourceUnknownAttribute(meta, column.attr, described.attributes),
+      }
     }
     // A header the call wrote stands; the dictionary only fills the gaps, and
     // only with a name the column property accepts.
@@ -311,7 +379,45 @@ function checkColumns(
 }
 
 /**
+ * Settle what one block reads, where the call left its columns to the table.
+ *
+ * After the question, like every other request this row makes: the scheme is
+ * read with the visitor's credential, and the credential is not spent before
+ * the user has answered. The card such a block is asked about therefore names
+ * no column — nothing has been requested when it is drawn.
+ * @param ctx - the injected context carrying the data backend.
+ * @param target - the resolved read.
+ * @param signal - the execution's own cancellation.
+ * @returns the columns the rows are read for, or the sentence to refuse with.
+ */
+async function settleColumns(
+  ctx: Context,
+  target: DataSourceTarget,
+  signal: AbortSignal,
+): Promise<{ readonly ok: true; readonly columns: readonly DataSourceColumn[] } | { readonly ok: false; readonly text: string }> {
+  const declared = target.columns
+  if (declared !== undefined) return { ok: true, columns: declared }
+  const { meta } = target.block
+  const scheme = await ctx.bizBackend.describeScheme(meta, signal)
+  if (isFailure(scheme)) {
+    // `unreachable` is the one failure whose remedy is the call's own: it
+    // carries both "this table has no default scheme" and "the scheme could not
+    // be read", and either way the call can name the columns itself. The other
+    // three are about the credential or the request and say so in their own
+    // words.
+    if (scheme.kind === 'unreachable') return { ok: false, text: dataSourceNoDefaultColumns(meta, scheme.detail) }
+    return { ok: false, text: failureText(meta, scheme) }
+  }
+  return settleDefaultColumns(meta, scheme.columns)
+}
+
+/**
  * Read one table.
+ *
+ * The dictionary first, then the columns a block left to the table, then the
+ * rows: the dictionary is what every column is checked against, so a scheme
+ * naming an attribute this table does not have is refused with the answer that
+ * proves it and before a row is asked for.
  * @param ctx - the injected context carrying the data backend.
  * @param target - the resolved read.
  * @param signal - the execution's own cancellation.
@@ -328,28 +434,32 @@ async function readTarget(
   const { block } = target
   const described = await ctx.bizBackend.describe(block.meta, signal)
   if (isFailure(described)) return { ok: false, text: failureText(block.meta, described) }
-  const checked = checkColumns(target, described)
+  const settled = await settleColumns(ctx, target, signal)
+  if (!settled.ok) return settled
+  const read: DataSourceRead = { target, columns: settled.columns }
+  const checked = checkColumns(read, described)
   if (!checked.ok) return checked
   const conditions: BizCondition[] = block.conditions.map(condition => ({
     key: condition.key,
     op: condition.op,
     value: condition.value,
   }))
+  const attributes = read.columns.map(column => column.attr)
   const answer = await ctx.bizBackend.search({
     meta: block.meta,
-    source: target.columns.map(column => column.attr),
+    source: attributes,
     conditions,
     matchMode: block.matchMode,
-    page: { currentPage: 1, pageSize: block.pageSize },
+    page: { currentPage: block.currentPage, pageSize: block.pageSize },
     ...block.asc === undefined ? {} : { asc: block.asc },
     ...block.desc === undefined ? {} : { desc: block.desc },
   }, signal)
   if (isFailure(answer)) return { ok: false, text: failureText(block.meta, answer) }
-  // Both lists are held to the columns this call declared, because those are
-  // the columns the card named and the backend answers with the attributes it
+  // Both lists are held to the columns this read takes, because those are the
+  // columns the card named and the backend answers with the attributes it
   // chose: it puts its own row identifier in front of every `source` it is
   // given.
-  const asked = new Set(target.columns.map(column => column.attr))
+  const asked = new Set(attributes)
   const displayValueList = answer.displayValue.map(row => normalizeRow(row, asked))
   if (displayValueList.length === 0) return { ok: false, text: dataSourceEmpty(block.meta) }
   // The stored rows stand behind the drawn ones one for one, so a backend
@@ -363,6 +473,7 @@ async function readTarget(
     ok: true,
     fill: {
       target,
+      columns: read.columns,
       displayValueList,
       aliases: checked.aliases,
       ...stored === undefined ? {} : { rawValueList: stored },
@@ -372,7 +483,10 @@ async function readTarget(
       meta: block.meta,
       rows: displayValueList.length,
       ...answer.total === undefined ? {} : { total: answer.total },
-      columns: target.columns.map(column => column.attr),
+      columns: attributes,
+      currentPage: block.currentPage,
+      ...answer.total === undefined ? {} : { pages: pageCount(answer.total, block.pageSize) },
+      empty: emptyAttributes(attributes, displayValueList),
     },
   }
 }
@@ -397,10 +511,10 @@ async function readAll(
   const fills: DataSourceFill[] = []
   const summaries: FetchSummary[] = []
   for (const target of targets) {
-    const read = await readTarget(ctx, target, signal)
-    if (!read.ok) return read
-    fills.push(read.fill)
-    summaries.push(read.summary)
+    const done = await readTarget(ctx, target, signal)
+    if (!done.ok) return done
+    fills.push(done.fill)
+    summaries.push(done.summary)
   }
   return { ok: true, outcome: { fills, summaries } }
 }
@@ -409,9 +523,10 @@ async function readAll(
  * Run one call that names a data source.
  *
  * The order is the whole design: everything judgeable without spending anything
- * is judged first, then the user is asked, then the credential is spent, then
- * the filled result is judged again by the pass a hand-written call gets.
- * Nothing is appended and nothing is drawn unless that last pass accepts.
+ * is judged first, then the user is asked, then the credential is spent — on
+ * the dictionary, on the default columns of a block that named none, and on the
+ * rows — then the filled result is judged again by the pass a hand-written call
+ * gets. Nothing is appended and nothing is drawn unless that last pass accepts.
  * @param ctx - the injected context carrying the data backend and the approval service.
  * @param options - what this composition offers.
  * @param args - the call's arguments, however malformed.

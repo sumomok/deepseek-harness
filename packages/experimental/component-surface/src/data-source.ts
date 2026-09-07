@@ -28,6 +28,7 @@ import {
   MAX_NODE_ID_LENGTH,
   MAX_NODES,
   MAX_SPEC_BYTES,
+  MAX_TABLE_COLUMNS,
   MAX_TABLE_ROWS,
   SHOW_COMPONENT_TOOL_NAME,
   TABLE_ID,
@@ -35,6 +36,8 @@ import {
   TOKEN_HINT,
 } from './component-call.ts'
 import { refuse, type ComponentCallFailure } from './validate.ts'
+// Type-only: the default query scheme this module turns into a column list.
+import type { BizSchemeColumn } from '@deepseek-ai/dsh-experimental-biz-backend'
 
 /** Conditions one block's read may carry. */
 const MAX_DATA_SOURCE_CONDITIONS = 10
@@ -128,18 +131,25 @@ export interface DataSourceBlock {
   readonly matchMode: 'AND' | 'OR'
   /** Rows to ask for, the deployment's own default where the call sent none. */
   readonly pageSize: number
+  /** Which page of that size to ask for, counting from 1; the first page where the call sent none. */
+  readonly currentPage: number
   /** Attribute to sort ascending by, where the call named one. */
   readonly asc?: string
   /** Attribute to sort descending by, where the call named one. */
   readonly desc?: string
 }
 
-/** One column of a targeted table, as its `tableConfig.gridItems` declares it. */
+/**
+ * One column of a targeted table, as its `tableConfig.gridItems` declares it or
+ * as the table's default query scheme declares it.
+ */
 export interface DataSourceColumn {
   /** The attribute the column reads its cell out of, which is what the backend is asked for. */
   readonly attr: string
-  /** The header the call wrote, where it wrote one. */
+  /** The header the call wrote or the scheme carried, where there is one. */
   readonly alias?: string
+  /** Whether the drawn column offers sorting, where the scheme states it; a call states it in its own grid item. */
+  readonly isSortable?: boolean
 }
 
 /** One block's read resolved against the node it fills. */
@@ -152,9 +162,21 @@ export interface DataSourceTarget {
   readonly node: Readonly<Record<string, unknown>>
   /** The node's `props` object as the call wrote it. */
   readonly props: Readonly<Record<string, unknown>>
-  /** The node's `props.tableConfig` object as the call wrote it. */
+  /** The node's `props.tableConfig` object as the call wrote it; empty where the call wrote none. */
   readonly tableConfig: Readonly<Record<string, unknown>>
-  /** The columns the table declares, in the order it declares them. */
+  /**
+   * The columns the table declares, in the order it declares them. Absent
+   * where the call declared no `gridItems`, which is what asks for the table's
+   * own default columns.
+   */
+  readonly columns?: readonly DataSourceColumn[]
+}
+
+/** One block's read with the columns it takes settled, whoever settled them. */
+export interface DataSourceRead {
+  /** The resolved read. */
+  readonly target: DataSourceTarget
+  /** The columns the rows are read for, in the order they are drawn. */
   readonly columns: readonly DataSourceColumn[]
 }
 
@@ -172,6 +194,8 @@ export type DataSourceTargetsResult =
 export interface DataSourceFill {
   /** The node the rows belong to. */
   readonly target: DataSourceTarget
+  /** The columns the rows were read for, in the order they are drawn. */
+  readonly columns: readonly DataSourceColumn[]
   /** The drawn rows. */
   readonly displayValueList: readonly Readonly<Record<string, unknown>>[]
   /**
@@ -199,8 +223,8 @@ const BLOCK_KEYS: readonly string[]
 /** The property names one condition may carry. */
 const CONDITION_KEYS: readonly string[] = ['key', 'op', 'value']
 
-/** The property names one `page` object may carry. */
-const PAGE_KEYS: readonly string[] = ['pageSize']
+/** The property names one `page` object may carry, in the order the tool description writes them. */
+const PAGE_KEYS: readonly string[] = ['pageSize', 'currentPage']
 
 /** How the conditions of one read may join. */
 const MATCH_MODES: readonly string[] = ['AND', 'OR']
@@ -322,19 +346,30 @@ function readCondition(
   return { ok: true, condition: { key: key.value, op: operator.value, label: operator.label, value: matched.value } }
 }
 
+/** Which page a read starts at when the call names none. */
+const FIRST_PAGE = 1
+
+/** What one block asks the backend for, once the page it named has been read. */
+interface DataSourcePage {
+  /** Rows to ask for. */
+  readonly pageSize: number
+  /** Which page of that size, counting from 1. */
+  readonly currentPage: number
+}
+
 /**
- * Read how many rows one block asks for.
+ * Read how many rows one block asks for, and which page of them.
  * @param value - the `page` object the call wrote, or `undefined`.
  * @param path - parameter path used in the refusal.
  * @param defaultPageSize - what the deployment asks for when the call names no count.
- * @returns the count, or the refusal.
+ * @returns the page, or the refusal.
  */
-function readPageSize(
+function readPage(
   value: unknown,
   path: string,
   defaultPageSize: number,
-): { readonly ok: true; readonly pageSize: number } | { readonly ok: false; readonly failure: ComponentCallFailure } {
-  if (value === undefined) return { ok: true, pageSize: defaultPageSize }
+): { readonly ok: true; readonly page: DataSourcePage } | { readonly ok: false; readonly failure: ComponentCallFailure } {
+  if (value === undefined) return { ok: true, page: { pageSize: defaultPageSize, currentPage: FIRST_PAGE } }
   if (value === null || typeof value !== 'object' || Array.isArray(value)) {
     return { ok: false, failure: refuse(path, `must be an object carrying ${PAGE_KEYS.join(', ')}.`) }
   }
@@ -343,11 +378,23 @@ function readPageSize(
       return { ok: false, failure: refuse(`${path}.${key}`, `is not part of a page. A page carries ${PAGE_KEYS.join(', ')}.`) }
     }
   }
-  const pageSize = (value as { pageSize?: unknown }).pageSize
+  const written = value as { pageSize?: unknown; currentPage?: unknown }
+  // Absence is the only thing the deployment's own value stands in for. A field
+  // the call wrote as null is a value it chose, and this is model-written JSON,
+  // so it is refused by the same sentence any other unusable value gets.
+  const pageSize = written.pageSize === undefined ? defaultPageSize : written.pageSize
   if (typeof pageSize !== 'number' || !Number.isInteger(pageSize) || pageSize < 1 || pageSize > MAX_TABLE_ROWS) {
     return { ok: false, failure: refuse(`${path}.pageSize`, `must be a whole number between 1 and ${MAX_TABLE_ROWS}.`) }
   }
-  return { ok: true, pageSize }
+  // No ceiling, unlike `pageSize`: one read costs the same whatever page it names,
+  // and the only number a ceiling could be drawn from is the backend's own row
+  // count, which nothing here has read yet. A page past the last one answers zero
+  // rows, which ends the call in the sentence a model can act on.
+  const currentPage = written.currentPage === undefined ? FIRST_PAGE : written.currentPage
+  if (typeof currentPage !== 'number' || !Number.isInteger(currentPage) || currentPage < FIRST_PAGE) {
+    return { ok: false, failure: refuse(`${path}.currentPage`, `must be a whole number of ${FIRST_PAGE} or more.`) }
+  }
+  return { ok: true, page: { pageSize, currentPage } }
 }
 
 /**
@@ -401,7 +448,7 @@ function readBlock(
   if (matchMode !== undefined && (typeof matchMode !== 'string' || !MATCH_MODES.includes(matchMode))) {
     return { ok: false, failure: refuse(`${path}.matchMode`, `must be one of ${MATCH_MODES.join(', ')}.`) }
   }
-  const page = readPageSize(entry['page'], `${path}.page`, defaultPageSize)
+  const page = readPage(entry['page'], `${path}.page`, defaultPageSize)
   if (!page.ok) return page
   if (entry['asc'] !== undefined && entry['desc'] !== undefined) {
     return { ok: false, failure: refuse(`${path}.desc`, 'cannot be sent beside asc. Sort by one attribute, in one direction.') }
@@ -421,7 +468,8 @@ function readBlock(
       metaLabel: metaLabel.value,
       conditions,
       matchMode: matchMode === 'OR' ? 'OR' : 'AND',
-      pageSize: page.pageSize,
+      pageSize: page.page.pageSize,
+      currentPage: page.page.currentPage,
       ...order,
     },
   }
@@ -461,8 +509,8 @@ export function readDataSourceBlocks(value: unknown, defaultPageSize: number): D
 }
 
 /**
- * Read the columns one targeted table declares.
- * @param tableConfig - the node's `tableConfig` object as the call wrote it.
+ * Read the columns one targeted table declares for itself.
+ * @param tableConfig - the node's `tableConfig` object as the call wrote it, carrying a `gridItems` value.
  * @param path - parameter path used in the refusal.
  * @returns the columns in declaration order, or the refusal.
  */
@@ -508,6 +556,80 @@ function readColumns(
 }
 
 /**
+ * Reduce the default query scheme the backend answered with to the columns a
+ * table could draw out of it.
+ *
+ * A column the scheme hid stays out: the scheme is the deployment's own choice
+ * of what a person sees in that table's own resource list, and a hidden column
+ * is not part of that choice. `isShow` is read the way the table component
+ * reads it, so only an explicit `false` hides a column.
+ *
+ * Two of the scheme's own values are held to the same rules a call's are, and
+ * for the same reasons rather than out of distrust: an attribute name is written
+ * into a drawn column, where a name the component does not accept would make
+ * the whole call undrawable after the credential had been spent, and a header
+ * is printed in the table, where a value carrying a line break of its own could
+ * draw a line nothing wrote. A column whose attribute fails is left out; a
+ * header that fails is dropped and the column keeps its attribute.
+ *
+ * A scheme listing one attribute twice keeps its first entry and drops the
+ * rest. A stored scheme is deployment data rather than model input, and a
+ * second column reading the same cell is a layout the table cannot draw, so it
+ * is normalized here rather than refused back at a model that did not write it.
+ * @param scheme - the scheme's columns, in the order it lists them.
+ * @returns the columns to read, in the same order; empty where the scheme declares none this table could draw.
+ */
+function resolveDefaultColumns(scheme: readonly BizSchemeColumn[]): readonly DataSourceColumn[] {
+  const columns: DataSourceColumn[] = []
+  const taken = new Set<string>()
+  for (const column of scheme) {
+    if (column.isShow === false) continue
+    const attr = column.relatedMetaAttr
+    if (attr.length > MAX_FIELD_NAME_LENGTH || !FIELD_CHARSET.test(attr)) continue
+    if (taken.has(attr)) continue
+    taken.add(attr)
+    const alias = column.alias !== undefined && column.alias.length <= MAX_COLUMN_ALIAS_LENGTH
+      && CARD_TEXT_CHARSET.test(column.alias)
+      ? column.alias
+      : undefined
+    columns.push({
+      attr,
+      ...alias === undefined ? {} : { alias },
+      ...column.isSortable === undefined ? {} : { isSortable: column.isSortable },
+    })
+  }
+  return columns
+}
+
+/** Outcome of settling what a table with no column list of its own takes. */
+export type DefaultColumnsResult =
+  | { readonly ok: true; readonly columns: readonly DataSourceColumn[] }
+  | { readonly ok: false; readonly text: string }
+
+/**
+ * Settle what a table with no column list of its own takes, and judge it before
+ * a single row is asked for.
+ *
+ * Both refusals happen here rather than downstream because both are the same
+ * failure to the person who allowed the read: a scheme that cannot fill this
+ * table's columns is one whose rows must not be fetched, since the call could
+ * not be drawn once they arrived. A scheme wider than {@link MAX_TABLE_COLUMNS}
+ * is the one the component itself would refuse, so it is refused with the
+ * component's own number and before the rows rather than after them.
+ * @param meta - the table that was asked for.
+ * @param scheme - the scheme's columns, as the backend answered them.
+ * @returns the columns to read, or the sentence to refuse with.
+ */
+export function settleDefaultColumns(meta: string, scheme: readonly BizSchemeColumn[]): DefaultColumnsResult {
+  const columns = resolveDefaultColumns(scheme)
+  if (columns.length === 0) {
+    return { ok: false, text: dataSourceNoDefaultColumns(meta, 'its default query scheme shows no column this table could draw') }
+  }
+  if (columns.length > MAX_TABLE_COLUMNS) return { ok: false, text: dataSourceSchemeTooWide(meta, columns.length) }
+  return { ok: true, columns }
+}
+
+/**
  * Resolve every read against the node it fills, before anything is asked of the
  * user or of the backend.
  *
@@ -516,6 +638,11 @@ function readColumns(
  * carry its own. Learning that after the user has approved a read and the
  * backend has answered it would spend a person's consent on a call that was
  * never going to be drawable.
+ *
+ * A filled table may leave `tableConfig.gridItems` — and `tableConfig` itself —
+ * out, and that is what asks for the table's own default columns. Such a target
+ * carries no columns yet; {@link settleDefaultColumns} settles them from the
+ * scheme the backend answers with, once the user has allowed the read.
  * @param blocks - the reads, already judged on their own.
  * @param spec - the `spec` argument, however malformed.
  * @returns the resolved reads and the nodes they sit in, or the refusal.
@@ -558,13 +685,20 @@ export function resolveDataSourceTargets(blocks: readonly DataSourceBlock[], spe
       }
     }
     const tableConfig = record['tableConfig']
-    if (tableConfig === null || typeof tableConfig !== 'object' || Array.isArray(tableConfig)) {
+    if (tableConfig !== undefined && (tableConfig === null || typeof tableConfig !== 'object' || Array.isArray(tableConfig))) {
       return { ok: false, failure: refuse(`spec.nodes[${nodeIndex}].props.tableConfig`, 'must be an object carrying a gridItems list.') }
     }
-    const table = tableConfig as Readonly<Record<string, unknown>>
+    const table = (tableConfig ?? {}) as Readonly<Record<string, unknown>>
+    filled.add(nodeIndex)
+    // No column list is the request for the table's own default columns, so it
+    // is not a refusal here: what the read takes is settled against the
+    // deployment's default query scheme, with the credential the user allows.
+    if (table['gridItems'] === undefined) {
+      targets.push({ block, nodeIndex, node, props: record, tableConfig: table })
+      continue
+    }
     const columns = readColumns(table, `spec.nodes[${nodeIndex}].props.tableConfig`)
     if (!columns.ok) return columns
-    filled.add(nodeIndex)
     targets.push({ block, nodeIndex, node, props: record, tableConfig: table, columns: columns.columns })
   }
   for (const [position, node] of nodes.entries()) {
@@ -632,12 +766,19 @@ export function applyDataSourceRows(
     const fill = byIndex.get(index)
     if (fill === undefined) return node
     // `readColumns` walked `gridItems` in order, so a column and the object it
-    // was read out of share an index.
-    const declared = fill.target.tableConfig['gridItems'] as readonly unknown[]
-    const gridItems = fill.target.columns.map((column, columnIndex) => {
+    // was read out of share an index. A table that declared none is written a
+    // grid item per column instead, out of what the scheme said about it.
+    const declared = fill.target.tableConfig['gridItems'] as readonly unknown[] | undefined
+    const gridItems = fill.columns.map((column, columnIndex) => {
       const alias = fill.aliases.get(column.attr)
-      const source = declared[columnIndex]
-      return alias === undefined ? source : { ...source as object, alias }
+      const source = declared?.[columnIndex]
+      if (source !== undefined) return alias === undefined ? source : { ...source as object, alias }
+      const header = alias ?? column.alias
+      return {
+        relatedMetaAttr: column.attr,
+        ...header === undefined ? {} : { alias: header },
+        ...column.isSortable === undefined ? {} : { isSortable: column.isSortable },
+      }
     })
     return {
       ...fill.target.node,
@@ -663,6 +804,16 @@ export function applyDataSourceRows(
 const PROBE_ROW: Readonly<Record<string, unknown>> = { probe: 'x' }
 
 /**
+ * The stand-in column a table whose columns the scheme decides is judged with.
+ *
+ * The pass this belongs to runs before the scheme has been read, and the one
+ * thing it cannot judge about such a table is its columns — so it is given the
+ * least a table accepts, keyed to {@link PROBE_ROW}. What the scheme's real
+ * columns turn out to be is judged by the pass that runs over the filled call.
+ */
+const PROBE_COLUMN: DataSourceColumn = { attr: 'probe' }
+
+/**
  * Put a stand-in row into every table a data source fills, so the whole call
  * can be judged before the user is asked anything.
  *
@@ -674,7 +825,8 @@ const PROBE_ROW: Readonly<Record<string, unknown>> = { probe: 'x' }
  * question for a call that was never drawable.
  *
  * What this pass cannot decide stays behind for the real one: how many rows
- * arrived, and how many bytes the filled call is.
+ * arrived, how many bytes the filled call is, and what a table taking its own
+ * default columns turns out to draw.
  * @param spec - the `spec` argument, as {@link resolveDataSourceTargets} accepted it.
  * @param nodes - that spec's nodes.
  * @param targets - the resolved reads.
@@ -687,6 +839,7 @@ export function probeDataSourceSpec(
 ): unknown {
   return applyDataSourceRows(spec, nodes, targets.map(target => ({
     target,
+    columns: target.columns ?? [PROBE_COLUMN],
     displayValueList: [PROBE_ROW],
     aliases: new Map<string, string>(),
   })))
@@ -710,6 +863,17 @@ function columnPhrase(columns: readonly DataSourceColumn[]): string {
   if (written.length === columns.length && written.length <= MAX_NAMED_COLUMNS) return `只取「${named}」这几列`
   return `只取「${named}」等 ${columns.length} 列`
 }
+
+/**
+ * What the card says of a table that named no columns of its own.
+ *
+ * Neither their names nor their number can be on the card: the scheme that
+ * decides them is read with the visitor's credential, and the credential is not
+ * spent before the question. What is on the card is the fact the person is
+ * entitled to — that this read's columns are the deployment's own choice for
+ * that table rather than anything the model asked for.
+ */
+const DEFAULT_COLUMNS_PHRASE = '取这张表默认显示的列'
 
 /**
  * Say what one read is filtered by, without saying what it is filtered against.
@@ -746,8 +910,10 @@ function conditionPhrase(
  * @returns the description, without the table's own name in the backend.
  */
 function targetDescription(target: DataSourceTarget): string {
-  return `从「${target.block.metaLabel}」里取最多 ${target.block.pageSize} 条，`
-    + `${columnPhrase(target.columns)}${conditionPhrase(target.block.conditions, target.columns)}。`
+  const { block, columns } = target
+  return `从「${block.metaLabel}」里取最多 ${block.pageSize} 条，`
+    + (columns === undefined ? DEFAULT_COLUMNS_PHRASE : columnPhrase(columns))
+    + `${conditionPhrase(block.conditions, columns ?? [])}。`
 }
 
 /**
@@ -860,6 +1026,19 @@ export function dataSourceUndrawable(meta: string, detail: string): string {
 }
 
 /**
+ * The dictionary's own first few attributes, as every refusal that offers
+ * candidates lists them.
+ * @param attributes - the table's own attributes, in the backend's order.
+ * @returns the sentence naming them, in the backend's own order.
+ */
+function candidatePhrase(attributes: readonly DataSourceAttribute[]): string {
+  const named = attributes.slice(0, MAX_CANDIDATE_ATTRIBUTES)
+  const list = named.map(entry => `${entry.attributeEnName} (${entry.attributeCnName})`).join(', ')
+  const rest = attributes.length > named.length ? `, and ${attributes.length - named.length} more` : ''
+  return `Its first ${named.length} of ${attributes.length} are: ${list}${rest}.`
+}
+
+/**
  * Refusal for a column naming an attribute the table does not have.
  *
  * The whole point of asking the backend for its dictionary before reading is
@@ -877,9 +1056,71 @@ export function dataSourceUnknownAttribute(
   attr: string,
   attributes: readonly DataSourceAttribute[],
 ): string {
-  const named = attributes.slice(0, MAX_CANDIDATE_ATTRIBUTES)
-  const list = named.map(entry => `${entry.attributeEnName} (${entry.attributeCnName})`).join(', ')
-  const rest = attributes.length > named.length ? `, and ${attributes.length - named.length} more` : ''
-  return `${SHOW_COMPONENT_TOOL_NAME}: "${meta}" has no attribute named "${attr}". Its first ${named.length} of `
-    + `${attributes.length} are: ${list}${rest}. Send the attributes this table actually has.`
+  return `${SHOW_COMPONENT_TOOL_NAME}: "${meta}" has no attribute named "${attr}". `
+    + `${candidatePhrase(attributes)} Send the attributes this table actually has.`
+}
+
+/**
+ * The one remedy every refusal about a table's own default columns offers: the
+ * parameter the call left out, in this tool's own vocabulary.
+ *
+ * It names no other tool, because which tool would help — if any — is the
+ * model's judgement rather than this refusal's, and a call that can write the
+ * columns itself needs nothing else to recover.
+ */
+const SEND_GRID_ITEMS
+  = 'Send tableConfig.gridItems on that block, naming the attributes to read. Nothing on the panel changed.'
+
+/**
+ * Refusal for a block that left its columns to the table and got none.
+ *
+ * The detail says which of the two happened — the table has no such list, or
+ * the list could not be read at all — so a call is not told to write columns
+ * out when what failed was the request.
+ * @param meta - the table that was asked for.
+ * @param detail - why the default columns could not be settled, as the provider classified it.
+ * @returns the sentence.
+ */
+export function dataSourceNoDefaultColumns(meta: string, detail: string): string {
+  return `${SHOW_COMPONENT_TOOL_NAME}: the default columns of "${meta}" could not be read: ${detail}. ${SEND_GRID_ITEMS}`
+}
+
+/**
+ * Refusal for a stored scheme naming an attribute the table's own dictionary
+ * does not list.
+ *
+ * The call wrote no column, so the sentence says what the scheme names rather
+ * than what was sent: a model told it named an attribute it never wrote has
+ * nothing to correct, and would either repeat the call or answer the user with
+ * a mistake that is not its own. The candidates are there because the remedy
+ * needs them — a call that must name the columns itself has to know what this
+ * table calls them.
+ * @param meta - the table that was asked for.
+ * @param attr - the attribute the scheme's column reads its cell out of.
+ * @param attributes - the table's own attributes, in the backend's order.
+ * @returns the sentence.
+ */
+export function dataSourceSchemeAttribute(
+  meta: string,
+  attr: string,
+  attributes: readonly DataSourceAttribute[],
+): string {
+  return `${SHOW_COMPONENT_TOOL_NAME}: the default query scheme of "${meta}" draws a column from "${attr}", which `
+    + `that table has no attribute by. ${candidatePhrase(attributes)} ${SEND_GRID_ITEMS}`
+}
+
+/**
+ * Refusal for a stored scheme showing more columns than a table draws.
+ *
+ * Refused before the rows rather than by the pass over the filled call, which
+ * would spend the read first and then answer with a sentence about a column
+ * list the call never wrote. What is too wide is the deployment's scheme, so
+ * that is what the sentence names.
+ * @param meta - the table that was asked for.
+ * @param columns - how many drawable columns the scheme shows.
+ * @returns the sentence.
+ */
+function dataSourceSchemeTooWide(meta: string, columns: number): string {
+  return `${SHOW_COMPONENT_TOOL_NAME}: the default query scheme of "${meta}" shows ${columns} columns and a table `
+    + `draws at most ${MAX_TABLE_COLUMNS}. ${SEND_GRID_ITEMS}`
 }

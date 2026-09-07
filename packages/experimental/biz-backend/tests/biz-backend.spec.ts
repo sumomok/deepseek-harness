@@ -32,6 +32,10 @@ const SEARCH_URL = 'https://biz.example/ini-server/nrms-datamanagement/api/resou
 /** Where a description of the same model lands. */
 const META_URL = 'https://biz.example/ini-server/nrms-schema-manage/api/meta/resclass/SpaceLayer'
 
+/** Where a read of the same model's default query scheme lands, query string included. */
+const SCHEME_URL = 'https://biz.example/ini-server/nrms-schema-manage/api/schema/schema'
+  + '?schemaType=1&metaEnName=SpaceLayer&schemaName=&isDefault=1'
+
 /** Two rows in the shape the real backend answers with, stored and displayed. */
 const RAW_ROWS = [{ int_id: '1134933624650219530', zh_label: '配送车-离线', belong_map_topic: '947543009150173184' }]
 const DISPLAY_ROWS = [{ int_id: '1134933624650219530', zh_label: '配送车-离线', belong_map_topic: '公用专题' }]
@@ -396,16 +400,44 @@ describe('data-backend read', () => {
     for (const data of [
       null,
       'rows',
+      [],
       { rawValue: 'rows', displayValue: [] },
       { rawValue: [], displayValue: 'rows' },
       { rawValue: [null], displayValue: [] },
       { rawValue: ['a row'], displayValue: [] },
+      { rawValue: [], displayValue: null },
+      { rawValue: null, displayValue: [] },
+      // Neither key at all is an envelope this backend has never been seen
+      // answering with, so it stays an answer this seam cannot read rather
+      // than being reported as a row count nothing measured.
+      {},
+      { page: { total: null } },
     ]) {
       seen = []
       serve(answer({ code: 0, data }))
       expect(await backend.search(READ, idleSignal()))
         .toEqual({ kind: 'unreachable', detail: 'the answer carried no rows to read' })
     }
+  })
+
+  it('answers zero rows for the answer this backend gives a read that matched nothing', async () => {
+    // Measured against the deployment: conditions matching no row answer HTTP
+    // 200 with both row lists null and a null total beside them, not two empty
+    // lists. Reading that as an unparseable answer tells a caller its data
+    // source is broken when its filters simply matched nothing.
+    serve(answer({
+      code: 0,
+      msg: 'success',
+      data: { rawValue: null, displayValue: null, page: { currentPage: 1, pageSize: 200, total: null, pageCount: null } },
+    }))
+    expect(await backendWith(testCredential(TOKEN)).search(READ, idleSignal()))
+      .toEqual({ rawValue: [], displayValue: [], total: 0 })
+  })
+
+  it('keeps two empty lists as zero rows, with whatever total the answer carried', async () => {
+    serve(answer({ code: 0, data: { rawValue: [], displayValue: [], page: { total: 0 } } }))
+    expect(await backendWith(testCredential(TOKEN)).search(READ, idleSignal()))
+      .toEqual({ rawValue: [], displayValue: [], total: 0 })
   })
 
   it('never repeats the credential in anything it returns', async () => {
@@ -491,6 +523,96 @@ describe('auth-gate data-backend model description', () => {
     expect(await backendWith(testCredential(undefined)).describe('SpaceLayer', idleSignal()))
       .toEqual({ kind: 'unauthenticated' })
     expect(await backendWith(testCredential(TOKEN)).describe('Space Layer', idleSignal()))
+      .toEqual({ kind: 'unreachable', detail: '"Space Layer" is not a resource model name, so nothing was requested' })
+  })
+})
+
+describe('auth-gate data-backend default query scheme', () => {
+  /**
+   * One stored scheme, as the schema service wraps it.
+   * @param gridItems - the scheme's column list.
+   * @returns the answer.
+   */
+  function schemeAnswer(gridItems: unknown): Responder {
+    return answer({ code: 0, msg: 'success', data: [{ schemaId: 'sc-1', schemaType: 1, grid: { gridItems } }] })
+  }
+
+  it('asks the schema service for the one default scheme of the resource-list kind', async () => {
+    serve(schemeAnswer([{ relatedMetaAttr: 'zh_label', alias: '名称' }]))
+    expect(await backendWith(testCredential(TOKEN)).describeScheme('SpaceLayer', idleSignal()))
+      .toEqual({ columns: [{ relatedMetaAttr: 'zh_label', alias: '名称' }] })
+    expect(seen[0]?.url).toBe(SCHEME_URL)
+    expect(seen[0]?.init.method).toBe('GET')
+    expect(seen[0]?.init.headers).toEqual({
+      accept: 'application/json',
+      authorization: `Bearer ${TOKEN}`,
+      CertificationToken: `Bearer ${TOKEN}`,
+    })
+  })
+
+  it('reads both ways this backend writes a scheme column\'s yes-or-no fields', async () => {
+    serve(schemeAnswer([
+      { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1', isSortable: '0' },
+      { relatedMetaAttr: 'layer_id', alias: '图层id', isShow: true, isSortable: false },
+      { relatedMetaAttr: 'belong_scene', alias: '所属场景', isShow: 'yes', isSortable: 2 },
+    ]))
+    expect(await backendWith(testCredential(TOKEN)).describeScheme('SpaceLayer', idleSignal())).toEqual({
+      columns: [
+        { relatedMetaAttr: 'zh_label', alias: '名称', isShow: true, isSortable: false },
+        { relatedMetaAttr: 'layer_id', alias: '图层id', isShow: true, isSortable: false },
+        // Neither reading, so neither field is published and a caller reads the
+        // column as one the scheme said nothing about.
+        { relatedMetaAttr: 'belong_scene', alias: '所属场景' },
+      ],
+    })
+  })
+
+  it('leaves out an element naming no attribute, and a header that is not one', async () => {
+    serve(schemeAnswer([
+      null,
+      'zh_label',
+      { alias: '名称' },
+      { relatedMetaAttr: '' },
+      { relatedMetaAttr: 7, alias: '名称' },
+      { relatedMetaAttr: 'layer_id', alias: '' },
+      { relatedMetaAttr: 'belong_scene', alias: 41 },
+    ]))
+    expect(await backendWith(testCredential(TOKEN)).describeScheme('SpaceLayer', idleSignal()))
+      .toEqual({ columns: [{ relatedMetaAttr: 'layer_id' }, { relatedMetaAttr: 'belong_scene' }] })
+  })
+
+  it('answers unreachable when the answer carries no scheme with columns in it', async () => {
+    const backend = backendWith(testCredential(TOKEN))
+    for (const data of [
+      null,
+      'a scheme',
+      [],
+      [null],
+      ['a scheme'],
+      [{ schemaId: 'sc-1' }],
+      [{ grid: 'gridItems' }],
+      [{ grid: {} }],
+      [{ grid: { gridItems: 'zh_label' } }],
+      // A list of columns none of which names an attribute leaves a caller
+      // with nothing to draw, which is what having no scheme means to it.
+      [{ grid: { gridItems: [null, { alias: '名称' }] } }],
+    ]) {
+      seen = []
+      serve(answer({ code: 0, data }))
+      expect(await backend.describeScheme('SpaceLayer', idleSignal()))
+        .toEqual({ kind: 'unreachable', detail: 'the model has no default query scheme' })
+    }
+  })
+
+  it('classifies its failures exactly as the other two reads do', async () => {
+    const credential = testCredential(TOKEN)
+    serve(answer({ code: 0 }, 401))
+    expect(await backendWith(credential).describeScheme('SpaceLayer', idleSignal()))
+      .toEqual({ kind: 'refused', status: 401 })
+    expect(credential.dropped).toEqual(['refused-by-backend'])
+    expect(await backendWith(testCredential(undefined)).describeScheme('SpaceLayer', idleSignal()))
+      .toEqual({ kind: 'unauthenticated' })
+    expect(await backendWith(testCredential(TOKEN)).describeScheme('Space Layer', idleSignal()))
       .toEqual({ kind: 'unreachable', detail: '"Space Layer" is not a resource model name, so nothing was requested' })
   })
 })

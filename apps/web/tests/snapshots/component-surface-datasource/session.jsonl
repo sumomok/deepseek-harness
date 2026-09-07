@@ -13,3 +13,21 @@
 {"type":"assistant/chunk","data":{"turn":2,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"Starting with {{fromRequest:数据表 block \"[^\"]+\": \"([^\"]+)\"}} — I will export those rows."}}}}
 {"type":"assistant/chunk","data":{"turn":2,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":1,"outputTokens":1}}}}
 {"type":"assistant/chunk","data":{"turn":2,"step":1,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/chunk","data":{"turn":3,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}
+{"type":"assistant/chunk","data":{"turn":3,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"tool-call","id":"call_00_datasource000000000000002","name":"show_component","arguments":"{\"id\":\"layers\",\"title\":\"图层配置\",\"spec\":{\"nodes\":[{\"id\":\"rows\",\"component\":\"toy.table\",\"props\":{}}]},\"dataSource\":[{\"nodeId\":\"rows\",\"meta\":\"SpaceLayer\",\"metaLabel\":\"图层配置\"}]}"}}}}
+{"type":"assistant/chunk","data":{"turn":3,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":1,"outputTokens":1}}}}
+{"type":"assistant/chunk","data":{"turn":3,"step":1,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
+{"type":"assistant/chunk","data":{"turn":3,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
+{"type":"assistant/chunk","data":{"turn":3,"step":2,"chunk":{"type":"text-delta","index":0,"text":"DEFAULT COLUMNS DRAWN"}}}
+{"type":"assistant/chunk","data":{"turn":3,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"DEFAULT COLUMNS DRAWN"}}}}
+{"type":"assistant/chunk","data":{"turn":3,"step":2,"chunk":{"type":"usage","usage":{"inputTokens":1,"outputTokens":1}}}}
+{"type":"assistant/chunk","data":{"turn":3,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}
+{"type":"assistant/chunk","data":{"turn":4,"step":1,"chunk":{"type":"block-start","index":0,"blockType":"tool-call"}}}
+{"type":"assistant/chunk","data":{"turn":4,"step":1,"chunk":{"type":"block-end","index":0,"block":{"type":"tool-call","id":"call_00_datasource000000000000003","name":"show_component","arguments":"{\"id\":\"no-match\",\"title\":\"没有匹配的行\",\"spec\":{\"nodes\":[{\"id\":\"rows\",\"component\":\"toy.table\",\"props\":{\"tableConfig\":{\"gridItems\":[{\"relatedMetaAttr\":\"zh_label\",\"alias\":\"名称\"}]}}}]},\"dataSource\":[{\"nodeId\":\"rows\",\"meta\":\"SpaceLayer\",\"metaLabel\":\"图层配置\",\"conditions\":[{\"key\":\"zh_label\",\"op\":\"EQ\",\"value\":\"没有这一行\"}]}]}"}}}}
+{"type":"assistant/chunk","data":{"turn":4,"step":1,"chunk":{"type":"usage","usage":{"inputTokens":1,"outputTokens":1}}}}
+{"type":"assistant/chunk","data":{"turn":4,"step":1,"chunk":{"type":"finish","reason":{"kind":"tool-calls"}}}}
+{"type":"assistant/chunk","data":{"turn":4,"step":2,"chunk":{"type":"block-start","index":0,"blockType":"text"}}}
+{"type":"assistant/chunk","data":{"turn":4,"step":2,"chunk":{"type":"text-delta","index":0,"text":"SpaceLayer {{fromRequest:\"SpaceLayer\" (returned no rows for those conditions)}}, so nothing was drawn."}}}
+{"type":"assistant/chunk","data":{"turn":4,"step":2,"chunk":{"type":"block-end","index":0,"block":{"type":"text","text":"SpaceLayer {{fromRequest:\"SpaceLayer\" (returned no rows for those conditions)}}, so nothing was drawn."}}}}
+{"type":"assistant/chunk","data":{"turn":4,"step":2,"chunk":{"type":"usage","usage":{"inputTokens":1,"outputTokens":1}}}}
+{"type":"assistant/chunk","data":{"turn":4,"step":2,"chunk":{"type":"finish","reason":{"kind":"stop"}}}}

@@ -118,7 +118,7 @@ While no browser has posted a token, every forwarding route answers 503 naming t
 <a id="reading-the-deployments-data-backend"></a>
 ## Reading the deployment's data backend
 
-The deployment that issues the token also serves its own data. `bizUpstream` gives this process the base those requests are built onto, and the gate constructs [`dsh-experimental-biz-backend`](../biz-backend/README.md)'s `ctx.bizBackend` over it, with the token it already holds. That package owns the two reads, what they put on the wire, and how every answer is classified.
+The deployment that issues the token also serves its own data. `bizUpstream` gives this process the base those requests are built onto, and the gate constructs [`dsh-experimental-biz-backend`](../biz-backend/README.md)'s `ctx.bizBackend` over it, with the token it already holds. That package owns the reads, what they put on the wire, and how every answer is classified.
 
 ```yaml
 - id: auth-gate

@@ -212,7 +212,7 @@ describe('the composed data-source row', () => {
   it('offers one where the deployment asked and both seams are composed', async () => {
     const ctx = await loadComposition({ dataSource: true, dataDefaultPageSize: 50 })
     const [schema] = ctx.tools.schemas().filter(entry => entry.name === 'show_component')
-    expect(schema?.description).toContain('A read asks for 50 rows where it names no count, and there is no way to ask for a second page')
+    expect(schema?.description).toContain('A read asks for 50 rows of the first page where it names neither.')
   })
 
   it('offers no tool at all where the deployment asked and no backend is composed', async () => {

@@ -744,6 +744,7 @@ export const TYPE_LINK_EXEMPTIONS: Readonly<Record<string, string>> = {
   BizBackendFailure: 'read failure union is owned by packages/experimental/biz-backend/README.md',
   BizMetaResult: 'model description result is owned by packages/experimental/biz-backend/README.md',
   BizSearchRequest: 'read request fields are owned by packages/experimental/biz-backend/README.md',
+  BizSchemeResult: 'default-query-scheme result is owned by packages/experimental/biz-backend/README.md',
   BizSearchResult: 'read result fields are owned by packages/experimental/biz-backend/README.md',
   InvariantRegistration: 'service-local lifecycle handle is owned by packages/runtime-diagnostics/invariants/README.md',
   JsonValue: 'JSON value union is owned by packages/core/session/src/json.ts',

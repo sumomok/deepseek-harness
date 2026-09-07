@@ -28,7 +28,7 @@ kind: "package-group"
 | [`agent-team`](agent-team/README.zh.md) | 具名 teammate，成员之间持久消息与共享任务板 | `ctx.agentTeams` |
 | [`agent-team-web-profile`](agent-team-web-profile/README.zh.md) | Agent Teams 的显式源码 checkout Web 层 | — |
 | [`auth-gate`](auth-gate/README.zh.md) | 把没有 access token 的浏览器送去部署方的登录页，把带回来的那一枚镜像进 cookie，并注入到转发出去的 MCP 请求里 | — |
-| [`biz-backend`](biz-backend/README.zh.md) | 对本部署自己的数据后端的两次读取，用的是访客自己的访问令牌 | `ctx.bizBackend` |
+| [`biz-backend`](biz-backend/README.zh.md) | 对本部署自己的数据后端的三次读取，用的是访客自己的访问令牌 | `ctx.bizBackend` |
 | [`client-ui-agent-team`](client-ui-agent-team/README.zh.md) | Web Team roster、任务板与 teammate 导航 | — |
 | [`code-runtime-python`](code-runtime-python/README.zh.md) | 代码执行 seam 的 CPython 子进程后端 | `ctx.codeRuntime` |
 | [`component-kit`](component-kit/README.zh.md) | 组件行：落位包用来画出一块已校验内容的 React 渲染器，以及给它们命名的那张表 | — |

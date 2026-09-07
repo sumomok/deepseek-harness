@@ -43,6 +43,9 @@ const SEARCH_PATH = `${API_PREFIX}/nrms-datamanagement/api/resources/SpaceLayer/
 /** The model-description endpoint, under that prefix. */
 const META_PATH = `${API_PREFIX}/nrms-schema-manage/api/meta/resclass/SpaceLayer`
 
+/** The stored-scheme endpoint, which a call that names no columns of its own is drawn from. */
+const SCHEME_PATH = `${API_PREFIX}/nrms-schema-manage/api/schema/schema`
+
 /**
  * A JWT-shaped stand-in for the visitor's access token. Nothing verifies it:
  * the gate accepts a token on its shape alone, and the fake backend below reads
@@ -76,6 +79,18 @@ const ATTRIBUTES = [
 ]
 
 /**
+ * The model's stored default query scheme: the columns this deployment's own
+ * resource list opens `SpaceLayer` with. Its flags are the characters the real
+ * schema service writes them with, and one column is hidden, so a call taking
+ * these columns draws two of the three.
+ */
+const SCHEME_COLUMNS = [
+  { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1', isSortable: '1' },
+  { relatedMetaAttr: 'belong_map_topic', alias: '所属地图主题', isShow: '1', isSortable: '0' },
+  { relatedMetaAttr: 'layer_id', alias: '图层id', isShow: '0', isSortable: '0' },
+]
+
+/**
  * The environment every scenario runs with: the fake backend's base, filled in
  * once it is listening. The object is handed to the suite at collection time
  * and read when a scenario runs, so filling it in `beforeAll` is what gets the
@@ -97,6 +112,12 @@ const DATA_ENV: NodeJS.ProcessEnv = {}
 
 /** @see DATA_ENV */
 const REFUSE_ENV: NodeJS.ProcessEnv = {}
+
+/** @see DATA_ENV */
+const DEFAULT_COLUMNS_ENV: NodeJS.ProcessEnv = {}
+
+/** @see DATA_ENV */
+const EMPTY_ENV: NodeJS.ProcessEnv = {}
 
 let backend: Server | undefined
 
@@ -122,13 +143,39 @@ function presentsToken(req: IncomingMessage): boolean {
 }
 
 /**
+ * Read one request body as the document a read posts.
+ *
+ * The body is read to completion so the child's request settles the way a real
+ * answer settles it, and because a read's own conditions decide which of the
+ * two answers below it gets.
+ * @param req - the incoming request.
+ * @returns the decoded document, empty where the request carried no body.
+ */
+async function readBody(req: IncomingMessage): Promise<{ conditions?: unknown[] }> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(chunk as Buffer)
+  const raw = Buffer.concat(chunks).toString('utf8')
+  return raw === '' ? {} : (JSON.parse(raw) as { conditions?: unknown[] })
+}
+
+/**
  * Serve the two endpoints one read uses, and refuse everything else the way the
  * real backend refuses an unrecognized request.
  * @param req - the incoming request.
  * @param res - the response to write.
  */
-function serve(req: IncomingMessage, res: ServerResponse): void {
+async function serve(req: IncomingMessage, res: ServerResponse): Promise<void> {
   const path = (req.url ?? '').split('?')[0]
+  let body: { conditions?: unknown[] }
+  try {
+    body = await readBody(req)
+  } catch {
+    // Answered rather than thrown: this handler is started with `void`, so a
+    // rejection here would end the test process instead of failing a case.
+    res.writeHead(400, { 'content-type': 'application/json' })
+    res.end(JSON.stringify({ code: 1, msg: 'unreadable request body' }))
+    return
+  }
   if (!presentsToken(req)) {
     res.writeHead(401, { 'content-type': 'application/json' })
     res.end(JSON.stringify({ code: 3, msg: 'token invalid' }))
@@ -138,10 +185,22 @@ function serve(req: IncomingMessage, res: ServerResponse): void {
     answer(res, { code: 0, msg: 'success', traceId: 'fake', data: { resClassEnName: 'SpaceLayer', attributes: ATTRIBUTES } })
     return
   }
+  if (req.method === 'GET' && path === SCHEME_PATH) {
+    answer(res, { code: 0, msg: 'success', traceId: 'fake', data: [{ schemaId: 'sc-1', schemaType: 1, isDefault: 1, grid: { gridItems: SCHEME_COLUMNS } }] })
+    return
+  }
   if (req.method === 'POST' && path === SEARCH_PATH) {
-    // The body is read to completion so the child's request settles the way a
-    // real answer settles it; what it asked for is asserted by the unit suites.
-    req.resume()
+    // How this backend answers a read whose conditions matched nothing: both
+    // row lists null and a null total, rather than two empty lists.
+    if ((body.conditions ?? []).length > 0) {
+      answer(res, {
+        code: 0,
+        msg: 'success',
+        traceId: 'fake',
+        data: { rawValue: null, displayValue: null, page: { currentPage: 1, pageSize: 200, total: null, pageCount: null } },
+      })
+      return
+    }
     answer(res, {
       code: 0,
       msg: 'success',
@@ -172,13 +231,13 @@ async function freePort(): Promise<number> {
 }
 
 beforeAll(async () => {
-  backend = createServer(serve)
+  backend = createServer((req, res) => { void serve(req, res) })
   backend.listen(0, '127.0.0.1')
   await once(backend, 'listening')
   const { port } = backend.address() as { port: number }
   const base = `http://127.0.0.1:${String(port)}${API_PREFIX}/`
   SHARED_ENV.DSH_CONSOLE_BIZ_UPSTREAM = base
-  for (const env of [DATA_ENV, REFUSE_ENV]) {
+  for (const env of [DATA_ENV, REFUSE_ENV, DEFAULT_COLUMNS_ENV, EMPTY_ENV]) {
     env.DSH_CONSOLE_BIZ_UPSTREAM = base
     env.DSH_CONSOLE_HTTP_PORT = String(await freePort())
   }
@@ -264,6 +323,12 @@ const AGENT = {
  * whole assembled account of one read. `refuse-datasource-turn` answers the same
  * question `reject_once`, so its log carries the question and nothing after it:
  * no event, no entry, and the sentence the model reads back.
+ * `show-default-columns-turn` sends a call whose table names no columns at all,
+ * so its log carries the scheme-built question, the columns the deployment's own
+ * default query scheme chose, and the result line naming them.
+ * `empty-datasource-turn` sends a filtered read the fake backend matches no row
+ * for, so its log carries the sentence a model reads when its conditions matched
+ * nothing rather than one saying the data source could not be read.
  *
  * What none of them carries is a gesture. `/component-action` reaches the host
  * through `remote.commands` and the ACP protocol has no command method, so this
@@ -288,6 +353,8 @@ const SCENARIOS: Scenario[] = [
   { name: 'reject-view-turn', hasModelTurn: true, recorded: false, env: SHARED_ENV },
   { name: 'show-datasource-turn', hasModelTurn: true, recorded: false, env: DATA_ENV, afterSpawn: () => postToken(DATA_ENV) },
   { name: 'refuse-datasource-turn', hasModelTurn: true, recorded: false, env: REFUSE_ENV, afterSpawn: () => postToken(REFUSE_ENV) },
+  { name: 'show-default-columns-turn', hasModelTurn: true, recorded: false, env: DEFAULT_COLUMNS_ENV, afterSpawn: () => postToken(DEFAULT_COLUMNS_ENV) },
+  { name: 'empty-datasource-turn', hasModelTurn: true, recorded: false, env: EMPTY_ENV, afterSpawn: () => postToken(EMPTY_ENV) },
 ]
 
 /**

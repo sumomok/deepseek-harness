@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write docs/subsystems/biz-backend.md
-biz-backend.md: 538a4ad99db6d8045e84955e38d5613090b4452b
-biz-backend.zh.md: f839587842b2c10901e202dcdd0faa8d555b4c8e
+biz-backend.md: 5ce317cb312961a49e21315fc7bb7b8ef848967b
+biz-backend.zh.md: 97c0519b528299baac7c02f89b2f0f035331ee08

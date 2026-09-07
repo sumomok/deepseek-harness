@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-06-content-component-library-v2c-data-source.md
-2026-09-06-content-component-library-v2c-data-source.md: 96dd7d1e8d1f22a251f4d962d94373a9e5be4e72
-2026-09-06-content-component-library-v2c-data-source.zh.md: 7132229970d40dea6cea778e53c4b0dab560cee5
+2026-09-06-content-component-library-v2c-data-source.md: fe4c2b64e7e13bd1b0197f2e4477ff74a4ce553b
+2026-09-06-content-component-library-v2c-data-source.zh.md: 49d7cc157707895a894c7a2293eb9e3eccd2fe96

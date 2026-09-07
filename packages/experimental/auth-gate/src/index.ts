@@ -7,7 +7,7 @@
  * places, both of them the deployment's own: the forwarding route each
  * configured MCP server gets, where the token becomes the `Authorization`
  * header of the request going upstream, and — when `bizUpstream` is configured
- * — `ctx.bizBackend`, the two reads of this deployment's data backend that
+ * — `ctx.bizBackend`, the reads of this deployment's data backend that
  * `@deepseek-ai/dsh-experimental-biz-backend` serves.
  *
  * Trust: this package authenticates nobody. The token is accepted on its shape

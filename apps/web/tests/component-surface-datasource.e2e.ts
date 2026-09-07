@@ -74,6 +74,9 @@ const LOGIN_PATH = '/component-surface-datasource-login/'
 /** The deployment's API prefix, which the fake backend serves under and the read must keep. */
 const API_PREFIX = '/ini-server'
 
+/** The stored-scheme endpoint, which a call that names no columns of its own is drawn from. */
+const SCHEME_PATH = `${API_PREFIX}/nrms-schema-manage/api/schema/schema`
+
 /** Base64url, the way a JWT carries a segment. */
 function segment(value: unknown): string {
   return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url')
@@ -110,17 +113,63 @@ const ATTRIBUTES = [
   { attributeEnName: 'belong_map_topic', attributeCnName: '所属地图主题' },
 ]
 
+/**
+ * The model's default query scheme, as the schema service stores one: its
+ * flags are the characters this backend writes them with, and one column is
+ * hidden, so what a call taking these columns draws is not simply the whole
+ * scheme.
+ */
+const SCHEME_COLUMNS = [
+  { relatedMetaAttr: 'zh_label', alias: '名称', isShow: '1', isSortable: '1' },
+  { relatedMetaAttr: 'belong_map_topic', alias: '所属地图主题', isShow: '1', isSortable: '0' },
+  { relatedMetaAttr: 'layer_id', alias: '图层id', isShow: '0', isSortable: '0' },
+]
+
+/** The headers a call that named no columns of its own ends up drawing. */
+const SCHEME_HEADERS = ['名称', '所属地图主题']
+
 /** The two sentences of the approval card this scenario reads back word for word. */
 const CARD_PROMISE = '您在表里勾选的行，会作为您的选择告诉小助手'
 const CARD_META = '数据表：SpaceLayer'
 const CARD_OPENING = '用您的账号查一份数据：从「图层配置」里取最多 200 条'
 
+/**
+ * What the card says instead where the call named no columns.
+ *
+ * It names none of them: the scheme that decides them is read with the
+ * visitor's credential, and that is not spent before this question is answered.
+ */
+const CARD_DEFAULT_COLUMNS = '取这张表默认显示的列'
+
 /** The prompt that opens the reading turn, and the one that carries the tick to the model. */
 const PROMPT = 'Show me the deployment\'s 图层配置 table.'
 const TICK_PROMPT = 'Go ahead with that one.'
 
+/** The prompt of the turn whose call names no columns, and the words that turn ends on. */
+const DEFAULT_COLUMNS_PROMPT = 'Draw that table again, but let it choose its own columns.'
+const DEFAULT_COLUMNS_REPLY = 'DEFAULT COLUMNS DRAWN'
+
+/** The prompt of the turn whose filter matches nothing, and the sentence the model can only write from the result. */
+const NO_MATCH_PROMPT = 'Now show me the rows named 没有这一行.'
+const NO_MATCH_REPLY = 'SpaceLayer returned no rows for those conditions, so nothing was drawn.'
+
 /** The words the ticked row earns, once the user's next message carries the inbox to the model. */
 const TICK_REPLY = `Starting with ${DISPLAY_ROWS[0]?.zh_label ?? ''} — I will export those rows.`
+
+/**
+ * Read one request body as the document the read posts.
+ *
+ * The read's own conditions decide which of the two answers below it gets, so
+ * the body is decoded rather than drained.
+ * @param req - the incoming request.
+ * @returns the decoded document, empty where the request carried no body.
+ */
+async function readBody(req: IncomingMessage): Promise<{ conditions?: unknown[] }> {
+  const chunks: Buffer[] = []
+  for await (const chunk of req) chunks.push(chunk as Buffer)
+  const text = Buffer.concat(chunks).toString('utf8')
+  return text === '' ? {} : (JSON.parse(text) as { conditions?: unknown[] })
+}
 
 /** The fake data backend, and what it saw. */
 interface FakeBackend {
@@ -141,7 +190,12 @@ interface FakeBackend {
 async function startBackend(): Promise<FakeBackend> {
   const seen: FakeBackend['seen'] = []
   const presented = `Bearer ${TOKEN}`
-  const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
+  /**
+   * Answer one request, once its body has been read.
+   * @param req - the incoming request.
+   * @param res - the response to write.
+   */
+  async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const path = (req.url ?? '').split('?')[0] ?? ''
     seen.push({
       method: req.method ?? '',
@@ -149,10 +203,18 @@ async function startBackend(): Promise<FakeBackend> {
       ...req.headers.authorization === undefined ? {} : { authorization: req.headers.authorization },
       ...typeof req.headers.certificationtoken === 'string' ? { certificationToken: req.headers.certificationtoken } : {},
     })
-    req.resume()
-    const answer = (body: unknown, status = 200): void => {
+    const answer = (document: unknown, status = 200): void => {
       res.writeHead(status, { 'content-type': 'application/json' })
-      res.end(JSON.stringify(body))
+      res.end(JSON.stringify(document))
+    }
+    let body: { conditions?: unknown[] }
+    try {
+      body = await readBody(req)
+    } catch {
+      // Answered rather than thrown: this handler is started with `void`, so a
+      // rejection here would end the test process instead of failing a case.
+      answer({ code: 1, msg: 'unreadable request body' }, 400)
+      return
     }
     if (req.headers.authorization !== presented || req.headers.certificationtoken !== presented) {
       answer({ code: 3, msg: 'token invalid' }, 401)
@@ -162,7 +224,21 @@ async function startBackend(): Promise<FakeBackend> {
       answer({ code: 0, msg: 'success', data: { resClassEnName: 'SpaceLayer', attributes: ATTRIBUTES } })
       return
     }
+    if (req.method === 'GET' && path === SCHEME_PATH) {
+      answer({ code: 0, msg: 'success', data: [{ schemaId: 'sc-1', schemaType: 1, isDefault: 1, grid: { gridItems: SCHEME_COLUMNS } }] })
+      return
+    }
     if (req.method === 'POST' && path === `${API_PREFIX}/nrms-datamanagement/api/resources/SpaceLayer/_search`) {
+      // A filtered read answers the way this backend answers one that matched
+      // nothing: HTTP 200, both row lists null, and a null total beside them.
+      if ((body.conditions ?? []).length > 0) {
+        answer({
+          code: 0,
+          msg: 'success',
+          data: { rawValue: null, displayValue: null, page: { currentPage: 1, pageSize: 200, total: null, pageCount: null } },
+        })
+        return
+      }
       answer({
         code: 0,
         msg: 'success',
@@ -175,6 +251,9 @@ async function startBackend(): Promise<FakeBackend> {
       return
     }
     answer({ code: 1, msg: 'no such endpoint' }, 404)
+  }
+  const server: Server = createServer((req: IncomingMessage, res: ServerResponse) => {
+    void handle(req, res)
   })
   await new Promise<void>((resolve) => { server.listen(0, '127.0.0.1', resolve) })
   const { port } = server.address() as AddressInfo
@@ -372,6 +451,64 @@ describe.skipIf(MODE === 'record')('web e2e: a call that reads the deployment\'s
     await expect.poll(async () => await page.getByText(TICK_REPLY, { exact: false }).count(), { timeout: 60_000 })
       .toBeGreaterThan(0)
     await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-datasource-tick.png'), fullPage: true })
+  }, 180_000)
+
+  it('draws the table\'s own default columns for a call that named none', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-datasource-default-columns'))
+    const input = composerInput(page)
+    // Everything this turn puts on the wire is measured from here.
+    const beforeTurn = backend.seen.length
+    await writeComposerDraft(page, input, DEFAULT_COLUMNS_PROMPT)
+    await page.keyboard.press('Enter')
+
+    const panel = page.locator('[data-approval-key]')
+    await panel.waitFor({ timeout: 60_000 })
+    // The card says the read takes the table's own default columns and names
+    // none of them, because nothing has been asked of the backend yet.
+    expect(await panel.innerText()).toContain(CARD_DEFAULT_COLUMNS)
+    // Not one request has gone out, the scheme included: the credential is not
+    // spent before the person whose credential it is has answered.
+    expect(backend.seen.slice(beforeTurn)).toEqual([])
+    expect(backend.seen.map(request => request.path)).not.toContain(SCHEME_PATH)
+    await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-datasource-default-card.png'), fullPage: true })
+
+    await panel.getByRole('button', { name: 'Allow once' }).click()
+    await expect.poll(async () => await page.getByText(DEFAULT_COLUMNS_REPLY, { exact: false }).count(), { timeout: 60_000 })
+      .toBeGreaterThan(0)
+
+    // The scheme is read now, with the credential the answer released.
+    expect(backend.seen.map(request => request.path)).toContain(SCHEME_PATH)
+
+    // The scheme's hidden column is not drawn, and the two it shows are, under
+    // the headers the scheme carries rather than any the call wrote.
+    const block = seat(page).locator('[data-component-block="toy.table"]')
+    await expect.poll(
+      async () => await block.locator('.el-table__header-wrapper th .cell').allTextContents(),
+      { timeout: 30_000 },
+    ).toEqual(SCHEME_HEADERS)
+    await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-datasource-default-table.png'), fullPage: true })
+  }, 180_000)
+
+  it('tells the model a filter matched nothing rather than that the source is broken', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-component-datasource-no-match'))
+    const input = composerInput(page)
+    await writeComposerDraft(page, input, NO_MATCH_PROMPT)
+    await page.keyboard.press('Enter')
+
+    const panel = page.locator('[data-approval-key]')
+    await panel.waitFor({ timeout: 60_000 })
+    await panel.getByRole('button', { name: 'Allow once' }).click()
+
+    // The scripted closing line is resolved against the live request, so it can
+    // only be written at all if the tool's zero-rows sentence — not an
+    // unreachable-source one — was in the request that produced it.
+    await expect.poll(async () => await page.getByText(NO_MATCH_REPLY, { exact: false }).count(), { timeout: 60_000 })
+      .toBeGreaterThan(0)
+    const failed = liveEvents().filter(event => event.type === 'tool/result'
+      && JSON.stringify(event.data).includes('returned no rows for those conditions'))
+    expect(failed).toHaveLength(1)
+    expect(JSON.stringify(failed[0])).not.toContain('could not be reached')
+    await page.screenshot({ path: join(ARTIFACTS, 'web-e2e-component-datasource-no-match.png'), fullPage: true })
   }, 180_000)
 
   it('leaves the console clean', () => {

@@ -4,9 +4,9 @@
  *
  * Host-only, and it holds no credential of its own: whoever installs the
  * service passes the token in by reference, which in this fork is the sign-on
- * gate that took it from the visitor's browser. The two reads below are the
- * same two requests the deployment's own web page makes when a person opens a
- * resource list, minus the three the page adds for itself: no cache-busting
+ * gate that took it from the visitor's browser. The three reads below are the
+ * same three requests the deployment's own web page makes when a person opens
+ * a resource list, minus three things that page adds for itself: no cache-busting
  * query parameter (nothing here caches), no expansion of the browser's stored
  * profile into request headers, and no activity record posted afterwards —
  * writing one would put an operation into the deployment's audit trail that its
@@ -16,7 +16,7 @@
  * `PUT /api/resources/{model}/{id}`, `DELETE /api/resources/{model}/{id}`, and
  * `POST /api/batchresources/delete/{model}`. A general `fetch(path, init)`
  * service would hand every plugin sharing this process the visitor's credential
- * and those endpoints along with it, so the two reads below name what they do
+ * and those endpoints along with it, so the three reads below name what they do
  * and can reach nothing else.
  *
  * Failures are values, never exceptions: every call answers with its result or
@@ -44,6 +44,19 @@ const SEARCH_SERVICE_PATH = 'nrms-datamanagement/api/resources'
 
 /** Path of the schema service one model's attribute names are read from; fixed for the same reason. */
 const META_SERVICE_PATH = 'nrms-schema-manage/api/meta/resclass'
+
+/** Path of the schema service one model's stored schemes are read from; fixed for the same reason. */
+const SCHEME_SERVICE_PATH = 'nrms-schema-manage/api/schema/schema'
+
+/**
+ * The scheme kind that describes a resource list, in the schema service's own
+ * numbering. The deployment's frontend writes the same literal when it opens
+ * one, so it is an external specification here rather than a deployment choice.
+ */
+const QUERY_SCHEME_TYPE = 1
+
+/** The flag selecting the one scheme of that kind a resource list opens with. */
+const DEFAULT_SCHEME_FLAG = 1
 
 /**
  * Rows one read asks for when the request names no page of its own.
@@ -177,6 +190,31 @@ export interface BizMetaAttribute {
 export interface BizMetaResult {
   /** Every attribute the model declares, in the order the backend lists them. */
   readonly attributes: readonly BizMetaAttribute[]
+}
+
+/**
+ * One column of a model's default query scheme, reduced to the four fields a
+ * caller drawing that scheme's table needs.
+ *
+ * The three optional fields are absent wherever the stored scheme carries
+ * neither reading of them, so a caller distinguishes "the scheme hid this
+ * column" from "the scheme said nothing about it".
+ */
+export interface BizSchemeColumn {
+  /** The attribute the column reads its cell out of, by its English name. */
+  readonly relatedMetaAttr: string
+  /** The header the scheme gives the column, where it gives one. */
+  readonly alias?: string
+  /** Whether the resource list draws the column, where the scheme states it. */
+  readonly isShow?: boolean
+  /** Whether the resource list lets a person sort by the column, where the scheme states it. */
+  readonly isSortable?: boolean
+}
+
+/** What one default-query-scheme read returned. */
+export interface BizSchemeResult {
+  /** The scheme's columns, in the order it lists them. */
+  readonly columns: readonly BizSchemeColumn[]
 }
 
 /**
@@ -382,12 +420,25 @@ function readTotal(page: unknown): number | undefined {
 
 /**
  * Read the two row lists and the total out of one read's payload.
+ *
+ * A payload carrying both row lists as an explicit null is zero rows, not an
+ * unreadable answer: that is the answer this backend was measured giving a read
+ * whose conditions matched nothing, and its page descriptor carries a null
+ * total beside them. A payload that carries neither key is not that answer and
+ * stays unreadable, because an envelope this seam has never seen is not one to
+ * report a row count out of.
  * @param data - the envelope's payload.
  * @returns the result, or `undefined` when the payload is not one this seam reads.
  */
 function readSearchData(data: unknown): BizSearchResult | undefined {
-  if (typeof data !== 'object' || data === null) return undefined
+  if (typeof data !== 'object' || data === null || Array.isArray(data)) return undefined
   const payload = data as { rawValue?: unknown; displayValue?: unknown; page?: unknown }
+  // Reading the measured empty answer as one this seam could not parse would
+  // tell a caller its data source is broken when what happened is that its
+  // filters matched no row.
+  if (payload.rawValue === null && payload.displayValue === null) {
+    return { rawValue: [], displayValue: [], total: 0 }
+  }
   if (!isRowList(payload.rawValue) || !isRowList(payload.displayValue)) return undefined
   const total = readTotal(payload.page)
   return {
@@ -395,6 +446,78 @@ function readSearchData(data: unknown): BizSearchResult | undefined {
     displayValue: payload.displayValue,
     ...total === undefined ? {} : { total },
   }
+}
+
+/**
+ * Read one of a scheme column's yes-or-no fields.
+ *
+ * A stored scheme writes them either way round: the schema service answers with
+ * the characters `'0'` and `'1'` on some schemes and with JSON booleans on
+ * others, and the deployment's own frontend reads both. So both readings are
+ * accepted here, and a value that is neither is treated as unstated rather than
+ * guessed at.
+ * @param value - the field as the answer carries it.
+ * @returns the flag, or `undefined` when the field carries neither reading.
+ */
+function readSchemeFlag(value: unknown): boolean | undefined {
+  if (typeof value === 'boolean') return value
+  if (value === '1') return true
+  if (value === '0') return false
+  return undefined
+}
+
+/**
+ * Reduce one scheme column to the four fields this seam publishes.
+ *
+ * A column naming no attribute is dropped rather than failing the call, for the
+ * reason an attribute carrying neither name is: a stored scheme carries layout
+ * fields this seam never reads, and an entry with nothing to read a cell out of
+ * is not a column a caller could draw.
+ * @param entry - one element of the scheme's column list.
+ * @returns the column, or `undefined` when the element names no attribute.
+ */
+function readSchemeColumn(entry: unknown): BizSchemeColumn | undefined {
+  if (typeof entry !== 'object' || entry === null) return undefined
+  const item = entry as { relatedMetaAttr?: unknown; alias?: unknown; isShow?: unknown; isSortable?: unknown }
+  if (typeof item.relatedMetaAttr !== 'string' || item.relatedMetaAttr === '') return undefined
+  const alias = typeof item.alias === 'string' && item.alias !== '' ? item.alias : undefined
+  const isShow = readSchemeFlag(item.isShow)
+  const isSortable = readSchemeFlag(item.isSortable)
+  return {
+    relatedMetaAttr: item.relatedMetaAttr,
+    ...alias === undefined ? {} : { alias },
+    ...isShow === undefined ? {} : { isShow },
+    ...isSortable === undefined ? {} : { isSortable },
+  }
+}
+
+/**
+ * Read the column list out of one default-query-scheme answer.
+ *
+ * The payload is the list of schemes matching the query, and the query names
+ * exactly one: the model's default scheme of the resource-list kind. Its first
+ * element is therefore the scheme, which is also what the deployment's own
+ * frontend reads.
+ *
+ * A list whose every element names no attribute reads the same as no scheme at
+ * all, because both leave a caller with nothing to draw.
+ * @param data - the envelope's payload.
+ * @returns the columns, or `undefined` when the answer carries no scheme this seam can read columns out of.
+ */
+function readSchemeColumns(data: unknown): readonly BizSchemeColumn[] | undefined {
+  if (!Array.isArray(data)) return undefined
+  const [scheme] = data as readonly unknown[]
+  if (typeof scheme !== 'object' || scheme === null) return undefined
+  const grid = (scheme as { grid?: unknown }).grid
+  if (typeof grid !== 'object' || grid === null) return undefined
+  const listed = (grid as { gridItems?: unknown }).gridItems
+  if (!Array.isArray(listed)) return undefined
+  const columns: BizSchemeColumn[] = []
+  for (const entry of listed as readonly unknown[]) {
+    const column = readSchemeColumn(entry)
+    if (column !== undefined) columns.push(column)
+  }
+  return columns.length === 0 ? undefined : columns
 }
 
 /**
@@ -432,7 +555,7 @@ function readAttributes(data: unknown): readonly BizMetaAttribute[] | undefined 
 }
 
 /**
- * `ctx.bizBackend`: the two reads this deployment's data backend serves,
+ * `ctx.bizBackend`: the three reads this deployment's data backend serves,
  * performed with the access token its caller holds for the signed-in visitor.
  *
  * Nothing here registers the service: it is constructed by the row that holds
@@ -523,6 +646,35 @@ export class BizBackendService extends Service {
     const attributes = readAttributes(answered.data)
     if (attributes === undefined) return { kind: 'unreachable', detail: 'the answer listed no attributes' }
     return { attributes }
+  }
+
+  /**
+   * Read one resource model's default query scheme — the columns this
+   * deployment's own resource list opens that model with.
+   *
+   * The same request the deployment's frontend makes before it draws a resource
+   * list: the model's stored schemes, narrowed to the resource-list kind and to
+   * the one marked default. A caller that has no column list of its own gets
+   * the deployment's own choice of columns and their headers, rather than
+   * guessing attribute names.
+   * @param meta - the resource model, by its English name.
+   * @param signal - aborts the request in flight; an abort answers `unreachable`.
+   * @returns the scheme's columns in its own order, or why they could not be read.
+   */
+  async describeScheme(meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure> {
+    const subject = this.subjectFor(meta)
+    if ('kind' in subject) return subject
+    const query = `?schemaType=${String(QUERY_SCHEME_TYPE)}&metaEnName=${subject.meta}`
+      + `&schemaName=&isDefault=${String(DEFAULT_SCHEME_FLAG)}`
+    const answered = await this.exchange(
+      `${combineUrls(this.upstream, SCHEME_SERVICE_PATH)}${query}`,
+      { method: 'GET', headers: credentialHeaders(subject.token), signal },
+      subject.token,
+    )
+    if (answered.kind !== 'answered') return answered
+    const columns = readSchemeColumns(answered.data)
+    if (columns === undefined) return { kind: 'unreachable', detail: 'the model has no default query scheme' }
+    return { columns }
   }
 
   /**

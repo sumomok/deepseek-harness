@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "prompt",
+      "text": "Put this deployment’s own 图层配置 table in the content panel, reading from the data source the rows whose 名称 (zh_label) is exactly 没有这一行 — the table is SpaceLayer and the one column is zh_label. Then reply with exactly the single word DONE."
+    }
+  ],
+  "permissionAnswers": [
+    {
+      "kind": "allow_once"
+    }
+  ]
+}

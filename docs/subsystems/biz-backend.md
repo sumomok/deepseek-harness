@@ -2,13 +2,13 @@
 
 English | [中文](biz-backend.zh.md)
 
-`ctx.bizBackend` reads the data a deployment serves for itself — one page of one resource model's rows, and one model's attribute names — with the access token of the person using that deployment. It exists for the fork's service-console line, where the harness runs behind the same sign-on as the deployment's own web console and a panel is drawn from the same rows that console shows. The [package README](../../packages/experimental/biz-backend/README.md) owns the callable API, the request and result declarations, and the limits; this page records where the service comes from and the two rules a consumer cannot get from a signature.
+`ctx.bizBackend` reads the data a deployment serves for itself — one page of one resource model's rows, one model's attribute names, and the columns its own resource list opens that model with — with the access token of the person using that deployment. It exists for the fork's service-console line, where the harness runs behind the same sign-on as the deployment's own web console and a panel is drawn from the same rows that console shows. The [package README](../../packages/experimental/biz-backend/README.md) owns the callable API, the request and result declarations, and the limits; this page records where the service comes from and the two rules a consumer cannot get from a signature.
 
 Source: [`packages/experimental/biz-backend/src/index.ts`](../../packages/experimental/biz-backend/src/index.ts).
 
 ## The service is constructed, not composed
 
-There is no plugin row for it. The service is created by whichever row holds the visitor's access token — in this fork, [`dsh-experimental-auth-gate`](../../packages/experimental/auth-gate/README.md) — and that row passes the token in by reference rather than publishing it. The credential therefore stays in one closure while the two reads that spend it are named on the context, which is the whole of the split: a plugin beside this one can read the deployment's data, and none can read the token.
+There is no plugin row for it. The service is created by whichever row holds the visitor's access token — in this fork, [`dsh-experimental-auth-gate`](../../packages/experimental/auth-gate/README.md) — and that row passes the token in by reference rather than publishing it. The credential therefore stays in one closure while the three reads that spend it are named on the context, which is the whole of the split: a plugin beside this one can read the deployment's data, and none can read the token.
 
 A deployment that configures no base for the backend constructs nothing, so a consumer's `ctx.inject(['bizBackend'])` stays pending with the missing service named. That is the intended way to say "this deployment offers no data backend" — an installed service whose every call failed would say it once per call instead of once at load.
 
@@ -34,7 +34,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.bizBackend` — `BizBackendService`
 
-`ctx.bizBackend`: the two reads this deployment's data backend serves, performed with the access token its caller holds for the signed-in visitor.
+`ctx.bizBackend`: the three reads this deployment's data backend serves, performed with the access token its caller holds for the signed-in visitor.
 
 Nothing here registers the service: it is constructed by the row that holds the visitor's token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer's `ctx.inject(['bizBackend'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.
 
@@ -67,6 +67,21 @@ async search(request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchR
  * @returns the model's attributes, or why they could not be read.
  */
 async describe(meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure>
+
+/**
+ * Read one resource model's default query scheme — the columns this
+ * deployment's own resource list opens that model with.
+ *
+ * The same request the deployment's frontend makes before it draws a resource
+ * list: the model's stored schemes, narrowed to the resource-list kind and to
+ * the one marked default. A caller that has no column list of its own gets
+ * the deployment's own choice of columns and their headers, rather than
+ * guessing attribute names.
+ * @param meta - the resource model, by its English name.
+ * @param signal - aborts the request in flight; an abort answers `unreachable`.
+ * @returns the scheme's columns in its own order, or why they could not be read.
+ */
+async describeScheme(meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure>
 ```
 
 Source: [`packages/experimental/biz-backend/src/index.ts`](../../packages/experimental/biz-backend/src/index.ts)

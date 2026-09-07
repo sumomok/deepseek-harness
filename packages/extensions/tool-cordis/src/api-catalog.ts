@@ -603,8 +603,8 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
   },
   {
     key: 'bizBackend',
-    summary: '`ctx.bizBackend`: the two reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.',
-    description: '`ctx.bizBackend`: the two reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
+    summary: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.',
+    description: '`ctx.bizBackend`: the three reads this deployment\'s data backend serves, performed with the access token its caller holds for the signed-in visitor.\n\nNothing here registers the service: it is constructed by the row that holds the visitor\'s token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer\'s `ctx.inject([\'bizBackend\'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.',
     methods: [
       {
         signature: 'holdsCredential(): boolean',
@@ -623,6 +623,12 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
         description: 'Read one resource model\'s attribute names, under both of the names the deployment keeps for each.',
         parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
         returns: 'the model\'s attributes, or why they could not be read.',
+      },
+      {
+        signature: 'async describeScheme(meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure>',
+        description: 'Read one resource model\'s default query scheme — the columns this deployment\'s own resource list opens that model with.\n\nThe same request the deployment\'s frontend makes before it draws a resource list: the model\'s stored schemes, narrowed to the resource-list kind and to the one marked default. A caller that has no column list of its own gets the deployment\'s own choice of columns and their headers, rather than guessing attribute names.',
+        parameters: [{ name: 'meta', description: 'the resource model, by its English name.' }, { name: 'signal', description: 'aborts the request in flight; an abort answers `unreachable`.' }],
+        returns: 'the scheme\'s columns in its own order, or why they could not be read.',
       },
     ],
   },
@@ -3683,6 +3689,14 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   {
     name: 'BizMetaResult',
     declaration: 'export interface BizMetaResult {\n    readonly attributes: readonly BizMetaAttribute[];\n}',
+  },
+  {
+    name: 'BizSchemeColumn',
+    declaration: 'export interface BizSchemeColumn {\n    readonly relatedMetaAttr: string;\n    readonly alias?: string;\n    readonly isShow?: boolean;\n    readonly isSortable?: boolean;\n}',
+  },
+  {
+    name: 'BizSchemeResult',
+    declaration: 'export interface BizSchemeResult {\n    readonly columns: readonly BizSchemeColumn[];\n}',
   },
   {
     name: 'BizSearchRequest',

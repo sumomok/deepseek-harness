@@ -118,7 +118,7 @@ token 被放在插件内部的一个闭包里，且不写去任何地方：没�
 <a id="reading-the-deployments-data-backend"></a>
 ## 读这套部署自己的数据后端
 
-签发 token 的那套部署，同时也在供自己的数据。`bizUpstream` 把这些请求所构建于的基址交给本进程，闸门在它之上构造出 [`dsh-experimental-biz-backend`](../biz-backend/README.zh.md) 的 `ctx.bizBackend`，用的是它已经持有的那枚 token。那个包拥有这两次读取本身、它们放到线上的东西，以及每种答复如何被归类。
+签发 token 的那套部署，同时也在供自己的数据。`bizUpstream` 把这些请求所构建于的基址交给本进程，闸门在它之上构造出 [`dsh-experimental-biz-backend`](../biz-backend/README.zh.md) 的 `ctx.bizBackend`，用的是它已经持有的那枚 token。那个包拥有这些读取本身、它们放到线上的东西，以及每种答复如何被归类。
 
 ```yaml
 - id: auth-gate

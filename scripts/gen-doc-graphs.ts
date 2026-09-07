@@ -592,7 +592,7 @@ const SERVICE_ROLES: ServiceRole[] = [
     title: 'Deployment data-backend reads',
     mode: 'core',
     consumers: ['component-surface'],
-    note: 'Owns two named reads of a deployment\'s own data backend, spent with the visitor\'s access token; auth-gate constructs the service with the base it validated and the token it holds, so the credential stays in that package\'s closure.',
+    note: 'Owns three named reads of a deployment\'s own data backend, spent with the visitor\'s access token; auth-gate constructs the service with the base it validated and the token it holds, so the credential stays in that package\'s closure.',
   },
   {
     key: 'jobs',

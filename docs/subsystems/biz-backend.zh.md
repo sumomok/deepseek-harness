@@ -2,13 +2,13 @@
 
 [English](biz-backend.md) | 中文
 
-`ctx.bizBackend` 读的是一套部署自己供给的数据——某个资源模型的一页行，以及某个模型的属性名——用的是正在使用这套部署的那个人的访问令牌。它是为本 fork 的服务控制台线而存在的：harness 跑在与部署自己的 Web 控制台相同的单点登录后面，而面板画的是那个控制台展示的同一批行。[包 README](../../packages/experimental/biz-backend/README.zh.md) 拥有可调用的 API、请求与结果的声明，以及各项限制；本页记录这个服务从哪里来，以及消费方从签名里读不出来的那两条规则。
+`ctx.bizBackend` 读的是一套部署自己供给的数据——某个资源模型的一页行、某个模型的属性名，以及它自己的资源清单打开这个模型时用的那几列——用的是正在使用这套部署的那个人的访问令牌。它是为本 fork 的服务控制台线而存在的：harness 跑在与部署自己的 Web 控制台相同的单点登录后面，而面板画的是那个控制台展示的同一批行。[包 README](../../packages/experimental/biz-backend/README.zh.md) 拥有可调用的 API、请求与结果的声明，以及各项限制；本页记录这个服务从哪里来，以及消费方从签名里读不出来的那两条规则。
 
 来源：[`packages/experimental/biz-backend/src/index.ts`](../../packages/experimental/biz-backend/src/index.ts)。
 
 ## 这个服务是被构造出来的，不是被组合进来的
 
-它没有插件行。服务由握着访客访问令牌的那一行创建——在本 fork 里是 [`dsh-experimental-auth-gate`](../../packages/experimental/auth-gate/README.zh.md)——而那一行是按引用把令牌传进来的，并不把它发布出去。于是凭据留在一个闭包里，而花它的那两次读取在上下文上具名，这就是这道分割的全部：与它相邻的插件能读本部署的数据，谁都读不到那枚令牌。
+它没有插件行。服务由握着访客访问令牌的那一行创建——在本 fork 里是 [`dsh-experimental-auth-gate`](../../packages/experimental/auth-gate/README.zh.md)——而那一行是按引用把令牌传进来的，并不把它发布出去。于是凭据留在一个闭包里，而花它的那三次读取在上下文上具名，这就是这道分割的全部：与它相邻的插件能读本部署的数据，谁都读不到那枚令牌。
 
 没有为这个后端配置基址的部署什么都不构造，于是消费方的 `ctx.inject(['bizBackend'])` 会明确挂起并点出缺失的服务名。那正是「这套部署不提供数据后端」的表达方式——一个装上了却次次调用都失败的服务，等于把这句话每调用一次说一遍，而不是在加载时说一次。
 
@@ -34,7 +34,7 @@ Generated from source by `scripts/gen-cordis-catalog.ts` (verified fresh by `pnp
 
 ### `ctx.bizBackend` — `BizBackendService`
 
-`ctx.bizBackend`: the two reads this deployment's data backend serves, performed with the access token its caller holds for the signed-in visitor.
+`ctx.bizBackend`: the three reads this deployment's data backend serves, performed with the access token its caller holds for the signed-in visitor.
 
 Nothing here registers the service: it is constructed by the row that holds the visitor's token, and only when that row was configured with a backend to read. A deployment that configures none installs no such service at all, so a consumer's `ctx.inject(['bizBackend'])` stays pending and Cordis names the missing service, rather than a service that exists and fails every call.
 
@@ -67,6 +67,21 @@ async search(request: BizSearchRequest, signal: AbortSignal): Promise<BizSearchR
  * @returns the model's attributes, or why they could not be read.
  */
 async describe(meta: string, signal: AbortSignal): Promise<BizMetaResult | BizBackendFailure>
+
+/**
+ * Read one resource model's default query scheme — the columns this
+ * deployment's own resource list opens that model with.
+ *
+ * The same request the deployment's frontend makes before it draws a resource
+ * list: the model's stored schemes, narrowed to the resource-list kind and to
+ * the one marked default. A caller that has no column list of its own gets
+ * the deployment's own choice of columns and their headers, rather than
+ * guessing attribute names.
+ * @param meta - the resource model, by its English name.
+ * @param signal - aborts the request in flight; an abort answers `unreachable`.
+ * @returns the scheme's columns in its own order, or why they could not be read.
+ */
+async describeScheme(meta: string, signal: AbortSignal): Promise<BizSchemeResult | BizBackendFailure>
 ```
 
 Source: [`packages/experimental/biz-backend/src/index.ts`](../../packages/experimental/biz-backend/src/index.ts)

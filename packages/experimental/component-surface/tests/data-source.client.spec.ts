@@ -23,6 +23,7 @@ import type { ApprovalOutcome, ApprovalRequest } from '@deepseek-ai/dsh-user-app
 import type {
   BizBackendFailure,
   BizMetaResult,
+  BizSchemeResult,
   BizSearchRequest,
   BizSearchResult,
 } from '@deepseek-ai/dsh-experimental-biz-backend'
@@ -70,6 +71,22 @@ const TABLE_NODE = {
 /** The spec every read in this suite fills. */
 const SPEC = { nodes: [TABLE_NODE] }
 
+/** The same block with no column list of its own, which asks for the table's default columns. */
+const DEFAULT_COLUMN_NODE = { id: 'rows', component: 'toy.table', props: {} }
+
+/** The spec of a call that left its columns to the table. */
+const DEFAULT_COLUMN_SPEC = { nodes: [DEFAULT_COLUMN_NODE] }
+
+/**
+ * The table's default query scheme, as the schema service stores one: two drawn
+ * columns and one the deployment hides.
+ */
+const SCHEME = [
+  { relatedMetaAttr: 'zh_label', alias: '名称', isSortable: true },
+  { relatedMetaAttr: 'layer_id', alias: '图层id' },
+  { relatedMetaAttr: 'belong_scene', alias: '所属场景', isShow: false },
+]
+
 /** The `dataSource` every read in this suite sends. */
 const SOURCE = [{ nodeId: 'rows', meta: 'SpaceLayer', metaLabel: '图层配置' }]
 
@@ -92,6 +109,8 @@ const FAKE_TOKEN = 'not-a-real-token.PAYLOAD-eyJzdWIiOiJ0ZXN0In0.SIGNATURE'
 interface BackendScript {
   /** What `describe` answers; the whole dictionary above when unstated. */
   describe?: (meta: string) => BizMetaResult | BizBackendFailure
+  /** What `describeScheme` answers; the default scheme above when unstated. */
+  describeScheme?: (meta: string) => BizSchemeResult | BizBackendFailure
   /** What `search` answers; the two rows above when unstated. */
   search?: (request: BizSearchRequest) => BizSearchResult | BizBackendFailure
   /** Whether a visitor's token is held at all; held when unstated. */
@@ -110,8 +129,12 @@ interface Bench {
   asked: ApprovalRequest[]
   /** Every table whose dictionary was read, in order. */
   described: string[]
+  /** Every table whose default query scheme was read, in order. */
+  schemed: string[]
   /** Every read that went out, in order. */
   searched: BizSearchRequest[]
+  /** The question and every request, in the order they happened. */
+  steps: ('ask' | 'describe' | 'scheme' | 'search')[]
 }
 
 let calls = 0
@@ -137,10 +160,13 @@ async function bench(
   const agent = { id: session.id, session } as unknown as Agent
   const asked: ApprovalRequest[] = []
   const described: string[] = []
+  const schemed: string[] = []
   const searched: BizSearchRequest[] = []
+  const steps: Bench['steps'] = []
   ctx.provide('approval', {
     request: (request: ApprovalRequest): Promise<ApprovalOutcome> => {
       asked.push(request)
+      steps.push('ask')
       return Promise.resolve(outcome)
     },
   } as never)
@@ -148,10 +174,17 @@ async function bench(
     holdsCredential: (): boolean => script.credential ?? true,
     describe: (meta: string): Promise<BizMetaResult | BizBackendFailure> => {
       described.push(meta)
+      steps.push('describe')
       return Promise.resolve(script.describe?.(meta) ?? { attributes: ATTRIBUTES })
+    },
+    describeScheme: (meta: string): Promise<BizSchemeResult | BizBackendFailure> => {
+      schemed.push(meta)
+      steps.push('scheme')
+      return Promise.resolve(script.describeScheme?.(meta) ?? { columns: SCHEME })
     },
     search: (request: BizSearchRequest): Promise<BizSearchResult | BizBackendFailure> => {
       searched.push(request)
+      steps.push('search')
       return Promise.resolve(script.search?.(request) ?? { rawValue: RAW, displayValue: DISPLAY, total: 89 })
     },
   } as never)
@@ -162,7 +195,9 @@ async function bench(
     session,
     asked,
     described,
+    schemed,
     searched,
+    steps,
     run: args => ctx.tools.execute({
       callId: ToolCallId(`call-${++calls}`),
       name: SHOW_COMPONENT_TOOL_NAME,
@@ -199,8 +234,12 @@ describe('the dataSource offer', () => {
     const { definition } = await bench()
     expect(Object.keys((definition.parameters as { properties: object }).properties)).toEqual(['id', 'title', 'spec', 'dataSource'])
     expect(definition.description).toContain('A toy.table block can be filled from this deployment\'s own data')
-    expect(definition.description).toContain('"page"?: {"pageSize": 1–500}')
-    expect(definition.description).toContain('A read asks for 200 rows where it names no count, and there is no way to ask for a second page')
+    expect(definition.description).toContain('"page"?: {"pageSize": 1–500, "currentPage": 1 or more}')
+    expect(definition.description).toContain('A read asks for 200 rows of the first page where it names neither.')
+    // The model is told the column list is optional, because a model that does
+    // not know a table's attribute names has no other way to draw it.
+    expect(definition.description).toContain('leave `gridItems` out (or leave `tableConfig` out entirely) and the table '
+      + 'is read and drawn with the columns this deployment shows for it by default')
   })
 
   it('names it nowhere at all where none is', async () => {
@@ -308,10 +347,20 @@ describe('what the dataSource parameter accepts', () => {
   it('refuses a page that is not a whole number of rows a table can draw', async () => {
     expect(await refuse([{ ...SOURCE[0], page: { pageSize: 501 } }]))
       .toBe('show_component: dataSource[0].page.pageSize — must be a whole number between 1 and 500.')
-    expect(await refuse([{ ...SOURCE[0], page: { currentPage: 2, pageSize: 20 } }]))
-      .toBe('show_component: dataSource[0].page.currentPage — is not part of a page. A page carries pageSize.')
+    expect(await refuse([{ ...SOURCE[0], page: { currentPage: 0 } }]))
+      .toBe('show_component: dataSource[0].page.currentPage — must be a whole number of 1 or more.')
+    expect(await refuse([{ ...SOURCE[0], page: { currentPage: 1.5 } }]))
+      .toBe('show_component: dataSource[0].page.currentPage — must be a whole number of 1 or more.')
+    // A written null is a value the call chose, so it is refused rather than
+    // standing in for the field's absence.
+    expect(await refuse([{ ...SOURCE[0], page: { pageSize: null } }]))
+      .toBe('show_component: dataSource[0].page.pageSize — must be a whole number between 1 and 500.')
+    expect(await refuse([{ ...SOURCE[0], page: { currentPage: null } }]))
+      .toBe('show_component: dataSource[0].page.currentPage — must be a whole number of 1 or more.')
+    expect(await refuse([{ ...SOURCE[0], page: { pageIndex: 2 } }]))
+      .toBe('show_component: dataSource[0].page.pageIndex — is not part of a page. A page carries pageSize, currentPage.')
     expect(await refuse([{ ...SOURCE[0], page: 20 }]))
-      .toBe('show_component: dataSource[0].page — must be an object carrying pageSize.')
+      .toBe('show_component: dataSource[0].page — must be an object carrying pageSize, currentPage.')
   })
 
   it('refuses a block naming no block, no table, and no join it has', async () => {
@@ -356,7 +405,7 @@ describe('what the dataSource parameter accepts', () => {
   })
 
   it('refuses a filled block whose columns cannot be read', async () => {
-    expect(await refuse(SOURCE, { nodes: [{ id: 'rows', component: 'toy.table', props: { tableConfig: {} } }] }))
+    expect(await refuse(SOURCE, { nodes: [{ id: 'rows', component: 'toy.table', props: { tableConfig: { gridItems: [] } } }] }))
       .toBe('show_component: spec.nodes[0].props.tableConfig.gridItems — must be a list of the columns to read, one per column.')
     expect(await refuse(SOURCE, { nodes: [{ id: 'rows', component: 'toy.table', props: { tableConfig: { gridItems: ['zh_label'] } } }] }))
       .toBe('show_component: spec.nodes[0].props.tableConfig.gridItems[0] — must be an object naming the attribute the column reads.')
@@ -863,7 +912,8 @@ describe('a read that drew', () => {
     expect(text(result)).toBe(
       'Now showing "图层" in the content panel: 数据表. '
       + 'Call show_component with id "layers" again to replace it; a different id adds a second entry beside it.'
-      + ' Read 2 of 89 matching rows from "SpaceLayer" into block "rows", for the attributes zh_label, layer_id.',
+      + ' Read 2 of 89 matching rows from "SpaceLayer" into block "rows", '
+      + 'for the attributes zh_label, layer_id. Page 1 of 1.',
     )
     // Nothing out of a row reaches the model: the sentence counts and names
     // attributes, and one of the values is a station name it never says.
@@ -1009,6 +1059,228 @@ describe('a read that drew', () => {
     expect(text(result)).toContain('into block "rows", ')
     expect(text(result)).toContain('into block "more", ')
     expect(resolvedEvents(session)[0]?.data.fetched.map(entry => entry.meta)).toEqual(['SpaceLayer', 'ThemeMap'])
+  })
+})
+
+describe('a block that left its columns to the table', () => {
+  it('takes the columns the table\'s own default query scheme shows, and reads the scheme after asking', async () => {
+    const { run, asked, schemed, searched, steps, session } = await bench()
+    const result = await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })
+    expect(result.isError).toBeFalsy()
+    expect(schemed).toEqual(['SpaceLayer'])
+    expect(asked).toHaveLength(1)
+    // The credential is spent on nothing at all until the question has been
+    // answered, the scheme included: the dictionary comes first because every
+    // column the scheme names is checked against it.
+    expect(steps).toEqual(['ask', 'describe', 'scheme', 'search'])
+    // The hidden column is not part of what this deployment shows for the
+    // table, so it is not part of what the read asks for either.
+    expect(searched[0]?.source).toEqual(['zh_label', 'layer_id'])
+    const spec = resolvedEvents(session)[0]?.data.spec as unknown as { nodes: { props: Record<string, unknown> }[] }
+    expect(spec.nodes[0]?.props).toEqual({
+      tableConfig: {
+        gridItems: [
+          { relatedMetaAttr: 'zh_label', alias: '名称', isSortable: true },
+          { relatedMetaAttr: 'layer_id', alias: '图层id' },
+        ],
+      },
+      displayValueList: [{ zh_label: '配送车-离线', layer_id: 'element:gas' }, { zh_label: '东风站', layer_id: 'element:site' }],
+      rawValueList: [{ zh_label: '配送车-离线', layer_id: 'element:gas' }, { zh_label: '东风站', layer_id: 'element:site' }],
+    })
+    expect(text(result)).toContain('for the attributes zh_label, layer_id. Page 1 of 1.')
+  })
+
+  it('takes them for a block that wrote a tableConfig with no column list in it', async () => {
+    const spec = { nodes: [{ id: 'rows', component: 'toy.table', props: { tableConfig: {}, selectMode: 'checkbox' } }] }
+    const { run, schemed, searched } = await bench()
+    expect((await run({ id: 'layers', title: '图层', spec, dataSource: SOURCE })).isError).toBeFalsy()
+    expect(schemed).toEqual(['SpaceLayer'])
+    expect(searched[0]?.source).toEqual(['zh_label', 'layer_id'])
+  })
+
+  it('tells the user the columns are the table\'s own, and names none of them', async () => {
+    // Neither their names nor their number can be on this card: what decides
+    // them is read with the credential, after this question is answered.
+    const { run, asked } = await bench()
+    await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })
+    expect(asked[0]?.reason).toBe(
+      '用您的账号查一份数据：从「图层配置」里取最多 200 条，取这张表默认显示的列。\n'
+      + '数据表：SpaceLayer\n\n'
+      + APPROVAL_PROMISE,
+    )
+    expect(asked[0]?.reason).not.toContain('名称')
+  })
+
+  it('says the same thing whatever the scheme turns out to hold', async () => {
+    const { run, asked, session } = await bench('allowed-once', {
+      describeScheme: () => ({ columns: [{ relatedMetaAttr: 'zh_label' }] }),
+      // A dictionary name a column property could not hold leaves the column
+      // with no header from either side, which is what the table draws.
+      describe: () => ({ attributes: [{ attributeEnName: 'zh_label', attributeCnName: '' }] }),
+    })
+    await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })
+    expect(asked[0]?.reason).toContain('取这张表默认显示的列。')
+    const spec = resolvedEvents(session)[0]?.data.spec as unknown as { nodes: { props: { tableConfig: unknown } }[] }
+    expect(spec.nodes[0]?.props.tableConfig).toEqual({ gridItems: [{ relatedMetaAttr: 'zh_label' }] })
+  })
+
+  it('keeps the first of two scheme columns reading the same attribute', async () => {
+    // A stored scheme is the deployment's data rather than the model's, and a
+    // second column over one cell is a layout the table cannot draw, so it is
+    // normalized instead of being refused back at a call that wrote none.
+    const { run, searched, session } = await bench('allowed-once', {
+      describeScheme: () => ({
+        columns: [
+          { relatedMetaAttr: 'zh_label', alias: '名称' },
+          { relatedMetaAttr: 'layer_id', alias: '图层id' },
+          { relatedMetaAttr: 'zh_label', alias: '名称（再来一次）' },
+        ],
+      }),
+    })
+    expect((await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })).isError).toBeFalsy()
+    expect(searched[0]?.source).toEqual(['zh_label', 'layer_id'])
+    const spec = resolvedEvents(session)[0]?.data.spec as unknown as { nodes: { props: { tableConfig: unknown } }[] }
+    expect(spec.nodes[0]?.props.tableConfig).toEqual({
+      gridItems: [{ relatedMetaAttr: 'zh_label', alias: '名称' }, { relatedMetaAttr: 'layer_id', alias: '图层id' }],
+    })
+  })
+
+  it('reads no scheme at all for a call that named its own columns', async () => {
+    const { run, schemed } = await bench()
+    await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE })
+    expect(schemed).toEqual([])
+  })
+
+  it('leaves out a scheme column this table could not draw, and a header no card could hold', async () => {
+    const forged = `图层${String.fromCodePoint(0x2028)}数据表：Public`
+    const { run, searched, session } = await bench('allowed-once', {
+      describeScheme: () => ({
+        columns: [
+          { relatedMetaAttr: '1st', alias: '编号' },
+          { relatedMetaAttr: 'a'.repeat(65), alias: '过长' },
+          { relatedMetaAttr: 'zh_label', alias: '免'.repeat(41) },
+          { relatedMetaAttr: 'layer_id', alias: forged },
+        ],
+      }),
+    })
+    await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })
+    expect(searched[0]?.source).toEqual(['zh_label', 'layer_id'])
+    // The two columns survive their unusable headers, and the dictionary fills
+    // the gap the way it fills a column the call gave no header to.
+    const spec = resolvedEvents(session)[0]?.data.spec as unknown as { nodes: { props: { tableConfig: unknown } }[] }
+    expect(spec.nodes[0]?.props.tableConfig).toEqual({
+      gridItems: [{ relatedMetaAttr: 'zh_label', alias: '名称' }, { relatedMetaAttr: 'layer_id', alias: '图层id' }],
+    })
+  })
+
+  it('refuses, naming what to send instead, where the table has no default scheme', async () => {
+    const { run, searched } = await bench('allowed-once', {
+      describeScheme: () => ({ kind: 'unreachable', detail: 'the model has no default query scheme' }),
+    })
+    expect(refusal(await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })))
+      .toBe('show_component: the default columns of "SpaceLayer" could not be read: the model has no default query '
+        + 'scheme. Send tableConfig.gridItems on that block, naming the attributes to read. Nothing on the panel changed.')
+    // No row was read: what failed is a column list the call itself can write.
+    expect(searched).toEqual([])
+  })
+
+  it('refuses where the scheme shows no column this table could draw', async () => {
+    const { run, searched } = await bench('allowed-once', {
+      describeScheme: () => ({ columns: [{ relatedMetaAttr: 'zh_label', isShow: false }] }),
+    })
+    expect(refusal(await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })))
+      .toBe('show_component: the default columns of "SpaceLayer" could not be read: its default query scheme shows no '
+        + 'column this table could draw. Send tableConfig.gridItems on that block, naming the attributes to read. '
+        + 'Nothing on the panel changed.')
+    expect(searched).toEqual([])
+  })
+
+  it('refuses a scheme naming an attribute the table has no dictionary entry for, before any row is read', async () => {
+    // The call named no column, so this sentence names none of its own: a model
+    // told it wrote an attribute it never wrote has nothing to correct.
+    const { run, searched } = await bench('allowed-once', {
+      describeScheme: () => ({ columns: [{ relatedMetaAttr: 'zh_label', alias: '名称' }, { relatedMetaAttr: 'ghost_attr' }] }),
+    })
+    expect(refusal(await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })))
+      .toBe('show_component: the default query scheme of "SpaceLayer" draws a column from "ghost_attr", which that '
+        + 'table has no attribute by. Its first 5 of 5 are: int_id (唯一标识), zh_label (名称), layer_id (图层id), '
+        + 'belong_map_topic (所属地图主题), belong_scene (所属场景). Send tableConfig.gridItems on that block, naming '
+        + 'the attributes to read. Nothing on the panel changed.')
+    expect(searched).toEqual([])
+  })
+
+  it('refuses a scheme showing more columns than a table draws, before any row is read', async () => {
+    const wide = Array.from({ length: 31 }, (_, index) => ({ relatedMetaAttr: `attr_${String(index)}` }))
+    const { run, searched } = await bench('allowed-once', { describeScheme: () => ({ columns: wide }) })
+    expect(refusal(await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })))
+      .toBe('show_component: the default query scheme of "SpaceLayer" shows 31 columns and a table draws at most 30. '
+        + 'Send tableConfig.gridItems on that block, naming the attributes to read. Nothing on the panel changed.')
+    expect(searched).toEqual([])
+  })
+
+  it('says what the backend said where the scheme request itself was refused', async () => {
+    const { run, searched } = await bench('allowed-once', { describeScheme: () => ({ kind: 'refused', status: 401 }) })
+    expect(refusal(await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })))
+      .toBe('show_component: the data source answered 401 for "SpaceLayer" and no rows were read. '
+        + 'Nothing on the panel changed.')
+    expect(searched).toEqual([])
+  })
+
+  it('judges the rest of the call before it asks anybody or reads any scheme', async () => {
+    const { run, asked, schemed } = await bench()
+    expect(refusal(await run({ id: 'layers', title: '图'.repeat(41), spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })))
+      .toContain('title — is 41 characters')
+    expect([asked, schemed]).toEqual([[], []])
+  })
+
+  it('reads no scheme for a refused question, so nothing of the visitor\'s is spent', async () => {
+    const { run, asked, described, schemed, searched } = await bench('rejected')
+    expect(refusal(await run({ id: 'layers', title: '图层', spec: DEFAULT_COLUMN_SPEC, dataSource: SOURCE })))
+      .toBe('show_component: the data source was not read, so nothing was drawn. Nothing on the panel changed.')
+    expect(asked).toHaveLength(1)
+    expect([described, schemed, searched]).toEqual([[], [], []])
+  })
+})
+
+describe('the page a read took and the columns it came back empty for', () => {
+  it('reads the page the call named and says which of how many it was', async () => {
+    const { run, searched } = await bench()
+    const result = await run({
+      id: 'layers',
+      title: '图层',
+      spec: SPEC,
+      dataSource: [{ ...SOURCE[0], page: { currentPage: 3, pageSize: 20 } }],
+    })
+    expect(searched[0]?.page).toEqual({ currentPage: 3, pageSize: 20 })
+    expect(text(result)).toContain('. Page 3 of 5.')
+  })
+
+  it('names the page it read even where the answer counts fewer rows than it sent', async () => {
+    const { run } = await bench('allowed-once', { search: () => ({ rawValue: RAW, displayValue: DISPLAY, total: 0 }) })
+    expect(text(await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE })))
+      .toContain('Read 2 of 0 matching rows from "SpaceLayer" into block "rows", '
+        + 'for the attributes zh_label, layer_id, belong_map_topic. Page 1 of 1.')
+  })
+
+  it('says which page it read where the backend counted no rows at all', async () => {
+    const { run } = await bench('allowed-once', { search: () => ({ rawValue: RAW, displayValue: DISPLAY }) })
+    expect(text(await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE })))
+      .toContain('for the attributes zh_label, layer_id, belong_map_topic. Page 1.')
+  })
+
+  it('names the attributes no row that arrived carried a value for', async () => {
+    // The failure this line exists for: a table drawn with three columns of
+    // which one has a value, while the model tells the user it has three.
+    const sparse = [{ zh_label: '东风站', layer_id: '' }, { zh_label: '配送车-离线', layer_id: '' }]
+    const { run } = await bench('allowed-once', { search: () => ({ rawValue: sparse, displayValue: sparse, total: 2 }) })
+    expect(text(await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE })))
+      .toContain(' No value in any read row: layer_id, belong_map_topic.')
+  })
+
+  it('says nothing extra where every attribute had a value somewhere', async () => {
+    const { run } = await bench()
+    expect(text(await run({ id: 'layers', title: '图层', spec: SPEC, dataSource: SOURCE })))
+      .not.toContain('No value in any read row')
   })
 })
 
