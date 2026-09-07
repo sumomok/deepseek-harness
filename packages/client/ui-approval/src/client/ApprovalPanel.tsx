@@ -13,7 +13,11 @@ export function ApprovalPanel(props: ApprovalComposerProps) {
   const approval = props.matched
   const detail = approval.callId === undefined
     ? null
-    : props.renderSlot('conversation.approval.detail', { callId: approval.callId })
+    : props.renderSlot(
+      'conversation.approval.detail',
+      { callId: approval.callId },
+      { entryKey: approval.toolName },
+    )
   return <ApprovalFlow key={approval.key} pending={approval} detail={detail} t={props.t} />
 }
 
@@ -39,7 +43,7 @@ function ApprovalFlow({ pending, detail, t }: {
           aria-label={t('detail.aria')}
         >
           <div className={css.headline}>{pending.reason ?? t('escalation', { toolName: pending.toolName })}</div>
-          {detail !== null && <div className={css.command}>{detail}</div>}
+          {detail !== null && <div className={css.detail}>{detail}</div>}
         </div>
         <div className={css.actionRow}>
           <Button variant="outline" className={css.reject} disabled={answered} onClick={() => { answer('rejected') }}>
