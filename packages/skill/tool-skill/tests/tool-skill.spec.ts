@@ -771,6 +771,50 @@ describe('dsh-tool-skill', () => {
     }
   })
 
+  // `chmod 000` denies nothing on Windows, which has no POSIX directory mode.
+  it.skipIf(process.platform === 'win32')('keeps the published catalog when a denied root leaves only skills the model cannot invoke', async () => {
+    const home = await tempDir('tool-degraded-user-only')
+    const modelRoot = join(home, '.agents/skills')
+    await writeSkill(modelRoot, 'readable-skill', 'Readable skill', 'Readable body.')
+    await mkdir(join(home, '.dsh/skills/user-only-skill'), { recursive: true })
+    await writeFile(
+      join(home, '.dsh/skills/user-only-skill/SKILL.md'),
+      '---\nname: user-only-skill\ndescription: User-only skill\ndisable-model-invocation: true\n---\n\nUser-only body.\n',
+    )
+    // Denied from the first step, so every observation stays incomplete and
+    // therefore uncached: each step rescans the roots as they are now.
+    const denied = join(home, '.claude/skills')
+    await mkdir(denied, { recursive: true })
+    await chmod(denied, 0o000)
+
+    try {
+      const ctx = await setup(home)
+      ctx.logger.warn = (() => {}) as typeof ctx.logger.warn
+      const session = Session.create(SessionId('degraded-user-only'))
+      const agent = sessionAgent(session)
+      openMessageTurn(session)
+      await fireStep(ctx, agent, 1, 1)
+      expect(catalogMessages(session)).toHaveLength(1)
+
+      // The model-invocable root goes too. One skill survives discovery, but
+      // the model may not invoke it, so this catalog would carry nothing.
+      await chmod(modelRoot, 0o000)
+      expect(await ctx.skills.snapshot()).toMatchObject({
+        skills: [{ name: 'user-only-skill' }],
+        complete: false,
+      })
+      await fireStep(ctx, agent, 1, 2)
+
+      const messages = catalogMessages(session)
+      expect(messages).toHaveLength(1)
+      expect(JSON.stringify(messages[0]?.data.content)).toContain('readable-skill')
+      expect(JSON.stringify(session.snapshotEvents())).not.toContain('No skills are currently available')
+      await chmod(modelRoot, 0o700)
+    } finally {
+      await chmod(denied, 0o700)
+    }
+  })
+
   it('omits catalog guidance when the calling agent restricts away the shipped skill tool', async () => {
     const home = await tempDir('tool-restricted-catalog')
     const ctx = await setup(home)
