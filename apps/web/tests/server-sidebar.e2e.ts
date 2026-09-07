@@ -764,18 +764,24 @@ describe('web e2e: the product-console sidebar', () => {
       () => menu.locator('[role="option"] [class*="itemName"]').allInnerTexts(),
       { timeout: 10_000 },
     ).toEqual([...CONSOLE_COMMANDS])
+
+    // Narrow that same open menu to the command's own name rather than
+    // retyping the draft: the assertion above leaves the row list non-empty,
+    // so polling it to empty is a real wait for the query to land. Starting
+    // from a cleared composer would sample an empty menu before the query was
+    // reflected and pass without ever testing anything.
+    //
+    // Typing the name is the residue this composition accepts: with no
+    // descriptor and no client contribution under it, the trigger has nothing
+    // to offer and nothing to intercept Enter with, so the line goes to the
+    // model as ordinary text (see the package README).
+    await page.keyboard.type('permission')
+    await expect.poll(
+      () => menu.locator('[role="option"] [class*="itemName"]').allInnerTexts(),
+      { timeout: 10_000 },
+    ).toEqual([])
     await input.press('Escape')
     await expect.poll(() => menu.count(), { timeout: 10_000 }).toBe(0)
-
-    // Typing the command's own name is the residue this composition accepts:
-    // with no descriptor and no client contribution under that name, the
-    // trigger has nothing to offer and nothing to intercept Enter with, so the
-    // line goes to the model as ordinary text (see the package README).
-    await writeComposerDraft(page, input, '/permission')
-    await expect.poll(
-      () => menu.locator('[role="option"]').count(),
-      { timeout: 10_000 },
-    ).toBe(0)
     await writeComposerDraft(page, input, '')
 
     await page.getByRole('button', { name: 'Settings', exact: true }).click()
