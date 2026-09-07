@@ -702,6 +702,10 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 
 **整机列表**：`~/.dsh.backup-2026-09-02-before-rc27` 的 `sessions/` 只读副本（**121 份 v0 日志**）作 DSH_HOME 启动到 URL 行，`session/list` 返回 **67** 条，与 v7 台账在纯上游树上取得的数字相同；跑完 121 个文件 sha256 全部未变、零新增。
 
+### 第七次合并：`feat/desktop-mcp-servers` 的 MCP 0.1.1 追加提交（`9b444ed27c`）
+
+分支在第六次合并之后追加一条 `release(desktop)`：vendored tarball 从 `haoran-dsh-mcp-servers-0.1.0.tgz` 换成 `0.1.1`（首次连接即信任、按工具挂起），同步改 `apps/desktop-server/package.json`、`THIRD_PARTY_NOTICES.md`、`scripts/gen-third-party-notices.ts`、双语 README 与 Agent Note。**唯一冲突 `pnpm-lock.yaml`（2 处）**：整取分支侧再 `pnpm install`，退出码 0。其余七个文件零冲突自动合并；`verify-translation-pairing` 1193 对全绿，`gen-third-party-notices` 重跑零 diff。
+
 ### 分支 HEAD 登记
 
-`rc31-integration` = `799d45eee5`。起点 `origin/develop` = `1125f329b3`；补丁线 `core-patches-v7` = `1930a2321b`（未动）；五条功能分支顶依次 `d839e191b9`、`0242abf8a9`、`c60fecede2`、`ebca8637e8`、`a98f9bfb13`（均未动）。本分支未推 origin。
+代码与文档最终 HEAD 见下；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交及其后的追加合并。`rc31-integration` 的门禁数字取自 `bd51a99ef7`。起点 `origin/develop` = `1125f329b3`；补丁线 `core-patches-v7` = `1930a2321b`（未动）；五条功能分支顶依次 `d839e191b9`、`0242abf8a9`、`c60fecede2`、`9b444ed27c`（第六次合并时为 `ebca8637e8`）、`a98f9bfb13`（均未被本分支改写）。本分支未推 origin。
