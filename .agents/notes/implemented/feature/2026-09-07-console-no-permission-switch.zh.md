@@ -55,4 +55,4 @@ Status: implemented
 
 `apps/web/tests/server-sidebar.e2e.ts` 的预设场景已经够不着，替换为一个在装配好的浏览器里读这三个入口的场景：输入框里一个裸 `/` 会列出控制台的整个命令集（`compact`、`content-navigated`、`dismiss-content-entry`、`feedback`、`goal`、`plan`、`select-content-entry`、`show-content-page`），因此这份组合新增一条命令时同样会失败；Settings → General 渲染出它自己的一条出厂行且没有权限行；chip 则通过既有的 `expectGuardHides` 助手断言「存在且不可见」，并停在被钉住的那个预设名字上。这个场景对着一个故意改坏的构建验过：把 `isolate` 键从 e2e overlay 里去掉后，菜单列出九行，用例在多出来的 `permission` 上失败。
 
-`examples/content-console` 在这个根上是被携带、但不被运行的——它的状态由[控制台并线笔记](../process/2026-09-06-console-merge-forward.zh.md)持有。即便它日后被重新安置，这里也不需要它做任何事：它组合的是后端骨干，带着 `@deepseek-ai/dsh-commands` 而完全没有 `permission` 行，并且从不应用 `overlay/customer.patch.yml`。它自己的 `cordis.yml` 记着，浏览器那些行的证据在 `apps/web/tests` 下的 Playwright 泳道，而本次改动的证据正在那里。
+`snapshots/console` 在快照泳道里是跑起来的——这次搬迁由[重新安置笔记](../process/2026-09-07-console-snapshot-lane.zh.md)持有。这里不需要它做任何事：它组合的是后端骨干，带着 `@deepseek-ai/dsh-commands` 而完全没有 `permission` 行，并且从不应用 `overlay/customer.patch.yml`。它自己的 `cordis.yml` 记着，浏览器那些行的证据在 `apps/web/tests` 下的 Playwright 泳道，而本次改动的证据正在那里。

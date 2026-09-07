@@ -72,8 +72,8 @@ Two limitations the return-channel slice recorded are answered by it rather than
 
 | Claim | Evidence |
 |---|---|
-| The model is offered the three components and every property each declares, in the description it reads on every request | `examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` — three new catalog lines, each with its whole property tree; nothing else in the pin moved |
-| A model places a table and a filter bar, and both calls are accepted with the entry the projection folds them into | `examples/content-console/tests/snapshots/show-table-turn/` and `show-filter-turn/` |
+| The model is offered the three components and every property each declares, in the description it reads on every request | `snapshots/console/show-chart-turn/tool-schemas.expected.json` — three new catalog lines, each with its whole property tree; nothing else in the pin moved |
+| A model places a table and a filter bar, and both calls are accepted with the entry the projection folds them into | `snapshots/console/show-table-turn/` and `show-filter-turn/` |
 | Every property of the three is judged, and each refusal names the path and what to send | `component-surface/tests/validate.client.spec.ts` |
 | A record's keys, its key count, and its scalar values are judged, and a key the record declares a reading for is tightened while the same name on a component is not | `tests/validate.client.spec.ts`, `tests/sanitize.client.spec.ts` |
 | Each of the six new actions accepts exactly its declared payload and states the gesture in both languages | `tests/catalog-actions.client.spec.ts` |

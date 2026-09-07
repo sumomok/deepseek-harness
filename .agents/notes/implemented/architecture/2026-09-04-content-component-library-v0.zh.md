@@ -38,7 +38,7 @@ Status: implemented
 
 **不变式伴生拿派生数据对着日志审。** `contentSurface` 折叠里每一条 `kind: 'component'` 记录，都必须对得上本会话日志里一次被接受的 `show_component` 调用，且用的是抽取器那同一个读取器。这层关系两个方向都真实存在：内容栏用把抽取器表哈希成 31 位的办法决定一份持久化检查点还能不能用（碰撞被它自己的 README 记为残余风险），而它的注册表不拒绝两个抽取器认领同一种类，因此第二个 `component` 生产者是可组合的。审计在启动时遍历已加载会话，之后对每一条经 `internal/dispatch` 到达的提交事件再审一遍——不走 `sessionProjections.onChanged`，因为 `Session.append` 会把抛错的监听器变成一条 `logger.warn`，那样失败永远到不了调用方。
 
-**快照缺口是被补上了，不是被登记了。** `examples/content-console` 是一个新的可运行叶子：控制台后端主干在 ACP 自动化传输下的样子，只组合会话记录能观察到的那些行——适配器、ACP 应用、投影注册表、`content-surface`、`host-webserver`，以及会往内容栏里摆条目的那两把工具。四个纯浏览器行按设计缺席，主干自带的技能、目标、后台作业工具也全部关掉，好让上游改动**它们**的描述时冲刷不到本例的表头基线。两个场景同属一个表头类，由 `show-chart-turn` 钉住，因此 `tool-schemas.expected.json` 现在完整携带两把工具——每段描述、拼进描述里的上限与目录、每个参数的描述。
+**快照缺口是被补上了，不是被登记了。** `snapshots/console` 是控制台自己的快照泳道：控制台后端主干在 ACP 自动化传输下的样子，只组合会话记录能观察到的那些行——适配器、ACP 应用、投影注册表、`content-surface`、`host-webserver`，以及会往内容栏里摆条目的那两把工具。四个纯浏览器行按设计缺席，主干自带的技能、目标、后台作业工具也全部关掉，好让上游改动**它们**的描述时冲刷不到本泳道的表头基线。两个场景同属一个表头类，由 `show-chart-turn` 钉住，因此 `tool-schemas.expected.json` 现在完整携带两把工具——每段描述、拼进描述里的上限与目录、每个参数的描述。
 
 ### 落地后的闸表
 
@@ -72,7 +72,7 @@ Status: implemented
 
 | 主张 | 证据 |
 |---|---|
-| 模型被逐字提供了这把工具、它的目录与上限 | `examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` —— 两把工具的完整 schema，替两个场景钉住 |
+| 模型被逐字提供了这把工具、它的目录与上限 | `snapshots/console/show-chart-turn/tool-schemas.expected.json` —— 两把工具的完整 schema，替两个场景钉住 |
 | 一次调用真跑通，且模型读回了自己摆的东西 | `snapshots/show-component-turn/session.jsonl` —— 记录下来的 `tool/call` 参数，以及点名条目 id 与组件名称的 `tool/result` 文本 |
 | 装配出来的系统提示词就是控制台组装的那份 | `snapshots/show-chart-turn/system-prompt.expected.md` —— persona 加 `content-surface` 的「已展示内容」段落 |
 | 一次拒绝会点名出问题的参数路径 | `packages/experimental/component-surface/tests/validate.client.spec.ts` —— 每条上限各拒一次，未知组件 id 的拒绝文本带整份目录，未声明属性按路径被点名 |
@@ -83,7 +83,7 @@ Status: implemented
 
 **新增一个 experimental 包如今有一张固定的登记清单。** `tsconfig.base.json` 的 paths（三条，必须显式写——`@deepseek-ai/dsh-*` 通配匹配不到 `experimental` 这个目录名）、`tsconfig.client.json` 的 references 与 CSS 模块声明、包内 extends 客户端基座的 `tsconfig.json`、`tsdown.config.ts`、一份真实的 `src/invariant.ts`、两份 README 加配对记录、双语的 `packages/experimental/README.md`，以及一次 `pnpm install`。新增一个 `apps/web` e2e 还要再加两行：`tsconfig.host.json` 的 `include` 与 `apps/web/tsconfig.json` 的 `exclude` 各一行。
 
-**两个包从「未被装配态快照覆盖」那一栏里挪了出来。** `content-surface` 的提示词段落与 `vue2-echarts-tool-poc` 模型可见的全部内容，现在由 `examples/content-console` 钉住。它们的 Known Limitations 被改写为「还有什么没被覆盖」——浏览器画出来的样子——而不是继续重复一句已经不成立的话。另外五个 experimental 包保留原句，那是对的。
+**两个包从「未被装配态快照覆盖」那一栏里挪了出来。** `content-surface` 的提示词段落与 `vue2-echarts-tool-poc` 模型可见的全部内容，现在由 `snapshots/console` 钉住。它们的 Known Limitations 被改写为「还有什么没被覆盖」——浏览器画出来的样子——而不是继续重复一句已经不成立的话。另外五个 experimental 包保留原句，那是对的。
 
 **`component-surface` 会发布一个哈希命名的共享 chunk。** 工具入口与不变式伴生用同一份目录和校验器判定一次调用，因此 tsdown 为两者产出 `lib/validate-*.js`。清单的 `files` 与工作区约束的白名单都点名了它，遵循 `dsh-sandbox-windows-acl` 的先例。共享模块集合一旦变化，chunk 就会改名，built-package-invariant 门禁随之变红——这个失败是对的，前提是下一个读到它的人认得出来。
 

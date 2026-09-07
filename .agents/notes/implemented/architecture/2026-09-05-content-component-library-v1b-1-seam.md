@@ -104,8 +104,8 @@ And the console's own rules were already in the way. The repository ships one ag
 
 | Claim | Evidence |
 |---|---|
-| The model is offered the record component, and told nothing comes back from it, in the description it reads on every request | `examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` — one new catalog line and the return-channel sentence it qualifies; nothing else in the pin moved |
-| A model places a record and the call is accepted, with the entry the projection folds it into | `examples/content-console/tests/snapshots/show-record-turn/` (the whole scenario) and `component-surface/tests/component-extractor.client.spec.ts` |
+| The model is offered the record component, and told nothing comes back from it, in the description it reads on every request | `snapshots/console/show-chart-turn/tool-schemas.expected.json` — one new catalog line and the return-channel sentence it qualifies; nothing else in the pin moved |
+| A model places a record and the call is accepted, with the entry the projection folds it into | `snapshots/console/show-record-turn/` (the whole scenario) and `component-surface/tests/component-extractor.client.spec.ts` |
 | The vendored component itself draws the rows, in a real browser, against the shipped bundles | `apps/web/tests/component-surface.e2e.ts` — the values are read out of `.form-item-content`, the tarball's own class name; screenshots `.artifacts/web-e2e-component-surface-record.png` and `…-record-return.png` |
 | The page holds no global Vue | the same scenario, `'Vue' in globalThis` |
 | The record survives the column drawing another entry and coming back — a fresh mount of the Vue root | the same scenario |

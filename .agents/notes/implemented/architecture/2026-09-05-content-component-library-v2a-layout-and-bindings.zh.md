@@ -71,9 +71,9 @@ Status: implemented
 
 | 主张 | 证据 |
 |---|---|
-| 模型在每次请求都读到的描述里，被告知怎么排布块、怎么从一个块读另一个 | `examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` —— `layout` 参数、两段新说明、以及每个有输出的组件下面那行 `outputs:` |
-| 模型把一张表格摆在一张绑到它的记录之上，调用被接受，并折叠成投影的条目 | `examples/content-console/tests/snapshots/show-view-turn/` —— 模型写下的 `layout` 与 `$from`，以及一句点名两个已画块的结果 |
-| 布局引用了本次调用没摆过的块，会被拒绝并给出要改的路径 | `examples/content-console/tests/snapshots/reject-view-turn/` —— `spec.layout.children[1].id — names no node of this call.` |
+| 模型在每次请求都读到的描述里，被告知怎么排布块、怎么从一个块读另一个 | `snapshots/console/show-chart-turn/tool-schemas.expected.json` —— `layout` 参数、两段新说明、以及每个有输出的组件下面那行 `outputs:` |
+| 模型把一张表格摆在一张绑到它的记录之上，调用被接受，并折叠成投影的条目 | `snapshots/console/show-view-turn/` —— 模型写下的 `layout` 与 `$from`，以及一句点名两个已画块的结果 |
+| 布局引用了本次调用没摆过的块，会被拒绝并给出要改的路径 | `snapshots/console/reject-view-turn/` —— `spec.layout.children[1].id — names no node of this call.` |
 | 每一条布局与绑定的拒绝都点名路径、并说清该发什么 | `component-surface/tests/layout-binding.client.spec.ts` —— 17 条表驱动的布局拒绝与 12 条绑定拒绝，含自绑、源不存在、输出不存在、索引越界、形态不相容、目标被收紧读法、以及数据表的两个行属性 |
 | 值只能流向「什么都不上报」的块，这也是不必找环的理由 | 同一文件 —— 每个会上报的组件的每个输出，绑进每个会上报的组件的每个属性，逐条被拒 |
 | 最外层 stack 上的份额，宿主点名拒、座位当读不懂，因为它切不到任何东西 | `component-surface/tests/layout-binding.client.spec.ts` —— `spec.layout.flex`，以及 `surface-layout.client.spec.tsx` 里对应的退回用例 |

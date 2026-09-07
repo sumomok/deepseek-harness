@@ -79,7 +79,7 @@ Status: implemented
 
 | 主张 | 证据 |
 |---|---|
-| 模型在每次请求都读到的工具描述里被告知回程存在 | `examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` —— 刷新后的 `show_component` 描述；那句「这块界面只用于显示」已经没了 |
+| 模型在每次请求都读到的工具描述里被告知回程存在 | `snapshots/console/show-chart-turn/tool-schemas.expected.json` —— 刷新后的 `show_component` 描述；那句「这块界面只用于显示」已经没了 |
 | 一次手势正好变成一行命令，而宿主自己的读取函数能原样读回 | `packages/experimental/component-surface/tests/action.client.spec.ts` |
 | 畸形、超量、指认不到东西的动作一律被拒且什么都不投递 | `tests/component-action.client.spec.ts` —— 六种「指认不到东西」的写法各拒一次，而命令行仍逐字留痕 |
 | 每一档都按它声明的方式投递，正忙的智能体让 wake 降级，而报回来的是通知落在哪里而不是它是按哪一档发的 | 同一文件 |
@@ -99,7 +99,7 @@ Status: implemented
 | 展开那条通知，终端用户实际看到的是什么 | 同一条 web 场景——正文就是给模型看的那句话，没有来源字段表 |
 | 逐文件覆盖率 | `component-surface`、`component-kit`、`content-column` 三个包语句/分支/函数/行各 100% |
 
-**「组合起来的那一轮」的证据落在浏览器泳道，而且不可能落在转录泳道。**一条驱动按下的 ACP 快照场景不可能存在：`/component-action` 只能经 `remote.commands` 到达宿主，ACP 协议没有命令方法。这条泳道仍然组合了命令注册表，因为它钉住的那段描述告诉模型按下会回来，提供这段描述的组合就得兑现得了；泳道做不到的是把这条命令发出去。同一堵墙在下一层也立着——包内的裁判测试同样起不了 `agent-loop`，因为 `component-surface` 注册在 Client 编译面而 `agent-loop` 是 Host 包，两个聚合在 `Context` 合并上会撞车。于是组合测试钉住交接之前的全部（命令存在、交出去的说法、留下的日志、本行不在这套组合的策略前面加自己的闸、卸载时的释放），而 `apps/web/tests/component-surface.e2e.ts` 钉住那一轮本身。`content-console` 泳道仍然钉住这次**确实改了**的模型可见半边：工具描述。
+**「组合起来的那一轮」的证据落在浏览器泳道，而且不可能落在转录泳道。**一条驱动按下的 ACP 快照场景不可能存在：`/component-action` 只能经 `remote.commands` 到达宿主，ACP 协议没有命令方法。这条泳道仍然组合了命令注册表，因为它钉住的那段描述告诉模型按下会回来，提供这段描述的组合就得兑现得了；泳道做不到的是把这条命令发出去。同一堵墙在下一层也立着——包内的裁判测试同样起不了 `agent-loop`，因为 `component-surface` 注册在 Client 编译面而 `agent-loop` 是 Host 包，两个聚合在 `Context` 合并上会撞车。于是组合测试钉住交接之前的全部（命令存在、交出去的说法、留下的日志、本行不在这套组合的策略前面加自己的闸、卸载时的释放），而 `apps/web/tests/component-surface.e2e.ts` 钉住那一轮本身。`snapshots/console` 泳道仍然钉住这次**确实改了**的模型可见半边：工具描述。
 
 **Known Limitations，写在两个包的 README 里。**
 

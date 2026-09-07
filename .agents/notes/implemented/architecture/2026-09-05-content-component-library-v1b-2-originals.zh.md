@@ -72,8 +72,8 @@ Status: implemented
 
 | 主张 | 证据 |
 |---|---|
-| 模型在每次请求都读到的那段描述里，拿到了这三个组件以及各自声明的每一个属性 | `examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` —— 三条新的目录行，各带整棵属性树；这份钉子里别的一个字都没动 |
-| 模型摆一张表和一张筛选条，两次调用都被接受，并折进各自的条目 | `examples/content-console/tests/snapshots/show-table-turn/` 与 `show-filter-turn/` |
+| 模型在每次请求都读到的那段描述里，拿到了这三个组件以及各自声明的每一个属性 | `snapshots/console/show-chart-turn/tool-schemas.expected.json` —— 三条新的目录行，各带整棵属性树；这份钉子里别的一个字都没动 |
+| 模型摆一张表和一张筛选条，两次调用都被接受，并折进各自的条目 | `snapshots/console/show-table-turn/` 与 `show-filter-turn/` |
 | 这三个组件的每个属性都被判过，每条拒绝都点名路径并说明该发什么 | `component-surface/tests/validate.client.spec.ts` |
 | record 的键、键数与标量值都被判过；record 自己声明了读法的那个键被收紧，而同名属性在组件层面不会 | `tests/validate.client.spec.ts`、`tests/sanitize.client.spec.ts` |
 | 六个新动作各自只接受自己声明的 payload，并用两种语言陈述这次手势 | `tests/catalog-actions.client.spec.ts` |

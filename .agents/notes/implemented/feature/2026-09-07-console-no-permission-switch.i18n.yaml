@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-07-console-no-permission-switch.md
-2026-09-07-console-no-permission-switch.md: 2c206a80fb5bd835ead19880eb9b9f49656b7f53
-2026-09-07-console-no-permission-switch.zh.md: fd8775664f8fa52ea65664ef456912effbd5fe1a
+2026-09-07-console-no-permission-switch.md: 41bc53937d171578c996a886693ef3abcec3db25
+2026-09-07-console-no-permission-switch.zh.md: 9395fbe1e984f29662f9dbb159b41b9a39ca1db9

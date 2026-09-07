@@ -280,7 +280,7 @@ async function postToken(env: NodeJS.ProcessEnv): Promise<void> {
       if (res.status === 204) return
       throw new Error(`the gate answered ${String(res.status)}`)
     } catch (error) {
-      if (Date.now() > deadline) throw new Error(`content-console: the gate never took the token: ${String(error)}`)
+      if (Date.now() > deadline) throw new Error(`console: the gate never took the token: ${String(error)}`)
       await new Promise<void>((resolve) => { setTimeout(resolve, 50) })
     }
   }

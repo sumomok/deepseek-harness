@@ -104,8 +104,8 @@ Status: implemented
 
 | 主张 | 证据 |
 |---|---|
-| 模型在每次请求都会读的那段描述里被提供了记录组件，并被告知它什么都不回 | `examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` —— 多了一行目录，加上被它限定的那句回程；钉住的其余部分一个字没动 |
-| 模型摆下一份记录、调用被接受，以及投影把它折成的那条条目 | `examples/content-console/tests/snapshots/show-record-turn/`（整个场景）与 `component-surface/tests/component-extractor.client.spec.ts` |
+| 模型在每次请求都会读的那段描述里被提供了记录组件，并被告知它什么都不回 | `snapshots/console/show-chart-turn/tool-schemas.expected.json` —— 多了一行目录，加上被它限定的那句回程；钉住的其余部分一个字没动 |
+| 模型摆下一份记录、调用被接受，以及投影把它折成的那条条目 | `snapshots/console/show-record-turn/`（整个场景）与 `component-surface/tests/component-extractor.client.spec.ts` |
 | 引入的那个组件自己把行画出来，在真浏览器里，对着发布产物 | `apps/web/tests/component-surface.e2e.ts` —— 值是从 `.form-item-content` 里读的，那是 tgz 自己的类名；截图 `.artifacts/web-e2e-component-surface-record.png` 与 `…-record-return.png` |
 | 页面上没有全局 Vue | 同一场景，`'Vue' in globalThis` |
 | 内容栏画过别的条目再回来，记录还在——一次全新的 Vue 根挂载 | 同一场景 |

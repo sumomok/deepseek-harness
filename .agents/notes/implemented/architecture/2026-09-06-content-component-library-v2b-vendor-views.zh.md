@@ -74,7 +74,7 @@ Status: implemented
 
 - `pnpm run build`、`pnpm run typecheck`、`pnpm run doc-sync`（28/28）全绿；`pnpm run lint` 与 `pnpm run hygiene` 停在既有的 `apps/desktop` 基线上；`pnpm run duplication` 停在既有的三处克隆上。
 - `pnpm vitest run packages/experimental`：113 个文件、1553 个测试。`component-surface`、`component-kit`、`server-sidebar`、`content-column` 四个包的语句、分支、函数、行覆盖率逐文件 100%。
-- `pnpm run test:snapshot examples/content-console`：14 个场景不变。配一块视图不改变任何模型可见的东西——`show-content-view` 是命令，而这条泳道说的 ACP 协议没有调用命令的方法——所以固定产物不需要重录；这条泳道证明的是「带 `views` 的组合真的能起来」，而这正是一份坏 spec 会拦住它的地方。
+- `pnpm run test:snapshot snapshots/console`：14 个场景不变。配一块视图不改变任何模型可见的东西——`show-content-view` 是命令，而这条泳道说的 ACP 协议没有调用命令的方法——所以固定产物不需要重录；这条泳道证明的是「带 `views` 的组合真的能起来」，而这正是一份坏 spec 会拦住它的地方。
 - `pnpm run test:web:built server-sidebar`：20 个场景，含一条新的、同时组合两份目录的组合（`server-sidebar-views.overlay.yml`），驱动合并后的菜单、点击、排布、绑定，以及存下来的 `{kind: 'view'}` 停靠点。截图在 `.artifacts/web-e2e-server-sidebar-views-{open,binding,workflow}.png`。
 - 转换器对着一份真实的 settings 文档跑过 `--dry-run` 与写入两种模式：注释与键顺序保留，第二次跑是空操作。
 

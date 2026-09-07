@@ -62,6 +62,8 @@ console 线的浏览器场景现在跑在 rc.1 外壳上，这是让它的部署
 
 `examples/content-console` 这棵树处于休眠：带着，但不跑，也没有门禁看着它。它保持为一个待拍的决定，而不是一次无声的删除。
 
+这个决定后来拍了：[控制台快照泳道笔记](2026-09-07-console-snapshot-lane.zh.md)持有 `snapshots/console`，以及它跑在其上的 rc.1 组合。
+
 有两类故障现在被覆盖住了。dist 服务器把自己的 `<base>` 注在部署的那一个之前，在前缀下就是一张白页，而 `packages/experimental/server-base/tests/server-base.spec.ts` 会数送出文档里的 base 元素个数。数个数就是全部覆盖：该文件里那几条顺序用例在存在两个 base 时同样会通过——两个都排在资源之前——所以一旦 dist 服务器的让位判断被改回去，只有这一条计数断言会失败。一个组合禁用了另一行所注入服务的提供者，会什么都不画且哪里都不报错，views 场景就是下次抓住它的东西。
 
 有两处根绝对地址维持原样，且都早于这次合并。combo 映射的 `sources[]` 条目是以根绝对形式铸造的（`packages/client/modules/src/index.ts` 里 `comboSource` 的回退名与 `comboSectionMap` 的重定位基址），所以在前缀下调试器会把它们解析到 origin 根——这是展示路径，不是页面真正发出的请求。`apps/web/public/manifest.webmanifest` 把 `id`、`start_url`、`scope` 都写成 `/`，图标是 `/favicon.svg`，而 `apps/pwa/src/index.ts` 注入的是 `<link rel="manifest" href="/manifest.webmanifest">`，渲染出的 `start_url` 也一样，所以在前缀下安装的 PWA 会把作用域圈到 origin 根。

@@ -71,9 +71,9 @@ The second one is the harder problem, because the obvious answer breaks a rule t
 
 | Claim | Evidence |
 |---|---|
-| The model is told how to arrange blocks and how to read one from another, in the description it reads on every request | `examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` — the `layout` parameter, the two new paragraphs, and an `outputs:` line under each component that has one |
-| A model places a table above a record bound to it, and the call is accepted with the entry the projection folds it into | `examples/content-console/tests/snapshots/show-view-turn/` — the `layout` and the `$from` as the model wrote them, and a result naming both drawn blocks |
-| A layout naming a block the call never placed is refused with the path to fix | `examples/content-console/tests/snapshots/reject-view-turn/` — `spec.layout.children[1].id — names no node of this call.` |
+| The model is told how to arrange blocks and how to read one from another, in the description it reads on every request | `snapshots/console/show-chart-turn/tool-schemas.expected.json` — the `layout` parameter, the two new paragraphs, and an `outputs:` line under each component that has one |
+| A model places a table above a record bound to it, and the call is accepted with the entry the projection folds it into | `snapshots/console/show-view-turn/` — the `layout` and the `$from` as the model wrote them, and a result naming both drawn blocks |
+| A layout naming a block the call never placed is refused with the path to fix | `snapshots/console/reject-view-turn/` — `spec.layout.children[1].id — names no node of this call.` |
 | Every layout and binding refusal names its path and what to send instead | `component-surface/tests/layout-binding.client.spec.ts` — 17 table-driven layout refusals and 12 binding ones, including self-reference, an unknown source, an unknown output, an index past the end, an incompatible shape, a target read as something narrower, and both of a table's row properties |
 | A value can only travel toward a block that reports nothing, which is why no loop is looked for | the same file — every output of every reporting component, into every property of every reporting component, each refused |
 | A share on the outermost stack is refused by the host and read as unreadable by the seat, because it divides nothing | `component-surface/tests/layout-binding.client.spec.ts` — `spec.layout.flex`, and the fallback case in `surface-layout.client.spec.tsx` |

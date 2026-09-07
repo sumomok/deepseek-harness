@@ -81,9 +81,9 @@ Everything the read needs is already in the process and none of it is joined up.
 
 | Claim | Evidence |
 |---|---|
-| The model is offered the parameter, and told what a read costs and what comes back | `examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` |
-| The user is asked in their own language, allows it, three rows arrive, and the record carries them with no credential in it | `examples/content-console/tests/snapshots/show-datasource-turn/session.jsonl` — the `approval/asked` reason word for word, the `content-component/resolved` payload, and the result line counting rows |
-| A refused question reads nothing and records nothing | `examples/content-console/tests/snapshots/refuse-datasource-turn/session.jsonl` — the question, the rejection, the model's sentence, and no `content-component/resolved` |
+| The model is offered the parameter, and told what a read costs and what comes back | `snapshots/console/show-chart-turn/tool-schemas.expected.json` |
+| The user is asked in their own language, allows it, three rows arrive, and the record carries them with no credential in it | `snapshots/console/show-datasource-turn/session.jsonl` — the `approval/asked` reason word for word, the `content-component/resolved` payload, and the result line counting rows |
+| A refused question reads nothing and records nothing | `snapshots/console/refuse-datasource-turn/session.jsonl` — the question, the rejection, the model's sentence, and no `content-component/resolved` |
 | Both headers carry the same bearer value, under the deployment's API prefix, and no rows are drawn otherwise | `apps/web/tests/component-surface-datasource.e2e.ts` — the fake backend answers 401 to anything else |
 | The card is readable Chinese with no identifier in it, the rows are drawn by the vendored table, and a tick reaches the model | the same scenario; screenshots in `.artifacts/web-e2e-component-datasource-{card,table,tick}.png` |
 | Two of the three column headers come from the backend's dictionary rather than from the call | the same scenario's header assertion |

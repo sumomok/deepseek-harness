@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-05-content-component-library-v1b-1-seam.md
-2026-09-05-content-component-library-v1b-1-seam.md: 4db3865b3012c4ca370525caacf304b661c58cfd
-2026-09-05-content-component-library-v1b-1-seam.zh.md: 1452030a41e4159e9a3267a6f94e67c14672c495
+2026-09-05-content-component-library-v1b-1-seam.md: 9ee39756e4230695d31b21f81c25209f4594156d
+2026-09-05-content-component-library-v1b-1-seam.zh.md: 9b4c1066a0a08647a507c9da91fa08864e319169

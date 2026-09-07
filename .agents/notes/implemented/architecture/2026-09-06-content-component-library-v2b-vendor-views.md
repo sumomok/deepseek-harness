@@ -74,7 +74,7 @@ The console already has the surface for a fixed thing a click opens: `content-fr
 
 - `pnpm run build`, `pnpm run typecheck`, `pnpm run doc-sync` (28/28) green; `pnpm run lint` and `pnpm run hygiene` at their pre-existing `apps/desktop` baselines; `pnpm run duplication` at its pre-existing three clones.
 - `pnpm vitest run packages/experimental`: 113 files, 1553 tests. Per-file 100% statement, branch, function and line coverage over `component-surface`, `component-kit`, `server-sidebar` and `content-column`.
-- `pnpm run test:snapshot examples/content-console`: 14 scenarios unchanged. A configured view moves nothing model-visible — `show-content-view` is a command, and the ACP protocol this lane speaks has no method to invoke one — so the fixtures needed no re-recording; what the lane proves is that a composition carrying `views` boots at all, which is where a malformed spec would stop it.
+- `pnpm run test:snapshot snapshots/console`: 14 scenarios unchanged. A configured view moves nothing model-visible — `show-content-view` is a command, and the ACP protocol this lane speaks has no method to invoke one — so the fixtures needed no re-recording; what the lane proves is that a composition carrying `views` boots at all, which is where a malformed spec would stop it.
 - `pnpm run test:web:built server-sidebar`: 20 scenarios, including a new composition over both catalogs (`server-sidebar-views.overlay.yml`) driving the merged menu, the click, the layout, the binding, and the saved `{kind: 'view'}` stop. Screenshots in `.artifacts/web-e2e-server-sidebar-views-{open,binding,workflow}.png`.
 - The converter was run against a real settings document in both `--dry-run` and write modes: comments and key order preserved, second run a no-op.
 

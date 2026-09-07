@@ -81,9 +81,9 @@
 
 | 主张 | 证据 |
 |---|---|
-| 模型被提供了这个参数，并被告知一次读的代价和回来的是什么 | `examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` |
-| 用户被用自己的语言问到、允许、三行到达，记录带着它们且不含凭据 | `examples/content-console/tests/snapshots/show-datasource-turn/session.jsonl` —— 逐字的 `approval/asked` 理由、`content-component/resolved` 的 payload，以及那句计数的回执 |
-| 被拒的问题什么都没读、什么都没记 | `examples/content-console/tests/snapshots/refuse-datasource-turn/session.jsonl` —— 问题、拒绝、模型那句话，没有 `content-component/resolved` |
+| 模型被提供了这个参数，并被告知一次读的代价和回来的是什么 | `snapshots/console/show-chart-turn/tool-schemas.expected.json` |
+| 用户被用自己的语言问到、允许、三行到达，记录带着它们且不含凭据 | `snapshots/console/show-datasource-turn/session.jsonl` —— 逐字的 `approval/asked` 理由、`content-component/resolved` 的 payload，以及那句计数的回执 |
+| 被拒的问题什么都没读、什么都没记 | `snapshots/console/refuse-datasource-turn/session.jsonl` —— 问题、拒绝、模型那句话，没有 `content-component/resolved` |
 | 两个头带同一个 bearer 值、走在部署的 API 前缀下，否则一行都画不出来 | `apps/web/tests/component-surface-datasource.e2e.ts` —— 假后端对别的一律答 401 |
 | 卡片是可读的中文、里面没有标识符，行由外部组件库的表格画出，勾选到达模型 | 同一个场景；截图在 `.artifacts/web-e2e-component-datasource-{card,table,tick}.png` |
 | 三个列头里有两个来自后端字典而不是来自调用 | 同一个场景的列头断言 |

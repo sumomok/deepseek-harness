@@ -66,16 +66,16 @@ Status: implemented
 
 | 断言 | 证据 |
 |---|---|
-| 一次没有 `tableConfig` 的调用，在不点名任何一列的情况下被问，并按这张表自己的列被画，方案藏起来的那一列不在其中 | `examples/content-console/tests/snapshots/show-default-columns-turn/session.jsonl`；`apps/web/tests/component-surface-datasource.e2e.ts` 与 `.artifacts/web-e2e-component-datasource-default-{card,table}.png` |
+| 一次没有 `tableConfig` 的调用，在不点名任何一列的情况下被问，并按这张表自己的列被画，方案藏起来的那一列不在其中 | `snapshots/console/show-default-columns-turn/session.jsonl`；`apps/web/tests/component-surface-datasource.e2e.ts` 与 `.artifacts/web-e2e-component-datasource-default-{card,table}.png` |
 | 用户回答之前，后端什么都没被问过——一列都没点名的调用也一样 | `apps/web/tests/component-surface-datasource.e2e.ts`，卡片在屏上时假后端一个请求都没见过；`packages/experimental/component-surface/tests/data-source.client.spec.ts`，那条缝被触达的顺序是 `ask`、`describe`、`scheme`、`search` |
-| 匹配不到行的筛选到达模型时是零行，不是联系不上的数据源 | `examples/content-console/tests/snapshots/empty-datasource-turn/session.jsonl`；同一个 Web 场景，它脚本里的收尾句只有当工具自己的零行句子出现在实时请求里才写得出来 |
-| 模型被告知 `gridItems` 可以不写，以及 `currentPage` 是什么 | `packages/experimental/component-surface/tests/data-source.client.spec.ts`，它把这份说明里的两句话都钉住了；`examples/content-console/tests/snapshots/show-chart-turn/tool-schemas.expected.json` 带的是整份描述 |
+| 匹配不到行的筛选到达模型时是零行，不是联系不上的数据源 | `snapshots/console/empty-datasource-turn/session.jsonl`；同一个 Web 场景，它脚本里的收尾句只有当工具自己的零行句子出现在实时请求里才写得出来 |
+| 模型被告知 `gridItems` 可以不写，以及 `currentPage` 是什么 | `packages/experimental/component-surface/tests/data-source.client.spec.ts`，它把这份说明里的两句话都钉住了；`snapshots/console/show-chart-turn/tool-schemas.expected.json` 带的是整份描述 |
 | 存储方案的每一种归一化，以及意味着零行的那种信封 | `packages/experimental/biz-backend/tests/biz-backend.spec.ts` |
 | 默认列这条路的每一个分支、卡片措辞、各种拒绝，以及结果行 | `packages/experimental/component-surface/tests/data-source.client.spec.ts` |
 
-上面那些 `examples/content-console` 夹具在这个基上是带着走的，不是跑过的：`examples/` 落在所有工作区 glob 之外，也没有任何 vitest 配置点名这个目录，所以 `show-default-columns-turn`、`empty-datasource-turn` 以及重录过的 `show-datasource-turn` 在这里都没法回放——[那个例子自己的 README](../../../../examples/content-console/README.zh.md) 记着这件事，而这套用例该放在哪里是一项待定的决定。它们承载的那些断言，真正跑过的证据是它们旁边那个 Web 场景，它在真实浏览器里驱动同一份代码。
+上面那些 `snapshots/console` 夹具在这个基上是跑过的：这条泳道住在 `snapshots/` 下，而 `vitest.snapshot.config.ts` 收录了它，所以 `show-default-columns-turn`、`empty-datasource-turn` 与 `show-datasource-turn` 都会在 `pnpm run test:snapshot` 下回放——[重新安置笔记](../process/2026-09-07-console-snapshot-lane.zh.md)持有搬了什么，[那条泳道自己的 README](../../../../snapshots/console/README.zh.md) 持有怎么跑。它们旁边那个 Web 场景，仍然是 ACP 转录载不动的那部分的证据：真实浏览器、真实审批面板，以及后端被触达的先后顺序。
 
-`pnpm run build` 与 `pnpm run typecheck` 全绿；`pnpm run doc-sync` 33 道门禁全绿。`pnpm vitest run --coverage` 跑 `packages/experimental/biz-backend` 与 `packages/experimental/component-surface`：28 个文件、687 个用例，每个文件的行、语句、函数、分支都是 100%。`pnpm vitest run --config vitest.web.config.ts apps/web/tests/component-surface-datasource.e2e.ts` 对着构建产物跑：五个用例全过。`pnpm run lint` 停在这个基自己的基线上——`examples/content-console/tests/content-console.snapshot.ts` 里两条 oxlint 错误，它们在那里是因为这棵树已经不再是工作区成员、它的导入解析不出类型——本次改动只是把这两条挪到了新的行号上。
+`pnpm run build` 与 `pnpm run typecheck` 全绿；`pnpm run doc-sync` 33 道门禁全绿。`pnpm vitest run --coverage` 跑 `packages/experimental/biz-backend` 与 `packages/experimental/component-surface`：28 个文件、687 个用例，每个文件的行、语句、函数、分支都是 100%。`pnpm vitest run --config vitest.web.config.ts apps/web/tests/component-surface-datasource.e2e.ts` 对着构建产物跑：五个用例全过。`pnpm run lint` 全绿：这条泳道的适配器住在 `snapshots/` 下，那里没有类型感知的 oxlint 覆盖规则，所以它的导入不再像那棵树落在所有工作区 glob 之外时那样解析成 `error`。
 
 ## 已知限制与延后事项
 
