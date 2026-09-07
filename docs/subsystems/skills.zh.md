@@ -76,7 +76,7 @@ interface SkillProviderControl {
 | 510 | `user-claude` | `<claudeHome>/skills` |
 | 600 | `bundled` | 配置了 `Config.bundledSkillDir` 时使用该目录 |
 
-`.claude` 根目录承载为把 skill 存放在该处的 agent 客户端所编写的 skill，其 rank 低于同层的 `.agents` 根目录，因此两处同名的 skill 解析为共享约定中的那一份。解析出的根列表按规范路径去重：解析后落在前一个根已覆盖目录上的根——例如指向 `.agents/skills` 的符号链接 `.claude/skills`——会在发现与监视之前被丢弃。项目根目录为包含 `.git` 的最近祖先目录；找不到时使用当前 cwd。当 `ctx.fs` 可用时，git-root 向上查找通过文件系统服务探测 `.git`，使远程或沙箱工作区不会回退到宿主文件系统边界。用户 DSH 根目录会跳过其 `.system` 子目录。本地提供方不会合成内置系统 skill；部署方通过已配置的 bundled 根目录或专用提供方提供随包 skill。
+`.claude` 根目录承载为把 skill 存放在该处的 agent 客户端所编写的 skill，其 rank 低于同层的 `.agents` 根目录，因此两处同名的 skill 解析为共享约定中的那一份。解析出的根列表按规范路径去重：解析后落在前一个根已覆盖目录上的根——例如指向 `.agents/skills` 的符号链接 `.claude/skills`——会在发现与监视之前被丢弃。项目根目录为包含 `.git` 的最近祖先目录；找不到时使用当前 cwd。当 `ctx.fs` 可用时，git-root 向上查找通过文件系统服务探测 `.git`，使远程或沙箱工作区不会回退到宿主文件系统边界。用户 DSH 根目录会跳过其 `.system` 子目录。本地提供方不会合成内置系统 skill；部署方通过已配置的 bundled 根目录或专用提供方提供随包 skill。 扫描因“不存在”以外的原因失败的根目录——权限被拒，或链接指向自身——会被点名警告，并只把该根从本次观测中丢弃，因此其余根目录仍会填满一份不完整的目录，而不是让该提供方一个都不返回。
 
 `dsh-skill-badge` 在 `BUNDLED_SKILL_RANK` 注册一个不可变的 `bundled` 候选项，并通过 `resourceBase` 公开其随包资产目录。交付的 CLI（命令行界面）将该插件声明为禁用，因此启用其组合配置行即为显式选择加入。
 
