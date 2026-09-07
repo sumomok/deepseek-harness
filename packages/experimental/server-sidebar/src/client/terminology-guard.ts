@@ -91,8 +91,9 @@
  * `isolate: { commands: true }` on the `permission-presets` row, so that
  * package's command child never activates and `/permission` is never
  * registered. The preset in force is untouched by all three — the Host keeps
- * whatever `permission-presets` row the deployment composes, pinned to the
- * `defaultPreset` that overlay names.
+ * whatever `permission-presets` row the deployment composes, on the
+ * `defaultPreset` that overlay names unless the deployment's settings document
+ * stores one of its own (see the package README's De-terminology section).
  *
  * This plugin is unconditional (see its own module doc on why): this package
  * now exists solely for the customer/service-line product experience, not as
