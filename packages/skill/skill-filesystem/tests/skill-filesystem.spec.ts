@@ -6,7 +6,7 @@ import { dirname, join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
 import SkillRegistry from '@deepseek-ai/dsh-skill'
-import { FileSystem, FsError, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsInfo, type FsPathInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
+import { FileSystem, FsError, FsVersion, type FsDirEntry, type FsEditOutcome, type FsEditRequest, type FsErrorCode, type FsInfo, type FsPathInfo, type FsTarget, type FsWriteOutcome } from '@deepseek-ai/dsh-fs'
 import * as SkillFileSystem from '../src/index.ts'
 
 /** Every temp dir created by this file, removed after each test. */
@@ -37,6 +37,7 @@ class TestFileSystem extends FileSystem {
   failResolvePaths = new Set<string>()
   failStatPaths = new Set<string>()
   failListDirPaths = new Set<string>()
+  listDirFsErrors = new Map<string, FsErrorCode>()
   errorResolvePaths = new Set<string>()
   errorStatPaths = new Set<string>()
   errorReadPaths = new Set<string>()
@@ -117,6 +118,8 @@ class TestFileSystem extends FileSystem {
   override async listDir(target: FsTarget): Promise<FsDirEntry[]> {
     this.listDirCalls += 1
     if (this.failListDirPaths.has(target.displayPath)) throw new Error('list temporarily failed')
+    const coded = this.listDirFsErrors.get(target.displayPath)
+    if (coded !== undefined) throw new FsError(`cannot list "${target.displayPath}": permission denied`, coded)
     const entries = await readdir(target.displayPath, { withFileTypes: true, encoding: 'utf8' })
     const result: FsDirEntry[] = []
     for (const entry of entries.sort((left, right) => left.name.localeCompare(right.name))) {
@@ -298,16 +301,24 @@ describe('FileSystemSkillProvider', () => {
       // uncacheable and the next lookup rescans.
       expect(snapshot.complete).toBe(false)
       // The absent `.agents`, `.claude`, and `.dsh` roots of the other tiers
-      // stay silent; only the denied one is reported.
+      // stay silent; only the denied one is reported, and the host errno
+      // message carries its own class rather than repeating it.
+      expect(warnings).toEqual([
+        `skill-filesystem: skill directory ${unreadable} skipped: EACCES: permission denied, scandir '${unreadable}'; `
+        + 'its skills stay unavailable until it can be read, and every other skill directory still loads',
+      ])
+      // An incomplete observation is never cached, so the next step rescans the
+      // denied root; the unchanged failure is not reported twice.
+      expect((await ctx.skills.snapshot({ cwd: project })).complete).toBe(false)
       expect(warnings).toHaveLength(1)
-      expect(warnings[0]).toContain(unreadable)
-      expect(warnings[0]).toContain('EACCES')
     } finally {
       await chmod(unreadable, 0o700)
     }
   })
 
-  it('keeps the other roots when one root links to itself', async () => {
+  // Windows needs a privilege to create a symbolic link, and its loop detection
+  // does not surface as `ELOOP`.
+  it.skipIf(process.platform === 'win32')('keeps the other roots when one root links to itself', async () => {
     const home = await tempDir('skill-looping-home')
     const project = await tempDir('skill-looping-project')
     await mkdir(join(project, '.git'), { recursive: true })
@@ -329,6 +340,43 @@ describe('FileSystemSkillProvider', () => {
     expect(warnings).toHaveLength(1)
     expect(warnings[0]).toContain(looping)
     expect(warnings[0]).toContain('ELOOP')
+  })
+
+  it('reports a filesystem-service root failure by its code and again when the code changes', async () => {
+    const home = await tempDir('skill-coded-root')
+    await writeSkill(join(home, '.agents/skills'), 'user-skill', 'user agents skill')
+    const denied = join(home, '.claude/skills')
+    const ctx = new Context()
+    await ctx.plugin(TestFileSystem)
+    const fs = ctx.fs as TestFileSystem
+    await ctx.plugin(SkillRegistry)
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
+      watch: false,
+    })
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+
+    // `dsh-fs-local` translates a denied host listing into this code, and its
+    // message does not repeat it the way a host errno message does.
+    fs.listDirFsErrors.set(denied, 'FS_PERMISSION_DENIED')
+    const snapshot = await ctx.skills.snapshot()
+    expect(snapshot.skills.map(skill => skill.name)).toEqual(['user-skill'])
+    expect(snapshot.complete).toBe(false)
+    expect(warnings).toEqual([
+      `skill-filesystem: skill directory ${denied} skipped: FS_PERMISSION_DENIED: cannot list "${denied}": permission denied; `
+      + 'its skills stay unavailable until it can be read, and every other skill directory still loads',
+    ])
+
+    expect((await ctx.skills.snapshot()).complete).toBe(false)
+    expect(warnings).toHaveLength(1)
+
+    fs.listDirFsErrors.set(denied, 'FS_IO_ERROR')
+    expect((await ctx.skills.snapshot()).complete).toBe(false)
+    expect(warnings).toHaveLength(2)
+    expect(warnings[1]).toContain('FS_IO_ERROR')
   })
 
   it('lets project skills override runtime while runtime overrides custom and user skills', async () => {

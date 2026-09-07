@@ -163,6 +163,7 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly claudeHome: string
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
+  private readonly rootFailures: RootFailureLog
   private readonly bundledSkillDir: string | undefined
   private disposal: Promise<void> | undefined
 
@@ -178,6 +179,7 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.claudeHome = resolve(config.claudeHome ?? process.env.DSH_CLAUDE_HOME ?? join(homedir(), '.claude'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
+    this.rootFailures = new RootFailureLog(ctx)
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
     // The environment bundled root is a default root: an isolated provider
     // must see only its explicit roots, or every such provider would
@@ -214,9 +216,10 @@ export class FileSystemSkillProvider implements SkillProvider {
         discovered = await discoverRoot(root, this.ctx, this.name)
       } catch (error) {
         complete = false
-        this.ctx.logger.warn(skippedRootMessage(root, error))
+        this.rootFailures.report(root.path, error, skippedRootMessage(root, error))
         continue
       }
+      this.rootFailures.clear(root.path)
       candidates.push(...discovered)
     }
     return complete ? candidates : { candidates, complete }
@@ -351,6 +354,7 @@ interface WatchHandle {
 class SkillWatchManager {
   private readonly roots = new Map<string, RootWatchState>()
   private readonly projects = new Map<string, Set<string>>()
+  private readonly startupFailures: RootFailureLog
   private readonly lifecycle = new AbortController()
   private closing = false
   private invalidationQueued = false
@@ -359,7 +363,9 @@ class SkillWatchManager {
     private readonly ctx: Context,
     private readonly invalidate: () => void,
     private readonly config: ResolvedWatchConfig,
-  ) {}
+  ) {
+    this.startupFailures = new RootFailureLog(ctx)
+  }
 
   async observeRoots(roots: readonly SkillRoot[]): Promise<void> {
     if (this.closing) return
@@ -488,11 +494,18 @@ class SkillWatchManager {
       /* v8 ignore stop */
       state.watcher = watcher
       state.unhealthy = false
+      this.startupFailures.clear(state.root.path)
     } catch (error) {
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- teardown can race awaited watcher startup
       if (!this.closing) {
         state.unhealthy = true
-        this.ctx.logger.warn(`skill-filesystem: failed to watch ${state.root.path}: ${errorMessage(error)}`)
+        // Discovery retries an unhealthy watcher on every lookup, and an
+        // incomplete observation makes every lookup rescan.
+        this.startupFailures.report(
+          state.root.path,
+          error,
+          `skill-filesystem: failed to watch ${state.root.path}: ${failureDetail(error)}`,
+        )
       }
       throw error
     }
@@ -787,11 +800,26 @@ function hasErrorCode(error: unknown, code: string): boolean {
  * Read the failure class an error carries.
  * @param error - the thrown value; a host error carries its `errno` name and an
  *   `FsError` carries an `FS_*` code its message does not repeat.
- * @returns the `code` property rendered as text, or `undefined` when absent.
+ * @returns the `code` property, or `undefined` when it is absent or not a string.
  */
 function errorCode(error: unknown): string | undefined {
-  if (typeof error === 'object' && error !== null && 'code' in error) return String(error.code)
-  return undefined
+  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined
+  /* v8 ignore next -- An error object whose `code` is not a string is provider-specific; every host and `FsError` code is a string. */
+  if (typeof error.code !== 'string') return undefined
+  return error.code
+}
+
+/**
+ * Render a caught failure as one diagnostic clause.
+ * @param error - the thrown value.
+ * @returns the error's own message, prefixed with its failure class only when
+ *   the message does not already carry it, as a host `errno` message does.
+ */
+function failureDetail(error: unknown): string {
+  /* v8 ignore next -- A thrown non-Error is provider-specific; host I/O and `FsError` always throw an Error. */
+  if (!(error instanceof Error)) return errorMessage(error)
+  const code = errorCode(error)
+  return code === undefined || error.message.includes(code) ? error.message : `${code}: ${error.message}`
 }
 
 /**
@@ -801,9 +829,42 @@ function errorCode(error: unknown): string | undefined {
  * @returns warning text naming the directory, the failure class, and the effect.
  */
 function skippedRootMessage(root: SkillRoot, error: unknown): string {
-  const code = errorCode(error)
-  const detail = code === undefined ? errorMessage(error) : `${code}: ${errorMessage(error)}`
-  return `skill-filesystem: skill directory ${root.path} skipped: ${detail}; its skills stay unavailable until it can be read, and every other skill directory still loads`
+  return `skill-filesystem: skill directory ${root.path} skipped: ${failureDetail(error)}; its skills stay unavailable until it can be read, and every other skill directory still loads`
+}
+
+/**
+ * One warning per root while its failure class stays unchanged.
+ *
+ * An incomplete observation is never cached, so a root that stays unreadable is
+ * rescanned on every lookup; without this the same warning would repeat once per
+ * model step for as long as the directory stays broken. A different failure
+ * class, or a failure after the root has worked again, reports anew.
+ */
+class RootFailureLog {
+  private readonly reported = new Map<string, string>()
+
+  constructor(private readonly ctx: Context) {}
+
+  /**
+   * Warn unless this root's last reported failure carried the same class.
+   * @param path - the root path this failure belongs to.
+   * @param error - the failure whose class decides whether this repeats.
+   * @param message - warning text emitted when the failure is not a repeat.
+   */
+  report(path: string, error: unknown, message: string): void {
+    const failure = errorCode(error) ?? failureDetail(error)
+    if (this.reported.get(path) === failure) return
+    this.reported.set(path, failure)
+    this.ctx.logger.warn(message)
+  }
+
+  /**
+   * Forget a root's last failure so a later one warns again.
+   * @param path - the root path that has just succeeded.
+   */
+  clear(path: string): void {
+    this.reported.delete(path)
+  }
 }
 
 async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Promise<SkillCandidate[]> {
