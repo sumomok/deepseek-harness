@@ -55,6 +55,10 @@ Profile integration drivers use the repository-only `tests/fixtures/production-p
 
 `resolveExampleLaunch` picks the artifact an example bin boots from. `src` mode runs the bin under tsx with `TSX_TSCONFIG_PATH` set, so workspace imports resolve through the tsconfig `paths` map — the zero-build dev path. `lib` mode runs the built `lib/` bin under plain Node, so bare package plugins resolve through real package `exports`, exactly as an installed consumer resolves them. The mode comes from an explicit value or `DSH_EXAMPLE_MODE` (CI sets `lib`, dev leaves it unset); anything else fails loud.
 
+### Isolating the skill roots
+
+`isolatedSkillRootEnv` returns the environment block that pins every skill root a launched harness reads — `DSH_HOME`, `DSH_AGENTS_HOME`, `DSH_CLAUDE_HOME`, and `DSH_BUNDLED_SKILL_DIR` when a launcher supplies one — under an isolated cwd, with a per-root override for a launcher that places one elsewhere. `runLoaderSmoke` applies it, and the launchers behind recorded fixtures and expected outputs — the session-snapshot launcher and harness, the SDK snapshot runner, the Web scaffold, five CLI end-to-end suites, and the two release scripts — spread it into their child environments, so a root added to `dsh-skill-filesystem` reaches all of them at once instead of leaking a developer's own skills into fixtures and expected outputs. Two programs that cannot call it repeat the key set inline and no gate binds them to this list: `apps/web/tests/smoke-real.e2e.ts` and `scripts/smoke-python-runtime.py`.
+
 ### What can go wrong
 
 - **The process never exits** — the smoke enforces a deadline and reports the captured streams in the failure; a faulty fixture that spawns its own process tree can outlive the smoke and needs external cleanup.
@@ -73,7 +77,7 @@ This section explains the design of the harness; the observable behavior is full
 
 ### Design
 
-The harness is built on one separation: the smoke runs in a child process under an isolated world, and the test process only observes and asserts. `runLoaderSmoke` creates a temporary cwd, prepares world state there, spawns the resolved bin with isolated DSH homes (`DSH_HOME`, `DSH_AGENTS_HOME` under the temp cwd), closes stdin immediately, and awaits a clean exit within the deadline before inspecting and cleaning up on every outcome. `runFixtureTurn` stays in-process: it looks up the composition's single root agent, follows the task from its durable inbox receipt through whole-agent idle, sums per-step usage, and flushes the session before returning.
+The harness is built on one separation: the smoke runs in a child process under an isolated world, and the test process only observes and asserts. `runLoaderSmoke` creates a temporary cwd, prepares world state there, spawns the resolved bin with the isolated skill roots `isolatedSkillRootEnv` builds under the temp cwd, closes stdin immediately, and awaits a clean exit within the deadline before inspecting and cleaning up on every outcome. `runFixtureTurn` stays in-process: it looks up the composition's single root agent, follows the task from its durable inbox receipt through whole-agent idle, sums per-step usage, and flushes the session before returning.
 
 ### Source map
 

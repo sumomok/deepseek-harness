@@ -1215,7 +1215,12 @@ def smoke_sdk_profile_plugin(base_url: str) -> None:
         }], indent=2))
 
         dsh = Path(sysconfig.get_path("scripts")) / ("dsh.exe" if IS_WINDOWS else "dsh")
-        environment = {**os.environ, "DSH_HOME": str(dsh_home)}
+        environment = {
+            **os.environ,
+            "DSH_HOME": str(dsh_home),
+            "DSH_AGENTS_HOME": str(root / ".agents"),
+            "DSH_CLAUDE_HOME": str(root / ".claude"),
+        }
         installed = subprocess.run(
             [str(dsh), "plugin", "--profile", "sdk", "add", f"file:{plugin}"],
             cwd=root,
@@ -1384,6 +1389,8 @@ def smoke_direct(base_url: str, executable: Path) -> None:
         environment = {
             **os.environ,
             "DSH_HOME": str(dsh_home),
+            "DSH_AGENTS_HOME": str(root / ".agents"),
+            "DSH_CLAUDE_HOME": str(root / ".claude"),
             "DSH_PERMISSION_MODE": "danger-full-access",
             "DSH_TELEMETRY_DISABLED": "1",
             "DEEPSEEK_API_KEY": "sk-keyless-smoke",

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it } from 'vitest'
-import { mkdir, rm, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, rm, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { Context } from '@deepseek-ai/cordis'
@@ -41,7 +41,12 @@ async function setup(home: string, config: toolSkill.Config = {}): Promise<Conte
   await ctx.plugin(ToolRuntime)
   await ctx.plugin(AgentRegistry)
   await ctx.plugin(SkillRegistry)
-  await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+  await ctx.plugin(SkillFileSystem, {
+    dshHome: join(home, '.dsh'),
+    agentsHome: join(home, '.agents'),
+    claudeHome: join(home, '.claude'),
+    watch: false,
+  })
   await ctx.plugin(toolSkill, config)
   return ctx
 }
@@ -176,7 +181,12 @@ describe('dsh-tool-skill', () => {
     await ctx.plugin(AgentRegistry)
     const home = await tempDir('tool-schema')
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
+      watch: false,
+    })
     ctx.skills.register({ name: 'lifecycle-skill', description: 'Lifecycle', source: 'runtime', content: 'body' })
 
     const fiber = await ctx.plugin(toolSkill)
@@ -701,7 +711,7 @@ describe('dsh-tool-skill', () => {
     await scope.dispose()
   })
 
-  it('retains the last-good catalog while any provider discovery is incomplete', async () => {
+  it('retains the last-good catalog while an incomplete discovery reaches no skills', async () => {
     const home = await tempDir('tool-incomplete-catalog')
     const ctx = await setup(home)
     const disposeStable = ctx.skills.register({
@@ -728,6 +738,37 @@ describe('dsh-tool-skill', () => {
     await fireStep(ctx, agent, 1, 1)
 
     expect(catalogMessages(session)).toHaveLength(1)
+  })
+
+  // `chmod 000` denies nothing on Windows, which has no POSIX directory mode.
+  it.skipIf(process.platform === 'win32')('publishes the readable roots when one local skill root denies reading', async () => {
+    const home = await tempDir('tool-degraded-root')
+    await writeSkill(join(home, '.agents/skills'), 'readable-skill', 'Readable skill', 'Readable body.')
+    const denied = join(home, '.claude/skills')
+    await mkdir(denied, { recursive: true })
+    await chmod(denied, 0o000)
+
+    try {
+      const ctx = await setup(home)
+      ctx.logger.warn = (() => {}) as typeof ctx.logger.warn
+      const session = Session.create(SessionId('degraded-root'))
+      const agent = sessionAgent(session)
+      openMessageTurn(session)
+
+      // The provider drops the denied root alone, so the snapshot is
+      // incomplete but not empty and the catalog still reaches the model.
+      expect(await ctx.skills.snapshot()).toMatchObject({
+        skills: [{ name: 'readable-skill' }],
+        complete: false,
+      })
+      await fireStep(ctx, agent, 1, 1)
+
+      const messages = catalogMessages(session)
+      expect(messages).toHaveLength(1)
+      expect(JSON.stringify(messages[0]?.data.content)).toContain('readable-skill')
+    } finally {
+      await chmod(denied, 0o700)
+    }
   })
 
   it('omits catalog guidance when the calling agent restricts away the shipped skill tool', async () => {
@@ -776,7 +817,12 @@ describe('dsh-tool-skill', () => {
     await ctx.plugin(ToolRuntime)
     await ctx.plugin(AgentRegistry)
     await ctx.plugin(SkillRegistry)
-    await ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    await ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'),
+      agentsHome: join(home, '.agents'),
+      claudeHome: join(home, '.claude'),
+      watch: false,
+    })
 
     await expect(ctx.plugin(toolSkill, { catalogDescriptionMaxLength: 2 })).rejects.toThrow('greater than or equal to 3')
   })

@@ -3,7 +3,7 @@ import { readFile, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
-import { LOADER_SMOKE_TEST_TIMEOUT_MS, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
+import { LOADER_SMOKE_TEST_TIMEOUT_MS, isolatedSkillRootEnv, runLoaderSmoke } from '@deepseek-ai/dsh-loader-smoke'
 
 const configPath = '/tmp/fixture.cordis.yml'
 const tsconfigPath = fileURLToPath(new URL('../../../../tsconfig.json', import.meta.url))
@@ -101,6 +101,25 @@ describe('runLoaderSmoke', () => {
       tsconfigPath,
       expectedExitCode: 7,
     })).rejects.toThrow(/exited 0 \(expected 7\)/)
+  })
+
+  it('pins every skill root under the isolated cwd and honors per-root overrides', () => {
+    expect(isolatedSkillRootEnv('/work')).toEqual({
+      DSH_HOME: join('/work', '.dsh'),
+      DSH_AGENTS_HOME: join('/work', '.agents'),
+      DSH_CLAUDE_HOME: join('/work', '.claude'),
+    })
+    expect(isolatedSkillRootEnv('/work', {
+      dshHome: '/elsewhere/home',
+      agentsHome: '/elsewhere/agents',
+      claudeHome: '/elsewhere/claude',
+      bundledSkillDir: '/elsewhere/bundled',
+    })).toEqual({
+      DSH_HOME: '/elsewhere/home',
+      DSH_AGENTS_HOME: '/elsewhere/agents',
+      DSH_CLAUDE_HOME: '/elsewhere/claude',
+      DSH_BUNDLED_SKILL_DIR: '/elsewhere/bundled',
+    })
   })
 
   it('kills a process at its deadline and reports captured output', async () => {

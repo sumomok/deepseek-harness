@@ -47,11 +47,13 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 |---|---|---|
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 210 | `project-claude` | `<projectRoot>/.claude/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
+| 510 | `user-claude` | `<claudeHome>/skills` |
 
-项目根目录是包含 `.git` 的最近祖先目录；如果不存在，则使用当前 cwd。用户 DSH 根目录会跳过其 `.system` 子目录。`includeDefaultRoots: false` 会省略项目根、用户根以及 `$DSH_BUNDLED_SKILL_DIR` 默认值，使隔离提供方只看到自身配置的根；`bundledSkillDir` 会按 rank 600 添加一个内置根目录。
+读取 `.claude` 根目录，是为了让把 skill 存放在该处的 agent 客户端所编写的 skill 无需改动即可使用；同一层两个根目录中同名的 skill 解析为 `.agents` 中的那一份。根目录按规范路径去重，因此指向 `.agents/skills` 的符号链接 `.claude/skills` 只会被扫描与监视一次，而不会把每个 skill 提供两遍。项目根目录是包含 `.git` 的最近祖先目录；如果不存在，则使用当前 cwd。用户 DSH 根目录会跳过其 `.system` 子目录。`includeDefaultRoots: false` 会省略项目根、用户根以及 `$DSH_BUNDLED_SKILL_DIR` 默认值，使隔离提供方只看到自身配置的根；`bundledSkillDir` 会按 rank 600 添加一个内置根目录。
 
 ### 挂载与配置
 
@@ -68,6 +70,7 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 | `includeDefaultRoots` | `true` | 在 `customSkillDirs` 周围包含项目根与用户根 |
 | `dshHome` | `$DSH_HOME` 或 `~/.dsh` | Harness 配置根目录；扫描其 `skills` 子目录 |
 | `agentsHome` | `$DSH_AGENTS_HOME` 或 `~/.agents` | 为兼容 skill 扫描的共享 agent 配置根目录 |
+| `claudeHome` | `$DSH_CLAUDE_HOME` 或 `~/.claude` | 为兼容 skill 扫描的 Claude Code 配置根目录 |
 | `customSkillDirs` | `[]` | 其他本地 skill 根目录，位于项目根之后、用户根之前 |
 | `watch` | `true` | 监视本地根，并在目录可能变化时使提供方失效 |
 | `bundledSkillDir` | — | 配置后按 rank 600 扫描的内置 skill 根目录 |
@@ -80,7 +83,7 @@ skill 可以是被扫描根目录顶层的目录 bundle `<name>/SKILL.md`，也�
 
 ### 可观察的成功与失败
 
-任一被扫描根目录下的有效 skill 都会按名称排序出现在会话目录中，加载它即可返回当前文件正文。缺少有效 frontmatter、名称无效或调用值无效的文件会随警告被跳过，因此模型目录不会收到逐 skill 诊断，也无法区分缺失的 skill 与无效的 skill。意外的发现或读取失败会让目录观测保持不完整，而不会用看似发生删除的结果替换最后一份可用视图。
+任一被扫描根目录下的有效 skill 都会按名称排序出现在会话目录中，加载它即可返回当前文件正文。缺少有效 frontmatter、名称无效或调用值无效的文件会随警告被跳过，因此模型目录不会收到逐 skill 诊断，也无法区分缺失的 skill 与无效的 skill。意外的发现或读取失败会让目录观测保持不完整，而不会用看似发生删除的结果替换最后一份可用视图。扫描完全读不到的根目录——权限被拒，或链接指向自身——会以一条警告点名，并只把该根从本次观测中丢弃，其余每个根目录仍照常贡献各自的 skill。
 
 -----
 

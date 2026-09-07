@@ -47,11 +47,13 @@ Default roots are scanned in this provider's rank order:
 |---|---|---|
 | 100 | `project-dsh` | `<projectRoot>/.dsh/skills` |
 | 200 | `project-agents` | `<projectRoot>/.agents/skills` |
+| 210 | `project-claude` | `<projectRoot>/.claude/skills` |
 | 300 | `custom` | `Config.customSkillDirs` |
 | 400 | `user-dsh` | `<dshHome>/skills` |
 | 500 | `user-agents` | `<agentsHome>/skills` |
+| 510 | `user-claude` | `<claudeHome>/skills` |
 
-The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
+The `.claude` roots are read so skills authored for the agent clients that keep them there are available unchanged; a name present in both roots of a tier resolves to the `.agents` copy. Roots are deduplicated by canonical path, so a `.claude/skills` that is a symbolic link to `.agents/skills` is scanned and watched once rather than offering every skill twice. The project root is the nearest ancestor containing `.git`; without one, the current cwd is used. The user DSH root skips its `.system` child. `includeDefaultRoots: false` omits the project and user rows plus the `$DSH_BUNDLED_SKILL_DIR` default so an isolated provider sees only its own configured roots; `bundledSkillDir` adds a bundled root at rank 600.
 
 ### Mount and configure
 
@@ -68,6 +70,7 @@ Load the plugin alongside the skill registry; it requires `ctx.skills`.
 | `includeDefaultRoots` | `true` | Include project and user roots around `customSkillDirs` |
 | `dshHome` | `$DSH_HOME` or `~/.dsh` | Harness config root; its `skills` subdirectory is scanned |
 | `agentsHome` | `$DSH_AGENTS_HOME` or `~/.agents` | Shared agent config root scanned for compatible skills |
+| `claudeHome` | `$DSH_CLAUDE_HOME` or `~/.claude` | Claude Code config root scanned for compatible skills |
 | `customSkillDirs` | `[]` | Additional local skill roots, after project roots and before user roots |
 | `watch` | `true` | Watch local roots and invalidate the provider when the catalog may have changed |
 | `bundledSkillDir` | — | Bundled skill root scanned at rank 600 when configured |
@@ -80,7 +83,7 @@ Existing roots are watched, so adding, renaming, or deleting a skill (or editing
 
 ### Observable success and failures
 
-A valid skill under any scanned root appears in the session catalog sorted by name, and loading it returns the current file body. A file without valid frontmatter, an invalid name, or an invalid invocation value is skipped with a warning, so the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one. Unexpected discovery or read failures leave the catalog observation incomplete rather than replacing the last-good view with a misleading deletion.
+A valid skill under any scanned root appears in the session catalog sorted by name, and loading it returns the current file body. A file without valid frontmatter, an invalid name, or an invalid invocation value is skipped with a warning, so the model catalog receives no per-skill diagnostic and cannot distinguish an absent skill from an invalid one. Unexpected discovery or read failures leave the catalog observation incomplete rather than replacing the last-good view with a misleading deletion. A root the scan cannot read at all — permission denied, or a link that resolves to itself — is named in one warning and dropped from that observation alone, so every other root still contributes its skills.
 
 -----
 

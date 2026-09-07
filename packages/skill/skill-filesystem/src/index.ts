@@ -33,11 +33,16 @@ import {
   type SkillSource,
 } from '@deepseek-ai/dsh-skill'
 
+// A skill name found in more than one root resolves to the lowest rank, so each
+// tier prefers the harness's own root, then the shared `.agents` convention,
+// then the Claude Code `.claude` root other clients also read.
 const PROJECT_DSH_RANK = 100
 const PROJECT_AGENTS_RANK = 200
+const PROJECT_CLAUDE_RANK = 210
 const CUSTOM_RANK = 300
 const USER_DSH_RANK = 400
 const USER_AGENTS_RANK = 500
+const USER_CLAUDE_RANK = 510
 const DEFAULT_WATCH_STABILITY_THRESHOLD_MS = 200
 const DEFAULT_WATCH_POLL_INTERVAL_MS = 100
 const DEFAULT_WATCH_MAX_PROJECTS = 128
@@ -55,6 +60,8 @@ export interface Config {
   dshHome?: string
   /** Shared agent config root. Defaults to `$DSH_AGENTS_HOME` or `~/.agents`. */
   agentsHome?: string
+  /** Claude Code config root. Defaults to `$DSH_CLAUDE_HOME` or `~/.claude`. */
+  claudeHome?: string
   /** Additional skill roots scanned after project roots and before user roots. */
   customSkillDirs?: string[]
   /** Whether host-local skill roots are watched for catalog changes. */
@@ -78,6 +85,7 @@ export const Config: Schema<Config> = z.object({
   includeDefaultRoots: z.boolean().default(true),
   dshHome: z.string(),
   agentsHome: z.string(),
+  claudeHome: z.string(),
   customSkillDirs: z.array(z.string()).default([]),
   watch: z.boolean().default(true),
   watchUsePolling: z.boolean().default(false),
@@ -148,8 +156,10 @@ export class FileSystemSkillProvider implements SkillProvider {
   private readonly includeDefaultRoots: boolean
   private readonly dshHome: string
   private readonly agentsHome: string
+  private readonly claudeHome: string
   private readonly customSkillDirs: string[]
   private readonly watchManager: SkillWatchManager
+  private readonly rootFailures: RootFailureLog
   private readonly bundledSkillDir: string | undefined
   private disposal: Promise<void> | undefined
 
@@ -162,8 +172,10 @@ export class FileSystemSkillProvider implements SkillProvider {
     this.includeDefaultRoots = config.includeDefaultRoots ?? true
     this.dshHome = resolveDshHome(config.dshHome)
     this.agentsHome = resolve(config.agentsHome ?? process.env.DSH_AGENTS_HOME ?? join(homedir(), '.agents'))
+    this.claudeHome = resolve(config.claudeHome ?? process.env.DSH_CLAUDE_HOME ?? join(homedir(), '.claude'))
     this.customSkillDirs = (config.customSkillDirs ?? []).map(root => resolve(root))
     this.watchManager = new SkillWatchManager(ctx, control.invalidate, resolveWatchConfig(config))
+    this.rootFailures = new RootFailureLog(ctx)
     control.signal.addEventListener('abort', () => { void this.dispose() }, { once: true })
     // The environment bundled root is a default root: an isolated provider
     // must see only its explicit roots, or every such provider would
@@ -177,7 +189,8 @@ export class FileSystemSkillProvider implements SkillProvider {
    * Discover local skill summaries for a cwd-sensitive workspace.
    * @param options - lookup options; `cwd` selects the project roots to scan.
    * @returns local provider candidates with stable root ranks; watcher startup
-   *   failure returns readable candidates as an incomplete observation.
+   *   failure and a root that cannot be scanned both return the readable
+   *   candidates as an incomplete observation.
    */
   async list(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
     const roots = await this.roots(options.cwd)
@@ -190,9 +203,20 @@ export class FileSystemSkillProvider implements SkillProvider {
     }
     const candidates: SkillCandidate[] = []
     for (const root of roots) {
-      for (const skill of await discoverRoot(root, this.ctx, this.name)) {
-        candidates.push(skill)
+      // Absence is already empty state; anything else — an unreadable
+      // directory, a link that resolves to itself, a failing device — would
+      // otherwise reject out of `list()`, and `dsh-skill` skips a rejecting
+      // provider whole, taking every other root's skills with it.
+      let discovered: SkillCandidate[]
+      try {
+        discovered = await discoverRoot(root, this.ctx, this.name)
+      } catch (error) {
+        complete = false
+        this.rootFailures.report(root.path, error, skippedRootMessage(root, error))
+        continue
       }
+      this.rootFailures.clear(root.path)
+      candidates.push(...discovered)
     }
     return complete ? candidates : { candidates, complete }
   }
@@ -245,6 +269,7 @@ export class FileSystemSkillProvider implements SkillProvider {
       roots.push(
         { path: join(projectRoot, '.dsh/skills'), source: 'project-dsh', rank: PROJECT_DSH_RANK, projectRoot },
         { path: join(projectRoot, '.agents/skills'), source: 'project-agents', rank: PROJECT_AGENTS_RANK, projectRoot },
+        { path: join(projectRoot, '.claude/skills'), source: 'project-claude', rank: PROJECT_CLAUDE_RANK, projectRoot },
       )
     }
     roots.push(...this.customSkillDirs.map(path => ({ path, source: 'custom' as const, rank: CUSTOM_RANK })))
@@ -252,12 +277,53 @@ export class FileSystemSkillProvider implements SkillProvider {
       roots.push(
         { path: join(this.dshHome, 'skills'), source: 'user-dsh', rank: USER_DSH_RANK, skipSystem: true },
         { path: join(this.agentsHome, 'skills'), source: 'user-agents', rank: USER_AGENTS_RANK },
+        { path: join(this.claudeHome, 'skills'), source: 'user-claude', rank: USER_CLAUDE_RANK },
       )
     }
     if (this.bundledSkillDir !== undefined) {
       roots.push({ path: this.bundledSkillDir, source: 'bundled', rank: BUNDLED_SKILL_RANK, trustedHost: true })
     }
-    return roots
+    return await deduplicateRoots(roots)
+  }
+}
+
+/**
+ * Keep the first root of every distinct directory, in ascending rank order.
+ *
+ * A checkout whose `.claude/skills` is a symbolic link to `.agents/skills`
+ * offers each skill under two roots: the registry would resolve every duplicate
+ * name to the higher-priority root and warn once per skill, and the watch
+ * manager would open two host watchers on the one directory.
+ * @param roots - candidate roots in ascending rank order.
+ * @returns the roots whose canonical path no earlier root already covers.
+ */
+async function deduplicateRoots(roots: readonly SkillRoot[]): Promise<SkillRoot[]> {
+  const covered = new Set<string>()
+  const kept: SkillRoot[] = []
+  for (const root of roots) {
+    const canonical = await canonicalRootKey(root.path)
+    if (covered.has(canonical)) continue
+    covered.add(canonical)
+    kept.push(root)
+  }
+  return kept
+}
+
+/**
+ * Resolve the identity a root is deduplicated by.
+ * @param path - the configured root path, which need not exist yet.
+ * @returns the canonical path, or the configured path when it cannot resolve.
+ */
+async function canonicalRootKey(path: string): Promise<string> {
+  try {
+    return await canonicalizeWatchPath(path)
+  } catch {
+    // canonicalizeWatchPath rejects when an ancestor is unreadable or is not a
+    // directory, never for ordinary absence. The configured path stays this
+    // root's identity so discovery still reaches it: an ancestor that is a
+    // regular file lists empty as absence, and an unreadable one warns and
+    // drops this root alone from an incomplete observation.
+    return path
   }
 }
 
@@ -284,6 +350,7 @@ interface WatchHandle {
 class SkillWatchManager {
   private readonly roots = new Map<string, RootWatchState>()
   private readonly projects = new Map<string, Set<string>>()
+  private readonly startupFailures: RootFailureLog
   private readonly lifecycle = new AbortController()
   private closing = false
   private invalidationQueued = false
@@ -292,7 +359,9 @@ class SkillWatchManager {
     private readonly ctx: Context,
     private readonly invalidate: () => void,
     private readonly config: ResolvedWatchConfig,
-  ) {}
+  ) {
+    this.startupFailures = new RootFailureLog(ctx)
+  }
 
   async observeRoots(roots: readonly SkillRoot[]): Promise<void> {
     if (this.closing) return
@@ -421,11 +490,18 @@ class SkillWatchManager {
       /* v8 ignore stop */
       state.watcher = watcher
       state.unhealthy = false
+      this.startupFailures.clear(state.root.path)
     } catch (error) {
       // oxlint-disable-next-line typescript/no-unnecessary-condition -- teardown can race awaited watcher startup
       if (!this.closing) {
         state.unhealthy = true
-        this.ctx.logger.warn(`skill-filesystem: failed to watch ${state.root.path}: ${errorMessage(error)}`)
+        // Discovery retries an unhealthy watcher on every lookup, and an
+        // incomplete observation makes every lookup rescan.
+        this.startupFailures.report(
+          state.root.path,
+          error,
+          `skill-filesystem: failed to watch ${state.root.path}: ${failureDetail(error)}`,
+        )
       }
       throw error
     }
@@ -713,7 +789,78 @@ function isAbsentSkillPathError(error: unknown): boolean {
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === code
+  return errorCode(error) === code
+}
+
+/**
+ * Read the failure class an error carries.
+ * @param error - the thrown value; a host error carries its `errno` name and an
+ *   `FsError` carries an `FS_*` code its message does not repeat.
+ * @returns the `code` property, or `undefined` when it is absent or not a string.
+ */
+function errorCode(error: unknown): string | undefined {
+  if (typeof error !== 'object' || error === null || !('code' in error)) return undefined
+  /* v8 ignore next -- An error object whose `code` is not a string is provider-specific; every host and `FsError` code is a string. */
+  if (typeof error.code !== 'string') return undefined
+  return error.code
+}
+
+/**
+ * Render a caught failure as one diagnostic clause.
+ * @param error - the thrown value.
+ * @returns the error's own message, prefixed with its failure class only when
+ *   the message does not already carry it, as a host `errno` message does.
+ */
+function failureDetail(error: unknown): string {
+  /* v8 ignore next -- A thrown non-Error is provider-specific; host I/O and `FsError` always throw an Error. */
+  if (!(error instanceof Error)) return errorMessage(error)
+  const code = errorCode(error)
+  return code === undefined || error.message.includes(code) ? error.message : `${code}: ${error.message}`
+}
+
+/**
+ * Describe a root dropped from one discovery because scanning it failed.
+ * @param root - the root that was skipped.
+ * @param error - the failure the scan raised.
+ * @returns warning text naming the directory, the failure class, and the effect.
+ */
+function skippedRootMessage(root: SkillRoot, error: unknown): string {
+  return `skill-filesystem: skill directory ${root.path} skipped: ${failureDetail(error)}; its skills stay unavailable until it can be read, and every other skill directory still loads`
+}
+
+/**
+ * One warning per root while its failure class stays unchanged.
+ *
+ * An incomplete observation is never cached, so a root that stays unreadable is
+ * rescanned on every lookup; without this the same warning would repeat once per
+ * model step for as long as the directory stays broken. A different failure
+ * class, or a failure after the root has worked again, reports anew.
+ */
+class RootFailureLog {
+  private readonly reported = new Map<string, string>()
+
+  constructor(private readonly ctx: Context) {}
+
+  /**
+   * Warn unless this root's last reported failure carried the same class.
+   * @param path - the root path this failure belongs to.
+   * @param error - the failure whose class decides whether this repeats.
+   * @param message - warning text emitted when the failure is not a repeat.
+   */
+  report(path: string, error: unknown, message: string): void {
+    const failure = errorCode(error) ?? failureDetail(error)
+    if (this.reported.get(path) === failure) return
+    this.reported.set(path, failure)
+    this.ctx.logger.warn(message)
+  }
+
+  /**
+   * Forget a root's last failure so a later one warns again.
+   * @param path - the root path that has just succeeded.
+   */
+  clear(path: string): void {
+    this.reported.delete(path)
+  }
 }
 
 async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Promise<SkillCandidate[]> {
@@ -775,9 +922,7 @@ async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Prom
   try {
     entries = await readdir(root.path, { withFileTypes: true, encoding: 'utf8' })
   } catch (error) {
-    /* v8 ignore else -- Native non-absence directory failures are provider-dependent; the ctx.fs path pins incomplete discovery. */
     if (isAbsentSkillPathError(error)) return []
-    /* v8 ignore next -- Same native error branch as above. */
     throw error
   }
 
