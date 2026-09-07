@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events'
 import type { Stats } from 'node:fs'
-import { mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
+import { chmod, mkdir, realpath, rm, symlink, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -210,6 +210,49 @@ describe('skill-filesystem watcher failures', () => {
     expect(invalidations).toBe(0)
     expect(watcherHarness.watchFiles).toHaveLength(3)
     await fiber.dispose()
+  })
+
+  // `chmod 000` denies nothing on Windows, which has no POSIX directory mode.
+  it.skipIf(process.platform === 'win32')('reports an unreadable root once while watching keeps retrying it', async () => {
+    const readable = await tempDir('skill-watch-readable-root')
+    const denied = await tempDir('skill-watch-denied-root')
+    await writeSkill(readable, 'watched-skill')
+    await chmod(denied, 0o000)
+    // One per root per lookup: the same failure twice proves the retry is
+    // silent, not absent.
+    watcherHarness.startupErrors.push(
+      new Error('watch failed'),
+      new Error('watch failed'),
+      new Error('watch failed'),
+      new Error('watch failed'),
+    )
+    const ctx = new Context()
+    await ctx.plugin(SkillRegistry)
+    const warnings: string[] = []
+    ctx.logger.warn = ((message: unknown) => { warnings.push(String(message)) }) as typeof ctx.logger.warn
+    const fiber = await ctx.plugin(SkillFileSystem, {
+      includeDefaultRoots: false,
+      customSkillDirs: [readable, denied],
+      watch: true,
+    })
+
+    try {
+      expect(await ctx.skills.snapshot()).toMatchObject({
+        skills: [{ name: 'watched-skill' }],
+        complete: false,
+      })
+      expect(warnings.filter(warning => warning.includes(`skill directory ${denied} skipped`))).toHaveLength(1)
+      expect(warnings.filter(warning => warning.startsWith('skill-filesystem: failed to watch'))).toHaveLength(2)
+
+      expect(await ctx.skills.snapshot()).toMatchObject({
+        skills: [{ name: 'watched-skill' }],
+        complete: false,
+      })
+      expect(warnings).toHaveLength(3)
+      await fiber.dispose()
+    } finally {
+      await chmod(denied, 0o700)
+    }
   })
 
   it('keeps skills loadable across persistent watcher startup failures without caching them', async () => {
