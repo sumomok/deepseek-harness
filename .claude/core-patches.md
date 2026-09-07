@@ -725,6 +725,16 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 
 **门禁**：`pnpm exec vitest run packages/skill` **5 文件 / 112 条全绿**；`typecheck` 0；`doc-sync` **35/35**。
 
+### 第九次合并：`feat/desktop-mcp-servers` 的 MCP 0.1.2（`704a6408f1`）
+
+分支在第七次合并之后再追加一条 `release(desktop)`：vendored tarball `0.1.1` → `0.1.2`（确认写回带修订号、按原因分叉确认文案、退出时关掉等待确认的连接），同步改 `apps/desktop-server/package.json`、`THIRD_PARTY_NOTICES.md`、`scripts/gen-third-party-notices.ts`、双语 README 与 Agent Note。**唯一冲突 `pnpm-lock.yaml`（2 处）**：整取分支侧再 `pnpm install --offline`，退出码 0。其余六个文件零冲突自动合并；`gen-third-party-notices` 重跑**零 diff**，`verify-translation-pairing` **1193 对**全绿。
+
+### 门禁实跑（最终 HEAD，第九次合并之后）
+
+`pnpm install --offline` 0 → `build` 0（222 个客户端产物）→ `typecheck` 0 → `lint` 0 → 聚焦 `vitest run apps/desktop/tests packages/skill packages/client/ui-tool packages/client/ui-approval packages/client/ui-chat` **72 文件 / 1268 条全绿** → `test:snapshot` **121 条：118 通过 / 2 跳过 / 1 红**（唯一的红是 `ptc-python-turn`，本机 CPython 3.9.6 低于该包要求的 3.10+，非本次引入）→ `doc-sync` **35/35** → `hygiene` **16/16** → `DSH_SNAPSHOT=replay` 四场景 e2e（`approval-preview-diff`、`approval-composer`、`shipped-composition`、`scaffold-hermetic`）**4 文件 / 8 条全绿** → `desktop-composition-layer.spec.ts` 10 条全绿，`BUILTIN_WEB_BUNDLES` 14 项、末位 `@deepseek-ai/dsh-desktop-app`。
+
+**一次抖动，非本次引入**：聚焦 vitest 首跑时 `apps/desktop/tests/toast-answer.spec.ts` 的「两次拒绝失败后弃权」一条红（`the abstention never happened`——该用例用 5ms 轮询等状态）。该文件与 `apps/desktop/src/notifications.ts` **被本次合并的 diff 完全没碰过**（`git diff --name-only HEAD^ HEAD --` 为空），单跑三轮 15/15 全绿，聚焦集重跑 **1268/1268** 全绿。判为并发下的等待抖动。
+
 ### 分支 HEAD 登记
 
-代码与文档最终 HEAD 见下；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交及其后的追加合并。`rc31-integration` 的完整门禁数字取自 `bd51a99ef7`；`48687c9d4c` 之后按上一节所列范围复跑。起点 `origin/develop` = `1125f329b3`；补丁线 `core-patches-v7` = `1930a2321b`（未动）；五条功能分支顶依次 `d839e191b9`、`0242abf8a9`、`c60fecede2`、`9b444ed27c`（第六次合并时为 `ebca8637e8`）、`32d9d7f077`（第六次合并时为 `a98f9bfb13`）（均未被本分支改写）。本分支未推 origin。
+代码与文档最终 HEAD 见下；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交及其后的追加合并。本文件里带 HEAD 标注的门禁数字各自注明取数点；最终一轮完整门禁见「门禁实跑（最终 HEAD，第九次合并之后）」。起点 `origin/develop` = `1125f329b3`；补丁线 `core-patches-v7` = `1930a2321b`（未动）；五条功能分支顶依次 `d839e191b9`、`0242abf8a9`、`c60fecede2`、`704a6408f1`（第六次合并时为 `ebca8637e8`，第七次为 `9b444ed27c`）、`32d9d7f077`（第六次合并时为 `a98f9bfb13`）（均未被本分支改写）。本分支未推 origin。
