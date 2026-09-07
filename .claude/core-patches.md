@@ -706,6 +706,12 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 
 分支在第六次合并之后追加一条 `release(desktop)`：vendored tarball 从 `haoran-dsh-mcp-servers-0.1.0.tgz` 换成 `0.1.1`（首次连接即信任、按工具挂起），同步改 `apps/desktop-server/package.json`、`THIRD_PARTY_NOTICES.md`、`scripts/gen-third-party-notices.ts`、双语 README 与 Agent Note。**唯一冲突 `pnpm-lock.yaml`（2 处）**：整取分支侧再 `pnpm install`，退出码 0。其余七个文件零冲突自动合并；`verify-translation-pairing` 1193 对全绿，`gen-third-party-notices` 重跑零 diff。
 
+### 第八次合并：`feat/claude-skills-root` 的闸口计数订正（`32d9d7f077`）
+
+分支在第六次合并之后追加一条 `patch(tool-skill)`：闸原本数 `snapshot.skills.length`，而模型面是下一行 `filter(isModelInvocable)` 之后的集合，幸存技能全带 `disable-model-invocation` 时闸被绕过。**唯一冲突 `.claude/core-patches.md`**：该分支在自己那份台账里就地扩写补丁小节，而本线第六次合并时已把该小节移进补丁登记区，于是冲突落在两个不同位置。解法是冲突处整取本线（丢掉落在文末的那份重复正文），再把登记区里的小节正文整段换成分支的新版（新增「闸口计数订正」一条、「模型面补齐」一条改写措辞）。`comm` 实证：merged ⊇ 分支侧，缺的 35 行全部是 rc.30 期台账被 v7 改写的同一批行；本线侧只缺被分支改写措辞的那一条「模型面补齐」旧行。`packages/skill/tool-skill/tests/tool-skill.spec.ts` 零冲突自动合并。
+
+**门禁**：`pnpm exec vitest run packages/skill` **5 文件 / 112 条全绿**；`typecheck` 0；`doc-sync` **35/35**。
+
 ### 分支 HEAD 登记
 
-代码与文档最终 HEAD 见下；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交及其后的追加合并。`rc31-integration` 的门禁数字取自 `bd51a99ef7`。起点 `origin/develop` = `1125f329b3`；补丁线 `core-patches-v7` = `1930a2321b`（未动）；五条功能分支顶依次 `d839e191b9`、`0242abf8a9`、`c60fecede2`、`9b444ed27c`（第六次合并时为 `ebca8637e8`）、`a98f9bfb13`（均未被本分支改写）。本分支未推 origin。
+代码与文档最终 HEAD 见下；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交及其后的追加合并。`rc31-integration` 的完整门禁数字取自 `bd51a99ef7`；`48687c9d4c` 之后按上一节所列范围复跑。起点 `origin/develop` = `1125f329b3`；补丁线 `core-patches-v7` = `1930a2321b`（未动）；五条功能分支顶依次 `d839e191b9`、`0242abf8a9`、`c60fecede2`、`9b444ed27c`（第六次合并时为 `ebca8637e8`）、`32d9d7f077`（第六次合并时为 `a98f9bfb13`）（均未被本分支改写）。本分支未推 origin。
