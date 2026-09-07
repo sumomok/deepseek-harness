@@ -21,6 +21,12 @@ import {
 import { assertReleasedV0Keys, releasedV0Record } from './validation-helpers.ts'
 import { LEGACY_UNINTERPRETED_EVENT_TYPES, RELEASED_V0_EVENT_DISPOSITIONS } from './dispositions.ts'
 
+/** Descriptor generation written before `agentReasoningEffort` joined the payload. */
+const LEGACY_SUBAGENT_DESCRIPTOR_VERSION = 2
+
+/** The only descriptor generation the released payload inventory validates. */
+const RELEASED_SUBAGENT_DESCRIPTOR_VERSION = 3
+
 /** Identity format edge that promotes released v0 into released v1. */
 export const sessionFormatV0ToV1 = defineSessionFormatMigration({
   name: '@deepseek-ai/dsh-session-format-v0-to-v1',
@@ -61,7 +67,9 @@ function normalizeReleasedV0Events(
     const start = normalizeLegacyTurnStart(event, sessionId)
     const end = normalizeLegacyTurnEnd(start, sessionId)
     const header = normalizeLegacyRequestHeader(end, sessionId)
-    const steering = normalizeLegacySteering(header, sessionId)
+    const preset = normalizeLegacyPermissionPreset(header)
+    const descriptor = normalizeLegacySubagentDescriptor(preset)
+    const steering = normalizeLegacySteering(descriptor, sessionId)
     const message = normalizeLegacyMessage(steering, sessionId, messageIds)
     if (RELEASED_V0_EVENT_DISPOSITIONS[message.type] !== undefined) assertReleasedEventPayload(message, 0)
     const carried = markLegacyUninterpreted(message)
@@ -85,6 +93,51 @@ function normalizeReleasedV0Events(
 function markLegacyUninterpreted(event: SessionFormatEvent): SessionFormatEvent {
   if (!LEGACY_UNINTERPRETED_EVENT_TYPES.has(event.type)) return event
   return { ...event, ignorable: true }
+}
+
+/**
+ * Drop the `origin` member a 2026-08 build wrote on `permission/preset`.
+ *
+ * That build recorded next to the preset name whether the name came from the
+ * deployment default or from a selection the user made. No released generation
+ * carries the member — `@deepseek-ai/dsh-permission-presets` appends
+ * `{ preset }` alone — so the identity edge removes it the way it removes
+ * `request/header` `messagePrefix`, and the preset name itself is unchanged.
+ * Only this one member is removed: a `permission/preset` payload carrying any
+ * other unexpected member is still refused.
+ * @param event - one released-v0 event.
+ * @returns the event, with the historical member removed when it carried one.
+ */
+function normalizeLegacyPermissionPreset(event: SessionFormatEvent): SessionFormatEvent {
+  if (event.type !== 'permission/preset') return event
+  const data = releasedV0Record(event.data, `permission/preset ${event.seq} data`)
+  if (!Object.hasOwn(data, 'origin')) return event
+  const { origin: _origin, ...current } = data
+  return { ...event, data: current }
+}
+
+/**
+ * Renumber a `subagent/descriptor` payload written at descriptor version 2.
+ *
+ * Version 3 added one optional member, `agentReasoningEffort`, and changed
+ * nothing else, so a version-2 payload is exactly a version-3 payload that
+ * declares no child reasoning effort: the promotion invents no value and loses
+ * none. Renumbering is what lets the Session migrate at all. The v1 branch of
+ * this package's payload check returns without complaint for a non-3 version,
+ * but the next edge has no such escape: `dsh-session-format-v1-to-v2` runs the
+ * same released semantics over its v2 target and refuses with
+ * `subagent/descriptor N version must be one of 3`. Renumbering also leaves
+ * the payload in the one generation `parseSubagentDescriptor` classifies.
+ * Every other descriptor version stays as written, and the payload validator
+ * refuses it.
+ * @param event - one released-v0 event.
+ * @returns the event, renumbered to version 3 when it was written at version 2.
+ */
+function normalizeLegacySubagentDescriptor(event: SessionFormatEvent): SessionFormatEvent {
+  if (event.type !== 'subagent/descriptor') return event
+  const data = releasedV0Record(event.data, `subagent/descriptor ${event.seq} data`)
+  if (data['version'] !== LEGACY_SUBAGENT_DESCRIPTOR_VERSION) return event
+  return { ...event, data: { ...data, version: RELEASED_SUBAGENT_DESCRIPTOR_VERSION } }
 }
 
 function normalizeLegacyRequestHeader(event: SessionFormatEvent, sessionId: string): SessionFormatEvent {

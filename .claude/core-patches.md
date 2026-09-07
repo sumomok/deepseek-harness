@@ -230,6 +230,17 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游把这两类事件纳入清单，或为迁移边提供自定义词汇扩展点。
 - **状态**：在役（0.1.3-alpha.1 本线新增）。
 
+## patch(session-format-v0-to-v1): 让 v0 迁移接受三种落盘旧形状 — ac666dc419
+
+- **改了什么**：`packages/session/session-format-v0-to-v1/src/migration.ts` 新增两个规范化器 `normalizeLegacyPermissionPreset`（丢弃 `permission/preset` 的 `origin` 成员）与 `normalizeLegacySubagentDescriptor`（把 `subagent/descriptor` 的 `version: 2` 改写为 `3`），接在既有规范化链上、先于逐事件 payload 校验；`dispositions.ts` 的 `LEGACY_UNINTERPRETED_EVENT_TYPES` 增列 `product/server-console` 线写下的全部六种内容事件（`content/shown`、`content/navigated`、`content-surface/selected`、`content-surface/dismissed`、`content-component/shown`、`content-component/resolved`）。`legacy.spec.ts` 三条接受用例（丢弃 `origin`、descriptor 版本 2 改写为 3、六种内容事件原样携带并盖 `ignorable`）各配一条拒绝断言（多带 `foo` 成员、descriptor 版本 1、未点名的 `content-surface/whatever`），preset 用例另钉一条不带 `origin` 的现行 payload 原样通过；`session-format-v1-to-v2` 的 `migration.spec.ts` 把六种内容事件加进既有 uninterpreted 用例，并新增一条 descriptor 用例（版本 3 通过、版本 2 被该边拒绝）。双语 README 的「有限的历史规范化」一段随之改写。`validation.ts` 与 `dispositions.ts` 的 `permission/preset` 处置未动（理由见下）。
+- **为什么**：v0→v1 恒等迁移边拒收冻结清单外的事件类型与处置外的 payload 成员，而本 fork 发过的构建写下过三种它没点名的形状。一份被拒的日志不止自己打不开：`session-query-sqlite` 的 `_reconcile` 冷读每份未建索引的会话，一次被拒读取让 `_observeStable` 整次抛 `SESSION_QUERY_PERSISTENCE_FAILED`，界面对**整库**显示「内容搜索暂不可用，仅显示名称匹配。」。
+- **实证**：用 `JsonlSessionPersistence.open(id,'read').read()`（reconcile 的同一条路径）冷读回放两个库。补丁前：`~/.dsh` **128 份中 15 份被拒**、rc.27 前备份 **121 份中 21 份被拒**；去重后三种原因——`permission/preset … unexpected member "origin"`（11+11）、`subagent/descriptor … unsupported descriptor version 2`（4+4）、`unknown historical event type "content/shown"`（0+6）。两个库逐行扫描只见六种内容事件中的 `content/shown` 与 `content-surface/dismissed`；另外四种由同一条产品线写下（`git diff HEAD product/server-console -- packages/core/session/src/known-event-types.ts`），一并点名。补丁后：**127/128** 与 **120/121** 打得开；两处剩余拒绝是同一份会话（见下条遗留）。逐行扫描两个库 249 份 v0 日志界定剩余集合：冻结清单与打包物理行标记之外只有 `content/shown`、`content-surface/dismissed`、已点名的 `permissionRules/decision`；`permission/preset` 的额外成员只有 `origin`（64 行）；`subagent/descriptor` 的版本只有 2（8 行）。原文件 sha256 前后不变，只在旁边新增 `session.v2.jsonl.zstd`。
+- **要达到的效果**：带这三种形状的旧会话能打开、迁移、建索引，内容搜索不再因其中一份整库失效；放行仍是窄的——`origin` 以外的意外成员、2 以外的 descriptor 版本、没被点名而只带 `ignorable: true` 的类型，一律仍拒。
+- **两处落点选择**：① descriptor 选**升格**而非放行——`f76a225a7d`（#2663，2026-08-24）的 v2→v3 差异只加了一个可选成员 `agentReasoningEffort`，版本 2 恰好等于不声明该成员的版本 3，无字段需推导；原样放行会话根本打不开——`session-format-v1-to-v2` 没有 v0→v1 边上的那条 v1 豁免，其 v2 目标校验走到 `subagentDescriptorValue` 后以 `subagent/descriptor N version must be one of 3` 拒绝（探针实证：版本 2 被拒、版本 3 通过），改写版本号是让会话得以迁移的那一步，同时也把 payload 留在 `parseSubagentDescriptor` 唯一能识别的那一代。② `origin` 选**在规范化器里丢弃**而非纳入 `dispositions.ts` 的可选成员——该清单自述「列出的每个成员都由恒等迁移边保留」，且 `session-format-v1-to-v2` 的 v2 清单派生自它，列进去会在一个包里说假话并把成员放进两个没有写入方会写它的世代；丢弃是迁移边对 `request/header.header.messagePrefix` 的既有做法。
+- **遗留（本补丁不修，需拍板）**：`session-c5f7ab97-7485-4955-9ee0-f07c98a05d85`（两个库都有）在 `origin` 被丢弃后露出**第四种缺陷**——turn 11 打开后没有 `turn/end`，`turn/start 12` 撞上开着的 turn，被 `assertReleasedArtifactRelationships` 拒绝（`turn/start 12 does not open expected turn 11`）。补出该事件需要插入并重编其后全部 `seq` 与每一处 seq 引用（`sourceEventSeqs`/`surfaceOp`/`messageSeqs`/`shadowedSeqs`/`shadowedRange`/`sourceEventSeq`/`throughSeq`/`inheritedEventCount`），是另一个决定。在它落地前，存有这份会话的库内容搜索仍不可用。
+- **退役条件**（逐条各自判据）：① 上游 `permission/preset` 处置或迁移边自己接受并丢弃 `origin` 成员；② 上游 `assertReleasedEventPayload` 自己把 v0 侧的 descriptor 版本 2 升格到当时的 `SUBAGENT_DESCRIPTOR_VERSION`（或提供等价的 descriptor 版本迁移点）；③ 上游把这六种内容事件纳入清单，或为迁移边提供自定义词汇扩展点（与 `d929cdfd2a` 同一判据）；本 fork 不再拥有 `product/server-console` 线且确认无用户库持有这些事件，同样构成退役条件。任一条成立即退役该条，不必整族退役。
+- **状态**：在役（0.1.3-alpha.1 本线新增，与 `d929cdfd2a` 同族）。**本补丁在 rc.31 集成线上追加，尚未回补丁线 `core-patches-v7`**；下一轮滚动同步移植时需一并带上。
+
 ## patch(session-log-export): record an unreadable file in the archive instead of tearing the stream — d2cf85446d（+ `663cb9df9e`、`91743a89eb`、`4e00a2b851`）
 
 - **改了什么**：`packages/session-query/session-log-export/src/archive.ts` 新增 `unreadableFileEntryPath`/`unreadableFileEntry`/`resumedFileChunks`/`fileEntry`，`sessionLogZipEntries` 的 files 循环改为经 `fileEntry` 产出；`unreadableMediaReason` 改名 `unreadableAttachmentReason` 供两条路径共用；`wireRatio` 的 `compressible` 参数文档改成如实陈述。`archive.host.spec.ts` 增四条用例（不可读文件的记录文本与声明规模、非 `AttachmentError` 失败不带 code 与 message、文件读取期间取消仍撕裂、零字节文件的空流），既有「文件流失败即整包失败」一条改名并保留。README 中英与两份导出 Agent Note 同步。
@@ -738,3 +749,7 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 ### 分支 HEAD 登记
 
 代码与文档最终 HEAD 见下；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交及其后的追加合并。本文件里带 HEAD 标注的门禁数字各自注明取数点；最终一轮完整门禁见「门禁实跑（最终 HEAD，第九次合并之后）」。起点 `origin/develop` = `1125f329b3`；补丁线 `core-patches-v7` = `1930a2321b`（未动）；五条功能分支顶依次 `d839e191b9`、`0242abf8a9`、`c60fecede2`、`704a6408f1`（第六次合并时为 `ebca8637e8`，第七次为 `9b444ed27c`）、`32d9d7f077`（第六次合并时为 `a98f9bfb13`）（均未被本分支改写）。本分支未推 origin。
+
+### 集成期追加补丁：v0 迁移接受三种落盘旧形状
+
+分支 `fix/v0-legacy-shapes`（基 `rc31-integration` = `660ebb4ea8`）在集成线上追加一族补丁，登记见本文件「patch(session-format-v0-to-v1): 让 v0 迁移接受三种落盘旧形状」小节。**本补丁在集成线上追加，尚未回补丁线 `core-patches-v7`。**
