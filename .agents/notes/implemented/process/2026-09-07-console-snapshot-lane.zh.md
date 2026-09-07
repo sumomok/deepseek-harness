@@ -30,7 +30,7 @@ Status: implemented
 
 原封不动留下来的是「提供给模型的是什么」：模型拿到的恰好是 `show_chart` 与 `show_component`，这正是把上游对其他任何工具描述的改动挡在本泳道基线之外的东西。其余各行——DeepSeek 适配器、`content-surface`、监听系统分配端口的 `host-webserver`、认证网关、图表工具那一秒的回执期限，以及带着目录和配置 `views` 条目的组件工具——照旧写明。
 
-补丁点名的四个 experimental 插件成为 `apps/cli` 的 devDependencies，与那里已有的 `dsh-host-webserver` 和 agent-team 各行并列。剖面加载器会把 dsh 安装的依赖闭包镜像进 `$DSH_HOME/profiles/node_modules`，所以那份清单就是补丁够得着「CLI 并不发行的插件」的通路——`snapshots/acp` 的钩子行走的也是同一条。
+补丁点名的四个 experimental 插件成为根清单的 `devDependencies`，与 `@deepseek-ai/dsh-tool-session-query`、`@deepseek-ai/dsh-web-fetch-http` 并列——后两者正是 `snapshots/session/session-query-spill` 与 `snapshots/session/web-fetch` 出于同样理由声明在那里的，且不出现在任何 `apps/*` 清单里。这是快照工装本来就提供的通路：`materializeProfilePatch` 把每个裸插件名交给 `linkProfilePackage`，其 `packageDirFromPatch` 搜的是 `createRequire(pathToFileURL(<被写下的那份补丁>)).resolve.paths(name)`——锚点是 `snapshots/console/cordis.yml`，所以仓库根的 `node_modules` 就在这条链上——再把命中的目录软链进子进程的 `.dsh/profiles/node_modules`。安装闭包镜像是另一套机制，而且一个都载不动它们：`resolveModuleFallbackEntries` 走的是 `profileDependencyNames`，也就是 `dependencies` 加 `peerDependencies`，再无其他。那套镜像载的是 `dsh-host-webserver`——本补丁同样点名了它，而 `packageDirFromPatch` 找不到它——所以两条通路服务的是同一份组合里的不同行。
 
 场景元数据从适配器里搬进每场景一份的 `snapshot.yml`，并像 `snapshots/acp` 读自己那份一样经 `parseSnapshotManifest` 读取。`input.json` 留下：它是 ACP 协议脚本，套件工厂要读它、它的基线守卫要求它存在，而语料门禁恰好对 ACP 驱动的泳道断言它存在。留在适配器里的只有动态值——假后端的基址，以及投递令牌那些场景所绑的两个端口，它们在收集期才选定，写不进文件。
 
@@ -45,7 +45,7 @@ Status: implemented
 | 发行剖面的组合 | 剖面的沙箱与权限行在会话开头写下的 `permission/preset`、`sandbox/mode`、`approval/policy` 事件，以及随之出现在运行时上下文消息里的文件策略段落 | 每份 `session.jsonl` |
 | rc.1 ACP 协议 | `tool_call` 与 `tool_call_update` 帧、`mcpCapabilities`、`sessionCapabilities`、`newSession` 的模型 `configOptions`，以及智能体消息的 `messageId` | 每份 `stdout.expected.jsonl` |
 
-逐字节相同的表头基线是那个承重结论：它证明了「打在发行剖面上的一份补丁」组合出的模型可见内容，与手搓的 demo 骨干组合出来的是同一份。每一次工具调用的参数与每一段工具结果文本也都逐字节存活——`show_component` 描述里那段 `dataSource`（含「`gridItems` 可以不写」那句与 `page.currentPage`）、`show-default-columns-turn` 那张不点名任何列的审批卡、它那句以 `Page 1 of 1.` 收尾的结果行，以及 `empty-datasource-turn` 的零行句子，读起来与从前一模一样。
+逐字节相同的表头基线是那个承重结论：它证明了「打在发行剖面上的一份补丁」装配出的请求头——人设、提示词段落、工具 schema——与手搓的 demo 骨干装配出来的是同一份。这并不等于说没有任何模型可见的东西变过：剖面的沙箱各行给每个会话多加了一段运行时上下文，那是以会话消息而非请求头形式抵达的模型可见输入，下面的 Consequences 正是本泳道认下它的地方。每一次工具调用的参数与每一段工具结果文本也都逐字节存活——`show_component` 描述里那段 `dataSource`（含「`gridItems` 可以不写」那句与 `page.currentPage`）、`show-default-columns-turn` 那张不点名任何列的审批卡、它那句以 `Page 1 of 1.` 收尾的结果行，以及 `empty-datasource-turn` 的零行句子，读起来与从前一模一样。
 
 旧基线并不是语料门禁要求的那种归一化不动点，因为它们早于带类型的记号，也早于区间收拢。这就是这次刷新是必须而非可选的原因。
 
@@ -67,7 +67,9 @@ Status: implemented
 
 **复活一个 `acp-demo` 形态的 bin，让适配器保住自己的入口。** 否决：`snapshots/AGENTS.md` 禁止再加一个应用入口、隐藏 CLI 模式或可执行场景驱动器，而那个 demo bin 正是这条规则点名的东西。组合发行剖面，也正是让这条泳道的证据关于发行产品本身的原因。
 
-**把 `snapshots/console/` 做成带自己 `package.json` 的 pnpm 工作区成员，好让补丁里的插件名从本地 `node_modules` 解析。** 否决：剖面加载器本来就从 dsh 安装的闭包解析插件名，这正是今天 `dsh-host-webserver` 与 agent-team 插件挂在 `apps/cli` devDependencies 下的原因。在 `snapshots/` 下加一层清单，等于为一个目录添出第二条解析路径，并把一份包清单放进一棵本来没有清单的语料树。
+**把这四个插件名声明在 `apps/cli` 的 `devDependencies` 里。** 否决。它确实能用——Node 会从 dsh 安装自己的 `node_modules` 解析到它们，两种启动模式都行——也没有任何规则禁止：`checkExperimentalDependencyIsolation` 只管 `dependencies`、`optionalDependencies` 与 `peerDependencies`，而 `apps/cli` 本来就带着四个 experimental devDependencies。但 `apps/cli/package.json` 是对外发行的 CLI 清单，也是本分叉每次上游同步时的冲突面；在根清单已经为同一目的收着另外两条泳道的插件时，一条快照泳道不值得在它里面留一个改动块。
+
+**把 `snapshots/console/` 做成带自己 `package.json` 的 pnpm 工作区成员，好让补丁里的插件名从更近的 `node_modules` 解析。** 否决：根清单已经把那些包放在补丁自己的解析链上了，更近的 `node_modules` 换不来任何东西。它还会为一个目录添出第二条解析路径，并把一份包清单放进一棵本来没有清单的语料树。
 
 **关掉剖面的沙箱与权限行，让会话日志与旧的完全一致。** 否决：那是拿被测组合的一项真实性质去换基线的观感。控制台跑在一个带文件沙箱的剖面上，而一条把这件事藏起来的泳道，描述的是没人发行的组合。
 
@@ -85,6 +87,6 @@ Status: implemented
 
 ## Testing
 
-`pnpm run test:snapshot snapshots/console`：十一个场景加七道基线守卫，全部通过，不需要密钥。这条泳道确实能分辨：把 `packages/experimental/component-surface` 里 `show_component` 描述改掉一个词，十一个场景全部失败——因为每个同类场景装配出的请求头都要与那份钉子比对——而且每一处失败都点名了被改动的那句话。改回来即恢复。
+`pnpm run test:snapshot snapshots/console`：十一个场景加七道基线守卫，全部通过，不需要密钥——在 `DSH_EXAMPLE_MODE=lib` 下同样如此，而那正是 CI 快照门禁跑的模式、也是没有 tsconfig paths 那条通路的模式，所以它才是证明插件名确实从根清单解析得到的那个模式。这条泳道确实能分辨：把 `packages/experimental/component-surface` 里 `show_component` 描述改掉一个词，十一个场景全部失败——因为每个同类场景装配出的请求头都要与那份钉子比对——而且每一处失败都点名了被改动的那句话。改回来即恢复。
 
 `pnpm vitest run --config vitest.snapshot.config.ts scripts/session-snapshot-corpus.corpus.ts`、`pnpm run lint`、`pnpm run verify-cordis-config`、`pnpm run doc-sync`、`pnpm run hygiene` 与 `pnpm run build` 全绿。
