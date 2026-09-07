@@ -1,0 +1,73 @@
+# Agent Note: A desktop composition layer, opening full-text session search
+
+Status: implemented
+
+English | [中文](2026-09-06-desktop-composition-layer-content-search.zh.md)
+
+## Problem
+
+Sidebar search in the desktop app matched session titles and Workspace names and nothing else. The Host route behind it (`session.search` → `SessionListState.search` → `ctx.sessionQuery.searchSessions`) was mounted and reachable, but `dsh-base` and `dsh-web-app` both configure `session-query-sqlite` with `openAt: never`, which fails every search call with `SESSION_QUERY_SEARCH_DISABLED` before it reaches a request. The browser half then showed `search.unavailable` — "内容搜索暂不可用，仅显示名称匹配。" — on every query. Both bundle rows say in their own comments that content search is opt-in and that a deployment enabling it overrides `openAt` in a later patch layer, and `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins both to `never`, so the value is not the thing to change.
+
+The desktop had nowhere to put that override. Its composition was `dsh-base` + `dsh-web-app` + eleven vendored plugin bundles, every one of which is either upstream source or an out-of-repo tarball, plus `$DSH_HOME/profiles/desktop/cordis.patch.yml`, which is user data the shell writes once and never revisits. A product that ships a browser surface and makes deployment choices for it had no layer of its own to make them in.
+
+## Decision
+
+`apps/desktop-app` (`@deepseek-ai/dsh-desktop-app`) is that layer: a patch-only bundle package — one `cordis.patch.yml` and the `dsh.bundle.patch` manifest field naming it, no code, no `main`, nothing for the Loader to import, since `loadProfile` reads a bundle layer without importing the package. `apps/desktop-server` lists it as a dependency, which puts it in the tree `pnpm deploy` materializes as the Electron app's `resources/server`, and `BUILTIN_WEB_BUNDLES` in `apps/desktop/src/profile-seed.ts` names it, which is what puts it in the desktop profile's `dsh.profile.bundles` and links it into the flat module fallback.
+
+It is named **last** in that list. A profile that already exists gets a missing name appended, so last is the only position a fresh profile and an upgraded one both give it — and it is the position that matters: the layer applies over `dsh-base`, `dsh-web-app`, and every built-in plugin layer, [the built-in default model](2026-08-23-desktop-builtin-default-model.md) included, whose entries this one does not touch.
+
+Last there is last as of the seeding, not for good. The same `seedBuiltinBundles` run appends every name `syncWebBundles` migrates from the `web` profile to the end of `dsh.profile.bundles`, and `addBundleName` — what the plugin-admin service calls to re-enable one — appends there too, so a plugin adopted after this build applies after this layer. Three user layers sit above every bundle layer, in this order: `$DSH_HOME/profiles/desktop/cordis.patch.yml`, the home-level `$DSH_HOME/cordis.patch.yml`, and any `--patch` overlay (`allPatches` in `apps/cli/src/profile-boot.ts`). A row here is a deployment default the user replaces rather than one they are stuck with.
+
+The one row it carries restates `session-query-sqlite` with `openAt: first-search` and `path: dshHomePath('session-search/desktop.db')`. `first-search` keeps the `node:sqlite` import and the index open out of startup, so a run that never searches pays nothing and Node's SQLite experimental warning stays out of the boot output. The path is durable rather than the shipped `:memory:` because the index is derived, not authoritative: keeping it means the first search of a later run reconciles only new and changed logs instead of rebuilding the whole corpus, which is the difference between paying the build once and paying it on every launch. It is deliberately outside `dshHomePath('sessions')` — the derived index and the session-persistence store are separate stores, and the backend refuses to open a canonical database as its own.
+
+`apps/desktop/tests/desktop-composition-layer.spec.ts` composes the profile's whole stack through `composeEntries` — `dsh-base`, `dsh-web-app`, and all twelve bundle layers, each built-in resolved through `resolveBundleDir` the way a launch resolves it — and asserts the row the desktop profile ends up with, that the same stack without this layer still composes `never`, and that nothing else in the composition moves. A built-in that starts patching the same row is then a failing case rather than a surprise in the field.
+
+## A second row: waiting out a rate-limit window
+
+The layer's reason to exist is that a deployment choice needs somewhere to live, and content search was only the first one. The second is `llm-deepseek`'s `retryPolicy.backoff.maxDelayMs`, raised from the shipped ten seconds to five minutes.
+
+Waiting out a rate limit is already built and already shipped on: `@deepseek-ai/dsh-llm-retry` is mounted in `dsh-base`, it reads the `Retry-After` the DeepSeek adapter parses off a 429 into `LlmFailure.providerRetryAfterMs`, it logs `llm/retry` and `llm/retry-started` as durable session events, and the browser half renders a live countdown for them. What the shipped composition does not do is accept a wait longer than ten seconds: a `normal` policy whose `providerRetryAfterMs` exceeds `maxDelayMs` delegates to the next handler, which leaves the turn to fail with the rate-limit error. DeepSeek's windows commonly run 30 to 120 seconds, so the one case the machinery exists for is the one it declined.
+
+Raising the ceiling changes only which provider delays are honored. Local exponential backoff is `min(500 * 2 ** (retry - 1), maxDelayMs)` under a tenth of jitter across at most five retries, so its longest wait is 8.8 seconds under either value and the ceiling never binds it; resolving both policies through `resolveRetryPolicy` gives two objects differing in `maxDelayMs` alone, with `maxRetries`, `retryableCodes`, `initialDelayMs`, and `jitterRatio` all left at their defaults.
+
+The ceiling bounds one wait rather than a step: a provider delay that fits is waited out verbatim, `maxRetries` is 5, and the counter resets on `step/start` and `turn/end`, so a step's worst case is five ceilings — 25 minutes at this value, and 2.5 to 10 minutes across the 30-to-120-second windows it exists for — none of which is a stall the user is stuck in, since each wait runs under `AbortSignal.any([signal, lifetime.signal])` and ends the moment the turn is stopped while the transcript counts it down; [apps/desktop-app/README.md](../../../../apps/desktop-app/README.md) states that bound without the arithmetic.
+
+**The ceiling belongs to the provider row, not to the retry plugin.** `llm-retry`'s `Config` is `Readonly<Record<string, never>>` and its `validateConfig` throws on any key at all, answering `retryPolicy` with `retryPolicy belongs under each provider configuration`. A policy is per-route state captured when an adapter registers, so `llm-deepseek` is where it is configured. `llm-pi-ai` is not a second place to set it: its `retryPolicy` is a field of each provider profile in the user's settings document, not a plugin config key, and its error classification is a regex over a flattened SDK message that never recovers a `Retry-After` at all, so the value would have nothing to act on.
+
+**The row restates the model catalog.** `@haoran/dsh-default-model`, a built-in plugin layer below this one, patches this same `llm-deepseek` id with a whole-table `models` replacement carrying the vision row the desktop opens new sessions on. A patch assigns `config` outright, so a row here that wrote `retryPolicy` alone would delete that catalog and take the model picker with it. The spec compares the two tables, which turns a catalog that moves in that package into a failing case here instead of a missing model in the field.
+
+The countdown the browser half draws is raw seconds — `Math.max(1, Math.ceil(ms / 1000))` into `{label} ({retry}/{maximum}) · {seconds}s` — so a five-minute wait opens at `300s` and counts down, and the expanded row states the delay in milliseconds. Legible, but a minutes-and-seconds format would read better at this range; the value chosen here does not depend on that.
+
+## What the first search costs
+
+The reconcile that runs before the first query lists every persistence snapshot, reads each log it has not indexed, extracts search documents, and commits once. On the corpus this was measured against — 128 session logs, 12.2 MiB of zstd-compressed JSONL, 30.9 MB decompressed — that is one pass over 30.9 MB of JSON. Every search after it in the same run reads nothing it has already indexed, and every run after that reads only what changed.
+
+## Every session log is read, so one unreadable log fails every search
+
+A `SessionEventMap` member is required-on-read: a log carrying an event type the running composition does not know, and not marked `ignorable: true`, makes the reader refuse the whole log with `SessionFormatUnsupportedError`. Under `openAt: never` no bulk read ever happened, so such a log sat dormant. Under content search the reconcile reads all of them, and one refusal aborts the observation, which fails the search with `SESSION_QUERY_PERSISTENCE_FAILED` — not just for that session, for the query.
+
+This is not hypothetical: the corpus above already holds three logs carrying `permissionRules/decision`, an event type no package in this repository or in the desktop payload declares. The failure degrades to exactly today's behavior — the browser half catches it and shows `search.unavailable` with the title and Workspace matches still listed — so the floor is what users have now, not a broken sidebar. It does raise the cost of a third-party plugin that logs a non-ignorable session event: before this change such a plugin broke session replay after uninstall, and now it also turns off content search while its logs are in the corpus.
+
+## Alternatives considered
+
+**Change the `openAt` value in `dsh-base` or `dsh-web-app`.** Both are upstream package source shared with every `dsh web` deployment, both carry comments stating that the value is deliberate and that deployments override it in a later layer, and `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins both. Editing either would enable content search for the CLI's `web` profile as a side effect of a desktop decision.
+
+**Write the row into the desktop profile's `cordis.patch.yml` from `profile-seed.ts`.** The smallest possible edit, and wrong: that file is user data, written only when absent, and `apps/desktop/README.md` documents that the shell never merges into it. Every installation that already has a desktop profile — which is every upgrade — would never see the row.
+
+**Ship a `--patch` overlay file and pass it on the server spawn.** Also small, and it reaches existing installs, but overlays are the last layer `composeProfile` applies: they outrank `$DSH_HOME/profiles/desktop/cordis.patch.yml`, so a deployment default delivered this way is one the user cannot turn off from the file the documentation tells them to edit.
+
+**Put the package under `packages/bundle/` beside the other bundles.** That is where a bundle belongs by group semantics, and it is upstream-owned territory: `packages/bundle/README.md`, `docs/module-graph.md`, and their Chinese counterparts enumerate the packages there, so a fork-only bundle would edit four generated or upstream documents and conflict on every sync. `apps/` holds the fork's own product assemblies already — `apps/desktop`, `apps/desktop-server` — and no documentation catalog enumerates it.
+
+**Add the layer to one of the vendored built-in plugins.** The fork's existing way to add a desktop-only composition row, and the wrong owner for this one: the row belongs to the deployment, not to a plugin, and it would then live in a workspace outside this repository and arrive only through a repacked tarball.
+
+**Add `apps/*/cordis.patch.yml` to a glob in `scripts/verify-cordis-config.ts`.** The gate's metadata scan already reads this file — `cordisConfigFiles` globs `**/*cordis*.yml` across the repository — but the per-bundle check that resolves a patch row's named plugins against the owning bundle's own dependencies walks `bundleManifestPaths()` over `packages/*/*/package.json`, so it never reaches `apps/desktop-app`. Widening it edits an upstream script, which means a core-patch ledger entry re-applied on every sync, and `apps/desktop/tests/desktop-composition-layer.spec.ts` already loads this patch through the real fourteen-layer composition and asserts the rows it produces.
+
+**Let this layer own the whole `llm-deepseek` row and drop the restatement from `@haoran/dsh-default-model`.** The end state of the catalog coupling: one owner for the row leaves no table to keep in step and nothing for the spec to compare. It needs that tarball rebuilt and re-vendored, and it moves the model catalog out of the plugin that chooses the default and into this repository, so the restatement stays for now.
+
+## Consequences
+
+Desktop sidebar search returns ranked content matches with snippets, capped at 20 results, over `user/message` and `assistant/message` events on the `current` surface. Queries stay literal phrases with the `unicode61` tokenizer: FTS5 syntax is data, and a token boundary is a token boundary, so `AI` still does not match `BRAID`.
+
+The app grows one file family under the harness home, `~/.dsh/session-search/desktop.db` plus its WAL sidecars, sized in the order of the extracted message text rather than of the raw logs. Nothing removes it; deleting it costs one rebuild. Startup is unchanged — nothing opens until a search asks — and the first search of each run pays only what changed since the last one.
+
+`BUILTIN_WEB_BUNDLES` now holds twelve names of which eleven are plugins, so `apps/desktop/README.md` and its Chinese counterpart distinguish the two where they counted eleven, and the packaging gate's `seeded.length === BUILTIN_WEB_BUNDLES.length` check covers the new name along with the rest.

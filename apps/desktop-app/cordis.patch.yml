@@ -1,0 +1,66 @@
+# The desktop application's deployment layer. `apps/desktop`'s profile seed
+# names this package after dsh-base, dsh-web-app, and every built-in plugin
+# layer in the desktop profile's `dsh.profile.bundles`, and before the user
+# layers — `$DSH_HOME/profiles/desktop/cordis.patch.yml`, then
+# `$DSH_HOME/cordis.patch.yml`, then any `--patch` overlay — so a row here is a
+# deployment default the user's own patch layer can still replace.
+#
+# A patch replaces the targeted row's whole `config`, so each row restates
+# every key it owns.
+
+# Full-text session search over conversation content, which dsh-base and
+# dsh-web-app both ship off (`openAt: never`, so `searchSessions` fails with
+# SESSION_QUERY_SEARCH_DISABLED and the sidebar matches titles and Workspace
+# names only). `first-search` defers the node:sqlite import and the index open
+# until a search actually asks for one, so an app start that never searches
+# costs nothing. The index is a derived database this deployment owns, separate
+# from the session-persistence store under `dshHomePath('sessions')`; keeping it
+# durable rather than `:memory:` means only new and changed logs are read after
+# the first index build, instead of the whole corpus on every launch.
+- id: session-query-sqlite
+  config:
+    path: !!js dshHomePath('session-search/desktop.db')
+    openAt: first-search
+
+# How long a rate-limited request may wait before the turn gives up. When a
+# provider answers 429 with `Retry-After`, dsh-llm-retry accepts that wait only
+# while it fits inside `maxDelayMs`, and a `normal` policy that finds it too
+# long delegates to the next handler instead — which ends the turn with the
+# original error. The shipped ceiling is 10 seconds while DeepSeek's rate-limit
+# windows commonly run 30 to 120 seconds, so a wait the provider explicitly
+# asked for arrives as a failed turn. Five minutes covers those windows, and
+# the browser half already counts the remaining seconds down in the transcript,
+# so the wait is visible rather than a stalled screen. The ceiling bounds one
+# wait, not a step: a provider delay inside it is waited out verbatim, and the
+# five-retry cap is counted per step (`step/start` and `turn/end` reset it), so
+# a step's worst case is five ceilings — 25 minutes at this value, 2.5 to 10
+# minutes across those windows — and every wait aborts the moment the user
+# stops the turn. Local backoff does not move with it: it is `min(500 * 2 **
+# (retry - 1), maxDelayMs)` under a tenth of jitter over at most five retries,
+# so the ceiling never binds it and its longest wait stays 8.8 seconds either
+# way. Only the `Retry-After` value this deployment is willing to honor
+# changes. The retry executor itself (`llm-retry`) takes no config at all — it
+# rejects every key, `retryPolicy` with a message naming this row — because the
+# policy belongs to the provider whose route it retries.
+#
+# `models` is restated because @haoran/dsh-default-model sets it on this same
+# row one layer below and a patch replaces the whole `config`; dropping it here
+# would take the model picker's catalog and the vision default with it.
+# `apps/desktop/tests/desktop-composition-layer.spec.ts` compares this table
+# against the composed one below, so a catalog that moves there fails here
+# rather than in the picker.
+- id: llm-deepseek
+  config:
+    retryPolicy:
+      mode: normal
+      backoff:
+        maxDelayMs: 300000
+    models:
+      - id: deepseek-v4-flash
+        name: DeepSeek-V4-Flash
+      - id: deepseek-v4-pro
+        name: DeepSeek-V4-Pro
+      - id: deepseek-v4-flash-vision-exp
+        name: 'default'
+        description: deepseek-v4-flash-vision-exp · 视觉
+        inputModalities: [text, image]

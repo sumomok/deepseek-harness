@@ -510,6 +510,8 @@ importers:
         specifier: ^6.0.3
         version: 6.0.3
 
+  apps/desktop-app: {}
+
   apps/desktop-server:
     dependencies:
       '@deepseek-ai/cordis':
@@ -587,6 +589,9 @@ importers:
       '@deepseek-ai/dsh-credentials':
         specifier: workspace:^
         version: link:../../packages/credentials/credentials
+      '@deepseek-ai/dsh-desktop-app':
+        specifier: workspace:^
+        version: link:../desktop-app
       '@deepseek-ai/dsh-fs':
         specifier: workspace:^
         version: link:../../packages/fs/fs
