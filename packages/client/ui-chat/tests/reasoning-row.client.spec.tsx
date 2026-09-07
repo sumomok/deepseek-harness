@@ -12,8 +12,6 @@ afterEach(() => {
 
 const t = makeTranslate(zh, commonZh)
 const renderMessageImages: AssistantMarkdownProps['renderMessageImages'] = () => null
-const loadFile: AssistantMarkdownProps['loadFile'] = () => Promise.reject(new Error('loadFile not stubbed'))
-const openReferent: AssistantMarkdownProps['openReferent'] = () => Promise.resolve()
 
 describe('ReasoningRow', () => {
   it('follows the latest streaming line, then restores the settled first line', () => {
@@ -23,8 +21,6 @@ describe('ReasoningRow', () => {
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens' }]}
         streaming
         renderMessageImages={renderMessageImages}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     expect(view.getByText('运行中')).toBeTruthy()
@@ -37,8 +33,6 @@ describe('ReasoningRow', () => {
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens keep arriving' }]}
         streaming
         renderMessageImages={renderMessageImages}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     expect(view.getByText('Newest reasoning tokens keep arriving').parentElement
@@ -50,8 +44,6 @@ describe('ReasoningRow', () => {
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nNewest reasoning tokens keep arriving\n' }]}
         streaming={false}
         renderMessageImages={renderMessageImages}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     const settledSummary = view.getByText('Inspect the session')
@@ -66,8 +58,6 @@ describe('ReasoningRow', () => {
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
         streaming={false}
         renderMessageImages={renderMessageImages}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     const row = view.getByRole('button')
@@ -87,8 +77,6 @@ describe('ReasoningRow', () => {
         blocks={[{ kind: 'reasoning', text: 'Inspect the session\nCheck persistence' }]}
         streaming={false}
         renderMessageImages={renderMessageImages}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     fireEvent.click(view.getByText('思考'))

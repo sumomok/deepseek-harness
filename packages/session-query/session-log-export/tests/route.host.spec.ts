@@ -1,6 +1,7 @@
 import { Context } from '@deepseek-ai/cordis'
 import { HostConnectionService } from '@deepseek-ai/dsh-client-connection'
 import type { BrowserAuth } from '@deepseek-ai/dsh-client-connection/src/browser-auth.ts'
+import { SESSION_FORMAT_VERSION } from '@deepseek-ai/dsh-session'
 import type { SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionHandle } from '@deepseek-ai/dsh-session-persistence'
 import { strFromU8, unzipSync } from 'fflate'
@@ -10,6 +11,7 @@ import {
   SESSION_EXPORT_BYTES_HEADER,
   SESSION_EXPORT_ENTRIES_HEADER,
   SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
+  SESSION_LOG_FILENAME,
   SESSION_LOG_EXPORT_PATH,
   apply,
   inject,
@@ -19,7 +21,7 @@ const sid = (value: string): SessionId => value as SessionId
 
 function readHandle(id: string): SessionHandle {
   const header: SessionHeader = {
-    version: 0,
+    version: SESSION_FORMAT_VERSION,
     id: sid(id),
     createdAt: 1,
     isSeeded: false,
@@ -71,9 +73,9 @@ describe('Session log export Fetch route', () => {
     expect(response.headers.get('content-type')).toBe('application/zip')
     expect(response.headers.get(SESSION_EXPORT_ENTRIES_HEADER)).toBe('1')
     const files = unzipSync(new Uint8Array(await response.arrayBuffer()))
-    expect(strFromU8(files['session.jsonl'] as Uint8Array)).toContain('"id":"session-1"')
+    expect(strFromU8(files[SESSION_LOG_FILENAME] as Uint8Array)).toContain('"id":"session-1"')
     expect(response.headers.get(SESSION_EXPORT_BYTES_HEADER))
-      .toBe(String((files['session.jsonl'] as Uint8Array).byteLength))
+      .toBe(String((files[SESSION_LOG_FILENAME] as Uint8Array).byteLength))
 
     const head = await shared.fetch(new Request(
       `http://host${SESSION_LOG_EXPORT_PATH}?sessionId=session-1`, { method: 'HEAD' },

@@ -1,14 +1,12 @@
 /** Browser-safe request, result, and lifecycle vocabulary for the Session Remote service. */
 
 import type {
-  AttachmentIdType, FileAttachmentLimits, FileAttachmentRef, ImageAttachmentLimits, ImageAttachmentRef,
-  ImageMediaType,
+  AttachmentIdType, ImageAttachmentLimits, ImageAttachmentRef, ImageMediaType,
 } from '@deepseek-ai/dsh-attachment'
 import type { Branded } from '@deepseek-ai/dsh-brand'
-import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type { ContentBlock } from '@deepseek-ai/dsh-llm/types'
-import type { ChunkRow } from '@deepseek-ai/dsh-session/chunk-rows'
-import type { SessionId } from '@deepseek-ai/dsh-session/types'
+import type { LlmAttemptId, MessageId } from '@deepseek-ai/dsh-llm/brand'
+import type { ContentBlock } from '@deepseek-ai/dsh-llm'
+import type { SessionId, SessionSeqCursor } from '@deepseek-ai/dsh-session/types'
 import type { SessionProjectionMap } from '@deepseek-ai/dsh-session-projection/types'
 import type { JobId } from '@deepseek-ai/dsh-jobs/brand'
 import type { JsonValue } from '@deepseek-ai/dsh-util-values'
@@ -20,10 +18,6 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     sessionListMetadata: SessionListMetadata
     /** Host state for the boot-constant image-limit view. */
     imageLimits: null
-    /** Host state for the boot-constant file-limit view. */
-    fileLimits: null
-    /** Host state for the boot-constant secret-container extra-patterns view. */
-    secretContainerExtraPatterns: null
     /** Durable model selection already used by a request and still pending for a later request. */
     modelSelection: ModelSelectionProjectionState
   }
@@ -32,18 +26,6 @@ declare module '@deepseek-ai/dsh-session-projection/types' {
     sessionListMetadata: SessionListMetadata
     /** Image-intake limits enforced by the Session prompt endpoint. */
     imageLimits: ImageAttachmentLimits
-    /** Text-file-intake limits enforced by the Session prompt endpoint. */
-    fileLimits: FileAttachmentLimits
-    /**
-     * Deployment-appended filename substrings for the client's add-time
-     * secret-container confirmation, constant per host boot. The fixed base
-     * heuristic (`.env`, `id_rsa`, etc.) is a client-side constant and never
-     * rides this wire; this key carries only the deployment's additions —
-     * empty unless `cordis.yml` configures `secretContainerExtraPatterns`,
-     * and always additive to the client's base list, never a replacement or
-     * removal of it.
-     */
-    secretContainerExtraPatterns: readonly string[]
     /** Durable model selection already used and selected for the next request. */
     modelSelection: ModelSelectionProjection
   }
@@ -85,7 +67,11 @@ export interface SessionProjectionBaseline {
 export type SessionProjectionValues = Partial<SessionProjectionMap>
   & Readonly<Record<string, SessionProjectionValue>>
 
-/** Browser-submitted prompt content; the Host promotes image bytes and file text to durable references. */
+/**
+ * Browser-submitted prompt content; the Host promotes image bytes to durable
+ * references. File parts carry the opaque receipt returned by a preceding
+ * `uploadFile` call on the same Session.
+ */
 export type PromptContentPart =
   | { readonly type: 'text'; readonly text: string }
   | {
@@ -94,13 +80,7 @@ export type PromptContentPart =
     readonly data: string
     readonly name?: string
   }
-  | {
-    readonly type: 'file'
-    /** Display name; it is never interpreted as a path. */
-    readonly name: string
-    /** Complete file content, plain text, never base64. */
-    readonly text: string
-  }
+  | { readonly type: 'file'; readonly receiptId: Branded<'file-upload-receipt-id'> }
 
 /** Complete model selection for one Session. */
 export interface ModelSelection {
@@ -351,18 +331,6 @@ export interface SessionAttachmentValue {
   readonly data: string
 }
 
-/** Durable file read request. */
-export interface SessionFileRequest {
-  readonly sessionId: SessionId
-  readonly attachmentId: AttachmentIdType
-}
-
-/** Durable file read response value; `text` is plain text, never base64 -- mirrors the durable file's own wire form. */
-export interface SessionFileValue {
-  readonly attachment: FileAttachmentRef
-  readonly text: string
-}
-
 /** Pending queue mutation request. */
 export interface SessionUpdateQueueRequest {
   readonly sessionId: SessionId
@@ -453,15 +421,15 @@ export interface SessionEventEntry {
   readonly event: SessionWireEvent
 }
 
-/** v0-compatible Session metadata carried on the browser wire. */
+/** Current logical Session metadata carried on the browser wire. */
 export interface SessionWireHeader {
   readonly version: number
   readonly id: SessionId
   readonly createdAt: number
   readonly cwd?: string
   readonly parentSession?: SessionId
-  /** Exact inherited prefix length; absent for an unseeded Session. */
-  readonly seedLength?: number
+  /** Whether the Session contains a fork-inherited prefix. */
+  readonly isSeeded: boolean
   readonly origin?: 'subagent'
   readonly delegationDepth?: number
   readonly agentPreset?: string
@@ -472,24 +440,8 @@ export type SessionWireSurfaceOp =
   | 'append'
   | { readonly op: 'replace'; readonly start: number; readonly end: number }
 
-/** Event-shaped wire representation of one packed chunk row. */
-export type ChunkRowEvent = {
-  [Kind in ChunkRow['type']]: {
-    readonly type: `chunkrow/${Kind}`
-    readonly seq: number
-    readonly time: number
-    readonly data: Extract<ChunkRow, { readonly type: Kind }>['data']
-  }
-}[ChunkRow['type']]
-
-/** One lossless run of consecutive Assistant delta events in a history page. */
-export interface SessionChunkRun {
-  readonly type: 'chunks'
-  readonly event: ChunkRowEvent
-}
-
-/** One history-page record: a raw event or a packed Assistant delta run. */
-export type SessionHistoryRecord = SessionEventEntry | SessionChunkRun
+/** One history-page record. V2 embeds compact Assistant streams inside events. */
+export type SessionHistoryRecord = SessionEventEntry
 
 /** Session event wire form; durable readers own recognition of merge-extensible event names. */
 export interface SessionWireEvent {
@@ -515,7 +467,61 @@ export interface SessionPageRequest {
 export interface SessionFollowRequest {
   readonly address: SessionAddress
   readonly maxMessages?: number
+  /** Include process-local assistant presentation frames for the Web client. */
+  readonly assistantStream?: true
 }
+
+/** One active assistant attempt in a reconnect opening snapshot. */
+export interface SessionAssistantStreamAttempt {
+  readonly attemptId: LlmAttemptId
+  /** Last durable Session seq observed when this attempt started. */
+  readonly startedAfterSeq: SessionSeqCursor
+  readonly turn: number
+  readonly step: number
+  /** Dense position expected for the next live chunk frame. */
+  readonly nextIndex: number
+  /** Compact detached stream accumulated at this opening revision. */
+  readonly stream: readonly JsonValue[]
+}
+
+/** Complete process-local assistant state at one follow opening. */
+export interface SessionAssistantStreamBaseline {
+  readonly revision: number
+  readonly activeAttempt?: SessionAssistantStreamAttempt
+}
+
+/** Browser wire form of one process-local assistant frame. */
+export type SessionAssistantStreamFrame =
+  | {
+    readonly type: 'start'
+    readonly attemptId: LlmAttemptId
+    readonly revision: number
+    readonly startedAfterSeq: SessionSeqCursor
+    readonly turn: number
+    readonly step: number
+  }
+  | {
+    readonly type: 'chunk'
+    readonly attemptId: LlmAttemptId
+    readonly revision: number
+    readonly index: number
+    readonly time: number
+    readonly chunk: JsonValue
+  }
+  | {
+    readonly type: 'end'
+    readonly attemptId: LlmAttemptId
+    readonly revision: number
+    /** Number of chunk frames represented by this terminal marker. */
+    readonly index: number
+    readonly outcome:
+      | {
+        readonly kind: 'committed'
+        readonly eventType: 'assistant/message' | 'assistant/attempt'
+        readonly seq: number
+      }
+      | { readonly kind: 'abandoned' }
+  }
 
 /** One contiguous backwards page of a Session log. */
 export interface SessionPage {
@@ -523,7 +529,7 @@ export interface SessionPage {
   readonly hasMore: boolean
 }
 
-/** Complete opening window followed by ordered events appended after its cursor. */
+/** Complete opening window followed by ordered durable events and opted-in assistant frames. */
 export type SessionFollowFrame =
   | {
     readonly type: 'snapshot'
@@ -532,8 +538,10 @@ export type SessionFollowFrame =
     readonly records: readonly SessionHistoryRecord[]
     readonly hasMore: boolean
     readonly projections: SessionProjectionBaseline
+    readonly assistantStream?: SessionAssistantStreamBaseline
   }
   | SessionEventEntry
+  | { readonly type: 'assistant-stream'; readonly frame: SessionAssistantStreamFrame }
 
 /** One pending inbox occurrence in the authoritative queue snapshot. */
 export interface SessionQueuedItem {

@@ -2,8 +2,10 @@
 
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent/types'
-import { createSessionControlStream } from './transport.ts'
+import type {} from '@deepseek-ai/dsh-client-connection/client'
+import type {} from '@deepseek-ai/dsh-client-file-upload/client'
 import { ClientReferent } from './referent.ts'
+import { createSessionControlStream } from './transport.ts'
 import { ClientSessions } from './sessions/service.ts'
 import type { SessionRemotes } from './sessions/remotes.ts'
 import type {} from '../remote-events.ts'
@@ -22,10 +24,10 @@ export type {
   SessionJournalChange,
   SessionRemote,
 } from './transport.ts'
-export { createScope, scopeOf } from './scope.ts'
-export type { AgentContext, AgentScopeHandle } from './scope.ts'
 export { ClientReferent, dispatchReferentOpen } from './referent.ts'
 export type { IReferent, ReferentKind, ReferentKindMap, ReferentRef } from './referent.ts'
+export { createScope, scopeOf } from './scope.ts'
+export type { AgentContext, AgentScopeHandle } from './scope.ts'
 export { SessionCreateError, SessionForkError } from './sessions/service.ts'
 export type { SessionBinding, SessionListState, SessionSummary } from './sessions/service.ts'
 export type {
@@ -52,18 +54,23 @@ export type {
 export type { ISessions } from './contract/sessions.ts'
 export { MutableSessionEventSource } from './contract/events.ts'
 export type {
+  AssistantLiveChunkEvent,
+  SessionAssistantSettlementEntry,
   SessionEventChange,
   SessionEventLike,
   SessionEventLikeEntry,
   SessionEventSource,
   SessionEventWindow,
   SessionLiveEventEntry,
+  SessionTransientEventEntry,
 } from './contract/events.ts'
 export type {
   OpenState,
   PendingSubmission,
-  PendingSubmissionFile,
+  PendingSubmissionAttachment,
+  PendingSubmissionFileAttachment,
   PendingSubmissionImage,
+  PendingSubmissionImageAttachment,
   PendingSubmissionPlacement,
   PromptError,
   QueuedMessage,
@@ -79,6 +86,8 @@ declare module '@deepseek-ai/cordis' {
 
 /** Required Remote and Context projection services. */
 export const inject = [
+  'connection',
+  'fileUpload',
   'typert',
   'remote',
   'remote.commands',

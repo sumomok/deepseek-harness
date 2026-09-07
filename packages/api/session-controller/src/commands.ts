@@ -4,12 +4,16 @@ import { randomUUID } from 'node:crypto'
 import type { Context } from '@deepseek-ai/cordis'
 import { brandString } from '@deepseek-ai/dsh-brand'
 import type { Agent, ModelSelection as AgentModelSelection } from '@deepseek-ai/dsh-agent'
-import { AttachmentError, admitEncodedFiles, admitEncodedImages } from '@deepseek-ai/dsh-attachment'
-import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import { AttachmentError } from '@deepseek-ai/dsh-attachment'
+import type {
+  AttachmentAdmissionPart, FileAttachmentRef, ImageAttachmentRef,
+} from '@deepseek-ai/dsh-attachment'
+import type { FileUploadReceiptId } from '@deepseek-ai/dsh-client-file-upload/types'
+import type {} from '@deepseek-ai/dsh-client-file-upload'
 import {
-  ReasoningEffortId, createUserMessage, freezeMessage,
+  ReasoningEffortId, createUserMessage, expandAssistantStream, freezeMessage,
 } from '@deepseek-ai/dsh-llm'
-import type { ContentBlock, MessageSource } from '@deepseek-ai/dsh-llm'
+import type { MessageSource } from '@deepseek-ai/dsh-llm'
 import { SessionLogOffset, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { SessionEvent, SessionHeader, SessionId, UserMessage } from '@deepseek-ai/dsh-session'
 import { SessionQueryError, type SessionObservation } from '@deepseek-ai/dsh-session-query'
@@ -34,8 +38,6 @@ import type {
   SessionCancelValue,
   SessionCreateRequest,
   SessionCreateValue,
-  SessionFileRequest,
-  SessionFileValue,
   SessionForkRequest,
   SessionForkValue,
   SessionPromptRequest,
@@ -46,6 +48,7 @@ import type {
   SessionSelectModelValue,
   SessionUpdateQueueRequest,
   SessionUpdateQueueValue,
+  SessionRequestId,
 } from './types.ts'
 
 interface SessionReadState {
@@ -299,6 +302,7 @@ export class SessionCommandController {
       )
     }
     const agent = await this.resolveAgent(request.sessionId)
+    if (hasPromptRequest(agent, request.requestId)) return { accepted: true }
     const selection = this.agents.selectionFor(agent).current
     if (!routeServed(this.ctx, selection.provider)) {
       throw new RemoteError(
@@ -313,7 +317,6 @@ export class SessionCommandController {
       ...(clientTimeZone === undefined ? {} : { clientTimeZone }),
     }
     const hasImage = request.content.some(part => part.type === 'image')
-    const hasFile = request.content.some(part => part.type === 'file')
     const admit = async (): Promise<SessionPromptValue> => {
       try {
         if (hasImage) {
@@ -327,10 +330,23 @@ export class SessionCommandController {
             )
           }
         }
-        const content = await durablePromptContent(this.ctx, request.content)
+        const admission = resolvePromptFileReceipts(
+          request.content,
+          receiptId => this.ctx.fileUploads.resolve(agent, receiptId),
+        )
+        const content = await this.ctx.attachments.admitPromptContent(admission.content)
         const message: UserMessage = createUserMessage({ content, source })
+        if (this.ctx.agents.get(agent.id) !== agent) {
+          throw new RemoteError(
+            'session/not-found',
+            `session "${agent.id}" was disposed during prompt admission`,
+            { sessionId: agent.id },
+          )
+        }
+        using binding = this.ctx.fileUploads.bindPrompt(agent, admission.receiptIds, request.requestId)
         if (request.mode === 'steer') agent.steer(message)
         else agent.followup(message)
+        binding.commit()
       } catch (error) {
         if (remoteErrorOf(error) !== undefined) throw error
         if (error instanceof AttachmentError) {
@@ -340,9 +356,7 @@ export class SessionCommandController {
       }
       return { accepted: true }
     }
-    // File admission shares the same durable-write/agent-inbox ordering
-    // concern as image admission, so it joins the same serialization chain.
-    return hasImage || hasFile ? this.agents.serializeImageAdmission(agent, admit) : admit()
+    return hasImage ? this.agents.serializeImageAdmission(agent, admit) : admit()
   }
 
   /**
@@ -387,47 +401,6 @@ export class SessionCommandController {
   }
 
   /**
-   * Read one durable text file after proving the Session log references it.
-   * @param request - Session and attachment identities used for authorization.
-   * @returns the durable file reference and its plain-text content.
-   */
-  async file(request: SessionFileRequest): Promise<SessionFileValue> {
-    let source: SessionReadState
-    try {
-      source = await this.readSessionState(request.sessionId)
-    } catch (error) {
-      if (error instanceof ApiSessionNotFound) {
-        throw new RemoteError('session/not-found', error.message, { sessionId: request.sessionId })
-      }
-      throw new RemoteError(
-        'gateway/internal',
-        `attachment authorization unavailable for session "${request.sessionId}": ${String(error)}`,
-        {},
-      )
-    }
-    const ref = referencedFile(source.events, String(request.attachmentId))
-    if (ref === undefined) {
-      throw new RemoteError(
-        'session/attachment-invalid',
-        'File is not referenced by this session.',
-        { reason: 'ATTACHMENT_NOT_REFERENCED' },
-      )
-    }
-    try {
-      const stored = await this.ctx.attachments.readFile(ref)
-      return {
-        attachment: stored.ref,
-        text: new TextDecoder().decode(stored.data),
-      }
-    } catch (error) {
-      if (error instanceof AttachmentError) {
-        throw new RemoteError('session/attachment-invalid', error.message, { reason: error.code })
-      }
-      throw new RemoteError('gateway/internal', 'Unable to read file attachment.', {})
-    }
-  }
-
-  /**
    * Mutate one still-pending queue occurrence without resuming a cold Agent.
    * @param request - Session, queue item, and requested mutation.
    * @returns acknowledgement that the queue mutation was applied.
@@ -467,6 +440,12 @@ export class SessionCommandController {
       }))
     } else {
       agent.inbox.remove(request.itemId)
+      if (request.action.kind === 'remove') {
+        const source = message.source
+        if (source.kind === 'user' && 'rpcId' in source) {
+          this.ctx.fileUploads.retirePrompt(agent, source.rpcId)
+        }
+      }
       if (request.action.kind === 'steer') agent.steer(message)
     }
     return { accepted: true }
@@ -543,26 +522,39 @@ export class SessionCommandController {
   }
 }
 
-async function durablePromptContent(
-  ctx: Context,
-  content: readonly SessionPromptRequest['content'][number][],
-): Promise<ContentBlock[]> {
-  if (content.every(part => part.type === 'text')) {
-    return content.map(part => ({ type: 'text', text: part.text }))
-  }
-  const imageRefs = await admitEncodedImages(ctx.attachments, content.filter(part => part.type === 'image'))
-  const fileRefs = await admitEncodedFiles(ctx.attachments, content.filter(part => part.type === 'file'))
-  let nextImage = 0
-  let nextFile = 0
-  return content.map((part): ContentBlock => {
-    if (part.type === 'text') return { type: 'text', text: part.text }
-    // admitEncodedImages/admitEncodedFiles each return one reference per
-    // matching part in order.
-    if (part.type === 'image') return { type: 'image', attachment: imageRefs[nextImage++] as ImageAttachmentRef }
-    return { type: 'file', attachment: fileRefs[nextFile++] as FileAttachmentRef }
+function resolvePromptFileReceipts(
+  content: SessionPromptRequest['content'],
+  stagedFile: (receiptId: FileUploadReceiptId) => FileAttachmentRef | undefined,
+): { readonly content: AttachmentAdmissionPart[]; readonly receiptIds: readonly FileUploadReceiptId[] } {
+  const receiptIds = new Set<FileUploadReceiptId>()
+  const resolved = content.map((part): AttachmentAdmissionPart => {
+    if (part.type !== 'file') return part
+    const attachment = stagedFile(part.receiptId)
+    if (attachment === undefined) {
+      throw new RemoteError(
+        'session/attachment-invalid',
+        'File was not uploaded for this session.',
+        { reason: 'FILE_NOT_STAGED' },
+      )
+    }
+    receiptIds.add(part.receiptId)
+    return { type: 'file', attachment }
   })
+  return { content: resolved, receiptIds: [...receiptIds] }
 }
 
+function hasPromptRequest(agent: Agent, requestId: SessionRequestId): boolean {
+  const matches = (message: UserMessage): boolean => {
+    const source = message.source
+    return source.kind === 'user' && 'rpcId' in source && source.rpcId === requestId
+  }
+  if (agent.inbox.nextTurn.some(matches) || agent.inbox.nextStep.some(matches)) return true
+  return agent.session.snapshotEvents().some((event) => {
+    if (event.type !== 'user/message') return false
+    const source = event.data.source
+    return source.kind === 'user' && 'rpcId' in source && source.rpcId === requestId
+  })
+}
 function imageBlockIn(
   content: unknown,
   match: (ref: ImageAttachmentRef) => boolean,
@@ -591,7 +583,6 @@ function imageInEvent(
     readonly content?: unknown
     readonly message?: { readonly content?: unknown }
     readonly inserted?: readonly { readonly content?: unknown }[]
-    readonly chunk?: { readonly type?: unknown; readonly block?: unknown }
   }
   const direct = imageBlockIn(data.content, match)
   if (direct !== undefined) return direct
@@ -601,9 +592,14 @@ function imageInEvent(
     const found = imageBlockIn(inserted.content, match)
     if (found !== undefined) return found
   }
-  return event.type === 'assistant/chunk' && data.chunk?.type === 'block-end'
-    ? imageBlockIn([data.chunk.block], match)
-    : undefined
+  if (event.type === 'assistant/message' || event.type === 'assistant/attempt') {
+    for (const { chunk } of expandAssistantStream(event.data.stream)) {
+      if (chunk.type !== 'block-end') continue
+      const found = imageBlockIn([chunk.block], match)
+      if (found !== undefined) return found
+    }
+  }
+  return undefined
 }
 
 function referencedImage(
@@ -612,60 +608,6 @@ function referencedImage(
 ): ImageAttachmentRef | undefined {
   for (const event of events) {
     const found = imageInEvent(event, ref => String(ref.attachmentId) === attachmentId)
-    if (found !== undefined) return found
-  }
-  return undefined
-}
-
-function fileBlockIn(
-  content: unknown,
-  match: (ref: FileAttachmentRef) => boolean,
-): FileAttachmentRef | undefined {
-  if (!Array.isArray(content)) return undefined
-  for (const value of content) {
-    if (typeof value !== 'object' || value === null || Array.isArray(value)) continue
-    const block = value as { readonly type?: unknown; readonly attachment?: unknown; readonly content?: unknown }
-    if (block.type === 'file' && typeof block.attachment === 'object' && block.attachment !== null) {
-      const ref = block.attachment as FileAttachmentRef
-      if (match(ref)) return ref
-    }
-    if (block.type === 'tool-result') {
-      const nested = fileBlockIn(block.content, match)
-      if (nested !== undefined) return nested
-    }
-  }
-  return undefined
-}
-
-function fileInEvent(
-  event: SessionEvent,
-  match: (ref: FileAttachmentRef) => boolean,
-): FileAttachmentRef | undefined {
-  const data = event.data as {
-    readonly content?: unknown
-    readonly message?: { readonly content?: unknown }
-    readonly inserted?: readonly { readonly content?: unknown }[]
-    readonly chunk?: { readonly type?: unknown; readonly block?: unknown }
-  }
-  const direct = fileBlockIn(data.content, match)
-  if (direct !== undefined) return direct
-  const message = fileBlockIn(data.message?.content, match)
-  if (message !== undefined) return message
-  for (const inserted of data.inserted ?? []) {
-    const found = fileBlockIn(inserted.content, match)
-    if (found !== undefined) return found
-  }
-  return event.type === 'assistant/chunk' && data.chunk?.type === 'block-end'
-    ? fileBlockIn([data.chunk.block], match)
-    : undefined
-}
-
-function referencedFile(
-  events: readonly SessionEvent[],
-  attachmentId: string,
-): FileAttachmentRef | undefined {
-  for (const event of events) {
-    const found = fileInEvent(event, ref => String(ref.attachmentId) === attachmentId)
     if (found !== undefined) return found
   }
   return undefined

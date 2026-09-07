@@ -43,12 +43,6 @@ Range.prototype.getBoundingClientRect = ZERO_RECT
 const SCTX = {} as Context
 const SID = 's1' as SessionId
 
-// Real PNG magic bytes: content sniffing (partitionDroppedFiles, the paste
-// path's client-side pre-check) treats a lone non-NUL byte as valid UTF-8 —
-// indistinguishable from text — so a pasted/dropped "image" fixture needs
-// genuine binary leading bytes to keep sniffing to the image path.
-const PNG_MAGIC = Uint8Array.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a])
-
 function snapshotOf(overrides: Partial<SessionSnapshot> = {}): SessionSnapshot {
   return { ...sessionFixture(SID), ...overrides }
 }
@@ -57,6 +51,8 @@ interface BenchOptions {
   planEntry?: React.ReactNode
   /** The `plan` projection value the standard-kit useProjection serves. */
   plan?: { active: boolean; pending: boolean }
+  /** The `goal` projection value used only to prove attachment intake remains ordinary. */
+  goal?: { phase: 'active'; objective: string }
   modelEntry?: React.ReactNode
   /** Hot text-ref lexicon (injects a minimal slash stub exposing only lexicon()). */
   lexicon?: ReadonlyMap<'/' | '@', readonly string[]>
@@ -78,14 +74,6 @@ interface BenchOptions {
     maxImageDimension: number
     mediaTypes: readonly ('image/png' | 'image/jpeg' | 'image/webp' | 'image/gif')[]
   }
-  /** The `fileLimits` projection value (absent = no attachment service). */
-  fileLimits?: {
-    maxFilesPerMessage: number
-    maxMessageFileBytes: number
-    maxFileBytes: number
-  }
-  /** The `secretContainerExtraPatterns` projection value (absent = no gateway composed). */
-  secretContainerExtraPatterns?: readonly string[]
   draft?: string
   running?: boolean
   subagent?: Exclude<SessionSnapshot['subagent'], null>
@@ -109,7 +97,6 @@ interface BenchOptions {
   rightItems?: React.ReactNode
   footer?: React.ReactNode
   attachments?: readonly ComposerAttachment[]
-  addImages?: (files: readonly File[]) => string | null
   addFiles?: (files: readonly File[]) => string | null
   commandMenuOpen?: boolean
   busyEnter?: 'queue' | 'steer'
@@ -128,7 +115,7 @@ function row(id: string): SessionSnapshot['queue'][number] {
 function bench(over?: BenchOptions) {
   const sink = vi.fn<(
     text: string,
-    imageIds: readonly DraftAttachmentId[],
+    attachmentIds: readonly DraftAttachmentId[],
     mode: 'queue' | 'steer',
     signal: AbortSignal,
   ) => Promise<SubmitOutcome>>(() => Promise.resolve({ kind: 'success' }))
@@ -144,7 +131,7 @@ function bench(over?: BenchOptions) {
   const shell = new SessionInputShell({
     actx: SCTX,
     defaultSink: sink,
-    commandImages: { serialize: () => Promise.resolve([]), release: () => {}, unsupportedNotice: (token: string) => `${token.trim()} images-unsupported` },
+    commandAttachments: { serialize: () => Promise.resolve([]), release: () => {}, unsupportedNotice: (token: string) => `${token.trim()} attachments-unsupported` },
     queue: {
       getSnapshot: () => session.getSnapshot().queue,
       subscribe: fn => session.subscribe(fn),
@@ -162,9 +149,9 @@ function bench(over?: BenchOptions) {
       : {}),
   })
   if (over?.draft !== undefined && over.draft !== '') shell.setDraft(over.draft)
-  if (over?.attachments !== undefined) shell.addImages(over.attachments.map(attachment => attachment.id))
+  if (over?.attachments !== undefined) shell.addAttachments(over.attachments.map(attachment => attachment.id))
   const stop = vi.fn()
-  const removeImage = vi.fn((id: DraftAttachmentId) => { shell.removeImage(id) })
+  const removeAttachment = vi.fn((id: DraftAttachmentId) => { shell.removeAttachment(id) })
   const menuLauncher = createSnapshotStore<string | null>(over?.commandMenuOpen === true ? 'command' : null)
   const slotCalls: { key: string; owner: unknown }[] = []
   const renderSlot = ((key: string, owner: object) => {
@@ -193,20 +180,17 @@ function bench(over?: BenchOptions) {
     useProjection: ((key: string, selector?: (v: unknown) => unknown) =>
       (selector ?? (v => v))(key === 'permissions'
         ? over?.permissions
-        : key === 'plan'
-          ? over?.plan
-          : key === 'imageLimits'
-            ? over?.imageLimits
-            : key === 'fileLimits'
-              ? over?.fileLimits
-              : key === 'secretContainerExtraPatterns' ? over?.secretContainerExtraPatterns : undefined)),
+        : key === 'plan' ? over?.plan
+          : key === 'goal' ? over?.goal
+            : key === 'imageLimits' ? over?.imageLimits : undefined)),
     useInput: bindSnapshotSelector(shell.state),
     inputActions: shell.actions,
     keyboard: shell,
-    addImages: over?.addImages ?? (() => null),
     addFiles: over?.addFiles ?? (() => null),
-    removeImage,
-    draftImages: ids => ids.flatMap((id) => {
+    useFileUploads: bindSnapshotSelector(createSnapshotStore({})),
+    retryFileUpload: undefined,
+    removeAttachment,
+    resolveDraftAttachments: ids => ids.flatMap((id) => {
       const attachment = over?.attachments?.find(candidate => candidate.id === id)
       return attachment === undefined ? [] : [attachment]
     }),
@@ -242,7 +226,7 @@ function bench(over?: BenchOptions) {
   )!
   const interruptButton = view.container.querySelector<HTMLButtonElement>('button[aria-label="停止生成"]')
   return {
-    view, textarea, button, interruptButton, props, sink, shell, wiring: shell, session, stop, removeImage, slotCalls,
+    view, textarea, button, interruptButton, props, sink, shell, wiring: shell, session, stop, removeAttachment, slotCalls,
     menuLauncher,
     steerQueue: over?.steerQueue,
     get placeholder() { return placeholderOf(view.container) },
@@ -256,15 +240,6 @@ function attachmentOwner(slotCalls: readonly { key: string; owner: unknown }[]):
     if (call?.key === 'conversation.input.attachments') return call.owner as ComposerAttachmentsOwnerProps
   }
   throw new Error('attachment slot was not rendered')
-}
-
-/** A draft text-file attachment whose name matches the secret-container heuristic. */
-function envFile(id: string, name = '.env'): ComposerAttachment {
-  return {
-    kind: 'file' as const,
-    id: id as DraftAttachmentId,
-    file: new File(['SECRET=1'], name, { type: 'text/plain' }),
-  }
 }
 
 /** The state's placeholder copy (the textarea.placeholder equivalent; the visible layer renders it only while empty). */
@@ -284,12 +259,9 @@ function writeDraft(shell: SessionInputShell, text: string): void {
 
 describe('image draft rail', () => {
   it('collects clipboard files while preserving text from a mixed paste', async () => {
-    const addImages = vi.fn(() => null)
-    const { textarea, shell } = bench({ addImages })
-    // Real PNG magic bytes: a paste now routes its files through a content
-    // sniff (partitionDroppedFiles) before addImages/addFiles, and a lone
-    // non-NUL byte decodes as valid UTF-8 — indistinguishable from text.
-    const image = new File([PNG_MAGIC], 'pixel.png', { type: 'image/png' })
+    const addFiles = vi.fn(() => null)
+    const { textarea, shell } = bench({ addFiles })
+    const image = new File([Uint8Array.of(1, 2, 3)], 'pixel.png', { type: 'image/png' })
     fireEvent.paste(textarea, {
       clipboardData: {
         items: [
@@ -299,26 +271,9 @@ describe('image draft rail', () => {
         getData: () => '同时粘贴的文字',
       },
     })
+    expect(addFiles).toHaveBeenCalledWith([image])
     // The paste lands inside the PASTE_COMMAND update; its commit is a microtask away.
     await vi.waitFor(() => { expect(shell.snapshot.draft).toBe('同时粘贴的文字') })
-    // The sniff resolves on a microtask after File.arrayBuffer(); addImages
-    // fires once that split completes.
-    await vi.waitFor(() => { expect(addImages).toHaveBeenCalledWith([image]) })
-  })
-
-  it('routes a text-sniffable pasted file to addFiles instead of addImages', async () => {
-    const addImages = vi.fn(() => null)
-    const addFiles = vi.fn(() => null)
-    const { textarea } = bench({ addImages, addFiles })
-    const note = new File(['plain text content'], 'note.txt', { type: 'text/plain' })
-    fireEvent.paste(textarea, {
-      clipboardData: {
-        items: [{ kind: 'file', type: 'text/plain', getAsFile: () => note }],
-        getData: () => '',
-      },
-    })
-    await vi.waitFor(() => { expect(addFiles).toHaveBeenCalledWith([note]) })
-    expect(addImages).not.toHaveBeenCalled()
   })
 
   it('pre-checks projected limits at intake: whole-batch refusal with product copy, none added', () => {
@@ -332,79 +287,40 @@ describe('image draft rail', () => {
     }
     const png = (bytes: number, name: string) => new File([new ArrayBuffer(bytes)], name, { type: 'image/png' })
     const intake = (result: ReturnType<typeof bench>, files: File[]) => {
-      act(() => { attachmentOwner(result.slotCalls).onAddImages(files) })
+      act(() => { attachmentOwner(result.slotCalls).onAddFiles(files) })
     }
     // Count: three at once over a two-image limit → the whole batch refused.
-    const overCount = bench({ addImages: vi.fn(() => null), imageLimits: limits })
+    const overCount = bench({ addFiles: vi.fn(() => null), imageLimits: limits })
     intake(overCount, [png(8, 'a.png'), png(8, 'b.png'), png(8, 'c.png')])
     expect(overCount.view.getByRole('alert').textContent).toContain('一条消息最多添加 2 张图片')
-    expect(overCount.props.addImages).not.toHaveBeenCalled()
+    expect(overCount.props.addFiles).not.toHaveBeenCalled()
     cleanup()
     // Per-file bytes.
-    const overFile = bench({ addImages: vi.fn(() => null), imageLimits: limits })
+    const overFile = bench({ addFiles: vi.fn(() => null), imageLimits: limits })
     intake(overFile, [png(1024 * 1024 + 1, 'big.png')])
-    expect(overFile.view.getByRole('alert').textContent).toContain('单张图片不能超过 1 MB')
-    expect(overFile.props.addImages).not.toHaveBeenCalled()
+    expect(overFile.view.getByRole('alert').textContent).toContain('单张图片不能超过 1MB')
+    expect(overFile.props.addFiles).not.toHaveBeenCalled()
     cleanup()
     // Aggregate bytes across the existing rail plus the new batch.
     const held = new File([new ArrayBuffer(1024 * 1024 * 1.5)], 'held.png', { type: 'image/png' })
     const attachment = { kind: 'image' as const, id: 'draft-1' as DraftAttachmentId, file: held, previewUrl: 'blob:held' }
-    const overTotal = bench({ addImages: vi.fn(() => null), imageLimits: limits, attachments: [attachment] })
+    const overTotal = bench({ addFiles: vi.fn(() => null), imageLimits: limits, attachments: [attachment] })
     intake(overTotal, [png(1024 * 1024, 'more.png')])
-    expect(overTotal.view.getByRole('alert').textContent).toContain('图片总大小超过 2 MB')
-    expect(overTotal.props.addImages).not.toHaveBeenCalled()
-    cleanup()
-    // Within every limit: the batch passes through to addImages.
-    const within = bench({ addImages: vi.fn(() => null), imageLimits: limits })
-    const fits = png(16, 'fits.png')
-    intake(within, [fits])
-    expect(within.props.addImages).toHaveBeenCalledWith([fits])
-    expect(within.view.queryByRole('alert')).toBeNull()
-  })
-
-  it('pre-checks projected file limits at intake: whole-batch refusal with product copy, none added', () => {
-    const limits = {
-      maxFilesPerMessage: 2,
-      maxMessageFileBytes: 2 * 1024 * 1024,
-      maxFileBytes: 1024 * 1024,
-    }
-    const txt = (bytes: number, name: string) => new File([new Uint8Array(bytes)], name, { type: 'text/plain' })
-    const intake = (result: ReturnType<typeof bench>, files: File[]) => {
-      act(() => { attachmentOwner(result.slotCalls).onAddFiles(files) })
-    }
-    // Count: three at once over a two-file limit → the whole batch refused.
-    const overCount = bench({ addFiles: vi.fn(() => null), fileLimits: limits })
-    intake(overCount, [txt(8, 'a.txt'), txt(8, 'b.txt'), txt(8, 'c.txt')])
-    expect(overCount.view.getByRole('alert').textContent).toContain('一条消息最多添加 2 个文件')
-    expect(overCount.props.addFiles).not.toHaveBeenCalled()
-    cleanup()
-    // Per-file bytes.
-    const overFile = bench({ addFiles: vi.fn(() => null), fileLimits: limits })
-    intake(overFile, [txt(1024 * 1024 + 1, 'big.txt')])
-    expect(overFile.view.getByRole('alert').textContent).toContain('单个文件不能超过 1 MB')
-    expect(overFile.props.addFiles).not.toHaveBeenCalled()
-    cleanup()
-    // Aggregate bytes across the existing chip row plus the new batch — a
-    // held IMAGE draft must not count toward the file total (kind-scoped).
-    const heldImage = { kind: 'image' as const, id: 'draft-img' as DraftAttachmentId, file: new File([PNG_MAGIC], 'held.png', { type: 'image/png' }), previewUrl: 'blob:held-img' }
-    const heldFile = { kind: 'file' as const, id: 'draft-1' as DraftAttachmentId, file: txt(1024 * 1024 * 1.5, 'held.txt') }
-    const overTotal = bench({ addFiles: vi.fn(() => null), fileLimits: limits, attachments: [heldImage, heldFile] })
-    intake(overTotal, [txt(1024 * 1024, 'more.txt')])
-    expect(overTotal.view.getByRole('alert').textContent).toContain('文件总大小超过 2 MB')
+    expect(overTotal.view.getByRole('alert').textContent).toContain('图片总大小超过 2MB')
     expect(overTotal.props.addFiles).not.toHaveBeenCalled()
     cleanup()
     // Within every limit: the batch passes through to addFiles.
-    const within = bench({ addFiles: vi.fn(() => null), fileLimits: limits })
-    const fits = txt(16, 'fits.txt')
+    const within = bench({ addFiles: vi.fn(() => null), imageLimits: limits })
+    const fits = png(16, 'fits.png')
     intake(within, [fits])
     expect(within.props.addFiles).toHaveBeenCalledWith([fits])
     expect(within.view.queryByRole('alert')).toBeNull()
   })
 
   it('announces the format problem before any limit when the batch holds a non-image', () => {
-    const addImages = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
+    const addFiles = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
     const result = bench({
-      addImages,
+      addFiles,
       imageLimits: {
         maxImageBytes: 8,
         maxImagesPerMessage: 1,
@@ -419,14 +335,14 @@ describe('image draft rail', () => {
       new File([new ArrayBuffer(64)], 'a.pdf', { type: 'application/pdf' }),
       new File([new ArrayBuffer(64)], 'b.pdf', { type: 'application/pdf' }),
     ]
-    act(() => { attachmentOwner(result.slotCalls).onAddImages(files) })
-    expect(addImages).toHaveBeenCalledWith(files)
+    act(() => { attachmentOwner(result.slotCalls).onAddFiles(files) })
+    expect(addFiles).toHaveBeenCalledWith(files)
     expect(result.view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
   })
 
   it('projects display-ready limits into the attachment slot', () => {
     const result = bench({
-      addImages: vi.fn(() => null),
+      addFiles: vi.fn(() => null),
       imageLimits: {
         maxImageBytes: 5 * 1024 * 1024,
         maxImagesPerMessage: 20,
@@ -436,7 +352,7 @@ describe('image draft rail', () => {
         mediaTypes: ['image/png'] as const,
       },
     })
-    expect(attachmentOwner(result.slotCalls).dropLimits).toEqual({ count: 20, size: '5 MB' })
+    expect(attachmentOwner(result.slotCalls).dropLimits).toEqual({ count: 20, size: '5MB' })
   })
 
   it('announces server attachment rejections as product copy, other codes as developer text', () => {
@@ -446,10 +362,6 @@ describe('image draft rail', () => {
     })
     const model = bench({ promptError: attachmentError('MODEL_DOES_NOT_SUPPORT_IMAGES') })
     expect(model.view.getByRole('alert').textContent).toContain('当前模型不支持图片，请切换支持图片的模型')
-    cleanup()
-    const fileLimits = { maxFilesPerMessage: 5, maxMessageFileBytes: 10 * 1024 * 1024, maxFileBytes: 1024 * 1024 }
-    const fileReason = bench({ promptError: attachmentError('TOO_MANY_FILES'), fileLimits })
-    expect(fileReason.view.getByRole('alert').textContent).toContain('一条消息最多添加 5 个文件')
     cleanup()
     const unknown = bench({ promptError: attachmentError('ATTACHMENT_NOT_REFERENCED') })
     expect(unknown.view.getByRole('alert').textContent).toContain('图片发送失败（ATTACHMENT_NOT_REFERENCED）')
@@ -472,7 +384,7 @@ describe('image draft rail', () => {
   })
 
   it('marks the attachment slot unavailable while the composer is locked', () => {
-    const result = bench({ addImages: vi.fn(() => null), inert: true })
+    const result = bench({ addFiles: vi.fn(() => null), inert: true })
     expect(attachmentOwner(result.slotCalls).canAcceptDrop).toBe(false)
   })
 
@@ -484,11 +396,11 @@ describe('image draft rail', () => {
       { kind: 'image' as const, id: 'draft-2' as DraftAttachmentId, file: extra, previewUrl: 'blob:draft-2' },
     ]
     const result = bench({ attachments })
-    const { view, textarea, sink, removeImage } = result
+    const { view, textarea, sink, removeAttachment } = result
     expect((view.getByRole('button', { name: '发送消息' }) as HTMLButtonElement).disabled).toBe(false)
     const owner = attachmentOwner(result.slotCalls)
-    act(() => { owner.onRemoveImage('draft-2' as DraftAttachmentId) })
-    expect(removeImage).toHaveBeenCalledWith('draft-2')
+    act(() => { owner.onRemoveAttachment('draft-2' as DraftAttachmentId) })
+    expect(removeAttachment).toHaveBeenCalledWith('draft-2')
     let settle!: (outcome: SubmitOutcome) => void
     sink.mockImplementationOnce(() => new Promise<SubmitOutcome>((resolve) => { settle = resolve }))
     fireEvent.keyDown(textarea, { key: 'Enter' })
@@ -520,179 +432,37 @@ describe('image draft rail', () => {
   it('announces an image-intake rejection as a fading toast, repeatable for the same reason', () => {
     vi.useFakeTimers()
     try {
-      const addImages = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
-      const result = bench({ addImages })
-      // Direct slot-owner call (not a real paste): this test's subject is
-      // toast fade/re-announce timing, independent of intake mechanics — a
-      // real paste's own content sniff is covered separately (mixed-paste
-      // and text-routing cases above).
-      const reject = () => {
-        act(() => {
-          attachmentOwner(result.slotCalls).onAddImages([
-            new File([new ArrayBuffer(64)], 'note.pdf', { type: 'application/pdf' }),
-          ])
+      const addFiles = vi.fn(() => '仅支持 PNG、JPG、WebP、GIF 格式的图片')
+      const { view, textarea } = bench({ addFiles })
+      const paste = () => {
+        fireEvent.paste(textarea, {
+          clipboardData: {
+            items: [{ kind: 'file', type: 'text/plain', getAsFile: () => new File(['x'], 'note.txt', { type: 'text/plain' }) }],
+            getData: () => '',
+          },
         })
       }
-      reject()
-      expect(result.view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+      paste()
+      expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
       act(() => { vi.advanceTimersByTime(4000) })
-      expect(result.view.queryByRole('alert')).toBeNull()
+      expect(view.queryByRole('alert')).toBeNull()
       // The identical rejection re-announces: the toast is keyed per show.
-      reject()
-      expect(result.view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
+      paste()
+      expect(view.getByRole('alert').textContent).toContain('仅支持 PNG、JPG、WebP、GIF 格式的图片')
     } finally {
       vi.useRealTimers()
     }
   })
 
   it('announces a rejected attachment-slot intake through the same toast', () => {
-    const addImages = vi.fn(() => '图片读取服务不可用')
-    const result = bench({ addImages })
+    const addFiles = vi.fn(() => '图片读取服务不可用')
+    const result = bench({ addFiles })
     act(() => {
-      attachmentOwner(result.slotCalls).onAddImages([
+      attachmentOwner(result.slotCalls).onAddFiles([
         new File([Uint8Array.of(1)], 'x.png', { type: 'image/png' }),
       ])
     })
     expect(result.view.getByRole('alert').textContent).toContain('图片读取服务不可用')
-  })
-})
-
-describe('secret-container add-time confirmation', () => {
-  /** Draft ids the fake machine mints for an attached batch, distinct per file across the block. */
-  let minted = 0
-  /**
-   * A real addFiles wiring, unlike the `vi.fn(() => null)` stub the intake
-   * pre-check tests above use: it actually attaches (mutating the shared
-   * `attachments` array `draftImages` resolves against, then registering the
-   * new id with the real machine), which is what lets intake's own add-time
-   * secret-container check see the file land in `fileAttachments` on the
-   * next render. `shellHolder` is populated right after `bench()` returns,
-   * before any test interaction can invoke `addFiles` — `bench()` itself
-   * needs the closure before the shell it will populate exists.
-   */
-  function benchWithRealAddFiles(over?: BenchOptions) {
-    const attachments: ComposerAttachment[] = [...(over?.attachments ?? [])]
-    const shellHolder: { current?: SessionInputShell } = {}
-    const addFiles = (files: readonly File[]): string | null => {
-      const created = files.map(file => (
-        { kind: 'file' as const, id: `added-${(minted += 1)}` as DraftAttachmentId, file }
-      ))
-      attachments.push(...created)
-      shellHolder.current?.addImages(created.map(entry => entry.id))
-      return null
-    }
-    const result = bench({ ...over, attachments, addFiles })
-    shellHolder.current = result.shell
-    return result
-  }
-
-  it('opens the add-confirm dialog immediately on drop, naming the matched file, without holding the attach', () => {
-    const result = benchWithRealAddFiles({ draft: 'hello' })
-    act(() => { attachmentOwner(result.slotCalls).onAddFiles([new File(['SECRET=1'], '.env', { type: 'text/plain' })]) })
-    expect(result.view.getByRole('dialog').textContent).toContain('.env')
-    // Attaching is immediate — the dialog offers to undo it, not to gate it.
-    expect(attachmentOwner(result.slotCalls).attachments.some(a => a.file.name === '.env')).toBe(true)
-  })
-
-  it('lists every matched name from one add batch in a single dialog', () => {
-    const result = benchWithRealAddFiles({ draft: 'hello' })
-    act(() => {
-      attachmentOwner(result.slotCalls).onAddFiles([
-        new File(['SECRET=1'], '.env', { type: 'text/plain' }),
-        new File(['x'], 'id_rsa', { type: 'text/plain' }),
-      ])
-    })
-    const dialogText = result.view.getByRole('dialog').textContent ?? ''
-    expect(dialogText).toContain('.env')
-    expect(dialogText).toContain('id_rsa')
-  })
-
-  it('不添加 removes only the matched files from that batch; a non-matched sibling stays attached', () => {
-    const result = benchWithRealAddFiles({ draft: 'hello' })
-    act(() => {
-      attachmentOwner(result.slotCalls).onAddFiles([
-        new File(['SECRET=1'], '.env', { type: 'text/plain' }),
-        new File(['hi'], 'notes.txt', { type: 'text/plain' }),
-      ])
-    })
-    act(() => { fireEvent.click(result.view.getByRole('button', { name: '不添加' })) })
-    expect(result.view.queryByRole('dialog')).toBeNull()
-    const attachments = attachmentOwner(result.slotCalls).attachments
-    expect(attachments.some(a => a.file.name === '.env')).toBe(false)
-    expect(attachments.some(a => a.file.name === 'notes.txt')).toBe(true)
-  })
-
-  it('仍要添加 closes the dialog and leaves the matched file attached', () => {
-    const result = benchWithRealAddFiles({ draft: 'hello' })
-    act(() => { attachmentOwner(result.slotCalls).onAddFiles([new File(['SECRET=1'], '.env', { type: 'text/plain' })]) })
-    act(() => { fireEvent.click(result.view.getByRole('button', { name: '仍要添加' })) })
-    expect(result.view.queryByRole('dialog')).toBeNull()
-    expect(attachmentOwner(result.slotCalls).attachments.some(a => a.file.name === '.env')).toBe(true)
-  })
-
-  it('re-dropping a match reopens the identical gate — no "don\'t ask again" suppression', () => {
-    const result = benchWithRealAddFiles({ draft: 'hello' })
-    act(() => { attachmentOwner(result.slotCalls).onAddFiles([new File(['SECRET=1'], '.env', { type: 'text/plain' })]) })
-    act(() => { fireEvent.click(result.view.getByRole('button', { name: '仍要添加' })) })
-    expect(result.view.queryByRole('dialog')).toBeNull()
-    act(() => { attachmentOwner(result.slotCalls).onAddFiles([new File(['SECRET=1'], '.env.local', { type: 'text/plain' })]) })
-    expect(result.view.getByRole('dialog').textContent).toContain('.env.local')
-  })
-
-  it('an ordinary text file never opens the add-confirm dialog', () => {
-    const result = benchWithRealAddFiles({ draft: 'hello' })
-    act(() => { attachmentOwner(result.slotCalls).onAddFiles([new File(['hi'], 'notes.txt', { type: 'text/plain' })]) })
-    expect(result.view.queryByRole('dialog')).toBeNull()
-  })
-
-  it('a deployment-appended extra pattern gates add for a name the fixed base list alone would miss', () => {
-    const name = 'company-internal-config.yaml'
-    const withoutExtra = benchWithRealAddFiles({ draft: 'hi' })
-    act(() => { attachmentOwner(withoutExtra.slotCalls).onAddFiles([new File(['x'], name, { type: 'text/plain' })]) })
-    expect(withoutExtra.view.queryByRole('dialog')).toBeNull()
-    cleanup()
-    const withExtra = benchWithRealAddFiles({ draft: 'hi', secretContainerExtraPatterns: ['company-internal'] })
-    act(() => { attachmentOwner(withExtra.slotCalls).onAddFiles([new File(['x'], name, { type: 'text/plain' })]) })
-    expect(withExtra.view.getByRole('dialog')).toBeTruthy()
-  })
-
-  it('marks the attachment slot with the hit id, for the chip persistent-warning state', () => {
-    const attachment = envFile('draft-1')
-    const plain = { kind: 'file' as const, id: 'draft-2' as DraftAttachmentId, file: new File(['hi'], 'notes.txt', { type: 'text/plain' }) }
-    const result = bench({ attachments: [attachment, plain] })
-    const owner = attachmentOwner(result.slotCalls)
-    expect(owner.secretContainerHitIds?.has(attachment.id)).toBe(true)
-    expect(owner.secretContainerHitIds?.has(plain.id)).toBe(false)
-  })
-
-  it('no hit: empty hit set, no dialog', () => {
-    const plain = { kind: 'file' as const, id: 'draft-4' as DraftAttachmentId, file: new File(['hi'], 'notes.txt', { type: 'text/plain' }) }
-    const result = bench({ draft: 'hi', attachments: [plain] })
-    expect(result.view.queryByRole('dialog')).toBeNull()
-    expect(attachmentOwner(result.slotCalls).secretContainerHitIds?.size ?? 0).toBe(0)
-  })
-})
-
-describe('secret-container: no send-time re-prompt', () => {
-  // The confirmation moved to add time (above); an attachment already in the
-  // draft — restored, or added and left unconfirmed — must never gate either
-  // submit entry point again. Pre-seeding via `attachments` (not a real
-  // intake) is deliberate: it proves the send path itself carries no gate,
-  // independent of whether an add-time dialog was ever shown or answered.
-  it('Enter submits immediately with no confirmation dialog, carrying a secret-container match', () => {
-    const attachment = envFile('draft-1')
-    const { textarea, sink, view } = bench({ draft: 'hello', attachments: [attachment] })
-    fireEvent.keyDown(textarea, { key: 'Enter' })
-    expect(sink).toHaveBeenCalledWith('hello', [attachment.id], 'queue', expect.any(AbortSignal))
-    expect(view.queryByRole('dialog')).toBeNull()
-  })
-
-  it('the primary Send button submits immediately too — both entry points share the removed gate', () => {
-    const attachment = envFile('draft-1')
-    const { button, sink, view } = bench({ draft: 'hello', attachments: [attachment] })
-    fireEvent.click(button)
-    expect(sink).toHaveBeenCalledWith('hello', [attachment.id], 'queue', expect.any(AbortSignal))
-    expect(view.queryByRole('dialog')).toBeNull()
   })
 })
 
@@ -1021,7 +791,7 @@ describe('running and lock semantics', () => {
   })
 
   it('running continuable subagent keeps Send beside an independent Stop', () => {
-    const { button, interruptButton, textarea, sink, stop } = bench({
+    const { button, interruptButton, textarea, sink, stop, view, slotCalls } = bench({
       running: true,
       draft: '后续消息',
       subagent: {
@@ -1036,10 +806,24 @@ describe('running and lock semantics', () => {
     expect(button.getAttribute('aria-label')).toBe('发送消息')
     expect(interruptButton).not.toBeNull()
     expect(textarea.getAttribute('aria-disabled')).not.toBe('true')
+    expect((view.getByLabelText('添加附件') as HTMLButtonElement).disabled).toBe(true)
+    expect(view.container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled).toBe(true)
+    expect(attachmentOwner(slotCalls).canAcceptDrop).toBe(false)
     fireEvent.click(button)
     expect(sink).toHaveBeenCalledWith('后续消息', [], 'queue', expect.any(AbortSignal))
     fireEvent.click(interruptButton!)
     expect(stop).toHaveBeenCalledTimes(1)
+  })
+
+  it.each([
+    ['active plan', { plan: { active: true, pending: false } }],
+    ['active goal', { goal: { phase: 'active' as const, objective: 'inspect files' } }],
+  ])('%s keeps ordinary generic-file intake enabled', (_name, projection) => {
+    const added = vi.fn(() => null)
+    const { view, slotCalls } = bench({ ...projection, addFiles: added })
+    expect((view.getByLabelText('添加附件') as HTMLButtonElement).disabled).toBe(false)
+    expect(view.container.querySelector<HTMLInputElement>('input[type="file"]')?.disabled).toBe(false)
+    expect(attachmentOwner(slotCalls).canAcceptDrop).toBe(true)
   })
 
   it('parent-offline running continuable locks Send but keeps independent Stop usable', () => {

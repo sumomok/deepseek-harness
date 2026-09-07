@@ -7,7 +7,7 @@ import type {} from '@deepseek-ai/dsh-tool-todo'
 /**
  * Extract searchable semantic text from one first-party session event.
  *
- * Structural boundaries, raw stream chunks, request envelopes, and unknown
+ * Structural boundaries, embedded raw streams, request envelopes, and unknown
  * declaration-merged events contribute no text.
  * @param event - event to inspect.
  * @returns newline-joined semantic text, or an empty string when non-searchable.
@@ -33,7 +33,7 @@ export function extractSessionEventText(event: SessionEvent): string {
     case 'turn/start':
     case 'step/start':
     case 'step/end':
-    case 'assistant/chunk':
+    case 'assistant/attempt':
     case 'request/header':
       return ''
     // SessionEventMap is merge-extensible. Unknown events remain
@@ -77,11 +77,6 @@ function blockText(block: SessionContentBlock): string[] {
       return [block.name, block.arguments]
     case 'tool-result':
       return block.content.flatMap(blockText)
-    // Indexed by display name only, like a tool-call's name: the file's
-    // full content needs an attachment-store read this synchronous walk
-    // cannot perform, and is not durably inline in the block to begin with.
-    case 'file':
-      return [block.attachment.name]
     // ContentBlockMap is merge-extensible. Unknown blocks do not become
     // searchable merely because their payload happens to contain strings.
     default:

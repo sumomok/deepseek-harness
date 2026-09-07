@@ -1,12 +1,11 @@
 /** Chat-owned Slot declarations and composed component props. */
 import type { ReactNode } from 'react'
-import type { FileAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { MessageId } from '@deepseek-ai/dsh-llm/brand'
-import type { ReferentKind, ReferentRef } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { ReferentKind } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type {
-  ConversationLocationDataStore, ConversationTurnDataMap,
-  MessageImageLoader, MessageImagesOwnerProps, RenderMessageImages, TurnLocation,
+  CommandNode, CompactionSummaryNode, ConversationLocationDataStore, ConversationTurnDataMap,
+  MessageImageLoader, MessageImagesOwnerProps, RenderMessageImages, ToolCallBlock, TurnLocation,
 } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {
   InjectFace, KeyedSnapshotSelectorHook, PropsLocale, PropsRenderSlots, PropsRuntime, PropsStore,
@@ -19,8 +18,7 @@ import type { createChatStore } from '../stores.ts'
 import type { ToolCallId, SelectionTarget } from './store.ts'
 import type { ChatConversationViewNode, ChatNode, ChatNodeKind } from './chat-nodes.ts'
 import type {
-  ChatNodeProcessSource, ChatNodeSource, ChatSnapshot, ChatTurnProcessPresentation, CommandNode,
-  CompactionSummaryNode, ToolCallBlock,
+  ChatNodeProcessSource, ChatNodeSource, ChatSnapshot, ChatTurnProcessPresentation,
 } from './snapshot.ts'
 import type { TurnProcessSpec } from './turn-process.ts'
 import type { TranscriptViewMode } from '../../chat-settings.ts'
@@ -61,18 +59,6 @@ export interface UserActionOwnerProps {
 
 /** Slot-backed renderer for the actions one user-side message offers. */
 export type RenderUserActions = (owner: UserActionOwnerProps) => ReactNode
-
-/**
- * Dispatch `referent/open` for one user-gesture click, ctx- and session-bound
- * at the inject layer (the caller never supplies `sessionId`): the caller
- * supplies the rest of `ref` and its own default open action (the
- * waterfall's terminus) — e.g. a file card's default expand/collapse. See
- * `dispatchReferentOpen`.
- */
-export type OpenReferent = (
-  ref: Omit<ReferentRef, 'sessionId'>,
-  onDefault: () => Promise<void> | void,
-) => Promise<void>
 
 /** Optional prose file-mention provider consumed by Chat. */
 export interface ChatFileMentions {
@@ -218,10 +204,6 @@ export interface ChatNodeOwnerProps {
    * existed.
    */
   referents: MarkdownProseReferents | undefined
-  /** Resolve one session-authorized historical file's text for inline display. */
-  loadFile: (attachment: FileAttachmentRef) => Promise<string>
-  /** Dispatch `referent/open` ahead of a file card's default expand/collapse. */
-  openReferent: OpenReferent
   /** Turn-process state when this Node belongs to a projected Turn. */
   turnProcess?: TurnProcessOwnerProps | undefined
 }
@@ -281,10 +263,6 @@ export interface ChatViewInjected {
   /** Jump loader: page history back through seq; resolves when the window covers it. */
   loadThrough: (seq: SessionSeq) => Promise<void>
   loadImage: MessageImageLoader
-  /** Resolve a session-authorized historical file's text for inline display. */
-  loadFile: (attachment: FileAttachmentRef) => Promise<string>
-  /** Dispatch `referent/open` ahead of a file card's default expand/collapse. */
-  openReferent: OpenReferent
   chatScroll: {
     save: (position: ChatScrollPosition | null) => void
     read: () => ChatScrollPosition | null

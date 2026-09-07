@@ -48,8 +48,8 @@ const CHAT_NODE_INJECT: ChatNodeTurnDataInjected = {
 
 /** Services required by the Chat target and its presentation registrations. */
 export const inject = [
-  'connection', 'slots', 'sessions', 'referent', 'uiSession', 'uiConversation', 'conversation', 'layout',
-  'locale', 'settingsScope', 'remote', 'remote.session',
+  'connection', 'slots', 'sessions', 'referent', 'uiSession', 'uiConversation', 'conversation', 'layout', 'locale',
+  'settingsScope', 'remote', 'remote.session',
 ]
 
 /**
@@ -241,12 +241,11 @@ export function apply(ctx: Context): void {
           ),
           // referent/open first: wraps the pre-existing openWorkspacePath
           // action as the waterfall's terminus, so every consumer this one
-          // closure already reaches (tool rows, produced-file chips,
-          // mentions, and the file card below) becomes interceptable
-          // without a per-consumer change. Zero listeners exist yet: with
-          // none registered the waterfall reaches its terminus immediately
-          // and this call is byte-identical to the un-wrapped open it
-          // replaces.
+          // closure already reaches (tool rows, produced-file chips, and
+          // mentions) becomes interceptable without a per-consumer change.
+          // Zero listeners exist yet: with none registered the waterfall
+          // reaches its terminus immediately and this call is
+          // byte-identical to the un-wrapped open it replaces.
           openFile: async (path) => {
             const cwd = ctx.sessions.list.getSnapshot().byId[sessionId]?.cwd
             const target = resolveWorkspacePath(cwd, path)
@@ -272,12 +271,6 @@ export function apply(ctx: Context): void {
             (attachment: ImageAttachmentRef) => ctx.uiConversation.imageUrl(sessionId, attachment),
             { peek: (attachment: ImageAttachmentRef) => ctx.uiConversation.peekImageUrl(sessionId, attachment) },
           ),
-          loadFile: async (attachment) => {
-            const result = await session.readFile(attachment.attachmentId)
-            if (!result.ok) throw new Error(`${result.error.message} (${result.error.code})`)
-            return result.value.text
-          },
-          openReferent: (ref, onDefault) => ctx.referent.open({ ...ref, sessionId }, onDefault),
           chatScroll: {
             save: (position) => {
               if (position === null) chatScrollPositions.delete(sessionId)

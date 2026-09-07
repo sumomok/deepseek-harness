@@ -1,7 +1,7 @@
 /**
  * jsdom slot test runtime: a real small runtime — Cordis `Context`, the
  * renderer-owned `SlotRegistry`, the `ui-session` adapter, and the UI renderer — assembled around
- * test-owned session/workspace doubles, so feature specs exercise
+ * test-owned session/workspace doubles and a fail-loud file-upload stub, so feature specs exercise
  * declaration, registration, scope, store, inject, rendering, updates, and
  * disposal without hand-building the machinery per suite.
  *
@@ -16,19 +16,20 @@
  * programs merge their own keys in; the rule fires on the narrow-map view. */
 import { Context, Inject } from '@deepseek-ai/cordis'
 import type { Fiber, Plugin } from '@deepseek-ai/cordis'
-import { ClientReferent } from '@deepseek-ai/dsh-api-session-controller/client'
 import { createElement, Fragment, useSyncExternalStore } from 'react'
 import type { ReactNode } from 'react'
 import { act, render, within } from '@testing-library/react'
 import type { RenderResult } from '@testing-library/react'
 import type { queries } from '@testing-library/dom'
 import type { BoundFunctions } from '@testing-library/dom'
+import { ClientReferent } from '@deepseek-ai/dsh-api-session-controller/client'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { bindSnapshotSelector as bindRendererSnapshotSelector } from '@deepseek-ai/dsh-client-ui-renderer/src/client/bind.ts'
 import { createSlotRenderer as createRenderer } from '@deepseek-ai/dsh-client-ui-renderer/src/client/scoped-slots.tsx'
 import {
   apply as applyUiSession, inject as uiSessionInject,
 } from '@deepseek-ai/dsh-client-ui-session/client'
+import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import type {
   ChildrenDecl, ComposedProps, HostObservable, OwnerOf, SlotComponent, SlotMap, SlotRenderer,
   SlotRendererHost, SnapshotSelectorHook, StoreInstanceLike,
@@ -109,6 +110,14 @@ export interface FeatureHandle {
    * @returns completion of the unload cascade.
    */
   dispose(): Promise<void>
+}
+
+/** Mutable fail-loud file-upload stub installed by {@link SlotTestRuntime}. */
+export interface TestFileUpload {
+  /** Availability reported to the feature under test. */
+  available: boolean
+  /** Test-supplied upload behavior; the default rejects every call. */
+  upload: (sessionId: SessionId, ...args: unknown[]) => Promise<unknown>
 }
 
 /**
@@ -209,6 +218,8 @@ export class SlotTestRuntime {
   readonly sessions: TestSessions
   /** Workspaces double (list observable, recorded intent actions). */
   readonly workspaces: TestWorkspaces
+  /** Mutable file-upload stub; replace `upload` in suites that exercise the capability. */
+  readonly fileUpload: TestFileUpload
 
   private readonly stabilizer: Stabilizer = async (fn) => {
     await act(async () => { await fn() })
@@ -230,8 +241,13 @@ export class SlotTestRuntime {
     this.root = new TestRoot(slots, this.stabilizer)
     this.sessions = new TestSessions(this.stabilizer, ctx)
     this.workspaces = new TestWorkspaces(this.stabilizer)
+    this.fileUpload = {
+      available: false,
+      upload: () => Promise.reject(new Error('client test runtime: file upload is not stubbed')),
+    }
     ctx.provide('sessions', this.sessions)
     ctx.provide('workspaces', this.workspaces)
+    ctx.provide('fileUpload', this.fileUpload as never)
     // The real production service, not a double: it is a stateless dispatch
     // wrapper (see ClientReferent's own doc), so mounting it here gives
     // every bench authentic `referent/open` waterfall behavior for free.

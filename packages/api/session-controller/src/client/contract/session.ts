@@ -13,19 +13,18 @@ import type { SessionId, SessionSeq } from '@deepseek-ai/dsh-session/types'
 import type { RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
 import type { PromptContentPart, QueueAction, SessionRequestId } from '../../types.ts'
-import type { PendingSubmissionFile, PendingSubmissionImage, SessionSnapshot } from './snapshot.ts'
+import type { PendingSubmissionAttachment, SessionSnapshot } from './snapshot.ts'
 
 /**
  * Why a local submission echo left the snapshot: `observed` when its durable
  * `user/message` event or host queue occurrence arrived (with the admitted
- * image and file references in prompt order), `failed` when the prompt was
- * rejected, threw, or was aborted before acceptance.
+ * attachment references in prompt order), `failed` when the prompt was rejected,
+ * threw, or was aborted before acceptance.
  */
 export type PendingSubmissionRetirement =
   | {
     readonly reason: 'observed'
-    readonly images: readonly ImageAttachmentRef[]
-    readonly files: readonly FileAttachmentRef[]
+    readonly attachments: readonly (ImageAttachmentRef | FileAttachmentRef)[]
   }
   | { readonly reason: 'failed' }
 
@@ -35,10 +34,8 @@ export interface BeginSubmissionInput {
   readonly mode: 'queue' | 'steer'
   /** Prompt text exactly as the upcoming prompt will send it. */
   readonly text: string
-  /** Ordered image previews matching the upcoming prompt's image parts. */
-  readonly images: readonly PendingSubmissionImage[]
-  /** Ordered file previews matching the upcoming prompt's file parts. */
-  readonly files: readonly PendingSubmissionFile[]
+  /** Ordered image previews and durable file metadata matching the upcoming prompt attachments. */
+  readonly attachments: readonly PendingSubmissionAttachment[]
   /** Settlement callback fired exactly once when the echo retires. */
   readonly onRetire?: (retirement: PendingSubmissionRetirement) => void
 }
@@ -100,15 +97,6 @@ export interface ISession {
   readAttachment(
     attachmentId: AttachmentIdType,
   ): Promise<RemoteResult<{ attachment: ImageAttachmentRef; data: Uint8Array }>>
-  /**
-   * Resolve one durable text file referenced by this session. Plain UTF-8
-   * text, not base64: a file has no binary transport ambiguity to canonicalize.
-   * @param attachmentId - opaque id found in the folded session log.
-   * @returns the authenticated reference and decoded text.
-   */
-  readFile(
-    attachmentId: AttachmentIdType,
-  ): Promise<RemoteResult<{ attachment: FileAttachmentRef; text: string }>>
   /**
    * Apply one edit, remove, or strict steer action to a still-pending queue occurrence.
    * @param itemId - agent-owned inbox occurrence identity.

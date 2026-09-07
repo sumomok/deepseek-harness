@@ -31,17 +31,20 @@ function imageRef(id: string): ImageAttachmentRef {
   } as unknown as ImageAttachmentRef
 }
 
-function fileRef(id: string): FileAttachmentRef {
-  return { attachmentId: id, name: `${id}.txt`, bytes: 3 } as unknown as FileAttachmentRef
+function fileRef(id: string, name = 'notes.txt'): FileAttachmentRef {
+  return { attachmentId: id, name, bytes: 3 } as unknown as FileAttachmentRef
+}
+
+type AttachmentRef = ImageAttachmentRef | FileAttachmentRef
+
+function attachmentBlock(attachment: AttachmentRef) {
+  return 'mediaType' in attachment
+    ? { type: 'image' as const, attachment }
+    : { type: 'file' as const, attachment }
 }
 
 /** A durable browser-prompt user/message whose source echoes `rpcId`. */
-function promptEvent(
-  seq: SessionSeq,
-  rpcId: SessionRequestId,
-  imageRefs: readonly ImageAttachmentRef[] = [],
-  fileRefs: readonly FileAttachmentRef[] = [],
-): SessionEvent {
+function promptEvent(seq: SessionSeq, rpcId: SessionRequestId, refs: readonly AttachmentRef[] = []): SessionEvent {
   return {
     seq,
     time: 1_700_000_000_000 + seq,
@@ -49,8 +52,7 @@ function promptEvent(
     surfaceOp: 'append',
     data: createUserMessage({
       content: [
-        ...imageRefs.map(attachment => ({ type: 'image' as const, attachment })),
-        ...fileRefs.map(attachment => ({ type: 'file' as const, attachment })),
+        ...refs.map(attachmentBlock),
         { type: 'text' as const, text: '发送' },
       ],
       source: { kind: 'user', rpcId },
@@ -58,21 +60,14 @@ function promptEvent(
   } as unknown as SessionEvent
 }
 
-function queuedItem(
-  rpcId: SessionRequestId,
-  imageRefs: readonly ImageAttachmentRef[] = [],
-  fileRefs: readonly FileAttachmentRef[] = [],
-): SessionQueuedItem {
+function queuedItem(rpcId: SessionRequestId, refs: readonly AttachmentRef[] = []): SessionQueuedItem {
   return {
     id: 'm-queued' as SessionQueuedItem['id'],
     placement: 'queued',
     rpcId,
     message: {
       id: 'm-queued' as SessionQueuedItem['id'],
-      content: [
-        ...imageRefs.map(attachment => ({ type: 'image', attachment })),
-        ...fileRefs.map(attachment => ({ type: 'file', attachment })),
-      ] as unknown as SessionQueuedItem['message']['content'],
+      content: refs.map(attachmentBlock) as unknown as SessionQueuedItem['message']['content'],
     },
   }
 }
@@ -89,25 +84,27 @@ describe('beginSubmission', () => {
     const handle = session.beginSubmission({
       mode: 'queue',
       text: '你好',
-      images: [{ previewUrl: 'blob:p1', name: 'a.png', width: 4, height: 3 }],
-      files: [{ name: 'notes.txt', bytes: 11 }],
+      attachments: [{
+        type: 'image', value: { previewUrl: 'blob:p1', name: 'a.png', width: 4, height: 3 },
+      }],
     })
     expect(session.getSnapshot().promptAttempted).toBe(true)
     expect(session.getSnapshot().pendingSubmissions).toMatchObject([{
       requestId: handle.requestId,
       placement: 'transcript',
       text: '你好',
-      images: [{ previewUrl: 'blob:p1', name: 'a.png', width: 4, height: 3 }],
-      files: [{ name: 'notes.txt', bytes: 11 }],
+      attachments: [{
+        type: 'image', value: { previewUrl: 'blob:p1', name: 'a.png', width: 4, height: 3 },
+      }],
     }])
   })
 
   it('derives and captures the echo placement from running state and delivery mode', () => {
     const { session } = makeSession()
-    session.beginSubmission({ mode: 'queue', text: '空闲', images: [], files: [] })
+    session.beginSubmission({ mode: 'queue', text: '空闲', attachments: [] })
     session.handleRunning(true)
-    session.beginSubmission({ mode: 'queue', text: '排队', images: [], files: [] })
-    session.beginSubmission({ mode: 'steer', text: '纠偏', images: [], files: [] })
+    session.beginSubmission({ mode: 'queue', text: '排队', attachments: [] })
+    session.beginSubmission({ mode: 'steer', text: '纠偏', attachments: [] })
     session.handleRunning(false)
     expect(session.getSnapshot().pendingSubmissions.map(({ text, placement }) => ({ text, placement }))).toEqual([
       { text: '空闲', placement: 'transcript' },
@@ -122,8 +119,7 @@ describe('beginSubmission', () => {
     const handle = session.beginSubmission({
       mode: 'queue',
       text: '放弃',
-      images: [],
-      files: [],
+      attachments: [],
       onRetire: retirement => retirements.push(retirement),
     })
     handle.abandon()
@@ -141,8 +137,7 @@ describe('prompt-coupled retirement', () => {
     const handle = session.beginSubmission({
       mode: 'queue',
       text: '失败的',
-      images: [],
-      files: [],
+      attachments: [],
       onRetire: retirement => retirements.push(retirement),
     })
     const result = await session.prompt([{ type: 'text', text: '失败的' }], 'queue', undefined, handle.requestId)
@@ -154,7 +149,7 @@ describe('prompt-coupled retirement', () => {
 
   it('sends the echo identity as the prompt requestId', async () => {
     const { api, session } = makeSession()
-    const handle = session.beginSubmission({ mode: 'queue', text: '带 id', images: [], files: [] })
+    const handle = session.beginSubmission({ mode: 'queue', text: '带 id', attachments: [] })
     await session.prompt([{ type: 'text', text: '带 id' }], 'queue', undefined, handle.requestId)
     expect(api.callsOf('session.prompt')).toMatchObject([{ requestId: handle.requestId }])
   })
@@ -162,7 +157,7 @@ describe('prompt-coupled retirement', () => {
   it('an unidentified prompt failure leaves registered echoes alone', async () => {
     const { api, session } = makeSession()
     api.onPrompt = () => Promise.resolve(err(new RemoteError('session/agent-busy', '忙', { reason: 'busy' })))
-    session.beginSubmission({ mode: 'queue', text: '还在', images: [], files: [] })
+    session.beginSubmission({ mode: 'queue', text: '还在', attachments: [] })
     await session.prompt([{ type: 'text', text: '另一个' }], 'queue')
     expect(session.getSnapshot().pendingSubmissions).toHaveLength(1)
   })
@@ -177,19 +172,17 @@ describe('observed retirement', () => {
     const handle = session.beginSubmission({
       mode: 'queue',
       text: '发送',
-      images: [{ previewUrl: 'blob:p1' }],
-      files: [{ name: 'notes.txt', bytes: 3 }],
+      attachments: [{ type: 'image', value: { previewUrl: 'blob:p1' } }],
       onRetire: retirement => retirements.push(retirement),
     })
-    const imageRefs = [imageRef('att-1')]
-    const fileRefs = [fileRef('att-f1')]
-    await api.pushFollow(SID, { type: 'event', event: promptEvent(SessionSeq(0), handle.requestId, imageRefs, fileRefs) as never })
+    const refs = [imageRef('att-1')]
+    await api.pushFollow(SID, { type: 'event', event: promptEvent(SessionSeq(0), handle.requestId, refs) as never })
     // Synchronously after the append the echo is still in the snapshot; the
     // render-time dedupe owns the overlap frame.
     expect(session.getSnapshot().pendingSubmissions).toHaveLength(1)
     await settleFrames()
     expect(session.getSnapshot().pendingSubmissions).toEqual([])
-    expect(retirements).toEqual([{ reason: 'observed', images: imageRefs, files: fileRefs }])
+    expect(retirements).toEqual([{ reason: 'observed', attachments: refs }])
   })
 
   it('a queue occurrence carrying the rpcId retires the echo (running-turn submissions)', async () => {
@@ -199,22 +192,43 @@ describe('observed retirement', () => {
     const handle = session.beginSubmission({
       mode: 'queue',
       text: '排队',
-      images: [{ previewUrl: 'blob:p1' }],
-      files: [],
+      attachments: [{ type: 'image', value: { previewUrl: 'blob:p1' } }],
       onRetire: retirement => retirements.push(retirement),
     })
     const refs = [imageRef('att-q')]
     session.handleControlFrame({ type: 'queue', sessionId: SID, items: [queuedItem(handle.requestId, refs)] })
     await settleFrames()
     expect(session.getSnapshot().pendingSubmissions).toEqual([])
-    expect(retirements).toEqual([{ reason: 'observed', images: refs, files: [] }])
+    expect(retirements).toEqual([{ reason: 'observed', attachments: refs }])
     // The queue projection keeps the correlation id for render-time dedupe.
     expect(session.getSnapshot().queue).toMatchObject([{ rpcId: handle.requestId }])
   })
 
+  it('retires a mixed echo with durable references in original selection order', async () => {
+    const { api, session } = makeSession()
+    api.onHistory = () => Promise.resolve(ok(historyValue([])))
+    await session.open()
+    const retirements: PendingSubmissionRetirement[] = []
+    const file = fileRef('file-1')
+    const handle = session.beginSubmission({
+      mode: 'queue',
+      text: 'mixed',
+      attachments: [
+        { type: 'image', value: { previewUrl: 'blob:first' } },
+        { type: 'file', value: file },
+        { type: 'image', value: { previewUrl: 'blob:last' } },
+      ],
+      onRetire: retirement => retirements.push(retirement),
+    })
+    const refs = [imageRef('image-1'), file, imageRef('image-2')]
+    await api.pushFollow(SID, { type: 'event', event: promptEvent(SessionSeq(0), handle.requestId, refs) as never })
+    await settleFrames()
+    expect(retirements).toEqual([{ reason: 'observed', attachments: refs }])
+  })
+
   it('a full-window install (reconnect resync) retires echoes observed in the window', async () => {
     const { api, session } = makeSession()
-    const handle = session.beginSubmission({ mode: 'queue', text: '重连', images: [], files: [] })
+    const handle = session.beginSubmission({ mode: 'queue', text: '重连', attachments: [] })
     api.onHistory = () => Promise.resolve(ok(historyValue([promptEvent(SessionSeq(12), handle.requestId)])))
     await session.open()
     await settleFrames()
@@ -229,14 +243,13 @@ describe('observed retirement', () => {
     const handle = session.beginSubmission({
       mode: 'queue',
       text: '先观察',
-      images: [],
-      files: [],
+      attachments: [],
       onRetire: retirement => retirements.push(retirement),
     })
     await api.pushFollow(SID, { type: 'event', event: promptEvent(SessionSeq(0), handle.requestId) as never })
     handle.abandon()
     await settleFrames()
-    expect(retirements).toEqual([{ reason: 'observed', images: [], files: [] }])
+    expect(retirements).toEqual([{ reason: 'observed', attachments: [] }])
   })
 
   it('retires once when the queue and durable event report the same request id', async () => {
@@ -247,8 +260,7 @@ describe('observed retirement', () => {
     const handle = session.beginSubmission({
       mode: 'queue',
       text: '同一请求',
-      images: [],
-      files: [],
+      attachments: [],
       onRetire: retirement => retirements.push(retirement),
     })
     session.handleControlFrame({
@@ -258,7 +270,7 @@ describe('observed retirement', () => {
       type: 'event', event: promptEvent(SessionSeq(0), handle.requestId) as never,
     })
     await settleFrames()
-    expect(retirements).toEqual([{ reason: 'observed', images: [], files: [] }])
+    expect(retirements).toEqual([{ reason: 'observed', attachments: [] }])
     expect(session.getSnapshot().pendingSubmissions).toEqual([])
   })
 
@@ -271,7 +283,7 @@ describe('observed retirement', () => {
     const { api, session } = makeSession()
     api.onHistory = () => Promise.resolve(ok(historyValue([])))
     await session.open()
-    const handle = session.beginSubmission({ mode: 'queue', text: '帧', images: [], files: [] })
+    const handle = session.beginSubmission({ mode: 'queue', text: '帧', attachments: [] })
     await api.pushFollow(SID, { type: 'event', event: promptEvent(SessionSeq(0), handle.requestId) as never })
     expect(session.getSnapshot().pendingSubmissions).toHaveLength(1)
     expect(frames).toHaveLength(1)
@@ -289,15 +301,13 @@ describe('disposal', () => {
     const observed = session.beginSubmission({
       mode: 'queue',
       text: '已观察',
-      images: [],
-      files: [],
+      attachments: [],
       onRetire: retirement => retirements.push({ text: '已观察', retirement }),
     })
     session.beginSubmission({
       mode: 'queue',
       text: '未settle',
-      images: [],
-      files: [],
+      attachments: [],
       onRetire: retirement => retirements.push({ text: '未settle', retirement }),
     })
     await api.pushFollow(SID, { type: 'event', event: promptEvent(SessionSeq(0), observed.requestId) as never })
@@ -305,7 +315,7 @@ describe('disposal', () => {
     await settleFrames()
     expect(retirements).toEqual([
       { text: '未settle', retirement: { reason: 'failed' } },
-      { text: '已观察', retirement: { reason: 'observed', images: [], files: [] } },
+      { text: '已观察', retirement: { reason: 'observed', attachments: [] } },
     ])
     expect(session.getSnapshot().pendingSubmissions).toEqual([])
   })

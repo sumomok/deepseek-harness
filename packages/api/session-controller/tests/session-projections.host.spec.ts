@@ -15,11 +15,10 @@ import { Context } from '@deepseek-ai/cordis'
 import { z } from 'zod'
 import AgentRegistry, { Inbox } from '@deepseek-ai/dsh-agent'
 import { AttachmentStore } from '@deepseek-ai/dsh-attachment'
-import type { FileAttachmentLimits, SaveFileAttachment } from '@deepseek-ai/dsh-attachment'
 import { agentPresetProjectionDefinition } from '@deepseek-ai/dsh-agent-presets'
 import type { Agent } from '@deepseek-ai/dsh-agent'
 import { createUserMessage } from '@deepseek-ai/dsh-llm'
-import SessionStore, { SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
+import SessionStore, { SESSION_FORMAT_VERSION, SessionId, SessionSeq } from '@deepseek-ai/dsh-session'
 import type { Session } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { ProjectionDefinition } from '@deepseek-ai/dsh-session-projection'
@@ -155,14 +154,14 @@ describe('session.history projections block', () => {
     const snapshot = await opening(remote(ctx), child.id)
 
     expect(snapshot.header).toEqual({
-      version: 0,
+      version: SESSION_FORMAT_VERSION,
       id: child.id,
       createdAt: child.header.createdAt,
       cwd: '/workspace',
       parentSession: parent.id,
-      seedLength: inheritedEventCount,
+      isSeeded: true,
     })
-    expect(snapshot.header).not.toHaveProperty('isSeeded')
+    expect(snapshot.header).not.toHaveProperty('seedLength')
   })
 
   it('tracks pending and used model selections across repeated request headers', async () => {
@@ -233,7 +232,7 @@ describe('session.history projections block', () => {
     )
   })
 
-  it('publishes the attachments imageLimits and fileLimits as constant units while both seams are composed', async () => {
+  it('publishes the attachments imageLimits as a constant unit while both seams are composed', async () => {
     const { ctx, session } = await harness(true)
     const limits = {
       maxImageBytes: 5 * 1024 * 1024,
@@ -243,23 +242,17 @@ describe('session.history projections block', () => {
       maxImageDimension: 2000,
       mediaTypes: ['image/png'] as const,
     }
-    const fileLimits: FileAttachmentLimits = { maxFilesPerMessage: 10, maxMessageFileBytes: 10 * 1024 * 1024, maxFileBytes: 1024 * 1024 }
     await ctx.plugin(class extends AttachmentStore {
       readonly imageLimits = limits
       validateImage(): Promise<void> { return Promise.resolve() }
       saveImage(): Promise<never> { return Promise.reject(new Error('unused')) }
       readImage(): Promise<never> { return Promise.reject(new Error('unused')) }
-      readonly fileLimits = fileLimits
-      validateFile(_input: SaveFileAttachment): Promise<void> { return Promise.reject(new Error('unused')) }
-      saveFile(): Promise<never> { return Promise.reject(new Error('unused')) }
-      readFile(): Promise<never> { return Promise.reject(new Error('unused')) }
     })
     const gateway = remote(ctx)
     await new Promise(resolve => setTimeout(resolve, 0))
     seedMessages(session, 2)
     const snapshot = await opening(gateway, session.id)
     expect(snapshot.projections.values['imageLimits']).toEqual(limits)
-    expect(snapshot.projections.values['fileLimits']).toEqual(fileLimits)
     // Constant unit: appending events must never broadcast an imageLimits projection.
     await new Promise(resolve => setTimeout(resolve, 0))
     const abort = new AbortController()
@@ -282,57 +275,11 @@ describe('session.history projections block', () => {
     await expect(extra).resolves.toEqual({ done: true, value: undefined })
   })
 
-  it('leaves the imageLimits and fileLimits keys absent while no attachment service is composed', async () => {
+  it('leaves the imageLimits key absent while no attachment service is composed', async () => {
     const { ctx, session } = await harness(true)
     seedMessages(session, 1)
     const snapshot = await opening(remote(ctx), session.id)
     expect('imageLimits' in snapshot.projections.values).toBe(false)
-    expect('fileLimits' in snapshot.projections.values).toBe(false)
-  })
-
-  it('publishes secretContainerExtraPatterns as a constant unit, verbatim, needing no attachment service', async () => {
-    const { ctx, session } = await harness(true)
-    const gateway = createSessionTestRemote(ctx, {
-      defaultModelSelection: () => ({ provider: 'p', model: 'm' }),
-      cwd: '/tmp',
-      secretContainerExtraPatterns: ['company-internal'],
-    })
-    seedMessages(session, 2)
-    const snapshot = await opening(gateway, session.id)
-    // Verbatim, not merged with any host-side list: the Config carries only
-    // the deployment's additions — the fixed base heuristic lives on the
-    // client and never rides this wire, so there is nothing here for the
-    // host to merge, filter, or otherwise narrow.
-    expect(snapshot.projections.values['secretContainerExtraPatterns']).toEqual(['company-internal'])
-    // Constant unit: appending events must never broadcast a change frame.
-    await new Promise(resolve => setTimeout(resolve, 0))
-    const abort = new AbortController()
-    const iterator = gateway.control(abort.signal)[Symbol.asyncIterator]()
-    await iterator.next()
-    const next = iterator.next()
-    seedMessages(session, 1)
-    await new Promise(resolve => setTimeout(resolve, 0))
-    await expect(next).resolves.toMatchObject({
-      done: false,
-      value: { type: 'projection', key: 'sessionListMetadata' },
-    })
-    const extra = iterator.next()
-    const quiet = Symbol('quiet')
-    expect(await Promise.race([
-      extra,
-      new Promise<typeof quiet>(resolve => setTimeout(() => { resolve(quiet) }, 0)),
-    ])).toBe(quiet)
-    abort.abort()
-    await expect(extra).resolves.toEqual({ done: true, value: undefined })
-  })
-
-  it('defaults secretContainerExtraPatterns to empty when Config omits it', async () => {
-    const { ctx, session } = await harness(true)
-    seedMessages(session, 1)
-    const snapshot = await opening(remote(ctx), session.id)
-    // Absent config never manufactures a base-list entry: the append-only
-    // field defaults to empty, not to any part of the fixed client heuristic.
-    expect(snapshot.projections.values['secretContainerExtraPatterns']).toEqual([])
   })
 
   it('never carries the block on loadOlder pages (beforeSeq present)', async () => {
@@ -488,7 +435,7 @@ describe('session.list projections column', () => {
     const coldId = SessionId('session-cold-listing')
     const load = () => { throw new Error('list must not load event logs') }
     ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
-      list: async () => [{ version: 0, id: coldId, createdAt: 5, isSeeded: false, cwd: '/tmp' }],
+      list: async () => [{ version: SESSION_FORMAT_VERSION, id: coldId, createdAt: 5, isSeeded: false, cwd: '/tmp' }],
       inspect: load,
       open: load,
     }) as never)
@@ -577,7 +524,7 @@ describe('session.list projections column', () => {
     const { ctx } = await harness(true)
     const coldId = SessionId('session-cold-uncached')
     ctx.provide('sessionPersistence', testSessionPersistence(ctx, {
-      list: async () => [{ version: 0, id: coldId, createdAt: 5, isSeeded: false, cwd: '/tmp' }],
+      list: async () => [{ version: SESSION_FORMAT_VERSION, id: coldId, createdAt: 5, isSeeded: false, cwd: '/tmp' }],
     }) as never)
     const response = await remote(ctx).list(request({}))
     if (!response.ok) throw new Error('unreachable')

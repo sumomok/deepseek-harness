@@ -1,7 +1,8 @@
 /** Target-neutral Conversation slot declarations and composed component props. */
 import type { ReactNode, RefObject } from 'react'
-import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
+import type { FileAttachmentRef, ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type { SessionSnapshot } from '@deepseek-ai/dsh-api-session-controller/client'
+import type { FileUploadReceiptId } from '@deepseek-ai/dsh-client-file-upload/client'
 import type { WorkspaceSnapshot } from '@deepseek-ai/dsh-api-workspace-controller/client'
 import type {
   MaybeSnapshotSelectorHook, ObservableSnapshot, SnapshotSelectorHook,
@@ -22,7 +23,10 @@ import type { ComposerSubmitGesture, InputSubmitMode } from './composer-submissi
 import type { ConversationSnapshot } from './snapshot.ts'
 import type { ViewTab } from './views.ts'
 
-/** Browser-owned image that has not crossed the durable host boundary. */
+/** Browser-owned draft attachment that has not crossed the durable Host boundary. */
+export type ComposerAttachment = ComposerImageAttachment | ComposerFileAttachment
+
+/** Browser-owned image, base64-encoded into the prompt at send time. */
 export interface ComposerImageAttachment {
   kind: 'image'
   id: DraftAttachmentId
@@ -34,54 +38,38 @@ export interface ComposerImageAttachment {
   height?: number
 }
 
-/**
- * Browser-owned text file that has not crossed the durable host boundary.
- * No preview URL: a file chip shows name and size, never a thumbnail.
- */
+/** Browser-owned generic file whose bytes upload to the Host as soon as it is picked. */
 export interface ComposerFileAttachment {
   kind: 'file'
   id: DraftAttachmentId
   file: File
 }
 
-/**
- * One browser-owned draft attachment. Both kinds ride the same ordered id
- * list the input machine already carries (`InputState.imageIds`): the
- * machine orders and CAS-guards opaque ids without ever inspecting kind, so
- * a file draft needs no new machine verb, only its own admission path (see
- * {@link ComposerAttachmentsOwnerProps.onAddFiles}) and its own chip render.
- */
-export type ComposerAttachment = ComposerImageAttachment | ComposerFileAttachment
+/** Upload lifecycle of one picked file draft (files upload on pick, not on send). */
+export type DraftFileUpload =
+  | { readonly status: 'uploading'; readonly loaded: number; readonly total?: number }
+  | { readonly status: 'ready'; readonly receiptId: FileUploadReceiptId; readonly file: FileAttachmentRef }
+  | { readonly status: 'error'; readonly message: string }
+
+/** Per-draft upload states keyed by draft attachment id. */
+export type DraftFileUploads = Readonly<Record<string, DraftFileUpload>>
 
 /** Input state handed to the optional attachment presentation plugin. */
 export interface ComposerAttachmentsOwnerProps {
-  /** Browser-owned draft images and files, in input order. */
+  /** Browser-owned draft attachments in input order. */
   attachments: readonly ComposerAttachment[]
   /** Whether a document-level file drop may add attachments now. */
   canAcceptDrop: boolean
-  /**
-   * Add one batch through the composer's image validation path. A raw
-   * document-level drop is sniffed for text content first
-   * (`partitionDroppedFiles`, run by the filling entry that owns the drop
-   * listener) and only the non-text remainder reaches here — an undecodable
-   * binary still surfaces the existing format-refusal toast from inside
-   * this path.
-   */
-  onAddImages: (files: readonly File[]) => void
-  /** Add one already-sniffed-as-text batch through the composer's file validation path. */
+  /** Add one dropped batch through the composer's validation path. */
   onAddFiles: (files: readonly File[]) => void
-  /** Remove one draft attachment (image or file) through the conversation service. */
-  onRemoveImage: (id: DraftAttachmentId) => void
-  /** Display-ready limits for the drop invitation. Image limits only: a file's overlay copy states no numeric bound. */
+  /** Remove one draft attachment through the Conversation service. */
+  onRemoveAttachment: (id: DraftAttachmentId) => void
+  /** Current per-draft upload states for file-kind attachments. */
+  uploads: DraftFileUploads
+  /** Restart one failed file upload. */
+  onRetryFile: (id: DraftAttachmentId) => void
+  /** Display-ready limits for the drop invitation. */
   dropLimits?: { readonly count: number; readonly size: string } | undefined
-  /**
-   * Draft attachment ids whose name/path matches the secret-container
-   * heuristic (the persistent chip warning state; the add-time confirmation
-   * dialog itself lives with the composer bar's own file-intake entry, not
-   * here — this list stays populated whether or not that dialog has already
-   * been answered). Absent/omitted ids default to no warning.
-   */
-  secretContainerHitIds?: ReadonlySet<DraftAttachmentId> | undefined
 }
 
 /**
@@ -115,6 +103,8 @@ export interface MessageImagesOwnerProps {
   loadImage: MessageImageLoader
   /** Horizontal placement inside the owning record. */
   align: 'start' | 'end'
+  /** Force every image into the compact message-attachment tile size. */
+  compact?: boolean
 }
 
 /** Slot-backed renderer used by Conversation targets without importing an attachment implementation. */
@@ -171,7 +161,7 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
     'conversation.input.right': { kind: 'list'; scope: 'session' }
     /** Resident composer body, including the no-Session inert state. */
     'conversation.composer.bar': { kind: 'single'; scope: 'session-maybe'; owner: ComposerBarOwnerProps }
-    /** Optional draft-image rail and drop target. */
+    /** Optional draft-attachment rail and drop target. */
     'conversation.input.attachments': {
       kind: 'single'
       scope: 'session-maybe'
@@ -296,13 +286,11 @@ export interface ComposerBarOwnerProps {
 /** Package-private operations injected into the resident composer bar. */
 export interface ComposerBarInjected {
   keyboard: ComposerKeyboard | undefined
-  /** Create previews and append image ids to the session input. */
-  addImages: ((files: readonly File[]) => string | null) | undefined
-  /** Create file drafts and append their ids to the session input. */
   addFiles: ((files: readonly File[]) => string | null) | undefined
-  /** Release one preview or file draft and remove its id from session input. */
-  removeImage: ((id: DraftAttachmentId) => void) | undefined
-  draftImages: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
+  removeAttachment: ((id: DraftAttachmentId) => void) | undefined
+  resolveDraftAttachments: ((ids: readonly DraftAttachmentId[]) => readonly ComposerAttachment[]) | undefined
+  /** Restart one failed file upload; absent without a session. */
+  retryFileUpload: ((id: DraftAttachmentId) => void) | undefined
   resolveSubmitMode: (
     running: boolean,
     gesture: ComposerSubmitGesture,
@@ -312,6 +300,8 @@ export interface ComposerBarInjected {
   stop: (() => void) | undefined
   command: ((line: string) => Promise<boolean>) | undefined
   hooks: {
+    /** Live per-draft upload states for file-kind drafts. */
+    fileUploads: ObservableSnapshot<DraftFileUploads>
     notices: ObservableSnapshot<InputNotice | null>
     lexicon: ObservableSnapshot<ReadonlyMap<'/' | '@', readonly string[]>>
     menuLauncher: ObservableSnapshot<string | null>
@@ -390,7 +380,7 @@ export type ConversationSessionHeaderSlotProps =
   & InjectFace<ConversationSessionHeaderInjected>
   & PropsLocale<'conversation'>
 
-/** Full props of the draft-image attachment renderer. */
+/** Full props of the draft-attachment renderer. */
 export type ComposerAttachmentsProps =
   PropsRuntime<'conversation.input.attachments'> & PropsLocale<'conversation'>
 

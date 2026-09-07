@@ -9,8 +9,6 @@ import { zh } from '../src/client/locale.ts'
 
 const t: AssistantMarkdownProps['t'] = makeTranslate(zh, commonZh)
 const renderMessageImages: AssistantMarkdownProps['renderMessageImages'] = () => null
-const loadFile: AssistantMarkdownProps['loadFile'] = () => Promise.reject(new Error('loadFile not stubbed'))
-const openReferent: AssistantMarkdownProps['openReferent'] = () => Promise.resolve()
 
 afterEach(cleanup)
 
@@ -26,8 +24,6 @@ describe('tails', () => {
         ]}
         streaming
         renderMessageImages={renderMessageImages}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     expect(view.getByText('思考')).toBeTruthy()
@@ -40,8 +36,6 @@ describe('tails', () => {
         streaming={false}
         interrupted
         renderMessageImages={renderMessageImages}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     expect(stopped.getByText('已停止')).toBeTruthy()
@@ -56,20 +50,11 @@ describe('tails', () => {
         blocks={[{ kind: 'tool-call', callId: 'c', name: 'todo_write', argsRaw: '{}' }]}
         streaming={false}
         renderMessageImages={renderMessageImages}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     expect(empty.container.firstChild).toBeNull()
     const blank = render(
-      <AssistantMarkdown
-        t={t}
-        blocks={[]}
-        streaming={false}
-        renderMessageImages={renderMessageImages}
-        loadFile={loadFile}
-        openReferent={openReferent}
-      />,
+      <AssistantMarkdown t={t} blocks={[]} streaming={false} renderMessageImages={renderMessageImages} />,
     )
     expect(blank.container.firstChild).toBeNull()
   })

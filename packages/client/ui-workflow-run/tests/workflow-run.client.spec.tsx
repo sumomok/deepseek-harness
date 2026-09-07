@@ -318,9 +318,9 @@ function panelProps(data: WorkflowRunChatData, sessions = listState(), openSessi
     useInput: () => { throw new Error('unused') },
     inputActions: {
       setDraft: () => {},
-      addImages: () => false,
-      removeImage: () => {},
-      pruneImages: () => {},
+      addAttachments: () => false,
+      removeAttachment: () => {},
+      pruneAttachments: () => {},
       submit: () => {},
     },
     useWorkspaces: selector => selector(panelWorkspace),
@@ -333,8 +333,6 @@ function panelProps(data: WorkflowRunChatData, sessions = listState(), openSessi
     renderUserActions: () => null,
     fileMentions: () => undefined,
     referents: undefined,
-    loadFile: () => Promise.reject(new Error('loadFile not stubbed')),
-    openReferent: () => Promise.resolve(),
     openSession,
     t: makeTranslate(zh),
   }

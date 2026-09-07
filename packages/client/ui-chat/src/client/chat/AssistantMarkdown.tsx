@@ -5,7 +5,6 @@ import type { MarkdownFileMentions, MarkdownProseReferents } from '@deepseek-ai/
 import type { ChatNodeOwnerProps, ChatViewSlotProps } from '../contract/slots.ts'
 import type { AssistantBlock } from '../contract/snapshot.ts'
 import { markdownLabels } from '../markdown-labels.ts'
-import { FileCard } from './FileCard.tsx'
 import { ReasoningRow } from './ReasoningRow.tsx'
 import { useSearchableHidden } from './searchable-hidden.ts'
 import css from './AssistantMarkdown.module.css'
@@ -17,10 +16,6 @@ export interface AssistantMarkdownProps {
   interrupted?: boolean | undefined
   /** Render consecutive image blocks through the attachment slot. */
   renderMessageImages: ChatNodeOwnerProps['renderMessageImages']
-  /** Resolve one durable file block's text for FileCard's inline expand. */
-  loadFile: ChatNodeOwnerProps['loadFile']
-  /** Dispatch `referent/open` ahead of FileCard's default expand/collapse. */
-  openReferent: ChatNodeOwnerProps['openReferent']
   /** Hide reasoning that belongs to the Turn-level process disclosure. */
   reasoningHidden?: boolean | undefined
   /** Reveal the owning Turn-level process disclosure. */
@@ -35,7 +30,7 @@ export interface AssistantMarkdownProps {
 
 /** Reasoning block as the Think variant summary row (figma 39:28304). */
 export const AssistantMarkdown = memo(function AssistantMarkdown({
-  blocks, streaming, interrupted, renderMessageImages, loadFile, openReferent,
+  blocks, streaming, interrupted, renderMessageImages,
   reasoningHidden = false, revealProcess, mentions, referents, t,
 }: AssistantMarkdownProps) {
   // Stable per locale revision (t identity changes on switch): a fresh object
@@ -101,11 +96,6 @@ export const AssistantMarkdown = memo(function AssistantMarkdown({
         )
         break
       }
-      case 'file':
-        rendered.push(
-          <FileCard key={i} attachment={block.attachment} loadFile={loadFile} openReferent={openReferent} t={t} />,
-        )
-        break
       // Grouped into tool rows by ChatView; hasVisible above skips an empty shell.
       case 'tool-call':
         break

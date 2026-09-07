@@ -75,18 +75,15 @@ export interface ImageBlock {
 }
 
 /**
- * A durable text-file reference, valid in user content. Carries a reference
- * only, never inline text: this is the exact form the session log carries
- * and a dispatched request's frozen `messages` array must keep matching. No
- * production adapter accepts this block natively, so each adapter lowers it
- * to a language-tagged fenced block (`file-lowering.ts`) against a local
- * copy at the top of its own request construction, the same way each
- * adapter resolves `ImageBlock` bytes locally rather than materializing
- * them into that frozen array.
+ * A durable verbatim file reference, valid in user content. Files never reach
+ * a provider natively: request assembly projects every occurrence to
+ * deterministic handle text (name, byte size, and the read-only saved path),
+ * so adapters and providers see text in its place while the durable log keeps
+ * the structured reference for presentation and authorization.
  */
 export interface FileBlock {
   type: 'file'
-  /** Immutable bytes and display name owned by the attachment service. */
+  /** Immutable verbatim bytes and display metadata owned by the attachment service. */
   attachment: FileAttachmentRef
 }
 

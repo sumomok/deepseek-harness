@@ -7,14 +7,11 @@ import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import type { RenderMessageImages } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { AssistantMarkdown } from '../src/client/chat/AssistantMarkdown.tsx'
-import type { AssistantMarkdownProps } from '../src/client/chat/AssistantMarkdown.tsx'
 import { zh } from '../src/client/locale.ts'
 
 afterEach(cleanup)
 
 const t = makeTranslate(zh, commonZh)
-const loadFile: AssistantMarkdownProps['loadFile'] = () => Promise.reject(new Error('loadFile not stubbed'))
-const openReferent: AssistantMarkdownProps['openReferent'] = () => Promise.resolve()
 
 const attachment = {
   attachmentId: AttachmentId(`sha256:${'a'.repeat(64)}`),
@@ -51,8 +48,6 @@ describe('assistant image slot handoff', () => {
         blocks={[{ kind: 'image', attachment }]}
         streaming={false}
         renderMessageImages={imageRenderer(calls)}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     expect(view.getByTestId('message-images').getAttribute('data-align')).toBe('start')
@@ -73,8 +68,6 @@ describe('assistant image slot handoff', () => {
         ]}
         streaming={false}
         renderMessageImages={imageRenderer(calls)}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     const galleries = view.getAllByTestId('message-images')
@@ -95,8 +88,6 @@ describe('assistant image slot handoff', () => {
         ]}
         streaming={false}
         renderMessageImages={imageRenderer(calls)}
-        loadFile={loadFile}
-        openReferent={openReferent}
       />,
     )
     const image = view.getByTestId('message-images')

@@ -178,9 +178,6 @@ describe('Web session model selection', () => {
         maxImageDimension: 2000,
         mediaTypes: ['image/png'],
       },
-      // This batch carries no file parts, so only the batch-level limit
-      // read (validateFileBatch) is reached; validateFile/saveFile never run.
-      fileLimits: { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 },
       validateImage,
       saveImage,
     }
@@ -241,9 +238,6 @@ describe('Web session model selection', () => {
         maxImageDimension: 2000,
         mediaTypes: ['image/png'],
       },
-      // This batch carries no file parts, so only the batch-level limit
-      // read (validateFileBatch) is reached; validateFile/saveFile never run.
-      fileLimits: { maxFilesPerMessage: 0, maxMessageFileBytes: 0, maxFileBytes: 0 },
       validateImage: vi.fn(() => Promise.resolve()),
       saveImage: vi.fn((input: { data: Uint8Array; mediaType: 'image/png'; name?: string }) => Promise.resolve({
         attachmentId: `att-${String(input.data[0])}`,
@@ -282,84 +276,6 @@ describe('Web session model selection', () => {
         },
       },
     ])
-    await ctx.fiber.dispose()
-  })
-
-  it('validates an ordered file batch before persisting any member, interleaved with images', async () => {
-    const { ctx, agent, sessionId } = await harness()
-    const validateFile = vi.fn((_input: { data: Uint8Array }) => Promise.resolve())
-    const saveFile = vi.fn((input: { data: Uint8Array; name: string }) => Promise.resolve({
-      attachmentId: `att-${String(input.data[0])}`,
-      name: input.name,
-      bytes: input.data.byteLength,
-    }))
-    const validateImage = vi.fn((_input: { data: Uint8Array }) => Promise.resolve())
-    const saveImage = vi.fn((input: { data: Uint8Array; mediaType: 'image/png' }) => Promise.resolve({
-      attachmentId: `att-img-${String(input.data[0])}`,
-      mediaType: input.mediaType,
-      bytes: input.data.byteLength,
-      width: 1,
-      height: 1,
-    }))
-    const attachments = {
-      imageLimits: {
-        maxImageBytes: 4,
-        maxImagesPerMessage: 2,
-        maxMessageImageBytes: 4,
-        maxImagePixels: 4,
-        maxImageDimension: 2000,
-        mediaTypes: ['image/png'],
-      },
-      fileLimits: {
-        maxFilesPerMessage: 2,
-        maxMessageFileBytes: 40,
-        maxFileBytes: 40,
-      },
-      validateImage,
-      saveImage,
-      validateFile,
-      saveFile,
-    }
-    ctx.provide('attachments', Object.setPrototypeOf(attachments, AttachmentStore.prototype) as never)
-    const followup = vi.fn()
-    Object.assign(agent, { followup })
-    const remote = createSessionTestRemote(ctx, {
-      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
-      cwd: '/tmp',
-    })
-
-    const result = await remote.prompt(promptRequest({
-      sessionId,
-      mode: 'queue' as const,
-      content: [
-        { type: 'file' as const, name: 'first.txt', text: 'one' },
-        { type: 'image' as const, mediaType: 'image/png' as const, data: 'AQ==' },
-        { type: 'text' as const, text: 'compare' },
-        { type: 'file' as const, name: 'second.txt', text: 'two' },
-      ],
-    }))
-    expect(result.ok).toBe(true)
-    expect(validateFile.mock.calls.map(([input]) => new TextDecoder().decode(input.data))).toEqual(['one', 'two'])
-    expect(saveFile.mock.calls.map(([input]) => new TextDecoder().decode(input.data))).toEqual(['one', 'two'])
-    expect((followup.mock.calls[0]?.[0] as UserMessage).content).toEqual([
-      { type: 'file', attachment: { attachmentId: 'att-111', name: 'first.txt', bytes: 3 } },
-      { type: 'image', attachment: { attachmentId: 'att-img-1', mediaType: 'image/png', bytes: 1, width: 1, height: 1 } },
-      { type: 'text', text: 'compare' },
-      { type: 'file', attachment: { attachmentId: 'att-116', name: 'second.txt', bytes: 3 } },
-    ])
-
-    const denied = await remote.prompt(promptRequest({
-      sessionId,
-      mode: 'queue' as const,
-      content: Array.from({ length: 3 }, (_value, index) => ({
-        type: 'file' as const, name: `f${String(index)}.txt`, text: 'x',
-      })),
-    }))
-    expect(denied).toMatchObject({
-      ok: false,
-      error: { code: 'session/attachment-invalid', details: { reason: 'TOO_MANY_FILES' } },
-    })
-    expect(saveFile).toHaveBeenCalledTimes(2)
     await ctx.fiber.dispose()
   })
 
@@ -431,40 +347,6 @@ describe('Web session model selection', () => {
     expect(readImage).toHaveBeenCalledOnce()
     await ctx.fiber.dispose()
   })
-
-  it('authorizes file bytes only when the session event stream references the id', async () => {
-    const { ctx, agent, sessionId } = await harness()
-    const ref = { attachmentId: 'att-file-authorized', name: 'notes.txt', bytes: 5 }
-    const readFile = vi.fn(() => Promise.resolve({ ref, data: new TextEncoder().encode('hello') }))
-    ctx.provide('attachments', { readFile } as never)
-    const remote = createSessionTestRemote(ctx, {
-      defaultModelSelection: () => ({ provider: 'deepseek-official', model: 'deepseek-chat' }),
-      cwd: '/tmp',
-    })
-    agent.session.append('agent/inbox/spliced', {
-      target: 'next-turn',
-      start: 0,
-      inserted: [{
-        id: 'queued-file', role: 'user', source: { kind: 'user' },
-        content: [{ type: 'file', attachment: ref }],
-      }],
-    } as never)
-
-    const allowed = await remote.file(request({
-      sessionId, attachmentId: 'att-file-authorized' as never,
-    }))
-    expect(allowed).toMatchObject({ ok: true, value: { attachment: ref, text: 'hello' } })
-    const denied = await remote.file(request({
-      sessionId, attachmentId: 'att-file-other' as never,
-    }))
-    expect(denied).toMatchObject({
-      ok: false,
-      error: { code: 'session/attachment-invalid', details: { reason: 'ATTACHMENT_NOT_REFERENCED' } },
-    })
-    expect(readFile).toHaveBeenCalledOnce()
-    await ctx.fiber.dispose()
-  })
-
   it('groups successful providers and leaves an unlisted current selection out of the catalog', async () => {
     const { ctx, sessionId } = await harness({
       provider: 'deepseek-official',
@@ -783,10 +665,7 @@ describe('Web session model selection', () => {
     const savedRef = {
       attachmentId: 'saved-image', mediaType: 'image/png' as const, bytes: 1, width: 1, height: 1,
     }
-    ctx.provide('attachments', {
-      // This test's content never carries a file part, so an admitted
-      // empty batch is the only call this mock needs to answer.
-      saveFiles: () => Promise.resolve([]),
+    ctx.provide('attachments', Object.setPrototypeOf({
       saveImages: () => {
         if (saveMode === 'error') return Promise.reject(new Error('image store offline'))
         if (saveMode === 'remote') {
@@ -794,7 +673,7 @@ describe('Web session model selection', () => {
         }
         return Promise.resolve([savedRef])
       },
-    } as never)
+    }, AttachmentStore.prototype) as never)
     const followup = vi.fn()
     Object.assign(agent, { followup })
     const remote = createSessionTestRemote(ctx, {

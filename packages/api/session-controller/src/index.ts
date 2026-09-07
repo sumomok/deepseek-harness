@@ -4,6 +4,7 @@ import { stat } from 'node:fs/promises'
 import { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { errorChain } from '@deepseek-ai/dsh-llm'
+import type {} from '@deepseek-ai/dsh-client-file-upload'
 import { canOpenNativePath, openNativePath } from '@deepseek-ai/dsh-native-command'
 import type { SessionId } from '@deepseek-ai/dsh-session'
 import type { SessionInspection } from '@deepseek-ai/dsh-session-persistence'
@@ -18,11 +19,7 @@ import { SessionCommandController } from './commands.ts'
 import { SessionControlController } from './control.ts'
 import { SessionHistoryController } from './history.ts'
 import { SessionFileReferences } from './file-references.ts'
-import {
-  ApiSessionList,
-  DEFAULT_COLD_BLANK_PROBE_MAX_BYTES,
-  DEFAULT_COLD_BLANK_PROBE_MAX_EVENTS,
-} from './list.ts'
+import { ApiSessionList } from './list.ts'
 import { buildModelCatalog } from './catalog.ts'
 import { installModelSelectionProjection } from './model-selection-projection.ts'
 import { SessionSkillCatalog } from './skill-catalog.ts'
@@ -37,8 +34,6 @@ import type {
   SessionControlFrame,
   SessionCreateRequest,
   SessionCreateValue,
-  SessionFileRequest,
-  SessionFileValue,
   SessionFollowFrame,
   SessionFollowRequest,
   SessionForkRequest,
@@ -77,20 +72,8 @@ declare module '@deepseek-ai/cordis' {
 
 /** Session Controller deployment policy. */
 export interface Config {
-  /** Maximum stat-reported event count eligible for one full cold projection observation; `0` disables the event-count gate. */
-  readonly coldBlankProbeMaxEvents?: number
-  /** Maximum stat-reported artifact byte size eligible for one full cold projection observation; `0` disables the byte-size gate. */
-  readonly coldBlankProbeMaxBytes?: number
   /** Override platform desktop-opener detection. */
   readonly nativeOpen?: boolean
-  /**
-   * Filename substrings ADDED to the client's fixed add-time
-   * secret-container confirmation heuristic (`.env`, `id_rsa`, etc.) — this
-   * field can only append to that base list, never replace or narrow it;
-   * the base list itself is not configurable here or anywhere.
-   * @default []
-   */
-  readonly secretContainerExtraPatterns?: readonly string[]
 }
 
 /** Host integrations replaceable by direct unit tests. */
@@ -107,6 +90,7 @@ export class SessionController extends TypertRemoteService {
     'agentDefaultModel',
     'agents',
     'attachments',
+    'fileUploads',
     'llm',
     'sessions',
     'sessionProjections',
@@ -115,18 +99,9 @@ export class SessionController extends TypertRemoteService {
     'workspaceRegistry',
   ]
 
-  // Asserted, not annotated: `z.array()` infers a mutable `string[]` while
-  // `secretContainerExtraPatterns` is `readonly string[]`, which
-  // `exactOptionalPropertyTypes` rejects (TS2375). The same reason the
-  // upstream schemas that carry an array field assert (`dsh-agent-loop`,
-  // `dsh-agent-presets`). An annotation here would be satisfied by the
-  // assertion rather than checking anything.
-  static Config = z.object({
-    coldBlankProbeMaxEvents: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_EVENTS),
-    coldBlankProbeMaxBytes: z.natural().default(DEFAULT_COLD_BLANK_PROBE_MAX_BYTES),
+  static Config: z<Config> = z.object({
     nativeOpen: z.boolean(),
-    secretContainerExtraPatterns: z.array(z.string()).default([]),
-  }) as z<Config>
+  })
 
   private readonly agents: ApiSessionAgentController
   private readonly commands: SessionCommandController
@@ -139,8 +114,7 @@ export class SessionController extends TypertRemoteService {
 
   /**
    * @param ctx - Host context containing the Session capability assembly.
-   * @param config - deployment policy: cold-list observation, native
-   * opening, and the client's add-time secret-container confirmation.
+   * @param config - native-opener deployment policy.
    * @param internals - host integrations replaceable by direct unit tests.
    */
   constructor(ctx: Context, config: Config, internals: SessionControllerInternals = {}) {
@@ -148,6 +122,11 @@ export class SessionController extends TypertRemoteService {
     installModelSelectionProjection(ctx)
     this.agents = new ApiSessionAgentController(ctx)
     this.commands = new SessionCommandController(ctx, this.agents, process.cwd())
+    ctx.effect(() => ctx.fileUploads.registerAgentResolver(async (sessionId) => {
+      const result = await this.agents.resolveAgent(sessionId)
+      if ('error' in result) throw result.error
+      return result.agent
+    }), 'session-controller: file-upload Agent resolver')
     this.controlState = new SessionControlController(ctx)
     // Registered before history so reverse-order teardown closes every
     // follower before waiting for already-admitted promotions.
@@ -155,10 +134,7 @@ export class SessionController extends TypertRemoteService {
       await Promise.allSettled([...this.promotions])
     }, 'session-controller.promotions')
     this.history = new SessionHistoryController(ctx, (observation) => { this.promote(observation) })
-    this.listState = new ApiSessionList(ctx, {
-      coldBlankProbeMaxEvents: config.coldBlankProbeMaxEvents ?? DEFAULT_COLD_BLANK_PROBE_MAX_EVENTS,
-      coldBlankProbeMaxBytes: config.coldBlankProbeMaxBytes ?? DEFAULT_COLD_BLANK_PROBE_MAX_BYTES,
-    }, config.secretContainerExtraPatterns ?? [])
+    this.listState = new ApiSessionList(ctx)
     this.openPath = internals.openPath ?? openNativePath
     this.canOpenPath = internals.canOpenPath
       ?? (() => config.nativeOpen ?? (internals.openPath !== undefined || canOpenNativePath()))
@@ -427,16 +403,6 @@ export class SessionController extends TypertRemoteService {
   }
 
   /**
-   * Read one text file proven reachable from the addressed Session log.
-   * @param request - Session and attachment identities used for authorization.
-   * @returns the durable file reference and its plain-text content.
-   */
-  @Remote('file')
-  file(request: SessionFileRequest): Promise<SessionFileValue> {
-    return this.commands.file(request)
-  }
-
-  /**
    * Mutate one still-pending queue occurrence on a live Agent.
    * @param request - Session, queue item, and requested mutation.
    * @returns acknowledgement that the queue mutation was applied.
@@ -471,7 +437,8 @@ export class SessionController extends TypertRemoteService {
    * Follow one Session log from its opening or resume cursor.
    * @param request - durable address and last committed sequence already held by the caller.
    * @param signal - cancellation owned by the Remote stream carrier.
-   * @returns a complete opening snapshot followed by gap-free event frames.
+   * @returns a complete opening snapshot followed by gap-free durable event
+   *   frames and optional cursorless assistant-stream frames.
    */
   @Remote({ mode: 'stream' })
   follow(request: SessionFollowRequest, signal: AbortSignal): AsyncIterable<SessionFollowFrame> {

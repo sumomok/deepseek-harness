@@ -107,6 +107,7 @@ describe('contextBreakdown session projection', () => {
     appendUser(session, 'abcd')
     session.append('step/start', { turn: 1, step: 1 })
     session.append('assistant/message', {
+      stream: [],
       turn: 1,
       step: 1,
       message: createMessage({
@@ -115,7 +116,7 @@ describe('contextBreakdown session projection', () => {
         source: { kind: 'model', provider: 'mock', model: 'mock' },
       }),
       usage: { inputTokens: 9, outputTokens: 0 },
-    }, { surfaceOp: 'append', sourceEventSeqs: [] })
+    }, { surfaceOp: 'append' })
     session.append('step/end', { turn: 1, step: 1 })
     // 'abcd' prices to 9 (1 text + 4 block + 4 role); the usage-only assistant
     // message derives to no transcript entry and adds nothing.
@@ -156,6 +157,7 @@ describe('contextBreakdown session projection', () => {
     const question = appendUser(session, 'a first question, long enough to price above zero')
     session.append('step/start', { turn: 1, step: 1 })
     const answer = session.append('assistant/message', {
+      stream: [],
       turn: 1,
       step: 1,
       message: createMessage({
@@ -164,7 +166,7 @@ describe('contextBreakdown session projection', () => {
         source: { kind: 'model', provider: 'mock', model: 'mock' },
       }),
       usage: { inputTokens: 40, outputTokens: 7 },
-    }, { surfaceOp: 'append', sourceEventSeqs: [] }).seq
+    }, { surfaceOp: 'append' }).seq
     session.append('step/end', { turn: 1, step: 1 })
     const grown = agree()
     expect(grown).toBeGreaterThan(0)
@@ -299,18 +301,8 @@ describe('shared estimator', () => {
       type: 'tool-result', toolCallId: 'c' as never,
       content: [{ type: 'text', text: 'abcd' }],
     }])).toBe(9)
-    expect(estimateContent([{
-      type: 'file', attachment: { attachmentId: 'f' as never, name: 'a.txt', bytes: 40 },
-    }])).toBe(14)
     const unknown = { type: 'mystery', payload: 'abc' } as unknown as ContentBlock
     expect(estimateContent([unknown])).toBe(4 + Math.ceil(JSON.stringify(unknown).length / 4))
-  })
-
-  it('prices a file by its lowered text, capped at DEFAULT_MAX_LOWERED_FILE_CHARS rather than its full byte count', () => {
-    const capped = estimateContent([{
-      type: 'file', attachment: { attachmentId: 'f' as never, name: 'big.log', bytes: 1_000_000 },
-    }])
-    expect(capped).toBe(Math.ceil(16_000 / 4) + 4)
   })
 
   it('prices envelope parts independently and absent parts to zero', () => {

@@ -14,10 +14,10 @@
  */
 
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import type { CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react'
+import type { ChangeEvent, CSSProperties, KeyboardEvent, MouseEvent, ReactNode } from 'react'
 import clsx from 'clsx'
 import {
-  attachmentSizeText, Button, IconPlusOutline16, IconWarningOutline16, Modal, partitionDroppedFiles, Toast, Tooltip,
+  IconPaperclipOutline16, IconPlusOutline16, IconWarningOutline16, Toast, Tooltip,
 } from '@deepseek-ai/dsh-client-ui-primitives'
 // Type-only: the `plan` projection key merge (the TodoDock posture — the
 // composer reads a host-computed value; the domain owns the key).
@@ -29,12 +29,10 @@ import type {} from '@deepseek-ai/dsh-goal/client'
 // api-remotes import already places it in every client program.
 import type { Translate } from '@deepseek-ai/dsh-client-ui-slots'
 import type { ComposerBarProps } from '../contract/slots.ts'
-import type { DraftAttachmentId } from '../contract/input.ts'
 import { ComposerContentEditable } from '../input/editor/ComposerContentEditable.tsx'
 import { DecoratorPortals } from '../input/editor/DecoratorPortals.tsx'
 import { registerComposerKeymap } from '../input/editor/keymap.ts'
-import { attachmentErrorText } from '../attachment-labels.ts'
-import { matchSecretContainerFiles, secretContainerCandidate } from '../secret-container.ts'
+import { attachmentErrorText, imageSizeText } from '../image-labels.ts'
 import { ContextMeter } from './ContextMeter.tsx'
 import { PermissionSelect } from './PermissionSelect.tsx'
 import css from './InputBar.module.css'
@@ -42,9 +40,10 @@ import css from './InputBar.module.css'
 export type InputBarProps = ComposerBarProps
 
 export const InputBar = memo(function InputBar({
-  useSession, useInput, inputActions, keyboard, addImages, addFiles, removeImage, draftImages,
+  useSession, useInput, inputActions, keyboard, addFiles, removeAttachment, resolveDraftAttachments,
+  retryFileUpload,
   resolveSubmitMode, toggleCommandMenu, stop, command, t,
-  renderSlot, useNotices, useLexicon, useMenuLauncher,
+  renderSlot, useFileUploads, useNotices, useLexicon, useMenuLauncher,
   useProjection, sessionId, variant, disabled: inert = false, blocked,
   workspacePickerOpen = false, onRequestWorkspace,
   placeholder, accessory,
@@ -68,10 +67,16 @@ export const InputBar = memo(function InputBar({
   const draft = input?.draft ?? ''
   const editor = keyboard?.editor ?? null
   const attachments = useMemo(
-    () => input === undefined || draftImages === undefined ? [] : draftImages(input.imageIds),
-    [draftImages, input?.imageIds],
+    () => input === undefined || resolveDraftAttachments === undefined ? [] : resolveDraftAttachments(input.attachmentIds),
+    [resolveDraftAttachments, input?.attachmentIds],
   )
   const empty = draft.trim() === '' && attachments.length === 0
+  const uploads = useFileUploads(snapshot => snapshot)
+  // Send waits for every picked file: uploading and failed drafts both hold
+  // the gate (a failed upload is retried or removed, never silently dropped).
+  const uploadsPending = attachments.some(
+    attachment => attachment.kind === 'file' && uploads[attachment.id]?.status !== 'ready',
+  )
   // Transient error banner (machine notices, image-intake rejections, and
   // prompt failures): the seq keys the Toast so an identical repeated message
   // restarts the hold-then-fade cycle instead of reusing the faded one.
@@ -85,9 +90,6 @@ export const InputBar = memo(function InputBar({
   // The deployment's image-intake limits (absent while no attachment service
   // is composed — the pre-check below then defers entirely to the host).
   const imageLimits = useProjection('imageLimits')
-  // The deployment's text-file-intake limits, the file-intake pre-check's
-  // counterpart of imageLimits.
-  const fileLimits = useProjection('fileLimits')
   // Prompt failures are ordinary failures (no create/attach transaction exists
   // anymore): the toast announces promptError, the draft stays in the machine,
   // and the user resubmits. A remount over a session whose machine still holds
@@ -100,9 +102,9 @@ export const InputBar = memo(function InputBar({
     if (promptError === null) return
     const { error } = promptError
     showToast(error.code === 'session/attachment-invalid' || error.code === 'subagent/attachment-invalid'
-      ? attachmentErrorText(t, error.details.reason, imageLimits, fileLimits)
+      ? attachmentErrorText(t, error.details.reason, imageLimits)
       : `${error.message} (${error.code})`)
-  }, [promptError, showToast, t, imageLimits, fileLimits])
+  }, [promptError, showToast, t, imageLimits])
   useEffect(() => {
     if (notice?.level === 'error') showToast(notice.text)
   }, [notice, showToast])
@@ -141,10 +143,10 @@ export const InputBar = memo(function InputBar({
 
   useEffect(() => {
     if (input === undefined || inputActions === undefined) return
-    if (attachments.length !== input.imageIds.length) {
-      inputActions.pruneImages(attachments.map(attachment => attachment.id))
+    if (attachments.length !== input.attachmentIds.length) {
+      inputActions.pruneAttachments(attachments.map(attachment => attachment.id))
     }
-  }, [attachments, input?.imageIds, inputActions])
+  }, [attachments, input?.attachmentIds, inputActions])
 
   // Scroll the draft scrollport the minimum that brings the selection focus
   // into view — the browser's own behavior for typing, performed for the
@@ -217,152 +219,55 @@ export const InputBar = memo(function InputBar({
     return () => { el.removeEventListener('wheel', onWheel) }
   }, [])
 
-  // Intake pre-check: an addition that would break
-  // a projected limit is refused as a whole batch, announced immediately, and
-  // never enters the rail — no more submit-time failure rolling the rail
-  // back. The host enforces the same limits at submit for callers that bypass
-  // this composer. Counts and totals below scope to the matching kind only:
-  // `attachments` mixes image and file drafts, and one kind's limit must
-  // never count the other's drafts.
-  const imageAttachments = useMemo(() => attachments.filter(a => a.kind === 'image'), [attachments])
-  const fileAttachments = useMemo(() => attachments.filter(a => a.kind === 'file'), [attachments])
-
-  // Secret-container warning state (name/path only, zero content read):
-  // deployment-appended filename substrings ride the boot-constant
-  // projection the same way imageLimits/fileLimits do; the fixed base
-  // heuristic lives entirely in matchSecretContainerFiles and needs no host
-  // round trip. secretHitIds feeds the chip's persistent warning state
-  // through the attachment slot — it reflects every currently attached
-  // matching file, confirmed or not, so the warning stays visible for as
-  // long as the file stays in the draft, independent of the one-shot
-  // add-time confirmation below.
-  const secretContainerExtraPatterns = useProjection('secretContainerExtraPatterns')
-  const secretHits = useMemo(
-    () => matchSecretContainerFiles(
-      fileAttachments.map(attachment => ({ id: attachment.id, ...secretContainerCandidate(attachment.file) })),
-      secretContainerExtraPatterns ?? [],
-    ),
-    [fileAttachments, secretContainerExtraPatterns],
-  )
-  const secretHitIds = useMemo(() => new Set(secretHits.map(hit => hit.id)), [secretHits])
-
-  // Add-time secret-container confirmation: fires once per add batch
-  // (drag-drop or paste), immediately when intakeFiles below attaches a
-  // matching file — not at send time. The whole batch (matched and
-  // non-matched files alike) attaches normally first, exactly as an
-  // unmatched batch would; this dialog then offers to undo the matched
-  // subset. Pure UI gate — it never touches the session or model-visible
-  // content beyond the ordinary attach/detach either button already does.
-  //
-  // The matched files' machine-assigned ids are not known synchronously
-  // (addFiles returns only a rejection message, not the created ids — see
-  // apply.ts), so intakeFiles stashes the raw File references here and the
-  // effect below resolves them to ids once fileAttachments reflects the
-  // attach (the very next render: addFiles publishes synchronously).
-  const pendingAddHitFilesRef = useRef<readonly File[] | null>(null)
-  const [addConfirm, setAddConfirm] = useState<{
-    readonly names: readonly string[]
-    readonly ids: readonly DraftAttachmentId[]
-  } | null>(null)
-  useEffect(() => {
-    const pending = pendingAddHitFilesRef.current
-    if (pending === null) return
-    const resolved = fileAttachments.filter(attachment => pending.includes(attachment.file))
-    if (resolved.length !== pending.length) return // not every file has landed in fileAttachments yet
-    pendingAddHitFilesRef.current = null
-    setAddConfirm({ names: resolved.map(attachment => attachment.file.name), ids: resolved.map(attachment => attachment.id) })
-  }, [fileAttachments])
-  // "仍要添加": the matched files are already attached — closing is the whole action.
-  const closeAddConfirm = useCallback((): void => { setAddConfirm(null) }, [])
-  // "不添加": undo the attach for the matched subset only; a non-matched
-  // sibling from the same batch was never touched by this dialog.
-  const declineAdd = useCallback((): void => {
-    if (addConfirm === null) return
-    for (const id of addConfirm.ids) removeImage?.(id)
-    setAddConfirm(null)
-  }, [addConfirm, removeImage])
-
-  const intakeImages = useCallback((files: readonly File[]): void => {
-    if (addImages === undefined || files.length === 0) return
+  // Intake pre-check: an addition that would break a projected image limit is
+  // refused as a whole batch, announced immediately, and never enters the
+  // rail. Only the image subset is limit-checked: generic files carry no
+  // client-side size or count limit and upload as soon as they are picked.
+  // The host enforces the same image limits at submit for callers that bypass
+  // this composer.
+  const intakeFiles = useCallback((files: readonly File[]): void => {
+    if (subagent !== null || addFiles === undefined || files.length === 0) return
     const rejected = ((): string | null => {
       if (imageLimits !== undefined) {
-        // Format precedes limits: a batch with
-        // a non-image must announce the format problem, not a count or size
-        // it could never pass anyway — addImages rejects it authoritatively.
-        if (files.some(file => !(imageLimits.mediaTypes as readonly string[]).includes(file.type))) {
-          return addImages(files)
-        }
-        if (imageAttachments.length + files.length > imageLimits.maxImagesPerMessage) {
+        const mediaTypes = imageLimits.mediaTypes as readonly string[]
+        const images = files.filter(file => mediaTypes.includes(file.type))
+        const imageAttachments = attachments.filter(attachment => attachment.kind === 'image')
+        if (imageAttachments.length + images.length > imageLimits.maxImagesPerMessage) {
           return t('image.tooMany', { count: imageLimits.maxImagesPerMessage })
         }
-        if (files.some(file => file.size > imageLimits.maxImageBytes)) {
-          return t('image.fileTooLarge', { size: attachmentSizeText(imageLimits.maxImageBytes) })
+        if (images.some(file => file.size > imageLimits.maxImageBytes)) {
+          return t('image.fileTooLarge', { size: imageSizeText(imageLimits.maxImageBytes) })
         }
         const total = imageAttachments.reduce((sum, attachment) => sum + attachment.file.size, 0)
-          + files.reduce((sum, file) => sum + file.size, 0)
+          + images.reduce((sum, file) => sum + file.size, 0)
         if (total > imageLimits.maxMessageImageBytes) {
-          return t('image.totalTooLarge', { size: attachmentSizeText(imageLimits.maxMessageImageBytes) })
-        }
-      }
-      return addImages(files)
-    })()
-    if (rejected !== null) showToast(rejected)
-  }, [addImages, imageAttachments, imageLimits, showToast, t])
-
-  // File intake pre-check, the file-kind counterpart of intakeImages. No
-  // format gate: every file reaching here already sniffed as text
-  // (partitionDroppedFiles, run by the caller); the durable seam's own
-  // NOT_TEXT_FILE/INVALID_FILE_NAME checks stay authoritative regardless.
-  const intakeFiles = useCallback((files: readonly File[]): void => {
-    if (addFiles === undefined || files.length === 0) return
-    const rejected = ((): string | null => {
-      if (fileLimits !== undefined) {
-        if (fileAttachments.length + files.length > fileLimits.maxFilesPerMessage) {
-          return t('file.tooMany', { count: fileLimits.maxFilesPerMessage })
-        }
-        if (files.some(file => file.size > fileLimits.maxFileBytes)) {
-          return t('file.fileTooLarge', { size: attachmentSizeText(fileLimits.maxFileBytes) })
-        }
-        const total = fileAttachments.reduce((sum, attachment) => sum + attachment.file.size, 0)
-          + files.reduce((sum, file) => sum + file.size, 0)
-        if (total > fileLimits.maxMessageFileBytes) {
-          return t('file.totalTooLarge', { size: attachmentSizeText(fileLimits.maxMessageFileBytes) })
+          return t('image.totalTooLarge', { size: imageSizeText(imageLimits.maxMessageImageBytes) })
         }
       }
       return addFiles(files)
     })()
-    if (rejected !== null) {
-      showToast(rejected)
-      return
-    }
-    // Add-time secret-container check, scoped to this batch alone (not the
-    // whole draft — that is secretHits above): the batch just attached
-    // successfully, so a match here opens the add-confirm dialog above.
-    const candidates = files.map(file => ({ file, ...secretContainerCandidate(file) }))
-    const hits = matchSecretContainerFiles(candidates, secretContainerExtraPatterns ?? [])
-    if (hits.length > 0) pendingAddHitFilesRef.current = hits.map(hit => hit.file)
-  }, [addFiles, fileAttachments, fileLimits, secretContainerExtraPatterns, showToast, t])
+    if (rejected !== null) showToast(rejected)
+  }, [subagent, addFiles, attachments, imageLimits, showToast, t])
 
-  // Combined entry point for a raw drop/paste batch that may mix images and
-  // text files: split by content sniff (client-side pre-check only; the
-  // durable seam re-validates authoritatively) and route each side to its
-  // own kind-scoped intake, so a mixed batch no longer rejects everything
-  // through the image path's whole-batch format check.
-  const intakeDrop = useCallback(async (files: readonly File[]): Promise<void> => {
-    const { texts, other } = await partitionDroppedFiles(files)
-    if (other.length > 0) intakeImages(other)
-    if (texts.length > 0) intakeFiles(texts)
-  }, [intakeImages, intakeFiles])
+  const canAcceptDrop = subagent === null && !locked && !machineBusy && addFiles !== undefined
 
-  const canAcceptDrop = !locked && !machineBusy && (addImages !== undefined || addFiles !== undefined)
+  const fileInputRef = useRef<HTMLInputElement | null>(null)
+  const onPickFiles = (e: ChangeEvent<HTMLInputElement>): void => {
+    const picked = e.target.files === null ? [] : [...e.target.files]
+    // Reset so picking the same file again re-fires the change event.
+    e.target.value = ''
+    if (picked.length > 0) intakeFiles(picked)
+  }
 
   // The keymap handlers read live bar state through this ref so the editor
   // registration survives re-renders without re-arming per keystroke.
   const gate = useRef({
-    locked, machineBusy, canSteerQueue, running, subagent, resolveSubmitMode, intakeDrop,
+    locked, machineBusy, canSteerQueue, running, subagent, resolveSubmitMode,
+    intakeFiles, uploadsPending, showToast, t,
   })
   gate.current = {
-    locked, machineBusy, canSteerQueue, running, subagent, resolveSubmitMode, intakeDrop,
+    locked, machineBusy, canSteerQueue, running, subagent, resolveSubmitMode,
+    intakeFiles, uploadsPending, showToast, t,
   }
 
   useEffect(() => {
@@ -384,13 +289,17 @@ export const InputBar = memo(function InputBar({
           keyboard.steerQueue()
           return
         }
+        if (g.uploadsPending) {
+          g.showToast(g.t('file.stillUploading'))
+          return
+        }
         keyboard.submit(g.resolveSubmitMode(
           g.running,
           accelerated ? 'accelerated' : 'enter',
           g.subagent === null,
         ))
       },
-      intakeFiles: (files) => { void gate.current.intakeDrop(files) },
+      intakeFiles: (files) => { gate.current.intakeFiles(files) },
       pasteText: (text) => {
         if (gate.current.machineBusy || gate.current.locked) return
         keyboard.paste(text)
@@ -433,8 +342,8 @@ export const InputBar = memo(function InputBar({
       return
     }
     if (inputActions === undefined) return // absent machine: the button is disabled
-    /* v8 ignore next -- defensive: the primary button is disabled while empty||disabled, so a click cannot reach the false arm. */
-    if (!empty && !disabled && !machineBusy) inputActions.submit()
+    /* v8 ignore next -- defensive: the primary button is disabled for empty, disabled, and pending-upload states. */
+    if (!empty && !disabled && !machineBusy && !uploadsPending) inputActions.submit()
   }
 
   // The Access seat: the projection-fed permission chip (renders nothing
@@ -510,14 +419,14 @@ export const InputBar = memo(function InputBar({
         {renderSlot('conversation.input.attachments', {
           attachments,
           canAcceptDrop,
-          onAddImages: intakeImages,
           onAddFiles: intakeFiles,
-          onRemoveImage: (id) => { removeImage?.(id) },
+          onRemoveAttachment: (id) => { removeAttachment?.(id) },
+          uploads,
+          onRetryFile: (id) => { retryFileUpload?.(id) },
           dropLimits: imageLimits === undefined ? undefined : {
             count: imageLimits.maxImagesPerMessage,
-            size: attachmentSizeText(imageLimits.maxImageBytes),
+            size: imageSizeText(imageLimits.maxImageBytes),
           },
-          secretContainerHitIds: secretHitIds,
         })}
         {/* One scrollport, one text surface: the contenteditable grows with
             its content and .scroll — capped at 14 lines in CSS — is the only
@@ -566,6 +475,26 @@ export const InputBar = memo(function InputBar({
                 <IconPlusOutline16 size={14} />
               </button>
             </Tooltip>
+            <Tooltip label={t('file.attach')} side="top" delayMs={500}>
+              <button
+                type="button"
+                className={css.add}
+                aria-label={t('file.attach')}
+                disabled={subagent !== null || locked || machineBusy || addFiles === undefined}
+                onMouseDown={keepFocus}
+                onClick={() => { fileInputRef.current?.click() }}
+              >
+                <IconPaperclipOutline16 size={14} />
+              </button>
+            </Tooltip>
+            <input
+              ref={fileInputRef}
+              type="file"
+              multiple
+              disabled={subagent !== null}
+              hidden
+              onChange={onPickFiles}
+            />
             <div className={css.modes}>
               {accessSelect}
               {sessionId === undefined ? null : renderSlot('conversation.input.plan', { locked })}
@@ -601,7 +530,7 @@ export const InputBar = memo(function InputBar({
                 type="button"
                 className={css.primary}
                 aria-label={primaryLabel}
-                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy}
+                disabled={primaryStops ? stop === undefined : empty || disabled || machineBusy || uploadsPending}
                 onMouseDown={keepFocus}
                 onClick={onPrimary}
               >
@@ -622,23 +551,6 @@ export const InputBar = memo(function InputBar({
       {variant === 'composer' && input !== undefined && sessionId !== undefined
         ? renderSlot('conversation.composer.dock', {})
         : null}
-      {addConfirm !== null && (
-        <Modal
-          open
-          onClose={closeAddConfirm}
-          closeLabel={t('close')}
-          title={t('secretConfirm.addTitle')}
-          description={t('secretConfirm.addMessage', {
-            names: addConfirm.names.join(t('secretConfirm.separator')),
-          })}
-          footer={(
-            <>
-              <Button variant="outline" onClick={declineAdd}>{t('secretConfirm.dontAdd')}</Button>
-              <Button variant="primary" onClick={closeAddConfirm}>{t('secretConfirm.addAnyway')}</Button>
-            </>
-          )}
-        />
-      )}
     </div>
   )
 })
