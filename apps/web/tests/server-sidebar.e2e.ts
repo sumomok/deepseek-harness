@@ -112,19 +112,32 @@ const SERVER_SIDEBAR_NAMESPACE = 'server-sidebar' as SettingsNamespace
 const LEAKED_PLACEHOLDER = 'Choose a workspace to start'
 
 /**
- * The complete access-preset set the overlay's `permission` row names, in
- * table order. The row replaces the whole preset table rather than merging
- * into it, so a preset left out of the overlay disappears from the product and
- * one added to it appears. The preset scenario reads this list's length
- * against the `/permission` popup and each entry against the chip the matching
- * id settles on, which is what keeps either change a deliberate choice instead
- * of a typo.
+ * The customer-facing name of the preset the overlay pins as `defaultPreset`,
+ * and the only preset name a console renders: the composition offers no
+ * permission switch at all (see the scenario below), so the hidden chip's
+ * `aria-label` settles on this one and never moves. The overlay's whole
+ * `permission` row — its three ids, their names, the `isolate` key, and the
+ * pinned default — is owned by
+ * `packages/experimental/server-sidebar/tests/customer-overlay.client.spec.ts`.
  */
-const PRESET_NAMES = ['只读', '可修改文件', '完全放开'] as const
-/** The same three rows by the id `/permission` selects them with, in the same order. */
-const PRESET_IDS = ['read-only', 'workspace-write', 'danger-full-access'] as const
-/** The write preset, named on its own where a scenario needs just the one. */
-const RENAMED_PRESET = PRESET_NAMES[1]
+const RENAMED_PRESET = '可修改文件'
+/**
+ * Every command the console's slash menu lists, in the order `commands.list`
+ * sorts them. `permission` is absent by composition rather than by filtering:
+ * the overlay isolates `commands` from the `permission-presets` row, so that
+ * package's command child never activates. Pinning the whole set rather than
+ * the one absence is what also fails on a command this composition gains.
+ */
+const CONSOLE_COMMANDS = [
+  'compact',
+  'content-navigated',
+  'dismiss-content-entry',
+  'feedback',
+  'goal',
+  'plan',
+  'select-content-entry',
+  'show-content-page',
+] as const
 
 const HERO_PLACEHOLDER = 'Describe what you want to build... / commands, @ files or sessions'
 const ESTABLISHED_PLACEHOLDER = 'Message or run a task... / commands, @ files or sessions'
@@ -736,41 +749,52 @@ describe('web e2e: the product-console sidebar', () => {
     expect(await workspaceWordsInChat(page)).toEqual([])
   }, 30_000)
 
-  it('names every access preset the customer-facing way when one is selected', async () => {
-    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-presets'))
-    // Driven through `/permission`, not the chip's own menu: the guard hides
-    // that menu's trigger in this composition, so the command is the surface a
-    // customer's selection still reaches. Two halves, because either alone
-    // leaves a way for the overlay's table to drift. The bare invocation's
-    // popup is the rendered set, so a preset the overlay drops and a fourth
-    // one it gains both fail here; the loop below then applies each preset by
-    // id and reads the name the chip settles on, so a row whose name is
-    // miscopied fails too.
+  it('offers a customer no permission switch, on any of the three surfaces that carried one', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-no-permission-switch'))
+    // Three surfaces, because closing any one of them leaves the other two:
+    // the slash menu, the Settings → General default row, and the composer
+    // chip. Each is closed by a different mechanism, so each is read here.
     const input = composer(page, ESTABLISHED_PLACEHOLDER)
-    await writeComposerDraft(page, input, '/permission')
-    await input.press('Enter')
-    const popup = page.getByRole('listbox', { name: '/permission matches' })
-    await popup.waitFor({ timeout: 10_000 })
-    await expect.poll(() => popup.getByRole('option').count(), { timeout: 10_000 })
-      .toBe(PRESET_NAMES.length)
-    // Escape closes the popup shell first, ahead of the composer behind it.
-    await input.press('Escape')
-    await expect.poll(() => popup.count(), { timeout: 10_000 }).toBe(0)
-    for (const [index, id] of PRESET_IDS.entries()) {
-      await writeComposerDraft(page, input, `/permission ${id}`)
-      await input.press('Enter')
-      await expect.poll(
-        () => accessChip(page).getAttribute('aria-label'),
-        { timeout: 10_000 },
-      ).toBe(`Access mode, current: ${PRESET_NAMES[index]}`)
-    }
-    // Put the session back on the preset the rest of this block reads.
-    await writeComposerDraft(page, input, '/permission workspace-write')
-    await input.press('Enter')
+    const menu = page.locator('[data-trigger-menu]')
+
+    // A bare `/` filters nothing, so this is the whole rendered command set.
+    await writeComposerDraft(page, input, '/')
+    await menu.waitFor({ timeout: 10_000 })
     await expect.poll(
-      () => accessChip(page).getAttribute('aria-label'),
+      () => menu.locator('[role="option"] [class*="itemName"]').allInnerTexts(),
       { timeout: 10_000 },
-    ).toBe(`Access mode, current: ${RENAMED_PRESET}`)
+    ).toEqual([...CONSOLE_COMMANDS])
+    await input.press('Escape')
+    await expect.poll(() => menu.count(), { timeout: 10_000 }).toBe(0)
+
+    // Typing the command's own name is the residue this composition accepts:
+    // with no descriptor and no client contribution under that name, the
+    // trigger has nothing to offer and nothing to intercept Enter with, so the
+    // line goes to the model as ordinary text (see the package README).
+    await writeComposerDraft(page, input, '/permission')
+    await expect.poll(
+      () => menu.locator('[role="option"]').count(),
+      { timeout: 10_000 },
+    ).toBe(0)
+    await writeComposerDraft(page, input, '')
+
+    await page.getByRole('button', { name: 'Settings', exact: true }).click()
+    const dialog = page.getByRole('dialog', { name: 'Settings' })
+    await dialog.waitFor({ timeout: 10_000 })
+    expect(await dialog.getByRole('button', { name: 'General' }).getAttribute('aria-current')).toBe('true')
+    // Both halves: the General panel is rendered — one of its shipped rows is
+    // on screen — and it carries no permission default row. Absence alone
+    // would pass on a panel that failed to render at all.
+    await expect.poll(() => dialog.getByText('Appearance', { exact: true }).count(), { timeout: 10_000 }).toBe(1)
+    expect(await dialog.getByText('Permission', { exact: true }).count()).toBe(0)
+    await page.keyboard.press('Escape')
+    await expect.poll(() => dialog.count(), { timeout: 10_000 }).toBe(0)
+
+    // The chip stays where it was: present, hidden by `terminology-guard.ts`,
+    // and naming the preset the overlay pins, which nothing on this page can
+    // change any more.
+    await expectGuardHides(page.locator('[data-composer-card] [class*="modes"]'), 'trigger')
+    expect(await accessChip(page).getAttribute('aria-label')).toBe(`Access mode, current: ${RENAMED_PRESET}`)
   }, 60_000)
 
   it('files a workflow under a group the visitor names, pins that group, and remembers the fold across a reload', async () => {
