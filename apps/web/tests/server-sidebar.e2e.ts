@@ -24,7 +24,11 @@
  * own first click populated and adds no second home-page record, while a
  * draft the visitor has navigated elsewhere in is unclean and takes the
  * create path, which shows the home page again (on the same conversation —
- * see the package README's Known Limitations).
+ * see the package README's Known Limitations). A fourth describe covers the
+ * business-content-only decision: one seeded closed turn carrying every
+ * process row the guard now hides, read back for each hide, for the produced
+ * files and the approval card it keeps, for the swapped composer placeholder
+ * in both composer states, and for the re-texted running indicator.
  *
  * Mostly zero model calls, the same shape `rail-search-expand.e2e.ts` uses
  * for a pure client-layout scenario: every session this scenario opens is
@@ -50,10 +54,14 @@ import { fileURLToPath } from 'node:url'
 import type { Browser, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
-import { createMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { ToolCallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
+import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {} from '@deepseek-ai/dsh-commands/types'
+// Empty type import: carries the approval service onto the scaffold's Context
+// so the business-content scenario below can ask for a decision directly.
+import type {} from '@deepseek-ai/dsh-user-approval'
 import type {} from '@deepseek-ai/dsh-workspace'
 import {
   acknowledgeReloadConnectionLoss, launchWebScaffold, watchConsole, type WebScaffold,
@@ -214,6 +222,24 @@ async function expectGuardHides(scope: Locator, className: string): Promise<void
   const target = scope.locator(`[class*="${className}"]`)
   expect(await target.count(), `${className}: no element for the guard rule to hide`).toBeGreaterThan(0)
   await expect(target.first().isVisible()).resolves.toBe(false)
+}
+
+/**
+ * One element the de-terminology stylesheet hides by attribute rather than by
+ * class substring: present in the DOM, invisible, and invisible *because of a
+ * `display: none` rule of this package's own*. The third half is what the
+ * class-substring sibling above does not need: `ui-chat`'s compact transcript
+ * already folds process rows behind `hidden="until-found"`, which reads as
+ * invisible too, so a present-and-invisible pair alone would pass with every
+ * rule in `terminology-guard.ts` deleted.
+ * @param scope - the region the element lives in.
+ * @param selector - the exact selector the guard rule couples on.
+ */
+async function expectGuardHidesSelector(scope: Locator, selector: string): Promise<void> {
+  const target = scope.locator(selector)
+  expect(await target.count(), `${selector}: no element for the guard rule to hide`).toBeGreaterThan(0)
+  await expect(target.first().isVisible()).resolves.toBe(false)
+  await expect(target.first().evaluate(el => getComputedStyle(el).display)).resolves.toBe('none')
 }
 
 /** Every banned spelling of the vendor's Workspace vocabulary. */
@@ -1319,6 +1345,277 @@ describe('web e2e: the product-console sidebar with no workspace connected', () 
     },
     30_000,
   )
+
+  it('leaves the console clean', () => {
+    expect(tripwire.pageErrors).toEqual([])
+    expect(tripwire.warnings).toEqual([])
+  })
+})
+
+/** The system prompt the seeded request header carries; the 系统提示词 row's body. */
+const SEEDED_SYSTEM_PROMPT = 'You are the console fixture assistant.'
+/** The user's own line, kept on screen. */
+const SEEDED_USER_LINE = 'Show me the weekly report page.'
+/** The reasoning block's text, drawn by `ReasoningRow` and hidden by the guard. */
+const SEEDED_THINKING = 'The reports page is the one to open.'
+/** The turn's final answer, kept on screen. */
+const SEEDED_ANSWER = 'The weekly report page is on the right.'
+/** The file the seeded turn writes; the produced-files tail's one chip, kept on screen. */
+const SEEDED_PRODUCED_FILE = 'weekly-report.md'
+
+/**
+ * Seed one closed turn carrying every process row the business-content
+ * decision hides — a system prompt, a reasoning block, a `content_read` tool
+ * call with its result card, an intermediate step, and therefore a foldable
+ * completed-turn row and a reply footer — plus a standalone command whose name
+ * no `conversation.chat.commandview` claims, so `GenericCommandCard` actually
+ * draws one. The turn also writes one file, so `dsh-client-ui-deliverables`
+ * fills the reply footer's other child and the kept-tail half of the decision
+ * has something to assert. Every row is a durable append with no model call,
+ * the same technique {@link seedClosedTurn} uses.
+ *
+ * The answer lands in its own later step on purpose: `ChatNodeSeat`'s fold
+ * window opens only when the turn's last step is a plain-text final answer, so
+ * a single-step turn would produce no `turn-process` row to hide.
+ * @param scaffold - the live scaffold.
+ * @param sessionId - the session to seed onto; must have a live agent.
+ */
+function seedProcessTurn(scaffold: WebScaffold, sessionId: string): void {
+  const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+  if (agent === undefined) throw new Error(`server-sidebar e2e: no live agent for ${sessionId}`)
+  const session = agent.session
+  const callId = ToolCallId('server-sidebar-business-read')
+  const args = JSON.stringify({ mode: 'text' })
+  session.append('turn/start', { turn: 1 })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: SEEDED_USER_LINE }],
+    source: { kind: 'user' },
+  }), { surfaceOp: 'append' })
+  session.append('step/start', { turn: 1, step: 1 })
+  session.append('request/header', {
+    header: {
+      config: { provider: 'fixture', model: 'fixture' },
+      system: SEEDED_SYSTEM_PROMPT,
+    },
+    reason: 'initial',
+  })
+  session.append('assistant/message', {
+    turn: 1,
+    step: 1,
+    message: createMessage({
+      role: 'assistant',
+      content: [
+        { type: 'reasoning', text: SEEDED_THINKING },
+        { type: 'tool-call', id: callId, name: 'content_read', arguments: args },
+      ],
+      source: { kind: 'model', provider: 'fixture', model: 'fixture' },
+    }),
+  }, { surfaceOp: 'append' })
+  const call = session.append('tool/call', {
+    turn: 1, step: 1, callId, name: 'content_read', arguments: args,
+  })
+  session.append('tool/result', {
+    turn: 1,
+    step: 1,
+    message: createToolResultMessage({
+      callId,
+      content: [{ type: 'text', text: 'heading: Weekly reports' }],
+      isError: false,
+    }),
+  }, { surfaceOp: 'append', sourceEventSeqs: [call.seq] })
+  const writeArgs = JSON.stringify({ file_path: SEEDED_PRODUCED_FILE, content: '# Weekly report\n' })
+  const writeId = ToolCallId('server-sidebar-business-write')
+  const write = session.append('tool/call', {
+    turn: 1, step: 1, callId: writeId, name: 'write', arguments: writeArgs,
+  })
+  session.append('tool/result', {
+    turn: 1,
+    step: 1,
+    message: createToolResultMessage({
+      callId: writeId,
+      content: [{ type: 'text', text: `Created ${SEEDED_PRODUCED_FILE}` }],
+      isError: false,
+    }),
+  }, { surfaceOp: 'append', sourceEventSeqs: [write.seq] })
+  session.append('step/end', { turn: 1, step: 1 })
+  session.append('step/start', { turn: 1, step: 2 })
+  session.append('assistant/message', {
+    turn: 1,
+    step: 2,
+    message: createMessage({
+      role: 'assistant',
+      content: [{ type: 'text', text: SEEDED_ANSWER }],
+      source: { kind: 'model', provider: 'fixture', model: 'fixture' },
+    }),
+  }, { surfaceOp: 'append' })
+  session.append('step/end', { turn: 1, step: 2 })
+  session.append('turn/end', { turn: 1, reason: { kind: 'completed' } })
+  const commandId = CommandId('server-sidebar-business-command')
+  session.append('command/run', { commandId, name: 'feedback', source: { kind: 'user' } })
+  session.append('command/done', { commandId, kind: 'success', text: 'Sent.' })
+}
+
+/**
+ * The composer's placeholder is present and paints this package's own copy.
+ * The element is `aria-hidden` in `InputBar.tsx`, so reading its `::after` is
+ * reading exactly what a sighted visitor sees; the sibling
+ * `[data-composer-input]`'s own `data-placeholder` is deliberately untouched
+ * (see the package README's Known Limitations), which is what keeps
+ * {@link composer} resolving.
+ * @param page - the browsing page.
+ */
+async function expectSwappedPlaceholder(page: Page): Promise<void> {
+  const placeholder = shellColumn(page, 'chat').locator('[data-composer-placeholder]')
+  await placeholder.waitFor({ timeout: 15_000 })
+  await expect(placeholder.evaluate(el => getComputedStyle(el).fontSize)).resolves.toBe('0px')
+  await expect(
+    placeholder.evaluate(el => getComputedStyle(el, '::after').content),
+  ).resolves.toContain('说说要做什么')
+}
+
+describe('web e2e: the console conversation column shows business content only', () => {
+  let scaffold: WebScaffold
+  let browser: Browser
+  let page: Page
+  let harnessHome: string
+  let tripwire: ReturnType<typeof watchConsole>
+  /** The workbench conversation this block seeds onto. */
+  let sessionId: string
+  const inheritedAppRoot = process.env.DSH_CONTENT_APP_ROOT
+
+  beforeAll(async () => {
+    harnessHome = await harnessHomeWithRowLinks()
+    process.env.DSH_CONTENT_APP_ROOT = APP_ROOT
+    scaffold = await launchWebScaffold({ harnessHome, extraOverlayPath: OVERLAY })
+    const workspaceDir = join(scaffold.workspaceCwd, 'server-sidebar-business-workspace')
+    await mkdir(workspaceDir, { recursive: true })
+    await scaffold.ctx.workspaceRegistry.create(workspaceDir)
+    browser = await chromium.launch()
+    page = await newEnglishPage(browser)
+    tripwire = watchConsole(page)
+    await page.goto(scaffold.authenticatedUrl, { waitUntil: 'load' })
+    await sidebar(page).waitFor({ timeout: 30_000 })
+  }, 180_000)
+
+  afterAll(async () => {
+    await browser?.close()
+    await scaffold?.close()
+    await rm(harnessHome, { recursive: true, force: true })
+    if (inheritedAppRoot === undefined) delete process.env.DSH_CONTENT_APP_ROOT
+    else process.env.DSH_CONTENT_APP_ROOT = inheritedAppRoot
+  })
+
+  it('asks 说说要做什么 on a blank draft, with the upstream placeholder attribute left in place', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-business-hero'))
+    await workbenchButton(page).click()
+    await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBeUndefined()
+    sessionId = readServerMenu(scaffold).workbenchSessionId!
+    await expectSwappedPlaceholder(page)
+  }, 60_000)
+
+  it(
+    'hides the system prompt, the fold row, the tool call, the thinking row, the command row, and the reply footer\'s metrics, and keeps the question and the answer',
+    async () => {
+      onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-business-rows'))
+      seedProcessTurn(scaffold, sessionId)
+      const chat = shellColumn(page, 'chat')
+      // The answer is the last thing the seeded turn renders, so waiting for
+      // it is waiting for the whole flow to have mounted; every assertion
+      // below would otherwise pass vacuously on an unrendered column.
+      await chat.getByText(SEEDED_ANSWER).waitFor({ timeout: 15_000 })
+
+      // Kept: the visitor's own line and the model's answer.
+      await expect(chat.getByText(SEEDED_USER_LINE).isVisible()).resolves.toBe(true)
+      await expect(chat.getByText(SEEDED_ANSWER).isVisible()).resolves.toBe(true)
+
+      for (const kind of ['system-prompt', 'turn-process', 'tool-call', 'command']) {
+        await expectGuardHidesSelector(chat, `[data-chat-flow-kind="${kind}"]`)
+      }
+      await expectGuardHidesSelector(chat, '[data-variant="think"]')
+      // The `content_read` call by name, located inside the seat the rule
+      // hides rather than by a rule of its own: the read goes with whatever
+      // draws in that seat — `ToolRow`'s generic card here, and
+      // content-frame's own `ContentReadRow` in a deployment that configures
+      // `pageAccess` (this overlay configures none, so that keyed
+      // `tool.call.toolview` entry never registers). It is hidden on purpose:
+      // the content column already shows the page the row would describe.
+      const readRow = chat.locator('[data-chat-flow-kind="tool-call"] [data-tool="content_read"]')
+      expect(await readRow.count(), 'the seeded content_read call rendered no row').toBeGreaterThan(0)
+      await expect(readRow.first().isVisible()).resolves.toBe(false)
+      // The reply footer loses only its action row, which is where 用量/用时
+      // sit — neither pill carries a handle of its own. Its other child, the
+      // produced-files tail, is kept on purpose and is what proves the rule
+      // did not take the whole footer.
+      await expectGuardHidesSelector(chat, '[data-turn-tail] > [class*="actions"]')
+      const produced = chat.locator('[data-turn-tail] [data-produced-files-row]')
+      await expect(produced.first().isVisible()).resolves.toBe(true)
+      await expect(produced.getByRole('button', { name: new RegExp(SEEDED_PRODUCED_FILE) }).isVisible())
+        .resolves.toBe(true)
+
+      // The established composer still resolves by its upstream attribute and
+      // still paints this package's copy.
+      await expect(composer(page, ESTABLISHED_PLACEHOLDER).count()).resolves.toBe(1)
+      await expectSwappedPlaceholder(page)
+      await evidence(page, 'web-e2e-server-sidebar-business-rows')
+    },
+    90_000,
+  )
+
+  it('leaves an approval card on screen, out of reach of every flow-row rule', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-business-approval'))
+    const agent = scaffold.ctx.agents.get(SessionId(sessionId))
+    if (agent === undefined) throw new Error('server-sidebar e2e: the seeded agent is gone')
+    // `ApprovalService.request` requires an open turn (its audit pair must be
+    // turn-enclosed), and this composition never runs a model, so the turn is
+    // opened and closed around the ask.
+    agent.session.append('turn/start', { turn: 2 })
+    const decision = scaffold.ctx.approval.request({
+      agent,
+      toolName: 'bash',
+      reason: 'The console fixture asks for one decision.',
+    })
+    const panel = shellColumn(page, 'chat').locator('[data-approval-key]')
+    await panel.waitFor({ timeout: 30_000 })
+    // `dsh-client-ui-approval` registers into `conversation.composer`, so the
+    // card takes the composer over and is never a `ChatNodeSeat` child at all:
+    // no `data-chat-flow-kind` rule can reach it.
+    expect(await panel.locator('[data-chat-flow-kind]').count()).toBe(0)
+    await expect(panel.isVisible()).resolves.toBe(true)
+    await evidence(page, 'web-e2e-server-sidebar-business-approval')
+    await panel.getByRole('button', { name: 'Allow once' }).click()
+    await expect(decision).resolves.toBe('allowed-once')
+    agent.session.append('turn/end', { turn: 2, reason: { kind: 'completed' } })
+    await expect.poll(() => panel.count(), { timeout: 15_000 }).toBe(0)
+  }, 60_000)
+
+  it('keeps the running indicator visible, re-texted and off the vendor gradient', async () => {
+    onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-business-running'))
+    // The running bit is a Host push tied to real Agent execution
+    // (`api-session/status`, emitted from `agent/status`), and this scenario
+    // issues no model call — so the push itself is what this test produces,
+    // through the same declared remote event the Host would send. Everything
+    // downstream of it is the real component and the real stylesheet.
+    scaffold.ctx.emit('api-session/status', SessionId(sessionId), true)
+    const indicator = shellColumn(page, 'chat').locator('[data-chat-flow] > [class*="turnStatus"]')
+    await indicator.waitFor({ timeout: 15_000 })
+    await expect(indicator.isVisible()).resolves.toBe(true)
+    await expect(indicator.evaluate(el => getComputedStyle(el).fontSize)).resolves.toBe('0px')
+    await expect(
+      indicator.evaluate(el => getComputedStyle(el, '::after').content),
+    ).resolves.toContain('正在处理')
+    // The vendor's Chinese brand name is what the upstream copy says, and the
+    // shimmer that paints it is a DeepSeek-token gradient clipped to the text;
+    // both halves are asserted gone, since dropping only one still ships the
+    // branding.
+    await expect(indicator.evaluate(el => getComputedStyle(el).backgroundImage)).resolves.toBe('none')
+    await expect(
+      indicator.evaluate(el => getComputedStyle(el).webkitTextFillColor),
+    ).resolves.not.toBe('rgba(0, 0, 0, 0)')
+    await evidence(page, 'web-e2e-server-sidebar-business-running')
+    scaffold.ctx.emit('api-session/status', SessionId(sessionId), false)
+    await expect.poll(() => indicator.count(), { timeout: 15_000 }).toBe(0)
+  }, 60_000)
 
   it('leaves the console clean', () => {
     expect(tripwire.pageErrors).toEqual([])
