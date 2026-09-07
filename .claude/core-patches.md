@@ -13,6 +13,8 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役
 - **本轮（0.1.5-rc.1 基座 `core-patches-v8`）**：在役并改写，提交 `670aa01d44`。上游本轮自己学会了一半：`standardReleaseMemberDirectory` 新增 `apps/(?!desktop(?:-host)?$)` 负向断言，把它自己的两个目录排除在发布成员之外，另有 `isReleaseMemberDirectory()` 与 `desktopApplicationDirectory` 常量。但那是按名字写死的两条，覆盖不到 fork 的 `apps/desktop-server` 与 `apps/pwa`，退化条款未满足。**决定**：并集——`isPrivateApp` 判别式保留，三处判定改成 `isReleaseMemberDirectory(dir) && !privateApp`、`dir !== desktopApplicationDirectory && !privateApp`，`releaseMemberDirectory` 正则退役改用上游的 `isReleaseMemberDirectory`。另有一处**前提被上游推翻**：上游 `apps/desktop-host` 既是 `private: true` 又在 `appPackageFiles` 里占一条，直接证伪了本补丁「private 即从不打包」的第二条规则前提，`tsx scripts/check-workspace-constraints.ts` 实测报 `private app must not hold a publication files policy`。**决定**：第二条规则收窄成只对 `isReleaseMemberDirectory(dir)` 仍接纳的目录提要求——`apps/cli` 加 `private: true` 仍然失败（Note 记的原意保住），被上游表达式自己点名的目录则放行。Agent Note 与其中译同步改写，`verify-translation-pairing --write` 重录。
 
+- **rc.31 集成期扩展（本线提交，尚未回补丁线）**：上游 0.1.3-alpha.1 新增的 `checkDshFamilyVersion` 要求每个 `@deepseek-ai/dsh*` 工作区清单的版本等于根版本；`apps/desktop`（`0.1.0-rc.30`）、`apps/desktop-server`、`apps/pwa`（`0.1.0-rc.7`）带的是各自的产品发行版本——`apps/desktop` 的那一个就是桌面更新源服务、已安装外壳据以比对的版本号，不能由 dsh 家族共享版本占有。`checkWorkspaceManifest` 因此在 `isPrivateApp` 为真时跳过该检查，并在 `.spec.ts` 里各钉一条：私有 app 保留自己的产品版本、已发布 app 仍受共享版本约束。补丁线上没有 `apps/*`，这道门在那里永远不触发，下一轮滚动同步移植本补丁时需一并带上。
+
 ## fix(scripts): re-anchor two rescope exact edits to the 0.1.1-rc.1 tree — 9b498d4a3e
 - **改了什么**：`scripts/rescope-vendor.ts`；重新锚定两条 exact-edit 记录（`packages/util/home` 删除、中文 vendoring cookbook 链接改指向 `../rescope.zh.md`）。
 - **为什么**：上游 0.1.1-rc.1 已经把这两处改成了记录表期望的样子，但记录表里保存的 `replace` 原文对不上新树，导致 `rescope-vendor:check` 把已生效的改动误报成既非待办也非已应用。
