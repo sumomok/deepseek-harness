@@ -191,7 +191,8 @@ export class FileSystemSkillProvider implements SkillProvider {
    * Discover local skill summaries for a cwd-sensitive workspace.
    * @param options - lookup options; `cwd` selects the project roots to scan.
    * @returns local provider candidates with stable root ranks; watcher startup
-   *   failure returns readable candidates as an incomplete observation.
+   *   failure and a root that cannot be scanned both return the readable
+   *   candidates as an incomplete observation.
    */
   async list(options: SkillLookupOptions): Promise<SkillCandidate[] | SkillProviderObservation> {
     const roots = await this.roots(options.cwd)
@@ -204,9 +205,19 @@ export class FileSystemSkillProvider implements SkillProvider {
     }
     const candidates: SkillCandidate[] = []
     for (const root of roots) {
-      for (const skill of await discoverRoot(root, this.ctx, this.name)) {
-        candidates.push(skill)
+      // Absence is already empty state; anything else — an unreadable
+      // directory, a link that resolves to itself, a failing device — would
+      // otherwise reject out of `list()`, and `dsh-skill` skips a rejecting
+      // provider whole, taking every other root's skills with it.
+      let discovered: SkillCandidate[]
+      try {
+        discovered = await discoverRoot(root, this.ctx, this.name)
+      } catch (error) {
+        complete = false
+        this.ctx.logger.warn(skippedRootMessage(root, error))
+        continue
       }
+      candidates.push(...discovered)
     }
     return complete ? candidates : { candidates, complete }
   }
@@ -311,8 +322,8 @@ async function canonicalRootKey(path: string): Promise<string> {
     // canonicalizeWatchPath rejects when an ancestor is unreadable or is not a
     // directory, never for ordinary absence. The configured path stays this
     // root's identity so discovery still reaches it: an ancestor that is a
-    // regular file lists empty as absence, and an unreadable one rejects out of
-    // list(), which the registry reports by skipping this whole provider.
+    // regular file lists empty as absence, and an unreadable one warns and
+    // drops this root alone from an incomplete observation.
     return path
   }
 }
@@ -769,7 +780,30 @@ function isAbsentSkillPathError(error: unknown): boolean {
 }
 
 function hasErrorCode(error: unknown, code: string): boolean {
-  return typeof error === 'object' && error !== null && 'code' in error && error.code === code
+  return errorCode(error) === code
+}
+
+/**
+ * Read the failure class an error carries.
+ * @param error - the thrown value; a host error carries its `errno` name and an
+ *   `FsError` carries an `FS_*` code its message does not repeat.
+ * @returns the `code` property rendered as text, or `undefined` when absent.
+ */
+function errorCode(error: unknown): string | undefined {
+  if (typeof error === 'object' && error !== null && 'code' in error) return String(error.code)
+  return undefined
+}
+
+/**
+ * Describe a root dropped from one discovery because scanning it failed.
+ * @param root - the root that was skipped.
+ * @param error - the failure the scan raised.
+ * @returns warning text naming the directory, the failure class, and the effect.
+ */
+function skippedRootMessage(root: SkillRoot, error: unknown): string {
+  const code = errorCode(error)
+  const detail = code === undefined ? errorMessage(error) : `${code}: ${errorMessage(error)}`
+  return `skill-filesystem: skill directory ${root.path} skipped: ${detail}; its skills stay unavailable until it can be read, and every other skill directory still loads`
 }
 
 async function discoverRoot(root: SkillRoot, ctx: Context, provider: string): Promise<SkillCandidate[]> {
@@ -831,9 +865,7 @@ async function listSkillRootEntriesFromNode(root: SkillRoot, ctx: Context): Prom
   try {
     entries = await readdir(root.path, { withFileTypes: true, encoding: 'utf8' })
   } catch (error) {
-    /* v8 ignore else -- Native non-absence directory failures are provider-dependent; the ctx.fs path pins incomplete discovery. */
     if (isAbsentSkillPathError(error)) return []
-    /* v8 ignore next -- Same native error branch as above. */
     throw error
   }
 
