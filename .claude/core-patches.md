@@ -12,6 +12,8 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `8238c1385d`）。核实依据：`git grep -c isPrivateApp upstream/master -- scripts/check-workspace-constraints.ts` 零命中，上游仍把每个 `apps/*` 目录当发布成员校验。移植时与上游本轮新增的 `checkDshFamilyVersion` 取并集。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役
 
+- **rc.31 集成期扩展（本线提交，尚未回补丁线）**：上游 0.1.3-alpha.1 新增的 `checkDshFamilyVersion` 要求每个 `@deepseek-ai/dsh*` 工作区清单的版本等于根版本；`apps/desktop`（`0.1.0-rc.30`）、`apps/desktop-server`、`apps/pwa`（`0.1.0-rc.7`）带的是各自的产品发行版本——`apps/desktop` 的那一个就是桌面更新源服务、已安装外壳据以比对的版本号，不能由 dsh 家族共享版本占有。`checkWorkspaceManifest` 因此在 `isPrivateApp` 为真时跳过该检查，并在 `.spec.ts` 里各钉一条：私有 app 保留自己的产品版本、已发布 app 仍受共享版本约束。补丁线上没有 `apps/*`，这道门在那里永远不触发，下一轮滚动同步移植本补丁时需一并带上。
+
 ## fix(scripts): re-anchor two rescope exact edits to the 0.1.1-rc.1 tree — 9b498d4a3e
 - **改了什么**：`scripts/rescope-vendor.ts`；重新锚定两条 exact-edit 记录（`packages/util/home` 删除、中文 vendoring cookbook 链接改指向 `../rescope.zh.md`）。
 - **为什么**：上游 0.1.1-rc.1 已经把这两处改成了记录表期望的样子，但记录表里保存的 `replace` 原文对不上新树，导致 `rescope-vendor:check` 把已生效的改动误报成既非待办也非已应用。
