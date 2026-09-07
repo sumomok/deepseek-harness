@@ -292,4 +292,62 @@ describe('released v0 legacy normalization', () => {
       data: { title: 'Pinned', messageSeqs: [1], source: { kind: 'user' } },
     }])).toThrow(/empty exactly/)
   })
+
+  it('drops the historical origin member from permission/preset', () => {
+    const rows = [
+      {
+        type: 'permission/preset', seq: 0, time: 1787322888043,
+        data: { preset: 'workspace-write', origin: 'default' },
+      },
+      {
+        type: 'permission/preset', seq: 1, time: 1787322901591,
+        data: { preset: 'yolo-access', origin: 'selection' },
+      },
+    ]
+
+    const events = migrate(rows).events
+
+    expect(events[0]).toEqual({
+      type: 'permission/preset', seq: 0, time: 1787322888043, data: { preset: 'workspace-write' },
+    })
+    expect(events[1]?.data).toEqual({ preset: 'yolo-access' })
+    expect(() => migrate([
+      { type: 'permission/preset', seq: 0, time: 1, data: { preset: 'workspace-write', foo: 'bar' } },
+    ])).toThrow(/permission\/preset 0 data has unexpected member "foo"/)
+  })
+
+  it('renumbers a version-2 subagent descriptor and refuses every other old version', () => {
+    const descriptor = {
+      version: 2, mode: 'continuable', provider: 'spawn', label: '调研黄金类资产与矿股PE',
+      agentProvider: 'deepseek-official', agentModel: 'deepseek-v4-flash-vision-exp',
+    }
+
+    const events = migrate([
+      { type: 'subagent/descriptor', seq: 0, time: 1787709640297, data: descriptor },
+    ]).events
+
+    expect(events[0]?.data).toEqual({ ...descriptor, version: 3 })
+    expect(() => migrate([
+      { type: 'subagent/descriptor', seq: 0, time: 1787709640297, data: { ...descriptor, version: 1 } },
+    ])).toThrow(/subagent\/descriptor 0 uses unsupported descriptor version 1/)
+  })
+
+  it('carries the server-console content-surface events through as ignorable', () => {
+    const rows = [
+      { type: 'content/shown', seq: 0, time: 1788074166009, data: { page: 'reports', by: 'user' } },
+      {
+        type: 'content-surface/dismissed', seq: 1, time: 1788159176818,
+        data: { kind: 'page', entryId: 'point-info', by: 'user' },
+      },
+    ]
+
+    const migrated = migrate(rows)
+
+    expect(migrated.events[0]).toEqual({ ...rows[0], ignorable: true })
+    expect(migrated.events[1]).toEqual({ ...rows[1], ignorable: true })
+    expect(() => { sessionFormatV0ToV1.validateTarget(migrated) }).not.toThrow()
+    expect(() => migrate([
+      { type: 'content-surface/whatever', seq: 0, time: 1, data: {} },
+    ])).toThrow(/unknown historical event type "content-surface\/whatever"/)
+  })
 })
