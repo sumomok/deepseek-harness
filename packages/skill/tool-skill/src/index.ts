@@ -222,14 +222,17 @@ export function apply(ctx: Context, config: Config = {}): void {
       ? await ctx.skills.snapshot({ cwd: agent.session.header.cwd, signal, scope: agent })
       : { skills: [], complete: true }
     signal.throwIfAborted()
-    // An incomplete observation that still carries skills is a provider
-    // degrading part of its own discovery — one unreadable local root among
-    // several — and the skills it did reach are real and directly loadable, so
-    // they reach the model. Incomplete and empty stays a blind step: it cannot
-    // tell "no skills exist" from "nothing was readable", and publishing that
-    // as a catalog would delete a good one from the model's view.
-    if (!snapshot.complete && snapshot.skills.length === 0) return decision
+    // An incomplete observation that still reaches model-invocable skills is a
+    // provider degrading part of its own discovery — one unreadable local root
+    // among several — and the skills it did reach are real and directly
+    // loadable, so they reach the model. Incomplete with nothing left to
+    // publish stays a blind step: it cannot tell "no skills exist" from
+    // "nothing was readable", and an empty replacement tells the model the
+    // names it already has are gone. The count is of what this catalog would
+    // carry, so surviving skills the model may not invoke do not stand in for
+    // a view.
     const skills = snapshot.skills.filter(isModelInvocable)
+    if (!snapshot.complete && skills.length === 0) return decision
     const entries = catalogSourceEntries(skills, catalogDescriptionMaxLength)
     const digest = digestCatalogEntries(entries)
     const history = catalogHistory(agent)
