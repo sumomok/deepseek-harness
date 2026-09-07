@@ -20,9 +20,9 @@ Status: implemented
 
 ## Decision
 
-[`migration.ts`](../../../../packages/session/session-format-v0-to-v1/src/migration.ts) 在每个 v0 事件本就要走一遍、且先于 payload 校验的规范化链上新增两个规范化器。`normalizeLegacyPermissionPreset` 移除 `origin` 成员，别的一概不动。`normalizeLegacySubagentDescriptor` 把 `version: 2` 改写为 `version: 3`，不碰任何其它成员。[`dispositions.ts`](../../../../packages/session/session-format-v0-to-v1/src/dispositions.ts) 在 `LEGACY_UNINTERPRETED_EVENT_TYPES` 里点名 `content/shown` 与 `content-surface/dismissed`，两者因此被原样携带，到达 v2 时带上 `ignorable: true` 供安装态还原器识别。`session-format-v1-to-v2` 读的是同一个集合，所以点名一次即覆盖两条边。
+[`migration.ts`](../../../../packages/session/session-format-v0-to-v1/src/migration.ts) 在每个 v0 事件本就要走一遍、且先于 payload 校验的规范化链上新增两个规范化器。`normalizeLegacyPermissionPreset` 移除 `origin` 成员，别的一概不动。`normalizeLegacySubagentDescriptor` 把 `version: 2` 改写为 `version: 3`，不碰任何其它成员。[`dispositions.ts`](../../../../packages/session/session-format-v0-to-v1/src/dispositions.ts) 在 `LEGACY_UNINTERPRETED_EVENT_TYPES` 里点名 `product/server-console` 线写下的全部六种内容事件——`content/shown`、`content/navigated`、`content-surface/selected`、`content-surface/dismissed`、`content-component/shown`、`content-component/resolved`——它们因此被原样携带，到达 v2 时带上 `ignorable: true` 供安装态还原器识别。`session-format-v1-to-v2` 读的是同一个集合，所以点名一次即覆盖两条边。
 
-descriptor 选择改写版本号而不是原样放行，因为这次升格是完全的。`f76a225a7d` 的差异只给 continuable descriptor 加了一个可选成员 `agentReasoningEffort`，别的一律未改，所以版本 2 的 payload 恰好等于一份不声明子 Agent 推理力度的版本 3 payload——不需要猜任何字段，也不丢任何字段。像 `assertReleasedEventPayload` 的 v1 分支那样把版本 2 原样带过去，会让会话打得开却丢掉该事件描述的东西：`@deepseek-ai/dsh-subagent` 的 `parseSubagentDescriptor` 只读版本 3，那条委派会在还原时被丢弃。
+descriptor 选择改写版本号而不是原样放行，因为这次升格是完全的。`f76a225a7d` 的差异只给 continuable descriptor 加了一个可选成员 `agentReasoningEffort`，别的一律未改，所以版本 2 的 payload 恰好等于一份不声明子 Agent 推理力度的版本 3 payload——不需要猜任何字段，也不丢任何字段。像 `assertReleasedEventPayload` 的 v1 分支那样把版本 2 原样带过去，会话根本打不开：`session-format-v1-to-v2` 没有这条豁免，它的 v2 目标校验走到 `subagentDescriptorValue` 并以 `subagent/descriptor N version must be one of 3` 拒绝。改写版本号是让会话得以迁移的那一步，同时也把 payload 留在 `@deepseek-ai/dsh-subagent` 的 `parseSubagentDescriptor` 唯一能识别的那一代。
 
 `origin` 成员选择移除而不是纳入清单。`RELEASED_V0_EVENT_DISPOSITIONS` 声明它列出的每个成员都由恒等迁移边保留，而 `session-format-v1-to-v2` 的 v2 清单又派生自它，所以把一个会被丢弃的成员列进去，在一个包里是假话，并且会把这个成员放进两个后续世代——那里没有任何写入方会写它。在规范化器里移除，正是迁移边对已停用的 `request/header.header.messagePrefix` 的既有做法。
 
@@ -34,13 +34,13 @@ descriptor 选择改写版本号而不是原样放行，因为这次升格是完
 
 这一缺陷不在本次处理范围内。修复它意味着凭空补出一个写入方从未写下的事件并插入序列，而插入会重编其后每一个 `seq` 以及每一处对 seq 的引用——`sourceEventSeqs`、`surfaceOp`、`messageSeqs`、`shadowedSeqs`、`shadowedRange`、`sourceEventSeq`、`throughSeq` 与 `inheritedEventCount`。那套机制归 `session-format-v1-to-v2` 所有、服务于另一个目的，与点名几种照原样写下的形状是两个决定。
 
-`content-surface/dismissed` 是同一条路上找出来的——只有当排在它前面的形状不再先行拒绝，它才变得可达。事后对两个库逐行扫描，界定了剩余集合：在冻结清单与打包物理行标记之外，两个库恰好只有 `content/shown`、`content-surface/dismissed` 与已被点名的 `permissionRules/decision`；`permission/preset` 除 `preset` 与 `origin` 外没有别的成员；落盘的 `subagent/descriptor` 没有 2 以外的版本。
+`content-surface/dismissed` 是同一条路上找出来的——只有当排在它前面的形状不再先行拒绝，它才变得可达。事后对两个库逐行扫描，界定了这两个库持有的集合：在冻结清单与打包物理行标记之外，它们恰好只有 `content/shown`、`content-surface/dismissed` 与已被点名的 `permissionRules/decision`；`permission/preset` 除 `preset` 与 `origin` 外没有别的成员；落盘的 `subagent/descriptor` 没有 2 以外的版本。也就是说六种内容事件里只有两种出现在这两个库中。六种仍然全部点名，因为写它们的是同一条产品线，别人的库里任何一种都会撞上同一次拒绝；清单取自 `git diff HEAD product/server-console -- packages/core/session/src/known-event-types.ts`。
 
 ## Alternatives considered
 
 **把 `origin`作为冻结 `permission/preset` 处置的可选成员纳入清单，并在迁移后的会话里保留它。** 这是更小的改动，也保住了旧构建记下的一个事实。它同时让清单与自己写明的含义相矛盾，把该成员传播进 `session-format-v1-to-v2` 由它派生的 v2 清单，并让 v1 或 v2 产物携带一个任何已发布写入方都不写的成员，而下游没有任何东西读它。
 
-**把版本 2 的 `subagent/descriptor` 原样带过去。** payload 校验的 v1 分支对非 3 的版本本就直接返回，把这条扩到 v0 是两行改动、不需要任何升格逻辑。它能让会话恢复，却悄悄丢掉其中的 subagent——安装态的 descriptor 解析器只接受版本 3，读者会打开一份本该带委派的历史，里面没有委派。
+**把版本 2 的 `subagent/descriptor` 原样带过去。** payload 校验的 v1 分支对非 3 的版本本就直接返回，把这条扩到 v0 是两行改动、不需要任何升格逻辑。它什么也恢复不了：v1→v2 边用同一套已发布语义校验目标，以 `subagent/descriptor N version must be one of 3` 拒绝，会话只前进一代就停住。对两条边的探针实证了这一点——版本 2 被拒、版本 3 迁移通过。
 
 **让任何带 `ignorable: true` 标记的历史事件通过迁移边。** 这一下就能覆盖 `content/shown` 与 `content-surface/dismissed`，而且以后每一种仓外事件类型都不必再打补丁。迁移边的拒绝文案明确写着 `ignorable: true` 不为历史事件豁免，而这一立场正是阻止任意第三方 payload 未经检视进入冻结世代的东西。点名清单的代价是每种实证出现过的类型一行。
 
@@ -56,6 +56,6 @@ descriptor 选择改写版本号而不是原样放行，因为这次升格是完
 
 ## Testing
 
-`session-format-v0-to-v1` 的 `legacy.spec.ts` 用逐字取自语料的 payload 钉住每一种形状，并钉住证明这次放行足够窄的拒绝：带 `foo` 成员的 `permission/preset` payload、版本 1 的 descriptor，以及没被点名的 `content-surface/whatever` 事件。包内覆盖率保持逐文件 100%。
+`session-format-v0-to-v1` 的 `legacy.spec.ts` 钉住每一种形状（两种来自语料的 payload 逐字照录），并钉住证明这次放行足够窄的拒绝：同时带 `origin` 与 `foo` 成员的 `permission/preset` payload、版本 1 的 descriptor，以及没被点名的 `content-surface/whatever` 事件。`session-format-v1-to-v2` 的 `migration.spec.ts` 让六种内容事件走完那条边，并在那里钉住 descriptor 的两个版本。包内覆盖率保持逐文件 100%。
 
 语料回放不是仓内测试。它读的是两个真实库的私有副本，因此活在仓外，数字记录在上文。

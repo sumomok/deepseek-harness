@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-07-v0-migration-legacy-shapes.md
-2026-09-07-v0-migration-legacy-shapes.md: b02116622a2cd0063c6c0c1ba86339ed08e77118
-2026-09-07-v0-migration-legacy-shapes.zh.md: 5c844f3fb3c8b2f846ea0571b1d88e522e989be5
+2026-09-07-v0-migration-legacy-shapes.md: 302fed20f7a55d83f9144dfa9e38a7cdab82e310
+2026-09-07-v0-migration-legacy-shapes.zh.md: f96d11fe38e7e0b8b7dd151e0a05458b533511b4

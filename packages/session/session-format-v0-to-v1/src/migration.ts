@@ -24,7 +24,7 @@ import { LEGACY_UNINTERPRETED_EVENT_TYPES, RELEASED_V0_EVENT_DISPOSITIONS } from
 /** Descriptor generation written before `agentReasoningEffort` joined the payload. */
 const LEGACY_SUBAGENT_DESCRIPTOR_VERSION = 2
 
-/** Only descriptor generation the released payload inventory validates. */
+/** The only descriptor generation the released payload inventory validates. */
 const RELEASED_SUBAGENT_DESCRIPTOR_VERSION = 3
 
 /** Identity format edge that promotes released v0 into released v1. */
@@ -106,7 +106,7 @@ function markLegacyUninterpreted(event: SessionFormatEvent): SessionFormatEvent 
  * Only this one member is removed: a `permission/preset` payload carrying any
  * other unexpected member is still refused.
  * @param event - one released-v0 event.
- * @returns the event without the historical member.
+ * @returns the event, with the historical member removed when it carried one.
  */
 function normalizeLegacyPermissionPreset(event: SessionFormatEvent): SessionFormatEvent {
   if (event.type !== 'permission/preset') return event
@@ -122,13 +122,16 @@ function normalizeLegacyPermissionPreset(event: SessionFormatEvent): SessionForm
  * Version 3 added one optional member, `agentReasoningEffort`, and changed
  * nothing else, so a version-2 payload is exactly a version-3 payload that
  * declares no child reasoning effort: the promotion invents no value and loses
- * none. Renumbering rather than carrying the old number through is what keeps
- * the delegation the event describes: the installed descriptor parser reads
- * version 3 only, so a Session migrated with version 2 intact would open and
- * still lose its subagent. Every other descriptor version stays as written,
- * and the payload validator refuses it.
+ * none. Renumbering is what lets the Session migrate at all. The v1 branch of
+ * this package's payload check returns without complaint for a non-3 version,
+ * but the next edge has no such escape: `dsh-session-format-v1-to-v2` runs the
+ * same released semantics over its v2 target and refuses with
+ * `subagent/descriptor N version must be one of 3`. Renumbering also leaves
+ * the payload in the one generation `parseSubagentDescriptor` classifies.
+ * Every other descriptor version stays as written, and the payload validator
+ * refuses it.
  * @param event - one released-v0 event.
- * @returns the event with a version-3 descriptor payload.
+ * @returns the event, renumbered to version 3 when it was written at version 2.
  */
 function normalizeLegacySubagentDescriptor(event: SessionFormatEvent): SessionFormatEvent {
   if (event.type !== 'subagent/descriptor') return event
