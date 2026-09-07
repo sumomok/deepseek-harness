@@ -171,6 +171,16 @@ describe('gate graph validation', () => {
     expect(ids).toContain('subsystem-pages')
   })
 
+  it('keeps the third-party attribution freshness check in the documentation gate', () => {
+    // The generator's own spec asserts the same freshness, and the pre-commit
+    // hook regenerates the file for a staged manifest edit. Neither reaches a
+    // change that edits THIRD_PARTY_NOTICES.md by hand and runs doc-sync, which
+    // is the aggregate a documentation change actually runs.
+    const ids = withPnpmEntrypoint(() => gatesForMode('doc-sync').map(subject => subject.id))
+
+    expect(ids).toContain('third-party-notices')
+  })
+
   it('derives the quick documentation aggregate from marked doc-sync leaves', () => {
     const full = withPnpmEntrypoint(() => gatesForMode('doc-sync'))
     const quick = withPnpmEntrypoint(() => gatesForMode('doc-quick'))

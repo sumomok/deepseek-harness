@@ -93,10 +93,18 @@ describe('the composed preset table', () => {
     expect(presets['yolo-access']).toEqual({
       sandbox: 'danger-full-access',
       approval: 'ask',
-      name: '自动审查',
-      description: expect.stringContaining('沙箱完全关闭') as string,
+      name: '关闭沙箱（不推荐）',
+      description: expect.stringContaining('不再有操作系统层面的围墙') as string,
       glyph: 'danger-full-access',
     })
+  })
+
+  it('does not offer review as the thing that replaces the sandbox', () => {
+    // Whether the review model is consulted is the gate's own `/review`
+    // setting, in force under every preset. A row that named review would
+    // read as a mode where selecting it buys a check, when what it buys is
+    // approval prompts a model raises and cannot enforce.
+    expect(presets['yolo-access']?.description).toContain('拦不住任何东西')
   })
 
   it('gives every preset its own knob pair, so each one stays nameable', () => {

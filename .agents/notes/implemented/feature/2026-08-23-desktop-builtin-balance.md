@@ -76,4 +76,6 @@ The shipped price table is a transcription with a date on it, and it goes stale 
 
 Editing a price list, or switching to another currency's list, changes the per-session projection's cache version, so every session is re-priced on next read rather than continuing to add to totals computed at the old rates. The ledger's own rows keep the currency and tier they were written with, and aggregates are kept per currency, so a deployment that switches lists sees the new currency start from zero rather than inheriting a total in the old one.
 
+0.4.1 adds a **Balance** settings switch (`maskBalance`, off) that shows the footer chip's figure as `••••`, for a screen being shared or recorded; saving it forces the read the flag rides on rather than waiting for the next poll tick. Three things stay unmasked — the popover, because opening it is the deliberate act that asks for the number; the threshold tint, so a chip can still go red without saying how much is left; and the session spend line under the composer, whose amount comes from the open conversation's own ledger projection rather than from the chip's balance read.
+
 The plugin owns a file under `$DSH_HOME` that no other part of the harness knows about. `dsh plugin remove` drops the dependency and the layer and leaves the ledger where it is; deleting `$DSH_HOME/dsh-balance/` is the user's move.

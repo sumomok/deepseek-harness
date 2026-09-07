@@ -123,12 +123,20 @@ import { dirname, join, resolve } from 'node:path'
  * — the payload directory, the manifest entry, the flat-fallback link — is
  * joined rather than concatenated, and the link's scope directory is created
  * with it.
+ *
+ * Order matters only between layers that patch the same entry id.
+ * `@haoran/dsh-default-model` replaces the whole `config` of the
+ * `agent-default-model` and `llm-deepseek` rows. `@haoran/dsh-mcp-servers` and
+ * `@haoran/dsh-btw` sit after it because each one's layer only inserts a row of
+ * its own; `@deepseek-ai/dsh-desktop-app` targets `llm-deepseek` again from the
+ * last position, so its row restates the model catalog that layer sets.
  */
 export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   'dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway',
   '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
   '@haoran/dsh-clickable-refs', '@haoran/dsh-plugin-updates', '@haoran/dsh-vision-switch',
-  '@haoran/dsh-default-model', '@deepseek-ai/dsh-desktop-app',
+  '@haoran/dsh-default-model', '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
+  '@deepseek-ai/dsh-desktop-app',
 ]
 
 /**

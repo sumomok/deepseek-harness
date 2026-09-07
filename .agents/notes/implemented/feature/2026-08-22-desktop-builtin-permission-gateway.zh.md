@@ -18,7 +18,7 @@ rc.17 把桌面客户端挪到了它自己的 `desktop` profile 上,理由记在
 
 插件像另外三个内置插件那样随载荷分发,预设则随插件走。
 
-**载荷。**`apps/desktop-server/package.json` 把 `@haoran/dsh-llm-permission-gateway` 声明为 `file:./vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz`,该 tarball 与它一起提交,`BUILTIN_WEB_BUNDLES` 列出这个名字,于是 `apps/desktop/src/profile-seed.ts` 会在服务端启动之前把它播种进 `desktop` profile。pnpm 只为 `file:` tarball 记录 `integrity` 哈希,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目——截图插件被 vendor 而不是去取,也是同一个原因。`scripts/bundle-closure.ts` 按它本就有的规则完整保留这个包:清单声明了 `dsh.bundle` 的包是 profile bundle,载荷里没有任何东西以标识符导入它。暂存启动的 client 模块检查会跳过它,因为它没有声明 `dsh.client`——工具是 agent 去调用的,不是页面去加载的。`THIRD_PARTY_NOTICES.md` 用一条指向该 tarball 的仓库相对链接标识它,这条记在生成器的覆盖表里。
+**载荷。**`apps/desktop-server/package.json` 把 `@haoran/dsh-llm-permission-gateway` 声明为一条 `file:` 标识符,指向与它一起提交的那个 tarball,`BUILTIN_WEB_BUNDLES` 列出这个名字,于是 `apps/desktop/src/profile-seed.ts` 会在服务端启动之前把它播种进 `desktop` profile。pnpm 只为 `file:` tarball 记录 `integrity` 哈希,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目——截图插件被 vendor 而不是去取,也是同一个原因。`scripts/bundle-closure.ts` 按它本就有的规则完整保留这个包:清单声明了 `dsh.bundle` 的包是 profile bundle,载荷里没有任何东西以标识符导入它。暂存启动的 client 模块检查读的是载荷自己的 `dsh.client` 声明而不是一份名单,所以这个插件后来长出的浏览器那一半在那里被强制要求,无需再改一处。`THIRD_PARTY_NOTICES.md` 用一条指向该 tarball 的仓库相对链接标识它,这条记在生成器的覆盖表里。
 
 **播种能够到已经出问题的那些机器。**`seedExistingManifest` 只把缺失的名字追加在清单已列内容之后,别的一概不改写,所以一个由 rc.17 建出来的 `desktop` profile 会在下次启动时多出这一个名字,同时保留它自己的 `cordis.patch.yml`、它的依赖,以及每一个不归壳所有的字段。没有这一点,这次修复就只能到达全新安装,而丢了这个功能的恰恰是那些曾经拥有它的安装。
 
@@ -52,8 +52,12 @@ rc.17 把桌面客户端挪到了它自己的 `desktop` profile 上,理由记在
 
 现在每一次桌面安装都带着一个「被选中时会关掉操作系统沙箱」的预设。选中它意味着审查模型成为 agent 与文件系统之间唯一的东西,于是安全性变成那个模型判断质量的属性,而不再是沙箱的属性——这正是这个预设要提供的取舍,只是现在够得到它的人多了。编译进插件的两条红线,凭据外泄与对权限系统自身的改动,不受这一切影响,也配置不掉。
 
-在这个预设被选中期间,每一次有副作用的工具调用都要花一次 `deepseek-v4-flash` 的审查调用,记在与会话相同的凭据上。只读工具从不送审,一次裁决是单轮而不是一段对话,参数完全相同的重复调用在该 agent 本次运行的剩余时间里复用同一个裁决。
+一次送审的调用要花一次判官路由上的审查调用,记在与会话相同的凭据上。只读工具从不送审,一次裁决是单轮而不是一段对话,参数完全相同的重复调用在该 agent 本次运行的剩余时间里复用同一个裁决。哪些调用会被送审、以及选中这个预设意味着什么,已经从预设里搬走,见[审查开关这篇](2026-09-06-gateway-review-switch.zh.md)。
 
 vendored tarball 就是这个插件的更新渠道。一个新版本意味着在插件工作区里构建、提交 tarball、把 `file:` 标识符移过去,再发一次桌面构建;携带某次构建的安装包拥有该版本,与其余每个内置插件一样。
 
 只禁用门那一行、却不把预设一并去掉,会造出这次改动正要防止的那个状态——一个把沙箱关掉、背后却没有任何审查的预设。patch 层拦不住用户在自己那一层里写下这种配置,因为用户层在所有 bundle 层之后应用,所以 `apps/desktop/README.zh.md` 把它写明为唯一一个不该单独禁用其行的内置插件,并说明怎样把预设一起从控件里去掉。
+
+## Related
+
+[审查开关离开预设表](2026-09-06-gateway-review-switch.zh.md) 取代了本决策中「审查是所选预设的一个属性」那一部分:审查现在是插件自己的 `/review` 设置,在任何预设下都生效,而本篇加入的那一行也改名为它实际做的事。
