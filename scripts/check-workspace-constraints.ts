@@ -383,7 +383,11 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
     ...checkPrivateAppManifest({ dir, manifest }),
   ]
   const label = manifest.name ?? dir
-  const familyVersionError = checkDshFamilyVersion(manifest, repositoryVersion)
+  // A private app is outside the dsh release sequence and may carry its own
+  // product version instead: a packaged desktop shell publishes the version its
+  // update feed serves and an installed client compares against, so the shared
+  // family version cannot own it.
+  const familyVersionError = privateApp ? undefined : checkDshFamilyVersion(manifest, repositoryVersion)
   if (familyVersionError !== undefined) errors.push(familyVersionError)
   const isNativePackageDir = dir.startsWith('native/system/packages/')
   const isPublicNativePackage = isNativePackageDir

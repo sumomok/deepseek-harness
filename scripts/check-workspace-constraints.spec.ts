@@ -1,5 +1,6 @@
 /** Experimental-package and private-app publication and dependency constraints. */
 
+import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
 import {
   isPublicExperimentalPackageDirectory,
@@ -10,6 +11,7 @@ import {
   checkExperimentalDependencyIsolation,
   checkExperimentalManifest,
   checkPrivateAppManifest,
+  checkWorkspaceManifest,
   expectedDshPackageFiles,
   type WorkspaceManifest,
 } from './check-workspace-constraints.ts'
@@ -196,5 +198,20 @@ describe('private app workspace constraints', () => {
     })).toEqual([
       '@deepseek-ai/dsh: private app must not hold a publication files policy',
     ])
+  })
+
+  it('leaves a private app on its own product version', () => {
+    expect(checkWorkspaceManifest({
+      ...privateApp,
+      manifest: { ...privateApp.manifest, version: '0.1.0-rc.30' },
+    })).toEqual([])
+  })
+
+  it('still holds a published app to the shared dsh family version', () => {
+    const rootVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+    expect(checkWorkspaceManifest({
+      dir: 'apps/cli',
+      manifest: { name: '@deepseek-ai/dsh', version: '0.1.0-rc.30' },
+    })).toContain(`apps/cli/package.json: @deepseek-ai/dsh: package.json version must match root version ${rootVersion}`)
   })
 })
