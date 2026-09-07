@@ -624,6 +624,7 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 ### 生成物与提交信息的已知不一致（不改写历史）
 
 - `e675dd6486` 起的十个提交（至 `0227d2c178`）里，`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` 的 `source:` 行号与同树 `ui-chat/src/client/contract/slots.ts` 差一行（catalog 记 251/262，源码实为 250/261）：生成物是在后一棵树上跑出来的。`20349d9c33` 起两侧一致（313/324），HEAD 亦一致（352/363）。这些提交已推 origin，不改写。
+- 本线 6 个已推提交的信息里没有 `Co-Authored-By` trailer：`1930a2321b`、`4e00a2b851`、`7892bda036`、`91743a89eb`、`0f05da7bb7`、`a8477f0a8a`。已推 origin，不改写历史；后续提交照常带。
 - `d929cdfd2a` 的提交信息写 "Two such types exist on this fork's disks"，对 `attachment/materialized` 不成立：本机 128 份日志逐份解压扫描零命中，它只会出现在触发过溢出附件的 rc.29/rc.30 用户机上。订正记在该补丁小节。
 
 ### 旧会话可读性预审（在纯 `upstream/master` 树上做，先于任何移植）
@@ -661,14 +662,14 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 
 **逐文件改用真正的内容祖先 `473b700a53`（`core-patches-v6` 顶端，develop 已含）做 `git merge-file`**：109 个里 **102 个机械消解为零冲突**，其中 **101 个 `ours` 与祖先逐字节相同**（develop 从未在补丁线之外碰过它们，结果即 v7 侧），只有 `tsconfig.host.json` 是真三方并集（同时保留 develop 的 `apps/desktop/**` 与上游新增的 `session-format{,-v0-to-v1,-v1-to-v2,-catalog}`、`client/file-upload` 引用）。剩余 7 个手判：
 
-- `.claude/core-patches.md`：四处冲突。前两处取 v7（v7 把每条补丁的状态行改写为「退役/保留 + 上一轮状态」，是旧行的严格超集）；第三处并集，保留 develop 的「rc.26 合并事故复核」整段，标题行取 v7 的新 SHA（`4f3e1b462d` → `44ff8f621d`）；第四处并集，develop 的 rc.29/rc.30 集成审计段在前、v7 的「重新移植」段在后。`comm` 逐行实证：merged ⊇ v7 侧 **0 行缺失**；develop 侧缺 36 行，逐行归类为 12 条被 v7 改写 SHA 的标题、19 条被 v7 收进「上一轮状态」的状态行、1 条被 v7 同义替换的「当前补丁线」指针，**无内容丢失**。
+- `.claude/core-patches.md`：四处冲突。前两处取 v7（v7 把每条补丁的状态行改写为「退役/保留 + 上一轮状态」，是旧行的严格超集）；第三处并集，保留 develop 的「rc.26 合并事故复核」整段，标题行取 v7 的新 SHA（`4f3e1b462d` → `44ff8f621d`）；第四处并集，develop 的 rc.29/rc.30 集成审计段在前、v7 的「重新移植」段在后。`comm` 逐行实证：merged ⊇ v7 侧 **0 行缺失**；develop 侧缺 **34** 行（在最终 HEAD 上 `comm` 实测；本节初稿写的 36 与其分类 12+19+1 对不上，以实测为准），逐行归类为 **21** 条被 v7 收进「上一轮状态」的状态行、**12** 条被 v7 改写 SHA 的标题、**1** 条被 v7 同义替换的「当前补丁线」指针，**无内容丢失**。
 - `packages/client/connection/src/client/fixture.ts`、`docs/subsystems/attachment.{md,zh.md,i18n.yaml}`：整取 v7。develop 侧这几处的差异全部来自 v7 已登记退役的文本文件附件族（fixture 的 `file` prompt part 来自 develop 的 `a1131f9121`，文档来自 `packages/attachment` 的自建文本文件存储边界）。
 - `scripts/gen-third-party-notices.ts`：并集——fork 的十条 vendored tarball 覆盖项与上游新增的 `fs-ext` 许可覆盖项同时保留。
 - `pnpm-lock.yaml`：整取 v7 侧，再跑 `pnpm install` 让补丁线没有的四个 importer（`apps/desktop`、`apps/desktop-server`、`apps/desktop-app`、`apps/pwa`）重新解析；退出码 0。
 
 **「两侧都改过」的非冲突文件同样按内容祖先重判**（git 用上游合并基自动合并会把补丁计两次）：补丁线拥有、develop 未动的 8956 个路径里 **56 个的自动合并结果与 v7 不符**，逐个改回 v7 内容（含 `llm-deepseek`/`llm-pi-ai` 的 adapter 与 `packages/bundle/base/package.json` 等溢出附件接线）；`packages/bundle/base/cordis.patch.yml` 与 `docs/module-graph.i18n.yaml` 两个「两侧都改过」的自动合并结果也偏离三方结果，按内容祖先重解（前者的 `attachment-spill` 插件行随族退役）。
 
-**删除复活护栏**：以 `473b700a53` 为准，v7 侧删除且不在合并基上的 fork 文件 **45 个**，git 全部当作 develop 单侧新增而保留——逐个删除，与 v7 台账「被删除的 fork Agent Note（6 份）」与文件附件族整族退役一一对应。护栏另两向为零：结果树中「两个父都没有」的文件 0 个；v7 有而结果缺的路径 2 个，是 `attachment-labels.*` → `image-labels.*` 的改名对，按 v7 路径补回。族退役的树内余波另修：删除 `apps/web/tests/{file-display.expected,secret-container-confirmation}.e2e.ts` 与后者金样、`apps/web/tsconfig.json` 的对应条目、`apps/desktop-server` 的 `dsh-attachment-spill` 依赖、`scripts/type-equiv.manifest.json` 的五条 `docs/subsystems/attachment.md` 条目，以及四组只记录该族的 develop 侧 Agent Note（`2026-08-28-file-attachment-{composer-intake,wire-log-request,build-purity-and-stale-copy}`、`2026-08-30-attachment-spill-materialization`）。
+**删除复活护栏**：以 `473b700a53` 为准，v7 侧删除且不在合并基上的 fork 文件 **45 个**，git 全部当作 develop 单侧新增而保留——逐个删除，与 v7 台账「被删除的 fork Agent Note（6 份）」与文件附件族整族退役一一对应。护栏另两向为零：结果树中「两个父都没有」的文件 0 个；v7 有而结果缺的路径 2 个，是 `attachment-labels.*` → `image-labels.*` 的改名对，按 v7 路径补回。族退役的树内余波另修：删除 `apps/web/tests/{file-display.expected,secret-container-confirmation}.e2e.ts` 与后者金样、`apps/web/tsconfig.json` 的对应条目、`apps/desktop-server` 的 `dsh-attachment-spill` 依赖、`scripts/type-equiv.manifest.json` 的五条 `docs/subsystems/attachment.md` 条目，以及四组只记录该族的 develop 侧 Agent Note（`2026-08-28-file-attachment-{composer-intake,wire-log-request,build-purity-and-stale-copy}`、`2026-08-30-attachment-spill-materialization`）——**这四组按归档处置，不是删除**，见下面「归档而非删除」一节。
 
 **生成物一律重跑不手改**：13 个生成器全跑，**只有 `docs/module-graph.{md,zh.md}` 有改动**（`attachment-spill` 行消失），其余零 diff；`verify-translation-pairing` 1189 对全绿。
 
@@ -690,9 +691,21 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 2. `47bf2b82ba` `test(scripts)`：上条新增用例读根清单时未标类型，`no-unsafe-assignment`/`no-unsafe-member-access` 两条 lint 报错，改用 `PackageManifest`。
 3. `799d45eee5` `test(snapshot)`：`snapshots/web/approval-preview-diff` 的手写脚本是 rc.30 基座上的 v0，新基座的 `assertV2SnapshotCorpusPolicy` 要求每个被选中的 Session 角色为 v2。脚本改写为 released-v2 物理头 + 每步顶层 assistant chunk 折进该步 `assistant/message` 的 `stream`；其 `session/title` 原引 seq 1 而它指名的用户消息在 seq 2（v0 读路径不校验、迁移校验器会拒），随迁一并订正；e2e 与夹具清单断言改用 `session.v2.jsonl`。
 
-### 门禁实跑（HEAD `799d45eee5`，工作树 `../dsh-rc31`）
+### 归档而非删除：四组 develop 侧文件附件 Agent Note
 
-`pnpm install` 0 → `build` 0（222 个客户端产物）→ `typecheck` 0 → `lint` 0 → `vitest run apps/desktop/tests packages/skill packages/client/ui-tool packages/client/ui-approval packages/client/ui-chat` **72 文件 / 1267 条全绿** → `doc-sync` **35/35**（rc.30 是 34，`ebca8637e8` 新增一道第三方许可门）→ `hygiene` **16/16** → `test:snapshot` **121 条中 118 通过 / 2 跳过 / 1 红**，唯一的红是 `ptc-python-turn`（本机 CPython 3.9.6 低于该包要求的 3.10+，非本次引入）→ `DSH_SNAPSHOT=replay` 四场景 e2e（`approval-preview-diff`、`approval-composer`、`shipped-composition`、`scaffold-hermetic`）**4 文件 8 条全绿** → `desktop-composition-layer.spec.ts` 10 条全绿，`BUILTIN_WEB_BUNDLES` 14 项、末位为 `@deepseek-ai/dsh-desktop-app`。
+`0e6ddc026b` 起初把这四组（中英 + 配对记录共 12 个文件）直接删了，理由是它们指向的 `packages/client/ui-primitives/src/file-sniff.ts` 等路径随族退役而消失、`verify-package-paths` 报红。复核后按 [`.agents/notes/README.md` § Archiving and deletion](../.agents/notes/README.md) 改判：该节只对 **rejected** 记录写了删除路径（「Keep a rejected note only while it prevents a plausible mistake; otherwise delete its English, Chinese, and sidecar files together」），对 **implemented** 记录只给「归档」或「保持在役」两条，没有删除条款；同节还写明「Documentation gates skip archived sources, including their outbound links」，所以归档同时消掉那道红。
+
+四组按归档三件套从 `1125f329b3` 原样取回：`implemented/{feature,bug-fix}/` → `archived/{feature,bug-fix}/`，保留 `Status: implemented`，在其下插入 `Archived: 2026-09-07`，配对记录按新 blob 重录，再 `verify-archived-agent-notes --write` 封存 12 条（`543 frozen artifact(s) checked across 6 kind(s)`）。两组中文侧原本用本地化元数据行（`# Agent Note：…` 与 `状态：已实现`），归档树的头部语法（`scripts/archived-agent-notes.ts` 的 `validateHeader`）要求 `# Agent Note: ` 与 `Status: implemented`，全部 177 份既有归档中文侧亦如此，故这两行按目的地格式规范化——除此之外正文一字未动。无入链需要修补（全仓 grep 这四个文件名，除本文件外零命中）。
+
+v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent Note」一节）不在本次改判范围：那是补丁线上已推 origin 的决定，本集成只是跟随。
+
+### 纪律记录：本分支 4 次 `--amend`
+
+`git reflog` 实证：`0e6ddc026b` 两次（`6fa2454d2c` → `619abdb1c1` → `0e6ddc026b`）、`df13f0ab82` 一次、`e94386dc0a` 一次，共 4 次，全部只为给合并提交补 `Co-Authored-By` trailer。其中一次误用了 `--no-verify`，随即以不带该标志的 `--amend --no-edit` 重做，最终提交经过 lefthook。分支从未推过 origin，四次改写对任何远端与任何内容都无影响。此后一律用新提交而不是 amend。
+
+### 门禁实跑（工作树 `../dsh-rc31`；本节数字取自 `bd51a99ef7`，即第七次合并之后、第八次合并之前）
+
+`pnpm install` 0 → `build` 0（222 个客户端产物）→ `typecheck` 0 → `lint` 0 → `vitest run apps/desktop/tests packages/skill packages/client/ui-tool packages/client/ui-approval packages/client/ui-chat` **72 文件 / 1267 条全绿**（第八次合并 `48687c9d4c` 之后为 **72 文件 / 1268 条**——`32d9d7f077` 给 tool-skill 加了一条用例） → `doc-sync` **35/35**（rc.30 是 34，`ebca8637e8` 新增一道第三方许可门）→ `hygiene` **16/16** → `test:snapshot` **121 条中 118 通过 / 2 跳过 / 1 红**，唯一的红是 `ptc-python-turn`（本机 CPython 3.9.6 低于该包要求的 3.10+，非本次引入）→ `DSH_SNAPSHOT=replay` 四场景 e2e（`approval-preview-diff`、`approval-composer`、`shipped-composition`、`scaffold-hermetic`）**4 文件 8 条全绿** → `desktop-composition-layer.spec.ts` 10 条全绿，`BUILTIN_WEB_BUNDLES` 14 项、末位为 `@deepseek-ai/dsh-desktop-app`。
 
 ### 旧会话可读性预审（合并 v7 之后、并入功能分支之前）
 
