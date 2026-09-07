@@ -95,6 +95,98 @@
  * `defaultPreset` that overlay names unless the deployment's settings document
  * stores one of its own (see the package README's De-terminology section).
  *
+ * The conversation column shows business content only (product decision,
+ * 2026-09-07): a customer reads what they asked for and what came back, not
+ * how the run got there. Nothing in `dsh-client-ui-chat` gates that — the
+ * `ui-chat.transcriptView` setting is a closed `'normal' | 'compact'` union
+ * whose most-hiding value is already the default, it folds process rows
+ * behind a disclosure instead of removing them, it never applies to a running
+ * turn (`ChatNodeSeat.tsx`'s `processWindowReady` requires a closed turn and a
+ * complete history), and it is not pinnable from a composition (`ui-chat`
+ * supplies neither a `Config` nor a settings `base`). So the rows go the same
+ * way the stats row does, through this stylesheet.
+ *
+ * The process rules key on `data-chat-flow-kind`, `ChatNodeSeat.tsx`'s own
+ * per-row attribute carrying the Chat Node's kind. That is a real attribute
+ * rather than a class substring or a DOM position, so it is the most stable
+ * coupling in this file: it breaks only if `ui-chat` renames a kind, which the
+ * e2e turns red by asserting each row is present AND computed `display:
+ * none` — `compact` already folds process rows behind `hidden="until-found"`,
+ * so an invisibility assertion alone would pass with these rules deleted.
+ * Hidden this way:
+ * - `system-prompt` — the 系统提示词 disclosure.
+ * - `turn-process` — the completed-turn fold row ("N 次工具调用 · M 条消息").
+ *   With the members it folds hidden outright, the control it offers has
+ *   nothing left to reveal.
+ * - `tool-call` — every tool row, including `content_read`'s own result card
+ *   (`dsh-experimental-content-frame`'s `ContentReadRow`, a keyed
+ *   `tool.call.toolview` entry under this kind). That card is hidden on
+ *   purpose: the content column shows the page itself, so the row restates in
+ *   the transcript what is already on screen.
+ * - `command`, `manual-compaction`, `compaction` — the command rows. The three
+ *   kinds are one surface split by how the command arrived: `manual-compaction`
+ *   is `/compact` with its compaction transaction, `compaction` the automatic
+ *   one, and `command` everything else. Hiding only `command` would leave
+ *   `/compact` on screen. This supersedes, inside this composition only,
+ *   content-frame's and content-column's own narrower
+ *   `[data-chat-flow-kind="command"]:has([data-slot="conversation.chat.commandview"]:empty)`
+ *   rules; those still carry compositions that do not install this guard.
+ * - `[data-variant="think"]` — the reasoning disclosure. It is not a row kind:
+ *   `ReasoningRow.tsx` renders it inside the `assistant-step` seat, whose text
+ *   is kept, so the rule keys on the attribute that component sets
+ *   unconditionally. `ToolRowVariant` has no other `think` member, so nothing
+ *   else in the column matches.
+ *
+ * Kept deliberately: `user` and `steering` messages, `assistant-step` text,
+ * `turn-error` and `turn-max-tokens` (notices a reader must act on), and the
+ * `turn-tail` row's `{tail}` chain, which is `dsh-client-ui-deliverables`'
+ * produced-files list — the files a run made are the business result, so the
+ * footer rule below takes the action row and leaves the tail. Approval cards
+ * are out of reach of every rule here by construction: `dsh-client-ui-approval`
+ * registers into `conversation.composer`, so an approval takes the composer
+ * over and never becomes a flow row at all.
+ *
+ * The reply footer's metrics — 用量 33.7K tok and 用时 6 秒 — have no handle of
+ * their own: `TurnUsagePanel.tsx` puts a `data-*` attribute on each opened
+ * dialog and none on either trigger, so the only selector reaching the two
+ * pills alone is a `[class*="trigger"]` substring inside the tail. The whole
+ * action row does have one — `[data-turn-tail] > [class*="actions"]`, an
+ * attribute-anchored direct child — so that is what the rule hides, and copy,
+ * like/dislike, branch, and the end-of-turn clock go with the metrics. The
+ * class substring is the fragility: `MessageIconActions.tsx` composes its own
+ * `actions` class with `TurnTailNodeView.module.css`'s onto the same element,
+ * so both would have to be renamed together to break it, but neither rename
+ * has a compile-time signal here.
+ *
+ * The composer placeholder reads 说说要做什么 in both the hero and the
+ * established state through the same `::after` swap the hero headline uses.
+ * `InputBar.tsx` renders one `[data-composer-placeholder]` element for both —
+ * `ConversationRoot.tsx` only changes which locale key feeds it — so one rule
+ * pair covers both. The swapped copy carries `ui-conversation`'s own
+ * font-size token rather than a fixed pixel value, so it keeps tracking the
+ * Settings font-size preference the composer card sets. `ui-conversation`
+ * offers nothing else: the `placeholder` prop of `conversation.composer.bar`
+ * is supplied by `ConversationRoot` alone, and the locale registry rejects a
+ * second registration for a namespace/locale pair it already holds, so the
+ * `conversation` namespace cannot be shadowed. As with the headline, the
+ * element's own text node survives — and here so do the sibling
+ * `[data-composer-input]`'s `data-placeholder` and `aria-label`, which is what
+ * keeps the e2e's `composer(page, …)` locators working and what the package
+ * README's Known Limitations records as the residual gap.
+ *
+ * The running-turn indicator (`ChatView.tsx`'s `TurnStatus`) stays on screen —
+ * a customer must see that work is under way — but its copy and its paint are
+ * vendor branding: `chat.deepDiving` is 深度求索中..., the vendor's Chinese
+ * brand name, painted in `--dsw-static-deepseek-500/200` through a
+ * background-clip-text shimmer. The rule re-texts it to 正在处理… by the same
+ * `::after` swap and neutralises the gradient to the theme's ordinary label
+ * colour. It scopes as `[data-chat-flow] > [class*="turnStatus"]`: the
+ * indicator is a direct child of the column (`ChatView.tsx` renders it outside
+ * every `ChatNodeSeat`, which is also why no `data-chat-flow-kind` rule
+ * reaches it), and the direct-child combinator keeps the rule off the nested
+ * `turnStatusClock` span, which sets its own font size and colour and keeps
+ * showing the elapsed clock after fifteen seconds.
+ *
  * This plugin is unconditional (see its own module doc on why): this package
  * now exists solely for the customer/service-line product experience, not as
  * a general-purpose sidebar.
@@ -117,6 +209,32 @@ const STYLE = `
 }
 [class*="heroWorkspaceRow"] { display: none !important; }
 [data-composer-card] [class*="modes"] [class*="trigger"] { display: none !important; }
+[data-chat-flow-kind="system-prompt"] { display: none !important; }
+[data-chat-flow-kind="turn-process"] { display: none !important; }
+[data-chat-flow-kind="tool-call"] { display: none !important; }
+[data-chat-flow-kind="command"] { display: none !important; }
+[data-chat-flow-kind="manual-compaction"] { display: none !important; }
+[data-chat-flow-kind="compaction"] { display: none !important; }
+[data-variant="think"] { display: none !important; }
+[data-turn-tail] > [class*="actions"] { display: none !important; }
+[data-composer-placeholder] { font-size: 0 !important; }
+[data-composer-placeholder]::after {
+  content: '说说要做什么';
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+}
+[data-chat-flow] > [class*="turnStatus"] {
+  font-size: 0 !important;
+  background: none !important;
+  animation: none !important;
+  color: var(--dsw-alias-label-primary) !important;
+  -webkit-text-fill-color: var(--dsw-alias-label-primary) !important;
+}
+[data-chat-flow] > [class*="turnStatus"]::after {
+  content: '正在处理…';
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(22px + var(--dsh-content-font-delta, 0px));
+}
 `
 
 /**
