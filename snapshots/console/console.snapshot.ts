@@ -1,18 +1,23 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from 'node:http'
 import { once } from 'node:events'
-import { dirname, join } from 'node:path'
+import { readFileSync } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { afterAll, beforeAll } from 'vitest'
 import {
   defineAcpSnapshotSuite,
+  parseSnapshotManifest,
   type Scenario,
   type SnapshotSuiteOptions,
 } from '@deepseek-ai/dsh-session-snapshot'
 
 /**
- * The content-console example's snapshot suite: the assembled evidence for the
- * console's model-visible surface. `dsh-session-snapshot`'s suite factory owns every
- * compare/guard mechanic; this file is the scenario table and the agent paths.
+ * The console's snapshot suite: the assembled evidence for the model-visible
+ * surface of `show_chart` and `show_component`, driven through the shipped
+ * `dsh --profile acp` interface with this lane's own patch.
+ * `dsh-session-snapshot`'s suite factory owns every compare/guard mechanic;
+ * this file is the scenario table, the agent paths, and the fake data backend
+ * the data-source scenarios read.
  *
  * What the pin covers is the point of the lane. `tool-schemas.expected.json`
  * carries both tools whole — each description, the deployment bounds and the
@@ -23,11 +28,14 @@ import {
  * `session.jsonl` carry the arguments each call recorded and the result text the
  * model reads back.
  *
- * Fixtures live under `snapshots/<name>/`; `pnpm run test:snapshot:refresh`
- * rewrites them keyless from the committed model script. See the suite kit's
- * README (packages/test-support/session-snapshot) and this example's README for the
- * record path.
+ * Fixtures live under `snapshots/console/<name>/`;
+ * `pnpm run test:snapshot:refresh` rewrites them keyless from the committed
+ * model script. See the suite kit's README
+ * (packages/test-support/session-snapshot) and this lane's README.
+ * @module
  */
+
+const corpusDir = fileURLToPath(new URL('./', import.meta.url))
 
 /**
  * The deployment's API prefix. A standard install of the data backend publishes
@@ -278,13 +286,15 @@ async function postToken(env: NodeJS.ProcessEnv): Promise<void> {
   }
 }
 
-// The dsh-acp-demo bin (the demo:acp entry), this example's cordis.yml, and the
-// repo-root tsconfig (three levels up from examples/content-console/tests) —
-// all ABSOLUTE: the subprocess cwd is a temp dir outside the repo.
+// The shipped `dsh` CLI, this lane's profile patch, and the repo-root tsconfig
+// — all ABSOLUTE: the subprocess cwd is a temp dir outside the repo. The
+// launcher applies `cordis.yml` over the `acp` profile, and swaps in the
+// sibling `cordis.snapshot.yml` under replay.
 const AGENT = {
-  binScript: fileURLToPath(new URL('../../../packages/examples/acp-demo/src/bin.ts', import.meta.url)),
-  configPath: fileURLToPath(new URL('../cordis.yml', import.meta.url)),
-  tsconfigPath: fileURLToPath(new URL('../../../tsconfig.json', import.meta.url)),
+  binScript: fileURLToPath(new URL('../../apps/cli/src/bin.ts', import.meta.url)),
+  configPath: join(corpusDir, 'cordis.yml'),
+  profile: 'acp',
+  tsconfigPath: fileURLToPath(new URL('../../tsconfig.json', import.meta.url)),
 }
 
 /**
@@ -314,7 +324,7 @@ const AGENT = {
  * a layout naming a block it never placed, so the fixture carries the sentence
  * the model reads back, which names the path it has to fix.
  *
- * The last two are the data-source half, which is the only path here that asks
+ * The last four are the data-source half, which is the only path here that asks
  * the user a question, spends a credential, and appends a record of its own.
  * `show-datasource-turn` posts the visitor's token to the gate before its turn,
  * answers the approval `allow_once`, and its `session.jsonl` therefore carries
@@ -336,26 +346,47 @@ const AGENT = {
  * back, and `apps/web/tests/component-surface.e2e.ts` pins the gesture itself
  * against a real browser and the shipped bundles.
  *
- * `recorded: false` on all of them because no browser can answer this
- * composition under ACP: a chart's verdict deadline always lapses and a placed
- * block is never looked at, so the live API would only re-decide which chart or
- * which wording the model sends, never which code path the fixture exercises. A
- * key-holder who wants a live transcript flips one to `true` and runs
- * `pnpm run test:snapshot:record -t <name>`.
+ * Every manifest declares `recording: authored` because no browser can answer
+ * this composition under ACP: a chart's verdict deadline always lapses and a
+ * placed block is never looked at, so the live API would only re-decide which
+ * chart or which wording the model sends, never which code path the fixture
+ * exercises. Refresh replays the committed scripts and needs no key. A
+ * key-holder who wants a live transcript sets one manifest to
+ * `recording: live` and runs `pnpm run test:snapshot:record -t <name>`.
  */
-const SCENARIOS: Scenario[] = [
-  { name: 'show-chart-turn', hasModelTurn: true, recorded: false, pinsHeader: true, env: SHARED_ENV },
-  { name: 'show-component-turn', hasModelTurn: true, recorded: false, env: SHARED_ENV },
-  { name: 'show-record-turn', hasModelTurn: true, recorded: false, env: SHARED_ENV },
-  { name: 'show-table-turn', hasModelTurn: true, recorded: false, env: SHARED_ENV },
-  { name: 'show-filter-turn', hasModelTurn: true, recorded: false, env: SHARED_ENV },
-  { name: 'show-view-turn', hasModelTurn: true, recorded: false, env: SHARED_ENV },
-  { name: 'reject-view-turn', hasModelTurn: true, recorded: false, env: SHARED_ENV },
-  { name: 'show-datasource-turn', hasModelTurn: true, recorded: false, env: DATA_ENV, afterSpawn: () => postToken(DATA_ENV) },
-  { name: 'refuse-datasource-turn', hasModelTurn: true, recorded: false, env: REFUSE_ENV, afterSpawn: () => postToken(REFUSE_ENV) },
-  { name: 'show-default-columns-turn', hasModelTurn: true, recorded: false, env: DEFAULT_COLUMNS_ENV, afterSpawn: () => postToken(DEFAULT_COLUMNS_ENV) },
-  { name: 'empty-datasource-turn', hasModelTurn: true, recorded: false, env: EMPTY_ENV, afterSpawn: () => postToken(EMPTY_ENV) },
-]
+const CONTROLLER_CASES: readonly { readonly name: string, readonly env: NodeJS.ProcessEnv }[] = [
+  { name: 'show-chart-turn', env: SHARED_ENV },
+  { name: 'show-component-turn', env: SHARED_ENV },
+  { name: 'show-record-turn', env: SHARED_ENV },
+  { name: 'show-table-turn', env: SHARED_ENV },
+  { name: 'show-filter-turn', env: SHARED_ENV },
+  { name: 'show-view-turn', env: SHARED_ENV },
+  { name: 'reject-view-turn', env: SHARED_ENV },
+  { name: 'show-datasource-turn', env: DATA_ENV },
+  { name: 'refuse-datasource-turn', env: REFUSE_ENV },
+  { name: 'show-default-columns-turn', env: DEFAULT_COLUMNS_ENV },
+  { name: 'empty-datasource-turn', env: EMPTY_ENV },
+] as const
+
+/** The scenarios that must hold the visitor's token before their model turn. */
+const TOKEN_HOLDERS = new Set(['show-datasource-turn', 'refuse-datasource-turn', 'show-default-columns-turn', 'empty-datasource-turn'])
+
+const SCENARIOS: Scenario[] = CONTROLLER_CASES.map((controller) => {
+  const manifestPath = join(corpusDir, controller.name, 'snapshot.yml')
+  const manifest = parseSnapshotManifest(readFileSync(manifestPath, 'utf8'), manifestPath)
+  if (manifest.recording === undefined || manifest.header === undefined) {
+    throw new Error(`${controller.name}: console snapshot manifest lacks recording or header metadata`)
+  }
+  return {
+    name: controller.name,
+    env: controller.env,
+    hasModelTurn: true,
+    recorded: manifest.recording === 'live',
+    headerClass: manifest.header.class,
+    ...(manifest.header.pin === true ? { pinsHeader: true } : {}),
+    ...(TOKEN_HOLDERS.has(controller.name) ? { afterSpawn: () => postToken(controller.env) } : {}),
+  }
+})
 
 /**
  * Map `$DSH_SNAPSHOT` onto the factory's mode.
@@ -375,7 +406,7 @@ function snapshotMode(value: string | undefined): SnapshotSuiteOptions['mode'] {
 
 defineAcpSnapshotSuite({
   agent: AGENT,
-  snapshotsDir: join(dirname(fileURLToPath(import.meta.url)), 'snapshots'),
+  snapshotsDir: corpusDir,
   scenarios: SCENARIOS,
   mode: snapshotMode(process.env.DSH_SNAPSHOT),
 })

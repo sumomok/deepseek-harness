@@ -1,0 +1,7 @@
+version: 1
+scenario: show-view-turn
+profile: acp
+composition: console
+recording: authored
+header:
+  class: console

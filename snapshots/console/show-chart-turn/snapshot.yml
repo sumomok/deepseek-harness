@@ -1,0 +1,8 @@
+version: 1
+scenario: show-chart-turn
+profile: acp
+composition: console
+recording: authored
+header:
+  class: console
+  pin: true

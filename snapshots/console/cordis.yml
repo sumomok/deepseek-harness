@@ -1,0 +1,245 @@
+# Console snapshot patch over the shipped `acp` profile: the console's backend
+# spine reduced to what a recorded transcript can see.
+#
+# Everything kept here either reaches a model request or the session log, or is
+# the host half of something one of those promises: the adapter, the projection
+# registry and command registry the base already mounts, the content-surface
+# entry stream (which contributes a system-prompt section), the HTTP host
+# `show_chart` needs for its two routes, and the two tools that place an entry
+# in the column. `show_component`'s description promises that a press inside a
+# drawn block comes back through `/component-action`, and the base's `commands`
+# row is the host half of that return channel. The console's browser rows —
+# `server-layout`, `content-column`, `server-sidebar`, `vue2-echarts-poc`,
+# `component-kit` — are absent by construction: they register no tool, no prompt
+# section and no session event, so a transcript cannot tell them from their own
+# absence. Their evidence is the Playwright lane under `apps/web/tests`.
+#
+# The `dsh` launcher owns environment loading, plugin resolution, and process
+# shutdown; stdout remains reserved for ACP JSON-RPC.
+
+# The DeepSeek adapter. `deepseek-v4-flash` is the recorded model, so the replay
+# overlay needs no config restatement to stay reproducible.
+- id: llm-deepseek
+  name: '@deepseek-ai/dsh-llm-deepseek'
+  config:
+    thinking: enabled
+    reasoningEffort: max
+    models:
+      - id: deepseek-v4-flash
+      - id: deepseek-v4-pro
+
+# Persistence root: $DSH_SNAPSHOT_SESSIONS_ROOT when the snapshot harness sets
+# it, else the harness home. Snapshot modes need raw JSONL for the harvest.
+- id: session-persistence-jsonl
+  name: '@deepseek-ai/dsh-session-persistence-jsonl'
+  config:
+    root: !!js process.env.DSH_SNAPSHOT_SESSIONS_ROOT ?? dshHomePath('sessions')
+    compression: !!js "process.env.DSH_SNAPSHOT === undefined ? 'zstd' : 'none'"
+
+- id: system-prompt
+  name: '@deepseek-ai/dsh-system-prompt'
+  config:
+    persona: |
+      You are the console assistant powered by the {{model}} model. Your working directory is {{cwd}}.
+
+      Answer with what you did, briefly.
+
+# ── every tool family the base offers is off ────────────────────────────────
+#
+# This lane exists to pin the console's own model-visible surface, so an
+# upstream edit to the bash, filesystem, skill, goal, background-job, subagent,
+# workflow, todo, web, or plan descriptions must not churn its pin. The base
+# bundle mounts each of those as its own row, so where the retired
+# `dsh-acp-demo` took three config flags (`skills`, `goals`, `toolJobs`) this
+# patch disables the rows themselves — the same model-visible result, stated per
+# row because that is the unit the shipped profile composes.
+#
+# The services under those tools stay mounted: disabling a tool row withdraws
+# the offer without pretending the capability was never composed.
+
+- id: tool-bash
+  name: '@deepseek-ai/dsh-tool-bash'
+  disabled: true
+
+- id: tool-pwsh
+  name: '@deepseek-ai/dsh-tool-pwsh'
+  disabled: true
+
+- id: tool-fs
+  name: '@deepseek-ai/dsh-tool-fs'
+  disabled: true
+
+- id: tool-fs-search
+  name: '@deepseek-ai/dsh-tool-fs-search'
+  disabled: true
+
+- id: tool-str-replace-editor
+  name: '@deepseek-ai/dsh-tool-str-replace-editor'
+  disabled: true
+
+- id: tool-jobs
+  name: '@deepseek-ai/dsh-tool-jobs'
+  disabled: true
+
+- id: tool-skill
+  name: '@deepseek-ai/dsh-tool-skill'
+  disabled: true
+
+- id: tool-goal
+  name: '@deepseek-ai/dsh-tool-goal'
+  disabled: true
+
+- id: tool-todo
+  name: '@deepseek-ai/dsh-tool-todo'
+  disabled: true
+
+- id: tool-web
+  name: '@deepseek-ai/dsh-tool-web'
+  disabled: true
+
+- id: tool-workflow
+  name: '@deepseek-ai/dsh-tool-workflow'
+  disabled: true
+
+- id: tool-ralph
+  name: '@deepseek-ai/dsh-tool-ralph'
+  disabled: true
+
+- id: tool-subagent
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
+
+- id: tool-subagent-fork
+  name: '@deepseek-ai/dsh-tool-subagent'
+  disabled: true
+
+- id: tool-subagent-control
+  name: '@deepseek-ai/dsh-tool-subagent-control'
+  disabled: true
+
+- id: tool-subagent-list-agents
+  name: '@deepseek-ai/dsh-tool-subagent-control/list-agents'
+  disabled: true
+
+- id: plan-mode
+  name: '@deepseek-ai/dsh-plan-mode'
+  disabled: true
+
+# AGENTS.md discovery is off so the pinned prompt describes the composition
+# rather than the run's cwd.
+- id: agent-instructions
+  name: '@deepseek-ai/dsh-agent-instructions'
+  disabled: true
+
+# The approval service the data-source read asks its one question through.
+# `ask` delegates to the composed answerers, and under ACP that is the
+# transport's own `session/request_permission` round trip — the one channel a
+# committed input script can answer from.
+- id: approval
+  name: '@deepseek-ai/dsh-user-approval'
+  config:
+    policy: ask
+
+- insert:
+    # The content column as one per-session entry stream. Model-visible through
+    # its on-display prompt section; the browser half that renders the column is
+    # not composed here.
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+
+    # `show_chart` claims two HTTP routes, so the host must exist before it
+    # applies. Port 0 takes an OS-assigned port: snapshot scenarios run in
+    # parallel and a fixed port would collide. The data-source scenarios post
+    # this visitor's access token to the gate below before their model turn,
+    # which they can only do at an address they chose.
+    - id: webserver
+      name: '@deepseek-ai/dsh-host-webserver'
+      config:
+        host: 127.0.0.1
+        port: !!js Number(process.env.DSH_CONSOLE_HTTP_PORT ?? 0)
+
+    # The gate that holds the signed-in visitor's access token and names the
+    # data backend it may be spent on. `bizUpstream` carries the deployment's
+    # own API prefix and has no default: the snapshot suite points it at the
+    # fake backend it starts, and running this composition by hand without it
+    # composes a console with no data source rather than one addressing a
+    # machine that serves nothing. No token is held until a browser — or, in the
+    # data-source scenarios, the test itself — posts one, so every other
+    # scenario here composes the gate without ever reaching it.
+    - id: auth-gate
+      name: '@deepseek-ai/dsh-experimental-auth-gate'
+      config:
+        loginUrl: /toy-proxy/toy-login/#/
+        cookieName: accessToken
+        refreshMarginSeconds: 300
+        mcpUpstreams: {}
+        bizUpstream: !!js process.env.DSH_CONSOLE_BIZ_UPSTREAM
+
+    # The chart tool. No browser is attached under ACP, so every call answers
+    # `unverified` after the deadline — one second here, because the deadline is
+    # quoted verbatim in the model-facing result line and the lane pays it in
+    # real time on every call.
+    - id: show-chart
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-tool-poc'
+      config:
+        verdictTimeoutMs: 1000
+
+    # The component tool. Its browser seat and the component row that draws the
+    # blocks are absent here for the same reason the column is: they register
+    # nothing a transcript can see. What this row contributes is the offer
+    # itself — the catalog spliced into the description, the three parameters,
+    # and the result line a call reads back.
+    #
+    # `views` is the other half of this row, and it is here for what booting
+    # proves rather than for what a transcript carries: a deployment's own view
+    # is judged at load by the pass that judges a call, so a spec written by a
+    # person that the tool would refuse stops this composition from coming up at
+    # all. Nothing about a view reaches a model request — `show-content-view` is
+    # a click, and the ACP protocol has no command method — so the fixtures are
+    # unaffected by it.
+    #
+    # The view itself is the arrangement a service-line console actually writes:
+    # the list of sites above the details of whichever row the user picks, bound
+    # with `$from` so the second block follows the first.
+    #
+    # The data source is the third half, and it is what the gate row above
+    # exists for: the description then offers the parameter that fills a table
+    # from the deployment's own data, and a call using it asks the user first.
+    # That whole path is model-visible — the parameter, the question, and the
+    # result line counting rows — so it belongs in this lane rather than only in
+    # the browser one. It follows the same environment value the gate's base
+    # does, because offering to read a backend this composition has no address
+    # for would leave the row waiting for a service nothing registers.
+    - id: show-component
+      name: '@deepseek-ai/dsh-experimental-component-surface'
+      config:
+        dataSource: !!js process.env.DSH_CONSOLE_BIZ_UPSTREAM !== undefined
+        homeView: site-overview
+        views:
+          - id: site-overview
+            title: 站点概览
+            spec:
+              nodes:
+                - id: sites
+                  component: toy.table
+                  props:
+                    selectMode: radio
+                    tableConfig:
+                      gridItems:
+                        - { relatedMetaAttr: name, alias: 站点 }
+                        - { relatedMetaAttr: status, alias: 状态 }
+                    displayValueList:
+                      - { name: 一号站点, status: 运行中 }
+                      - { name: 二号站点, status: 已停机 }
+                - id: detail
+                  component: toy.record
+                  props:
+                    dataList: { $from: 'node:sites.selectionDetail' }
+                    columnNum: 1
+              layout:
+                node: stack
+                dir: col
+                gap: md
+                children:
+                  - { node: component, id: sites, flex: 2 }
+                  - { node: component, id: detail, flex: 1 }
