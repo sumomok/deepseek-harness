@@ -1,9 +1,9 @@
 /**
- * The reconnect backoff schedule and the launch-token cookie exchange. The
- * rest of `notifications.ts` reaches into `electron` (`app`, `Notification`)
- * the way every other Electron-facing module in this package does and is
- * exercised by the real-process check instead; the stand-in module below is
- * what lets these two be imported at all.
+ * The reconnect backoff schedule, the launch-token cookie exchange, and the
+ * approval toast's buttons. The rest of `notifications.ts` reaches into
+ * `electron` (`app`, `Notification`) the way every other Electron-facing
+ * module in this package does and is exercised by the real-process check
+ * instead; the stand-in module below is what lets these be imported at all.
  * @module
  */
 
@@ -16,7 +16,7 @@ vi.mock('electron', () => ({
   Notification: { isSupported: () => false },
 }))
 
-const { exchangeLaunchToken, reconnectDelayMs } = await import('../src/notifications.ts')
+const { approvalActions, exchangeLaunchToken, reconnectDelayMs, toastButtons } = await import('../src/notifications.ts')
 
 /** Serve one fixed answer on loopback and report the URL to fetch. */
 async function answering(status: number, headers: Record<string, string>): Promise<{ url: string; server: Server }> {
@@ -71,5 +71,40 @@ describe('reconnectDelayMs', () => {
     expect(reconnectDelayMs(6)).toBe(60_000)
     expect(reconnectDelayMs(7)).toBe(60_000)
     expect(reconnectDelayMs(20)).toBe(60_000)
+  })
+})
+
+describe('approvalActions', () => {
+  it('offers a refusal and a way to look, in that order, and never an approval', () => {
+    const actions = approvalActions(() => undefined, () => undefined)
+    expect(actions.map(action => action.text)).toEqual(['拒绝', '去看看'])
+  })
+
+  it('presses the refusal at index 0 and the reveal at index 1', () => {
+    const pressed: string[] = []
+    const actions = approvalActions(() => { pressed.push('reject') }, () => { pressed.push('reveal') })
+    actions[0]?.press()
+    actions[1]?.press()
+    expect(pressed).toEqual(['reject', 'reveal'])
+  })
+})
+
+describe('toastButtons', () => {
+  const actions = approvalActions(() => undefined, () => undefined)
+
+  it('draws one button per action on Windows, in order', () => {
+    expect(toastButtons(actions, 'win32')).toEqual([
+      { type: 'button', text: '拒绝' },
+      { type: 'button', text: '去看看' },
+    ])
+  })
+
+  it('draws none on a platform whose notifications ignore them', () => {
+    expect(toastButtons(actions, 'linux')).toEqual([])
+    expect(toastButtons(actions, 'darwin')).toEqual([])
+  })
+
+  it('draws none for a message that asks for nothing', () => {
+    expect(toastButtons([], 'win32')).toEqual([])
   })
 })

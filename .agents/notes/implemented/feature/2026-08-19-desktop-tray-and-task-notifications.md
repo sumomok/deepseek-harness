@@ -39,20 +39,20 @@ Reads tolerate a missing or unreadable file and writes tolerate failing, in both
 
 ### The shell subscribes to the server it already started
 
-Two moments interrupt: a session **finished running**, and a session is **waiting for an answer**. Both are read from the running `dsh web` over the two downlink WebSockets the browser UI itself consumes, opened against the loopback URL `startServer` already reported. **No upstream package changed.**
+Two moments interrupt: a session **finished running**, and a session is **waiting for an answer**. Both are read from the running `dsh web` over `/api/remote.mux`, the same WebSocket the browser UI consumes, as one `$events` stream on it, opened against the loopback URL `startServer` already reported. **No upstream package changed.**
 
-- `/api/events.host` carries `host/session-status`, whose `running` bit is the only true "the agent stopped" edge. The durable `turn/end` log event is not that edge — a turn can be followed immediately by another — and the bit stays `running` while a tool waits for an approval, which is what keeps the two cases from overlapping.
-- `/api/events.mux` carries `approval/requested`, `question/requested`, and their `resolved` counterparts, plus every session event, of which only `session/title` is kept: as the name to put in the message.
+- The stream carries `api-session/status`, emitted with `(sessionId, running)`; that bit going from true to false is the only true "the agent stopped" edge. The durable `turn/end` log event is not that edge — a turn can be followed immediately by another — and the bit stays `running` while a tool waits for an approval, which is what keeps the two cases from overlapping.
+- It also carries `approval/request` and `user-questions/request` as waterfall deliveries, each with an `eventId` that a later `cancel` frame names once someone answered. The name to put in the message is not on the stream at all: it comes from a single `session/list` call made as the message is about to be sent.
 
-Both streams are all-sessions with no subscribe handshake, and both are **downlink only** — a client that sends anything is closed with 1008, so nothing in `src/notifications.ts` ever writes to a socket.
+The stream is all-sessions with no per-session subscribe: one `open` frame naming `$events` starts it, a malformed stream request closes the socket with 1008, and `src/notifications.ts` writes nothing else to it.
 
-Three properties of those streams are load-bearing and none of them is obvious:
+Three properties of that stream are load-bearing and none of them is obvious:
 
-**SSE is not available, by the server's own decision.** `GET` on either path is answered `426 Upgrade Required` by the connection plugin before the fetch handler runs, so the SSE branches behind them are reachable only from the in-process carrier. WebSocket is not the preferred transport here; it is the only one.
+**SSE is not available, because the path is an upgrade route and nothing else.** `/api/remote.mux` is registered only through `webServer.registerUpgrade` in `packages/api/gateway/src/index.ts`, so it is in no HTTP route table and a plain `GET` reaches the fallback handler; the only refusal on the upgrade itself is `rejectRemoteStreamUpgrade(socket, 401 | 403)` in `packages/api/gateway/src/stream-server.ts`. WebSocket is not the preferred transport here; it is the only one.
 
-**A Node client passes the trust fence by sending no `Origin`.** The fence requires a loopback `Host` (satisfied) and accepts an absent `Origin`, while an `Origin` that is not exactly the served authority is refused with a raw 403. So no header is set on these sockets, and none may be.
+**A Node client passes the trust fence by sending no `Origin`.** The fence requires a loopback `Host` (satisfied) and accepts an absent `Origin`, while an `Origin` that is not exactly the served authority is refused with a raw 403. So no header is set on this socket, and none may be.
 
-**Reopening a stream replays what is still pending**, so every request is remembered by id and a repeat is dropped rather than announced twice — `approvalId` for approvals, and the session id for questions, because `question/resolved` names the answered request by its rpc id rather than by the question ids that were asked.
+**Reopening the stream replays every delivery still pending**, so each `eventId` is remembered and a repeat is dropped rather than announced twice. One id covers both kinds: the `cancel` frame that settles a delivery names it by the same `eventId` its `waterfall` frame carried.
 
 The idle edge is armed the same way: a session announces that it finished only if this shell saw it start. A stream that opens onto sessions already idle would otherwise announce history.
 
@@ -78,7 +78,7 @@ Deep-linking is not a desktop-side gap and cannot be closed from the desktop sid
 
 **A tray on macOS too.** Closing the window there already leaves the app in the Dock, `window-all-closed` does not quit, and `activate` reopens the window. A menu-bar icon would be a second control for a state the Dock already shows. macOS keeps its own idiom; the tray is Windows-only.
 
-**`turn/end` as the "task finished" event.** It is the durable log event with the right name and the wrong meaning: turns chain, so a multi-turn task would announce itself several times. `host/session-status` is the bridged form of the agent's own `idle`/`running` status and fires once per stop.
+**`turn/end` as the "task finished" event.** It is the durable log event with the right name and the wrong meaning: turns chain, so a multi-turn task would announce itself several times. `api-session/status` is the bridged form of the agent's own `idle`/`running` status and fires once per stop.
 
 **Polling `session.list`.** Available, unary, and wrong: it would trade a push the server already offers for a timer that is either too slow to be useful or too frequent to be honest, and it still could not see an approval prompt open and close between two polls.
 
@@ -96,8 +96,8 @@ Clicking a notification lands the user in the app but not in the session. Until 
 
 ## Testing
 
-Verified against a live `dsh web` on macOS: both sockets accept an origin-less Electron-Node client, `host/session-status` reports `running: true` on prompt and `running: false` on cancel, and `session/title` arrives twice (fallback then LLM provider) with the latest winning.
+Verified against a live `dsh web` on macOS: the socket accepts an origin-less Electron-Node client, and `api-session/status` reports `running: true` on prompt and `running: false` on cancel.
 
-The notifier itself was then run as shipped — `lib/notifications.js` inside a real Electron main process — against a stub speaking the verified envelope. It announced the approval, the plan review, and the completion; it stayed silent for a replayed `approval/requested` and for a `running: false` with no preceding `running: true`; and the macOS Dock badge read `3` while the window was minimized and cleared when it was focused.
+The notifier itself was then run as shipped — `lib/notifications.js` inside a real Electron main process — against a stub speaking the verified envelope. It announced the approval, the plan review, and the completion; it stayed silent for a replayed `approval/request` and for a `running: false` with no preceding `running: true`; and the macOS Dock badge read `3` while the window was minimized and cleared when it was focused.
 
 Windows tray residency, the close dialog, and toast delivery are structurally complete and unverified on hardware: they need a real Windows machine, like every other Windows behavior this client ships.
