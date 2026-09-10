@@ -633,6 +633,10 @@ describe('/plan', () => {
     })
     expect(ctx.planMode.get(plainAgent)).toEqual({ active: false, pending: true })
     expect(plainSteer).not.toHaveBeenCalled()
+    const plainRun = plainAgent.session.snapshotEvents().find(event => event.type === 'command/run')
+    // `engages: false` is the declaration that keeps a session entered into
+    // plan mode before its first message out of the session list.
+    expect(plainRun?.data).toMatchObject({ name: 'plan', engages: false })
 
     const messageAgent = await agentWithSession(ctx, 'message-plan-command')
     openTurn(messageAgent.session)
