@@ -22,6 +22,9 @@
  * is generated from. This module is what makes a source-tree launch use the
  * same directories, and it is a no-op wherever the packaged name already
  * resolves to them.
+ *
+ * The rename and what it must not move:
+ * `.agents/notes/implemented/architecture/2026-09-10-fork-shell-vacates-apps-desktop.md`.
  * @module @deepseek-ai/dsh-desktop-shell/app-identity
  */
 
