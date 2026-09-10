@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Permission presets give users one selector for applying sandbox mode and approval policy together. A deployment can configure named presets and a default for newly created sessions; changing that default does not alter existing sessions, and the shipped table includes `workspace-write` and `danger-full-access`. A table entry may also carry presentation: `name`, `description`, and `glyph` — which design-set glyph the selector shows, one of `read-only`, `workspace-write`, or `danger-full-access`; a preset whose id is itself a glyph name needs none. If the current combination matches no preset, clients show the derived `custom` state, but users cannot select or persist it; switching presets changes only settings whose effective values differ. The `/permission` command reports or changes the current preset, while sandbox execution and approval handling remain separate enforcement mechanisms.
+Permission presets give users one selector for applying sandbox mode and approval policy together. A deployment can configure named presets and a default for newly created sessions; changing that default does not alter existing sessions, and the shipped table includes `workspace-write` and `danger-full-access`. A table entry may also name its selector `glyph`. If the current combination matches no preset, clients show the derived `custom` state, but users cannot select or persist it; switching presets changes only settings whose effective values differ. The `/permission` command reports or changes the current preset, while sandbox execution and approval handling remain separate enforcement mechanisms.
 
 ## Table of Contents
 
