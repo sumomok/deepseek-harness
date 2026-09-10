@@ -5,10 +5,12 @@
  * electron-updater retries nothing and keeps nothing of a failed transfer: any
  * error out of `executeDownload` unlinks the partial file and empties the
  * pending directory, and the full download sends no `Range` header, so an
- * attempt after a failure re-transfers the whole artifact. The policy here is
- * therefore bounded — a handful of attempts over half a minute — and its whole
- * effect is that a connection dropped mid-transfer costs those seconds instead
- * of the rest of the session's update channel.
+ * attempt after a failure re-transfers the whole artifact. The plan for that
+ * path is therefore bounded — a handful of attempts over half a minute —
+ * because each attempt costs the artifact again. What an exhausted plan leads
+ * to is [[transferWithFallback]]: the same artifact transferred by the shell's own
+ * resumable downloader, which keeps what already arrived and can afford a slower,
+ * longer plan of its own.
  *
  * Nothing here touches electron, so the policy is exercised directly by
  * `tests/download-retry.spec.ts` with an injected clock.
@@ -32,6 +34,18 @@ export type DownloadFailure = 'transient' | 'fatal'
  * spread and synchronized ones are not a load it can meet badly.
  */
 export const RETRY_DELAYS_MS: readonly number[] = [2_000, 6_000, 18_000]
+
+/**
+ * Delay before each retry of the shell's own resumable transfer; the length of
+ * the list is the number of retries.
+ *
+ * This plan is longer and slower than [[RETRY_DELAYS_MS]] because an attempt
+ * costs a request rather than the artifact: the bytes already on disk are kept
+ * and the next attempt asks for the rest. Nothing is on screen while it runs
+ * and nothing waits for it, so the ten minutes it spans are spent covering an
+ * outage that outlasts a route change rather than holding anything up.
+ */
+export const RESUME_RETRY_DELAYS_MS: readonly number[] = [2_000, 10_000, 30_000, 120_000, 300_000]
 
 /**
  * Delay before each retry of an update check; the length of the list is the
@@ -228,5 +242,71 @@ export async function withRetry<T>(run: () => Promise<T>, delays: readonly numbe
       hooks.onRetry(attempt, delays.length, delayMs, error)
       await hooks.sleep(delayMs)
     }
+  }
+}
+
+/** How one transfer ended, once both halves of the plan have had their turn. */
+export type TransferOutcome = 'completed' | 'resumed' | 'exhausted'
+
+/** What [[transferWithFallback]] needs beyond [[RetryHooks]]. */
+export interface FallbackHooks extends RetryHooks {
+  /**
+   * Report that the library's own transfer is being given up on and the
+   * resumable one takes over. Called at most once per transfer.
+   * @param error - the failure the retry plan ended on.
+   */
+  onFallback: (error: unknown) => void
+}
+
+/** The two halves of one transfer and the plan the first of them runs under. */
+export interface FallbackPlan {
+  /**
+   * Perform one whole transfer through electron-updater, which is also what
+   * takes a staged artifact out of the cache and raises `update-downloaded`.
+   * @returns a promise that settles when that attempt is over.
+   */
+  run: () => Promise<void>
+  /**
+   * Transfer the artifact with the shell's own resumable downloader and stage
+   * it where electron-updater reads a cached update from. Undefined where the
+   * fallback must not be taken.
+   * @returns true when the artifact is staged and [[run]] is worth calling again.
+   */
+  resume: (() => Promise<boolean>) | undefined
+  /** The wait before each retry of [[run]]; its length is the retry count. */
+  delays: readonly number[]
+  /** Reporting and the clock. */
+  hooks: FallbackHooks
+}
+
+/**
+ * Run one transfer, and when the network alone defeats it, transfer the same
+ * artifact again from where it stopped.
+ *
+ * The library's own path runs first and unchanged, because it is the one that
+ * downloads a differential update: on a machine with the previous artifact
+ * cached that transfers a fraction of the bytes, which no resumable full
+ * download can beat. The fallback is therefore what an exhausted retry plan
+ * leads to, never what replaces it. Once the artifact is staged, [[run]] is
+ * called once more so the library validates the cache, takes the file from
+ * there, and emits the event the rest of the channel listens for.
+ *
+ * A fatal failure is rethrown untouched: nothing about a refused signature or a
+ * mismatched checksum is improved by transferring the same artifact again.
+ * @param plan - the two halves, the retry plan, and the hooks.
+ * @returns which half finished the transfer, or `exhausted` when neither did.
+ * @throws the failure the library's transfer ended on when it is fatal or when
+ * there is no fallback, and whatever the second [[run]] fails with.
+ */
+export async function transferWithFallback(plan: FallbackPlan): Promise<TransferOutcome> {
+  try {
+    await withRetry(plan.run, plan.delays, plan.hooks)
+    return 'completed'
+  } catch (error) {
+    if (plan.resume === undefined || classifyDownloadError(error) === 'fatal') throw error
+    plan.hooks.onFallback(error)
+    if (!await plan.resume()) return 'exhausted'
+    await plan.run()
+    return 'resumed'
   }
 }
