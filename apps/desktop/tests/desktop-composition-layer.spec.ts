@@ -25,6 +25,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { composeEntries, loadOverlayPatches, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
 import { describe, expect, it } from 'vitest'
+import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 /** The bundle under test, which is also this repository's own composition layer. */
@@ -180,5 +181,36 @@ describe('the desktop composition layer as a whole', () => {
     const models = entry(desktop, 'llm-deepseek').config?.['models'] as { id: string }[]
     expect(models.map(row => row.id))
       .toContain(entry(desktop, 'agent-default-model').config?.['model'])
+  })
+
+  // A whole-table replacement never merges with the adapter's own catalog
+  // (`resolveModels` reads `config.models ?? DEFAULT_MODELS`), so a factory row
+  // that is added, dropped, renamed, or re-described upstream reaches no
+  // picker until this table follows it. The vendored plugin ships that
+  // comparison too, against the adapter version its own devDependencies pin —
+  // which is not the one this payload carries, and whose test suite no gate
+  // here runs. This is the same check against the shipped adapter.
+  it('restates every factory row of the adapter this payload ships', () => {
+    const factory = DeepSeekConfig({}) as { models: DeepSeekCatalogModel[]; defaultContextWindow: number }
+    const composed = entry(desktop, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[]
+    const byId = new Map(composed.map(row => [row.id, row]))
+    for (const row of factory.models) {
+      const shipped = byId.get(row.id)
+      expect(shipped, row.id).toBeDefined()
+      // Omitted capacities fall back to the adapter values the factory row
+      // carries, so an omission stops reproducing the factory row the day one
+      // of those defaults moves.
+      expect({
+        ...shipped,
+        contextWindow: shipped?.contextWindow ?? factory.defaultContextWindow,
+        inputModalities: shipped?.inputModalities ?? ['text'],
+        ...(shipped?.inputModalities ?? []).includes('image')
+          ? {
+            imagePixelBudget: shipped?.imagePixelBudget ?? row.imagePixelBudget,
+            imageMaxBytes: shipped?.imageMaxBytes ?? row.imageMaxBytes,
+          }
+          : {},
+      }, row.id).toEqual({ ...row })
+    }
   })
 })

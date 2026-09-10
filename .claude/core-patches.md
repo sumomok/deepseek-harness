@@ -774,3 +774,25 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 **编排实证（无需密钥）。**scratch `DSH_HOME` 里 `dsh --profile web --dump-config --patch <vendored 包内的 cordis.patch.yml>`：default-model 那份编排出 `agent-default-model` = `provider: deepseek-official` / `model: deepseek-flash`，`llm-deepseek.models` 首行 `id: deepseek-flash` / `name: default` / `inputModalities: [text, image]`；balance 那份编排出 `prices.asOf: 2026-09-10` 且 CNY 首条 `model: deepseek-flash` / `base: {input: 1, inputCacheHit: 0.02, output: 4}`。
 
 **仓外分支。**`dsh-plugins` 侧各开一条新分支，未推：`feat/v41-flash-default` = `b245952`（基 `feat/mcp-servers` = `28f7060`）、`feat/v41-flash-prices` = `8671edb`（基 `feat/balance-mask` = `c068c0a`）。`@haoran/dsh-default-model` 是 `private: true`，`@sumomok/dsh-balance` 的 `0.4.2` 尚未发 npm。
+
+#### 对抗性复核后的追加（同一集成期）
+
+**vision-switch 的目标跟随默认（`a08465c272`）。**vendored `@haoran/dsh-vision-switch` 0.2.0 的 `Config.target` 不设时，回落到编译进包里的 `DEFAULT_TARGET`（`lib/index.js` 的 `deepseek-official` / `deepseek-v4-flash-vision-exp`）——那是当年这个模型同时也是本部署起步模型时选的。默认换成 `deepseek-flash` 之后，在纯文本模型上发图会把会话挪到一个用户没选过的视觉模型上。`apps/desktop-app/cordis.patch.yml` 因此新增第三条 id 定向行 `vision-switch`，写 `target: {provider: deepseek-official, model: deepseek-flash}` 并重述 `enabled: true`（该插件 Config 只有这两个字段，整块替换会丢掉另一个）。`desktop-composition-layer.spec.ts` 加三条用例：下层不带 `target`、组合出的 `target` 必须等于组合出的 `agent-default-model`、`enabled` 仍为 `true`；「本层只改两行」相应改成三行。**插件自己的 README 与 patch 注释仍写着 vision-exp 是本部署的默认**，下次重打该包时一并订正。
+
+**默认模型必须在目录里（`a08465c272`）。**`desktop-composition-layer.spec.ts` 增加一条不变式用例：组合出的 `agent-default-model.model` 必须出现在组合出的 `llm-deepseek.config.models` 的 id 里。这正是本次真实断掉过的那条——桌面层整表替换时没跟随下层的新目录。
+
+**漂移防护改为在本仓门禁里跑（`b4f0…` 见下条提交）。**vendored 两个包的目录/价格表原本只有 `dsh-plugins` 侧的 `tests/patch.spec.ts` 在盯，而那套测试**在桌面的任何门禁里都不会跑**，且它比对的是插件自己 devDependencies 钉的适配器版本，不是本载荷实际携带的那一份。两条路可选：把「每次 vendoring 都去插件仓跑一遍测试」写成流程约定，或者把比对搬进 `desktop-composition-layer.spec.ts`。**选了后者**——十几行、随 `vitest run apps/desktop/tests` 每次跑、且比的是本载荷真正装着的适配器：新用例 `restates every factory row of the adapter this payload ships` 遍历 `Config({}).models`，逐行要求组合出的表复现它（省略的 `contextWindow` / `imagePixelBudget` / `imageMaxBytes` 按继承值补齐再比）。变异实证：把桌面层里 `deepseek-v4-flash` 的 `description` 改一个字，该用例与既有的「复现下层目录」用例同时报红，改回即绿。
+
+**回滚行为（rc.31 → rc.30）。**rc.30 的目录里没有 `deepseek-flash` 这一行。用 rc.30 打开一个停在该模型上的 rc.31 会话：**纯文本轮正常**——模型 id 原样上线，`resolveModelInfo` 只是把未收录的 id 当作纯文本模型处理（`packages/llm/llm-deepseek/src/adapter.ts:402-407`：「An uncatalogued endpoint is safely treated as text-only」）；**发图会被拒**——`adapter.ts:455-460` 在目录行的 `inputModalities` 不含 `image` 时抛 `LlmError('DeepSeek model "deepseek-flash" does not accept image input.', 'UNSUPPORTED_CONTENT')`。用户在 rc.30 上要恢复发图，只能在选择器里改选一个 rc.30 目录里带视觉的模型。
+
+**没带上游 `systemPromptUpdate: 'in-history'` 的代价。**上游给 `deepseek-flash` 这一行带了该字段，本集成树的 `llm-deepseek` schema 还没有它（`catalogModel` 里无此键，`resolveModels` 也不透传），所以本次不加。上游对它的定义是：`'in-history'` 声明该端点把会话中**任意位置**最新的一条 `system` 消息读作完整的有效系统提示词；不写则只读开头那一条。缺了它，会话中途任何一次系统提示词变更都只能在开头那个 system 节点上合并落地，从而改写整个前缀、令已缓存的前缀失效，按 cache-miss 价重计一遍。属于下一次上游滚动同步的采纳项，不是本次能补的。
+
+**同名 tarball 重新 vendoring 不生效（`dee09e1838`）。**复核意见落地后 balance 的 payload 变了，起初仍打成 `0.4.2` 覆盖同名文件：`pnpm install` 与 `pnpm install --force` 都回答 `Already up to date`，`pnpm-lock.yaml` 里的 `integrity` 仍是旧的，`node_modules` 里装着的也仍是旧字节（实证：新 README 句子在装好的副本里命中 0 次）。pnpm 对 `file:` 依赖按 **tarball 文件名** 定位，所以同版本换字节不会被重新解析。改为发 `0.4.3`：文件名一变，装好的副本立刻是新字节（同一句命中 1 次）。**结论：重新 vendoring 必须换版本号**，这也是此前每次内置插件更新都带版本的原因。
+
+**版本与 sha256 更正。**`@sumomok/dsh-balance` 最终 vendored 版本为 **`0.4.3`**，tarball sha256 `24c292b20132769de725314470509c162a490d622981debfe8a751bb55983bf3`（本节前文记的 `0.4.2` / `05a7fbd…` 已被它取代，`0.4.2` 的 tarball 已从 `vendor/` 删除）。`@haoran/dsh-default-model` 仍是 `0.2.0` / `102dadc3…`，未再变动。
+
+**Agent Note 订正（`d861e6ae47`）。**`2026-08-23-desktop-builtin-default-model.{md,zh.md}` 与 `2026-08-23-desktop-builtin-balance.{md,zh.md}` 是在役 implemented 记录，其中现在时的产品事实按本次实际所发订正（默认模型、目录首行、两条视觉行、价格表读取日期与 `deepseek-flash` 行的出处），两对 `.i18n.yaml` 重录。
+
+**追加后的门禁。**`vitest run apps/desktop/tests` **21 文件 / 497 条全绿**（`desktop-composition-layer.spec.ts` 由 10 条增至 15 条）→ `test:docs` **17/17** → `verify-translation-pairing` **1194 对**全绿 → `lint` 0 → `typecheck` 0 → `verify-vendored-plugin-versions` 13 个一致 → `verify-vendored-links` 9 个。`dsh-plugins-bal` 侧 `vitest run packages/balance` **22 文件 / 360 条**、`eslint` 0、`typecheck` 0、`build` 0。
+
+**一处与本次无关的噪声。**每次 `git commit` 时 git 会打印四条 `refs/dsh/translation-pairing/snapshots/<oid> 没有指向一个有效的对象`。该命名空间下共 3409 条 ref（配对工具自己的快照存储，多个工作树共享同一 object store），这四条指向已不在库里的对象。`verify-translation-pairing` 本身仍 1194 对全绿，非本次引入，未去动别的工作树的 ref。
