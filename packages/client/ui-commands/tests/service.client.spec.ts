@@ -44,6 +44,8 @@ interface BenchOptions {
   execute?: (payload: { sessionId: SessionId; line: string }) => Promise<ExecuteValue>
   translate?: (namespace: string, key: string, params?: Record<string, unknown>) => string
   addressed?: SessionId
+  /** Session the fake sessions face reports as locally unbound (projection-only source). */
+  unbound?: SessionId
 }
 
 /**
@@ -107,12 +109,17 @@ async function bench(opts: BenchOptions = {}) {
   })
   // Real scope tags behind a fake sessions face.
   const scopes = new Map<SessionId, { ctx: Context; fiber: { dispose(): Promise<void> } }>()
+  /** Sessions whose blank mirror the service lowered, in call order. */
+  const engaged: SessionId[] = []
   ctx.provide('sessions', {
     scope: (id: SessionId) => scopes.get(id)?.ctx,
     scopeOf: (c: Context) => scopeOf(c),
     subagentAddress: (id: SessionId) => id === opts.addressed
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
+    binding: (id: SessionId) => id === opts.unbound
+      ? undefined
+      : { sessionId: id, session: { markEngaged: () => { engaged.push(id) } } },
   })
   const remote = Object.assign(new TestRemote(ctx), { commands: commandsRemote })
   ctx.provide('remote.commands', commandsRemote)
@@ -145,7 +152,7 @@ async function bench(opts: BenchOptions = {}) {
   const warm = async (session: ClientSessionContext) => {
     await source.candidates(session, { query: '', position: 'leading', drilled: false, signal: new AbortController().signal })
   }
-  return { ctx, fiber, command, source, mint, warm, listCalls, executeCalls, executions, registered, notices, remote }
+  return { ctx, fiber, command, source, mint, warm, listCalls, executeCalls, executions, registered, notices, remote, engaged }
 }
 
 function menuPick(source: InputTriggerSource, name: string, session: ClientSessionContext, end?: number) {
@@ -835,6 +842,55 @@ describe('execute payload', () => {
     expect(bad.kind).toBe('error')
     const second = await claimOf({ execute: () => Promise.resolve({ matched: true }) })
     await expect(second.submit('', new Context(), [])).resolves.toEqual({ kind: 'success' })
+  })
+})
+
+describe('an admitted command engages the session', () => {
+  const submitOf = async (opts: BenchOptions, session = proj('s1')) => {
+    const b = await bench(opts)
+    await b.warm(session)
+    const outcome = b.source.matchSpace!(session, '/goal')
+    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected claim')
+    const { claim } = outcome
+    return {
+      bench: b,
+      submit: (text: string) => claim.submit(text, new Context(), []),
+    }
+  }
+
+  it('lowers the addressed session blank mirror once the host admits the line', async () => {
+    const { bench: b, submit } = await submitOf({ execute: () => Promise.resolve({ matched: true }) })
+    await submit('ship it')
+    expect(b.engaged).toEqual([sid('s1')])
+  })
+
+  it('lowers it for a handler error too — the run is already logged', async () => {
+    const { bench: b, submit } = await submitOf({
+      execute: () => Promise.resolve({ matched: true, result: { kind: 'error', text: 'late failure' } }),
+    })
+    await submit('ship it')
+    expect(b.engaged).toEqual([sid('s1')])
+  })
+
+  it('leaves it alone for an unmatched line, which never reached a handler', async () => {
+    const { bench: b, submit } = await submitOf({ execute: () => Promise.resolve({ matched: false }) })
+    await submit('ship it')
+    expect(b.engaged).toEqual([])
+  })
+
+  it('leaves it alone when the call itself failed', async () => {
+    const { bench: b, submit } = await submitOf({ execute: () => Promise.reject(new Error('carrier down')) })
+    await expect(submit('ship it')).rejects.toThrow('carrier down')
+    expect(b.engaged).toEqual([])
+  })
+
+  it('skips a session with no local binding; the host summary carries the same verdict', async () => {
+    const { bench: b, submit } = await submitOf({
+      execute: () => Promise.resolve({ matched: true }),
+      unbound: sid('s1'),
+    })
+    await expect(submit('ship it')).resolves.toEqual({ kind: 'success' })
+    expect(b.engaged).toEqual([])
   })
 })
 
