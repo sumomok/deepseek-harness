@@ -44,7 +44,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@haoran/dsh-mcp-servers`](apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.1.4.tgz) | MIT |
 | [`@haoran/dsh-plugin-updates`](apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.0.tgz) | MIT |
 | [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.1.tgz) | MIT |
-| [`@haoran/dsh-vision-switch`](apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.3.tgz) | MIT |
+| [`@haoran/dsh-vision-switch`](apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.4.tgz) | MIT |
 | [`@joplin/turndown-plugin-gfm`](https://github.com/laurent22/joplin-turndown-plugin-gfm) | MIT |
 | [`@jridgewell/gen-mapping`](https://github.com/jridgewell/sourcemaps) | MIT |
 | [`@lexical/history`](https://github.com/facebook/lexical) | MIT |
