@@ -136,7 +136,7 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
   '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
   '@haoran/dsh-clickable-refs', '@haoran/dsh-plugin-updates', '@haoran/dsh-vision-switch',
   '@haoran/dsh-default-model', '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
-  '@deepseek-ai/dsh-desktop-app',
+  '@haoran/dsh-desktop-update', '@deepseek-ai/dsh-desktop-app',
 ]
 
 /**
