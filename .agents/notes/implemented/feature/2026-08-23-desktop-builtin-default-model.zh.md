@@ -16,7 +16,7 @@ Status: implemented
 
 **这个包只是一个 patch 层,别的什么都不是。**它没有 `src/`、没有 `lib/`、也没有入口点,全部实质就是 `cordis.patch.yml`。这行得通是因为 harness 从不 import 一个 bundle:`loadProfile` 读 bundle 包的清单,取 `dsh.bundle.patch` 里的路径,再解析那份 YAML。同一条声明也是它留在载荷里的原因——`scripts/bundle-closure.ts` 会删掉每一个没有可达代码 import 的第三方包,而把声明了 `dsh.bundle` 的清单当作要完整保留的 profile bundle。它没有声明 `dsh.client`,所以打包构建的 client 模块检查会跳过它:默认模型属于编排,不是页面要加载的东西。
 
-**两条 id 定向覆盖,两条都是完整值。**`agent-default-model` 变成 `{provider: deepseek-official, model: deepseek-flash}`——即 DeepSeek V4.1 Flash,上游在 `bc5fd3b8dc` 把它设为 `@deepseek-ai/dsh-base` 自己的默认——于是没有会话级选择就创建出来的 Agent 从一个视觉模型起步。`llm-deepseek` 拿到一份 `models` 目录,它逐字重述那几条出厂行,并在最前面加一条标为 `default` 的 `deepseek-flash`;这一行是唯一没有出厂对应行的,因为已安装的适配器还没有它,而整表替换是它进入选择器的唯一途径。同一个弹层里还有一档同样叫 `Default` 的推理强度,而选择器的触发按钮把一次选择拼作 `<model> · <effort>`,所以钉在这一行上的会话读作 `default · Default`。这一行的 `id` 没有变,所以重标从不上到线上。
+**两条 id 定向覆盖,两条都是完整值。**`agent-default-model` 变成 `{provider: deepseek-official, model: deepseek-flash}`——即 DeepSeek V4.1 Flash,上游在 `bc5fd3b8dc` 把它设为 `@deepseek-ai/dsh-base` 自己的默认——于是没有会话级选择就创建出来的 Agent 从一个视觉模型起步。`llm-deepseek` 拿到一份只有这一个模型的 `models` 目录,名字写作 `DeepSeek-V4.1-Flash`:DeepSeek 已下线 `deepseek-v4-flash` 与 `deepseek-v4-flash-vision-exp`,并自 2026-09-14 起把 `deepseek-v4-pro` 转到 V4.1 Flash,于是其余每一行给出的都不是真的选择。已安装的适配器仍带着那四行,能同时做到删与增的正是整表替换。同一个弹层里还有一档同样叫 `Default` 的推理强度,而选择器的触发按钮把一次选择拼作 `<model> · <effort>`,所以钉在这一行上的会话读作 `default · Default`。这一行的 `id` 没有变,所以重标从不上到线上。
 
 **两个块都写成完整的 config 值,因为 patch 机制不给别的选择。**`applyEntryPatches`(`vendor/include/src/index.ts`)按 `id` 把 patch 匹配到条目,然后把 patch 的每个顶层 key 赋上去——`target[key] = value`——所以 `config` 是整块替换条目原有的 config,前一层设过而这一层没写的任何 key 都退回插件的 schema 默认值。在这一层这不花什么代价:`dsh-base` 根本没给 `llm-deepseek` 任何 config,给 `agent-default-model` 的也正是这个包要设的那两个 key。但这是之后每一层都继承的规则,包括用户自己的 `cordis.patch.yml`。
 
@@ -26,7 +26,7 @@ Status: implemented
 
 已经选过模型的用户保留他自己的选择。`$DSH_HOME/settings.yaml` 是一份实时读取的设置文档,它的 `agent-default-model:` 分节——正是有人在 web UI 里选模型时写下的东西([默认模型跟随选择器](2026-08-07-default-model-follows-the-picker.zh.md))——位于每一个 bundle patch 层之上。这个包设定的是你还没选之前拿到的东西,绝不是压在你的选择之上。
 
-对这样的用户确实变了的是选择器那几行:无论他存着什么选择,`deepseek-flash` 都会被列出、并列作 `default`,因为这份目录是组合配置项,不是逐用户的。他自己的 `cordis.patch.yml` 不受影响,播种从不编辑用户 patch 层。
+对这样的用户确实变了的是选择器那几行:无论他存着什么选择,被列出的只有 `deepseek-flash`,因为这份目录是组合配置项,不是逐用户的。存着的选择若指名一个已下线的模型,文本照常——DeepSeek 用 V4.1 Flash 为那些名字提供服务——图片则不行:适配器把不在目录里的模型当作纯文本模型,于是发图会被拒,直到那个人改选 DeepSeek-V4.1-Flash。他自己的 `cordis.patch.yml` 不受影响,播种从不编辑用户 patch 层。
 
 ## Alternatives considered
 
@@ -38,11 +38,11 @@ Status: implemented
 
 ## Consequences
 
-全新桌面安装的第一个会话开在 `deepseek-flash` 上,于是无需任何人去选模型,图像输入就是通的,选择器也把那一行称作它本来就是的默认值。版本和其他每个内置插件一样属于安装包:换版本意味着发一个桌面构建。
+全新桌面安装的第一个会话开在 `deepseek-flash` 上,于是无需任何人去选模型,图像输入就是通的,选择器也只提供这一个模型。版本和其他每个内置插件一样属于安装包:换版本意味着发一个桌面构建。
 
 重述出来的 `models` 表是整表替换——`resolveModels` 读的是 `config.models ?? DEFAULT_MODELS`,从不把两者合并——所以上游给 `@deepseek-ai/dsh-llm-deepseek` 新增的模型,在被加进这张表之前不会出现在选择器里。把两者拴在一起的是插件自己的 `tests/patch.spec.ts`:它从适配器的 `Config` schema 里读出已安装的目录逐行比对,又读 `@deepseek-ai/dsh-base` 的 `cordis.patch.yml` 断言两个被 patch 的 id 仍在其中。这些检查活在插件自己的仓库里,按它 devDependencies 钉住的版本运行,所以本仓库目录的改动是在插件下一次构建时被抓住,而不是被这里的任何闸抓住。
 
-每一条视觉行上都有三个字段是刻意不写的——`contextWindow`、`imagePixelBudget` 与 `imageMaxBytes`——因为每一个都退回出厂行自己携带的那个适配器值。继承让这张表不去钉死上游可能会挪的数字;漂移测试会拿每一个被继承的值与已安装的适配器比对,而新加的那一行没有出厂行可继承,于是被逐字段钉死。
+这一行上有三个字段是刻意不写的——`contextWindow`、`imagePixelBudget` 与 `imageMaxBytes`——因为每一个都退回出厂行自己携带的那个适配器值。继承让这张表不去钉死上游可能会挪的数字;漂移测试会把每一个都对着已安装的适配器解析,并把该行写出的字段逐一钉死——适配器本身并没有这个模型的行。
 
 一条 id 定向 patch,若目标 id 已经不在,就什么都不作用:`applyEntryPatches` 往 loader 日志写一行 `patch: entry <id> not found` 然后继续。那一行进的是服务端日志而不是任何用户眼前,所以 `dsh-base` 里对 `agent-default-model` 或 `llm-deepseek` 的一次重命名,会在这里悄悄把出厂默认值恢复回去。今天这两个 id 在本仓库的 `dsh-base` 里都在,而插件对它们的断言正是其中之一被挪动时会失败的那道检查。
 

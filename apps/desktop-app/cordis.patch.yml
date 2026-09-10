@@ -49,6 +49,11 @@
 # selection names. `apps/desktop/tests/desktop-composition-layer.spec.ts`
 # compares this table against the composed one below, so a catalog that moves
 # there fails here rather than in the picker.
+#
+# One row, because DeepSeek retired the others: its pricing page says the
+# legacy `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` names are still
+# accepted but served by DeepSeek-V4.1-Flash, and that `deepseek-v4-pro`
+# requests route to it from 2026-09-14 12:00 Beijing as well.
 - id: llm-deepseek
   config:
     retryPolicy:
@@ -57,17 +62,8 @@
         maxDelayMs: 300000
     models:
       - id: deepseek-flash
-        name: 'default'
-        description: deepseek-flash · V4.1 Flash · 视觉
-        inputModalities: [text, image]
-      - id: deepseek-v4-flash
-        name: DeepSeek-V4-Flash
-        description: Fast, efficient, and economical; suited to focused, routine, or parallel tasks.
-      - id: deepseek-v4-pro
-        name: DeepSeek-V4-Pro
-        description: Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.
-      - id: deepseek-v4-flash-vision-exp
-        name: DeepSeek-V4-Flash-Vision-Exp
+        name: DeepSeek-V4.1-Flash
+        description: V4.1 Flash · 文本与图片
         inputModalities: [text, image]
 
 # Where an image sent on a text-only model moves the session to. Absent a
@@ -90,3 +86,20 @@
     target:
       provider: deepseek-official
       model: deepseek-flash
+
+# The review model's own route, which is not the agent's. The gate ships
+# `deepseek-v4-flash` as its factory pair, and that model is retired: DeepSeek
+# still accepts the name and serves it with V4.1 Flash, so the judge would keep
+# working, but the deployment should name what it actually runs on rather than
+# a redirect. A stored choice from the gate's settings page still wins over
+# this pair.
+#
+# `provider` and `model` are the gate's only required fields, and its own patch
+# layer sets exactly those two; every other field carries a schema default. So
+# this whole-config replacement drops nothing — confirmed against
+# `dsh --profile <name> --dump-config`, where the composed row before and after
+# carries these two keys and no others.
+- id: llm-permission-gateway
+  config:
+    provider: deepseek-official
+    model: deepseek-flash

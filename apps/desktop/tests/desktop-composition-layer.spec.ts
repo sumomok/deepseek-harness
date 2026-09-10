@@ -9,7 +9,9 @@
  * `Retry-After` wait a rate-limited request may accept, which dsh-llm-retry
  * reads from the provider's own `retryPolicy` rather than from its own config.
  * `vision-switch` names where an image sent on a text-only model moves the
- * session, which the plugin otherwise takes from a constant compiled into it.
+ * session, which the plugin otherwise takes from a constant compiled into it,
+ * and `llm-permission-gateway` names the review model's own route, which the
+ * gate otherwise takes from a factory pair naming a retired model.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
  * restates every key it owns — `path` beside `openAt`, and the whole model
@@ -162,15 +164,39 @@ describe('the composed vision-switch row', () => {
   })
 })
 
+describe('the composed llm-permission-gateway row', () => {
+  it('takes the gate\'s own factory route through the layers below', () => {
+    expect(entry(below, 'llm-permission-gateway').config?.['model']).toBe('deepseek-v4-flash')
+  })
+
+  // The judge runs on the same model the product runs on, rather than on a
+  // retired name DeepSeek only redirects. Comparing against the composed
+  // default keeps the two moving together.
+  it('reviews on the model sessions start on', () => {
+    expect(entry(desktop, 'llm-permission-gateway').config?.['model'])
+      .toBe(entry(desktop, 'agent-default-model').config?.['model'])
+  })
+
+  // `provider` and `model` are the gate's only required fields and the only
+  // two its own layer sets, so replacing the whole config drops nothing.
+  it('replaces a config that held exactly the two keys it restates', () => {
+    expect(Object.keys(entry(below, 'llm-permission-gateway').config ?? {}).sort())
+      .toEqual(['model', 'provider'])
+    expect(Object.keys(entry(desktop, 'llm-permission-gateway').config ?? {}).sort())
+      .toEqual(['model', 'provider'])
+  })
+})
+
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly the three rows it owns and nothing else', () => {
+  it('changes exactly the four rows it owns and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
     })
     // Sorted, because the order these come back in is the order dsh-base
     // happens to list them and carries nothing about this layer.
-    expect(changed.map(row => row.id).sort()).toEqual(['llm-deepseek', 'session-query-sqlite', 'vision-switch'])
+    expect(changed.map(row => row.id).sort())
+      .toEqual(['llm-deepseek', 'llm-permission-gateway', 'session-query-sqlite', 'vision-switch'])
   })
 
   // The invariant the catalog restatement broke once: this layer replaces
@@ -184,33 +210,23 @@ describe('the desktop composition layer as a whole', () => {
   })
 
   // A whole-table replacement never merges with the adapter's own catalog
-  // (`resolveModels` reads `config.models ?? DEFAULT_MODELS`), so a factory row
-  // that is added, dropped, renamed, or re-described upstream reaches no
-  // picker until this table follows it. The vendored plugin ships that
-  // comparison too, against the adapter version its own devDependencies pin —
-  // which is not the one this payload carries, and whose test suite no gate
-  // here runs. This is the same check against the shipped adapter.
-  it('restates every factory row of the adapter this payload ships', () => {
+  // (`resolveModels` reads `config.models ?? DEFAULT_MODELS`), which is what
+  // lets this table drop the retired models the adapter still carries. The
+  // vendored plugin ships a comparison against the adapter version its own
+  // devDependencies pin — not the one this payload carries, and whose test
+  // suite no gate here runs — so the shipped row is pinned against the shipped
+  // adapter here instead.
+  it('offers one model, none of which the adapter this payload ships carries', () => {
     const factory = DeepSeekConfig({}) as { models: DeepSeekCatalogModel[]; defaultContextWindow: number }
     const composed = entry(desktop, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[]
-    const byId = new Map(composed.map(row => [row.id, row]))
-    for (const row of factory.models) {
-      const shipped = byId.get(row.id)
-      expect(shipped, row.id).toBeDefined()
-      // Omitted capacities fall back to the adapter values the factory row
-      // carries, so an omission stops reproducing the factory row the day one
-      // of those defaults moves.
-      expect({
-        ...shipped,
-        contextWindow: shipped?.contextWindow ?? factory.defaultContextWindow,
-        inputModalities: shipped?.inputModalities ?? ['text'],
-        ...(shipped?.inputModalities ?? []).includes('image')
-          ? {
-            imagePixelBudget: shipped?.imagePixelBudget ?? row.imagePixelBudget,
-            imageMaxBytes: shipped?.imageMaxBytes ?? row.imageMaxBytes,
-          }
-          : {},
-      }, row.id).toEqual({ ...row })
-    }
+    expect(composed.map(row => row.id)).toEqual(['deepseek-flash'])
+    // The day the adapter ships its own row for it, the table restates that
+    // row instead of stating one of its own, and this is what says so.
+    expect(factory.models.map(row => row.id)).not.toContain('deepseek-flash')
+    // The capacities the row omits still resolve from the shipped adapter, so
+    // a moved adapter default fails here rather than reaching the picker.
+    expect(composed[0]?.contextWindow).toBeUndefined()
+    expect(factory.defaultContextWindow).toBeGreaterThan(0)
+    expect(composed[0]?.inputModalities).toEqual(['text', 'image'])
   })
 })
