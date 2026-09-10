@@ -1018,3 +1018,86 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 ### 分支 HEAD 登记
 
 起点 `core-patches-v7` = `1930a2321b`（本地顶端，未推 origin；`origin/core-patches-v7` 停在 `b08aac3df3`，本轮未动）。基座 `upstream/master` = `origin/master` = `2377c272a8`。变基阶段的代码 HEAD = `e8d8970965`，该阶段的分支 HEAD = `4d5fef5258`（已推 origin）。其后是独立复核轮追加的三个代码提交（`54cf2c2dfc`、`f358048529`、`0a0f904ea5`）与本节所在的这个台账提交，其后无提交。`core-patches-v8` 为新分支，两次均为普通 push，无 force、无历史改写；已推出去的提交一律追加订正而不 amend。
+
+## rc.32 集成合并审计：`develop` 线 × `core-patches-v8`（基座 0.1.3-alpha.1 → 0.1.5-rc.1）
+
+集成分支 `rc32-integration` 起自 `origin/develop` = `386e0197c8`，其上先有阶段 A 的五条本线提交（`6176706972` 起，把 fork 的 Electron 壳从 `apps/desktop` 让到 `apps/desktop-shell` 并钉住安装后的应用名）与两条阶段 A 复核补丁（`b67e7c6555`、`131ed56f28`）。一次 `--no-ff` 合并，first-parent 为 `568c1eb971`（v8），其后三条本线提交 `e258558a45`、`c3ad8139f8`、`ba6e2699c2`。桌面版本号本次不动，仍是 `0.1.0-rc.32`；根版本随基座变为 `0.1.5-rc.1`。
+
+### 合并：`core-patches-v8`（`46a7aa75fd`）
+
+`git merge-base --all` 唯一，为 `d347e70390`（上游 0.1.3-alpha.1 发布合并）。v8 是 v7 的**变基**（`git merge-base --is-ancestor 1930a2321b origin/core-patches-v8` 为假，对 `HEAD` 为真），所以合并基是上游提交、fork 独有文件全部以 add/add 落入冲突。**93 个冲突文件**（83 UU + 10 AA）。
+
+**逐文件改用真正的内容祖先 `1930a2321b`（`core-patches-v7` 顶端，develop 已含）做 `git merge-file`**：93 个里 **42 个的 `ours` 与祖先逐字节相同**（develop 从未在补丁线之外碰过它们，结果即 v8 侧），**11 个**三方干净消解，其余 **40 个**手判：
+
+- 整取 v8（v8 已按语义重落本线补丁）：`packages/session/session-format-v0-to-v1/{src/migration.ts,tests/legacy.spec.ts,README.md,README.zh.md}`、`.agents/notes/implemented/bug-fix/2026-08-31-win32-picker-path-string-read.{md,zh.md}`、`.agents/notes/implemented/bug-fix/2026-09-07-v0-migration-legacy-shapes.{md,zh.md}`。
+- 整取 develop：`packages/bundle/base/tests/base.spec.ts`（上游新增 `session-telemetry-otel` 的 `disabled` 应为 undefined 的断言，与本 fork 在 `packages/bundle/base/cordis.patch.yml` 里把该行与 `plugin-package-inventory-deepseek` 一并关闭相抵触）、`apps/web/tests/scaffold.ts` 的遥测注释（合并后的代码保留 develop 的 `disabled: false` 覆写，注释须与之相符）、`packages/feedback/command-feedback/README.{md,zh.md}`（develop 删掉的「新会话上没有可见的确认」限制随命令转正而不再成立）。
+- 并集：`pnpm-workspace.yaml`（取 v8 的 `electron-winstaller: false` + `msgpackr-extract: false`，两侧对前者取值相同）、`tsconfig.host.json`（develop 的三条 `apps/desktop-shell/**` include 与 v8 的 `apps/desktop/{scripts,tests}` 与 `benchmarks/**` 并存）、`scripts/publish-npm-baseline.ts`（两侧各加一条 import）、`scripts/run-gates.spec.ts`（两侧各加一条用例）、`scripts/build-exe-for-python-sdk.spec.ts`（develop 加宽的 deploy 断言 + v8 新增的两条断言）、`packages/test-support/session-snapshot/src/harness.ts`（v8 新增 `DSH_SNAPSHOT_SPILL_LOCATOR_ROOT` + develop 的 `isolatedSkillRootEnv` 展开，后者是 `DSH_HOME`/`DSH_AGENTS_HOME` 的超集）、五组 README 双语（`ui-commands` 的受理段、`ui-tool` 的 `conversation.approval.detail` 段、`skill-filesystem.zh` 的 `.claude` 根段、`loader-smoke.zh` 的 `isolatedSkillRootEnv` 措辞）。
+- 逐 hunk 判：`packages/client/ui-chat/tests/chat-apply.client.spec.tsx`（取 v8 的 `main` keyed 声明，但 `conversation.approval.detail` 保持 develop 的 `keyed`，并保留 develop 那条 `['bash','pwsh']` 断言）、`packages/client/ui-tool/src/client/apply.ts`（上游退役 `conversation.details.tool` 槽与 `ToolDetails`，只保留 develop 新增的 `toolHostInject` import）、`packages/session/session-format-v1-to-v2/tests/migration.spec.ts`（整取 v8 的 stage 重构，再补回 develop 独有的 `command/run` `engages` 用例）。
+- `.claude/core-patches.md`：两处冲突。第一处取并集，v8 给前一小节补的「本轮（`core-patches-v8`）」状态行在前、develop 的两条补丁登记段（keyed 审批详情、`.claude` skill 根）在后；第二处取并集，develop 的 rc.31 集成审计段在前、v8 的滚动同步段在后。
+- 生成物取 v8 侧后重跑生成器：`pnpm-lock.yaml`、`THIRD_PARTY_NOTICES.md`、`.agents/notes/archived/manifest.json`、九份 `*.i18n.yaml`。
+
+**「两侧都改过」的非冲突文件同样按内容祖先重判**（git 用上游合并基自动合并会把补丁计两次）：以 `1930a2321b` 为准，`ours` 与祖先相同的 **7519** 个路径的合并结果与 v8 blob 逐字节相同，**1** 个不符——`packages/api/session-controller/README.zh.md` 把 `dispatchReferentOpen` 那段并入了两次（合并基没有它，develop 与 v8 各加一次），改回 v8 blob。`ours` 与 v8 都动过的 **103** 个路径里，**58** 个的三方结果与合并结果一致，其余 **45** 个即上面手判的那批；其中 **11** 个 git 自动合并了而真三方会冲突（十份配对记录 `*.i18n.yaml` 与 `packages/host/directory-picker-native/tests/win32-dialog-bindings.spec.ts`），逐个核对：配对记录随重录重算，该 spec 的结果与 v8 blob 逐字节相同（develop 的改动是 v8 的真子集）。
+
+**删除复活护栏**：以 `1930a2321b` 为准，v8 侧删除而 develop 仍持有的路径 **1453** 个，全部不在结果树中；其中 **15** 个 develop 曾改过——是上游归档掉的五组 Agent Note（`2026-07-25-web-command-surfaces-and-assembly`、`2026-07-25-web-input-machine-and-slash-pipeline`、`2026-08-13-bounded-cold-blank-verification`、`2026-08-01-goal-command-input-projection`、`2026-08-11-workspace-sidebar-order-and-folding`）的 `implemented/` 三件套，develop 在其中写过命令转正的句子。git 把改名识别成 `implemented/` → `archived/` 并把 develop 的编辑带进了归档副本；归档树是冻结史，十个归档文件一律改回 v8 blob，那条事实由它自己的 `implemented/bug-fix/2026-09-10-command-engages-blank-session.md` 与 `ui-commands` README 承载。护栏另两向为零：结果树中「两个父都没有」的文件 0 个；v8 有而结果缺的路径 0 个。
+
+**归档清单取并集**：v8 的 `archived/manifest.json` 有 1884 条，develop 有 543 条，交集哈希零分歧；develop 独有的 18 条（rc.31 期归档的六组文件附件族 Agent Note 三件套）并入，`verify-archived-agent-notes` 复算后逐字节一致，**1902** 份冻结产物 / 6 类全绿。
+
+**归档带来的两处死链**：develop 独有的 `2026-08-23-desktop-builtin-{conversation-plugins,default-model}` 三处同目录链接指向被 v8 归档走的笔记，改指 `../../archived/…/*.md`（中文侧同样指英文归档文件，与仓内既有 177 处归档入链一致），随后重录配对记录。
+
+**生成物一律重跑不手改**：13 个生成器全跑（`gen-tsconfig-paths`、`gen-cordis-catalog`、`gen-cordis-api`、`gen-client-catalog`、`gen-cordis-inspect-catalog`、`gen-tool-catalog`、`gen-config-catalog`、`gen-doc-graphs`、`gen-persistence-catalog`、`gen-session-format-catalog`、`gen-third-party-notices`、`gen-module-graph`、`gen-scoped-events`），**只有 `THIRD_PARTY_NOTICES.md` 有改动**（补回 fork 的 11 个 vendored tarball 条目、`electron-updater@6.8.9` 补丁行与 `7zip-bin`），其余零 diff；`verify-translation-pairing` **850 对**全绿。
+
+**三道机械护栏跑遍 237 个「两侧都改过」的文件**（`git diff --name-only d347e70390 <each side>` 求交；其中 5 个在结果树中已删，实测 232 个）：① 抑制注释逐字计数**零丢失**；② 连续块重复（4 行窗口）**零命中**；③ 行频超额 22 个文件，逐个归类——7 份 `*.i18n.yaml` 是重录后的新哈希行，`.claude/core-patches.md` 的 `### 分支 HEAD 登记` 由并集从 2 变 3，6 份 README 是两侧合成的新段落，`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts` 是生成物（槽位并集），其余 5 个是 `  })` / 重复断言行由用例并集各多一条——`it`/`describe` 标题在全部 237 个文件中**零重复**，`packages/client/ui-commands/tests/service.client.spec.ts` 用例数 develop 51 / v8 53 / 结果 54，即 v8 全量加 develop 独有的一条。
+
+**依赖与原生插件**：`pnpm-lock.yaml` 整取 v8 侧再 `pnpm install`，退出码 0，四个补丁线没有的 importer（`apps/desktop-shell`、`apps/desktop-server`、`apps/desktop-app`、`apps/pwa`）重新解析；`pnpm-workspace.yaml` 零改动，未出现 `@rolldown/binding-openharmony-arm64`。v8 起 flock 走预编译 Node-API 插件，`pnpm --dir native/system run build:native` 产出 `native/system/packages/darwin-arm64/bin/system.node` 后 `packages/session/*` 才可跑。
+
+**上游自带的两个新工作区成员**（`apps/desktop` = `@deepseek-ai/dsh-desktop`、`apps/desktop-host` = `@deepseek-ai/dsh-desktop-host`）作为干净新增原样落入，均为 `private: true`，本次不打包、未改一字；`check-workspace-constraints`、`verify-application-entrypoints`、`verify-translation-pairing` 三道门对它们零红。
+
+### 本线三条适配提交
+
+1. `e258558a45` `test(snapshot)`：`snapshots/web/approval-preview-diff/session.v2.jsonl` 的手写脚本让 `call_write_notes_0001` 跨过 `step/end` 仍未了结。上一基座上 v2 是当前世代、还原不跑released 关系校验，因此从未被拒；新基座把 v3 变成当前世代，语料 spec 走 v2 → v3 迁移并以 `step/end leaves unresolved tool call call_write_notes_0001` 拒读。按 `snapshots/web/approval-composer` 的形状补上 `tool/call`、`approval/asked`、`approval/decided: allowed-once`、`tool/result`，回放只读 assistant 流，浏览器场景与 `ui.expected.md`、`workspace.expected` 一字未动。
+2. `c3ad8139f8` `test(snapshot)`：`assertSnapshotCorpusPolicy` 要求每个拥有方场景选中的 Session 是当前世代，报 `web/approval-preview-diff: selected Session generation v2 does not match expected v3`。按 v2 → v3 边与上游 `approval-composer` 的 v2/v3 对照手写 `session.v3.jsonl`：头部声明 v3，`request/header.header.system` 退役、改由步首的 `system/message` 承载，`session/title` 移到 request header 之后，消息 id 占位符与 `messageSeqs` / `sourceEventSeqs` 随插入行重新编号；v2 留在旁边作为语料 spec 的迁移源。
+3. `ba6e2699c2` `test(snapshot)`：`@deepseek-ai/dsh-commands` 给声明了「配置会话而非开工」的命令在 `command/run` 上追加 `engages: false`，`permission-presets` 与 `plan-mode` 都这么声明。三个上游场景录到了这类运行，选中的 v3 金样因此与回放差出该成员：`approval-composer`（1 条 `permission`）、`permission-policy-context`（4 条）、`plan-review`（1 条 `plan`）。以 `DSH_SNAPSHOT=refresh` 无密钥重录，改动的 6 行只有 `engages: false`；旁边的 v2 世代是历史源，保持原样。
+
+### 旧会话可读性预审（合并之后、门禁之前）
+
+`~/.dsh/sessions` 与 `~/.dsh.backup-2026-09-02-before-rc27/sessions` 各只读复制到 scratch，用合并树源码按 `JsonlSessionPersistence.open(id, 'read').read()`（`_reconcile` 冷读走的同一条调用）逐份还原：本机库 **142 份全部打开、零拒绝**，共 9088 条事件；rc.27 前备份库 **121 份全部打开、零拒绝**，共 7805 条事件——与 v8 台账在纯上游树上取得的「121/121 零拒绝」一致。`SESSION_FORMAT_VERSION` 本轮由 2 升 3；读路径不落盘，两份 scratch 副本读后文件名与数量不变（129 份 `session.jsonl.zstd` + 34 份 `session.v2.jsonl.zstd`），`~/.dsh` 与备份目录本体全程未被写入。
+
+### 随附插件契约核对（13 个 vendored 插件）
+
+以 `1930a2321b` → `origin/core-patches-v8` 为区间，逐个插件按其 `dsh.client.inject` 与 `peerDependencies` 展开，解包 tarball 后扫 `lib/*.js` 的 import 名、slot 名、`ctx.*` 服务名与事件名：
+
+- **导入的具名导出 28 个全部仍在**（`createUserMessage`、`BlockAssembler`、`ReasoningEffortId`、`Remote`、`TypertRemoteService`、`remoteErrorOf`、`readColdSessionLog`、`SettingsConflictError`、`snapshotSubagentDescriptor`、`defineTool`、`resolveDshHome`、`dshHomePath`、`credentialRef`、`isCredentialRefName`、`AttachmentId`、`launchEnvironmentOf`，以及 `ui-primitives` 的 12 个组件/图标/工具）。
+- **本轮被删除的导出 21 个，插件零引用**：`typert-protocol` 的 `TypertContextAdapter`/`TypertHostContextIdentity`，`ui-chat` 的 `Details*` 五个与 `SelectionTarget`/`StatsLine*`/`findToolCall`，`ui-tool` 的 `ToolDetails`/`ToolDetailsProps`/`relativizeToCwd`，`ui-primitives` 的 `DocumentFileIcon`，`ui-layout` 的 `ConvOwnerProps`/`DETAILS_*`/`DetailsOwnerProps`，`subagent` 的 `HostPromptDeliveryMode`。
+- **槽位**：生成的客户端槽位目录由 54 个变 62 个，退役 3 个（`conversation`、`details`、`conversation.details.tool`），新增 11 个。插件实际使用的 12 个槽位（`conversation.input.dock`、`conversation.input.overlay`、`conversation.composer`、`conversation.composer.dock`、`conversation.chat.node`、`conversation.chat.turnTail`、`conversation.chat.commandview`、`tool.call.toolview`、`settings.section`、`settings.plugins.tab`、`sidebar.footer.action`、`shell.overlay`）全部仍在，且 kind/scope/register 选项与 v7 逐项相同；退役的 3 个零引用。
+- **服务与事件**：插件用到的 16 个服务名（`approval`、`commands`、`conversationEvents`、`credentials`、`modelDirectories`、`referent`、`settingsScope`、`systemPrompt`、`uiConversation`、`userQuestions`、`webRuntime`、`webServer`、`workspaces`、`sessions`、`modules`、`invariants`）与 11 个事件名（`agent/created`、`agent/pre-step`、`approval/request`、`connection/reset`、`connection/state`、`credentials/reference-updated`、`llm/adapters-updated`、`referent/open`、`session/event`、`tools/pre-execute`、`tools/result`）全部仍在。
+- 唯一在 `ComposerBarInjected` 上被删的成员 `resolveSubmitMode`（改为 `hooks.busyEnterBehavior`）零插件引用。
+
+**结论：13 个插件的契约面本轮零破坏。**
+
+### 门禁实跑（HEAD = `ba6e2699c2`）
+
+`pnpm install` 0 → `pnpm --dir native/system run build:native` 0 → `build` 0（**234 个客户端产物**）→ `typecheck` 0 → `lint` 0 → `doc-sync` **36/36** → `hygiene` **16/16** → `duplication` **1722 个文件零克隆** → `test:snapshot` **132 条：129 通过 / 2 跳过 / 1 红**（唯一的红是 `ptc-python-turn`，本机 CPython 3.9.6 低于该包要求的 3.10+，非本次引入）→ `DSH_SNAPSHOT=replay` 全量 web 回放 **103 个文件 / 370 条：102 文件 355 条通过、1 文件 15 条跳过，零红** → `vitest run apps/desktop-shell/tests` **22 文件 / 504 条：503 通过 / 1 红** → `test` 全仓 **1270 个文件 / 22943 条：1251 文件 22564 条通过、12 文件 129 条跳过、7 文件 250 条红**。
+
+**`test:coverage` 本轮未跑**：rc.31 记录同样未跑，CI 拥有该信号。
+
+**7 个红文件逐条归因**：
+
+| 文件 | 判定 |
+| --- | --- |
+| `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` | **本次合并引入，留红**，见下节 |
+| `packages/experimental/code-runtime-python/tests/runtime.spec.ts`、`.../boot-write-failure.spec.ts` | 本机 `/usr/bin/python3` 是 CPython 3.9.6，该包要求 3.10+；`test:snapshot` 的 `ptc-python-turn` 同因 |
+| `packages/subprocess/subprocess-local/tests/spawn-runner.spec.ts` | v8 独有的新文件与新用例（v7 与 develop 都没有），结果树与 v8 blob 逐字节相同——补丁线自带，非本次引入 |
+| `packages/experimental/webworker-runtime/tests/compile/transform-corpus.spec.ts` | 同上：`packages/client/ui-dockkit` 整包与该 spec 都是 v8 新增，且其全部输入（`tsdown.client.ts`、`ui-dockkit/*`、`ui-primitives/src/index.ts`、检查脚本）与 v8 blob 逐字节相同。`ui-dockkit/lib/index.js` 先 import `ui-primitives`，于是 Node 先在 `ui-primitives` 的 `.css` 上失败，而基线只豁免 dockkit 自己那份 `.css` |
+| `scripts/browser-bundled-externals.spec.ts` | 同上：该 spec 与其被测脚本都是 v8 新增（`git diff 1930a2321b <develop tip>` 对这两个路径为空），rollup 报的是临时目录的绝对路径 |
+
+**两次并发抖动，非本次引入**：全仓 `test` 三轮里 `packages/subagent/subagent/tests/list-children.spec.ts`（`rmSync` 拆除时 `ENOTEMPTY`）与 `packages/boot/app-boot/tests/hmr-config.spec.ts`（10 秒文件监视截止）各红过一轮，单跑分别 62/62、6/6 全绿（各两三轮）。
+
+### 留红一条：内置模型表现在与上游目录重叠
+
+`apps/desktop-shell/tests/desktop-composition-layer.spec.ts` 的 `offers one model, none of which the adapter this payload ships carries` 是本 fork 自己埋的绊线，注释写明「上游哪天自带这一行，本表就是在复述而不是补缺，这条断言负责说出来」。新基座的 `packages/llm/llm-deepseek` 的 `DEFAULT_MODELS` 已自带 `deepseek-flash`（v7 没有），而组合层（`apps/desktop-app/cordis.patch.yml` 与随附插件 `@haoran/dsh-default-model` 0.3.0）仍以**整表替换**写下自己那一行，于是它覆盖而不是补上上游的那一行。可观察落差：上游那行带 `systemPromptUpdate: 'in-history'` 与 `name: DeepSeek-V41-Flash`，本层那行没有 `systemPromptUpdate`、名字是 `DeepSeek-V4.1-Flash`、描述是中文。
+
+改法牵涉仓外插件发版与一个产品判断（桌面还要不要一行制的选择器、要不要跟随上游的能力字段），**本次不动**；`pnpm run test` 与 `vitest run apps/desktop-shell/tests` 在此项上留红。
+
+### 分支 HEAD 登记
+
+起点 `origin/develop` = `386e0197c8`；阶段 A 五条本线提交顶 `894074b437`，阶段 A 复核补丁两条顶 `131ed56f28`；合并提交 `568c1eb971`（第二父 `origin/core-patches-v8` = `46a7aa75fd`，未被本分支改写）；本线三条适配提交顶 `ba6e2699c2`，即本节所在提交之前的分支 HEAD。基座 `upstream/master` = `2377c272a8`（0.1.5-rc.1）。本分支未推 origin，零 `--amend`、零 `--force`、零 `--no-verify`。
