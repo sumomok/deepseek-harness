@@ -16,11 +16,11 @@ Status: implemented
 
 **每一处隐藏都只是 `packages/experimental/server-sidebar/src/client/terminology-guard.ts` 里多出的一条规则**——本包早已为轮次/步骤行、权限选择器与英雄区门面注入的那张纯客户端样式表。不动任何上游包，不加新插件，不加组合行，也不动 settings。
 
-**过程行按 Chat Node kind 隐藏。** `ChatNodeSeat.tsx` 会在每一个流式行上打出 `data-chat-flow-kind`，因此 `[data-chat-flow-kind="system-prompt"]`、`"turn-process"`、`"tool-call"`、`"command"`、`"manual-compaction"`、`"compaction"` 都是真正的属性选择器——没有类名子串，也没有 DOM 位置，唯一能打破它们的是上游改掉 kind 名字。推理是例外：它渲染在被保留的 `assistant-step` 席位内部，而不是自成一个 kind，因此它的规则耦合在 `[data-variant="think"]` 上——`ReasoningRow.tsx` 无条件设置它，且 `ToolRowVariant` 的其余成员都不与之相撞。命令行占了三个 kind，是因为 `ui-chat` 按命令的来路把同一个界面拆开了——`manual-compaction` 是 `/compact` 连同它的压缩事务，`compaction` 是自动那一次，`command` 是其余全部——只隐藏 `command` 会把 `/compact` 留在屏幕上。
+**过程行按 Chat Node kind 隐藏。** `ChatNodeSeat.tsx` 会在每一个流式行上打出 `data-chat-flow-kind`，因此 `[data-chat-flow-kind="system-prompt"]`、`"turn-process"`、`"tool-call"`、`"command"`、`"manual-compaction"`、`"compaction"` 都是真正的属性选择器——没有类名子串，也没有 DOM 位置，唯一能打破它们的是上游改掉 kind 名字。推理是例外：它渲染在被保留的 `assistant-step` 席位内部，而不是自成一个 kind，因此它的规则耦合在 `[data-variant="think"]` 上——`ReasoningRow.tsx` 无条件设置它，且 `ToolRowVariant` 的其余成员都不与之相撞。命令行占了三个 kind，是因为 `ui-chat` 按命令的来路把同一个界面拆开了——`manual-compaction` 是 `/compact` 连同它的压缩事务，`compaction` 是自动那一次，`command` 是其余全部——只隐藏 `command` 会把 `/compact` 留在屏幕上。`context` 与 `model-retry` 是同一判断的再两次应用，两者都不在「保留」那一边：`context` 行是一条来源不是用户的 `user/message`（`messageDefinition` 正是据此归类的），因此它是这次运行所需要的机件，而不是访客写下的东西；`model-retry` 行则是内部状态——重试要么成功，那么访客读到的就是答案本身，要么耗尽，那么被保留的 `turn-error` 行会把这件事说出来。
 
 **`content_read` 的结果卡片随它所在的行一起隐藏。** 它是挂在 `tool-call` kind 之下的一个 keyed `tool.call.toolview` 条目，因此 `:not(:has([data-tool="content_read"]))` 本可以把它留下；这次的决策是不留。这张卡片说的是 agent 看了某个页面，并报出它的名字——而内容列已经用展示页面本身承载了这个事实，所以在控制台里，这一行只是在流水里复述屏幕上就摆着的东西。
 
-**产出文件尾巴保留，这正是页脚那条规则只取动作行、不取整个页脚的原因。** `[data-turn-tail]` 有两个子节点：`dsh-client-ui-deliverables` 的 `ProducedFiles` 链（列出这次运行写了哪些文件），以及 `MessageIconActions`。一次运行产出的文件就是业务结果，因此规则写成直接子元素对 `[data-turn-tail] > [class*="actions"]`。它取走整个动作行而不是那两枚指标药丸，是因为两枚药丸都没有把手：`TurnUsagePanel.tsx` 只在展开后的弹窗上放了 `data-*` 属性，两个触发器上都没有，唯一能单独够到它们的选择器是尾巴内部的 `[class*="trigger"]` 子串。复制、点赞/点踩、分支，以及轮次结束的时钟，都随「用量」与「用时」一起消失。
+**回复页脚只失去两枚指标药丸，那一行的其余部分保留。** `[data-turn-tail]` 有两个子节点：`dsh-client-ui-deliverables` 的 `ProducedFiles` 链（列出这次运行写了哪些文件），以及 `MessageIconActions`（承载复制、点赞/点踩、分支、两枚统计药丸，以及轮次结束的时钟）。一次运行产出的文件是业务结果，其余控件是访客自己的操作入口；只有「用量」与「用时」属于过程汇报，因此只有它们消失。两枚药丸都没有 `data-*` 属性——`TurnUsagePanel.tsx` 只在展开后的弹窗上放了一个，两个触发器上都没有——因此这条规则耦合在 `TurnUsagePanel.module.css` 的 `.trigger` 上，也就是两个面板都给那个按钮起的局部类名，并通过它够到药丸自己的外层包裹：`[data-turn-tail] :has(> [class*="trigger"])` 选中的是每个面板的 `span.root`，于是药丸既不留下 flex 槽位，也不留下只隐藏按钮时会留下的 `.root + .root` 负边距。
 
 **运行指示器是改写文案，不是隐藏。** 访客必须看见工作正在进行，因此 `[data-chat-flow] > [class*="turnStatus"]` 把上游文字压到 `font-size: 0`，用 `::after` 画上「正在处理…」，并把那层 `--dsw-static-deepseek-500/200` 的背景裁切文字微光中和成主题里普通的 `--dsw-alias-label-primary`。这个直接子元素组合子承重了两次：`ChatView.tsx` 是在每一个 `ChatNodeSeat` 之外渲染 `TurnStatus` 的（这也是没有任何 kind 规则够得到它的原因），而这个组合子又把规则挡在嵌套的 `turnStatusClock` span 之外——那个 span 自设字号与颜色，十五秒后照样显示已用时长。
 
@@ -36,7 +36,7 @@ Status: implemented
 
 **直接改 `packages/client/ui-conversation/src/client/locales.ts`。** 在组合层或插件层有答案的地方，这个 fork 禁止改上游；而且波及面是 `snapshots/**` 下 46 份、`apps/web/tests/expected/**` 下 14 份携带已建立态占位文案的既有 golden，外加多数 web 用例都在用的两个 support 辅助函数。
 
-**只隐藏那两枚指标药丸。** `[data-chat-flow-kind="turn-tail"] [class*="trigger"]` 够得到它们，并保留复制、反馈与分支。它是两种形态里更脆的一种——一个没有属性锚点的裸类名子串，未来任何坐进尾巴的 `trigger` 命名控件都会被它命中——而对一台客户控制台来说，复制、点赞/点踩与分支都是产品内部的操作入口，留着并无所得。
+**取走整个动作行，或者用 `aria-haspopup="dialog"` 够到那两枚药丸。** 整行隐藏是更稳的选择器——`[data-turn-tail] > [class*="actions"]`，一个有属性锚点的直接子元素——但它会把复制、点赞/点踩、分支与时钟连同指标一起取走，而产品要保留这些。`aria-haspopup="dialog"` 看起来像是单独够到药丸的语义把手，其实不是：`dsh-client-ui-message-feedback` 的备注展开按钮（`MessageFeedbackActions.tsx:263-270`）也带着它，一旦存在评分就坐在同一行里，并且属于被保留的点赞/点踩那组操作。于是只剩 CSS module 的类名子串这一个隔离手段，这也正是 e2e 既读隐藏、也读保留的原因。
 
 ## Consequences
 
@@ -44,15 +44,15 @@ Status: implemented
 - 无障碍的表现与隐藏完全一致：`display: none` 会把一整棵子树同时从无障碍树、页内查找与 `innerText` 里拿掉，因此屏幕阅读器拿到的与视力正常的访客拿到的是同一列内容。唯一的错位在占位文案：那里的替换只作用于绘制，`[data-composer-input]` 的 `aria-label` 仍然念出上游那句英文，连同其中的禁用词汇。本包 README 的「已知限制」把这两件事都记了下来。
 - 在这份组合里，新的命令规则盖过了 `content-frame` 与 `content-column` 自己那两张 `[data-chat-flow-kind="command"]:has([data-slot="conversation.chat.commandview"]:empty)` 样式表。这两个包本身没有变动：它们都能在没有 `server-sidebar` 的情况下被组合（`apps/web/tests/server-layout-content.overlay.yml`），在那里它们那条更窄的规则仍然是唯一的一条。
 - 中间态的助手正文依然会出现，这是决策的一部分：它是 `assistant-step`，与最终答案同属一个 kind，而唯一能把两者分开的属性（`data-turn-process-member`）只在轮次已关闭且历史完整加载时才存在。隐藏它就等于隐藏「保留清单」明确要保留的正文。
-- 用户消息自己的复制按钮与时钟（`MessageItem` 的 `MessageIconActions`，与回复页脚是不同的席位）未被触及；这次决策点名的是回复页脚的指标。
+- 回复页脚保留了复制、点赞/点踩、分支与它的时钟；用户消息自己的复制按钮与时钟（`MessageItem` 的 `MessageIconActions`，与回复页脚是不同的席位）本就不在范围内。两行里消失的都只有那两枚统计药丸。
 - **模型可见面没有任何变化。** 这是一个客户端插件里的浏览器 CSS：不涉及系统提示词、工具 schema、会话事件或模型请求。`pnpm run test:snapshot snapshots/console` 无需更新；web 通道的 aria golden 也不受影响，因为每一个携带 golden 的用例跑的都是从不插入 `server-sidebar` 的组合——`apps/web/tests/server-sidebar.e2e.ts` 既没调用 `captureStableAria`，也没调用 `compareOrRefreshGolden`。
 
 ## Testing
 
-`packages/experimental/server-sidebar/tests/terminology-guard.client.spec.ts` 按每条新规则所耦合的那个字面选择器逐条断言，这是该文件既定的做法：六个 kind 选择器、`think` 属性、页脚的直接子元素对（外加断言后代形式不存在，因为那种写法会把产出文件尾巴一并取走）、占位文案那一对连同它的文案，以及指示器那一对连同它的文案、中和后的填充色，和「深度求索」的缺席。
+`packages/experimental/server-sidebar/tests/terminology-guard.client.spec.ts` 按每条新规则所耦合的那个字面选择器逐条断言，这是该文件既定的做法：八个 kind 选择器、`think` 属性、页脚的 `:has(> [class*="trigger"])` 那一对——外加断言直接子元素形式与后代形式的 `actions` 写法都不存在，因为其中任何一种都会取走这次决策要保留的控件——占位文案那一对连同它的文案，以及指示器那一对连同它的文案、中和后的填充色，和「深度求索」的缺席。
 
-`apps/web/tests/server-sidebar.e2e.ts` 新增第四个 describe，在完全不发生模型调用的情况下驱动装配好的控制台。它播种一个封闭轮次，其中带有一条 `request/header`、一段推理、一次 `content_read` 调用、一次 `write` 调用、一个中间步骤，以及位于更晚一个步骤里的纯文本答案——正是这一点让轮次变得可折叠——外加一对独立的 `command/run`/`command/done`，其名字没有任何 `conversation.chat.commandview` 认领，因此 `GenericCommandCard` 会真的画出来。随后它读页面：每一行被隐藏的行都既存在，计算出的 `display` 又是 `none`；`content_read` 那一行在它的席位内部被隐藏；产出文件尾巴与它的文件药丸可见；两种输入框状态下占位文案渲染出的 `::after`，同时 `composer(page, …)` 仍然靠那个未被触及的上游属性解析得到；一张审批卡片可见且内部没有任何 `data-chat-flow-kind`，由一次直接的 `ctx.approval.request` 驱动，针对的是该用例自己开启又关闭的一个轮次；以及指示器可见、已改写文案、已脱离渐变。
+`apps/web/tests/server-sidebar.e2e.ts` 新增第四个 describe，在完全不发生模型调用的情况下驱动装配好的控制台。它播种一个封闭轮次，其中带有一条 `request/header`、一条来源为插件的注入上下文 `user/message`、一条已排期的 `llm/retry`、一段推理、一次 `content_read` 调用、一次 `write` 调用、一个中间步骤，以及位于更晚一个步骤里的纯文本答案——正是这一点让轮次变得可折叠——外加一对独立的 `command/run`/`command/done`，其名字没有任何 `conversation.chat.commandview` 认领，因此 `GenericCommandCard` 会真的画出来。随后它读页面：每一行被隐藏的行都既存在，计算出的 `display` 又是 `none`；`content_read` 那一行在它的席位内部被隐藏；两枚指标药丸消失，而复制、分支与时钟仍在屏幕上；产出文件尾巴与它的文件药丸可见；两种输入框状态下占位文案渲染出的 `::after`，同时 `composer(page, …)` 仍然靠那个未被触及的上游属性解析得到；一张审批卡片可见且内部没有任何 `data-chat-flow-kind`，由一次直接的 `ctx.approval.request` 驱动，针对的是该用例自己开启又关闭的一个轮次；以及指示器可见、已改写文案、已脱离渐变。
 
-其中两项需要新的 `expectGuardHidesSelector` 辅助函数的第三半——既存在、不可见，**且**计算出的 `display` 是 `none`。`compact` 本来就会把工具行与思考行折进 `hidden="until-found"`，那同样读作不可见，因此只断言「存在且不可见」的话，把本次改动的规则全删掉也照样通过。已对着一次刻意破坏的构建核对过：把 `[data-chat-flow-kind="tool-call"]` 从样式表里移除并重建 client face 之后，tool-call 席位计算出的 display 变回 `block`，场景在那一步失败，而它 `isVisible()` 那一半仍然报 `false`。
+其中若干项需要新的 `expectGuardHidesSelector` 辅助函数的第三半——既存在、不可见，**且**计算出的 `display` 是 `none`。`compact` 本来就会把工具行与思考行折进 `hidden="until-found"`，那同样读作不可见，因此只断言「存在且不可见」的话，把本次改动的规则全删掉也照样通过。每一条新规则都对着一次刻意破坏的构建核对过，并且每次都重建了 client face，因为浏览器加载的是 `lib/client.js` 而不是源码：去掉 `[data-chat-flow-kind="tool-call"]` 后，该席位计算出的 display 变回 `block`，而它 `isVisible()` 那一半仍然报 `false`；去掉 `"context"` 或 `"model-retry"` 同样变回 `block`；去掉页脚那条规则后，药丸的外层包裹报可见。把页脚规则重新放宽成整行隐藏，药丸那条断言同样失败——在被隐藏的祖先之下，包裹自身的 display 仍是 `inline-flex`——而在窄规则之外再加一条整行隐藏，则改为让「保留」那半失败，于是两个漂移方向都被覆盖。
 
 审批卡片无法只靠日志播种出来，运行中的轮次也一样。审批是通过 `ApprovalService.request` 直接发起的，它经由组合好的 `approval/request` 瀑布抵达浏览器，与一次工具发问走的是同一条路。运行位则是绑定在真实 Agent 执行上的 Host 推送（`api-session/status`，由 `agent/status` 在 `packages/api/session-controller/src/index.ts:175` 发出），因此场景自己发出这一个声明过的远端事件；它下游的一切——组件、样式表、绘制——都是真的。

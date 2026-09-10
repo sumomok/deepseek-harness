@@ -200,16 +200,17 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 | 已完成轮次的折叠行（「N 次工具调用 · M 条消息」） | `[data-chat-flow-kind="turn-process"]` | 同一个属性 | 同样的改名 |
 | 每一个工具行，含 `content_read` 的结果卡片 | `[data-chat-flow-kind="tool-call"]` | 同一个属性 | 同样的改名 |
 | 每一个命令行 | `[data-chat-flow-kind="command"]`、`…="manual-compaction"`、`…="compaction"` | 同一个属性 | 同样的改名 |
+| 注入的运行时上下文行与供应商重试行 | `[data-chat-flow-kind="context"]`、`…="model-retry"` | 同一个属性 | 同样的改名 |
 | 思考行 | `[data-variant="think"]` | `ReasoningRow.tsx` 无条件设置的那个属性 | 该组件不再设置这个属性 |
-| 回复页脚的用量/用时指标 | `[data-turn-tail] > [class*="actions"]` | `TurnTailNodeView` 自己的属性，加一个 CSS module 类名子串 | 两个 `actions` 类名被一起改掉，或这一行被挪出那个位置 |
+| 回复页脚的用量/用时指标 | `[data-turn-tail] :has(> [class*="trigger"])` | `TurnTailNodeView` 自己的属性，加 `TurnUsagePanel.module.css` 给两枚药丸按钮的 `trigger` 类名子串 | 这个类名被改掉，或尾巴里坐进另一个带 `trigger` 的控件 |
 | 输入框占位文案 | `[data-composer-placeholder]` 及其 `::after` | `InputBar.tsx` 自己的属性 | 这个属性消失 |
 | 运行指示器的文案与品牌渐变 | `[data-chat-flow] > [class*="turnStatus"]` 及其 `::after` | 流式列自己的属性，加一个类名子串 | `turnStatus` 被改名，或指示器被挪出那个位置 |
 
-按 kind 的这几条是本文件里最便宜也最稳的耦合：`data-chat-flow-kind` 是一个真属性，不是类名子串，也不是 DOM 位置，因此唯一能打破它的是上游改掉 kind 名字。e2e 断言的是每一行**既存在，计算出的 `display` 又是 `none`**，而不只是不可见——`compact` 本来就会把过程行折进 `hidden="until-found"`，那同样读作不可见，所以只断言「存在且不可见」的话，把这里的规则全删掉也照样通过。命令行占了三个 kind，是因为 `ui-chat` 按命令的来路把同一个界面拆开了：`manual-compaction` 是 `/compact` 连同它的压缩事务，`compaction` 是自动那一次，`command` 是其余全部——只隐藏 `command` 会把 `/compact` 留在屏幕上。在这份组合里，这几条规则盖过了 [`content-frame`](../content-frame/README.zh.md) 与 [`content-column`](../content-column/README.zh.md) 自己那条更窄的 `:has([data-slot="conversation.chat.commandview"]:empty)` 规则，而后者仍然承载着所有不安装本守卫的组合。
+按 kind 的这几条是本文件里最便宜也最稳的耦合：`data-chat-flow-kind` 是一个真属性，不是类名子串，也不是 DOM 位置，因此唯一能打破它的是上游改掉 kind 名字。e2e 断言的是每一行**既存在，计算出的 `display` 又是 `none`**，而不只是不可见——`compact` 本来就会把过程行折进 `hidden="until-found"`，那同样读作不可见，所以只断言「存在且不可见」的话，把这里的规则全删掉也照样通过。命令行占了三个 kind，是因为 `ui-chat` 按命令的来路把同一个界面拆开了：`manual-compaction` 是 `/compact` 连同它的压缩事务，`compaction` 是自动那一次，`command` 是其余全部——只隐藏 `command` 会把 `/compact` 留在屏幕上。在这份组合里，这几条规则盖过了 [`content-frame`](../content-frame/README.zh.md) 与 [`content-column`](../content-column/README.zh.md) 自己那条更窄的 `:has([data-slot="conversation.chat.commandview"]:empty)` 规则，而后者仍然承载着所有不安装本守卫的组合。`context` 与 `model-retry` 是同一判断的再两次应用：`context` 行是一条来源不是用户的 `user/message`，因此它是这次运行所需要的机件，而不是访客写下的东西；`model-retry` 行则是内部状态——重试要么成功，那么访客读到的是答案本身，要么耗尽，那么被保留的 `turn-error` 行会把这件事说出来。
 
-留下来的是业务记录本身：访客自己的消息、助手的正文、`turn-error` 与 `turn-max-tokens`（读者必须据以行动的提示），以及回复页脚的产出文件尾巴——`dsh-client-ui-deliverables` 列出的这次运行写了什么，是有意保留的，这也正是页脚那条规则只取动作行、不取整个页脚的原因。`content_read` 的卡片是被保留界面内部唯一一处有意的舍弃：内容列已经在展示这一行本来要描述的那个页面。审批卡片则从构造上就不在这里任何一条规则的射程内——`dsh-client-ui-approval` 注册进的是 `conversation.composer`，因此一次审批接管的是输入框，根本不会成为一个流式行。
+留下来的是业务记录本身：访客自己的消息、助手的正文、`turn-error` 与 `turn-max-tokens`（读者必须据以行动的提示）、回复页脚自己的那些控件——复制、点赞/点踩、分支，以及轮次结束的时钟——还有它的产出文件尾巴，即 `dsh-client-ui-deliverables` 列出的这次运行写了什么。`content_read` 的卡片是被保留界面内部唯一一处有意的舍弃：内容列已经在展示这一行本来要描述的那个页面。审批卡片则从构造上就不在这里任何一条规则的射程内——`dsh-client-ui-approval` 注册进的是 `conversation.composer`，因此一次审批接管的是输入框，根本不会成为一个流式行。
 
-页脚那条规则取走整个动作行，是因为这两个指标自己没有把手：`TurnUsagePanel.tsx` 只在展开后的弹窗上放了 `data-*` 属性，两个触发器上都没有，因此唯一能单独够到这两枚药丸的选择器，是尾巴内部的 `[class*="trigger"]` 子串——恰恰是本文件已经在警告的那种脆弱形态。复制、点赞/点踩、分支，以及轮次结束的时钟，都随这两个指标一起消失。
+页脚那条规则只取那两枚指标药丸，那一行里别的什么都不取，因为复制、点赞/点踩、分支与时钟是访客自己的操作入口，不是过程汇报。两枚药丸都没有 `data-*` 属性——`TurnUsagePanel.tsx` 只在展开后的弹窗上放了一个，两个触发器上都没有——因此这条规则耦合在 `TurnUsagePanel.module.css` 的 `.trigger` 上，也就是两个面板都给那个按钮起的局部类名，并用 `:has(> …)` 通过它够到药丸的外层包裹，于是药丸既不留下 flex 槽位，也不留下只隐藏按钮时会留下的 `.root + .root` 负边距。`aria-haspopup="dialog"` 看起来像是那个语义把手，其实不是：`dsh-client-ui-message-feedback` 的备注展开按钮也带着它，就在同一行里，属于被保留的点赞/点踩这一组操作。因此类名子串是这条规则的脆弱处，与权限选择器那条同形；e2e 会同时读两半——药丸消失，而复制、分支与时钟仍在屏幕上——所以这种漂移无论朝哪个方向都会让门禁变红。
 
 输入框占位文案在英雄态与已建立态都读作「说说要做什么」，靠的是同一对规则：`InputBar.tsx` 为两种状态渲染的是同一个 `[data-composer-placeholder]` 元素，`ConversationRoot.tsx` 改的只是喂给它的 locale key。替换后的文案带的是 `ui-conversation` 自己的字号 token，而不是一个写死的像素值，因此它继续跟随设置里的字号偏好。别的路都没有：`conversation.composer.bar` 的 `placeholder` prop 只有 `ConversationRoot` 会提供，而 locale 注册表会拒绝对它已经持有的 namespace/locale 对的第二次注册，所以 `conversation` 这个 namespace 无法被遮蔽。兄弟节点 `[data-composer-input]` 上的 `data-placeholder` 与 `aria-label` 原样不动——见「已知限制」。
 
