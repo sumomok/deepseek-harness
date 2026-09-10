@@ -63,6 +63,13 @@ import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 import type {} from '@deepseek-ai/dsh-commands/types'
+import { compactCheckpointSource } from '@deepseek-ai/dsh-compaction/checkpoint'
+// Empty type import alongside the named one: carries compaction's own
+// `SessionEventMap` merge, which the checkpoint outlet deliberately does not.
+import type { CompactionId } from '@deepseek-ai/dsh-compaction/types'
+import type {} from '@deepseek-ai/dsh-compaction/types'
+import { WorkflowRunId } from '@deepseek-ai/dsh-workflow/types'
+import type {} from '@deepseek-ai/dsh-tool-workflow/types'
 // Empty type import: carries the approval service onto the scaffold's Context
 // so the business-content scenario below can ask for a decision directly.
 import type {} from '@deepseek-ai/dsh-user-approval'
@@ -1346,6 +1353,17 @@ describe('web e2e: the product-console sidebar with no workspace connected', () 
       // The hero chip-and-picker row stays hidden in this state too: with no
       // Workspace its chip would read the placeholder label, not a title.
       await expect(page.locator('[class*="heroWorkspaceRow"]').isVisible()).resolves.toBe(false)
+
+      // …and the guard's placeholder swap does NOT reach this state. The
+      // element is the same one the console repaints as 说说要做什么 elsewhere,
+      // but here it is the only thing telling the visitor the composer cannot
+      // accept input, so painting an invitation over it would be a lie. The
+      // rule excludes it through the composer input's own `data-phase="inert"`.
+      const inertPlaceholder = shellColumn(page, 'chat').locator('[data-composer-placeholder]')
+      await inertPlaceholder.waitFor({ timeout: 15_000 })
+      await expect(inertPlaceholder.evaluate(el => getComputedStyle(el).fontSize)).resolves.not.toBe('0px')
+      await expect(inertPlaceholder.evaluate(el => getComputedStyle(el, '::after').content)).resolves.toBe('none')
+      await expect(inertPlaceholder.innerText()).resolves.toContain(LEAKED_PLACEHOLDER)
     },
     30_000,
   )
@@ -1478,6 +1496,39 @@ function seedProcessTurn(scaffold: WebScaffold, sessionId: string): void {
   const commandId = CommandId('server-sidebar-business-command')
   session.append('command/run', { commandId, name: 'feedback', source: { kind: 'user' } })
   session.append('command/done', { commandId, kind: 'success', text: 'Sent.' })
+  // `dsh-client-ui-goal`'s own row for the `/goal` line, drawn beside the
+  // generic command row the same event also produces.
+  const goalId = CommandId('server-sidebar-business-goal')
+  session.append('command/run', { commandId: goalId, name: 'goal', args: ' ship the weekly report', source: { kind: 'user' } })
+  session.append('command/done', { commandId: goalId, kind: 'success', text: 'Goal set.' })
+  // `dsh-client-ui-workflow-run`'s lifecycle card.
+  const runId = WorkflowRunId('server-sidebar-business-run')
+  session.append('tool-workflow/run-start', { runId, name: 'Weekly report' })
+  session.append('tool-workflow/run-end', { runId, stopReason: 'completed' })
+  // Both compaction rows. The `compaction` Definition needs only the
+  // replacement checkpoint (`buildViewNode` returns null without one and
+  // tolerates a missing `compaction/summary`); `manual-compaction` is the same
+  // checkpoint correlated with a `/compact` run through `sourceCommandId`.
+  // Each replacement shadows one throwaway context message of its own, since a
+  // surface `replace` names a real surface-node range.
+  const autoShadow = session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'An earlier exchange, compacted automatically.' }],
+    source: { kind: 'plugin', plugin: 'runtime-context' },
+  }), { surfaceOp: 'append' })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Summary of the automatically compacted exchange.' }],
+    source: compactCheckpointSource(brandString<CompactionId>('server-sidebar-business-auto')),
+  }), { surfaceOp: { op: 'replace', start: autoShadow.seq, end: autoShadow.seq }, sourceEventSeqs: [autoShadow.seq] })
+  const manualShadow = session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'An earlier exchange, compacted on request.' }],
+    source: { kind: 'plugin', plugin: 'runtime-context' },
+  }), { surfaceOp: 'append' })
+  const compactId = CommandId('server-sidebar-business-compact')
+  session.append('command/run', { commandId: compactId, name: 'compact', source: { kind: 'user' } })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: 'Summary of the requested compaction.' }],
+    source: compactCheckpointSource(brandString<CompactionId>('server-sidebar-business-manual'), compactId),
+  }), { surfaceOp: { op: 'replace', start: manualShadow.seq, end: manualShadow.seq }, sourceEventSeqs: [manualShadow.seq] })
 }
 
 /**
@@ -1554,7 +1605,16 @@ describe('web e2e: the console conversation column shows business content only',
       await expect(chat.getByText(SEEDED_USER_LINE).isVisible()).resolves.toBe(true)
       await expect(chat.getByText(SEEDED_ANSWER).isVisible()).resolves.toBe(true)
 
-      for (const kind of ['system-prompt', 'turn-process', 'tool-call', 'command', 'context', 'model-retry']) {
+      // Every hidden kind this composition can produce from the log alone.
+      // `unknown` is the one it cannot: `isAppendSurfaceEvent` admits only
+      // `user/message`, `assistant/message` and `tool/result`, and ui-chat
+      // registers a Definition that matches all three unconditionally, so the
+      // fallback never fires here. It is pinned in the package's unit spec.
+      const hiddenKinds = [
+        'system-prompt', 'turn-process', 'tool-call', 'command', 'context',
+        'model-retry', 'command-input', 'workflow-run', 'compaction', 'manual-compaction',
+      ]
+      for (const kind of hiddenKinds) {
         await expectGuardHidesSelector(chat, `[data-chat-flow-kind="${kind}"]`)
       }
       await expectGuardHidesSelector(chat, '[data-variant="think"]')
