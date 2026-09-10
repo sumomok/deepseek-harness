@@ -201,6 +201,9 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
           restartActionLabel={t('connection.restart')}
           onReconnect={reconnect}
         />
+        <div className={css.triggerActions}>
+          {renderSlot('settings.trigger.action', { wide })}
+        </div>
       </div>
       {open && (
         <SettingsPanel

@@ -1,7 +1,9 @@
 // @vitest-environment jsdom
 import type { GlobalStandardProps } from '@deepseek-ai/dsh-client-ui-slots'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useEffect, useState } from 'react'
+import { readFileSync } from 'node:fs'
+import { resolve } from 'node:path'
+import { useEffect, useState, type ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import type { SettingsRootComponentProps } from '../src/client/shell-contract.ts'
@@ -38,6 +40,7 @@ function mount({
   dictionary = en,
   connectionState = 'connected',
   onboardingActive = true,
+  triggerAction,
   rows = [
     { id: 'general', order: 0, label: 'General' },
     { id: 'models', order: 10, label: 'Models' },
@@ -52,6 +55,8 @@ function mount({
   dictionary?: typeof en | typeof zh
   connectionState?: ConnectionSnapshot
   onboardingActive?: boolean
+  /** Stand-in occupant of the same-row action seat (absent = empty seat). */
+  triggerAction?: ReactNode
   rows?: Row[]
   steps?: Step[]
 } = {}) {
@@ -65,6 +70,7 @@ function mount({
   const renderSlot = vi.fn(
     ((key: string, _owner: unknown, opts?: { only?: string }) => {
       if (key === 'settings.section') return <div data-testid={`section-${opts?.only ?? 'all'}`} />
+      if (key === 'settings.trigger.action') return triggerAction
       return SEAT_CONTENT[key]
     }) as SettingsRootComponentProps['renderSlot'],
   )
@@ -176,6 +182,70 @@ describe('SettingsRoot trigger', () => {
   it('keeps the reconnect indicator out of the collapsed rail', () => {
     mount({ wide: false, connectionState: 'disconnected' })
     expect(screen.queryByRole('button', { name: 'Disconnected, reconnect now' })).toBeNull()
+  })
+
+  it('leaves the same-row action seat empty and boxless when nobody registers', () => {
+    const { view, renderSlot } = mount()
+    const row = view.container.querySelector('[class*="triggerRow"]')!
+    expect(renderSlot).toHaveBeenCalledWith('settings.trigger.action', { wide: true })
+    const seat = row.lastElementChild!
+    expect(seat.className).toContain('triggerActions')
+    expect(seat.childElementCount).toBe(0)
+    expect(seat.textContent).toBe('')
+  })
+
+  it('seats a same-row occupant after the trigger, at the row right edge', () => {
+    const { view } = mount({ triggerAction: <button type="button">Update ready</button> })
+    const row = view.container.querySelector('[class*="triggerRow"]')!
+    const occupant = screen.getByRole('button', { name: 'Update ready' })
+    // The trigger opens the row and the seat closes it: the flex:1 trigger
+    // pushes everything after it against the row's right edge.
+    expect(row.firstElementChild!.getAttribute('aria-haspopup')).toBe('dialog')
+    expect(row.lastElementChild!.className).toContain('triggerActions')
+    expect(row.lastElementChild!.contains(occupant)).toBe(true)
+  })
+
+  it('hands the fold state to the same-row seat and keeps its occupant mounted in the rail', () => {
+    const { renderSlot } = mount({ wide: false, triggerAction: <button type="button">Update ready</button> })
+    expect(renderSlot).toHaveBeenCalledWith('settings.trigger.action', { wide: false })
+    // The rail row paints the seat away in CSS rather than unmounting it, so
+    // an occupant's own state and subscriptions survive folding the column.
+    expect(screen.getByRole('button', { name: 'Update ready' })).toBeTruthy()
+  })
+})
+
+describe('SettingsRoot.module.css', () => {
+  const styles = readFileSync(resolve(import.meta.dirname, '../src/client/SettingsRoot.module.css'), 'utf8')
+    .replace(/\/\*[\s\S]*?\*\//g, ' ')
+
+  /**
+   * Declarations of one exact selector, keyed by property.
+   * @param selector - exact selector text.
+   * @returns the normalized declarations, or undefined when the selector is absent.
+   */
+  function declarations(selector: string): Map<string, string> | undefined {
+    for (const [, selectorList = '', body = ''] of styles.matchAll(/([^{}]+)\{([^{}]*)\}/g)) {
+      if (!selectorList.split(',').map(value => value.trim()).includes(selector)) continue
+      const found = new Map<string, string>()
+      for (const part of body.split(';')) {
+        const colon = part.indexOf(':')
+        if (colon === -1) continue
+        found.set(part.slice(0, colon).trim(), part.slice(colon + 1).trim().replace(/\s+/g, ' '))
+      }
+      return found
+    }
+    return undefined
+  }
+
+  it('keeps the same-row seat boxless in the wide row and unpainted in the rail', () => {
+    // Boxless: an empty seat must not consume one of the row's 8px gaps, and
+    // an occupant must become a flex child of the row rather than of a nested box.
+    expect(declarations('.triggerRow')?.get('gap')).toBe('8px')
+    expect(declarations('.triggerActions')?.get('display')).toBe('contents')
+    expect(declarations('.trigger')?.get('flex')).toBe('1')
+    // The rail row is exactly the trigger circle: 36px, nothing beside it.
+    expect(declarations('.triggerRow.railRow')?.get('width')).toBe('36px')
+    expect(declarations('.triggerRow.railRow .triggerActions')?.get('display')).toBe('none')
   })
 })
 
