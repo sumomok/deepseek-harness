@@ -26,13 +26,13 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * Optional actions on the trigger row itself, at its right edge. This is
      * the seat for a control that must share the row with Settings; one that
      * may take a row of its own above it belongs in `sidebar.footer.action`.
-     * The shell supplies only the ordered render site and the column state;
-     * registrants own visibility, copy, and behavior. The collapsed rail row
-     * is a 36px circle with nothing beside the trigger, so the shell paints
-     * the seat only while `wide` is true; occupants stay mounted across the
-     * fold.
+     * The shell supplies the ordered render site, the column state, and an
+     * opener for its own panel; registrants own visibility, copy, and
+     * behavior. The collapsed rail row is a 36px circle with nothing beside
+     * the trigger, so the shell paints the seat only while `wide` is true;
+     * occupants stay mounted across the fold.
      */
-    'settings.trigger.action': { kind: 'list'; scope: 'root'; owner: SettingsTriggerOwnerProps }
+    'settings.trigger.action': { kind: 'list'; scope: 'root'; owner: SettingsTriggerActionOwnerProps }
     /**
      * The panel title text seat. Content renders inside the nav heading row;
      * the dialog's accessible name points at that node via aria-labelledby.
@@ -112,10 +112,26 @@ export interface SettingsPluginsTabOwnerProps {
   children?: never
 }
 
-/** Owner share of the trigger row seats (content, same-row actions): the sidebar column state. */
+/** Owner share of the trigger content seat: the sidebar column state. */
 export interface SettingsTriggerOwnerProps {
   /** Whether the sidebar renders wide content (false = 56px rail, icon only). */
   wide: boolean
+}
+
+/**
+ * Owner share of the same-row action seat: the trigger's column state plus the
+ * shell's own opener, so an occupant reaches a settings page directly instead
+ * of driving the trigger button it sits beside.
+ */
+export interface SettingsTriggerActionOwnerProps {
+  /** Whether the sidebar renders wide content (false = 56px rail, icon only). */
+  wide: boolean
+  /**
+   * Open the settings panel and activate the section registered under `id`.
+   * An id no `settings.section` entry claims activates nothing of its own —
+   * the panel still opens, on the first nav row (empty with no rows at all).
+   */
+  openSection: (id: string) => void
 }
 
 /** Owner share of the header title seat (the shell supplies nothing). */

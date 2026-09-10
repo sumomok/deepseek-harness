@@ -2323,7 +2323,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     doc: 'The sidebar-foot trigger row content: icon + label, supplied as slot\ncontent (the accessible name comes from the content — rail state\nrenders the label visually hidden). The shell renders the button\nchrome and owns open state. Absent contribution degrades to an\nicon-only button without an accessible name (broken-composition state;\nthe shipped composition always registers the seat).',
     registerOptions: [],
     ownerProps: [
-      '/** Owner share of the trigger row seats (content, same-row actions): the sidebar column state. */\nexport interface SettingsTriggerOwnerProps {\n  /** Whether the sidebar renders wide content (false = 56px rail, icon only). */\n  wide: boolean\n}',
+      '/** Owner share of the trigger content seat: the sidebar column state. */\nexport interface SettingsTriggerOwnerProps {\n  /** Whether the sidebar renders wide content (false = 56px rail, icon only). */\n  wide: boolean\n}',
     ],
     ownerPropsReferences: [],
     standardProps: [
@@ -2351,7 +2351,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     kind: 'list',
     scope: 'root',
     summary: 'Optional actions on the trigger row itself, at its right edge.',
-    doc: 'Optional actions on the trigger row itself, at its right edge. This is\nthe seat for a control that must share the row with Settings; one that\nmay take a row of its own above it belongs in `sidebar.footer.action`.\nThe shell supplies only the ordered render site and the column state;\nregistrants own visibility, copy, and behavior. The collapsed rail row\nis a 36px circle with nothing beside the trigger, so the shell paints\nthe seat only while `wide` is true; occupants stay mounted across the\nfold.',
+    doc: 'Optional actions on the trigger row itself, at its right edge. This is\nthe seat for a control that must share the row with Settings; one that\nmay take a row of its own above it belongs in `sidebar.footer.action`.\nThe shell supplies the ordered render site, the column state, and an\nopener for its own panel; registrants own visibility, copy, and\nbehavior. The collapsed rail row is a 36px circle with nothing beside\nthe trigger, so the shell paints the seat only while `wide` is true;\noccupants stay mounted across the fold.',
     registerOptions: [
       {
         name: 'id',
@@ -2373,7 +2373,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** Owner share of the trigger row seats (content, same-row actions): the sidebar column state. */\nexport interface SettingsTriggerOwnerProps {\n  /** Whether the sidebar renders wide content (false = 56px rail, icon only). */\n  wide: boolean\n}',
+      '/**\n * Owner share of the same-row action seat: the trigger\'s column state plus the\n * shell\'s own opener, so an occupant reaches a settings page directly instead\n * of driving the trigger button it sits beside.\n */\nexport interface SettingsTriggerActionOwnerProps {\n  /** Whether the sidebar renders wide content (false = 56px rail, icon only). */\n  wide: boolean\n  /**\n   * Open the settings panel and activate the section registered under `id`.\n   * An id no `settings.section` entry claims activates nothing of its own —\n   * the panel still opens, on the first nav row (empty with no rows at all).\n   */\n  openSection: (id: string) => void\n}',
     ],
     ownerPropsReferences: [],
     standardProps: [
