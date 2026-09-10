@@ -1,4 +1,4 @@
-/** Experimental-package publication and dependency constraints. */
+/** Experimental-package and private-app publication and dependency constraints. */
 
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
@@ -11,6 +11,7 @@ import {
   checkWorkspaceManifest,
   checkExperimentalDependencyIsolation,
   checkExperimentalManifest,
+  checkPrivateAppManifest,
   expectedDshPackageFiles,
   type WorkspaceManifest,
 } from './check-workspace-constraints.ts'
@@ -205,4 +206,44 @@ it('requires Office skill bodies and helpers in the published payload', () => {
   expect(checkWorkspaceManifest({ dir: 'packages/skill/skill-office', manifest: {
     ...manifest, files: ['lib/index.js', 'lib/types/**/*.d.ts'],
   } })).toEqual([expect.stringContaining('package.json files must be')])
+})
+
+const privateApp: WorkspaceManifest = {
+  dir: 'apps/shell',
+  manifest: { name: '@deepseek-ai/dsh-shell-app', private: true },
+}
+
+describe('private app workspace constraints', () => {
+  it('accepts an app that ships inside a client build', () => {
+    expect(checkPrivateAppManifest(privateApp)).toEqual([])
+  })
+
+  it('ignores published apps and private packages outside apps/', () => {
+    expect(checkPrivateAppManifest({
+      ...privateApp,
+      manifest: { name: '@deepseek-ai/dsh', publishConfig: { access: 'public' } },
+    })).toEqual([])
+    expect(checkPrivateAppManifest({
+      dir: 'packages/core/agent',
+      manifest: { name: '@deepseek-ai/dsh-agent', private: true, publishConfig: { access: 'public' } },
+    })).toEqual([])
+  })
+
+  it('rejects publication metadata a private app can never use', () => {
+    expect(checkPrivateAppManifest({
+      ...privateApp,
+      manifest: { ...privateApp.manifest, publishConfig: { access: 'public' } },
+    })).toEqual([
+      '@deepseek-ai/dsh-shell-app: private app must omit publishConfig',
+    ])
+  })
+
+  it('rejects a published app that turned itself private', () => {
+    expect(checkPrivateAppManifest({
+      dir: 'apps/cli',
+      manifest: { name: '@deepseek-ai/dsh', private: true },
+    })).toEqual([
+      '@deepseek-ai/dsh: private app must not hold a publication files policy',
+    ])
+  })
 })
