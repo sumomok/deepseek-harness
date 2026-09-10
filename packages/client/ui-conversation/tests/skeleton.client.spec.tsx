@@ -498,6 +498,22 @@ describe('ConversationRoot resident composer', () => {
     expect(b.view.queryByText('探索未至之境')).toBeNull()
   })
 
+  it('leaves the Hero for a session whose only content is an executed command', () => {
+    // A standalone command never prompts, so no send marker and no pending
+    // first turn: the lowered blank bit is the whole signal that the session
+    // has a transcript to show.
+    const commanded = sessionSnapshotOf({
+      blank: false,
+      promptAttempted: false,
+      awaitingFirstTurn: false,
+    })
+
+    expect(conversationPhase(commanded, EMPTY_CONVERSATION_SNAPSHOT)).toBe('active')
+    const b = mount(commanded, undefined, undefined, { summaryBlank: false })
+    expect(b.view.container.querySelector('[data-phase]')?.getAttribute('data-phase')).toBe('active')
+    expect(b.view.queryByText('探索未至之境')).toBeNull()
+  })
+
   it('settling phase: a summary that does not prove the session blank hides the composer while it opens', () => {
     const b = mount(sessionSnapshotOf({ blank: true, openState: 'loading' }))
     const root = b.view.container.querySelector('[data-phase]')

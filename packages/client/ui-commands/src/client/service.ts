@@ -344,6 +344,13 @@ export class CommandUiRuntime extends Service implements CommandUiContract {
     const result = await this.ctx.remote.commands.execute(session.sessionId, line, attachments)
     if (!result.ok) throw new Error(`command.execute failed: ${result.error.code}: ${result.error.message}`)
     if (result.value === undefined) return { kind: 'error', text: `unknown or malformed command: ${line}` }
+    // Admission is the engagement fact: the host executor logged `command/run`
+    // before answering, so this session now has a transcript to show and a row
+    // to occupy. A handler error counts — the lifecycle is logged either way —
+    // while an unmatched line returned above never reached a handler. A
+    // session with no local binding (a projection-only source) has no mirror
+    // to lower; the host summary carries the same verdict.
+    this.sessions().binding(session.sessionId)?.session.markEngaged()
     this.notifyExecuted(session.sessionId, submittedCommandName(line), result.value.result)
     // A submission consumes its attachments only after handler success; an
     // error outcome keeps the draft and attachments in the composer.
