@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-08-20-private-apps-are-not-release-members.md
+2026-08-20-private-apps-are-not-release-members.md: 7fcc61d0981206458e03fa194b03169a470fb47f
+2026-08-20-private-apps-are-not-release-members.zh.md: f4e11c8033c1f77f0c0dacd6f9cc22ca41505bbd
