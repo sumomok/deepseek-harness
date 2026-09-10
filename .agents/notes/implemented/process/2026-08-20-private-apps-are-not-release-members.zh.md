@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-`scripts/check-workspace-constraints.ts` 只按目录判定谁要发布。`releaseMemberDirectory` 匹配每一个 `apps/*` 包，于是它们都必须非 private、把 `publishConfig.access` 设为 `public`、让 `repository` 带着自己的目录指向已发布的源码，并在 `appPackageFiles` 发布策略里占一条。
+`scripts/check-workspace-constraints.ts` 只按目录判定谁要发布。`standardReleaseMemberDirectory` 匹配除表达式自己点名的两个之外的每一个 `apps/*` 包，于是其余每个都必须非 private、把 `publishConfig.access` 设为 `public`、让 `repository` 带着自己的目录指向已发布的源码，并在 `appPackageFiles` 发布策略里占一条。
 
 `apps/` 下同时还放着永远不上 npm 的产品装配件：一个 Electron 外壳、它内嵌闭包所依据的纯依赖部署根，以及一个补进运行中 `dsh web` 的组合层 bundle。三者都随客户端构建一起发货，都声明了 `"private": true`，因此四条发布成员约束一次性全挂。
 
@@ -14,11 +14,11 @@ Status: implemented
 
 ## 决策
 
-`apps/*` 承载两类包，`private` 把它们分开。`isPrivateApp` 把声明了 `"private": true` 的 `apps/*` manifest 归为随构建发货的应用，`checkWorkspace` 于是对它跳过发布成员元数据那一段，也跳过已发布应用的文件策略。这沿用 `packages/experimental/*` 已有的形态：一个仍然参与全部共享工作区检查、但落在 `releaseMemberDirectory` 之外的类别。
+`apps/*` 承载两类包，`private` 把它们分开。`isPrivateApp` 把声明了 `"private": true` 的 `apps/*` manifest 归为随构建发货的应用，`checkWorkspace` 于是对它跳过发布成员元数据那一段，也跳过已发布应用的文件策略。这沿用 `packages/experimental/*` 已有的形态：一个仍然参与全部共享工作区检查、但落在 `isReleaseMemberDirectory` 之外的类别。
 
 判别式选 `private` 而不是嵌一层目录或列一份名字白名单，是因为它同时也是阻止 `npm publish` 上传该包的那个字段。一份 manifest 无法既在这里声称自己随构建发货，又能抵达 registry。
 
-`checkPrivateAppManifest` 说明这个类别用什么取代发布元数据。private 应用必须不带 `publishConfig`，与 experimental 的规则对应；也必须不出现在 `appPackageFiles` 里，从而让那张表继续对"哪些应用要发布"保持权威：没有第二条规则，给 `apps/cli` 加上 `"private": true` 会让 `dsh` CLI 悄悄退出发布，而不是让门禁失败。
+`checkPrivateAppManifest` 说明这个类别用什么取代发布元数据。private 应用必须不带 `publishConfig`，与 experimental 的规则对应；也必须不出现在 `appPackageFiles` 里，从而让那张表继续对"哪些应用要发布"保持权威：没有第二条规则，给 `apps/cli` 加上 `"private": true` 会让 `dsh` CLI 悄悄退出发布，而不是让门禁失败。第二条规则只对 `isReleaseMemberDirectory` 仍然接纳的目录提这个要求，因为被发布成员表达式自己点名的目录虽然从不发布，却仍靠文件策略被打包进客户端构建。
 
 `checkExperimentalDependencyIsolation` 仍把 private 应用纳入检查范围。桌面构建一旦要求某个 experimental 包，坏掉的就是真实用户装下来的运行时，与 npm 是否见过这份 manifest 无关。
 

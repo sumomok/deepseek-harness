@@ -1,6 +1,7 @@
 import { mkdtemp, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import * as nativeCommand from '@deepseek-ai/dsh-native-command'
 import { Context } from '@deepseek-ai/cordis'
 import AgentRegistry from '@deepseek-ai/dsh-agent'
 import SessionStore from '@deepseek-ai/dsh-session'
@@ -238,4 +239,41 @@ describe('session/openWorkspacePath', () => {
       code: 'gateway/internal', message: 'path open failed: desktop unavailable',
     })
   })
+})
+
+
+it('reports Host file-manager metadata and dispatches reveal separately from default-app open', async () => {
+  const ctx = await context()
+  const revealPath = vi.fn(async (_path: string, _signal: AbortSignal) => {})
+  const openPath = vi.fn(async (_path: string, _signal: AbortSignal) => {})
+  const controller = createSessionTestController(ctx, {
+    defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/default', openPath, revealPath,
+  })
+  try {
+    const root = await mkdtemp(join(tmpdir(), 'dsh-open-workspace-path-'))
+    const report = join(root, 'report.txt')
+    await writeFile(report, 'report')
+    expect(controller.workspaceDesktop()).toMatchObject({ available: true, name: expect.any(String) as string })
+    const signal = new AbortController().signal
+    await controller.openWorkspacePath({ path: report, action: 'reveal' }, signal)
+    expect(revealPath).toHaveBeenCalledWith(report, signal)
+    expect(openPath).not.toHaveBeenCalled()
+  } finally { await ctx.fiber.dispose() }
+})
+
+it('uses the native reveal adapter without a test override and respects unsupported desktop metadata', async () => {
+  const ctx = await context()
+  const reveal = vi.spyOn(nativeCommand, 'revealNativePath').mockResolvedValue(undefined)
+  const manager = vi.spyOn(nativeCommand, 'nativeFileManager').mockReturnValue(null)
+  try {
+    const controller = createSessionTestController(ctx, {
+      defaultModelSelection: () => ({ provider: 'p', model: 'm' }), cwd: '/default', nativeOpen: true,
+    })
+    const root = await mkdtemp(join(tmpdir(), 'dsh-open-workspace-path-'))
+    const report = join(root, 'report.txt')
+    await writeFile(report, 'report')
+    expect(controller.workspaceDesktop()).toMatchObject({ available: false, fileManager: null })
+    await controller.openWorkspacePath({ path: report, action: 'reveal' }, new AbortController().signal)
+    expect(reveal).toHaveBeenCalledOnce()
+  } finally { manager.mockRestore(); reveal.mockRestore(); await ctx.fiber.dispose() }
 })

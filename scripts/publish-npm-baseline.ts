@@ -18,6 +18,7 @@ import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep 
 import { createInterface } from 'node:readline/promises'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
+import { PUBLIC_EXPERIMENTAL_PACKAGE_DIRECTORIES } from './experimental-package-policy.ts'
 import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import { validateTarballPayload } from './publication-payload.ts'
 
@@ -27,6 +28,7 @@ const PACKAGE_PATTERNS = [
   'vendor/*/package.json',
   'packages/!(experimental)/*/package.json',
   'apps/*/package.json',
+  ...PUBLIC_EXPERIMENTAL_PACKAGE_DIRECTORIES.map(directory => `${directory}/package.json`),
 ] as const
 const DEPENDENCY_SECTIONS = [
   'dependencies',

@@ -10,11 +10,11 @@ Status: implemented
 
 一次拒绝并不止于携带它的那份会话。`SqliteSessionQuery._reconcile` 会冷读每一份尚未建索引的持久化会话，一次被拒的读取就中止整次观测：[`session-query-sqlite/src/index.ts`](../../../../packages/session-query/session-query-sqlite/src/index.ts) 的 `_observeStable` 把它包成 `SESSION_QUERY_PERSISTENCE_FAILED`，搜索退回按名称匹配，工作区浏览器对库里每一份会话都显示 `内容搜索暂不可用，仅显示名称匹配。`。因此一份旧日志除了赔上自己的历史，还赔上整个内容搜索。
 
-测量方式是用 `JsonlSessionPersistence.open(id, 'read').read()`（reconcile 调用的同一条路径）对两个库做冷读回放：`~/.dsh` 的 128 份中 15 份被拒，rc.27 前备份的 121 份中 21 份被拒。因为迁移边在一份会话的第一处故障就停下，这 36 次拒绝点名了三种不同的原因。
+测量方式是用 `JsonlSessionPersistence.open(id, 'read').read()`（reconcile 调用的同一条路径）对两个库做冷读回放。在已经带过仓外事件类型的 0.1.5-rc.1 基座上，`~/.dsh` 的 139 份中 9 份被拒，rc.27 前备份的 121 份中 22 份被拒。因为迁移边在一份会话的第一处故障就停下，这些拒绝点名了四种不同的原因：下面三种形状，外加一种由下一条迁移边拒绝的仓外消息来源种类，那一种由它自己的姊妹补丁点名。
 
-`permission/preset N data has unexpected member "origin"` —— 两个库各 11 份。2026-08 中旬的一个构建在 preset 名旁边记下了这个名字的来处：`{"type":"permission/preset","seq":0,"time":1787322888043,"data":{"preset":"workspace-write","origin":"default"}}` 与 `{"type":"permission/preset","seq":4,"time":1787322901591,"data":{"preset":"yolo-access","origin":"selection"}}`。落盘的取值只有这两个，而 `@deepseek-ai/dsh-permission-presets` 现在只追加 `{ preset }`。
+`permission/preset N data has unexpected member "origin"` —— 备份库 11 份，`~/.dsh` 2 份，后者的 v0 日志正是 rc.31 构建尚未迁移过的那些。2026-08 中旬的一个构建在 preset 名旁边记下了这个名字的来处：`{"type":"permission/preset","seq":0,"time":1787322888043,"data":{"preset":"workspace-write","origin":"default"}}` 与 `{"type":"permission/preset","seq":4,"time":1787322901591,"data":{"preset":"yolo-access","origin":"selection"}}`。落盘的取值只有这两个，而 `@deepseek-ai/dsh-permission-presets` 现在只追加 `{ preset }`。
 
-`subagent/descriptor N uses unsupported descriptor version 2` —— 两个库各 4 份，例如 `{"type":"subagent/descriptor","seq":0,"time":1787709640297,"data":{"version":2,"mode":"continuable","provider":"spawn","label":"调研黄金类资产与矿股PE","agentProvider":"deepseek-official","agentModel":"deepseek-v4-flash-vision-exp"}}`。上游在 2026-08-24 的 `f76a225a7d` 把 `SUBAGENT_DESCRIPTOR_VERSION` 从 2 提到 3；payload 校验器只接受版本 3。
+`subagent/descriptor N uses unsupported descriptor version 2` —— 备份库 4 份，例如 `{"type":"subagent/descriptor","seq":0,"time":1787709640297,"data":{"version":2,"mode":"continuable","provider":"spawn","label":"调研黄金类资产与矿股PE","agentProvider":"deepseek-official","agentModel":"deepseek-v4-flash-vision-exp"}}`。上游在 2026-08-24 的 `f76a225a7d` 把 `SUBAGENT_DESCRIPTOR_VERSION` 从 2 提到 3；payload 校验器只接受版本 3。
 
 `format v0 contains unknown historical event type "content/shown"` —— 备份库 6 份，例如 `{"type":"content/shown","seq":209,"time":1788074166009,"data":{"page":"reports","by":"user"}}`。它由本 fork `product/server-console` 线的内容面写下，当时桌面构建挂载着那个控制台。
 
@@ -30,11 +30,9 @@ descriptor 选择改写版本号而不是原样放行，因为这次升格是完
 
 ## 两个库现在的读数
 
-改动之后的同一次回放：128 份中 127 份、121 份中 120 份打得开。两处剩余拒绝是同一份会话 `session-c5f7ab97-7485-4955-9ee0-f07c98a05d85`，它同时存在于两个库，此前因 `origin` 成员被拒。那个成员后面还藏着第四种缺陷：turn 11 打开后从未关闭，`turn/start 12` 撞上一个仍开着的 turn，`assertReleasedArtifactRelationships` 因此拒绝它。缺的是日志自己的 `turn/end`——它的行依次是 `step/end {turn: 11, step: 5}`、`agent/inbox/spliced`、`turn/start {turn: 12}`。
+改动之后的同一次回放：`~/.dsh` 的 139 份中 131 份、备份的 121 份中 113 份打得开，三种形状没有一种再拒绝。两个库里仍被拒的各八份是同样那八份会话，它们停在下一代迁移边 V2→V3 上，原因是一种仓外的 `user/message` 来源种类；点名那种来源的姊妹补丁把两个库都做到零拒绝。`session-c5f7ab97-7485-4955-9ee0-f07c98a05d85` 曾在更早的基座上因 `origin` 成员不再先行拒绝后暴露出一处未关闭的 turn 而被拒，在本基座上它能打开：V1→V2 迁移边自己会关闭被打断的 turn。
 
-这一缺陷不在本次处理范围内。修复它意味着凭空补出一个写入方从未写下的事件并插入序列，而插入会重编其后每一个 `seq` 以及每一处对 seq 的引用——`sourceEventSeqs`、`surfaceOp`、`messageSeqs`、`shadowedSeqs`、`shadowedRange`、`sourceEventSeq`、`throughSeq` 与 `inheritedEventCount`。那套机制归 `session-format-v1-to-v2` 所有、服务于另一个目的，与点名几种照原样写下的形状是两个决定。
-
-`content-surface/dismissed` 是同一条路上找出来的——只有当排在它前面的形状不再先行拒绝，它才变得可达。事后对两个库逐行扫描，界定了这两个库持有的集合：在冻结清单与打包物理行标记之外，它们恰好只有 `content/shown`、`content-surface/dismissed` 与已被点名的 `permissionRules/decision`；`permission/preset` 除 `preset` 与 `origin` 外没有别的成员；落盘的 `subagent/descriptor` 没有 2 以外的版本。也就是说六种内容事件里只有两种出现在这两个库中。六种仍然全部点名，因为写它们的是同一条产品线，别人的库里任何一种都会撞上同一次拒绝；清单取自 `git diff HEAD product/server-console -- packages/core/session/src/known-event-types.ts`。
+`content-surface/dismissed` 是同一条路上找出来的——只有当排在它前面的形状不再先行拒绝，它才变得可达。对两个库逐行扫描界定了这两个库持有的集合：在冻结清单与打包物理行标记之外，它们恰好只有 `content/shown`、`content-surface/dismissed` 与已被点名的 `permissionRules/decision`；`permission/preset` 除 `preset` 与 `origin` 外没有别的成员；落盘的 `subagent/descriptor` 没有 2 以外的版本。也就是说六种内容事件里只有两种出现在这两个库中。六种仍然全部点名，因为写它们的是同一条产品线，别人的库里任何一种都会撞上同一次拒绝；清单取自 `git diff HEAD product/server-console -- packages/core/session/src/known-event-types.ts`。
 
 ## Alternatives considered
 
@@ -44,15 +42,13 @@ descriptor 选择改写版本号而不是原样放行，因为这次升格是完
 
 **让任何带 `ignorable: true` 标记的历史事件通过迁移边。** 这一下就能覆盖 `content/shown` 与 `content-surface/dismissed`，而且以后每一种仓外事件类型都不必再打补丁。迁移边的拒绝文案明确写着 `ignorable: true` 不为历史事件豁免，而这一立场正是阻止任意第三方 payload 未经检视进入冻结世代的东西。点名清单的代价是每种实证出现过的类型一行。
 
-**直接修被拒的落盘会话。** 重写这 36 份日志根本不需要改迁移边的代码。它改的是 fork 并不拥有的持久历史，够不着用户的机器，而且每一个仍存有这些构建产物的库都得再做一遍。
-
-**为第四种缺陷补出缺失的 `turn/end`。** 这能把两个库都做到零拒绝，正是本次修复出发时的目标。它写下一个任何构建都没写过的事件，并且需要重编整条序列及其中每一处 seq 取值的引用；在形状已明、修法未定的当下，一处被静默错映的引用带来的风险，压过 128 份里的这一份。
+**直接修被拒的落盘会话。** 重写被拒的日志根本不需要改迁移边的代码。它改的是 fork 并不拥有的持久历史，够不着用户的机器，而且每一个仍存有这些构建产物的库都得再做一遍。
 
 ## Consequences
 
-带上述三种形状之一的会话能打开、能迁移、能建索引，内容搜索不再因它整库失败。落盘的 v0 文件逐字节不动——迁移把 `session.v2.jsonl.zstd` 写在它旁边——所以删掉迁移世代即可回到此前的拒绝状态。迁移后的 `permission/preset` 不再记录 preset 的来处；当前构建没有任何东西读这个事实，preset 名本身则被保留。迁移后的 `subagent/descriptor` 报版本 3，其 `agentReasoningEffort` 缺席，这正是版本 2 payload 的含义。
+带上述三种形状之一的会话能打开、能迁移、能建索引，内容搜索不再因它整库失败。落盘的 v0 文件逐字节不动——迁移把 `session.v3.jsonl.zstd` 写在它旁边——所以删掉迁移世代即可回到此前的拒绝状态。迁移后的 `permission/preset` 不再记录 preset 的来处；当前构建没有任何东西读这个事实，preset 名本身则被保留。迁移后的 `subagent/descriptor` 报版本 3，其 `agentReasoningEffort` 缺席，这正是版本 2 payload 的含义。
 
-每个库仍各有一份会话被拒，原因是上文那处未关闭的 turn。它的历史仍读不出来，而且因为 reconcile 在第一次被拒的读取上就中止，任何存有它的库里内容搜索仍不可用。这与改动前是同一份产品代价，只是现在归因于一处已知缺陷，而不是三处。
+两个库各自仍被拒的八份会话停在下一条迁移边上，而不是这一条；清空它们靠的是那种消息来源种类的姊妹补丁。在一个库同时拿到两个补丁之前，reconcile 仍会在第一次被拒的读取上中止，那个库里的内容搜索仍不可用。
 
 ## Testing
 

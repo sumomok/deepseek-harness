@@ -32,7 +32,7 @@
  * may add node types this renderer has no mapping for.
  */
 
-import { Fragment, createElement } from 'react'
+import { Fragment, createElement, useState } from 'react'
 import type { Key, ReactNode } from 'react'
 import clsx from 'clsx'
 import type * as Md from 'mdast'
@@ -165,6 +165,35 @@ function remoteImageUrl(url: string): string | undefined {
   }
 }
 
+/** Protocols a vocabulary-rewritten image destination may carry. */
+function vocabularyImageUrl(url: string): string | undefined {
+  try {
+    const protocol = new URL(url).protocol
+    return protocol === 'http:' || protocol === 'https:' || protocol === 'blob:' || protocol === 'data:'
+      ? url
+      : undefined
+  } catch {
+    // A vocabulary result must be an absolute URL; anything else stays a miss.
+    return undefined
+  }
+}
+
+/**
+ * The displayable source for one image destination: absolute HTTP(S) as
+ * authored, otherwise the context's local-path vocabulary when it vouches for
+ * the destination. Either miss leaves the authored fallback (alt text) to the
+ * caller.
+ * @param url - The authored markdown destination.
+ * @param pathImages - Rewriting vocabulary, when the render pass has one.
+ * @returns The displayable image URL, or undefined.
+ */
+function imageSource(url: string, pathImages: MarkdownPathImages | undefined): string | undefined {
+  const remote = remoteImageUrl(sanitizeUrl(normalizeUri(url)))
+  if (remote !== undefined) return remote
+  const rewritten = pathImages?.resolve(url)
+  return rewritten === undefined ? undefined : vocabularyImageUrl(rewritten)
+}
+
 /** Link/image reference targets collected from a document (first definition per identifier wins, as in CommonMark). */
 export interface ReferenceTargets {
   /** Link/image definitions keyed by upper-cased identifier. */
@@ -201,6 +230,24 @@ export function collectReferenceTargets(
     }
     if ('children' in node) collectReferenceTargets(node.children, targets)
   }
+}
+
+/**
+ * Local-path image vocabulary for image destinations: the owner maps an
+ * authored destination that fails the remote-URL allowlist (an absolute local
+ * file path, for example) to a displayable URL it can vouch for. Absent
+ * wherever no such vocabulary exists, authored local destinations keep their
+ * documented fallback (the image's alt text). Rewritten destinations must be
+ * absolute; the renderer re-checks their protocol before emitting them.
+ */
+export interface MarkdownPathImages {
+  /**
+   * Resolve one authored image destination.
+   * @param value - The destination exactly as the markdown author wrote it.
+   * @returns A displayable absolute URL, or undefined when the destination
+   * names no displayable image — it then stays inert alt text.
+   */
+  resolve(value: string): string | undefined
 }
 
 /**
@@ -292,6 +339,8 @@ export interface MarkdownRenderContext {
   readonly inBlockquote?: boolean
   /** Inline-code file mentions; absent wherever no opener vocabulary exists. */
   readonly fileMentions: MarkdownFileMentions | undefined
+  /** Local-path image vocabulary; absent wherever no rewriting owner exists. */
+  readonly pathImages: MarkdownPathImages | undefined
   /**
    * Prose-referent scanner/opener for text and inline-code nodes; absent
    * wherever no scanning provider exists. On inline code, {@link fileMentions}
@@ -491,7 +540,12 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
       return renderTable(node, key, context)
     case 'link': {
       const destination = decodeLinkDestination(node.url)
-      if (isLocalPathDestination(destination) && !isAllowedScheme(destination)) {
+      // An anchor whose children are only images has no readable text of its
+      // own, so this branch's `displayText` would be empty and its button or
+      // code element would render nothing while swallowing the images. Such an
+      // anchor belongs to the renderer below, which already has a case for it.
+      if (isLocalPathDestination(destination) && !isAllowedScheme(destination)
+        && !anchorWrapsOnlyImages(node.children)) {
         const rendered = renderLocalLinkDestination(destination, node, key, context)
         if (rendered !== undefined) return rendered
       }
@@ -500,7 +554,7 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
     case 'linkReference':
       return renderLinkReference(node, key, context)
     case 'image':
-      return renderImage(node.url, node.alt ?? '', key)
+      return renderImage(node.url, node.alt ?? '', key, context)
     case 'imageReference':
       return renderImageReference(node, key, context)
     case 'footnoteReference':
@@ -727,17 +781,24 @@ function inlineCodeHttpUrl(value: string): string | undefined {
   }
 }
 
-function renderImage(url: string, alt: string, key: Key): ReactNode {
-  const imageSrc = remoteImageUrl(sanitizeUrl(normalizeUri(url)))
+function renderImage(url: string, alt: string, key: Key, context: MarkdownRenderContext): ReactNode {
+  const imageSrc = imageSource(url, context.pathImages)
   if (imageSrc === undefined) {
     return <span key={key} className={css.imageAlt}>{alt}</span>
   }
+  return <MarkdownImage key={`${key}:${imageSrc}`} src={imageSrc} alt={alt} destination={url} />
+}
+
+/** Failed loads retain the authored alt or destination; a new source remounts the image. */
+function MarkdownImage({ src, alt, destination }: { src: string; alt: string; destination: string }): ReactNode {
+  const [failed, setFailed] = useState(false)
+  if (failed) return <span className={css.imageAlt}>{alt || destination}</span>
   return (
     <img
-      key={key}
       className={css.image}
-      src={imageSrc}
+      src={src}
       alt={alt}
+      onError={() => { setFailed(true) }}
       loading="lazy"
       decoding="async"
       referrerPolicy="no-referrer"
@@ -776,7 +837,7 @@ function renderImageReference(
 ): ReactNode {
   const definition = context.targets.definitions.get(node.identifier.toUpperCase())
   if (definition === undefined) return `![${node.alt ?? ''}${referenceSuffix(node)}`
-  return renderImage(definition.url, node.alt ?? '', key)
+  return renderImage(definition.url, node.alt ?? '', key, context)
 }
 
 function renderFootnoteReference(

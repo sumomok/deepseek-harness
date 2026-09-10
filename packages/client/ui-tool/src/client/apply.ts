@@ -5,7 +5,6 @@ import type {} from '@deepseek-ai/dsh-client-ui-conversation/client'
 import type {} from '@deepseek-ai/dsh-client-ui-renderer/client'
 import type {} from '@deepseek-ai/dsh-client-ui-session/client'
 import { ToolCallTree } from './tool/ToolCallTree.tsx'
-import { ToolDetails } from './tool/ToolDetails.tsx'
 import { toolHostInject } from './host-info.ts'
 import { CONVERSATION_NS as NS } from './locale.ts'
 import { approvalDiffPreview } from './tool/toolviews/approval-diff-row.tsx'
@@ -36,12 +35,6 @@ export function apply(ctx: ClientContext): void {
     },
     inject: toolInject,
   }, ToolCallTree))
-
-  ctx.slots.inject('conversation.details.tool', () => ctx.slots.register({
-    name: 'conversation.details.tool',
-    locale: NS,
-    inject: toolInject,
-  }, ToolDetails))
 
   ctx.plugin(bashToolviewSample)
   ctx.plugin(readToolview)
