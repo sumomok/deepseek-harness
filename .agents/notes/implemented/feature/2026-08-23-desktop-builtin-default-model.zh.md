@@ -46,4 +46,4 @@ Status: implemented
 
 一条 id 定向 patch,若目标 id 已经不在,就什么都不作用:`applyEntryPatches` 往 loader 日志写一行 `patch: entry <id> not found` 然后继续。那一行进的是服务端日志而不是任何用户眼前,所以 `dsh-base` 里对 `agent-default-model` 或 `llm-deepseek` 的一次重命名,会在这里悄悄把出厂默认值恢复回去。今天这两个 id 在本仓库的 `dsh-base` 里都在,而插件对它们的断言正是其中之一被挪动时会失败的那道检查。
 
-这是第一个全部作用都落在编排上、而不落在某个工具或某个页面上的内置插件,所以打包构建对它的证明比对其余几个要少。`verifyStagedBoot` 要求 `BUILTIN_WEB_BUNDLES` 里的每个名字都被播种、载荷都能启动,这覆盖了这个包确实随包走且能被解析;`verifyClientModules` 因为它没有 `dsh.client` 而跳过它。两条覆盖是否如期落地,由 `dsh --profile desktop --dump-config` 作答,不由某道闸作答。
+这是第一个全部作用都落在编排上、而不落在某个工具或某个页面上的内置插件,所以打包构建对它的证明比对其余几个要少。`verifyStagedBoot` 要求 `BUILTIN_WEB_BUNDLES` 里的每个名字都被播种、载荷都能启动,这覆盖了这个包确实随包走且能被解析;`verifyClientModules` 因为它没有 `dsh.client` 而跳过它。两条覆盖是否如期落地,由 `dsh --profile desktop-shell --dump-config` 作答,不由某道闸作答。
