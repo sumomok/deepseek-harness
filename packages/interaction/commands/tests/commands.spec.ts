@@ -378,6 +378,11 @@ describe('CommandRuntime', () => {
     // Absent, not `true`: an ordinary run is what every log written before
     // the declaration existed already carries.
     expect(runs[1]?.type === 'command/run' && Object.hasOwn(runs[1].data, 'engages')).toBe(false)
+    // The registered definition keeps the declaration the run reads, and the
+    // one that declared nothing keeps no member to read.
+    expect(ctx.commands.find(agent, 'configure')).toMatchObject({ engages: false })
+    const contribute = ctx.commands.find(agent, 'contribute')
+    expect(contribute !== undefined && Object.hasOwn(contribute, 'engages')).toBe(false)
   })
 
   it('mints distinct monotonic commandIds across executions', async () => {
