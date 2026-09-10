@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.md
-2026-09-10-command-engages-blank-session.md: 5d21b8075b66eeba36ed5243782d8b247f15728b
-2026-09-10-command-engages-blank-session.zh.md: 9151bcef007b0b7ede27e136188563ffb399150a
+2026-09-10-command-engages-blank-session.md: fc217ed0229eaf628f29b43373a29c25d458f0a6
+2026-09-10-command-engages-blank-session.zh.md: 216e31e57352999450ae0d619ab2bfe02d77dfb2
