@@ -19,8 +19,12 @@
  * written nowhere at all: a `206` whose `Content-Range` begins somewhere other
  * than the offset that was asked for, or that names no range, carries bytes
  * that belong neither after what is on disk nor at the start of the file, so
- * the `.part` file is dropped and the attempt reports what the server
- * answered. A server that replaced the artifact under a resumed transfer is
+ * not one of them is written and the attempt reports what the server answered.
+ * The `.part` file is kept for the next attempt, which asks for the same range:
+ * nothing of the refused answer reached the disk, and an artifact that changed
+ * underneath is still caught by the three that catch it anyway — a `200`
+ * truncates the part, a `416` discards it, and the final digest discards it.
+ * A server that replaced the artifact under a resumed transfer is
  * caught twice — by the `If-Range` validator when one was recorded, and by the
  * final digest either way, which discards the `.part` file rather than leaving
  * corrupt bytes to be resumed forever.
@@ -175,8 +179,9 @@ function totalBytesOf(status: number, headers: Headers, have: number): number | 
  *
  * The `.part` file survives every failure except a digest that does not match
  * the manifest, so a call that throws is worth making again from the same
- * state. A call that returns leaves the whole verified artifact at
- * [[ResumableTarget.partFile]].
+ * state. Two answers discard it and start the transfer over from zero inside
+ * the same call: a `200` to a `Range` request, and a `416`. A call that returns
+ * leaves the whole verified artifact at [[ResumableTarget.partFile]].
  * @param target - what to transfer, where to keep it, and what it must hash to.
  * @param options - progress reporting, the fetch to use, and the stall bound.
  * @returns the artifact's size in bytes.
@@ -223,10 +228,11 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
       // leave a `.part` file whose prefix is wrong and whose length the next
       // attempt would resume from, so the whole artifact would transfer again
       // before the final digest caught it — the bytes are taken nowhere
-      // instead.
+      // instead. What is already on disk is left where it is: no byte of this
+      // answer reached it, the next attempt asks for the same range, and
+      // dropping it would spend the whole artifact again over one bad answer.
       if (start === undefined || (start !== 0 && start !== have)) {
         await response.body?.cancel()
-        discardPart(target.partFile)
         throw new Error(`更新源答复的区间与请求不符:${response.headers.get('content-range') ?? '缺少 Content-Range'}(${target.url})`)
       }
       const append = start > 0

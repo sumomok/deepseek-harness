@@ -205,10 +205,9 @@ describe('a server that will not continue the transfer', () => {
     writeFileSync(file, ARTIFACT.subarray(0, 5_000))
     const { url } = await serve({ answerFrom: 1_000 })
     await expect(resumeDownload({ url, partFile: file, sha512: SHA512 })).rejects.toThrow(/区间与请求不符/)
-    // Nothing of that answer is on disk, so the next attempt starts from zero
-    // rather than resuming onto a prefix that came from the middle of the file.
-    expect(existsSync(file)).toBe(false)
-    expect(existsSync(`${file}.origin.json`)).toBe(false)
+    // Nothing of that answer reached the disk, and the prefix that was there
+    // before it is what the next attempt resumes from.
+    expect(readFileSync(file)).toEqual(ARTIFACT.subarray(0, 5_000))
   })
 
   it('takes no bytes from a 206 that names no range', async () => {
@@ -216,7 +215,7 @@ describe('a server that will not continue the transfer', () => {
     writeFileSync(file, ARTIFACT.subarray(0, 5_000))
     const { url } = await serve({ omitContentRange: true })
     await expect(resumeDownload({ url, partFile: file, sha512: SHA512 })).rejects.toThrow(/缺少 Content-Range/)
-    expect(existsSync(file)).toBe(false)
+    expect(readFileSync(file)).toEqual(ARTIFACT.subarray(0, 5_000))
   })
 
   it('reports the status it refused with', async () => {
