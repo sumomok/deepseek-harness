@@ -356,8 +356,11 @@ describe('released v0 legacy normalization', () => {
     for (const [index, row] of rows.entries()) {
       expect(migrated.events[index]).toEqual({ ...row, ignorable: true })
     }
-    // restoreV0ToV1 validates the transformed artifact, which tolerates the legacy
-    // interrupted-turn restart; the released-v1 target generation does not.
+    // What the target-generation validator reaches on these rows: the v1 header
+    // version and the dense seq run. The six content types are absent from
+    // RELEASED_V0_EVENT_DISPOSITIONS, so their payloads go unchecked, and no
+    // turn event here exercises the interrupted-turn restart that separates
+    // this validator from the transformed-artifact one restoreV0ToV1 runs.
     expect(() => { assertReleasedV1Artifact(migrated) }).not.toThrow()
     expect(() => migrate([
       { type: 'content-surface/whatever', seq: 0, time: 1, data: {} },
