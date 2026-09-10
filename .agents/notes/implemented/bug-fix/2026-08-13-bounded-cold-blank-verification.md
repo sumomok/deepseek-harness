@@ -12,7 +12,7 @@ The same cold list used the JSONL artifact mtime for `updatedAt`. Opening a Sess
 
 ## Decision
 
-`dsh-api-session-controller` registers `sessionListMetadata`, a projection containing `blank` and `lastPromptAt`. The attached summary folds the same functions directly over the live log. `blank` changes only from true to false on `turn/start`; `lastPromptAt` changes only on a `user/message` whose source kind is `user`.
+`dsh-api-session-controller` registers `sessionListMetadata`, a projection containing `blank` and `lastPromptAt`. The attached summary folds the same functions directly over the live log. `blank` changes only from true to false, on `turn/start` or `command/run` ([the command-engagement note](2026-09-10-command-engages-blank-session.md)); `lastPromptAt` changes only on a `user/message` whose source kind is `user`.
 
 A cold summary trusts cached `blank: false`, because a checkpoint prefix containing `turn/start` remains non-blank. A cache miss does not prove the current log is blank and is served `blank: false`, keeping the Session visible. The earlier physical-size probe — a `locate()` path plus a `coldBlankProbeMaxBytes` eligibility threshold gating an exact `readFrom(id, 0)` fold — is removed with the seam's path query ([export and pre-release trims](../simplification/2026-08-27-persistence-export-and-pre-release-trims.md)). Persistence snapshot hints do not reintroduce it: listing remains metadata/cache-only and never opens a cold body.
 

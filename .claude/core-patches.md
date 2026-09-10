@@ -241,6 +241,14 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**（逐条各自判据）：① 上游 `permission/preset` 处置或迁移边自己接受并丢弃 `origin` 成员；② 上游 `assertReleasedEventPayload` 自己把 v0 侧的 descriptor 版本 2 升格到当时的 `SUBAGENT_DESCRIPTOR_VERSION`（或提供等价的 descriptor 版本迁移点）；③ 上游把这六种内容事件纳入清单，或为迁移边提供自定义词汇扩展点（与 `d929cdfd2a` 同一判据）；本 fork 不再拥有 `product/server-console` 线且确认无用户库持有这些事件，同样构成退役条件。任一条成立即退役该条，不必整族退役。
 - **状态**：在役（0.1.3-alpha.1 本线新增，与 `d929cdfd2a` 同族）。**本补丁在 rc.31 集成线上追加，尚未回补丁线 `core-patches-v7`**；下一轮滚动同步移植时需一并带上。
 
+## patch(session-controller,ui-commands): 独立命令让空白会话转正 — <SHA>
+
+- **改了什么**：`packages/api/session-controller/src/list.ts` 的 `applySessionListMetadata` 除 `turn/start` 外也在 `command/run` 上清除 `blank`，该投影单元 `stateVersion` 1 → 2（新增一条 `@deepseek-ai/dsh-commands/types` 的纯类型 import 把命令事件并进 `SessionEventMap`）；`src/client/sessions/session.ts` 把 `prompt()` 里的 blank 翻转块抽成公开的 `Session.markEngaged()`，并发布到 `src/client/contract/session.ts` 的 `ISession` 面；`packages/client/ui-commands/src/client/service.ts` 的 `execute` 在 execute RPC 返回已匹配结果后经 `ctx.sessions.binding(id)?.session.markEngaged()` 调用它。测试：`session-list-blank.host.spec.ts` 重写（配置事件族仍 blank / 命令生命周期清除 / 首个 turn 清除，外加两组直接折叠钉住 `command/run` 而非 `command/done` 是翻转点）、`session.client.spec.ts` 新增 `markEngaged()` 用例、`service.client.spec.ts` 新增五条（受理转正 / handler 报错也转正 / 未匹配不转正 / 调用失败不转正 / 未绑定跳过）、`skeleton.client.spec.tsx` 新增相位用例；`packages/test-support/client-runtime` 的 `FixtureSession` 补 fail-loud stub 及其用例。文档：新增双语 Agent Note `2026-09-10-command-engages-blank-session`，并订正 `2026-08-13-bounded-cold-blank-verification`、`2026-07-25-web-command-surfaces-and-assembly`、`2026-07-25-web-client-session-scope-and-provide-channel`、`2026-08-01-goal-command-input-projection`、`2026-08-11-workspace-sidebar-order-and-folding` 五份 note 与 `ui-commands`、`ui-workspace`、`command-feedback` 三份 README 的相关句子。
+- **为什么**：全新会话里把 `/btw <问题>` 作为第一条消息发出去，host 已经执行并落盘（验收会话日志 `command/run` seq 3、`command/done` seq 4），但界面停在欢迎页、不渲染卡片、侧栏也不列出该会话。根因是 host 折叠只认 `turn/start`，而客户端只有 `prompt()` 会降低本地 blank 镜像——`CommandUiRuntime.execute` 从不触碰被寻址的 `Session`。由此 `conversationPhase` 停在 `'blank'`（保留 hero、视图返回 null）、`sessionVisible` 只在 blank 会话为当前会话时显示它、`connectWorkspace` 还会把它当 New Session 复用。
+- **要达到的效果**：只跑过命令的会话有侧栏行、打开在自己的转录上、且不再被当作 New Session 复用；翻转点是 `command/run`（受理即落盘，handler 报错同样已产出卡片），而 `plan/mode`、`session/title`、`permission/preset`、`sandbox/mode` 仍不翻转。`stateVersion` 必须同时递增，否则按旧折叠 checkpoint 过的会话会从缓存行拿回 `blank: true`，重新打开又回到欢迎页。
+- **退役条件**：上游自己让一条独立命令使会话转正——无论是 `applySessionListMetadata` 自己在 `command/run` 上清除 `blank`，还是客户端在命令受理后降低 blank 镜像。任一条成立即退役对应半边。
+- **状态**：在役（0.1.3-alpha.1 本线新增）。**本补丁在 rc.31 集成线上追加，尚未回补丁线 `core-patches-v7`，也未进 `core-patches-v8`**；下一轮滚动同步移植时需一并带上。
+
 ## patch(session-log-export): record an unreadable file in the archive instead of tearing the stream — d2cf85446d（+ `663cb9df9e`、`91743a89eb`、`4e00a2b851`）
 
 - **改了什么**：`packages/session-query/session-log-export/src/archive.ts` 新增 `unreadableFileEntryPath`/`unreadableFileEntry`/`resumedFileChunks`/`fileEntry`，`sessionLogZipEntries` 的 files 循环改为经 `fileEntry` 产出；`unreadableMediaReason` 改名 `unreadableAttachmentReason` 供两条路径共用；`wireRatio` 的 `compressible` 参数文档改成如实陈述。`archive.host.spec.ts` 增四条用例（不可读文件的记录文本与声明规模、非 `AttachmentError` 失败不带 code 与 message、文件读取期间取消仍撕裂、零字节文件的空流），既有「文件流失败即整包失败」一条改名并保留。README 中英与两份导出 Agent Note 同步。
@@ -753,3 +761,7 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 ### 集成期追加补丁：v0 迁移接受三种落盘旧形状
 
 分支 `fix/v0-legacy-shapes`（基 `rc31-integration` = `660ebb4ea8`）在集成线上追加一族补丁，登记见本文件「patch(session-format-v0-to-v1): 让 v0 迁移接受三种落盘旧形状」小节。**本补丁在集成线上追加，尚未回补丁线 `core-patches-v7`。**
+
+### 集成期追加补丁：独立命令让空白会话转正
+
+分支 `fix/command-engages-session`（基 `rc31-integration` = `a766b18221`）在集成线上追加一条补丁，登记见本文件「patch(session-controller,ui-commands): 独立命令让空白会话转正」小节。**本补丁在集成线上追加，尚未回补丁线 `core-patches-v7`，也未进 `core-patches-v8`。**

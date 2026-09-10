@@ -14,7 +14,7 @@ The command registry and durable command lifecycle remain unchanged. `command/ru
 
 The `ui-goal` client plugin registers a Goal-owned Conversation Definition beside the generic command Definition. Both match the same `/goal` `command/run`: the generic Definition retains the durable result row, while the Goal Definition builds a separate `command-input` Chat Node at an earlier fractional anchor. The Goal plugin also registers the keyed React renderer for that Node. Its local component copies only the user bubble's right-aligned geometry and semantic tokens, uses 14px/22px monospace text, and mounts no timestamp, copy, or branch actions.
 
-`Session.composerPhase` treats visible non-command Chat Nodes as conversation content, so `command-input` activates the current conversation while a generic command row alone does not. The Host `summary.blank` bit remains turn-based, so list hiding and blank-session reuse do not change.
+`Session.composerPhase` treats visible non-command Chat Nodes as conversation content, so `command-input` activates the current conversation while a generic command row alone does not. The Host `summary.blank` bit falls on the command's own `command/run` ([the command-engagement note](../bug-fix/2026-09-10-command-engages-blank-session.md)), so a `/goal` run leaves the session listed and no longer reusable.
 
 The Goal Definition derives `/<name><args.trimEnd()>` from the structured run: separator and internal multiline input survive, while the claimed bare form whose arguments contain one space displays `/goal`. A history window containing only `command/done` has no matching Goal Context, so it keeps the generic result row without inventing an input bubble; loading the older run restores both Nodes.
 
@@ -36,4 +36,4 @@ Goal client tests pin the dual Definition output, ordering, other-command exclus
 
 ## Consequences
 
-One durable `/goal` run feeds two independently owned view Contexts without changing the command capability. Composing `ui-goal` out leaves ordinary command execution and its result row intact. Live tabs and cold reloads agree because both views derive from the same run. A page cut that retains only `command/done` temporarily shows only the result row; if that command is the session's only content, the hero hides the row until an older page restores the run. The session remains list-hidden and reusable until a model turn starts because Host blank semantics remain turn-based.
+One durable `/goal` run feeds two independently owned view Contexts without changing the command capability. Composing `ui-goal` out leaves ordinary command execution and its result row intact. Live tabs and cold reloads agree because both views derive from the same run. A page cut that retains only `command/done` temporarily shows only the result row. The session is listed and no longer reusable from the run onwards, because the Host clears blank on `command/run`.

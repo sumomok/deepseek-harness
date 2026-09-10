@@ -24,7 +24,7 @@ Each Workspace persists one browser-local open state: closed means zero Session 
 
 The combined view menu offers **Manual** and **Last updated** in grouped and flat presentation, with one browser-local persisted order per account. A real Workspace initializes from `WorkspaceView.sessionIds`; Ungrouped and the cross-Workspace flat list initialize from recency and have no Host Session account. Entering Last updated performs one complete recency sort; a later user prompt or steer promotes that Session once, and dragging may edit the resulting order. Returning to Manual preserves the current order and only disables later activity promotion. Manual-mode drags for a real Workspace also write the Host Session account, while Ungrouped and flat-list drags and activity promotion remain browser-local. Flat rows omit an empty leading status slot because they have no parent hierarchy, while a visible status retains its slot.
 
-When New Session creation selects a blank Session, the browser promotes it once in both its grouped account and the flat-list account. This explicit creation promotion does not advance `updatedAt`. While the Session remains blank, grouped folding does not charge it against the five non-blank rows; the first prompt returns it to the ordinary quota without undoing a Manual-mode drag.
+When New Session creation selects a blank Session, the browser promotes it once in both its grouped account and the flat-list account. This explicit creation promotion does not advance `updatedAt`. While the Session remains blank, grouped folding does not charge it against the five non-blank rows; the first prompt or command returns it to the ordinary quota without undoing a Manual-mode drag.
 
 ### Drag and compact chrome
 
@@ -50,7 +50,7 @@ Search is a header action while collapsed and expands across the title and trail
 
 - Workspace order is durable and shared through the Host, while grouping, open state, per-account Session view order, and query state remain browser-local presentation preferences. Ungrouped and the flat list support the same drag and promotion rules, but their orders are browser-local because neither has one Workspace account.
 - Last updated performs a complete recency sort on entry, then preserves manual adjustments until a user prompt or steer advances one Session and moves it to the front. Returning to Manual preserves every current position.
-- A newly selected blank New Session row enters grouped and flat orders first once. Grouped folding renders it in addition to five non-blank rows until its first prompt, then applies the ordinary quota.
+- A newly selected blank New Session row enters grouped and flat orders first once. Grouped folding renders it in addition to five non-blank rows until its first prompt or command, then applies the ordinary quota.
 - Opening a Workspace never shows more than five non-blank Sessions without an explicit **Show more** gesture or search-result navigation; the selected blank New Session may add one provisional row. Closing the Workspace resets transient remainder expansion.
 - The Host Session account retains the manual-order meaning established by [Session List Browsing and Manual Workspace Order](2026-07-25-session-list-browsing-and-manual-order.md).
 
