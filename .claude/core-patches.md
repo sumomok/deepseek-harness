@@ -753,3 +753,24 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 ### 集成期追加补丁：v0 迁移接受三种落盘旧形状
 
 分支 `fix/v0-legacy-shapes`（基 `rc31-integration` = `660ebb4ea8`）在集成线上追加一族补丁，登记见本文件「patch(session-format-v0-to-v1): 让 v0 迁移接受三种落盘旧形状」小节。**本补丁在集成线上追加，尚未回补丁线 `core-patches-v7`。**
+
+### 集成期追加：V4.1 Flash 出厂默认与计价（vendored 插件 0.2.0 / 0.4.2）
+
+**做了什么。**两个 vendored 插件各升一版，外加桌面编排层的一处跟随订正，共四条提交（顺序即下列 SHA 顺序）：
+
+1. `78c5603be2` `vendor(desktop)`：`@haoran/dsh-default-model` `0.1.2` → `0.2.0`。`agent-default-model` 改成 `provider: deepseek-official` / `model: deepseek-flash`；`llm-deepseek` 的 `models` 整表在三条工厂行之前加一行 `deepseek-flash`（`name: default`、`description: deepseek-flash · V4.1 Flash · 视觉`、`inputModalities: [text, image]`），`deepseek-v4-flash-vision-exp` 拿回自己的名字，两条文本行补回工厂目录本来带的 `description`（此前被整表替换吞掉，也是 0.1.2 里那条漂移用例一直红的原因）。tarball sha256 `102dadc378e85853f2dbd96cdb0e9cd4353c98326c775e7891d7274f5b01cd0d`。
+2. `a766b18221` `vendor(desktop)`：`@sumomok/dsh-balance` `0.4.1` → `0.4.2`。两份币种表各加一条 `deepseek-flash`，`asOf` 改 `2026-09-10`。tarball sha256 `05a7fbdcd6f23d4a1fb5853d1c02fd7275c927912b6ebbd4f1d2cc8d5185a549`。同时把 `apps/desktop/README*` 里「`@sumomok/dsh-balance` 的归档与它的发布版逐字节相同」改掉：npm 上只有 `0.1.0` 与 `0.4.0`（`npm view` 实证），`0.4.1` 起该句已不成立。
+3. `3f4bd4cdf8` `docs(desktop)`：上面两条改的是 `apps/desktop/README.md` 与 `README.zh.md` 的同一张内置插件表，`--write apps/desktop/README.md` 重录配对记录。
+4. `6ff621f97e` `fix(desktop-app)`：`apps/desktop-app/cordis.patch.yml` 在 default-model 之上再整表替换一次 `llm-deepseek.config`，它仍带着 0.1.2 时代的目录——若不跟随，出厂默认指名 `deepseek-flash` 而选择器不列它。`apps/desktop/tests/desktop-composition-layer.spec.ts` 正是在这里报的红。
+
+**为什么。**上游在 `bc5fd3b8dc`（另见 `441385fe38`、`0729dbec66`）把 `@deepseek-ai/dsh-base` 自己的默认从 `deepseek-v4-flash` 移到 `deepseek-flash`，并把该模型登记为 `name: DeepSeek-V41-Flash`、`inputModalities: [text, image]`、`contextWindow: DEFAULT_CONTEXT_WINDOW`。本集成树的 `packages/llm/llm-deepseek` 尚未带这一行（也没有上游那条 `systemPromptUpdate: 'in-history'` 字段，故本次不加），所以 `deepseek-flash` 只能靠 patch 层的整表替换进入选择器。已经自己选过模型的用户不受影响：他们的 `agent-default-model` 设置分节压过任何 patch 层。
+
+**价格来源与一处已知落差。**2026-09-10 04:23 UTC（北京 12:23，调价生效后 23 分钟）抓取两份官方页，`https://api-docs.deepseek.com/zh-cn/quick_start/pricing/` 与 `https://api-docs.deepseek.com/quick_start/pricing/`，两份都仍只列 `deepseek-v4-flash` / `deepseek-v4-pro` / `deepseek-v4-flash-vision-exp` 三行，且仍是旧价（CNY 空闲 0.05 / 1.5 / 4.5，USD 0.007 / 0.22 / 0.66）。因此 `deepseek-flash` 这一行取自 DeepSeek 开放平台公告的转述，两篇文章 URL 记在 `src/default-prices.ts` 抬头：空闲时段 CNY 0.02 / 1 / 4、USD 0.003 / 0.15 / 0.60，高峰翻倍，时间窗沿用两页已写明的那两段。**已知落差**：同一则公告调的是「Flash 系列」，其中一篇文章的对照表把新价同时套在 `deepseek-v4-flash` 与 `deepseek-v4-flash-vision-exp` 上；本次按既定口径只动新行，那两行仍是官方页此刻仍在印的旧价，等官方页更新后需要复核。另一篇文章还写明「V4.1 Flash 上线之后、V4.1 Pro 上线之前，对 V4 Pro 的请求全部路由到 V4.1 Flash 并按 V4.1 Flash 单价计费」——仅凭这条路由说法不改 `deepseek-v4-pro` 的费率。
+
+**未做的验证。**`deepseek-flash` 是否已在 `api.deepseek.com` 上服务，本次**没有**实测：本机 `DEEPSEEK_API_KEY` 未设置，`deepseek-harness/.env` 不存在，凭据一律不读。打包前需要有钥匙的一方跑一次 `GET /models` 与一次最小 chat completion 确认。
+
+**门禁实跑（HEAD = 本节所在提交之前的 `6ff621f97e`）。**`pnpm install --offline` 0（两次，每次换一个 tarball）→ `verify-vendored-plugin-versions` **13 个**一致 → `verify-vendored-links` **9 个** → `gen-third-party-notices` 重跑并提交 → `build` 0（**222 个客户端产物**）→ `typecheck` 0 → `lint` 0 → `doc-sync` **35/35**（首跑因双语表两侧同改而 `translation pairing` 红，重录后 **1194 对**全绿）→ `hygiene` **15/16**：唯一的红是 `application entrypoints`，命中的 12 条全在 `apps/desktop/dist-app/` 与 `apps/desktop/staging/`（`.gitignore` 内、9 月 7 日打包残留、非本次引入）→ `vitest run apps/desktop/tests` **21 文件 / 490 条全绿**（含 `desktop-composition-layer.spec.ts` 10 条）→ `test:snapshot` **121 条：118 通过 / 2 跳过 / 1 红**，红的仍是 `ptc-python-turn`（本机 CPython 3.9.6 < 3.10，非本次引入）。
+
+**编排实证（无需密钥）。**scratch `DSH_HOME` 里 `dsh --profile web --dump-config --patch <vendored 包内的 cordis.patch.yml>`：default-model 那份编排出 `agent-default-model` = `provider: deepseek-official` / `model: deepseek-flash`，`llm-deepseek.models` 首行 `id: deepseek-flash` / `name: default` / `inputModalities: [text, image]`；balance 那份编排出 `prices.asOf: 2026-09-10` 且 CNY 首条 `model: deepseek-flash` / `base: {input: 1, inputCacheHit: 0.02, output: 4}`。
+
+**仓外分支。**`dsh-plugins` 侧各开一条新分支，未推：`feat/v41-flash-default` = `b245952`（基 `feat/mcp-servers` = `28f7060`）、`feat/v41-flash-prices` = `8671edb`（基 `feat/balance-mask` = `c068c0a`）。`@haoran/dsh-default-model` 是 `private: true`，`@sumomok/dsh-balance` 的 `0.4.2` 尚未发 npm。
