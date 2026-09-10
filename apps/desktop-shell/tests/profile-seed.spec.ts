@@ -195,7 +195,7 @@ describe('seedBuiltinBundles on a home with no profile', () => {
     expect(report.seeded).toEqual([...BUILTIN_WEB_BUNDLES])
     expect(report.skipped).toEqual([])
     expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...BUILTIN_WEB_BUNDLES])
-    expect(readProfile()).toMatchObject({ name: 'dsh-profile-desktop', private: true, dependencies: {} })
+    expect(readProfile()).toMatchObject({ name: 'dsh-profile-desktop-shell', private: true, dependencies: {} })
   })
 
   it('links each built-in into the shared flat fallback the Loader walks to', () => {
@@ -236,7 +236,7 @@ describe('seedBuiltinBundles on a home with no profile', () => {
 describe('seedBuiltinBundles on an initialized profile', () => {
   it('appends only the missing names, after everything already listed', () => {
     writeProfile(JSON.stringify({
-      name: 'dsh-profile-desktop',
+      name: 'dsh-profile-desktop-shell',
       private: true,
       dependencies: { 'dsh-at-file': '0.6.5' },
       dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', 'dsh-at-file'] } },
@@ -253,7 +253,7 @@ describe('seedBuiltinBundles on an initialized profile', () => {
     // layer is whatever its owner has written there since.
     const shippedThen = ['dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot']
     writeProfile(JSON.stringify({
-      name: 'dsh-profile-desktop',
+      name: 'dsh-profile-desktop-shell',
       private: true,
       dependencies: {},
       dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...shippedThen] } },
@@ -272,7 +272,7 @@ describe('seedBuiltinBundles on an initialized profile', () => {
 
   it('carries dependencies and unknown fields through untouched', () => {
     writeProfile(JSON.stringify({
-      name: 'dsh-profile-desktop',
+      name: 'dsh-profile-desktop-shell',
       private: true,
       dependencies: { '@haoran/gateway': 'file:../gateway.tgz' },
       packageManager: 'pnpm@11.7.0',
@@ -322,7 +322,7 @@ describe('seedBuiltinBundles on a profile it must not rewrite', () => {
   })
 
   it('leaves a manifest that declares no bundle list alone', () => {
-    const path = writeProfile(JSON.stringify({ name: 'dsh-profile-desktop', dependencies: {} }, undefined, 2))
+    const path = writeProfile(JSON.stringify({ name: 'dsh-profile-desktop-shell', dependencies: {} }, undefined, 2))
     const before = readFileSync(path, 'utf8')
     const report = seedBuiltinBundles({ home, serverModules })
     expect(readFileSync(path, 'utf8')).toBe(before)
@@ -364,7 +364,7 @@ describe('seedBuiltinBundles on a built-in this build withdrew', () => {
   /** The profile an earlier build left: the withdrawn name listed, and its link into that build's closure. */
   function profileFromTheBuildThatShippedIt(target: string): void {
     writeProfile(JSON.stringify({
-      name: 'dsh-profile-desktop',
+      name: 'dsh-profile-desktop-shell',
       private: true,
       dependencies: {},
       dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...BUILTIN_WEB_BUNDLES, gone] } },
@@ -406,7 +406,7 @@ describe('seedBuiltinBundles on a built-in this build withdrew', () => {
   })
 
   it('keeps the bundle entry when the profile installed a copy of its own', () => {
-    // `dsh plugin --profile desktop add` puts the package under the profile's
+    // `dsh plugin --profile desktop-shell add` puts the package under the profile's
     // own node_modules, where `resolveBundleDir` still finds it. The shell's
     // own link goes; the plugin the user installed keeps working.
     profileFromTheBuildThatShippedIt(join(serverModules, gone))
@@ -457,7 +457,7 @@ describe('seedBuiltinBundles on a built-in this build withdrew', () => {
   })
 
   it('leaves a hand-composed manifest that lists no bundles alone', () => {
-    const path = writeProfile(JSON.stringify({ name: 'dsh-profile-desktop', dependencies: {} }, undefined, 2))
+    const path = writeProfile(JSON.stringify({ name: 'dsh-profile-desktop-shell', dependencies: {} }, undefined, 2))
     const before = readFileSync(path, 'utf8')
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.pruned).toEqual([])
@@ -530,7 +530,7 @@ describe('seedBuiltinBundles migrating the web profile', () => {
   it('leaves a name the desktop profile already lists to whoever put it there', () => {
     writeWebProfile([userPlugin])
     writeProfile(JSON.stringify({
-      name: 'dsh-profile-desktop',
+      name: 'dsh-profile-desktop-shell',
       private: true,
       dependencies: {},
       dsh: { profile: { bundles: [...webTemplate, userPlugin] } },
@@ -591,7 +591,7 @@ describe('seedBuiltinBundles migrating the web profile', () => {
   it('leaves a version the desktop profile declares for itself', () => {
     writeWebProfile([userPlugin])
     writeProfile(JSON.stringify({
-      name: 'dsh-profile-desktop',
+      name: 'dsh-profile-desktop-shell',
       private: true,
       dependencies: { [userPlugin]: 'file:../mine.tgz' },
       dsh: { profile: { bundles: [...webTemplate] } },
@@ -701,7 +701,7 @@ describe('seedBuiltinBundles migrating the web profile', () => {
 
   it('migrates nothing into a hand-composed manifest that lists no bundles', () => {
     writeWebProfile([userPlugin])
-    const path = writeProfile(JSON.stringify({ name: 'dsh-profile-desktop', dependencies: {} }, undefined, 2))
+    const path = writeProfile(JSON.stringify({ name: 'dsh-profile-desktop-shell', dependencies: {} }, undefined, 2))
     const before = readFileSync(path, 'utf8')
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.migrated).toEqual([])
@@ -823,7 +823,7 @@ describe('seedBuiltinBundles on a migration that stopped resolving', () => {
     writeWebProfile([broken], { install: [] })
     installIntoWeb(broken, { dsh: { bundle: { patch: './cordis.patch.yml' } }, main: 'lib/index.js' }, false)
     writeProfile(JSON.stringify({
-      name: 'dsh-profile-desktop', private: true, dependencies: { [broken]: '^1.0.0' },
+      name: 'dsh-profile-desktop-shell', private: true, dependencies: { [broken]: '^1.0.0' },
       dsh: { profile: { bundles: [...webTemplate, ...BUILTIN_WEB_BUNDLES, broken] } },
     }, undefined, 2))
     mkdirSync(join(home, 'profiles', DESKTOP_PROFILE, 'node_modules', '@yuxianglin'), { recursive: true })
@@ -1027,7 +1027,7 @@ describe('quarantineLoadFailureFromOutput', () => {
     const profileDir = join(home, 'profiles', DESKTOP_PROFILE)
     mkdirSync(profileDir, { recursive: true })
     writeFileSync(join(profileDir, 'package.json'), JSON.stringify({
-      name: 'dsh-profile-desktop', private: true, dependencies: {},
+      name: 'dsh-profile-desktop-shell', private: true, dependencies: {},
       dsh: { profile: { bundles: [...webTemplate, '@yuxianglin/dsh-bridge-browser'] } },
     }, undefined, 2))
     const path = join(profileDir, MIGRATION_MARKER_FILENAME)
@@ -1194,18 +1194,18 @@ describe('describeSeed', () => {
 
   it('names what was seeded and linked on one line', () => {
     const line = describeSeed({ ...nothingHappened(), seeded: ['dsh-at-file'], linked: ['dsh-at-file'], created: true })
-    expect(line).toBe('[desktop] profile desktop: created with built-in bundles dsh-at-file; linked dsh-at-file\n')
+    expect(line).toBe('[desktop] profile desktop-shell: created with built-in bundles dsh-at-file; linked dsh-at-file\n')
   })
 
   it('carries every skip reason', () => {
     const line = describeSeed({ ...nothingHappened(), skipped: ['a: why', 'b: why'] })
-    expect(line).toBe('[desktop] profile desktop: skipped a: why; skipped b: why\n')
+    expect(line).toBe('[desktop] profile desktop-shell: skipped a: why; skipped b: why\n')
   })
 
   it('names what it migrated and what it copied out of the web profile', () => {
     const line = describeSeed({ ...nothingHappened(), migrated: ['dsh-hello-world', '@x/b'], copied: ['cordis.patch.yml'] })
     expect(line).toBe(
-      '[desktop] profile desktop: migrated dsh-hello-world, @x/b from the web profile; '
+      '[desktop] profile desktop-shell: migrated dsh-hello-world, @x/b from the web profile; '
       + 'copied cordis.patch.yml from the web profile\n',
     )
   })
@@ -1214,7 +1214,7 @@ describe('describeSeed', () => {
     const line = describeSeed({ ...nothingHappened(), dropped: [
       'dsh-hello-world: no longer resolves in the web profile',
     ] })
-    expect(line).toBe('[desktop] profile desktop: dropped migrated dsh-hello-world: no longer resolves in the web profile\n')
+    expect(line).toBe('[desktop] profile desktop-shell: dropped migrated dsh-hello-world: no longer resolves in the web profile\n')
   })
 
   it('gives each name it disabled as defective its own reason', () => {
@@ -1222,7 +1222,7 @@ describe('describeSeed', () => {
       '@x/b: the installed package declares no dsh.bundle, which the server refuses as a bundle layer',
     ] })
     expect(line).toBe(
-      '[desktop] profile desktop: disabled migrated @x/b: the installed package declares no dsh.bundle, '
+      '[desktop] profile desktop-shell: disabled migrated @x/b: the installed package declares no dsh.bundle, '
       + 'which the server refuses as a bundle layer\n',
     )
   })
@@ -1232,14 +1232,14 @@ describe('describeSeed', () => {
       'dsh-hello-world: no longer linked in the desktop profile; still installed in the web profile, so it will not return on its own',
     ] })
     expect(line).toBe(
-      '[desktop] profile desktop: removed dsh-hello-world: no longer linked in the desktop profile; '
+      '[desktop] profile desktop-shell: removed dsh-hello-world: no longer linked in the desktop profile; '
       + 'still installed in the web profile, so it will not return on its own\n',
     )
   })
 
   it('names a withdrawn built-in it dropped and unlinked', () => {
     const line = describeSeed({ ...nothingHappened(), pruned: ['@x/gone'], unlinked: ['@x/gone'] })
-    expect(line).toBe('[desktop] profile desktop: dropped withdrawn built-in @x/gone; unlinked @x/gone\n')
+    expect(line).toBe('[desktop] profile desktop-shell: dropped withdrawn built-in @x/gone; unlinked @x/gone\n')
   })
 })
 
@@ -1297,5 +1297,112 @@ describe('seedBuiltinBundles version reporting', () => {
     mkdirSync(dir, { recursive: true })
     writeFileSync(join(dir, 'package.json'), '{ oops')
     expect(seedBuiltinBundles({ home, serverModules }).shadowed).toEqual([])
+  })
+})
+
+describe('seedBuiltinBundles on a home an earlier build seeded under the old profile name', () => {
+  /** Where the profile this shell wrote before upstream reserved `desktop` stood. */
+  const legacyDir = (): string => join(home, 'profiles', 'desktop')
+
+  /**
+   * Stage the profile an rc.31 client has: this shell's own manifest name, the
+   * built-ins that build seeded, one plugin migrated out of the `web` profile
+   * with its link, an edited patch layer, and the migration record.
+   * @param manifestName - the `name` field to write, for the case where the
+   * directory is upstream's rather than this shell's.
+   */
+  function legacyProfile(manifestName = 'dsh-profile-desktop'): void {
+    const dir = legacyDir()
+    mkdirSync(dir, { recursive: true })
+    writeFileSync(join(dir, 'package.json'), `${JSON.stringify({
+      name: manifestName,
+      private: true,
+      dependencies: { [userPlugin]: '^1.2.3' },
+      dsh: { profile: { bundles: [...webTemplate, ...BUILTIN_WEB_BUNDLES, userPlugin], patchReload: 'live' } },
+    }, undefined, 2)}\n`)
+    writeFileSync(join(dir, PROFILE_PATCH_FILENAME), '- id: better-sidebar\n  disabled: true\n')
+    writeFileSync(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\n')
+    writeFileSync(join(dir, MIGRATION_MARKER_FILENAME), `${JSON.stringify({
+      from: 'web', migrated: [userPlugin], defective: [], removed: [],
+    }, undefined, 2)}\n`)
+    ensureLink(join(dir, 'node_modules', userPlugin), webPackage(userPlugin))
+  }
+
+  it('renames it into place with its patch layer, its record, and its migrated plugin', () => {
+    writeWebProfile([userPlugin])
+    legacyProfile()
+    const report = seedBuiltinBundles({ home, serverModules })
+
+    expect(report.renamedFrom).toBe('desktop')
+    expect(existsSync(legacyDir())).toBe(false)
+    expect(report.created).toBe(false)
+    // The name is rewritten, and it is the one file a rename replaces.
+    expect(readProfile()).toMatchObject({ name: 'dsh-profile-desktop-shell', private: true })
+    expect(readProfile()['dependencies']).toMatchObject({ [userPlugin]: '^1.2.3' })
+    const dir = join(home, 'profiles', DESKTOP_PROFILE)
+    expect(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8')).toBe('- id: better-sidebar\n  disabled: true\n')
+    expect(migratedNow()).toEqual([userPlugin])
+    expect(readlinkSync(migratedLink(userPlugin))).toBe(webPackage(userPlugin))
+    // The user's own plugin survives beside every built-in this build ships.
+    expect(bundlesNow()).toEqual([...webTemplate, ...BUILTIN_WEB_BUNDLES, userPlugin])
+    expect(unresolvableBundles()).toEqual([])
+    expect(describeSeed(report)).toContain('renamed the desktop profile into place')
+  })
+
+  it('leaves a `desktop` profile upstream\'s own application wrote exactly as it is', () => {
+    writeWebProfile([userPlugin])
+    legacyProfile('@deepseek-ai/dsh-desktop-runtime')
+    const before = readFileSync(join(legacyDir(), 'package.json'), 'utf8')
+    const report = seedBuiltinBundles({ home, serverModules })
+
+    expect(report.renamedFrom).toBeUndefined()
+    expect(readFileSync(join(legacyDir(), 'package.json'), 'utf8')).toBe(before)
+    expect(report.created).toBe(true)
+    expect(readProfile()).toMatchObject({ name: 'dsh-profile-desktop-shell' })
+    expect(existsSync(join(home, 'profiles', DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME))).toBe(true)
+    expect(describeSeed(report)).not.toContain('renamed')
+  })
+
+  it('renames once: a second launch leaves whatever stands at the old name alone', () => {
+    writeWebProfile([userPlugin])
+    legacyProfile()
+    expect(seedBuiltinBundles({ home, serverModules }).renamedFrom).toBe('desktop')
+
+    // Something at the old path again — a reinstalled older build, or upstream's
+    // application — is not this run's to move: the profile it boots is there.
+    legacyProfile()
+    const second = seedBuiltinBundles({ home, serverModules })
+    expect(second.renamedFrom).toBeUndefined()
+    expect(existsSync(join(legacyDir(), 'package.json'))).toBe(true)
+    expect(readProfile()).toMatchObject({ name: 'dsh-profile-desktop-shell' })
+  })
+
+  it('seeds a fresh profile and keeps the old one when the rename cannot happen', () => {
+    writeWebProfile([userPlugin])
+    legacyProfile()
+    // A directory already at the new path with something in it: rename(2)
+    // refuses a non-empty target on every platform this ships to.
+    mkdirSync(join(home, 'profiles', DESKTOP_PROFILE, 'node_modules'), { recursive: true })
+    const report = seedBuiltinBundles({ home, serverModules })
+
+    expect(report.renamedFrom).toBeUndefined()
+    expect(report.failed).toBeUndefined()
+    expect(report.skipped.some(line => line.includes(legacyDir()))).toBe(true)
+    expect(describeSeed(report)).toContain(`could not be renamed to ${DESKTOP_PROFILE}`)
+    // The old profile is left whole, and the launch still has a profile to boot.
+    expect(existsSync(join(legacyDir(), MIGRATION_MARKER_FILENAME))).toBe(true)
+    expect(report.created).toBe(true)
+    expect(bundlesNow()).toEqual([...webTemplate, ...BUILTIN_WEB_BUNDLES, userPlugin])
+  })
+
+  it('reports the failure it always reported when the new path is not a directory at all', () => {
+    writeWebProfile([userPlugin])
+    legacyProfile()
+    writeFileSync(join(home, 'profiles', DESKTOP_PROFILE), '')
+    const report = seedBuiltinBundles({ home, serverModules })
+
+    expect(report.renamedFrom).toBeUndefined()
+    expect(report.failed).toContain(join(home, 'profiles', DESKTOP_PROFILE))
+    expect(existsSync(join(legacyDir(), MIGRATION_MARKER_FILENAME))).toBe(true)
   })
 })

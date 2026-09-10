@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-25-desktop-web-profile-migration.md
-2026-08-25-desktop-web-profile-migration.md: ed5b17ce74748992f8a46192235f7adbdc24b962
-2026-08-25-desktop-web-profile-migration.zh.md: 3d6bd0e072065b3668261abd097eed811d4d7055
+2026-08-25-desktop-web-profile-migration.md: 49e27be48d9b59e311f6e4e6a17b8c4b48a53911
+2026-08-25-desktop-web-profile-migration.zh.md: a99ec388adfda1d0ecbd5ad855fbb9b857530173

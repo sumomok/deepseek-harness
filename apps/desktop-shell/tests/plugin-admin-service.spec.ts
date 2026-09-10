@@ -93,7 +93,7 @@ function stageHome(profiles: Partial<Record<string, StagedProfile>>): string {
 /** The home every case that is not about staging uses: one updatable plugin, one seeded built-in. */
 function stageOrdinaryHome(): string {
   return stageHome({
-    desktop: {
+    'desktop-shell': {
       dependencies: { [PLUGIN]: '0.14.0' },
       bundles: [BUILTIN, PLUGIN],
       installed: { [PLUGIN]: true },
@@ -204,7 +204,7 @@ describe('admission', () => {
     const response = await fetch(`${handle.endpoint}${OUTDATED_PATH}`, {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ profile: 'desktop' }),
+      body: JSON.stringify({ profile: 'desktop-shell' }),
     })
     expect(response.status).toBe(401)
     expect(recorded.runs).toEqual([])
@@ -214,14 +214,14 @@ describe('admission', () => {
     const { handle, recorded } = await start(stageOrdinaryHome())
     const wrong = `${handle.token.slice(0, -1)}${handle.token.endsWith('a') ? 'b' : 'a'}`
     expect(wrong).toHaveLength(handle.token.length)
-    const response = await call(handle, OUTDATED_PATH, { profile: 'desktop' }, wrong)
+    const response = await call(handle, OUTDATED_PATH, { profile: 'desktop-shell' }, wrong)
     expect(response.status).toBe(401)
     expect(recorded.runs).toEqual([])
   })
 
   it('refuses a prefix of its own token', async () => {
     const { handle } = await start(stageOrdinaryHome())
-    expect((await call(handle, OUTDATED_PATH, { profile: 'desktop' }, handle.token.slice(0, 32))).status).toBe(401)
+    expect((await call(handle, OUTDATED_PATH, { profile: 'desktop-shell' }, handle.token.slice(0, 32))).status).toBe(401)
   })
 
   it('refuses a body that is not JSON, and one that is not an object', async () => {
@@ -232,12 +232,12 @@ describe('admission', () => {
       body: 'not json',
     })
     expect(notJson.status).toBe(400)
-    expect((await call(handle, OUTDATED_PATH, ['desktop'])).status).toBe(400)
+    expect((await call(handle, OUTDATED_PATH, ['desktop-shell'])).status).toBe(400)
   })
 
   it('refuses a body over the cap', async () => {
     const { handle } = await start(stageOrdinaryHome(), { limits: { maxBodyBytes: 64 } })
-    const response = await call(handle, OUTDATED_PATH, { profile: 'desktop', pad: 'x'.repeat(256) })
+    const response = await call(handle, OUTDATED_PATH, { profile: 'desktop-shell', pad: 'x'.repeat(256) })
     expect(response.status).toBe(400)
     expect(await response.text()).toContain('at most 64 bytes')
   })
@@ -247,7 +247,7 @@ describe('admission', () => {
     const response = await fetch(`${handle.endpoint}${OUTDATED_PATH}`, {
       method: 'POST',
       headers: { authorization: `Bearer ${handle.token}`, 'content-type': 'text/plain' },
-      body: JSON.stringify({ profile: 'desktop' }),
+      body: JSON.stringify({ profile: 'desktop-shell' }),
     })
     expect(response.status).toBe(400)
   })
@@ -255,7 +255,7 @@ describe('admission', () => {
 
 describe('the profile fence', () => {
   it('acts in exactly the two profiles the shell owns', () => {
-    expect([...ADMIN_PROFILES]).toEqual(['desktop', 'web'])
+    expect([...ADMIN_PROFILES]).toEqual(['desktop-shell', 'web'])
   })
 
   it.each([
@@ -267,7 +267,7 @@ describe('the profile fence', () => {
     const { handle, recorded } = await start(stageOrdinaryHome())
     const response = await call(handle, OUTDATED_PATH, { profile })
     expect(response.status).toBe(400)
-    expect(await response.text()).toContain('profile must be one of desktop, web')
+    expect(await response.text()).toContain('profile must be one of desktop-shell, web')
     expect(recorded.runs).toEqual([])
   })
 
@@ -288,7 +288,7 @@ describe('the profile fence', () => {
 describe('the package fence', () => {
   it('refuses a package this profile never installed', async () => {
     const { handle, recorded } = await start(stageOrdinaryHome())
-    const response = await call(handle, UPDATE_PATH, { profile: 'desktop', name: 'left-pad', version: '1.3.0' })
+    const response = await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: 'left-pad', version: '1.3.0' })
     expect(response.status).toBe(422)
     expect(await response.text()).toContain('left-pad is not a plugin this profile installed')
     expect(recorded.asked).toEqual([])
@@ -297,18 +297,18 @@ describe('the package fence', () => {
 
   it('refuses a built-in, which is listed as a bundle and never as a dependency', async () => {
     const { handle, recorded } = await start(stageOrdinaryHome())
-    const response = await call(handle, UPDATE_PATH, { profile: 'desktop', name: BUILTIN, version: '0.2.0' })
+    const response = await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: BUILTIN, version: '0.2.0' })
     expect(response.status).toBe(422)
     expect(recorded.runs).toEqual([])
   })
 
   it('refuses a package installed in the other profile', async () => {
     const home = stageHome({
-      desktop: { dependencies: {}, bundles: [] },
+      'desktop-shell': { dependencies: {}, bundles: [] },
       web: { dependencies: { [PLUGIN]: '0.14.0' } },
     })
     const { handle } = await start(home)
-    expect((await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' })).status).toBe(422)
+    expect((await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' })).status).toBe(422)
     expect((await call(handle, UPDATE_PATH, { profile: 'web', name: PLUGIN, version: '0.15.2' })).status).toBe(200)
   })
 
@@ -320,20 +320,20 @@ describe('the package fence', () => {
     ['a name with a space', 'left pad'],
   ])('refuses %s as a package name', async (_case, name) => {
     const { handle, recorded } = await start(stageOrdinaryHome())
-    const response = await call(handle, UPDATE_PATH, { profile: 'desktop', name, version: '1.0.0' })
+    const response = await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name, version: '1.0.0' })
     expect(response.status).toBe(400)
     expect(recorded.runs).toEqual([])
   })
 
   it('reads the fence off disk on every call, not once at startup', async () => {
-    const home = stageHome({ desktop: { dependencies: {}, bundles: [] } })
+    const home = stageHome({ 'desktop-shell': { dependencies: {}, bundles: [] } })
     const { handle } = await start(home)
-    expect((await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' })).status).toBe(422)
-    writeFileSync(join(home, 'profiles', 'desktop', 'package.json'), JSON.stringify({
+    expect((await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' })).status).toBe(422)
+    writeFileSync(join(home, 'profiles', 'desktop-shell', 'package.json'), JSON.stringify({
       dependencies: { [PLUGIN]: '0.14.0' },
       dsh: { profile: { bundles: [] } },
     }))
-    expect((await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' })).status).toBe(200)
+    expect((await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' })).status).toBe(200)
   })
 })
 
@@ -361,7 +361,7 @@ describe('the version fence', () => {
     ['a v prefix', 'v0.15.2'],
   ])('refuses %s', async (_case, version) => {
     const { handle, recorded } = await start(stageOrdinaryHome())
-    const response = await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version })
+    const response = await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version })
     expect(response.status).toBe(400)
     expect(await response.text()).toContain('one exact published version')
     expect(recorded.asked).toEqual([])
@@ -370,13 +370,13 @@ describe('the version fence', () => {
 
   it.each(['0.15.2', '1.0.0', '0.1.0-rc.7', '2.3.4-beta.1', '1.2.3+build.5'])('accepts the exact version %s', async (version) => {
     const { handle, recorded } = await start(stageOrdinaryHome())
-    expect((await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version })).status).toBe(200)
+    expect((await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version })).status).toBe(200)
     expect(recorded.runs[0]?.args).toEqual(['add', `${PLUGIN}@${version}`])
   })
 
   it('refuses a version that is not a string', async () => {
     const { handle } = await start(stageOrdinaryHome())
-    expect((await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: 15 })).status).toBe(400)
+    expect((await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: 15 })).status).toBe(400)
   })
 })
 
@@ -385,7 +385,7 @@ describe('reporting what is outdated', () => {
     const { handle, recorded } = await start(stageOrdinaryHome(), {
       run: () => ({ code: 1, signal: null, stdout: JSON.stringify(OUTDATED), stderr: '' }),
     })
-    const body = await jsonOf(await call(handle, OUTDATED_PATH, { profile: 'desktop' }))
+    const body = await jsonOf(await call(handle, OUTDATED_PATH, { profile: 'desktop-shell' }))
     expect(recorded.runs[0]?.args).toEqual(['outdated', '--json'])
     expect(body.packages).toEqual(OUTDATED)
     // pnpm exits 1 precisely when something is outdated, so a caller reading
@@ -396,7 +396,7 @@ describe('reporting what is outdated', () => {
 
   it('answers an empty profile with no packages rather than a failure', async () => {
     const { handle } = await start(stageOrdinaryHome(), { run: () => QUIET })
-    const body = await jsonOf(await call(handle, OUTDATED_PATH, { profile: 'desktop' }))
+    const body = await jsonOf(await call(handle, OUTDATED_PATH, { profile: 'desktop-shell' }))
     expect(body.packages).toBeNull()
     expect(body.exitCode).toBe(0)
   })
@@ -405,7 +405,7 @@ describe('reporting what is outdated', () => {
     const { handle } = await start(stageOrdinaryHome(), {
       run: () => ({ code: null, signal: null, stdout: 'ERR_PNPM_NO_LOCKFILE', stderr: 'registry unreachable', failure: 'pnpm did not finish within 1ms' }),
     })
-    const body = await jsonOf(await call(handle, OUTDATED_PATH, { profile: 'desktop' }))
+    const body = await jsonOf(await call(handle, OUTDATED_PATH, { profile: 'desktop-shell' }))
     expect(body.packages).toBeNull()
     expect(body.output).toBe('ERR_PNPM_NO_LOCKFILE')
     expect(body.stderr).toBe('registry unreachable')
@@ -414,7 +414,7 @@ describe('reporting what is outdated', () => {
 
   it('needs no package name, so it works before anything is known about the profile', async () => {
     const { handle } = await start(stageOrdinaryHome())
-    expect((await call(handle, OUTDATED_PATH, { profile: 'desktop' })).status).toBe(200)
+    expect((await call(handle, OUTDATED_PATH, { profile: 'desktop-shell' })).status).toBe(200)
   })
 })
 
@@ -424,27 +424,27 @@ describe('reporting peers', () => {
     const { handle, recorded } = await start(stageOrdinaryHome(), {
       run: () => ({ ...QUIET, stdout: JSON.stringify(peers) }),
     })
-    const body = await jsonOf(await call(handle, PEERS_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' }))
+    const body = await jsonOf(await call(handle, PEERS_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' }))
     expect(recorded.runs[0]?.args).toEqual(['view', `${PLUGIN}@0.15.2`, 'peerDependencies', '--json'])
     expect(body.peers).toEqual(peers)
   })
 
   it('answers a package that declares no peers with none, which pnpm prints as nothing', async () => {
     const { handle } = await start(stageOrdinaryHome(), { run: () => QUIET })
-    const body = await jsonOf(await call(handle, PEERS_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' }))
+    const body = await jsonOf(await call(handle, PEERS_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' }))
     expect(body.peers).toBeNull()
     expect(body.exitCode).toBe(0)
   })
 
   it('applies the same package and version fences as an update', async () => {
     const { handle } = await start(stageOrdinaryHome())
-    expect((await call(handle, PEERS_PATH, { profile: 'desktop', name: 'left-pad', version: '1.3.0' })).status).toBe(422)
-    expect((await call(handle, PEERS_PATH, { profile: 'desktop', name: PLUGIN, version: 'latest' })).status).toBe(400)
+    expect((await call(handle, PEERS_PATH, { profile: 'desktop-shell', name: 'left-pad', version: '1.3.0' })).status).toBe(422)
+    expect((await call(handle, PEERS_PATH, { profile: 'desktop-shell', name: PLUGIN, version: 'latest' })).status).toBe(400)
   })
 
   it('asks nobody: reading a version is not a change', async () => {
     const { handle, recorded } = await start(stageOrdinaryHome())
-    await call(handle, PEERS_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' })
+    await call(handle, PEERS_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' })
     expect(recorded.asked).toEqual([])
   })
 })
@@ -452,7 +452,7 @@ describe('reporting peers', () => {
 describe('the update', () => {
   it('asks the person at the keyboard before it installs anything', async () => {
     const { handle, recorded } = await start(stageOrdinaryHome())
-    await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' })
+    await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' })
     expect(recorded.asked).toHaveLength(1)
     expect(recorded.asked[0]?.message).toBe(`将 ${PLUGIN} 更新到 0.15.2？`)
     expect(recorded.asked[0]?.confirmLabel).toBe('更新')
@@ -462,7 +462,7 @@ describe('the update', () => {
 
   it('installs nothing when the person declines', async () => {
     const { handle, recorded } = await start(stageOrdinaryHome(), { confirm: false })
-    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' }))
+    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' }))
     expect(body.confirmed).toBe(false)
     expect(recorded.runs).toEqual([])
   })
@@ -470,7 +470,7 @@ describe('the update', () => {
   it('shows the caller\'s warning under the question', async () => {
     const { handle, recorded } = await start(stageOrdinaryHome())
     await call(handle, UPDATE_PATH, {
-      profile: 'desktop', name: PLUGIN, version: '0.15.2',
+      profile: 'desktop-shell', name: PLUGIN, version: '0.15.2',
       warning: '这个版本要求的组件版本比当前应用新,更新后可能无法使用。',
     })
     expect(recorded.asked[0]?.detail).toBe('这个版本要求的组件版本比当前应用新,更新后可能无法使用。')
@@ -479,7 +479,7 @@ describe('the update', () => {
   it('flattens a warning that tries to write its own dialog, and caps it', async () => {
     const { handle, recorded } = await start(stageOrdinaryHome(), { limits: { maxWarningChars: 20 } })
     await call(handle, UPDATE_PATH, {
-      profile: 'desktop', name: PLUGIN, version: '0.15.2',
+      profile: 'desktop-shell', name: PLUGIN, version: '0.15.2',
       warning: 'careful\n\nOK  to continue, definitely fine',
     })
     expect(recorded.asked[0]?.detail).toBe('careful OK to contin')
@@ -487,8 +487,8 @@ describe('the update', () => {
 
   it('refuses a warning that is not a string, and treats a blank one as none', async () => {
     const { handle, recorded } = await start(stageOrdinaryHome())
-    expect((await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2', warning: 7 })).status).toBe(400)
-    await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2', warning: '   ' })
+    expect((await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2', warning: 7 })).status).toBe(400)
+    await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2', warning: '   ' })
     expect(recorded.asked.at(-1)?.detail).toBeUndefined()
   })
 
@@ -496,8 +496,8 @@ describe('the update', () => {
     const { handle } = await start(stageOrdinaryHome(), {
       run: () => ({ code: 0, signal: null, stdout: '+ dsh-better-sidebar 0.15.2', stderr: '' }),
     })
-    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' }))
-    expect(body).toMatchObject({ profile: 'desktop', name: PLUGIN, version: '0.15.2', confirmed: true, exitCode: 0 })
+    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' }))
+    expect(body).toMatchObject({ profile: 'desktop-shell', name: PLUGIN, version: '0.15.2', confirmed: true, exitCode: 0 })
     expect(body.installedVersion).toBe('0.15.2')
     expect(body.output).toBe('+ dsh-better-sidebar 0.15.2')
   })
@@ -518,11 +518,11 @@ describe('the update', () => {
       relaunch: () => {},
       limits: PLUGIN_ADMIN_LIMITS,
     })
-    const first = call(service, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' })
+    const first = call(service, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' })
     // The second call has to arrive while the first is still installing, which
     // is what the first run entering the injected half reports.
     while (recorded.length === 0) await new Promise(resolve => setTimeout(resolve, 5))
-    const second = await call(service, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' })
+    const second = await call(service, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' })
     expect(second.status).toBe(503)
     release()
     expect((await first).status).toBe(200)
@@ -533,17 +533,17 @@ describe('the update', () => {
 describe('a package that stopped being a bundle', () => {
   it('takes the name out of the profile\'s bundle list, because leaving it would end the next boot', async () => {
     const home = stageHome({
-      desktop: {
+      'desktop-shell': {
         dependencies: { [PLUGIN]: '0.14.0' },
         bundles: [BUILTIN, PLUGIN],
         installed: { [PLUGIN]: false },
       },
     })
     const { handle } = await start(home)
-    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' }))
+    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' }))
     expect(body.stillBundle).toBe(false)
     expect(body.droppedFromBundles).toEqual([PLUGIN])
-    const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'desktop', 'package.json'), 'utf8')) as {
+    const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'desktop-shell', 'package.json'), 'utf8')) as {
       dependencies: Record<string, string>
       dsh: { profile: { bundles: string[] } }
     }
@@ -556,10 +556,10 @@ describe('a package that stopped being a bundle', () => {
   it('leaves the list alone for a package that is still a bundle', async () => {
     const home = stageOrdinaryHome()
     const { handle } = await start(home)
-    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' }))
+    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' }))
     expect(body.stillBundle).toBe(true)
     expect(body.droppedFromBundles).toEqual([])
-    const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'desktop', 'package.json'), 'utf8')) as {
+    const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'desktop-shell', 'package.json'), 'utf8')) as {
       dsh: { profile: { bundles: string[] } }
     }
     expect(manifest.dsh.profile.bundles).toEqual([BUILTIN, PLUGIN])
@@ -571,7 +571,7 @@ describe('a package that stopped being a bundle', () => {
     // `allowBuilds` — which is every profile this shell seeds. Reading the exit
     // status as the outcome reported a finished install as a failure.
     const home = stageHome({
-      desktop: {
+      'desktop-shell': {
         dependencies: { [PLUGIN]: '0.14.0' },
         bundles: [PLUGIN],
         installed: { [PLUGIN]: true },
@@ -580,7 +580,7 @@ describe('a package that stopped being a bundle', () => {
     const { handle } = await start(home, {
       run: () => ({ code: 1, signal: null, stdout: 'Packages: +1 -3', stderr: '[ERR_PNPM_IGNORED_BUILDS] Ignored build scripts: node-pty@1.1.0' }),
     })
-    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' }))
+    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' }))
     expect(body.installedVersion).toBe('0.15.2')
     expect(body.stillBundle).toBe(true)
     // The status is still reported, so a caller can say what pnpm complained about.
@@ -590,21 +590,21 @@ describe('a package that stopped being a bundle', () => {
 
   it('drops the bundle entry on that same exit-1 install when the package stopped being one', async () => {
     const home = stageHome({
-      desktop: { dependencies: { [PLUGIN]: '0.14.0' }, bundles: [BUILTIN, PLUGIN], installed: { [PLUGIN]: false } },
+      'desktop-shell': { dependencies: { [PLUGIN]: '0.14.0' }, bundles: [BUILTIN, PLUGIN], installed: { [PLUGIN]: false } },
     })
     const { handle } = await start(home, { run: () => ({ code: 1, signal: null, stdout: '', stderr: 'ERR_PNPM_IGNORED_BUILDS' }) })
-    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' }))
+    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' }))
     expect(body.droppedFromBundles).toEqual([PLUGIN])
-    const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'desktop', 'package.json'), 'utf8')) as {
+    const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'desktop-shell', 'package.json'), 'utf8')) as {
       dsh: { profile: { bundles: string[] } }
     }
     expect(manifest.dsh.profile.bundles).toEqual([BUILTIN])
   })
 
   it('reports no installed version when nothing readable is on disk', async () => {
-    const home = stageHome({ desktop: { dependencies: { [PLUGIN]: '0.14.0' }, bundles: [PLUGIN] } })
+    const home = stageHome({ 'desktop-shell': { dependencies: { [PLUGIN]: '0.14.0' }, bundles: [PLUGIN] } })
     const { handle } = await start(home)
-    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' }))
+    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' }))
     expect(body.installedVersion).toBeNull()
     expect(body.stillBundle).toBeNull()
     expect(body.droppedFromBundles).toEqual([])
@@ -612,7 +612,7 @@ describe('a package that stopped being a bundle', () => {
 
   it('checks nothing when the version asked for is not the one on disk', async () => {
     const home = stageHome({
-      desktop: {
+      'desktop-shell': {
         dependencies: { [PLUGIN]: '0.14.0' },
         bundles: [PLUGIN],
         installed: { [PLUGIN]: false },
@@ -620,11 +620,11 @@ describe('a package that stopped being a bundle', () => {
       },
     })
     const { handle } = await start(home, { run: () => ({ code: 1, signal: null, stdout: '', stderr: 'ERR_PNPM_FETCH_404' }) })
-    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop', name: PLUGIN, version: '0.15.2' }))
+    const body = await jsonOf(await call(handle, UPDATE_PATH, { profile: 'desktop-shell', name: PLUGIN, version: '0.15.2' }))
     expect(body.installedVersion).toBe('0.14.0')
     expect(body.exitCode).toBe(1)
     expect(body.stillBundle).toBeNull()
-    const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'desktop', 'package.json'), 'utf8')) as {
+    const manifest = JSON.parse(readFileSync(join(home, 'profiles', 'desktop-shell', 'package.json'), 'utf8')) as {
       dsh: { profile: { bundles: string[] } }
     }
     expect(manifest.dsh.profile.bundles).toEqual([PLUGIN])

@@ -36,7 +36,7 @@ Status: implemented
 
 两处写入都是追加式且幂等的。已列出的名字不会重复追加,已经指向正确目录的链接原样保留,任何 bundle 条目、依赖或清单里的其他字段都不会被删除或改写。"已经指向正确目录"由 `sameLinkTarget` 判定:比较前先剥掉 `\\?\` 扩展长度前缀、归一化尾部分隔符,并把相对读取的结果按链接自身所在目录解析——Windows 读回 junction 的形式与创建它的字符串本就不同,裸比较对一条正确的链接也为假,于是每次启动都会删掉重建。上游 `packages/boot/app-boot/src/profile.ts` 里的 `ensureSymlink` 用的是裸比较,存在同一处缺陷。清单以 rename 替换,所以写到一半被打断的启动留下的是原来那份文件,而不是被截断的一份。整次运行如实汇报它做了什么,启动日志写一行,没改动则不写。
 
-**profile 里的副本只报告,绝不改动。**当 profile 自己的 `node_modules` 里有某个内置插件的另一版本时,那一份才是 Loader 导入的代码,而 patch 层依旧来自安装目录。播种会在自己那行日志后追加一条 warning——`profile copy dsh-at-file@0.6.3 shadows the shipped 0.7.0 module; patch layer comes from the shipped copy`——并且什么都不改:profile 的依赖归安装它的人所有,`dsh plugin --profile desktop remove <name>` 是用户该做的动作,不是壳该做的。
+**profile 里的副本只报告,绝不改动。**当 profile 自己的 `node_modules` 里有某个内置插件的另一版本时,那一份才是 Loader 导入的代码,而 patch 层依旧来自安装目录。播种会在自己那行日志后追加一条 warning——`profile copy dsh-at-file@0.6.3 shadows the shipped 0.7.0 module; patch layer comes from the shipped copy`——并且什么都不改:profile 的依赖归安装它的人所有,`dsh plugin --profile desktop-shell remove <name>` 是用户该做的动作,不是壳该做的。
 
 **过了第一次写入,这里没有任何一处是致命的。**壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断;没有声明 bundle 列表的清单按手写编排对待(往一个不存在的列表里追加两个名字,会得到一个只挂载内置插件、别无其他的 profile);该放链接的位置上是真实目录则如实报告而不是删掉;载荷里没有的插件绝不写进清单——列出却解析不了的 bundle 会让启动硬失败,所以播种只写它看得见的东西。一个因为看不懂 profile 就拒绝启动的壳,比一个少了侧栏的壳更糟。
 
@@ -56,7 +56,7 @@ Status: implemented
 
 `normalizeShippedProfile` 只在 `INSTALLATION_OWNED_PROFILE_TUPLES[name]` 存在、且当前列表与它精确相等时才改写 profile。只有 `headless` 有条目,所以 `desktop` profile 无论装着什么都原样返回;就算是 `headless`,只要多出一个名字,精确元组判定当即不成立。
 
-`reconcilePlugins`(`apps/cli/src/plugin.ts`)只在 bundle `wasDependency` 时移除它——即在 pnpm 运行前后出现在 profile 的 `dependencies` 里。被播种的名字不是 profile 的依赖,所以 `dsh plugin` 的各种操作都不碰它们。唯一会移除的路径是:用户自己装过同名包之后再执行 `dsh plugin --profile desktop remove <name>`,而下次启动会把它播种回来;要永久关掉一个内置插件,办法是在 `cordis.patch.yml` 里禁用那一行,README 记的也是这一条。
+`reconcilePlugins`(`apps/cli/src/plugin.ts`)只在 bundle `wasDependency` 时移除它——即在 pnpm 运行前后出现在 profile 的 `dependencies` 里。被播种的名字不是 profile 的依赖,所以 `dsh plugin` 的各种操作都不碰它们。唯一会移除的路径是:用户自己装过同名包之后再执行 `dsh plugin --profile desktop-shell remove <name>`,而下次启动会把它播种回来;要永久关掉一个内置插件,办法是在 `cordis.patch.yml` 里禁用那一行,README 记的也是这一条。
 
 ## 只留一份 node-pty,不留两份
 
@@ -98,9 +98,9 @@ Status: implemented
 
 现在桌面安装在两个平台上首次启动就有侧栏和 `@` 提及,不需要终端。版本归安装包所有:升级一个内置插件意味着发一版桌面构建,而这与载荷其余部分本来就是同一节奏。
 
-播种会在服务端之前写 `$DSH_HOME`。它只限于 `profiles/desktop/` 与 `profiles/node_modules/` 下的链接,而且只做追加,但"壳会动用户数据"这件事本身是这个应用的一个事实,README 写明了它。
+播种会在服务端之前写 `$DSH_HOME`。它只限于 `profiles/desktop-shell/` 与 `profiles/node_modules/` 下的链接,而且只做追加,但"壳会动用户数据"这件事本身是这个应用的一个事实,README 写明了它。
 
-用户在自己 `web` profile 里做的定制不会跟着到桌面客户端,后者挂载的是 `desktop`。没有任何东西需要先清理:此前没有任何已发布版本播种过 `web`——rc.16 的 `app.asar` 里没有 `profile-seed`——所以不存在哪个共享 profile 带着只有应用才解析得了的名字。内置插件也不用管,桌面端自带。真正需要用户重做一遍的,是他自己装进 `web` 的那些,也就是 `~/.dsh/profiles/web/package.json` 里的 `dependencies` 列表;用 `dsh plugin --profile desktop add <包>` 把其中一个装进桌面 profile。README 记的就是这一条。
+用户在自己 `web` profile 里做的定制不会跟着到桌面客户端,后者挂载的是 `desktop`。没有任何东西需要先清理:此前没有任何已发布版本播种过 `web`——rc.16 的 `app.asar` 里没有 `profile-seed`——所以不存在哪个共享 profile 带着只有应用才解析得了的名字。内置插件也不用管,桌面端自带。真正需要用户重做一遍的,是他自己装进 `web` 的那些,也就是 `~/.dsh/profiles/web/package.json` 里的 `dependencies` 列表;用 `dsh plugin --profile desktop-shell add <包>` 把其中一个装进桌面 profile。README 记的就是这一条。
 
 载荷里的每个内置插件都来自一个提交进来的归档,而不是注册表,所以每一个都是它那份归档的内容,而不是注册表对同一版本号会给出的内容。注册表上出现所分发版本或更高版本时,值得换回去。[vendored plugin reference gate](../process/2026-09-03-vendored-plugin-reference-gate.zh.md) 负责这些归档如何命名,以及如何与复述它们的清单、声明文件与 README 表格保持一致。
 

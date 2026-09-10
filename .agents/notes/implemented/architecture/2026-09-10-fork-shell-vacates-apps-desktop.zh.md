@@ -8,7 +8,7 @@ Status: implemented
 
 上游 0.1.5-rc.1 自带一个 Electron 外壳，落在 `apps/desktop`，包名 `@deepseek-ai/dsh-desktop`——正是本 fork 的外壳自诞生起就占着的路径与名字。把那个基座并进来，会让两个互不相干的外壳挤在同一个目录里，此后上游对它自己那个外壳的每一次改动，都会变成与 fork 代码的冲突，而两者除了路径之外毫无关系。名字同样撞车：pnpm 按清单里的 name 解析 `apps/*`，一个工作区容不下两个都叫 `@deepseek-ai/dsh-desktop` 的包。
 
-上游那个外壳不是这一个的替代品。这个外壳把内置插件组合包播种进 `desktop` profile，服务 `https://lhr.ink/dsh-updates/` 上的更新源，用自签证书签 macOS 构建，并且承载着出货产品赖以成立的登录窗口、渲染服务、插件管理服务与服务端崩溃恢复阶梯。上游那个是另一个产品：`productName: DeepSeek Harness`，自己的产物名，自己的更新主机。
+上游那个外壳不是这一个的替代品。这个外壳把内置插件组合包播种进 `desktop-shell` profile，服务 `https://lhr.ink/dsh-updates/` 上的更新源，用自签证书签 macOS 构建，并且承载着出货产品赖以成立的登录窗口、渲染服务、插件管理服务与服务端崩溃恢复阶梯。上游那个是另一个产品：`productName: DeepSeek Harness`，自己的产物名，自己的更新主机。
 
 ## 决策
 

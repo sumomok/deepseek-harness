@@ -8,7 +8,7 @@ English | [中文](2026-09-10-fork-shell-vacates-apps-desktop.zh.md)
 
 Upstream 0.1.5-rc.1 ships an Electron shell of its own at `apps/desktop`, under the package name `@deepseek-ai/dsh-desktop` — the path and the name this fork's shell has held since it was written. Taking that base in would put two unrelated shells in one directory, where every later upstream change to its own shell arrives as a conflict against fork code that shares nothing with it but the path. The names collide as well: pnpm resolves `apps/*` by manifest name, and one workspace cannot hold two packages called `@deepseek-ai/dsh-desktop`.
 
-Upstream's shell is not a replacement for this one. This shell seeds the built-in plugin bundles into the `desktop` profile, serves the update feed at `https://lhr.ink/dsh-updates/`, signs macOS builds with a self-signed certificate, and carries the login window, the render service, the plugin-admin service and the server-crash recovery ladder the shipped product is built on. Upstream's is a different product: `productName: DeepSeek Harness`, its own artifact names, its own update host.
+Upstream's shell is not a replacement for this one. This shell seeds the built-in plugin bundles into the `desktop-shell` profile, serves the update feed at `https://lhr.ink/dsh-updates/`, signs macOS builds with a self-signed certificate, and carries the login window, the render service, the plugin-admin service and the server-crash recovery ladder the shipped product is built on. Upstream's is a different product: `productName: DeepSeek Harness`, its own artifact names, its own update host.
 
 ## Decision
 

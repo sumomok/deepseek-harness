@@ -32,7 +32,7 @@ Status: implemented
 
 **把默认值挪进 `@deepseek-ai/dsh-base` 或 `PROFILE_TEMPLATES`。**改一处、不添新包,而且能覆盖全新 profile。否决,因为两者都是每个 CLI 安装都会编排的已发布面:`dsh-base` 是每个 profile 的基础层,而模板是 harness 为它自己创建的 profile 给出的答案。一个部署偏好的模型不是 harness 的默认值,视觉模型的选择器标签也是某一个客户端的产品决定。
 
-**交给逐用户的 profile patch。**`$DSH_HOME/profiles/desktop/cordis.patch.yml` 能为一台机器设定这两个条目,机器本地的覆盖本就该写在那里。作为交付机制被否决,因为 profile 是用户数据:`initProfile` 只写一次,播种也刻意从不回头改它,所以这个文件在现有的每一个安装上都已经存在,只能一台台手工去编辑。对想要另一个默认值的人,它仍然是对的位置,并且仍然在这一层之上。
+**交给逐用户的 profile patch。**`$DSH_HOME/profiles/desktop-shell/cordis.patch.yml` 能为一台机器设定这两个条目,机器本地的覆盖本就该写在那里。作为交付机制被否决,因为 profile 是用户数据:`initProfile` 只写一次,播种也刻意从不回头改它,所以这个文件在现有的每一个安装上都已经存在,只能一台台手工去编辑。对想要另一个默认值的人,它仍然是对的位置,并且仍然在这一层之上。
 
 **在 `@deepseek-ai/dsh-llm-deepseek` 上游重标那一行。**目录本来就是那个适配器的,在那里把 `DeepSeek-V4-Flash-Vision-Exp` 改个名字,就不需要重述整张表。以与 `dsh-base` 相同的理由否决:那个标签之所以读作 `default`,只因为这个部署把它当默认值,而在任何不这么做的安装里它都是假话。
 

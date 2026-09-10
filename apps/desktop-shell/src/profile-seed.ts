@@ -1,13 +1,13 @@
 /**
- * Create the `desktop` profile and put the bundle packages the installer ships
- * beside the server closure into it, before the embedded server reads it.
+ * Create the `desktop-shell` profile and put the bundle packages the installer
+ * ships beside the server closure into it, before the embedded server reads it.
  *
  * The shell boots a profile of its own rather than the `web` profile every
  * `dsh web` shares, so nothing it writes into `$DSH_HOME` can only be satisfied
  * from inside the installed application. That makes creating the directory a
- * precondition of the boot rather than an improvement on it: `desktop` is not
- * in `PROFILE_TEMPLATES`, so `loadProfile` answers a home this has not run
- * against with `profile "desktop" does not exist`.
+ * precondition of the boot rather than an improvement on it: `desktop-shell` is
+ * not in `PROFILE_TEMPLATES`, so `loadProfile` answers a home this has not run
+ * against with `profile "desktop-shell" does not exist`.
  *
  * A profile is otherwise user data — `initProfile` writes it once and never
  * revisits an existing file — and the template names only the two in-box
@@ -26,6 +26,13 @@
  *   `healProfilesModuleFallback` maintains that same directory for the CLI
  *   app's own dependency closure and leaves names outside it alone, so these
  *   links survive every boot.
+ *
+ * **A home an earlier build seeded at `profiles/desktop` is renamed once**, by
+ * {@link adoptLegacyProfile}, before anything else here runs. Upstream reserves
+ * `desktop` for its own Electron application — `apps/cli/src/args.ts` refuses
+ * `--profile desktop` from every other caller — so this shell's profile moved
+ * to a name of its own, and a client that already had one keeps its patch
+ * layer, its migration marker, its manifest, and every plugin it had admitted.
  *
  * A run has two levels. Initializing the profile is required, and a failure is
  * reported in {@link SeedReport.failed}: the launch still starts the server,
@@ -46,7 +53,8 @@
  *
  * **The plugins a user installed into the CLI's shared `web` profile stay in
  * step with the desktop profile on every launch**, because every build before
- * `desktop` existed composed that profile and nothing else ever wrote to it.
+ * this shell had a profile of its own composed `web` and nothing else ever
+ * wrote to it.
  * {@link MIGRATION_MARKER_FILENAME} inside the desktop profile is the shell's
  * own bookkeeping for this: which names it has migrated, which it has found
  * defective, and which it has tombstoned as removed. A name is linked, never
@@ -89,8 +97,9 @@
  * `initProfile` writes, so an edit to either side fails there.
  *
  * Turning a shipped plugin off is a profile-level decision, not a shell one:
- * disable its row in `$DSH_HOME/profiles/desktop/cordis.patch.yml`. Deleting
- * the name from `dsh.profile.bundles` only lasts until the next launch.
+ * disable its row in `$DSH_HOME/profiles/desktop-shell/cordis.patch.yml`.
+ * Deleting the name from `dsh.profile.bundles` only lasts until the next
+ * launch.
  * @module @deepseek-ai/dsh-desktop-shell/profile-seed
  */
 
@@ -158,10 +167,33 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
 export const WITHDRAWN_WEB_BUNDLES: readonly string[] = ['@sumomok/dsh-edit-rerun']
 
 /**
- * The profile the desktop shell boots (`dsh --profile desktop`), which no other
- * dsh installation launches. The CLI's own `web` profile is left untouched.
+ * The profile the desktop shell boots (`dsh --profile desktop-shell`), which no
+ * other dsh installation launches. The CLI's own `web` profile is left
+ * untouched, and so is `desktop`: upstream's own Electron application
+ * (`apps/desktop`) reserves that name, and `apps/cli/src/args.ts` refuses
+ * `--profile desktop` from every other caller, so the two applications can be
+ * installed on one machine without writing into each other's profile.
  */
-export const DESKTOP_PROFILE = 'desktop'
+export const DESKTOP_PROFILE = 'desktop-shell'
+
+/**
+ * The profile name this shell booted before upstream reserved `desktop`.
+ * {@link adoptLegacyProfile} renames such a directory onto
+ * {@link DESKTOP_PROFILE} once, on the first launch of a build that carries
+ * this rename.
+ */
+const LEGACY_DESKTOP_PROFILE = 'desktop'
+
+/**
+ * The manifest `name` this shell wrote into {@link LEGACY_DESKTOP_PROFILE}.
+ *
+ * It is the whole discriminator between a directory this shell seeded and one
+ * upstream's Electron application created at the same path: upstream writes
+ * `@deepseek-ai/dsh-desktop-runtime` there (`PROJECT_NAME` in
+ * `apps/desktop/src/project-manager.ts`) and reads it back on every launch, so
+ * a `desktop` profile carrying any other name is not this shell's to move.
+ */
+const LEGACY_PROFILE_MANIFEST_NAME = 'dsh-profile-desktop'
 
 /**
  * The profile every `dsh web` shares, and the one the shell itself composed
@@ -239,6 +271,13 @@ export interface SeedReport {
   shadowed: string[]
   /** True when the run created the profile manifest rather than editing one. */
   created: boolean
+  /**
+   * The profile whose directory this run renamed into {@link DESKTOP_PROFILE}'s
+   * place, when it renamed one. Set at most once per home: every launch after
+   * it finds the manifest already there and leaves whatever still stands at the
+   * old name alone.
+   */
+  renamedFrom?: string
   /**
    * Why the profile directory could not be initialized, when it could not be.
    * The one failure a launch cannot absorb: the server refuses to boot a
@@ -467,9 +506,11 @@ export function removeLink(link: string): void {
  * Make the desktop profile exist and mount the shipped built-in plugins in it.
  *
  * Runs before the server starts, so the profile the server reads already exists
- * and already names them.
+ * and already names them. {@link adoptLegacyProfile} runs first, so a home an
+ * earlier build seeded under the old profile name is carried over rather than
+ * seeded a second time from nothing.
  * @param spec - the Harness home, the shipped closure, and the names to seed.
- * @returns what was created, seeded, linked, and skipped.
+ * @returns what was renamed, created, seeded, linked, and skipped.
  */
 export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
   const report: SeedReport = {
@@ -485,6 +526,7 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
   }
 
   const profileDir = profileDirectory(spec.home, DESKTOP_PROFILE)
+  adoptLegacyProfile(spec.home, profileDir, report)
   const manifestPath = join(profileDir, 'package.json')
   try {
     report.created = initDesktopProfile(profileDir, [...WEB_TEMPLATE_BUNDLES, ...available])
@@ -514,6 +556,58 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
   syncWebBundles(spec, profileDir, report)
   pruneWithdrawnBundles(spec, profileDir, report)
   return report
+}
+
+/**
+ * Rename the profile an earlier build of this shell seeded at
+ * `$DSH_HOME/profiles/desktop` into {@link DESKTOP_PROFILE}'s place, so an
+ * installed client keeps its manifest, its patch layer, its migration marker,
+ * and every plugin it had admitted.
+ *
+ * Runs only where {@link DESKTOP_PROFILE} has no manifest yet — the same
+ * predicate {@link initDesktopProfile} answers `created` with, so the two
+ * cannot come to disagree about whether a profile is already there — and only
+ * where the old directory's manifest carries
+ * {@link LEGACY_PROFILE_MANIFEST_NAME}. A `desktop` profile upstream's own
+ * Electron application created is left exactly as it is.
+ *
+ * Every link inside the directory survives the move: {@link ensureLink} writes
+ * an absolute target, so a migrated plugin's link still resolves into
+ * `$DSH_HOME/profiles/web/node_modules` from the new path, and the built-ins'
+ * links live in `$DSH_HOME/profiles/node_modules`, which is not moved at all.
+ *
+ * Rewriting the manifest's `name` afterwards is the one place this module
+ * replaces a file it did not write itself: the name states which directory the
+ * manifest belongs to, and pnpm reads it for every
+ * `dsh plugin --profile desktop-shell` command run there.
+ *
+ * A rename that fails leaves the old directory untouched and is recorded in
+ * {@link SeedReport.skipped}; the seeding below then writes a fresh profile,
+ * because a launchable application without the user's migrated plugins is the
+ * outcome to prefer over one that will not start.
+ * @param home - the Harness home for this launch.
+ * @param profileDir - where {@link DESKTOP_PROFILE} lives under that home.
+ * @param report - the run's report, extended with the rename or the reason there was none.
+ */
+function adoptLegacyProfile(home: string, profileDir: string, report: SeedReport): void {
+  if (existsSync(join(profileDir, 'package.json'))) return
+  const legacyDir = profileDirectory(home, LEGACY_DESKTOP_PROFILE)
+  const manifest = tryReadManifest(join(legacyDir, 'package.json'))
+  if (manifest === undefined || manifest['name'] !== LEGACY_PROFILE_MANIFEST_NAME) return
+  try {
+    mkdirSync(dirname(profileDir), { recursive: true })
+    renameSync(legacyDir, profileDir)
+  } catch (error) {
+    report.skipped.push(`${legacyDir}: could not be renamed to ${DESKTOP_PROFILE} (${String(error)})`)
+    return
+  }
+  report.renamedFrom = LEGACY_DESKTOP_PROFILE
+  const manifestPath = join(profileDir, 'package.json')
+  try {
+    writeAtomic(manifestPath, `${JSON.stringify({ ...manifest, name: `dsh-profile-${DESKTOP_PROFILE}` }, undefined, 2)}\n`)
+  } catch (error) {
+    report.skipped.push(`${manifestPath}: name still reads ${LEGACY_PROFILE_MANIFEST_NAME} (${String(error)})`)
+  }
 }
 
 /**
@@ -1260,6 +1354,7 @@ function seedExistingManifest(manifestPath: string, available: readonly string[]
  */
 export function describeSeed(report: SeedReport): string | undefined {
   const parts: string[] = []
+  if (report.renamedFrom !== undefined) parts.push(`renamed the ${report.renamedFrom} profile into place`)
   if (report.failed !== undefined) parts.push(`could not initialize the profile: ${report.failed}`)
   if (report.seeded.length > 0) {
     parts.push(`${report.created ? 'created with' : 'seeded'} built-in bundles ${report.seeded.join(', ')}`)

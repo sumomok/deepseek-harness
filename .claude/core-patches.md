@@ -1159,3 +1159,13 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
   - **订正本节提交消息（`2228465cee`）的措辞**：该消息写「the v0-legacy-shapes family and its Agent Note are on v8 already」，按字面不成立——`ac666dc419` 与 `8238c1385d` 这两个提交本身**不在** v8 上，v8 上的是语义重落的 `f44f8ac8eb` 与 `670aa01d44`（patch-id 与原提交不同）。准确说法是「该族的语义已经在 v8 上」，本文正文写的即是此意。
   - **由此得到的结论**：下一轮滚动同步**不能只靠 `git cherry` / patch-id 判定待移植项**——语义重落会让原提交在这两种判据下都显示为「缺失」。必须沿用本轮的内容标记法：拿具体的符号名、常量名、行内容去两侧的树里实测命中。
 - rc.31 审计里 `fix/command-engages-session` 那句写的是「尚未回补丁线 `core-patches-v7`，也未进 `core-patches-v8`」，本轮实测确认后半句仍然成立，见上表第三行。
+
+### 合并后发现：上游保留了 `desktop` profile 名，壳起不来服务端
+
+**症状与来源。** 合并进来的 `apps/cli/src/args.ts` 带着上游提交 `19444907f0` 的 `rejectElectronProfile`（`:68-72`，调用点 `:159` 与 `:198`）：任何 `--profile desktop`（大小写不敏感）与 `plugin --profile desktop` 都以 `error: profile "desktop" is managed exclusively by the Electron application` 终止进程，`apps/cli/tests/args.spec.ts:119-124` 钉住六种写法。fork 的壳 `apps/desktop-shell/src/server.ts` 恰恰以 `--profile desktop` 拉起内嵌服务端，于是 rc.32 的壳在真机上根本起不来服务端：服务端在打印 URL 行之前退出，壳停在启动失败页。上游同时把 `$DSH_HOME/profiles/desktop` 当作它自己 Electron 应用事务管理的目录（`apps/desktop/src/paths.ts:34`、`project-manager.ts` 的 `PROJECT_NAME = '@deepseek-ai/dsh-desktop-runtime'` 与「profile must begin with the built-in desktop bundle list」）。
+
+**漏检原因。** 阶段 A/B 的复核跑了 `build`、`typecheck`、`lint`、`doc-sync`、`hygiene`、全仓 `test` 与快照回放，唯独没有把壳启动到合并后的基座上——这条失败只在「壳 → CLI 参数解析 → 服务端」这条真实链路上才出现，任何单元测试与静态门禁都看不见它。
+
+**处置：改名，不打补丁。** fork 的 profile 由 `desktop` 改为 `desktop-shell`（`DESKTOP_PROFILE`），并在播种入口一次性把已装客户端的 `$DSH_HOME/profiles/desktop` 改名到位。不给 `rejectElectronProfile` 打核心补丁，理由是这道检查不是问题本身：上游应用以事务方式独占那个目录，两个应用装在同一台机器上时会互相破坏；补丁还会在上游下次改动同处时按退化条款退役。完整取舍见 [`.agents/notes/implemented/architecture/2026-09-11-desktop-shell-profile-rename.md`](../.agents/notes/implemented/architecture/2026-09-11-desktop-shell-profile-rename.md)。改名的连带损伤记在同一篇里：随包分发的 `@haoran/dsh-plugin-updates` 0.2.0 把 `"desktop"` 编进了 tarball，本次构建的更新页列不出已装插件，需仓外重建插件才能补上。
+
+**集成门禁自本轮起加一条。** 一次集成合并在真实跑过一遍「壳播种 → `apps/cli/lib/bin.js --profile <壳的 profile> --port 0 --no-open` → 首页 200」的启动冒烟之前，不算复核过。本轮补跑了这条冒烟，记录在上述 Agent Note 的 Testing 一节。

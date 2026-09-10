@@ -50,7 +50,7 @@ Existing sessions are unaffected in both directions. Neither plugin reads or wri
 
 ## Alternatives considered
 
-**Leave it to `dsh plugin --profile desktop add`.** The supported install path, and it needs a terminal, a working pnpm, and a reachable copy of a tarball that is on no registry. It is the same argument the sidebar, `@` mentions, and the permission gateway were shipped in the payload for, and it fails for the same person: someone who installed the desktop client to avoid a terminal cannot follow it.
+**Leave it to `dsh plugin --profile desktop-shell add`.** The supported install path, and it needs a terminal, a working pnpm, and a reachable copy of a tarball that is on no registry. It is the same argument the sidebar, `@` mentions, and the permission gateway were shipped in the payload for, and it fails for the same person: someone who installed the desktop client to avoid a terminal cannot follow it.
 
 **Wait for the capabilities upstream.** Both belong in the web client eventually — the edit control is a seat the harness already cleared and documented as awaiting a capability, and quoting the current session is the missing third domain beside `@file` and `@session`. Rejected as a reason to ship nothing now: upstream owns published surface for every CLI install and has its own cadence, while these two are one deployment's product decision that costs the repository two tarballs and a handful of manifest lines. If either lands upstream, the built-in is removed and the seat it filled is the upstream one.
 

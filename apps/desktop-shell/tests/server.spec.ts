@@ -10,6 +10,8 @@ import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
+import { parseDshArgs } from '../../cli/src/args.ts'
+import { DESKTOP_PROFILE } from '../src/profile-seed.ts'
 import {
   type QuarantineLoadFailure, ServerExitedBeforeUrl, type ServerExitInfo, startServer, startServerWithQuarantine,
   type ServerHandle,
@@ -111,6 +113,23 @@ function envReportingEntry(varName: string): { entry: string; envFile: string } 
   return { entry, envFile }
 }
 
+/**
+ * A scripted entry that reports its own arguments to a file, then prints the
+ * URL line and idles, exactly like `scriptedEntry`'s `'success'` behavior.
+ * @returns the script's path and the file it wrote the JSON argument array to.
+ */
+function argvReportingEntry(): { entry: string; argvFile: string } {
+  const entry = join(root, 'argv-entry.cjs')
+  const argvFile = join(root, 'argv.log')
+  writeFileSync(entry, `
+    const fs = require('node:fs')
+    fs.writeFileSync(${JSON.stringify(argvFile)}, JSON.stringify(process.argv.slice(2)))
+    process.stdout.write('dsh web: http://127.0.0.1:54321\\n')
+    setInterval(() => {}, 1000)
+  `)
+  return { entry, argvFile }
+}
+
 describe('startServer', () => {
   it('resolves with the URL line and a working stop', async () => {
     const { entry } = scriptedEntry(['success'])
@@ -133,6 +152,23 @@ describe('startServer', () => {
     // The message's tail is the last 15 lines; 20 filler lines follow the
     // loader error, so the message alone would not carry it.
     expect(exited.message).not.toContain('@yuxianglin/dsh-bridge-browser')
+  })
+
+  it('spawns a profile the launcher accepts', async () => {
+    const { entry, argvFile } = argvReportingEntry()
+    const handle = await startServer({ nodeBin: process.execPath, entry, cwd: root, env: {} }, () => {})
+    const { readFile } = await import('node:fs/promises')
+    const argv = JSON.parse(await readFile(argvFile, 'utf8')) as string[]
+    expect(argv).toEqual(['--profile', DESKTOP_PROFILE, '--port', '0', '--no-open'])
+    // The launcher reserves `desktop` for upstream's own Electron application
+    // and exits on `--profile desktop` from anything else, which is a boot this
+    // shell cannot recover from: it spawns the server and waits for a URL line
+    // that never comes. Parsing the very arguments the spawn used is what
+    // proves the profile this shell asks for is one the launcher will boot.
+    expect(parseDshArgs(argv, '0.0.0')).toEqual({
+      mode: 'profile', profile: DESKTOP_PROFILE, patches: [], args: ['--port', '0', '--no-open'],
+    })
+    await handle.stop()
   })
 
   it('always sets DSH_TELEMETRY_DISABLED on the spawned server, unconditionally', async () => {

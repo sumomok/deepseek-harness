@@ -255,8 +255,8 @@ function tailBuffer(maxLines: number): { push: (chunk: string) => void; text: ()
  * silent past the startup timeout, with the collected output in the message.
  */
 export async function startServer(spec: ServerSpec, logSink: (chunk: string) => void): Promise<ServerHandle> {
-  // `--profile desktop` rather than the `web` alias: the shell's profile is its
-  // own, and the launcher forwards from the first token it does not recognize,
+  // `--profile desktop-shell` rather than the `web` alias: the shell's profile
+  // is its own, and the launcher forwards from the first token it does not recognize,
   // so the web app still receives the two flags after it. The shell's own
   // window is the browser for this server, so `--no-open` declines the handoff
   // the web app performs by default; without it every start, including the
