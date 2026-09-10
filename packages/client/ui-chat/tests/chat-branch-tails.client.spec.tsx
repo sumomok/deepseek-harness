@@ -28,6 +28,8 @@ afterEach(() => {
 
 const t: ChatNodeViewProps['t'] = makeTranslate(zh, commonZh)
 const renderMessageImages: AssistantMarkdownProps['renderMessageImages'] = () => null
+// These arms assert bubble chrome, so the contributed-action seat stays empty.
+const renderUserActions: ChatNodeViewProps['renderUserActions'] = () => null
 const RETRY_ID = 'retry-fixture' as Extract<ConversationNode, { kind: 'model-retry' }>['retryId']
 
 // Recency scans the whole transcript; a detached fixture is its own latest row.
@@ -65,7 +67,8 @@ function MessageItem({ node, t: translate, referenceLabels, skillNames }: Messag
         : node,
   }
   const props = {
-    node: viewNode, t: translate, renderMessageImages, openFile: vi.fn(), openSkill: vi.fn(), useChat: useDetachedChat,
+    node: viewNode, t: translate, renderMessageImages, renderUserActions,
+    openFile: vi.fn(), openSkill: vi.fn(), useChat: useDetachedChat,
   } as unknown as ChatNodeViewProps
   switch (node.kind) {
     case 'user':
