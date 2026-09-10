@@ -43,7 +43,7 @@ Status: implemented
 
 基座并进来之后，`apps/` 下会有两个外壳。只有 `apps/desktop-shell` 会被打包和发布；`apps/desktop` 是 fork 不构建的上游源码。
 
-本包日后再改名，必须把这道钉一起带走。`tests/app-identity.spec.ts` 会在钉住的名字被改时变红，但打包那一半——`extraMetadata`——没有门禁：它由打包来证明，而本次改动不跑打包。
+本包日后再改名，必须把这道钉一起带走。`tests/app-identity.spec.ts` 会在钉住的名字被改时变红，`tests/artifact-names.spec.ts` 则读 `electron-builder.yml` 并要求 `extraMetadata.name` 等于 `PINNED_APP_NAME`，于是任一半被单独删掉都会在门禁上变红，而不是在用户的下一次更新上。门禁盖不到的是 Electron 自己对那几个目录的解析，那一半只有在每个平台上跑一次打包才能证明。
 
 ## 测试
 

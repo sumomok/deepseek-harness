@@ -3,6 +3,10 @@
  * against that list reports. The expected names are electron-builder's
  * defaults for the targets `electron-builder.yml` declares, so this reads that
  * config and pins the names against it rather than against a memory of them.
+ *
+ * Reading that config is also what lets the installed application's name be
+ * pinned against `PINNED_APP_NAME` here, so neither half of that pair can be
+ * removed on its own.
  * @module
  */
 
@@ -11,10 +15,12 @@ import { fileURLToPath } from 'node:url'
 import { CORE_SCHEMA, load } from 'js-yaml'
 import { describe, expect, it } from 'vitest'
 import { auditArtifacts, expectedArtifacts, type ArtifactFile } from '../scripts/artifact-names.ts'
+import { PINNED_APP_NAME } from '../src/app-identity.ts'
 
 /** The parts of electron-builder.yml the artifact names follow from. */
 interface BuilderConfig {
   productName: string
+  extraMetadata: { name: string }
   artifactName?: string
   mac: { artifactName?: string; target: { target: string; arch: string[] }[] }
   win: { artifactName?: string; target: { target: string; arch: string[] }[] }
@@ -28,6 +34,15 @@ const config = load(
 ) as BuilderConfig
 
 const VERSION = '0.1.0-rc.20'
+
+describe('the installed application name', () => {
+  it('is the name both halves of the pin declare', () => {
+    // The packaged half is this field; the source-tree half is
+    // PINNED_APP_NAME. They name the same per-user directories, so removing
+    // either one alone has to fail here rather than at a user's next update.
+    expect(config.extraMetadata.name).toBe(PINNED_APP_NAME)
+  })
+})
 
 describe('expectedArtifacts', () => {
   it('names the macOS zip and dmg, each with its blockmap', () => {

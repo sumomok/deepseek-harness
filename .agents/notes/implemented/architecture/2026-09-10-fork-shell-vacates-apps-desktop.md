@@ -43,7 +43,7 @@ The workspace package name and the installed application name differ. Anyone rea
 
 Once the base merges, `apps/` holds two shells. Only `apps/desktop-shell` is packaged and published; `apps/desktop` is upstream source the fork does not build.
 
-A future rename of this package must carry the pin with it. `tests/app-identity.spec.ts` fails if the pinned name changes, but the packaged half — `extraMetadata` — has no gate: it is proved by packaging, which this change does not run.
+A future rename of this package must carry the pin with it. `tests/app-identity.spec.ts` fails if the pinned name changes, and `tests/artifact-names.spec.ts` reads `electron-builder.yml` and requires `extraMetadata.name` to equal `PINNED_APP_NAME`, so removing either half alone fails a gate rather than a user's next update. What no gate covers is Electron's own resolution of those directories, which only a packaged run on each platform proves.
 
 ## Testing
 

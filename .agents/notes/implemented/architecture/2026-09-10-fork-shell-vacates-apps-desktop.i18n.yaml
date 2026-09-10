@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-10-fork-shell-vacates-apps-desktop.md
-2026-09-10-fork-shell-vacates-apps-desktop.md: 0c024e57a8981f4bde822366ec6fe88318bc5526
-2026-09-10-fork-shell-vacates-apps-desktop.zh.md: 57f5379342912d0edd21b2273de01e801a048be2
+2026-09-10-fork-shell-vacates-apps-desktop.md: 02adfe3cde39024fc8a298dab4e2f69d7ea3260d
+2026-09-10-fork-shell-vacates-apps-desktop.zh.md: 930d9fd0a2c94a57f15b01e289a7e69316c72ccd
