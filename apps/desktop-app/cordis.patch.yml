@@ -69,3 +69,24 @@
       - id: deepseek-v4-flash-vision-exp
         name: DeepSeek-V4-Flash-Vision-Exp
         inputModalities: [text, image]
+
+# Where an image sent on a text-only model moves the session to. Absent a
+# `target`, @haoran/dsh-vision-switch 0.2.0 falls back to a DEFAULT_TARGET
+# compiled into it (`deepseek-official` / `deepseek-v4-flash-vision-exp`),
+# chosen when that was also this deployment's starting model. It is not any
+# more: `agent-default-model` above starts on `deepseek-flash`, and an
+# auto-switch that moves a session off its own default onto a different vision
+# model is a switch the user did not ask for. Naming the target here settles it
+# from composition rather than from the plugin's compiled-in constant, and
+# `apps/desktop/tests/desktop-composition-layer.spec.ts` holds the two to the
+# same model.
+#
+# `enabled` is restated because an id-targeted patch replaces the whole
+# `config`, and the plugin's own layer is where it is set; those two keys are
+# the plugin's entire Config.
+- id: vision-switch
+  config:
+    enabled: true
+    target:
+      provider: deepseek-official
+      model: deepseek-flash

@@ -2,12 +2,14 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer carries two. `session-query-sqlite` opts into full-text search:
+ * The layer carries three. `session-query-sqlite` opts into full-text search:
  * dsh-base and dsh-web-app both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
  * this product opts in from its own layer. `llm-deepseek` raises the
  * `Retry-After` wait a rate-limited request may accept, which dsh-llm-retry
  * reads from the provider's own `retryPolicy` rather than from its own config.
+ * `vision-switch` names where an image sent on a text-only model moves the
+ * session, which the plugin otherwise takes from a constant compiled into it.
  *
  * An id-targeted patch replaces the target row's whole `config`, so each row
  * restates every key it owns — `path` beside `openAt`, and the whole model
@@ -140,14 +142,43 @@ describe('the composed llm-deepseek row', () => {
   })
 })
 
+describe('the composed vision-switch row', () => {
+  it('takes the plugin\'s compiled-in target through the layers below', () => {
+    expect(entry(below, 'vision-switch').config?.['target']).toBeUndefined()
+  })
+
+  // The plugin's DEFAULT_TARGET is `deepseek-v4-flash-vision-exp`, picked when
+  // that was this deployment's starting model too. Comparing against the
+  // composed default is what keeps the two moving together, rather than
+  // restating a model id here that a later default change would leave behind.
+  it('moves a session onto the model it already starts on', () => {
+    expect(entry(desktop, 'vision-switch').config?.['target'])
+      .toEqual(entry(desktop, 'agent-default-model').config)
+  })
+
+  it('restates enabled, which a whole-config replacement would drop', () => {
+    expect(entry(desktop, 'vision-switch').config?.['enabled']).toBe(true)
+  })
+})
+
 describe('the desktop composition layer as a whole', () => {
-  it('changes exactly the two rows it owns and nothing else', () => {
+  it('changes exactly the three rows it owns and nothing else', () => {
     const changed = desktop.filter((row) => {
       const before = below.find(candidate => candidate.id === row.id)
       return before === undefined || JSON.stringify(before) !== JSON.stringify(row)
     })
     // Sorted, because the order these come back in is the order dsh-base
     // happens to list them and carries nothing about this layer.
-    expect(changed.map(row => row.id).sort()).toEqual(['llm-deepseek', 'session-query-sqlite'])
+    expect(changed.map(row => row.id).sort()).toEqual(['llm-deepseek', 'session-query-sqlite', 'vision-switch'])
+  })
+
+  // The invariant the catalog restatement broke once: this layer replaces
+  // `llm-deepseek`'s whole config, so a default the layer below moved onto a
+  // row this table does not carry composes a session on a model the picker
+  // does not list.
+  it('lists the model the composed default starts every session on', () => {
+    const models = entry(desktop, 'llm-deepseek').config?.['models'] as { id: string }[]
+    expect(models.map(row => row.id))
+      .toContain(entry(desktop, 'agent-default-model').config?.['model'])
   })
 })
