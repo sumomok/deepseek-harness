@@ -36,7 +36,7 @@ Status: implemented
 
 **客户端镜像在事件上转正,不在调用点。** [`session.ts`](../../../../packages/api/session-controller/src/client/sessions/session.ts) 的 `Session.observeEngagement` 跑在本会话自己的窗口上——实时尾部与安装的历史页都算——并在未声明 `engages: false` 的 `command/run` 上降低 blank 位。那是每一个入口共享的唯一信号:经 `ui-commands` 的 composer 键入行、经 `ISession.command` 的欢迎页访问模式 chip 与 `/permission` 弹层、以及自己调用 `remote.commands.execute` 的 `ui-plan`,到达客户端时都只是这一个事件。`markEngaged` 重新变回私有,没有任何命令调用点触碰镜像。
 
-`markEngaged` 同时落下 `engaged` 闩,由 `handleBlank` 查询。没有它,一条在命令落地之前铸出的 `api-session/added` 帧、或一次与之竞速的列表拉取,就会把该位重新抬起:`handleSessionAdded` 是把帧自己的 `blank` 直接透传下去的。
+`markEngaged` 同时落下 `engaged` 闩,由 `handleBlank` 查询。没有它,一条在命令落地之前铸出的 `api-session/added` 帧、或一次与之竞速的列表拉取,就会把该位重新抬起:`handleSessionAdded` 是把帧自己的 `blank` 直接透传下去的。`handleRunning` 在首个运行 turn 上降低该位的同一处也落闩,理由相同——那个 turn 会结束,而与之竞速的摘要可以在它结束之后到达。
 
 ## Testing
 
@@ -68,6 +68,10 @@ Status: implemented
 
 仓外写的命令按默认转正。这是安全的方向——用户看不见输出的命令正是本次修复的缺陷——但一条只做配置的第三方命令,在其作者声明 `engages: false` 之前会让会话浮现出来。
 
-在本次构建之前跑过命令并已 checkpoint 的会话,其缓存行里保留 `blank: true`:折叠从现在起是对的,而版本有意没有推进去重新派生过去。被重新打开的会话会重折并自行订正。
+随桌面壳一起 vendored 的两个 fork 插件保持默认:`@haoran/dsh-llm-permission-gateway` 0.3.1 的 `/review` 与 `@haoran/dsh-screenshot` 0.5.1 的 `/screenshot-logout` 都是配置而非贡献内容。把其中任何一条作为全新会话的第一行键入,该会话就转正——欢迎页关闭、会话带着命令卡片被列出——这正是 `/btw` 的结果:只能由键入到达,host 折叠与客户端镜像结论一致,不产生孤儿行。rc.31 就按现状发布。在这两个插件里声明 `engages: false` 是后续动作,而插件可以安全声明:`normalizeDefinition` 只用它认识的成员组装已注册定义,旧 host 会丢掉该字段而不是拒绝注册。
+
+在本次构建之前跑过命令并已 checkpoint 的会话,其缓存行里的 `blank: true` 会一直留着。[`session-projection`](../../../../packages/session/session-projection/src/index.ts) 的 `viewCheckpoint` 只在行的 `ver` 与单元 `stateVersion` 不匹配时丢弃它,而 `restore` 从可用行播种、只折叠该行 `seq` 之后的事件——所以重新打开不会重折 checkpoint 之前的任何东西,一个唯一的转正事件早于本次构建的会话,会一直对列表隐藏、一直可作为工作区的 New Session 被复用,里面装着那张命令卡片,直到新的转正事件落下为止。这是把 `stateVersion` 保持在 1 所接受的代价——正是保持在 1 才让每个再不打开的会话留住 `lastPromptAt`。
+
+转正命令不开启 turn,因此这次翻转没有任何东西推给列表的其他读者:`api-session/status` 只带运行位,而 `api-session/updated` 这样的事件根本不存在（[`remote-events.ts`](../../../../packages/api/session-controller/src/remote-events.ts)）。第二个标签页或客户端——以及本客户端上那个它从未打开过的会话——的列表行会一直是 `blank: true`,直到它下一次 `session.list` 拉取为止;在那之前,`connectWorkspace` 的复用扫描（[`navigation.ts`](../../../../packages/client/ui-workspace/src/client/navigation.ts)）可能把这个会话连同里面的命令卡片一起当作该工作区的 New Session 交回。这是本补丁跨标签页、跨客户端的已知限制,本次不修。
 
 该规则活在两处折叠而非一处:host 投影按类型读 `event.data.engages`,客户端镜像按结构重读同一个成员,因为窗口条目可能是压缩历史记录。客户端那一读带有注释,点名 host 折叠是另外一半。
