@@ -616,13 +616,26 @@ const DOC_SIDECAR = /^readme(\.[a-z-]+)?\.i18n\.yaml$/i
 
 /**
  * Platform-split artifact directories, relative to node_modules: keep only the
- * target's. Both lists must name the same parents: a parent listed for one
- * target only leaves the other payload carrying binaries it cannot run.
+ * target's. Both lists must name the same parents wherever a family has members
+ * built for both: a parent listed for one target only leaves the other payload
+ * carrying binaries it cannot run.
  *
  * `@vscode` is the scope, not `@vscode/ripgrep`. The binaries live in sibling
  * packages (`@vscode/ripgrep-<platform>-<arch>`) that `lib/index.js` resolves at
  * call time; `@vscode/ripgrep` itself publishes no `bin/`, so a rule addressed
  * at it matches nothing and both payloads kept both platforms' `rg`.
+ *
+ * `@deepseek-ai` is listed for `win` alone. The `node-addon-system` family
+ * publishes no win32 member, and on Windows the entry package never resolves
+ * one: `flock` throws `ERR_FLOCK_UNSUPPORTED_PLATFORM` ahead of resolution, and
+ * `launcherPath` returns a path that does not exist, which `probe` reports as
+ * unusable exactly as an unenforcing kernel does. The win rule therefore drops
+ * every `node-addon-system-` directory; the trailing `-` keeps the entry
+ * package `@deepseek-ai/node-addon-system` itself, which is the plain
+ * JavaScript both call sites live in. A darwin counterpart would have nothing
+ * to drop — a macOS host installs only `node-addon-system-darwin-<arch>`, which
+ * is the one variant the macOS payload must carry — and `verifyPruneRules`
+ * fails a rule that drops nothing.
  *
  * `verifyPruneRules` fails the build for a rule that drops nothing, which is
  * what a rule addressed at the wrong directory looks like from the outside.
@@ -630,6 +643,7 @@ const DOC_SIDECAR = /^readme(\.[a-z-]+)?\.i18n\.yaml$/i
 const PLATFORM_DIR_RULES: Record<PayloadTarget, PlatformDirRule[]> = {
   win: [
     { parent: join('node-pty', 'prebuilds'), keep: name => name === 'win32-x64' },
+    { parent: '@deepseek-ai', keep: name => !name.startsWith('node-addon-system-') },
     { parent: '@img', keep: name => !name.includes('darwin') && !name.includes('linux') },
     { parent: '@koromix', keep: name => !name.startsWith('koffi-') || name === 'koffi-win32-x64' },
     { parent: '@vscode', keep: name => !name.startsWith('ripgrep-') || name === 'ripgrep-win32-x64' },
