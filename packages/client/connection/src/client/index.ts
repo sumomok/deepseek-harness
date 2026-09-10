@@ -92,8 +92,8 @@ export const inject: string[] = []
  * tunnel) provides both halves here instead of forking this plugin. A served
  * page carries the global only where its deployment declares Host ownership,
  * and then for {@link ClientTransportHooks.ownsHost} alone: `fetch` is the
- * page's own and both optional halves are absent, so such a page keeps HTTP +
- * WebSocket, which is what an unset global gets too.
+ * page's own and neither `openStream` nor `loadBundle` is declared, so such a
+ * page keeps HTTP + WebSocket, which is what an unset global gets too.
  */
 export interface ClientTransportHooks {
   /** Transport for generic unary RPC channels (the Typert gateway). */

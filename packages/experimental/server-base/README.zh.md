@@ -98,7 +98,7 @@ nginx 不持任何签名密钥，也不校验 token：它把调用方的凭据�
 
 ## Model Experience
 
-None, as this package registers no tool, prompt section, or result: it contributes two rows to the HTML a browser is served, which is decided and rendered outside any model request.
+None, as this package registers no tool, prompt section, or result: it contributes index-injection rows to the HTML a browser is served, which is decided and rendered outside any model request.
 
 #### KV Cache effect
 
