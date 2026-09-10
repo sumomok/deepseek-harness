@@ -5,6 +5,7 @@ import type {} from '@deepseek-ai/dsh-agent/types'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type {} from '@deepseek-ai/dsh-client-file-upload/client'
 import { typertOwnedValue } from '@deepseek-ai/dsh-typert-protocol'
+import { ClientReferent } from './referent.ts'
 import { createSessionControlStream } from './transport.ts'
 import { ClientSessions } from './sessions/service.ts'
 import type { SessionRemotes } from './sessions/remotes.ts'
@@ -24,6 +25,8 @@ export type {
   SessionJournalChange,
   SessionRemote,
 } from './transport.ts'
+export { ClientReferent, dispatchReferentOpen } from './referent.ts'
+export type { IReferent, ReferentKind, ReferentKindMap, ReferentRef } from './referent.ts'
 export { createScope, scopeOf } from './scope.ts'
 export type { AgentContext, AgentScopeHandle } from './scope.ts'
 export { SessionCreateError, SessionForkError } from './sessions/service.ts'
@@ -110,6 +113,7 @@ export const inject = [
  * @param ctx - Client Cordis context.
  */
 export function apply(ctx: Context): void {
+  new ClientReferent(ctx)
   const remotes = ctx.remote as unknown as SessionRemotes
   const connection = ctx.get('connection') as ConnectionHandle
   const sessions = new ClientSessions(ctx, remotes)
