@@ -49,7 +49,7 @@ export const RELEASED_V0_EVENT_DISPOSITIONS: Readonly<Record<string, ReleasedV0P
     ['usage', 'interrupted'],
   ),
   'command/done': disposition(['commandId', 'kind'], ['text', 'sourceEventSeq']),
-  'command/run': disposition(['commandId', 'name', 'source'], ['args']),
+  'command/run': disposition(['commandId', 'name', 'source'], ['args', 'engages']),
   'compaction/end': disposition(['compactionId', 'turn'], ['sourceCommandId', 'error']),
   'compaction/prune': disposition(['shadowedRange', 'shadowedSeqs', 'shadowedTokenCount']),
   'compaction/start': disposition(['compactionId', 'turn'], ['sourceCommandId']),

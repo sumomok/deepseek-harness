@@ -133,7 +133,6 @@ These limits define where `/feedback` is a poor fit or behaves differently than 
 - **No structured fields** — an entry is one free-text string with no category, severity, or referenced-event link, so feedback cannot be filtered by subject without re-reading its text.
 - **No amend or withdraw** — the session log is append-only and this package adds no tombstone, so a mistaken entry stays recorded and can only be superseded by a later one.
 - **No explicit durability barrier** — the acknowledgement follows the append, not a flush, so an entry recorded immediately before a crash can be lost with any other unflushed tail. A consumer that needs a barrier awaits `ctx.sessions.flush(session)`.
-- **No visible acknowledgement on a fresh session** — the web transcript renders command rows only once a session is active, so `/feedback` on a still-blank session records the event but shows no acknowledgement row. Recording feedback after the first message renders normally.
 - **Web only among the shipped entry points** — headless mode, ACP automation, and JSON-RPC provide no command adapter, so `/feedback` is unavailable there.
 
 <a id="dev-note"></a>

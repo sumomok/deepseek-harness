@@ -62,11 +62,12 @@ export interface SessionOptions {
   /** Whether the exact direct parent Agent was live at the latest catalog read; absent before that read. */
   parentAvailable?: boolean
   /**
-   * First ACCEPTED prompt on a blank session (fires at most once, on the
-   * prompt RPC's success response): the manager mirrors the blank→false flip
-   * into its list row so the session surfaces without waiting for a host
-   * frame. Acceptance is the flip point because it proves the user message
-   * is in the host log; a rejected first prompt keeps the session blank
+   * First engagement of a blank session — an accepted prompt or an admitted
+   * standalone command (fires at most once, from {@link Session.markEngaged}):
+   * the manager mirrors the blank→false flip into its list row so the session
+   * surfaces without waiting for a host frame. Host acceptance is the flip
+   * point because it proves the log already holds the message or the command
+   * run; a refused prompt or an unmatched command keeps the session blank
    * (hidden, still reusable by connectWorkspace).
    */
   onEngaged?(session: Session): void
@@ -115,6 +116,8 @@ export class Session implements SessionFace {
   private firstPromptPendingTurn = false
   /** Empty-log mirror (see ConversationSnapshot.blank); unknown bare sessions begin conservatively blank. */
   private blankBit = true
+  /** Latched once this client observed the engagement itself; a later summary can never re-blank it. */
+  private engaged = false
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
@@ -283,19 +286,57 @@ export class Session implements SessionFace {
       return result
     }
     // Blank flips on ACCEPTANCE, not attempt: an accepted prompt starts the
-    // conversation's first turn on the host (the host criterion — a logged
-    // turn/start — is fact, not optimism; standalone command and projection
-    // events never flip it), while a rejected first prompt must keep the
-    // session blank — the client-side blank mirror only ever lowers, so
-    // flipping early on a failure would surface the session forever and
-    // strip its connectWorkspace reuse eligibility against the host's
-    // authority.
-    if (this.blankBit) {
-      this.blankBit = false
-      this.options.onEngaged?.(this)
-      this.notifier.markDirty()
-    }
+    // conversation's first turn on the host, while a rejected first prompt
+    // must keep the session blank — flipping early on a failure would
+    // surface the session forever and strip its connectWorkspace reuse
+    // eligibility against the host's authority.
+    this.markEngaged()
     return result
+  }
+
+  /**
+   * Lower the blank bit, at most once, on the first engagement this client
+   * knows the host accepted. The latch it sets is permanent: `handleBlank`
+   * consults it, so a summary that still says blank — an `api-session/added`
+   * frame minted before the engaging event, a list pull that raced it —
+   * cannot raise the bit back.
+   *
+   * Two facts qualify, both durable host log entries rather than local
+   * optimism: an accepted first prompt, and an engaging `command/run`
+   * observed in this session's own event window.
+   */
+  private markEngaged(): void {
+    this.engaged = true
+    if (!this.blankBit) return
+    this.blankBit = false
+    this.options.onEngaged?.(this)
+    this.notifier.markDirty()
+  }
+
+  /**
+   * Engage on this session's own durable command lifecycle — the one signal
+   * every command entry point shares. A typed composer line, the Intent
+   * hero's access-mode chip, a decorated `/` popup, and a plugin calling the
+   * command RPC directly all reach this client as the same event, so the
+   * mirror agrees with the host summary whichever surface ran the command.
+   *
+   * A run that recorded `engages: false` configures the session and leaves
+   * it blank, which is what keeps the Intent hero — and the workspace and
+   * agent-preset choices that live only there — on screen for a person
+   * choosing an access mode before typing anything.
+   *
+   * An engaging run seen on an already-surfaced session still latches, so the
+   * latch means what it says whichever signal lowered the bit first.
+   * @param event - one window entry's event, durable or compact.
+   */
+  private observeEngagement(event: { readonly type: string; readonly data?: unknown }): void {
+    if (event.type !== 'command/run') return
+    // Structural read: window entries may be compact history records, so the
+    // member is narrowed rather than trusted (the posture observeSubmissionEvent
+    // takes below, and the host fold in list.ts owns the same rule typed).
+    const data = event.data as { readonly engages?: unknown } | undefined
+    if (data?.engages === false) return
+    this.markEngaged()
   }
 
   /**
@@ -518,6 +559,9 @@ export class Session implements SessionFace {
     // Turn-start conversion: a blank session never runs, so the first
     // running:true proves another side's first message landed.
     if (running && this.blankBit) {
+      // Latched like every other engagement: the turn outlives itself, so a
+      // summary minted before it must not re-blank the session once it ends.
+      this.engaged = true
       this.blankBit = false
       this.notifier.markDirty()
     }
@@ -555,14 +599,15 @@ export class Session implements SessionFace {
 
   /**
    * Blank-bit relay from the authoritative summary source (`session.list` and
-   * `api-session/added`). Monotone: once any signal (local first send,
-   * running flip, an earlier summary) cleared it, a stale true never
-   * re-blanks.
+   * `api-session/added`). Monotone against the local latch: once a first send,
+   * an engaging `command/run`, or a started turn cleared the bit, a stale true
+   * never re-blanks. A bit cleared only by an earlier summary carries no latch,
+   * so a later summary owns it.
    * @param blank - the summary's derived empty-log bit.
    */
   handleBlank(blank: boolean): void {
     if (blank === this.blankBit) return
-    if (blank && (this.promptAttempted || this.running)) return
+    if (blank && (this.promptAttempted || this.running || this.engaged)) return
     this.blankBit = blank
     this.notifier.markDirty()
   }
@@ -669,7 +714,10 @@ export class Session implements SessionFace {
     if (visible.some(entry => entry.event.type === 'turn/start')) this.firstPromptPendingTurn = false
     if (projections !== undefined) this.projections.seed(projections)
     this.eventSource.replace(visible, hasMore)
-    for (const entry of visible) this.observeSubmissionEvent(entry.event)
+    for (const entry of visible) {
+      this.observeEngagement(entry.event)
+      this.observeSubmissionEvent(entry.event)
+    }
     this.notifier.markDirty()
   }
 
@@ -714,9 +762,12 @@ export class Session implements SessionFace {
     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
     const queueChanged = this.queueMirror.acceptDurable(event)
     this.eventSource.append(entry)
-    // After the feed append: the conversation assembly's animation frame is
+    // Both observers run after the feed append. Engagement surfaces the
+    // session against a feed that already holds the command, the order
+    // installWindow takes; and the conversation assembly's animation frame is
     // registered by the feed subscribers above, so the echo-retirement frame
     // scheduled here always runs after the durable node became renderable.
+    this.observeEngagement(event)
     this.observeSubmissionEvent(event)
     return queueChanged || awaitingFirstTurn !== this.firstPromptPendingTurn
   }

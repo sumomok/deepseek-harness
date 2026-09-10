@@ -38,7 +38,7 @@ Status: implemented
 
 ### 装配级验收：slash-flow 快照
 
-`apps/web/tests/slash-flow.snapshot.ts` 钉住用户可见主链（assembled keyless，包 mock 不替代装配后的 transcript（文本记录））：无会话时 composer 禁用 → 创建 Workspace 并进入已实体化的 blank 会话 → `/` 菜单选 `/echo` leadingInput → 命令执行但 blank 位不翻转、列表仍显示 `New Session` → 首条普通提示词成功受理后同一行转正；同一个会话绑定的 textarea 在 blank → active 转换期间保持不变。`workspace-flow.snapshot.ts` 另钉住 blank 行创建/复用、首条提示词遭拒后的回填，以及在发出首条提示词前切换 Workspace 时 draft 跨 input machine 搬运且旧 blank 行隐藏。
+用户可见主链是：无会话时 composer 禁用 → 创建 Workspace 并进入已实体化的 blank 会话 → `/` 菜单选一条 leadingInput → 这次运行让那一行 `New Session` 转正，除非该命令声明了它配置会话（[命令转正 note](../bug-fix/2026-09-10-command-engages-blank-session.zh.md)）；同一个会话绑定的 textarea 在 blank → active 转换期间保持不变。
 
 ## 曾考虑的替代方案
 

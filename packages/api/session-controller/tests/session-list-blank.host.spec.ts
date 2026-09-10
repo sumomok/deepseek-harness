@@ -1,10 +1,13 @@
 /**
- * The summary blank bit means "conversation not started" (no turn has run),
- * not "log empty": standalone plugin events — command lifecycle records,
- * plan/mode, permission knob events, session titles — never flip it, so running /plan or /goal on a
- * fresh session keeps it list-hidden and reusable, while the first accepted
- * prompt's turn/start clears it. The host/session-added frame shares the
- * same predicate function (covered by the workspace spec's frame assertion).
+ * The summary blank bit means "nothing to show and nothing to address". A
+ * command run clears it alongside the first turn, unless the run recorded
+ * `engages: false` — the declaration a command makes when it configures the
+ * session rather than contributing to the conversation. Configuration events
+ * (plan/mode, session titles, permission and sandbox knobs) never flip it, so
+ * a fresh session carrying only those and a configuration command stays
+ * list-hidden and reusable as New Session. The host/session-added frame shares
+ * the same predicate function (covered by the workspace spec's frame
+ * assertion).
  */
 
 import { describe, expect, it } from 'vitest'
@@ -17,6 +20,7 @@ import { CommandId } from '@deepseek-ai/dsh-commands/brand'
 // Side-effect type imports: the configuration-event SessionEventMap merges.
 import type {} from '@deepseek-ai/dsh-permission-presets'
 import type {} from '@deepseek-ai/dsh-sandbox-policy'
+import { applySessionListMetadata } from '../src/list.ts'
 import { createSessionTestRemote, type TestSessionRemote } from './test-remote.ts'
 
 async function harness(): Promise<{ ctx: Context; remote: TestSessionRemote; attach: (session: Session) => void }> {
@@ -32,13 +36,9 @@ async function harness(): Promise<{ ctx: Context; remote: TestSessionRemote; att
   }
 }
 
-/** Append the standalone (non-conversation) event family a fresh session can accumulate. */
-function appendStandalone(session: Session): void {
-  session.append('command/run', {
-    commandId: CommandId('blank-cmd-1'), name: 'plan', args: '', source: { kind: 'user' },
-  })
+/** Append the configuration-event family a fresh session can accumulate without content. */
+function appendConfiguration(session: Session): void {
   session.append('plan/mode', { active: true })
-  session.append('command/done', { commandId: CommandId('blank-cmd-1'), kind: 'success', text: 'Plan mode on.' })
   session.append('session/title', {
     title: 'standalone title', messageSeqs: [], source: { kind: 'fallback' },
   })
@@ -47,28 +47,87 @@ function appendStandalone(session: Session): void {
   session.append('sandbox/mode', { mode: 'danger-full-access' })
 }
 
+/** Append one complete lifecycle of a command that contributes to the conversation. */
+function appendEngagingCommand(session: Session): void {
+  session.append('command/run', {
+    commandId: CommandId('blank-cmd-1'), name: 'btw', args: ' 天气', source: { kind: 'user' },
+  })
+  session.append('command/done', { commandId: CommandId('blank-cmd-1'), kind: 'success', text: 'Sunny.' })
+}
+
+/** Append one complete lifecycle of a command that declared it configures the session. */
+function appendConfigurationCommand(session: Session): void {
+  session.append('command/run', {
+    commandId: CommandId('blank-cmd-0'), name: 'plan', args: '', source: { kind: 'user' }, engages: false,
+  })
+  session.append('command/done', { commandId: CommandId('blank-cmd-0'), kind: 'success', text: 'Plan mode on.' })
+}
+
 async function listBlank(remote: TestSessionRemote, id: string): Promise<boolean | undefined> {
   const result = await remote.list({})
   if (!result.ok) throw new Error('list failed')
   return result.value.items.find(item => item.sessionId === id)?.blank
 }
 
-describe('summary blank = conversation not started', () => {
-  it('standalone events (command lifecycle, plan/mode, title) keep the session blank', async () => {
+describe('summary blank = nothing to show', () => {
+  it('configuration events (plan/mode, title, permission knobs) keep the session blank', async () => {
     const { ctx, remote, attach } = await harness()
     const session = ctx.sessions.create()
     attach(session)
     expect(await listBlank(remote, session.id)).toBe(true)
-    appendStandalone(session)
+    appendConfiguration(session)
     expect(await listBlank(remote, session.id)).toBe(true)
+  })
+
+  it('a command that declared it configures the session keeps it blank', async () => {
+    const { ctx, remote, attach } = await harness()
+    const session = ctx.sessions.create()
+    attach(session)
+    appendConfiguration(session)
+    appendConfigurationCommand(session)
+    expect(await listBlank(remote, session.id)).toBe(true)
+  })
+
+  it('an engaging command run clears blank', async () => {
+    const { ctx, remote, attach } = await harness()
+    const session = ctx.sessions.create()
+    attach(session)
+    appendConfiguration(session)
+    appendConfigurationCommand(session)
+    expect(await listBlank(remote, session.id)).toBe(true)
+    appendEngagingCommand(session)
+    expect(await listBlank(remote, session.id)).toBe(false)
   })
 
   it('the first turn clears blank', async () => {
     const { ctx, remote, attach } = await harness()
     const session = ctx.sessions.create()
     attach(session)
-    appendStandalone(session)
+    appendConfiguration(session)
     session.append('turn/start', { turn: 0 })
     expect(await listBlank(remote, session.id)).toBe(false)
+  })
+})
+
+describe('the blank fold itself', () => {
+  const state = { blank: true, lastPromptAt: null }
+  const fold = (type: string, data: Record<string, unknown> = {}): boolean =>
+    applySessionListMetadata(state, { type, seq: 1, time: 10, data } as never).blank
+
+  it('reads the declaration: engages false keeps blank, absent or true clears it', () => {
+    expect(fold('command/run', { engages: false })).toBe(true)
+    expect(fold('command/run')).toBe(false)
+    expect(fold('command/run', { engages: true })).toBe(false)
+  })
+
+  it('clears on the run, not on the command result', () => {
+    expect(fold('command/done')).toBe(true)
+  })
+
+  it('leaves an already-cleared bit down', () => {
+    expect(applySessionListMetadata(
+      { blank: false, lastPromptAt: null },
+      { type: 'plan/mode', seq: 1, time: 10, data: {} } as never,
+    )).toEqual({ blank: false, lastPromptAt: null })
   })
 })

@@ -148,6 +148,8 @@ export class FakeApiClient {
     () => Promise.resolve(ok({ attachment: { attachmentId: 'a' as never, mediaType: 'image/png', bytes: 1, width: 1, height: 1 }, data: 'AA==' }))
   onUpdateQueue: (payload: unknown) => Promise<RemoteResult<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
   onCancel: (payload: unknown) => Promise<RemoteResult<{ accepted: true }>> = () => Promise.resolve(ok({ accepted: true as const }))
+  /** Programmable `commands.execute`; the default answers an unmatched line. */
+  onCommandExecute: () => Promise<RemoteResult<{ commandId: string } | undefined>> = () => Promise.resolve(ok(undefined))
   onOpenWorkspacePath: (payload: unknown) => Promise<RemoteResult<{ opened: true }>> =
     () => Promise.resolve(ok({ opened: true as const }))
   onProbeTargets: (payload: unknown) => Promise<RemoteResult<SessionProbeTargetsValue>> =
@@ -205,7 +207,7 @@ export class FakeApiClient {
         new RemoteStream(AVAILABLE_STREAM_CONNECTION, options)
       ),
       commands: {
-        execute: () => Promise.resolve({ ok: true, value: undefined }),
+        execute: () => this.onCommandExecute(),
       },
       session: {
         canOpenWorkspacePath: () => Promise.resolve(ok(true)),

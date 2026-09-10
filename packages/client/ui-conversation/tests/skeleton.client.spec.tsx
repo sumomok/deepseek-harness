@@ -593,7 +593,10 @@ describe('ConversationRoot resident composer', () => {
     expect((chip as HTMLButtonElement).disabled).toBe(false)
     expect(b.slotCalls).toContain('conversation.hero.workspace')
     // The agent-preset chip sits in the same row, for the same reason: both
-    // choices are only open before the first message.
+    // choices are only open before the first message. The Hero's own
+    // access-mode chip runs a command, which is why a session-configuration
+    // command declares `engages: false` — engaging on it would close this
+    // row under the person still choosing where the session runs.
     expect(b.slotCalls).toContain('conversation.hero.agentPreset')
   })
 

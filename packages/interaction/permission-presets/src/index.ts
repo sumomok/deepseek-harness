@@ -271,6 +271,12 @@ export class PermissionPresetService extends Service {
         name: 'permission',
         description: 'Switch the permission preset (sandbox mode + approval policy)',
         input: { hint: '<preset>' },
+        // Configures what the session may do rather than contributing to the
+        // conversation. The Intent hero's own access-mode chip runs this
+        // command, so engaging here would close the hero — and the workspace
+        // and agent-preset choices that live only there — the moment someone
+        // set an access mode for a session they had not started yet.
+        engages: false,
         // No settlement text labels its value with this command's own name: a
         // surface that renders `name · text` (the web command row) would
         // otherwise read `permission · Permission preset: workspace-write.`

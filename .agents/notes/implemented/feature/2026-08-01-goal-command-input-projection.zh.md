@@ -14,7 +14,7 @@ Status: implemented
 
 `ui-goal` 客户端插件会在通用命令 Definition 之外注册一个归 Goal 所有的 Conversation Definition。两者都匹配同一条 `/goal` `command/run`：通用 Definition 保留持久结果行，Goal Definition 则在更早的分数锚点构建独立的 `command-input` Chat Node。Goal 插件还为该 Node 注册 keyed React renderer。它的本地组件只复用用户气泡的右对齐几何形态和语义 token，使用 14px/22px 等宽字体文本，并且不挂载时间戳、复制或分支操作。
 
-`Session.composerPhase` 把可见的非命令 Chat Node 视为对话内容，因此 `command-input` 会激活当前对话，而仅有通用命令行时不会。Host 的 `summary.blank` 位仍以轮次为基础，因此列表隐藏和空白会话复用保持不变。
+`Session.composerPhase` 把可见的非命令 Chat Node 视为对话内容，因此 `command-input` 会激活当前对话，而仅有通用命令行时不会。Host 的 `summary.blank` 位在该命令自己的 `command/run` 上落下（[命令转正 note](../bug-fix/2026-09-10-command-engages-blank-session.zh.md)）——`/goal` 保持转正默认——因此一条 `/goal` run 之后会话即被列出、也不再可复用。
 
 Goal Definition 根据结构化 run 派生 `/<name><args.trimEnd()>`：分隔符与内部多行输入保持不变；在已认领的裸命令形式中，参数只有一个空格时显示 `/goal`。仅包含 `command/done` 的历史窗口没有匹配的 Goal Context，因此会保留通用结果行，而不会虚构输入气泡；加载包含更早 run 的页面后，两个 Node 都会恢复。
 
@@ -36,4 +36,4 @@ Goal 客户端测试固定双 Definition 输出、顺序、排除其他命令、
 
 ## 后果
 
-一条持久 `/goal` run 会向两个各自独立归属的视图 Context 提供数据，而不改变命令能力。在组合中移除 `ui-goal` 后，普通命令执行及其结果行保持不变。实时标签页与冷重载会得到一致结果，因为两个视图都派生自同一条 run。页面切分只保留 `command/done` 时，会暂时只显示结果行；如果该命令是会话中的唯一内容，Hero 会隐藏该行，直到加载更早页面恢复 run。由于 Host 的 blank 语义仍以轮次为基础，会话在模型轮次开始前仍从列表中隐藏，并且可以复用。
+一条持久 `/goal` run 会向两个各自独立归属的视图 Context 提供数据，而不改变命令能力。在组合中移除 `ui-goal` 后，普通命令执行及其结果行保持不变。实时标签页与冷重载会得到一致结果，因为两个视图都派生自同一条 run。页面切分只保留 `command/done` 时，会暂时只显示结果行。由于 Host 在 `command/run` 上清除 blank，会话自该 run 起即被列出、也不再可复用。

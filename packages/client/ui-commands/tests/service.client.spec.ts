@@ -614,6 +614,23 @@ describe('execute payload', () => {
   })
 })
 
+describe('engagement is not this layer\'s business', () => {
+  it('admits the line and nothing more', async () => {
+    // Every command entry point — this typed path, the Intent hero's chip,
+    // a decorated popup, a plugin calling the RPC — engages only when the
+    // session observes its own durable `command/run`, so admission is all
+    // this layer does.
+    const b = await bench({ execute: () => Promise.resolve({ matched: true }) })
+    await b.warm(proj('s1'))
+    const outcome = b.source.matchSpace!(proj('s1'), '/goal')
+    if (outcome === undefined || outcome === 'handled' || !('claim' in outcome)) throw new Error('expected claim')
+
+    await expect(outcome.claim.submit('ship it', new Context(), []))
+      .resolves.toEqual({ kind: 'success' })
+    expect(b.executeCalls).toEqual([{ sessionId: sid('s1'), line: '/goal ship it', images: [] }])
+  })
+})
+
 describe('detached admission notices', () => {
   const flush = () => new Promise(resolve => setTimeout(resolve, 0))
 
