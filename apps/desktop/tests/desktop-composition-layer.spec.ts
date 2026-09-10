@@ -2,7 +2,7 @@
  * The rows a desktop profile ends up with, composed from the real layers a
  * launch applies rather than from a description of them.
  *
- * The layer carries three. `session-query-sqlite` opts into full-text search:
+ * The layer carries four. `session-query-sqlite` opts into full-text search:
  * dsh-base and dsh-web-app both ship it off and
  * `apps/cli/tests/lazy-search-startup.compat.spec.ts` pins them that way, so
  * this product opts in from its own layer. `llm-deepseek` raises the
@@ -27,7 +27,12 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { composeEntries, loadOverlayPatches, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
 import { describe, expect, it } from 'vitest'
-import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
+import {
+  Config as DeepSeekConfig,
+  DEFAULT_REQUEST_IMAGE_MAX_BYTES,
+  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
+  type DeepSeekCatalogModel,
+} from '@deepseek-ai/dsh-llm-deepseek'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 /** The bundle under test, which is also this repository's own composition layer. */
@@ -223,10 +228,17 @@ describe('the desktop composition layer as a whole', () => {
     // The day the adapter ships its own row for it, the table restates that
     // row instead of stating one of its own, and this is what says so.
     expect(factory.models.map(row => row.id)).not.toContain('deepseek-flash')
-    // The capacities the row omits still resolve from the shipped adapter, so
-    // a moved adapter default fails here rather than reaching the picker.
+    // The capacities the row omits resolve from the shipped adapter instead.
+    // Pinning what that adapter resolves them to is the guard: a moved default
+    // fails here rather than reaching the picker as a changed capacity.
     expect(composed[0]?.contextWindow).toBeUndefined()
-    expect(factory.defaultContextWindow).toBeGreaterThan(0)
+    expect(composed[0]?.imagePixelBudget).toBeUndefined()
+    expect(composed[0]?.imageMaxBytes).toBeUndefined()
+    expect({
+      contextWindow: factory.defaultContextWindow,
+      imagePixelBudget: DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
+      imageMaxBytes: DEFAULT_REQUEST_IMAGE_MAX_BYTES,
+    }).toEqual({ contextWindow: 1_000_000, imagePixelBudget: 640_000, imageMaxBytes: 1_048_576 })
     expect(composed[0]?.inputModalities).toEqual(['text', 'image'])
   })
 })
