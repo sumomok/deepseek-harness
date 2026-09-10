@@ -867,9 +867,19 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
  */
 async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void> {
   const checking = ensureUpdater(host)
-  // A downloaded update and a transfer in flight are both already reported;
-  // a check on top of either has nothing to add and nothing to say.
-  if (stagedVersion !== undefined || downloading) return
+  // A downloaded update and a transfer in flight are both already reported
+  // where the update lives, so a check on top of either starts nothing. It
+  // still records when it ran, and a manual one still answers: a click
+  // deserves a reply wherever the update it asked about already is.
+  if (stagedVersion !== undefined || downloading) {
+    updateState().checkSucceeded(new Date().toISOString(), stagedVersion ?? offeredVersion, stagedNotes)
+    host.log(`[updater] check while ${stagedVersion === undefined ? 'a transfer is in flight' : `${stagedVersion} waits to be installed`}\n`)
+    if (reason === 'manual') {
+      if (stagedVersion === undefined) await reportDownloading(offeredVersion)
+      else await reportStaged(stagedVersion)
+    }
+    return
+  }
   updateState().checkStarted()
   const result = await checkFeedWithRetry(host, checking)
   const version = result?.updateInfo.version
@@ -1145,6 +1155,34 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReaso
     return
   }
   await openDownloadPage(host, artifact)
+}
+
+/**
+ * Answer a manual check that landed while the update it asked about was still
+ * transferring.
+ * @param version - the version being transferred, when a check has named one.
+ */
+async function reportDownloading(version: string | undefined): Promise<void> {
+  await ask({
+    type: 'info',
+    message: '正在后台下载新版本',
+    detail: `${version === undefined ? '新版本' : `v${version}`} 正在后台下载,下载完成后到设置里安装。`,
+    buttons: ['好'],
+  })
+}
+
+/**
+ * Answer a manual check that landed on an update already downloaded and
+ * waiting for the click that installs it.
+ * @param version - the downloaded version.
+ */
+async function reportStaged(version: string): Promise<void> {
+  await ask({
+    type: 'info',
+    message: '新版本已下载完成',
+    detail: `v${version} 已下载完成,到设置里安装。`,
+    buttons: ['好'],
+  })
 }
 
 /** Confirm to a manual checker that the installed version is current. */

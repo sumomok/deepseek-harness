@@ -133,12 +133,17 @@ describe('a downloaded update', () => {
     expect(state.isReady()).toBe(true)
   })
 
-  it('is not replaced by a failed check', () => {
+  it('is not replaced by a failed check, which still records when it ran', () => {
     const state = machine()
     state.downloadStarted(NEXT)
     state.downloadReady(NEXT)
     state.checkFailed(CHECKED_AT, 'ECONNRESET')
-    expect(state.snapshot().phase).toBe('ready')
+    expect(state.snapshot()).toEqual({
+      phase: 'ready',
+      currentVersion: CURRENT,
+      latestVersion: NEXT,
+      checkedAt: CHECKED_AT,
+    })
   })
 
   it('is not restarted by a second transfer', () => {
@@ -175,6 +180,22 @@ describe('a transfer', () => {
       currentVersion: CURRENT,
       latestVersion: NEXT,
       reason: 'ETIMEDOUT',
+    })
+  })
+
+  it('is not rewritten by a check that failed while it ran', () => {
+    const state = machine()
+    state.downloadStarted(NEXT)
+    state.downloadProgress({ percent: 40, transferred: 400, total: 1000 })
+    state.checkFailed(CHECKED_AT, 'ECONNRESET')
+    expect(state.snapshot()).toEqual({
+      phase: 'downloading',
+      currentVersion: CURRENT,
+      latestVersion: NEXT,
+      percent: 40,
+      transferredBytes: 400,
+      totalBytes: 1000,
+      checkedAt: CHECKED_AT,
     })
   })
 

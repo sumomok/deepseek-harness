@@ -35,6 +35,10 @@ const shell = vi.hoisted(() => ({
   packaged: true,
   /** Every dialog the run put up, in order. */
   dialogs: [] as { message?: unknown; title?: unknown }[],
+  /** Called after each dialog is recorded, so a case can wait for one. */
+  onDialog: undefined as (() => void) | undefined,
+  /** What the app registered for `before-quit`, which is what stops its timers. */
+  beforeQuit: [] as (() => void)[],
   /** Every updater the run built, so a case can raise the library's own events. */
   instances: [] as { emit: (event: string, payload: unknown) => void }[],
   /** What one `checkForUpdates()` answers. */
@@ -50,7 +54,9 @@ vi.mock('electron', () => ({
     getName: (): string => 'DSH Desktop',
     getPath: (): string => shell.exePath,
     getLocale: (): string => 'zh-CN',
-    once: (): void => undefined,
+    once: (event: string, listener: () => void): void => {
+      if (event === 'before-quit') shell.beforeQuit.push(listener)
+    },
     quit: (): void => undefined,
     dock: undefined,
   },
@@ -61,6 +67,7 @@ vi.mock('electron', () => ({
   dialog: {
     showMessageBox: async (options: { message?: unknown; title?: unknown }): Promise<{ response: number }> => {
       shell.dialogs.push(options)
+      shell.onDialog?.()
       return { response: 0 }
     },
   },
@@ -143,12 +150,17 @@ beforeEach(() => {
   vi.resetModules()
   shell.packaged = true
   shell.dialogs.length = 0
+  shell.onDialog = undefined
+  shell.beforeQuit.length = 0
   shell.instances.length = 0
   shell.checkForUpdates = async (): Promise<unknown> => null
   shell.downloadUpdate = async (): Promise<void> => undefined
 })
 
 afterEach(() => {
+  // The recurring silent check and the delayed first one outlive their case
+  // otherwise, and this worker's event loop with them.
+  for (const listener of shell.beforeQuit.splice(0)) listener()
   vi.restoreAllMocks()
   for (const directory of directories.splice(0)) rmSync(directory, { recursive: true, force: true })
 })
@@ -217,6 +229,14 @@ function serveFeed(): void {
   vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(MAC_FEED, { status: 200 }))
 }
 
+/**
+ * Settle once the next dialog has been put up.
+ * @returns when one has.
+ */
+async function nextDialog(): Promise<void> {
+  await new Promise<void>((resolve) => { shell.onDialog = resolve })
+}
+
 /** One transient failure, of the kind a dropped connection raises. */
 function interrupted(): Error {
   return Object.assign(new Error('socket hang up'), { code: 'ECONNRESET' })
@@ -279,5 +299,75 @@ describe('a build that cannot install where it stands', () => {
     // electron-updater is never built on this tier, so nothing can report a
     // download; the verdict stands for the rest of the run either way.
     expect(shell.instances).toHaveLength(0)
+  })
+})
+
+describe('a manual check with the update already under way', () => {
+  it('answers the click and records the time while the transfer runs', async () => {
+    bundle(true)
+    shell.checkForUpdates = async (): Promise<unknown> => ({ updateInfo: { version: NEXT, releaseNotes: 'fixes the thing' } })
+    // A transfer that never ends, which is what the second check lands on.
+    shell.downloadUpdate = async (): Promise<void> => new Promise<void>(() => undefined)
+    const { host, waitFor } = sink()
+    const { setupUpdates, updateActions } = await import('../src/updater.ts')
+    const actions = updateActions(host)
+    const manual = setupUpdates(host)
+
+    actions.check()
+    await waitFor(`downloading ${NEXT} in the background`)
+    const before = actions.state().checkedAt
+    // ISO 8601 records milliseconds, so the two checks must be told apart by one.
+    await new Promise<void>((resolve) => { setTimeout(resolve, 5) })
+
+    const shown = nextDialog()
+    manual()
+    await shown
+
+    expect(shell.dialogs.at(-1)?.message).toBe('正在后台下载新版本')
+    const after = actions.state()
+    expect(after.phase).toBe('downloading')
+    expect(Date.parse(after.checkedAt ?? '')).toBeGreaterThan(Date.parse(before ?? ''))
+  })
+
+  it('answers the click and records the time while the update waits to be installed', async () => {
+    bundle(true)
+    shell.checkForUpdates = async (): Promise<unknown> => ({ updateInfo: { version: NEXT } })
+    shell.downloadUpdate = async (): Promise<void> => {
+      shell.instances[0]?.emit('update-downloaded', { version: NEXT })
+    }
+    const { host, waitFor } = sink()
+    const { setupUpdates, updateActions } = await import('../src/updater.ts')
+    const actions = updateActions(host)
+    const manual = setupUpdates(host)
+
+    actions.check()
+    await waitFor(`downloaded ${NEXT}; waiting for an explicit install`)
+    const before = actions.state().checkedAt
+    await new Promise<void>((resolve) => { setTimeout(resolve, 5) })
+
+    const shown = nextDialog()
+    manual()
+    await shown
+
+    expect(shell.dialogs.at(-1)?.message).toBe('新版本已下载完成')
+    const after = actions.state()
+    expect(after.phase).toBe('ready')
+    expect(Date.parse(after.checkedAt ?? '')).toBeGreaterThan(Date.parse(before ?? ''))
+  })
+
+  it('says nothing on a check nobody clicked for', async () => {
+    bundle(true)
+    shell.checkForUpdates = async (): Promise<unknown> => ({ updateInfo: { version: NEXT } })
+    shell.downloadUpdate = async (): Promise<void> => new Promise<void>(() => undefined)
+    const { host, waitFor } = sink()
+    const { updateActions } = await import('../src/updater.ts')
+    const actions = updateActions(host)
+
+    actions.check()
+    await waitFor(`downloading ${NEXT} in the background`)
+    actions.check()
+    await waitFor('check while a transfer is in flight')
+
+    expect(shell.dialogs).toHaveLength(0)
   })
 })
