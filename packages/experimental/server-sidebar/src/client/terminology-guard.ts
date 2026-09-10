@@ -131,12 +131,6 @@
  *   content-frame's and content-column's own narrower
  *   `[data-chat-flow-kind="command"]:has([data-slot="conversation.chat.commandview"]:empty)`
  *   rules; those still carry compositions that do not install this guard.
- * - `context` — the injected runtime-context message (上下文注入 / 跨会话召回).
- *   It is a `user/message` whose source is not the user, so it is machinery
- *   the run needed, not something the visitor wrote or the model answered.
- * - `model-retry` — the provider-retry chain. Internal status: the retry
- *   either succeeds, in which case the answer is the outcome the visitor
- *   reads, or it exhausts, in which case `turn-error` says so and is kept.
  * - `[data-variant="think"]` — the reasoning disclosure. It is not a row kind:
  *   `ReasoningRow.tsx` renders it inside the `assistant-step` seat, whose text
  *   is kept, so the rule keys on the attribute that component sets
@@ -152,26 +146,17 @@
  * registers into `conversation.composer`, so an approval takes the composer
  * over and never becomes a flow row at all.
  *
- * The reply footer loses its two metric pills — 用量 33.7K tok and 用时 6 秒 —
- * and keeps everything else in the row: copy, like/dislike, branch, and the
- * end-of-turn clock are the visitor's own affordances, not process reporting.
- * Neither pill carries a `data-*` attribute of its own (`TurnUsagePanel.tsx`
- * puts one on each opened dialog and none on either trigger), so the rule
- * couples on the CSS-module local name both panels give that button,
- * `TurnUsagePanel.module.css`'s `.trigger`, and hides the wrapper through it:
- * `[data-turn-tail] :has(> [class*="trigger"])` selects each panel's own
- * `span.root`, so the pill leaves no flex slot and no `.root + .root` margin
- * rebate behind, which hiding the button alone would.
- *
- * `aria-haspopup="dialog"` looked like the semantic handle and is not one:
- * `dsh-client-ui-message-feedback`'s note-open button carries it too, and that
- * button sits in this same row as part of the like/dislike affordance the
- * decision keeps. The class substring is therefore the fragility here, the
- * same shape as the permission-chip rule above: renaming `.trigger` in
- * `TurnUsagePanel.module.css`, or seating any other `trigger`-named control in
- * the tail, changes what this hides with no compile-time signal. The e2e reads
- * both halves — the pills gone, and copy, branch and the clock still on
- * screen — so either direction of that drift turns the gate red.
+ * The reply footer's metrics — 用量 33.7K tok and 用时 6 秒 — have no handle of
+ * their own: `TurnUsagePanel.tsx` puts a `data-*` attribute on each opened
+ * dialog and none on either trigger, so the only selector reaching the two
+ * pills alone is a `[class*="trigger"]` substring inside the tail. The whole
+ * action row does have one — `[data-turn-tail] > [class*="actions"]`, an
+ * attribute-anchored direct child — so that is what the rule hides, and copy,
+ * like/dislike, branch, and the end-of-turn clock go with the metrics. The
+ * class substring is the fragility: `MessageIconActions.tsx` composes its own
+ * `actions` class with `TurnTailNodeView.module.css`'s onto the same element,
+ * so both would have to be renamed together to break it, but neither rename
+ * has a compile-time signal here.
  *
  * The composer placeholder reads 说说要做什么 in both the hero and the
  * established state through the same `::after` swap the hero headline uses.
@@ -230,10 +215,8 @@ const STYLE = `
 [data-chat-flow-kind="command"] { display: none !important; }
 [data-chat-flow-kind="manual-compaction"] { display: none !important; }
 [data-chat-flow-kind="compaction"] { display: none !important; }
-[data-chat-flow-kind="context"] { display: none !important; }
-[data-chat-flow-kind="model-retry"] { display: none !important; }
 [data-variant="think"] { display: none !important; }
-[data-turn-tail] :has(> [class*="trigger"]) { display: none !important; }
+[data-turn-tail] > [class*="actions"] { display: none !important; }
 [data-composer-placeholder] { font-size: 0 !important; }
 [data-composer-placeholder]::after {
   content: '说说要做什么';

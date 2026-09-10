@@ -42,11 +42,7 @@ describe('installTerminologyGuard', () => {
   it('hides every process row the conversation column carries, by Chat Node kind', () => {
     installTerminologyGuard()
     const css = document.getElementById('dsh-server-sidebar-terminology-guard')?.textContent ?? ''
-    const kinds = [
-      'system-prompt', 'turn-process', 'tool-call', 'command',
-      'manual-compaction', 'compaction', 'context', 'model-retry',
-    ]
-    for (const kind of kinds) {
+    for (const kind of ['system-prompt', 'turn-process', 'tool-call', 'command', 'manual-compaction', 'compaction']) {
       expect(css).toContain(`[data-chat-flow-kind="${kind}"] { display: none !important; }`)
     }
     // Reasoning is not a kind of its own: it renders inside the kept
@@ -54,16 +50,12 @@ describe('installTerminologyGuard', () => {
     expect(css).toContain('[data-variant="think"] { display: none !important; }')
   })
 
-  it('hides the reply footer\'s two metric pills and nothing else in that row', () => {
+  it('hides the reply footer\'s action row and leaves the produced-files tail beside it', () => {
     installTerminologyGuard()
     const css = document.getElementById('dsh-server-sidebar-terminology-guard')?.textContent ?? ''
-    // `:has(> …)` selects each pill's own wrapper span through the button's
-    // class, so the pill leaves no flex slot behind; the `trigger` substring
-    // is `TurnUsagePanel.module.css`'s own local name.
-    expect(css).toContain('[data-turn-tail] :has(> [class*="trigger"]) { display: none !important; }')
-    // The row itself, the deliverables tail beside it, and every control that
-    // is not a metric pill stay: no rule may take the actions row wholesale.
-    expect(css).not.toContain('[data-turn-tail] > [class*="actions"]')
+    expect(css).toContain('[data-turn-tail] > [class*="actions"] { display: none !important; }')
+    // The direct-child combinator is the half that spares the tail: the
+    // deliverables chain renders as `[data-turn-tail]`'s other child.
     expect(css).not.toContain('[data-turn-tail] [class*="actions"]')
   })
 
