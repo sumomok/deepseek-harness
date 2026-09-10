@@ -353,6 +353,8 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 **`POST /install` 不弹任何对话框,而且先答再做。**设置窗口里的那次点击就是同意,再来一个原生确认框只是把那次点击已经回答过的问题重问一遍;这条路由在 `ready` 之外一律被拒,所以它唯一能装上的东西,是校验和已经与清单对上的那个产物。`{ "ok": true }` 先上线,安装排在下一个 tick——因为安装会停掉嵌入服务端,并把机器交给一个要替换掉本进程的安装器,而一个还等在响应上的调用方,会把那次断开的连接读成一次失败的安装。
 
+**`/install` 的 token,服务端里跑的每个插件都够得着。**它注入的是服务端子进程的环境,所以那个进程里的任何代码——包括第三方插件,而它们自己不声明任何审批闸——都能调这条路由。它买到的东西是有上限的:退出应用,并装上一个 sha512 已被 electron-updater 逐字节对着更新源清单核对过的更新(`DownloadedUpdateHelper.getValidCachedUpdateFile`),macOS 上还必须满足运行中那个 bundle 的 designated requirement。它不是一条执行任意代码的路;最坏的代价是一次没人要求的重启。与插件管理服务的不对称——它的 `/update` 与 `/repair` 确实会弹原生确认——是有意的:那个服务装的是调用方指名的包,而这个服务装的是更新源发布的那一个产物。所以审计一个第三方插件时,要一并看它有没有读 `DSH_DESKTOP_UPDATE_TOKEN`。
+
 ## 服务器环境
 
 服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。主进程的异常与未处理拒绝也追加到同一个文件:`src/crash-log.ts` 在该文件打开后、更新器与服务器启动前就注册好处理器,而异常仍会弹框——是 `Error` 时,标题与正文与 Electron 拼出的完全一致;不是 `Error` 时按 `String(value)` 渲染,而 Electron 会打印 `undefined: undefined`。启动链跑在 `whenReady` 里,因此它自己的失败是以拒绝而不是异常的形式到来,同样被捕获并以同样的方式上报、同样弹框;在日志文件打开之前,这条上报记录写到 stderr。启动过程没有任何一处是沉默的,崩溃在屏幕上的样子也没有任何变化。
