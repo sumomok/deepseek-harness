@@ -139,6 +139,9 @@ function sanitizeShape(value: unknown, schema: PropsFieldSchema, rules: Sanitize
     case 'number':
     case 'boolean':
     case 'enum': return value
+    // A list of scalars is rebuilt like every other list, so what this pass
+    // returns is frozen throughout.
+    case 'scalar': return Array.isArray(value) ? Object.freeze([...value as readonly unknown[]]) : value
     case 'record': return isRecord(value) ? sanitizeKeyedRecord(value, schema) : undefined
     case 'object': return isRecord(value) ? sanitizeRecord(value, schema.fields, rules) : undefined
     case 'array': return Array.isArray(value)

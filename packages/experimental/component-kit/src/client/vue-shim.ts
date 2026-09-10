@@ -12,11 +12,13 @@
  * The browser bundle maps the bare specifier `vue` onto this file
  * (`tsdown.config.ts`), so an inlined library's own `require('vue')` lands on
  * the shared runtime too. element-ui is the one inlined library that does that.
- * The vendored `@sumomok/toy-surface-kit` imports neither `vue` nor
- * `element-ui`: its compiled components are option objects that run on whatever
- * runtime renders them and resolve their `el-*` tags through the global
- * registration `installElementUI()` performs — which is what makes that
- * function load-bearing rather than a convenience.
+ * Neither vendored kit — `@sumomok/toy-surface-kit` nor `@sumomok/toy-crud-kit`
+ * — imports `vue` or `element-ui`: their compiled components are option objects
+ * that run on whatever runtime renders them and resolve their `el-*` tags
+ * through the global registration `installElementUI()` performs. That is what
+ * makes the function load-bearing rather than a convenience, and the crud kit
+ * is what makes it load-bearing for a whole page: `Crud` is built out of `el-*`
+ * tags and nothing else registers them.
  *
  * That alias is why **no file under `src/` may import `vue` itself**: an import
  * here would be aliased back onto this module and close a cycle.

@@ -11,7 +11,11 @@
 
 import { describe, expect, it } from 'vitest'
 import {
+  catalogAction,
+  catalogEntry,
   COMPONENT_CATALOG,
+  CRUD_ID,
+  CRUD_QUERY_ID,
   describeCatalog,
   FILTER_BAR_ID,
   MAX_ENTRY_ID_LENGTH,
@@ -24,7 +28,13 @@ import {
   type PropsFieldSchema,
   type PropsSchema,
 } from '../src/component-call.ts'
-import { validateComponentCall, validateComponentSpec, type ComponentCallFailure } from '../src/validate.ts'
+import {
+  acceptsActionPayload,
+  acceptsOutput,
+  validateComponentCall,
+  validateComponentSpec,
+  type ComponentCallFailure,
+} from '../src/validate.ts'
 
 /** One accepted confirmation bar, the shape every rejection case starts from. */
 function confirmBar(props: Record<string, unknown> = { buttons: [{ id: 'ok', label: '确认' }] }): Record<string, unknown> {
@@ -114,6 +124,7 @@ function sampleField(schema: PropsFieldSchema): unknown {
     case 'string': return 'a'
     case 'number': return schema.min
     case 'boolean': return true
+    case 'scalar': return ['a']
     case 'enum': return schema.values[0]
     case 'record': return { field: 'a' }
     case 'object': return sampleProps(schema.fields)
@@ -513,5 +524,72 @@ describe('refusing a component\'s properties', () => {
     const failure = propsRefusal({ title: null, buttons: [{ id: 'ok', label: '确认' }] })
     expect(failure.path).toBe('spec.nodes[0].props.title')
     expect(failure.text).toContain('must be a string')
+  })
+})
+
+describe('a scalar property', () => {
+  /** The data page's condition list, the one place the catalog declares a scalar. */
+  function page(value: unknown) {
+    return validateComponentSpec({ nodes: [{ id: 'p', component: 'toy.crud', props: { relatedMeta: 'device', metaLabel: '设备', conditions: [{ key: 'city', op: 'EQ', value }] } }] })
+  }
+
+  it.each([
+    ['text', '北京'],
+    ['a number', 3],
+    ['a yes-or-no', true],
+    ['a list of text and numbers', ['北京', 3]],
+  ])('accepts %s', (_case, value) => {
+    expect(page(value)).toMatchObject({ ok: true })
+  })
+
+  it.each([
+    ['an object', { city: '北京' }, 'spec.nodes[0].props.conditions[0].value — must be text, a number, true or false, or a list of text and numbers.'],
+    ['a null', null, 'spec.nodes[0].props.conditions[0].value — must be text, a number, true or false, or a list of text and numbers.'],
+    ['an empty list', [], 'spec.nodes[0].props.conditions[0].value — lists 0 values; between 1 and 20 are accepted.'],
+    ['a yes-or-no inside a list', ['x', false], 'spec.nodes[0].props.conditions[0].value[1] — must be text or a number; a list carries neither true nor false.'],
+    ['an infinite number', Number.POSITIVE_INFINITY, 'spec.nodes[0].props.conditions[0].value — must be text, a number, true or false, or a list of text and numbers.'],
+  ])('refuses %s', (_case, value, text) => {
+    expect(page(value)).toMatchObject({ ok: false, failure: { text: `show_component: ${text}`, oversize: false } })
+  })
+
+  it.each([
+    ['text past the ceiling', 'x'.repeat(201), 'spec.nodes[0].props.conditions[0].value — is 201 characters; at most 200 are accepted.'],
+    ['a list item past the ceiling', ['x'.repeat(201)], 'spec.nodes[0].props.conditions[0].value[0] — is 201 characters; at most 200 are accepted.'],
+    ['a list past the ceiling', Array.from({ length: 21 }, () => 'x'), 'spec.nodes[0].props.conditions[0].value — lists 21 values; between 1 and 20 are accepted.'],
+  ])('refuses %s as too much', (_case, value, text) => {
+    expect(page(value)).toMatchObject({ ok: false, failure: { text: `show_component: ${text}`, oversize: true } })
+  })
+
+  it('stands where a scalar of at least its two ceilings is declared, and nowhere else', () => {
+    // No catalog output is a scalar, so the rule is judged on the schema alone.
+    expect(acceptsOutput({ kind: 'scalar', maxLength: 8, maxItems: 2 }, { kind: 'scalar', maxLength: 8, maxItems: 3 })).toBe(true)
+    expect(acceptsOutput({ kind: 'scalar', maxLength: 9, maxItems: 2 }, { kind: 'scalar', maxLength: 8, maxItems: 3 })).toBe(false)
+    expect(acceptsOutput({ kind: 'scalar', maxLength: 8, maxItems: 4 }, { kind: 'scalar', maxLength: 8, maxItems: 3 })).toBe(false)
+    expect(acceptsOutput({ kind: 'string', maxLength: 8 }, { kind: 'scalar', maxLength: 8, maxItems: 3 })).toBe(false)
+  })
+})
+
+describe('a count declared whole', () => {
+  /** The three counts one answered query reports, read off the catalog rather than restated here. */
+  function queryCounts(): PropsSchema {
+    const component = catalogEntry(CRUD_ID)
+    const action = component === undefined ? undefined : catalogAction(component, CRUD_QUERY_ID)
+    if (action === undefined) throw new Error(`${CRUD_ID} declares no ${CRUD_QUERY_ID}`)
+    return action.payloadSchema
+  }
+
+  it('accepts the three counts a query really answers with', () => {
+    expect(acceptsActionPayload({ total: 2, rows: 1, page: 1 }, queryCounts())).toBe('accepted')
+  })
+
+  it.each([
+    ['a total between two rows', { total: 2.5, rows: 1, page: 1 }],
+    ['a row count between two rows', { total: 2, rows: 1.5, page: 1 }],
+    ['a page between two pages', { total: 2, rows: 1, page: 1.5 }],
+  ])('refuses %s', (_case, payload) => {
+    // A table has no half rows, half columns or half pages, so `1 row shown of
+    // 2.5 matching, page 1.5` is a sentence about nothing a browser can be
+    // showing. Refused rather than shrunk, because sending less does not fix it.
+    expect(acceptsActionPayload(payload, queryCounts())).toBe('refused')
   })
 })

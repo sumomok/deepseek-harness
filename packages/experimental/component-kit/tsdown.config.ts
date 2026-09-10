@@ -9,10 +9,11 @@
  * `@deepseek-ai/dsh-experimental-vue2-echarts-poc` row already holds. Vue 2
  * reactivity does not cross runtime copies, so the components would mount and
  * then stop updating, with no error and no warning. The alias sends the request
- * to `src/client/vue-shim.ts`, which re-exports the row's copy. (The vendored
- * `@sumomok/toy-surface-kit` names neither package: its compiled components run
- * on whatever runtime renders them and resolve their `el-*` tags through the
- * global registration `installElementUI()` performs.)
+ * to `src/client/vue-shim.ts`, which re-exports the row's copy. (Neither
+ * vendored kit — `@sumomok/toy-surface-kit` nor `@sumomok/toy-crud-kit` — names
+ * either package: their compiled components run on whatever runtime renders
+ * them and resolve their `el-*` tags through the global registration
+ * `installElementUI()` performs.)
  *
  * The alias matches the bare specifier and nothing else, so `vue/dist/…` would
  * still reach the manifest's own copy. Two specs stand behind it:

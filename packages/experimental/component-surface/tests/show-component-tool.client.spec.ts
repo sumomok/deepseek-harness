@@ -15,11 +15,12 @@ import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import type { ToolDefinition, ToolExecutionInput, ToolExecutionResult } from '@deepseek-ai/dsh-tools'
-import { COMPONENT_CATALOG, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
+import { COMPONENT_CATALOG, CRUD_ID, describeCatalog, SHOW_COMPONENT_TOOL_NAME } from '../src/component-call.ts'
+import { PendingLoads } from '../src/crud.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
 
 /** The offer of a deployment that composed no data backend, which is what this suite pins. */
-const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200 }
+const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200, crud: false, crudLoadTimeoutMs: 1000 }
 
 let calls = 0
 
@@ -34,7 +35,7 @@ async function bench(): Promise<Bench> {
   const ctx = new Context()
   await ctx.plugin(SystemPrompt)
   await ctx.plugin(ToolRuntime)
-  const definition = showComponentTool(ctx, PLAIN)
+  const definition = showComponentTool(ctx, PLAIN, new PendingLoads())
   ctx.tools.register(definition)
   return {
     definition,
@@ -62,11 +63,13 @@ describe('show_component model-visible surface', () => {
     // The catalog lines themselves are pinned verbatim where they are built, in
     // `component-call.client.spec.ts`; what this file owns is the frame around
     // them and the fact that the whole catalog goes inside it.
+    // The data page is left out of this offer: it opens only once the user
+    // has been asked, and this deployment composed nobody to ask.
     expect(definition.description).toBe(
       'Put a block of interface in the content panel beside the conversation — the area the user sees '
       + 'without opening or scrolling anything. Use it to place a choice or a summary in front of the user '
       + 'while you talk about it.\n\nComponents:\n'
-      + describeCatalog(COMPONENT_CATALOG)
+      + describeCatalog(COMPONENT_CATALOG.filter(entry => entry.id !== CRUD_ID))
       + '\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry '
       + 'shows, and a new id adds a second entry beside it. When the user asks to change something already on '
       + 'display, reuse that entry\'s id.\n\n'

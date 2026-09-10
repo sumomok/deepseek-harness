@@ -53,6 +53,8 @@ import {
   COMPONENT_ACTION_COMMAND,
   COMPONENT_ACTION_PLUGIN,
   COMPONENT_KIND,
+  CRUD_ID,
+  CRUD_LOAD_ID,
   MAX_ACTION_PAYLOAD_BYTES,
   parseComponentActionLine,
   WAKE_BUDGET,
@@ -61,6 +63,7 @@ import {
   type ComponentActionNotice,
 } from './component-call.ts'
 import { componentActionsProjection } from './action-projection.ts'
+import type { CrudLoadReport, PendingLoads } from './crud.ts'
 import { readComponentSurfaceData } from './surface.ts'
 import { acceptsActionPayload, validateComponentSpec } from './validate.ts'
 
@@ -118,6 +121,13 @@ export interface ResolvedAction {
    * notice instead of queueing beside it.
    */
   readonly key: string
+  /**
+   * What a data page reported it loaded, where the gesture is that report;
+   * absent for every other gesture. Read by the handler before delivery,
+   * because a call may still be waiting to put these columns in its own
+   * result line, and a report that call takes is delivered nowhere else.
+   */
+  readonly load?: CrudLoadReport
 }
 
 /**
@@ -187,7 +197,12 @@ function resolveAction(
   // Built from what the lookups returned rather than from what the document
   // said, so two seats spelling one gesture differently cannot land on two keys.
   const key = JSON.stringify([record.entryId, node.id, definition.id])
-  return { kind: 'resolved', action: { notice, report: definition.report, key } }
+  // The payload passed the load action's own schema and `describe` accepted
+  // it as this block's table, so the cast records what has already been judged.
+  const load = component.id === CRUD_ID && definition.id === CRUD_LOAD_ID
+    ? action.payload as unknown as CrudLoadReport
+    : undefined
+  return { kind: 'resolved', action: { notice, report: definition.report, key, ...load === undefined ? {} : { load } } }
 }
 
 /**
@@ -312,12 +327,18 @@ export function deliverAction(
  *
  * The memory is passed in rather than owned here so that the budget's refill
  * listener and the spending site share one table; {@link installComponentAction}
- * is what wires the pair together.
+ * is what wires the pair together. The pending loads are the tool's table,
+ * shared for the one gesture the tool itself waits on: a data page's report of
+ * its columns settles the call that opened the page where that call is still
+ * waiting, and is delivered as an ordinary notice where it is not. The report
+ * is looked up under the reporting session, so a call in another session
+ * waiting on the same entry id is not settled by it.
  * @param ctx - context carrying the projection registry the entry is resolved through.
  * @param memory - the wake budget and the unclaimed context notices, per agent.
+ * @param pending - the calls waiting for their data page's report.
  * @returns the definition to hand to `ctx.commands.register`.
  */
-export function componentActionCommand(ctx: Context, memory: ActionMemory): CommandDefinition {
+export function componentActionCommand(ctx: Context, memory: ActionMemory, pending: PendingLoads): CommandDefinition {
   return {
     name: COMPONENT_ACTION_COMMAND,
     // Chinese, and free of this package's vocabulary: the command registry has
@@ -339,6 +360,11 @@ export function componentActionCommand(ctx: Context, memory: ActionMemory): Comm
       const resolved = resolveAction(records, action)
       if (resolved.kind === 'too-large') return { kind: 'error', text: ACTION_TOO_LARGE }
       if (resolved.kind === 'unresolved') return { kind: 'error', text: ACTION_NOT_RECORDED }
+      // A report the placing call is still waiting for goes into that call's
+      // own result line and nowhere else: the agent reads it once, there.
+      if (resolved.action.load !== undefined && pending.report(session, action.entryId, resolved.action.load)) {
+        return { kind: 'success' }
+      }
       // The delivery, not the grade: a gesture the agent stopped for and that
       // only reached the inbox is answered with the sentence saying so, and the
       // block that drew it shows that sentence rather than claiming the
@@ -366,8 +392,9 @@ export function componentActionCommand(ctx: Context, memory: ActionMemory): Comm
  * back what each press became, and where it does not, there are no presses to
  * read.
  * @param ctx - context carrying the command registry and the projection registry.
+ * @param pending - the calls waiting for their data page's report, shared with the tool.
  */
-export function installComponentAction(ctx: Context): void {
+export function installComponentAction(ctx: Context, pending: PendingLoads): void {
   const memory = actionMemory()
   ctx.on('agent/inbox/claimed', ({ agent, message }) => {
     // Claiming is the point human input actually enters a step; a notice this
@@ -375,7 +402,7 @@ export function installComponentAction(ctx: Context): void {
     if (message.source.kind === 'user') memory.spentWakes.delete(agent)
   })
   ctx.effect(
-    () => ctx.commands.register(componentActionCommand(ctx, memory)),
+    () => ctx.commands.register(componentActionCommand(ctx, memory, pending)),
     `show-component: the /${COMPONENT_ACTION_COMMAND} command`,
   )
   ctx.effect(

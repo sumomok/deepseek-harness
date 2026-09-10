@@ -26,10 +26,12 @@
 
 import type { SessionEvent } from '@deepseek-ai/dsh-session/types'
 import {
+  crudNodes,
   parseComponentCall,
   readComponentCall,
   SHOW_COMPONENT_TOOL_NAME,
   type ComponentCallArguments,
+  type ComponentSpec,
 } from './component-call.ts'
 // Type-only: this package's own SessionEventMap merges.
 import type {} from './types.ts'
@@ -61,4 +63,25 @@ export function readComponentEvent(event: SessionEvent): ComponentCallArguments 
     return { id: event.data.entryId, title: event.data.title, spec: event.data.spec }
   }
   return undefined
+}
+
+/**
+ * Whether one recorded call is the entry it names, or a question still
+ * standing in front of it.
+ *
+ * A call that opens the deployment's own data page is recorded as a `tool/call`
+ * before the user has been asked, and the record the column draws it from is
+ * the `content-component/resolved` the tool appends once they have agreed. The
+ * call's own record therefore records no entry: an entry drawn from it would
+ * put the page on screen — and its first request on the wire, with the user's
+ * own credential — before the answer, and would keep it there after a refusal.
+ * Shared by the extractor and the invariant companion so both count the same
+ * records.
+ * @param event - the committed session event the spec was read from.
+ * @param spec - the spec, as validation accepted it.
+ * @returns true when the event records the entry; false when a later record does.
+ */
+export function recordsEntry(event: SessionEvent, spec: ComponentSpec): boolean {
+  const isCall = event.type === 'tool/call' || event.type === 'tool/code-dispatch-start'
+  return !(isCall && crudNodes(spec).length > 0)
 }

@@ -27,6 +27,9 @@ export const zh = {
   'action.queued': '已记下，你下次发消息时对话会看到',
   'action.refused': '这个动作没能记下来，可以再试',
   'filterBar.submit': '查询',
+  'crud.preparing': '正在准备数据页…',
+  'crud.unavailable': '数据页的地址没有配置好，这块内容打不开。',
+  'crud.noTable': '这块内容没说要打开哪张表，打不开。',
 } satisfies Record<string, string>
 
 /** The componentKit namespace key union. */
@@ -47,6 +50,9 @@ export const en = {
   'action.queued': 'Noted — the conversation will see it with your next message',
   'action.refused': 'This was not recorded. You can try again.',
   'filterBar.submit': 'Search',
+  'crud.preparing': 'Preparing the data page…',
+  'crud.unavailable': 'The data page\'s address is not configured, so this block cannot open.',
+  'crud.noTable': 'This block does not say which table to open, so it cannot open.',
 } satisfies Record<ComponentKitKey, string>
 
 declare module '@deepseek-ai/dsh-client-ui-slots' {

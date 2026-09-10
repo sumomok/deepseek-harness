@@ -1,0 +1,22 @@
+.box {
+  /* `Crud.vue` is `height: 100%` over a query form and an `el-table` of the
+     same, so the box carries a height of its own or the whole page collapses;
+     `containCrud` makes it the positioned ancestor its overlay and progress
+     bar are confined to. */
+  position: relative;
+  block-size: 32rem;
+  inline-size: 100%;
+  overflow: hidden;
+}
+
+.host {
+  block-size: 100%;
+  inline-size: 100%;
+}
+
+.notice {
+  margin: 0;
+  padding: 0.5rem 0.75rem;
+  color: var(--dsh-text-muted, #6b7280);
+  font-size: 0.875rem;
+}

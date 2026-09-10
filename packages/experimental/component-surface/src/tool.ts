@@ -38,9 +38,12 @@ import {
   BINDING_KEY,
   catalogLabels,
   COMPONENT_CATALOG,
+  CRUD_ID,
+  crudNodes,
   describeCatalog,
   MATCH_OPERATOR_IDS,
   MAX_COLUMN_ALIAS_LENGTH,
+  MAX_CRUD_REPORTED_COLUMNS,
   MAX_ENTRY_ID_LENGTH,
   MAX_FLEX,
   MAX_LAYOUT_DEPTH,
@@ -52,7 +55,20 @@ import {
   TABLE_ID,
   TOKEN_HINT,
   type ComponentCall,
+  type ComponentCatalogEntry,
+  type ComponentNode,
 } from './component-call.ts'
+import {
+  crudApprovalReason,
+  crudBesideDataSource,
+  crudLoadedText,
+  crudNotOffered,
+  crudUnreportedText,
+  CRUD_NOT_APPROVED,
+  CRUD_NO_SESSION,
+  judgeCrudNodes,
+  type PendingLoads,
+} from './crud.ts'
 import {
   applyDataSourceRows,
   dataSourceApprovalReason,
@@ -115,6 +131,15 @@ export interface ShowComponentOptions {
   readonly dataSource: boolean
   /** Rows one read asks for when the call names no count of its own. */
   readonly defaultPageSize: number
+  /**
+   * Whether a call may open the deployment's own data page (`toy.crud`) in
+   * the panel. False wherever the deployment composed no approval answerer,
+   * and the component is then absent from the description — a block nobody
+   * can be asked about is one nobody may place.
+   */
+  readonly crud: boolean
+  /** How long a call waits for the opened page to report its columns before answering without them. */
+  readonly crudLoadTimeoutMs: number
 }
 
 /** What one table's read returned, as the model is told it and the log records it. */
@@ -176,6 +201,39 @@ function describeDataSource(defaultPageSize: number): string {
 }
 
 /**
+ * Build the paragraph describing the data page.
+ *
+ * Split out for the reason the data-source paragraph is: a composition that
+ * cannot ask the user must not be told about a block that opens only once the
+ * user has been asked. Self-contained — it names what this block does and what
+ * comes back, and no other tool.
+ * @returns the paragraph.
+ */
+function describeCrud(): string {
+  return `\n\nA ${CRUD_ID} block is this deployment's own full page for one table, opened in the panel with the `
+    + 'user\'s own credential. You choose the table (`relatedMeta`), its name in the user\'s language '
+    + '(`metaLabel`, which is what the user is shown when asked), optional `conditions` the page applies without '
+    + 'showing them, `matchMode`, one `querySort` direction, and `selectMode`; the page itself is read-only, and a '
+    + 'call opens one page. The user is asked once before it opens, and a refused question draws nothing. What comes '
+    + `back to you is the page's first ${MAX_CRUD_REPORTED_COLUMNS} columns once it has loaded — in the result line `
+    + 'when the page loads in time, as a notice otherwise — then each query\'s row count and the row and column of a '
+    + 'cell the user clicks; the rows themselves stay in the panel.'
+}
+
+/**
+ * The components one composition offers.
+ *
+ * The data page needs a question answered before it opens, so a composition
+ * that cannot ask leaves it out of the list a model reads — the same rule the
+ * `dataSource` parameter follows, applied to a component.
+ * @param options - what this composition offers.
+ * @returns the catalog with the components this composition cannot honour left out.
+ */
+function offeredCatalog(options: ShowComponentOptions): readonly ComponentCatalogEntry[] {
+  return options.crud ? COMPONENT_CATALOG : COMPONENT_CATALOG.filter(entry => entry.id !== CRUD_ID)
+}
+
+/**
  * Build the model-facing description of the offer.
  *
  * The catalog is spliced in rather than summarized, so a model that has never
@@ -198,7 +256,7 @@ export function describeShowComponent(options: ShowComponentOptions): string {
   return 'Put a block of interface in the content panel beside the conversation — the area the user sees '
     + 'without opening or scrolling anything. Use it to place a choice or a summary in front of the user '
     + 'while you talk about it.\n\nComponents:\n'
-    + describeCatalog(COMPONENT_CATALOG)
+    + describeCatalog(offeredCatalog(options))
     + '\n\nEach call owns the entry its `id` names: calling again with the same id replaces what that entry '
     + 'shows, and a new id adds a second entry beside it. When the user asks to change something already on '
     + 'display, reuse that entry\'s id.\n\n'
@@ -221,6 +279,7 @@ export function describeShowComponent(options: ShowComponentOptions): string {
     + 'for an answer a block is already asking for, and do not place a block that sends nothing back to ask a '
     + 'question with.'
     + (options.dataSource ? describeDataSource(options.defaultPageSize) : '')
+    + (options.crud ? describeCrud() : '')
 }
 
 /**
@@ -556,6 +615,13 @@ async function runDataSource(
     spec: probeDataSourceSpec(args.spec, resolved.nodes, resolved.targets),
   })
   if (!judged.ok) throw new Error(judged.failure.text)
+  // A data page is its own question: a call cannot put two on one card. A
+  // deployment that does not offer the page refuses it by name instead, because
+  // that is the reason this call cannot open one, and telling the model to move
+  // it into a call of its own would send it to write a call refused the same way.
+  if (crudNodes(judged.call.spec).length > 0) {
+    throw new Error((options.crud ? crudBesideDataSource(judged.call.spec) : crudNotOffered(judged.call.spec)).text)
+  }
   const { agent } = exec
   // No session means neither half of this can happen: nobody to ask, and
   // nowhere to record what the rows became.
@@ -605,12 +671,66 @@ async function runDataSource(
 }
 
 /**
+ * Run one call that opens the deployment's own data page.
+ *
+ * The order is the data-source order with the reads taken out: the call is
+ * judged whole before anything is asked, then the user is asked, then the
+ * record the column draws from is appended — the call's own `tool/call` names
+ * a page nobody has agreed to yet, and the extractor leaves it out — and then
+ * the call waits, up to the deployment's deadline, for the page the seat drew
+ * to report its columns. Nothing is requested of any backend from here: the
+ * page reads its table from the browser with the user's own credential.
+ * @param ctx - the injected context carrying the approval service.
+ * @param options - what this composition offers.
+ * @param call - the call, as validation accepted it.
+ * @param page - the one data page block the call places.
+ * @param exec - the execution's identity, agent and cancellation.
+ * @param pending - the table of calls waiting for their page's report.
+ * @returns the accepted outcome.
+ * @throws {Error} carrying the one model-facing sentence for whatever stopped the page.
+ */
+async function runCrud(
+  ctx: Context,
+  options: ShowComponentOptions,
+  call: ComponentCall,
+  page: ComponentNode,
+  exec: ToolRunContext,
+  pending: PendingLoads,
+): Promise<ShowComponentValue> {
+  const { agent } = exec
+  // No session means neither half of this can happen: nobody to ask, and
+  // nowhere to record what was allowed.
+  if (agent === undefined) throw new Error(CRUD_NO_SESSION)
+  const outcome = await ctx.approval.request({
+    agent,
+    toolName: SHOW_COMPONENT_TOOL_NAME,
+    callId: exec.callId,
+    reason: crudApprovalReason(page),
+    signal: exec.signal,
+  })
+  if (outcome !== 'allowed-once') throw new Error(CRUD_NOT_APPROVED)
+  // The same record a read appends, with nothing fetched: the host read
+  // nothing, and what the column needs is the spec the user agreed to.
+  agent.session.append('content-component/resolved', {
+    callId: exec.callId,
+    entryId: call.id,
+    title: call.title,
+    spec: call.spec,
+    fetched: [],
+  })
+  const report = await pending.settle(agent.session, call.id, options.crudLoadTimeoutMs, exec.signal)
+  const loaded = report === undefined ? crudUnreportedText(page, options.crudLoadTimeoutMs) : crudLoadedText(page, report)
+  return { entryId: call.id, text: acceptedText(call) + loaded }
+}
+
+/**
  * Build the `show_component` tool.
  * @param ctx - the context the tool is registered on, carrying the data backend and the approval service wherever the offer includes them.
  * @param options - what this composition offers.
+ * @param pending - the table a call opening a data page waits on for that page's report.
  * @returns the definition to hand to `ctx.tools.register`.
  */
-export function showComponentTool(ctx: Context, options: ShowComponentOptions): ToolDefinition {
+export function showComponentTool(ctx: Context, options: ShowComponentOptions, pending: PendingLoads): ToolDefinition {
   return defineTool({
     name: SHOW_COMPONENT_TOOL_NAME,
     description: describeShowComponent(options),
@@ -667,7 +787,11 @@ export function showComponentTool(ctx: Context, options: ShowComponentOptions): 
       // A refusal changes nothing: the panel keeps showing whatever it showed,
       // and the model gets the offending path back to correct itself.
       if (!result.ok) throw new Error(result.failure.text)
-      return Promise.resolve({ entryId: result.call.id, text: acceptedText(result.call) })
+      const page = crudNodes(result.call.spec)[0]
+      if (page === undefined) return Promise.resolve({ entryId: result.call.id, text: acceptedText(result.call) })
+      const refusal = judgeCrudNodes(result.call.spec, options.crud)
+      if (refusal !== undefined) throw new Error(refusal.text)
+      return runCrud(ctx, options, result.call, page, exec, pending)
     },
     presentCall: (args): GenericCallView => ({
       card: 'generic',

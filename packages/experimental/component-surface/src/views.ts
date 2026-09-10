@@ -11,7 +11,7 @@
  * @module @deepseek-ai/dsh-experimental-component-surface/src/views
  */
 
-import type { ComponentCall } from './component-call.ts'
+import { CRUD_ID, crudNodes, type ComponentCall } from './component-call.ts'
 import type { ContentView } from './types.ts'
 import { validateComponentCall, type ComponentCallFailure } from './validate.ts'
 
@@ -42,8 +42,8 @@ function refusalDetail(failure: ComponentCallFailure): string {
  * @param homeView - the `homeView` config value, when set.
  * @returns the id index, in declaration order.
  * @throws {Error} when a view's id, title or spec is not one the tool would
- * have accepted, when an id repeats, or when `homeView` names no configured
- * view.
+ * have accepted, when an id repeats, when a view places the data page, or when
+ * `homeView` names no configured view.
  */
 export function indexViews(views: readonly ContentView[], homeView: string | undefined): ViewIndex {
   const index = new Map<string, ComponentCall>()
@@ -55,6 +55,14 @@ export function indexViews(views: readonly ContentView[], homeView: string | und
     }
     if (index.has(result.call.id)) {
       throw new Error(`component-surface: duplicate view id ${JSON.stringify(result.call.id)} at views[${position}]`)
+    }
+    // A data page opens only once the user has been asked, and a view asks
+    // nobody: a click on the sidebar would put the page's first request on the
+    // wire with the user's own credential and no question in front of it.
+    if (crudNodes(result.call.spec).length > 0) {
+      throw new Error(
+        `component-surface: views[${position}] ${JSON.stringify(result.call.id)} — places a ${CRUD_ID} block, which `
+        + 'only a call the user is asked about may place')
     }
     index.set(result.call.id, result.call)
   }

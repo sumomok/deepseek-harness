@@ -57,10 +57,13 @@ declare module '@deepseek-ai/dsh-session/types' {
       by: 'user'
     }
     /**
-     * A `show_component` call read rows out of the deployment's own data
-     * backend, and this is the whole entry those rows became. Written by the
-     * tool itself, once the user allowed the read and every table answered, and
-     * by nothing else.
+     * A `show_component` call asked the user before drawing, and this is the
+     * whole entry the answer allowed: a call that read rows out of the
+     * deployment's own data backend, with the rows in it, or a call that opens
+     * the deployment's own data page, which the host reads nothing for and
+     * records with an empty `fetched`. Written by the tool itself, once the
+     * user allowed the call and — for a read — every table answered, and by
+     * nothing else.
      *
      * Log-only, and never a model-visible input. What the model receives is the
      * arguments it wrote plus a result line counting rows and naming attributes;
@@ -95,7 +98,8 @@ declare module '@deepseek-ai/dsh-session/types' {
       /**
        * What each read returned: never a cell, only the counts and the
        * attribute names the model was told, so this record carries no row
-       * content that the spec above does not already carry.
+       * content that the spec above does not already carry. Empty for a call
+       * that opened a data page, which read nothing on the host.
        */
       fetched: {
         /** The block the rows went into. */

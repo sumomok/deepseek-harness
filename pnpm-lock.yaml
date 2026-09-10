@@ -5220,6 +5220,12 @@ importers:
 
   packages/experimental/component-kit:
     dependencies:
+      '@deepseek-ai/schemastery':
+        specifier: link:../../../vendor/schemastery
+        version: link:../../../vendor/schemastery
+      '@sumomok/toy-crud-kit':
+        specifier: file:./vendor/sumomok-toy-crud-kit-0.2.3.tgz
+        version: file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.2.3.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)
       '@sumomok/toy-surface-kit':
         specifier: file:./vendor/sumomok-toy-surface-kit-0.3.1.tgz
         version: file:packages/experimental/component-kit/vendor/sumomok-toy-surface-kit-0.3.1.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)
@@ -5233,6 +5239,9 @@ importers:
       '@deepseek-ai/cordis':
         specifier: workspace:^
         version: link:../../../vendor/cordis
+      '@deepseek-ai/dsh-client-connection':
+        specifier: workspace:^
+        version: link:../../client/connection
       '@deepseek-ai/dsh-client-locale':
         specifier: workspace:^
         version: link:../../client/locale
@@ -5248,6 +5257,9 @@ importers:
       '@deepseek-ai/dsh-experimental-vue2-echarts-poc':
         specifier: workspace:^
         version: link:../vue2-echarts-poc
+      '@deepseek-ai/dsh-host-webserver':
+        specifier: workspace:^
+        version: link:../../host/webserver
       '@types/react':
         specifier: ~18.3.1
         version: 18.3.31
@@ -14219,6 +14231,13 @@ packages:
       react-dom:
         optional: true
 
+  '@sumomok/toy-crud-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.2.3.tgz':
+    resolution: {integrity: sha512-k1ufPu0NHQDGAZul7NQbnAfZdSFexChc4pcg4yraySW8bMJk2EUAmFlaL8xyzbs9oOwBCfPaKxVKS2qaj1dEgw==, tarball: file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.2.3.tgz}
+    version: 0.2.3
+    peerDependencies:
+      element-ui: ^2.15.14
+      vue: ^2.7.0
+
   '@sumomok/toy-surface-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-surface-kit-0.3.1.tgz':
     resolution: {integrity: sha512-GqjBwNVtdFW5d6u9pRvZgLevKlAJpHnXZxtYy9JicFnRAvmKZheIPGK2Duw3AD27aqaO23BdrQTSgwvpS0LSOQ==, tarball: file:packages/experimental/component-kit/vendor/sumomok-toy-surface-kit-0.3.1.tgz}
     version: 0.3.1
@@ -21118,6 +21137,13 @@ snapshots:
       '@deepseek-ai/dsh-session': link:packages/core/session
       react: 18.3.1
       react-dom: 18.3.1(react@18.3.1)
+
+  '@sumomok/toy-crud-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-crud-kit-0.2.3.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)':
+    dependencies:
+      dayjs: 1.11.21
+      element-ui: 2.15.14(vue@2.7.16)
+      lodash: 4.18.1
+      vue: 2.7.16
 
   '@sumomok/toy-surface-kit@file:packages/experimental/component-kit/vendor/sumomok-toy-surface-kit-0.3.1.tgz(element-ui@2.15.14(vue@2.7.16))(vue@2.7.16)':
     dependencies:

@@ -18,15 +18,20 @@
  */
 
 import {
+  CARD_TEXT_CHARSET,
+  CARD_TEXT_HINT,
   FIELD_CHARSET,
   FIELD_HINT,
   MATCH_OPERATOR_IDS,
   MATCH_OPERATORS,
   MAX_COLUMN_ALIAS_LENGTH,
   MAX_CONDITION_VALUE_LENGTH,
+  MAX_CONDITION_VALUES,
   MAX_FIELD_NAME_LENGTH,
+  MAX_META_LABEL_LENGTH,
   MAX_NODE_ID_LENGTH,
   MAX_NODES,
+  MAX_READ_CONDITIONS,
   MAX_SPEC_BYTES,
   MAX_TABLE_COLUMNS,
   MAX_TABLE_ROWS,
@@ -38,36 +43,6 @@ import {
 import { refuse, type ComponentCallFailure } from './validate.ts'
 // Type-only: the default query scheme this module turns into a column list.
 import type { BizSchemeColumn } from '@deepseek-ai/dsh-experimental-biz-backend'
-
-/** Conditions one block's read may carry. */
-const MAX_DATA_SOURCE_CONDITIONS = 10
-
-/** Values one `IN`-shaped condition may list. */
-const MAX_CONDITION_VALUES = 20
-
-/** Largest accepted table name in the user's own language, in characters. */
-const MAX_META_LABEL_LENGTH = 20
-
-/**
- * What a word the model wrote may be made of before a person reads it on the
- * approval card.
- *
- * The card is built by joining these words with punctuation of its own, so a
- * value carrying a line break or a `「」` of its own could draw a line the card
- * never wrote — including the line naming the table in the backend's words,
- * which is the one part of the card a person can check the rest against.
- * Control and format characters go for the same reason plus a second: a
- * right-to-left override or a zero-width joiner changes what a sentence reads
- * as without changing what it says. The two Unicode separators that break a
- * line without being control characters — `U+2028` and `U+2029` — go with them,
- * because a renderer that honours either draws exactly the line this rule
- * exists to keep the model from drawing. `\p{Zs}` stays accepted: an ordinary
- * space between words breaks nothing.
- */
-const CARD_TEXT_CHARSET = /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}「」]+$/u
-
-/** Model-facing wording of {@link CARD_TEXT_CHARSET}, spliced into every refusal that states it. */
-const CARD_TEXT_HINT = 'one line of plain text, carrying no line break, no other control character, and no 「」 bracket'
 
 /** Columns the approval sentence names before it stops naming them and counts the rest. */
 const MAX_NAMED_COLUMNS = 3
@@ -432,10 +407,10 @@ function readBlock(
   const conditions: DataSourceCondition[] = []
   const written = entry['conditions']
   if (written !== undefined) {
-    if (!Array.isArray(written) || written.length > MAX_DATA_SOURCE_CONDITIONS) {
+    if (!Array.isArray(written) || written.length > MAX_READ_CONDITIONS) {
       return {
         ok: false,
-        failure: refuse(`${path}.conditions`, `must be a list of at most ${MAX_DATA_SOURCE_CONDITIONS} conditions.`),
+        failure: refuse(`${path}.conditions`, `must be a list of at most ${MAX_READ_CONDITIONS} conditions.`),
       }
     }
     for (const [position, item] of written.entries()) {
@@ -921,10 +896,11 @@ function targetDescription(target: DataSourceTarget): string {
  *
  * One card per call rather than one per table: the user consented to a call,
  * and a second card for the same press is a second question about a decision
- * already made. Each table's own name in the backend goes on a line of its own,
- * small print rather than prose — the name in the card's sentence is the one
- * the model wrote, so a person who wants to check what was really asked for has
- * the identifier and a person who does not never reads a term.
+ * already made. Each table's own name in the backend goes on a line of its own
+ * beneath the prose rather than inside it, drawn at the same size as the prose —
+ * the name in the card's sentence is the one the model wrote, so a person who
+ * wants to check what was really asked for has the identifier and a person who
+ * does not never reads a term.
  *
  * Every description is cut to its share of {@link MAX_APPROVAL_PROSE_CHARS}
  * before its identifier line is appended, so no amount of text a model writes

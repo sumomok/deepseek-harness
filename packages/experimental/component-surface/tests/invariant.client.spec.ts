@@ -153,3 +153,42 @@ describe('the component-entry invariant', () => {
       .toEqual(['budget'])
   })
 })
+
+describe('a call that opens the data page', () => {
+  /** One data page block, whose call is a question before it is an entry. */
+  const PAGE = { nodes: [{ id: 'page', component: 'toy.crud', props: { relatedMeta: 'device', metaLabel: '设备台账' } }] }
+
+  /** A producer standing in for a column that drew the page off the call alone, before the user had answered. */
+  const early: ContentSurfaceExtractor<{ title: string; spec: unknown }> = {
+    kind: 'component',
+    dataVersion: 1,
+    read: event => (event.type === 'todo/write' ? { entryId: 'page', data: { title: '设备', spec: PAGE } } : undefined),
+    resolve: data => ({ title: data.title, payload: { spec: data.spec } }),
+  }
+
+  it('records no entry for the call itself, and one for the answer the tool appends', async () => {
+    const { ctx, session } = await bench(componentExtractor() as unknown as ContentSurfaceExtractor<never>)
+    await ctx.plugin(ComponentSurfaceInvariant).await()
+    const entries = () => ctx.sessionProjections.snapshot(session).values.contentSurface?.entries.map(entry => entry.entryId)
+    call(session, 'call-page', { id: 'page', title: '设备', spec: PAGE })
+    expect(entries()).toEqual([])
+    expect(() => { audit(ctx, session) }).not.toThrow()
+    session.append('content-component/resolved', {
+      callId: ToolCallId('call-page'),
+      entryId: 'page',
+      title: '设备',
+      spec: PAGE,
+      fetched: [],
+    })
+    expect(entries()).toEqual(['page'])
+    expect(() => { audit(ctx, session) }).not.toThrow()
+  })
+
+  it('rejects a column that drew the page off the call alone, before the user had answered', async () => {
+    const { ctx, session } = await bench(early as unknown as ContentSurfaceExtractor<never>)
+    await ctx.plugin(ComponentSurfaceInvariant).await()
+    call(session, 'call-page', { id: 'page', title: '设备', spec: PAGE })
+    session.append('todo/write', { todos: [] })
+    expect(() => { audit(ctx, session) }).toThrow(`carries a component content entry "page" ${UNAUTHORIZED}`)
+  })
+})

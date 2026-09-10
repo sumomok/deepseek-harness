@@ -134,7 +134,14 @@ describe('component catalog', () => {
       + ' user. Nothing comes back from it.'
       + '\n  props: size? (40–400), process (0–100), text?, background? (#RGB|#RRGGBB|rgb()|rgba()),'
       + ' borderColor? (#RGB|#RRGGBB|rgb()|rgba()), pointColor? (#RGB|#RRGGBB|rgb()|rgba()),'
-      + ' isPointShow? (true|false)',
+      + ' isPointShow? (true|false)'
+      + '\n- toy.crud — 完整数据页 — This deployment\'s own full data page for one table, opened with the user\'s own'
+      + ' credential once they agree: they query, page and sort in it themselves, and you are told its columns, each'
+      + ' query\'s row count, and the row and column of a cell they click — no row they do not click.'
+      + '\n  props: relatedMeta, metaLabel, conditions?[{key, op (EQ|NOT_EQ|IN|NOT_IN|LIKE|NOT_LIKE|IS_NULL|NOT_NULL'
+      + '|PREFIX|NOT_PREFIX|GREATER_THAN|EQ_AND_GREATER_THAN|LESS_THAN|LESS_AND_EQ_THAN|BETWEEN|NOT_BETWEEN),'
+      + ' value (text|number|true|false|[text|number])}] (1–10), matchMode? (AND|OR), querySort?{asc?, desc?},'
+      + ' selectMode? (checkbox|radio), isExpandQuery? (true|false), isInitQuery? (true|false)',
     )
     // Two lines per component, and a third wherever another block can read
     // something out of one.
@@ -229,12 +236,14 @@ describe('component catalog', () => {
         flags: list({ kind: 'boolean' }),
         tones: list({ kind: 'enum', values: ['wide', 2] }),
         grid: list({ kind: 'array', minItems: 1, maxItems: 2, item: { kind: 'string', maxLength: 4 } }),
+        values: list({ kind: 'scalar', maxLength: 4, maxItems: 2 }),
       },
       actions: [],
       outputs: [],
     }
     expect(describeCatalog([probe]).split('\n')[1]).toBe(
-      '  props: words[text] (1–2), counts[number] (1–2), flags[true|false] (1–2), tones[wide|2] (1–2), grid[[text]] (1–2)',
+      '  props: words[text] (1–2), counts[number] (1–2), flags[true|false] (1–2), tones[wide|2] (1–2), grid[[text]] (1–2), '
+      + 'values[text|number|true|false|[text|number]] (1–2)',
     )
   })
 

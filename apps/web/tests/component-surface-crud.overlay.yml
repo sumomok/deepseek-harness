@@ -1,0 +1,41 @@
+# The console composition of `component-surface.overlay.yml`, plus what a call
+# opening the deployment's own data page needs: the gate that signs the visitor
+# in (the page carries the visitor's own token from the browser, which the
+# gate's login flow is what stores), the base path the component row's data
+# page requests its table under, and the `crud` offer on the tool itself. The
+# approval service the page asks its one question through is already in the
+# shipped composition.
+#
+# No `bizUpstream`: the host reads nothing for this kind. What the page
+# requests goes browser → the shell's own origin under `bizBasePath`, and the
+# scenario answers those requests in the browser, the way a reverse proxy in
+# front of a real console would.
+- id: ui-layout
+  name: '@deepseek-ai/dsh-client-ui-layout'
+  disabled: true
+
+- insert:
+    - id: server-layout
+      name: '@deepseek-ai/dsh-experimental-server-layout'
+    - id: content-surface
+      name: '@deepseek-ai/dsh-experimental-content-surface'
+    - id: content-column
+      name: '@deepseek-ai/dsh-experimental-content-column'
+    - id: vue2-echarts-poc
+      name: '@deepseek-ai/dsh-experimental-vue2-echarts-poc'
+    - id: component-kit
+      name: '@deepseek-ai/dsh-experimental-component-kit'
+      config:
+        bizBasePath: /ini-server/
+    - id: auth-gate
+      name: '@deepseek-ai/dsh-experimental-auth-gate'
+      config:
+        loginUrl: /component-surface-crud-login/#/
+        cookieName: accessToken
+        refreshMarginSeconds: 300
+        mcpUpstreams: {}
+    - id: show-component
+      name: '@deepseek-ai/dsh-experimental-component-surface'
+      config:
+        crud: true
+        crudLoadTimeoutMs: 20000

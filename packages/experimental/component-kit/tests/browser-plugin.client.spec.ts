@@ -5,20 +5,33 @@
  * safety), the renderer table it publishes, and the inert node entry.
  */
 import { Context } from '@deepseek-ai/cordis'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { SlotRegistry } from '@deepseek-ai/dsh-client-ui-renderer/client'
 import { stubSettingsScope } from '@deepseek-ai/dsh-client-test-runtime'
 import { apply as applyLocale, inject as localeInject } from '@deepseek-ai/dsh-client-locale/client'
 import { apply, COMPONENT_RENDERERS, inject } from '../src/client/index.ts'
 import { apply as applyNode } from '../src/index.ts'
 import { ConfirmBar } from '../src/client/ConfirmBar.tsx'
+import { CrudRenderer } from '../src/client/CrudRenderer.tsx'
+import { COMPONENT_KIT_SETTINGS_ROUTE } from '../src/route.ts'
 import { TableDetailRenderer } from '../src/client/TableDetailRenderer.tsx'
 import { TcProcessBallRenderer } from '../src/client/TcProcessBallRenderer.tsx'
 import { TuQueryCondAdvRenderer } from '../src/client/TuQueryCondAdvRenderer.tsx'
 import { TcFormDetailRenderer } from '../src/client/TcFormDetailRenderer.tsx'
 import { en, NS, zh } from '../src/client/locales.ts'
 
-/** Boot the browser half over a real locale registry. */
+/** Every read of the settings route the browser half made, across the file: the read is memoized for the page's life. */
+const settingsReads: string[] = []
+
+// Stubbed once for the file rather than per case, because the browser half
+// reads its settings once for the page's life and the first bench is what
+// starts that read.
+vi.stubGlobal('fetch', vi.fn((input: URL) => {
+  settingsReads.push(input.pathname)
+  return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve({ bizBasePath: '/' }) })
+}))
+
+/** Boot the browser half over a real locale registry, with the node half's settings route answered. */
 async function bench(): Promise<{ ctx: Context; fiber: ReturnType<Context['plugin']> }> {
   const ctx = new Context()
   // The locale plugin installs the `t` seat on the slot registry, so the
@@ -64,15 +77,26 @@ describe('component-kit browser half', () => {
       'el.confirm-bar': ConfirmBar,
       'el.filter-bar': TuQueryCondAdvRenderer,
       'el.metric': TcProcessBallRenderer,
+      'toy.crud': CrudRenderer,
       'toy.record': TcFormDetailRenderer,
       'toy.table': TableDetailRenderer,
     })
   })
+
+  it('starts the one read of the node half\'s settings when it starts, once for the page', async () => {
+    await bench()
+    await bench()
+    expect(settingsReads).toEqual([COMPONENT_KIT_SETTINGS_ROUTE])
+  })
 })
 
 describe('component-kit node half', () => {
-  it('contributes no host behavior', () => {
-    // The node half exists only so the plugin appears in the Loader tree.
-    expect(applyNode).not.toThrow()
+  it('claims no service and serves nothing without a webserver', () => {
+    // The node half's one contribution is a settings route, and it waits for
+    // the webserver rather than requiring it; the route itself is exercised in
+    // `host-settings.client.spec.ts`.
+    const ctx = new Context()
+    expect(() => { applyNode(ctx, {}) }).not.toThrow()
+    expect(ctx.get('webServer')).toBeUndefined()
   })
 })

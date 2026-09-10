@@ -25,6 +25,7 @@ import ToolRuntime from '@deepseek-ai/dsh-tools'
 import ContentSurfaceRegistry from '@deepseek-ai/dsh-experimental-content-surface'
 import type { ContentSurfaceExtractor } from '@deepseek-ai/dsh-experimental-content-surface'
 import { actionMemory, componentActionCommand, deliverAction } from '../src/command.ts'
+import { PendingLoads } from '../src/crud.ts'
 import {
   catalogAction,
   catalogEntry,
@@ -418,7 +419,7 @@ describe('the /component-action command', () => {
     const bare = new Context()
     contexts.push(bare)
     await bare.plugin(SessionProjectionRegistry)
-    const standalone = componentActionCommand(bare, actionMemory())
+    const standalone = componentActionCommand(bare, actionMemory(), new PendingLoads())
 
     expect(standalone.handler({
       commandId: CommandId('cmd-1'),

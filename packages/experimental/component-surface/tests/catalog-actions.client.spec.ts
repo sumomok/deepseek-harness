@@ -17,16 +17,27 @@
  */
 
 import { describe, expect, it } from 'vitest'
+import { CRUD_REPORT_LIMITS } from '@deepseek-ai/dsh-experimental-component-kit/src/client/crud-limits.ts'
 import {
   catalogAction,
   catalogEntry,
   COMPONENT_ACTION_COMMAND,
+  CRUD_CELL_CLICK_ID,
+  CRUD_ID,
+  CRUD_LOAD_ID,
+  CRUD_QUERY_ID,
+  FIELD_CHARSET,
   FILTER_BAR_ID,
   FILTER_CHANGE_ID,
   FILTER_SUBMIT_ID,
   formatComponentActionLine,
   MAX_ACTION_PAYLOAD_BYTES,
+  MAX_CRUD_CELL_LENGTH,
+  MAX_CRUD_HEADER_LENGTH,
+  MAX_CRUD_REPORTED_CELLS,
+  MAX_CRUD_REPORTED_COLUMNS,
   MAX_ENTRY_ID_LENGTH,
+  MAX_FIELD_NAME_LENGTH,
   MAX_NODE_ID_LENGTH,
   MAX_EDITED_CONDITIONS,
   MAX_FILTER_CONDITIONS,
@@ -38,6 +49,7 @@ import {
   TABLE_SELECT_ID,
   TABLE_SORT_ID,
   type ComponentActionNotice,
+  type PropsFieldSchema,
 } from '../src/component-call.ts'
 import { acceptsActionPayload, validateComponentSpec, type ActionPayloadVerdict } from '../src/validate.ts'
 
@@ -469,5 +481,191 @@ describe('free text inside a notice', () => {
         + 'on the 筛选条件 block "block": 状 态 等 于 "在\\n用".',
       summary: '用户提交了筛选条件：状 态 等 于 “在 用”',
     })
+  })
+})
+
+describe('a data page reporting back', () => {
+  /** One page opened on the device table. */
+  const PAGE: Record<string, unknown> = { relatedMeta: 'device', metaLabel: '设备台账' }
+
+  /** Where every page notice says the gesture happened. */
+  const PAGE_PLACE = 'content panel entry "devices" ("设备列表"), on the 完整数据页 block "block"'
+
+  it('names the loaded columns by header and attribute, and counts the rest', () => {
+    expect(notice(CRUD_ID, PAGE, CRUD_LOAD_ID, {
+      meta: 'device',
+      columns: [{ attr: 'zh_label', alias: '名称' }, { attr: 'city', alias: '城市' }, { attr: 'state' }],
+      total: 5,
+    })).toEqual({
+      text: `The data page of "device" has loaded in ${PAGE_PLACE}; it shows 5 columns: 名称 (zh_label), 城市 (city), state and 2 more.`,
+      summary: '「设备列表」的数据页已打开',
+    })
+    expect(notice(CRUD_ID, PAGE, CRUD_LOAD_ID, { meta: 'device', columns: [{ attr: 'id' }], total: 1 })?.text)
+      .toBe(`The data page of "device" has loaded in ${PAGE_PLACE}; it shows 1 column: id.`)
+    expect(notice(CRUD_ID, PAGE, CRUD_LOAD_ID, { meta: 'device', columns: [], total: 0 })?.text)
+      .toBe(`The data page of "device" has loaded in ${PAGE_PLACE}; it shows no columns.`)
+  })
+
+  it('reports a load naming another table to nobody', () => {
+    // A block replaced by a later call under the same ids is a different
+    // table's page, and the seat that drew the old one reports on the old one.
+    expect(notice(CRUD_ID, PAGE, CRUD_LOAD_ID, { meta: 'other', columns: [], total: 0 })).toBeUndefined()
+  })
+
+  it('states a query as three counts and never a row', () => {
+    expect(notice(CRUD_ID, PAGE, CRUD_QUERY_ID, { total: 89, rows: 20, page: 2 })).toEqual({
+      text: `The data page of "device" in ${PAGE_PLACE} answered a query: 20 rows shown of 89 matching, page 2.`,
+      summary: '「设备列表」的数据页查到了 89 条',
+    })
+    expect(notice(CRUD_ID, PAGE, CRUD_QUERY_ID, { total: 1, rows: 1, page: 1 })?.text).toContain('1 row shown of 1 matching, page 1.')
+  })
+
+  it('names a clicked cell by its header, the row by its first drawn cell, and the row by every cell it carries', () => {
+    expect(notice(CRUD_ID, PAGE, CRUD_CELL_CLICK_ID, {
+      attr: 'city',
+      label: '城市',
+      row: { zh_label: '北京-核心-01', city: '北京', state: '在用', count: 3 },
+    })).toEqual({
+      text: `The user clicked "城市" (city) on row "北京-核心-01" in ${PAGE_PLACE}; the row shows zh_label: "北京-核心-01", city: "北京", state: "在用", count: "3".`,
+      summary: '用户在「设备列表」里点了「北京-核心-01」的「城市」',
+    })
+  })
+
+  it('names a row by its number where its first cell is one, and as a row where it shows nothing readable', () => {
+    expect(notice(CRUD_ID, PAGE, CRUD_CELL_CLICK_ID, { attr: 'id', label: '编号', row: { id: 7, city: '北京' } })?.text)
+      .toContain('on row "7" in')
+    expect(notice(CRUD_ID, PAGE, CRUD_CELL_CLICK_ID, { attr: 'id', label: '编号', row: { id: '', city: '北京' } })).toEqual({
+      text: `The user clicked "编号" (id) on row a row in ${PAGE_PLACE}; the row shows id: "", city: "北京".`,
+      summary: '用户在「设备列表」里点了「一行」的「编号」',
+    })
+    expect(notice(CRUD_ID, PAGE, CRUD_CELL_CLICK_ID, { attr: 'id', label: '编号', row: {} })?.text)
+      .toBe(`The user clicked "编号" (id) on row a row in ${PAGE_PLACE}; the row shows nothing.`)
+  })
+
+  it.each([
+    ['a load of every column a report may name', CRUD_LOAD_ID, { meta: 'device', columns: Array.from({ length: MAX_CRUD_REPORTED_COLUMNS }, (_unused, index) => ({ attr: `c${index}` })), total: 40 }, 'accepted'],
+    ['a load naming one column more', CRUD_LOAD_ID, { meta: 'device', columns: Array.from({ length: MAX_CRUD_REPORTED_COLUMNS + 1 }, (_unused, index) => ({ attr: `c${index}` })), total: 40 }, 'too-large'],
+    ['a load naming one column twice', CRUD_LOAD_ID, { meta: 'device', columns: [{ attr: 'a' }, { attr: 'a' }], total: 2 }, 'refused'],
+    ['a load with no total', CRUD_LOAD_ID, { meta: 'device', columns: [] }, 'refused'],
+    ['a query answered on page zero', CRUD_QUERY_ID, { total: 0, rows: 0, page: 0 }, 'refused'],
+    ['a click carrying every cell a report may carry', CRUD_CELL_CLICK_ID, { attr: 'a', label: 'A', row: Object.fromEntries(Array.from({ length: MAX_CRUD_REPORTED_CELLS }, (_unused, index) => [`c${index}`, 'x'])) }, 'accepted'],
+    ['a click carrying one cell more', CRUD_CELL_CLICK_ID, { attr: 'a', label: 'A', row: Object.fromEntries(Array.from({ length: MAX_CRUD_REPORTED_CELLS + 1 }, (_unused, index) => [`c${index}`, 'x'])) }, 'too-large'],
+    ['a click whose cell is longer than a report carries', CRUD_CELL_CLICK_ID, { attr: 'a', label: 'A', row: { a: 'x'.repeat(MAX_CRUD_CELL_LENGTH + 1) } }, 'too-large'],
+    ['a click on a column outside the field alphabet', CRUD_CELL_CLICK_ID, { attr: '1st', label: 'A', row: {} }, 'refused'],
+    ['a click carrying a cell that is not a scalar', CRUD_CELL_CLICK_ID, { attr: 'a', label: 'A', row: { a: { nested: true } } }, 'refused'],
+  ])('judges %s: %s', (_case, actionId, payload, verdict) => {
+    expect(accepts(CRUD_ID, actionId, payload)).toBe(verdict)
+  })
+})
+
+describe('the data page\'s ceilings against the action ceiling', () => {
+  /** The bytes one action document costs beyond its payload, at every identifier's own ceiling. */
+  function documentBytes(actionId: string, payload: Record<string, unknown>): number {
+    const line = formatComponentActionLine({
+      entryId: 'e'.repeat(MAX_ENTRY_ID_LENGTH),
+      componentId: CRUD_ID,
+      actionId,
+      nodeId: 'n'.repeat(MAX_NODE_ID_LENGTH),
+      payload,
+    })
+    return new TextEncoder().encode(line.slice(`/${COMPONENT_ACTION_COMMAND} `.length)).length
+  }
+
+  it('reports the widest load a page may name and still fits', () => {
+    // Every attribute and every header at its own ceiling, and the widest
+    // count JSON writes exactly: a page that draws more columns than this
+    // reports the first of them and counts the rest.
+    const widest = documentBytes(CRUD_LOAD_ID, {
+      meta: 'm'.repeat(MAX_FIELD_NAME_LENGTH),
+      columns: Array.from({ length: MAX_CRUD_REPORTED_COLUMNS }, (_unused, index) => ({
+        attr: `${'a'.repeat(MAX_FIELD_NAME_LENGTH - 2)}${String(index).padStart(2, '0')}`,
+        alias: '头'.repeat(MAX_CRUD_HEADER_LENGTH),
+      })),
+      total: Number.MAX_SAFE_INTEGER,
+    })
+    expect(widest).toBeLessThanOrEqual(MAX_ACTION_PAYLOAD_BYTES)
+  })
+
+  it('reports the widest clicked row a page may carry and still fits', () => {
+    const widest = documentBytes(CRUD_CELL_CLICK_ID, {
+      attr: 'a'.repeat(MAX_FIELD_NAME_LENGTH),
+      label: '头'.repeat(MAX_CRUD_HEADER_LENGTH),
+      row: Object.fromEntries(Array.from({ length: MAX_CRUD_REPORTED_CELLS }, (_unused, index) => [
+        `${'k'.repeat(MAX_FIELD_NAME_LENGTH - 2)}${String(index).padStart(2, '0')}`,
+        '值'.repeat(MAX_CRUD_CELL_LENGTH),
+      ])),
+    })
+    expect(widest).toBeLessThanOrEqual(MAX_ACTION_PAYLOAD_BYTES)
+  })
+})
+
+/**
+ * One declared field of a data page payload, as the kind that carries the
+ * declaration being pinned.
+ * @param schema - the declared field, as the action carries it.
+ * @param kind - the kind the pin reads the declaration off.
+ * @returns the field, narrowed to that kind.
+ * @throws {Error} when the catalog declares another kind there, which is itself the drift this pin is for.
+ */
+function declared<K extends PropsFieldSchema['kind']>(
+  schema: PropsFieldSchema | undefined,
+  kind: K,
+): Extract<PropsFieldSchema, { kind: K }> {
+  if (schema?.kind !== kind) throw new Error(`the data page declares ${String(schema?.kind)} where this pin reads a ${kind}`)
+  return schema as Extract<PropsFieldSchema, { kind: K }>
+}
+
+describe('the declarations the drawing row holds itself to', () => {
+  it('are the ones this catalog declares of the data page, value for value', () => {
+    // The row that draws `toy.crud` cuts, counts and de-duplicates its reports
+    // against its own record of these declarations, and this catalog is what
+    // admits the result. One that drifted apart on either side would make that
+    // block report gestures this side silently refuses — and a refused gesture
+    // draws the handler's own failure sentence in the conversation, for a
+    // gesture the user never made.
+    const columns = declared(payloadSchema(CRUD_ID, CRUD_LOAD_ID)['columns']?.schema, 'array')
+    const column = declared(columns.item, 'object')
+    const attr = declared(column.fields['attr']?.schema, 'string')
+    const alias = declared(column.fields['alias']?.schema, 'string')
+    const row = declared(payloadSchema(CRUD_ID, CRUD_CELL_CLICK_ID)['row']?.schema, 'record')
+    const total = declared(payloadSchema(CRUD_ID, CRUD_QUERY_ID)['total']?.schema, 'number')
+    expect(CRUD_REPORT_LIMITS).toEqual({
+      columns: columns.maxItems,
+      cells: row.maxKeys,
+      cellLength: row.maxValueLength,
+      headerLength: alias.maxLength,
+      attributeLength: attr.maxLength,
+      attributeCharset: attr.charset?.allowed,
+      number: row.maxValue,
+      uniqueColumnBy: columns.uniqueBy,
+    })
+    // The record's keys are attribute names too, and the counts a query reports
+    // and the numbers a row carries are bounded by the same one number either
+    // side of zero.
+    expect([row.key.maxLength, row.key.charset?.allowed]).toEqual([CRUD_REPORT_LIMITS.attributeLength, CRUD_REPORT_LIMITS.attributeCharset])
+    expect([row.minValue, total.max]).toEqual([-CRUD_REPORT_LIMITS.number, CRUD_REPORT_LIMITS.number])
+    // All four counts are whole and share one ceiling; only the page starts at
+    // one, because there is no page zero.
+    const counts = [
+      declared(payloadSchema(CRUD_ID, CRUD_LOAD_ID)['total']?.schema, 'number'),
+      total,
+      declared(payloadSchema(CRUD_ID, CRUD_QUERY_ID)['rows']?.schema, 'number'),
+      declared(payloadSchema(CRUD_ID, CRUD_QUERY_ID)['page']?.schema, 'number'),
+    ]
+    expect(counts.map(count => [count.integer, count.min, count.max])).toEqual([
+      [true, 0, CRUD_REPORT_LIMITS.number],
+      [true, 0, CRUD_REPORT_LIMITS.number],
+      [true, 0, CRUD_REPORT_LIMITS.number],
+      [true, 1, CRUD_REPORT_LIMITS.number],
+    ])
+  })
+
+  it('are the numbers this catalog exports under its own names', () => {
+    // The pin above reads the three actions' declarations; this one ties those
+    // values to the names the rest of this package measures itself by, so a
+    // ceiling changed in one place and not the other fails here.
+    expect([MAX_CRUD_REPORTED_COLUMNS, MAX_CRUD_REPORTED_CELLS, MAX_CRUD_CELL_LENGTH, MAX_CRUD_HEADER_LENGTH])
+      .toEqual([CRUD_REPORT_LIMITS.columns, CRUD_REPORT_LIMITS.cells, CRUD_REPORT_LIMITS.cellLength, CRUD_REPORT_LIMITS.headerLength])
+    expect([MAX_FIELD_NAME_LENGTH, FIELD_CHARSET]).toEqual([CRUD_REPORT_LIMITS.attributeLength, CRUD_REPORT_LIMITS.attributeCharset])
   })
 })

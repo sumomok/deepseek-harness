@@ -1,0 +1,19 @@
+{
+  "steps": [
+    {
+      "op": "initialize"
+    },
+    {
+      "op": "newSession"
+    },
+    {
+      "op": "prompt",
+      "text": "Open this deployment’s own full data page for the 图层配置 table in the content panel, with rows the user can tick and sorted by zh_label ascending — the table is SpaceLayer. Then reply with exactly the single word DONE."
+    }
+  ],
+  "permissionAnswers": [
+    {
+      "kind": "allow_once"
+    }
+  ]
+}

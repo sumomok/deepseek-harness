@@ -2,7 +2,10 @@
   "extends": "../../../tsconfig.base.client.json",
   "compilerOptions": {
     "rootDir": "src",
-    "outDir": "lib/types"
+    "outDir": "lib/types",
+    "types": [
+      "node"
+    ]
   },
   "include": [
     "src"
@@ -12,6 +15,12 @@
       "path": "../../../vendor/cordis"
     },
     {
+      "path": "../../../vendor/schemastery"
+    },
+    {
+      "path": "../../client/connection/tsconfig.client.json"
+    },
+    {
       "path": "../../client/locale"
     },
     {
@@ -19,6 +28,9 @@
     },
     {
       "path": "../../client/ui-slots"
+    },
+    {
+      "path": "../../host/webserver"
     },
     {
       "path": "../vue2-echarts-poc"

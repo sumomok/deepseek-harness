@@ -146,6 +146,36 @@ export const FIELD_HINT = 'a letter or an underscore, then letters, digits, unde
 export const MAX_FIELD_NAME_LENGTH = 64
 
 /**
+ * What a word the model wrote may be made of before a person reads it on the
+ * approval card.
+ *
+ * The card is built by joining these words with punctuation of its own, so a
+ * value carrying a line break or a `「」` of its own could draw a line the card
+ * never wrote — including the line naming the table in the backend's words,
+ * which is the one part of the card a person can check the rest against.
+ * Control and format characters go for the same reason plus a second: a
+ * right-to-left override or a zero-width joiner changes what a sentence reads
+ * as without changing what it says. The two Unicode separators that break a
+ * line without being control characters — `U+2028` and `U+2029` — go with them,
+ * because a renderer that honours either draws exactly the line this rule
+ * exists to keep the model from drawing. `\p{Zs}` stays accepted: an ordinary
+ * space between words breaks nothing.
+ */
+export const CARD_TEXT_CHARSET = /^[^\p{Cc}\p{Cf}\p{Zl}\p{Zp}「」]+$/u
+
+/** Model-facing wording of {@link CARD_TEXT_CHARSET}, spliced into every refusal that states it. */
+export const CARD_TEXT_HINT = 'one line of plain text, carrying no line break, no other control character, and no 「」 bracket'
+
+/** Largest accepted table name in the user's own language, in characters: what an approval card names a table by. */
+export const MAX_META_LABEL_LENGTH = 20
+
+/** Conditions one read of the deployment's own data may carry, whichever block asks for it. */
+export const MAX_READ_CONDITIONS = 10
+
+/** Values one list-valued condition may list. */
+export const MAX_CONDITION_VALUES = 20
+
+/**
  * The cell renderers a table column may name.
  *
  * A whitelist rather than a check for a legal identifier: the value chooses code
@@ -248,12 +278,40 @@ export interface NumberFieldSchema {
   readonly min: number
   /** Largest accepted value. */
   readonly max: number
+  /**
+   * Declared where the quantity is counted rather than measured, and left out
+   * where a fraction is a legal value: a width in pixels is any number the
+   * layout can carry, while a count of rows, columns or pages between two whole
+   * numbers is not a count of anything.
+   */
+  readonly integer?: true
 }
 
 /** One property whose value is `true` or `false`. */
 export interface BooleanFieldSchema {
   /** Discriminant. */
   readonly kind: 'boolean'
+}
+
+/**
+ * One property whose value is a single scalar — text, a number, or a
+ * yes-or-no — or a list of text and numbers.
+ *
+ * What a condition is matched against, and the one member of the union that
+ * admits more than one kind of value: a filter's value is whatever the
+ * attribute holds, and a schema that fixed it as text would send a numeric
+ * comparison to a backend as a string. Text is bounded by {@link maxLength}, a
+ * number must be finite, and a list carries text and numbers only, because a
+ * backend's set comparisons are over identifiers and a yes-or-no inside one is
+ * a value nothing there compares.
+ */
+export interface ScalarFieldSchema {
+  /** Discriminant. */
+  readonly kind: 'scalar'
+  /** Largest accepted text value, in characters; also the bound on each text item of a list. */
+  readonly maxLength: number
+  /** Most items a list may carry. */
+  readonly maxItems: number
 }
 
 /** One property whose value is a nested object of further declared properties. */
@@ -347,6 +405,7 @@ export type PropsFieldSchema =
   | StringFieldSchema
   | NumberFieldSchema
   | BooleanFieldSchema
+  | ScalarFieldSchema
   | EnumFieldSchema
   | ObjectFieldSchema
   | RecordFieldSchema
@@ -1432,6 +1491,284 @@ const METRIC_PROPS: PropsSchema = {
   isPointShow: { required: false, schema: { kind: 'boolean' } },
 }
 
+/** Catalog id of the data page: the deployment's own full page for one table, opened with the user's own credential. */
+export const CRUD_ID = 'toy.crud'
+
+/** The user-facing name of the data page, as the approval card and every notice about it name it. */
+export const CRUD_LABEL = '完整数据页'
+
+/**
+ * Columns one loaded data page names to the agent before it counts the rest.
+ *
+ * Twenty rather than the thirty a table draws, and the header and cell
+ * ceilings below rather than a column's own, because every report is one
+ * action document under {@link MAX_ACTION_PAYLOAD_BYTES}: a page names its
+ * first twenty columns at the widest attribute and header the catalog admits
+ * and still fits, which `catalog-actions.client.spec.ts` measures.
+ */
+export const MAX_CRUD_REPORTED_COLUMNS = 20
+
+/** Largest reported column header, in characters; the seat cuts a longer one. */
+export const MAX_CRUD_HEADER_LENGTH = 24
+
+/** Most cells one clicked row reports: the first drawn columns of the page, in the page's own order. */
+export const MAX_CRUD_REPORTED_CELLS = 16
+
+/** Largest reported cell value, in characters; the seat cuts a longer one. */
+export const MAX_CRUD_CELL_LENGTH = 40
+
+/** Widest count a data page reports: columns it shows, rows it matched, pages it turned. */
+const MAX_CRUD_COUNT = Number.MAX_SAFE_INTEGER
+
+/**
+ * One count a data page reports, as all four of them are declared.
+ *
+ * Whole, because every one of them counts something a table either has or does
+ * not: a notice reading `1 row shown of 2.5 matching, page 1.5` describes no
+ * table a browser can be showing, and the seat's own reader already refuses to
+ * build one.
+ */
+const CRUD_COUNT: NumberFieldSchema = { kind: 'number', min: 0, max: MAX_CRUD_COUNT, integer: true }
+
+/** The page a query answered on, which is the one count that starts at one. */
+const CRUD_PAGE: NumberFieldSchema = { ...CRUD_COUNT, min: 1 }
+
+/**
+ * Why no property of a data page may be read from another block: every one of
+ * them is on the card the user is asked with, and the card is drawn from the
+ * call before anything the page resolves exists.
+ */
+const CRUD_UNBINDABLE = 'the user is asked about this block before it is drawn, from the properties the call wrote, and a '
+  + 'value another block supplies is not in that call.'
+
+/**
+ * One condition the data page's own read is narrowed by: the attribute, one of
+ * the sixteen strategies, and what to match against.
+ *
+ * What it shares with the `dataSource` parameter's conditions is the two
+ * numeric ceilings — {@link MAX_CONDITION_VALUE_LENGTH} and
+ * {@link MAX_CONDITION_VALUES} — and nothing else. `dataSource` reads its own
+ * conditions in
+ * {@link module:@deepseek-ai/dsh-experimental-component-surface/src/data-source},
+ * which builds a typed condition carrying the strategy's own label and refuses
+ * in its own words.
+ */
+export const READ_CONDITION: ObjectFieldSchema = {
+  kind: 'object',
+  fields: {
+    key: { required: true, schema: FIELD_NAME },
+    op: { required: true, schema: { kind: 'enum', values: MATCH_OPERATOR_IDS } },
+    value: { required: true, schema: { kind: 'scalar', maxLength: MAX_CONDITION_VALUE_LENGTH, maxItems: MAX_CONDITION_VALUES } },
+  },
+}
+
+/**
+ * The data page's declared properties.
+ *
+ * What the model chooses is what the page is opened on — which table, under
+ * which name on the card, narrowed by which hidden conditions, sorted how, and
+ * whether rows can be ticked — and nothing about what the page can do: the
+ * page is read-only by the properties the host writes dead beside these, which
+ * no call carries. Every property here is on the card the user answers, so
+ * none may be read from another block.
+ */
+const CRUD_PROPS: PropsSchema = {
+  relatedMeta: { required: true, schema: FIELD_NAME, unbindable: CRUD_UNBINDABLE },
+  metaLabel: {
+    required: true,
+    schema: { kind: 'string', maxLength: MAX_META_LABEL_LENGTH, charset: { allowed: CARD_TEXT_CHARSET, hint: CARD_TEXT_HINT } },
+    unbindable: CRUD_UNBINDABLE,
+  },
+  conditions: {
+    required: false,
+    schema: { kind: 'array', minItems: 1, maxItems: MAX_READ_CONDITIONS, item: READ_CONDITION },
+    unbindable: CRUD_UNBINDABLE,
+  },
+  matchMode: { required: false, schema: { kind: 'enum', values: MATCH_MODES }, unbindable: CRUD_UNBINDABLE },
+  querySort: {
+    required: false,
+    schema: {
+      kind: 'object',
+      fields: {
+        asc: { required: false, schema: FIELD_NAME },
+        desc: { required: false, schema: FIELD_NAME },
+      },
+    },
+    unbindable: CRUD_UNBINDABLE,
+  },
+  selectMode: { required: false, schema: { kind: 'enum', values: ['checkbox', 'radio'] }, unbindable: CRUD_UNBINDABLE },
+  isExpandQuery: { required: false, schema: { kind: 'boolean' }, unbindable: CRUD_UNBINDABLE },
+  isInitQuery: { required: false, schema: { kind: 'boolean' }, unbindable: CRUD_UNBINDABLE },
+}
+
+/** Action id the data page reports its loaded columns under. */
+export const CRUD_LOAD_ID = 'load'
+
+/** Action id the data page reports one answered query under. */
+export const CRUD_QUERY_ID = 'query'
+
+/** Action id the data page reports a clicked cell under. */
+export const CRUD_CELL_CLICK_ID = 'cell-click'
+
+/** One column a loaded page reports, as validation accepted it. */
+export interface CrudColumn {
+  /** The attribute the column reads its cell out of. */
+  readonly attr: string
+  /** The header the page draws over it, where the scheme wrote one. */
+  readonly alias?: string
+}
+
+/**
+ * The table one data page block was opened on.
+ *
+ * The cast is what validation already proved: the node reached here only
+ * through the data page's own `propsSchema`, where `relatedMeta` is required.
+ * @param node - the drawn node, as validation accepted it.
+ * @returns the table's name in the backend.
+ */
+export function crudMeta(node: ComponentNode): string {
+  return node.props['relatedMeta'] as string
+}
+
+/**
+ * Name one reported column the way the model should name it back to the user:
+ * the header the page draws, with the attribute behind it, or the attribute
+ * alone where the page drew no header.
+ *
+ * The header is a backend value — the page read it off the table's scheme —
+ * and the schema bounds its length and nothing else, so it goes through
+ * {@link plainLine} here. Every account that quotes a reported column uses this
+ * function, including the placing call's own result line, so the sanitizing
+ * cannot be present in one and missing in the other.
+ * @param column - one reported column.
+ * @returns the phrase.
+ */
+export function crudColumnPhrase(column: CrudColumn): string {
+  return column.alias === undefined ? column.attr : `${plainLine(column.alias)} (${column.attr})`
+}
+
+/**
+ * Name one clicked row the way the user sees it: by what the first reported
+ * cell shows, and as "a row" where the page reported no readable cell.
+ * @param row - the reported cells, in the page's own column order.
+ * @returns the two namings.
+ */
+function nameCrudRow(row: Readonly<Record<string, unknown>>): NoticePhrase {
+  const first = Object.values(row)[0]
+  if (typeof first === 'number') return quote(String(first))
+  if (typeof first === 'string' && first.length > 0) return quote(first)
+  return { agent: 'a row', user: '一行' }
+}
+
+/**
+ * The three things a data page reports, all of them `context`.
+ *
+ * None is the answer the block was placed for: the page was placed to be used,
+ * and what comes back is what the agent needs to talk about it — the columns
+ * once the page has loaded, how many rows each query matched, and the row and
+ * column the user clicked. None wakes the agent, because none of them is a
+ * question the user is waiting on an answer to; a click is the user working.
+ *
+ * The rows themselves are never in a payload. A query reports three counts, a
+ * click reports the one row's drawn cells, and a load reports column names —
+ * which is what keeps the page's data out of the log and out of the
+ * conversation while the agent still knows what the page is showing.
+ *
+ * A load names the table it loaded, and is reported to nobody where that is
+ * not the table the block was opened on: the seat reports on the block it
+ * drew, and a block replaced by a later call under the same ids is a different
+ * table's page.
+ */
+const CRUD_ACTIONS: readonly ComponentActionDefinition[] = [
+  {
+    id: CRUD_LOAD_ID,
+    report: 'context',
+    payloadSchema: {
+      meta: { required: true, schema: FIELD_NAME },
+      columns: {
+        required: true,
+        schema: {
+          kind: 'array',
+          minItems: 0,
+          maxItems: MAX_CRUD_REPORTED_COLUMNS,
+          uniqueBy: 'attr',
+          item: {
+            kind: 'object',
+            fields: {
+              attr: { required: true, schema: FIELD_NAME },
+              alias: { required: false, schema: { kind: 'string', maxLength: MAX_CRUD_HEADER_LENGTH } },
+            },
+          },
+        },
+      },
+      total: { required: true, schema: CRUD_COUNT },
+    },
+    describe: (context) => {
+      const meta = context.payload['meta']
+      if (meta !== crudMeta(context.node)) return undefined
+      const columns = context.payload['columns'] as readonly CrudColumn[]
+      const total = context.payload['total'] as number
+      const named = columns.map(crudColumnPhrase).join(', ')
+      const rest = total > columns.length ? ` and ${total - columns.length} more` : ''
+      const shown = columns.length === 0 ? 'no columns' : `${total} column${total === 1 ? '' : 's'}: ${named}${rest}`
+      return {
+        text: `The data page of "${meta}" has loaded in ${place(context)}; it shows ${shown}.`,
+        summary: `「${entryName(context)}」的数据页已打开`,
+      }
+    },
+  },
+  {
+    id: CRUD_QUERY_ID,
+    report: 'context',
+    payloadSchema: {
+      total: { required: true, schema: CRUD_COUNT },
+      rows: { required: true, schema: CRUD_COUNT },
+      page: { required: true, schema: CRUD_PAGE },
+    },
+    describe: (context) => {
+      const total = context.payload['total'] as number
+      const rows = context.payload['rows'] as number
+      const page = context.payload['page'] as number
+      return {
+        text: `The data page of "${crudMeta(context.node)}" in ${place(context)} answered a query: `
+          + `${rows} row${rows === 1 ? '' : 's'} shown of ${total} matching, page ${page}.`,
+        summary: `「${entryName(context)}」的数据页查到了 ${total} 条`,
+      }
+    },
+  },
+  {
+    id: CRUD_CELL_CLICK_ID,
+    report: 'context',
+    payloadSchema: {
+      attr: { required: true, schema: FIELD_NAME },
+      label: { required: true, schema: { kind: 'string', maxLength: MAX_CRUD_HEADER_LENGTH } },
+      row: {
+        required: true,
+        schema: {
+          kind: 'record',
+          key: FIELD_NAME,
+          maxKeys: MAX_CRUD_REPORTED_CELLS,
+          maxValueLength: MAX_CRUD_CELL_LENGTH,
+          minValue: -MAX_RECORD_NUMBER,
+          maxValue: MAX_RECORD_NUMBER,
+        },
+      },
+    },
+    describe: (context) => {
+      const attr = context.payload['attr'] as string
+      const label = quote(context.payload['label'] as string)
+      const row = context.payload['row'] as Readonly<Record<string, unknown>>
+      const name = nameCrudRow(row)
+      const cells = Object.entries(row).map(([key, value]) => `${key}: ${quote(String(value)).agent}`).join(', ')
+      return {
+        text: `The user clicked ${label.agent} (${attr}) on row ${name.agent} in ${place(context)}; `
+          + `the row shows ${cells.length === 0 ? 'nothing' : cells}.`,
+        summary: `用户在「${entryName(context)}」里点了「${name.user}」的「${label.user}」`,
+      }
+    },
+  },
+]
+
 /**
  * Every component a call may place.
  *
@@ -1487,7 +1824,31 @@ export const COMPONENT_CATALOG = [
     outputs: [],
     sanitize: { background: 'color', borderColor: 'color', pointColor: 'color' },
   },
+  {
+    id: CRUD_ID,
+    label: CRUD_LABEL,
+    purpose: 'This deployment\'s own full data page for one table, opened with the user\'s own credential once '
+      + 'they agree: they query, page and sort in it themselves, and you are told its columns, each query\'s row '
+      + 'count, and the row and column of a cell they click — no row they do not click.',
+    propsSchema: CRUD_PROPS,
+    actions: CRUD_ACTIONS,
+    outputs: [],
+  },
 ] as const satisfies readonly ComponentCatalogEntry[]
+
+/**
+ * The data page blocks one spec places.
+ *
+ * Read off the validated spec by both halves of the tool — the pass that asks
+ * the user, and the extractor that leaves such a call's own record out of the
+ * column until the user has answered — so the two cannot disagree about which
+ * calls are the ones a question stands in front of.
+ * @param spec - the spec, as validation accepted it.
+ * @returns the nodes naming {@link CRUD_ID}, in the order the call wrote them.
+ */
+export function crudNodes(spec: ComponentSpec): readonly ComponentNode[] {
+  return spec.nodes.filter(node => node.component === CRUD_ID)
+}
 
 /**
  * Every id {@link COMPONENT_CATALOG} declares, as a union.
@@ -1512,6 +1873,7 @@ function fieldDepth(field: PropsFieldSchema): number {
     case 'number':
     case 'boolean':
     case 'enum': return 0
+    case 'scalar': return 1
     case 'record': return 1
     case 'object': return 1 + schemaDepth(field.fields)
     case 'array': return 1 + fieldDepth(field.item)
@@ -1668,6 +2030,13 @@ function describeRecord(schema: RecordFieldSchema): string {
 }
 
 /**
+ * What one scalar property accepts, as the description renders it: the list
+ * form is written the way a list property is, so a model that has read one
+ * `props:` line knows the notation.
+ */
+const SCALAR_FORMS = 'text|number|true|false|[text|number]'
+
+/**
  * Name one value inside a list, as it appears between the list's brackets.
  *
  * An item carries no property name of its own, so a component's readings are
@@ -1681,6 +2050,7 @@ function describeItem(schema: PropsFieldSchema, rules: SanitizeRules | undefined
     case 'string': return 'text'
     case 'number': return 'number'
     case 'boolean': return 'true|false'
+    case 'scalar': return SCALAR_FORMS
     case 'enum': return schema.values.join('|')
     case 'record': return `{${describeRecord(schema)}}`
     case 'object': return `{${describeProps(schema.fields, rules)}}`
@@ -1720,6 +2090,7 @@ function describeField(
     case 'string': return reading === undefined ? '' : ` (${SANITIZE_HINTS[reading]})`
     case 'number': return ` (${field.min}–${field.max})`
     case 'boolean': return ' (true|false)'
+    case 'scalar': return ` (${SCALAR_FORMS})`
     case 'enum': return ` (${field.values.join('|')})`
     case 'record': return `{${describeRecord(field)}}`
     case 'object': return `{${describeProps(field.fields, rules)}}`

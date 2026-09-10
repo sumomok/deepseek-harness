@@ -210,10 +210,20 @@
     # the browser one. It follows the same environment value the gate's base
     # does, because offering to read a backend this composition has no address
     # for would leave the row waiting for a service nothing registers.
+    #
+    # The data page is the last of the row's parts: `crud` offers the component that opens
+    # the deployment's own full page for one table, which the host reads nothing
+    # for and which the user is asked about before it opens. It needs only the
+    # approval row above, so it is on unconditionally. No browser attaches under
+    # ACP, so the call always answers that no client reported the page's
+    # columns; the deadline is one second because the lane pays it in real time
+    # and the result line quotes it.
     - id: show-component
       name: '@deepseek-ai/dsh-experimental-component-surface'
       config:
         dataSource: !!js process.env.DSH_CONSOLE_BIZ_UPSTREAM !== undefined
+        crud: true
+        crudLoadTimeoutMs: 1000
         homeView: site-overview
         views:
           - id: site-overview

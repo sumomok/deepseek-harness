@@ -207,7 +207,8 @@ function validateString(
 }
 
 /**
- * Validate one numeric property against its declared bounds.
+ * Validate one numeric property against its declared bounds, and against
+ * wholeness where the declaration asks for it.
  * @param value - the property value, however malformed.
  * @param schema - the declared numeric property.
  * @param path - parameter path used in the refusal.
@@ -224,6 +225,9 @@ function validateNumber(
   if (typeof value !== 'number' || !Number.isFinite(value)) return refuse(path, 'must be a number.')
   if (value < schema.min || value > schema.max) {
     return refuse(path, `is ${value}; between ${schema.min} and ${schema.max} is accepted.`)
+  }
+  if (schema.integer === true && !Number.isInteger(value)) {
+    return refuse(path, `is ${value}; a whole number is accepted.`)
   }
   return undefined
 }
@@ -306,6 +310,54 @@ function validateRecordValue(
   return refuse(path, 'must be text, a number, or true or false.')
 }
 
+/** What a scalar property accepts, as every refusal of one states it. */
+const SCALAR_ACCEPTED = 'must be text, a number, true or false, or a list of text and numbers.'
+
+/**
+ * Validate one scalar property: text, a number, a yes-or-no, or a list of
+ * text and numbers.
+ *
+ * The `dataSource` parameter's condition values are read by a pass of their
+ * own, against the same two ceilings and in different words; only the ceilings
+ * are shared.
+ * @param value - the property value, however malformed.
+ * @param schema - the declared scalar.
+ * @param path - parameter path used in the refusal.
+ * @returns the refusal, or `undefined` when the value is accepted.
+ */
+function validateScalar(
+  value: unknown,
+  schema: Extract<PropsFieldSchema, { kind: 'scalar' }>,
+  path: string,
+): ComponentCallFailure | undefined {
+  if (Array.isArray(value)) {
+    const bounds = `lists ${value.length} values; between 1 and ${schema.maxItems} are accepted.`
+    if (value.length > schema.maxItems) return refuseSize(path, bounds)
+    if (value.length === 0) return refuse(path, bounds)
+    for (const [index, item] of value.entries()) {
+      const itemPath = `${path}[${index}]`
+      if (typeof item === 'string') {
+        if (item.length > schema.maxLength) {
+          return refuseSize(itemPath, `is ${item.length} characters; at most ${schema.maxLength} are accepted.`)
+        }
+        continue
+      }
+      if (typeof item === 'number' && Number.isFinite(item)) continue
+      return refuse(itemPath, 'must be text or a number; a list carries neither true nor false.')
+    }
+    return undefined
+  }
+  if (typeof value === 'boolean') return undefined
+  if (typeof value === 'string') {
+    if (value.length > schema.maxLength) {
+      return refuseSize(path, `is ${value.length} characters; at most ${schema.maxLength} are accepted.`)
+    }
+    return undefined
+  }
+  if (typeof value === 'number' && Number.isFinite(value)) return undefined
+  return refuse(path, SCALAR_ACCEPTED)
+}
+
 /**
  * Validate one enumerated property.
  * @param value - the property value, however malformed.
@@ -377,6 +429,7 @@ function validateField(
     case 'string': return validateString(value, schema, path)
     case 'number': return validateNumber(value, schema, path)
     case 'boolean': return validateBoolean(value, path)
+    case 'scalar': return validateScalar(value, schema, path)
     case 'enum': return validateEnum(value, schema, path)
     case 'record': return validateRecord(value, schema, path)
     case 'object': return validateProps(value, schema.fields, path)
@@ -457,6 +510,7 @@ function carriesReading(schema: PropsFieldSchema, rules: SanitizeRules | undefin
     case 'string':
     case 'number':
     case 'boolean':
+    case 'scalar':
     case 'enum': return false
     case 'record': return schema.sanitize !== undefined
     case 'array': return carriesReading(schema.item, rules)
@@ -534,6 +588,9 @@ export function acceptsOutput(source: PropsFieldSchema, target: PropsFieldSchema
       && acceptsCharset(source.charset, target.charset)
     case 'number': return target.kind === 'number' && source.min >= target.min && source.max <= target.max
     case 'boolean': return target.kind === 'boolean'
+    case 'scalar': return target.kind === 'scalar'
+      && source.maxLength <= target.maxLength
+      && source.maxItems <= target.maxItems
     case 'enum': return target.kind === 'enum' && source.values.every(one => target.values.includes(one))
     case 'record': return target.kind === 'record'
       && source.maxKeys <= target.maxKeys

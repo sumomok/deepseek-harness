@@ -34,15 +34,16 @@ import {
   resolveDataSourceTargets,
   type DataSourceBlock,
 } from '../src/data-source.ts'
+import { PendingLoads } from '../src/crud.ts'
 import { readComponentEvent } from '../src/projection.ts'
 import { componentExtractor } from '../src/surface.ts'
 import { describeShowComponent, showComponentTool, type ShowComponentOptions } from '../src/tool.ts'
 
 /** The offer of a deployment that composed a data backend. */
-const READING: ShowComponentOptions = { dataSource: true, defaultPageSize: 200 }
+const READING: ShowComponentOptions = { dataSource: true, defaultPageSize: 200, crud: false, crudLoadTimeoutMs: 1000 }
 
 /** The offer of a deployment that composed none. */
-const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200 }
+const PLAIN: ShowComponentOptions = { dataSource: false, defaultPageSize: 200, crud: false, crudLoadTimeoutMs: 1000 }
 
 /** The table this deployment's own dictionary declares, in the order it lists them. */
 const ATTRIBUTES = [
@@ -188,7 +189,7 @@ async function bench(
       return Promise.resolve(script.search?.(request) ?? { rawValue: RAW, displayValue: DISPLAY, total: 89 })
     },
   } as never)
-  const definition = showComponentTool(ctx, options)
+  const definition = showComponentTool(ctx, options, new PendingLoads())
   ctx.tools.register(definition)
   return {
     definition,
@@ -774,7 +775,7 @@ describe('a question the user did not grant', () => {
     const request = vi.fn()
     ctx.provide('approval', { request } as never)
     ctx.provide('bizBackend', { describe: request, search: request } as never)
-    ctx.tools.register(showComponentTool(ctx, READING))
+    ctx.tools.register(showComponentTool(ctx, READING, new PendingLoads()))
     const result = await ctx.tools.execute({
       callId: ToolCallId('call-orphan'),
       name: SHOW_COMPONENT_TOOL_NAME,

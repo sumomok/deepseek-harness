@@ -324,8 +324,8 @@ const AGENT = {
  * a layout naming a block it never placed, so the fixture carries the sentence
  * the model reads back, which names the path it has to fix.
  *
- * The last four are the data-source half, which is the only path here that asks
- * the user a question, spends a credential, and appends a record of its own.
+ * The next four are the data-source half, the path here that asks the user a
+ * question, spends a credential, and appends a record of its own.
  * `show-datasource-turn` posts the visitor's token to the gate before its turn,
  * answers the approval `allow_once`, and its `session.jsonl` therefore carries
  * the question the user was asked, the `content-component/resolved` holding the
@@ -339,6 +339,14 @@ const AGENT = {
  * `empty-datasource-turn` sends a filtered read the fake backend matches no row
  * for, so its log carries the sentence a model reads when its conditions matched
  * nothing rather than one saying the data source could not be read.
+ *
+ * `show-crud-turn` is the other path that asks the user a question. It opens the
+ * deployment's own full data page for one table, which the host reads nothing
+ * for: the card, the `allow_once`, and the `content-component/resolved` that
+ * carries the spec the user agreed to with nothing fetched are in its log, and
+ * so is the result line saying no client reported the page's columns within the
+ * deadline — no browser attaches under ACP, and this composition sets that
+ * deadline to one second because the lane pays it in real time.
  *
  * What none of them carries is a gesture. `/component-action` reaches the host
  * through `remote.commands` and the ACP protocol has no command method, so this
@@ -366,6 +374,7 @@ const CONTROLLER_CASES: readonly { readonly name: string, readonly env: NodeJS.P
   { name: 'refuse-datasource-turn', env: REFUSE_ENV },
   { name: 'show-default-columns-turn', env: DEFAULT_COLUMNS_ENV },
   { name: 'empty-datasource-turn', env: EMPTY_ENV },
+  { name: 'show-crud-turn', env: SHARED_ENV },
 ] as const
 
 /** The scenarios that must hold the visitor's token before their model turn. */

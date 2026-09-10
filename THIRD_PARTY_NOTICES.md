@@ -7,7 +7,7 @@ DeepSeek Harness is licensed under [MIT](LICENSE). It depends on the third-party
 
 This file lists **direct** dependencies declared by the workspace and the explicitly disclosed official Claude Code platform payload closure. It is generated from the workspace manifests by `scripts/gen-third-party-notices.ts`: a pre-commit hook regenerates it whenever a staged file changes one of its inputs, and `scripts/gen-third-party-notices.spec.ts` asserts in the test lane that the committed bytes match. Deleting a manifest runs no hook, so that case is caught by the assertion instead. Run `pnpm run verify-third-party-notices` for the standalone check.
 
-The complete npm transitive closure, including the Landlock launcher workspace, is recorded with exact pinned versions in [`pnpm-lock.yaml`](pnpm-lock.yaml) — inspect it with `pnpm licenses list`. The Python closure is recorded separately in [`python/sdk/uv.lock`](python/sdk/uv.lock).
+The complete npm transitive closure, including the Landlock launcher workspace, is recorded with exact pinned versions in [`pnpm-lock.yaml`](pnpm-lock.yaml) — inspect it with `pnpm licenses list`. It does not reach inside a vendored payload that compiles libraries into its own artifact; those are disclosed by the payload itself and listed under "Third-party code bundled into vendored payloads" below. The Python closure is recorded separately in [`python/sdk/uv.lock`](python/sdk/uv.lock).
 
 ## Vendored source (`vendor/`)
 
@@ -27,7 +27,7 @@ The Cordis framework and its foundation libraries are source-vendored into this 
 
 ## Runtime npm dependencies
 
-External packages that a workspace package resolves at runtime. The tier covers every plugin a user can mount from `cordis.yml` — not only what the `dsh` CLI, Web UI, and Python SDK runtime load by default.
+External packages that a workspace package resolves at runtime, plus the ones a vendored payload declares for itself and its consumer's bundle therefore compiles in. The tier covers every plugin a user can mount from `cordis.yml` — not only what the `dsh` CLI, Web UI, and Python SDK runtime load by default.
 
 | Package | License |
 | --- | --- |
@@ -75,6 +75,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`clsx`](https://github.com/lukeed/clsx) | MIT |
 | [`commander`](https://github.com/tj/commander.js) | MIT |
 | [`compression`](https://github.com/expressjs/compression) | MIT |
+| [`dayjs`](https://github.com/iamkun/dayjs) | MIT |
 | [`diff`](https://github.com/kpdecker/jsdiff) | BSD-3-Clause |
 | [`dom-accessibility-api`](https://github.com/eps1lon/dom-accessibility-api) | MIT |
 | [`dsh-at-file`](https://github.com/omdsh-dev/dsh-at-file) | MIT |
@@ -91,6 +92,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`katex`](https://github.com/KaTeX/KaTeX) | MIT |
 | [`koffi`](https://github.com/Koromix/koffi) | MIT |
 | [`lexical`](https://github.com/facebook/lexical) | MIT |
+| [`lodash`](https://github.com/lodash/lodash) | MIT |
 | [`mdast-util-from-markdown`](https://github.com/syntax-tree/mdast-util-from-markdown) | MIT |
 | [`mdast-util-gfm`](https://github.com/syntax-tree/mdast-util-gfm) | MIT |
 | [`mdast-util-math`](https://github.com/syntax-tree/mdast-util-math) | MIT |
@@ -131,6 +133,53 @@ pnpm applies local patches to the following packages at install time, so shipped
 - `@yao-pkg/pkg@6.21.0` — [`patches/@yao-pkg__pkg@6.21.0.patch`](patches/@yao-pkg__pkg@6.21.0.patch)
 - `electron-updater@6.8.9` — [`patches/electron-updater@6.8.9.patch`](patches/electron-updater@6.8.9.patch)
 - `node-pty@1.2.0-beta.15` — [`patches/node-pty@1.2.0-beta.15.patch`](patches/node-pty@1.2.0-beta.15.patch)
+
+## Third-party code bundled into vendored payloads
+
+The vendored payloads in the last column compile these npm libraries into the artifact they ship, so that code reaches a user's browser inside the archive rather than through a dependency edge. No manifest in this repository and no entry in [`pnpm-lock.yaml`](pnpm-lock.yaml) names them, so each payload declares them itself: the rows below are generated from the `BUNDLED.json` inside each archive, and the full license texts travel in the same archive as `THIRD-PARTY-LICENSES.txt`.
+
+| Package | Version | License | Bundled into |
+| --- | --- | --- | --- |
+| [`array-to-tree`](https://github.com/alferov/array-to-tree) | 3.3.2 | MIT | `@sumomok/toy-crud-kit` |
+| [`axios`](https://github.com/axios/axios) | 1.20.0 | MIT | `@sumomok/toy-crud-kit` |
+| [`call-bind-apply-helpers`](https://github.com/ljharb/call-bind-apply-helpers) | 1.0.2 | MIT | `@sumomok/toy-crud-kit` |
+| [`call-bound`](https://github.com/ljharb/call-bound) | 1.0.4 | MIT | `@sumomok/toy-crud-kit` |
+| [`color`](https://github.com/Qix-/color) | 4.2.3 | MIT | `@sumomok/toy-crud-kit` |
+| [`color-convert`](https://github.com/Qix-/color-convert) | 2.0.1 | MIT | `@sumomok/toy-crud-kit` |
+| [`color-name`](https://github.com/colorjs/color-name) | 1.1.4 | MIT | `@sumomok/toy-crud-kit` |
+| [`color-string`](https://github.com/Qix-/color-string) | 1.9.1 | MIT | `@sumomok/toy-crud-kit` |
+| [`coordtransform`](https://github.com/wandergis/coordtransform) | 2.1.2 | MIT | `@sumomok/toy-crud-kit` |
+| [`crc-32`](https://github.com/SheetJS/js-crc32) | 1.2.2 | Apache-2.0 | `@sumomok/toy-crud-kit` |
+| [`crypto-js`](http://github.com/brix/crypto-js) | 4.2.0 | MIT | `@sumomok/toy-crud-kit` |
+| [`dayjs`](https://github.com/iamkun/dayjs) | 1.11.23 | MIT | `@sumomok/toy-crud-kit` |
+| [`dunder-proto`](https://github.com/es-shims/dunder-proto) | 1.0.1 | MIT | `@sumomok/toy-crud-kit` |
+| [`es-define-property`](https://github.com/ljharb/es-define-property) | 1.0.1 | MIT | `@sumomok/toy-crud-kit` |
+| [`es-errors`](https://github.com/ljharb/es-errors) | 1.3.0 | MIT | `@sumomok/toy-crud-kit` |
+| [`es-object-atoms`](https://github.com/ljharb/es-object-atoms) | 1.1.2 | MIT | `@sumomok/toy-crud-kit` |
+| [`function-bind`](https://github.com/Raynos/function-bind) | 1.1.2 | MIT | `@sumomok/toy-crud-kit` |
+| [`get-intrinsic`](https://github.com/ljharb/get-intrinsic) | 1.3.0 | MIT | `@sumomok/toy-crud-kit` |
+| [`get-proto`](https://github.com/ljharb/get-proto) | 1.0.1 | MIT | `@sumomok/toy-crud-kit` |
+| [`gopd`](https://github.com/ljharb/gopd) | 1.2.0 | MIT | `@sumomok/toy-crud-kit` |
+| [`has-symbols`](https://github.com/inspect-js/has-symbols) | 1.1.0 | MIT | `@sumomok/toy-crud-kit` |
+| [`hasown`](https://github.com/inspect-js/hasOwn) | 2.0.4 | MIT | `@sumomok/toy-crud-kit` |
+| [`is-arrayish`](https://github.com/qix-/node-is-arrayish) | 0.3.4 | MIT | `@sumomok/toy-crud-kit` |
+| [`json5`](https://github.com/json5/json5) | 2.2.3 | MIT | `@sumomok/toy-crud-kit` |
+| [`localforage`](https://github.com/localForage/localForage) | 1.10.0 | Apache-2.0 | `@sumomok/toy-crud-kit` |
+| [`lodash.keyby`](https://github.com/lodash/lodash) | 4.6.0 | MIT | `@sumomok/toy-crud-kit` |
+| [`math-intrinsics`](https://github.com/es-shims/math-intrinsics) | 1.1.0 | MIT | `@sumomok/toy-crud-kit` |
+| [`mitt`](https://github.com/developit/mitt) | 3.0.1 | MIT | `@sumomok/toy-crud-kit` |
+| [`nested-property`](https://github.com/cosmosio/nested-property) | 0.0.7 | MIT | `@sumomok/toy-crud-kit` |
+| [`nprogress`](https://github.com/rstacruz/nprogress) | 0.2.0 | MIT | `@sumomok/toy-crud-kit` |
+| [`object-inspect`](https://github.com/inspect-js/object-inspect) | 1.13.4 | MIT | `@sumomok/toy-crud-kit` |
+| [`qs`](https://github.com/ljharb/qs) | 6.16.0 | BSD-3-Clause | `@sumomok/toy-crud-kit` |
+| [`randomcolor`](https://github.com/davidmerfield/randomColor) | 0.6.2 | CC0-1.0 | `@sumomok/toy-crud-kit` |
+| [`resize-observer-polyfill`](https://github.com/que-etc/resize-observer-polyfill) | 1.5.1 | MIT | `@sumomok/toy-crud-kit` |
+| [`side-channel`](https://github.com/ljharb/side-channel) | 1.1.1 | MIT | `@sumomok/toy-crud-kit` |
+| [`side-channel-list`](https://github.com/ljharb/side-channel-list) | 1.0.1 | MIT | `@sumomok/toy-crud-kit` |
+| [`side-channel-map`](https://github.com/ljharb/side-channel-map) | 1.0.1 | MIT | `@sumomok/toy-crud-kit` |
+| [`side-channel-weakmap`](https://github.com/ljharb/side-channel-weakmap) | 1.0.2 | MIT | `@sumomok/toy-crud-kit` |
+| [`simple-swizzle`](https://github.com/qix-/node-simple-swizzle) | 0.2.4 | MIT | `@sumomok/toy-crud-kit` |
+| [`ua-parser-js`](https://github.com/faisalman/ua-parser-js) | 1.0.41 | MIT | `@sumomok/toy-crud-kit` |
 
 ## Official Claude Code platform payloads
 
@@ -184,7 +233,6 @@ External packages **directly declared** only by repository tooling, test infrast
 | [`7zip-bin`](https://github.com/develar/7zip-bin) | MIT |
 | [`cytoscape`](https://github.com/cytoscape/cytoscape.js) | MIT |
 | [`cytoscape-cose-bilkent`](https://github.com/cytoscape/cytoscape.js-cose-bilkent) | MIT |
-| [`dayjs`](https://github.com/iamkun/dayjs) | MIT |
 | [`debug`](https://github.com/debug-js/debug) | MIT |
 | [`electron`](https://github.com/electron/electron) | MIT |
 | [`electron-builder`](https://github.com/electron-userland/electron-builder) | MIT |

@@ -63,6 +63,7 @@ import type {} from '@deepseek-ai/dsh-experimental-biz-backend'
 import type {} from '@deepseek-ai/dsh-user-approval'
 import { MAX_TABLE_ROWS } from './component-call.ts'
 import { installComponentAction } from './command.ts'
+import { PendingLoads } from './crud.ts'
 import { viewCatalogRoute, type ComponentViewsDocument } from './route.ts'
 import { componentExtractor } from './surface.ts'
 import { showComponentTool, type ShowComponentOptions } from './tool.ts'
@@ -124,6 +125,27 @@ export interface Config {
    * {@link MAX_TABLE_ROWS}.
    */
   dataDefaultPageSize?: number
+  /**
+   * Whether a call may open this deployment's own full data page for one
+   * table (`toy.crud`) in the panel. Off by default, because the page reads
+   * its table from the browser with the signed-in visitor's own credential and
+   * a deployment has to say that it wants that.
+   *
+   * Where it is on, the tool is offered only once `approval` is composed —
+   * every page is put to the user before it opens, and a component nobody can
+   * be asked about is one nobody may place. The host reads nothing for this
+   * kind; what the page requests, it requests from the browser under the base
+   * path `@deepseek-ai/dsh-experimental-component-kit` is configured with.
+   */
+  crud?: boolean
+  /**
+   * How long a call that opened a data page waits for the browser to report
+   * the page's columns before answering without them, in milliseconds. The
+   * columns then reach the model as a notice once the page has loaded. A
+   * composition no browser attaches to sets it low, because every such call
+   * pays the whole deadline.
+   */
+  crudLoadTimeoutMs?: number
 }
 
 export const Config: z<Config> = z.object({
@@ -135,6 +157,8 @@ export const Config: z<Config> = z.object({
   homeView: z.string(),
   dataSource: z.boolean().default(false),
   dataDefaultPageSize: z.natural().default(200),
+  crud: z.boolean().default(false),
+  crudLoadTimeoutMs: z.natural().default(10_000),
 })
 
 /**
@@ -146,20 +170,50 @@ type ResolvedConfig = Config & {
   readonly views: readonly ContentView[]
   readonly dataSource: boolean
   readonly dataDefaultPageSize: number
+  readonly crud: boolean
+  readonly crudLoadTimeoutMs: number
 }
 
 /**
- * Read the two data-source fields into what the tool takes.
+ * Read the four offer fields into what the tool takes.
  * @param config - the validated config, with its defaults already applied.
  * @returns what this composition's `show_component` offers.
- * @throws {Error} when the default row count is outside what a table can draw.
+ * @throws {Error} when the default row count is outside what a table can draw, or the page deadline is zero.
  */
-function dataSourceOptions(config: ResolvedConfig): ShowComponentOptions {
+function offerOptions(config: ResolvedConfig): ShowComponentOptions {
   if (config.dataDefaultPageSize < 1 || config.dataDefaultPageSize > MAX_TABLE_ROWS) {
     throw new Error(
       `component-surface: dataDefaultPageSize must be between 1 and ${MAX_TABLE_ROWS}, received ${config.dataDefaultPageSize}`)
   }
-  return { dataSource: config.dataSource, defaultPageSize: config.dataDefaultPageSize }
+  // Loud at load: a zero deadline would answer every page as unreported, with
+  // no diagnostic pointing at the row that set it.
+  if (config.crudLoadTimeoutMs < 1) {
+    throw new Error(`component-surface: crudLoadTimeoutMs must be a positive number of milliseconds, received ${config.crudLoadTimeoutMs}`)
+  }
+  return {
+    dataSource: config.dataSource,
+    defaultPageSize: config.dataDefaultPageSize,
+    crud: config.crud,
+    crudLoadTimeoutMs: config.crudLoadTimeoutMs,
+  }
+}
+
+/**
+ * The services one offer needs before the tool is registered at all.
+ *
+ * Both services or no tool, as for the data source alone: a deployment that
+ * announced a data source has to be offered one that works, and one that
+ * announced the data page has to be able to ask about it. A description
+ * promising either with nothing behind it is worse than a row that never
+ * loaded.
+ * @param options - what this composition offers.
+ * @returns the service names, empty for a composition that offers neither.
+ */
+function offerNeeds(options: ShowComponentOptions): readonly string[] {
+  return [
+    ...options.dataSource ? ['bizBackend'] : [],
+    ...options.dataSource || options.crud ? ['approval'] : [],
+  ]
 }
 
 /*
@@ -195,17 +249,18 @@ export function apply(ctx: Context, config: Config): void {
   // exactly what the model may send.
   const resolved = config as ResolvedConfig
   const views = indexViews(resolved.views, config.homeView)
-  const options = dataSourceOptions(resolved)
-  if (!options.dataSource) {
-    ctx.effect(() => ctx.tools.register(showComponentTool(ctx, options)), 'show-component: the show_component tool')
+  const options = offerOptions(resolved)
+  // One table for the tool and the command: a call that opened a data page
+  // waits in it, and the page's report arrives through the command.
+  const pending = new PendingLoads()
+  const needs = offerNeeds(options)
+  if (needs.length === 0) {
+    ctx.effect(() => ctx.tools.register(showComponentTool(ctx, options, pending)), 'show-component: the show_component tool')
   } else {
-    // Both services or no tool: a deployment that announced a data source has
-    // to be offered one that works, and a description promising a parameter
-    // whose backend is absent is worse than a row that never loaded.
-    ctx.inject(['bizBackend', 'approval'], (dataCtx) => {
-      dataCtx.effect(
-        () => dataCtx.tools.register(showComponentTool(dataCtx, options)),
-        'show-component: the show_component tool, reading from the data source',
+    ctx.inject([...needs], (offerCtx) => {
+      offerCtx.effect(
+        () => offerCtx.tools.register(showComponentTool(offerCtx, options, pending)),
+        `show-component: the show_component tool, with ${needs.join(' and ')}`,
       )
     })
   }
@@ -218,7 +273,9 @@ export function apply(ctx: Context, config: Config): void {
   // router that made the entry, and the projection the entry is read out of.
   // Without a column there is nothing on screen for an action to name, so the
   // command is absent rather than answering every gesture with a refusal.
-  ctx.inject(['commands', 'contentSurface', 'sessionProjections'], installComponentAction)
+  ctx.inject(['commands', 'contentSurface', 'sessionProjections'], (actionCtx) => {
+    installComponentAction(actionCtx, pending)
+  })
   if (views.size === 0) return
   // Both pieces exist only where views do, and each waits for the seam it needs
   // the way every other piece of this row does. A deployment that configures

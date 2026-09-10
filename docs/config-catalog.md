@@ -721,6 +721,28 @@ export interface Config {
 
 Source: [`packages/experimental/code-runtime-python/src/index.ts:42`](../packages/experimental/code-runtime-python/src/index.ts)
 
+<a id="deepseek-aidsh-experimental-component-kit"></a>
+
+## `@deepseek-ai/dsh-experimental-component-kit`
+
+```ts config-catalog
+/** Plugin config: where the data page's requests go. */
+export interface Config {
+  /**
+   * Root-absolute path prefix the `toy.crud` data page requests its table
+   * under, such as `/` or `/nrms-server/`; a trailing `/` is added where
+   * missing. The page requests from the browser, so the prefix names a path on
+   * the shell's own origin — the reverse proxy in front of the console is what
+   * forwards it to the deployment's backend. A value the URL parser resolves
+   * anywhere but the path it spells on this origin is refused at load rather
+   * than repaired. Defaults to `/`.
+   */
+  bizBasePath?: string
+}
+```
+
+Source: [`packages/experimental/component-kit/src/index.ts:34`](../packages/experimental/component-kit/src/index.ts)
+
 <a id="deepseek-aidsh-experimental-component-surface"></a>
 
 ## `@deepseek-ai/dsh-experimental-component-surface`
@@ -766,6 +788,27 @@ export interface Config {
    * {@link MAX_TABLE_ROWS}.
    */
   dataDefaultPageSize?: number
+  /**
+   * Whether a call may open this deployment's own full data page for one
+   * table (`toy.crud`) in the panel. Off by default, because the page reads
+   * its table from the browser with the signed-in visitor's own credential and
+   * a deployment has to say that it wants that.
+   *
+   * Where it is on, the tool is offered only once `approval` is composed —
+   * every page is put to the user before it opens, and a component nobody can
+   * be asked about is one nobody may place. The host reads nothing for this
+   * kind; what the page requests, it requests from the browser under the base
+   * path `@deepseek-ai/dsh-experimental-component-kit` is configured with.
+   */
+  crud?: boolean
+  /**
+   * How long a call that opened a data page waits for the browser to report
+   * the page's columns before answering without them, in milliseconds. The
+   * columns then reach the model as a notice once the page has loaded. A
+   * composition no browser attaches to sets it low, because every such call
+   * pays the whole deadline.
+   */
+  crudLoadTimeoutMs?: number
 }
 
 /** One view a deployment configures, as `cordis.yml` writes it and before anything has judged it. */
@@ -788,7 +831,7 @@ export interface ContentView {
 }
 ```
 
-Source: [`packages/experimental/component-surface/src/index.ts:90`](../packages/experimental/component-surface/src/index.ts)
+Source: [`packages/experimental/component-surface/src/index.ts:91`](../packages/experimental/component-surface/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-content-frame"></a>
 
@@ -3891,7 +3934,6 @@ These load from a `cordis.yml` entry with no `config:` block; they declare no co
 - `@deepseek-ai/dsh-cordis-client-runner` ([`packages/extensions/cordis-client-runner/src/index.ts`](../packages/extensions/cordis-client-runner/src/index.ts))
 - `@deepseek-ai/dsh-deepseek-llm-api-extensions` ([`packages/llm/deepseek-llm-api-extensions/src/index.ts`](../packages/llm/deepseek-llm-api-extensions/src/index.ts))
 - `@deepseek-ai/dsh-experimental-client-ui-agent-team` ([`packages/experimental/client-ui-agent-team/src/index.ts`](../packages/experimental/client-ui-agent-team/src/index.ts))
-- `@deepseek-ai/dsh-experimental-component-kit` ([`packages/experimental/component-kit/src/index.ts`](../packages/experimental/component-kit/src/index.ts))
 - `@deepseek-ai/dsh-experimental-content-column` ([`packages/experimental/content-column/src/index.ts`](../packages/experimental/content-column/src/index.ts))
 - `@deepseek-ai/dsh-experimental-content-surface` ([`packages/experimental/content-surface/src/index.ts`](../packages/experimental/content-surface/src/index.ts))
 - `@deepseek-ai/dsh-experimental-server-layout` ([`packages/experimental/server-layout/src/index.ts`](../packages/experimental/server-layout/src/index.ts))

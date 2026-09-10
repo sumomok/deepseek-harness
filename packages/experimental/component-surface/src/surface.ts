@@ -20,7 +20,10 @@
  * exactly one entry: that call's own `tool/call` names blocks with no rows in
  * them, fails this pass, and records nothing, while the
  * `content-component/resolved` written after the rows arrived carries the whole
- * filled spec and records the entry.
+ * filled spec and records the entry. A call that opens the deployment's own
+ * data page passes this pass and is left out by `recordsEntry` instead: its
+ * entry is the `content-component/resolved` the tool appends once the user has
+ * agreed, and nothing before that answer.
  *
  * `dataVersion` is 2. The stored record is the same two fields it always was;
  * what changed is which log shapes are read into one, so a checkpoint written
@@ -40,7 +43,7 @@
 
 import type { ContentSurfaceExtractor } from '@deepseek-ai/dsh-experimental-content-surface'
 import { COMPONENT_KIND, type ComponentSpec, type ComponentSurfacePayload } from './component-call.ts'
-import { readComponentEvent } from './projection.ts'
+import { readComponentEvent, recordsEntry } from './projection.ts'
 import { validateComponentCall } from './validate.ts'
 
 /** What a `component` entry stores, which is also what its renderer receives. */
@@ -98,6 +101,7 @@ export function componentExtractor(): ContentSurfaceExtractor<ComponentSurfaceDa
       if (args === undefined) return undefined
       const result = validateComponentCall(args)
       if (!result.ok) return undefined
+      if (!recordsEntry(event, result.call.spec)) return undefined
       return { entryId: result.call.id, data: { title: result.call.title, spec: result.call.spec } }
     },
     resolve: (data) => {

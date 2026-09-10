@@ -39,22 +39,52 @@ const DEV_ONLY_AREAS = [
 ] as const
 
 /**
- * Packages this project builds itself: reachable at runtime, and not third
- * party, so this file neither discloses them nor states terms for them.
- *
- * `@sumomok/toy-surface-kit` is one of them. It is built in a sibling
- * repository from source the same owner supplies, and it is vendored as a
- * tarball rather than published, so the store's `UNLICENSED` field is the
- * absence of a public license rather than a restrictive one. Naming it here is
- * a statement about who owns it, not a license claim on the sources it
- * compiles; those terms are recorded in that repository's `SOURCES.md`.
+ * Whether one workspace manifest sits in an area that never reaches a user.
+ * @param path - the manifest's repository-relative path, `/`-separated.
+ * @returns true when nothing that area declares is disclosure-relevant at runtime.
  */
-const FIRST_PARTY = new Set([
-  '@deepseek-ai/node-addon-landlock-run',
-  '@deepseek-ai/node-addon-landlock-run-linux-arm64',
-  '@deepseek-ai/node-addon-landlock-run-linux-x64',
-  '@sumomok/toy-surface-kit',
+function isDevOnly(path: string): boolean {
+  return DEV_ONLY_AREAS.some(area => (area.endsWith('/') ? path.startsWith(area) : path === area))
+}
+
+/**
+ * Packages this project builds itself: reachable at runtime, and not third
+ * party, so this file neither discloses them nor states terms for them — and,
+ * for each, whether its own artifact carries third-party code that no manifest
+ * here names.
+ *
+ * `@sumomok/toy-surface-kit` and `@sumomok/toy-crud-kit` are two of them. Both
+ * are built in one sibling repository from source the same owner supplies, and
+ * both are vendored as tarballs rather than published, so the store's
+ * `UNLICENSED` field is the absence of a public license rather than a
+ * restrictive one. Naming them here is a statement about who owns them, not a
+ * license claim on the sources they compile.
+ *
+ * The second value is what keeps that statement from hiding anything. A
+ * `bundled-manifest` payload compiles third-party npm libraries into the
+ * browser bundle it ships: their code reaches every viewer, and it appears in
+ * no workspace manifest and in no lockfile here, so the payload declares them
+ * itself in a `BUNDLED.json` this generator reads and renders — a missing or
+ * empty declaration is an error, not a silent zero. `no-bundled-third-party`
+ * asserts the opposite and is checked the same way: the payload must ship no
+ * such declaration. The Landlock packages are this repository's own build
+ * output and compile nothing from npm.
+ */
+type BundledDisclosure = 'bundled-manifest' | 'no-bundled-third-party'
+
+const FIRST_PARTY: ReadonlyMap<string, BundledDisclosure> = new Map<string, BundledDisclosure>([
+  ['@deepseek-ai/node-addon-landlock-run', 'no-bundled-third-party'],
+  ['@deepseek-ai/node-addon-landlock-run-linux-arm64', 'no-bundled-third-party'],
+  ['@deepseek-ai/node-addon-landlock-run-linux-x64', 'no-bundled-third-party'],
+  ['@sumomok/toy-crud-kit', 'bundled-manifest'],
+  ['@sumomok/toy-surface-kit', 'no-bundled-third-party'],
 ])
+
+/** Exact name of the declaration a `bundled-manifest` payload ships. */
+const BUNDLED_MANIFEST = 'BUNDLED.json'
+
+/** Exact name of the license texts that travel with such a payload. */
+const BUNDLED_LICENSES = 'THIRD-PARTY-LICENSES.txt'
 
 /** Official SDK identity covered by the project's narrow owner authorization. */
 export const CLAUDE_AGENT_SDK_PACKAGE = '@anthropic-ai/claude-agent-sdk'
@@ -87,6 +117,9 @@ export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   '@modelcontextprotocol/server-filesystem': { license: 'MIT / Apache-2.0', repo: 'https://github.com/modelcontextprotocol/servers' },
   // No repository field in the published manifest.
   'node-addon-require-builtin': { repo: 'https://www.npmjs.com/package/node-addon-require-builtin' },
+  // `license: "CC0"` is not an SPDX identifier; the shipped LICENSE is the
+  // full text of CC0 1.0 Universal.
+  'randomcolor': { license: 'CC0-1.0' },
   // Repository declared in scp-style ssh form (`git@host:owner/repo.git`),
   // which is not a URL and which the normalizer below cannot rewrite.
   'element-ui': { repo: 'https://github.com/ElemeFE/element' },
@@ -390,10 +423,125 @@ function normalizeRepo(raw: string | undefined): string | undefined {
     .replace(/^git\+ssh:\/\/git@/, 'https://')
     .replace(/^git\+/, '')
     .replace(/^git:\/\//, 'https://')
+    .replace(/^git@([^:/]+):/, 'https://$1/')
     .replace(/^github:/, 'https://github.com/')
     .replace(/\.git$/, '')
   if (!url.startsWith('http')) url = `https://github.com/${url}`
-  return url
+  // Some manifests spell the repository with the author's own account in it
+  // (`https://name@github.com/...`); the notice links a project, not a login.
+  return url.replace(/^(https?:\/\/)[^/@]+@/, '$1')
+}
+
+/** One third-party library compiled into a first-party payload's own artifact. */
+export interface BundledDep {
+  name: string
+  version: string
+  license: string
+  repo: string
+  /** The first-party payload whose artifact carries it. */
+  owner: string
+}
+
+/**
+ * Resolve one first-party payload's installed directory, with the tier of the
+ * area that installs it.
+ * @param name - the payload's package name.
+ * @param manifests - workspace manifests keyed by repository-relative path.
+ * @returns the directory the declaring workspace resolves it to and whether that
+ * area ever reaches a user, or `undefined` when nothing installs it.
+ */
+function firstPartyInstall(name: string, manifests: Map<string, Manifest>): { dir: string; devOnly: boolean } | undefined {
+  for (const [path, manifest] of manifests) {
+    if (!ALL_KINDS.some(kind => name in (manifest[kind] ?? {}))) continue
+    const dir = resolve(root, dirname(path), 'node_modules', name)
+    if (existsSync(resolve(dir, 'package.json'))) return { dir, devOnly: isDevOnly(path) }
+  }
+  return undefined
+}
+
+/**
+ * The external packages one installed first-party payload declares for itself.
+ *
+ * A payload's own manifest is not a workspace manifest, so the ordinary
+ * tiering never reads it — and what a payload imports rather than compiles in
+ * still reaches a user's browser, inside the bundle of whichever workspace
+ * package imports the payload. {@link readBundledManifest} discloses the
+ * libraries a payload compiles into its own artifact; this discloses the ones
+ * it leaves for its consumer to resolve.
+ * @param owner - the payload's package name.
+ * @param dir - its installed directory.
+ * @returns each declared runtime dependency name, in manifest order.
+ * @throws {Error} when the installed payload has no manifest to read.
+ */
+export function payloadRuntimeDeps(owner: string, dir: string): string[] {
+  const file = resolve(dir, 'package.json')
+  if (!existsSync(file)) {
+    throw new Error(`gen-third-party-notices: ${owner} is installed without a package.json; run \`pnpm install\`.`)
+  }
+  const manifest = JSON.parse(readFileSync(file, 'utf8')) as Manifest
+  return RUNTIME_KINDS.flatMap(kind => Object.keys(manifest[kind] ?? {}))
+}
+
+/**
+ * Read one payload's `BUNDLED.json` into disclosure rows.
+ * @param owner - the payload's package name.
+ * @param dir - its installed directory.
+ * @returns one row per bundled library, in the declaration's own order.
+ * @throws {Error} when the declaration is missing, empty, or names a library without complete metadata.
+ */
+export function readBundledManifest(owner: string, dir: string): BundledDep[] {
+  const file = resolve(dir, BUNDLED_MANIFEST)
+  if (!existsSync(file)) {
+    throw new Error(`gen-third-party-notices: ${owner} is declared to bundle third-party code but ships no ${BUNDLED_MANIFEST}; rebuild and re-vendor it.`)
+  }
+  if (!existsSync(resolve(dir, BUNDLED_LICENSES))) {
+    throw new Error(`gen-third-party-notices: ${owner} ships ${BUNDLED_MANIFEST} but no ${BUNDLED_LICENSES}; the terms it discloses have no accompanying text.`)
+  }
+  const declared = (JSON.parse(readFileSync(file, 'utf8')) as { packages?: unknown }).packages
+  if (!Array.isArray(declared) || declared.length === 0) {
+    throw new Error(`gen-third-party-notices: ${owner}'s ${BUNDLED_MANIFEST} declares no bundled package; a payload that bundles nothing must be declared no-bundled-third-party instead.`)
+  }
+  return declared.map((entry) => {
+    const { name, version, license, repo } = entry as Record<string, unknown>
+    if (typeof name !== 'string' || typeof version !== 'string' || typeof license !== 'string' || typeof repo !== 'string') {
+      throw new Error(`gen-third-party-notices: an entry of ${owner}'s ${BUNDLED_MANIFEST} is missing a name, version, license or repository.`)
+    }
+    const override = OVERRIDES[name]
+    return { name, version, license: override?.license ?? license, repo: override?.repo ?? normalizeRepo(repo) ?? repo, owner }
+  })
+}
+
+/**
+ * Every third-party library the first-party payloads compile into their own
+ * artifacts, and the assertion that the others compile none.
+ *
+ * These reach a user's browser inside a vendored bundle rather than through a
+ * dependency edge, so `pnpm-lock.yaml` does not record them and the ordinary
+ * tiering never sees them. Their terms are held to the same rule as any other
+ * shipped runtime code: a non-permissive one stops the generator.
+ * @param manifests - workspace manifests keyed by repository-relative path.
+ * @returns one row per bundled library, sorted by owner then name.
+ */
+function collectBundled(manifests: Map<string, Manifest>): BundledDep[] {
+  const rows: BundledDep[] = []
+  for (const [owner, disclosure] of FIRST_PARTY) {
+    const dir = firstPartyInstall(owner, manifests)?.dir
+    // A first-party payload no workspace installs (the Landlock platform
+    // packages on another host) discloses nothing here, and asserts nothing.
+    if (dir === undefined) continue
+    if (disclosure === 'no-bundled-third-party') {
+      if (existsSync(resolve(dir, BUNDLED_MANIFEST))) {
+        throw new Error(`gen-third-party-notices: ${owner} is declared to bundle no third-party code but ships a ${BUNDLED_MANIFEST}; reclassify it as bundled-manifest.`)
+      }
+      continue
+    }
+    rows.push(...readBundledManifest(owner, dir))
+  }
+  const nonPermissive = rows.filter(dep => !isPermissive(dep.license))
+  if (nonPermissive.length > 0) {
+    throw new Error(`gen-third-party-notices: bundled ${nonPermissive.map(dep => `${dep.name} (${dep.license})`).join(', ')} is not a permissive license; review the distribution terms and record the decision before regenerating.`)
+  }
+  return rows.sort((left, right) => left.owner.localeCompare(right.owner) || left.name.localeCompare(right.name))
 }
 
 /**
@@ -402,9 +550,23 @@ function normalizeRepo(raw: string | undefined): string | undefined {
  * names it in `dependencies`/`optionalDependencies`. A package declared only
  * by tooling, test infrastructure, the website, or the demo leaves — whatever
  * the declaring section is called — is development-only.
+ *
+ * A vendored first-party payload's own runtime declarations are folded in
+ * under the tier of the area that installs the payload: no workspace manifest
+ * names them, and they ship inside that area's bundle exactly as the payload's
+ * own code does.
  */
 function collectNpmDeps(manifests: Map<string, Manifest>, names: Set<string>): ExternalDep[] {
-  return [...tierExternalDeps(manifests, names)]
+  const tiers = tierExternalDeps(manifests, names)
+  for (const owner of FIRST_PARTY.keys()) {
+    const install = firstPartyInstall(owner, manifests)
+    if (install === undefined) continue
+    for (const dep of payloadRuntimeDeps(owner, install.dir)) {
+      if (names.has(dep) || FIRST_PARTY.has(dep)) continue
+      tiers.set(dep, (tiers.get(dep) ?? false) || !install.devOnly)
+    }
+  }
+  return [...tiers]
     .filter(([name]) => !FIRST_PARTY.has(name))
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([name, runtime]) => ({ name, ...installedMetadata(name, manifests), runtime }))
@@ -421,7 +583,7 @@ export function tierExternalDeps(manifests: Map<string, Manifest>, names: Set<st
   // `tsx` is runtime by fiat: the root source-run scripts execute through its ESM hook.
   tiers.set('tsx', true)
   for (const [path, manifest] of manifests) {
-    const devOnly = DEV_ONLY_AREAS.some(area => (area.endsWith('/') ? path.startsWith(area) : path === area))
+    const devOnly = isDevOnly(path)
     for (const kind of ALL_KINDS) {
       for (const [dep, range] of Object.entries(manifest[kind] ?? {})) {
         if (names.has(dep) || range.startsWith('workspace:')) continue
@@ -675,6 +837,26 @@ function renderNpmTable(deps: ExternalDep[]): string {
   return lines.join('\n')
 }
 
+/**
+ * Render the bundled-payload section, or nothing when no installed payload
+ * declares bundled third-party code.
+ * @param deps - every bundled library, sorted by owner then name.
+ * @returns the section to place after the runtime table.
+ */
+function renderBundled(deps: BundledDep[]): string {
+  if (deps.length === 0) return ''
+  const rows = deps.map(dep => `| [\`${dep.name}\`](${dep.repo}) | ${dep.version} | ${dep.license} | \`${dep.owner}\` |`)
+  return `
+## Third-party code bundled into vendored payloads
+
+The vendored payloads in the last column compile these npm libraries into the artifact they ship, so that code reaches a user's browser inside the archive rather than through a dependency edge. No manifest in this repository and no entry in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) names them, so each payload declares them itself: the rows below are generated from the \`${BUNDLED_MANIFEST}\` inside each archive, and the full license texts travel in the same archive as \`${BUNDLED_LICENSES}\`.
+
+| Package | Version | License | Bundled into |
+| --- | --- | --- | --- |
+${rows.join('\n')}
+`
+}
+
 function renderClaudeDistribution(
   distribution: ClaudeDistribution | undefined,
 ): string {
@@ -708,6 +890,7 @@ export function render(): string {
   const runtimeDeps = npm.filter(dep => dep.runtime)
   const devDeps = npm.filter(dep => !dep.runtime)
   const vendored = collectVendored()
+  const bundled = collectBundled(manifests)
   const python = collectPython()
   const patched = collectPatched()
   const claudeDistribution = runtimeDeps.some(
@@ -736,7 +919,7 @@ DeepSeek Harness is licensed under [MIT](LICENSE). It depends on the third-party
 
 This file lists **direct** dependencies declared by the workspace and the explicitly disclosed official Claude Code platform payload closure. It is generated from the workspace manifests by \`scripts/gen-third-party-notices.ts\`: a pre-commit hook regenerates it whenever a staged file changes one of its inputs, and \`scripts/gen-third-party-notices.spec.ts\` asserts in the test lane that the committed bytes match. Deleting a manifest runs no hook, so that case is caught by the assertion instead. Run \`pnpm run verify-third-party-notices\` for the standalone check.
 
-The complete npm transitive closure, including the Landlock launcher workspace, is recorded with exact pinned versions in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) — inspect it with \`pnpm licenses list\`. The Python closure is recorded separately in [\`python/sdk/uv.lock\`](python/sdk/uv.lock).
+The complete npm transitive closure, including the Landlock launcher workspace, is recorded with exact pinned versions in [\`pnpm-lock.yaml\`](pnpm-lock.yaml) — inspect it with \`pnpm licenses list\`. It does not reach inside a vendored payload that compiles libraries into its own artifact; those are disclosed by the payload itself and listed under "Third-party code bundled into vendored payloads" below. The Python closure is recorded separately in [\`python/sdk/uv.lock\`](python/sdk/uv.lock).
 
 ## Vendored source (\`vendor/\`)
 
@@ -748,14 +931,14 @@ ${vendored.map(row => `| \`${row.npmName}\` | \`${row.upstreamName}\` | [${row.u
 
 ## Runtime npm dependencies
 
-External packages that a workspace package resolves at runtime. The tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI, Web UI, and Python SDK runtime load by default.
+External packages that a workspace package resolves at runtime, plus the ones a vendored payload declares for itself and its consumer's bundle therefore compiles in. The tier covers every plugin a user can mount from \`cordis.yml\` — not only what the \`dsh\` CLI, Web UI, and Python SDK runtime load by default.
 
 ${renderNpmTable(runtimeDeps)}
 
 pnpm applies local patches to the following packages at install time, so shipped artifacts carry modified copies; each patch file is the complete record of the modification:
 
 ${patchedLines.join('\n')}
-${renderClaudeDistribution(claudeDistribution)}
+${renderBundled(bundled)}${renderClaudeDistribution(claudeDistribution)}
 
 ## Development-only npm dependencies
 

@@ -11,7 +11,7 @@ import type {} from '@deepseek-ai/dsh-session-projection'
 import type { ContentSurfaceRecord } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import type { InvariantFailure, InvariantInstaller } from '@deepseek-ai/dsh-invariants'
 import { COMPONENT_KIND, SHOW_COMPONENT_TOOL_NAME } from './component-call.ts'
-import { readComponentEvent } from './projection.ts'
+import { readComponentEvent, recordsEntry } from './projection.ts'
 import { validateComponentCall } from './validate.ts'
 
 const PACKAGE_NAME = '@deepseek-ai/dsh-experimental-component-surface'
@@ -43,7 +43,7 @@ function authorizedEntryIds(session: Session): Set<string> {
     const args = readComponentEvent(event)
     if (args === undefined) continue
     const result = validateComponentCall(args)
-    if (result.ok) ids.add(result.call.id)
+    if (result.ok && recordsEntry(event, result.call.spec)) ids.add(result.call.id)
   }
   return ids
 }

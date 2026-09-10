@@ -1,5 +1,5 @@
 ---
-description: "`show_component`: the agent places a block of interface — a prompt with buttons, a record, a table, a filter row, one number — in the content panel from a catalog this package owns, and a user's press comes back through the `/component-action` command; for deployments configuring their own views and the maintainers of that surface."
+description: "`show_component`: the agent places a block of interface — a prompt with buttons, a record, a table, a filter row, one number, the deployment's own data page — in the content panel from a catalog this package owns, and a user's press comes back through the `/component-action` command; for deployments configuring their own views and the maintainers of that surface."
 kind: "package-reference"
 ---
 
@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-`show_component`: the agent places a block of interface — a prompt with a row of buttons, the details of one record, a table of them, a row of filter conditions, one number — in the content panel beside the conversation, chosen from a catalog this package owns and judged against that catalog before anything is drawn.
+`show_component`: the agent places a block of interface — a prompt with a row of buttons, the details of one record, a table of them, a row of filter conditions, one number, the deployment's own full data page for a table — in the content panel beside the conversation, chosen from a catalog this package owns and judged against that catalog before anything is drawn.
 
 The package is both halves. The host half offers the tool, validates each call, and claims the `component` kind of the [content surface](../content-surface/README.md)'s entry stream; the browser half claims the `component` key of the content column's `content.surface.kind` slot and draws each entry's spec. Neither half owns a component: the renderers come from [`component-kit`](../component-kit/README.md), which knows no layout, and this package is what puts one of its blocks in a column.
 
@@ -25,6 +25,7 @@ Nothing the agent does appends a session event. A call's record is the `tool/cal
 - [Configuration](#configuration)
 - [Views the deployment writes](#views-the-deployment-writes)
 - [Rows read from the deployment's own data](#rows-read-from-the-deployments-own-data)
+- [The deployment's own data page](#the-deployments-own-data-page)
 - [The catalog](#the-catalog)
 - [What a call is judged against](#what-a-call-is-judged-against)
 - [How the blocks are arranged](#how-the-blocks-are-arranged)
@@ -49,7 +50,7 @@ The row activates in three independent pieces. The tool needs a tool runtime and
 <a id="configuration"></a>
 ## Configuration
 
-Four fields. `views` and `homeView` are about blocks a person wrote rather than about anything the model does, and the next section is their whole documentation. `dataSource` and `dataDefaultPageSize` are about rows the model asks this deployment for rather than writes out, and the section after that is theirs. Everything else is fixed.
+Six fields. `views` and `homeView` are about blocks a person wrote rather than about anything the model does, and the next section is their whole documentation. `dataSource` and `dataDefaultPageSize` are about rows the model asks this deployment for rather than writes out, and the section after that is theirs. `crud` and `crudLoadTimeoutMs` are about the deployment's own page being opened in the panel instead, and the section after *that* is theirs. Everything else is fixed.
 
 The numbers a deployment might want to move — the spec byte ceiling, the node ceiling, the nesting ceiling, the action byte ceiling — are enforced twice: here, and again by the browser seat over the value that arrives on the wire. The seat receives no Cordis configuration, so a per-deployment ceiling would be a ceiling the two halves disagree on: a block silently missing from the column rather than a refusal the model can act on. They are protocol constants in [`src/component-call.ts`](src/component-call.ts) until the seat can read a deployment's settings, at which point the ceilings and the route that serves them arrive together. The nesting ceiling is not written down even there: it is measured off the catalog, so a component declaring a nested property widens it by exactly what that property needs and no legal document is refused as malformed.
 
@@ -159,7 +160,7 @@ Nothing is appended and nothing is drawn unless step 8 is reached, so every way 
 
 ### What the user is asked
 
-The card is Chinese, free of any term the console does not otherwise show a person, and carries the table's backend name on a line of its own — small print for someone who wants to check what was really asked for, out of the way of someone who does not. The example below is the card as it is written; the panel that draws it today runs those lines together, which the limitations at the end of this document record.
+The card is Chinese, free of any term the console does not otherwise show a person, and carries the table's backend name on a line of its own — there for someone who wants to check what was really asked for, out of the way of someone who does not. The example below is the card as it is written, and as the panel draws it: the panel keeps the reason's line breaks rather than collapsing them.
 
 That identifier line is the only part of the card the model did not write, so nothing the model writes can reach it. Each table's description is cut to its share of a three-hundred-character prose budget **before** its identifier line and the closing promise are appended, so neither can be pushed off the card by a long header or a long label; and every word the model contributes to the card — `metaLabel` and each column header — is refused unless it is one plain line without a `「」` bracket, a control or format character, or a Unicode line or paragraph separator, so none can draw a line the card never wrote.
 
@@ -178,12 +179,79 @@ Every table gets a paragraph and its own identifier line, however many there are
 
 The model is told the same counts and attribute names, plus two things the record does not carry because they are read back out of it: which page it read, in a sentence of its own (`Page 3 of 5.` where the backend reported a total, `Page 3.` where it did not), and which of the attributes it asked for had no value in any row that arrived (`No value in any read row: layer_id, belong_map_topic.`, and nothing at all where every attribute had a value somewhere). Nothing out of any row is told either way.
 
+<a id="the-deployments-own-data-page"></a>
+## The deployment's own data page
+
+Off by default, and a different thing from the section above. `dataSource` reads rows on the host and puts them into a block this package's catalog describes; `toy.crud` opens the deployment's own page inside the panel and this process reads nothing at all — the page's scheme, its dictionary and every query go browser → deployment under the visitor's own credential, and no cell of any of it reaches the host.
+
+A deployment sets `crud: true`, and the row then waits for `approval` before offering the tool: every page is put to the user before it opens, and a component nobody can be asked about is one nobody may place. `bizBackend` is neither needed nor waited for.
+
+```yml
+- name: '@deepseek-ai/dsh-user-approval'
+- id: component-kit
+  name: '@deepseek-ai/dsh-experimental-component-kit'
+  config:
+    bizBasePath: /ini-server/
+- id: show-component
+  name: '@deepseek-ai/dsh-experimental-component-surface'
+  config:
+    crud: true
+    crudLoadTimeoutMs: 10000
+```
+
+Where the page requests its table is [`component-kit`](../component-kit/README.md)'s own `bizBasePath` and not a field here, because those requests are the browser's under the shell's own origin and this half is never on that path.
+
+Eight properties are the model's — the eight below, of which seven reach the page and `metaLabel` stops here, on the card — and the block is read-only over the table whatever the call writes: [`component-kit`](../component-kit/README.md) spreads a frozen record of host-fixed properties after them — every write, import and export key hidden, the menu and card subtrees off, `isReadOnly` on — and the build behind it compiles the page's write dialogs to empty stubs.
+
+| Property | Required | What it is |
+|---|---|---|
+| `relatedMeta` | ✅ | the table's name in the backend |
+| `metaLabel` | ✅ | that table's name in the user's own language, at most 20 characters of one plain line; this is what the approval card shows |
+| `conditions` | | at most ten `{key, op, value}`, applied to every query without being drawn; `op` is one of the sixteen strategies the filter bar offers, and a value is text, a number, a yes-or-no, or a list of at most twenty of the first two |
+| `matchMode` | | `AND` or `OR` |
+| `querySort` | | `{asc}` or `{desc}`, one attribute; sending both is refused |
+| `selectMode` | | `checkbox` or `radio`; rows can then be ticked, and the ticks stay in the panel |
+| `isExpandQuery` | | whether the query panel opens expanded |
+| `isInitQuery` | | whether the first query runs without the user pressing anything |
+
+No property of a page may be read from another block. Every one of them is on the card the user answers, and the card is drawn from the call before anything another block could resolve exists.
+
+### The order, and what each step costs
+
+1. The whole call is judged the way any call is, and then the four refusals this component adds. A deployment that does not offer the page refuses it by name, with the components it does offer. A second page in one call is refused, because a call asks one question and a page is a whole table's worth of screen. A sort naming both directions is refused the way a `dataSource` sort is. And a page placed by the same call that reads a `dataSource` is refused: those are two questions, and a card asks one.
+2. The user is asked once. Nothing has been requested of anything when that card is drawn — not by this process, which requests nothing for this kind ever, and not by the browser, because the block is not on screen yet.
+3. `content-component/resolved` records the entry: the same event a read appends, with `fetched` empty because nothing was fetched here.
+4. The call waits, up to `crudLoadTimeoutMs`, for a browser to report the page's columns, and answers either with them or with the sentence saying no client reported them in time — which also says the columns and counts will arrive as notices, so a model is not tempted to place the page again and ask the user the same question twice.
+
+A call's own `tool/call` records no entry for this kind, and `recordsEntry` is what both the extractor and the invariant companion read that off, so the two count the same records. Drawing the entry from the call would put the page on screen — and its first request on the wire, with the user's own credential — before the question was answered, and would leave it there after a refusal.
+
+For the same reason a view a deployment writes may not place one: a click on the sidebar asks nobody. Such a view is refused at load, by id.
+
+### What the user is asked
+
+One page, one card, in the register the read's card uses and carrying the same identifier line beneath it.
+
+```
+用您的账号打开「图层配置」的完整数据页，可以在里面查询、翻页、排序；小助手看不到表里的内容，只会知道有哪些列、每次查到多少条，以及您点到的那一行。
+数据表：SpaceLayer
+```
+
+Hidden conditions are counted on that first line and never shown — `，预设了 2 个筛选条件` — because a condition's value is the model's text and the page draws none of it. `metaLabel` is held to the same one-plain-line alphabet a `dataSource` label is, so nothing the model writes can draw the identifier line that a person checks the rest of the card against.
+
+What the user then queries inside the page asks nothing further. The page is theirs once it is open, which is what the card promises, and the last clause of that promise is the one that must always hold: columns, counts and the one clicked row are what the agent learns, and rows are not.
+
+### What is recorded, and what the model is told
+
+`content-component/resolved` carries the call id, the entry id, the title, the spec the user agreed to, and an empty `fetched`. It carries no credential and no row, because there were none to carry: this half read nothing.
+
+The model is told the entry it placed, and then what the page loaded — the table, its first 20 drawn columns named as `header (attr)`, and a count of any beyond them. That report reaches the model in the result line when a browser sent it before the deadline, and as a notice when it did not; a report a waiting call takes is delivered nowhere else, so the agent reads it exactly once. Every later query and every clicked cell is a notice.
+
 <a id="the-catalog"></a>
 ## The catalog
 
 One tool for every component, rather than one tool per component. Which blocks exist is a deployment's catalog, and a catalog is cheaper to state once inside a description than to spread across a growing tool list the model reads on every request. The catalog is a static table in `component-call.ts`; replace it with a registered seam when a package this one does not own needs to contribute a component.
 
-Today it holds five entries:
+Today it holds six entries:
 
 | Component | 名称 | What it draws | What comes back | What another block can read |
 |---|---|---|---|---|
@@ -192,6 +260,7 @@ Today it holds five entries:
 | `toy.table` | 数据表 | one to thirty columns over one to five hundred rows, each column reading its cell out of a row by field name and optionally drawn by one of five cell renderers; optionally a selection column, clickable row names, up to five custom operation buttons, and an operation column width | `select`, `row-click`, `sort` and `operation` | `selectionDetail`, the first ticked row as label-and-value rows |
 | `el.filter-bar` | 筛选条件 | one to forty attributes the user builds conditions over, optionally narrowed to some of the sixteen match strategies | `submit` and `change` | nothing |
 | `el.metric` | 指标球 | one measurement from 0 to 100 drawn as a filling ball, with an optional word, size, and three colors | nothing | nothing |
+| `toy.crud` | 完整数据页 | the deployment's own full page for one table, opened with the visitor's own credential once they agree, and read-only whatever the call writes | `load`, `query` and `cell-click` | nothing |
 
 An action and an output are two different things. An action is news the agent is told about and a record in the log; an output is a value that stays inside the panel, for another block of the same call to draw from. A table therefore reports a selection twice over — once to the agent, as the rows the user ticked, and once to the panel, where a record detail can be drawn from it without the agent being involved at all. An output is declared only where some property in this catalog accepts it: what a block reports and nobody can read would be a binding the model is offered and then refused.
 
@@ -275,6 +344,9 @@ A block reports what the user did by running one command: `/component-action <js
 | `toy.table` `operation` | the pressed button's `opId` and the `rowIndex` it was pressed on | `wake` |
 | `el.filter-bar` `submit` | one to ten `conditions`, each a `key`, an `op` and a `value`, and the `matchMode` the user joined them with where the bar offered the choice | `wake` |
 | `el.filter-bar` `change` | the `count` of conditions standing after one committed edit | `silent` |
+| `toy.crud` `load` | the `meta` the page loaded, its first 20 drawn `columns` as `attr` and an optional `alias`, and the `total` it draws | `context` |
+| `toy.crud` `query` | one answered query's `total` matched, `rows` shown and `page` number | `context` |
+| `toy.crud` `cell-click` | the clicked column's `attr` and `label`, and the clicked `row`'s drawn cells | `context` |
 
 Nothing the block sends is shown as written. The entry, the node, the component, and the action are identifiers resolved against the log; the words the agent and the user then read — the entry's title, the component's name, the pressed button's label, a row's name, a column's header, the wording of a match strategy — are read back out of the catalog and out of the spec the model itself wrote. A block reporting a button its entry does not draw, a row past the ones it listed, an operation it does not carry, an attribute its filter does not offer, a node the entry does not carry, or a property its action does not declare reports nothing at all, and the person who clicked is told the gesture was not recorded. One refusal is told apart from those: a gesture carrying more than its action accepts — more conditions than a filter submits, more of anything than a ceiling admits — is answered with the sentence saying there is too much, which is the only one of these a person can act on.
 
@@ -397,7 +469,7 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 ## Known Limitations and Deferred Work
 
 - **Row-level trimming is the backend's, and this row cannot prove it happens** — the deployment's own frontend has a row and column permission pass, but with no signed-in profile it returns early and opens the data up rather than closing it down, so it is not a boundary. If the backend does not trim rows against the token it was handed, one read can draw rows a person was not meant to see onto that person's screen and write them into that person's session log — and signing out does not clean a log already written. Closing it needs an answer from whoever owns that backend, not code here.
-- **The identifier line is written on a line of its own and is not drawn on one** — the approval panel renders the reason's line breaks as spaces, so `数据表：SpaceLayer` reads as a clause inside the sentence rather than as small print beneath it. Everything that makes that line trustworthy still holds — it is the one part of the card no word the model wrote can reach — but a person checking the card has to find it inside a paragraph. Keeping the line breaks is the panel's to do.
+- **The identifier line is drawn where it is written** — the approval panel draws the reason's line breaks rather than collapsing them, so `数据表：SpaceLayer` stands on its own line beneath the sentence, at the sentence's own size. It is the one part of the card no word the model wrote can reach, and the web scenario reads it back out of the panel's rendered text so the written form and the drawn form cannot change apart.
 - **The table's name on the card is the model's word for it** — `metaLabel` is written by the call, not read out of the backend's dictionary. The dictionary is only read after the user has already answered, so a model that mislabelled the table has already been believed. Reading a name before asking would mean spending the credential before the question, which is the one order this row will not take. What the identifier line beneath it can do is let a person notice the mismatch; what it cannot do is stop a plausible wrong label from being read as right.
 - **A header is the dictionary's only where the call wrote none** — a column carrying `alias` keeps it, whatever the backend calls that attribute. A model naming a column something it is not is therefore visible only to someone who knows the table.
 - **A read that fails leaves the previous table on screen, with nothing saying it is stale** — the entry is untouched, so a replacement that could not be read shows what the last successful call put there. The model is told and should say so in the conversation; making the block itself say it needs the entry to carry a staleness bit, which is another change.
@@ -406,6 +478,12 @@ Append-only; results follow the reusable request prefix and invalidate nothing a
 - **The card says the page size, never the page number** — a read of page three is described to the user as `取最多 200 条`, the same words a read of page one gets. What the model asked for and what the user is told about it therefore differ on which rows, and only on which rows; the identifier line and the column list are unaffected.
 - **A view the deployment wrote cannot read its own rows** — `dataSource` is a parameter of the call, so a view configured in `cordis.yml` carries whatever rows the person who wrote it typed there and nothing else. A console whose home view is meant to show live data has no way to say so today. Giving a view its own read means asking the user at click time rather than at call time, since a configured view has no model turn to hang the question on, and that is the next slice rather than this one.
 - **A cell the table cannot draw is dropped, not refused** — the rows are text, numbers and yes-or-no; a null, a nested record or a list is left out of the row rather than failing the read, because an absent cell is what a table already draws for one. Where the backend returns a different number of stored rows than displayed ones, the stored rows are left out entirely, since the table's two lists stand one for one.
+- **A `load` naming another table is reported to nobody, and says so in the conversation** — a page reports on the entry it was drawn in, and a later call under the same entry id is a different table's page; a report whose `meta` is not the block's own is dropped rather than delivered. It is not silence: the handler answers 这个动作没能记下来。 and the chat row draws that refusal, for a gesture the user never made, beside a page that is on screen and working. The window is small — it closes as soon as the replacing page loads — and what it costs is one wrong-looking line rather than a wrong sentence to the agent.
+- **A page opened in a composition no browser attaches to costs the whole deadline** — the call waits `crudLoadTimeoutMs` for a report that cannot come, once per such call. The ACP snapshot lane sets it to one second for exactly this; a headless deployment that offers `crud` should do the same.
+- **What the page does after it opens is outside every rule here** — the block is read-only by the properties the host writes and by a build that compiles its write dialogs to stubs, both of which live in [`component-kit`](../component-kit/README.md). Nothing in this package inspects the mounted page, so a future tarball that restored a write path would be enforced against by that build alone.
+- **The page's queries are written to the deployment's own audit trail** — every answered query POSTs a front-event record under the visitor's own credential, carrying the table, the console's own path, and the query's parameters, the model's hidden conditions among them. The card promises only what the agent learns and says nothing about that record. It is what the deployment's own page does with the same credential; [`component-kit`](../component-kit/README.md) records the endpoint and what suppressing it would take. The same request layer also leaves three keys in the browser: the visitor's profile in `localStorage.userInfo`, the bearer token verbatim inside it, and two localforage entries holding one table's schemes and its attribute dictionary. Signing out clears the first and not the other two. `component-kit` names all three.
+- **The page can navigate the console away** — its request layer sends the whole window to the deployment's login URL when it holds no token or is answered 401. It is recorded in [`component-kit`](../component-kit/README.md) and acceptable only where the auth gate keeps a token fresh; a deployment turning `crud` on without that gate accepts it.
+- **A ticked row in the data page reaches nobody** — `selectMode` is offered because the page draws the column, and the page emits nothing when the ticks change. The model is told the columns, the counts, and the cell the user clicked, and a call that turned ticking on gets no more than a call that did not.
 - **No service account, by decision** — a session with no signed-in credential is refused and the visitor signs in. The alternative would make the approval card's first three characters, 用您的账号, untrue for whoever the fallback account turned out to be.
 - **A read's record is required on read** — `content-component/resolved` carries no `ignorable` marker, for the same reason `content-component/shown` does not: `Session.append` gives an appending plugin no way to set one. Every build of this repository knows the type.
 - **The payload whitelist is the block's own promise, not something the host enforces** — the command registry records a command's input verbatim before any handler runs, so an over-full action document is in the log by the time this row refuses it. What the host still enforces is the byte ceiling and the declared properties: past the ceiling, or carrying a property its action does not declare, the action is not delivered to the agent at all. Sending only what the action declares is the seat's obligation, and both halves ship here.

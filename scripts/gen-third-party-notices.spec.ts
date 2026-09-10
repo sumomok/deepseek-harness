@@ -12,6 +12,8 @@ import {
   manifestPatterns,
   parsePyprojectRequirements,
   parseVendoredRows,
+  payloadRuntimeDeps,
+  readBundledManifest,
   render,
   tierExternalDeps,
   virtualManifest,
@@ -358,5 +360,77 @@ describe('manifestPatterns', () => {
       'native/landlock-run/package.json',
       'native/landlock-run/packages/*/package.json',
     ])
+  })
+})
+
+describe('readBundledManifest', () => {
+  /** One payload directory holding exactly the files a case declares. */
+  function payload(files: Record<string, string>): string {
+    const dir = mkdtempSync(join(tmpdir(), 'dsh-bundled-'))
+    for (const [name, content] of Object.entries(files)) writeFileSync(join(dir, name), content)
+    return dir
+  }
+
+  const ONE = JSON.stringify({ packages: [{ name: 'axios', version: '1.20.0', license: 'MIT', repo: 'https://github.com/axios/axios' }] })
+
+  it('reads the payload\'s own declaration, normalizing the repository it names', () => {
+    const dir = payload({ 'BUNDLED.json': JSON.stringify({ packages: [{ name: 'array-to-tree', version: '3.3.2', license: 'MIT', repo: 'alferov/array-to-tree' }] }), 'THIRD-PARTY-LICENSES.txt': 'MIT' })
+    try {
+      expect(readBundledManifest('@sumomok/toy-crud-kit', dir)).toEqual([
+        { name: 'array-to-tree', version: '3.3.2', license: 'MIT', repo: 'https://github.com/alferov/array-to-tree', owner: '@sumomok/toy-crud-kit' },
+      ])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it.each([
+    ['ships no declaration at all', {}, 'ships no BUNDLED.json'],
+    ['ships a declaration with no license texts beside it', { 'BUNDLED.json': ONE }, 'ships BUNDLED.json but no THIRD-PARTY-LICENSES.txt'],
+    ['declares an empty list', { 'BUNDLED.json': JSON.stringify({ packages: [] }), 'THIRD-PARTY-LICENSES.txt': 'MIT' }, 'declares no bundled package'],
+    ['declares an entry with no terms', { 'BUNDLED.json': JSON.stringify({ packages: [{ name: 'axios', version: '1.20.0' }] }), 'THIRD-PARTY-LICENSES.txt': 'MIT' }, 'is missing a name, version, license or repository'],
+  ])('refuses a payload that %s', (_case, files, reason) => {
+    const dir = payload(files)
+    try {
+      expect(() => readBundledManifest('@sumomok/toy-crud-kit', dir)).toThrow(reason)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('reads what a payload leaves external, which its consumer\'s bundle compiles in', () => {
+    // The libraries a payload does not compile into its own artifact reach a
+    // browser all the same, and only the payload's own manifest names them.
+    const dir = payload({ 'package.json': JSON.stringify({
+      name: '@sumomok/toy-crud-kit',
+      dependencies: { lodash: '^4.17.21', dayjs: '^1.11.0' },
+      optionalDependencies: { 'platform-extra': '^1' },
+      devDependencies: { vite: '^5' },
+      peerDependencies: { vue: '^2.7.0' },
+    }) })
+    try {
+      expect(payloadRuntimeDeps('@sumomok/toy-crud-kit', dir)).toEqual(['lodash', 'dayjs', 'platform-extra'])
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('refuses to read an installed payload with no manifest', () => {
+    const dir = payload({})
+    try {
+      expect(() => payloadRuntimeDeps('@sumomok/toy-crud-kit', dir)).toThrow('installed without a package.json')
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
+  })
+
+  it('discloses, in the committed notices, what the vendored data page leaves external', () => {
+    // `@sumomok/toy-crud-kit` keeps `lodash` and `dayjs` external, so the
+    // component row's own browser bundle compiles them in. No workspace
+    // manifest names either, so this is the only thing keeping them out of
+    // the development-only tier — or out of the file altogether.
+    const notices = readFileSync(resolve(root, 'THIRD_PARTY_NOTICES.md'), 'utf8')
+    const runtime = notices.slice(notices.indexOf('## Runtime npm dependencies'), notices.indexOf('## Development-only'))
+    for (const name of ['lodash', 'dayjs']) expect(runtime).toContain(`| [\`${name}\`](`)
   })
 })

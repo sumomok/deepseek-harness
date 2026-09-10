@@ -12,9 +12,11 @@
  * ids can require this table to cover that union, and fails to compile the day
  * its catalog names a component this row cannot draw.
  *
- * This row has no host half worth the name and reads no configuration: a
- * component here draws its properties and reports what the user pressed. It
- * performs no navigation, no request, and no write of its own.
+ * This row's host half serves one setting, and this half reads it once at
+ * start: the base path the data page requests its table under. Every other
+ * component here draws its properties and reports what the user pressed, and
+ * performs no navigation, no request, and no write of its own; the data page
+ * requests its own table from the browser, which `README.md` records.
  *
  * Two kinds of component live here. One is written in this repository as
  * ordinary React and depends on nothing else. The other is a Vue 2 component
@@ -29,6 +31,8 @@ import type { Context as ClientContext } from '@deepseek-ai/cordis'
 // Type-only: pulls the locale plugin's Context merge (ctx.locale).
 import type {} from '@deepseek-ai/dsh-client-locale/client'
 import { ConfirmBar } from './ConfirmBar.tsx'
+import { CrudRenderer } from './CrudRenderer.tsx'
+import { settleCrudBasePath } from './crud-settings.ts'
 import { installElementUI } from './element-ui.ts'
 import { en, NS, zh } from './locales.ts'
 import { TableDetailRenderer } from './TableDetailRenderer.tsx'
@@ -38,6 +42,7 @@ import { TuQueryCondAdvRenderer } from './TuQueryCondAdvRenderer.tsx'
 import type { ComponentRenderer } from './renderer.ts'
 
 export { NS } from './locales.ts'
+export { CRUD_REPORT_LIMITS } from './crud-limits.ts'
 export { installElementUI } from './element-ui.ts'
 export { freezeDeep } from './freeze.ts'
 export { useVueComponent, VueBridge } from './vue2-bridge.tsx'
@@ -74,6 +79,7 @@ export const COMPONENT_RENDERERS = {
   'el.confirm-bar': ConfirmBar,
   'el.filter-bar': TuQueryCondAdvRenderer,
   'el.metric': TcProcessBallRenderer,
+  'toy.crud': CrudRenderer,
   'toy.record': TcFormDetailRenderer,
   'toy.table': TableDetailRenderer,
 } satisfies Readonly<Record<string, ComponentRenderer>>
@@ -82,15 +88,19 @@ export const COMPONENT_RENDERERS = {
 export const inject = ['locale']
 
 /**
- * Client plugin body: register this package's dictionaries and install
- * element-ui onto the Vue 2 runtime this row shares.
+ * Client plugin body: register this package's dictionaries, install element-ui
+ * onto the Vue 2 runtime this row shares, and start the one read of this row's
+ * settings that the data page waits on before it is drawn.
  *
  * The installation is not an effect: `Vue.use` has no counterpart, so tearing
  * this row down leaves element-ui's components registered on a runtime other
  * rows also hold. It is idempotent instead, which is what makes a reload safe.
+ * The settings read is not awaited here: every other renderer draws without
+ * it, and the one that needs it waits on the promise itself.
  * @param ctx - client root context.
  */
 export function apply(ctx: ClientContext): void {
   ctx.effect(() => ctx.locale.register(NS, { zh, en }), 'component-kit: dictionaries')
   installElementUI()
+  void settleCrudBasePath()
 }
