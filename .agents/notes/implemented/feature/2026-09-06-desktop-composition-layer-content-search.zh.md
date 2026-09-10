@@ -68,6 +68,6 @@ Status: implemented
 
 桌面侧栏搜索返回带摘要片段的排序正文匹配，上限 20 条，覆盖 `current` 表面上的 `user/message` 与 `assistant/message` 事件。查询仍是字面短语，走 `unicode61` 分词器：FTS5 语法被当作数据，词边界就是词边界，所以 `AI` 依然匹配不到 `BRAID`。
 
-应用在 harness home 下多出一族文件，`~/.dsh/session-search/desktop.db` 及其 WAL 附属文件，体量量级取决于抽取出的消息文本而非原始日志。没有任何东西会删除它；删掉它的代价是重建一次。启动不受影响——在有搜索来问之前什么都不打开——而每次运行的首次搜索只付自上次以来变化的那部分。
+应用在 harness home 下多出一族文件，`~/.dsh/session-search/desktop.db` 及其 WAL 附属文件，体量量级取决于抽取出的消息文本而非原始日志。没有任何东西会删除它；删掉它的代价是重建一次。启动不受影响——在有搜索来问之前什么都不打开——而每次运行的首次搜索只付自上次以来变化的那部分。还有一件事同样要付一次重建：Session 世代变化。对账只在某个 Session 的 persistence revision——一枚 `dev:ino:size:mtime:ctime` 令牌——移动过时才重读它，而迁移边是在读取时跑的、不回写任何东西，于是在退役世代下提取出的行会永远带着那一代的 `seq` 编号。因此派生索引把 Session 世代与它的 schema 版本一并盖在身份里，两者任一移动即原地重置——代价是在移动世代的那次升级之后，首次搜索付一次完整重新提取。
 
 `BUILTIN_WEB_BUNDLES` 现在有十二个名字，其中十一个是插件，所以 `apps/desktop-shell/README.md` 及其中文对照件在原先数「十一个」的地方区分了这两类；打包闸的 `seeded.length === BUILTIN_WEB_BUNDLES.length` 检查也把新名字与其余一并覆盖。

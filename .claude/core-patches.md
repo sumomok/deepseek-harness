@@ -403,6 +403,14 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：与上条同——`core-patches-v8` 已含 `ce0a1e4253`（实测），本集成线基座 `core-patches-v7` 未含。
 - **状态**：在役，**仅在 rc.31 集成线上**。不需要回补丁线。
 
+## patch(session-query-sqlite): 让派生索引的身份带上 Session 世代 — 本线提交（尚未回补丁线）
+- **改了什么**：`packages/session-query/session-query-sqlite/src/schema.ts` 新增导出 `SESSION_QUERY_SQLITE_INDEX_IDENTITY = SESSION_QUERY_SQLITE_SCHEMA_VERSION * 100 + SESSION_FORMAT_VERSION`，`PRAGMA user_version` 的写入与比对两处改用它；`src/index.ts` 补一条再导出；`tests/sqlite.spec.ts` 的两处 `user_version` 断言改指新常量，并新增一条用例：以「上一世代的身份」盖章后重开，派生行被丢弃并按当前世代重新提取。
+- **为什么**：对账只在某个 Session 的 persistence revision 变化时才重读它（`_observeStable` 的 `indexed.get(id)?.revision === entry.revision` 跳过分支），而 revision 是 `dev:ino:size:mtimeNs:ctimeNs`（`session-persistence-jsonl/src/index.ts:174`），迁移是只读的、从不回写日志文件。于是 `SESSION_FORMAT_VERSION` 2→3 之后，旧索引里的行永远不会被重新提取。实测（本机语料 32 份会话副本）：v2→v3 每份会话插入 2–10 条 `system/message`（首条落在第 7–16 位），其后每条被索引事件的 `persisted_docs.seq` 都比当前世代少这么多；`persisted_sessions.version` 停在 2，而 `rowHeader()` 读出来时一律盖 `SESSION_FORMAT_VERSION`，所以调用方看到的世代是假的。另实测：把一行 `persisted_docs.text` 改成标记串后重开索引，标记仍能搜到——证实没有重新提取。
+- **要达到的效果**：世代变化与 schema 形状变化一样，走该模块自己文档写明的「原地重置」；升级后第一次搜索重建一次语料，之后恢复只读变化部分。
+- **本 fork 当前的可观测影响**：**桌面产品今天不受损**。桌面侧栏搜索走 `ApiSessionList.search` → `searchSessions`，返回的 `SessionSearchItem` 只有 `sessionId` 与 `snippet`，不含 `seq`；被索引的文本对 v2→v3 是不变的（抽取器只对 `user/message`、`assistant/message`、`tool/call`、`tool/result`、`todo/write`、`turn/end` 产文本，这几类的文本 v2→v3 一字不改，被改名的 `tool/code-dispatch*` 抽不出文本因而从不入库），`surfaceOp` 的 replace 区间随事件一并重映射所以 `surface` 分类不变。受损的是 `persisted_docs.seq` 与 `persisted_sessions.version`，而 `tool-session-query`（唯一会把 `seq` 交出去的消费方）不在桌面组合里。修它是因为这是派生索引自身契约的缺口，且任何挂载 `tool-session-query` 的部署（含 server-console 线）会直接吃到。
+- **退役条件**：上游自己把 Session 世代纳入派生索引的重置判据（无论是折进 `user_version`、单开一列，还是每次世代变化就抬 `SESSION_QUERY_SQLITE_SCHEMA_VERSION`）。
+- **状态**：在役（本线新增）。**尚未回 `core-patches-v8`**——该分支在另一个工作树上检出，本轮不动它；下一轮滚动同步须一并带上。
+
 ## 每日滚动同步：0.1.2-alpha.2 → alpha.3（`core-patches-v2` 1988f0dca5 → `core-patches-v3`，117 个上游提交）
 镜像快进 `master` 到 `upstream/master`（`0a53fb55be..dd6322d604`）后推 `origin`；`git worktree add ../dsh-roll -b core-patches-v3 1988f0dca5` 建滚动树；`git rebase --onto upstream/master 0a53fb55be` 把 v2 的 45 个补丁提交滚到 alpha.3 上，全部落地，无一 `--skip` 整提交（细粒度的部分退役见下）。
 
