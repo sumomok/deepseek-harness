@@ -60,7 +60,7 @@ No console tab is showing this session's content column (waited 3s).
 
 - 读取通道在路径前缀下能跑了，而发布在站点根上的部署没有任何变化：没有任何东西声明前缀时，`clientUrl` 解析到的就是 origin 根，也就是这次改动之前座位发出的那个地址。
 - 为这个座位打桩 `fetch` 的四个 jsdom 台架，现在站在浏览器站的位置上——它们按文档的方式去解析座位交给 `fetch` 的东西，并按路径后缀而不是常量相等来路由。这才使得地址成为可断言的东西；这也意味着日后的前缀回归会在地址上失败，而不是在一份缺失的文档上失败。
-- **浏览器泳道仍然没有在前缀下驱动过一次读取。** `apps/web/tests/base-path.e2e.ts` 在剥前缀的代理后面启动出厂外壳加 `server-base` 与 `auth-gate`，它那条常驻断言——没有任何请求落在前缀之外——本来就能抓到这次的事，前提是 content-frame 在那套组合里。它不在，而加进去不是小改动：内容栏需要四行齐全（`server-layout`、`content-surface`、`content-column`、`content-frame`），而 `server-layout` 会顶替 `ui-layout`，那正是该场景现有断言所针对的外壳（工作区选择器、启动路径）。真要驱动一次读取，还需要 `apps/web/tests/content-read-hidden.e2e.ts` 那套「播种再执行」的形状——拼进一条 `content/shown` 加一次未决调用，再用同一个 call id 走 `ctx.tools.execute`，因此并不牵涉任何模型往返。两个半边都已存在；缺的是一个自己拥有这两件事的场景，这才是它该待的地方，而不是硬挂在一个讲外壳自身 URL 的场景上。
+- **浏览器泳道没有覆盖前缀下的读取，而且把本包塞进那个看上去最接近的场景，同样覆盖不到。** `apps/web/tests/base-path.e2e.ts` 在剥前缀的代理后面启动出厂外壳加 `server-base` 与 `auth-gate`，它那条「落在前缀之外」的断言测的是 `ROOT_ROUTES = /^\/(api|plugins|auth-gate)(\/|$)/`（`:61`，在 `:257` 处过滤）。那是一份只列了三条的白名单——载体、模块加载器、gate，也就是该场景讲的三条 URL 构造路径——而 `/content-frame/claim` 一条都不匹配，所以哪怕读取通道整个是死的，那个场景照样是绿的。把内容栏四行塞进去还会用 `server-layout` 顶替 `ui-layout`，而那正是它现有断言所针对的外壳。更省的回归路径是给 `apps/web/tests/content-read-hidden.e2e.ts` 加一个兄弟场景：它本来就拥有 overlay、拼进去的 `content/shown` 加未决调用，以及用同一个 call id、零模型调用的 `ctx.tools.execute` 驱动；前面再摆上 `apps/web/tests/prefix-proxy.ts` 的 `startPrefixProxy`，断言的是这次工具调用在前缀下最终落定成的那个值。大约 200 到 260 行，作为后续项而不是本次改动的一部分。
 
 ## Testing
 
