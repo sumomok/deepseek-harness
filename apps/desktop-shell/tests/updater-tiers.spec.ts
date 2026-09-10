@@ -3,6 +3,14 @@
  * in-place one could not be reached. `updater.ts` drives electron and
  * electron-updater; both stand in here, while the app bundle the signature
  * probe reads and the manifest the download-page tier fetches are real.
+ *
+ * The electron-updater stand-in covers every member `updater.ts` uses and
+ * differs from the library in two ways that nothing here depends on. Its
+ * `update-downloaded` payload carries only `version` and `releaseNotes`, where
+ * the library sends `UpdateInfo & { downloadedFile: string }`. Its
+ * `checkForUpdates()` only rejects, where the library also raises `error`, so
+ * the demotion the `error` listener performs is reached here through the
+ * caller's own catch instead.
  * @module
  */
 
@@ -148,6 +156,9 @@ const directories: string[] = []
 /** The platform this process reports outside these cases. */
 const realPlatform = process.platform
 
+/** The feed this process names outside these cases, restored with the platform. */
+const realFeed = process.env.DSH_UPDATE_FEED
+
 beforeAll(() => {
   // The whole tier ladder is a macOS one, and this file's own fork reports
   // whatever host it runs on.
@@ -159,6 +170,8 @@ beforeAll(() => {
 
 afterAll(() => {
   Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true })
+  if (realFeed === undefined) delete process.env.DSH_UPDATE_FEED
+  else process.env.DSH_UPDATE_FEED = realFeed
 })
 
 beforeEach(() => {
@@ -270,8 +283,14 @@ describe('a signed build whose in-place check could not get through', () => {
     const { updateActions } = await import('../src/updater.ts')
     const actions = updateActions(host)
 
-    actions.check()
-    await waitFor(FALLBACK_LINE)
+    vi.useFakeTimers()
+    try {
+      actions.check()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await waitFor(FALLBACK_LINE)
+    } finally {
+      vi.useRealTimers()
+    }
 
     const snapshot = actions.state()
     expect(snapshot.phase).toBe('failed')
@@ -283,7 +302,38 @@ describe('a signed build whose in-place check could not get through', () => {
     // The tier survived, so the transfer this run still runs reaches `ready`.
     shell.instances[0]?.emit('update-downloaded', { version: NEXT, releaseNotes: 'fixes the thing' })
     expect(actions.state().phase).toBe('ready')
-  }, 20_000)
+  })
+
+  it('demotes the tier for the run when the failure was fatal', async () => {
+    bundle(true)
+    serveFeed()
+    shell.checkForUpdates = async (): Promise<unknown> => {
+      throw Object.assign(
+        new Error(`New version ${NEXT} is not signed by the application owner`),
+        { code: 'ERR_UPDATER_INVALID_SIGNATURE' },
+      )
+    }
+    const { host, waitFor } = sink()
+    const { updateActions } = await import('../src/updater.ts')
+    const actions = updateActions(host)
+
+    vi.useFakeTimers()
+    try {
+      actions.check()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await waitFor(FOUND_LINE)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // A refused signature is not the next check's problem: this run cannot
+    // install where it stands any more, and says so.
+    expect(actions.state().reason).toMatch(/^in-place update unavailable:/)
+    // The verdict is final, so the transfer already in flight cannot report
+    // itself into a state offering an install that cannot happen.
+    shell.instances[0]?.emit('update-downloaded', { version: NEXT, releaseNotes: 'fixes the thing' })
+    expect(actions.state().phase).toBe('failed')
+  })
 
   it('answers a click with the failure rather than the manual replacement it does not need', async () => {
     bundle(true)
@@ -351,10 +401,16 @@ describe('a signed build whose in-place check could not get through', () => {
     const { host, waitFor } = sink()
     const { updateActions } = await import('../src/updater.ts')
 
-    updateActions(host).check()
-    await waitFor(FALLBACK_LINE)
+    vi.useFakeTimers()
+    try {
+      updateActions(host).check()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await waitFor(FALLBACK_LINE)
+    } finally {
+      vi.useRealTimers()
+    }
     expect(attempts).toBe(3)
-  }, 20_000)
+  })
 })
 
 describe('a build that cannot install where it stands', () => {
