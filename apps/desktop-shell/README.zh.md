@@ -1,0 +1,340 @@
+# @deepseek-ai/dsh-desktop-shell
+
+[English](README.md) | 中文
+
+桌面客户端:Electron 壳,主进程启动内嵌的 web 服务器——即 [apps/desktop-server](../desktop-server/README.zh.md) 经 pnpm deploy 物化的闭包,跑在随包捆绑的真实 Node 运行时上(绝不用 Electron 内建 Node,服务端因此保持在被测试的 engines 线上,`node:sqlite` 与原装 N-API 预编译产物照常工作)——传入 `--no-open` 使服务端不把地址交给系统浏览器,等到 `dsh web:` URL 行后在原生窗口里打开所服务的 UI。窗口是纯浏览器面:无 preload、无 Node 集成;外部链接交给系统浏览器。退出时拆除整棵服务器进程树(SIGTERM + 超时升级;Windows 走 `taskkill /T`)。
+
+## 构建安装包
+
+```sh
+pnpm exec tsx apps/desktop-shell/scripts/package.ts --mac        # zip + dmg (arm64), runnable on this machine
+pnpm exec tsx apps/desktop-shell/scripts/package.ts --win        # NSIS installer (x64), cross-packaged from macOS
+```
+
+产物落在 `apps/desktop-shell/dist-app/`。流水线按 python/sdk-runtime 配方暂存服务端(legacy hoisted `pnpm deploy`、恢复 hoist、物化符号链接),删掉本机编译的原生 `build/` 树以强制走多平台预编译产物,补齐 macOS 安装时跳过的平台分包可选依赖的 win32-x64 成员,再按平台暂存 Node 运行时(`--skip-repo-build` / `--skip-deploy` 复用既有产物)。每份载荷冒烟测试之前先过一道载荷门禁:每条平台规则至少丢弃一个目录,每个平台分包目录都要对得上它所在的 target,活下来的模块不得按名解析已被裁掉的包。
+
+**一次运行只构建被点名的平台,绝不去猜它能猜到的那个**:`--mac`、`--win`,或者两者都要;两个都不给的运行会在构建任何东西之前停下。运行结束时它会检查该版本为这些平台该交付的每一个文件——mac 的 zip 与 dmg、Windows 安装程序,以及各自的 `.blockmap`——都在 `dist-app` 里、非空、而且**是本次运行开始之后写下的**,打印通过校验的清单,并点名其中缺失、为空或属于遗留的文件。`dist-app` 从不清空,过去每个版本的产物都还在;而修完一个问题重打同一个版本时,该版本自己的文件早已顶着完全相同的名字躺在那里:光看「在不在」分不出「某个平台压根没构建」和「某个平台的产物是上一次运行留下的」。期望的文件名是 electron-builder 对已声明 target 的默认命名,放在 `scripts/artifact-names.ts`,由 `tests/artifact-names.spec.ts` 对着 `electron-builder.yml` 钉住。
+
+**整个构建跑在自己创建、结束即删的一次性 `$DSH_HOME` 上**,于是它启动的任何服务端都不会改动这台机器自己的 harness 状态——`prepareProfile` 会重写 profile 的根配置,`healProfilesModuleFallback` 会把每一条扁平兜底符号链接重指到这次构建随后就要删掉的暂存树上。启动门禁按壳播种真实 home 的同样方式播种那个临时 home,再要求每个声明了浏览器那一半的内置插件都出现在所服务 index 点名的 client 模块里,于是它证明的是载荷的性质,而不是构建机自己 profile 的性质。
+
+## 关掉窗口,以及被叫回来
+
+**Windows 上关闭按钮会问一次它该是什么意思**:「最小化到托盘」还是「退出应用」,配一个「记住我的选择」。不勾,答案只管这一次;勾上,答案作为 `closeAction` 写进 `desktop-state.json`,此后每次关闭都照办、不再问,直到托盘菜单的「关闭时询问」把它清掉。最小化按钮原样不动——它仍然是普通的任务栏最小化。托盘图标从启动起就在,于是「最小化到托盘」指的是屏幕上已有的东西,窗口隐藏期间 **检查更新** / **退出** 也仍然够得着;菜单是 打开 / 检查更新 / 关闭时询问 / 退出,和菜单栏一样本地化。每一次退出——托盘的、记住的、更新触发的——都走同一条停服务器的 `before-quit` 拆除链;更新对话框会先把窗口显示出来再挂上去,因为挂在隐藏窗口上的窗口模态对话框既看不见也找不到。macOS 保留自己的习惯:关窗把应用留在 Dock 里,`activate` 重开窗口,所以没有菜单栏图标。
+
+**客户端会说哪个会话在等你。**够格的时刻有两个——会话跑完了,以及会话在等批准或等回答——窗口有焦点时两者都不打扰。两者都从壳自己启动的那个服务器上读,走 `/api/remote.mux`,也就是浏览器 UI 在消费的那条 WebSocket,在它上面开一条 `$events` 逻辑流;为此上游没有新增任何东西,而这条流在重开时会重放仍然挂着的请求,所以每个请求只报一次。Windows 弹系统 toast,点击把窗口抬起来,而审批的 toast 上带两个按钮:「拒绝」直接在 toast 上答复这次请求——走的是页面上那张审批卡同一条 `$events/result` 答复,所以卡片会随之消失——「去看看」把窗口抬起来;没有「批准」,因为 toast 只报了工具名、别的什么都没有,而批准得当着它批的那东西给。**壳弹出的每一条 toast,一旦被人动过、或者它所问的那件事已经结束,就会被撤下**,否则 Windows 会把它连同它带的按钮一直留在操作中心里可按:按钮被按下了、壳自己那份一分钟宽限的答复发出了、请求被取消了,或者壳已经不再盯着那个服务器。此后再按按钮——横幅几秒钟就收进操作中心,所以超过那一分钟才按下才是常态——抬起来的是窗口而不是一次答复,用户在那里才看得见卡片还在不在、还能不能答。而应用重启后仍留在操作中心里的 toast,它的按钮够不到任何投递:壳没有注册 Electron 的冷启动激活回调,刚起来的壳也没有可以把这一按对上的投递。macOS 显示 Dock 角标并弹跳一次,不往通知中心投任何东西——十来个跑完的 turn 会变成十来条要一一划掉的横幅,而角标只说有几条,并在窗口获得焦点时清零。
+
+**通知打开的是应用,不是会话。**Web UI 没有 URL 路由,壳无处可导航;是侧边栏自己的待交互与已完成标记指认出那个发问的会话。
+
+**所服务 UI 的下载只问一次,完事把文件指给你看。**窗口是浏览器面,却没有浏览器的下载管理器,于是 Electron 对一次下载的回答是一张什么都不解释的「存储为」面板——而发起下载的页面早已宣布下载开始了,会话日志导出在传输一开始就打出「Session 导出已开始下载」。因此,重定向链上每一跳都与内嵌服务器同源的传输,改用壳自己的保存对话框:「保存文件」,旁边写着「保存 `<文件名>`」,一个「保存」按钮,默认落在系统下载文件夹里、用下载自己建议的文件名——该名字已被占用时,在最后一个点后缀之前插入 ` (2)`、` (3)` ……——而文件从这里可以存到任何地方。**这个对话框不声明任何文件类型过滤。**凡是服务器以附件形式发出的东西都会走到这里——会话日志导出、侧栏的工作区文件下载,以及往后插件添的任何东西——而过滤器会把它没料到的那些改名,因为 macOS 把 `filters` 映射成 `setAllowedFileTypes:`,而 Electron 不设 `allowsOtherFileTypes`。传输完成后,文件会在系统文件管理器里被选中:壳把文件指给你看,而不是播报一句,因为在一台从未授权应用发通知的机器上,通知是静默的。划掉对话框就取消这次下载,不再多说;写盘失败则弹出一个点名该文件的错误框。这三种结局各在 `dsh-server.log` 里留一行。同源包含页面为自己铸造的 `blob:` URL,它的 origin 就是页面自己的;`data:` URL 不带 origin,永远不会被接管,来自其他 origin 的传输也一样,从别处起手再重定向进服务器、或从服务器起手再重定向出去的也一样——它们保持 Electron 的默认行为,连那张面板一起,因为不是这个壳服务出去的文件就不归它安置。macOS 把下载文件夹拦在 TCC 后面,所以 `electron-builder.yml` 里的 `NSDownloadsFolderUsageDescription` 给系统的授权弹窗一个说得出口的理由:对话框还开着的时候,Chromium 就已经把到达的字节写进默认下载目录了,不管用户最后把它送去哪里。
+
+## 更新机制
+
+已安装的客户端读一个静态更新源——一个 electron-builder `generic` provider 目录,里面是清单与它们点名的产物:
+
+```
+https://lhr.ink/dsh-updates/win/     latest.yml  + the NSIS installer + its blockmap
+https://lhr.ink/dsh-updates/mac/     latest-mac.yml + the zipped app
+```
+
+这里没有更新服务:清单**本身**就是判断过程,所以 nginx 发一个目录已经把它整个实现了。更新源地址存在于两处——生成清单与打包内 `app-update.yml` 的 `electron-builder.yml`,以及运行时读取它们的 `src/updater.ts`——迁移更新源要同时改这两处。`channel: latest` 在两端都显式写出;默认行为会拿运行版本的预发布段给渠道命名,那会让渠道名随发布周期的每个阶段改名。
+
+**Windows 原地安装,分三步。**静默检查(启动后 15 秒、此后每四小时,以及 **帮助 → 检查更新**)先征询下载。同意后在后台下载,配一个可以随手关掉、关掉也不会中断下载的小进度窗。下载完成后再征询重启安装。**没有用户的决定就不会发生安装**,退出时或别的任何时候都一样:`autoInstallOnAppQuit` 关闭,应用只在有人点了「重启安装」之后的几秒里替换自己。被拒绝的安装留在盘上,只会在下次启动与菜单手动检查时再被提起——别处没有。在 Windows 上这些对话框全部挂在应用自己的窗口上,因为没有 parent 的对话框可以被系统排到用户正在用的东西后面,更新提示就这样存在却没人看见;在 macOS 上它们刻意不挂 parent,因为那里带 parent 的对话框是 sheet,任何抬起父窗口的动作——比如点一下 Dock 图标——都会像按下它第一个按钮那样把它结束掉。两边都一样:应用不在前台时会先请求注意,Windows 闪任务栏按钮,macOS 弹一次 Dock 图标。
+
+**安装既不静默,也不需要走向导。**可选的形态有三种,只有中间那种既诚实又无需点击:
+
+| | 用户看到什么 | 为什么不选 |
+|---|---|---|
+| 完整向导 | 目录页、进度页、完成页 | 重问一遍那次点击已经回答过的问题;读起来像重装 |
+| 静默(`/S`) | 什么都没有——直到出错 | 没有任何界面的安装无法自报进展,而 NSIS 的卸旧失败框照样会弹(`handleUninstallResult` 的 MessageBox 不带 `/SD`),于是唯一到达用户面前的东西是一个来路不明的报错 |
+| **只留进度条** | 一个进度窗,不提问,应用自己回来 | — |
+
+`quitAndInstall(false, true)` 选的是第三种。拿掉向导靠的不是静默:目录页在 `--updated` 时由模板自己的 `skipPageIfUpdated` 跳过,完成页由 `build/installer.nsh` 以同样方式跳过,MUI 自己的 `SetAutoClose true` 在安装段结束时关窗。重新拉起应用于是成了我们的活——模板的拉起条件是 `${if} ${isForceRun} ${andIf} ${Silent}`,非静默安装永远满足不了——所以 `customFinishPage` 用 `ExecShellAsUser` 启动它,顺带丢掉安装器的提权令牌。`$INSTDIR` 在 `.onInit` 里读自 `HKLM\SOFTWARE\<APP_GUID>\InstallLocation`——也就是安装段写下的那个值——该值缺席时退回 `%ProgramFiles%\DSH Desktop`;所以只要当初那次安装留下的这个键还在,更新就落在应用已占的目录。
+
+**Windows 为所有用户安装,因此更新会提权。**`perMachine: true` 加 `packElevateHelper: true` 把 `isAdminRightsRequired` 写进清单,更新器于是通过 `elevate.exe` 启动安装器。在 UAC 为普通设置的机器上,这是**每次安装一次确认框**;在 UAC 设为「从不通知」的机器上则被静默放行,什么也不会出现。没有这次提权,per-machine 的卸旧会中止——这是走到 `Failed to uninstall old application files: 2` 的两条路之一。
+
+**另一条路是旧卸载器的暂存路径,把它压短的是 `build/installer.nsh`。**更新会带 `--updated` 运行**旧**卸载器,它的卸载段在删除任何东西之前,先把安装目录里的每个文件搬进 `$PLUGINSDIR\old-install`。`$PLUGINSDIR` 位于 `%TEMP%`,所以每个暂存路径都是这个前缀加上该文件相对安装目录的路径——对装到 `D:\soft\DSH Desktop` 的安装,这个前缀长了 34 个字符,而载荷里最深的文件本就在 208 个字符处。261 个字符比 MAX_PATH 多一个,NSIS 又不支持长路径,搬移以 `ERROR_PATH_NOT_FOUND` 失败——模板把它报成 `File is busy`,而事实并非如此。五次重试之后安装器弹出「DSH Desktop 无法关闭」,而「重试」执行的又是同一次注定失败的尝试,因为超长的那条路径每次都是同一条。`customRemoveFiles` 替换掉了这套暂存:安装目录被**整个**改名成它自己的同级兄弟目录再在那里删除,于是它下面每条路径都保持原有长度,而且整个搬移留在同一个卷上。`customInit` 仍然先清掉旧版本的进程——应用本身、它的 `node.exe` 服务端,以及 `elevate.exe`(更新器正是从应用自己的 `resources` 目录启动它,并且它会在那儿等到整个安装结束)——因为活着的进程会让那次删除留下一个暂存目录,并让随后的解压覆盖旧版本仍在读取的文件。它先立刻杀掉 `elevate.exe`(不带 `/T`,因为安装器是它的子进程),再给应用与服务端 10 秒自行退出,超时后对残留连子进程一起杀。围绕它,退出时对停服务器封了顶(Windows 4 秒,落在安装器自己的耐心之内;别处 10 秒),到点照退;每次启动还会杀掉上一轮留下的服务器,匹配的是本安装那个内置 Node 的完整路径,而不是 `node` 映像名。
+
+**那个「它还在跑吗」的判断,可能把满机器的进程都当成应用。**模板自带的「它还在跑吗」这一步收一个文件名参数,然后在 PowerShell 分支里把它忽略掉:它数的是可执行文件路径以 `$INSTDIR` 打头的进程,只要个数大于零就回答「在跑」。这个前缀不补分隔符,而 `String.StartsWith("")` 对任何字符串都为真——于是一个没解析出来的 `$INSTDIR` 会匹配整台机器,连安装器自己都算在内。它的清理这一步照同一个集合逐个 `Stop-Process -Force`,大多数会失败,下一轮又发现残留,最后停在「DSH Desktop 无法关闭。请手动关闭它,然后单击重试以继续」,而「重试」回到的是同一个循环。但上面那个对话框并不是这样来的——报告该问题的机器在一次失败安装中被以 250ms 采样盯了全程,看到的是五次 `old-uninstaller.exe`,以及一次进程检查都没有;它的 `$INSTDIR` 从向导里直接读出来是 `D:\soft\DSH Desktop`。这个过度匹配本身仍然是真的,而且拒绝它的代价很低。
+
+`build/installer.nsh`(按文件名从 `buildResources` 被取用)于是定义 `customCheckAppRunning`,把这一步整个换掉——安装器在卸旧之前走它,卸载器在开始搬文件之前也走它,两边经过的是同一个宏。它先清 `elevate.exe`,单独清、不带 `/T`(安装器是它的子进程,树杀会把安装本身杀掉;先清它也把本进程从应用的子孙链里摘了出来),再给应用与服务端 10 秒自行退出,超时后对残留连子进程一起杀——服务端自己的子进程占着同一批文件。三条硬约束框住它:`$INSTDIR` 只有在是绝对路径、长过卷根、目录存在、且目录里有本产品的可执行文件时才用作前缀,用时必补分隔符;本进程的 pid 从每个匹配集里排除;全程不弹任何对话框,因为一个用户满足不了的框正是内置版本走死的地方。前缀不可信时,清扫改按精确映像名——`elevate.exe` 经由本进程自己的祖先链定位,应用连树一起杀——而绝不碰裸的 `node.exe`,那名字在任何机器上都属于别人。围绕这一切,退出时对停服务器封了顶(Windows 4 秒,落在安装器自己的耐心之内;别处 10 秒),到点照退;每次启动还会杀掉上一轮留下的服务器,匹配的是本安装那个内置 Node 的完整路径,而不是 `node` 映像名。
+
+**新版本自己会报到。**每次启动都把版本记进用户数据目录下的 `desktop-state.json`,而启动时读到一个更旧的版本——这正是「更新装完并自行重启了应用」的样子——就在启动页上留一行:「已更新到 vX.Y.Z」。别的什么都不变,没有要关掉的对话框。
+
+**安装失败时**,下载好的安装程序仍在 `%LOCALAPPDATA%\@deepseek-aidsh-desktop-updater\pending\` 里。手动运行它——右键**以管理员身份运行**——装的就是这次更新要装的那一版,会话记录两种路径下都在。之所以要提权运行,是因为手动启动的安装程序没有 `elevate.exe` 替它索取 per-machine 卸旧所需的权限。
+
+**如果连这条路也停在「无法关闭」**,说明本产品记录的安装目录丢了,把它写回去就足以放行一个旧版安装器:
+
+```
+reg add "HKLM\SOFTWARE\e36966b0-1805-5ec4-9648-404e09da7db1" /v InstallLocation /t REG_SZ /d "D:\soft\DSH Desktop" /f /reg:64
+```
+
+键名是 electron-builder 由 `appId` 推出的 GUID,也是安装器读取目录的唯一出处——旁边那个 `Uninstall` 项只带 `DisplayName` 与 `UninstallString`,本来就没有 `InstallLocation`,在那儿看到空值并不说明任何问题。这个值缺失的代价不止那句提示:`uninstallOldVersion` 会把从 `UninstallString` 推出的正确目录当作 `_?=` 交给旧卸载器,而旧卸载器自己的 `initMultiUser` 又在卸载段开始前用同一个空键覆盖掉 `$INSTDIR`——于是它什么也没卸,新版本却装进 `%ProgramFiles%\DSH Desktop` 这个兜底目录,应用被悄悄搬了家,旧的那份留在原地。
+
+**macOS 同样原地安装,前提是构建已签名。**Squirrel.Mac 只在替换件满足当前运行应用的 designated requirement 时才暂存更新,这正是发布构建要签名的原因(见下方「信任与签名」一节)。三个阶段、几个对话框、以及「重启安装」的规则都与 Windows 一致;不同的是安装本身。它要十五秒上下,其中大部分时间屏幕是空的——Squirrel 在解压与验签,而 ShipIt 要等本应用的所有进程退出才能开始换包——所以那次点击会立起一个常驻的「正在安装 vX」提示把这件事说清楚,并隐藏主窗口,因为它的服务马上就没了。
+
+**没有**签名的构建保持旧行为:自己比对版本,用系统浏览器打开下载,只在启动时或手动检查时,绝不在会话中途。走哪一条由每次检查现场判断:看 `Contents/_CodeSignature/CodeResources` 在不在——签名会写出它,ad-hoc 链接器签名不会。已签名的构建若在运行期以重试修不好的方式失败,本次运行剩余时间降到同一条下载路径,并留下一行日志,而不是让这次检查以错误框收场。
+
+**下载中断会先重试,再谈放弃。**electron-updater 不保留失败传输的任何部分:全量下载不发 `Range` 头,而任何错误都会删掉半截文件并清空 pending 目录。因此 `src/download-retry.ts` 在失败前面放了三次完整重试——间隔 2 秒、6 秒、18 秒——进度窗不关,并写明正在等待第几次。会重试的是网络:连接被切断或被拒绝、DNS 失败、请求超时、任何 `net::ERR_…`,以及更新源返回的 5xx、408、425、429。不重试的是判定:`ERR_UPDATER_*` 拒绝、签名不符、校验和不匹配、4xx——以及分类器不认识的任何失败,它们默认按致命处理,这样一个不认识的错误不会再赔上三次整包传输。重试用尽后,这次下载只记日志并就地放弃:层级不变,**macOS 不降级**,下一次定时检查从头再传一遍,手动检查会收到一个对话框说明此事。致命失败仍按上面那套层级规则走——macOS 在本次运行剩余时间降到下载页,并在那一层重跑这次检查。重试并不会让更新变成可续传:差量下载需要缓存目录里存在上一版的 `update.zip`,所以全新安装之后的第一次更新,每次尝试都是整包传输。每次重试与结束它的那个结论都写进 `dsh-server.log`。electron-updater 自己的日志也写进同一个文件,只去掉它的 `debug` 通道:一次差量下载会把整份分块计划从这个通道倒出来——在观测到的那一次更新里约 650 行 JSON,不含版本、大小,也不含失败——而概括同一份计划的那两行 `info`(`File has N changed blocks`、`Full: … To download: … (P%)`)保留。另有两行 `debug` 跟着一并保留,顶着 `debug:` 标记,因为它们说的事别处不记:`nativeUpdater.update-downloaded`,macOS 上 Squirrel 完成暂存的唯一凭据;以及 `updater cache dir: <path>`,它给出的目录决定下一次更新能不能走差量。electron-updater 写进那里的行里,唯一一条为「它自己已经恢复过来的失败」带上堆栈的,会被改写而不是照搬:在 Windows 与 macOS 上同样,`Cannot download differentially, fallback to full download` 带着堆栈、顶着 `error` 字样,出现在一次随后仍以全量下载完成的更新里,`src/updater-log.ts` 把它压成一行,只说原因。
+
+**要求多于一个范围的差分下载已打补丁。**electron-updater 6.8.9 没有给多段响应挂 `error` 监听,而计划中范围多于一个时发出的正是多段请求,于是传输中途被切断的连接会抛出一个没人监听的 `error` 事件——主进程里的未捕获异常,也就是 Electron 自带的「A JavaScript error occurred in the main process」对话框,盖在一次随后仍以全量下载完成的更新上面。`patches/electron-updater@6.8.9.patch` 携带上游的一行修复(electron-builder 提交 `5eed26b2a9cfd06a1dbe207b25a46ce2c0b05ae9`,PR #10021),直到有发行版带上它为止。`tests/electron-updater-multipart.spec.ts` 对着 `node_modules` 里的那份副本钉住这个行为,补丁在与不在都保持通过;真正来讨要这个补丁的是 pnpm——当某次升级让这条精确版本补丁变得无用或无法应用时,它会让安装失败。
+
+**检查被打断也会重试,用的是另一份计划。**一次检查只传一份小清单,被打断的代价是一个请求而不是整包传输,所以计划是两次重试——间隔 1 秒、3 秒;这四秒的等待还装得进强制启动门允许的十五秒,于是撞上断连的启动门是从一次重试、而不是从它自己的超时里得出结论。重试与不重试的界线和下载一致,由同一个分类器判定。瞬时失败熬过重试后,只赔上这一次检查:**macOS 保住原地安装的层级**,启动门退回自己去读 `latest-mac.yml`,下一次检查照旧先走原地这一条。只有重试修不好的失败——`ERR_UPDATER_*` 拒绝,或更新源上这个通道根本没有清单——才会把 macOS 在本次运行剩余时间降到下载页。
+
+### 强制更新
+
+清单里带一个本产品自有的字段 `minimumVersion`:低于它的客户端必须更新才能继续使用。
+
+| | Windows | macOS |
+|---|---|---|
+| **启动时** | 不展示 UI,服务端拆除,下载不经征询直接开始。下载失败时给出重试与退出两条路。 | 阻断对话框给下载或退出;两种选择都不会进入应用。 |
+| **会话中** | 立即下载并弹一次对话框告知;下载完成后仍可推迟安装。 | 提示一次;下次启动阻断。 |
+
+连不上的更新源会**放行**而不是关门——网络故障绝不能把人锁在自己的机器外面。这条线在发布时显式设定,此后自行延续,所以忘记加参数不会把它悄悄丢掉。
+
+### 发布
+
+```sh
+pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt             # ship the built version
+pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --dry-run   # verify without uploading
+pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --minimum-version 0.1.0-rc.8
+pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --republish  # repair a cut-off upload
+pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --no-prune   # leave every old version in place
+pnpm exec tsx apps/desktop-shell/scripts/publish-update.ts --notes notes.txt --no-tag     # leave the shipped commit untagged
+```
+
+脚本会拒绝与 `package.json` 对不上的 `dist-app`,重新校验安装程序的 NSIS 完整性 CRC,并断言本次构建盖过更新源在提供的版本。上传顺序是**先产物、两端校验、清单最后**,因此发布途中轮询的客户端读到的是旧清单指向旧产物,绝不会读到一份指着还在上传的文件的清单。它还会剔除本次不上传的产物在清单里的条目:macOS 构建会在 zip 旁边列出 dmg,而只有 zip 会发布,留着那条就等于在更新源里放了一个 404。
+
+**更新源自己会清理,而且两类文件留的深度不同。**等两个清单都从更新源回读到新版本之后,脚本会列出各渠道目录,按两条规则裁掉多余的:**最新的两个版本留产物,最新的十个版本留 `.blockmap`**。更新过程中真正会从更新源取的只有其中一类——electron-updater 会下载新版本的 blockmap,但旧版本的那份先读客户端自己的缓存,只有缓存里没有了才回落到更新源;而旧**产物**它同样只从那个缓存里打开,从不走网络。所以留在服务器上的旧产物(138–174 MB 一个)是给回滚和手动下载用的,旧 blockmap(145–181 KB 一个)则是给缓存丢了的客户端兜底;两者留同样深,等于用前者的价钱买后者的好处。发布成功之前不删任何东西;版本按 semver 优先级排序而不是按名字排(`0.1.0-rc.9` 比 `0.1.0-rc.10` 旧);清单以及本次发布上传的一切永远不进候选;解析不出版本的名字只记一行日志、原样留着。`--no-prune` 跳过整个步骤;`--dry-run` 会把「会删什么、会留什么」原样打印出来,并且什么都不删。这套判断在 `scripts/prune-feed.ts`——一个纯函数,由 `tests/prune-feed.spec.ts` 脱离服务器测试。
+
+**发布成功之后会给所交付的 commit 打 tag。**等两个清单都回读到、清理步骤也跑完之后,本次发布被打上 `desktop-v<version>` ——带注解,消息就是这次的发布说明,于是 `git tag -n` 就能看到发布了什么——并把该 tag 推到 `origin`。这件事能不能成,在第一个字节上传之前就已判定:已跟踪文件有未提交改动、`desktop-v<version>` 在本地或 `origin` 上已经指向别的 commit、或者根本没有 `origin`,都会直接拒绝本次发布——此时产物还只在本地,重跑不花什么代价。未跟踪文件在这里不算未提交改动——发布运行自己会把日志写进工作树,被忽略的 `.env` 也长期躺在那里,两者都改不了构建所编译的东西。
+
+**由哪一侧已经持有该 tag 来决定跑什么**,而 `origin` 是权威的一侧,因为其他每一个克隆读的都是它:两侧都没有,就在本地创建并推送;只有本仓库在 HEAD 上持有,就推送;只有 `origin` 在 HEAD 上持有,就把它 fetch 下来——因为为一个 `origin` 已经发布的名字在本地再造一个带注解的对象,推上去只会被 git 拒绝;两侧都在 HEAD 上持有,就一条 git 都不跑。后两种正是同一个仓库的多个工作树轮流发布时的常态。若打 tag 这一步在更新源已经开始下发之后失败,它会明说产物**已经**发布、只是 tag 没跟上,打印出手工补上的那一条命令,并以非零码退出。`--no-tag` 跳过该步骤连同它的前置校验;`--dry-run` 打印它会打什么 tag,不碰任何东西。这套判断在 `scripts/release-tag.ts`——一个纯函数,由 `tests/release-tag.spec.ts` 脱离仓库测试。
+
+更新源在主机上的路径是 `/var/www/dsh-updates/{win,mac}`,由追加的单个带 `alias` 的 `location /dsh-updates/` 提供。那台 nginx 使用自定义前缀(`/data/third_party/nginx`),编译时不含 rewrite 模块,且 master 不归 systemd 管——重载请用 `nginx -s reload`,绝不要用 `systemctl`。该目录不套 BasicAuth,因为 electron-updater 不会带凭据。
+
+## 信任与签名
+
+**macOS 构建由本项目自己持有的一张自签名证书签署。**`scripts/sign-mac.cjs` 在 `afterPack` 钩子里直接跑 `codesign`,因为 electron-builder 自己的签名过程用 `security find-identity -v` 过滤身份,未信任的自签名证书永远过不了这道过滤。`codesign` 没有这条规则;它真正要求的是身份所在的钥匙串必须在用户的钥匙串搜索列表里,所以脚本每次构建新建一个钥匙串、加进列表、签名,再在 `finally` 里还原搜索列表。身份默认从 `~/Library/Application Support/dsh-desktop-signing/dsh-desktop-signing.p12` 读取,除非 `DSH_MAC_SIGNING_P12` 与 `DSH_MAC_SIGNING_P12_PASSWORD` 另行指定;缺失时**构建失败**,`DSH_MAC_SIGN=0` 是显式索要未签名构建的方式。更新路径校验的就是这张证书,所以它不能轮换:它的指纹就在每个已安装客户端校验的 designated requirement 里。
+
+它不是 Developer ID 证书,应用也未公证,所以由**浏览器**下载的副本,Gatekeeper 仍要求右键打开(或 `xattr -dr com.apple.quarantine`);由 Squirrel 装上的更新不带隔离属性,两者都不需要。Windows 产物未签名,SmartScreen 会弹未知发布者提示。Windows 包只做了交叉构建与结构校验——交付前务必在真实 Windows 机器上冒烟。
+
+这也框定了更新源能承诺什么。TLS 认证服务器,清单里的 sha512 把产物绑定到清单,所以传输途中无法被做手脚。产物带的是本项目自己做的签名,不是操作系统会背书的那种,所以对 `/var/www/dsh-updates` 的写权限仍然等于对每个客户端下一个安装程序的写权限——macOS 客户端会拒绝由别的证书签出的 bundle,但对「给它的是这张证书签出的哪一个构建」没有意见。补上这一环要靠 Windows 的 Authenticode 与 macOS 的 Developer ID 加公证。
+
+## 内置插件
+
+**十三个插件随安装包分发,并在首次启动时自行挂载**,所以全新安装无需 pnpm、无需联网、无需 `dsh plugin add` 就已就位:
+
+| 包名 | 版本 | 提供什么 |
+|---|---|---|
+| `dsh-better-sidebar` | `0.18.0-alpha.0-patched1`,来自提交进本仓库的 tarball | 右侧栏:文件树、编辑器、终端标签页与任务列表 |
+| `dsh-at-file` | `0.7.0-da602d1`,来自提交进本仓库的 tarball | 输入框里的 `@` 文件提及 |
+| `@haoran/dsh-screenshot` | `0.5.1`,来自提交进本仓库的 tarball | `screenshot` 工具:渲染任意页面,登录墙后的页面也包括在内——截回来的图是一堵登录墙时,它变成一个问题,你的回答要么打开一个由你自己完成登录的窗口,要么复用这台机器上已有的登录,随后在那个站点自己的分区里重新截一次。没有这个回答就什么都不复用,cookie 的值从不作为工具参数或返回值出现,已存的登录在设置页的一个小节和 `/screenshot-logout <域名>` 里管理。它把像素连同一份说明这次渲染做了什么的报告交给 agent,页面用尽时间时交回一张部分截图,并在要求时把 PNG 写进工作区内;配置决定 cookie 罐、user agent(默认是稳定版 Chrome 的字符串,不是壳自己的)与由哪个后端渲染 |
+| `@haoran/dsh-llm-permission-gateway` | `0.3.1`,来自提交进本仓库的 tarball | 一个审查模型,判断操作系统沙箱管不到的那些有副作用的工具调用,并代你回答沙箱自己弹出的越权申请。设置页的**自动审查**是这个开关,输入框里的 `/review auto` 与 `/review manual` 是同一个,同一个小节还决定用哪个模型来审查。它最多只能问:`deny` 判决会降级成摆到你面前的一个问题,用中文写明这次调用跑起来的代价。两条红线编译在插件里,两种模式下都成立,配置也关不掉——在同一次调用里读凭据库并把数据送出这台机器,以及任何指向本插件自己的包目录、`$DSH_HOME/profiles` 或 `$DSH_HOME/settings.yaml` 的参数。它同时贡献 `关闭沙箱（不推荐）` 那一行权限预设,在访问方式控件里带完全权限那枚盾形图标 |
+| `@sumomok/dsh-quote-message` | `0.3.1`,来自提交进本仓库的 tarball | 把当前会话里更早的内容引进输入框:在任意消息里选中一段文字会出现 `Quote` 药丸,引用 chip 在你发送时展开成一段 markdown 引用块,而对话里它显示成你这条消息上方的一段引文——左侧一条细线,引用文字用次级墨色,超过三行折起 |
+| `@sumomok/dsh-balance` | `0.4.4`,来自提交进本仓库的 tarball | 账户余额与花掉了多少:侧栏底部一个显示供应商那边剩余额度的 chip、输入框下方的本会话成本行,以及按本部署自己维护的价格表算出的今日 / 本月 / 累计花费,默认表里带着 DeepSeek 截至 2026-09-10 公布的 CNY 与 USD 价格,已下线的那两个 Flash id 按实际为它们提供服务的模型计价。chip 的浮层里带一个**充值**按钮,对插件收录了控制台页面的那些供应商可见,点开走系统浏览器。设置页的**余额**里有一个开关,把 chip 上的数字换成圆点,给正在共享或录制的屏幕用;它在保存那一刻就到达 chip,不用等下一次轮询;浮层、余额偏低的染色与输入框下方的本会话成本行都照旧显示 |
+| `@haoran/dsh-connection-banner` | `0.2.1`,来自提交进本仓库的 tarball | 连接正在重连期间,页面顶部的一条横幅——短暂的抖动不出声,断线过了几秒才现身,一恢复就立刻消失 |
+| `@haoran/dsh-clickable-refs` | `0.4.1`,来自提交进本仓库的 tarball | 让终端(bash 工具)输出、web-fetch 卡片里的 URL 与助手正文可点击:每一次命中——POSIX 或 Windows 路径、UNC 共享、localhost/loopback URL——都经由 referent/open 这道 waterfall 缝打开,对可执行/脚本扩展名有一份拒绝名单,过期路径则降级为「未找到」 |
+| `@haoran/dsh-plugin-updates` | `0.2.0`,来自提交进本仓库的 tarball | 插件设置里的「更新」页:把你自己装的插件与各自最新的发布版本列在一起,每行一个按钮,经由随安装包分发的那个包管理器安装,还有一步把上一次更新撤回。内置插件不在这份名单里——壳给它们种下的是没有依赖条目的 bundle 项,它们随应用更新而更新 |
+| `@haoran/dsh-vision-switch` | `0.2.4`,来自提交进本仓库的 tarball | 在当前模型不支持图片时发送带附件的消息,会经由手动切换模型走的那条同一通道把会话切到一个支持图片的模型,而不是宿主那个走不下去的拒绝 |
+| `@haoran/dsh-default-model` | `0.3.0`,来自提交进本仓库的 tarball | 出厂默认模型,也是选择器里唯一的模型:`deepseek-flash`——DeepSeek-V4.1-Flash,文本与图片都收。DeepSeek 已下线 V4 Flash 系列并把 V4 Pro 的请求转到它,所以目录只列这一个。在此之前选过模型的用户仍保留那个选择,它在他们自己的设置里;若那是一个已下线的模型,文本照常——DeepSeek 用 V4.1 Flash 为那些名字提供服务——而发图片会把会话切到 `deepseek-flash`,并把存着的那个选择一并改写成它。每一次发送都是如此,新对话的第一条消息也不例外:`@haoran/dsh-vision-switch` 0.2.4 在 composer 自己的选择器解析会话模型的同一处解析它,而对一个没有记过任何选择的对话,那里解析出的正是这份存着的默认值 |
+| `@haoran/dsh-btw` | `0.1.1`,来自提交进本仓库的 tarball | `/btw <问题>` 就当前对话问一个岔开的问题。答案落在它自己的一张卡片里,并且此后对话里的每一次请求都看不到它:问题与答案就是这个命令自己的 `command/run` 与 `command/done` 事件,而唯一构建模型请求消息列表的那个函数 `Session.deriveMessages()` 从不走这两类事件,所以这条保证是结构性的,不是约定。它是走对话自己那条路由的一次请求,按这个长度的一轮计价,带着对话作为上下文,却既不带 agent 的系统提示词也不带它的工具;答案是整段出现的,不是一个词一个词地流出来,因为要流式就得有一个这个插件刻意不声明的会话事件。带工具调用标记的回答会被拒成「模型要求调用工具」而不是把标记原样显示出来,卡片也会记住你有没有把它收起 |
+| `@haoran/dsh-mcp-servers` | `0.1.4`,来自提交进本仓库的 tarball | 外部 MCP 工具服务器,在设置页的「外部工具」小节里添加:本机上一个以完整路径指名的程序,或一个 Streamable HTTP 地址。保存即连上,而它实际提供的那一组工具会被记成受信的那一组。删除会先在该行里问一句,并在你回答之前扣住其余控件。只有当有什么与这份记录对不上了,这一行才重新显示「等待确认」——命令、参数、工作目录、环境变量、URL 或请求头被改过,或者服务器改了它提供的工具——而且只扣住其中变过的和新增的工具,已勾选、服务器没动过的工具照常可用。服务器提供的工具也要逐个勾中它当前的措辞才会被注册,服务器改写了描述或入参 schema,该工具就退回待勾列表,而不是进入下一次请求。请求头的值与环境变量条目都可以填一个已保存凭据的名字来代替密文本身,而那个值从不进入设置文档。一次调用超出插件自己的单次预算时,报的是「等不到回应」并写明这个预算,而不是说服务器什么都没回 |
+
+它们是 [apps/desktop-server](../desktop-server/README.zh.md) 的普通依赖,所以 `pnpm deploy` 会把它们和服务端闭包的其余部分一起放进载荷的 `server/node_modules`,版本由携带它们的那个安装包钉死——一次更新分发的就是该次构建声明的版本。`dsh-better-sidebar` 的 `node-pty` 通过 `pnpm-workspace.yaml` 的 override 钉到 harness 内核自己那一份,因为插件自己写明两半必须解析到同一个物理包,而载荷的平台裁剪规则只够得着顶层那一份。
+
+**这个网关随包挂载,审查是开着的,沙箱也照常开着。**要不要问审查模型是插件自己的一项设置——出厂为 `auto`,在设置页的**自动审查**小节里扳动,或者用 `/review auto` 与 `/review manual`——它与选中哪种访问方式互不相干:编排出来的默认值仍是 `workspace-write` 加 `ask`,新会话被钉住的还是它。有沙箱时,这道门只审沙箱管不到的东西:`run_code` 的程序体(它跑在 harness 进程内的一个 worker 线程上),以及 `web_fetch`、`screenshot` 这类能力工具。`bash`、`pwsh`、`write`、`edit`、`str_replace_editor`、`terminal_open`、`terminal_send` 在各自的操作系统围墙还立着时不经审查直接放行,围墙不在的地方则照审。它还会代你回答沙箱自己弹出的越权申请:某次被围住的调用因为伸到墙外而被拒、agent 请求解除这次拒绝时,由同一个模型来决定,拿不准就把问题交还给你。这道门最多只能问——`deny` 判决会变成一个带着模型理由的问题——所以审查只会多出提示,不会有无声的拒绝。两条红线编译在插件里,两种模式下都成立,配置也关不掉:在同一次调用里读凭据库并把数据送出这台机器,以及任何指向本插件自己的包目录、`$DSH_HOME/profiles` 或 `$DSH_HOME/settings.yaml` 的参数——按解析后的路径算,也按字面文本算(比如插件自己的包名)。读和写一样被拒,所以 `ls ~/.dsh/profiles` 也过不去。访问方式控件里列的是仅可查看、工作区内修改、完全权限,以及插件自带的关闭沙箱（不推荐）;那一行写在插件自己的 patch 层里,而不是写在你的 profile 里,所以它恰好在这个 bundle 挂载期间存在。
+
+**每个内置插件都以一条 `file:` 标识符指向 `apps/desktop-server/vendor/` 下的一个 tarball**,与声明它的清单放在一起提交;那个归档就是渠道:这十三个插件没有一个是从注册表装来的。下文那第十四个 bundle 名字 `@deepseek-ai/dsh-desktop-app` 既不是插件也不是 tarball——它是本仓库的一个 workspace 包,以 `workspace:^` 声明。`@haoran` 那几个插件哪里都没发布。`@sumomok/dsh-balance`、`@sumomok/dsh-quote-message` 与 `dsh-at-file` 走在各自作者最新发布版之前,`dsh-better-sidebar` 的归档是一个发布版按本仓库的改动重打而成,改动登记在 `.claude/core-patches.md`。pnpm 为 `file:` tarball 记录 `integrity` 哈希,与注册表包完全一样,这正是 `pnpm deploy` 要求的东西,也是 GitHub 归档 URL 给不出的东西。升级其中一个意味着提交一个新的 tarball 并把它的标识符指过去。
+
+**走在注册表之前,正是 profile 自己那份内置插件副本不只是重复、而是隐患的原因。**`dsh plugin add dsh-at-file` 装到的是最新发布版,而它落后于这里分发的归档,于是一个 bundle 的两半会从不同地方解析——patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`。这一行来自一个版本,代码来自另一个版本;启动会如实报告而不去修它,见下文。
+
+**十三个里有十二个带浏览器那一半。**包清单里的 `dsh.client` 才是让服务端为它组合出 `/plugins/<name>/client.js` 那一行的东西,`dsh-at-file`、`dsh-better-sidebar`、`@haoran/dsh-screenshot`、`@haoran/dsh-plugin-updates`、`@sumomok/dsh-quote-message`、`@sumomok/dsh-balance`、`@haoran/dsh-connection-banner`、`@haoran/dsh-clickable-refs`、`@haoran/dsh-vision-switch`、`@haoran/dsh-mcp-servers`、`@haoran/dsh-llm-permission-gateway` 与 `@haoran/dsh-btw` 声明了它。没有的那一个是 `@haoran/dsh-default-model`:默认模型是 loader 去读的编排,页面从不加载。构建的启动闸从载荷自己的清单读这条声明,而不是从一份名单读:每个有浏览器那一半的内置插件都必须出现在所服务的 index 所列的客户端模块里,其余的则由这次启动本身来证明——profile 列了名字而 Loader 解析不了的 bundle 是硬性启动失败,所以打印出 URL 行的服务端已经把十三个、以及排在它们之后的那一层组合层都解析了。
+
+**`dsh-better-sidebar` 在本宿主上必须是 `0.14.0` 或更高。**`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,模块访问改由 `ctx.modules` 服务提供,这让每个懒加载 chunk 解析外部依赖的方式全面失效——`0.13.1` 会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,终端、编辑器与 Mermaid 面板一起跟着挂掉。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`,并把插件自有的全局共享给它的 chunk 副本,同时移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。
+
+**壳启动的是自己的 profile `desktop`,并在启动服务端之前把它建出来。**`desktop` 没有随附模板,所以没有谁会按需把它建出来,而服务端拒绝启动一个不存在的 profile;`src/profile-seed.ts` 先于服务端运行,写出 `initProfile` 会写的那三个文件——清单、`cordis.patch.yml`,以及 `pnpm-workspace.yaml`,后者的 `hoisted` linker 正是让日后安装的插件共用安装目录里那一份 cordis 的东西。清单列出 `@deepseek-ai/dsh-base`、`@deepseek-ai/dsh-web-app`、十三个内置插件与 `@deepseek-ai/dsh-desktop-app`,于是 `loadProfile` 会应用它们各自的 `cordis.patch.yml` 层;每个内置插件还会被链接进 `$DSH_HOME/profiles/node_modules`,即 Loader 从它解析插件标识符所依据的 profile 目录逐级向上就能走到的扁平兜底目录。每一次写入都是幂等的:已列出的名字不会重复添加,正确的链接原样保留,已存在的文件不会被改写,而下面的 web profile 同步是唯一会写入依赖条目、或改写壳自己写过的文件的动作。清单以 rename 写入,所以启动中途被打断也只会留下原来那一份。某次启动确实改动了什么时向 `dsh-server.log` 写一行,没改动则不写。
+
+**那份清单里的最后一个 bundle 是本产品自己的组合层。**`@deepseek-ai/dsh-desktop-app`（[apps/desktop-app](../desktop-app/README.zh.md)）不含代码,也不是插件:它就是一份 `cordis.patch.yml`,装着出厂的 `dsh-base` 与 `dsh-web-app` 留给部署方去定的那些行。把它排在最后,是因为已有 profile 缺的名字是往后追加的,末位是全新 profile 与升级而来的 profile 都会给它的唯一位置;这个位置也让这里的一行盖过其上的每一个 bundle 层。末位只是那一次播种时的末位,不是永远的末位:同一次启动会把它从 `web` profile 迁移过来的插件追加在它之后,此后重新启用一个插件也一样。每一个 bundle 层之后还依次生效着三个用户层——`$DSH_HOME/profiles/desktop/cordis.patch.yml`,然后是 `$DSH_HOME/cordis.patch.yml`,然后是任何 `--patch` overlay。它今天携带两行。第一行打开了对话正文的全文搜索:出厂组合包把 `session-query-sqlite` 的 `openAt` 设为 `never`,所以侧栏搜索只匹配会话标题与工作区名;本层把它设为 `first-search`,索引落在 `~/.dsh/session-search/desktop.db` 这份持久文件上。启动时什么都不打开;一次运行里的首次搜索负责建立或对账索引,之后每次搜索只读发生过变化的部分。第二行把 `llm-deepseek` 的 `retryPolicy.backoff.maxDelayMs` 从出厂的十秒设为五分钟。这个数字是一个被限流的请求最长愿意等完的 `Retry-After`:`@deepseek-ai/dsh-llm-retry` 只在供应商给出的这段时长落在上限之内时才等下去续跑,而 `normal` 策略遇到超出上限的时长会转而让整回合带着限流错误失败——出厂的十秒对 DeepSeek 实际返回的 30 到 120 秒窗口就是这个结果。本地退避不随之改变,仍是五次重试、最长不到九秒,等待期间转录里逐秒倒数。想改动其中任何一行,都要在你自己的 patch 层里把整行重述一遍——以 id 为目标的 patch 会替换整个 `config`,所以重述搜索那一行必须把 `path` 一并带上,重述供应商那一行必须把内置 default-model 层加在它上面的模型目录一并带上。
+
+壳认不出的 profile 原样保留,启动照常继续,只是没有内置插件:解析不了的清单留给服务端自己的诊断,没有声明 bundle 列表的清单按手写编排对待,该放链接的位置上是真实目录则如实报告而不是删掉。profile 目录根本写不出来是启动唯一绕不过去的失败;日志那一行会说明,随后是服务端自己的诊断。
+
+**本次构建撤下的内置插件,会从已经有它的 profile 里取回去。**服务端会解析 `dsh.profile.bundles` 里的每一个名字,解析不到就直接让启动失败;所以只是「不再随包分发某个包」的升级,会让旧构建播种过的每一个 profile 都启动不了。`src/profile-seed.ts` 里的 `WITHDRAWN_WEB_BUNDLES` 列出这些包:一次启动会把这样的名字从清单里删掉,并移除它自己为它建的扁平兜底链接。只清理壳自己留下的东西:指向本次载荷以外任何位置的链接会保留,包只要仍能解析,它的 bundle 条目也会保留——你用 `dsh plugin --profile desktop add` 装的副本继续照它自己的归属工作。`@sumomok/dsh-edit-rerun` 是第一条:它出现在 0.1.0-rc.21 发布前的构建里,在该版本发布之前被撤下。
+
+**你装进 CLI `web` profile 的插件,每次启动都会与桌面 profile 保持同步。**0.1.0-rc.17 之前的每一版启动的都是 `web`,而 rc.17 到 rc.22 的每一版建出的 desktop profile 里只有那一版的内置插件、没有你自己加过的东西;从这两类版本升上来,你自己的插件都还留在壳不再编排的那个 profile 里——此后你再装进 `web` 的插件,也会照同样的方式在下一次启动时抵达 `desktop`。每次启动都会读 `~/.dsh/profiles/web/package.json`,取出它 `dsh.profile.bundles` 里每一个既不是那两个随附 bundle、也不是上面的内置插件、也不在撤下名单里、也还没被记过的名字:`~/.dsh/profiles/desktop/node_modules/<name>` 会得到一条指向 web profile 自有副本的链接,只有在这个包能干净挂载的前提下,该名字才会被追加进桌面清单的 `dsh.profile.bundles`,web profile 为它声明的版本才会被抄进 `dependencies`。不安装、也不复制——包仍然只住在 web profile 那一处,所以 `dsh plugin --profile web add <包>@latest` 更新的仍是两个 profile 共同挂载的那一份,而一台没有包管理器的机器也不需要有。桌面 profile 里的 `web-migration.json` 是壳自己那份「同步了什么」的记录,`@haoran/dsh-plugin-updates` 读的正是这份跨组件契约:
+
+```json
+{
+  "from": "web",
+  "migrated": ["dsh-toolbox"],
+  "defective": [{ "name": "dsh-broken", "kind": "entry-missing", "detail": "…", "at": 1756100000000 }],
+  "removed": ["dsh-taken-off-desktop"]
+}
+```
+
+只有 `from` 与 `migrated` 两个字段的旧版标记文件,读出来 `defective` 与 `removed` 就是空数组。只有一个 profile 迄今第一次跑同步——也就是完全找不到 `web-migration.json` 的那一次——才会把下面那段里的 `cordis.patch.yml` 与 `pnpm-workspace.yaml` 整份复制过来;此后每一次同步都对这两个文件原样不动,不会覆盖你此后做过的任何编辑。
+
+**挂载不了的插件会被禁用,既不会被丢掉,也不会拖垮启动。**一个还在开发中的包,可能是还没跑构建步骤的 git 安装、不再声明 `dsh.bundle` 的版本,或是服务端自己的 loader 在 import 时就直接抛错的东西——三种不同的现场情况,只要 `dsh.profile.bundles` 点了这个插件的名,哪一种都会终止启动。所以处在这类状态的名字会保留链接——可查看、可修复——但不进 `dsh.profile.bundles`,它的条目会挪进标记文件的 `defective` 列表,归为三种 kind 之一:`entry-missing`(清单的 `exports` 或 `main` 指的入口文件盘上没有——未构建的 git 安装就是这种)、`not-a-bundle`(装着的版本不再声明 `dsh.bundle`),或 `load-failed`(服务端自己的 loader 在 import 它时就抛了错——从那次启动自己的输出里截获,见下文)。日志那一行是 `disabled migrated <name>: <reason>`,一个名字一行,理由按 kind 各不相同。
+
+**删掉桌面这一侧的链接是一次「移除」,不是丢失。**web profile 里那份副本还健康,而你把它在 `~/.dsh/profiles/desktop/node_modules/` 下的链接删掉,这个名字就会挪进标记文件的 `removed` 列表——`removed <name>: no longer linked in the desktop profile; still installed in the web profile, so it will not return on its own`——并且留在那儿:一块墓碑,不会被自动重新同步回来。web 那份副本也没了的名字,则会被从标记文件里彻底删掉,不留任何记录。
+
+**你的 `web` patch 层会在第一次同步时跟着一起过来,除非你已经写过自己的。**只要 `~/.dsh/profiles/desktop/cordis.patch.yml` 还是壳写下的那份空模板,web profile 的那份就会逐字节替换它——注释、`!!js` 表达式,一并带过来——`pnpm-workspace.yaml` 同理。一旦你改过桌面这一份,两个文件都不会被动,日志会点名该手工搬哪些插件的行:`skipped cordis.patch.yml: the desktop copy is already edited; carry the web profile's rows for dsh-toolbox over by hand`。任何情况下都不会做合并——patch 层是只有 loader 自己那套 YAML schema 才读得懂的东西,把两份合起来等于把那套 schema 再实现一遍。
+
+**迁移过来的插件一旦会被服务端拒收,就会照同一套办法从 bundle 列表里取出去。**那个包待在归你所有、而且你还会不断改动的目录里:清空或重装 `web` profile 会让链接悬空,而在那边升级这个包,可能把它换成一个根本不再是插件 bundle 的版本。所以每次启动都会拿 `migrated` 里的每一个名字对着同一个 `bundleDefect` 重新核对,并按核对结果把它禁用为 defective、立成墓碑归入 removed,或者彻底不再追踪——`dropped migrated dsh-toolbox: no longer resolves in the web profile` 是唯一没有任何东西可留的情形,因为桌面这边的链接与 web 那份副本都没了。你后来自己接管的名字会保留它的条目:无论那是 `dsh plugin --profile desktop add` 装的副本、你自己在那个路径上建的链接,还是本次构建开始随包分发的包。不做检查的是「在更老的 harness 下装的插件是否配得上这一版」:它未满足的 peer 会逐级落到本安装修复的扁平兜底目录,所以它共用本次构建的那一份 cordis,但它的代码是否对得上本次构建的 API,这里没有任何东西答得上来。
+
+**启动仍然失败的情形会被隔离,并重试一次。**准入能拦下未构建的安装和不再是 bundle 的包,却拦不住服务端自己的 loader 拒绝导入的每一种方式——现场案例是一个提交了 `src/*.ts`、完全没有 `lib/` 的 git 安装,报错是 `Cannot find module '…/lib/index.js'`。当内嵌服务端在打印 URL 行之前就退出,壳会在那次启动自己的输出里扫描 loader 那句确切的 `failed to import loader entry <id> (<module>)`;当 `<module>` 是这个壳同步过的名字,它就会带着 kind `load-failed` 挪进 `defective`,壳记下 `disabled migrated <name> after it failed to load; retrying startup`,再重新启动一次服务端,只有这一次。输出里点不到名的模块,或者第二次仍然失败,都会走到原来那个启动失败页。
+
+**Settings 会展示 defective 或 removed 的插件,并提供操作入口**,走的是插件管理回环服务上另外四条路由——完整协议见下文「插件管理服务」一节。
+
+**桌面端的 profile 与 CLI 的是分开的,harness home 的其余部分不是。**会话、凭据与模型设置都在 `$DSH_HOME` 根上,所以终端里的 `dsh web` 与桌面窗口读到的是同一批。分开的是挂载了哪些插件:`dsh web` 编排的是 `$DSH_HOME/profiles/web/`,桌面端从不写它。要让 CLI 也有这几个插件,就在那边用 `dsh plugin --profile web add <包>` 自行安装。反过来,上面这十三个在桌面 profile 里已经有了,其余的也由上面那个同步持续搬过来;此后你再加进 `web` 的插件,要么在你下次启动时自然抵达 `desktop`,要么用 `dsh plugin --profile desktop add <包>` 立刻装进桌面 profile,它列在 `~/.dsh/profiles/web/package.json` 的 `dependencies` 里。
+
+**如果你在这版之前自己装过其中某个插件**,profile 自己的 `node_modules` 里仍留着那一份,Loader 会先找到它,而 patch 层依旧来自载荷。启动会如实说明——`warning: profile copy dsh-at-file@0.6.3 shadows the shipped 0.7.0 module`——但什么都不改,因为 profile 的依赖归安装它的人所有。`dsh plugin --profile desktop remove <name>` 会去掉 profile 里那一份、留下分发的那一份,也就是全新安装本来的状态。
+
+**要关掉其中一个,就在** `$DSH_HOME/profiles/desktop/cordis.patch.yml` **里禁用它那一行**——提及功能是 `dsh-at-file`,侧栏是 `better-sidebar`,截图工具是 `screenshot`,引用是 `ui-quote-message`,余额 chip 是 `balance`,更新页是 `plugin-updates`:
+
+```yaml
+- id: better-sidebar
+  disabled: true
+```
+
+改为从 `dsh.profile.bundles` 里删掉名字则只能维持到下次启动,届时会被重新播种。
+
+**网关是唯一一个不该单独禁用其行的内置插件。**它的 patch 层贡献了两行——门本身,以及那张加入关闭沙箱（不推荐）的预设表——单独禁用门这一行,会让那一行留在控件里而背后空无一物:此时再选中它,就是把沙箱关掉而什么都不审,严格差于完全权限——后者至少还有 `never` 这条审批策略,把沙箱本会提出的申请直接拒掉。先把会话切到别的访问方式;若还想让它从控件里消失,就在你自己的 `cordis.patch.yml` 里重述 `permission` 行的 `presets` 而不带 `yolo-access`——以 id 为目标的 patch 会替换整个 `config`,所以那次重述必须把你要保留的预设一并写全。
+
+## 渲染服务
+
+**壳把自己的 Chromium 借给服务端**,所以截图不取决于这台机器上装没装 Chrome 或 Edge。在启动服务端之前,主进程在 `127.0.0.1` 与一个临时端口上打开一个 HTTP 监听、生成一个 32 字节的 token,并把两者放进那一个子进程的环境——`DSH_DESKTOP_RENDER_ENDPOINT` 与 `DSH_DESKTOP_RENDER_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程都继承不到。`@haoran/dsh-screenshot` 每次调用都去读它们。两个都读不到的 harness 改用系统上的无头浏览器渲染,这也正是所有非桌面安装的做法;监听没能打开的那次启动会记一行日志并照常继续,它的截图走的是同一条退路。
+
+渲染请求是 `POST /render`,带 `authorization: Bearer <token>`、`content-type: application/json`,以及请求体 `{ url, width, height, fullPage?, delayMs?, timeoutMs?, onTimeout?, blockHosts?, headers?, cookies?, userAgent?, partition? }`;下面那三条登录路由带同样的两个头,以及各自的 JSON 请求体。`POST /render` 可能得到的全部回答:
+
+| 回答 | 何时 |
+|---|---|
+| `200 image/png` | 截图本身,PNG 字节,尺寸正好是请求的视口——或者,对一个发了 `onTimeout: "capture"` 的请求,是期限越过时页面已经画出来的那一帧 |
+| `400` | 不是 JSON、不是对象、请求体超过 64 KB、某个字段类型不对、`width` 或 `height` 不在 16–4096 内、`delayMs` 不在 0–10000 内、`timeoutMs` 不在 1000–120000 内、`onTimeout` 不是 `fail` 或 `capture`、某个 `blockHosts` 条目不是主机模式或命中了页面自己的主机、`url` 不是绝对 URL、某个 `headers` 或 `cookies` 条目越界或不合它的文法,`userAgent` 为空、超过 512 个字符、不是一个头部值,或 `partition` 不是字符串、超过 278 个字符 |
+| `401` | 缺少或写错 bearer token |
+| `404` | 四条路由以外的任何路径或方法 |
+| `422` | 格式正确但 scheme 不是 `http`、`https` 或 `file` 的 URL,在 `file:` URL 上带了 `headers`/`cookies`,`partition` 落在 `persist:dsh-render-login-<registrable-domain>` 之外,或在 `file:` URL 上、在 `cookies` 旁边带了 `partition` |
+| `500` | 页面加载失败或截图失败;这一行带着 Chromium 的错误码 |
+| `503` | 已经受理了四个请求 |
+| `504` | 该请求越过了自己的期限且没有像素可答;这一行说出渲染当时在等什么 |
+
+每个失败响应体都是一行 `text/plain`,因为读它的是一个工具,它会把这句话引进模型看到的消息里。
+
+**每一个真的开始渲染过的回答都带着一份报告**,放在 `x-dsh-render-report` 上:整份记录以 JSON 形式、按「`decodeURIComponent` 能原样还原」的方式做百分号编码,出现在 200、拒绝一次失败渲染的 500,以及 504 上。而一个根本没有开始渲染的拒绝——校验的 400 或 422、401、404、503——不带它。之所以放在响应头而不是响应体里,是因为最需要它的那两个回答的响应体已经被占了;调用方无论渲染以哪种方式结束,都读同一个结构。
+
+| 字段 | 它说什么 |
+|---|---|
+| `version` | `1`;不认识这个数字的读者应当忽略其余部分 |
+| `outcome` | `complete`、`timeout`(504 与部分截图的 200 都是它)或 `failed` |
+| `phase` | `queued`、`navigating`、`loaded`、`delaying`、`measuring`、`resizing`、`capturing` |
+| `elapsedMs`、`deadlineMs` | 该请求被受理了多久,对照它当时运行在哪个期限之下 |
+| `requestedUrl`、`mainDocument` | 请求的是什么,以及主框架最终落在哪里的 `{ url, status, redirected, title }`——在它报告导航之前是 `null` |
+| `loadEventFired`、`firstPaint` | load 事件有没有触发,以及窗口有没有画出过一帧 |
+| `requests` | `{ total, completed, failed, pending, blocked }`,统计真正上了线的请求,以及单独统计被 `blockHosts` 取消的那些 |
+| `pending`、`failed` | 各至多 5 条:最旧的在前的 `{ url, type, ageMs }`,以及按失败顺序排的 `{ url, type, error, status }` |
+| `hosts` | 至多 5 条 `{ host, pending, failed, blocked, maxAgeMs }`,在飞行中的最多的排在最前——这正是调用方该填进 `blockHosts` 的东西 |
+| `console` | `{ errors, warnings, samples }`,其中至多引用 3 条错误消息 |
+| `mainFrameError`、`renderer` | 来自 `did-fail-load` 的 `{ code, description }`,以及来自渲染进程的 `{ gone, unresponsive }` |
+| `capture` | 这个回答所带像素的 `{ partial, width, height }`,不带像素时为 `null` |
+
+**这套编码把 `%` 也转义掉**,这个响应头与 `x-dsh-render-landed-url` 都是如此,于是上线的东西正好是 `decodeURIComponent` 的逆:否则一个带 `%20` 的 URL 会带着一个空格回来,而一个带裸 `%zz` 的 URL 会让读取方的解码抛错、把整个值都赔进去。读这两个响应头的一方都要解码;别处不会,因为这两个头都不会被直接当作 URL 使用。
+
+这个响应头是靠构造方式定死上界的,而不是截断到某个长度——被截断的头是谁也解析不了的 JSON:每个列表都限了条数,每个 URL、主机与标题限在编码后的 96 字节、每条消息限在 160 字节,每个被截的字符串都以省略号结尾。所有列表都填满时,这个头是 4.2 KB,在 6 KB 的天花板之下。上界数的是编码后的字节而不是字符,所以一个 URL 与标题是中文的页面、或者一个满是转义的页面,同样落在这个天花板之内——在那里,一个可见 ASCII 之外的字符要花三个字节,一个 `%` 也一样。
+
+**期限属于请求自己。**`timeoutMs` 从受理时刻起算,取值 1000 到 120000;不给这个字段的请求拿到 25 秒,也就是这个字段存在之前写的每一个调用方拿到的数。越界的数会被拒绝而不是被悄悄挪动,因为一个要了三分钟、却被默默给了两分钟的调用方,会按它发出去的那个数装好自己的 abort,并在答案到达之前先放弃。给了这个字段的调用方则反过来持有这段关系:`@haoran/dsh-screenshot` 把自己的 fetch abort 装在 `timeoutMs + 5000` 上,所以壳的回答总是先到。
+
+**`onTimeout: "capture"` 把一次越过的期限变成像素。**在期限那一刻,壳对窗口已经画出来的东西做一次 `capturePage()`,并以 200 回答这张图,同时带着 `outcome: "timeout"` 与 `capture.partial: true`——一个头像卡住的页面通常已经把其余部分排好版了,那张图加上这份报告,是比一句话更好的答案。只有主动要了它的请求才可能收到部分截图,所以把 200 读作「这就是加载完的页面」的调用方永远不会读错。这次截图上限 3 秒,而这次渲染无论如何都被放弃;它失败或超过上限时,回答就是那个照旧的 504 加它的报告。队列在期限越过的那一刻就往前走,而不是等截图结束,所以一次卡住的截图只耽误它自己。
+
+**`blockHosts` 就是报告点名的那个补救办法。**它是至多 32 条主机模式的列表——精确主机,或匹配该后缀的子域(不含后缀本身)的 `*.suffix`,每条至多 253 个字符,匹配时不分大小写——命中的请求在 `onBeforeRequest` 里于发出之前被取消,并计入 `requests.blocked`。命中当前被渲染页面自己主机的模式会被一个点名它的 400 拒绝,因为一次把自己文档取消掉的渲染只会失败,且说不出任何理由。这是壳唯一注册的阻塞式 `webRequest` 钩子,而且只对真的带了这个字段的请求注册:没写 `blockHosts` 的渲染,时序与没有这个特性时完全一致。
+
+**一个请求可以带上页面所需的会话。**`cookies` 是至多 32 条 `{ name, value, domain, path?, secure?, httpOnly?, expirationDate? }` 的数组——成员就是 Chromium 自己的那一套,所以调用方从浏览器里导出什么就发什么——在加载之前设到这次渲染自己的 session 上。它们不只覆盖文档,也覆盖页面的子资源,这正是要害:一个图片全部 401 的已登录页面,不是任何人想看的那个页面。`domain` 是必填的,每条 cookie 的作用域由它决定,所以一个请求可以带上页面要访问的每一台主机的 cookie;`path` 默认是 `/`,而不是 RFC 6265 的默认路径——那是 cookie 被存进来的那个目录,而不是整个站点:停在 `/app/issues/` 的 cookie,页面发往 `/api/…` 的请求一个也碰不到。`headers` 是 name→value 的映射,只挂在主框架那一次导航上,这正是 bearer token 或 Host 覆写需要的位置;`cookie` 头会被指名拒绝并指向 `cookies`,因为那样送进去的 cookie 只覆盖文档、覆盖不到文档里的任何东西。cookie 与头部合起来受同一组边界约束:最多 24 个条目、共 8 KB,名字必须是 HTTP token,头部值限于可见 ASCII 加空格与制表符(换行会凭空追加一个谁也没发过的头,因为 `loadURL` 把它们当作一整个以换行分隔的字符串),cookie 值限于 RFC 6265 的 cookie-octet。拒绝信息从不把 cookie 的值回引出来,因为那个值正是这个字段要携带的凭据。
+
+**每次渲染各自持有一份 cookie 存储。**窗口的 partition 名字带一个新的 UUID,且没有 `persist:` 前缀,所以这个 session 随窗口创建、只活在内存里、随窗口销毁:凭据由调用方提供,壳自己一个也不留,上一次渲染的 cookie 下一次读不到,也没有任何东西落到磁盘上。后半句由 smoke 证明而不是假设——先带着会话 cookie 渲染一次,再对同一个 URL 不带 cookie 渲染一次,站点照旧用它的登录跳转来回答。唯一的例外是点名了登录 partition 的请求:它在那份持久存储里渲染,那是唯一会落到磁盘上的渲染会话。
+
+**一个挡在登录墙后面的页面,要等用户登录过它之后才截得到。**从空的开始的 partition 只会把它渲染成未登录的样子,而它的 cookie 谁也没导出过、填不进 `cookies`。`POST /login-grant` 收 `{ url, partition }`,答 `{ nonce, expiresInMs }`,它自己不开任何窗口。url 的主机必须是这个 partition 的可注册域或它的子域,否则这次授权会被拒绝,因为一对对不上的组合会把一个站点的 cookie 记在另一个站点的名下。nonce 一次性、可花 30 秒,同时最多有 8 个未花掉——再要就是 503。
+
+**`POST /login` 收 `{ nonce }`,并在用户关掉窗口时答 `{ landedUrl, sameSite }`。**页面与 partition 在铸出 nonce 的那一刻就定死了,所以这个请求体里没有任何东西能选它们。同一时刻只开一扇窗,第二个调用得到 503,而且这一步在花掉 nonce 之前检查,所以重试的调用方手里那个 nonce 还在。不认识的、已经花掉的或者已经过期的 nonce 得到 403;504 说的是十分钟的登录期限过了,或者壳正在退出。
+
+**`DELETE /login-sessions` 就是退出登录。**它收 `{ partition }`,对它调用 `clearStorageData()`——cookie、缓存,以及 Chromium 为一个 partition 保存的每一种存储后端——并答 `{ partition, cleared: true }`。这四条路由接受的 partition 只有 `persist:dsh-render-login-<registrable-domain>` 一种,域名小写、由调用方自己算出,所以调用方既读不到也抹不掉用户自己那扇窗所在的 partition。
+
+**登录窗口是可见的,并且说出正在问你的是哪个站点。**它的标题被锁在当前源上,`did-navigate`、`did-redirect-navigation`、`did-navigate-in-page` 与 `page-title-updated` 每一个都重新锁一次,最后那个的默认行为被取消,于是页面写不了自己的标题;它是 `resizable: false`,这也正是壳用来把应用自己那扇窗与其余每一扇分开的东西。权限请求、权限检查、下载与声音照渲染窗口那样一律拒绝,devtools 保持关闭,`sandbox`、`contextIsolation` 与「没有 Node 集成」原样不动。放松的只有两处:页面要开的窗口变成这同一扇窗的一次导航,而不是被丢掉,于是一次 OAuth 交接能走完全程、始终没有第二扇窗打开;以及对话框是可用的,因为真实的登录页要靠 `alert()` 与 `confirm()` 报出密码错了,而这扇窗用户正看着。
+
+**登录 partition 是这个服务唯一允许留存的东西。**它的值躺在应用 userData 目录下、Chromium 自己那份加密的 profile 存储里;壳里没有任何东西去读其中的 cookie 值,也没有任何一条路由把它返回出来。点名了 partition 的渲染不带自己的 `cookies`,因为把调用方自己的 cookie 罐写进一个活得比这次请求更久的存储,等于替它保存一份凭据。
+
+**`userAgent` 决定这次渲染自称是谁。**Electron 自己的默认值是 `…Chrome/150.0.7871.224 Electron/43.4.0 Safari/537.36`,它等于告诉 agent 看的每一个页面:看你的是这个壳——有些站点还会因此回一个不一样的页面。写了这个字段的请求会在加载之前把它同时设到 session 与 web contents 上,于是文档、它的子资源以及 `navigator.userAgent` 报的都是它;没写的请求保持默认值。它必须是一个非空、至多 512 个字符的头部值。
+
+**当主框架最终落在请求所指之外时,`200` 会说出它落在哪里**,放在 `x-dsh-render-landed-url` 上,与报告用同一套百分号编码,并截到 96 个字符。一张登录页的截图是「正确地渲染了错误的页面」,而像素本身说不出它是哪一种;插件把这个响应头变成工具结果里的一句话,点名 `cookies` 与 `headers`。主框架停在原地时不发这个头,比较的是归一化之后的 URL,所以 Chromium 给源地址补上的那个斜杠不算重定向。
+
+**截图的尺寸就是请求的尺寸。**`capturePage` 返回的位图带着显示器的缩放系数——Retina Mac 上是 2,多数 Windows 机器上是 1——所以同一个 1440x900 的请求本会在两边给出不同的图像。窗口保留它原本的缩放系数,因为强制指定是一个进程级开关,会波及用户自己那个窗口;截图则在编码之前被缩放到请求的 CSS 像素:整页截图缩放到请求的宽度与它测得的高度。把一张 2x 的截图降采样,不会损失 1x 渲染本来就有的任何东西。
+
+**504 会说出页面当时在等什么**,好让调用方分得清是一张卡住的图、一个死掉的代理,还是一个卡死的渲染进程。这一行说出渲染当时处在哪个阶段——在排队、在加载页面,还是已经越过 load 事件、正在等 `delayMs`、测量、调整窗口大小或截图——而在页面还没加载完时,它还会说出主文档的 HTTP 状态码、主框架最终落在哪里(当那不是请求所指的地址时),以及最多三个仍在飞行中的请求及其 Chromium 资源类型:`render timed out after 25000ms: main document 200, load event not fired, 7 requests pending: [image] https://www.gravatar.com/avatar/…, [image] …, [script] … (+4 more)`。每个 URL 截到 96 个字符,整行截到 500 个字符,后者正是 `@haoran/dsh-screenshot` 引进模型消息里的长度;报告响应头以结构的形式说同一件事。渲染本身不因这一切改变:壳是从主进程事件——`did-navigate`、`did-redirect-navigation`、`page-title-updated`、`ready-to-show`、`did-fail-load`、`console-message`、`render-process-gone`、`unresponsive`——与 session 上那几个非阻塞 `webRequest` 钩子读到这些的,它们只观察请求,不扣住请求。
+
+**每次渲染都拿到一个与应用自己那扇窗毫无共享的隐藏窗口。**它的 session 没有 `persist:` 前缀,所以只活在内存里、随窗口一起消失:被渲染的页面读不到也写不了用户正在用的那扇窗的 cookie、存储与缓存,它存下的东西也活不过这一个请求。点名了登录 partition 的请求改在那份持久存储里运行,而这张清单上的其余每一条对它照旧成立。没有 Node 集成、没有 `webview`、没有 devtools;每一个权限请求都被拒绝,页面试图发起的每一次下载与每一次开窗也都被拒绝。对话框被禁用,于是 `alert()`、`confirm()`、`prompt()` 既不会在一扇用户看不见的窗口上弹出原生模态框,也不会把它背后的页面线程堵住;窗口是静音的,于是自动播放的 `<audio>` 元素传不到扬声器。窗口在响应时、加载失败时与期限到时都会被销毁。
+
+**边界在哪**:同一时刻只渲染一个,同时最多受理四个请求(一个在渲染、三个在等),期限从受理时刻起算而不是从渲染开始时算——用的是请求自己的 `timeoutMs`,默认 25 秒、至多 120 秒——以及在那个期限上给部分截图的 3 秒。`fullPage` 截图会测量 `document.documentElement.scrollHeight` 并把窗口调到那个高度,夹到 8192 px 为止,因为无限滚动的文档报出的高度会在测量过程中一直变大。
+
+**三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时四条路由以外的任何路径与方法一律答 404,于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝——这正是把用户自己浏览器里的页面挡在外面的东西。
+
+构建之后,这条命令检查单元测试够不着的那一半——隐藏窗口到底画不画:
+
+```sh
+pnpm --filter @deepseek-ai/dsh-desktop-shell run build:ts
+pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
+```
+
+它在真实的 Electron 里渲染一个本地文件,检查截图尺寸无论显示器缩放系数是多少都正好是请求的视口、整页截图确实比它更高,以及 401、422 与 500 三种回答。有一个用例起一个站点:任何没有会话的访问都被重定向到它的登录页,并在真实 Chromium 上核对三种结果——不带会话时回答里有落点响应头,带 cookie 与带 header 时都没有。下一个用例把页面放在 `/app/issues/` 下,一张图在它旁边、另一张在 `/api/` 下,断言的是这个站点收到了什么,而不是回来的像素:cookie 出现在全部三个请求上,而额外的 header 只出现在那次导航上、两张图都没有。一个调用 `console.error` 的页面证明 `console-message` 与页面标题确实进到了报告里。其余用例让页面去请求一个本地监听——它接受连接却从不回答——这正是任何注入渲染器都替代不了的部分:在 `onTimeout: "capture"` 之下回答是一个 200,它的 PNG 解出来正好是请求的尺寸,报告写着 `outcome: "timeout"` 并点名那个卡住的主机;用 `blockHosts` 点名同一个主机,它会在不到十分之一秒内完成、`requests.blocked` 为 1;什么都不做时,504 在它那一行与它的报告里都点出那张图。
+
+## 插件管理服务
+
+**壳把自己的包管理器借给服务端**,所以用户自己装的插件,在一台既没有 pnpm 也没有终端的机器上也能更新。它是渲染服务之外的第二个本机服务,有自己独立的 token,打开的方式与传递的方式完全一样:在 `127.0.0.1` 与一个临时端口上的 HTTP 监听、一个 32 字节的 token,两者都只放进服务端那一个子进程的环境——`DSH_DESKTOP_PLUGIN_ADMIN_ENDPOINT` 与 `DSH_DESKTOP_PLUGIN_ADMIN_TOKEN`,绝不放进壳自己的 `process.env`,所以用户启动的任何别的进程继承不到,这个服务自己拉起的 pnpm 也继承不到。`@haoran/dsh-plugin-updates` 每次调用都去读它们。两个都读不到的 harness 会报告该能力不可用,并且根本不在设置里放出那个标签页,这正是服务器上所有 `dsh web` 的做法。两个服务分开,是因为它们借出的权力不同:渲染 token 换来的是一扇隐藏窗口里的像素,把它扩大到覆盖安装,就等于让每一个持有它的人都能改变这个应用运行的是什么。
+
+这八条路由都是 `POST`,都带 `authorization: Bearer <token>` 与 `content-type: application/json`。四条更新一个已装的依赖:`/outdated` 接受 `{ profile }`,回答 `pnpm outdated --json` 报告了什么;`/peers` 接受 `{ profile, name, version }`,回答那个已发布版本声明了哪些 peer 范围;`/update` 接受 `{ profile, name, version, warning? }`,在用户确认之后安装;`/relaunch` 接受 `{}`,在用户确认之后重启应用。另外四条处理桌面端那道 web profile 持续同步挂载不了的插件,一律作用在 `desktop` profile 上,各自只收 `{ name }`:`/recheck` 拿 `bundleDefect` 重新核对已链接的包,现在能干净挂载就把它提升为 `migrated`——重新加回 `dsh.profile.bundles`,抄入 web profile 声明的版本——挂载不了就把最新理由记下来;`/repair` 先弹一个原生对话框确认(「尝试修复 `<name>`?将重新下载并执行该插件自带的构建脚本。」/取消),再走那道梯子:按 web profile 自己声明的 specifier 重装(semver 范围用 `pnpm add <name>@<spec>`,git、URL 或本地路径用 `pnpm add <spec>`)、重新核对,如果这个包仍然点着一个盘上没有的入口文件,就在它的真实目录里(经链接 `realpathSync` 出来,因为构建脚本得在文件真正在的地方跑)跑它自己的 `build` 脚本,再删掉那次构建产生的 `node_modules` 与 lockfile,让 profile 自有的 hoisted 目录树继续是运行期依赖解析的那一处,随后再核对一次;`/forget` 直接删掉一个 defective 或 removed 名字的记录和它的链接;`/enable` 重新准入一个 removed 的名字,它的 web 副本还健康就落回 `migrated`,不健康就落进 `defective`。这八条可能得到的全部回答:
+
+| 回答 | 何时 |
+|---|---|
+| `200 application/json` | 路由跑完了。读取类回答带着 pnpm 自己那份解析后的 JSON,外加 `exitCode`、`signal` 与截断过的 `stderr`;`/update` 与 `/relaunch` 还带 `confirmed`,`/update` 另带 `installedVersion`、`stillBundle` 与 `droppedFromBundles`,四条修复路由则各带 `ok`,外加 `restartRequired`(`ok: true` 时)或 `reason`(`ok: false` 时) |
+| `400` | 不是 JSON、不是对象、请求体超过 16 KB、`profile` 不在 `desktop` 与 `web` 之内、`name` 不是一个包名、`version` 不是一个确切的已发布版本,或 `warning` 不是字符串 |
+| `401` | 缺少或写错 bearer token |
+| `404` | 八条路由以外的任何路径或方法 |
+| `422` | 格式正确但点名了一个该 profile 自己的清单没有作为依赖声明的包;或者对四条修复路由之一,点名的名字不在那条路由作用的标记列表里(`/recheck`、`/repair` 是 `defective`,`/forget` 是 `defective` 或 `removed`,`/enable` 是 `removed`) |
+| `503` | 已经有一次安装、或四条修复路由之一在跑 |
+
+每个失败响应体都是一行 `text/plain`,因为读它的是一个插件,它会把这句话放进设置页面里。
+
+**调用方点名的是一个包,而不是一个 specifier。**`profile` 是拿去和那份只有两个名字的清单比对,而不是拼进路径,所以任何 `..` 与任何绝对路径都点不到一个目录。`version` 必须是一个裸的确切 semver,所以 `latest`、`^1.2.3`、`git+ssh://…`、`file:../…` 以及 tarball URL 全都在到达参数数组之前被拒——而 pnpm 在那个位置对它们统统照单全收。`name` 必须是该 profile 清单自己 `dependencies` 里的一个键,并且**在处理函数里**每次调用都从硬盘重新读取,而不是采信请求、也不是启动时缓存一次。壳植入的内置插件写在 `dsh.profile.bundles` 里而没有依赖项,所以它们天然落在可更新集合之外,该 profile 从未装过的包也一样。
+
+**没有键盘前的那个人点头,什么都装不上。**`/update` 与 `/relaunch` 在做任何事之前,先以主窗口为父窗口打开 `dialog.showMessageBox`,所以那个确认框是一扇原生窗口,web UI 既盖不住它、也替不了它作答。`/update` 会显示插件、版本,以及——当调用方给了的时候——它那行 `warning`,先剥掉控制字符再截断,因为那段文字是一个插件写的、却要拿给用户看。同一时刻只跑一次安装;第二次会被答以 503 而不是排队,于是两个对话框不会就同一个目录发问,两次 pnpm 也不会争抢它的 lockfile。
+
+**它运行的 pnpm 就是安装包自带的那份。**`scripts/package.ts` 用 `npm pack` 把仓库自己 `packageManager` 钉住的那个 `pnpm` 版本暂存到 `staging/pnpm`,再由 `scripts/after-pack.cjs` 把它拷到自带 Node 旁边的 `resources/runtime/pnpm`——extraResources 搬不了它,因为 pnpm 自己的目录树里有一个 `node_modules`,而构建器的拷贝器硬性排除这类目录。服务随后在 `runtime/node` 下运行 `runtime/pnpm/bin/pnpm.mjs`,参数放在数组里,绝不经过 shell。只有不带这份资源的开发启动,才会退回到 PATH 上的 `pnpm`。这里从不自己去请求任何仓库地址,所以这台机器自己的 `.npmrc`——它的镜像、代理与凭据——就是每个请求真正经过的东西,和这台机器上其他所有安装完全一样。
+
+**说明一次安装成没成的是硬盘上的版本,而不是退出码。**`pnpm add` 会在正确装完的同时以 `ERR_PNPM_IGNORED_BUILDS` 退出码 1 结束——在任何还没回答过它那个构建审批问题的 profile 上都会,而这个壳植入的每一个 profile 都是如此:它们的 `pnpm-workspace.yaml` 里没有 `allowBuilds`,而任何依赖树里带有安装脚本的插件都会触发。所以 `/update` 事后重新读一遍那个包自己的清单,回答 `installedVersion`,由调用方拿它和自己要的版本比对。退出码仍然一并报告,因为它说的是 pnpm 抱怨了什么;它说的不是这次安装到底发生了没有。
+
+**不再是 bundle 的包会被取出来。**安装成功之后,服务会重新读一遍被更新那个包的清单;一个不再声明 `dsh.bundle` 的版本仍然解析得到,于是 `loadProfile` 过得了解析这一关,却在之后拒绝这个层,而那会终结整次启动。这个名字会被从该 profile 的 `dsh.profile.bundles` 里移除、并在回答里说出来,这与 `seedBuiltinBundles` 为一个丢了 bundle 的迁移名字所做的修复是同一件事,理由也一样:名字是壳放进那份列表的,所以也该由壳取出来。依赖项保持不动,因为包还装着,而这件事说的是 Loader 挂载什么。
+
+**四条修复路由每次调用都从硬盘重新读写 `web-migration.json`,绝不采信任何缓存副本**,因为这是一个人能在两次请求之间、通过这四条路由中的任意一条改动的状态——先 recheck,再 repair,再从另一扇窗口 recheck 一次。`/recheck` 与 `/repair` 无论怎么收场,都会把一份更新过的 `detail` 写回 `defective` 条目,于是设置页面显示的「仍然坏着」永远是最新的理由,包括修复梯子自己给出的那句——`<path> declares no build script` 或 `build failed (exit 1): <stderr>`——而不是这个名字第一次被判定 defective 时的理由。这四条路由没有一条会拿调用方传来的参数去跑 pnpm:`/repair` 的重装请求永远问的是 web profile 自己清单声明的那个 specifier,在处理函数里从硬盘读出来,与 `/update` 的包围栏做法一样,绝不取自请求本身。
+
+**三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时八条路由以外的任何路径与方法一律答 404——而且这一判定在看 token 之前就做完,所以一个没有凭据的调用方对这里提供什么一无所知——于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝。
+
+## 服务器环境
+
+服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。主进程的异常与未处理拒绝也追加到同一个文件:`src/crash-log.ts` 在该文件打开后、更新器与服务器启动前就注册好处理器,而异常仍会弹框——是 `Error` 时,标题与正文与 Electron 拼出的完全一致;不是 `Error` 时按 `String(value)` 渲染,而 Electron 会打印 `undefined: undefined`。启动链跑在 `whenReady` 里,因此它自己的失败是以拒绝而不是异常的形式到来,同样被捕获并以同样的方式上报、同样弹框;在日志文件打开之前,这条上报记录写到 stderr。启动过程没有任何一处是沉默的,崩溃在屏幕上的样子也没有任何变化。
+
+**启动页与下载窗跟随应用主题。**两套色板都取自 web UI 自己的 token,所以无论哪一种模式,启动页与它交接给的应用都是同两种颜色。外观在窗口存在之前就定下——`backgroundColor` 决定页面加载期间画什么——顺序是:`~/.dsh/settings.yaml` 里的持久 `ui-theme.preference`,当它是显式的 `light` 或 `dark` 时优先;否则跟随系统(`nativeTheme.shouldUseDarkColors`),这也正是它默认值 `system` 的含义。**显式设置优先于系统。****帮助 → 关于** 给出版本与更新源地址。菜单栏文案按 `app.getLocale()` 在中英之间选择;对话框保持中文。
+
+## Known Limitations and Deferred Work
+
+- 通知打不开它所说的那个会话:web UI 把选中的会话放在内存里、URL 里什么都不放,壳没有地址可加载。补上这一点需要 web 客户端接受 URL 里的会话;届时壳这边只是 `loadURL` 的一个参数。
+- macOS 已签名但未公证,所以由浏览器下载的副本首次运行仍需右键打开。公证需要 Apple 开发者账号;更新路径不需要。
+- Windows arm64 与 Linux 桌面目标未构建;node-pty 预编译已覆盖 win32-arm64,缺口只是打包工作。
+- 开发启动(`pnpm --filter @deepseek-ai/dsh-desktop-shell exec electron lib/main.js`)用的是检出目录的已构建 CLI 和 PATH 里的 Node,不是暂存资源。
+- 渲染服务按次启动、串行工作。同时受理四个请求、只渲染一个,所以一个把自己的期限用满才加载完的页面会占住这个位置,排在它后面的请求只拿得到自己那份期限剩下的部分——把 `timeoutMs` 提到 120 秒天花板的调用方,花掉的也是排在它后面那些请求的时间。
+- 部分截图就是合成器当时画出来的那一帧:一个还在取样式表的页面,得到的是没有样式的文档,而不是画了一半的页面。有没有画出过任何东西(`firstPaint`)、load 事件有没有触发,由报告说出来;像素本身说不出。
+- 壳的视口下限是每边 16 px,而 `@haoran/dsh-screenshot` 自己允许到 1。要求更小视口的 `screenshot` 调用在桌面端会被答以 400,在别处则由系统浏览器渲染。
+- 只有壳的渲染服务能带上 `headers` 与 `cookies`。插件的另一个后端是一次性的 `--screenshot` 浏览器命令行,没有任何设置它们的办法,所以在没有这个服务的安装上,这样的调用会被拒绝,而不是以未登录状态渲染出来。
+- 同一时刻只开一扇登录窗口。第二个 `POST /login` 会被答以 503 而不是排队,需要登两次的调用方只能一次一次来。
+- 登录 partition 不会被壳过期或回收。用户登录留下的东西一直躺在磁盘上,直到有谁对那个 partition 调用 `DELETE /login-sessions`。
+- 内置插件无法从 profile 侧钉到另一个版本。用 `dsh plugin --profile desktop add` 安装同名包会在 profile 自己的 `node_modules` 里放一份,Loader 会先找到它,而 `resolveBundleDir` 仍从安装目录读取 patch 层——那样这一行来自一个版本、代码来自另一个版本。
+- `dsh-better-sidebar` 用壳自己的环境启动终端:两处 `pty.spawn` 传的都是 `env: { ...process.env }`,而不是所有 harness spawner 都会走的 `packages/subprocess/subprocess/src/index.ts` 里的 `scrubbedParentEnv()`,后者会剥掉所有 `DSH_` 前缀的变量以及名字匹配 `KEY|PASSWORD|SECRET|TOKEN` 的变量。该插件注册了八个模型可以调用的终端工具(`terminal_create`、`terminal_send`、`terminal_read` 等),所以模型可以经由其中之一读到那份未经过滤的环境。Windows 的 GUI 进程继承用户级环境变量,因此用 `setx` 设过的 `DEEPSEEK_API_KEY` 会出现在那个终端里;macOS 的 GUI 进程拿到的是 launchd 的环境,通常不含它。
+- 插件管理服务只更新 profile 自己装过的东西。应用自带的内置插件根本无法从这里更新,这是构造使然而非规则:壳把它们植入 `dsh.profile.bundles` 且不写任何依赖项,它们随应用更新而移动。
+- 装好的插件更新要下次启动才生效。没有任何东西会就地重载一个插件,所以被更新的那一行会这么说,并给出一个重启按钮。
+- 只有一次更新可以撤销。`$DSH_HOME/dsh-plugin-updates/` 下的记录只保留最近一次,下一次更新会把它替换掉。
+- 自带的 pnpm 是构建时钉住的版本,只有仓库自己的 `packageManager` 变了才会跟着变。它给每个平台的载荷增加约 19 MB,其中包含它全部四个平台的原生模块,因为它以单个 tarball 发布。

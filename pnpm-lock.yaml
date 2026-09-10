@@ -473,43 +473,6 @@ importers:
         specifier: 8.21.0
         version: 8.21.0
 
-  apps/desktop:
-    dependencies:
-      electron-updater:
-        specifier: 6.8.9
-        version: 6.8.9(patch_hash=9c7aaae2529b512b4ad2207268768b25bbe04aa04a0501a4ed21754770258b56)
-      js-yaml:
-        specifier: ^4.1.0
-        version: 4.3.1
-    devDependencies:
-      7zip-bin:
-        specifier: ^5.2.0
-        version: 5.2.0
-      '@deepseek-ai/dsh-app-boot':
-        specifier: workspace:^
-        version: link:../../packages/boot/app-boot
-      '@types/js-yaml':
-        specifier: ^4.0.9
-        version: 4.0.9
-      '@types/node':
-        specifier: ^22.0.0
-        version: 22.20.0
-      electron:
-        specifier: 43.4.0
-        version: 43.4.0
-      electron-builder:
-        specifier: 26.15.3
-        version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
-      esbuild:
-        specifier: ^0.28.1
-        version: 0.28.1
-      tsx:
-        specifier: ^4.19.0
-        version: 4.22.4
-      typescript:
-        specifier: ^6.0.3
-        version: 6.0.3
-
   apps/desktop-app: {}
 
   apps/desktop-server:
@@ -871,6 +834,43 @@ importers:
       dsh-better-sidebar:
         specifier: file:./vendor/dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz
         version: file:apps/desktop-server/vendor/dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-client-locale@packages+client+locale)(@deepseek-ai/dsh-client-ui-conversation@packages+client+ui-conversation)(@deepseek-ai/dsh-client-ui-primitives@packages+client+ui-primitives)(@deepseek-ai/dsh-client-ui-settings@packages+client+ui-settings)(@deepseek-ai/dsh-client-ui-slots@packages+client+ui-slots)(@deepseek-ai/dsh-host-webserver@packages+host+webserver)(@deepseek-ai/dsh-invariants@packages+runtime-diagnostics+invariants)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-query@packages+session-query+session-query)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-subagent@packages+subagent+subagent)(@deepseek-ai/dsh-tools@packages+core+tools)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+
+  apps/desktop-shell:
+    dependencies:
+      electron-updater:
+        specifier: 6.8.9
+        version: 6.8.9(patch_hash=9c7aaae2529b512b4ad2207268768b25bbe04aa04a0501a4ed21754770258b56)
+      js-yaml:
+        specifier: ^4.1.0
+        version: 4.3.1
+    devDependencies:
+      7zip-bin:
+        specifier: ^5.2.0
+        version: 5.2.0
+      '@deepseek-ai/dsh-app-boot':
+        specifier: workspace:^
+        version: link:../../packages/boot/app-boot
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
+      '@types/node':
+        specifier: ^22.0.0
+        version: 22.20.0
+      electron:
+        specifier: 43.4.0
+        version: 43.4.0
+      electron-builder:
+        specifier: 26.15.3
+        version: 26.15.3(electron-builder-squirrel-windows@26.15.3)
+      esbuild:
+        specifier: ^0.28.1
+        version: 0.28.1
+      tsx:
+        specifier: ^4.19.0
+        version: 4.22.4
+      typescript:
+        specifier: ^6.0.3
+        version: 6.0.3
 
   apps/pwa:
     dependencies:
