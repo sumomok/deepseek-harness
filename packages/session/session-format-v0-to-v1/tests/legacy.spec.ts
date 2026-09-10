@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { SessionFormatUnsupportedMigrationError } from '@deepseek-ai/dsh-session-format'
 import { sessionFormatV0ToV1 } from '../src/index.ts'
 import { restoreV0ToV1 } from '../src/testing/restore.ts'
+import { assertReleasedV1Artifact } from '../src/testing/validation.ts'
 
 const header = {
   type: 'session',
@@ -355,6 +356,9 @@ describe('released v0 legacy normalization', () => {
     for (const [index, row] of rows.entries()) {
       expect(migrated.events[index]).toEqual({ ...row, ignorable: true })
     }
+    // restoreV0ToV1 validates the transformed artifact, which tolerates the legacy
+    // interrupted-turn restart; the released-v1 target generation does not.
+    expect(() => { assertReleasedV1Artifact(migrated) }).not.toThrow()
     expect(() => migrate([
       { type: 'content-surface/whatever', seq: 0, time: 1, data: {} },
     ])).toThrow(/unknown historical event type "content-surface\/whatever"/)

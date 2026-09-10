@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   assertReleasedV2Header,
+  RELEASED_V2_EVENT_TYPES,
   releasedV2SessionFormatCodec,
+  restoreReleasedV2Artifact,
   sessionFormatV1ToV2,
 } from '@deepseek-ai/dsh-session-format-v1-to-v2'
 import { assertReleasedV2Artifact } from '../src/testing/validation.ts'
@@ -888,11 +890,24 @@ describe('sessionFormatV1ToV2', () => {
         ignorable: true,
       },
     ]
-    const { stage, output } = stageHarness({ id: 'v1-uninterpreted' })
+    const sourceHeader = {
+      version: 1, id: 'v1-uninterpreted', createdAt: 1, isSeeded: false, delegationDepth: 0,
+    } as const
+    const { stage, output } = stageHarness({ id: sourceHeader.id })
 
     for (const one of carried) stage.transformEvent(one, output)
 
     expect(output.values).toEqual(carried)
+    // Only the installed-current restorer's `ignorable` branch admits a carried event the v2
+    // vocabulary never declared; the frozen released-v2 writer image refuses every one of them.
+    expect(() => restoreReleasedV2Artifact(
+      {
+        header: sessionFormatV1ToV2.migrateHeader(sourceHeader),
+        inheritedEventCount: 0,
+        events: output.values,
+      },
+      new Set(RELEASED_V2_EVENT_TYPES),
+    )).not.toThrow()
   })
 
   it('accepts a subagent descriptor the v0 edge renumbered to version 3', () => {
