@@ -569,12 +569,14 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 - **`apps/desktop` 与 `apps/desktop-host` 进入上游**（#3413），`standardReleaseMemberDirectory` 随之按名字排除这两个目录——与本线的 `isPrivateApp` 补丁撞在同一处，判定见该补丁条目。**本线未触碰 `apps/desktop`**：v8 相对上游改动的 147 个文件里 `apps/` 下只有 `apps/web/tests/navigation-panes.e2e.ts` 一个。
 - **`MarkdownText` 新增 `pathImages` 词表**，与本线 `referents` 落在逐个相同的参数位；并集处理见 `20349d9c33` 条目。
 
-**冲突与决定**（40 个重放提交中 12 个产生真实冲突，其余 28 个自动合并干净；每个手工解析文件都过三方审计 a/b/c）：逐条记在上面各补丁自己的「本轮」小节里，此处只记跨补丁的通则。
+**冲突与决定**（40 个重放提交中 15 个产生真实冲突，其余 25 个自动合并干净；每个手工解析文件都过三方审计 a/b/c）：逐条记在上面各补丁自己的「本轮」小节里，此处只记跨补丁的通则。
 - **生成物一律不手改**：`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`（3 次）、`packages/extensions/tool-cordis/src/api-catalog.ts`、`docs/config-catalog.{md,i18n.yaml}`、`docs/event-producer-consumer.{md,zh.md,i18n.yaml}` 全部先 `git checkout` 取上游侧，再跑 `gen-client-catalog`／`gen-cordis-catalog`／`gen-config-catalog`／`gen-doc-graphs` 重生成定案；`doc-sync` 的四道生成物门事后全绿。
 - **双语配对一律走工具**：8 份 `README.i18n.yaml` / `docs/*.i18n.yaml` 冲突全部由 `verify-translation-pairing --write` 重录，未手改；`verify-translation-pairing` 全仓 799 对全部一致。
 - **上游重写过的摘要段一律取上游、只插回我方那一句**，随后 `verify-package-readme-summaries` 报两处超 100 词（`permission-presets` 126、`session-log-export` 109），由 `9cdb93dfb6` 各自缩到限内，缩掉的事实都另有唯一出处。
 
-**三方审计**（`scratchpad/roll8/audit3.py`，`base` = `d347e70390`、`ours` = `upstream/master`、`theirs` = 被重放的原提交、`cur` = 索引）：每个产生冲突的提交解析后各跑一次，**12 次全部**为「冲突标记 0、两父任一侧的抑制/标注注释丢失 0、两父都保留而结果丢失的行 0」，退出码 0。行频增长只作提示不判违规（重新移植会写新行，并集行必然高于任一父），逐条核对后全部是刻意合成的并集行或新增行。
+**三方审计**（`scratchpad/roll8/audit3.py`，`base` = `d347e70390`、`ours` = `upstream/master`、`theirs` = 被重放的原提交、`cur` = 索引或指定提交）：15 个产生冲突的提交各跑一次。13 次为「冲突标记 0、两父任一侧的抑制/标注注释丢失 0、两父都保留而结果丢失的行 0」，退出码 0。行频增长只作提示不判违规（重新移植会写新行，并集行必然高于任一父），逐条核对后全部是刻意合成的并集行或新增行。
+
+余下两次（`72d6f449e1`、`1ba3321e7f`，两条只在生成物或一行依赖数组上冲突）在分支 tip 上补跑，报出 7 与 5 条「两父都保留而结果丢失的行」。**逐条核过，无一是丢失**：脚本的这条规则按整行精确匹配，一条被合并进更长一行的父行因此会被判为丢失。`docs/config-catalog.{md,zh.md}` 的 3 条是生成物锚点行号漂移（两父都停在旧行号，重生成后是当前行号，`verify-config-catalog` 绿）；另 4 条分别是 `apply-inject.client.spec.tsx` 的导入行并集追加了 `type ComposerBarInjected`、`MarkdownText.tsx` 的 react 导入并集追加了 `useEffect`/`useState`、`render.tsx` 的 `case 'link':` 被上游改成 `case 'link': {`、`migration.ts` 的 `normalizeLegacySteering(header, …)` 因链上插入两个新规范化器改成 `(descriptor, …)`。
 
 **本轮新增 4 个提交**：
 1. `f44f8ac8eb` patch(session-format-v0-to-v1)：三种遗留 v0 形状（本文件另有小节）。
