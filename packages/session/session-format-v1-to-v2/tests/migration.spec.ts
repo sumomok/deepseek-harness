@@ -841,6 +841,18 @@ describe('sessionFormatV1ToV2', () => {
     )
   })
 
+  it('carries a named uninterpreted historical event into v2 with its ignorable envelope', () => {
+    const carried = [
+      { ...event('attachment/materialized', 0, 100, { attachmentId: 'a', locator: 'spill:1' }), ignorable: true },
+      { ...event('permissionRules/decision', 1, 101, { toolName: 'read', outcome: 'deny' }), ignorable: true },
+    ]
+    const { stage, output } = stageHarness({ id: 'v1-uninterpreted' })
+
+    for (const one of carried) stage.transformEvent(one, output)
+
+    expect(output.values).toEqual(carried)
+  })
+
   it('refuses an undeclared v1 event even when its envelope says ignorable', () => {
     const source: SessionFormatArtifact = {
       header: {
