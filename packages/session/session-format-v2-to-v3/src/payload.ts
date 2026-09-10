@@ -133,8 +133,11 @@ export function isRepairIdentity(id: SessionFormatJsonValue | undefined, callId:
 
 function assertSource(message: SessionFormatJsonObject): void {
   const source = record(message['source'], 'message source')
-  if (typeof source['kind'] !== 'string' || !SOURCE_KINDS.has(source['kind'])) {
-    if (typeof source['kind'] === 'string' && LEGACY_UNINTERPRETED_SOURCE_KINDS.has(source['kind'])) return
+  if (typeof source['kind'] !== 'string') {
+    throw new SessionFormatUnsupportedMigrationError('cannot safely transform unclassified message source')
+  }
+  if (LEGACY_UNINTERPRETED_SOURCE_KINDS.has(source['kind'])) return
+  if (!SOURCE_KINDS.has(source['kind'])) {
     throw new SessionFormatUnsupportedMigrationError('cannot safely transform unclassified message source')
   }
   if (source['kind'] === 'agent-message') {
