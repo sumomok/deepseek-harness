@@ -2,7 +2,7 @@
 
 core-patches 分支上的每一个补丁在此登记；新增、修改、退役补丁时必须同步更新本文档。
 
-**当前补丁线**：`core-patches-v7`，基座 `upstream/master` = `d347e70390`（0.1.3-alpha.1）。上一条线 `core-patches-v6` = `473b700a53`，基座 `76fda72979`（0.1.2-rc.1）。v7 **不是 v6 的变基**，而是在新基座上**重新移植**——上游本轮 229 个提交合入了 #2984 generic file upload 与会话格式 v0→v1→v2 迁移系列，把补丁线整个「文件附件族」同功能重新实现了一遍且架构不同。逐条判定与本轮流程见本文件末尾的「重新移植：rc.1 → 0.1.3-alpha.1」一节；下面每个小节记的是一个补丁族本身。
+**当前补丁线**：`core-patches-v8`，基座 `upstream/master` = `2377c272a8`（0.1.5-rc.1）。上一条线 `core-patches-v7` = `1930a2321b`，基座 `d347e70390`（0.1.3-alpha.1）；再上一条 `core-patches-v6` = `473b700a53`，基座 `76fda72979`（0.1.2-rc.1）。v8 是 v7 的**变基**：40 个提交全部落地、零 drop、零退役，随后新增 4 个提交。逐条冲突判定与本轮流程见本文件末尾的「每日滚动同步：0.1.3-alpha.1 → 0.1.5-rc.1」一节。v7 **不是 v6 的变基**，而是在新基座上**重新移植**——上游本轮 229 个提交合入了 #2984 generic file upload 与会话格式 v0→v1→v2 迁移系列，把补丁线整个「文件附件族」同功能重新实现了一遍且架构不同。逐条判定与本轮流程见本文件末尾的「重新移植：rc.1 → 0.1.3-alpha.1」一节；下面每个小节记的是一个补丁族本身。
 
 ## fix(scripts): let the workspace gate see apps that never publish — 8238c1385d
 - **改了什么**：`scripts/check-workspace-constraints.ts` + 其 `.spec.ts`；给 `apps/*` 引入 private / 发布成员两种类别，新增 `isPrivateApp`、`checkPrivateAppManifest`。
@@ -11,6 +11,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游自己的 `check-workspace-constraints.ts` 学会区分 `apps/*` 下未发布的私有产品装配与发布成员（或 fork 不再拥有此类未发布目录）。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `8238c1385d`）。核实依据：`git grep -c isPrivateApp upstream/master -- scripts/check-workspace-constraints.ts` 零命中，上游仍把每个 `apps/*` 目录当发布成员校验。移植时与上游本轮新增的 `checkDshFamilyVersion` 取并集。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役
+- **本轮（0.1.5-rc.1 基座 `core-patches-v8`）**：在役并改写，提交 `670aa01d44`。上游本轮自己学会了一半：`standardReleaseMemberDirectory` 新增 `apps/(?!desktop(?:-host)?$)` 负向断言，把它自己的两个目录排除在发布成员之外，另有 `isReleaseMemberDirectory()` 与 `desktopApplicationDirectory` 常量。但那是按名字写死的两条，覆盖不到 fork 的 `apps/desktop-server` 与 `apps/pwa`，退化条款未满足。**决定**：并集——`isPrivateApp` 判别式保留，三处判定改成 `isReleaseMemberDirectory(dir) && !privateApp`、`dir !== desktopApplicationDirectory && !privateApp`，`releaseMemberDirectory` 正则退役改用上游的 `isReleaseMemberDirectory`。另有一处**前提被上游推翻**：上游 `apps/desktop-host` 既是 `private: true` 又在 `appPackageFiles` 里占一条，直接证伪了本补丁「private 即从不打包」的第二条规则前提，`tsx scripts/check-workspace-constraints.ts` 实测报 `private app must not hold a publication files policy`。**决定**：第二条规则收窄成只对 `isReleaseMemberDirectory(dir)` 仍接纳的目录提要求——`apps/cli` 加 `private: true` 仍然失败（Note 记的原意保住），被上游表达式自己点名的目录则放行。Agent Note 与其中译同步改写，`verify-translation-pairing --write` 重录。
 
 ## fix(scripts): re-anchor two rescope exact edits to the 0.1.1-rc.1 tree — 9b498d4a3e
 - **改了什么**：`scripts/rescope-vendor.ts`；重新锚定两条 exact-edit 记录（`packages/util/home` 删除、中文 vendoring cookbook 链接改指向 `../rescope.zh.md`）。
@@ -27,6 +28,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游以任何形式获得等价能力（让 preset 自己命名视觉呈现），即退役该 overlay，依赖插件适配上游形式。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `069dd37e85`）。核实依据：上游 `PermissionSelect.tsx` 的 `permissionGlyph(value)` 仍只按 `option.value` 从写死的 `permissionGlyphs` Map 取图标，没有任何 host 可配置的 glyph 命名能力。冲突只落在 `docs/config-catalog.i18n.yaml`，走 `resolve-translation-pairing-conflicts` 解。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役（rc.26 同步已核实未退役）。核实依据：上游 0.1.2-alpha.2 已有的标签本地化机制（commit `8769d57c98`，`fix(web): localize permission preset labels`）只解决了预设文案的本地化，未新增任何图标/glyph 命名能力——`permissionGlyph` 仍只按 `option.value` 从写死集合取图标；已随重落适配到上游把 `permissionGlyphs` 由对象字面量改成 `Map`、把 `optionLabel(option, t)` 拆成 `permissionLabel(value, name, t)` 后的新结构，补丁本身逻辑不变。
+- **本轮（`core-patches-v8`）**：在役，提交 `836f492f24`。核实依据：上游 `PermissionSelect.tsx` 的 `permissionGlyph(value)` 仍只按 `option.value` 从写死的 `permissionGlyphs` Map 取图标。冲突只在双语 README 摘要段：上游整段重写并缩短，**决定**取上游新段 + 我方 glyph 一句；随后 `verify-package-readme-summaries` 报 126 词超 100 词上限，glyph 一句再缩成「A table entry may also name its selector `glyph`.」，闭合取值集合的唯一出处仍是 `PresetGlyph` 的 JSDoc 与由它生成的 config catalog（见 `9cdb93dfb6`）。
 
 ## feat(ui-conversation): open a contribution seat on user messages — e675dd6486
 - **改了什么**：新增会话作用域 list slot `conversation.chat.user-actions`；`ChatView` 声明该位并经 `ChatNodeOwnerProps` 向每个 chat node 传下 `renderUserActions`；`slot-catalog.ts`/`ChatNodeSeat.tsx`/`MessageItem.tsx` 相应改动。
@@ -35,6 +37,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游以任何形式获得等价的用户消息逐消息贡献位，即退役该 overlay，依赖插件适配上游形式。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `e675dd6486`）。核实依据：`conversation.chat.user-actions` 在 `upstream/master` 零命中。`slot-catalog.ts` 生成物由 `gen-cordis-catalog` 重跑，不手改。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役。**落点更新（rc.26 同步，基座 0.1.2-alpha.2）**：上游把 chat 相关实现与其 slot 契约整体从 `packages/client/ui-conversation` 搬到新包 `packages/client/ui-chat`——不仅 `ChatView.tsx`/`MessageItem.tsx`/`ChatNodeSeat.tsx` 等组件文件搬了家，`contract/slots.ts` 里的 `ChatNodeOwnerProps`/`AssistantActionOwnerProps`/`ChatViewSlotProps`/`ChatFileMentions`/`TurnTailOwnerProps` 等 chat 专属类型，以及 `conversation.view` 的 slot 注册点（原在 `ui-conversation/src/client/apply.ts`）也一并搬到 `ui-chat`。本补丁新增的 `RenderUserActions`/`UserActionOwnerProps` 类型与 `conversation.chat.user-actions` 的 SlotMap 声明因此改落 `packages/client/ui-chat/src/client/contract/slots.ts`（挨着同款的 `AssistantActionOwnerProps`），`children` 里的 `'conversation.chat.user-actions': { kind: 'list', scope: 'session' }` 改落 `packages/client/ui-chat/src/client/apply.ts`；`ui-conversation` 自身不再持有任何 chat 专属类型或注册点。
+- **本轮（`core-patches-v8`）**：在役，提交 `e99198c3e6`。核实依据：`conversation.chat.user-actions` 在 `upstream/master` 仍零命中。冲突六处：`ChatNodeSeat.tsx` 两处解构（上游删掉了 `selectedCallId`，**决定**取上游的参数列表 + 我方 `renderUserActions`）、`ChatView.tsx` 与 `index.ts` 的类型导入（并集，丢掉上游已删除的 `DetailsInjected`/`DetailsSlotProps`/`DetailsToolOwnerProps`）、`slots.ts`（**只保留我方新槽**：同一冲突块里的 `conversation.details.tool` 是上游自己删掉的槽，`git grep` 全仓零命中，重新插回会凭空复活它）、`chat-view.client.spec.tsx` 解构（并集，丢掉上游已删的 `setSelection`）、`slot-catalog.ts`（生成物，取上游侧后跑 `gen-client-catalog` 重生成）。
 
 ## feat(ui-primitives): export the ANSI line parser — 3691d3e814
 - **改了什么**：`packages/client/ui-primitives/src/index.ts` 新增导出 `parseAnsiLines` + `AnsiLine`（原为 `ansi.ts` 内部私有）；README 双语补充说明。
@@ -43,6 +46,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游自行导出该解析器，或提供终端输出渲染 hook，使得包外重新解析 ANSI 不再必要。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `3691d3e814`）。核实依据：上游 `packages/client/ui-primitives/src/index.ts` 无任何 ANSI 导出。自动合并，无冲突。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役
+- **本轮（`core-patches-v8`）**：在役，提交 `ceb2cf907b`，自动合并无冲突。核实依据：上游 `packages/client/ui-primitives/src/index.ts` 仍无任何 ANSI 导出。
 
 ## fix(host-apiproxy): a distinguishable not-found error from the path opener — a8477f0a8a
 - **改了什么**：`openTarget`（`host.openPath` 与设置文档编辑器移交共用的实现）在调用原生 opener 前先 `stat` 已解析路径；`RpcErrorDetailsMap`/`rpcErrorSchema` 新增 `not-found` 错误码；`WorkspaceRuntime.openPath` 改为抛出携带 `rpcError` 字段的 `PathOpenError`（消息文本保持不变，纯增量扩展）。
@@ -51,6 +55,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游自行区分出"路径不存在"这一 opener 失败。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `a8477f0a8a`）。核实依据：`path-not-found` 在 `upstream/master` 零命中，`openWorkspacePath` 仍无路径存在性预检。自动合并。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役。**落点更新（rc.26 同步，基座 0.1.2-alpha.2，提交 `bb369aa8b0`）**：上游把整个 `packages/host/apiproxy` 包连根拔起（不是文件内搬家），`host.openPath`/`openTarget` 的职责整体移进了 `packages/api/session-controller`（新模式：`session.openWorkspacePath`，实现在 `src/index.ts` 的 `openWorkspacePath()`），且原来的扁平 `RpcErrorDetailsMap`/`rpcErrorSchema` 已被上游替换成按域命名空间分类的 `RemoteError<'domain/code'>` 闭合联合（`RemoteErrorDetailsMap`，`packages/api/session-controller/src/types.ts`）。本补丁的 ENOENT 预检移植为：`openWorkspacePath` 在调用原生 opener 前先对已解析路径 `stat`，命中 `ENOENT` 抛出携带 `'session/path-not-found': { path }` 的 `RemoteError`（新增到 `RemoteErrorDetailsMap`）；`stat` 的其他失败（权限拒绝等）落空后仍走原生 opener 由其自行报错，不吞掉非 ENOENT 场景。`session-open-workspace-path.host.spec.ts` 新增未命中/非 ENOENT 落空/`stat` 期间 abort 竞态三组测试，并把既有 4 组测试从假路径改为真实 `mkdtemp`+`writeFile` 暂存文件。设置侧的独立 `openWorkspacePath` 拷贝（`settings-controller`）不在本次移植范围——原补丁的共享 `openTarget` 在新架构上本就拆成了两份互不相干的实现。
+- **本轮（`core-patches-v8`）**：在役，提交 `bf66e4bb02`。核实依据：`path-not-found` 在 `upstream/master` 仍零命中。上游本轮给 `openWorkspacePath` 加了 `action: 'reveal'` 分支与 `workspaceDesktop()`，与我方的 ENOENT 预检撞在同一函数。**决定**：预检在前、上游的 open/reveal 派发在后，JSDoc 取两侧并集并把标题改成「Open or reveal」。**上游两条测试被本补丁改变了行为**：`reports Host file-manager metadata…` 与 `uses the native reveal adapter…` 都对 `/report.txt`、`/workspace/report.txt` 这类不存在的路径断言 opener 被调用，预检之后它们改为 `session/path-not-found`。**决定**：按仓规「改变过时行为要连同它的测试一起改」，两条测试改用 `mkdtemp` + `writeFile` 造一个真实文件，断言的对象不变。
 
 ## fix(ui-primitives): stop silently discarding a disallowed link destination — e584637095
 - **改了什么**：`markdown/render.tsx` 的 `renderSafeLink`：不被允许的目的地不再渲染成裸 `Fragment`（吞掉目的地），改为渲染成 `链接文字 (目的地)` 这样可见、不可交互的文本；两个 `links-and-autolinks` DOM fixture 与 `markdown.client.spec.tsx` 的相关断言随之更新。
@@ -59,6 +64,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游自己的 markdown renderer 不再悄悄丢弃不被允许的链接目的地。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `e584637095`）。核实依据：上游 `renderSafeLink`（`render.tsx:480`）对不被允许的目的地仍返回 `<Fragment key={key}>{children}</Fragment>`。移植保留上游新增的第四实参 `glyph = true` 与 `anchorWrapsOnlyImages`，只叠加回退分支与 JSDoc；README 中英按上游新句尾为底插入我方小句后 `verify-translation-pairing --write` 重录。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役
+- **本轮（`core-patches-v8`）**：在役，提交 `9a13b278a4`；`render.tsx` 自动合并干净，冲突只在双语 README 摘要段（上游整段重写并新增 `pathImages` 一族描述）。**决定**：取上游新段，插回我方那句「被阻止的链接渲染为链接文字加目的地」。
 
 ## feat(attachment): a text-file kind for the durable attachment seam — c443235721
 - **改了什么**：`packages/attachment` 新增与图片平行的 `FileAttachmentLimits`/`FileAttachmentRef`/`SaveFileAttachment`/`StoredFileAttachment`/`EncodedFileAttachment` 类型族，以及 `AttachmentStore.validateFile`/`saveFile`/`saveFiles`/`readFile`、`admitEncodedFiles`；`attachment-local` 新增 `sniff.ts`（移植自退役插件 `dsh-text-drop` 的 `core/sniff.ts`）、`text.ts`（`detectText`），并抽出 `commitDurableObject`/`readVerifiedObject` 供图片与文件共用。
@@ -111,6 +117,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游自己的会话 UI 原生扫描并渲染散文中的路径/文件引用。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交见标题所列六条）。核实依据：`proseReferents`/`ProseReferents` 在 `upstream/master` 零命中。移植要点：`slots.ts`/`ChatView`/`ChatNodeSeat`/`AssistantMarkdown`/`AssistantNodeView`/`ui-primitives/src/index.ts` 十处冲突一律取我方侧，再删掉 `loadFile`/`openReferent`/`FileAttachmentRef`/`MessageText` 这些文件族成员；`apply.ts` 取我方的 `buildProseReferents` 接线与 `openFile` 包裹；本地路径链接目标那条与上游的 `anchorWrapsOnlyImages`/`glyph` 同处，保留上游第四实参、只在其前插入本地路径分支；`OpenReferent` 类型随其唯一消费者（文件卡）退役；`slot-catalog.ts` 与 `workflow-run.client.spec.tsx` 走生成器重跑与 `referents: undefined` 一行。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：**在役（rc.26 同步二阶段 B 族，基座 0.1.2-alpha.2）**。此前一轮尝试因整条系列建立在已 SKIPPED 的 fabc93555c（`referent/open`/`dispatchReferentOpen`）与 88129b7b44（`probeTargets`）之上而整体 SKIPPED；两者均已在本次 B 族分别落地为 `0b32bd30ad`、`35ca000207`，此系列随后按六个原始补丁逐一移植为六个独立提交，一个原始补丁一个提交，现已全部落地。**`ae19472402`（A1 基础缝隙：`referents.scan`/`open`）→ `43d944b8fd`**——`ProseReferents`/`ProseReferentSpan` 落在 `ui-chat`（不是原补丁的 `ui-conversation`，因为 `chat/*.tsx`/`apply.ts` 已随重组搬到 `ui-chat`）；Host `home` 经 `connection.generation.getSnapshot()?.host.home` 读取（不是原补丁的 `connection.hostDescription`，该字段在当前 `ConnectionHandle` 上不存在）；默认打开动作用 `ctx.remote.session.openWorkspacePath`（不是原补丁的 `ctx.workspaces.openPath`，该服务在重组后的代码树上不存在）。**`0c9b669a3c`（A1 续：`resolveLink`/`subscribe`）→ `21c8b07bd5`**——文本层可直接照搬，落点跟随 `ae19472402` 已确立的三处适配；`buildProseReferents` 解构 `resolveLink`/`subscribe` 以便 TypeScript 把"已定义"的窄化带进后续闭包，解构本身与两条新单测的裸存在性断言各需一条 `oxlint-disable-next-line typescript/unbound-method`（纯回调属性，不依赖 `this`，与 `packages/core/tools/src/testing.ts`、`packages/core/agent/src/dispatch.ts` 里已有的同类豁免同一性质）。**`6e7045d8cf`（A2：本地路径 markdown 链接目的地经 `resolveLink` 路由）→ `bf2537030f`**——文本层原样照搬（`ui-primitives` 未随重组搬迁），同样需要一条 `unbound-method` 豁免（`renderLocalLinkDestination`）。**`1d8e975c1a`（A3：`useReferentsRevision` 结算重渲染修复）→ `bfd732dd65`**——原样照搬，`MarkdownText.tsx` 的 `labels` 参数名（原补丁基线树是 `codeLabels`）随本代码树早先一次无关的上游重命名/合并已经是 `labels`，未在本次改动。**`f495eefd50`（`linkPlainText` 分支覆盖率）→ `16ad7f6cd8`**、**`83eb0e3ddb`（CommonMark 空格转义真实解析覆盖）→ `a8cc98f350`**——两条纯测试补丁，原样照搬，无落点偏差。Agent Note：`.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md`（六个提交共用一份笔记，逐段记述各自的移植决策）。
+- **本轮（`core-patches-v8`）**：在役，提交 `053eb080fc`、`b935c9f217`、`356eca5424`、`6b6c45d312`、`bc64904830`、`e7b1ebef80`。核实依据：`proseReferents`/`ProseReferents` 在 `upstream/master` 仍零命中。**本轮最大的一处冲突**：上游给 `MarkdownText` 新加了 `pathImages`（本地路径图片目标重写），它与我方的 `referents` 落在**逐个相同的参数位**——`renderSettled` 形参、`MarkdownRenderContext` 字段、组件解构、props 类型、`useMemo` 依赖数组共九处。**决定**：一律并集，两个词表并存，`renderSettled(text, labels, fileMentions, pathImages, referents)`，JSDoc 那段改成「三个词表共用同一道流式门」。`apply.ts` 另有一处：上游把 `openFile` 整个换成了右侧栏资源打开（`fileAddressFor` + `ctx.sidebarRight.openResource`），我方是 `dispatchReferentOpen` 包裹。**决定**：保留上游的新默认动作，把它整体放进 `dispatchReferentOpen` 的终点闭包里——缝隙的语义（所有打开手势先过瀑布流）不变，默认动作跟随上游。`slot-catalog.ts` 与 `api-catalog.ts` 生成物均取上游侧后重跑生成器。
 
 ## feat(host-apiproxy,client-runtime): a batch path-existence probe for the referent verification layer — 0f05da7bb7（+ `3f408369d5`）
 - **改了什么**："三层可点击引用" 规格的 A4：`ctx.workspaces.probeTargets` 提供只读、每调用 64 个、8 并发的 stat 批处理（存在性/kind，从不列目录或读内容），经既有 `host.<method>` RPC 模式（schema、dispatcher、`IApiClient`、fixture 与每个测试替身）接入 `packages/host/apiproxy`；后续两个补丁分别补 wire 往返覆盖率测试与 UNC 目标在 stat 前的短路修复。
@@ -119,6 +126,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游为 Host RPC 自己提供等价的批量路径存在性探测。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `0f05da7bb7`）。核实依据：`probeTargets` 在 `upstream/master` 零命中。另加一条 `test(api-session-controller)`（`3f408369d5`）把 `probeTargets` 补进客户端 fake 的 session 命名空间：Remote 命名空间类型要求成员齐全，这一处在 v6 里由已退役的文件族提交带入，缺它客户端面不编译。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役（仅服务端 RPC 本体；原消费方仍待设计）。**落点更新（rc.26 同步，基座 0.1.2-alpha.2，提交 `35ca000207`）**：三个补丁全部落点的 `packages/host/apiproxy` 已随上游重组整体消失，`probeTargets` 移植为 `packages/api/session-controller/src/index.ts` 的 `SessionController.probeTargets()`（`@Remote('probeTargets')`，`session-controller` 顶层，紧邻 `openPath`）——批大小上限 `PROBE_TARGETS_MAX_PATHS = 64` 与并发上限 `PROBE_TARGETS_CONCURRENCY = 8` 的 worker-pool 批处理（`probeTargetsBatch`/`probeOneTarget`）、只读 `stat`（从不列目录或读内容）、UNC 目标（`\\` 前缀）在 `stat` 前短路等原补丁行为全部保留；批大小校验用命令式 `if` 检查（`gateway/bad-request`），因为新架构不再有 zod schema 校验层。`session-probe-targets.host.spec.ts`（新文件）覆盖 wire 往返、批大小越界拒收、UNC 短路、以及部分失败结果的场景。**下游消费方现状（rc.26 同步二阶段 B 族更新）**：本条目原本的下游消费方——proseReferents 校验层——此前建立在已 SKIPPED 的 `ae19472402` 系列之上；该系列现已全部落地（见该条目），`referents.subscribe` 缝隙本身随 `0c9b669a3c` 落地，但校验层自己批量调用 `probeTargets` 的实际调用方（仓库之外的 `@haoran/dsh-clickable-refs` 插件，见 `ae19472402` 移植笔记）依旧不在本仓库，且设计上永远不会在本仓库——`probeTargets` 仍没有任何仓库内调用方，只有 `session-controller` 自身的 `test-remote.ts` 测试替身。与 `openWorkspacePath` 一样，本方法本身在新架构上也没有客户端包装——直接 RPC 调用，符合既定模式。
+- **本轮（`core-patches-v8`）**：在役，提交 `f04377914c`、`3b70236641`。核实依据：`probeTargets` 在 `upstream/master` 仍零命中。冲突一处，`index.ts` 相邻导入行，并集。
 
 ## docs: Agent Note for the three-layer clickable-reference architecture (A1-A5) — 74cb3def3c
 - **改了什么**：新增 Agent Note 记述 A1-A5 全系列（referent/open、proseReferents、resolveLink/subscribe、probeTargets、A5 勘察结论）。
@@ -132,12 +140,14 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游自己发出等价的客户端连接状态事件。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `8b1b5d2abf`）。核实依据：`connection/state` 在 `upstream/master` 零命中，`packages/client/connection` 无该事件。两条提交都自动合并干净，`gen-cordis-catalog` 与 `gen-cordis-inspect-catalog` 重跑后生成物零改动。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役。**落点更新（rc.26 同步，基座 0.1.2-alpha.2）**：补丁原作时 `packages/client/runtime` 是单一包，`onStateChange` 接线、`declare module Events` 与实际 `ctx.emit` 调用在同一个文件里。上游把该包拆成至少三个：`packages/client/connection`（`ConnectionController`/`ConnectionSinks`/`ConnectionState` 机制本身，只负责把 sinks 转调给调用方，自己不 emit 具名事件）、`packages/api/gateway`（`ClientRemoteService` 才是真正把 sinks 接上 `ctx.emit` 的调用方——`connection/reset` 现在也是从这里发的，不是从 `connection` 包）、以及不相关的 `packages/api/session-controller`（sessions/workspaces 消费侧，文档记账上仍把 `connection/reset`/`connection/state` 两个客户端事件挂在它的 README 下）。因此本补丁的 `declare module Events` 新增落在 `client/connection`，实际 `ctx.emit` 调用落在 `api/gateway`，与原补丁"同一文件两件事"的结构不同；`wire-events.client.spec.ts` 测试文件本身不复存在，两条新单测改落 `packages/api/gateway/tests/gateway.client.spec.ts` 的 "Client Remote transport readiness"，复用该文件已有的 `start.mock.calls[0]![0]` 取真实 sinks 手法而非旧文件的专用 `bench.sinks` helper。原补丁同时改的 `packages/api/remotes/src/client/index.ts`（把 `ConnectionState` 重导出给 `client/runtime`）在新结构下不再需要——`ConnectionState` 现在由 `client/connection` 包自己定义并直接可见，不必绕经 `api-remotes`。逐文件跑 `npx vitest run packages/api/gateway/tests/gateway.client.spec.ts packages/client/connection`（239/239 通过）与 `pnpm exec tsc -b packages/api/gateway/tsconfig.json packages/client/connection/tsconfig.json`（干净）验证。仓库级 `pnpm run gen-cordis-catalog` 在本补丁改动之外、因已 SKIPPED 的 d56a5f7348 遗留的 attachment 文件类型 LINK_MAP 分类缺口而失败（该缺口已在 d56a5f7348 的退役记录里记载，非本补丁引入，未在此修复）。 **提交后修正**：原补丁假定的两态模型（`'connected'`/`'reconnecting'`）已随本次重组变成三态 `'connected' | 'disconnected' | 'connecting'`（见 `connection.ts` 的 `emitState` 调用点：`'connecting'` 对应发起物理载体尝试、`'disconnected'` 对应尝试间隔的载体不可用、`'connected'` 对应握手成功）——起初按旧两态模型写的两条单测与事件 JSDoc 用了不存在的字面量 `'reconnecting'`，被仓库级 `pnpm exec tsc -b tsconfig.client.json`（`typecheck:contracts-ready`，pre-push 钩子的一部分）用 `TS2345` 拦下，随后改为三态字面量并重新生成 `api-catalog.ts`，`tsc -b tsconfig.client.json --force` 复核后客户端面 0 错误。
+- **本轮（`core-patches-v8`）**：在役，提交 `e96f6c88f6`、`d813bcf522`，两条均自动合并干净。核实依据：`connection/state` 在 `upstream/master` 仍零命中。
 
 ## fix(ui-chat): degrade a prose referent's not-found race to the composer's own notice — a51dbd6624（+ `e671fc13c2`）
 - **改了什么**：`buildProseReferents.open` 的 stat-到-click 竞态失败改为复用 composer 通知通道给出用户可见提示，而非只在 console 记日志。
 - **退役条件**：`upstream/master` 的 `packages/client` 里出现对 `session/path-not-found` 的用户可见处理（`git grep path-not-found upstream/master -- packages/client` 非空；本轮为空），或本补丁挂载的 `buildProseReferents` 在本线消失（随 `20349d9c33` 一族整体退役）。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `a51dbd6624`）。核实依据：随 proseReferents 族一并落地。`locale.ts` 冲突只保留 `referent.notFound` 两语言，丢掉随文件卡退役的三条 `file.*` 文案。`e671fc13c2` 是 v6 `0ab9760264` 的 referent 半边（`dir` referent、composer 提示的 session-died 竞态两条）；同提交里的 `loadFile`/`openReferent` 两条与 `session-query/search-helpers.spec.ts` 的 file 内容块断言退役——上游 `extraction.ts` 不索引文件名。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：**在役（rc.26 同步二阶段 B 族，提交 `b2029bc350`）**。`ae19472402` 系列已全部落地（见该条目），本补丁随之一并移植。落点在 `ui-chat`（不是原补丁的 `ui-conversation`，`buildProseReferents` 已随重组搬到那里）。原补丁同文件的 `InputHub` 类实例（`inputHub.shell(id).notify(...)`）在 `ui-chat` 没有对应物——`InputHub` 仍留在 `ui-conversation`，作为 `ctx.conversation.input` 暴露；跨包接线采用与 `packages/client/ui-commands/src/client/service.ts` 自己的 `noticeFor()` 完全相同的手法：`sessions.scope(id)` 取会话作用域 Context，再 `actx.get('conversation')`（禁用直接属性访问 `actx.conversation`——`actx` 是当前插件 `inject` 数组管不到的作用域，首次尝试即被 `"cannot get property conversation without inject"` 拦下）`.input.for(actx).notify(...)`；`'conversation'` 随之加入 `ui-chat` 的必需 `inject`，与既有的 `'uiConversation'` 同源对齐。原补丁的 `PathOpenError`/`error.rpcError.code === 'not-found'` 判支在本代码树无对应物：`openWorkspacePath` 返回 `{ok:false, error: RemoteError}` 而非抛错包装类，且真实 code 是 `session/path-not-found` 不是 `not-found`；`onDefault` 改为原样重新抛出 `result.error`（真实 `RemoteError`，不再压扁成纯文本 `Error`），`.catch` 用本代码树自己文档化的 `remoteErrorOf(error)`（"structural, not instanceof"，`packages/typert/protocol/src/remote-error.ts` 自己的注释）分类，而非 `instanceof`；`@deepseek-ai/dsh-typert-protocol` 加入 `ui-chat` 的 `devDependencies`（纯工具值导入，非 cordis 服务，不需要 `dsh.client.inject` 条目）。**顺带修复一处 `ae19472402`（`43d944b8fd`）遗留的测试缺口**：`ui-tool` 的三个测试文件（`chat-code-subcalls`/`assembly-surfaces`/`toolview-slot`）挂载 `applyChat` 但从未在 `ae19472402` 给 `ui-chat` 加 `'connection'` 必需依赖时同步补上 `connection` 桩——因为那次提交的受影响测试范围只圈定了 `ui-chat`/`ui-workflow-run`/`ui-primitives`/`ui-conversation`，漏了 `ui-tool`；本补丁跑更宽的受影响套件时发现并顺带修复，与本补丁自身新增的 `'conversation'` 桩落在同一提交而非拆成独立提交（拆分需要先临时撤回 `ae19472402` 已合并的 `apply.ts` 改动才能让修复提交独立可测，得不偿失）。Agent Note：`.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md`。
+- **本轮（`core-patches-v8`）**：在役，提交 `82d04ba4f6`、`516423b7fa`。退化条款仍未触发：`git grep path-not-found upstream/master -- packages/client` 为空。冲突三处：`apply.ts` 导入与 inject 名单（并集，丢掉上游已删的 `layout`）、`apply.ts` 的 `buildProseReferents` 调用（保留上游新 `openFile` 体 + 我方两个新实参）、`locale.ts` 两语言三条文案（取我方）、`apply-inject.client.spec.tsx` 返回对象（并集）。**一处记述订正**：`onDefault` 的注释原写「与下面 openFile 走同一条 RPC」，在本基座上不再成立——`openFile` 已改走右侧栏，散文引用仍走 `openWorkspacePath`（这正是 `session/path-not-found` 仍能被分类的前提），注释按事实改写。
 
 ## feat(ui-conversation,ui-attachment,host-apiproxy): confirm before sending a file that lives in a known secret container — ebd4e9c1f4
 - **改了什么**：新增 `secret-container.ts`（纯名称/路径启发式判定，零内容读取），composer 对文件草稿做已知密钥容器（`.env`/`id_rsa`/`*.pem`、`/.ssh/`/`/.aws/` 路径段等）匹配，命中则弹两键确认；`FileChip`/`ComposerAttachments`/`InputBar` 接入芯片持续警示态（描边+圆点+行内标签+行下方带「移除」的提示）；宿主侧新增部署可追加的 `secretContainerExtraPatterns` 会话投影（仅可追加，基础名单从不上这根线）。
@@ -175,6 +185,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **一项文档主张被取证否证并已订正**：README 原写「中途撕裂时面板显示 Host 自己的报错信息」。真机造了一个「谱系可见、日志读到一半炸」的子会话后实测：响应已是 `200`，Host 无法再传达任何信息，浏览器只给 `network error`。四份文档（双语 README + 双语 Note）已改为「报告导出撕裂了，而非为什么」，并在 README 限制条目里立案。
 - **门禁实跑（基座 `origin/core-patches-v6` = `72d966ed10`，0.1.2-rc.1）**：包内 `pnpm exec vitest run --coverage --coverage.include='packages/session-query/session-log-export/src/**' packages/session-query/session-log-export` **9 文件 / 86 用例全绿**，逐文件覆盖率 100%（statements 423/423、branches 223/223、functions 87/87、lines 370/370）。不带 `--coverage.include` 直接跑该包会退出码 1：插桩范围是全工作区，本包测试够不到的文件（`ui-primitives`、`core/tools`、`agent-presets` 等）一并计入——与本文件「每日滚动同步：alpha.4 → alpha.5」一节记过的同一个陷阱；`pnpm run typecheck` / `lint` / `build` / `verify-export-jsdoc` / `verify-agent-note-format` / `verify-translation-pairing` / `verify-md-links` / `verify-doc-budgets` 退出码均为 0；`DSH_SNAPSHOT=replay vitest --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` **7 通过 / 1 跳过**，单独跑导出用例 `-t 'downloads through the Session Header'` 亦通过。
 - **真机取证**（本工作树 `pnpm run dsh web --no-open --port 0` + scratch `DSH_HOME`，Playwright 驱动 Chromium，CDP 20 KB/s 限速）：6 个种子会话的 `entries`/`bytes` 与 `unzip -l` 实际条目数、未压缩大小逐一相等，`unzip -t` 全部无错；单条目会话进度条 1%→90% 平滑推进后完成；自造两个子会话的三条目归档 1%→94%→100%；路由改 500 拍到失败面板；日志读到一半炸的子会话拍到 `200` 后撕裂、面板显示失败且 `dl3/` 零文件落盘。自造会话已在取证后删除，六个原有会话未被改动。
+- **本轮（`core-patches-v8`）**：在役，提交 `fed6fb0c64`、`c31e0c3cf8`、`a11ba0c204`。核实依据：`SESSION_EXPORT_ENTRIES_HEADER` 在 `upstream/master` 仍零命中；上游 `Dialog.tsx` 仍只有「准备中／开始下载／失败」三态，无进度条、无字节数。上游本轮把入口从 Session Header 的 `Session log` 按钮改成了更多操作菜单下的 `Download session log` 菜单项。**决定**：入口取上游、面板取我方，双语 README 摘要与 `header-action.client.spec.tsx` 的断言按此合成（菜单项消失 + 面板名 `Export complete`）。
 
 ## patch(session-log-export): record unreadable media in the archive instead of tearing the stream — 44ff8f621d
 - **改了什么**：`packages/session-query/session-log-export/src/archive.ts`（新增 `unreadableMediaEntryPath` / `unreadableMediaReason` / `unreadableMediaEntry` / `mediaEntry`，`sessionLogZipEntries` 的媒体循环改走 `mediaEntry`）、`src/index.ts`（路由测量失败分支的注释改写）、`tests/archive.host.spec.ts`（删掉断言旧行为的 `fails the whole export when a referenced image cannot be read`，换成三条新用例）、`apps/web/tests/navigation-panes.e2e.ts`（新增第二个手写种子会话与一条整机用例）、双语 README、Agent Note 三件套 `.agents/notes/implemented/bug-fix/2026-09-04-export-records-unreadable-media.{md,zh.md,i18n.yaml}`，并给 `2026-09-03-session-export-progress` 的双语 Note 加了一条交叉链接（其 i18n 记录同步重录）。
@@ -187,6 +198,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **整机取证**：`apps/web/tests/navigation-panes.e2e.ts` 新增第二个手写种子会话（`user/message` 引用 `sha256:` + 64 个 0——对 `attachment-local` 的 `ID_PATTERN` 合法、磁盘上从不存在），新增用例走「侧栏搜索打开该会话 → 点 Session log → 断言 200 与 `x-session-export-entries: 2` → 解压断言恰好 `session.jsonl` 与 `media/sha256:000….png.error.txt` 两条目、后者含 `code: ATTACHMENT_NOT_FOUND` 与 `reason: Attachment object is missing.` → 面板 `Export complete`」。`DSH_SNAPSHOT=replay pnpm exec vitest run --config vitest.web.config.ts apps/web/tests/navigation-panes.e2e.ts` **8 通过 / 1 跳过（record-only）**；把断言里的 code 改成不存在的值可稳定杀死该用例（变异验证）。未新增也未改动 `snapshots/web/navigation-panes/` 下任何 golden：新用例断言的是具体字符串而非 ARIA 快照，`git status snapshots/` 干净。
 - **门禁实跑**：`pnpm exec vitest run --coverage --coverage.include='packages/session-query/session-log-export/src/**' packages/session-query/session-log-export` **9 文件 / 88 用例全绿**，逐文件覆盖率 100%（statements 433/433、branches 229/229、functions 91/91、lines 380/380）；`pnpm run typecheck`、`pnpm run lint`、`pnpm run doc-sync`（32 leaf 全绿）退出码均为 0。
 - **复核回修（同一补丁提交内）**：(1) 进度条方向原写反——高估 `estimatedWireBytes` 让 `received/estimate` 偏小，实际是「走得慢、最后从停下处跳到完成」而非「先到达上限」；真实会话实测响应体 468779 对声明 1281573，完成前最后一帧 fraction=0.5（由条目度量 1/2 托底）。双语 README 限制条目与双语 Note 的 Decision 段已改。(2) 取消归因原只算在 `mediaEntry` catch 那一行——实测删掉它用例仍过，因为 `sessionLogZipEntries` 循环里 `await` 之后那次 `throwIfAborted` 兜住；两处都保留，Note 已改为「两处共同保证，循环那次覆盖『读取成功但已中止』」。(3) 首条包内用例改用真实 `new AttachmentError(...)`，让 `name` 这一跨包耦合有断言守着；第二条用例仍用手搓形状覆盖四种非 `AttachmentError` 分支。(4) `unreadableMediaReason` 的 JSDoc 补明：本包对 `@deepseek-ai/dsh-attachment` 只有类型依赖故按 `name` 结构匹配、不能只看 `code`（Node fs 错误同样带字符串 code 而 message 含主机绝对路径），并点明这比 `error.ts` 的「route on code」更严。
+- **本轮（`core-patches-v8`）**：在役，提交 `6a75b19381`，自动合并干净。核实依据：上游 `archive.ts` 的三处 `catch` 仍是「中途失败即让下载失败而不是发出被截断的归档」，未获得容忍能力。
 
 ## feat(api-session-controller): a referent/open interception seam for reference clicks — 0227d2c178（+ `ed53d39651`、`39b9dec9a5`）
 
@@ -195,6 +207,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：监听者不调用 `next()` 即认领点击；调用 `next()` 转交下一个监听者，最终转交派发点自己的既有打开动作；监听者抛出或拒绝会被捕获、记录并按隐式 `next()` 处理，因此一次点击总能落到某个打开动作上；`dispatchReferentOpen` 记忆默认动作自身的 promise，成功转交之后才抛出的监听者既不会让默认动作重跑，也不会掩盖它的真实失败。派发只出现在用户手势处理函数里，绝不出现在自动投递路径上——认领会被信任去执行副作用。
 - **退役条件**：上游为引用点击提供自己的拦截缝（`referent/open`、`dispatchReferentOpen`、`ReferentRef` 三者在 `upstream/master` 均零命中）。
 - **状态**：在役（0.1.3-alpha.1 本线新增，由 v6 `fabc93555c` 拆分而来）。v6 里本缝与文件气泡卡同在一个提交，卡片半边随文件族退役，缝这半边在新基座上直接落成最终形态。`ed53d39651` 推翻了 v6 的一条旧结论——「client 侧值导入 session-controller 的运行时导出不受 `verify-client-packages` 限制」：在本基座上客户端 bundle 纯净度门禁拒绝 `packages/client/*` 值导入别家插件的运行时导出，`dispatchReferentOpen` 是真正的跨插件调用而非可擦除的类型，故 ui-chat 改走注入服务；自由函数导出不变，仍是 `packages/client/*` 之外消费方（含仓外插件）的入口。
+- **本轮（`core-patches-v8`）**：在役，提交 `eb01984b74`、`80bee3ef8a`、`2daa60f928`。核实依据：`referent/open`、`dispatchReferentOpen`、`ReferentRef` 在 `upstream/master` 仍全部零命中。冲突：`README.md` 与上游新增的「Session media references」一节撞在同一插入点（**决定**：我方段落留在「Use this package」末尾，上游新节接在其后；中文侧自动合并把两段顺序颠倒了，手工调回与英文一致）、`docs/subsystems/session.{md,zh.md}` 的 JSDoc 镜像（取与 `bf66e4bb02` 同一份合并后的 JSDoc）。`ed53d39651` 的冲突是 `apply.ts` 把 `dispatchReferentOpen` 换成 `ctx.referent.open`，**决定**：换注入服务这一半取我方，默认动作那一半取上游的右侧栏打开。
 
 ## fix(agent-presets): resolve the legacy `code` preset id to `ptc` — 1922fad46f（+ `727a8e2131`、`0d59031264`）
 
@@ -204,6 +217,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **退役条件**：上游自己提供预设 id 迁移或名册别名（settings 迁移或名册别名皆可）。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `1922fad46f`、`727a8e2131`、`0d59031264`）。核实依据：`git grep -inE "legacy|alias" upstream/master -- packages/preset` 零命中，上游 `packages/preset/` 仍只有 `agent-presets`/`persona` 两个包、没有任何 id 迁移或别名机制。三条提交在本基座上只冲突在台账文件。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役。v6 未给本族单开小节，登记落在「每日滚动同步：0.1.2-alpha.4 → alpha.5」一节内（提交 `8a2878ae6d`/`63a7eead67`/`c99791cec0`）。
+- **本轮（`core-patches-v8`）**：在役，提交 `49487202a9`、`aa431f340b`、`998464006d`，三条均自动合并干净。核实依据：`git grep -inE "legacy|alias" upstream/master -- packages/preset` 仍零命中，`packages/preset/` 仍只有 `agent-presets`/`persona` 两个包。
 
 ## patch(session-format-v0-to-v1,session-format-v1-to-v2): 把已落盘的仓外历史事件带过迁移边 — d929cdfd2a
 
@@ -214,6 +228,41 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **订正**：本补丁提交信息写的 "Two such types exist on this fork's disks" 对 `attachment/materialized` 不成立——它在本机零命中，只会出现在触发过溢出附件的 rc.29/rc.30 用户机上。提交已推 origin、不改写历史，以本条为准。
 - **退役条件**：上游把这两类事件纳入清单，或为迁移边提供自定义词汇扩展点。
 - **状态**：在役（0.1.3-alpha.1 本线新增）。
+- **本轮（0.1.5-rc.1 基座 `core-patches-v8`）**：在役并**结构性重写 + 扩到第三条迁移边**，提交 `767a17039f`。退化条款未触发：上游既没有把这两类事件纳入清单，也没有为迁移边提供自定义词汇扩展点。上游本轮把这两个包整体重构成流式 stage（`46196d6f95` 起）：`normalizeReleasedV0Events` 批处理循环换成 `ReleasedV0ToV1Stage` 类逐事件 `transformEvent`，`assertReleasedV0/V1/V2Artifact` 三个函数移进 `src/testing/validation.ts` 且不再从包入口导出，`sessionFormatV1ToV2.migrate()` 换成 `createStage()`。因此本补丁是**按语义重落**而非按文本重放：
+  - `session-format-v0-to-v1/src/migration.ts`：在 `normalizeReleasedV0Event` 里跳过被点名类型的 payload 处置并盖 `ignorable: true`。判别式由原来的「有没有处置」改成「在不在 `LEGACY_UNINTERPRETED_EVENT_TYPES` 里」——上游新树上没有单独的整件坐标校验兜底，按处置判别会把**没人点名的**未知类型也一并放过，改后「没人点名的类型仍然被拒」这条不变式才真正成立。
+  - `session-format-v0-to-v1/src/validation.ts`：`uninterpreted` 一行落在改名后的 `assertReleasedArtifactCoordinates` 上（生产路径靠 `ignorable` 标记通过，这一行服务于 `testing/validation.ts` 里 `allowLegacySteering=true` 的那条路）。
+  - `session-format-v1-to-v2/src/migration.ts`：豁免落在 `transformReleasedEvent` 的未知类型拒绝处。
+  - `session-format-v1-to-v2/src/validation.ts`：**本半边被上游吸收**，不再需要补丁——上游现在写成 `ignorableUnknown = disposition === undefined && record['ignorable'] === true`，`mode === 'current'` 且 `!installed && !ignorableUnknown` 才拒，我方盖的 `ignorable: true` 天然通过。
+  - **新增第三条边**（见下一节）。
+
+## patch(session-format-v2-to-v3): 把被点名的仓外历史事件带过 V3 迁移边 — 767a17039f（`d929cdfd2a` 的姊妹条目）
+
+- **改了什么**：`packages/session/session-format-v2-to-v3/src/payload.ts` 的 `assertEvent(event, 2)`；`LEGACY_UNINTERPRETED_EVENT_TYPES`（由 `session-format-v0-to-v1` 导出，两包早有依赖）加入拒绝判据的例外，并在信封校验之后、处置校验之前提前返回。双语 README 各加一句，新增 `tests/legacy-uninterpreted.spec.ts`。
+- **为什么**：上游 0.1.5 新增的 V2→V3 边对**不在 `RELEASED_V2_EVENT_DISPOSITIONS` 里的任何事件类型**抛 `format v2 to v3 cannot safely transform unclassified event <type>`，而且 `ignorable: true` 在这里同样不是豁免。`d929cdfd2a` 只把八种被点名的类型带过了 v0→v1 与 v1→v2 两条边；缺这一条，rc.26–rc.31 期间写下、带有其中任何一种事件的会话在新基座上仍然打不开。
+- **要达到的效果**：被点名的类型原样跨过第三条边，payload 不受检查，信封检查一条不少；没人点名的类型仍以原消息被拒。
+- **退役条件**：与 `d929cdfd2a` 同一判据——上游把这些事件纳入清单，或为迁移边提供自定义词汇扩展点。
+- **状态**：在役（0.1.5-rc.1 本线新增）。因为三条边读的是**同一个**被点名集合、语义是同一条不变式，本条与 `d929cdfd2a` 的两条边同在一个提交里落地（拆开会留下一个「带到 v2 又在 v3 被拒」的中间提交）；此处按独立条目登记以便独立退役。
+- **实证**：语料回放里 `permissionRules/decision`（两个库各 3 份）与 `content/shown`（备份库 6 份）在纯 `upstream/master` 上被拒、在本线上全部读出；单元测试 `legacy-uninterpreted.spec.ts` 正反两面各钉一条。
+
+## patch(session-format-v0-to-v1): 接住语料里仍在的三种遗留 v0 形状 — f44f8ac8eb
+
+- **改了什么**：`session-format-v0-to-v1` 的 `src/migration.ts` 新增两个规范化器（`normalizeLegacyPermissionPreset` 去掉 `permission/preset` 的 `origin` 成员、`normalizeLegacySubagentDescriptor` 把 `subagent/descriptor` 的 `version: 2` 改写成 3），`src/dispositions.ts` 把 `product/server-console` 线写的六种内容事件全部纳入 `LEGACY_UNINTERPRETED_EVENT_TYPES`；双语 README 各改一句，新增 `tests/legacy.spec.ts` 的三条用例与 `session-format-v1-to-v2/tests/migration.spec.ts` 的两条。
+- **为什么**：这三种形状都是本 fork 自己发行过的构建写下的，恒等迁移边一律拒读；而一份被拒的日志会让 `SqliteSessionQuery._reconcile` 整次观测中止，于是**一份旧会话就能让整库的内容搜索失效**。
+- **要达到的效果**：带这三种形状的会话能打开、迁移、建索引；`origin` 以外的意外成员、2 以外的 descriptor 版本、没人点名的事件类型仍然被拒。
+- **退役条件**：上游把 `origin` 纳入 `permission/preset` 处置、为 descriptor 版本提供迁移，或为迁移边提供自定义词汇扩展点。
+- **状态**：在役（0.1.5-rc.1 本线新增）。本补丁原写在 rc.31 集成线的 `fix/v0-legacy-shapes`（`ac666dc419`、`2533aa3d6e`、`55f46c0ec9`），本轮**按语义重落**到 v8：上游的 stage 重构让 `normalizeReleasedV0Events` 不复存在，两个规范化器改挂在 `normalizeReleasedV0Event` 的链上；`legacy.spec.ts` 的 `migrate()` 从 `releasedV0SessionFormatCodec.decodeArtifact` + `migrate()` 改走上游的 `restoreV0ToV1` 测试门面，`sessionFormatV0ToV1.validateTarget` 已不存在、该断言删除（`restoreV0ToV1` 本身就带目标校验）。`v1-to-v2` 那条用例改走 `stageHarness`/`migrateV1ToV2`。
+- **三种形状是否已被上游 V3 吸收（逐条按代码判定，并由语料实证）**：全部**未**吸收。`assertReleasedEventPayload` 仍对 `permission/preset` 做精确成员表校验（`origin` 报 unexpected member），仍对 `subagent/descriptor` 在 version 0 分支直接拒非 3 版本；`content/shown` 一族仍不在任何清单里。纯 `upstream/master` 树上的语料回放三条拒绝俱在（`origin` 2+11 份、descriptor 0+4 份、`content/shown` 0+6 份）。
+- **实证**：见本文件末尾「旧会话可读性预审」一节的前后读数。
+
+## patch(session-format-v2-to-v3): 把一种历史消息来源种类带过 V3 迁移边 — 416eb52737
+
+- **改了什么**：`session-format-v2-to-v3/src/payload.ts` 新增导出 `LEGACY_UNINTERPRETED_SOURCE_KINDS`（当前只有 `at-file-mention` 一项），`assertSource` 对被点名的种类返回而不抛错；`src/index.ts` 导出它，双语 README 各加一句，`tests/legacy-uninterpreted.spec.ts` 正反各一条。
+- **为什么**：上游 V2→V3 边在转换任何消息之前先给来源分类，`source.kind` 不在十五种已发布取值里就抛 `cannot safely transform unclassified message source`。本机两个库里各有八份会话带着 `{"kind":"at-file-mention","relative":"…"}`——由一个评估期间挂载过的仓外 composer 插件写下，`git log --all -S at-file-mention` 与对所有已检出插件工作区的 grep 都零命中。与事件类型那条同理，一份被拒的日志让整库内容搜索失效。
+- **要达到的效果**：被点名的来源种类带着全部成员原样跨到 V3；没人点名的种类仍以同一条消息被拒。
+- **退役条件**：上游把该 kind 纳入已发布来源词表，或为来源分类提供自定义扩展点。
+- **状态**：在役（0.1.5-rc.1 本线新增）。
+- **为什么是携带而不是改写成 `user`**：改写会丢掉 `relative` 成员，并断言一个写入方从未主张过的来源，而 V3 产物是持久的。原样携带可以论证安全：整条迁移边只读 `plugin`（重命名已停用的 `tools-code-mode` owner）与 `agent-message`（校验中继归属）两种 kind，其余 kind 只是被复制的数据；`assertV3Event` 把叫不出名字的类型当 opaque，`restoreReleasedV3Artifact` 投影回的冻结关系视图把未知 message-source `kind` 当 owner-opaque JSON——v0/v1 两代本来就是这么处理的。
+- **Agent Note**：`.agents/notes/implemented/bug-fix/2026-09-10-v2-to-v3-legacy-source-kind.md`（中英对照）。
 
 ## patch(session-log-export): record an unreadable file in the archive instead of tearing the stream — d2cf85446d（+ `663cb9df9e`、`91743a89eb`、`4e00a2b851`）
 
@@ -222,6 +271,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：`fileEntry` 在产出条目前先拉存储的第一个分块（写入器本就在花的一个分块内存预算），拉取被拒时改为在 `files/<prefix>/<digest>/<name>.error.txt` 记录引用与失败；第一个分块之后才抛出的失败仍撕裂响应（字节已经上线）；取消在两条路径上都仍然撕裂。`wireRatio(..., false)` 的旧文档称「已存储附件是 deflate 压不动的数据」——对通用文本文件不成立，实际效果是分母偏高、进度条滞后后跳到完成。
 - **退役条件**：上游让导出容忍读不出来的通用文件（与图片那条同一判据）。
 - **状态**：在役（0.1.3-alpha.1 本线新增，与 `44ff8f621d` 同族）。`663cb9df9e` 与 `91743a89eb` 只改 `archive.ts` 的 JSDoc。`663cb9df9e` 推翻原论证「没有存储会产出以 `.error.txt` 结尾的名字」——`name` 是用户提交的显示名；它换上的「同 digest 即同一个存储对象、可读性一致、只剩删除竞态」同样为假，由 `91743a89eb` 改掉：`packages/attachment/attachment-local/src/file-store.ts:154` 的 `readFileStreamVerbatim` 打开的是 `storedFilePath(root, ref)` = `files/<xx>/<digest>/<ref.name>`，即按显示名键控的别名，而每次保存只为自己那个 name 发布一条别名，所以同 digest 的两个引用可读性可以永久不同（别名缺失按 name 独立），不止于竞态。现在的 JSDoc 只陈述键与碰撞前提：路径键是 digest 加消毒后的显示名；该记录与另一引用的文件条目同路径，当且仅当那个引用消毒后的显示名等于本引用消毒后的显示名加 `.error.txt`、它的别名读得出、而本引用的读不出（反例：本引用名 `a/b`、另一引用名 `a_b.error.txt`，原始名不满足该式而消毒后满足）。`fileEntryPath` 的 JSDoc 同时补记消毒的多对一事实：同 digest 下 `a/b` 与 `a_b` 都落 `files/<xx>/<digest>/a_b`，而导出的去重键用原始 name（`attachmentId` + NUL + `ref.name`），这样的两个引用因此各产一个条目、路径相同。
+- **本轮（`core-patches-v8`）**：在役，提交 `17d6cf3e72`、`953113598c`、`f9445ad495`、`b33d3db321`，四条均自动合并干净。
 
 ## refactor(api-session-controller): drop the referent seam's attachment field — e7891f0499
 
@@ -230,6 +280,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：`ReferentRef` 只剩 `kind`/`target`/`raw`/`sessionId`/`source`/`provenance`，缝不再对 `dsh-attachment` 有类型依赖。
 - **退役条件**：随 `0227d2c178` 一并退役。
 - **状态**：在役（0.1.3-alpha.1 本线新增）。
+- **本轮（`core-patches-v8`）**：在役，提交 `dba7eaaa5b`，自动合并干净。
 
 ## refactor(session-log-export): take the export panel's size text from ui-primitives — a121f4a7f1
 
@@ -238,6 +289,7 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **要达到的效果**：面板读数走仓内唯一一份实现。文案随之变化：`2.5 MB` → `2.5MB`、`1 KB` → `1.0KB`（共享实现不加空格，且在所选单位十以下保留一位小数）。
 - **退役条件**：不适用——本条是删除自有代码、改用上游实现，不构成对上游的补丁负担；上游若改动 `fileSizeText` 文案，本包随之变化。
 - **状态**：在役（0.1.3-alpha.1 本线新增）。
+- **本轮（`core-patches-v8`）**：在役，提交 `c9fb4951de`，自动合并干净。
 
 ## rc.26 同步二阶段 B 族收尾：基座环境敏感测试红（不修，仅记录）
 `pnpm run test`（全仓）在本次 B 族收尾扫描中发现 3 项稳定红，与 Family A/B 的任何提交均无关（`git log --oneline 8c87b9ef19..HEAD -- <各自文件>` 均为空，两族从未触碰这三个文件），去沙箱（`dangerouslyDisableSandbox: true`）复现结果相同，单独重跑一次结果依旧相同——三次独立复现（全量套件、去沙箱、单文件隔离跑）结果完全一致，均判定为**稳定红（非抖动）**，不是间歇性失败：
@@ -506,3 +558,47 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 ### 分支 HEAD 登记
 
 起点 `upstream/master` = `d347e70390`（`core-patches-v7` 由 `reset --hard` 从此重建）。第一轮 29 个提交至 `506f302149`（已推 origin；`git rev-list --count d347e70390..506f302149` = 29）。返修轮追加 `d2cf85446d`、`e7891f0499`、`a121f4a7f1`、`39b9dec9a5`；第二轮返修追加 `663cb9df9e` 与其台账提交；第三轮返修追加 `91743a89eb` 与其台账提交；第四轮返修追加 `4e00a2b851` 与本次台账提交。`core-patches-v7` 已推过 origin，一律追加提交，不改写历史。
+
+## 每日滚动同步：0.1.3-alpha.1 → 0.1.5-rc.1（`core-patches-v7` 1930a2321b → `core-patches-v8`，1165 个上游提交）
+
+镜像快进 `master` 到 `upstream/master`（`d347e70390..2377c272a8`，先验 `git merge-base --is-ancestor origin/master upstream/master` 为祖先，纯快进无 force），`git push origin upstream/master:refs/heads/master` 成功；本地 `master` 一并前移（无工作树检出它），tracking 保持指向 `origin/master`。新工作树 `../dsh-roll8` 上 `git worktree add -b core-patches-v8 core-patches-v7` + `git rebase --onto upstream/master d347e70390 core-patches-v8`：v7 的 40 个提交**全部落地、零 drop、零退役**（`git log --format=%s` 两侧逐行 diff 为空），随后新增 4 个提交，合计 44 个。上游本轮 1165 个提交（818 个非合并）含 `release(dsh)` 0.1.3-alpha.2 / 0.1.5-alpha.1 / 0.1.5-alpha.2 / 0.1.5-rc.1 与 `release(node-addon-system)` 0.1.2。
+
+**上游本轮对本线最重要的四项改动**：
+- **`SESSION_FORMAT_VERSION` 2 → 3**，新包 `packages/session/session-format-v2-to-v3`（系统提示词提为独立 `system/message`、PTC 事件改名、规范信封）。三条迁移边现在串成 v0→v1→v2→v3。
+- **迁移引擎从整件批处理改成流式 stage**（`46196d6f95` 一族）：`migrate()` → `createStage()` + `transformEvent`/`transformRun`/`finish`，`assertReleasedV0/V1/V2Artifact` 移进各包 `src/testing/validation.ts` 并退出包入口导出，新增 `restoreV0ToV1`/`restoreV1` 测试门面。补丁线上两个 session-format 补丁因此是**按语义重落**，不是文本重放。
+- **`apps/desktop` 与 `apps/desktop-host` 进入上游**（#3413），`standardReleaseMemberDirectory` 随之按名字排除这两个目录——与本线的 `isPrivateApp` 补丁撞在同一处，判定见该补丁条目。**本线未触碰 `apps/desktop`**：v8 相对上游改动的 147 个文件里 `apps/` 下只有 `apps/web/tests/navigation-panes.e2e.ts` 一个。
+- **`MarkdownText` 新增 `pathImages` 词表**，与本线 `referents` 落在逐个相同的参数位；并集处理见 `20349d9c33` 条目。
+
+**冲突与决定**（40 个重放提交中 12 个产生真实冲突，其余 28 个自动合并干净；每个手工解析文件都过三方审计 a/b/c）：逐条记在上面各补丁自己的「本轮」小节里，此处只记跨补丁的通则。
+- **生成物一律不手改**：`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`（3 次）、`packages/extensions/tool-cordis/src/api-catalog.ts`、`docs/config-catalog.{md,i18n.yaml}`、`docs/event-producer-consumer.{md,zh.md,i18n.yaml}` 全部先 `git checkout` 取上游侧，再跑 `gen-client-catalog`／`gen-cordis-catalog`／`gen-config-catalog`／`gen-doc-graphs` 重生成定案；`doc-sync` 的四道生成物门事后全绿。
+- **双语配对一律走工具**：8 份 `README.i18n.yaml` / `docs/*.i18n.yaml` 冲突全部由 `verify-translation-pairing --write` 重录，未手改；`verify-translation-pairing` 全仓 799 对全部一致。
+- **上游重写过的摘要段一律取上游、只插回我方那一句**，随后 `verify-package-readme-summaries` 报两处超 100 词（`permission-presets` 126、`session-log-export` 109），由 `9cdb93dfb6` 各自缩到限内，缩掉的事实都另有唯一出处。
+
+**三方审计**（`scratchpad/roll8/audit3.py`，`base` = `d347e70390`、`ours` = `upstream/master`、`theirs` = 被重放的原提交、`cur` = 索引）：每个产生冲突的提交解析后各跑一次，**12 次全部**为「冲突标记 0、两父任一侧的抑制/标注注释丢失 0、两父都保留而结果丢失的行 0」，退出码 0。行频增长只作提示不判违规（重新移植会写新行，并集行必然高于任一父），逐条核对后全部是刻意合成的并集行或新增行。
+
+**本轮新增 4 个提交**：
+1. `f44f8ac8eb` patch(session-format-v0-to-v1)：三种遗留 v0 形状（本文件另有小节）。
+2. `416eb52737` patch(session-format-v2-to-v3)：一种历史消息来源种类（本文件另有小节）。
+3. `9cdb93dfb6` fix(docs)：两处合并后超限的 README 摘要 + `api-catalog.ts` 重生成。
+4. `e8d8970965` test(web)：导出场景改走 Session Header 的 `More actions` → `Download session log` 两步入口——上游把入口从按钮换成菜单项，原断言在一个不再存在的控件上等满 30 秒超时；场景对归档内容的断言一字未改。
+
+**门禁实跑结果**（全部在 `../dsh-roll8`，代码 HEAD `e8d8970965`）：`pnpm install` 退出码 0（Already up to date）→ `pnpm run build` 退出码 0（234 个客户端产物）→ 双面冷启动 `pnpm exec tsc -b tsconfig.host.json --force` 与 `tsc -b tsconfig.client.json --force` 各退出码 0 → `pnpm run lint` 退出码 0 → 聚焦 `pnpm exec vitest run`（`packages/session`、`packages/session-query`、`packages/core/session` 加本轮补丁触碰的 12 个包）**277 文件 / 5573 用例全绿** → `pnpm run doc-sync` **34 门全绿** → `pnpm run hygiene` **16 门全绿** → `DSH_SNAPSHOT=replay` 三场景 e2e（`navigation-panes.e2e.ts`、`file-upload-round.e2e.ts`、`clickable-links-gallery.e2e.ts`）**15 通过 / 1 跳过**。
+
+**一处宿主前置条件（非本轮引入）**：上游 `d927cbff99` 起把 flock 换成预编译 Node-API 插件，`packages/session/*` 的测试要求 `native/system/packages/darwin-arm64/bin/system.node` 存在，而它不入库。首跑因此 219 条红（错误一律是 `Cannot find module …/system.node`）；在 `native/system` 下跑一次 `pnpm run build:native` 后同一批测试 2478 条全绿。此后的每一次基座切换都会复发，属机械项。
+
+**本轮未跑**：全仓 `pnpm run test` 与 `pnpm run test:coverage`（按仓规不默认跑全套；本机 CPython 为 3.9.6，`code-runtime-python` 在本机稳定红，覆盖门在本机不可评估，交 CI 的 `node-24-coverage`）。
+
+### 旧会话可读性预审（先于任何移植，在纯 `upstream/master` 树上做；移植后同法复测）
+
+- **素材**：`~/.dsh/sessions`（139 份，其中 129 份 v0 日志 + 31 份 v2 日志，10 份会话只有 v2 日志——rc.31 真机验收原生写出的）与 `~/.dsh.backup-2026-09-02-before-rc27/sessions`（121 份，全为 v0）的**只读 `cp -R` 副本**，全程不碰两个 home 的任何其他内容。
+- **探针**：`JsonlSessionPersistence.open(id, 'read').read()` 逐份冷读（`SqliteSessionQuery._reconcile` 走的同一条路），仿 rc.31 那份 `corpus.spec.ts`。
+- **纯 `upstream/master`（`2377c272a8`，临时工作树 `../dsh-up-master`）**：主库 **127/139**（9 拒），备份库 **96/121**（25 拒）。五类拒读原因：`permission/preset … unexpected member "origin"`（2+11）、`subagent/descriptor … unsupported descriptor version 2`（0+4）、未知历史事件 `content/shown`（0+6）、未知历史事件 `permissionRules/decision`（3+3）、`cannot safely transform unclassified message source`（7+1）。
+- **v8 树，只带 `767a17039f`（事件类型三条边）**：主库 130/139，备份库 99/121——`permissionRules/decision` 一类清零，**这同时证明了第三条边的必要性与有效性**（那些会话必须跨到 V3 才算读出）。
+- **v8 树，再带 `f44f8ac8eb`（三种 v0 形状）**：主库 131/139，备份库 113/121，只剩 `at-file-mention` 一类。
+- **v8 树最终（再带 `416eb52737`）**：主库 **139/139**，备份库 **121/121**，**零拒读**。两个库的 281 个 `.zstd` 文件在全部回放之后 sha256 逐一未变（读路径只在内存里迁移，不落 `session.v3.jsonl.zstd`）。
+- **顺带证实**：rc.31 线上那份唯一的坏日志 `session-c5f7ab97-7485-4955-9ee0-f07c98a05d85`（turn 11 未关闭）在本基座上**能读了**——上游 v1→v2 边现在自己会关闭被打断的 turn。
+- **服务端**：`rsync -a` 把备份 home 拷进 scratch（排除 `settings.yaml`、`.credentials*`、`.env*`、`*token*`、`*key*`、`profiles/`），用拷进 scratch 的 node 二进制跑 `node --import tsx/esm apps/cli/src/bin.ts web --port 0 --no-open`，`DSH_HOME` 指向该副本。5 秒后到达 `dsh web: http://…` 行，随后按 pid 停止。**服务端日志里关于会话迁移零输出**（只有那一行 URL）；停止后该 home 的 121 份日志仍全为 `session.jsonl.zstd`，零新增、零改写——`list()` 只读头、不迁移，与 v7 那轮的观察一致。
+
+### 分支 HEAD 登记
+
+起点 `core-patches-v7` = `1930a2321b`（本地顶端，未推 origin；`origin/core-patches-v7` 停在 `b08aac3df3`，本轮未动）。基座 `upstream/master` = `origin/master` = `2377c272a8`。代码最终 HEAD = `e8d8970965`；分支最终 HEAD = 本节所在的这个 `docs(core-patches)` 提交，其后无提交。`core-patches-v8` 为新分支，普通 push，无 force、无历史改写。
