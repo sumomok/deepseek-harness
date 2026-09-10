@@ -10,6 +10,12 @@ import { describe, expect, it } from 'vitest'
 import * as yaml from 'js-yaml'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
 import { evaluate } from '@deepseek-ai/cordis-plugin-loader'
+import {
+  Config as TelemetryConfig,
+  DEFAULT_TELEMETRY_MODE,
+  SessionTelemetryMode,
+} from '@deepseek-ai/dsh-session-telemetry-otel'
+import { Config as SessionLogConfig } from '@deepseek-ai/dsh-session-log-deepseek'
 
 describe('dsh-base bundle', () => {
   it('declares a parseable patch list through the dsh.bundle.patch manifest field', () => {
@@ -89,5 +95,20 @@ describe('dsh-base bundle', () => {
     }
     // The platform layer folded into these rows: no separate patch file ships.
     expect(existsSync(resolve(root, 'windows.cordis.patch.yml'))).toBe(false)
+  })
+
+  it('keeps the DeepSeek-bound reporters off through the row flag, not through a mode', () => {
+    // `mode` selects a capture policy, never on or off: the two the plugin
+    // accepts both deliver, and an omitted one resolves to FEEDBACK_ONLY, so
+    // the shipped `!!js` expression cannot express this product's answer.
+    // `disabled: true` above is what keeps `apply()` from running at all, and
+    // it holds whatever DSH_TELEMETRY_MODE says.
+    expect([...Object.values(SessionTelemetryMode)].sort())
+      .toEqual(['DISABLED', 'FEEDBACK_ONLY'])
+    expect(DEFAULT_TELEMETRY_MODE).toBe(SessionTelemetryMode.FEEDBACK_ONLY)
+    expect(TelemetryConfig({}).mode).toBe(SessionTelemetryMode.FEEDBACK_ONLY)
+    // The third DeepSeek-bound path is mounted rather than disabled, because
+    // its own schema is what holds it shut and no layer here opens it.
+    expect(SessionLogConfig({}).enabled).toBe(false)
   })
 })
