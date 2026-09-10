@@ -192,6 +192,22 @@ describe('the composed llm-permission-gateway row', () => {
   })
 })
 
+describe('the composed telemetry rows', () => {
+  // The composed row is what a launch applies, so a later bundle layer
+  // re-enabling one of these shows up here and nowhere else. The shipped rows
+  // and the reason the flag rather than a mode carries the decision belong to
+  // `packages/bundle/base/tests/base.spec.ts`; the second layer — the
+  // `DSH_TELEMETRY_DISABLED` this shell puts on the spawned server — belongs to
+  // `tests/server.spec.ts`.
+  it('composes every DeepSeek-bound reporter off, through every layer', () => {
+    expect(entry(desktop, 'session-telemetry-otel').disabled).toBe(true)
+    expect(entry(desktop, 'plugin-package-inventory-deepseek').disabled).toBe(true)
+    // Mounted rather than disabled: its request contribution is opt-in in its
+    // own schema, and an absent config is what leaves the opt-in unanswered.
+    expect(entry(desktop, 'session-log-deepseek').config).toBeUndefined()
+  })
+})
+
 describe('the desktop composition layer as a whole', () => {
   it('changes exactly the four rows it owns and nothing else', () => {
     const changed = desktop.filter((row) => {
