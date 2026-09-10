@@ -238,6 +238,9 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
         />
         <DesktopUpdateIndicator wide={wide} hidden={connectionIndicator !== undefined && desktopUpdate.presentation?.phase !== 'installing'}
           t={t} view={desktopUpdate} onOpen={openDesktopUpdate} />
+        <div className={css.triggerActions}>
+          {renderSlot('settings.trigger.action', { wide })}
+        </div>
       </div>
       {open && (
         <SettingsPanel

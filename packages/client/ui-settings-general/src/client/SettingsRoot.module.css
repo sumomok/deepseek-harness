@@ -56,6 +56,19 @@
   white-space: nowrap;
 }
 
+/* Same-row action seat. This wrapper and the slot anchor inside it are both
+   boxless, so an empty seat contributes neither a flex item nor a row gap;
+   occupants become flex children of the row after the flex:1 trigger, which
+   pins them to its right edge. */
+.triggerActions {
+  display: contents;
+}
+
+/* The 36px rail row holds the trigger circle and nothing else. */
+.triggerRow.railRow .triggerActions {
+  display: none;
+}
+
 /* Full-viewport layer (figma Mask 501:29946 #000@24%): mask tokens match the
    Modal primitive (--dsw-alias-bg-mask-1 + --dsw-mask-blur). */
 .overlay {
