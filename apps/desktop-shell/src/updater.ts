@@ -623,11 +623,9 @@ async function download(host: UpdateHost, version: string, run: () => Promise<vo
       },
     })
     if (outcome !== 'exhausted') return true
-    downloading = false
     updateState().downloadFailed('the transfer could not be completed')
     return false
   } catch (error) {
-    downloading = false
     const detail = describeDownloadError(error)
     updateState().downloadFailed(detail)
     if (classifyDownloadError(error) === 'fatal') {
@@ -637,6 +635,11 @@ async function download(host: UpdateHost, version: string, run: () => Promise<vo
     }
     host.log(`[updater] download gave up: ${detail}\n`)
     return false
+  } finally {
+    // One place clears it, for every way out of this function: a transfer that
+    // left [[downloading]] set would make every later check, and the Settings
+    // entry's own retry, stand down for the rest of the run.
+    downloading = false
   }
 }
 

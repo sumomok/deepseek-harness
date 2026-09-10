@@ -28,7 +28,10 @@
  */
 
 import { createHash } from 'node:crypto'
-import { createReadStream, createWriteStream, existsSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+  createReadStream, createWriteStream, existsSync, readFileSync, rmSync, statSync, writeFileSync,
+  type WriteStream,
+} from 'node:fs'
 import { finished } from 'node:stream/promises'
 import type { TransferSample } from './update-state.ts'
 
@@ -126,6 +129,29 @@ async function hashPrefix(file: string, bytes: number, hash: ReturnType<typeof c
 }
 
 /**
+ * Wait until a write stream can take more bytes, or until it fails.
+ *
+ * A stream that failed emits no `drain`, so a wait on that event alone never
+ * ends: the transfer stops where it is, holding the update channel for the
+ * rest of the run. Both events end this wait, and whichever fires removes the
+ * other's listener; the caller reads the failure off the stream's own `error`
+ * listener rather than off this call.
+ * @param out - the stream whose `write` reported backpressure.
+ * @returns when the stream drained or failed.
+ */
+async function drainedOrFailed(out: WriteStream): Promise<void> {
+  await new Promise<void>((resolve) => {
+    const settle = (): void => {
+      out.off('drain', settle)
+      out.off('error', settle)
+      resolve()
+    }
+    out.once('drain', settle)
+    out.once('error', settle)
+  })
+}
+
+/**
  * The artifact's total size, from whichever header the answer carries it in.
  * @param status - the response status.
  * @param headers - the response headers.
@@ -151,7 +177,8 @@ function totalBytesOf(status: number, headers: Headers, have: number): number | 
  * @param options - progress reporting, the fetch to use, and the stall bound.
  * @returns the artifact's size in bytes.
  * @throws when the answer is neither `200` nor `206`, when the transfer stalls
- * or is cut short, or when the completed file's sha512 is not the manifest's.
+ * or is cut short, when the `.part` file cannot be written, or when the
+ * completed file's sha512 is not the manifest's.
  */
 export async function resumeDownload(target: ResumableTarget, options: ResumeOptions = {}): Promise<number> {
   const call = options.fetch ?? globalThis.fetch
@@ -196,6 +223,14 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
       const hash = createHash('sha512')
       if (append) await hashPrefix(target.partFile, have, hash)
       const out = createWriteStream(target.partFile, { flags: append ? 'a' : 'w' })
+      // A write that fails — a full disk, a directory a security product
+      // holds, a cache directory removed under the transfer — raises `error`
+      // on this stream. A stream with no `error` listener turns that into an
+      // uncaughtException, which this process answers with a modal error box
+      // for a download nobody was watching; listening keeps it a failure of
+      // this attempt. The abort is what ends a read waiting for bytes that now
+      // have nowhere to go.
+      out.on('error', () => { controller.abort() })
       let written = 0
       try {
         if (response.body === null) throw new Error(`更新源没有返回内容(${target.url})`)
@@ -206,7 +241,8 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
           clearTimeout(idle)
           idle = setTimeout(() => { controller.abort() }, idleTimeoutMs)
           hash.update(value)
-          if (!out.write(value)) await new Promise<void>((resolve) => { out.once('drain', resolve) })
+          if (!out.write(value)) await drainedOrFailed(out)
+          if (out.errored !== null) break
           written += value.byteLength
           options.onProgress?.({
             percent: total === undefined ? 0 : ((have + written) / total) * 100,
@@ -216,10 +252,18 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
         }
       } finally {
         out.end()
-        // The bytes that did arrive are the resume point, so they are flushed
-        // whether the transfer finished or was cut; a write that failed is
-        // reported by `finished` and ends this attempt.
-        await finished(out)
+        try {
+          // The bytes that did arrive are the resume point, so they are
+          // flushed whether the transfer finished or was cut.
+          await finished(out)
+        } catch {
+          // The stream's own failure, reported below off `errored`; nothing
+          // else settles this call, because every other way the attempt can
+          // end throws out of the loop above instead.
+        }
+        // A write that failed names why this attempt ended; the read its abort
+        // cut short only says that it did.
+        if (out.errored !== null) throw out.errored
       }
       const size = have + written
       if (total !== undefined && size !== total) {

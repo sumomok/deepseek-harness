@@ -37,6 +37,8 @@ interface ServerBehavior {
   stall?: boolean
   /** Serve these bytes instead of [[ARTIFACT]], as a server that replaced the file would. */
   payload?: Buffer
+  /** Publish no `ETag`, as a feed behind a proxy that strips validators does. */
+  omitValidator?: boolean
 }
 
 /** Every request one started server received, in order. */
@@ -82,7 +84,7 @@ async function serve(behavior: ServerBehavior = {}): Promise<{ url: string; rece
     const from = honoured ? Number(range[1]) : 0
     const body = payload.subarray(from)
     response.writeHead(honoured ? 206 : 200, {
-      etag: ETAG,
+      ...behavior.omitValidator === true ? {} : { etag: ETAG },
       'accept-ranges': 'bytes',
       'content-length': String(body.byteLength),
       ...honoured
@@ -213,6 +215,31 @@ describe('what the digest protects', () => {
     const file = partFile()
     await expect(resumeDownload({ url, partFile: file, sha512: SHA512 })).rejects.toThrow()
     expect(existsSync(file)).toBe(true)
+  })
+})
+
+describe('a part file that cannot be written', () => {
+  it('ends the attempt with the write failure instead of raising it at the process', async () => {
+    // No validator, so nothing is written beside the part file and the stream
+    // itself is what meets the missing directory.
+    const { url } = await serve({ omitValidator: true })
+    // The directory the cache lived in is gone, which is what a cleaner or an
+    // uninstall of a previous version leaves behind; ENOSPC and EACCES reach
+    // the stream through the same `error` event.
+    const file = join(partFile(), '..', 'gone', 'artifact.part')
+    const escaped: unknown[] = []
+    const sentinel = (error: unknown): void => { escaped.push(error) }
+    process.on('uncaughtException', sentinel)
+    try {
+      await expect(resumeDownload({ url, partFile: file, sha512: SHA512 }, { idleTimeoutMs: 500 }))
+        .rejects.toThrow(/ENOENT/)
+      // The stream's failure arrives on its own turn of the loop; nothing may
+      // be waiting on this process's handler by the time the promise settles.
+      await new Promise<void>((resolve) => { setImmediate(resolve) })
+    } finally {
+      process.off('uncaughtException', sentinel)
+    }
+    expect(escaped).toEqual([])
   })
 })
 
