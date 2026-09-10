@@ -61,6 +61,7 @@ import {
 
 export {
   SESSION_QUERY_SQLITE_APPLICATION_ID,
+  SESSION_QUERY_SQLITE_INDEX_IDENTITY,
   SESSION_QUERY_SQLITE_SCHEMA_VERSION,
   type JournalMode,
 } from './schema.ts'

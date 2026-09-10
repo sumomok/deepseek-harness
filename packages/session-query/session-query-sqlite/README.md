@@ -106,7 +106,7 @@ Persisted FTS rows live in a dedicated derived database and survive restarts; li
 
 ### Schema ownership
 
-The database carries an application id and schema version 8. Opening refuses a file owned by another application or a canonical database, rejects unknown user tables, and only a recognized incompatible derived schema resets in place — so an unrelated or session-persistence database is never touched. On POSIX filesystems, missing directories and database files are created owner-only (`0700` and `0600` before the process umask). Exactly one service in one process owns a derived-index path; generations and TEMP shadow state are connection-owned.
+The database carries an application id and an identity built from schema version 8 and the Session generation its rows were extracted from. Opening refuses a file owned by another application or a canonical database, rejects unknown user tables, and only a recognized incompatible derived schema resets in place — so an unrelated or session-persistence database is never touched. A Session generation change is one of those incompatibilities: a migration edge renumbers `seq` and renames event types without writing to any log file, so reconciliation's revision comparison finds nothing to re-read and the reset is what re-extracts the corpus once under the new generation. On POSIX filesystems, missing directories and database files are created owner-only (`0700` and `0600` before the process umask). Exactly one service in one process owns a derived-index path; generations and TEMP shadow state are connection-owned.
 
 </details>
 
