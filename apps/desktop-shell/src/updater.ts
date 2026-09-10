@@ -1122,10 +1122,15 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
  * The download-page tier: read the feed directly and, when it is ahead, open
  * the download in the system browser. This is where an unsigned macOS build
  * lives — it can see a new version but not replace itself with one — and where
- * a signed build lands after its in-place path failed. The dialog is confined
- * to the menu item and to the feed's red line: nothing else interrupts a
- * session with a download this build cannot install anyway, and what it found
- * is reported through [[updateState]] instead.
+ * a signed build lands once its in-place path is gone for the run. The dialog
+ * is confined to the menu item and to the feed's red line: nothing else
+ * interrupts a session with a download this build cannot install anyway, and
+ * what it found is reported through [[updateState]] instead.
+ *
+ * A check whose in-place path was merely interrupted is answered here as well,
+ * and that answer stops short of the download page: the build can still
+ * install where it stands, so a click is told the check did not get through
+ * and a silent check says nothing, the red line included.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
  * @param fallbackReason - what the in-place check failed with when this call is
@@ -1157,6 +1162,23 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReaso
     // than a verdict about this build.
     host.log(`[updater] ${version} was read straight from the feed; the in-place check did not get through (${fallbackReason})\n`)
     updateState().checkFailed(new Date().toISOString(), fallbackReason)
+    // The answer stops here rather than continuing into the download page: a
+    // machine that can install where it stands must not be sent to replace its
+    // own application by hand over a check that will be tried again. A click
+    // is answered with the failure it met, and the feed's red line is left to
+    // the launch gate and to the next in-place check, which are what enforce
+    // it.
+    if (reason === 'manual') {
+      await ask({
+        type: 'warning',
+        message: '无法检查更新',
+        detail: `${fallbackReason}\n\n稍后会自动重试,新版本 ${version} 已记录在设置里。`,
+        buttons: ['好'],
+      })
+    } else if (isMandatory(feed.minimumVersion)) {
+      host.log(`[updater] mandatory ${version}: the in-place check did not get through; the launch gate and the next check are what enforce it\n`)
+    }
+    return
   }
   const mandatory = isMandatory(feed.minimumVersion)
   if (reason !== 'manual' && !mandatory) {

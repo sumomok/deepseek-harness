@@ -24,6 +24,12 @@ const ARTIFACT = 'DSH Desktop-0.1.0-rc.33-arm64-mac.zip'
 /** The line [[checkGeneric]] ends a silent check on once it has found a version. */
 const FOUND_LINE = `${NEXT} is available; not interrupting the session`
 
+/** The line [[checkGeneric]] writes when it is answering for an in-place tier the failure did not cost. */
+const FALLBACK_LINE = `${NEXT} was read straight from the feed; the in-place check did not get through`
+
+/** The line a silent fallback answer ends on when the feed's red line is above the running build. */
+const MANDATORY_FALLBACK_LINE = `mandatory ${NEXT}: the in-place check did not get through`
+
 /**
  * What the electron and electron-updater stand-ins read and record. Hoisted
  * because both mock factories run before this file's own initializers.
@@ -34,7 +40,9 @@ const shell = vi.hoisted(() => ({
   /** What `app.isPackaged` answers. */
   packaged: true,
   /** Every dialog the run put up, in order. */
-  dialogs: [] as { message?: unknown; title?: unknown }[],
+  dialogs: [] as { message?: unknown; title?: unknown; detail?: unknown }[],
+  /** Every URL the run handed to the system browser, in order. */
+  opened: [] as string[],
   /** Called after each dialog is recorded, so a case can wait for one. */
   onDialog: undefined as (() => void) | undefined,
   /** What the app registered for `before-quit`, which is what stops its timers. */
@@ -65,7 +73,7 @@ vi.mock('electron', () => ({
     getFocusedWindow: (): unknown => null,
   },
   dialog: {
-    showMessageBox: async (options: { message?: unknown; title?: unknown }): Promise<{ response: number }> => {
+    showMessageBox: async (options: { message?: unknown; title?: unknown; detail?: unknown }): Promise<{ response: number }> => {
       shell.dialogs.push(options)
       shell.onDialog?.()
       return { response: 0 }
@@ -76,7 +84,11 @@ vi.mock('electron', () => ({
     buildFromTemplate: (template: unknown): unknown => template,
   },
   nativeTheme: { shouldUseDarkColors: false },
-  shell: { openExternal: async (): Promise<void> => undefined },
+  shell: {
+    openExternal: async (url: string): Promise<void> => {
+      shell.opened.push(url)
+    },
+  },
 }))
 
 vi.mock('electron-updater', () => {
@@ -127,6 +139,9 @@ const MAC_FEED = [
   '',
 ].join('\n')
 
+/** The same manifest with the publisher's red line above the running build. */
+const MANDATORY_FEED = MAC_FEED.replace(`version: ${NEXT}\n`, `version: ${NEXT}\nminimumVersion: ${NEXT}\n`)
+
 /** Directories one case created, removed by the shared teardown. */
 const directories: string[] = []
 
@@ -150,6 +165,7 @@ beforeEach(() => {
   vi.resetModules()
   shell.packaged = true
   shell.dialogs.length = 0
+  shell.opened.length = 0
   shell.onDialog = undefined
   shell.beforeQuit.length = 0
   shell.instances.length = 0
@@ -224,9 +240,12 @@ function sink(): Sink {
   return { host, lines, waitFor }
 }
 
-/** Serve [[MAC_FEED]] to every manifest read this case makes. */
-function serveFeed(): void {
-  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(MAC_FEED, { status: 200 }))
+/**
+ * Serve one manifest to every read this case makes.
+ * @param body - the manifest to answer with; [[MAC_FEED]] by default.
+ */
+function serveFeed(body: string = MAC_FEED): void {
+  vi.spyOn(globalThis, 'fetch').mockImplementation(async () => new Response(body, { status: 200 }))
 }
 
 /**
@@ -252,7 +271,7 @@ describe('a signed build whose in-place check could not get through', () => {
     const actions = updateActions(host)
 
     actions.check()
-    await waitFor(FOUND_LINE)
+    await waitFor(FALLBACK_LINE)
 
     const snapshot = actions.state()
     expect(snapshot.phase).toBe('failed')
@@ -266,6 +285,64 @@ describe('a signed build whose in-place check could not get through', () => {
     expect(actions.state().phase).toBe('ready')
   }, 20_000)
 
+  it('answers a click with the failure rather than the manual replacement it does not need', async () => {
+    bundle(true)
+    serveFeed()
+    shell.checkForUpdates = async (): Promise<unknown> => { throw interrupted() }
+    const { host, lines } = sink()
+    const { setupUpdates, updateActions } = await import('../src/updater.ts')
+    const actions = updateActions(host)
+
+    vi.useFakeTimers()
+    try {
+      const manual = setupUpdates(host)
+      const shown = nextDialog()
+      manual()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await shown
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // The click is answered with what the check met, and the detail is the
+    // fallback tier's own rather than the one the outer catch writes.
+    expect(shell.dialogs).toHaveLength(1)
+    expect(shell.dialogs.at(-1)).toMatchObject({
+      message: '无法检查更新',
+      detail: `ECONNRESET\n\n稍后会自动重试,新版本 ${NEXT} 已记录在设置里。`,
+    })
+    // This build can still replace itself, so nothing offers the download page
+    // or the by-hand instructions that go with it.
+    expect(shell.opened).toEqual([])
+    expect(lines.filter(line => line.includes('opening'))).toEqual([])
+    expect(actions.state().phase).toBe('failed')
+  })
+
+  it('says nothing on a silent check the feed made mandatory', async () => {
+    bundle(true)
+    serveFeed(MANDATORY_FEED)
+    shell.checkForUpdates = async (): Promise<unknown> => { throw interrupted() }
+    const { host, lines, waitFor } = sink()
+    const { updateActions } = await import('../src/updater.ts')
+    const actions = updateActions(host)
+
+    vi.useFakeTimers()
+    try {
+      actions.check()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await waitFor(MANDATORY_FALLBACK_LINE)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    // The red line is enforced by the launch gate and by the next in-place
+    // check, neither of which needs this run to interrupt anyone.
+    expect(shell.dialogs).toEqual([])
+    expect(shell.opened).toEqual([])
+    expect(lines.filter(line => line.includes('opening'))).toEqual([])
+    expect(actions.state().phase).toBe('failed')
+  })
+
   it('asks the feed three times before it falls back', async () => {
     bundle(true)
     serveFeed()
@@ -275,7 +352,7 @@ describe('a signed build whose in-place check could not get through', () => {
     const { updateActions } = await import('../src/updater.ts')
 
     updateActions(host).check()
-    await waitFor(FOUND_LINE)
+    await waitFor(FALLBACK_LINE)
     expect(attempts).toBe(3)
   }, 20_000)
 })
