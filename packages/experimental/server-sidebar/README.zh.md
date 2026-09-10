@@ -23,7 +23,6 @@ kind: "package-reference"
 - [身份显示与退出](#identity-and-sign-out)
 - [配置](#config)
 - [去术语化](#de-terminology)
-- [只呈现业务内容](#business-content-only)
 - [品牌与英雄区门面](#brand-and-hero-facade)
 - [组合方式](#composition)
 - [Model Experience](#model-experience)
@@ -189,37 +188,6 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 
 这个值是下限，不是常量。`defaultPreset` 是以组合层 `base` 的身份到达这个服务的，而 settings 的解析顺序是 schema 默认值、然后 `base`、然后用户层（`packages/settings/settings/src/index.ts:739`），因此部署的 settings 文档里已经存下的 `permission.defaultPreset` 仍然盖过它，并且正是 `pinInitialPermission` 钉进去的那一个。禁用 `ui-permission` 关掉的是写这个键的界面，它不会抹掉访客在升级之前存进去的值，而且此后也没有任何界面能看见或改动它。部署清掉它的办法，是把这个分区——一个 `permission:` 键，下面缩进一行 `defaultPreset: <名字>`——从 `<harness home>/settings.yaml` 里删掉：即 `$DSH_HOME/settings.yaml`，否则 `~/.dsh/settings.yaml`，再否则 `settings-file` 那一行配置的 `path`（`packages/settings/settings-file/src/index.ts:23-24,51-57`）。没有任何组合层的键能代劳：`base` 是 cordis.yml 的一行唯一能提供的那一层，而作为重置手段的 `SettingsScope.replace({})` 是拥有方的运行期调用。`remote.settings` 这条写入路径也依然能从浏览器够到——那是一台不带应用内鉴权运行的控制台的固有属性，不是这份 overlay 改出来的。
 
-<a id="business-content-only"></a>
-## 只呈现业务内容
-
-对话列只呈现访客提出的诉求与拿回的结果，不呈现这次运行是怎么走到那里的（产品决策，2026-09-07）。`dsh-client-ui-chat` 没有为此提供任何通路：它的 `transcriptView` 设置是一个封闭的 `'normal' | 'compact'` 联合，且默认值已经是隐藏最多的那一个；`compact` 是把过程行折进一个折叠盘，而不是移除它们；这个折叠既够不到运行中的轮次，也够不到更早历史尚未加载的会话（`ChatNodeSeat.tsx` 的 `processWindowReady`）；组合层也钉不住这个值——`ui-chat` 既没有 `Config`，也没有 settings 的 `base`。因此这些界面与轮次/步骤行走同一条路：`terminology-guard.ts` 的样式表。
-
-| 界面 | 规则 | 耦合在什么上 | 什么会让它失效 |
-| --- | --- | --- | --- |
-| 系统提示词行 | `[data-chat-flow-kind="system-prompt"]` | `ChatNodeSeat.tsx` 打在每一个流式行上的 Chat Node kind | `ui-chat` 改掉这个 kind 名字 |
-| 已完成轮次的折叠行（「N 次工具调用 · M 条消息」） | `[data-chat-flow-kind="turn-process"]` | 同一个属性 | 同样的改名 |
-| 每一个工具行，含 `content_read` 的结果卡片 | `[data-chat-flow-kind="tool-call"]` | 同一个属性 | 同样的改名 |
-| 每一个命令行 | `[data-chat-flow-kind="command"]`、`…="manual-compaction"`、`…="compaction"` | 同一个属性 | 同样的改名 |
-| 注入的运行时上下文行与供应商重试行 | `[data-chat-flow-kind="context"]`、`…="model-retry"` | 同一个属性 | 同样的改名 |
-| `/goal` 自己的输入行与工作流运行卡片 | `[data-chat-flow-kind="command-input"]`、`…="workflow-run"` | 同一个属性 | 同样的改名 |
-| 未被认领的 surface 事件的原始 JSON | `[data-chat-flow-kind="unknown"]` | 同一个属性 | 同样的改名 |
-| 思考行 | `[data-variant="think"]` | `ReasoningRow.tsx` 无条件设置的那个属性 | 该组件不再设置这个属性 |
-| 回复页脚的用量/用时指标 | `[data-turn-tail] :has(> [class*="trigger"])` | `TurnTailNodeView` 自己的属性，加 `TurnUsagePanel.module.css` 给两枚药丸按钮的 `trigger` 类名子串 | 这个类名被改掉，或尾巴里坐进另一个带 `trigger` 的控件 |
-| 输入框可接受输入时的占位文案 | `[data-composer-input]:not([data-phase='inert']):not([aria-disabled]) + [data-composer-placeholder]` 及其 `::after` | `InputBar.tsx` 打在输入框与占位元素上的三个属性，以及两者的兄弟顺序 | 其中任何一个属性消失，或占位元素不再紧跟输入框 |
-| 运行指示器的文案与品牌渐变 | `[data-chat-flow] > [class*="turnStatus"]` 及其 `::after` | 流式列自己的属性，加一个类名子串 | `turnStatus` 被改名，或指示器被挪出那个位置 |
-
-按 kind 的这几条是本文件里最便宜也最稳的耦合：`data-chat-flow-kind` 是一个真属性，不是类名子串，也不是 DOM 位置，因此唯一能打破它的是上游改掉 kind 名字。e2e 断言的是每一行**既存在，计算出的 `display` 又是 `none`**，而不只是不可见——`compact` 本来就会把过程行折进 `hidden="until-found"`，那同样读作不可见，所以只断言「存在且不可见」的话，把这里的规则全删掉也照样通过。命令行占了三个 kind，是因为 `ui-chat` 按命令的来路把同一个界面拆开了：`manual-compaction` 是 `/compact` 连同它的压缩事务，`compaction` 是自动那一次，`command` 是其余全部——只隐藏 `command` 会把 `/compact` 留在屏幕上。在这份组合里，这几条规则盖过了 [`content-frame`](../content-frame/README.zh.md) 与 [`content-column`](../content-column/README.zh.md) 自己那条更窄的 `:has([data-slot="conversation.chat.commandview"]:empty)` 规则，而后者仍然承载着所有不安装本守卫的组合。`context` 与 `model-retry` 是同一判断的再两次应用：`context` 行是一条来源不是用户的 `user/message`，因此它是这次运行所需要的机件，而不是访客写下的东西；`model-retry` 行则是内部状态——重试要么成功，那么访客读到的是答案本身，要么耗尽，那么被保留的 `turn-error` 行会把这件事说出来。`ChatNodeDataMap` 是可合并扩展的，因此这个联合是开放的，本表没有点名的 kind 会照常渲染：`command-input` 与 `workflow-run` 分别是 `dsh-client-ui-goal` 与 `dsh-client-ui-workflow-run` 自己的贡献，两者都由 web bundle 组合进来，没有任何控制台 overlay 禁用它们；`unknown` 则是 `ui-chat` 注册的兜底，它会把没有任何 Definition 认领的 append-surface 事件的原始 JSON 画出来。因此本包的单元用例把每一个 kind 都列为「隐藏」或「保留」，一旦组合出的联合多出一个两边都不在的成员，它**编译不过**。
-
-留下来的是业务记录本身：访客自己的消息、助手的正文、`turn-error` 与 `turn-max-tokens`（读者必须据以行动的提示）、回复页脚自己的那些控件——复制、点赞/点踩、分支，以及轮次结束的时钟——还有它的产出文件尾巴，即 `dsh-client-ui-deliverables` 列出的这次运行写了什么。`content_read` 的卡片是被保留界面内部唯一一处有意的舍弃：内容列已经在展示这一行本来要描述的那个页面。审批卡片则从构造上就不在这里任何一条规则的射程内——`dsh-client-ui-approval` 注册进的是 `conversation.composer`，因此一次审批接管的是输入框，根本不会成为一个流式行。
-
-页脚那条规则只取那两枚指标药丸，那一行里别的什么都不取，因为复制、点赞/点踩、分支与时钟是访客自己的操作入口，不是过程汇报。两枚药丸都没有 `data-*` 属性——`TurnUsagePanel.tsx` 只在展开后的弹窗上放了一个，两个触发器上都没有——因此这条规则耦合在 `TurnUsagePanel.module.css` 的 `.trigger` 上，也就是两个面板都给那个按钮起的局部类名，并用 `:has(> …)` 通过它够到药丸的外层包裹，于是药丸既不留下 flex 槽位，也不留下只隐藏按钮时会留下的 `.root + .root` 负边距。`aria-haspopup="dialog"` 看起来像是那个语义把手，其实不是：`dsh-client-ui-message-feedback` 的备注展开按钮也带着它，就在同一行里，属于被保留的点赞/点踩这一组操作。因此类名子串是这条规则的脆弱处，与权限选择器那条同形；e2e 会同时读两半——药丸消失，而复制、分支与时钟仍在屏幕上——所以这种漂移无论朝哪个方向都会让门禁变红。
-
-输入框占位文案在两个「输入框可接受输入」的状态下读作「说说要做什么」，靠的是同一对规则，因为 `InputBar.tsx` 为每一种状态渲染的都是同一个 `[data-composer-placeholder]` 元素，`ConversationRoot.tsx` 改的只是喂给它的那段文案。四种状态里有两种并不是「请输入」的邀请——没有连接任何工作区时那个不可用的输入框，它的占位文字是唯一在说明输入框不可用的东西；以及被抬起的输入阻断态，它的占位文字是阻断方自己的理由——因此这条规则改从占位元素的前一个兄弟节点够到它，并把这两种状态排除在外：`data-phase="inert"` 就是 `input?.phase ?? 'inert'`，而 `aria-disabled` 就是 `editorDisabled`，阻断态会设置它，工作区选择触发器则有意不设。替换后的文案带的是 `ui-conversation` 自己的字号 token，而不是一个写死的像素值，因此它继续跟随设置里的字号偏好。别的路都没有：`conversation.composer.bar` 的 `placeholder` prop 只有 `ConversationRoot` 会提供，而 locale 注册表会拒绝对它已经持有的 namespace/locale 对的第二次注册，所以 `conversation` 这个 namespace 无法被遮蔽。兄弟节点 `[data-composer-input]` 上的 `data-placeholder` 与 `aria-label` 原样不动——见「已知限制」。
-
-运行中的指示器留在屏幕上——访客必须看见工作正在进行——但它的文案与着色是厂商身份，不是状态：`chat.deepDiving` 是「深度求索中...」，厂商自己的中文品牌名，并通过一层 `--dsw-static-deepseek-500/200` 的渐变裁切到文字上绘制。这条规则把它改写成「正在处理…」，并把渐变中和成主题里普通的正文色。它的作用域是 `[data-chat-flow] > [class*="turnStatus"]`：`ChatView.tsx` 是在每一个 `ChatNodeSeat` 之外渲染这个指示器的，这既是没有任何 kind 规则够得到它的原因，也是这个直接子元素组合子能把规则挡在嵌套的时钟 span 之外的原因——那个 span 自设字号与颜色，十五秒后照样出现。
-
-每一条规则都被钉住两次。`packages/experimental/server-sidebar/tests/terminology-guard.client.spec.ts` 按它耦合的那个字面选择器逐条断言；`apps/web/tests/server-sidebar.e2e.ts` 的业务内容场景则播种一个封闭轮次，把每一种被隐藏的行、外加一个产出文件与一条独立命令都放进去，然后读装配好的页面：每一行被隐藏的行都既存在又 `display: none`，产出文件尾巴可见，审批卡片可见且内部没有任何 `data-chat-flow-kind`，两种输入框状态下占位文案渲染出的 `::after`，以及指示器可见、已改写文案、已脱离渐变。
-
 <a id="brand-and-hero-facade"></a>
 ## 品牌与英雄区门面
 
@@ -257,10 +225,8 @@ pnpm --filter @deepseek-ai/dsh-experimental-server-sidebar run convert-nav-snaps
 - **绿点机制复用了 `completed`，而非新记账，且只有单测覆盖。** 它与「运行结束时未被选中、且尚未被打开过」的语义完全吻合，但要做到端到端验证，需要一次真实的、agent 循环从运行到空闲、且未被选中期间发生的状态切换——`SessionManager` 的 `running` 位是绑定真实执行的 host frame 推送，纯日志追加无法伪造它。本场景自己的 e2e 套件不发起任何模型调用（沿用其既有设计），因此这一机制改由 `packages/experimental/server-sidebar` 自己的单元测试钉住。
 - **改名/移除用悬停显现的图标按钮，而非原生右键菜单。** 这是任务本身明确允许的 v1 降级（「若实现体量失控，降级为右键菜单「上移/下移」」）——这条降级条款曾经也覆盖重新排序，直到重新排序改为原生 HTML5 拖拽为止；改名/移除这一半的降级依然保留，因为为这两个偶发动作再引入第二种交互模式依然没有正当理由。
 - **`ui-workspace` 是被组合的，挡住它英雄区选择器的只有一条 CSS 规则。** 它无法被禁用：`dsh-client-ui-conversation` 注入它的 `uiWorkspace` 服务，缺了它的组合根本不会激活对话列。它的 `sidebar.workspaces` 那一半在本外壳去掉那个槽之后已经失效（`ctx.slots.inject` 只是永远不会触发——见上文「替换出厂侧边栏」），但它的 `conversation.hero.workspace` 注册会落地，挡住它的是 `terminology-guard.ts` 的 `heroWorkspaceRow` 规则——一处类名子串耦合，那个类名一旦改名它就静默失效。一次零工作区的全新安装,依然会让页面或工作流点击成为一次被吸收的空操作（见上文「导航」）——这是从此前基于收藏的设计里延续下来的、已经被接受的既有边界情况，并非本次新引入。工作台自己的加载态自动落位比这更进一步：这种情况下它根本不会去尝试（见上文「工作台」），而是一直等待工作区出现，而不是先尝试一次再报一次警告。
-- **没有连接任何工作区时，输入框会说出这个词。** `ConversationRoot` 会以 `placeholder.workspace`（「Choose a workspace to start」）渲染它那个不可用的输入框，这是本包唯一触及不到的一处禁用词汇。它不是该用 CSS 盖掉的装饰——那个状态下输入框确实不能用，而这句占位文字是唯一在说明这件事的东西——也不是组合层能改名的东西：它属于 `dsh-client-ui-conversation` 自己的 locale 命名空间，而 locale 注册表对已有的命名空间/语言对会直接报错，所以任何插件都无法遮蔽另一个插件的键。要关掉它，要么让部署总是带着一个工作区（这本来就是整个控制台会退化成空操作的那个状态——见上文「导航」），要么给 locale 注册表加一个覆盖接口。有一个 e2e 场景把这处泄漏钉在那一句占位文字上，以免再出现第二处而无人发现；同一个场景里的第二条断言钉住的是另一半：「只呈现业务内容」那次占位文案替换有意**不**触及这个状态，因此访客在这里看到的仍是这句话，而不是一句「请输入」的邀请。
+- **没有连接任何工作区时，输入框会说出这个词。** `ConversationRoot` 会以 `placeholder.workspace`（「Choose a workspace to start」）渲染它那个不可用的输入框，这是本包唯一触及不到的一处禁用词汇。它不是该用 CSS 盖掉的装饰——那个状态下输入框确实不能用，而这句占位文字是唯一在说明这件事的东西——也不是组合层能改名的东西：它属于 `dsh-client-ui-conversation` 自己的 locale 命名空间，而 locale 注册表对已有的命名空间/语言对会直接报错，所以任何插件都无法遮蔽另一个插件的键。要关掉它，要么让部署总是带着一个工作区（这本来就是整个控制台会退化成空操作的那个状态——见上文「导航」），要么给 locale 注册表加一个覆盖接口。有一个 e2e 场景把这处泄漏钉在那一句占位文字上，以免再出现第二处而无人发现。
 - **英雄区标题原本的文本节点在 DOM 与无障碍树里原样保留。** `terminology-guard.ts` 的 `::after` 替换只改变了标题画出来的内容（把真实文本压到 `font-size: 0`，另用一个伪元素承载本包自己的文案）；屏幕阅读器或任何针对 DOM 文本的查询，找到的依然是 `dsh-client-ui-conversation` 自己的中/英文标题字符串，而不是本包的品牌文案。
-- **被隐藏的行不会向页面文本贡献任何东西，这既是目的，也是代价。** `display: none` 会把一整棵子树从 `innerText`、从无障碍树、从浏览器页内查找里一起拿掉，因此屏幕阅读器拿到的与视力正常的访客拿到的是同一列内容。但本包那两处针对整页的禁用词筛查（`workspaceWordsInChat`，以及 `apps/web/tests/server-sidebar.e2e.ts` 里对落位页 `body.innerText()` 的扫描）读的是渲染出来的文本，因此「只呈现业务内容」下新增的每一条规则，都会按它所隐藏的范围等量扩大这两处的盲区：只落在某个被隐藏的过程行内部的禁用词汇，两处都不会拦下。
-- **输入框占位文案的无障碍名称仍是上游那一句。** `::after` 替换只改变了那个 `aria-hidden` 的占位元素画出来的内容；兄弟节点 `[data-composer-input]` 保留着 `dsh-client-ui-conversation` 自己的 `data-placeholder` 与 `aria-label`，因此屏幕阅读器念出的仍是「Message or run a task... / commands, @ files or sessions」——连同其中的禁用词汇——而页面上读到的是「说说要做什么」。要关掉它，需要的是上一条英雄区标题所需要的那同一个 locale 覆盖接口。保留这个属性同时也是 `apps/web/tests` 下每一个 `[data-composer-input][data-placeholder=…]` 定位器仍然可用的原因。
 - **退出不会通知部署方自己的登录体系。** 它把本浏览器和本进程持有的令牌就地全部丢弃，并把访客送回登录页；令牌本身在签发方那一侧仍然有效，直到它自己过期——本包不知道任何吊销接口。有这样一个接口的部署，在上面那套顺序的第 2 步调用它即可。
 - **没有二次确认。** 一次点击就停掉正在进行的工作并退出登录。停止一个回合会保留该对话及其待处理的排队内容（这里的 `cancel` 就是这个含义），因此误点的代价是重新登录一次，而不是丢失工作。
 - **展示的名字是一份非权威副本。** 它是在浏览器里从一枚未经验证的令牌解码得来的；任何能在同源上写 `localStorage` 的人都能改变底部显示的内容。没有任何东西以它为准，所以这买到的只是一个错误的名字。
