@@ -228,6 +228,10 @@ export class PlanModeController extends Service {
         name: 'plan',
         description: 'Enter or leave plan mode',
         input: { hint: '[off|message]', attachments: true },
+        // Configures how the agent runs the conversation rather than
+        // contributing to it: entering plan mode on a fresh session leaves it
+        // list-hidden and reusable, with its Intent hero intact.
+        engages: false,
         handler: ({ agent, rawInput, attachments }) => {
           const message = rawInput.trim()
           if (message === 'off' && attachments.length > 0) {

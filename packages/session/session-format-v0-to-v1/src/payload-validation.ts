@@ -63,6 +63,7 @@ export function assertReleasedPayloadSemantics(event: SessionFormatEvent, versio
       nonEmptyString(data['commandId'], `${label} commandId`)
       nonEmptyString(data['name'], `${label} name`)
       if (data['args'] !== undefined) stringValue(data['args'], `${label} args`)
+      if (data['engages'] !== undefined) booleanValue(data['engages'], `${label} engages`)
       const source = exactRecord(data['source'], `${label} source`, ['kind'])
       literalValue(source['kind'], ['user'], `${label} source kind`)
       return

@@ -145,10 +145,12 @@ describe('live event path', () => {
     expect(session.eventSource.getSnapshot()).toBe(before)
   })
 
-  it('keeps the authoritative host blank bit across unrelated log events', async ({ mock, start }) => {
+  it('keeps the authoritative host blank bit across a session-configuration command', async ({ mock, start }) => {
     const session = await opened(mock, start, [])
     session.handleBlank(true)
-    await pushEvent(mock, ev.commandRun(SessionSeq(0), 'cmd-perm', 'permission', ' danger-full-access'))
+    // /permission declares `engages: false`, so its run configures the
+    // session without giving it something to show.
+    await pushEvent(mock, ev.commandRunConfiguring(SessionSeq(0), 'cmd-perm', 'permission', ' danger-full-access'))
     await pushEvent(mock, ev.commandDone(SessionSeq(1), 'cmd-perm', 'success', 'preset danger-full-access'))
     const snapshot = session.getSnapshot()
     expect(eventSeqs(session)).toEqual([0, 1])
@@ -534,12 +536,24 @@ describe('prompt and cancel errors', () => {
     expect(session.getSnapshot()).toMatchObject({ running: true, awaitingFirstTurn: false })
   })
 
-  it('engages on an admitted standalone command without claiming a prompt or a turn', async ({ mock, start }) => {
-    const onEngaged = vi.fn()
-    const session = await sessionBench(mock, start, SID, { onEngaged })
+  /** A blank Session with its window open on an empty log. */
+  const blankOpened = async (
+    mock: RemoteMock,
+    start: () => Promise<TestClient>,
+    onEngaged?: (session: Session) => void,
+  ): Promise<Session> => {
+    const session = await sessionBench(mock, start, SID, onEngaged === undefined ? {} : { onEngaged })
     session.handleBlank(true)
+    mock.stream(FOLLOW, followScript(history([])))
+    await session.open()
+    return session
+  }
 
-    session.markEngaged()
+  it('engages on an observed engaging command, without claiming a prompt or a turn', async ({ mock, start }) => {
+    const onEngaged = vi.fn()
+    const session = await blankOpened(mock, start, onEngaged)
+
+    await pushEvent(mock, ev.commandRun(SessionSeq(0), 'cmd-1', 'btw', ' 天气'))
     expect(session.getSnapshot()).toMatchObject({
       // No send was attempted and no first turn is owed: the command's own
       // durable lifecycle is the content this session now shows.
@@ -547,10 +561,59 @@ describe('prompt and cancel errors', () => {
     })
     expect(onEngaged).toHaveBeenCalledExactlyOnceWith(session)
 
-    // Idempotent: a second admitted command on the same session is not a
-    // second engagement, so the manager's list mirror is told once.
-    session.markEngaged()
+    // A second command is not a second engagement: the manager's list mirror
+    // is told once.
+    await pushEvent(mock, ev.commandRun(SessionSeq(1), 'cmd-2', 'btw', ' 再问'))
     expect(onEngaged).toHaveBeenCalledOnce()
+  })
+
+  it('stays blank on a command that declared it configures the session', async ({ mock, start }) => {
+    const onEngaged = vi.fn()
+    const session = await blankOpened(mock, start, onEngaged)
+
+    await pushEvent(mock, ev.commandRunConfiguring(SessionSeq(0), 'cmd-1', 'permission', ' workspace-write'))
+    expect(session.getSnapshot()).toMatchObject({ blank: true, promptAttempted: false })
+    expect(onEngaged).not.toHaveBeenCalled()
+  })
+
+  it('engages from a history page carrying the command, not only from the live tail', async ({ mock, start }) => {
+    const session = await sessionBench(mock, start, SID)
+    session.handleBlank(true)
+    mock.stream(FOLLOW, followScript(history([
+      ev.commandRunConfiguring(SessionSeq(0), 'cmd-1', 'permission', ' read-only'),
+      ev.commandRun(SessionSeq(1), 'cmd-2', 'btw', ' 天气'),
+    ])))
+    await session.open()
+    expect(session.getSnapshot().blank).toBe(false)
+  })
+
+  it('leaves the mirror to the durable event when the chip runs a command directly', async ({ mock, start }) => {
+    // The Intent hero's access-mode chip and the /permission popup both reach
+    // the host through this verb. It admits the line and nothing more: the
+    // blank bit moves only when the session's own `command/run` arrives, so
+    // every entry point lands on the same rule.
+    const onEngaged = vi.fn()
+    const session = await blankOpened(mock, start, onEngaged)
+    mock.remote.commands.execute.mockResolvedValue(ok({ commandId: 'cmd-1' }))
+
+    await expect(session.command('/permission read-only'))
+      .resolves.toEqual({ ok: true, value: { matched: true } })
+    expect(session.getSnapshot().blank).toBe(true)
+    expect(onEngaged).not.toHaveBeenCalled()
+
+    await pushEvent(mock, ev.commandRunConfiguring(SessionSeq(0), 'cmd-1', 'permission', ' read-only'))
+    expect(session.getSnapshot().blank).toBe(true)
+  })
+
+  it('refuses to re-blank an engaged Session on a summary that still says blank', async ({ mock, start }) => {
+    const session = await blankOpened(mock, start)
+    await pushEvent(mock, ev.commandRun(SessionSeq(0), 'cmd-1', 'btw', ' 天气'))
+    expect(session.getSnapshot().blank).toBe(false)
+
+    // An `api-session/added` frame or a list pull minted before the command
+    // landed carries the stale verdict; the latch refuses it.
+    session.handleBlank(true)
+    expect(session.getSnapshot().blank).toBe(false)
   })
 
   it('keeps the attempted-first-prompt state when the Host rejects the prompt', async ({ mock, start }) => {

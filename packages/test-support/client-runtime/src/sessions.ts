@@ -154,13 +154,6 @@ export class FixtureSession implements SessionFace {
     throw new Error(`test session "${this.sessionId}": command is not stubbed — supply it on the fixture's session face`)
   }
 
-  /**
-   * Fail-loud stub; supply `markEngaged` on the fixture's session face to exercise it.
-   * @returns never — always throws.
-   */
-  markEngaged(): never {
-    throw new Error(`test session "${this.sessionId}": markEngaged is not stubbed — supply it on the fixture's session face`)
-  }
 
   /**
    * Fail-loud stub; supply `loadOlder` on the fixture's session face to exercise it.

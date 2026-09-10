@@ -138,15 +138,6 @@ export interface ISession {
    * @returns the admission result, or the Remote face's error branch.
    */
   command(line: string): Promise<RemoteResult<{ matched: boolean }>>
-  /**
-   * Lower `snapshot.blank` once this client knows the host accepted a first
-   * engagement — an admitted standalone command executed outside
-   * {@link ISession.prompt}. The bit only ever lowers, so the caller must
-   * hold the acceptance: an unmatched or refused command leaves the session
-   * blank, hidden from the lists, and reusable as New Session. Calling it on
-   * an already-engaged session does nothing.
-   */
-  markEngaged(): void
 }
 
 /**

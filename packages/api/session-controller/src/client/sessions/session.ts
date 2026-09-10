@@ -113,6 +113,8 @@ export class Session implements SessionFace {
   private firstPromptPendingTurn = false
   /** Empty-log mirror (see ConversationSnapshot.blank); unknown bare sessions begin conservatively blank. */
   private blankBit = true
+  /** Latched once this client observed the engagement itself; a later summary can never re-blank it. */
+  private engaged = false
   private removed = false
   private promptError: PromptError | null = null
   private lastAgentError: string | null = null
@@ -295,21 +297,44 @@ export class Session implements SessionFace {
 
   /**
    * Lower the blank bit, at most once, on the first engagement this client
-   * knows the host accepted.
+   * knows the host accepted. The latch it sets is permanent: `handleBlank`
+   * consults it, so a summary that still says blank — an `api-session/added`
+   * frame minted before the engaging event, a list pull that raced it —
+   * cannot raise the bit back.
    *
-   * Two facts qualify, both of them durable host log entries rather than
-   * local optimism: an accepted first prompt, and an admitted standalone
-   * command (the host executor logs `command/run` before answering, and its
-   * lifecycle renders as a flow node). The client mirror only ever lowers
-   * the bit, so a caller must hold the accepted fact before calling: a
-   * refused prompt or an unmatched command leaves the session blank, hidden
-   * from the lists, and eligible for connectWorkspace reuse.
+   * Two facts qualify, both durable host log entries rather than local
+   * optimism: an accepted first prompt, and an engaging `command/run`
+   * observed in this session's own event window.
    */
-  markEngaged(): void {
+  private markEngaged(): void {
+    this.engaged = true
     if (!this.blankBit) return
     this.blankBit = false
     this.options.onEngaged?.(this)
     this.notifier.markDirty()
+  }
+
+  /**
+   * Engage on this session's own durable command lifecycle — the one signal
+   * every command entry point shares. A typed composer line, the Intent
+   * hero's access-mode chip, a decorated `/` popup, and a plugin calling the
+   * command RPC directly all reach this client as the same event, so the
+   * mirror agrees with the host summary whichever surface ran the command.
+   *
+   * A run that recorded `engages: false` configures the session and leaves
+   * it blank, which is what keeps the Intent hero — and the workspace and
+   * agent-preset choices that live only there — on screen for a person
+   * choosing an access mode before typing anything.
+   * @param event - one window entry's event, durable or compact.
+   */
+  private observeEngagement(event: { readonly type: string; readonly data?: unknown }): void {
+    if (!this.blankBit || event.type !== 'command/run') return
+    // Structural read: window entries may be compact history records, so the
+    // member is narrowed rather than trusted (the posture observeSubmissionEvent
+    // takes below, and the host fold in list.ts owns the same rule typed).
+    const data = event.data as { readonly engages?: unknown } | undefined
+    if (data?.engages === false) return
+    this.markEngaged()
   }
 
   /**
@@ -556,7 +581,7 @@ export class Session implements SessionFace {
    */
   handleBlank(blank: boolean): void {
     if (blank === this.blankBit) return
-    if (blank && (this.promptAttempted || this.running)) return
+    if (blank && (this.promptAttempted || this.running || this.engaged)) return
     this.blankBit = blank
     this.notifier.markDirty()
   }
@@ -664,7 +689,10 @@ export class Session implements SessionFace {
     if (visible.some(entry => entry.event.type === 'turn/start')) this.firstPromptPendingTurn = false
     if (projections !== undefined) this.projections.seed(projections)
     this.eventSource.replace(visible, hasMore)
-    for (const entry of visible) this.observeSubmissionEvent(entry.event)
+    for (const entry of visible) {
+      this.observeEngagement(entry.event)
+      this.observeSubmissionEvent(entry.event)
+    }
     this.notifier.markDirty()
   }
 
@@ -707,6 +735,7 @@ export class Session implements SessionFace {
     const event = entry.event
     const awaitingFirstTurn = this.firstPromptPendingTurn
     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
+    this.observeEngagement(event)
     this.eventSource.append(entry)
     // After the feed append: the conversation assembly's animation frame is
     // registered by the feed subscribers above, so the echo-retirement frame
