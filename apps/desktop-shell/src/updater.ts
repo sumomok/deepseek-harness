@@ -808,6 +808,13 @@ async function openDownloadPage(host: UpdateHost, artifact: string): Promise<voi
  * tier when the in-place path fails part-way through. The fallback re-runs the
  * same check rather than deferring it, so one check still ends in one answer.
  *
+ * The two failures that reach the fallback are reported differently, because
+ * only one of them costs the tier. A fatal failure demotes macOS, and the
+ * answer below is then this run's own tier. A transient one leaves the build
+ * able to replace itself, so the answer below is a fallback: it names the
+ * version it found and records the check as failed, which the next check on
+ * the in-place tier starts over from.
+ *
  * A download the network alone defeated never reaches this catch: [[download]]
  * absorbs it and ends the check where it stands, because the tier is still the
  * right one and re-running the check on the download-page tier would answer a
@@ -817,6 +824,10 @@ async function openDownloadPage(host: UpdateHost, artifact: string): Promise<voi
  */
 async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
   if (blocking) return
+  // What the in-place check failed with when the tier survived that failure,
+  // which is what makes the answer below a fallback rather than this build's
+  // own tier.
+  let fallbackReason: string | undefined
   try {
     if (canInstallInPlace()) {
       try {
@@ -828,9 +839,10 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
         // costs this check, which [[checkGeneric]] answers below, not the tier
         // for the rest of the run.
         if (classifyDownloadError(error) === 'fatal') demoteMac(host, error)
+        else fallbackReason = describeDownloadError(error)
       }
     }
-    await checkGeneric(host, reason)
+    await checkGeneric(host, reason, fallbackReason)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
     updateState().checkFailed(new Date().toISOString(), describeDownloadError(error))
@@ -1081,8 +1093,11 @@ async function installStaged(host: UpdateHost, version: string): Promise<void> {
  * is reported through [[updateState]] instead.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
+ * @param fallbackReason - what the in-place check failed with when this call is
+ * answering for a tier that survived that failure; undefined when the download
+ * page is this build's own tier.
  */
-async function checkGeneric(host: UpdateHost, reason: CheckReason): Promise<void> {
+async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReason?: string): Promise<void> {
   updateState().checkStarted()
   const feed = await fetchFeed(`${FEED_MAC}/latest-mac.yml`)
   const version = feed.version
@@ -1096,7 +1111,18 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason): Promise<void
   if (artifact === undefined) throw new Error(`更新源缺少 files[].url(${FEED_MAC}/latest-mac.yml)`)
   const notes = typeof feed.releaseNotes === 'string' ? feed.releaseNotes : undefined
   updateState().checkSucceeded(new Date().toISOString(), version, notes)
-  updateState().markUnavailable('this build installs an update by replacing it by hand')
+  if (fallbackReason === undefined) {
+    // This build's own tier: replacing the app by hand is the only way this
+    // version gets installed, for the rest of the run.
+    updateState().markUnavailable('this build installs an update by replacing it by hand')
+  } else {
+    // A fallback answer for an in-place tier the failure did not cost. The
+    // build can still replace itself, so what is reported is the check that
+    // did not get through — which the next check starts over from — rather
+    // than a verdict about this build.
+    host.log(`[updater] ${version} was read straight from the feed; the in-place check did not get through (${fallbackReason})\n`)
+    updateState().checkFailed(new Date().toISOString(), fallbackReason)
+  }
   const mandatory = isMandatory(feed.minimumVersion)
   if (reason !== 'manual' && !mandatory) {
     host.log(`[updater] ${version} is available; not interrupting the session\n`)
