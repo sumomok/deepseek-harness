@@ -1120,3 +1120,22 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 - **`tsdown.client.ts` 不存在**：上文「7 个红文件逐条归因」表里 `transform-corpus.spec.ts` 的输入清单写作 `tsdown.client.ts`；`46a7aa75fd` 与本线 HEAD 的树里都没有该路径，真实文件是 `packages/client/ui-dockkit/tsdown.config.ts`（同样与 v8 blob 零 diff）。该行的归因结论不变。
 - **`pnpm-workspace.yaml` 不是零改动**：上文「依赖与原生插件」一段的「`pnpm-workspace.yaml` 零改动」按字面为假。相对 fork 父 `131ed56f28`，该文件 22 增 19 删，全部是基座位移：`native/landlock-run` → `native/system`、新增 `benchmarks` 工作区成员、删 `fs-ext` 的 allowBuild、`electron-winstaller` 注释换成 v8 措辞、新增 `msgpackr-extract: false`、pi-ai / pi-telemetry / claude-agent-sdk / codex 四组版本豁免行改版本号。成立的说法是「相对 `46a7aa75fd` 只多 fork 自己三项」：`dsh-better-sidebar>node-pty` override、`allowBuilds.electron: true`、`patchedDependencies['electron-updater@6.8.9']`——`git diff 46a7aa75fd 18c64ae8b6 -- pnpm-workspace.yaml` 实测只有这三段。
 - **7519 / 103 的分母未记且不复现**：以内容祖先 `1930a2321b`、`git diff --no-renames --name-only` 为口径复算，v8 侧改过 **7073** 条、develop 侧改过 **447** 条、两侧都改过 **128** 条、仅 v8 改过 **6945** 条。合并提交 `568c1eb971` 上这 6945 条**逐字节等于 v8 blob，零不符**（`packages/api/session-controller/README.zh.md` 那条订正已含在内）。上文的 7519 与 103 在该口径下不复现，其分母所取的路径集未在文中说明。同一口径的反向护栏（上文未做）：仅 develop 改过 **319** 条，合并提交上 **312** 条等于 develop blob，**7** 条不符 = 上文点名的 6 条归档死链改指 + 本节第一条的 `approval-diff-row.tsx`，无静默丢失。（在 HEAD `18c64ae8b6` 上另有 3 条 v8 侧路径与 2 条 develop 侧路径不等，均由三条快照跟进提交刻意改动。）
+
+### 只活在集成线上的补丁：下一轮滚动同步必须带上的清单
+
+本轮**没有**把任何补丁回补到 `core-patches-v8`：该分支在另一个会话的工作树上检出，本轮全程不碰它。下面每一条都**已经在 rc32-integration 的合并树里**，所以 rc.32 的构建、测试与打包面是完整的；欠的只在补丁线上。判定方式是拿 `46a7aa75fd`（v8 顶）与本线 HEAD 逐个标记串对比，不是读台账。
+
+| 补丁族 | 本线提交 | v8 实测 |
+| --- | --- | --- |
+| 私有 app 免 dsh 家族版本校验 | `49504d8075` | `scripts/check-workspace-constraints.ts` 的 `checkDshFamilyVersion` 在 v8 上是无条件调用（第 368 行），本线是 `privateApp ? undefined : …`（第 372 行）。底座补丁 `8238c1385d` 本身已随 v8 落地（`670aa01d44`），缺的只有这条 rc.31 集成期扩展 |
+| `.claude/skills` 技能根 + 按根降级 + 模型面补齐 | `6c198bcd27`、`8c773a707f`、`d0906a648c`、`f0e14690e1`、`de5dfd924b`、`a98f9bfb13`、`32d9d7f077`（合并点 `e3e9ab695c`、`48687c9d4c`） | v8 全仓 `PROJECT_CLAUDE_RANK` 零命中。同族还有 `packages/test-support/loader-smoke` 的 `isolatedSkillRootEnv` 及其在 `scripts/publish-npm-baseline.ts`、`scripts/release/verify-packed-install.ts`、`scripts/smoke-python-runtime.py`、`packages/test-support/session-snapshot/src/{harness,launcher}.ts` 的用点 |
+| 命令自己声明是否让所在会话转正（`engages`） | `6a9c23c195`、`564fa80af6`、`73a2a7ca71`、`84e2a44bde` | v8 的 `packages/` 下 `engages` 只有两处无关命中（`ui-model-selection/src/client/directory.ts`、`ui-primitives/src/TerminalBlock.module.css`），`commands`/`session-controller`/`plan-mode`/`permission-presets` 零命中。同族还有 `session-format-v0-to-v1` 给 `command/run` disposition 加的可选成员 `engages` 与 `payload-validation.ts` 的一行 |
+| 审批卡片按工具名 keyed，文件改动预览 diff | `3bf20f8366`、`ea4e005d87`（合并点 `e94386dc0a`） | v8 的 `conversation.approval.detail` 仍是 `kind: 'single'`；fork 独有文件 `packages/client/ui-tool/src/client/tool/toolviews/approval-diff-row.{tsx,module.css}` 与其 spec 在 v8 上不存在 |
+| 出厂关闭会话遥测与已装插件清单上报 | `a426a88c90` | v8 的 `packages/bundle/base/cordis.patch.yml` 两行都没有 `disabled: true`（`session-telemetry-otel` 在 184–188 行、`plugin-package-inventory-deepseek` 在 70–72 行），`sdk-minimal` 同理 |
+| 派生索引身份带上 Session 世代 | `d039e74909` | v8 全仓 `SESSION_QUERY_SQLITE_INDEX_IDENTITY` 零命中（本轮新增，见本文件对应小节） |
+| `scripts` 侧的 fork 产品门禁 | `b21eae8575`（随附插件版本门 + run-gates 挂载）、`ebca8637e8`（第三方声明门 + tarball 覆盖）、`8a86b8604a`（抽出 `filtered-deploy.ts`，`build-exe-for-python-sdk.ts` 改用）、`4679ac06c0`（`translation-pairing.ts` 的 `apps/desktop-shell` 排除项与路径改名） | v8 上这些文件不存在或不含这些段。**判定：不必移植**——补丁线上没有 `apps/*`，这些门在那里永远不触发；它们属于 develop 产品线而不是补丁线 |
+
+**两条台账里已过期的「尚未回补丁线」标记**（本轮实测后作废，原段落保持原样）：
+
+- 「patch(session-format-v0-to-v1): 让 v0 迁移接受三种落盘旧形状 — `ac666dc419`」以及本文件 rc.31 审计里 `fix/v0-legacy-shapes` 那句「尚未回补丁线 `core-patches-v7`」：v8 已按语义重落，实测 `normalizeLegacyPermissionPreset` 与 `normalizeLegacySubagentDescriptor` 在 v8 的 `session-format-v0-to-v1/src/migration.ts` 各 2 处命中，Agent Note `2026-09-07-v0-migration-legacy-shapes.md` 也在 v8 上。**不需要再移植。**
+- rc.31 审计里 `fix/command-engages-session` 那句写的是「尚未回补丁线 `core-patches-v7`，也未进 `core-patches-v8`」，本轮实测确认后半句仍然成立，见上表第三行。
