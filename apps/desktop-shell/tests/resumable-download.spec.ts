@@ -39,6 +39,10 @@ interface ServerBehavior {
   payload?: Buffer
   /** Publish no `ETag`, as a feed behind a proxy that strips validators does. */
   omitValidator?: boolean
+  /** Honour `Range` but answer from this offset instead of the one asked for. */
+  answerFrom?: number
+  /** Answer 206 without saying which part of the artifact the body is. */
+  omitContentRange?: boolean
 }
 
 /** Every request one started server received, in order. */
@@ -81,13 +85,13 @@ async function serve(behavior: ServerBehavior = {}): Promise<{ url: string; rece
     const range = /^bytes=(\d+)-$/.exec(request.headers.range ?? '')
     const ifRange = request.headers['if-range']
     const honoured = range !== null && behavior.ignoreRange !== true && (ifRange === undefined || ifRange === ETAG)
-    const from = honoured ? Number(range[1]) : 0
+    const from = honoured ? behavior.answerFrom ?? Number(range[1]) : 0
     const body = payload.subarray(from)
     response.writeHead(honoured ? 206 : 200, {
       ...behavior.omitValidator === true ? {} : { etag: ETAG },
       'accept-ranges': 'bytes',
       'content-length': String(body.byteLength),
-      ...honoured
+      ...honoured && behavior.omitContentRange !== true
         ? { 'content-range': `bytes ${String(from)}-${String(payload.byteLength - 1)}/${String(payload.byteLength)}` }
         : {},
     })
@@ -194,6 +198,25 @@ describe('a server that will not continue the transfer', () => {
     expect(received).toHaveLength(2)
     expect(received[0]?.range).toBe(`bytes=${String(ARTIFACT.byteLength + 16)}-`)
     expect(received[1]?.range).toBeUndefined()
+  })
+
+  it('takes no bytes from a 206 that begins somewhere else', async () => {
+    const file = partFile()
+    writeFileSync(file, ARTIFACT.subarray(0, 5_000))
+    const { url } = await serve({ answerFrom: 1_000 })
+    await expect(resumeDownload({ url, partFile: file, sha512: SHA512 })).rejects.toThrow(/区间与请求不符/)
+    // Nothing of that answer is on disk, so the next attempt starts from zero
+    // rather than resuming onto a prefix that came from the middle of the file.
+    expect(existsSync(file)).toBe(false)
+    expect(existsSync(`${file}.origin.json`)).toBe(false)
+  })
+
+  it('takes no bytes from a 206 that names no range', async () => {
+    const file = partFile()
+    writeFileSync(file, ARTIFACT.subarray(0, 5_000))
+    const { url } = await serve({ omitContentRange: true })
+    await expect(resumeDownload({ url, partFile: file, sha512: SHA512 })).rejects.toThrow(/缺少 Content-Range/)
+    expect(existsSync(file)).toBe(false)
   })
 
   it('reports the status it refused with', async () => {

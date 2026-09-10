@@ -15,11 +15,15 @@
  * Two conditions restart the transfer from zero rather than continuing it: a
  * `200` answer to a `Range` request, which is a server sending the whole file,
  * and a `416`, which is a part at least as long as the artifact. Both truncate
- * the `.part` file, so the file on disk never mixes two answers. A server that
- * replaced the artifact under a resumed transfer is caught twice — by the
- * `If-Range` validator when one was recorded, and by the final digest either
- * way, which discards the `.part` file rather than leaving corrupt bytes to be
- * resumed forever.
+ * the `.part` file, so the file on disk never mixes two answers. A third is
+ * written nowhere at all: a `206` whose `Content-Range` begins somewhere other
+ * than the offset that was asked for, or that names no range, carries bytes
+ * that belong neither after what is on disk nor at the start of the file, so
+ * the `.part` file is dropped and the attempt reports what the server
+ * answered. A server that replaced the artifact under a resumed transfer is
+ * caught twice — by the `If-Range` validator when one was recorded, and by the
+ * final digest either way, which discards the `.part` file rather than leaving
+ * corrupt bytes to be resumed forever.
  *
  * Nothing here touches electron, so `tests/resumable-download.spec.ts`
  * exercises it against a local server that honours `Range` and can cut a
@@ -176,9 +180,10 @@ function totalBytesOf(status: number, headers: Headers, have: number): number | 
  * @param target - what to transfer, where to keep it, and what it must hash to.
  * @param options - progress reporting, the fetch to use, and the stall bound.
  * @returns the artifact's size in bytes.
- * @throws when the answer is neither `200` nor `206`, when the transfer stalls
- * or is cut short, when the `.part` file cannot be written, or when the
- * completed file's sha512 is not the manifest's.
+ * @throws when the answer is neither `200` nor `206`, when a `206` begins
+ * somewhere the request did not ask for, when the transfer stalls or is cut
+ * short, when the `.part` file cannot be written, or when the completed file's
+ * sha512 is not the manifest's.
  */
 export async function resumeDownload(target: ResumableTarget, options: ResumeOptions = {}): Promise<number> {
   const call = options.fetch ?? globalThis.fetch
@@ -208,9 +213,23 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
         throw new Error(`更新源返回 ${String(response.status)} ${response.statusText}(${target.url})`)
       }
       const range = CONTENT_RANGE.exec(response.headers.get('content-range') ?? '')
-      // A 206 that starts anywhere but where this transfer stopped is not the
-      // continuation it asked for; taking it would splice a hole into the file.
-      const append = response.status === 206 && range !== null && Number(range[1]) === have && have > 0
+      // Where in the artifact this answer's body begins: a 200 is the whole
+      // file, and a 206 is trusted for nothing its `Content-Range` does not
+      // say.
+      const start = response.status === 200 ? 0 : range === null ? undefined : Number(range[1])
+      // Two starts can be used: the offset this transfer stopped at, which
+      // continues the `.part` file, and zero, which replaces it. A body from
+      // anywhere else is a fragment of the artifact. Writing it from zero would
+      // leave a `.part` file whose prefix is wrong and whose length the next
+      // attempt would resume from, so the whole artifact would transfer again
+      // before the final digest caught it — the bytes are taken nowhere
+      // instead.
+      if (start === undefined || (start !== 0 && start !== have)) {
+        await response.body?.cancel()
+        discardPart(target.partFile)
+        throw new Error(`更新源答复的区间与请求不符:${response.headers.get('content-range') ?? '缺少 Content-Range'}(${target.url})`)
+      }
+      const append = start > 0
       if (!append) have = 0
       const total = totalBytesOf(response.status, response.headers, have)
       const validator = response.headers.get('etag') ?? response.headers.get('last-modified') ?? undefined
