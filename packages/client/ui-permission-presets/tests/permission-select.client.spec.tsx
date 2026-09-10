@@ -109,6 +109,29 @@ describe('PermissionSelect', () => {
     expect(select).not.toHaveBeenCalled()
   })
 
+  it('draws the glyph an option names, falls back to its value, then to the bare shield', () => {
+    const catalog: PermissionCatalog = {
+      options: [
+        { value: 'read-only', name: 'read-only' },
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'danger-full-access', name: 'danger-full-access' },
+        { value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access' },
+        { value: 'house-style', name: 'House Style' },
+      ],
+    }
+    setup({ catalog, selection: { currentValue: 'yolo-access' } })
+    fireEvent.click(trigger())
+    const icons = screen.getAllByRole('menuitem').map(item => item.querySelector('svg')?.innerHTML)
+    // A named glyph draws the same artwork as the built-in row that owns it.
+    expect(icons[3]).toBe(icons[2])
+    expect(icons[0]).not.toBe(icons[2])
+    expect(icons[1]).not.toBe(icons[2])
+    // Outside the design set: the bare shield outline, one path, no inner mark.
+    expect(screen.getAllByRole('menuitem')[4]?.querySelectorAll('svg path')).toHaveLength(1)
+    // The trigger resolves the current option through the same glyph choice.
+    expect(trigger().querySelector('svg')?.innerHTML).toBe(icons[2])
+  })
+
   it('closes an open menu on an outside pointer', () => {
     setup()
     fireEvent.click(trigger())

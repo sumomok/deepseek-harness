@@ -9,6 +9,13 @@
  * @module @deepseek-ai/dsh-permission-presets/types
  */
 
+/**
+ * One glyph of the permission selector's design set. The set is closed: a
+ * presentation layer draws exactly these three, so a host names one instead of
+ * supplying artwork.
+ */
+export type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
+
 /** Presentation for an available preset or the derived `custom` current value. */
 export interface PresetOption {
   /** Stable option value: a configured preset key, live `auto`, or derived `custom`. */
@@ -17,6 +24,8 @@ export interface PresetOption {
   name: string
   /** One user-facing sentence on what the value means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
 }
 
 /**
