@@ -1080,7 +1080,7 @@ Source: [`packages/experimental/inspector/src/index.ts:66`](../packages/experime
 Requires: `webServer`
 
 ```ts config-catalog
-/** Plugin config: the path prefix this process is served under. */
+/** Plugin config: the deployment facts the served page is given. */
 export interface Config {
   /**
    * Deployment prefix as the browser addresses it, leading and trailing slash
@@ -1090,10 +1090,28 @@ export interface Config {
    * it.
    */
   basePath: string
+  /**
+   * Declare that whoever reaches the served page is this Host's operator. The
+   * page then carries a `__DSH_TRANSPORT__` carrier whose `ownsHost` makes
+   * `ctx.connection.isLoopback` true on an authority that is not loopback, so
+   * the client offers the surface it otherwise keeps for the operator's own
+   * machine: settings read and write the Host's settings document instead of a
+   * process-local mirror that answers every read `unavailable`, the settings
+   * document actions appear, and a produced-file chip offers to open its path
+   * on the Host. Set it only where something in front of the page decides who
+   * reaches it — the console sample pairs the dsh browser session cookie with
+   * the proxy's `auth_request` login gate — because every visitor those admit
+   * gets that surface. It moves no server-side check: the browser-trust fence
+   * still refuses a Host that is neither loopback nor declared, and the Host's
+   * settings RPC already answered any caller the deployment admitted. Omit it,
+   * and the page is served exactly as it is without this claim; the default is
+   * false.
+   */
+  ownsHost?: boolean
 }
 ```
 
-Source: [`packages/experimental/server-base/src/index.ts:47`](../packages/experimental/server-base/src/index.ts)
+Source: [`packages/experimental/server-base/src/index.ts:56`](../packages/experimental/server-base/src/index.ts)
 
 <a id="deepseek-aidsh-experimental-server-sidebar"></a>
 

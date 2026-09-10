@@ -1,5 +1,5 @@
 ---
-description: "Tells the browser which path prefix a dsh process is published under, by injecting a `<base href>` row and a `__DSH_BASE__` global into the shell's index; for a deployment that shares one domain with other products and separates them by path."
+description: "Tells the browser the deployment facts a served page cannot work out for itself — which path prefix a dsh process is published under, and whether reaching the page means owning the Host — by injecting a `<base href>` row, a `__DSH_BASE__` global, and, where the deployment claims the Host, a `__DSH_TRANSPORT__` carrier into the shell's index."
 kind: "package-reference"
 ---
 
@@ -13,10 +13,13 @@ Tells the browser which path prefix a dsh process is served under. A process nev
 
 It exists for the deployment that cannot have a hostname of its own: several products behind one domain, dsh among them, separated by path. A process at the origin root does not need this row.
 
+The same row carries the deployment's other browser-side fact: whether reaching the served page means owning the Host behind it. The client decides that from the page authority alone, and every authority that is not loopback reads as somebody else's Host, which is the deployment this package exists for.
+
 ## Table of Contents
 
 - [What it injects](#what-it-injects)
 - [Configuration](#configuration)
+- [Claiming the Host](#claiming-the-host)
 - [Composition](#composition)
 - [The proxy half](#the-proxy-half)
 - [Model Experience](#model-experience)
@@ -28,7 +31,7 @@ It exists for the deployment that cannot have a hostname of its own: several pro
 <a id="what-it-injects"></a>
 ## What it injects
 
-Two rows on `webserver/index-inject`, both carrying the configured `basePath` and nothing else:
+Two rows on `webserver/index-inject` carry the configured `basePath` and nothing else:
 
 - `{ kind: 'html', placement: 'head', html: '<base href="/console/">' }` — the HTML parser resolves every relative URL after it against this value: the built shell's own asset references, and the parser-blocking plugin-bundle tags the client module system contributes.
 - `{ kind: 'global', name: '__DSH_BASE__', value: '/console/' }` — the value runtime code reads when it builds a fetch, WebSocket, or EventSource URL. It is a `<script>` in the head, so it is set before any document script runs, and it is defined in carriers that have no document at all.
@@ -39,12 +42,27 @@ The listener is registered with `prepend`, which is what puts the `<base>` row f
 
 For the `<base>` element to have anything to act on, the shell's own asset references must be relative: `apps/web/vite.config.ts` sets `base: './'`, which is what makes the built `index.html` reference `./assets/…` instead of `/assets/…`. Building with `base: '/console/'` instead would bake one prefix into the artifact, and one build could then serve only one deployment.
 
+A third row follows those two, and only where `ownsHost` is set: `<script>globalThis.__DSH_TRANSPORT__ ??= { fetch: (input, init) => globalThis.fetch(input, init), ownsHost: true };</script>`. `__DSH_TRANSPORT__` is the carrier `client-connection` reads once, at its own plugin boot, and the served page normally leaves unset; the shell that does set one — the worker preview, whose Host runs in a worker it spawned — assembles a physical transport there, which is why the row assigns with `??=` rather than over it. This row's carrier is not a transport at all: its `fetch` is the page's own, the same caller that plugin uses when the global is absent, and it declares no `openStream` and no `loadBundle`, so the RPC keeps its HTTP requests and its Gateway WebSocket and the plugin bundles keep loading over HTTP. `ownsHost` is the one fact it carries.
+
 <a id="configuration"></a>
 ## Configuration
 
 `basePath` is the path as the **browser** addresses it, leading and trailing slash included — `/console/` behind `location /console/`, `/` at the origin root. It is not a server-side route prefix.
 
 Every unusable form fails at load, because the symptom otherwise is a blank page with a 404 for each asset and no statement of what was wrong: a value that does not start with `/`, one that does not end with `/`, one carrying a query string or a fragment, one with an empty path segment (`//`), and one carrying characters outside a plain URL path. That last check is also what makes the value safe to place in the element's quoted attribute with no escaping step in between — `"`, `<`, `>`, and `&` are outside the accepted set.
+
+`ownsHost` is a boolean, `false` unless the deployment writes it, and a value of any other type fails the row rather than being read for its truthiness. Left out, the served index is byte-for-byte the prefix-only index, and the page behaves as any page served from a public authority does.
+
+<a id="claiming-the-host"></a>
+## Claiming the Host
+
+The client keeps part of its surface for the operator's own machine and decides who that is from the page authority: `ctx.connection.isLoopback`. Off loopback, settings run on a process-local mirror that answers every read `unavailable` — so every settings section, the MCP servers among them, says it cannot read settings — the settings document actions do not appear, and a produced-file chip does not offer to open its path on the Host.
+
+`ownsHost` says that decision is wrong for this deployment: whoever reaches the served page is this Host's operator. Nothing else supplies that fact, because the authority is a public one and the page cannot tell a gate from an open door.
+
+**What it is a claim about is the gate in front of the page, not the visitor.** Set it only where something decides who reaches the page — this deployment pairs the dsh browser session cookie with the proxy's `auth_request` login gate, described in [the proxy half](#the-proxy-half) — because every visitor those admit gets that surface, and they all share the one Host behind it.
+
+**It moves no server-side check.** The `/api` browser-trust fence still refuses a Host that is neither loopback nor declared in `client-connection`'s `trustedHosts`, and the settings RPC the client now calls already answered any caller the deployment admitted: it is not gated on the page authority, and never was. What changes is which surface the client offers, not what the Host will do for a request that arrives.
 
 <a id="composition"></a>
 ## Composition
@@ -60,6 +78,8 @@ This package is in no shipped bundle. `overlay/base-path.patch.yml` inserts the 
 ```
 
 `dsh --profile web --patch <path>` applies it. Every package must be resolvable from the profile directory, which for an out-of-tree plugin means `dsh plugin --profile web add <path>` or an equivalent link — release bundles must not declare an experimental package.
+
+A deployment whose gate admits none but the Host's operator adds `ownsHost: true` to that same row, under the conditions [Claiming the Host](#claiming-the-host) states.
 
 <a id="the-proxy-half"></a>
 ## The proxy half
@@ -93,10 +113,11 @@ Independent: this package issues no model request and adds nothing to one, so no
 - **The gate does not cover the shell itself.** The document, the files it references, the client plugin bundles, and `/auth-gate/settings` are served to anyone who asks: the in-page gate writes the only credential a navigation can carry, so gating them would leave a visitor with an empty cookie jar no way in. What that publishes is build output plus three configured values, and the console paints before the visitor is known — the window auth-gate's own Known Limitations record. A deployment that must not hand its shell to an anonymous request needs a gate that can issue the credential itself, which is a different sign-on from this one.
 - **A refused token that has not expired strands the visitor.** The in-page gate decides on shape and expiry alone — a stored value that is not a JWT with an `exp` still ahead is what sends the visitor to the login page — so a token the authentication service refuses while it is still unexpired (revoked, signed with a rotated key, an account since disabled) is usable to it and a refusal to the site gate. That visitor is served the bootstrap, the console paints, and every gated request behind it fails: a navigation outside the open list lands on the fixed page, and the page's own calls keep failing until the token's own expiry or a press of sign out. Leaving for the login page on a 401 from the page's own calls is the missing half, recorded in [auth-gate](../auth-gate/README.md)'s Known Limitations.
 - **Sign-out cannot always reach the process.** auth-gate's sequence posts `/auth-gate/logout` first, so the node half stops spending a credential the visitor no longer has, and that request carries the mirror cookie this gate validates rather than merely routes by. On the paths that surrender a token the gate refuses, nginx answers that post 401 and the process keeps the dead token until it ends or a newer one is posted. The visitor still leaves, because the steps after it run whatever the one before did.
+- **The ownership claim admits no distinctions between visitors.** `ownsHost` is one fact about the deployment, so every visitor the gate admits reaches the same operator surface and writes the same Host settings document; nothing here can tell two of them apart, and a later write wins over an earlier one with no notice to either. A deployment that needs one settings document per person needs one process per person.
 - **A URL leaving the page is not covered.** `<base>` and `__DSH_BASE__` govern URLs the page resolves; anything handed to something else — a download the browser's download manager fetches, an address copied into another tab — must already be absolute. Those call sites build absolute URLs themselves and this package does not check them.
 - **Not covered by an assembled snapshot** — the evidence is this package's real-composition suite against a served index; the snapshot lanes replay the shipped composition, which does not compose an experimental row.
 
-**Runtime invariant:** No companion is published. This package contributes two index-injection rows from validated config and owns no session event, no durable data, and no mutable state; what the served document then carries is asserted by this package's own real-composition suite.
+**Runtime invariant:** No companion is published. This package contributes index-injection rows from validated config and owns no session event, no durable data, and no mutable state; what the served document then carries is asserted by this package's own real-composition suite.
 
 <a id="dev-note"></a>
 ### Dev Note

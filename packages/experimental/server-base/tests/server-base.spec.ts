@@ -5,10 +5,12 @@
  * actually serves — the `<base>` element and its position ahead of the
  * document's own asset references and of a competing injector's rows, the
  * `__DSH_BASE__` global, the prefix-free index a composition without the row
- * serves, and the release of both rows on fiber disposal.
+ * serves, the Host-ownership carrier a deployment that claims the Host adds,
+ * and the release of the rows on fiber disposal.
  *
- * The configuration cases call `requireBasePath` directly: a rejected prefix
- * never reaches a served index, so there is nothing for HTTP to observe.
+ * The configuration cases call `requireBasePath` and the `Config` schema
+ * directly: a rejected prefix never reaches a served index, so there is nothing
+ * for HTTP to observe.
  */
 
 import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
@@ -47,6 +49,15 @@ const DIST_INDEX = [
   '',
 ].join('\n')
 
+/**
+ * The carrier a deployment claiming the Host serves, pinned verbatim: `fetch`
+ * is the page's own, which keeps the RPC on HTTP and on the Gateway WebSocket,
+ * and the absent `openStream` and `loadBundle` are what leave the plugin
+ * bundles loading over HTTP.
+ */
+const OWNS_HOST_MARKUP
+  = '<script>globalThis.__DSH_TRANSPORT__ ??= { fetch: (input, init) => globalThis.fetch(input, init), ownsHost: true };</script>'
+
 let world: string | undefined
 let context: Context | undefined
 
@@ -64,10 +75,12 @@ afterEach(async () => {
  * without that row at all.
  * @param earlierRow - a row contributed by a listener registered before the
  * server-base row is created, standing in for a plugin that activates first.
+ * @param ownsHost - written into the row when true; left out of the yaml when
+ * false, which is the deployment that states no ownership claim at all.
  * @returns the booted root context.
  */
 async function loadComposition(
-  basePath: string | null = BASE_PATH, earlierRow?: IndexInjection,
+  basePath: string | null = BASE_PATH, earlierRow?: IndexInjection, ownsHost = false,
 ): Promise<Context> {
   world = await mkdtemp(join(tmpdir(), 'dsh-server-base-'))
   const dist = join(world, 'dist')
@@ -98,6 +111,7 @@ async function loadComposition(
       '  config:',
       `    basePath: ${JSON.stringify(basePath)}`,
     )
+    if (ownsHost) rows.push('    ownsHost: true')
   }
   await writeFile(configPath, `${rows.join('\n')}\n`)
 
@@ -189,6 +203,25 @@ describe('server-base index rows', () => {
     expect(html).toContain(`<script>globalThis["${ServerBase.DSH_BASE_GLOBAL}"] = "${BASE_PATH}"</script>`)
   })
 
+  it('serves no ownership carrier for a deployment that claims nothing', async () => {
+    const html = await fetchIndex(await loadComposition())
+    // The default is the deployment whose page is reached by whoever the
+    // network lets through, and the client reads such a page as somebody
+    // else's Host from the authority alone.
+    expect(html).not.toContain('__DSH_TRANSPORT__')
+  })
+
+  it('serves the ownership carrier behind the base element when the deployment claims the Host', async () => {
+    const html = await fetchIndex(await loadComposition(BASE_PATH, undefined, true))
+    const baseAt = html.indexOf(`<base href="${BASE_PATH}">`)
+    const carrierAt = html.indexOf(OWNS_HOST_MARKUP)
+    expect(baseAt).toBeGreaterThan(-1)
+    expect(carrierAt).toBeGreaterThan(baseAt)
+    // `client-connection` reads the global once, at its own plugin boot, so
+    // the carrier has to be in the document ahead of the shell's entry module.
+    expect(carrierAt).toBeLessThan(html.indexOf('<script type="module"'))
+  })
+
   it('serves the root prefix a process at the origin root is configured with', async () => {
     const html = await fetchIndex(await loadComposition('/'))
     expect(html).toContain('<base href="/">')
@@ -242,6 +275,19 @@ describe('server-base configuration', () => {
     ] as const) {
       expect(() => ServerBase.requireBasePath(basePath)).toThrow(message)
     }
+  })
+
+  it('leaves a deployment that says nothing about ownership claiming nothing', () => {
+    expect(ServerBase.Config({ basePath: BASE_PATH }).ownsHost).toBe(false)
+    expect(ServerBase.Config({ basePath: BASE_PATH, ownsHost: true }).ownsHost).toBe(true)
+  })
+
+  it('rejects an ownership claim that is not a boolean', () => {
+    // The claim decides which surface the client offers every admitted
+    // visitor, so a value that is not a boolean fails the row instead of being
+    // read for its truthiness.
+    expect(() => ServerBase.Config({ basePath: BASE_PATH, ownsHost: 'yes' } as never))
+      .toThrow('$.ownsHost expected boolean but got yes')
   })
 
   it('names itself and the service it waits for', () => {
