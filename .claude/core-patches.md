@@ -318,6 +318,25 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 
 **slot 声明竞速修复(2026-09-02)**:真机冒烟抓到 connection-banner/clickable-refs 客户端 fiber 失败(「slot 未声明」)——alpha.2 把 slot 声明从 boot 期 slots 模块移进各归属包 register 调用的 children 表,客户端 fiber 竞速下裸 `ctx.slots.register` 可先于声明执行。规范姿势=`ctx.slots.inject(slotName, () => register(...))`(声明即触发、控制器自绑 fiber;仓内 ui-cordis/balance 均此写法)。两插件已在 dsh-plugins 修复升版(connection-banner 0.2.1、clickable-refs 0.4.1,均已推 backup),重贩售换钉。全 vendor 扫描:其余插件均已包裹,无同类残留。冒烟基线:57 客户端模块零错误、整框渲染、双首启弹窗可走通;composer 交互在无工作区虚拟家目录不可达(原生目录选择器),由 apps/web 三场景金样覆盖。
 
+## backport(mcp-client): reject repeated tool discovery cursors — de95110838（上游 `594305ce19`，PR #3846）
+
+- **改了什么**：`git cherry-pick -x 594305ce19`，13 个文件原样落地。唯一的 src 改动是 `packages/mcp/mcp-client/src/tools.ts`：分页拉取工具清单时新增一个 `seenCursors: Set<string>`，服务器重复给出同一个 `tools/list` 游标时在取用那一刻失败，而不是继续绕圈；这一轮的失败不会清掉上一代已注册的工具。其余是双语 README、Agent Note `2026-07-07-mcp-client-plugin`、`apps/cli` 的 headless expected e2e（`mcp-pagination`）与三份新夹具/用例。
+- **为什么**：rc.31 出货即带 `@haoran/dsh-mcp-servers` 的「外部工具」设置页，用户可以填任意第三方 MCP 服务器；一个游标不前进的服务器会让宿主在工具发现处无限循环，这条路径在本产品里是用户可达的。
+- **实证**：上游 PR #3846；本线 `vitest run packages/mcp` **5 文件 / 109 条全绿**。`packages/mcp/mcp-client/src/tools.ts` 实测含 `seenCursors`（152/177/182 行）。
+- **要达到的效果**：重复游标在取用处报错并保住上一代工具，而不是挂住发现流程。
+- **退役条件**：本 fork 的补丁线取到一个已含 `594305ce19` 的上游基座即自动退役——`core-patches-v8` 已含（实测 `git merge-base --is-ancestor` 为真；`core-patches-v7`，即本集成线的基座，为假）。
+- **状态**：在役，**仅在 rc.31 集成线上**。不需要回补丁线：v8 起由上游自带。
+
+## backport(directory-picker-native): decode the Win32 picker path without a fixed 32KiB view — 900fc3194d（上游 `ce0a1e4253`，PR #3368）
+
+- **改了什么**：`git cherry-pick -x -m 1 ce0a1e4253`（取第一父 `eae5c6b896` 的差异），5 个文件原样落地：`packages/host/directory-picker-native/src/win32-dialog-bindings.ts` 与其 spec，加一份新 Agent Note `2026-08-31-win32-picker-path-string-read`。结果路径不再套一个固定 32 KiB 的视图去读，因而不会越读所选路径缓冲区之外的内存。
+- **为什么**：rc.31 的 Windows 安装包用这个原生选择器选工作目录，是每个 Windows 用户首次启动就会走的一步。
+- **实证**：上游 PR #3368；本线 `vitest run packages/host/directory-picker-native` **5 文件 / 52 通过 + 1 跳过**（Win32 用例以 mock 运行，故在 macOS 上照跑）。
+- **要达到的效果**：所选路径按其自身长度解码，越界读消失。
+- **随附适配（`4e405d3165`）**：该 Agent Note 指向 `archived/bug-fix/2026-08-23-win32-utf16-nul-truncation.md`，而上游把那份记录移进归档的提交不在本线上——本线它仍在 `implemented/bug-fix/`，于是 `verify-md-links` 中英两侧同时报红。改为指向它在本线的实际位置，中文侧按配对门禁要求指中文件（归档目标不受该规则约束，在役目标受）。**没有**顺手在本线归档那份记录:归档件一经写下即冻结,那次移动属于补丁线下一次取到的上游基座。此适配随退役条件一并退役。
+- **退役条件**：与上条同——`core-patches-v8` 已含 `ce0a1e4253`（实测），本集成线基座 `core-patches-v7` 未含。
+- **状态**：在役，**仅在 rc.31 集成线上**。不需要回补丁线。
+
 ## 每日滚动同步：0.1.2-alpha.2 → alpha.3（`core-patches-v2` 1988f0dca5 → `core-patches-v3`，117 个上游提交）
 镜像快进 `master` 到 `upstream/master`（`0a53fb55be..dd6322d604`）后推 `origin`；`git worktree add ../dsh-roll -b core-patches-v3 1988f0dca5` 建滚动树；`git rebase --onto upstream/master 0a53fb55be` 把 v2 的 45 个补丁提交滚到 alpha.3 上，全部落地，无一 `--skip` 整提交（细粒度的部分退役见下）。
 
@@ -806,3 +825,7 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 **两份 Agent Note 随之订正。**`2026-09-06-desktop-mcp-servers.{md,zh.md}` 只是版本号与 sha256。`2026-09-06-desktop-btw-side-question.{md,zh.md}` 是实质订正：原文写「按下停止会中止这次请求——模型调用是真的被切断」，而出货客户端根本不把取消信号传给它发起的命令，问出去的回答一定跑完，× 只是收起那一行；真正会被放弃的是跑到 `timeoutMs` 的请求。注册表的 abort 路径只对会传信号的调用方成立（出货客户端不是），所以插件自己那句「已取消」在本产品里永远到不了任何一张卡片。同时补记卡片的折叠状态按浏览器记忆。两对 `.i18n.yaml` 与 `apps/desktop/README.i18n.yaml` 一并重录。
 
 **门禁实跑（HEAD = 本节所在提交之前的 `0b27c988df`）。**两轮 `pnpm install --offline` 各 0（装好的副本实证为 `0.1.4` 与 `0.1.1`）→ `gen-third-party-notices` 重跑并提交 → `verify-vendored-plugin-versions` **13 个**一致 → `verify-vendored-links` **9 个** → `build` 0（**222 个客户端产物**）→ `vitest run apps/desktop/tests` **21 文件 / 495 条全绿** → `test:docs` **17/17** → `verify-translation-pairing` **1194 对**全绿 → `lint` 0 → `typecheck` 0。未打包。
+
+### 集成期追加补丁：两条上游修复的 backport
+
+`de95110838`（上游 `594305ce19`，PR #3846，MCP 工具发现重复游标）与 `900fc3194d`（上游 `ce0a1e4253`，PR #3368，Win32 目录选择器越界读），外加一条随附适配 `4e405d3165`（把 backport 带来的 Agent Note 链接指到它在本线的实际位置）。两条登记见本文件的两个 `## backport(...)` 小节。**两条都只在本集成线上追加，都不需要回补丁线 `core-patches-v7`**：实测 `core-patches-v8` 的基座已含这两个上游提交，届时自动退役。
