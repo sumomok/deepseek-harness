@@ -8,7 +8,39 @@
  * for `ui-conversation`, and a Chat Node kind string for `ui-chat`.
  */
 import { afterEach, describe, expect, it } from 'vitest'
+import type { ChatNodeKind } from '@deepseek-ai/dsh-client-ui-chat/client'
+// Empty type imports: each carries that package's own `ChatNodeDataMap` merge
+// into this program, so `ChatNodeKind` below is the union this console
+// actually composes rather than ui-chat's own members alone. A package the
+// console gains must be added here, which is what makes the exhaustiveness
+// check answer for the whole composition.
+import type {} from '@deepseek-ai/dsh-client-ui-workflow-run/client'
+import type {} from '@deepseek-ai/dsh-client-ui-goal/client'
 import { installTerminologyGuard } from '../src/client/terminology-guard.ts'
+
+/** Every Chat Node kind this stylesheet hides outright, by `data-chat-flow-kind`. */
+const HIDDEN_KINDS = [
+  'system-prompt', 'turn-process', 'tool-call', 'command', 'manual-compaction',
+  'compaction', 'context', 'model-retry', 'command-input', 'workflow-run', 'unknown',
+] as const satisfies readonly ChatNodeKind[]
+
+/**
+ * Every Chat Node kind the console keeps on screen. `turn-tail` is kept as a
+ * row; the footer rule below takes two controls inside it.
+ */
+const KEPT_KINDS = [
+  'user', 'steering', 'assistant-step', 'turn-error', 'turn-max-tokens', 'turn-tail',
+] as const satisfies readonly ChatNodeKind[]
+
+/**
+ * Compile-time exhaustiveness over `ChatNodeDataMap`
+ * (`packages/client/ui-chat/src/client/contract/chat-nodes.ts:16-19`), which is
+ * merge-extensible: a kind added by any composed package, and left out of both
+ * lists above, resolves to that kind's own string literal here and fails to
+ * assign, so a new flow row cannot reach a customer unreviewed.
+ */
+type UnaccountedKind = Exclude<ChatNodeKind, (typeof HIDDEN_KINDS)[number] | (typeof KEPT_KINDS)[number]>
+const UNACCOUNTED: UnaccountedKind extends never ? true : UnaccountedKind = true
 
 afterEach(() => {
   document.getElementById('dsh-server-sidebar-terminology-guard')?.remove()
@@ -42,13 +74,16 @@ describe('installTerminologyGuard', () => {
   it('hides every process row the conversation column carries, by Chat Node kind', () => {
     installTerminologyGuard()
     const css = document.getElementById('dsh-server-sidebar-terminology-guard')?.textContent ?? ''
-    const kinds = [
-      'system-prompt', 'turn-process', 'tool-call', 'command',
-      'manual-compaction', 'compaction', 'context', 'model-retry',
-    ]
-    for (const kind of kinds) {
+    for (const kind of HIDDEN_KINDS) {
       expect(css).toContain(`[data-chat-flow-kind="${kind}"] { display: none !important; }`)
     }
+    // Every kind is in exactly one list, and the kept ones carry no rule of
+    // their own. The compile-time half is `UNACCOUNTED` above.
+    expect(UNACCOUNTED).toBe(true)
+    for (const kind of KEPT_KINDS) {
+      expect(css).not.toContain(`[data-chat-flow-kind="${kind}"] { display: none !important; }`)
+    }
+    expect(new Set([...HIDDEN_KINDS, ...KEPT_KINDS]).size).toBe(HIDDEN_KINDS.length + KEPT_KINDS.length)
     // Reasoning is not a kind of its own: it renders inside the kept
     // `assistant-step` seat, so its rule keys on `ReasoningRow`'s attribute.
     expect(css).toContain('[data-variant="think"] { display: none !important; }')
@@ -67,12 +102,17 @@ describe('installTerminologyGuard', () => {
     expect(css).not.toContain('[data-turn-tail] [class*="actions"]')
   })
 
-  it('swaps the composer placeholder copy for both composer states', () => {
+  it('swaps the composer placeholder copy only where the composer accepts input', () => {
     installTerminologyGuard()
     const css = document.getElementById('dsh-server-sidebar-terminology-guard')?.textContent ?? ''
-    expect(css).toContain('[data-composer-placeholder] { font-size: 0 !important; }')
-    expect(css).toContain('[data-composer-placeholder]::after')
+    const scope = '[data-composer-input]:not([data-phase=\'inert\']):not([aria-disabled]) + [data-composer-placeholder]'
+    expect(css).toContain(`${scope} {`)
+    expect(css).toContain(`${scope}::after`)
     expect(css).toContain('说说要做什么')
+    // The inert composer's own diagnostic ("Choose a workspace to start") and a
+    // raised block's reason share this element, and neither is an invitation to
+    // type — an unscoped rule would paint over both.
+    expect(css).not.toContain('\n[data-composer-placeholder]')
   })
 
   it('re-texts the running indicator and drops its brand gradient, without touching its clock', () => {
