@@ -43,9 +43,11 @@
  * cannot report what it is doing, and the wizard would only ask again what the
  * click already answered.
  *
- * 帮助 → 检查更新 runs the same silent check. It answers only when there is
- * nothing to do — 「已是最新版本」 or 「无法检查更新」 — because a click deserves a
- * reply, while a check that found work reports it where the update lives.
+ * 帮助 → 检查更新 runs the same silent check, and answers 「已是最新版本」,
+ * 「无法检查更新」, 「正在后台下载新版本」 or 「新版本已下载完成」 — a click deserves a
+ * reply, while a check that found work reports it where the update lives. On
+ * the download page a manual check that finds an update asks 「发现新版本 /
+ * 去下载」 instead, because that tier has no other way to hand the download over.
  *
  * Above that sits one mandatory layer, keyed on the feed's `minimumVersion`:
  * a build older than that line downloads without being asked, and at launch it
