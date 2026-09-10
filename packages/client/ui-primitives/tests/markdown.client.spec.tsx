@@ -669,6 +669,21 @@ describe('MarkdownText', () => {
     expect(referents.opened).toEqual([span])
   })
 
+  it('an image-only anchor over a local path keeps the image, and never becomes an empty clickable', () => {
+    const referents = makeLinkReferents(new Map([['/abs/x.png', { start: 0, end: 1 }]]))
+    const { container } = render(
+      <MarkdownText
+        text="[![alt](/abs/x.png)](/abs/x.png)"
+        referents={referents}
+        pathImages={{ resolve: destination => (destination === '/abs/x.png' ? 'blob:x' : undefined) }}
+      />,
+    )
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:x')
+    expect(container.querySelector('img')?.getAttribute('alt')).toBe('alt')
+    expect(container.querySelector('button')).toBeNull()
+    expect(container.querySelector('code')).toBeNull()
+  })
+
   it('a local-path-shaped link destination resolveLink declines renders plain inline-code style with the destination on title, never trailing text', () => {
     const referents = makeLinkReferents(new Map())
     const { container } = render(

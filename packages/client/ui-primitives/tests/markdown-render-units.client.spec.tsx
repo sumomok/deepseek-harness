@@ -247,7 +247,7 @@ describe('local-path link destinations (hand-built tree — a real parse cannot 
     expect(container.querySelector('a')).toBeNull()
   })
 
-  it('flattens an image child (no readable text of its own) to an empty displayText, never throwing', () => {
+  it('flattens an image child (no readable text of its own) beside readable siblings, contributing nothing', () => {
     let seenDisplayText: string | undefined
     const context: MarkdownRenderContext = {
       ...makeContext(),
@@ -263,11 +263,40 @@ describe('local-path link destinations (hand-built tree — a real parse cannot 
     const node: Md.Link = {
       type: 'link',
       url: '/proj/report.md',
-      children: [{ type: 'image', url: 'x.png', alt: 'x' }],
+      children: [{ type: 'text', value: 'report ' }, { type: 'image', url: 'x.png', alt: 'x' }],
     }
     const container = renderNodes([{ type: 'paragraph', children: [node] }], context)
-    expect(seenDisplayText).toBe('')
-    expect(container.querySelector('code')?.textContent).toBe('')
+    expect(seenDisplayText).toBe('report ')
+    expect(container.querySelector('code')?.textContent).toBe('report ')
+  })
+
+  it('leaves an anchor wrapping only images to the anchor renderer, so the images survive', () => {
+    let resolveLinkCalls = 0
+    const context: MarkdownRenderContext = {
+      ...makeContext(),
+      pathImages: { resolve: destination => (destination === '/abs/x.png' ? 'blob:x' : undefined) },
+      referents: {
+        scan: () => [],
+        open: () => {},
+        resolveLink: () => {
+          resolveLinkCalls += 1
+          return { start: 0, end: 1 }
+        },
+      },
+    }
+    const node: Md.Link = {
+      type: 'link',
+      url: '/abs/x.png',
+      children: [{ type: 'image', url: '/abs/x.png', alt: 'alt' }],
+    }
+    const container = renderNodes([{ type: 'paragraph', children: [node] }], context)
+    // The image reaches its own renderer, pathImages rewrite included.
+    expect(container.querySelector('img')?.getAttribute('src')).toBe('blob:x')
+    expect(container.querySelector('img')?.getAttribute('alt')).toBe('alt')
+    // Neither empty stand-in the local-path branch would have produced is present.
+    expect(container.querySelector('button')).toBeNull()
+    expect(container.querySelector('code')).toBeNull()
+    expect(resolveLinkCalls).toBe(0)
   })
 
   it('flattens every link-child shape linkPlainText handles: inlineCode value, break as a space, and recursion into a nested-children node', () => {
