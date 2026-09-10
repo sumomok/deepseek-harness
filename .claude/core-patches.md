@@ -1101,3 +1101,12 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 ### 分支 HEAD 登记
 
 起点 `origin/develop` = `386e0197c8`；阶段 A 五条本线提交顶 `894074b437`，阶段 A 复核补丁两条顶 `131ed56f28`；合并提交 `568c1eb971`（第二父 `origin/core-patches-v8` = `46a7aa75fd`，未被本分支改写）；本线三条适配提交顶 `ba6e2699c2`，即本节所在提交之前的分支 HEAD。基座 `upstream/master` = `2377c272a8`（0.1.5-rc.1）。本分支未推 origin，零 `--amend`、零 `--force`、零 `--no-verify`。
+
+### 阶段 B 独立复核订正（本节以上段落原样保留）
+
+订正对象是本节以上的 rc.32 合并审计段落，依据为阶段 B 独立对抗性复核的实测复算。
+
+- **手判表补一条**：`packages/client/ui-tool/src/client/tool/toolviews/approval-diff-row.tsx` 是 fork 独有文件（`1930a2321b` 与 `46a7aa75fd` 均无它）。合并把该文件第 8 行的 import 由「`abbreviateHomePath` 取自 `@deepseek-ai/dsh-util-workspace-path` + `relativizeToCwd` 取自 `../models/tool-call-model.ts`」改为两者同取自 `@deepseek-ai/dsh-util-workspace-path`：上游把 `relativizeToCwd` 迁到 `packages/util/workspace-path/src/index.ts:107`，`ui-tool` 侧的同名导出随本轮 21 个被删导出一并退役，函数体与签名未变。这是「develop 改过、v8 未改」的 319 条路径里唯一一条结果不等于 develop blob 而手判表未点名的。
+- **`tsdown.client.ts` 不存在**：上文「7 个红文件逐条归因」表里 `transform-corpus.spec.ts` 的输入清单写作 `tsdown.client.ts`；`46a7aa75fd` 与本线 HEAD 的树里都没有该路径，真实文件是 `packages/client/ui-dockkit/tsdown.config.ts`（同样与 v8 blob 零 diff）。该行的归因结论不变。
+- **`pnpm-workspace.yaml` 不是零改动**：上文「依赖与原生插件」一段的「`pnpm-workspace.yaml` 零改动」按字面为假。相对 fork 父 `131ed56f28`，该文件 22 增 19 删，全部是基座位移：`native/landlock-run` → `native/system`、新增 `benchmarks` 工作区成员、删 `fs-ext` 的 allowBuild、`electron-winstaller` 注释换成 v8 措辞、新增 `msgpackr-extract: false`、pi-ai / pi-telemetry / claude-agent-sdk / codex 四组版本豁免行改版本号。成立的说法是「相对 `46a7aa75fd` 只多 fork 自己三项」：`dsh-better-sidebar>node-pty` override、`allowBuilds.electron: true`、`patchedDependencies['electron-updater@6.8.9']`——`git diff 46a7aa75fd 18c64ae8b6 -- pnpm-workspace.yaml` 实测只有这三段。
+- **7519 / 103 的分母未记且不复现**：以内容祖先 `1930a2321b`、`git diff --no-renames --name-only` 为口径复算，v8 侧改过 **7073** 条、develop 侧改过 **447** 条、两侧都改过 **128** 条、仅 v8 改过 **6945** 条。合并提交 `568c1eb971` 上这 6945 条**逐字节等于 v8 blob，零不符**（`packages/api/session-controller/README.zh.md` 那条订正已含在内）。上文的 7519 与 103 在该口径下不复现，其分母所取的路径集未在文中说明。同一口径的反向护栏（上文未做）：仅 develop 改过 **319** 条，合并提交上 **312** 条等于 develop blob，**7** 条不符 = 上文点名的 6 条归档死链改指 + 本节第一条的 `approval-diff-row.tsx`，无静默丢失。（在 HEAD `18c64ae8b6` 上另有 3 条 v8 侧路径与 2 条 develop 侧路径不等，均由三条快照跟进提交刻意改动。）
