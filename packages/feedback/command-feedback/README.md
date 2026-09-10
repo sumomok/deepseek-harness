@@ -140,7 +140,6 @@ These limits define where session feedback is a poor fit or behaves differently 
 - **Live Sessions only through the Remote** — `sessionFeedback.record` answers `session-not-found` for a Session no live owner carries; the Web dialog reports that failure when its Session retires while it is open.
 - **No amend or withdraw** — the session log is append-only and this package adds no tombstone, so a mistaken entry stays recorded and can only be superseded by a later one.
 - **No explicit durability barrier** — the acknowledgement follows the append, not a flush, so an entry recorded immediately before a crash can be lost with any other unflushed tail. A consumer that needs a barrier awaits `ctx.sessions.flush(session)`.
-- **No visible acknowledgement on a fresh session** — the web transcript renders command rows only once a session is active, so a typed `/feedback <text>` on a still-blank session records the event but shows no acknowledgement row; the dialog's toast does not depend on the transcript.
 - **Web only among the shipped entry points** — headless mode, ACP automation, and JSON-RPC provide no command adapter, so `/feedback` is unavailable there.
 
 <a id="dev-note"></a>

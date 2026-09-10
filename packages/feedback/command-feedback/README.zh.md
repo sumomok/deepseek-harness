@@ -140,7 +140,6 @@ Web 客户端随附该命令。无头模式、ACP 自动化和 JSON-RPC 不提�
 - **Remote 只服务 live Session**——没有 live 持有者的 Session，`sessionFeedback.record` 回答 `session-not-found`；弹窗打开期间 Session 退役时，Web 弹窗会报告该失败。
 - **不支持修改或撤回**——会话日志是仅追加的，本包也不新增 tombstone，因此错误的条目会一直保留在记录中，只能由后续条目取代。
 - **没有显式持久化屏障**——确认文本紧随追加而非 flush，因此紧临崩溃前记录的条目可能与其他未 flush 的尾部一同丢失。需要该保证的消费方可自行等待 `ctx.sessions.flush(session)`。
-- **新会话上没有可见的确认**——Web transcript（文本记录）只在会话激活后渲染命令行，因此在仍为空白的新会话上输入 `/feedback <text>` 会记录事件但不会显示确认行；弹窗的 toast 不依赖文本记录。
 - **随附的产品入口中只有 Web 使用此命令**——无头模式、ACP 自动化和 JSON-RPC 不提供命令适配器，因此 `/feedback` 在那里不可用。
 
 <a id="dev-note"></a>
