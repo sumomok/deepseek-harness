@@ -22,7 +22,7 @@
  * | `GET /state` | `200` — the {@link UpdateSnapshot} as its own JSON object |
  * | `POST /check` | `202` — the snapshot; a check runs in the background and downloads what it finds |
  * | `POST /download` | `202` — the snapshot; the transfer of the version already found is (re)started |
- * | `POST /install` | `202` — the snapshot; the app quits and installs. `409` when the phase is not `ready` |
+ * | `POST /install` | `202` — `{ "ok": true }`, written before anything stops. `409` when the phase is not `ready` |
  *
  * Every other path and method is `404`, decided before the token is read, so
  * the answer says nothing about what this service offers to a caller that
@@ -35,6 +35,12 @@
  * consent, and asking again would only repeat the question that click answered.
  * The route therefore refuses everything but the one phase in which an update
  * is downloaded and verified.
+ *
+ * It also answers before it acts. The install stops the embedded server and
+ * hands the machine to an installer that replaces this process, so a caller
+ * still waiting on the response would read the dropped socket as a failed
+ * install. `{ "ok": true }` is written first and the install is scheduled for
+ * the next tick, after the answer is on the wire.
  * @module @deepseek-ai/dsh-desktop-shell/update-service
  */
 
@@ -79,8 +85,9 @@ export interface UpdateServiceSpec {
   download: () => void
   /**
    * Stop the embedded server and hand the downloaded update to the installer.
-   * Called only when [[state]] reports `ready`, and only after the user clicked
-   * the button that says so.
+   * Called only when [[state]] reports `ready`, only after the user clicked the
+   * button that says so, and only once the answer to that request has been
+   * written.
    */
   install: () => void
 }
@@ -141,13 +148,20 @@ export async function startUpdateService(spec: UpdateServiceSpec): Promise<Updat
       sendJson(response, 200, spec.state())
       return
     }
-    if (route === 'install' && spec.state().phase !== 'ready') {
-      sendText(response, 409, 'no update is downloaded and verified; install is offered only in the ready phase')
+    if (route === 'install') {
+      if (spec.state().phase !== 'ready') {
+        sendText(response, 409, 'no update is downloaded and verified; install is offered only in the ready phase')
+        return
+      }
+      sendJson(response, 202, { ok: true })
+      // After the answer, never before it: the install takes the server and
+      // this process down, and a caller still waiting would read the dropped
+      // socket as a failure.
+      setImmediate(() => { spec.install() })
       return
     }
     if (route === 'check') spec.check()
-    else if (route === 'download') spec.download()
-    else spec.install()
+    else spec.download()
     sendJson(response, 202, spec.state())
   }
 

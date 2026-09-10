@@ -134,11 +134,25 @@ describe('GET /state', () => {
     })
   })
 
+  it('carries the check time as an ISO 8601 timestamp', async () => {
+    const state = new UpdateState(CURRENT)
+    state.checkStarted()
+    state.checkSucceeded('2026-09-11T02:00:00.000Z')
+    const { handle } = await start(state)
+    expect(await jsonOf(await call(handle, STATE_PATH, 'GET'))).toEqual({
+      phase: 'idle',
+      currentVersion: CURRENT,
+      checkedAt: '2026-09-11T02:00:00.000Z',
+    })
+  })
+
   it('reports the phase and the progress of a transfer in flight', async () => {
     const state = new UpdateState(CURRENT)
     state.downloadStarted(NEXT)
     state.downloadProgress({ percent: 42.5, transferred: 425, total: 1000 })
     const { handle } = await start(state)
+    // Both forms travel: a reader that prefers the bytes has them, and one that
+    // takes `percent` does not have to derive it.
     expect(await jsonOf(await call(handle, STATE_PATH, 'GET'))).toEqual({
       phase: 'downloading',
       currentVersion: CURRENT,
@@ -170,6 +184,11 @@ describe('the three actions', () => {
     const { handle, recorded } = await start(readyState())
     const response = await call(handle, INSTALL_PATH)
     expect(response.status).toBe(202)
+    // `{ ok: true }` rather than the snapshot, and written before the install
+    // is scheduled: the install takes this process down, so a caller still
+    // waiting on the answer would read that as a failed request.
+    expect(await jsonOf(response)).toEqual({ ok: true })
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
     expect(recorded.installs).toBe(1)
   })
 
@@ -180,6 +199,7 @@ describe('the three actions', () => {
     const response = await call(handle, INSTALL_PATH)
     expect(response.status).toBe(409)
     expect(response.headers.get('content-type')).toBe('text/plain; charset=utf-8')
+    await new Promise<void>((resolve) => { setImmediate(resolve) })
     expect(recorded.installs).toBe(0)
   })
 

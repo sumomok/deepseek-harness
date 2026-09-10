@@ -20,11 +20,16 @@
  * - `downloading` — an artifact is transferring; the byte fields are current.
  * - `ready` — an update is downloaded and verified, waiting for the click that
  *   installs it. This is the only phase in which anything prominent is shown.
- * - `failed` — the last check or transfer did not get through; `reason` names it.
- * - `unsupported` — this build cannot install an update where it stands, so the
- *   channel reports rather than acts.
+ * - `failed` — the update did not get through, and `reason` names why. That
+ *   covers a check or transfer the network defeated, which the next check
+ *   starts over, and a build that cannot install an update at all
+ *   ([[UpdateState.markUnavailable]]), which nothing this run changes.
+ *
+ * These five are the whole set the shell reports. A reader that also has a
+ * state for "this deployment has no update channel" owns that value itself: the
+ * shell only ever answers for a channel it has.
  */
-export type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'ready' | 'failed' | 'unsupported'
+export type UpdatePhase = 'idle' | 'checking' | 'downloading' | 'ready' | 'failed'
 
 /**
  * One `download-progress` sample, in the units electron-updater's event reports.
@@ -51,7 +56,7 @@ export interface UpdateSnapshot {
   currentVersion: string
   /** The version the last check saw, when it saw one ahead of the running build. */
   latestVersion?: string
-  /** Release notes the manifest carries for [[latestVersion]]. */
+  /** Release notes the manifest carries for [[latestVersion]], passed through as the feed wrote them. */
   releaseNotes?: string
   /** Transfer completion from 0 to 100; present only while `downloading`. */
   percent?: number
@@ -59,10 +64,14 @@ export interface UpdateSnapshot {
   transferredBytes?: number
   /** Total bytes of the artifact; present only while `downloading` and once the transfer knows it. */
   totalBytes?: number
-  /** What the failure was, in one line; present only when `failed` or `unsupported`. */
+  /**
+   * What the failure was; present only when `failed`. One line in the shell's
+   * own words — a code such as `ECONNRESET` where the failure carried one —
+   * rather than localized copy.
+   */
   reason?: string
-  /** Epoch milliseconds of the last completed check, successful or not. */
-  checkedAt?: number
+  /** ISO 8601 timestamp of the last completed check, successful or not. */
+  checkedAt?: string
 }
 
 /**
@@ -74,10 +83,10 @@ export interface UpdateSnapshot {
  * - `ready` survives every later check. An update that is downloaded and
  *   verified stays offered until it is installed, so a scheduled check that
  *   finds the same version does not take the offer back off the screen.
- * - `unsupported` is final for the run. It is set when this build cannot
- *   install what it downloads — a source-tree launch, or a macOS bundle whose
- *   in-place path failed — and nothing after that is worth reporting as
- *   progress towards an install that cannot happen.
+ * - the `failed` [[markUnavailable]] sets is final for the run. It is reached
+ *   when this build cannot install what it downloads — a source-tree launch, or
+ *   a macOS bundle whose in-place path failed — and nothing after that is worth
+ *   reporting as progress towards an install that cannot happen.
  */
 export class UpdateState {
   /** Where the channel stands. */
@@ -95,8 +104,14 @@ export class UpdateState {
   /** What the last failure or the demotion was. */
   private reason: string | undefined
 
-  /** Epoch milliseconds of the last completed check. */
-  private checkedAt: number | undefined
+  /** ISO 8601 timestamp of the last completed check. */
+  private checkedAt: string | undefined
+
+  /**
+   * Whether the channel has reported a failure nothing this run can move it off
+   * of, which is what [[markUnavailable]] sets.
+   */
+  private final = false
 
   /**
    * @param currentVersion - the running build's version, which never changes
@@ -131,7 +146,7 @@ export class UpdateState {
 
   /** A manifest read has started. */
   checkStarted(): void {
-    if (this.phase === 'unsupported' || this.phase === 'downloading' || this.phase === 'ready') return
+    if (this.final || this.phase === 'downloading' || this.phase === 'ready') return
     this.phase = 'checking'
     this.reason = undefined
   }
@@ -146,12 +161,12 @@ export class UpdateState {
    * disagree. What the feed offers is still recorded on a build that cannot
    * install it, because reporting the version is the whole of what that build
    * can do about it.
-   * @param at - epoch milliseconds of the answer.
+   * @param at - ISO 8601 timestamp of the answer.
    * @param version - the version the feed offers when it is ahead of the
    * running build, and undefined when the running build is current.
    * @param notes - release notes the manifest carries for that version.
    */
-  checkSucceeded(at: number, version?: string, notes?: string): void {
+  checkSucceeded(at: string, version?: string, notes?: string): void {
     this.checkedAt = at
     if (this.phase === 'ready' || this.phase === 'downloading') return
     this.latestVersion = version
@@ -161,11 +176,11 @@ export class UpdateState {
 
   /**
    * A manifest read did not get through.
-   * @param at - epoch milliseconds of the failure.
+   * @param at - ISO 8601 timestamp of the failure.
    * @param reason - what it failed with, in one line.
    */
-  checkFailed(at: number, reason: string): void {
-    if (this.phase === 'unsupported' || this.phase === 'ready') return
+  checkFailed(at: string, reason: string): void {
+    if (this.final || this.phase === 'ready') return
     this.checkedAt = at
     this.phase = 'failed'
     this.reason = reason
@@ -177,7 +192,7 @@ export class UpdateState {
    * @param notes - release notes the manifest carries for it.
    */
   downloadStarted(version: string, notes?: string): void {
-    if (this.phase === 'unsupported' || this.phase === 'ready') return
+    if (this.final || this.phase === 'ready') return
     this.phase = 'downloading'
     this.latestVersion = version
     this.releaseNotes = notes
@@ -202,7 +217,7 @@ export class UpdateState {
    * @param notes - release notes the manifest carries for it.
    */
   downloadReady(version: string, notes?: string): void {
-    if (this.phase === 'unsupported') return
+    if (this.final) return
     this.phase = 'ready'
     this.latestVersion = version
     this.releaseNotes = notes
@@ -222,12 +237,18 @@ export class UpdateState {
   }
 
   /**
-   * This build cannot install an update where it stands, for the rest of the run.
+   * This build cannot install an update where it stands, for the rest of the
+   * run: a source-tree launch, or a macOS bundle whose in-place path failed.
+   *
+   * Reported as `failed` with the reason, because that is the phase a reader
+   * has for "the update did not get through", and nothing later this run moves
+   * it — unlike an ordinary failure, which the next check starts over from.
    * @param reason - why, in one line.
    */
-  markUnsupported(reason: string): void {
-    if (this.phase === 'unsupported') return
-    this.phase = 'unsupported'
+  markUnavailable(reason: string): void {
+    if (this.final) return
+    this.final = true
+    this.phase = 'failed'
     this.reason = reason
     this.sample = undefined
   }

@@ -1,6 +1,6 @@
 /**
  * The reportable state of the update channel: which event moves it where, and
- * the two phases that refuse to be moved.
+ * the two states that refuse to be moved.
  * @module
  */
 
@@ -14,7 +14,7 @@ const CURRENT = '0.1.0-rc.32'
 const NEXT = '0.1.0-rc.33'
 
 /** A fixed clock reading, so a recorded check time is comparable. */
-const CHECKED_AT = 1_757_500_000_000
+const CHECKED_AT = '2026-09-11T02:00:00.000Z'
 
 /**
  * A machine for one case.
@@ -25,6 +25,14 @@ function machine(): UpdateState {
 }
 
 describe('the snapshot', () => {
+  it('names only the five phases the shell reports', () => {
+    const state = machine()
+    state.markUnavailable('development launch')
+    // A reader's own "this deployment has no update channel" value is never
+    // one of these: the shell only ever answers for a channel it has.
+    expect(state.snapshot().phase).toBe('failed')
+  })
+
   it('starts idle, naming only the running build', () => {
     expect(machine().snapshot()).toEqual({ phase: 'idle', currentVersion: CURRENT })
   })
@@ -87,7 +95,7 @@ describe('a check', () => {
     })
   })
 
-  it('starts over from a failure', () => {
+  it('starts over from a failure the next check can fix', () => {
     const state = machine()
     state.checkStarted()
     state.checkFailed(CHECKED_AT, 'ECONNRESET')
@@ -186,16 +194,16 @@ describe('a transfer', () => {
 })
 
 describe('a build that cannot install an update', () => {
-  it('says so, and nothing after it moves the phase', () => {
+  it('reports the one failure phase, and nothing after it moves the channel', () => {
     const state = machine()
-    state.markUnsupported('development launch')
+    state.markUnavailable('development launch')
     state.checkStarted()
     state.downloadStarted(NEXT)
     state.downloadProgress({ percent: 10, transferred: 100, total: 1000 })
     state.downloadReady(NEXT)
     state.downloadFailed('ETIMEDOUT')
     expect(state.snapshot()).toEqual({
-      phase: 'unsupported',
+      phase: 'failed',
       currentVersion: CURRENT,
       reason: 'development launch',
     })
@@ -203,10 +211,10 @@ describe('a build that cannot install an update', () => {
 
   it('still reports the version the feed offers, which is all it can do about it', () => {
     const state = machine()
-    state.markUnsupported('this build installs an update by replacing it by hand')
+    state.markUnavailable('this build installs an update by replacing it by hand')
     state.checkSucceeded(CHECKED_AT, NEXT, 'fixes the thing')
     expect(state.snapshot()).toMatchObject({
-      phase: 'unsupported',
+      phase: 'failed',
       latestVersion: NEXT,
       releaseNotes: 'fixes the thing',
       checkedAt: CHECKED_AT,
@@ -215,8 +223,8 @@ describe('a build that cannot install an update', () => {
 
   it('keeps the first reason it was given', () => {
     const state = machine()
-    state.markUnsupported('first')
-    state.markUnsupported('second')
+    state.markUnavailable('first')
+    state.markUnavailable('second')
     expect(state.snapshot().reason).toBe('first')
   })
 
@@ -224,8 +232,16 @@ describe('a build that cannot install an update', () => {
     const state = machine()
     state.downloadStarted(NEXT)
     state.downloadProgress({ percent: 10, transferred: 100, total: 1000 })
-    state.markUnsupported('in-place update unavailable: ERR_UPDATER_INVALID_SIGNATURE')
+    state.markUnavailable('in-place update unavailable: ERR_UPDATER_INVALID_SIGNATURE')
     expect(state.snapshot().percent).toBeUndefined()
     expect(state.isReady()).toBe(false)
+  })
+
+  it('is not the same as a failure the next check starts over from', () => {
+    const state = machine()
+    state.checkStarted()
+    state.checkFailed(CHECKED_AT, 'ECONNRESET')
+    state.checkStarted()
+    expect(state.snapshot().phase).toBe('checking')
   })
 })

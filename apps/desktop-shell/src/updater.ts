@@ -395,7 +395,7 @@ export function setupUpdates(host: UpdateHost): () => void {
   const check = app.isPackaged
     ? (reason: CheckReason): void => { void runCheck(host, reason) }
     : (reason: CheckReason): void => {
-      updateState().markUnsupported('development launch: there is no installed app to replace')
+      updateState().markUnavailable('development launch: there is no installed app to replace')
       host.log('[updater] skipped: development launches have no installed app to replace\n')
       if (reason === 'manual') {
         void ask({
@@ -542,7 +542,7 @@ function demoteMac(host: UpdateHost, error: unknown): void {
   if (macInstallUnavailable) return
   macInstallUnavailable = true
   const message = error instanceof Error ? error.message : String(error)
-  updateState().markUnsupported(`in-place update unavailable: ${describeDownloadError(error)}`)
+  updateState().markUnavailable(`in-place update unavailable: ${describeDownloadError(error)}`)
   host.log(`[updater] in-place update unavailable (${message}); this run falls back to the download page\n`)
 }
 
@@ -830,7 +830,7 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
     await checkGeneric(host, reason)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
-    updateState().checkFailed(Date.now(), describeDownloadError(error))
+    updateState().checkFailed(new Date().toISOString(), describeDownloadError(error))
     host.log(`[updater] check failed: ${message}\n`)
     if (reason === 'manual') {
       await ask({
@@ -859,7 +859,7 @@ async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void
   const result = await checkFeedWithRetry(host, checking)
   const version = result?.updateInfo.version
   if (version === undefined || compareVersions(version, app.getVersion()) <= 0) {
-    updateState().checkSucceeded(Date.now())
+    updateState().checkSucceeded(new Date().toISOString())
     host.log(`[updater] no update: installed ${app.getVersion()}, feed ${version ?? 'unavailable'}\n`)
     if (reason === 'manual') await reportUpToDate()
     return
@@ -867,7 +867,7 @@ async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void
   const notes = typeof result?.updateInfo.releaseNotes === 'string' ? result.updateInfo.releaseNotes : undefined
   stagedNotes = notes
   offeredVersion = version
-  updateState().checkSucceeded(Date.now(), version, notes)
+  updateState().checkSucceeded(new Date().toISOString(), version, notes)
   if (isMandatory(minimumOf(result?.updateInfo))) {
     // Mid-session mandatory: start immediately, but let the work in progress
     // finish — the next launch is where the gate stops being negotiable.
@@ -1084,7 +1084,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason): Promise<void
   const feed = await fetchFeed(`${FEED_MAC}/latest-mac.yml`)
   const version = feed.version
   if (compareVersions(version, app.getVersion()) <= 0) {
-    updateState().checkSucceeded(Date.now())
+    updateState().checkSucceeded(new Date().toISOString())
     host.log(`[updater] no update: installed ${app.getVersion()}, feed ${version}\n`)
     if (reason === 'manual') await reportUpToDate()
     return
@@ -1092,8 +1092,8 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason): Promise<void
   const artifact = feed.files?.[0]?.url
   if (artifact === undefined) throw new Error(`更新源缺少 files[].url(${FEED_MAC}/latest-mac.yml)`)
   const notes = typeof feed.releaseNotes === 'string' ? feed.releaseNotes : undefined
-  updateState().checkSucceeded(Date.now(), version, notes)
-  updateState().markUnsupported('this build installs an update by replacing it by hand')
+  updateState().checkSucceeded(new Date().toISOString(), version, notes)
+  updateState().markUnavailable('this build installs an update by replacing it by hand')
   const mandatory = isMandatory(feed.minimumVersion)
   if (reason !== 'manual' && !mandatory) {
     host.log(`[updater] ${version} is available; not interrupting the session\n`)
