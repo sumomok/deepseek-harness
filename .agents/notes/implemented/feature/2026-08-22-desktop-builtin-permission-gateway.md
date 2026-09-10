@@ -10,7 +10,7 @@ English | [中文](2026-08-22-desktop-builtin-permission-gateway.zh.md)
 
 rc.17 moved the desktop client onto a `desktop` profile of its own, for the reasons the [built-in plugins note](2026-08-21-desktop-builtin-plugins.md) records. The desktop stopped composing `web`, so it stopped composing the gateway, and the preset went with it. Nothing said so: the preset control simply no longer listed 自动审查, tool calls were no longer reviewed, and the only evidence was a feature that had been configured and was now absent.
 
-The remedy the documentation offered was `dsh plugin --profile desktop add <tarball>` followed by copying a configuration file into the new profile — a terminal, a working pnpm, and a hand-edited YAML file, which are the three things the desktop client exists so that nobody needs. That is the same argument the sidebar and `@` mentions were shipped in the payload for, applied to a permission feature.
+The remedy the documentation offered was `dsh plugin --profile desktop-shell add <tarball>` followed by copying a configuration file into the new profile — a terminal, a working pnpm, and a hand-edited YAML file, which are the three things the desktop client exists so that nobody needs. That is the same argument the sidebar and `@` mentions were shipped in the payload for, applied to a permission feature.
 
 Two facts made this worse than a missing sidebar. A profile that keeps `yolo-access` without the gate is strictly worse than plain `danger-full-access`: full file access, no model review, and an `ask` policy whose one remaining effect is that the residual approval requests a `never` policy would have refused now reach a human with no context for them. And nothing enforced the pairing — it was a comment in the user's own patch file asking a reader not to separate two blocks.
 
@@ -40,7 +40,7 @@ It remains the better shape if a second plugin ever needs to contribute a preset
 
 ## Alternatives considered
 
-**Leave it to `dsh plugin --profile desktop add`.** The supported install path, and it is the problem restated: it needs a terminal, a working pnpm, and a reachable source for the tarball. Someone who installed the desktop client to avoid a terminal cannot follow it, and the feature had already been lost once precisely because it depended on a hand-run command.
+**Leave it to `dsh plugin --profile desktop-shell add`.** The supported install path, and it is the problem restated: it needs a terminal, a working pnpm, and a reachable source for the tarball. Someone who installed the desktop client to avoid a terminal cannot follow it, and the feature had already been lost once precisely because it depended on a hand-run command.
 
 **Have the shell seed the preset into the profile's `cordis.patch.yml`.** The shell already writes that file when it creates a profile, so it could write the preset row too. Rejected twice over. The shell would own another plugin's configuration, which puts a plugin-specific table in the Electron main process and splits the pairing across two repositories again. And the seed deliberately never rewrites an existing file, so every machine that already has a `desktop` profile — which is every machine with the problem — would keep a patch file without the preset in it.
 

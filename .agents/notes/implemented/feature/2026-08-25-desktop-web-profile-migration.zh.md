@@ -24,11 +24,11 @@ Status: implemented
 
 **哪些会搬过来。**web profile 的 `dsh.profile.bundles` 里,凡是既不属于桌面模板已经列出的那两个随附 bundle、也不在 `BUILTIN_WEB_BUNDLES`、也不在 `WITHDRAWN_WEB_BUNDLES`、也还没被 `migrated`、`defective` 或 `removed` 记过的名字。内置插件、被撤下的名字,连同一次拒收,都会连名字带理由写进日志——本功能之所以存在,就是因为有人不得不逐行读客户的 `dsh-server.log` 才弄明白他的插件去哪儿了。那两个随附 bundle 是例外:每一个建出来过的 web profile 都有它们,所以写它们的那一行会出现在每一次安装的首启里,却说不出被读的那个 profile 的任何事。
 
-**只建链接,既不复制也不安装**——本次同步追踪的每一个名字都一样,defective 的也不例外。`~/.dsh/profiles/desktop/node_modules/<name>` 会成为一条指向 `~/.dsh/profiles/web/node_modules/<name>` 的链接——指的是 web profile 的那个路径,而不是该路径当下解析到的地方。pnpm 可能把包放在任何位置、并在那儿放一条自己的链接;越过它去指里层,等于把桌面端钉死在今天这一份上,而那个路径本身会一直交出 `dsh plugin --profile web add <包>@latest` 之后装进去的东西。包仍然只住在 web profile 那一处,也只在那一处被更新。`ensureLink` 本就会建这条链接——在 Windows 上是 junction、因而需要绝对路径目标——也本就会为带 scope 的名字建出父目录。
+**只建链接,既不复制也不安装**——本次同步追踪的每一个名字都一样,defective 的也不例外。`~/.dsh/profiles/desktop-shell/node_modules/<name>` 会成为一条指向 `~/.dsh/profiles/web/node_modules/<name>` 的链接——指的是 web profile 的那个路径,而不是该路径当下解析到的地方。pnpm 可能把包放在任何位置、并在那儿放一条自己的链接;越过它去指里层,等于把桌面端钉死在今天这一份上,而那个路径本身会一直交出 `dsh plugin --profile web add <包>@latest` 之后装进去的东西。包仍然只住在 web profile 那一处,也只在那一处被更新。`ensureLink` 本就会建这条链接——在 Windows 上是 junction、因而需要绝对路径目标——也本就会为带 scope 的名字建出父目录。
 
 **记录没了就重建,而不是重放。**若某个名字已经在 `dsh.profile.bundles` 里、而它那条链接正是本壳会建的那一条,就把它记回 `migrated`(若 `bundleDefect` 此刻判它有缺陷,则记回 `defective`),而不再动一次清单——静悄悄地,不写 `migrated <name> from the web profile` 这行日志,因为没有新事发生,没什么可记的。没有这一步,一份被手工删掉的标记文件——或者清单写入刚成功、标记写入却失败这种概率极低的情形——就会留下一批指向 web profile、却没有任何东西再去复核的条目。已经列出、但链接不是本壳自己那条的名字,原样保留、只留下一句 `<name>: already in the desktop profile`,因为那不是本功能该碰的东西。
 
-只有**健康**的名字才会换来清单写入:追加进 `dsh.profile.bundles`,并把 web 清单为它声明的版本抄进 `dependencies`,这样日后的 `dsh plugin --profile desktop install` 会按同一个版本去对账,而不是把名字丢掉。这是播种里唯一会写入依赖条目的动作;模块文档里「依赖与清单里的其他字段都不会被动」那句承诺,如今明确写上了这一条例外。
+只有**健康**的名字才会换来清单写入:追加进 `dsh.profile.bundles`,并把 web 清单为它声明的版本抄进 `dependencies`,这样日后的 `dsh plugin --profile desktop-shell install` 会按同一个版本去对账,而不是把名字丢掉。这是播种里唯一会写入依赖条目的动作;模块文档里「依赖与清单里的其他字段都不会被动」那句承诺,如今明确写上了这一条例外。
 
 **有缺陷的名字会被禁用,既不丢掉也不悄悄拒收。**`bundleDefect` 是每一次准入、每一次逐启动复核、以及插件管理服务自己那几条修复路由都读的同一个谓词,如今它答出三种缺陷之一,不再是两种:`missing`(什么都没装——从不记成 defective,因为没有东西可展示)、`not-a-bundle`(装着的版本不再声明 `dsh.bundle`),以及上面那次现场事故新加的 `entry-missing`——清单的 `exports` 或 `main` 指的入口文件盘上没有,未构建的 git 安装留下的正是这个形状。`bundleDefect` 判定有缺陷的名字保留它的链接(可查看、可修复),但从不进入 `dsh.profile.bundles`;它的条目挪进标记文件的 `defective` 列表,带着 kind、一句 `detail`,以及 `at`——首次发现的时刻,只要同一个缺陷在后续启动里还是那个缺陷,这个时刻就不会变。日志那一行是 `disabled migrated <name>: <reason>`,一个名字一次状态转换写一行,不是每次启动只要它还是 defective 就再写一遍。一个 defective 条目在启动时从不会被自动重新核对:只有插件管理服务的 `/recheck` 与 `/repair` 路由——凭用户自己的动作——才会把它提回来。
 
@@ -46,7 +46,7 @@ Status: implemented
 
 ## Alternatives considered
 
-**通知用户,而不是替他迁移。**在日志里写一行,或在窗口里给个提示,点名哪些插件在 `web` 里而不在 `desktop` 里,以及哪条命令能把它们搬过来。因为受众而否决:桌面客户端的前提是一个没有终端的人,而 `dsh plugin --profile desktop add` 是一条要在没有 pnpm 的机器上、对着注册表执行的终端命令。一条无法照做的通知,结果等同于沉默,只是话更多。
+**通知用户,而不是替他迁移。**在日志里写一行,或在窗口里给个提示,点名哪些插件在 `web` 里而不在 `desktop` 里,以及哪条命令能把它们搬过来。因为受众而否决:桌面客户端的前提是一个没有终端的人,而 `dsh plugin --profile desktop-shell add` 是一条要在没有 pnpm 的机器上、对着注册表执行的终端命令。一条无法照做的通知,结果等同于沉默,只是话更多。
 
 **复制包目录,而不是建链接。**不再依赖一个用户能删掉的目录,于是不需要修复通道,也不会有悬空条目。因为它把包分了叉而否决:副本从此收不到 `dsh plugin --profile web` 的更新,而壳里没有任何东西会去更新它;于是搬过来的插件会永远冻结在搬运那天装的版本上,待在一个用户手里任何工具都不认识的目录里。修复通道的代价是每次启动、每个记录名字一次解析,换来的是全局只有一份副本。
 

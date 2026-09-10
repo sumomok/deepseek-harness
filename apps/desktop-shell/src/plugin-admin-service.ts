@@ -97,13 +97,17 @@ export const ENABLE_PATH = '/enable'
 /**
  * The profiles this service will act in.
  *
- * `desktop` is the profile the shell boots and `web` is the one it migrated
- * user plugins out of, which is still where those packages live — the desktop
- * profile links to them, so an update belongs in `web` for exactly those names.
- * Nothing else is reachable: a profile name is matched against this list rather
- * than joined into a path, so no `..` and no absolute path can name a directory.
+ * {@link DESKTOP_PROFILE} is the profile the shell boots and
+ * {@link WEB_PROFILE} is the one it migrated user plugins out of, which is
+ * still where those packages live — the desktop profile links to them, so an
+ * update belongs in `web` for exactly those names. Nothing else is reachable:
+ * a profile name is matched against this list rather than joined into a path,
+ * so no `..` and no absolute path can name a directory.
+ *
+ * These names are also wire values: a caller sends one in the request body, so
+ * renaming the profile renames what the browser half must send.
  */
-export const ADMIN_PROFILES = ['desktop', 'web'] as const
+export const ADMIN_PROFILES = [DESKTOP_PROFILE, WEB_PROFILE] as const
 
 /** A profile this service will act in. */
 type AdminProfile = typeof ADMIN_PROFILES[number]
