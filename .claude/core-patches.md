@@ -866,3 +866,27 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 ### 集成期追加补丁：命令自己声明是否让所在会话转正
 
 分支 `fix/command-engages-session`（基 `rc31-integration` = `a766b18221`）在集成线上追加一条补丁，登记见本文件「patch(commands,session-controller): 命令自己声明是否让所在会话转正」小节。**本补丁在集成线上追加，尚未回补丁线 `core-patches-v7`，也未进 `core-patches-v8`。**
+
+### 集成期追加：vision-switch 0.2.1（闸门读已改名字段，发送无声失败）
+
+**改了什么。**`apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.0.tgz` 换成 `0.2.1`（`apps/desktop-server/package.json` 的 `file:` 串、`scripts/gen-third-party-notices.ts` 的 `OVERRIDES` 路径、`THIRD_PARTY_NOTICES.md`、两份 `apps/desktop/README` 的内置插件表第 138 行同步）。源：`dsh-plugins` 新工作树 `dsh-plugins-vs`，分支 `fix/vision-switch-attachment-ids`（基 `main` = `bc7bb7c`），顶 `e5b88e47e57cfb28507e69183238bc336b3b8ef5`。tarball sha256 `6b0fccee6625bb9adf942b31888936c1992ebf76f17ce3318903db03d2bf9d28`。
+
+**为什么。**rc.31 出货的 `0.2.0` 让每一个装过闸门的会话彻底发不出消息。它自己手写的 `SessionInputFace`（`src/client/gate-registry.ts`）声明 `state.getSnapshot()` 返回 `{ imageIds }`，而 rc.31 出货的客户端契约把该字段叫 `attachmentIds`（`packages/client/ui-conversation/src/client/contract/input.ts` 声明、`input/facade.ts` 发布，上游改名提交 `a1144c4950`）。`hasImages()` 是 `resolveGate` 的**实参**（`src/client/submit-gate.ts`），在任何分支之前、且在两处 `try` 之外求值，于是 `TypeError: Cannot read properties of undefined (reading 'length')` 直接穿回 `InputBar` 的点击与按键处理函数：发送按钮、Enter、Cmd+Enter 全都没有反应，一条 RPC 都不出客户端，**纯文本与带图片的草稿一样**。手写结构类型让 `tsc` 看不见这件事，插件的测试替身也照抄了同一个错字段（该包的 `tsconfig.json` 只 include `src`，测试不在编译程序里）。
+
+**同批修掉的另外三条。**①`GateRegistry.gates` 按会话 id 记键且先于任何解析短路返回：`InputHub` 在会话作用域的 disposer 里丢掉 `SessionInputShell`、会话重新物化时另建一个（`packages/client/ui-conversation/src/client/input/hub.ts`），旧条目于是让新 shell 保留出厂 `submit`——未装闸门的会话把图片原样发给宿主，换回 `UNSUPPORTED_CONTENT`。②`installForCurrentSession`（`src/client/index.ts`）在列表还是 `phase: 'pending'`、`byId` 还空的时候就读 `current` 并解析作用域，而 `ISessions` 对任何**合格** id 当场铸出作用域，`current === id` 单独一条就让它合格（`packages/api/session-controller/src/client/sessions/service.ts`）——铸出的是控制器从未上台的作用域，下一次发布 `pruneScopes` 把它剪掉，上台时另铸一个并另建 shell，与①合起来就是永久失联。③闸门内部任何抛错都会杀掉这次发送。
+
+**修法。**面 `state.getSnapshot()` 现在返回 `Pick<InputState, 'attachmentIds'>`，并新增 `GatedSessionInput = Conforms<SessionInput>` 把宿主真实 facade 约束到这张面上：字段改名或改型在插件仓的 `tsc` 里就红（反证已跑：把面改回 `imageIds`，`tsc` 出三条错）。两个类型都从 `@deepseek-ai/dsh-client-ui-conversation/client` 仅类型导入，产物 `lib/client.js` 的 `require` 仍只有 react 三行。闸门按 facade 实例记键、作用域没了就忘掉该条目；急切安装只对 `phase === 'ready'` 且在 `byId` 里的会话动手，作用域交给控制器铸；`createGatedSubmit` 的前奏、判定分发与状态回调全部兜底，失败即 status 回 `idle` 并把这次发送原样交给原始 `submit`。
+
+**编译期对表只到本包。**`dsh-plugins` 的 root `pnpm.overrides` 把每个 `@deepseek-ai/*` 钉在 `0.1.2-alpha.3`（那一版仍写 `imageIds`），与 rc.31 出货的 `0.1.3-alpha.1` 契约一致的已发布版本是 `0.1.3-alpha.2`。本次只用 pnpm 父选择器 override `"@haoran/dsh-vision-switch>@deepseek-ai/dsh-client-ui-conversation": "0.1.3-alpha.2"` 把这一个包单独提上去（实证：只有 vision-switch 链到 `0.1.3-alpha.2`，其余五个仍是 `0.1.2-alpha.3`），不动整仓——根 `tsc -b` 本来就因 `edit-rerun` 而红，整仓提版会把另外五个已发布包一起卷进来。
+
+**证据。**在 `vm` 里以真实 `InputState`（`attachmentIds`）、一个不在目录里的退役当前模型、目录里一个视觉模型驱动出货 bundle：`0.2.0` 对带附件与纯文本两种草稿都 `THREW TypeError`、转发 0 次提交，且重建后的 shell 未装闸门；换上 `0.2.1` 后三种 facade 形状都正常返回——带附件：`selectModel` RPC ×1、转发提交 ×1、状态 `switched`；纯文本：转发提交 ×1、无 RPC；连字段都没有的 facade：转发提交 ×1、状态 `idle`；作用域拆掉后重建的 shell 被改写（RPC ×1）。仓外 `vitest` 90 条（新增 5 条：闸门抛错兜底、状态回调抛错仍发送、重建 shell 被改写、作用域没了忘掉条目、列表 pending 时不铸作用域），四条新用例逐条做过反证（临时撤掉对应修法即红）。
+
+**要达到的效果。**存量退役选择的用户重新能发消息：文本照常，带图片的一轮由闸门切到 `deepseek-flash` 再发出；闸门自己再出任何差错都只退化成「没有这个插件」的行为，不会再让输入框失效。
+
+**退役条件。**下一次 vendoring 这个包时本节由新版本取代；上游若把等价的自动切换做进宿主，则整个插件退役。
+
+**rc.32 待办：一道 vendoring 门禁，把 vendored 客户端 bundle 与客户端契约对表。**本次的字段改名在本仓没有任何门禁能看见——插件在仓外构建，`verify-vendored-plugin-versions` 只核版本号与文件名，`verify-vendored-links` 只核链接解析，客户端契约的改名对 tarball 里的 `lib/client.js` 完全不可见。最小可行形态：对每个声明了 `dsh.client` 的 vendored 包，在构建后跑一遍它自己的 smoke（如本次这份 `vm` 驱动脚本），或要求包内带上对着契约编译的类型证明。
+
+**门禁实跑（本节所在提交之前的 vendoring 提交）。**`pnpm install --offline` 0（装好的副本实证 `0.2.1`，`lib/client.js` 含 `attachmentIds`、无 `imageIds`）→ `gen-third-party-notices` 重跑并提交 → `verify-vendored-plugin-versions` **13 个**一致 → `verify-vendored-links` **9 个** → `verify-third-party-notices` up to date → `vitest run apps/desktop/tests` → `typecheck` → `lint` → `test:docs` → `verify-translation-pairing` **1196 对**全绿。**未 `build`、未打包**（按分工由 lead 执行）。
+
+**一份 Agent Note 随之订正。**`2026-08-23-desktop-builtin-default-model.{md,zh.md}` 第 29 行原文承诺「已经有过一轮的对话里发图片会自动切过去」，而出货的 `0.2.0` 根本走不到那里；该行补记这条路径要求 vendored 版本 ≥ `0.2.1`、`0.2.0` 的失败形态、以及 `0.2.1` 的三条修法。`.i18n.yaml` 与 `apps/desktop/README.i18n.yaml` 重录。
