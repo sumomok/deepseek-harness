@@ -1,11 +1,12 @@
 /**
- * The summary blank bit means "nothing to show and nothing to address": a
- * durably logged command run clears it alongside the first turn, because the
- * transcript renders that lifecycle and the session then occupies a list row.
- * Configuration events — plan/mode, session titles, permission and sandbox
- * knobs — never flip it, so a fresh session that only carries them stays
- * list-hidden and reusable as New Session. The host/session-added frame
- * shares the same predicate function (covered by the workspace spec's frame
+ * The summary blank bit means "nothing to show and nothing to address". A
+ * command run clears it alongside the first turn, unless the run recorded
+ * `engages: false` — the declaration a command makes when it configures the
+ * session rather than contributing to the conversation. Configuration events
+ * (plan/mode, session titles, permission and sandbox knobs) never flip it, so
+ * a fresh session carrying only those and a configuration command stays
+ * list-hidden and reusable as New Session. The host/session-added frame shares
+ * the same predicate function (covered by the workspace spec's frame
  * assertion).
  */
 
@@ -46,12 +47,20 @@ function appendConfiguration(session: Session): void {
   session.append('sandbox/mode', { mode: 'danger-full-access' })
 }
 
-/** Append one complete command lifecycle. */
-function appendCommand(session: Session): void {
+/** Append one complete lifecycle of a command that contributes to the conversation. */
+function appendEngagingCommand(session: Session): void {
   session.append('command/run', {
-    commandId: CommandId('blank-cmd-1'), name: 'plan', args: '', source: { kind: 'user' },
+    commandId: CommandId('blank-cmd-1'), name: 'btw', args: ' 天气', source: { kind: 'user' },
   })
-  session.append('command/done', { commandId: CommandId('blank-cmd-1'), kind: 'success', text: 'Plan mode on.' })
+  session.append('command/done', { commandId: CommandId('blank-cmd-1'), kind: 'success', text: 'Sunny.' })
+}
+
+/** Append one complete lifecycle of a command that declared it configures the session. */
+function appendConfigurationCommand(session: Session): void {
+  session.append('command/run', {
+    commandId: CommandId('blank-cmd-0'), name: 'plan', args: '', source: { kind: 'user' }, engages: false,
+  })
+  session.append('command/done', { commandId: CommandId('blank-cmd-0'), kind: 'success', text: 'Plan mode on.' })
 }
 
 async function listBlank(remote: TestSessionRemote, id: string): Promise<boolean | undefined> {
@@ -70,13 +79,23 @@ describe('summary blank = nothing to show', () => {
     expect(await listBlank(remote, session.id)).toBe(true)
   })
 
-  it('a command run clears blank', async () => {
+  it('a command that declared it configures the session keeps it blank', async () => {
     const { ctx, remote, attach } = await harness()
     const session = ctx.sessions.create()
     await attach(session)
     appendConfiguration(session)
+    appendConfigurationCommand(session)
     expect(await listBlank(remote, session.id)).toBe(true)
-    appendCommand(session)
+  })
+
+  it('an engaging command run clears blank', async () => {
+    const { ctx, remote, attach } = await harness()
+    const session = ctx.sessions.create()
+    attach(session)
+    appendConfiguration(session)
+    appendConfigurationCommand(session)
+    expect(await listBlank(remote, session.id)).toBe(true)
+    appendEngagingCommand(session)
     expect(await listBlank(remote, session.id)).toBe(false)
   })
 
@@ -92,11 +111,16 @@ describe('summary blank = nothing to show', () => {
 
 describe('the blank fold itself', () => {
   const state = { blank: true, lastPromptAt: null }
-  const fold = (type: string): boolean =>
-    applySessionListMetadata(state, { type, seq: 1, time: 10, data: {} } as never).blank
+  const fold = (type: string, data: Record<string, unknown> = {}): boolean =>
+    applySessionListMetadata(state, { type, seq: 1, time: 10, data } as never).blank
 
-  it('clears blank on command/run, not on the command result', () => {
+  it('reads the declaration: engages false keeps blank, absent or true clears it', () => {
+    expect(fold('command/run', { engages: false })).toBe(true)
     expect(fold('command/run')).toBe(false)
+    expect(fold('command/run', { engages: true })).toBe(false)
+  })
+
+  it('clears on the run, not on the command result', () => {
     expect(fold('command/done')).toBe(true)
   })
 

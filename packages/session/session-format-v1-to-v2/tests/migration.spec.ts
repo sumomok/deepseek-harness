@@ -841,6 +841,27 @@ describe('sessionFormatV1ToV2', () => {
     )
   })
 
+  it('carries the command/run engagement declaration across the v2 edge', () => {
+    // The v2 disposition table derives from v0's, so the optional member is
+    // retained rather than dropped as unexpected drift.
+    const source: SessionFormatArtifact = {
+      header: { version: 1, id: 'session-engages', createdAt: 10, isSeeded: false, delegationDepth: 0 },
+      inheritedEventCount: 0,
+      events: [
+        event('command/run', 0, 100, {
+          commandId: 'command-1', name: 'permission', source: { kind: 'user' }, engages: false,
+        }),
+        event('command/done', 1, 101, { commandId: 'command-1', kind: 'success' }),
+      ],
+    }
+
+    expect(sessionFormatV1ToV2.migrate(source).events[0]).toStrictEqual(
+      event('command/run', 0, 100, {
+        commandId: 'command-1', name: 'permission', source: { kind: 'user' }, engages: false,
+      }),
+    )
+  })
+
   it('carries a named uninterpreted historical event into v2 with its ignorable envelope', () => {
     const carried = [
       { ...event('attachment/materialized', 0, 100, { attachmentId: 'a', locator: 'spill:1' }), ignorable: true },
