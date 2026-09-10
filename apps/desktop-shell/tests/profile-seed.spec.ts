@@ -8,7 +8,8 @@
  */
 
 import {
-  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, rmSync, symlinkSync, unlinkSync, writeFileSync,
+  existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, renameSync, rmSync, symlinkSync, unlinkSync,
+  writeFileSync,
 } from 'node:fs'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { homedir, tmpdir } from 'node:os'
@@ -1375,6 +1376,30 @@ describe('seedBuiltinBundles on a home an earlier build seeded under the old pro
     expect(second.renamedFrom).toBeUndefined()
     expect(existsSync(join(legacyDir(), 'package.json'))).toBe(true)
     expect(readProfile()).toMatchObject({ name: 'dsh-profile-desktop-shell' })
+  })
+
+  it('finishes the rewrite for a directory that moved before the name did', () => {
+    writeWebProfile([userPlugin])
+    legacyProfile()
+    // What a run that died between the two writes leaves behind: the directory
+    // stands at the new name carrying the old one inside.
+    renameSync(legacyDir(), join(home, 'profiles', DESKTOP_PROFILE))
+    const report = seedBuiltinBundles({ home, serverModules })
+
+    expect(report.renamedFrom).toBeUndefined()
+    expect(report.created).toBe(false)
+    expect(report.skipped.some(line => line.includes('name still reads'))).toBe(false)
+    expect(readProfile()).toMatchObject({ name: 'dsh-profile-desktop-shell', private: true })
+    // The rewrite replaces the name and nothing else the half-done run carried over.
+    expect(readProfile()['dependencies']).toMatchObject({ [userPlugin]: '^1.2.3' })
+    expect(migratedNow()).toEqual([userPlugin])
+    expect(bundlesNow()).toEqual([...webTemplate, ...BUILTIN_WEB_BUNDLES, userPlugin])
+
+    // Idempotent: the name it just wrote is not one it rewrites again.
+    const manifest = join(home, 'profiles', DESKTOP_PROFILE, 'package.json')
+    const settled = readFileSync(manifest, 'utf8')
+    seedBuiltinBundles({ home, serverModules })
+    expect(readFileSync(manifest, 'utf8')).toBe(settled)
   })
 
   it('seeds a fresh profile and keeps the old one when the rename cannot happen', () => {

@@ -564,8 +564,8 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
  * installed client keeps its manifest, its patch layer, its migration marker,
  * and every plugin it had admitted.
  *
- * Runs only where {@link DESKTOP_PROFILE} has no manifest yet — the same
- * predicate {@link initDesktopProfile} answers `created` with, so the two
+ * The rename runs only where {@link DESKTOP_PROFILE} has no manifest yet — the
+ * same predicate {@link initDesktopProfile} answers `created` with, so the two
  * cannot come to disagree about whether a profile is already there — and only
  * where the old directory's manifest carries
  * {@link LEGACY_PROFILE_MANIFEST_NAME}. A `desktop` profile upstream's own
@@ -576,10 +576,13 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
  * `$DSH_HOME/profiles/web/node_modules` from the new path, and the built-ins'
  * links live in `$DSH_HOME/profiles/node_modules`, which is not moved at all.
  *
- * Rewriting the manifest's `name` afterwards is the one place this module
- * replaces a file it did not write itself: the name states which directory the
- * manifest belongs to, and pnpm reads it for every
- * `dsh plugin --profile desktop-shell` command run there.
+ * Where the manifest is already in place, the one thing left to check is its
+ * `name`: a run whose rename succeeded and whose rewrite did not leaves
+ * {@link LEGACY_PROFILE_MANIFEST_NAME} on a `desktop-shell` directory, and
+ * nothing else on the machine reports that afterwards. Finding that name here
+ * completes the rewrite, and finding any other name — the one this shell
+ * writes, or one the user chose — returns without a write, so repeated launches
+ * settle after the first.
  *
  * A rename that fails leaves the old directory untouched and is recorded in
  * {@link SeedReport.skipped}; the seeding below then writes a fresh profile,
@@ -590,7 +593,14 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
  * @param report - the run's report, extended with the rename or the reason there was none.
  */
 function adoptLegacyProfile(home: string, profileDir: string, report: SeedReport): void {
-  if (existsSync(join(profileDir, 'package.json'))) return
+  const manifestPath = join(profileDir, 'package.json')
+  if (existsSync(manifestPath)) {
+    const adopted = tryReadManifest(manifestPath)
+    if (adopted !== undefined && adopted['name'] === LEGACY_PROFILE_MANIFEST_NAME) {
+      renameProfileManifest(manifestPath, adopted, report)
+    }
+    return
+  }
   const legacyDir = profileDirectory(home, LEGACY_DESKTOP_PROFILE)
   const manifest = tryReadManifest(join(legacyDir, 'package.json'))
   if (manifest === undefined || manifest['name'] !== LEGACY_PROFILE_MANIFEST_NAME) return
@@ -602,7 +612,23 @@ function adoptLegacyProfile(home: string, profileDir: string, report: SeedReport
     return
   }
   report.renamedFrom = LEGACY_DESKTOP_PROFILE
-  const manifestPath = join(profileDir, 'package.json')
+  renameProfileManifest(manifestPath, manifest, report)
+}
+
+/**
+ * Write `dsh-profile-desktop-shell` as a migrated profile manifest's `name`,
+ * keeping every other field the manifest holds.
+ *
+ * This is the one place this module replaces a file it did not write itself:
+ * the name states which directory the manifest belongs to, and pnpm reads it
+ * for every `dsh plugin --profile desktop-shell` command run there. A failed
+ * write is recorded in {@link SeedReport.skipped} and stops nothing — the
+ * profile is launchable under either name, and the next launch tries again.
+ * @param manifestPath - the manifest inside {@link DESKTOP_PROFILE}'s directory.
+ * @param manifest - the manifest as read, carrying {@link LEGACY_PROFILE_MANIFEST_NAME}.
+ * @param report - the run's report, extended when the write fails.
+ */
+function renameProfileManifest(manifestPath: string, manifest: ProfileManifest, report: SeedReport): void {
   try {
     writeAtomic(manifestPath, `${JSON.stringify({ ...manifest, name: `dsh-profile-${DESKTOP_PROFILE}` }, undefined, 2)}\n`)
   } catch (error) {

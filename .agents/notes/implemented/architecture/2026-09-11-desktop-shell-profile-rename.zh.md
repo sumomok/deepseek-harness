@@ -18,7 +18,7 @@ Status: implemented
 
 **已装客户端的 profile 会在本次构建的首次启动时被改名一次。**`adoptLegacyProfile` 在 `seedBuiltinBundles` 里先于其他一切运行,把 `$DSH_HOME/profiles/desktop` 改名到 `$DSH_HOME/profiles/desktop-shell`。同一个卷上的一次 `renameSync` 就把清单、用户的 `cordis.patch.yml`、`pnpm-workspace.yaml`、`web-migration.json`、每一个迁移插件的链接,以及这个 profile 自己装过的每一个包一并带走。链接照样解析得到,因为 `ensureLink` 写的是绝对目标;而内置插件的链接住在 `$DSH_HOME/profiles/node_modules`,那里根本没有被移动。
 
-**清单的 `name` 是判定的全部依据,而改写它是播种自身规则的唯一例外。**改名只在新 profile 还没有 `package.json` 时进行——正是 `initDesktopProfile` 用来回答 `created` 的同一个判据——并且只在旧目录的清单读出 `dsh-profile-desktop` 时进行,那是本壳写下的名字,而上游的 `@deepseek-ai/dsh-desktop-runtime` 永远不是。此后清单的 `name` 会被改写为 `dsh-profile-desktop-shell`:播种在别处一律不动已存在的文件,而这一个字段说明清单属于哪个目录,pnpm 在那里跑每一条 `dsh plugin --profile desktop-shell` 命令时都会读它。
+**清单的 `name` 是判定的全部依据,而改写它是播种自身规则的唯一例外。**改名只在新 profile 还没有 `package.json` 时进行——正是 `initDesktopProfile` 用来回答 `created` 的同一个判据——并且只在旧目录的清单读出 `dsh-profile-desktop` 时进行,那是本壳写下的名字,而上游的 `@deepseek-ai/dsh-desktop-runtime` 永远不是。此后清单的 `name` 会被改写为 `dsh-profile-desktop-shell`:播种在别处一律不动已存在的文件,而这一个字段说明清单属于哪个目录,pnpm 在那里跑每一条 `dsh plugin --profile desktop-shell` 命令时都会读它。一次启动若发现 `desktop-shell` 上已经有清单,读的仍是这同一个字段:那里读出 `dsh-profile-desktop` 就是一次改名的改写没有落地,而此后机器上没有任何东西再陈述这件事;改写在那时被补完,其他任何名字一律不动。
 
 **改名失败会留下完整的旧目录和一次能用的启动。**失败记进 `SeedReport.skipped` 而不是 `SeedReport.failed`,因为 `failed` 指的是启动唯一绕不过去的那件事——服务端没有 profile 可启动——而这不是那件事:播种继续进行并写出一个全新的 `desktop-shell`,它的第一次同步会把用户在 `web` 里的插件重新搬进来。改名发生过时 `SeedReport.renamedFrom` 带上旧名字,`describeSeed` 会把 `renamed the desktop profile into place` 写进 `dsh-server.log`。
 
@@ -46,7 +46,7 @@ Status: implemented
 
 ## Testing
 
-`apps/desktop-shell/tests/profile-seed.spec.ts` 用五个用例覆盖改名:一个带着迁移插件、改过的 patch 层与迁移记录的旧 profile 被整体改名、清单 `name` 被改写、每一个 bundle 仍然解析得到;一个带着上游 `@deepseek-ai/dsh-desktop-runtime` 清单的 `desktop` 目录被逐字节留下,一个全新的 `desktop-shell` 在它旁边被播种出来;第二次启动什么都不改名,因为它要启动的那个 profile 已经在那儿了;`rename(2)` 拒绝的改名——新路径上已经站着一个非空目录——记进 `skipped`,旧目录保持完整,而这次启动仍然播种出一个能启动的 profile;新路径上是一个普通文件时,仍然产生播种一直以来产生的那份 `failed` 报告。
+`apps/desktop-shell/tests/profile-seed.spec.ts` 用六个用例覆盖改名:一个带着迁移插件、改过的 patch 层与迁移记录的旧 profile 被整体改名、清单 `name` 被改写、每一个 bundle 仍然解析得到;一个带着上游 `@deepseek-ai/dsh-desktop-runtime` 清单的 `desktop` 目录被逐字节留下,一个全新的 `desktop-shell` 在它旁边被播种出来;第二次启动什么都不改名,因为它要启动的那个 profile 已经在那儿了;`rename(2)` 拒绝的改名——新路径上已经站着一个非空目录——记进 `skipped`,旧目录保持完整,而这次启动仍然播种出一个能启动的 profile;新路径上是一个普通文件时,仍然产生播种一直以来产生的那份 `failed` 报告;目录先于名字挪过去时——`desktop-shell` 上的清单仍读出 `dsh-profile-desktop`——下一次启动补完这次改写,再下一次启动则把它逐字节留下。
 
 `apps/desktop-shell/tests/server.spec.ts` 是这次回归本身被钉住的地方:一个脚本化的服务端子进程记下 `startServer` 拉起它时用的参数,用例断言那就是 `--profile desktop-shell --port 0 --no-open`,再把同一个数组喂给 `apps/cli` 自己的 `parseDshArgs`,得到的是一次 profile 启动而不是退出。一个启动器会拒绝的 profile 会在这里失败,而不是在用户的下一次启动时。
 
