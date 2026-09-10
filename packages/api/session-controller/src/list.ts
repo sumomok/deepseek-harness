@@ -44,13 +44,14 @@ const imageLimitsSchema = z.object({
  * Advance the Session-list metadata projection by one committed event.
  *
  * `blank` means the Session has nothing to show and nothing to address: it
- * falls on the first `turn/start` and on the first `command/run`, and never
- * rises again. A command counts because the host executor durably logged it
- * and the transcript renders its lifecycle as a flow node — a Session
- * holding one is listed, opens on its transcript, and is no longer the
- * provisional New Session a Workspace connect may reuse. The remaining
- * standalone events (`plan/mode`, `session/title`, permission and sandbox
- * configuration) leave it blank: they record a setting, not content.
+ * falls on the first `turn/start` and on the first engaging `command/run`,
+ * and never rises again. A command run counts unless it recorded
+ * `engages: false`, the declaration a command makes when it configures the
+ * session instead of contributing to the conversation; the member is absent
+ * on every ordinary run and on every log written before the declaration
+ * existed. The remaining standalone events (`plan/mode`, `session/title`,
+ * permission and sandbox configuration) never clear it: they record a
+ * setting, not content.
  * @param state - metadata before the event.
  * @param event - next committed Session event.
  * @returns the original or advanced metadata value.
@@ -59,7 +60,9 @@ export function applySessionListMetadata(
   state: SessionListMetadata,
   event: SessionEvent,
 ): SessionListMetadata {
-  const blank = state.blank && event.type !== 'turn/start' && event.type !== 'command/run'
+  const blank = state.blank
+    && event.type !== 'turn/start'
+    && !(event.type === 'command/run' && event.data.engages !== false)
   const lastPromptAt = event.type === 'user/message' && event.data.source.kind === 'user'
     ? event.time
     : state.lastPromptAt
@@ -95,10 +98,14 @@ export class ApiSessionList {
       init: () => ({ blank: true, lastPromptAt: null }),
       apply: applySessionListMetadata,
       wire: { viewSchema: sessionListMetadataSchema, view: state => state },
-      // 2: the fold also clears `blank` on `command/run`. A row checkpointed
-      // under version 1 holds the older verdict for the same log, so it must
-      // be discarded and refolded rather than served.
-      stateVersion: 2,
+      // Held at 1 although the fold changed. The unit carries `blank` and
+      // `lastPromptAt` under one row version, and a discarded row is refolded
+      // only for a Session that is opened again — `summarizeCold` serves the
+      // list from cached rows alone. Bumping it would drop `lastPromptAt` for
+      // every never-reopened Session, ordering and labelling the whole
+      // sidebar by creation time, to correct a `blank` verdict on the
+      // Sessions that ran a command before this build.
+      stateVersion: 1,
     })
     ctx.inject(['attachments'], (attachmentCtx) => {
       ctx.sessionProjections.register<'imageLimits', null>({

@@ -43,7 +43,7 @@ ctx.commands.register({
 })
 ```
 
-处理器返回 `success` 或 `error`，并可附带由适配器渲染的 UI 文本。`recordInput` 默认为 true；若载荷由命令自己的权威领域事件持有，命令会将 `recordInput` 设为 false，避免会话日志重复记录该输入。同一作用域内重复注册同名命令会抛出异常。
+处理器返回 `success` 或 `error`，并可附带由适配器渲染的 UI 文本。`recordInput` 默认为 true；若载荷由命令自己的权威领域事件持有，命令会将 `recordInput` 设为 false，避免会话日志重复记录该输入。`engages` 同样默认为 true；配置会话而非为对话贡献内容的命令——`/permission`、`/plan`——将其设为 false，`command/run` 随之记下 `engages: false`，于是它所运行的新会话保持列表隐藏、也保留自己的 Intent 欢迎页（[命令转正笔记](../../../.agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.zh.md)）。同一作用域内重复注册同名命令会抛出异常。
 
 ### 命令语法
 

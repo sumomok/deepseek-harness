@@ -43,7 +43,7 @@ ctx.commands.register({
 })
 ```
 
-The handler returns `success` or `error` plus optional UI text that the adapter renders. `recordInput` defaults to true; a command whose own authoritative domain event already carries the payload sets it to false so the session log does not duplicate the input. Registering the same name twice in one scope throws.
+The handler returns `success` or `error` plus optional UI text that the adapter renders. `recordInput` defaults to true; a command whose own authoritative domain event already carries the payload sets it to false so the session log does not duplicate the input. `engages` also defaults to true; a command that configures the session rather than contributing to the conversation — `/permission`, `/plan` — sets it to false, and `command/run` then records `engages: false` so a fresh session it runs in stays list-hidden and keeps its Intent hero ([the command-engagement note](../../../.agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.md)). Registering the same name twice in one scope throws.
 
 ### Command syntax
 

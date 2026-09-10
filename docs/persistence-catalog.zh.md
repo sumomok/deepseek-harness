@@ -265,7 +265,7 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
 }
 ```
 
-来源：[`packages/interaction/commands/src/types.ts:112`](../packages/interaction/commands/src/types.ts)
+来源：[`packages/interaction/commands/src/types.ts:123`](../packages/interaction/commands/src/types.ts)
 
 <a id="commandrun--log-only"></a>
 
@@ -281,11 +281,22 @@ export type SessionEvent<T extends SessionEventType = SessionEventType> = {
  * folding its own command records, a rich command card) never re-parses
  * a line. `args` is absent when the definition sets `recordInput: false`
  * because an authoritative domain event owns the input payload.
+ * `engages` is present only as `false`, from a definition that declared
+ * `engages: false`: this run configures the session and does not make it
+ * a session with something to show. An absent member is the ordinary
+ * engaging command, which is what every log written before the
+ * declaration existed carries.
  */
-'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
+'command/run': {
+  commandId: CommandId
+  name: string
+  args?: string
+  source: CommandSource
+  engages?: boolean
+}
 ```
 
-来源：[`packages/interaction/commands/src/types.ts:105`](../packages/interaction/commands/src/types.ts)
+来源：[`packages/interaction/commands/src/types.ts:110`](../packages/interaction/commands/src/types.ts)
 
 ### `compaction/*`
 
