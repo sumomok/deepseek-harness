@@ -17,7 +17,7 @@ import {
 import { connectFreshWorkspace, newEnglishPage, saveFailureShot } from './support.ts'
 
 const SNAPSHOT_DIR = fileURLToPath(new URL('../../../snapshots/web/approval-preview-diff', import.meta.url))
-const FIXTURE = join(SNAPSHOT_DIR, 'session.v2.jsonl')
+const FIXTURE = join(SNAPSHOT_DIR, 'session.v3.jsonl')
 const UI_EXPECTED = join(SNAPSHOT_DIR, 'ui.expected.md')
 const MODE = webSnapshotMode()
 
@@ -91,6 +91,6 @@ describe.skipIf(MODE === 'record')('web e2e: the approval card shows the file ch
   }, 180_000)
 
   it('keeps the fixture inventory closed', async () => {
-    await assertFixtureInventory(SNAPSHOT_DIR, ['session.v2.jsonl', 'ui.expected.md', 'workspace.expected'])
+    await assertFixtureInventory(SNAPSHOT_DIR, ['session.v2.jsonl', 'session.v3.jsonl', 'ui.expected.md', 'workspace.expected'])
   })
 })
