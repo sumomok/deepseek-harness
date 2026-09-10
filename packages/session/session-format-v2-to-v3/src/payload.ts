@@ -10,6 +10,27 @@ export const SURFACE_TYPES: ReadonlySet<string> = new Set(['system/message', 'us
 const SOURCE_KINDS = new Set(['user', 'plugin', 'model', 'tool', 'agent-instructions', 'session-reference', 'team-message', 'goal', 'skill-invocation', 'skill-catalog', 'coordinator', 'subagent-report', 'subagent-settled', 'webhook', 'agent-message'])
 
 /**
+ * Message source kinds this edge carries without classifying them.
+ *
+ * The released source vocabulary is frozen per generation, and this edge
+ * refuses a message whose `source.kind` is outside it, because a V3 transform
+ * that cannot name a source cannot promise it transforms it safely. Sessions
+ * already on disk carry kinds written by builds that mounted an out-of-repo
+ * plugin, and those files cannot be rewritten: the Session lists normally and
+ * fails only when opened. Every such kind is named here and reaches V3
+ * verbatim; nothing in the transform reads a kind other than `plugin` and
+ * `agent-message`, so carrying one across changes no other decision.
+ *
+ * - `at-file-mention` — an out-of-repo composer plugin mounted while it was
+ *   under evaluation, which writes a `user/message` whose text is a
+ *   `<workspace-reference …/>` element and whose source names the mentioned
+ *   path. Eight Sessions in each of this machine's two corpora carry it.
+ */
+export const LEGACY_UNINTERPRETED_SOURCE_KINDS: ReadonlySet<string> = Object.freeze(new Set([
+  'at-file-mention',
+]))
+
+/**
  * Require a JSON object at the durable input boundary.
  * @param value - decoded value.
  * @param label - diagnostic subject.
@@ -113,6 +134,7 @@ export function isRepairIdentity(id: SessionFormatJsonValue | undefined, callId:
 function assertSource(message: SessionFormatJsonObject): void {
   const source = record(message['source'], 'message source')
   if (typeof source['kind'] !== 'string' || !SOURCE_KINDS.has(source['kind'])) {
+    if (typeof source['kind'] === 'string' && LEGACY_UNINTERPRETED_SOURCE_KINDS.has(source['kind'])) return
     throw new SessionFormatUnsupportedMigrationError('cannot safely transform unclassified message source')
   }
   if (source['kind'] === 'agent-message') {
