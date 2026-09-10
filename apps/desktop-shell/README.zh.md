@@ -38,9 +38,11 @@ https://lhr.ink/dsh-updates/win/     latest.yml  + the NSIS installer + its bloc
 https://lhr.ink/dsh-updates/mac/     latest-mac.yml + the zipped app
 ```
 
-这里没有更新服务:清单**本身**就是判断过程,所以 nginx 发一个目录已经把它整个实现了。更新源地址存在于两处——生成清单与打包内 `app-update.yml` 的 `electron-builder.yml`,以及运行时读取它们的 `src/updater.ts`——迁移更新源要同时改这两处。`channel: latest` 在两端都显式写出;默认行为会拿运行版本的预发布段给渠道命名,那会让渠道名随发布周期的每个阶段改名。
+更新源没有服务端:清单**本身**就是判断过程,所以 nginx 发一个目录已经把它整个实现了。更新源地址存在于两处——生成清单与打包内 `app-update.yml` 的 `electron-builder.yml`,以及运行时读取它们的 `src/updater.ts`——迁移更新源要同时改这两处。`channel: latest` 在两端都显式写出;默认行为会拿运行版本的预发布段给渠道命名,那会让渠道名随发布周期的每个阶段改名。
 
-**Windows 原地安装,分三步。**静默检查(启动后 15 秒、此后每四小时,以及 **帮助 → 检查更新**)先征询下载。同意后在后台下载,配一个可以随手关掉、关掉也不会中断下载的小进度窗。下载完成后再征询重启安装。**没有用户的决定就不会发生安装**,退出时或别的任何时候都一样:`autoInstallOnAppQuit` 关闭,应用只在有人点了「重启安装」之后的几秒里替换自己。被拒绝的安装留在盘上,只会在下次启动与菜单手动检查时再被提起——别处没有。在 Windows 上这些对话框全部挂在应用自己的窗口上,因为没有 parent 的对话框可以被系统排到用户正在用的东西后面,更新提示就这样存在却没人看见;在 macOS 上它们刻意不挂 parent,因为那里带 parent 的对话框是 sheet,任何抬起父窗口的动作——比如点一下 Dock 图标——都会像按下它第一个按钮那样把它结束掉。两边都一样:应用不在前台时会先请求注意,Windows 闪任务栏按钮,macOS 弹一次 Dock 图标。
+**下载过程是安静的,只有装得上的更新才不是。**静默检查——启动后 15 秒、此后每四小时、**帮助 → 检查更新**,以及设置里的那个入口——发现新版本就直接开始传,不先征询。整个传输过程不上屏:没有对话框、没有窗口、没有任务栏或 Dock 进度,也不请求注意。唯一可见的状态是它的终点——一个已下载并校验通过的更新——由壳经下面那个更新服务报出,再由设置窗口画出来。**没有用户的决定就不会发生安装**,退出时或别的任何时候都一样:`autoInstallOnAppQuit` 关闭,应用只在有人点了那个窗口里的按钮之后的几秒里替换自己。那一次点击就是同意,所以不会再问第二遍;没装的更新留在盘上,下次启动照样报出来。帮助 → 检查更新 位置与文案都不变,跑的是同一个静默检查,作答是「已是最新版本」「无法检查更新」「正在后台下载新版本」「新版本已下载完成」四种之一——点击值得一个回复,而一个查出活儿来的检查,答案在更新所在的地方。在下载页那一层,手动检查查到新版本时改问「发现新版本 / 去下载」,因为那一层没有别的口子把下载交出去。
+
+**剩下的对话框是强制更新那几个,以及未签名 macOS 的下载交接。**在 Windows 上它们全部挂在应用自己的窗口上,因为没有 parent 的对话框可以被系统排到用户正在用的东西后面,更新提示就这样存在却没人看见;在 macOS 上它们刻意不挂 parent,因为那里带 parent 的对话框是 sheet,任何抬起父窗口的动作——比如点一下 Dock 图标——都会像按下它第一个按钮那样把它结束掉。两边都一样:应用不在前台时会先请求注意,Windows 闪任务栏按钮,macOS 弹一次 Dock 图标。可选更新不再走到这条路上。
 
 **安装既不静默,也不需要走向导。**可选的形态有三种,只有中间那种既诚实又无需点击:
 
@@ -72,11 +74,13 @@ reg add "HKLM\SOFTWARE\e36966b0-1805-5ec4-9648-404e09da7db1" /v InstallLocation 
 
 键名是 electron-builder 由 `appId` 推出的 GUID,也是安装器读取目录的唯一出处——旁边那个 `Uninstall` 项只带 `DisplayName` 与 `UninstallString`,本来就没有 `InstallLocation`,在那儿看到空值并不说明任何问题。这个值缺失的代价不止那句提示:`uninstallOldVersion` 会把从 `UninstallString` 推出的正确目录当作 `_?=` 交给旧卸载器,而旧卸载器自己的 `initMultiUser` 又在卸载段开始前用同一个空键覆盖掉 `$INSTDIR`——于是它什么也没卸,新版本却装进 `%ProgramFiles%\DSH Desktop` 这个兜底目录,应用被悄悄搬了家,旧的那份留在原地。
 
-**macOS 同样原地安装,前提是构建已签名。**Squirrel.Mac 只在替换件满足当前运行应用的 designated requirement 时才暂存更新,这正是发布构建要签名的原因(见下方「信任与签名」一节)。三个阶段、几个对话框、以及「重启安装」的规则都与 Windows 一致;不同的是安装本身。它要十五秒上下,其中大部分时间屏幕是空的——Squirrel 在解压与验签,而 ShipIt 要等本应用的所有进程退出才能开始换包——所以那次点击会立起一个常驻的「正在安装 vX」提示把这件事说清楚,并隐藏主窗口,因为它的服务马上就没了。
+**macOS 同样原地安装,前提是构建已签名。**Squirrel.Mac 只在替换件满足当前运行应用的 designated requirement 时才暂存更新,这正是发布构建要签名的原因(见下方「信任与签名」一节)。安静的检查、安静的传输,以及「只有点击才安装」这条规则都与 Windows 一致;不同的是安装本身。它要十五秒上下,其中大部分时间屏幕是空的——Squirrel 在解压与验签,而 ShipIt 要等本应用的所有进程退出才能开始换包——所以那次点击会立起一个常驻的「正在安装 vX」提示把这件事说清楚,并隐藏主窗口,因为它的服务马上就没了。
 
 **没有**签名的构建保持旧行为:自己比对版本,用系统浏览器打开下载,只在启动时或手动检查时,绝不在会话中途。走哪一条由每次检查现场判断:看 `Contents/_CodeSignature/CodeResources` 在不在——签名会写出它,ad-hoc 链接器签名不会。已签名的构建若在运行期以重试修不好的方式失败,本次运行剩余时间降到同一条下载路径,并留下一行日志,而不是让这次检查以错误框收场。
 
-**下载中断会先重试,再谈放弃。**electron-updater 不保留失败传输的任何部分:全量下载不发 `Range` 头,而任何错误都会删掉半截文件并清空 pending 目录。因此 `src/download-retry.ts` 在失败前面放了三次完整重试——间隔 2 秒、6 秒、18 秒——进度窗不关,并写明正在等待第几次。会重试的是网络:连接被切断或被拒绝、DNS 失败、请求超时、任何 `net::ERR_…`,以及更新源返回的 5xx、408、425、429。不重试的是判定:`ERR_UPDATER_*` 拒绝、签名不符、校验和不匹配、4xx——以及分类器不认识的任何失败,它们默认按致命处理,这样一个不认识的错误不会再赔上三次整包传输。重试用尽后,这次下载只记日志并就地放弃:层级不变,**macOS 不降级**,下一次定时检查从头再传一遍,手动检查会收到一个对话框说明此事。致命失败仍按上面那套层级规则走——macOS 在本次运行剩余时间降到下载页,并在那一层重跑这次检查。重试并不会让更新变成可续传:差量下载需要缓存目录里存在上一版的 `update.zip`,所以全新安装之后的第一次更新,每次尝试都是整包传输。每次重试与结束它的那个结论都写进 `dsh-server.log`。electron-updater 自己的日志也写进同一个文件,只去掉它的 `debug` 通道:一次差量下载会把整份分块计划从这个通道倒出来——在观测到的那一次更新里约 650 行 JSON,不含版本、大小,也不含失败——而概括同一份计划的那两行 `info`(`File has N changed blocks`、`Full: … To download: … (P%)`)保留。另有两行 `debug` 跟着一并保留,顶着 `debug:` 标记,因为它们说的事别处不记:`nativeUpdater.update-downloaded`,macOS 上 Squirrel 完成暂存的唯一凭据;以及 `updater cache dir: <path>`,它给出的目录决定下一次更新能不能走差量。electron-updater 写进那里的行里,唯一一条为「它自己已经恢复过来的失败」带上堆栈的,会被改写而不是照搬:在 Windows 与 macOS 上同样,`Cannot download differentially, fallback to full download` 带着堆栈、顶着 `error` 字样,出现在一次随后仍以全量下载完成的更新里,`src/updater-log.ts` 把它压成一行,只说原因。
+**下载中断会先重试,然后续传。**electron-updater 不保留失败传输的任何部分:全量下载不发 `Range` 头,而任何错误都会删掉半截文件并清空 pending 目录。因此 `src/download-retry.ts` 在失败前面放了三次完整重试——间隔 2 秒、6 秒、18 秒——而这一切都不上屏。会重试的是网络:连接被切断或被拒绝、DNS 失败、请求超时、任何 `net::ERR_…`,以及更新源返回的 5xx、408、425、429。不重试的是判定:`ERR_UPDATER_*` 拒绝、签名不符、校验和不匹配、4xx——以及分类器不认识的任何失败,它们默认按致命处理,这样一个不认识的错误不会再赔上三次整包传输。致命失败仍按上面那套层级规则走——macOS 在本次运行剩余时间降到下载页,并在那一层重跑这次检查。
+
+**重试用尽之后接手的是壳自己的传输,它把已经到手的字节留着。**`src/resumable-download.ts` 带着 `If-Range` 校验子向更新源要 `bytes=<have>-`,追加写进一个 `.part` 文件,边写边算哈希,收尾时拿整份文件与清单里那个 base64 sha512 比对;它自己那份计划更长也更慢——2 秒、10 秒、30 秒、2 分钟、5 分钟——因为它的每次尝试只花掉一个请求而不是整个产物,足以熬过一次比换路由更久的中断。随后 `src/pending-cache.ts` 把校验通过的文件落到 `<cacheDir>/pending/<fileName>`,并写上 electron-updater 自己会写的那份 `update-info.json`,这次传输再调一次 `downloadUpdate()`:库核对缓存、从缓存取文件,不开一个 socket 就发出 `update-downloaded`。库自己的传输永远排在前面,因为差量下载是它这一半才有的能力——在缓存里已有上一版产物的机器上,那只是个位数百分比的字节量,任何整包续传都比不过。`.part` 文件按版本加产物名命名,住在缓存目录的根下而不是 `pending` 里,因为 electron-updater 自己下载路径上的任何失败都会清空后者;更新源已经翻篇的那些 `.part`,下一次传输开始时就被丢掉。有两件事它不改变:全新安装之后的第一次更新仍然是整包传输,因为差量路径需要缓存目录里存在上一版的 `update.zip`;强制启动门也不走续传兜底,因为在它返回之前应用是关着的。**上 Authenticode 之前要回头看的一个前提**:electron-updater 把 `verifySignature` 写在下载任务内部,所以走缓存短路时它不执行。本产品不签任何 Windows 可执行文件(`electron-builder.yml` 写着 `signExecutable: false`,也没有 `publisherName`,而没有它 `verifySignature` 直接返回 null),所以被跳过的是一项今天什么也不做的检查——但一旦开始签名,这条路必须自己验签。每次重试与结束它的那个结论都写进 `dsh-server.log`。electron-updater 自己的日志也写进同一个文件,只去掉它的 `debug` 通道:一次差量下载会把整份分块计划从这个通道倒出来——在观测到的那一次更新里约 650 行 JSON,不含版本、大小,也不含失败——而概括同一份计划的那两行 `info`(`File has N changed blocks`、`Full: … To download: … (P%)`)保留。另有两行 `debug` 跟着一并保留,顶着 `debug:` 标记,因为它们说的事别处不记:`nativeUpdater.update-downloaded`,macOS 上 Squirrel 完成暂存的唯一凭据;以及 `updater cache dir: <path>`,它给出的目录决定下一次更新能不能走差量。electron-updater 写进那里的行里,唯一一条为「它自己已经恢复过来的失败」带上堆栈的,会被改写而不是照搬:在 Windows 与 macOS 上同样,`Cannot download differentially, fallback to full download` 带着堆栈、顶着 `error` 字样,出现在一次随后仍以全量下载完成的更新里,`src/updater-log.ts` 把它压成一行,只说原因。
 
 **要求多于一个范围的差分下载已打补丁。**electron-updater 6.8.9 没有给多段响应挂 `error` 监听,而计划中范围多于一个时发出的正是多段请求,于是传输中途被切断的连接会抛出一个没人监听的 `error` 事件——主进程里的未捕获异常,也就是 Electron 自带的「A JavaScript error occurred in the main process」对话框,盖在一次随后仍以全量下载完成的更新上面。`patches/electron-updater@6.8.9.patch` 携带上游的一行修复(electron-builder 提交 `5eed26b2a9cfd06a1dbe207b25a46ce2c0b05ae9`,PR #10021),直到有发行版带上它为止。`tests/electron-updater-multipart.spec.ts` 对着 `node_modules` 里的那份副本钉住这个行为,补丁在与不在都保持通过;真正来讨要这个补丁的是 pnpm——当某次升级让这条精确版本补丁变得无用或无法应用时,它会让安装失败。
 
@@ -317,11 +321,46 @@ pnpm --filter @deepseek-ai/dsh-desktop-shell run render-smoke
 
 **三条机制框定了谁够得着这个服务。**监听绑在 loopback 上,机器外的东西根本连不上。token 以常数时间比较,所以扫到端口的本地进程没有 token 也用不了这个服务。从不发送任何 CORS 头,同时八条路由以外的任何路径与方法一律答 404——而且这一判定在看 token 之前就做完,所以一个没有凭据的调用方对这里提供什么一无所知——于是 `authorization` 头与 JSON content type 逼浏览器发出的预检被拒绝。
 
+## 更新服务
+
+**更新通道归壳所有,而设置窗口是嵌入服务端画的**,所以用户能看见更新、并对它动手的那一处,落在一条本机监听的另一侧。这是渲染服务与插件管理服务之外的第三个,打开的方式与传递的方式完全一样:在 `127.0.0.1` 与一个临时端口上的 HTTP 监听、一个 32 字节的 token,两者都只放进服务端那一个子进程的环境——`DSH_DESKTOP_UPDATE_ENDPOINT` 与 `DSH_DESKTOP_UPDATE_TOKEN`,绝不放进壳自己的 `process.env`。两个都读不到的 harness 会报告该能力不可用,并且根本不放出更新入口,这正是服务器上所有 `dsh web` 的做法。三个服务分开,是因为它们借出的权力不同,而这一个借出的最重:`/install` 会替换掉整个应用。
+
+四条路由:一条 `GET /state` 与三条 `POST`,都不读请求体,四条都带 `authorization: Bearer <token>`。
+
+| 路由 | 回答 |
+|---|---|
+| `GET /state` | `200 application/json` —— 下面那份快照 |
+| `POST /check` | `202 application/json` —— 快照;检查在后台跑,查到什么就下什么 |
+| `POST /download` | `202 application/json` —— 快照;已查到那个版本的传输被开始或重启,一个版本都不知道时先跑一次检查 |
+| `POST /install` | `202 application/json` —— `{ "ok": true }`,在任何东西停下之前就写出;服务端与安装器的接手排在下一个 tick。phase 不是 `ready` 时答 `409` |
+| 其它任何路径或方法 | `404`,而且这一判定在看 token 之前就做完,所以一个没有凭据的调用方对这里提供什么一无所知 |
+| 缺少或写错 token | `401` |
+
+快照是一个 JSON 对象。`phase` 与 `currentVersion` 总在;其余每个字段在不适用时**直接省略,而不是发一个 null**,于是读的人靠「在不在」就能把「没有值」和「值是 0」分开。
+
+| 字段 | 类型 | 何时 |
+|---|---|---|
+| `phase` | `"idle" \| "checking" \| "downloading" \| "ready" \| "failed"` | 总在 |
+| `currentVersion` | string | 总在 —— 正在运行的构建 |
+| `latestVersion` | string | 某次检查看到了比运行版本更新的版本时 |
+| `releaseNotes` | string | 清单为 `latestVersion` 带了发布说明时 |
+| `percent` | number,0–100 | 仅 `downloading` |
+| `transferredBytes` | number | 仅 `downloading` |
+| `totalBytes` | number | 仅 `downloading`,且传输已经知道产物大小之后 |
+| `reason` | string | 仅 `failed` —— 一行壳自己措辞的诊断,不是本地化文案 |
+| `checkedAt` | string | 上一次跑完的检查的 ISO 8601 时间戳 |
+
+**值得显眼呈现的只有 `ready` 一个 phase。**它是唯一那种「更新已下载、已对着清单的 sha512 校验通过、点一下就能装」的状态;`downloading` 同时带上 `percent` 与两个字节数,是给主动点进设置去看的人用的,它不该出现在侧栏或角标上。`ready` 还会熬过此后的每一次检查,所以定时检查不会把一个已经就绪的更新从屏幕上收回去。`failed` 覆盖两种情形,由 `reason` 分辨:一种是被网络打败的检查或传输,下一次检查会从头再来;另一种是这个构建根本装不上更新——从源码启动的实例,或者原地安装路径已经失败的 macOS 构建——本次运行里没有任何东西能改变它。壳发出的 phase 就是这五个;一个还需要「这套部署根本没有更新通道」这一状态的读方,自己拥有那个值,因为壳只为它确实有的通道作答。
+
+**`POST /install` 不弹任何对话框,而且先答再做。**设置窗口里的那次点击就是同意,再来一个原生确认框只是把那次点击已经回答过的问题重问一遍;这条路由在 `ready` 之外一律被拒,所以它唯一能装上的东西,是校验和已经与清单对上的那个产物。`{ "ok": true }` 先上线,安装排在下一个 tick——因为安装会停掉嵌入服务端,并把机器交给一个要替换掉本进程的安装器,而一个还等在响应上的调用方,会把那次断开的连接读成一次失败的安装。
+
+**`/install` 的 token,服务端里跑的每个插件都够得着。**它注入的是服务端子进程的环境,所以那个进程里的任何代码——包括第三方插件,而它们自己不声明任何审批闸——都能调这条路由。它买到的东西是有上限的:退出应用,并装上一个 sha512 已被 electron-updater 逐字节对着更新源清单核对过的更新(`DownloadedUpdateHelper.getValidCachedUpdateFile`),macOS 上还必须满足运行中那个 bundle 的 designated requirement。它不是一条执行任意代码的路;最坏的代价是一次没人要求的重启。与插件管理服务的不对称——它的 `/update` 与 `/repair` 确实会弹原生确认——是有意的:那个服务装的是调用方指名的包,而这个服务装的是更新源发布的那一个产物。所以审计一个第三方插件时,要一并看它有没有读 `DSH_DESKTOP_UPDATE_TOKEN`。
+
 ## 服务器环境
 
 服务器在用户主目录启动,环境为 GUI 继承环境加标准 shell PATH 条目(macOS GUI 应用以 launchd 的极简 PATH 启动)。`DEEPSEEK_API_KEY` 走常规凭据链(环境变量 → 托管存储 → `.env`),首启无 key 也能进 UI,在模型设置页补录。服务器输出追加到应用日志目录的 `dsh-server.log`,由 **帮助 → 查看日志** 打开;启动页只报告启动阶段,不再显示路径。主进程的异常与未处理拒绝也追加到同一个文件:`src/crash-log.ts` 在该文件打开后、更新器与服务器启动前就注册好处理器,而异常仍会弹框——是 `Error` 时,标题与正文与 Electron 拼出的完全一致;不是 `Error` 时按 `String(value)` 渲染,而 Electron 会打印 `undefined: undefined`。启动链跑在 `whenReady` 里,因此它自己的失败是以拒绝而不是异常的形式到来,同样被捕获并以同样的方式上报、同样弹框;在日志文件打开之前,这条上报记录写到 stderr。启动过程没有任何一处是沉默的,崩溃在屏幕上的样子也没有任何变化。
 
-**启动页与下载窗跟随应用主题。**两套色板都取自 web UI 自己的 token,所以无论哪一种模式,启动页与它交接给的应用都是同两种颜色。外观在窗口存在之前就定下——`backgroundColor` 决定页面加载期间画什么——顺序是:`~/.dsh/settings.yaml` 里的持久 `ui-theme.preference`,当它是显式的 `light` 或 `dark` 时优先;否则跟随系统(`nativeTheme.shouldUseDarkColors`),这也正是它默认值 `system` 的含义。**显式设置优先于系统。****帮助 → 关于** 给出版本与更新源地址。菜单栏文案按 `app.getLocale()` 在中英之间选择;对话框保持中文。
+**启动页与安装提示窗跟随应用主题。**两套色板都取自 web UI 自己的 token,所以无论哪一种模式,启动页与它交接给的应用都是同两种颜色。外观在窗口存在之前就定下——`backgroundColor` 决定页面加载期间画什么——顺序是:`~/.dsh/settings.yaml` 里的持久 `ui-theme.preference`,当它是显式的 `light` 或 `dark` 时优先;否则跟随系统(`nativeTheme.shouldUseDarkColors`),这也正是它默认值 `system` 的含义。**显式设置优先于系统。****帮助 → 关于** 给出版本与更新源地址。菜单栏文案按 `app.getLocale()` 在中英之间选择;对话框保持中文。
 
 ## Known Limitations and Deferred Work
 

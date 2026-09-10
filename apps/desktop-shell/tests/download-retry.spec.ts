@@ -7,10 +7,13 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
   CHECK_RETRY_DELAYS_MS,
+  RESUME_RETRY_DELAYS_MS,
   RETRY_DELAYS_MS,
   classifyDownloadError,
   describeDownloadError,
+  type FallbackHooks,
   type RetryHooks,
+  transferWithFallback,
   withRetry,
 } from '../src/download-retry.ts'
 
@@ -230,5 +233,120 @@ describe('RETRY_DELAYS_MS', () => {
     expect([...RETRY_DELAYS_MS]).toEqual([...RETRY_DELAYS_MS].sort((a, b) => a - b))
     expect(new Set(RETRY_DELAYS_MS).size).toBe(RETRY_DELAYS_MS.length)
     expect(RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)).toBeLessThanOrEqual(60_000)
+  })
+})
+
+describe('RESUME_RETRY_DELAYS_MS', () => {
+  it('is a bounded, strictly increasing plan', () => {
+    expect(RESUME_RETRY_DELAYS_MS.length).toBeGreaterThan(0)
+    expect([...RESUME_RETRY_DELAYS_MS]).toEqual([...RESUME_RETRY_DELAYS_MS].sort((a, b) => a - b))
+    expect(new Set(RESUME_RETRY_DELAYS_MS).size).toBe(RESUME_RETRY_DELAYS_MS.length)
+  })
+
+  it('spends more than the plan whose every attempt re-transfers the artifact', () => {
+    const resumeTotal = RESUME_RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
+    const downloadTotal = RETRY_DELAYS_MS.reduce((total, delay) => total + delay, 0)
+    expect(resumeTotal).toBeGreaterThan(downloadTotal)
+  })
+})
+
+/**
+ * Collect a fallback plan's calls against an instant clock.
+ * @returns the hooks to pass, plus what the fallback report recorded.
+ */
+function fallbackRecorder(): { hooks: FallbackHooks; fallbacks: string[] } {
+  const { hooks } = recorder()
+  const fallbacks: string[] = []
+  return {
+    fallbacks,
+    hooks: { ...hooks, onFallback: (error) => { fallbacks.push(describeDownloadError(error)) } },
+  }
+}
+
+describe('transferWithFallback', () => {
+  it('never reaches the fallback when the library transfers the artifact', async () => {
+    const calls: string[] = []
+    const { hooks, fallbacks } = fallbackRecorder()
+    const outcome = await transferWithFallback({
+      run: async () => { calls.push('run') },
+      resume: async () => { calls.push('resume'); return true },
+      delays: RETRY_DELAYS_MS,
+      hooks,
+    })
+    expect(outcome).toBe('completed')
+    expect(calls).toEqual(['run'])
+    expect(fallbacks).toEqual([])
+  })
+
+  it('resumes only after the library plan is spent, then hands the artifact back to it', async () => {
+    const calls: string[] = []
+    const { hooks, fallbacks } = fallbackRecorder()
+    let attempts = 0
+    const outcome = await transferWithFallback({
+      run: async () => {
+        attempts += 1
+        calls.push(`run ${String(attempts)}`)
+        if (attempts <= RETRY_DELAYS_MS.length + 1) throw coded('ECONNRESET')
+      },
+      resume: async () => { calls.push('resume'); return true },
+      delays: RETRY_DELAYS_MS,
+      hooks,
+    })
+    expect(outcome).toBe('resumed')
+    // Every attempt of the library's own plan runs before the resume, and the
+    // last call is the one that takes the staged artifact out of the cache.
+    expect(calls).toEqual(['run 1', 'run 2', 'run 3', 'run 4', 'resume', 'run 5'])
+    expect(fallbacks).toEqual(['ECONNRESET'])
+  })
+
+  it('reports an exhausted transfer when the resume does not finish either', async () => {
+    const calls: string[] = []
+    const { hooks } = fallbackRecorder()
+    const outcome = await transferWithFallback({
+      run: async () => { calls.push('run'); throw coded('ETIMEDOUT') },
+      resume: async () => { calls.push('resume'); return false },
+      delays: [],
+      hooks,
+    })
+    expect(outcome).toBe('exhausted')
+    expect(calls).toEqual(['run', 'resume'])
+  })
+
+  it('does not resume a fatal failure, which another transfer cannot change', async () => {
+    const calls: string[] = []
+    const { hooks, fallbacks } = fallbackRecorder()
+    await expect(transferWithFallback({
+      run: async () => { calls.push('run'); throw coded('ERR_UPDATER_INVALID_SIGNATURE') },
+      resume: async () => { calls.push('resume'); return true },
+      delays: RETRY_DELAYS_MS,
+      hooks,
+    })).rejects.toThrow('ERR_UPDATER_INVALID_SIGNATURE')
+    expect(calls).toEqual(['run'])
+    expect(fallbacks).toEqual([])
+  })
+
+  it('rethrows the transient failure where there is no fallback to take', async () => {
+    const { hooks, fallbacks } = fallbackRecorder()
+    await expect(transferWithFallback({
+      run: async () => { throw coded('ECONNRESET') },
+      resume: undefined,
+      delays: [],
+      hooks,
+    })).rejects.toThrow('ECONNRESET')
+    expect(fallbacks).toEqual([])
+  })
+
+  it('surfaces a handoff the library refused, rather than reporting a transfer that installed nothing', async () => {
+    const { hooks } = fallbackRecorder()
+    let attempts = 0
+    await expect(transferWithFallback({
+      run: async () => {
+        attempts += 1
+        throw attempts === 1 ? coded('ECONNRESET') : coded('ERR_CHECKSUM_MISMATCH')
+      },
+      resume: async () => true,
+      delays: [],
+      hooks,
+    })).rejects.toThrow('ERR_CHECKSUM_MISMATCH')
   })
 })

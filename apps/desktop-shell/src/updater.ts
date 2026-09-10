@@ -28,17 +28,24 @@
  *    is retried in place ([[download]]) and, if the retries run out, left for
  *    the next check on the same tier.
  *
- * The ordinary path runs in three stages and never interrupts what is running:
- * a silent check, one dialog offering the download, and — after the download
- * finishes in a window the user may close at any time — one dialog offering
- * the install. **No install happens without the user deciding it**, on quit or
- * anywhere else: the app replaces itself only in the seconds after someone
- * clicks the button that says so. What follows that click is neither silent nor
- * a wizard — one progress window, no question to answer, and the app comes back
- * by itself — because an install with no surface at all cannot report what it is
- * doing, and the wizard would only ask again what the click already answered. A
- * declined install stays on disk and is offered again on the next launch and on
- * demand from the menu, and nowhere else.
+ * The ordinary path puts nothing on screen until there is something to install.
+ * A silent check starts the transfer of whatever it finds; the transfer runs in
+ * the background with no window, no taskbar progress and no request for
+ * attention, and survives an interruption by resuming rather than restarting
+ * ([[download]]). The one visible state is the end of it: an update that is
+ * downloaded and verified, reported through [[startUpdateService]] and shown by
+ * the Settings entry the embedded server draws. **No install happens without
+ * the user deciding it**, on quit or anywhere else: the app replaces itself only
+ * in the seconds after someone clicks the button that says so, and that click is
+ * the consent — [[installStaged]] asks nothing further. What follows it is
+ * neither silent nor a wizard — one progress window, no question to answer, and
+ * the app comes back by itself — because an install with no surface at all
+ * cannot report what it is doing, and the wizard would only ask again what the
+ * click already answered.
+ *
+ * 帮助 → 检查更新 runs the same silent check. It answers only when there is
+ * nothing to do — 「已是最新版本」 or 「无法检查更新」 — because a click deserves a
+ * reply, while a check that found work reports it where the update lives.
  *
  * Above that sits one mandatory layer, keyed on the feed's `minimumVersion`:
  * a build older than that line downloads without being asked, and at launch it
@@ -47,17 +54,24 @@
  * @module @deepseek-ai/dsh-desktop-shell/updater
  */
 
-import { existsSync } from 'node:fs'
-import { dirname, join } from 'node:path'
+import { existsSync, readFileSync } from 'node:fs'
+import { basename, dirname, join } from 'node:path'
 import { app, BrowserWindow, dialog, Menu, shell, type MenuItemConstructorOptions, type MessageBoxOptions } from 'electron'
 import { load } from 'js-yaml'
 import { MacUpdater, NsisUpdater, type AppUpdater, type UpdateCheckResult } from 'electron-updater'
 import { mainWindow } from './main-window.ts'
 import { menuText } from './menu-text.ts'
 import { compareVersions } from './version-order.ts'
-import { closeProgress, progressVersion, showInstalling, showProgress, showRetrying, updateProgress } from './progress-window.ts'
-import { CHECK_RETRY_DELAYS_MS, RETRY_DELAYS_MS, classifyDownloadError, describeDownloadError, withRetry } from './download-retry.ts'
+import { showInstalling } from './progress-window.ts'
+import {
+  CHECK_RETRY_DELAYS_MS, RESUME_RETRY_DELAYS_MS, RETRY_DELAYS_MS, classifyDownloadError,
+  describeDownloadError, transferWithFallback, withRetry,
+} from './download-retry.ts'
 import { updaterLogLine, type UpdaterLogChannel } from './updater-log.ts'
+import { UpdateState, type UpdateSnapshot } from './update-state.ts'
+import { appCacheDir, discardStaleParts, partFileFor, placeInPendingCache } from './pending-cache.ts'
+import { discardPart, resumeDownload } from './resumable-download.ts'
+import type { UpdateServiceSpec } from './update-service.ts'
 
 /**
  * The published feed, and **the only URL literal this module may contain**.
@@ -116,11 +130,12 @@ const MAC_FEED_TIMEOUT_MS = 20_000
 const GATE_TIMEOUT_MS = 15_000
 
 /**
- * Why a check is running. It decides only who may be interrupted: `startup`
- * and `manual` may open the macOS hand-off dialog, `scheduled` may not,
- * because a session in progress did not ask about updates.
+ * Why a check is running. It decides only who may be interrupted: `manual` — the
+ * menu item — may answer with a dialog, and `startup`, `scheduled` and
+ * `requested` (the Settings entry's own button) never may, because their answer
+ * belongs where the update is shown.
  */
-type CheckReason = 'startup' | 'scheduled' | 'manual'
+type CheckReason = 'startup' | 'scheduled' | 'manual' | 'requested'
 
 /** What the updater — and the application menu it builds — needs from the app. */
 export interface UpdateHost {
@@ -144,6 +159,10 @@ export interface UpdateHost {
 interface FeedFile {
   /** Artifact name relative to the feed directory. */
   url: string
+  /** The artifact's base64 sha512, which is what the updater cache is validated against. */
+  sha512: string
+  /** Whether the installer must be started elevated; set for a per-machine Windows build. */
+  isAdminRightsRequired?: boolean
 }
 
 /** The subset of a `latest*.yml` manifest this module reads. */
@@ -202,12 +221,6 @@ let downloading = false
  */
 let checkInFlight = false
 
-/** Version whose download offer was declined during this run. */
-let declinedVersion: string | undefined
-
-/** Version whose install offer was postponed during this run. */
-let postponedVersion: string | undefined
-
 /**
  * Set once the launch gate found a mandatory update. Every ordinary check
  * stands down afterwards: the blocking path owns the app from that point.
@@ -219,6 +232,40 @@ let offeredVersion: string | undefined
 
 /** The macOS manifest the gate already fetched, so the blocking path does not refetch. */
 let macFeed: Feed | undefined
+
+/**
+ * Where the boot page's holding line is written while the launch gate keeps
+ * the app shut, and undefined at every other moment. Set only for the tier
+ * that downloads behind that page, which is the one whose wait is worth
+ * reporting: the app is unusable until the transfer ends, and a line that
+ * never changes over 170 MB reads as a hang.
+ */
+let blockLine: ((message: string) => void) | undefined
+
+/**
+ * The boot page's line while a mandatory update transfers.
+ * @param percent - transfer completion, once the transfer has reported any.
+ * @returns the line to show.
+ */
+function mandatoryDownloadLine(percent: number | undefined): string {
+  const suffix = percent === undefined ? '' : ` ${String(Math.floor(percent))}%`
+  return `这是必须安装的更新,正在下载新版本…${suffix}`
+}
+
+/**
+ * What the channel is doing, as the Settings entry reads it. Built on first use
+ * rather than at import, because `app.getVersion()` needs the app object.
+ */
+let channelState: UpdateState | undefined
+
+/**
+ * The reportable state of the update channel.
+ * @returns the machine every stage of the channel writes into.
+ */
+function updateState(): UpdateState {
+  channelState ??= new UpdateState(app.getVersion())
+  return channelState
+}
 
 /**
  * Whether this macOS bundle is code signed, which is what decides between the
@@ -367,6 +414,7 @@ export function setupUpdates(host: UpdateHost): () => void {
   const check = app.isPackaged
     ? (reason: CheckReason): void => { void runCheck(host, reason) }
     : (reason: CheckReason): void => {
+      updateState().markUnavailable('development launch: there is no installed app to replace')
       host.log('[updater] skipped: development launches have no installed app to replace\n')
       if (reason === 'manual') {
         void ask({
@@ -392,6 +440,46 @@ export function setupUpdates(host: UpdateHost): () => void {
 }
 
 /**
+ * What the loopback update service reports and drives.
+ *
+ * The three actions return at once and report through the snapshot rather than
+ * through their answers: a check and a transfer take minutes, and the caller is
+ * a settings page that polls. `install` is reached only from the `ready` phase,
+ * which the service enforces before it calls this.
+ * @param host - logging and quit coordination from the main process.
+ * @returns the four halves [[startUpdateService]] needs.
+ */
+export function updateActions(host: UpdateHost): UpdateServiceSpec {
+  return {
+    state: (): UpdateSnapshot => updateState().snapshot(),
+    check: () => { if (app.isPackaged) void runCheck(host, 'requested') },
+    download: () => { if (app.isPackaged) void restartDownload(host) },
+    install: () => { void installStaged(host, stagedVersion ?? '') },
+  }
+}
+
+/**
+ * Transfer the version the last check found, or find one first.
+ *
+ * This is what the Settings entry's retry does after a transfer gave up. A
+ * transfer already in flight is left alone, because restarting it would throw
+ * away the bytes the resumable downloader is holding.
+ * @param host - logging and quit coordination from the main process.
+ */
+async function restartDownload(host: UpdateHost): Promise<void> {
+  if (blocking || downloading || stagedVersion !== undefined) return
+  const version = offeredVersion
+  if (version === undefined || !canInstallInPlace()) {
+    await runCheck(host, 'requested')
+    return
+  }
+  const started = ensureUpdater(host)
+  updateState().downloadStarted(version, stagedNotes)
+  host.log(`[updater] downloading ${version} on request\n`)
+  await download(host, version, async () => { await started.downloadUpdate() })
+}
+
+/**
  * Decide at launch whether this build may open the app at all, and take over
  * when it may not. The verdict is bounded by [[GATE_TIMEOUT_MS]] and defaults
  * to letting the app open, because a feed that cannot be reached must never
@@ -400,8 +488,9 @@ export function setupUpdates(host: UpdateHost): () => void {
  * Runs concurrently with the server boot; the caller awaits it only when the
  * server is ready, so on the ordinary path it costs no wall-clock time.
  * @param host - logging and quit coordination from the main process.
- * @param onBlock - called with the message to show on the boot page when the
- * launch is blocked.
+ * @param onBlock - shows one line on the boot page. Called once when the
+ * launch is blocked, and again for each transfer sample where the update
+ * installs in place, so the line carries the transfer's completion.
  * @returns true when the app must not open.
  */
 export async function launchGate(host: UpdateHost, onBlock: (message: string) => void): Promise<boolean> {
@@ -414,7 +503,8 @@ export async function launchGate(host: UpdateHost, onBlock: (message: string) =>
     if (!verdict) return false
     blocking = true
     if (canInstallInPlace()) {
-      onBlock('这是必须安装的更新,正在下载新版本…')
+      blockLine = onBlock
+      onBlock(mandatoryDownloadLine(undefined))
       void blockWithInstaller(host)
     } else {
       onBlock('这是必须安装的更新,请下载新版本后继续。')
@@ -473,6 +563,7 @@ function demoteMac(host: UpdateHost, error: unknown): void {
   if (macInstallUnavailable) return
   macInstallUnavailable = true
   const message = error instanceof Error ? error.message : String(error)
+  updateState().markUnavailable(`in-place update unavailable: ${describeDownloadError(error)}`)
   host.log(`[updater] in-place update unavailable (${message}); this run falls back to the download page\n`)
 }
 
@@ -507,62 +598,152 @@ async function checkFeedWithRetry(host: UpdateHost, instance: AppUpdater): Promi
  * Transfer one update, absorbing the interruptions a transfer of this size
  * meets on a working connection.
  *
- * The progress window, the taskbar progress and [[downloading]] are opened and
- * closed here, so the three places that start a download differ only in what
- * they log and what they do with the answer. Each attempt is a whole download:
- * electron-updater sends no `Range` header and deletes the partial file on
- * every failure, so nothing of the interrupted transfer is reused.
+ * Nothing about this is on screen. [[downloading]] is opened and closed here,
+ * so the three places that start a download differ only in what they log and
+ * what they do with the answer, and the numbers reach the Settings entry
+ * through [[updateState]] alone.
  *
- * A transient failure that outlives [[RETRY_DELAYS_MS]] returns false and
- * demotes nothing — a dropped connection says nothing about whether this build
- * can replace itself, so macOS stays on the in-place tier and the next check
+ * The transfer runs in two halves. electron-updater's own download goes first
+ * and unchanged, because it is the half that can transfer a differential
+ * update; each of its attempts is a whole download, since it sends no `Range`
+ * header and deletes the partial file on every failure. Only when
+ * [[RETRY_DELAYS_MS]] is spent does [[resumeArtifact]] take over the same
+ * artifact, keeping what already arrived across as many interruptions as it
+ * meets, and hand the finished file back through the updater cache.
+ *
+ * A transient failure that outlives both halves returns false and demotes
+ * nothing — a dropped connection says nothing about whether this build can
+ * replace itself, so macOS stays on the in-place tier and the next check
  * starts over. A fatal failure — a signature refusal, a checksum mismatch, any
  * `ERR_UPDATER_*` — is thrown after demoting macOS, which is what drops the
  * caller's check to the download page.
  * @param host - logging and quit coordination from the main process.
- * @param version - the version being transferred, for the progress window.
- * @param run - performs one whole download.
+ * @param version - the version being transferred.
+ * @param run - performs one whole download through electron-updater.
  * @returns true when the download finished.
  */
 async function download(host: UpdateHost, version: string, run: () => Promise<void>): Promise<boolean> {
   downloading = true
-  showProgress(version)
   try {
-    await withRetry(run, RETRY_DELAYS_MS, {
-      sleep: async (ms) => { await new Promise<void>((resolvePromise) => { setTimeout(resolvePromise, ms) }) },
-      onRetry: (attempt, total, delayMs, error) => {
-        host.log(`[updater] download interrupted (${describeDownloadError(error)}); retry ${String(attempt)}/${String(total)} in ${String(Math.round(delayMs / 1000))}s\n`)
-        showRetrying(attempt, total, delayMs)
+    // The mandatory launch block takes no fallback: the app is shut until this
+    // returns, and a plan that spends minutes resuming would read as a hang
+    // where the retry plan's half-minute does not.
+    const resume = blocking ? undefined : async (): Promise<boolean> => resumeArtifact(host, version)
+    const outcome = await transferWithFallback({
+      run,
+      resume,
+      delays: RETRY_DELAYS_MS,
+      hooks: {
+        sleep: async (ms) => { await new Promise<void>((resolvePromise) => { setTimeout(resolvePromise, ms) }) },
+        onRetry: (attempt, total, delayMs, error) => {
+          host.log(`[updater] download interrupted (${describeDownloadError(error)}); retry ${String(attempt)}/${String(total)} in ${String(Math.round(delayMs / 1000))}s\n`)
+        },
+        onFallback: (error) => {
+          host.log(`[updater] download gave up after ${String(RETRY_DELAYS_MS.length)} retries (${describeDownloadError(error)}); resuming the artifact instead\n`)
+        },
       },
     })
-    return true
+    if (outcome !== 'exhausted') return true
+    updateState().downloadFailed('the transfer could not be completed')
+    return false
   } catch (error) {
-    downloading = false
-    closeProgress()
-    mainWindow()?.setProgressBar(-1)
     const detail = describeDownloadError(error)
+    updateState().downloadFailed(detail)
     if (classifyDownloadError(error) === 'fatal') {
       host.log(`[updater] download failed: ${detail}\n`)
       if (process.platform === 'darwin') demoteMac(host, error)
       throw error
     }
-    host.log(`[updater] download gave up after ${String(RETRY_DELAYS_MS.length)} retries: ${detail}\n`)
+    host.log(`[updater] download gave up: ${detail}\n`)
     return false
+  } finally {
+    // One place clears it, for every way out of this function: a transfer that
+    // left [[downloading]] set would make every later check, and the Settings
+    // entry's own retry, stand down for the rest of the run.
+    downloading = false
   }
 }
 
 /**
- * Tell whoever asked for this check that the transfer did not get through.
- * Only a manual check gets it: a silent one was not asked for, and the next
- * check starts the download over anyway.
+ * The updater cache directory electron-updater reads a staged update from.
+ *
+ * Derived the way the library derives it — `<baseCachePath>/<name>` with the
+ * name taken from the `app-update.yml` inside the packaged app
+ * (`out/AppUpdater.js:545-550`), falling back to the application name exactly
+ * as it does — so the two never disagree about where a staged file goes.
+ * @returns the absolute cache directory.
  */
-async function reportDownloadFailed(): Promise<void> {
-  await ask({
-    type: 'warning',
-    message: '更新下载失败',
-    detail: '网络多次中断,下载没有完成。稍后再试,或从「帮助 → 检查更新」重新开始。',
-    buttons: ['好'],
-  })
+function updaterCacheDir(): string {
+  const configured = ((): string | undefined => {
+    try {
+      const parsed = load(readFileSync(join(process.resourcesPath, 'app-update.yml'), 'utf8'))
+      const name = (parsed as { updaterCacheDirName?: unknown } | null | undefined)?.updaterCacheDirName
+      return typeof name === 'string' ? name : undefined
+    } catch {
+      // No readable app-update.yml: the library falls back to the application
+      // name here too, so both still name one directory.
+      return undefined
+    }
+  })()
+  return join(appCacheDir(), configured ?? app.getName())
+}
+
+/**
+ * Transfer this platform's artifact with the shell's own resumable downloader
+ * and stage it where electron-updater takes a cached update from.
+ *
+ * The manifest is read directly rather than through the library, because what
+ * the transfer needs from it — the artifact's URL, its base64 sha512, and
+ * whether the installer must be elevated — is what the library keeps to itself.
+ * The `.part` file is keyed by version and artifact name and lives in the cache
+ * directory root, where electron-updater's own failure handling does not reach
+ * it; every other partial file there is dropped, because the feed has moved on
+ * from whatever they were.
+ * @param host - logging and quit coordination from the main process.
+ * @param version - the version electron-updater was transferring, for the log.
+ * @returns true when the artifact is staged and worth handing back.
+ */
+async function resumeArtifact(host: UpdateHost, version: string): Promise<boolean> {
+  const isMac = process.platform === 'darwin'
+  const base = isMac ? FEED_MAC : FEED_WIN
+  const extension = isMac ? '.zip' : '.exe'
+  try {
+    const feed = await fetchFeed(`${base}/${isMac ? 'latest-mac.yml' : 'latest.yml'}`)
+    const artifact = feed.files?.find(file => file.url.toLowerCase().endsWith(extension))
+    if (artifact === undefined) {
+      host.log(`[updater] resume unavailable: ${base} lists no ${extension} artifact for ${feed.version}\n`)
+      return false
+    }
+    const cacheDir = updaterCacheDir()
+    const url = feedFileUrl(base, artifact.url)
+    const fileName = basename(decodeURIComponent(new URL(url).pathname))
+    const partFile = partFileFor(cacheDir, feed.version, fileName)
+    discardStaleParts(cacheDir, partFile)
+    host.log(`[updater] resuming ${feed.version} (electron-updater was transferring ${version}) from ${url}\n`)
+    await withRetry(async () => {
+      await resumeDownload({ url, partFile, sha512: artifact.sha512 }, {
+        onProgress: (sample) => { updateState().downloadProgress(sample) },
+      })
+    }, RESUME_RETRY_DELAYS_MS, {
+      sleep: async (ms) => { await new Promise<void>((resolvePromise) => { setTimeout(resolvePromise, ms) }) },
+      onRetry: (attempt, total, delayMs, error) => {
+        host.log(`[updater] resume interrupted (${describeDownloadError(error)}); retry ${String(attempt)}/${String(total)} in ${String(Math.round(delayMs / 1000))}s\n`)
+      },
+    })
+    placeInPendingCache({
+      cacheDir,
+      sourceFile: partFile,
+      fileName,
+      sha512: artifact.sha512,
+      isAdminRightsRequired: artifact.isAdminRightsRequired === true,
+    })
+    discardPart(partFile)
+    host.log(`[updater] staged ${fileName} in ${cacheDir}; handing it back to electron-updater\n`)
+    return true
+  } catch (error) {
+    host.log(`[updater] resume did not finish: ${describeDownloadError(error)}\n`)
+    return false
+  }
 }
 
 /**
@@ -577,6 +758,7 @@ async function reportDownloadFailed(): Promise<void> {
 async function blockWithInstaller(host: UpdateHost): Promise<void> {
   const blocked = ensureUpdater(host)
   try {
+    updateState().downloadStarted(offeredVersion ?? app.getVersion(), stagedNotes)
     if (await download(host, offeredVersion ?? '', async () => { await blocked.downloadUpdate() })) return
   } catch (error) {
     // [[download]] logged the failure and cleaned up after it; what the
@@ -647,6 +829,13 @@ async function openDownloadPage(host: UpdateHost, artifact: string): Promise<voi
  * tier when the in-place path fails part-way through. The fallback re-runs the
  * same check rather than deferring it, so one check still ends in one answer.
  *
+ * The two failures that reach the fallback are reported differently, because
+ * only one of them costs the tier. A fatal failure demotes macOS, and the
+ * answer below is then this run's own tier. A transient one leaves the build
+ * able to replace itself, so the answer below is a fallback: it names the
+ * version it found and records the check as failed, which the next check on
+ * the in-place tier starts over from.
+ *
  * A download the network alone defeated never reaches this catch: [[download]]
  * absorbs it and ends the check where it stands, because the tier is still the
  * right one and re-running the check on the download-page tier would answer a
@@ -656,6 +845,10 @@ async function openDownloadPage(host: UpdateHost, artifact: string): Promise<voi
  */
 async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
   if (blocking) return
+  // What the in-place check failed with when the tier survived that failure,
+  // which is what makes the answer below a fallback rather than this build's
+  // own tier.
+  let fallbackReason: string | undefined
   try {
     if (canInstallInPlace()) {
       try {
@@ -667,11 +860,13 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
         // costs this check, which [[checkGeneric]] answers below, not the tier
         // for the rest of the run.
         if (classifyDownloadError(error) === 'fatal') demoteMac(host, error)
+        else fallbackReason = describeDownloadError(error)
       }
     }
-    await checkGeneric(host, reason)
+    await checkGeneric(host, reason, fallbackReason)
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error)
+    updateState().checkFailed(new Date().toISOString(), describeDownloadError(error))
     host.log(`[updater] check failed: ${message}\n`)
     if (reason === 'manual') {
       await ask({
@@ -693,19 +888,24 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
  */
 async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void> {
   const checking = ensureUpdater(host)
-  if (stagedVersion !== undefined) {
-    if (reason === 'manual') await offerInstall(host, stagedVersion, true)
+  // A downloaded update and a transfer in flight are both already reported
+  // where the update lives, so a check on top of either starts nothing. It
+  // still records when it ran, and a manual one still answers: a click
+  // deserves a reply wherever the update it asked about already is.
+  if (stagedVersion !== undefined || downloading) {
+    updateState().checkSucceeded(new Date().toISOString(), stagedVersion ?? offeredVersion, stagedNotes)
+    host.log(`[updater] check while ${stagedVersion === undefined ? 'a transfer is in flight' : `${stagedVersion} waits to be installed`}\n`)
+    if (reason === 'manual') {
+      if (stagedVersion === undefined) await reportDownloading(offeredVersion)
+      else await reportStaged(stagedVersion)
+    }
     return
   }
-  if (downloading) {
-    // The download already has a surface; a manual check reopens it instead of
-    // stacking a dialog on top.
-    if (reason === 'manual') showProgress(progressVersion() ?? '')
-    return
-  }
+  updateState().checkStarted()
   const result = await checkFeedWithRetry(host, checking)
   const version = result?.updateInfo.version
   if (version === undefined || compareVersions(version, app.getVersion()) <= 0) {
+    updateState().checkSucceeded(new Date().toISOString())
     host.log(`[updater] no update: installed ${app.getVersion()}, feed ${version ?? 'unavailable'}\n`)
     if (reason === 'manual') await reportUpToDate()
     return
@@ -713,6 +913,7 @@ async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void
   const notes = typeof result?.updateInfo.releaseNotes === 'string' ? result.updateInfo.releaseNotes : undefined
   stagedNotes = notes
   offeredVersion = version
+  updateState().checkSucceeded(new Date().toISOString(), version, notes)
   if (isMandatory(minimumOf(result?.updateInfo))) {
     // Mid-session mandatory: start immediately, but let the work in progress
     // finish — the next launch is where the gate stops being negotiable.
@@ -724,45 +925,15 @@ async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void
       detail: notesDetail(notes) || '下载完成后可以立即重启安装,也可以在下次启动时完成。',
       buttons: ['好'],
     })
-    const transferred = await download(host, version, async () => { await checking.downloadUpdate() })
-    if (!transferred && reason === 'manual') await reportDownloadFailed()
+    updateState().downloadStarted(version, notes)
+    await download(host, version, async () => { await checking.downloadUpdate() })
     return
   }
-  if (reason !== 'manual' && declinedVersion === version) {
-    host.log(`[updater] ${version} was declined this run; not asking again\n`)
-    return
-  }
-  await offerDownload(host, version, notes, reason)
-}
-
-/**
- * In-place tier, stage two: offer the download. Nothing has been transferred
- * yet, so this is the point where an update can be declined at no cost.
- * @param host - logging and quit coordination from the main process.
- * @param version - the version the feed offers.
- * @param notes - release notes from the manifest.
- * @param reason - what started this check, which decides whether a download
- * that never got through is reported or only logged.
- */
-async function offerDownload(host: UpdateHost, version: string, notes: string | undefined, reason: CheckReason): Promise<void> {
-  const answer = await ask({
-    type: 'info',
-    title: `发现新版本 ${version}`,
-    message: `发现新版本 ${version}`,
-    detail: notesDetail(notes) || `当前版本 ${app.getVersion()}。下载在后台进行,完成后再决定什么时候重启。`,
-    buttons: ['下载更新', '稍后'],
-    defaultId: 0,
-    cancelId: 1,
-  })
-  if (answer !== 0) {
-    declinedVersion = version
-    host.log(`[updater] user declined ${version}\n`)
-    return
-  }
-  host.log(`[updater] downloading ${version}\n`)
-  const started = ensureUpdater(host)
-  const transferred = await download(host, version, async () => { await started.downloadUpdate() })
-  if (!transferred && reason === 'manual') await reportDownloadFailed()
+  // Nothing is asked and nothing is shown: the transfer starts here and the
+  // Settings entry is where it becomes visible, once it is installable.
+  host.log(`[updater] downloading ${version} in the background\n`)
+  updateState().downloadStarted(version, notes)
+  await download(host, version, async () => { await checking.downloadUpdate() })
 }
 
 /**
@@ -775,7 +946,7 @@ async function offerDownload(host: UpdateHost, version: string, notes: string | 
  * out, only in the seconds after someone clicks 「重启安装」. On macOS the flag
  * has a second effect — it is also what would let Squirrel pre-fetch the staged
  * bundle from electron-updater's local proxy during the download instead of
- * after the click ([[offerInstall]] documents what that costs).
+ * after the click ([[installStaged]] documents what that costs).
  * @param host - logging and quit coordination from the main process.
  * @returns the configured updater.
  */
@@ -796,8 +967,11 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
   }
   built.logger = { info: write('info'), warn: write('warn'), error: write('error'), debug: write('debug') }
   built.on('download-progress', (progress) => {
-    updateProgress(progress)
-    mainWindow()?.setProgressBar(progress.percent / 100)
+    updateState().downloadProgress(progress)
+    // The only surface a transfer writes to, and only while the launch gate
+    // holds the app shut: the boot page's own line, rewritten in place. No
+    // window, no taskbar or Dock progress, nothing on the ordinary path.
+    blockLine?.(mandatoryDownloadLine(updateState().snapshot().percent))
   })
   built.on('error', (error) => {
     host.log(`[updater] error: ${error.message}\n`)
@@ -810,8 +984,6 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
     // The same ownership for a check: [[checkFeedWithRetry]] is mid-plan and
     // its caller decides once the retries are spent.
     if (checkInFlight) return
-    closeProgress()
-    mainWindow()?.setProgressBar(-1)
     // On macOS this listener is the only place a failure inside Squirrel
     // surfaces — the staging and the install run after the promises this module
     // awaits have already settled.
@@ -819,14 +991,16 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
   })
   built.on('update-downloaded', (info) => {
     // On macOS this is the end of electron-updater's own download, not the end
-    // of the install: Squirrel is handed the file at [[offerInstall]].
+    // of the install: Squirrel is handed the file at [[installStaged]].
     downloading = false
     stagedVersion = info.version
     stagedNotes = typeof info.releaseNotes === 'string' ? info.releaseNotes : undefined
-    closeProgress()
-    mainWindow()?.setProgressBar(-1)
+    updateState().downloadReady(info.version, stagedNotes)
     host.log(`[updater] downloaded ${info.version}; waiting for an explicit install\n`)
-    void offerInstall(host, info.version, blocking)
+    // The ordinary path stops here: the update is reported, and the click that
+    // installs it comes from the Settings entry. Only the mandatory launch
+    // block, which owns the app and has no other surface, asks.
+    if (blocking) void offerInstall(host, info.version)
   })
   updater = built
   return built
@@ -853,18 +1027,14 @@ const INSTALL_PROMISE = process.platform === 'darwin'
   : '点击后应用会关闭并显示安装进度,完成后自动重新打开;你的会话记录都在。'
 
 /**
- * In-place tier, stage three: the update is on disk and the only question left
- * is when to install it. The default button is 「暂不」 so a reflexive Enter never
- * ends a session — except on the blocking path, where restarting is the only
- * way forward and the dialog says exactly that.
+ * The mandatory launch block's last dialog: the update is on disk, the app is
+ * shut until it is installed, and the one button says so. Nothing else opens
+ * this — the ordinary path reports the downloaded update and waits for a click
+ * that reaches [[installStaged]] directly.
  * @param host - logging and quit coordination from the main process.
  * @param version - the downloaded version.
- * @param force - ask again even though this version was already postponed this
- * run; true for a manual check and for the blocking path.
  */
-async function offerInstall(host: UpdateHost, version: string, force: boolean): Promise<void> {
-  if (!force && postponedVersion === version) return
-  postponedVersion = version
+async function offerInstall(host: UpdateHost, version: string): Promise<void> {
   const notes = notesDetail(stagedNotes)
   const detail = notes === ''
     ? `当前版本 ${app.getVersion()},安装后为 ${version}。\n\n${INSTALL_PROMISE}`
@@ -872,18 +1042,31 @@ async function offerInstall(host: UpdateHost, version: string, force: boolean): 
   const answer = await ask({
     type: 'info',
     title: '新版本已下载完毕',
-    message: blocking
-      ? `v${version} 已下载完毕。重启安装后即可继续使用。`
-      : `v${version} 已下载完毕,可以安装。现在重启安装吗?`,
+    message: `v${version} 已下载完毕。重启安装后即可继续使用。`,
     detail,
-    buttons: blocking ? ['重启安装'] : ['重启安装', '暂不'],
-    defaultId: blocking ? 0 : 1,
-    cancelId: blocking ? 0 : 1,
+    buttons: ['重启安装'],
+    defaultId: 0,
+    cancelId: 0,
   })
   if (answer !== 0) {
     host.log(`[updater] ${version} stays downloaded; it installs when the user says so\n`)
     return
   }
+  await installStaged(host, version)
+}
+
+/**
+ * Replace the application with the update already on disk.
+ *
+ * **No dialog stands between this and the click that reached it.** The button in
+ * the Settings window is the decision, and the seconds that follow are the
+ * install itself: the server goes down, macOS puts up the standing notice
+ * because Squirrel takes the screen for around fifteen seconds, and Windows
+ * hands over to an NSIS installer that paints its own progress within a second.
+ * @param host - logging and quit coordination from the main process.
+ * @param version - the downloaded version.
+ */
+async function installStaged(host: UpdateHost, version: string): Promise<void> {
   if (process.platform === 'darwin') {
     // Put the notice up before the teardown, so nothing about the next fifteen
     // seconds is left to be guessed at. The main window goes with the server it
@@ -939,24 +1122,66 @@ async function offerInstall(host: UpdateHost, version: string, force: boolean): 
  * The download-page tier: read the feed directly and, when it is ahead, open
  * the download in the system browser. This is where an unsigned macOS build
  * lives — it can see a new version but not replace itself with one — and where
- * a signed build lands after its in-place path failed. The dialog is confined
- * to startup and manual checks — a scheduled check mid-session only logs,
- * unless the feed's red line makes the update mandatory.
+ * a signed build lands once its in-place path is gone for the run. The dialog
+ * is confined to the menu item and to the feed's red line: nothing else
+ * interrupts a session with a download this build cannot install anyway, and
+ * what it found is reported through [[updateState]] instead.
+ *
+ * A check whose in-place path was merely interrupted is answered here as well,
+ * and that answer stops short of the download page: the build can still
+ * install where it stands, so a click is told the check did not get through
+ * and a silent check says nothing, the red line included.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
+ * @param fallbackReason - what the in-place check failed with when this call is
+ * answering for a tier that survived that failure; undefined when the download
+ * page is this build's own tier.
  */
-async function checkGeneric(host: UpdateHost, reason: CheckReason): Promise<void> {
+async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReason?: string): Promise<void> {
+  updateState().checkStarted()
   const feed = await fetchFeed(`${FEED_MAC}/latest-mac.yml`)
   const version = feed.version
   if (compareVersions(version, app.getVersion()) <= 0) {
+    updateState().checkSucceeded(new Date().toISOString())
     host.log(`[updater] no update: installed ${app.getVersion()}, feed ${version}\n`)
     if (reason === 'manual') await reportUpToDate()
     return
   }
   const artifact = feed.files?.[0]?.url
   if (artifact === undefined) throw new Error(`更新源缺少 files[].url(${FEED_MAC}/latest-mac.yml)`)
+  const notes = typeof feed.releaseNotes === 'string' ? feed.releaseNotes : undefined
+  updateState().checkSucceeded(new Date().toISOString(), version, notes)
+  if (fallbackReason === undefined) {
+    // This build's own tier: replacing the app by hand is the only way this
+    // version gets installed, for the rest of the run.
+    updateState().markUnavailable('this build installs an update by replacing it by hand')
+  } else {
+    // A fallback answer for an in-place tier the failure did not cost. The
+    // build can still replace itself, so what is reported is the check that
+    // did not get through — which the next check starts over from — rather
+    // than a verdict about this build.
+    host.log(`[updater] ${version} was read straight from the feed; the in-place check did not get through (${fallbackReason})\n`)
+    updateState().checkFailed(new Date().toISOString(), fallbackReason)
+    // The answer stops here rather than continuing into the download page: a
+    // machine that can install where it stands must not be sent to replace its
+    // own application by hand over a check that will be tried again. A click
+    // is answered with the failure it met, and the feed's red line is left to
+    // the launch gate and to the next in-place check, which are what enforce
+    // it.
+    if (reason === 'manual') {
+      await ask({
+        type: 'warning',
+        message: '无法检查更新',
+        detail: `${fallbackReason}\n\n稍后会自动重试,新版本 ${version} 已记录在设置里。`,
+        buttons: ['好'],
+      })
+    } else if (isMandatory(feed.minimumVersion)) {
+      host.log(`[updater] mandatory ${version}: the in-place check did not get through; the launch gate and the next check are what enforce it\n`)
+    }
+    return
+  }
   const mandatory = isMandatory(feed.minimumVersion)
-  if (reason === 'scheduled' && !mandatory) {
+  if (reason !== 'manual' && !mandatory) {
     host.log(`[updater] ${version} is available; not interrupting the session\n`)
     return
   }
@@ -977,6 +1202,34 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason): Promise<void
     return
   }
   await openDownloadPage(host, artifact)
+}
+
+/**
+ * Answer a manual check that landed while the update it asked about was still
+ * transferring.
+ * @param version - the version being transferred, when a check has named one.
+ */
+async function reportDownloading(version: string | undefined): Promise<void> {
+  await ask({
+    type: 'info',
+    message: '正在后台下载新版本',
+    detail: `${version === undefined ? '新版本' : `v${version}`} 正在后台下载,下载完成后到设置里安装。`,
+    buttons: ['好'],
+  })
+}
+
+/**
+ * Answer a manual check that landed on an update already downloaded and
+ * waiting for the click that installs it.
+ * @param version - the downloaded version.
+ */
+async function reportStaged(version: string): Promise<void> {
+  await ask({
+    type: 'info',
+    message: '新版本已下载完成',
+    detail: `v${version} 已下载完成,到设置里安装。`,
+    buttons: ['好'],
+  })
 }
 
 /** Confirm to a manual checker that the installed version is current. */

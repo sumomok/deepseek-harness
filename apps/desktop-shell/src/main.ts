@@ -47,7 +47,11 @@ import {
 import { startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, type ServerSpec } from './server.ts'
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
-import { launchGate, setupUpdates } from './updater.ts'
+import {
+  ENDPOINT_ENV as UPDATE_ENDPOINT_ENV, startUpdateService,
+  TOKEN_ENV as UPDATE_TOKEN_ENV, type UpdateServiceHandle,
+} from './update-service.ts'
+import { launchGate, setupUpdates, updateActions, type UpdateHost } from './updater.ts'
 
 // First statement of the process: every directory below is derived from the
 // application name, and the state of an existing installation lives under the
@@ -96,6 +100,7 @@ function resolveSpec(): LaunchSpec {
 let server: ServerHandle | undefined
 let renderService: RenderServiceHandle | undefined
 let pluginAdminService: PluginAdminHandle | undefined
+let updateService: UpdateServiceHandle | undefined
 let quitting = false
 /**
  * The desktop log sink. Until the log file is known there is nowhere durable
@@ -426,6 +431,34 @@ async function startPluginAdminForServer(spec: LaunchSpec, log: (chunk: string) 
   pluginAdminService = started
   log(`[desktop] plugin admin service on ${started.endpoint}, pnpm: ${[launcher.command, ...launcher.prefixArgs].join(' ')}\n`)
   return { [PLUGIN_ADMIN_ENDPOINT_ENV]: started.endpoint, [PLUGIN_ADMIN_TOKEN_ENV]: started.token }
+}
+
+/**
+ * Start the loopback update service and return what the server child needs to
+ * reach it.
+ *
+ * The shell owns the update channel and the embedded server draws the Settings
+ * window, so the one place a user can act on an update is on the far side of
+ * this listener. Failing to open it is not a reason to refuse the launch: a
+ * server told nothing reports the capability unavailable and shows no update
+ * entry, and the channel keeps checking and downloading either way — only the
+ * click that installs is out of reach until the next launch.
+ * @param host - logging and quit coordination the update channel already uses.
+ * @param log - the server log sink; receives one line either way, never the token.
+ * @returns the environment additions for the server process, empty when the service did not start.
+ */
+async function startUpdateForServer(host: UpdateHost, log: (chunk: string) => void): Promise<Record<string, string>> {
+  let started: UpdateServiceHandle
+  try {
+    started = await startUpdateService(updateActions(host))
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error)
+    log(`[desktop] update service unavailable (${message}); the Settings window shows no update entry\n`)
+    return {}
+  }
+  updateService = started
+  log(`[desktop] update service on ${started.endpoint}\n`)
+  return { [UPDATE_ENDPOINT_ENV]: started.endpoint, [UPDATE_TOKEN_ENV]: started.token }
 }
 
 /**
@@ -768,6 +801,7 @@ if (!locked) {
     // this quit must not wait on a render that is still running.
     void renderService?.close()
     void pluginAdminService?.close()
+    void updateService?.close()
     if (server === undefined) return
     event.preventDefault()
     void stopServerBounded().finally(() => { app.exit(0) })
@@ -845,7 +879,8 @@ if (!locked) {
       // environment variables of that child and of nothing else.
       const renderEnv = await startRenderServiceForServer(sink)
       const pluginAdminEnv = await startPluginAdminForServer(spec, sink)
-      activeServerSpec = { ...spec, env: { ...renderEnv, ...pluginAdminEnv } }
+      const updateEnv = await startUpdateForServer(host, sink)
+      activeServerSpec = { ...spec, env: { ...renderEnv, ...pluginAdminEnv, ...updateEnv } }
       server = await startServerWithQuarantine(
         activeServerSpec, sink, quarantineLoadFailureFromOutput, resolveHarnessHome(),
       )
