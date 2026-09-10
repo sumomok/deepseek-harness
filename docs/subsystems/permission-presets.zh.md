@@ -8,7 +8,7 @@
 
 ## 预设表
 
-预设把一个稳定 key 映射到一组沙箱／审批组合，外加可选的客户端展示信息。默认配置表自带 `workspace-write`（`workspace-write` + `ask`）和 `danger-full-access`（`danger-full-access` + `never`）；`custom` 与 `auto` 是保留名称，不能配置。
+预设把一个稳定 key 映射到一组沙箱／审批组合，外加可选的客户端展示信息——label、description，以及选择器封闭设计集中的一个 glyph。默认配置表自带 `workspace-write`（`workspace-write` + `ask`）和 `danger-full-access`（`danger-full-access` + `never`）；`custom` 与 `auto` 是保留名称，不能配置。
 
 ```ts type-equiv
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -21,7 +21,18 @@ interface PresetSpec {
   name?: string
   /** One user-facing sentence on what the preset means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
 }
+```
+
+```ts type-equiv
+/**
+ * One glyph of the permission selector's design set. The set is closed: a
+ * presentation layer draws exactly these three, so a host names one instead of
+ * supplying artwork.
+ */
+type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
 ```
 
 ```ts type-equiv
@@ -54,7 +65,7 @@ Auto integration 会在自身 effect 生命周期内调用 `registerAuto(admit)`
 
 `current(session)` 从必需的 `permissions` 投影派生实际生效的预设。该单元折叠会话的沙箱模式、审批策略和已记录选择；状态内部的缺失值回退到执行器配置的模式与审批服务配置，最后回退到 `ask`。投影 key 缺失时会显式失败。服务优先取仍然匹配的选择，其次取第一个匹配的配置条目，否则返回 `CUSTOM_PRESET`（`'custom'`）。`custom` 只是派生值：客户端可以把它显示为当前值，但它绝不是切换目标，也绝不出现在事件 payload 中。
 
-`names` 先按声明顺序列出配置预设，再在 Auto integration 存活时列出 Auto。`catalog()` 把这些可选条目作为一份进程级快照返回。`optionOf(name)` 为可用条目（label 回退为该 key）或派生的 `custom` 展示构建选项，传入其他任何名称都会抛出异常。客户端把目录与 Session 投影合并；`custom` 可以标记当前值，但绝不会成为目录条目。
+`names` 先按声明顺序列出配置预设，再在 Auto integration 存活时列出 Auto。`catalog()` 把这些可选条目作为一份进程级快照返回。`optionOf(name)` 为可用条目（label 回退为该 key，glyph 原样传出）或派生的 `custom` 展示构建选项，传入其他任何名称都会抛出异常。客户端把目录与 Session 投影合并；`custom` 可以标记当前值，但绝不会成为目录条目。
 
 ```ts type-equiv
 /** Presentation for an available preset or the derived `custom` current value. */
@@ -65,6 +76,8 @@ interface PresetOption {
   name: string
   /** One user-facing sentence on what the value means; omitted when not configured. */
   description?: string
+  /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
+  glyph?: PresetGlyph
 }
 ```
 

@@ -29,7 +29,7 @@ kind: "package-reference"
 
 ### 配置预设
 
-插件配置定义预设表与新会话的默认值。每个预设名称把一个沙箱模式与一个审批策略捆绑为一组；`name` 与 `description` 是可选的客户端呈现。保留名称 `custom` 与 `auto` 不能出现在该表中。
+插件配置定义预设表与新会话的默认值。每个预设名称把一个沙箱模式与一个审批策略捆绑为一组；`name`、`description` 与 `glyph` 是可选的客户端呈现——`glyph` 指定选择器显示设计集中的哪一个 glyph，取值为 `read-only`、`workspace-write` 或 `danger-full-access`，预设 id 本身就是 glyph 名称时无需配置。保留名称 `custom` 与 `auto` 不能出现在该表中。
 
 ```yaml
 - name: '@deepseek-ai/dsh-permission-presets'

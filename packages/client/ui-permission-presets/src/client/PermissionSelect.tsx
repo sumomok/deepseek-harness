@@ -22,9 +22,10 @@ import {
 import css from './PermissionSelect.module.css'
 
 /* Shield glyphs (design set 1556) over the ui-primitives shield contour:
-   check = read-only, pencil = workspace write, exclamation = full access.
-   currentColor so the trigger and menu rows tint them with their own text
-   color. */
+   check = read-only, pencil = workspace write, exclamation = full access,
+   bare contour = every other key. An option selects one by name; the fallback
+   keeps each row's icon the same size. currentColor so the trigger and menu
+   rows tint them with their own text color. */
 
 const permissionGlyphs = new Map<string, ReactNode>([
   ['read-only', (
@@ -51,9 +52,19 @@ const permissionGlyphs = new Map<string, ReactNode>([
   )],
 ])
 
-/** Glyph for a permission option value; host-configured names outside the design set get none. */
-function permissionGlyph(value: string): ReactNode | undefined {
-  return permissionGlyphs.get(value)
+const bareShield = (
+  <svg width="16" height="16" viewBox="0 0 16 16" fill="none" aria-hidden>
+    <path d={SHIELD_OUTLINE_PATH} stroke="currentColor" strokeWidth={SHIELD_OUTLINE_STROKE} strokeLinejoin="round" />
+  </svg>
+)
+
+/**
+ * Resolve one design-set glyph.
+ * @param key - an option's own `glyph`, or its value when it names none.
+ * @returns the named glyph, or the bare shield outline for any other key.
+ */
+function permissionGlyph(key: string): ReactNode {
+  return permissionGlyphs.get(key) ?? bareShield
 }
 
 function permissionLabel(
@@ -122,7 +133,6 @@ export function PermissionSelect({
   const busy = pick !== null || confirmation !== null
 
   const items: MenuEntry[] = catalog.options.map((option) => {
-    const icon = permissionGlyph(option.value)
     const label = permissionLabel(option.value, option.name, t)
     const badge = optionBadge(option.value, t)
     return {
@@ -135,7 +145,7 @@ export function PermissionSelect({
             <sup className={css.badge}>{badge}</sup>
           </span>
         ),
-      ...icon === undefined ? {} : { icon },
+      icon: permissionGlyph(option.glyph ?? option.value),
     }
   })
 
@@ -201,9 +211,7 @@ export function PermissionSelect({
             disabled={locked || busy}
             onClick={() => { setOpen(!open) }}
           >
-            {permissionGlyph(currentValue) !== undefined && (
-              <span className={css.triggerIcon} aria-hidden>{permissionGlyph(currentValue)}</span>
-            )}
+            <span className={css.triggerIcon} aria-hidden>{permissionGlyph(current?.glyph ?? currentValue)}</span>
             <span className={css.triggerLabel}>{currentLabel}</span>
             {currentBadge !== undefined && (
               <sup className={css.badge}>{currentBadge}</sup>
