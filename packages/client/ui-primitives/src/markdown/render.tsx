@@ -542,7 +542,12 @@ function renderNode(node: Md.RootContent, key: Key, context: MarkdownRenderConte
       return renderTable(node, key, context)
     case 'link': {
       const destination = decodeLinkDestination(node.url)
-      if (isLocalPathDestination(destination) && !isAllowedScheme(destination)) {
+      // An anchor whose children are only images has no readable text of its
+      // own, so this branch's `displayText` would be empty and its button or
+      // code element would render nothing while swallowing the images. Such an
+      // anchor belongs to the renderer below, which already has a case for it.
+      if (isLocalPathDestination(destination) && !isAllowedScheme(destination)
+        && !anchorWrapsOnlyImages(node.children)) {
         const rendered = renderLocalLinkDestination(destination, node, key, context)
         if (rendered !== undefined) return rendered
       }
