@@ -27,6 +27,7 @@
 import { useEffect, useRef } from 'react'
 import type { MutableRefObject } from 'react'
 import { randomUUID } from '@deepseek-ai/dsh-util-crypto'
+import { clientUrl } from '@deepseek-ai/dsh-client-connection/client'
 import type { ContentSurfaceEntry } from '@deepseek-ai/dsh-experimental-content-surface/types'
 import {
   ACT_RUN_SHARE, CLAIM_RETRY_MS, CONTENT_ACT_TOOL_NAME, CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE,
@@ -268,13 +269,20 @@ type Posted<T> =
  * reverse proxy refreshing a token answers 401 and a rate limiter answers 429,
  * neither of which has read the document, and treating those as final would end
  * a read the next post would have completed.
- * @param route - the route to post to.
+ *
+ * The address is resolved here rather than written into the route constants,
+ * because the two halves need different ones: the node half registers these
+ * routes at the server root, and a deployment publishing the console under a
+ * path prefix has a reverse proxy strip that prefix before the request arrives.
+ * The browser is therefore the half that has to put it back, and `clientUrl`
+ * is where that decision lives.
+ * @param route - the route to post to, as the node half registers it.
  * @param body - the document, already serialized.
  * @returns what the post ended as.
  */
 async function post<T>(route: string, body: string): Promise<Posted<T>> {
   try {
-    const response = await fetch(route, {
+    const response = await fetch(clientUrl(route), {
       method: 'POST',
       headers: { 'content-type': 'application/json' },
       body,
@@ -373,8 +381,10 @@ async function claimRead(
  * own deadline is the right place for it to end. A report the route refused is
  * not that ending and is not sent again — the second post would carry the same
  * document to the same check.
- * @param route - the route this call settles on, which is the picture route for
- * a picture read and the report route for every other call.
+ * @param route - the route this call settles on, as the node half registers it:
+ * the picture route for a picture read and the report route for every other
+ * call. {@link post} resolves it against the page's deployment base, so a
+ * console published under a path prefix reports through that prefix.
  * @param report - the read's report, as {@link readPage} weighed it.
  */
 async function reportRead(route: string, report: Report): Promise<void> {

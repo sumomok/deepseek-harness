@@ -155,7 +155,10 @@ beforeEach(() => {
   current = 'a'
   posted = []
   claims = []
-  vi.stubGlobal('fetch', vi.fn((route: string, init: RequestInit) => {
+  vi.stubGlobal('fetch', vi.fn((input: URL, init: RequestInit) => {
+    // The seat posts an address resolved against the page's deployment base;
+    // this bench publishes no prefix, so the path it served is the route.
+    const route = input.pathname
     posted.push({ route, body: JSON.parse(init.body as string) as Record<string, unknown> })
     const answer = route === CONTENT_CLAIM_ROUTE ? claims.shift() ?? { claimed: true } : { accepted: true }
     return Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve(answer) })

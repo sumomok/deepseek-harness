@@ -69,6 +69,9 @@ function otherEntry(entryId: string, title: string): ContentSurfaceEntry {
 /** Every document posted to a read route, in order, decoded, as it went on the wire, and when. */
 let posted: { route: string; body: Record<string, unknown>; raw: string; at: number }[] = []
 
+/** Every address the seat asked for, in order, resolved the way the document resolves it. */
+let asked: URL[] = []
+
 /** The claim answers the stub hands out, oldest first; exhausted means "claimed". */
 let claims: ClaimAck[] = []
 
@@ -98,9 +101,23 @@ let fates: Map<string, Fate[]>
 /** The fate every post gets once its route's queue is empty. */
 let network: Fate = 'ok'
 
-/** Answer the two read routes the way the node half does. */
+/** The three read routes, as the node half registers them at the server root. */
+const READ_ROUTES = [CONTENT_CLAIM_ROUTE, CONTENT_IMAGE_ROUTE, CONTENT_REPORT_ROUTE]
+
+/**
+ * Answer the read routes the way the node half does, from where the browser
+ * stands: whatever the seat hands `fetch` is resolved the way a document
+ * resolves it, so a path posted as the route constant lands on the origin and
+ * only an address built from the page's base carries a deployment prefix. The
+ * routes are matched by suffix for that reason — under a prefix the served path
+ * is no longer the constant.
+ */
 function stubRoutes(): void {
-  vi.stubGlobal('fetch', vi.fn((route: string, init: RequestInit) => {
+  vi.stubGlobal('fetch', vi.fn((input: URL | string, init: RequestInit) => {
+    const url = new URL(String(input), document.baseURI)
+    asked.push(url)
+    const route = READ_ROUTES.find(candidate => url.pathname.endsWith(candidate))
+    if (route === undefined) throw new Error(`unexpected fetch: ${url.href}`)
     const raw = init.body as string
     posted.push({ route, body: JSON.parse(raw) as Record<string, unknown>, raw, at: Date.now() })
     const fate = fates.get(route)?.shift() ?? network
@@ -279,6 +296,29 @@ function drive(seat: ContentReadSeat, view?: ReturnType<typeof render>): ReturnT
   return view
 }
 
+/**
+ * Mount a frame holding one element, number it, and drive a picture read of
+ * that ref.
+ * @param html - the fragment the frame holds.
+ * @param selector - the element the ref names.
+ * @param draw - the drawing to inject.
+ * @returns the ref the read names.
+ */
+function drivePicture(html: string, selector: string, draw: ExportPixels): string {
+  const frame = mountFrame(html)
+  const el = frame.contentWindow?.document.querySelector(selector)
+  if (el === null || el === undefined) throw new Error(`the fixture has no ${selector}`)
+  const table = new RefTable()
+  const ref = table.ref(el)
+  drive(seatOf({
+    frames: { current: new Map([[FRAME, frame]]) },
+    tables: { current: new Map([[FRAME, table]]) },
+    pending: [{ callId: 'call_1', tool: 'content_read_image', args: { ref } }],
+    draw,
+  }))
+  return ref
+}
+
 /** Wait until one report has been posted. */
 async function settled(): Promise<void> {
   await vi.waitFor(() => { expect(of(CONTENT_REPORT_ROUTE)).toHaveLength(1) }, { timeout: 3000 })
@@ -301,6 +341,7 @@ function setVisibility(state: 'visible' | 'hidden'): void {
 
 beforeEach(() => {
   posted = []
+  asked = []
   claims = []
   fates = new Map<string, Fate[]>()
   network = 'ok'
@@ -1392,29 +1433,6 @@ describe('the three markup reads through the same seat', () => {
 })
 
 describe('the seat exporting one picture', () => {
-  /**
-   * Mount a frame holding one element, number it, and drive a picture read of
-   * that ref.
-   * @param html - the fragment the frame holds.
-   * @param selector - the element the ref names.
-   * @param draw - the drawing to inject.
-   * @returns the ref the read names.
-   */
-  function drivePicture(html: string, selector: string, draw: ExportPixels): string {
-    const frame = mountFrame(html)
-    const el = frame.contentWindow?.document.querySelector(selector)
-    if (el === null || el === undefined) throw new Error(`the fixture has no ${selector}`)
-    const table = new RefTable()
-    const ref = table.ref(el)
-    drive(seatOf({
-      frames: { current: new Map([[FRAME, frame]]) },
-      tables: { current: new Map([[FRAME, table]]) },
-      pending: [{ callId: 'call_1', tool: 'content_read_image', args: { ref } }],
-      draw,
-    }))
-    return ref
-  }
-
   it('posts the pixels to the picture route and leaves the report route alone', async () => {
     const ref = drivePicture(
       '<canvas id="chart" width="320" height="180"></canvas>',
@@ -1527,5 +1545,48 @@ describe('the seat exporting one picture', () => {
     drive(seatOf({ entries: [], pending: [{ callId: 'call_1', tool: 'content_read_image', args: { ref: 'e1' } }] }))
     await exported()
     expect(captured()).toMatchObject({ status: 'error', code: 'empty' })
+  })
+})
+
+describe('the addresses the seat posts to', () => {
+  /**
+   * Drive one text read and one picture read, in turn because a seat answers
+   * one call at a time, and report the distinct addresses the two asked for.
+   * @returns the claim, report, and picture addresses, in that order.
+   */
+  async function addresses(): Promise<string[]> {
+    drive(seatOf({ frames: { current: new Map([[FRAME, mountFrame('<main><h1>Fleet</h1></main>')]]) } }))
+    await settled()
+    cleanup()
+    drivePicture(
+      '<canvas id="chart" width="8" height="8"></canvas>',
+      '#chart',
+      () => Promise.resolve({ data: 'AQID', mediaType: IMAGE_MEDIA_TYPE, bytes: 3 }),
+    )
+    await exported()
+    return [...new Set(asked.map(url => url.href))]
+  }
+
+  it('resolves all three read routes against the prefix the deployment publishes the page under', async () => {
+    vi.stubGlobal('__DSH_BASE__', '/console/')
+    // The node half registers these root-absolute and the deployment's reverse
+    // proxy strips the prefix again, so a route posted as written addresses the
+    // origin root — which that deployment routes nowhere near this process. The
+    // claim is then never delivered, the seat keeps bidding into nothing, and
+    // the call ends on the host's claim timeout with the console in front of
+    // the user the whole time.
+    expect(await addresses()).toEqual([
+      `${location.origin}/console${CONTENT_CLAIM_ROUTE}`,
+      `${location.origin}/console${CONTENT_REPORT_ROUTE}`,
+      `${location.origin}/console${CONTENT_IMAGE_ROUTE}`,
+    ])
+  })
+
+  it('posts to the site root when nothing declares a prefix', async () => {
+    expect(await addresses()).toEqual([
+      `${location.origin}${CONTENT_CLAIM_ROUTE}`,
+      `${location.origin}${CONTENT_REPORT_ROUTE}`,
+      `${location.origin}${CONTENT_IMAGE_ROUTE}`,
+    ])
   })
 })
