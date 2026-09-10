@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-08-13-bounded-cold-blank-verification.md
-2026-08-13-bounded-cold-blank-verification.md: 7977a03a6350132877b127f2105a6a2818aa160c
-2026-08-13-bounded-cold-blank-verification.zh.md: 357197582c67e1ac27e6b05aab1c7402bc864315
+2026-08-13-bounded-cold-blank-verification.md: c1daa3fa339de3a8bd4d8c7e5e40bbfe3d9c68f4
+2026-08-13-bounded-cold-blank-verification.zh.md: 7e8df96d107cf2c1af4b8d47ec7cd5c36508f334
