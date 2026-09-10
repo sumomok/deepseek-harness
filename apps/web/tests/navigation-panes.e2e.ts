@@ -626,12 +626,13 @@ describe('web e2e: navigation & panes over a rich seeded session', () => {
   it.skipIf(MODE === 'record')('records an attachment the store cannot read and still completes the export', async () => {
     onTestFailed(() => saveFailureShot(page, 'web-e2e-navigation-export-unreadable-media'))
     await openMediaSeed(page)
-    const exportButton = page.getByRole('button', { name: 'Session log' })
+    const exportButton = page.getByRole('button', { name: 'More actions' })
     const responsePromise = page.waitForResponse(response =>
       response.request().method() === 'GET'
       && new URL(response.url()).pathname === '/api/session.export', { timeout: 30_000 })
     const downloadPromise = page.waitForEvent('download', { timeout: 30_000 })
     await exportButton.click()
+    await page.getByRole('menuitem', { name: 'Download session log' }).click()
 
     // The archive completes: the route answers 200 and the body arrives whole,
     // where an attachment read that reached the ZIP producer would have cut it.
