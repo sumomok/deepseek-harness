@@ -144,10 +144,14 @@ async function hashPrefix(file: string, bytes: number, hash: ReturnType<typeof c
  * rest of the run. Both events end this wait, and whichever fires removes the
  * other's listener; the caller reads the failure off the stream's own `error`
  * listener rather than off this call.
+ *
+ * A stream that already failed or was destroyed emits neither event, so it is
+ * answered without waiting at all.
  * @param out - the stream whose `write` reported backpressure.
  * @returns when the stream drained or failed.
  */
 async function drainedOrFailed(out: WriteStream): Promise<void> {
+  if (out.errored !== null || out.destroyed) return
   await new Promise<void>((resolve) => {
     const settle = (): void => {
       out.off('drain', settle)
