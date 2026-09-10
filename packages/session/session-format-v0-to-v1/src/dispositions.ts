@@ -145,8 +145,20 @@ export const RELEASED_V0_EVENT_TYPES: readonly string[] = Object.freeze(
  *   this fork's rc.29 and rc.30 desktop builds.
  * - `permissionRules/decision` — the out-of-repo `llm-permission-gateway`
  *   plugin, mounted while it was under evaluation.
+ * - `content-component/resolved`, `content-component/shown`,
+ *   `content-surface/dismissed`, `content-surface/selected`,
+ *   `content/navigated`, and `content/shown` — the content surface of this
+ *   fork's `product/server-console` line, which desktop builds mounted while
+ *   that console was under evaluation. All six are named together because that
+ *   one line writes all six; two of them are the ones observed on disk so far.
  */
 export const LEGACY_UNINTERPRETED_EVENT_TYPES: ReadonlySet<string> = Object.freeze(new Set([
   'attachment/materialized',
+  'content-component/resolved',
+  'content-component/shown',
+  'content-surface/dismissed',
+  'content-surface/selected',
+  'content/navigated',
+  'content/shown',
   'permissionRules/decision',
 ]))

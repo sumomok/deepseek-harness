@@ -845,12 +845,63 @@ describe('sessionFormatV1ToV2', () => {
     const carried = [
       { ...event('attachment/materialized', 0, 100, { attachmentId: 'a', locator: 'spill:1' }), ignorable: true },
       { ...event('permissionRules/decision', 1, 101, { toolName: 'read', outcome: 'deny' }), ignorable: true },
+      { ...event('content/shown', 2, 102, { page: 'reports', by: 'user' }), ignorable: true },
+      {
+        ...event('content/navigated', 3, 103, { page: 'reports', url: '/reports', title: 'Reports', by: 'user' }),
+        ignorable: true,
+      },
+      {
+        ...event('content-surface/selected', 4, 104, { kind: 'page', entryId: 'reports', by: 'user' }),
+        ignorable: true,
+      },
+      {
+        ...event('content-surface/dismissed', 5, 105, { kind: 'page', entryId: 'point-info', by: 'user' }),
+        ignorable: true,
+      },
+      {
+        ...event('content-component/shown', 6, 106, { entryId: 'sales', title: 'Sales', spec: {}, by: 'user' }),
+        ignorable: true,
+      },
+      {
+        ...event('content-component/resolved', 7, 107, { callId: 'call-1', entryId: 'sales', spec: {} }),
+        ignorable: true,
+      },
     ]
     const { stage, output } = stageHarness({ id: 'v1-uninterpreted' })
 
     for (const one of carried) stage.transformEvent(one, output)
 
     expect(output.values).toEqual(carried)
+  })
+
+  it('accepts a subagent descriptor the v0 edge renumbered to version 3', () => {
+    const descriptor = {
+      version: 3,
+      mode: 'continuable',
+      provider: 'spawn',
+      label: '调研黄金类资产与矿股PE',
+      agentProvider: 'deepseek-official',
+      agentModel: 'deepseek-v4-flash-vision-exp',
+    }
+    const source: SessionFormatArtifact = {
+      header: {
+        version: 1,
+        id: 'v1-descriptor',
+        createdAt: 1,
+        isSeeded: false,
+        delegationDepth: 0,
+      },
+      inheritedEventCount: 0,
+      events: [event('subagent/descriptor', 0, 100, descriptor)],
+    }
+
+    const migrated = migrateV1ToV2(source)
+
+    expect(migrated.events[0]?.data).toEqual(descriptor)
+    expect(() => migrateV1ToV2({
+      ...source,
+      events: [event('subagent/descriptor', 0, 100, { ...descriptor, version: 2 })],
+    })).toThrow(/subagent\/descriptor 0 version must be one of 3/)
   })
 
   it('refuses an undeclared v1 event even when its envelope says ignorable', () => {
