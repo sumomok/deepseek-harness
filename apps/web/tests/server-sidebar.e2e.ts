@@ -231,8 +231,15 @@ const shellColumn = (page: Page, name: string): Locator => page.locator(`[data-s
  */
 async function expectGuardHides(scope: Locator, className: string): Promise<void> {
   const target = scope.locator(`[class*="${className}"]`)
-  expect(await target.count(), `${className}: no element for the guard rule to hide`).toBeGreaterThan(0)
-  await expect(target.first().isVisible()).resolves.toBe(false)
+  // Polled, not read once: `Locator.count()` does not retry, and a row that
+  // reaches the browser over the remote-event stream a tick after whatever the
+  // scenario waited on would read as zero and fail the presence half for a
+  // timing reason rather than a guard reason.
+  await expect.poll(
+    () => target.count(),
+    { timeout: 15_000, message: `${className}: no element for the guard rule to hide` },
+  ).toBeGreaterThan(0)
+  await expect.poll(() => target.first().isVisible(), { timeout: 15_000 }).toBe(false)
 }
 
 /**
@@ -248,9 +255,17 @@ async function expectGuardHides(scope: Locator, className: string): Promise<void
  */
 async function expectGuardHidesSelector(scope: Locator, selector: string): Promise<void> {
   const target = scope.locator(selector)
-  expect(await target.count(), `${selector}: no element for the guard rule to hide`).toBeGreaterThan(0)
-  await expect(target.first().isVisible()).resolves.toBe(false)
-  await expect(target.first().evaluate(el => getComputedStyle(el).display)).resolves.toBe('none')
+  await expect.poll(
+    () => target.count(),
+    { timeout: 15_000, message: `${selector}: no element for the guard rule to hide` },
+  ).toBeGreaterThan(0)
+  await expect.poll(() => target.first().isVisible(), { timeout: 15_000 }).toBe(false)
+  // Polled as well: this and the visibility read above are separate round
+  // trips, so a re-render between them would otherwise throw instead of retry.
+  await expect.poll(
+    () => target.first().evaluate(el => getComputedStyle(el).display),
+    { timeout: 15_000, message: `${selector}: not hidden by a display rule of this package's own` },
+  ).toBe('none')
 }
 
 /** Every banned spelling of the vendor's Workspace vocabulary. */
@@ -915,8 +930,16 @@ describe('web e2e: the product-console sidebar', () => {
     acknowledgeReloadConnectionLoss(tripwire, warningStart)
     await sidebar(page).waitFor({ timeout: 15_000 })
     await workbenchButton(page).click()
-    await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
+    // The click's own durable outcome first, the composer second. The sidebar's
+    // load-time auto-open is still resolving when the shell mounts, so a click
+    // landing beside it can leave the established composer on screen for a
+    // moment; waiting on the hero placeholder before the repoint has been
+    // observed makes that ordering the barrier, and it timed out here twice
+    // under load. The repoint is the effect a click always has on a draft that
+    // has run a turn (`openWorkbenchOnClick` takes the create path), so it is
+    // the barrier that cannot arrive early.
     await expect.poll(() => readServerMenu(scaffold).workbenchSessionId, { timeout: 15_000 }).not.toBe(displaced)
+    await composer(page, HERO_PLACEHOLDER).waitFor({ timeout: 15_000 })
     workbenchSessionId = readServerMenu(scaffold).workbenchSessionId!
 
     const temporary = sidebar(page).locator('[data-server-sidebar-section="temporary"]')
@@ -1596,10 +1619,17 @@ describe('web e2e: the console conversation column shows business content only',
       onTestFailed(() => saveFailureShot(page, 'web-e2e-server-sidebar-business-rows'))
       seedProcessTurn(scaffold, sessionId)
       const chat = shellColumn(page, 'chat')
-      // The answer is the last thing the seeded turn renders, so waiting for
-      // it is waiting for the whole flow to have mounted; every assertion
-      // below would otherwise pass vacuously on an unrendered column.
+      // The answer is NOT the last thing the fixture appends: `turn/end` and
+      // five more hidden rows (the feedback command, the `/goal` pair, the
+      // workflow pair, and both compaction checkpoints) follow it, and each
+      // reaches the browser over the remote-event stream on its own. So the
+      // barrier is the last-seeded row, waited for as `attached` rather than
+      // `visible` — the guard hides it, which is the point. The answer is
+      // waited for too, since it is the one row this scenario asserts is
+      // visible and it must be on screen before that is read.
       await chat.getByText(SEEDED_ANSWER).waitFor({ timeout: 15_000 })
+      await chat.locator('[data-chat-flow-kind="manual-compaction"]')
+        .first().waitFor({ state: 'attached', timeout: 15_000 })
 
       // Kept: the visitor's own line and the model's answer.
       await expect(chat.getByText(SEEDED_USER_LINE).isVisible()).resolves.toBe(true)
@@ -1626,8 +1656,11 @@ describe('web e2e: the console conversation column shows business content only',
       // `tool.call.toolview` entry never registers). It is hidden on purpose:
       // the content column already shows the page the row would describe.
       const readRow = chat.locator('[data-chat-flow-kind="tool-call"] [data-tool="content_read"]')
-      expect(await readRow.count(), 'the seeded content_read call rendered no row').toBeGreaterThan(0)
-      await expect(readRow.first().isVisible()).resolves.toBe(false)
+      await expect.poll(
+        () => readRow.count(),
+        { timeout: 15_000, message: 'the seeded content_read call rendered no row' },
+      ).toBeGreaterThan(0)
+      await expect.poll(() => readRow.first().isVisible(), { timeout: 15_000 }).toBe(false)
       // The reply footer loses its two metric pills — 用量 and 用时, neither of
       // which carries a handle of its own — and keeps every other control in
       // that row. Both halves are read: a rule that drifted wider would still
