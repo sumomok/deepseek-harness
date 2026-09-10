@@ -431,7 +431,14 @@ export function ServerSidebarRoot({
               {t('signOut.action')}
             </button>
           </div>
-          <div className={css.settingsArea}>{renderSlot('sidebar.settings', { wide: true })}</div>
+          {/* `wide: false` asks the settings occupant for its compact form: a
+              36px icon button in place of icon + label. Its labeled form is
+              wider than what this row has left after the avatar, the name and
+              退出登录, in both locales this console ships, and this band is one
+              row (see `.identityRow` in the stylesheet). The compact form also
+              draws no connection indicator, which is this console's only
+              reconnect control — a Known Limitation in the package README. */}
+          <div className={css.settingsArea}>{renderSlot('sidebar.settings', { wide: false })}</div>
         </div>
       </div>
     </div>

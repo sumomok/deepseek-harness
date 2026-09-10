@@ -88,6 +88,11 @@ function mount(overrides: Partial<Bench> = {}) {
   const setGroupCollapsed = vi.fn()
   const setTemporaryExpanded = vi.fn()
   const onSignOut = vi.fn()
+  const renderSlot = vi.fn((
+    key: string,
+    _owner: unknown,
+    options?: { fallback?: ReactNode },
+  ) => options?.fallback ?? <div data-testid={key} />)
   let current: Bench = {
     workflows: [],
     groups: [],
@@ -158,11 +163,7 @@ function mount(overrides: Partial<Bench> = {}) {
         })
       )) as unknown) as ServerSidebarRootComponentProps['useWorkspaces']}
       useSessionPendingInteraction={noPendingInteraction}
-      renderSlot={((
-        key: string,
-        _owner: unknown,
-        options?: { fallback?: ReactNode },
-      ) => options?.fallback ?? <div data-testid={key} />) as ServerSidebarRootComponentProps['renderSlot']}
+      renderSlot={renderSlot}
     />
   )
   const view = render(root())
@@ -177,6 +178,7 @@ function mount(overrides: Partial<Bench> = {}) {
     setGroupCollapsed,
     setTemporaryExpanded,
     onSignOut,
+    renderSlot,
     rerender(next: Partial<Bench>) {
       current = { ...current, ...next }
       view.rerender(root())
@@ -451,6 +453,17 @@ describe('ServerSidebarRoot', () => {
     // the left, the settings seat on the right.
     expect(children[0]?.contains(screen.getByText(en['avatar.namePlaceholder']))).toBe(true)
     expect(children[1]?.contains(screen.getByTestId('sidebar.settings'))).toBe(true)
+  })
+
+  it('asks the settings seat for its compact form, and the footer action row for its wide one', () => {
+    const b = mount()
+    // The identity band is one row at a column width that is a share of the
+    // frame; the labeled trigger does not fit beside the name and the
+    // sign-out label there (see `.identityRow` in the stylesheet).
+    expect(b.renderSlot).toHaveBeenCalledWith('sidebar.settings', { wide: false })
+    expect(b.renderSlot).not.toHaveBeenCalledWith('sidebar.settings', { wide: true })
+    // The row above it owns its full width, so its occupants keep the labels.
+    expect(b.renderSlot).toHaveBeenCalledWith('sidebar.footer.action', { wide: true })
   })
   describe('groups', () => {
     it('seats the stored groups under 我的工作流, pinned first', () => {

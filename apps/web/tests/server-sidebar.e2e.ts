@@ -473,14 +473,22 @@ describe('web e2e: the product-console sidebar', () => {
     await identityRow.getByText('User').waitFor()
     const identityChildren = await identityRow.evaluate(el => el.children.length)
     expect(identityChildren).toBe(2)
-    // The band fits what it renders: at this column width the settings seat
-    // wraps onto its own line rather than squeezing the name to nothing or
-    // clipping the sign-out label against the identity cluster's own
-    // `overflow: hidden`.
+    // The band is one row and fits what it renders: the settings seat draws
+    // its compact icon form, which is what leaves the identity cluster the
+    // width to render the name and the sign-out label without clipping them
+    // against its own `overflow: hidden`.
     await expect(identityRow.getByRole('button', { name: 'Sign out' }).isVisible()).resolves.toBe(true)
     await expect(
       identityRow.locator('> :first-child').evaluate(el => el.scrollWidth <= el.clientWidth),
     ).resolves.toBe(true)
+    await expect(identityRow.evaluate((el) => {
+      const [identity, settings] = [...el.children]
+      if (identity === undefined || settings === undefined) return false
+      const left = identity.getBoundingClientRect()
+      const right = settings.getBoundingClientRect()
+      // Same line: `align-items: center` puts both boxes on one vertical centre.
+      return Math.abs((left.top + left.bottom) / 2 - (right.top + right.bottom) / 2) < 1
+    })).resolves.toBe(true)
   }, 60_000)
 
   it('replaces the hero fish mark and headline with the sidebar\'s own brand copy, hides the preview badge and the live workspace row, and drops the agent-preset dropdown entirely', async () => {

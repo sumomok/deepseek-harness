@@ -108,32 +108,36 @@
   padding-top: 8px;
 }
 
-/* Avatar identity on the left, the settings trigger on the right, one row
-   (figma treats them as siblings of the same foot band). `.settingsArea` is
-   deliberately NOT `width: 100%` here — the trigger button it wraps carries
-   its own `width: calc(100% + 4px)` (dsh-client-ui-settings-general's
-   SettingsRoot.module.css), which a shrink-to-fit flex item (no explicit
-   width) resolves against the button's own content size rather than the
-   row's, so the button renders at icon+label width and this row's
-   `justify-content: space-between` can push it flush right.
+/* Avatar identity on the left, the settings trigger on the right, always one
+   row (figma treats them as siblings of the same foot band). `nowrap` is the
+   rule the rest of this band is built around: the column is a share of the
+   frame (dsh-experimental-server-layout's `solveTracks` gives the session
+   track 3 of 24 units), so the row's own width moves with the window and the
+   three fixed parts — the avatar circle, the sign-out label, and the settings
+   trigger — have to fit whatever is left at the narrowest frame.
 
-   The band wraps because it does not always fit: at the column widths this
-   console runs at (the width is a share of the frame), the name, the sign-out
-   button and the settings trigger together exceed one line, and a single line
-   resolves that by shrinking the only flexible item — the name — to nothing
-   and clipping the sign-out label against `.avatarRow`'s `overflow: hidden`.
-   Wrapping drops the settings trigger onto its own line and keeps both halves
-   readable; a column wide enough for all three still renders the one band. */
+   `.avatarRow` is the only item that gives ground: it grows into free space
+   and shrinks into shortfall, and inside it `.avatarName` is the only
+   shrinkable child, so a long name truncates to an ellipsis while the
+   sign-out label stays whole. `.settingsArea` keeps `flex: none` and is
+   rendered in its compact icon form (`wide: false` at the render site) —
+   that is what makes the three parts fit one row at this column's width. */
 .identityRow {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   gap: 8px;
   min-width: 0;
 }
 
+/* Takes the whole of the row's shortfall (`flex: 1 1 auto` over an auto
+   basis), so the settings trigger never shrinks below the icon it draws.
+   `overflow: hidden` is the last resort under it: a column too narrow even
+   for a zero-width name clips this cluster's own tail rather than pushing the
+   trigger out of the row. */
 .avatarRow {
+  flex: 1 1 auto;
   display: flex;
   align-items: center;
   gap: 8px;
@@ -181,6 +185,12 @@
   color: var(--dsw-alias-label-primary);
 }
 
+/* Holds the trigger at the size its occupant draws. It is deliberately NOT
+   `width: 100%`: the trigger row inside it carries its own width
+   (dsh-client-ui-settings-general's SettingsRoot.module.css — `36px` in the
+   compact form this shell asks for), which a shrink-to-fit flex item with no
+   explicit width resolves against its own content rather than this row's, so
+   `justify-content: space-between` can push it flush right. */
 .settingsArea {
   flex: none;
 }
