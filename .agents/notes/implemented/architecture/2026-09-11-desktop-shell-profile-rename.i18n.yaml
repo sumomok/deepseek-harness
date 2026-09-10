@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-11-desktop-shell-profile-rename.md
-2026-09-11-desktop-shell-profile-rename.md: 44be598f3faf59eed7087adca5bca1930831ca09
-2026-09-11-desktop-shell-profile-rename.zh.md: f01866d83e32c817e7036674d5efb98b54f069ac
+2026-09-11-desktop-shell-profile-rename.md: 1fa7b79ea8c1bd8c9cb6335c5fad9e9cdfb6e74d
+2026-09-11-desktop-shell-profile-rename.zh.md: be2f465f3b139ac38af1d1b509d70fe14da32e7b

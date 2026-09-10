@@ -36,7 +36,7 @@ Status: implemented
 
 ## Consequences
 
-**设置里的更新页看不见改名后的 profile。**`@haoran/dsh-plugin-updates` 0.2.0——`apps/desktop-server/vendor/` 下随包分发的那个 tarball——把 `DESKTOP_PROFILE = "desktop"` 编进了它的 host 半边,直接读 `$DSH_HOME/profiles/desktop/package.json` 与 `web-migration.json`,并向插件管理服务发送 `profile: "desktop"`,而后者现在回答 `400 profile must be one of desktop-shell, web`。在本次构建上,这个标签页列不出任何已装插件,也更新不了任何一个。内置插件不受影响,因为它们是播种进去的、不是装进去的,载荷里也没有别的东西点这个 profile 的名。补上这一点需要把该插件对着新名字重新构建并重新 vendor;在本仓库里修不了。
+**设置里的更新页随改名一起走,早先构建写下的回滚记录仍然打得开。**`@haoran/dsh-plugin-updates` 0.2.1——`apps/desktop-server/vendor/` 下随包分发的那个 tarball——把 `DESKTOP_PROFILE = "desktop-shell"` 编进了它的 host 半边,读 `$DSH_HOME/profiles/desktop-shell/package.json` 与 `web-migration.json`,并向插件管理服务发送 `profile: "desktop-shell"`,那正是服务接受的两个名字之一。它的回滚台账是它唯一落在所有 profile 之外的状态——`$DSH_HOME/dsh-plugin-updates/last-update.json`——所以改名不会移动它,本次构建之前写下的记录里仍读出 `profile: "desktop"`;插件在读取时把这个值映射为 `desktop-shell`、写入时只写新名,于是撤销那一步跨过升级仍然在。内置插件从来不在此列,因为它们是播种进去的、不是装进去的,载荷里也没有别的东西点这个 profile 的名。0.2.1 只为这一个名字构建:仍然启动 `desktop` 的壳要配 0.2.0。
 
 **两个应用可以装在同一台机器上。**上游自己的壳会在它首次运行时创建并拥有 `$DSH_HOME/profiles/desktop`,本壳拥有 `$DSH_HOME/profiles/desktop-shell`。它们仍然共享 `$DSH_HOME` 的其余部分——会话、凭据、设置——那也是它们此前就共享的,fork 的壳一直把这件事写在文档里。
 

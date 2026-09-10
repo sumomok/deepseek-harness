@@ -1166,6 +1166,6 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 
 **漏检原因。** 阶段 A/B 的复核跑了 `build`、`typecheck`、`lint`、`doc-sync`、`hygiene`、全仓 `test` 与快照回放，唯独没有把壳启动到合并后的基座上——这条失败只在「壳 → CLI 参数解析 → 服务端」这条真实链路上才出现，任何单元测试与静态门禁都看不见它。
 
-**处置：改名，不打补丁。** fork 的 profile 由 `desktop` 改为 `desktop-shell`（`DESKTOP_PROFILE`），并在播种入口一次性把已装客户端的 `$DSH_HOME/profiles/desktop` 改名到位。不给 `rejectElectronProfile` 打核心补丁，理由是这道检查不是问题本身：上游应用以事务方式独占那个目录，两个应用装在同一台机器上时会互相破坏；补丁还会在上游下次改动同处时按退化条款退役。完整取舍见 [`.agents/notes/implemented/architecture/2026-09-11-desktop-shell-profile-rename.md`](../.agents/notes/implemented/architecture/2026-09-11-desktop-shell-profile-rename.md)。改名的连带损伤记在同一篇里：随包分发的 `@haoran/dsh-plugin-updates` 0.2.0 把 `"desktop"` 编进了 tarball，本次构建的更新页列不出已装插件，需仓外重建插件才能补上。
+**处置：改名，不打补丁。** fork 的 profile 由 `desktop` 改为 `desktop-shell`（`DESKTOP_PROFILE`），并在播种入口一次性把已装客户端的 `$DSH_HOME/profiles/desktop` 改名到位。不给 `rejectElectronProfile` 打核心补丁，理由是这道检查不是问题本身：上游应用以事务方式独占那个目录，两个应用装在同一台机器上时会互相破坏；补丁还会在上游下次改动同处时按退化条款退役。完整取舍见 [`.agents/notes/implemented/architecture/2026-09-11-desktop-shell-profile-rename.md`](../.agents/notes/implemented/architecture/2026-09-11-desktop-shell-profile-rename.md)。改名的连带损伤已在仓外补上：`@haoran/dsh-plugin-updates` 0.2.1 随改名重建并重新 vendor，`$DSH_HOME/dsh-plugin-updates/last-update.json` 里更早构建写下的旧回滚记录在读取时被映射为 `desktop-shell`。
 
 **集成门禁自本轮起加一条。** 一次集成合并在真实跑过一遍「壳播种 → `apps/cli/lib/bin.js --profile <壳的 profile> --port 0 --no-open` → 首页 200」的启动冒烟之前，不算复核过。本轮补跑了这条冒烟，记录在上述 Agent Note 的 Testing 一节。
