@@ -371,3 +371,25 @@ describe('a manual check with the update already under way', () => {
     expect(shell.dialogs).toHaveLength(0)
   })
 })
+
+describe('the holding line the launch gate writes', () => {
+  it('carries the transfer completion while a mandatory update downloads', async () => {
+    bundle(true)
+    shell.checkForUpdates = async (): Promise<unknown> => ({
+      updateInfo: { version: NEXT, minimumVersion: NEXT },
+    })
+    // The transfer never ends, so the gate's line is the only thing moving.
+    shell.downloadUpdate = async (): Promise<void> => new Promise<void>(() => undefined)
+    const { host } = sink()
+    const { launchGate } = await import('../src/updater.ts')
+    const shown: string[] = []
+
+    expect(await launchGate(host, (message) => { shown.push(message) })).toBe(true)
+    expect(shown).toEqual(['这是必须安装的更新,正在下载新版本…'])
+
+    shell.instances[0]?.emit('download-progress', { percent: 42.7, transferred: 42_700, total: 100_000 })
+    expect(shown.at(-1)).toBe('这是必须安装的更新,正在下载新版本… 42%')
+    // One line, rewritten: no window and no taskbar progress came back with it.
+    expect(shell.dialogs).toHaveLength(0)
+  })
+})

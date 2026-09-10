@@ -234,6 +234,25 @@ let offeredVersion: string | undefined
 let macFeed: Feed | undefined
 
 /**
+ * Where the boot page's holding line is written while the launch gate keeps
+ * the app shut, and undefined at every other moment. Set only for the tier
+ * that downloads behind that page, which is the one whose wait is worth
+ * reporting: the app is unusable until the transfer ends, and a line that
+ * never changes over 170 MB reads as a hang.
+ */
+let blockLine: ((message: string) => void) | undefined
+
+/**
+ * The boot page's line while a mandatory update transfers.
+ * @param percent - transfer completion, once the transfer has reported any.
+ * @returns the line to show.
+ */
+function mandatoryDownloadLine(percent: number | undefined): string {
+  const suffix = percent === undefined ? '' : ` ${String(Math.floor(percent))}%`
+  return `这是必须安装的更新,正在下载新版本…${suffix}`
+}
+
+/**
  * What the channel is doing, as the Settings entry reads it. Built on first use
  * rather than at import, because `app.getVersion()` needs the app object.
  */
@@ -469,8 +488,9 @@ async function restartDownload(host: UpdateHost): Promise<void> {
  * Runs concurrently with the server boot; the caller awaits it only when the
  * server is ready, so on the ordinary path it costs no wall-clock time.
  * @param host - logging and quit coordination from the main process.
- * @param onBlock - called with the message to show on the boot page when the
- * launch is blocked.
+ * @param onBlock - shows one line on the boot page. Called once when the
+ * launch is blocked, and again for each transfer sample where the update
+ * installs in place, so the line carries the transfer's completion.
  * @returns true when the app must not open.
  */
 export async function launchGate(host: UpdateHost, onBlock: (message: string) => void): Promise<boolean> {
@@ -483,7 +503,8 @@ export async function launchGate(host: UpdateHost, onBlock: (message: string) =>
     if (!verdict) return false
     blocking = true
     if (canInstallInPlace()) {
-      onBlock('这是必须安装的更新,正在下载新版本…')
+      blockLine = onBlock
+      onBlock(mandatoryDownloadLine(undefined))
       void blockWithInstaller(host)
     } else {
       onBlock('这是必须安装的更新,请下载新版本后继续。')
@@ -947,6 +968,10 @@ function ensureUpdater(host: UpdateHost): AppUpdater {
   built.logger = { info: write('info'), warn: write('warn'), error: write('error'), debug: write('debug') }
   built.on('download-progress', (progress) => {
     updateState().downloadProgress(progress)
+    // The only surface a transfer writes to, and only while the launch gate
+    // holds the app shut: the boot page's own line, rewritten in place. No
+    // window, no taskbar or Dock progress, nothing on the ordinary path.
+    blockLine?.(mandatoryDownloadLine(updateState().snapshot().percent))
   })
   built.on('error', (error) => {
     host.log(`[updater] error: ${error.message}\n`)
