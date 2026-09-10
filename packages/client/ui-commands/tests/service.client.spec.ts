@@ -108,8 +108,6 @@ async function bench(opts: BenchOptions = {}) {
   // Real scope tags behind a fake sessions face.
   const scopes = new Map<SessionId, { ctx: Context; fiber: { dispose(): Promise<void> } }>()
   const bindings = new Map<SessionId, { sessionId: SessionId; session: { sessionId: SessionId }; ctx: Context }>()
-  /** Sessions whose blank mirror this package lowered; the service must never fill it. */
-  const engaged: SessionId[] = []
   const removeSessions = ctx.provide('sessions', {
     scope: (id: SessionId) => scopes.get(id)?.ctx,
     scopeOf: (c: Context) => scopeOf(c),
@@ -118,12 +116,6 @@ async function bench(opts: BenchOptions = {}) {
     subagentAddress: (id: SessionId) => id === opts.addressed
       ? { parentSessionId: sid('parent'), childSessionId: id, mode: 'continuable' as const }
       : undefined,
-    // Instrumentation: nothing in this package may reach the mirror, and the
-    // face is here so a re-added flip shows up as a recorded id.
-    binding: (id: SessionId) => ({
-      sessionId: id,
-      session: { markEngaged: () => { engaged.push(id) } },
-    }),
   })
   const remote = Object.assign(new TestRemote(ctx), { commands: commandsRemote })
   ctx.provide('remote.commands', commandsRemote)
@@ -167,7 +159,7 @@ async function bench(opts: BenchOptions = {}) {
   }
   return {
     ctx, fiber, command, source, mint, warm, listCalls, executeCalls, executions, registered, notices, focuses, remote,
-    removeSessions, removeConversation, engaged,
+    removeSessions, removeConversation,
   }
 }
 
@@ -877,11 +869,11 @@ describe('execute payload', () => {
 })
 
 describe('engagement is not this layer\'s business', () => {
-  it('admits the line without touching the addressed session mirror', async () => {
+  it('admits the line and nothing more', async () => {
     // Every command entry point — this typed path, the Intent hero's chip,
     // a decorated popup, a plugin calling the RPC — engages only when the
-    // session observes its own durable `command/run`. A flip here would
-    // engage for the typed path alone and disagree with the others.
+    // session observes its own durable `command/run`, so admission is all
+    // this layer does.
     const b = await bench({ execute: () => Promise.resolve({ matched: true }) })
     await b.warm(proj('s1'))
     const outcome = b.source.matchSpace!(proj('s1'), '/goal')
@@ -890,7 +882,6 @@ describe('engagement is not this layer\'s business', () => {
     await expect(outcome.claim.submit('ship it', new Context(), []))
       .resolves.toEqual({ kind: 'success' })
     expect(b.executeCalls).toEqual([{ sessionId: sid('s1'), line: '/goal ship it', images: [] }])
-    expect(b.engaged).toEqual([])
   })
 })
 
