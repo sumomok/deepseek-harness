@@ -324,10 +324,13 @@ export class Session implements SessionFace {
    * it blank, which is what keeps the Intent hero — and the workspace and
    * agent-preset choices that live only there — on screen for a person
    * choosing an access mode before typing anything.
+   *
+   * An engaging run seen on an already-surfaced session still latches, so the
+   * latch means what it says whichever signal lowered the bit first.
    * @param event - one window entry's event, durable or compact.
    */
   private observeEngagement(event: { readonly type: string; readonly data?: unknown }): void {
-    if (!this.blankBit || event.type !== 'command/run') return
+    if (event.type !== 'command/run') return
     // Structural read: window entries may be compact history records, so the
     // member is narrowed rather than trusted (the posture observeSubmissionEvent
     // takes below, and the host fold in list.ts owns the same rule typed).
@@ -556,6 +559,9 @@ export class Session implements SessionFace {
     // Turn-start conversion: a blank session never runs, so the first
     // running:true proves another side's first message landed.
     if (running && this.blankBit) {
+      // Latched like every other engagement: the turn outlives itself, so a
+      // summary minted before it must not re-blank the session once it ends.
+      this.engaged = true
       this.blankBit = false
       this.notifier.markDirty()
     }
@@ -593,9 +599,10 @@ export class Session implements SessionFace {
 
   /**
    * Blank-bit relay from the authoritative summary source (`session.list` and
-   * `api-session/added`). Monotone: once any signal (local first send,
-   * running flip, an earlier summary) cleared it, a stale true never
-   * re-blanks.
+   * `api-session/added`). Monotone against the local latch: once a first send,
+   * an engaging `command/run`, or a started turn cleared the bit, a stale true
+   * never re-blanks. A bit cleared only by an earlier summary carries no latch,
+   * so a later summary owns it.
    * @param blank - the summary's derived empty-log bit.
    */
   handleBlank(blank: boolean): void {
@@ -753,12 +760,14 @@ export class Session implements SessionFace {
     const event = entry.event
     const awaitingFirstTurn = this.firstPromptPendingTurn
     if (event.type === 'turn/start') this.firstPromptPendingTurn = false
-    this.observeEngagement(event)
     const queueChanged = this.queueMirror.acceptDurable(event)
     this.eventSource.append(entry)
-    // After the feed append: the conversation assembly's animation frame is
+    // Both observers run after the feed append. Engagement surfaces the
+    // session against a feed that already holds the command, the order
+    // installWindow takes; and the conversation assembly's animation frame is
     // registered by the feed subscribers above, so the echo-retirement frame
     // scheduled here always runs after the durable node became renderable.
+    this.observeEngagement(event)
     this.observeSubmissionEvent(event)
     return queueChanged || awaitingFirstTurn !== this.firstPromptPendingTurn
   }
