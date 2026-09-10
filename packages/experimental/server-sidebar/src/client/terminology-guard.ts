@@ -113,27 +113,17 @@
  * e2e turns red by asserting each row is present AND computed `display:
  * none` — `compact` already folds process rows behind `hidden="until-found"`,
  * so an invisibility assertion alone would pass with these rules deleted.
- *
- * `ChatNodeDataMap` (`ui-chat/src/client/contract/chat-nodes.ts:16-19`) is a
- * merge-extensible map, so the kind union is open and a kind this file does
- * not name renders unchanged. Every member this console composes is therefore
- * accounted for below, hidden or kept; the unit spec fails to compile if the
- * union gains one that is in neither list.
- *
- * Hidden:
- * - `system-prompt` (`SystemPromptNodeView`, `chat/SystemPromptRow.tsx:43`) — the
- *   系统提示词 disclosure holding the whole prompt.
- * - `turn-process` (`chat/TurnProcessNodeView.tsx:7`) — the completed-turn
- *   fold row ("N 次工具调用 · M 条消息"). With the members it folds hidden
- *   outright, the control it offers has nothing left to reveal.
- * - `tool-call` (keyed `tool.call.toolview`, `ui-tool/src/client/apply.ts:34-42`)
- *   — every tool row, including `content_read`'s own result card
- *   (`dsh-experimental-content-frame`'s `ContentReadRow`, a keyed entry under
- *   this kind). That card is hidden on purpose: the content column shows the
- *   page itself, so the row restates in the transcript what is already on
- *   screen.
- * - `command`, `manual-compaction` (`chat/CommandNodeView.tsx:13,27`) and
- *   `compaction` (`chat/MessageItem.tsx:356`) — the command rows. The three
+ * Hidden this way:
+ * - `system-prompt` — the 系统提示词 disclosure.
+ * - `turn-process` — the completed-turn fold row ("N 次工具调用 · M 条消息").
+ *   With the members it folds hidden outright, the control it offers has
+ *   nothing left to reveal.
+ * - `tool-call` — every tool row, including `content_read`'s own result card
+ *   (`dsh-experimental-content-frame`'s `ContentReadRow`, a keyed
+ *   `tool.call.toolview` entry under this kind). That card is hidden on
+ *   purpose: the content column shows the page itself, so the row restates in
+ *   the transcript what is already on screen.
+ * - `command`, `manual-compaction`, `compaction` — the command rows. The three
  *   kinds are one surface split by how the command arrived: `manual-compaction`
  *   is `/compact` with its compaction transaction, `compaction` the automatic
  *   one, and `command` everything else. Hiding only `command` would leave
@@ -141,41 +131,23 @@
  *   content-frame's and content-column's own narrower
  *   `[data-chat-flow-kind="command"]:has([data-slot="conversation.chat.commandview"]:empty)`
  *   rules; those still carry compositions that do not install this guard.
- * - `context` (`chat/MessageItem.tsx:342`, drawing `ContextInjectionRow.tsx:31`) — the injected
- *   runtime-context message (上下文注入 / 跨会话召回). It is a `user/message`
- *   whose source is not the user, so it is machinery the run needed, not
- *   something the visitor wrote or the model answered.
- * - `model-retry` (`chat/MessageItem.tsx:361`) — the provider-retry chain.
- *   Internal status: the retry either succeeds, in which case the answer is
- *   the outcome the visitor reads, or it exhausts, in which case `turn-error`
- *   says so and is kept.
- * - `command-input` (`dsh-client-ui-goal`,
- *   `ui-goal/src/client/goal-command-input.ts:18`) — the `/goal` line echoed
- *   back as its own row. `ui-goal` is composed by the web bundle and no
- *   console overlay disables it, so this kind is live here.
- * - `workflow-run` (`dsh-client-ui-workflow-run`,
- *   `ui-workflow-run/src/client/workflow-definition.ts:40`) — the
- *   workflow-run lifecycle card with its phases and members. `ui-workflow-run`
- *   is likewise composed and undisabled. The sidebar's own 我的工作流 section
- *   is a different thing entirely: a saved shortcut back to a conversation,
- *   not this tool's run report.
- * - `unknown` (`ui-chat`'s registered fallback,
- *   `conversation-nodes/fallback.ts:10`; `UnknownNodeView` renders a
- *   `JsonBlock`) — the raw JSON of an append-surface event no Definition
- *   claimed. Nothing in the console can produce one today (see the unit spec),
- *   but a definition-set change upstream would put raw event payloads in front
- *   of a customer, which is the exact opposite of this decision.
+ * - `context` — the injected runtime-context message (上下文注入 / 跨会话召回).
+ *   It is a `user/message` whose source is not the user, so it is machinery
+ *   the run needed, not something the visitor wrote or the model answered.
+ * - `model-retry` — the provider-retry chain. Internal status: the retry
+ *   either succeeds, in which case the answer is the outcome the visitor
+ *   reads, or it exhausts, in which case `turn-error` says so and is kept.
  * - `[data-variant="think"]` — the reasoning disclosure. It is not a row kind:
  *   `ReasoningRow.tsx` renders it inside the `assistant-step` seat, whose text
  *   is kept, so the rule keys on the attribute that component sets
  *   unconditionally. `ToolRowVariant` has no other `think` member, so nothing
  *   else in the column matches.
  *
- * Kept: `user` and `steering` messages, `assistant-step` text, `turn-error`
- * and `turn-max-tokens` (notices a reader must act on), and `turn-tail`, whose
- * `{tail}` chain is `dsh-client-ui-deliverables`' produced-files list — the
- * files a run made are the business result, so the footer rule below takes the
- * metric pills and leaves the tail and the row's own controls. Approval cards
+ * Kept deliberately: `user` and `steering` messages, `assistant-step` text,
+ * `turn-error` and `turn-max-tokens` (notices a reader must act on), and the
+ * `turn-tail` row's `{tail}` chain, which is `dsh-client-ui-deliverables`'
+ * produced-files list — the files a run made are the business result, so the
+ * footer rule below takes the action row and leaves the tail. Approval cards
  * are out of reach of every rule here by construction: `dsh-client-ui-approval`
  * registers into `conversation.composer`, so an approval takes the composer
  * over and never becomes a flow row at all.
@@ -201,24 +173,11 @@
  * both halves — the pills gone, and copy, branch and the clock still on
  * screen — so either direction of that drift turns the gate red.
  *
- * The composer placeholder reads 说说要做什么 in the two states where the
- * composer accepts input, through the same `::after` swap the hero headline
- * uses. `InputBar.tsx` renders one `[data-composer-placeholder]` element for
- * every state — `ConversationRoot.tsx` only changes which copy feeds it — and
- * two of the four states are not invitations to type: the inert composer with
- * no Workspace connected, whose placeholder is the only thing saying the
- * composer is unusable (`ConversationRoot.tsx:334`, `placeholder.workspace`),
- * and a raised composer block, whose placeholder is the blocker's own reason
- * (`:342`). Painting 说说要做什么 over either would invite a visitor to type
- * into a composer that refuses input, so the rule reaches the placeholder
- * through its preceding sibling, the composer input itself, and excludes both:
- * `[data-composer-input]:not([data-phase='inert']):not([aria-disabled])`.
- * `data-phase` is `input?.phase ?? 'inert'` (`InputBar.tsx:533`), so the
- * inert state is the one with no composer input face at all; `aria-disabled`
- * is `editorDisabled` (`:534`), which a raised block sets and the
- * workspace-picker trigger deliberately does not. The `+` combinator is exact:
- * `InputBar.tsx:545-549` renders the placeholder as that element's immediately
- * following sibling. The swapped copy carries `ui-conversation`'s own
+ * The composer placeholder reads 说说要做什么 in both the hero and the
+ * established state through the same `::after` swap the hero headline uses.
+ * `InputBar.tsx` renders one `[data-composer-placeholder]` element for both —
+ * `ConversationRoot.tsx` only changes which locale key feeds it — so one rule
+ * pair covers both. The swapped copy carries `ui-conversation`'s own
  * font-size token rather than a fixed pixel value, so it keeps tracking the
  * Settings font-size preference the composer card sets. `ui-conversation`
  * offers nothing else: the `placeholder` prop of `conversation.composer.bar`
@@ -273,15 +232,10 @@ const STYLE = `
 [data-chat-flow-kind="compaction"] { display: none !important; }
 [data-chat-flow-kind="context"] { display: none !important; }
 [data-chat-flow-kind="model-retry"] { display: none !important; }
-[data-chat-flow-kind="command-input"] { display: none !important; }
-[data-chat-flow-kind="workflow-run"] { display: none !important; }
-[data-chat-flow-kind="unknown"] { display: none !important; }
 [data-variant="think"] { display: none !important; }
 [data-turn-tail] :has(> [class*="trigger"]) { display: none !important; }
-[data-composer-input]:not([data-phase='inert']):not([aria-disabled]) + [data-composer-placeholder] {
-  font-size: 0 !important;
-}
-[data-composer-input]:not([data-phase='inert']):not([aria-disabled]) + [data-composer-placeholder]::after {
+[data-composer-placeholder] { font-size: 0 !important; }
+[data-composer-placeholder]::after {
   content: '说说要做什么';
   font-size: var(--dsh-content-font-size, 14px);
   line-height: calc(24px + var(--dsh-content-font-delta, 0px));
