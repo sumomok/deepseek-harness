@@ -16,7 +16,7 @@ Nothing served could say otherwise. The one page global that overrides the autho
 
 **The declaration is a deployment fact, so it lives with the package that already carries this line's deployment facts.** `packages/experimental/server-base` gains a validated `ownsHost` boolean, `false` unless a deployment writes it. It sits beside `basePath`, which is the same kind of fact: something true of how this process is published that the served page cannot work out for itself.
 
-**When it is set, the plugin contributes one more head row behind the prefix rows**, an inline script rendered verbatim as `<script>globalThis.__DSH_TRANSPORT__ ??= { fetch: (input, init) => globalThis.fetch(input, init), ownsHost: true };</script>`. The carrier it installs is not a transport: `fetch` is `(input, init) => globalThis.fetch(input, init)`, which is exactly the caller `createWebConnectionRpc` uses when no carrier is present, and it declares no `openStream` and no `loadBundle`, so the RPC keeps its HTTP requests and its Gateway WebSocket and the client module system keeps loading bundles over HTTP. `ownsHost` is the one fact the row exists to carry. The assignment is `??=`, so a shell that assembled a real carrier for itself keeps it.
+**When it is set, the plugin contributes one more head row behind the prefix rows**, a typed `script` row the web server renders verbatim as `<script>globalThis.__DSH_TRANSPORT__ ??= { fetch: (input, init) => globalThis.fetch(input, init), ownsHost: true };</script>`. The carrier it installs is not a transport: `fetch` is `(input, init) => globalThis.fetch(input, init)`, which is exactly the caller `createWebConnectionRpc` uses when no carrier is present, and it declares no `openStream` and no `loadBundle`, so the RPC keeps its HTTP requests and its Gateway WebSocket and the client module system keeps loading bundles over HTTP. `ownsHost` is the one fact the row exists to carry. The assignment is `??=`, so a shell that assembled a real carrier for itself keeps it.
 
 **Left unset, the served index is unchanged.** The row is absent, no global is defined, and the prefix rows render exactly as before.
 
@@ -28,7 +28,7 @@ It moves no server-side check. The `/api` browser-trust fence (`packages/client/
 
 ## Alternatives considered
 
-**Teaching `client/connection` to read a served page's own deployment as loopback** — for instance treating a declared `trustedHosts` authority, or the presence of the browser session cookie, as ownership. Rejected: that is an upstream core package, and this line does not change upstream core where a composition layer can carry the same fact. It would also make a browser-authority judgement for every deployment that composes the spine, including the ones where the authority is exactly the right answer.
+**Teaching `client/connection` to read a served page's own deployment as loopback** — for instance treating a declared `trustedHosts` authority, or the presence of the browser session cookie, as ownership. Rejected: that is an upstream core package, and this line does not change upstream core where a composition layer can carry the same fact. It would also make a browser-authority judgement for every deployment that composes the spine, including the ones where the authority is exactly the right answer. What does change there is prose: `ClientTransportHooks` is the one home for who may set `ownsHost`, so its JSDoc names the served page as the second party that may.
 
 **A new `client-connection` Config field** saying the same thing. Rejected for the same core-change reason, and because the page global it would feed already exists and already has this meaning.
 
@@ -44,7 +44,7 @@ It moves no server-side check. The `/api` browser-trust fence (`packages/client/
 
 **Bought.** A console behind a login gate offers the operator surface it was built with: the settings sections read and write the Host's settings document, the settings document actions appear, and a produced-file chip offers to open its path on the Host.
 
-**Paid.** One boolean now decides whether an admitted visitor reaches that surface, and the deployment — not the process — is what makes the decision sound. The claim admits no distinctions: every admitted visitor writes the same settings document, and a later write wins over an earlier one with no notice to either. That limitation is recorded in the package README.
+**Paid.** One boolean now decides whether an admitted visitor reaches that surface, and the deployment — not the process — is what makes the decision sound. The claim admits no distinctions: every admitted visitor writes the same settings document, and a later write wins over an earlier one with no notice to either. That limitation is recorded in the package README. Part of what an admitted visitor reaches leaves the browser: the settings document action asks the Host to materialize its settings file on disk and open it in a native text editor, so on a headless console that button launches an editor process on the server.
 
 **Evidence.**
 

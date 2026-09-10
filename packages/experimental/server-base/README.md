@@ -60,7 +60,7 @@ The client keeps part of its surface for the operator's own machine and decides 
 
 `ownsHost` says that decision is wrong for this deployment: whoever reaches the served page is this Host's operator. Nothing else supplies that fact, because the authority is a public one and the page cannot tell a gate from an open door.
 
-**What it is a claim about is the gate in front of the page, not the visitor.** Set it only where something decides who reaches the page — this deployment pairs the dsh browser session cookie with the proxy's `auth_request` login gate, described in [the proxy half](#the-proxy-half) — because every visitor those admit gets that surface, and they all share the one Host behind it.
+**What it is a claim about is the gate in front of the page, not the visitor.** Set it only where something decides who reaches the page — this deployment pairs the dsh browser session cookie with the proxy's `auth_request` login gate, described in [the proxy half](#the-proxy-half) — because every visitor those admit gets that surface, and they all share the one Host behind it. One part of that surface reaches past the browser: the settings document action asks the Host to materialize its settings file on disk and open it in a native text editor, so on a headless console it launches an editor process on the server.
 
 **It moves no server-side check.** The `/api` browser-trust fence still refuses a Host that is neither loopback nor declared in `client-connection`'s `trustedHosts`, and the settings RPC the client now calls already answered any caller the deployment admitted: it is not gated on the page authority, and never was. What changes is which surface the client offers, not what the Host will do for a request that arrives.
 

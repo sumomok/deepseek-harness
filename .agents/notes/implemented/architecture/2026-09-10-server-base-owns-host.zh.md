@@ -16,7 +16,7 @@ Status: implemented
 
 **这项声明是一件部署事实，所以它落在本线已经承载部署事实的那个包里。** `packages/experimental/server-base` 增加一个校验过的布尔字段 `ownsHost`，部署不写它就是 `false`。它与 `basePath` 并排，因为二者是同一类事实：关于本进程如何被发布、而被服务出去的页面自己推不出来的事情。
 
-**设上它时，插件在前缀那两行之后再贡献一行 head 行**，一段内联脚本，逐字渲染为 `<script>globalThis.__DSH_TRANSPORT__ ??= { fetch: (input, init) => globalThis.fetch(input, init), ownsHost: true };</script>`。它装上的载体并不是传输：`fetch` 就是 `(input, init) => globalThis.fetch(input, init)`，与 `createWebConnectionRpc` 在没有载体时所用的调用方分毫不差；它既不声明 `openStream` 也不声明 `loadBundle`，于是 RPC 照旧走 HTTP 请求与 Gateway WebSocket，客户端模块系统也照旧经 HTTP 加载 bundle。`ownsHost` 是这一行存在的唯一理由。赋值用 `??=`，于是自己组装了真正载体的外壳仍然留着它自己的。
+**设上它时，插件在前缀那两行之后再贡献一行 head 行**，一行带类型的 `script` 行，由 web 服务器逐字渲染为 `<script>globalThis.__DSH_TRANSPORT__ ??= { fetch: (input, init) => globalThis.fetch(input, init), ownsHost: true };</script>`。它装上的载体并不是传输：`fetch` 就是 `(input, init) => globalThis.fetch(input, init)`，与 `createWebConnectionRpc` 在没有载体时所用的调用方分毫不差；它既不声明 `openStream` 也不声明 `loadBundle`，于是 RPC 照旧走 HTTP 请求与 Gateway WebSocket，客户端模块系统也照旧经 HTTP 加载 bundle。`ownsHost` 是这一行存在的唯一理由。赋值用 `??=`，于是自己组装了真正载体的外壳仍然留着它自己的。
 
 **不设它时，被服务出去的 index 一如从前。** 那一行不存在，没有任何全局量被定义，前缀那两行的渲染与之前完全相同。
 
@@ -28,7 +28,7 @@ Status: implemented
 
 ## Alternatives considered
 
-**教 `client/connection` 把被服务出去的页面自己的部署读成回环**——比如把已声明的 `trustedHosts` authority、或者浏览器会话 cookie 的存在当作归属。否决：那是上游核心包，而在组合层能承载同一件事实时，本线不改上游核心。何况那样会替每一个组合了这条脊梁的部署做出关于浏览器 authority 的判断，包括那些「不是回环就该收起界面」本来完全正确的部署。
+**教 `client/connection` 把被服务出去的页面自己的部署读成回环**——比如把已声明的 `trustedHosts` authority、或者浏览器会话 cookie 的存在当作归属。否决：那是上游核心包，而在组合层能承载同一件事实时，本线不改上游核心。何况那样会替每一个组合了这条脊梁的部署做出关于浏览器 authority 的判断，包括那些「不是回环就该收起界面」本来完全正确的部署。那里真正改动的只有文字：`ClientTransportHooks` 是「谁可以设 `ownsHost`」这项事实的唯一归属，于是它的 JSDoc 点明被服务出去的页面是可以设它的第二方。
 
 **在 `client-connection` 上加一个说同一件事的 `Config` 字段。** 出于同样的改核心理由否决；而且它要喂的那个页面全局量本来就存在，含义也本来就是这个。
 
@@ -44,7 +44,7 @@ Status: implemented
 
 **买到的。** 一台立在登录闸后面的控制台，提供它本来就带着的那片操作者界面：设置分区读写宿主的设置文档，设置文档的那些动作出现，产物文件的小标签也提供在宿主上打开它的路径。
 
-**付出的。** 现在由一个布尔量决定一位被放行的访客是否够得着那片界面，而让这个决定站得住脚的是部署、不是进程。这项声明分不出差别：凡被放行的访客都写同一份设置文档，后写的一次盖过先写的一次，而且两边都不会被告知。这条限制记在包的 README 里。
+**付出的。** 现在由一个布尔量决定一位被放行的访客是否够得着那片界面，而让这个决定站得住脚的是部署、不是进程。这项声明分不出差别：凡被放行的访客都写同一份设置文档，后写的一次盖过先写的一次，而且两边都不会被告知。这条限制记在包的 README 里。被放行的访客够得着的东西里有一处伸出了浏览器：设置文档的那个动作会让宿主把自己的设置文件落到磁盘、再用一个本地文本编辑器打开它，放在一台无头的控制台上，那个按钮就是在服务器上拉起一个编辑器进程。
 
 **证据。**
 

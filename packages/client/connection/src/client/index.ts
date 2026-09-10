@@ -87,10 +87,13 @@ export interface ConnectionStateSource {
 export const inject: string[] = []
 
 /**
- * Carrier override installed on the page global before plugin boot. The served
- * web app leaves it unset and gets HTTP + WebSocket; a shell that owns a
- * different physical transport (the worker preview's postMessage tunnel)
- * provides both halves here instead of forking this plugin.
+ * Carrier override installed on the page global before plugin boot. A shell
+ * that owns a different physical transport (the worker preview's postMessage
+ * tunnel) provides both halves here instead of forking this plugin. A served
+ * page carries the global only where its deployment declares Host ownership,
+ * and then for {@link ClientTransportHooks.ownsHost} alone: `fetch` is the
+ * page's own and both optional halves are absent, so such a page keeps HTTP +
+ * WebSocket, which is what an unset global gets too.
  */
 export interface ClientTransportHooks {
   /** Transport for generic unary RPC channels (the Typert gateway). */
@@ -104,17 +107,21 @@ export interface ClientTransportHooks {
    */
   loadBundle?(url: string): Promise<void>
   /**
-   * The transport owner declares the page owns the Host outright: the Host
-   * runs inside a worker this page spawned, so no other party can reach it and
-   * the loopback stand-in for "the operator's own machine" is vacuous.
-   * `ctx.connection.isLoopback` then reports the privileged surface reachable
-   * regardless of the page authority. Only a shell that assembles its own
-   * transport can set this; served pages never carry the global at all.
+   * Whoever installed the carrier declares the page owns the Host outright, so
+   * the loopback stand-in for "the operator's own machine" is vacuous and
+   * `ctx.connection.isLoopback` reports the privileged surface reachable
+   * regardless of the page authority. Two parties may declare it: a shell
+   * whose Host runs inside a worker it spawned, which no other party can
+   * reach, and a deployment that serves the page behind a gate deciding who
+   * reaches it, whose injected carrier declares this and nothing else. It
+   * moves no server-side check, so a served page's claim is worth exactly what
+   * its gate is worth, and every visitor that gate admits gets the same
+   * surface.
    */
   ownsHost?: boolean
 }
 
-/** Page global carrying {@link ClientTransportHooks}; absent in the served web app. */
+/** Page global carrying {@link ClientTransportHooks}; absent unless a shell or a served index installs one. */
 interface ClientTransportGlobal {
   __DSH_TRANSPORT__?: ClientTransportHooks
 }

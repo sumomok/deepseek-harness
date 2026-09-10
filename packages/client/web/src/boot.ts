@@ -57,11 +57,13 @@ export class AppWebEntry {
       if (moduleLoader === undefined) {
         throw new Error('web boot: window.__ModuleLoader__ bootstrap facade is missing')
       }
-      // A pre-injected transport (the worker preview page) owns bundle bytes;
-      // its loadBundle is the default and explicit seams still win. The global
-      // is `ClientTransportHooks`, owned by @deepseek-ai/dsh-client-connection;
-      // this structural slice reads one optional member without adding a
-      // package edge.
+      // A pre-injected transport supplies loadBundle only when it owns bundle
+      // bytes (the worker preview page); it is then the default and explicit
+      // seams still win. A carrier injected to declare `ownsHost` alone leaves
+      // the member absent, so such a page keeps loading bundles over HTTP. The
+      // global is `ClientTransportHooks`, owned by
+      // @deepseek-ai/dsh-client-connection; this structural slice reads one
+      // optional member without adding a package edge.
       const transport = (globalThis as {
         __DSH_TRANSPORT__?: { loadBundle?: ClientModuleCreateOptions['loadBundle'] }
       }).__DSH_TRANSPORT__

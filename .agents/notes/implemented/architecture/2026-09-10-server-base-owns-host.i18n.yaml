@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/architecture/2026-09-10-server-base-owns-host.md
-2026-09-10-server-base-owns-host.md: c8cd6b5bfb2c3c39c5b48850a2e7cb67431b0438
-2026-09-10-server-base-owns-host.zh.md: c221b95c4b700da322de7dee65c7905e3df76b6f
+2026-09-10-server-base-owns-host.md: 71b48ce39fc1f45bc4848021fcf97f0951edd0ef
+2026-09-10-server-base-owns-host.zh.md: c2062355f2d022a3e99e920e394228ceabd354e1
