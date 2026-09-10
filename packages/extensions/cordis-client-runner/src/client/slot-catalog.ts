@@ -241,12 +241,14 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
       },
     ],
     ownerProps: [
-      '/** Stable owner currency delivered to a keyed Chat renderer. */\nexport interface ChatNodeOwnerProps {\n  cwd?: string | undefined\n  /** Open the current source file of a skill referenced by a sent message. */\n  openSkill: (name: string) => void\n  openFile: (path: string, options?: OpenFileOptions) => void\n  inspectCall: (callId: ToolCallId) => void\n  forkAt: (seq: number) => void\n  /**\n   * Session-authorized image loader, down-threaded from the Chat view so a\n   * chat-node renderer can render the attachment presentation slot directly\n   * with only the durable references plus this loader, instead of receiving a\n   * rendering closure.\n   */\n  loadImage: MessageImageLoader\n  renderMessageImages: RenderMessageImages\n  /**\n   * Render the contributed actions of one user-side message. A chat node\n   * decides whether its message has a durable position to address; the pending\n   * steering bubble has none and receives no strip.\n   */\n  renderUserActions: RenderUserActions\n  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined\n  /** Turn-process state when this Node belongs to a projected Turn. */\n  turnProcess?: TurnProcessOwnerProps | undefined\n}',
+      '/** Stable owner currency delivered to a keyed Chat renderer. */\nexport interface ChatNodeOwnerProps {\n  cwd?: string | undefined\n  /** Open the current source file of a skill referenced by a sent message. */\n  openSkill: (name: string) => void\n  openFile: (path: string, options?: OpenFileOptions) => void\n  inspectCall: (callId: ToolCallId) => void\n  forkAt: (seq: number) => void\n  /**\n   * Session-authorized image loader, down-threaded from the Chat view so a\n   * chat-node renderer can render the attachment presentation slot directly\n   * with only the durable references plus this loader, instead of receiving a\n   * rendering closure.\n   */\n  loadImage: MessageImageLoader\n  renderMessageImages: RenderMessageImages\n  /**\n   * Render the contributed actions of one user-side message. A chat node\n   * decides whether its message has a durable position to address; the pending\n   * steering bubble has none and receives no strip.\n   */\n  renderUserActions: RenderUserActions\n  fileMentions: (owner: TurnTailOwnerProps) => MarkdownFileMentions | undefined\n  /**\n   * Prose-referent scanner/opener from the optional {@link ProseReferents}\n   * service, bound to this session\'s cwd/home. Undefi /* …truncated — full shape in source */',
     ],
     ownerPropsReferences: [
       'MarkdownFileMentions',
+      'MarkdownProseReferents',
       'MessageImageLoader',
       'OpenFileOptions',
+      'ProseReferents',
       'RenderMessageImages',
       'RenderUserActions',
       'TurnProcessOwnerProps',
@@ -410,7 +412,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.chat.user-actions\', () => ctx.slots.register(\n      { name: \'conversation.chat.user-actions\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-chat/src/client/contract/slots.ts:251',
+    source: 'packages/client/ui-chat/src/client/contract/slots.ts:314',
   },
   {
     key: 'conversation.composer',
