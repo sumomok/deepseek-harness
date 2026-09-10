@@ -54,6 +54,21 @@
 # legacy `deepseek-v4-flash` and `deepseek-v4-flash-vision-exp` names are still
 # accepted but served by DeepSeek-V4.1-Flash, and that `deepseek-v4-pro`
 # requests route to it from 2026-09-14 12:00 Beijing as well.
+#
+# `@deepseek-ai/dsh-llm-deepseek` now ships a `deepseek-flash` row of its own,
+# so this table restates that row rather than stating one. `models` is a
+# whole-table replacement — `resolveModels` reads `config.models ??
+# DEFAULT_MODELS` and never merges the two — so every field the adapter's row
+# declares has to be repeated here or it is dropped, and each one below is the
+# adapter's own value. `name` and `description` are the two this deployment
+# owns: the picker reads a version with the dot and a Chinese line under it.
+# `systemPromptUpdate: in-history` is the field that costs something when it
+# goes missing — without it `agent.ts` sets `inHistory: false`, and a
+# mid-session system-prompt change rewrites system node 0 instead of appending
+# a node after the cached history, which misses the provider prefix cache from
+# the first token. The composition test compares this row against the shipped
+# adapter's field for field, so a field upstream adds fails there rather than
+# reaching the picker as a silently dropped capability.
 - id: llm-deepseek
   config:
     retryPolicy:
@@ -64,7 +79,11 @@
       - id: deepseek-flash
         name: DeepSeek-V4.1-Flash
         description: V4.1 Flash · 文本与图片
+        contextWindow: 1000000
         inputModalities: [text, image]
+        imagePixelBudget: 640000
+        imageMaxBytes: 1048576
+        systemPromptUpdate: in-history
 
 # Where an attachment sent on a model without vision moves the session to.
 # Absent a `target`, @haoran/dsh-vision-switch falls back to a DEFAULT_TARGET

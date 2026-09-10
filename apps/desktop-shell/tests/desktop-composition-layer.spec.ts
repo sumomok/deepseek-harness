@@ -27,12 +27,7 @@ import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { composeEntries, loadOverlayPatches, resolveBundleDir } from '@deepseek-ai/dsh-app-boot'
 import { describe, expect, it } from 'vitest'
-import {
-  Config as DeepSeekConfig,
-  DEFAULT_REQUEST_IMAGE_MAX_BYTES,
-  DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
-  type DeepSeekCatalogModel,
-} from '@deepseek-ai/dsh-llm-deepseek'
+import { Config as DeepSeekConfig, type DeepSeekCatalogModel } from '@deepseek-ai/dsh-llm-deepseek'
 import { BUILTIN_WEB_BUNDLES } from '../src/profile-seed.ts'
 
 /** The bundle under test, which is also this repository's own composition layer. */
@@ -140,13 +135,18 @@ describe('the composed llm-deepseek row', () => {
   })
 
   // The layer below this one owns the picker catalog and this row replaces its
-  // whole config, so the restatement has to track it. Comparing the two tables
-  // fails here when that layer ships a different catalog, which is the one way
-  // this row can silently drop a model or the vision default.
-  it('restates the catalog the layer below composes, key for key', () => {
-    const inherited = entry(below, 'llm-deepseek').config?.['models']
+  // whole config, so the restatement has to track it. It states more than that
+  // layer does — the fields the shipped adapter's own `deepseek-flash` row
+  // declares, which the vendored layer omits to inherit them — so what has to
+  // hold is containment: the same rows in the same order, and every key that
+  // layer states surviving with its value. A model or the vision default
+  // dropped below fails here, which is what this case is for.
+  it('carries every row and key the catalog below composes', () => {
+    const inherited = entry(below, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[] | undefined
     expect(inherited).toBeDefined()
-    expect(entry(desktop, 'llm-deepseek').config?.['models']).toEqual(inherited)
+    const composed = entry(desktop, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[]
+    expect(composed.map(row => row.id)).toEqual(inherited?.map(row => row.id))
+    for (const [index, row] of (inherited ?? []).entries()) expect(composed[index]).toMatchObject(row)
   })
 })
 
@@ -216,29 +216,47 @@ describe('the desktop composition layer as a whole', () => {
 
   // A whole-table replacement never merges with the adapter's own catalog
   // (`resolveModels` reads `config.models ?? DEFAULT_MODELS`), which is what
-  // lets this table drop the retired models the adapter still carries. The
-  // vendored plugin ships a comparison against the adapter version its own
-  // devDependencies pin — not the one this payload carries, and whose test
-  // suite no gate here runs — so the shipped row is pinned against the shipped
-  // adapter here instead.
-  it('offers one model, none of which the adapter this payload ships carries', () => {
+  // lets this table drop the retired models the adapter still carries — and
+  // what makes every field of the row it keeps this layer's responsibility.
+  // The adapter now ships `deepseek-flash` itself, so the row is a restatement
+  // of the shipped one: the keys are compared against it rather than listed
+  // here, so a field upstream adds fails this case instead of composing a row
+  // that quietly drops it. The vendored plugin one layer below ships its own
+  // comparison against the adapter version its devDependencies pin — not the
+  // one this payload carries, and whose test suite no gate here runs — so the
+  // shipped row is pinned against the shipped adapter here instead.
+  it('restates the adapter\'s own deepseek-flash row, naming only the label', () => {
     const factory = DeepSeekConfig({}) as { models: DeepSeekCatalogModel[]; defaultContextWindow: number }
     const composed = entry(desktop, 'llm-deepseek').config?.['models'] as Partial<DeepSeekCatalogModel>[]
     expect(composed.map(row => row.id)).toEqual(['deepseek-flash'])
-    // The day the adapter ships its own row for it, the table restates that
-    // row instead of stating one of its own, and this is what says so.
-    expect(factory.models.map(row => row.id)).not.toContain('deepseek-flash')
-    // The capacities the row omits resolve from the shipped adapter instead.
-    // Pinning what that adapter resolves them to is the guard: a moved default
-    // fails here rather than reaching the picker as a changed capacity.
-    expect(composed[0]?.contextWindow).toBeUndefined()
-    expect(composed[0]?.imagePixelBudget).toBeUndefined()
-    expect(composed[0]?.imageMaxBytes).toBeUndefined()
+    const shipped = factory.models.find(row => row.id === 'deepseek-flash')
+    if (shipped === undefined) throw new Error('the shipped adapter carries no deepseek-flash row')
+    // `description` is the one key the row adds; everything else the adapter
+    // declares must be present, and `name` is the only one allowed to differ.
+    expect(Object.keys(composed[0] ?? {}).sort())
+      .toEqual([...new Set([...Object.keys(shipped), 'description'])].sort())
+    const restated = Object.fromEntries(
+      Object.entries(shipped).filter(([key]) => key !== 'name'),
+    )
+    expect(Object.fromEntries(
+      Object.entries(composed[0] ?? {}).filter(([key]) => key !== 'name' && key !== 'description'),
+    )).toEqual(restated)
+    // The two keys this deployment owns: a dotted product name and the line
+    // the picker shows under it.
+    expect(composed[0]?.name).toBe('DeepSeek-V4.1-Flash')
+    expect(composed[0]?.description).toBe('V4.1 Flash · 文本与图片')
+    // Without this the loop rewrites system node 0 on a mid-session prompt
+    // change instead of appending after the cached history.
+    expect(composed[0]?.systemPromptUpdate).toBe('in-history')
+    // The capacities the row now restates. The comparison above ties them to
+    // the shipped adapter; these literals are what fails when a capacity moves
+    // on both sides at once.
     expect({
-      contextWindow: factory.defaultContextWindow,
-      imagePixelBudget: DEFAULT_REQUEST_IMAGE_PIXEL_BUDGET,
-      imageMaxBytes: DEFAULT_REQUEST_IMAGE_MAX_BYTES,
+      contextWindow: composed[0]?.contextWindow,
+      imagePixelBudget: composed[0]?.imagePixelBudget,
+      imageMaxBytes: composed[0]?.imageMaxBytes,
     }).toEqual({ contextWindow: 1_000_000, imagePixelBudget: 640_000, imageMaxBytes: 1_048_576 })
+    expect(factory.defaultContextWindow).toBe(1_000_000)
     expect(composed[0]?.inputModalities).toEqual(['text', 'image'])
   })
 })

@@ -34,7 +34,7 @@ Status: implemented
 
 **这个上限属于供应商那一行，不属于重试插件。**`llm-retry` 的 `Config` 是 `Readonly<Record<string, never>>`，它的 `validateConfig` 对任何键都抛错，遇到 `retryPolicy` 时答的是 `retryPolicy belongs under each provider configuration`。策略是适配器注册路由时捕获的、按路由持有的状态，所以配置它的地方就是 `llm-deepseek`。`llm-pi-ai` 不是第二个可设之处：它的 `retryPolicy` 是用户设置文档里每个 provider profile 的字段，不是插件配置键，而且它的错误分类是对被压平的 SDK 消息做正则，根本还原不出 `Retry-After`，这个值在那里无事可做。
 
-**这一行重述了模型目录。**`@haoran/dsh-default-model` 是本层下方的一个内置插件层，它对同一个 `llm-deepseek` id 做了一次整表替换式的 `models` patch，其中带着桌面新会话所用的视觉模型那一行。patch 是把 `config` 整个赋过去的，所以这里若只写 `retryPolicy`，就会把那份目录连同模型选择器一起删掉。测试把两份目录逐项比对，于是那个包里的目录一旦变动，就是这里的一条挂掉的用例，而不是现场少了个模型。
+**这一行重述了模型目录。**`@haoran/dsh-default-model` 是本层下方的一个内置插件层，它对同一个 `llm-deepseek` id 做了一次整表替换式的 `models` patch，其中带着桌面新会话所用的视觉模型那一行。patch 是把 `config` 整个赋过去的，所以这里若只写 `retryPolicy`，就会把那份目录连同模型选择器一起删掉。测试把两份目录逐项比对，于是那个包里的目录一旦变动，就是这里的一条挂掉的用例，而不是现场少了个模型。`@deepseek-ai/dsh-llm-deepseek` 自带一行 `deepseek-flash`，所以这一行是重述出厂那一行，而不是补上适配器没有的一行：名字与描述是本部署自己的，其余每个字段都从适配器那里照抄——首先是 `systemPromptUpdate: in-history`，它缺席就会让循环在会话中途改写系统节点 0，丢掉供应商的前缀缓存。测试读取两边的行并逐键比对，于是上游新加的字段会在那里失败，而不是被组合成一行悄悄丢掉它。
 
 浏览器侧画的倒计时是裸秒——`Math.max(1, Math.ceil(ms / 1000))` 填进 `{label}（{retry}/{maximum}） · {seconds}s`——所以五分钟的等待从 `300s` 起倒数，展开行里则以毫秒陈述该时长。看得懂，但这个量级上分秒格式会更好读；此处所取的值并不依赖于那件事。
 
