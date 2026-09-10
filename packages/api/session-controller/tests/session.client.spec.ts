@@ -145,11 +145,13 @@ describe('live event path', () => {
     expect(session.eventSource.getSnapshot()).toBe(before)
   })
 
-  it('keeps the authoritative host blank bit across unrelated log events', async () => {
+  it('keeps the authoritative host blank bit across a session-configuration command', async () => {
     const { api, session } = await opened([])
     session.handleBlank(true)
+    // /permission declares `engages: false`, so its run configures the
+    // session without giving it something to show.
     await Promise.all([
-      follow(api, ev.commandRun(SessionSeq(0), 'cmd-perm', 'permission', ' danger-full-access')),
+      follow(api, ev.commandRunConfiguring(SessionSeq(0), 'cmd-perm', 'permission', ' danger-full-access')),
       follow(api, ev.commandDone(SessionSeq(1), 'cmd-perm', 'success', 'preset danger-full-access')),
     ])
     const snapshot = session.getSnapshot()
@@ -577,12 +579,21 @@ describe('prompt and cancel errors', () => {
     expect(session.getSnapshot()).toMatchObject({ running: true, awaitingFirstTurn: false })
   })
 
-  it('engages on an admitted standalone command without claiming a prompt or a turn', () => {
-    const onEngaged = vi.fn()
-    const { session } = makeSession(new FakeApiClient(), { onEngaged })
+  /** A blank Session with its window open on an empty log. */
+  const blankOpened = async (onEngaged?: () => void) => {
+    const api = new FakeApiClient()
+    const { session } = makeSession(api, onEngaged === undefined ? {} : { onEngaged })
     session.handleBlank(true)
+    api.onHistory = () => histResponse([])
+    await session.open()
+    return { api, session }
+  }
 
-    session.markEngaged()
+  it('engages on an observed engaging command, without claiming a prompt or a turn', async () => {
+    const onEngaged = vi.fn()
+    const { api, session } = await blankOpened(onEngaged)
+
+    await follow(api, ev.commandRun(SessionSeq(0), 'cmd-1', 'btw', ' 天气'))
     expect(session.getSnapshot()).toMatchObject({
       // No send was attempted and no first turn is owed: the command's own
       // durable lifecycle is the content this session now shows.
@@ -590,10 +601,60 @@ describe('prompt and cancel errors', () => {
     })
     expect(onEngaged).toHaveBeenCalledExactlyOnceWith(session)
 
-    // Idempotent: a second admitted command on the same session is not a
-    // second engagement, so the manager's list mirror is told once.
-    session.markEngaged()
+    // A second command is not a second engagement: the manager's list mirror
+    // is told once.
+    await follow(api, ev.commandRun(SessionSeq(1), 'cmd-2', 'btw', ' 再问'))
     expect(onEngaged).toHaveBeenCalledOnce()
+  })
+
+  it('stays blank on a command that declared it configures the session', async () => {
+    const onEngaged = vi.fn()
+    const { api, session } = await blankOpened(onEngaged)
+
+    await follow(api, ev.commandRunConfiguring(SessionSeq(0), 'cmd-1', 'permission', ' workspace-write'))
+    expect(session.getSnapshot()).toMatchObject({ blank: true, promptAttempted: false })
+    expect(onEngaged).not.toHaveBeenCalled()
+  })
+
+  it('engages from a history page carrying the command, not only from the live tail', async () => {
+    const api = new FakeApiClient()
+    const { session } = makeSession(api)
+    session.handleBlank(true)
+    api.onHistory = () => histResponse([
+      ev.commandRunConfiguring(SessionSeq(0), 'cmd-1', 'permission', ' read-only'),
+      ev.commandRun(SessionSeq(1), 'cmd-2', 'btw', ' 天气'),
+    ])
+    await session.open()
+    expect(session.getSnapshot().blank).toBe(false)
+  })
+
+  it('leaves the mirror to the durable event when the chip runs a command directly', async () => {
+    // The Intent hero's access-mode chip and the /permission popup both reach
+    // the host through this verb. It admits the line and nothing more: the
+    // blank bit moves only when the session's own `command/run` arrives, so
+    // every entry point lands on the same rule.
+    const onEngaged = vi.fn()
+    const { api, session } = await blankOpened(onEngaged)
+    api.onCommandExecute = () => Promise.resolve(ok({ commandId: 'cmd-1' }))
+
+    await expect(session.command('/permission read-only'))
+      .resolves.toEqual({ ok: true, value: { matched: true } })
+    expect(session.getSnapshot().blank).toBe(true)
+    expect(onEngaged).not.toHaveBeenCalled()
+
+    await follow(api, ev.commandRunConfiguring(SessionSeq(0), 'cmd-1', 'permission', ' read-only'))
+    expect(session.getSnapshot().blank).toBe(true)
+  })
+
+  it('refuses to re-blank an engaged Session on a summary that still says blank', async () => {
+    const { api, session } = await blankOpened()
+    await follow(api, ev.commandRun(SessionSeq(0), 'cmd-1', 'btw', ' 天气'))
+    expect(session.getSnapshot().blank).toBe(false)
+
+    // An `api-session/added` frame or a list pull minted before the command
+    // landed carries the stale verdict; the latch refuses it.
+    session.handleBlank(true)
+    expect(session.getSnapshot().blank).toBe(false)
   })
 
   it('keeps the attempted-first-prompt state when the Host rejects the prompt', async () => {

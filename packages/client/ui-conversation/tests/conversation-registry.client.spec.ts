@@ -57,7 +57,6 @@ function fakeSession(): SessionFace {
     loadOlder: () => Promise.reject(new Error('unused fake Session operation')),
     loadThrough: () => Promise.reject(new Error('unused fake Session operation')),
     command: () => Promise.reject(new Error('unused fake Session operation')),
-    markEngaged: () => { throw new Error('unused fake Session operation') },
   }
 }
 

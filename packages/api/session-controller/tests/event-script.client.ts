@@ -113,6 +113,9 @@ export const ev = {
     at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' } } }),
   commandRunWithoutInput: (seq: SessionSeq, commandId: string, name: string): SessionEvent =>
     at(seq, { type: 'command/run', data: { commandId, name, source: { kind: 'user' } } }),
+  /** A run whose definition declared `engages: false` (a session-configuration command). */
+  commandRunConfiguring: (seq: SessionSeq, commandId: string, name: string, args = ''): SessionEvent =>
+    at(seq, { type: 'command/run', data: { commandId, name, args, source: { kind: 'user' }, engages: false } }),
   commandDone: (
     seq: SessionSeq,
     commandId: string,

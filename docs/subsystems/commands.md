@@ -45,6 +45,15 @@ interface CommandDefinition {
    * that payload in the session log.
    */
   readonly recordInput?: boolean
+  /**
+   * Whether running this command engages the session — makes it a session
+   * with something to show. Defaults to true. A command that configures the
+   * session rather than contributing to the conversation sets this false, so
+   * a fresh session it runs in stays list-hidden, keeps its Intent hero, and
+   * remains reusable as New Session. `command/run` records the declaration
+   * only when it is false.
+   */
+  readonly engages?: boolean
   /** Execute against the receiving agent without sending the command to the model. */
   readonly handler: (invocation: CommandInvocation) => CommandResult | Promise<CommandResult>
 }

@@ -268,7 +268,7 @@ Source: [`packages/core/session/src/types.ts:299`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:110`](../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:121`](../packages/interaction/commands/src/types.ts)
 
 <a id="commandrun--log-only"></a>
 
@@ -284,11 +284,22 @@ Source: [`packages/interaction/commands/src/types.ts:110`](../packages/interacti
  * folding its own command records, a rich command card) never re-parses
  * a line. `args` is absent when the definition sets `recordInput: false`
  * because an authoritative domain event owns the input payload.
+ * `engages` is present only as `false`, from a definition that declared
+ * `engages: false`: this run configures the session and does not make it
+ * a session with something to show. An absent member is the ordinary
+ * engaging command, which is what every log written before the
+ * declaration existed carries.
  */
-'command/run': { commandId: CommandId; name: string; args?: string; source: CommandSource }
+'command/run': {
+  commandId: CommandId
+  name: string
+  args?: string
+  source: CommandSource
+  engages?: boolean
+}
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:103`](../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:108`](../packages/interaction/commands/src/types.ts)
 
 ### `compaction/*`
 

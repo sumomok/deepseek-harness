@@ -359,6 +359,27 @@ describe('CommandRuntime', () => {
     expect(run?.type === 'command/run' && Object.hasOwn(run.data, 'args')).toBe(false)
   })
 
+  it('records the engagement declaration only when a command opts out', async () => {
+    const ctx = await mount()
+    const { agent } = await mintAgentScope(ctx, 'a')
+    ctx.commands.register({
+      name: 'configure',
+      description: 'Configure the session',
+      engages: false,
+      handler: () => ({ kind: 'success' as const }),
+    })
+    ctx.commands.register(command('contribute'))
+
+    await ctx.commands.execute(agent, '/configure', [], new AbortController().signal)
+    await ctx.commands.execute(agent, '/contribute', [], new AbortController().signal)
+
+    const runs = agent.session.snapshotEvents().filter(event => event.type === 'command/run')
+    expect(runs.map(event => event.type === 'command/run' && event.data.engages)).toEqual([false, undefined])
+    // Absent, not `true`: an ordinary run is what every log written before
+    // the declaration existed already carries.
+    expect(runs[1]?.type === 'command/run' && Object.hasOwn(runs[1].data, 'engages')).toBe(false)
+  })
+
   it('mints distinct monotonic commandIds across executions', async () => {
     const ctx = await mount()
     const { agent } = await mintAgentScope(ctx, 'a')
