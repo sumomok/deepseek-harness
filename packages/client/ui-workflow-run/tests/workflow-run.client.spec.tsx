@@ -340,6 +340,7 @@ function panelProps(data: WorkflowRunChatData, sessions = listState(), openSessi
     renderMessageImages: () => null,
     renderUserActions: () => null,
     fileMentions: () => undefined,
+    referents: undefined,
     openSession,
     t: makeTranslate(zh),
   }
