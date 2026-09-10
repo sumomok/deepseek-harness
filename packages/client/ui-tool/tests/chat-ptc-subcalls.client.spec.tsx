@@ -104,6 +104,10 @@ async function bench(snapshot: ChatSnapshot) {
   const events = new ConversationEventRegistry(ctx)
   const views = new ConversationViewRegistry(ctx)
   ctx.provide('settingsScope', { bind: () => stubSettingsScope().scope } as never)
+  ctx.provide('connection', {
+    generation: { getSnapshot: () => undefined, subscribe: () => () => {} },
+  } as never)
+  ctx.provide('conversation', {} as never)
   ctx.provide('uiConversation', {
     events,
     views,
