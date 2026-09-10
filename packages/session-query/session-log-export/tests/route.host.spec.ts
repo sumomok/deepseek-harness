@@ -8,6 +8,9 @@ import { strFromU8, unzipSync } from 'fflate'
 import { describe, expect, it } from 'vitest'
 import {
   Config,
+  SESSION_EXPORT_BYTES_HEADER,
+  SESSION_EXPORT_ENTRIES_HEADER,
+  SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER,
   SESSION_LOG_FILENAME,
   SESSION_LOG_EXPORT_PATH,
   apply,
@@ -68,14 +71,23 @@ describe('Session log export Fetch route', () => {
     ))
     expect(response.status).toBe(200)
     expect(response.headers.get('content-type')).toBe('application/zip')
+    expect(response.headers.get(SESSION_EXPORT_ENTRIES_HEADER)).toBe('1')
     const files = unzipSync(new Uint8Array(await response.arrayBuffer()))
     expect(strFromU8(files[SESSION_LOG_FILENAME] as Uint8Array)).toContain('"id":"session-1"')
+    expect(response.headers.get(SESSION_EXPORT_BYTES_HEADER))
+      .toBe(String((files[SESSION_LOG_FILENAME] as Uint8Array).byteLength))
 
     const head = await shared.fetch(new Request(
       `http://host${SESSION_LOG_EXPORT_PATH}?sessionId=session-1`, { method: 'HEAD' },
     ))
     expect(head.status).toBe(200)
     expect(head.body).toBeNull()
+    expect(head.headers.get(SESSION_EXPORT_ENTRIES_HEADER))
+      .toBe(response.headers.get(SESSION_EXPORT_ENTRIES_HEADER))
+    expect(head.headers.get(SESSION_EXPORT_BYTES_HEADER))
+      .toBe(response.headers.get(SESSION_EXPORT_BYTES_HEADER))
+    expect(head.headers.get(SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER))
+      .toBe(response.headers.get(SESSION_EXPORT_ESTIMATED_WIRE_BYTES_HEADER))
 
     await dispose()
     expect((await shared.fetch(new Request(

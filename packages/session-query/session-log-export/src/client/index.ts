@@ -48,6 +48,7 @@ export function apply(ctx: ClientContext): void {
       hooks: { sessionLogDownload: controller.store },
       request: (sessionId: SessionId) => controller.download(sessionId),
       dismiss: (sessionId: SessionId) => { controller.dismiss(sessionId) },
+      cancel: (sessionId: SessionId) => { controller.cancel(sessionId) },
     }),
   }, SessionLogDownloadHeaderAction))
 }
