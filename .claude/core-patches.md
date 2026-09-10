@@ -796,3 +796,13 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 **追加后的门禁。**`vitest run apps/desktop/tests` **21 文件 / 495 条全绿**（`desktop-composition-layer.spec.ts` 由 10 条增至 15 条）→ `test:docs` **17/17** → `verify-translation-pairing` **1194 对**全绿 → `lint` 0 → `typecheck` 0 → `verify-vendored-plugin-versions` 13 个一致 → `verify-vendored-links` 9 个。`dsh-plugins-bal` 侧 `vitest run packages/balance` **22 文件 / 360 条**、`eslint` 0、`typecheck` 0、`build` 0。
 
 **一处与本次无关的噪声。**每次 `git commit` 时 git 会打印四条 `refs/dsh/translation-pairing/snapshots/<oid> 没有指向一个有效的对象`。该命名空间下共 3409 条 ref（配对工具自己的快照存储，多个工作树共享同一 object store），这四条指向已不在库里的对象。`verify-translation-pairing` 本身仍 1194 对全绿，非本次引入，未去动别的工作树的 ref。
+
+### 集成期追加：MCP 0.1.4 与 btw 0.1.1 的 vendoring
+
+**`@haoran/dsh-mcp-servers` `0.1.2` → `0.1.4`（`5b89a36bbb`）。**源：`dsh-plugins` 工作树 `dsh-plugins-mcp2` 分支 `feat/mcp-servers`，顶 `7a05578`（`9661adb` 删除确认、`bdeaf0e` + `7a05578` 慢调用归类与复核订正）。tarball sha256 `7726c05994f92db435e64707a16fc3713529e0e774a4c64bc6d5118709812de6`（复制前按供稿校验，一致）。用户可见变化两条：删除服务器先在该行内问一句（Cancel / Remove），未回答前扣住该行其余控件；一次调用超出插件自己的单次预算时报「等不到回应」并写明该预算，而不是「没有回应」——超时只证明回答没能及时到达，不证明服务器什么都没发。
+
+**`@haoran/dsh-btw` `0.1.0` → `0.1.1`（`0b27c988df`）。**源：`/Users/haoran/CODE/learn/learning-project/dsh-plugins-btw` 分支 `feat/btw`，顶 `871c48e`（`4bccdee` + `871c48e`）。tarball sha256 `4ce89b8925904c6a208c51e7625f9a9a71126eb62b1594d35d044876b99960ab`（校验一致）。用户可见变化三条：回答里若带工具调用标记，按「模型要求调用工具」拒掉，而不是把标记原样画出来；卡片按浏览器记住自己是否被收起；包内双语 README 不再承诺可以停止。
+
+**两份 Agent Note 随之订正。**`2026-09-06-desktop-mcp-servers.{md,zh.md}` 只是版本号与 sha256。`2026-09-06-desktop-btw-side-question.{md,zh.md}` 是实质订正：原文写「按下停止会中止这次请求——模型调用是真的被切断」，而出货客户端根本不把取消信号传给它发起的命令，问出去的回答一定跑完，× 只是收起那一行；真正会被放弃的是跑到 `timeoutMs` 的请求。注册表的 abort 路径只对会传信号的调用方成立（出货客户端不是），所以插件自己那句「已取消」在本产品里永远到不了任何一张卡片。同时补记卡片的折叠状态按浏览器记忆。两对 `.i18n.yaml` 与 `apps/desktop/README.i18n.yaml` 一并重录。
+
+**门禁实跑（HEAD = 本节所在提交之前的 `0b27c988df`）。**两轮 `pnpm install --offline` 各 0（装好的副本实证为 `0.1.4` 与 `0.1.1`）→ `gen-third-party-notices` 重跑并提交 → `verify-vendored-plugin-versions` **13 个**一致 → `verify-vendored-links` **9 个** → `build` 0（**222 个客户端产物**）→ `vitest run apps/desktop/tests` **21 文件 / 495 条全绿** → `test:docs` **17/17** → `verify-translation-pairing` **1194 对**全绿 → `lint` 0 → `typecheck` 0。未打包。
