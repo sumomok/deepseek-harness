@@ -40,6 +40,8 @@ Status: implemented
 
 它先答再做:`{ "ok": true }` 先上线,安装排在下一个 tick。安装会停掉嵌入服务端,并把机器交给一个要替换掉本进程的安装器,所以一个还等在响应上的调用方,会把那次断开的连接读成一次失败的安装——为一个正在被应用的更新报出一次失败。
 
+**设置那一侧是一个插件,不属于壳。**`@haoran/dsh-desktop-update` 0.1.0 以 tarball 形式放在 `apps/desktop-server/vendor/` 下,由 `cd2244802e` 引入。它的 host 半边是一个叫 `desktopUpdate` 的 Typert 服务,代理那四条路由,端点与 token 都留在网关的它这一侧;环境里两者都没有时,`state()` 答 `phase: 'unsupported'`,插件什么都不注册。它的浏览器半边注册一个 `settings.section`——id 是 `desktop-update`,即「更新」页——以及一个只在 `phase === 'ready'` 时才渲染的动作:设置行右端的那个更新按钮。那个按钮坐的位子是 `settings.trigger.action`,即核心补丁 D 新增的那个 list 槽(合并提交 `f934c3ae2a`,在 `.claude/core-patches.md` 在册)。补丁不在场时,动作退到 `sidebar.footer.action`——凡是带侧栏的组合都声明它——因为 `ctx.slots.inject` 只会为某个构建确实声明过的 key 触发回调,于是往打了补丁的那个 key 上注入本身就是探测。插件自己的 Agent Note 跟着它的源码走,在 `dsh-plugins` 仓的 `packages/desktop-update/`。
+
 ### 传输分两半跑,而且顺序是定的
 
 `download()` 仍然先按既有退避跑 `downloadUpdate()`,因为那一半才能取差量更新——相邻两个发布之间实测是 170,291 KB 产物里的 12,392 KB。只有在计划耗尽之后,`transferWithFallback` 才把同一个产物交给 `resumable-download.ts`:它带着 `If-Range` 校验子要 `bytes=<have>-`,追加写进一个 `.part` 文件,边写边算哈希,收尾时拿整份文件对着清单的 base64 sha512 校验。它自己那份计划更长也更慢——2 秒、10 秒、30 秒、2 分钟、5 分钟——因为它的每次尝试花掉的是一个请求,而不是整个产物。
