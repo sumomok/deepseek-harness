@@ -829,3 +829,17 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 ### 集成期追加补丁：两条上游修复的 backport
 
 `de95110838`（上游 `594305ce19`，PR #3846，MCP 工具发现重复游标）与 `900fc3194d`（上游 `ce0a1e4253`，PR #3368，Win32 目录选择器越界读），外加一条随附适配 `4e405d3165`（把 backport 带来的 Agent Note 链接指到它在本线的实际位置）。两条登记见本文件的两个 `## backport(...)` 小节。**两条都只在本集成线上追加，都不需要回补丁线 `core-patches-v7`**：实测 `core-patches-v8` 的基座已含这两个上游提交，届时自动退役。
+
+### 集成期追加：只保留 DeepSeek-V4.1-Flash（default-model 0.3.0 / balance 0.4.4）
+
+**官方事实（2026-09-10 亲取两页 + changelog，UTC 06:04-06:05）。**changelog `https://api-docs.deepseek.com/updates/` 当日条目为「DeepSeek-V4.1-Flash Release」。两份价格页此时都已更新，各自**只列两个模型**：`deepseek-flash`（模型版本 `DeepSeek-V4.1-Flash`，图像理解「支持」）与 `deepseek-v4-pro`（`DeepSeek-V4-Pro-0813`，图像理解「不支持」）。两条脚注是本轮的全部依据：①「旧模型名 deepseek-v4-flash、deepseek-v4-flash-vision-exp 仍可调用，但对应模型已下线，请求将由 DeepSeek-V4.1-Flash 模型提供服务，并按 Flash 价格计费。」②「北京时间 2026 年 9 月 14 日 12:00 之后，至未来 V4.1 Pro 上线之前，您访问 deepseek-v4-pro 的请求将全部路由到 V4.1 Flash，并按 V4.1 Flash 价格计费。」价格（空闲时段，高峰翻倍，时间窗不变）：`deepseek-flash` CNY 1 / 0.02 / 4，USD **0.15 / 0.003 / 0.60**（USD 取自英文页 `https://api-docs.deepseek.com/quick_start/pricing/`，页面实印 `$0.15` / `$0.003` / `$0.6`，**不是**兜底值）；`deepseek-v4-pro` CNY 4.5 / 0.15 / 13.5，USD 0.66 / 0.022 / 1.98。此前记在本文件里的「官方页未列 deepseek-flash、只能引二手来源」已被这次读取取代，二手来源不再是任何一行的依据。
+
+**`@haoran/dsh-default-model` `0.2.0` → `0.3.0`（`47421a2081`）。**目录只留一行 `deepseek-flash`，`name: DeepSeek-V4.1-Flash`、`description: V4.1 Flash · 文本与图片`、`inputModalities: [text, image]`；`agent-default-model` 不变。放弃 `default` 这个标签——它本来是从多行里标出一行，只有一行时无从标起。`tests/patch.spec.ts` 与出厂目录不再有共享行，改为：逐字段钉死本行、三个省略字段仍对着已安装适配器解析、断言适配器**没有**自己的 `deepseek-flash` 行（它哪天有了这条就红，届时该重述适配器的行而不是自写一行）、并断言删掉出厂各行是决定而非脱节。源分支 `feat/default-model-v41-flash` 顶 `39979c8`（新工作树 `dsh-plugins-dm`，未动其他工作树）。tarball sha256 `9d51428a0cf64d76ec62e09ca45e40999f9202e985ca65d88c9159ecfe6d3ba4`。
+
+**`@sumomok/dsh-balance` `0.4.3` → `0.4.4`（同一提交 `47421a2081`）。**两个已下线 id 各保留一行、改按 `deepseek-flash` 费率计价（依据脚注①）——存着的选择仍可能指名它们，删行会把那些轮次报成未定价 token；两个币种各抽一个常量而不是抄三遍。`deepseek-v4-pro` 保留页面今天印的费率，并带一条注明日期的 TODO（脚注②的改道在 09-14 12:00）。`prices.spec.ts` 新增两条：两个退役 id 的费率必须与 `deepseek-flash` 逐字段相等；V4 Pro 在改道前必须仍与它不同。源分支 `feat/v41-flash-prices` 顶 `6fa0fec`。tarball sha256 `20619d76061398e98314c41e03623726ce8ec3f33e46a179fe54660620bd9cc1`。**提交信息只写了 default-model**，两个 tarball 实际在同一条提交里落地。
+
+**桌面编排层（同一提交）。**`apps/desktop-app/cordis.patch.yml` 的 `llm-deepseek.models` 整表重述为同样的单行。另新增第四条 id 定向行 `llm-permission-gateway`：审查模型的路由此前用插件出厂的 `deepseek-v4-flash`——一个 DeepSeek 只做重定向的退役名字。该插件 `Config` 里只有 `provider` 与 `model` 是 `.required()`，其余每个字段都有 schema 默认值，且它自己的 patch 层也恰好只写这两个键，所以整块替换不丢任何东西——`--dump-config` 实证：组合出的该行前后都只有这两个键。`desktop-composition-layer.spec.ts` 因此从 15 条增至 18 条：新增「下层用的是插件出厂路由」「审查模型等于组合出的默认模型」「前后 config 都恰好是这两个键」，「本层只改三行」改为四行，出厂目录比对改为「只提供一个模型，且适配器一个都不带」。
+
+**门禁实跑（HEAD = 本节所在提交之前的 `47421a2081`）。**`pnpm install --offline` 0（装好的副本实证 `0.3.0` 与 `0.4.4`）→ `gen-third-party-notices` 重跑并提交 → `verify-vendored-plugin-versions` **13 个**一致 → `verify-vendored-links` **9 个** → `build` 0（**222 个客户端产物**）→ `typecheck` 0 → `lint` 0 → `vitest run apps/desktop/tests` **21 文件 / 498 条全绿** → `doc-sync` **35/35**（含 `verify-translation-pairing` **1195 对**）。仓外：default-model `vitest` 13 条、`eslint` 0；balance `vitest` **362 条**、`eslint` 0、`typecheck` 0、`build` 0。未打包。
+
+**两份 Agent Note 随之订正**（`2026-08-23-desktop-builtin-default-model.{md,zh.md}` 与 `2026-08-23-desktop-builtin-balance.{md,zh.md}`）：单行目录、退役 id 的图片后果、价格表的新依据与 V4 Pro 的改道日期；三对 `.i18n.yaml`（含 `apps/desktop/README.i18n.yaml`）重录。发行说明草稿 `scratchpad/rc31/release-notes-rc31.md` 的两条按 owner 定稿替换。
