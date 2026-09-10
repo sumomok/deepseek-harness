@@ -109,25 +109,10 @@ describe('installTerminologyGuard', () => {
     expect(css).toContain(`${scope} {`)
     expect(css).toContain(`${scope}::after`)
     expect(css).toContain('说说要做什么')
-    // The inert composer's own diagnostic ("Choose a workspace to start")
-    // shares this element and is not an invitation to type — an unscoped rule
-    // would paint over it.
+    // The inert composer's own diagnostic ("Choose a workspace to start") and a
+    // raised block's reason share this element, and neither is an invitation to
+    // type — an unscoped rule would paint over both.
     expect(css).not.toContain('\n[data-composer-placeholder]')
-  })
-
-  it('replaces the refusing composer\'s session vocabulary without inviting input', () => {
-    installTerminologyGuard()
-    const css = document.getElementById('dsh-server-sidebar-terminology-guard')?.textContent ?? ''
-    const refusing = '[data-composer-input][aria-disabled] + [data-composer-placeholder]'
-    expect(css).toContain(`${refusing} { font-size: 0 !important; }`)
-    expect(css).toContain(`${refusing}::after`)
-    // `placeholder.unavailable` is 会话不可用 / "Session unavailable" and
-    // `placeholder.parentOffline` names a 父会话 — banned vocabulary in a
-    // namespace no plugin may register into, so the swap is the only reach.
-    expect(css).toContain('暂时无法输入')
-    // The two placeholder rules partition the states rather than overlap: the
-    // invitation excludes exactly what this one selects.
-    expect(css).toContain(':not([aria-disabled]) + [data-composer-placeholder]')
   })
 
   it('re-texts the running indicator and drops its brand gradient, without touching its clock', () => {
