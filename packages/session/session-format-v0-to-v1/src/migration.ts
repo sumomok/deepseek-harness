@@ -20,6 +20,7 @@ import {
   assertReleasedV1Header,
 } from './validation.ts'
 import { assertReleasedV0Keys, releasedV0Record } from './validation-helpers.ts'
+import { LEGACY_UNINTERPRETED_EVENT_TYPES } from './dispositions.ts'
 
 /** Identity format edge that promotes released v0 into released v1. */
 export const sessionFormatV0ToV1 = defineSessionFormatMigration({
@@ -94,10 +95,13 @@ function normalizeReleasedV0Event(
   const retry = normalizeLegacyRetry(steering, sessionId, state.retryIds)
   const compaction = normalizeLegacyCompaction(retry, sessionId, state)
   const message = normalizeLegacyMessage(compaction, sessionId, state.messageIds)
-  if (message.type !== 'assistant/chunk') assertReleasedEventPayload(message, 0)
-  const messageId = eventMessageId(message)
-  if (messageId !== undefined) state.messageIds.set(message.seq, messageId)
-  return message
+  if (message.type !== 'assistant/chunk' && !LEGACY_UNINTERPRETED_EVENT_TYPES.has(message.type)) {
+    assertReleasedEventPayload(message, 0)
+  }
+  const carried = markLegacyUninterpreted(message)
+  const messageId = eventMessageId(carried)
+  if (messageId !== undefined) state.messageIds.set(carried.seq, messageId)
+  return carried
 }
 
 function normalizeLegacyCompactionType(event: SessionFormatEvent): SessionFormatEvent {
@@ -203,6 +207,21 @@ function addLegacyCompactionId(
   const data = releasedV0Record(event.data, `${event.type} ${event.seq} data`)
   if (Object.hasOwn(data, 'compactionId')) return event
   return { ...event, data: { ...data, compactionId } }
+}
+
+/**
+ * Mark one carried-through historical event as ignorable so later readers keep it.
+ *
+ * A type in {@link LEGACY_UNINTERPRETED_EVENT_TYPES} has no disposition in any
+ * released inventory, so nothing downstream can interpret its payload. Stamping
+ * the envelope here makes the migrated artifact say so, which is what the
+ * installed build's own restorer reads to admit an event it does not know.
+ * @param event - one normalized released-v0 event.
+ * @returns the event, carrying `ignorable: true` when its type is uninterpreted.
+ */
+function markLegacyUninterpreted(event: SessionFormatEvent): SessionFormatEvent {
+  if (!LEGACY_UNINTERPRETED_EVENT_TYPES.has(event.type)) return event
+  return { ...event, ignorable: true }
 }
 
 function normalizeLegacyRequestHeader(event: SessionFormatEvent, sessionId: string): SessionFormatEvent {
