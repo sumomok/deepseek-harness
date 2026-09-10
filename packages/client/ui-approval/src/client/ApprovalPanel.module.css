@@ -51,6 +51,11 @@
   font-size: 15px;
   font-weight: 500;
   line-height: 24px;
+  /* A reason writes its own line breaks — an identifier on a line of its own
+     beneath the prose, drawn at this same size, and a blank line between two of
+     them — so they are drawn rather than collapsed; runs of spaces still
+     collapse. */
+  white-space: pre-line;
 }
 
 .command {
