@@ -606,6 +606,16 @@ describe('prompt and cancel errors', () => {
     expect(session.getSnapshot().blank).toBe(false)
   })
 
+  it('refuses to re-blank a session whose first turn already ended', async ({ mock, start }) => {
+    const session = await blankOpened(mock, start)
+    session.handleRunning(true)
+    session.handleRunning(false)
+    expect(session.getSnapshot()).toMatchObject({ blank: false, running: false })
+
+    session.handleBlank(true)
+    expect(session.getSnapshot().blank).toBe(false)
+  })
+
   it('keeps the attempted-first-prompt state when the Host rejects the prompt', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     session.handleBlank(true)
