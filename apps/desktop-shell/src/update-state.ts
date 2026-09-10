@@ -179,16 +179,16 @@ export class UpdateState {
    *
    * When it happened is recorded whatever the channel is doing, so every check
    * leaves its time behind. What it failed with replaces neither of the two
-   * protective phases: an artifact transferring and an artifact waiting to be
-   * installed are both about a version this machine already holds, and a
-   * check's own failure says nothing about either.
+   * protective phases nor a verdict this run cannot move: an artifact
+   * transferring and an artifact waiting to be installed are both about a
+   * version this machine already holds, and a check's own failure says nothing
+   * about either, nor about a build that cannot install what it downloads.
    * @param at - ISO 8601 timestamp of the failure.
    * @param reason - what it failed with, in one line.
    */
   checkFailed(at: string, reason: string): void {
-    if (this.final) return
     this.checkedAt = at
-    if (this.phase === 'ready' || this.phase === 'downloading') return
+    if (this.final || this.phase === 'ready' || this.phase === 'downloading') return
     this.phase = 'failed'
     this.reason = reason
   }

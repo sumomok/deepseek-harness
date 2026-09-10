@@ -258,6 +258,18 @@ describe('a build that cannot install an update', () => {
     expect(state.isReady()).toBe(false)
   })
 
+  it('still records when a check ran, which is the one thing it can report', () => {
+    const state = machine()
+    state.markUnavailable('development launch')
+    state.checkFailed(CHECKED_AT, 'ECONNRESET')
+    expect(state.snapshot()).toEqual({
+      phase: 'failed',
+      currentVersion: CURRENT,
+      reason: 'development launch',
+      checkedAt: CHECKED_AT,
+    })
+  })
+
   it('is not the same as a failure the next check starts over from', () => {
     const state = machine()
     state.checkStarted()
