@@ -11,6 +11,7 @@ import { createHash, randomBytes } from 'node:crypto'
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { UpdateInfo } from 'electron-updater'
 import { DownloadedUpdateHelper } from 'electron-updater/out/DownloadedUpdateHelper.js'
 import { afterEach, describe, expect, it } from 'vitest'
 import { appCacheDir, discardStaleParts, partFileFor, pendingDir, placeInPendingCache } from '../src/pending-cache.ts'
@@ -69,9 +70,12 @@ async function validate(cacheDir: string, sha512 = SHA512): Promise<string | nul
   const updateFile = join(pendingDir(cacheDir), FILE_NAME)
   return helper.validateDownloadedPath(
     updateFile,
-    { version: VERSION } as never,
-    { info: { url: FILE_NAME, sha512 }, url: new URL(`https://example.invalid/mac/${encodeURI(FILE_NAME)}`) } as never,
-    QUIET as never,
+    // The cache check reads nothing off this argument — it compares the file
+    // info's sha512 — so the version is all a case has to state, and the rest of
+    // `UpdateInfo` is two deprecated fields it would otherwise have to name.
+    { version: VERSION } as unknown as UpdateInfo,
+    { info: { url: FILE_NAME, sha512 }, url: new URL(`https://example.invalid/mac/${encodeURI(FILE_NAME)}`) },
+    QUIET,
   )
 }
 
@@ -126,7 +130,7 @@ describe('partial files', () => {
   it('are keyed by version and artifact name, and live outside `pending`', () => {
     const part = partFileFor('/cache/app', VERSION, FILE_NAME)
     expect(part).toBe(join('/cache/app', `dsh-resume-${VERSION}-${FILE_NAME}.part`))
-    expect(part.includes(`${join('/cache/app', 'pending')}`)).toBe(false)
+    expect(part.includes(join('/cache/app', 'pending'))).toBe(false)
   })
 
   it('name the artifact by its basename, so a manifest path cannot escape the directory', () => {
