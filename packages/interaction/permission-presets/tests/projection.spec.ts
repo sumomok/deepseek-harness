@@ -167,7 +167,9 @@ describe('/permission command', () => {
       }],
     })
     const run = session.snapshotEvents().find(event => event.type === 'command/run')
-    expect(run?.data).toMatchObject({ name: 'permission', args: ' danger-full-access' })
+    // `engages: false` is the declaration that keeps a session whose first
+    // line only set an access mode out of the session list.
+    expect(run?.data).toMatchObject({ name: 'permission', args: ' danger-full-access', engages: false })
   })
 
   it('reports the current preset and the table on bare invocation', async () => {
