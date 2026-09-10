@@ -4,6 +4,8 @@
 
 桌面客户端:Electron 壳,主进程启动内嵌的 web 服务器——即 [apps/desktop-server](../desktop-server/README.zh.md) 经 pnpm deploy 物化的闭包,跑在随包捆绑的真实 Node 运行时上(绝不用 Electron 内建 Node,服务端因此保持在被测试的 engines 线上,`node:sqlite` 与原装 N-API 预编译产物照常工作)——传入 `--no-open` 使服务端不把地址交给系统浏览器,等到 `dsh web:` URL 行后在原生窗口里打开所服务的 UI。窗口是纯浏览器面:无 preload、无 Node 集成;外部链接交给系统浏览器。退出时拆除整棵服务器进程树(SIGTERM + 超时升级;Windows 走 `taskkill /T`)。
 
+**工作区包名是 `@deepseek-ai/dsh-desktop-shell`,安装后的应用名却是 `@deepseek-ai/dsh-desktop`**:上游有自己的 `@deepseek-ai/dsh-desktop`、占着 `apps/desktop`,而 Electron 的 `userData`、`sessionData`、macOS 的 `logs` 目录以及更新器缓存目录都由应用名推出,改掉它会让每个已安装版本的 cookie、登录分区与 `desktop-state.json` 全部够不着。`electron-builder.yml` 的 `extraMetadata.name` 钉住打包的那一半,`src/app-identity.ts` 钉住源码树启动,`tests/artifact-names.spec.ts` 要求两者相等。
+
 ## 构建安装包
 
 ```sh

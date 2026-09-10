@@ -4,6 +4,8 @@ English | [中文](README.zh.md)
 
 Desktop client: an Electron shell whose main process starts the embedded web server — the pnpm-deployed closure of [apps/desktop-server](../desktop-server/README.md) running on a bundled real Node runtime (never Electron's own Node, so the server keeps the tested engines line, `node:sqlite`, and the stock N-API prebuilds) — passes `--no-open` so the server never hands the address to the system browser, waits for the `dsh web:` URL line, and opens the served UI in a native window. The window is a plain browser surface: no preload, no Node integration; external links open in the system browser. Quitting tears the server process tree down (SIGTERM with a kill escalation; `taskkill /T` on Windows).
 
+**The workspace package is named `@deepseek-ai/dsh-desktop-shell`, while the installed application is named `@deepseek-ai/dsh-desktop`**: upstream ships its own `@deepseek-ai/dsh-desktop` and occupies `apps/desktop`, but Electron derives the application's `userData`, `sessionData`, macOS `logs` directory and updater cache directory from the application name, so renaming it would put every installed version's cookies, login partitions and `desktop-state.json` out of reach. `extraMetadata.name` in `electron-builder.yml` pins the packaged half, `src/app-identity.ts` pins a source-tree launch, and `tests/artifact-names.spec.ts` requires the two to agree.
+
 ## Building installable packages
 
 ```sh
