@@ -781,7 +781,7 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 
 **默认模型必须在目录里（`a08465c272`）。**`desktop-composition-layer.spec.ts` 增加一条不变式用例：组合出的 `agent-default-model.model` 必须出现在组合出的 `llm-deepseek.config.models` 的 id 里。这正是本次真实断掉过的那条——桌面层整表替换时没跟随下层的新目录。
 
-**漂移防护改为在本仓门禁里跑（`b4f0…` 见下条提交）。**vendored 两个包的目录/价格表原本只有 `dsh-plugins` 侧的 `tests/patch.spec.ts` 在盯，而那套测试**在桌面的任何门禁里都不会跑**，且它比对的是插件自己 devDependencies 钉的适配器版本，不是本载荷实际携带的那一份。两条路可选：把「每次 vendoring 都去插件仓跑一遍测试」写成流程约定，或者把比对搬进 `desktop-composition-layer.spec.ts`。**选了后者**——十几行、随 `vitest run apps/desktop/tests` 每次跑、且比的是本载荷真正装着的适配器：新用例 `restates every factory row of the adapter this payload ships` 遍历 `Config({}).models`，逐行要求组合出的表复现它（省略的 `contextWindow` / `imagePixelBudget` / `imageMaxBytes` 按继承值补齐再比）。变异实证：把桌面层里 `deepseek-v4-flash` 的 `description` 改一个字，该用例与既有的「复现下层目录」用例同时报红，改回即绿。
+**漂移防护改为在本仓门禁里跑（`eee6fbc73b`）。**vendored 两个包的目录/价格表原本只有 `dsh-plugins` 侧的 `tests/patch.spec.ts` 在盯，而那套测试**在桌面的任何门禁里都不会跑**，且它比对的是插件自己 devDependencies 钉的适配器版本，不是本载荷实际携带的那一份。两条路可选：把「每次 vendoring 都去插件仓跑一遍测试」写成流程约定，或者把比对搬进 `desktop-composition-layer.spec.ts`。**选了后者**——十几行、随 `vitest run apps/desktop/tests` 每次跑、且比的是本载荷真正装着的适配器：新用例 `restates every factory row of the adapter this payload ships` 遍历 `Config({}).models`，逐行要求组合出的表复现它（省略的 `contextWindow` / `imagePixelBudget` / `imageMaxBytes` 按继承值补齐再比）。变异实证：把桌面层里 `deepseek-v4-flash` 的 `description` 改一个字，该用例与既有的「复现下层目录」用例同时报红，改回即绿。
 
 **回滚行为（rc.31 → rc.30）。**rc.30 的目录里没有 `deepseek-flash` 这一行。用 rc.30 打开一个停在该模型上的 rc.31 会话：**纯文本轮正常**——模型 id 原样上线，`resolveModelInfo` 只是把未收录的 id 当作纯文本模型处理（`packages/llm/llm-deepseek/src/adapter.ts:402-407`：「An uncatalogued endpoint is safely treated as text-only」）；**发图会被拒**——`adapter.ts:455-460` 在目录行的 `inputModalities` 不含 `image` 时抛 `LlmError('DeepSeek model "deepseek-flash" does not accept image input.', 'UNSUPPORTED_CONTENT')`。用户在 rc.30 上要恢复发图，只能在选择器里改选一个 rc.30 目录里带视觉的模型。
 
@@ -793,6 +793,6 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 
 **Agent Note 订正（`d861e6ae47`）。**`2026-08-23-desktop-builtin-default-model.{md,zh.md}` 与 `2026-08-23-desktop-builtin-balance.{md,zh.md}` 是在役 implemented 记录，其中现在时的产品事实按本次实际所发订正（默认模型、目录首行、两条视觉行、价格表读取日期与 `deepseek-flash` 行的出处），两对 `.i18n.yaml` 重录。
 
-**追加后的门禁。**`vitest run apps/desktop/tests` **21 文件 / 497 条全绿**（`desktop-composition-layer.spec.ts` 由 10 条增至 15 条）→ `test:docs` **17/17** → `verify-translation-pairing` **1194 对**全绿 → `lint` 0 → `typecheck` 0 → `verify-vendored-plugin-versions` 13 个一致 → `verify-vendored-links` 9 个。`dsh-plugins-bal` 侧 `vitest run packages/balance` **22 文件 / 360 条**、`eslint` 0、`typecheck` 0、`build` 0。
+**追加后的门禁。**`vitest run apps/desktop/tests` **21 文件 / 495 条全绿**（`desktop-composition-layer.spec.ts` 由 10 条增至 15 条）→ `test:docs` **17/17** → `verify-translation-pairing` **1194 对**全绿 → `lint` 0 → `typecheck` 0 → `verify-vendored-plugin-versions` 13 个一致 → `verify-vendored-links` 9 个。`dsh-plugins-bal` 侧 `vitest run packages/balance` **22 文件 / 360 条**、`eslint` 0、`typecheck` 0、`build` 0。
 
 **一处与本次无关的噪声。**每次 `git commit` 时 git 会打印四条 `refs/dsh/translation-pairing/snapshots/<oid> 没有指向一个有效的对象`。该命名空间下共 3409 条 ref（配对工具自己的快照存储，多个工作树共享同一 object store），这四条指向已不在库里的对象。`verify-translation-pairing` 本身仍 1194 对全绿，非本次引入，未去动别的工作树的 ref。
