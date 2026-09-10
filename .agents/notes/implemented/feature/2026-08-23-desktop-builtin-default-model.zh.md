@@ -26,7 +26,7 @@ Status: implemented
 
 已经选过模型的用户保留他自己的选择。`$DSH_HOME/settings.yaml` 是一份实时读取的设置文档,它的 `agent-default-model:` 分节——正是有人在 web UI 里选模型时写下的东西([默认模型跟随选择器](2026-08-07-default-model-follows-the-picker.zh.md))——位于每一个 bundle patch 层之上。这个包设定的是你还没选之前拿到的东西,绝不是压在你的选择之上。
 
-对这样的用户确实变了的是选择器那几行:无论他存着什么选择,被列出的只有 `deepseek-flash`,因为这份目录是组合配置项,不是逐用户的。存着的选择若指名一个已下线的模型,文本照常——DeepSeek 用 V4.1 Flash 为那些名字提供服务——图片则不行:适配器把不在目录里的模型当作纯文本模型,于是发图会被拒,直到那个人改选 DeepSeek-V4.1-Flash。他自己的 `cordis.patch.yml` 不受影响,播种从不编辑用户 patch 层。
+对这样的用户确实变了的是选择器那几行:无论他存着什么选择,被列出的只有 `deepseek-flash`,因为这份目录是组合配置项,不是逐用户的。存着的选择若指名一个已下线的模型,文本照常——DeepSeek 用 V4.1 Flash 为那些名字提供服务。图片在它上面发不出去,因为适配器把不在目录里的模型当作纯文本模型;而这个拒绝正是 `@haoran/dsh-vision-switch` 挂在这里的理由:在已经有过一轮的对话里,它经由选择器走的那同一个 `session.selectModel` 把会话切到 `deepseek-flash`,顺手把这个模型写回成存着的选择,图片随即发出。唯一失败的一轮是新对话第一条消息就带图片,报的是 `UNSUPPORTED_CONTENT`;同一张图再发一次就切过去并发出,于是一个已下线的存量选择在有人第一次发图时自行修好。他自己的 `cordis.patch.yml` 不受影响,播种从不编辑用户 patch 层。
 
 ## Alternatives considered
 
