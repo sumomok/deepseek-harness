@@ -201,22 +201,37 @@
  * both halves — the pills gone, and copy, branch and the clock still on
  * screen — so either direction of that drift turns the gate red.
  *
- * The composer placeholder reads 说说要做什么 in the two states where the
- * composer accepts input, through the same `::after` swap the hero headline
- * uses. `InputBar.tsx` renders one `[data-composer-placeholder]` element for
- * every state — `ConversationRoot.tsx` only changes which copy feeds it — and
- * two of the four states are not invitations to type: the inert composer with
- * no Workspace connected, whose placeholder is the only thing saying the
- * composer is unusable (`ConversationRoot.tsx:334`, `placeholder.workspace`),
- * and a raised composer block, whose placeholder is the blocker's own reason
- * (`:342`). Painting 说说要做什么 over either would invite a visitor to type
- * into a composer that refuses input, so the rule reaches the placeholder
- * through its preceding sibling, the composer input itself, and excludes both:
- * `[data-composer-input]:not([data-phase='inert']):not([aria-disabled])`.
- * `data-phase` is `input?.phase ?? 'inert'` (`InputBar.tsx:533`), so the
- * inert state is the one with no composer input face at all; `aria-disabled`
- * is `editorDisabled` (`:534`), which a raised block sets and the
- * workspace-picker trigger deliberately does not. The `+` combinator is exact:
+ * The composer placeholder is swapped through the same `::after` technique the
+ * hero headline uses, but it takes two rules rather than one, because
+ * `InputBar.tsx` renders a single `[data-composer-placeholder]` element for
+ * every state of a placeholder ladder that is longer than it looks
+ * (`InputBar.tsx:467-476`: the owner prop first — hero copy, the inert
+ * composer's own diagnostic, a raised block's reason — then `parentOffline`,
+ * then any other disabled state, then the steer-queue hint, then plan mode,
+ * then the default). The rules split it on what the composer can do:
+ * - **Accepts input** →  说说要做什么, the invitation. Scoped
+ *   `[data-composer-input]:not([data-phase='inert']):not([aria-disabled])`.
+ * - **Refuses input, with a session** →  暂时无法输入. Scoped
+ *   `[data-composer-input][aria-disabled]`. This is where `placeholder.unavailable`
+ *   (会话不可用 / "Session unavailable") and `placeholder.parentOffline`
+ *   (父会话已离线…) land — banned session vocabulary decision ② reaches no
+ *   other way, since both belong to `ui-conversation`'s own locale namespace.
+ *   The swap keeps what a visitor needs (input is unavailable right now) and
+ *   drops the word. It also covers a raised composer block, whose placeholder
+ *   would be the blocker's own reason: that state is dead in this composition
+ *   (`ui-model-selection`, its only producer, is disabled by the customer
+ *   overlay) and a deployment that brought it back would have its reason
+ *   masked by this copy.
+ * - **The inert composer with no Workspace** → left alone. Its placeholder is
+ *   the only thing saying the composer is unusable and why
+ *   (`ConversationRoot.tsx:334`, `placeholder.workspace`), so neither swap
+ *   reaches it — see the package README's Known Limitations.
+ *
+ * `data-phase` is `input?.phase ?? 'inert'` (`InputBar.tsx:533`), so the inert
+ * state is the one with no composer input face at all; `aria-disabled` is
+ * `editorDisabled` (`:534`), which every refusing state sets and the
+ * workspace-picker trigger deliberately does not — that asymmetry is what
+ * makes the three-way split expressible at all. The `+` combinator is exact:
  * `InputBar.tsx:545-549` renders the placeholder as that element's immediately
  * following sibling. The swapped copy carries `ui-conversation`'s own
  * font-size token rather than a fixed pixel value, so it keeps tracking the
@@ -283,6 +298,12 @@ const STYLE = `
 }
 [data-composer-input]:not([data-phase='inert']):not([aria-disabled]) + [data-composer-placeholder]::after {
   content: '说说要做什么';
+  font-size: var(--dsh-content-font-size, 14px);
+  line-height: calc(24px + var(--dsh-content-font-delta, 0px));
+}
+[data-composer-input][aria-disabled] + [data-composer-placeholder] { font-size: 0 !important; }
+[data-composer-input][aria-disabled] + [data-composer-placeholder]::after {
+  content: '暂时无法输入';
   font-size: var(--dsh-content-font-size, 14px);
   line-height: calc(24px + var(--dsh-content-font-delta, 0px));
 }
