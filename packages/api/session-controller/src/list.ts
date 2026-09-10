@@ -3,6 +3,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type {} from '@deepseek-ai/dsh-agent-presets'
 import type { ImageAttachmentLimits } from '@deepseek-ai/dsh-attachment'
+// Type-only: merges the command lifecycle events into SessionEventMap so the
+// blank fold can name `command/run`.
+import type {} from '@deepseek-ai/dsh-commands/types'
 import { SessionLogOffset } from '@deepseek-ai/dsh-session'
 import type { Session, SessionEvent, SessionHeader, SessionId } from '@deepseek-ai/dsh-session'
 import type {} from '@deepseek-ai/dsh-session-projection'
@@ -39,6 +42,15 @@ const imageLimitsSchema = z.object({
 
 /**
  * Advance the Session-list metadata projection by one committed event.
+ *
+ * `blank` means the Session has nothing to show and nothing to address: it
+ * falls on the first `turn/start` and on the first `command/run`, and never
+ * rises again. A command counts because the host executor durably logged it
+ * and the transcript renders its lifecycle as a flow node — a Session
+ * holding one is listed, opens on its transcript, and is no longer the
+ * provisional New Session a Workspace connect may reuse. The remaining
+ * standalone events (`plan/mode`, `session/title`, permission and sandbox
+ * configuration) leave it blank: they record a setting, not content.
  * @param state - metadata before the event.
  * @param event - next committed Session event.
  * @returns the original or advanced metadata value.
@@ -47,7 +59,7 @@ export function applySessionListMetadata(
   state: SessionListMetadata,
   event: SessionEvent,
 ): SessionListMetadata {
-  const blank = state.blank && event.type !== 'turn/start'
+  const blank = state.blank && event.type !== 'turn/start' && event.type !== 'command/run'
   const lastPromptAt = event.type === 'user/message' && event.data.source.kind === 'user'
     ? event.time
     : state.lastPromptAt
@@ -83,7 +95,10 @@ export class ApiSessionList {
       init: () => ({ blank: true, lastPromptAt: null }),
       apply: applySessionListMetadata,
       wire: { viewSchema: sessionListMetadataSchema, view: state => state },
-      stateVersion: 1,
+      // 2: the fold also clears `blank` on `command/run`. A row checkpointed
+      // under version 1 holds the older verdict for the same log, so it must
+      // be discarded and refolded rather than served.
+      stateVersion: 2,
     })
     ctx.inject(['attachments'], (attachmentCtx) => {
       ctx.sessionProjections.register<'imageLimits', null>({
