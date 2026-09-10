@@ -119,6 +119,7 @@ root
 │  │  └─ sidebar.workspaces.directoryFlow
 │  └─ sidebar.settings
 │     ├─ settings.trigger
+│     ├─ settings.trigger.action
 │     ├─ settings.header
 │     ├─ settings.action
 │     ├─ settings.close
