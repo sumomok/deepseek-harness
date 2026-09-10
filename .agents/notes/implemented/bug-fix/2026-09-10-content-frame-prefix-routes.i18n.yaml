@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-10-content-frame-prefix-routes.md
+2026-09-10-content-frame-prefix-routes.md: 43d14cc2319c6b1649a71ced1dc00b82fbf3b26f
+2026-09-10-content-frame-prefix-routes.zh.md: da89dfc0e6046f59dd4c664a5c9d901864c133ac
