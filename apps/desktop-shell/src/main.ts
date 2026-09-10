@@ -24,6 +24,7 @@
 import { appendFileSync, existsSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { app, BrowserWindow, dialog, Notification, shell, type DownloadItem } from 'electron'
+import { pinAppIdentity } from './app-identity.ts'
 import { reportUncaughtException, setupCrashLog, type CrashLogHost } from './crash-log.ts'
 import { recordRun } from './desktop-state.ts'
 import { decideDownload, downloadOutcome, type DownloadAlert } from './download-policy.ts'
@@ -47,6 +48,11 @@ import { startServerWithQuarantine, sweepOrphanedServers, type ServerHandle, typ
 import { PALETTES, resolveAppearance, type Appearance } from './theme.ts'
 import { guardWindowClose, setupTray } from './tray.ts'
 import { launchGate, setupUpdates } from './updater.ts'
+
+// First statement of the process: every directory below is derived from the
+// application name, and the state of an existing installation lives under the
+// name this package no longer carries.
+pinAppIdentity(app)
 
 /**
  * A server launch plus the shipped closure the built-in plugins are seeded

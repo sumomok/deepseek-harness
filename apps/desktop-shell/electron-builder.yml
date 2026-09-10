@@ -7,6 +7,20 @@
 # koffi), so electron-builder must not rebuild anything against Electron's ABI.
 appId: dev.dsh.desktop
 productName: DSH Desktop
+# The workspace package is named `@deepseek-ai/dsh-desktop-shell`, because
+# upstream ships its own `@deepseek-ai/dsh-desktop`. The installed application
+# keeps the older name: this is merged into the package.json written inside the
+# asar (`modifyMainPackageJson`, fileTransformer.js) and into the metadata
+# `AppInfo` reads, which is where Electron takes `app.getName()` — and with it
+# `userData`, `sessionData` and the macOS `logs` directory — and where
+# `updaterCacheDirName` in the generated `app-update.yml` comes from
+# (`sanitizeFileName(name).toLowerCase() + '-updater'`, appInfo.js). Without
+# it, an update would move every installation's cookies, login partitions and
+# `desktop-state.json` out of reach and orphan the updater's download cache.
+# `appId` and `productName` above are what the artifact names, the bundle
+# identifier and the update feed are built from; they do not depend on this.
+extraMetadata:
+  name: '@deepseek-ai/dsh-desktop'
 directories:
   output: dist-app
   buildResources: build
