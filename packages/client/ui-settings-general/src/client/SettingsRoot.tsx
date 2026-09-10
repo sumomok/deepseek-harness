@@ -232,7 +232,7 @@ export function SettingsRoot(props: SettingsRootComponentProps) {
           onReconnect={reconnect}
         />
         <div className={css.triggerActions}>
-          {renderSlot('settings.trigger.action', { wide })}
+          {renderSlot('settings.trigger.action', { wide, openSection })}
         </div>
       </div>
       {open && (
