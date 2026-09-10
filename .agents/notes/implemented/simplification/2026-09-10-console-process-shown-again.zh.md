@@ -14,6 +14,8 @@ Status: implemented
 
 `terminology-guard.ts` 与 `tests/terminology-guard.client.spec.ts` 逐字节回到 2026-09-07 之前的内容，包 README 的中英双语也一并去掉那节记录被删规则的「只呈现业务内容」。样式表的 `STYLE` 常量此后只承载去术语化的那几条规则，别无其他。
 
+`apps/web/tests/server-sidebar.e2e.ts` 里为那些规则写的浏览器场景是手工删掉的，不是 revert 掉的：那个种下一个已结束轮次、再逐条读回隐藏的 describe，它的 `seedProcessTurn` 播种函数与那几个种子字符串常量，没有别的场景在调用的 `expectGuardHidesSelector` 与 `expectSwappedPlaceholder` 两个辅助函数，只有那个播种函数才需要的 import，以及模块文档里宣告这个 describe 的那一段。把这些场景写完的那个提交还顺带带了两处与本决策无关的次序屏障修复（工作台点击场景与临时区场景各一处），revert 会把它们一并取走。同一批提交里有两条断言留了下来，因为它们此后钉住的是相反的事实：没有连接工作区的那个场景仍然读不可用输入框占位元素自己的字号，以及它没有长出 `::after`——这正是样式表不去碰这个元素时，从浏览器里看到的样子。
+
 控制台重新原样画出 `dsh-client-ui-chat` 与 `dsh-client-ui-conversation` 画的东西：工具调用行，含 `content_read` 自己的结果卡片；思考折叠盘；系统提示词面板；三个 kind 下的命令卡片（`command`、`manual-compaction`、`compaction`）；已完成轮次的折叠行；`context`、`model-retry`、`command-input`、`workflow-run` 与 `unknown` 行；回复页脚的用量与用时药丸；带着自己那句「深度求索中...」与 DeepSeek 色板渐变的运行指示器；以及 `InputBar.tsx` 那条占位文案阶梯上每一个状态的上游原文，包括「会话不可用」与英雄区文案。
 
 仍然被隐藏的是[决策②自己的清单](../architecture/2026-08-30-server-sidebar-product-console-retrofit.zh.md)，本次改动不碰它：坐在输入框卡片之后的轮次/步骤统计行、英雄区的鱼形标记热区、PREVIEW 徽标、英雄区标题画出来的文案、英雄区的工作区选择器整行，以及输入框的权限预设选择器。
@@ -34,8 +36,4 @@ Status: implemented
 
 - 模型可见面没有任何变化，两个方向都没有。这是一个客户端插件里的浏览器 CSS：系统提示词、工具 schema、会话事件、模型请求都没有动，因此 `pnpm run test:snapshot snapshots/console` 不需要更新——理由与 2026-09-07 那份 note 给出的完全相同；web 泳道的 aria 基准也不受影响，因为每一个带基准的用例跑的组合都不会插入 `server-sidebar`。
 - 控制台重新把这套 harness 完整的开发者流水呈现给终端客户，含系统提示词面板与每一个工具行。这正是本包在 2026-09-07 之前发出去的状态，也是产品负责人要的状态；将来若要一列更安静的对话，可以从本 note 的来龙去脉与被取代 note 里的那些耦合起步。
-- 本包那两处针对整页的禁用词筛查（`workspaceWordsInChat`，以及 `apps/web/tests/server-sidebar.e2e.ts` 里对落位页 `body.innerText()` 的扫描）重新拿回被隐藏所削去的射程：`display: none` 会让一行不进入渲染文本，因此落在这种行内部的禁用词汇此前两处都读不到。
-
-## Deferred
-
-`apps/web/tests/server-sidebar.e2e.ts` 里仍然留着为被推翻的决策写的那组浏览器场景——种下的那个已结束轮次、逐 kind 的 `display: none` 断言、页脚药丸的读取、占位文案 `::after` 的读取、指示器的读取，以及它们共用的 `expectGuardHidesSelector` 辅助函数。它们断言的是本次改动移除掉的隐藏，因此在它们被一并删掉之前，那个 describe 会失败；本次一并 revert 的单元用例，才是钉住剩余规则的那一份。
+- `apps/web/tests/server-sidebar.e2e.ts` 里那两处读渲染文本的禁用词筛查重新拿回被隐藏所削去的射程——读对话列 `innerText` 的 `workspaceWordsInChat`，以及落位场景里对整个 `body` 的读取。`display: none` 会让一行不进入渲染文本，因此落在被隐藏的过程行内部的禁用词汇，此前两处都读不到。它们旁边的第三处筛查读的是 `sidebar(page).innerText()`，按设计只圈住本包自己的界面外壳，从来够不到对话列，因此这里对它没有任何变化。
