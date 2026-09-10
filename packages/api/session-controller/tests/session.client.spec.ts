@@ -534,6 +534,25 @@ describe('prompt and cancel errors', () => {
     expect(session.getSnapshot()).toMatchObject({ running: true, awaitingFirstTurn: false })
   })
 
+  it('engages on an admitted standalone command without claiming a prompt or a turn', async ({ mock, start }) => {
+    const onEngaged = vi.fn()
+    const session = await sessionBench(mock, start, SID, { onEngaged })
+    session.handleBlank(true)
+
+    session.markEngaged()
+    expect(session.getSnapshot()).toMatchObject({
+      // No send was attempted and no first turn is owed: the command's own
+      // durable lifecycle is the content this session now shows.
+      blank: false, promptAttempted: false, awaitingFirstTurn: false,
+    })
+    expect(onEngaged).toHaveBeenCalledExactlyOnceWith(session)
+
+    // Idempotent: a second admitted command on the same session is not a
+    // second engagement, so the manager's list mirror is told once.
+    session.markEngaged()
+    expect(onEngaged).toHaveBeenCalledOnce()
+  })
+
   it('keeps the attempted-first-prompt state when the Host rejects the prompt', async ({ mock, start }) => {
     const session = await sessionBench(mock, start, SID)
     session.handleBlank(true)

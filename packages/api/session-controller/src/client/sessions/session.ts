@@ -60,11 +60,12 @@ export interface SessionOptions {
   /** Whether the exact direct parent Agent was live at the latest catalog read; absent before that read. */
   parentAvailable?: boolean
   /**
-   * First ACCEPTED prompt on a blank session (fires at most once, on the
-   * prompt RPC's success response): the manager mirrors the blank→false flip
-   * into its list row so the session surfaces without waiting for a host
-   * frame. Acceptance is the flip point because it proves the user message
-   * is in the host log; a rejected first prompt keeps the session blank
+   * First engagement of a blank session — an accepted prompt or an admitted
+   * standalone command (fires at most once, from {@link Session.markEngaged}):
+   * the manager mirrors the blank→false flip into its list row so the session
+   * surfaces without waiting for a host frame. Host acceptance is the flip
+   * point because it proves the log already holds the message or the command
+   * run; a refused prompt or an unmatched command keeps the session blank
    * (hidden, still reusable by connectWorkspace).
    */
   onEngaged?(session: Session): void
@@ -284,19 +285,31 @@ export class Session implements SessionFace {
       return result
     }
     // Blank flips on ACCEPTANCE, not attempt: an accepted prompt starts the
-    // conversation's first turn on the host (the host criterion — a logged
-    // turn/start — is fact, not optimism; standalone command and projection
-    // events never flip it), while a rejected first prompt must keep the
-    // session blank — the client-side blank mirror only ever lowers, so
-    // flipping early on a failure would surface the session forever and
-    // strip its connectWorkspace reuse eligibility against the host's
-    // authority.
-    if (this.blankBit) {
-      this.blankBit = false
-      this.options.onEngaged?.(this)
-      this.notifier.markDirty()
-    }
+    // conversation's first turn on the host, while a rejected first prompt
+    // must keep the session blank — flipping early on a failure would
+    // surface the session forever and strip its connectWorkspace reuse
+    // eligibility against the host's authority.
+    this.markEngaged()
     return result
+  }
+
+  /**
+   * Lower the blank bit, at most once, on the first engagement this client
+   * knows the host accepted.
+   *
+   * Two facts qualify, both of them durable host log entries rather than
+   * local optimism: an accepted first prompt, and an admitted standalone
+   * command (the host executor logs `command/run` before answering, and its
+   * lifecycle renders as a flow node). The client mirror only ever lowers
+   * the bit, so a caller must hold the accepted fact before calling: a
+   * refused prompt or an unmatched command leaves the session blank, hidden
+   * from the lists, and eligible for connectWorkspace reuse.
+   */
+  markEngaged(): void {
+    if (!this.blankBit) return
+    this.blankBit = false
+    this.options.onEngaged?.(this)
+    this.notifier.markDirty()
   }
 
   /**
