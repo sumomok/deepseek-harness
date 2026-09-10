@@ -1,8 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { SessionFormatUnsupportedMigrationError } from '@deepseek-ai/dsh-session-format'
-import {
-  sessionFormatV0ToV1,
-} from '../src/index.ts'
+import { sessionFormatV0ToV1 } from '../src/index.ts'
 import { restoreV0ToV1 } from '../src/testing/restore.ts'
 
 const header = {
@@ -291,5 +289,74 @@ describe('released v0 legacy normalization', () => {
       type: 'session/title', seq: 2, time: 3,
       data: { title: 'Pinned', messageSeqs: [1], source: { kind: 'user' } },
     }])).toThrow(/empty exactly/)
+  })
+
+  it('drops the historical origin member from permission/preset', () => {
+    const rows = [
+      {
+        type: 'permission/preset', seq: 0, time: 1787322888043,
+        data: { preset: 'workspace-write', origin: 'default' },
+      },
+      {
+        type: 'permission/preset', seq: 1, time: 1787322901591,
+        data: { preset: 'yolo-access', origin: 'selection' },
+      },
+      { type: 'permission/preset', seq: 2, time: 1787322901592, data: { preset: 'read-only' } },
+    ]
+
+    const events = migrate(rows).events
+
+    expect(events[0]).toEqual({
+      type: 'permission/preset', seq: 0, time: 1787322888043, data: { preset: 'workspace-write' },
+    })
+    expect(events[1]?.data).toEqual({ preset: 'yolo-access' })
+    expect(events[2]).toEqual(rows[2])
+    expect(() => migrate([
+      {
+        type: 'permission/preset', seq: 0, time: 1,
+        data: { preset: 'workspace-write', origin: 'default', foo: 'bar' },
+      },
+    ])).toThrow(/permission\/preset 0 data has unexpected member "foo"/)
+  })
+
+  it('renumbers a version-2 subagent descriptor and refuses every other old version', () => {
+    const descriptor = {
+      version: 2, mode: 'continuable', provider: 'spawn', label: '调研黄金类资产与矿股PE',
+      agentProvider: 'deepseek-official', agentModel: 'deepseek-v4-flash-vision-exp',
+    }
+
+    const events = migrate([
+      { type: 'subagent/descriptor', seq: 0, time: 1787709640297, data: descriptor },
+    ]).events
+
+    expect(events[0]?.data).toEqual({ ...descriptor, version: 3 })
+    expect(() => migrate([
+      { type: 'subagent/descriptor', seq: 0, time: 1787709640297, data: { ...descriptor, version: 1 } },
+    ])).toThrow(/subagent\/descriptor 0 uses unsupported descriptor version 1/)
+  })
+
+  it('carries every server-console content event through as ignorable', () => {
+    const payloads: Readonly<Record<string, Record<string, unknown>>> = {
+      'content/shown': { page: 'reports', by: 'user' },
+      'content-surface/dismissed': { kind: 'page', entryId: 'point-info', by: 'user' },
+      'content-surface/selected': { kind: 'page', entryId: 'reports', by: 'user' },
+      'content/navigated': { page: 'reports', url: '/reports?tab=1', title: 'Reports', by: 'user' },
+      'content-component/shown': { entryId: 'sales', title: 'Sales', spec: { blocks: [] }, by: 'user' },
+      'content-component/resolved': {
+        callId: 'call-1', entryId: 'sales', title: 'Sales', spec: { blocks: [] }, fetched: [],
+      },
+    }
+    const rows = Object.entries(payloads).map(([type, data], index) => ({
+      type, seq: index, time: 1788074166009 + index, data,
+    }))
+
+    const migrated = migrate(rows)
+
+    for (const [index, row] of rows.entries()) {
+      expect(migrated.events[index]).toEqual({ ...row, ignorable: true })
+    }
+    expect(() => migrate([
+      { type: 'content-surface/whatever', seq: 0, time: 1, data: {} },
+    ])).toThrow(/unknown historical event type "content-surface\/whatever"/)
   })
 })
