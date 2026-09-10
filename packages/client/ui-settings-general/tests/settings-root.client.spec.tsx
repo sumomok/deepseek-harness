@@ -6,6 +6,7 @@ import { resolve } from 'node:path'
 import { useEffect, useState, type ReactNode } from 'react'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
+import type { SettingsTriggerActionOwnerProps } from '@deepseek-ai/dsh-client-ui-settings/client'
 import type { SettingsRootComponentProps } from '../src/client/shell-contract.ts'
 import { SettingsRoot } from '../src/client/SettingsRoot.tsx'
 import { en, zh } from '../src/client/locales.ts'
@@ -55,8 +56,8 @@ function mount({
   dictionary?: typeof en | typeof zh
   connectionState?: ConnectionSnapshot
   onboardingActive?: boolean
-  /** Stand-in occupant of the same-row action seat (absent = empty seat). */
-  triggerAction?: ReactNode
+  /** Stand-in occupant of the same-row action seat, drawn from its owner props (absent = empty seat). */
+  triggerAction?: (owner: SettingsTriggerActionOwnerProps) => ReactNode
   rows?: Row[]
   steps?: Step[]
 } = {}) {
@@ -68,9 +69,9 @@ function mount({
   const connectionListeners = new Set<() => void>()
   const reconnect = vi.fn()
   const renderSlot = vi.fn(
-    ((key: string, _owner: unknown, opts?: { only?: string }) => {
+    ((key: string, owner: unknown, opts?: { only?: string }) => {
       if (key === 'settings.section') return <div data-testid={`section-${opts?.only ?? 'all'}`} />
-      if (key === 'settings.trigger.action') return triggerAction
+      if (key === 'settings.trigger.action') return triggerAction?.(owner as SettingsTriggerActionOwnerProps)
       return SEAT_CONTENT[key]
     }) as SettingsRootComponentProps['renderSlot'],
   )
@@ -187,7 +188,9 @@ describe('SettingsRoot trigger', () => {
   it('leaves the same-row action seat empty and boxless when nobody registers', () => {
     const { view, renderSlot } = mount()
     const row = view.container.querySelector('[class*="triggerRow"]')!
-    expect(renderSlot).toHaveBeenCalledWith('settings.trigger.action', { wide: true })
+    expect(renderSlot).toHaveBeenCalledWith('settings.trigger.action', {
+      wide: true, openSection: expect.any(Function) as SettingsTriggerActionOwnerProps['openSection'],
+    })
     const seat = row.lastElementChild!
     expect(seat.className).toContain('triggerActions')
     expect(seat.childElementCount).toBe(0)
@@ -195,7 +198,7 @@ describe('SettingsRoot trigger', () => {
   })
 
   it('seats a same-row occupant after the trigger, at the row right edge', () => {
-    const { view } = mount({ triggerAction: <button type="button">Update ready</button> })
+    const { view } = mount({ triggerAction: () => <button type="button">Update ready</button> })
     const row = view.container.querySelector('[class*="triggerRow"]')!
     const occupant = screen.getByRole('button', { name: 'Update ready' })
     // The trigger opens the row and the seat closes it: the flex:1 trigger
@@ -206,11 +209,39 @@ describe('SettingsRoot trigger', () => {
   })
 
   it('hands the fold state to the same-row seat and keeps its occupant mounted in the rail', () => {
-    const { renderSlot } = mount({ wide: false, triggerAction: <button type="button">Update ready</button> })
-    expect(renderSlot).toHaveBeenCalledWith('settings.trigger.action', { wide: false })
+    const { renderSlot } = mount({ wide: false, triggerAction: () => <button type="button">Update ready</button> })
+    expect(renderSlot).toHaveBeenCalledWith('settings.trigger.action', {
+      wide: false, openSection: expect.any(Function) as SettingsTriggerActionOwnerProps['openSection'],
+    })
     // The rail row paints the seat away in CSS rather than unmounting it, so
     // an occupant's own state and subscriptions survive folding the column.
     expect(screen.getByRole('button', { name: 'Update ready' })).toBeTruthy()
+  })
+
+  it('opens the panel on one settings section through the opener the seat receives', () => {
+    mount({
+      triggerAction: ({ openSection }) => (
+        <button type="button" onClick={() => { openSection('models') }}>Update ready</button>
+      ),
+    })
+    expect(screen.queryByRole('dialog')).toBeNull()
+    fireEvent.click(screen.getByRole('button', { name: 'Update ready' }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByTestId('section-models')).toBeTruthy()
+    expect(screen.getByRole('button', { name: 'Models' }).getAttribute('aria-current')).toBe('true')
+  })
+
+  it('still opens the panel when the opener names a section nobody registered', () => {
+    // The nav projection falls back to the first row, so an id no entry
+    // claims activates nothing of its own instead of opening an empty panel.
+    mount({
+      triggerAction: ({ openSection }) => (
+        <button type="button" onClick={() => { openSection('never-registered') }}>Update ready</button>
+      ),
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Update ready' }))
+    expect(screen.getByRole('dialog')).toBeTruthy()
+    expect(screen.getByTestId('section-general')).toBeTruthy()
   })
 })
 
