@@ -114,10 +114,10 @@ Use the screenshot tool to look at any page as pixels — your own HTML or CSS w
 
 ## Testing
 
-`apps/desktop/tests/render-service.spec.ts` 覆盖新的校验——不是映射的字段、不是字符串的值、不合 token 的名字、一个 `cookie` 头、头部值里的 CR/LF 与 cookie 值里的分号或逗号、两者共享的条目数与字节边界、`file:` 的拒绝,以及只有当请求真的带了映射时 renderer 才收到它们——另加落点响应头:trace 落在别处时带着 URL 出现、停在原地时不出现、非 ASCII 时做百分号编码、过长时被截断。
+`apps/desktop-shell/tests/render-service.spec.ts` 覆盖新的校验——不是映射的字段、不是字符串的值、不合 token 的名字、一个 `cookie` 头、头部值里的 CR/LF 与 cookie 值里的分号或逗号、两者共享的条目数与字节边界、`file:` 的拒绝,以及只有当请求真的带了映射时 renderer 才收到它们——另加落点响应头:trace 落在别处时带着 URL 出现、停在原地时不出现、非 ASCII 时做百分号编码、过长时被截断。
 
 同一套测试把超时那一行当作完整字符串来断言:导航期间的落点与重试方式、load 之后的落点与重试方式(`page loaded at …, timed out while capturing`)、只说落点而不给重试方式的 `file:` 渲染,以及截断用例——一个被截断的落点 URL 加十二条长的待完成 URL,此时 `pass cookies or headers to capture it with a session, 12 requests pending: ` 必须完整出现在一行以省略号结尾的 500 字符里。一旦重试方式被挪到列表之后,这一条断言就会失败,而这正是这个位置要挡住的回归。
 
-`apps/desktop/scripts/render-smoke.mjs` 覆盖任何注入的 renderer 都够不着的那一半。它起一个站点:任何没有会话的访问都被重定向到 `/login`,并对着真实 Chromium 用三种方式渲染它——不带会话(200 加落点响应头)、带 cookie、带 header(200,没有那个头)。第二个站点用例把页面放在 `/app/issues/page`,一张图在它旁边、另一张在 `/api/pixel.png`,断言的是那个服务器收到了什么,而不是回来的像素:cookie 出现在文档和两张图上,额外的 header 只出现在那次导航上、两张图都没有。对像素做断言在按目录划定作用域的 cookie 下同样会通过,因为一个图片全部 401 的页面照样编码得出一张 PNG。它的视口用例断言截图正好是被请求的尺寸,而在 Retina Mac 上,这一条就是"缩放确实跑了"的断言。还有一个用例是真实重定向与真实在途请求唯一相遇的地方:它渲染的登录页会加载一张来自永不作答的监听器的图片,于是在 2 秒的截止时间下,504 那一行同时带着 Chromium 通过 `did-navigate` 报出的落点和重试方式,而 `render-smoke` 会把这一行打印出来。
+`apps/desktop-shell/scripts/render-smoke.mjs` 覆盖任何注入的 renderer 都够不着的那一半。它起一个站点:任何没有会话的访问都被重定向到 `/login`,并对着真实 Chromium 用三种方式渲染它——不带会话(200 加落点响应头)、带 cookie、带 header(200,没有那个头)。第二个站点用例把页面放在 `/app/issues/page`,一张图在它旁边、另一张在 `/api/pixel.png`,断言的是那个服务器收到了什么,而不是回来的像素:cookie 出现在文档和两张图上,额外的 header 只出现在那次导航上、两张图都没有。对像素做断言在按目录划定作用域的 cookie 下同样会通过,因为一个图片全部 401 的页面照样编码得出一张 PNG。它的视口用例断言截图正好是被请求的尺寸,而在 Retina Mac 上,这一条就是"缩放确实跑了"的断言。还有一个用例是真实重定向与真实在途请求唯一相遇的地方:它渲染的登录页会加载一张来自永不作答的监听器的图片,于是在 2 秒的截止时间下,504 那一行同时带着 Chromium 通过 `did-navigate` 报出的落点和重试方式,而 `render-smoke` 会把这一行打印出来。
 
 插件自己的测试覆盖 `outputPath`(写在工作区内、替换的报告、路径在工作区之外与调用没有会话这两种拒绝)、带会话调用在系统浏览器后端上的拒绝、渲染结果里那句落点说明,以及 `applyScreenshotTool` 确实在工具旁边注册了那段提示词 section。

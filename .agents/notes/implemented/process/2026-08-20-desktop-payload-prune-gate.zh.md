@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-桌面载荷由两条彼此独立的裁剪把一棵 35000 个文件的暂存闭包切到 3858 个文件，其中较大的一条是[收敛第三方树](../architecture/2026-08-19-self-contained-desktop-closure.zh.md)。`apps/desktop/scripts/package.ts` 里的 `PLATFORM_DIR_RULES` 在拷贝阶段丢掉另一个平台的产物目录；`apps/desktop/scripts/bundle-closure.ts` 里的可达性遍历把每个 `@deepseek-ai/*` 包的依赖内联进去，然后删掉所有已经没人 import 的第三方目录。两条都靠静态证据判断——一个作用在目录名上的谓词，或者跟在 `from`、`require`、`import` 后面的说明符——而且都不会报告自己解释不了的删除。
+桌面载荷由两条彼此独立的裁剪把一棵 35000 个文件的暂存闭包切到 3858 个文件，其中较大的一条是[收敛第三方树](../architecture/2026-08-19-self-contained-desktop-closure.zh.md)。`apps/desktop-shell/scripts/package.ts` 里的 `PLATFORM_DIR_RULES` 在拷贝阶段丢掉另一个平台的产物目录；`apps/desktop-shell/scripts/bundle-closure.ts` 里的可达性遍历把每个 `@deepseek-ai/*` 包的依赖内联进去，然后删掉所有已经没人 import 的第三方目录。两条都靠静态证据判断——一个作用在目录名上的谓词，或者跟在 `from`、`require`、`import` 后面的说明符——而且都不会报告自己解释不了的删除。
 
 名字在运行期才产生的包没有静态证据。有三个在同一天被删掉：
 
@@ -22,7 +22,7 @@ ripgrep 那次说明了为什么光靠包名差集不够。`PLATFORM_DIR_RULES` 
 
 ## 决定
 
-`apps/desktop/scripts/payload-gate.ts` 跑四条检查，全部致命，由 `package.ts` 调用：`verifyPruneRules` 在暂存树验证之后跑一次，`verifyPrunedPayload` 在每份派生载荷的冒烟测试和启动闸之前跑。
+`apps/desktop-shell/scripts/payload-gate.ts` 跑四条检查，全部致命，由 `package.ts` 调用：`verifyPruneRules` 在暂存树验证之后跑一次，`verifyPrunedPayload` 在每份派生载荷的冒烟测试和启动闸之前跑。
 
 **一条什么都不丢的裁剪规则直接判构建失败。** 这是主判据。每条 `PLATFORM_DIR_RULES` 都拿全量暂存树评估，而且评估**所有** target，不只是本次构建的那个——因为一条规则匹不匹配是规则表和暂存树的性质，本次派生哪份载荷不进入这个判断。失败信息会打印该 parent 下的实际条目，于是一条指向 `LICENSE, README.md, lib, package.json` 的规则一眼就看得出没指着平台分包。
 
@@ -42,7 +42,7 @@ ripgrep 那次说明了为什么光靠包名差集不够。`PLATFORM_DIR_RULES` 
 
 ## 验证
 
-在未经改动的分支上跑完整 `pnpm --filter @deepseek-ai/dsh-desktop run package --mac` 静默通过：先是 `10 platform prune rules live against the staged tree`，然后是 `94 packages dropped, 15 platform dirs accounted for, 7 runtime-resolved names checked`。没有任何豁免生效，所以门禁一行豁免信息都不打印。
+在未经改动的分支上跑完整 `pnpm --filter @deepseek-ai/dsh-desktop-shell run package --mac` 静默通过：先是 `10 platform prune rules live against the staged tree`，然后是 `94 packages dropped, 15 platform dirs accounted for, 7 runtime-resolved names checked`。没有任何豁免生效，所以门禁一行豁免信息都不打印。
 
 每个案例都通过还原造成它的缺陷再跑流水线来复现；每一次都在门禁处非零退出，早于它原本会造成的那个故障。
 

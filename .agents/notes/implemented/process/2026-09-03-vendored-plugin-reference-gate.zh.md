@@ -6,7 +6,7 @@ Status: implemented
 
 ## 问题
 
-桌面端的内置插件只声明一次——作为 [`apps/desktop-server/package.json`](../../../../apps/desktop-server/package.json) 里形如 `file:./vendor/<扁平化包名>-<版本>.tgz` 的依赖——却在两处没有任何东西会重新生成的地方被复述:[`scripts/gen-third-party-notices.ts`](../../../../scripts/gen-third-party-notices.ts) 里的 `OVERRIDES` 表,其中的 vendor 路径会成为 `THIRD_PARTY_NOTICES.md` 里的归属链接;以及 [`apps/desktop/README.zh.md`](../../../../apps/desktop/README.zh.md) 及其英文对照里的内置插件表。
+桌面端的内置插件只声明一次——作为 [`apps/desktop-server/package.json`](../../../../apps/desktop-server/package.json) 里形如 `file:./vendor/<扁平化包名>-<版本>.tgz` 的依赖——却在两处没有任何东西会重新生成的地方被复述:[`scripts/gen-third-party-notices.ts`](../../../../scripts/gen-third-party-notices.ts) 里的 `OVERRIDES` 表,其中的 vendor 路径会成为 `THIRD_PARTY_NOTICES.md` 里的归属链接;以及 [`apps/desktop-shell/README.zh.md`](../../../../apps/desktop-shell/README.zh.md) 及其英文对照里的内置插件表。
 
 重新 vendor 一个插件的动作是:提交新 tarball、删掉旧的、把标识符指过去。两处复述都被落在原地,而且两处都已失真:内置插件表十一行里有七行写的版本比它旁边的 tarball 更旧——`@haoran/dsh-clickable-refs` 写 `0.3.3`,提交进来的却是 `0.4.1`;`dsh-better-sidebar` 写 `0.15.2`,还说是从 npm 装的;`dsh-at-file` 写 `v0.6.5`,还说是作者仓库里的一个提交——同时有两条 `OVERRIDES` 指向早已不存在的 tarball 文件名,于是 `THIRD_PARTY_NOTICES.md` 带着两条指向归档的死链,而归属正是它存在的理由。什么都没红,因为根本没有东西在检查。
 

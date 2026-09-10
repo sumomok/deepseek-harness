@@ -8,7 +8,7 @@ Status: implemented
 
 更新源每发一版就多一个构建,而从来没有任何东西拿走过一个,所以真正让 `/var/www/dsh-updates/{win,mac}` 没被塞满的,是有人记着一条规矩。
 
-这条规矩之所以存在,正是因为「记着」失手过一次。2026-08-19 一次手工清理 rc.8–rc.11,把每个版本的产物**连同它的 `.blockmap`** 一起删了;而 blockmap 缺失不会大声坏掉:electron-updater 会回落成传整个产物,于是代价是那几个版本上的每个客户端都悄悄做一次全量下载。那次事故留下的规矩——「当前版 + 上一版,产物和 blockmap 都留」——活在一个记忆文件里,以及活在当时执行发布的那个人身上,而 `apps/desktop/scripts/publish-update.ts` 依旧什么都不删。
+这条规矩之所以存在,正是因为「记着」失手过一次。2026-08-19 一次手工清理 rc.8–rc.11,把每个版本的产物**连同它的 `.blockmap`** 一起删了;而 blockmap 缺失不会大声坏掉:electron-updater 会回落成传整个产物,于是代价是那几个版本上的每个客户端都悄悄做一次全量下载。那次事故留下的规矩——「当前版 + 上一版,产物和 blockmap 都留」——活在一个记忆文件里,以及活在当时执行发布的那个人身上,而 `apps/desktop-shell/scripts/publish-update.ts` 依旧什么都不删。
 
 这条规矩的刻度也是错的,而把 `electron-updater@6.8.9` 读一遍而不是想当然,就能定下来。`out/AppUpdater.js` 里,`differentialDownloadInstaller` 总是从更新源下载**新**版本的 blockmap,但**旧**版本的那份先读客户端自己的缓存(`current.blockmap`),只有这个文件不在时才回落去更新源取;而每次在应用内装完更新都会把新的 blockmap 抄进那个缓存,所以就地更新过的客户端手里本来就有。`out/differentialDownloader/DifferentialDownloader.js` 从本地缓存打开旧**产物**(`open(this.options.oldFile, 'r')`),因此更新过程中根本不会去请求更新源上那份旧产物。`MacUpdater.js` 走的是同一个 `differentialDownloadInstaller`,所以两个平台都是这样;[macOS 应用内更新那篇](../feature/2026-08-19-macos-in-app-update-self-signed.zh.md)把「从更新源取」这一半记成了无条件的,而它不是。
 
@@ -24,7 +24,7 @@ Status: implemented
 
 ### 判断是一个纯函数,只有「删」才需要服务器
 
-`apps/desktop/scripts/prune-feed.ts` 同时持有两个常量和 `selectPrunable(names, publishedVersion, publishedNames)`:它把一个渠道目录里的每一项分进 `keep`、`unparsed`、`deleteArtifacts`、`deleteBlockmaps`——每个名字恰好进一组,而这正是随后打印进日志的东西。`publish-update.ts` 用 `ls -1` 列目录、调用它、把整个判断写进日志,然后才删:一条 `rm -f --` 显式点名每个文件,并经上传本来就在用的 `remote()` 与 `shellQuote()` 加引号。
+`apps/desktop-shell/scripts/prune-feed.ts` 同时持有两个常量和 `selectPrunable(names, publishedVersion, publishedNames)`:它把一个渠道目录里的每一项分进 `keep`、`unparsed`、`deleteArtifacts`、`deleteBlockmaps`——每个名字恰好进一组,而这正是随后打印进日志的东西。`publish-update.ts` 用 `ls -1` 列目录、调用它、把整个判断写进日志,然后才删:一条 `rm -f --` 显式点名每个文件,并经上传本来就在用的 `remote()` 与 `shellQuote()` 加引号。
 
 识别名字的办法,是把本次发布上传的产物名里的版本号抠出来当模板——electron-updater 的 `Provider.getBlockMapFiles` 定位其他版本的文件时做的正是同一个替换——所以清理能看见的,只有本渠道自己的产物和 blockmap,别的一概看不见。
 
@@ -35,7 +35,7 @@ Status: implemented
 - **任何模板读不出来的名字**——dmg、说明文件、手工拷进去的东西。它进 `unparsed`,记一行「原样留着」的日志,绝不去猜。
 - **版本解析不出来的名字。**`DSH Desktop Setup nightly.exe` 形状对得上模板,但 `nightly` 不是版本,所以它同样是 `unparsed`。
 
-版本用 `apps/desktop/src/version-order.ts` 的 `compareVersions` 排序,绝不用字符串比较:按字典序 `0.1.0-rc.9` 排在 `0.1.0-rc.10` 之上,那会留下旧构建、删掉客户端马上要从它升级上来的那个。`apps/desktop/tests/prune-feed.spec.ts` 在两个窗口上都把这个情形钉住了。
+版本用 `apps/desktop-shell/src/version-order.ts` 的 `compareVersions` 排序,绝不用字符串比较:按字典序 `0.1.0-rc.9` 排在 `0.1.0-rc.10` 之上,那会留下旧构建、删掉客户端马上要从它升级上来的那个。`apps/desktop-shell/tests/prune-feed.spec.ts` 在两个窗口上都把这个情形钉住了。
 
 ### 什么时候跑,失败要付什么
 
@@ -57,4 +57,4 @@ Status: implemented
 
 落后超过十个版本、并且连缓存里的 `current.blockmap` 也丢了的客户端,会下载整个产物而不是差量。它是无声地这么做的:客户端有一行日志,服务器上什么也没有——这和今天 blockmap 明明在、但取它的那次请求被网络掐掉时的表现完全一样。故障形态没有任何新东西;窗口限定的只是它能被触发到多远。
 
-`apps/desktop/tests/prune-feed.spec.ts` 钉住了两个窗口、产物与 blockmap 上各一次的 rc.9/rc.10 排序陷阱、blockmap 在自己那份产物被删后仍然活着、已发布名字与清单永远不被选中、解析不出的名字落进 `unparsed`、版本数不足任一窗口的目录一个都不删,以及每个输入名字恰好被交代一次。`rm` 本身没有测试:它是对着活的更新源的一条 ssh 命令,而发布这条路径从来没有测试台——它的证据是一次真实发布,而在把任何东西交给它之前,dry run 会先把计划打印出来。
+`apps/desktop-shell/tests/prune-feed.spec.ts` 钉住了两个窗口、产物与 blockmap 上各一次的 rc.9/rc.10 排序陷阱、blockmap 在自己那份产物被删后仍然活着、已发布名字与清单永远不被选中、解析不出的名字落进 `unparsed`、版本数不足任一窗口的目录一个都不删,以及每个输入名字恰好被交代一次。`rm` 本身没有测试:它是对着活的更新源的一条 ssh 命令,而发布这条路径从来没有测试台——它的证据是一次真实发布,而在把任何东西交给它之前,dry run 会先把计划打印出来。

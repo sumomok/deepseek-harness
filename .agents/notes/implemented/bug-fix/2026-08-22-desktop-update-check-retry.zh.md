@@ -48,4 +48,4 @@ rc.17 让它变得可复现。壳在「第一次检查发出」和「server read
 
 代价是一次检查放弃之前最多多等四秒、多发三次请求;强制启动门把这段花在它已有的十五秒竞速之内,而不是之外。
 
-`apps/desktop/tests/download-retry.spec.ts` 覆盖泛型跑者、它交回的值、被重试的检查是按检查计划排布的,以及两条不变量:检查计划比下载计划更紧,且装得进启动门的预算。`checkInFlight`、`checkFeedWithRetry` 和那两处分类过的降级都在 `updater.ts` 里,它 import electron,按下载重试那篇 note 给出的理由继续不做单测;它们的证据与那篇相同——一个签名构建对真实 feed 跑,以及最初暴露这次降级的那段启动日志。
+`apps/desktop-shell/tests/download-retry.spec.ts` 覆盖泛型跑者、它交回的值、被重试的检查是按检查计划排布的,以及两条不变量:检查计划比下载计划更紧,且装得进启动门的预算。`checkInFlight`、`checkFeedWithRetry` 和那两处分类过的降级都在 `updater.ts` 里,它 import electron,按下载重试那篇 note 给出的理由继续不做单测;它们的证据与那篇相同——一个签名构建对真实 feed 跑,以及最初暴露这次降级的那段启动日志。

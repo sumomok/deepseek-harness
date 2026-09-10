@@ -48,7 +48,7 @@ dest 249 chars → MoveFileW OK
 
 ## 决定
 
-`apps/desktop/build/installer.nsh` 定义 `customRemoveFiles`——模板自己为替换这一段准备的钩子（`uninstaller.nsh`，`!ifmacrodef customRemoveFiles`）。在更新路径上，它把 `$INSTDIR` **作为一个整目录**重命名为它自己的同级兄弟目录（旁边的 `~dsh-old<n>`）再删除，而不是把整棵树逐文件搬进 `%TEMP%`。
+`apps/desktop-shell/build/installer.nsh` 定义 `customRemoveFiles`——模板自己为替换这一段准备的钩子（`uninstaller.nsh`，`!ifmacrodef customRemoveFiles`）。在更新路径上，它把 `$INSTDIR` **作为一个整目录**重命名为它自己的同级兄弟目录（旁边的 `~dsh-old<n>`）再删除，而不是把整棵树逐文件搬进 `%TEMP%`。
 
 重命名目录而不是搬动它的内容，正是修好这个缺陷的关键：目录下每条路径的长度都和原来完全一样，所以无论载荷变得多深，都不会有文件被推过 MAX_PATH。暂存名取同级兄弟而不是在 `$INSTDIR` 后面加后缀，也是同一个理由——`…\DSH Desktop.old` 会让它下面的每条路径都变长，而那正是本次要消除的缺陷。
 
@@ -60,7 +60,7 @@ dest 249 chars → MoveFileW OK
 
 ### Windows 原生打包
 
-`apps/desktop/scripts/package.ts` 现在按 `PATHEXT` 解析子进程名，并通过 `cmd.exe /d /s /c` （自行处理引号）运行 `.cmd`/`.bat` 垫片。`spawn('pnpm', …)` 在 Windows 上是 `ENOENT`，因为 pnpm 安装成 `pnpm.cmd`；而解析到那个垫片之后又会失败于 `EINVAL`，因为自 CVE-2024-27980 的修复以来 Node 拒绝直接 spawn 批处理文件。没有这一步，打包流水线就只能在 macOS 上跑，Windows 安装器可以被构建，却无法在能复现该缺陷的那台机器上既构建**又**测试。
+`apps/desktop-shell/scripts/package.ts` 现在按 `PATHEXT` 解析子进程名，并通过 `cmd.exe /d /s /c` （自行处理引号）运行 `.cmd`/`.bat` 垫片。`spawn('pnpm', …)` 在 Windows 上是 `ENOENT`，因为 pnpm 安装成 `pnpm.cmd`；而解析到那个垫片之后又会失败于 `EINVAL`，因为自 CVE-2024-27980 的修复以来 Node 拒绝直接 spawn 批处理文件。没有这一步，打包流水线就只能在 macOS 上跑，Windows 安装器可以被构建，却无法在能复现该缺陷的那台机器上既构建**又**测试。
 
 `scripts/gen-desktop-icons.mjs` 按宿主平台分派缩放——macOS 用 `sips`，Windows 通过 PowerShell 用 System.Drawing——并在非 darwin 上跳过 `.icns` 那一半：那里 `iconutil` 没有对应物，产物也无人消费。Windows 构建需要的是 `build/icon.ico`，而它现在能在 Windows 上产出。
 

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-03-updater-multipart-uncaught-exception.md
-2026-09-03-updater-multipart-uncaught-exception.md: f79a7c249b91e147b76843eda638cf8b1d4dc084
-2026-09-03-updater-multipart-uncaught-exception.zh.md: a6c4c2b89eb93b16267303f6b2753d19f7196162
+2026-09-03-updater-multipart-uncaught-exception.md: 2c22001f56ecee3b70e7c983db57cb494b1be150
+2026-09-03-updater-multipart-uncaught-exception.zh.md: 43ff89b39978417826e10466cbd97ad4d8a27b48

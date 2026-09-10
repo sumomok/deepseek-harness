@@ -22,7 +22,7 @@ Status: implemented
 
 这条依赖指向的是提交进 `apps/desktop-server/vendor/` 的一个 tarball,而不是归档 URL。pnpm 不为 GitHub 归档 tarball 记录 `integrity`,因为那些字节并不保证稳定,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目——`ERR_PNPM_MISSING_TARBALL_INTEGRITY`,它当场让打包运行失败。提交进来的归档会像注册表版本一样拿到 `integrity` 哈希。安装期什么都不构建:归档里带的是构建好的 `lib/`,也没有声明任何生命周期脚本。作者在注册表发布到所分发版本或更高,就是换回普通版本号的理由。
 
-**播种。**`apps/desktop/src/profile-seed.ts` 在 Electron 主进程里、遗留进程清扫与 `startServer` 之间运行,只补上启动所需的三件事:
+**播种。**`apps/desktop-shell/src/profile-seed.ts` 在 Electron 主进程里、遗留进程清扫与 `startServer` 之间运行,只补上启动所需的三件事:
 
 - `desktop` profile 目录存在,并且带着清单、`cordis.patch.yml` 与 `pnpm-workspace.yaml`——正是 `initProfile` 会写的那三个文件;
 - 清单的 `dsh.profile.bundles` 列表带上每一个内置插件的名字,追加在已有条目之后,于是 `loadProfile` 会应用各插件的 `cordis.patch.yml` 层;
@@ -66,7 +66,7 @@ Status: implemented
 
 ## 构建不再改动开发者的 harness home
 
-`verifyStagedBoot` 会真的把派生出的载荷启动起来,而它此前用的是构建机上 `$DSH_HOME` 解析到的那个目录。于是每次构建都跟着两处写入:`prepareProfile` 重写 `~/.dsh/profiles/web/cordis.yml`,`healProfilesModuleFallback` 把全部 171 条扁平兜底符号链接重指到 `apps/desktop/staging/server-mac/node_modules`——下次构建就会删掉的那棵树。什么都没丢——下次 `dsh` 启动会把链接治好——但构建本就不该改动这台机器的 harness 状态,而且同一个 home 也漏进了两次 `--version` 冒烟。
+`verifyStagedBoot` 会真的把派生出的载荷启动起来,而它此前用的是构建机上 `$DSH_HOME` 解析到的那个目录。于是每次构建都跟着两处写入:`prepareProfile` 重写 `~/.dsh/profiles/web/cordis.yml`,`healProfilesModuleFallback` 把全部 171 条扁平兜底符号链接重指到 `apps/desktop-shell/staging/server-mac/node_modules`——下次构建就会删掉的那棵树。什么都没丢——下次 `dsh` 启动会把链接治好——但构建本就不该改动这台机器的 harness 状态,而且同一个 home 也漏进了两次 `--version` 冒烟。
 
 `package.ts` 现在把整次运行包在 `withBuildHome` 里:创建一个 `mkdtemp` home,放到 `process.env` 上(`run()` 展开的、两处 `spawn` 继承的都是它),并在 `finally` 里删除。
 

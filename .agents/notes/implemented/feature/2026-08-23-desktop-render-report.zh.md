@@ -75,8 +75,8 @@ Status: implemented
 
 ## Testing
 
-`apps/desktop/tests/render-service.spec.ts` 用注入的 renderer 驱动真正的 `RenderTrace` 与真正的协议:200、500 与 504 上的报告;各项计数、有上限的列表、最糟主机的排序与失败列表;控制台的计数与采样;重定向、标题、绘制与渲染进程各字段;没有渲染发生过的拒绝不带报告;请求自己的 `timeoutMs` 会取代部署默认值,而越界的那个会被一条同时点名上下界的消息拒绝;直接测 `blockedByPattern` 的文法;每一种 `blockHosts` 拒绝,包括命中被渲染页面主机的那两种形态;`onTimeout: 'capture'` 以 200 作答并带 `outcome: 'timeout'` 与 `capture.partial`;一次抛错的截图、一次从未被提供的截图,以及一次永不 settle 的截图——最后这个断言的是两个并发请求被回答的先后顺序,这正是证明队列在截图进行期间已经往前走的地方。
+`apps/desktop-shell/tests/render-service.spec.ts` 用注入的 renderer 驱动真正的 `RenderTrace` 与真正的协议:200、500 与 504 上的报告;各项计数、有上限的列表、最糟主机的排序与失败列表;控制台的计数与采样;重定向、标题、绘制与渲染进程各字段;没有渲染发生过的拒绝不带报告;请求自己的 `timeoutMs` 会取代部署默认值,而越界的那个会被一条同时点名上下界的消息拒绝;直接测 `blockedByPattern` 的文法;每一种 `blockHosts` 拒绝,包括命中被渲染页面主机的那两种形态;`onTimeout: 'capture'` 以 200 作答并带 `outcome: 'timeout'` 与 `capture.partial`;一次抛错的截图、一次从未被提供的截图,以及一次永不 settle 的截图——最后这个断言的是两个并发请求被回答的先后顺序,这正是证明队列在截图进行期间已经往前走的地方。
 
 有几个用例钉的是这个响应头的上界而不是它的内容:100 条 URL 长 2000 字符的 pending 请求、60 条失败与 50 条控制台错误,以及同样形状但写成中文、又写成一串 `%` 的两份。它们都断言编码后的响应头至多是 `REPORT_HEADER_BYTES` 且仍能解析,而这正是按字符表达的上界会失败的地方。另有两个用例钉的是编码本身:一份报告的请求 URL、落点、标题与控制台样本里带着 `%20`、裸 `%`、畸形的 `%zz` 与中文,断言 `JSON.parse(decodeURIComponent(header))` 把这些字符串原样还回来,且线上的每一个 `%` 都只开启一个真正的转义——`x-dsh-render-landed-url` 也走同一次往返。
 
-`apps/desktop/scripts/render-smoke.mjs` 覆盖任何注入 renderer 都替代不了的部分。一个页面的唯一图片指向一个「接受连接却从不回答」的监听,它在真实 Chromium 上被渲染三次:在 2 秒预算加 `onTimeout: 'capture'` 之下,它答 200,PNG 解出来正好是请求的视口,报告里点着那个卡住的主机;带 `blockHosts: ['127.0.0.1']` 时,它在约 85 毫秒内完成,`requests.blocked` 为 1 且 load 事件已触发;什么都不加时就是那个 504,而它的报告点出的正是它那一行点出的同一张图。一个调用 `console.error` 的页面证明 `console-message` 与标题确实进到了报告里,而视口那个用例现在还断言报告里的 `capture` 尺寸与 `firstPaint`。
+`apps/desktop-shell/scripts/render-smoke.mjs` 覆盖任何注入 renderer 都替代不了的部分。一个页面的唯一图片指向一个「接受连接却从不回答」的监听,它在真实 Chromium 上被渲染三次:在 2 秒预算加 `onTimeout: 'capture'` 之下,它答 200,PNG 解出来正好是请求的视口,报告里点着那个卡住的主机;带 `blockHosts: ['127.0.0.1']` 时,它在约 85 毫秒内完成,`requests.blocked` 为 1 且 load 事件已触发;什么都不加时就是那个 504,而它的报告点出的正是它那一行点出的同一张图。一个调用 `console.error` 的页面证明 `console-message` 与标题确实进到了报告里,而视口那个用例现在还断言报告里的 `capture` 尺寸与 `firstPaint`。

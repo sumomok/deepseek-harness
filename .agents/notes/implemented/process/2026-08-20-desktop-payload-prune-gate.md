@@ -6,7 +6,7 @@ English | [中文](2026-08-20-desktop-payload-prune-gate.zh.md)
 
 ## Problem
 
-The desktop payload is cut from a 35000-file staged closure to 3858 files by two independent passes, and [collapsing the third-party trees](../architecture/2026-08-19-self-contained-desktop-closure.md) is the larger of them. `PLATFORM_DIR_RULES` in `apps/desktop/scripts/package.ts` drops the other platform's artifact directories during the copy; the reachability walk in `apps/desktop/scripts/bundle-closure.ts` inlines each `@deepseek-ai/*` package's dependencies and then deletes every third-party directory nothing still imports. Both decide by static evidence — a predicate over directory names, or a specifier following `from`, `require` or `import` — and neither reports a deletion it cannot explain.
+The desktop payload is cut from a 35000-file staged closure to 3858 files by two independent passes, and [collapsing the third-party trees](../architecture/2026-08-19-self-contained-desktop-closure.md) is the larger of them. `PLATFORM_DIR_RULES` in `apps/desktop-shell/scripts/package.ts` drops the other platform's artifact directories during the copy; the reachability walk in `apps/desktop-shell/scripts/bundle-closure.ts` inlines each `@deepseek-ai/*` package's dependencies and then deletes every third-party directory nothing still imports. Both decide by static evidence — a predicate over directory names, or a specifier following `from`, `require` or `import` — and neither reports a deletion it cannot explain.
 
 A package whose name is produced at run time has no static evidence. Three were deleted in one day:
 
@@ -22,7 +22,7 @@ The ripgrep case is the one that says why a set difference is not enough on its 
 
 ## Decision
 
-`apps/desktop/scripts/payload-gate.ts` runs four checks, all fatal, and `package.ts` calls them: `verifyPruneRules` once after the staging is verified, `verifyPrunedPayload` on each derived payload before its smoke test and boot gate.
+`apps/desktop-shell/scripts/payload-gate.ts` runs four checks, all fatal, and `package.ts` calls them: `verifyPruneRules` once after the staging is verified, `verifyPrunedPayload` on each derived payload before its smoke test and boot gate.
 
 **A prune rule that drops nothing fails the build.** This is the primary criterion. Every `PLATFORM_DIR_RULES` entry is evaluated against the full staged tree for **every** target, not only the one this run builds, because whether a rule matches is a property of the rule table and the tree — which payload a run derives does not enter it. The failure prints the parent's actual entries, so a rule addressed at a package that holds `LICENSE, README.md, lib, package.json` is visibly not addressed at a platform split.
 
@@ -42,7 +42,7 @@ What the walk still cannot see is a name that is not a literal: a template with 
 
 ## Verification
 
-Full `pnpm --filter @deepseek-ai/dsh-desktop run package --mac` on the unmodified branch passes silently: `10 platform prune rules live against the staged tree`, then `94 packages dropped, 15 platform dirs accounted for, 7 runtime-resolved names checked`. No exemption is in force, so the gate prints no exemption line at all.
+Full `pnpm --filter @deepseek-ai/dsh-desktop-shell run package --mac` on the unmodified branch passes silently: `10 platform prune rules live against the staged tree`, then `94 packages dropped, 15 platform dirs accounted for, 7 runtime-resolved names checked`. No exemption is in force, so the gate prints no exemption line at all.
 
 Each case was reproduced by restoring the defect that caused it and running the pipeline; every one exits non-zero at the gate, ahead of the failure it used to produce.
 

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-installable-client-packages.md
-2026-08-18-installable-client-packages.md: 4aa70fe069b2b87cd049f9af2422bd27dfa2faf8
-2026-08-18-installable-client-packages.zh.md: 56696835870d173787cc892cf4f8aa51e879b06c
+2026-08-18-installable-client-packages.md: b66cb3f7d7752efb79d1b854f72d0f4ecbd80b67
+2026-08-18-installable-client-packages.zh.md: fe1b8af912f3079b148d09c2ce4b90ee96173e90

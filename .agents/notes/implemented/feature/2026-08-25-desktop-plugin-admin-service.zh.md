@@ -16,9 +16,9 @@ Status: implemented
 
 ## Decision
 
-壳打开**第二个本机服务**,与[渲染服务](2026-08-22-desktop-render-service.zh.md)并列、带着自己独立的 token,把安装包自带的那份包管理器借给服务端。`apps/desktop/src/plugin-admin-service.ts` 拥有它;`@haoran/dsh-plugin-updates` 是消费它并画出设置标签页的那个插件,并从 0.1.0-rc.23 起作为内置插件分发,所以全新安装不必先装什么就已经有这个标签页。
+壳打开**第二个本机服务**,与[渲染服务](2026-08-22-desktop-render-service.zh.md)并列、带着自己独立的 token,把安装包自带的那份包管理器借给服务端。`apps/desktop-shell/src/plugin-admin-service.ts` 拥有它;`@haoran/dsh-plugin-updates` 是消费它并画出设置标签页的那个插件,并从 0.1.0-rc.23 起作为内置插件分发,所以全新安装不必先装什么就已经有这个标签页。
 
-**两个服务,而不是一个被扩大的服务。**渲染 token 换来的是一扇隐藏窗口里的像素,截图工具每次调用都握着它。把安装路由挂在同一个 token 之后,就等于让每一个持有它的人都能改变这个应用运行的是什么。所以壳另铸一个 32 字节的 token,在另一个临时 loopback 端口上监听,并把两者只经由 `DSH_DESKTOP_PLUGIN_ADMIN_ENDPOINT` 与 `DSH_DESKTOP_PLUGIN_ADMIN_TOKEN` 传给服务端那一个子进程——绝不放进壳自己的 `process.env`,这也正是让它们进不了这个服务自己拉起的 pnpm 的环境的原因。两个服务共享的是 `apps/desktop/src/loopback-service.ts`:loopback 地址、`mintToken`、常数时间的 `authorized`、带上限的 `readBody`、两个回答写入器,以及 `listenLoopback`。任何与路由有关的东西都不在那里。
+**两个服务,而不是一个被扩大的服务。**渲染 token 换来的是一扇隐藏窗口里的像素,截图工具每次调用都握着它。把安装路由挂在同一个 token 之后,就等于让每一个持有它的人都能改变这个应用运行的是什么。所以壳另铸一个 32 字节的 token,在另一个临时 loopback 端口上监听,并把两者只经由 `DSH_DESKTOP_PLUGIN_ADMIN_ENDPOINT` 与 `DSH_DESKTOP_PLUGIN_ADMIN_TOKEN` 传给服务端那一个子进程——绝不放进壳自己的 `process.env`,这也正是让它们进不了这个服务自己拉起的 pnpm 的环境的原因。两个服务共享的是 `apps/desktop-shell/src/loopback-service.ts`:loopback 地址、`mintToken`、常数时间的 `authorized`、带上限的 `readBody`、两个回答写入器,以及 `listenLoopback`。任何与路由有关的东西都不在那里。
 
 **Typert 与 Host 头都被否决为传输通道。**会改东西的调用必须有闸,而 `PRIVILEGED_METHODS` 管的是 JSON-RPC 那面而不是 Typert 网关,所以一条只走 Typert 的路由,凡是被 `/api` 放进来的东西都够得着。Host 头的围栏则可以被反向代理伪造。带每次启动一换的 bearer token 的 loopback 监听,是壳手上已经有一份能用实例的那道围栏,而它「404 先于 401」的次序意味着没有凭据的调用方对这里提供什么一无所知。
 
@@ -40,7 +40,7 @@ Status: implemented
 
 四条 `POST` 路由,全都要 bearer 认证,全都是 JSON。`/outdated` 与 `/peers` 是读:它们在某个 profile 目录里运行 `pnpm outdated --json` 与 `pnpm view <name>@<version> peerDependencies --json`,把 pnpm 打印出来的东西原样交回——解析了但不重塑——旁边附上 `exitCode`、`signal` 与截断过的 `stderr`。报告退出码而不是解读它,是承重的:`pnpm outdated` **恰恰在有东西过时的时候**退出码为 1,所以把退出码当失败读的调用方,会恰恰在有东西可报的时候什么都不报。`/update` 与 `/relaunch` 是先问用户的那两条。
 
-由插件决定一个包归属哪个 profile,因为那个决定关乎迁移而不关乎壳。它读桌面清单的依赖、web 清单的依赖,以及 `web-migration.json`;记录里有、而 `web` profile 至今仍在声明的名字,归 `web` 所有——装进桌面 profile 会用第二份副本顶掉壳做的那个链接,而 `web` profile——仍然是 `dsh plugin --profile web` 够得着的那一个——会被留在旧版本上。**`web-migration.json` 现在被这个仓库之外的组件读取了。**`apps/desktop/src/profile-seed.ts` 写它,插件直接读它;只读 `migrated` 这个数组,而一个解析不了的标记文件被读作「没有名字」。
+由插件决定一个包归属哪个 profile,因为那个决定关乎迁移而不关乎壳。它读桌面清单的依赖、web 清单的依赖,以及 `web-migration.json`;记录里有、而 `web` profile 至今仍在声明的名字,归 `web` 所有——装进桌面 profile 会用第二份副本顶掉壳做的那个链接,而 `web` profile——仍然是 `dsh plugin --profile web` 够得着的那一个——会被留在旧版本上。**`web-migration.json` 现在被这个仓库之外的组件读取了。**`apps/desktop-shell/src/profile-seed.ts` 写它,插件直接读它;只读 `migrated` 这个数组,而一个解析不了的标记文件被读作「没有名字」。
 
 ## Alternatives considered
 
@@ -68,7 +68,7 @@ Status: implemented
 
 载荷每个平台大约增大 19 MB,压缩成产物后约为 4-5 MB。pnpm 以单个 tarball 发布,携带它全部四个平台的原生模块,所以 macOS 构建也一并带上了 Windows 的那些;拆开它们意味着重新推导 pnpm 自己的打包方式,而载荷闸并不清扫 `runtime/`。
 
-壳现在拥有一个会安装包的界面,而针对它的审计是三行校验加一个原生对话框,而不是对调用它的那个插件做一次评审。`apps/desktop/README.zh.md` 写明了协议,那是第二个实现要照着写的东西。
+壳现在拥有一个会安装包的界面,而针对它的审计是三行校验加一个原生对话框,而不是对调用它的那个插件做一次评审。`apps/desktop-shell/README.zh.md` 写明了协议,那是第二个实现要照着写的东西。
 
 `web-migration.json` 成了一个跨组件文件:这里写,仓库外的一个插件读。两边都写进了文档。改变它 `migrated` 数组的含义,现在是一次有消费者的改动。
 
@@ -80,7 +80,7 @@ Status: implemented
 
 ## Testing
 
-`apps/desktop/tests/plugin-admin-service.spec.ts` 在一个搭好的 `$DSH_HOME` 上把整条协议跑一遍,pnpm 与对话框都是注入的,所以它不需要 Electron、也不需要包管理器:404 先于 401 的次序、缺失的 token、一个等长但写错的 token、真 token 的一个前缀、请求体上限与 content type、profile 白名单对上穿越路径与绝对路径、一个该 profile 从未装过的包、一个内置插件的名字、一个形似标志或路径的名字、二十个 pnpm 会接受而这里拒绝的版本 specifier、它接受的那五个确切版本、两次调用之间从硬盘重新读取的依赖表、确认文案与它的按钮、被拒绝的对话框什么都不装、一行被压平并截断的 warning、同一时刻只跑一次安装、安装后的包不再声明 `dsh.bundle` 时被摘掉的 bundle 项与仍然声明时的原样不动、原样传递而非解读的退出码,以及打包版与开发版的 pnpm 启动方式。
+`apps/desktop-shell/tests/plugin-admin-service.spec.ts` 在一个搭好的 `$DSH_HOME` 上把整条协议跑一遍,pnpm 与对话框都是注入的,所以它不需要 Electron、也不需要包管理器:404 先于 401 的次序、缺失的 token、一个等长但写错的 token、真 token 的一个前缀、请求体上限与 content type、profile 白名单对上穿越路径与绝对路径、一个该 profile 从未装过的包、一个内置插件的名字、一个形似标志或路径的名字、二十个 pnpm 会接受而这里拒绝的版本 specifier、它接受的那五个确切版本、两次调用之间从硬盘重新读取的依赖表、确认文案与它的按钮、被拒绝的对话框什么都不装、一行被压平并截断的 warning、同一时刻只跑一次安装、安装后的包不再声明 `dsh.bundle` 时被摘掉的 bundle 项与仍然声明时的原样不动、原样传递而非解读的退出码,以及打包版与开发版的 pnpm 启动方式。
 
 有三个用例钉住「硬盘上的版本才是结果」这条规则:一次以 1 退出、却把要的版本装上了的运行被报告为已安装,并且仍然带着那行 `ERR_PNPM_IGNORED_BUILDS`;同一次运行会摘掉那个包不再声明的 bundle 项;而一次把旧版本留在硬盘上的运行,无论它以什么退出码结束,都被报告为什么都没装上。
 
@@ -88,6 +88,6 @@ Status: implemented
 
 ## Related
 
-- [渲染服务](2026-08-22-desktop-render-service.zh.md)是第一个本机服务,也是这一个所遵循的样式;两者现在共享 `apps/desktop/src/loopback-service.ts`。
+- [渲染服务](2026-08-22-desktop-render-service.zh.md)是第一个本机服务,也是这一个所遵循的样式;两者现在共享 `apps/desktop-shell/src/loopback-service.ts`。
 - [一次性 `web` profile 迁移](2026-08-25-desktop-web-profile-migration.zh.md)写下这个功能读取的那个标记文件,也正是一个桌面安装为何会持有应用之外的包的原因。
 - [内置插件植入](2026-08-21-desktop-builtin-plugins.zh.md)解释了内置插件为何是一个没有依赖项的 bundle 项,而那正是把它放在可更新集合之外的东西。

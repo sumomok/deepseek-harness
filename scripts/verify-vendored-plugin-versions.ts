@@ -7,7 +7,7 @@
  * carries the version. Three other places restate it — the `OVERRIDES` table in
  * `gen-third-party-notices.ts`, whose in-repository paths become links in
  * `THIRD_PARTY_NOTICES.md`, and the built-in plugins table in both
- * `apps/desktop/README.md` and `apps/desktop/README.zh.md` — and none is
+ * `apps/desktop-shell/README.md` and `apps/desktop-shell/README.zh.md` — and none is
  * regenerated when a plugin is re-vendored, so they drift into dead links,
  * wrong version rows, and provenance claims the payload contradicts.
  */
@@ -42,8 +42,8 @@ export interface BuiltInPluginDocument {
  * and columns but not its cell text, so a version edited on one side alone passes it.
  */
 export const BUILT_IN_PLUGIN_DOCUMENTS: readonly Omit<BuiltInPluginDocument, 'text'>[] = [
-  { path: 'apps/desktop/README.md', heading: '## Built-in plugins', provenance: ', from a tarball committed in this repository' },
-  { path: 'apps/desktop/README.zh.md', heading: '## 内置插件', provenance: ',来自提交进本仓库的 tarball' },
+  { path: 'apps/desktop-shell/README.md', heading: '## Built-in plugins', provenance: ', from a tarball committed in this repository' },
+  { path: 'apps/desktop-shell/README.zh.md', heading: '## 内置插件', provenance: ',来自提交进本仓库的 tarball' },
 ]
 
 /** One built-in plugin, as declared by a `file:` specifier in the desktop-server manifest. */

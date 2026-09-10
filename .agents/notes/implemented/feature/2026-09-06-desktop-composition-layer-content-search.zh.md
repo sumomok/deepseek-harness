@@ -12,7 +12,7 @@ Status: implemented
 
 ## Decision
 
-`apps/desktop-app`（`@deepseek-ai/dsh-desktop-app`）就是这一层：一个只有 patch 的 bundle 包——一份 `cordis.patch.yml` 与指向它的 `dsh.bundle.patch` 清单字段，没有代码、没有 `main`、没有任何要 Loader 去导入的东西，因为 `loadProfile` 读 bundle 层时并不导入该包。`apps/desktop-server` 把它列为依赖，于是它进入 `pnpm deploy` materialize 成 Electron 应用 `resources/server` 的那棵树；`apps/desktop/src/profile-seed.ts` 里的 `BUILTIN_WEB_BUNDLES` 点了它的名，这正是把它放进桌面 profile 的 `dsh.profile.bundles`、并链接进扁平模块兜底目录的那一步。
+`apps/desktop-app`（`@deepseek-ai/dsh-desktop-app`）就是这一层：一个只有 patch 的 bundle 包——一份 `cordis.patch.yml` 与指向它的 `dsh.bundle.patch` 清单字段，没有代码、没有 `main`、没有任何要 Loader 去导入的东西，因为 `loadProfile` 读 bundle 层时并不导入该包。`apps/desktop-server` 把它列为依赖，于是它进入 `pnpm deploy` materialize 成 Electron 应用 `resources/server` 的那棵树；`apps/desktop-shell/src/profile-seed.ts` 里的 `BUILTIN_WEB_BUNDLES` 点了它的名，这正是把它放进桌面 profile 的 `dsh.profile.bundles`、并链接进扁平模块兜底目录的那一步。
 
 它在那份名单里排**最后**。已存在的 profile 对缺失的名字采取追加，所以末位是全新 profile 与升级而来的 profile 都会给它的唯一位置——而这个位置本身也重要：该层于是盖过 `dsh-base`、`dsh-web-app` 与每一个内置插件层，包括[内置的出厂默认模型](2026-08-23-desktop-builtin-default-model.zh.md)，而后者的条目本层一个也不碰。
 
@@ -20,7 +20,7 @@ Status: implemented
 
 它携带的唯一一行把 `session-query-sqlite` 重述为 `openAt: first-search` 与 `path: dshHomePath('session-search/desktop.db')`。`first-search` 把 `node:sqlite` 的导入与索引的打开挡在启动之外，于是一次从不搜索的运行不付任何代价，Node 的 SQLite 实验特性警告也不会进入启动输出。路径取持久文件而非出厂的 `:memory:`，是因为这份索引是派生的而非权威的：留着它，意味着此后某次运行的首次搜索只对账新增与变更的日志，而不是重建整个语料库——这正是「只付一次构建」与「每次启动都付一次」的差别。它刻意落在 `dshHomePath('sessions')` 之外——派生索引与会话持久化存储是两个存储，后端也拒绝把权威数据库当作自己的来打开。
 
-`apps/desktop/tests/desktop-composition-layer.spec.ts` 通过 `composeEntries` 组合 profile 的整个层栈——`dsh-base`、`dsh-web-app` 与十二个 bundle 层，每个内置层都按启动时的方式经 `resolveBundleDir` 解析——断言桌面 profile 最终得到的那一行、断言同一层栈去掉本层后仍组合出 `never`、并断言组合里没有别的东西被动过。此后某个内置插件开始 patch 同一行，就是一条挂掉的用例，而不是现场的意外。
+`apps/desktop-shell/tests/desktop-composition-layer.spec.ts` 通过 `composeEntries` 组合 profile 的整个层栈——`dsh-base`、`dsh-web-app` 与十二个 bundle 层，每个内置层都按启动时的方式经 `resolveBundleDir` 解析——断言桌面 profile 最终得到的那一行、断言同一层栈去掉本层后仍组合出 `never`、并断言组合里没有别的东西被动过。此后某个内置插件开始 patch 同一行，就是一条挂掉的用例，而不是现场的意外。
 
 ## 第二行：等完一个限流窗口
 
@@ -52,15 +52,15 @@ Status: implemented
 
 **改 `dsh-base` 或 `dsh-web-app` 里的 `openAt` 取值。**两者都是与每个 `dsh web` 部署共用的上游包源码，两者的注释都写明该取值是有意为之、由部署方在更靠后的层覆盖，而 `apps/cli/tests/lazy-search-startup.compat.spec.ts` 把两处都钉住。改动任一处，都会让一个桌面决策顺带为 CLI 的 `web` profile 打开正文搜索。
 
-**由 `profile-seed.ts` 把该行写进桌面 profile 的 `cordis.patch.yml`。**改动量最小，也是错的：那个文件是用户数据，只在缺失时写入，而 `apps/desktop/README.md` 写明壳从不向它做合并。凡是已经有桌面 profile 的安装——也就是每一次升级——都永远看不到这一行。
+**由 `profile-seed.ts` 把该行写进桌面 profile 的 `cordis.patch.yml`。**改动量最小，也是错的：那个文件是用户数据，只在缺失时写入，而 `apps/desktop-shell/README.md` 写明壳从不向它做合并。凡是已经有桌面 profile 的安装——也就是每一次升级——都永远看不到这一行。
 
 **随载荷发一份 `--patch` overlay 文件，并在拉起服务端时传入。**同样小，也确实能覆盖已有安装，但 overlay 是 `composeProfile` 应用的最后一层：它排在 `$DSH_HOME/profiles/desktop/cordis.patch.yml` 之上，于是这样送达的部署默认值，用户在文档指引他们去编辑的那个文件里根本关不掉。
 
-**把这个包放到 `packages/bundle/` 与其他 bundle 并列。**按分组语义那才是 bundle 该待的地方，而那是上游的地盘：`packages/bundle/README.md`、`docs/module-graph.md` 及其中文对照件都逐个枚举那里的包，于是一个只属于 fork 的 bundle 会改到四份生成物或上游文档，并在每次同步时冲突。`apps/` 里本来就放着 fork 自己的产品装配件——`apps/desktop`、`apps/desktop-server`——而且没有任何文档目录去枚举它。
+**把这个包放到 `packages/bundle/` 与其他 bundle 并列。**按分组语义那才是 bundle 该待的地方，而那是上游的地盘：`packages/bundle/README.md`、`docs/module-graph.md` 及其中文对照件都逐个枚举那里的包，于是一个只属于 fork 的 bundle 会改到四份生成物或上游文档，并在每次同步时冲突。`apps/` 里本来就放着 fork 自己的产品装配件——`apps/desktop-shell`、`apps/desktop-server`——而且没有任何文档目录去枚举它。
 
 **把这一层加进某个 vendor 来的内置插件里。**这是 fork 现有的、添加桌面专属组合行的做法，但对这一行来说是错的归属：这行属于部署，而不属于某个插件，而且它随后会住在本仓库之外的工作区里，只能通过重新打包的 tarball 抵达。
 
-**把 `apps/*/cordis.patch.yml` 纳入 `scripts/verify-cordis-config.ts` 的某个 glob。**这道门禁的元数据扫描已经读到了这份文件——`cordisConfigFiles` 在全仓 glob `**/*cordis*.yml`——但那道「把 patch 行里点名的插件对着所属 bundle 自己的依赖去解析」的按 bundle 检查走的是 `bundleManifestPaths()` 的 `packages/*/*/package.json`，因此永远够不到 `apps/desktop-app`。把它放宽就是改一个上游脚本，也就是一条每次同步都要重新施加的 core-patch 台账，而 `apps/desktop/tests/desktop-composition-layer.spec.ts` 已经用真实的十四层组合加载这份 patch 并断言它产出的那些行。
+**把 `apps/*/cordis.patch.yml` 纳入 `scripts/verify-cordis-config.ts` 的某个 glob。**这道门禁的元数据扫描已经读到了这份文件——`cordisConfigFiles` 在全仓 glob `**/*cordis*.yml`——但那道「把 patch 行里点名的插件对着所属 bundle 自己的依赖去解析」的按 bundle 检查走的是 `bundleManifestPaths()` 的 `packages/*/*/package.json`，因此永远够不到 `apps/desktop-app`。把它放宽就是改一个上游脚本，也就是一条每次同步都要重新施加的 core-patch 台账，而 `apps/desktop-shell/tests/desktop-composition-layer.spec.ts` 已经用真实的十四层组合加载这份 patch 并断言它产出的那些行。
 
 **让本层接管整个 `llm-deepseek` 行，并把重述从 `@haoran/dsh-default-model` 里删掉。**这是目录耦合的终局：这一行只有一个归属方，就没有需要保持同步的表，测试也没有两份副本可比。它需要重新构建并重新 vendor 那份 tarball，而且会把模型目录从「选择默认模型的那个插件」搬进本仓库，所以这次维持重述现状。
 
@@ -70,4 +70,4 @@ Status: implemented
 
 应用在 harness home 下多出一族文件，`~/.dsh/session-search/desktop.db` 及其 WAL 附属文件，体量量级取决于抽取出的消息文本而非原始日志。没有任何东西会删除它；删掉它的代价是重建一次。启动不受影响——在有搜索来问之前什么都不打开——而每次运行的首次搜索只付自上次以来变化的那部分。
 
-`BUILTIN_WEB_BUNDLES` 现在有十二个名字，其中十一个是插件，所以 `apps/desktop/README.md` 及其中文对照件在原先数「十一个」的地方区分了这两类；打包闸的 `seeded.length === BUILTIN_WEB_BUNDLES.length` 检查也把新名字与其余一并覆盖。
+`BUILTIN_WEB_BUNDLES` 现在有十二个名字，其中十一个是插件，所以 `apps/desktop-shell/README.md` 及其中文对照件在原先数「十一个」的地方区分了这两类；打包闸的 `seeded.length === BUILTIN_WEB_BUNDLES.length` 检查也把新名字与其余一并覆盖。

@@ -38,7 +38,7 @@ The desktop moves to `@haoran/dsh-llm-permission-gateway` 0.3.1 (sha256 `9846923
 
 The preset **id** is unchanged, which is what an installed machine depends on. `permission.defaultPreset` is stored in the settings document under a schema that is a closed union over the preset table's names, and `SettingsProvider.register` rejects a stored section the schema no longer admits instead of falling back — the `permission` section would then fail to install, the stored default would be dropped, and the settings page would lose its permission section altogether. Renaming the row's `name` and `description` moves none of that.
 
-Nothing the shell writes names a preset or a gateway config key. `apps/desktop/src/profile-seed.ts` writes the profile manifest, the empty user patch template, and the pnpm settings, and never revisits an existing file; the gateway's own `cordis.patch.yml` is the only layer that sets its config.
+Nothing the shell writes names a preset or a gateway config key. `apps/desktop-shell/src/profile-seed.ts` writes the profile manifest, the empty user patch template, and the pnpm settings, and never revisits an existing file; the gateway's own `cordis.patch.yml` is the only layer that sets its config.
 
 The `Config` keys are a superset of 0.1.5's: `mode`, `walledTools`, and `reasoningBudgetTokens` are added and none is removed, so a hand-written profile layer that restated the old keys still loads. Two defaults move — `reasonLanguage` from `English` to `简体中文`, and `readOnlyTools` gains `show_chart`, `job_output`, `content_show`, and `web_search` — and a layer that restated either keeps what it wrote, because an id-targeted patch replaces the whole `config` block.
 
@@ -64,7 +64,7 @@ Review costs less under a sandbox and the same where none is composed. The measu
 
 The escalation answerer is the one place this plugin grants rather than asks. On the desktop an approval answerer is always composed, so the person is still reachable whenever the model is unsure; `/review manual` turns the answerer off with the rest.
 
-`apps/desktop/tests/builtin-permission-gateway.spec.ts` reads the preset table out of the committed tarball, so the rename is pinned there rather than described: it asserts the row's name, that its description says the OS walls are gone, and that the description does not offer review as what replaces them.
+`apps/desktop-shell/tests/builtin-permission-gateway.spec.ts` reads the preset table out of the committed tarball, so the rename is pinned there rather than described: it asserts the row's name, that its description says the OS walls are gone, and that the description does not offer review as what replaces them.
 
 ## Related
 

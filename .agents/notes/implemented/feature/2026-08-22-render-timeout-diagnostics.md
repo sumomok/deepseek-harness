@@ -55,6 +55,6 @@ Nothing about the render itself changed: same window, same isolation, same limit
 
 ## Testing
 
-`apps/desktop/tests/render-service.spec.ts` drives the real `RenderTrace` from an injected renderer and asserts the exact line for every shape above, plus the `(+N more)` overflow, the 96-character URL cut, the redirect form, a settled request leaving the pending list, a settle for an id that never started, and that the line is one line of at most 500 characters when every URL is long enough to overflow it.
+`apps/desktop-shell/tests/render-service.spec.ts` drives the real `RenderTrace` from an injected renderer and asserts the exact line for every shape above, plus the `(+N more)` overflow, the 96-character URL cut, the redirect form, a settled request leaving the pending list, a settle for an id that never started, and that the line is one line of at most 500 characters when every URL is long enough to overflow it.
 
-`apps/desktop/scripts/render-smoke.mjs` covers the half no injected renderer can: it starts a `net` listener that accepts connections and never answers, renders a `file:` page whose only image points at it under a 2-second deadline, and asserts the 504 body says `load event not fired` and names that image — which is the assertion that the session's `webRequest` hooks actually reach the trace.
+`apps/desktop-shell/scripts/render-smoke.mjs` covers the half no injected renderer can: it starts a `net` listener that accepts connections and never answers, renders a `file:` page whose only image points at it under a 2-second deadline, and asserts the 504 body says `load event not fired` and names that image — which is the assertion that the session's `webRequest` hooks actually reach the trace.

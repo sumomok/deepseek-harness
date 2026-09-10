@@ -18,13 +18,13 @@ rc.17 把桌面客户端挪到了它自己的 `desktop` profile 上,理由记在
 
 插件像另外三个内置插件那样随载荷分发,预设则随插件走。
 
-**载荷。**`apps/desktop-server/package.json` 把 `@haoran/dsh-llm-permission-gateway` 声明为一条 `file:` 标识符,指向与它一起提交的那个 tarball,`BUILTIN_WEB_BUNDLES` 列出这个名字,于是 `apps/desktop/src/profile-seed.ts` 会在服务端启动之前把它播种进 `desktop` profile。pnpm 只为 `file:` tarball 记录 `integrity` 哈希,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目——截图插件被 vendor 而不是去取,也是同一个原因。`scripts/bundle-closure.ts` 按它本就有的规则完整保留这个包:清单声明了 `dsh.bundle` 的包是 profile bundle,载荷里没有任何东西以标识符导入它。暂存启动的 client 模块检查读的是载荷自己的 `dsh.client` 声明而不是一份名单,所以这个插件后来长出的浏览器那一半在那里被强制要求,无需再改一处。`THIRD_PARTY_NOTICES.md` 用一条指向该 tarball 的仓库相对链接标识它,这条记在生成器的覆盖表里。
+**载荷。**`apps/desktop-server/package.json` 把 `@haoran/dsh-llm-permission-gateway` 声明为一条 `file:` 标识符,指向与它一起提交的那个 tarball,`BUILTIN_WEB_BUNDLES` 列出这个名字,于是 `apps/desktop-shell/src/profile-seed.ts` 会在服务端启动之前把它播种进 `desktop` profile。pnpm 只为 `file:` tarball 记录 `integrity` 哈希,而 `pnpm deploy` 拒绝没有该字段的 lockfile 条目——截图插件被 vendor 而不是去取,也是同一个原因。`scripts/bundle-closure.ts` 按它本就有的规则完整保留这个包:清单声明了 `dsh.bundle` 的包是 profile bundle,载荷里没有任何东西以标识符导入它。暂存启动的 client 模块检查读的是载荷自己的 `dsh.client` 声明而不是一份名单,所以这个插件后来长出的浏览器那一半在那里被强制要求,无需再改一处。`THIRD_PARTY_NOTICES.md` 用一条指向该 tarball 的仓库相对链接标识它,这条记在生成器的覆盖表里。
 
 **播种能够到已经出问题的那些机器。**`seedExistingManifest` 只把缺失的名字追加在清单已列内容之后,别的一概不改写,所以一个由 rc.17 建出来的 `desktop` profile 会在下次启动时多出这一个名字,同时保留它自己的 `cordis.patch.yml`、它的依赖,以及每一个不归壳所有的字段。没有这一点,这次修复就只能到达全新安装,而丢了这个功能的恰恰是那些曾经拥有它的安装。
 
 **预设写在插件自己的 patch 层里。**包里的 `cordis.patch.yml` 贡献两行:门本身,以及加入了 `yolo-access` 的 `permission` 行预设表。于是挂载这个 bundle 才是让预设存在的动作,移除这个包会一步带走两半。这道门无法察觉自己的缺席——没挂载的插件不运行任何代码——所以「一个 patch 文件同时装下两行」是这个耦合唯一能成立的地方。
 
-以 id 为目标的 patch 会替换目标行的整个 `config` 而不是并入其中,所以那一层把 `@deepseek-ai/dsh-base` 编排的三个预设原样重述了一遍,旋钮值不变。这份重述的副本就是会过期的东西:base 若发布了新增预设、改名或改动旋钮组合,都会被这个文件遮住直到它被更新,而症状是预设控件不声不响地一直提供旧表。`apps/desktop/tests/builtin-permission-gateway.spec.ts` 先单独编排 dsh-base 那一层,再把网关那一层叠上去,并把三个基础预设与 dsh-base 自己编排出的结果相比——而不是与写死的字面量相比——所以 base 侧的改动会在那里失败,而不是被发出去。
+以 id 为目标的 patch 会替换目标行的整个 `config` 而不是并入其中,所以那一层把 `@deepseek-ai/dsh-base` 编排的三个预设原样重述了一遍,旋钮值不变。这份重述的副本就是会过期的东西:base 若发布了新增预设、改名或改动旋钮组合,都会被这个文件遮住直到它被更新,而症状是预设控件不声不响地一直提供旧表。`apps/desktop-shell/tests/builtin-permission-gateway.spec.ts` 先单独编排 dsh-base 那一层,再把网关那一层叠上去,并把三个基础预设与 dsh-base 自己编排出的结果相比——而不是与写死的字面量相比——所以 base 侧的改动会在那里失败,而不是被发出去。
 
 **`yolo-access` 是被提供的,从不是被强加的。**这条 patch 不设 `defaultPreset`,并把 `yolo-access` 声明在最后。`PermissionPresetService` 推断默认值的方式,是拿编排出的沙箱与审批默认值按声明顺序去表里找第一个匹配项;而 dsh-base 的两个旋钮都由同一个 `DSH_PERMISSION_MODE` 表达式导出:它的编排能产生的组合只有两种——模式不是 `danger-full-access` 时该模式配 `ask`,以及 `danger-full-access` 配 `never`。两者都不是这个预设的组合,所以那个环境变量取任何值,都不会让新会话落在它上面。桌面壳根本不设这个变量,所以新会话被钉住的是 `workspace-write`。
 
@@ -56,7 +56,7 @@ rc.17 把桌面客户端挪到了它自己的 `desktop` profile 上,理由记在
 
 vendored tarball 就是这个插件的更新渠道。一个新版本意味着在插件工作区里构建、提交 tarball、把 `file:` 标识符移过去,再发一次桌面构建;携带某次构建的安装包拥有该版本,与其余每个内置插件一样。
 
-只禁用门那一行、却不把预设一并去掉,会造出这次改动正要防止的那个状态——一个把沙箱关掉、背后却没有任何审查的预设。patch 层拦不住用户在自己那一层里写下这种配置,因为用户层在所有 bundle 层之后应用,所以 `apps/desktop/README.zh.md` 把它写明为唯一一个不该单独禁用其行的内置插件,并说明怎样把预设一起从控件里去掉。
+只禁用门那一行、却不把预设一并去掉,会造出这次改动正要防止的那个状态——一个把沙箱关掉、背后却没有任何审查的预设。patch 层拦不住用户在自己那一层里写下这种配置,因为用户层在所有 bundle 层之后应用,所以 `apps/desktop-shell/README.zh.md` 把它写明为唯一一个不该单独禁用其行的内置插件,并说明怎样把预设一起从控件里去掉。
 
 ## Related
 

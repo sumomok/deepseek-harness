@@ -55,6 +55,6 @@ Status: implemented
 
 ## Testing
 
-`apps/desktop/tests/render-service.spec.ts` 用注入的 renderer 驱动真正的 `RenderTrace`,对上面每一种形态断言确切的那一行,另加 `(+N more)` 的溢出、96 字符的 URL 截断、重定向形态、结束的请求确实离开 pending 清单、对一个从未开始过的 id 判结束,以及当每个 URL 都长到足以撑爆时,这一行仍是一行、且不超过 500 个字符。
+`apps/desktop-shell/tests/render-service.spec.ts` 用注入的 renderer 驱动真正的 `RenderTrace`,对上面每一种形态断言确切的那一行,另加 `(+N more)` 的溢出、96 字符的 URL 截断、重定向形态、结束的请求确实离开 pending 清单、对一个从未开始过的 id 判结束,以及当每个 URL 都长到足以撑爆时,这一行仍是一行、且不超过 500 个字符。
 
-`apps/desktop/scripts/render-smoke.mjs` 覆盖任何注入的 renderer 都够不着的那一半:它起一个接受连接却从不回答的 `net` 监听,在 2 秒期限下渲染一个唯一的图片指向它的 `file:` 页面,并断言 504 的响应体说出 `load event not fired` 并点出那张图——这正是"session 的 `webRequest` 钩子确实通到了 trace"的那一条断言。
+`apps/desktop-shell/scripts/render-smoke.mjs` 覆盖任何注入的 renderer 都够不着的那一半:它起一个接受连接却从不回答的 `net` 监听,在 2 秒期限下渲染一个唯一的图片指向它的 `file:` 页面,并断言 504 的响应体说出 `load event not fired` 并点出那张图——这正是"session 的 `webRequest` 钩子确实通到了 trace"的那一条断言。

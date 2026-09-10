@@ -38,7 +38,7 @@ Status: implemented
 
 预设的 **id** 没变,而这正是已安装的机器所依赖的东西。`permission.defaultPreset` 存在设置文档里,其 schema 是对预设表里那些名字的闭合联合,而 `SettingsProvider.register` 面对 schema 不再接纳的已存小节是拒绝而不是回退——`permission` 小节会因此装不上,存下的默认值被丢掉,设置页连权限那一节都没有了。改这一行的 `name` 与 `description` 动不到其中任何一样。
 
-壳写出的东西里没有任何预设名或网关的配置键。`apps/desktop/src/profile-seed.ts` 写的是 profile 清单、空白的用户 patch 模板与 pnpm 设置,并且从不回头改已存在的文件;设置这个插件的 config 的,只有它自己的 `cordis.patch.yml` 这一层。
+壳写出的东西里没有任何预设名或网关的配置键。`apps/desktop-shell/src/profile-seed.ts` 写的是 profile 清单、空白的用户 patch 模板与 pnpm 设置,并且从不回头改已存在的文件;设置这个插件的 config 的,只有它自己的 `cordis.patch.yml` 这一层。
 
 `Config` 的键是 0.1.5 的超集:新增 `mode`、`walledTools` 与 `reasoningBudgetTokens`,一个都没删,所以一份手写的、重述过旧键的 profile 层照样能加载。有两项默认值移动了——`reasonLanguage` 从 `English` 变成 `简体中文`,`readOnlyTools` 增加了 `show_chart`、`job_output`、`content_show` 与 `web_search`——而重述过其中任一项的层保留它自己写的值,因为以 id 为目标的 patch 替换的是整个 `config` 块。
 
@@ -64,7 +64,7 @@ Status: implemented
 
 越权应答器是这个插件唯一「给予」而非「发问」的地方。桌面端总有审批应答器在编排里,所以模型拿不准时人依然够得着;`/review manual` 会把这个应答器连同其余部分一起关掉。
 
-`apps/desktop/tests/builtin-permission-gateway.spec.ts` 从提交进来的那个 tarball 里读出预设表,所以这次改名是被钉住的而不是被描述的:它断言那一行的名字、断言描述里写了操作系统的围墙没了、并断言描述没有把审查说成顶替围墙的那个东西。
+`apps/desktop-shell/tests/builtin-permission-gateway.spec.ts` 从提交进来的那个 tarball 里读出预设表,所以这次改名是被钉住的而不是被描述的:它断言那一行的名字、断言描述里写了操作系统的围墙没了、并断言描述没有把审查说成顶替围墙的那个东西。
 
 ## Related
 

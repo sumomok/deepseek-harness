@@ -26,7 +26,7 @@ Status: implemented
 
 **同一时刻一扇窗,期限按人来定。**`signingIn` 在花掉 nonce 之前检查,所以第二个调用拿到的 503 不会动到它那份还能花的授权。不认识的、已经花掉的或已经过期的 nonce 得到 403,并点名 `/login-grant` 是再要一份的地方。`RenderLimits.loginTimeoutMs` 是十分钟——人要读一张表单、找一个密码、过一道第二因子,而 `RenderLimits` 里其余每一个界限都是页面的、以秒计——到点还开着的窗口会被关掉并答以 504,壳退出时还开着的那扇也一样。`close()` 先中止 `closing` 再断开套接字,因为登录窗口在有人把它撤下来之前一直在屏幕上,而拿着它的那个请求正是那些套接字之一。
 
-**这扇窗说出正在问你的是哪个源。**`lockTitleToOrigin` 在 `did-navigate`、`did-redirect-navigation`、`did-navigate-in-page` 上把标题设成当前的源,在 `page-title-updated` 上也一样,并取消页面自己那个标题:正在输密码的人必须看得见是哪个站点在问,而一个能给窗口起名字的页面,就能自称是另一个。`LOGIN_WINDOW` 写下其余的形状——首次加载返回之前不显示、520 乘 680 内容像素、空标题,以及 `resizable: false`,后者也正是 `apps/desktop/src/main-window.ts` 里 `mainWindow()` 用来把应用自己那扇窗与其余每一扇分开的标志。这个形状放在 `render-service.ts` 里、协议旁边,于是那套用例不需要显示设备就能检查它。
+**这扇窗说出正在问你的是哪个源。**`lockTitleToOrigin` 在 `did-navigate`、`did-redirect-navigation`、`did-navigate-in-page` 上把标题设成当前的源,在 `page-title-updated` 上也一样,并取消页面自己那个标题:正在输密码的人必须看得见是哪个站点在问,而一个能给窗口起名字的页面,就能自称是另一个。`LOGIN_WINDOW` 写下其余的形状——首次加载返回之前不显示、520 乘 680 内容像素、空标题,以及 `resizable: false`,后者也正是 `apps/desktop-shell/src/main-window.ts` 里 `mainWindow()` 用来把应用自己那扇窗与其余每一扇分开的标志。这个形状放在 `render-service.ts` 里、协议旁边,于是那套用例不需要显示设备就能检查它。
 
 **四道封锁照旧,一道放松。**权限请求、权限检查、下载与声音在这扇窗里照渲染窗口那样一律拒绝,`devTools: false`、`sandbox: true`、`contextIsolation: true` 以及「没有 Node 集成」原样不动。放松的是 `disableDialogs: false`:登录页正是用 `alert()` 与 `confirm()` 报出密码错了或第二因子没过,而这扇窗——不同于隐藏的渲染——是用户主动要的、正看着的。
 
@@ -34,7 +34,7 @@ Status: implemented
 
 **留存到此为止,就这一个空间。**点名了 partition 的渲染不能同时带 `cookies`,带了就答 422:把调用方自己的 cookie 罐写进一个活得比这次请求更久的存储,等于替它保存一份凭据,而这正是本服务唯一不做的事。在不承载 session 的 scheme 上点名 partition,同样被这样拒绝。壳里没有任何东西去读登录 partition 里的值,没有任何一条路由把它返回出来,而 `clearLoginSession` 就是 `clearStorageData()`——cookie、缓存,以及 Chromium 为一个 partition 保存的每一种存储后端——对一份本进程从不读取的存储来说,「退出登录」也只能是这个意思。
 
-**两半都是注入进来的,理由和 `Renderer` 早就成立的那个一样。**`RenderServiceSpec` 在 `renderer` 旁边要求 `openLogin` 与 `clearLoginSession`,`apps/desktop/src/login-window.ts` 装着全部 Electron 实现,于是 nonce 表、partition 文法、各个期限,以及那扇窗声明出来的形状,全程不需要任何显示设备就能驱动。
+**两半都是注入进来的,理由和 `Renderer` 早就成立的那个一样。**`RenderServiceSpec` 在 `renderer` 旁边要求 `openLogin` 与 `clearLoginSession`,`apps/desktop-shell/src/login-window.ts` 装着全部 Electron 实现,于是 nonce 表、partition 文法、各个期限,以及那扇窗声明出来的形状,全程不需要任何显示设备就能驱动。
 
 ## Alternatives considered
 
@@ -60,6 +60,6 @@ Status: implemented
 
 ## Testing
 
-`apps/desktop/tests/render-service.spec.ts` 对着一个注入的 opener 驱动整套协议:没有 token 时每条登录路由都在读请求体之前被拒、没人铸过的 nonce 与形状不对的 nonce、只铸不开的授权、抵达 opener 的那一对、只花得掉一次的 nonce 与超出存活时间的 nonce、页面不在其 partition 所属站点上的授权、两条点名 partition 的路由上落在登录空间之外的每一种名字、退出登录那次调用、在不花掉 nonce 的前提下被拒的第二扇窗、没人去完成的那扇窗、`LOGIN_WINDOW.resizable` 与 `isResizable()` 这个判别标志的关系,以及渲染那个字段——交到窗口那一半手上、不点名时不出现、落在空间之外被拒、与 cookie 并列被拒、在不承载 session 的页面上被拒。
+`apps/desktop-shell/tests/render-service.spec.ts` 对着一个注入的 opener 驱动整套协议:没有 token 时每条登录路由都在读请求体之前被拒、没人铸过的 nonce 与形状不对的 nonce、只铸不开的授权、抵达 opener 的那一对、只花得掉一次的 nonce 与超出存活时间的 nonce、页面不在其 partition 所属站点上的授权、两条点名 partition 的路由上落在登录空间之外的每一种名字、退出登录那次调用、在不花掉 nonce 的前提下被拒的第二扇窗、没人去完成的那扇窗、`LOGIN_WINDOW.resizable` 与 `isResizable()` 这个判别标志的关系,以及渲染那个字段——交到窗口那一半手上、不点名时不出现、落在空间之外被拒、与 cookie 并列被拒、在不承载 session 的页面上被拒。
 
-`apps/desktop/scripts/render-smoke.mjs` 在它那三处服务上都组装真正的 Electron 两半。它不打开任何登录窗口:那扇窗是由人关掉才算完成的,而这个 smoke 无人值守地跑。
+`apps/desktop-shell/scripts/render-smoke.mjs` 在它那三处服务上都组装真正的 Electron 两半。它不打开任何登录窗口:那扇窗是由人关掉才算完成的,而这个 smoke 无人值守地跑。

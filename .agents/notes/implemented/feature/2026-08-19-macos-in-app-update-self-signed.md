@@ -89,7 +89,7 @@ Most of that time the screen is bare, because ShipIt waits for every process of 
 
 ## Consequences
 
-An installed macOS client now updates itself, and the two platforms differ only in what the install looks like. The certificate is a 20-year commitment: its private key is the update chain, and losing it means every installed client needs a manual replacement, while leaking it means whoever holds it can produce a bundle those clients accept. It lives outside the checkout, and `apps/desktop/.gitignore` refuses the file types as a backstop.
+An installed macOS client now updates itself, and the two platforms differ only in what the install looks like. The certificate is a 20-year commitment: its private key is the update chain, and losing it means every installed client needs a manual replacement, while leaking it means whoever holds it can produce a bundle those clients accept. It lives outside the checkout, and `apps/desktop-shell/.gitignore` refuses the file types as a backstop.
 
 Gatekeeper is unchanged: a self-signed, un-notarized app still needs a right-click open when a **browser** downloaded it. An update installed by Squirrel is not quarantined and needs nothing.
 

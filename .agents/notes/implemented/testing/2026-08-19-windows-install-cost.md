@@ -49,7 +49,7 @@ poll every 250 ms:
   process gone, app process back?                 → mark and stop
 ```
 
-Both harnesses live beside the packaging pipeline: `apps/desktop/scripts/measure/time-run.ps1` times one installer or uninstaller run this way, and `apps/desktop/scripts/measure/shape.ps1` is the per-file/per-byte split. Neither is wired into a gate — they are run by hand when a number is wanted, which is the whole of their contract.
+Both harnesses live beside the packaging pipeline: `apps/desktop-shell/scripts/measure/time-run.ps1` times one installer or uninstaller run this way, and `apps/desktop-shell/scripts/measure/shape.ps1` is the per-file/per-byte split. Neither is wired into a gate — they are run by hand when a number is wanted, which is the whole of their contract.
 
 The interval to quote is the one between the "installing" page and the "complete" page. Everything outside it is the operator deciding when to click, and it varied by 30 s between the runs recorded above.
 

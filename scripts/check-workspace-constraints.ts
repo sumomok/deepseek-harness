@@ -333,7 +333,7 @@ export function checkWorkspaceManifest({ dir, manifest }: WorkspaceManifest): st
   ]
   const label = manifest.name ?? dir
   // A private app is outside the dsh release sequence and carries its own product
-  // version instead: `apps/desktop`'s version is the one the desktop update feed
+  // version instead: `apps/desktop-shell`'s version is the one the desktop update feed
   // serves and the one an installed shell compares against, so the shared family
   // version cannot own it.
   const familyVersionError = privateApp ? undefined : checkDshFamilyVersion(manifest, repositoryVersion)

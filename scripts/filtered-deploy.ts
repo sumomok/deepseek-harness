@@ -3,7 +3,7 @@
  * and the patched packages a staged closure must still carry.
  *
  * Two pipelines deploy one workspace package's production closure into a
- * staging directory — `apps/desktop/scripts/package.ts` for the desktop
+ * staging directory — `apps/desktop-shell/scripts/package.ts` for the desktop
  * client's embedded server, `scripts/build-exe-for-python-sdk.ts` for the
  * Python runtime's executable — and both need the same flags and the same
  * check afterwards, so both are decided here.
@@ -63,7 +63,7 @@ export interface StagedPatch {
  * patch reached the staged copy.
  *
  * `electron-updater` is deliberately absent: it is patched at the root and
- * belongs to the Electron shell, which is packaged from `apps/desktop`'s own
+ * belongs to the Electron shell, which is packaged from `apps/desktop-shell`'s own
  * `node_modules` rather than from a deployed closure.
  */
 export const STAGED_PATCHES: readonly StagedPatch[] = [

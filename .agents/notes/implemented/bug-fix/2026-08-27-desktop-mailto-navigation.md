@@ -10,7 +10,7 @@ The desktop boot window's `will-navigate` handler declines every navigation that
 
 ## Decision
 
-The forwarding predicate now accepts `http`-prefixed and `mailto:`-prefixed targets. It is extracted into `apps/desktop/src/navigation.ts` as `isExternalNavigationTarget`, a pure function with no Electron import, because the `will-navigate` event wiring itself needs a real `BrowserWindow` and cannot run under a plain-Node test; extracting the predicate is what makes the decision unit-testable at all. `apps/desktop/tests/navigation.spec.ts` pins both branches: `http(s)`/`mailto:` targets forward, `file:`/`javascript:`/`about:`/empty targets do not.
+The forwarding predicate now accepts `http`-prefixed and `mailto:`-prefixed targets. It is extracted into `apps/desktop-shell/src/navigation.ts` as `isExternalNavigationTarget`, a pure function with no Electron import, because the `will-navigate` event wiring itself needs a real `BrowserWindow` and cannot run under a plain-Node test; extracting the predicate is what makes the decision unit-testable at all. `apps/desktop-shell/tests/navigation.spec.ts` pins both branches: `http(s)`/`mailto:` targets forward, `file:`/`javascript:`/`about:`/empty targets do not.
 
 ## Alternatives considered
 

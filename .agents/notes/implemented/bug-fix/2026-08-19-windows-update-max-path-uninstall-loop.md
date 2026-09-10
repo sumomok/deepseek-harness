@@ -50,7 +50,7 @@ Nothing held the file: opening all 8848 installed files exclusively at the momen
 
 ## Decision
 
-`apps/desktop/build/installer.nsh` defines `customRemoveFiles`, the template's own hook for replacing that block (`uninstaller.nsh`, `!ifmacrodef customRemoveFiles`). On the update path it renames `$INSTDIR` **as one directory** into a numbered sibling (`~dsh-old<n>` beside it) and deletes that, instead of moving the tree file by file into `%TEMP%`.
+`apps/desktop-shell/build/installer.nsh` defines `customRemoveFiles`, the template's own hook for replacing that block (`uninstaller.nsh`, `!ifmacrodef customRemoveFiles`). On the update path it renames `$INSTDIR` **as one directory** into a numbered sibling (`~dsh-old<n>` beside it) and deletes that, instead of moving the tree file by file into `%TEMP%`.
 
 Renaming the directory rather than its contents is what fixes the defect: every path below it keeps exactly the length it already had, so no file can be pushed past MAX_PATH however deep the payload grows. The staging name is a sibling rather than a suffix on `$INSTDIR` itself for the same reason — `…\DSH Desktop.old` lengthens every path beneath it, which is the bug being removed.
 
@@ -62,7 +62,7 @@ The `customInit` process sweep stays, with its rationale corrected: it is not cr
 
 ### Native Windows packaging
 
-`apps/desktop/scripts/package.ts` resolves subprocess names against `PATHEXT` and runs `.cmd`/`.bat` shims through `cmd.exe /d /s /c` with its own quoting. `spawn('pnpm', …)` is `ENOENT` on Windows because pnpm installs as `pnpm.cmd`; resolving to that shim then fails `EINVAL`, because Node has refused to spawn batch files directly since the CVE-2024-27980 fix. Without this the packaging pipeline only ran on macOS, and a Windows installer could be built but never built *and* tested on the machine that reproduces the bug.
+`apps/desktop-shell/scripts/package.ts` resolves subprocess names against `PATHEXT` and runs `.cmd`/`.bat` shims through `cmd.exe /d /s /c` with its own quoting. `spawn('pnpm', …)` is `ENOENT` on Windows because pnpm installs as `pnpm.cmd`; resolving to that shim then fails `EINVAL`, because Node has refused to spawn batch files directly since the CVE-2024-27980 fix. Without this the packaging pipeline only ran on macOS, and a Windows installer could be built but never built *and* tested on the machine that reproduces the bug.
 
 `scripts/gen-desktop-icons.mjs` dispatches its downscaling on the host — `sips` on macOS, System.Drawing through PowerShell on Windows — and skips the `.icns` half off darwin, where `iconutil` has no counterpart and nothing consumes the product anyway. `build/icon.ico` is what a Windows build needs, and it is now produced on Windows.
 

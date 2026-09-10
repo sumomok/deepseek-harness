@@ -25,7 +25,7 @@ overrides:
   # prerelease is outside the plugin's range, so without this override the
   # desktop payload carries two node-pty copies, and the nested one is out of
   # reach of both the `node-pty/prebuilds` platform prune rules and the
-  # spawn-helper chmod in apps/desktop/scripts/package.ts. The versions are
+  # spawn-helper chmod in apps/desktop-shell/scripts/package.ts. The versions are
   # API-compatible: `resize` gained an optional third argument and `useConpty`
   # became a no-op.
   'dsh-better-sidebar>node-pty': '1.2.0-beta.15'
@@ -42,7 +42,7 @@ peerDependencyRules:
 allowBuilds:
   esbuild: true
   lefthook: true
-  # apps/desktop: Electron's postinstall downloads its platform binary; without
+  # apps/desktop-shell: Electron's postinstall downloads its platform binary; without
   # it the desktop client cannot launch or package.
   electron: true
   # Cross-platform boundary for the persistent PTY backend, including ConPTY on Windows.

@@ -6,13 +6,13 @@ Status: implemented
 
 ## 问题
 
-在某客户的 Windows 机器上（rc.24），内置 `dsh web` 服务器子进程在启动完成之后的某个时刻悄悄死掉了。`apps/desktop/src/server.ts` 和 `main.ts` 里,一旦 `startServer` 完成 resolve,就没有任何代码继续持有这个子进程的退出监听,于是死亡这件事没有被记录下来,也没有任何东西把它重新拉起。窗口停留在最后渲染出来的样子——一个看起来正常、实则彻底冻结的页面——与此同时 `notifications.ts` 的两条下行 WebSocket 一直按固定 3 秒的间隔去重连一个再也回不来的服务器:33 分钟内写了 1318 行日志,每次重试两行,第一对之后再没说过任何新内容。
+在某客户的 Windows 机器上（rc.24），内置 `dsh web` 服务器子进程在启动完成之后的某个时刻悄悄死掉了。`apps/desktop-shell/src/server.ts` 和 `main.ts` 里,一旦 `startServer` 完成 resolve,就没有任何代码继续持有这个子进程的退出监听,于是死亡这件事没有被记录下来,也没有任何东西把它重新拉起。窗口停留在最后渲染出来的样子——一个看起来正常、实则彻底冻结的页面——与此同时 `notifications.ts` 的两条下行 WebSocket 一直按固定 3 秒的间隔去重连一个再也回不来的服务器:33 分钟内写了 1318 行日志,每次重试两行,第一对之后再没说过任何新内容。
 
 ## 决定
 
 **验尸(`server.ts`、`main.ts`)。** `ServerHandle` 新增 `onExit(listener)` 方法;`startServer` 现在维护一个有界的滚动尾部(`RECENT_OUTPUT_TAIL_LINES` = 15,在子进程整个生命周期内持续喂入,而不是此前只在 URL 出现之前使用的那个无界 `collected` 字符串),以及一个 `stop()` 在向子进程发信号之前就置位的 `expectedExit` 标志。通过 `onExit` 注册的监听器会收到一次 `{ code, signal, expected, tail }`——如果子进程此前已经退出,则同步收到。`main.ts` 的 `attachSupervision()` 对每一次 `expected` 为 false 的退出都记录一行 `[desktop] server exited unexpectedly: code=<code> signal=<signal>` 加上尾部日志,并把它交给恢复阶梯;而一次预期内的退出(`stop()`——退出流程、强制更新闸门、以及每一次重绑都会走到这里)不会额外记录任何东西。
 
-**恢复阶梯(新模块 `apps/desktop/src/server-supervision.ts`)。** 一个纯 reducer——`onUnexpectedServerExit`、`onRebindFailed`、`onRebindSucceeded`,作用在 `{ recentUnexpectedExits, rebindFailures }` 这个 `SupervisorState` 上——只凭普通的时间戳就能决定下一个 `SupervisorAction`(`recover` / `relaunch` / `stop`),自己不持有时钟或定时器。`runRecoveryLadder` 是唯一面向调用方的入口:给定阶梯的当前状态、`now`、这个进程本身是否就是一次 L1 重启,以及 `RecoveryHooks`(`rebind`、`sleep`、`notifyRecovering`——和 `download-retry.ts` 的 `withRetry`/`RetryHooks` 已经在用的同一种注入式 hooks 形状),它驱动完这一次退出的整个结果。
+**恢复阶梯(新模块 `apps/desktop-shell/src/server-supervision.ts`)。** 一个纯 reducer——`onUnexpectedServerExit`、`onRebindFailed`、`onRebindSucceeded`,作用在 `{ recentUnexpectedExits, rebindFailures }` 这个 `SupervisorState` 上——只凭普通的时间戳就能决定下一个 `SupervisorAction`(`recover` / `relaunch` / `stop`),自己不持有时钟或定时器。`runRecoveryLadder` 是唯一面向调用方的入口:给定阶梯的当前状态、`now`、这个进程本身是否就是一次 L1 重启,以及 `RecoveryHooks`(`rebind`、`sleep`、`notifyRecovering`——和 `download-retry.ts` 的 `withRetry`/`RetryHooks` 已经在用的同一种注入式 hooks 形状),它驱动完这一次退出的整个结果。
 
 - **L0** 原地重绑:`REBIND_DELAYS_MS` = `[1_000, 5_000, 15_000]`,即最多 3 次尝试。`main.ts` 的 `performRebind()` 是唯一的 `rebind` 实现,阶梯和 L2 的手动重试共用它:用记录下来的 `activeServerSpec` 调用 `startServerWithQuarantine`,成功后重新赋值模块级的 `server`、调用 `retargetWindows()`(对每一个 `isResizable()` 判定为已渲染服务端 UI 的 `BrowserWindow` 调用 `window.loadURL`——和 `main-window.ts` 已经在用的同一个判别式)、对新 URL 再次调用 `setupNotifications`,并把监管重新挂到新的子进程上。
 - **L1** 整应用重启一次:`REBIND_DELAYS_MS` 耗尽的 3 次失败重绑尝试,**或者** `UNEXPECTED_EXIT_WINDOW_MS`(10 分钟)内出现 `UNEXPECTED_EXIT_ESCALATION_COUNT`(3)次意外退出——即便每一次重绑都成功了,第二个条件依然会触发,因为一个每隔几分钟就死一次的服务器是在反复抽风,不是偶尔绊了一跤,而每一次成功的重绑本身就已经是一次可见的打断。`relaunchForRecovery()` 先把 `quitting` 置为 `true`(这样 Windows 托盘的关闭拦截就不会在 `app.quit()` 关窗口的过程中插手——这与 `before-quit` 自己抢先置位 `quitting` 是同一个道理),再调用 `app.relaunch({ args })`,把 `RECOVERY_RELAUNCH_FLAG`(`--dsh-recovery-relaunch`)追加进 argv,然后调用 `app.quit()`——而不是 `app.exit()`——好让原有的 `before-quit` 收尾(关闭本地回环服务)照常跑一遍。

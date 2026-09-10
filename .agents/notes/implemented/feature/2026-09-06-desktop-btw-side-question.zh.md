@@ -10,7 +10,7 @@ Status: implemented
 
 ## Decision
 
-`@haoran/dsh-btw` 0.1.1 加入 [`apps/desktop/README.zh.md`](../../../../apps/desktop/README.zh.md) 所列的桌面内置插件,以 `apps/desktop-server/vendor/haoran-dsh-btw-0.1.1.tgz` 的形式 vendor 进来(sha256 `4ce89b8925904c6a208c51e7625f9a9a71126eb62b1594d35d044876b99960ab`)。它只注册一个命令:`/btw <问题>` 把到目前为止的对话连同这个问题一起送出去,把答案显示在它自己的一行里,并让对话保持原样。
+`@haoran/dsh-btw` 0.1.1 加入 [`apps/desktop-shell/README.zh.md`](../../../../apps/desktop-shell/README.zh.md) 所列的桌面内置插件,以 `apps/desktop-server/vendor/haoran-dsh-btw-0.1.1.tgz` 的形式 vendor 进来(sha256 `4ce89b8925904c6a208c51e7625f9a9a71126eb62b1594d35d044876b99960ab`)。它只注册一个命令:`/btw <问题>` 把到目前为止的对话连同这个问题一起送出去,把答案显示在它自己的一行里,并让对话保持原样。
 
 **这份隔离是结构性的。**问题与答案就是命令注册表自己的那两个事件——`command/run` 带着 `name: 'btw'` 与逐字的问题,放在 `args` 里;`command/done` 带着答案、或没有答案的原因,放在 `text` 里。两者都不是 surface 事件类型,而唯一构建模型请求消息列表的那个函数 `Session.deriveMessages()` 只在 surface 节点上折叠。这个插件写下的任何东西都到不了之后的请求,也不需要谁记着别把它带上。
 

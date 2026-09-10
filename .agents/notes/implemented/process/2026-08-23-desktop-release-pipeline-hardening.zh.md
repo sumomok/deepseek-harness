@@ -8,17 +8,17 @@ Status: implemented
 
 桌面发布有两个步骤落在跑它的脚本之外,而且两者失效的方式相同——悄无声息,而且是朝着「看起来没问题」的方向。
 
-**没有任何东西给发布出去的 commit 打 tag。**`desktop-v0.1.0-rc.14` 到 `desktop-v0.1.0-rc.19` 全是事后手工打的,打在当时仓库恰好停在的那个位置上。`apps/desktop/scripts/publish-update.ts` 上传产物、重写清单、回读清单并清理更新源,然后就停了:一个已发布的构建,在有人想起来敲那两条 git 命令之前,没有任何东西指向它的源码出处。忘了打 tag 没有任何东西会报,于是「发布了什么」这份记录取决于发版的人记不记得。桌面应用是 `private` 的,不进任何 registry,所以仓库的发布工作流也没有一个管得着它([私有 app](2026-08-20-private-apps-are-not-release-members.zh.md))。
+**没有任何东西给发布出去的 commit 打 tag。**`desktop-v0.1.0-rc.14` 到 `desktop-v0.1.0-rc.19` 全是事后手工打的,打在当时仓库恰好停在的那个位置上。`apps/desktop-shell/scripts/publish-update.ts` 上传产物、重写清单、回读清单并清理更新源,然后就停了:一个已发布的构建,在有人想起来敲那两条 git 命令之前,没有任何东西指向它的源码出处。忘了打 tag 没有任何东西会报,于是「发布了什么」这份记录取决于发版的人记不记得。桌面应用是 `private` 的,不进任何 registry,所以仓库的发布工作流也没有一个管得着它([私有 app](2026-08-20-private-apps-are-not-release-members.zh.md))。
 
-**一次打包运行可以只构建半个发布,还以 0 退出。**`apps/desktop/scripts/package.ts` 里的 `parseCli` 在两个平台参数都不给时,从 `process.platform === 'darwin'` 推断出 `--mac`,而 `--win` 从来不会被推断出来。于是在 macOS 主机上直接跑 `pnpm --filter @deepseek-ai/dsh-desktop run package` 只会构建 mac 产物。运行的收尾是列出 `dist-app` 里以 `.dmg`、`.zip`、`.exe` 结尾的文件——而 `dist-app` 从不清空,于是上一个版本的 Windows 安装程序也在那张列表里,带着上一个版本的名字,顶着 `products in apps/desktop/dist-app` 这个标题。一个没有 Windows 构建的发布,打印出来的形状和完整的发布一模一样。rc.19 就是这么打包出来的。
+**一次打包运行可以只构建半个发布,还以 0 退出。**`apps/desktop-shell/scripts/package.ts` 里的 `parseCli` 在两个平台参数都不给时,从 `process.platform === 'darwin'` 推断出 `--mac`,而 `--win` 从来不会被推断出来。于是在 macOS 主机上直接跑 `pnpm --filter @deepseek-ai/dsh-desktop-shell run package` 只会构建 mac 产物。运行的收尾是列出 `dist-app` 里以 `.dmg`、`.zip`、`.exe` 结尾的文件——而 `dist-app` 从不清空,于是上一个版本的 Windows 安装程序也在那张列表里,带着上一个版本的名字,顶着 `products in apps/desktop-shell/dist-app` 这个标题。一个没有 Windows 构建的发布,打印出来的形状和完整的发布一模一样。rc.19 就是这么打包出来的。
 
 ## Decision
 
 ### 打 tag 是发布的一个步骤:上传之前判定,上传之后执行
 
-一次发布会给它所交付的 commit 打 tag:`desktop-v<version>`,其中版本号就是给产物和清单命名的那个 `apps/desktop/package.json` 字段。tag 带注解,消息就是 `--notes` 本来就必填的那份发布说明文件,于是 `git tag -n` 能看到发布了什么。它指向脚本所在仓库的 `HEAD`。
+一次发布会给它所交付的 commit 打 tag:`desktop-v<version>`,其中版本号就是给产物和清单命名的那个 `apps/desktop-shell/package.json` 字段。tag 带注解,消息就是 `--notes` 本来就必填的那份发布说明文件,于是 `git tag -n` 能看到发布了什么。它指向脚本所在仓库的 `HEAD`。
 
-**判定在第一个字节上传之前就做完。**`apps/desktop/scripts/release-tag.ts` 里的 `planReleaseTag` 接收版本号和 git 报告的事实——HEAD、该 tag 在本地和在 `origin` 上分别指向哪个 commit、工作树是否有改动、有没有 `origin`——返回 `create`、`push-existing`、`skip`,或者一条带着待打印文字的拒绝。三种状态会被拒绝:
+**判定在第一个字节上传之前就做完。**`apps/desktop-shell/scripts/release-tag.ts` 里的 `planReleaseTag` 接收版本号和 git 报告的事实——HEAD、该 tag 在本地和在 `origin` 上分别指向哪个 commit、工作树是否有改动、有没有 `origin`——返回 `create`、`push-existing`、`skip`,或者一条带着待打印文字的拒绝。三种状态会被拒绝:
 
 - **已跟踪文件与 HEAD 有出入。**`git status --porcelain --untracked-files=no` 必须为空——这正是 `git describe --dirty` 采用的定义。给一棵带着未提交改动的树打 tag,指的是一份复现不出这次构建的源码。未跟踪文件被有意排除在外:发布运行会把自己的日志写进它所在的工作树,被忽略的 `.env` 也长期躺在那里,两者都进不了构建。
 - **tag 已经存在,而且指向别的 commit**,无论在本地还是在 `origin` 上。挪动它需要强制推送,而它现在指的那次发布是真实存在的。
@@ -32,15 +32,15 @@ Status: implemented
 
 **后段的失败会被如实报出来。**日志会写明该版本已经发布、只有打 tag 这一步失败了,打印出确切的 `git tag -a <tag> -F <notes> && git push origin <tag>`(或者在 tag 已建好、失败的是推送时,只打印推送那条),进程以非零码退出。收尾的总结行无论如何都会点出这个 tag。
 
-`--no-tag` 跳过该步骤连同它的前置校验,于是一个打不了 tag 的仓库照样能发布;`--dry-run` 打印它会打什么 tag,不推送任何东西。`apps/desktop/tests/release-tag.spec.ts` 脱离仓库覆盖这套判断的每一个分支。
+`--no-tag` 跳过该步骤连同它的前置校验,于是一个打不了 tag 的仓库照样能发布;`--dry-run` 打印它会打什么 tag,不推送任何东西。`apps/desktop-shell/tests/release-tag.spec.ts` 脱离仓库覆盖这套判断的每一个分支。
 
 ### 打包运行点名自己的平台,并证明自己产出了它们
 
 `parseCli` 不再推断任何东西。`--mac`、`--win`,或者两者都要;两个都不给就以非零码退出,并点出这三种写法。每个平台大约花十五分钟,这正是要拒绝、而不是默认两个都构建的理由。
 
-构建结束后,`verifyProducts` 算出这个版本为实际请求的那些平台该交付哪些文件,并要求每一个都存在、非空、而且**是本次运行开始之后写下的**——`main` 在最开头记下 `startedAt`,`auditArtifacts` 把早于它的文件归为 `stale`。「在」本身不构成证据:修完一个问题重打同一个版本是常规操作,于是目录里通常已经躺着这个版本自己的产物,顶着完全相同的期望名字,来自上一次运行。失败时会点名每一个文件及其原因(`(missing)`、`(empty)`、`(stale: built before this run)`);成功时打印带体积的通过清单。`apps/desktop/scripts/artifact-names.ts` 里的 `expectedArtifacts` 与 `auditArtifacts` 是纯函数,体积与修改时间由脚本提供。
+构建结束后,`verifyProducts` 算出这个版本为实际请求的那些平台该交付哪些文件,并要求每一个都存在、非空、而且**是本次运行开始之后写下的**——`main` 在最开头记下 `startedAt`,`auditArtifacts` 把早于它的文件归为 `stale`。「在」本身不构成证据:修完一个问题重打同一个版本是常规操作,于是目录里通常已经躺着这个版本自己的产物,顶着完全相同的期望名字,来自上一次运行。失败时会点名每一个文件及其原因(`(missing)`、`(empty)`、`(stale: built before this run)`);成功时打印带体积的通过清单。`apps/desktop-shell/scripts/artifact-names.ts` 里的 `expectedArtifacts` 与 `auditArtifacts` 是纯函数,体积与修改时间由脚本提供。
 
-期望的文件名是 electron-builder 对 `apps/desktop/electron-builder.yml` 所声明 target 的默认命名——因为没有任何 `artifactName` 覆盖它们:mac 两个 target 是 `DSH Desktop-<version>-arm64-mac.zip` 与 `DSH Desktop-<version>-arm64.dmg`,NSIS target 是 `DSH Desktop Setup <version>.exe`,各自还带一个 `.blockmap`——这与 `publish-update.ts` 要求的配对相同,因为缺了 blockmap 的产物会让每个客户端付出一次全量下载。`apps/desktop/tests/artifact-names.spec.ts` 读那份配置,断言 `productName`、各 target 的 arch 列表,以及没有任何 `artifactName` 覆盖,于是一次改名产物的配置改动会挂在测试上,而不是挂在一次发布上。
+期望的文件名是 electron-builder 对 `apps/desktop-shell/electron-builder.yml` 所声明 target 的默认命名——因为没有任何 `artifactName` 覆盖它们:mac 两个 target 是 `DSH Desktop-<version>-arm64-mac.zip` 与 `DSH Desktop-<version>-arm64.dmg`,NSIS target 是 `DSH Desktop Setup <version>.exe`,各自还带一个 `.blockmap`——这与 `publish-update.ts` 要求的配对相同,因为缺了 blockmap 的产物会让每个客户端付出一次全量下载。`apps/desktop-shell/tests/artifact-names.spec.ts` 读那份配置,断言 `productName`、各 target 的 arch 列表,以及没有任何 `artifactName` 覆盖,于是一次改名产物的配置改动会挂在测试上,而不是挂在一次发布上。
 
 命名没有被复制成两份:`publish-update.ts` 从 electron-builder 写出的清单里读产物名,`prune-feed.ts` 从一次发布上传的名字里推导模板。两者描述的都是已经存在的文件。`artifact-names.ts` 是唯一一处在构建产出任何东西之前就说出「它该交付什么」的地方。
 
@@ -72,8 +72,8 @@ Status: implemented
 
 发布现在依赖 git,也依赖能连上 `origin`:前置校验会跑 `git ls-remote`,于是一台连不上远端的机器会在前置校验处失败,而不是在最后失败。`--no-tag` 是通过的方式。发布现在还要求每一个已跟踪文件都与 HEAD 一致,这对「带着一处改动就顺手发布」的习惯是一条实打实的约束;未跟踪文件——包括发布运行自己写下的日志——不计入。
 
-`pnpm --filter @deepseek-ai/dsh-desktop run package` 不带参数现在会失败,而不是构建主机平台。每一次调用都点名自己的平台。
+`pnpm --filter @deepseek-ai/dsh-desktop-shell run package` 不带参数现在会失败,而不是构建主机平台。每一次调用都点名自己的平台。
 
 打包运行即使产出与上次逐字节相同的产物也照样通过,因为 electron-builder 是重写该文件、而不是把没动过的那个留在原地;时间戳发现的是「某个 target 没跑」,不是「某次构建的输出没变」。
 
-`apps/desktop/tests/release-tag.spec.ts` 钉住各条拒绝(已跟踪文件有改动、本地 tag 指向别处、`origin` 上的 tag 指向别处、没有 `origin`)、四种成功动作、`--no-tag` 的跳过,以及多个条件同时成立时的优先次序。`apps/desktop/tests/artifact-names.spec.ts` 钉住各平台的名字集合(对着 `electron-builder.yml`)以及审计的通过、缺失、为空、遗留四组,其中包括同一版本的某个平台整组来自上一次运行的情形。git 命令本身没有测试——`git tag -a`、`git push origin <tag>`,以及喂给判定的那四条只读查询——理由和清理步骤的 `rm` 没有测试相同:它们每次发布只对着一个真实仓库跑一次,证据就是那次发布。发布这条路径没有任何测试装置,能让一个假的 origin 证明出比那些判定测试更多的东西。
+`apps/desktop-shell/tests/release-tag.spec.ts` 钉住各条拒绝(已跟踪文件有改动、本地 tag 指向别处、`origin` 上的 tag 指向别处、没有 `origin`)、四种成功动作、`--no-tag` 的跳过,以及多个条件同时成立时的优先次序。`apps/desktop-shell/tests/artifact-names.spec.ts` 钉住各平台的名字集合(对着 `electron-builder.yml`)以及审计的通过、缺失、为空、遗留四组,其中包括同一版本的某个平台整组来自上一次运行的情形。git 命令本身没有测试——`git tag -a`、`git push origin <tag>`,以及喂给判定的那四条只读查询——理由和清理步骤的 `rm` 没有测试相同:它们每次发布只对着一个真实仓库跑一次,证据就是那次发布。发布这条路径没有任何测试装置,能让一个假的 origin 证明出比那些判定测试更多的东西。

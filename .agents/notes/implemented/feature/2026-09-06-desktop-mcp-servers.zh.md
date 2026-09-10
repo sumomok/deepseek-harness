@@ -10,7 +10,7 @@ harness 自带一个 MCP 客户端 [`@deepseek-ai/dsh-mcp-client`](../../../../p
 
 ## Decision
 
-`@haoran/dsh-mcp-servers` 0.1.4 加入 [`apps/desktop/README.zh.md`](../../../../apps/desktop/README.zh.md) 所列的桌面内置插件,以 `apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.1.4.tgz` 的形式 vendor 进来(sha256 `7726c05994f92db435e64707a16fc3713529e0e774a4c64bc6d5118709812de6`)。它是 `dsh-plugins` 工作区里的仓外包,与其他内置插件一样,只以那个 `pnpm pack` 归档抵达载荷。
+`@haoran/dsh-mcp-servers` 0.1.4 加入 [`apps/desktop-shell/README.zh.md`](../../../../apps/desktop-shell/README.zh.md) 所列的桌面内置插件,以 `apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.1.4.tgz` 的形式 vendor 进来(sha256 `7726c05994f92db435e64707a16fc3713529e0e774a4c64bc6d5118709812de6`)。它是 `dsh-plugins` 工作区里的仓外包,与其他内置插件一样,只以那个 `pnpm pack` 归档抵达载荷。
 
 它改由设置文档驱动上游客户端,而不是由编排驱动,并在其前面摆了三个回答。把服务器存下来就是同意连它:第一次连接会把它实际提供的那一组工具记成受信的那一组,这个指纹没人能手打出来,因为只有连上的服务器才说得出自己提供什么。这份记录会带着读到它时的那个修订号写回去,所以它落地期间有人在设置页做的修改不会被覆盖:这次写入会在更新的文档上重建,或者放弃。已存的服务器同时带着有人确认过的那个目的地的指纹——命令、参数、工作目录、环境变量,或 URL 与请求头——其中任何一项改动都会停掉这台服务器并重新发问。服务器提供的那组工具发生变化则不停它:连接继续保持,只扣住其中变过的和新增的工具,已勾选、服务器没动过的工具照常可用。工具只有在它当前的名字、描述与入参 schema 被勾中之后才会被注册;服务器改写了某个工具的措辞,该工具就退回待勾列表,于是它离开的是模型看到的 schema 列表,而不只是让它的下一次调用失败。没有存下任何服务器时,这个插件不注册任何工具、不启动任何进程,也不往任何请求里加任何东西。
 
@@ -22,7 +22,7 @@ harness 自带一个 MCP 客户端 [`@deepseek-ai/dsh-mcp-client`](../../../../p
 
 ### 在 bundle 栈里的位置
 
-这个名字追加在 `BUILTIN_WEB_BUNDLES`([`apps/desktop/src/profile-seed.ts`](../../../../apps/desktop/src/profile-seed.ts))里 `@haoran/dsh-default-model` 之后、`@haoran/dsh-btw` 之前。除了两层 patch 同一个条目 id 的情况,层与层之间的顺序不决定任何事:`@haoran/dsh-default-model` 替换掉 `agent-default-model` 与 `llm-deepseek` 两行的整个 `config`,所以其后的层不得再瞄准这两个 id,而本插件的 `cordis.patch.yml` 只在 `mcp-servers` 这个自有 id 下插入一行,没有别的层设置它。`product/server-console` 线上的 `feat/desktop-content-search` 分支追加了 `@deepseek-ai/dsh-desktop-app`,那边要求它留在末位;两条分支合到一起时,那个名字排在本列表所有名字之后。
+这个名字追加在 `BUILTIN_WEB_BUNDLES`([`apps/desktop-shell/src/profile-seed.ts`](../../../../apps/desktop-shell/src/profile-seed.ts))里 `@haoran/dsh-default-model` 之后、`@haoran/dsh-btw` 之前。除了两层 patch 同一个条目 id 的情况,层与层之间的顺序不决定任何事:`@haoran/dsh-default-model` 替换掉 `agent-default-model` 与 `llm-deepseek` 两行的整个 `config`,所以其后的层不得再瞄准这两个 id,而本插件的 `cordis.patch.yml` 只在 `mcp-servers` 这个自有 id 下插入一行,没有别的层设置它。`product/server-console` 线上的 `feat/desktop-content-search` 分支追加了 `@deepseek-ai/dsh-desktop-app`,那边要求它留在末位;两条分支合到一起时,那个名字排在本列表所有名字之后。
 
 ### 挂上它,桌面端让出了什么
 
@@ -32,7 +32,7 @@ harness 自带一个 MCP 客户端 [`@deepseek-ai/dsh-mcp-client`](../../../../p
 
 **审查模型会审每一次 MCP 调用。**`@haoran/dsh-llm-permission-gateway` 只跳过它 `readOnlyTools` 里点名的工具,以及有沙箱时 `walledTools` 里点名的工具;两份默认名单都没有 `mcp__*` 名字,而某台机器上会有哪些名字事先也无从知道——它们跟着这台机器装了哪些服务器走。两份名单都是 profile 层可以改写的纯字符串数组,所以想跳过某个特定 MCP 工具的部署可以把它点名写进去;这里没有任何一条是红线。所以在 `/review auto` 下,每一次 MCP 工具调用都要多一次审查调用;在 `/review manual` 下,这些调用则既没有审查也没有围墙。
 
-**本仓库没有任何一道闸会真的拉起一台 MCP 服务器。**`verifyStagedBoot` 是对着一个用完就扔的 `$DSH_HOME` 启动载荷的,里面没有存下任何服务器,所以它证明的是这个插件能加载、能编排、能把浏览器那一半服务出去,仅此而已:没有 stdio 子进程被派生,也没有任何 Streamable HTTP 端点被访问。到那时传输层的代码甚至已经不是一个独立的包了——`bundleClosure`([`apps/desktop/scripts/bundle-closure.ts`](../../../../apps/desktop/scripts/bundle-closure.ts))只把 `@deepseek-ai/*`、声明了 `dsh.bundle` 的那些包,以及原生包名单当作 external,于是 `@modelcontextprotocol/sdk` 被内联进 `@deepseek-ai/dsh-mcp-client/lib/`。那份被内联的副本在打包后的应用里是否还能拉起进程、还能说这套协议,是一条真机验收项,不是这里的闸能回答的。
+**本仓库没有任何一道闸会真的拉起一台 MCP 服务器。**`verifyStagedBoot` 是对着一个用完就扔的 `$DSH_HOME` 启动载荷的,里面没有存下任何服务器,所以它证明的是这个插件能加载、能编排、能把浏览器那一半服务出去,仅此而已:没有 stdio 子进程被派生,也没有任何 Streamable HTTP 端点被访问。到那时传输层的代码甚至已经不是一个独立的包了——`bundleClosure`([`apps/desktop-shell/scripts/bundle-closure.ts`](../../../../apps/desktop-shell/scripts/bundle-closure.ts))只把 `@deepseek-ai/*`、声明了 `dsh.bundle` 的那些包,以及原生包名单当作 external,于是 `@modelcontextprotocol/sdk` 被内联进 `@deepseek-ai/dsh-mcp-client/lib/`。那份被内联的副本在打包后的应用里是否还能拉起进程、还能说这套协议,是一条真机验收项,不是这里的闸能回答的。
 
 **工具描述是服务器自己的文字。**没有任何东西改写或筛查它,所以服务器可以把给模型的指令放进一段描述里,而人是读着那段描述批准的。
 
@@ -48,7 +48,7 @@ harness 自带一个 MCP 客户端 [`@deepseek-ai/dsh-mcp-client`](../../../../p
 
 ## Consequences
 
-两份 README 表格与 notices 的 override 表都带上了新的一行,这是 [`verify-vendored-plugin-versions`](../../../../scripts/verify-vendored-plugin-versions.ts) 对每个 vendor 包在两种语言里的要求;分发了多少个插件这件事,住在 [`apps/desktop/README.md`](../../../../apps/desktop/README.zh.md) 的内置插件表里。
+两份 README 表格与 notices 的 override 表都带上了新的一行,这是 [`verify-vendored-plugin-versions`](../../../../scripts/verify-vendored-plugin-versions.ts) 对每个 vendor 包在两种语言里的要求;分发了多少个插件这件事,住在 [`apps/desktop-shell/README.md`](../../../../apps/desktop-shell/README.zh.md) 的内置插件表里。
 
 没有新增第三方归属条目:`@modelcontextprotocol/sdk` 经由 `@deepseek-ai/dsh-mcp-client` 自己的依赖进入载荷,`zod` 则经由它与该插件两边进入,而 `THIRD_PARTY_NOTICES.md` 里两者早已在列。
 

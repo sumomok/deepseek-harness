@@ -49,7 +49,7 @@ poll every 250 ms:
   process gone, app process back?                 → mark and stop
 ```
 
-两个测量脚本就放在打包流水线旁边：`apps/desktop/scripts/measure/time-run.ps1` 按上面的方式给一次安装或卸载计时，`apps/desktop/scripts/measure/shape.ps1` 是每文件／每字节的拆分。两者都没有接进任何闸门——需要数字时手动跑，这就是它们全部的契约。
+两个测量脚本就放在打包流水线旁边：`apps/desktop-shell/scripts/measure/time-run.ps1` 按上面的方式给一次安装或卸载计时，`apps/desktop-shell/scripts/measure/shape.ps1` 是每文件／每字节的拆分。两者都没有接进任何闸门——需要数字时手动跑，这就是它们全部的契约。
 
 该引用的区间是「正在安装」页到「完成」页之间那一段。之外的一切都是操作者在决定什么时候点击，而在上面记录的两次运行之间，这部分相差了 30 秒。
 

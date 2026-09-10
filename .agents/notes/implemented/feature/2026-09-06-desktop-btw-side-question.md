@@ -10,7 +10,7 @@ Asking the assistant about the work in progress — why a step was taken, what a
 
 ## Decision
 
-`@haoran/dsh-btw` 0.1.1 joins the desktop built-ins listed in [`apps/desktop/README.md`](../../../../apps/desktop/README.md), vendored as `apps/desktop-server/vendor/haoran-dsh-btw-0.1.1.tgz` (sha256 `4ce89b8925904c6a208c51e7625f9a9a71126eb62b1594d35d044876b99960ab`). It registers one command: `/btw <question>` sends the conversation so far plus the question, shows the answer in a row of its own, and leaves the conversation exactly as it was.
+`@haoran/dsh-btw` 0.1.1 joins the desktop built-ins listed in [`apps/desktop-shell/README.md`](../../../../apps/desktop-shell/README.md), vendored as `apps/desktop-server/vendor/haoran-dsh-btw-0.1.1.tgz` (sha256 `4ce89b8925904c6a208c51e7625f9a9a71126eb62b1594d35d044876b99960ab`). It registers one command: `/btw <question>` sends the conversation so far plus the question, shows the answer in a row of its own, and leaves the conversation exactly as it was.
 
 **The isolation is structural.** The question and the answer are the command registry's own two events — `command/run` carries `name: 'btw'` and the question verbatim in `args`, and `command/done` carries the answer, or the reason there is none, in `text`. Neither is a surface event type, and `Session.deriveMessages()` — the one function that builds a model request's message list — folds only over surface nodes. Nothing this plugin writes can reach a later request, and nothing has to remember not to.
 

@@ -10,7 +10,7 @@ Status: implemented
 
 ## 决策
 
-转发判定谓词现在同时接受以 `http` 开头与以 `mailto:` 开头的目的地。它被抽取为 `apps/desktop/src/navigation.ts` 中的纯函数 `isExternalNavigationTarget`，不 import 任何 Electron 模块——因为 `will-navigate` 事件接线本身需要一个真实的 `BrowserWindow`，无法在纯 Node 测试下运行；抽出这个谓词正是让这项决策具备可单元测试性的做法。`apps/desktop/tests/navigation.spec.ts` 固定了两个分支：`http(s)`/`mailto:` 目的地转发，`file:`/`javascript:`/`about:`/空字符串目的地不转发。
+转发判定谓词现在同时接受以 `http` 开头与以 `mailto:` 开头的目的地。它被抽取为 `apps/desktop-shell/src/navigation.ts` 中的纯函数 `isExternalNavigationTarget`，不 import 任何 Electron 模块——因为 `will-navigate` 事件接线本身需要一个真实的 `BrowserWindow`，无法在纯 Node 测试下运行；抽出这个谓词正是让这项决策具备可单元测试性的做法。`apps/desktop-shell/tests/navigation.spec.ts` 固定了两个分支：`http(s)`/`mailto:` 目的地转发，`file:`/`javascript:`/`about:`/空字符串目的地不转发。
 
 ## 备选方案
 

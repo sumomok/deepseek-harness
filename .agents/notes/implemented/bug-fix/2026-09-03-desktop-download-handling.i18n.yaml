@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-03-desktop-download-handling.md
-2026-09-03-desktop-download-handling.md: e7a3c90816cde3a063cafb5c1a5d23edde1a478c
-2026-09-03-desktop-download-handling.zh.md: a87fd857e43f8581a03b2e0211a37de7820f25df
+2026-09-03-desktop-download-handling.md: 47f72600073774b4174b58948109b4a1a0dce495
+2026-09-03-desktop-download-handling.zh.md: 641d8338daf4a947df65236763e4fe00808545e7

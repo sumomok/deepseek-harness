@@ -30,7 +30,7 @@ Windows 上审批的 toast 带两个按钮，顺序固定：「拒绝」和「�
 
 ## Testing
 
-`apps/desktop/tests/notifications.spec.ts` 以纯函数的方式钉住按钮的顺序、文案和平台规则。`apps/desktop/tests/toast-answer.spec.ts` 直接驱动这个模块——替身 `WebSocket` 全局投递 `ready` 与一次 `approval/request` waterfall，替身 `Notification` 接住那条 toast——并从环回服务器上读回答复：按下「拒绝」时 `$events/result` 的确切载荷、按下「去看看」时的抬窗、`cancel` 之后按下 / 按第二次 / 断线重连期间按下时的抬窗与日志行、被宽限 `next` 关掉的 toast、被 `cancel` 关掉的那条不带按钮的提问 toast、被停掉这一代关掉的 toast、查名途中被取消因而根本没弹出的那条 toast 以及断的是 socket 时在重放上补弹出来的那条，还有一次失败的拒绝在重放时被重发、被接受后被遗忘、连失败两次后转为弃权。
+`apps/desktop-shell/tests/notifications.spec.ts` 以纯函数的方式钉住按钮的顺序、文案和平台规则。`apps/desktop-shell/tests/toast-answer.spec.ts` 直接驱动这个模块——替身 `WebSocket` 全局投递 `ready` 与一次 `approval/request` waterfall，替身 `Notification` 接住那条 toast——并从环回服务器上读回答复：按下「拒绝」时 `$events/result` 的确切载荷、按下「去看看」时的抬窗、`cancel` 之后按下 / 按第二次 / 断线重连期间按下时的抬窗与日志行、被宽限 `next` 关掉的 toast、被 `cancel` 关掉的那条不带按钮的提问 toast、被停掉这一代关掉的 toast、查名途中被取消因而根本没弹出的那条 toast 以及断的是 socket 时在重放上补弹出来的那条，还有一次失败的拒绝在重放时被重发、被接受后被遗忘、连失败两次后转为弃权。
 
 **「什么都没答」断言的是模块发出了什么，不是环回服务器收到了什么。**`fetch` 是被包了一层而不是被替换，于是任何一次答复在请求发出的那一刻就被记下；同一条断言若写成对着服务器收到的载荷去比，在「点 toast 本体也发一次拒绝」的变异下会通过，因为断言执行时那个 POST 还没落地。
 

@@ -53,8 +53,8 @@ function chineseReadme(rows: string[]): string {
 
 function documents(en = EN_ROWS, zh = ZH_ROWS, subsection: string[] = []): BuiltInPluginDocument[] {
   return [
-    { path: 'apps/desktop/README.md', heading: '## Built-in plugins', provenance: EN_PROVENANCE, text: englishReadme(en, subsection) },
-    { path: 'apps/desktop/README.zh.md', heading: '## 内置插件', provenance: ZH_PROVENANCE, text: chineseReadme(zh) },
+    { path: 'apps/desktop-shell/README.md', heading: '## Built-in plugins', provenance: EN_PROVENANCE, text: englishReadme(en, subsection) },
+    { path: 'apps/desktop-shell/README.zh.md', heading: '## 内置插件', provenance: ZH_PROVENANCE, text: chineseReadme(zh) },
   ]
 }
 
@@ -109,7 +109,7 @@ describe('parseBuiltInPluginTable', () => {
   it('reports a package listed twice', () => {
     const [english] = documents([...EN_ROWS, EN_ROWS[1]!])
     expect(parseBuiltInPluginTable(english!).violations).toEqual([
-      'apps/desktop/README.md lists @haoran/dsh-clickable-refs in the built-in plugins table more than once.',
+      'apps/desktop-shell/README.md lists @haoran/dsh-clickable-refs in the built-in plugins table more than once.',
     ])
   })
 
@@ -143,47 +143,47 @@ describe('findVendoredPluginViolations', () => {
 
   it('rejects a row left at the previous version in either language', () => {
     expect(findVendoredPluginViolations(sources({ documents: documents(EN_ROWS.map(row => row.replace('`0.4.1`', '`0.3.3`'))) }))).toEqual([
-      'apps/desktop/README.md lists @haoran/dsh-clickable-refs as 0.3.3; apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz carries 0.4.1.',
+      'apps/desktop-shell/README.md lists @haoran/dsh-clickable-refs as 0.3.3; apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz carries 0.4.1.',
     ])
     expect(findVendoredPluginViolations(sources({ documents: documents(EN_ROWS, ZH_ROWS.map(row => row.replace('`0.4.1`', '`0.3.3`'))) }))).toEqual([
-      'apps/desktop/README.zh.md lists @haoran/dsh-clickable-refs as 0.3.3; apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz carries 0.4.1.',
+      'apps/desktop-shell/README.zh.md lists @haoran/dsh-clickable-refs as 0.3.3; apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz carries 0.4.1.',
     ])
   })
 
   it('rejects a version cell whose provenance no longer says the tarball is committed here', () => {
     const en = EN_ROWS.map(row => row.replace(`\`0.18.0-alpha.0-patched1\`${EN_PROVENANCE}`, '`0.18.0-alpha.0-patched1`, from npm'))
     expect(findVendoredPluginViolations(sources({ documents: documents(en) }))).toEqual([
-      'apps/desktop/README.md row for dsh-better-sidebar reads "`0.18.0-alpha.0-patched1`, from npm"; its version cell must read "`0.18.0-alpha.0-patched1`, from a tarball committed in this repository".',
+      'apps/desktop-shell/README.md row for dsh-better-sidebar reads "`0.18.0-alpha.0-patched1`, from npm"; its version cell must read "`0.18.0-alpha.0-patched1`, from a tarball committed in this repository".',
     ])
   })
 
   it('rejects a version cell with no code span', () => {
     const en = EN_ROWS.map(row => row.replace(`\`0.4.1\`${EN_PROVENANCE}`, 'the latest one'))
     expect(findVendoredPluginViolations(sources({ documents: documents(en) }))).toEqual([
-      'apps/desktop/README.md row for @haoran/dsh-clickable-refs has no version code span; its version cell reads "the latest one".',
+      'apps/desktop-shell/README.md row for @haoran/dsh-clickable-refs has no version code span; its version cell reads "the latest one".',
     ])
   })
 
   it('rejects a missing row in either language', () => {
     expect(findVendoredPluginViolations(sources({ documents: documents([EN_ROWS[1]!]) }))).toEqual([
-      'apps/desktop/README.md lists no built-in plugins row for dsh-better-sidebar.',
+      'apps/desktop-shell/README.md lists no built-in plugins row for dsh-better-sidebar.',
     ])
     expect(findVendoredPluginViolations(sources({ documents: documents(EN_ROWS, [ZH_ROWS[1]!]) }))).toEqual([
-      'apps/desktop/README.zh.md lists no built-in plugins row for dsh-better-sidebar.',
+      'apps/desktop-shell/README.zh.md lists no built-in plugins row for dsh-better-sidebar.',
     ])
   })
 
   it('rejects a row for a plugin the manifest no longer vendors', () => {
     const orphan = `| \`@sumomok/dsh-edit-rerun\` | \`0.1.0\`${EN_PROVENANCE} | A withdrawn built-in |`
     expect(findVendoredPluginViolations(sources({ documents: documents([...EN_ROWS, orphan]) }))).toEqual([
-      'apps/desktop/README.md has a built-in plugins row for @sumomok/dsh-edit-rerun, which apps/desktop-server/package.json does not declare as a vendored tarball.',
+      'apps/desktop-shell/README.md has a built-in plugins row for @sumomok/dsh-edit-rerun, which apps/desktop-server/package.json does not declare as a vendored tarball.',
     ])
   })
 
   it('rejects a row under a subsection of the same section', () => {
     const orphan = `| \`@sumomok/dsh-edit-rerun\` | \`0.1.0\`${EN_PROVENANCE} | A withdrawn built-in |`
     expect(findVendoredPluginViolations(sources({ documents: documents(EN_ROWS, ZH_ROWS, [orphan]) }))).toEqual([
-      'apps/desktop/README.md has a built-in plugins row for @sumomok/dsh-edit-rerun, which apps/desktop-server/package.json does not declare as a vendored tarball.',
+      'apps/desktop-shell/README.md has a built-in plugins row for @sumomok/dsh-edit-rerun, which apps/desktop-server/package.json does not declare as a vendored tarball.',
     ])
   })
 
@@ -223,8 +223,8 @@ describe('findVendoredPluginViolations', () => {
     const empty = documents().map(document => ({ ...document, text: '# desktop\n' }))
     expect(findVendoredPluginViolations(sources({ manifest: '{}', documents: empty, overrides: {} }))).toEqual([
       'apps/desktop-server/package.json declares no file: vendor dependency; the built-in plugin set cannot be empty.',
-      'apps/desktop/README.md has no readable built-in plugins table; its "## Built-in plugins" section or table format changed.',
-      'apps/desktop/README.zh.md has no readable built-in plugins table; its "## 内置插件" section or table format changed.',
+      'apps/desktop-shell/README.md has no readable built-in plugins table; its "## Built-in plugins" section or table format changed.',
+      'apps/desktop-shell/README.zh.md has no readable built-in plugins table; its "## 内置插件" section or table format changed.',
     ])
   })
 })

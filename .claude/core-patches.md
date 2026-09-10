@@ -6,13 +6,13 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 
 ## fix(scripts): let the workspace gate see apps that never publish — 8238c1385d
 - **改了什么**：`scripts/check-workspace-constraints.ts` + 其 `.spec.ts`；给 `apps/*` 引入 private / 发布成员两种类别，新增 `isPrivateApp`、`checkPrivateAppManifest`。
-- **为什么**：`apps/desktop`、`apps/desktop-server`、`apps/pwa` 只随客户端构建分发、从不发到 npm，却被 `releaseMemberDirectory` 当成发布成员校验，四条发布元数据规则同时落空；该判定是 gate 脚本里写死的正则，没有插件层或配置层能重新分类。
+- **为什么**：`apps/desktop-shell`、`apps/desktop-server`、`apps/pwa` 只随客户端构建分发、从不发到 npm，却被 `releaseMemberDirectory` 当成发布成员校验，四条发布元数据规则同时落空；该判定是 gate 脚本里写死的正则，没有插件层或配置层能重新分类。
 - **要达到的效果**：`apps/*` 下未发布的产品装配（Electron 壳、部署根、补丁层 bundle）能通过 gate，同时仍受工作区卫生规则约束；判别只靠 `private: true` 一个布尔字段，不需要再维护第二份名单。
 - **退役条件**：上游自己的 `check-workspace-constraints.ts` 学会区分 `apps/*` 下未发布的私有产品装配与发布成员（或 fork 不再拥有此类未发布目录）。
 - **状态**：在役（0.1.3-alpha.1 重新移植已核实未退役，提交 `8238c1385d`）。核实依据：`git grep -c isPrivateApp upstream/master -- scripts/check-workspace-constraints.ts` 零命中，上游仍把每个 `apps/*` 目录当发布成员校验。移植时与上游本轮新增的 `checkDshFamilyVersion` 取并集。
 - **上一轮状态（rc.1 基座 `core-patches-v6`）**：在役
 
-- **rc.31 集成期扩展（本线提交，尚未回补丁线）**：上游 0.1.3-alpha.1 新增的 `checkDshFamilyVersion` 要求每个 `@deepseek-ai/dsh*` 工作区清单的版本等于根版本；`apps/desktop`（`0.1.0-rc.30`）、`apps/desktop-server`、`apps/pwa`（`0.1.0-rc.7`）带的是各自的产品发行版本——`apps/desktop` 的那一个就是桌面更新源服务、已安装外壳据以比对的版本号，不能由 dsh 家族共享版本占有。`checkWorkspaceManifest` 因此在 `isPrivateApp` 为真时跳过该检查，并在 `.spec.ts` 里各钉一条：私有 app 保留自己的产品版本、已发布 app 仍受共享版本约束。补丁线上没有 `apps/*`，这道门在那里永远不触发，下一轮滚动同步移植本补丁时需一并带上。
+- **rc.31 集成期扩展（本线提交，尚未回补丁线）**：上游 0.1.3-alpha.1 新增的 `checkDshFamilyVersion` 要求每个 `@deepseek-ai/dsh*` 工作区清单的版本等于根版本；`apps/desktop-shell`（`0.1.0-rc.30`）、`apps/desktop-server`、`apps/pwa`（`0.1.0-rc.7`）带的是各自的产品发行版本——`apps/desktop-shell` 的那一个就是桌面更新源服务、已安装外壳据以比对的版本号，不能由 dsh 家族共享版本占有。`checkWorkspaceManifest` 因此在 `isPrivateApp` 为真时跳过该检查，并在 `.spec.ts` 里各钉一条：私有 app 保留自己的产品版本、已发布 app 仍受共享版本约束。补丁线上没有 `apps/*`，这道门在那里永远不触发，下一轮滚动同步移植本补丁时需一并带上。
 
 ## fix(scripts): re-anchor two rescope exact edits to the 0.1.1-rc.1 tree — 9b498d4a3e
 - **改了什么**：`scripts/rescope-vendor.ts`；重新锚定两条 exact-edit 记录（`packages/util/home` 删除、中文 vendoring cookbook 链接改指向 `../rescope.zh.md`）。

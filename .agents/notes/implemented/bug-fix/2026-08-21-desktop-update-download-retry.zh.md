@@ -10,7 +10,7 @@ Status: implemented
 
 electron-updater 既不重试也不续传。全量下载不发 `Range` 头,而 `AppUpdater.executeDownload` 抛出的任何错误都会走 `removeFileIfAny`:删掉半截文件,并经 `DownloadedUpdateHelper.clear` 清空 pending 目录。差量路径救不了这件事:它按块用 `Range` 请求取产物,一块失败整轮 reject,`differentialDownloadInstaller` 把异常吞掉并返回 true,于是同一次调用退化成全量下载;而且它只在 `<cacheDir>/update.zip` 已经存在时才会运行,全新安装后的第一次更新永远不满足这个前提。没有超时或重试选项可设,`httpExecutor` 也不是有文档的扩展点。
 
-这套库行为要付多少代价,由壳决定,而[更新通道](../feature/2026-08-19-macos-in-app-update-self-signed.zh.md)对所有失败给的是同一个动作。`apps/desktop/src/updater.ts` 的 `error` 监听器关掉进度窗、清掉任务栏进度,并在 darwin 上对任何错误一律调用 `demoteMac`。同一个失败随后让 `downloadUpdate()` reject,走到 `runCheck` 的内层 catch,再降级一次,并在同一个 tick 里把这次检查改到下载页那一层重跑。一次被中断的传输,在启动检查或手动检查上看得见的结果就是一个「去下载」对话框,请用户去浏览器下载一个应用本来就装得了的构建,外加 `macInstallUnavailable` 在本次运行剩余时间里一直立着,于是这个会话里后面的每次检查也都移交给浏览器。Windows 上没有降级,但 pending 目录照样被清空,而这次检查什么也不说就结束了。
+这套库行为要付多少代价,由壳决定,而[更新通道](../feature/2026-08-19-macos-in-app-update-self-signed.zh.md)对所有失败给的是同一个动作。`apps/desktop-shell/src/updater.ts` 的 `error` 监听器关掉进度窗、清掉任务栏进度,并在 darwin 上对任何错误一律调用 `demoteMac`。同一个失败随后让 `downloadUpdate()` reject,走到 `runCheck` 的内层 catch,再降级一次,并在同一个 tick 里把这次检查改到下载页那一层重跑。一次被中断的传输,在启动检查或手动检查上看得见的结果就是一个「去下载」对话框,请用户去浏览器下载一个应用本来就装得了的构建,外加 `macInstallUnavailable` 在本次运行剩余时间里一直立着,于是这个会话里后面的每次检查也都移交给浏览器。Windows 上没有降级,但 pending 目录照样被清空,而这次检查什么也不说就结束了。
 
 下载能结束在两类失败上,这两类并不一样,而通道把它们当成了一样:连接被切断,并不说明这个构建能不能替换自己;而签名被拒或校验和不匹配,说的恰恰就是这件事。
 
@@ -20,7 +20,7 @@ electron-updater 既不重试也不续传。全量下载不发 `Range` 头,而 `
 
 ### 策略单独成模块,里面没有 electron
 
-`apps/desktop/src/download-retry.ts` 装着整个判断:`classifyDownloadError`、`describeDownloadError`、`RETRY_DELAYS_MS`,以及 `withRetry(run, delays, { onRetry, sleep })`——`sleep` 由调用方注入,于是这套计划可以对着一只瞬时时钟跑测试。`updater.ts` 与 `progress-window.ts` 引入 electron,做不了单测;而策略里没有任何东西非待在那儿不可。
+`apps/desktop-shell/src/download-retry.ts` 装着整个判断:`classifyDownloadError`、`describeDownloadError`、`RETRY_DELAYS_MS`,以及 `withRetry(run, delays, { onRetry, sleep })`——`sleep` 由调用方注入,于是这套计划可以对着一只瞬时时钟跑测试。`updater.ts` 与 `progress-window.ts` 引入 electron,做不了单测;而策略里没有任何东西非待在那儿不可。
 
 `withRetry` 每次尝试调用一次 `run`——每次尝试都是一整个下载,因为上一次什么都没留下——并以最后一次尝试失败时的那个错误 reject,无论是失败本身致命,还是计划用尽。调用方再对这个错误分类一次,决定自己那块界面怎么办。
 
@@ -71,4 +71,4 @@ electron-updater 既不重试也不续传。全量下载不发 `Range` 头,而 `
 
 代价是连接真的死了时的墙上时间:强制启动阻断现在要花掉最多 26 秒外加四次传输尝试,才给出「重试」/「退出应用」;普通检查也要花同样的时间才转入沉默。每次尝试都重传整个产物,所以一个在大文件下载后段才断的连接,要为此多付三次带宽。这里没有任何东西让更新变成可续传,而全新安装之后的第一次更新无论如何都是全量下载,因为差量路径需要缓存目录里已有上一版的 `update.zip`。
 
-`apps/desktop/tests/download-retry.spec.ts` 钉住上面那张表里每一行的分类、不认识即致命这条默认、对着注入时钟的延迟序列与 `onRetry` 上报、计划用尽时以最后一个失败 reject,以及致命失败既不重试也不等待。`updater.ts` 与 `progress-window.ts` 引入 electron,不做单测;它们承载的是模块测试看不见的接线,而更新通道没有快照泳道——它跑在打包后的 Electron 壳里,对着一个活的更新源,所以它的证据是一个已签名的构建和一次真实的中断下载。
+`apps/desktop-shell/tests/download-retry.spec.ts` 钉住上面那张表里每一行的分类、不认识即致命这条默认、对着注入时钟的延迟序列与 `onRetry` 上报、计划用尽时以最后一个失败 reject,以及致命失败既不重试也不等待。`updater.ts` 与 `progress-window.ts` 引入 electron,不做单测;它们承载的是模块测试看不见的接线,而更新通道没有快照泳道——它跑在打包后的 Electron 壳里,对着一个活的更新源,所以它的证据是一个已签名的构建和一次真实的中断下载。

@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-06-gateway-review-switch.md
-2026-09-06-gateway-review-switch.md: 19a6fcf955b589b703f7a4273708cfb1b5d39a7c
-2026-09-06-gateway-review-switch.zh.md: 457821959561a80bb6f7f8e5cbd503b79e16e933
+2026-09-06-gateway-review-switch.md: 569976c3d7331dfe620b6f91b19f7696df035d1d
+2026-09-06-gateway-review-switch.zh.md: 32e015e67c5d358ae73eb84cd82e7bf02f694752

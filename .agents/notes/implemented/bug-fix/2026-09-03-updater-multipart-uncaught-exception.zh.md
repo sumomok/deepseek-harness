@@ -14,7 +14,7 @@ Status: implemented
 
 `patches/electron-updater@6.8.9.patch` 逐字携带 electron-builder 提交 `5eed26b2a9cfd06a1dbe207b25a46ce2c0b05ae9`（PR #10021）：在多段分支响应回调的第一条语句处加上一行 `response.on("error", reject);`。`pnpm-workspace.yaml` 在 `patchedDependencies` 下登记它，并在旁边写明退役条件——第一个携带该提交的 electron-updater 发行版；6.8.9 是当前最新发行版，早于该提交。
 
-[`apps/desktop/src/crash-log.ts`](../../../../apps/desktop/src/crash-log.ts) 在 `main.ts` 打开的日志槽上注册外壳的 `uncaughtException` 与 `unhandledRejection` 处理器，位置紧接在该日志槽建立之后、更新器与服务器启动之前。异常会把 `[desktop] uncaught exception: ` 与渲染出的那个值写成一条记录，然后弹出 Electron 本会弹出的那个对话框：同样的标题，以及 `Uncaught Exception:` 加上同样的正文。对 `Error` 而言这段正文与 Electron 的完全一致——它的调用栈，没有栈时则是 `name: message` 那一行。抛出的值如果不是 `Error`，则按 `String(value)` 渲染，而 Electron 不是这么做的：它会从该值上读 `name` 与 `message` 并拼出 `undefined: undefined`，当值是 `undefined` 或 `null` 时甚至会在拼接过程中抛出。上报路径上没有任何一处碰 `Error` 的属性，因为上报时抛出的处理器会让 Node 结束进程且不留下任何记录。拒绝会写 `[desktop] unhandled rejection: …` 且不弹任何框，因为 Electron 对拒绝同样不弹框。两个处理器都不退出进程：Electron 的默认行为也不退出，而后台流上抛出的异常不应该终结一次会话。
+[`apps/desktop-shell/src/crash-log.ts`](../../../../apps/desktop-shell/src/crash-log.ts) 在 `main.ts` 打开的日志槽上注册外壳的 `uncaughtException` 与 `unhandledRejection` 处理器，位置紧接在该日志槽建立之后、更新器与服务器启动之前。异常会把 `[desktop] uncaught exception: ` 与渲染出的那个值写成一条记录，然后弹出 Electron 本会弹出的那个对话框：同样的标题，以及 `Uncaught Exception:` 加上同样的正文。对 `Error` 而言这段正文与 Electron 的完全一致——它的调用栈，没有栈时则是 `name: message` 那一行。抛出的值如果不是 `Error`，则按 `String(value)` 渲染，而 Electron 不是这么做的：它会从该值上读 `name` 与 `message` 并拼出 `undefined: undefined`，当值是 `undefined` 或 `null` 时甚至会在拼接过程中抛出。上报路径上没有任何一处碰 `Error` 的属性，因为上报时抛出的处理器会让 Node 结束进程且不留下任何记录。拒绝会写 `[desktop] unhandled rejection: …` 且不弹任何框，因为 Electron 对拒绝同样不弹框。两个处理器都不退出进程：Electron 的默认行为也不退出，而后台流上抛出的异常不应该终结一次会话。
 
 启动链不会到达这两个处理器中的任何一个。`main.ts` 把启动过程放在 `app.whenReady().then(…)` 里，因此在它自己的 `try` 之上抛出的错误——启动窗口、日志目录、托盘——会变成该 promise 的拒绝，而 Electron 43 让主进程的拒绝运行在 `warn-with-error-code` 模式下：不上报的话，这样一次启动就停在一张空白的启动页上，任何地方都没有记录。因此该链以 `.catch` 收尾，通过导出的 `reportUncaughtException` 上报。它上报到的日志槽是在上报那一刻读取的，而在日志文件存在之前，那个槽会写到 stderr 而不是把这一行丢掉，所以启动过程中没有任何一处是沉默的。
 
@@ -22,13 +22,13 @@ Status: implemented
 
 ## 测试
 
-[`apps/desktop/tests/electron-updater-multipart.spec.ts`](../../../../apps/desktop/tests/electron-updater-multipart.spec.ts) 从 `node_modules` 加载该模块，因此它检查的是打包后的应用真正运行的代码，而不是它的一份拷贝。测试用一个假的 HTTP executor 和一个 `PassThrough` 响应，把两个 `DOWNLOAD` 任务送进 `executeTasksUsingMultipleRangeRequests`，在该响应上发出 `error`，并要求这次 emit 不抛出、且 reject 回调收到了它。对未打补丁的 6.8.9，这次 emit 会抛出且没有任何 reject，这正是现场的失败。该套件是安全网而不是退役信号，因为无论那一行来自补丁还是来自更晚的发行版，它都保持通过；退役信号是 pnpm：`allowUnusedPatches` 与 `ignorePatchFailures` 都没有设置，一次让这条精确版本补丁变得无用或无法应用的升级会让安装失败。
+[`apps/desktop-shell/tests/electron-updater-multipart.spec.ts`](../../../../apps/desktop-shell/tests/electron-updater-multipart.spec.ts) 从 `node_modules` 加载该模块，因此它检查的是打包后的应用真正运行的代码，而不是它的一份拷贝。测试用一个假的 HTTP executor 和一个 `PassThrough` 响应，把两个 `DOWNLOAD` 任务送进 `executeTasksUsingMultipleRangeRequests`，在该响应上发出 `error`，并要求这次 emit 不抛出、且 reject 回调收到了它。对未打补丁的 6.8.9，这次 emit 会抛出且没有任何 reject，这正是现场的失败。该套件是安全网而不是退役信号，因为无论那一行来自补丁还是来自更晚的发行版，它都保持通过；退役信号是 pnpm：`allowUnusedPatches` 与 `ignorePatchFailures` 都没有设置，一次让这条精确版本补丁变得无用或无法应用的升级会让安装失败。
 
-这个信号属于根安装，也只属于根安装。pnpm 把 `patchedDependencies` 套用到带过滤的 `pnpm deploy` 上，方式与套用到安装时一样，因此闭包里缺少某个被打补丁的包时，这次 deploy 会在落位任何东西之前以 `ERR_PNPM_UNUSED_PATCH` 结束——而本仓库 deploy 的任何一个闭包都不包含 electron-updater，它属于那个从 `apps/desktop` 自己的 `node_modules` 打包出来的 Electron 外壳。于是每一次这样的 deploy 都带上 `--config.allow-unused-patches=true`：今天是桌面客户端的内嵌服务端闭包与 Python 运行时的可执行文件闭包，将来任何同样情形的闭包也一样。[`scripts/filtered-deploy.ts`](../../../../scripts/filtered-deploy.ts) 为两者拥有这条命令行，[`scripts/filtered-deploy.spec.ts`](../../../../scripts/filtered-deploy.spec.ts) 把这个标志与那几项 linker 设置钉在原处。
+这个信号属于根安装，也只属于根安装。pnpm 把 `patchedDependencies` 套用到带过滤的 `pnpm deploy` 上，方式与套用到安装时一样，因此闭包里缺少某个被打补丁的包时，这次 deploy 会在落位任何东西之前以 `ERR_PNPM_UNUSED_PATCH` 结束——而本仓库 deploy 的任何一个闭包都不包含 electron-updater，它属于那个从 `apps/desktop-shell` 自己的 `node_modules` 打包出来的 Electron 外壳。于是每一次这样的 deploy 都带上 `--config.allow-unused-patches=true`：今天是桌面客户端的内嵌服务端闭包与 Python 运行时的可执行文件闭包，将来任何同样情形的闭包也一样。[`scripts/filtered-deploy.ts`](../../../../scripts/filtered-deploy.ts) 为两者拥有这条命令行，[`scripts/filtered-deploy.spec.ts`](../../../../scripts/filtered-deploy.spec.ts) 把这个标志与那几项 linker 设置钉在原处。
 
 这个标志是整次 deploy 的一个布尔开关，而不是针对单个补丁的豁免：它会屏蔽该次 deploy 留下的每一个未使用补丁，所以从一次 deploy 里读不出任何关于退役的信息。包确实在闭包里的补丁仍会被应用，应用不上时仍会让 deploy 失败——node-pty 在两个闭包里都是这种情形——但某个补丁不再送达时 pnpm 已经不再出声，因此 `verifyStagedPatches` 会去落位后的目录里读每个补丁加入的那段文本，并在发布版的包顶替了它时让构建失败。某个闭包不再包含这些包之一时，这项检查同样会失败，而且是故意的：闭包合理地不再携带某个被打补丁的包，要记录在 `STAGED_PATCHES` 里。
 
-[`apps/desktop/tests/crash-log.spec.ts`](../../../../apps/desktop/tests/crash-log.spec.ts) 针对会记录调用的日志槽与对话框注册，把两个处理器识别为 `process` 此前没有的监听者，并直接调用它们——用一个 `Error`、一个不带调用栈的 `Error`，以及会让读 `.message` 的处理器自己死掉的抛出字符串与抛出 `undefined`。`reportUncaughtException` 另有独立覆盖，因为启动链不经过任何注册就会调到它。每一次注册都走 `afterEach` 运行的那个共享释放器，因此断言失败也不会给测试运行器留下本套件的监听者。
+[`apps/desktop-shell/tests/crash-log.spec.ts`](../../../../apps/desktop-shell/tests/crash-log.spec.ts) 针对会记录调用的日志槽与对话框注册，把两个处理器识别为 `process` 此前没有的监听者，并直接调用它们——用一个 `Error`、一个不带调用栈的 `Error`，以及会让读 `.message` 的处理器自己死掉的抛出字符串与抛出 `undefined`。`reportUncaughtException` 另有独立覆盖，因为启动链不经过任何注册就会调到它。每一次注册都走 `afterEach` 运行的那个共享释放器，因此断言失败也不会给测试运行器留下本套件的监听者。
 
 ## 考虑过的替代方案
 
@@ -36,7 +36,7 @@ Status: implemented
 
 **fork 或 vendor electron-updater。** 一行差异不足以让我们接管这个包的发布节奏；pnpm 补丁在上游发布的那一刻可以靠删除退役，而 vendor 的副本必须重新同步才能发现这一点。
 
-**改在 [`src/updater.ts`](../../../../apps/desktop/src/updater.ts) 里处理。** 该事件是在 electron-updater 自己的回调内部由 emitter 抛出的；外壳订阅的任何东西都看不到它，而且更新器的回退当时已经执行——最终完成的正是它回退到的全量下载。外壳在这里没有可用的接缝。
+**改在 [`src/updater.ts`](../../../../apps/desktop-shell/src/updater.ts) 里处理。** 该事件是在 electron-updater 自己的回调内部由 emitter 抛出的；外壳订阅的任何东西都看不到它，而且更新器的回退当时已经执行——最终完成的正是它回退到的全量下载。外壳在这里没有可用的接缝。
 
 **让已注册的 `unhandledRejection` 处理器覆盖启动链。** 它只有在处理器注册之后才会触发，而那已经在启动窗口与日志目录之后——这两步恰恰是最容易失败的——而且它只写一行、不弹框，于是一次彻底停住的启动只会把这件事说在一个还没人被告知去打开的文件里。显式的 `.catch` 覆盖整条链，并按其本来面目上报。
 

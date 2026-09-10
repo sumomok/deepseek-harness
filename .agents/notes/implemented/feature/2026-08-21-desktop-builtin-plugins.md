@@ -22,7 +22,7 @@ The plugins travel in the deploy closure, and the desktop shell puts their names
 
 The dependency is a tarball committed under `apps/desktop-server/vendor/`, not an archive URL. pnpm records no `integrity` for a GitHub archive tarball, because those bytes are not guaranteed stable, and `pnpm deploy` refuses a lockfile entry that has none — `ERR_PNPM_MISSING_TARBALL_INTEGRITY`, which failed the packaging run outright. A committed archive earns an `integrity` hash exactly as a registry version does. Nothing is built at install time: the archive carries a built `lib/` and declares no lifecycle script. A registry release at or past the shipped version is the reason to move back to a plain version.
 
-**The seed.** `apps/desktop/src/profile-seed.ts` runs in the Electron main process between the orphan sweep and `startServer`, and supplies the three facts a boot needs and nothing else:
+**The seed.** `apps/desktop-shell/src/profile-seed.ts` runs in the Electron main process between the orphan sweep and `startServer`, and supplies the three facts a boot needs and nothing else:
 
 - the `desktop` profile directory exists and holds the manifest, `cordis.patch.yml`, and `pnpm-workspace.yaml` — the same three files `initProfile` writes;
 - the manifest's `dsh.profile.bundles` list carries every built-in name, appended after whatever is already there, so `loadProfile` applies each plugin's `cordis.patch.yml` layer;
@@ -66,7 +66,7 @@ Two mechanisms rewrite bundle lists, and neither touches these names.
 
 ## The build stops editing the developer's harness home
 
-`verifyStagedBoot` boots the derived payload for real, and it did so against whatever `$DSH_HOME` resolved to on the build machine. Two writes followed every build: `prepareProfile` rewrote `~/.dsh/profiles/web/cordis.yml`, and `healProfilesModuleFallback` re-pointed all 171 flat-fallback symlinks at `apps/desktop/staging/server-mac/node_modules`, a tree the next build deletes. Nothing was lost — the next `dsh` launch heals the links — but a build has no business editing the machine's harness state, and the same home leaked into both `--version` smokes.
+`verifyStagedBoot` boots the derived payload for real, and it did so against whatever `$DSH_HOME` resolved to on the build machine. Two writes followed every build: `prepareProfile` rewrote `~/.dsh/profiles/web/cordis.yml`, and `healProfilesModuleFallback` re-pointed all 171 flat-fallback symlinks at `apps/desktop-shell/staging/server-mac/node_modules`, a tree the next build deletes. Nothing was lost — the next `dsh` launch heals the links — but a build has no business editing the machine's harness state, and the same home leaked into both `--version` smokes.
 
 `package.ts` now wraps its whole run in `withBuildHome`, which creates one `mkdtemp` home, puts it on `process.env` (what `run()` spreads and both `spawn` calls inherit), and removes it in a `finally`.
 
