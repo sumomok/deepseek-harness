@@ -55,6 +55,10 @@ import type { Browser, Locator, Page } from 'playwright'
 import { chromium } from 'playwright'
 import { afterAll, beforeAll, describe, expect, it, onTestFailed } from 'vitest'
 import { ToolCallId, createMessage, createToolResultMessage, createUserMessage } from '@deepseek-ai/dsh-llm'
+import { brandString } from '@deepseek-ai/dsh-brand'
+// The type import also carries llm-retry's own `SessionEventMap` merge, which
+// is what lets the seeded `llm/retry` narrow instead of widening to a string.
+import type { RetryId } from '@deepseek-ai/dsh-llm-retry/types'
 import type { SettingsNamespace } from '@deepseek-ai/dsh-settings'
 import { SessionId, type SessionEvent } from '@deepseek-ai/dsh-session'
 import { CommandId } from '@deepseek-ai/dsh-commands/brand'
@@ -1362,14 +1366,19 @@ const SEEDED_THINKING = 'The reports page is the one to open.'
 const SEEDED_ANSWER = 'The weekly report page is on the right.'
 /** The file the seeded turn writes; the produced-files tail's one chip, kept on screen. */
 const SEEDED_PRODUCED_FILE = 'weekly-report.md'
+/** The injected runtime-context message's body; a `context` row, hidden by the guard. */
+const SEEDED_CONTEXT = 'Runtime context: the reports page is published weekly.'
 
 /**
  * Seed one closed turn carrying every process row the business-content
- * decision hides — a system prompt, a reasoning block, a `content_read` tool
- * call with its result card, an intermediate step, and therefore a foldable
+ * decision hides — a system prompt, an injected runtime-context message, a
+ * scheduled provider retry, a reasoning block, a `content_read` tool call with
+ * its result card, an intermediate step, and therefore a foldable
  * completed-turn row and a reply footer — plus a standalone command whose name
  * no `conversation.chat.commandview` claims, so `GenericCommandCard` actually
- * draws one. The turn also writes one file, so `dsh-client-ui-deliverables`
+ * draws one. The context row is a `user/message` whose source is a plugin
+ * rather than the user, which is exactly what `messageDefinition` classifies
+ * as `context` instead of `user`. The turn also writes one file, so `dsh-client-ui-deliverables`
  * fills the reply footer's other child and the kept-tail half of the decision
  * has something to assert. Every row is a durable append with no model call,
  * the same technique {@link seedClosedTurn} uses.
@@ -1398,6 +1407,22 @@ function seedProcessTurn(scaffold: WebScaffold, sessionId: string): void {
       system: SEEDED_SYSTEM_PROMPT,
     },
     reason: 'initial',
+  })
+  session.append('user/message', createUserMessage({
+    content: [{ type: 'text', text: SEEDED_CONTEXT }],
+    source: { kind: 'plugin', plugin: 'runtime-context' },
+  }), { surfaceOp: 'append' })
+  session.append('llm/retry', {
+    retryId: brandString<RetryId>('server-sidebar-business-retry'),
+    turn: 1,
+    step: 1,
+    provider: 'fixture',
+    mode: 'normal',
+    policyKey: 'fixture',
+    retry: 1,
+    maxRetries: 3,
+    delayMs: 1_000,
+    failure: { message: 'fixture transport failure', code: 'transport' },
   })
   session.append('assistant/message', {
     turn: 1,
@@ -1529,7 +1554,7 @@ describe('web e2e: the console conversation column shows business content only',
       await expect(chat.getByText(SEEDED_USER_LINE).isVisible()).resolves.toBe(true)
       await expect(chat.getByText(SEEDED_ANSWER).isVisible()).resolves.toBe(true)
 
-      for (const kind of ['system-prompt', 'turn-process', 'tool-call', 'command']) {
+      for (const kind of ['system-prompt', 'turn-process', 'tool-call', 'command', 'context', 'model-retry']) {
         await expectGuardHidesSelector(chat, `[data-chat-flow-kind="${kind}"]`)
       }
       await expectGuardHidesSelector(chat, '[data-variant="think"]')
@@ -1543,11 +1568,17 @@ describe('web e2e: the console conversation column shows business content only',
       const readRow = chat.locator('[data-chat-flow-kind="tool-call"] [data-tool="content_read"]')
       expect(await readRow.count(), 'the seeded content_read call rendered no row').toBeGreaterThan(0)
       await expect(readRow.first().isVisible()).resolves.toBe(false)
-      // The reply footer loses only its action row, which is where 用量/用时
-      // sit — neither pill carries a handle of its own. Its other child, the
-      // produced-files tail, is kept on purpose and is what proves the rule
-      // did not take the whole footer.
-      await expectGuardHidesSelector(chat, '[data-turn-tail] > [class*="actions"]')
+      // The reply footer loses its two metric pills — 用量 and 用时, neither of
+      // which carries a handle of its own — and keeps every other control in
+      // that row. Both halves are read: a rule that drifted wider would still
+      // satisfy the "pills are gone" half on its own.
+      await expectGuardHidesSelector(chat, '[data-turn-tail] :has(> [class*="trigger"])')
+      const actions = chat.locator('[data-turn-tail] [class*="actions"]').first()
+      await expect(actions.isVisible()).resolves.toBe(true)
+      await expect(actions.getByRole('button', { name: 'Copy' }).isVisible()).resolves.toBe(true)
+      await expect(actions.getByRole('button', { name: 'Branch into a new conversation' }).isVisible())
+        .resolves.toBe(true)
+      await expect(chat.locator('[data-turn-tail] [class*="timeEnd"]').first().isVisible()).resolves.toBe(true)
       const produced = chat.locator('[data-turn-tail] [data-produced-files-row]')
       await expect(produced.first().isVisible()).resolves.toBe(true)
       await expect(produced.getByRole('button', { name: new RegExp(SEEDED_PRODUCED_FILE) }).isVisible())
