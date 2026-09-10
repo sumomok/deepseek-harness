@@ -10,7 +10,7 @@ harness 自带一个 MCP 客户端 [`@deepseek-ai/dsh-mcp-client`](../../../../p
 
 ## Decision
 
-`@haoran/dsh-mcp-servers` 0.1.2 加入 [`apps/desktop/README.zh.md`](../../../../apps/desktop/README.zh.md) 所列的桌面内置插件,以 `apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.1.2.tgz` 的形式 vendor 进来(sha256 `e865341b97ea38d5966666b578bc4b823a4a04c01d1fc56b50c3b37a548d4751`)。它是 `dsh-plugins` 工作区里的仓外包,与其他内置插件一样,只以那个 `pnpm pack` 归档抵达载荷。
+`@haoran/dsh-mcp-servers` 0.1.4 加入 [`apps/desktop/README.zh.md`](../../../../apps/desktop/README.zh.md) 所列的桌面内置插件,以 `apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.1.4.tgz` 的形式 vendor 进来(sha256 `7726c05994f92db435e64707a16fc3713529e0e774a4c64bc6d5118709812de6`)。它是 `dsh-plugins` 工作区里的仓外包,与其他内置插件一样,只以那个 `pnpm pack` 归档抵达载荷。
 
 它改由设置文档驱动上游客户端,而不是由编排驱动,并在其前面摆了三个回答。把服务器存下来就是同意连它:第一次连接会把它实际提供的那一组工具记成受信的那一组,这个指纹没人能手打出来,因为只有连上的服务器才说得出自己提供什么。这份记录会带着读到它时的那个修订号写回去,所以它落地期间有人在设置页做的修改不会被覆盖:这次写入会在更新的文档上重建,或者放弃。已存的服务器同时带着有人确认过的那个目的地的指纹——命令、参数、工作目录、环境变量,或 URL 与请求头——其中任何一项改动都会停掉这台服务器并重新发问。服务器提供的那组工具发生变化则不停它:连接继续保持,只扣住其中变过的和新增的工具,已勾选、服务器没动过的工具照常可用。工具只有在它当前的名字、描述与入参 schema 被勾中之后才会被注册;服务器改写了某个工具的措辞,该工具就退回待勾列表,于是它离开的是模型看到的 schema 列表,而不只是让它的下一次调用失败。没有存下任何服务器时,这个插件不注册任何工具、不启动任何进程,也不往任何请求里加任何东西。
 
