@@ -10,7 +10,7 @@ Asking the assistant about the work in progress — why a step was taken, what a
 
 ## Decision
 
-`@haoran/dsh-btw` 0.1.0 joins the desktop built-ins listed in [`apps/desktop/README.md`](../../../../apps/desktop/README.md), vendored as `apps/desktop-server/vendor/haoran-dsh-btw-0.1.0.tgz` (sha256 `ab585bb293edf7c01e725a5a393e2a3cc36823ab53bb99479aa4af9a7090fc6b`). It registers one command: `/btw <question>` sends the conversation so far plus the question, shows the answer in a row of its own, and leaves the conversation exactly as it was.
+`@haoran/dsh-btw` 0.1.1 joins the desktop built-ins listed in [`apps/desktop/README.md`](../../../../apps/desktop/README.md), vendored as `apps/desktop-server/vendor/haoran-dsh-btw-0.1.1.tgz` (sha256 `4ce89b8925904c6a208c51e7625f9a9a71126eb62b1594d35d044876b99960ab`). It registers one command: `/btw <question>` sends the conversation so far plus the question, shows the answer in a row of its own, and leaves the conversation exactly as it was.
 
 **The isolation is structural.** The question and the answer are the command registry's own two events — `command/run` carries `name: 'btw'` and the question verbatim in `args`, and `command/done` carries the answer, or the reason there is none, in `text`. Neither is a surface event type, and `Session.deriveMessages()` — the one function that builds a model request's message list — folds only over surface nodes. Nothing this plugin writes can reach a later request, and nothing has to remember not to.
 
@@ -22,7 +22,7 @@ Asking the assistant about the work in progress — why a step was taken, what a
 
 **The answer is not streamed.** It appears complete rather than word by word, because the only channel that could carry the increments to the browser is a session event, and this plugin writes none of its own. A Typert stream remote is the second seam that would carry them, and it is not built.
 
-**Stop is the registry's, and the row reads it.** Pressing stop aborts the request — the model call is cut off rather than left running for tokens nobody will read — and the registry settles the command with `signal.reason` as the message, superseding this plugin's own "Cancelled" line. That stored text is English and technical (`This operation was aborted`, or the registry's `command aborted` fallback), so a failed `/btw` whose text carries the word "abort" is drawn as **Cancelled** in the interface language with the stored text on hover. The recognition lives in the row rather than in what is written, because the stored text is not this plugin's to write and a deployment without its browser half falls back to the generic command card, which shows the original.
+**The shipping client cannot stop a side question, and the row reads a stop it never gets.** The stop control shown for a running agent turn does not reach a command: this client passes no cancellation to the command it started, so an answer that has been asked for runs to its end, and closing the row with × only collapses it. A request still running at `timeoutMs` is abandoned instead, under this plugin's own wording. The host half handles a cancellation anyway, for a caller that does pass a signal: the registry aborts the running handler and settles the command with `signal.reason` as the message, superseding this plugin's own "Cancelled" line, which therefore never reaches a card in this product. That stored text is English and technical (`This operation was aborted`, or the registry's `command aborted` fallback), so a failed `/btw` whose text carries the word "abort" is drawn as **Cancelled** in the interface language with the stored text on hover. The recognition lives in the row rather than in what is written, because the stored text is not this plugin's to write and a deployment without its browser half falls back to the generic command card, which shows the original.
 
 ## Alternatives considered
 
@@ -42,7 +42,7 @@ A side question is a full-price request. Asking one does not make the next cheap
 
 The record a `/btw` leaves is two events and an attribution line. Anything wanting per-question token accounting has to read the provider's own usage, not the session log.
 
-The host half's own lines are bilingual, Chinese first, because they are durable and are shown verbatim by the generic command card wherever this plugin's browser half is absent. Only the row's chrome — the title, the close control, "Answering…", "Answered by …", "Cancelled" — follows the interface language.
+The host half's own lines are bilingual, Chinese first, because they are durable and are shown verbatim by the generic command card wherever this plugin's browser half is absent. Only the row's chrome — the title, the close control, "Answering…", "Answered by …", "Cancelled" — follows the interface language, and the row remembers whether it was collapsed, per browser.
 
 ## Related
 

@@ -80,7 +80,7 @@ export const OVERRIDES: Record<string, { license?: string; repo?: string }> = {
   'dsh-at-file': { repo: 'https://github.com/omdsh-dev/dsh-at-file' },
   // Vendored as tarballs; the archive committed here, not a registry version, is
   // the artifact this payload ships, so the archive is what the notice names.
-  '@haoran/dsh-btw': { repo: 'apps/desktop-server/vendor/haoran-dsh-btw-0.1.0.tgz' },
+  '@haoran/dsh-btw': { repo: 'apps/desktop-server/vendor/haoran-dsh-btw-0.1.1.tgz' },
   '@haoran/dsh-clickable-refs': { repo: 'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz' },
   '@haoran/dsh-connection-banner': { repo: 'apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.1.tgz' },
   '@haoran/dsh-default-model': { repo: 'apps/desktop-server/vendor/haoran-dsh-default-model-0.2.0.tgz' },

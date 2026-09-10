@@ -36,7 +36,7 @@ External packages that a workspace package resolves at runtime. The tier covers 
 | [`@anthropic-ai/sdk`](https://github.com/anthropics/anthropic-sdk-typescript) | MIT |
 | [`@babel/code-frame`](https://github.com/babel/babel) | MIT |
 | [`@earendil-works/pi-ai`](https://github.com/earendil-works/pi) | MIT |
-| [`@haoran/dsh-btw`](apps/desktop-server/vendor/haoran-dsh-btw-0.1.0.tgz) | MIT |
+| [`@haoran/dsh-btw`](apps/desktop-server/vendor/haoran-dsh-btw-0.1.1.tgz) | MIT |
 | [`@haoran/dsh-clickable-refs`](apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz) | MIT |
 | [`@haoran/dsh-connection-banner`](apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.1.tgz) | MIT |
 | [`@haoran/dsh-default-model`](apps/desktop-server/vendor/haoran-dsh-default-model-0.2.0.tgz) | MIT |
