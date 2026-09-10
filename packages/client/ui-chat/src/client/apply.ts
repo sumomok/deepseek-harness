@@ -2,8 +2,8 @@
 import type { Context } from '@deepseek-ai/cordis'
 import type { ImageAttachmentRef } from '@deepseek-ai/dsh-attachment'
 import type {} from '@deepseek-ai/dsh-api-remotes/client'
-import {
-  dispatchReferentOpen, type ISessions, type ReferentRef, type SessionBinding,
+import type {
+  ISessions, ReferentRef, SessionBinding,
 } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { ConnectionHandle } from '@deepseek-ai/dsh-client-connection/client'
 import type { ObservableSnapshot } from '@deepseek-ai/dsh-client-store'
@@ -52,7 +52,7 @@ const CHAT_NODE_INJECT: ChatNodeTurnDataInjected = {
 
 /** Services required by the Chat target and its presentation registrations. */
 export const inject = [
-  'connection', 'slots', 'sessions', 'uiWorkspace', 'uiSession', 'uiConversation', 'conversation', 'locale',
+  'connection', 'slots', 'sessions', 'referent', 'uiWorkspace', 'uiSession', 'uiConversation', 'conversation', 'locale',
   'settingsScope', 'remote', 'remote.session', 'sidebarRight',
 ]
 
@@ -146,7 +146,7 @@ function buildProseReferents(
       // so this reuses the session's own composer notice channel instead.
       // Any other failure still only reaches the console: no dedicated UI
       // for those yet (unlike openFile's dialog below).
-      void dispatchReferentOpen(ctx, ref, onDefault).catch((error: unknown) => {
+      void ctx.referent.open(ref, onDefault).catch((error: unknown) => {
         if (remoteErrorOf(error)?.code === 'session/path-not-found') {
           notifyNotFound(sessionId, notFoundText)
           return
@@ -272,7 +272,7 @@ export function apply(ctx: Context): void {
               source: 'chat-view.openFile',
               provenance: 'structured',
             }
-            await dispatchReferentOpen(ctx, ref, async () => {
+            await ctx.referent.open(ref, async () => {
               const url = fileAddressFor(sessionId, cwd, path)
               if (options?.line === undefined) ctx.sidebarRight.openResource(url)
               else ctx.sidebarRight.openResource(url, { params: { line: options.line } })
