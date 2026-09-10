@@ -14,6 +14,8 @@ Status: implemented
 
 ## Decision
 
+本决策已被 [2026-09-10 的推翻](../simplification/2026-09-10-console-process-shown-again.zh.md)取代：产品负责人推翻了它，控制台的对话列重新呈现过程。本 note 描述的已不再是本包当下画出来的东西；它留存下来，作为「每一条规则隐藏了什么、各自选了哪种耦合、备选方案各自的代价」的记录。
+
 **每一处隐藏都只是 `packages/experimental/server-sidebar/src/client/terminology-guard.ts` 里多出的一条规则**——本包早已为轮次/步骤行、权限选择器与英雄区门面注入的那张纯客户端样式表。不动任何上游包，不加新插件，不加组合行，也不动 settings。
 
 **过程行按 Chat Node kind 隐藏。** `ChatNodeSeat.tsx` 会在每一个流式行上打出 `data-chat-flow-kind`，因此 `[data-chat-flow-kind="system-prompt"]`、`"turn-process"`、`"tool-call"`、`"command"`、`"manual-compaction"`、`"compaction"` 都是真正的属性选择器——没有类名子串，也没有 DOM 位置，唯一能打破它们的是上游改掉 kind 名字。推理是例外：它渲染在被保留的 `assistant-step` 席位内部，而不是自成一个 kind，因此它的规则耦合在 `[data-variant="think"]` 上——`ReasoningRow.tsx` 无条件设置它，且 `ToolRowVariant` 的其余成员都不与之相撞。命令行占了三个 kind，是因为 `ui-chat` 按命令的来路把同一个界面拆开了——`manual-compaction` 是 `/compact` 连同它的压缩事务，`compaction` 是自动那一次，`command` 是其余全部——只隐藏 `command` 会把 `/compact` 留在屏幕上。`context` 与 `model-retry` 是同一判断的再两次应用，两者都不在「保留」那一边：`context` 行是一条来源不是用户的 `user/message`（`messageDefinition` 正是据此归类的），因此它是这次运行所需要的机件，而不是访客写下的东西；`model-retry` 行则是内部状态——重试要么成功，那么访客读到的就是答案本身，要么耗尽，那么被保留的 `turn-error` 行会把这件事说出来。`command-input` 与 `workflow-run` 是 `dsh-client-ui-goal` 与 `dsh-client-ui-workflow-run` 对同一张表的贡献——两者都由 `packages/bundle/web-app/cordis.patch.yml` 组合进来，没有任何控制台 overlay 禁用它们，因此 `/goal` 会画出自己的输入行，一次 workflow 工具运行会画出一张生命周期卡片；`unknown` 则是 `ui-chat` 注册的兜底，它会把没有任何 Definition 认领的 append-surface 事件的原始 JSON 渲染出来。**这张表是可合并扩展的，因此这个联合是开放的**：本包的单元用例把每一个被组合进来的 kind 都列为「隐藏」或「保留」，一旦联合多出一个两边都不在的成员就编译不过——正是这一点挡住了一个未经审阅的 kind 出现在客户面前。
