@@ -45,10 +45,10 @@
 #
 # `models` is restated because @haoran/dsh-default-model sets it on this same
 # row one layer below and a patch replaces the whole `config`; dropping it here
-# would take the model picker's catalog and the vision default with it.
-# `apps/desktop/tests/desktop-composition-layer.spec.ts` compares this table
-# against the composed one below, so a catalog that moves there fails here
-# rather than in the picker.
+# would take the model picker's catalog with it, including the row the default
+# selection names. `apps/desktop/tests/desktop-composition-layer.spec.ts`
+# compares this table against the composed one below, so a catalog that moves
+# there fails here rather than in the picker.
 - id: llm-deepseek
   config:
     retryPolicy:
@@ -56,11 +56,16 @@
       backoff:
         maxDelayMs: 300000
     models:
+      - id: deepseek-flash
+        name: 'default'
+        description: deepseek-flash · V4.1 Flash · 视觉
+        inputModalities: [text, image]
       - id: deepseek-v4-flash
         name: DeepSeek-V4-Flash
+        description: Fast, efficient, and economical; suited to focused, routine, or parallel tasks.
       - id: deepseek-v4-pro
         name: DeepSeek-V4-Pro
+        description: Stronger agentic coding, knowledge, and difficult reasoning; suited to complex or quality-critical tasks at higher cost.
       - id: deepseek-v4-flash-vision-exp
-        name: 'default'
-        description: deepseek-v4-flash-vision-exp · 视觉
+        name: DeepSeek-V4-Flash-Vision-Exp
         inputModalities: [text, image]
