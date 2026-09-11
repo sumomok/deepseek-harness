@@ -8,8 +8,10 @@
  * the frame's own box arrives through the ResizeObserver stub rather than a
  * real measurement. The assertions are the user-visible ones: the four
  * tracks the grid gets, the owner share the session column receives, the
- * empty content column's own body, the content-empty collapse itself, and
- * that every resident column stays mounted across a fold.
+ * empty content column's own body, the content-empty collapse itself, that
+ * every resident column stays mounted across a fold, and — below the fold
+ * breakpoint — the off-canvas session drawer, its hamburger, and its scrim,
+ * Escape, and widen dismissals.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { act, cleanup, render, screen } from '@testing-library/react'
@@ -20,10 +22,12 @@ import type { SessionListState } from '@deepseek-ai/dsh-api-session-controller/c
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { ShellFrame, type ShellFrameProps } from '../src/client/ShellFrame.tsx'
 import { createPanelStore } from '../src/client/stores.ts'
-import { CHAT_UNITS, CONTENT_UNITS, SESSION_RAIL, SESSION_UNITS, solveTracks } from '../src/client/tracks.ts'
+import { CHAT_UNITS, CONTENT_UNITS, SESSION_RAIL, SESSION_UNITS, SIDEBAR_DRAWER, solveTracks } from '../src/client/tracks.ts'
 import { zh } from '../src/client/locales.ts'
 
 const FRAME = 1680
+/** A frame width below SIDEBAR_AUTO_COLLAPSE (1024) — the fold breakpoint. */
+const NARROW = 500
 const TEST_SESSION_ID = 'shell-frame-test-session' as SessionId
 
 /** Observer stub: captures the callback so a spec can deliver a resize. */
@@ -97,7 +101,7 @@ function mountFrame(occupied: readonly string[] = [], contentEntries: ContentFix
     calls.push({ key, owner })
     return occupied.includes(key) ? <div data-testid={`${key}-occupant`} /> : opts?.fallback ?? null
   }
-  // The frame reads six of its seats; the rest of the composed share is
+  // The frame reads seven of its seats; the rest of the composed share is
   // framework-supplied and never touched, so the bench supplies only these.
   // The renderer injects `SessionProvider`; this bench renders its children
   // straight through, because no assertion here turns on the scope binding.
@@ -121,6 +125,10 @@ function tracks(frame: HTMLElement): number[] {
   return matched.slice(1).map(Number)
 }
 
+const hamburgerOf = (frame: HTMLElement) => frame.querySelector<HTMLElement>('[data-shell-drawer-toggle]')
+const drawerOf = (frame: HTMLElement) => frame.querySelector<HTMLElement>('[data-shell-drawer]')
+const scrimOf = (frame: HTMLElement) => frame.querySelector<HTMLElement>('[data-shell-drawer-scrim]')
+
 beforeEach(() => {
   vi.stubGlobal('ResizeObserver', ResizeObserverStub)
   window.innerWidth = FRAME
@@ -134,7 +142,7 @@ afterEach(() => {
 describe('ShellFrame', () => {
   it('lays four resident tracks out on the 3:16:5 ratio with details closed', () => {
     const { frame } = mountFrame()
-    const solved = solveTracks(FRAME, false, false, false)
+    const solved = solveTracks(FRAME, false, false, false, false)
     expect(tracks(frame)).toEqual([solved.session, solved.content, solved.chat, 0])
     expect(solved.content / solved.session).toBeCloseTo(CONTENT_UNITS / SESSION_UNITS, 5)
     expect(solved.content / solved.chat).toBeCloseTo(CONTENT_UNITS / CHAT_UNITS, 5)
@@ -150,7 +158,7 @@ describe('ShellFrame', () => {
   it('re-solves the ratio from the frame box the observer delivers', () => {
     const { frame } = mountFrame()
     act(() => { deliverResize?.(1200) })
-    const solved = solveTracks(1200, false, false, false)
+    const solved = solveTracks(1200, false, false, false, false)
     expect(tracks(frame)).toEqual([solved.session, solved.content, solved.chat, 0])
   })
 
@@ -164,7 +172,7 @@ describe('ShellFrame', () => {
   it('hands the session column its fold state and rendered width', () => {
     const { calls, instance, frame } = mountFrame()
     expect(calls.find(call => call.key === 'sidebar')?.owner)
-      .toEqual({ collapsed: false, width: solveTracks(FRAME, false, false, false).session })
+      .toEqual({ collapsed: false, width: solveTracks(FRAME, false, false, false, false).session })
 
     act(() => { instance.actions.toggleSidebar() })
     expect(frame.dataset['sessionFolded']).toBe('true')
@@ -179,7 +187,7 @@ describe('ShellFrame', () => {
 
     act(() => { instance.actions.openDetails() })
     expect(frame.dataset['detailsOpen']).toBe('true')
-    expect(tracks(frame)[3]).toBe(solveTracks(FRAME, false, true, false).details)
+    expect(tracks(frame)[3]).toBe(solveTracks(FRAME, false, true, false, false).details)
 
     act(() => { instance.actions.closeDetails() })
     expect(tracks(frame)[3]).toBe(0)
@@ -208,9 +216,9 @@ describe('ShellFrame', () => {
 
   it('collapses the content column to zero width while the current session has shown nothing', () => {
     const { frame } = mountFrame([], 0)
-    const solved = solveTracks(FRAME, false, false, true)
+    const solved = solveTracks(FRAME, false, false, true, false)
     expect(tracks(frame)).toEqual([solved.session, 0, solved.chat, 0])
-    expect(solved.chat).toBeGreaterThan(solveTracks(FRAME, false, false, false).chat)
+    expect(solved.chat).toBeGreaterThan(solveTracks(FRAME, false, false, false, false).chat)
     expect(frame.dataset['contentEmpty']).toBe('true')
   })
 
@@ -230,5 +238,71 @@ describe('ShellFrame', () => {
     const { frame } = mountFrame([], 1)
     expect(tracks(frame)[1]).toBeGreaterThan(0)
     expect(frame.dataset['contentEmpty']).toBeUndefined()
+  })
+
+  it('takes the session column out of the grid and shows a hamburger below the breakpoint', () => {
+    const { frame } = mountFrame(['sidebar'])
+    act(() => { deliverResize?.(NARROW) })
+    expect(frame.dataset['narrow']).toBe('true')
+    expect(tracks(frame)[0]).toBe(0)
+    expect(hamburgerOf(frame)).not.toBeNull()
+    // The list moves to the drawer, so the 0-width grid column no longer
+    // mounts the sidebar occupant; the drawer is still closed, so it is
+    // nowhere on the page yet.
+    expect(screen.queryByTestId('sidebar-occupant')).toBeNull()
+  })
+
+  it('opens the drawer at its clamped width with a scrim when the hamburger is tapped', () => {
+    const { calls, frame } = mountFrame(['sidebar'])
+    act(() => { deliverResize?.(NARROW) })
+    act(() => { hamburgerOf(frame)?.click() })
+
+    const drawer = drawerOf(frame)
+    expect(drawer).not.toBeNull()
+    expect(scrimOf(frame)).not.toBeNull()
+    expect(hamburgerOf(frame)).toBeNull()
+    expect(drawer?.style.width).toBe(`${Math.min(SIDEBAR_DRAWER, NARROW)}px`)
+    expect(screen.getByTestId('sidebar-occupant')).toBeDefined()
+    expect(calls.filter(call => call.key === 'sidebar').at(-1)?.owner)
+      .toEqual({ collapsed: false, width: Math.min(SIDEBAR_DRAWER, NARROW) })
+  })
+
+  it('moves focus into the drawer on open and back to the hamburger on scrim-close', () => {
+    const { frame } = mountFrame()
+    act(() => { deliverResize?.(NARROW) })
+    act(() => { hamburgerOf(frame)?.click() })
+    expect(document.activeElement?.getAttribute('data-shell-drawer')).toBe('true')
+
+    act(() => { scrimOf(frame)?.click() })
+    expect(drawerOf(frame)).toBeNull()
+    expect(document.activeElement?.getAttribute('data-shell-drawer-toggle')).toBe('true')
+  })
+
+  it('closes the drawer on Escape and ignores other keys', () => {
+    const { frame } = mountFrame()
+    act(() => { deliverResize?.(NARROW) })
+    act(() => { hamburgerOf(frame)?.click() })
+    expect(drawerOf(frame)).not.toBeNull()
+
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'ArrowDown' })) })
+    expect(drawerOf(frame)).not.toBeNull()
+
+    act(() => { window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape' })) })
+    expect(drawerOf(frame)).toBeNull()
+    expect(hamburgerOf(frame)).not.toBeNull()
+  })
+
+  it('forces the drawer closed when the frame widens back past the breakpoint', () => {
+    const { frame } = mountFrame(['sidebar'])
+    act(() => { deliverResize?.(NARROW) })
+    act(() => { hamburgerOf(frame)?.click() })
+    expect(drawerOf(frame)).not.toBeNull()
+
+    act(() => { deliverResize?.(FRAME) })
+    expect(frame.dataset['narrow']).toBeUndefined()
+    expect(drawerOf(frame)).toBeNull()
+    expect(hamburgerOf(frame)).toBeNull()
+    // The session column is back in the grid at its solved width.
+    expect(tracks(frame)[0]).toBe(solveTracks(FRAME, false, false, false, false).session)
   })
 })

@@ -9,7 +9,10 @@ import { createPanelFace } from '../src/client/panel-face.ts'
 import type { BoundPanelActions } from '../src/client/panel-face.ts'
 
 function fakePanels(): BoundPanelActions {
-  return { toggleSidebar: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn() }
+  return {
+    toggleSidebar: vi.fn(), openDetails: vi.fn(), closeDetails: vi.fn(),
+    openDrawer: vi.fn(), closeDrawer: vi.fn(), setNarrow: vi.fn(),
+  }
 }
 
 describe('createPanelFace', () => {

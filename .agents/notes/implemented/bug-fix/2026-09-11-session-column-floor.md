@@ -22,7 +22,7 @@ What the floor does not do: it does not fold the column on its own, it adds no b
 
 **Auto-fold the session column below a breakpoint.** Rejected. The package's stated geometry is that the solve is a function of frame width and three booleans with no concession chain, so that a resize reproduces the same layout and nothing has to be restored. A breakpoint that folds the column adds a fourth input the layout service does not own — the fold is user state, toggled through `ctx.layout.toggleSidebar()` — and the shell would either overwrite that state on resize or hold two fold states that disagree. It also does not fix the reported width: a 500px window is above any breakpoint that leaves a desktop usable.
 
-**A drawer or overlay for the session list at narrow widths.** Rejected as out of scope for a geometry fix. It is a new surface with its own open state, dismissal, and focus handling, and the shipped ui-layout is the shell that already carries responsive behavior for deployments that need it.
+**A drawer or overlay for the session list at narrow widths.** Rejected as out of scope for a geometry fix. It is a new surface with its own open state, dismissal, and focus handling, and the shipped ui-layout is the shell that already carries responsive behavior for deployments that need it. (This later shipped for the console below 1024px — see [the narrow-frame session drawer](../feature/2026-09-11-narrow-frame-session-drawer.md).)
 
 **Make the floor a config field.** Rejected. The rail width and details width are contract-frozen for the same reason the ratio is, and the README lists "ratio and rail width are contract-frozen constants, not configuration" as a known limitation rather than a gap.
 
