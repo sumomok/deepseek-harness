@@ -194,7 +194,9 @@ describe('private app workspace constraints', () => {
   })
 
   it('still holds a published app to the shared dsh family version', () => {
-    const rootVersion = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
+    const { version: rootVersion } = JSON.parse(
+      readFileSync(new URL('../package.json', import.meta.url), 'utf8'),
+    ) as { version: string }
     expect(checkWorkspaceManifest({
       dir: 'apps/cli',
       manifest: { name: '@deepseek-ai/dsh', version: '0.1.0-rc.30' },
