@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-desktop-quiet-resumable-updates.md
-2026-09-11-desktop-quiet-resumable-updates.md: 262c4417b96286fa1ded5e9dbb8d1f318d7d89ed
-2026-09-11-desktop-quiet-resumable-updates.zh.md: 6db2f287d114d0de77edb96e77999a30617c39f8
+2026-09-11-desktop-quiet-resumable-updates.md: 2ee04a84b138355c2d174bf38305b3c5e62cb636
+2026-09-11-desktop-quiet-resumable-updates.zh.md: 0ebbee51ea496146975f5ec0ee660c7249fb5a78
