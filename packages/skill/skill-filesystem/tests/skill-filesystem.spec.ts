@@ -600,7 +600,9 @@ describe('FileSystemSkillProvider', () => {
         }
       })
     }
-    const fiber = ctx.plugin(SkillFileSystem, { dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), watch: false })
+    const fiber = ctx.plugin(SkillFileSystem, {
+      dshHome: join(home, '.dsh'), agentsHome: join(home, '.agents'), claudeHome: join(home, '.claude'), watch: false,
+    })
     await fiber
 
     try {
