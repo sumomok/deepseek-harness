@@ -8,7 +8,6 @@
 import { describe, expect, vi } from 'vitest'
 import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session/types'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
-import { CommandId } from '@deepseek-ai/dsh-commands'
 import { RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
 import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { ok, type RemoteMock } from '@deepseek-ai/dsh-remote-mock'
@@ -559,6 +558,9 @@ describe('prompt and cancel errors', () => {
   })
 
   it('stays blank on a command that declared it configures the session', async ({ mock, start }) => {
+    // The durable event is the only thing consulted, so the typed composer
+    // line, the Intent hero's access-mode chip and a plugin calling the
+    // command RPC directly all land on this same rule.
     const onEngaged = vi.fn()
     const session = await blankOpened(mock, start, onEngaged)
 
@@ -576,26 +578,6 @@ describe('prompt and cancel errors', () => {
     ])))
     await session.open()
     expect(session.getSnapshot().blank).toBe(false)
-  })
-
-  it('leaves the mirror to the durable event when the chip runs a command directly', async ({ mock, start }) => {
-    // The Intent hero's access-mode chip and the /permission popup both reach
-    // the host through this verb. It admits the line and nothing more: the
-    // blank bit moves only when the session's own `command/run` arrives, so
-    // every entry point lands on the same rule.
-    const onEngaged = vi.fn()
-    const session = await blankOpened(mock, start, onEngaged)
-    mock.remote.commands.execute.mockResolvedValue(
-      ok({ commandId: CommandId('cmd-1'), result: { kind: 'success' } }),
-    )
-
-    await expect(session.command('/permission read-only'))
-      .resolves.toEqual({ ok: true, value: { matched: true } })
-    expect(session.getSnapshot().blank).toBe(true)
-    expect(onEngaged).not.toHaveBeenCalled()
-
-    await pushEvent(mock, ev.commandRunConfiguring(SessionSeq(0), 'cmd-1', 'permission', ' read-only'))
-    expect(session.getSnapshot().blank).toBe(true)
   })
 
   it('refuses to re-blank an engaged Session on a summary that still says blank', async ({ mock, start }) => {
