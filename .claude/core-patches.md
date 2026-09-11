@@ -707,7 +707,7 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 
 ### 冲突与决定（8 个冲突提交）
 
-- `feat(permission-presets)` glyph：上游把盾牌轮廓提成 `ui-primitives` 的 `SHIELD_OUTLINE_PATH`/`SHIELD_OUTLINE_STROKE` 并新增 `IconShieldOutline16`。**决定**：注释取上游版并补回「其余键画裸轮廓」一句；本补丁自带的 `shieldOutline` 字面量退役，`bareShield` 改用上游两个常量。不改用 `IconShieldOutline16`：同文件三枚内置图标都是就地 svg 组合同一 path，上游导出这两个常量正是为此，裸盾牌是这组的第四个成员，且就地写法保住了与兄弟行一致的 `aria-hidden`。
+- `feat(permission-presets)` glyph：上游把盾牌轮廓提成 `ui-primitives` 的 `SHIELD_OUTLINE_PATH`/`SHIELD_OUTLINE_STROKE` 并新增 `IconShieldOutline16`。**决定**：注释取上游版并补回「其余键画裸轮廓」一句；`bareShield` 改用上游两个常量，本补丁自带的 `shieldOutline` 字面量随之局部退役（记在该补丁自己的小节）。不改用 `IconShieldOutline16`：同文件三枚内置图标都是就地 svg 组合同一 path，上游导出这两个常量正是为此，裸盾牌是这组的第四个成员，且就地写法保住了与兄弟行一致的 `aria-hidden`。
 - `feat(ui-conversation)` 用户消息贡献位：`ChatNodeSeat.tsx`/`MessageItem.tsx`/`chat-branch-tails.client.spec.tsx` 三处解构取并集（上游新增 `openSkill`，我方 `renderUserActions`），测试对象的断言类型取上游的 `as unknown as`。
 - `fix(ui-primitives)` 被阻止链接、`feat(ui-chat,ui-primitives)` proseReferents 族：冲突只在双语 README 段与生成物。README 取上游重写后的新段、插回我方那一句；生成物取上游侧后重跑生成器。
 - `fix(agent-presets)` 遗留别名：上游新增 `selectionPolicy()` 并把 `remoteExportList` 的默认 id 改从 `policy.defaultId` 取。**决定**：`const defaultId = rosterIdFor(policy.defaultId, presets)`，`isDefault` 比对改回 `defaultId`；`SETTINGS_NAMESPACE` 的 JSDoc 取上游新措辞。
@@ -715,7 +715,7 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 - 双语配对一律走 `verify-translation-pairing --write` 重录，未手改 `*.i18n.yaml`。
 - 台账自身（`chore(core-patches): register the v7 re-port and settle the generated catalogs`，本线 `5d6bc21913`）：它改的是本文件「重新移植：rc.1 → 0.1.3-alpha.1」一节（18 增 13 删），冲突来自该节在后续几轮里被新小节挤过位置。**决定**：只把该提交自己那几块落到该节当前所在的位置，既有小节一行不动；同提交里的 `docs/config-catalog.*`、`docs/event-producer-consumer.*` 与 `navigation-panes` 夹具按上面的生成物与夹具规则处理。
 
-上面七个补丁族各自的小节里都补了一条「本轮（`core-patches-v9`）」状态条（含提交哈希与核实依据）；第八条是台账提交本身，没有对应的补丁小节，故记在这里。**其余 42 个提交自动合并、零退役**，它们的本轮状态由本节统一承载，各自小节的最新指针仍停在 `core-patches-v8`——查某条补丁本轮是否在役，读本节。
+上面六个补丁族（承载 8 个冲突提交中的 7 个）各自的小节里都补了一条「本轮（`core-patches-v9`）」状态条（含提交哈希与核实依据）；第八个冲突提交是台账提交本身，没有对应的补丁小节，故记在这里。**其余 42 个提交自动合并、零退役**，它们的本轮状态由本节统一承载，各自小节的最新指针仍停在 `core-patches-v8`——查某条补丁本轮是否在役，读本节。
 
 ### 三方审计
 
@@ -778,7 +778,7 @@ rc.29/rc.30 的 fork 把 file 块的对象写在 `attachments/v1/objects/<xx>/<s
 
 - **MUST-FIX 1（漏回补一整族）**：rc.32 集成线的 `settings.trigger.action` 同行贡献位族（4 个提交）不在第一批的六族里，本轮回补为 `7438eae8de`+`ba561043d0`（代码）与 `8578deb659`+`5e91a8c9fb`（台账），登记见本文件 `## feat(ui-settings,ui-settings-general): 设置触发行右端的同行贡献位` 一节。退役核实：`settings.trigger.action` 在 `upstream/master` 零命中。生成物 `slot-catalog.ts` 取上游侧后跑 `gen-client-catalog`，重跑后工作树干净（生成器与已提交产物一致）。该族 8 个落点文件里 7 个与 rc.32 集成线逐字节相同，第 8 个 `shell.client.spec.ts` 因上游整体重写为组装式 client-test 而不同，我方那一行落在其第 29 行。
 - **MUST-FIX 2（Agent Note 记了假事实）+ SHOULD-FIX 1、2**：`c8bbc75776` 折掉的 RPC 转正用例是净减覆盖——`Session.command()` 因此全仓零测试，而 `2026-09-10-command-engages-blank-session` 双语 Note 仍在声称该 spec 钉住这个动词。真因不是 roster：整机层的 `remote.<ns>` 代理由 `remoteNamespacesOf` 按「roster 注入 + 启动时 mock 已知的端点」两处并集提供，被折掉的用例是在 `blankOpened` 启动客户端**之后**才经 `mock.remote.commands.execute` 注册答案的，所以那时代理已经不含 `commands`。改为在启动前 `mock.unary('commands/execute', …)` 即可，用例走的是真实 Gateway 路径。回修提交 `6ab30596f4`：补回两条用例（受理一行并报告是否匹配、按 Host 契约记下位置实参、blank 只随观察到的 `command/run` 变、`onEngaged` 不被调用；以及 Commands 失败原样交回且会话仍 blank），双语 Note 第 47 行改为陈述这两条实际钉住的事实并 `verify-translation-pairing --write` 重录，留存那条配置命令用例的注释改成只说它真做的断言（由该次运行自己的 `engages` 声明决定）。
-- **SHOULD-FIX 3、4、5**：本节所在的台账提交。七个冲突补丁族各补一条「本轮（`core-patches-v9`）」状态条；`shieldOutline` 字面量的局部退役从滚动小节搬进 glyph 补丁自己的小节（一个事实一个家，滚动小节保留冲突决定那一面）；5 个适配提交补齐「要达到的效果 / 退役条件」。
+- **SHOULD-FIX 3、4、5**：本节所在的台账提交。六个冲突补丁族（7 个冲突提交）各补一条「本轮（`core-patches-v9`）」状态条；`shieldOutline` 字面量的局部退役从滚动小节搬进 glyph 补丁自己的小节（一个事实一个家，滚动小节保留冲突决定那一面）；5 个适配提交补齐「要达到的效果 / 退役条件」。
 - **SHOULD-FIX 6（过程纪律）**：第一批里破了两条红线——权限分类器拦下命令后换写法重试（应停下上报），以及对未推送提交做过一次 `amend`。两处都已在上面如实记下，本批全程只追加提交、零 `amend`、零 `--force`、零 `--no-verify`；分类器本批未拦截任何命令。
 
 ### 分支 HEAD 登记
