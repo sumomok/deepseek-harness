@@ -5,7 +5,10 @@
  * band that the layout service opens and closes. There is no concession chain
  * and no drag preference — the solve is a function of (frame width, sidebar
  * fold, details open, content empty) alone, so any resize reproduces the
- * same ratio.
+ * same ratio, with one fixed point on it: the expanded session column never
+ * solves below {@link SESSION_MIN}. On a frame narrower than the one where its
+ * 3/24 share meets that floor, the column holds the floor and content and chat
+ * divide what remains on their 16:5.
  *
  * The content column additionally collapses to zero width when the current
  * session's content surface has shown nothing yet, the same way the details
@@ -30,6 +33,15 @@ export const TOTAL_UNITS = SESSION_UNITS + CONTENT_UNITS + CHAT_UNITS
 // against one column renders identically under the other.
 /** Folded session column: a 24px icon column between 16px horizontal paddings. */
 export const SESSION_RAIL = 56
+/**
+ * Expanded session column's floor in px. 180 is what the 3/24 share yields
+ * from 1440px of columns (a 1440px frame with details closed), so every wider
+ * span solves exactly on the ratio and only a narrower one lifts the column
+ * above its share; the share alone leaves a 500px window a 63px column that
+ * wraps every session title one character per line. Clamped to the columns'
+ * width, so a frame narrower than the floor still tiles exactly.
+ */
+export const SESSION_MIN = 180
 /** Details band width while open; closed resolves to zero. */
 export const DETAILS_WIDTH = 360
 
@@ -63,13 +75,17 @@ function share(total: number, units: number, of: number): number {
  * @param detailsOpen - whether the layout service has the details band open.
  * @param contentEmpty - whether the content column has nothing to show
  * (collapses it to zero, same as `detailsOpen: false` does for details).
- * @returns the px width of each track; they sum to `frame` whenever it is positive.
+ * @returns the px width of each track; they sum to `frame` whenever it is
+ * positive, and an expanded session column is its 3/24 share or
+ * {@link SESSION_MIN}, whichever is wider.
  */
 export function solveTracks(frame: number, sessionFolded: boolean, detailsOpen: boolean, contentEmpty: boolean): Tracks {
   const width = Math.max(0, frame)
   const details = detailsOpen ? Math.min(DETAILS_WIDTH, width) : 0
   const columns = width - details
-  const session = sessionFolded ? Math.min(SESSION_RAIL, columns) : share(columns, SESSION_UNITS, TOTAL_UNITS)
+  const session = sessionFolded
+    ? Math.min(SESSION_RAIL, columns)
+    : Math.min(columns, Math.max(SESSION_MIN, share(columns, SESSION_UNITS, TOTAL_UNITS)))
   // A folded rail leaves its ratio units unclaimed, so content and chat divide
   // what remains on their own 16:5 — the center never inherits the whole fold.
   const body = columns - session

@@ -1,13 +1,13 @@
 /**
  * Track solver behavior: the 24-unit ratio the product line is defined by, the
- * fixed points (rail width, details band, content-empty collapse), and the
+ * fixed points (rail width, session floor, details band, content-empty collapse), and the
  * two properties every frame must hold — the tracks tile the frame exactly,
  * and the solve is a pure function of its inputs, so re-widening restores the
  * ratio without hysteresis.
  */
 import { describe, expect, it } from 'vitest'
 import {
-  CHAT_UNITS, CONTENT_UNITS, DETAILS_WIDTH, SESSION_RAIL, SESSION_UNITS, solveTracks, TOTAL_UNITS,
+  CHAT_UNITS, CONTENT_UNITS, DETAILS_WIDTH, SESSION_MIN, SESSION_RAIL, SESSION_UNITS, solveTracks, TOTAL_UNITS,
 } from '../src/client/tracks.ts'
 
 /** A frame width divisible by 24 so the ratio lands on whole pixels. */
@@ -43,7 +43,7 @@ describe('solveTracks', () => {
     expect(solveTracks(FRAME, false, false, false)).toEqual(solveTracks(FRAME, false, false, false))
   })
 
-  it.each([320, 977, 1024, 1440, 1681, 3840])('tiles a %ipx frame with no gap or overflow', (width) => {
+  it.each([120, 320, 500, 977, 1024, 1440, 1681, 3840])('tiles a %ipx frame with no gap or overflow', (width) => {
     for (const folded of [false, true]) {
       for (const details of [false, true]) {
         for (const contentEmpty of [false, true]) {
@@ -52,6 +52,34 @@ describe('solveTracks', () => {
         }
       }
     }
+  })
+
+  it('holds the expanded session column at its floor on a narrow frame', () => {
+    const tracks = solveTracks(500, false, false, true)
+    expect(tracks).toEqual({ session: SESSION_MIN, content: 0, chat: 320, details: 0 })
+  })
+
+  it('meets the floor exactly where the ratio does, so a 1440px frame solves on the ratio', () => {
+    const { session } = solveTracks(1440, false, false, false)
+    expect(session).toBe(SESSION_MIN)
+    expect(session).toBe((1440 * SESSION_UNITS) / TOTAL_UNITS)
+  })
+
+  it('lets the ratio win above the floor', () => {
+    expect(solveTracks(2400, false, false, false).session).toBe(300)
+  })
+
+  it('clamps the floor to the frame rather than overflowing it', () => {
+    expect(solveTracks(120, false, false, false)).toEqual({ session: 120, content: 0, chat: 0, details: 0 })
+  })
+
+  it('applies the floor to what the details band leaves, not to the frame', () => {
+    const tracks = solveTracks(500, false, true, true)
+    expect(tracks).toEqual({ session: 140, content: 0, chat: 0, details: DETAILS_WIDTH })
+  })
+
+  it('does not lift a folded rail on a narrow frame', () => {
+    expect(solveTracks(500, true, false, false).session).toBe(SESSION_RAIL)
   })
 
   it('keeps every track non-negative on a frame narrower than its fixed points', () => {

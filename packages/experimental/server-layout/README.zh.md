@@ -33,7 +33,7 @@ content 栏是这条产品线的立身之本，也是本包存在的理由：一
 - **`ctx.layout`** —— 同一个 `ILayout` 面（`toggleSidebar`、`openDetails`、`closeDetails`），在注册 root 条目的同一个同步 effect 里提供，且**先于**注册。这个顺序正是 ui-sidebar 与 ui-conversation 零改动可用的原因：两者都 inject `layout`，也都不等声明就直接往这些子槽注册，因此当服务解开它们的 fiber 时，槽已经存在了。
 - **文档级主题投影** —— `ctx.theme` 解析当前主题但从不碰 DOM；写 root `color-scheme`、body 调色板属性和主题 alias token 的是外壳。少了这一段，组合只会保留宿主 boot 脚本给的基础调色板，并静默地不再响应 Appearance 偏好。
 
-几何是有意不同的。这里没有拖拽把手、没有让步链、没有宽度偏好：轨道宽度是「测得的框架宽度 + 三个布尔」的纯函数（`tracks.ts`），因此任何一次 resize 都复现同一比例，也没有什么需要恢复。折叠后的 session 栏渲染 56px 控制条，并把自己的比例份额让给 content 与 chat，后两者继续按各自的 16:5 瓜分剩余空间。details 带打开时从总宽里取走固定 360px，关闭时取 0，且其子树在零宽下保持挂载。
+几何是有意不同的。这里没有拖拽把手、没有让步链、没有宽度偏好：轨道宽度是「测得的框架宽度 + 三个布尔」的纯函数（`tracks.ts`），因此任何一次 resize 都复现同一比例，也没有什么需要恢复。比例上唯一的固定点是展开状态 session 栏的 180px 下限（`SESSION_MIN`）：1440px 框架的 3/24 正是 180px，因此更宽的框架完全按比例求解，更窄的框架则把这一栏钉在 180px，content 与 chat 按各自的 16:5 瓜分剩余——若只按份额，500px 的窗口只会给这一栏 63px，每个会话标题都会被拆成一字一行。折叠后的 session 栏渲染 56px 控制条，并把自己的比例份额让给 content 与 chat，后两者继续按各自的 16:5 瓜分剩余空间。details 带打开时从总宽里取走固定 360px，关闭时取 0，且其子树在零宽下保持挂载。
 
 content 栏在自己无内容可展示时也走同样的折叠：宽度归零，chat 吃下让出的份额，子树仍保持挂载在下面。外壳通过标准的 `useSessions` 列表投喂读取当前 session 的 content surface 来判断这一点，而不是引入 [`content-surface`](../content-surface/README.zh.md) 依赖——这份软耦合的代价见 Known Limitations。
 
@@ -80,7 +80,8 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 
 <a id="known-limitations-and-deferred-work"></a>
 
-- **没有响应式行为** —— 比例在任何宽度下都照用，因此窄视口会把四栏一起挤扁，而不是折叠 session 栏或改为堆叠。出厂外壳的自动折叠断点与让步链在这里没有对应物；需要它们的部署应当改用 ui-layout。
+- **没有响应式行为** —— 比例在任何宽度下都照用，session 栏的 180px 下限是唯一例外，因此窄视口会把四栏一起挤扁，而不是折叠 session 栏或改为堆叠。出厂外壳的自动折叠断点与让步链在这里没有对应物；需要它们的部署应当改用 ui-layout。
+- **约 540px 以下 chat 栏会跌破 360px** —— 窄框架先被 session 下限拿走 180px，即使 content 栏已折叠也是如此，外壳没有抽屉或浮层来顶替它；手机宽度的窗口要靠折叠控件把宽度要回来。
 - **没有调宽手段** —— 栏宽既不可由用户调整，也不持久化。比例与控制条宽度是约定冻结的常量，不是配置项。
 - **content 栏只是壳** —— 本包交付座位、空态与几何。里面渲染什么归占用者所有；[`content-frame`](../content-frame/README.zh.md) 是第一位。
 - **root scope 的一栏会漏出跨 session 状态，除非占用者自己按 session 分键** —— 框架在 session 切换时不清任何东西，因此持有 per-session 组件状态的占用者必须自己以 session id 分键。这份代价换来的正是这一栏的全部意义：框架不得摧毁的 DOM。另外三栏保持各自的 session scope。
