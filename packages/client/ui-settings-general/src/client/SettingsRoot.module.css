@@ -5,6 +5,18 @@
   gap: 8px;
   width: calc(100% + 4px);
   margin: 4px -2px;
+  border-radius: 12px;
+}
+
+/* Wide row: the whole row is the hover surface, so the trigger and whatever
+   the action seat holds light up as one control instead of two. The rail row
+   is excluded — there the 36px trigger circle is its own surface. */
+.triggerRow:not(.railRow):hover {
+  background: var(--dsw-alias-interactive-bg-hover);
+}
+
+.triggerRow:not(.railRow) .trigger:hover {
+  background: transparent;
 }
 
 .triggerRow.railRow {
@@ -59,7 +71,9 @@
 /* Same-row action seat. This wrapper and the slot anchor inside it are both
    boxless, so an empty seat contributes neither a flex item nor a row gap;
    occupants become flex children of the row after the flex:1 trigger, which
-   pins them to its right edge. */
+   pins them to its right edge. In the wide row `.triggerRow` owns the hover
+   surface, so an occupant draws neither a border nor a background of its own
+   and only has to be the right-aligned part of the row. */
 .triggerActions {
   display: contents;
 }
