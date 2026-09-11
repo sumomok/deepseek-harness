@@ -189,11 +189,11 @@ const HTTP_ERROR_CODE_PATTERN = /^HTTP_ERROR_(-?\d+)$/
  * `HttpError.code` spells it so [[classifyDownloadError]] reads a status the
  * same way whichever half of the transfer met it.
  *
- * `resumable-download.ts` attaches it to an answer it will not transfer from.
- * That failure otherwise carries no code at all and its message is this
- * repository's own Chinese prose, which [[DOWNLOAD_STATUS_PATTERN]] does not
- * match — so a 503 from the feed was fatal and the bytes already on disk were
- * given up on.
+ * `resumable-download.ts` attaches it to an answer it will not transfer from,
+ * and `updater.ts` to a manifest the feed refused. Both failures otherwise
+ * carry no code at all and their messages are this repository's own Chinese
+ * prose, which [[DOWNLOAD_STATUS_PATTERN]] does not match — so a 503 from the
+ * feed was fatal, and the bytes already on disk were given up on.
  * @param status - the status the response carried.
  * @returns the code to attach to the failure.
  */

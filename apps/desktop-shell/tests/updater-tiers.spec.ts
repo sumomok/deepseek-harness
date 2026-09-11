@@ -337,6 +337,44 @@ describe('a signed build whose in-place check could not get through', () => {
     expect(actions.state().phase).toBe('ready')
   })
 
+  it('names the status a refused manifest carried, which its own message does not', async () => {
+    bundle(true)
+    // The download-page tier reads the manifest itself, and a refusal it met
+    // used to carry no identification at all: the message is this repository's
+    // own Chinese prose, which no pattern in `download-retry.ts` matches, so
+    // every refused manifest was one unnamed failure that the fail-closed
+    // default called fatal.
+    vi.spyOn(globalThis, 'fetch').mockImplementation(async () => (
+      new Response('', { status: 503, statusText: 'Service Unavailable' })
+    ))
+    shell.checkForUpdates = async (): Promise<unknown> => { throw interrupted() }
+    const { host, lines, waitFor } = sink()
+    const { updateActions } = await import('../src/updater.ts')
+    const { classifyDownloadError } = await import('../src/download-retry.ts')
+    const actions = updateActions(host)
+
+    vi.useFakeTimers()
+    try {
+      actions.check()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await waitFor('check failed:')
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const snapshot = actions.state()
+    expect(snapshot.phase).toBe('failed')
+    expect(snapshot.reason).toBe('HTTP_ERROR_503')
+    // The status is in the code alone; the message is still the prose a person
+    // reads, which is why the code had to carry it.
+    expect(lines.some(line => line.includes('check failed: 更新源返回 503 Service Unavailable'))).toBe(true)
+    // What that code buys the next caller to classify one: a feed that failed
+    // is worth another attempt, where an unnamed failure was not.
+    expect(classifyDownloadError(Object.assign(new Error(''), { code: snapshot.reason }))).toBe('transient')
+    // Nothing about a feed that failed says this build cannot replace itself.
+    expect(snapshot.reason).not.toMatch(/^in-place update unavailable:/)
+  })
+
   it('demotes the tier for the run when the failure was fatal', async () => {
     bundle(true)
     serveFeed()

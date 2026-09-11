@@ -68,7 +68,7 @@ import { compareVersions } from './version-order.ts'
 import { showInstalling } from './progress-window.ts'
 import {
   CHECK_RETRY_DELAYS_MS, RESUME_RETRY_DELAYS_MS, RETRY_DELAYS_MS, classifyDownloadError,
-  describeDownloadError, transferWithFallback, withRetry,
+  describeDownloadError, httpErrorCode, transferWithFallback, withRetry,
 } from './download-retry.ts'
 import { updaterLogLine, type UpdaterLogChannel } from './updater-log.ts'
 import { UpdateState, type UpdateSnapshot } from './update-state.ts'
@@ -344,10 +344,30 @@ function notesDetail(notes: string | undefined): string {
   return text.split('\n').slice(0, 12).join('\n')
 }
 
-/** Fetch and parse one platform manifest. */
+/**
+ * Fetch and parse one platform manifest.
+ *
+ * The status a refusal carried is attached as a code rather than left to the
+ * message, which is this repository's own Chinese prose that no pattern in
+ * `download-retry.ts` reads. Without it a refused manifest carried no
+ * identification at all: the log and the reported failure printed the prose,
+ * and [[classifyDownloadError]] called every status fatal by the fail-closed
+ * default, so a feed that failed and a feed that answered `404` were one
+ * failure to every caller. It is the same code electron-updater's own manifest
+ * read raises, so one status is named the same way whichever half met it.
+ * @param url - the manifest to read.
+ * @returns the parsed manifest.
+ * @throws when the feed refuses the request, carrying [[httpErrorCode]], and
+ * when the manifest carries no `version` field.
+ */
 async function fetchFeed(url: string): Promise<Feed> {
   const response = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(MAC_FEED_TIMEOUT_MS) })
-  if (!response.ok) throw new Error(`更新源返回 ${String(response.status)} ${response.statusText}(${url})`)
+  if (!response.ok) {
+    throw Object.assign(
+      new Error(`更新源返回 ${String(response.status)} ${response.statusText}(${url})`),
+      { code: httpErrorCode(response.status) },
+    )
+  }
   const feed = load(await response.text()) as Feed | undefined
   if (feed?.version === undefined) throw new Error(`更新源缺少 version 字段(${url})`)
   return feed
