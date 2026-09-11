@@ -855,7 +855,7 @@ describe('sessionFormatV1ToV2', () => {
       ],
     }
 
-    expect(sessionFormatV1ToV2.migrate(source).events[0]).toStrictEqual(
+    expect(migrateV1ToV2(source).events[0]).toStrictEqual(
       event('command/run', 0, 100, {
         commandId: 'command-1', name: 'permission', source: { kind: 'user' }, engages: false,
       }),

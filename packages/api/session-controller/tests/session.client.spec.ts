@@ -9,6 +9,7 @@ import { describe, expect, onTestFinished, vi } from 'vitest'
 import { SessionSeq, type SessionEvent } from '@deepseek-ai/dsh-session/types'
 import { AttachmentId } from '@deepseek-ai/dsh-attachment'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
+import { CommandId } from '@deepseek-ai/dsh-commands'
 import { RemoteStreamCarrierError } from '@deepseek-ai/dsh-api-gateway/client'
 import { RemoteError, type RemoteResult } from '@deepseek-ai/dsh-typert-protocol'
 import { ok, type RemoteMock } from '@deepseek-ai/dsh-remote-mock'
@@ -594,7 +595,9 @@ describe('prompt and cancel errors', () => {
     // every entry point lands on the same rule.
     const onEngaged = vi.fn()
     const session = await blankOpened(mock, start, onEngaged)
-    mock.remote.commands.execute.mockResolvedValue(ok({ commandId: 'cmd-1' }))
+    mock.remote.commands.execute.mockResolvedValue(
+      ok({ commandId: CommandId('cmd-1'), result: { kind: 'success' } }),
+    )
 
     await expect(session.command('/permission read-only'))
       .resolves.toEqual({ ok: true, value: { matched: true } })
