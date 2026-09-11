@@ -44,7 +44,7 @@ Status: implemented
 
 [`session-list-blank.host.spec.ts`](../../../../packages/api/session-controller/tests/session-list-blank.host.spec.ts) 用真实 `Session` 驱动该投影:配置事件让摘要保持 blank,已声明的配置命令保持 blank,转正命令清除它,首个 turn 也清除它;另有三组直接折叠把 `engages: false` 与缺席、`true` 对照钉住。
 
-[`session.client.spec.ts`](../../../../packages/api/session-controller/tests/session.client.spec.ts) 在退化过的那条边界上钉住镜像:观察到的转正 `command/run` 只转正一次、不带发送标记、不欠首个 turn;观察到的 `/permission` 运行让它保持 blank;携带该命令的历史页与实时尾部同样让它转正;`ISession.command` 受理一行而不触碰镜像（chip 的路径）;`handleBlank(true)` 无法重新抬起已转正的会话。[`service.client.spec.ts`](../../../../packages/client/ui-commands/tests/service.client.spec.ts) 为键入路径钉住反面:一行被受理的命令经该包不到达镜像。[`skeleton.client.spec.tsx`](../../../../packages/client/ui-conversation/tests/skeleton.client.spec.tsx) 本就钉住失去欢迎页的代价——工作区 chip 与 agent 预设座位——现在说明了配置命令为何不得夺走它。
+[`session.client.spec.ts`](../../../../packages/api/session-controller/tests/session.client.spec.ts) 在退化过的那条边界上钉住镜像:观察到的转正 `command/run` 只转正一次、不带发送标记、不欠首个 turn;观察到的 `/permission` 运行让它保持 blank;携带该命令的历史页与实时尾部同样让它转正;`ISession.command` 经 Commands 命名空间受理一行、只报告是否有命令匹配,而该位等的是观察到的那次运行（chip 的路径,Commands 的失败原样交回）;`handleBlank(true)` 无法重新抬起已转正的会话。[`service.client.spec.ts`](../../../../packages/client/ui-commands/tests/service.client.spec.ts) 为键入路径钉住反面:一行被受理的命令经该包不到达镜像。[`skeleton.client.spec.tsx`](../../../../packages/client/ui-conversation/tests/skeleton.client.spec.tsx) 本就钉住失去欢迎页的代价——工作区 chip 与 agent 预设座位——现在说明了配置命令为何不得夺走它。
 
 ## Alternatives considered
 
