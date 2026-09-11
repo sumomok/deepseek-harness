@@ -304,6 +304,39 @@ describe('a signed build whose in-place check could not get through', () => {
     expect(actions.state().phase).toBe('ready')
   })
 
+  it('keeps the tier when the check was abandoned by a timeout of its own', async () => {
+    bundle(true)
+    serveFeed()
+    // The shape `AbortSignal.timeout()` rejects with — a `DOMException` whose
+    // `code` is the numeric 23 and whose message is prose about an operation —
+    // raised from the one failure this file can drive. A classifier reading
+    // codes and messages alone called it fatal, which costs the in-place tier
+    // for the rest of the run.
+    shell.checkForUpdates = async (): Promise<unknown> => {
+      throw new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+    }
+    const { host, waitFor } = sink()
+    const { updateActions } = await import('../src/updater.ts')
+    const actions = updateActions(host)
+
+    vi.useFakeTimers()
+    try {
+      actions.check()
+      await vi.advanceTimersByTimeAsync(10_000)
+      await waitFor(FALLBACK_LINE)
+    } finally {
+      vi.useRealTimers()
+    }
+
+    const snapshot = actions.state()
+    expect(snapshot.phase).toBe('failed')
+    expect(snapshot.reason).toBe('TimeoutError')
+    expect(snapshot.reason).not.toMatch(/^in-place update unavailable:/)
+    // The tier survived, so the transfer this run still runs reaches `ready`.
+    shell.instances[0]?.emit('update-downloaded', { version: NEXT, releaseNotes: 'fixes the thing' })
+    expect(actions.state().phase).toBe('ready')
+  })
+
   it('demotes the tier for the run when the failure was fatal', async () => {
     bundle(true)
     serveFeed()

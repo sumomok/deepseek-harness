@@ -9,9 +9,11 @@ import {
   CHECK_RETRY_DELAYS_MS,
   RESUME_RETRY_DELAYS_MS,
   RETRY_DELAYS_MS,
+  TRANSFER_CUT_CODE,
   classifyDownloadError,
   describeDownloadError,
   type FallbackHooks,
+  httpErrorCode,
   type RetryHooks,
   transferWithFallback,
   withRetry,
@@ -26,6 +28,17 @@ import {
  */
 function coded(code: string, message = code): Error {
   return Object.assign(new Error(message), { code })
+}
+
+/**
+ * What Node's `fetch` raises when the peer cuts a response body: a bare
+ * `TypeError` naming nothing, over a `cause` that carries the whole
+ * identification.
+ * @param cause - the failure underneath, as undici and Node's sockets raise it.
+ * @returns the error a caller of `fetch` is handed.
+ */
+function terminated(cause: unknown): TypeError {
+  return new TypeError('terminated', { cause })
 }
 
 /**
@@ -62,6 +75,72 @@ describe('classifyDownloadError', () => {
       'net::ERR_CONNECTION_RESET',
       'net::ERR_INTERNET_DISCONNECTED',
     ]) expect(classifyDownloadError(new Error(message))).toBe('transient')
+  })
+
+  it('reads the code out of the cause chain, which is where Node fetch leaves it', () => {
+    // The shapes the field failure and its neighbours actually take: a peer
+    // that closed the connection under the body, one that reset it, and a
+    // request that never reached the feed. None of the three carries a code at
+    // the top level.
+    expect(classifyDownloadError(terminated(coded('UND_ERR_SOCKET', 'other side closed')))).toBe('transient')
+    expect(classifyDownloadError(terminated(coded('ECONNRESET', 'read ECONNRESET')))).toBe('transient')
+    expect(classifyDownloadError(new TypeError('fetch failed', { cause: coded('ECONNREFUSED') }))).toBe('transient')
+    for (const code of ['UND_ERR_CONNECT_TIMEOUT', 'UND_ERR_HEADERS_TIMEOUT', 'UND_ERR_BODY_TIMEOUT', 'UND_ERR_ABORTED']) {
+      expect(classifyDownloadError(terminated(coded(code)))).toBe('transient')
+    }
+  })
+
+  it('retries the transfer the resumable downloader reports it could not finish', () => {
+    expect(classifyDownloadError(coded(TRANSFER_CUT_CODE, '下载被中断:已取得 20000 字节'))).toBe('transient')
+  })
+
+  it('retries a terminated body that names nothing at all', () => {
+    // A `fetch` whose cause a polyfill, a transform, or a future undici drops.
+    expect(classifyDownloadError(new TypeError('terminated'))).toBe('transient')
+    expect(classifyDownloadError(new TypeError('fetch failed'))).toBe('transient')
+  })
+
+  it('retries a request that was given up on, which names its condition only in its name', () => {
+    // `AbortSignal.timeout()` and `AbortController.abort()` reject a `fetch`
+    // with these two. A `DOMException`'s `code` is the numeric legacy value —
+    // 23 and 20 — and its message is prose about an operation, so neither the
+    // chain nor the message fragments identify it and the fail-closed default
+    // used to call a feed that answered slowly fatal.
+    expect(classifyDownloadError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe('transient')
+    expect(classifyDownloadError(new DOMException('This operation was aborted', 'AbortError'))).toBe('transient')
+  })
+
+  it('retries the status the resumable transfer was refused with, whose message no pattern here reads', () => {
+    const url = 'http://127.0.0.1:8080/DSH%20Desktop-1.0.0-arm64-mac.zip'
+    // The spelling `HttpError.code` uses, so a status decides the same way
+    // whichever half of the transfer met it.
+    expect(httpErrorCode(503)).toBe('HTTP_ERROR_503')
+    expect(classifyDownloadError(Object.assign(
+      new Error(`更新源返回 503 Service Unavailable(${url})`),
+      { code: httpErrorCode(503) },
+    ))).toBe('transient')
+    expect(classifyDownloadError(Object.assign(
+      new Error(`更新源返回 404 Not Found(${url})`),
+      { code: httpErrorCode(404) },
+    ))).toBe('fatal')
+  })
+
+  it('lets the outermost code decide, so a refusal that wraps a network failure stays a refusal', () => {
+    const refusal = Object.assign(
+      new Error('not signed by the application owner', { cause: coded('ECONNRESET') }),
+      { code: 'ERR_UPDATER_INVALID_SIGNATURE' },
+    )
+    expect(classifyDownloadError(refusal)).toBe('fatal')
+    expect(classifyDownloadError(terminated(coded('ERR_CHECKSUM_MISMATCH')))).toBe('fatal')
+  })
+
+  it('walks a deep chain and survives one that points back at itself', () => {
+    let deep: unknown = coded('ECONNRESET')
+    for (let link = 0; link < 6; link++) deep = new Error('wrapped', { cause: deep })
+    expect(classifyDownloadError(deep)).toBe('transient')
+    const cyclic: { code?: string; cause?: unknown } = new Error('round and round')
+    cyclic.cause = cyclic
+    expect(classifyDownloadError(cyclic as Error)).toBe('fatal')
   })
 
   it('retries a server failure and a request the server asked for again', () => {
@@ -109,6 +188,22 @@ describe('classifyDownloadError', () => {
 describe('describeDownloadError', () => {
   it('names the error by its code where it carries one', () => {
     expect(describeDownloadError(coded('ECONNRESET', 'read ECONNRESET'))).toBe('ECONNRESET')
+  })
+
+  it('names every code down the chain, so a cut transfer says what cut it', () => {
+    expect(describeDownloadError(terminated(coded('UND_ERR_SOCKET', 'other side closed')))).toBe('UND_ERR_SOCKET')
+    expect(describeDownloadError(
+      new Error('下载被中断', { cause: terminated(coded('ECONNRESET')) }),
+    )).toBe('ECONNRESET')
+    expect(describeDownloadError(Object.assign(
+      new Error('下载被中断', { cause: terminated(coded('UND_ERR_SOCKET')) }),
+      { code: TRANSFER_CUT_CODE },
+    ))).toBe(`${TRANSFER_CUT_CODE} ← UND_ERR_SOCKET`)
+  })
+
+  it('names a request that was given up on by its name, not by prose about an aborted operation', () => {
+    expect(describeDownloadError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe('TimeoutError')
+    expect(describeDownloadError(new DOMException('This operation was aborted', 'AbortError'))).toBe('AbortError')
   })
 
   it('falls back to the first line of the message, capped', () => {

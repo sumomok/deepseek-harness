@@ -60,11 +60,31 @@ export const RESUME_RETRY_DELAYS_MS: readonly number[] = [2_000, 10_000, 30_000,
 export const CHECK_RETRY_DELAYS_MS: readonly number[] = [1_000, 3_000]
 
 /**
- * Node and libuv codes for a connection that failed to open, was cut, or timed
- * out. These reach a download from Node's own sockets and from the file stream
- * the artifact is written through; Electron's `net`, which is the executor the
- * download itself runs on, reports the same conditions through
+ * The code the shell's own resumable transfer attaches to a body that ended
+ * before the artifact did — a peer that reset or closed the connection
+ * mid-transfer, a connection that went silent past its idle bound, an answer
+ * shorter than the length it promised. `resumable-download.ts` raises it so the
+ * classification below reads a code this repository owns rather than the
+ * message Node's `fetch` happens to carry, and so the bytes already on disk are
+ * resumed rather than given up on.
+ */
+export const TRANSFER_CUT_CODE = 'DSH_TRANSFER_CUT'
+
+/**
+ * Codes for a connection that failed to open, was cut, or timed out.
+ *
+ * The `E…` names are Node's and libuv's, reaching a download from Node's own
+ * sockets and from the file stream the artifact is written through. The
+ * `UND_ERR_…` names are undici's, which is the HTTP client behind Node's
+ * `fetch` and therefore behind the resumable transfer: it reports a socket that
+ * was cut, a connect or header or body read that timed out, and a request that
+ * was aborted, under codes of its own. Electron's `net`, which is the executor
+ * electron-updater's own download runs on, reports the same conditions through
  * [[TRANSIENT_MESSAGES]] instead.
+ *
+ * `UND_ERR_ABORTED` is transient because every abort this repository issues is
+ * the resumable transfer's own idle bound giving up on a silent connection;
+ * nothing here cancels a transfer a user asked for.
  */
 const TRANSIENT_SYSCALL_CODES: ReadonlySet<string> = new Set([
   'ECONNABORTED',
@@ -79,7 +99,31 @@ const TRANSIENT_SYSCALL_CODES: ReadonlySet<string> = new Set([
   'EPIPE',
   'ESOCKETTIMEDOUT',
   'ETIMEDOUT',
+  'UND_ERR_SOCKET',
+  'UND_ERR_CONNECT_TIMEOUT',
+  'UND_ERR_HEADERS_TIMEOUT',
+  'UND_ERR_BODY_TIMEOUT',
+  'UND_ERR_ABORTED',
+  TRANSFER_CUT_CODE,
 ])
+
+/**
+ * `name` of the failures a request that was given up on raises, which is the
+ * only thing identifying them.
+ *
+ * `AbortSignal.timeout()` rejects a `fetch` with a `DOMException` named
+ * `TimeoutError` and `AbortController.abort()` with one named `AbortError`.
+ * Neither carries a string `code` — `DOMException.code` is the numeric legacy
+ * value, 23 and 20 — and neither message names a network condition, so
+ * [[errorCodes]] finds nothing and the fail-closed default would call a feed
+ * that answered slowly fatal.
+ *
+ * Both are transient because every bound this repository sets is a wait it gave
+ * up on rather than a verdict about what it was waiting for: `fetchFeed`'s 20 s
+ * on one manifest, and the resumable transfer's idle bound on a silent
+ * connection. Nothing here cancels a transfer a user asked for.
+ */
+const ABANDONED_REQUEST_NAMES: ReadonlySet<string> = new Set(['TimeoutError', 'AbortError'])
 
 /**
  * Message fragments that identify a transient failure carrying no `code`.
@@ -89,12 +133,23 @@ const TRANSIENT_SYSCALL_CODES: ReadonlySet<string> = new Set([
  * that closed the connection before answering; every failure Electron's `net`
  * module reports names a `net::ERR_…` reason, and the download path on both
  * platforms runs on that module through `ElectronHttpExecutor`.
+ *
+ * The last three are Node's `fetch`: `terminated` is the whole message of the
+ * `TypeError` it raises for a response body the peer cut, `fetch failed` the
+ * one it raises for a request that never got a response at all, and `other side
+ * closed` undici's own text underneath the first. Each normally arrives over a
+ * `cause` carrying a code, which [[errorCodes]] reads; they are listed here
+ * because a `fetch` polyfill, a transform, or a future undici may pass the
+ * message on without one, and a cut transfer is worth resuming either way.
  */
 const TRANSIENT_MESSAGES: readonly string[] = [
   'Request timed out',
   'Request has been aborted by the server',
   'socket hang up',
   'net::ERR_',
+  'terminated',
+  'fetch failed',
+  'other side closed',
 ]
 
 /**
@@ -130,15 +185,71 @@ const DOWNLOAD_STATUS_PATTERN = /^Cannot download "[^"]*", status (\d{3}):/
 const HTTP_ERROR_CODE_PATTERN = /^HTTP_ERROR_(-?\d+)$/
 
 /**
- * The `code` an error carries, which is where Node's syscall failures,
- * builder-util-runtime's `newError`, and its `HttpError` all put their
- * identification.
+ * The code naming one HTTP status a transfer was refused with, spelled the way
+ * `HttpError.code` spells it so [[classifyDownloadError]] reads a status the
+ * same way whichever half of the transfer met it.
+ *
+ * `resumable-download.ts` attaches it to an answer it will not transfer from.
+ * That failure otherwise carries no code at all and its message is this
+ * repository's own Chinese prose, which [[DOWNLOAD_STATUS_PATTERN]] does not
+ * match — so a 503 from the feed was fatal and the bytes already on disk were
+ * given up on.
+ * @param status - the status the response carried.
+ * @returns the code to attach to the failure.
+ */
+export function httpErrorCode(status: number): string {
+  return `HTTP_ERROR_${String(status)}`
+}
+
+/**
+ * How many `cause` links [[errorCodes]] follows. The chains this meets are two
+ * or three long; the bound is what keeps a malformed one from being walked
+ * forever alongside the cycle check, and no failure here is worth more links
+ * than this.
+ */
+const MAX_CAUSE_DEPTH = 8
+
+/** Separator between the codes [[describeDownloadError]] found down one chain, outermost first. */
+const CODE_CHAIN_SEPARATOR = ' ← '
+
+/**
+ * Every `code` an error carries down its `cause` chain, outermost first and
+ * without repeats.
+ *
+ * `code` is where Node's syscall failures, builder-util-runtime's `newError`,
+ * and its `HttpError` all put their identification — but Node's `fetch` puts
+ * none on the error it raises. A response body the peer cut arrives as a bare
+ * `TypeError: terminated` whose `cause` is undici's `SocketError`, and that
+ * cause is the only thing naming the condition, so a reader of the top level
+ * alone sees a failure it cannot classify. Walking the chain is what finds it.
+ *
+ * Only string codes count: a `DOMException` carries a numeric `code`, which
+ * names nothing this classifies by.
  * @param error - the value a download attempt failed with.
- * @returns the code, or undefined when the error carries none.
+ * @returns the codes found, outermost first; empty when the chain carries none.
+ */
+function errorCodes(error: unknown): string[] {
+  const found: string[] = []
+  const seen = new Set<unknown>()
+  let current: unknown = error
+  for (let depth = 0; depth < MAX_CAUSE_DEPTH; depth++) {
+    if (typeof current !== 'object' || current === null || seen.has(current)) break
+    seen.add(current)
+    const value = (current as { code?: unknown }).code
+    if (typeof value === 'string' && !found.includes(value)) found.push(value)
+    current = (current as { cause?: unknown }).cause
+  }
+  return found
+}
+
+/**
+ * The code that names what a download attempt failed with: the outermost one on
+ * its `cause` chain, which is the most specific identification its raiser gave.
+ * @param error - the value a download attempt failed with.
+ * @returns the code, or undefined when the whole chain carries none.
  */
 function errorCode(error: unknown): string | undefined {
-  const value = (error as { code?: unknown } | null | undefined)?.code
-  return typeof value === 'string' ? value : undefined
+  return errorCodes(error)[0]
 }
 
 /**
@@ -161,6 +272,12 @@ function statusIsTransient(status: number): boolean {
  * `Error` — is fatal, so an unrecognized failure ends the download instead of
  * re-transferring the artifact three more times on a guess.
  *
+ * The code is read off the whole `cause` chain, because Node's `fetch` names
+ * the condition nowhere else: the outermost code decides, so a refusal that
+ * wraps a network failure stays a refusal. A request given up on is read off
+ * `name` before that, because it is the one failure here that carries no string
+ * code at all.
+ *
  * Both a download and a check are classified here. A check carries one edge of
  * its own: electron-updater wraps a 404 on the channel file as
  * `ERR_UPDATER_CHANNEL_FILE_NOT_FOUND`, which stays fatal, so a feed that has
@@ -172,6 +289,7 @@ function statusIsTransient(status: number): boolean {
  */
 export function classifyDownloadError(error: unknown): DownloadFailure {
   if (!(error instanceof Error)) return 'fatal'
+  if (ABANDONED_REQUEST_NAMES.has(error.name)) return 'transient'
   const code = errorCode(error)
   if (code !== undefined) {
     if (code.startsWith(FATAL_CODE_PREFIX) || code === CHECKSUM_MISMATCH_CODE) return 'fatal'
@@ -187,16 +305,27 @@ export function classifyDownloadError(error: unknown): DownloadFailure {
 }
 
 /**
- * Name one download failure in a log line: the code the error carries where
- * there is one — `ECONNRESET`, `HTTP_ERROR_503`,
- * `ERR_UPDATER_INVALID_SIGNATURE` — and otherwise the first line of its
- * message, capped at [[MESSAGE_LOG_LIMIT]].
+ * Name one download failure in a log line: the codes down its `cause` chain
+ * where it carries any — `ECONNRESET`, `HTTP_ERROR_503`,
+ * `ERR_UPDATER_INVALID_SIGNATURE`, or `DSH_TRANSFER_CUT ← UND_ERR_SOCKET` —
+ * and otherwise the first line of its message, capped at
+ * [[MESSAGE_LOG_LIMIT]].
+ *
+ * The whole chain is named, not only its outermost code, because that is where
+ * the condition is: a cut transfer's outer code says a transfer was cut and its
+ * inner one says what cut it, and a log that carried only the first would
+ * report every interruption identically.
+ *
+ * A request given up on is named `TimeoutError` or `AbortError`, which is where
+ * its condition is; its message is prose about an operation being aborted and
+ * names neither the bound that ended it nor what was being waited for.
  * @param error - the value a download attempt failed with.
  * @returns a single-line identification.
  */
 export function describeDownloadError(error: unknown): string {
-  const code = errorCode(error)
-  if (code !== undefined) return code
+  const codes = errorCodes(error)
+  if (codes.length > 0) return codes.join(CODE_CHAIN_SEPARATOR)
+  if (error instanceof Error && ABANDONED_REQUEST_NAMES.has(error.name)) return error.name
   const [line = ''] = (error instanceof Error ? error.message : String(error)).split('\n')
   return line.length > MESSAGE_LOG_LIMIT ? `${line.slice(0, MESSAGE_LOG_LIMIT)}…` : line
 }
