@@ -40,7 +40,9 @@ Status: implemented
 
 它先答再做:`{ "ok": true }` 先上线,安装排在下一个 tick。安装会停掉嵌入服务端,并把机器交给一个要替换掉本进程的安装器,所以一个还等在响应上的调用方,会把那次断开的连接读成一次失败的安装——为一个正在被应用的更新报出一次失败。
 
-**设置那一侧是一个插件,不属于壳。**`@haoran/dsh-desktop-update` 0.1.0 以 tarball 形式放在 `apps/desktop-server/vendor/` 下,由 `cd2244802e` 引入。它的 host 半边是一个叫 `desktopUpdate` 的 Typert 服务,代理那四条路由,端点与 token 都留在网关的它这一侧;环境里两者都没有时,`state()` 答 `phase: 'unsupported'`,插件什么都不注册。它的浏览器半边注册一个 `settings.section`——id 是 `desktop-update`,即「更新」页——以及一个只在 `phase === 'ready'` 时才渲染的动作:设置行右端的那个更新按钮。那个按钮坐的位子是 `settings.trigger.action`,即核心补丁 D 新增的那个 list 槽(合并提交 `f934c3ae2a`,在 `.claude/core-patches.md` 在册)。补丁不在场时,动作退到 `sidebar.footer.action`——凡是带侧栏的组合都声明它——因为 `ctx.slots.inject` 只会为某个构建确实声明过的 key 触发回调,于是往打了补丁的那个 key 上注入本身就是探测。插件自己的 Agent Note 跟着它的源码走,在 `dsh-plugins` 仓的 `packages/desktop-update/`。
+**设置那一侧是一个插件,不属于壳。**`@haoran/dsh-desktop-update` 0.1.1 以 tarball 形式放在 `apps/desktop-server/vendor/` 下,由 `cd2244802e` 引入。它的 host 半边是一个叫 `desktopUpdate` 的 Typert 服务,代理那四条路由,端点与 token 都留在网关的它这一侧;环境里两者都没有时,`state()` 答 `phase: 'unsupported'`,插件什么都不注册。它的浏览器半边注册一个 `settings.section`——id 是 `desktop-update`,即「更新」页——以及一个只在 `phase === 'ready'` 时才渲染的动作:设置行右端的那个更新按钮。那个按钮坐的位子是 `settings.trigger.action`,即核心补丁 D 新增的那个 list 槽(合并提交 `f934c3ae2a`,在 `.claude/core-patches.md` 在册)。补丁不在场时,动作退到 `sidebar.footer.action`——凡是带侧栏的组合都声明它——因为 `ctx.slots.inject` 只会为某个构建确实声明过的 key 触发回调,于是往打了补丁的那个 key 上注入本身就是探测。插件自己的 Agent Note 跟着它的源码走,在 `dsh-plugins` 仓的 `packages/desktop-update/`。
+
+**0.1.0 把那个服务的安装方法叫作 `install`,而客户端 API 保留了这个名字。**`RemoteNamespaceService` 自己的原型上就带着 `install()`,`assertMethodAvailable` 拒绝任何跟它撞名的方法,于是装好的构建里 `ctx.remote.$mount()` 抛出 `client api: method "desktopUpdate/install" conflicts with its namespace service`,Loader 条目随之失败,web 客户端把它变成 `Failed to load plugins`——整页都没了,本插件那一部分和别人的一起。0.1.1 把方法改名为 `installUpdate`,壳那条 `/install` loopback 路由原样不动。放 0.1.0 过关的那次打包构建冒烟挂的是 vm 桩,里面没有这条规则;驱动真实客户端 API 的门禁是 `2026-09-11-vendored-client-runtime-gate`。
 
 ### 传输分两半跑,而且顺序是定的
 
