@@ -50,6 +50,8 @@ Status: implemented
 
 随后 `pending-cache.ts` 把校验通过的文件落到 `<cacheDir>/pending/<fileName>`,旁边写上 electron-updater 自己会写的那份 `update-info.json`,这次传输再调一次 `downloadUpdate()`。库在开 socket 之前先核对缓存(`AppUpdater.js:604-608`),从缓存取文件,两个平台都零网络 I/O 地发出 `update-downloaded`——于是安装路径连同 `quitAndInstall` 都还是原来那一条。
 
+**续传在第一次中断就放弃了,把它照出来的是一个打好包的构建对着会掐断的更新源。**验收台供的是真产物,到 20 MB 就 `socket.destroy()`(`--cut-after`);壳记下库自己那次下载的三轮重试、接手兜底,然后用一行字结束了整次传输——`resume did not finish: terminated`——留下一个 19,988,480 字节的 `.part` 文件,再没向更新源要过任何东西。`RESUME_RETRY_DELAYS_MS` 一次都没走到。Node 的 `fetch` 把被切断的响应正文抛成一个 `TypeError`,它的整条消息就是 `terminated`,唯一的身份信息在 `cause` 上——关闭时是 undici 的 `SocketError`,重置时是一个普通的 `ECONNRESET`——而 `classifyDownloadError` 只从最顶层读 `code`,于是长传输上最寻常的那种失败,按「认不出就算致命」的默认落进了致命。同一次判读还决定着一次被切断的 `latest-mac.yml` 请求会不会把 macOS 踢出原地安装那一层,因为 `fetchFeed` 用的也是全局 `fetch`。两处改动把它合上:分类器顺着 `cause` 链走,由最外层那个 code 定夺;`resumable-download.ts` 把它能从中续下去的每一种中断——正文被切断、超过空闲上限的停滞、正文短于回答所承诺的长度——都以本仓自己拥有的同一个 code 抛出,于是结论不依赖任何一句消息文本。单测之所以没抓住它,是因为它们只断言被切断的传输抛了错,从没断言策略如何判定它抛出的那个错。
+
 `.part` 文件按版本加产物名命名,住在缓存目录的**根**下而不是 `pending` 里:electron-updater 自己下载路径上的任何失败都会清空 `pending`,而那种失败恰恰就是可续传这一半存在的理由。更新源已经翻篇的那些 `.part`,下一次传输开始时就被丢掉。
 
 ### 强制更新那条红线原样不动
@@ -76,4 +78,4 @@ Status: implemented
 
 这条决定推翻了[重试那篇 note](../bug-fix/2026-08-21-desktop-update-download-retry.zh.md) 否决过的那个备选,而且是按它自己的说法推翻的。那篇 note 称壳自有的可续传下载器是「对连接糟糕的客户端来说的正确答案」,并给了建造它的唯一条件:现场证据表明仍有可观比例的下载失败。这个条件是被取代而不是被满足的——真正到来的是一条产品要求,下载不得显眼;而一次无法续传的传输不可能安静,因为它的每一次中断都得在用户看得见的地方被报告、被重试。重试计划本身没有改动,而且仍然排在前面;新的是它之后发生的事。
 
-`tests/update-state.spec.ts` 钉住每一条转移,以及那两种拒绝被移动的状态。`tests/update-service.spec.ts` 钉住四条路由、404 先于 401 的判定顺序,以及 `ready` 之外拒绝安装。`tests/resumable-download.spec.ts` 打断一个支持 `Range` 的本地服务器,证明续传后文件的 sha512、请求带上了偏移与校验子、`200` 与 `416` 两种回答都能干净地重来,以及摘要不符会丢掉半截文件而单纯的中断会把它留着。`tests/pending-cache.spec.ts` 拿 electron-updater 自己的 `DownloadedUpdateHelper.validateDownloadedPath` 去核对落好的目录,于是这次交接是由将来真正读它的那段代码证明的,而不是由对它规则的一次复述。`tests/download-retry.spec.ts` 用假件钉住这两半的顺序。`tests/updater-tiers.spec.ts` 用替身顶掉 electron 与 electron-updater,钉住一次 macOS 检查落在哪一层、更新已经在路上时手动检查答什么,以及启动门那行提示带出的完成度。更新通道没有快照泳道,它其余的证据是一个打好包的构建对着真实更新源跑一遍。
+`tests/update-state.spec.ts` 钉住每一条转移,以及那两种拒绝被移动的状态。`tests/update-service.spec.ts` 钉住四条路由、404 先于 401 的判定顺序,以及 `ready` 之外拒绝安装。`tests/resumable-download.spec.ts` 打断一个支持 `Range` 的本地服务器,证明续传后文件的 sha512、请求带上了偏移与校验子、`200` 与 `416` 两种回答都能干净地重来,以及摘要不符会丢掉半截文件而单纯的中断会把它留着。它还会在正文中途重置连接而不是关闭它,并用真正的 `withRetry` 配一副瞬时时钟把那次传输一路带到完整且校验通过的产物——正是现场失败的那种情形。`tests/pending-cache.spec.ts` 拿 electron-updater 自己的 `DownloadedUpdateHelper.validateDownloadedPath` 去核对落好的目录,于是这次交接是由将来真正读它的那段代码证明的,而不是由对它规则的一次复述。`tests/download-retry.spec.ts` 用假件钉住这两半的顺序,也钉住 Node 的 `fetch` 会抛出的那些形状如何判定——只在 `cause` 链深处才找得到的 code、一条指回自己的链,以及一个裹着网络失败的拒绝。`tests/updater-tiers.spec.ts` 用替身顶掉 electron 与 electron-updater,钉住一次 macOS 检查落在哪一层、更新已经在路上时手动检查答什么,以及启动门那行提示带出的完成度。更新通道没有快照泳道,它其余的证据是一个打好包的构建对着真实更新源跑一遍。

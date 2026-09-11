@@ -30,8 +30,8 @@
  * corrupt bytes to be resumed forever.
  *
  * Nothing here touches electron, so `tests/resumable-download.spec.ts`
- * exercises it against a local server that honours `Range` and can cut a
- * response in half.
+ * exercises it against a local server that honours `Range` and can close or
+ * reset a connection in the middle of a response.
  * @module @deepseek-ai/dsh-desktop-shell/resumable-download
  */
 
@@ -41,6 +41,7 @@ import {
   type WriteStream,
 } from 'node:fs'
 import { finished } from 'node:stream/promises'
+import { TRANSFER_CUT_CODE } from './download-retry.ts'
 import type { TransferSample } from './update-state.ts'
 
 /**
@@ -88,6 +89,24 @@ export interface ResumeOptions {
 interface PartOrigin {
   /** The `ETag` or `Last-Modified` the answer carried, sent back as `If-Range`. */
   validator?: string
+}
+
+/**
+ * Raise a failure of this transfer that the next attempt should meet again from
+ * the same `.part` file.
+ *
+ * The code is what says so. Node's `fetch` raises a cut body as a bare
+ * `TypeError: terminated` and an abandoned request as a `DOMException` named
+ * `AbortError`, neither of which identifies the condition at the top level; a
+ * body that merely ended short identifies it in this module's own prose. A code
+ * owned here classifies all three without the retry policy having to recognize
+ * a message.
+ * @param message - what ended the attempt, for the caller and the log.
+ * @param cause - the failure underneath, where one raised this.
+ * @returns the error to throw.
+ */
+function cutTransfer(message: string, cause?: unknown): Error {
+  return Object.assign(new Error(message, { cause }), { code: TRANSFER_CUT_CODE })
 }
 
 /**
@@ -186,6 +205,17 @@ function totalBytesOf(status: number, headers: Headers, have: number): number | 
  * state. Two answers discard it and start the transfer over from zero inside
  * the same call: a `200` to a `Range` request, and a `416`. A call that returns
  * leaves the whole verified artifact at [[ResumableTarget.partFile]].
+ *
+ * What a caller retries is decided by the code the failure carries, which
+ * `classifyDownloadError` reads. Three failures are worth the same call again
+ * and carry [[TRANSFER_CUT_CODE]]: a body the peer cut, a connection that went
+ * silent past the idle bound, and a body that ended short of the length its
+ * answer promised. The rest carry no code of this module's and are final,
+ * because the next attempt meets the same answer — a status that is neither
+ * `200` nor `206`, a `206` beginning somewhere the request did not ask for,
+ * two passes both answered `416`, and a completed file whose sha512 is not the
+ * manifest's. A `.part` file that cannot be written raises the write stream's
+ * own failure, under the filesystem's code.
  * @param target - what to transfer, where to keep it, and what it must hash to.
  * @param options - progress reporting, the fetch to use, and the stall bound.
  * @returns the artifact's size in bytes.
@@ -208,9 +238,22 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
       if (origin?.validator !== undefined) headers['if-range'] = origin.validator
     }
     const controller = new AbortController()
-    let idle = setTimeout(() => { controller.abort() }, idleTimeoutMs)
+    const abandonWhenIdle = (): ReturnType<typeof setTimeout> =>
+      setTimeout(() => { controller.abort() }, idleTimeoutMs)
+    let idle = abandonWhenIdle()
     try {
-      const response = await call(target.url, { headers, redirect: 'follow', signal: controller.signal })
+      let response: Response
+      try {
+        response = await call(target.url, { headers, redirect: 'follow', signal: controller.signal })
+      } catch (error) {
+        // An abort this early is the idle bound giving up on a feed that
+        // accepted the connection and answered nothing: the write stream, which
+        // aborts the same controller, is not created until a response has
+        // arrived. Every other failure here is a connection that never opened,
+        // which already carries the code its own cause names.
+        if (!controller.signal.aborted) throw error
+        throw cutTransfer(`更新源在 ${String(idleTimeoutMs)} 毫秒内没有应答(${target.url})`, error)
+      }
       if (response.status === 416) {
         await response.body?.cancel()
         discardPart(target.partFile)
@@ -249,6 +292,8 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
           writeFileSync(`${target.partFile}${VALIDATOR_SUFFIX}`, `${JSON.stringify({ validator } satisfies PartOrigin)}\n`)
         }
       }
+      const body = response.body
+      if (body === null) throw new Error(`更新源没有返回内容(${target.url})`)
       const hash = createHash('sha512')
       if (append) await hashPrefix(target.partFile, have, hash)
       const out = createWriteStream(target.partFile, { flags: append ? 'a' : 'w' })
@@ -262,13 +307,12 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
       out.on('error', () => { controller.abort() })
       let written = 0
       try {
-        if (response.body === null) throw new Error(`更新源没有返回内容(${target.url})`)
-        const reader = response.body.getReader()
+        const reader = body.getReader()
         for (;;) {
           const { done, value } = await reader.read()
           if (done) break
           clearTimeout(idle)
-          idle = setTimeout(() => { controller.abort() }, idleTimeoutMs)
+          idle = abandonWhenIdle()
           hash.update(value)
           if (!out.write(value)) await drainedOrFailed(out)
           if (out.errored !== null) break
@@ -279,6 +323,12 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
             total: total ?? 0,
           })
         }
+      } catch (error) {
+        // The body stopped before the artifact did: the peer reset or closed
+        // the connection under the transfer, or the idle bound abandoned one
+        // that went silent. The bytes that arrived are kept and this attempt is
+        // reported as the interruption it is.
+        throw cutTransfer(`下载被中断:已取得 ${String(have + written)} 字节(${target.url})`, error)
       } finally {
         out.end()
         try {
@@ -296,7 +346,10 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
       }
       const size = have + written
       if (total !== undefined && size !== total) {
-        throw new Error(`下载被中断:已取得 ${String(size)}/${String(total)} 字节(${target.url})`)
+        // A body that ended cleanly, and short of the length the answer
+        // promised. The same interruption as a cut connection, reached without
+        // one being reported.
+        throw cutTransfer(`下载被中断:已取得 ${String(size)}/${String(total)} 字节(${target.url})`)
       }
       const digest = hash.digest('base64')
       if (digest !== target.sha512) {
