@@ -369,6 +369,11 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
   - **门禁实跑**（工作树 `dsh-rc32-slot`，代码 HEAD `6391c70196`）：`pnpm exec vitest run packages/client/ui-settings-general packages/client/ui-settings` **25 文件 / 469 条全绿**（较上条 +2）；`pnpm run typecheck` 退出码 0；`pnpm run lint` 0；`pnpm run test:docs` **18/18 全绿**。
   - **变异验证**：把传给本位的 `openSection` 换成空函数，两条新用例稳定变红；把外壳 `openSection` 里的 `setActiveId(id)` 改成 `setActiveId(undefined)`，「点名分区」那条与 onboarding 那条变红、「点名未注册 id」那条仍绿（它钉的就是回落第一行）。
   - **退役条件与滚动同步注意**：与本条目其余部分同——落点还是 `SettingsRoot.tsx` 的触发行与 `contract/slots.ts`，且 `openSection` 与 onboarding 位共用同一个 `useCallback`，上游改动那段时两处一起看。
+- **追加：宽行自己拥有悬停表面 — 自 rc32-integration `0df8fe1548` 移植到本线，紧随上两条**
+  - **改了什么**：`packages/client/ui-settings-general/src/client/SettingsRoot.module.css` 里 `.triggerRow` 加 `border-radius: 12px`，新增 `.triggerRow:not(.railRow):hover { background: var(--dsw-alias-interactive-bg-hover) }` 与 `.triggerRow:not(.railRow) .trigger:hover { background: transparent }`；`.triggerActions` 上方的注释补一句：宽行下悬停表面归 `.triggerRow`，占位者不画自己的边框或背景，只需右对齐地成为行的一部分。测试 `tests/settings-root.client.spec.tsx` 的 CSS 描述块新增一条用例钉这四条声明（并钉 `.trigger:hover` 在轨道下仍自带底色）。本 Agent Note 中英两侧同步该视觉契约，`.i18n.yaml` 由 `verify-translation-pairing --write` 重录。
+  - **为什么**：`settings.trigger.action` 落地后，触发按钮是唯一上色的一段，占位者贴在色块之外，鼠标移过整行时看起来是左右两个互不相干的控件。上色范围与行的范围不一致，是因为悬停表面归 `.trigger` 而不是归它所在的行。
+  - **要达到的效果**：宽模式下鼠标移过设置行，整行（齿轮、文案、右端的占位者）一起亮成同一块 12px 圆角表面；36px 折叠轨道不变，那里行内只有触发圆圈，仍由 `.trigger:hover` 自己上色。
+  - **退役条件与滚动同步注意**：与本条目其余部分同——落点仍是 `SettingsRoot.module.css` 的触发行版式，上游改触发行的悬停样式会与它撞行。
 
 ## rc.26 同步二阶段 B 族收尾：基座环境敏感测试红（不修，仅记录）
 `pnpm run test`（全仓）在本次 B 族收尾扫描中发现 3 项稳定红，与 Family A/B 的任何提交均无关（`git log --oneline 8c87b9ef19..HEAD -- <各自文件>` 均为空，两族从未触碰这三个文件），去沙箱（`dangerouslyDisableSandbox: true`）复现结果相同，单独重跑一次结果依旧相同——三次独立复现（全量套件、去沙箱、单文件隔离跑）结果完全一致，均判定为**稳定红（非抖动）**，不是间歇性失败：
