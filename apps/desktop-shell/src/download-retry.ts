@@ -108,6 +108,24 @@ const TRANSIENT_SYSCALL_CODES: ReadonlySet<string> = new Set([
 ])
 
 /**
+ * `name` of the failures a request that was given up on raises, which is the
+ * only thing identifying them.
+ *
+ * `AbortSignal.timeout()` rejects a `fetch` with a `DOMException` named
+ * `TimeoutError` and `AbortController.abort()` with one named `AbortError`.
+ * Neither carries a string `code` — `DOMException.code` is the numeric legacy
+ * value, 23 and 20 — and neither message names a network condition, so
+ * [[errorCodes]] finds nothing and the fail-closed default would call a feed
+ * that answered slowly fatal.
+ *
+ * Both are transient because every bound this repository sets is a wait it gave
+ * up on rather than a verdict about what it was waiting for: `fetchFeed`'s 20 s
+ * on one manifest, and the resumable transfer's idle bound on a silent
+ * connection. Nothing here cancels a transfer a user asked for.
+ */
+const ABANDONED_REQUEST_NAMES: ReadonlySet<string> = new Set(['TimeoutError', 'AbortError'])
+
+/**
  * Message fragments that identify a transient failure carrying no `code`.
  * `Request timed out` and `Request has been aborted by the server` are
  * builder-util-runtime's own texts (`HttpExecutor.addTimeOutHandler` and
@@ -165,6 +183,23 @@ const DOWNLOAD_STATUS_PATTERN = /^Cannot download "[^"]*", status (\d{3}):/
 
 /** `HttpError.code`, which is the status the response carried, or -1 when it carried none. */
 const HTTP_ERROR_CODE_PATTERN = /^HTTP_ERROR_(-?\d+)$/
+
+/**
+ * The code naming one HTTP status a transfer was refused with, spelled the way
+ * `HttpError.code` spells it so [[classifyDownloadError]] reads a status the
+ * same way whichever half of the transfer met it.
+ *
+ * `resumable-download.ts` attaches it to an answer it will not transfer from.
+ * That failure otherwise carries no code at all and its message is this
+ * repository's own Chinese prose, which [[DOWNLOAD_STATUS_PATTERN]] does not
+ * match — so a 503 from the feed was fatal and the bytes already on disk were
+ * given up on.
+ * @param status - the status the response carried.
+ * @returns the code to attach to the failure.
+ */
+export function httpErrorCode(status: number): string {
+  return `HTTP_ERROR_${String(status)}`
+}
 
 /**
  * How many `cause` links [[errorCodes]] follows. The chains this meets are two
@@ -239,7 +274,9 @@ function statusIsTransient(status: number): boolean {
  *
  * The code is read off the whole `cause` chain, because Node's `fetch` names
  * the condition nowhere else: the outermost code decides, so a refusal that
- * wraps a network failure stays a refusal.
+ * wraps a network failure stays a refusal. A request given up on is read off
+ * `name` before that, because it is the one failure here that carries no string
+ * code at all.
  *
  * Both a download and a check are classified here. A check carries one edge of
  * its own: electron-updater wraps a 404 on the channel file as
@@ -252,6 +289,7 @@ function statusIsTransient(status: number): boolean {
  */
 export function classifyDownloadError(error: unknown): DownloadFailure {
   if (!(error instanceof Error)) return 'fatal'
+  if (ABANDONED_REQUEST_NAMES.has(error.name)) return 'transient'
   const code = errorCode(error)
   if (code !== undefined) {
     if (code.startsWith(FATAL_CODE_PREFIX) || code === CHECKSUM_MISMATCH_CODE) return 'fatal'
@@ -277,12 +315,17 @@ export function classifyDownloadError(error: unknown): DownloadFailure {
  * the condition is: a cut transfer's outer code says a transfer was cut and its
  * inner one says what cut it, and a log that carried only the first would
  * report every interruption identically.
+ *
+ * A request given up on is named `TimeoutError` or `AbortError`, which is where
+ * its condition is; its message is prose about an operation being aborted and
+ * names neither the bound that ended it nor what was being waited for.
  * @param error - the value a download attempt failed with.
  * @returns a single-line identification.
  */
 export function describeDownloadError(error: unknown): string {
   const codes = errorCodes(error)
   if (codes.length > 0) return codes.join(CODE_CHAIN_SEPARATOR)
+  if (error instanceof Error && ABANDONED_REQUEST_NAMES.has(error.name)) return error.name
   const [line = ''] = (error instanceof Error ? error.message : String(error)).split('\n')
   return line.length > MESSAGE_LOG_LIMIT ? `${line.slice(0, MESSAGE_LOG_LIMIT)}…` : line
 }

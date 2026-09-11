@@ -41,7 +41,7 @@ import {
   type WriteStream,
 } from 'node:fs'
 import { finished } from 'node:stream/promises'
-import { TRANSFER_CUT_CODE } from './download-retry.ts'
+import { TRANSFER_CUT_CODE, httpErrorCode } from './download-retry.ts'
 import type { TransferSample } from './update-state.ts'
 
 /**
@@ -97,10 +97,10 @@ interface PartOrigin {
  *
  * The code is what says so. Node's `fetch` raises a cut body as a bare
  * `TypeError: terminated` and an abandoned request as a `DOMException` named
- * `AbortError`, neither of which identifies the condition at the top level; a
- * body that merely ended short identifies it in this module's own prose. A code
- * owned here classifies all three without the retry policy having to recognize
- * a message.
+ * `AbortError`, neither of which says that a transfer of this artifact ended or
+ * that its bytes are on disk; a body that merely ended short says so in this
+ * module's own prose. A code owned here classifies all three without the retry
+ * policy having to recognize a message.
  * @param message - what ended the attempt, for the caller and the log.
  * @param cause - the failure underneath, where one raised this.
  * @returns the error to throw.
@@ -210,12 +210,14 @@ function totalBytesOf(status: number, headers: Headers, have: number): number | 
  * `classifyDownloadError` reads. Three failures are worth the same call again
  * and carry [[TRANSFER_CUT_CODE]]: a body the peer cut, a connection that went
  * silent past the idle bound, and a body that ended short of the length its
- * answer promised. The rest carry no code of this module's and are final,
- * because the next attempt meets the same answer — a status that is neither
- * `200` nor `206`, a `206` beginning somewhere the request did not ask for,
- * two passes both answered `416`, and a completed file whose sha512 is not the
- * manifest's. A `.part` file that cannot be written raises the write stream's
- * own failure, under the filesystem's code.
+ * answer promised. A status that is neither `200` nor `206` carries
+ * [[httpErrorCode]], under which the caller retries a feed that failed or asked
+ * for later and gives up on one that refused. The rest carry no code of this
+ * module's and are final, because the next attempt meets the same answer — a
+ * `206` beginning somewhere the request did not ask for, two passes both
+ * answered `416`, and a completed file whose sha512 is not the manifest's. A
+ * `.part` file that cannot be written raises the write stream's own failure,
+ * under the filesystem's code.
  * @param target - what to transfer, where to keep it, and what it must hash to.
  * @param options - progress reporting, the fetch to use, and the stall bound.
  * @returns the artifact's size in bytes.
@@ -262,7 +264,15 @@ export async function resumeDownload(target: ResumableTarget, options: ResumeOpt
       }
       if (response.status !== 200 && response.status !== 206) {
         await response.body?.cancel()
-        throw new Error(`更新源返回 ${String(response.status)} ${response.statusText}(${target.url})`)
+        // The status is carried in a code rather than in the message, because
+        // the message is prose this repository wrote and the caller's verdict
+        // is a status one: a 503 or a 429 is the feed failing or asking for
+        // later, which the `.part` file on disk is worth another attempt for,
+        // and a 404 is an answer no attempt changes.
+        throw Object.assign(
+          new Error(`更新源返回 ${String(response.status)} ${response.statusText}(${target.url})`),
+          { code: httpErrorCode(response.status) },
+        )
       }
       const range = CONTENT_RANGE.exec(response.headers.get('content-range') ?? '')
       // Where in the artifact this answer's body begins: a 200 is the whole

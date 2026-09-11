@@ -13,6 +13,7 @@ import {
   classifyDownloadError,
   describeDownloadError,
   type FallbackHooks,
+  httpErrorCode,
   type RetryHooks,
   transferWithFallback,
   withRetry,
@@ -99,6 +100,31 @@ describe('classifyDownloadError', () => {
     expect(classifyDownloadError(new TypeError('fetch failed'))).toBe('transient')
   })
 
+  it('retries a request that was given up on, which names its condition only in its name', () => {
+    // `AbortSignal.timeout()` and `AbortController.abort()` reject a `fetch`
+    // with these two. A `DOMException`'s `code` is the numeric legacy value —
+    // 23 and 20 — and its message is prose about an operation, so neither the
+    // chain nor the message fragments identify it and the fail-closed default
+    // used to call a feed that answered slowly fatal.
+    expect(classifyDownloadError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe('transient')
+    expect(classifyDownloadError(new DOMException('This operation was aborted', 'AbortError'))).toBe('transient')
+  })
+
+  it('retries the status the resumable transfer was refused with, whose message no pattern here reads', () => {
+    const url = 'http://127.0.0.1:8080/DSH%20Desktop-1.0.0-arm64-mac.zip'
+    // The spelling `HttpError.code` uses, so a status decides the same way
+    // whichever half of the transfer met it.
+    expect(httpErrorCode(503)).toBe('HTTP_ERROR_503')
+    expect(classifyDownloadError(Object.assign(
+      new Error(`更新源返回 503 Service Unavailable(${url})`),
+      { code: httpErrorCode(503) },
+    ))).toBe('transient')
+    expect(classifyDownloadError(Object.assign(
+      new Error(`更新源返回 404 Not Found(${url})`),
+      { code: httpErrorCode(404) },
+    ))).toBe('fatal')
+  })
+
   it('lets the outermost code decide, so a refusal that wraps a network failure stays a refusal', () => {
     const refusal = Object.assign(
       new Error('not signed by the application owner', { cause: coded('ECONNRESET') }),
@@ -173,6 +199,11 @@ describe('describeDownloadError', () => {
       new Error('下载被中断', { cause: terminated(coded('UND_ERR_SOCKET')) }),
       { code: TRANSFER_CUT_CODE },
     ))).toBe(`${TRANSFER_CUT_CODE} ← UND_ERR_SOCKET`)
+  })
+
+  it('names a request that was given up on by its name, not by prose about an aborted operation', () => {
+    expect(describeDownloadError(new DOMException('The operation was aborted due to timeout', 'TimeoutError'))).toBe('TimeoutError')
+    expect(describeDownloadError(new DOMException('This operation was aborted', 'AbortError'))).toBe('AbortError')
   })
 
   it('falls back to the first line of the message, capped', () => {

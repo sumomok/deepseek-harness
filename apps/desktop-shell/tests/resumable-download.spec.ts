@@ -44,6 +44,8 @@ interface ServerBehavior {
   rangeNotSatisfiable?: boolean
   /** Answer this status with no body. */
   status?: number
+  /** Answer [[ServerBehavior.status]] to this many of the first requests only; the ones after it transfer. */
+  statusTimes?: number
   /** Accept the connection and then send nothing at all. */
   stall?: boolean
   /** Serve these bytes instead of [[ARTIFACT]], as a server that replaced the file would. */
@@ -83,7 +85,7 @@ async function serve(behavior: ServerBehavior = {}): Promise<{ url: string; rece
   const answer = (request: IncomingMessage, response: ServerResponse): void => {
     received.push(request.headers)
     if (behavior.stall === true) return
-    if (behavior.status !== undefined) {
+    if (behavior.status !== undefined && received.length <= (behavior.statusTimes ?? Number.POSITIVE_INFINITY)) {
       response.writeHead(behavior.status)
       response.end()
       return
@@ -291,6 +293,56 @@ describe('a server that will not continue the transfer', () => {
   it('reports the status it refused with', async () => {
     const { url } = await serve({ status: 503 })
     await expect(resumeDownload({ url, partFile: partFile(), sha512: SHA512 })).rejects.toThrow(/503/)
+  })
+})
+
+describe('a feed that answered with a status instead of the artifact', () => {
+  it('keeps the part and reports a server failure as worth another attempt', async () => {
+    const file = partFile()
+    writeFileSync(file, ARTIFACT.subarray(0, 5_000))
+    const { url, received } = await serve({ status: 503 })
+    const refused = await resumeDownload({ url, partFile: file, sha512: SHA512 }).catch((error: unknown) => error)
+    // The message is this repository's own prose, which no pattern in the
+    // retry policy reads, so the verdict rests on the code it carries.
+    expect(describeDownloadError(refused)).toBe('HTTP_ERROR_503')
+    expect(classifyDownloadError(refused)).toBe('transient')
+    // Nothing of the refusal reached the disk, so the next attempt asks for
+    // the same range rather than for the whole artifact.
+    expect(readFileSync(file)).toEqual(ARTIFACT.subarray(0, 5_000))
+    expect(received[0]?.range).toBe('bytes=5000-')
+  })
+
+  it('carries a feed that answered 503 once through the retry plan to the whole artifact', async () => {
+    const { url, received } = await serve({ status: 503, statusTimes: 1 })
+    const file = partFile()
+    const retries: string[] = []
+    const size = await withRetry(
+      async () => resumeDownload({ url, partFile: file, sha512: SHA512 }),
+      RESUME_RETRY_DELAYS_MS,
+      {
+        sleep: async () => {},
+        onRetry: (_attempt, _total, _delayMs, error) => { retries.push(describeDownloadError(error)) },
+      },
+    )
+    expect(size).toBe(ARTIFACT.byteLength)
+    expect(readFileSync(file).equals(ARTIFACT)).toBe(true)
+    expect(retries).toEqual(['HTTP_ERROR_503'])
+    expect(received).toHaveLength(2)
+  })
+
+  it('spends no retry on a status that decides the request', async () => {
+    const { url, received } = await serve({ status: 404 })
+    const file = partFile()
+    let retried = 0
+    const refused = await withRetry(
+      async () => resumeDownload({ url, partFile: file, sha512: SHA512 }),
+      RESUME_RETRY_DELAYS_MS,
+      { sleep: async () => {}, onRetry: () => { retried += 1 } },
+    ).catch((error: unknown) => error)
+    expect(describeDownloadError(refused)).toBe('HTTP_ERROR_404')
+    expect(classifyDownloadError(refused)).toBe('fatal')
+    expect(retried).toBe(0)
+    expect(received).toHaveLength(1)
   })
 })
 
