@@ -26,6 +26,13 @@
     "packages/*/*/tests/**/*.client.spec.tsx",
     "packages/*/*/tests/**/*.client.tsx",
     "packages/*/*/tests/**/*.client.ts",
+    // The desktop payload's own client-face suite: it applies the vendored
+    // browser halves the shell seeds, so it reads the Client Context merges
+    // that the rest of this app's tests (host plane) must not see. Its seeded
+    // bundle list comes from the shell source below, which imports node
+    // builtins only and therefore belongs to neither Context face.
+    "apps/*/tests/**/*.client.spec.ts",
+    "apps/desktop-shell/src/profile-seed.ts",
     // Client package outside packages/client with a local CSS module face.
     "packages/extensions/ui-cordis/src/css-modules.d.ts",
     "packages/client/tsdown.client.ts",
