@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.md
-2026-09-11-settings-trigger-action-slot.md: 5a9d144a1899d102c5214d5ba003c673d189f2d6
-2026-09-11-settings-trigger-action-slot.zh.md: 891c39d4beda4c0280336187ac09ef267c264e53
+2026-09-11-settings-trigger-action-slot.md: bea748045d6562d02fa46c3519fc381821f08a4e
+2026-09-11-settings-trigger-action-slot.zh.md: 23b0f3cd1ee970c40a5d9472340aee1e1f0699f7
