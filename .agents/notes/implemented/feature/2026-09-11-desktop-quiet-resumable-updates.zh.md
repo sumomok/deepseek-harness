@@ -22,7 +22,7 @@ Status: implemented
 
 一次检查——启动后 15 秒、此后每四小时、帮助 → 检查更新,以及设置里的那个入口——发现什么就直接开始传,不先征询。`offerDownload` 与 `offerInstall` 的非阻断那一半连同支撑它们的模块状态(`declinedVersion`、`postponedVersion`)一起删掉;`showProgress`、`showRetrying`、`updateProgress`、`closeProgress` 与 `mainWindow()?.setProgressBar(...)` 也是。`progress-window.ts` 只留 macOS 的安装提示窗,那是应用唯一欠一句解释的时刻:Squirrel 会占住屏幕十五秒上下,而这段时间里的强制退出正好落在包被替换到一半的窗口里。
 
-帮助 → 检查更新 位置与文案都不变,因为一个消失了的菜单项没人再找得回来。它跑的是同一个静默检查,而它只在别处不说话的地方作答:「已是最新版本」与「无法检查更新」。落在一个正在下载或已下载好的更新上的检查什么都不说——只记下它跑过的时刻就停住——因为它要报的东西已经在设置那一行上,装它的按钮就在那里。这是 2026-09-11 定下的产品规则:「发现新版本」这类提示归强制更新,可选更新只由那一行的「更新到最新」按钮提出。仍有一个手动对话框在问「发现新版本 / 去下载」,而且只出现在下载页那一层——未签名、装不了就地更新的 macOS 构建。这条规则够不到它:那一层没有一个安装按钮可以让它退让,设置那一行只能报出一个这个构建装不上的版本,于是对话框是把下载交出去的唯一口子。那一层要不要保留它还没定。那里的静默检查依旧除非 feed 的红线高过在跑的版本否则什么都不说;就地那一层则永远走不到这个框:它的检查被打断时,点击得到的是「无法检查更新」,静默检查则无论有没有红线都不作声。
+帮助 → 检查更新 位置与文案都不变,因为一个消失了的菜单项没人再找得回来。它跑的是同一个静默检查,而它只在别处不说话的地方作答:「已是最新版本」与「无法检查更新」。落在一个正在下载或已下载好的更新上的检查什么都不说——只记下它跑过的时刻就停住——因为它要报的东西已经在设置那一行上,装它的按钮就在那里。这是 2026-09-11 定下的产品规则:「发现新版本」这类提示归强制更新,可选更新只由那一行的「更新到最新」按钮提出。仍有一个手动对话框在问「发现新版本 / 去下载」,而且只出现在下载页那一层——未签名、装不了就地更新的 macOS 构建。这条规则够不到它:那一层没有一个安装按钮可以让它退让,设置那一行只能报出一个这个构建装不上的版本,于是对话框是把下载交出去的唯一口子。那一层要不要保留它还没定。那里的静默检查依旧除非 feed 的红线高过在跑的版本否则什么都不说;就地那一层则永远走不到这个框:它的检查被打断时,点击得到的是「无法检查更新」,静默检查则无论有没有红线都不作声。那个按钮不写版本号,关于这次更新的其他每一行也都不写:同一条决定把它的文案定死为「更新到最新」,因为要选的是在跑的那个构建与一个更新的构建之间,而一串版本号并没有说出这个选择取决于什么。插件仍然印出的那一个版本号,是在跑的这个构建自己的。
 
 普通路径上根本不弹任何对话框:查出活儿来的检查,答案在更新所在的地方——因为一个写着「正在下载」的对话框,正是这次改动要拿掉的那种打断。
 
@@ -40,7 +40,7 @@ Status: implemented
 
 它先答再做:`{ "ok": true }` 先上线,安装排在下一个 tick。安装会停掉嵌入服务端,并把机器交给一个要替换掉本进程的安装器,所以一个还等在响应上的调用方,会把那次断开的连接读成一次失败的安装——为一个正在被应用的更新报出一次失败。
 
-**设置那一侧是一个插件,不属于壳。**`@haoran/dsh-desktop-update` 0.1.1 以 tarball 形式放在 `apps/desktop-server/vendor/` 下,由 `cd2244802e` 引入。它的 host 半边是一个叫 `desktopUpdate` 的 Typert 服务,代理那四条路由,端点与 token 都留在网关的它这一侧;环境里两者都没有时,`state()` 答 `phase: 'unsupported'`,插件什么都不注册。它的浏览器半边注册一个 `settings.section`——id 是 `desktop-update`,即「更新」页——以及一个只在 `phase === 'ready'` 时才渲染的动作:设置行右端的那个更新按钮。那个按钮坐的位子是 `settings.trigger.action`,即核心补丁 D 新增的那个 list 槽(合并提交 `f934c3ae2a`,在 `.claude/core-patches.md` 在册)。补丁不在场时,动作退到 `sidebar.footer.action`——凡是带侧栏的组合都声明它——因为 `ctx.slots.inject` 只会为某个构建确实声明过的 key 触发回调,于是往打了补丁的那个 key 上注入本身就是探测。插件自己的 Agent Note 跟着它的源码走,在 `dsh-plugins` 仓的 `packages/desktop-update/`。
+**设置那一侧是一个插件,不属于壳。**`@haoran/dsh-desktop-update` 0.1.2 以 tarball 形式放在 `apps/desktop-server/vendor/` 下,由 `cd2244802e` 引入。它的 host 半边是一个叫 `desktopUpdate` 的 Typert 服务,代理那四条路由,端点与 token 都留在网关的它这一侧;环境里两者都没有时,`state()` 答 `phase: 'unsupported'`,插件什么都不注册。它的浏览器半边注册一个 `settings.section`——id 是 `desktop-update`,即「更新」页——以及一个只在 `phase === 'ready'` 时才渲染的动作:设置行右端的那个更新按钮。那个按钮坐的位子是 `settings.trigger.action`,即核心补丁 D 新增的那个 list 槽(合并提交 `f934c3ae2a`,在 `.claude/core-patches.md` 在册)。补丁不在场时,动作退到 `sidebar.footer.action`——凡是带侧栏的组合都声明它——因为 `ctx.slots.inject` 只会为某个构建确实声明过的 key 触发回调,于是往打了补丁的那个 key 上注入本身就是探测。插件自己的 Agent Note 跟着它的源码走,在 `dsh-plugins` 仓的 `packages/desktop-update/`。
 
 **0.1.0 把那个服务的安装方法叫作 `install`,而客户端 API 保留了这个名字。**`RemoteNamespaceService` 自己的原型上就带着 `install()`,`assertMethodAvailable` 拒绝任何跟它撞名的方法,于是装好的构建里 `ctx.remote.$mount()` 抛出 `client api: method "desktopUpdate/install" conflicts with its namespace service`,Loader 条目随之失败,web 客户端把它变成 `Failed to load plugins`——整页都没了,本插件那一部分和别人的一起。0.1.1 把方法改名为 `installUpdate`,壳那条 `/install` loopback 路由原样不动。放 0.1.0 过关的那次打包构建冒烟挂的是 vm 桩,里面没有这条规则;驱动真实客户端 API 的门禁是 `2026-09-11-vendored-client-runtime-gate`。
 
