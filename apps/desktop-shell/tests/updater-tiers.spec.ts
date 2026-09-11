@@ -359,7 +359,7 @@ describe('a signed build whose in-place check could not get through', () => {
     expect(shell.dialogs).toHaveLength(1)
     expect(shell.dialogs.at(-1)).toMatchObject({
       message: '无法检查更新',
-      detail: `ECONNRESET\n\n稍后会自动重试,新版本 ${NEXT} 已记录在设置里。`,
+      detail: 'ECONNRESET\n\n稍后会自动重试,新版本已记录在设置里。',
     })
     // This build can still replace itself, so nothing offers the download page
     // or the by-hand instructions that go with it.
@@ -436,7 +436,7 @@ describe('a build that cannot install where it stands', () => {
 })
 
 describe('a manual check with the update already under way', () => {
-  it('answers the click and records the time while the transfer runs', async () => {
+  it('records the time and shows nothing while the transfer runs', async () => {
     bundle(true)
     shell.checkForUpdates = async (): Promise<unknown> => ({ updateInfo: { version: NEXT, releaseNotes: 'fixes the thing' } })
     // A transfer that never ends, which is what the second check lands on.
@@ -452,17 +452,18 @@ describe('a manual check with the update already under way', () => {
     // ISO 8601 records milliseconds, so the two checks must be told apart by one.
     await new Promise<void>((resolve) => { setTimeout(resolve, 5) })
 
-    const shown = nextDialog()
     manual()
-    await shown
+    await waitFor('check while a transfer is in flight')
 
-    expect(shell.dialogs.at(-1)?.message).toBe('正在后台下载新版本')
+    // The click is answered by the Settings row, which already carries the
+    // transfer; a dialog on top of it would be a second thing to dismiss.
+    expect(shell.dialogs).toHaveLength(0)
     const after = actions.state()
     expect(after.phase).toBe('downloading')
     expect(Date.parse(after.checkedAt ?? '')).toBeGreaterThan(Date.parse(before ?? ''))
   })
 
-  it('answers the click and records the time while the update waits to be installed', async () => {
+  it('records the time and shows nothing while the update waits to be installed', async () => {
     bundle(true)
     shell.checkForUpdates = async (): Promise<unknown> => ({ updateInfo: { version: NEXT } })
     shell.downloadUpdate = async (): Promise<void> => {
@@ -478,11 +479,10 @@ describe('a manual check with the update already under way', () => {
     const before = actions.state().checkedAt
     await new Promise<void>((resolve) => { setTimeout(resolve, 5) })
 
-    const shown = nextDialog()
     manual()
-    await shown
+    await waitFor(`check while ${NEXT} waits to be installed`)
 
-    expect(shell.dialogs.at(-1)?.message).toBe('新版本已下载完成')
+    expect(shell.dialogs).toHaveLength(0)
     const after = actions.state()
     expect(after.phase).toBe('ready')
     expect(Date.parse(after.checkedAt ?? '')).toBeGreaterThan(Date.parse(before ?? ''))

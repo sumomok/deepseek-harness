@@ -43,11 +43,12 @@
  * cannot report what it is doing, and the wizard would only ask again what the
  * click already answered.
  *
- * 帮助 → 检查更新 runs the same silent check, and answers 「已是最新版本」,
- * 「无法检查更新」, 「正在后台下载新版本」 or 「新版本已下载完成」 — a click deserves a
- * reply, while a check that found work reports it where the update lives. On
- * the download page a manual check that finds an update asks 「发现新版本 /
- * 去下载」 instead, because that tier has no other way to hand the download over.
+ * 帮助 → 检查更新 runs the same silent check, and answers 「已是最新版本」 or
+ * 「无法检查更新」 — the two states nothing else shows. A check that found work
+ * says nothing at all: the update it found is already on the Settings row, and
+ * a dialog on top of a visible button is a second thing to dismiss. On the
+ * download page a manual check that finds an update asks 「发现新版本 / 去下载」
+ * instead, because that tier has no other way to hand the download over.
  *
  * Above that sits one mandatory layer, keyed on the feed's `minimumVersion`:
  * a build older than that line downloads without being asked, and at launch it
@@ -132,10 +133,11 @@ const MAC_FEED_TIMEOUT_MS = 20_000
 const GATE_TIMEOUT_MS = 15_000
 
 /**
- * Why a check is running. It decides only who may be interrupted: `manual` — the
- * menu item — may answer with a dialog, and `startup`, `scheduled` and
- * `requested` (the Settings entry's own button) never may, because their answer
- * belongs where the update is shown.
+ * Why a check is running. It decides only who may be interrupted: `manual` —
+ * the menu item — may answer with a dialog when the check has nothing to show,
+ * and `startup`, `scheduled` and `requested` (the Settings entry's own button)
+ * never may. A check that found an update interrupts nobody either way: what
+ * it found is shown on the Settings row.
  */
 type CheckReason = 'startup' | 'scheduled' | 'manual' | 'requested'
 
@@ -883,24 +885,20 @@ async function runCheck(host: UpdateHost, reason: CheckReason): Promise<void> {
 
 /**
  * In-place tier, stage one: compare against the feed. What the check finds
- * decides which of the later stages the user sees, and a manual check re-enters
- * whichever stage the update is already in rather than starting over.
+ * decides which of the later stages the user sees, and a check landing on an
+ * update already under way leaves it where it is rather than starting over.
  * @param host - logging and quit coordination from the main process.
  * @param reason - what started this check.
  */
 async function checkInPlace(host: UpdateHost, reason: CheckReason): Promise<void> {
   const checking = ensureUpdater(host)
   // A downloaded update and a transfer in flight are both already reported
-  // where the update lives, so a check on top of either starts nothing. It
-  // still records when it ran, and a manual one still answers: a click
-  // deserves a reply wherever the update it asked about already is.
+  // where the update lives — the Settings row's button — so a check on top of
+  // either starts nothing and shows nothing, whoever asked for it. It still
+  // records when it ran, which the Settings page shows as 上次检查.
   if (stagedVersion !== undefined || downloading) {
     updateState().checkSucceeded(new Date().toISOString(), stagedVersion ?? offeredVersion, stagedNotes)
     host.log(`[updater] check while ${stagedVersion === undefined ? 'a transfer is in flight' : `${stagedVersion} waits to be installed`}\n`)
-    if (reason === 'manual') {
-      if (stagedVersion === undefined) await reportDownloading(offeredVersion)
-      else await reportStaged(stagedVersion)
-    }
     return
   }
   updateState().checkStarted()
@@ -1174,7 +1172,7 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReaso
       await ask({
         type: 'warning',
         message: '无法检查更新',
-        detail: `${fallbackReason}\n\n稍后会自动重试,新版本 ${version} 已记录在设置里。`,
+        detail: `${fallbackReason}\n\n稍后会自动重试,新版本已记录在设置里。`,
         buttons: ['好'],
       })
     } else if (isMandatory(feed.minimumVersion)) {
@@ -1204,34 +1202,6 @@ async function checkGeneric(host: UpdateHost, reason: CheckReason, fallbackReaso
     return
   }
   await openDownloadPage(host, artifact)
-}
-
-/**
- * Answer a manual check that landed while the update it asked about was still
- * transferring.
- * @param version - the version being transferred, when a check has named one.
- */
-async function reportDownloading(version: string | undefined): Promise<void> {
-  await ask({
-    type: 'info',
-    message: '正在后台下载新版本',
-    detail: `${version === undefined ? '新版本' : `v${version}`} 正在后台下载,下载完成后到设置里安装。`,
-    buttons: ['好'],
-  })
-}
-
-/**
- * Answer a manual check that landed on an update already downloaded and
- * waiting for the click that installs it.
- * @param version - the downloaded version.
- */
-async function reportStaged(version: string): Promise<void> {
-  await ask({
-    type: 'info',
-    message: '新版本已下载完成',
-    detail: `v${version} 已下载完成,到设置里安装。`,
-    buttons: ['好'],
-  })
 }
 
 /** Confirm to a manual checker that the installed version is current. */
