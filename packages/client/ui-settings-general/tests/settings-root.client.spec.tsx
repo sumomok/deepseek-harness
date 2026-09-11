@@ -353,6 +353,17 @@ describe('SettingsRoot.module.css', () => {
     expect(declarations('.triggerRow.railRow')?.get('width')).toBe('36px')
     expect(declarations('.triggerRow.railRow .triggerActions')?.get('display')).toBe('none')
   })
+
+  it('gives the wide row one hover surface that the action seat sits inside', () => {
+    // One control rather than two: the row paints the hover fill across the
+    // trigger and the seat together, and the trigger stops painting its own
+    // fill inside that row so the two do not read as separate boxes.
+    expect(declarations('.triggerRow')?.get('border-radius')).toBe('12px')
+    expect(declarations('.triggerRow:not(.railRow):hover')?.get('background')).toBe('var(--dsw-alias-interactive-bg-hover)')
+    expect(declarations('.triggerRow:not(.railRow) .trigger:hover')?.get('background')).toBe('transparent')
+    // The rail row is excluded: there the trigger circle is its own surface.
+    expect(declarations('.trigger:hover')?.get('background')).toBe('var(--dsw-alias-interactive-bg-hover)')
+  })
 })
 
 describe('SettingsPanel chrome seats', () => {
