@@ -165,7 +165,7 @@ export function ShellFrame({ useStore, useSessions, renderSlot, SessionProvider,
             type="button"
             className={css.hamburger}
             aria-label={t('sidebar.open')}
-            aria-expanded={false}
+            aria-haspopup="dialog"
             data-shell-drawer-toggle
             onClick={() => { actions.openDrawer() }}
           >
@@ -187,7 +187,6 @@ export function ShellFrame({ useStore, useSessions, renderSlot, SessionProvider,
               className={css.drawer}
               style={{ width: drawerWidth }}
               role="dialog"
-              aria-modal="true"
               aria-label={t('sidebar.navigation')}
               tabIndex={-1}
               data-shell-drawer

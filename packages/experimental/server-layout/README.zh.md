@@ -87,7 +87,7 @@ ctx.slots.inject('content', () => ctx.slots.register({ name: 'content' }, MySurf
 - **没有调宽手段** —— 栏宽既不可由用户调整，也不持久化。比例与控制条宽度是约定冻结的常量，不是配置项。
 - **content 栏只是壳** —— 本包交付座位、空态与几何。里面渲染什么归占用者所有；[`content-frame`](../content-frame/README.zh.md) 是第一位。
 - **root scope 的一栏会漏出跨 session 状态，除非占用者自己按 session 分键** —— 框架在 session 切换时不清任何东西，因此持有 per-session 组件状态的占用者必须自己以 session id 分键。这份代价换来的正是这一栏的全部意义：框架不得摧毁的 DOM。另外三栏保持各自的 session scope。
-- **没有浏览器 theme-color 元数据** —— 出厂外壳还维护一个 `<meta name="theme-color">`，其内容跟随计算出的 body 背景色，用于给移动端浏览器 UI 上色。本外壳省略了它，这与「没有响应式行为」是一致的取舍。
+- **没有浏览器 theme-color 元数据** —— 出厂外壳还维护一个 `<meta name="theme-color">`，其内容跟随计算出的 body 背景色，用于给移动端浏览器 UI 上色。窄屏抽屉现在已服务该移动端场景，但把 body 背景色同步进浏览器界面这一项属于待办，尚未接入。
 - **未被组装态快照覆盖** —— 浏览器证据是跑在真实组合上的 Playwright 场景，而不是录制的 transcript；快照通道投影的是模型可见与会话输出，而本包两者皆无。
 - **content-empty 的读取是一次无 DOM 但耦合形状的越包读取** —— `ShellFrame.tsx` 从 `useSessions` 每个 session 的 `projectionValues` 里读 `contentSurface.entries`，全程按 `unknown` 处理，而不是引入 [`content-surface`](../content-surface/README.zh.md) 的类型（本包对它零依赖，没组合它的部署会一直读到空列表，这恰好也是正确答案）。这个键的形状或名字将来一变，读取会静默失效——这一栏会停止折叠（或该折叠时不折叠），没有任何编译期信号，只会看到一个不对劲的版面。
 - **内容折叠可能在首屏闪一下** —— 会话列表投影值是异步到达的，因此一个本来有内容的 session 可能先渲染成折叠版面（16:5 塌成纯 chat），等第一份快照到达后 content 栏才展开。`grid-template-columns` 的过渡（`ShellFrame.module.css`）让这次展开是动画而不是硬切，但首次加载那一下闪烁并未被抑制。

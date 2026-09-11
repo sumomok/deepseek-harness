@@ -14,7 +14,7 @@ Status: implemented
 
 - `tracks.ts` 在 `SESSION_RAIL` 与 `DETAILS_WIDTH` 旁新增两个约定冻结常量——`SIDEBAR_AUTO_COLLAPSE = 1024` 与 `SIDEBAR_DRAWER = 280`——一个纯谓词 `isNarrow(frame)`，以及 `solveTracks` 上的第五个 `narrow` 布尔。`narrow` 为真时，session 轨道解出 0（而不是 56px 控制条），content 与 chat 按各自的 16:5 瓜分 details 带剩下的部分，content 在为空时仍折叠到 0。只要框架为正，轨道之和仍等于框架宽度。断点以上的求解与下限那篇 note 逐字节一致。
 - 面板 store 新增瞬态 `drawerOpen` 标志（默认 false）、`openDrawer`/`closeDrawer`，以及由 `setNarrow` 写入的 `narrow` 镜像。`toggleSidebar`——外部调用者通过 `ctx.layout` 触及的唯一折叠动词——在宽框架下表示折叠，在窄框架下表示抽屉，因为那时列在栅格之外、控制条无处可显。`setNarrow` 在框架重新变宽越过断点时强制关闭抽屉，因此不会有浮层残留到宽版面上。
-- `ShellFrame` 把 `isNarrow(frame)` 镜像进 store，在窄且关闭时于既有的 `shell.overlay` 层里渲染一个左上角汉堡按钮，在窄且打开时把同一个 `sidebar` 槽渲染为左侧贴边、宽度 `SIDEBAR_DRAWER`（钳到框架）的抽屉，其后是一层遮罩。抽屉滑入、遮罩淡入，二者在 `prefers-reduced-motion` 下都不动画。打开时焦点移入抽屉、关闭时移回汉堡按钮，且不引入 focus-trap 依赖。抽屉靠遮罩（指针）与 Escape 键（键盘）关闭。
+- `ShellFrame` 把 `isNarrow(frame)` 镜像进 store，在窄且关闭时于既有的 `shell.overlay` 层里渲染一个左上角汉堡按钮，在窄且打开时把同一个 `sidebar` 槽渲染为左侧贴边、宽度 `SIDEBAR_DRAWER`（钳到框架）的抽屉，其后是一层遮罩。抽屉滑入、遮罩淡入，二者在 `prefers-reduced-motion` 下都不动画。打开时焦点移入抽屉、关闭时移回汉堡按钮，且不引入 focus-trap 依赖；因此背景从不被置为 inert，抽屉是带标签的 `role="dialog"` 但不加 `aria-modal`，汉堡按钮声明 `aria-haspopup="dialog"` 而非永远处于收起态的 `aria-expanded`。抽屉靠遮罩（指针）与 Escape 键（键盘）关闭。
 - 文案由 locale 拥有：`sidebar.open`（汉堡按钮标签）与 `sidebar.navigation`（抽屉区域标签）同时加入 `serverLayout` 的 `zh` 与 `en` 词典。
 
 **导航点击不会自动关闭抽屉。** `server-sidebar` 的 `open-nav.ts` 用 `resolveOrCreateSession({ reuseCurrent: true })` 解析导航目标，因此打开一个页面或视图是在*当前* session 里展示内容，而不是切换 session。没有 session 切换抵达 `ShellFrame`，所以它能观察到的当前 session 变化只对会切换 session 的打开（工作台、工作流）触发，而不是常见的页面/视图打开。与其不一致地关闭，抽屉在导航时一律不自动关闭；遮罩、Escape 与 `ctx.layout.toggleSidebar()` 是完整的关闭手段集合。
