@@ -568,14 +568,54 @@ describe('prompt and cancel errors', () => {
   })
 
   it('stays blank on a command that declared it configures the session', async ({ mock, start }) => {
-    // The durable event is the only thing consulted, so the typed composer
-    // line, the Intent hero's access-mode chip and a plugin calling the
-    // command RPC directly all land on this same rule.
+    // The run's own `engages` declaration decides, read off the durable event
+    // this session observed; nothing about how the line was sent is consulted.
     const onEngaged = vi.fn()
     const session = await blankOpened(mock, start, onEngaged)
 
     await pushEvent(mock, ev.commandRunConfiguring(SessionSeq(0), 'cmd-1', 'permission', ' workspace-write'))
     expect(session.getSnapshot()).toMatchObject({ blank: true, promptAttempted: false })
+    expect(onEngaged).not.toHaveBeenCalled()
+  })
+
+  it('admits a command line and leaves the blank bit to the run the host logs', async ({ mock, start }) => {
+    // `Session.command` is pure admission: it reports whether a command
+    // matched the line and moves nothing else, so the Intent hero's
+    // access-mode chip, a typed composer line and a plugin calling this verb
+    // directly all reach the mirror through the one durable `command/run`.
+    // The rule is registered before the client starts because the endpoints
+    // the mock knows then decide which `remote.<ns>` proxies the tier provides.
+    mock.unary('commands/execute', (_agentId: SessionId, line: string) => (
+      line === '/btw 天气' ? ok({ commandId: 'cmd-1', result: { kind: 'success' } }) : ok(undefined)
+    ))
+    const onEngaged = vi.fn()
+    const session = await blankOpened(mock, start, onEngaged)
+
+    await expect(session.command('/btw 天气')).resolves.toEqual({ ok: true, value: { matched: true } })
+    expect(mock.log.calls('commands/execute').map(call => call.args)).toEqual([[SID, '/btw 天气', []]])
+    expect(session.getSnapshot()).toMatchObject({ blank: true, promptAttempted: false, awaitingFirstTurn: false })
+    expect(onEngaged).not.toHaveBeenCalled()
+
+    // No command claimed the line: an answer of its own, not a failure.
+    await expect(session.command('/nothing-claims-this')).resolves.toEqual({ ok: true, value: { matched: false } })
+    expect(session.getSnapshot().blank).toBe(true)
+
+    // The host's own run is what lowers the bit.
+    await pushEvent(mock, ev.commandRun(SessionSeq(0), 'cmd-1', 'btw', ' 天气'))
+    expect(session.getSnapshot().blank).toBe(false)
+    expect(onEngaged).toHaveBeenCalledExactlyOnceWith(session)
+  })
+
+  it('returns the Commands failure unchanged and keeps the session blank', async ({ mock, start }) => {
+    mock.unary('commands/execute', () => Promise.reject(new Error('commands row is down')))
+    const onEngaged = vi.fn()
+    const session = await blankOpened(mock, start, onEngaged)
+
+    await expect(session.command('/btw 天气')).resolves.toMatchObject({
+      ok: false,
+      error: { code: 'gateway/internal', message: 'client api: commands/execute failed: commands row is down' },
+    })
+    expect(session.getSnapshot().blank).toBe(true)
     expect(onEngaged).not.toHaveBeenCalled()
   })
 
