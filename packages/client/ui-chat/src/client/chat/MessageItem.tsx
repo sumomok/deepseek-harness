@@ -155,10 +155,14 @@ function TurnMaxTokensItem({ t }: {
 }
 
 /**
- * Notice for an automatic compaction that ran and freed nothing. The visible
- * copy is a fixed localized sentence: the backend's own failure text names
- * internals a product user has no vocabulary for, so it rides the `title`
- * attribute for whoever is diagnosing rather than the row itself.
+ * Notice for an automatic compaction that failed to write its summary. The
+ * visible copy is a fixed localized sentence: the backend's own failure text
+ * names internals a product user has no vocabulary for, so it rides the
+ * `title` attribute for whoever is diagnosing rather than the row itself.
+ *
+ * The copy claims only that no summary was written. It cannot claim the
+ * conversation is unchanged: the engine prunes oversized tool results before
+ * it opens the bracket, so a failure here can follow a landed reduction.
  */
 function CompactionFailureItem({ node, t }: {
   node: CompactionFailureChatData

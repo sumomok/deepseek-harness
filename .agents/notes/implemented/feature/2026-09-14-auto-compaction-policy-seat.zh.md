@@ -50,9 +50,9 @@ export interface CompactionPolicy {
 
 手动 `/compact` 的失败不会走到这张卡，也不应该走。`command-compact` 调用的是同一个标记对，因此标记对内的手动失败写下同样出错的 `compaction/end`——但每一条手动生命周期事件都带 `sourceCommandId`，而 `compactionDefinition.match` 一向排除它，把它交给 `commandDefinition` 与那张已经渲染 `command/done` 失败文本的命令卡。一次失败出两张卡比一张更糟。标记对之前的手动失败（`busy`：agent 不空闲，或已有活动压缩）根本不写事件，同样经命令结果抵达用户。
 
-取消的回合不能产生这张卡。`region.ts` 对任何抛出都以 `compaction/end{error}` 闭合标记对，因此摘要途中按下「停止」会把一次取消记成与失败一模一样，转录就会声称有东西坏了。结构化证据没能留下：摘要器把适配器的 `ABORTED` 失败抛成一个 `Error`，其 code 被 `errorChain` 丢弃；回合级信号也到不了这个 Definition——它的 Context 以 `compactionId` 为键，之后的 `turn/end{aborted}` 没有可匹配的 id，而 `turn-process` 与 `turn-tail` 都不把回合结束原因发布成 turn data。剩下的只有文本，而每一个随产品发布的取消来源都写出了这个词：`DeepSeek request aborted by caller`、`pi-ai request aborted by caller`、`pi-ai stream aborted`，以及裸信号原因的 `This operation was aborted`，或消息为空时的 `AbortError`。Definition 匹配链首段里的 `abort` 并不出卡。接受的代价是：措辞里恰好含该词的真实上游失败也不出卡；这是更安全的方向，且宿主仍会记日志。`AgentCancelCause` 渲染成 `[object Object]`、无法渲染的值渲染成 `<unrenderable value>`，两者都不是原因，因此出卡但只有 locale 文案、没有 `title`。
+取消的回合不能产生这张卡。`region.ts` 对任何抛出都以 `compaction/end{error}` 闭合标记对，因此摘要途中按下「停止」会把一次取消记成与失败一模一样，转录就会声称有东西坏了。结构化证据没能留下：摘要器把适配器的 `ABORTED` 失败抛成一个 `Error`，其 code 被 `errorChain` 丢弃；回合级信号也到不了这个 Definition——它的 Context 以 `compactionId` 为键，之后的 `turn/end{aborted}` 没有可匹配的 id，而 `turn-process` 与 `turn-tail` 都不把回合结束原因发布成 turn data。剩下的只有文本，而每一个随产品发布的取消来源都写出了这个词：`DeepSeek request aborted by caller`、`pi-ai request aborted by caller`、`pi-ai stream aborted`，以及裸信号原因的 `This operation was aborted`，或消息为空时的 `AbortError`。Definition 匹配链首段里的 `abort` 并不出卡。接受的代价是：措辞里恰好含该词的真实上游失败也不出卡；这是更安全的方向，且宿主仍会记日志。抛出的非 Error 渲染成 `[object Object]`、带敌意访问器的值渲染成 `<unrenderable value>`，两者都不是原因，因此出卡但只有 locale 文案、没有 `title`。两者都不按取消处理：`AgentCancelCause` 的渲染结果虽然相同，却到不了这条路径——出厂适配器会在传播之前把被中止的请求改写成 `… request aborted by caller`。
 
-卡片不展示后端文本。它提到摘要器、阈值、缩小量检查——产品用户没有这套词汇。行内是一句固定的本地化文案，说明这次没压缩、之后会再试，这既是用户需要知道的，也属实：下一步会重新评估压力并再试一次。原始链条改挂在 `title` 属性上，供排查者读。
+卡片不展示后端文本。它提到摘要器、阈值、缩小量检查——产品用户没有这套词汇。行内是一句固定的本地化文案，说明这次没能写出摘要、之后会再试，这既是用户需要知道的，也是全部属实的部分：下一步会重新评估压力并再试一次。它刻意不说「对话内容没有变化」——`compactIfNeeded` 在开标记对之前就会剪枝超大工具结果，因此这里的失败可能发生在一次已落地的缩减之后。原始链条改挂在 `title` 属性上，供排查者读。
 
 **已知限制：摘要模型持续宕机会逐步叠卡。** 每次压缩都是以自身 `compactionId` 为键的独立 Context，而一个 Definition 无法压制另一个 Context 的节点，本框架里没有任何东西能把它们合并；引擎步与步之间也没有退避，因此一次长回合中的提供方故障会留下一串相同提示。暂时接受——替代方案是本框架并不提供的跨 Context 状态。
 
