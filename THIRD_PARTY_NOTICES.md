@@ -64,7 +64,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`@opentelemetry/sdk-logs`](https://github.com/open-telemetry/opentelemetry-js) | Apache-2.0 |
 | [`@shikijs/langs`](https://github.com/shikijs/shiki) | MIT |
 | [`@standard-schema/spec`](https://github.com/standard-schema/standard-schema) | MIT |
-| [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.4.4.tgz) | MIT |
+| [`@sumomok/dsh-balance`](apps/desktop-server/vendor/sumomok-dsh-balance-0.5.0.tgz) | MIT |
 | [`@sumomok/dsh-quote-message`](apps/desktop-server/vendor/sumomok-dsh-quote-message-0.3.1.tgz) | MIT |
 | [`@tanstack/react-virtual`](https://github.com/TanStack/virtual) | MIT |
 | [`@vscode/ripgrep`](https://github.com/microsoft/vscode-ripgrep) | MIT |
