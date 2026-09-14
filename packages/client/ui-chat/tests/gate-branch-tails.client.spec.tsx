@@ -5,7 +5,8 @@ import { cleanup, render } from '@testing-library/react'
 import { bindSnapshotSelector, makeTranslate } from '@deepseek-ai/dsh-client-test-runtime'
 import { zh as commonZh } from '@deepseek-ai/dsh-client-locale/src/locales/zh.ts'
 import { AssistantMarkdown, type AssistantMarkdownProps } from '../src/client/chat/AssistantMarkdown.tsx'
-import { StatsPills } from '../src/client/chat/StatsPills.tsx'
+import type { ReactNode } from 'react'
+import { StatsPills, type StatsPillsProps } from '../src/client/chat/StatsPills.tsx'
 import { zh } from '../src/client/locale.ts'
 import { chatSnapshotFixture } from './chat-snapshot-fixture.client.ts'
 
@@ -49,6 +50,9 @@ describe('render branch tails', () => {
         t={t}
         useChat={bindSnapshotSelector(source)}
         useProjection={() => undefined}
+        renderSlot={((_key: string, _owner: unknown, opts?: { fallback?: ReactNode }) =>
+          opts?.fallback ?? null) as StatsPillsProps['renderSlot']}
+        SessionProvider={({ children }) => <>{children}</>}
       />,
     )
     expect(view.container.textContent).toBe('2 轮 3 步')
