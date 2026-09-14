@@ -8,7 +8,7 @@
     - group "模型":
       - img
       - text: 模型
-      - button "供应商与模型"
+      - button "提供方与模型"
     - group "智能体":
       - img
       - text: 智能体
