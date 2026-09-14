@@ -352,23 +352,29 @@ export class BasicCompactionEngine extends CompactionEngine {
   }
 
   /**
-   * The occupancy numerator, taken from the context meter the user watches
-   * whenever that reading and this measurement describe the same request.
+   * The occupancy numerator: whenever the measurement anchors on provider
+   * usage, the exact value the context meter divides — `contextPressure`'s
+   * published `projectedTokens`, read off the same wire object the browser
+   * reads, not derived a second time from anything else.
    *
-   * They do exactly when the measurement anchors on provider usage: the
-   * `contextPressure` projection publishes `pressureTokens + surface movement
-   * since the sample`, and `totalTokens` is that same figure plus the anchored
-   * call's `outputTokens`, which the next request will not resend. Reading the
-   * projection therefore drops one addend and puts the trigger on the exact
-   * value `contextOccupancy` divides in the browser — the same wire object,
-   * not a second derivation of it.
+   * No arithmetic relation to `totalTokens` is claimed or relied on. The two
+   * price the anchored call's own output differently — the meter with the
+   * provider's `outputTokens`, the projection with the fixed heuristic applied
+   * to the recorded stream — so their difference varies with the response and
+   * can fall either way. The guarantee is the shared source, not a formula.
    *
-   * Any other baseline means no provider figure is anchoring the measurement,
-   * and the projection is then the weaker reading: it prices everything after
-   * its last sample with the route-independent heuristic, so it cannot see a
-   * routed adapter's declared image pricing for history the provider has not
-   * billed yet. `totalTokens` does, carries no output tokens in that state,
-   * and is the only figure that sees such pressure at all.
+   * Any other baseline means no provider figure is anchoring the measurement.
+   * The projection is the weaker reading there: it prices everything after its
+   * last sample with the route-independent heuristic, so it cannot see a routed
+   * adapter's declared image pricing for history the provider has not billed.
+   * `totalTokens` prices the whole surface under the route instead, and its
+   * estimated baseline charges the anchored output only the heuristic price,
+   * not the provider's — so it is both the figure that sees such pressure and
+   * the one closer to the next request there.
+   *
+   * The same image blind spot survives inside the usage branch, on a smaller
+   * scale: images admitted after the last sample ride the projection's fixed
+   * heuristic until a request bills them.
    *
    * @param session - session whose published occupancy is read.
    * @param measurement - the same call's meter measurement, and the numerator whenever it does not anchor on usage.

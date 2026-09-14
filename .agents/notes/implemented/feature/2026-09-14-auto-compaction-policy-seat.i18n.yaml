@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-14-auto-compaction-policy-seat.md
-2026-09-14-auto-compaction-policy-seat.md: 02baf221234334962fe4fb7a2f8325b14f71c6f6
-2026-09-14-auto-compaction-policy-seat.zh.md: 019552bb7d07e3a9f3ca401e061152816030665d
+2026-09-14-auto-compaction-policy-seat.md: 12fe2f727ec5dc889be06510387913151185cc22
+2026-09-14-auto-compaction-policy-seat.zh.md: 14242aafa32be5edf0909f94dce7ad2ec6f033da
