@@ -730,6 +730,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'compactionPolicy',
+    summary: 'Live automatic-compaction policy a host-plane plugin provides from user settings.',
+    description: 'Live automatic-compaction policy a host-plane plugin provides from user settings.',
+    methods: [
+      {
+        signature: 'isEnabled(): boolean',
+        description: 'Whether pressure-triggered compaction runs at all; overflow recovery is unaffected.',
+        parameters: [],
+        returns: 'true while the pressure path may run, false to suspend it.',
+      },
+      {
+        signature: 'thresholdRatio(): number',
+        description: 'Share of the model\'s context window (0–1) at which the next step compacts first.',
+        parameters: [],
+        returns: 'the live threshold ratio; a value outside (0, 1], or one the retained tail would not clear, is refused and the configured ratio governs instead.',
+      },
+    ],
+  },
+  {
     key: 'credentials',
     summary: 'Abstract credential service over two key spaces that answer two questions.',
     description: 'Abstract credential service over two key spaces that answer two questions.\n\nA CredentialRef answers "what is behind this environment-variable name", layered over the process environment, the provider-managed store, and `.env` files. One seam-wide rule binds that half: an empty stored value is absent everywhere — `resolve` skips it, `describe` reports it unconfigured — so a blank never masquerades as a configured secret.\n\nA CredentialKey answers "what credential does this plugin hold for this id". Nothing can layer here — an authorization grant has no environment to be read from — so presence of the record is the whole fact, and modifyRecord is the only write path because a correct write depends on the current value (a token refresh is read-decide-replace under one lock).',

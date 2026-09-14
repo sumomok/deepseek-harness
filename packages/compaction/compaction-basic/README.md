@@ -37,13 +37,14 @@ Mount session storage, token measurement, the optional pruner, this backend, and
 
 ```yaml
 - name: '@deepseek-ai/dsh-session'
+- name: '@deepseek-ai/dsh-session-projection'
 - name: '@deepseek-ai/dsh-token-meter'
 - name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
 - name: '@deepseek-ai/dsh-compaction-basic'
 - name: '@deepseek-ai/dsh-command-compact'
 ```
 
-You can verify success by watching the conversation continue past the point where it would otherwise overflow, and by running `/compact` for an immediate condensation. If the composition lacks an LLM, session storage, or token measurement, the plugin fails to load. One backend can serve models with different context sizes; give each route its own threshold and retention with a per-model override:
+You can verify success by watching the conversation continue past the point where it would otherwise overflow, and by running `/compact` for an immediate condensation. If the composition lacks an LLM, session storage, token measurement, or the projection registry that measurement itself requires, the plugin fails to load. One backend can serve models with different context sizes; give each route its own threshold and retention with a per-model override:
 
 ```yaml
 - name: '@deepseek-ai/dsh-compaction-basic'
@@ -59,11 +60,11 @@ You can verify success by watching the conversation continue past the point wher
 
 ### Tuning when condensation starts
 
-All settings are optional. The defaults start condensing at 80% of the routed model's context window and keep the newest 16% verbatim; the table below is the complete policy surface, and the generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-compaction-basic) is the exhaustive source.
+All settings are optional. The defaults start condensing at 80% of the routed model's context window — the same percentage the context meter shows — and keep the newest 16% verbatim; the table below is the complete policy surface, and the generated [configuration catalog](../../../docs/config-catalog.md#deepseek-aidsh-compaction-basic) is the exhaustive source.
 
 | Field | Default | Meaning |
 |---|---|---|
-| `thresholdRatio` | `0.8` | Start condensing at `floor(routedContextWindow × ratio)`. |
+| `thresholdRatio` | `0.8` | Start condensing at `floor(routedContextWindow × ratio)`; a mounted policy service replaces this ratio at run time. |
 | `retainRatio` | `0.16` | Recent conversation kept verbatim as a fraction of the routed context window; mutually exclusive with `retainTokens`. |
 | `retainTokens` | — | Absolute recent-conversation budget kept verbatim; mutually exclusive with `retainRatio` and must be below the resolved threshold. |
 | `summarizationProvider` | `''` | Set together with `summarizationModel`; an empty pair uses the latest routed request target, then the `AgentOptions` pair. |
@@ -72,13 +73,30 @@ All settings are optional. The defaults start condensing at 80% of the routed mo
 | `compactionRetries` | `1` | Extra condensation attempts after the first when pressure remains above threshold. |
 | `maxOverflowRetries` | `1` | Maximum retries after a confirmed context-window overflow; `0` disables recovery only. |
 | `modelPolicies` | `[]` | Exact `{ provider, model, ...partialPolicy }` overrides for individual model routes. |
-| `auto` | `true` | Enable automatic condensation and overflow recovery; set `false` for manual-only operation. |
+| `auto` | `true` | Enable automatic condensation and overflow recovery; set `false` for manual-only operation. A policy service can suspend pressure condensation without this hard off. |
 
 Misconfiguration fails fast: an unknown setting, a duplicate per-model override, both retention forms together, or a ratio retention that is not below the threshold all reject the plugin at load. An absolute `retainTokens` budget — top-level or per-model — that is not below its threshold fails when that model is first used, because the comparison needs the model's context size.
 
+### Moving the threshold from user settings
+
+Mount a `compactionPolicy` service to decide at run time, per step, whether pressure condensation runs and where it starts — a settings page offering "start condensing at N% of the window", for example. The service answers exactly two questions:
+
+```ts
+interface CompactionPolicy {
+  /** Whether pressure-triggered compaction runs at all; overflow recovery is unaffected. */
+  isEnabled(): boolean
+  /** Share of the model's context window (0–1) at which the next step compacts first. */
+  thresholdRatio(): number
+}
+```
+
+`thresholdRatio()` replaces the configured ratio, including a `modelPolicies` override of it; everything else in that per-model policy, retention included, still applies. `isEnabled()` returning `false` suspends pressure condensation only: overflow recovery still runs, because there the provider has already refused the request. Without the service mounted, the configured values decide everything. A ratio outside `(0, 1]`, or one whose budget would not clear the retained tail, is refused — the backend warns once per routed model and keeps the configured ratio.
+
+The percentage the service names is the percentage the context meter displays: whenever the routed provider's reported usage anchors the measurement, both divide the same published figure — the projected size of the NEXT request — by the routed model's window, so the trigger fires exactly when the meter reaches the chosen mark. Where no provider figure anchors it, the backend keeps its own route-priced total, which is the only reading that can see an image history the provider has not billed yet.
+
 ### What happens when condensation runs
 
-The oldest balanced span is replaced by one summary message and the recent tail stays verbatim; the conversation continues from the summary. The operation reports how many history items were condensed and the estimated tokens freed. If nothing can be condensed safely — for example the whole conversation is one indivisible unit — nothing changes and nothing is written to the session log. If no model is available to write the summary (no configured target and no routed request yet), condensation fails with a clear error telling you to configure the summarization provider and model or route one request.
+The oldest balanced span is replaced by one summary message and the recent tail stays verbatim; the conversation continues from the summary. The operation reports how many history items were condensed and the estimated tokens freed. If nothing can be condensed safely — for example the whole conversation is one indivisible unit — nothing changes and nothing is written to the session log. If no model is available to write the summary (no configured target and no routed request yet), condensation fails with a clear error telling you to configure the summarization provider and model or route one request. A failed automatic attempt still closes its log bracket, carrying the failure text on `compaction/end`, so a conversation view can show what happened; the turn then continues with full history.
 
 ### On-demand condensation with /compact
 
@@ -109,9 +127,9 @@ The backend is built on four commitments:
 
 ### Automatic triggers and overflow recovery
 
-With `auto: true`, a serial `agent/pre-step` listener checks pressure before request derivation: it prices the latest durable routed request envelope through `ctx.tokenMeter`, and when pressure crosses the routed model's threshold it prunes, then summarizes the oldest balanced span while keeping a priced recent tail. Every selected range starts at the first surface node that is not a `system/message`, so a system prompt at surface node 0 is never shadowed; a later `system/message` appended by an in-history prompt update is ordinary history that the range may shadow, and the agent loop's projection then replaces node 0 with the current prompt when their text differs ([decision rule](../../core/agent-loop/README.md#understand-the-implementation)). The `agent/request-error` listener reacts to a provider-confirmed `CONTEXT_WINDOW_EXCEEDED`: it bypasses the normal threshold and retention policy, attempts one maximal balanced head reduction, and authorizes a retry only after the surface replacement generation advances. Cancellation stays authoritative throughout.
+With `auto: true`, a serial `agent/pre-step` listener checks pressure before request derivation: it reads the occupancy the context meter displays — the `contextPressure` projection's estimate of the next request's prompt — and when that crosses the routed model's threshold it prunes, then summarizes the oldest balanced span while keeping a recent tail priced by `ctx.tokenMeter`. Using the projection rather than `TokenMeasurement.totalTokens` is what keeps the trigger and the meter on one number: where provider usage anchors the measurement, the meter total is that same projection plus the anchored call's output tokens, which the next request will not resend. The projection is read only in that anchored state. Any other baseline — no usage yet, or a sample too small to anchor the priced history — leaves the trigger on `totalTokens`, because the projection prices everything after its last sample with the route-independent heuristic and so cannot see a routed adapter's declared image pricing for unbilled history, while `totalTokens` can and carries no output tokens there. Every selected range starts at the first surface node that is not a `system/message`, so a system prompt at surface node 0 is never shadowed; a later `system/message` appended by an in-history prompt update is ordinary history that the range may shadow, and the agent loop's projection then replaces node 0 with the current prompt when their text differs ([decision rule](../../core/agent-loop/README.md#understand-the-implementation)). The `agent/request-error` listener reacts to a provider-confirmed `CONTEXT_WINDOW_EXCEEDED`: it bypasses the normal threshold and retention policy, attempts one maximal balanced head reduction, and authorizes a retry only after the surface replacement generation advances. Cancellation stays authoritative throughout.
 
-Pressure policy resolves capacity from the adapter that owns the durable route. An adapter that returns no capacity for a valid dynamic route makes the manual pressure path throw a target-specific configuration error; the automatic listener warns once for that exact target and continues with full history.
+A mounted `compactionPolicy` is read fresh on every step and never cached, so a user changing the setting takes effect on the next step; the listener registration itself still follows the load-time `auto` flag. Pressure policy resolves capacity from the adapter that owns the durable route. An adapter that returns no capacity for a valid dynamic route makes the manual pressure path throw a target-specific configuration error; the automatic listener warns once for that exact target and continues with full history.
 
 ### Summarization mechanics
 
@@ -133,7 +151,7 @@ The transaction validates the surface span and the durable lock, appends `compac
 | [`src/region.ts`](src/region.ts) | Retention selection and the shared bracket-first compaction transaction |
 | [`src/summarizer.ts`](src/summarizer.ts) | Default `ctx.llm.stream()` summarization, checkpoint framing, safe-summary projection |
 | [`src/config.ts`](src/config.ts) | Load-time validation and routed-model policy resolution |
-| [`src/types.ts`](src/types.ts) | `BasicCompactionConfig` and resolved policy vocabulary |
+| [`src/types.ts`](src/types.ts) | `BasicCompactionConfig`, resolved policy vocabulary, and the `CompactionPolicy` Service Definition |
 | — | No runtime invariant companion is published; this package exposes no independent event sequence or mutable data relation beyond contracts enforced at its owning seam. The durable bracket remains observable in the session log. |
 
 </details>
@@ -241,7 +259,7 @@ These limits define when automatic condensation is a poor fit or needs special c
 - **Overflow classification is adapter-maintained** — provider wording can change; both DeepSeek adapters normalize recognized context-limit failures to `CONTEXT_WINDOW_EXCEEDED`.
 - **Some indivisible-unit and envelope-only overflow remains outside surface compaction** — recovery cannot shrink system/tools/prefix, split an indivisible non-tool node, or repair a tool unit whose non-prunable remainder still exceeds the window. The optional pruner can shrink text-bearing tool-result bulk inside an otherwise indivisible pair.
 - **`compactRegion` requires an open turn** — a manual call on a fully-closed session throws ("no open turn") rather than compacting.
-- **Summarization failure preserves the latest durable surface** — before any replacement, the auto path logs a warning and proceeds with full over-budget history. If pruning already landed, a later summarization failure proceeds from that durable pruned surface. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
+- **Summarization failure preserves the latest durable surface** — before any replacement, the auto path closes the bracket with `compaction/end` carrying the error, logs a warning, and proceeds with full over-budget history. A failure that never opened a bracket — no routed capacity, a live lock, or pressure still above threshold after every attempt — is logged only. If pruning already landed, a later summarization failure proceeds from that durable pruned surface. Summarization truncation at `maxTokens`, which hidden reasoning tokens can consume, follows the same rule.
 
 <a id="dev-note"></a>
 ### Dev Note
