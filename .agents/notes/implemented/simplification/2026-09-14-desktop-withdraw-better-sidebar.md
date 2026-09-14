@@ -26,9 +26,9 @@ The plugin declares no session event of its own — nothing in its sources merge
 
 ## Alternatives considered
 
-**Hide the plugin's own toggles and keep both panels.** The toggle cluster is rendered by the plugin into a body-level host of its own, so hiding it means a stylesheet targeting another package's internal markup — a rule that breaks silently on the plugin's next release, and one that leaves the second panel, its keyboard shortcuts, and its eight tools all still mounted. It addresses the symptom that prompted the decision and none of the duplication behind it.
+**Hide the plugin's own toggles and keep both panels.** The toggle cluster is rendered by the plugin into a body-level host of its own, so hiding it means a stylesheet targeting another package's internal markup — a rule that breaks silently on the plugin's next release, and one that leaves the second panel, its document-level key listeners, and its eight tools all still mounted. It addresses the symptom that prompted the decision and none of the duplication behind it.
 
-**Disable the plugin's row in the seeded patch layer instead of withdrawing the package.** A `disabled: true` row in `@deepseek-ai/dsh-desktop-app`'s layer would stop it mounting while leaving it in the payload, which keeps roughly 7 MB of client bundles, the `node-pty` override, and a plugin the user can re-enable into the same collision. Withdrawal is what actually removes the composition; a disabled row is a default, and this decision is not one users should have to undo.
+**Disable the plugin's row in the seeded patch layer instead of withdrawing the package.** A `disabled: true` row in `@deepseek-ai/dsh-desktop-app`'s layer would stop it mounting while leaving it in the payload, which keeps a 3.48 MB tarball unpacking to 12.35 MB of client bundles, the `node-pty` override, and a plugin the user can re-enable into the same collision. Withdrawal is what actually removes the composition; a disabled row is a default, and this decision is not one users should have to undo.
 
 **Drop the name from `BUILTIN_WEB_BUNDLES` and add nothing.** Every profile rc.32 seeded still lists the name, and `resolveBundleDir` would fail the boot on it, so every upgrading client would come up to a dead application rather than a missing panel. `WITHDRAWN_WEB_BUNDLES` exists for exactly this transition, and `@sumomok/dsh-edit-rerun` is the precedent.
 
@@ -37,6 +37,8 @@ The plugin declares no session event of its own — nothing in its sources merge
 ## Consequences
 
 The payload loses the plugin and its private closure. Re-locking drops `@codemirror/*`, `cosmokit@1.8.1`, and the unscoped `schemastery@3.18.0` from `pnpm-lock.yaml`, which had no other consumer; `@xterm/headless` stays, because `packages/terminal/terminal-bash` also depends on it.
+
+Re-locking also takes the workspace links thirteen sibling plugins resolved their client peers through. `pnpm-lock.yaml` sets `autoInstallPeers: true`, and `dsh-better-sidebar` was the one vendored plugin declaring `@deepseek-ai/dsh-client-locale`, `-ui-slots`, `-ui-conversation`, `-ui-primitives`, and `-ui-settings` as non-optional peers, so pnpm installed those five onto the `apps/desktop-server` importer and every sibling's optional client peer resolved to the same workspace link. With it gone, `link:packages/client/locale` falls from thirteen occurrences in the lockfile to none, and `dsh-client-*` leaves every sibling's peer suffix. Nothing at run time reads those: of the thirteen, the twelve that carry a host half import no `@deepseek-ai/dsh-client-*` in `lib/index.js`, `@haoran/dsh-default-model` carries no code at all, and each browser half resolves its imports from the client module table, which `apps/desktop-shell/tests/vendored-client-runtime.client.spec.ts` materializes and applies for every seeded built-in.
 
 The `WITHDRAWN_WEB_BUNDLES` entry must stay while any installation at 0.1.0-rc.32 or earlier may still upgrade into this build. Dropping it earlier does not break a fresh install — it stops repairing the profiles that still name the package, which is the failure it exists to prevent.
 

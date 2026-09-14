@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/simplification/2026-09-14-desktop-withdraw-better-sidebar.md
-2026-09-14-desktop-withdraw-better-sidebar.md: b8b2de98724eafeed92795bbecf608d8feb9374e
-2026-09-14-desktop-withdraw-better-sidebar.zh.md: 23628e32ab0d39a622439b3687d230839498a739
+2026-09-14-desktop-withdraw-better-sidebar.md: f0268fc8649853fc17c4c817c2ea802432b1cb38
+2026-09-14-desktop-withdraw-better-sidebar.zh.md: 79ba76f4142643c5b5f50a41010dc16d76bedad5

@@ -26,9 +26,9 @@ Status: implemented
 
 ## 备选方案
 
-**藏掉插件自己的开关，两块面板都留着。**那组开关是插件渲染进自己 body 级宿主里的，藏它就意味着写一条针对别人包内部标记的样式规则——插件下一次发版就会无声失效，而且第二块面板、它的快捷键、它那八个工具依然全都挂着。这只处理了促成这次决定的那个症状，没碰后面的重复本身。
+**藏掉插件自己的开关，两块面板都留着。**那组开关是插件渲染进自己 body 级宿主里的，藏它就意味着写一条针对别人包内部标记的样式规则——插件下一次发版就会无声失效，而且第二块面板、它那些 document 级按键监听、它那八个工具依然全都挂着。这只处理了促成这次决定的那个症状，没碰后面的重复本身。
 
-**在播种的 patch 层里禁用它那一行，而不是把包撤下。**在 `@deepseek-ai/dsh-desktop-app` 的层里写一行 `disabled: true` 能让它不挂载，但包仍留在载荷里，那是大约 7 MB 的客户端产物、那条 `node-pty` override，以及一个用户可以自己重新打开、从而撞回同一场冲突的插件。真正拿掉这份编排的是撤下；禁用行只是一个默认值，而这个决定不该让用户去反悔。
+**在播种的 patch 层里禁用它那一行，而不是把包撤下。**在 `@deepseek-ai/dsh-desktop-app` 的层里写一行 `disabled: true` 能让它不挂载，但包仍留在载荷里，那是一个 3.48 MB、解包后带 12.35 MB 客户端产物的 tarball、那条 `node-pty` override，以及一个用户可以自己重新打开、从而撞回同一场冲突的插件。真正拿掉这份编排的是撤下；禁用行只是一个默认值，而这个决定不该让用户去反悔。
 
 **只把名字从 `BUILTIN_WEB_BUNDLES` 删掉，别的什么都不加。**rc.32 播种过的每一个 profile 仍然列着这个名字，`resolveBundleDir` 会对它让启动失败，于是每一台升级上来的客户端等到的不是少一块面板，而是一个起不来的应用。`WITHDRAWN_WEB_BUNDLES` 正是为这种过渡而存在，`@sumomok/dsh-edit-rerun` 就是先例。
 
@@ -37,6 +37,8 @@ Status: implemented
 ## 后果
 
 载荷少了这个插件和它自己的闭包。重锁之后，`@codemirror/*`、`cosmokit@1.8.1` 与无作用域的 `schemastery@3.18.0` 从 `pnpm-lock.yaml` 里消失，它们没有别的消费方；`@xterm/headless` 留着，因为 `packages/terminal/terminal-bash` 也依赖它。
+
+重锁同时收走了十三个同级插件借以解析客户端 peer 的那批工作区链接。`pnpm-lock.yaml` 设了 `autoInstallPeers: true`，而 `dsh-better-sidebar` 是唯一把 `@deepseek-ai/dsh-client-locale`、`-ui-slots`、`-ui-conversation`、`-ui-primitives` 与 `-ui-settings` 声明为非可选 peer 的贩售插件，pnpm 因此把这五个装到 `apps/desktop-server` 这个 importer 上，每个同级插件的可选客户端 peer 也就解析到同一批工作区链接。它一走，`link:packages/client/locale` 在锁文件里从十三处变成零处，`dsh-client-*` 从每个同级插件的 peer 后缀里消失。运行时没有任何东西读它们：十三个里带宿主半边的那十二个，`lib/index.js` 都不 import 任何 `@deepseek-ai/dsh-client-*`，`@haoran/dsh-default-model` 根本不带代码，而每个浏览器半边都从客户端模块表解析自己的 import——`apps/desktop-shell/tests/vendored-client-runtime.client.spec.ts` 对每一个播种的内置插件都把那张表物化出来并跑了 apply。
 
 `WITHDRAWN_WEB_BUNDLES` 里的这一条，要留到不再可能有 0.1.0-rc.32 或更早的安装升上本构建为止。提前删掉它并不会弄坏全新安装——它只是不再去修那些仍然列着这个包的 profile，而那正是它存在要防住的失败。
 
