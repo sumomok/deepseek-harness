@@ -11,6 +11,7 @@ import type { MarkdownProseReferents } from '@deepseek-ai/dsh-client-ui-primitiv
 import type { SessionId } from '@deepseek-ai/dsh-session/types'
 import { remoteErrorOf } from '@deepseek-ai/dsh-typert-protocol'
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-right/client'
+import type {} from '@deepseek-ai/dsh-client-ui-input-trigger/client'
 // The `file` entry of `SidebarRightResourceParamsMap`, which types `{ params: { line } }` below.
 import type {} from '@deepseek-ai/dsh-client-ui-sidebar-documentpreview/client'
 import { fileAddressFor, resolveWorkspacePath } from '@deepseek-ai/dsh-util-workspace-path'
@@ -276,6 +277,11 @@ export function apply(ctx: Context): void {
               else ctx.sidebarRight.openResource(url, { params: { line: options.line } })
               await Promise.resolve()
             })
+          },
+          openSkill: (name) => {
+            const scope = ctx.sessions.scope(sessionId)
+            if (scope === undefined) return
+            ctx.get('inputTriggers')?.sessionOf(scope).openReference('skill', { ref: `/${name}` })
           },
           loadOlder: () => { void session.loadOlder() },
           loadThrough: seq => session.loadThrough(seq),

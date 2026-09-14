@@ -263,7 +263,7 @@ Source: [`packages/core/session/src/types.ts:321`](../packages/core/session/src/
 }
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:121`](../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:123`](../packages/interaction/commands/src/types.ts)
 
 <a id="commandrun--log-only"></a>
 
@@ -294,7 +294,7 @@ Source: [`packages/interaction/commands/src/types.ts:121`](../packages/interacti
 }
 ```
 
-Source: [`packages/interaction/commands/src/types.ts:108`](../packages/interaction/commands/src/types.ts)
+Source: [`packages/interaction/commands/src/types.ts:110`](../packages/interaction/commands/src/types.ts)
 
 ### `compaction/*`
 
@@ -581,7 +581,7 @@ Source: [`packages/api/session-controller/src/types.ts:40`](../packages/api/sess
 'permission/preset': { preset: string }
 ```
 
-Source: [`packages/interaction/permission-presets/src/index.ts:53`](../packages/interaction/permission-presets/src/index.ts)
+Source: [`packages/interaction/permission-presets/src/index.ts:54`](../packages/interaction/permission-presets/src/index.ts)
 
 ### `plan/*`
 
@@ -598,7 +598,7 @@ Source: [`packages/interaction/permission-presets/src/index.ts:53`](../packages/
 'plan/mode': { active: boolean }
 ```
 
-Source: [`packages/plan/plan-mode/src/index.ts:46`](../packages/plan/plan-mode/src/index.ts)
+Source: [`packages/plan/plan-mode/src/index.ts:47`](../packages/plan/plan-mode/src/index.ts)
 
 ### `request/*`
 

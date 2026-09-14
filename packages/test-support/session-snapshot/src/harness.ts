@@ -36,11 +36,11 @@ import {
   type LaunchedAcpTestAgent,
 } from './launcher.ts'
 import { clearedProxyEnv } from '@deepseek-ai/dsh-http-proxy'
+import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import {
   assertPersistedSessionVersion,
   latestPersistedSessionPaths,
 } from './session-files.ts'
-import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
 import { captureWorkspaceSnapshot, type WorkspaceSnapshotEntry } from './workspace.ts'
 
 export type { AgentUnderTest } from './launcher.ts'

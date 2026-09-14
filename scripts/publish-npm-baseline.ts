@@ -18,8 +18,8 @@ import { basename, dirname, isAbsolute, join, normalize, relative, resolve, sep 
 import { createInterface } from 'node:readline/promises'
 import { pathToFileURL } from 'node:url'
 import { parseArgs } from 'node:util'
-import { PUBLIC_EXPERIMENTAL_PACKAGE_DIRECTORIES } from './experimental-package-policy.ts'
 import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'
+import { PUBLIC_EXPERIMENTAL_PACKAGE_DIRECTORIES } from './experimental-package-policy.ts'
 import { validateTarballPayload } from './publication-payload.ts'
 
 const DEFAULT_REGISTRY = 'https://registry.npm.harnessment.com'

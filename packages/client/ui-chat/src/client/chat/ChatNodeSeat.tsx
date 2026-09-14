@@ -37,7 +37,7 @@ function turnOf(node: ChatNode | undefined): number | undefined {
 /** Subscribe, apply Turn-process visibility, and dispatch one stable Context key. */
 export const ChatNodeSeat = memo(function ChatNodeSeat({
   nodeKey, useChatNode, useChatNodeProcess, historyIncomplete, compactTranscript,
-  cwd, openFile, inspectCall, forkAt,
+  cwd, openFile, openSkill, inspectCall, forkAt,
   loadImage, renderMessageImages, renderUserActions, fileMentions, referents,
   useStore, actions, renderSlot, t,
 }: ChatNodeSeatProps) {
@@ -106,6 +106,7 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
     : {
       cwd,
       openFile,
+      openSkill,
       inspectCall,
       forkAt,
       loadImage,
@@ -115,7 +116,7 @@ export const ChatNodeSeat = memo(function ChatNodeSeat({
       referents,
       turnProcess,
     }, [
-    node, cwd, openFile, inspectCall, forkAt,
+    node, cwd, openFile, openSkill, inspectCall, forkAt,
     loadImage, renderMessageImages, renderUserActions, fileMentions, referents, turnProcess,
   ])
   if (routedNode === undefined || owner === null) return null
