@@ -142,6 +142,14 @@ const SERVICE_ROLES: ServiceRole[] = [
     note: 'Owns isolated per-session replay folds; pressure consumers share immutable revisioned measurements.',
   },
   {
+    key: 'compactionPolicy',
+    pkg: 'compaction-basic',
+    title: 'Live automatic-compaction policy',
+    mode: 'seam',
+    consumers: ['compaction-basic'],
+    note: 'Host-plane providers answer the pressure switch and threshold ratio from user settings; the backend reads them per step and falls back to its configuration when unmounted.',
+  },
+  {
     key: 'toolResultPruner',
     pkg: 'compaction-tool-result-pruner',
     title: 'Model-free tool-result pruning',

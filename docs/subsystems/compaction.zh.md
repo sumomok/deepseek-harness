@@ -83,7 +83,7 @@ type ManualCompactionErrorCode =
 
 `changed` 和 `summary` 保持会话表层不变，但仍会闭合失败尝试并将其持久化到日志。`commit` 可能发生在部分变更之后；`persistence` 表示内存中的标记对已闭合，但 flush 失败。取消独立于这些失败，并在完成必要清理后抛出原始 abort 原因。
 
-压力压缩在 `agent/pre-step` waterfall（瀑布式事件）中运行，先于请求推导。一旦压力或规范化溢出满足条件，compaction-basic 会在选择范围前调用可选的 [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.zh.md)，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。`dsh-compaction-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
+压力压缩在 `agent/pre-step` waterfall（瀑布式事件）中运行，先于请求推导，依据的是上下文计量显示的占用量：在提供方用量锚定本次测量的场合，后端读取 [`contextPressure` 投影](token-meter.zh.md)自己已发布的 `projectedTokens`，因此自动触发与屏幕上的百分比是同一个值，而不是两次计算；任何其他基线都让触发停留在计量按路由定价的 `totalTokens` 上，那是唯一能看见未计费图片压力的读数。分母两种情况下都不受影响：后端除的是适配器 `resolveModelInfo` 给出的窗口，从不是投影记录的 `contextWindow`。compaction-basic 在每一个这样的步骤上读取可选的 `ctx.compactionPolicy`（从不缓存），取得实时开关与优先于其配置值的阈值比例；溢出恢复忽略该开关。一旦压力或规范化溢出满足条件，compaction-basic 会在选择范围前调用可选的 [`ctx.toolResultPruner`](../../packages/compaction/compaction-tool-result-pruner/README.zh.md)，再通过 `ctx.tokenMeter` 重新测量，并且可以在不生成摘要的情况下推进 surface。失败请求的恢复在失败的步骤关闭后通过 `agent/request-error` 运行；仅当 surface replacement generation 前进时才返回重试动作，即便后续摘要工作在剪枝后抛异常亦如此；取消仍然优先。区域边界保持工具调用/结果配对，但不保持整个轮次，因此一个过大轮次中较早关闭的步骤可以被压缩。`dsh-compaction-basic` 拥有阈值、保留尾部策略、溢出上限与失败处理。
 
 该 Service Definition 导出 `toolPairingBalancedBefore(session, seq)` 与 `toolPairingBalancedAfter(session, seq)`，用于检查 seq 之前与之后的工具调用/结果配对。两者都会验证当前 surface 成员关系，并拒绝缺失的 seq 与遗留结果；[包约定](../../packages/compaction/compaction/README.zh.md#tool-pairing-boundaries)定义其缓存行为。
 
@@ -193,6 +193,29 @@ abstract compactRegion( start: SessionSeq, end: SessionSeq, agent: CompactionAge
 Types: [CommandId](commands.zh.md) · [SessionSeq](session.zh.md)
 
 Source: [`packages/compaction/compaction/src/index.ts`](../../packages/compaction/compaction/src/index.ts)
+
+<a id="ctxcompactionpolicy--compactionpolicy"></a>
+
+### `ctx.compactionPolicy` — `CompactionPolicy`
+
+Live automatic-compaction policy a host-plane plugin provides from user settings.
+
+```ts cordis-catalog
+/**
+ * Whether pressure-triggered compaction runs at all; overflow recovery is unaffected.
+ * @returns true while the pressure path may run, false to suspend it.
+ */
+isEnabled(): boolean
+
+/**
+ * Share of the model's context window (0–1) at which the next step compacts first.
+ * @returns the live threshold ratio; a value outside (0, 1], or one the retained tail
+ *   would not clear, is refused and the configured ratio governs instead.
+ */
+thresholdRatio(): number
+```
+
+Source: [`packages/compaction/compaction-basic/src/types.ts`](../../packages/compaction/compaction-basic/src/types.ts)
 
 <a id="ctxtoolresultpruner--toolresultpruner"></a>
 

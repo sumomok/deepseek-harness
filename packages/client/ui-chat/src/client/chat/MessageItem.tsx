@@ -3,6 +3,7 @@ import type { ReactNode } from 'react'
 import type { PendingSubmission } from '@deepseek-ai/dsh-api-session-controller/client'
 import type { MessageImageSource } from '@deepseek-ai/dsh-client-ui-conversation/client'
 import { fileExtension, FileTypeIcon, fileSizeText, JsonBlock, projectUserText, StateDot } from '@deepseek-ai/dsh-client-ui-primitives'
+import type { CompactionFailureChatData } from '../contract/chat-nodes.ts'
 import type { ChatNodeOwnerProps, ChatNodeViewProps, ChatViewSlotProps } from '../contract/slots.ts'
 import type { ModelRetryNode, TurnErrorNode, UserMessageNode } from '../contract/snapshot.ts'
 import { CompactionItem } from './CompactionItem.tsx'
@@ -148,6 +149,33 @@ function TurnMaxTokensItem({ t }: {
       <div className={css.turnErrorCopy}>
         <span className={css.maxTokensTitle}>{t('message.maxTokens')}</span>
         <span className={css.turnErrorMessage}>{t('message.maxTokens.hint')}</span>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Notice for an automatic compaction that ran and freed nothing. The visible
+ * copy is a fixed localized sentence: the backend's own failure text names
+ * internals a product user has no vocabulary for, so it rides the `title`
+ * attribute for whoever is diagnosing rather than the row itself.
+ */
+function CompactionFailureItem({ node, t }: {
+  node: CompactionFailureChatData
+  t: ChatViewSlotProps['t']
+}) {
+  const detail = t('message.compaction.failed.detail')
+  return (
+    <div className={css.turnErrorRow} role="status">
+      <StateDot state="warning" className={css.turnErrorDot} />
+      <div className={css.turnErrorCopy}>
+        <span className={css.maxTokensTitle}>{t('message.compaction.failed')}</span>
+        <span
+          className={css.compactionFailureReason}
+          {...node.reason === null ? {} : { title: node.reason }}
+        >
+          {detail}
+        </span>
       </div>
     </div>
   )
@@ -371,6 +399,13 @@ export const TurnErrorNodeView = memo(function TurnErrorNodeView({ node, t }: Ch
 /** Max-tokens turn-end notice keyed Chat renderer. */
 export const TurnMaxTokensNodeView = memo(function TurnMaxTokensNodeView({ t }: ChatNodeViewProps<'turn-max-tokens'>) {
   return <TurnMaxTokensItem t={t} />
+})
+
+/** Failed automatic-compaction keyed Chat renderer. */
+export const CompactionFailureNodeView = memo(function CompactionFailureNodeView(
+  { node, t }: ChatNodeViewProps<'compaction-failure'>,
+) {
+  return <CompactionFailureItem node={node.data} t={t} />
 })
 
 /** Explicit unknown-surface keyed Chat renderer. */

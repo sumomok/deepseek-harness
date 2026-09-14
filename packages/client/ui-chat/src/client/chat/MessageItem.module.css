@@ -269,6 +269,16 @@
   font: var(--dsw-font-markdown-code-block-small);
 }
 
+.compactionFailureReason {
+  display: inline-block;
+  max-width: 100%;
+  overflow: hidden;
+  color: var(--dsw-alias-label-secondary);
+  text-overflow: ellipsis;
+  vertical-align: bottom;
+  white-space: nowrap;
+}
+
 .maxTokensTitle {
   margin-right: 6px;
   color: var(--dsw-alias-state-warn-primary);

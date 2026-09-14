@@ -37,13 +37,14 @@ kind: "package-reference"
 
 ```yaml
 - name: '@deepseek-ai/dsh-session'
+- name: '@deepseek-ai/dsh-session-projection'
 - name: '@deepseek-ai/dsh-token-meter'
 - name: '@deepseek-ai/dsh-compaction-tool-result-pruner'
 - name: '@deepseek-ai/dsh-compaction-basic'
 - name: '@deepseek-ai/dsh-command-compact'
 ```
 
-你可以通过观察会话越过本来会溢出的位置继续工作、以及运行 `/compact` 立即压缩一次来确认成功。如果组合缺少 LLM、会话存储或 token 测量，插件会加载失败。同一个后端可以服务上下文大小不同的模型；用按模型覆盖为每条路由设置各自的阈值与保留：
+你可以通过观察会话越过本来会溢出的位置继续工作、以及运行 `/compact` 立即压缩一次来确认成功。如果组合缺少 LLM、会话存储、token 测量，或该测量本身所需的投影注册表，插件会加载失败。同一个后端可以服务上下文大小不同的模型；用按模型覆盖为每条路由设置各自的阈值与保留：
 
 ```yaml
 - name: '@deepseek-ai/dsh-compaction-basic'
@@ -59,11 +60,11 @@ kind: "package-reference"
 
 ### 调整压缩开始的时机
 
-所有设置都可选。默认在已路由模型上下文窗口的 80% 处开始压缩，并逐字保留最新的 16%；下表是完整的策略面，生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-compaction-basic)是穷尽式真源。
+所有设置都可选。默认在已路由模型上下文窗口的 80%（与上下文计量显示的百分比一致）处开始压缩，并逐字保留最新的 16%；下表是完整的策略面，生成的[配置目录](../../../docs/config-catalog.zh.md#deepseek-aidsh-compaction-basic)是穷尽式真源。
 
 | 字段 | 默认值 | 含义 |
 |---|---|---|
-| `thresholdRatio` | `0.8` | 在 `floor(routedContextWindow × ratio)` 处开始压缩。 |
+| `thresholdRatio` | `0.8` | 在 `floor(routedContextWindow × ratio)` 处开始压缩；已挂载的策略服务会在运行期替换该比例。 |
 | `retainRatio` | `0.16` | 以已路由上下文窗口的一部分表示逐字保留的近期对话；与 `retainTokens` 互斥。 |
 | `retainTokens` | — | 逐字保留的近期对话绝对预算；与 `retainRatio` 互斥，并且必须低于已解析阈值。 |
 | `summarizationProvider` | `''` | 与 `summarizationModel` 一起设置；空对使用最新已路由请求目标，再回退到 `AgentOptions` 对。 |
@@ -72,13 +73,30 @@ kind: "package-reference"
 | `compactionRetries` | `1` | 压力仍高于阈值时，在首次压缩后进行的额外尝试次数。 |
 | `maxOverflowRetries` | `1` | 已确认上下文窗口溢出后的最大重试次数；`0` 只禁用恢复。 |
 | `modelPolicies` | `[]` | 针对个别模型路由的精确 `{ provider, model, ...partialPolicy }` 覆盖。 |
-| `auto` | `true` | 启用自动压缩与溢出恢复；设为 `false` 则仅手动执行。 |
+| `auto` | `true` | 启用自动压缩与溢出恢复；设为 `false` 则仅手动执行。策略服务可以在不使用这个硬开关的情况下暂停压力压缩。 |
 
 配置错误会快速失败：未知设置、重复的按模型覆盖、两种保留形式同时出现，或比例保留量不低于阈值，都会在加载时拒绝插件。任何绝对 `retainTokens` 预算——顶层或按模型——不低于其阈值时，都会在该模型首次使用时失败，因为该比较需要模型的上下文大小。
 
+### 从用户设置移动阈值
+
+挂载 `compactionPolicy` 服务，即可在运行期逐步决定压力压缩是否运行、从何处开始——例如一个提供「在窗口的 N% 处开始压缩」的设置页。该服务只回答两个问题：
+
+```ts
+interface CompactionPolicy {
+  /** Whether pressure-triggered compaction runs at all; overflow recovery is unaffected. */
+  isEnabled(): boolean
+  /** Share of the model's context window (0–1) at which the next step compacts first. */
+  thresholdRatio(): number
+}
+```
+
+`thresholdRatio()` 替换已配置比例，包括 `modelPolicies` 对它的覆盖；该按模型策略的其余部分（含保留量）仍然生效。`isEnabled()` 返回 `false` 只暂停压力压缩：溢出恢复仍会运行，因为那时提供方已经拒绝了请求。未挂载该服务时，一切由配置值决定。比例不在 `(0, 1]` 内，或其预算无法越过保留尾部时会被拒绝——后端对每条路由模型警告一次，并保留已配置比例。
+
+该服务给出的百分比就是上下文计量显示的百分比：只要路由提供方报告的用量锚定住本次测量，两者就用同一个已发布数字——下一次请求的预估大小——除以同一份路由容量，因此触发落在计量到达所选刻度的那一刻。没有提供方数字锚定时，后端保留自己那份按路由定价的总量，那是唯一能看见提供方尚未计费的图片历史的读数。
+
 ### 压缩运行时会发生什么
 
-最旧的平衡范围会被替换为一条摘要消息，近期尾部保持逐字不变；对话从摘要继续。操作会报告压缩了多少历史项以及估算释放的 token 数。如果没有任何内容可以安全压缩——例如整个对话就是一个不可分单元——则不会有任何改变，也不会向会话日志写入任何内容。如果没有模型可以撰写摘要（既未配置目标，也还没有已路由请求），压缩会失败并给出清晰错误，提示你配置摘要提供方与模型，或先路由一次请求。
+最旧的平衡范围会被替换为一条摘要消息，近期尾部保持逐字不变；对话从摘要继续。操作会报告压缩了多少历史项以及估算释放的 token 数。如果没有任何内容可以安全压缩——例如整个对话就是一个不可分单元——则不会有任何改变，也不会向会话日志写入任何内容。如果没有模型可以撰写摘要（既未配置目标，也还没有已路由请求），压缩会失败并给出清晰错误，提示你配置摘要提供方与模型，或先路由一次请求。失败的自动尝试仍会闭合其日志标记对，并把失败文本带在 `compaction/end` 上；对话会显示一条「上下文压缩失败」提示并带上该文本，该轮次随后携带完整历史继续。`/compact` 的失败改由该命令自己的结果报告。
 
 ### 通过 /compact 按需压缩
 
@@ -109,9 +127,9 @@ kind: "package-reference"
 
 ### 自动触发与溢出恢复
 
-当 `auto: true` 时，串行 `agent/pre-step` listener 会在请求派生前检查压力：它通过 `ctx.tokenMeter` 为最新持久路由请求 envelope 定价，当压力越过路由模型的阈值时，先剪枝，再在保留已定价近期尾部的同时摘要最旧的平衡范围。每个选定范围都从第一个不是 `system/message` 的 surface 节点开始，因此位于 surface 节点 0 的系统提示词永不会被遮蔽；由历史内提示词更新追加的后续 `system/message` 是普通历史，范围可以遮蔽它，agent loop（智能体循环）的投影随后会在二者文本不同时用当前提示词替换节点 0（[决策规则](../../core/agent-loop/README.zh.md#understand-the-implementation)）。`agent/request-error` listener 响应提供方确认的 `CONTEXT_WINDOW_EXCEEDED`：它绕过常规阈值与保留策略，尝试一次最大平衡头部缩减，并且只在表层替换 generation 前进后才授权重试。取消全程保持最终决定权。
+当 `auto: true` 时，串行 `agent/pre-step` listener 会在请求派生前检查压力：它读取上下文计量显示的占用量——`contextPressure` 投影对下一次请求 prompt 大小的估算——当它越过路由模型的阈值时，先剪枝，再在保留由 `ctx.tokenMeter` 定价的近期尾部的同时摘要最旧的平衡范围。让触发与计量保持同一个数字的，是后端读取计量自己已发布的那个值，而不是第二次算出它。这里不主张与 `TokenMeasurement.totalTokens` 之间存在任何算术关系：两者对被锚定回复的 output 定价方式不同——计量用提供方报的数，投影用对已记录 stream 的启发式——因此二者之差随回复而变，方向也不固定。投影只在提供方用量锚定本次测量时被读取。任何其他基线——尚无用量，或样本小到无法锚定已定价历史——都让触发停留在 `totalTokens` 上，它按路由为整个 surface 定价，因而是唯一看得见提供方尚未计费的图片历史的读数。每个选定范围都从第一个不是 `system/message` 的 surface 节点开始，因此位于 surface 节点 0 的系统提示词永不会被遮蔽；由历史内提示词更新追加的后续 `system/message` 是普通历史，范围可以遮蔽它，agent loop（智能体循环）的投影随后会在二者文本不同时用当前提示词替换节点 0（[决策规则](../../core/agent-loop/README.zh.md#understand-the-implementation)）。`agent/request-error` listener 响应提供方确认的 `CONTEXT_WINDOW_EXCEEDED`：它绕过常规阈值与保留策略，尝试一次最大平衡头部缩减，并且只在表层替换 generation 前进后才授权重试。取消全程保持最终决定权。
 
-压力策略从拥有持久路由的适配器解析容量。适配器无法为有效动态路由返回容量时，手动压力路径会抛出目标特定配置错误；自动 listener 会对该精确目标警告一次，并携带完整历史继续。
+已挂载的 `compactionPolicy` 在每一步重新读取且从不缓存，因此用户改动设置会在下一步生效；listener 的注册本身仍遵循加载期的 `auto` 开关。压力策略从拥有持久路由的适配器解析容量。适配器无法为有效动态路由返回容量时，手动压力路径会抛出目标特定配置错误；自动 listener 会对该精确目标警告一次，并携带完整历史继续。
 
 ### 摘要机制
 
@@ -133,7 +151,7 @@ kind: "package-reference"
 | [`src/region.ts`](src/region.ts) | 保留选择与共享的先记录标记压缩事务 |
 | [`src/summarizer.ts`](src/summarizer.ts) | 默认 `ctx.llm.stream()` 摘要、检查点框定、安全摘要投影 |
 | [`src/config.ts`](src/config.ts) | 加载时验证与路由模型策略解析 |
-| [`src/types.ts`](src/types.ts) | `BasicCompactionConfig` 与已解析策略词汇 |
+| [`src/types.ts`](src/types.ts) | `BasicCompactionConfig`、已解析策略词汇，以及 `CompactionPolicy` Service Definition |
 | — | 不发布运行时不变式配套条目；除所属 seam 强制执行的约定外，本包不公开独立事件序列或可变数据关系。持久标记对仍可在会话日志中观察。 |
 
 </details>
@@ -241,7 +259,7 @@ Rules:
 - **溢出分类由适配器维护**——提供方措辞可能改变；两个 DeepSeek 适配器将可识别的上下文限制失败规范化为 `CONTEXT_WINDOW_EXCEEDED`。
 - **部分不可分单元与仅 envelope 溢出仍不在表层压缩范围内**——恢复无法缩减系统／工具／前缀、拆分不可分的非工具节点，或修复不可剪枝剩余部分仍超出窗口的工具单元。可选 pruner 可以缩减原本不可分工具对内的文本型工具结果主体。
 - **`compactRegion` 要求存在未结束的轮次**——在完全关闭的会话上手动调用会抛出异常（「no open turn」），而不是执行压缩。
-- **摘要失败会保留最新持久表层**——任何替换前，自动路径会记录警告，并携带完整超预算历史继续。如果剪枝已落地，后续摘要失败会从该持久剪枝表层继续。因达到 `maxTokens` 而发生的摘要截断（隐藏推理 token 可能会耗尽该额度）遵循同一规则。
+- **摘要失败会保留最新持久表层**——任何替换前，自动路径会以携带错误的 `compaction/end` 闭合标记对、记录警告，并携带完整超预算历史继续。从未打开标记对的失败——没有路由容量、锁仍活动，或每次尝试后压力仍高于阈值——只会被记录到日志。如果剪枝已落地，后续摘要失败会从该持久剪枝表层继续。因达到 `maxTokens` 而发生的摘要截断（隐藏推理 token 可能会耗尽该额度）遵循同一规则。
 
 <a id="dev-note"></a>
 ### 开发备注
