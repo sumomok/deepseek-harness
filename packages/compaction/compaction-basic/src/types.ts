@@ -1,5 +1,6 @@
 /**
- * Configuration vocabulary for the replay-aware basic compaction backend.
+ * Configuration vocabulary for the replay-aware basic compaction backend, and
+ * the live-policy Service Definition its automatic pressure path reads.
  *
  * @module @deepseek-ai/dsh-compaction-basic/types
  */
@@ -73,4 +74,19 @@ export type ResolvedCompactSpec = Omit<ResolvedTargetPolicy, 'retainRatio' | 're
   readonly contextWindow: number
   readonly thresholdTokens: number
   readonly retainTokens: number
+}
+
+/** Live automatic-compaction policy a host-plane plugin provides from user settings. */
+export interface CompactionPolicy {
+  /**
+   * Whether pressure-triggered compaction runs at all; overflow recovery is unaffected.
+   * @returns true while the pressure path may run, false to suspend it.
+   */
+  isEnabled(): boolean
+  /**
+   * Share of the model's context window (0–1) at which the next step compacts first.
+   * @returns the live threshold ratio; a value outside (0, 1], or one the retained tail
+   *   would not clear, is refused and the configured ratio governs instead.
+   */
+  thresholdRatio(): number
 }

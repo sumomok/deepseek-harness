@@ -74,6 +74,7 @@ export const SERVICE_PAGE: Record<string, string> = {
   computerUse: 'computer-use.md',
   commands: 'commands.md',
   compaction: 'compaction.md',
+  compactionPolicy: 'compaction.md',
   cordisInspect: 'extensions.md',
   authorization: 'credentials.md',
   credentials: 'credentials.md',

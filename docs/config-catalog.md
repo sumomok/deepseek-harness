@@ -473,7 +473,7 @@ Source: [`packages/client/ui-sidebar-documentpreview/src/config.ts:5`](../packag
 
 ## `@deepseek-ai/dsh-compaction-basic`
 
-Requires: `llm` · `tokenMeter` · `sessions`
+Requires: `llm` · `tokenMeter` · `sessions` · `sessionProjections`
 
 ```ts config-catalog
 /** Basic compaction configuration with an optional exact-target policy table. */
@@ -513,7 +513,7 @@ export interface ModelCompactPolicyConfig extends CompactionPolicyConfig {
 }
 ```
 
-Source: [`packages/compaction/compaction-basic/src/types.ts:38`](../packages/compaction/compaction-basic/src/types.ts)
+Source: [`packages/compaction/compaction-basic/src/types.ts:39`](../packages/compaction/compaction-basic/src/types.ts)
 
 <a id="deepseek-aidsh-compaction-tool-result-pruner"></a>
 

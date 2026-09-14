@@ -721,6 +721,25 @@ export const SERVICE_API: readonly ServiceApiEntry[] = [
     ],
   },
   {
+    key: 'compactionPolicy',
+    summary: 'Live automatic-compaction policy a host-plane plugin provides from user settings.',
+    description: 'Live automatic-compaction policy a host-plane plugin provides from user settings.',
+    methods: [
+      {
+        signature: 'isEnabled(): boolean',
+        description: 'Whether pressure-triggered compaction runs at all; overflow recovery is unaffected.',
+        parameters: [],
+        returns: 'true while the pressure path may run, false to suspend it.',
+      },
+      {
+        signature: 'thresholdRatio(): number',
+        description: 'Share of the model\'s context window (0–1) at which the next step compacts first.',
+        parameters: [],
+        returns: 'the live threshold ratio; a value outside (0, 1], or one the retained tail would not clear, is refused and the configured ratio governs instead.',
+      },
+    ],
+  },
+  {
     key: 'computerUse',
     summary: 'Owns one optional provider registration in the shared computer-use service.',
     description: 'Owns one optional provider registration in the shared computer-use service.',
