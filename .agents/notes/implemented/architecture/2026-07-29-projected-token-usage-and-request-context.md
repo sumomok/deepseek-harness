@@ -32,7 +32,7 @@ The Web [`StatsPills`](../feature/2026-09-07-composer-session-stats-pills.md) re
 
 `pressureTokens` and `contextWindow` are independent last-wins fields, not one atomic observation. Switching models pairs a fresh capacity with the previous route's pressure until the next request reports usage, and the numerator describes the last request rather than the surface as it currently stands.
 
-This was accepted deliberately. An occupancy percentage is a user-facing reference figure: nothing in the harness makes decisions from it, and compaction reads `measure()` directly instead. The TUI status line has always computed occupancy this way, dividing a `measure()` total by a capacity resolved separately for the selected model — so an atomic variant here would have been the outlier, not the norm.
+This was accepted deliberately. An occupancy percentage is a user-facing reference figure. It was also, when this was written, read by nothing: since the rc.33 fork patch, `compaction-basic` reads this projection for its automatic pressure trigger whenever the meter anchors on provider usage, and `measure()` only in every other state — see [the automatic-compaction policy seat](../feature/2026-09-14-auto-compaction-policy-seat.md). The TUI status line has always computed occupancy this way, dividing a `measure()` total by a capacity resolved separately for the selected model — so an atomic variant here would have been the outlier, not the norm.
 
 The non-atomicity is deliberate, not a defect. A consumer that genuinely needs an exact same-boundary figure should call `ctx.tokenMeter.measure()` at its own request boundary, where both values are available together, rather than read this projection.
 

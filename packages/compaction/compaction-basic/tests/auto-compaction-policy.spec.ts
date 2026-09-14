@@ -93,8 +93,16 @@ function createContext(contextWindow: number): Context {
  * one open turn. The reported usage is what makes the two candidate numerators
  * differ by exactly {@link OUTPUT_TOKENS}.
  */
-function conversation(turns = 4, reportUsage = true, usage: TokenUsage = USAGE): Session {
-  const session = Session.create(SessionId(`policy-${turns}-${String(reportUsage)}-${String(usage.inputTokens)}`))
+function conversation(
+  turns = 4,
+  reportUsage = true,
+  usage: TokenUsage = USAGE,
+  /** Record the provider's own output blocks, the way a live call does. */
+  realStream = false,
+): Session {
+  const session = Session.create(
+    SessionId(`policy-${turns}-${String(reportUsage)}-${String(usage.inputTokens)}-${String(realStream)}`),
+  )
   const text = 'fixture '.repeat(40).trim()
   for (let turn = 1; turn <= turns; turn += 1) {
     session.append('turn/start', { turn })
@@ -111,7 +119,23 @@ function conversation(turns = 4, reportUsage = true, usage: TokenUsage = USAGE):
       session.append('request/context', { provider: MODEL, model: MODEL, contextWindow: WINDOW })
     }
     session.append('assistant/message', {
-      stream: [],
+      stream: realStream && turn === turns
+        ? [
+          { type: 'chunk', time: 1, chunk: { type: 'block-start', index: 0, blockType: 'text' } },
+          { type: 'chunk', time: 2, chunk: { type: 'text-delta', index: 0, text: `${text} assistant ${turn}` } },
+          {
+            type: 'chunk',
+            time: 3,
+            chunk: {
+              type: 'block-end',
+              index: 0,
+              block: { type: 'text', text: `${text} assistant ${turn}` },
+            },
+          },
+          ...reportUsage ? [{ type: 'chunk' as const, time: 4, chunk: { type: 'usage' as const, usage } }] : [],
+          { type: 'chunk', time: 5, chunk: { type: 'finish', reason: { kind: 'stop' } } },
+        ]
+        : [],
       turn,
       step: 1,
       message: createMessage({
@@ -165,11 +189,48 @@ function compacted(session: Session): boolean {
 }
 
 describe('context-meter numerator', () => {
-  it('is the projected occupancy the meter displays, which trails the meter total by the reported output', () => {
+  // The engine's numerator is not exposed, so each case brackets it: a budget
+  // equal to the projection must trigger, and one token above it must not.
+  // That pins the value the engine compares without asserting any arithmetic
+  // relation to the meter total.
+  async function triggersAt(ctx: Context, session: Session, thresholdTokens: number): Promise<boolean> {
+    const engine = new TestEngine(ctx, { thresholdRatio: thresholdTokens / WINDOW, retainTokens: 500 })
+    await preStep(ctx, agent(session))
+    return engine.calls > 0
+  }
+
+  it('is the projection the context meter publishes, on a session whose stream is a real one', async () => {
+    const probe = createContext(WINDOW)
+    const streamed = conversation(4, true, USAGE, true)
+    const projected = meterNumerator(probe, streamed)
+    // A recorded output stream prices the anchored call heuristically, so the
+    // meter total differs from the projection by something other than the
+    // reported output tokens: the two candidate numerators are genuinely
+    // different values here, and neither difference is assumed.
+    const total = probe.tokenMeter.measure(streamed).totalTokens
+    expect(total).not.toBe(projected)
+    expect(total).not.toBe(projected + OUTPUT_TOKENS)
+
+    expect(await triggersAt(createContext(WINDOW), conversation(4, true, USAGE, true), projected)).toBe(true)
+    expect(await triggersAt(createContext(WINDOW), conversation(4, true, USAGE, true), projected + 1)).toBe(false)
+  })
+
+  it('is the same projection when the log kept no output stream', async () => {
+    const projected = meterNumerator(createContext(WINDOW), conversation())
+
+    expect(await triggersAt(createContext(WINDOW), conversation(), projected)).toBe(true)
+    expect(await triggersAt(createContext(WINDOW), conversation(), projected + 1)).toBe(false)
+  })
+
+  it('trails the meter total by the reported output only in the special case of an empty stream', () => {
     const ctx = createContext(WINDOW)
     const session = conversation()
     const projected = meterNumerator(ctx, session)
 
+    // `stream: []` prices the anchored call's output at zero, which is the one
+    // arrangement where the difference is exactly `outputTokens`. A recorded
+    // stream prices it heuristically instead, and the difference moves — in
+    // either direction — so no general arithmetic relation holds.
     expect(ctx.tokenMeter.measure(session).totalTokens).toBe(projected + OUTPUT_TOKENS)
   })
 
