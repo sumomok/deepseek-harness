@@ -129,4 +129,4 @@
   - text: 3 turns 7 steps
 - button "66.8K tok · Cache hit 77%":
   - img
-  - text: 66.8K tokCache hit 77%
+  - text: 66.8K tok · Cache hit 77%

@@ -65,4 +65,4 @@
   - text: 1 turns 2 steps
 - button "310 tok · Cache hit 0%":
   - img
-  - text: 310 tokCache hit 0%
+  - text: 310 tok · Cache hit 0%

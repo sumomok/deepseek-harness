@@ -52,7 +52,7 @@
 - button "Send message" [disabled]
 - button "1 turns 1 steps · {{throughput}} tok/s":
   - img
-  - text: 1 turns 1 steps{{throughput}} tok/s
+  - text: 1 turns 1 steps · {{throughput}} tok/s
 - button "10K tok · Cache hit 99.5%":
   - img
-  - text: 10K tokCache hit 99.5%
+  - text: 10K tok · Cache hit 99.5%

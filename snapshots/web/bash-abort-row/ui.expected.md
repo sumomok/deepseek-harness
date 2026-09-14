@@ -40,4 +40,4 @@
   - text: 1 turns 1 steps
 - button "20 tok · Cache hit 0%":
   - img
-  - text: 20 tokCache hit 0%
+  - text: 20 tok · Cache hit 0%

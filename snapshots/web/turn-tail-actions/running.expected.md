@@ -44,7 +44,7 @@
 - button "Stop generating"
 - button "1 turns 1 steps · {{throughput}} tok/s":
   - img
-  - text: 1 turns 1 steps{{throughput}} tok/s
+  - text: 1 turns 1 steps · {{throughput}} tok/s
 - button "7.9K tok · Cache hit 0%":
   - img
-  - text: 7.9K tokCache hit 0%
+  - text: 7.9K tok · Cache hit 0%

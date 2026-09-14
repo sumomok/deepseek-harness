@@ -55,7 +55,7 @@
 - button "Send message" [disabled]
 - button "1 turns 2 steps · {{throughput}} tok/s":
   - img
-  - text: 1 turns 2 steps{{throughput}} tok/s
+  - text: 1 turns 2 steps · {{throughput}} tok/s
 - button "30 tok · Cache hit 0%":
   - img
-  - text: 30 tokCache hit 0%
+  - text: 30 tok · Cache hit 0%
