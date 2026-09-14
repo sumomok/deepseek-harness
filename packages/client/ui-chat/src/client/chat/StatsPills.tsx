@@ -152,7 +152,7 @@ function TimePill({ stats, t, dialog }: {
       {counts}
       {tps !== null && (
         <>
-          <span className={css.sep} aria-hidden>·</span>
+          <span className={css.sep}>{' · '}</span>
           {tps}
         </>
       )}
@@ -260,7 +260,7 @@ function UsagePill({ usage, t, dialog, renderSlot }: {
           {renderSlot('conversation.chat.stats.usageLabel', owner, { fallback: totalText })}
           {cacheHitText !== null && (
             <>
-              <span className={css.sep} aria-hidden>·</span>
+              <span className={css.sep}>{' · '}</span>
               {cacheHitText}
             </>
           )}

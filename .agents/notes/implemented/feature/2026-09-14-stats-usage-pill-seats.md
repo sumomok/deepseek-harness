@@ -20,7 +20,7 @@ Two session-scoped child seats on the `stats` dock entry, both carrying `StatsUs
 
 Owner props are the two figures the pill itself computes: `totalTokens`, the exact whole-log sum of every prompt-side billing bucket plus output — not the abbreviated text the pill prints — and `cacheHitPercent`, the bare number the pill's own copy interpolates, or null when nothing has been billed. An occupant reads the session's billing without importing the chat implementation and without re-deriving a total from the projection.
 
-The usage button loses its `aria-label`. It restated the two visible segments, and with a label occupant it would have kept announcing a token total no longer on screen. The accessible name now comes from the visible content, which is the shipped reading while the seat is empty. The aria-hidden `·` contributes nothing to that name, as it already contributed nothing to the button's text content.
+The usage button loses its `aria-label`. It restated the two visible segments, and with a label occupant it would have kept announcing a token total no longer on screen. The accessible name now comes from the visible content, which is the shipped reading while the seat is empty. The separator between the segments is no longer `aria-hidden` and carries its own padding, so the rendered label spells out `105 tok · Cache hit 90%` — the string the `aria-label` used to hold, and the text the name is computed from.
 
 The seats carry presentation only. The plugin owns what money means: its price table, its currency, its own copy and localization, and the decision of what to show while a model has no price. The chat package owns where those figures sit and what the pill reads when nobody contributes.
 
@@ -40,7 +40,7 @@ The seats carry presentation only. The plugin owns what money means: its price t
 
 A plugin adds a money reading to the token pill and a cost line to its dialog by registering two entries, with no fork of ui-chat and no replacement of shipped chrome. Both seats are empty in the shipped composition, so the generated client catalog lists them with no occupants and `replaceRisk: 'none'`, and the unoccupied pill and dialog are the shipped ones.
 
-The button's accessible name changes in the shipped composition too: it was `105 tok · Cache hit 90%` from the `aria-label` and is now `105 tokCache hit 90%`, computed from the visible segments with the aria-hidden separator left out. This is the one behavior change outside the seats themselves.
+The shipped composition's button announces what it announced before: the `aria-label` held `105 tok · Cache hit 90%`, and the visible label now reads that same string, separator included. This is the one behavior change outside the seats themselves. The testing-library name computation trims each child's text alternative, so the spec asserts the unpadded `105 tok·Cache hit 90%`; the padding survives in the rendered label a browser computes its name from, and in the time pill's own `aria-label`, which the separator change leaves untouched.
 
 **Retirement.** This is a fork overlay on an upstream client package. If upstream opens an equivalent contribution seat on the stats pill or its dialog — in any form, not only these keys — the overlay is retired and the fork's plugin adapts to upstream's form. Until then it is re-ported and re-verified on every rolling sync, because it lands in the pill markup and the slot contract upstream edits.
 
