@@ -42,9 +42,16 @@ interface CompactionState {
 const CANCELLED_COMPACTION_MARKER = 'abort'
 
 /**
- * Renderings that name no failure. `errorChain` falls back to `String(value)`
- * for a non-Error cause — an `AgentCancelCause` becomes `[object Object]` —
- * and to a fixed marker for a value it cannot render at all.
+ * Renderings that name no failure, so the card falls back to locale copy.
+ * `errorChain` renders a thrown non-Error through `String(value)`, which turns
+ * a plain object into `[object Object]`, and collapses a value with hostile
+ * accessors into a fixed marker.
+ *
+ * These are failures, not cancellations: an `AgentCancelCause` does reach
+ * `String(value)` the same way, but not on this path. The shipped adapters
+ * rewrite an aborted request into `… request aborted by caller` before it can
+ * propagate, so a cancelled summarization always arrives as text the marker
+ * above catches, and what lands here is an opaque throw from somewhere else.
  */
 const UNUSABLE_REASONS: readonly string[] = ['[object Object]', '<unrenderable value>']
 
