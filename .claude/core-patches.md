@@ -1291,3 +1291,62 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 ### 分支 HEAD 登记
 
 起点 `origin/core-patches-v8` = `46a7aa75fd`（未动）。基座 `upstream/master` = `origin/master` = `c291e7961a`（0.1.5-rc.2）。`core-patches-v9` 为新分支，首次推送为普通 `git push -u origin core-patches-v9`（顶 `6b3a8a62f6`），复核回修的第二批提交追加在其上后以普通 `git push origin core-patches-v9` 快进推送。全程零 `--force`、零 `--force-with-lease`、零 `--no-verify`；`--amend` 只在第一批推送之前对本轮自己新造的第一个回补提交用过一次（注释措辞），第二批零 `--amend`。
+
+## rc.33 集成合并审计：`rc33-integration` 线 × `core-patches-v9`（基座 0.1.5-rc.1 → 0.1.5-rc.2）
+
+集成分支起点 `8fa1e6b7e1`（rc.32 集成线之上再加撤侧栏、stats 用量槽、balance 0.5.0 换钉）。一次 `--no-ff` 合并，first-parent 为 `54d77e410f`（v9 = `b1f530738b`），落地 **1020 个文件 / 18505 增 / 6673 删**，并入 228 个提交。桌面版本号不动，仍是 `0.1.0-rc.33`；根版本随基座变为 `0.1.5-rc.2`。
+
+### 合并：`core-patches-v9`（`b1f530738b`）
+
+`git merge-base --all` 唯一，为 `2377c272a8`（上游 0.1.5-rc.1）。v9 是 v8 的**变基**，所以合并基是上游提交、v8 已携带的每条补丁在两侧各算一次新增。**55 个冲突文件**（45 UU + 10 AA）。
+
+**逐文件改用真正的内容祖先 `46a7aa75fd`（`core-patches-v8` 顶端，集成线已含）做 `git merge-file`**：14 个的集成侧与祖先逐字节相同（结果即 v9 侧），2 个的 v9 侧与祖先相同（结果即集成侧：`packages/client/ui-chat/src/client/index.ts`、`packages/session/session-format-v0-to-v1/tests/legacy.spec.ts`），6 个三方干净消解（含 `ui-chat` 的 `contract/slots.ts`——上游只加 `openSkill`、本线只加两个 stats 槽，不同区段），其余 33 个手判：
+
+- **生成物取 v9 侧后重跑生成器（13 个）**：`docs/config-catalog.i18n.yaml`、`docs/persistence-catalog.{md,zh.md,i18n.yaml}`、`docs/subsystems/{commands,skills,slots}.i18n.yaml`、`packages/extensions/cordis-client-runner/src/client/slot-catalog.ts`、`packages/extensions/tool-cordis/src/api-catalog.ts`、四份 README 配对记录。13 个生成器全跑，**只有 `slot-catalog.ts` 有改动**（补回本线两个 `conversation.chat.stats.*` 槽并重算全部锚点行号），其余零 diff。
+- **整取 v9（v9 已按语义重落本线补丁，或本轮带着上游 rc.2 的重写）**：`packages/api/session-controller/tests/session.client.spec.ts`（上游整体改写为组装式 client-test，v9 的转正用例是 60 条超集，本线 58 条全含）、`packages/client/ui-commands/README.{md,zh.md}`（上游重写菜单一节，v9 已插回本线那句受理语）、`packages/skill/skill-filesystem/tests/skill-filesystem.spec.ts`（上游把链接技能用例改写为 `it.each`，本线 `claudeHome` 用例一条未失）、`apps/web/tests/scaffold.ts`（两侧代码逐字相同，只有遥测注释措辞不同，取补丁线措辞以减下一轮漂移）、`scripts/check-workspace-constraints.{ts,spec.ts}`（同一补丁的两种写法，取补丁线的）、三份 add/add Agent Note 的 `.md`/`.zh.md`（`2026-09-10-command-engages-blank-session` 第 47 行随 v9 的新用例改写）。
+- **整取集成线（本线持有更晚的修订，或 v9 侧不该带的目录名）**：`packages/bundle/base/tests/base.spec.ts`（本线 `09751e3fcd` 把三条重复断言还给 `session-telemetry-otel` 自己的包并删掉那条导入，v9 停在该修订之前）、`scripts/build-exe-for-python-sdk.{ts,spec.ts}`（本线 `8a86b8604a` 把 deploy 参数抽成 `scripts/filtered-deploy.ts` 并加 `verifyStagedPatches`，是 v9 那条内联 flag 的超集；v9 的断言按「`--prod` 紧跟 flag」写，与抽出后的参数顺序不符）、`2026-09-06-approval-detail-keyed-by-tool.{md,zh.md}`（带 rc.33 撤侧栏的链接与 `apps/desktop-shell` 路径）、`2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.{md,zh.md}`（带壳侧 `DSH_TELEMETRY_DISABLED` 那一段，补丁线刻意不回补）。
+- **`.claude/core-patches.md` 按小节人工合并**：以集成线的小节顺序为骨架；12 个小节取 v9 侧（前言改写为 v9 当前线、六个冲突补丁族各补的「本轮（`core-patches-v9`）」状态条、`settings.trigger.action` 与 `engages` 两族的回补状态、alpha.3→alpha.4 滚动小节补的别名段）；集成线独有的 12 个小节（rc.26 合并事故复核、`ac666dc419`、两条 rc.31 backport、stats 用量药丸、rc.27–rc.32 六份集成审计）原样保留；v9 的滚动同步小节整节追加在末尾。两处手判：`patch(session-query-sqlite)` 取 v9 的标题与回补状态、保留集成线独有的「重置路径的两条既有约束」一条；`fix(scripts): let the workspace gate see apps that never publish` 取 v9 正文，但把指代 fork 外壳的 `apps/desktop` 改回 `apps/desktop-shell`、版本号订正为 `0.1.0-rc.33`，并把 v9 那句「本线今天零可观测差异」换成本集成线的事实（外壳带桌面产品版本、根版本是 `0.1.5-rc.2`）。
+- **`pnpm-lock.yaml`** 整取 v9 侧后 `pnpm install --offline`，退出码 0，四个补丁线没有的 importer（`apps/desktop-shell`、`apps/desktop-server`、`apps/desktop-app`、`apps/pwa`）与 13 个 vendored tarball 引用全部重新解析，与集成线原锁一致。**`pnpm-workspace.yaml`** 自动合并即为正确并集：v9 新增的 `@electron/osx-sign@1.3.3` 补丁行 + 本线的 `allowBuilds.electron`、`electron-updater@6.8.9` 两项；rc.33 删掉的 `dsh-better-sidebar>node-pty` override 未复活。
+
+### 非冲突路径按内容祖先复判：抓到三处 git 静默合错
+
+以 `46a7aa75fd` 为内容祖先、`git diff --no-renames --name-only` 为口径：集成侧改过 **466** 条、v9 侧改过 **1119** 条、两侧都改过 **160** 条。仅 v9 改过的 959 条与仅集成线改过的 306 条在结果中**逐字节等于各自父 blob，零不符**。两侧都改过的 160 条里 110 条的三方结果与合并结果一致，24 条即上面手判的冲突，26 条在 v8 上不存在（rc.32/rc.33 期两侧各自写下、v9 回补过的同名文件），其中 17 条两侧逐字节相同。
+
+**git 自动合并出的三处缺陷**（合并基是上游提交，两侧各加一次同样的内容，git 取并集）：
+
+1. `packages/preset/agent-presets/tests/settings.spec.ts`：遗留预设别名那一族的 **4 条用例整块被应用了两次**（39 行）。改回 v9 blob。
+2. `packages/test-support/session-snapshot/src/harness.ts`、3. `scripts/publish-npm-baseline.ts`：`import { isolatedSkillRootEnv } from '@deepseek-ai/dsh-loader-smoke'` **各出现两次**——两侧把同一条 import 插在了相邻但不同的位置。两文件两侧的差异仅此一条 import 的排序，一律改回 v9 blob。
+
+第 2、3 条**三方审计的「结果不等于三方」那一条规则查不出来**（拿 v8 做祖先跑 `git merge-file` 得到的也是同一份重复），是「任一行出现次数不超过任一父」这条规则抓到的。
+
+### 删除复活护栏
+
+以 `46a7aa75fd` 为准，v9 侧删除而集成线仍持有的路径 **6** 个（上游本轮退役的 `apps/desktop` seed-store 一族 5 个与 `packages/test-support/client-runtime/src/settings-remote.ts`），**结果树中 0 个复活**；全仓对 `scriptedSettingsRemote`/`seed-store` 零引用。集成线相对 v8 零删除（rc.33 撤下的 `dsh-better-sidebar` tgz 与 override 本就只在集成线上，v9 从未持有，结果中同样不存在）。护栏另两向为零：结果树中「两个父都没有」的文件 0 个；v9 有而结果缺的路径 0 个。
+
+### 三方审计
+
+对 160 个「两侧都改过」的文件逐个取两父 blob，核三条：**抑制／标注注释零丢失**（正则覆盖 `eslint-disable`/`oxlint-disable`/`v8 ignore`/`c8 ignore`/`istanbul ignore`/`@ts-expect-error`/`@ts-ignore`/`@ts-nocheck`/`biome-ignore`/`prettier-ignore`/`@dshScopeScan`/`knip-ignore`）；**两父都保留而结果丢失的行** 1 条，即 `slot-catalog.ts` 的锚点行 `contract/slots.ts:353`，重生成后是新行号；**任一行出现次数超过任一父** 34 处，逐个归类后全部无效——21 处在 `pnpm-lock.yaml`（重锁后的 importer 并集），8 处在 `slot-catalog.ts`（重生成的锚点行号，两父都没有），5 处在 `.claude/core-patches.md`（刻意的并集：`### 分支 HEAD 登记` 由 4 变 5、别名段与表头随小节并入、两条手写状态行）。归档树复核：`.agents/notes/archived/**` 无一条落在「两侧都改过」里，`archived/manifest.json` 只有集成线改过（v9 与 v8 逐字节相同），结果取集成线 blob。
+
+### 旧会话可读性预审（合并之后、门禁之前）
+
+`~/.dsh/sessions` 只读 `cp -R` 到 scratch，用本树源码按 `ctx.sessionPersistence.open(id, 'read').read()` 逐份冷读（`SqliteSessionQuery._reconcile` 的同一条路）：**144/144 全部打开、零拒绝**，9113 条事件。回放前后该副本的文件清单与每一个 `session*.jsonl*` 的字节内容**逐一未变**（读路径只在内存里迁移）。与 v9 台账记的 144/144、9112 条一致，多出的一条是本机语料自那次预审后新增的。`SESSION_FORMAT_VERSION` 两侧都是 3，本轮不动。
+
+### 门禁实跑（HEAD = 合并提交 `54d77e410f`）
+
+`pnpm install --offline` **0** → `pnpm --dir native/system run build:native` **0** → `pnpm run build` **0**（**234 个客户端产物**）→ `pnpm run typecheck` **0** → `pnpm run lint` **0** → `pnpm run doc-sync` **36/36 全绿** → `pnpm run hygiene` **16/16 全绿** → 全仓 `pnpm run test` **退出码 1**（1311 文件：1294 通过 / 12 跳过 / 5 红；23444 条：23066 通过 / 246 红 / 1 预期失败 / 131 跳过）→ `pnpm run test:snapshot` **退出码 1**（133 条：130 通过 / 2 跳过 / 1 红）→ 聚焦 `pnpm exec vitest run packages/client/ui-chat/tests apps/desktop-shell/tests scripts/verify-vendored-plugin-versions.spec.ts` **0**（58 文件 / 1019 条全绿）。`verify-translation-pairing` 全仓 **877 对**一致。
+
+**四类红全部归因为宿主环境，非本次合并引入**（三类已在 v9 台账的同名表里记过，第四类本轮首次记录）：
+
+| 项 | 判定 |
+| --- | --- |
+| `packages/experimental/code-runtime-python` 三个 spec（244 条） | 本机 `/usr/bin/python3` 是 CPython 3.9.6，插件自己在 `validatePythonBin` 要求 3.10+，报 `must be CPython 3.10 or newer, got cpython 3.9.6` |
+| `scripts/browser-bundled-externals.spec.ts`（1 条） | rollup 拒绝 macOS `/var`→`/private/var` 下临时目录的绝对 `fileName`；该 spec 与其被测脚本相对上游 rc.2 零 diff |
+| `test:snapshot` 的 `ptc-python-turn`（1 条） | 同第一项，`code-runtime-python` 起不来 |
+| `packages/subprocess/subprocess-local/tests/spawn-runner.spec.ts` 的 `resolves Windows executables with target-cwd and PATH search semantics`（1 条） | **本机环境导出了 `NoDefaultCurrentDirectoryInExePath=1`**，而 `resolveWindowsExecutable` 的 `currentEnv` 默认取 `process.env`、该变量存在时按 Windows 语义跳过当前目录探测，用例却断言探测它。`env -u NoDefaultCurrentDirectoryInExePath` 单跑该文件 **32/32 全绿**。结果树的整个 `packages/subprocess` 与上游 `c291e7961a` 逐字节相同，上游用例自己不 stub 这个变量 |
+
+**本轮未跑**：`pnpm run test:coverage`（覆盖门在本机因 CPython 版本不可评估，交 CI 的 `node-24-coverage`）、`pnpm run duplication`、`pnpm run check:windows-wine`、壳启动冒烟与真机验收（属阶段 C）。
+
+### 遗留：本轮未动的两处台账事实
+
+- rc.32 审计小节里的「只活在集成线上的补丁」表是那一轮的冻结记录，本轮不改写；v9 的滚动小节已逐族记下它回补了哪六族、哪三处刻意不回补。仍只活在集成线上的是：`scripts` 侧的 fork 产品门禁一族（含本轮取集成线侧的 `filtered-deploy.ts`）、stats 用量药丸的两个槽（`650ef3e273` 一族）、`packages/bundle/base/tests/base.spec.ts` 的 `09751e3fcd` 修订、以及 `a426a88c90`/`615b6d2c96` 的壳侧两半。
+- 两条 rc.31 期 backport（`de95110838`、`900fc3194d`）的小节仍写着「在役，仅在 rc.31 集成线上」。本集成线的基座自 rc.32 起已含这两条上游提交，按各自写下的退役条件它们已经退役；小节措辞留待下一轮统一订正。
