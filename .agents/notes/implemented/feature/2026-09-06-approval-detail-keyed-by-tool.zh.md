@@ -44,7 +44,7 @@ hunk 路径在位于会话工作区之内时按相对路径显示，否则把 PO
 
 ## Consequences
 
-`str_replace_editor` 的审批此前会显示它的 `command` 参数——字面上的 `create` 或 `str_replace`——因为 `commandOf` 接受该键下的任意字符串。现在它改为显示 diff。有一个已发货的工具会失去这一行且没有替代：桌面随附的 `dsh-better-sidebar`（`apps/desktop-server/vendor/dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz`）声明的 `terminal_create` 带一个必填字符串 `command`，因此它的审批卡片退回到只剩 reason 一行。该插件其余七个 `terminal_*` 都不带 `command`，而且这组工具只有在用户打开插件的 `agentTerminalTools`（默认 false）之后才会注册。其余随附插件、以及除两个 shell 与 `str_replace_editor` 外的第一方工具，都没有字符串 `command`。
+`str_replace_editor` 的审批此前会显示它的 `command` 参数——字面上的 `create` 或 `str_replace`——因为 `commandOf` 接受该键下的任意字符串。现在它改为显示 diff。有一个已发货的工具会失去这一行且没有替代：桌面随附的 `dsh-better-sidebar`（`apps/desktop-server/vendor/dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz`，已在 [0.1.0-rc.33](../simplification/2026-09-14-desktop-withdraw-better-sidebar.zh.md) 撤下）声明的 `terminal_create` 带一个必填字符串 `command`，因此它的审批卡片曾退回到只剩 reason 一行。该插件其余七个 `terminal_*` 都不带 `command`，而且这组工具只有在用户打开插件的 `agentTerminalTools`（默认 false）之后才会注册。其余随附插件、以及除两个 shell 与 `str_replace_editor` 外的第一方工具，都没有字符串 `command`。
 
 桌面跑的就是这套 UI，不是它的副本，因此这次改动不需要动桌面侧任何一行：`apps/desktop-server/package.json:15` 依赖 `@deepseek-ai/dsh`，后者的 `apps/cli/package.json:93` 拉入 `dsh-web-app`，而 `packages/bundle/web-app/package.json:53`、`:56`、`:83` 把 `ui-approval`、`ui-chat`、`ui-tool` 三个包都列为 `workspace:^`；`apps/desktop-shell/src/profile-seed.ts:309` 让每个桌面 profile 以 `['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app']` 打底。三个包都是双面 `dsh.client` 包，浏览器侧取的是各包的 `lib/client.js`；`apps/desktop-server/vendor/` 下那 11 个 tgz 全是第三方插件，没有一个是 client-UI 包。把 `write` 那条注册删掉、只重打 `ui-tool` 的 bundle，整机通路就变红——卡片里根本不出现 `[data-diff]`——这正是「发货产物本身带着这个条目，而不只是源码树带着」的证据。
 

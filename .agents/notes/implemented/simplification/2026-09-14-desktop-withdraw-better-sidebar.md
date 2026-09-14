@@ -44,4 +44,4 @@ The built-in plugin count is stated in prose no parser reads. [`apps/desktop-she
 
 ## Related
 
-[The desktop installer ships plugins and seeds them into a profile of its own](2026-08-21-desktop-builtin-plugins.md) owns why the built-ins are in the payload and what `WITHDRAWN_WEB_BUNDLES` does to a profile that has one; [the vendored plugin reference gate](../process/2026-09-03-vendored-plugin-reference-gate.md) owns the check that the README tables and the notices overrides agree with the manifest, which is what makes a removed row a hard failure rather than a stale one.
+[The desktop installer ships plugins and seeds them into a profile of its own](../feature/2026-08-21-desktop-builtin-plugins.md) owns why the built-ins are in the payload and what `WITHDRAWN_WEB_BUNDLES` does to a profile that has one; [the vendored plugin reference gate](../process/2026-09-03-vendored-plugin-reference-gate.md) owns the check that the README tables and the notices overrides agree with the manifest, which is what makes a removed row a hard failure rather than a stale one.

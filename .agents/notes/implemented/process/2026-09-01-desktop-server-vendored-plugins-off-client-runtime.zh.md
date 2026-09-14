@@ -28,7 +28,7 @@ Status: implemented
 
 ## 本决定范围外的那两个插件已不再引入这个已退役的包名
 
-`pnpm why @deepseek-ai/dsh-client-runtime` 是空的。`dsh-at-file` 与 `dsh-better-sidebar` 是各自独立维护的上游项目,不是本仓库构建的插件,因而在本决定覆盖的九个之外;如今它们也各因自己的理由,成了 `apps/desktop-server/vendor/` 下的 vendor tarball。`dsh-better-sidebar` 的 manifest 里已完全不再出现这个已退役的包名;`dsh-at-file` 的 manifest 仍把它声明为可选 peer,`pnpm-lock.yaml` 记下了这条声明,却没有任何东西去安装它——因为 pnpm 从不自动安装可选 peer,而本工作区没有任何包依赖这个名字。本笔记当初不打算加的那条窄 override,现在依然不需要。[vendored plugin reference gate](2026-09-03-vendored-plugin-reference-gate.zh.md) 负责其中每一份归档如何命名,以及如何与复述它的那些文档保持一致。
+`pnpm why @deepseek-ai/dsh-client-runtime` 是空的。`dsh-at-file` 与 `dsh-better-sidebar` 是各自独立维护的上游项目,不是本仓库构建的插件,因而在本决定覆盖的九个之外;如今它们也各因自己的理由,成了 `apps/desktop-server/vendor/` 下的 vendor tarball。`dsh-better-sidebar` 此后已在 [0.1.0-rc.33](../simplification/2026-09-14-desktop-withdraw-better-sidebar.zh.md) 撤下,归档随之删除,两者里只剩 `dsh-at-file`。`dsh-better-sidebar` 的 manifest 里已完全不再出现这个已退役的包名;`dsh-at-file` 的 manifest 仍把它声明为可选 peer,`pnpm-lock.yaml` 记下了这条声明,却没有任何东西去安装它——因为 pnpm 从不自动安装可选 peer,而本工作区没有任何包依赖这个名字。本笔记当初不打算加的那条窄 override,现在依然不需要。[vendored plugin reference gate](2026-09-03-vendored-plugin-reference-gate.zh.md) 负责其中每一份归档如何命名,以及如何与复述它的那些文档保持一致。
 
 ## 权衡过的替代方案
 

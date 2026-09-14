@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-03-vendored-plugin-reference-gate.md
-2026-09-03-vendored-plugin-reference-gate.md: b8f23e0b8cbd0366a620c943f5271a912b68b950
-2026-09-03-vendored-plugin-reference-gate.zh.md: 445b173757d974d7ab7fb640df99d72d2ccc0e79
+2026-09-03-vendored-plugin-reference-gate.md: 1d6483252e84238930be3594bff7f3243dbb718b
+2026-09-03-vendored-plugin-reference-gate.zh.md: 479f879ebb2dc21e9bd92de0fb08412528196fbc

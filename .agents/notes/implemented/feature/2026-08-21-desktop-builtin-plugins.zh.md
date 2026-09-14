@@ -14,9 +14,9 @@ Status: implemented
 
 插件随 deploy 闭包一起分发,桌面壳在启动服务端之前把它们的名字放进 profile。
 
-**闭包。**`apps/desktop-server/package.json` 在 workspace 包旁边以 `file:` tarball 声明 `dsh-better-sidebar` 与 `dsh-at-file`,`pnpm deploy` 于是把它们和服务端闭包的其余部分一起物化进 `resources/server/node_modules`。版本归携带该次构建的安装包所有;插件没有独立的更新通道。
+**闭包。**`apps/desktop-server/package.json` 在 workspace 包旁边以 `file:` tarball 声明 `dsh-better-sidebar` 与 `dsh-at-file`,`pnpm deploy` 于是把它们和服务端闭包的其余部分一起物化进 `resources/server/node_modules`。版本归携带该次构建的安装包所有;插件没有独立的更新通道。`dsh-better-sidebar` 此后已在 [0.1.0-rc.33](../simplification/2026-09-14-desktop-withdraw-better-sidebar.zh.md) 撤下;这套机制本身没变,仍承载 `dsh-at-file` 与此后新增的内置插件。
 
-**版本。**`dsh-better-sidebar` 的下限是 `0.14.0`,而且这是下限而非偏好:`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,改由 `ctx.modules` 服务提供,而 `0.13.1` 里每个懒加载 chunk 正是靠前者解析外部依赖的。在该版本及之后的任何宿主上,`0.13.1` 都会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,并丢掉终端、编辑器与 Mermaid 面板。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`——本仓库有 `0.1.1-rc.1` 这一版——把插件自有的全局共享给它的 chunk 副本,并移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。它的 `node-pty` 范围没变,所以下面那条 override 照原样继续生效。
+**版本。**`dsh-better-sidebar` 的下限是 `0.14.0`,而且这是下限而非偏好:`0.1.0-rc.8` 起不再暴露 `window.__DSH_MODULES__` 页面全局,改由 `ctx.modules` 服务提供,而 `0.13.1` 里每个懒加载 chunk 正是靠前者解析外部依赖的。在该版本及之后的任何宿主上,`0.13.1` 都会报 `[dsh-better-sidebar] chunk "terminal": client module system unavailable`,并丢掉终端、编辑器与 Mermaid 面板。`0.14.0` 注入 `@deepseek-ai/dsh-client-modules`——本仓库有 `0.1.1-rc.1` 这一版——把插件自有的全局共享给它的 chunk 副本,并移除了随 rc.8 消失的 `dsh-client-web-react` 与 `dsh-client-schema-form` 两个 peer。它的 `node-pty` 范围没变,所以在这个插件仍随包分发的期间,下面那条 override 照原样生效;[0.1.0-rc.33 把这个插件撤下](../simplification/2026-09-14-desktop-withdraw-better-sidebar.zh.md),那条 override 随之退役。
 
 `dsh-at-file` 走在作者最新 npm 发布版之前,理由正是下面那处分裂解析:一个 bundle 的 patch 层经 `resolveBundleDir` 安装目录优先,模块则按常规的逐级向上查找,先撞上 profile 自己的 `node_modules`。对着一个自行装了更新版本的 profile 分发注册表上那一版——第一台跑起这个插件的机器正是这个状态——会让一个版本的一行配上另一个版本的代码。
 
@@ -62,7 +62,7 @@ Status: implemented
 
 `dsh-better-sidebar` 声明 `node-pty: ^1.1.0`,它自己的 `src/pty-deps.ts` 写明它必须解析到与 harness 内核同一个物理包。内核精确钉在 `1.2.0-beta.15`,并由 `patches/node-pty@1.2.0-beta.15.patch` 为内嵌运行时的 spawn helper 打了补丁,而预发布版本不在 `^1.1.0` 范围内——于是不加干预的安装会产生两份副本。在一个围绕文件数设计的载荷里,这不只是浪费:`PLATFORM_DIR_RULES` 只对顶层的 `node-pty/prebuilds` 生效,所以嵌套的第二份会把每个平台的二进制带进两个载荷并让载荷门禁失败;`prunePlatformBuilds` 只对顶层那份 chmod spawn helper;而嵌套的那份正是侧栏真正加载、却没打补丁的那份。
 
-因此 `pnpm-workspace.yaml` 带上了 `'dsh-better-sidebar>node-pty': '1.2.0-beta.15'`。两个版本 API 兼容:`resize` 多了一个可选的第三参数,`useConpty` 变成了有文档说明的空操作。
+因此 `pnpm-workspace.yaml` 曾带上 `'dsh-better-sidebar>node-pty': '1.2.0-beta.15'`。两个版本 API 兼容:`resize` 多了一个可选的第三参数,`useConpty` 变成了有文档说明的空操作。这条 override 随插件一起在 [0.1.0-rc.33](../simplification/2026-09-14-desktop-withdraw-better-sidebar.zh.md) 删除;内核自己的 `1.2.0-beta.15` 钉法与它的补丁保留。
 
 ## 构建不再改动开发者的 harness home
 

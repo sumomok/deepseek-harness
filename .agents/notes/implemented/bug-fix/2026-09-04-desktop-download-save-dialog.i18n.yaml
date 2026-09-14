@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-04-desktop-download-save-dialog.md
-2026-09-04-desktop-download-save-dialog.md: 733bfff1dc05d41858a7c989f3e7ccb6fbbe9c6f
-2026-09-04-desktop-download-save-dialog.zh.md: f75754e3122b6a022f254ed76be9937688de1b82
+2026-09-04-desktop-download-save-dialog.md: cafa5891cc619c73346c5b11c5ba340803075efe
+2026-09-04-desktop-download-save-dialog.zh.md: 38cde26101d7e37245eb1e5a11b1c01dd96df302

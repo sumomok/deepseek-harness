@@ -14,7 +14,7 @@ Status: implemented
 
 [`scripts/verify-vendored-plugin-versions.ts`](../../../../scripts/verify-vendored-plugin-versions.ts) 把 desktop-server 的 manifest 作为唯一的记录依据,并拿每一处复述与它核对。它作为 `doc-sync` 的 `vendored-plugin-versions` 叶子门禁运行(也在不需要构建的 `doc-quick` 聚合里),与其余 `verify-*` 文档门禁并列。
 
-契约是 tarball 的文件名,而不是归档内部的 `version` 字段。`dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz` 与 `dsh-at-file-0.7.0-da602d1.tgz` 内部的 manifest 都声明着一个朴素的上游版本号;后缀才是把本仓库分发的这份字节与同号上游发布区分开的东西,也正是读者据以找到该文件的东西。门禁从文件名里剥掉 `pnpm pack` 的包名前缀(`@haoran/dsh-clickable-refs` → `haoran-dsh-clickable-refs-`)得到版本,并拒绝文件名不带自身包名的标识符,因为从那样的文件名里读不出版本。
+契约是 tarball 的文件名,而不是归档内部的 `version` 字段。`dsh-at-file-0.7.0-da602d1.tgz` 内部的 manifest 声明着一个朴素的上游版本号,`dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz` 在 [0.1.0-rc.33 把该插件撤下](../simplification/2026-09-14-desktop-withdraw-better-sidebar.zh.md)之前也是如此;后缀才是把本仓库分发的这份字节与同号上游发布区分开的东西,也正是读者据以找到该文件的东西。门禁从文件名里剥掉 `pnpm pack` 的包名前缀(`@haoran/dsh-clickable-refs` → `haoran-dsh-clickable-refs-`)得到版本,并拒绝文件名不带自身包名的标识符,因为从那样的文件名里读不出版本。
 
 由此得出这些断言:每条 `file:` 标识符都指向 `./vendor/` 下一个存在的 tarball;每条 `repo` 是 vendor tarball 路径的 `OVERRIDES` 都指向存在的文件;每张表对每个 vendor 包恰好一行、且不含任何别的行,于是一个被撤下的插件不会留下一行孤儿;每一行的版本格都等于版本 code span 加上该文档的来源短语,于是一行不可能版本没错、来源却退回去说自己来自 npm 或某个 Git tag。行按包名匹配,所以调整行序或改写描述都不会惊动门禁。
 

@@ -44,4 +44,4 @@ Status: implemented
 
 ## 相关
 
-[桌面安装包分发插件并把它们播种进自己的 profile](2026-08-21-desktop-builtin-plugins.zh.md) 拥有「内置插件为什么在载荷里」以及 `WITHDRAWN_WEB_BUNDLES` 对已经有它的 profile 做什么；[贩售插件引用闸](../process/2026-09-03-vendored-plugin-reference-gate.zh.md) 拥有「README 表格与署名 overrides 必须与清单一致」这道检查，正是它让删掉的行成为一次硬失败而不是一处陈旧。
+[桌面安装包分发插件并把它们播种进自己的 profile](../feature/2026-08-21-desktop-builtin-plugins.zh.md) 拥有「内置插件为什么在载荷里」以及 `WITHDRAWN_WEB_BUNDLES` 对已经有它的 profile 做什么；[贩售插件引用闸](../process/2026-09-03-vendored-plugin-reference-gate.zh.md) 拥有「README 表格与署名 overrides 必须与清单一致」这道检查，正是它让删掉的行成为一次硬失败而不是一处陈旧。
