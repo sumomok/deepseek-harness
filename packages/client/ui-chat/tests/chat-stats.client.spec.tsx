@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { ReactNode } from 'react'
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
 import type {
   AssistantMessageNode, ChatSnapshot, LegacyConversationSlice, ToolResultNode,
@@ -141,11 +142,36 @@ describe('StatsPills', () => {
     return (key: string) => values[key]
   }
 
+  /**
+   * Stub the two usage child seats. A key absent from `seats` renders the
+   * caller's fallback, which is how the shipped pill and dialog look with
+   * nobody registered.
+   */
+  function slotSeats(seats: Record<string, ReactNode> = {}): StatsPillsProps['renderSlot'] {
+    return ((key: string, _owner: unknown, opts?: { fallback?: ReactNode }) =>
+      key in seats ? seats[key] : opts?.fallback ?? null) as StatsPillsProps['renderSlot']
+  }
+
+  /** Record every child-seat call a render makes, and print the caller's fallback. */
+  function recordSeats(seen: { key: string; owner: unknown }[]): StatsPillsProps['renderSlot'] {
+    return ((key: string, owner: unknown, opts?: { fallback?: ReactNode }) => {
+      seen.push({ key, owner })
+      return opts?.fallback ?? null
+    }) as StatsPillsProps['renderSlot']
+  }
+
   function props(
     source: { getSnapshot(): ChatSnapshot; subscribe(fn: () => void): () => void },
     values: Record<string, unknown> = { tokenUsage: USAGE },
+    seats: Record<string, ReactNode> = {},
   ): StatsPillsProps {
-    return { useChat: bindSnapshotSelector(source), useProjection: projections(values), t: tEn }
+    return {
+      useChat: bindSnapshotSelector(source),
+      useProjection: projections(values),
+      t: tEn,
+      renderSlot: slotSeats(seats),
+      SessionProvider: ({ children }) => <>{children}</>,
+    }
   }
 
   function tokenUsage(cacheReadTokens: number, uncachedInputTokens: number) {
@@ -168,11 +194,16 @@ describe('StatsPills', () => {
     // would have no rows, so the counts reading stays a static pill (no button).
     expect(view.getByText('1 turns 1 steps').closest('button')).toBeNull()
     // Cache hit comes from the projection, so paging the window cannot change
-    // it; the usage pill leads with the whole-log token total. Its accessible
-    // name separates the segments the visual sep glyph joins.
+    // it; the usage pill leads with the whole-log token total. The button
+    // carries no aria-label, so its accessible name is the visible label. The
+    // separator is part of it now that it is not aria-hidden; this harness
+    // trims each child's text alternative, so the padding around it that the
+    // rendered label (and a browser's own name computation) carries is gone
+    // from the name it reports.
     const usagePill = view.getAllByRole('button')
-    expect(usagePill.map(pill => pill.textContent)).toEqual(['105 tok·Cache hit 90%'])
-    expect(usagePill[0]!.getAttribute('aria-label')).toBe('105 tok · Cache hit 90%')
+    expect(usagePill.map(pill => pill.textContent)).toEqual(['105 tok · Cache hit 90%'])
+    expect(usagePill[0]!.getAttribute('aria-label')).toBeNull()
+    expect(view.getByRole('button', { name: '105 tok·Cache hit 90%' })).toBe(usagePill[0])
     const empty = makeSource()
     const emptyView = render(<StatsPills {...props(empty.source, {
       tokenUsage: { uncachedInputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheWriteTokens: 0 },
@@ -209,7 +240,7 @@ describe('StatsPills', () => {
     const { source } = makeSource({ nodes: [timedStep()] })
     const view = render(<StatsPills {...props(source)} />)
     const timePill = view.getAllByRole('button')[0]!
-    expect(timePill.textContent).toBe('1 turns 1 steps·20 tok/s')
+    expect(timePill.textContent).toBe('1 turns 1 steps · 20 tok/s')
     expect(timePill.getAttribute('aria-label')).toBe('1 turns 1 steps · 20 tok/s')
   })
 
@@ -302,9 +333,9 @@ describe('StatsPills', () => {
     const { source } = makeSource({ nodes: [timedStep()] })
     const view = render(<StatsPills {...props(source, { tokenUsage: tokenUsage(9_995, 5) })} t={t} />)
     const [timePill, usagePill] = [...view.getAllByRole('button')] as [HTMLElement, HTMLElement]
-    expect(timePill.textContent).toBe('1 轮 1 步·20 tok/s')
+    expect(timePill.textContent).toBe('1 轮 1 步 · 20 tok/s')
     // Whole-log total 9995 + 5 + 1 compacts to 10K.
-    expect(usagePill.textContent).toBe('10K tok·缓存命中 99.95%')
+    expect(usagePill.textContent).toBe('10K tok · 缓存命中 99.95%')
     fireEvent.click(timePill)
     const timeDialog = view.getByRole('dialog')
     expect(timeDialog.getAttribute('aria-label')).toBe('会话统计')
@@ -327,7 +358,7 @@ describe('StatsPills', () => {
     // Context occupancy lives on the composer's ContextMeter ring, not here.
     const pills = view.getAllByRole('button')
     expect(pills).toHaveLength(1)
-    expect(pills[0]!.textContent).toBe('105 tok·Cache hit 90%')
+    expect(pills[0]!.textContent).toBe('105 tok · Cache hit 90%')
   })
 
   it('drops the usage pill when no projection is composed', () => {
@@ -396,7 +427,7 @@ describe('StatsPills', () => {
       }),
     })} />)
     const timePill = view.getAllByRole('button')[0]!
-    expect(timePill.textContent).toBe('200 turns 200 steps·20 tok/s')
+    expect(timePill.textContent).toBe('200 turns 200 steps · 20 tok/s')
     fireEvent.click(timePill)
     const dialog = view.getByRole('dialog')
     expect(dialog.textContent).toContain('LLM time1m40s')
@@ -412,7 +443,7 @@ describe('StatsPills', () => {
     })} />)
     const usagePill = view.getAllByRole('button')[0]!
     expect(usagePill.textContent).toBe('7 tok')
-    expect(usagePill.getAttribute('aria-label')).toBe('7 tok')
+    expect(view.getByRole('button', { name: '7 tok' })).toBe(usagePill)
     // Output-only activity still fills the dialog's token rows.
     fireEvent.click(usagePill)
     expect(view.getByRole('dialog').textContent).toContain('Output7 tok')
@@ -428,10 +459,68 @@ describe('StatsPills', () => {
         cacheWriteTokens: 100,
       },
     })} />)
-    expect(view.getAllByRole('button')[0]!.textContent).toBe('207 tok·Cache hit 45%')
+    expect(view.getAllByRole('button')[0]!.textContent).toBe('207 tok · Cache hit 45%')
     // A session that did write cache keeps the row, exact.
     fireEvent.click(view.getAllByRole('button')[0]!)
     expect(view.getByRole('dialog').textContent).toContain('Cache write100 tok')
+  })
+
+  it('hands both usage seats the exact session totals and keeps the shipped pill when neither is occupied', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const seen: { key: string; owner: unknown }[] = []
+    const view = render(<StatsPills {...props(source)} renderSlot={recordSeats(seen)} />)
+    const usagePill = view.getAllByRole('button')[0]!
+    expect(usagePill.textContent).toBe('105 tok · Cache hit 90%')
+    fireEvent.click(usagePill)
+    const rows = view.getByRole('dialog').querySelector('[data-session-stats-usage]')!
+    expect(rows.textContent).toBe('Cache hit90%Uncached input10 tokCached input90 tokOutput5 tok')
+    expect(new Set(seen.map(call => call.key))).toEqual(new Set([
+      'conversation.chat.stats.usageLabel',
+      'conversation.chat.stats.usageRows',
+    ]))
+    // Both seats read the exact total, never the pill's abbreviated text, and
+    // the cache-hit share as the bare number the pill's own copy interpolates.
+    for (const call of seen) expect(call.owner).toEqual({ totalTokens: 105, cacheHitPercent: '90' })
+  })
+
+  it('lets a label occupant replace the leading total segment while the cache-hit segment stays', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsPills {...props(source, { tokenUsage: USAGE }, {
+      'conversation.chat.stats.usageLabel': <span>CNY 0.10</span>,
+    })} />)
+    const usagePill = view.getAllByRole('button')[0]!
+    expect(usagePill.textContent).toBe('CNY 0.10 · Cache hit 90%')
+    // No aria-label to go stale: the accessible name follows the occupant.
+    expect(view.getByRole('button', { name: 'CNY 0.10·Cache hit 90%' })).toBe(usagePill)
+  })
+
+  it('appends contributed rows inside the usage dialog list, after the output row', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const view = render(<StatsPills {...props(source, { tokenUsage: USAGE }, {
+      'conversation.chat.stats.usageRows': <><dt>Cost</dt><dd>CNY 0.10</dd></>,
+    })} />)
+    fireEvent.click(view.getAllByRole('button')[0]!)
+    // The dialog is portalled to document.body, so the seat renders there too;
+    // the contributed pair lands inside the shipped dl, last.
+    const rows = view.getByRole('dialog').querySelector('[data-session-stats-usage]')!
+    // Descendants, not children: the real renderer seats every slot inside a
+    // `display: contents` anchor, so contributed pairs sit one level down.
+    expect([...rows.querySelectorAll('dt, dd')].map(cell => `${cell.tagName}${cell.textContent ?? ''}`)).toEqual([
+      'DTCache hit', 'DD90%',
+      'DTUncached input', 'DD10 tok',
+      'DTCached input', 'DD90 tok',
+      'DTOutput', 'DD5 tok',
+      'DTCost', 'DDCNY 0.10',
+    ])
+  })
+
+  it('reports a null cache-hit share to the seats when nothing was billed on the input side', () => {
+    const { source } = makeSource({ nodes: [assistant(1, 1)] })
+    const seen: { key: string; owner: unknown }[] = []
+    render(<StatsPills {...props(source, {
+      tokenUsage: { uncachedInputTokens: 0, outputTokens: 7, cacheReadTokens: 0, cacheWriteTokens: 0 },
+    })} renderSlot={recordSeats(seen)} />)
+    expect(seen[0]!.owner).toEqual({ totalTokens: 7, cacheHitPercent: null })
   })
 
   it('renders ZERO times during streaming chunk frames (RFC hard acceptance)', () => {
