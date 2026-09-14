@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-14-stats-usage-pill-seats.md
-2026-09-14-stats-usage-pill-seats.md: f316ce97c82baf8560bf07454d8d394b24c9bac0
-2026-09-14-stats-usage-pill-seats.zh.md: fa3fd2d9e8eb19868766cc2c57dc16d01766e02a
+2026-09-14-stats-usage-pill-seats.md: c48df8266557730e9d63447b3eb342a7701af790
+2026-09-14-stats-usage-pill-seats.zh.md: b95375925b64aceae3e1c9f876c085be66e0aa0d

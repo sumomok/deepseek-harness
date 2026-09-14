@@ -34,8 +34,8 @@ export type {
   AssistantActionOwnerProps, ChatFileMentions, ChatNodeOwnerProps, ChatNodeTurnDataInjected,
   ChatNodeViewProps, ChatScrollPosition, ChatStore, ChatViewInjected, ChatViewSlotProps,
   CommandRowOwnerProps, CommandRowProps, MessageImagesProps, OpenFileOptions,
-  RenderUserActions, TurnProcessOwnerProps, TurnTailOwnerProps, UseChat, UseChatNodeTurnData,
-  UserActionOwnerProps,
+  RenderUserActions, StatsUsageOwnerProps, TurnProcessOwnerProps, TurnTailOwnerProps, UseChat,
+  UseChatNodeTurnData, UserActionOwnerProps,
 } from './contract/slots.ts'
 export type {
   TurnProcessSpec,
