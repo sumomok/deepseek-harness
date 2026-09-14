@@ -1,18 +1,22 @@
 - dialog "Settings":
   - navigation:
     - text: Settings
-    - button "General":
+    - group "General":
       - img
       - text: General
-    - button "Models":
+      - button "General"
+    - group "Models":
       - img
       - text: Models
-    - button "Plugins":
+      - button "Models"
+    - group "Agent":
       - img
-      - text: Plugins
-    - button "Agent presets":
+      - text: Agent
+      - button "Agent presets"
+    - group "Extensions":
       - img
-      - text: Agent presets
+      - text: Extensions
+      - button "Plugins"
   - button "Open configuration file"
   - button "Close":
     - img

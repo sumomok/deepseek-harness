@@ -104,7 +104,11 @@ export function apply(ctx: ClientContext): void {
           if (version !== rowsVersion || revision !== rowsRevision) {
             rowsVersion = version
             rowsRevision = revision
-            rows = ctx.slots.entries('settings.section')
+            // Shadowing winners, not the raw ledger: two entries sharing a
+            // section id are one cell, and the outlet renders one of them —
+            // the raw view would draw a second nav row for a section the
+            // panel cannot show.
+            rows = ctx.slots.entriesOfSlot('settings.section')
               .map(e => ({
                 /* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */
                 id: e.options.id ?? '',

@@ -23,6 +23,25 @@ afterEach(() => {
 type Row = { id: string; order: number; label: string }
 type Step = { id: string; order: number }
 
+/**
+ * Every section id the group table names, in ledger order, plus one id it
+ * never heard of. Labels stand in for the registrants' own copy.
+ */
+const EVERY_SECTION: Row[] = [
+  { id: 'general', order: 0, label: 'General' },
+  { id: 'models', order: 10, label: 'Models' },
+  { id: 'plugins', order: 15, label: 'Plugins' },
+  { id: 'agent-presets', order: 20, label: 'Agent presets' },
+  { id: 'balance', order: 30, label: 'Balance' },
+  { id: 'llm-permission-gateway', order: 40, label: 'Automatic review' },
+  { id: 'mcp-servers', order: 40, label: 'MCP servers' },
+  { id: 'at-file', order: 55, label: 'At file' },
+  { id: 'screenshot-logins', order: 60, label: 'Screenshot logins' },
+  { id: 'vision-switch', order: 60, label: 'Vision' },
+  { id: 'desktop-update', order: 70, label: 'Desktop update' },
+  { id: 'contributed', order: 80, label: 'Contributed' },
+]
+
 /** Slot-content stand-ins: the shell renders whatever the seats contribute. */
 const SEAT_CONTENT: Record<string, string> = {
   'settings.trigger': 'Settings',
@@ -128,8 +147,20 @@ function mount({
   return { view, renderSlot, bump, listeners, reconnect, setConnectionState }
 }
 
-function openPanel() {
-  const trigger = screen.getByRole('button', { name: 'Settings' })
+/** The rail's group titles, in drawn order. */
+function groupTitles(): (string | null)[] {
+  return [...document.querySelectorAll('[role="group"]')]
+    .map(group => group.querySelector('[class*="navGroupLabel"]')!.textContent)
+}
+
+/** Each group's member labels, in drawn order. */
+function groupMembers(): (string | null)[][] {
+  return [...document.querySelectorAll('[role="group"]')]
+    .map(group => [...group.querySelectorAll('button')].map(cell => cell.textContent))
+}
+
+function openPanel(name = 'Settings') {
+  const trigger = screen.getByRole('button', { name })
   trigger.focus()
   fireEvent.click(trigger)
   return trigger
@@ -279,6 +310,25 @@ describe('SettingsRoot.module.css', () => {
     expect(declarations('.triggerRow.railRow .triggerActions')?.get('display')).toBe('none')
   })
 
+  it('lets the nav rail scroll instead of clipping under the fixed panel height', () => {
+    // The panel height comes from the viewport and the section ledger is
+    // open-ended, so the cell stack has to shrink below its content and
+    // scroll; a flex item refuses to do that while its min-height is auto.
+    expect(declarations('.nav')?.get('min-height')).toBe('0')
+    expect(declarations('.navList')?.get('min-height')).toBe('0')
+    expect(declarations('.navList')?.get('overflow-y')).toBe('auto')
+  })
+
+  it('sets the two nav levels apart and aligns a member label under its group label', () => {
+    // Group titles are quieter than cell labels, and the 36px inset puts a
+    // glyphless member label in the same column as the group label above it.
+    expect(declarations('.navList')?.get('gap')).toBe('12px')
+    expect(declarations('.navGroup')?.get('gap')).toBe('4px')
+    expect(declarations('.navGroupTitle')?.get('color')).toBe('var(--dsw-alias-label-tertiary)')
+    expect(declarations('.navGroupTitle')?.get('font-size')).toBe('12px')
+    expect(declarations('.navGroup .navCell')?.get('padding-left')).toBe('36px')
+  })
+
   it('gives the wide row one hover surface that the action seat sits inside', () => {
     // One control rather than two: the row paints the hover fill across the
     // trigger and the seat together, and the trigger stops painting its own
@@ -367,26 +417,72 @@ describe('SettingsPanel navigation', () => {
     expect(screen.getByTestId('section-general')).toBeTruthy()
   })
 
-  it('gives every section a nav glyph, distinct for the ids the shell knows', () => {
-    mount({
-      rows: [
-        { id: 'general', order: 0, label: 'General' },
-        { id: 'models', order: 10, label: 'Models' },
-        { id: 'agent-presets', order: 20, label: 'Agent presets' },
-        { id: 'plugins', order: 30, label: 'Plugins' },
-        { id: 'contributed', order: 40, label: 'Contributed' },
-      ],
-    })
+  it('files every section under its group, in table order', () => {
+    mount({ rows: EVERY_SECTION })
+    openPanel()
+    expect(groupTitles()).toEqual([
+      'General', 'Models', 'Agent', 'Extensions', 'Account & usage', 'About', 'Other',
+    ])
+    // Members follow the table, not the ledger's `order`: MCP servers (40)
+    // draws under Plugins (15) because the Extensions group lists it second.
+    expect(groupMembers()).toEqual([
+      ['General', 'At file'],
+      ['Models', 'Vision'],
+      ['Agent presets', 'Automatic review'],
+      ['Plugins', 'MCP servers', 'Screenshot logins'],
+      ['Balance'],
+      ['Desktop update'],
+      ['Contributed'],
+    ])
+  })
+
+  it('keeps a section the table never named, in the trailing group, and opens it', () => {
+    mount({ rows: EVERY_SECTION })
+    openPanel()
+    const unknown = screen.getByRole('button', { name: 'Contributed' })
+    expect(screen.getByRole('group', { name: 'Other' }).contains(unknown)).toBe(true)
+    fireEvent.click(unknown)
+    expect(unknown.getAttribute('aria-current')).toBe('true')
+    expect(screen.getByTestId('section-contributed')).toBeTruthy()
+  })
+
+  it('draws no title for a group whose sections are all absent', () => {
+    // The default fixture registers one section in each of three groups.
+    mount()
+    openPanel()
+    expect(groupTitles()).toEqual(['General', 'Models', 'Agent'])
+    expect(groupMembers()).toEqual([['General'], ['Models'], ['Agent presets']])
+  })
+
+  it('carries the rail glyphs on the group titles and none on a member row', () => {
+    mount({ rows: EVERY_SECTION })
     openPanel()
     // Glyphs carry no id of their own, so the drawn paths are what tells them apart.
-    const glyphs = ['General', 'Models', 'Agent presets', 'Plugins', 'Contributed']
-      .map(name => screen.getByRole('button', { name }).querySelector('svg')?.innerHTML)
-
+    const glyphs = [...document.querySelectorAll('[class*="navGroupTitle"]')]
+      .map(title => title.querySelector('svg')?.innerHTML)
     expect(glyphs.every(glyph => glyph !== undefined && glyph !== '')).toBe(true)
-    // The three ids the shell names get their own glyph; every other section —
-    // including one this package never heard of — shares the gear.
-    expect(new Set(glyphs.slice(0, 4)).size).toBe(4)
-    expect(glyphs[4]).toBe(glyphs[0])
+    // Six named groups, six glyphs; the trailing catch-all shares General's gear.
+    expect(new Set(glyphs.slice(0, 6)).size).toBe(6)
+    expect(glyphs[6]).toBe(glyphs[0])
+    for (const cell of document.querySelectorAll('[class*="navCell"]')) {
+      expect(cell.querySelector('svg')).toBeNull()
+    }
+  })
+
+  it('names each group for assistive technology without making the title a control', () => {
+    mount({ rows: EVERY_SECTION })
+    openPanel()
+    const extensions = screen.getByRole('group', { name: 'Extensions' })
+    const title = extensions.querySelector('[class*="navGroupTitle"]')!
+    expect(extensions.getAttribute('aria-labelledby')).toBe(title.id)
+    expect(title.tagName).toBe('DIV')
+    expect(screen.getAllByRole('group')).toHaveLength(7)
+  })
+
+  it('takes the group titles from the active locale', () => {
+    mount({ rows: EVERY_SECTION, dictionary: zh })
+    openPanel('设置')
+    expect(groupTitles()).toEqual(['通用', '模型', '智能体', '扩展', '账户与用量', '关于', '其他'])
   })
 
   it('switches the rendered section on nav click', () => {
