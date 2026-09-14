@@ -310,7 +310,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     kind: 'single',
     scope: 'session',
     summary: 'Leading segment of the session token-usage pill\'s label, in place of the shipped token total.',
-    doc: 'Leading segment of the session token-usage pill\'s label, in place of the\nshipped token total. The cache-hit segment the pill appends after it is\nunaffected, and an unoccupied seat prints the token total. The button\ncarries no `aria-label`: its accessible name is whatever this seat and\nthe cache-hit segment render.',
+    doc: 'Leading segment of the session token-usage pill\'s label, in place of the\nshipped token total. The cache-hit segment the pill appends after it is\nunaffected, and an unoccupied seat prints the token total. The button\ncarries no `aria-label`: its accessible name is whatever this seat and\nthe cache-hit segment render. The token-total fallback covers an empty\nseat only — an occupant that throws is replaced by the error face, not\nby the fallback, so an occupant carries its own failure reading.',
     registerOptions: [],
     ownerProps: [
       '/**\n * Owner share of the session token-usage pill and its dialog: the same figures\n * the shipped pill prints, so an occupant of either usage seat reads the\n * session\'s billed totals without importing the chat implementation.\n */\nexport interface StatsUsageOwnerProps {\n  /** Every prompt-side billing bucket plus output over the whole durable log, exact. */\n  totalTokens: number\n  /**\n   * Cache-hit share of billed input as the pill prints it (the bare number,\n   * e.g. "93"), or null when nothing was billed yet.\n   */\n  cacheHitPercent: string | null\n}',
@@ -339,14 +339,14 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.chat.stats.usageLabel\', () => ctx.slots.register(\n      { name: \'conversation.chat.stats.usageLabel\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-chat/src/client/contract/slots.ts:372',
+    source: 'packages/client/ui-chat/src/client/contract/slots.ts:374',
   },
   {
     key: 'conversation.chat.stats.usageRows',
     kind: 'list',
     scope: 'session',
     summary: 'Extra rows at the end of the token-usage dialog\'s bucket list, after the output row.',
-    doc: 'Extra rows at the end of the token-usage dialog\'s bucket list, after the\noutput row. Each entry renders one or more `dt`/`dd` pairs directly into\nthe shipped `dl` and inherits its skin. Entries render by ascending\n`order`; with no entries the dialog is exactly the shipped one.',
+    doc: 'Extra rows at the end of the token-usage dialog\'s bucket list, after the\noutput row. Each entry renders one or more `dt`/`dd` pairs and inherits\nthe list\'s skin; they land one level below the `dl`, inside the render\nsite\'s `display: contents` slot anchor, which keeps them grid items of\nthe list and out of the accessibility tree. Entries render by ascending\n`order`; with no entries the dialog is exactly the shipped one.',
     registerOptions: [
       {
         name: 'id',
@@ -394,7 +394,7 @@ export const CLIENT_SLOT_API: readonly ClientSlotEntry[] = [
     occupants: [],
     replaceRisk: 'none',
     example: 'return {\n  inject: [\'slots\'],\n  apply(ctx) {\n    ctx.slots.inject(\'conversation.chat.stats.usageRows\', () => ctx.slots.register(\n      { name: \'conversation.chat.stats.usageRows\', id: \'my-entry\', order: 100, label: \'My entry\' },\n      () => React.createElement(\'div\', null, \'hello\'),\n    ))\n  },\n}',
-    source: 'packages/client/ui-chat/src/client/contract/slots.ts:379',
+    source: 'packages/client/ui-chat/src/client/contract/slots.ts:383',
   },
   {
     key: 'conversation.chat.turnTail',

@@ -503,7 +503,9 @@ describe('StatsPills', () => {
     // The dialog is portalled to document.body, so the seat renders there too;
     // the contributed pair lands inside the shipped dl, last.
     const rows = view.getByRole('dialog').querySelector('[data-session-stats-usage]')!
-    expect([...rows.children].map(child => `${child.tagName}${child.textContent ?? ''}`)).toEqual([
+    // Descendants, not children: the real renderer seats every slot inside a
+    // `display: contents` anchor, so contributed pairs sit one level down.
+    expect([...rows.querySelectorAll('dt, dd')].map(cell => `${cell.tagName}${cell.textContent ?? ''}`)).toEqual([
       'DTCache hit', 'DD90%',
       'DTUncached input', 'DD10 tok',
       'DTCached input', 'DD90 tok',

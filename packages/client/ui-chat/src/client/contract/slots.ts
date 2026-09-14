@@ -367,13 +367,17 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * shipped token total. The cache-hit segment the pill appends after it is
      * unaffected, and an unoccupied seat prints the token total. The button
      * carries no `aria-label`: its accessible name is whatever this seat and
-     * the cache-hit segment render.
+     * the cache-hit segment render. The token-total fallback covers an empty
+     * seat only — an occupant that throws is replaced by the error face, not
+     * by the fallback, so an occupant carries its own failure reading.
      */
     'conversation.chat.stats.usageLabel': { kind: 'single'; scope: 'session'; owner: StatsUsageOwnerProps }
     /**
      * Extra rows at the end of the token-usage dialog's bucket list, after the
-     * output row. Each entry renders one or more `dt`/`dd` pairs directly into
-     * the shipped `dl` and inherits its skin. Entries render by ascending
+     * output row. Each entry renders one or more `dt`/`dd` pairs and inherits
+     * the list's skin; they land one level below the `dl`, inside the render
+     * site's `display: contents` slot anchor, which keeps them grid items of
+     * the list and out of the accessibility tree. Entries render by ascending
      * `order`; with no entries the dialog is exactly the shipped one.
      */
     'conversation.chat.stats.usageRows': { kind: 'list'; scope: 'session'; owner: StatsUsageOwnerProps }

@@ -14,9 +14,9 @@ fork 的余额插件知道一个会话花了多少钱。读者会去找这个数
 
 在 `stats` 这个 dock 条目上开两个会话作用域子位，两者的 owner props 都是 `StatsUsageOwnerProps`。
 
-`conversation.chat.stats.usageLabel` 是 single 槽，占据用量药丸文案的开头那一段，也就是随产品发布的药丸打印缩写 token 总量的位置。它之后的一切药丸原样保留：`aria-hidden` 的 `·` 与缓存命中段照旧渲染，而该位的 fallback 正是那个 token 总量，因此无人占位时药丸就是随产品发布的那一枚。
+`conversation.chat.stats.usageLabel` 是 single 槽，占据用量药丸文案的开头那一段，也就是随产品发布的药丸打印缩写 token 总量的位置。它之后的一切药丸原样保留——分隔符与缓存命中段照旧渲染——而该位的 fallback 正是那个 token 总量，因此无人占位时药丸就是随产品发布的那一枚。fallback 只兜「无人占位」，不兜「占位者出错」：已注册的组件抛错会被该条目的错误边界接住并原地渲染 `<div data-slot-error>`，药丸因此一个 token 总量都不显示。占位者必须自带失败读数。
 
-`conversation.chat.stats.usageRows` 是 list 槽，渲染在弹层 `dl[data-session-stats-usage]` 内部、output 行之后。占位条目直接向那个 `dl` 输出自己的 `dt`/`dd` 对并继承它的皮肤；框架不给槽条目套任何自己的 DOM 元素，所以这些 `dt`/`dd` 是该列表真正的子元素。无人占位时弹层就是随产品发布的那一个。
+`conversation.chat.stats.usageRows` 是 list 槽，渲染在弹层 `dl[data-session-stats-usage]` 内部、output 行之后。占位条目输出自己的 `dt`/`dd` 对并继承该列表的皮肤，但有一处结构上的保留：每个 `renderSlot` 渲染点都经由 `SlotOutlet`，后者一律把内容包进框架自己的 `<div data-slot="<key>" style="display: contents">` 锚点。这些 `dt`/`dd` 因此是 `<dl>` 的孙元素而非子元素。网格与皮肤仍然成立——`display: contents` 让这些 `dt`/`dd` 直接成为 `.details` 的网格项，而 `.details dt` / `.details dd` 是后代选择器——锚点也不进辅助功能树。被接受的代价是 `<dl>` 的元素子节点里混进了一个 `div`，HTML 对 `dl` 的内容模型并不允许这样；渲染与辅助技术不受影响，且同样的「锚点落在短语内容里」的形状上游本就在用（`span` 里的 `sidebar.brand.mark`）。无人占位时弹层就是随产品发布的那一个。
 
 owner props 是药丸自己算出的那两个数：`totalTokens` 是整条持久日志上全部 prompt 侧计费桶加输出的精确总和——不是药丸打印的缩写文本——以及 `cacheHitPercent`，即药丸自己的文案所插值的那个裸数字，尚无计费时为 null。占位者由此读到该会话的计费，既不必引入 chat 实现，也不必从投影重新推算总量。
 
