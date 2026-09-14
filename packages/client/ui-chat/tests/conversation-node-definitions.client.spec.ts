@@ -2220,6 +2220,89 @@ describe('built-in conversation node Definitions', () => {
     })
   })
 
+  it('shows a failure node when an automatic compaction bracket closes on an error', () => {
+    const value = assembler([
+      at(10, 'compaction/start', { compactionId: 'compact-failed', turn: 2 }),
+      at(11, 'compaction/end', {
+        compactionId: 'compact-failed',
+        turn: 2,
+        error: 'summarizer unavailable',
+      }),
+    ], true)
+
+    expect(node(snapshot(value), 'compaction')).toBeUndefined()
+    expect(node(snapshot(value), 'compaction-failure')?.data).toMatchObject({
+      seq: 11,
+      reason: 'summarizer unavailable',
+    })
+  })
+
+  it('keeps a landed checkpoint rather than a failure node, and shows nothing for a clean end', () => {
+    const landed = assembler([
+      at(10, 'compaction/start', { compactionId: 'compact-clean', turn: 2 }),
+      at(11, 'compaction/summary', {
+        compactionId: 'compact-clean',
+        summary: [{ type: 'text', text: 'landed summary' }],
+        shadowedSeqs: [1, 2, 3],
+        shadowedTokenCount: 42,
+      }),
+      at(12, 'user/message', {
+        ...textMessage('checkpoint-clean', 'checkpoint'),
+        source: { kind: 'plugin', plugin: 'compact', compactionId: 'compact-clean' },
+      }, { surfaceOp: { op: 'replace', startSeq: 1, endSeq: 3 } }),
+      at(13, 'compaction/end', { compactionId: 'compact-clean', turn: 2 }),
+    ], true)
+
+    expect(node(snapshot(landed), 'compaction')?.data).toMatchObject({
+      summary: 'landed summary',
+      shadowedItemCount: 3,
+      shadowedTokenCount: 42,
+    })
+    expect(node(snapshot(landed), 'compaction-failure')).toBeUndefined()
+  })
+
+  it('reports a failure with no recorded detail as an absent reason', () => {
+    const value = assembler([
+      at(10, 'compaction/start', { compactionId: 'compact-blank', turn: 2 }),
+      at(11, 'compaction/end', { compactionId: 'compact-blank', turn: 2, error: '   ' }),
+    ], true)
+
+    expect(node(snapshot(value), 'compaction-failure')?.data).toMatchObject({ seq: 11, reason: null })
+  })
+
+  it('builds the failure node from a window that never loaded the bracket start', () => {
+    const value = assembler([
+      at(11, 'compaction/end', {
+        compactionId: 'compact-windowed-failure',
+        turn: 2,
+        error: 'summary did not shrink its source',
+      }),
+    ], true)
+
+    expect(node(snapshot(value), 'compaction-failure')?.data).toMatchObject({
+      reason: 'summary did not shrink its source',
+    })
+  })
+
+  it('leaves a manual compaction failure to the command card', () => {
+    const value = assembler([
+      at(10, 'command/run', { commandId: 'cmd-compact', name: 'compact', args: '' }),
+      at(11, 'compaction/start', {
+        compactionId: 'compact-manual-failed',
+        sourceCommandId: 'cmd-compact',
+        turn: null,
+      }),
+      at(12, 'compaction/end', {
+        compactionId: 'compact-manual-failed',
+        sourceCommandId: 'cmd-compact',
+        turn: null,
+        error: 'summarizer unavailable',
+      }),
+    ], true)
+
+    expect(node(snapshot(value), 'compaction-failure')).toBeUndefined()
+  })
+
   it('ignores legacy compaction transactions without correlation ids', () => {
     const value = assembler([
       at(10, 'compaction/start', { turn: null }),

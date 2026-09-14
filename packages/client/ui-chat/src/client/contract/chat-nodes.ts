@@ -53,6 +53,15 @@ export interface ManualCompactionChatData {
   readonly compaction: CompactionSummaryNode | null
 }
 
+/** One automatic compaction bracket that closed on an error. */
+export interface CompactionFailureChatData {
+  /** Seq of the errored `compaction/end`. */
+  readonly seq: number
+  readonly time: number
+  /** Failure text the bracket recorded, or null when it carried none. */
+  readonly reason: string | null
+}
+
 /** One durable retry chain rendered as a single row. */
 export interface RetryChatData {
   readonly attempts: readonly ModelRetryNode[]
