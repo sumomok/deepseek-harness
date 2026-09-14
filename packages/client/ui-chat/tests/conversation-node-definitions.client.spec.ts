@@ -2231,10 +2231,9 @@ describe('built-in conversation node Definitions', () => {
     ], true)
 
     expect(node(snapshot(value), 'compaction')).toBeUndefined()
-    expect(node(snapshot(value), 'compaction-failure')?.data).toMatchObject({
-      seq: 11,
-      reason: 'summarizer unavailable',
-    })
+    const failure = node(snapshot(value), 'compaction-failure')
+    expect(failure?.data).toEqual({ reason: 'summarizer unavailable' })
+    expect(failure?.anchorSeq).toBe(11)
   })
 
   it('keeps a landed checkpoint rather than a failure node, and shows nothing for a clean end', () => {
@@ -2267,7 +2266,29 @@ describe('built-in conversation node Definitions', () => {
       at(11, 'compaction/end', { compactionId: 'compact-blank', turn: 2, error: '   ' }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-failure')?.data).toMatchObject({ seq: 11, reason: null })
+    expect(node(snapshot(value), 'compaction-failure')?.data).toEqual({ reason: null })
+  })
+
+  it.each([
+    ['a bare abort signal reason', 'This operation was aborted'],
+    ['an abort with no message', 'AbortError'],
+    ['a provider cancellation', 'DeepSeek request aborted by caller: The user aborted a request.'],
+  ])('shows no card when the bracket closed because the turn was cancelled (%s)', (_name, error) => {
+    const value = assembler([
+      at(10, 'compaction/start', { compactionId: 'compact-cancelled', turn: 2 }),
+      at(11, 'compaction/end', { compactionId: 'compact-cancelled', turn: 2, error }),
+    ], true)
+
+    expect(node(snapshot(value), 'compaction-failure')).toBeUndefined()
+  })
+
+  it('reports an unrenderable cancel cause as a failure without a usable reason', () => {
+    const value = assembler([
+      at(10, 'compaction/start', { compactionId: 'compact-opaque', turn: 2 }),
+      at(11, 'compaction/end', { compactionId: 'compact-opaque', turn: 2, error: '[object Object]' }),
+    ], true)
+
+    expect(node(snapshot(value), 'compaction-failure')?.data).toEqual({ reason: null })
   })
 
   it('builds the failure node from a window that never loaded the bracket start', () => {
@@ -2279,7 +2300,7 @@ describe('built-in conversation node Definitions', () => {
       }),
     ], true)
 
-    expect(node(snapshot(value), 'compaction-failure')?.data).toMatchObject({
+    expect(node(snapshot(value), 'compaction-failure')?.data).toEqual({
       reason: 'summary did not shrink its source',
     })
   })

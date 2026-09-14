@@ -155,21 +155,27 @@ function TurnMaxTokensItem({ t }: {
 }
 
 /**
- * Notice for an automatic compaction that ran and freed nothing. The reason is
- * the backend's own failure text, kept to one line with the full string on the
- * element's `title` so a long chain stays reachable without reflowing the row.
+ * Notice for an automatic compaction that ran and freed nothing. The visible
+ * copy is a fixed localized sentence: the backend's own failure text names
+ * internals a product user has no vocabulary for, so it rides the `title`
+ * attribute for whoever is diagnosing rather than the row itself.
  */
 function CompactionFailureItem({ node, t }: {
   node: CompactionFailureChatData
   t: ChatViewSlotProps['t']
 }) {
-  const reason = node.reason ?? t('message.compaction.failed.unknown')
+  const detail = t('message.compaction.failed.detail')
   return (
     <div className={css.turnErrorRow} role="status">
       <StateDot state="warning" className={css.turnErrorDot} />
       <div className={css.turnErrorCopy}>
         <span className={css.maxTokensTitle}>{t('message.compaction.failed')}</span>
-        <span className={css.compactionFailureReason} title={reason}>{reason}</span>
+        <span
+          className={css.compactionFailureReason}
+          {...node.reason === null ? {} : { title: node.reason }}
+        >
+          {detail}
+        </span>
       </div>
     </div>
   )

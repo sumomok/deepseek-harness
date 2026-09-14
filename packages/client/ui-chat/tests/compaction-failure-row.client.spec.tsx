@@ -23,40 +23,41 @@ function props(
   } as unknown as ChatNodeViewProps<'compaction-failure'>
 }
 
-const failure = (reason: string | null): CompactionFailureChatData => ({
-  seq: 11, time: 11_000, reason,
-})
-
 describe('CompactionFailureNodeView', () => {
-  it('titles the notice from the locale and shows the backend reason verbatim', () => {
+  it('speaks to the user in locale copy and keeps the backend text out of the row', () => {
     const view = render(
-      <CompactionFailureNodeView {...props(failure('summarizer unavailable'), makeTranslate(zh, commonZh))} />,
+      <CompactionFailureNodeView {...props({ reason: 'summarizer unavailable' }, makeTranslate(zh, commonZh))} />,
     )
     const status = view.getByRole('status')
-    expect(status.textContent).toBe('上下文压缩失败summarizer unavailable')
-    expect(view.getByTitle('summarizer unavailable')).toBeTruthy()
+    expect(status.textContent)
+      .toBe('上下文压缩失败这次没能整理出摘要，对话内容没有变化，稍后会再试一次。')
+    expect(status.textContent).not.toContain('summarizer')
   })
 
-  it('falls back to localized copy when the bracket recorded no detail', () => {
+  it('carries the backend reason on title for diagnosis only', () => {
+    const reason = 'compaction still above threshold after 2 compaction attempts'
     const view = render(
-      <CompactionFailureNodeView {...props(failure(null), makeTranslate(zh, commonZh))} />,
+      <CompactionFailureNodeView {...props({ reason }, makeTranslate(zh, commonZh))} />,
     )
-    expect(view.getByRole('status').textContent).toBe('上下文压缩失败未记录失败原因')
+    expect(view.getByTitle(reason).textContent)
+      .toBe('这次没能整理出摘要，对话内容没有变化，稍后会再试一次。')
+  })
+
+  it('omits the title when the bracket recorded no usable reason', () => {
+    const view = render(
+      <CompactionFailureNodeView {...props({ reason: null }, makeTranslate(zh, commonZh))} />,
+    )
+    const body = view.getByRole('status').querySelector('span:last-of-type')
+    expect(body?.getAttribute('title')).toBeNull()
   })
 
   it('renders the same notice in English', () => {
     const view = render(
-      <CompactionFailureNodeView {...props(failure(null), makeTranslate(en, commonEn))} />,
+      <CompactionFailureNodeView {...props({ reason: null }, makeTranslate(en, commonEn))} />,
     )
-    expect(view.getByRole('status').textContent).toBe('Context compaction failedNo failure detail was recorded')
-  })
-
-  it('keeps a long reason on one line, reachable through its title', () => {
-    const reason = 'compaction still above threshold after 2 compaction attempts; '.repeat(4).trim()
-    const view = render(
-      <CompactionFailureNodeView {...props(failure(reason), makeTranslate(zh, commonZh))} />,
+    expect(view.getByRole('status').textContent).toBe(
+      'Context compaction failedThe summary could not be written this time, '
+      + 'so nothing in the conversation changed. It will be tried again.',
     )
-    const body = view.getByTitle(reason)
-    expect(body.textContent).toBe(reason)
   })
 })

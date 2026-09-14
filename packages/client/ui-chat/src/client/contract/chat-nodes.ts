@@ -53,12 +53,13 @@ export interface ManualCompactionChatData {
   readonly compaction: CompactionSummaryNode | null
 }
 
-/** One automatic compaction bracket that closed on an error. */
+/**
+ * One automatic compaction bracket that closed on an error. The render
+ * position comes from the node's `anchorSeq`, so the payload carries only what
+ * the card shows: the backend's own failure text, for the diagnostic `title`.
+ */
 export interface CompactionFailureChatData {
-  /** Seq of the errored `compaction/end`. */
-  readonly seq: number
-  readonly time: number
-  /** Failure text the bracket recorded, or null when it carried none. */
+  /** Failure text the bracket recorded, or null when it recorded none usable. */
   readonly reason: string | null
 }
 
