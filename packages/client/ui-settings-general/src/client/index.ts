@@ -107,7 +107,12 @@ export function apply(ctx: ClientContext): void {
             // Shadowing winners, not the raw ledger: two entries sharing a
             // section id are one cell, and the outlet renders one of them —
             // the raw view would draw a second nav row for a section the
-            // panel cannot show.
+            // panel cannot show. `entriesOfSlot` builds a fresh array per
+            // call and its JSDoc rules it out as a getSnapshot source; the
+            // version/revision cache above is what holds the reference
+            // stable, and an abdication — the one mutation that changes the
+            // winners without touching the ledger — bumps the slot version
+            // synchronously, so the cached array is never stale.
             rows = ctx.slots.entriesOfSlot('settings.section')
               .map(e => ({
                 /* v8 ignore next -- list-slot registration requires id (SlotCore rejects an entry without one) */

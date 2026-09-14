@@ -24,22 +24,25 @@ type Row = { id: string; order: number; label: string }
 type Step = { id: string; order: number }
 
 /**
- * Every section id the group table names, in ledger order, plus one id it
- * never heard of. Labels stand in for the registrants' own copy.
+ * Every section id the group table names, in ledger order, plus two ids it
+ * never heard of. Three groups list their members in an order the ascending
+ * `order` here contradicts, so a rail drawing ledger order instead of table
+ * order reads differently. Labels stand in for the registrants' own copy.
  */
 const EVERY_SECTION: Row[] = [
   { id: 'general', order: 0, label: 'General' },
+  { id: 'vision-switch', order: 5, label: 'Vision' },
   { id: 'models', order: 10, label: 'Models' },
-  { id: 'plugins', order: 15, label: 'Plugins' },
+  { id: 'llm-permission-gateway', order: 15, label: 'Automatic review' },
   { id: 'agent-presets', order: 20, label: 'Agent presets' },
-  { id: 'balance', order: 30, label: 'Balance' },
-  { id: 'llm-permission-gateway', order: 40, label: 'Automatic review' },
-  { id: 'mcp-servers', order: 40, label: 'MCP servers' },
+  { id: 'mcp-servers', order: 25, label: 'MCP servers' },
+  { id: 'contributed', order: 28, label: 'Contributed' },
+  { id: 'plugins', order: 30, label: 'Plugins' },
+  { id: 'balance', order: 35, label: 'Balance' },
   { id: 'at-file', order: 55, label: 'At file' },
   { id: 'screenshot-logins', order: 60, label: 'Screenshot logins' },
-  { id: 'vision-switch', order: 60, label: 'Vision' },
   { id: 'desktop-update', order: 70, label: 'Desktop update' },
-  { id: 'contributed', order: 80, label: 'Contributed' },
+  { id: 'contributed-late', order: 90, label: 'Late contribution' },
 ]
 
 /** Slot-content stand-ins: the shell renders whatever the seats contribute. */
@@ -423,8 +426,10 @@ describe('SettingsPanel navigation', () => {
     expect(groupTitles()).toEqual([
       'General', 'Models', 'Agent', 'Extensions', 'Account & usage', 'About', 'Other',
     ])
-    // Members follow the table, not the ledger's `order`: MCP servers (40)
-    // draws under Plugins (15) because the Extensions group lists it second.
+    // Members follow the table, not the ledger's `order`: Vision (5) draws
+    // below Models (10), Automatic review (15) below Agent presets (20), and
+    // MCP servers (25) below Plugins (30), because each group's table lists
+    // them that way. The trailing group keeps ledger order instead.
     expect(groupMembers()).toEqual([
       ['General', 'At file'],
       ['Models', 'Vision'],
@@ -432,8 +437,18 @@ describe('SettingsPanel navigation', () => {
       ['Plugins', 'MCP servers', 'Screenshot logins'],
       ['Balance'],
       ['Desktop update'],
-      ['Contributed'],
+      ['Contributed', 'Late contribution'],
     ])
+  })
+
+  it('draws every section exactly once across the groups', () => {
+    mount({ rows: EVERY_SECTION })
+    openPanel()
+    // A section id listed by two groups of the table would draw two rows,
+    // both marked current, with nothing in the types to catch it.
+    const drawn = groupMembers().flat()
+    expect(drawn).toHaveLength(EVERY_SECTION.length)
+    expect(new Set(drawn).size).toBe(drawn.length)
   })
 
   it('keeps a section the table never named, in the trailing group, and opens it', () => {

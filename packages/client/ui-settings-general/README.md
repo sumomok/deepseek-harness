@@ -100,6 +100,7 @@ These limits define what the shell itself provides versus what features must sup
 
 - **The General section has no built-in rows** — each row appears only when its owning feature plugin is mounted; the shell cannot fill the section alone.
 - **The navigation group table is fixed in the shell** — a newly registered section joins a named group only by editing that table; until then it draws under **Other**, in ledger order.
+- **A group title can repeat a member's label** — group titles are the shell's copy and member labels are the registrants'; English draws General and Models twice and Chinese draws 模型 twice, and removing the repetition would rename copy this shell does not own.
 
 <a id="dev-note"></a>
 ### Dev Note
