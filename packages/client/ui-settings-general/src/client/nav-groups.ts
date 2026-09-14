@@ -7,7 +7,10 @@
  * name a group — and a browser plugin receives no cordis.yml config: the
  * client boot wire carries `id`/`inject`/`immediately` per row
  * (`@deepseek-ai/dsh-client-modules` `BootPluginRow`) and the loader creates
- * each entry by name alone. Grouping is therefore by section id, here.
+ * each entry by name alone. A client-face `apply` may still declare a `Config`
+ * parameter (`ui-conversation` does), but with no config on the wire such a
+ * parameter only materializes its schema defaults. Grouping is therefore by
+ * section id, here.
  *
  * A section id the table does not name keeps its row: it lands in the
  * trailing `other` group in ledger order, so a plugin the shell never heard

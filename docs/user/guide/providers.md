@@ -6,7 +6,7 @@ This guide assumes you started the Web UI through the [root README](../../../REA
 
 ## Configure DeepSeek
 
-Open **Settings → Models**. The DeepSeek card exposes one API-key field; enter the key and save it.
+Open **Settings → Providers & models**. The DeepSeek card exposes one API-key field; enter the key and save it.
 
 ![The Models page: the DeepSeek card, with Add provider and Add a custom provider below it](providers-models-page.png)
 

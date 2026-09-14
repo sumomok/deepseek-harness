@@ -51,7 +51,7 @@ The shell owns the chrome and the projections; every piece of content and copy b
 
 ### Ledger projections
 
-The navigation is a projection of the `settings.section` ledger's shadowing winners, so two entries on one section id contribute the single row the outlet renders; nav labels may be locale-following thunks, resolved through `resolveSlotLabel` and re-rendered on the section ledger bump or the locale revision (an optional `ctx.get('locale')` read; no hard locale dependency). Grouping is a fixed section-id table in the shell (`nav-groups.ts`): a registration carries only `id`/`order`/`label`/`priority`, and a browser plugin receives no cordis.yml config, so no registrant can name its own group. Claimed groups draw their members in table order rather than ledger order; the group titles are the shell's own copy, and each labels a `role="group"` so the two levels reach assistive technology. The onboarding ledger projects in ascending order; the active registrant receives its id, `complete()`, and an `openSection(id)` callback, and completing or skipping transfers ownership to the next entry.
+The navigation is a projection of the `settings.section` ledger's shadowing winners, so two entries on one section id contribute the single row the outlet renders; nav labels may be locale-following thunks, resolved through `resolveSlotLabel` and re-rendered on the section ledger bump or the locale revision (an optional `ctx.get('locale')` read; no hard locale dependency). Grouping is a fixed section-id table in the shell (`nav-groups.ts`): a registration carries only `id`/`order`/`label`/`priority`, and the client boot wire carries no config field at all, so a client-face `Config` parameter only materializes schema defaults and no registrant can name its own group. Claimed groups draw their members in table order rather than ledger order; the group titles are the shell's own copy, and each labels a `role="group"` so the two levels reach assistive technology. The onboarding ledger projects in ascending order; the active registrant receives its id, `complete()`, and an `openSection(id)` callback, and completing or skipping transfers ownership to the next entry.
 
 ### Connection recovery
 
@@ -100,7 +100,7 @@ These limits define what the shell itself provides versus what features must sup
 
 - **The General section has no built-in rows** — each row appears only when its owning feature plugin is mounted; the shell cannot fill the section alone.
 - **The navigation group table is fixed in the shell** — a newly registered section joins a named group only by editing that table; until then it draws under **Other**, in ledger order.
-- **A group title can repeat a member's label** — group titles are the shell's copy and member labels are the registrants'; English draws General and Models twice and Chinese draws 模型 twice, and removing the repetition would rename copy this shell does not own.
+- **A group title can repeat a member's label** — group titles are the shell's copy (`nav.group.*`) and member labels are the registrants', so only a registrant can resolve a repetition under its own title. The sections this product composes each name themselves apart from their group.
 
 <a id="dev-note"></a>
 ### Dev Note

@@ -51,7 +51,7 @@ kind: "package-reference"
 
 ### 账本投影
 
-导航是 `settings.section` 账本**遮蔽胜出项**的投影，因此同一分区 id 上的两个条目只贡献出口实际渲染的那一行；导航 label 可以是跟随语言的 thunk，经 `resolveSlotLabel` 解析，并在分区账本更新或 locale revision 变化时重新渲染（`ctx.get('locale')` 可选读取，无硬 locale 依赖）。分组是外壳里一张固定的分区 id 表（`nav-groups.ts`）：注册项只带 `id`/`order`/`label`/`priority`，浏览器端插件也收不到 cordis.yml 配置，注册方无从自报分组。被点名的分组按表内顺序而非账本顺序排列成员；组标题是外壳自有文案，并各自标注一个 `role="group"`，让两级结构抵达辅助技术。引导账本按升序投影；当前注册方会收到该条目的 id、`complete()` 与 `openSection(id)` 回调，完成或跳过当前步骤后，所有权转交给下一项。
+导航是 `settings.section` 账本**遮蔽胜出项**的投影，因此同一分区 id 上的两个条目只贡献出口实际渲染的那一行；导航 label 可以是跟随语言的 thunk，经 `resolveSlotLabel` 解析，并在分区账本更新或 locale revision 变化时重新渲染（`ctx.get('locale')` 可选读取，无硬 locale 依赖）。分组是外壳里一张固定的分区 id 表（`nav-groups.ts`）：注册项只带 `id`/`order`/`label`/`priority`，客户端引导线上根本没有 config 字段，客户端一面的 `Config` 参数只会取到 schema 默认值，注册方无从自报分组。被点名的分组按表内顺序而非账本顺序排列成员；组标题是外壳自有文案，并各自标注一个 `role="group"`，让两级结构抵达辅助技术。引导账本按升序投影；当前注册方会收到该条目的 id、`complete()` 与 `openSection(id)` 回调，完成或跳过当前步骤后，所有权转交给下一项。
 
 ### 连接恢复
 
@@ -100,7 +100,7 @@ kind: "package-reference"
 
 - **「通用」分区没有内置行**：每一行仅在其所属功能插件挂载时出现；外壳单独无法填满该分区。
 - **导航分组表固定写在外壳内**：新注册的分区只有改动该表才能归入某个具名分组；在那之前它按账本顺序画在**其他**组下。
-- **组标题可能与成员 label 重复**：组标题是外壳文案、成员 label 是注册方文案，英文下 General 与 Models 各画两遍、中文下「模型」画两遍；要消除重复就得改名不归本外壳所有的文案。
+- **组标题可能与成员 label 重复**：组标题是外壳文案（`nav.group.*`）、成员 label 是注册方文案，因此只有注册方才能消除自己那一行与组标题的重名。本产品组合出的各分区都已与所在分组各叫各的名字。
 
 <a id="dev-note"></a>
 ### 开发备注

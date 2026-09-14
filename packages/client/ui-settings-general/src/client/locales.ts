@@ -33,7 +33,7 @@ export const en = {
   'close': 'Close',
   'openDocument': 'Open configuration file',
   'openDocument.error': 'Could not open configuration file',
-  'general.nav': 'General',
+  'general.nav': 'General settings',
   'nav.group.general': 'General',
   'nav.group.models': 'Models',
   'nav.group.agent': 'Agent',

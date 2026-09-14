@@ -4,11 +4,11 @@
     - group "General":
       - img
       - text: General
-      - button "General"
+      - button "General settings"
     - group "Models":
       - img
       - text: Models
-      - button "Models"
+      - button "Providers & models"
     - group "Agent":
       - img
       - text: Agent
