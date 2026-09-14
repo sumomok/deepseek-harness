@@ -63,6 +63,21 @@ export interface UserActionOwnerProps {
   text: string
 }
 
+/**
+ * Owner share of the session token-usage pill and its dialog: the same figures
+ * the shipped pill prints, so an occupant of either usage seat reads the
+ * session's billed totals without importing the chat implementation.
+ */
+export interface StatsUsageOwnerProps {
+  /** Every prompt-side billing bucket plus output over the whole durable log, exact. */
+  totalTokens: number
+  /**
+   * Cache-hit share of billed input as the pill prints it (the bare number,
+   * e.g. "93"), or null when nothing was billed yet.
+   */
+  cacheHitPercent: string | null
+}
+
 /** Slot-backed renderer for the actions one user-side message offers. */
 export type RenderUserActions = (owner: UserActionOwnerProps) => ReactNode
 
@@ -347,5 +362,20 @@ declare module '@deepseek-ai/dsh-client-ui-slots' {
      * `order`.
      */
     'conversation.chat.user-actions': { kind: 'list'; scope: 'session'; owner: UserActionOwnerProps }
+    /**
+     * Leading segment of the session token-usage pill's label, in place of the
+     * shipped token total. The cache-hit segment the pill appends after it is
+     * unaffected, and an unoccupied seat prints the token total. The button
+     * carries no `aria-label`: its accessible name is whatever this seat and
+     * the cache-hit segment render.
+     */
+    'conversation.chat.stats.usageLabel': { kind: 'single'; scope: 'session'; owner: StatsUsageOwnerProps }
+    /**
+     * Extra rows at the end of the token-usage dialog's bucket list, after the
+     * output row. Each entry renders one or more `dt`/`dd` pairs directly into
+     * the shipped `dl` and inherits its skin. Entries render by ascending
+     * `order`; with no entries the dialog is exactly the shipped one.
+     */
+    'conversation.chat.stats.usageRows': { kind: 'list'; scope: 'session'; owner: StatsUsageOwnerProps }
   }
 }

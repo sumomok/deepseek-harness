@@ -305,7 +305,14 @@ export function apply(ctx: Context): void {
 
   ctx.slots.inject('conversation.composer.dock', () =>
     ctx.slots.register({
-      name: 'conversation.composer.dock', id: 'stats', order: 0, locale: NS,
+      name: 'conversation.composer.dock',
+      id: 'stats',
+      order: 0,
+      locale: NS,
+      children: {
+        'conversation.chat.stats.usageLabel': { kind: 'single', scope: 'session' },
+        'conversation.chat.stats.usageRows': { kind: 'list', scope: 'session' },
+      },
     }, StatsPills))
 
   // The shell family is this package's key domain here: `bash` and `pwsh` are

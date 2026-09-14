@@ -9,11 +9,11 @@ import { memo, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { IconDatabaseOutline16, IconGaugeOutline16 } from '@deepseek-ai/dsh-client-ui-primitives'
 import type { UseProjection } from '@deepseek-ai/dsh-api-session-controller/client'
-import type { SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
+import type { PropsRenderSlots, SnapshotSelectorHook } from '@deepseek-ai/dsh-client-ui-slots'
 // Type-only: merges the sessionStats key into SessionProjectionMap for useProjection.
 import type {} from '@deepseek-ai/dsh-session-stats/client'
 import type { TokenUsageProjection } from '@deepseek-ai/dsh-token-meter/client'
-import type { ChatViewSlotProps } from '../contract/slots.ts'
+import type { ChatViewSlotProps, StatsUsageOwnerProps } from '../contract/slots.ts'
 import type { ChatSnapshot } from '../contract/snapshot.ts'
 import { formatTokensPerSecond } from './message-chrome.ts'
 import { assistantStepReading } from '../contract/turn-metrics.ts'
@@ -120,13 +120,13 @@ export function billedInputTokens(usage: TokenUsageProjection): number {
   return usage.uncachedInputTokens + usage.cacheReadTokens + usage.cacheWriteTokens
 }
 
-/** Props: the conversation-snapshot selector plus the projection read seat. */
-export interface StatsPillsProps {
+/** Props: the conversation-snapshot selector, the projection read seat, and the usage child seats. */
+export type StatsPillsProps = {
   useChat: SnapshotSelectorHook<ChatSnapshot>
   useProjection: UseProjection
   /** The owning dock's locale seat. */
   t: ChatViewSlotProps['t']
-}
+} & PropsRenderSlots<'conversation.chat.stats.usageLabel' | 'conversation.chat.stats.usageRows'>
 
 function exactCount(value: number, t: ChatViewSlotProps['t']): string {
   return t('message.turnUsage.count', { count: formatExactTokens(value, t) })
@@ -233,10 +233,11 @@ function TimePill({ stats, t, dialog }: {
   )
 }
 
-function UsagePill({ usage, t, dialog }: {
+function UsagePill({ usage, t, dialog, renderSlot }: {
   usage: TokenUsageProjection
   t: ChatViewSlotProps['t']
   dialog: PillDialog
+  renderSlot: StatsPillsProps['renderSlot']
 }) {
   const { open, setOpen, rootRef, panelRef, pos } = useStatDialog(dialog)
   // Same aggregate as the Turn pill's totalTokens: every prompt-side billing bucket plus output.
@@ -244,6 +245,7 @@ function UsagePill({ usage, t, dialog }: {
   const totalText = t('message.turnUsage.count', { count: formatTokens(total, t) })
   const cacheHit = cacheHitPercent(usage)
   const cacheHitText = cacheHit !== null ? t('stats.cacheHit', { percent: cacheHit }) : null
+  const owner: StatsUsageOwnerProps = { totalTokens: total, cacheHitPercent: cacheHit }
   return (
     <span ref={rootRef} className={css.anchor}>
       <button
@@ -251,12 +253,11 @@ function UsagePill({ usage, t, dialog }: {
         className={css.pill}
         aria-haspopup="dialog"
         aria-expanded={open}
-        aria-label={cacheHitText === null ? totalText : `${totalText} · ${cacheHitText}`}
         onClick={() => { setOpen(!open) }}
       >
         <IconDatabaseOutline16 />
         <span className={css.label}>
-          {totalText}
+          {renderSlot('conversation.chat.stats.usageLabel', owner, { fallback: totalText })}
           {cacheHitText !== null && (
             <>
               <span className={css.sep} aria-hidden>·</span>
@@ -305,6 +306,7 @@ function UsagePill({ usage, t, dialog }: {
             )}
             <dt>{t('message.turnUsage.output')}</dt>
             <dd>{exactCount(usage.outputTokens, t)}</dd>
+            {renderSlot('conversation.chat.stats.usageRows', owner)}
           </dl>
           {/* jscpd:ignore-end */}
         </div>,
@@ -314,7 +316,7 @@ function UsagePill({ usage, t, dialog }: {
   )
 }
 
-export const StatsPills = memo(function StatsPills({ useChat, useProjection, t }: StatsPillsProps) {
+export const StatsPills = memo(function StatsPills({ useChat, useProjection, t, renderSlot }: StatsPillsProps) {
   const settledNodes = useChat(s => s.legacy.nodes)
   const usage = useProjection('tokenUsage')
   // One exclusive slot for both dialogs: opening either pill closes the other.
@@ -348,6 +350,7 @@ export const StatsPills = memo(function StatsPills({ useChat, useProjection, t }
         <UsagePill
           usage={usage}
           t={t}
+          renderSlot={renderSlot}
           dialog={{
             open: openPill === 'usage',
             setOpen: (open) => { setOpenPill(open ? 'usage' : null) },
