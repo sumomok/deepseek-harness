@@ -249,10 +249,11 @@ describe('seedBuiltinBundles on an initialized profile', () => {
   })
 
   it('gives a profile from an earlier build the bundle that build did not ship', () => {
-    // The rc.17 desktop profile, and the state every machine that installed it
-    // is in: the manifest names the built-ins of its own build, and its patch
-    // layer is whatever its owner has written there since.
-    const shippedThen = ['dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot']
+    // A profile from an earlier build, and the state every machine that
+    // installed it is in: the manifest names built-ins that build shipped and
+    // this one ships too, and its patch layer is whatever its owner has
+    // written there since.
+    const shippedThen = ['dsh-at-file', '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway']
     writeProfile(JSON.stringify({
       name: 'dsh-profile-desktop-shell',
       private: true,
@@ -260,7 +261,7 @@ describe('seedBuiltinBundles on an initialized profile', () => {
       dsh: { profile: { bundles: ['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...shippedThen] } },
     }, undefined, 2))
     const patch = join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME)
-    const written = '# mine\n- id: better-sidebar\n  disabled: true\n'
+    const written = '# mine\n- id: at-file\n  disabled: true\n'
     writeFileSync(patch, written)
 
     const report = seedBuiltinBundles({ home, serverModules })
@@ -338,8 +339,8 @@ describe('seedBuiltinBundles on a profile it must not rewrite', () => {
   })
 
   it('does not name a bundle the shipped closure does not hold', async () => {
-    await rm(join(serverModules, 'dsh-better-sidebar'), { recursive: true, force: true })
-    const shipped = BUILTIN_WEB_BUNDLES.filter(name => name !== 'dsh-better-sidebar')
+    await rm(join(serverModules, '@haoran', 'dsh-screenshot'), { recursive: true, force: true })
+    const shipped = BUILTIN_WEB_BUNDLES.filter(name => name !== '@haoran/dsh-screenshot')
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.seeded).toEqual(shipped)
     expect(bundlesNow()).toEqual(['@deepseek-ai/dsh-base', '@deepseek-ai/dsh-web-app', ...shipped])
@@ -357,8 +358,13 @@ describe('seedBuiltinBundles on a profile it must not rewrite', () => {
   })
 })
 
-describe('seedBuiltinBundles on a built-in this build withdrew', () => {
-  const gone = WITHDRAWN_WEB_BUNDLES[0]!
+describe('WITHDRAWN_WEB_BUNDLES', () => {
+  it('names at least one bundle, so the cases below run against a real one', () => {
+    expect(WITHDRAWN_WEB_BUNDLES.length).toBeGreaterThan(0)
+  })
+})
+
+describe.each(WITHDRAWN_WEB_BUNDLES)('seedBuiltinBundles on the withdrawn built-in %s', (gone) => {
   /** The flat-fallback link an earlier launch of this shell made for it. */
   const linkPath = (): string => join(home, 'profiles', 'node_modules', gone)
 
@@ -374,8 +380,7 @@ describe('seedBuiltinBundles on a built-in this build withdrew', () => {
     symlinkSync(target, linkPath(), 'junction')
   }
 
-  it('names one, so every path below is exercised for real', () => {
-    expect(WITHDRAWN_WEB_BUNDLES.length).toBeGreaterThan(0)
+  it('is no longer a built-in, so every path below is exercised for real', () => {
     expect(BUILTIN_WEB_BUNDLES).not.toContain(gone)
   })
 
@@ -517,15 +522,16 @@ describe('seedBuiltinBundles migrating the web profile', () => {
   })
 
   it('passes over the names this build already composes, each with its reason', () => {
-    const withdrawn = WITHDRAWN_WEB_BUNDLES[0]!
-    writeWebProfile(['dsh-at-file', withdrawn, userPlugin])
+    writeWebProfile(['dsh-at-file', ...WITHDRAWN_WEB_BUNDLES, userPlugin])
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.migrated).toEqual([userPlugin])
     expect(report.skipped.join('\n')).not.toContain('@deepseek-ai/dsh-base')
     expect(report.skipped.join('\n')).not.toContain('@deepseek-ai/dsh-web-app')
     expect(report.skipped).toContain('dsh-at-file: covered by built-in')
-    expect(report.skipped).toContain(`${withdrawn}: withdrawn, not migrated`)
-    expect(bundlesNow()).not.toContain(withdrawn)
+    for (const withdrawn of WITHDRAWN_WEB_BUNDLES) {
+      expect(report.skipped).toContain(`${withdrawn}: withdrawn, not migrated`)
+      expect(bundlesNow()).not.toContain(withdrawn)
+    }
   })
 
   it('leaves a name the desktop profile already lists to whoever put it there', () => {
@@ -614,7 +620,7 @@ describe('seedBuiltinBundles migrating the web profile', () => {
 
   it('keeps a desktop patch layer its owner edited, and says what to carry over', () => {
     desktopProfileFromAnEarlierBuild()
-    const mine = '# mine\n- id: better-sidebar\n  disabled: true\n'
+    const mine = '# mine\n- id: at-file\n  disabled: true\n'
     writeFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), mine)
     writeWebProfile([userPlugin])
     writeFileSync(join(home, 'profiles', WEB_PROFILE, PROFILE_PATCH_FILENAME), '- id: hello-world\n  disabled: true\n')
@@ -1281,7 +1287,7 @@ describe('seedBuiltinBundles version reporting', () => {
   })
 
   it('stays quiet when the profile installed the shipped version', () => {
-    installIntoProfile('dsh-better-sidebar', '1.0.0')
+    installIntoProfile('@haoran/dsh-screenshot', '1.0.0')
     expect(seedBuiltinBundles({ home, serverModules }).shadowed).toEqual([])
   })
 
@@ -1321,7 +1327,7 @@ describe('seedBuiltinBundles on a home an earlier build seeded under the old pro
       dependencies: { [userPlugin]: '^1.2.3' },
       dsh: { profile: { bundles: [...webTemplate, ...BUILTIN_WEB_BUNDLES, userPlugin], patchReload: 'live' } },
     }, undefined, 2)}\n`)
-    writeFileSync(join(dir, PROFILE_PATCH_FILENAME), '- id: better-sidebar\n  disabled: true\n')
+    writeFileSync(join(dir, PROFILE_PATCH_FILENAME), '- id: at-file\n  disabled: true\n')
     writeFileSync(join(dir, 'pnpm-workspace.yaml'), 'packages:\n  - .\n\nnodeLinker: hoisted\n')
     writeFileSync(join(dir, MIGRATION_MARKER_FILENAME), `${JSON.stringify({
       from: 'web', migrated: [userPlugin], defective: [], removed: [],
@@ -1341,7 +1347,7 @@ describe('seedBuiltinBundles on a home an earlier build seeded under the old pro
     expect(readProfile()).toMatchObject({ name: 'dsh-profile-desktop-shell', private: true })
     expect(readProfile()['dependencies']).toMatchObject({ [userPlugin]: '^1.2.3' })
     const dir = join(home, 'profiles', DESKTOP_PROFILE)
-    expect(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8')).toBe('- id: better-sidebar\n  disabled: true\n')
+    expect(readFileSync(join(dir, PROFILE_PATCH_FILENAME), 'utf8')).toBe('- id: at-file\n  disabled: true\n')
     expect(migratedNow()).toEqual([userPlugin])
     expect(readlinkSync(migratedLink(userPlugin))).toBe(webPackage(userPlugin))
     // The user's own plugin survives beside every built-in this build ships.

@@ -141,7 +141,7 @@ import { dirname, join, resolve } from 'node:path'
  * last position, so its row restates the model catalog that layer sets.
  */
 export const BUILTIN_WEB_BUNDLES: readonly string[] = [
-  'dsh-at-file', 'dsh-better-sidebar', '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway',
+  'dsh-at-file', '@haoran/dsh-screenshot', '@haoran/dsh-llm-permission-gateway',
   '@sumomok/dsh-quote-message', '@sumomok/dsh-balance', '@haoran/dsh-connection-banner',
   '@haoran/dsh-clickable-refs', '@haoran/dsh-plugin-updates', '@haoran/dsh-vision-switch',
   '@haoran/dsh-default-model', '@haoran/dsh-mcp-servers', '@haoran/dsh-btw',
@@ -164,7 +164,7 @@ export const BUILTIN_WEB_BUNDLES: readonly string[] = [
  * An entry stays here while any build that seeded it may still be installed;
  * dropping one only stops repairing the profiles that still name it.
  */
-export const WITHDRAWN_WEB_BUNDLES: readonly string[] = ['@sumomok/dsh-edit-rerun']
+export const WITHDRAWN_WEB_BUNDLES: readonly string[] = ['@sumomok/dsh-edit-rerun', 'dsh-better-sidebar']
 
 /**
  * The profile the desktop shell boots (`dsh --profile desktop-shell`), which no

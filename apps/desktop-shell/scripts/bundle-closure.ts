@@ -13,8 +13,8 @@
  * name from configuration read at boot, so every `@deepseek-ai/*` package stays
  * a resolvable directory with an entry in it: they are external to one another
  * and only their dependencies are inlined. The same holds for the out-of-scope
- * plugin packages the installer ships (`dsh-better-sidebar`, `dsh-at-file`, and
- * the `@haoran/*` built-ins), which a profile names in `dsh.profile.bundles` and
+ * plugin packages the installer ships (`dsh-at-file`, `@sumomok/*`, and the
+ * `@haoran/*` built-ins), which a profile names in `dsh.profile.bundles` and
  * nothing imports: they are recognized by the `dsh.bundle` declaration in their
  * own manifest and kept whole, because they arrive pre-bundled and the browser
  * half of one that has it must stay exactly as its client build left it. What

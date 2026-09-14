@@ -12,7 +12,7 @@ const manifest = JSON.stringify({
   dependencies: {
     '@deepseek-ai/dsh': 'workspace:^',
     '@haoran/dsh-clickable-refs': 'file:./vendor/haoran-dsh-clickable-refs-0.4.1.tgz',
-    'dsh-better-sidebar': 'file:./vendor/dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz',
+    'dsh-at-file': 'file:./vendor/dsh-at-file-0.7.0-da602d1.tgz',
   },
 })
 
@@ -38,12 +38,12 @@ function englishReadme(rows: string[], subsection: string[] = []): string {
 }
 
 const EN_ROWS = [
-  `| \`dsh-better-sidebar\` | \`0.18.0-alpha.0-patched1\`${EN_PROVENANCE} | A sidebar |`,
+  `| \`dsh-at-file\` | \`0.7.0-da602d1\`${EN_PROVENANCE} | At-mentions for files |`,
   `| \`@haoran/dsh-clickable-refs\` | \`0.4.1\`${EN_PROVENANCE} | Clickable paths |`,
 ]
 
 const ZH_ROWS = [
-  `| \`dsh-better-sidebar\` | \`0.18.0-alpha.0-patched1\`${ZH_PROVENANCE} | 侧栏 |`,
+  `| \`dsh-at-file\` | \`0.7.0-da602d1\`${ZH_PROVENANCE} | 文件 @ 提及 |`,
   `| \`@haoran/dsh-clickable-refs\` | \`0.4.1\`${ZH_PROVENANCE} | 可点击路径 |`,
 ]
 
@@ -65,7 +65,7 @@ const overrides = {
 
 const present = new Set([
   'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz',
-  'apps/desktop-server/vendor/dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz',
+  'apps/desktop-server/vendor/dsh-at-file-0.7.0-da602d1.tgz',
 ])
 
 function sources(overlay: Partial<VendoredPluginSources> = {}): VendoredPluginSources {
@@ -77,7 +77,7 @@ describe('parseVendoredPlugins', () => {
     expect(parseVendoredPlugins(manifest)).toEqual({
       plugins: [
         { name: '@haoran/dsh-clickable-refs', version: '0.4.1', tarball: 'apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz' },
-        { name: 'dsh-better-sidebar', version: '0.18.0-alpha.0-patched1', tarball: 'apps/desktop-server/vendor/dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz' },
+        { name: 'dsh-at-file', version: '0.7.0-da602d1', tarball: 'apps/desktop-server/vendor/dsh-at-file-0.7.0-da602d1.tgz' },
       ],
       violations: [],
     })
@@ -101,7 +101,7 @@ describe('parseBuiltInPluginTable', () => {
   it('reads the whole section, stopping only at the next h2', () => {
     const [english] = documents()
     expect([...parseBuiltInPluginTable(english!).rows]).toEqual([
-      ['dsh-better-sidebar', { cell: `\`0.18.0-alpha.0-patched1\`${EN_PROVENANCE}`, version: '0.18.0-alpha.0-patched1' }],
+      ['dsh-at-file', { cell: `\`0.7.0-da602d1\`${EN_PROVENANCE}`, version: '0.7.0-da602d1' }],
       ['@haoran/dsh-clickable-refs', { cell: `\`0.4.1\`${EN_PROVENANCE}`, version: '0.4.1' }],
     ])
   })
@@ -151,9 +151,9 @@ describe('findVendoredPluginViolations', () => {
   })
 
   it('rejects a version cell whose provenance no longer says the tarball is committed here', () => {
-    const en = EN_ROWS.map(row => row.replace(`\`0.18.0-alpha.0-patched1\`${EN_PROVENANCE}`, '`0.18.0-alpha.0-patched1`, from npm'))
+    const en = EN_ROWS.map(row => row.replace(`\`0.7.0-da602d1\`${EN_PROVENANCE}`, '`0.7.0-da602d1`, from npm'))
     expect(findVendoredPluginViolations(sources({ documents: documents(en) }))).toEqual([
-      'apps/desktop-shell/README.md row for dsh-better-sidebar reads "`0.18.0-alpha.0-patched1`, from npm"; its version cell must read "`0.18.0-alpha.0-patched1`, from a tarball committed in this repository".',
+      'apps/desktop-shell/README.md row for dsh-at-file reads "`0.7.0-da602d1`, from npm"; its version cell must read "`0.7.0-da602d1`, from a tarball committed in this repository".',
     ])
   })
 
@@ -166,10 +166,10 @@ describe('findVendoredPluginViolations', () => {
 
   it('rejects a missing row in either language', () => {
     expect(findVendoredPluginViolations(sources({ documents: documents([EN_ROWS[1]!]) }))).toEqual([
-      'apps/desktop-shell/README.md lists no built-in plugins row for dsh-better-sidebar.',
+      'apps/desktop-shell/README.md lists no built-in plugins row for dsh-at-file.',
     ])
     expect(findVendoredPluginViolations(sources({ documents: documents(EN_ROWS, [ZH_ROWS[1]!]) }))).toEqual([
-      'apps/desktop-shell/README.zh.md lists no built-in plugins row for dsh-better-sidebar.',
+      'apps/desktop-shell/README.zh.md lists no built-in plugins row for dsh-at-file.',
     ])
   })
 
@@ -214,7 +214,7 @@ describe('findVendoredPluginViolations', () => {
   it('rejects a manifest specifier whose tarball was never committed', () => {
     expect(findVendoredPluginViolations(sources({ exists: () => false }))).toEqual([
       'apps/desktop-server/package.json declares @haoran/dsh-clickable-refs as apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz, which does not exist.',
-      'apps/desktop-server/package.json declares dsh-better-sidebar as apps/desktop-server/vendor/dsh-better-sidebar-0.18.0-alpha.0-patched1.tgz, which does not exist.',
+      'apps/desktop-server/package.json declares dsh-at-file as apps/desktop-server/vendor/dsh-at-file-0.7.0-da602d1.tgz, which does not exist.',
       'gen-third-party-notices OVERRIDES points @haoran/dsh-clickable-refs at apps/desktop-server/vendor/haoran-dsh-clickable-refs-0.4.1.tgz, which does not exist.',
     ])
   })
