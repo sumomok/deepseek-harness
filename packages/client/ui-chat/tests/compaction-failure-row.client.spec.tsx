@@ -30,7 +30,7 @@ describe('CompactionFailureNodeView', () => {
     )
     const status = view.getByRole('status')
     expect(status.textContent)
-      .toBe('上下文压缩失败这次没能整理出摘要，对话内容没有变化，稍后会再试一次。')
+      .toBe('上下文压缩失败这次没能整理出摘要，稍后会再试一次。')
     expect(status.textContent).not.toContain('summarizer')
   })
 
@@ -40,7 +40,7 @@ describe('CompactionFailureNodeView', () => {
       <CompactionFailureNodeView {...props({ reason }, makeTranslate(zh, commonZh))} />,
     )
     expect(view.getByTitle(reason).textContent)
-      .toBe('这次没能整理出摘要，对话内容没有变化，稍后会再试一次。')
+      .toBe('这次没能整理出摘要，稍后会再试一次。')
   })
 
   it('omits the title when the bracket recorded no usable reason', () => {
@@ -55,9 +55,7 @@ describe('CompactionFailureNodeView', () => {
     const view = render(
       <CompactionFailureNodeView {...props({ reason: null }, makeTranslate(en, commonEn))} />,
     )
-    expect(view.getByRole('status').textContent).toBe(
-      'Context compaction failedThe summary could not be written this time, '
-      + 'so nothing in the conversation changed. It will be tried again.',
-    )
+    expect(view.getByRole('status').textContent)
+      .toBe('Context compaction failedThe summary could not be written this time. It will be tried again.')
   })
 })

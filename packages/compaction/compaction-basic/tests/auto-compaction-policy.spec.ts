@@ -90,8 +90,12 @@ function createContext(contextWindow: number): Context {
 
 /**
  * Four closed turns whose last assistant message reports provider usage, then
- * one open turn. The reported usage is what makes the two candidate numerators
- * differ by exactly {@link OUTPUT_TOKENS}.
+ * one open turn. The reported usage is what separates the two candidate
+ * numerators at all; by how much depends on `realStream`. With no recorded
+ * stream the meter prices the anchored output at zero, which is the one
+ * arrangement where the gap is exactly {@link OUTPUT_TOKENS}. With a recorded
+ * stream the meter charges the provider's count and the projection a heuristic
+ * over the same blocks, so the gap tracks the reply and its sign is not fixed.
  */
 function conversation(
   turns = 4,
