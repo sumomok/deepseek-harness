@@ -16,6 +16,15 @@
  */
 export type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
 
+/**
+ * One tone of the access-mode menus' palette — the composer's access-mode menu
+ * and the Settings default-preset row. The set is closed: the client owns the
+ * colors, so a host names the meaning instead of supplying a color, and
+ * `danger` marks an entry the deployment treats as destructive. A preset
+ * naming none renders in the plain label color.
+ */
+export type PresetTone = 'danger'
+
 /** The select-option shape a presentation layer advertises for one preset (or for the derived `custom` state). */
 export interface PresetOption {
   /** Stable option value: the table key, or `custom`. */
@@ -26,6 +35,8 @@ export interface PresetOption {
   description?: string
   /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
   glyph?: PresetGlyph
+  /** Which tone the access-mode menus paint this row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 
 /**

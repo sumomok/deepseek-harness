@@ -29,11 +29,11 @@ kind: "package-reference"
 
 ### 选择器
 
-选中即提交 `/permission <preset>` 命令行。带参路径（直接键入 `/permission <preset>`）仍直接切换；装饰只替换裸调用。内置标签在英文界面中是 `Read Only`、`Workspace Write` 和 `Full access`，在中文界面中是 `仅可查看`、`工作区内修改` 和 `完全权限`；`custom` 只是显示状态，绝非目标。
+选中即提交 `/permission <preset>` 命令行。带参路径（直接键入 `/permission <preset>`）仍直接切换；装饰只替换裸调用。内置标签在英文界面中是 `Read Only`、`Workspace Write` 和 `Full access`，在中文界面中是 `仅可查看`、`工作区内修改` 和 `完全权限`；`custom` 只是显示状态，绝非目标。选择器不按预设的 `tone` 给任何一行上色：它的行只有标签、详情行与可选的确认，没有颜色。
 
 ### 设置行
 
-该行从宿主动态的 `defaultPreset` enum 推导选项，使用与当前会话选择器相同的本地化标签，并写入一条设置变更操作。该值只在之后创建会话时生效；改变它绝不会切换或改写当前会话。
+该行从宿主动态的 `defaultPreset` enum 推导选项，使用与当前会话选择器相同的本地化标签，并写入一条设置变更操作。被宿主标记为 `danger` 色调的预设渲染为破坏性行。该值只在之后创建会话时生效；改变它绝不会切换或改写当前会话。
 
 -----
 

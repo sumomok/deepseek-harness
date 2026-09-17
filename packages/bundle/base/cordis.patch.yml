@@ -245,6 +245,9 @@
           danger-full-access:
             sandbox: danger-full-access
             approval: never
+            # Neither a sandbox wall nor an approval prompt: the only row of
+            # this table that runs unconstrained.
+            tone: danger
 
     - id: shell-env
       name: '@deepseek-ai/dsh-shell-env'

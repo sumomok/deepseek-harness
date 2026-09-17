@@ -4814,11 +4814,15 @@ export const TYPE_API: readonly TypeApiEntry[] = [
   },
   {
     name: 'PresetOption',
-    declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n    glyph?: PresetGlyph;\n}',
+    declaration: 'export interface PresetOption {\n    value: string;\n    name: string;\n    description?: string;\n    glyph?: PresetGlyph;\n    tone?: PresetTone;\n}',
   },
   {
     name: 'PresetSpec',
-    declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n    glyph?: PresetGlyph;\n}',
+    declaration: 'export interface PresetSpec {\n    sandbox: SandboxMode;\n    approval: ApprovalPolicy;\n    name?: string;\n    description?: string;\n    glyph?: PresetGlyph;\n    tone?: PresetTone;\n}',
+  },
+  {
+    name: 'PresetTone',
+    declaration: 'export type PresetTone = \'danger\';',
   },
   {
     name: 'PresetTrust',

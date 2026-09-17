@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
+import Schema from '@deepseek-ai/schemastery'
 import SessionStore, { Session, SessionId } from '@deepseek-ai/dsh-session'
 import SessionProjectionRegistry from '@deepseek-ai/dsh-session-projection'
 import type { SandboxMode } from '@deepseek-ai/dsh-sandbox'
@@ -50,7 +51,17 @@ function freshSession(id: string): Session {
   return Session.create(SessionId(id))
 }
 
-async function mountedStore(options: { approvalDefault?: ApprovalPolicy | undefined } = {}): Promise<Context> {
+/** Rehydrate a described `permission` section the way a client does and read its preset union members. */
+function defaultPresetChoices(serialized: unknown): Schema[] {
+  const root = new Schema(serialized as Schema)
+  const union = (root.dict as Record<string, Schema>).defaultPreset as Schema
+  return union.list as Schema[]
+}
+
+async function mountedStore(options: {
+  approvalDefault?: ApprovalPolicy | undefined
+  config?: Config
+} = {}): Promise<Context> {
   const ctx = new Context()
   await ctx.plugin(SessionStore)
   await ctx.plugin(SessionProjectionRegistry)
@@ -64,7 +75,7 @@ async function mountedStore(options: { approvalDefault?: ApprovalPolicy | undefi
   ctx.provide('approval', {
     config: { policy: 'approvalDefault' in options ? options.approvalDefault : 'ask' },
   })
-  await ctx.plugin(PermissionPresetService, {})
+  await ctx.plugin(PermissionPresetService, options.config ?? {})
   return ctx
 }
 
@@ -212,6 +223,37 @@ describe('PermissionPresetService', () => {
     // The glyph set is closed: the client draws artwork, not a host-named file.
     const outside = { presets: { plain: { sandbox: 'workspace-write', approval: 'ask', glyph: 'sparkles' } } } as unknown as Config
     await expect(mounted({ config: outside })).rejects.toThrow(/\$\.presets\.plain\.glyph expected .* but got "sparkles"/)
+  })
+
+  it('carries a configured tone into the option and its settings choice, and rejects any other tone at load', async () => {
+    const ctx = await mountedStore({
+      config: {
+        presets: {
+          'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+          'danger-full-access': {
+            sandbox: 'danger-full-access', approval: 'never', name: 'Full access', tone: 'danger',
+          },
+        },
+      },
+    })
+    expect(ctx.permissionPresets.optionOf('danger-full-access')).toEqual({
+      value: 'danger-full-access', name: 'Full access', tone: 'danger',
+    })
+    // A preset naming no tone keeps the option it always had.
+    expect(ctx.permissionPresets.optionOf('workspace-write')).toEqual({ value: 'workspace-write', name: 'workspace-write' })
+    // The settings row reads the same fact off its own `defaultPreset` union member.
+    const described = ctx.settings.describe().find(entry => entry.ns === PERMISSION_SETTINGS_NAMESPACE)
+    const choices = defaultPresetChoices(described?.schema)
+    expect(choices.map(choice => ({
+      value: choice.value as unknown,
+      extra: choice.meta.extra as unknown,
+    }))).toEqual([
+      { value: 'workspace-write', extra: undefined },
+      { value: 'danger-full-access', extra: { tone: 'danger' } },
+    ])
+    // The tone set is closed: the client owns the palette, not the host.
+    const outside = { presets: { plain: { sandbox: 'workspace-write', approval: 'ask', tone: 'caution' } } } as unknown as Config
+    await expect(mounted({ config: outside })).rejects.toThrow(/\$\.presets\.plain\.tone expected .* but got "caution"/)
   })
 
   it('rejects a table entry named custom (reserved for the derived state)', async () => {

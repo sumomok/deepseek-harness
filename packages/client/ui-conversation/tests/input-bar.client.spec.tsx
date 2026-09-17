@@ -66,6 +66,7 @@ interface BenchOptions {
       name: string
       description?: string
       glyph?: 'read-only' | 'workspace-write' | 'danger-full-access'
+      tone?: 'danger'
     }[]
     currentValue: string
   }
@@ -1680,6 +1681,24 @@ describe('command launcher chrome and control seats', () => {
     expect(view.getAllByRole('menuitem')[4]?.querySelectorAll('svg path')).toHaveLength(1)
     // The trigger resolves the current option through the same glyph choice.
     expect(trigger.querySelector('svg')?.innerHTML).toBe(icons[2])
+  })
+
+  it('paints the row whose tone the host named, and only that row', () => {
+    const permissions = {
+      options: [
+        { value: 'workspace-write', name: 'workspace-write' },
+        { value: 'yolo-access', name: 'Reviewed full access', glyph: 'danger-full-access' as const },
+        { value: 'danger-full-access', name: 'danger-full-access', tone: 'danger' as const },
+      ],
+      currentValue: 'workspace-write',
+    }
+    const { view } = bench({ permissions })
+    fireEvent.click(view.getByLabelText(/^访问模式/))
+    const items = view.getAllByRole('menuitem')
+    expect(items[2]?.className).toMatch(/danger/)
+    // Sharing the full-access glyph is not the same claim as the danger tone.
+    expect(items[1]?.className).not.toMatch(/danger/)
+    expect(items[0]?.className).not.toMatch(/danger/)
   })
 
   it('requires explicit risk acknowledgement before submitting full access', async () => {

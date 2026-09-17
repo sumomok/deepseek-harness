@@ -1628,6 +1628,8 @@ export interface PresetSpec {
   description?: string
   /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
   glyph?: PresetGlyph
+  /** Which tone the access-mode menus paint this preset's row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 
 /**
@@ -1636,11 +1638,20 @@ export interface PresetSpec {
  * supplying artwork.
  */
 export type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
+
+/**
+ * One tone of the access-mode menus' palette — the composer's access-mode menu
+ * and the Settings default-preset row. The set is closed: the client owns the
+ * colors, so a host names the meaning instead of supplying a color, and
+ * `danger` marks an entry the deployment treats as destructive. A preset
+ * naming none renders in the plain label color.
+ */
+export type PresetTone = 'danger'
 ```
 
 Depends on: [`ApprovalPolicy`](subsystems/approval.md) · [`SandboxMode`](subsystems/sandbox.md)
 
-Source: [`packages/interaction/permission-presets/src/index.ts:158`](../packages/interaction/permission-presets/src/index.ts)
+Source: [`packages/interaction/permission-presets/src/index.ts:178`](../packages/interaction/permission-presets/src/index.ts)
 
 <a id="deepseek-aidsh-persona"></a>
 
