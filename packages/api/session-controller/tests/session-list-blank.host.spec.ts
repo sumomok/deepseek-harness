@@ -91,7 +91,7 @@ describe('summary blank = nothing to show', () => {
   it('an engaging command run clears blank', async () => {
     const { ctx, remote, attach } = await harness()
     const session = ctx.sessions.create()
-    attach(session)
+    await attach(session)
     appendConfiguration(session)
     appendConfigurationCommand(session)
     expect(await listBlank(remote, session.id)).toBe(true)
