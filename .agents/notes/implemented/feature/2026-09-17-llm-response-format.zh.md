@@ -23,7 +23,7 @@ DeepSeek 文档对 JSON 模式的约束正是其中前三条：提示词必须�
 
 `dsh-llm-deepseek` 在 `requestWithMessages` 里把该字段映射为线上的 `response_format`——纯文本与图片两条请求装配路径共用的那一处。缺省时什么都不发，与该请求体里其它每个可选字段一致：请求绝不携带 `response_format: null`。
 
-该字段刻意不进 `LlmCallConfig`。agent loop 把 `header.config` 展开进每一个循环构建的请求，所以会话请求无从获得应答格式，被记录的 request header 也继续能重建模型看到的那一个请求。只有直接调用 `ctx.llm.stream()` 的一方——判官，以及在它之前的标题与压缩提供方——才能设置它，而那些辅助调用本就在循环的记录 header 之外。
+该字段刻意不进 `LlmCallConfig`。agent loop 把 `header.config` 展开进每一个循环构建的请求，所以会话请求无从获得应答格式，被记录的 request header 也继续能重建模型看到的那一个请求。agent-loop 的请求重建不变式逐字段枚举这条等式，现在要求 `responseFormat === undefined`，于是这份缺席是被检查的、而不只是被安排的：携带应答格式的循环请求以 `diverges from the folded request header` 失败。只有直接调用 `ctx.llm.stream()` 的一方——判官，以及在它之前的标题与压缩提供方——才能设置它，而那些辅助调用本就在循环的记录 header 之外。
 
 ### 树内的适配器
 
@@ -47,6 +47,8 @@ DeepSeek 文档对 JSON 模式的约束正是其中前三条：提示词必须�
 
 ## Consequences
 
-这是对上游核心包的 fork overlay。上游的 `GenerateOptions` 出现 `responseFormat` 或等价的应答格式字段即退役——`git grep -n "responseFormat\|response_format" upstream/master -- packages/llm`——届时 fork 的这道门改为适配上游形式。在此之前每一轮滚动同步都要重新移植，因为它落在上游每次扩充请求字段集时都会改的那个类型里。
+这是对上游核心包的 fork overlay。上游的 `GenerateOptions` 出现 `responseFormat` 或等价的应答格式字段即退役，届时 fork 的这道门改为适配上游形式。判据只读声明点——`git grep -n "responseFormat" upstream/master -- packages/llm/llm/src/types.ts`，今天零命中——因为整个 `packages/llm` 路径已经命中 pi-ai 一份模型清单 fixture 里的三条 `supported_parameters`。非零命中是要人去读的信号，不是结论。在此之前每一轮滚动同步都要重新移植，因为它落在上游每次扩充请求字段集时都会改的那个类型里。
 
-没有任何出厂组合设置该字段，因此没有会话日志、快照或录制 fixture 发生变化：缺省的 `responseFormat` 序列化结果逐字节不变。证据在读取它的那两个包里——`serialize.spec.ts` 钉住映射后的线上字段以及请求未命名格式时它的缺席，`adapter.spec.ts` 钉住 pi-ai 在发出任何请求之前就以 `UNSUPPORTED_OPTION` 失败。
+设置该字段的产生方欠它的每条路由一个兜底。`LlmRuntime` 把适配器的抛出变成终止性 `error` finish，所以在 pi-ai 路由上——Models 页可为任何模型选它——设置 `responseFormat` 的判官每一次调用都拿到 `UNSUPPORTED_OPTION`，每一次工具调用都失败关闭，比这个字段要消除的那一次散文回答更糟。这份义务归产生方：识别该 code，同一请求不带该字段重试一次，并按路由缓存结论。网关在 0.4.5 承担它。
+
+没有任何出厂组合设置该字段，因此没有会话日志、快照或录制 fixture 发生变化：缺省的 `responseFormat` 序列化结果逐字节不变。证据在读取它的那三个包里——`llm-deepseek` 的 `serialize.spec.ts` 钉住映射后的线上字段以及请求未命名格式时它的缺席，同包的 `adapter.spec.ts` 在一次 `ctx.llm.stream()` 真正送上线的 body 上钉住同一对事实，`llm-pi-ai` 的 `adapter.spec.ts` 钉住发出任何请求之前的 `UNSUPPORTED_OPTION` 失败，`agent-loop` 的 `invariant.spec.ts` 钉住循环请求被拒。
