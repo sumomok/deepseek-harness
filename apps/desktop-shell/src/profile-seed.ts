@@ -1530,10 +1530,13 @@ function retireSeededPermissionRows(profileDir: string, report: SeedReport): voi
       retired.push(matched.what)
       continue
     }
+    // The text fallback is for an entry the schema refused, never for one it
+    // read: a readable entry that declares no id declares none, and asking its
+    // text instead would find the id inside a comment or a value.
     const declared = entry.value === undefined ? undefined : declaredId(entry.value)
-    const looks = SEEDED_PERMISSION_ROWS.find(seeded => declared === undefined
+    const looks = SEEDED_PERMISSION_ROWS.find(seeded => (entry.value === undefined
       ? declaresId(lines.slice(entry.start, entry.end + 1), seeded.id)
-      : declared === seeded.id)
+      : declared === seeded.id))
     if (looks !== undefined) kept.push(looks.what)
   }
 

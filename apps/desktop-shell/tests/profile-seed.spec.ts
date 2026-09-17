@@ -1099,6 +1099,26 @@ describe('seedBuiltinBundles retiring the permission rows an earlier build copie
     ])
   })
 
+  it('leaves every entry that declares no row id of this shell\'s, in whatever shape', () => {
+    const odd = [
+      '-',
+      '- a bare scalar item',
+      '- - a nested sequence',
+      '- insert:',
+      '    - id: one',
+      '    - id: two',
+      '- insert:',
+      '    - name: no id at all',
+      '- insert:',
+      '    - a scalar row',
+    ].join('\n')
+    profileWithPatch(`${odd}\n${seededTable}`)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual(['the permission preset table'])
+    expect(report.skipped).toEqual([])
+    expect(patchNow()).toBe(`${odd}\n`)
+  })
+
   it('reads the file once: a profile whose record already carries a decision is left alone', () => {
     profileWithPatch(`${pairingComment}\n${seededRows}`, {
       from: WEB_PROFILE, migrated: [], defective: [], removed: [], permissionPatch: 'removed',
