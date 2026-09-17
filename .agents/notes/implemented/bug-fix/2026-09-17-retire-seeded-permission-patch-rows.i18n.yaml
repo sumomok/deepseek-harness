@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-17-retire-seeded-permission-patch-rows.md
-2026-09-17-retire-seeded-permission-patch-rows.md: 9f160c6390fda1054cf17167a9d54ba6c38ef716
-2026-09-17-retire-seeded-permission-patch-rows.zh.md: 930130d06233e8f9dae189dac9c260d25f619e75
+2026-09-17-retire-seeded-permission-patch-rows.md: 6418d2aae801384e4951067483860cf667693478
+2026-09-17-retire-seeded-permission-patch-rows.zh.md: a8deb7d9168699edb14055932f759f5f4263491d

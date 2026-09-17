@@ -1119,6 +1119,68 @@ describe('seedBuiltinBundles retiring the permission rows an earlier build copie
     expect(patchNow()).toBe(`${odd}\n`)
   })
 
+  it('reads a number, a boolean, and a null in an entry as the strings the failsafe schema makes of them', () => {
+    // The nested `id:` key line is what makes the parse observable: an entry
+    // this schema refused would fall back to that line and be reported as the
+    // gateway row, so reaching `absent` says the scalars below parsed.
+    const scalars = [
+      '- insert:',
+      "    - name: '@acme/dsh-widget'",
+      '      config:',
+      '        enabled: true',
+      '        retries: 5',
+      '        route: null',
+      '        id: llm-permission-gateway',
+    ].join('\n')
+    profileWithPatch(`${scalars}\n${seededTable}`)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual(['the permission preset table'])
+    expect(report.skipped).toEqual([])
+    expect(patchNow()).toBe(`${scalars}\n`)
+    expect(readMigrationMarker(markerPath())?.permissionPatch).toBe('removed')
+  })
+
+  it('asks an entry\'s own text only where the schema refused it', () => {
+    const nested = [
+      '- insert:',
+      "    - name: '@acme/dsh-widget'",
+      '      config:',
+      '        id: llm-permission-gateway',
+    ].join('\n')
+    profileWithPatch(nested)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.skipped).toEqual([])
+    expect(readMigrationMarker(markerPath())?.permissionPatch).toBe('absent')
+    expect(patchNow()).toBe(`${nested}\n`)
+  })
+
+  it('names the gateway row an entry inserts beside other rows, and removes neither', () => {
+    const beside = [
+      '- insert:',
+      '    - id: llm-permission-gateway',
+      "      name: '@haoran/dsh-llm-permission-gateway'",
+      '      config:',
+      '        provider: my-router',
+      '        model: my-model',
+      '    - id: something-else',
+      '      name: other',
+    ].join('\n')
+    profileWithPatch(beside)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual([])
+    expect(patchNow()).toBe(`${beside}\n`)
+    expect(report.skipped).toEqual([
+      `${PROFILE_PATCH_FILENAME}: the llm-permission-gateway row is not the one this shell wrote; left exactly as it is`,
+    ])
+    expect(readMigrationMarker(markerPath())?.permissionPatch).toBe('kept')
+  })
+
+  it('drops the blank lines a layer opened with along with the rows under them', () => {
+    profileWithPatch(`\n\n${seededRows}\n${ownRow}`)
+    seedBuiltinBundles({ home, serverModules })
+    expect(patchNow()).toBe(`${ownRow}\n`)
+  })
+
   it('reads the file once: a profile whose record already carries a decision is left alone', () => {
     profileWithPatch(`${pairingComment}\n${seededRows}`, {
       from: WEB_PROFILE, migrated: [], defective: [], removed: [], permissionPatch: 'removed',

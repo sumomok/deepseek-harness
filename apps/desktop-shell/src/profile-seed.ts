@@ -1261,11 +1261,19 @@ interface PatchEntry {
  * An entry runs from its own `- ` line to the last structural line before the
  * next one, so the blank line and the comment block a writer puts above the
  * next entry stay that entry's. Each one is then parsed on its own, under
- * `js-yaml`'s failsafe schema: the loader's dialect is this same parser's
- * default schema plus a `tag:yaml.org,2002:js` scalar type
- * (`vendor/include/src/index.ts`), so reading without that type is literally
- * "everything but what needs the loader's own schema", and refusing per entry
- * is what leaves the rest of a file alone when one entry is unreadable.
+ * `js-yaml`'s failsafe schema.
+ *
+ * The loader reads a patch layer with the same parser under
+ * `yaml.JSON_SCHEMA.extend(JsExpr)` (`entryListSchema` in
+ * `vendor/include/src/index.ts`, reached as `userPatchesSchema` in
+ * `packages/boot/app-boot/src/index.ts`). The failsafe schema refuses a
+ * superset of what that one refuses — `!!js` and every JSON tag — and reads
+ * every scalar it accepts as a string, where the loader also resolves numbers,
+ * booleans, and nulls. Both directions are safe here: a refusal leaves an entry
+ * alone, and every value in {@link SEEDED_PERMISSION_ROWS} is a plain string
+ * the two schemas read identically, so an entry that matches one of those rows
+ * holds what the loader would read there too. Refusing per entry is what leaves
+ * the rest of a file alone when one entry is unreadable.
  * @param lines - the file's lines.
  * @returns one record per top-level entry, in file order.
  */
@@ -1314,24 +1322,32 @@ function canonical(value: PatchValue): string {
 }
 
 /**
- * The row id one entry declares, from what the failsafe schema read: its own
- * `id`, or the `id` of the single row it inserts.
+ * The row ids one entry declares, from what the failsafe schema read: its own
+ * `id`, and the `id` of every row it inserts.
+ *
+ * An insert list is read whole rather than only when it holds one row, so an
+ * entry that inserts the gateway beside other rows is still recognized as
+ * carrying that row — it is never the seeded one, and saying so in the log is
+ * the whole of what recognizing it does.
  * @param value - what {@link patchEntries} read for the entry.
- * @returns the id, or undefined for an entry that declares none this way.
+ * @returns every id it declares this way, in declaration order.
  */
-function declaredId(value: PatchValue): string | undefined {
-  if (typeof value === 'string' || Array.isArray(value)) return undefined
+function declaredIds(value: PatchValue): string[] {
+  if (typeof value === 'string' || Array.isArray(value)) return []
+  const ids: string[] = []
   const own = value['id']
-  if (typeof own === 'string') return own
+  if (typeof own === 'string') ids.push(own)
   const insert = value['insert']
-  const first = Array.isArray(insert) && insert.length === 1 ? insert[0] : undefined
-  if (first === undefined || typeof first === 'string' || Array.isArray(first)) return undefined
-  const inserted = first['id']
-  return typeof inserted === 'string' ? inserted : undefined
+  for (const row of Array.isArray(insert) ? insert : []) {
+    if (typeof row === 'string' || Array.isArray(row)) continue
+    const inserted = row['id']
+    if (typeof inserted === 'string') ids.push(inserted)
+  }
+  return ids
 }
 
 /**
- * The same question {@link declaredId} answers, asked of an entry the failsafe
+ * The same question {@link declaredIds} answers, asked of an entry the failsafe
  * schema refused, over its lines with comment-only lines removed.
  *
  * A key line is the whole test, so a mention of the id inside a comment or a
@@ -1533,10 +1549,9 @@ function retireSeededPermissionRows(profileDir: string, report: SeedReport): voi
     // The text fallback is for an entry the schema refused, never for one it
     // read: a readable entry that declares no id declares none, and asking its
     // text instead would find the id inside a comment or a value.
-    const declared = entry.value === undefined ? undefined : declaredId(entry.value)
     const looks = SEEDED_PERMISSION_ROWS.find(seeded => (entry.value === undefined
       ? declaresId(lines.slice(entry.start, entry.end + 1), seeded.id)
-      : declared === seeded.id))
+      : declaredIds(entry.value).includes(seeded.id)))
     if (looks !== undefined) kept.push(looks.what)
   }
 
