@@ -29,7 +29,7 @@ import type {} from '@deepseek-ai/dsh-settings'
 // Type-only: resolves the required projection service and optional settings/command children.
 import type {} from '@deepseek-ai/dsh-session-projection'
 import type {} from '@deepseek-ai/dsh-commands'
-import type { PermissionCatalog, PermissionSelection, PresetGlyph, PresetOption } from './types.ts'
+import type { PermissionCatalog, PermissionSelection, PresetGlyph, PresetOption, PresetTone } from './types.ts'
 
 export type * from './types.ts'
 
@@ -70,10 +70,15 @@ export interface PresetSpec {
   description?: string
   /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
   glyph?: PresetGlyph
+  /** Which palette tone the selector paints this preset's row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 
 /** The closed glyph set a preset may name, for schemastery validation of the table. */
 const PRESET_GLYPHS: PresetGlyph[] = ['read-only', 'workspace-write', 'danger-full-access']
+
+/** The closed tone set a preset may name, for schemastery validation of the table. */
+const PRESET_TONES: PresetTone[] = ['danger']
 
 /** One row of the {@link Config} preset table; the domain type keeps every presentation field optional. */
 const presetSpecSchema: z<PresetSpec> = z.object({
@@ -82,7 +87,22 @@ const presetSpecSchema: z<PresetSpec> = z.object({
   name: z.string(),
   description: z.string(),
   glyph: z.union(PRESET_GLYPHS),
+  tone: z.union(PRESET_TONES),
 })
+
+/**
+ * Build one member of the `defaultPreset` settings union. The section's value
+ * is a bare preset name, so the settings row reads the member's own metadata
+ * for presentation: `description` carries the label, and schemastery's
+ * free-form `extra` slot carries `{ tone }`.
+ * @param name - the table key this member admits.
+ * @param spec - that key's bundle.
+ * @returns the const member carrying whatever presentation the preset named.
+ */
+function presetChoice(name: string, spec: PresetSpec): z<string> {
+  const labelled = spec.name === undefined ? z.const(name) : z.const(name).description(spec.name)
+  return spec.tone === undefined ? labelled : labelled.extra('extra', { tone: spec.tone })
+}
 
 /**
  * Returned when effective knob values match no available preset. Clients may
@@ -231,11 +251,7 @@ export class PermissionPresetService extends TypertRemoteService {
     this.resolve(defaultPreset)
     const baseSettings: PermissionSettings = { defaultPreset }
     this.defaultSettings = () => baseSettings
-    const presetChoices = Object.keys(this.presets).map((name) => {
-      const choice = z.const(name)
-      const label = this.presets[name]?.name
-      return label === undefined ? choice : choice.description(label)
-    })
+    const presetChoices = Object.entries(this.presets).map(([name, spec]) => presetChoice(name, spec))
     const settingsSchema: z<PermissionSettings> = z.object({
       defaultPreset: z.union(presetChoices).required(),
     })
@@ -410,6 +426,7 @@ export class PermissionPresetService extends TypertRemoteService {
       name: spec.name ?? name,
       ...spec.description !== undefined ? { description: spec.description } : {},
       ...spec.glyph !== undefined ? { glyph: spec.glyph } : {},
+      ...spec.tone !== undefined ? { tone: spec.tone } : {},
     }
   }
 

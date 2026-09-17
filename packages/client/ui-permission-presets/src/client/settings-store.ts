@@ -14,6 +14,7 @@ import {
 import type {
   SchemaNode, SettingsDescribeFace, SettingsSchemaService,
 } from '@deepseek-ai/dsh-client-ui-settings/client'
+import type { PresetTone } from '@deepseek-ai/dsh-permission-presets/client'
 import { displayPermissionPreset } from './presentation.ts'
 
 /** Permission's settings namespace on the host wire. */
@@ -25,6 +26,8 @@ export interface PermissionDefaultOption {
   id: string
   /** Host-supplied label or a title-cased preset key. */
   label: string
+  /** Palette tone the host named for this preset; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 
 /** Permission settings-row snapshot. */
@@ -40,7 +43,9 @@ export interface PermissionSettingsState {
 interface ConstChoice {
   type: string
   value?: unknown
-  meta?: { description?: unknown }
+  // The host hangs each preset's presentation on its own union member:
+  // `description` carries the label, the free-form `extra` slot the tone.
+  meta?: { description?: unknown; extra?: { tone?: unknown } }
 }
 
 /**
@@ -64,11 +69,13 @@ export function permissionDefaultOf(view: SettingsNamespaceView, schema: Setting
     const choice = candidate as unknown as ConstChoice
     if (choice.type !== 'const' || typeof choice.value !== 'string') return []
     const described = choice.meta?.description
+    const tone: unknown = choice.meta?.extra?.tone
     return [{
       id: choice.value,
       label: typeof described === 'string' && described.length > 0
         ? displayPermissionPreset(choice.value, described)
         : displayPermissionPreset(choice.value, choice.value),
+      ...tone === 'danger' ? { tone: 'danger' as const } : {},
     }]
   })
   if (options.length === 0 || !options.some(option => option.id === value)) {

@@ -35,7 +35,7 @@ When the live catalog withdraws a preset, the composer closes its pending confir
 
 ### The Settings row
 
-The row derives its options from the host's dynamic `defaultPreset` enum, uses the same localized built-in labels as the current-session picker, and writes one settings mutation. Current-session-only contributions such as `auto` are absent. The value applies only when a later session is created; changing it never switches or rewrites the current session.
+The row derives its options from the host's dynamic `defaultPreset` enum, uses the same localized built-in labels as the current-session picker, and writes one settings mutation. A preset the host marks with the `danger` tone renders as a destructive row. Current-session-only contributions such as `auto` are absent. The value applies only when a later session is created; changing it never switches or rewrites the current session.
 
 -----
 

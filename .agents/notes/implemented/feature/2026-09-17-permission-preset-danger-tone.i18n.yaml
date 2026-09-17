@@ -1,0 +1,6 @@
+# Bilingual-pair consistency record (docs/i18n/README.md): the git blob hash of each
+# side as of the last confirmed-consistent state. Both languages carry equal authority;
+# after editing either side, bring the other along and re-record with:
+#   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-17-permission-preset-danger-tone.md
+2026-09-17-permission-preset-danger-tone.md: 4e586bd30c9f6a079afcdc26665d889c7e4ce3de
+2026-09-17-permission-preset-danger-tone.zh.md: 298d6a00d1bca841465f5ccc78d7f929a0d4a302

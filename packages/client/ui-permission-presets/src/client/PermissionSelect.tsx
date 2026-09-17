@@ -146,6 +146,8 @@ export function PermissionSelect({
           </span>
         ),
       icon: permissionGlyph(option.glyph ?? option.value),
+      // The tone set is closed at one member, which the menu primitive already draws.
+      ...option.tone === 'danger' ? { danger: true } : {},
     }
   })
 

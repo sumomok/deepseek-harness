@@ -30,7 +30,7 @@ const SCHEMA = {
   refs: {
     1: { type: 'const', value: 'read-only' },
     2: { type: 'const', value: 'workspace-write' },
-    3: { type: 'const', value: 'danger-full-access' },
+    3: { type: 'const', meta: { extra: { tone: 'danger' } }, value: 'danger-full-access' },
     4: { type: 'union', list: [1, 2, 3] },
     5: { type: 'object', dict: { defaultPreset: 4 } },
   },
@@ -115,6 +115,9 @@ describe('PermissionRow', () => {
     })
     mount(controller)
     fireEvent.click(await screen.findByRole('button', { name: '仅可查看' }))
+    // The host named this preset's tone; the menu paints that one row destructive.
+    expect(screen.getByRole('menuitem', { name: '完全权限' }).className).toMatch(/danger/)
+    expect(screen.getByRole('menuitem', { name: '工作区内修改' }).className).not.toMatch(/danger/)
     fireEvent.click(screen.getByRole('menuitem', { name: '完全权限' }))
     expect(mutate).not.toHaveBeenCalled()
     fireEvent.click(screen.getByRole('button', { name: '取消' }))

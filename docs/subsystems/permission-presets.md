@@ -8,7 +8,7 @@ Source: [`packages/interaction/permission-presets/src/index.ts`](../../packages/
 
 ## The preset table
 
-A preset maps one stable key to a sandbox/approval bundle plus optional client presentation — a label, a description, and one glyph from the selector's closed design set. The default configured table ships `workspace-write` (`workspace-write` + `ask`) and `danger-full-access` (`danger-full-access` + `never`); `custom` and `auto` are reserved and cannot be configured.
+A preset maps one stable key to a sandbox/approval bundle plus optional client presentation — a label, a description, one glyph from the selector's closed design set, and one tone from its closed palette. The default configured table ships `workspace-write` (`workspace-write` + `ask`) and `danger-full-access` (`danger-full-access` + `never`); `custom` and `auto` are reserved and cannot be configured.
 
 ```ts type-equiv
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -23,6 +23,8 @@ interface PresetSpec {
   description?: string
   /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
   glyph?: PresetGlyph
+  /** Which palette tone the selector paints this preset's row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 ```
 
@@ -33,6 +35,16 @@ interface PresetSpec {
  * supplying artwork.
  */
 type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
+```
+
+```ts type-equiv
+/**
+ * One tone of the permission selector's palette. The set is closed: a
+ * presentation layer owns the colors, so a host names the meaning — `danger`
+ * marks the entry whose knobs hand the machine over — instead of supplying a
+ * color. A preset naming none renders in the plain label color.
+ */
+type PresetTone = 'danger'
 ```
 
 ```ts type-equiv
@@ -65,7 +77,7 @@ Registering or removing Auto emits the payload-free `permission-presets/catalog-
 
 `current(session)` derives the effective preset from the required `permissions` projection. The unit folds the session's sandbox mode, approval policy, and recorded selection; values absent within that state fall back to the executor's configured mode and the approval service config, then `ask`. A missing projection key fails explicitly. The service prefers a still-matching selection, then the first matching configured entry, and otherwise returns `CUSTOM_PRESET` (`'custom'`). `custom` is derived-only: clients may display it as the current value, but it is never a switch target or an event payload.
 
-`names` lists configured presets in declaration order followed by Auto while its integration is live. `catalog()` returns those selectable entries as one process-level snapshot. `optionOf(name)` builds an available entry (its label falls back to the key, its glyph passes through unchanged) or the derived `custom` presentation, and throws for any other name. Clients join the catalog with the Session projection; `custom` may label the current value but never becomes a catalog entry.
+`names` lists configured presets in declaration order followed by Auto while its integration is live. `catalog()` returns those selectable entries as one process-level snapshot. `optionOf(name)` builds an available entry (its label falls back to the key; its glyph and tone pass through unchanged) or the derived `custom` presentation, and throws for any other name. Clients join the catalog with the Session projection; `custom` may label the current value but never becomes a catalog entry.
 
 ```ts type-equiv
 /** Presentation for an available preset or the derived `custom` current value. */
@@ -78,6 +90,8 @@ interface PresetOption {
   description?: string
   /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
   glyph?: PresetGlyph
+  /** Which palette tone the selector paints this row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 ```
 
