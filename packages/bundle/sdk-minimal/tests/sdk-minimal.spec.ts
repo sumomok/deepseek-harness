@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url'
 import * as yaml from 'js-yaml'
 import { describe, expect, it } from 'vitest'
 import { entryListSchema } from '@deepseek-ai/cordis-plugin-include'
+import { Config as SessionLogConfig } from '@deepseek-ai/dsh-session-log-deepseek'
 
 function packageName(specifier: string): string {
   return specifier.startsWith('@') ? specifier.split('/').slice(0, 2).join('/') : specifier.split('/')[0]!
@@ -81,6 +82,14 @@ describe('dsh-sdk-minimal bundle', () => {
     expect(rows.find(row => row.id === 'plugin-package-inventory-deepseek')).toMatchObject({
       disabled: true,
     })
+    // This bundle deliberately does not layer over dsh-base, so its own row is
+    // the only thing holding the DeepSeek session-log contribution shut. The
+    // plugin's schema defaults `enabled` to true, so pin both the row's literal
+    // config and the value that schema resolves it to.
+    expect(SessionLogConfig({}).enabled).toBe(true)
+    const sessionLog = rows.find(row => row.id === 'session-log-deepseek')
+    expect(sessionLog?.config).toEqual({ enabled: false })
+    expect(SessionLogConfig(sessionLog?.config).enabled).toBe(false)
     expect(rows.find(row => row.id === 'terminal-bash')).toMatchObject({
       disabled: { __jsExpr: "process.platform === 'win32'" },
     })
