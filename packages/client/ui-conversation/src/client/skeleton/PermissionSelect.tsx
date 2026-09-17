@@ -123,7 +123,7 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
       id: option.value,
       label: permissionLabel(option.value, option.name, t),
       icon: permissionGlyph(option.glyph ?? option.value),
-      // The tone set is closed at one member, which the menu primitive already draws.
+      // The tone set is closed at one member.
       ...option.tone === 'danger' ? { danger: true } : {},
     }))
 

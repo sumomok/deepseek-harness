@@ -76,7 +76,7 @@ export function PermissionRow({ load, select, usePermission, t }: PermissionRowP
           items={state.options.map(option => ({
             id: option.id,
             label: optionLabel(option),
-            // The tone set is closed at one member, which the menu primitive already draws.
+            // The tone set is closed at one member.
             ...option.tone === 'danger' ? { danger: true } : {},
           }))}
           selectedId={state.currentValue}

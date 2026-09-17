@@ -6,13 +6,13 @@ Status: implemented
 
 ## 问题
 
-用户挑选访问模式的两个地方——输入框旁的访问模式菜单，以及通用设置里的默认预设行——把每一行都画成同一个标签色。`danger-full-access` 既没有沙箱围墙也没有审批提示，在这两处看上去和 `workspace-write` 毫无分别。两处已有的风险确认都在点击之后才弹出，因此用户据以挑选的那张列表本身，不携带任何「哪一行会把机器交出去」的信号。
+用户挑选访问模式的两个地方——输入框旁的访问模式菜单，以及通用设置里的默认预设行——把每一行都画成同一个标签色。`danger-full-access` 既没有沙箱围墙也没有审批提示，在这两处看上去和 `workspace-write` 毫无分别。两处已有的风险确认都在点击之后才弹出，因此用户据以挑选的那张列表本身，不携带任何「哪一行不受约束地执行」的信号。
 
 哪一行是那一行，客户端判不出来。预设表是宿主配置：部署可以重命名行、添加自己的行，而本 fork 的权限网关层还会加一行 `yolo-access`——同样是完全权限捆绑，但仍然会问人，故意不是危险的那一行，它甚至就指名了完全权限那枚 glyph。写死在客户端的 id 名单，要么漏掉部署自己的行，要么把一行「会审查、会问人」的模式画成红色。
 
 ## 决策
 
-`PresetSpec` 在既有的 `glyph` 旁新增 `tone`：一个封闭取值集，当前唯一成员是 `danger`。宿主命名含义，客户端拥有颜色——`danger` 标记的是那条「旋钮组合会把机器交出去」的表项，未声明的预设按普通标签色渲染。两个字段都由预设表的 schemastery schema 校验，写了集合外的色调会在插件加载时失败。
+`PresetSpec` 在既有的 `glyph` 旁新增 `tone`：一个封闭取值集，当前唯一成员是 `danger`。宿主命名含义，客户端拥有颜色——`danger` 标记的是部署视为破坏性的表项，未声明的预设按普通标签色渲染。两个字段都由预设表的 schemastery schema 校验，写了集合外的色调会在插件加载时失败。
 
 两个界面读的是宿主的两张不同面，因此色调走两条通路。输入框旁的芯片读会话的 `permissions` 投影，`tone` 在 `PresetOption` 及其 zod wire schema 上与 `glyph` 并列。设置行读 `permission` 设置分节，其 `defaultPreset` 的值是一个裸预设名——那里的逐项呈现信息本来就挂在每个 union 成员自己的 schemastery 元数据上，`description` 已经承载 label，`tone` 就挂在它旁边的自由形式 `extra` 槽里。
 
@@ -20,13 +20,13 @@ Status: implemented
 
 色调只画菜单行。输入框芯片收起时的按钮、设置行收起时的按钮都保持普通标签色，`/permission` 命令弹窗也不动——它的 `SelectOption` 不带色调；两个界面已有的风险确认弹窗保持原样。
 
-fork 侧的落点只有一行：`packages/bundle/base/cordis.patch.yml` 给 `danger-full-access` 标上 `tone: danger`。插件自带的默认表不标，因此没有主动要求色调的组合，渲染结果与改动前完全一致。
+fork 侧的落点是两处，不是一处。`packages/bundle/base/cordis.patch.yml` 给 `danger-full-access` 标上 `tone: danger`，权限网关 bundle 的 `cordis.patch.yml` 还要给它重述表里的同一行标上。id 定向 patch 整体替换 `permission` 条目的 `config`，而 `BUILTIN_WEB_BUNDLES` 把该 bundle 种进桌面 profile，所以桌面装机上跑的是网关那一份：只有基座一行时，那里两个菜单都不上色。`apps/desktop-shell/tests/builtin-permission-gateway.spec.ts` 在网关重述表补上这一行之前为红，由集成线 vendor `@haoran/dsh-llm-permission-gateway` 0.4.5 及以上闭合。网关的 `yolo-access` 不标，插件自带的默认表也不标，因此没有主动要求色调的组合，渲染结果与改动前完全一致。
 
 ## 备选方案
 
 **在两个客户端按 `danger-full-access` 这个 id 上色。** 否决：哪一行危险是随部署而变的选择，而两个客户端自己就是证据——网关层以自己的 id 发了第二个完全权限捆绑，那一行必须保持普通色。
 
-**从 `glyph` 推出色调。** 否决：`yolo-access` 指名完全权限那枚 glyph，恰恰因为它是完全权限捆绑，而它正是不能画红的那一行。glyph 回答画哪枚盾牌，tone 回答代价有多大。
+**从 `glyph` 推出色调。** 否决：`yolo-access` 指名完全权限那枚 glyph，恰恰因为它是完全权限捆绑，而它正是不能画红的那一行。glyph 回答画哪枚盾牌，tone 回答这一行是不是破坏性的。
 
 **从旋钮组合（`danger-full-access` + `never`）推出色调。** 否决：那是拿强制执行取值去重新裁决一个呈现问题，将来任何捆绑恰好相同的新预设都会被悄悄染色。
 
@@ -36,10 +36,10 @@ fork 侧的落点只有一行：`packages/bundle/base/cordis.patch.yml` 给 `dan
 
 ## 影响
 
-部署给自己预设表里的一行打上标记，两个访问模式菜单就把它画成破坏性行。本 fork 的 base bundle 标的是 `danger-full-access`；表里其余各行，包括网关那行会审查的完全权限，一律保持普通色。
+部署给自己预设表里的一行打上标记，两个访问模式菜单就把它画成破坏性行。本 fork 的 base bundle 与网关 bundle 各标一次 `danger-full-access`；表里其余各行，包括网关那行会审查的完全权限，一律保持普通色。
 
 设置行与输入框芯片现在对同一个呈现事实取得一致，而该事实在宿主配置里只有一个家，不再是每个客户端各自持有一份「哪个 id 危险」的判断。
 
 **退役条件。** 这是打在上游 host 与 client 包上的 fork overlay。上游一旦以任何形式给预设行提供语义色或危险标记，本 overlay 即退役，由 fork 适配上游的形式。在那之前，每轮滚动同步都要重新移植并复核，因为它落在上游会改的文件里。
 
-包内测试承载证据：色调进入 option 与 describe 出来的设置选项、集合外的色调在加载时被拒、投影经 wire 服务出该字段、两个菜单只把带色调的那一行画成破坏性行，而只共享完全权限 glyph、未声明色调的预设保持普通色。
+覆盖面见本次改动的五个 spec：`permission-presets.spec.ts`、`projection.spec.ts`、`settings-store.client.spec.ts`、`permission-presets-row.client.spec.tsx` 与 `input-bar.client.spec.tsx`。

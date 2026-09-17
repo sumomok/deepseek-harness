@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-17-permission-preset-danger-tone.md
-2026-09-17-permission-preset-danger-tone.md: 4e586bd30c9f6a079afcdc26665d889c7e4ce3de
-2026-09-17-permission-preset-danger-tone.zh.md: 298d6a00d1bca841465f5ccc78d7f929a0d4a302
+2026-09-17-permission-preset-danger-tone.md: 3b0986d023ab17ac50b4c67a175a33bcb2f4728b
+2026-09-17-permission-preset-danger-tone.zh.md: f78479d903416403afdaa53749afc4fb39d0cdf7

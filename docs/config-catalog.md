@@ -1628,7 +1628,7 @@ export interface PresetSpec {
   description?: string
   /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
   glyph?: PresetGlyph
-  /** Which palette tone the selector paints this preset's row in; omitted rows take the plain label color. */
+  /** Which tone the access-mode menus paint this preset's row in; omitted rows take the plain label color. */
   tone?: PresetTone
 }
 
@@ -1640,10 +1640,11 @@ export interface PresetSpec {
 export type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
 
 /**
- * One tone of the permission selector's palette. The set is closed: a
- * presentation layer owns the colors, so a host names the meaning — `danger`
- * marks the entry whose knobs hand the machine over — instead of supplying a
- * color. A preset naming none renders in the plain label color.
+ * One tone of the access-mode menus' palette — the composer's access-mode menu
+ * and the Settings default-preset row. The set is closed: the client owns the
+ * colors, so a host names the meaning instead of supplying a color, and
+ * `danger` marks an entry the deployment treats as destructive. A preset
+ * naming none renders in the plain label color.
  */
 export type PresetTone = 'danger'
 ```

@@ -67,7 +67,7 @@ export interface PresetSpec {
   description?: string
   /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
   glyph?: PresetGlyph
-  /** Which palette tone the selector paints this preset's row in; omitted rows take the plain label color. */
+  /** Which tone the access-mode menus paint this preset's row in; omitted rows take the plain label color. */
   tone?: PresetTone
 }
 

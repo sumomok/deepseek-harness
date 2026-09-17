@@ -245,8 +245,8 @@
           danger-full-access:
             sandbox: danger-full-access
             approval: never
-            # No wall and nobody asked: the one row of this table that hands the
-            # machine over, and the only one the selector paints in the danger tone.
+            # Neither a sandbox wall nor an approval prompt: the only row of
+            # this table that runs unconstrained.
             tone: danger
 
     - id: shell-env

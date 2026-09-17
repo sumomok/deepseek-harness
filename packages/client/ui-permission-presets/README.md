@@ -29,7 +29,7 @@ Mount this plugin alongside the settings and commands packages; the permission r
 
 ### The picker
 
-A pick submits the `/permission <preset>` command line. The argument-bearing form (`/permission <preset>` typed directly) still switches directly; the decoration replaces only the bare invocation. The built-in labels are `Read Only`, `Workspace Write`, and `Full access` in English and `仅可查看`, `工作区内修改`, and `完全权限` in Chinese; `custom` is display state, never a target.
+A pick submits the `/permission <preset>` command line. The argument-bearing form (`/permission <preset>` typed directly) still switches directly; the decoration replaces only the bare invocation. The built-in labels are `Read Only`, `Workspace Write`, and `Full access` in English and `仅可查看`, `工作区内修改`, and `完全权限` in Chinese; `custom` is display state, never a target. The picker paints no row in a preset's `tone`: its rows carry a label, a detail line, and an optional confirmation, and no color.
 
 ### The Settings row
 

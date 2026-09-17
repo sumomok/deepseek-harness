@@ -9,7 +9,7 @@ English | [中文](README.zh.md)
 
 ## Summary
 
-Permission presets give users one selector for applying sandbox mode and approval policy together. A deployment can configure named presets and a default for newly created sessions; changing that default does not alter existing sessions, and the shipped table includes `workspace-write` and `danger-full-access`. An entry may also name its `glyph` and `tone`. If the current combination matches no preset, clients show the derived `custom` state, but users cannot select or persist it; switching presets changes only settings whose effective values differ. The `/permission` command reports or changes the current preset, while sandbox execution and approval handling remain separate enforcement mechanisms.
+Permission presets give users one selector for applying sandbox mode and approval policy together. A deployment configures named presets and a default for new sessions; changing that default does not alter existing sessions, and the shipped table includes `workspace-write` and `danger-full-access`. An entry may also name its access-mode menu `glyph` and `tone`. If the current combination matches no preset, clients show the derived `custom` state, but users cannot select or persist it; switching presets changes only settings whose effective values differ. The `/permission` command reports or changes the current preset, while sandbox execution and approval handling remain separate enforcement mechanisms.
 
 ## Table of Contents
 
@@ -29,7 +29,7 @@ Choose this service when a deployment wants to offer users one Permissions selec
 
 ### Configuring presets
 
-The plugin config defines the preset table and the default for fresh sessions. Each preset name bundles one sandbox mode with one approval policy; `name`, `description`, `glyph`, and `tone` are optional client presentation.
+The plugin config defines the preset table and the default for fresh sessions. Each preset name bundles one sandbox mode with one approval policy; `name`, `description`, `glyph`, and `tone` are optional client presentation. `glyph` and `tone` reach the two access-mode menus — the composer's access-mode menu and the Settings default-preset row.
 
 ```yaml
 - name: '@deepseek-ai/dsh-permission-presets'
