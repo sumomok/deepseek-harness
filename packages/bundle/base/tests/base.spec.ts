@@ -34,6 +34,9 @@ function patchRows(): PatchRow[] {
     readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8'),
     { schema: entryListSchema },
   )
+  // A patch file that parses to anything but a list fails by name here rather
+  // than as a TypeError thrown out of the walk below.
+  expect(Array.isArray(parsed)).toBe(true)
   return (parsed as { insert?: PatchRow[] }[]).flatMap(patch => patch.insert ?? [])
 }
 
