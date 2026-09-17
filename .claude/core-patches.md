@@ -41,8 +41,9 @@
 - **改了什么**：`ui-primitives` 的 `MarkdownRenderContext` 增加不透明的 `referents`（`scan`/`open`/`resolveLink`/`subscribe`），`MarkdownProseSpan` 只携带 `start`/`end`；`ui-chat` 的 `contract/slots.ts` 声明 `ProseReferents` 可选服务，`apply.ts` 的 `buildProseReferents` 绑定 `cwd` 与 Host `home` 并经 `referent/open` 派发；本地路径的 markdown 链接目标经 `resolveLink` 路由，校验节拍上重渲已定稿消息。
 - **为什么**：Assistant 正文里的路径与 URL 只有行内代码一条通路（`chatFileMentions`），纯文本与未被认领的行内代码无法成为可点元素，仓外的校验索引插件没有接入口。
 - **要达到的效果**：正文命中渲染成与文件提及同一枚常显按钮；`ui-primitives` 不依赖运行时的 `ReferentKind`；无提供者时行为与改动前一致。
+- **子件：正文引用 not-found 竞态降级**。`buildProseReferents.open` 的 stat-到-click 竞态失败复用 composer 的通知通道给出用户可见提示，而不是只写 console。它有自己的退役条款，与父族的不同：`git grep path-not-found upstream/master -- packages/client` 非空即退役（本轮为空），或父族整体退役时随之消失。
 - **退役条件**：上游自己的会话 UI 原生扫描并派发 Assistant 正文里的可点引用。
-- **状态**：在役（`core-patches-v10`）。核实依据：`proseReferents`、`resolveLink`、`linkPlainText` 在 `upstream/master` 零命中。
+- **状态**：在役（`core-patches-v10`）。核实依据：`proseReferents`、`resolveLink`、`linkPlainText` 在 `upstream/master` 零命中；子件的判据 `git grep path-not-found upstream/master -- packages/client` 同样为空。
 - **Agent Note**：[`chat-prose-referents-seam-port`](../.agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md)、[`markdown-link-destination-fallback`](../.agents/notes/implemented/bug-fix/2026-08-27-markdown-link-destination-fallback.md)
 
 ## claude-skills-roots — 扫描项目与用户的 `.claude/skills` 根
@@ -50,7 +51,7 @@
 - **改了什么**：`packages/skill/skill-filesystem` 新增 `PROJECT_CLAUDE_RANK` 210 与 `USER_CLAUDE_RANK` 510 两个根、`claudeHome` 配置字段（覆盖变量 `$DSH_CLAUDE_HOME`）、`roots()` 按规范路径去重；`packages/skill/skill` 的 `SkillSource` 增加 `project-claude`／`user-claude`；不可扫描的单个根被跳过而不是让整个提供方归零；`tool-skill` 在部分根失败时发布部分目录而不是不发布。`packages/test-support/loader-smoke` 新增并导出 `isolatedSkillRootEnv(cwd, overrides)`，由它驱动测试与脚本里的钉根环境块。
 - **为什么**：本 fork 的用户把技能写在 `.claude/skills` 下（与 Claude Code 同一约定），标准 harness 不扫描这两个根，这些技能对模型不可见。
 - **要达到的效果**：两个 `.claude/skills` 根按既定优先级参与技能发现；一个根不可读只损失该根，不再让同提供方的全部根一起归零；测试与脚本用同一个函数钉隔离根，不再各写一份键名。
-- **退役条件**：上游自己扫描项目与用户的 `.claude/skills` 根（出现等价的根与 `SkillSource` 取值）。
+- **退役条件**：上游自己扫描项目与用户的 `.claude/skills` 根（出现等价的根与 `SkillSource` 取值）。另一条独立条款：上游自己按根降级——单根扫描失败只丢该根、不清零整个提供方，无论落在 `skill-filesystem`、`packages/skill/skill` 聚合层，还是 `tool-skill` 改为从部分观测发布目录——本族的按根降级扩展与模型面补齐一并退役（线上 5 个提交属于这一半）。
 - **状态**：在役（`core-patches-v10`）。核实依据：`PROJECT_CLAUDE_RANK` 与 `isolatedSkillRootEnv` 在 `upstream/master` 零命中。
 - **Agent Note**：[`claude-skills-root`](../.agents/notes/implemented/feature/2026-09-06-claude-skills-root.md)
 
@@ -187,10 +188,12 @@
 
 ## session-export-unreadable-entries — 不可读附件写成归档条目而不撕裂流
 
-- **改了什么**：`session-log-export` 在附件对象读不出来时，把一条说明记录写进归档里该附件本该占的条目，而不是让 ZIP 流中断；记录的路径键与碰撞前提在 `archive.ts` 的 JSDoc 里写明。
-- **为什么**：一个读不出来的附件会让整次导出失败，用户拿不到任何内容，也看不到是哪个附件出的问题。
-- **要达到的效果**：导出总能完成；不可读的附件在归档里留下带 `attachmentId`、媒体类型、失败码与原因的记录；条目数因此把它计在内。
-- **退役条件**：上游自己在导出遇到不可读附件时记录并继续。
+- **改了什么**：`session-log-export` 的 `archive.ts` 在附件对象读不出来时，把一条说明记录写进归档里该附件本该占的条目，而不是让 ZIP 流中断。图片半边是 `mediaEntry`/`unreadableMediaEntry`；通用文件半边是 `fileEntry`/`unreadableFileEntry`/`resumedFileChunks`——`fileEntry` 在产出条目前先拉存储的第一个分块（写入器本就在花这一个分块的内存预算），拉取被拒才改记录。两条路径共用 `unreadableAttachmentReason`。记录的路径键与碰撞前提写在 `archive.ts` 的 JSDoc 里。
+- **为什么**：一个读不出来的附件会让整次导出失败，用户拿不到任何内容，也看不到是哪个附件出的问题。现场触发源是仓外截图插件把 JPEG 按 `image/png` 声明保存，已写进日志的引用永久保留；通用文件半边则是上游把文件对象搬到 `file-objects/`／`files/` 之后，`attachment-text-file-kind` 时代写下的文件对象一律读不到（见该条的破坏性变化）。
+- **要达到的效果**：不可读的图片留下带 `attachmentId`、`mediaType`、`bytes`、`width`、`height` 的记录，不可读的通用文件留下带 `attachmentId`、`name`、`bytes` 的记录（**文件记录没有 `mediaType`**，引用本身不带）；两者都附失败原因，条目数因此把它计在内。
+- **三项例外——导出并非总能完成**：(1) **取消仍撕裂**：`archive.ts` 的 `fileEntry` 与 `mediaEntry` 在返回不可读条目之前都先 `signal?.throwIfAborted()`，取消在两条路径上都让流出错；(2) **通用文件第一个分块之后抛出的失败仍撕裂**，字节已经上线，无法再改写成记录；(3) **读不出来的子会话日志仍让流出错**——`sessionLogTextEntries` 对没有存储日志的子会话直接抛错。
+- **安全动机（不可回退）**：`unreadableAttachmentReason` 只在失败是 `AttachmentError` 且带字符串 `code` 时写出 `code` 与 `message`，其余一律只写一行匿名原因。理由是本包对 attachment 包只有类型依赖、按 `name` 结构匹配，而 Node 的 fs 错误同样带字符串 `code` 且 `message` 含主机绝对路径——归档是用户会下载并转发的文件，**绝不回显可能含主机绝对路径的 message**。这比 `error.ts` 的「按 code 路由」更严，是有意的。
+- **退役条件**：上游自己在导出遇到不可读附件时记录并继续（图片与通用文件同一判据）。
 - **状态**：在役（`core-patches-v10`）。核实依据：`unreadableMediaEntry` 在 `upstream/master` 零命中。
 - **Agent Note**：[`export-records-unreadable-media`](../.agents/notes/implemented/bug-fix/2026-09-04-export-records-unreadable-media.md)
 
@@ -199,7 +202,7 @@
 - **改了什么**：`session-format-v2-to-v3` 接受语料里仍在的一种仓外历史消息来源种类，并说明每处检查与定位器各自在判断什么。
 - **为什么**：该来源种类由本 fork 的产品线写入，V3 边不认识它就拒绝整份会话日志，而一次拒绝会让派生索引的整轮观察中止、内容搜索全库退回名称匹配。
 - **要达到的效果**：携带该来源种类的会话能迁移、能索引；接受面仍是一份按盘上实测列出的名单，不是通用放行。
-- **退役条件**：上游把该来源种类纳入自己的 V3 迁移边，或语料里不再存在它。
+- **退役条件**：上游把该来源种类纳入已发布来源词表，或为来源分类提供自定义扩展点，或语料里不再存在它。
 - **状态**：在役（`core-patches-v10`）。
 - **Agent Note**：[`v2-to-v3-legacy-source-kind`](../.agents/notes/implemented/bug-fix/2026-09-10-v2-to-v3-legacy-source-kind.md)
 
@@ -208,15 +211,17 @@
 - **改了什么**：`session-format-v0-to-v1` 的 `LEGACY_UNINTERPRETED_EVENT_TYPES` 点名本 fork 产品线写过的仓外事件类型，三条迁移边读同一个被点名集合，逐条原样带过并在 v2 标记 `ignorable: true`。
 - **为什么**：迁移边拒绝一切不在冻结清单上的历史事件类型，本 fork 的产品线写过的事件因此让整份会话日志打不开。
 - **要达到的效果**：被点名的类型原样过边，其余未点名的仍被拒绝。
-- **退役条件**：上游把这些类型纳入自己的迁移清单，或 fork 不再需要打开这些会话。
+- **退役条件**：上游把这些类型纳入自己的迁移清单，或为迁移边提供自定义词汇扩展点，或 fork 不再需要打开这些会话。
 - **状态**：在役（`core-patches-v10`）。核实依据：`LEGACY_UNINTERPRETED_EVENT_TYPES` 在 `upstream/master` 零命中。
+- **实证（按盘上语料，不是推断）**：本机 `~/.dsh` 全部 128 份日志逐份解压扫描——`permissionRules/decision` 命中 3 份，`attachment/materialized` **命中 0 份**。那 3 份的只读副本补丁前 `OPEN FAILED`、补丁后全部读回，原始文件 sha256 前后一致。语料回放另证第三条边（V2→V3）必要：`permissionRules/decision` 在纯 `upstream/master` 上被拒，只加本补丁即全部读出。
+- **提交信息订正**：本族提交信息写的「Two such types exist on this fork's disks」对 `attachment/materialized` 不成立——它在本机零命中，只会出现在触发过溢出附件的 rc.29／rc.30 用户机上。提交已推 origin、不改写历史，以本条为准。
 
 ## session-format-v0-legacy-shapes — 接住语料里仍在的三种遗留 v0 形状
 
 - **改了什么**：`session-format-v0-to-v1` 增加两个归一化器——`permission/preset` 去掉旧构建写下的多余成员，`subagent/descriptor` 把版本 2 改写为 3——并在处置表里点名本 fork 产品线写过的六种内容事件类型。
 - **为什么**：这三种形状由本 fork 发过的构建写下，v0 边拒绝它们，对应会话打不开，并连带让内容搜索全库不可用。
 - **要达到的效果**：携带这三种形状的会话能打开、迁移、索引；接受面仍窄——其他多余成员、其他描述符版本、未点名的事件类型一律仍被拒绝。
-- **退役条件**：上游把这三种形状纳入自己的 v0 边，或语料里不再存在写下它们的构建的产物。
+- **退役条件**：上游把 `origin` 纳入 `permission/preset` 处置、为 descriptor 版本提供迁移、把这些内容事件类型纳入清单，或为迁移边提供自定义词汇扩展点，或语料里不再存在写下它们的构建的产物。
 - **状态**：在役（`core-patches-v10`）。
 - **Agent Note**：[`v0-migration-legacy-shapes`](../.agents/notes/implemented/bug-fix/2026-09-07-v0-migration-legacy-shapes.md)
 
@@ -233,8 +238,9 @@
 - **改了什么**：`ui-settings`／`ui-settings-general` 在设置触发行右端开一个同行贡献位（`settings.trigger.action`），并给它一个打开设置面板的 opener；触发行自己拥有该贡献位所在的 hover 面。
 - **为什么**：仓外插件要在设置行右端放一个自己的动作，没有任何槽位可用。
 - **要达到的效果**：插件在设置行右端占位，hover 表现与该行一致。
-- **退役条件**：上游在设置触发行提供等价贡献位。
+- **退役条件**：上游在设置触发行提供等价贡献位，或 fork 改用上游桌面外壳、不再需要那个更新按钮插件。
 - **状态**：在役（`core-patches-v10`）。核实依据：`settings.trigger.action` 在 `upstream/master` 零命中。
+- **滚动同步注意**：这是 client-UI 补丁，每轮都要重新移植并重新核实。两处会撞行：`SettingsRoot.tsx` 传给本位的 `openSection` 与 onboarding 位共用同一个 `useCallback`，上游改那段时两处一起看；宽行的悬停面落在 `SettingsRoot.module.css` 的触发行选择器上，上游改触发行悬停样式会与它撞。`slot-catalog.ts` 是生成物，冲突时取上游侧后重跑 `pnpm run gen-client-catalog`。
 - **Agent Note**：[`settings-trigger-action-slot`](../.agents/notes/implemented/feature/2026-09-11-settings-trigger-action-slot.md)
 
 ## user-message-action-seat — 用户消息上的贡献位
@@ -262,6 +268,7 @@
 - **要达到的效果**：文本文件像图片一样经服务边界准入、按内容寻址持久化、可按引用重新读取校验。
 - **退役条件**：上游为 `@deepseek-ai/dsh-attachment` 添加镜像图片的文件准入与存储服务边界。
 - **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109 通用文件上传）。与我方实现的差异：上游不做文本嗅探、不设限额、按 verbatim 存任意字节，文件对象落在两棵新树而不是与图片共用的对象树。
+- **已知破坏性变化（rc.29／rc.30 发出的构建）**：我方实现把文件对象写在 `attachments/v1/objects/`，上游只读 `file-objects/` 与 `files/` 两棵树，因此那两个版本写下的文件附件在 `core-patches-v7` 及其后的基座上**一律读不回来**。2026-09-05 决定**不做读侧回退**：受影响的只有文件附件这一条通路，日志与图片照常，而回退要在上游的存储实现里再加一棵历史树。`session-export-unreadable-entries` 的通用文件半边正是为这批会话仍能整包导出而做。
 
 ## llm-file-attachments — 文件附件上线、入日志、进请求
 
@@ -309,7 +316,9 @@
 - **为什么**：跨版本引导会把不同格式的记录混进同一个单元。
 - **要达到的效果**：引导只发生在版本相同时。
 - **退役条件**：上游采取等价判据。
-- **状态**：退役（结论不变，自 `0.1.3-alpha.1` 起未再移植）。
+- **状态**：退役（在 `core-patches-v6` 上退役，结论不变，自 `0.1.3-alpha.1` 起未再移植）。
+- **退役依据**：上游在同一个 `bootstrapLegacyUnit` 里加了 `acceptedStamps` 判据——当前版本加包属主显式声明的 `compatibleVersions`——是我方「必须同版本」的**超集**（同版本照旧引导，异版本默认不引导，另允许属主把特定旧版本声明为可读）；测试等价覆盖逐条核过，无缺口。上游方案还更优：保留我方补丁会让旧版本用户升级后丢掉全部投影缓存标题。
+- **为什么当初要做（真机故障链）**：rc.22 的家目录升到 rc.27 后，旧单文档里的记录被原样复制成当前版本的记录文档 → `storage-domain.open` 按新 schema 逐条校验抛错 → session-projection-cache 初始化失败 → 服务端拒启 → 桌面停在 startup failed。
 
 ## rescope-exact-edits — 重新锚定两处 rescope 精确编辑
 
@@ -317,7 +326,16 @@
 - **为什么**：锚点随上游文件变动而失配。
 - **要达到的效果**：rescope 脚本在当时的基座上可跑。
 - **退役条件**：上游改写该脚本或锚点不再存在。
-- **状态**：退役（结论不变，自 `0.1.3-alpha.1` 起未再移植）。
+- **状态**：退役（在 `core-patches-v2` 上退役，结论不变，自 `0.1.3-alpha.1` 起未再移植）。
+- **退役依据**：在新基座上不重落本补丁、直接跑 `pnpm run rescope-vendor:check`，结果为 `post-state verified — no residue, every exact edit landed, idempotent`；上游 `scripts/rescope-vendor.ts` 的 `EXACT_EDITS` 表里旧的 `packages/util/home` 锚点已随上游自身改动整体消失，中文 vendoring cookbook 链接锚点也已由上游自己修正。
+
+## file-part-bubble-card — 消息气泡里的文件分片卡
+
+- **改了什么**：曾新增 `FileCard.tsx`，由用户气泡与 Assistant block 直接内联渲染 `{kind:'file'}` 分片；点击先派发 `referent/open`，落空后切换内联展开/收起，经新增的 `loadFile`／`ISession.readFile`（对偶于既有的 `loadImage`／`readAttachment`）惰性抓取文本；`event-projection` 增 file 分支，宿主侧增 `session.file` 回读 RPC 与 `loadFile` 的失败错误码。
+- **为什么**：文件分片已经上了 wire、日志与请求物化，也进了 composer 草稿，但已发送的文件分片在消息气泡里完全不渲染。
+- **要达到的效果**：文件分片与图片分片一样在消息流里可见、可展开读回原文。
+- **退役条件**：上游自己的会话 UI 原生渲染文件内容分片。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109 的 `FileCard` 与混合附件呈现）。本条与 `referent-open-seam` 原是同一条补丁的两半：缝那一半在役、另立记录，文件气泡卡这一半连同 `session.file` 回读 RPC 与 `loadFile` 失败码两条随附提交一并不移植；`ReferentRef` 上那个只服务文件卡的 attachment 字段随其唯一生产者删除。
 
 ## clickable-reference-architecture-note — 三层可点引用架构的 Agent Note
 
@@ -327,10 +345,11 @@
 - **退役条件**：落地的每条缝各自带 Note。
 - **状态**：退役（在 `core-patches-v2` 上撤回，其后各轮均未重落）。该记录已拆进 `referent-open-seam` 与 `chat-prose-referents` 各自的 Note，本条不再单独存在。
 
-## secret-container-confirm — 发送位于已知密钥容器内的文件前确认
+## secret-container-confirm — 添加位于已知密钥容器内的文件时确认
 
-- **改了什么**：曾在 composer 发送位于已知密钥容器目录内的文件前弹出确认。
+- **改了什么**：曾新增 `secret-container.ts`——**纯名称/路径启发式判定，零内容读取**；composer 对文件草稿按已知密钥容器匹配（名称类 `.env`、`id_rsa`、`*.pem`；路径段类 `/.ssh/`、`/.aws/`），命中即弹两键确认。芯片进入**持续警示态**（描边 + 圆点 + 行内标签 + 行下方带「移除」的提示）。宿主侧另有一个**只可追加**的 `secretContainerExtraPatterns` 会话投影供部署扩充，基础名单从不上这根线。确认时机是**添加时按批**，不是发送时——发送时确认是被推翻的第一版设计。
 - **为什么**：用户可能在不经意间把凭据文件作为附件发出。
-- **要达到的效果**：此类文件发送前需要一次显式确认。
-- **退役条件**：上游为附件发送提供等价的密钥容器确认。
-- **状态**：退役（挂载点已随文件附件族退役）。上游无对应物、产品价值仍在；若要重做，需对着上游 PR #3109 的 `file-upload` 通路重新设计挂载点。
+- **要达到的效果**：此类文件在**加入草稿**时需要一次显式确认；「不添加」只撤销本批命中的子集，「仍要添加」是纯关闭；发送路径上不再二次追问。
+- **退役条件**：上游自带等价的添加时密钥容器确认（同款零内容读取、名单可追加，覆盖警示态文案与芯片布局）。
+- **状态**：退役（在 `core-patches-v7` 上随文件附件族退役，线上无提交）。
+- **待重做（第二片）**：上游无对应物、产品价值仍在，但整个挂载点（composer 文件草稿）已随文件附件族在 `core-patches-v7` 上退役，需对着上游 PR #3109 的 `file-upload` 通路与 `ComposerAttachments` 重新设计挂载位置。同族的另两条改动（确认时机从发送时移到添加时；Config 断言不再架空自己的注解）一并押后。
