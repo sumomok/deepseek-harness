@@ -123,6 +123,8 @@ export function PermissionSelect({ value, locked, command, t }: PermissionSelect
       id: option.value,
       label: permissionLabel(option.value, option.name, t),
       icon: permissionGlyph(option.glyph ?? option.value),
+      // The tone set is closed at one member, which the menu primitive already draws.
+      ...option.tone === 'danger' ? { danger: true } : {},
     }))
 
   const submit = (id: string): void => {

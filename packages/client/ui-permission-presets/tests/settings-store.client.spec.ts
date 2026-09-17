@@ -13,7 +13,8 @@ const SCHEMA = {
   refs: {
     1: { type: 'const', value: 'read-only' },
     2: { type: 'const', meta: { description: 'Workspace' }, value: 'workspace-write' },
-    3: { type: 'union', list: [1, 2] },
+    3: { type: 'union', list: [1, 2, 4] },
+    4: { type: 'const', meta: { description: 'Full access', extra: { tone: 'danger' } }, value: 'danger-full-access' },
     6: { type: 'object', dict: { defaultPreset: 3 } },
   },
 }
@@ -55,8 +56,19 @@ describe('permission settings store', () => {
       options: [
         { id: 'read-only', label: 'Read Only' },
         { id: 'workspace-write', label: 'Workspace' },
+        // The tone rides the union member's free-form metadata; the others carry none.
+        { id: 'danger-full-access', label: 'Full access', tone: 'danger' },
       ],
     })
+    const unnamedTone = {
+      uid: 2,
+      refs: {
+        1: { type: 'const', meta: { extra: { tone: 'caution' } }, value: 'read-only' },
+        2: { type: 'object', dict: { defaultPreset: 1 } },
+      },
+    }
+    expect(resolveDefault(view('read-only', 0, unnamedTone)).options)
+      .toEqual([{ id: 'read-only', label: 'Read Only' }])
     const single = {
       uid: 2,
       refs: {

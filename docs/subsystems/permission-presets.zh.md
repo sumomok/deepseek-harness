@@ -8,7 +8,7 @@
 
 ## 预设表
 
-预设是一个表键，映射到一个沙箱／审批组合，外加可选的客户端展示信息——label、description，以及选择器封闭设计集中的一个 glyph；默认预设表自带 `workspace-write`（`workspace-write` + `ask`）和 `danger-full-access`（`danger-full-access` + `never`）。
+预设是一个表键，映射到一个沙箱／审批组合，外加可选的客户端展示信息——label、description、选择器封闭设计集中的一个 glyph，以及其封闭调色板中的一个 tone；默认预设表自带 `workspace-write`（`workspace-write` + `ask`）和 `danger-full-access`（`danger-full-access` + `never`）。
 
 ```ts type-equiv
 /** One preset's sandbox/approval bundle and optional client presentation. */
@@ -23,6 +23,8 @@ interface PresetSpec {
   description?: string
   /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
   glyph?: PresetGlyph
+  /** Which palette tone the selector paints this preset's row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 ```
 
@@ -33,6 +35,16 @@ interface PresetSpec {
  * supplying artwork.
  */
 type PresetGlyph = 'read-only' | 'workspace-write' | 'danger-full-access'
+```
+
+```ts type-equiv
+/**
+ * One tone of the permission selector's palette. The set is closed: a
+ * presentation layer owns the colors, so a host names the meaning — `danger`
+ * marks the entry whose knobs hand the machine over — instead of supplying a
+ * color. A preset naming none renders in the plain label color.
+ */
+type PresetTone = 'danger'
 ```
 
 ```ts type-equiv
@@ -58,7 +70,7 @@ interface Config {
 
 `current(session)` 从可选注册的 `permissions` 投影派生实际生效的预设。该单元折叠会话的沙箱模式、审批策略和已记录选择；状态内部的缺失值回退到执行器配置的模式与审批服务配置，最后回退到 `ask`。注册表或投影 key 缺失时会显式失败。服务优先取仍然匹配的选择，其次取声明顺序中第一个匹配的表项，否则返回 `CUSTOM_PRESET`（`'custom'`）。`custom` 只是派生值：客户端可以把它显示为当前值，但它绝不是切换目标，也绝不出现在事件 payload 中。
 
-`names` 按预设表声明顺序列出可切换的预设；`optionOf(name)` 为某个表键（label 回退为该键，glyph 原样传出）或 `custom` 构建客户端渲染的选项，传入其他任何名称都会抛出异常。
+`names` 按预设表声明顺序列出可切换的预设；`optionOf(name)` 为某个表键（label 回退为该键，glyph 与 tone 原样传出）或 `custom` 构建客户端渲染的选项，传入其他任何名称都会抛出异常。
 
 ```ts type-equiv
 /** The select-option shape a presentation layer advertises for one preset (or for the derived `custom` state). */
@@ -71,6 +83,8 @@ interface PresetOption {
   description?: string
   /** Which design-set glyph the selector shows; a preset whose id is itself a glyph name needs none. */
   glyph?: PresetGlyph
+  /** Which palette tone the selector paints this row in; omitted rows take the plain label color. */
+  tone?: PresetTone
 }
 ```
 

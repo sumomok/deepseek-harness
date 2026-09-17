@@ -33,6 +33,14 @@ core-patches 分支上的每一个补丁在此登记；新增、修改、退役�
 - **本轮（`core-patches-v8`）**：在役，提交 `836f492f24`。核实依据：上游 `PermissionSelect.tsx` 的 `permissionGlyph(value)` 仍只按 `option.value` 从写死的 `permissionGlyphs` Map 取图标。冲突只在双语 README 摘要段：上游整段重写并缩短，**决定**取上游新段 + 我方 glyph 一句；随后 `verify-package-readme-summaries` 报 126 词超 100 词上限，glyph 一句再缩成「A table entry may also name its selector `glyph`.」，闭合取值集合的唯一出处仍是 `PresetGlyph` 的 JSDoc 与由它生成的 config catalog（见 `9cdb93dfb6`）。
 - **本轮（`core-patches-v9`）**：在役，提交 `674f4c73bd`。核实依据：`PresetGlyph` 在 `upstream/master` 零命中，`permissionGlyph` 仍只按 `option.value` 从写死的 `permissionGlyphs` Map 取图标。**本补丁自带的 `shieldOutline` 字面量本轮局部退役**：上游把盾牌轮廓提成 `ui-primitives` 的 `SHIELD_OUTLINE_PATH`/`SHIELD_OUTLINE_STROKE` 并新增 `IconShieldOutline16`，`bareShield` 改用这两个常量，补丁不再自带路径数据——补丁本身（preset 自己命名 glyph）不受影响。不改用 `IconShieldOutline16`：同文件三枚内置图标都是就地 svg 组合同一 path，上游导出这两个常量正是为此，裸盾牌是这组的第四个成员，就地写法保住了与兄弟行一致的 `aria-hidden`。冲突落在该组件的图标注释与常量：注释取上游版并补回「其余键画裸轮廓」一句。
 
+### 族内扩展（rc.33 集成期）：预设自己声明选择器色调 — `tone`
+- **改了什么**：`PresetSpec`/`PresetOption` 在 `glyph` 旁新增可选 `tone` 字段（封闭枚举 `PresetTone = 'danger'`，贯穿 schemastery Config schema 与权限投影的 zod wire schema）；`optionOf()` 原样带出；`presetChoice()` 把色调挂到 `defaultPreset` 设置 union 各成员的 schemastery `meta.extra`（`description` 已占着 label 位）；`PermissionSelect.tsx` 与 `PermissionRow.tsx` 把 `tone === 'danger'` 的行转成 `ui-primitives` `Menu` 原件既有的 `danger` 行（`--dsw-alias-state-error-primary` 文字与图标 + 危险悬停底色）；`settings-store.ts` 从 `meta.extra.tone` 读出该字段。fork 侧落点是 `packages/bundle/base/cordis.patch.yml` 给 `danger-full-access` 标 `tone: danger`。
+- **为什么**：两个挑选访问模式的界面（输入框旁菜单、设置页默认预设行）把每行画成同一个标签色，`danger-full-access` 与 `workspace-write` 看不出分别，而两处的风险确认都在点击之后才弹。哪一行危险判不在客户端：预设表是宿主配置，网关层还会加一行同为完全权限捆绑、但会审查会问人、故意不该变红的 `yolo-access`（它甚至指名完全权限那枚 glyph）。
+- **要达到的效果**：宿主在自己的预设表里标一行，两个访问模式菜单就把那一行画成破坏性行；未声明色调的行渲染与改动前逐字节一致；插件自带默认表不标色调。
+- **退役条件**：上游以任何形式给预设行提供语义色或危险标记扩展点（不限于同名字段），即退役该 overlay，依赖插件/配置适配上游形式。
+- **状态**：在役。核实依据（`upstream/master` = `0d1f50007f`）：`PresetTone`/`tone` 在上游的 `packages/interaction/permission-presets`、`packages/client/ui-conversation`、`packages/client/ui-permission-presets` 零命中；`PermissionRow` 的 `Menu` items 仍只传 `id`/`label`，`PermissionSelect` 的 items 仍只传 `id`/`label`/`icon`。设计与备选见 [Agent Note](../.agents/notes/implemented/feature/2026-09-17-permission-preset-danger-tone.md)。
+- **未覆盖面**：`/permission` 命令弹窗（`ui-permission-presets` 的 popupSelect）与两处收起态按钮不上色——`SelectOption` 不带色调字段，扩到那里要再动 `ui-commands`。
+
 ## feat(ui-conversation): open a contribution seat on user messages — e675dd6486
 - **改了什么**：新增会话作用域 list slot `conversation.chat.user-actions`；`ChatView` 声明该位并经 `ChatNodeOwnerProps` 向每个 chat node 传下 `renderUserActions`；`slot-catalog.ts`/`ChatNodeSeat.tsx`/`MessageItem.tsx` 相应改动。
 - **为什么**：已定稿 assistant 消息有 `conversation.chat.assistant-actions` 贡献位，用户消息没有对应物——`UserMessageNodeView` 不声明 children 表，插件只能整体遮蔽 keyed `user` 条目才能加一个按钮，逼得想要该能力的插件把操作放到不是该消息的地方（composer dock 或 assistant 行）。
