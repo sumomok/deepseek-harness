@@ -60,12 +60,14 @@
 - **为什么**：全新会话里把一条命令作为第一条消息发出，host 已执行并落盘，但界面停在欢迎页、侧栏不列出该会话——host 折叠只认 `turn/start`。而「每条命令都转正」同样错：欢迎页自己的访问模式 chip 运行的就是 `/permission`，会话若因此转正，人在为尚未开始的会话设访问模式的那一刻就失去欢迎页。
 - **要达到的效果**：只跑过转正命令的会话有侧栏行、打开在自己的转录上；只跑过 `/plan`／`/permission` 的会话一切照旧。翻转点是 `command/run` 而非 `command/done`。
 - **退役条件**：上游自己让命令声明是否使会话转正（`CommandDefinition` 出现等价字段，或 `applySessionListMetadata` 自己按某种声明在 `command/run` 上清除 `blank`），且客户端镜像在同一判据上转正。两半各自判定。
-- **状态**：在役（`core-patches-v10`）。核实依据：`engages` 在上游 `commands`、`session-controller`、`plan`、`permission-presets` 四包零命中；上游本轮把 `session-list-blank.host.spec.ts` 重写成「命令生命周期事件保持 blank」，方向与本族相反，退役条件因此未满足。
+- **状态**：在役（`core-patches-v10`）。核实依据：`engages` 在上游 `commands`、`session-controller`、`plan`、`permission-presets` 四包零命中；`git show upstream/master:packages/api/session-controller/src/list.ts` 的 `applySessionListMetadata` 与 v9 基座逐字相同（折叠仍只认 `turn/start`），上游既没加字段也没改折叠，退役条件两半都未满足。**本轮上游对 `session-list-blank.host.spec.ts` 的唯一改动是 `attach` 改 async**（上游 PR #3583），本族的适配提交只跟这一处。
+- **待拍板：要不要继续背这条语义分歧**。`upstream/master` 该 spec 的模块头注释明写「standalone plugin events — command lifecycle records … never flip it」，与本族的契约相反；该注释在 v9 基座上就已经是这样，v9 已经覆盖它，不是本轮新出现的冲突。上游的意图是明示的，不是疏忽，fork 的「退化条款」（上游一改同处即退役去适配）在字面上未触发（上游没改 `list.ts`），但这正是该条款想覆盖的情形，需要显式确认「继续背」。
+- **已知后果（未立案迁移）**：`applySessionListMetadata` 的 `stateVersion` 有意停在 1（`packages/api/session-controller/src/list.ts` 的注释写明理由：升版会让每个未重开的会话丢掉 `lastPromptAt`，整条侧栏改按创建时间排序与标注，代价大于纠正 `blank`）。因此**本次构建之前跑过命令的会话保留旧的 blank 判决，不会自愈**；要不要做一次性迁移未定。
 - **Agent Note**：[`command-engages-blank-session`](../.agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.md)
 
 ## connection-state-event — 连接粗粒度状态作为类型化客户端事件
 
-- **改了什么**：`client-runtime` 广播 `connection/state` 类型化事件，取值为该连接实际的三态模型。
+- **改了什么**：`packages/client/connection/src/client/index.ts` 声明 ROOT 作用域客户端事件 `connection/state`，`packages/api/gateway/src/client/index.ts` 在连接状态变化时派发它，取值为该连接实际的三态模型。
 - **为什么**：仓外客户端插件要按连接状态显隐自己的界面，只能轮询运行时内部对象。
 - **要达到的效果**：插件订阅一个类型化事件即可跟随连接状态，不碰运行时内部。
 - **退役条件**：上游自己广播等价的连接状态事件。
@@ -131,7 +133,13 @@
 - **为什么**：选择器的图标表按 option 值硬编码在客户端里，只有三个内置预设 id 能解析到图样；部署自配的预设渲染成一行没有图标的文字，且没有任何插件层能从外部修正。
 - **要达到的效果**：部署自配的预设能点名一枚设计集图标；任何其他键画裸盾牌，因此没有一行是无图标的。
 - **退役条件**：上游让宿主配置的预设决定选择器图标（`PresetSpec`／`PresetOption` 出现等价字段）。
-- **状态**：局部退役（`core-patches-v10`）。族整体在役，核实依据：`PresetGlyph` 在 `upstream/master` 零命中。两处局部退役：本补丁加在 `permissions` 投影 zod wire schema 里的 `glyph` 校验随上游删除该 schema 一并消失（上游把目录改成类型化的 `@Remote('catalog')`，wire view 只剩 `currentValue`），schemastery 侧的闭集校验原样保留；trigger 上那条指向同包兄弟 `ModelSelect` 的注释随上游把 `ModelSelect` 移入 `ui-model-selection` 而丢弃。
+- **状态**：局部退役（`core-patches-v10`）。族整体在役，核实依据：`PresetGlyph` 在 `upstream/master` 零命中；schemastery 侧的闭集校验（`PRESET_GLYPHS` + `z.union`）与 `optionOf` 透传原样保留，未知名称仍在插件加载时带配置路径失败。四处局部退役：
+  1. **投影 wire schema 里的 `glyph` 校验**：上游 PR #3304 把目录改成类型化的 `@Remote('catalog')`，`permissions` 投影的 wire view 只剩 `currentValue`，本补丁加在那份 zod 里的闭集校验随该 schema 一并消失。
+  2. **`projection.spec` 的「经 wire schema 服务一枚配置的 glyph」用例**：同一原因，该投影不再带 `options`，用例已无被测对象，取上游侧。替代覆盖在 `permission-presets.spec.ts` 的「carries a configured design-set glyph into the option and rejects any other name at load」（含 `glyph: 'sparkles'` 的加载期拒绝）。
+  3. **本补丁自带的 `shieldOutline` 路径数据**：上游把盾牌轮廓提成 `ui-primitives` 的 `SHIELD_OUTLINE_PATH`/`SHIELD_OUTLINE_STROKE`，`PermissionSelect.tsx` 的两枚盾牌图标与 `bareShield` 现在全部读这两个常量，补丁不再自带路径。不改用上游的 `IconShieldOutline16`：同文件三枚内置图标都是就地 svg 组合，裸盾牌是这组的第四个成员，就地写法保住了与兄弟行一致的 `aria-hidden`。
+  4. **README Summary 里的 glyph 说明**：上游整段重写了 `packages/interaction/permission-presets/README.md` 的 Summary，且该段受字数上限约束，本补丁原先压进去的那句（「A table entry may also name its selector `glyph`.」）随之丢弃。glyph 只剩「Configuring presets」一段说明。
+  trigger 上那条注释的丢失**不是** `ModelSelect` 迁包造成的——`ModelSelect.tsx` 在 v9 基座上就已在 `ui-model-selection`，与 `PermissionSelect` 本就不同包。真实原因是上游把 `PermissionSelect` 迁进新包 `ui-permission-presets` 并自己拥有了那几行 chevron JSX，本补丁不再新增它们，注释因此失去落点。
+- **提交信息订正**：本族有一条 `adapt(permission-preset-glyph)` 提交的信息首段描述的是前一提交已完成的组件搬迁（glyph 用例随组件进入 `ui-permission-presets`），与它自己的 diff 不符——该提交的实际改动只有既有用例的 svg 计数 1→2 加一条注释。提交已推 origin、不改写历史，以本条为准。
 - **Agent Note**：[`permission-preset-glyph`](../.agents/notes/implemented/feature/2026-08-23-permission-preset-glyph.md)
 
 ## referent-open-seam — `referent/open` 引用点击拦截缝
@@ -140,7 +148,7 @@
 - **为什么**：浏览器会话 UI 里每一处「打开该引用」各自直连打开动作，仓外插件无法在任何一处之前介入。
 - **要达到的效果**：此后新增的可点元素只要派发就自动可拦截；监听者不调用 `next()` 即认领该次点击，抛出或拒绝按等同于 `next()` 处理，因此一次点击总能落到某个打开动作上。
 - **退役条件**：上游自己提供等价的引用点击拦截点。
-- **状态**：在役（`core-patches-v10`）。核实依据：`referent/open` 在 `upstream/master` 零命中。上游的 `verify-concrete-terms` 拒绝本缝原字段名里那个含糊的来源标签，字段因此改名为 `enteredAs`，取值与语义不变。
+- **状态**：在役（`core-patches-v10`）。核实依据：`referent/open` 在 `upstream/master` 零命中。上游 PR #3151 新增的 `scripts/verify-concrete-terms.ts` 拒绝本缝原字段名里那个含糊的来源标签，字段因此改名为 `enteredAs`，取值与语义不变。
 - **Agent Note**：[`referent-open-seam-port`](../.agents/notes/implemented/feature/2026-09-05-referent-open-seam-port.md)
 
 ## referent-target-probe — 批量路径存在性探测 `probeTargets`
@@ -325,4 +333,4 @@
 - **为什么**：用户可能在不经意间把凭据文件作为附件发出。
 - **要达到的效果**：此类文件发送前需要一次显式确认。
 - **退役条件**：上游为附件发送提供等价的密钥容器确认。
-- **状态**：退役（挂载点已随文件附件族退役）。上游无对应物、产品价值仍在；若要重做，需对着上游 PR #2984 的 `file-upload` 通路重新设计挂载点。
+- **状态**：退役（挂载点已随文件附件族退役）。上游无对应物、产品价值仍在；若要重做，需对着上游 PR #3109 的 `file-upload` 通路重新设计挂载点。
