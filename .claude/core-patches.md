@@ -1433,3 +1433,23 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 **退役判据（与 0.4.0 起写进插件 patch 文件里的那条一致）。**上游 0.1.6-alpha.1 已带一个实验性的受审访问方式（`AUTO_PRESET` / `registerAuto`，id `auto`，尚未进默认组合）。一旦它进入默认组合或桌面载荷——`git grep -n "AUTO_PRESET\|registerAuto" upstream/master -- packages/bundle/base packages/interaction/permission-presets`，或 base 预设表里出现 `auto` 行——这一行连同带围墙那档的审查开关与判官路由设置一起退役，改为适配上游形式。
 
 **门禁实跑（HEAD = 本节所在提交的父提交 `b385867a8a`）。**`pnpm install --offline` 0（装好的副本实证为 `0.4.3`）→ `gen-third-party-notices` 重跑并提交 → `typecheck` 0 → `lint` 0 → `vitest run apps/desktop-shell` **28 文件 / 640 条全绿**（含 `vendored-client-runtime.client.spec.ts` 16 条：0.4.3 的浏览器那一半在真客户端运行时里 `apply` 通过）→ `doc-sync` **36/36** → `pnpm install --frozen-lockfile` 0（`Already up to date`）。未打包。
+
+### 集成期追加：llm-permission-gateway 0.4.3 → 0.4.6（判官走 JSON 模式、审查前想多久、完全权限行红色）
+
+**`@haoran/dsh-llm-permission-gateway` `0.4.3` → `0.4.6`。**tarball sha256 `37f565ffeb36d0588fbeff1a6984ee944dfdd1a4991057ce64d7223783ea044f`，222734 字节（复制进 `apps/desktop-server/vendor/` 前后各核一次，一致）。落点：`apps/desktop-server/package.json` 的 `file:` 声明、`scripts/gen-third-party-notices.ts` 与重跑出的 `THIRD_PARTY_NOTICES.md`、`pnpm-lock.yaml`（diff 只有本包的 6 增 6 删）、`apps/desktop-shell/README.{md,zh.md}` 与重录的 `README.i18n.yaml`。`apps/desktop-shell/tests/builtin-permission-gateway.spec.ts` **本次一字未改**：0.4.3 的重述表不带 `tone`，而基座 `8704a1fb7f` 的 `packages/bundle/base/cordis.patch.yml` 已给 `danger-full-access` 标上它，`leaves every dsh-base preset exactly as dsh-base composes it` 因此在换包前为红、换包后自己转绿（12/12）。`apps/desktop-app/cordis.patch.yml` 的 `llm-permission-gateway` 行未动：该行注释的两条前提在 0.4.6 上仍成立——`provider` 与 `model` 仍是它 `Config` 里仅有的两个必填项、也仍是它自己 patch 层只写的两个键（0.4.4 新增的 `walledReview` 带 schema 默认值，不进 patch 层）。
+
+**带围墙那两档的审查开关换了键，旧值一律不算数。**0.4.4 把它从 `mode: auto | manual` 改成 `walledReview` 布尔，出厂 `false`；复选框、`/review auto|manual` 与 `config.walledReview` 写的都是它。旧键仍被 schema 接受（存过它的 profile 还能装上），但没有任何代码读它，也**不迁移**：`auto` 说的是「这道门开着」，不是「仅可查看与工作区内修改这两档要审」——照旧值迁过来，等于把出厂关着的开关在这些安装上打开。仍在 `config` 里写 `mode` 的 profile 在加载时被点名一次并告知替代键；只是存了旧值的人不会看到这行。
+
+**每一次审查都按供应商的 JSON 模式发出。**请求带 `responseFormat: { type: 'json_object' }`，装了 `llm-response-format` 核心补丁的宿主由供应商自己保证答案是合法 JSON，格式不再依赖判官听话；提示词照旧写明 JSON 并给出示例对象，这是该模式自己的规定。不吃这个字段的适配器（在树的 pi-ai 答 `UNSUPPORTED_OPTION`）会被立刻不带格式重发一次，并把该路由记下、此后不再带；0.4.6 把这条识别改成先看适配器自报的机器码、没有码时再读消息里的字段名。宽松解析仍在：答案里恰好一个配平的 `{…}` 就算数（外面裹一句话、裹一层代码围栏都容得下），两个对象一律不算——在一段文字里挑一个决定，正是能把第二个对象塞进答案的人所指望的。
+
+**档位对着真正会答题的那个模型解析，一次一路由。**0.4.5 起 `ctx.llm.resolveModelInfo` 每条路由只问一次，答案留到路由变化或适配器增删为止，分三支：完全不报推理的模型不带档位发（`dsh-llm` 会拒收给这种模型指定档位的请求）；报出该档位的模型照发（省掉档位不等于「别想」，那是取该模型自己的默认值）；报出档位但没有这一档的，在宿主日志上点名一次，改用 `config` 里那条路由审查。答案没回来之前发的是配置里的档位。这条修的是 0.4.4 的真 bug：它把配置里的 id 发给每一条被选中的路由，而多数适配器下的模型不报推理，于是选中它们当判官就等于每一次审查都失败。
+
+**设置页多出一组档位单选。**在模型选择器下面，按所选模型自己报出的档位逐个画一行，另有一行跟随安装时的设置（出厂态）；存为本插件命名空间下的 `judgeReasoningEffort`，换模型即清空。中文写作「审查前先想多久」（关 / 低 / 高 / 最高），字典没有词的 id 按宿主目录给的名字显示——也就是输入框那枚思考控件显示的那个词，不是页面自己发明的。页面看不到模型时（跟随安装设置的那一档是宿主侧决定的）只提示先选模型，不给档位。选了档位的审查第一轮就按 `maxOutputTokens + reasoningBudgetTokens` 发出、不再重试。出厂仍是关。
+
+**重述表给 `danger-full-access` 标 `tone: danger`。**两处访问方式菜单（输入框旁的与设置页默认预设行）把完全权限那一行画成破坏性行；`yolo-access` 不标——它没有围墙，但仍然会问人。这是 `02845b1c37`（`feat(permission-presets)` 族内扩展）在桌面装机上生效的另一半：id 定向 patch 整体替换 `permission` 的 `config`，桌面上真正生效的是网关那份重述表，只改基座不上色。
+
+**审批记录读起来更实。**0.4.6 起越权申请的记录写的是**它自己那次审查**发出时的档位，而不是记录落盘时路由上的那个——审查在飞的过程中路由被换掉，此前会把这次决定的代价记错。每条记录同时带 `responseFormat`，说明这次审查是按哪种答案格式发出的。0.4.6 另把模型信息查询挂在一次取消上，插件卸载或路由知识被丢弃时它就结束，适配器往返不会活过提问本身、也不会落在没人发请求的路由上。
+
+**退役判据（与 0.4.3 小节相同那条）。**上游 0.1.6-alpha.1 已带一个实验性的受审访问方式（`AUTO_PRESET` / `registerAuto`，id `auto`，尚未进默认组合）。一旦它进入默认组合或桌面载荷——`git grep -n "AUTO_PRESET\|registerAuto" upstream/master -- packages/bundle/base packages/interaction/permission-presets`，或 base 预设表里出现 `auto` 行——这一行连同带围墙那档的审查开关与判官路由设置一起退役，改为适配上游形式。
+
+**门禁实跑（HEAD = 本节所在提交的父提交 `8704a1fb7f`）。**`pnpm install --offline` 0（装好的副本实证为 `0.4.6`）→ `gen-third-party-notices` 重跑并提交 → `pnpm exec vitest run apps/desktop-shell apps/desktop-server` 0（**28 文件 / 657 条全绿**，其中 `builtin-permission-gateway.spec.ts` 12/12）→ `pnpm run typecheck` 0 → `pnpm run lint` 0 → `pnpm run doc-sync` **36/36 全绿** → `pnpm install --frozen-lockfile` 0（`Already up to date`）。未打包。
