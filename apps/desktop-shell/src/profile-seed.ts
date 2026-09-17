@@ -119,6 +119,7 @@ import {
 } from 'node:fs'
 import { homedir } from 'node:os'
 import { dirname, join, resolve } from 'node:path'
+import { FAILSAFE_SCHEMA, load } from 'js-yaml'
 
 /**
  * Bundle packages the desktop installer ships and mounts, in the order they
@@ -1227,18 +1228,21 @@ function syncWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport):
 }
 
 /**
- * A value the patch-layer recognizer below understands: a plain or quoted
- * scalar, a mapping, or a sequence. A tag, a block scalar, or flow syntax makes
- * the entry holding it unreadable here, which is what leaves that entry alone.
+ * What one patch entry holds, as `js-yaml`'s failsafe schema reads it: every
+ * scalar is a string, and the only other nodes are mappings and sequences.
  */
 type PatchValue = string | PatchValue[] | { [key: string]: PatchValue }
 
-/** One line of a patch entry, as {@link structuralLines} hands it on. */
-interface PatchLine {
-  /** Its leading spaces. */
-  indent: number
-  /** The rest of the line, with trailing whitespace removed. */
-  text: string
+/**
+ * Whether a node the failsafe schema produced is a {@link PatchValue}.
+ *
+ * The schema's own node kinds are strings, mappings, and sequences, so the one
+ * thing this rejects is the `null` an empty node parses to.
+ * @param value - one node the parse returned.
+ * @returns true when {@link canonical} can serialize it.
+ */
+function isPatchValue(value: unknown): value is PatchValue {
+  return typeof value === 'string' || (typeof value === 'object' && value !== null)
 }
 
 /** The lines one top-level patch entry occupies, and what the recognizer read from it. */
@@ -1251,145 +1255,17 @@ interface PatchEntry {
   value?: PatchValue
 }
 
-/** One parsed block and the index of the first line after it. */
-interface PatchParse {
-  /** What the block holds. */
-  value: PatchValue
-  /** The first line the block does not cover. */
-  next: number
-}
-
-/**
- * The lines of one entry that carry structure, with blanks and comment-only
- * lines dropped.
- * @param raw - the entry's lines, verbatim.
- * @returns the structural lines, or undefined when one is indented with a tab.
- */
-function structuralLines(raw: readonly string[]): PatchLine[] | undefined {
-  const lines: PatchLine[] = []
-  for (const line of raw) {
-    const text = line.replace(/\s+$/, '')
-    const lead = /^\s*/.exec(text)?.[0] ?? ''
-    if (lead.includes('\t')) return undefined
-    const body = text.slice(lead.length)
-    if (body.length === 0 || body.startsWith('#')) continue
-    lines.push({ indent: lead.length, text: body })
-  }
-  return lines
-}
-
-/**
- * One scalar as written, or undefined for anything whose meaning depends on the
- * loader's own YAML schema rather than on the text alone.
- * @param text - the scalar, with surrounding whitespace already removed.
- * @returns the string value, or undefined when this is not a plain or simply quoted scalar.
- */
-function parseScalar(text: string): string | undefined {
-  const single = /^'([^']*)'$/.exec(text)
-  if (single !== null) return single[1] ?? ''
-  const double = /^"([^"\\]*)"$/.exec(text)
-  if (double !== null) return double[1] ?? ''
-  if (/^[!&*|>{}[\]%@`]/.test(text) || text.includes(' #')) return undefined
-  return text
-}
-
-/** A mapping key and, when the value is on the same line, that value. */
-const PATCH_KEY_LINE = /^([A-Za-z0-9_][\w.-]*):(?:[ \t]+(\S.*))?$/
-
-/**
- * Read one block — a mapping or a sequence — at a known indentation.
- * @param lines - the entry's structural lines.
- * @param at - where the block starts.
- * @param indent - the indentation every member of the block sits at.
- * @returns the block and the line after it, or undefined for anything unreadable.
- */
-function parseBlock(lines: readonly PatchLine[], at: number, indent: number): PatchParse | undefined {
-  const head = lines[at]
-  if (head === undefined || head.indent !== indent) return undefined
-  return head.text === '-' || head.text.startsWith('- ')
-    ? parseSequence(lines, at, indent)
-    : parseMapping(lines, at, indent)
-}
-
-/**
- * Read a sequence: every item's own block, re-read from the item's first
- * column so `- id: x` and a line under it are one mapping.
- * @param lines - the entry's structural lines.
- * @param at - the first `-` line.
- * @param indent - the indentation the `-` markers sit at.
- * @returns the items and the line after them, or undefined for anything unreadable.
- */
-function parseSequence(lines: readonly PatchLine[], at: number, indent: number): PatchParse | undefined {
-  const items: PatchValue[] = []
-  let cursor = at
-  for (;;) {
-    const head = lines[cursor]
-    if (head === undefined || head.indent !== indent) break
-    if (head.text !== '-' && !head.text.startsWith('- ')) break
-    const inline = head.text.slice(1).trimStart()
-    const body: PatchLine[] = inline.length === 0
-      ? []
-      : [{ indent: indent + head.text.length - inline.length, text: inline }]
-    cursor += 1
-    for (;;) {
-      const next = lines[cursor]
-      if (next === undefined || next.indent <= indent) break
-      body.push(next)
-      cursor += 1
-    }
-    const first = body[0]
-    if (first === undefined) return undefined
-    const parsed = parseBlock(body, 0, first.indent)
-    if (parsed === undefined || parsed.next !== body.length) return undefined
-    items.push(parsed.value)
-  }
-  return items.length === 0 ? undefined : { value: items, next: cursor }
-}
-
-/**
- * Read a mapping: `key: value` pairs at one indentation, each nested block one
- * level further in. A duplicate key is unreadable rather than resolved, since
- * which one wins is the loader's answer to give.
- * @param lines - the entry's structural lines.
- * @param at - the first key line.
- * @param indent - the indentation the keys sit at.
- * @returns the mapping and the line after it, or undefined for anything unreadable.
- */
-function parseMapping(lines: readonly PatchLine[], at: number, indent: number): PatchParse | undefined {
-  const node: { [key: string]: PatchValue } = {}
-  let cursor = at
-  for (;;) {
-    const line = lines[cursor]
-    if (line === undefined || line.indent < indent) break
-    if (line.indent > indent) return undefined
-    const matched = PATCH_KEY_LINE.exec(line.text)
-    if (matched === null) return undefined
-    const key = matched[1] ?? ''
-    if (key in node) return undefined
-    const inline = matched[2]
-    cursor += 1
-    if (inline !== undefined) {
-      const scalar = parseScalar(inline.replace(/\s+$/, ''))
-      if (scalar === undefined) return undefined
-      node[key] = scalar
-      continue
-    }
-    const child = lines[cursor]
-    if (child === undefined || child.indent <= indent) return undefined
-    const parsed = parseBlock(lines, cursor, child.indent)
-    if (parsed === undefined) return undefined
-    node[key] = parsed.value
-    cursor = parsed.next
-  }
-  return { value: node, next: cursor }
-}
-
 /**
  * Split a patch layer into its top-level entries and read each one.
  *
  * An entry runs from its own `- ` line to the last structural line before the
  * next one, so the blank line and the comment block a writer puts above the
- * next entry stay that entry's.
+ * next entry stay that entry's. Each one is then parsed on its own, under
+ * `js-yaml`'s failsafe schema: the loader's dialect is this same parser's
+ * default schema plus a `tag:yaml.org,2002:js` scalar type
+ * (`vendor/include/src/index.ts`), so reading without that type is literally
+ * "everything but what needs the loader's own schema", and refusing per entry
+ * is what leaves the rest of a file alone when one entry is unreadable.
  * @param lines - the file's lines.
  * @returns one record per top-level entry, in file order.
  */
@@ -1403,12 +1279,18 @@ function patchEntries(lines: readonly string[]): PatchEntry[] {
       const text = (lines[index] ?? '').trim()
       if (text.length > 0 && !text.startsWith('#')) end = index
     }
-    const structural = structuralLines(lines.slice(start, end + 1))
-    const parsed = structural === undefined ? undefined : parseBlock(structural, 0, 0)
-    const items = parsed?.value
-    if (parsed?.next !== structural?.length || !Array.isArray(items) || items.length !== 1) return { start, end }
-    const only = items[0]
-    return only === undefined ? { start, end } : { start, end, value: only }
+    let read: unknown
+    try {
+      read = load(lines.slice(start, end + 1).join('\n'), { schema: FAILSAFE_SCHEMA })
+    } catch {
+      // An entry the failsafe schema refuses — a tag, a duplicate key, a tab —
+      // is one whose meaning needs the loader's own schema. It is never matched
+      // and never removed.
+      return { start, end }
+    }
+    if (!Array.isArray(read) || read.length !== 1) return { start, end }
+    const only: unknown = read[0]
+    return isPatchValue(only) ? { start, end, value: only } : { start, end }
   })
 }
 
@@ -1530,9 +1412,8 @@ function removePatchEntries(lines: readonly string[], cut: readonly PatchEntry[]
  *
  * A row is removed only where it is still what was copied, field for field and
  * value for value. One that differs anywhere is an edit its owner made, and
- * stays with the reason named in {@link SeedReport.skipped} — this
- * module reads a patch layer only well enough to recognize its own leavings,
- * and refuses every entry whose meaning needs the loader's own YAML schema.
+ * stays with the reason named in {@link SeedReport.skipped}, as does an entry
+ * {@link patchEntries} could not read under the failsafe schema.
  *
  * The decision is recorded in {@link MigrationMarker.permissionPatch}, so no
  * later launch reads the file again. A profile with no marker at all gains
