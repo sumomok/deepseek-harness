@@ -65,7 +65,7 @@
 - **为什么**：全新会话里把一条命令作为第一条消息发出，host 已执行并落盘，但界面停在欢迎页、侧栏不列出该会话——host 折叠只认 `turn/start`。而「每条命令都转正」同样错：欢迎页自己的访问模式 chip 运行的就是 `/permission`，会话若因此转正，人在为尚未开始的会话设访问模式的那一刻就失去欢迎页。
 - **要达到的效果**：只跑过转正命令的会话有侧栏行、打开在自己的转录上；只跑过 `/plan`／`/permission` 的会话一切照旧。翻转点是 `command/run` 而非 `command/done`。
 - **退役条件**：上游自己让命令声明是否使会话转正（`CommandDefinition` 出现等价字段，或 `applySessionListMetadata` 自己按某种声明在 `command/run` 上清除 `blank`），且客户端镜像在同一判据上转正。两半各自判定。
-- **状态**：在役（`core-patches-v10`）。核实依据：`engages` 在上游 `commands`、`session-controller`、`plan`、`permission-presets` 四包零命中；`git show upstream/master:packages/api/session-controller/src/list.ts` 的 `applySessionListMetadata` 与 v9 基座逐字相同（折叠仍只认 `turn/start`），上游既没加字段也没改折叠，退役条件两半都未满足。**本轮上游对 `session-list-blank.host.spec.ts` 的唯一改动是 `attach` 改 async**（上游 PR #3583），本族的适配提交只跟这一处。
+- **状态**：在役（`core-patches-v10`）。核实依据：`engages` 在上游 `commands`、`session-controller`、`plan`、`permission-presets` 四包零命中；`git show upstream/master:packages/api/session-controller/src/list.ts` 的 `applySessionListMetadata` 与 v9 基座逐字相同（折叠仍只认 `turn/start`），上游既没加字段也没改折叠，退役条件两半都未满足。**本轮上游对 `session-list-blank.host.spec.ts` 的唯一改动是 `attach` 改 async**（上游 PR #3583）。本族的适配提交跟了两处上游改动：该 spec 的一行跟 `attach` 改 async，本族 Agent Note 三件套里的 `PermissionSelect.tsx` 链接跟的是上游把该组件迁进 `ui-permission-presets`（上游 PR #3304）。
 - **待拍板：要不要继续背这条语义分歧**。`upstream/master` 该 spec 的模块头注释明写「standalone plugin events — command lifecycle records … never flip it」，与本族的契约相反；该注释在 v9 基座上就已经是这样，v9 已经覆盖它，不是本轮新出现的冲突。上游的意图是明示的，不是疏忽，fork 的「退化条款」（上游一改同处即退役去适配）在字面上未触发（上游没改 `list.ts`），但这正是该条款想覆盖的情形，需要显式确认「继续背」。
 - **已知后果（未立案迁移）**：`applySessionListMetadata` 的 `stateVersion` 有意停在 1（`packages/api/session-controller/src/list.ts` 的注释写明理由：升版会让每个未重开的会话丢掉 `lastPromptAt`，整条侧栏改按创建时间排序与标注，代价大于纠正 `blank`）。因此**本次构建之前跑过命令的会话保留旧的 blank 判决，不会自愈**；要不要做一次性迁移未定。
 - **Agent Note**：[`command-engages-blank-session`](../.agents/notes/implemented/bug-fix/2026-09-10-command-engages-blank-session.md)
@@ -89,7 +89,7 @@
 ## core-patches-registry-gate — 按 slug 登记补丁身份与其门禁
 
 - **改了什么**：新增 `scripts/verify-core-patches.ts` 与 `package.json` 的 `verify-core-patches` 脚本，登记进 `scripts/run-gates.ts` 的 `doc-sync` 叶子列表，附 `scripts/verify-core-patches.spec.ts`；全线提交加 `Patch: <slug>` trailer；本文件按 slug 重写；Agent Notes 与 `packages/preset/agent-presets/src/index.ts` 里指向提交的散文改写为 slug、上游 PR 号或描述。
-- **为什么**：登记曾用提交哈希做身份。哈希每轮变基全部作废——上一轮登记的 284 个哈希里只有 72 个还能在当时的线上解析——而上游新增的 `verify-repository-references` 拒绝维护中的散文里出现能解析成本仓提交的十六进制串，两条一起使哈希不可用。
+- **为什么**：登记曾用提交哈希做身份。哈希每轮变基全部作废——上一轮登记的 284 个哈希里只有 72 个还能在当时的线上解析——而上游新增的 `verify-repository-references`（上游 PR #4060）拒绝维护中的散文里出现能解析成本仓提交的十六进制串，两条一起使哈希不可用。
 - **要达到的效果**：补丁身份随变基存活且可机械核对；登记与线互为约束，任一侧漏改即门禁失败。
 - **退役条件**：上游为引用门禁提供排除或配置口且本 fork 改回哈希登记，或上游自己提供等价的补丁登记机制。
 - **状态**：在役（`core-patches-v10`，本轮新增）。
@@ -142,9 +142,9 @@
 - **状态**：局部退役（`core-patches-v10`）。族整体在役，核实依据：`PresetGlyph` 在 `upstream/master` 零命中；schemastery 侧的闭集校验（`PRESET_GLYPHS` + `z.union`）与 `optionOf` 透传原样保留，未知名称仍在插件加载时带配置路径失败。四处局部退役：
   1. **投影 wire schema 里的 `glyph` 校验**：上游 PR #3304 把目录改成类型化的 `@Remote('catalog')`，`permissions` 投影的 wire view 只剩 `currentValue`，本补丁加在那份 zod 里的闭集校验随该 schema 一并消失。
   2. **`projection.spec` 的「经 wire schema 服务一枚配置的 glyph」用例**：同一原因，该投影不再带 `options`，用例已无被测对象，取上游侧。替代覆盖在 `permission-presets.spec.ts` 的「carries a configured design-set glyph into the option and rejects any other name at load」（含 `glyph: 'sparkles'` 的加载期拒绝）。
-  3. **本补丁自带的 `shieldOutline` 路径数据**：上游把盾牌轮廓提成 `ui-primitives` 的 `SHIELD_OUTLINE_PATH`/`SHIELD_OUTLINE_STROKE`，`PermissionSelect.tsx` 的两枚盾牌图标与 `bareShield` 现在全部读这两个常量，补丁不再自带路径。不改用上游的 `IconShieldOutline16`：同文件三枚内置图标都是就地 svg 组合，裸盾牌是这组的第四个成员，就地写法保住了与兄弟行一致的 `aria-hidden`。
-  4. **README Summary 里的 glyph 说明**：上游整段重写了 `packages/interaction/permission-presets/README.md` 的 Summary，且该段受字数上限约束，本补丁原先压进去的那句（「A table entry may also name its selector `glyph`.」）随之丢弃。glyph 只剩「Configuring presets」一段说明。
-  trigger 上那条注释的丢失**不是** `ModelSelect` 迁包造成的——`ModelSelect.tsx` 在 v9 基座上就已在 `ui-model-selection`，与 `PermissionSelect` 本就不同包。真实原因是上游把 `PermissionSelect` 迁进新包 `ui-permission-presets` 并自己拥有了那几行 chevron JSX，本补丁不再新增它们，注释因此失去落点。
+  3. **本补丁自带的 `shieldOutline` 路径数据**：上游把盾牌轮廓提成 `ui-primitives` 的 `SHIELD_OUTLINE_PATH`/`SHIELD_OUTLINE_STROKE`（上游 PR #3745，与本记录其余几处的 #3304 不是同一个 PR），`PermissionSelect.tsx` 的两枚盾牌图标与 `bareShield` 现在全部读这两个常量，补丁不再自带路径。不改用上游的 `IconShieldOutline16`：同文件三枚内置图标都是就地 svg 组合，裸盾牌是这组的第四个成员，就地写法保住了与兄弟行一致的 `aria-hidden`。
+  4. **README Summary 里的 glyph 说明**：上游整段重写了 `packages/interaction/permission-presets/README.md` 的 Summary（上游 PR #3304），且该段受字数上限约束，本补丁原先压进去的那句（「A table entry may also name its selector `glyph`.」）随之丢弃。glyph 只剩「Configuring presets」一段说明。
+  trigger 上那条注释的丢失**不是** `ModelSelect` 迁包造成的——`ModelSelect.tsx` 在 v9 基座上就已在 `ui-model-selection`，与 `PermissionSelect` 本就不同包。真实原因是上游把 `PermissionSelect` 迁进新包 `ui-permission-presets`（上游 PR #3304）并自己拥有了那几行 chevron JSX，本补丁不再新增它们，注释因此失去落点。
 - **提交信息订正**：本族有一条 `adapt(permission-preset-glyph)` 提交的信息首段描述的是前一提交已完成的组件搬迁（glyph 用例随组件进入 `ui-permission-presets`），与它自己的 diff 不符——该提交的实际改动只有既有用例的 svg 计数 1→2 加一条注释。提交已推 origin、不改写历史，以本条为准。
 - **Agent Note**：[`permission-preset-glyph`](../.agents/notes/implemented/feature/2026-08-23-permission-preset-glyph.md)
 
@@ -194,7 +194,7 @@
 ## session-export-unreadable-entries — 不可读附件写成归档条目而不撕裂流
 
 - **改了什么**：`session-log-export` 的 `archive.ts` 在附件对象读不出来时，把一条说明记录写进归档里该附件本该占的条目，而不是让 ZIP 流中断。图片半边是 `mediaEntry`/`unreadableMediaEntry`；通用文件半边是 `fileEntry`/`unreadableFileEntry`/`resumedFileChunks`——`fileEntry` 在产出条目前先拉存储的第一个分块（写入器本就在花这一个分块的内存预算），拉取被拒才改记录。两条路径共用 `unreadableAttachmentReason`。记录的路径键与碰撞前提写在 `archive.ts` 的 JSDoc 里。
-- **为什么**：一个读不出来的附件会让整次导出失败，用户拿不到任何内容，也看不到是哪个附件出的问题。现场触发源是仓外截图插件把 JPEG 按 `image/png` 声明保存，已写进日志的引用永久保留；通用文件半边则是上游把文件对象搬到 `file-objects/`／`files/` 之后，`attachment-text-file-kind` 时代写下的文件对象一律读不到（见该条的破坏性变化）。
+- **为什么**：一个读不出来的附件会让整次导出失败，用户拿不到任何内容，也看不到是哪个附件出的问题。现场触发源是仓外截图插件把 JPEG 按 `image/png` 声明保存，已写进日志的引用永久保留；通用文件半边则是上游把文件对象搬到 `file-objects/`／`files/`（上游 PR #3109）之后，`attachment-text-file-kind` 时代写下的文件对象一律读不到（见该条的破坏性变化）。
 - **要达到的效果**：不可读的图片留下带 `attachmentId`、`mediaType`、`bytes`、`width`、`height` 的记录，不可读的通用文件留下带 `attachmentId`、`name`、`bytes` 的记录（**文件记录没有 `mediaType`**，引用本身不带）；两者都附失败原因，条目数因此把它计在内。
 - **三项例外——导出并非总能完成**：(1) **取消仍撕裂**：`archive.ts` 的 `fileEntry` 与 `mediaEntry` 在返回不可读条目之前都先 `signal?.throwIfAborted()`，取消在两条路径上都让流出错；(2) **通用文件第一个分块之后抛出的失败仍撕裂**，字节已经上线，无法再改写成记录；(3) **读不出来的子会话日志仍让流出错**——`sessionLogTextEntries` 对没有存储日志的子会话直接抛错。
 - **安全动机（不可回退）**：`unreadableAttachmentReason` 只在失败是 `AttachmentError` 且带字符串 `code` 时写出 `code` 与 `message`，其余一律只写一行匿名原因。理由是本包对 attachment 包只有类型依赖、按 `name` 结构匹配，而 Node 的 fs 错误同样带字符串 `code` 且 `message` 含主机绝对路径——归档是用户会下载并转发的文件，**绝不回显可能含主机绝对路径的 message**。这比 `error.ts` 的「按 code 路由」更严，是有意的。
@@ -322,7 +322,7 @@
 - **要达到的效果**：引导只发生在版本相同时。
 - **退役条件**：上游采取等价判据。
 - **状态**：退役（在 `core-patches-v6` 上退役，结论不变，自 `0.1.3-alpha.1` 起未再移植）。
-- **退役依据**：上游在同一个 `bootstrapLegacyUnit` 里加了 `acceptedStamps` 判据——当前版本加包属主显式声明的 `compatibleVersions`——是我方「必须同版本」的**超集**（同版本照旧引导，异版本默认不引导，另允许属主把特定旧版本声明为可读）；测试等价覆盖逐条核过，无缺口。上游方案还更优：保留我方补丁会让旧版本用户升级后丢掉全部投影缓存标题。
+- **退役依据**：上游在同一个 `bootstrapLegacyUnit` 里加了 `acceptedStamps` 判据（上游 PR #3438）——当前版本加包属主显式声明的 `compatibleVersions`——是我方「必须同版本」的**超集**（同版本照旧引导，异版本默认不引导，另允许属主把特定旧版本声明为可读）；测试等价覆盖逐条核过，无缺口。上游方案还更优：保留我方补丁会让旧版本用户升级后丢掉全部投影缓存标题。
 - **为什么当初要做（真机故障链）**：rc.22 的家目录升到 rc.27 后，旧单文档里的记录被原样复制成当前版本的记录文档 → `storage-domain.open` 按新 schema 逐条校验抛错 → session-projection-cache 初始化失败 → 服务端拒启 → 桌面停在 startup failed。
 
 ## rescope-exact-edits — 重新锚定两处 rescope 精确编辑
@@ -332,7 +332,7 @@
 - **要达到的效果**：rescope 脚本在当时的基座上可跑。
 - **退役条件**：上游改写该脚本或锚点不再存在。
 - **状态**：退役（在 `core-patches-v2` 上退役，结论不变，自 `0.1.3-alpha.1` 起未再移植）。
-- **退役依据**：在新基座上不重落本补丁、直接跑 `pnpm run rescope-vendor:check`，结果为 `post-state verified — no residue, every exact edit landed, idempotent`；上游 `scripts/rescope-vendor.ts` 的 `EXACT_EDITS` 表里旧的 `packages/util/home` 锚点已随上游自身改动整体消失，中文 vendoring cookbook 链接锚点也已由上游自己修正。
+- **退役依据**：在新基座上不重落本补丁、直接跑 `pnpm run rescope-vendor:check`，结果为 `post-state verified — no residue, every exact edit landed, idempotent`；上游 `scripts/rescope-vendor.ts` 的 `EXACT_EDITS` 表里旧的 `packages/util/home` 锚点已随上游自身的包图重排整体消失（上游 PR #2911），中文 vendoring cookbook 链接锚点也已由上游自己修正。
 
 ## file-part-bubble-card — 消息气泡里的文件分片卡
 
