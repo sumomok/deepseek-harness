@@ -48,7 +48,7 @@ dsh --profile sdk-minimal
 <details>
 <summary>实现细节——点击展开</summary>
 
-该 bundle 的单个 insert 就是完整应用配置树：SDK stdio 启动与 JSON-RPC 服务、一个由环境配置的 DeepSeek 适配器、显式 agent 核心、按配置启用的 MCP 资源工具、本地子进程执行、按平台选择的持久 shell PTY，以及位于 `$DSH_HOME/sessions` 的未压缩 JSONL 持久化。它不继承其他 bundle，因此每个额外配置项都是显式 profile 变更。
+该 bundle 的单个 insert 就是完整应用配置树：SDK stdio 启动与 JSON-RPC 服务、一个由环境配置的 DeepSeek 适配器、显式 agent 核心、按配置启用的 MCP 资源工具、本地子进程执行、按平台选择的持久 shell PTY，以及位于 `$DSH_HOME/sessions` 的未压缩 JSONL 持久化。它不继承其他 bundle，因此每个额外配置项都是显式 profile 变更——包括本 fork 产品出厂关闭的两条通往 DeepSeek 的上报路径：[已装插件清单](../../llm/plugin-package-inventory-deepseek/README.zh.md)一行声明 `disabled: true`，[会话日志贡献器](../../session/session-log-deepseek/README.zh.md)一行携带 `enabled: false`——该字段的 schema 默认为开，这一行是唯一撤下该请求贡献的地方。
 
 ### 源码地图
 

@@ -17,8 +17,13 @@
     - id: deepseek-llm-api-extensions
       name: '@deepseek-ai/dsh-deepseek-llm-api-extensions'
 
+    # Held shut by its own schema field: `enabled: false` is what withholds the
+    # `dsh_session_log` request contribution this fork product does not send,
+    # because the plugin's schema defaults that field to true.
     - id: session-log-deepseek
       name: '@deepseek-ai/dsh-session-log-deepseek'
+      config:
+        enabled: false
 
     # Disabled: this fork product reports no installed-plugin inventory to DeepSeek.
     - id: plugin-package-inventory-deepseek

@@ -48,7 +48,7 @@ Like every shipped profile, it mounts [MCP resources](../../mcp/mcp-resources/RE
 <details>
 <summary>Implementation internals — click to expand</summary>
 
-The bundle's single insert is the complete application tree: SDK stdio startup and JSON-RPC serving, one environment-configured DeepSeek adapter, the explicit agent core, conditional MCP resource tools, local subprocess execution, a platform-selected persistent shell PTY, and uncompressed JSONL persistence under `$DSH_HOME/sessions`. It does not inherit another bundle, so every extra row is an explicit profile change.
+The bundle's single insert is the complete application tree: SDK stdio startup and JSON-RPC serving, one environment-configured DeepSeek adapter, the explicit agent core, conditional MCP resource tools, local subprocess execution, a platform-selected persistent shell PTY, and uncompressed JSONL persistence under `$DSH_HOME/sessions`. It does not inherit another bundle, so every extra row is an explicit profile change — including the two DeepSeek-bound reporters this fork product ships off: the [installed-plugin inventory](../../llm/plugin-package-inventory-deepseek/README.md) row is declared `disabled: true`, and the [session-log contributor](../../session/session-log-deepseek/README.md) row carries `enabled: false`, which is the only thing holding back a request contribution its own schema defaults to on.
 
 ### Source map
 
