@@ -112,7 +112,7 @@
     "@deepseek-ai/dsh-workflow": "workspace:^",
     "@deepseek-ai/dsh-workflow-worker-thread": "workspace:^",
     "@deepseek-ai/schemastery": "workspace:^",
-    "@haoran/dsh-auto-compact": "file:./vendor/haoran-dsh-auto-compact-0.1.0.tgz",
+    "@haoran/dsh-auto-compact": "file:./vendor/haoran-dsh-auto-compact-0.2.0.tgz",
     "@haoran/dsh-btw": "file:./vendor/haoran-dsh-btw-0.1.1.tgz",
     "@haoran/dsh-clickable-refs": "file:./vendor/haoran-dsh-clickable-refs-0.4.1.tgz",
     "@haoran/dsh-connection-banner": "file:./vendor/haoran-dsh-connection-banner-0.2.1.tgz",
