@@ -16,7 +16,7 @@ The third row answers to a different switch. `session-log-deepseek` reads `enabl
 
 `packages/bundle/base/tests/base.spec.ts` and `packages/bundle/sdk-minimal/tests/sdk-minimal.spec.ts` (both already parsing `cordis.patch.yml` through `entryListSchema` for other rows' `disabled`/`config` shape) assert each row's literal value in its own bundle, and resolve the `session-log-deepseek` row through that plugin's own schema so the assertion pins the value the plugin will read, not just the text in the file.
 
-The replay corpus is where the upload path stays covered: each SDK composition declares the policy its fixture records, three of them (`snapshots/sdk/text-turn`, `serial-created`, `subagent-dsh-sdk-diagnostic`) with `enabled: true`, the rest with `enabled: false`. A composition that declares neither would inherit whatever upstream's schema defaults to and change behavior under the fork's bundles without any fixture saying so.
+The replay corpus is where the upload path stays covered. Every composition named `sdk-*` declares the policy its fixture records — three with `enabled: true` (`snapshots/sdk/text-turn`, `serial-created`, `subagent-dsh-sdk-diagnostic`) and three with `enabled: false` — because `sdk.snapshot.ts` stacks those on their own `cordis.yml` alone. The other three (`session-title-after-turn`, `subagent-continuable-inheritance`, `subagent-send-message`) declare nothing and stack on the owner of composition `default`, `snapshots/session/text-turn/cordis.yml`, which declares `enabled: false` outright. An `sdk-*` composition that declared nothing would inherit upstream's schema default instead and change behavior under the fork's bundles without any fixture saying so.
 
 ## Alternatives considered
 

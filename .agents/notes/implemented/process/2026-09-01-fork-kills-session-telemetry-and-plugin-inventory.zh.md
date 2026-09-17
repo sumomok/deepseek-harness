@@ -16,7 +16,7 @@ Status: implemented
 
 `packages/bundle/base/tests/base.spec.ts` 与 `packages/bundle/sdk-minimal/tests/sdk-minimal.spec.ts`(两者本就通过 `entryListSchema` 解析 `cordis.patch.yml` 来检查其他行的 `disabled`/`config` 结构)各自断言本 bundle 里每一行的字面取值,并把 `session-log-deepseek` 行再经该插件自身的 schema 解析一遍,让断言钉住插件实际会读到的值,而不只是文件里的文本。
 
-上传通路的覆盖留在重放语料里:每个 SDK 组合各自声明自己夹具所记录的策略,其中三个(`snapshots/sdk/text-turn`、`serial-created`、`subagent-dsh-sdk-diagnostic`)声明 `enabled: true`,其余声明 `enabled: false`。一个两者都不声明的组合会继承上游 schema 的默认值,在 fork 的 bundle 下改变行为却没有任何夹具说明这件事。
+上传通路的覆盖留在重放语料里。名字以 `sdk-` 开头的组合各自声明自己夹具所记录的策略——三个声明 `enabled: true`(`snapshots/sdk/text-turn`、`serial-created`、`subagent-dsh-sdk-diagnostic`),三个声明 `enabled: false`——因为 `sdk.snapshot.ts` 对这些组合只叠它们自己的 `cordis.yml`。另外三个(`session-title-after-turn`、`subagent-continuable-inheritance`、`subagent-send-message`)什么都不声明,叠的是 `default` 组合的属主 `snapshots/session/text-turn/cordis.yml`,那里显式写着 `enabled: false`。一个什么都不声明的 `sdk-` 组合才会去继承上游 schema 的默认值,在 fork 的 bundle 下改变行为却没有任何夹具说明这件事。
 
 ## 权衡过的替代方案
 
