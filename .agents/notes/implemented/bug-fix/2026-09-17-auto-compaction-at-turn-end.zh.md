@@ -14,9 +14,9 @@ Related：[自动压缩的实时策略位](../feature/2026-09-14-auto-compaction
 
 ## Decision
 
-桌面组合里的 `@haoran/dsh-auto-compact`（0.2.2，以 tarball 形式进仓）把触发挪出了一轮之内。harness 的包一个都没改。
+桌面组合里的 `@haoran/dsh-auto-compact`（0.2.3，以 tarball 形式进仓）把触发挪出了一轮之内。harness 的包一个都没改。
 
-它的 `compactionPolicy.isEnabled()` 答 `false`，这正是这个位子被文档化的含义——`compaction-basic` 只用它门控压力路径，溢出恢复被刻意排除在外，因为那里提供方已经拒过请求。插件随后从一个 `agent/status` listener 在 running→idle 的转换上触发：读 `contextPressure`，调 `ctx.compaction.compactNow(agent, signal)`。
+它的 `compactionPolicy.isEnabled()` 答 `false`，这正是这个位子被文档化的含义——`compaction-basic` 只用它门控压力路径，溢出恢复被刻意排除在外，因为那里提供方已经拒过请求。插件随后从一个 `agent/status` listener 在 running→idle 的转换上触发：读 `contextPressure`，在服务这个 agent 的那台引擎上调 `compactNow(agent, signal)`——`ctx.get('agentPresets')?.serviceFor(agent, 'compaction') ?? ctx.get('compaction')`，原因见下一节。
 
 `compactNow` 是已发布的空闲入口。它经 `runMaintenance` 占住 agent 的空闲相位，所以后到的唤醒输入是排在压缩后面而不是与它抢；它的 `sourceCommandId` 是可选参数。不带这个参数的调用写下的是普通的 `compaction/start` / `summary` / `end` 标记对，`turn: null` 且不带 `sourceCommandId`，而这恰好就是 `compactionDefinition.match` 认领的东西——于是成功的一次渲染既有的检查点卡、失败的一次渲染既有的失败卡，不需要新会话事件、不需要新的客户端节点 kind，插件自己也不画任何卡。这个组合的检查点一侧在 `conversation-node-definitions.client.spec.ts` 里本来就有用例；本次补上失败一侧，因为「`turn: null` 的标记对带错误闭合」是此前任何发行版都没产生过的事件形状。
 
@@ -31,12 +31,16 @@ Related：[自动压缩的实时策略位](../feature/2026-09-14-auto-compaction
 所以引擎是按 agent 解析的：
 
 ```ts
+import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-compaction'
 declare const ctx: import('@deepseek-ai/cordis').Context
 declare const agent: import('@deepseek-ai/dsh-agent').Agent
 const engine = ctx.get('agentPresets')?.serviceFor(agent, 'compaction') ?? ctx.get('compaction')
 ```
 
-而位子与这次查找绑定：`isEnabled()` 只有在某个 agent 上查找成功之后才答 `false`，还没成功时答 `true`——上游行为，逐字不变。这条绑定保证的是「新进程不会在插件能接手之前就把 harness 的路关掉」：在这个 profile 里 host 平面的 `inject(['compaction'])` 永远不触发，而 host 提供的 policy **确实**能穿进 realm，所以一个不带绑定的常量 `false` 会让桌面完全没有自动压缩，开关和滑块变成摆设。
+开头那两行 type-only import 是这个块真正检查到东西的前提：`serviceFor` 的签名是 `<K extends string & keyof Context>(agent, name) => Context[K] | undefined`，程序里没有把 `agentPresets` 与 `compaction` 并进 `Context` 的那两个模块时，`engine` 就是 `any`，这个块什么也证明不了。带上它们之后 `engine` 是 `CompactionEngine | undefined`，在同一个块里故意写错一个赋值即可实证（`TS2322: Type 'CompactionEngine | undefined' is not assignable to type 'number'`）。
+
+位子与这次查找绑定：`isEnabled()` 只有在某个 agent 上查找成功之后才答 `false`，还没成功时答 `true`——上游行为，逐字不变。这条绑定保证的是「新进程不会在插件能接手之前就把 harness 的路关掉」：在这个 profile 里 host 平面的 `inject(['compaction'])` 永远不触发，而 host 提供的 policy **确实**能穿进 realm，所以一个不带绑定的常量 `false` 会让桌面完全没有自动压缩，开关和滑块变成摆设。
 
 **这条绑定是进程级的，不是按会话的。** 位子没有 agent 参数，一个答案管住引擎服务的所有 agent；在某个会话上找到引擎，就把 harness 的路对所有会话一起关了。某个会话自己的组合两条查找都答不上来时，它在宿主日志里被记一次、谁也不压它——反正那里本来也没有引擎可以压它。
 
@@ -50,7 +54,11 @@ token 计量器被刻意留在 realm 之外——preset 自己写了原因，它
 
 没有任何 Context 事件报告取消，也没有任何投影发布结束原因，所以信号就是那条闭合事件本身，经 `ctx.on('session/event')` 在它提交时观察，而不是回头扫日志。第一版还在 `agent/disposed` 上中止每次尝试；那个 listener 已删掉：销毁顺序是 `cancel` → `whenIdle` → scope 销毁 → detach，而 `cancel()` 对维护相位同样 abort、`compactNow` 内部本来就把它并进操作 signal——所以 `agent/disposed` 永远晚于它能停下的那次尝试。
 
-子代理**不**跳过。第一版用 `ctx.agents.roots().includes(agent)` 跳过了它们，那是错的：子代理经 `agentPresets.composeFrom` 挂到父 agent 同一个 standing mount 上，realm 里的 `compaction-basic` 读的是同一份 host 平面 policy，它的两步之间那条路被同一个 `false` 关掉。空闲路径再跳过它，就只剩溢出兜底和默认一次重试的预算。给位子加按 agent 的答案这条路不通——`isEnabled(): boolean` 没有 agent 参数，改它就是核心补丁——所以每个能解析到引擎的 agent 都在自己 driver 退出时被压。代价是：超过比例的子代理每次 driver 退出多一次摘要调用，而那个会话往往很快被丢掉。
+**被委派出去的子代理的那次退出。** 判据是持久表头——`agent.session.header.origin === 'subagent'`，`childSessionMeta` 给每个进程内子会话都盖，因此 resume 之后依然成立。不用 `parentSession` 作判据：`SessionStore.fork()` 也会给用户 fork 出来的顶层会话盖上它，而那种会话是根会话、必须照压。
+
+压子代理会把委派它的那个对话拖住。所有进程内委派后端的工具调用都以 `await child.whenIdle()` 收尾，而从子代理 idle 转换起跑的压缩会同步占住维护相位、替换 `activityDone`——于是父代理的工具调用要等整段摘要跑完才返回，而那正是用户正在看的那段回答中间。对着真的 `AgentLoop` 实测（800ms 的替身摘要器）：带跳过时子代理 3ms 转 idle，不带跳过时等的就是摘要器自己的时长（两次跑分别 803ms 与 805ms），随后子代理被 dispose，它付钱换来的那段摘要作废。
+
+**代价是：被委派的子会话，在内核的溢出兜底前面什么都没有。** 位子没有 agent 参数，所以那个关掉 `compaction-basic` 压力路径的 `false` 是对进程里所有 agent 一起关的，子代理也在内——它在自己那一轮里同样不再按压力压缩，剩下的只有提供方拒绝之后的溢出恢复，默认预算一次重试（`maxOverflowRetries`，`packages/compaction/compaction-basic/src/config.ts:93`，随附的任何 preset 都没覆盖它）。要按 agent 分别作答就得把 `isEnabled(): boolean` 改成带 agent 参数，那是核心补丁，本 fork 不为这件事动它。长到需要压缩的子任务，就是要盯着看的那一类。
 
 ## 随附行为付出的代价
 

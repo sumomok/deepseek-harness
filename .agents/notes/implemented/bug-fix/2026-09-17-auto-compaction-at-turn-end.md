@@ -14,9 +14,9 @@ The moment is also wrong for a product user independently of failure. The compac
 
 ## Decision
 
-The desktop composition's `@haoran/dsh-auto-compact` (0.2.2, vendored as a tarball) moves the trigger out of the turn. No harness package changes.
+The desktop composition's `@haoran/dsh-auto-compact` (0.2.3, vendored as a tarball) moves the trigger out of the turn. No harness package changes.
 
-Its `compactionPolicy.isEnabled()` answers `false`, which is the seat's documented meaning — `compaction-basic` gates only the pressure path on it, and overflow recovery is deliberately unaffected because there the provider has already refused the request. The plugin then triggers from an `agent/status` listener on the running-to-idle transition, reading `contextPressure` and calling `ctx.compaction.compactNow(agent, signal)`.
+Its `compactionPolicy.isEnabled()` answers `false`, which is the seat's documented meaning — `compaction-basic` gates only the pressure path on it, and overflow recovery is deliberately unaffected because there the provider has already refused the request. The plugin then triggers from an `agent/status` listener on the running-to-idle transition, reading `contextPressure` and calling `compactNow(agent, signal)` on the engine that serves that agent — `ctx.get('agentPresets')?.serviceFor(agent, 'compaction') ?? ctx.get('compaction')`, for the reason the next section gives.
 
 `compactNow` is the published idle entry point. It claims the agent's idle phase through `runMaintenance`, so waking input queues behind the compaction instead of racing it, and its `sourceCommandId` parameter is optional. A call that omits it writes the ordinary `compaction/start` / `summary` / `end` bracket with `turn: null` and no `sourceCommandId`, which is precisely what `compactionDefinition.match` claims — so a successful run renders the existing checkpoint card and a failed one the existing failure card, with no new session event, no new client node kind, and no card-drawing in the plugin. The checkpoint side of that combination was already covered in `conversation-node-definitions.client.spec.ts`; this change adds the failure side, because a `turn: null` bracket that closes on an error is an event shape no shipped build has produced before.
 
@@ -31,12 +31,16 @@ The trigger cannot be installed by injection, and getting that wrong is worse th
 So the engine is resolved per agent:
 
 ```ts
+import type {} from '@deepseek-ai/dsh-agent-presets'
+import type {} from '@deepseek-ai/dsh-compaction'
 declare const ctx: import('@deepseek-ai/cordis').Context
 declare const agent: import('@deepseek-ai/dsh-agent').Agent
 const engine = ctx.get('agentPresets')?.serviceFor(agent, 'compaction') ?? ctx.get('compaction')
 ```
 
-and the seat is coupled to that lookup. `isEnabled()` answers `false` only once it has succeeded for some agent, and `true` — upstream behaviour, unchanged — while it has not. That is what keeps a fresh process from closing the harness's path before the plugin can replace it: a host-plane `inject(['compaction'])` never fires in this profile, while the host-provided policy DOES reach the engine inside the realm, so an uncoupled constant `false` would have left the desktop with no automatic compaction at all and an inert switch and slider.
+The two type-only imports are what makes this block check anything: `serviceFor` is typed `<K extends string & keyof Context>(agent, name) => Context[K] | undefined`, so without the modules that merge `agentPresets` and `compaction` into `Context` in the program, `engine` is `any` and the fence proves nothing. With them it is `CompactionEngine | undefined`, as a deliberately wrong assignment in the same block confirms (`TS2322: Type 'CompactionEngine | undefined' is not assignable to type 'number'`).
+
+The seat is coupled to that lookup. `isEnabled()` answers `false` only once it has succeeded for some agent, and `true` — upstream behaviour, unchanged — while it has not. That is what keeps a fresh process from closing the harness's path before the plugin can replace it: a host-plane `inject(['compaction'])` never fires in this profile, while the host-provided policy DOES reach the engine inside the realm, so an uncoupled constant `false` would have left the desktop with no automatic compaction at all and an inert switch and slider.
 
 The coupling is per process, not per conversation. The seat takes no agent, so one answer governs every agent the engine serves; reaching an engine for one conversation closes the harness's path for all of them. A conversation whose own composition answers neither lookup is reported in the host log once and compacted by nobody — and has no engine in it to have compacted it either way.
 
@@ -50,7 +54,11 @@ The token meter is deliberately not in those realms — the presets say so, beca
 
 No context event reports a cancellation and no projection publishes the end reason, so the signal is the closing event itself, observed through `ctx.on('session/event')` as it commits rather than by scanning the log back. The first attempt also aborted each run from an `agent/disposed` listener; that listener is gone, because disposal is `cancel` → `whenIdle` → scope disposal → detach and `cancel()` aborts the maintenance phase too, which `compactNow` already folds into its operation signal — so `agent/disposed` always arrived after every run it could have stopped.
 
-Delegated agents are **not** skipped. They were in the first attempt, with `ctx.agents.roots().includes(agent)`, and that was wrong: a subagent composes from its parent's standing mount through `agentPresets.composeFrom`, so the realm's `compaction-basic` reads the same host-plane policy and its between-steps path is closed by the same `false`. Skipping the idle path for it left it with overflow recovery and a default budget of one retry. Giving the seat a per-agent answer is not available — `isEnabled(): boolean` takes no agent, and changing that signature is a core patch — so every agent that resolves an engine is compacted at its own driver exit. The accepted cost is one summarization per delegated driver exit above the share, on a session often discarded soon after.
+**A delegated subagent's exit.** The test is the durable session header — `agent.session.header.origin === 'subagent'`, which `childSessionMeta` stamps on every in-process child session, so it survives a resume. `parentSession` is not the test: `SessionStore.fork()` stamps that on a user's forked top-level conversation too, and such a conversation is a root that must compact.
+
+Compacting a subagent stalls the conversation that delegated to it. Every in-process delegation backend ends its tool call with `await child.whenIdle()`, and a compaction started from the child's idle transition claims the maintenance phase synchronously, replacing `activityDone` — so the parent's tool call does not return until the whole summarization finishes, in the middle of the reply the user is watching. Measured against a real `AgentLoop` with an 800 ms stand-in summarizer: the child went idle in 3 ms with the skip, and without it the wait is the summarizer's own (803 ms and 805 ms on two runs), after which the child is disposed and the summary it paid for is discarded.
+
+**The cost is that a delegated conversation has nothing in front of the harness's overflow recovery.** The seat takes no agent, so the `false` that closes `compaction-basic`'s pressure path closes it for every agent in the process, subagents included: inside its own turn a subagent no longer compacts on pressure either, and what remains is overflow recovery after a provider refusal, with a default budget of one retry (`maxOverflowRetries`, `packages/compaction/compaction-basic/src/config.ts:93`, which no shipped preset overrides). A per-agent answer would mean changing `isEnabled(): boolean` to take one; that is a core patch, and this fork does not take one for this. A subtask long enough to need compacting is the case to watch.
 
 ## What the shipped behavior gives up
 
