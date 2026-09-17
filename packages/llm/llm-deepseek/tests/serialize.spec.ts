@@ -273,6 +273,16 @@ describe('serializeRequest', () => {
     expect(wire.stop).toEqual(['END'])
   })
 
+  it('maps a requested JSON answer format onto response_format', () => {
+    const wire = serializeRequest(request({ messages: history, responseFormat: { type: 'json_object' } }))
+    expect(wire.response_format).toEqual({ type: 'json_object' })
+  })
+
+  it('omits response_format when the request names no answer format', () => {
+    const wire = serializeRequest(request({ messages: history }))
+    expect('response_format' in wire).toBe(false)
+  })
+
   it('maps tools to the wire function shape', () => {
     const wire = serializeRequest(request({
       messages: history,

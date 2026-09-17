@@ -27,6 +27,14 @@ export interface WireRequest {
    * produces any one of these strings. Mapped from `GenerateOptions.stop`.
    */
   stop?: string[]
+  /**
+   * Answer-format constraint (`response_format` in the
+   * [create-chat-completion reference](https://api-docs.deepseek.com/api/create-chat-completion)).
+   * `json_object` makes the provider guarantee that message content parses as
+   * JSON; the prompt must still ask for JSON and leave `max_tokens` room for
+   * a complete value. Mapped from `GenerateOptions.responseFormat`.
+   */
+  response_format?: { type: 'json_object' }
 }
 
 /** System-role message: a single string of instructions. */

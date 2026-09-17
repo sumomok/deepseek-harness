@@ -605,6 +605,16 @@ interface GenerateOptions {
    * `stop`). The stop string itself is not included in the output.
    */
   stop?: string[]
+  /**
+   * Format the provider must produce the answer text in. `json_object`
+   * selects JSON mode: the provider guarantees the assistant text is one
+   * valid JSON value, while the prompt still has to ask for JSON — DeepSeek
+   * otherwise streams whitespace up to the output cap. An empty answer, and
+   * one cut short at `maxTokens`, both remain possible, so callers validate
+   * what they parse. An adapter whose provider cannot honor the format fails
+   * the request with `UNSUPPORTED_OPTION` instead of sending plain text.
+   */
+  responseFormat?: { type: 'json_object' }
   signal?: AbortSignal
   /**
    * Session identity stamped by the loop for request routing. Replay uses it

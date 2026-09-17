@@ -78,6 +78,18 @@ describe('request-reconstruction invariant', () => {
       .toThrow(/diverges from the folded request header/)
   })
 
+  it('rejects a loop request carrying an answer format the header cannot hold', async () => {
+    const { ctx, session, boundary } = await requestSetup()
+    expect(() => {
+      dispatch(ctx, loopRequest({
+        model: 'm',
+        messages: Object.freeze(boundary),
+        responseFormat: { type: 'json_object' },
+        sessionId: session.id,
+      }))
+    }).toThrow(/diverges from the folded request header/)
+  })
+
   it('rejects loop requests with no boundary or header', async () => {
     const ctx = await setup()
     const session = ctx.sessions.create(SessionId('req-bare'))
