@@ -47,7 +47,7 @@ kind: "package-bundle"
 
 ### 你得到什么
 
-开箱即用，基于本核心构建的每个 profile 都提供：DeepSeek 模型连接（提供方与模型可配置，你还可以在设置中启用额外提供方）、完整工具集——文件编辑、shell 命令、web 搜索、公开 HTTP(S) 抓取、subagent、任务与目标跟踪——可跨重启存活的持久会话，以及默认权限策略：把文件写入限制在工作区内，危险操作前征询许可。Web 抓取无需逐次审批，其提供方会拒绝非公开目的地址。反馈保存在会话日志中。本产品出厂关闭三条通往 DeepSeek 的上报路径：[OTel 会话上传](../../session/session-telemetry-otel/README.zh.md)与[已装插件清单](../../llm/plugin-package-inventory-deepseek/README.zh.md)两行声明 `disabled: true`，[DeepSeek 会话日志贡献器](../../session/session-log-deepseek/README.zh.md)一行携带 `enabled: false`——它只撤下该插件的请求贡献，插件其余部分照常挂载。三行都保留上游原有配置声明，因此用 profile patch 重新开启任一行即得到上游自己的行为：`FEEDBACK_ONLY` 的 OTel 捕获在反馈、评分、编辑与撤回时释放包含上下文的完整规范会话日志前缀。
+开箱即用，基于本核心构建的每个 profile 都提供：DeepSeek 模型连接（提供方与模型可配置，你还可以在设置中启用额外提供方）、完整工具集——文件编辑、shell 命令、web 搜索、公开 HTTP(S) 抓取、subagent、任务与目标跟踪——可跨重启存活的持久会话，以及默认权限策略：把文件写入限制在工作区内，危险操作前征询许可。Web 抓取无需逐次审批，其提供方会拒绝非公开目的地址。反馈保存在会话日志中。本产品出厂关闭三条通往 DeepSeek 的上报路径：[OTel 会话上传](../../session/session-telemetry-otel/README.zh.md)与[已装插件清单](../../llm/plugin-package-inventory-deepseek/README.zh.md)两行声明 `disabled: true`，[DeepSeek 会话日志贡献器](../../session/session-log-deepseek/README.zh.md)一行携带 `enabled: false`——那是该插件自己的开关，`apply()` 在注册那条请求贡献之前就返回，而那条贡献是该插件贡献的全部。三行都保留上游原有配置声明，因此用 profile patch 重新开启任一行即得到上游自己的行为：`FEEDBACK_ONLY` 的 OTel 捕获在反馈、评分、编辑与撤回时释放包含上下文的完整规范会话日志前缀。
 
 默认文件编辑使用 `read`、`write` 和 `edit`。`str_replace_editor` 工具仍可显式启用。要将它加入基于 base 的 profile，请在 profile、home 或逐次调用 patch 中添加以下条目：
 
