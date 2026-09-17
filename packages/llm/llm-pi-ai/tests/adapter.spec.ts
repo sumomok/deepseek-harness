@@ -220,6 +220,18 @@ describe('PiAiAdapter provider routing', () => {
     expect(server.requests).toEqual([])
   })
 
+  it('reports an unsupported answer format rather than sending plain text', async () => {
+    const server = await mockServer([])
+    const ctx = await harness(server.url)
+    const result = await assemble(ctx, {
+      model: 'deepseek-v4-flash',
+      messages: [],
+      responseFormat: { type: 'json_object' },
+    })
+    expect(result.finish).toMatchObject({ kind: 'error', failure: { code: 'UNSUPPORTED_OPTION' } })
+    expect(server.requests).toEqual([])
+  })
+
   it('reports unknown catalog models before network I/O', async () => {
     const server = await mockServer([])
     const ctx = await harness(server.url)

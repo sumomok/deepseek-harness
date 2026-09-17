@@ -334,6 +334,9 @@ export class PiAiAdapter extends LlmAdapter {
     if (options.stop !== undefined) {
       throw new LlmError('llm-pi-ai does not support GenerateOptions.stop', 'UNSUPPORTED_OPTION')
     }
+    if (options.responseFormat !== undefined) {
+      throw new LlmError('llm-pi-ai does not support GenerateOptions.responseFormat', 'UNSUPPORTED_OPTION')
+    }
     // One capture per stream call, taken before any await: the profile, the
     // model descriptor, and the collection all come from the same immutable
     // snapshot, and the credential freezes with them. A configuration change
