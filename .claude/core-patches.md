@@ -353,3 +353,35 @@
 - **退役条件**：上游自带等价的添加时密钥容器确认（同款零内容读取、名单可追加，覆盖警示态文案与芯片布局）。
 - **状态**：退役（在 `core-patches-v7` 上随文件附件族退役，线上无提交）。
 - **待重做（第二片）**：上游无对应物、产品价值仍在，但整个挂载点（composer 文件草稿）已随文件附件族在 `core-patches-v7` 上退役，需对着上游 PR #3109 的 `file-upload` 通路与 `ComposerAttachments` 重新设计挂载位置。同族的另两条改动（确认时机从发送时移到添加时；Config 断言不再架空自己的注解）一并押后。
+
+## 历史轮次
+
+本线由 `core-patches-v1` 起逐轮变基而来。每轮的提交清单随变基作废，不在此登记；下面只留**今天仍然有效**的事实——重复踩会付代价的那些。删掉它们曾让这些事实在全仓没有第二个归宿。
+
+### 基座环境敏感的稳定红（不修，仅记录）
+
+`core-patches-v2` 那一轮的全仓 `pnpm run test` 扫出三项稳定红，与任何补丁提交无关（三次独立复现——全量套件、去沙箱、单文件隔离跑——结果完全一致，不是抖动）：
+
+- `scripts/benchmark-npm-resolution.spec.ts` › `force-kills a timed-out process tree`：`child reported invalid pid`，子进程树 PID 上报在该宿主上不可见。
+- `scripts/oxlint-contract.spec.ts` › `preserves successful fix output channels`：`NO_COLOR`/`FORCE_COLOR` 冲突产生的 Node 子进程告警泄漏进 stderr。
+- `packages/spill/spill-local/tests/spill-local.spec.ts` › `keeps a file exactly at the boundary`：mtime 边界精度断言失败。
+
+三项的共同性质是**宿主环境特征**（进程 PID 可见性、子进程环境变量继承、文件系统 mtime 精度），不是代码逻辑。**决定：不修，只记录**，留待换宿主／CI 环境重验，再判断是否要改测试自己的环境假设。另有一项真抖动：`locale-dictionary-parity.spec.ts` 与 `oxlint-contract.spec.ts` 并行时往同一个真实源码目录写临时文件。
+
+### 两次重落前风险预审的结论
+
+- **上游 PR #3339（remove SQLite persistence backend）——可继续。** `SESSION_FORMAT_VERSION` 全程未 bump；被删的 `session-persistence-sqlite` 是产品从未使用的候选后端（`packages/bundle/base/cordis.patch.yml` 一直只挂 `session-persistence-jsonl` 作真正的会话日志存储，SQLite 只服务 `session-query-sqlite` 这个派生检索索引），对已落盘的会话文件零影响。fork 自有的事件登记机制未被该 PR 触及。
+- **上游 PR #3346（distinguish event seqs from log offsets）——可继续。** 落盘格式其实未变：JSONL 物理头行仍原样携带可选数字 `seedLength`，读时翻译成内存态、写时翻译回去，两道硬拒作用于内存态 header 而非磁盘行；`SessionSeq`/`SessionLogOffset` 是 `dsh-brand` 的编译期品牌，运行期不改变任何值。用旧代码树的生产写路径写出真旧日志实测确认。
+
+### 每轮都适用的做法
+
+- **冲突解决**：生成物（`slot-catalog.ts`、`api-catalog.ts`、`docs/` 下的目录）一律取上游侧后重跑对应 `gen-*`，从不手改；双语文档取并集或按上下文合并措辞；**从不用 `git checkout --ours/--theirs` 整文件覆盖**。
+- **退化条款**：上游改了同一处，我方补丁就退役去适配，而不是把补丁改得更复杂去共存。
+- **并集的陷阱**：冲突一侧为空、我方侧有内容时，取并集会把**已死**的内容带回来——上游删掉某段的唯一消费者时正是如此。取并集前先确认我方那几行今天还有读者。
+- **三方核对脚本的已知盲区**（下一轮若要再用，先补这四条）：它只看「两父都保留而结果丢失」的行，所以「只在一个父里有、另一个父已删除、却出现在结果里」的行不判违规——上一条说的死内容正是从这个口子进来的；结果里缺失的文件只报 SKIP 不判违规；抑制注释正则不含 `TODO|FIXME|XXX`；行频提示在父计数为 0 时会刷屏。
+- **覆盖率陷阱**：不带 `--coverage.include` 直接跑单包会退出码 1——插桩范围是全工作区，本包测试够不到的文件一并计入。圈定被改包再跑。
+- **冷构建陷阱**：被上游删掉的包目录会残留只含 `node_modules/` 的孤儿目录，tsdown 的 workspace glob 命中后向上找到仓库根，`pnpm run build` 冷跑报 `Cannot find entry`。`pnpm run clean` 再 `pnpm install`。
+
+### 旧会话可读性预审（每轮移植前必做）
+
+在**纯 `upstream/master`** 树上，对 `~/.dsh/sessions` 与备份 home 的**只读副本**逐份冷读（`JsonlSessionPersistence.open(id, 'read').read()`，与派生索引观测走同一条路），记下拒读份数与每类拒读原因；移植后同法复测，逐条对应到是哪条补丁清掉了哪一类。`core-patches-v8` 那轮的读数是：纯上游 127/139 与 96/121，五类拒读原因；三条会话格式补丁逐条叠加后 139/139 与 121/121，零拒读；两库共 281 个 `.zstd` 文件在全部回放之后 sha256 逐一未变（读路径只在内存里迁移）。**副本永远放 scratch，绝不对真实 home 做写操作。**
