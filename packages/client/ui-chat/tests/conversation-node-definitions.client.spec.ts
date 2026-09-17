@@ -2236,6 +2236,24 @@ describe('built-in conversation node Definitions', () => {
     expect(failure?.anchorSeq).toBe(11)
   })
 
+  it('shows a failure node for a bracket opened between turns rather than inside one', () => {
+    // What a host-plane plugin's own `compactNow` writes: `owner: null`, so
+    // `turn` is null, and no `sourceCommandId`, because no command asked.
+    const value = assembler([
+      at(10, 'compaction/start', { compactionId: 'compact-between-turns', turn: null }),
+      at(11, 'compaction/end', {
+        compactionId: 'compact-between-turns',
+        turn: null,
+        error: 'summarizer unavailable',
+      }),
+    ], true)
+
+    expect(node(snapshot(value), 'compaction')).toBeUndefined()
+    const failure = node(snapshot(value), 'compaction-failure')
+    expect(failure?.data).toEqual({ reason: 'summarizer unavailable' })
+    expect(failure?.anchorSeq).toBe(11)
+  })
+
   it('keeps a landed checkpoint rather than a failure node, and shows nothing for a clean end', () => {
     const landed = assembler([
       at(10, 'compaction/start', { compactionId: 'compact-clean', turn: 2 }),

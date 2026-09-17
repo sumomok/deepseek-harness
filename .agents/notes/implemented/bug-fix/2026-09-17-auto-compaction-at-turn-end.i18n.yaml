@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/bug-fix/2026-09-17-auto-compaction-at-turn-end.md
-2026-09-17-auto-compaction-at-turn-end.md: 9f6532866a097ee4b51aee1244d67148d8ce27df
-2026-09-17-auto-compaction-at-turn-end.zh.md: bd8e20e147f7cd69a427db81701d13e486aef83b
+2026-09-17-auto-compaction-at-turn-end.md: 27c984ec32a0086c548f315e367d5d4ff8383f43
+2026-09-17-auto-compaction-at-turn-end.zh.md: bc4fb6a9ffa7eb4e4423c044268dfb69bf9e587e

@@ -1,10 +1,10 @@
-# Agent Note: 自动压缩挪到一轮结束之后
+# Agent Note: 自动压缩挪到答完之后
 
 Status: implemented
 
 [English](2026-09-17-auto-compaction-at-turn-end.md) | 中文
 
-Related: [自动压缩的实时策略位](../feature/2026-09-14-auto-compaction-policy-seat.zh.md) —— 用的就是那个位子，位子本身没动；改的是随附桌面组合现在经它答 `false`。
+Related：[自动压缩的实时策略位](../feature/2026-09-14-auto-compaction-policy-seat.zh.md) —— 那个位子的代码没动；本文对它关于随附桌面组合**什么时候**压缩的那部分陈述构成部分取代。
 
 ## Problem
 
@@ -14,34 +14,66 @@ Related: [自动压缩的实时策略位](../feature/2026-09-14-auto-compaction-
 
 ## Decision
 
-桌面组合里的 `@haoran/dsh-auto-compact`（0.2.0，以 tarball 形式进仓）把触发挪出了一轮之内。harness 的包一个都没改。
+桌面组合里的 `@haoran/dsh-auto-compact`（0.2.1，以 tarball 形式进仓）把触发挪出了一轮之内。harness 的包一个都没改。
 
-它的 `compactionPolicy.isEnabled()` 现在恒答 `false`。这正是这个位子被文档化的含义——`compaction-basic` 只用它门控压力路径，溢出恢复被刻意排除在外，因为那里提供方已经拒过请求——所以一个常量就关掉了两步之间那条路，零核心补丁。
+它的 `compactionPolicy.isEnabled()` 答 `false`，这正是这个位子被文档化的含义——`compaction-basic` 只用它门控压力路径，溢出恢复被刻意排除在外，因为那里提供方已经拒过请求。插件随后从一个 `agent/status` listener 在 running→idle 的转换上触发：读 `contextPressure`，调 `ctx.compaction.compactNow(agent, signal)`。
 
-插件随后从一个 `agent/status` listener 触发自己的压缩，并且只在 running→idle 的转换上动作：读 `ctx.sessionProjections.snapshot(session, ['contextPressure']).values.contextPressure`，拿 `projectedTokens ?? pressureTokens` 除以 `contextWindow`，与用户设的比例相比，然后调 `ctx.compaction.compactNow(agent, signal)`。读数就是用量环自己那个 wire 值，也是 `occupancyTokens` 取的那一个；没有用量样本、或者路由容量未知的会话没有读数，也就不触发——环在那里同样什么都不画。
+`compactNow` 是已发布的空闲入口。它经 `runMaintenance` 占住 agent 的空闲相位，所以后到的唤醒输入是排在压缩后面而不是与它抢；它的 `sourceCommandId` 是可选参数。不带这个参数的调用写下的是普通的 `compaction/start` / `summary` / `end` 标记对，`turn: null` 且不带 `sourceCommandId`，而这恰好就是 `compactionDefinition.match` 认领的东西——于是成功的一次渲染既有的检查点卡、失败的一次渲染既有的失败卡，不需要新会话事件、不需要新的客户端节点 kind，插件自己也不画任何卡。这个组合的检查点一侧在 `conversation-node-definitions.client.spec.ts` 里本来就有用例；本次补上失败一侧，因为「`turn: null` 的标记对带错误闭合」是此前任何发行版都没产生过的事件形状。
 
-`compactNow` 是已发布的空闲入口。它经 `runMaintenance` 占住 agent 的空闲相位，所以后到的唤醒输入是排在压缩后面而不是与它抢；它的 `sourceCommandId` 是可选参数。不带这个参数的调用写下的是普通的 `compaction/start` / `summary` / `end` 标记对、不带 `sourceCommandId`，而这恰好就是 `compactionDefinition.match` 认领的东西——于是成功的一次渲染既有的检查点卡、失败的一次渲染既有的失败卡，不需要新会话事件、不需要新的客户端节点 kind，插件自己也不画任何卡。
+每次 driver 退出只试一次，同一个 agent 上同时只有一次，下一次读数要等它下一次退出。这段间隔就是 pre-step 那条路缺的退避。是「每次 driver 退出」而不是「每轮」：`kick` 跑的是 `while (await this.turn())`，所以排队的几条消息会作为连续的几轮在同一段运行里跑完，共用结尾的那一次压缩。
 
-每轮结束只试一次，同一个 agent 上同时只有一次，而且下一次读数要等下一轮结束才取。这段间隔就是 pre-step 那条路缺的退避：失败的那一次、或者压完仍然超过比例的那一次，都等新工作来，而不是立刻重来。
+## 引擎在哪个平面上
+
+触发装不到 inject 上，而装错比什么都不做更糟。
+
+`packages/bundle/web-app/cordis.patch.yml` 把 `compaction-basic`、`command-compact`、`tool-result-pruner` 在 host 平面上 `disabled: true`；每个 preset 在自己带 `isolate: { compaction: true, toolResultPruner: true }` 的 group 里各装一份。realm 对声明它的 group 之外一律不可见——包括 bundle patch 的裸 `- insert:` 行所落的那个 host 平面——而 `agent-presets` 自己的散文把后果写了两遍：「a host row that `inject`s a service cannot use this, because injection resolves before any session exists and has no agent to key by; such a service belongs on the host plane instead.」
+
+所以引擎是按 agent 解析的：
+
+```ts ignore-check
+ctx.get('agentPresets')?.serviceFor(agent, 'compaction') ?? ctx.get('compaction')
+```
+
+而位子与这次查找绑定：`isEnabled()` 只有在某个 agent 上查找成功之后才答 `false`，还没成功时答 `true`——上游行为，逐字不变。它排除掉的状态是「压力路径关了、后面没人接手」：在这个 profile 里 host 平面的 `inject(['compaction'])` 永远不触发，而 host 提供的 policy **确实**能穿进 realm，所以一个不带绑定的常量 `false` 会让桌面完全没有自动压缩，开关和滑块变成摆设。
+
+token 计量器被刻意留在 realm 之外——preset 自己写了原因，它拥有进程级的投影单元——所以 `ctx.get('tokenMeter')` 从 host 平面直接够得着，不需要任何寻址。
+
+## 哪些结束不触发
+
+**用户按了停止的一次，和会话被 dispose 的一次。** 两者都以带 `reason.kind === 'aborted'` 的 `turn/end` 收尾，随后都会发布 idle 状态。在那里压缩，等于用一段没人要的全对话摘要来回应「停止」，而且输入框没有任何办法打断它——`ReactLoopAgent.status` 把维护相位报告为 `idle`，所以 session controller 广播 `running: false`，停止按钮那时已经不在了。dispose 更糟：`agent-loop` 的销毁是 `cancel({kind:'disposed'})` 之后 `await whenIdle()`，而从那次 idle 转换启动的压缩，正是一次在唯一能停下它的取消之后才开始、然后被销毁等着的摘要。
+
+没有任何 Context 事件报告取消，也没有任何投影发布结束原因，所以信号就是那条闭合事件本身，经 `ctx.on('session/event')` 在它提交时观察，而不是回头扫日志。每次尝试另外自带一个 `AbortController`，在 `agent/disposed` 上中止；那条事件是在 driver 静默之后才发的，所以它是第二道防线，不是第一道。
+
+**所有子代理。** `agent/status` 虽按 scope 过滤，但 listener 挂在插件上下文上，因此收得到每个 agent 的转换，子代理也在内。子代理的会话通常答完就被拆掉，而它的结算要等 `whenIdle()`，所以在那里摘要等于把一次模型调用花在没人会再读的历史上，还拖慢父代理。过滤用 `ctx.agents.roots().includes(agent)`，沿用 `schedule` 插件的先例。
 
 ## 随附行为付出的代价
 
-`compactNow` 以 `retainTokens: 0` 选范围，所以它不留原样的尾巴——到最后一个可切分边界为止的对话变成一条摘要，幅度就是 `/compact` 的幅度。pre-step 那条路会留一截由 `retainRatio`/`retainTokens` 定长的尾巴，因为它是在给一个马上要发出去的请求腾地方；这一次不是。所以设在 60% 的用户现在拿到的是更彻底、更靠后的一次压缩，而不是更早、更局部的一次。插件 README 双语两侧都写了，desktop-shell 的内置插件表也写了。
+**保留的尾巴更短。** `compactNow` 以 `retainTokens: 0` 选范围：`selectCompactableRange` 的累加循环第一轮就 break，所以最后一个 surface 节点——通常就是刚答完的那段——原样保留，它之前的一切回溯到一个平衡的工具边界为止，压成一条摘要。pre-step 那条路会留一截由 `retainRatio`/`retainTokens` 定长的尾巴，因为它是在给一个马上要发出去的请求腾地方；这一次不是。所以设在 60% 的用户现在拿到的是更彻底、更靠后的一次压缩，而不是更早、更局部的一次。设置卡自己的说明行现在也写了这一点，不再只有两份 README 和内置插件表——因为滑块最低能拖到 20%。
 
-`isEnabled()` 恒答 false 时，随附组合里没有任何读者会读 `thresholdRatio()`，因为读它的只有压力路径。位子的两个方法都留着：它是一个已发布的键，想要这个比例的后端仍然读得到实时值。
+**一轮之内的保护整个没有了。** pre-step 那条路买到的东西是本文 Problem 一节没提的：一段工具密集的长回答自己就可能撑爆窗口。关掉它，这种情况只剩溢出恢复兜底，默认预算是一次重试（`compaction-basic` config 里的 `maxOverflowRetries ?? 1`；随附的任何 preset 都没有覆盖它）。这是刻意接受的——答到一半去压缩正是被移除的行为——并在两份 README 里点名，好让预期会有很长的工具密集回答的部署知道该调哪个旋钮。
 
-一轮正在跑时打的 `/compact` 仍然当场失败，也不会在 agent 空下来时重跑。`ManualCompactionErrorCode` 从不离开进程——`command/done` 只带 `kind: 'error'` 和 handler 渲染出来的英文文本，而且没有任何针对命令结束的 Context 事件——所以 `busy` 没有任何持久证据能与早期取消区分开。结构性代理（该 `commandId` 没有对应的 `compaction/start`）同样匹配取消，而把用户取消掉的压缩重跑一遍，比不重跑一次被拒的压缩更糟。
+**`thresholdRatio()` 在随附组合里没有读者**：`isEnabled()` 答 false 时，读它的只有压力路径。位子的两个方法都留着：它是一个已发布的键，想要这个比例的后端仍然读得到实时值。
+
+## 按成本推迟：`/compact` 撞 busy 后排队
+
+一轮正在跑时打的 `/compact` 当场失败——`compactNow` 调 `runMaintenance`，agent 非空闲时它同步抛——而且不会在 agent 空下来时重跑。
+
+这是**做得到的**。做不到的是从日志里推断**内置**命令的结果：`command/done` 只带 `kind: 'error'` 和 handler 渲染出来的英文文本，commands 服务对命令结束不发任何 Context 事件，而结构性代理——该 `commandId` 没有对应的 `compaction/start`——同样匹配早期取消。
+
+自己接管这个动作就没有歧义了。`ManualCompactionError.code` 是 `@deepseek-ai/dsh-compaction` 的普通公开导出，所以自己发起调用的插件直接读得到 `busy`；commands 注册表也文档化了 agent 作用域遮蔽——挂在某个 agent 自己上下文下面的同名命令，只对那个 agent 遮蔽全局定义——而从普通插件够到 `agent.ctx` 的第一方先例就在 `schedule` 插件里。推迟是成本判断，不是不可能：它会把桌面线的 `/compact` 接管过来，上游对那条命令的改动就不再自动到达；它得为另外五个 code 复刻 `expectedFailure()` 的文案；排队跑的那一次还需要一条「用户改主意了」的规则。
 
 ## Alternatives considered
 
 **从空闲路径调 `compactIfNeeded(agent, 'pressure', signal)`。** 这本可以保住尾巴和按模型的策略合并。否决，因为它是为一轮之内写的：`compactRegion` 传的是 `owner: 'current-turn'`，而会话没有打开的轮次时 `compactSurfaceRegion` 直接抛。它也不占维护相位，所以一条唤醒消息可以在摘要跑着的时候把一轮开起来。
 
-**在 `compaction-basic` 里加退避。** 按 fork 的铁律否决。这是插件层的问题、有插件层的答案，而压缩族本来就是上游冲突面最活跃的那套补丁；给 `compactIfNeeded` 加跨步状态，意味着每一轮滚动同步都要重新移植一遍。
+**用 `ctx.inject(['compaction'], …)` 装触发。** 最自然的形状，也是第一版发出去的那个。按实证否决：对着真实的随附 cordis 做的探针显示，provider 在 `isolate` realm 后面时 host 平面的 inject 永不触发（同一个 provider 不加 realm 则触发），而 policy 仍然穿得进 realm——于是那个形状把 harness 的路关了、自己什么也没装上。
 
-**触发留在两步之间，由插件去压制尝试。** 做不到：`isEnabled()` 对整条压力路径只有开和关，而且没有任何信号告诉插件某个 agent 上的某次尝试失败了。靠 `compaction/end` 的文本去猜、再去翻一个全局开关，是拿用户可见的代价做猜测。
+**常量 `false` 的位子。** 与上条一并否决：一个不依赖「是否找到引擎」的常量，正是把够不着的引擎变成永不压缩的对话的那个东西。
+
+**在 `compaction-basic` 里加退避。** 按 fork 的铁律否决。这是插件层的问题、有插件层的答案，而压缩族本来就是上游冲突面最活跃的那套补丁；给 `compactIfNeeded` 加跨步状态，意味着每一轮滚动同步都要重新移植一遍。
 
 **新增一个会话事件承载自动触发的结果。** 与失败卡当初否决它的理由相同：`Session.append()` 没有任何途径把 envelope 标成 `ignorable: true`，所以一个只有 fork 才有的必需事件会让不认识该类型的构建把日志读成砖。
 
 ## Consequences
 
-桌面线现在在回答写完之后压一次，按用量环显示的那个数字判断；摘要模型坏掉时，代价是每轮一次尝试、一张卡，而不是每步一次。harness 自己的溢出恢复没动，harness 的包也一个没动：改动是那个进仓的 tarball、它的依赖行、生成的第三方声明，以及内置插件表里的一行。插件仓的 `packages/auto-compact/tests/idle-compaction.spec.ts` 用 19 条用例钉住了转换规则、阈值边界、开关、单飞门，以及每次失败只记一行日志。
+桌面线现在在用户让它答完之后压一次，按用量环显示的那个数字判断；对于提供方尚未计费的对话，回落到 token 计量器自己的总数——正是这一条让图片密集的会话仍然会被压。摘要模型坏掉时，代价是每次 driver 退出一次尝试、一张卡，而不是每步一次。harness 自己的溢出恢复没动，harness 的包也一个没动：这里的改动是那个进仓的 tarball、它的依赖行、生成的第三方声明、内置插件表里的一行、一条针对 `turn: null` 失败标记对新增的客户端用例，以及本文。插件仓的 `packages/auto-compact/tests/{idle-compaction,realm}.spec.ts` 钉住了转换规则、阈值边界、开关、单飞门、逐次失败的日志，以及——对着真实 cordis 运行时——本决定所依赖的 realm 可见性。

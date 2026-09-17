@@ -4,7 +4,7 @@ Status: implemented
 
 [English](2026-09-14-auto-compaction-policy-seat.md) | 中文
 
-Related：[投影 token 用量与请求上下文](../architecture/2026-07-29-projected-token-usage-and-request-context.zh.md)（部分取代——其「nothing in the harness makes decisions from it, and compaction reads `measure()` directly instead」一句在用量锚定分支上已不成立）·[路由模型上下文与压缩策略](../architecture/2026-07-20-routed-model-context-and-compaction-policy.zh.md)（部分取代——压力解析仍读路由适配器的容量，但它比较的分子不再在所有状态下都是 `measure()` 的总量）。
+Related：[投影 token 用量与请求上下文](../architecture/2026-07-29-projected-token-usage-and-request-context.zh.md)（部分取代——其「nothing in the harness makes decisions from it, and compaction reads `measure()` directly instead」一句在用量锚定分支上已不成立）·[路由模型上下文与压缩策略](../architecture/2026-07-20-routed-model-context-and-compaction-policy.zh.md)（部分取代——压力解析仍读路由适配器的容量，但它比较的分子不再在所有状态下都是 `measure()` 的总量）·[自动压缩挪到一轮结束之后](../bug-fix/2026-09-17-auto-compaction-at-turn-end.zh.md)（对随附桌面组合部分取代本文：那里这个位子答 `false`，本文描述的压力路径整条不进入。下文凡是讲压缩**什么时候**发生的句子——「在设置里改完，下一步就按新值走」「下一步会重新评估压力并再试一次」、每步叠一张卡、以及尚未计费的对话按引擎自有口径触发——说的都是没挂提供方时这个位子的行为，那仍然逐字等于上游）。
 
 ## Problem
 
@@ -54,7 +54,7 @@ export interface CompactionPolicy {
 
 卡片不展示后端文本。它提到摘要器、阈值、缩小量检查——产品用户没有这套词汇。行内是一句固定的本地化文案，说明这次没能写出摘要、之后会再试，这既是用户需要知道的，也是全部属实的部分：下一步会重新评估压力并再试一次。它刻意不说「对话内容没有变化」——`compactIfNeeded` 在开标记对之前就会剪枝超大工具结果，因此这里的失败可能发生在一次已落地的缩减之后。原始链条改挂在 `title` 属性上，供排查者读。
 
-**已知限制：摘要模型持续宕机会逐步叠卡。** 每次压缩都是以自身 `compactionId` 为键的独立 Context，而一个 Definition 无法压制另一个 Context 的节点，本框架里没有任何东西能把它们合并；引擎步与步之间也没有退避，因此一次长回合中的提供方故障会留下一串相同提示。暂时接受——替代方案是本框架并不提供的跨 Context 状态。
+**已知限制：摘要模型持续宕机会逐步叠卡**（随附桌面组合里这条路已被插件关掉，改为每次 driver 退出只试一次；引擎侧的限制本身没修）。 每次压缩都是以自身 `compactionId` 为键的独立 Context，而一个 Definition 无法压制另一个 Context 的节点，本框架里没有任何东西能把它们合并；引擎步与步之间也没有退避，因此一次长回合中的提供方故障会留下一串相同提示。暂时接受——替代方案是本框架并不提供的跨 Context 状态。
 
 卡上没有 trigger 字段。会话日志不记录一次自动压缩是因步压力还是因溢出恢复而跑——`compaction/start` 只带 `compactionId`、可选命令 id 与所属轮次——因此 trigger 标签只能是编造的。卡片说明的是哪一笔事务失败了、为什么失败；而该 Definition 只认领自动压缩，所以「自动」就是 trigger 本可以补充的全部。
 
