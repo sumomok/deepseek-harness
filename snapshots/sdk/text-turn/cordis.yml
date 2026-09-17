@@ -28,6 +28,14 @@
     enableRunInBackground: false
     maxDepth: 1
 
+# This composition is the corpus's coverage of the DeepSeek upload path, so it
+# declares the policy its fixture records instead of inheriting whatever the
+# plugin's schema defaults to.
+- id: session-log-deepseek
+  name: '@deepseek-ai/dsh-session-log-deepseek'
+  config:
+    enabled: true
+
 - insert:
     - id: snapshot-message-feedback
       name: '@deepseek-ai/dsh-message-feedback'
