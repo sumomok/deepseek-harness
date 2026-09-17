@@ -17,6 +17,26 @@ import {
 } from '@deepseek-ai/dsh-session-telemetry-otel'
 import { Config as SessionLogConfig } from '@deepseek-ai/dsh-session-log-deepseek'
 
+/** One row of the shipped base patch, as the loader's entry schema parses it. */
+interface PatchRow {
+  id?: string
+  config?: Record<string, unknown>
+  disabled?: boolean
+}
+
+/**
+ * Read the rows of the shipped `dsh-base` patch file.
+ * @returns every insert row, in file order.
+ */
+function patchRows(): PatchRow[] {
+  const root = fileURLToPath(new URL('..', import.meta.url))
+  const parsed = yaml.load(
+    readFileSync(resolve(root, 'cordis.patch.yml'), 'utf8'),
+    { schema: entryListSchema },
+  )
+  return (parsed as { insert?: PatchRow[] }[]).flatMap(patch => patch.insert ?? [])
+}
+
 describe('dsh-base bundle', () => {
   it('declares a parseable patch list through the dsh.bundle.patch manifest field', () => {
     const root = fileURLToPath(new URL('..', import.meta.url))
@@ -49,6 +69,12 @@ describe('dsh-base bundle', () => {
     // needs no environment variable to take effect.
     expect(rows.find(row => row.id === 'plugin-package-inventory-deepseek')).toMatchObject({
       disabled: true,
+    })
+    // The third DeepSeek-bound path answers to its own schema field instead of
+    // the row flag, so this row carries `enabled: false` and leaves the
+    // plugin's remaining contributions mounted.
+    expect(rows.find(row => row.id === 'session-log-deepseek')).toMatchObject({
+      config: { enabled: false },
     })
     expect(rows.find(row => row.id === 'hmr')).toMatchObject({
       config: { root: [] },
@@ -107,8 +133,11 @@ describe('dsh-base bundle', () => {
       .toEqual(['DISABLED', 'FEEDBACK_ONLY'])
     expect(DEFAULT_TELEMETRY_MODE).toBe(SessionTelemetryMode.FEEDBACK_ONLY)
     expect(TelemetryConfig({}).mode).toBe(SessionTelemetryMode.FEEDBACK_ONLY)
-    // The third DeepSeek-bound path is mounted rather than disabled, because
-    // its own schema is what holds it shut and no layer here opens it.
-    expect(SessionLogConfig({}).enabled).toBe(false)
+    // The third DeepSeek-bound path ships on by its own schema default, so the
+    // off-switch that reaches it is the row's `config`, resolved here through
+    // that same schema.
+    expect(SessionLogConfig({}).enabled).toBe(true)
+    const sessionLog = patchRows().find(row => row.id === 'session-log-deepseek')
+    expect(SessionLogConfig(sessionLog?.config).enabled).toBe(false)
   })
 })

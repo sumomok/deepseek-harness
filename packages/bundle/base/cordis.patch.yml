@@ -40,8 +40,13 @@
     - id: session
       name: '@deepseek-ai/dsh-session'
 
+    # Held shut by its own schema field, not the row flag: the plugin's other
+    # contributions stay mounted while `enabled: false` withholds the
+    # `dsh_session_log` request contribution this fork product does not send.
     - id: session-log-deepseek
       name: '@deepseek-ai/dsh-session-log-deepseek'
+      config:
+        enabled: false
 
     - id: typert
       name: '@deepseek-ai/dsh-typert-registry'
