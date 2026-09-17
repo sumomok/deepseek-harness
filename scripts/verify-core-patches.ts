@@ -1,7 +1,7 @@
 /**
  * Check that this fork's patch line and its registry name the same patches.
  *
- * Every commit above `upstream/master` carries exactly one `Patch: <slug>`
+ * Every commit above the line's base carries exactly one `Patch: <slug>`
  * trailer, and every slug a commit names is registered in
  * `.claude/core-patches.md`; every registered slug whose status still stands on
  * this line — `在役` or `局部退役` — has at least one commit on the line, and
@@ -16,19 +16,25 @@
  * and the registry slug survive a rebase because they are commit message text.
  * Trailers are read through git's own `%(trailers:key=Patch)`, so what this
  * check accepts is exactly what `git interpret-trailers` and every other
- * trailer consumer sees.
+ * trailer consumer sees. git matches the key case-insensitively and takes any
+ * value, so the value is checked against the slug format here.
+ *
+ * The line's base is the upstream merge the registry declares as
+ * `**基座合并**：#<number>`, resolved in HEAD's own history: the one merge
+ * commit whose subject opens `Merge pull request #<number> `. No remote-tracking
+ * ref is read. `upstream/master` is a local ref whose freshness nothing here can
+ * observe — it runs ahead of this line after every fetch and can sit behind the
+ * real base once a remote is re-pointed — so deriving the base from it reports
+ * the routine state as an error and passes the dangerous one.
  *
  * The check only applies to the patch line itself. The registry names which
  * line that is, and a checkout on any other branch — `develop`, an integration
  * branch, a detached HEAD — reports `skipped` and exits 0, because commits
- * there carry no patch identity and are not meant to.
- *
- * Without an `upstream/master` ref — a shallow clone, or a checkout with no
- * upstream remote configured — the line's extent is unknown, so the check
- * reports `skipped: no upstream/master ref` and exits 0 rather than guessing a
- * base. CI checks out only `origin`, so this is what CI reaches: the check has
- * teeth on a maintainer's clone that configures the upstream remote, and
- * nowhere else.
+ * there carry no patch identity and are not meant to. A shallow clone reports
+ * `skipped` as well: its truncated history cannot reach the declared merge. A
+ * registry that cannot be read, or that does not declare exactly one patch line
+ * and exactly one base merge, fails on every branch, because a check that
+ * cannot read its own declarations cannot tell which case it is in.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -69,11 +75,13 @@ export interface Registry {
   records: PatchRecord[]
   /** Level-2 heading text that is neither a record nor a declared prose heading. */
   malformedHeadings: string[]
-  /** The branch the registry declares as the current patch line, or null when it declares none. */
-  declaredLine: string | null
+  /** Every declared patch-line branch name, in file order; exactly one is required. */
+  declaredLines: string[]
+  /** Every declared base-merge pull-request number, in file order; exactly one is required. */
+  declaredBases: string[]
 }
 
-/** One commit on the line above `upstream/master`. */
+/** One commit on the line above its declared base merge. */
 export interface LineCommit {
   /** Commit identifier, for diagnostics only. */
   id: string
@@ -90,6 +98,7 @@ export interface RegistryViolation {
   /** What disagrees. */
   kind:
     | 'trailer-count'
+    | 'malformed-trailer'
     | 'merge-commit'
     | 'unregistered-slug'
     | 'unused-active-slug'
@@ -103,9 +112,6 @@ export interface RegistryViolation {
   detail: string
 }
 
-/** How `upstream/master` relates to the checked-out line. */
-export type UpstreamBase = 'missing' | 'stale' | 'base'
-
 /** What one run of the check concluded. */
 export interface CheckResult {
   /** `skipped` exits 0 without comparing; `ok` and `failed` report the comparison. */
@@ -118,22 +124,41 @@ const HEADING = /^## (.+)$/u
 const RECORD_HEADING = /^([a-z0-9]+(?:-[a-z0-9]+)*) — (.+)$/u
 const STATUS = /^- \*\*状态\*\*：(在役|局部退役|退役)/u
 const DECLARED_LINE = /^\*\*当前补丁线\*\*：`([^`]+)`/u
+const DECLARED_BASE = /^\*\*基座合并\*\*：#(\d+)/u
+const FENCE = /^ {0,3}(`{3,}|~{3,})/u
+const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 
 /**
- * Read the registry's records, its malformed headings, and the line it declares.
+ * Read the registry's records, its malformed headings, and what it declares.
+ * Line endings are normalized first, and fenced blocks are dropped: a fenced
+ * example of the record or declaration format is documentation, and parsing it
+ * would let one code block silently replace the line this check runs against.
  * @param source - the registry file contents.
  * @returns everything this check reads out of the file.
  */
 export function parseRegistry(source: string): Registry {
   const records: PatchRecord[] = []
   const malformedHeadings: string[] = []
-  let declaredLine: string | null = null
+  const declaredLines: string[] = []
+  const declaredBases: string[] = []
   let current: PatchRecord | undefined
-  for (const line of source.split('\n')) {
-    if (declaredLine === null) {
-      const declared = DECLARED_LINE.exec(line)
-      if (declared?.[1] !== undefined) declaredLine = declared[1]
+  let fence: string | undefined
+  for (const line of source.replace(/\r\n/gu, '\n').split('\n')) {
+    const [, marker] = FENCE.exec(line) ?? []
+    if (fence !== undefined) {
+      // A fence closes on a run of the same character at least as long as the
+      // one that opened it, which is exactly the runs that start with it.
+      if (marker !== undefined && marker.startsWith(fence)) fence = undefined
+      continue
     }
+    if (marker !== undefined) {
+      fence = marker
+      continue
+    }
+    const [, declaredLine] = DECLARED_LINE.exec(line) ?? []
+    if (declaredLine !== undefined) declaredLines.push(declaredLine)
+    const [, declaredBase] = DECLARED_BASE.exec(line) ?? []
+    if (declaredBase !== undefined) declaredBases.push(declaredBase)
     const heading = HEADING.exec(line)
     if (heading !== null) {
       const [, text = ''] = heading
@@ -155,12 +180,12 @@ export function parseRegistry(source: string): Registry {
     const status = current !== undefined && current.status === null ? STATUS.exec(line) : null
     if (status !== null && current !== undefined) current.status = status[1] as PatchStatus
   }
-  return { records, malformedHeadings, declaredLine }
+  return { records, malformedHeadings, declaredLines, declaredBases }
 }
 
 /**
  * Compare the line against the registry in both directions.
- * @param commits - every commit above the upstream base, in any order.
+ * @param commits - every commit above the declared base merge, in any order.
  * @param registry - the parsed registry.
  * @returns one violation per disagreement; empty when the two agree.
  */
@@ -200,7 +225,7 @@ export function findRegistryViolations(
       violations.push({
         kind: 'merge-commit',
         subject: commit.id,
-        detail: `${commit.id} (${commit.subject}) is a merge commit; this patch line stays linear, so every commit above upstream/master has one parent and carries its own Patch trailer.`,
+        detail: `${commit.id} (${commit.subject}) is a merge commit; this patch line stays linear, so every commit above the declared base merge has one parent and carries its own Patch trailer.`,
       })
       continue
     }
@@ -213,6 +238,14 @@ export function findRegistryViolations(
       continue
     }
     const [slug = ''] = commit.slugs
+    if (!SLUG.test(slug)) {
+      violations.push({
+        kind: 'malformed-trailer',
+        subject: commit.id,
+        detail: `${commit.id} (${commit.subject}) carries Patch: ${slug}, which is not a slug (lower-case words joined by single hyphens); git takes any trailer value, so the value is checked here.`,
+      })
+      continue
+    }
     if (!used.has(slug)) used.set(slug, commit.id)
     if (!status.has(slug)) {
       violations.push({
@@ -227,7 +260,7 @@ export function findRegistryViolations(
       violations.push({
         kind: 'unused-active-slug',
         subject: record.slug,
-        detail: `${REGISTRY_PATH} records ${record.slug} as ${record.status}, but no commit above upstream/master names it.`,
+        detail: `${REGISTRY_PATH} records ${record.slug} as ${record.status}, but no commit on this line names it.`,
       })
     }
     const commitId = used.get(record.slug)
@@ -242,60 +275,87 @@ export function findRegistryViolations(
   return violations
 }
 
+/** A git command this check runs could not be started, or exited non-zero. */
+class GitFailure extends Error {
+  /**
+   * @param args - the git arguments that failed.
+   * @param cause - what `execFileSync` threw.
+   */
+  constructor(args: readonly string[], cause: unknown) {
+    const reason = cause instanceof Error ? cause.message : String(cause)
+    const [first = ''] = reason.split('\n')
+    super(`git ${args.join(' ')} failed: ${first}`)
+    this.name = 'GitFailure'
+  }
+}
+
+/**
+ * Run one git command in the repository.
+ * @param repoRoot - repository root directory.
+ * @param args - the git arguments to run.
+ * @returns standard output with its trailing newline removed.
+ */
+function git(repoRoot: string, args: readonly string[]): string {
+  try {
+    return execFileSync('git', [...args], {
+      cwd: repoRoot,
+      encoding: 'utf8',
+      maxBuffer: 64 * 1024 * 1024,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    }).replace(/\n$/u, '')
+  } catch (cause) {
+    throw new GitFailure(args, cause)
+  }
+}
+
 /**
  * Read the branch the checkout is on.
  * @param repoRoot - repository root directory.
  * @returns the branch name, or null on a detached HEAD.
  */
 export function currentBranch(repoRoot: string): string | null {
-  const name = execFileSync('git', ['branch', '--show-current'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  }).trim()
+  const name = git(repoRoot, ['branch', '--show-current']).trim()
   return name === '' ? null : name
 }
 
 /**
- * Resolve how `upstream/master` relates to the checked-out line.
+ * Read whether the repository's history is truncated.
  * @param repoRoot - repository root directory.
- * @returns `missing` with no such ref, `base` when it is HEAD's merge base, `stale` otherwise.
+ * @returns true for a shallow clone, which cannot reach the declared base merge.
  */
-export function upstreamBase(repoRoot: string): UpstreamBase {
-  let upstream: string
-  try {
-    upstream = execFileSync('git', ['rev-parse', '--verify', '--quiet', 'upstream/master^{commit}'], {
-      cwd: repoRoot,
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim()
-  } catch {
-    // rev-parse exits non-zero for an unknown ref; no other failure mode reaches
-    // here, because the working directory is this repository.
-    return 'missing'
-  }
-  const base = execFileSync('git', ['merge-base', 'upstream/master', 'HEAD'], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-  }).trim()
-  return base === upstream ? 'base' : 'stale'
+export function isShallowClone(repoRoot: string): boolean {
+  return git(repoRoot, ['rev-parse', '--is-shallow-repository']).trim() === 'true'
 }
 
 /**
- * Read the commits above `upstream/master` with the `Patch:` trailers git reads.
+ * Find the declared base merge in HEAD's own history.
  * @param repoRoot - repository root directory.
+ * @param pullRequest - the pull-request number the registry declares, digits only.
+ * @returns every merge commit whose subject opens with that pull request, newest first.
+ */
+export function declaredBaseCommits(repoRoot: string, pullRequest: string): string[] {
+  const found = git(repoRoot, [
+    'rev-list',
+    '--merges',
+    `--grep=^Merge pull request #${pullRequest} `,
+    'HEAD',
+  ])
+  return found.split('\n').filter(id => id !== '')
+}
+
+/**
+ * Read the commits above the base with the `Patch:` trailers git reads.
+ * @param repoRoot - repository root directory.
+ * @param base - the base commit the line sits above, excluded from the result.
  * @returns one entry per commit, oldest first.
  */
-export function lineCommits(repoRoot: string): LineCommit[] {
-  const raw = execFileSync('git', [
+export function lineCommits(repoRoot: string, base: string): LineCommit[] {
+  const raw = git(repoRoot, [
     'log',
     '--reverse',
-    '--format=%H%x1f%s%x1f%P%x1f%(trailers:key=Patch,valueonly,separator=%x0c)%x1e',
-    'upstream/master..HEAD',
-  ], {
-    cwd: repoRoot,
-    encoding: 'utf8',
-    maxBuffer: 64 * 1024 * 1024,
-  })
+    '--format=%H%x1f%s%x1f%P%x1f%(trailers:key=Patch,valueonly,unfold,separator=%x0c)%x1e',
+    `${base}..HEAD`,
+  ])
   return raw.split('\x1e').map(entry => entry.replace(/^\n/u, '')).filter(entry => entry !== '')
     .map((entry) => {
       const [id = '', subject = '', parents = '', trailers = ''] = entry.split('\x1f')
@@ -323,32 +383,50 @@ export function runCheck(repoRoot: string): CheckResult {
     return { status: 'failed', report: `${REGISTRY_PATH} is missing or unreadable; the patch line has no registry to check against.` }
   }
   const registry = parseRegistry(source)
-  if (registry.declaredLine === null) {
-    return { status: 'failed', report: `${REGISTRY_PATH} declares no 当前补丁线; without it this check cannot tell the patch line from any other branch.` }
+  const [declaredLine] = registry.declaredLines
+  if (registry.declaredLines.length !== 1 || declaredLine === undefined) {
+    return { status: 'failed', report: `${REGISTRY_PATH} declares 当前补丁线 ${String(registry.declaredLines.length)} time(s) outside its code blocks; exactly one declaration names the branch this check compares against.` }
   }
-  const branch = currentBranch(repoRoot)
-  if (branch !== registry.declaredLine) {
-    return {
-      status: 'skipped',
-      report: `skipped: not on the declared patch line ${registry.declaredLine} (${branch ?? 'detached HEAD'})`,
+  const [declaredBase] = registry.declaredBases
+  if (registry.declaredBases.length !== 1 || declaredBase === undefined) {
+    return { status: 'failed', report: `${REGISTRY_PATH} declares 基座合并 ${String(registry.declaredBases.length)} time(s) outside its code blocks; exactly one declaration names the upstream merge this line sits above.` }
+  }
+  try {
+    const branch = currentBranch(repoRoot)
+    if (branch !== declaredLine) {
+      return {
+        status: 'skipped',
+        report: `skipped: not on the declared patch line ${declaredLine} (${branch ?? 'detached HEAD'})`,
+      }
     }
-  }
-  const base = upstreamBase(repoRoot)
-  if (base === 'missing') return { status: 'skipped', report: 'skipped: no upstream/master ref' }
-  if (base === 'stale') {
-    return { status: 'failed', report: 'upstream/master is not this line\'s base: fetch the upstream remote, or rebase the line onto it.' }
-  }
-  const commits = lineCommits(repoRoot)
-  const violations = findRegistryViolations(commits, registry)
-  if (violations.length > 0) {
-    return {
-      status: 'failed',
-      report: ['the patch line and its registry disagree:', ...violations.map(violation => `  ${violation.kind}: ${violation.detail}`)].join('\n'),
+    if (isShallowClone(repoRoot)) {
+      return { status: 'skipped', report: `skipped: shallow clone, whose truncated history cannot reach the declared base merge #${declaredBase}` }
     }
-  }
-  return {
-    status: 'ok',
-    report: `${String(commits.length)} commit(s) and ${String(registry.records.length)} registry record(s) agree.`,
+    const bases = declaredBaseCommits(repoRoot, declaredBase)
+    const [base] = bases
+    if (bases.length === 0 || base === undefined) {
+      return { status: 'failed', report: `${REGISTRY_PATH} declares base merge #${declaredBase}, which is not in this line's history; the declaration names the upstream merge commit this line was rebased onto.` }
+    }
+    if (bases.length > 1) {
+      return { status: 'failed', report: `${REGISTRY_PATH} declares base merge #${declaredBase}, which ${String(bases.length)} merge commits in this line's history claim (${bases.map(id => id.slice(0, 10)).join(', ')}); the declaration must resolve to one.` }
+    }
+    const commits = lineCommits(repoRoot, base)
+    const violations = findRegistryViolations(commits, registry)
+    if (violations.length > 0) {
+      return {
+        status: 'failed',
+        report: ['the patch line and its registry disagree:', ...violations.map(violation => `  ${violation.kind}: ${violation.detail}`)].join('\n'),
+      }
+    }
+    return {
+      status: 'ok',
+      report: `${String(commits.length)} commit(s) and ${String(registry.records.length)} registry record(s) agree.`,
+    }
+  } catch (failure) {
+    // Every git command this check runs is wrapped, and a failed one leaves the
+    // comparison undecidable; one line naming the command beats a stack trace.
+    if (failure instanceof GitFailure) return { status: 'failed', report: failure.message }
+    throw failure
   }
 }
 

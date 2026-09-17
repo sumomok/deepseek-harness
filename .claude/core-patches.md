@@ -2,7 +2,11 @@
 
 本文件登记 `core-patches` 线上的每一个补丁族。新增、修改、退役补丁时必须同步更新本文件。
 
-**当前补丁线**：`core-patches-v10`，基座 `upstream/master` = 上游 `0.1.6-alpha.1` 之后的 5 个提交（最新一条是 `Merge pull request #4192`）。release tag `dsh-v0.1.6-alpha.1` 只是该基座的祖先，**不等于基座**——按该 tag 取基座会少 5 个提交、得到另一棵树。本线由 `core-patches-v9` 变基而来：v9 的 92 个提交里 91 个落地、1 个退役（见 `referent-target-probe`），其后是本轮新增的提交。
+**当前补丁线**：`core-patches-v10`。
+
+**基座合并**：#4192
+
+上面这行是门禁读的基座声明：本线坐落在上游合并 `#4192` 的那个提交之上，门禁在 HEAD 自己的历史里解析它（以 `Merge pull request #4192 ` 开头的 merge 提交必须恰有一条），不读任何远端跟踪引用。该基座是上游 `0.1.6-alpha.1` 之后的第 5 个提交；release tag `dsh-v0.1.6-alpha.1` 只是它的祖先，**不等于基座**——按该 tag 取基座会少 5 个提交、得到另一棵树。本线由 `core-patches-v9` 变基而来：v9 的 92 个提交里 91 个落地、1 个退役（见 `referent-target-probe`），其后是本轮新增的提交。
 
 ## 身份规则
 
