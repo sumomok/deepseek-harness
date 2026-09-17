@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-01-chat-prose-referents-seam-port.md
-2026-09-01-chat-prose-referents-seam-port.md: 4d8dba5cbc6dcbbb0245c59fd9037eaf477bbcb6
-2026-09-01-chat-prose-referents-seam-port.zh.md: 8caa855c4e25657d25b99a207242e2d6f11ce2a5
+2026-09-01-chat-prose-referents-seam-port.md: d3740ad2759ff0a6862f27915056f3b5eff49fd3
+2026-09-01-chat-prose-referents-seam-port.zh.md: 4f9db6d03e84b4dff96f08b4060e3a0379318319

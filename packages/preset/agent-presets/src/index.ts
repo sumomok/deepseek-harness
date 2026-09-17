@@ -55,7 +55,7 @@ export type {
 /**
  * Preset ids earlier releases wrote into settings and session logs under a
  * name the shipped roster no longer carries. Upstream renamed the `code`
- * preset to `ptc` (3ca9c7d489) and kept only the session-persistent
+ * preset to `ptc` (upstream PR #3074) and kept only the session-persistent
  * vocabulary, so a settings default, a resumed session, or a switch naming
  * `code` means `ptc`. The alias applies only when no root supplies the legacy
  * id itself: a user-authored preset of that name keeps winning.
