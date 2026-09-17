@@ -1181,6 +1181,32 @@ describe('seedBuiltinBundles retiring the permission rows an earlier build copie
     expect(patchNow()).toBe(`${ownRow}\n`)
   })
 
+  it('reads a key written with no value as an entry it cannot read, on a layer holding nothing else', () => {
+    const halfWritten = '- id: at-file\n  disabled:'
+    profileWithPatch(halfWritten)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual([])
+    expect(report.skipped).toEqual([])
+    expect(patchNow()).toBe(`${halfWritten}\n`)
+    expect(readMigrationMarker(markerPath())?.permissionPatch).toBe('absent')
+  })
+
+  it('retires the rows beside an entry whose mapping has a key with no value', () => {
+    const halfWritten = '- id: at-file\n  config:\n  disabled: true'
+    profileWithPatch(`${halfWritten}\n${seededRows}`)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual(['the llm-permission-gateway row', 'the permission preset table'])
+    expect(patchNow()).toBe(`${halfWritten}\n`)
+  })
+
+  it('retires the rows beside an entry whose sequence has an item with nothing after the dash', () => {
+    const halfWritten = '- id: at-file\n  config:\n    list:\n      - a\n      -'
+    profileWithPatch(`${halfWritten}\n${seededRows}`)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual(['the llm-permission-gateway row', 'the permission preset table'])
+    expect(patchNow()).toBe(`${halfWritten}\n`)
+  })
+
   it('reads the file once: a profile whose record already carries a decision is left alone', () => {
     profileWithPatch(`${pairingComment}\n${seededRows}`, {
       from: WEB_PROFILE, migrated: [], defective: [], removed: [], permissionPatch: 'removed',

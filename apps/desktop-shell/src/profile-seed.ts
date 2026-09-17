@@ -1234,15 +1234,24 @@ function syncWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport):
 type PatchValue = string | PatchValue[] | { [key: string]: PatchValue }
 
 /**
- * Whether a node the failsafe schema produced is a {@link PatchValue}.
+ * Whether a node the failsafe schema produced is a {@link PatchValue}, all the
+ * way down.
  *
- * The schema's own node kinds are strings, mappings, and sequences, so the one
- * thing this rejects is the `null` an empty node parses to.
+ * The schema's node kinds are strings, mappings, and sequences, and the one
+ * other thing it produces is the `null` an empty node parses to — a key written
+ * with no value (`config:`), a sequence item with nothing after the dash. YAML
+ * puts that null wherever the empty node is, so the check has to reach the same
+ * places: {@link canonical} reads a mapping with `Object.entries`, which throws
+ * on a null, and an entry holding one anywhere is unreadable here rather than a
+ * failed launch.
  * @param value - one node the parse returned.
- * @returns true when {@link canonical} can serialize it.
+ * @returns true when {@link canonical} can serialize it and everything under it.
  */
 function isPatchValue(value: unknown): value is PatchValue {
-  return typeof value === 'string' || (typeof value === 'object' && value !== null)
+  if (typeof value === 'string') return true
+  if (Array.isArray(value)) return value.every(isPatchValue)
+  if (typeof value !== 'object' || value === null) return false
+  return Object.values(value).every(isPatchValue)
 }
 
 /** The lines one top-level patch entry occupies, and what the recognizer read from it. */
@@ -1511,10 +1520,34 @@ function recordPermissionPatch(
  * holding the empty template decides without parsing anything. A profile with
  * no marker to record it in is read again next launch, which costs one file
  * read and, for the common case, one comparison against that template.
+ *
+ * No fault in here is worth a launch. The whole body runs under one catch, and
+ * anything it does not otherwise handle becomes a line in
+ * {@link SeedReport.skipped} naming the file: the shell then starts the way it
+ * would have without this step, with the profile still shadowing the shipped
+ * preset table, rather than failing to open on a file nothing in the
+ * application can edit. Every fault this module knows of is answered before
+ * that line — an entry the schema refuses, a file it cannot read, a write that
+ * fails — so reaching it means an assumption here is wrong, and the line is
+ * what says which file to look at.
  * @param profileDir - the desktop profile directory.
  * @param report - the run's report, extended with what was retired or left alone.
  */
 function retireSeededPermissionRows(profileDir: string, report: SeedReport): void {
+  try {
+    retireSeededPermissionRowsIn(profileDir, report)
+  } catch (error) {
+    report.skipped.push(`${join(profileDir, PROFILE_PATCH_FILENAME)}: ${String(error)}`)
+  }
+}
+
+/**
+ * The body {@link retireSeededPermissionRows} guards: everything it describes,
+ * free to throw.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with what was retired or left alone.
+ */
+function retireSeededPermissionRowsIn(profileDir: string, report: SeedReport): void {
   const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
   const marker = readMigrationMarker(markerPath)
   if (marker?.permissionPatch !== undefined) return

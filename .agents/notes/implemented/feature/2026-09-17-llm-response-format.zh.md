@@ -8,14 +8,14 @@ Status: implemented
 
 `@haoran/dsh-llm-permission-gateway` 让第二个模型（判官）判定一次工具调用，并把那条回答按 JSON 解析。2026-09-17 22:54 的一次判官调用用 52 个 token 的散文作答而不是 JSON，解析失败，这道门走了失败关闭那条路——一次判官从未拒绝过的工具调用被拒，模型收到的说法是用户拒绝了它。
 
-DeepSeek 的 chat-completions 端点用 `response_format: { type: 'json_object' }` 恰好消除这种失败，而 harness 里没有任何东西能把该字段送上线。`GenerateOptions`——每个适配器收到的完整装配后请求——没有应答格式字段，而 `dsh-llm-deepseek` 只从 `GenerateOptions` 的字段装配请求体。插件可以经 `llm/stream` 瀑布替换或改道一次请求，但它交出去的仍是一个 `GenerateOptions`，因此没有字段可设。唯一能添加 DeepSeek 顶层字段的注册表 `ctx.deepseekLlmApiExtensions` 的定义是提供方专用、留在模型输入之外的字段；`response_format` 管的是模型产出的那条回答，正是模型输入的另一半。[dsh-llm README](../../../../packages/llm/llm/README.zh.md#known-limitations-and-deferred-work) 写明了本次改动满足的条件：有产生方需要时才添加请求字段。
+DeepSeek 的 chat-completions 端点用 `response_format: { type: 'json_object' }` 恰好消除这种失败，而 harness 里没有任何东西能把该字段送上线。`GenerateOptions`——每个适配器收到的完整装配后请求——没有应答格式字段，而 `dsh-llm-deepseek` 只从 `GenerateOptions` 的字段装配请求体。插件可以经 `llm/stream` 瀑布替换或改道一次请求，但它交出去的仍是一个 `GenerateOptions`，因此没有字段可设。唯一能添加 DeepSeek 顶层字段的注册表 `ctx.deepseekLlmApiExtensions` 的定义是提供方专用、留在模型输入之外的字段；`response_format` 约束的是模型产出的那条回答，端点从请求体里读它，与其他模型输入一样。[dsh-llm README](../../../../packages/llm/llm/README.zh.md#known-limitations-and-deferred-work) 写明了本次改动满足的条件：有产生方需要时才添加请求字段。
 
 ## Decision
 
 `GenerateOptions.responseFormat?: { type: 'json_object' }` 是提供方无关的应答格式约束，声明在 `stop` 旁边，并承载调用方依赖的四条事实：
 
 - 提供方保证 assistant 文本是一个合法 JSON 值。
-- 提示词仍然必须要求 JSON。这是 DeepSeek 自己的要求，不是适配器的客套：不这样做，模型可以一直流出空白字符直到输出上限。
+- 提示词仍然必须要求 JSON。这是端点的要求：不这样做，模型可以一直流出空白字符直到输出上限。
 - 空回答与在 `maxTokens` 处被截断的回答都仍然可能。调用方要校验自己解析的内容，而不是只信这条保证。
 - 提供方无法支持该格式的适配器以 `LlmError` code `UNSUPPORTED_OPTION` 让请求失败，而不是静默发送纯文本——[adding-an-llm-adapter](../../../../docs/cookbook/adding-an-llm-adapter.zh.md) 对 `stop` 已经写下的规则。
 
@@ -35,7 +35,7 @@ DeepSeek 文档对 JSON 模式的约束正是其中前三条：提示词必须�
 
 **解析失败就重试判官，保留失败关闭那条路。**否决：每次失手都要多付一次完整的判官调用，而它重试的失败是模型选择了散文——重试不会让这件事更少发生，JSON 模式则在提供方那一侧消除了它。
 
-**改强判官的提示词而不是请求。**否决的理由是不够，而不是不对：这道门的提示词已经在要求 JSON，而 JSON 模式要求它继续这样要求。提示词正是已经失效的那一半。
+**改强判官的提示词而不是请求。**否决的理由是不够，而不是不对：这道门的提示词已经在要求 JSON，而 JSON 模式要求它继续这样要求。提示词已经在要求了，失效的正是「要求」这件事本身。
 
 **经 `ctx.deepseekLlmApiExtensions` 注册 `response_format`。**否决：该注册表的约定是模型输入之外的提供方专用字段，且它按注册作用于每一个 `deepseek-official` 请求，而不是作用于想要 JSON 的那一次调用。它还会把该约束锁死在一个提供方上，而 seam 上的字段能让第二个适配器大声拒绝它。
 
@@ -49,6 +49,6 @@ DeepSeek 文档对 JSON 模式的约束正是其中前三条：提示词必须�
 
 这是对上游核心包的 fork overlay。上游的 `GenerateOptions` 出现 `responseFormat` 或等价的应答格式字段即退役，届时 fork 的这道门改为适配上游形式。判据只读声明点——`git grep -n "responseFormat" upstream/master -- packages/llm/llm/src/types.ts`，今天零命中——因为整个 `packages/llm` 路径已经命中 pi-ai 一份模型清单 fixture 里的三条 `supported_parameters`。非零命中是要人去读的信号，不是结论。在此之前每一轮滚动同步都要重新移植，因为它落在上游每次扩充请求字段集时都会改的那个类型里。
 
-设置该字段的产生方欠它的每条路由一个兜底。`LlmRuntime` 把适配器的抛出变成终止性 `error` finish，所以在 pi-ai 路由上——Models 页可为任何模型选它——设置 `responseFormat` 的判官每一次调用都拿到 `UNSUPPORTED_OPTION`，每一次工具调用都失败关闭，比这个字段要消除的那一次散文回答更糟。这份义务归产生方：识别该 code，同一请求不带该字段重试一次，并按路由缓存结论。网关在 0.4.5 承担它。
+设置该字段的产生方欠它的每条路由一个兜底。`LlmRuntime` 把适配器的抛出变成终止性 `error` finish，所以在 pi-ai 路由上——Models 页可为任何模型选它——设置 `responseFormat` 的判官每一次调用都拿到 `UNSUPPORTED_OPTION`，每一次工具调用都失败关闭，比这个字段要消除的那一次散文回答更糟。这份义务归产生方：识别该 code，同一请求不带该字段重试一次，并按路由缓存结论。网关自 0.4.6 起承担它，桌面载荷随包分发的就是这一版。
 
-没有任何出厂组合设置该字段，因此没有会话日志、快照或录制 fixture 发生变化：缺省的 `responseFormat` 序列化结果逐字节不变。证据在读取它的那三个包里——`llm-deepseek` 的 `serialize.spec.ts` 钉住映射后的线上字段以及请求未命名格式时它的缺席，同包的 `adapter.spec.ts` 在一次 `ctx.llm.stream()` 真正送上线的 body 上钉住同一对事实，`llm-pi-ai` 的 `adapter.spec.ts` 钉住发出任何请求之前的 `UNSUPPORTED_OPTION` 失败，`agent-loop` 的 `invariant.spec.ts` 钉住循环请求被拒。
+`packages/bundle/*` 的任何 profile 都不设置该字段——产生方是桌面载荷挂载的一个随包插件——因此没有会话日志、快照或录制 fixture 发生变化：缺省的 `responseFormat` 序列化结果逐字节不变。证据在读取它的那三个包里——`llm-deepseek` 的 `serialize.spec.ts` 钉住映射后的线上字段以及请求未命名格式时它的缺席，同包的 `adapter.spec.ts` 在一次 `ctx.llm.stream()` 真正送上线的 body 上钉住同一对事实，`llm-pi-ai` 的 `adapter.spec.ts` 钉住发出任何请求之前的 `UNSUPPORTED_OPTION` 失败，`agent-loop` 的 `invariant.spec.ts` 钉住循环请求被拒。
