@@ -97,11 +97,13 @@
 
 ## factory-zero-deepseek-egress — 出厂零 DeepSeek 出站
 
-- **改了什么**：`packages/bundle/base/cordis.patch.yml` 的 `session-telemetry-otel` 与 `plugin-package-inventory-deepseek` 两行加 `disabled: true`，`session-log-deepseek` 一行加 `config: { enabled: false }`；三行的上游配置声明原样保留；`packages/bundle/base/tests/base.spec.ts` 钉住三行的实际内容与 `session-log-deepseek` 经自身 schema 解析后的实际取值；双语 README 改述本产品出厂状态。
+- **改了什么**：`packages/bundle/base/cordis.patch.yml` 的 `session-telemetry-otel` 与 `plugin-package-inventory-deepseek` 两行加 `disabled: true`，`session-log-deepseek` 一行加 `config: { enabled: false }`；`packages/bundle/sdk-minimal/cordis.patch.yml`（该 bundle 刻意不叠加 base，是自己完整的树）的 `plugin-package-inventory-deepseek` 一行加 `disabled: true`、`session-log-deepseek` 一行加 `config: { enabled: false }`；各行的上游配置声明原样保留；两个 bundle 的 `tests/*.spec.ts` 各自钉住本 bundle 每一行的字面内容，并把 `session-log-deepseek` 行再经该插件自身 schema 解析一遍钉住实际取值；四份 README 改述本产品出厂状态。`snapshots/sdk/text-turn/cordis.yml` 补一行 `session-log-deepseek` 的 `enabled: true`：该组合是语料里对上传通路的覆盖，原先靠插件 schema 默认开启，base 出厂关闭后覆盖会变成死覆盖。
 - **为什么**：本 fork 的产品决定是出厂即零会话遥测、零已装插件清单、零会话日志贡献流向 DeepSeek 官方 API，且不依赖用户设置环境变量。`session-telemetry-otel` 的 `mode` 只选采集策略、表达不了「关」；`plugin-package-inventory-deepseek` 没有等价开关；`session-log-deepseek` 的 `enabled` 在 `0.1.6-alpha.1` 基座上默认为 true。
-- **要达到的效果**：三条通往 DeepSeek 的上报路径出厂关闭；前两条用行标志（`apply()` 根本不运行），第三条用自身配置字段（只撤下请求贡献，插件其余部分照常挂载）；profile patch 重新开启任一行即得到上游自己的行为。
-- **退役条件**：上游自己把这三行出厂关闭，或 fork 不再发布面向终端用户的产品。
-- **状态**：在役（`core-patches-v10`）。核实依据：上游 `packages/bundle/base/cordis.patch.yml` 两行仍无 `disabled: true`，`session-log-deepseek` 行仍无 `config`，其 schema 为 `enabled: z.boolean().default(true)`。
+- **要达到的效果**：两个 bundle 各自把通往 DeepSeek 的上报路径出厂关闭；用行标志的那些 `apply()` 根本不运行，`session-log-deepseek` 用的是插件自身的 `enabled` 字段——`apply()` 仍运行一次，但在注册 `dsh_session_log` 请求贡献之前返回，而那条贡献是该插件贡献的全部；profile patch 重新开启任一行即得到上游自己的行为。
+- **退役条件**：上游自己把这些行出厂关闭，或 fork 不再发布面向终端用户的产品。
+- **状态**：在役（`core-patches-v10`）。核实依据：上游 `packages/bundle/base/cordis.patch.yml` 两行仍无 `disabled: true`、`session-log-deepseek` 行仍无 `config`；上游 `packages/bundle/sdk-minimal/cordis.patch.yml` 的 `plugin-package-inventory-deepseek` 行仍无 `disabled`、`session-log-deepseek` 行仍无 `config`；该插件 schema 为 `enabled: z.boolean().default(true)`。
+- **提交信息订正**：本族提交信息里「只撤下请求贡献，插件其余部分照常挂载 / the plugin's remaining contributions stay mounted」这句不成立——`packages/session/session-log-deepseek/src/index.ts` 的 `apply()` 只注册一样东西，且在 `enabled !== true` 时直接返回，「其余部分」是空集；与 `disabled: true` 的唯一差别是模块仍被导入、`apply()` 仍空跑一次。散文里该句已按事实改写，提交信息不可改。
+- **滚动同步注意**：patch 是整段替换目标行的 `config` 而非合并，因此后续任何一层只要给 `session-log-deepseek` 行任何 `config` 却没重述 `enabled: false`，就会恢复上游的默认开启。
 - **不回补的一半**：壳侧的 `DSH_TELEMETRY_DISABLED` 与桌面组装层用例——补丁线上没有 fork 外壳，上游同名的 `apps/desktop` 是另一个应用。
 - **Agent Note**：[`fork-kills-session-telemetry-and-plugin-inventory`](../.agents/notes/implemented/process/2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md)
 
