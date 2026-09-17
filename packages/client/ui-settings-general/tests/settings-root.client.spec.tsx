@@ -33,7 +33,7 @@ const EVERY_SECTION: Row[] = [
   { id: 'general', order: 0, label: 'General' },
   { id: 'vision-switch', order: 5, label: 'Vision' },
   { id: 'models', order: 10, label: 'Models' },
-  { id: 'llm-permission-gateway', order: 15, label: 'Automatic review' },
+  { id: 'llm-permission-gateway', order: 15, label: 'Review settings' },
   { id: 'agent-presets', order: 20, label: 'Agent presets' },
   { id: 'mcp-servers', order: 25, label: 'MCP servers' },
   { id: 'contributed', order: 28, label: 'Contributed' },
@@ -427,13 +427,13 @@ describe('SettingsPanel navigation', () => {
       'General', 'Models', 'Agent', 'Extensions', 'Account & usage', 'About', 'Other',
     ])
     // Members follow the table, not the ledger's `order`: Vision (5) draws
-    // below Models (10), Automatic review (15) below Agent presets (20), and
+    // below Models (10), Review settings (15) below Agent presets (20), and
     // MCP servers (25) below Plugins (30), because each group's table lists
     // them that way. The trailing group keeps ledger order instead.
     expect(groupMembers()).toEqual([
       ['General', 'At file'],
       ['Models', 'Vision'],
-      ['Agent presets', 'Automatic review'],
+      ['Agent presets', 'Review settings'],
       ['Plugins', 'MCP servers', 'Screenshot logins'],
       ['Balance'],
       ['Desktop update'],
