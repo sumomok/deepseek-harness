@@ -281,7 +281,7 @@ describe('Chat inject API', () => {
     await b.runtime.dispose()
   })
 
-  it('referents.open dispatches referent/open carrying chat-prose provenance, distinct from openFile', async () => {
+  it('referents.open dispatches referent/open entered as chat-prose model text, distinct from openFile', async () => {
     const b = await bench()
     const span = { start: 0, end: 11, kind: 'file' as const, target: '/proj/src/a.ts', raw: 'src/a.ts' }
     b.runtime.ctx.provide('proseReferents', { scan: () => [span] })
@@ -293,7 +293,7 @@ describe('Chat inject API', () => {
     await vi.waitFor(() => { expect(captured).toBeDefined() })
     expect(captured).toEqual({
       kind: 'file', target: '/proj/src/a.ts', raw: 'src/a.ts', sessionId: ROOT,
-      source: 'chat-prose', provenance: 'model-text',
+      source: 'chat-prose', enteredAs: 'model-text',
     })
     await b.runtime.dispose()
   })
