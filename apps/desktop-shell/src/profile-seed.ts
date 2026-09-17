@@ -1314,11 +1314,52 @@ function canonical(value: PatchValue): string {
 }
 
 /**
- * The two rows an earlier build of this shell put into a desktop profile's own
+ * The row id one entry declares, from what the failsafe schema read: its own
+ * `id`, or the `id` of the single row it inserts.
+ * @param value - what {@link patchEntries} read for the entry.
+ * @returns the id, or undefined for an entry that declares none this way.
+ */
+function declaredId(value: PatchValue): string | undefined {
+  if (typeof value === 'string' || Array.isArray(value)) return undefined
+  const own = value['id']
+  if (typeof own === 'string') return own
+  const insert = value['insert']
+  const first = Array.isArray(insert) && insert.length === 1 ? insert[0] : undefined
+  if (first === undefined || typeof first === 'string' || Array.isArray(first)) return undefined
+  const inserted = first['id']
+  return typeof inserted === 'string' ? inserted : undefined
+}
+
+/**
+ * The same question {@link declaredId} answers, asked of an entry the failsafe
+ * schema refused, over its lines with comment-only lines removed.
+ *
+ * A key line is the whole test, so a mention of the id inside a comment or a
+ * value — the preset table's own description names the gateway — does not make
+ * an entry that row.
+ * @param raw - the entry's lines, verbatim.
+ * @param id - the row id to look for.
+ * @returns true when a key line of the entry declares that id.
+ */
+function declaresId(raw: readonly string[], id: string): boolean {
+  const structural = raw.filter(line => !line.trim().startsWith('#')).join('\n')
+  return new RegExp(`^[- ]*id: *['"]?${id}['"]? *$`, 'm').test(structural)
+}
+
+/**
+ * The rows an earlier build of this shell put into a desktop profile's own
  * patch layer, as the {@link canonical} text of what {@link patchEntries} reads
  * for each one.
  *
- * Both are `cordis.patch.yml` inside
+ * The gateway row has two forms because a patch layer can declare it either
+ * way: the package's own `- insert:`, and the top-level `- id:` an id-targeted
+ * copy of it takes. The second is retired on the same terms as the first —
+ * every field the shipped value, which is nobody's choice — and it matters more
+ * than the duplicate it looks like: an id-targeted patch replaces the row's
+ * whole `config`, so a copy carrying 0.1.3's two fields silently pins the judge
+ * route and drops every `Config` field a later release sets on its own row.
+ *
+ * All of them are `cordis.patch.yml` inside
  * `apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz`, the
  * tarball commit `1229bc8049` vendored for 0.1.0-rc.21 — the pairing a hand
  * written `~/.dsh/profiles/web/cordis.patch.yml` carried before that release
@@ -1332,10 +1373,10 @@ function canonical(value: PatchValue): string {
  * entirely: the access-mode control keeps offering the 0.1.3 rows on a machine
  * running any later build.
  */
-const SEEDED_PERMISSION_ROWS: readonly { what: string; row: string; declares: RegExp }[] = [
+const SEEDED_PERMISSION_ROWS: readonly { what: string; id: string; row: string }[] = [
   {
     what: 'the permission preset table',
-    declares: /^- id: {1,}permission *$/m,
+    id: 'permission',
     row: canonical({
       id: 'permission',
       config: {
@@ -1355,13 +1396,22 @@ const SEEDED_PERMISSION_ROWS: readonly { what: string; row: string; declares: Re
   },
   {
     what: 'the llm-permission-gateway row',
-    declares: /(^|\s)llm-permission-gateway(\s|$)/m,
+    id: 'llm-permission-gateway',
     row: canonical({
       insert: [{
         id: 'llm-permission-gateway',
         name: '@haoran/dsh-llm-permission-gateway',
         config: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
       }],
+    }),
+  },
+  {
+    what: 'the llm-permission-gateway row',
+    id: 'llm-permission-gateway',
+    row: canonical({
+      id: 'llm-permission-gateway',
+      name: '@haoran/dsh-llm-permission-gateway',
+      config: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
     }),
   },
 ]
@@ -1451,8 +1501,10 @@ function retireSeededPermissionRows(profileDir: string, report: SeedReport): voi
       retired.push(matched.what)
       continue
     }
-    const block = lines.slice(entry.start, entry.end + 1).join('\n')
-    const looks = SEEDED_PERMISSION_ROWS.find(seeded => seeded.declares.test(block))
+    const declared = entry.value === undefined ? undefined : declaredId(entry.value)
+    const looks = SEEDED_PERMISSION_ROWS.find(seeded => declared === undefined
+      ? declaresId(lines.slice(entry.start, entry.end + 1), seeded.id)
+      : declared === seeded.id)
     if (looks !== undefined) kept.push(looks.what)
   }
 

@@ -978,6 +978,22 @@ describe('seedBuiltinBundles retiring the permission rows an earlier build copie
     '        description: 沙箱完全关闭，文件系统与命令不再有操作系统层面的围墙；改由审查模型逐个判断工具调用，只在它自己拿不准时才弹审批框。安全性取决于模型的判断质量，不再取决于沙箱。必须与 llm-permission-gateway 一起使用。',
   ].join('\n')
 
+  /** The preset table on its own, which is what the gateway row below sits beside. */
+  const seededTable = seededRows.slice(seededRows.indexOf('- id: permission'))
+
+  /**
+   * The same gateway row as an id-targeted entry rather than an insert, the
+   * form a patch layer written against a build that already mounts the plugin
+   * takes. Every field is the shipped value.
+   */
+  const topLevelGateway = [
+    '- id: llm-permission-gateway',
+    "  name: '@haoran/dsh-llm-permission-gateway'",
+    '  config:',
+    '    provider: deepseek-official',
+    '    model: deepseek-v4-flash',
+  ].join('\n')
+
   /** The comment a reader of that file finds above the preset table. */
   const pairingComment = '# `yolo-access` turns the sandbox off and puts the review model in its place.\n'
     + '# It is only defensible while `llm-permission-gateway` is mounted.'
@@ -1046,6 +1062,41 @@ describe('seedBuiltinBundles retiring the permission rows an earlier build copie
     expect(report.skipped).toContain(
       `${PROFILE_PATCH_FILENAME}: the llm-permission-gateway row is not the one this shell wrote; left exactly as it is`,
     )
+  })
+
+  it('retires the gateway row in its id-targeted form as well', () => {
+    profileWithPatch(`${seededTable}\n${topLevelGateway}`)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual(['the permission preset table', 'the llm-permission-gateway row'])
+    expect(report.skipped).toEqual([])
+  })
+
+  it('leaves an id-targeted gateway row carrying a route of its owner\'s', () => {
+    profileWithPatch(`${seededTable}\n${topLevelGateway.replace('deepseek-v4-flash', 'deepseek-flash')}`)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual(['the permission preset table'])
+    expect(patchNow()).toBe(`${topLevelGateway.replace('deepseek-v4-flash', 'deepseek-flash')}\n`)
+    expect(report.skipped).toContain(
+      `${PROFILE_PATCH_FILENAME}: the llm-permission-gateway row is not the one this shell wrote; left exactly as it is`,
+    )
+  })
+
+  it('reads an entry that only mentions the name as no row of this shell\'s', () => {
+    profileWithPatch('- id: at-file\n  # kept for llm-permission-gateway reasons\n  disabled: true')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual([])
+    expect(report.skipped).toEqual([])
+    expect(readMigrationMarker(markerPath())?.permissionPatch).toBe('absent')
+  })
+
+  it('names the edited row by the id it declares, not by a name inside its own values', () => {
+    profileWithPatch(seededTable
+      .replace('- id: permission', "- id: 'permission'")
+      .replace('        approval: never', '        approval: ask'))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.skipped).toEqual([
+      `${PROFILE_PATCH_FILENAME}: the permission preset table is not the one this shell wrote; left exactly as it is`,
+    ])
   })
 
   it('reads the file once: a profile whose record already carries a decision is left alone', () => {

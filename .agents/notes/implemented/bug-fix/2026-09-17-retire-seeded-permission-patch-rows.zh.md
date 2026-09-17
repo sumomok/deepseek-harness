@@ -8,7 +8,7 @@ Status: implemented
 
 一台跑着 0.1.0-rc.33 的桌面客户端,给出的仍是 2026-08 那套访问方式:仅可查看 / 工作区内修改 / 完全权限 / 自动审查,就按这个顺序,`yolo-access` 的描述仍是沙箱完全关闭，文件系统与命令不再有操作系统层面的围墙……。`@haoran/dsh-llm-permission-gateway` 0.4.3 声明的是另一套顺序的四行——有墙、没墙但还问你、没墙也不问——被审查那一行也换了自己的名字与描述。这些一样都没到这台机器上。
 
-盖住它的文件是 `~/.dsh/profiles/desktop-shell/cordis.patch.yml`,最后一次写入在 2026-08-27,里面装着一条带整张预设表的 `- id: permission`,外加一行 `llm-permission-gateway`。profile 自己的 patch 层是倒数第二层——每一个 bundle 层都在它之前生效——所以那里一条以 id 为目标的条目会替换整个 `config`,插件那张表就永远不生效。产品里没有任何东西会从那个文件里把一行取回去:`WITHDRAWN_WEB_BUNDLES` 与 `web-migration.json` 够得着的是 bundle 名字与链接,从来不是 patch 层的内容。
+盖住它的文件是 `~/.dsh/profiles/desktop-shell/cordis.patch.yml`,最后一次写入在 2026-08-27,里面装着一条带整张预设表的 `- id: permission`,外加一行 `llm-permission-gateway`。后面那一行是以 id 为目标的 `- id: llm-permission-gateway`,而不是包自己那份 `- insert:`——一份对着已经挂载了这个插件的构建写下的层,取的正是这种形态。profile 自己的 patch 层是倒数第二层——每一个 bundle 层都在它之前生效——所以那里一条以 id 为目标的条目会替换整个 `config`,插件那张表就永远不生效。产品里没有任何东西会从那个文件里把一行取回去:`WITHDRAWN_WEB_BUNDLES` 与 `web-migration.json` 够得着的是 bundle 名字与链接,从来不是 patch 层的内容。
 
 这两行是壳自己留下的,走的是 [`copyPristineProfileFile`](../../../../apps/desktop-shell/src/profile-seed.ts) 说明的那条路。一个 `desktop-shell` profile 迄今第一次跑同步时,会把仍是空模板的那份 patch 层逐字节换成 `web` profile 的文件,而在这台机器上,`web` 层正是 [2026-08-22 那份网关记录](../feature/2026-08-22-desktop-builtin-permission-gateway.zh.md)写下的那份手写文件:`yolo-access` 与这道门,靠一句请阅读的人别把两个块拆开的注释配在一起。0.1.0-rc.21 把这两行搬进了包里(`1229bc8049`,`apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz`),六天之后,首次同步把这台机器自己那份副本抄进了如今盖住这个包的那个 profile。
 
@@ -22,7 +22,7 @@ Status: implemented
 
 一次移除会带走条目本身、紧写在它上面的那段注释,以及紧跟在它下面的空行。文件里其余的一切——别的条目、`!!js` 表达式、文件主人自己的文字——逐字节留在原处。除此之外别无他物的一层会变回那份空模板;只剩注释的一层会补上这些注释原本注解的那个 `[]`,因为 loader 把这个文件读成一个顶层数组。
 
-任何一处有出入的行都是文件主人的,会留下,并在日志里给出理由:`skipped cordis.patch.yml: the permission preset table is not the one this shell wrote; left exactly as it is`。网关那一行上的裁判路由也算——有人改过的 `model` 就让那一行成了他的。发生移除时打印 `retired the permission preset table from cordis.patch.yml`,来自新增的 `SeedReport.retired`。
+网关那一行两种形态都会被匹配——包的 `- insert:` 与以 id 为目标的 `- id:`——条件相同:每个字段都是随包分发的那个值。以 id 为目标的那一种并不是看上去那样一份无害的重复:这样一条 patch 会替换整行的 `config`,所以一份带着 0.1.3 的 `provider` 与 `model` 的副本会把那条裁判路由钉死,并丢掉此后某个版本在自己那一行上设的每一个 `Config` 字段。任何一处有出入的行都是文件主人的,会留下,并在日志里给出理由:`skipped cordis.patch.yml: the permission preset table is not the one this shell wrote; left exactly as it is`。网关那一行上的裁判路由也算——有人改过的 `model` 就让那一行成了他的。发生移除时打印 `retired the permission preset table from cordis.patch.yml`,来自新增的 `SeedReport.retired`。
 
 这个决定作为 `permissionPatch` 记进 `web-migration.json`——`removed`、`kept` 或 `absent`——它在,就是后续启动不再读这个文件的依据。完全没有标记文件的 profile 不会在这里得到一个:标记文件在不在,正是 `syncWebBundles` 读作「这个 profile 同步过」的那个依据,凭空造一个会压掉 web profile 那两个文件仅此一次的抄送。这样的 profile 下次启动会再读一次,代价是一次文件读取与一次跟模板的比较;而仍是那份模板的 patch 层根本不会被解析。
 
@@ -46,7 +46,7 @@ Status: implemented
 
 ## Consequences
 
-抄过这两行的客户端在下一次启动就拿回随包分发的那张访问方式表,不用终端,也不用手改 YAML,patch 层里其余每一行照留。改过其中任何一行的客户端会留着它,并被告知是哪一行、为什么;在有标记文件把这个决定记下来之前,每次启动告知一次。
+抄过这两行的客户端在下一次启动就拿回随包分发的那张访问方式表,不用终端,也不用手改 YAML,patch 层里其余每一行照留。改过其中任何一行的客户端会留着它,并被告知是哪一行、为什么;在有标记文件把这个决定记下来之前,每次启动告知一次。发现这件事的那台机器两行都会掉:它的网关行正是以 id 为目标的那一种,而里面每个字段都是随包分发的那个值。
 
 `MigrationMarker` 多了一个可选字段。它是 `@haoran/dsh-plugin-updates` 读的跨组件契约,所以这个字段是叠加的,没做决定之前不存在,并且 `readMigrationMarker` 与 `syncWebBundles` 写出的标记都会把它带着走。
 
