@@ -759,6 +759,7 @@ function docSyncLeafGates(options: {
     pnpmScript('public-repository-links', 'verify-public-repository-links', { label: 'public repository links', quick: true }),
     pnpmScript('repository-references', 'verify-repository-references', { label: 'repository references', quick: true }),
     pnpmScript('concrete-terms', 'verify-concrete-terms', { label: 'concrete terms', quick: true }),
+    pnpmScript('core-patches', 'verify-core-patches', { label: 'core patch registry', quick: true }),
     pnpmScript('doc-refs', 'verify-doc-refs', { label: 'doc refs', quick: true }),
     pnpmScript('subsystem-pages', 'verify-subsystem-pages', { label: 'subsystem pages' }),
     pnpmScript('package-paths', 'verify-package-paths', { label: 'package paths' }),
