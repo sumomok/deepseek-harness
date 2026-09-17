@@ -29,7 +29,7 @@ Choose this service when a deployment wants to offer users one Permissions selec
 
 ### Configuring presets
 
-The plugin config defines the preset table and the default for fresh sessions. Each preset name bundles one sandbox mode with one approval policy; `name`, `description`, `glyph`, and `tone` are optional client presentation — `glyph` names which design-set glyph the selector shows, one of `read-only`, `workspace-write`, or `danger-full-access`, and a preset whose id is itself a glyph name needs none; `tone` accepts only `danger`, which draws that preset as a destructive row in both selectors. The reserved names `custom` and `auto` cannot appear in this table.
+The plugin config defines the preset table and the default for fresh sessions. Each preset name bundles one sandbox mode with one approval policy; `name`, `description`, `glyph`, and `tone` are optional client presentation — `glyph` names which design-set glyph the selector shows, one of `read-only`, `workspace-write`, or `danger-full-access`, and a preset whose id is itself a glyph name needs none; `tone` accepts only `danger`, which draws that preset as a destructive row. `glyph` and `tone` reach the two access-mode menus — the composer's access-mode menu and the Settings default-preset row. The reserved names `custom` and `auto` cannot appear in this table.
 
 ```yaml
 - name: '@deepseek-ai/dsh-permission-presets'
