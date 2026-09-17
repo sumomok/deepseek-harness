@@ -1422,9 +1422,11 @@ const SEEDED_PERMISSION_ROWS: readonly { what: string; id: string; row: string }
  * reads as if those rows had never been written.
  *
  * A layer with nothing but those rows in it becomes the empty template again,
- * and one left holding only prose gains the `[]` that prose was a comment on:
+ * and one left holding only comments gains the `[]` those comments annotated:
  * the loader reads this file as a top-level array, and a file of comments alone
- * is not one.
+ * is not one. A layer that still holds anything else is returned as it stands,
+ * so a file whose array was written `[]` rather than as a block sequence does
+ * not gain a second top-level node. Every answer ends in exactly one newline.
  * @param lines - the file's lines.
  * @param cut - the entries to remove.
  * @returns the file's new contents.
@@ -1444,9 +1446,32 @@ function removePatchEntries(lines: readonly string[], cut: readonly PatchEntry[]
   }
   const kept = lines.filter((_, index) => !dropped.has(index))
   while (kept.length > 0 && (kept[0] ?? '').trim().length === 0) kept.shift()
-  const rest = kept.join('\n')
-  if (/^-(\s|$)/m.test(rest)) return rest
-  return rest.trim().length === 0 ? PROFILE_PATCH_TEMPLATE : `${rest.replace(/\n+$/, '')}\n\n[]\n`
+  const rest = kept.join('\n').replace(/\n+$/, '')
+  if (rest.trim().length === 0) return PROFILE_PATCH_TEMPLATE
+  const structural = rest.split('\n').filter(line => !line.trim().startsWith('#')).join('')
+  return structural.trim().length === 0 ? `${rest}\n\n[]\n` : `${rest}\n`
+}
+
+/**
+ * Write one run's decision into an existing migration marker.
+ *
+ * A profile with no marker at all gains none: the marker's existence is what
+ * {@link syncWebBundles} reads as "this profile has synced before", and creating
+ * one here would suppress the one-time copy of the web profile's own two files.
+ * @param markerPath - the marker inside the desktop profile.
+ * @param marker - the marker as this run read it, or undefined when there is none.
+ * @param outcome - what this run decided.
+ * @param report - the run's report, extended when the marker cannot be written.
+ */
+function recordPermissionPatch(
+  markerPath: string, marker: MigrationMarker | undefined, outcome: PermissionPatchOutcome, report: SeedReport,
+): void {
+  if (marker === undefined) return
+  try {
+    writeMigrationMarker(markerPath, { ...marker, permissionPatch: outcome })
+  } catch (error) {
+    report.skipped.push(`${markerPath}: ${String(error)}`)
+  }
 }
 
 /**
@@ -1466,11 +1491,10 @@ function removePatchEntries(lines: readonly string[], cut: readonly PatchEntry[]
  * {@link patchEntries} could not read under the failsafe schema.
  *
  * The decision is recorded in {@link MigrationMarker.permissionPatch}, so no
- * later launch reads the file again. A profile with no marker at all gains
- * none: the marker's existence is what {@link syncWebBundles} reads as "this
- * profile has synced before", and creating one here would suppress the one-time
- * copy of the web profile's own two files. Such a profile is read again next
- * launch, which costs one file read and one comparison against the template.
+ * later launch reads the file again — including the `absent` a layer still
+ * holding the empty template decides without parsing anything. A profile with
+ * no marker to record it in is read again next launch, which costs one file
+ * read and, for the common case, one comparison against that template.
  * @param profileDir - the desktop profile directory.
  * @param report - the run's report, extended with what was retired or left alone.
  */
@@ -1487,7 +1511,12 @@ function retireSeededPermissionRows(profileDir: string, report: SeedReport): voi
     // nothing of this shell's either.
     return
   }
-  if (text === PROFILE_PATCH_TEMPLATE) return
+  if (text === PROFILE_PATCH_TEMPLATE) {
+    // The empty template cannot hold a row to retire, and recording that is
+    // what stops this profile reading the file on every launch afterwards.
+    recordPermissionPatch(markerPath, marker, 'absent', report)
+    return
+  }
 
   const lines = text.split('\n')
   const cut: PatchEntry[] = []
@@ -1521,13 +1550,7 @@ function retireSeededPermissionRows(profileDir: string, report: SeedReport): voi
   for (const what of kept) {
     report.skipped.push(`${PROFILE_PATCH_FILENAME}: ${what} is not the one this shell wrote; left exactly as it is`)
   }
-  if (marker === undefined) return
-  const outcome: PermissionPatchOutcome = cut.length > 0 ? 'removed' : kept.length > 0 ? 'kept' : 'absent'
-  try {
-    writeMigrationMarker(markerPath, { ...marker, permissionPatch: outcome })
-  } catch (error) {
-    report.skipped.push(`${markerPath}: ${String(error)}`)
-  }
+  recordPermissionPatch(markerPath, marker, cut.length > 0 ? 'removed' : kept.length > 0 ? 'kept' : 'absent', report)
 }
 
 /**

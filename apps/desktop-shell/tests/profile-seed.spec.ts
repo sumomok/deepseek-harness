@@ -1132,11 +1132,23 @@ describe('seedBuiltinBundles retiring the permission rows an earlier build copie
     expect(report.retired).toEqual(['the permission preset table'])
   })
 
-  it('never reads the patch layer of a profile that still has the empty template', () => {
+  it('decides a patch layer still holding the empty template without parsing it', () => {
     writeWebProfile([userPlugin])
     const report = seedBuiltinBundles({ home, serverModules })
     expect(report.retired).toEqual([])
-    expect(readMigrationMarker(markerPath())?.permissionPatch).toBeUndefined()
+    expect(readMigrationMarker(markerPath())?.permissionPatch).toBe('absent')
+  })
+
+  it('leaves one trailing newline when the rows it removed ended the file', () => {
+    profileWithPatch(`${ownRow}\n${seededRows}`)
+    seedBuiltinBundles({ home, serverModules })
+    expect(patchNow()).toBe(`${ownRow}\n`)
+  })
+
+  it('adds no second top-level node to a layer whose array is written []', () => {
+    profileWithPatch(`# my own header\n[]\n${seededRows}`)
+    seedBuiltinBundles({ home, serverModules })
+    expect(patchNow()).toBe('# my own header\n[]\n')
   })
 })
 
