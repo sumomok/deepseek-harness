@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/process/2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md
-2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md: 32c81bc8aae35cf10e0974ba4c351044feca7ec0
-2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.zh.md: 4e430375e8b06efdf9c63887029e1fcfb20cffa7
+2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.md: 79ea130e6e5df102d4b6d481dcf50d38c9a53f70
+2026-09-01-fork-kills-session-telemetry-and-plugin-inventory.zh.md: 85c2dab5f059585287c93a00e318d299c4951920
