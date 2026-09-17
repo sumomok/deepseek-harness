@@ -42,7 +42,7 @@ External packages installed for runtime use or distributed inside the prebuilt b
 | [`@haoran/dsh-connection-banner`](apps/desktop-server/vendor/haoran-dsh-connection-banner-0.2.1.tgz) | MIT |
 | [`@haoran/dsh-default-model`](apps/desktop-server/vendor/haoran-dsh-default-model-0.3.0.tgz) | MIT |
 | [`@haoran/dsh-desktop-update`](apps/desktop-server/vendor/haoran-dsh-desktop-update-0.1.4.tgz) | MIT |
-| [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.4.3.tgz) | MIT |
+| [`@haoran/dsh-llm-permission-gateway`](apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.4.6.tgz) | MIT |
 | [`@haoran/dsh-mcp-servers`](apps/desktop-server/vendor/haoran-dsh-mcp-servers-0.1.4.tgz) | MIT |
 | [`@haoran/dsh-plugin-updates`](apps/desktop-server/vendor/haoran-dsh-plugin-updates-0.2.1.tgz) | MIT |
 | [`@haoran/dsh-screenshot`](apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.1.tgz) | MIT |
