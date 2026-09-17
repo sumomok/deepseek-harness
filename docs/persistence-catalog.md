@@ -28,7 +28,7 @@ The [format references](persistence-changes/historical-formats/README.md) cover 
 | `event:assistant/attempt` | event | `c80c89da83c46db7a454f034c10f969e03cfb574859c7316e5bff683f5a14b0e` | [`event:assistant/attempt`](#persistence-type-eventassistantattempt) |
 | `event:assistant/message` | event | `1169b301aaabcd992657b93ec93750c43175dda81ada5cac086f14f2eaaeed6d` | [`event:assistant/message`](#persistence-type-eventassistantmessage) |
 | `event:command/done` | event | `15196447222782e773eb943c92b18316ce96b9af0f0cfddb6e57ba8274ecc5ff` | [`event:command/done`](#persistence-type-eventcommanddone) |
-| `event:command/run` | event | `37184378c6439257d105c4e2022d80fc9c3a3f7c7f6ac661b00bc9f18d871006` | [`event:command/run`](#persistence-type-eventcommandrun) |
+| `event:command/run` | event | `9a944f8067e257ede51d92c059c34043c4dbcd59fa5b70a7215580875cd4ef08` | [`event:command/run`](#persistence-type-eventcommandrun) |
 | `event:compaction/end` | event | `b0127044ab31a702bddfd785d345f5abd7a70876746e895ce443afa3e60ddf2d` | [`event:compaction/end`](#persistence-type-eventcompactionend) |
 | `event:compaction/prune` | event | `7f7fd5a6b0064f597534b29ff62ef26e786dffccf5e14f654a7d4fcea2c35f04` | [`event:compaction/prune`](#persistence-type-eventcompactionprune) |
 | `event:compaction/start` | event | `db874d463b0fdec77e9da1c4568f37cb70bd6596781eb93800db44fb8a116965` | [`event:compaction/start`](#persistence-type-eventcompactionstart) |
@@ -2410,7 +2410,7 @@ SHA-256: `15196447222782e773eb943c92b18316ce96b9af0f0cfddb6e57ba8274ecc5ff`
 
 SHA-256: `5b6fb1f226ff56402db08a6aae82af76100b14056271875f69ec526a1ae05d51`
 
-Sources: [`packages/interaction/commands/src/types.ts:112`](../packages/interaction/commands/src/types.ts)
+Sources: [`packages/interaction/commands/src/types.ts:123`](../packages/interaction/commands/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
@@ -2434,7 +2434,7 @@ One of:
 
 ### `event:command/run`
 
-SHA-256: `37184378c6439257d105c4e2022d80fc9c3a3f7c7f6ac661b00bc9f18d871006`
+SHA-256: `9a944f8067e257ede51d92c059c34043c4dbcd59fa5b70a7215580875cd4ef08`
 
 | Property | Presence | Type |
 |---|---|---|
@@ -2448,14 +2448,15 @@ SHA-256: `37184378c6439257d105c4e2022d80fc9c3a3f7c7f6ac661b00bc9f18d871006`
 
 ### `event:command/run.data`
 
-SHA-256: `a853902cfab417b8f08aa51ad6855fea46f34ed4588a74e47403035111d0fb86`
+SHA-256: `0ff68d5de376cee4f897bfad86f2e657ab8b93fe615b1b8241dc0eed2e93ec65`
 
-Sources: [`packages/interaction/commands/src/types.ts:105`](../packages/interaction/commands/src/types.ts)
+Sources: [`packages/interaction/commands/src/types.ts:110`](../packages/interaction/commands/src/types.ts)
 
 | Property | Presence | Type |
 |---|---|---|
 | `args` | optional | `string` |
 | `commandId` | required | `string` |
+| `engages` | optional | `boolean` |
 | `name` | required | `string` |
 | `source` | required | [`event:agent/inbox/spliced.data.inserted[0].source[0]`](#persistence-type-eventagentinboxspliceddatainserted0source0) |
 
