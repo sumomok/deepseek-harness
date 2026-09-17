@@ -67,6 +67,33 @@ function commit(id: string, ...slugs: string[]): LineCommit {
 }
 
 /**
+ * Run one git command under the isolated configuration installed above.
+ * @param cwd - working directory for the command.
+ * @param args - git arguments.
+ * @returns standard output, trimmed.
+ */
+function gitIn(cwd: string, args: string[]): string {
+  return execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] }).trim()
+}
+
+/**
+ * Read what git itself says about a command that cannot run.
+ * @param cwd - working directory for the command.
+ * @param args - git arguments expected to fail.
+ * @returns git's own first line of standard error.
+ */
+function gitStderrFirstLine(cwd: string, args: string[]): string {
+  try {
+    execFileSync('git', args, { cwd, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] })
+  } catch (cause) {
+    const { stderr } = cause as { stderr?: string }
+    const [first = ''] = (stderr ?? '').trim().split('\n')
+    return first.trim()
+  }
+  throw new Error(`git ${args.join(' ')} was expected to fail`)
+}
+
+/**
  * Build a throwaway git repository whose HEAD sits on the declared patch line
  * above a merge commit for the declared pull request, so the halves of this
  * check that read git can be driven end to end. The repository has no remote
@@ -128,6 +155,7 @@ describe('parseRegistry', () => {
       declaredLines: [LINE],
       declaredBases: [BASE_PULL_REQUEST],
       malformedHeadings: [],
+      unclosedFence: null,
       records: [
         { slug: 'alpha-seam', title: 'An alpha seam', status: '在役' },
         { slug: 'beta-seat', title: 'A beta seat', status: '退役' },
@@ -135,8 +163,25 @@ describe('parseRegistry', () => {
     })
   })
 
-  it('reads a file written with CRLF line endings', () => {
+  it('reads a file written with CRLF or CR-only line endings', () => {
     expect(parseRegistry(REGISTRY.replace(/\n/gu, '\r\n'))).toEqual(parseRegistry(REGISTRY))
+    expect(parseRegistry(REGISTRY.replace(/\n/gu, '\r'))).toEqual(parseRegistry(REGISTRY))
+  })
+
+  it('does not close a fence on a nested line that carries an info string', () => {
+    const nested = REGISTRY.replace('不是补丁记录的小节不参与登记。', [
+      '```', '```js', '## example-slug — 示例记录', '- **状态**：在役', '```',
+    ].join('\n'))
+    // CommonMark closes a fence only on a bare run of the same character, so
+    // the ```js line is content and the record heading below it stays example.
+    expect(parseRegistry(nested)).toEqual(parseRegistry(REGISTRY))
+  })
+
+  it('reports where a fence the file never closes was opened', () => {
+    const unclosed = `${REGISTRY}\n\`\`\`md\n## example-slug — 示例记录\n`
+    const parsed = parseRegistry(unclosed)
+    expect(parsed.unclosedFence).toBe(unclosed.split('\n').indexOf('```md') + 1)
+    expect(parsed.records.map(record => record.slug)).toEqual(['alpha-seam', 'beta-seat'])
   })
 
   it('reads nothing out of a fenced example', () => {
@@ -297,6 +342,23 @@ describe('declaredBaseCommits', () => {
     fixture.record('registry\n\nPatch: alpha-seam')
     expect(declaredBaseCommits(fixture.root, '9999')).toEqual([])
     expect(declaredBaseCommits(fixture.root, BASE_PULL_REQUEST.slice(0, 3))).toEqual([])
+  })
+
+  it('counts neither a merge that quotes the base in its body nor one that names it mid-subject', (test) => {
+    const fixture = repository(test)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    fixture.git(['checkout', '--quiet', '-b', 'body-topic'])
+    fixture.write('body.md', 'body\n')
+    fixture.record('a change\n\nPatch: alpha-seam')
+    fixture.git(['checkout', '--quiet', LINE])
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', `Merge branch body-topic\n\nReplays the tree of\nMerge pull request #${BASE_PULL_REQUEST} from upstream/topic\nwithout its merge.`, 'body-topic'])
+    fixture.git(['checkout', '--quiet', '-b', 'subject-topic'])
+    fixture.write('subject.md', 'subject\n')
+    fixture.record('another change\n\nPatch: alpha-seam')
+    fixture.git(['checkout', '--quiet', LINE])
+    fixture.git(['merge', '--quiet', '--no-ff', '-m', `Revert "Merge pull request #${BASE_PULL_REQUEST} from upstream/topic"`, 'subject-topic'])
+
+    expect(declaredBaseCommits(fixture.root, BASE_PULL_REQUEST)).toEqual([fixture.base])
   })
 })
 
@@ -520,7 +582,15 @@ describe('runCheck', () => {
     expect(two.report).toContain('declares 基座合并 2 time(s)')
   })
 
-  it('reports a failed git command in one line', (test) => {
+  it('reports a registry whose code fence is never closed', (test) => {
+    const fixture = repository(test, `${REGISTRY}\n\`\`\`md\n## example-slug — 示例记录\n`)
+    fixture.record('registry\n\nPatch: alpha-seam')
+    const result = runCheck(fixture.root)
+    expect(result.status).toBe('failed')
+    expect(result.report).toContain('code fence opened at line')
+  })
+
+  it('reports a failed git command in one line, with git\'s own reason', (test) => {
     const plain = mkdtempSync(join(tmpdir(), 'dsh-core-patches-plain-'))
     test.onTestFinished(() => {
       rmSync(plain, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
@@ -532,5 +602,28 @@ describe('runCheck', () => {
     expect(result.status).toBe('failed')
     expect(result.report.split('\n')).toHaveLength(1)
     expect(result.report).toContain('git branch --show-current failed:')
+    // `Command failed: <the command again>` is what the thrown message leads
+    // with; git says why on standard error, in whatever language it is set to.
+    expect(result.report).not.toContain('Command failed')
+    expect(result.report).toContain(gitStderrFirstLine(plain, ['branch', '--show-current']))
+  })
+
+  it('reports an unborn HEAD with the reason git gives for it', (test) => {
+    const empty = mkdtempSync(join(tmpdir(), 'dsh-core-patches-empty-'))
+    test.onTestFinished(() => {
+      rmSync(empty, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 })
+    })
+    gitIn(empty, ['init', '--quiet', '--initial-branch', LINE])
+    mkdirSync(dirname(join(empty, REGISTRY_PATH)), { recursive: true })
+    writeFileSync(join(empty, REGISTRY_PATH), REGISTRY)
+
+    const result = runCheck(empty)
+    expect(result.status).toBe('failed')
+    expect(result.report.split('\n')).toHaveLength(1)
+    expect(result.report).toContain('git log --merges')
+    expect(result.report).not.toContain('Command failed')
+    expect(result.report).toContain(gitStderrFirstLine(empty, [
+      'log', '--merges', `--grep=^Merge pull request #${BASE_PULL_REQUEST} `, '--format=%H%x00%s', 'HEAD',
+    ]))
   })
 })

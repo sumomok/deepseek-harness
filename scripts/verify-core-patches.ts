@@ -32,9 +32,10 @@
  * branch, a detached HEAD — reports `skipped` and exits 0, because commits
  * there carry no patch identity and are not meant to. A shallow clone reports
  * `skipped` as well: its truncated history cannot reach the declared merge. A
- * registry that cannot be read, or that does not declare exactly one patch line
- * and exactly one base merge, fails on every branch, because a check that
- * cannot read its own declarations cannot tell which case it is in.
+ * registry that cannot be read, that leaves a code fence open, or that does not
+ * declare exactly one patch line and exactly one base merge, fails on every
+ * branch, because a check that cannot read its own declarations cannot tell
+ * which case it is in.
  */
 
 import { execFileSync } from 'node:child_process'
@@ -79,6 +80,8 @@ export interface Registry {
   declaredLines: string[]
   /** Every declared base-merge pull-request number, in file order; exactly one is required. */
   declaredBases: string[]
+  /** 1-based line of a code fence the file never closes, or null when every fence closes. */
+  unclosedFence: number | null
 }
 
 /** One commit on the line above its declared base merge. */
@@ -125,7 +128,7 @@ const RECORD_HEADING = /^([a-z0-9]+(?:-[a-z0-9]+)*) — (.+)$/u
 const STATUS = /^- \*\*状态\*\*：(在役|局部退役|退役)/u
 const DECLARED_LINE = /^\*\*当前补丁线\*\*：`([^`]+)`/u
 const DECLARED_BASE = /^\*\*基座合并\*\*：#(\d+)/u
-const FENCE = /^ {0,3}(`{3,}|~{3,})/u
+const FENCE = /^ {0,3}(`{3,}|~{3,})(.*)$/u
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
 
 /**
@@ -133,6 +136,8 @@ const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/u
  * Line endings are normalized first, and fenced blocks are dropped: a fenced
  * example of the record or declaration format is documentation, and parsing it
  * would let one code block silently replace the line this check runs against.
+ * A fence the file never closes swallows every record below it, so where it
+ * opened is reported rather than left to surface as missing records.
  * @param source - the registry file contents.
  * @returns everything this check reads out of the file.
  */
@@ -142,17 +147,20 @@ export function parseRegistry(source: string): Registry {
   const declaredLines: string[] = []
   const declaredBases: string[] = []
   let current: PatchRecord | undefined
-  let fence: string | undefined
-  for (const line of source.replace(/\r\n/gu, '\n').split('\n')) {
-    const [, marker] = FENCE.exec(line) ?? []
+  let fence: { marker: string; line: number } | undefined
+  let lineNumber = 0
+  for (const line of source.replace(/\r\n?/gu, '\n').split('\n')) {
+    lineNumber += 1
+    const [, marker, info = ''] = FENCE.exec(line) ?? []
     if (fence !== undefined) {
       // A fence closes on a run of the same character at least as long as the
-      // one that opened it, which is exactly the runs that start with it.
-      if (marker !== undefined && marker.startsWith(fence)) fence = undefined
+      // one that opened it — exactly the runs that start with it — carrying no
+      // info string, so a ```js line nested in a ``` block does not close it.
+      if (marker !== undefined && marker.startsWith(fence.marker) && info.trim() === '') fence = undefined
       continue
     }
     if (marker !== undefined) {
-      fence = marker
+      fence = { marker, line: lineNumber }
       continue
     }
     const [, declaredLine] = DECLARED_LINE.exec(line) ?? []
@@ -180,7 +188,7 @@ export function parseRegistry(source: string): Registry {
     const status = current !== undefined && current.status === null ? STATUS.exec(line) : null
     if (status !== null && current !== undefined) current.status = status[1] as PatchStatus
   }
-  return { records, malformedHeadings, declaredLines, declaredBases }
+  return { records, malformedHeadings, declaredLines, declaredBases, unclosedFence: fence?.line ?? null }
 }
 
 /**
@@ -275,6 +283,23 @@ export function findRegistryViolations(
   return violations
 }
 
+/**
+ * Read why a git command failed, in one line.
+ * @param cause - what `execFileSync` threw.
+ * @returns git's own first line of standard error, or the thrown message when git printed none.
+ */
+function failureReason(cause: unknown): string {
+  // A non-zero exit gives `Command failed: <the command again>` as the message
+  // and the `fatal: …` this check wants on stderr; a git that cannot be spawned
+  // gives no stderr and says why in the message.
+  const stderr = typeof cause === 'object' && cause !== null ? (cause as { stderr?: unknown }).stderr : undefined
+  const text = typeof stderr === 'string' && stderr.trim() !== ''
+    ? stderr
+    : cause instanceof Error ? cause.message : String(cause)
+  const [first = ''] = text.trim().split('\n')
+  return first.trim()
+}
+
 /** A git command this check runs could not be started, or exited non-zero. */
 class GitFailure extends Error {
   /**
@@ -282,9 +307,7 @@ class GitFailure extends Error {
    * @param cause - what `execFileSync` threw.
    */
   constructor(args: readonly string[], cause: unknown) {
-    const reason = cause instanceof Error ? cause.message : String(cause)
-    const [first = ''] = reason.split('\n')
-    super(`git ${args.join(' ')} failed: ${first}`)
+    super(`git ${args.join(' ')} failed: ${failureReason(cause)}`)
     this.name = 'GitFailure'
   }
 }
@@ -334,13 +357,21 @@ export function isShallowClone(repoRoot: string): boolean {
  * @returns every merge commit whose subject opens with that pull request, newest first.
  */
 export function declaredBaseCommits(repoRoot: string, pullRequest: string): string[] {
+  const opening = `Merge pull request #${pullRequest} `
+  // `--grep` matches any line of the message, so it only narrows the walk; the
+  // subject decides, and a commit that quotes the merge in its body or mentions
+  // it mid-subject is not the base.
   const found = git(repoRoot, [
-    'rev-list',
+    'log',
     '--merges',
-    `--grep=^Merge pull request #${pullRequest} `,
+    `--grep=^${opening}`,
+    '--format=%H%x00%s',
     'HEAD',
   ])
-  return found.split('\n').filter(id => id !== '')
+  return found.split('\n').filter(entry => entry !== '').flatMap((entry) => {
+    const [id = '', subject = ''] = entry.split('\0')
+    return subject.startsWith(opening) ? [id] : []
+  })
 }
 
 /**
@@ -383,6 +414,9 @@ export function runCheck(repoRoot: string): CheckResult {
     return { status: 'failed', report: `${REGISTRY_PATH} is missing or unreadable; the patch line has no registry to check against.` }
   }
   const registry = parseRegistry(source)
+  if (registry.unclosedFence !== null) {
+    return { status: 'failed', report: `${REGISTRY_PATH} has a code fence opened at line ${String(registry.unclosedFence)} and never closed; everything below it reads as example text, records included.` }
+  }
   const [declaredLine] = registry.declaredLines
   if (registry.declaredLines.length !== 1 || declaredLine === undefined) {
     return { status: 'failed', report: `${REGISTRY_PATH} declares 当前补丁线 ${String(registry.declaredLines.length)} time(s) outside its code blocks; exactly one declaration names the branch this check compares against.` }
