@@ -18,16 +18,16 @@ import { initProfile, PROFILE_PATCH_FILENAME, PROFILE_TEMPLATES, resolveBundleDi
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import {
   addBundleName, BUILTIN_WEB_BUNDLES, bundleDefect, DESKTOP_PROFILE, describeSeed, dropBundleNames, ensureLink,
-  MIGRATION_MARKER_FILENAME, profileDependencySpec, quarantineLoadFailureFromOutput, readMigrationMarker,
-  removeLink, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles, type SeedReport,
+  MIGRATION_MARKER_FILENAME, type MigrationMarker, profileDependencySpec, quarantineLoadFailureFromOutput,
+  readMigrationMarker, removeLink, resolveHarnessHome, sameLinkTarget, seedBuiltinBundles, type SeedReport,
   WEB_PROFILE, WITHDRAWN_WEB_BUNDLES, writeMigrationMarker,
 } from '../src/profile-seed.ts'
 
 /** A report of a run that changed nothing, for the cases that name one field at a time. */
 function nothingHappened(): SeedReport {
   return {
-    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], disabled: [], removed: [],
-    dropped: [], skipped: [], shadowed: [], created: false,
+    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], disabled: [],
+    removed: [], dropped: [], skipped: [], shadowed: [], created: false,
   }
 }
 
@@ -942,6 +942,150 @@ describe('seedBuiltinBundles continuous sync', () => {
     const path = join(home, 'profiles', DESKTOP_PROFILE, MIGRATION_MARKER_FILENAME)
     writeFileSync(path, JSON.stringify({ from: WEB_PROFILE, migrated: [userPlugin] }))
     expect(readMigrationMarker(path)).toEqual({ from: WEB_PROFILE, migrated: [userPlugin], defective: [], removed: [] })
+  })
+})
+
+describe('seedBuiltinBundles retiring the permission rows an earlier build copied into the patch layer', () => {
+  /**
+   * The two rows verbatim out of `cordis.patch.yml` in
+   * `haoran-dsh-llm-permission-gateway-0.1.3.tgz` (commit `1229bc8049`), which
+   * is the pairing the hand-written `web` patch layer held and the first sync
+   * of a `desktop-shell` profile copied over with the rest of that file.
+   */
+  const seededRows = [
+    '- insert:',
+    '    - id: llm-permission-gateway',
+    "      name: '@haoran/dsh-llm-permission-gateway'",
+    '      config:',
+    '        provider: deepseek-official',
+    '        model: deepseek-v4-flash',
+    '- id: permission',
+    '  config:',
+    '    presets:',
+    '      read-only:',
+    '        sandbox: read-only',
+    '        approval: ask',
+    '      workspace-write:',
+    '        sandbox: workspace-write',
+    '        approval: ask',
+    '      danger-full-access:',
+    '        sandbox: danger-full-access',
+    '        approval: never',
+    '      yolo-access:',
+    '        sandbox: danger-full-access',
+    '        approval: ask',
+    '        name: 自动审查',
+    '        description: 沙箱完全关闭，文件系统与命令不再有操作系统层面的围墙；改由审查模型逐个判断工具调用，只在它自己拿不准时才弹审批框。安全性取决于模型的判断质量，不再取决于沙箱。必须与 llm-permission-gateway 一起使用。',
+  ].join('\n')
+
+  /** The comment a reader of that file finds above the preset table. */
+  const pairingComment = '# `yolo-access` turns the sandbox off and puts the review model in its place.\n'
+    + '# It is only defensible while `llm-permission-gateway` is mounted.'
+
+  /** One row of the owner's own, which every case here expects to survive untouched. */
+  const ownRow = '- id: at-file\n  disabled: true'
+
+  /** Stage the desktop profile with `text` as its patch layer and, unless `'none'`, a record beside it. */
+  function profileWithPatch(text: string, marker: MigrationMarker | 'none' = {
+    from: WEB_PROFILE, migrated: [], defective: [], removed: [],
+  }): void {
+    desktopProfileFromAnEarlierBuild()
+    writeFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), `${text}\n`)
+    if (marker !== 'none') writeMigrationMarker(markerPath(), marker)
+  }
+
+  /** The desktop profile's patch layer as it stands now. */
+  function patchNow(): string {
+    return readFileSync(join(home, 'profiles', DESKTOP_PROFILE, PROFILE_PATCH_FILENAME), 'utf8')
+  }
+
+  it('removes both rows, keeps everything else, and records the decision', () => {
+    profileWithPatch(`${pairingComment}\n${seededRows}\n\n# mine\n${ownRow}`)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual(['the llm-permission-gateway row', 'the permission preset table'])
+    expect(patchNow()).toBe(`# mine\n${ownRow}\n`)
+    expect(readMigrationMarker(markerPath())?.permissionPatch).toBe('removed')
+    expect(describeSeed(report)).toContain(
+      `retired the llm-permission-gateway row, the permission preset table from ${PROFILE_PATCH_FILENAME}`,
+    )
+  })
+
+  it('leaves the empty template behind when those rows were the whole file', () => {
+    profileWithPatch(`${pairingComment}\n${seededRows}`)
+    seedBuiltinBundles({ home, serverModules })
+    const upstream = join(root, 'upstream-empty', DESKTOP_PROFILE)
+    initProfile(upstream, ['@deepseek-ai/dsh-base'])
+    expect(patchNow()).toBe(readFileSync(join(upstream, PROFILE_PATCH_FILENAME), 'utf8'))
+  })
+
+  it('leaves a table its owner has edited exactly as it is, and says why', () => {
+    const edited = seededRows.replace('        approval: never', '        approval: ask')
+    profileWithPatch(edited)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(patchNow()).toBe(`${edited.slice(edited.indexOf('- id: permission'))}\n`)
+    expect(report.retired).toEqual(['the llm-permission-gateway row'])
+    expect(report.skipped).toContain(
+      `${PROFILE_PATCH_FILENAME}: the permission preset table is not the one this shell wrote; left exactly as it is`,
+    )
+    expect(readMigrationMarker(markerPath())?.permissionPatch).toBe('removed')
+  })
+
+  it('matches a table whose fields were written in another order', () => {
+    profileWithPatch(seededRows.replace(
+      '        sandbox: danger-full-access\n        approval: ask\n        name: 自动审查',
+      '        name: 自动审查\n        approval: ask\n        sandbox: danger-full-access',
+    ))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual(['the llm-permission-gateway row', 'the permission preset table'])
+  })
+
+  it('leaves a gateway row whose judge route its owner has changed', () => {
+    profileWithPatch(seededRows.replace('        model: deepseek-v4-flash', '        model: deepseek-v4-pro'))
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(patchNow()).toContain('deepseek-v4-pro')
+    expect(report.skipped).toContain(
+      `${PROFILE_PATCH_FILENAME}: the llm-permission-gateway row is not the one this shell wrote; left exactly as it is`,
+    )
+  })
+
+  it('reads the file once: a profile whose record already carries a decision is left alone', () => {
+    profileWithPatch(`${pairingComment}\n${seededRows}`, {
+      from: WEB_PROFILE, migrated: [], defective: [], removed: [], permissionPatch: 'removed',
+    })
+    const before = patchNow()
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(patchNow()).toBe(before)
+    expect(report.retired).toEqual([])
+    expect(report.skipped).toEqual([])
+  })
+
+  it('records nothing on a profile that has never synced, and still takes the rows out', () => {
+    profileWithPatch(`${seededRows}\n\n${ownRow}`, 'none')
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual(['the llm-permission-gateway row', 'the permission preset table'])
+    expect(patchNow()).toBe(`${ownRow}\n`)
+    expect(existsSync(markerPath())).toBe(false)
+  })
+
+  it('keeps a layer of prose alone readable as the empty array it was', () => {
+    profileWithPatch(`${seededRows}\n\n# everything below is off for now`)
+    seedBuiltinBundles({ home, serverModules })
+    expect(patchNow()).toBe('# everything below is off for now\n\n[]\n')
+  })
+
+  it('leaves an entry whose meaning needs the loader\'s own schema', () => {
+    const tagged = seededRows.replace('        provider: deepseek-official', '        provider: !!js/eval "route()"')
+    profileWithPatch(tagged)
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(patchNow()).toContain('!!js/eval')
+    expect(report.retired).toEqual(['the permission preset table'])
+  })
+
+  it('never reads the patch layer of a profile that still has the empty template', () => {
+    writeWebProfile([userPlugin])
+    const report = seedBuiltinBundles({ home, serverModules })
+    expect(report.retired).toEqual([])
+    expect(readMigrationMarker(markerPath())?.permissionPatch).toBeUndefined()
   })
 })
 

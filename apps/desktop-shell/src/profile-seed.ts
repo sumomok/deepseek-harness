@@ -83,6 +83,16 @@
  * output, using {@link quarantineLoadFailureFromOutput} to move the blamed name
  * into `defective` and retry once.
  *
+ * **The permission rows an earlier build copied in are taken back out, once.**
+ * That same first sync carried the `yolo-access` preset table and the gateway
+ * row the hand-written `web` patch layer they came from held, and
+ * `@haoran/dsh-llm-permission-gateway` has declared both in its own bundle
+ * layer since 0.1.3. Every bundle layer applies before the profile's patch
+ * layer, so the copy shadows the table the installed plugin ships.
+ * {@link retireSeededPermissionRows} removes a row that is still exactly what
+ * was copied, leaves an edited one alone with the reason in the log, and
+ * records the decision so no later launch reads the file again.
+ *
  * **Peer versions are not this module's problem.** A package installed under an
  * older host suits it or it does not: its unmet peers fall through to
  * `$DSH_HOME/profiles/node_modules`, which the running installation heals, so
@@ -259,6 +269,8 @@ export interface SeedReport {
   migrated: string[]
   /** Profile files this run copied verbatim out of the `web` profile, by filename. */
   copied: string[]
+  /** Rows this run took back out of the profile's own patch layer, each named. */
+  retired: string[]
   /** One line per name this run recorded or updated as defective, each stating why. */
   disabled: string[]
   /** One line per name this run tombstoned into `removed`, each stating why. */
@@ -315,6 +327,16 @@ export interface DefectiveEntry {
 }
 
 /**
+ * What a run decided about the permission rows an earlier build of this shell
+ * copied into a profile's own patch layer.
+ *
+ * `removed` — at least one row was still exactly what was copied and is gone.
+ * `kept` — a row shaped like one of them is there and is not the one this shell
+ * wrote, so nothing was touched. `absent` — neither row is in the file.
+ */
+export type PermissionPatchOutcome = 'removed' | 'kept' | 'absent'
+
+/**
  * The shell's own record of what it has synced out of the `web` profile:
  * cross-component contract read by `@haoran/dsh-plugin-updates` as well as this
  * shell, so its field names and the meaning of each list are load-bearing.
@@ -328,6 +350,12 @@ export interface MigrationMarker {
   defective: DefectiveEntry[]
   /** Names the desktop profile no longer links, whose web copy is still healthy — never re-synced on their own. */
   removed: string[]
+  /**
+   * What {@link retireSeededPermissionRows} decided for this profile's patch
+   * layer, absent until a run has reached a decision. Its presence is what
+   * keeps a later launch from reading that file again.
+   */
+  permissionPatch?: PermissionPatchOutcome
 }
 
 /**
@@ -514,8 +542,8 @@ export function removeLink(link: string): void {
  */
 export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
   const report: SeedReport = {
-    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], disabled: [], removed: [],
-    dropped: [], skipped: [], shadowed: [], created: false,
+    seeded: [], linked: [], pruned: [], unlinked: [], migrated: [], copied: [], retired: [], disabled: [],
+    removed: [], dropped: [], skipped: [], shadowed: [], created: false,
   }
   const bundles = spec.bundles ?? BUILTIN_WEB_BUNDLES
   const available: string[] = []
@@ -554,6 +582,7 @@ export function seedBuiltinBundles(spec: SeedSpec): SeedReport {
     reportShadowing(spec, profileDir, name, report)
   }
   syncWebBundles(spec, profileDir, report)
+  retireSeededPermissionRows(profileDir, report)
   pruneWithdrawnBundles(spec, profileDir, report)
   return report
 }
@@ -848,6 +877,18 @@ function isDefectiveEntry(value: unknown): value is DefectiveEntry {
     && typeof record['detail'] === 'string' && typeof record['at'] === 'number'
 }
 
+/** The three decisions {@link MigrationMarker.permissionPatch} carries. */
+const PERMISSION_PATCH_OUTCOMES: readonly string[] = ['removed', 'kept', 'absent']
+
+/**
+ * Whether a marker field is one of the decisions this shell writes.
+ * @param value - the field as it was read from the file.
+ * @returns true when it is a {@link PermissionPatchOutcome}.
+ */
+function isPermissionPatchOutcome(value: unknown): value is PermissionPatchOutcome {
+  return typeof value === 'string' && PERMISSION_PATCH_OUTCOMES.includes(value)
+}
+
 /**
  * Read the migration marker, tolerating both an absent file and the pre-sync
  * format that carried only `from` and `migrated`.
@@ -864,11 +905,13 @@ export function readMigrationMarker(path: string): MigrationMarker | undefined {
     return existsSync(path) ? emptyMarker() : undefined
   }
   const raw = parsed as Partial<Record<keyof MigrationMarker, unknown>> | null
+  const outcome = raw?.['permissionPatch']
   return {
     from: typeof raw?.['from'] === 'string' ? raw['from'] : WEB_PROFILE,
     migrated: Array.isArray(raw?.['migrated']) ? raw['migrated'].filter((v): v is string => typeof v === 'string') : [],
     defective: Array.isArray(raw?.['defective']) ? raw['defective'].filter(isDefectiveEntry) : [],
     removed: Array.isArray(raw?.['removed']) ? raw['removed'].filter((v): v is string => typeof v === 'string') : [],
+    ...(isPermissionPatchOutcome(outcome) ? { permissionPatch: outcome } : {}),
   }
 }
 
@@ -1172,6 +1215,7 @@ function syncWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport):
   }
   const nextMarker: MigrationMarker = {
     from: WEB_PROFILE, migrated: [...migrated], defective: [...defective.values()], removed: [...removed],
+    ...(marker.permissionPatch === undefined ? {} : { permissionPatch: marker.permissionPatch }),
   }
   if (JSON.stringify(nextMarker) !== JSON.stringify(marker)) {
     try {
@@ -1179,6 +1223,377 @@ function syncWebBundles(spec: SeedSpec, profileDir: string, report: SeedReport):
     } catch (error) {
       report.skipped.push(`${markerPath}: ${String(error)}`)
     }
+  }
+}
+
+/**
+ * A value the patch-layer recognizer below understands: a plain or quoted
+ * scalar, a mapping, or a sequence. A tag, a block scalar, or flow syntax makes
+ * the entry holding it unreadable here, which is what leaves that entry alone.
+ */
+type PatchValue = string | PatchValue[] | { [key: string]: PatchValue }
+
+/** One line of a patch entry, as {@link structuralLines} hands it on. */
+interface PatchLine {
+  /** Its leading spaces. */
+  indent: number
+  /** The rest of the line, with trailing whitespace removed. */
+  text: string
+}
+
+/** The lines one top-level patch entry occupies, and what the recognizer read from it. */
+interface PatchEntry {
+  /** Index of the `- ` line the entry starts on. */
+  start: number
+  /** Index of its last structural line: blanks and the next entry's comments are not its own. */
+  end: number
+  /** What the recognizer read, or undefined for an entry it could not read. */
+  value?: PatchValue
+}
+
+/** One parsed block and the index of the first line after it. */
+interface PatchParse {
+  /** What the block holds. */
+  value: PatchValue
+  /** The first line the block does not cover. */
+  next: number
+}
+
+/**
+ * The lines of one entry that carry structure, with blanks and comment-only
+ * lines dropped.
+ * @param raw - the entry's lines, verbatim.
+ * @returns the structural lines, or undefined when one is indented with a tab.
+ */
+function structuralLines(raw: readonly string[]): PatchLine[] | undefined {
+  const lines: PatchLine[] = []
+  for (const line of raw) {
+    const text = line.replace(/\s+$/, '')
+    const lead = /^\s*/.exec(text)?.[0] ?? ''
+    if (lead.includes('\t')) return undefined
+    const body = text.slice(lead.length)
+    if (body.length === 0 || body.startsWith('#')) continue
+    lines.push({ indent: lead.length, text: body })
+  }
+  return lines
+}
+
+/**
+ * One scalar as written, or undefined for anything whose meaning depends on the
+ * loader's own YAML schema rather than on the text alone.
+ * @param text - the scalar, with surrounding whitespace already removed.
+ * @returns the string value, or undefined when this is not a plain or simply quoted scalar.
+ */
+function parseScalar(text: string): string | undefined {
+  const single = /^'([^']*)'$/.exec(text)
+  if (single !== null) return single[1] ?? ''
+  const double = /^"([^"\\]*)"$/.exec(text)
+  if (double !== null) return double[1] ?? ''
+  if (/^[!&*|>{}[\]%@`]/.test(text) || text.includes(' #')) return undefined
+  return text
+}
+
+/** A mapping key and, when the value is on the same line, that value. */
+const PATCH_KEY_LINE = /^([A-Za-z0-9_][\w.-]*):(?:[ \t]+(\S.*))?$/
+
+/**
+ * Read one block — a mapping or a sequence — at a known indentation.
+ * @param lines - the entry's structural lines.
+ * @param at - where the block starts.
+ * @param indent - the indentation every member of the block sits at.
+ * @returns the block and the line after it, or undefined for anything unreadable.
+ */
+function parseBlock(lines: readonly PatchLine[], at: number, indent: number): PatchParse | undefined {
+  const head = lines[at]
+  if (head === undefined || head.indent !== indent) return undefined
+  return head.text === '-' || head.text.startsWith('- ')
+    ? parseSequence(lines, at, indent)
+    : parseMapping(lines, at, indent)
+}
+
+/**
+ * Read a sequence: every item's own block, re-read from the item's first
+ * column so `- id: x` and a line under it are one mapping.
+ * @param lines - the entry's structural lines.
+ * @param at - the first `-` line.
+ * @param indent - the indentation the `-` markers sit at.
+ * @returns the items and the line after them, or undefined for anything unreadable.
+ */
+function parseSequence(lines: readonly PatchLine[], at: number, indent: number): PatchParse | undefined {
+  const items: PatchValue[] = []
+  let cursor = at
+  for (;;) {
+    const head = lines[cursor]
+    if (head === undefined || head.indent !== indent) break
+    if (head.text !== '-' && !head.text.startsWith('- ')) break
+    const inline = head.text.slice(1).trimStart()
+    const body: PatchLine[] = inline.length === 0
+      ? []
+      : [{ indent: indent + head.text.length - inline.length, text: inline }]
+    cursor += 1
+    for (;;) {
+      const next = lines[cursor]
+      if (next === undefined || next.indent <= indent) break
+      body.push(next)
+      cursor += 1
+    }
+    const first = body[0]
+    if (first === undefined) return undefined
+    const parsed = parseBlock(body, 0, first.indent)
+    if (parsed === undefined || parsed.next !== body.length) return undefined
+    items.push(parsed.value)
+  }
+  return items.length === 0 ? undefined : { value: items, next: cursor }
+}
+
+/**
+ * Read a mapping: `key: value` pairs at one indentation, each nested block one
+ * level further in. A duplicate key is unreadable rather than resolved, since
+ * which one wins is the loader's answer to give.
+ * @param lines - the entry's structural lines.
+ * @param at - the first key line.
+ * @param indent - the indentation the keys sit at.
+ * @returns the mapping and the line after it, or undefined for anything unreadable.
+ */
+function parseMapping(lines: readonly PatchLine[], at: number, indent: number): PatchParse | undefined {
+  const node: { [key: string]: PatchValue } = {}
+  let cursor = at
+  for (;;) {
+    const line = lines[cursor]
+    if (line === undefined || line.indent < indent) break
+    if (line.indent > indent) return undefined
+    const matched = PATCH_KEY_LINE.exec(line.text)
+    if (matched === null) return undefined
+    const key = matched[1] ?? ''
+    if (key in node) return undefined
+    const inline = matched[2]
+    cursor += 1
+    if (inline !== undefined) {
+      const scalar = parseScalar(inline.replace(/\s+$/, ''))
+      if (scalar === undefined) return undefined
+      node[key] = scalar
+      continue
+    }
+    const child = lines[cursor]
+    if (child === undefined || child.indent <= indent) return undefined
+    const parsed = parseBlock(lines, cursor, child.indent)
+    if (parsed === undefined) return undefined
+    node[key] = parsed.value
+    cursor = parsed.next
+  }
+  return { value: node, next: cursor }
+}
+
+/**
+ * Split a patch layer into its top-level entries and read each one.
+ *
+ * An entry runs from its own `- ` line to the last structural line before the
+ * next one, so the blank line and the comment block a writer puts above the
+ * next entry stay that entry's.
+ * @param lines - the file's lines.
+ * @returns one record per top-level entry, in file order.
+ */
+function patchEntries(lines: readonly string[]): PatchEntry[] {
+  const starts: number[] = []
+  lines.forEach((line, index) => { if (/^-(\s|$)/.test(line)) starts.push(index) })
+  return starts.map((start, position) => {
+    const limit = starts[position + 1] ?? lines.length
+    let end = start
+    for (let index = start; index < limit; index += 1) {
+      const text = (lines[index] ?? '').trim()
+      if (text.length > 0 && !text.startsWith('#')) end = index
+    }
+    const structural = structuralLines(lines.slice(start, end + 1))
+    const parsed = structural === undefined ? undefined : parseBlock(structural, 0, 0)
+    const items = parsed?.value
+    if (parsed?.next !== structural?.length || !Array.isArray(items) || items.length !== 1) return { start, end }
+    const only = items[0]
+    return only === undefined ? { start, end } : { start, end, value: only }
+  })
+}
+
+/**
+ * A stable serialization of what the recognizer read, with every mapping's keys
+ * sorted.
+ *
+ * Order is not part of a copied row's identity. The same fields with the same
+ * values, written in another order, are still the copy this retirement is for,
+ * and taking it out is what puts the shipped preset order back.
+ * @param value - what the recognizer read for one entry or one of its members.
+ * @returns the text to compare against {@link SEEDED_PERMISSION_ROWS}.
+ */
+function canonical(value: PatchValue): string {
+  if (typeof value === 'string') return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(canonical).join(',')}]`
+  const members = Object.entries(value)
+    .sort(([left], [right]) => (left < right ? -1 : 1))
+    .map(([key, member]) => `${JSON.stringify(key)}:${canonical(member)}`)
+  return `{${members.join(',')}}`
+}
+
+/**
+ * The two rows an earlier build of this shell put into a desktop profile's own
+ * patch layer, as the {@link canonical} text of what {@link patchEntries} reads
+ * for each one.
+ *
+ * Both are `cordis.patch.yml` inside
+ * `apps/desktop-server/vendor/haoran-dsh-llm-permission-gateway-0.1.3.tgz`, the
+ * tarball commit `1229bc8049` vendored for 0.1.0-rc.21 — the pairing a hand
+ * written `~/.dsh/profiles/web/cordis.patch.yml` carried before that release
+ * moved it into the package, and which the first sync of the `desktop-shell`
+ * profile then copied over verbatim with the rest of that file.
+ *
+ * `@haoran/dsh-llm-permission-gateway` 0.4.3 declares both rows in its own
+ * bundle layer, with four presets in a different order and its own name and
+ * description on the reviewed one. Every bundle layer applies before the
+ * profile's patch layer, so a copy left here shadows the shipped table
+ * entirely: the access-mode control keeps offering the 0.1.3 rows on a machine
+ * running any later build.
+ */
+const SEEDED_PERMISSION_ROWS: readonly { what: string; row: string; declares: RegExp }[] = [
+  {
+    what: 'the permission preset table',
+    declares: /^- id: {1,}permission *$/m,
+    row: canonical({
+      id: 'permission',
+      config: {
+        presets: {
+          'read-only': { sandbox: 'read-only', approval: 'ask' },
+          'workspace-write': { sandbox: 'workspace-write', approval: 'ask' },
+          'danger-full-access': { sandbox: 'danger-full-access', approval: 'never' },
+          'yolo-access': {
+            sandbox: 'danger-full-access',
+            approval: 'ask',
+            name: '自动审查',
+            description: '沙箱完全关闭，文件系统与命令不再有操作系统层面的围墙；改由审查模型逐个判断工具调用，只在它自己拿不准时才弹审批框。安全性取决于模型的判断质量，不再取决于沙箱。必须与 llm-permission-gateway 一起使用。',
+          },
+        },
+      },
+    }),
+  },
+  {
+    what: 'the llm-permission-gateway row',
+    declares: /(^|\s)llm-permission-gateway(\s|$)/m,
+    row: canonical({
+      insert: [{
+        id: 'llm-permission-gateway',
+        name: '@haoran/dsh-llm-permission-gateway',
+        config: { provider: 'deepseek-official', model: 'deepseek-v4-flash' },
+      }],
+    }),
+  },
+]
+
+/**
+ * Drop whole entries from a patch layer, each with the comment run written
+ * directly above it and the blank lines directly below it, so what is left
+ * reads as if those rows had never been written.
+ *
+ * A layer with nothing but those rows in it becomes the empty template again,
+ * and one left holding only prose gains the `[]` that prose was a comment on:
+ * the loader reads this file as a top-level array, and a file of comments alone
+ * is not one.
+ * @param lines - the file's lines.
+ * @param cut - the entries to remove.
+ * @returns the file's new contents.
+ */
+function removePatchEntries(lines: readonly string[], cut: readonly PatchEntry[]): string {
+  const dropped = new Set<number>()
+  for (const entry of cut) {
+    for (let index = entry.start; index <= entry.end; index += 1) dropped.add(index)
+    for (let index = entry.start - 1; index >= 0; index -= 1) {
+      if (!(lines[index] ?? '').trim().startsWith('#')) break
+      dropped.add(index)
+    }
+    for (let index = entry.end + 1; index < lines.length; index += 1) {
+      if ((lines[index] ?? '').trim().length > 0) break
+      dropped.add(index)
+    }
+  }
+  const kept = lines.filter((_, index) => !dropped.has(index))
+  while (kept.length > 0 && (kept[0] ?? '').trim().length === 0) kept.shift()
+  const rest = kept.join('\n')
+  if (/^-(\s|$)/m.test(rest)) return rest
+  return rest.trim().length === 0 ? PROFILE_PATCH_TEMPLATE : `${rest.replace(/\n+$/, '')}\n\n[]\n`
+}
+
+/**
+ * Take the permission preset table and the gateway row an earlier build of this
+ * shell copied into the profile's own patch layer back out, once.
+ *
+ * The rows arrive by the route {@link copyPristineProfileFile} describes: the
+ * first sync a profile ever runs replaces its empty patch template with the
+ * `web` profile's file verbatim, and on the machine that pairing came from that
+ * file was where {@link SEEDED_PERMISSION_ROWS} lived. The package now declares
+ * both rows in its own bundle layer, and every bundle layer applies before this
+ * file, so the copy shadows what the installed plugin ships.
+ *
+ * A row is removed only where it is still what was copied, field for field and
+ * value for value. One that differs anywhere is an edit its owner made, and
+ * stays with the reason named in {@link SeedReport.skipped} — this
+ * module reads a patch layer only well enough to recognize its own leavings,
+ * and refuses every entry whose meaning needs the loader's own YAML schema.
+ *
+ * The decision is recorded in {@link MigrationMarker.permissionPatch}, so no
+ * later launch reads the file again. A profile with no marker at all gains
+ * none: the marker's existence is what {@link syncWebBundles} reads as "this
+ * profile has synced before", and creating one here would suppress the one-time
+ * copy of the web profile's own two files. Such a profile is read again next
+ * launch, which costs one file read and one comparison against the template.
+ * @param profileDir - the desktop profile directory.
+ * @param report - the run's report, extended with what was retired or left alone.
+ */
+function retireSeededPermissionRows(profileDir: string, report: SeedReport): void {
+  const markerPath = join(profileDir, MIGRATION_MARKER_FILENAME)
+  const marker = readMigrationMarker(markerPath)
+  if (marker?.permissionPatch !== undefined) return
+  const patchPath = join(profileDir, PROFILE_PATCH_FILENAME)
+  let text
+  try {
+    text = readFileSync(patchPath, 'utf8')
+  } catch {
+    // No patch layer to read: a profile whose owner deleted the file holds
+    // nothing of this shell's either.
+    return
+  }
+  if (text === PROFILE_PATCH_TEMPLATE) return
+
+  const lines = text.split('\n')
+  const cut: PatchEntry[] = []
+  const retired: string[] = []
+  const kept: string[] = []
+  for (const entry of patchEntries(lines)) {
+    const read = entry.value === undefined ? undefined : canonical(entry.value)
+    const matched = SEEDED_PERMISSION_ROWS.find(seeded => seeded.row === read)
+    if (matched !== undefined) {
+      cut.push(entry)
+      retired.push(matched.what)
+      continue
+    }
+    const block = lines.slice(entry.start, entry.end + 1).join('\n')
+    const looks = SEEDED_PERMISSION_ROWS.find(seeded => seeded.declares.test(block))
+    if (looks !== undefined) kept.push(looks.what)
+  }
+
+  if (cut.length > 0) {
+    try {
+      writeAtomic(patchPath, removePatchEntries(lines, cut))
+    } catch (error) {
+      // Nothing is recorded either, so the next launch starts this over.
+      report.skipped.push(`${patchPath}: ${String(error)}`)
+      return
+    }
+    report.retired.push(...retired)
+  }
+  for (const what of kept) {
+    report.skipped.push(`${PROFILE_PATCH_FILENAME}: ${what} is not the one this shell wrote; left exactly as it is`)
+  }
+  if (marker === undefined) return
+  const outcome: PermissionPatchOutcome = cut.length > 0 ? 'removed' : kept.length > 0 ? 'kept' : 'absent'
+  try {
+    writeMigrationMarker(markerPath, { ...marker, permissionPatch: outcome })
+  } catch (error) {
+    report.skipped.push(`${markerPath}: ${String(error)}`)
   }
 }
 
@@ -1388,6 +1803,7 @@ export function describeSeed(report: SeedReport): string | undefined {
   if (report.linked.length > 0) parts.push(`linked ${report.linked.join(', ')}`)
   if (report.migrated.length > 0) parts.push(`migrated ${report.migrated.join(', ')} from the web profile`)
   if (report.copied.length > 0) parts.push(`copied ${report.copied.join(', ')} from the web profile`)
+  if (report.retired.length > 0) parts.push(`retired ${report.retired.join(', ')} from ${PROFILE_PATCH_FILENAME}`)
   if (report.pruned.length > 0) parts.push(`dropped withdrawn built-in ${report.pruned.join(', ')}`)
   if (report.unlinked.length > 0) parts.push(`unlinked ${report.unlinked.join(', ')}`)
   for (const line of report.disabled) parts.push(`disabled migrated ${line}`)
