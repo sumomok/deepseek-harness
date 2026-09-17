@@ -932,8 +932,8 @@ importers:
         specifier: file:./vendor/haoran-dsh-screenshot-0.5.1.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-screenshot-0.5.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-attachment@packages+attachment+attachment)(@deepseek-ai/dsh-commands@packages+interaction+commands)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-system-prompt@packages+core+system-prompt)(@deepseek-ai/dsh-tools@packages+core+tools)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/dsh-user-questions@packages+interaction+user-questions)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
       '@haoran/dsh-vision-switch':
-        specifier: file:./vendor/haoran-dsh-vision-switch-0.2.4.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.4.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
+        specifier: file:./vendor/haoran-dsh-vision-switch-0.2.7.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.7.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       '@sumomok/dsh-balance':
         specifier: file:./vendor/sumomok-dsh-balance-0.5.0.tgz
         version: file:apps/desktop-server/vendor/sumomok-dsh-balance-0.5.0.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-credentials@packages+credentials+credentials)(@deepseek-ai/dsh-home-paths@packages+util+home-paths)(@deepseek-ai/dsh-launch-environment@packages+util+launch-environment)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -13366,16 +13366,17 @@ packages:
       react:
         optional: true
 
-  '@haoran/dsh-vision-switch@file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.4.tgz':
-    resolution: {integrity: sha512-MBNeoGd0XO0eIUw2/as0sAoV/EdE/p+qgTsdKR+K5UkENErSpcYX/8m/LVSDgvj4j8HGBtlHyP6oHv0F6fhPjg==, tarball: file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.4.tgz}
-    version: 0.2.4
+  '@haoran/dsh-vision-switch@file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.7.tgz':
+    resolution: {integrity: sha512-VYI6y4tpXzd/hVwXVwWZTi7+J+9ASZlirsvJ12+cDF4cetxvTl9pDASpt0HV3JGHJnUZWgBGNsTNDcx8pB+ngg==, tarball: file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.7.tgz}
+    version: 0.2.7
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
       '@deepseek-ai/dsh-api-remotes': '>=0.1.2-alpha.2 <0.2.0-0'
       '@deepseek-ai/dsh-api-session-controller': '>=0.1.2-alpha.2 <0.2.0-0'
       '@deepseek-ai/dsh-client-locale': '>=0.1.2-alpha.2 <0.2.0-0'
-      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.3-alpha.1 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-conversation': '>=0.1.3-alpha.2 <0.2.0-0'
       '@deepseek-ai/dsh-client-ui-model-selection': '>=0.1.3-alpha.1 <0.2.0-0'
+      '@deepseek-ai/dsh-client-ui-primitives': '>=0.1.2-alpha.2 <0.2.0-0'
       '@deepseek-ai/dsh-client-ui-renderer': '>=0.1.2-alpha.2 <0.2.0-0'
       '@deepseek-ai/dsh-client-ui-settings': '>=0.1.2-alpha.2 <0.2.0-0'
       '@deepseek-ai/dsh-client-ui-slots': '>=0.1.2-alpha.2 <0.2.0-0'
@@ -13394,6 +13395,8 @@ packages:
       '@deepseek-ai/dsh-client-ui-conversation':
         optional: true
       '@deepseek-ai/dsh-client-ui-model-selection':
+        optional: true
+      '@deepseek-ai/dsh-client-ui-primitives':
         optional: true
       '@deepseek-ai/dsh-client-ui-renderer':
         optional: true
@@ -20509,7 +20512,7 @@ snapshots:
       '@deepseek-ai/dsh-user-questions': link:packages/interaction/user-questions
       react: 18.3.1
 
-  '@haoran/dsh-vision-switch@file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.4.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
+  '@haoran/dsh-vision-switch@file:apps/desktop-server/vendor/haoran-dsh-vision-switch-0.2.7.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-typert-protocol@packages+typert+protocol)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)':
     dependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-llm': link:packages/llm/llm

@@ -85,7 +85,7 @@
         imageMaxBytes: 1048576
         systemPromptUpdate: in-history
 
-# Where an attachment sent on a model without vision moves the session to.
+# Where an image sent on a model without vision moves the session to.
 # Absent a `target`, @haoran/dsh-vision-switch falls back to a DEFAULT_TARGET
 # compiled into it (`deepseek-official` / `deepseek-v4-flash-vision-exp`),
 # chosen when that was also this deployment's starting model. It is not any
