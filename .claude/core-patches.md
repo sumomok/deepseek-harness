@@ -2,7 +2,7 @@
 
 本文件登记 `core-patches` 线上的每一个补丁族。新增、修改、退役补丁时必须同步更新本文件。
 
-**当前补丁线**：`core-patches-v10`，基座 `upstream/master` = 上游 `0.1.6-alpha.1`（release tag `dsh-v0.1.6-alpha.1`）。本线由 `core-patches-v9` 变基而来：v9 的 92 个提交里 91 个落地、1 个退役（见 `referent-target-probe`），其后是本轮新增的提交。
+**当前补丁线**：`core-patches-v10`，基座 `upstream/master` = 上游 `0.1.6-alpha.1` 之后的 5 个提交（最新一条是 `Merge pull request #4192`）。release tag `dsh-v0.1.6-alpha.1` 只是该基座的祖先，**不等于基座**——按该 tag 取基座会少 5 个提交、得到另一棵树。本线由 `core-patches-v9` 变基而来：v9 的 92 个提交里 91 个落地、1 个退役（见 `referent-target-probe`），其后是本轮新增的提交。
 
 ## 身份规则
 
@@ -10,11 +10,13 @@
 
 **每个提交带一条 `Patch: <slug>` trailer。** 提交哈希不能承载身份：每轮滚动同步都把整条线变基到新的上游基座，全部哈希随之作废；上游的 `verify-repository-references` 也拒绝在维护中的散文里出现能解析成本仓提交的十六进制串。trailer 与 slug 是提交信息文本，变基后原样存活。
 
-**门禁**：`pnpm run verify-core-patches`（`scripts/verify-core-patches.ts`，已登记进 `doc-sync`）双向核对——`upstream/master..HEAD` 每个提交恰有一条 `Patch:` trailer 且 slug 在本文件登记；本文件每个状态为 `在役` 或 `局部退役` 的 slug 至少对应一个提交。没有 `upstream/master` 引用时打印 `skipped: no upstream/master ref` 并退出 0。
+**门禁**：`pnpm run verify-core-patches`（`scripts/verify-core-patches.ts`，已登记进 `doc-sync`）双向核对本文件与 `upstream/master..HEAD`，八类违规：`trailer-count`（提交的 `Patch:` trailer 不是恰好一条——按 git 自己的 `%(trailers:key=Patch)` 读，因此必须落在提交信息的最后一段）、`merge-commit`（补丁线必须线性）、`unregistered-slug`（提交点名的 slug 本文件未登记）、`unused-active-slug`（在役或局部退役的 slug 线上无提交）、`retired-slug-in-use`（退役的 slug 线上仍有提交）、`duplicate-slug`、`missing-status`、`malformed-heading`（`## ` 标题既不是记录格式、也不是 `身份规则`／`历史轮次` 之一——标题解析失败会让整条记录连同它的检查一起蒸发，所以标题本身是违规）。
 
-**指向历史的写法**：指向本 fork 的改动写 slug 或相对链接指向该补丁的 Agent Note；指向上游的改动写上游 PR 号（`Merge pull request #NNNN`）或发布 tag。
+**门禁的执行面与后果**：checkout 不在本文件声明的补丁线上（`develop`、集成线、detached HEAD）时打印 `skipped: not on the declared patch line` 并退出 0；`upstream/master` 不存在时打印 `skipped: no upstream/master ref` 并退出 0；该引用存在但不是 HEAD 的合并基座时直接失败。**后果**：CI 的 checkout 只取 `origin`，`.github/workflows` 里没有任何 `upstream` remote，所以 `check:ci:static` 每次都走到后一条 skip——漏 trailer、漏登记、slug 改名这三类错误 CI 永远抓不到，只有配过 upstream remote 的维护者在本机跑 `doc-sync` 时本门禁才有牙。不拿发布 tag 兜底：tag 不等于基座（见本文件开头），用它当基座会把上游的若干提交算进本线，产出一批指着上游提交的假违规。
 
-**每条记录的五要素**：改了什么 / 为什么 / 要达到的效果 / 退役条件 / 状态。状态取 `在役`、`局部退役`、`退役` 之一，并写明所在线。
+**指向历史的写法**：指向本 fork 的改动写 slug 或相对链接指向该补丁的 Agent Note；指向上游的改动写上游 PR 号（`Merge pull request #NNNN`，即合并提交标题里的那个号，不是分支名里的 issue 号）或发布 tag。
+
+**每条记录的五要素**：改了什么 / 为什么 / 要达到的效果 / 退役条件 / 状态。状态取 `在役`、`局部退役`、`退役` 之一：在役与局部退役写明所在线，退役写明在哪一条线上退的役。**局部退役**指同一族里的部分子件已被上游覆盖或在新基座上失去落点、而族整体仍在役；子件逐条列出，族自己的退役条件不变。
 
 ## ansi-line-parser-export — ui-primitives 导出 ANSI 行解析器
 
@@ -147,15 +149,16 @@
 - **为什么**：引用校验层要在渲染前判断一批目标是否可打开，逐条 RPC 的往返次数与正文里的引用数同阶。
 - **要达到的效果**：一次调用得到整批结论，校验层不按引用数发请求。
 - **退役条件**：上游自己提供等价的批量存在性探测端点。
-- **状态**：在役（`core-patches-v10`）。核实依据：`probeTargets` 在 `upstream/master` 零命中。**本轮退役了本族的一条测试补丁**：原先给穷举式客户端假实现 `packages/api/session-controller/tests/fake-api.client.ts` 绑定 `probeTargets` 的那条提交——上游 PR 把该假实现整体换成 `tests/remote/session.client.ts` 的部分规则表，不再要求绑定每个端点，该补丁存在的理由消失。
+- **状态**：局部退役（`core-patches-v10`）。族整体在役，核实依据：`probeTargets` 在 `upstream/master` 零命中。一处局部退役：原先给穷举式客户端假实现 `packages/api/session-controller/tests/fake-api.client.ts` 绑定 `probeTargets` 的那条提交本轮退役——上游 PR #3960 把该假实现整体换成 `tests/remote/{session,bench,history}.client.ts` 的部分规则表，不再要求绑定每个端点，该补丁存在的理由消失。宿主侧覆盖未损失：`session-probe-targets.host.spec.ts` 与 `test-remote.ts` 仍钉着该端点。
 
 ## rolling-sync-settle — 每轮滚动同步的适配与生成物收敛
 
-- **改了什么**：每轮同步中让已移植补丁在新基座上编译、hermetic 地跑、与生成器一致的提交：按上游现行 API 改写用例、把金样换成当前世代、重跑 `gen-*` 生成物与双语配对记录。
-- **为什么**：补丁本身不变，但它依赖的上游 API、测试夹具与生成器输出每轮都在动；不收敛这些，补丁在新基座上编译不过或门禁不绿。
-- **要达到的效果**：每条补丁在当前基座上按上游现行 API 编译并通过，被测行为一字未改；生成物与源树一致，`gen-*`／`verify-*` 的 `--check` 全部退出 0。
+- **改了什么**：每轮同步里**没有所属补丁族**的跨仓适配与生成物收敛：重跑 `gen-*` 生成物、重录双语配对记录、把跨多族的合并文档收敛到字数上限、把横跨多族的测试夹具搬到本基座的 harness 上。
+- **为什么**：补丁本身不变，但它依赖的上游 API、测试夹具与生成器输出每轮都在动；不收敛这些，补丁在新基座上编译不过或门禁不绿。而这类收敛里有一部分跨了多个补丁族，挂不到任何一族的 slug 上。
+- **要达到的效果**：生成物与源树一致，`gen-*`／`verify-*` 的 `--check` 全部退出 0；跨族的文档与夹具在当前基座上成立。
+- **归属规则**：**只服务单一补丁族的适配提交挂那一族自己的 slug**，不挂本族——本轮的三条 `adapt(referent-open-seam)`／`adapt(permission-preset-glyph)`／`adapt(command-engages-session)` 即如此。否则按 slug 退役某一族时会找不到它这一轮的适配提交。
 - **退役条件**：不适用——本族随每轮同步重生成，不是可退役的 overlay；它服务的补丁族退役时，对应的适配随之消失。
-- **状态**：在役（`core-patches-v10`）。
+- **状态**：在役（`core-patches-v10`）。本轮零新提交，线上 4 条继承自 `core-patches-v9`。
 
 ## session-export-progress — 导出面板显示进度与失败
 
@@ -250,7 +253,7 @@
 - **为什么**：标准 harness 没有非图片附件通路，第三方插件把文件当原始文本拼进草稿，绕过已有的持久、内容寻址服务边界。
 - **要达到的效果**：文本文件像图片一样经服务边界准入、按内容寻址持久化、可按引用重新读取校验。
 - **退役条件**：上游为 `@deepseek-ai/dsh-attachment` 添加镜像图片的文件准入与存储服务边界。
-- **状态**：退役（上游 PR #2984 通用文件上传）。与我方实现的差异：上游不做文本嗅探、不设限额、按 verbatim 存任意字节，文件对象落在两棵新树而不是与图片共用的对象树。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109 通用文件上传）。与我方实现的差异：上游不做文本嗅探、不设限额、按 verbatim 存任意字节，文件对象落在两棵新树而不是与图片共用的对象树。
 
 ## llm-file-attachments — 文件附件上线、入日志、进请求
 
@@ -258,7 +261,7 @@
 - **为什么**：文件附件必须像图片一样可重建——日志里有引用、请求期按引用取回。
 - **要达到的效果**：文件附件在会话日志里以引用存在，模型请求由引用装配。
 - **退役条件**：上游为文件附件提供等价的线上／日志／请求期通路。
-- **状态**：退役（上游 PR #2984）。上游 `ContentBlockMap['file']` 与我方结构相同。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109）。上游 `ContentBlockMap['file']` 与我方结构相同。
 
 ## composer-file-drafts — composer 草稿里的文本文件
 
@@ -266,7 +269,7 @@
 - **为什么**：没有这条通路，用户只能把文件内容粘成正文。
 - **要达到的效果**：文件以草稿附件形式进入消息。
 - **退役条件**：上游提供等价的 composer 文件草稿通路。
-- **状态**：退役（上游 PR #2984，`packages/client/file-upload` 提供 HTTP 上传路由与客户端后台上传运行时）。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109，`packages/client/file-upload` 提供 HTTP 上传路由与客户端后台上传运行时）。
 
 ## composer-file-chip — composer 文件 chip 与尺寸文案
 
@@ -274,7 +277,7 @@
 - **为什么**：chip 与行不对齐、尺寸没有可读格式。
 - **要达到的效果**：chip 与输入栏对齐，尺寸可读。
 - **退役条件**：上游自带文件卡与混合附件呈现。
-- **状态**：退役（上游 PR #2984 的 `FileCard` 与混合附件呈现；`ui-primitives` 自带 `fileSizeText`）。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109 的 `FileCard` 与混合附件呈现；`ui-primitives` 自带 `fileSizeText`）。
 
 ## attachment-spill-oversized — 超限文件附件溢出而不截断
 
@@ -282,7 +285,7 @@
 - **为什么**：截断把文件中段悄悄丢掉，模型看到的是不完整且无标记的内容。
 - **要达到的效果**：超限文件不进正文，模型拿到可读路径。
 - **退役条件**：上游对超限文件采取等价处理。
-- **状态**：退役（上游 PR #2984 的 `projectFilesToText` 把文件降级成可读路径句柄、从不内联正文）。
+- **状态**：退役（在 `core-patches-v7` 上退役，上游 PR #3109 的 `projectFilesToText` 把文件降级成可读路径句柄、从不内联正文）。
 
 ## ui-attachment-build-purity — 附件族的构建纯净度与装配快照文案
 
@@ -290,7 +293,7 @@
 - **为什么**：缺陷与文案都属于文件附件族。
 - **要达到的效果**：构建纯净、快照文案与实际装配一致。
 - **退役条件**：随文件附件族整体退役。
-- **状态**：退役（随 `attachment-text-file-kind` 一族）。
+- **状态**：退役（在 `core-patches-v7` 上随 `attachment-text-file-kind` 一族退役）。
 
 ## storage-json-legacy-bootstrap — 按同版本遗留文件引导每记录单元
 
@@ -314,7 +317,7 @@
 - **为什么**：该架构横跨多个补丁，需要一处记录。
 - **要达到的效果**：读者从一处看懂 nominate／verify／open 三层如何分工。
 - **退役条件**：落地的每条缝各自带 Note。
-- **状态**：退役。该记录已拆进 `referent-open-seam` 与 `chat-prose-referents` 各自的 Note，本条不再单独存在。
+- **状态**：退役（在 `core-patches-v2` 上撤回，其后各轮均未重落）。该记录已拆进 `referent-open-seam` 与 `chat-prose-referents` 各自的 Note，本条不再单独存在。
 
 ## secret-container-confirm — 发送位于已知密钥容器内的文件前确认
 
