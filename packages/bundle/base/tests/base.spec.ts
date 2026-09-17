@@ -47,15 +47,9 @@ describe('dsh-base bundle', () => {
       dsh?: { bundle?: { patch?: string } }
     }
     expect(manifest.dsh?.bundle?.patch).toBe('./cordis.patch.yml')
-    const parsed = yaml.load(
-      readFileSync(resolve(root, manifest.dsh!.bundle!.patch!), 'utf8'),
-      { schema: entryListSchema },
-    )
-    expect(Array.isArray(parsed)).toBe(true)
-    // The base layer is one insert list over the empty profile root.
-    const rows = (parsed as { insert?: { id?: string; config?: Record<string, unknown>; disabled?: boolean }[] }[]).flatMap(
-      patch => patch.insert ?? [],
-    )
+    // The base layer is one insert list over the empty profile root, and
+    // `patchRows()` reads the same file the manifest field names.
+    const rows = patchRows()
     expect(rows.length).toBeGreaterThan(50)
     expect(rows.some(row => row.id === 'agent-loop')).toBe(true)
     expect(rows.find(row => row.id === 'session-telemetry-otel')).toMatchObject({
@@ -70,9 +64,8 @@ describe('dsh-base bundle', () => {
     expect(rows.find(row => row.id === 'plugin-package-inventory-deepseek')).toMatchObject({
       disabled: true,
     })
-    // The third DeepSeek-bound path answers to its own schema field instead of
-    // the row flag, so this row carries `enabled: false` and leaves the
-    // plugin's remaining contributions mounted.
+    // The third DeepSeek-bound path answers to the plugin's own schema field,
+    // so this row carries `enabled: false`.
     expect(rows.find(row => row.id === 'session-log-deepseek')).toMatchObject({
       config: { enabled: false },
     })
@@ -123,7 +116,7 @@ describe('dsh-base bundle', () => {
     expect(existsSync(resolve(root, 'windows.cordis.patch.yml'))).toBe(false)
   })
 
-  it('keeps the DeepSeek-bound reporters off through the row flag, not through a mode', () => {
+  it('keeps each DeepSeek-bound reporter off through a switch that holds, never through a mode', () => {
     // `mode` selects a capture policy, never on or off: the two the plugin
     // accepts both deliver, and an omitted one resolves to FEEDBACK_ONLY, so
     // the shipped `!!js` expression cannot express this product's answer.
