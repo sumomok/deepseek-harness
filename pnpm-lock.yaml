@@ -902,8 +902,8 @@ importers:
         specifier: link:../../vendor/schemastery
         version: link:../../vendor/schemastery
       '@haoran/dsh-auto-compact':
-        specifier: file:./vendor/haoran-dsh-auto-compact-0.2.1.tgz
-        version: file:apps/desktop-server/vendor/haoran-dsh-auto-compact-0.2.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent-presets@packages+preset+agent-presets)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-compaction@packages+compaction+compaction)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-token-meter@packages+llm+token-meter)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
+        specifier: file:./vendor/haoran-dsh-auto-compact-0.2.2.tgz
+        version: file:apps/desktop-server/vendor/haoran-dsh-auto-compact-0.2.2.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent-presets@packages+preset+agent-presets)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-compaction@packages+compaction+compaction)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-token-meter@packages+llm+token-meter)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)
       '@haoran/dsh-btw':
         specifier: file:./vendor/haoran-dsh-btw-0.1.1.tgz
         version: file:apps/desktop-server/vendor/haoran-dsh-btw-0.1.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-commands@packages+interaction+commands)(@deepseek-ai/dsh-llm@packages+llm+llm)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/schemastery@vendor+schemastery)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
@@ -12968,9 +12968,9 @@ packages:
       '@modelcontextprotocol/sdk':
         optional: true
 
-  '@haoran/dsh-auto-compact@file:apps/desktop-server/vendor/haoran-dsh-auto-compact-0.2.1.tgz':
-    resolution: {integrity: sha512-647jNa/97VGZ7oq9T3I5vyuFUe1kXs8oazysCwuxYWyvh4ABtPI61ENgW5F5+49veZatfovK/14F2izUyLYIsg==, tarball: file:apps/desktop-server/vendor/haoran-dsh-auto-compact-0.2.1.tgz}
-    version: 0.2.1
+  '@haoran/dsh-auto-compact@file:apps/desktop-server/vendor/haoran-dsh-auto-compact-0.2.2.tgz':
+    resolution: {integrity: sha512-JVfQipFcSxkOEmBqoYE2AzpBR+293aYc8mySAlIn4zJlGEdgrTR5Y+tsMGUNqYeVQQTSK+uWjqUcvl2nWjk2VA==, tarball: file:apps/desktop-server/vendor/haoran-dsh-auto-compact-0.2.2.tgz}
+    version: 0.2.2
     peerDependencies:
       '@deepseek-ai/cordis': ^4.0.1
       '@deepseek-ai/dsh-agent': '>=0.1.2-alpha.2 <0.2.0-0 || >=0.1.5-rc.1 <0.2.0-0'
@@ -20397,7 +20397,7 @@ snapshots:
       - supports-color
       - utf-8-validate
 
-  '@haoran/dsh-auto-compact@file:apps/desktop-server/vendor/haoran-dsh-auto-compact-0.2.1.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent-presets@packages+preset+agent-presets)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-compaction@packages+compaction+compaction)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-token-meter@packages+llm+token-meter)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)':
+  '@haoran/dsh-auto-compact@file:apps/desktop-server/vendor/haoran-dsh-auto-compact-0.2.2.tgz(@deepseek-ai/cordis@vendor+cordis)(@deepseek-ai/dsh-agent-presets@packages+preset+agent-presets)(@deepseek-ai/dsh-agent@packages+core+agent)(@deepseek-ai/dsh-compaction@packages+compaction+compaction)(@deepseek-ai/dsh-session-projection@packages+session+session-projection)(@deepseek-ai/dsh-session@packages+core+session)(@deepseek-ai/dsh-settings@packages+settings+settings)(@deepseek-ai/dsh-token-meter@packages+llm+token-meter)(@deepseek-ai/schemastery@vendor+schemastery)(react@18.3.1)':
     optionalDependencies:
       '@deepseek-ai/cordis': link:vendor/cordis
       '@deepseek-ai/dsh-agent': link:packages/core/agent

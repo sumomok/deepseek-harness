@@ -3,4 +3,4 @@
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-09-14-auto-compaction-policy-seat.md
 2026-09-14-auto-compaction-policy-seat.md: f671bbdb09908166bc4608774b61c25a6a7450ed
-2026-09-14-auto-compaction-policy-seat.zh.md: 0ad9371c4f24f836659bd18c32c420add1ff6a15
+2026-09-14-auto-compaction-policy-seat.zh.md: 60f25ce91eb8d32b961887a78b47804b90b913f1

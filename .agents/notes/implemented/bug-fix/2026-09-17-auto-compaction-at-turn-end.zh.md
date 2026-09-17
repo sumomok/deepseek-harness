@@ -14,7 +14,7 @@ Related：[自动压缩的实时策略位](../feature/2026-09-14-auto-compaction
 
 ## Decision
 
-桌面组合里的 `@haoran/dsh-auto-compact`（0.2.1，以 tarball 形式进仓）把触发挪出了一轮之内。harness 的包一个都没改。
+桌面组合里的 `@haoran/dsh-auto-compact`（0.2.2，以 tarball 形式进仓）把触发挪出了一轮之内。harness 的包一个都没改。
 
 它的 `compactionPolicy.isEnabled()` 答 `false`，这正是这个位子被文档化的含义——`compaction-basic` 只用它门控压力路径，溢出恢复被刻意排除在外，因为那里提供方已经拒过请求。插件随后从一个 `agent/status` listener 在 running→idle 的转换上触发：读 `contextPressure`，调 `ctx.compaction.compactNow(agent, signal)`。
 
@@ -30,11 +30,17 @@ Related：[自动压缩的实时策略位](../feature/2026-09-14-auto-compaction
 
 所以引擎是按 agent 解析的：
 
-```ts ignore-check
-ctx.get('agentPresets')?.serviceFor(agent, 'compaction') ?? ctx.get('compaction')
+```ts
+declare const ctx: import('@deepseek-ai/cordis').Context
+declare const agent: import('@deepseek-ai/dsh-agent').Agent
+const engine = ctx.get('agentPresets')?.serviceFor(agent, 'compaction') ?? ctx.get('compaction')
 ```
 
-而位子与这次查找绑定：`isEnabled()` 只有在某个 agent 上查找成功之后才答 `false`，还没成功时答 `true`——上游行为，逐字不变。它排除掉的状态是「压力路径关了、后面没人接手」：在这个 profile 里 host 平面的 `inject(['compaction'])` 永远不触发，而 host 提供的 policy **确实**能穿进 realm，所以一个不带绑定的常量 `false` 会让桌面完全没有自动压缩，开关和滑块变成摆设。
+而位子与这次查找绑定：`isEnabled()` 只有在某个 agent 上查找成功之后才答 `false`，还没成功时答 `true`——上游行为，逐字不变。这条绑定保证的是「新进程不会在插件能接手之前就把 harness 的路关掉」：在这个 profile 里 host 平面的 `inject(['compaction'])` 永远不触发，而 host 提供的 policy **确实**能穿进 realm，所以一个不带绑定的常量 `false` 会让桌面完全没有自动压缩，开关和滑块变成摆设。
+
+**这条绑定是进程级的，不是按会话的。** 位子没有 agent 参数，一个答案管住引擎服务的所有 agent；在某个会话上找到引擎，就把 harness 的路对所有会话一起关了。某个会话自己的组合两条查找都答不上来时，它在宿主日志里被记一次、谁也不压它——反正那里本来也没有引擎可以压它。
+
+**不缓存。** 空白会话可以被改挂到别的 preset（`agentPresets.recompose`，桌面经 preset 选择器就能到），缓存会让插件继续用会话已经离开的那个 realm 的引擎，甚至包括一个根本不装 compaction 的 preset。`serviceForAgent` 只是遍历服务 store 自己的符号，所以改成每次 driver 退出解析一次。`agent/created` 上的探测包了 try/catch，并且只在挂着的 roster 确实有 `serviceFor` 时才调：`AgentRegistry.announce` 不接住创建 listener 的同步失败，在那里抛会否决会话的发布，而不是退化。
 
 token 计量器被刻意留在 realm 之外——preset 自己写了原因，它拥有进程级的投影单元——所以 `ctx.get('tokenMeter')` 从 host 平面直接够得着，不需要任何寻址。
 
@@ -42,13 +48,15 @@ token 计量器被刻意留在 realm 之外——preset 自己写了原因，它
 
 **用户按了停止的一次，和会话被 dispose 的一次。** 两者都以带 `reason.kind === 'aborted'` 的 `turn/end` 收尾，随后都会发布 idle 状态。在那里压缩，等于用一段没人要的全对话摘要来回应「停止」，而且输入框没有任何办法打断它——`ReactLoopAgent.status` 把维护相位报告为 `idle`，所以 session controller 广播 `running: false`，停止按钮那时已经不在了。dispose 更糟：`agent-loop` 的销毁是 `cancel({kind:'disposed'})` 之后 `await whenIdle()`，而从那次 idle 转换启动的压缩，正是一次在唯一能停下它的取消之后才开始、然后被销毁等着的摘要。
 
-没有任何 Context 事件报告取消，也没有任何投影发布结束原因，所以信号就是那条闭合事件本身，经 `ctx.on('session/event')` 在它提交时观察，而不是回头扫日志。每次尝试另外自带一个 `AbortController`，在 `agent/disposed` 上中止；那条事件是在 driver 静默之后才发的，所以它是第二道防线，不是第一道。
+没有任何 Context 事件报告取消，也没有任何投影发布结束原因，所以信号就是那条闭合事件本身，经 `ctx.on('session/event')` 在它提交时观察，而不是回头扫日志。第一版还在 `agent/disposed` 上中止每次尝试；那个 listener 已删掉：销毁顺序是 `cancel` → `whenIdle` → scope 销毁 → detach，而 `cancel()` 对维护相位同样 abort、`compactNow` 内部本来就把它并进操作 signal——所以 `agent/disposed` 永远晚于它能停下的那次尝试。
 
-**所有子代理。** `agent/status` 虽按 scope 过滤，但 listener 挂在插件上下文上，因此收得到每个 agent 的转换，子代理也在内。子代理的会话通常答完就被拆掉，而它的结算要等 `whenIdle()`，所以在那里摘要等于把一次模型调用花在没人会再读的历史上，还拖慢父代理。过滤用 `ctx.agents.roots().includes(agent)`，沿用 `schedule` 插件的先例。
+子代理**不**跳过。第一版用 `ctx.agents.roots().includes(agent)` 跳过了它们，那是错的：子代理经 `agentPresets.composeFrom` 挂到父 agent 同一个 standing mount 上，realm 里的 `compaction-basic` 读的是同一份 host 平面 policy，它的两步之间那条路被同一个 `false` 关掉。空闲路径再跳过它，就只剩溢出兜底和默认一次重试的预算。给位子加按 agent 的答案这条路不通——`isEnabled(): boolean` 没有 agent 参数，改它就是核心补丁——所以每个能解析到引擎的 agent 都在自己 driver 退出时被压。代价是：超过比例的子代理每次 driver 退出多一次摘要调用，而那个会话往往很快被丢掉。
 
 ## 随附行为付出的代价
 
 **保留的尾巴更短。** `compactNow` 以 `retainTokens: 0` 选范围：`selectCompactableRange` 的累加循环第一轮就 break，所以最后一个 surface 节点——通常就是刚答完的那段——原样保留，它之前的一切回溯到一个平衡的工具边界为止，压成一条摘要。pre-step 那条路会留一截由 `retainRatio`/`retainTokens` 定长的尾巴，因为它是在给一个马上要发出去的请求腾地方；这一次不是。所以设在 60% 的用户现在拿到的是更彻底、更靠后的一次压缩，而不是更早、更局部的一次。设置卡自己的说明行现在也写了这一点，不再只有两份 README 和内置插件表——因为滑块最低能拖到 20%。
+
+**界面上没有任何显示。** 维护相位对外报告为 `idle`，所以 session controller 广播 `running: false`，输入框的停止按钮消失，这期间发出的消息被扣在它后面、要到那一轮真正开始才进转录。只有 `compaction/start` 时 `compactionDefinition.buildViewNode` 什么都不画，所以对话里也看不到。一次全前缀摘要可能要几十秒。浏览器那半边加一行进度是做得到的，这里刻意没做：位子有（`conversation.composer.dock`，输入框下方的会话级 list 槽，不遮蔽任何随附 UI），缺的是信号——没有任何已注册投影发布「压缩标记对是开着的」，所以插件得自己注册一个折叠 `compaction/start`→`end` 的 conversation-node definition、自带一个客户端 store、加 locale 键与客户端测试。按这个成本推迟；用户看到的是什么，写在发行说明里。
 
 **一轮之内的保护整个没有了。** pre-step 那条路买到的东西是本文 Problem 一节没提的：一段工具密集的长回答自己就可能撑爆窗口。关掉它，这种情况只剩溢出恢复兜底，默认预算是一次重试（`compaction-basic` config 里的 `maxOverflowRetries ?? 1`；随附的任何 preset 都没有覆盖它）。这是刻意接受的——答到一半去压缩正是被移除的行为——并在两份 README 里点名，好让预期会有很长的工具密集回答的部署知道该调哪个旋钮。
 
@@ -76,4 +84,4 @@ token 计量器被刻意留在 realm 之外——preset 自己写了原因，它
 
 ## Consequences
 
-桌面线现在在用户让它答完之后压一次，按用量环显示的那个数字判断；对于提供方尚未计费的对话，回落到 token 计量器自己的总数——正是这一条让图片密集的会话仍然会被压。摘要模型坏掉时，代价是每次 driver 退出一次尝试、一张卡，而不是每步一次。harness 自己的溢出恢复没动，harness 的包也一个没动：这里的改动是那个进仓的 tarball、它的依赖行、生成的第三方声明、内置插件表里的一行、一条针对 `turn: null` 失败标记对新增的客户端用例，以及本文。插件仓的 `packages/auto-compact/tests/{idle-compaction,realm}.spec.ts` 钉住了转换规则、阈值边界、开关、单飞门、逐次失败的日志，以及——对着真实 cordis 运行时——本决定所依赖的 realm 可见性。
+桌面线现在在用户让它答完之后压一次，按用量环显示的那个数字判断；对于提供方尚未计费的对话，回落到 token 计量器自己的总数——正是这一条让图片密集的会话仍然会被压。摘要模型坏掉时，代价是每次 driver 退出一次尝试、一张卡，而不是每步一次。harness 自己的溢出恢复没动，harness 的包也一个没动：这里的改动是那个进仓的 tarball、它的依赖行、生成的第三方声明、内置插件表里的一行、一条针对 `turn: null` 失败标记对新增的客户端用例，以及本文。插件仓的 `packages/auto-compact/tests/{idle-compaction,realm}.spec.ts` 钉住了转换规则、每次退出重新解析、没有 `serviceFor` 的 roster 与会抛的 roster、阈值边界、开关、单飞门、逐次失败的日志，以及——对着真实 cordis 运行时——本决定所依赖的 realm 可见性。
