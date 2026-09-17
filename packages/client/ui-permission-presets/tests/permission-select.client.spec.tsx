@@ -243,7 +243,9 @@ describe('PermissionSelect', () => {
     const select = vi.fn(() => Promise.reject(new Error('rejected')))
     const { selection } = setup({ selection: { currentValue: 'custom' }, select })
     expect(trigger().textContent).toBe('Custom')
-    expect(trigger().querySelectorAll('svg')).toHaveLength(1)
+    // Outside the design set the trigger still carries artwork: the bare
+    // shield outline beside the chevron.
+    expect(trigger().querySelectorAll('svg')).toHaveLength(2)
 
     fireEvent.click(trigger())
     fireEvent.click(screen.getByRole('menuitem', { name: '工作区内修改' }))
