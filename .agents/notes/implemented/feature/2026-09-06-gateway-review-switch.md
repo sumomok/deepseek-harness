@@ -4,6 +4,8 @@ Status: implemented
 
 English | [中文](2026-09-06-gateway-review-switch.zh.md)
 
+> Two decisions below are superseded by [Four access modes, folded from the wall and the approval policy](2026-09-17-gateway-four-access-modes.md): review ships off rather than `auto`, and the preset row is named for review. Everything else here still holds.
+
 ## Problem
 
 `@haoran/dsh-llm-permission-gateway` 0.1.5 tied model review to one permission preset. The row it shipped was named 自动审查, and selecting it did two things at once: it turned the operating-system sandbox off, and it was the only state in which the review model's judgment mattered. Three things were wrong with that pairing on a desktop.

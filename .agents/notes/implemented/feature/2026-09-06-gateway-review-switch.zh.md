@@ -4,6 +4,8 @@ Status: implemented
 
 [English](2026-09-06-gateway-review-switch.md) | 中文
 
+> 下文有两项决定已被 [四档访问方式，由围墙与审批策略折出](2026-09-17-gateway-four-access-modes.zh.md) 推翻：审查出厂改为关而不是 `auto`，预设那一行改为以审查命名。其余部分仍然成立。
+
 ## Problem
 
 `@haoran/dsh-llm-permission-gateway` 0.1.5 把模型审查绑在一个权限预设上。它带来的那一行叫自动审查,选中它同时做两件事:把操作系统沙箱关掉,以及让审查模型的判断从此才有意义。在桌面端,这样的绑定有三处不对。
