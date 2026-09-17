@@ -40,9 +40,11 @@
     - id: session
       name: '@deepseek-ai/dsh-session'
 
-    # Held shut by its own schema field, not the row flag: the plugin's other
-    # contributions stay mounted while `enabled: false` withholds the
-    # `dsh_session_log` request contribution this fork product does not send.
+    # Held shut by the plugin's own schema field: `enabled: false` makes
+    # `apply()` return before registering the `dsh_session_log` request
+    # contribution, which is everything this plugin contributes. Against
+    # `disabled: true` the only difference is that the module still loads and
+    # `apply()` still runs, registering nothing.
     - id: session-log-deepseek
       name: '@deepseek-ai/dsh-session-log-deepseek'
       config:
