@@ -119,11 +119,10 @@ function buildProseReferents(
         raw: referentSpan.raw,
         sessionId,
         // Never the openFile chokepoint's own ref below: that would
-        // double-dispatch this click and mislabel its provenance as
-        // 'structured' — this click is model-authored prose, not a
-        // structured content-part open.
+        // double-dispatch this click and label it 'structured' — this
+        // click is model-authored prose, not a structured content-part open.
         source: 'chat-prose',
-        provenance: 'model-text',
+        enteredAs: 'model-text',
       }
       const onDefault = async (): Promise<void> => {
         if (referentSpan.kind === 'url') {
@@ -270,7 +269,7 @@ export function apply(ctx: Context): void {
               raw: path,
               sessionId,
               source: 'chat-view.openFile',
-              provenance: 'structured',
+              enteredAs: 'structured',
             }
             await ctx.referent.open(ref, async () => {
               const url = fileAddressFor(sessionId, cwd, path)
