@@ -85,26 +85,39 @@ describe('the composed preset table', () => {
     }
   })
 
-  it('adds yolo-access after them, and nothing else', () => {
-    expect(Object.keys(presets)).toEqual([...Object.keys(presetsOf(baseOnly)), 'yolo-access'])
+  it('adds yolo-access to them, and nothing else', () => {
+    const added = Object.keys(presets).filter(name => !(name in presetsOf(baseOnly)))
+    expect(added).toEqual(['yolo-access'])
+  })
+
+  it('declares it third, where the walls go but the asking stays', () => {
+    // Declaration order is menu order, and this is the order in which the
+    // person loses control of the machine: walls, then no walls but still
+    // asked, then no walls and never asked.
+    expect(Object.keys(presets)).toEqual(['read-only', 'workspace-write', 'yolo-access', 'danger-full-access'])
   })
 
   it('says in the picker what selecting it gives up, under the full-access shield', () => {
     expect(presets['yolo-access']).toEqual({
       sandbox: 'danger-full-access',
       approval: 'ask',
-      name: '关闭沙箱（不推荐）',
-      description: expect.stringContaining('不再有操作系统层面的围墙') as string,
+      name: '自动审查',
+      description: expect.stringContaining('不设操作系统围墙') as string,
       glyph: 'danger-full-access',
     })
   })
 
-  it('does not offer review as the thing that replaces the sandbox', () => {
-    // Whether the review model is consulted is the gate's own `/review`
-    // setting, in force under every preset. A row that named review would
-    // read as a mode where selecting it buys a check, when what it buys is
-    // approval prompts a model raises and cannot enforce.
-    expect(presets['yolo-access']?.description).toContain('拦不住任何东西')
+  it('does not sell review as the thing that stands in for the sandbox', () => {
+    // The row names review because its knob pair is what reviews every call,
+    // which the gate's own switch cannot reach either way. What the row may
+    // not do is read as a mode where review holds the line the wall held: the
+    // description opens by saying the wall is gone, and the only enforcement
+    // it claims is a prompt the person answers, beside the two categories
+    // this gate refuses on its own.
+    const description = presets['yolo-access']?.description ?? ''
+    expect(description).toContain('不设操作系统围墙')
+    expect(description).toContain('弹给你确认')
+    expect(description).toContain('一律直接拒绝')
   })
 
   it('gives every preset its own knob pair, so each one stays nameable', () => {

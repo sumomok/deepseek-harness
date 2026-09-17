@@ -1394,3 +1394,21 @@ v7 自己删掉的那 6 份移植记录（本文件「被删除的 fork Agent No
 
 - rc.32 审计小节里的「只活在集成线上的补丁」表是那一轮的冻结记录，本轮不改写；v9 的滚动小节已逐族记下它回补了哪六族、哪三处刻意不回补。仍只活在集成线上的是：`scripts` 侧的 fork 产品门禁一族（含本轮取集成线侧的 `filtered-deploy.ts`）、stats 用量药丸的两个槽（`650ef3e273` 一族）、`packages/bundle/base/tests/base.spec.ts` 的 `09751e3fcd` 修订、以及 `a426a88c90`/`615b6d2c96` 的壳侧两半。
 - 两条 rc.31 期 backport（`de95110838` mcp-client 重复游标、`900fc3194d` directory-picker-native）**已在本轮退役**，两节的「状态」行与证据见它们各自的小节：`594305ce19` 与 `ce0a1e4253` 都是基座 `c291e7961a` 的祖先，且 `git diff c291e7961a 54d77e410f` 对 `packages/mcp/mcp-client` 与 `packages/host/directory-picker-native` 都为空。
+
+### 集成期追加：llm-permission-gateway 0.3.1 → 0.4.3（四档访问方式）
+
+**`@haoran/dsh-llm-permission-gateway` `0.3.1` → `0.4.3`。**tarball sha256 `cd7d6bd1ed97c673e6e2077e2f076927c25b82e4e7695fa7074d27e0418d382b`，194063 字节（复制进 `apps/desktop-server/vendor/` 前后各核一次，一致）。落点：`apps/desktop-server/package.json` 的 `file:` 声明、`scripts/gen-third-party-notices.ts` 与重跑出的 `THIRD_PARTY_NOTICES.md`、`pnpm-lock.yaml`（diff 只有本包的 6 增 6 删）、`apps/desktop-shell/tests/builtin-permission-gateway.spec.ts`、`apps/desktop-shell/README.{md,zh.md}` 与重录的 `README.i18n.yaml`。`apps/desktop-app/cordis.patch.yml` 的 `llm-permission-gateway` 行未动：该行注释的两条前提在 0.4.3 上仍成立——插件出厂路由仍是已退役的 `deepseek-v4-flash`，`provider` 与 `model` 仍是它 `Config` 里仅有的两个必填项、也仍是它自己 patch 层只写的两个键。
+
+**这道门现在从两个旋钮折出自己该做什么，不看预设的名字。**读的是「操作系统管不管得住文件副作用」与「这个会话的审批策略还能不能把问题递到人面前」，折出三档：`walled`（仅可查看 / 工作区内修改）只审围墙管不到的那部分，且要这个插件自己的开关打开才审——**该开关出厂改为关**；`auto-review`（无围墙 + `ask`）每一次非本机读取的调用都审，插件开关够不着它；`full-access`（无围墙 + `never`）这道门什么都不做——不查红线、不走 `alwaysAsk`、不审查，调用直接放行并记为 `unattended`。第三档是 0.4.0 的根因修复：`ApprovalService.decide` 在 `never` 下会先把每一次审批申请判成 `rejected` 再派发瀑布，所以此前这道门在完全权限下提的每个问题，到用户那里是什么都没有、到模型那里是 `the user rejected tool "<name>"`——一位 Windows 客户遇到的「`browser_auth` 不弹窗也不报错」就是它。
+
+**没人可答复的问题现在由它自己写成拒绝。**`approval: never` 的会话（被委派的子代理，以及在围墙下选了不问任何人的那种方式）里，`alwaysAsk`、超长参数、审查失败、`ask` 判决、被降级的 `deny` 这五步提出的问题都会先走一遍瀑布，随后以 `{kind:'deny'}` 收尾，带上该步自己的那句话加一句「没有人可以答复」；链上的 `deny` 或 `ask` 仍然优先。记录里多出 `delegated` 与 `humanReachable` 两个字段。
+
+**被委派的调用按委派它的那个会话定档。**`@deepseek-ai/dsh-subagent` 把每个进程内子代理钉在 `approval: never` 并在旁边种下父会话的沙箱覆盖，所以子代理天生带着 `full-access` 那对旋钮——0.4.1 之前一次 `delegate` 就能把子代理的每一次调用送过审查、送过 `alwaysAsk`、送过两条红线。判据是 `header.origin === 'subagent'`，**不是** `parentSession`（那是 fork 出来的会话带的字段；0.4.1 用错了它，用户 fork 一个对话后每次该问他的调用都答「这一步没有人可以答复」，0.4.2 改正）。谱系爬不通时按「问得到人」折档，所以立着的围墙仍然是围墙。
+
+**两处文案与两处红线口径。**设置页小节由 0.3.1 的「自动审查」改名为**审查设置**（英文 Review settings），复选框点名它够得着的那两种带围墙的方式，`/review` 的回声也改为点名它们——旧名字与这次新增的访问方式重名，坐在那个方式里的人会读到「自动审查现在是关着的」。自我修改红线不再拿本进程的 cwd 去解析相对参数（cwd 落在受保护目录里时，带分隔符的参数全都命中，`{"url": "https://example.com"}` 也算），只比绝对路径，相对路径交给字面名单；决策记录文件本身退出该红线（护住它要读 `verdictLog`，而一个 `Config` 字段能挪动的范围不是红线）。
+
+**预设那一行改名 `自动审查` 并移到第三位。**`yolo-access` 的 id 不变（`permission.defaultPreset` 存的是这张表名字的闭合联合，`SettingsProvider.register` 对 schema 不再接纳的段是拒绝安装而不是回落，改名会让存过默认值的人整个 `permission` 设置段装不上），knob 对仍是 `{danger-full-access, ask}`；声明顺序即菜单顺序，读作「有墙 → 没墙但还问你 → 没墙也不问」。这推翻了 [2026-09-06-gateway-review-switch.md](../.agents/notes/implemented/feature/2026-09-06-gateway-review-switch.md) 记下的「预设行不得点名审查」：当时审查是一个可以独立于该行扳动的开关，现在不是——这一行的 knob 对本身就是 `auto-review`，插件开关够不着它。`builtin-permission-gateway.spec.ts` 随之改三处钉子：四行顺序钉成字面表（新增一条用例），行名与描述改钉 `自动审查` 与 `不设操作系统围墙`，「不得把审查卖成沙箱的替代品」那条保留并改钉描述的三处措辞（墙没了 / 拿不准弹给你确认 / 两类直接拒绝）。三处都做过变异验证：退回旧顺序、旧行名、旧措辞，恰好 3 failed / 9 passed。
+
+**退役判据（与 0.4.0 起写进插件 patch 文件里的那条一致）。**上游 0.1.6-alpha.1 已带一个实验性的受审访问方式（`AUTO_PRESET` / `registerAuto`，id `auto`，尚未进默认组合）。一旦它进入默认组合或桌面载荷——`git grep -n "AUTO_PRESET\|registerAuto" upstream/master -- packages/bundle/base packages/interaction/permission-presets`，或 base 预设表里出现 `auto` 行——这一行连同带围墙那档的审查开关与判官路由设置一起退役，改为适配上游形式。
+
+**门禁实跑（HEAD = 本节所在提交的父提交 `b385867a8a`）。**`pnpm install --offline` 0（装好的副本实证为 `0.4.3`）→ `gen-third-party-notices` 重跑并提交 → `typecheck` 0 → `lint` 0 → `vitest run apps/desktop-shell` **28 文件 / 640 条全绿**（含 `vendored-client-runtime.client.spec.ts` 16 条：0.4.3 的浏览器那一半在真客户端运行时里 `apply` 通过）→ `doc-sync` **36/36** → `pnpm install --frozen-lockfile` 0（`Already up to date`）。未打包。
